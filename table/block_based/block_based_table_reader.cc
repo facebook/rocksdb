@@ -1911,7 +1911,6 @@ std::unique_ptr<FilterBlockReader> BlockBasedTable::CreateFilterBlockReader(
       // or it must be covered in this switch block
       assert(false);
       return std::unique_ptr<FilterBlockReader>();
-  }
 }
 
 CachableEntry<UncompressionDict> BlockBasedTable::GetUncompressionDict(
@@ -1986,7 +1985,7 @@ CachableEntry<UncompressionDict> BlockBasedTable::GetUncompressionDict(
         /*no_insert=*/no_io, lookup_context->get_id);
     block_cache_tracer_->WriteBlockAccess(access_record, cache_key,
                                           rep_->cf_name_for_tracing(),
-                                          /*referenced_key=*/nullptr);
+                                          lookup_context->referenced_user_key);
   }
   return {dict, cache_handle ? rep_->table_options.block_cache.get() : nullptr,
           cache_handle, false /* own_value */};
@@ -2332,11 +2331,10 @@ Status BlockBasedTable::MaybeReadBlockAndLoadToCache(
         assert(false);
         break;
     }
-    if (BlockCacheTraceHelper::ShouldTraceReferencedKey(
+    if (BlockCacheTraceHelper::IsGetOrMultiGetOnDataBlock(
             trace_block_type, lookup_context->caller)) {
       // Defer logging the access to Get() and MultiGet() to trace additional
-      // information, e.g., the referenced key,
-      // referenced_key_exist_in_block.
+      // information, e.g., referenced_key_exist_in_block.
 
       // Make a copy of the block key here since it will be logged later.
       lookup_context->FillLookupContext(
@@ -2352,9 +2350,9 @@ Status BlockBasedTable::MaybeReadBlockAndLoadToCache(
           /*cf_name=*/"", rep_->level_for_tracing(),
           rep_->sst_number_for_tracing(), lookup_context->caller, is_cache_hit,
           no_insert, lookup_context->get_id);
-      block_cache_tracer_->WriteBlockAccess(access_record, key,
-                                            rep_->cf_name_for_tracing(),
-                                            /*referenced_key=*/nullptr);
+      block_cache_tracer_->WriteBlockAccess(
+          access_record, key, rep_->cf_name_for_tracing(),
+          lookup_context->referenced_user_key);
     }
   }
 
@@ -3290,10 +3288,12 @@ Status BlockBasedTable::Get(const ReadOptions& read_options, const Slice& key,
   uint64_t tracing_get_id = get_context->get_tracing_get_id();
   BlockCacheLookupContext lookup_context{TableReaderCaller::kUserGet,
                                          tracing_get_id};
+  if (block_cache_tracer_ && block_cache_tracer_->is_tracing_enabled()) {
+    lookup_context.referenced_user_key = ExtractUserKey(key).ToString();
+  }
   const bool may_match =
       FullFilterKeyMayMatch(read_options, filter, key, no_io, prefix_extractor,
                             get_context, &lookup_context);
-
   if (!may_match) {
     RecordTick(rep_->ioptions.statistics, BLOOM_FILTER_USEFUL);
     PERF_COUNTER_BY_LEVEL_ADD(bloom_filter_useful, 1, rep_->level);
@@ -3493,7 +3493,7 @@ void BlockBasedTable::MultiGet(const ReadOptions& read_options,
       MultiGetRange data_block_range(sst_file_range, sst_file_range.begin(),
                                      sst_file_range.end());
       BlockCacheLookupContext lookup_compression_dict_context(
-          TableReaderCaller::kUserMultiGet);
+          TableReaderCaller::kUserMultiGet, tracing_mget_id);
       auto uncompression_dict_storage = GetUncompressionDict(nullptr, no_io,
                                           sst_file_range.begin()->get_context,
                                           &lookup_compression_dict_context);

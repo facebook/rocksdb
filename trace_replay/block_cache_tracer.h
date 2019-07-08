@@ -23,9 +23,9 @@ extern const uint64_t kSecondInHour;
 
 class BlockCacheTraceHelper {
  public:
-  static bool ShouldTraceReferencedKey(TraceType block_type,
-                                       TableReaderCaller caller);
-  static bool ShouldTraceGetId(TableReaderCaller caller);
+  static bool IsGetOrMultiGetOnDataBlock(TraceType block_type,
+                                         TableReaderCaller caller);
+  static bool IsGetOrMultiGet(TableReaderCaller caller);
   static bool IsUserAccess(TableReaderCaller caller);
 
   static const std::string kUnknownColumnFamilyName;
@@ -69,6 +69,7 @@ struct BlockCacheLookupContext {
   // how many blocks a Get/MultiGet request accesses. We can also measure the
   // impact of row cache vs block cache.
   uint64_t get_id = 0;
+  std::string referenced_user_key;
 
   void FillLookupContext(bool _is_cache_hit, bool _no_insert,
                          TraceType _block_type, uint64_t _block_size,
