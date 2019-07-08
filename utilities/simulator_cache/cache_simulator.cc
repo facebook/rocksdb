@@ -34,8 +34,8 @@ void PrioritizedCacheSimulator::Access(const BlockCacheTraceRecord& access) {
 double CacheSimulator::miss_ratio() {
   uint64_t hits = sim_cache_->get_hit_counter();
   uint64_t misses = sim_cache_->get_miss_counter();
-  uint64_t total_accesses = hits + misses;
-  return static_cast<double>(misses * 100.0 / total_accesses);
+  uint64_t accesses = hits + misses;
+  return static_cast<double>(misses * 100.0 / accesses);
 }
 
 uint64_t CacheSimulator::total_accesses() {

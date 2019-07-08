@@ -3341,7 +3341,7 @@ Status BlockBasedTable::Get(const ReadOptions& read_options, const Slice& key,
   CachableEntry<FilterBlockReader> filter_entry;
   bool may_match;
   FilterBlockReader* filter = nullptr;
-  uint64_t tracing_get_id = get_context->tracing_get_id();
+  uint64_t tracing_get_id = get_context->get_tracing_get_id();
   BlockCacheLookupContext lookup_context{TableReaderCaller::kUserGet,
                                          tracing_get_id};
   {
@@ -3517,7 +3517,7 @@ void BlockBasedTable::MultiGet(const ReadOptions& read_options,
                                mget_range->end());
   uint64_t tracing_mget_id = BlockCacheTraceHelper::kReservedGetId;
   if (!sst_file_range.empty() && sst_file_range.begin()->get_context) {
-    tracing_mget_id = sst_file_range.begin()->get_context->tracing_get_id();
+    tracing_mget_id = sst_file_range.begin()->get_context->get_tracing_get_id();
   }
   BlockCacheLookupContext lookup_context{TableReaderCaller::kUserMultiGet,
                                          tracing_mget_id};
