@@ -136,7 +136,7 @@ class GetContext {
 
   void ReportCounters();
 
-  uint64_t tracing_get_id() const { return tracing_get_id_; }
+  uint64_t get_tracing_get_id() const { return tracing_get_id_; }
 
  private:
   const Comparator* ucmp_;
