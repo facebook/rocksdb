@@ -345,6 +345,7 @@ MAIN_SOURCES =                                                          \
   env/env_test.cc                                                       \
   env/mock_env_test.cc                                                  \
   logging/auto_roll_logger_test.cc                                      \
+  logging/env_logger_test.cc                                            \
   logging/event_logger_test.cc                                          \
   memory/arena_test.cc                                                  \
   memtable/inlineskiplist_test.cc                                       \

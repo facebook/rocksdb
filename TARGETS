@@ -369,6 +369,11 @@ ROCKS_TESTS = [
         "serial",
     ],
     [
+        "env_logger_test",
+        "logging/env_logger_test.cc",
+        "serial",
+    ],
+    [
         "autovector_test",
         "util/autovector_test.cc",
         "serial",

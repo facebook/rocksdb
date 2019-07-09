@@ -22,6 +22,7 @@
 #include "rocksdb/db.h"
 #include "test_util/sync_point.h"
 #include "test_util/testharness.h"
+#include "test_util/testutil.h"
 
 namespace rocksdb {
 namespace {
@@ -444,7 +445,7 @@ TEST_F(AutoRollLoggerTest, LogFlushWhileRolling) {
        {"AutoRollLogger::Flush:PinnedLogger", "PosixLogger::Flush:Begin2"}});
   rocksdb::SyncPoint::GetInstance()->EnableProcessing();
 
-  flush_thread = port::Thread ([&]() { auto_roll_logger->Flush(); });
+  flush_thread = port::Thread([&]() { auto_roll_logger->Flush(); });
   TEST_SYNC_POINT(
       "AutoRollLoggerTest::LogFlushWhileRolling:PreRollAndPostThreadInit");
   RollLogFileBySizeTest(auto_roll_logger, options.max_log_file_size,
@@ -557,25 +558,6 @@ static std::vector<std::string> GetOldFileNames(const std::string& path) {
   return ret;
 }
 
-// Return the number of lines where a given pattern was found in the file
-static size_t GetLinesCount(const std::string& fname,
-                            const std::string& pattern) {
-  std::stringstream ssbuf;
-  std::string line;
-  size_t count = 0;
-
-  std::ifstream inFile(fname.c_str());
-  ssbuf << inFile.rdbuf();
-
-  while (getline(ssbuf, line)) {
-    if (line.find(pattern) != std::string::npos) {
-      count++;
-    }
-  }
-
-  return count;
-}
-
 TEST_F(AutoRollLoggerTest, LogHeaderTest) {
   static const size_t MAX_HEADERS = 10;
   static const size_t LOG_MAX_SIZE = 1024 * 5;
@@ -627,7 +609,7 @@ TEST_F(AutoRollLoggerTest, LogHeaderTest) {
       // verify that the files rolled over
       ASSERT_NE(oldfname, newfname);
       // verify that the old log contains all the header logs
-      ASSERT_EQ(GetLinesCount(oldfname, HEADER_STR), MAX_HEADERS);
+      ASSERT_EQ(test::GetLinesCount(oldfname, HEADER_STR), MAX_HEADERS);
     }
   }
 }

@@ -887,13 +887,14 @@ class PosixEnv : public Env {
     FILE* f;
     {
       IOSTATS_TIMER_GUARD(open_nanos);
-      f = fopen(fname.c_str(), "w"
+      f = fopen(fname.c_str(),
+                "w"
 #ifdef __GLIBC_PREREQ
 #if __GLIBC_PREREQ(2, 7)
-          "e" // glibc extension to enable O_CLOEXEC
+                "e"  // glibc extension to enable O_CLOEXEC
 #endif
 #endif
-          );
+      );
     }
     if (f == nullptr) {
       result->reset();
