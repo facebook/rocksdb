@@ -1081,7 +1081,7 @@ rocksdb::Env* CreateAwsEnv(const std::string& dbpath ,
     region = FLAGS_aws_region;
   }
   coptions.keep_local_sst_files = FLAGS_keep_local_sst_files;
-  coptions.src_TEST_Initialize("dbbench.", "", region);
+  coptions.TEST_Initialize("dbbench.", "", region);
   rocksdb::CloudEnv* s;
   rocksdb::Status st = rocksdb::AwsEnv::NewAwsEnv(rocksdb::Env::Default(),
 						  coptions,
@@ -3126,22 +3126,22 @@ void VerifyDBFromDB(std::string& truth_db_name) {
         }
       case rocksdb::kZlibCompression:
         uncompressed = Zlib_Uncompress(uncompression_ctx, compressed.data(),
-                                       compressed.size(), &decompress_size, 2);
+                                       compressed.size(), &decompress_size, 2).get();
         ok = uncompressed != nullptr;
         break;
       case rocksdb::kBZip2Compression:
         uncompressed = BZip2_Uncompress(compressed.data(), compressed.size(),
-                                        &decompress_size, 2);
+                                        &decompress_size, 2).get();
         ok = uncompressed != nullptr;
         break;
       case rocksdb::kLZ4Compression:
         uncompressed = LZ4_Uncompress(uncompression_ctx, compressed.data(),
-                                      compressed.size(), &decompress_size, 2);
+                                      compressed.size(), &decompress_size, 2).get();
         ok = uncompressed != nullptr;
         break;
       case rocksdb::kLZ4HCCompression:
         uncompressed = LZ4_Uncompress(uncompression_ctx, compressed.data(),
-                                      compressed.size(), &decompress_size, 2);
+                                      compressed.size(), &decompress_size, 2).get();
         ok = uncompressed != nullptr;
         break;
       case rocksdb::kXpressCompression:
@@ -3151,7 +3151,7 @@ void VerifyDBFromDB(std::string& truth_db_name) {
         break;
       case rocksdb::kZSTD:
         uncompressed = ZSTD_Uncompress(uncompression_ctx, compressed.data(),
-                                       compressed.size(), &decompress_size);
+                                       compressed.size(), &decompress_size).get();
         ok = uncompressed != nullptr;
         break;
       default:
