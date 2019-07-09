@@ -31,6 +31,7 @@ class LDBCommand {
   // Command-line arguments
   static const std::string ARG_DB;
   static const std::string ARG_PATH;
+  static const std::string ARG_SECONDARY_PATH;
   static const std::string ARG_HEX;
   static const std::string ARG_KEY_HEX;
   static const std::string ARG_VALUE_HEX;
@@ -128,6 +129,10 @@ class LDBCommand {
  protected:
   LDBCommandExecuteResult exec_state_;
   std::string db_path_;
+  // If empty, open DB as primary. If non-empty, open the DB as secondary
+  // with this secondary path. When running against a database opened by
+  // another process, ldb wll leave the source directory completely intact. 
+  std::string secondary_path_;
   std::string column_family_name_;
   DB* db_;
   DBWithTTL* db_ttl_;

@@ -47,6 +47,7 @@ namespace rocksdb {
 
 const std::string LDBCommand::ARG_DB = "db";
 const std::string LDBCommand::ARG_PATH = "path";
+const std::string LDBCommand::ARG_SECONDARY_PATH = "secondary_path";
 const std::string LDBCommand::ARG_HEX = "hex";
 const std::string LDBCommand::ARG_KEY_HEX = "key_hex";
 const std::string LDBCommand::ARG_VALUE_HEX = "value_hex";
@@ -321,6 +322,12 @@ LDBCommand::LDBCommand(const std::map<std::string, std::string>& options,
     column_family_name_ = kDefaultColumnFamilyName;
   }
 
+  itr = options.find(ARG_SECONDARY_PATH);
+  secondary_path_ = "";
+  if (itr != options.end()) {
+    secondary_path_ = itr->second;
+  }
+
   is_key_hex_ = IsKeyHex(options, flags);
   is_value_hex_ = IsValueHex(options, flags);
   is_db_ttl_ = IsFlagPresent(flags, ARG_TTL);
@@ -360,6 +367,10 @@ void LDBCommand::OpenDB() {
       exec_state_ = LDBCommandExecuteResult::Failed(
           "ldb doesn't support TTL DB with multiple column families");
     }
+    if (!secondary_path_.empty()) {
+      exec_state_ = LDBCommandExecuteResult::Failed(
+          "Open as secondary is not supported for TTL DB yet.");
+    }
     if (is_read_only_) {
       st = DBWithTTL::Open(options_, db_path_, &db_ttl_, 0, true);
     } else {
@@ -382,7 +393,7 @@ void LDBCommand::OpenDB() {
         }
       }
     }
-    if (is_read_only_) {
+    if (is_read_only_ && secondary_path_.empty()) {
       if (column_families_.empty()) {
         st = DB::OpenForReadOnly(options_, db_path_, &db_);
       } else {
@@ -391,10 +402,19 @@ void LDBCommand::OpenDB() {
       }
     } else {
       if (column_families_.empty()) {
-        st = DB::Open(options_, db_path_, &db_);
+        if (secondary_path_.empty()) {
+          st = DB::Open(options_, db_path_, &db_);
+        } else {
+          st = DB::OpenAsSecondary(options_, db_path_, secondary_path_, &db_);
+        }
       } else {
-        st = DB::Open(options_, db_path_, column_families_, &handles_opened,
-                      &db_);
+        if (secondary_path_.empty()) {
+          st = DB::Open(options_, db_path_, column_families_, &handles_opened,
+                        &db_);
+        } else {
+          st = DB::OpenAsSecondary(options_, db_path_, secondary_path_,
+                                   column_families_, &handles_opened, &db_);
+        }
       }
     }
   }
@@ -452,6 +472,7 @@ ColumnFamilyHandle* LDBCommand::GetCfHandle() {
 std::vector<std::string> LDBCommand::BuildCmdLineOptions(
     std::vector<std::string> options) {
   std::vector<std::string> ret = {ARG_DB,
+                                  ARG_SECONDARY_PATH,
                                   ARG_BLOOM_BITS,
                                   ARG_BLOCK_SIZE,
                                   ARG_AUTO_COMPACTION,
