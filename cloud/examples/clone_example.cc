@@ -89,17 +89,14 @@ int main() {
   std::unique_ptr<CloudEnv> cloud_env;
 
   // Retrieve aws access keys from env
-  char* keyid = getenv("AWS_ACCESS_KEY_ID");
-  char* secret = getenv("AWS_SECRET_ACCESS_KEY");
-  if (keyid == nullptr || secret == nullptr) {
+  cloud_env_options.credentials.Set();
+  if (!cloud_env_options.credentials.AreValid().ok()) {
     fprintf(
         stderr,
         "Please set env variables "
         "AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY with cloud credentials");
     return -1;
   }
-  cloud_env_options.credentials.access_key_id.assign(keyid);
-  cloud_env_options.credentials.secret_key.assign(secret);
 
   // Append the user name to the bucket name in an attempt to make it
   // globally unique. S3 bucket-namess need to be globlly unique.
