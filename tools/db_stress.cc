@@ -923,7 +923,8 @@ class SharedState {
         stress_test_(stress_test),
         verification_failure_(false),
         no_overwrite_ids_(FLAGS_column_families),
-        values_(nullptr) {
+        values_(nullptr),
+        printing_verification_results_(false) {
     // Pick random keys in each column family that will not experience
     // overwrite
 
@@ -1204,6 +1205,16 @@ class SharedState {
     return expected_mmap_buffer_.get() != nullptr;
   }
 
+  bool PrintingVerificationResults() {
+    bool tmp = false;
+    return !printing_verification_results_.compare_exchange_strong(
+        tmp, true, std::memory_order_relaxed);
+  }
+
+  void FinishPrintingVerificationResults() {
+    printing_verification_results_.store(false, std::memory_order_relaxed);
+  }
+
  private:
   port::Mutex mu_;
   port::CondVar cv_;
@@ -1231,6 +1242,7 @@ class SharedState {
   // and storing it in the container may require copying depending on the impl.
   std::vector<std::vector<std::unique_ptr<port::Mutex> > > key_locks_;
   std::unique_ptr<MemoryMappedFileBuffer> expected_mmap_buffer_;
+  std::atomic<bool> printing_verification_results_;
 };
 
 const uint32_t SharedState::UNKNOWN_SENTINEL = 0xfffffffe;
@@ -4235,6 +4247,7 @@ class AtomicFlushStressTest : public StressTest {
         }
         break;
       } else if (valid_cnt != iters.size()) {
+        shared->SetVerificationFailure();
         for (size_t i = 0; i != num; ++i) {
           if (!iters[i]->Valid()) {
             if (statuses[i].ok()) {
@@ -4250,13 +4263,19 @@ class AtomicFlushStressTest : public StressTest {
                     column_families_[i]->GetName().c_str());
           }
         }
-        shared->SetVerificationFailure();
+        break;
+      }
+      if (shared->HasVerificationFailedYet()) {
         break;
       }
       // If the program reaches here, then all column families' iterators are
       // still valid.
+      if (shared->PrintingVerificationResults()) {
+        continue;
+      }
       Slice key;
       Slice value;
+      int num_mismatched_cfs = 0;
       for (size_t i = 0; i != num; ++i) {
         if (i == 0) {
           key = iters[i]->key();
@@ -4264,11 +4283,16 @@ class AtomicFlushStressTest : public StressTest {
         } else {
           int cmp = key.compare(iters[i]->key());
           if (cmp != 0) {
-            fprintf(stderr, "Verification failed\n");
-            fprintf(stderr, "[%s] %s => %s\n",
-                    column_families_[0]->GetName().c_str(),
-                    key.ToString(true /* hex */).c_str(),
-                    value.ToString(true /* hex */).c_str());
+            ++num_mismatched_cfs;
+            if (1 == num_mismatched_cfs) {
+              fprintf(stderr, "Verification failed\n");
+              fprintf(stderr, "Latest Sequence Number: %" PRIu64 "\n",
+                      db_->GetLatestSequenceNumber());
+              fprintf(stderr, "[%s] %s => %s\n",
+                      column_families_[0]->GetName().c_str(),
+                      key.ToString(true /* hex */).c_str(),
+                      value.ToString(true /* hex */).c_str());
+            }
             fprintf(stderr, "[%s] %s => %s\n",
                     column_families_[i]->GetName().c_str(),
                     iters[i]->key().ToString(true /* hex */).c_str(),
@@ -4283,29 +4307,38 @@ class AtomicFlushStressTest : public StressTest {
               begin_key = iters[i]->key();
               end_key = key;
             }
-            // We should print both of CF 0 and i but GetAllKeyVersions() now
-            // only supports default CF.
             std::vector<KeyVersion> versions;
             const size_t kMaxNumIKeys = 8;
-            Status s = GetAllKeyVersions(db_, begin_key, end_key, kMaxNumIKeys,
-                                         &versions);
-            fprintf(stderr,
-                    "Internal keys in default CF [%s, %s] (max %" ROCKSDB_PRIszt
-                    ")\n",
-                    begin_key.ToString(true /* hex */).c_str(),
-                    end_key.ToString(true /* hex */).c_str(), kMaxNumIKeys);
-            for (const KeyVersion& kv : versions) {
-              fprintf(stderr, "  key %s seq %" PRIu64 " type %d\n",
-                      Slice(kv.user_key).ToString(true).c_str(), kv.sequence,
-                      kv.type);
+            const auto print_key_versions = [&](ColumnFamilyHandle* cfh) {
+              Status s = GetAllKeyVersions(db_, cfh, begin_key, end_key,
+                                           kMaxNumIKeys, &versions);
+              if (!s.ok()) {
+                fprintf(stderr, "%s\n", s.ToString().c_str());
+                return;
+              }
+              assert(nullptr != cfh);
+              fprintf(stderr,
+                      "Internal keys in CF '%s', [%s, %s] (max %" ROCKSDB_PRIszt
+                      ")\n",
+                      cfh->GetName().c_str(),
+                      begin_key.ToString(true /* hex */).c_str(),
+                      end_key.ToString(true /* hex */).c_str(), kMaxNumIKeys);
+              for (const KeyVersion& kv : versions) {
+                fprintf(stderr, "  key %s seq %" PRIu64 " type %d\n",
+                        Slice(kv.user_key).ToString(true).c_str(), kv.sequence,
+                        kv.type);
+              }
+            };
+            if (1 == num_mismatched_cfs) {
+              print_key_versions(column_families_[0]);
             }
+            print_key_versions(column_families_[i]);
 #endif  // ROCKSDB_LITE
-            fprintf(stderr, "Latest Sequence Number: %" PRIu64 "\n",
-                    db_->GetLatestSequenceNumber());
             shared->SetVerificationFailure();
           }
         }
       }
+      shared->FinishPrintingVerificationResults();
       for (auto& iter : iters) {
         iter->Next();
       }
