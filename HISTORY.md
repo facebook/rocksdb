@@ -22,6 +22,7 @@
 * Add an option `unordered_write` which trades snapshot guarantees with higher write throughput. When used with WRITE_PREPARED transactions with two_write_queues=true, it offers higher throughput with however no compromise on guarantees.
 * Allow DBImplSecondary to remove memtables with obsolete data after replaying MANIFEST and WAL.
 * Add an option `failed_move_fall_back_to_copy` (default is true) for external SST ingestion. When `move_files` is true and hard link fails, ingestion falls back to copy if `failed_move_fall_back_to_copy` is true. Otherwise, ingestion reports an error.
+* Add argument `--secondary_path` to ldb to open the database as the secondary instance. This would keep the original DB intact.
 
 ### Performance Improvements
 * Reduce binary search when iterator reseek into the same data block.
