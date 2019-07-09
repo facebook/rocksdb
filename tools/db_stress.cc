@@ -4315,7 +4315,7 @@ class AtomicFlushStressTest : public StressTest {
               }
               assert(nullptr != cfh);
               fprintf(stderr,
-                      "Internal keys in %s CF [%s, %s] (max %" ROCKSDB_PRIszt
+                      "Internal keys in CF '%s', [%s, %s] (max %" ROCKSDB_PRIszt
                       ")\n",
                       cfh->GetName().c_str(),
                       begin_key.ToString(true /* hex */).c_str(),
