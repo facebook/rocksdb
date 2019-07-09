@@ -4247,6 +4247,7 @@ class AtomicFlushStressTest : public StressTest {
         }
         break;
       } else if (valid_cnt != iters.size()) {
+        shared->SetVerificationFailure();
         for (size_t i = 0; i != num; ++i) {
           if (!iters[i]->Valid()) {
             if (statuses[i].ok()) {
@@ -4262,7 +4263,9 @@ class AtomicFlushStressTest : public StressTest {
                     column_families_[i]->GetName().c_str());
           }
         }
-        shared->SetVerificationFailure();
+        break;
+      }
+      if (shared->HasVerificationFailedYet()) {
         break;
       }
       // If the program reaches here, then all column families' iterators are
