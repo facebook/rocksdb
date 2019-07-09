@@ -1036,7 +1036,7 @@ TEST_F(CloudTest, MigrateFromPureRocksDB) {
 // This is useful for tests.
 TEST_F(CloudTest, NoDestOrSrc) {
   DestroyDir(dbname_);
-  // cloud_env_options_.keep_local_sst_files = true;
+  cloud_env_options_.keep_local_sst_files = true;
   cloud_env_options_.src_bucket.SetBucketName("");
   cloud_env_options_.src_bucket.SetObjectPath("");
   cloud_env_options_.dest_bucket.SetBucketName("");
