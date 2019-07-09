@@ -55,6 +55,7 @@ int main() {
 #include "rocksdb/utilities/backupable_db.h"
 #include "rocksdb/utilities/checkpoint.h"
 #include "rocksdb/utilities/db_ttl.h"
+#include "rocksdb/utilities/debug.h"
 #include "rocksdb/utilities/options_util.h"
 #include "rocksdb/utilities/transaction.h"
 #include "rocksdb/utilities/transaction_db.h"
@@ -4261,16 +4262,46 @@ class AtomicFlushStressTest : public StressTest {
           key = iters[i]->key();
           value = iters[i]->value();
         } else {
-          if (key.compare(iters[i]->key()) != 0) {
+          int cmp = key.compare(iters[i]->key());
+          if (cmp != 0) {
             fprintf(stderr, "Verification failed\n");
-            fprintf(stderr, "cf%s: %s => %s\n",
+            fprintf(stderr, "[%s] %s => %s\n",
                     column_families_[0]->GetName().c_str(),
                     key.ToString(true /* hex */).c_str(),
-                    value.ToString(/* hex */).c_str());
-            fprintf(stderr, "cf%s: %s => %s\n",
+                    value.ToString(true /* hex */).c_str());
+            fprintf(stderr, "[%s] %s => %s\n",
                     column_families_[i]->GetName().c_str(),
                     iters[i]->key().ToString(true /* hex */).c_str(),
                     iters[i]->value().ToString(true /* hex */).c_str());
+#ifndef ROCKSDB_LITE
+            Slice begin_key;
+            Slice end_key;
+            if (cmp < 0) {
+              begin_key = key;
+              end_key = iters[i]->key();
+            } else {
+              begin_key = iters[i]->key();
+              end_key = key;
+            }
+            // We should print both of CF 0 and i but GetAllKeyVersions() now
+            // only supports default CF.
+            std::vector<KeyVersion> versions;
+            const size_t kMaxNumIKeys = 8;
+            Status s = GetAllKeyVersions(db_, begin_key, end_key, kMaxNumIKeys,
+                                         &versions);
+            fprintf(stderr,
+                    "Internal keys in default CF [%s, %s] (max %" ROCKSDB_PRIszt
+                    ")\n",
+                    begin_key.ToString(true /* hex */).c_str(),
+                    end_key.ToString(true /* hex */).c_str(), kMaxNumIKeys);
+            for (const KeyVersion& kv : versions) {
+              fprintf(stderr, "  key %s seq %" PRIu64 " type %d\n",
+                      Slice(kv.user_key).ToString(true).c_str(), kv.sequence,
+                      kv.type);
+            }
+#endif  // ROCKSDB_LITE
+            fprintf(stderr, "Latest Sequence Number: %" PRIu64 "\n",
+                    db_->GetLatestSequenceNumber());
             shared->SetVerificationFailure();
           }
         }

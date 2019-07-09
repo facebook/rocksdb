@@ -587,6 +587,9 @@ Status DB::OpenAsSecondary(
       &impl->write_controller_));
   impl->column_family_memtables_.reset(
       new ColumnFamilyMemTablesImpl(impl->versions_->GetColumnFamilySet()));
+  impl->wal_in_db_path_ =
+      IsWalDirSameAsDBPath(&impl->immutable_db_options_);
+
   impl->mutex_.Lock();
   s = impl->Recover(column_families, true, false, false);
   if (s.ok()) {

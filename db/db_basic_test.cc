@@ -10,6 +10,7 @@
 #include "db/db_test_util.h"
 #include "port/stack_trace.h"
 #include "rocksdb/perf_context.h"
+#include "rocksdb/utilities/debug.h"
 #include "table/block_based/block_builder.h"
 #include "test_util/fault_injection_test_env.h"
 #if !defined(ROCKSDB_LITE)
@@ -1285,6 +1286,55 @@ TEST_F(DBBasicTest, MultiGetBatchedMultiLevel) {
     }
   }
 }
+
+#ifndef ROCKSDB_LITE
+TEST_F(DBBasicTest, GetAllKeyVersions) {
+  Options options = CurrentOptions();
+  options.env = env_;
+  options.create_if_missing = true;
+  options.disable_auto_compactions = true;
+  CreateAndReopenWithCF({"pikachu"}, options);
+  ASSERT_EQ(2, handles_.size());
+  const size_t kNumInserts = 4;
+  const size_t kNumDeletes = 4;
+  const size_t kNumUpdates = 4;
+
+  // Check default column family
+  for (size_t i = 0; i != kNumInserts; ++i) {
+    ASSERT_OK(Put(std::to_string(i), "value"));
+  }
+  for (size_t i = 0; i != kNumUpdates; ++i) {
+    ASSERT_OK(Put(std::to_string(i), "value1"));
+  }
+  for (size_t i = 0; i != kNumDeletes; ++i) {
+    ASSERT_OK(Delete(std::to_string(i)));
+  }
+  std::vector<KeyVersion> key_versions;
+  ASSERT_OK(rocksdb::GetAllKeyVersions(db_, Slice(), Slice(),
+                                       std::numeric_limits<size_t>::max(),
+                                       &key_versions));
+  ASSERT_EQ(kNumInserts + kNumDeletes + kNumUpdates, key_versions.size());
+  ASSERT_OK(rocksdb::GetAllKeyVersions(db_, handles_[0], Slice(), Slice(),
+                                       std::numeric_limits<size_t>::max(),
+                                       &key_versions));
+  ASSERT_EQ(kNumInserts + kNumDeletes + kNumUpdates, key_versions.size());
+
+  // Check non-default column family
+  for (size_t i = 0; i != kNumInserts - 1; ++i) {
+    ASSERT_OK(Put(1, std::to_string(i), "value"));
+  }
+  for (size_t i = 0; i != kNumUpdates - 1; ++i) {
+    ASSERT_OK(Put(1, std::to_string(i), "value1"));
+  }
+  for (size_t i = 0; i != kNumDeletes - 1; ++i) {
+    ASSERT_OK(Delete(1, std::to_string(i)));
+  }
+  ASSERT_OK(rocksdb::GetAllKeyVersions(db_, handles_[1], Slice(), Slice(),
+                                       std::numeric_limits<size_t>::max(),
+                                       &key_versions));
+  ASSERT_EQ(kNumInserts + kNumDeletes + kNumUpdates - 3, key_versions.size());
+}
+#endif  // !ROCKSDB_LITE
 
 class DBBasicTestWithParallelIO
     : public DBTestBase,
