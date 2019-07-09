@@ -750,5 +750,8 @@ Status DestroyDir(Env* env, const std::string& dir);
 
 bool IsDirectIOSupported(Env* env, const std::string& dir);
 
+// Return the number of lines where a given pattern was found in a file.
+size_t GetLinesCount(const std::string& fname, const std::string& pattern);
+
 }  // namespace test
 }  // namespace rocksdb

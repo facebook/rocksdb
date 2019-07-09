@@ -11,6 +11,7 @@
 
 #include <array>
 #include <cctype>
+#include <fstream>
 #include <sstream>
 
 #include "db/memtable_list.h"
@@ -424,6 +425,23 @@ bool IsDirectIOSupported(Env* env, const std::string& dir) {
     s = env->DeleteFile(tmp);
   }
   return s.ok();
+}
+
+size_t GetLinesCount(const std::string& fname, const std::string& pattern) {
+  std::stringstream ssbuf;
+  std::string line;
+  size_t count = 0;
+
+  std::ifstream inFile(fname.c_str());
+  ssbuf << inFile.rdbuf();
+
+  while (getline(ssbuf, line)) {
+    if (line.find(pattern) != std::string::npos) {
+      count++;
+    }
+  }
+
+  return count;
 }
 
 }  // namespace test

@@ -949,6 +949,7 @@ if(WITH_TESTS)
         env/mock_env_test.cc
         file/delete_scheduler_test.cc
         logging/auto_roll_logger_test.cc
+        logging/env_logger_test.cc
         logging/event_logger_test.cc
         memory/arena_test.cc
         memtable/inlineskiplist_test.cc
