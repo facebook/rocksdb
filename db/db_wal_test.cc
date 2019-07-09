@@ -824,7 +824,9 @@ class RecoveryTestHelper {
   // Create WAL files with values filled in
   static void FillData(DBWALTest* test, const Options& options,
                        const size_t wal_count, size_t* count) {
-    const ImmutableDBOptions db_options(options);
+    // Calling internal functions requires sanitized options.
+    Options sanitized_options = SanitizeOptions(test->dbname_, options);
+    const ImmutableDBOptions db_options(sanitized_options);
 
     *count = 0;
 
