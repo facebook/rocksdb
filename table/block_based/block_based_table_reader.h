@@ -235,6 +235,12 @@ class BlockBasedTable : public TableReader {
       BlockCacheLookupContext* lookup_context, Status s,
       FilePrefetchBuffer* prefetch_buffer, bool for_compaction = false) const;
 
+  // input_iter: if it is not null, update this one and return it as Iterator
+  template <typename TBlockIter>
+  TBlockIter* NewDataBlockIterator(const ReadOptions& ro,
+                                   CachableEntry<Block>& block,
+                                   TBlockIter* input_iter, Status s) const;
+
   class PartitionedIndexIteratorState;
 
   friend class PartitionIndexReader;
@@ -278,7 +284,8 @@ class BlockBasedTable : public TableReader {
       FilePrefetchBuffer* prefetch_buffer, const ReadOptions& ro,
       const BlockHandle& handle, const UncompressionDict& uncompression_dict,
       CachableEntry<Block>* block_entry, BlockType block_type,
-      GetContext* get_context, BlockCacheLookupContext* lookup_context) const;
+      GetContext* get_context, BlockCacheLookupContext* lookup_context,
+      BlockContents* contents) const;
 
   // Similar to the above, with one crucial difference: it will retrieve the
   // block from the file even if there are no caches configured (assuming the
@@ -290,6 +297,20 @@ class BlockBasedTable : public TableReader {
                        GetContext* get_context,
                        BlockCacheLookupContext* lookup_context,
                        bool for_compaction = false) const;
+
+  Status GetDataBlockFromCache(
+      const ReadOptions& ro, const BlockHandle& handle,
+      const UncompressionDict& uncompression_dict,
+      CachableEntry<Block>* block_entry, BlockType block_type,
+      GetContext* get_context) const;
+
+  void MaybeLoadBlocksToCache(
+      const ReadOptions& options, const MultiGetRange* batch,
+      const autovector<BlockHandle, MultiGetContext::MAX_BATCH_SIZE>*  handles,
+      autovector<Status, MultiGetContext::MAX_BATCH_SIZE>* statuses,
+      autovector<
+        CachableEntry<Block>, MultiGetContext::MAX_BATCH_SIZE>* results,
+      char* scratch, const UncompressionDict& uncompression_dict) const;
 
   // For the following two functions:
   // if `no_io == true`, we will not try to read filter/index from sst file
@@ -637,7 +658,7 @@ class BlockBasedTableIterator : public InternalIteratorBase<TValue> {
   void SeekToFirst() override;
   void SeekToLast() override;
   void Next() final override;
-  bool NextAndGetResult(Slice* ret_key) override;
+  bool NextAndGetResult(IterateResult* result) override;
   void Prev() override;
   bool Valid() const override {
     return !is_out_of_bound_ &&
@@ -686,6 +707,11 @@ class BlockBasedTableIterator : public InternalIteratorBase<TValue> {
 
   // Whether iterator invalidated for being out of bound.
   bool IsOutOfBound() override { return is_out_of_bound_; }
+
+  inline bool MayBeOutOfUpperBound() override {
+    assert(Valid());
+    return !data_block_within_upper_bound_;
+  }
 
   void SetPinnedItersMgr(PinnedIteratorsManager* pinned_iters_mgr) override {
     pinned_iters_mgr_ = pinned_iters_mgr;
@@ -772,6 +798,8 @@ class BlockBasedTableIterator : public InternalIteratorBase<TValue> {
   bool block_iter_points_to_real_block_;
   // See InternalIteratorBase::IsOutOfBound().
   bool is_out_of_bound_ = false;
+  // Whether current data block being fully within iterate upper bound.
+  bool data_block_within_upper_bound_ = false;
   // True if we're standing at the first key of a block, and we haven't loaded
   // that block yet. A call to value() will trigger loading the block.
   bool is_at_first_key_from_index_ = false;
@@ -780,7 +808,7 @@ class BlockBasedTableIterator : public InternalIteratorBase<TValue> {
   bool need_upper_bound_check_;
   const SliceTransform* prefix_extractor_;
   BlockType block_type_;
-  uint64_t prev_block_offset_;
+  uint64_t prev_block_offset_ = std::numeric_limits<uint64_t>::max();
   BlockCacheLookupContext lookup_context_;
   // Readahead size used in compaction, its value is used only if
   // lookup_context_.caller = kCompaction.
@@ -806,6 +834,12 @@ class BlockBasedTableIterator : public InternalIteratorBase<TValue> {
   void FindBlockForward();
   void FindKeyBackward();
   void CheckOutOfBound();
+
+  // Check if data block is fully within iterate_upper_bound.
+  //
+  // Note MyRocks may update iterate bounds between seek. To workaround it,
+  // we need to check and update data_block_within_upper_bound_ accordingly.
+  void CheckDataBlockWithinUpperBound();
 };
 
 }  // namespace rocksdb

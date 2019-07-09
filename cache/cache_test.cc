@@ -90,7 +90,7 @@ class CacheTest : public testing::TestWithParam<std::string> {
                                   bool strict_capacity_limit) {
     auto type = GetParam();
     if (type == kLRU) {
-      return NewLRUCache(capacity, num_shard_bits, strict_capacity_limit);
+      return NewLRUCache(capacity, num_shard_bits, strict_capacity_limit, 0.0);
     }
     if (type == kClock) {
       return NewClockCache(capacity, num_shard_bits, strict_capacity_limit);

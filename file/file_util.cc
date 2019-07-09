@@ -88,12 +88,12 @@ Status CreateFile(Env* env, const std::string& destination,
 }
 
 Status DeleteDBFile(const ImmutableDBOptions* db_options,
-                     const std::string& fname, const std::string& dir_to_sync,
-                     const bool force_bg) {
+                    const std::string& fname, const std::string& dir_to_sync,
+                    const bool force_bg, const bool force_fg) {
 #ifndef ROCKSDB_LITE
   SstFileManagerImpl* sfm =
       static_cast<SstFileManagerImpl*>(db_options->sst_file_manager.get());
-  if (sfm) {
+  if (sfm && !force_fg) {
     return sfm->ScheduleFileDeletion(fname, dir_to_sync, force_bg);
   } else {
     return db_options->env->DeleteFile(fname);
@@ -101,10 +101,21 @@ Status DeleteDBFile(const ImmutableDBOptions* db_options,
 #else
   (void)dir_to_sync;
   (void)force_bg;
+  (void)force_fg;
   // SstFileManager is not supported in ROCKSDB_LITE
   // Delete file immediately
   return db_options->env->DeleteFile(fname);
 #endif
+}
+
+bool IsWalDirSameAsDBPath(const ImmutableDBOptions* db_options) {
+  bool same = false;
+  Status s = db_options->env->AreFilesSame(db_options->wal_dir,
+                                           db_options->db_paths[0].path, &same);
+  if (s.IsNotSupported()) {
+    same = db_options->wal_dir == db_options->db_paths[0].path;
+  }
+  return same;
 }
 
 }  // namespace rocksdb

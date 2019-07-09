@@ -1,5 +1,9 @@
 # Rocksdb Change Log
 ## Unreleased
+### Default Option Change
+* LRUCacheOptions.high_pri_pool_ratio is set to 0.5 (previously 0.0) by default, which means that by default midpoint insertion is enabled. The same change is made for the default value of high_pri_pool_ratio argument in NewLRUCache(). When block cache is not explictly created, the small block cache created by BlockBasedTable will still has this option to be 0.0.
+* Change BlockBasedTableOptions.cache_index_and_filter_blocks_with_high_priority's default value from false to true.
+
 ### Public API Change
 * Now DB::Close() will return Aborted() error when there is unreleased snapshot. Users can retry after all snapshots are released.
 * Partitions of partitioned indexes no longer affect the read amplification statistics.
@@ -8,6 +12,10 @@
 * Add initial support for Get/Put with user timestamps. Users can specify timestamps via ReadOptions and WriteOptions when calling DB::Get and DB::Put.
 * Accessing a partition of a partitioned filter or index through a pinned reference is no longer considered a cache hit.
 * The semantics of the per-block-type block read counts in the performance context now match those of the generic block_read_count.
+* Add C bindings for secondary instance, i.e. DBImplSecondary.
+* db_bench adds a "benchmark" stats_history, which prints out the whole stats history.
+* Rate limited deletion of WALs is only enabled if DBOptions::wal_dir is not set, or explicitly set to db_name passed to DB::Open and DBOptions::db_paths is empty, or same as db_paths[0].path
+* Overload GetAllKeyVersions() to support non-default column family.
 
 ### New Features
 * Add an option `snap_refresh_nanos` (default to 0.1s) to periodically refresh the snapshot list in compaction jobs. Assign to 0 to disable the feature.
@@ -19,7 +27,9 @@
 * Reduce binary search when iterator reseek into the same data block.
 * DBIter::Next() can skip user key checking if previous entry's seqnum is 0.
 * Merging iterator to avoid child iterator reseek for some cases
+* Reduce iterator key comparision for upper/lower bound check.
 * Log Writer will flush after finishing the whole record, rather than a fragment.
+* Lower MultiGet batching API latency by reading data blocks from disk in parallel
 
 ### General Improvements
 * Added new status code kColumnFamilyDropped to distinguish between Column Family Dropped and DB Shutdown in progress.
@@ -32,6 +42,7 @@
 * Fix ingested file and directory not being fsync.
 * Return TryAgain status in place of Corruption when new tail is not visible to TransactionLogIterator.
 * Fix a bug caused by secondary not skipping the beginning of new MANIFEST.
+* On DB open, delete WAL trash files left behind in wal_dir
 
 ## 6.2.0 (4/30/2019)
 ### New Features

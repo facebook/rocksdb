@@ -205,6 +205,23 @@ class CreateColumnFamilyCommand : public LDBCommand {
   std::string new_cf_name_;
 };
 
+class DropColumnFamilyCommand : public LDBCommand {
+ public:
+  static std::string Name() { return "drop_column_family"; }
+
+  DropColumnFamilyCommand(const std::vector<std::string>& params,
+                          const std::map<std::string, std::string>& options,
+                          const std::vector<std::string>& flags);
+
+  static void Help(std::string& ret);
+  virtual void DoCommand() override;
+
+  virtual bool NoDBOpen() override { return false; }
+
+ private:
+  std::string cf_name_to_drop_;
+};
+
 class ReduceDBLevelsCommand : public LDBCommand {
  public:
   static std::string Name() { return "reduce_levels"; }
