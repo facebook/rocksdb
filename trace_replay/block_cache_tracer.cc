@@ -82,6 +82,7 @@ Status BlockCacheTraceWriter::WriteBlockAccess(
   trace.payload.push_back(record.no_insert);
   if (BlockCacheTraceHelper::IsGetOrMultiGet(record.caller)) {
     PutFixed64(&trace.payload, record.get_id);
+    trace.payload.push_back(record.is_snapshot_get);
     PutLengthPrefixedSlice(&trace.payload, referenced_key);
   }
   if (BlockCacheTraceHelper::IsGetOrMultiGetOnDataBlock(record.block_type,
@@ -220,6 +221,12 @@ Status BlockCacheTraceReader::ReadAccess(BlockCacheTraceRecord* record) {
       return Status::Incomplete(
           "Incomplete access record: Failed to read the get id.");
     }
+    if (enc_slice.empty()) {
+      return Status::Incomplete(
+          "Incomplete access record: Failed to read is_snapshot_get.");
+    }
+    record->is_snapshot_get = static_cast<Boolean>(enc_slice[0]);
+    enc_slice.remove_prefix(kCharSize);
     Slice referenced_key;
     if (!GetLengthPrefixedSlice(&enc_slice, &referenced_key)) {
       return Status::Incomplete(

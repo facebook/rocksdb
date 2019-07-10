@@ -53,8 +53,9 @@ class BlockCacheTraceHelper {
 // kUserApproximateSize).
 struct BlockCacheLookupContext {
   BlockCacheLookupContext(const TableReaderCaller& _caller) : caller(_caller) {}
-  BlockCacheLookupContext(const TableReaderCaller& _caller, uint64_t _get_id)
-      : caller(_caller), get_id(_get_id) {}
+  BlockCacheLookupContext(const TableReaderCaller& _caller, uint64_t _get_id,
+                          bool _is_snapshot_get)
+      : caller(_caller), get_id(_get_id), is_snapshot_get(_is_snapshot_get) {}
   const TableReaderCaller caller;
   // These are populated when we perform lookup/insert on block cache. The block
   // cache tracer uses these inforation when logging the block access at
@@ -69,7 +70,8 @@ struct BlockCacheLookupContext {
   // how many blocks a Get/MultiGet request accesses. We can also measure the
   // impact of row cache vs block cache.
   uint64_t get_id = 0;
-  std::string referenced_user_key;
+  std::string referenced_key;
+  bool is_snapshot_get;
 
   void FillLookupContext(bool _is_cache_hit, bool _no_insert,
                          TraceType _block_type, uint64_t _block_size,
@@ -101,23 +103,24 @@ struct BlockCacheTraceRecord {
   Boolean no_insert = Boolean::kFalse;
   // Required field for Get and MultiGet
   uint64_t get_id = BlockCacheTraceHelper::kReservedGetId;
-  // Required fields for data block and user Get/Multi-Get only.
+  Boolean is_snapshot_get = Boolean::kFalse;
   std::string referenced_key;
+  // Required fields for data block and user Get/Multi-Get only.
   uint64_t referenced_data_size = 0;
   uint64_t num_keys_in_block = 0;
   Boolean referenced_key_exist_in_block = Boolean::kFalse;
 
   BlockCacheTraceRecord() {}
 
-  BlockCacheTraceRecord(uint64_t _access_timestamp, std::string _block_key,
-                        TraceType _block_type, uint64_t _block_size,
-                        uint64_t _cf_id, std::string _cf_name, uint32_t _level,
-                        uint64_t _sst_fd_number, TableReaderCaller _caller,
-                        bool _is_cache_hit, bool _no_insert, uint64_t _get_id,
-                        std::string _referenced_key = "",
-                        uint64_t _referenced_data_size = 0,
-                        uint64_t _num_keys_in_block = 0,
-                        bool _referenced_key_exist_in_block = false)
+  BlockCacheTraceRecord(
+      uint64_t _access_timestamp, std::string _block_key, TraceType _block_type,
+      uint64_t _block_size, uint64_t _cf_id, std::string _cf_name,
+      uint32_t _level, uint64_t _sst_fd_number, TableReaderCaller _caller,
+      bool _is_cache_hit, bool _no_insert,
+      uint64_t _get_id = BlockCacheTraceHelper::kReservedGetId,
+      bool _is_snapshot_get = false, std::string _referenced_key = "",
+      uint64_t _referenced_data_size = 0, uint64_t _num_keys_in_block = 0,
+      bool _referenced_key_exist_in_block = false)
       : access_timestamp(_access_timestamp),
         block_key(_block_key),
         block_type(_block_type),
@@ -130,6 +133,7 @@ struct BlockCacheTraceRecord {
         is_cache_hit(_is_cache_hit ? Boolean::kTrue : Boolean::kFalse),
         no_insert(_no_insert ? Boolean::kTrue : Boolean::kFalse),
         get_id(_get_id),
+        is_snapshot_get(_is_snapshot_get ? Boolean::kTrue : Boolean::kFalse),
         referenced_key(_referenced_key),
         referenced_data_size(_referenced_data_size),
         num_keys_in_block(_num_keys_in_block),
