@@ -73,6 +73,7 @@ UPLOAD_DB_DIR="
     {
       'name':'rocksdb_db_dir',
       'paths': ['rocksdb_db.tar.gz'],
+      'bundle': false,
     },
     ],
 }"
