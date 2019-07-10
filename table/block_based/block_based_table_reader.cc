@@ -3292,8 +3292,7 @@ Status BlockBasedTable::Get(const ReadOptions& read_options, const Slice& key,
       TableReaderCaller::kUserGet, tracing_get_id,
       /*is_snapshot_get=*/read_options.snapshot != nullptr};
   if (block_cache_tracer_ && block_cache_tracer_->is_tracing_enabled()) {
-    // Trace the passed in key since it contains both user key and sequence
-    // number.
+    // Trace the key since it contains both user key and sequence number.
     lookup_context.referenced_key = key.ToString();
     lookup_context.is_snapshot_get = read_options.snapshot != nullptr;
   }
