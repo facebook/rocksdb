@@ -110,6 +110,7 @@ Status DeleteDBFile(const ImmutableDBOptions* db_options,
 
 bool IsWalDirSameAsDBPath(const ImmutableDBOptions* db_options) {
   bool same = false;
+  assert(!db_options->db_paths.empty());
   Status s = db_options->env->AreFilesSame(db_options->wal_dir,
                                            db_options->db_paths[0].path, &same);
   if (s.IsNotSupported()) {

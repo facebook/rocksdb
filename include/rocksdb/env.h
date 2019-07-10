@@ -395,9 +395,11 @@ class Env {
   // same directory.
   virtual Status GetTestDirectory(std::string* path) = 0;
 
-  // Create and return a log file for storing informational messages.
+  // Create and returns a default logger (an instance of EnvLogger) for storing
+  // informational messages. Derived classes can overide to provide custom
+  // logger.
   virtual Status NewLogger(const std::string& fname,
-                           std::shared_ptr<Logger>* result) = 0;
+                           std::shared_ptr<Logger>* result);
 
   // Returns the number of micro-seconds since some fixed point in time.
   // It is often used as system time such as in GenericRateLimiter
@@ -1562,5 +1564,11 @@ Status NewHdfsEnv(Env** hdfs_env, const std::string& fsname);
 // operations, reporting results to variables in PerfContext.
 // This is a factory method for TimedEnv defined in utilities/env_timed.cc.
 Env* NewTimedEnv(Env* base_env);
+
+// Returns an instance of logger that can be used for storing informational
+// messages.
+// This is a factory method for EnvLogger declared in logging/env_logging.h
+Status NewEnvLogger(const std::string& fname, Env* env,
+                    std::shared_ptr<Logger>* result);
 
 }  // namespace rocksdb

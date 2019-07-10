@@ -282,7 +282,7 @@ class WritableFileWriter {
   // returns NotSupported status.
   Status SyncWithoutFlush(bool use_fsync);
 
-  uint64_t GetFileSize() { return filesize_; }
+  uint64_t GetFileSize() const { return filesize_; }
 
   Status InvalidateCache(size_t offset, size_t length) {
     return writable_file_->InvalidateCache(offset, length);

@@ -10,6 +10,7 @@
 #include "rocksdb/env.h"
 
 #include <thread>
+#include "logging/env_logger.h"
 #include "memory/arena.h"
 #include "options/db_options.h"
 #include "port/port.h"
@@ -20,6 +21,11 @@
 namespace rocksdb {
 
 Env::~Env() {
+}
+
+Status Env::NewLogger(const std::string& fname,
+                      std::shared_ptr<Logger>* result) {
+  return NewEnvLogger(fname, this, result);
 }
 
 std::string Env::PriorityToString(Env::Priority priority) {
@@ -422,5 +428,20 @@ EnvOptions::EnvOptions() {
   AssignEnvOptions(this, options);
 }
 
+Status NewEnvLogger(const std::string& fname, Env* env,
+                    std::shared_ptr<Logger>* result) {
+  EnvOptions options;
+  // TODO: Tune the buffer size.
+  options.writable_file_max_buffer_size = 1024 * 1024;
+  std::unique_ptr<WritableFile> writable_file;
+  const auto status = env->NewWritableFile(fname, &writable_file, options);
+  if (!status.ok()) {
+    return status;
+  }
+
+  *result = std::make_shared<EnvLogger>(std::move(writable_file), fname,
+                                        options, env);
+  return Status::OK();
+}
 
 }  // namespace rocksdb
