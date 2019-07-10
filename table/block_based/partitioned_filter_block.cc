@@ -136,7 +136,7 @@ std::unique_ptr<FilterBlockReader> PartitionedFilterBlockReader::Create(
                                      nullptr /* get_context */, lookup_context,
                                      &filter_block);
     if (!s.ok()) {
-      return nullptr;
+      return std::unique_ptr<FilterBlockReader>();
     }
 
     if (use_cache && !pin) {
