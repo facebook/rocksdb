@@ -470,7 +470,7 @@ class PartitionIndexReader : public BlockBasedTable::IndexReaderCommon {
   size_t ApproximateMemoryUsage() const override {
     size_t usage = ApproximateIndexBlockMemoryUsage();
 #ifdef ROCKSDB_MALLOC_USABLE_SIZE
-    usage += malloc_usable_size((void*)this);
+    usage += malloc_usable_size(const_cast<PartitionIndexReader*>(this));
 #else
     usage += sizeof(*this);
 #endif  // ROCKSDB_MALLOC_USABLE_SIZE
@@ -559,7 +559,7 @@ class BinarySearchIndexReader : public BlockBasedTable::IndexReaderCommon {
   size_t ApproximateMemoryUsage() const override {
     size_t usage = ApproximateIndexBlockMemoryUsage();
 #ifdef ROCKSDB_MALLOC_USABLE_SIZE
-    usage += malloc_usable_size((void*)this);
+    usage += malloc_usable_size(const_cast<BinarySearchIndexReader*>(this));
 #else
     usage += sizeof(*this);
 #endif  // ROCKSDB_MALLOC_USABLE_SIZE
@@ -708,7 +708,7 @@ class HashIndexReader : public BlockBasedTable::IndexReaderCommon {
   size_t ApproximateMemoryUsage() const override {
     size_t usage = ApproximateIndexBlockMemoryUsage();
 #ifdef ROCKSDB_MALLOC_USABLE_SIZE
-    usage += malloc_usable_size((void*)this);
+    usage += malloc_usable_size(const_cast<HashIndexReader*>(this));
 #else
     if (prefix_index_) {
       usage += prefix_index_->ApproximateMemoryUsage();

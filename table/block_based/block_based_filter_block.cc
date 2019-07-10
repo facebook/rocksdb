@@ -295,7 +295,7 @@ bool BlockBasedFilterBlockReader::MayMatch(
 size_t BlockBasedFilterBlockReader::ApproximateMemoryUsage() const {
   size_t usage = ApproximateFilterBlockMemoryUsage();
 #ifdef ROCKSDB_MALLOC_USABLE_SIZE
-  usage += malloc_usable_size((void*)this);
+  usage += malloc_usable_size(const_cast<BlockBasedFilterBlockReader*>(this));
 #else
   usage += sizeof(*this);
 #endif  // ROCKSDB_MALLOC_USABLE_SIZE
