@@ -336,7 +336,7 @@ void PartitionedFilterBlockReader::CacheDependencies(bool pin) {
     s = table()->MaybeReadBlockAndLoadToCache(
         prefetch_buffer.get(), read_options, handle,
         UncompressionDict::GetEmptyDict(), &block, BlockType::kFilter,
-        nullptr /* get_context */, &lookup_context);
+        nullptr /* get_context */, &lookup_context, nullptr /* contents */);
 
     assert(s.ok() || block.GetValue() == nullptr);
     if (s.ok() && block.GetValue() != nullptr) {
