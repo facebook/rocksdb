@@ -19,11 +19,11 @@ class FilePrefetchBuffer;
 // implementations. Provides access to the filter block regardless of whether
 // it is owned by the reader or stored in the cache, or whether it is pinned
 // in the cache or not.
-template <typename Blocklike>
+template <typename TBlocklike>
 class FilterBlockReaderCommon : public FilterBlockReader {
  public:
   FilterBlockReaderCommon(const BlockBasedTable* t,
-                          CachableEntry<Blocklike>&& filter_block)
+                          CachableEntry<TBlocklike>&& filter_block)
       : table_(t), filter_block_(std::move(filter_block)) {
     assert(table_);
   }
@@ -34,7 +34,7 @@ class FilterBlockReaderCommon : public FilterBlockReader {
                                 const ReadOptions& read_options,
                                 GetContext* get_context,
                                 BlockCacheLookupContext* lookup_context,
-                                CachableEntry<Blocklike>* filter_block);
+                                CachableEntry<TBlocklike>* filter_block);
 
   const BlockBasedTable* table() const { return table_; }
   const SliceTransform* table_prefix_extractor() const;
@@ -42,13 +42,13 @@ class FilterBlockReaderCommon : public FilterBlockReader {
 
   Status GetOrReadFilterBlock(bool no_io, GetContext* get_context,
                               BlockCacheLookupContext* lookup_context,
-                              CachableEntry<Blocklike>* filter_block) const;
+                              CachableEntry<TBlocklike>* filter_block) const;
 
   size_t ApproximateFilterBlockMemoryUsage() const;
 
  private:
   const BlockBasedTable* table_;
-  CachableEntry<Blocklike> filter_block_;
+  CachableEntry<TBlocklike> filter_block_;
 };
 
 }  // namespace rocksdb

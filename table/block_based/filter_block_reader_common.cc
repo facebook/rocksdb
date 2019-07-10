@@ -10,12 +10,12 @@
 
 namespace rocksdb {
 
-template <typename Blocklike>
-Status FilterBlockReaderCommon<Blocklike>::ReadFilterBlock(
+template <typename TBlocklike>
+Status FilterBlockReaderCommon<TBlocklike>::ReadFilterBlock(
     const BlockBasedTable* table, FilePrefetchBuffer* prefetch_buffer,
     const ReadOptions& read_options, GetContext* get_context,
     BlockCacheLookupContext* lookup_context,
-    CachableEntry<Blocklike>* filter_block) {
+    CachableEntry<TBlocklike>* filter_block) {
   PERF_TIMER_GUARD(read_filter_block_nanos);
 
   assert(table);
@@ -33,9 +33,9 @@ Status FilterBlockReaderCommon<Blocklike>::ReadFilterBlock(
   return s;
 }
 
-template <typename Blocklike>
+template <typename TBlocklike>
 const SliceTransform*
-FilterBlockReaderCommon<Blocklike>::table_prefix_extractor() const {
+FilterBlockReaderCommon<TBlocklike>::table_prefix_extractor() const {
   assert(table_);
 
   const BlockBasedTable::Rep* const rep = table_->get_rep();
@@ -44,19 +44,19 @@ FilterBlockReaderCommon<Blocklike>::table_prefix_extractor() const {
   return rep->prefix_filtering ? rep->table_prefix_extractor.get() : nullptr;
 }
 
-template <typename Blocklike>
-bool FilterBlockReaderCommon<Blocklike>::whole_key_filtering() const {
+template <typename TBlocklike>
+bool FilterBlockReaderCommon<TBlocklike>::whole_key_filtering() const {
   assert(table_);
   assert(table_->get_rep());
 
   return table_->get_rep()->whole_key_filtering;
 }
 
-template <typename Blocklike>
-Status FilterBlockReaderCommon<Blocklike>::GetOrReadFilterBlock(
+template <typename TBlocklike>
+Status FilterBlockReaderCommon<TBlocklike>::GetOrReadFilterBlock(
     bool no_io, GetContext* get_context,
     BlockCacheLookupContext* lookup_context,
-    CachableEntry<Blocklike>* filter_block) const {
+    CachableEntry<TBlocklike>* filter_block) const {
   assert(filter_block);
 
   if (!filter_block_.IsEmpty()) {
@@ -73,8 +73,8 @@ Status FilterBlockReaderCommon<Blocklike>::GetOrReadFilterBlock(
                          get_context, lookup_context, filter_block);
 }
 
-template <typename Blocklike>
-size_t FilterBlockReaderCommon<Blocklike>::ApproximateFilterBlockMemoryUsage()
+template <typename TBlocklike>
+size_t FilterBlockReaderCommon<TBlocklike>::ApproximateFilterBlockMemoryUsage()
     const {
   assert(!filter_block_.GetOwnValue() || filter_block_.GetValue() != nullptr);
   return filter_block_.GetOwnValue()

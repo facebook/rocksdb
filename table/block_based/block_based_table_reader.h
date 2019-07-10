@@ -240,7 +240,7 @@ class BlockBasedTable : public TableReader {
 
   class PartitionedIndexIteratorState;
 
-  template <typename Blocklike>
+  template <typename TBlocklike>
   friend class FilterBlockReaderCommon;
   friend class PartitionIndexReader;
 
@@ -279,22 +279,22 @@ class BlockBasedTable : public TableReader {
   // @param block_entry value is set to the uncompressed block if found. If
   //    in uncompressed block cache, also sets cache_handle to reference that
   //    block.
-  template <typename Blocklike>
+  template <typename TBlocklike>
   Status MaybeReadBlockAndLoadToCache(
       FilePrefetchBuffer* prefetch_buffer, const ReadOptions& ro,
       const BlockHandle& handle, const UncompressionDict& uncompression_dict,
-      CachableEntry<Blocklike>* block_entry, BlockType block_type,
+      CachableEntry<TBlocklike>* block_entry, BlockType block_type,
       GetContext* get_context, BlockCacheLookupContext* lookup_context,
       BlockContents* contents) const;
 
   // Similar to the above, with one crucial difference: it will retrieve the
   // block from the file even if there are no caches configured (assuming the
   // read options allow I/O).
-  template <typename Blocklike>
+  template <typename TBlocklike>
   Status RetrieveBlock(FilePrefetchBuffer* prefetch_buffer,
                        const ReadOptions& ro, const BlockHandle& handle,
                        const UncompressionDict& uncompression_dict,
-                       CachableEntry<Blocklike>* block_entry,
+                       CachableEntry<TBlocklike>* block_entry,
                        BlockType block_type, GetContext* get_context,
                        BlockCacheLookupContext* lookup_context,
                        bool for_compaction = false) const;
@@ -338,11 +338,11 @@ class BlockBasedTable : public TableReader {
   // pointer to the block as well as its block handle.
   // @param uncompression_dict Data for presetting the compression library's
   //    dictionary.
-  template <typename Blocklike>
+  template <typename TBlocklike>
   Status GetDataBlockFromCache(
       const Slice& block_cache_key, const Slice& compressed_block_cache_key,
       Cache* block_cache, Cache* block_cache_compressed,
-      const ReadOptions& read_options, CachableEntry<Blocklike>* block,
+      const ReadOptions& read_options, CachableEntry<TBlocklike>* block,
       const UncompressionDict& uncompression_dict, BlockType block_type,
       GetContext* get_context) const;
 
@@ -356,11 +356,11 @@ class BlockBasedTable : public TableReader {
   // PutDataBlockToCache(). After the call, the object will be invalid.
   // @param uncompression_dict Data for presetting the compression library's
   //    dictionary.
-  template <typename Blocklike>
+  template <typename TBlocklike>
   Status PutDataBlockToCache(
       const Slice& block_cache_key, const Slice& compressed_block_cache_key,
       Cache* block_cache, Cache* block_cache_compressed,
-      CachableEntry<Blocklike>* cached_block, BlockContents* raw_block_contents,
+      CachableEntry<TBlocklike>* cached_block, BlockContents* raw_block_contents,
       CompressionType raw_block_comp_type,
       const UncompressionDict& uncompression_dict, SequenceNumber seq_no,
       MemoryAllocator* memory_allocator, BlockType block_type,
