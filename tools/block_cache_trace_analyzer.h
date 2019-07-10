@@ -74,12 +74,6 @@ struct BlockAccessInfo {
         if (referenced_data_size > block_size && block_size != 0) {
           ParsedInternalKey internal_key;
           ParseInternalKey(access.referenced_key, &internal_key);
-          printf(
-              "######cf=%s fd=%lu ads=%lu abs=%lu ds=%lu bs=%lu t=%d uk=%s\n",
-              access.cf_name.c_str(), access.sst_fd_number,
-              access.referenced_data_size, access.block_size,
-              referenced_data_size, block_size, internal_key.type,
-              internal_key.user_key.ToString().c_str());
         }
       } else {
         non_exist_key_num_access_map[access.referenced_key][access.caller]++;
@@ -281,8 +275,11 @@ class BlockCacheTraceAnalyzer {
       uint64_t ntotal) const;
 
   void TraverseBlocks(
-      std::function<void(const std::string&, uint64_t, uint32_t, TraceType,
-                         const std::string&, uint64_t, const BlockAccessInfo&)>
+      std::function<void(const std::string& /*cf_name*/, uint64_t /*fd*/,
+                         uint32_t /*level*/, TraceType /*block_type*/,
+                         const std::string& /*block_key*/,
+                         uint64_t /*block_key_id*/,
+                         const BlockAccessInfo& /*block_access_info*/)>
           block_callback) const;
 
   rocksdb::Env* env_;

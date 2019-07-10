@@ -420,15 +420,15 @@ TEST_F(BlockCacheTracerTest, BlockCacheAnalyzer) {
       }
     }
   }
-  const std::vector<std::string> access_types{"user_access_only",
-                                              "all_access"};
+  const std::vector<std::string> access_types{"user_access_only", "all_access"};
   const std::vector<std::string> prefix{"bt", "cf"};
   for (auto const& pre : prefix) {
     for (auto const& access_type : access_types) {
       {
         // Validate the access count summary.
-        const std::string bt_access_count_summary =
-            test_path_ + "/" + pre + "_" + access_type + "_access_count_summary";
+        const std::string bt_access_count_summary = test_path_ + "/" + pre +
+                                                    "_" + access_type +
+                                                    "_access_count_summary";
         std::ifstream infile(bt_access_count_summary);
         std::string line;
         ASSERT_TRUE(getline(infile, line));

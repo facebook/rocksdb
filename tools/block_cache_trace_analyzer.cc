@@ -347,8 +347,11 @@ std::string BlockCacheTraceAnalyzer::BuildLabel(
 }
 
 void BlockCacheTraceAnalyzer::TraverseBlocks(
-    std::function<void(const std::string&, uint64_t, uint32_t, TraceType,
-                       const std::string&, uint64_t, const BlockAccessInfo&)>
+    std::function<void(const std::string& /*cf_name*/, uint64_t /*fd*/,
+                       uint32_t /*level*/, TraceType /*block_type*/,
+                       const std::string& /*block_key*/,
+                       uint64_t /*block_key_id*/,
+                       const BlockAccessInfo& /*block_access_info*/)>
         block_callback) const {
   uint64_t block_id = 0;
   for (auto const& cf_aggregates : cf_aggregates_map_) {
@@ -383,8 +386,10 @@ void BlockCacheTraceAnalyzer::WriteGetSpatialLocality(
   std::map<std::string, std::map<uint64_t, uint64_t>> label_pndatasize_nblocks;
   uint64_t nblocks = 0;
   auto block_callback = [&](const std::string& cf_name, uint64_t fd,
-                            uint32_t level, TraceType, const std::string&,
-                            uint64_t, const BlockAccessInfo& block) {
+                            uint32_t level, TraceType /*block_type*/,
+                            const std::string& /*block_key*/,
+                            uint64_t /*block_key_id*/,
+                            const BlockAccessInfo& block) {
     if (block.num_keys == 0) {
       return;
     }
@@ -442,8 +447,9 @@ void BlockCacheTraceAnalyzer::WriteAccessTimeline(const std::string& label_str,
   std::map<uint64_t, std::vector<std::string>> access_count_block_id_map;
 
   auto block_callback = [&](const std::string& cf_name, uint64_t fd,
-                            uint32_t level, TraceType type, const std::string&,
-                            uint64_t block_id, const BlockAccessInfo& block) {
+                            uint32_t level, TraceType type,
+                            const std::string& /*block_key*/, uint64_t block_id,
+                            const BlockAccessInfo& block) {
     uint64_t naccesses = 0;
     for (auto const& timeline : block.caller_num_accesses_timeline) {
       const TableReaderCaller caller = timeline.first;
@@ -533,8 +539,9 @@ void BlockCacheTraceAnalyzer::WriteReuseDistance(
   std::map<std::string, std::map<uint64_t, uint64_t>> label_distance_num_reuses;
   uint64_t total_num_reuses = 0;
   auto block_callback = [&](const std::string& cf_name, uint64_t fd,
-                            uint32_t level, TraceType type, const std::string&,
-                            uint64_t block_id, const BlockAccessInfo& block) {
+                            uint32_t level, TraceType type,
+                            const std::string& /*block_key*/, uint64_t block_id,
+                            const BlockAccessInfo& block) {
     const std::string label =
         BuildLabel(labels, cf_name, fd, level, type,
                    TableReaderCaller::kMaxBlockCacheLookupCaller, block_id);
@@ -658,8 +665,9 @@ void BlockCacheTraceAnalyzer::WriteReuseInterval(
   uint64_t total_nblocks = 0;
   uint64_t total_accesses = 0;
   auto block_callback = [&](const std::string& cf_name, uint64_t fd,
-                            uint32_t level, TraceType type, const std::string&,
-                            uint64_t block_id, const BlockAccessInfo& block) {
+                            uint32_t level, TraceType type,
+                            const std::string& /*block_key*/, uint64_t block_id,
+                            const BlockAccessInfo& block) {
     total_nblocks++;
     total_accesses += block.num_accesses;
     uint64_t avg_reuse_interval = 0;
@@ -720,8 +728,9 @@ void BlockCacheTraceAnalyzer::WriteReuseLifetime(
   std::map<std::string, std::map<uint64_t, uint64_t>> label_lifetime_nblocks;
   uint64_t total_nblocks = 0;
   auto block_callback = [&](const std::string& cf_name, uint64_t fd,
-                            uint32_t level, TraceType type, const std::string&,
-                            uint64_t block_id, const BlockAccessInfo& block) {
+                            uint32_t level, TraceType type,
+                            const std::string& /*block_key*/, uint64_t block_id,
+                            const BlockAccessInfo& block) {
     uint64_t lifetime = 0;
     if (block.num_accesses > 1) {
       lifetime =
@@ -751,7 +760,7 @@ void BlockCacheTraceAnalyzer::WriteBlockReuseTimeline(
     uint64_t reuse_window, bool user_access_only, TraceType block_type) const {
   // A map from block key to an array of bools that states whether a block is
   // accessed in a time window.
-  std::map<std::string, std::vector<bool>> block_accessed;
+  std::map<uint64_t, std::vector<bool>> block_accessed;
   const uint64_t trace_duration =
       trace_end_timestamp_in_seconds_ - trace_start_timestamp_in_seconds_;
   const uint64_t reuse_vector_size = (trace_duration / reuse_window);
@@ -762,12 +771,12 @@ void BlockCacheTraceAnalyzer::WriteBlockReuseTimeline(
   }
   auto block_callback = [&](const std::string& /*cf_name*/, uint64_t /*fd*/,
                             uint32_t /*level*/, TraceType /*type*/,
-                            const std::string& block_key, uint64_t /*block_id*/,
+                            const std::string& /*block_key*/, uint64_t block_id,
                             const BlockAccessInfo& block) {
-    if (block_accessed.find(block_key) == block_accessed.end()) {
-      block_accessed[block_key].resize(reuse_vector_size);
+    if (block_accessed.find(block_id) == block_accessed.end()) {
+      block_accessed[block_id].resize(reuse_vector_size);
       for (uint64_t i = 0; i < reuse_vector_size; i++) {
-        block_accessed[block_key][i] = false;
+        block_accessed[block_id][i] = false;
       }
     }
     for (auto const& caller_num : block.caller_num_accesses_timeline) {
@@ -779,7 +788,7 @@ void BlockCacheTraceAnalyzer::WriteBlockReuseTimeline(
         if (!user_access_only || (user_access_only && is_user_access(caller))) {
           uint64_t index =
               std::min(elapsed_time / reuse_window, reuse_vector_size - 1);
-          block_accessed[block_key][index] = true;
+          block_accessed[block_id][index] = true;
         }
       }
     }
