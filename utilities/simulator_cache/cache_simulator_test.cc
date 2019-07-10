@@ -188,9 +188,9 @@ TEST_F(CacheSimulatorTest, HybridRowBlockCacheSimulator) {
   std::unique_ptr<HybridRowBlockCacheSimulator> cache_simulator(
       new HybridRowBlockCacheSimulator(
           nullptr, sim_cache, /*insert_blocks_row_kvpair_misses=*/true));
-  // The first get request accesses 9 blocks. We should only report 10 accesses
+  // The first get request accesses 10 blocks. We should only report 10 accesses
   // and 100% miss.
-  for (uint32_t i = 0; i < 9; i++) {
+  for (uint32_t i = 0; i < 10; i++) {
     first_get.block_key = kBlockKeyPrefix + std::to_string(block_id);
     cache_simulator->Access(first_get);
     block_id++;
@@ -210,24 +210,26 @@ TEST_F(CacheSimulatorTest, HybridRowBlockCacheSimulator) {
     sim_cache->Release(handle);
   }
 
-  // The second get request accesses the same key. We should report one
-  // access and 90% miss, 10 miss with 11 accesses.
-  for (uint32_t i = 0; i < 4; i++) {
+  // The second get request accesses the same key. We should report 15
+  // access and 66% miss, 10 misses with 15 accesses.
+  // We do not consider these 5 block lookups as misses since the row hits the
+  // cache.
+  for (uint32_t i = 0; i < 5; i++) {
     second_get.block_key = kBlockKeyPrefix + std::to_string(block_id);
     cache_simulator->Access(second_get);
     block_id++;
   }
-  ASSERT_EQ(11, cache_simulator->total_accesses());
-  ASSERT_EQ(90, static_cast<uint64_t>(cache_simulator->miss_ratio()));
-  ASSERT_EQ(11, cache_simulator->user_accesses());
-  ASSERT_EQ(90, static_cast<uint64_t>(cache_simulator->user_miss_ratio()));
+  ASSERT_EQ(15, cache_simulator->total_accesses());
+  ASSERT_EQ(66, static_cast<uint64_t>(cache_simulator->miss_ratio()));
+  ASSERT_EQ(15, cache_simulator->user_accesses());
+  ASSERT_EQ(66, static_cast<uint64_t>(cache_simulator->user_miss_ratio()));
   handle = sim_cache->Lookup(std::to_string(second_get.sst_fd_number) + "_" +
                              second_get.referenced_key);
   ASSERT_NE(nullptr, handle);
   sim_cache->Release(handle);
   for (uint32_t i = 100; i < block_id; i++) {
     handle = sim_cache->Lookup(kBlockKeyPrefix + std::to_string(i));
-    if (i < 109) {
+    if (i < 110) {
       ASSERT_NE(nullptr, handle) << i;
       sim_cache->Release(handle);
     } else {
@@ -236,20 +238,22 @@ TEST_F(CacheSimulatorTest, HybridRowBlockCacheSimulator) {
   }
 
   // The third get on a different key and does not have a size.
-  for (uint32_t i = 0; i < 4; i++) {
+  // This key should not be inserted into the cache.
+  for (uint32_t i = 0; i < 5; i++) {
     third_get.block_key = kBlockKeyPrefix + std::to_string(block_id);
     cache_simulator->Access(third_get);
     block_id++;
   }
-  ASSERT_EQ(16, cache_simulator->total_accesses());
-  ASSERT_EQ(93, static_cast<uint64_t>(cache_simulator->miss_ratio()));
-  ASSERT_EQ(16, cache_simulator->user_accesses());
-  ASSERT_EQ(93, static_cast<uint64_t>(cache_simulator->user_miss_ratio()));
+  ASSERT_EQ(20, cache_simulator->total_accesses());
+  ASSERT_EQ(75, static_cast<uint64_t>(cache_simulator->miss_ratio()));
+  ASSERT_EQ(20, cache_simulator->user_accesses());
+  ASSERT_EQ(75, static_cast<uint64_t>(cache_simulator->user_miss_ratio()));
+  // Assert that the third key is not inserted into the cache.
   handle = sim_cache->Lookup(std::to_string(third_get.sst_fd_number) + "_" +
                              third_get.referenced_key);
   ASSERT_EQ(nullptr, handle);
   for (uint32_t i = 100; i < block_id; i++) {
-    if (i < 109 || i >= 113) {
+    if (i < 110 || i >= 115) {
       handle = sim_cache->Lookup(kBlockKeyPrefix + std::to_string(i));
       ASSERT_NE(nullptr, handle) << i;
       sim_cache->Release(handle);
@@ -306,19 +310,19 @@ TEST_F(CacheSimulatorTest, GhostHybridRowBlockCacheSimulator) {
   // Two get requests access the same key.
   cache_simulator->Access(first_get);
   cache_simulator->Access(second_get);
-  ASSERT_EQ(4, cache_simulator->total_accesses());
+  ASSERT_EQ(2, cache_simulator->total_accesses());
   ASSERT_EQ(100, cache_simulator->miss_ratio());
-  ASSERT_EQ(4, cache_simulator->user_accesses());
+  ASSERT_EQ(2, cache_simulator->user_accesses());
   ASSERT_EQ(100, cache_simulator->user_miss_ratio());
   // We insert the key-value pair upon the second get request. A third get
   // request should observe a hit.
   for (uint32_t i = 0; i < 10; i++) {
     cache_simulator->Access(third_get);
   }
-  ASSERT_EQ(5, cache_simulator->total_accesses());
-  ASSERT_EQ(80, static_cast<uint64_t>(cache_simulator->miss_ratio()));
-  ASSERT_EQ(5, cache_simulator->user_accesses());
-  ASSERT_EQ(80, static_cast<uint64_t>(cache_simulator->user_miss_ratio()));
+  ASSERT_EQ(12, cache_simulator->total_accesses());
+  ASSERT_EQ(16, static_cast<uint64_t>(cache_simulator->miss_ratio()));
+  ASSERT_EQ(12, cache_simulator->user_accesses());
+  ASSERT_EQ(16, static_cast<uint64_t>(cache_simulator->user_miss_ratio()));
 }
 
 }  // namespace rocksdb

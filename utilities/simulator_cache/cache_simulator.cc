@@ -72,7 +72,8 @@ Cache::Priority PrioritizedCacheSimulator::ComputeBlockPriority(
 
 void PrioritizedCacheSimulator::AccessKVPair(
     const Slice& key, uint64_t value_size, Cache::Priority priority,
-    bool no_insert, bool is_user_access, bool* is_cache_miss, bool* admitted) {
+    bool no_insert, bool is_user_access, bool* is_cache_miss, bool* admitted,
+    bool update_metrics) {
   assert(is_cache_miss);
   assert(admitted);
   *is_cache_miss = true;
@@ -88,7 +89,9 @@ void PrioritizedCacheSimulator::AccessKVPair(
     sim_cache_->Insert(key, /*value=*/nullptr, value_size,
                        /*deleter=*/nullptr, /*handle=*/nullptr, priority);
   }
-  UpdateMetrics(is_user_access, *is_cache_miss);
+  if (update_metrics) {
+    UpdateMetrics(is_user_access, *is_cache_miss);
+  }
 }
 
 void PrioritizedCacheSimulator::Access(const BlockCacheTraceRecord& access) {
@@ -97,14 +100,14 @@ void PrioritizedCacheSimulator::Access(const BlockCacheTraceRecord& access) {
   AccessKVPair(access.block_key, access.block_size,
                ComputeBlockPriority(access), access.no_insert,
                BlockCacheTraceHelper::IsUserAccess(access.caller),
-               &is_cache_miss, &admitted);
+               &is_cache_miss, &admitted, /*update_metrics=*/true);
 }
 
 std::string HybridRowBlockCacheSimulator::ComputeRowKey(
     const BlockCacheTraceRecord& access) {
   assert(access.get_id != BlockCacheTraceHelper::kReservedGetId);
   Slice key;
-  if (access.referenced_key_exist_in_block) {
+  if (access.referenced_key_exist_in_block == Boolean::kTrue) {
     key = ExtractUserKey(access.referenced_key);
   } else {
     key = access.referenced_key;
@@ -121,10 +124,12 @@ void HybridRowBlockCacheSimulator::Access(const BlockCacheTraceRecord& access) {
     if (getid_getkeys_map_[access.get_id].find(row_key) ==
         getid_getkeys_map_[access.get_id].end()) {
       // This is the first time that this key is accessed. Look up the key-value
-      // pair first.
+      // pair first. Do not update the miss/accesses metrics here since it will
+      // be updated later.
       AccessKVPair(row_key, access.referenced_data_size, Cache::Priority::HIGH,
                    /*no_insert=*/false,
-                   /*is_user_access=*/true, &is_cache_miss, &admitted);
+                   /*is_user_access=*/true, &is_cache_miss, &admitted,
+                   /*update_metrics=*/false);
       InsertResult result = InsertResult::NO_INSERT;
       if (admitted && access.referenced_data_size > 0) {
         result = InsertResult::INSERTED;
@@ -137,7 +142,12 @@ void HybridRowBlockCacheSimulator::Access(const BlockCacheTraceRecord& access) {
     std::pair<bool, InsertResult> miss_inserted =
         getid_getkeys_map_[access.get_id][row_key];
     if (!miss_inserted.first) {
-      // This is a cache hit. Ignore accesses to its index/filter/data blocks.
+      // This is a cache hit. Skip future accesses to its index/filter/data
+      // blocks. These block lookups are unnecessary if we observe a hit for the
+      // referenced key-value pair already. Thus, we treat these lookups as
+      // hits. This is also to ensure the total number of accesses are the same
+      // when comparing to other policies.
+      UpdateMetrics(/*is_user_access=*/true, /*is_cache_miss=*/false);
       return;
     }
     // The key-value pair observes a cache miss. We need to access its
@@ -145,7 +155,8 @@ void HybridRowBlockCacheSimulator::Access(const BlockCacheTraceRecord& access) {
     AccessKVPair(access.block_key, access.block_type,
                  ComputeBlockPriority(access),
                  /*no_insert=*/!insert_blocks_upon_row_kvpair_miss_,
-                 /*is_user_access=*/true, &is_cache_miss, &admitted);
+                 /*is_user_access=*/true, &is_cache_miss, &admitted,
+                 /*update_metrics=*/true);
     if (access.referenced_data_size > 0 &&
         miss_inserted.second == InsertResult::ADMITTED) {
       sim_cache_->Insert(
@@ -159,7 +170,7 @@ void HybridRowBlockCacheSimulator::Access(const BlockCacheTraceRecord& access) {
   AccessKVPair(access.block_key, access.block_size,
                ComputeBlockPriority(access), access.no_insert,
                BlockCacheTraceHelper::IsUserAccess(access.caller),
-               &is_cache_miss, &admitted);
+               &is_cache_miss, &admitted, /*update_metrics=*/true);
 }
 
 BlockCacheTraceSimulator::BlockCacheTraceSimulator(
@@ -170,6 +181,7 @@ BlockCacheTraceSimulator::BlockCacheTraceSimulator(
       cache_configurations_(cache_configurations) {}
 
 Status BlockCacheTraceSimulator::InitializeCaches() {
+  const std::string ghost_cache_prefix = "ghost_";
   for (auto const& config : cache_configurations_) {
     for (auto cache_capacity : config.cache_capacities) {
       // Scale down the cache capacity since the trace contains accesses on
@@ -177,32 +189,34 @@ Status BlockCacheTraceSimulator::InitializeCaches() {
       uint64_t simulate_cache_capacity = cache_capacity / downsample_ratio_;
       std::shared_ptr<CacheSimulator> sim_cache;
       std::unique_ptr<GhostCache> ghost_cache;
-      if (config.cache_name.find("ghost") != std::string::npos) {
+      std::string cache_name = config.cache_name;
+      if (cache_name.find(ghost_cache_prefix) != std::string::npos) {
         ghost_cache.reset(new GhostCache(
             NewLRUCache(config.ghost_cache_capacity, /*num_shard_bits=*/1,
                         /*strict_capacity_limit=*/false,
                         /*high_pri_pool_ratio=*/0)));
+        cache_name = cache_name.substr(ghost_cache_prefix.size());
       }
-      if (config.cache_name == "lru") {
+      if (cache_name == "lru") {
         sim_cache = std::make_shared<CacheSimulator>(
             std::move(ghost_cache),
             NewLRUCache(simulate_cache_capacity, config.num_shard_bits,
                         /*strict_capacity_limit=*/false,
                         /*high_pri_pool_ratio=*/0));
-      } else if (config.cache_name == "lru_priority") {
+      } else if (cache_name == "lru_priority") {
         sim_cache = std::make_shared<PrioritizedCacheSimulator>(
             std::move(ghost_cache),
             NewLRUCache(simulate_cache_capacity, config.num_shard_bits,
                         /*strict_capacity_limit=*/false,
                         /*high_pri_pool_ratio=*/0.5));
-      } else if (config.cache_name == "lru_hybrid") {
+      } else if (cache_name == "lru_hybrid") {
         sim_cache = std::make_shared<HybridRowBlockCacheSimulator>(
             std::move(ghost_cache),
             NewLRUCache(simulate_cache_capacity, config.num_shard_bits,
                         /*strict_capacity_limit=*/false,
                         /*high_pri_pool_ratio=*/0.5),
             /*insert_blocks_upon_row_kvpair_miss=*/true);
-      } else if (config.cache_name == "lru_hybrid_no_insert_on_row_miss") {
+      } else if (cache_name == "lru_hybrid_no_insert_on_row_miss") {
         sim_cache = std::make_shared<HybridRowBlockCacheSimulator>(
             std::move(ghost_cache),
             NewLRUCache(simulate_cache_capacity, config.num_shard_bits,

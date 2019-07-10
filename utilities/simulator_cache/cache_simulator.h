@@ -5,7 +5,6 @@
 
 #pragma once
 
-#include <set>
 #include "trace_replay/block_cache_tracer.h"
 
 namespace rocksdb {
@@ -109,7 +108,8 @@ class PrioritizedCacheSimulator : public CacheSimulator {
   // Access the key-value pair and returns true upon a cache miss.
   void AccessKVPair(const Slice& key, uint64_t value_size,
                     Cache::Priority priority, bool no_insert,
-                    bool is_user_access, bool* is_cache_miss, bool* admitted);
+                    bool is_user_access, bool* is_cache_miss, bool* admitted,
+                    bool update_metrics);
 
   Cache::Priority ComputeBlockPriority(const BlockCacheTraceRecord& access);
 };
@@ -136,9 +136,9 @@ class HybridRowBlockCacheSimulator : public PrioritizedCacheSimulator {
  private:
   // Row key is a concatenation of the access's fd_number and the referenced
   // user key.
+  // TODO(haoyu): the row key should contain sequence number.
   std::string ComputeRowKey(const BlockCacheTraceRecord& access);
 
-  //
   enum InsertResult : char {
     INSERTED,
     ADMITTED,
