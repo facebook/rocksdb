@@ -228,8 +228,7 @@ void FullFilterBlockReader::MayMatch(
     BlockCacheLookupContext* lookup_context) const {
   CachableEntry<BlockContents> filter_block;
 
-  // TODO: Figure out where the stats should go
-  const Status s = GetOrReadFilterBlock(no_io, nullptr /* get_context */,
+  const Status s = GetOrReadFilterBlock(no_io, range->begin()->get_context,
                                         lookup_context, &filter_block);
   if (!s.ok()) {
     return;
