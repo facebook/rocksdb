@@ -1742,9 +1742,10 @@ Status BlockBasedTable::GetDataBlockFromCache(
 
   // Insert uncompressed block into block cache
   if (s.ok()) {
-    std::unique_ptr<TBlocklike> block_holder(BlocklikeTraits<TBlocklike>::Create(
-        std::move(contents), rep_->get_global_seqno(block_type),
-        read_amp_bytes_per_bit, statistics));  // uncompressed block
+    std::unique_ptr<TBlocklike> block_holder(
+        BlocklikeTraits<TBlocklike>::Create(
+            std::move(contents), rep_->get_global_seqno(block_type),
+            read_amp_bytes_per_bit, statistics));  // uncompressed block
 
     if (block_cache != nullptr && block_holder->own_bytes() &&
         read_options.fill_cache) {

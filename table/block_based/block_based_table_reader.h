@@ -360,8 +360,8 @@ class BlockBasedTable : public TableReader {
   Status PutDataBlockToCache(
       const Slice& block_cache_key, const Slice& compressed_block_cache_key,
       Cache* block_cache, Cache* block_cache_compressed,
-      CachableEntry<TBlocklike>* cached_block, BlockContents* raw_block_contents,
-      CompressionType raw_block_comp_type,
+      CachableEntry<TBlocklike>* cached_block,
+      BlockContents* raw_block_contents, CompressionType raw_block_comp_type,
       const UncompressionDict& uncompression_dict, SequenceNumber seq_no,
       MemoryAllocator* memory_allocator, BlockType block_type,
       GetContext* get_context) const;
