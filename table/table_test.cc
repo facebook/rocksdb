@@ -1072,9 +1072,6 @@ class BlockBasedTableTest
  public:
   BlockBasedTableTest() : format_(GetParam()) {
     env_ = rocksdb::Env::Default();
-    test_path_ = test::PerThreadDBPath("block_based_table_tracing_test");
-    EXPECT_OK(env_->CreateDir(test_path_));
-    trace_file_path_ = test_path_ + "/block_cache_trace_file";
   }
 
   BlockBasedTableOptions GetBlockBasedTableOptions() {
@@ -1084,6 +1081,9 @@ class BlockBasedTableTest
   }
 
   void SetupTracingTest(TableConstructor* c) {
+    test_path_ = test::PerThreadDBPath("block_based_table_tracing_test");
+    EXPECT_OK(env_->CreateDir(test_path_));
+    trace_file_path_ = test_path_ + "/block_cache_trace_file";
     TraceOptions trace_opt;
     std::unique_ptr<TraceWriter> trace_writer;
     EXPECT_OK(NewFileTraceWriter(env_, EnvOptions(), trace_file_path_,
