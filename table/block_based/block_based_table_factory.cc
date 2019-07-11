@@ -167,7 +167,12 @@ BlockBasedTableFactory::BlockBasedTableFactory(
   if (table_options_.no_block_cache) {
     table_options_.block_cache.reset();
   } else if (table_options_.block_cache == nullptr) {
-    table_options_.block_cache = NewLRUCache(8 << 20);
+    LRUCacheOptions co;
+    co.capacity = 8 << 20;
+    // It makes little sense to pay overhead for mid-point insertion while the
+    // block size is only 8MB.
+    co.high_pri_pool_ratio = 0.0;
+    table_options_.block_cache = NewLRUCache(co);
   }
   if (table_options_.block_size_deviation < 0 ||
       table_options_.block_size_deviation > 100) {

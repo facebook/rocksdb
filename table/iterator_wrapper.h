@@ -56,7 +56,10 @@ class IteratorWrapperBase {
 
   // Iterator interface methods
   bool Valid() const        { return valid_; }
-  Slice key() const         { assert(Valid()); return key_; }
+  Slice key() const {
+    assert(Valid());
+    return result_.key;
+  }
   TValue value() const {
     assert(Valid());
     return iter_->value();
@@ -65,7 +68,7 @@ class IteratorWrapperBase {
   Status status() const     { assert(iter_); return iter_->status(); }
   void Next() {
     assert(iter_);
-    valid_ = iter_->NextAndGetResult(&key_);
+    valid_ = iter_->NextAndGetResult(&result_);
     assert(!valid_ || iter_->status().ok());
   }
   void Prev()               { assert(iter_); iter_->Prev();        Update(); }
@@ -82,6 +85,16 @@ class IteratorWrapperBase {
   }
   void SeekToFirst()        { assert(iter_); iter_->SeekToFirst(); Update(); }
   void SeekToLast()         { assert(iter_); iter_->SeekToLast();  Update(); }
+
+  bool MayBeOutOfLowerBound() {
+    assert(Valid());
+    return iter_->MayBeOutOfLowerBound();
+  }
+
+  bool MayBeOutOfUpperBound() {
+    assert(Valid());
+    return result_.may_be_out_of_upper_bound;
+  }
 
   void SetPinnedItersMgr(PinnedIteratorsManager* pinned_iters_mgr) {
     assert(iter_);
@@ -100,14 +113,15 @@ class IteratorWrapperBase {
   void Update() {
     valid_ = iter_->Valid();
     if (valid_) {
-      key_ = iter_->key();
       assert(iter_->status().ok());
+      result_.key = iter_->key();
+      result_.may_be_out_of_upper_bound = true;
     }
   }
 
   InternalIteratorBase<TValue>* iter_;
+  IterateResult result_;
   bool valid_;
-  Slice key_;
 };
 
 using IteratorWrapper = IteratorWrapperBase<Slice>;

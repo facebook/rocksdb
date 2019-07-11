@@ -199,6 +199,7 @@ LIB_SOURCES =                                                   \
   utilities/persistent_cache/block_cache_tier_metadata.cc       \
   utilities/persistent_cache/persistent_cache_tier.cc           \
   utilities/persistent_cache/volatile_tier_impl.cc              \
+  utilities/simulator_cache/cache_simulator.cc                  \
   utilities/simulator_cache/sim_cache.cc                        \
   utilities/table_properties_collectors/compact_on_deletion_collector.cc \
   utilities/trace/file_trace_reader_writer.cc                   \
@@ -344,6 +345,7 @@ MAIN_SOURCES =                                                          \
   env/env_test.cc                                                       \
   env/mock_env_test.cc                                                  \
   logging/auto_roll_logger_test.cc                                      \
+  logging/env_logger_test.cc                                            \
   logging/event_logger_test.cc                                          \
   memory/arena_test.cc                                                  \
   memtable/inlineskiplist_test.cc                                       \

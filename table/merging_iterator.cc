@@ -227,6 +227,16 @@ class MergingIterator : public InternalIterator {
     current_ = CurrentForward();
   }
 
+  bool NextAndGetResult(IterateResult* result) override {
+    Next();
+    bool is_valid = Valid();
+    if (is_valid) {
+      result->key = key();
+      result->may_be_out_of_upper_bound = MayBeOutOfUpperBound();
+    }
+    return is_valid;
+  }
+
   void Prev() override {
     assert(Valid());
     // Ensure that all children are positioned before key().
@@ -294,6 +304,20 @@ class MergingIterator : public InternalIterator {
   Slice value() const override {
     assert(Valid());
     return current_->value();
+  }
+
+  // Here we simply relay MayBeOutOfLowerBound/MayBeOutOfUpperBound result
+  // from current child iterator. Potentially as long as one of child iterator
+  // report out of bound is not possible, we know current key is within bound.
+
+  bool MayBeOutOfLowerBound() override {
+    assert(Valid());
+    return current_->MayBeOutOfLowerBound();
+  }
+
+  bool MayBeOutOfUpperBound() override {
+    assert(Valid());
+    return current_->MayBeOutOfUpperBound();
   }
 
   void SetPinnedItersMgr(PinnedIteratorsManager* pinned_iters_mgr) override {

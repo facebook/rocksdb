@@ -49,6 +49,7 @@
 #include "rocksdb/rate_limiter.h"
 #include "rocksdb/slice.h"
 #include "rocksdb/slice_transform.h"
+#include "rocksdb/stats_history.h"
 #include "rocksdb/utilities/object_registry.h"
 #include "rocksdb/utilities/optimistic_transaction_db.h"
 #include "rocksdb/utilities/options_util.h"
@@ -1547,7 +1548,6 @@ class ReporterAgent {
  private:
   std::string Header() const { return "secs_elapsed,interval_qps"; }
   void SleepAndReport() {
-    uint64_t kMicrosInSecond = 1000 * 1000;
     auto time_started = env_->NowMicros();
     while (true) {
       {
@@ -2397,16 +2397,17 @@ class Benchmark {
       return nullptr;
     }
     if (FLAGS_use_clock_cache) {
-      auto cache = NewClockCache((size_t)capacity, FLAGS_cache_numshardbits);
+      auto cache = NewClockCache(static_cast<size_t>(capacity),
+                                 FLAGS_cache_numshardbits);
       if (!cache) {
         fprintf(stderr, "Clock cache not supported.");
         exit(1);
       }
       return cache;
     } else {
-      return NewLRUCache((size_t)capacity, FLAGS_cache_numshardbits,
-                         false /*strict_capacity_limit*/,
-                         FLAGS_cache_high_pri_pool_ratio);
+      return NewLRUCache(
+          static_cast<size_t>(capacity), FLAGS_cache_numshardbits,
+          false /*strict_capacity_limit*/, FLAGS_cache_high_pri_pool_ratio);
     }
   }
 
@@ -2867,6 +2868,8 @@ class Benchmark {
         PrintStats("rocksdb.levelstats");
       } else if (name == "sstables") {
         PrintStats("rocksdb.sstables");
+      } else if (name == "stats_history") {
+        PrintStatsHistory();
       } else if (name == "replay") {
         if (num_threads > 1) {
           fprintf(stderr, "Multi-threaded replay is not yet supported\n");
@@ -3604,9 +3607,10 @@ class Benchmark {
     }
     if (FLAGS_max_bytes_for_level_multiplier_additional_v.size() > 0) {
       if (FLAGS_max_bytes_for_level_multiplier_additional_v.size() !=
-          (unsigned int)FLAGS_num_levels) {
+          static_cast<unsigned int>(FLAGS_num_levels)) {
         fprintf(stderr, "Insufficient number of fanouts specified %d\n",
-                (int)FLAGS_max_bytes_for_level_multiplier_additional_v.size());
+                static_cast<int>(
+                    FLAGS_max_bytes_for_level_multiplier_additional_v.size()));
         exit(1);
       }
       options.max_bytes_for_level_multiplier_additional =
@@ -4791,7 +4795,7 @@ class Benchmark {
       if (FLAGS_multiread_stride) {
         int64_t key = GetRandomKey(&thread->rand);
         if ((key + (entries_per_batch_ - 1) * FLAGS_multiread_stride) >=
-            (int64_t)FLAGS_num) {
+            static_cast<int64_t>(FLAGS_num)) {
           key = FLAGS_num - entries_per_batch_ * FLAGS_multiread_stride;
         }
         for (int64_t i = 0; i < entries_per_batch_; ++i) {
@@ -5161,9 +5165,10 @@ class Benchmark {
               FLAGS_num, &lower_bound);
           options.iterate_lower_bound = &lower_bound;
         } else {
-          GenerateKeyFromInt(
-              (uint64_t)std::min(FLAGS_num, seek_pos + FLAGS_max_scan_distance),
-              FLAGS_num, &upper_bound);
+          auto min_num =
+              std::min(FLAGS_num, seek_pos + FLAGS_max_scan_distance);
+          GenerateKeyFromInt(static_cast<uint64_t>(min_num), FLAGS_num,
+                             &upper_bound);
           options.iterate_upper_bound = &upper_bound;
         }
       }
@@ -5331,7 +5336,7 @@ class Benchmark {
             // Wait for the writes to be finished
             if (!hint_printed) {
               fprintf(stderr, "Reads are finished. Have %d more writes to do\n",
-                      (int)writes_ - written);
+                      static_cast<int>(writes_) - written);
               hint_printed = true;
             }
           } else {
@@ -6254,6 +6259,39 @@ class Benchmark {
     }
     for (const auto& db_with_cfh : multi_dbs_) {
       db_with_cfh.db->ResetStats();
+    }
+  }
+
+  void PrintStatsHistory() {
+    if (db_.db != nullptr) {
+      PrintStatsHistoryImpl(db_.db, false);
+    }
+    for (const auto& db_with_cfh : multi_dbs_) {
+      PrintStatsHistoryImpl(db_with_cfh.db, true);
+    }
+  }
+
+  void PrintStatsHistoryImpl(DB* db, bool print_header) {
+    if (print_header) {
+      fprintf(stdout, "\n==== DB: %s ===\n", db->GetName().c_str());
+    }
+
+    std::unique_ptr<StatsHistoryIterator> shi;
+    Status s = db->GetStatsHistory(0, port::kMaxUint64, &shi);
+    if (!s.ok()) {
+      fprintf(stdout, "%s\n", s.ToString().c_str());
+      return;
+    }
+    assert(shi);
+    while (shi->Valid()) {
+      uint64_t stats_time = shi->GetStatsTime();
+      fprintf(stdout, "------ %s ------\n",
+              TimeToHumanString(static_cast<int>(stats_time)).c_str());
+      for (auto& entry : shi->GetStatsMap()) {
+        fprintf(stdout, " %" PRIu64 "   %s  %" PRIu64 "\n", stats_time,
+                entry.first.c_str(), entry.second);
+      }
+      shi->Next();
     }
   }
 
