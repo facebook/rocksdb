@@ -151,8 +151,7 @@ def plot_line_charts(
     vertical,
     legend,
 ):
-    pdf = matplotlib.backends.backend_pdf.PdfPages(output_result_dir + "/"
-    + pdf_name)
+    pdf = matplotlib.backends.backend_pdf.PdfPages(output_result_dir + "/" + pdf_name)
     for file in os.listdir(csv_result_dir):
         if not file.endswith(filename_suffix):
             continue
@@ -232,8 +231,7 @@ def plot_stacked_bar_charts(
             plt.xlabel(xlabel)
             plt.ylabel(ylabel)
             plt.xticks(
-                ind, [x_prefix + x[i] for i in range(len(x))], rotation=20,
-                fontsize=8
+                ind, [x_prefix + x[i] for i in range(len(x))], rotation=20, fontsize=8
             )
             plt.legend(bars, labels)
             plt.title("{} filename:{}".format(title, file))
