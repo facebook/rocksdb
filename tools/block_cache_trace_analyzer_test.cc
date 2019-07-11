@@ -318,7 +318,7 @@ TEST_F(BlockCacheTracerTest, BlockCacheAnalyzer) {
   {
     // Validate the reuse_interval and reuse_distance csv files.
     std::map<std::string, std::string> test_reuse_csv_files;
-    test_reuse_csv_files["_reuse_interval"] = reuse_interval_labels_;
+    test_reuse_csv_files["_access_reuse_interval"] = reuse_interval_labels_;
     test_reuse_csv_files["_reuse_distance"] = reuse_distance_labels_;
     test_reuse_csv_files["_reuse_lifetime"] = reuse_lifetime_labels_;
     test_reuse_csv_files["_avg_reuse_interval"] = reuse_interval_labels_;

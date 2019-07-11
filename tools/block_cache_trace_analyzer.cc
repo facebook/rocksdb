@@ -142,6 +142,24 @@ const std::string kSupportedCacheNames =
     "ghost_lru_hybrid lru_hybrid_no_insert_on_row_miss "
     "ghost_lru_hybrid_no_insert_on_row_miss ";
 
+// The suffix for the generated csv files.
+const std::string kFileNameSuffixAccessTimeline = "access_timeline";
+const std::string kFileNameSuffixAvgReuseIntervalNaccesses =
+    "avg_reuse_interval_naccesses";
+const std::string kFileNameSuffixAvgReuseInterval = "avg_reuse_interval";
+const std::string kFileNameSuffixReuseInterval = "access_reuse_interval";
+const std::string kFileNameSuffixReuseLifetime = "reuse_lifetime";
+const std::string kFileNameSuffixAccessReuseBlocksTimeline =
+    "reuse_blocks_timeline";
+const std::string kFileNameSuffixPercentOfAccessSummary =
+    "percentage_of_accesses_summary";
+const std::string kFileNameSuffixPercentRefKeys = "percent_ref_keys";
+const std::string kFileNameSuffixPercentDataSizeOnRefKeys =
+    "percent_data_size_on_ref_keys";
+const std::string kFileNameSuffixPercentAccessesOnRefKeys =
+    "percent_accesses_on_ref_keys";
+const std::string kFileNameSuffixAccessCountSummary = "access_count_summary";
+
 std::string block_type_to_string(TraceType type) {
   switch (type) {
     case kBlockTraceFilterBlock:
@@ -429,11 +447,13 @@ void BlockCacheTraceAnalyzer::WriteGetSpatialLocality(
     nblocks += 1;
   };
   TraverseBlocks(block_callback);
-  WriteStatsToFile(label_str, percent_buckets, "_percent_ref_keys",
+  WriteStatsToFile(label_str, percent_buckets, kFileNameSuffixPercentRefKeys,
                    label_pnrefkeys_nblocks, nblocks);
-  WriteStatsToFile(label_str, percent_buckets, "_percent_accesses_on_ref_keys",
+  WriteStatsToFile(label_str, percent_buckets,
+                   kFileNameSuffixPercentAccessesOnRefKeys,
                    label_pnrefs_nblocks, nblocks);
-  WriteStatsToFile(label_str, percent_buckets, "_percent_data_size_on_ref_keys",
+  WriteStatsToFile(label_str, percent_buckets,
+                   kFileNameSuffixPercentDataSizeOnRefKeys,
                    label_pndatasize_nblocks, nblocks);
 }
 
@@ -478,7 +498,7 @@ void BlockCacheTraceAnalyzer::WriteAccessTimeline(const std::string& label_str,
       user_access_only ? "user_access_only_" : "all_access_";
   const std::string output_path = output_dir_ + "/" + user_access_prefix +
                                   label_str + "_" + std::to_string(time_unit) +
-                                  "_access_timeline";
+                                  "_" + kFileNameSuffixAccessTimeline;
   std::ofstream out(output_path);
   if (!out.is_open()) {
     return;
@@ -629,7 +649,7 @@ void BlockCacheTraceAnalyzer::WriteStatsToFile(
     const std::map<std::string, std::map<uint64_t, uint64_t>>& label_data,
     uint64_t ntotal) const {
   const std::string output_path =
-      output_dir_ + "/" + label_str + filename_suffix;
+      output_dir_ + "/" + label_str + "_" + filename_suffix;
   std::ofstream out(output_path);
   if (!out.is_open()) {
     return;
@@ -713,11 +733,12 @@ void BlockCacheTraceAnalyzer::WriteReuseInterval(
   TraverseBlocks(block_callback);
 
   // Write the stats into files.
-  WriteStatsToFile(label_str, time_buckets, "_reuse_interval",
+  WriteStatsToFile(label_str, time_buckets, kFileNameSuffixReuseInterval,
                    label_time_num_reuses, total_num_reuses);
-  WriteStatsToFile(label_str, time_buckets, "_avg_reuse_interval",
+  WriteStatsToFile(label_str, time_buckets, kFileNameSuffixAvgReuseInterval,
                    label_avg_reuse_nblocks, total_nblocks);
-  WriteStatsToFile(label_str, time_buckets, "_avg_reuse_interval_naccesses",
+  WriteStatsToFile(label_str, time_buckets,
+                   kFileNameSuffixAvgReuseIntervalNaccesses,
                    label_avg_reuse_naccesses, total_accesses);
 }
 
@@ -752,7 +773,7 @@ void BlockCacheTraceAnalyzer::WriteReuseLifetime(
     total_nblocks += 1;
   };
   TraverseBlocks(block_callback);
-  WriteStatsToFile(label_str, time_buckets, "_reuse_lifetime",
+  WriteStatsToFile(label_str, time_buckets, kFileNameSuffixReuseLifetime,
                    label_lifetime_nblocks, total_nblocks);
 }
 
@@ -818,8 +839,8 @@ void BlockCacheTraceAnalyzer::WriteBlockReuseTimeline(
       user_access_only ? "_user_access_only_" : "_all_access_";
   const std::string output_path =
       output_dir_ + "/" + block_type_to_string(block_type) +
-      user_access_prefix + std::to_string(reuse_window) +
-      "_reuse_blocks_timeline";
+      user_access_prefix + std::to_string(reuse_window) + "_" +
+      kFileNameSuffixAccessReuseBlocksTimeline;
   std::ofstream out(output_path);
   if (!out.is_open()) {
     return;
@@ -881,7 +902,7 @@ void BlockCacheTraceAnalyzer::WritePercentAccessSummaryStats() const {
   TraverseBlocks(block_callback);
 
   const std::string output_path =
-      output_dir_ + "/percentage_of_accesses_summary";
+      output_dir_ + "/" + kFileNameSuffixPercentOfAccessSummary;
   std::ofstream out(output_path);
   if (!out.is_open()) {
     return;
@@ -923,9 +944,9 @@ void BlockCacheTraceAnalyzer::WriteDetailedPercentAccessSummaryStats(
       };
   TraverseBlocks(block_callback);
   {
-    const std::string output_path = output_dir_ + "/" +
-                                    caller_to_string(analyzing_caller) +
-                                    "_level_percentage_of_accesses_summary";
+    const std::string output_path =
+        output_dir_ + "/" + caller_to_string(analyzing_caller) + "_level_" +
+        kFileNameSuffixPercentOfAccessSummary;
     std::ofstream out(output_path);
     if (!out.is_open()) {
       return;
@@ -946,9 +967,9 @@ void BlockCacheTraceAnalyzer::WriteDetailedPercentAccessSummaryStats(
     out.close();
   }
   {
-    const std::string output_path = output_dir_ + "/" +
-                                    caller_to_string(analyzing_caller) +
-                                    "_bt_percentage_of_accesses_summary";
+    const std::string output_path =
+        output_dir_ + "/" + caller_to_string(analyzing_caller) + "_bt_" +
+        kFileNameSuffixPercentOfAccessSummary;
     std::ofstream out(output_path);
     if (!out.is_open()) {
       return;
@@ -1011,12 +1032,12 @@ void BlockCacheTraceAnalyzer::WriteAccessCountSummaryStats(
       };
   TraverseBlocks(block_callback);
   const std::string user_access_prefix =
-      user_access_only ? "_user_access_only_" : "_all_access_";
+      user_access_only ? "user_access_only_" : "all_access_";
   WriteStatsToFile("cf", access_count_buckets,
-                   user_access_prefix + "access_count_summary",
+                   user_access_prefix + kFileNameSuffixAccessCountSummary,
                    cf_access_nblocks, total_nblocks);
   WriteStatsToFile("bt", access_count_buckets,
-                   user_access_prefix + "access_count_summary",
+                   user_access_prefix + kFileNameSuffixAccessCountSummary,
                    bt_access_nblocks, total_nblocks);
 }
 
