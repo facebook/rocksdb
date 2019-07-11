@@ -205,7 +205,7 @@ TEST_F(BlockCacheTracerTest, BlockCacheAnalyzer) {
   }
   {
     // Generate a cache sim config.
-    std::string config = "lru,1,1K,1M,1G";
+    std::string config = "lru,1,0,1K,1M,1G";
     std::ofstream out(block_cache_sim_config_path_);
     ASSERT_TRUE(out.is_open());
     out << config << std::endl;
@@ -230,14 +230,15 @@ TEST_F(BlockCacheTracerTest, BlockCacheAnalyzer) {
         getline(ss, substr, ',');
         result_strs.push_back(substr);
       }
-      ASSERT_EQ(5, result_strs.size());
+      ASSERT_EQ(6, result_strs.size());
       ASSERT_LT(config_index, expected_capacities.size());
       ASSERT_EQ("lru", result_strs[0]);  // cache_name
       ASSERT_EQ("1", result_strs[1]);    // num_shard_bits
+      ASSERT_EQ("0", result_strs[2]);    // ghost_cache_capacity
       ASSERT_EQ(std::to_string(expected_capacities[config_index]),
-                result_strs[2]);         // cache_capacity
-      ASSERT_EQ("100.0000", result_strs[3]);  // miss_ratio
-      ASSERT_EQ("50", result_strs[4]);   // number of accesses.
+                result_strs[3]);              // cache_capacity
+      ASSERT_EQ("100.0000", result_strs[4]);  // miss_ratio
+      ASSERT_EQ("50", result_strs[5]);        // number of accesses.
       config_index++;
     }
     ASSERT_EQ(expected_capacities.size(), config_index);

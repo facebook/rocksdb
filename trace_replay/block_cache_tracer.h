@@ -23,6 +23,7 @@ class BlockCacheTraceHelper {
   static bool ShouldTraceReferencedKey(TraceType block_type,
                                        TableReaderCaller caller);
   static bool ShouldTraceGetId(TableReaderCaller caller);
+  static bool IsUserAccess(TableReaderCaller caller);
 
   static const std::string kUnknownColumnFamilyName;
   static const uint64_t kReservedGetId;
