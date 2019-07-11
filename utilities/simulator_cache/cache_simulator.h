@@ -147,7 +147,7 @@ class HybridRowBlockCacheSimulator : public PrioritizedCacheSimulator {
   };
 
   // A map stores get_id to a map of row keys. For each row key, it stores a
-  // pair of booleans. The first bool is true when we observe a miss upon the
+  // boolean and an enum. The first bool is true when we observe a miss upon the
   // first time we encounter the row key. The second arg is INSERTED when the
   // kv-pair has been inserted into the cache, ADMITTED if it should be inserted
   // but haven't been, NO_INSERT if it should not be inserted.
