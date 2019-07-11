@@ -1,9 +1,9 @@
+#!/usr/bin/env python3
 import csv
 import os
 import random
 import sys
 
-import matplotlib as mpl
 import matplotlib.backends.backend_pdf
 import matplotlib.pyplot as plt
 import numpy as np
@@ -37,7 +37,7 @@ def num_to_gb(n):
 
 def plot_miss_ratio_graphs(csv_result_dir, output_result_dir):
     mrc_file_path = csv_result_dir + "/mrc"
-    if os.path.exists(mrc_file_path) == False:
+    if not os.path.exists(mrc_file_path):
         return
     miss_ratios = {}
     print("Processing file {}".format(mrc_file_path))
@@ -45,7 +45,7 @@ def plot_miss_ratio_graphs(csv_result_dir, output_result_dir):
         rows = csv.reader(csvfile, delimiter=",")
         is_header = False
         for row in rows:
-            if is_header == False:
+            if not is_header:
                 is_header = True
                 continue
             cache_name = row[0]
@@ -53,7 +53,7 @@ def plot_miss_ratio_graphs(csv_result_dir, output_result_dir):
             ghost_capacity = int(row[2])
             capacity = int(row[3])
             miss_ratio = float(row[4])
-            config = "{}".format(cache_name)
+            config = "{}-{}-{}".format(cache_name, num_shard_bits, ghost_capacity)
             if config not in miss_ratios:
                 miss_ratios[config] = {}
                 miss_ratios[config]["x"] = []
@@ -73,7 +73,8 @@ def plot_miss_ratio_graphs(csv_result_dir, output_result_dir):
 
 
 def sanitize(label):
-    # matplotlib cannot plot legends that is prefixed with "_" so we need to remove them here.
+    # matplotlib cannot plot legends that is prefixed with "_"
+    # so we need to remove them here.
     index = 0
     for i in range(len(label)):
         if label[i] == "_":
@@ -134,7 +135,7 @@ def read_data_for_plot_horizontal(csvfile):
 
 
 def read_data_for_plot(csvfile, vertical):
-    if vertical == True:
+    if vertical:
         return read_data_for_plot_vertical(csvfile)
     return read_data_for_plot_horizontal(csvfile)
 
@@ -150,9 +151,10 @@ def plot_line_charts(
     vertical,
     legend,
 ):
-    pdf = matplotlib.backends.backend_pdf.PdfPages(output_result_dir + "/" + pdf_name)
+    pdf = matplotlib.backends.backend_pdf.PdfPages(output_result_dir + "/"
+    + pdf_name)
     for file in os.listdir(csv_result_dir):
-        if file.endswith(filename_suffix) == False:
+        if not file.endswith(filename_suffix):
             continue
         print("Processing file {}".format(file))
         with open(csv_result_dir + "/" + file, "r") as csvfile:
@@ -175,7 +177,7 @@ def plot_line_charts(
                 plt.xlabel("{} (Hour)".format(xlabel))
             plt.ylabel(ylabel)
             plt.title("{} {}".format(title, file))
-            if legend == True:
+            if legend:
                 plt.legend()
             pdf.savefig(fig)
     pdf.close()
@@ -197,7 +199,7 @@ def plot_stacked_bar_charts(
         "{}/{}".format(output_result_dir, pdf_name)
     )
     for file in os.listdir(csv_result_dir):
-        if file.endswith(filename_suffix) == False:
+        if not file.endswith(filename_suffix):
             continue
         with open(csv_result_dir + "/" + file, "r") as csvfile:
             print("Processing file {}/{}".format(csv_result_dir, file))
@@ -210,7 +212,7 @@ def plot_stacked_bar_charts(
             width = 0.5  # the width of the bars: can also be len(x) sequence
             bars = []
             bottom_bars = []
-            for n in label_stats[0]:
+            for _i in label_stats[0]:
                 bottom_bars.append(0)
             for i in range(0, len(label_stats)):
                 # Assign a unique color to this label.
@@ -230,7 +232,8 @@ def plot_stacked_bar_charts(
             plt.xlabel(xlabel)
             plt.ylabel(ylabel)
             plt.xticks(
-                ind, [x_prefix + x[i] for i in range(len(x))], rotation=20, fontsize=8
+                ind, [x_prefix + x[i] for i in range(len(x))], rotation=20,
+                fontsize=8
             )
             plt.legend(bars, labels)
             plt.title("{} filename:{}".format(title, file))
@@ -389,7 +392,7 @@ if __name__ == "__main__":
     for csv_relative_dir in os.listdir(csv_result_dir):
         csv_abs_dir = csv_result_dir + "/" + csv_relative_dir
         result_dir = output_result_dir + "/" + csv_relative_dir
-        if os.path.isdir(csv_abs_dir) == False:
+        if not os.path.isdir(csv_abs_dir):
             print("{} is not a directory".format(csv_abs_dir))
             continue
         print("Processing experiment dir: {}".format(csv_relative_dir))
