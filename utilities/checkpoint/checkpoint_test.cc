@@ -357,10 +357,11 @@ TEST_F(CheckpointTest, ExportColumnFamilyWithLinks) {
       ASSERT_OK(checkpoint->ExportColumnFamily(db_->DefaultColumnFamily(),
                                                export_path_, &metadata_));
       verify_files_exported(*metadata_, 2);
-      ASSERT_EQ(metadata_->db_comparator_name, BytewiseComparator()->Name());
+      ASSERT_EQ(metadata_->db_comparator_name, options.comparator->Name());
       test::DestroyDir(env_, export_path_);
       delete metadata_;
       metadata_ = nullptr;
+      delete checkpoint;
     }
 
     // Test non default column family with non default comparator
@@ -382,6 +383,7 @@ TEST_F(CheckpointTest, ExportColumnFamilyWithLinks) {
       verify_files_exported(*metadata_, 1);
       ASSERT_EQ(metadata_->db_comparator_name,
                 ReverseBytewiseComparator()->Name());
+      delete checkpoint;
     }
 }
 
@@ -410,6 +412,7 @@ TEST_F(CheckpointTest, ExportColumnFamilyNegativeTest) {
     ASSERT_EQ(checkpoint->ExportColumnFamily(db_->DefaultColumnFamily(),
                                              export_path_, &metadata_),
               Status::InvalidArgument("Specified export_dir invalid"));
+    delete checkpoint;
 }
 
 TEST_F(CheckpointTest, CheckpointCF) {
