@@ -110,13 +110,12 @@ void PrioritizedCacheSimulator::Access(const BlockCacheTraceRecord& access) {
 std::string HybridRowBlockCacheSimulator::ComputeRowKey(
     const BlockCacheTraceRecord& access) {
   assert(access.get_id != BlockCacheTraceHelper::kReservedGetId);
-  Slice key;
-  if (access.referenced_key_exist_in_block == Boolean::kTrue) {
-    key = ExtractUserKey(access.referenced_key);
-  } else {
-    key = access.referenced_key;
-  }
-  return std::to_string(access.sst_fd_number) + "_" + key.ToString();
+  Slice key = ExtractUserKey(access.referenced_key);
+  uint64_t seq_no = access.is_snapshot_get == Boolean::kFalse
+                        ? 0
+                        : 1 + GetInternalKeySeqno(access.referenced_key);
+  return std::to_string(access.sst_fd_number) + "_" + key.ToString() + "_" +
+         std::to_string(seq_no);
 }
 
 void HybridRowBlockCacheSimulator::Access(const BlockCacheTraceRecord& access) {
