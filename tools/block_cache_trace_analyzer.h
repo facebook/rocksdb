@@ -16,10 +16,6 @@
 #include "utilities/simulator_cache/cache_simulator.h"
 
 namespace rocksdb {
-
-const uint64_t kSecondInMinute = 60;
-const uint64_t kSecondInHour = 3600;
-
 // Statistics of a block.
 struct BlockAccessInfo {
   uint64_t num_accesses = 0;
