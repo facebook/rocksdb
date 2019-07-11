@@ -121,7 +121,11 @@ std::string HybridRowBlockCacheSimulator::ComputeRowKey(
 void HybridRowBlockCacheSimulator::Access(const BlockCacheTraceRecord& access) {
   bool is_cache_miss = true;
   bool admitted = true;
-  if (access.get_id != BlockCacheTraceHelper::kReservedGetId) {
+  // TODO (haoyu): We only support Get for now. We need to extend the tracing
+  // for MultiGet, i.e., non-data block accesses must log all keys in a
+  // MultiGet.
+  if (access.caller == TableReaderCaller::kUserGet &&
+      access.get_id != BlockCacheTraceHelper::kReservedGetId) {
     // This is a Get/MultiGet request.
     const std::string& row_key = ComputeRowKey(access);
     if (getid_getkeys_map_[access.get_id].find(row_key) ==
