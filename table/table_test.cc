@@ -1145,7 +1145,7 @@ class BlockBasedTableTest
       } else {
         EXPECT_EQ(access.referenced_key, "");
         EXPECT_EQ(access.get_id, 0);
-        EXPECT_EQ(access.is_snapshot_get, false);
+        EXPECT_EQ(access.is_snapshot_get, Boolean::kFalse);
         EXPECT_EQ(access.referenced_data_size, 0);
         EXPECT_EQ(access.num_keys_in_block, 0);
         EXPECT_EQ(access.referenced_key_exist_in_block, Boolean::kFalse);
@@ -2350,7 +2350,6 @@ TEST_P(BlockBasedTableTest, TracingGetTest) {
   record.caller = TableReaderCaller::kUserGet;
   record.is_snapshot_get = Boolean::kFalse;
   record.referenced_key = encoded_key;
-  record.referenced_data_size = encoded_key.size();
   record.referenced_key_exist_in_block = Boolean::kTrue;
   record.is_cache_hit = Boolean::kTrue;
   expected_records.push_back(record);
@@ -2366,7 +2365,6 @@ TEST_P(BlockBasedTableTest, TracingGetTest) {
   record.caller = TableReaderCaller::kUserGet;
   record.is_snapshot_get = Boolean::kFalse;
   record.referenced_key = encoded_key;
-  record.referenced_data_size = encoded_key.size();
   expected_records.push_back(record);
   record.block_type = TraceType::kBlockTraceIndexBlock;
   expected_records.push_back(record);
