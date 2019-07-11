@@ -17,7 +17,7 @@ struct CacheConfiguration {
   std::vector<uint64_t>
       cache_capacities;  // simulate cache capacities in bytes.
 
-  bool operator=(const CacheConfiguration& o) const {
+  bool operator==(const CacheConfiguration& o) const {
     return cache_name == o.cache_name && num_shard_bits == o.num_shard_bits &&
            ghost_cache_capacity == o.ghost_cache_capacity;
   }
@@ -32,7 +32,7 @@ struct CacheConfiguration {
 // A ghost cache admits an entry on its second access.
 class GhostCache {
  public:
-  GhostCache(std::shared_ptr<Cache> sim_cache);
+  explicit GhostCache(std::shared_ptr<Cache> sim_cache);
   ~GhostCache() = default;
   // No copy and move.
   GhostCache(const GhostCache&) = delete;
@@ -67,21 +67,21 @@ class CacheSimulator {
     user_accesses_ = 0;
     user_misses_ = 0;
   }
-  double miss_ratio() {
+  double miss_ratio() const {
     if (num_accesses_ == 0) {
       return -1;
     }
     return static_cast<double>(num_misses_ * 100.0 / num_accesses_);
   }
-  uint64_t total_accesses() { return num_accesses_; }
+  uint64_t total_accesses() const { return num_accesses_; }
 
-  double user_miss_ratio() {
+  double user_miss_ratio() const {
     if (user_accesses_ == 0) {
       return -1;
     }
     return static_cast<double>(user_misses_ * 100.0 / user_accesses_);
   }
-  uint64_t user_accesses() { return user_accesses_; }
+  uint64_t user_accesses() const { return user_accesses_; }
 
  protected:
   void UpdateMetrics(bool is_user_access, bool is_cache_miss);
@@ -111,7 +111,8 @@ class PrioritizedCacheSimulator : public CacheSimulator {
                     bool is_user_access, bool* is_cache_miss, bool* admitted,
                     bool update_metrics);
 
-  Cache::Priority ComputeBlockPriority(const BlockCacheTraceRecord& access);
+  Cache::Priority ComputeBlockPriority(
+      const BlockCacheTraceRecord& access) const;
 };
 
 // A hybrid row and block cache simulator. It looks up/inserts key-value pairs

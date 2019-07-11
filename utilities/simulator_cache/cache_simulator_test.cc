@@ -6,7 +6,9 @@
 #include "utilities/simulator_cache/cache_simulator.h"
 
 #include <cstdlib>
-#include "db/db_test_util.h"
+#include "rocksdb/env.h"
+#include "test_util/testharness.h"
+#include "test_util/testutil.h"
 
 namespace rocksdb {
 namespace {
@@ -19,12 +21,12 @@ const uint64_t kCacheSize = 1024 * 1024 * 1024;
 const uint64_t kGhostCacheSize = 1024 * 1024;
 }  // namespace
 
-class CacheSimulatorTest : public DBTestBase {
+class CacheSimulatorTest : public testing::Test {
  public:
   const size_t kNumBlocks = 5;
   const size_t kValueSize = 1000;
 
-  CacheSimulatorTest() : DBTestBase("/cache_simulator_test") {}
+  CacheSimulatorTest() { env_ = rocksdb::Env::Default(); }
 
   BlockCacheTraceRecord GenerateGetRecord(uint64_t getid) {
     BlockCacheTraceRecord record;
@@ -63,6 +65,8 @@ class CacheSimulatorTest : public DBTestBase {
     record.no_insert = Boolean::kTrue;
     return record;
   }
+
+  Env* env_;
 };
 
 TEST_F(CacheSimulatorTest, GhostCache) {

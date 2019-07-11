@@ -8,6 +8,10 @@
 
 namespace rocksdb {
 
+namespace {
+const std::string kGhostCachePrefix = "ghost_";
+}
+
 GhostCache::GhostCache(std::shared_ptr<Cache> sim_cache)
     : sim_cache_(sim_cache) {}
 
@@ -61,7 +65,7 @@ void CacheSimulator::UpdateMetrics(bool is_user_access, bool is_cache_miss) {
 }
 
 Cache::Priority PrioritizedCacheSimulator::ComputeBlockPriority(
-    const BlockCacheTraceRecord& access) {
+    const BlockCacheTraceRecord& access) const {
   if (access.block_type == TraceType::kBlockTraceFilterBlock ||
       access.block_type == TraceType::kBlockTraceIndexBlock ||
       access.block_type == TraceType::kBlockTraceUncompressionDictBlock) {
@@ -95,8 +99,8 @@ void PrioritizedCacheSimulator::AccessKVPair(
 }
 
 void PrioritizedCacheSimulator::Access(const BlockCacheTraceRecord& access) {
-  bool is_cache_miss;
-  bool admitted;
+  bool is_cache_miss = true;
+  bool admitted = true;
   AccessKVPair(access.block_key, access.block_size,
                ComputeBlockPriority(access), access.no_insert,
                BlockCacheTraceHelper::IsUserAccess(access.caller),
@@ -116,8 +120,8 @@ std::string HybridRowBlockCacheSimulator::ComputeRowKey(
 }
 
 void HybridRowBlockCacheSimulator::Access(const BlockCacheTraceRecord& access) {
-  bool is_cache_miss;
-  bool admitted;
+  bool is_cache_miss = true;
+  bool admitted = true;
   if (access.get_id != BlockCacheTraceHelper::kReservedGetId) {
     // This is a Get/MultiGet request.
     const std::string& row_key = ComputeRowKey(access);
@@ -152,11 +156,11 @@ void HybridRowBlockCacheSimulator::Access(const BlockCacheTraceRecord& access) {
     }
     // The key-value pair observes a cache miss. We need to access its
     // index/filter/data blocks.
-    AccessKVPair(access.block_key, access.block_type,
-                 ComputeBlockPriority(access),
-                 /*no_insert=*/!insert_blocks_upon_row_kvpair_miss_,
-                 /*is_user_access=*/true, &is_cache_miss, &admitted,
-                 /*update_metrics=*/true);
+    AccessKVPair(
+        access.block_key, access.block_type, ComputeBlockPriority(access),
+        /*no_insert=*/!insert_blocks_upon_row_kvpair_miss_ || access.no_insert,
+        /*is_user_access=*/true, &is_cache_miss, &admitted,
+        /*update_metrics=*/true);
     if (access.referenced_data_size > 0 &&
         miss_inserted.second == InsertResult::ADMITTED) {
       sim_cache_->Insert(
@@ -181,7 +185,6 @@ BlockCacheTraceSimulator::BlockCacheTraceSimulator(
       cache_configurations_(cache_configurations) {}
 
 Status BlockCacheTraceSimulator::InitializeCaches() {
-  const std::string ghost_cache_prefix = "ghost_";
   for (auto const& config : cache_configurations_) {
     for (auto cache_capacity : config.cache_capacities) {
       // Scale down the cache capacity since the trace contains accesses on
@@ -190,12 +193,12 @@ Status BlockCacheTraceSimulator::InitializeCaches() {
       std::shared_ptr<CacheSimulator> sim_cache;
       std::unique_ptr<GhostCache> ghost_cache;
       std::string cache_name = config.cache_name;
-      if (cache_name.find(ghost_cache_prefix) != std::string::npos) {
+      if (cache_name.find(kGhostCachePrefix) != std::string::npos) {
         ghost_cache.reset(new GhostCache(
             NewLRUCache(config.ghost_cache_capacity, /*num_shard_bits=*/1,
                         /*strict_capacity_limit=*/false,
                         /*high_pri_pool_ratio=*/0)));
-        cache_name = cache_name.substr(ghost_cache_prefix.size());
+        cache_name = cache_name.substr(kGhostCachePrefix.size());
       }
       if (cache_name == "lru") {
         sim_cache = std::make_shared<CacheSimulator>(
