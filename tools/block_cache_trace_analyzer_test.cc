@@ -284,8 +284,8 @@ TEST_F(BlockCacheTracerTest, BlockCacheAnalyzer) {
             }
           }
           const std::string timeline_file = test_path_ + "/" +
-                                            user_access_only + l +
-                                            "_access_timeline" + unit;
+                                            user_access_only + l + unit +
+                                            "_access_timeline";
           std::ifstream infile(timeline_file);
           std::string line;
           const uint64_t expected_naccesses = 50;

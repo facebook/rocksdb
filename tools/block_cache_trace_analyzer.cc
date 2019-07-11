@@ -477,8 +477,8 @@ void BlockCacheTraceAnalyzer::WriteAccessTimeline(const std::string& label_str,
   const std::string user_access_prefix =
       user_access_only ? "user_access_only_" : "all_access_";
   const std::string output_path = output_dir_ + "/" + user_access_prefix +
-                                  label_str + "_access_timeline_" +
-                                  std::to_string(time_unit);
+                                  label_str + "_" + std::to_string(time_unit) +
+                                  "_access_timeline";
   std::ofstream out(output_path);
   if (!out.is_open()) {
     return;
