@@ -252,6 +252,7 @@ Status WriteUnpreparedTxnDB::Initialize(
     assert(real_trx);
     auto wupt =
         static_cast_with_check<WriteUnpreparedTxn, Transaction>(real_trx);
+    wupt->recovered_txn_ = true;
 
     real_trx->SetLogNumber(first_log_number);
     real_trx->SetId(first_seq);
@@ -270,12 +271,11 @@ Status WriteUnpreparedTxnDB::Initialize(
       ordered_seq_cnt[seq] = cnt;
       assert(wupt->unprep_seqs_.count(seq) == 0);
       wupt->unprep_seqs_[seq] = cnt;
-      KeySetBuilder keyset_handler(wupt,
-                                   txn_db_options_.rollback_merge_operands);
-      s = batch_info.batch_->Iterate(&keyset_handler);
+
+      s = wupt->RebuildFromWriteBatch(batch_info.batch_);
       assert(s.ok());
       if (!s.ok()) {
-        break;
+        return s;
       }
     }
 
@@ -395,30 +395,6 @@ Iterator* WriteUnpreparedTxnDB::NewIterator(const ReadOptions& options,
                                 &state->callback, !ALLOW_BLOB, !ALLOW_REFRESH);
   db_iter->RegisterCleanup(CleanupWriteUnpreparedTxnDBIterator, state, nullptr);
   return db_iter;
-}
-
-Status KeySetBuilder::PutCF(uint32_t cf, const Slice& key,
-                            const Slice& /*val*/) {
-  txn_->UpdateWriteKeySet(cf, key);
-  return Status::OK();
-}
-
-Status KeySetBuilder::DeleteCF(uint32_t cf, const Slice& key) {
-  txn_->UpdateWriteKeySet(cf, key);
-  return Status::OK();
-}
-
-Status KeySetBuilder::SingleDeleteCF(uint32_t cf, const Slice& key) {
-  txn_->UpdateWriteKeySet(cf, key);
-  return Status::OK();
-}
-
-Status KeySetBuilder::MergeCF(uint32_t cf, const Slice& key,
-                              const Slice& /*val*/) {
-  if (rollback_merge_operands_) {
-    txn_->UpdateWriteKeySet(cf, key);
-  }
-  return Status::OK();
 }
 
 }  //  namespace rocksdb
