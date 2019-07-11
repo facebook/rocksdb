@@ -2237,7 +2237,6 @@ Status BlockBasedTable::MaybeReadBlockAndLoadToCache(
   Slice key /* key to the block cache */;
   Slice ckey /* key to the compressed block cache */;
   bool is_cache_hit = false;
-  bool no_insert = true;
   if (block_cache != nullptr || block_cache_compressed != nullptr) {
     // create key for block cache
     if (block_cache != nullptr) {
@@ -2265,7 +2264,6 @@ Status BlockBasedTable::MaybeReadBlockAndLoadToCache(
     // Can't find the block from the cache. If I/O is allowed, read from the
     // file.
     if (block_entry->GetValue() == nullptr && !no_io && ro.fill_cache) {
-      no_insert = false;
       Statistics* statistics = rep_->ioptions.statistics;
       const bool maybe_compressed =
           block_type != BlockType::kFilter && rep_->blocks_maybe_compressed;
@@ -2332,6 +2330,7 @@ Status BlockBasedTable::MaybeReadBlockAndLoadToCache(
         assert(false);
         break;
     }
+    bool no_insert = no_io || !ro.fill_cache;
     if (BlockCacheTraceHelper::IsGetOrMultiGetOnDataBlock(
             trace_block_type, lookup_context->caller)) {
       // Defer logging the access to Get() and MultiGet() to trace additional
