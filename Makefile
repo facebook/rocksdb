@@ -510,6 +510,7 @@ TESTS = \
 	cassandra_serialize_test \
 	ttl_test \
 	backupable_db_test \
+	cache_simulator_test \
 	sim_cache_test \
 	version_edit_test \
 	version_set_test \
@@ -1319,6 +1320,9 @@ backupable_db_test: utilities/backupable/backupable_db_test.o $(LIBOBJECTS) $(TE
 	$(AM_LINK)
 
 checkpoint_test: utilities/checkpoint/checkpoint_test.o $(LIBOBJECTS) $(TESTHARNESS)
+	$(AM_LINK)
+
+cache_simulator_test: utilities/simulator_cache/cache_simulator_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
 sim_cache_test: utilities/simulator_cache/sim_cache_test.o db/db_test_util.o $(LIBOBJECTS) $(TESTHARNESS)

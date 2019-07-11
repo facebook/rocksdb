@@ -45,6 +45,14 @@ bool BlockCacheTraceHelper::ShouldTraceGetId(TableReaderCaller caller) {
          caller == TableReaderCaller::kUserMultiGet;
 }
 
+bool BlockCacheTraceHelper::IsUserAccess(TableReaderCaller caller) {
+  return caller == TableReaderCaller::kUserGet ||
+         caller == TableReaderCaller::kUserMultiGet ||
+         caller == TableReaderCaller::kUserIterator ||
+         caller == TableReaderCaller::kUserApproximateSize ||
+         caller == TableReaderCaller::kUserVerifyChecksum;
+}
+
 BlockCacheTraceWriter::BlockCacheTraceWriter(
     Env* env, const TraceOptions& trace_options,
     std::unique_ptr<TraceWriter>&& trace_writer)
