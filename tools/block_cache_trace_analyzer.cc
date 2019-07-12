@@ -422,12 +422,15 @@ void BlockCacheTraceAnalyzer::WriteGetSpatialLocality(
     const std::string label =
         BuildLabel(labels, cf_name, fd, level, TraceType::kBlockTraceDataBlock,
                    TableReaderCaller::kUserGet, /*block_id=*/0);
-    const uint64_t percent_referenced_for_existing_keys = static_cast<uint64_t>(
-        percent(block.key_num_access_map.size(), block.num_keys));
-    const uint64_t percent_accesses_for_existing_keys = static_cast<uint64_t>(
-        percent(block.num_referenced_key_exist_in_block, naccesses));
+
+    const uint64_t percent_referenced_for_existing_keys =
+        static_cast<uint64_t>(std::max(
+            percent(block.key_num_access_map.size(), block.num_keys), 0.0));
+    const uint64_t percent_accesses_for_existing_keys =
+        static_cast<uint64_t>(std::max(
+            percent(block.num_referenced_key_exist_in_block, naccesses), 0.0));
     const uint64_t percent_referenced_data_size = static_cast<uint64_t>(
-        percent(block.referenced_data_size, block.block_size));
+        std::max(percent(block.referenced_data_size, block.block_size), 0.0));
     if (label_pnrefkeys_nblocks.find(label) == label_pnrefkeys_nblocks.end()) {
       for (auto const& percent_bucket : percent_buckets) {
         label_pnrefkeys_nblocks[label][percent_bucket] = 0;
