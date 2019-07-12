@@ -1145,10 +1145,10 @@ class BlockBasedTableTest
       } else {
         EXPECT_EQ(access.referenced_key, "");
         EXPECT_EQ(access.get_id, 0);
-        EXPECT_EQ(access.is_snapshot_get, Boolean::kFalse);
+        EXPECT_TRUE(access.is_snapshot_get == Boolean::kFalse);
         EXPECT_EQ(access.referenced_data_size, 0);
         EXPECT_EQ(access.num_keys_in_block, 0);
-        EXPECT_EQ(access.referenced_key_exist_in_block, Boolean::kFalse);
+        EXPECT_TRUE(access.referenced_key_exist_in_block == Boolean::kFalse);
       }
       index++;
     }
