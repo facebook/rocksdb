@@ -17,6 +17,9 @@
 namespace rocksdb {
 
 extern const uint64_t kMicrosInSecond;
+extern const uint64_t kSecondInMinute;
+extern const uint64_t kSecondInHour;
+
 
 class BlockCacheTraceHelper {
  public:

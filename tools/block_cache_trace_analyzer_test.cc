@@ -56,6 +56,12 @@ class BlockCacheTracerTest : public testing::Test {
     reuse_distance_buckets_ = "1,1K,1M,1G";
     reuse_interval_labels_ = "block,all,cf,sst,level,bt,cf_sst,cf_level,cf_bt";
     reuse_interval_buckets_ = "1,10,100,1000";
+    reuse_lifetime_labels_ = "block,all,cf,sst,level,bt,cf_sst,cf_level,cf_bt";
+    reuse_lifetime_buckets_ = "1,10,100,1000";
+    analyzing_callers_ = "Get,Iterator";
+    access_count_buckets_ = "2,3,4,5,10";
+    analyze_get_spatial_locality_labels_ = "all";
+    analyze_get_spatial_locality_buckets_ = "10,20,30,40,50,60,70,80,90,100";
   }
 
   ~BlockCacheTracerTest() override {
@@ -158,12 +164,22 @@ class BlockCacheTracerTest : public testing::Test {
         "-print_access_count_stats",
         "-print_data_block_access_count_stats",
         "-cache_sim_warmup_seconds=0",
+        "-analyze_bottom_k_access_count_blocks=5",
+        "-analyze_top_k_access_count_blocks=5",
+        "-analyze_blocks_reuse_k_reuse_window=5",
         "-timeline_labels=" + timeline_labels_,
         "-reuse_distance_labels=" + reuse_distance_labels_,
         "-reuse_distance_buckets=" + reuse_distance_buckets_,
         "-reuse_interval_labels=" + reuse_interval_labels_,
         "-reuse_interval_buckets=" + reuse_interval_buckets_,
-    };
+        "-reuse_lifetime_labels=" + reuse_lifetime_labels_,
+        "-reuse_lifetime_buckets=" + reuse_lifetime_buckets_,
+        "-analyze_callers=" + analyzing_callers_,
+        "-access_count_buckets=" + access_count_buckets_,
+        "-analyze_get_spatial_locality_labels=" +
+            analyze_get_spatial_locality_labels_,
+        "-analyze_get_spatial_locality_buckets=" +
+            analyze_get_spatial_locality_buckets_};
     char arg_buffer[kArgBufferSize];
     char* argv[kMaxArgCount];
     int argc = 0;
@@ -189,6 +205,12 @@ class BlockCacheTracerTest : public testing::Test {
   std::string reuse_distance_buckets_;
   std::string reuse_interval_labels_;
   std::string reuse_interval_buckets_;
+  std::string reuse_lifetime_labels_;
+  std::string reuse_lifetime_buckets_;
+  std::string analyzing_callers_;
+  std::string access_count_buckets_;
+  std::string analyze_get_spatial_locality_labels_;
+  std::string analyze_get_spatial_locality_buckets_;
 };
 
 TEST_F(BlockCacheTracerTest, BlockCacheAnalyzer) {
@@ -247,51 +269,65 @@ TEST_F(BlockCacheTracerTest, BlockCacheAnalyzer) {
   }
   {
     // Validate the timeline csv files.
-    const uint32_t expected_num_lines = 50;
-    std::stringstream ss(timeline_labels_);
-    while (ss.good()) {
-      std::string l;
-      ASSERT_TRUE(getline(ss, l, ','));
-      const std::string timeline_file =
-          test_path_ + "/" + l + "_access_timeline";
-      std::ifstream infile(timeline_file);
-      std::string line;
-      uint32_t nlines = 0;
-      ASSERT_TRUE(getline(infile, line));
-      uint64_t expected_time = 1;
-      while (getline(infile, line)) {
-        std::stringstream ss_naccess(line);
-        uint32_t naccesses = 0;
-        std::string substr;
-        uint32_t time = 0;
-        while (ss_naccess.good()) {
-          ASSERT_TRUE(getline(ss_naccess, substr, ','));
-          if (time == 0) {
-            time = ParseUint32(substr);
-            continue;
+    const std::vector<std::string> time_units{"_60", "_3600"};
+    const std::vector<std::string> user_access_only_flags{"user_access_only_",
+                                                          "all_access_"};
+    for (auto const& user_access_only : user_access_only_flags) {
+      for (auto const& unit : time_units) {
+        std::stringstream ss(timeline_labels_);
+        while (ss.good()) {
+          std::string l;
+          ASSERT_TRUE(getline(ss, l, ','));
+          if (l.find("block") == std::string::npos) {
+            if (unit != "_60" || user_access_only != "all_access_") {
+              continue;
+            }
           }
-          naccesses += ParseUint32(substr);
+          const std::string timeline_file = test_path_ + "/" +
+                                            user_access_only + l + unit +
+                                            "_access_timeline";
+          std::ifstream infile(timeline_file);
+          std::string line;
+          const uint64_t expected_naccesses = 50;
+          const uint64_t expected_user_accesses = 30;
+          ASSERT_TRUE(getline(infile, line)) << timeline_file;
+          uint32_t naccesses = 0;
+          while (getline(infile, line)) {
+            std::stringstream ss_naccess(line);
+            std::string substr;
+            bool read_label = false;
+            while (ss_naccess.good()) {
+              ASSERT_TRUE(getline(ss_naccess, substr, ','));
+              if (!read_label) {
+                read_label = true;
+                continue;
+              }
+              naccesses += ParseUint32(substr);
+            }
+          }
+          if (user_access_only == "user_access_only_") {
+            ASSERT_EQ(expected_user_accesses, naccesses) << timeline_file;
+          } else {
+            ASSERT_EQ(expected_naccesses, naccesses) << timeline_file;
+          }
+          ASSERT_OK(env_->DeleteFile(timeline_file));
         }
-        nlines++;
-        ASSERT_EQ(1, naccesses);
-        ASSERT_EQ(expected_time, time);
-        expected_time += 1;
       }
-      ASSERT_EQ(expected_num_lines, nlines);
-      ASSERT_OK(env_->DeleteFile(timeline_file));
     }
   }
   {
     // Validate the reuse_interval and reuse_distance csv files.
     std::map<std::string, std::string> test_reuse_csv_files;
-    test_reuse_csv_files["_reuse_interval"] = reuse_interval_labels_;
+    test_reuse_csv_files["_access_reuse_interval"] = reuse_interval_labels_;
     test_reuse_csv_files["_reuse_distance"] = reuse_distance_labels_;
+    test_reuse_csv_files["_reuse_lifetime"] = reuse_lifetime_labels_;
+    test_reuse_csv_files["_avg_reuse_interval"] = reuse_interval_labels_;
+    test_reuse_csv_files["_avg_reuse_interval_naccesses"] =
+        reuse_interval_labels_;
     for (auto const& test : test_reuse_csv_files) {
       const std::string& file_suffix = test.first;
       const std::string& labels = test.second;
-      const uint32_t expected_num_rows = 10;
-      const uint32_t expected_num_rows_absolute_values = 5;
-      const uint32_t expected_reused_blocks = 0;
+      const uint32_t expected_num_rows = 5;
       std::stringstream ss(labels);
       while (ss.good()) {
         std::string l;
@@ -300,7 +336,6 @@ TEST_F(BlockCacheTracerTest, BlockCacheAnalyzer) {
         std::ifstream infile(reuse_csv_file);
         std::string line;
         ASSERT_TRUE(getline(infile, line));
-        uint32_t nblocks = 0;
         double npercentage = 0;
         uint32_t nrows = 0;
         while (getline(infile, line)) {
@@ -314,18 +349,160 @@ TEST_F(BlockCacheTracerTest, BlockCacheAnalyzer) {
               label_read = true;
               continue;
             }
-            if (nrows < expected_num_rows_absolute_values) {
-              nblocks += ParseUint32(substr);
-            } else {
-              npercentage += ParseDouble(substr);
-            }
+            npercentage += ParseDouble(substr);
           }
         }
         ASSERT_EQ(expected_num_rows, nrows);
-        ASSERT_EQ(expected_reused_blocks, nblocks);
-        ASSERT_LT(npercentage, 0);
+        if ("_reuse_lifetime" == test.first ||
+            "_avg_reuse_interval" == test.first ||
+            "_avg_reuse_interval_naccesses" == test.first) {
+          ASSERT_EQ(100, npercentage) << reuse_csv_file;
+        } else {
+          ASSERT_LT(npercentage, 0);
+        }
         ASSERT_OK(env_->DeleteFile(reuse_csv_file));
       }
+    }
+  }
+
+  {
+    // Validate the percentage of accesses summary.
+    const std::string percent_access_summary_file =
+        test_path_ + "/percentage_of_accesses_summary";
+    std::ifstream infile(percent_access_summary_file);
+    std::string line;
+    ASSERT_TRUE(getline(infile, line));
+    std::set<std::string> callers;
+    std::set<std::string> expected_callers{"Get", "MultiGet", "Iterator",
+                                           "Prefetch", "Compaction"};
+    while (getline(infile, line)) {
+      std::stringstream caller_percent(line);
+      std::string caller;
+      ASSERT_TRUE(getline(caller_percent, caller, ','));
+      std::string percent;
+      ASSERT_TRUE(getline(caller_percent, percent, ','));
+      ASSERT_FALSE(caller_percent.good());
+      callers.insert(caller);
+      ASSERT_EQ(20, ParseDouble(percent));
+    }
+    ASSERT_EQ(expected_callers.size(), callers.size());
+    for (auto caller : callers) {
+      ASSERT_TRUE(expected_callers.find(caller) != expected_callers.end());
+    }
+    ASSERT_OK(env_->DeleteFile(percent_access_summary_file));
+  }
+  {
+    // Validate the percentage of accesses summary by analyzing callers.
+    std::stringstream analyzing_callers(analyzing_callers_);
+    while (analyzing_callers.good()) {
+      std::string caller;
+      ASSERT_TRUE(getline(analyzing_callers, caller, ','));
+      std::vector<std::string> breakdowns{"level", "bt"};
+      for (auto breakdown : breakdowns) {
+        const std::string file_name = test_path_ + "/" + caller + "_" +
+                                      breakdown +
+                                      "_percentage_of_accesses_summary";
+        std::ifstream infile(file_name);
+        std::string line;
+        ASSERT_TRUE(getline(infile, line));
+        double sum = 0;
+        while (getline(infile, line)) {
+          std::stringstream label_percent(line);
+          std::string label;
+          ASSERT_TRUE(getline(label_percent, label, ','));
+          std::string percent;
+          ASSERT_TRUE(getline(label_percent, percent, ','));
+          ASSERT_FALSE(label_percent.good());
+          sum += ParseDouble(percent);
+        }
+        ASSERT_EQ(100, sum);
+        ASSERT_OK(env_->DeleteFile(file_name));
+      }
+    }
+  }
+  const std::vector<std::string> access_types{"user_access_only", "all_access"};
+  const std::vector<std::string> prefix{"bt", "cf"};
+  for (auto const& pre : prefix) {
+    for (auto const& access_type : access_types) {
+      {
+        // Validate the access count summary.
+        const std::string bt_access_count_summary = test_path_ + "/" + pre +
+                                                    "_" + access_type +
+                                                    "_access_count_summary";
+        std::ifstream infile(bt_access_count_summary);
+        std::string line;
+        ASSERT_TRUE(getline(infile, line));
+        double sum_percent = 0;
+        while (getline(infile, line)) {
+          std::stringstream bt_percent(line);
+          std::string bt;
+          ASSERT_TRUE(getline(bt_percent, bt, ','));
+          std::string percent;
+          ASSERT_TRUE(getline(bt_percent, percent, ','));
+          sum_percent += ParseDouble(percent);
+        }
+        ASSERT_EQ(100.0, sum_percent);
+        ASSERT_OK(env_->DeleteFile(bt_access_count_summary));
+      }
+    }
+  }
+  for (auto const& access_type : access_types) {
+    std::vector<std::string> block_types{"Index", "Data", "Filter"};
+    for (auto block_type : block_types) {
+      // Validate reuse block timeline.
+      const std::string reuse_blocks_timeline = test_path_ + "/" + block_type +
+                                                "_" + access_type +
+                                                "_5_reuse_blocks_timeline";
+      std::ifstream infile(reuse_blocks_timeline);
+      std::string line;
+      ASSERT_TRUE(getline(infile, line)) << reuse_blocks_timeline;
+      uint32_t index = 0;
+      while (getline(infile, line)) {
+        std::stringstream timeline(line);
+        bool start_time = false;
+        double sum = 0;
+        while (timeline.good()) {
+          std::string value;
+          ASSERT_TRUE(getline(timeline, value, ','));
+          if (!start_time) {
+            start_time = true;
+            continue;
+          }
+          sum += ParseDouble(value);
+        }
+        index++;
+        ASSERT_LT(sum, 100.0 * index + 1) << reuse_blocks_timeline;
+      }
+      ASSERT_OK(env_->DeleteFile(reuse_blocks_timeline));
+    }
+  }
+
+  std::stringstream ss(analyze_get_spatial_locality_labels_);
+  while (ss.good()) {
+    std::string l;
+    ASSERT_TRUE(getline(ss, l, ','));
+    const std::vector<std::string> spatial_locality_files{
+        "_percent_ref_keys", "_percent_accesses_on_ref_keys",
+        "_percent_data_size_on_ref_keys"};
+    for (auto const& spatial_locality_file : spatial_locality_files) {
+      const std::string filename = test_path_ + "/" + l + spatial_locality_file;
+      std::ifstream infile(filename);
+      std::string line;
+      ASSERT_TRUE(getline(infile, line));
+      double sum_percent = 0;
+      uint32_t nrows = 0;
+      while (getline(infile, line)) {
+        std::stringstream bt_percent(line);
+        std::string bt;
+        ASSERT_TRUE(getline(bt_percent, bt, ','));
+        std::string percent;
+        ASSERT_TRUE(getline(bt_percent, percent, ','));
+        sum_percent += ParseDouble(percent);
+        nrows++;
+      }
+      ASSERT_EQ(11, nrows);
+      ASSERT_EQ(100.0, sum_percent);
+      ASSERT_OK(env_->DeleteFile(filename));
     }
   }
   ASSERT_OK(env_->DeleteFile(block_cache_sim_config_path_));
@@ -366,6 +543,7 @@ TEST_F(BlockCacheTracerTest, MixedBlocks) {
     // Read blocks.
     BlockCacheTraceAnalyzer analyzer(trace_file_path_,
                                      /*output_miss_ratio_curve_path=*/"",
+                                     /*compute_reuse_distance=*/true,
                                      /*simulator=*/nullptr);
     // The analyzer ends when it detects an incomplete access record.
     ASSERT_EQ(Status::Incomplete(""), analyzer.Analyze());
