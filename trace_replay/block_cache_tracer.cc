@@ -29,6 +29,8 @@ bool ShouldTrace(const Slice& block_key, const TraceOptions& trace_options) {
 }  // namespace
 
 const uint64_t kMicrosInSecond = 1000 * 1000;
+const uint64_t kSecondInMinute = 60;
+const uint64_t kSecondInHour = 3600;
 const std::string BlockCacheTraceHelper::kUnknownColumnFamilyName =
     "UnknownColumnFamily";
 const uint64_t BlockCacheTraceHelper::kReservedGetId = 0;
@@ -43,6 +45,14 @@ bool BlockCacheTraceHelper::ShouldTraceReferencedKey(TraceType block_type,
 bool BlockCacheTraceHelper::ShouldTraceGetId(TableReaderCaller caller) {
   return caller == TableReaderCaller::kUserGet ||
          caller == TableReaderCaller::kUserMultiGet;
+}
+
+bool BlockCacheTraceHelper::IsUserAccess(TableReaderCaller caller) {
+  return caller == TableReaderCaller::kUserGet ||
+         caller == TableReaderCaller::kUserMultiGet ||
+         caller == TableReaderCaller::kUserIterator ||
+         caller == TableReaderCaller::kUserApproximateSize ||
+         caller == TableReaderCaller::kUserVerifyChecksum;
 }
 
 BlockCacheTraceWriter::BlockCacheTraceWriter(

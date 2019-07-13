@@ -405,6 +405,7 @@ MAIN_SOURCES =                                                          \
   utilities/object_registry_test.cc                                     \
   utilities/option_change_migration/option_change_migration_test.cc     \
   utilities/options/options_util_test.cc                                \
+  utilities/simulator_cache/cache_simulator_test.cc                     \
   utilities/simulator_cache/sim_cache_test.cc                           \
   utilities/table_properties_collectors/compact_on_deletion_collector_test.cc  \
   utilities/transactions/optimistic_transaction_test.cc                 \

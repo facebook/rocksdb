@@ -17,12 +17,16 @@
 namespace rocksdb {
 
 extern const uint64_t kMicrosInSecond;
+extern const uint64_t kSecondInMinute;
+extern const uint64_t kSecondInHour;
+
 
 class BlockCacheTraceHelper {
  public:
   static bool ShouldTraceReferencedKey(TraceType block_type,
                                        TableReaderCaller caller);
   static bool ShouldTraceGetId(TableReaderCaller caller);
+  static bool IsUserAccess(TableReaderCaller caller);
 
   static const std::string kUnknownColumnFamilyName;
   static const uint64_t kReservedGetId;

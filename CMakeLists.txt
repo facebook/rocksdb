@@ -1006,6 +1006,7 @@ if(WITH_TESTS)
         utilities/options/options_util_test.cc
         utilities/persistent_cache/hash_table_test.cc
         utilities/persistent_cache/persistent_cache_test.cc
+        utilities/simulator_cache/cache_simulator_test.cc
         utilities/simulator_cache/sim_cache_test.cc
         utilities/table_properties_collectors/compact_on_deletion_collector_test.cc
         utilities/transactions/optimistic_transaction_test.cc

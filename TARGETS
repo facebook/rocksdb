@@ -424,6 +424,11 @@ ROCKS_TESTS = [
         "serial",
     ],
     [
+        "cache_simulator_test",
+        "utilities/simulator_cache/cache_simulator_test.cc",
+        "serial",
+    ],
+    [
         "cassandra_format_test",
         "utilities/cassandra/cassandra_format_test.cc",
         "serial",
