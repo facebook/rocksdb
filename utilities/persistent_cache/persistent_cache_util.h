@@ -48,7 +48,7 @@ class BoundedQueue {
     T t = std::move(q_.front());
     size_ -= t.Size();
     q_.pop_front();
-    return std::move(t);
+    return t;
   }
 
   size_t Size() const {
