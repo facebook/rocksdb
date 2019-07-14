@@ -61,12 +61,10 @@ jlong Java_org_rocksdb_SstFileReader_newIterator(JNIEnv* /*env*/,
                                                  jobject /*jobj*/,
                                                  jlong jhandle,
                                                  jlong jread_options_handle) {
-    auto* txn = reinterpret_cast<rocksdb::SstFileReader*>(jhandle);
-//    auto* read_options =
-//        reinterpret_cast<rocksdb::ReadOptions*>(jread_options_handle);
-    //return reinterpret_cast<jlong>(txn->NewIterator(*read_options));
-    (void)jread_options_handle;
-    return reinterpret_cast<jlong>(txn->NewIterator(rocksdb::ReadOptions()));
+    auto* sst_file_reader = reinterpret_cast<rocksdb::SstFileReader*>(jhandle);
+    auto* read_options =
+        reinterpret_cast<rocksdb::ReadOptions*>(jread_options_handle);
+    return reinterpret_cast<jlong>(sst_file_reader->NewIterator(*read_options));
 }
 
 /*

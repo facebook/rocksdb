@@ -16,12 +16,8 @@ import java.util.ArrayList;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.fail;
 
-/*
- * NOTE: Dummy test to show SIGSEGV error when instantiating reader iterator
- */
 public class SstFileReaderTest {
   private static final String SST_FILE_NAME = "test.sst";
 
@@ -47,28 +43,18 @@ public class SstFileReaderTest {
     private String key;
     private String value;
     private OpType opType;
-  };
+  }
 
   @Rule public TemporaryFolder parentFolder = new TemporaryFolder();
 
   enum OpType { PUT, PUT_BYTES, MERGE, MERGE_BYTES, DELETE, DELETE_BYTES}
 
-  private File newSstFile(final List<KeyValueWithOp> keyValues,
-                          boolean useJavaBytewiseComparator) throws IOException, RocksDBException {
+  private File newSstFile(final List<KeyValueWithOp> keyValues) throws IOException, RocksDBException {
     final EnvOptions envOptions = new EnvOptions();
     final StringAppendOperator stringAppendOperator = new StringAppendOperator();
     final Options options = new Options().setMergeOperator(stringAppendOperator);
-    SstFileWriter sstFileWriter = null;
-    ComparatorOptions comparatorOptions = null;
-    BytewiseComparator comparator = null;
-    if (useJavaBytewiseComparator) {
-      comparatorOptions = new ComparatorOptions();
-      comparator = new BytewiseComparator(comparatorOptions);
-      options.setComparator(comparator);
-      sstFileWriter = new SstFileWriter(envOptions, options, comparator);
-    } else {
-      sstFileWriter = new SstFileWriter(envOptions, options);
-    }
+    SstFileWriter sstFileWriter;
+    sstFileWriter = new SstFileWriter(envOptions, options);
 
     final File sstFile = parentFolder.newFile(SST_FILE_NAME);
     try {
@@ -109,12 +95,6 @@ public class SstFileReaderTest {
       sstFileWriter.close();
       options.close();
       envOptions.close();
-      if (comparatorOptions != null) {
-        comparatorOptions.close();
-      }
-      if (comparator != null) {
-        comparator.close();
-      }
     }
     return sstFile;
   }
@@ -125,22 +105,23 @@ public class SstFileReaderTest {
     keyValues.add(new KeyValueWithOp("key1", "value1", OpType.PUT));
 
 
-    final File sstFile = newSstFile(keyValues, false);
+    final File sstFile = newSstFile(keyValues);
     try(final StringAppendOperator stringAppendOperator =
             new StringAppendOperator();
         final Options options = new Options()
             .setCreateIfMissing(true)
             .setMergeOperator(stringAppendOperator);
-        final SstFileReader reader = new SstFileReader(options);
-        final ReadOptions readOptions = new ReadOptions();
-        final SstFileReaderIterator iterator = reader.newIterator(readOptions);
-        ) {
-      // Open the sst file
+        final SstFileReader reader = new SstFileReader(options)
+    ) {
+      // Open the sst file and iterator
       reader.open(sstFile.getAbsolutePath());
+      final ReadOptions readOptions = new ReadOptions();
+      final SstFileReaderIterator iterator = reader.newIterator(readOptions);
+
       // Use the iterator to read sst file
       iterator.seekToFirst();
-      assertEquals(iterator.key(), "key1".getBytes());
-      assertEquals(iterator.value(), "value1".getBytes());
+      assertThat(iterator.key()).isEqualTo("key1".getBytes());
+      assertThat(iterator.value()).isEqualTo("value1".getBytes());
     }
   }
 

@@ -52,6 +52,7 @@ set(JNI_NATIVE_SOURCES
         rocksjni/sst_file_manager.cc
         rocksjni/sst_file_writerjni.cc
         rocksjni/sst_file_readerjni.cc
+        rocksjni/sst_file_reader_iterator.cc
         rocksjni/statistics.cc
         rocksjni/statisticsjni.cc
         rocksjni/table.cc
