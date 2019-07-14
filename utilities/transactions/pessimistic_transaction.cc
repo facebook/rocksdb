@@ -98,19 +98,17 @@ class LockingIterator : public Iterator {
 
   // Note: MyRocks doesn't ever call these:
   virtual void SeekToFirst() override;
-  virtual void SeekToLast() override { assert(0); }
+  virtual void SeekToLast() override;
 
   virtual void Seek(const Slice& target) override;
 
   // Position at the last key in the source that at or before target.
   // The iterator is Valid() after this call iff the source contains
   // an entry that comes at or before target.
-  virtual void SeekForPrev(const Slice& target) { assert(0); }
+  virtual void SeekForPrev(const Slice& target) override;
 
   virtual void Next() override;
-  virtual void Prev() override {
-    assert(0); // TODO: implement this
-  }
+  virtual void Prev() override;
 
   virtual Slice key() const override {
     assert(Valid());
@@ -126,8 +124,74 @@ class LockingIterator : public Iterator {
     return status_;
   }
 
-private:
-  void ScanForward(const Slice& target, bool call_next);
+ private:
+
+  template <bool forward> void Scan(const Slice& target, bool call_next) {
+    if (!iter_->Valid()) {
+      status_ = iter_->status();
+      return;
+    }
+
+    while (1) {
+      /*
+        note: the underlying iterator checks iterator bounds, so we don't need
+        to check them here
+      */
+      auto end_key = iter_->key();
+      if (forward)
+        status_ = txn_->GetRangeLock(cfh_, Endpoint(target), Endpoint(end_key));
+      else
+        status_ = txn_->GetRangeLock(cfh_, Endpoint(end_key), Endpoint(target));
+
+      if (!status_.ok()) {
+        // Failed to get a lock (most likely lock wait timeout)
+        return;
+      }
+
+      //Ok, now we have a lock which is inhibiting modifications in the range
+      // Somebody might have done external modifications, though:
+      //  - removed the key we've found
+      //  - added a key before that key.
+      if (forward)
+        iter_->Seek(target);
+      else
+        iter_->SeekForPrev(target);
+
+      if (call_next && iter_->Valid()) {
+        if (forward)
+          iter_->Next();
+        else
+          iter_->Prev();
+      }
+
+      if (iter_->Valid()) {
+        int invert= forward? 1 : -1;
+        if (cfh_->GetComparator()->Compare(iter_->key(), end_key) * invert <= 0) {
+          // Ok, the key is within the range.
+          status_ = Status::OK();
+          break;
+        } else {
+          // We've got a row but it is outside the range we've locked.
+          // Re-try the lock-and-read step.
+          continue;
+        }
+      } else {
+        // There's no row (within the iterator bounds perhaps). Exit now.
+        // (we might already have locked a range in this function but there's
+        // nothing we can do about it)
+        status_ = iter_->status();
+        break;
+      }
+    }
+  }
+
+  inline void ScanForward(const Slice& target, bool call_next) {
+    Scan<true>(target, call_next);
+  }
+
+  inline void ScanBackward(const Slice& target, bool call_next) {
+    Scan<false>(target, call_next);
+  }
 };
 
 
@@ -146,15 +210,30 @@ Iterator* PessimisticTransaction::GetLockingIterator(
     return nullptr;
 }
 
+/*
+  @brief
+    Seek to the first key K that is equal or greater than target,
+    locking the range [target; K].
+*/
 
 void LockingIterator::Seek(const Slice& target) {
   iter_->Seek(target);
   ScanForward(target, false);
 }
 
+void LockingIterator::SeekForPrev(const Slice& target) {
+  iter_->SeekForPrev(target);
+  ScanBackward(target, false);
+}
+
 /*
-  Lock from the current position up to the next key
-  (This is basically like Seek(right_after(current_position))
+  @brief
+    Move the iterator to the next key, locking the range between the current
+    and the next key.
+
+  @detail
+    Implementation is similar to Seek(next_key). Since we don't know what the
+    next_key is, we reach it by calling { Seek(current_key); Next(); }
 */
 void LockingIterator::Next() {
   assert(Valid());
@@ -166,10 +245,36 @@ void LockingIterator::Next() {
   ScanForward(Slice(current_key), true);
 }
 
-// Note: MyRocks never uses this as call as it has index_nr as prefix for all
-// keys.
-void LockingIterator::SeekToFirst() {
+/*
+  @brief
+    Move the iterator to the previous key, locking the range between the current
+    and the previous key.
+*/
 
+void LockingIterator::Prev() {
+  assert(Valid());
+
+  std::string current_key = iter_->key().ToString();
+  iter_->Prev();
+  ScanBackward(Slice(current_key), true);
+}
+
+
+/*
+  @detail
+  Ideally, this function should
+   - find the first key $first_key
+   - lock the range [-inf; $first_key]
+   - return, the iterator is positioned on $first_key
+
+  The problem here is that we cannot have "-infinity" bound.
+
+  Note: we don't have a practical use for this function - MyRocks always
+  searches within one index_name.table_name, which means we are only looking
+  at the keys with index_number as the prefix.
+*/
+
+void LockingIterator::SeekToFirst() {
   iter_->SeekToFirst();
   if (!iter_->Valid()) {
     status_ = iter_->status();
@@ -180,51 +285,13 @@ void LockingIterator::SeekToFirst() {
   ScanForward(Slice(current_key), true);
 }
 
-void LockingIterator::ScanForward(const Slice& target, bool call_next) {
+/*
+  @detail
+    See SeekToFirst.
+*/
 
-  if (!iter_->Valid()) {
-    status_ = iter_->status();
-    return;
-  }
-
-  while (1) {
-    /*
-      TODO: the underlying iterator respects iterator bounds, so we don't need
-      to check them here
-    */
-    auto end_key = iter_->key();
-    status_ = txn_->GetRangeLock(cfh_, Endpoint(target), Endpoint(end_key));
-    if (!status_.ok()) {
-      // Failed to get a lock (most likely lock wait timeout)
-      return;
-    }
-
-    //Ok, now we have a lock which is inhibiting modifications in the range
-    // Somebody might have done external modifications, though:
-    //  - removed the key we've found
-    //  - added a key before that key.
-    iter_->Seek(target);
-    if (call_next && iter_->Valid())
-      iter_->Next();
-
-    if (iter_->Valid()) {
-      if (cfh_->GetComparator()->Compare(iter_->key(), end_key) <= 0) {
-        // Ok, the key is within the range.
-        status_ = Status::OK();
-        break;
-      } else {
-        // We've got a row but it is outside the range we've locked.
-        // Re-try the lock-and-read step.
-        continue;
-      }
-    } else {
-      // There's no row (within the iterator bounds perhaps). Exit now.
-      // (we might already have locked a range in this function but there's
-      // nothing we can do about it)
-      status_ = iter_->status();
-      break;
-    }
-  }
+void LockingIterator::SeekToLast() {
+  status_ = Status::NotSupported("Not implemented");
 }
 
 /////////////////////////////////////////////////////////////////////////////
