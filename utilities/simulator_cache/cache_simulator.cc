@@ -111,7 +111,7 @@ std::string HybridRowBlockCacheSimulator::ComputeRowKey(
     const BlockCacheTraceRecord& access) {
   assert(access.get_id != BlockCacheTraceHelper::kReservedGetId);
   Slice key = ExtractUserKey(access.referenced_key);
-  uint64_t seq_no = access.is_snapshot_get == Boolean::kFalse
+  uint64_t seq_no = access.get_from_user_specified_snapshot == Boolean::kFalse
                         ? 0
                         : 1 + GetInternalKeySeqno(access.referenced_key);
   return std::to_string(access.sst_fd_number) + "_" + key.ToString() + "_" +

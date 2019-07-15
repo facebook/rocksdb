@@ -174,11 +174,11 @@ TEST_F(CacheSimulatorTest, GhostPrioritizedCacheSimulator) {
 TEST_F(CacheSimulatorTest, HybridRowBlockCacheSimulator) {
   uint64_t block_id = 100;
   BlockCacheTraceRecord first_get = GenerateGetRecord(kGetId);
-  first_get.is_snapshot_get = Boolean::kTrue;
+  first_get.get_from_user_specified_snapshot = Boolean::kTrue;
   BlockCacheTraceRecord second_get = GenerateGetRecord(kGetId + 1);
   second_get.referenced_data_size = 0;
   second_get.referenced_key_exist_in_block = Boolean::kFalse;
-  second_get.is_snapshot_get = Boolean::kTrue;
+  second_get.get_from_user_specified_snapshot = Boolean::kTrue;
   BlockCacheTraceRecord third_get = GenerateGetRecord(kGetId + 2);
   third_get.referenced_data_size = 0;
   third_get.referenced_key_exist_in_block = Boolean::kFalse;

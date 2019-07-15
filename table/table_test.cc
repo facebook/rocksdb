@@ -375,7 +375,7 @@ class TableConstructor: public Constructor {
     return ioptions.table_factory->NewTableReader(
         TableReaderOptions(ioptions, moptions.prefix_extractor.get(), soptions,
                            internal_comparator, !kSkipFilters, !kImmortal,
-                           level_, largest_seqno_, &tracer_),
+                           level_, largest_seqno_, &block_cache_tracer_),
         std::move(file_reader_), TEST_GetSink()->contents().size(),
         &table_reader_);
   }
@@ -429,7 +429,7 @@ class TableConstructor: public Constructor {
     return static_cast<test::StringSink*>(file_writer_->writable_file());
   }
 
-  BlockCacheTracer tracer_;
+  BlockCacheTracer block_cache_tracer_;
 
  private:
   void Reset() {
@@ -1088,7 +1088,7 @@ class BlockBasedTableTest
     std::unique_ptr<TraceWriter> trace_writer;
     EXPECT_OK(NewFileTraceWriter(env_, EnvOptions(), trace_file_path_,
                                  &trace_writer));
-    c->tracer_.StartTrace(env_, trace_opt, std::move(trace_writer));
+    c->block_cache_tracer_.StartTrace(env_, trace_opt, std::move(trace_writer));
     {
       std::string user_key = "k01";
       InternalKey internal_key(user_key, 0, kTypeValue);
@@ -1106,7 +1106,7 @@ class BlockBasedTableTest
   void VerifyBlockAccessTrace(
       TableConstructor* c,
       const std::vector<BlockCacheTraceRecord>& expected_records) {
-    c->tracer_.EndTrace();
+    c->block_cache_tracer_.EndTrace();
 
     std::unique_ptr<TraceReader> trace_reader;
     Status s =
@@ -1134,8 +1134,8 @@ class BlockBasedTableTest
         EXPECT_EQ(access.referenced_key,
                   expected_records[index].referenced_key);
         EXPECT_EQ(access.get_id, expected_records[index].get_id);
-        EXPECT_EQ(access.is_snapshot_get,
-                  expected_records[index].is_snapshot_get);
+        EXPECT_EQ(access.get_from_user_specified_snapshot,
+                  expected_records[index].get_from_user_specified_snapshot);
         if (access.block_type == TraceType::kBlockTraceDataBlock) {
           EXPECT_GT(access.referenced_data_size, 0);
           EXPECT_GT(access.num_keys_in_block, 0);
@@ -1145,7 +1145,7 @@ class BlockBasedTableTest
       } else {
         EXPECT_EQ(access.referenced_key, "");
         EXPECT_EQ(access.get_id, 0);
-        EXPECT_TRUE(access.is_snapshot_get == Boolean::kFalse);
+        EXPECT_TRUE(access.get_from_user_specified_snapshot == Boolean::kFalse);
         EXPECT_EQ(access.referenced_data_size, 0);
         EXPECT_EQ(access.num_keys_in_block, 0);
         EXPECT_TRUE(access.referenced_key_exist_in_block == Boolean::kFalse);
@@ -2348,7 +2348,7 @@ TEST_P(BlockBasedTableTest, TracingGetTest) {
   record.get_id = 1;
   record.block_type = TraceType::kBlockTraceFilterBlock;
   record.caller = TableReaderCaller::kUserGet;
-  record.is_snapshot_get = Boolean::kFalse;
+  record.get_from_user_specified_snapshot = Boolean::kFalse;
   record.referenced_key = encoded_key;
   record.referenced_key_exist_in_block = Boolean::kTrue;
   record.is_cache_hit = Boolean::kTrue;
@@ -2363,7 +2363,7 @@ TEST_P(BlockBasedTableTest, TracingGetTest) {
   record.get_id = 2;
   record.block_type = TraceType::kBlockTraceFilterBlock;
   record.caller = TableReaderCaller::kUserGet;
-  record.is_snapshot_get = Boolean::kFalse;
+  record.get_from_user_specified_snapshot = Boolean::kFalse;
   record.referenced_key = encoded_key;
   expected_records.push_back(record);
   record.block_type = TraceType::kBlockTraceIndexBlock;

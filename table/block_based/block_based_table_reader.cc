@@ -1983,7 +1983,8 @@ CachableEntry<UncompressionDict> BlockBasedTable::GetUncompressionDict(
         /*cf_name=*/"", rep_->level_for_tracing(),
         rep_->sst_number_for_tracing(), lookup_context->caller, is_cache_hit,
         /*no_insert=*/no_io, lookup_context->get_id,
-        lookup_context->is_snapshot_get, /*referenced_key=*/"");
+        lookup_context->get_from_user_specified_snapshot,
+        /*referenced_key=*/"");
     block_cache_tracer_->WriteBlockAccess(access_record, cache_key,
                                           rep_->cf_name_for_tracing(),
                                           lookup_context->referenced_key);
@@ -2349,7 +2350,8 @@ Status BlockBasedTable::MaybeReadBlockAndLoadToCache(
           /*block_size=*/usage, rep_->cf_id_for_tracing(),
           /*cf_name=*/"", rep_->level_for_tracing(),
           rep_->sst_number_for_tracing(), lookup_context->caller, is_cache_hit,
-          no_insert, lookup_context->get_id, lookup_context->is_snapshot_get,
+          no_insert, lookup_context->get_id,
+          lookup_context->get_from_user_specified_snapshot,
           /*referenced_key=*/"");
       block_cache_tracer_->WriteBlockAccess(access_record, key,
                                             rep_->cf_name_for_tracing(),
@@ -3293,7 +3295,8 @@ Status BlockBasedTable::Get(const ReadOptions& read_options, const Slice& key,
   if (block_cache_tracer_ && block_cache_tracer_->is_tracing_enabled()) {
     // Trace the key since it contains both user key and sequence number.
     lookup_context.referenced_key = key.ToString();
-    lookup_context.is_snapshot_get = read_options.snapshot != nullptr;
+    lookup_context.get_from_user_specified_snapshot =
+        read_options.snapshot != nullptr;
   }
   const bool may_match =
       FullFilterKeyMayMatch(read_options, filter, key, no_io, prefix_extractor,
@@ -3422,7 +3425,7 @@ Status BlockBasedTable::Get(const ReadOptions& read_options, const Slice& key,
             lookup_data_block_context.is_cache_hit,
             lookup_data_block_context.no_insert,
             lookup_data_block_context.get_id,
-            lookup_data_block_context.is_snapshot_get,
+            lookup_data_block_context.get_from_user_specified_snapshot,
             /*referenced_key=*/"", referenced_data_size,
             lookup_data_block_context.num_keys_in_block,
             does_referenced_key_exist);
@@ -3701,7 +3704,7 @@ BlockCacheLookupContext lookup_context{
               lookup_data_block_context.is_cache_hit,
               lookup_data_block_context.no_insert,
               lookup_data_block_context.get_id,
-              lookup_data_block_context.is_snapshot_get,
+              lookup_data_block_context.get_from_user_specified_snapshot,
               /*referenced_key=*/"", referenced_data_size,
               lookup_data_block_context.num_keys_in_block,
               does_referenced_key_exist);
