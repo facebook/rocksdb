@@ -72,15 +72,16 @@ class CacheSimulatorTest : public testing::Test {
 TEST_F(CacheSimulatorTest, GhostCache) {
   const std::string key1 = "test1";
   const std::string key2 = "test2";
+  BlockCacheTraceRecord dummy_record;
   std::unique_ptr<GhostCache> ghost_cache(new GhostCache(
       NewLRUCache(/*capacity=*/kGhostCacheSize, /*num_shard_bits=*/1,
                   /*strict_capacity_limit=*/false,
                   /*high_pri_pool_ratio=*/0)));
-  EXPECT_FALSE(ghost_cache->Admit(key1));
-  EXPECT_TRUE(ghost_cache->Admit(key1));
-  EXPECT_TRUE(ghost_cache->Admit(key1));
-  EXPECT_FALSE(ghost_cache->Admit(key2));
-  EXPECT_TRUE(ghost_cache->Admit(key2));
+  EXPECT_FALSE(ghost_cache->Admit(key1, dummy_record));
+  EXPECT_TRUE(ghost_cache->Admit(key1, dummy_record));
+  EXPECT_TRUE(ghost_cache->Admit(key1, dummy_record));
+  EXPECT_FALSE(ghost_cache->Admit(key2, dummy_record));
+  EXPECT_TRUE(ghost_cache->Admit(key2, dummy_record));
 }
 
 TEST_F(CacheSimulatorTest, CacheSimulator) {
@@ -94,21 +95,21 @@ TEST_F(CacheSimulatorTest, CacheSimulator) {
       new CacheSimulator(nullptr, sim_cache));
   cache_simulator->Access(access);
   cache_simulator->Access(access);
-  ASSERT_EQ(2, cache_simulator->total_accesses());
-  ASSERT_EQ(50, cache_simulator->miss_ratio());
-  ASSERT_EQ(2, cache_simulator->user_accesses());
-  ASSERT_EQ(50, cache_simulator->user_miss_ratio());
+  ASSERT_EQ(2, cache_simulator->miss_ratio_stats().total_accesses());
+  ASSERT_EQ(50, cache_simulator->miss_ratio_stats().miss_ratio());
+  ASSERT_EQ(2, cache_simulator->miss_ratio_stats().user_accesses());
+  ASSERT_EQ(50, cache_simulator->miss_ratio_stats().user_miss_ratio());
 
   cache_simulator->Access(compaction_access);
   cache_simulator->Access(compaction_access);
-  ASSERT_EQ(4, cache_simulator->total_accesses());
-  ASSERT_EQ(75, cache_simulator->miss_ratio());
-  ASSERT_EQ(2, cache_simulator->user_accesses());
-  ASSERT_EQ(50, cache_simulator->user_miss_ratio());
+  ASSERT_EQ(4, cache_simulator->miss_ratio_stats().total_accesses());
+  ASSERT_EQ(75, cache_simulator->miss_ratio_stats().miss_ratio());
+  ASSERT_EQ(2, cache_simulator->miss_ratio_stats().user_accesses());
+  ASSERT_EQ(50, cache_simulator->miss_ratio_stats().user_miss_ratio());
 
   cache_simulator->reset_counter();
-  ASSERT_EQ(0, cache_simulator->total_accesses());
-  ASSERT_EQ(-1, cache_simulator->miss_ratio());
+  ASSERT_EQ(0, cache_simulator->miss_ratio_stats().total_accesses());
+  ASSERT_EQ(-1, cache_simulator->miss_ratio_stats().miss_ratio());
   auto handle = sim_cache->Lookup(access.block_key);
   ASSERT_NE(nullptr, handle);
   sim_cache->Release(handle);
@@ -129,9 +130,9 @@ TEST_F(CacheSimulatorTest, GhostCacheSimulator) {
                   /*high_pri_pool_ratio=*/0)));
   cache_simulator->Access(access);
   cache_simulator->Access(access);
-  ASSERT_EQ(2, cache_simulator->total_accesses());
+  ASSERT_EQ(2, cache_simulator->miss_ratio_stats().total_accesses());
   // Both of them will be miss since we have a ghost cache.
-  ASSERT_EQ(100, cache_simulator->miss_ratio());
+  ASSERT_EQ(100, cache_simulator->miss_ratio_stats().miss_ratio());
 }
 
 TEST_F(CacheSimulatorTest, PrioritizedCacheSimulator) {
@@ -144,8 +145,8 @@ TEST_F(CacheSimulatorTest, PrioritizedCacheSimulator) {
       new PrioritizedCacheSimulator(nullptr, sim_cache));
   cache_simulator->Access(access);
   cache_simulator->Access(access);
-  ASSERT_EQ(2, cache_simulator->total_accesses());
-  ASSERT_EQ(50, cache_simulator->miss_ratio());
+  ASSERT_EQ(2, cache_simulator->miss_ratio_stats().total_accesses());
+  ASSERT_EQ(50, cache_simulator->miss_ratio_stats().miss_ratio());
 
   auto handle = sim_cache->Lookup(access.block_key);
   ASSERT_NE(nullptr, handle);
@@ -166,9 +167,251 @@ TEST_F(CacheSimulatorTest, GhostPrioritizedCacheSimulator) {
                       /*high_pri_pool_ratio=*/0)));
   cache_simulator->Access(access);
   cache_simulator->Access(access);
-  ASSERT_EQ(2, cache_simulator->total_accesses());
+  ASSERT_EQ(2, cache_simulator->miss_ratio_stats().total_accesses());
   // Both of them will be miss since we have a ghost cache.
-  ASSERT_EQ(100, cache_simulator->miss_ratio());
+  ASSERT_EQ(100, cache_simulator->miss_ratio_stats().miss_ratio());
+}
+
+TEST_F(CacheSimulatorTest, LeCaRLRU) {
+  uint64_t now = 1;
+  std::unordered_map<LeCaR::Policy, double, LeCaR::EnumClassHash>
+      policy_regret_weights;
+  policy_regret_weights[LeCaR::Policy::LRU] = 0.0;
+  std::unique_ptr<LeCaR> sim_cache(
+      new LeCaR(LeCaR::kSampleSize, policy_regret_weights));
+  for (uint32_t i = 0; i < LeCaR::kSampleSize; i++) {
+    LeCaR::LeCaRHandle* value = new LeCaR::LeCaRHandle;
+    value->value_size = 1;
+    value->last_access_time = ++now;
+    std::string key = "k" + std::to_string(i);
+    ASSERT_OK(sim_cache->Insert(key, sim_cache->NewLRUHandle(key, value), 1,
+                                nullptr));
+    ASSERT_EQ(LeCaR::Policy::LRU, sim_cache->current_policy());
+    ASSERT_EQ(i + 1, sim_cache->GetUsage());
+  }
+
+  // Check if all inserted keys exist.
+  for (uint32_t i = 0; i < LeCaR::kSampleSize; i++) {
+    LRUHandle* e = reinterpret_cast<LRUHandle*>(
+        sim_cache->Lookup("k" + std::to_string(i), ++now));
+    ASSERT_NE(nullptr, e);
+    LeCaR::LeCaRHandle* handle =
+        reinterpret_cast<LeCaR::LeCaRHandle*>(e->value);
+    ASSERT_NE(nullptr, handle);
+    ASSERT_EQ(now, handle->last_access_time);
+    ASSERT_EQ(1, handle->number_of_hits);
+    ASSERT_EQ(LeCaR::kSampleSize, sim_cache->GetUsage());
+  }
+
+  // Insert new key-value pairs should evict k0, k1, k2....
+  for (uint32_t i = 0; i < LeCaR::kSampleSize; i++) {
+    LeCaR::LeCaRHandle* value = new LeCaR::LeCaRHandle;
+    value->value_size = 1;
+    value->last_access_time = ++now;
+    std::string key = "k" + std::to_string(i + LeCaR::kSampleSize);
+    ASSERT_OK(sim_cache->Insert(key, sim_cache->NewLRUHandle(key, value), 1,
+                                nullptr));
+    ASSERT_EQ(LeCaR::Policy::LRU, sim_cache->current_policy());
+    ASSERT_EQ(LeCaR::kSampleSize, sim_cache->GetUsage());
+    ASSERT_EQ(nullptr, sim_cache->Lookup("k" + std::to_string(i), ++now));
+  }
+
+  // Check if all inserted keys exist.
+  auto& policy_states = sim_cache->Test_policy_states();
+  for (uint32_t i = 0; i < LeCaR::kSampleSize; i++) {
+    LRUHandle* e = reinterpret_cast<LRUHandle*>(
+        sim_cache->Lookup("k" + std::to_string(i + LeCaR::kSampleSize), ++now));
+    ASSERT_NE(nullptr, e);
+    LeCaR::LeCaRHandle* handle =
+        reinterpret_cast<LeCaR::LeCaRHandle*>(e->value);
+    ASSERT_NE(nullptr, handle);
+    ASSERT_EQ(now, handle->last_access_time);
+    ASSERT_EQ(1, handle->number_of_hits);
+    ASSERT_NE(policy_states[LeCaR::Policy::LRU].evicted_keys.end(),
+              policy_states[LeCaR::Policy::LRU].evicted_keys.find(
+                  "k" + std::to_string(i)));
+  }
+  ASSERT_EQ(LeCaR::kSampleSize,
+            policy_states[LeCaR::Policy::LRU].evicted_keys.size());
+  ASSERT_EQ(0, policy_states[LeCaR::Policy::LFU].evicted_keys.size());
+  ASSERT_EQ(0, policy_states[LeCaR::Policy::MRU].evicted_keys.size());
+}
+
+TEST_F(CacheSimulatorTest, LeCaRMRU) {
+  uint64_t now = port::kMaxUint64;
+  std::unordered_map<LeCaR::Policy, double, LeCaR::EnumClassHash>
+      policy_regret_weights;
+  policy_regret_weights[LeCaR::Policy::MRU] = 0.0;
+  std::unique_ptr<LeCaR> sim_cache(
+      new LeCaR(LeCaR::kSampleSize, policy_regret_weights));
+  for (uint32_t i = 0; i < LeCaR::kSampleSize; i++) {
+    LeCaR::LeCaRHandle* value = new LeCaR::LeCaRHandle;
+    value->value_size = 1;
+    value->last_access_time = --now;
+    std::string key = "k" + std::to_string(i);
+    ASSERT_OK(sim_cache->Insert(key, sim_cache->NewLRUHandle(key, value), 1,
+                                nullptr));
+    ASSERT_EQ(LeCaR::Policy::MRU, sim_cache->current_policy());
+  }
+
+  // Check if all inserted keys exist.
+  for (uint32_t i = 0; i < LeCaR::kSampleSize; i++) {
+    LRUHandle* e = reinterpret_cast<LRUHandle*>(
+        sim_cache->Lookup("k" + std::to_string(i), --now));
+    ASSERT_NE(nullptr, e);
+    LeCaR::LeCaRHandle* handle =
+        reinterpret_cast<LeCaR::LeCaRHandle*>(e->value);
+    ASSERT_NE(nullptr, handle);
+    ASSERT_EQ(now, handle->last_access_time);
+    ASSERT_EQ(1, handle->number_of_hits);
+  }
+
+  // Insert new key-value pairs should evict k0, k1, k2....
+  for (uint32_t i = 0; i < LeCaR::kSampleSize; i++) {
+    LeCaR::LeCaRHandle* value = new LeCaR::LeCaRHandle;
+    value->value_size = 1;
+    value->last_access_time = --now;
+    std::string key = "k" + std::to_string(i + LeCaR::kSampleSize);
+    ASSERT_OK(sim_cache->Insert(key, sim_cache->NewLRUHandle(key, value), 1,
+                                nullptr));
+    ASSERT_EQ(LeCaR::Policy::MRU, sim_cache->current_policy());
+    ASSERT_EQ(nullptr, sim_cache->Lookup("k" + std::to_string(i), --now));
+  }
+
+  // Check if all inserted keys exist.
+  auto& policy_states = sim_cache->Test_policy_states();
+  for (uint32_t i = 0; i < LeCaR::kSampleSize; i++) {
+    LRUHandle* e = reinterpret_cast<LRUHandle*>(
+        sim_cache->Lookup("k" + std::to_string(i + LeCaR::kSampleSize), --now));
+    ASSERT_NE(nullptr, e);
+    LeCaR::LeCaRHandle* handle =
+        reinterpret_cast<LeCaR::LeCaRHandle*>(e->value);
+    ASSERT_NE(nullptr, handle);
+    ASSERT_EQ(now, handle->last_access_time);
+    ASSERT_EQ(1, handle->number_of_hits);
+    ASSERT_NE(policy_states[LeCaR::Policy::MRU].evicted_keys.end(),
+              policy_states[LeCaR::Policy::MRU].evicted_keys.find(
+                  "k" + std::to_string(i)));
+  }
+  ASSERT_EQ(LeCaR::kSampleSize,
+            policy_states[LeCaR::Policy::MRU].evicted_keys.size());
+  ASSERT_EQ(0, policy_states[LeCaR::Policy::LFU].evicted_keys.size());
+  ASSERT_EQ(0, policy_states[LeCaR::Policy::LRU].evicted_keys.size());
+}
+
+TEST_F(CacheSimulatorTest, LeCaRLFU) {
+  uint64_t now = 0;
+  std::unordered_map<LeCaR::Policy, double, LeCaR::EnumClassHash>
+      policy_regret_weights;
+  policy_regret_weights[LeCaR::Policy::LFU] = 0.0;
+  std::unique_ptr<LeCaR> sim_cache(
+      new LeCaR(LeCaR::kSampleSize, policy_regret_weights));
+  for (uint32_t i = 0; i < LeCaR::kSampleSize; i++) {
+    LeCaR::LeCaRHandle* value = new LeCaR::LeCaRHandle;
+    value->value_size = 1;
+    value->last_access_time = ++now;
+    std::string key = "k" + std::to_string(i);
+    ASSERT_OK(sim_cache->Insert(key, sim_cache->NewLRUHandle(key, value), 1,
+                                nullptr));
+    ASSERT_EQ(LeCaR::Policy::LFU, sim_cache->current_policy());
+
+    for (uint32_t j = 0; j < i; j++) {
+      LRUHandle* e =
+          reinterpret_cast<LRUHandle*>(sim_cache->Lookup(key, ++now));
+      ASSERT_NE(nullptr, e);
+      LeCaR::LeCaRHandle* handle =
+          reinterpret_cast<LeCaR::LeCaRHandle*>(e->value);
+      ASSERT_NE(nullptr, handle);
+      ASSERT_EQ(now, handle->last_access_time);
+      ASSERT_EQ(j + 1, handle->number_of_hits);
+    }
+  }
+
+  // Insert new key-value pairs should evict k0, k1, k2....
+  for (uint32_t i = 0; i < LeCaR::kSampleSize; i++) {
+    LeCaR::LeCaRHandle* value = new LeCaR::LeCaRHandle;
+    value->value_size = 1;
+    value->last_access_time = ++now;
+    std::string key = "k" + std::to_string(i + LeCaR::kSampleSize);
+    ASSERT_OK(sim_cache->Insert(key, sim_cache->NewLRUHandle(key, value), 1,
+                                nullptr));
+    // Give enough hits so it will evict the keys added previously.
+    for (uint32_t j = 0; j <= LeCaR::kSampleSize; j++) {
+      LRUHandle* e =
+          reinterpret_cast<LRUHandle*>(sim_cache->Lookup(key, ++now));
+      ASSERT_NE(nullptr, e);
+      LeCaR::LeCaRHandle* handle =
+          reinterpret_cast<LeCaR::LeCaRHandle*>(e->value);
+      ASSERT_NE(nullptr, handle);
+      ASSERT_EQ(now, handle->last_access_time);
+      ASSERT_EQ(j + 1, handle->number_of_hits);
+    }
+    ASSERT_EQ(LeCaR::Policy::LFU, sim_cache->current_policy());
+    ASSERT_EQ(nullptr, sim_cache->Lookup("k" + std::to_string(i), ++now));
+  }
+
+  // Check if all inserted keys exist.
+  auto& policy_states = sim_cache->Test_policy_states();
+  for (uint32_t i = 0; i < LeCaR::kSampleSize; i++) {
+    LRUHandle* e = reinterpret_cast<LRUHandle*>(
+        sim_cache->Lookup("k" + std::to_string(i + LeCaR::kSampleSize), ++now));
+    ASSERT_NE(nullptr, e);
+    LeCaR::LeCaRHandle* handle =
+        reinterpret_cast<LeCaR::LeCaRHandle*>(e->value);
+    ASSERT_NE(nullptr, handle);
+    ASSERT_EQ(now, handle->last_access_time);
+    ASSERT_EQ(LeCaR::kSampleSize + 2, handle->number_of_hits);
+    ASSERT_NE(policy_states[LeCaR::Policy::LFU].evicted_keys.end(),
+              policy_states[LeCaR::Policy::LFU].evicted_keys.find(
+                  "k" + std::to_string(i)));
+  }
+  ASSERT_EQ(LeCaR::kSampleSize,
+            policy_states[LeCaR::Policy::LFU].evicted_keys.size());
+  ASSERT_EQ(0, policy_states[LeCaR::Policy::MRU].evicted_keys.size());
+  ASSERT_EQ(0, policy_states[LeCaR::Policy::LRU].evicted_keys.size());
+}
+
+TEST_F(CacheSimulatorTest, LeCaRMix) {
+  uint64_t now = 1;
+  std::unordered_map<LeCaR::Policy, double, LeCaR::EnumClassHash>
+      policy_regret_weights;
+  policy_regret_weights[LeCaR::Policy::LRU] = 0.32;
+  policy_regret_weights[LeCaR::Policy::LFU] = 0.34;
+  policy_regret_weights[LeCaR::Policy::MRU] = 0.34;
+  std::unique_ptr<LeCaR> sim_cache(new LeCaR(1024, policy_regret_weights));
+
+  auto& policy_states = sim_cache->Test_policy_states();
+  ASSERT_DOUBLE_EQ(0.32, policy_states[LeCaR::Policy::LRU].regret_weight);
+  ASSERT_DOUBLE_EQ(0.34, policy_states[LeCaR::Policy::LFU].regret_weight);
+  ASSERT_DOUBLE_EQ(0.34, policy_states[LeCaR::Policy::MRU].regret_weight);
+  ASSERT_DOUBLE_EQ(0.34, policy_states[LeCaR::Policy::LRU].reward_weight);
+  ASSERT_DOUBLE_EQ(0.33, policy_states[LeCaR::Policy::LFU].reward_weight);
+  ASSERT_DOUBLE_EQ(0.33, policy_states[LeCaR::Policy::MRU].reward_weight);
+  // Perform a bunch of insertions and lookups.
+  for (uint32_t k = 1; k < 10000; k++) {
+    LeCaR::LeCaRHandle* value = new LeCaR::LeCaRHandle;
+    value->value_size = (k % 1024) + 1;
+    value->last_access_time = ++now;
+    std::string key = "k" + std::to_string(k);
+    ASSERT_OK(sim_cache->Insert(key, sim_cache->NewLRUHandle(key, value),
+                                value->value_size, nullptr));
+  }
+  uint32_t misses = 0;
+  uint32_t accesses = 0;
+  for (uint32_t k = 1; k < 10000; k++) {
+    if (!sim_cache->Lookup("k" + std::to_string(k), now++)) {
+      misses++;
+    }
+    accesses++;
+  }
+  ASSERT_LT(misses, accesses);
+  LeCaR::LeCaRHandle* large_value = new LeCaR::LeCaRHandle;
+  large_value->value_size = 1024;
+  large_value->last_access_time = ++now;
+  std::string key = "k-1";
+  ASSERT_OK(sim_cache->Insert(key, sim_cache->NewLRUHandle(key, large_value),
+                              1024, nullptr));
+  ASSERT_NE(nullptr, sim_cache->Lookup("k-1", now++));
 }
 
 TEST_F(CacheSimulatorTest, HybridRowBlockCacheSimulator) {
@@ -200,10 +443,11 @@ TEST_F(CacheSimulatorTest, HybridRowBlockCacheSimulator) {
     cache_simulator->Access(first_get);
     block_id++;
   }
-  ASSERT_EQ(10, cache_simulator->total_accesses());
-  ASSERT_EQ(100, cache_simulator->miss_ratio());
-  ASSERT_EQ(10, cache_simulator->user_accesses());
-  ASSERT_EQ(100, cache_simulator->user_miss_ratio());
+
+  ASSERT_EQ(10, cache_simulator->miss_ratio_stats().total_accesses());
+  ASSERT_EQ(100, cache_simulator->miss_ratio_stats().miss_ratio());
+  ASSERT_EQ(10, cache_simulator->miss_ratio_stats().user_accesses());
+  ASSERT_EQ(100, cache_simulator->miss_ratio_stats().user_miss_ratio());
   auto handle = sim_cache->Lookup(
       std::to_string(first_get.sst_fd_number) + "_" +
       ExtractUserKey(first_get.referenced_key).ToString() + "_" +
@@ -225,10 +469,12 @@ TEST_F(CacheSimulatorTest, HybridRowBlockCacheSimulator) {
     cache_simulator->Access(second_get);
     block_id++;
   }
-  ASSERT_EQ(15, cache_simulator->total_accesses());
-  ASSERT_EQ(66, static_cast<uint64_t>(cache_simulator->miss_ratio()));
-  ASSERT_EQ(15, cache_simulator->user_accesses());
-  ASSERT_EQ(66, static_cast<uint64_t>(cache_simulator->user_miss_ratio()));
+  ASSERT_EQ(15, cache_simulator->miss_ratio_stats().total_accesses());
+  ASSERT_EQ(66, static_cast<uint64_t>(
+                    cache_simulator->miss_ratio_stats().miss_ratio()));
+  ASSERT_EQ(15, cache_simulator->miss_ratio_stats().user_accesses());
+  ASSERT_EQ(66, static_cast<uint64_t>(
+                    cache_simulator->miss_ratio_stats().user_miss_ratio()));
   handle = sim_cache->Lookup(
       std::to_string(second_get.sst_fd_number) + "_" +
       ExtractUserKey(second_get.referenced_key).ToString() + "_" +
@@ -252,10 +498,12 @@ TEST_F(CacheSimulatorTest, HybridRowBlockCacheSimulator) {
     cache_simulator->Access(third_get);
     block_id++;
   }
-  ASSERT_EQ(20, cache_simulator->total_accesses());
-  ASSERT_EQ(75, static_cast<uint64_t>(cache_simulator->miss_ratio()));
-  ASSERT_EQ(20, cache_simulator->user_accesses());
-  ASSERT_EQ(75, static_cast<uint64_t>(cache_simulator->user_miss_ratio()));
+  ASSERT_EQ(20, cache_simulator->miss_ratio_stats().total_accesses());
+  ASSERT_EQ(75, static_cast<uint64_t>(
+                    cache_simulator->miss_ratio_stats().miss_ratio()));
+  ASSERT_EQ(20, cache_simulator->miss_ratio_stats().user_accesses());
+  ASSERT_EQ(75, static_cast<uint64_t>(
+                    cache_simulator->miss_ratio_stats().user_miss_ratio()));
   // Assert that the third key is not inserted into the cache.
   handle = sim_cache->Lookup(std::to_string(third_get.sst_fd_number) + "_" +
                              third_get.referenced_key);
@@ -318,19 +566,21 @@ TEST_F(CacheSimulatorTest, GhostHybridRowBlockCacheSimulator) {
   // Two get requests access the same key.
   cache_simulator->Access(first_get);
   cache_simulator->Access(second_get);
-  ASSERT_EQ(2, cache_simulator->total_accesses());
-  ASSERT_EQ(100, cache_simulator->miss_ratio());
-  ASSERT_EQ(2, cache_simulator->user_accesses());
-  ASSERT_EQ(100, cache_simulator->user_miss_ratio());
+  ASSERT_EQ(2, cache_simulator->miss_ratio_stats().total_accesses());
+  ASSERT_EQ(100, cache_simulator->miss_ratio_stats().miss_ratio());
+  ASSERT_EQ(2, cache_simulator->miss_ratio_stats().user_accesses());
+  ASSERT_EQ(100, cache_simulator->miss_ratio_stats().user_miss_ratio());
   // We insert the key-value pair upon the second get request. A third get
   // request should observe a hit.
   for (uint32_t i = 0; i < 10; i++) {
     cache_simulator->Access(third_get);
   }
-  ASSERT_EQ(12, cache_simulator->total_accesses());
-  ASSERT_EQ(16, static_cast<uint64_t>(cache_simulator->miss_ratio()));
-  ASSERT_EQ(12, cache_simulator->user_accesses());
-  ASSERT_EQ(16, static_cast<uint64_t>(cache_simulator->user_miss_ratio()));
+  ASSERT_EQ(12, cache_simulator->miss_ratio_stats().total_accesses());
+  ASSERT_EQ(16, static_cast<uint64_t>(
+                    cache_simulator->miss_ratio_stats().miss_ratio()));
+  ASSERT_EQ(12, cache_simulator->miss_ratio_stats().user_accesses());
+  ASSERT_EQ(16, static_cast<uint64_t>(
+                    cache_simulator->miss_ratio_stats().user_miss_ratio()));
 }
 
 }  // namespace rocksdb

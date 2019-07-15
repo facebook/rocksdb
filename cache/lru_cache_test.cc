@@ -116,6 +116,42 @@ TEST_F(LRUCacheTest, BasicLRU) {
   ValidateLRUList({"e", "z", "d", "u", "v"});
 }
 
+TEST_F(LRUCacheTest, RandomSample) {
+  LRUHandleTable table;
+  for (uint32_t k = 1; k <= 100; k++) {
+    std::string key = "k-" + std::to_string(k);
+    LRUHandle* e = reinterpret_cast<LRUHandle*>(
+        new char[sizeof(LRUHandle) - 1 + key.size()]);
+    e->value = nullptr;
+    e->deleter = nullptr;
+    e->charge = k;
+    e->key_length = key.size();
+    e->flags = 0;
+    e->hash = k;
+    e->refs = 1;
+    e->next = e->prev = nullptr;
+    e->SetInCache(true);
+    memcpy(e->key_data, key.data(), key.size());
+    ASSERT_EQ(nullptr, table.Insert(e));
+  }
+  ASSERT_EQ(100, table.size());
+  std::vector<LRUHandle*> samples = table.RandomSample(16);
+  for (auto sample : samples) {
+    ASSERT_GE(sample->hash, 1);
+    ASSERT_LE(sample->hash, 100);
+  }
+
+  samples = table.RandomSample(200);
+  ASSERT_EQ(100, samples.size());
+  std::set<uint32_t> hashes;
+  for (auto sample : samples) {
+    ASSERT_GE(sample->hash, 1);
+    ASSERT_LE(sample->hash, 100);
+    hashes.insert(sample->hash);
+  }
+  ASSERT_EQ(100, hashes.size());
+}
+
 TEST_F(LRUCacheTest, MidpointInsertion) {
   // Allocate 2 cache entries to high-pri pool.
   NewCache(5, 0.45);

@@ -16,6 +16,18 @@
 #include "utilities/simulator_cache/cache_simulator.h"
 
 namespace rocksdb {
+
+struct GetKeyInfo {
+  std::vector<uint64_t> access_sequence_number_timeline;
+  std::vector<uint64_t> access_timeline;
+
+  void AddAccess(const BlockCacheTraceRecord& access,
+                 uint64_t access_sequnce_number) {
+    access_sequence_number_timeline.push_back(access_sequnce_number);
+    access_timeline.push_back(access.access_timestamp);
+  }
+};
+
 // Statistics of a block.
 struct BlockAccessInfo {
   uint64_t num_accesses = 0;
@@ -39,7 +51,16 @@ struct BlockAccessInfo {
   // Number of reuses grouped by reuse distance.
   std::map<uint64_t, uint64_t> reuse_distance_count;
 
-  void AddAccess(const BlockCacheTraceRecord& access) {
+  // The access sequence numbers of this block.
+  std::vector<uint64_t> access_sequence_number_timeline;
+  std::map<TableReaderCaller, std::vector<uint64_t>>
+      caller_access_sequence__number_timeline;
+  // The access timestamp in microseconds of this block.
+  std::vector<uint64_t> access_timeline;
+  std::map<TableReaderCaller, std::vector<uint64_t>> caller_access_timeline;
+
+  void AddAccess(const BlockCacheTraceRecord& access,
+                 uint64_t access_sequnce_number) {
     if (block_size != 0 && access.block_size != 0) {
       assert(block_size == access.block_size);
     }
@@ -57,6 +78,12 @@ struct BlockAccessInfo {
     const uint64_t timestamp_in_seconds =
         access.access_timestamp / kMicrosInSecond;
     caller_num_accesses_timeline[access.caller][timestamp_in_seconds] += 1;
+    // Feature vectors.
+    access_sequence_number_timeline.push_back(access_sequnce_number);
+    caller_access_sequence__number_timeline[access.caller].push_back(
+        access_sequnce_number);
+    access_timeline.push_back(access.access_timestamp);
+    caller_access_timeline[access.caller].push_back(access.access_timestamp);
     if (BlockCacheTraceHelper::IsGetOrMultiGetOnDataBlock(access.block_type,
                                                           access.caller)) {
       num_keys = access.num_keys_in_block;
@@ -94,11 +121,22 @@ struct ColumnFamilyAccessInfoAggregate {
   std::map<uint64_t, SSTFileAccessInfoAggregate> fd_aggregates_map;
 };
 
+struct past_features {
+  std::vector<uint64_t> elapsed_time_since_last_access;
+  std::vector<uint64_t> num_accesses_since_last_access;
+  std::vector<uint64_t> num_past_accesses;
+};
+
+struct future_features {
+  std::vector<uint64_t> elapsed_time_till_next_access;
+  std::vector<uint64_t> num_accesses_till_next_access;
+};
+
 class BlockCacheTraceAnalyzer {
  public:
   BlockCacheTraceAnalyzer(
       const std::string& trace_file_path, const std::string& output_dir,
-      bool compute_reuse_distance,
+      bool compute_reuse_distance, bool mrc_only,
       std::unique_ptr<BlockCacheTraceSimulator>&& cache_simulator);
   ~BlockCacheTraceAnalyzer() = default;
   // No copy and move.
@@ -184,6 +222,24 @@ class BlockCacheTraceAnalyzer {
   // "cache_name,num_shard_bits,capacity,miss_ratio,total_accesses".
   void WriteMissRatioCurves() const;
 
+  // Write miss ratio timeline of simulated cache configurations into several
+  // csv files, one per cache capacity saved in 'output_dir'.
+  //
+  // The file format is
+  // "time,label_1_access_per_second,label_2_access_per_second,...,label_N_access_per_second"
+  // where N is the number of unique cache names
+  // (cache_name+num_shard_bits+ghost_capacity).
+  void WriteMissRatioTimeline(uint64_t time_unit) const;
+
+  // Write miss ratio timeline of simulated cache configurations into several
+  // csv files, one per cache capacity saved in 'output_dir'.
+  //
+  // The file format is
+  // "time,label_1_access_per_second,label_2_access_per_second,...,label_N_access_per_second"
+  // where N is the number of unique cache names
+  // (cache_name+num_shard_bits+ghost_capacity).
+  void WriteMissTimeline(uint64_t time_unit) const;
+
   // Write the access timeline into a csv file saved in 'output_dir'.
   //
   // The file is named "label_access_timeline".The file format is
@@ -236,6 +292,11 @@ class BlockCacheTraceAnalyzer {
       const std::string& label_str,
       const std::vector<uint64_t>& percent_buckets) const;
 
+  void WriteCorrelationCoefficients(const std::string& label_str,
+                                    uint32_t max_number_of_values) const;
+
+  void WriteCorrelationCoefficientsForGet(uint32_t max_number_of_values) const;
+
   const std::map<std::string, ColumnFamilyAccessInfoAggregate>&
   TEST_cf_aggregates_map() const {
     return cf_aggregates_map_;
@@ -278,17 +339,36 @@ class BlockCacheTraceAnalyzer {
                          const BlockAccessInfo& /*block_access_info*/)>
           block_callback) const;
 
+  double ComputePearsonCorrelationCoefficient(
+      const std::vector<uint64_t>& x, const std::vector<uint64_t>& y) const;
+
+  void UpdateFeatureVectors(
+      const std::vector<uint64_t>& access_sequence_number_timeline,
+      const std::vector<uint64_t>& access_timeline, const std::string& label,
+      std::map<std::string, past_features>* label_past_features,
+      std::map<std::string, future_features>* label_future_features) const;
+
+  void WriteCorrelationCoefficientsToFile(
+      const std::string& label,
+      const std::map<std::string, past_features>& label_past_features,
+      const std::map<std::string, future_features>& label_future_features,
+      uint32_t max_number_of_values) const;
+
   rocksdb::Env* env_;
   const std::string trace_file_path_;
   const std::string output_dir_;
   const bool compute_reuse_distance_;
+  const bool mrc_only_;
 
   BlockCacheTraceHeader header_;
   std::unique_ptr<BlockCacheTraceSimulator> cache_simulator_;
   std::map<std::string, ColumnFamilyAccessInfoAggregate> cf_aggregates_map_;
   std::map<std::string, BlockAccessInfo*> block_info_map_;
+  std::unordered_map<std::string, GetKeyInfo> get_key_info_map_;
+  uint64_t access_sequence_number_ = 0;
   uint64_t trace_start_timestamp_in_seconds_ = 0;
   uint64_t trace_end_timestamp_in_seconds_ = 0;
+  MissRatioStats miss_ratio_stats_;
 };
 
 int block_cache_trace_analyzer_tool(int argc, char** argv);
