@@ -14,6 +14,7 @@
 #endif
 
 #include <algorithm>
+#include <cinttypes>
 #include <cstdio>
 #include <map>
 #include <set>
@@ -697,10 +698,15 @@ void DBImpl::PersistStats() {
   if (!statistics->getTickerMap(&stats_map)) {
     return;
   }
+  ROCKS_LOG_INFO(immutable_db_options_.info_log,
+                 "------- PERSISTING STATS -------");
 
   if (immutable_db_options_.persist_stats_to_disk) {
     WriteBatch batch;
     if (stats_slice_initialized_) {
+      ROCKS_LOG_INFO(immutable_db_options_.info_log,
+                     "Reading %" ROCKSDB_PRIszt " stats from statistics\n",
+                     stats_slice_.size());
       for (const auto& stat : stats_map) {
         char key[100];
         int length =
@@ -722,8 +728,13 @@ void DBImpl::PersistStats() {
     Status s = Write(wo, &batch);
     if (!s.ok()) {
       ROCKS_LOG_INFO(immutable_db_options_.info_log,
-                     "Writing to persistent stats CF failed -- %s\n",
+                     "Writing to persistent stats CF failed -- %s",
                      s.ToString().c_str());
+    } else {
+      ROCKS_LOG_INFO(immutable_db_options_.info_log,
+                     "Writing %" ROCKSDB_PRIszt " stats with timestamp %" PRIu64
+                     " to persistent stats CF succeeded",
+                     stats_slice_.size(), now_seconds);
     }
     // TODO(Zhongyi): add purging for persisted data
   } else {
@@ -736,6 +747,10 @@ void DBImpl::PersistStats() {
           stats_delta[stat.first] = stat.second - stats_slice_[stat.first];
         }
       }
+      ROCKS_LOG_INFO(immutable_db_options_.info_log,
+                     "Storing %" ROCKSDB_PRIszt " stats with timestamp %" PRIu64
+                     " to in-memory stats history",
+                     stats_slice_.size(), now_seconds);
       stats_history_[now_seconds] = stats_delta;
     }
     stats_slice_initialized_ = true;
@@ -743,15 +758,22 @@ void DBImpl::PersistStats() {
     TEST_SYNC_POINT("DBImpl::PersistStats:StatsCopied");
 
     // delete older stats snapshots to control memory consumption
-    bool purge_needed =
-        EstimateInMemoryStatsHistorySize() > stats_history_size_limit;
+    size_t stats_history_size = EstimateInMemoryStatsHistorySize();
+    bool purge_needed = stats_history_size > stats_history_size_limit;
+    ROCKS_LOG_INFO(immutable_db_options_.info_log,
+                   "[Pre-GC] In-memory stats history size: %" ROCKSDB_PRIszt
+                   " bytes, slice count: %" ROCKSDB_PRIszt,
+                   stats_history_size, stats_history_.size());
     while (purge_needed && !stats_history_.empty()) {
       stats_history_.erase(stats_history_.begin());
       purge_needed =
           EstimateInMemoryStatsHistorySize() > stats_history_size_limit;
     }
+    ROCKS_LOG_INFO(immutable_db_options_.info_log,
+                   "[Post-GC] In-memory stats history size: %" ROCKSDB_PRIszt
+                   " bytes, slice count: %" ROCKSDB_PRIszt,
+                   stats_history_size, stats_history_.size());
   }
-  // TODO: persist stats to disk
 #endif  // !ROCKSDB_LITE
 }
 
