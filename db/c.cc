@@ -1034,7 +1034,7 @@ void rocksdb_wal_iter_destroy (const rocksdb_wal_iterator_t* iter) {
 rocksdb_writebatch_t* rocksdb_wal_iter_get_batch (const rocksdb_wal_iterator_t* iter, uint64_t* seq) {
   rocksdb_writebatch_t* result = rocksdb_writebatch_create();
   BatchResult wal_batch = iter->rep->GetBatch();
-  result->rep = * wal_batch.writeBatchPtr.release();
+  result->rep = std::move(*wal_batch.writeBatchPtr);
   if (seq != nullptr) {
     *seq = wal_batch.sequence;
   }
