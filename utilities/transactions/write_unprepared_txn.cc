@@ -32,7 +32,7 @@ bool WriteUnpreparedTxnReadCallback::IsVisibleFullCheck(SequenceNumber seq) {
 
 SequenceNumber WriteUnpreparedTxnReadCallback::CalcMaxUnpreparedSequenceNumber(
     WriteUnpreparedTxn* txn) {
-  auto unprep_seqs = txn->GetUnpreparedSequenceNumbers();
+  const auto& unprep_seqs = txn->GetUnpreparedSequenceNumbers();
   if (unprep_seqs.size()) {
     return unprep_seqs.rbegin()->first + unprep_seqs.rbegin()->second - 1;
   }

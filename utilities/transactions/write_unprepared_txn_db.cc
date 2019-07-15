@@ -346,13 +346,11 @@ Transaction* WriteUnpreparedTxnDB::BeginTransaction(
 // Struct to hold ownership of snapshot and read callback for iterator cleanup.
 struct WriteUnpreparedTxnDB::IteratorState {
   IteratorState(WritePreparedTxnDB* txn_db, SequenceNumber sequence,
-                std::shared_ptr<ManagedSnapshot> s,
                 SequenceNumber min_uncommitted, WriteUnpreparedTxn* txn)
-      : callback(txn_db, sequence, min_uncommitted, txn), snapshot(s) {}
+      : callback(txn_db, sequence, min_uncommitted, txn) {}
   SequenceNumber MaxVisibleSeq() { return callback.max_visible_seq(); }
 
   WriteUnpreparedTxnReadCallback callback;
-  std::shared_ptr<ManagedSnapshot> snapshot;
 };
 
 namespace {
@@ -367,29 +365,49 @@ Iterator* WriteUnpreparedTxnDB::NewIterator(const ReadOptions& options,
   // TODO(lth): Refactor so that this logic is shared with WritePrepared.
   constexpr bool ALLOW_BLOB = true;
   constexpr bool ALLOW_REFRESH = true;
-  std::shared_ptr<ManagedSnapshot> own_snapshot = nullptr;
   SequenceNumber snapshot_seq;
   SequenceNumber min_uncommitted = 0;
-  if (options.snapshot != nullptr) {
-    snapshot_seq = options.snapshot->GetSequenceNumber();
-    min_uncommitted =
-        static_cast_with_check<const SnapshotImpl, const Snapshot>(
-            options.snapshot)
-            ->min_uncommitted_;
-  } else {
-    auto* snapshot = GetSnapshot();
-    // We take a snapshot to make sure that the related data in the commit map
-    // are not deleted.
-    snapshot_seq = snapshot->GetSequenceNumber();
-    min_uncommitted =
-        static_cast_with_check<const SnapshotImpl, const Snapshot>(snapshot)
-            ->min_uncommitted_;
-    own_snapshot = std::make_shared<ManagedSnapshot>(db_impl_, snapshot);
+  // TODO(lth): Currently, we can only create iterators with the transaction
+  // snapshot. This is because the iterator logic relies on snapshot validation
+  // to ensure that no committed keys exist between snapshot_seq < seq <
+  // max_visible_seq. This assumption is currently upheld by snapshot
+  // validation, and validation is run against the transaction snapshot sequence
+  // number.
+  //
+  // Therefore, we cannot guarantee correct results for iterators with no
+  // transaction snapshot, but with tracked keys. The second condition is so
+  // that we can avoid silently falling back to transaction snapshot when users
+  // have specified a snapshot in ReadOptions that we can't use. It's probably
+  // more user friendly to just fail.
+  //
+  // It may be possible to modify the iterator logic so that it does not rely on
+  // that assumption. The problem is that during Prev(), we are simply looking
+  // for, in ascending seqno order, the first non-visible key and stopping after
+  // that. However, an unprep key could be at snapshot_seq < non_visible_seq <
+  // unprep_seq, so we never reach the unprep_seq.
+  //
+  auto txn_snapshot = txn->GetSnapshot();
+  if ((txn_snapshot == nullptr && txn->GetNumKeys() > 0) ||
+      (options.snapshot != nullptr && txn_snapshot != nullptr &&
+       txn->GetSnapshot()->GetSequenceNumber() !=
+           options.snapshot->GetSequenceNumber())) {
+    return nullptr;
   }
+
+  if (txn_snapshot == nullptr) {
+    txn->SetSnapshot();
+    txn_snapshot = txn->GetSnapshot();
+  }
+  assert(txn_snapshot != nullptr);
+
+  snapshot_seq = txn_snapshot->GetSequenceNumber();
+  min_uncommitted =
+      static_cast_with_check<const SnapshotImpl, const Snapshot>(txn_snapshot)
+          ->min_uncommitted_;
   assert(snapshot_seq != kMaxSequenceNumber);
+
   auto* cfd = reinterpret_cast<ColumnFamilyHandleImpl*>(column_family)->cfd();
-  auto* state =
-      new IteratorState(this, snapshot_seq, own_snapshot, min_uncommitted, txn);
+  auto* state = new IteratorState(this, snapshot_seq, min_uncommitted, txn);
   auto* db_iter =
       db_impl_->NewIteratorImpl(options, cfd, state->MaxVisibleSeq(),
                                 &state->callback, !ALLOW_BLOB, !ALLOW_REFRESH);

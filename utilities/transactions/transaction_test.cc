@@ -3589,6 +3589,16 @@ TEST_P(TransactionTest, IteratorTest) {
 }
 
 TEST_P(TransactionTest, DisableIndexingTest) {
+  // Skip this test for write unprepared. It does not solely rely on WBWI for
+  // read your own writes, so depending on whether batches are flushed or not,
+  // only some writes will be visible.
+  //
+  // Also, write unprepared does not support txn->Put() without snapshot
+  // validation, and then creating an iterator later.
+  if (txn_db_options.write_policy == WRITE_UNPREPARED) {
+    return;
+  }
+
   WriteOptions write_options;
   ReadOptions read_options;
   std::string value;

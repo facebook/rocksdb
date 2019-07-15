@@ -172,7 +172,8 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
       w.status = WriteBatchInternal::InsertInto(
           &w, w.sequence, &column_family_memtables, &flush_scheduler_,
           write_options.ignore_missing_column_families, 0 /*log_number*/, this,
-          true /*concurrent_memtable_writes*/, seq_per_batch_, w.batch_cnt);
+          true /*concurrent_memtable_writes*/, seq_per_batch_, w.batch_cnt,
+          batch_per_txn_);
 
       PERF_TIMER_START(write_pre_and_post_process_time);
     }
