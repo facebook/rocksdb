@@ -91,10 +91,11 @@ class LockingIterator : public Iterator {
                   PessimisticTransaction *txn) :
     cfh_(cfh), txn_(txn), iter_(iter), status_(Status::InvalidArgument()) {}
 
+  ~LockingIterator() { delete iter_; }
   // An iterator is either positioned at a key/value pair, or
   // not valid.  This method returns true iff the iterator is valid.
   // Always returns false if !status().ok().
-  virtual bool Valid() const override { return status_.ok(); }
+  virtual bool Valid() const override { return status_.ok() && iter_->Valid(); }
 
   // Note: MyRocks doesn't ever call these:
   virtual void SeekToFirst() override;

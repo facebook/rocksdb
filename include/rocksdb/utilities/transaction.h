@@ -392,10 +392,11 @@ class Transaction {
   virtual Iterator* GetIterator(const ReadOptions& read_options,
                                 ColumnFamilyHandle* column_family) = 0;
 
-  virtual Iterator* GetLockingIterator(const ReadOptions& read_options,
-                                       ColumnFamilyHandle* column_family) {
-    return nullptr;
+  virtual Iterator* GetLockingIterator(const ReadOptions&,
+                                       ColumnFamilyHandle*) {
+    return nullptr; // not supported
   };
+
   // Put, Merge, Delete, and SingleDelete behave similarly to the corresponding
   // functions in WriteBatch, but will also do conflict checking on the
   // keys being written.

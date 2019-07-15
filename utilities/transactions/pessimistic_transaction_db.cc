@@ -40,7 +40,7 @@ void PessimisticTransactionDB::init_lock_manager() {
 
   if (txn_db_options_.lock_mgr_handle) {
     // A custom lock manager was provided in options
-    lock_mgr_.reset(txn_db_options_.lock_mgr_handle->GetManager());
+    lock_mgr_ = std::dynamic_pointer_cast<BaseLockMgr>(txn_db_options_.lock_mgr_handle);
     range_lock_mgr_ = dynamic_cast<RangeLockMgr*>(lock_mgr_.get());
   } else {
     // Use point lock manager by default

@@ -43,8 +43,9 @@ class BaseLockMgr;
 //    will be used to perform locking.
 class LockManagerHandle {
  public:
-   // Get the underlying LockManager. To be used by RocksDB Internals
-   virtual BaseLockMgr* GetManager()=0;
+   // dynamic_cast from this class to BaseLockMgr should work, this is how
+   // PessimisticTransactionDB will get the Lock Manager it's going to use.
+
    virtual ~LockManagerHandle(){};
 };
 
