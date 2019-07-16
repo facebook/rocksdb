@@ -38,19 +38,23 @@ struct FileDescriptor {
   uint64_t file_size;  // File size in bytes
   SequenceNumber smallest_seqno;  // The smallest seqno in this file
   SequenceNumber largest_seqno;   // The largest seqno in this file
+  bool has_global_seqno;          // The has global seqno in this file
 
   FileDescriptor() : FileDescriptor(0, 0, 0) {}
 
   FileDescriptor(uint64_t number, uint32_t path_id, uint64_t _file_size)
-      : FileDescriptor(number, path_id, _file_size, kMaxSequenceNumber, 0) {}
+      : FileDescriptor(number, path_id, _file_size, kMaxSequenceNumber, 0,
+      false) {}
 
   FileDescriptor(uint64_t number, uint32_t path_id, uint64_t _file_size,
-                 SequenceNumber _smallest_seqno, SequenceNumber _largest_seqno)
+                 SequenceNumber _smallest_seqno, SequenceNumber _largest_seqno,
+                 bool _has_global_seqno)
       : table_reader(nullptr),
         packed_number_and_path_id(PackFileNumberAndPathId(number, path_id)),
         file_size(_file_size),
         smallest_seqno(_smallest_seqno),
-        largest_seqno(_largest_seqno) {}
+        largest_seqno(_largest_seqno),
+        has_global_seqno(_has_global_seqno) {}
 
   FileDescriptor(const FileDescriptor& fd) { *this=fd; }
 
@@ -60,6 +64,7 @@ struct FileDescriptor {
     file_size = fd.file_size;
     smallest_seqno = fd.smallest_seqno;
     largest_seqno = fd.largest_seqno;
+    has_global_seqno = fd.has_global_seqno;
     return *this;
   }
 
@@ -242,15 +247,18 @@ class VersionEdit {
                uint64_t file_size, const InternalKey& smallest,
                const InternalKey& largest, const SequenceNumber& smallest_seqno,
                const SequenceNumber& largest_seqno,
-               bool marked_for_compaction) {
+               bool marked_for_compaction,
+               bool has_global_seqno
+               ) {
     assert(smallest_seqno <= largest_seqno);
     FileMetaData f;
     f.fd = FileDescriptor(file, file_path_id, file_size, smallest_seqno,
-                          largest_seqno);
+                          largest_seqno, has_global_seqno);
     f.smallest = smallest;
     f.largest = largest;
     f.fd.smallest_seqno = smallest_seqno;
     f.fd.largest_seqno = largest_seqno;
+    f.fd.has_global_seqno = has_global_seqno;
     f.marked_for_compaction = marked_for_compaction;
     new_files_.emplace_back(level, std::move(f));
   }
