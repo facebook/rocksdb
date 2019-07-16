@@ -90,6 +90,19 @@ void GetContext::SaveValue(const Slice& value, SequenceNumber /*seq*/) {
   }
 }
 
+void GetContext::SetReplayLog(std::string* replay_log) {
+  if (replay_log_ != nullptr && replay_log == nullptr &&
+      (state_ == kNotFound || state_ == kMerge) &&
+      max_covering_tombstone_seq_ != nullptr &&
+      *max_covering_tombstone_seq_ != 0) {
+    // Replay log ended, we found a range deletion that won't delete current
+    // key. The remaining files we look at will only contain covered keys, so we
+    // append an range deletion to stop.
+    appendToReplayLog(replay_log_, kTypeRangeDeletion, Slice());
+  }
+  replay_log_ = replay_log;
+}
+
 void GetContext::ReportCounters() {
   if (get_context_stats_.num_cache_hit > 0) {
     RecordTick(statistics_, BLOCK_CACHE_HIT, get_context_stats_.num_cache_hit);
@@ -188,8 +201,6 @@ bool GetContext::SaveValue(const ParsedInternalKey& parsed_key,
       return true;  // to continue to the next seq
     }
 
-    appendToReplayLog(replay_log_, parsed_key.type, value);
-
     if (seq_ != nullptr) {
       // Set the sequence number if it is uninitialized
       if (*seq_ == kMaxSequenceNumber) {
@@ -198,11 +209,15 @@ bool GetContext::SaveValue(const ParsedInternalKey& parsed_key,
     }
 
     auto type = parsed_key.type;
-    // Key matches. Process it
+    // No matter whether Key matched or not, append replay log fn should to be
+    // called after range deletion were handled
     if ((type == kTypeValue || type == kTypeMerge || type == kTypeBlobIndex) &&
         max_covering_tombstone_seq_ != nullptr &&
         *max_covering_tombstone_seq_ > parsed_key.sequence) {
       type = kTypeRangeDeletion;
+      appendToReplayLog(replay_log_, type, Slice());
+    } else {
+      appendToReplayLog(replay_log_, type, value);
     }
     switch (type) {
       case kTypeValue:

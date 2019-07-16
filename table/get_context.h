@@ -120,7 +120,7 @@ class GetContext {
   // If a non-null string is passed, all the SaveValue calls will be
   // logged into the string. The operations can then be replayed on
   // another GetContext with replayGetContextLog.
-  void SetReplayLog(std::string* replay_log) { replay_log_ = replay_log; }
+  void SetReplayLog(std::string* replay_log);
 
   // Do we need to fetch the SequenceNumber for this key?
   bool NeedToReadSequence() const { return (seq_ != nullptr); }
