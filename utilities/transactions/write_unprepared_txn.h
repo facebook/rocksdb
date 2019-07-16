@@ -94,19 +94,9 @@ class WriteUnpreparedTxn : public WritePreparedTxn {
                               const SliceParts& key,
                               const bool assume_tracked = false) override;
 
-  virtual Status RebuildFromWriteBatch(WriteBatch*) override {
-    // This function was only useful for recovering prepared transactions, but
-    // is unused for write prepared because a transaction may consist of
-    // multiple write batches.
-    //
-    // If there are use cases outside of recovery that can make use of this,
-    // then support could be added.
-    return Status::NotSupported("Not supported for WriteUnprepared");
-  }
+  virtual Status RebuildFromWriteBatch(WriteBatch*) override;
 
   const std::map<SequenceNumber, size_t>& GetUnpreparedSequenceNumbers();
-
-  void UpdateWriteKeySet(uint32_t cfid, const Slice& key);
 
  protected:
   void Initialize(const TransactionOptions& txn_options) override;
@@ -117,6 +107,8 @@ class WriteUnpreparedTxn : public WritePreparedTxn {
   Status CommitInternal() override;
 
   Status RollbackInternal() override;
+
+  void Clear() override;
 
   // Get and GetIterator needs to be overridden so that a ReadCallback to
   // handle read-your-own-write is used.
@@ -157,10 +149,10 @@ class WriteUnpreparedTxn : public WritePreparedTxn {
   // commit callbacks.
   std::map<SequenceNumber, size_t> unprep_seqs_;
 
-  // Set of keys that have written to that have already been written to DB
-  // (ie. not in write_batch_).
-  //
-  std::map<uint32_t, std::vector<std::string>> write_set_keys_;
+  // Recovered transactions have tracked_keys_ populated, but are not actually
+  // locked for efficiency reasons. For recovered transactions, skip unlocking
+  // keys when transaction ends.
+  bool recovered_txn_;
 };
 
 }  // namespace rocksdb
