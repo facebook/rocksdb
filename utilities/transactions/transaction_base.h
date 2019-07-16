@@ -325,15 +325,17 @@ class TransactionBaseImpl : public Transaction {
   // Optimistic Transactions will wait till commit time to do conflict checking.
   TransactionKeyMap tracked_keys_;
 
+  // Stack of the Snapshot saved at each save point.  Saved snapshots may be
+  // nullptr if there was no snapshot at the time SetSavePoint() was called.
+  std::unique_ptr<std::stack<TransactionBaseImpl::SavePoint,
+                             autovector<TransactionBaseImpl::SavePoint>>>
+      save_points_;
+
  private:
   friend class WritePreparedTxn;
   // Extra data to be persisted with the commit. Note this is only used when
   // prepare phase is not skipped.
   WriteBatch commit_time_batch_;
-
-  // Stack of the Snapshot saved at each save point.  Saved snapshots may be
-  // nullptr if there was no snapshot at the time SetSavePoint() was called.
-  std::unique_ptr<std::stack<TransactionBaseImpl::SavePoint, autovector<TransactionBaseImpl::SavePoint>>> save_points_;
 
   // If true, future Put/Merge/Deletes will be indexed in the
   // WriteBatchWithIndex.
