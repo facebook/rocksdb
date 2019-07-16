@@ -203,14 +203,14 @@ TEST_P(WriteUnpreparedTransactionTest, ReadYourOwnWriteStress) {
                               const std::string& value) {
           if (owned_keys.count(key) > 0) {
             ASSERT_EQ(value.size(), 16);
-            ASSERT_EQ(((uint64_t*)value.c_str())[0], id);
-            ASSERT_GE(((uint64_t*)value.c_str())[1], snapshot_num);
+            ASSERT_EQ(((int64_t*)value.c_str())[0], id);
+            ASSERT_GE(((int64_t*)value.c_str())[1], snapshot_num);
           } else if (use_snapshot) {
             // If we're reading using a snapshot, then the key value should
             // always be less than snapshot_num. We can't say much about id
             // though.
             ASSERT_EQ(value.size(), 16);
-            ASSERT_LE(((uint64_t*)value.c_str())[1], snapshot_num);
+            ASSERT_LE(((int64_t*)value.c_str())[1], snapshot_num);
           }
         };
 
