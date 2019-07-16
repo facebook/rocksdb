@@ -1911,6 +1911,7 @@ std::unique_ptr<FilterBlockReader> BlockBasedTable::CreateFilterBlockReader(
       // or it must be covered in this switch block
       assert(false);
       return std::unique_ptr<FilterBlockReader>();
+  }
 }
 
 CachableEntry<UncompressionDict> BlockBasedTable::GetUncompressionDict(

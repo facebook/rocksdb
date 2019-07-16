@@ -2343,17 +2343,17 @@ TEST_P(BlockBasedTableTest, TracingGetTest) {
   expected_records.push_back(record);
   record.block_type = TraceType::kBlockTraceFilterBlock;
   expected_records.push_back(record);
-  // Then we should have three records for one filter, one index, and one data
+  // Then we should have three records for one index, one filter, and one data
   // block access.
   record.get_id = 1;
-  record.block_type = TraceType::kBlockTraceFilterBlock;
+  record.block_type = TraceType::kBlockTraceIndexBlock;
   record.caller = TableReaderCaller::kUserGet;
   record.get_from_user_specified_snapshot = Boolean::kFalse;
   record.referenced_key = encoded_key;
   record.referenced_key_exist_in_block = Boolean::kTrue;
   record.is_cache_hit = Boolean::kTrue;
   expected_records.push_back(record);
-  record.block_type = TraceType::kBlockTraceIndexBlock;
+  record.block_type = TraceType::kBlockTraceFilterBlock;
   expected_records.push_back(record);
   record.is_cache_hit = Boolean::kFalse;
   record.block_type = TraceType::kBlockTraceDataBlock;
@@ -2361,12 +2361,12 @@ TEST_P(BlockBasedTableTest, TracingGetTest) {
   // The second get should all observe cache hits.
   record.is_cache_hit = Boolean::kTrue;
   record.get_id = 2;
-  record.block_type = TraceType::kBlockTraceFilterBlock;
+  record.block_type = TraceType::kBlockTraceIndexBlock;
   record.caller = TableReaderCaller::kUserGet;
   record.get_from_user_specified_snapshot = Boolean::kFalse;
   record.referenced_key = encoded_key;
   expected_records.push_back(record);
-  record.block_type = TraceType::kBlockTraceIndexBlock;
+  record.block_type = TraceType::kBlockTraceFilterBlock;
   expected_records.push_back(record);
   record.block_type = TraceType::kBlockTraceDataBlock;
   expected_records.push_back(record);
