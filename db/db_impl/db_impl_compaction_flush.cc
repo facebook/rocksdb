@@ -8,10 +8,7 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 #include "db/db_impl/db_impl.h"
 
-#ifndef __STDC_FORMAT_MACROS
-#define __STDC_FORMAT_MACROS
-#endif
-#include <inttypes.h>
+#include <cinttypes>
 
 #include "db/builder.h"
 #include "db/error_handler.h"
@@ -109,6 +106,13 @@ Status DBImpl::SyncClosedLogs(JobContext* job_context) {
       s = log->file()->Sync(immutable_db_options_.use_fsync);
       if (!s.ok()) {
         break;
+      }
+
+      if (immutable_db_options_.recycle_log_file_num > 0) {
+        s = log->Close();
+        if (!s.ok()) {
+          break;
+        }
       }
     }
     if (s.ok()) {
@@ -1049,7 +1053,7 @@ Status DBImpl::CompactFilesImpl(
 
   if (status.ok()) {
     // Done
-  } else if (status.IsColumnFamilyDropped()) {
+  } else if (status.IsColumnFamilyDropped() || status.IsShutdownInProgress()) {
     // Ignore compaction errors found during shutting down
   } else {
     ROCKS_LOG_WARN(immutable_db_options_.info_log,
@@ -1547,12 +1551,38 @@ Status DBImpl::FlushMemTable(ColumnFamilyData* cfd,
     if (!cfd->mem()->IsEmpty() || !cached_recoverable_state_empty_.load()) {
       s = SwitchMemtable(cfd, &context);
     }
-
     if (s.ok()) {
       if (cfd->imm()->NumNotFlushed() != 0 || !cfd->mem()->IsEmpty() ||
           !cached_recoverable_state_empty_.load()) {
         flush_memtable_id = cfd->imm()->GetLatestMemTableID();
         flush_req.emplace_back(cfd, flush_memtable_id);
+      }
+      if (immutable_db_options_.persist_stats_to_disk) {
+        ColumnFamilyData* cfd_stats =
+            versions_->GetColumnFamilySet()->GetColumnFamily(
+                kPersistentStatsColumnFamilyName);
+        if (cfd_stats != nullptr && cfd_stats != cfd &&
+            !cfd_stats->mem()->IsEmpty()) {
+          // only force flush stats CF when it will be the only CF lagging
+          // behind after the current flush
+          bool stats_cf_flush_needed = true;
+          for (auto* loop_cfd : *versions_->GetColumnFamilySet()) {
+            if (loop_cfd == cfd_stats || loop_cfd == cfd) {
+              continue;
+            }
+            if (loop_cfd->GetLogNumber() <= cfd_stats->GetLogNumber()) {
+              stats_cf_flush_needed = false;
+            }
+          }
+          if (stats_cf_flush_needed) {
+            ROCKS_LOG_INFO(immutable_db_options_.info_log,
+                           "Force flushing stats CF with manual flush of %s "
+                           "to avoid holding old logs", cfd->GetName().c_str());
+            s = SwitchMemtable(cfd_stats, &context);
+            flush_memtable_id = cfd_stats->imm()->GetLatestMemTableID();
+            flush_req.emplace_back(cfd_stats, flush_memtable_id);
+          }
+        }
       }
     }
 
@@ -1560,6 +1590,16 @@ Status DBImpl::FlushMemTable(ColumnFamilyData* cfd,
       for (auto& elem : flush_req) {
         ColumnFamilyData* loop_cfd = elem.first;
         loop_cfd->imm()->FlushRequested();
+      }
+      // If the caller wants to wait for this flush to complete, it indicates
+      // that the caller expects the ColumnFamilyData not to be free'ed by
+      // other threads which may drop the column family concurrently.
+      // Therefore, we increase the cfd's ref count.
+      if (flush_options.wait) {
+        for (auto& elem : flush_req) {
+          ColumnFamilyData* loop_cfd = elem.first;
+          loop_cfd->Ref();
+        }
       }
       SchedulePendingFlush(flush_req, flush_reason);
       MaybeScheduleFlushOrCompaction();
@@ -1569,7 +1609,8 @@ Status DBImpl::FlushMemTable(ColumnFamilyData* cfd,
       write_thread_.ExitUnbatched(&w);
     }
   }
-
+  TEST_SYNC_POINT("DBImpl::FlushMemTable:AfterScheduleFlush");
+  TEST_SYNC_POINT("DBImpl::FlushMemTable:BeforeWaitForBgFlush");
   if (s.ok() && flush_options.wait) {
     autovector<ColumnFamilyData*> cfds;
     autovector<const uint64_t*> flush_memtable_ids;
@@ -1579,6 +1620,13 @@ Status DBImpl::FlushMemTable(ColumnFamilyData* cfd,
     }
     s = WaitForFlushMemTables(cfds, flush_memtable_ids,
                               (flush_reason == FlushReason::kErrorRecovery));
+    for (auto* tmp_cfd : cfds) {
+      if (tmp_cfd->Unref()) {
+        // Only one thread can reach here.
+        InstrumentedMutexLock lock_guard(&mutex_);
+        delete tmp_cfd;
+      }
+    }
   }
   TEST_SYNC_POINT("FlushMemTableFinished");
   return s;
@@ -1642,6 +1690,15 @@ Status DBImpl::AtomicFlushMemTables(
       for (auto cfd : cfds) {
         cfd->imm()->FlushRequested();
       }
+      // If the caller wants to wait for this flush to complete, it indicates
+      // that the caller expects the ColumnFamilyData not to be free'ed by
+      // other threads which may drop the column family concurrently.
+      // Therefore, we increase the cfd's ref count.
+      if (flush_options.wait) {
+        for (auto cfd : cfds) {
+          cfd->Ref();
+        }
+      }
       GenerateFlushRequest(cfds, &flush_req);
       SchedulePendingFlush(flush_req, flush_reason);
       MaybeScheduleFlushOrCompaction();
@@ -1652,7 +1709,7 @@ Status DBImpl::AtomicFlushMemTables(
     }
   }
   TEST_SYNC_POINT("DBImpl::AtomicFlushMemTables:AfterScheduleFlush");
-
+  TEST_SYNC_POINT("DBImpl::AtomicFlushMemTables:BeforeWaitForBgFlush");
   if (s.ok() && flush_options.wait) {
     autovector<const uint64_t*> flush_memtable_ids;
     for (auto& iter : flush_req) {
@@ -1660,6 +1717,13 @@ Status DBImpl::AtomicFlushMemTables(
     }
     s = WaitForFlushMemTables(cfds, flush_memtable_ids,
                               (flush_reason == FlushReason::kErrorRecovery));
+    for (auto* cfd : cfds) {
+      if (cfd->Unref()) {
+        // Only one thread can reach here.
+        InstrumentedMutexLock lock_guard(&mutex_);
+        delete cfd;
+      }
+    }
   }
   return s;
 }
@@ -2121,6 +2185,7 @@ Status DBImpl::BackgroundFlush(bool* made_progress, JobContext* job_context,
     }
     status = FlushMemTablesToOutputFiles(bg_flush_args, made_progress,
                                          job_context, log_buffer, thread_pri);
+    TEST_SYNC_POINT("DBImpl::BackgroundFlush:BeforeFlush");
     // All the CFDs in the FlushReq must have the same flush reason, so just
     // grab the first one
     *reason = bg_flush_args[0].cfd_->GetFlushReason();
@@ -2680,6 +2745,8 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
                             compaction_job_stats, job_context->job_id);
 
     mutex_.Unlock();
+    TEST_SYNC_POINT_CALLBACK(
+        "DBImpl::BackgroundCompaction:NonTrivial:BeforeRun", nullptr);
     compaction_job.Run();
     TEST_SYNC_POINT("DBImpl::BackgroundCompaction:NonTrivial:AfterRun");
     mutex_.Lock();
@@ -2713,7 +2780,7 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
 
   if (status.ok() || status.IsCompactionTooLarge()) {
     // Done
-  } else if (status.IsColumnFamilyDropped()) {
+  } else if (status.IsColumnFamilyDropped() || status.IsShutdownInProgress()) {
     // Ignore compaction errors found during shutting down
   } else {
     ROCKS_LOG_WARN(immutable_db_options_.info_log, "Compaction error: %s",

@@ -9,11 +9,7 @@
 
 #include "db/compaction/compaction_picker.h"
 
-#ifndef __STDC_FORMAT_MACROS
-#define __STDC_FORMAT_MACROS
-#endif
-
-#include <inttypes.h>
+#include <cinttypes>
 #include <limits>
 #include <queue>
 #include <string>

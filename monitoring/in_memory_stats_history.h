@@ -25,7 +25,7 @@ namespace rocksdb {
 class InMemoryStatsHistoryIterator final : public StatsHistoryIterator {
  public:
   // Setup InMemoryStatsHistoryIterator to return stats snapshots between
-  // microsecond timestamps [start_time, end_time)
+  // seconds timestamps [start_time, end_time)
   InMemoryStatsHistoryIterator(uint64_t start_time, uint64_t end_time,
                                DBImpl* db_impl)
       : start_time_(start_time),

@@ -8,14 +8,12 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 #include "db/db_impl/db_impl.h"
 
-#ifndef __STDC_FORMAT_MACROS
-#define __STDC_FORMAT_MACROS
-#endif
-#include <inttypes.h>
+#include <cinttypes>
 
 #include "db/builder.h"
 #include "db/error_handler.h"
 #include "file/sst_file_manager_impl.h"
+#include "monitoring/persistent_stats_history.h"
 #include "options/options_helper.h"
 #include "rocksdb/wal_filter.h"
 #include "table/block_based/block_based_table_factory.h"
@@ -124,6 +122,25 @@ DBOptions SanitizeOptions(const std::string& dbname, const DBOptions& src) {
   }
 
 #ifndef ROCKSDB_LITE
+  ImmutableDBOptions immutable_db_options(result);
+  if (!IsWalDirSameAsDBPath(&immutable_db_options)) {
+    // Either the WAL dir and db_paths[0]/db_name are not the same, or we
+    // cannot tell for sure. In either case, assume they're different and
+    // explicitly cleanup the trash log files (bypass DeleteScheduler)
+    // Do this first so even if we end up calling
+    // DeleteScheduler::CleanupDirectory on the same dir later, it will be
+    // safe
+    std::vector<std::string> filenames;
+    result.env->GetChildren(result.wal_dir, &filenames);
+    for (std::string& filename : filenames) {
+      if (filename.find(".log.trash",
+                  filename.length() - std::string(".log.trash").length()) !=
+                  std::string::npos) {
+        std::string trash_file = result.wal_dir + "/" + filename;
+        result.env->DeleteFile(trash_file);
+      }
+    }
+  }
   // When the DB is stopped, it's possible that there are some .trash files that
   // were not deleted yet, when we open the DB we will find these .trash files
   // and schedule them to be deleted (or delete immediately if SstFileManager
@@ -145,7 +162,6 @@ DBOptions SanitizeOptions(const std::string& dbname, const DBOptions& src) {
 }
 
 namespace {
-
 Status SanitizeOptionsByTable(
     const DBOptions& db_opts,
     const std::vector<ColumnFamilyDescriptor>& column_families) {
@@ -158,52 +174,23 @@ Status SanitizeOptionsByTable(
   }
   return Status::OK();
 }
+}  // namespace
 
-static Status ValidateOptions(
+Status DBImpl::ValidateOptions(
     const DBOptions& db_options,
     const std::vector<ColumnFamilyDescriptor>& column_families) {
   Status s;
-
   for (auto& cfd : column_families) {
-    s = CheckCompressionSupported(cfd.options);
-    if (s.ok() && db_options.allow_concurrent_memtable_write) {
-      s = CheckConcurrentWritesSupported(cfd.options);
-    }
-    if (s.ok()) {
-      s = CheckCFPathsSupported(db_options, cfd.options);
-    }
+    s = ColumnFamilyData::ValidateOptions(db_options, cfd.options);
     if (!s.ok()) {
       return s;
     }
-
-    if (cfd.options.ttl > 0) {
-      if (db_options.max_open_files != -1) {
-        return Status::NotSupported(
-            "TTL is only supported when files are always "
-            "kept open (set max_open_files = -1). ");
-      }
-      if (cfd.options.table_factory->Name() !=
-          BlockBasedTableFactory().Name()) {
-        return Status::NotSupported(
-            "TTL is only supported in Block-Based Table format. ");
-      }
-    }
-
-    if (cfd.options.periodic_compaction_seconds > 0) {
-      if (db_options.max_open_files != -1) {
-        return Status::NotSupported(
-            "Periodic Compaction is only supported when files are always "
-            "kept open (set max_open_files = -1). ");
-      }
-      if (cfd.options.table_factory->Name() !=
-          BlockBasedTableFactory().Name()) {
-        return Status::NotSupported(
-            "Periodic Compaction is only supported in "
-            "Block-Based Table format. ");
-      }
-    }
   }
+  s = ValidateOptions(db_options);
+  return s;
+}
 
+Status DBImpl::ValidateOptions(const DBOptions& db_options) {
   if (db_options.db_paths.size() > 4) {
     return Status::NotSupported(
         "More than four DB paths are not supported yet. ");
@@ -241,7 +228,7 @@ static Status ValidateOptions(
 
   return Status::OK();
 }
-}  // namespace
+
 Status DBImpl::NewDB() {
   VersionEdit new_db;
   new_db.SetLogNumber(0);
@@ -297,9 +284,9 @@ Status DBImpl::CreateAndNewDirectory(Env* env, const std::string& dirname,
   return env->NewDirectory(dirname, directory);
 }
 
-Status DBImpl::Directories::SetDirectories(
-    Env* env, const std::string& dbname, const std::string& wal_dir,
-    const std::vector<DbPath>& data_paths) {
+Status Directories::SetDirectories(Env* env, const std::string& dbname,
+                                   const std::string& wal_dir,
+                                   const std::vector<DbPath>& data_paths) {
   Status s = DBImpl::CreateAndNewDirectory(env, dbname, &db_dir_);
   if (!s.ok()) {
     return s;
@@ -408,6 +395,7 @@ Status DBImpl::Recover(
   }
 
   Status s = versions_->Recover(column_families, read_only);
+
   if (immutable_db_options_.paranoid_checks && s.ok()) {
     s = CheckConsistency();
   }
@@ -418,6 +406,10 @@ Status DBImpl::Recover(
         return s;
       }
     }
+  }
+  // DB mutex is already held
+  if (s.ok() && immutable_db_options_.persist_stats_to_disk) {
+    s = InitPersistStatsColumnFamily();
   }
 
   // Initial max_total_in_memory_state_ before recovery logs. Log recovery
@@ -434,6 +426,8 @@ Status DBImpl::Recover(
     default_cf_handle_ = new ColumnFamilyHandleImpl(
         versions_->GetColumnFamilySet()->GetDefault(), this, &mutex_);
     default_cf_internal_stats_ = default_cf_handle_->cfd()->internal_stats();
+    // TODO(Zhongyi): handle single_column_family_mode_ when
+    // persistent_stats is enabled
     single_column_family_mode_ =
         versions_->GetColumnFamilySet()->NumberOfColumnFamilies() == 1;
 
@@ -529,6 +523,98 @@ Status DBImpl::Recover(
   return s;
 }
 
+Status DBImpl::PersistentStatsProcessFormatVersion() {
+  mutex_.AssertHeld();
+  Status s;
+  // persist version when stats CF doesn't exist
+  bool should_persist_format_version = !persistent_stats_cfd_exists_;
+  mutex_.Unlock();
+  if (persistent_stats_cfd_exists_) {
+    // Check persistent stats format version compatibility. Drop and recreate
+    // persistent stats CF if format version is incompatible
+    uint64_t format_version_recovered = 0;
+    Status s_format = DecodePersistentStatsVersionNumber(
+        this, StatsVersionKeyType::kFormatVersion, &format_version_recovered);
+    uint64_t compatible_version_recovered = 0;
+    Status s_compatible = DecodePersistentStatsVersionNumber(
+        this, StatsVersionKeyType::kCompatibleVersion,
+        &compatible_version_recovered);
+    // abort reading from existing stats CF if any of following is true:
+    // 1. failed to read format version or compatible version from disk
+    // 2. sst's format version is greater than current format version, meaning
+    // this sst is encoded with a newer RocksDB release, and current compatible
+    // version is below the sst's compatible version
+    if (!s_format.ok() || !s_compatible.ok() ||
+        (kStatsCFCurrentFormatVersion < format_version_recovered &&
+         kStatsCFCompatibleFormatVersion < compatible_version_recovered)) {
+      if (!s_format.ok() || !s_compatible.ok()) {
+        ROCKS_LOG_INFO(
+            immutable_db_options_.info_log,
+            "Reading persistent stats version key failed. Format key: %s, "
+            "compatible key: %s",
+            s_format.ToString().c_str(), s_compatible.ToString().c_str());
+      } else {
+        ROCKS_LOG_INFO(
+            immutable_db_options_.info_log,
+            "Disable persistent stats due to corrupted or incompatible format "
+            "version\n");
+      }
+      DropColumnFamily(persist_stats_cf_handle_);
+      DestroyColumnFamilyHandle(persist_stats_cf_handle_);
+      ColumnFamilyHandle* handle = nullptr;
+      ColumnFamilyOptions cfo;
+      OptimizeForPersistentStats(&cfo);
+      s = CreateColumnFamily(cfo, kPersistentStatsColumnFamilyName, &handle);
+      persist_stats_cf_handle_ = static_cast<ColumnFamilyHandleImpl*>(handle);
+      // should also persist version here because old stats CF is discarded
+      should_persist_format_version = true;
+    }
+  }
+  if (s.ok() && should_persist_format_version) {
+    // Persistent stats CF being created for the first time, need to write
+    // format version key
+    WriteBatch batch;
+    batch.Put(persist_stats_cf_handle_, kFormatVersionKeyString,
+              ToString(kStatsCFCurrentFormatVersion));
+    batch.Put(persist_stats_cf_handle_, kCompatibleVersionKeyString,
+              ToString(kStatsCFCompatibleFormatVersion));
+    WriteOptions wo;
+    wo.low_pri = true;
+    wo.no_slowdown = true;
+    wo.sync = false;
+    s = Write(wo, &batch);
+  }
+  mutex_.Lock();
+  return s;
+}
+
+Status DBImpl::InitPersistStatsColumnFamily() {
+  mutex_.AssertHeld();
+  assert(!persist_stats_cf_handle_);
+  ColumnFamilyData* persistent_stats_cfd =
+      versions_->GetColumnFamilySet()->GetColumnFamily(
+          kPersistentStatsColumnFamilyName);
+  persistent_stats_cfd_exists_ = persistent_stats_cfd != nullptr;
+
+  Status s;
+  if (persistent_stats_cfd != nullptr) {
+    // We are recovering from a DB which already contains persistent stats CF,
+    // the CF is already created in VersionSet::ApplyOneVersionEdit, but
+    // column family handle was not. Need to explicitly create handle here.
+    persist_stats_cf_handle_ =
+        new ColumnFamilyHandleImpl(persistent_stats_cfd, this, &mutex_);
+  } else {
+    mutex_.Unlock();
+    ColumnFamilyHandle* handle = nullptr;
+    ColumnFamilyOptions cfo;
+    OptimizeForPersistentStats(&cfo);
+    s = CreateColumnFamily(cfo, kPersistentStatsColumnFamilyName, &handle);
+    persist_stats_cf_handle_ = static_cast<ColumnFamilyHandleImpl*>(handle);
+    mutex_.Lock();
+  }
+  return s;
+}
+
 // REQUIRES: log_numbers are sorted in ascending order
 Status DBImpl::RecoverLogFiles(const std::vector<uint64_t>& log_numbers,
                                SequenceNumber* next_sequence, bool read_only) {
@@ -588,12 +674,13 @@ Status DBImpl::RecoverLogFiles(const std::vector<uint64_t>& log_numbers,
   bool stop_replay_for_corruption = false;
   bool flushed = false;
   uint64_t corrupted_log_number = kMaxSequenceNumber;
+  uint64_t min_log_number = MinLogNumberToKeep();
   for (auto log_number : log_numbers) {
-    if (log_number < versions_->min_log_number_to_keep_2pc()) {
+    if (log_number < min_log_number) {
       ROCKS_LOG_INFO(immutable_db_options_.info_log,
                      "Skipping log #%" PRIu64
                      " since it is older than min log to keep #%" PRIu64,
-                     log_number, versions_->min_log_number_to_keep_2pc());
+                     log_number, min_log_number);
       continue;
     }
     // The previous incarnation may not have written any MANIFEST
@@ -1097,12 +1184,23 @@ Status DB::Open(const Options& options, const std::string& dbname, DB** dbptr) {
   std::vector<ColumnFamilyDescriptor> column_families;
   column_families.push_back(
       ColumnFamilyDescriptor(kDefaultColumnFamilyName, cf_options));
+  if (db_options.persist_stats_to_disk) {
+    column_families.push_back(
+        ColumnFamilyDescriptor(kPersistentStatsColumnFamilyName, cf_options));
+  }
   std::vector<ColumnFamilyHandle*> handles;
   Status s = DB::Open(db_options, dbname, column_families, &handles, dbptr);
   if (s.ok()) {
-    assert(handles.size() == 1);
+    if (db_options.persist_stats_to_disk) {
+      assert(handles.size() == 2);
+    } else {
+      assert(handles.size() == 1);
+    }
     // i can delete the handle since DBImpl is always holding a reference to
     // default column family
+    if (db_options.persist_stats_to_disk && handles[1] != nullptr) {
+      delete handles[1];
+    }
     delete handles[0];
   }
   return s;
@@ -1215,6 +1313,10 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
     delete impl;
     return s;
   }
+
+  impl->wal_in_db_path_ =
+      IsWalDirSameAsDBPath(&impl->immutable_db_options_);
+
   impl->mutex_.Lock();
   // Handles create_if_missing, error_if_exists
   s = impl->Recover(column_families);
@@ -1278,6 +1380,10 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
       impl->DeleteObsoleteFiles();
       s = impl->directories_.GetDbDir()->Fsync();
     }
+  }
+  if (s.ok() && impl->immutable_db_options_.persist_stats_to_disk) {
+    // try to read format version but no need to fail Open() even if it fails
+    s = impl->PersistentStatsProcessFormatVersion();
   }
 
   if (s.ok()) {

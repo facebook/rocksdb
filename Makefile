@@ -432,6 +432,7 @@ TESTS = \
 	inlineskiplist_test \
 	env_basic_test \
 	env_test \
+	env_logger_test \
 	hash_test \
 	thread_local_test \
 	rate_limiter_test \
@@ -509,6 +510,7 @@ TESTS = \
 	cassandra_serialize_test \
 	ttl_test \
 	backupable_db_test \
+	cache_simulator_test \
 	sim_cache_test \
 	version_edit_test \
 	version_set_test \
@@ -548,6 +550,7 @@ TESTS = \
 	ldb_cmd_test \
 	persistent_cache_test \
 	statistics_test \
+	stats_history_test \
 	lru_cache_test \
 	object_registry_test \
 	repair_test \
@@ -561,6 +564,8 @@ TESTS = \
 	range_del_aggregator_test \
 	sst_file_reader_test \
 	db_secondary_test \
+	block_cache_tracer_test \
+	block_cache_trace_analyzer_test \
 
 PARALLEL_TEST = \
 	backupable_db_test \
@@ -605,6 +610,7 @@ TOOLS = \
 	rocksdb_undump \
 	blob_dump \
 	trace_analyzer \
+	block_cache_trace_analyzer \
 
 TEST_LIBS = \
 	librocksdb_env_basic_test.a
@@ -1106,6 +1112,9 @@ db_bench: tools/db_bench.o $(BENCHTOOLOBJECTS)
 trace_analyzer: tools/trace_analyzer.o $(ANALYZETOOLOBJECTS) $(LIBOBJECTS)
 	$(AM_LINK)
 
+block_cache_trace_analyzer: tools/block_cache_trace_analyzer_tool.o $(ANALYZETOOLOBJECTS) $(LIBOBJECTS)
+	$(AM_LINK)
+
 cache_bench: cache/cache_bench.o $(LIBOBJECTS) $(TESTUTIL)
 	$(AM_LINK)
 
@@ -1311,6 +1320,9 @@ backupable_db_test: utilities/backupable/backupable_db_test.o $(LIBOBJECTS) $(TE
 	$(AM_LINK)
 
 checkpoint_test: utilities/checkpoint/checkpoint_test.o $(LIBOBJECTS) $(TESTHARNESS)
+	$(AM_LINK)
+
+cache_simulator_test: utilities/simulator_cache/cache_simulator_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
 sim_cache_test: utilities/simulator_cache/sim_cache_test.o db/db_test_util.o $(LIBOBJECTS) $(TESTHARNESS)
@@ -1522,6 +1534,9 @@ filelock_test: util/filelock_test.o $(LIBOBJECTS) $(TESTHARNESS)
 auto_roll_logger_test: logging/auto_roll_logger_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
+env_logger_test: logging/env_logger_test.o $(LIBOBJECTS) $(TESTHARNESS)
+	$(AM_LINK)
+
 memtable_list_test: db/memtable_list_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
@@ -1564,6 +1579,9 @@ persistent_cache_test: utilities/persistent_cache/persistent_cache_test.o  db/db
 statistics_test: monitoring/statistics_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
+stats_history_test: monitoring/stats_history_test.o db/db_test_util.o $(LIBOBJECTS) $(TESTHARNESS)
+	$(AM_LINK)
+
 lru_cache_test: cache/lru_cache_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
@@ -1586,6 +1604,12 @@ sst_file_reader_test: table/sst_file_reader_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
 db_secondary_test: db/db_impl/db_secondary_test.o db/db_test_util.o $(LIBOBJECTS) $(TESTHARNESS)
+	$(AM_LINK)
+
+block_cache_tracer_test: trace_replay/block_cache_tracer_test.o trace_replay/block_cache_tracer.o $(LIBOBJECTS) $(TESTHARNESS)
+	$(AM_LINK)
+
+block_cache_trace_analyzer_test: tools/block_cache_trace_analyzer_test.o tools/block_cache_trace_analyzer.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
 #-------------------------------------------------
@@ -1633,7 +1657,7 @@ JAVA_INCLUDE = -I$(JAVA_HOME)/include/ -I$(JAVA_HOME)/include/linux
 ifeq ($(PLATFORM), OS_SOLARIS)
 	ARCH := $(shell isainfo -b)
 else ifeq ($(PLATFORM), OS_OPENBSD)
-	ifneq (,$(filter $(MACHINE), amd64 arm64 sparc64))
+	ifneq (,$(filter $(MACHINE), amd64 arm64 sparc64 aarch64))
 		ARCH := 64
 	else
 		ARCH := 32
@@ -1645,6 +1669,9 @@ endif
 ifeq (,$(findstring ppc,$(MACHINE)))
         ROCKSDBJNILIB = librocksdbjni-linux$(ARCH).so
 else
+        ROCKSDBJNILIB = librocksdbjni-linux-$(MACHINE).so
+endif
+ifneq (,$(findstring aarch64,$(MACHINE)))
         ROCKSDBJNILIB = librocksdbjni-linux-$(MACHINE).so
 endif
 ROCKSDB_JAR = rocksdbjni-$(ROCKSDB_MAJOR).$(ROCKSDB_MINOR).$(ROCKSDB_PATCH)-linux$(ARCH).jar
@@ -1665,8 +1692,8 @@ SNAPPY_DOWNLOAD_BASE ?= https://github.com/google/snappy/archive
 LZ4_VER ?= 1.8.3
 LZ4_SHA256 ?= 33af5936ac06536805f9745e0b6d61da606a1f8b4cc5c04dd3cbaca3b9b4fc43
 LZ4_DOWNLOAD_BASE ?= https://github.com/lz4/lz4/archive
-ZSTD_VER ?= 1.3.7
-ZSTD_SHA256 ?= 5dd1e90eb16c25425880c8a91327f63de22891ffed082fcc17e5ae84fce0d5fb
+ZSTD_VER ?= 1.4.0
+ZSTD_SHA256 ?= 63be339137d2b683c6d19a9e34f4fb684790e864fee13c7dd40e197a64c705c1
 ZSTD_DOWNLOAD_BASE ?= https://github.com/facebook/zstd/archive
 CURL_SSL_OPTS ?= --tlsv1
 

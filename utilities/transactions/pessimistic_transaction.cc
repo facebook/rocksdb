@@ -231,7 +231,8 @@ Status WriteCommittedTxn::PrepareInternal() {
       (void)two_write_queues_;  // to silence unused private field warning
     }
     virtual Status Callback(SequenceNumber, bool is_mem_disabled,
-                            uint64_t log_number) override {
+                            uint64_t log_number, size_t /*index*/,
+                            size_t /*total*/) override {
 #ifdef NDEBUG
       (void)is_mem_disabled;
 #endif

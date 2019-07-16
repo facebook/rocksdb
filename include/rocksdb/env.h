@@ -41,6 +41,7 @@
 
 namespace rocksdb {
 
+class DynamicLibrary;
 class FileLock;
 class Logger;
 class RandomAccessFile;
@@ -338,6 +339,18 @@ class Env {
   // REQUIRES: lock has not already been unlocked.
   virtual Status UnlockFile(FileLock* lock) = 0;
 
+  // Opens `lib_name` as a dynamic library.
+  // If the 'search_path' is specified, breaks the path into its components
+  // based on the appropriate platform separator (";" or ";") and looks for the
+  // library in those directories.  If 'search path is not specified, uses the
+  // default library path search mechanism (such as LD_LIBRARY_PATH). On
+  // success, stores a dynamic library in `*result`.
+  virtual Status LoadLibrary(const std::string& /*lib_name*/,
+                             const std::string& /*search_path */,
+                             std::shared_ptr<DynamicLibrary>* /*result*/) {
+    return Status::NotSupported("LoadLibrary is not implemented in this Env");
+  }
+
   // Priority for scheduling job in thread pool
   enum Priority { BOTTOM, LOW, HIGH, USER, TOTAL };
 
@@ -382,9 +395,11 @@ class Env {
   // same directory.
   virtual Status GetTestDirectory(std::string* path) = 0;
 
-  // Create and return a log file for storing informational messages.
+  // Create and returns a default logger (an instance of EnvLogger) for storing
+  // informational messages. Derived classes can overide to provide custom
+  // logger.
   virtual Status NewLogger(const std::string& fname,
-                           std::shared_ptr<Logger>* result) = 0;
+                           std::shared_ptr<Logger>* result);
 
   // Returns the number of micro-seconds since some fixed point in time.
   // It is often used as system time such as in GenericRateLimiter
@@ -570,6 +585,26 @@ class SequentialFile {
   // SequentialFileWrapper too.
 };
 
+// A read IO request structure for use in MultiRead
+struct ReadRequest {
+  // File offset in bytes
+  uint64_t offset;
+
+  // Length to read in bytes
+  size_t len;
+
+  // A buffer that MultiRead()  can optionally place data in. It can
+  // ignore this and allocate its own buffer
+  char* scratch;
+
+  // Output parameter set by MultiRead() to point to the data buffer, and
+  // the number of valid bytes
+  Slice result;
+
+  // Status of read
+  Status status;
+};
+
 // A file abstraction for randomly reading the contents of a file.
 class RandomAccessFile {
  public:
@@ -591,6 +626,22 @@ class RandomAccessFile {
 
   // Readahead the file starting from offset by n bytes for caching.
   virtual Status Prefetch(uint64_t /*offset*/, size_t /*n*/) {
+    return Status::OK();
+  }
+
+  // Read a bunch of blocks as described by reqs. The blocks can
+  // optionally be read in parallel. This is a synchronous call, i.e it
+  // should return after all reads have completed. The reads will be
+  // non-overlapping. If the function return Status is not ok, status of
+  // individual requests will be ignored and return status will be assumed
+  // for all read requests. The function return status is only meant for any
+  // any errors that occur before even processing specific read requests
+  virtual Status MultiRead(ReadRequest* reqs, size_t num_reqs) {
+    assert(reqs != nullptr);
+    for (size_t i = 0; i < num_reqs; ++i) {
+      ReadRequest& req = reqs[i];
+      req.status = Read(req.offset, req.len, &req.result, req.scratch);
+    }
     return Status::OK();
   }
 
@@ -978,6 +1029,27 @@ class FileLock {
   void operator=(const FileLock&);
 };
 
+class DynamicLibrary {
+ public:
+  virtual ~DynamicLibrary() {}
+
+  // Returns the name of the dynamic library.
+  virtual const char* Name() const = 0;
+
+  // Loads the symbol for sym_name from the library and updates the input
+  // function. Returns the loaded symbol.
+  template <typename T>
+  Status LoadFunction(const std::string& sym_name, std::function<T>* function) {
+    assert(nullptr != function);
+    void* ptr = nullptr;
+    Status s = LoadSymbol(sym_name, &ptr);
+    *function = reinterpret_cast<T*>(ptr);
+    return s;
+  }
+  // Loads and returns the symbol for sym_name from the library.
+  virtual Status LoadSymbol(const std::string& sym_name, void** func) = 0;
+};
+
 extern void LogFlush(const std::shared_ptr<Logger>& info_log);
 
 extern void Log(const InfoLogLevel log_level,
@@ -1168,6 +1240,12 @@ class EnvWrapper : public Env {
 
   Status UnlockFile(FileLock* l) override { return target_->UnlockFile(l); }
 
+  Status LoadLibrary(const std::string& lib_name,
+                     const std::string& search_path,
+                     std::shared_ptr<DynamicLibrary>* result) override {
+    return target_->LoadLibrary(lib_name, search_path, result);
+  }
+
   void Schedule(void (*f)(void* arg), void* a, Priority pri,
                 void* tag = nullptr, void (*u)(void* arg) = nullptr) override {
     return target_->Schedule(f, a, pri, tag, u);
@@ -1314,6 +1392,9 @@ class RandomAccessFileWrapper : public RandomAccessFile {
   Status Read(uint64_t offset, size_t n, Slice* result,
               char* scratch) const override {
     return target_->Read(offset, n, result, scratch);
+  }
+  Status MultiRead(ReadRequest* reqs, size_t num_reqs) override {
+    return target_->MultiRead(reqs, num_reqs);
   }
   Status Prefetch(uint64_t offset, size_t n) override {
     return target_->Prefetch(offset, n);
@@ -1483,5 +1564,11 @@ Status NewHdfsEnv(Env** hdfs_env, const std::string& fsname);
 // operations, reporting results to variables in PerfContext.
 // This is a factory method for TimedEnv defined in utilities/env_timed.cc.
 Env* NewTimedEnv(Env* base_env);
+
+// Returns an instance of logger that can be used for storing informational
+// messages.
+// This is a factory method for EnvLogger declared in logging/env_logging.h
+Status NewEnvLogger(const std::string& fname, Env* env,
+                    std::shared_ptr<Logger>* result);
 
 }  // namespace rocksdb

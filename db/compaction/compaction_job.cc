@@ -7,12 +7,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
-
-#ifndef __STDC_FORMAT_MACROS
-#define __STDC_FORMAT_MACROS
-#endif
-
-#include <inttypes.h>
+#include <cinttypes>
 #include <algorithm>
 #include <functional>
 #include <list>
@@ -525,7 +520,8 @@ void CompactionJob::GenSubcompactionBoundaries() {
     // to the index block and may incur I/O cost in the process. Unlock db
     // mutex to reduce contention
     db_mutex_->Unlock();
-    uint64_t size = versions_->ApproximateSize(v, a, b, start_lvl, out_lvl + 1);
+    uint64_t size = versions_->ApproximateSize(v, a, b, start_lvl, out_lvl + 1,
+                                               TableReaderCaller::kCompaction);
     db_mutex_->Lock();
     ranges.emplace_back(a, b, size);
     sum += size;
@@ -650,12 +646,14 @@ Status CompactionJob::Run() {
         // to cache it here for further user reads
         InternalIterator* iter = cfd->table_cache()->NewIterator(
             ReadOptions(), env_options_, cfd->internal_comparator(),
-            *files_meta[file_idx], nullptr /* range_del_agg */,
-            prefix_extractor, nullptr,
+            *files_meta[file_idx], /*range_del_agg=*/nullptr, prefix_extractor,
+            /*table_reader_ptr=*/nullptr,
             cfd->internal_stats()->GetFileReadHist(
                 compact_->compaction->output_level()),
-            false, nullptr /* arena */, false /* skip_filters */,
-            compact_->compaction->output_level());
+            TableReaderCaller::kCompactionRefill, /*arena=*/nullptr,
+            /*skip_filters=*/false, compact_->compaction->output_level(),
+            /*smallest_compaction_key=*/nullptr,
+            /*largest_compaction_key=*/nullptr);
         auto s = iter->status();
 
         if (s.ok() && paranoid_file_checks_) {

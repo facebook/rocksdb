@@ -694,6 +694,18 @@ struct DBOptions {
   // Default: 600
   unsigned int stats_persist_period_sec = 600;
 
+  // If true, automatically persist stats to a hidden column family (column
+  // family name: ___rocksdb_stats_history___) every
+  // stats_persist_period_sec seconds; otherwise, write to an in-memory
+  // struct. User can query through `GetStatsHistory` API.
+  // If user attempts to create a column family with the same name on a DB
+  // which have previously set persist_stats_to_disk to true, the column family
+  // creation will fail, but the hidden column family will survive, as well as
+  // the previously persisted statistics.
+  // When peristing stats to disk, the stat name will be limited at 100 bytes.
+  // Default: false
+  bool persist_stats_to_disk = false;
+
   // if not zero, periodically take stats snapshots and store in memory, the
   // memory size for stats snapshots is capped at stats_history_buffer_size
   // Default: 1MB
@@ -748,6 +760,8 @@ struct DBOptions {
   // for this mode if using block-based table.
   //
   // Default: false
+  // This flag has no affect on the behavior of compaction and plan to delete
+  // in the future.
   bool new_table_reader_for_compaction_inputs = false;
 
   // If non-zero, we perform bigger reads when doing compaction. If you're
@@ -1255,6 +1269,14 @@ struct ReadOptions {
   // Default: 0 (don't filter by seqnum, return user keys)
   SequenceNumber iter_start_seqnum;
 
+  // Timestamp of operation. Read should return the latest data visible to the
+  // specified timestamp. All timestamps of the same database must be of the
+  // same length and format. The user is responsible for providing a customized
+  // compare function via Comparator to order <key, timestamp> tuples.
+  // The user-specified timestamp feature is still under active development,
+  // and the API is subject to change.
+  const Slice* timestamp;
+
   ReadOptions();
   ReadOptions(bool cksum, bool cache);
 };
@@ -1307,12 +1329,24 @@ struct WriteOptions {
   // Default: false
   bool low_pri;
 
+  // Timestamp of write operation, e.g. Put. All timestamps of the same
+  // database must share the same length and format. The user is also
+  // responsible for providing a customized compare function via Comparator to
+  // order <key, timestamp> tuples. If the user wants to enable timestamp, then
+  // all write operations must be associated with timestamp because RocksDB, as
+  // a single-node storage engine currently has no knowledge of global time,
+  // thus has to rely on the application.
+  // The user-specified timestamp feature is still under active development,
+  // and the API is subject to change.
+  const Slice* timestamp;
+
   WriteOptions()
       : sync(false),
         disableWAL(false),
         ignore_missing_column_families(false),
         no_slowdown(false),
-        low_pri(false) {}
+        low_pri(false),
+        timestamp(nullptr) {}
 };
 
 // Options that control flush operations

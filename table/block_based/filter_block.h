@@ -30,6 +30,7 @@
 #include "rocksdb/table.h"
 #include "table/format.h"
 #include "table/multiget_context.h"
+#include "trace_replay/block_cache_tracer.h"
 #include "util/hash.h"
 
 namespace rocksdb {
@@ -99,18 +100,19 @@ class FilterBlockReader {
    */
   virtual bool KeyMayMatch(const Slice& key,
                            const SliceTransform* prefix_extractor,
-                           uint64_t block_offset = kNotValid,
-                           const bool no_io = false,
-                           const Slice* const const_ikey_ptr = nullptr) = 0;
+                           uint64_t block_offset, const bool no_io,
+                           const Slice* const const_ikey_ptr,
+                           BlockCacheLookupContext* context) = 0;
 
   virtual void KeysMayMatch(MultiGetRange* range,
                             const SliceTransform* prefix_extractor,
-                            uint64_t block_offset = kNotValid,
-                            const bool no_io = false) {
+                            uint64_t block_offset, const bool no_io,
+                            BlockCacheLookupContext* context) {
     for (auto iter = range->begin(); iter != range->end(); ++iter) {
       const Slice ukey = iter->ukey;
       const Slice ikey = iter->ikey;
-      if (!KeyMayMatch(ukey, prefix_extractor, block_offset, no_io, &ikey)) {
+      if (!KeyMayMatch(ukey, prefix_extractor, block_offset, no_io, &ikey,
+                       context)) {
         range->SkipKey(iter);
       }
     }
@@ -121,19 +123,19 @@ class FilterBlockReader {
    */
   virtual bool PrefixMayMatch(const Slice& prefix,
                               const SliceTransform* prefix_extractor,
-                              uint64_t block_offset = kNotValid,
-                              const bool no_io = false,
-                              const Slice* const const_ikey_ptr = nullptr) = 0;
+                              uint64_t block_offset, const bool no_io,
+                              const Slice* const const_ikey_ptr,
+                              BlockCacheLookupContext* context) = 0;
 
   virtual void PrefixesMayMatch(MultiGetRange* range,
                                 const SliceTransform* prefix_extractor,
-                                uint64_t block_offset = kNotValid,
-                                const bool no_io = false) {
+                                uint64_t block_offset, const bool no_io,
+                                BlockCacheLookupContext* context) {
     for (auto iter = range->begin(); iter != range->end(); ++iter) {
       const Slice ukey = iter->ukey;
       const Slice ikey = iter->ikey;
       if (!KeyMayMatch(prefix_extractor->Transform(ukey), prefix_extractor,
-                       block_offset, no_io, &ikey)) {
+                       block_offset, no_io, &ikey, context)) {
         range->SkipKey(iter);
       }
     }
@@ -156,13 +158,13 @@ class FilterBlockReader {
 
   virtual bool RangeMayExist(
       const Slice* /*iterate_upper_bound*/, const Slice& user_key,
-      const SliceTransform* prefix_extractor,
-      const Comparator* /*comparator*/, const Slice* const const_ikey_ptr,
-      bool* filter_checked, bool /*need_upper_bound_check*/) {
+      const SliceTransform* prefix_extractor, const Comparator* /*comparator*/,
+      const Slice* const const_ikey_ptr, bool* filter_checked,
+      bool /*need_upper_bound_check*/, BlockCacheLookupContext* context) {
     *filter_checked = true;
     Slice prefix = prefix_extractor->Transform(user_key);
     return PrefixMayMatch(prefix, prefix_extractor, kNotValid, false,
-                          const_ikey_ptr);
+                          const_ikey_ptr, context);
   }
 
  protected:

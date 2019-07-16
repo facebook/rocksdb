@@ -9,7 +9,9 @@
 
 #include "test_util/testutil.h"
 
+#include <array>
 #include <cctype>
+#include <fstream>
 #include <sstream>
 
 #include "db/memtable_list.h"
@@ -162,7 +164,11 @@ std::string RandomName(Random* rnd, const size_t len) {
 }
 
 CompressionType RandomCompressionType(Random* rnd) {
-  return static_cast<CompressionType>(rnd->Uniform(6));
+  auto ret = static_cast<CompressionType>(rnd->Uniform(6));
+  while (!CompressionTypeSupported(ret)) {
+    ret = static_cast<CompressionType>((static_cast<int>(ret) + 1) % 6);
+  }
+  return ret;
 }
 
 void RandomCompressionTypeVector(const size_t count,
@@ -193,8 +199,12 @@ BlockBasedTableOptions RandomBlockBasedTableOptions(Random* rnd) {
   opt.cache_index_and_filter_blocks = rnd->Uniform(2);
   opt.pin_l0_filter_and_index_blocks_in_cache = rnd->Uniform(2);
   opt.pin_top_level_index_and_filter = rnd->Uniform(2);
-  opt.index_type = rnd->Uniform(2) ? BlockBasedTableOptions::kBinarySearch
-                                   : BlockBasedTableOptions::kHashSearch;
+  using IndexType = BlockBasedTableOptions::IndexType;
+  const std::array<IndexType, 4> index_types = {
+      {IndexType::kBinarySearch, IndexType::kHashSearch,
+       IndexType::kTwoLevelIndexSearch, IndexType::kBinarySearchWithFirstKey}};
+  opt.index_type =
+      index_types[rnd->Uniform(static_cast<int>(index_types.size()))];
   opt.hash_index_allow_collision = rnd->Uniform(2);
   opt.checksum = static_cast<ChecksumType>(rnd->Uniform(3));
   opt.block_size = rnd->Uniform(10000000);
@@ -293,7 +303,8 @@ void RandomInitDBOptions(DBOptions* db_opt, Random* rnd) {
   db_opt->stats_dump_period_sec = rnd->Uniform(100000);
 }
 
-void RandomInitCFOptions(ColumnFamilyOptions* cf_opt, Random* rnd) {
+void RandomInitCFOptions(ColumnFamilyOptions* cf_opt, DBOptions& db_options,
+                         Random* rnd) {
   cf_opt->compaction_style = (CompactionStyle)(rnd->Uniform(4));
 
   // boolean options
@@ -345,8 +356,10 @@ void RandomInitCFOptions(ColumnFamilyOptions* cf_opt, Random* rnd) {
 
   // uint64_t options
   static const uint64_t uint_max = static_cast<uint64_t>(UINT_MAX);
-  cf_opt->ttl = uint_max + rnd->Uniform(10000);
-  cf_opt->periodic_compaction_seconds = uint_max + rnd->Uniform(10000);
+  cf_opt->ttl =
+      db_options.max_open_files == -1 ? uint_max + rnd->Uniform(10000) : 0;
+  cf_opt->periodic_compaction_seconds =
+      db_options.max_open_files == -1 ? uint_max + rnd->Uniform(10000) : 0;
   cf_opt->max_sequential_skip_in_iterations = uint_max + rnd->Uniform(10000);
   cf_opt->target_file_size_base = uint_max + rnd->Uniform(10000);
   cf_opt->max_compaction_bytes =
@@ -412,6 +425,23 @@ bool IsDirectIOSupported(Env* env, const std::string& dir) {
     s = env->DeleteFile(tmp);
   }
   return s.ok();
+}
+
+size_t GetLinesCount(const std::string& fname, const std::string& pattern) {
+  std::stringstream ssbuf;
+  std::string line;
+  size_t count = 0;
+
+  std::ifstream inFile(fname.c_str());
+  ssbuf << inFile.rdbuf();
+
+  while (getline(ssbuf, line)) {
+    if (line.find(pattern) != std::string::npos) {
+      count++;
+    }
+  }
+
+  return count;
 }
 
 }  // namespace test

@@ -8,10 +8,7 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 #include "db/db_impl/db_impl.h"
 
-#ifndef __STDC_FORMAT_MACROS
-#define __STDC_FORMAT_MACROS
-#endif
-#include <inttypes.h>
+#include <cinttypes>
 #include <set>
 #include <unordered_set>
 #include "db/event_helpers.h"
@@ -261,7 +258,8 @@ void DBImpl::DeleteObsoleteFileImpl(int job_id, const std::string& fname,
   Status file_deletion_status;
   if (type == kTableFile || type == kLogFile) {
     file_deletion_status =
-        DeleteDBFile(&immutable_db_options_, fname, path_to_sync);
+        DeleteDBFile(&immutable_db_options_, fname, path_to_sync,
+                     /*force_bg=*/false, /*force_fg=*/!wal_in_db_path_);
   } else {
     file_deletion_status = env_->DeleteFile(fname);
   }

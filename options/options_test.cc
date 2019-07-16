@@ -7,14 +7,10 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
-#ifndef __STDC_FORMAT_MACROS
-#define __STDC_FORMAT_MACROS
-#endif
-
 #include <cctype>
 #include <cstring>
 #include <unordered_map>
-#include <inttypes.h>
+#include <cinttypes>
 
 #include "cache/lru_cache.h"
 #include "cache/sharded_cache.h"
@@ -133,6 +129,7 @@ TEST_F(OptionsTest, GetOptionsFromMapTest) {
       {"skip_log_error_on_recovery", "false"},
       {"stats_dump_period_sec", "46"},
       {"stats_persist_period_sec", "57"},
+      {"persist_stats_to_disk", "false"},
       {"stats_history_buffer_size", "69"},
       {"advise_random_on_open", "true"},
       {"use_adaptive_mutex", "false"},
@@ -271,6 +268,7 @@ TEST_F(OptionsTest, GetOptionsFromMapTest) {
   ASSERT_EQ(new_db_opt.skip_log_error_on_recovery, false);
   ASSERT_EQ(new_db_opt.stats_dump_period_sec, 46U);
   ASSERT_EQ(new_db_opt.stats_persist_period_sec, 57U);
+  ASSERT_EQ(new_db_opt.persist_stats_to_disk, false);
   ASSERT_EQ(new_db_opt.stats_history_buffer_size, 69U);
   ASSERT_EQ(new_db_opt.advise_random_on_open, true);
   ASSERT_EQ(new_db_opt.use_adaptive_mutex, false);
@@ -619,8 +617,9 @@ TEST_F(OptionsTest, GetBlockBasedTableOptionsFromString) {
                 new_opt.block_cache)->GetNumShardBits(),
                 GetDefaultCacheShardBits(new_opt.block_cache->GetCapacity()));
   ASSERT_EQ(new_opt.block_cache->HasStrictCapacityLimit(), false);
-  ASSERT_EQ(std::dynamic_pointer_cast<LRUCache>(
-                new_opt.block_cache)->GetHighPriPoolRatio(), 0.0);
+  ASSERT_EQ(std::dynamic_pointer_cast<LRUCache>(new_opt.block_cache)
+                ->GetHighPriPoolRatio(),
+            0.5);
   ASSERT_TRUE(new_opt.block_cache_compressed != nullptr);
   ASSERT_EQ(new_opt.block_cache_compressed->GetCapacity(), 2*1024UL*1024UL);
   // Default values
@@ -629,16 +628,17 @@ TEST_F(OptionsTest, GetBlockBasedTableOptionsFromString) {
                 GetDefaultCacheShardBits(
                     new_opt.block_cache_compressed->GetCapacity()));
   ASSERT_EQ(new_opt.block_cache_compressed->HasStrictCapacityLimit(), false);
-  ASSERT_EQ(std::dynamic_pointer_cast<LRUCache>(
-                new_opt.block_cache_compressed)->GetHighPriPoolRatio(),
-                0.0);
+  ASSERT_EQ(std::dynamic_pointer_cast<LRUCache>(new_opt.block_cache_compressed)
+                ->GetHighPriPoolRatio(),
+            0.5);
 
   // Set couple of block cache options.
-  ASSERT_OK(GetBlockBasedTableOptionsFromString(table_opt,
-             "block_cache={num_shard_bits=5;high_pri_pool_ratio=0.5;};"
-             "block_cache_compressed={num_shard_bits=5;"
-             "high_pri_pool_ratio=0.5;}",
-             &new_opt));
+  ASSERT_OK(GetBlockBasedTableOptionsFromString(
+      table_opt,
+      "block_cache={num_shard_bits=5;high_pri_pool_ratio=0.5;};"
+      "block_cache_compressed={num_shard_bits=5;"
+      "high_pri_pool_ratio=0.0;}",
+      &new_opt));
   ASSERT_EQ(new_opt.block_cache->GetCapacity(), 0);
   ASSERT_EQ(std::dynamic_pointer_cast<ShardedCache>(
                 new_opt.block_cache)->GetNumShardBits(), 5);
@@ -650,9 +650,9 @@ TEST_F(OptionsTest, GetBlockBasedTableOptionsFromString) {
   ASSERT_EQ(std::dynamic_pointer_cast<ShardedCache>(
                 new_opt.block_cache_compressed)->GetNumShardBits(), 5);
   ASSERT_EQ(new_opt.block_cache_compressed->HasStrictCapacityLimit(), false);
-  ASSERT_EQ(std::dynamic_pointer_cast<LRUCache>(
-                new_opt.block_cache_compressed)->GetHighPriPoolRatio(),
-                0.5);
+  ASSERT_EQ(std::dynamic_pointer_cast<LRUCache>(new_opt.block_cache_compressed)
+                ->GetHighPriPoolRatio(),
+            0.0);
 
   // Set couple of block cache options.
   ASSERT_OK(GetBlockBasedTableOptionsFromString(table_opt,
@@ -666,16 +666,17 @@ TEST_F(OptionsTest, GetBlockBasedTableOptionsFromString) {
   ASSERT_EQ(std::dynamic_pointer_cast<ShardedCache>(
                 new_opt.block_cache)->GetNumShardBits(), 4);
   ASSERT_EQ(new_opt.block_cache->HasStrictCapacityLimit(), true);
-  ASSERT_EQ(std::dynamic_pointer_cast<LRUCache>(
-                new_opt.block_cache)->GetHighPriPoolRatio(), 0.0);
+  ASSERT_EQ(std::dynamic_pointer_cast<LRUCache>(new_opt.block_cache)
+                ->GetHighPriPoolRatio(),
+            0.5);
   ASSERT_TRUE(new_opt.block_cache_compressed != nullptr);
   ASSERT_EQ(new_opt.block_cache_compressed->GetCapacity(), 1024UL*1024UL);
   ASSERT_EQ(std::dynamic_pointer_cast<ShardedCache>(
                 new_opt.block_cache_compressed)->GetNumShardBits(), 4);
   ASSERT_EQ(new_opt.block_cache_compressed->HasStrictCapacityLimit(), true);
-  ASSERT_EQ(std::dynamic_pointer_cast<LRUCache>(
-                new_opt.block_cache_compressed)->GetHighPriPoolRatio(),
-                0.0);
+  ASSERT_EQ(std::dynamic_pointer_cast<LRUCache>(new_opt.block_cache_compressed)
+                ->GetHighPriPoolRatio(),
+            0.5);
 }
 #endif  // !ROCKSDB_LITE
 
@@ -842,7 +843,7 @@ TEST_F(OptionsTest, OptionsComposeDecompose) {
 
   Random rnd(301);
   test::RandomInitDBOptions(&base_db_opts, &rnd);
-  test::RandomInitCFOptions(&base_cf_opts, &rnd);
+  test::RandomInitCFOptions(&base_cf_opts, base_db_opts, &rnd);
 
   Options base_opts(base_db_opts, base_cf_opts);
   DBOptions new_db_opts(base_opts);
@@ -854,11 +855,12 @@ TEST_F(OptionsTest, OptionsComposeDecompose) {
 }
 
 TEST_F(OptionsTest, ColumnFamilyOptionsSerialization) {
+  Options options;
   ColumnFamilyOptions base_opt, new_opt;
   Random rnd(302);
   // Phase 1: randomly assign base_opt
   // custom type options
-  test::RandomInitCFOptions(&base_opt, &rnd);
+  test::RandomInitCFOptions(&base_opt, options, &rnd);
 
   // Phase 2: obtain a string from base_opt
   std::string base_options_file_content;
@@ -1521,7 +1523,7 @@ TEST_F(OptionsParserTest, DumpAndParse) {
   for (int c = 0; c < num_cf; ++c) {
     ColumnFamilyOptions cf_opt;
     Random cf_rnd(0xFB + c);
-    test::RandomInitCFOptions(&cf_opt, &cf_rnd);
+    test::RandomInitCFOptions(&cf_opt, base_db_opt, &cf_rnd);
     if (c < 4) {
       cf_opt.prefix_extractor.reset(test::RandomSliceTransform(&rnd, c));
     }

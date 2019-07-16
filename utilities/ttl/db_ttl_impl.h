@@ -35,6 +35,8 @@ class DBWithTTLImpl : public DBWithTTL {
 
   virtual ~DBWithTTLImpl();
 
+  virtual Status Close() override;
+
   Status CreateColumnFamilyWithTtl(const ColumnFamilyOptions& options,
                                    const std::string& column_family_name,
                                    ColumnFamilyHandle** handle,
@@ -99,6 +101,10 @@ class DBWithTTLImpl : public DBWithTTL {
   void SetTtl(int32_t ttl) override { SetTtl(DefaultColumnFamily(), ttl); }
 
   void SetTtl(ColumnFamilyHandle *h, int32_t ttl) override;
+
+ private:
+   // remember whether the Close completes or not
+   bool closed_;
 };
 
 class TtlIterator : public Iterator {

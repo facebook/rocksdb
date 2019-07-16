@@ -5,10 +5,7 @@
 
 #include "db/db_impl/db_impl_secondary.h"
 
-#ifndef __STDC_FORMAT_MACROS
-#define __STDC_FORMAT_MACROS
-#endif
-#include <inttypes.h>
+#include <cinttypes>
 
 #include "db/db_iter.h"
 #include "db/merge_context.h"
@@ -63,6 +60,12 @@ Status DBImplSecondary::Recover(
     s = FindAndRecoverLogFiles(&cfds_changed, &job_context);
   }
 
+  if (s.IsPathNotFound()) {
+    ROCKS_LOG_INFO(immutable_db_options_.info_log,
+                   "Secondary tries to read WAL, but WAL file(s) have already "
+                   "been purged by primary.");
+    s = Status::OK();
+  }
   // TODO: update options_file_number_ needed?
 
   job_context.Clean();
@@ -202,16 +205,8 @@ Status DBImplSecondary::RecoverLogFiles(
             record.size(), Status::Corruption("log record too small"));
         continue;
       }
-      SequenceNumber seq = versions_->LastSequence();
       WriteBatchInternal::SetContents(&batch, record);
       SequenceNumber seq_of_batch = WriteBatchInternal::Sequence(&batch);
-      // If the write batch's sequence number is smaller than the last sequence
-      // number of the db, then we should skip this write batch because its
-      // data must reside in an SST that has already been added in the prior
-      // MANIFEST replay.
-      if (seq_of_batch < seq) {
-        continue;
-      }
       std::vector<uint32_t> column_family_ids;
       status = CollectColumnFamilyIdsFromWriteBatch(batch, &column_family_ids);
       if (status.ok()) {
@@ -223,6 +218,17 @@ Status DBImplSecondary::RecoverLogFiles(
           }
           if (cfds_changed->count(cfd) == 0) {
             cfds_changed->insert(cfd);
+          }
+          const std::vector<FileMetaData*>& l0_files =
+              cfd->current()->storage_info()->LevelFiles(0);
+          SequenceNumber seq =
+              l0_files.empty() ? 0 : l0_files.back()->fd.largest_seqno;
+          // If the write batch's sequence number is smaller than the last
+          // sequence number of the largest sequence persisted for this column
+          // family, then its data must reside in an SST that has already been
+          // added in the prior MANIFEST replay.
+          if (seq_of_batch <= seq) {
+            continue;
           }
           auto curr_log_num = port::kMaxUint64;
           if (cfd_to_current_log_.count(cfd) > 0) {
@@ -236,7 +242,7 @@ Status DBImplSecondary::RecoverLogFiles(
             const MutableCFOptions mutable_cf_options =
                 *cfd->GetLatestMutableCFOptions();
             MemTable* new_mem =
-                cfd->ConstructNewMemtable(mutable_cf_options, seq);
+                cfd->ConstructNewMemtable(mutable_cf_options, seq_of_batch);
             cfd->mem()->SetNextLogNumber(log_number);
             cfd->imm()->Add(cfd->mem(), &job_context->memtables_to_free);
             new_mem->Ref();
@@ -445,6 +451,44 @@ Status DBImplSecondary::NewIterators(
   return Status::OK();
 }
 
+Status DBImplSecondary::CheckConsistency() {
+  mutex_.AssertHeld();
+  Status s = DBImpl::CheckConsistency();
+  // If DBImpl::CheckConsistency() which is stricter returns success, then we
+  // do not need to give a second chance.
+  if (s.ok()) {
+    return s;
+  }
+  // It's possible that DBImpl::CheckConssitency() can fail because the primary
+  // may have removed certain files, causing the GetFileSize(name) call to
+  // fail and returning a PathNotFound. In this case, we take a best-effort
+  // approach and just proceed.
+  TEST_SYNC_POINT_CALLBACK(
+      "DBImplSecondary::CheckConsistency:AfterFirstAttempt", &s);
+  std::vector<LiveFileMetaData> metadata;
+  versions_->GetLiveFilesMetaData(&metadata);
+
+  std::string corruption_messages;
+  for (const auto& md : metadata) {
+    // md.name has a leading "/".
+    std::string file_path = md.db_path + md.name;
+
+    uint64_t fsize = 0;
+    s = env_->GetFileSize(file_path, &fsize);
+    if (!s.ok() &&
+        (env_->GetFileSize(Rocks2LevelTableFileName(file_path), &fsize).ok() ||
+         s.IsPathNotFound())) {
+      s = Status::OK();
+    }
+    if (!s.ok()) {
+      corruption_messages +=
+          "Can't access " + md.name + ": " + s.ToString() + "\n";
+    }
+  }
+  return corruption_messages.empty() ? Status::OK()
+                                     : Status::Corruption(corruption_messages);
+}
+
 Status DBImplSecondary::TryCatchUpWithPrimary() {
   assert(versions_.get() != nullptr);
   assert(manifest_reader_.get() != nullptr);
@@ -455,10 +499,31 @@ Status DBImplSecondary::TryCatchUpWithPrimary() {
   InstrumentedMutexLock lock_guard(&mutex_);
   s = static_cast<ReactiveVersionSet*>(versions_.get())
           ->ReadAndApply(&mutex_, &manifest_reader_, &cfds_changed);
+
+  ROCKS_LOG_INFO(immutable_db_options_.info_log, "Last sequence is %" PRIu64,
+                 static_cast<uint64_t>(versions_->LastSequence()));
+  for (ColumnFamilyData* cfd : cfds_changed) {
+    if (cfd->IsDropped()) {
+      ROCKS_LOG_DEBUG(immutable_db_options_.info_log, "[%s] is dropped\n",
+                      cfd->GetName().c_str());
+      continue;
+    }
+    VersionStorageInfo::LevelSummaryStorage tmp;
+    ROCKS_LOG_DEBUG(immutable_db_options_.info_log, "[%s] Level summary: %s\n",
+                    cfd->GetName().c_str(),
+                    cfd->current()->storage_info()->LevelSummary(&tmp));
+  }
+
   // list wal_dir to discover new WALs and apply new changes to the secondary
   // instance
   if (s.ok()) {
     s = FindAndRecoverLogFiles(&cfds_changed, &job_context);
+  }
+  if (s.IsPathNotFound()) {
+    ROCKS_LOG_INFO(immutable_db_options_.info_log,
+                   "Secondary tries to read WAL, but WAL file(s) have already "
+                   "been purged by primary.");
+    s = Status::OK();
   }
   if (s.ok()) {
     for (auto cfd : cfds_changed) {
@@ -506,38 +571,13 @@ Status DB::OpenAsSecondary(
   }
 
   DBOptions tmp_opts(db_options);
+  Status s;
   if (nullptr == tmp_opts.info_log) {
-    Env* env = tmp_opts.env;
-    assert(env != nullptr);
-    std::string secondary_abs_path;
-    env->GetAbsolutePath(secondary_path, &secondary_abs_path);
-    std::string fname = InfoLogFileName(secondary_path, secondary_abs_path,
-                                        tmp_opts.db_log_dir);
-
-    env->CreateDirIfMissing(secondary_path);
-    if (tmp_opts.log_file_time_to_roll > 0 || tmp_opts.max_log_file_size > 0) {
-      AutoRollLogger* result = new AutoRollLogger(
-          env, secondary_path, tmp_opts.db_log_dir, tmp_opts.max_log_file_size,
-          tmp_opts.log_file_time_to_roll, tmp_opts.info_log_level);
-      Status s = result->GetStatus();
-      if (!s.ok()) {
-        delete result;
-      } else {
-        tmp_opts.info_log.reset(result);
-      }
-    }
-    if (nullptr == tmp_opts.info_log) {
-      env->RenameFile(
-          fname, OldInfoLogFileName(secondary_path, env->NowMicros(),
-                                    secondary_abs_path, tmp_opts.db_log_dir));
-      Status s = env->NewLogger(fname, &(tmp_opts.info_log));
-      if (tmp_opts.info_log != nullptr) {
-        tmp_opts.info_log->SetInfoLogLevel(tmp_opts.info_log_level);
-      }
+    s = CreateLoggerFromOptions(secondary_path, tmp_opts, &tmp_opts.info_log);
+    if (!s.ok()) {
+      tmp_opts.info_log = nullptr;
     }
   }
-
-  assert(tmp_opts.info_log != nullptr);
 
   handles->clear();
   DBImplSecondary* impl = new DBImplSecondary(tmp_opts, dbname);
@@ -547,8 +587,11 @@ Status DB::OpenAsSecondary(
       &impl->write_controller_));
   impl->column_family_memtables_.reset(
       new ColumnFamilyMemTablesImpl(impl->versions_->GetColumnFamilySet()));
+  impl->wal_in_db_path_ =
+      IsWalDirSameAsDBPath(&impl->immutable_db_options_);
+
   impl->mutex_.Lock();
-  Status s = impl->Recover(column_families, true, false, false);
+  s = impl->Recover(column_families, true, false, false);
   if (s.ok()) {
     for (auto cf : column_families) {
       auto cfd =

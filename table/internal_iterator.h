@@ -104,8 +104,11 @@ class InternalIteratorBase : public Cleanable {
   // satisfied without doing some IO, then this returns Status::Incomplete().
   virtual Status status() const = 0;
 
-  // True if the iterator is invalidated because it is out of the iterator
-  // upper bound
+  // True if the iterator is invalidated because it reached a key that is above
+  // the iterator upper bound. Used by LevelIterator to decide whether it should
+  // stop or move on to the next file.
+  // Important: if iterator reached the end of the file without encountering any
+  // keys above the upper bound, IsOutOfBound() must return false.
   virtual bool IsOutOfBound() { return false; }
 
   // Keys return from this iterator can be smaller than iterate_lower_bound.

@@ -824,7 +824,9 @@ class RecoveryTestHelper {
   // Create WAL files with values filled in
   static void FillData(DBWALTest* test, const Options& options,
                        const size_t wal_count, size_t* count) {
-    const ImmutableDBOptions db_options(options);
+    // Calling internal functions requires sanitized options.
+    Options sanitized_options = SanitizeOptions(test->dbname_, options);
+    const ImmutableDBOptions db_options(sanitized_options);
 
     *count = 0;
 
@@ -838,7 +840,8 @@ class RecoveryTestHelper {
 
     versions.reset(new VersionSet(test->dbname_, &db_options, env_options,
                                   table_cache.get(), &write_buffer_manager,
-                                  &write_controller));
+                                  &write_controller,
+                                  /*block_cache_tracer=*/nullptr));
 
     wal_manager.reset(new WalManager(db_options, env_options));
 

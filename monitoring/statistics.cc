@@ -5,11 +5,7 @@
 //
 #include "monitoring/statistics.h"
 
-#ifndef __STDC_FORMAT_MACROS
-#define __STDC_FORMAT_MACROS
-#endif
-
-#include <inttypes.h>
+#include <cinttypes>
 #include "rocksdb/statistics.h"
 #include "port/likely.h"
 #include <algorithm>

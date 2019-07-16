@@ -13,11 +13,7 @@ int main() {
 }
 #else
 
-#ifndef __STDC_FORMAT_MACROS
-#define __STDC_FORMAT_MACROS
-#endif
-
-#include <inttypes.h>
+#include <cinttypes>
 #include <vector>
 #include <string>
 #include <map>
@@ -150,8 +146,9 @@ class CuckooReaderTest : public testing::Test {
     CuckooTableReader reader(ioptions, std::move(file_reader), file_size, ucomp,
                              GetSliceHash);
     ASSERT_OK(reader.status());
-    InternalIterator* it =
-        reader.NewIterator(ReadOptions(), nullptr, nullptr, false);
+    InternalIterator* it = reader.NewIterator(
+        ReadOptions(), /*prefix_extractor=*/nullptr, /*arena=*/nullptr,
+        /*skip_filters=*/false, TableReaderCaller::kUncategorized);
     ASSERT_OK(it->status());
     ASSERT_TRUE(!it->Valid());
     it->SeekToFirst();
@@ -190,7 +187,9 @@ class CuckooReaderTest : public testing::Test {
     delete it;
 
     Arena arena;
-    it = reader.NewIterator(ReadOptions(), nullptr, &arena);
+    it = reader.NewIterator(ReadOptions(), /*prefix_extractor=*/nullptr, &arena,
+                            /*skip_filters=*/false,
+                            TableReaderCaller::kUncategorized);
     ASSERT_OK(it->status());
     ASSERT_TRUE(!it->Valid());
     it->Seek(keys[num_items/2]);

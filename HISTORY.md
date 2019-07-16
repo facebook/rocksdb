@@ -1,16 +1,28 @@
 # Rocksdb Change Log
 ## Unreleased
+### Default Option Change
+* LRUCacheOptions.high_pri_pool_ratio is set to 0.5 (previously 0.0) by default, which means that by default midpoint insertion is enabled. The same change is made for the default value of high_pri_pool_ratio argument in NewLRUCache(). When block cache is not explictly created, the small block cache created by BlockBasedTable will still has this option to be 0.0.
+* Change BlockBasedTableOptions.cache_index_and_filter_blocks_with_high_priority's default value from false to true.
+
 ### Public API Change
 * Now DB::Close() will return Aborted() error when there is unreleased snapshot. Users can retry after all snapshots are released.
 * Partitions of partitioned indexes no longer affect the read amplification statistics.
 * Due to a refactoring, block cache eviction statistics for indexes are temporarily broken. We plan to reintroduce them in a later phase.
 * options.keep_log_file_num will be enforced strictly all the time. File names of all log files will be tracked, which may take significantly amount of memory if options.keep_log_file_num is large and either of options.max_log_file_size or options.log_file_time_to_roll is set.
+* Add initial support for Get/Put with user timestamps. Users can specify timestamps via ReadOptions and WriteOptions when calling DB::Get and DB::Put.
+* Accessing a partition of a partitioned filter or index through a pinned reference is no longer considered a cache hit.
+* The semantics of the per-block-type block read counts in the performance context now match those of the generic block_read_count.
+* Add C bindings for secondary instance, i.e. DBImplSecondary.
+* db_bench adds a "benchmark" stats_history, which prints out the whole stats history.
+* Rate limited deletion of WALs is only enabled if DBOptions::wal_dir is not set, or explicitly set to db_name passed to DB::Open and DBOptions::db_paths is empty, or same as db_paths[0].path
+* Overload GetAllKeyVersions() to support non-default column family.
 
 ### New Features
 * Add an option `snap_refresh_nanos` (default to 0.1s) to periodically refresh the snapshot list in compaction jobs. Assign to 0 to disable the feature.
 * Add an option `unordered_write` which trades snapshot guarantees with higher write throughput. When used with WRITE_PREPARED transactions with two_write_queues=true, it offers higher throughput with however no compromise on guarantees.
 * Allow DBImplSecondary to remove memtables with obsolete data after replaying MANIFEST and WAL.
 * Add an option `failed_move_fall_back_to_copy` (default is true) for external SST ingestion. When `move_files` is true and hard link fails, ingestion falls back to copy if `failed_move_fall_back_to_copy` is true. Otherwise, ingestion reports an error.
+* Add argument `--secondary_path` to ldb to open the database as the secondary instance. This would keep the original DB intact.
 
 ### Performance Improvements
 * Reduce binary search when iterator reseek into the same data block.
@@ -18,12 +30,20 @@
 * Merging iterator to avoid child iterator reseek for some cases
 * Reduce iterator key comparision for upper/lower bound check.
 * Log Writer will flush after finishing the whole record, rather than a fragment.
+* Lower MultiGet batching API latency by reading data blocks from disk in parallel
 
 ### General Improvements
 * Added new status code kColumnFamilyDropped to distinguish between Column Family Dropped and DB Shutdown in progress.
+* Improve ColumnFamilyOptions validation when creating a new column family.
 
 ### Bug Fixes
 * Fix a bug in WAL replay of secondary instance by skipping write batches with older sequence numbers than the current last sequence number.
+* Fix flush's/compaction's merge processing logic which allowed `Put`s covered by range tombstones to reappear. Note `Put`s may exist even if the user only ever called `Merge()` due to an internal conversion during compaction to the bottommost level.
+* Fix/improve memtable earliest sequence assignment and WAL replay so that WAL entries of unflushed column families will not be skipped after replaying the MANIFEST and increasing db sequence due to another flushed/compacted column family.
+* Fix ingested file and directory not being fsync.
+* Return TryAgain status in place of Corruption when new tail is not visible to TransactionLogIterator.
+* Fix a bug caused by secondary not skipping the beginning of new MANIFEST.
+* On DB open, delete WAL trash files left behind in wal_dir
 
 ## 6.2.0 (4/30/2019)
 ### New Features
@@ -33,6 +53,7 @@
 * Block-based table index now contains exact highest key in the file, rather than an upper bound. This may improve Get() and iterator Seek() performance in some situations, especially when direct IO is enabled and block cache is disabled. A setting BlockBasedTableOptions::index_shortening is introduced to control this behavior. Set it to kShortenSeparatorsAndSuccessor to get the old behavior.
 * When reading from option file/string/map, customized envs can be filled according to object registry.
 * Improve range scan performance when using explicit user readahead by not creating new table readers for every iterator.
+* Add index type BlockBasedTableOptions::IndexType::kBinarySearchWithFirstKey. It significantly reduces read amplification in some setups, especially for iterator seeks. It's not fully implemented yet: IO errors are not handled right.
 
 ### Public API Change
 * Change the behavior of OptimizeForPointLookup(): move away from hash-based block-based-table index, and use whole key memtable filtering.

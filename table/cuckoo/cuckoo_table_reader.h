@@ -45,18 +45,23 @@ class CuckooTableReader: public TableReader {
              GetContext* get_context, const SliceTransform* prefix_extractor,
              bool skip_filters = false) override;
 
+  // Returns a new iterator over table contents
+  // compaction_readahead_size: its value will only be used if for_compaction =
+  // true
   InternalIterator* NewIterator(const ReadOptions&,
                                 const SliceTransform* prefix_extractor,
-                                Arena* arena = nullptr,
-                                bool skip_filters = false,
-                                bool for_compaction = false) override;
+                                Arena* arena, bool skip_filters,
+                                TableReaderCaller caller, size_t compaction_readahead_size = 0) override;
   void Prepare(const Slice& target) override;
 
   // Report an approximation of how much memory has been used.
   size_t ApproximateMemoryUsage() const override;
 
   // Following methods are not implemented for Cuckoo Table Reader
-  uint64_t ApproximateOffsetOf(const Slice& /*key*/) override { return 0; }
+  uint64_t ApproximateOffsetOf(const Slice& /*key*/,
+                               TableReaderCaller /*caller*/) override {
+    return 0;
+  }
   void SetupForCompaction() override {}
   // End of methods not implemented.
 

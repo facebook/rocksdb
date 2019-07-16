@@ -657,7 +657,7 @@ void RandomInitDBOptions(DBOptions* db_opt, Random* rnd);
 // Randomly initialize the given ColumnFamilyOptions
 // Note that the caller is responsible for releasing non-null
 // cf_opt->compaction_filter.
-void RandomInitCFOptions(ColumnFamilyOptions* cf_opt, Random* rnd);
+void RandomInitCFOptions(ColumnFamilyOptions* cf_opt, DBOptions&, Random* rnd);
 
 // A dummy merge operator which can change its name
 class ChanglingMergeOperator : public MergeOperator {
@@ -749,6 +749,9 @@ std::string RandomName(Random* rnd, const size_t len);
 Status DestroyDir(Env* env, const std::string& dir);
 
 bool IsDirectIOSupported(Env* env, const std::string& dir);
+
+// Return the number of lines where a given pattern was found in a file.
+size_t GetLinesCount(const std::string& fname, const std::string& pattern);
 
 }  // namespace test
 }  // namespace rocksdb

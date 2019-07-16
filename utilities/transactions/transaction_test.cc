@@ -5,10 +5,6 @@
 
 #ifndef ROCKSDB_LITE
 
-#ifndef __STDC_FORMAT_MACROS
-#define __STDC_FORMAT_MACROS
-#endif
-
 #include "utilities/transactions/transaction_test.h"
 
 #include <algorithm>
@@ -78,6 +74,10 @@ INSTANTIATE_TEST_CASE_P(
         std::make_tuple(false, false, WRITE_PREPARED, kOrderedWrite, true),
         std::make_tuple(false, true, WRITE_PREPARED, kOrderedWrite, false),
         std::make_tuple(false, true, WRITE_PREPARED, kOrderedWrite, true),
+        std::make_tuple(false, false, WRITE_UNPREPARED, kOrderedWrite, false),
+        std::make_tuple(false, false, WRITE_UNPREPARED, kOrderedWrite, true),
+        std::make_tuple(false, true, WRITE_UNPREPARED, kOrderedWrite, false),
+        std::make_tuple(false, true, WRITE_UNPREPARED, kOrderedWrite, true),
         std::make_tuple(false, true, WRITE_PREPARED, kUnorderedWrite, false),
         std::make_tuple(false, true, WRITE_PREPARED, kUnorderedWrite, true)));
 #endif  // ROCKSDB_VALGRIND_RUN

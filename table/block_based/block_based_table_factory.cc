@@ -7,12 +7,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
-
-#ifndef __STDC_FORMAT_MACROS
-#define __STDC_FORMAT_MACROS
-#endif
-
-#include <inttypes.h>
+#include <cinttypes>
 #include <stdint.h>
 
 #include <memory>
@@ -172,7 +167,12 @@ BlockBasedTableFactory::BlockBasedTableFactory(
   if (table_options_.no_block_cache) {
     table_options_.block_cache.reset();
   } else if (table_options_.block_cache == nullptr) {
-    table_options_.block_cache = NewLRUCache(8 << 20);
+    LRUCacheOptions co;
+    co.capacity = 8 << 20;
+    // It makes little sense to pay overhead for mid-point insertion while the
+    // block size is only 8MB.
+    co.high_pri_pool_ratio = 0.0;
+    table_options_.block_cache = NewLRUCache(co);
   }
   if (table_options_.block_size_deviation < 0 ||
       table_options_.block_size_deviation > 100) {
@@ -203,7 +203,8 @@ Status BlockBasedTableFactory::NewTableReader(
       file_size, table_reader, table_reader_options.prefix_extractor,
       prefetch_index_and_filter_in_cache, table_reader_options.skip_filters,
       table_reader_options.level, table_reader_options.immortal,
-      table_reader_options.largest_seqno, &tail_prefetch_stats_);
+      table_reader_options.largest_seqno, &tail_prefetch_stats_,
+      table_reader_options.block_cache_tracer);
 }
 
 TableBuilder* BlockBasedTableFactory::NewTableBuilder(
@@ -260,6 +261,10 @@ Status BlockBasedTableFactory::SanitizeOptions(
       (table_options_.block_size & (table_options_.block_size - 1))) {
     return Status::InvalidArgument(
         "Block alignment requested but block size is not a power of 2");
+  }
+  if (table_options_.block_size > port::kMaxUint32) {
+    return Status::InvalidArgument(
+        "block size exceeds maximum number (4GiB) allowed");
   }
   if (table_options_.data_block_index_type ==
           BlockBasedTableOptions::kDataBlockBinaryAndHash &&

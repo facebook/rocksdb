@@ -158,7 +158,10 @@ class RandomAccessFileReader {
   RandomAccessFileReader(const RandomAccessFileReader&) = delete;
   RandomAccessFileReader& operator=(const RandomAccessFileReader&) = delete;
 
-  Status Read(uint64_t offset, size_t n, Slice* result, char* scratch) const;
+  Status Read(uint64_t offset, size_t n, Slice* result, char* scratch,
+              bool for_compaction = false) const;
+
+  Status MultiRead(ReadRequest* reqs, size_t num_reqs) const;
 
   Status Prefetch(uint64_t offset, size_t n) const {
     return file_->Prefetch(offset, n);
@@ -279,7 +282,7 @@ class WritableFileWriter {
   // returns NotSupported status.
   Status SyncWithoutFlush(bool use_fsync);
 
-  uint64_t GetFileSize() { return filesize_; }
+  uint64_t GetFileSize() const { return filesize_; }
 
   Status InvalidateCache(size_t offset, size_t length) {
     return writable_file_->InvalidateCache(offset, length);
@@ -343,7 +346,9 @@ class FilePrefetchBuffer {
   // reader : the file reader.
   // offset : the file offset to start reading from.
   // n      : the number of bytes to read.
-  Status Prefetch(RandomAccessFileReader* reader, uint64_t offset, size_t n);
+  // for_compaction : if prefetch is done for compaction read.
+  Status Prefetch(RandomAccessFileReader* reader, uint64_t offset, size_t n,
+                  bool for_compaction = false);
 
   // Tries returning the data for a file raed from this buffer, if that data is
   // in the buffer.
@@ -354,7 +359,9 @@ class FilePrefetchBuffer {
   // offset : the file offset.
   // n      : the number of bytes.
   // result : output buffer to put the data into.
-  bool TryReadFromCache(uint64_t offset, size_t n, Slice* result);
+  // for_compaction : if cache read is done for compaction read.
+  bool TryReadFromCache(uint64_t offset, size_t n, Slice* result,
+                        bool for_compaction = false);
 
   // The minimum `offset` ever passed to TryReadFromCache(). This will nly be
   // tracked if track_min_offset = true.

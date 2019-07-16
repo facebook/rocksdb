@@ -18,6 +18,7 @@
 #include <memory>
 
 #include "db/version_set.h"
+#include "file/file_util.h"
 #include "options/db_options.h"
 #include "port/port.h"
 #include "rocksdb/env.h"
@@ -40,7 +41,8 @@ class WalManager {
         env_options_(env_options),
         env_(db_options.env),
         purge_wal_files_last_run_(0),
-        seq_per_batch_(seq_per_batch) {}
+        seq_per_batch_(seq_per_batch),
+        wal_in_db_path_(IsWalDirSameAsDBPath(&db_options)) {}
 
   Status GetSortedWalFiles(VectorLogPtr& files);
 
@@ -96,6 +98,8 @@ class WalManager {
   uint64_t purge_wal_files_last_run_;
 
   bool seq_per_batch_;
+
+  bool wal_in_db_path_;
 
   // obsolete files will be deleted every this seconds if ttl deletion is
   // enabled and archive size_limit is disabled.

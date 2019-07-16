@@ -183,6 +183,7 @@ else()
   set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wsign-compare -Wshadow -Wno-unused-parameter -Wno-unused-variable -Woverloaded-virtual -Wnon-virtual-dtor -Wno-missing-field-initializers -Wno-strict-aliasing")
   if(MINGW)
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wno-format")
+    add_definitions(-D_POSIX_C_SOURCE=1)
   endif()
   set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++11")
   if(NOT CMAKE_BUILD_TYPE STREQUAL "Debug")
@@ -332,6 +333,10 @@ if(DISABLE_STALL_NOTIF)
   add_definitions(-DROCKSDB_DISABLE_STALL_NOTIFICATION)
 endif()
 
+option(WITH_DYNAMIC_EXTENSION "build with dynamic extension support" OFF)
+if(NOT WITH_DYNAMIC_EXTENSION)
+  add_definitions(-DROCKSDB_NO_DYNAMIC_EXTENSION)
+endif()
 
 if(DEFINED USE_RTTI)
   if(USE_RTTI)
@@ -488,7 +493,7 @@ set(SOURCES
         db/compacted_db_impl.cc
         db/compaction/compaction.cc
         db/compaction/compaction_iterator.cc
-        db/compaction/compaction_picker.cc        
+        db/compaction/compaction_picker.cc
         db/compaction/compaction_job.cc
         db/compaction/compaction_picker_fifo.cc
         db/compaction/compaction_picker_level.cc
@@ -516,7 +521,6 @@ set(SOURCES
         db/flush_scheduler.cc
         db/forward_iterator.cc
         db/internal_stats.cc
-        db/in_memory_stats_history.cc
         db/logs_with_prep_tracker.cc
         db/log_reader.cc
         db/log_writer.cc
@@ -563,10 +567,12 @@ set(SOURCES
         memtable/write_buffer_manager.cc
         monitoring/histogram.cc
         monitoring/histogram_windowing.cc
+        monitoring/in_memory_stats_history.cc
         monitoring/instrumented_mutex.cc
         monitoring/iostats_context.cc
         monitoring/perf_context.cc
         monitoring/perf_level.cc
+        monitoring/persistent_stats_history.cc
         monitoring/statistics.cc
         monitoring/thread_status_impl.cc
         monitoring/thread_status_updater.cc
@@ -617,12 +623,15 @@ set(SOURCES
         test_util/sync_point_impl.cc
         test_util/testutil.cc
         test_util/transaction_test_util.cc
+        tools/block_cache_trace_analyzer.cc
         tools/db_bench_tool.cc
         tools/dump/db_dump_tool.cc
         tools/ldb_cmd.cc
         tools/ldb_tool.cc
         tools/sst_dump_tool.cc
         tools/trace_analyzer_tool.cc
+        trace_replay/trace_replay.cc
+        trace_replay/block_cache_tracer.cc
         util/bloom.cc
         util/coding.cc
         util/compaction_job_stats_impl.cc
@@ -642,7 +651,6 @@ set(SOURCES
         util/string_util.cc
         util/thread_local.cc
         util/threadpool_imp.cc
-        util/trace_replay.cc
         util/xxhash.cc
         utilities/backupable/backupable_db.cc
         utilities/blob_db/blob_compaction_filter.cc
@@ -677,6 +685,7 @@ set(SOURCES
         utilities/persistent_cache/block_cache_tier_metadata.cc
         utilities/persistent_cache/persistent_cache_tier.cc
         utilities/persistent_cache/volatile_tier_impl.cc
+        utilities/simulator_cache/cache_simulator.cc
         utilities/simulator_cache/sim_cache.cc
         utilities/table_properties_collectors/compact_on_deletion_collector.cc
         utilities/trace/file_trace_reader_writer.cc
@@ -940,6 +949,7 @@ if(WITH_TESTS)
         env/mock_env_test.cc
         file/delete_scheduler_test.cc
         logging/auto_roll_logger_test.cc
+        logging/env_logger_test.cc
         logging/event_logger_test.cc
         memory/arena_test.cc
         memtable/inlineskiplist_test.cc
@@ -948,6 +958,7 @@ if(WITH_TESTS)
         monitoring/histogram_test.cc
         monitoring/iostats_context_test.cc
         monitoring/statistics_test.cc
+        monitoring/stats_history_test.cc
         options/options_settable_test.cc
         options/options_test.cc
         table/block_based/block_based_filter_block_test.cc
@@ -961,6 +972,7 @@ if(WITH_TESTS)
         table/merger_test.cc
         table/sst_file_reader_test.cc
         table/table_test.cc
+        tools/block_cache_trace_analyzer_test.cc
         tools/ldb_cmd_test.cc
         tools/reduce_levels_test.cc
         tools/sst_dump_test.cc
@@ -994,6 +1006,7 @@ if(WITH_TESTS)
         utilities/options/options_util_test.cc
         utilities/persistent_cache/hash_table_test.cc
         utilities/persistent_cache/persistent_cache_test.cc
+        utilities/simulator_cache/cache_simulator_test.cc
         utilities/simulator_cache/sim_cache_test.cc
         utilities/table_properties_collectors/compact_on_deletion_collector_test.cc
         utilities/transactions/optimistic_transaction_test.cc

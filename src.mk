@@ -36,7 +36,6 @@ LIB_SOURCES =                                                   \
   db/flush_job.cc                                               \
   db/flush_scheduler.cc                                         \
   db/forward_iterator.cc                                        \
-  db/in_memory_stats_history.cc                                 \
   db/internal_stats.cc                                          \
   db/logs_with_prep_tracker.cc                                  \
   db/log_reader.cc                                              \
@@ -86,10 +85,12 @@ LIB_SOURCES =                                                   \
   memtable/write_buffer_manager.cc                              \
   monitoring/histogram.cc                                       \
   monitoring/histogram_windowing.cc                             \
+  monitoring/in_memory_stats_history.cc                         \
   monitoring/instrumented_mutex.cc                              \
   monitoring/iostats_context.cc                                 \
   monitoring/perf_context.cc                                    \
   monitoring/perf_level.cc                                      \
+  monitoring/persistent_stats_history.cc                        \
   monitoring/statistics.cc                                      \
   monitoring/thread_status_impl.cc                              \
   monitoring/thread_status_updater.cc                           \
@@ -105,21 +106,21 @@ LIB_SOURCES =                                                   \
   port/port_posix.cc                                            \
   port/stack_trace.cc                                           \
   table/adaptive/adaptive_table_factory.cc                      \
-  table/block_based/block.cc                                     \
-  table/block_based/block_based_filter_block.cc                  \
-  table/block_based/block_based_table_builder.cc                 \
-  table/block_based/block_based_table_factory.cc                 \
-  table/block_based/block_based_table_reader.cc                  \
-  table/block_based/block_builder.cc                             \
-  table/block_based/block_prefix_index.cc                        \
-  table/block_based/data_block_hash_index.cc                     \
-  table/block_based/data_block_footer.cc                         \
-  table/block_based/flush_block_policy.cc                        \
-  table/block_based/full_filter_block.cc                         \
-  table/block_based/index_builder.cc                             \
-  table/block_based/partitioned_filter_block.cc                  \
-  table/block_fetcher.cc                             			\
-  table/bloom_block.cc                               			\
+  table/block_based/block.cc                                    \
+  table/block_based/block_based_filter_block.cc                 \
+  table/block_based/block_based_table_builder.cc                \
+  table/block_based/block_based_table_factory.cc                \
+  table/block_based/block_based_table_reader.cc                 \
+  table/block_based/block_builder.cc                            \
+  table/block_based/block_prefix_index.cc                       \
+  table/block_based/data_block_hash_index.cc                    \
+  table/block_based/data_block_footer.cc                        \
+  table/block_based/flush_block_policy.cc                       \
+  table/block_based/full_filter_block.cc                        \
+  table/block_based/index_builder.cc                            \
+  table/block_based/partitioned_filter_block.cc                 \
+  table/block_fetcher.cc                             		\
+  table/bloom_block.cc                               		\
   table/cuckoo/cuckoo_table_builder.cc                          \
   table/cuckoo/cuckoo_table_factory.cc                          \
   table/cuckoo/cuckoo_table_reader.cc                           \
@@ -142,6 +143,8 @@ LIB_SOURCES =                                                   \
   test_util/sync_point_impl.cc                                  \
   test_util/transaction_test_util.cc                            \
   tools/dump/db_dump_tool.cc                                    \
+  trace_replay/trace_replay.cc                                  \
+  trace_replay/block_cache_tracer.cc                            \
   util/bloom.cc                                                 \
   util/build_version.cc                                         \
   util/coding.cc                                                \
@@ -162,7 +165,6 @@ LIB_SOURCES =                                                   \
   util/string_util.cc                                           \
   util/thread_local.cc                                          \
   util/threadpool_imp.cc                                        \
-  util/trace_replay.cc                                          \
   util/xxhash.cc                                                \
   utilities/backupable/backupable_db.cc                         \
   utilities/blob_db/blob_compaction_filter.cc                   \
@@ -197,6 +199,7 @@ LIB_SOURCES =                                                   \
   utilities/persistent_cache/block_cache_tier_metadata.cc       \
   utilities/persistent_cache/persistent_cache_tier.cc           \
   utilities/persistent_cache/volatile_tier_impl.cc              \
+  utilities/simulator_cache/cache_simulator.cc                  \
   utilities/simulator_cache/sim_cache.cc                        \
   utilities/table_properties_collectors/compact_on_deletion_collector.cc \
   utilities/trace/file_trace_reader_writer.cc                   \
@@ -232,26 +235,27 @@ LIB_SOURCES_ASM =
 LIB_SOURCES_C =
 endif
 
-TOOL_LIB_SOURCES = \
+TOOL_LIB_SOURCES =                                              \
   tools/ldb_cmd.cc                                              \
   tools/ldb_tool.cc                                             \
   tools/sst_dump_tool.cc                                        \
   utilities/blob_db/blob_dump_tool.cc                           \
 
-ANALYZER_LIB_SOURCES = \
-  tools/trace_analyzer_tool.cc					\
+ANALYZER_LIB_SOURCES =                                          \
+  tools/block_cache_trace_analyzer.cc                           \
+  tools/trace_analyzer_tool.cc                                  \
 
-MOCK_LIB_SOURCES = \
-  table/mock_table.cc \
+MOCK_LIB_SOURCES =                                              \
+  table/mock_table.cc                                           \
   test_util/fault_injection_test_env.cc
 
-BENCH_LIB_SOURCES = \
+BENCH_LIB_SOURCES =                                             \
   tools/db_bench_tool.cc                                        \
 
-TEST_LIB_SOURCES = \
+TEST_LIB_SOURCES =                                              \
   db/db_test_util.cc                                            \
-  test_util/testharness.cc                                           \
-  test_util/testutil.cc                                              \
+  test_util/testharness.cc                                      \
+  test_util/testutil.cc                                         \
   utilities/cassandra/test_utils.cc                             \
 
 MAIN_SOURCES =                                                          \
@@ -299,7 +303,7 @@ MAIN_SOURCES =                                                          \
   db/dbformat_test.cc                                                   \
   db/deletefile_test.cc                                                 \
   db/env_timed_test.cc                                                  \
-  db/error_handler_test.cc                                        	\
+  db/error_handler_test.cc                                              \
   db/external_sst_file_basic_test.cc                                    \
   db/external_sst_file_test.cc                                          \
   db/fault_injection_test.cc                                            \
@@ -341,6 +345,7 @@ MAIN_SOURCES =                                                          \
   env/env_test.cc                                                       \
   env/mock_env_test.cc                                                  \
   logging/auto_roll_logger_test.cc                                      \
+  logging/env_logger_test.cc                                            \
   logging/event_logger_test.cc                                          \
   memory/arena_test.cc                                                  \
   memtable/inlineskiplist_test.cc                                       \
@@ -350,12 +355,13 @@ MAIN_SOURCES =                                                          \
   monitoring/histogram_test.cc                                          \
   monitoring/iostats_context_test.cc                                    \
   monitoring/statistics_test.cc                                         \
+  monitoring/stats_history_test.cc                                      \
   options/options_test.cc                                               \
-  table/block_based/block_based_filter_block_test.cc                     \
-  table/block_based/block_test.cc                                        \
-  table/block_based/data_block_hash_index_test.cc                        \
-  table/block_based/full_filter_block_test.cc                            \
-  table/block_based/partitioned_filter_block_test.cc                     \
+  table/block_based/block_based_filter_block_test.cc                    \
+  table/block_based/block_test.cc                                       \
+  table/block_based/data_block_hash_index_test.cc                       \
+  table/block_based/full_filter_block_test.cc                           \
+  table/block_based/partitioned_filter_block_test.cc                    \
   table/cleanable_test.cc                                               \
   table/cuckoo/cuckoo_table_builder_test.cc                             \
   table/cuckoo/cuckoo_table_reader_test.cc                              \
@@ -364,13 +370,16 @@ MAIN_SOURCES =                                                          \
   table/table_reader_bench.cc                                           \
   table/table_test.cc                                                   \
   third-party/gtest-1.7.0/fused-src/gtest/gtest-all.cc                  \
+  tools/block_cache_trace_analyzer_test.cc                              \
+  tools/block_cache_trace_analyzer_tool.cc                              \
   tools/db_bench.cc                                                     \
   tools/db_bench_tool_test.cc                                           \
   tools/db_sanity_test.cc                                               \
   tools/ldb_cmd_test.cc                                                 \
   tools/reduce_levels_test.cc                                           \
   tools/sst_dump_test.cc                                                \
-  tools/trace_analyzer_test.cc						\
+  tools/trace_analyzer_test.cc				             	\
+  trace_replay/block_cache_tracer_test.cc                               \
   util/autovector_test.cc                                               \
   util/bloom_test.cc                                                    \
   util/coding_test.cc                                                   \
@@ -396,6 +405,7 @@ MAIN_SOURCES =                                                          \
   utilities/object_registry_test.cc                                     \
   utilities/option_change_migration/option_change_migration_test.cc     \
   utilities/options/options_util_test.cc                                \
+  utilities/simulator_cache/cache_simulator_test.cc                     \
   utilities/simulator_cache/sim_cache_test.cc                           \
   utilities/table_properties_collectors/compact_on_deletion_collector_test.cc  \
   utilities/transactions/optimistic_transaction_test.cc                 \
