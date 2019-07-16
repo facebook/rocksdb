@@ -63,7 +63,6 @@ class VersionSet;
 class WriteBufferManager;
 class MergeContext;
 class ColumnFamilySet;
-class TableCache;
 class MergeIteratorBuilder;
 
 // Return the smallest index i such that file_level.files[i]->largest >= key.
@@ -578,6 +577,14 @@ class Version {
   //
   // REQUIRES: lock is not held
   void Get(const ReadOptions&, const LookupKey& key, PinnableSlice* value,
+           Status* status, MergeContext* merge_context,
+           SequenceNumber* max_covering_tombstone_seq,
+           bool* value_found = nullptr, bool* key_exists = nullptr,
+           SequenceNumber* seq = nullptr, ReadCallback* callback = nullptr,
+           bool* is_blob = nullptr);
+
+  void GetMergeOperands(const ReadOptions&, const LookupKey& key,
+		   std::vector<PinnableSlice>* pinnable_val,
            Status* status, MergeContext* merge_context,
            SequenceNumber* max_covering_tombstone_seq,
            bool* value_found = nullptr, bool* key_exists = nullptr,

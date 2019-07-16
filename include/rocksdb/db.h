@@ -403,6 +403,10 @@ class DB {
     return Get(options, DefaultColumnFamily(), key, value);
   }
 
+  virtual Status GetMergeOperands(const ReadOptions& options,
+                     ColumnFamilyHandle* column_family, const Slice& key,
+                     std::vector<PinnableSlice>* value) = 0;
+
   // If keys[i] does not exist in the database, then the i'th returned
   // status will be one for which Status::IsNotFound() is true, and
   // (*values)[i] will be set to some arbitrary value (often ""). Otherwise,

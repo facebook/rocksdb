@@ -86,7 +86,7 @@ class GetContext {
              SequenceNumber* seq = nullptr,
              PinnedIteratorsManager* _pinned_iters_mgr = nullptr,
              ReadCallback* callback = nullptr, bool* is_blob_index = nullptr,
-             uint64_t tracing_get_id = 0);
+             uint64_t tracing_get_id = 0, bool do_merge = true);
 
   GetContext() = default;
 
@@ -164,6 +164,7 @@ class GetContext {
   // Used for block cache tracing only. A tracing get id uniquely identifies a
   // Get or a MultiGet.
   const uint64_t tracing_get_id_;
+  bool do_merge_;
 };
 
 // Call this to replay a log and bring the get_context up to date. The replay

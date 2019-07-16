@@ -86,9 +86,15 @@ TEST_F(DBMergeOperatorTest, LimitMergeOperands) {
   Reopen(options);
   // All K1 values are in memtable.
   ASSERT_OK(Merge("k1", "a"));
+  Put("k1", "asd");
   ASSERT_OK(Merge("k1", "b"));
   ASSERT_OK(Merge("k1", "c"));
   ASSERT_OK(Merge("k1", "d"));
+  std::vector<PinnableSlice> values;
+  db_->GetMergeOperands(ReadOptions(), db_->DefaultColumnFamily(), "k1", &values);
+  for(PinnableSlice& value: values) {
+      std::cout << *value.GetSelf() << "\n";
+  }
   std::string value;
   ASSERT_TRUE(db_->Get(ReadOptions(), "k1", &value).ok());
   // Make sure that only the latest two merge operands are used. If this was
@@ -101,6 +107,11 @@ TEST_F(DBMergeOperatorTest, LimitMergeOperands) {
   ASSERT_OK(Merge("k2", "c"));
   ASSERT_OK(Merge("k2", "d"));
   ASSERT_OK(Flush());
+  std::vector<PinnableSlice> values2(4);
+  db_->GetMergeOperands(ReadOptions(), db_->DefaultColumnFamily(), "k2", &values2);
+  for(PinnableSlice& psl: values2) {
+      std::cout << *psl.GetSelf() << "\n";
+  }
   ASSERT_TRUE(db_->Get(ReadOptions(), "k2", &value).ok());
   ASSERT_EQ(value, "c,d");
 
@@ -112,6 +123,12 @@ TEST_F(DBMergeOperatorTest, LimitMergeOperands) {
   ASSERT_OK(Merge("k3", "cd"));
   ASSERT_OK(Flush());
   ASSERT_OK(Merge("k3", "de"));
+  std::vector<PinnableSlice> values3(4);
+  db_->GetMergeOperands(ReadOptions(), db_->DefaultColumnFamily(), "k3", &values3);
+  for(PinnableSlice& psl: values3) {
+      std::cout << *psl.GetSelf() << "\n";
+  }
+
   ASSERT_TRUE(db_->Get(ReadOptions(), "k3", &value).ok());
   ASSERT_EQ(value, "cd,de");
 
@@ -128,6 +145,13 @@ TEST_F(DBMergeOperatorTest, LimitMergeOperands) {
   ASSERT_OK(Merge("k4", "de"));
   ASSERT_TRUE(db_->Get(ReadOptions(), "k4", &value).ok());
   ASSERT_EQ(value, "cd,de");
+
+  std::vector<PinnableSlice> values4(4);
+  db_->GetMergeOperands(ReadOptions(), db_->DefaultColumnFamily(), "k4", &values4);
+  for(PinnableSlice& psl: values4) {
+      std::cout << *psl.GetSelf() << "\n";
+  }
+
 }
 
 TEST_F(DBMergeOperatorTest, MergeErrorOnRead) {

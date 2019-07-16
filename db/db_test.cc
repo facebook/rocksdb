@@ -2466,6 +2466,18 @@ class ModelDB : public DB {
     return Status::NotSupported(key);
   }
 
+  using DB::GetMergeOperands;
+  virtual Status GetMergeOperands(const ReadOptions& options,
+            ColumnFamilyHandle* column_family, const Slice& key,
+            std::vector<PinnableSlice>* value) override {
+
+		(void)options;
+		(void) column_family;
+		(void) key;
+		(void) value;
+		return Status::NotSupported(key);
+  }
+
   using DB::MultiGet;
   std::vector<Status> MultiGet(
       const ReadOptions& /*options*/,

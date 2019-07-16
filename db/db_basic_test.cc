@@ -16,6 +16,9 @@
 #if !defined(ROCKSDB_LITE)
 #include "test_util/sync_point.h"
 #endif
+#include "rocksdb/merge_operator.h"
+#include "utilities/merge_operators.h"
+#include "utilities/merge_operators/string_append/stringappend2.h"
 
 namespace rocksdb {
 
@@ -1336,6 +1339,106 @@ TEST_F(DBBasicTest, GetAllKeyVersions) {
 }
 #endif  // !ROCKSDB_LITE
 
+TEST_F(DBBasicTest, GetMergeOperands) {
+	class LimitedStringAppendMergeOp : public StringAppendTESTOperator {
+	   public:
+	    LimitedStringAppendMergeOp(int limit, char delim)
+	        : StringAppendTESTOperator(delim), limit_(limit) {}
+
+	    const char* Name() const override {
+	      return "DBMergeOperatorTest::LimitedStringAppendMergeOp";
+	    }
+
+	    bool ShouldMerge(const std::vector<Slice>& operands) const override {
+	      if (operands.size() > 0 && limit_ > 0 && operands.size() >= limit_) {
+	        return true;
+	      }
+	      return false;
+	    }
+
+	   private:
+	    size_t limit_ = 0;
+	  };
+	  std::vector<int> rest;
+	  int* a = new int();
+	  *a = 5;
+      rest.push_back(*a);
+	  Options options;
+	  options.create_if_missing = true;
+	  // Use only the latest two merge operands.
+	  options.merge_operator =
+	      std::make_shared<LimitedStringAppendMergeOp>(2, ',');
+	  options.env = env_;
+	  Reopen(options);
+	  // All K1 values are in memtable.
+	  ASSERT_OK(Merge("k1", "a"));
+	  Put("k1", "asd");
+	  ASSERT_OK(Merge("k1", "b"));
+	  ASSERT_OK(Merge("k1", "c"));
+	  ASSERT_OK(Merge("k1", "d"));
+	  std::vector<PinnableSlice> values;
+	  db_->GetMergeOperands(ReadOptions(), db_->DefaultColumnFamily(), "k1", &values);
+	  for(PinnableSlice& value: values) {
+	      std::cout << *value.GetSelf() << "\n";
+	  }
+	  std::string value;
+	  ASSERT_TRUE(db_->Get(ReadOptions(), "k1", &value).ok());
+	  // Make sure that only the latest two merge operands are used. If this was
+	  // not the case the value would be "a,b,c,d".
+	  ASSERT_EQ(value, "c,d");
+
+	  // All K2 values are flushed to L0 into a single file.
+	  ASSERT_OK(Merge("k2", "a"));
+	  ASSERT_OK(Merge("k2", "b"));
+	  ASSERT_OK(Merge("k2", "c"));
+	  ASSERT_OK(Merge("k2", "d"));
+	  ASSERT_OK(Flush());
+	  std::vector<PinnableSlice> values2(4);
+	  db_->GetMergeOperands(ReadOptions(), db_->DefaultColumnFamily(), "k2", &values2);
+	  for(PinnableSlice& psl: values2) {
+	      std::cout << *psl.GetSelf() << "\n";
+	  }
+	  ASSERT_TRUE(db_->Get(ReadOptions(), "k2", &value).ok());
+	  ASSERT_EQ(value, "c,d");
+
+	  // All K3 values are flushed and are in different files.
+	  ASSERT_OK(Merge("k3", "ab"));
+	  ASSERT_OK(Flush());
+	  ASSERT_OK(Merge("k3", "bc"));
+	  ASSERT_OK(Flush());
+	  ASSERT_OK(Merge("k3", "cd"));
+	  ASSERT_OK(Flush());
+	  ASSERT_OK(Merge("k3", "de"));
+	  std::vector<PinnableSlice> values3(4);
+	  db_->GetMergeOperands(ReadOptions(), db_->DefaultColumnFamily(), "k3", &values3);
+	  for(PinnableSlice& psl: values3) {
+	      std::cout << *psl.GetSelf() << "\n";
+	  }
+
+	  ASSERT_TRUE(db_->Get(ReadOptions(), "k3", &value).ok());
+	  ASSERT_EQ(value, "cd,de");
+
+	  // All K4 values are in different levels
+	  ASSERT_OK(Merge("k4", "ab"));
+	  ASSERT_OK(Flush());
+	  MoveFilesToLevel(4);
+	  ASSERT_OK(Merge("k4", "bc"));
+	  ASSERT_OK(Flush());
+	  MoveFilesToLevel(3);
+	  ASSERT_OK(Merge("k4", "cd"));
+	  ASSERT_OK(Flush());
+	  MoveFilesToLevel(1);
+	  ASSERT_OK(Merge("k4", "de"));
+	  ASSERT_TRUE(db_->Get(ReadOptions(), "k4", &value).ok());
+	  ASSERT_EQ(value, "cd,de");
+
+	  std::vector<PinnableSlice> values4(4);
+	  db_->GetMergeOperands(ReadOptions(), db_->DefaultColumnFamily(), "k4", &values4);
+	  for(PinnableSlice& psl: values4) {
+	      std::cout << *psl.GetSelf() << "\n";
+	  }
+}
+
 class DBBasicTestWithParallelIO
     : public DBTestBase,
       public testing::WithParamInterface<std::tuple<bool,bool,bool,bool>> {
@@ -1623,6 +1726,7 @@ INSTANTIATE_TEST_CASE_P(
                       std::make_tuple(false, true, true, false),
                       std::make_tuple(true, true, true, false),
                       std::make_tuple(false, true, false, false)));
+
 
 class DBBasicTestWithTimestampWithParam
     : public DBTestBase,
