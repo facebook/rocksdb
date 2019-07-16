@@ -116,8 +116,7 @@ class TableReader {
   }
 
   // convert db file to a human readable form
-  virtual Status DumpTable(WritableFile* /*out_file*/,
-                           const SliceTransform* /*prefix_extractor*/) {
+  virtual Status DumpTable(WritableFile* /*out_file*/) {
     return Status::NotSupported("DumpTable() not supported");
   }
 
