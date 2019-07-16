@@ -126,8 +126,8 @@ TEST_P(WriteUnpreparedTransactionTest, ReadYourOwnWriteStress) {
   const uint32_t NUM_THREADS = 10;
   const uint32_t NUM_KEYS = 5;
 
-  std::default_random_engine g(
-      std::hash<std::thread::id>()(std::this_thread::get_id()));
+  std::default_random_engine g(static_cast<uint32_t>(
+      std::hash<std::thread::id>()(std::this_thread::get_id())));
 
   // Test reading with and without read_options.snapshot set.
   for (bool use_snapshot : {true, false}) {
