@@ -1888,7 +1888,7 @@ std::unique_ptr<FilterBlockReader> BlockBasedTable::CreateFilterBlockReader(
   auto& rep = rep_;
   auto filter_type = rep->filter_type;
   if (filter_type == Rep::FilterType::kNoFilter) {
-    return nullptr;
+    return std::unique_ptr<FilterBlockReader>();
   }
 
   assert(rep->filter_policy);
