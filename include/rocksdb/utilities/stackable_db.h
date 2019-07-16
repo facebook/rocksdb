@@ -88,6 +88,13 @@ class StackableDB : public DB {
     return db_->Get(options, column_family, key, value);
   }
 
+  using DB::GetMergeOperands;
+  virtual Status GetMergeOperands(const ReadOptions& options,
+            ColumnFamilyHandle* column_family, const Slice& key,
+            std::vector<PinnableSlice>* value) override {
+	return db_->GetMergeOperands(options, column_family, key, value);
+  }
+
   using DB::MultiGet;
   virtual std::vector<Status> MultiGet(
       const ReadOptions& options,

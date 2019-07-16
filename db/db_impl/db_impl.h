@@ -159,6 +159,11 @@ class DBImpl : public DB {
                      ColumnFamilyHandle* column_family, const Slice& key,
                      PinnableSlice* value) override;
 
+  using DB::GetMergeOperands;
+  virtual Status GetMergeOperands(const ReadOptions& options,
+          ColumnFamilyHandle* column_family, const Slice& key,
+          std::vector<PinnableSlice>* value) override;
+
   using DB::MultiGet;
   virtual std::vector<Status> MultiGet(
       const ReadOptions& options,

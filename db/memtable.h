@@ -204,6 +204,14 @@ class MemTable {
                read_opts, callback, is_blob_index);
   }
 
+  bool GetMergeOperands(const LookupKey& key,
+		  std::vector<PinnableSlice>* pinnable_val,
+		  Status* s, MergeContext* merge_context,
+          SequenceNumber* max_covering_tombstone_seq,
+		  const ReadOptions& read_opts,
+          ReadCallback* callback = nullptr,
+          bool* is_blob_index = nullptr);
+
   // Attempts to update the new_value inplace, else does normal Add
   // Pseudocode
   //   if key exists in current memtable && prev_value is of type kTypeValue
