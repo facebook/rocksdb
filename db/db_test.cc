@@ -67,7 +67,6 @@
 #include "util/rate_limiter.h"
 #include "util/string_util.h"
 #include "utilities/merge_operators.h"
-#include <utilities/merge_operators/string_append/stringappend2.h>
 
 namespace rocksdb {
 
@@ -6012,10 +6011,10 @@ TEST_F(DBTest, RowCache) {
   ASSERT_EQ(TestGetTickerCount(options, ROW_CACHE_MISS), 1);
 }
 
-TEST_F(DBTest, RowCache2) {
+TEST_F(DBTest, RowCacheWithMergeOperatorAndRangeDeletion) {
   Options options = CurrentOptions();
   options.row_cache = NewLRUCache(8192);
-  options.merge_operator.reset(new rocksdb::StringAppendTESTOperator(','));
+  options.merge_operator = MergeOperators::CreateFromStringId("stringappend");
   DestroyAndReopen(options);
 
   ASSERT_OK(Put("foo", "foo"));
