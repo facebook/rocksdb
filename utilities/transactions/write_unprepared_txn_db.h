@@ -144,32 +144,5 @@ class WriteUnpreparedRollbackPreReleaseCallback : public PreReleaseCallback {
   SequenceNumber rollback_seq_;
 };
 
-struct KeySetBuilder : public WriteBatch::Handler {
-  WriteUnpreparedTxn* txn_;
-  bool rollback_merge_operands_;
-
-  KeySetBuilder(WriteUnpreparedTxn* txn, bool rollback_merge_operands)
-      : txn_(txn), rollback_merge_operands_(rollback_merge_operands) {}
-
-  Status PutCF(uint32_t cf, const Slice& key, const Slice& val) override;
-
-  Status DeleteCF(uint32_t cf, const Slice& key) override;
-
-  Status SingleDeleteCF(uint32_t cf, const Slice& key) override;
-
-  Status MergeCF(uint32_t cf, const Slice& key, const Slice& val) override;
-
-  // Recovered batches do not contain 2PC markers.
-  Status MarkNoop(bool) override { return Status::InvalidArgument(); }
-  Status MarkBeginPrepare(bool) override { return Status::InvalidArgument(); }
-  Status MarkEndPrepare(const Slice&) override {
-    return Status::InvalidArgument();
-  }
-  Status MarkCommit(const Slice&) override { return Status::InvalidArgument(); }
-  Status MarkRollback(const Slice&) override {
-    return Status::InvalidArgument();
-  }
-};
-
 }  //  namespace rocksdb
 #endif  // ROCKSDB_LITE
