@@ -38,6 +38,7 @@ namespace rocksdb {
 const uint64_t kNotValid = ULLONG_MAX;
 class FilterPolicy;
 
+class GetContext;
 using MultiGetRange = MultiGetContext::Range;
 
 // A FilterBlockBuilder is used to construct all of the filters for a
@@ -78,16 +79,14 @@ class FilterBlockBuilder {
 // BlockBased/Full FilterBlock would be called in the same way.
 class FilterBlockReader {
  public:
-  explicit FilterBlockReader()
-      : whole_key_filtering_(true), size_(0), statistics_(nullptr) {}
-  explicit FilterBlockReader(size_t s, Statistics* stats,
-                             bool _whole_key_filtering)
-      : whole_key_filtering_(_whole_key_filtering),
-        size_(s),
-        statistics_(stats) {}
-  virtual ~FilterBlockReader() {}
+  FilterBlockReader() = default;
+  virtual ~FilterBlockReader() = default;
+
+  FilterBlockReader(const FilterBlockReader&) = delete;
+  FilterBlockReader& operator=(const FilterBlockReader&) = delete;
 
   virtual bool IsBlockBased() = 0;  // If is blockbased filter
+
   /**
    * If no_io is set, then it returns true if it cannot answer the query without
    * reading data from disk. This is used in PartitionedFilterBlockReader to
@@ -102,17 +101,19 @@ class FilterBlockReader {
                            const SliceTransform* prefix_extractor,
                            uint64_t block_offset, const bool no_io,
                            const Slice* const const_ikey_ptr,
-                           BlockCacheLookupContext* context) = 0;
+                           GetContext* get_context,
+                           BlockCacheLookupContext* lookup_context) = 0;
 
   virtual void KeysMayMatch(MultiGetRange* range,
                             const SliceTransform* prefix_extractor,
                             uint64_t block_offset, const bool no_io,
-                            BlockCacheLookupContext* context) {
+                            BlockCacheLookupContext* lookup_context) {
     for (auto iter = range->begin(); iter != range->end(); ++iter) {
       const Slice ukey = iter->ukey;
       const Slice ikey = iter->ikey;
+      GetContext* const get_context = iter->get_context;
       if (!KeyMayMatch(ukey, prefix_extractor, block_offset, no_io, &ikey,
-                       context)) {
+                       get_context, lookup_context)) {
         range->SkipKey(iter);
       }
     }
@@ -125,27 +126,26 @@ class FilterBlockReader {
                               const SliceTransform* prefix_extractor,
                               uint64_t block_offset, const bool no_io,
                               const Slice* const const_ikey_ptr,
-                              BlockCacheLookupContext* context) = 0;
+                              GetContext* get_context,
+                              BlockCacheLookupContext* lookup_context) = 0;
 
   virtual void PrefixesMayMatch(MultiGetRange* range,
                                 const SliceTransform* prefix_extractor,
                                 uint64_t block_offset, const bool no_io,
-                                BlockCacheLookupContext* context) {
+                                BlockCacheLookupContext* lookup_context) {
     for (auto iter = range->begin(); iter != range->end(); ++iter) {
       const Slice ukey = iter->ukey;
       const Slice ikey = iter->ikey;
+      GetContext* const get_context = iter->get_context;
       if (!KeyMayMatch(prefix_extractor->Transform(ukey), prefix_extractor,
-                       block_offset, no_io, &ikey, context)) {
+                       block_offset, no_io, &ikey, get_context,
+                       lookup_context)) {
         range->SkipKey(iter);
       }
     }
   }
 
   virtual size_t ApproximateMemoryUsage() const = 0;
-  virtual size_t size() const { return size_; }
-  virtual Statistics* statistics() const { return statistics_; }
-
-  bool whole_key_filtering() const { return whole_key_filtering_; }
 
   // convert this object to a human readable form
   virtual std::string ToString() const {
@@ -153,30 +153,22 @@ class FilterBlockReader {
     return error_msg;
   }
 
-  virtual void CacheDependencies(bool /*pin*/,
-                                 const SliceTransform* /*prefix_extractor*/) {}
+  virtual void CacheDependencies(bool /*pin*/) {}
 
-  virtual bool RangeMayExist(
-      const Slice* /*iterate_upper_bound*/, const Slice& user_key,
-      const SliceTransform* prefix_extractor, const Comparator* /*comparator*/,
-      const Slice* const const_ikey_ptr, bool* filter_checked,
-      bool /*need_upper_bound_check*/, BlockCacheLookupContext* context) {
+  virtual bool RangeMayExist(const Slice* /*iterate_upper_bound*/,
+                             const Slice& user_key,
+                             const SliceTransform* prefix_extractor,
+                             const Comparator* /*comparator*/,
+                             const Slice* const const_ikey_ptr,
+                             bool* filter_checked,
+                             bool /*need_upper_bound_check*/,
+                             BlockCacheLookupContext* lookup_context) {
     *filter_checked = true;
     Slice prefix = prefix_extractor->Transform(user_key);
     return PrefixMayMatch(prefix, prefix_extractor, kNotValid, false,
-                          const_ikey_ptr, context);
+                          const_ikey_ptr, /* get_context */ nullptr,
+                          lookup_context);
   }
-
- protected:
-  bool whole_key_filtering_;
-
- private:
-  // No copying allowed
-  FilterBlockReader(const FilterBlockReader&);
-  void operator=(const FilterBlockReader&);
-  size_t size_;
-  Statistics* statistics_;
-  int level_ = -1;
 };
 
 }  // namespace rocksdb
