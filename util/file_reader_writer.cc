@@ -197,7 +197,6 @@ Status RandomAccessFileReader::MultiRead(ReadRequest* read_reqs,
   Status s;
   uint64_t elapsed = 0;
   assert(!use_direct_io());
-  assert(!for_compaction_);
   {
     StopWatch sw(env_, stats_, hist_type_,
                  (stats_ != nullptr) ? &elapsed : nullptr, true /*overwrite*/,

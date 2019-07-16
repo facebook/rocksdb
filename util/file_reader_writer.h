@@ -108,7 +108,6 @@ class RandomAccessFileReader {
   uint32_t        hist_type_;
   HistogramImpl*  file_read_hist_;
   RateLimiter* rate_limiter_;
-  bool for_compaction_;
   std::vector<std::shared_ptr<EventListener>> listeners_;
 
  public:
@@ -116,7 +115,7 @@ class RandomAccessFileReader {
       std::unique_ptr<RandomAccessFile>&& raf, std::string _file_name,
       Env* env = nullptr, Statistics* stats = nullptr, uint32_t hist_type = 0,
       HistogramImpl* file_read_hist = nullptr,
-      RateLimiter* rate_limiter = nullptr, bool for_compaction = false,
+      RateLimiter* rate_limiter = nullptr,
       const std::vector<std::shared_ptr<EventListener>>& listeners = {})
       : file_(std::move(raf)),
         file_name_(std::move(_file_name)),
@@ -125,7 +124,6 @@ class RandomAccessFileReader {
         hist_type_(hist_type),
         file_read_hist_(file_read_hist),
         rate_limiter_(rate_limiter),
-        for_compaction_(for_compaction),
         listeners_() {
 #ifndef ROCKSDB_LITE
     std::for_each(listeners.begin(), listeners.end(),
@@ -151,7 +149,6 @@ class RandomAccessFileReader {
     hist_type_ = std::move(o.hist_type_);
     file_read_hist_ = std::move(o.file_read_hist_);
     rate_limiter_ = std::move(o.rate_limiter_);
-    for_compaction_ = std::move(o.for_compaction_);
     return *this;
   }
 
