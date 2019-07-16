@@ -300,6 +300,8 @@ void PartitionedFilterBlockReader::CacheDependencies(bool pin) {
   }
 
   // Before read partitions, prefetch them to avoid lots of IOs
+  assert(filter_block.GetValue());
+
   IndexBlockIter biter;
   const InternalKeyComparator* const comparator = internal_comparator();
   Statistics* kNullStats = nullptr;
@@ -320,9 +322,8 @@ void PartitionedFilterBlockReader::CacheDependencies(bool pin) {
   uint64_t prefetch_len = last_off - prefetch_off;
   std::unique_ptr<FilePrefetchBuffer> prefetch_buffer;
 
-  auto& file = rep->file;
   prefetch_buffer.reset(new FilePrefetchBuffer());
-  s = prefetch_buffer->Prefetch(file.get(), prefetch_off,
+  s = prefetch_buffer->Prefetch(rep->file.get(), prefetch_off,
     static_cast<size_t>(prefetch_len));
 
   // After prefetch, read the partitions one by one

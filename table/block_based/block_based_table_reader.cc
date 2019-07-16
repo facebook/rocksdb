@@ -85,6 +85,8 @@ Status ReadBlockFromFile(
     const PersistentCacheOptions& cache_options, SequenceNumber global_seqno,
     size_t read_amp_bytes_per_bit, MemoryAllocator* memory_allocator,
     bool for_compaction = false) {
+  assert(result);
+
   BlockContents contents;
   BlockFetcher block_fetcher(
       file, prefetch_buffer, footer, options, handle, &contents, ioptions,
@@ -108,6 +110,8 @@ Status ReadBlockFromFile(
     const PersistentCacheOptions& cache_options,
     SequenceNumber /* global_seqno */, size_t /* read_amp_bytes_per_bit */,
     MemoryAllocator* memory_allocator, bool for_compaction = false) {
+  assert(result);
+
   result->reset(new BlockContents);
 
   BlockFetcher block_fetcher(
