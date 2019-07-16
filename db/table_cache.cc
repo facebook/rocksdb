@@ -93,7 +93,7 @@ Status TableCache::GetTableReader(
     bool sequential_mode, bool record_read_stats, HistogramImpl* file_read_hist,
     std::unique_ptr<TableReader>* table_reader,
     const SliceTransform* prefix_extractor, bool skip_filters, int level,
-    bool prefetch_index_and_filter_in_cache, bool for_compaction) {
+    bool prefetch_index_and_filter_in_cache) {
   std::string fname =
       TableFileName(ioptions_.cf_paths, fd.GetNumber(), fd.GetPathId());
   std::unique_ptr<RandomAccessFile> file;
@@ -109,8 +109,7 @@ Status TableCache::GetTableReader(
         new RandomAccessFileReader(
             std::move(file), fname, ioptions_.env,
             record_read_stats ? ioptions_.statistics : nullptr, SST_READ_MICROS,
-            file_read_hist, ioptions_.rate_limiter, for_compaction,
-            ioptions_.listeners));
+            file_read_hist, ioptions_.rate_limiter, ioptions_.listeners));
     s = ioptions_.table_factory->NewTableReader(
         TableReaderOptions(ioptions_, prefix_extractor, env_options,
                            internal_comparator, skip_filters, immortal_tables_,
