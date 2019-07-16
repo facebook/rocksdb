@@ -258,7 +258,7 @@ Status WriteUnpreparedTxnDB::Initialize(
     real_trx->SetId(first_seq);
     Status s = real_trx->SetName(recovered_trx->name_);
     if (!s.ok()) {
-      break;
+      return s;
     }
     wupt->prepare_batch_cnt_ = last_prepare_batch_cnt;
 
@@ -284,7 +284,7 @@ Status WriteUnpreparedTxnDB::Initialize(
 
     real_trx->SetState(Transaction::PREPARED);
     if (!s.ok()) {
-      break;
+      return s;
     }
   }
   // AddPrepared must be called in order

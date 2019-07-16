@@ -72,10 +72,10 @@ WriteUnpreparedTxn::~WriteUnpreparedTxn() {
     }
   }
 
-  // Call TransactionBaseImpl::Clear so that ~PessimisticTransaction does not
+  // Call tracked_keys_.clear() so that ~PessimisticTransaction does not
   // try to unlock keys for recovered transactions.
   if (recovered_txn_) {
-    TransactionBaseImpl::Clear();
+    tracked_keys_.clear();
   }
 }
 
@@ -158,8 +158,8 @@ Status WriteUnpreparedTxn::SingleDelete(ColumnFamilyHandle* column_family,
 
 // WriteUnpreparedTxn::RebuildFromWriteBatch is only called on recovery. For
 // WriteUnprepared, the write batches have already been written into the
-// database, so all we have to do is just to "retrack" the key so that rollbacks
-// are possible.
+// database during WAL replay, so all we have to do is just to "retrack" the key
+// so that rollbacks are possible.
 //
 // Calling TryLock instead of TrackKey is also possible, but as an optimization,
 // recovered transactions do not hold locks on their keys. This follows the
@@ -199,11 +199,14 @@ Status WriteUnpreparedTxn::RebuildFromWriteBatch(WriteBatch* wb) {
       return Status::OK();
     }
 
+    // Recovered batches do not contain 2PC markers.
     Status MarkBeginPrepare(bool) override { return Status::InvalidArgument(); }
 
     Status MarkEndPrepare(const Slice&) override {
       return Status::InvalidArgument();
     }
+
+    Status MarkNoop(bool) override { return Status::InvalidArgument(); }
 
     Status MarkCommit(const Slice&) override {
       return Status::InvalidArgument();
