@@ -73,7 +73,7 @@ struct BlockCacheLookupContext {
   // impact of row cache vs block cache.
   uint64_t get_id = 0;
   std::string referenced_key;
-  bool get_from_user_specified_snapshot;
+  bool get_from_user_specified_snapshot = false;
 
   void FillLookupContext(bool _is_cache_hit, bool _no_insert,
                          TraceType _block_type, uint64_t _block_size,
