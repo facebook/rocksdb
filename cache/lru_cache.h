@@ -17,31 +17,34 @@
 
 namespace rocksdb {
 
-// LRU cache implementation
+// LRU cache implementation. This class is not thread-safe.
 
 // An entry is a variable length heap-allocated structure.
 // Entries are referenced by cache and/or by any external entity.
-// The cache keeps all its entries in table. Some elements
+// The cache keeps all its entries in a hash table. Some elements
 // are also stored on LRU list.
 //
 // LRUHandle can be in these states:
 // 1. Referenced externally AND in hash table.
-//  In that case the entry is *not* in the LRU. (refs > 1 && in_cache == true)
-// 2. Not referenced externally and in hash table. In that case the entry is
-// in the LRU and can be freed. (refs == 1 && in_cache == true)
-// 3. Referenced externally and not in hash table. In that case the entry is
-// in not on LRU and not in table. (refs >= 1 && in_cache == false)
+//    In that case the entry is *not* in the LRU list
+//    (refs >= 1 && in_cache == true)
+// 2. Not referenced externally AND in hash table.
+//    In that case the entry is in the LRU list and can be freed.
+//    (refs == 0 && in_cache == true)
+// 3. Referenced externally AND not in hash table.
+//    In that case the entry is not in the LRU list and not in hash table.
+//    The entry can be freed when refs becomes 0.
+//    (refs >= 1 && in_cache == false)
 //
 // All newly created LRUHandles are in state 1. If you call
-// LRUCacheShard::Release
-// on entry in state 1, it will go into state 2. To move from state 1 to
-// state 3, either call LRUCacheShard::Erase or LRUCacheShard::Insert with the
-// same key.
+// LRUCacheShard::Release on entry in state 1, it will go into state 2.
+// To move from state 1 to state 3, either call LRUCacheShard::Erase or
+// LRUCacheShard::Insert with the same key (but possibly different value).
 // To move from state 2 to state 1, use LRUCacheShard::Lookup.
 // Before destruction, make sure that no handles are in state 1. This means
 // that any successful LRUCacheShard::Lookup/LRUCacheShard::Insert have a
-// matching
-// RUCache::Release (to move into state 2) or LRUCacheShard::Erase (for state 3)
+// matching LRUCache::Release (to move into state 2) or LRUCacheShard::Erase
+// (to move into state 3).
 
 struct LRUHandle {
   void* value;
@@ -51,36 +54,41 @@ struct LRUHandle {
   LRUHandle* prev;
   size_t charge;  // TODO(opt): Only allow uint32_t?
   size_t key_length;
-  uint32_t refs;     // a number of refs to this entry
-                     // cache itself is counted as 1
+  // The hash of key(). Used for fast sharding and comparisons.
+  uint32_t hash;
+  // The number of external refs to this entry. The cache itself is not counted.
+  uint32_t refs;
 
-  // Include the following flags:
-  //   IN_CACHE:         whether this entry is referenced by the hash table.
-  //   IS_HIGH_PRI:      whether this entry is high priority entry.
-  //   IN_HIGH_PRI_POOL: whether this entry is in high-pri pool.
-  //   HAS_HIT:          whether this entry has had any lookups (hits).
   enum Flags : uint8_t {
+    // Whether this entry is referenced by the hash table.
     IN_CACHE = (1 << 0),
+    // Whether this entry is high priority entry.
     IS_HIGH_PRI = (1 << 1),
+    // Whether this entry is in high-pri pool.
     IN_HIGH_PRI_POOL = (1 << 2),
+    // Wwhether this entry has had any lookups (hits).
     HAS_HIT = (1 << 3),
   };
 
   uint8_t flags;
 
-  uint32_t hash;     // Hash of key(); used for fast sharding and comparisons
+  // Beginning of the key (MUST BE THE LAST FIELD IN THIS STRUCT!)
+  char key_data[1];
 
-  char key_data[1];  // Beginning of key
+  Slice key() const { return Slice(key_data, key_length); }
 
-  Slice key() const {
-    // For cheaper lookups, we allow a temporary Handle object
-    // to store a pointer to a key in "value".
-    if (next == this) {
-      return *(reinterpret_cast<Slice*>(value));
-    } else {
-      return Slice(key_data, key_length);
-    }
+  // Increase the reference count by 1.
+  void Ref() { refs++; }
+
+  // Just reduce the reference count by 1. Return true if it was last reference.
+  bool Unref() {
+    assert(refs > 0);
+    refs--;
+    return refs == 0;
   }
+
+  // Return true if there are external refs, false otherwise.
+  bool HasRefs() const { return refs > 0; }
 
   bool InCache() const { return flags & IN_CACHE; }
   bool IsHighPri() const { return flags & IS_HIGH_PRI; }
@@ -114,7 +122,7 @@ struct LRUHandle {
   void SetHit() { flags |= HAS_HIT; }
 
   void Free() {
-    assert((refs == 1 && InCache()) || (refs == 0 && !InCache()));
+    assert(refs == 0);
     if (deleter) {
       (*deleter)(key(), value);
     }
@@ -169,7 +177,7 @@ class ALIGN_AS(CACHE_LINE_SIZE) LRUCacheShard final : public CacheShard {
  public:
   LRUCacheShard(size_t capacity, bool strict_capacity_limit,
                 double high_pri_pool_ratio, bool use_adaptive_mutex);
-  virtual ~LRUCacheShard();
+  virtual ~LRUCacheShard() override = default;
 
   // Separate from constructor so caller can easily make an array of LRUCache
   // if current usage is more than new capacity, the function will attempt to
@@ -224,10 +232,6 @@ class ALIGN_AS(CACHE_LINE_SIZE) LRUCacheShard final : public CacheShard {
   // Overflow the last entry in high-pri pool to low-pri pool until size of
   // high-pri pool is no larger than the size specify by high_pri_pool_pct.
   void MaintainPoolSize();
-
-  // Just reduce the reference count by 1.
-  // Return true if last reference
-  bool Unref(LRUHandle* e);
 
   // Free some space following strict LRU policy until enough space
   // to hold (usage_ + charge) is freed or the lru list is empty
