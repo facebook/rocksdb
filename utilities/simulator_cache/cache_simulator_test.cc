@@ -174,10 +174,11 @@ TEST_F(CacheSimulatorTest, GhostPrioritizedCacheSimulator) {
 TEST_F(CacheSimulatorTest, HybridRowBlockCacheSimulator) {
   uint64_t block_id = 100;
   BlockCacheTraceRecord first_get = GenerateGetRecord(kGetId);
+  first_get.get_from_user_specified_snapshot = Boolean::kTrue;
   BlockCacheTraceRecord second_get = GenerateGetRecord(kGetId + 1);
   second_get.referenced_data_size = 0;
   second_get.referenced_key_exist_in_block = Boolean::kFalse;
-  second_get.referenced_key = kRefKeyPrefix + std::to_string(kGetId);
+  second_get.get_from_user_specified_snapshot = Boolean::kTrue;
   BlockCacheTraceRecord third_get = GenerateGetRecord(kGetId + 2);
   third_get.referenced_data_size = 0;
   third_get.referenced_key_exist_in_block = Boolean::kFalse;
@@ -203,9 +204,10 @@ TEST_F(CacheSimulatorTest, HybridRowBlockCacheSimulator) {
   ASSERT_EQ(100, cache_simulator->miss_ratio());
   ASSERT_EQ(10, cache_simulator->user_accesses());
   ASSERT_EQ(100, cache_simulator->user_miss_ratio());
-  auto handle =
-      sim_cache->Lookup(ExtractUserKey(std::to_string(first_get.sst_fd_number) +
-                                       "_" + first_get.referenced_key));
+  auto handle = sim_cache->Lookup(
+      std::to_string(first_get.sst_fd_number) + "_" +
+      ExtractUserKey(first_get.referenced_key).ToString() + "_" +
+      std::to_string(1 + GetInternalKeySeqno(first_get.referenced_key)));
   ASSERT_NE(nullptr, handle);
   sim_cache->Release(handle);
   for (uint32_t i = 100; i < block_id; i++) {
@@ -227,8 +229,10 @@ TEST_F(CacheSimulatorTest, HybridRowBlockCacheSimulator) {
   ASSERT_EQ(66, static_cast<uint64_t>(cache_simulator->miss_ratio()));
   ASSERT_EQ(15, cache_simulator->user_accesses());
   ASSERT_EQ(66, static_cast<uint64_t>(cache_simulator->user_miss_ratio()));
-  handle = sim_cache->Lookup(std::to_string(second_get.sst_fd_number) + "_" +
-                             second_get.referenced_key);
+  handle = sim_cache->Lookup(
+      std::to_string(second_get.sst_fd_number) + "_" +
+      ExtractUserKey(second_get.referenced_key).ToString() + "_" +
+      std::to_string(1 + GetInternalKeySeqno(second_get.referenced_key)));
   ASSERT_NE(nullptr, handle);
   sim_cache->Release(handle);
   for (uint32_t i = 100; i < block_id; i++) {
@@ -283,9 +287,9 @@ TEST_F(CacheSimulatorTest, HybridRowBlockNoInsertCacheSimulator) {
     cache_simulator->Access(first_get);
     block_id++;
   }
-  auto handle =
-      sim_cache->Lookup(ExtractUserKey(std::to_string(first_get.sst_fd_number) +
-                                       "_" + first_get.referenced_key));
+  auto handle = sim_cache->Lookup(
+      std::to_string(first_get.sst_fd_number) + "_" +
+      ExtractUserKey(first_get.referenced_key).ToString() + "_0");
   ASSERT_NE(nullptr, handle);
   sim_cache->Release(handle);
   // All blocks are missing from the cache since insert_blocks_row_kvpair_misses

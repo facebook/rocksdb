@@ -74,6 +74,7 @@ class BlockCacheTracerTest : public testing::Test {
       // Provide get_id for all callers. The writer should only write get_id
       // when the caller is either GET or MGET.
       record.get_id = key_id + 1;
+      record.get_from_user_specified_snapshot = Boolean::kTrue;
       // Provide these fields for all block types.
       // The writer should only write these fields for data blocks and the
       // caller is either GET or MGET.
@@ -126,20 +127,22 @@ class BlockCacheTracerTest : public testing::Test {
       if (record.caller == TableReaderCaller::kUserGet ||
           record.caller == TableReaderCaller::kUserMultiGet) {
         ASSERT_EQ(key_id + 1, record.get_id);
+        ASSERT_EQ(Boolean::kTrue, record.get_from_user_specified_snapshot);
+        ASSERT_EQ(kRefKeyPrefix + std::to_string(key_id),
+                  record.referenced_key);
       } else {
         ASSERT_EQ(BlockCacheTraceHelper::kReservedGetId, record.get_id);
+        ASSERT_EQ(Boolean::kFalse, record.get_from_user_specified_snapshot);
+        ASSERT_EQ("", record.referenced_key);
       }
       if (block_type == TraceType::kBlockTraceDataBlock &&
           (record.caller == TableReaderCaller::kUserGet ||
            record.caller == TableReaderCaller::kUserMultiGet)) {
-        ASSERT_EQ(kRefKeyPrefix + std::to_string(key_id),
-                  record.referenced_key);
         ASSERT_EQ(Boolean::kTrue, record.referenced_key_exist_in_block);
         ASSERT_EQ(kNumKeysInBlock, record.num_keys_in_block);
         ASSERT_EQ(kReferencedDataSize + key_id, record.referenced_data_size);
         continue;
       }
-      ASSERT_EQ("", record.referenced_key);
       ASSERT_EQ(Boolean::kFalse, record.referenced_key_exist_in_block);
       ASSERT_EQ(0, record.num_keys_in_block);
       ASSERT_EQ(0, record.referenced_data_size);
