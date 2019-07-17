@@ -16,6 +16,7 @@
 #include "monitoring/perf_context_imp.h"
 #include "port/port.h"
 #include "rocksdb/filter_policy.h"
+#include "table/block_based/block_based_table_reader.h"
 #include "util/coding.h"
 
 namespace rocksdb {
@@ -98,59 +99,91 @@ Slice FullFilterBlockBuilder::Finish(const BlockHandle& /*tmp*/,
 }
 
 FullFilterBlockReader::FullFilterBlockReader(
-    const SliceTransform* prefix_extractor, bool _whole_key_filtering,
-    const Slice& contents, FilterBitsReader* filter_bits_reader,
-    Statistics* stats)
-    : FilterBlockReader(contents.size(), stats, _whole_key_filtering),
-      prefix_extractor_(prefix_extractor),
-      contents_(contents) {
-  assert(filter_bits_reader != nullptr);
-  filter_bits_reader_.reset(filter_bits_reader);
-  if (prefix_extractor_ != nullptr) {
+    const BlockBasedTable* t, CachableEntry<BlockContents>&& filter_block)
+    : FilterBlockReaderCommon(t, std::move(filter_block)) {
+  const SliceTransform* const prefix_extractor = table_prefix_extractor();
+  if (prefix_extractor) {
     full_length_enabled_ =
-        prefix_extractor_->FullLengthEnabled(&prefix_extractor_full_length_);
+        prefix_extractor->FullLengthEnabled(&prefix_extractor_full_length_);
   }
-}
-
-FullFilterBlockReader::FullFilterBlockReader(
-    const SliceTransform* prefix_extractor, bool _whole_key_filtering,
-    BlockContents&& contents, FilterBitsReader* filter_bits_reader,
-    Statistics* stats)
-    : FullFilterBlockReader(prefix_extractor, _whole_key_filtering,
-                            contents.data, filter_bits_reader, stats) {
-  block_contents_ = std::move(contents);
 }
 
 bool FullFilterBlockReader::KeyMayMatch(
     const Slice& key, const SliceTransform* /*prefix_extractor*/,
-    uint64_t block_offset, const bool /*no_io*/,
-    const Slice* const /*const_ikey_ptr*/,
-    BlockCacheLookupContext* /*context*/) {
+    uint64_t block_offset, const bool no_io,
+    const Slice* const /*const_ikey_ptr*/, GetContext* get_context,
+    BlockCacheLookupContext* lookup_context) {
 #ifdef NDEBUG
   (void)block_offset;
 #endif
   assert(block_offset == kNotValid);
-  if (!whole_key_filtering_) {
+  if (!whole_key_filtering()) {
     return true;
   }
-  return MayMatch(key);
+  return MayMatch(key, no_io, get_context, lookup_context);
+}
+
+std::unique_ptr<FilterBlockReader> FullFilterBlockReader::Create(
+    const BlockBasedTable* table, FilePrefetchBuffer* prefetch_buffer,
+    bool use_cache, bool prefetch, bool pin,
+    BlockCacheLookupContext* lookup_context) {
+  assert(table);
+  assert(table->get_rep());
+  assert(!pin || prefetch);
+
+  CachableEntry<BlockContents> filter_block;
+  if (prefetch || !use_cache) {
+    const Status s = ReadFilterBlock(table, prefetch_buffer, ReadOptions(),
+                                     nullptr /* get_context */, lookup_context,
+                                     &filter_block);
+    if (!s.ok()) {
+      return std::unique_ptr<FilterBlockReader>();
+    }
+
+    if (use_cache && !pin) {
+      filter_block.Reset();
+    }
+  }
+
+  return std::unique_ptr<FilterBlockReader>(
+      new FullFilterBlockReader(table, std::move(filter_block)));
 }
 
 bool FullFilterBlockReader::PrefixMayMatch(
     const Slice& prefix, const SliceTransform* /* prefix_extractor */,
-    uint64_t block_offset, const bool /*no_io*/,
-    const Slice* const /*const_ikey_ptr*/,
-    BlockCacheLookupContext* /*context*/) {
+    uint64_t block_offset, const bool no_io,
+    const Slice* const /*const_ikey_ptr*/, GetContext* get_context,
+    BlockCacheLookupContext* lookup_context) {
 #ifdef NDEBUG
   (void)block_offset;
 #endif
   assert(block_offset == kNotValid);
-  return MayMatch(prefix);
+  return MayMatch(prefix, no_io, get_context, lookup_context);
 }
 
-bool FullFilterBlockReader::MayMatch(const Slice& entry) {
-  if (contents_.size() != 0)  {
-    if (filter_bits_reader_->MayMatch(entry)) {
+bool FullFilterBlockReader::MayMatch(
+    const Slice& entry, bool no_io, GetContext* get_context,
+    BlockCacheLookupContext* lookup_context) const {
+  CachableEntry<BlockContents> filter_block;
+
+  const Status s =
+      GetOrReadFilterBlock(no_io, get_context, lookup_context, &filter_block);
+  if (!s.ok()) {
+    return true;
+  }
+
+  assert(filter_block.GetValue());
+
+  if (filter_block.GetValue()->data.size() != 0) {
+    assert(table());
+    assert(table()->get_rep());
+
+    std::unique_ptr<FilterBitsReader> filter_bits_reader(
+        table()->get_rep()->filter_policy->GetFilterBitsReader(
+            filter_block.GetValue()->data));
+    assert(filter_bits_reader != nullptr);
+
+    if (filter_bits_reader->MayMatch(entry)) {
       PERF_COUNTER_ADD(bloom_sst_hit_count, 1);
       return true;
     } else {
@@ -163,37 +196,57 @@ bool FullFilterBlockReader::MayMatch(const Slice& entry) {
 
 void FullFilterBlockReader::KeysMayMatch(
     MultiGetRange* range, const SliceTransform* /*prefix_extractor*/,
-    uint64_t block_offset, const bool /*no_io*/,
-    BlockCacheLookupContext* /*context*/) {
+    uint64_t block_offset, const bool no_io,
+    BlockCacheLookupContext* lookup_context) {
 #ifdef NDEBUG
   (void)range;
   (void)block_offset;
 #endif
   assert(block_offset == kNotValid);
-  if (!whole_key_filtering_) {
+  if (!whole_key_filtering()) {
     // Simply return. Don't skip any key - consider all keys as likely to be
     // present
     return;
   }
-  MayMatch(range);
+  MayMatch(range, no_io, lookup_context);
 }
 
 void FullFilterBlockReader::PrefixesMayMatch(
     MultiGetRange* range, const SliceTransform* /* prefix_extractor */,
-    uint64_t block_offset, const bool /*no_io*/,
-    BlockCacheLookupContext* /*context*/) {
+    uint64_t block_offset, const bool no_io,
+    BlockCacheLookupContext* lookup_context) {
 #ifdef NDEBUG
   (void)range;
   (void)block_offset;
 #endif
   assert(block_offset == kNotValid);
-  MayMatch(range);
+  MayMatch(range, no_io, lookup_context);
 }
 
-void FullFilterBlockReader::MayMatch(MultiGetRange* range) {
-  if (contents_.size() == 0) {
+void FullFilterBlockReader::MayMatch(
+    MultiGetRange* range, bool no_io,
+    BlockCacheLookupContext* lookup_context) const {
+  CachableEntry<BlockContents> filter_block;
+
+  const Status s = GetOrReadFilterBlock(no_io, range->begin()->get_context,
+                                        lookup_context, &filter_block);
+  if (!s.ok()) {
     return;
   }
+
+  assert(filter_block.GetValue());
+
+  if (filter_block.GetValue()->data.size() == 0) {
+    return;
+  }
+
+  assert(table());
+  assert(table()->get_rep());
+
+  std::unique_ptr<FilterBitsReader> filter_bits_reader(
+      table()->get_rep()->filter_policy->GetFilterBitsReader(
+          filter_block.GetValue()->data));
+  assert(filter_bits_reader != nullptr);
 
   // We need to use an array instead of autovector for may_match since
   // &may_match[0] doesn't work for autovector<bool> (compiler error). So
@@ -205,7 +258,7 @@ void FullFilterBlockReader::MayMatch(MultiGetRange* range) {
   for (auto iter = range->begin(); iter != range->end(); ++iter) {
     keys[num_keys++] = &iter->ukey;
   }
-  filter_bits_reader_->MayMatch(num_keys, &keys[0], &may_match[0]);
+  filter_bits_reader->MayMatch(num_keys, &keys[0], &may_match[0]);
 
   int i = 0;
   for (auto iter = range->begin(); iter != range->end(); ++iter) {
@@ -217,13 +270,11 @@ void FullFilterBlockReader::MayMatch(MultiGetRange* range) {
 }
 
 size_t FullFilterBlockReader::ApproximateMemoryUsage() const {
-  size_t usage = block_contents_.usable_size();
+  size_t usage = ApproximateFilterBlockMemoryUsage();
 #ifdef ROCKSDB_MALLOC_USABLE_SIZE
-  usage += malloc_usable_size((void*)this);
-  usage += malloc_usable_size(filter_bits_reader_.get());
+  usage += malloc_usable_size(const_cast<FullFilterBlockReader*>(this));
 #else
   usage += sizeof(*this);
-  usage += sizeof(*filter_bits_reader_.get());
 #endif  // ROCKSDB_MALLOC_USABLE_SIZE
   return usage;
 }
@@ -232,7 +283,7 @@ bool FullFilterBlockReader::RangeMayExist(
     const Slice* iterate_upper_bound, const Slice& user_key,
     const SliceTransform* prefix_extractor, const Comparator* comparator,
     const Slice* const const_ikey_ptr, bool* filter_checked,
-    bool need_upper_bound_check, BlockCacheLookupContext* context) {
+    bool need_upper_bound_check, BlockCacheLookupContext* lookup_context) {
   if (!prefix_extractor || !prefix_extractor->InDomain(user_key)) {
     *filter_checked = false;
     return true;
@@ -245,22 +296,23 @@ bool FullFilterBlockReader::RangeMayExist(
   } else {
     *filter_checked = true;
     return PrefixMayMatch(prefix, prefix_extractor, kNotValid, false,
-                          const_ikey_ptr, context);
+                          const_ikey_ptr, /* get_context */ nullptr,
+                          lookup_context);
   }
 }
 
 bool FullFilterBlockReader::IsFilterCompatible(
     const Slice* iterate_upper_bound, const Slice& prefix,
-    const Comparator* comparator) {
+    const Comparator* comparator) const {
   // Try to reuse the bloom filter in the SST table if prefix_extractor in
   // mutable_cf_options has changed. If range [user_key, upper_bound) all
   // share the same prefix then we may still be able to use the bloom filter.
-  if (iterate_upper_bound != nullptr && prefix_extractor_) {
-    if (!prefix_extractor_->InDomain(*iterate_upper_bound)) {
+  const SliceTransform* const prefix_extractor = table_prefix_extractor();
+  if (iterate_upper_bound != nullptr && prefix_extractor) {
+    if (!prefix_extractor->InDomain(*iterate_upper_bound)) {
       return false;
     }
-    Slice upper_bound_xform =
-        prefix_extractor_->Transform(*iterate_upper_bound);
+    Slice upper_bound_xform = prefix_extractor->Transform(*iterate_upper_bound);
     // first check if user_key and upper_bound all share the same prefix
     if (!comparator->Equal(prefix, upper_bound_xform)) {
       // second check if user_key's prefix is the immediate predecessor of

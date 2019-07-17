@@ -492,13 +492,11 @@ inline std::string EncodeInt(uint64_t x) {
   return result;
 }
 
-class StringEnv : public EnvWrapper {
- public:
   class SeqStringSource : public SequentialFile {
    public:
     explicit SeqStringSource(const std::string& data)
         : data_(data), offset_(0) {}
-    ~SeqStringSource() {}
+    ~SeqStringSource() override {}
     Status Read(size_t n, Slice* result, char* scratch) override {
       std::string output;
       if (offset_ < data_.size()) {
@@ -527,129 +525,136 @@ class StringEnv : public EnvWrapper {
     size_t offset_;
   };
 
-  class StringSink : public WritableFile {
+  class StringEnv : public EnvWrapper {
    public:
-    explicit StringSink(std::string* contents)
-        : WritableFile(), contents_(contents) {}
-    virtual Status Truncate(uint64_t size) override {
-      contents_->resize(static_cast<size_t>(size));
+    class StringSink : public WritableFile {
+     public:
+      explicit StringSink(std::string* contents)
+          : WritableFile(), contents_(contents) {}
+      virtual Status Truncate(uint64_t size) override {
+        contents_->resize(static_cast<size_t>(size));
+        return Status::OK();
+      }
+      virtual Status Close() override { return Status::OK(); }
+      virtual Status Flush() override { return Status::OK(); }
+      virtual Status Sync() override { return Status::OK(); }
+      virtual Status Append(const Slice& slice) override {
+        contents_->append(slice.data(), slice.size());
+        return Status::OK();
+      }
+
+     private:
+      std::string* contents_;
+    };
+
+    explicit StringEnv(Env* t) : EnvWrapper(t) {}
+    ~StringEnv() override {}
+
+    const std::string& GetContent(const std::string& f) { return files_[f]; }
+
+    const Status WriteToNewFile(const std::string& file_name,
+                                const std::string& content) {
+      std::unique_ptr<WritableFile> r;
+      auto s = NewWritableFile(file_name, &r, EnvOptions());
+      if (!s.ok()) {
+        return s;
+      }
+      r->Append(content);
+      r->Flush();
+      r->Close();
+      assert(files_[file_name] == content);
       return Status::OK();
     }
-    virtual Status Close() override { return Status::OK(); }
-    virtual Status Flush() override { return Status::OK(); }
-    virtual Status Sync() override { return Status::OK(); }
-    virtual Status Append(const Slice& slice) override {
-      contents_->append(slice.data(), slice.size());
-      return Status::OK();
-    }
 
-   private:
-    std::string* contents_;
-  };
-
-  explicit StringEnv(Env* t) : EnvWrapper(t) {}
-  virtual ~StringEnv() {}
-
-  const std::string& GetContent(const std::string& f) { return files_[f]; }
-
-  const Status WriteToNewFile(const std::string& file_name,
-                              const std::string& content) {
-    std::unique_ptr<WritableFile> r;
-    auto s = NewWritableFile(file_name, &r, EnvOptions());
-    if (!s.ok()) {
-      return s;
-    }
-    r->Append(content);
-    r->Flush();
-    r->Close();
-    assert(files_[file_name] == content);
-    return Status::OK();
-  }
-
-  // The following text is boilerplate that forwards all methods to target()
-  Status NewSequentialFile(const std::string& f,
-                           std::unique_ptr<SequentialFile>* r,
-                           const EnvOptions& /*options*/) override {
-    auto iter = files_.find(f);
-    if (iter == files_.end()) {
-      return Status::NotFound("The specified file does not exist", f);
-    }
-    r->reset(new SeqStringSource(iter->second));
-    return Status::OK();
-  }
-  Status NewRandomAccessFile(const std::string& /*f*/,
-                             std::unique_ptr<RandomAccessFile>* /*r*/,
+    // The following text is boilerplate that forwards all methods to target()
+    Status NewSequentialFile(const std::string& f,
+                             std::unique_ptr<SequentialFile>* r,
                              const EnvOptions& /*options*/) override {
-    return Status::NotSupported();
-  }
-  Status NewWritableFile(const std::string& f, std::unique_ptr<WritableFile>* r,
-                         const EnvOptions& /*options*/) override {
-    auto iter = files_.find(f);
-    if (iter != files_.end()) {
-      return Status::IOError("The specified file already exists", f);
+      auto iter = files_.find(f);
+      if (iter == files_.end()) {
+        return Status::NotFound("The specified file does not exist", f);
+      }
+      r->reset(new SeqStringSource(iter->second));
+      return Status::OK();
     }
-    r->reset(new StringSink(&files_[f]));
-    return Status::OK();
-  }
-  virtual Status NewDirectory(const std::string& /*name*/,
-                              std::unique_ptr<Directory>* /*result*/) override {
-    return Status::NotSupported();
-  }
-  Status FileExists(const std::string& f) override {
-    if (files_.find(f) == files_.end()) {
-      return Status::NotFound();
+    Status NewRandomAccessFile(const std::string& /*f*/,
+                               std::unique_ptr<RandomAccessFile>* /*r*/,
+                               const EnvOptions& /*options*/) override {
+      return Status::NotSupported();
     }
-    return Status::OK();
-  }
-  Status GetChildren(const std::string& /*dir*/,
-                     std::vector<std::string>* /*r*/) override {
-    return Status::NotSupported();
-  }
-  Status DeleteFile(const std::string& f) override {
-    files_.erase(f);
-    return Status::OK();
-  }
-  Status CreateDir(const std::string& /*d*/) override {
-    return Status::NotSupported();
-  }
-  Status CreateDirIfMissing(const std::string& /*d*/) override {
-    return Status::NotSupported();
-  }
-  Status DeleteDir(const std::string& /*d*/) override {
-    return Status::NotSupported();
-  }
-  Status GetFileSize(const std::string& f, uint64_t* s) override {
-    auto iter = files_.find(f);
-    if (iter == files_.end()) {
-      return Status::NotFound("The specified file does not exist:", f);
+    Status NewWritableFile(const std::string& f,
+                           std::unique_ptr<WritableFile>* r,
+                           const EnvOptions& /*options*/) override {
+      auto iter = files_.find(f);
+      if (iter != files_.end()) {
+        return Status::IOError("The specified file already exists", f);
+      }
+      r->reset(new StringSink(&files_[f]));
+      return Status::OK();
     }
-    *s = iter->second.size();
-    return Status::OK();
-  }
+    virtual Status NewDirectory(
+        const std::string& /*name*/,
+        std::unique_ptr<Directory>* /*result*/) override {
+      return Status::NotSupported();
+    }
+    Status FileExists(const std::string& f) override {
+      if (files_.find(f) == files_.end()) {
+        return Status::NotFound();
+      }
+      return Status::OK();
+    }
+    Status GetChildren(const std::string& /*dir*/,
+                       std::vector<std::string>* /*r*/) override {
+      return Status::NotSupported();
+    }
+    Status DeleteFile(const std::string& f) override {
+      files_.erase(f);
+      return Status::OK();
+    }
+    Status CreateDir(const std::string& /*d*/) override {
+      return Status::NotSupported();
+    }
+    Status CreateDirIfMissing(const std::string& /*d*/) override {
+      return Status::NotSupported();
+    }
+    Status DeleteDir(const std::string& /*d*/) override {
+      return Status::NotSupported();
+    }
+    Status GetFileSize(const std::string& f, uint64_t* s) override {
+      auto iter = files_.find(f);
+      if (iter == files_.end()) {
+        return Status::NotFound("The specified file does not exist:", f);
+      }
+      *s = iter->second.size();
+      return Status::OK();
+    }
 
-  Status GetFileModificationTime(const std::string& /*fname*/,
-                                 uint64_t* /*file_mtime*/) override {
-    return Status::NotSupported();
-  }
+    Status GetFileModificationTime(const std::string& /*fname*/,
+                                   uint64_t* /*file_mtime*/) override {
+      return Status::NotSupported();
+    }
 
-  Status RenameFile(const std::string& /*s*/,
+    Status RenameFile(const std::string& /*s*/,
+                      const std::string& /*t*/) override {
+      return Status::NotSupported();
+    }
+
+    Status LinkFile(const std::string& /*s*/,
                     const std::string& /*t*/) override {
-    return Status::NotSupported();
-  }
+      return Status::NotSupported();
+    }
 
-  Status LinkFile(const std::string& /*s*/, const std::string& /*t*/) override {
-    return Status::NotSupported();
-  }
+    Status LockFile(const std::string& /*f*/, FileLock** /*l*/) override {
+      return Status::NotSupported();
+    }
 
-  Status LockFile(const std::string& /*f*/, FileLock** /*l*/) override {
-    return Status::NotSupported();
-  }
+    Status UnlockFile(FileLock* /*l*/) override {
+      return Status::NotSupported();
+    }
 
-  Status UnlockFile(FileLock* /*l*/) override { return Status::NotSupported(); }
-
- protected:
-  std::unordered_map<std::string, std::string> files_;
-};
+   protected:
+    std::unordered_map<std::string, std::string> files_;
+  };
 
 // Randomly initialize the given DBOptions
 void RandomInitDBOptions(DBOptions* db_opt, Random* rnd);

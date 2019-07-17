@@ -43,12 +43,18 @@ class SequentialFileReader {
  private:
   std::unique_ptr<SequentialFile> file_;
   std::string file_name_;
-  std::atomic<size_t> offset_;  // read offset
+  std::atomic<size_t> offset_{0};  // read offset
 
  public:
   explicit SequentialFileReader(std::unique_ptr<SequentialFile>&& _file,
                                 const std::string& _file_name)
-      : file_(std::move(_file)), file_name_(_file_name), offset_(0) {}
+      : file_(std::move(_file)), file_name_(_file_name) {}
+
+  explicit SequentialFileReader(std::unique_ptr<SequentialFile>&& _file,
+                                const std::string& _file_name,
+                                size_t _readahead_size)
+      : file_(NewReadaheadSequentialFile(std::move(_file), _readahead_size)),
+        file_name_(_file_name) {}
 
   SequentialFileReader(SequentialFileReader&& o) ROCKSDB_NOEXCEPT {
     *this = std::move(o);
@@ -66,13 +72,17 @@ class SequentialFileReader {
 
   Status Skip(uint64_t n);
 
-  void Rewind();
-
   SequentialFile* file() { return file_.get(); }
 
   std::string file_name() { return file_name_; }
 
   bool use_direct_io() const { return file_->use_direct_io(); }
+
+ private:
+  // NewReadaheadSequentialFile provides a wrapper over SequentialFile to
+  // always prefetch additional data with every read.
+  static std::unique_ptr<SequentialFile> NewReadaheadSequentialFile(
+      std::unique_ptr<SequentialFile>&& file, size_t readahead_size);
 };
 
 // RandomAccessFileReader is a wrapper on top of Env::RnadomAccessFile. It is
@@ -108,7 +118,6 @@ class RandomAccessFileReader {
   uint32_t        hist_type_;
   HistogramImpl*  file_read_hist_;
   RateLimiter* rate_limiter_;
-  bool for_compaction_;
   std::vector<std::shared_ptr<EventListener>> listeners_;
 
  public:
@@ -116,7 +125,7 @@ class RandomAccessFileReader {
       std::unique_ptr<RandomAccessFile>&& raf, std::string _file_name,
       Env* env = nullptr, Statistics* stats = nullptr, uint32_t hist_type = 0,
       HistogramImpl* file_read_hist = nullptr,
-      RateLimiter* rate_limiter = nullptr, bool for_compaction = false,
+      RateLimiter* rate_limiter = nullptr,
       const std::vector<std::shared_ptr<EventListener>>& listeners = {})
       : file_(std::move(raf)),
         file_name_(std::move(_file_name)),
@@ -125,7 +134,6 @@ class RandomAccessFileReader {
         hist_type_(hist_type),
         file_read_hist_(file_read_hist),
         rate_limiter_(rate_limiter),
-        for_compaction_(for_compaction),
         listeners_() {
 #ifndef ROCKSDB_LITE
     std::for_each(listeners.begin(), listeners.end(),
@@ -151,7 +159,6 @@ class RandomAccessFileReader {
     hist_type_ = std::move(o.hist_type_);
     file_read_hist_ = std::move(o.file_read_hist_);
     rate_limiter_ = std::move(o.rate_limiter_);
-    for_compaction_ = std::move(o.for_compaction_);
     return *this;
   }
 

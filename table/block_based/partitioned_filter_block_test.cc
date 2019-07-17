@@ -7,6 +7,7 @@
 
 #include "rocksdb/filter_policy.h"
 
+#include "table/block_based/block_based_table_reader.h"
 #include "table/block_based/partitioned_filter_block.h"
 #include "table/full_filter_bits_builder.h"
 
@@ -23,34 +24,29 @@ std::map<uint64_t, Slice> slices;
 
 class MockedBlockBasedTable : public BlockBasedTable {
  public:
-  explicit MockedBlockBasedTable(Rep* rep)
+  MockedBlockBasedTable(Rep* rep, PartitionedIndexBuilder* pib)
       : BlockBasedTable(rep, /*block_cache_tracer=*/nullptr) {
     // Initialize what Open normally does as much as necessary for the test
     rep->cache_key_prefix_size = 10;
+    rep->index_key_includes_seq = pib->seperator_is_key_plus_seq();
+    rep->index_value_is_full = !pib->get_use_value_delta_encoding();
   }
+};
 
-  CachableEntry<FilterBlockReader> GetFilter(
-      FilePrefetchBuffer*, const BlockHandle& filter_blk_handle,
-      const bool /* unused */, bool /* unused */, GetContext* /* unused */,
-      BlockCacheLookupContext* /*context*/,
-      const SliceTransform* prefix_extractor) const override {
-    Slice slice = slices[filter_blk_handle.offset()];
-    auto obj = new FullFilterBlockReader(
-        prefix_extractor, true, BlockContents(slice),
-        rep_->table_options.filter_policy->GetFilterBitsReader(slice), nullptr);
-    return {obj, nullptr /* cache */, nullptr /* cache_handle */,
-      true /* own_value */};
-  }
+class MyPartitionedFilterBlockReader : public PartitionedFilterBlockReader {
+ public:
+  MyPartitionedFilterBlockReader(BlockBasedTable* t,
+                                 CachableEntry<Block>&& filter_block)
+      : PartitionedFilterBlockReader(t, std::move(filter_block)) {
+    for (const auto& pair : slices) {
+      const uint64_t offset = pair.first;
+      const Slice& slice = pair.second;
 
-  FilterBlockReader* ReadFilter(
-      FilePrefetchBuffer*, const BlockHandle& filter_blk_handle,
-      const bool /* unused */,
-      const SliceTransform* prefix_extractor) const override {
-    Slice slice = slices[filter_blk_handle.offset()];
-    auto obj = new FullFilterBlockReader(
-        prefix_extractor, true, BlockContents(slice),
-        rep_->table_options.filter_policy->GetFilterBitsReader(slice), nullptr);
-    return obj;
+      CachableEntry<BlockContents> block(
+          new BlockContents(slice), nullptr /* cache */,
+          nullptr /* cache_handle */, true /* own_value */);
+      filter_map_[offset] = std::move(block);
+    }
   }
 };
 
@@ -58,10 +54,18 @@ class PartitionedFilterBlockTest
     : public testing::Test,
       virtual public ::testing::WithParamInterface<uint32_t> {
  public:
+  Options options_;
+  ImmutableCFOptions ioptions_;
+  EnvOptions env_options_;
   BlockBasedTableOptions table_options_;
-  InternalKeyComparator icomp = InternalKeyComparator(BytewiseComparator());
+  InternalKeyComparator icomp_;
+  std::unique_ptr<BlockBasedTable> table_;
+  std::shared_ptr<Cache> cache_;
 
-  PartitionedFilterBlockTest() {
+  PartitionedFilterBlockTest()
+      : ioptions_(options_),
+        env_options_(options_),
+        icomp_(options_.comparator) {
     table_options_.filter_policy.reset(NewBloomFilterPolicy(10, false));
     table_options_.no_block_cache = true;  // Otherwise BlockBasedTable::Close
                                            // will access variable that are not
@@ -70,7 +74,6 @@ class PartitionedFilterBlockTest
     table_options_.index_block_restart_interval = 3;
   }
 
-  std::shared_ptr<Cache> cache_;
   ~PartitionedFilterBlockTest() override {}
 
   const std::string keys[4] = {"afoo", "bar", "box", "hello"};
@@ -110,7 +113,7 @@ class PartitionedFilterBlockTest
   PartitionedIndexBuilder* NewIndexBuilder() {
     const bool kValueDeltaEncoded = true;
     return PartitionedIndexBuilder::CreateIndexBuilder(
-        &icomp, !kValueDeltaEncoded, table_options_);
+        &icomp_, !kValueDeltaEncoded, table_options_);
   }
 
   PartitionedFilterBlockBuilder* NewBuilder(
@@ -131,11 +134,8 @@ class PartitionedFilterBlockTest
         p_index_builder, partition_size);
   }
 
-  std::unique_ptr<MockedBlockBasedTable> table;
-
   PartitionedFilterBlockReader* NewReader(
-      PartitionedFilterBlockBuilder* builder, PartitionedIndexBuilder* pib,
-      const SliceTransform* prefix_extractor) {
+      PartitionedFilterBlockBuilder* builder, PartitionedIndexBuilder* pib) {
     BlockHandle bh;
     Status status;
     Slice slice;
@@ -143,19 +143,21 @@ class PartitionedFilterBlockTest
       slice = builder->Finish(bh, &status);
       bh = Write(slice);
     } while (status.IsIncomplete());
-    const Options options;
-    const ImmutableCFOptions ioptions(options);
-    const MutableCFOptions moptions(options);
-    const EnvOptions env_options;
-    const bool kSkipFilters = true;
-    const bool kImmortal = true;
-    table.reset(new MockedBlockBasedTable(
-        new BlockBasedTable::Rep(ioptions, env_options, table_options_, icomp,
-                                 !kSkipFilters, 0, !kImmortal)));
-    auto reader = new PartitionedFilterBlockReader(
-        prefix_extractor, true, BlockContents(slice), nullptr, nullptr, icomp,
-        table.get(), pib->seperator_is_key_plus_seq(),
-        !pib->get_use_value_delta_encoding());
+
+    constexpr bool skip_filters = false;
+    constexpr int level = 0;
+    constexpr bool immortal_table = false;
+    table_.reset(new MockedBlockBasedTable(
+        new BlockBasedTable::Rep(ioptions_, env_options_, table_options_,
+                                 icomp_, skip_filters, level, immortal_table),
+        pib));
+    BlockContents contents(slice);
+    CachableEntry<Block> block(
+        new Block(std::move(contents), kDisableGlobalSequenceNumber,
+                  0 /* read_amp_bytes_per_bit */, nullptr),
+        nullptr /* cache */, nullptr /* cache_handle */, true /* own_value */);
+    auto reader =
+        new MyPartitionedFilterBlockReader(table_.get(), std::move(block));
     return reader;
   }
 
@@ -163,36 +165,37 @@ class PartitionedFilterBlockTest
                     PartitionedIndexBuilder* pib, bool empty = false,
                     const SliceTransform* prefix_extractor = nullptr) {
     std::unique_ptr<PartitionedFilterBlockReader> reader(
-        NewReader(builder, pib, prefix_extractor));
+        NewReader(builder, pib));
     // Querying added keys
     const bool no_io = true;
     for (auto key : keys) {
       auto ikey = InternalKey(key, 0, ValueType::kTypeValue);
       const Slice ikey_slice = Slice(*ikey.rep());
       ASSERT_TRUE(reader->KeyMayMatch(key, prefix_extractor, kNotValid, !no_io,
-                                      &ikey_slice, /*context=*/nullptr));
+                                      &ikey_slice, /*get_context=*/nullptr,
+                                      /*lookup_context=*/nullptr));
     }
     {
       // querying a key twice
       auto ikey = InternalKey(keys[0], 0, ValueType::kTypeValue);
       const Slice ikey_slice = Slice(*ikey.rep());
-      ASSERT_TRUE(reader->KeyMayMatch(keys[0], prefix_extractor, kNotValid,
-                                      !no_io, &ikey_slice,
-                                      /*context=*/nullptr));
+      ASSERT_TRUE(reader->KeyMayMatch(
+          keys[0], prefix_extractor, kNotValid, !no_io, &ikey_slice,
+          /*get_context=*/nullptr, /*lookup_context=*/nullptr));
     }
     // querying missing keys
     for (auto key : missing_keys) {
       auto ikey = InternalKey(key, 0, ValueType::kTypeValue);
       const Slice ikey_slice = Slice(*ikey.rep());
       if (empty) {
-        ASSERT_TRUE(reader->KeyMayMatch(key, prefix_extractor, kNotValid,
-                                        !no_io, &ikey_slice,
-                                        /*context=*/nullptr));
+        ASSERT_TRUE(reader->KeyMayMatch(
+            key, prefix_extractor, kNotValid, !no_io, &ikey_slice,
+            /*get_context=*/nullptr, /*lookup_context=*/nullptr));
       } else {
         // assuming a good hash function
-        ASSERT_FALSE(reader->KeyMayMatch(key, prefix_extractor, kNotValid,
-                                         !no_io, &ikey_slice,
-                                         /*context=*/nullptr));
+        ASSERT_FALSE(reader->KeyMayMatch(
+            key, prefix_extractor, kNotValid, !no_io, &ikey_slice,
+            /*get_context=*/nullptr, /*lookup_context=*/nullptr));
       }
     }
   }
@@ -336,13 +339,14 @@ TEST_P(PartitionedFilterBlockTest, SamePrefixInMultipleBlocks) {
   builder->Add(pkeys[2]);
   CutABlock(pib.get(), pkeys[2]);
   std::unique_ptr<PartitionedFilterBlockReader> reader(
-      NewReader(builder.get(), pib.get(), prefix_extractor.get()));
+      NewReader(builder.get(), pib.get()));
   for (auto key : pkeys) {
     auto ikey = InternalKey(key, 0, ValueType::kTypeValue);
     const Slice ikey_slice = Slice(*ikey.rep());
     ASSERT_TRUE(reader->PrefixMayMatch(
         prefix_extractor->Transform(key), prefix_extractor.get(), kNotValid,
-        /*no_io=*/false, &ikey_slice, /*context=*/nullptr));
+        /*no_io=*/false, &ikey_slice, /*get_context=*/nullptr,
+        /*lookup_context=*/nullptr));
   }
 }
 
