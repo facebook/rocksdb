@@ -110,19 +110,22 @@ void PrioritizedCacheSimulator::Access(const BlockCacheTraceRecord& access) {
 std::string HybridRowBlockCacheSimulator::ComputeRowKey(
     const BlockCacheTraceRecord& access) {
   assert(access.get_id != BlockCacheTraceHelper::kReservedGetId);
-  Slice key;
-  if (access.referenced_key_exist_in_block == Boolean::kTrue) {
-    key = ExtractUserKey(access.referenced_key);
-  } else {
-    key = access.referenced_key;
-  }
-  return std::to_string(access.sst_fd_number) + "_" + key.ToString();
+  Slice key = ExtractUserKey(access.referenced_key);
+  uint64_t seq_no = access.get_from_user_specified_snapshot == Boolean::kFalse
+                        ? 0
+                        : 1 + GetInternalKeySeqno(access.referenced_key);
+  return std::to_string(access.sst_fd_number) + "_" + key.ToString() + "_" +
+         std::to_string(seq_no);
 }
 
 void HybridRowBlockCacheSimulator::Access(const BlockCacheTraceRecord& access) {
   bool is_cache_miss = true;
   bool admitted = true;
-  if (access.get_id != BlockCacheTraceHelper::kReservedGetId) {
+  // TODO (haoyu): We only support Get for now. We need to extend the tracing
+  // for MultiGet, i.e., non-data block accesses must log all keys in a
+  // MultiGet.
+  if (access.caller == TableReaderCaller::kUserGet &&
+      access.get_id != BlockCacheTraceHelper::kReservedGetId) {
     // This is a Get/MultiGet request.
     const std::string& row_key = ComputeRowKey(access);
     if (getid_getkeys_map_[access.get_id].find(row_key) ==

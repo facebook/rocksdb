@@ -57,8 +57,8 @@ struct BlockAccessInfo {
     const uint64_t timestamp_in_seconds =
         access.access_timestamp / kMicrosInSecond;
     caller_num_accesses_timeline[access.caller][timestamp_in_seconds] += 1;
-    if (BlockCacheTraceHelper::ShouldTraceReferencedKey(access.block_type,
-                                                        access.caller)) {
+    if (BlockCacheTraceHelper::IsGetOrMultiGetOnDataBlock(access.block_type,
+                                                          access.caller)) {
       num_keys = access.num_keys_in_block;
       if (access.referenced_key_exist_in_block == Boolean::kTrue) {
         if (key_num_access_map.find(access.referenced_key) ==

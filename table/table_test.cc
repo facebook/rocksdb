@@ -63,6 +63,8 @@ extern const uint64_t kPlainTableMagicNumber;
 
 namespace {
 
+const std::string kDummyValue(10000, 'o');
+
 // DummyPropertiesCollector used to test BlockBasedTableProperties
 class DummyPropertiesCollector : public TablePropertiesCollector {
  public:
@@ -312,7 +314,9 @@ class TableConstructor: public Constructor {
       : Constructor(cmp),
         largest_seqno_(largest_seqno),
         convert_to_internal_key_(convert_to_internal_key),
-        level_(level) {}
+        level_(level) {
+    env_ = rocksdb::Env::Default();
+  }
   ~TableConstructor() override { Reset(); }
 
   Status FinishImpl(const Options& options, const ImmutableCFOptions& ioptions,
@@ -371,7 +375,7 @@ class TableConstructor: public Constructor {
     return ioptions.table_factory->NewTableReader(
         TableReaderOptions(ioptions, moptions.prefix_extractor.get(), soptions,
                            internal_comparator, !kSkipFilters, !kImmortal,
-                           level_, largest_seqno_, nullptr),
+                           level_, largest_seqno_, &block_cache_tracer_),
         std::move(file_reader_), TEST_GetSink()->contents().size(),
         &table_reader_);
   }
@@ -425,6 +429,8 @@ class TableConstructor: public Constructor {
     return static_cast<test::StringSink*>(file_writer_->writable_file());
   }
 
+  BlockCacheTracer block_cache_tracer_;
+
  private:
   void Reset() {
     uniq_id_ = 0;
@@ -445,6 +451,7 @@ class TableConstructor: public Constructor {
 
   static uint64_t cur_uniq_id_;
   EnvOptions soptions;
+  Env* env_;
 };
 uint64_t TableConstructor::cur_uniq_id_ = 1;
 
@@ -1063,7 +1070,9 @@ class BlockBasedTableTest
     : public TableTest,
       virtual public ::testing::WithParamInterface<uint32_t> {
  public:
-  BlockBasedTableTest() : format_(GetParam()) {}
+  BlockBasedTableTest() : format_(GetParam()) {
+    env_ = rocksdb::Env::Default();
+  }
 
   BlockBasedTableOptions GetBlockBasedTableOptions() {
     BlockBasedTableOptions options;
@@ -1071,11 +1080,91 @@ class BlockBasedTableTest
     return options;
   }
 
+  void SetupTracingTest(TableConstructor* c) {
+    test_path_ = test::PerThreadDBPath("block_based_table_tracing_test");
+    EXPECT_OK(env_->CreateDir(test_path_));
+    trace_file_path_ = test_path_ + "/block_cache_trace_file";
+    TraceOptions trace_opt;
+    std::unique_ptr<TraceWriter> trace_writer;
+    EXPECT_OK(NewFileTraceWriter(env_, EnvOptions(), trace_file_path_,
+                                 &trace_writer));
+    c->block_cache_tracer_.StartTrace(env_, trace_opt, std::move(trace_writer));
+    {
+      std::string user_key = "k01";
+      InternalKey internal_key(user_key, 0, kTypeValue);
+      std::string encoded_key = internal_key.Encode().ToString();
+      c->Add(encoded_key, kDummyValue);
+    }
+    {
+      std::string user_key = "k02";
+      InternalKey internal_key(user_key, 0, kTypeValue);
+      std::string encoded_key = internal_key.Encode().ToString();
+      c->Add(encoded_key, kDummyValue);
+    }
+  }
+
+  void VerifyBlockAccessTrace(
+      TableConstructor* c,
+      const std::vector<BlockCacheTraceRecord>& expected_records) {
+    c->block_cache_tracer_.EndTrace();
+
+    std::unique_ptr<TraceReader> trace_reader;
+    Status s =
+        NewFileTraceReader(env_, EnvOptions(), trace_file_path_, &trace_reader);
+    EXPECT_OK(s);
+    BlockCacheTraceReader reader(std::move(trace_reader));
+    BlockCacheTraceHeader header;
+    EXPECT_OK(reader.ReadHeader(&header));
+    uint32_t index = 0;
+    while (s.ok()) {
+      BlockCacheTraceRecord access;
+      s = reader.ReadAccess(&access);
+      if (!s.ok()) {
+        break;
+      }
+      ASSERT_LT(index, expected_records.size());
+      EXPECT_NE("", access.block_key);
+      EXPECT_EQ(access.block_type, expected_records[index].block_type);
+      EXPECT_GT(access.block_size, 0);
+      EXPECT_EQ(access.caller, expected_records[index].caller);
+      EXPECT_EQ(access.no_insert, expected_records[index].no_insert);
+      EXPECT_EQ(access.is_cache_hit, expected_records[index].is_cache_hit);
+      // Get
+      if (access.caller == TableReaderCaller::kUserGet) {
+        EXPECT_EQ(access.referenced_key,
+                  expected_records[index].referenced_key);
+        EXPECT_EQ(access.get_id, expected_records[index].get_id);
+        EXPECT_EQ(access.get_from_user_specified_snapshot,
+                  expected_records[index].get_from_user_specified_snapshot);
+        if (access.block_type == TraceType::kBlockTraceDataBlock) {
+          EXPECT_GT(access.referenced_data_size, 0);
+          EXPECT_GT(access.num_keys_in_block, 0);
+          EXPECT_EQ(access.referenced_key_exist_in_block,
+                    expected_records[index].referenced_key_exist_in_block);
+        }
+      } else {
+        EXPECT_EQ(access.referenced_key, "");
+        EXPECT_EQ(access.get_id, 0);
+        EXPECT_TRUE(access.get_from_user_specified_snapshot == Boolean::kFalse);
+        EXPECT_EQ(access.referenced_data_size, 0);
+        EXPECT_EQ(access.num_keys_in_block, 0);
+        EXPECT_TRUE(access.referenced_key_exist_in_block == Boolean::kFalse);
+      }
+      index++;
+    }
+    EXPECT_EQ(index, expected_records.size());
+    EXPECT_OK(env_->DeleteFile(trace_file_path_));
+    EXPECT_OK(env_->DeleteDir(test_path_));
+  }
+
  protected:
   uint64_t IndexUncompressedHelper(bool indexCompress);
 
  private:
   uint32_t format_;
+  Env* env_;
+  std::string trace_file_path_;
+  std::string test_path_;
 };
 class PlainTableTest : public TableTest {};
 class TablePropertyTest : public testing::Test {};
@@ -2208,6 +2297,187 @@ TEST_P(BlockBasedTableTest, NumBlockStat) {
            GetPlainInternalComparator(options.comparator), &ks, &kvmap);
   ASSERT_EQ(kvmap.size(),
             c.GetTableReader()->GetTableProperties()->num_data_blocks);
+  c.ResetTableReader();
+}
+
+TEST_P(BlockBasedTableTest, TracingGetTest) {
+  TableConstructor c(BytewiseComparator());
+  Options options;
+  BlockBasedTableOptions table_options = GetBlockBasedTableOptions();
+  options.create_if_missing = true;
+  table_options.block_cache = NewLRUCache(1024 * 1024, 0);
+  table_options.cache_index_and_filter_blocks = true;
+  table_options.filter_policy.reset(NewBloomFilterPolicy(10, true));
+  options.table_factory.reset(new BlockBasedTableFactory(table_options));
+  SetupTracingTest(&c);
+  std::vector<std::string> keys;
+  stl_wrappers::KVMap kvmap;
+  ImmutableCFOptions ioptions(options);
+  MutableCFOptions moptions(options);
+  c.Finish(options, ioptions, moptions, table_options,
+           GetPlainInternalComparator(options.comparator), &keys, &kvmap);
+  std::string user_key = "k01";
+  InternalKey internal_key(user_key, 0, kTypeValue);
+  std::string encoded_key = internal_key.Encode().ToString();
+  for (uint32_t i = 1; i <= 2; i++) {
+    PinnableSlice value;
+    GetContext get_context(options.comparator, nullptr, nullptr, nullptr,
+                           GetContext::kNotFound, user_key, &value, nullptr,
+                           nullptr, nullptr, nullptr, nullptr, nullptr, nullptr,
+                           nullptr, /*get_id=*/i);
+    get_perf_context()->Reset();
+    ASSERT_OK(c.GetTableReader()->Get(ReadOptions(), encoded_key, &get_context,
+                                      moptions.prefix_extractor.get()));
+    ASSERT_EQ(get_context.State(), GetContext::kFound);
+    ASSERT_EQ(value.ToString(), kDummyValue);
+  }
+
+  // Verify traces.
+  std::vector<BlockCacheTraceRecord> expected_records;
+  // The first two records should be prefetching index and filter blocks.
+  BlockCacheTraceRecord record;
+  record.block_type = TraceType::kBlockTraceIndexBlock;
+  record.caller = TableReaderCaller::kPrefetch;
+  record.is_cache_hit = Boolean::kFalse;
+  record.no_insert = Boolean::kFalse;
+  expected_records.push_back(record);
+  record.block_type = TraceType::kBlockTraceFilterBlock;
+  expected_records.push_back(record);
+  // Then we should have three records for one index, one filter, and one data
+  // block access.
+  record.get_id = 1;
+  record.block_type = TraceType::kBlockTraceIndexBlock;
+  record.caller = TableReaderCaller::kUserGet;
+  record.get_from_user_specified_snapshot = Boolean::kFalse;
+  record.referenced_key = encoded_key;
+  record.referenced_key_exist_in_block = Boolean::kTrue;
+  record.is_cache_hit = Boolean::kTrue;
+  expected_records.push_back(record);
+  record.block_type = TraceType::kBlockTraceFilterBlock;
+  expected_records.push_back(record);
+  record.is_cache_hit = Boolean::kFalse;
+  record.block_type = TraceType::kBlockTraceDataBlock;
+  expected_records.push_back(record);
+  // The second get should all observe cache hits.
+  record.is_cache_hit = Boolean::kTrue;
+  record.get_id = 2;
+  record.block_type = TraceType::kBlockTraceIndexBlock;
+  record.caller = TableReaderCaller::kUserGet;
+  record.get_from_user_specified_snapshot = Boolean::kFalse;
+  record.referenced_key = encoded_key;
+  expected_records.push_back(record);
+  record.block_type = TraceType::kBlockTraceFilterBlock;
+  expected_records.push_back(record);
+  record.block_type = TraceType::kBlockTraceDataBlock;
+  expected_records.push_back(record);
+  VerifyBlockAccessTrace(&c, expected_records);
+  c.ResetTableReader();
+}
+
+TEST_P(BlockBasedTableTest, TracingApproximateOffsetOfTest) {
+  TableConstructor c(BytewiseComparator());
+  Options options;
+  BlockBasedTableOptions table_options = GetBlockBasedTableOptions();
+  options.create_if_missing = true;
+  table_options.block_cache = NewLRUCache(1024 * 1024, 0);
+  table_options.cache_index_and_filter_blocks = true;
+  table_options.filter_policy.reset(NewBloomFilterPolicy(10, true));
+  options.table_factory.reset(new BlockBasedTableFactory(table_options));
+  SetupTracingTest(&c);
+  std::vector<std::string> keys;
+  stl_wrappers::KVMap kvmap;
+  ImmutableCFOptions ioptions(options);
+  MutableCFOptions moptions(options);
+  c.Finish(options, ioptions, moptions, table_options,
+           GetPlainInternalComparator(options.comparator), &keys, &kvmap);
+  for (uint32_t i = 1; i <= 2; i++) {
+    std::string user_key = "k01";
+    InternalKey internal_key(user_key, 0, kTypeValue);
+    std::string encoded_key = internal_key.Encode().ToString();
+    c.GetTableReader()->ApproximateOffsetOf(
+        encoded_key, TableReaderCaller::kUserApproximateSize);
+  }
+  // Verify traces.
+  std::vector<BlockCacheTraceRecord> expected_records;
+  // The first two records should be prefetching index and filter blocks.
+  BlockCacheTraceRecord record;
+  record.block_type = TraceType::kBlockTraceIndexBlock;
+  record.caller = TableReaderCaller::kPrefetch;
+  record.is_cache_hit = Boolean::kFalse;
+  record.no_insert = Boolean::kFalse;
+  expected_records.push_back(record);
+  record.block_type = TraceType::kBlockTraceFilterBlock;
+  expected_records.push_back(record);
+  // Then we should have two records for only index blocks.
+  record.block_type = TraceType::kBlockTraceIndexBlock;
+  record.caller = TableReaderCaller::kUserApproximateSize;
+  record.is_cache_hit = Boolean::kTrue;
+  expected_records.push_back(record);
+  expected_records.push_back(record);
+  VerifyBlockAccessTrace(&c, expected_records);
+  c.ResetTableReader();
+}
+
+TEST_P(BlockBasedTableTest, TracingIterator) {
+  TableConstructor c(BytewiseComparator());
+  Options options;
+  BlockBasedTableOptions table_options = GetBlockBasedTableOptions();
+  options.create_if_missing = true;
+  table_options.block_cache = NewLRUCache(1024 * 1024, 0);
+  table_options.cache_index_and_filter_blocks = true;
+  table_options.filter_policy.reset(NewBloomFilterPolicy(10, true));
+  options.table_factory.reset(new BlockBasedTableFactory(table_options));
+  SetupTracingTest(&c);
+  std::vector<std::string> keys;
+  stl_wrappers::KVMap kvmap;
+  ImmutableCFOptions ioptions(options);
+  MutableCFOptions moptions(options);
+  c.Finish(options, ioptions, moptions, table_options,
+           GetPlainInternalComparator(options.comparator), &keys, &kvmap);
+
+  for (uint32_t i = 1; i <= 2; i++) {
+    std::unique_ptr<InternalIterator> iter(c.GetTableReader()->NewIterator(
+        ReadOptions(), moptions.prefix_extractor.get(), /*arena=*/nullptr,
+        /*skip_filters=*/false, TableReaderCaller::kUserIterator));
+    iter->SeekToFirst();
+    while (iter->Valid()) {
+      iter->key();
+      iter->value();
+      iter->Next();
+    }
+    ASSERT_OK(iter->status());
+    iter.reset();
+  }
+
+  // Verify traces.
+  std::vector<BlockCacheTraceRecord> expected_records;
+  // The first two records should be prefetching index and filter blocks.
+  BlockCacheTraceRecord record;
+  record.block_type = TraceType::kBlockTraceIndexBlock;
+  record.caller = TableReaderCaller::kPrefetch;
+  record.is_cache_hit = Boolean::kFalse;
+  record.no_insert = Boolean::kFalse;
+  expected_records.push_back(record);
+  record.block_type = TraceType::kBlockTraceFilterBlock;
+  expected_records.push_back(record);
+  // Then we should have three records for index and two data block access.
+  record.block_type = TraceType::kBlockTraceIndexBlock;
+  record.caller = TableReaderCaller::kUserIterator;
+  record.is_cache_hit = Boolean::kTrue;
+  expected_records.push_back(record);
+  record.block_type = TraceType::kBlockTraceDataBlock;
+  record.is_cache_hit = Boolean::kFalse;
+  expected_records.push_back(record);
+  expected_records.push_back(record);
+  // When we iterate this file for the second time, we should observe all cache
+  // hits.
+  record.block_type = TraceType::kBlockTraceIndexBlock;
+  record.is_cache_hit = Boolean::kTrue;
+  expected_records.push_back(record);
+  record.block_type = TraceType::kBlockTraceDataBlock;
+  expected_records.push_back(record);
+  expected_records.push_back(record);
+  VerifyBlockAccessTrace(&c, expected_records);
   c.ResetTableReader();
 }
 
