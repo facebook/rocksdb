@@ -639,6 +639,7 @@ class ReadaheadRandomAccessFile : public RandomAccessFile {
 
  Status Read(uint64_t offset, size_t n, Slice* result,
              char* scratch) const override {
+   // Read-ahead only make sense if we have some slack left after reading
    if (n + alignment_ >= readahead_size_) {
      return file_->Read(offset, n, result, scratch);
    }
@@ -646,14 +647,13 @@ class ReadaheadRandomAccessFile : public RandomAccessFile {
    std::unique_lock<std::mutex> lk(lock_);
 
    size_t cached_len = 0;
-   // Check if there is a cache hit, means that [offset, offset + n) is either
-   // completely or partially in the buffer
+   // Check if there is a cache hit, meaning that [offset, offset + n) is either
+   // completely or partially in the buffer.
    // If it's completely cached, including end of file case when offset + n is
-   // greater than EOF, return
+   // greater than EOF, then return.
    if (TryReadFromCache(offset, n, &cached_len, scratch) &&
-       (cached_len == n ||
-        // End of file
-        buffer_.CurrentSize() < readahead_size_)) {
+       (cached_len == n || buffer_.CurrentSize() < readahead_size_)) {
+     // We read exactly what we needed, or we hit end of file - return.
      *result = Slice(scratch, cached_len);
      return Status::OK();
    }
@@ -661,25 +661,14 @@ class ReadaheadRandomAccessFile : public RandomAccessFile {
    // In the case of cache hit advanced_offset is already aligned, means that
    // chunk_offset equals to advanced_offset
    size_t chunk_offset = TruncateToPageBoundary(alignment_, advanced_offset);
-   Slice readahead_result;
 
    Status s = ReadIntoBuffer(chunk_offset, readahead_size_);
    if (s.ok()) {
-     // In the case of cache miss, i.e. when cached_len equals 0, an offset can
-     // exceed the file end position, so the following check is required
-     if (advanced_offset < chunk_offset + buffer_.CurrentSize()) {
-       // In the case of cache miss, the first chunk_padding bytes in buffer_
-       // are
-       // stored for alignment only and must be skipped
-       size_t chunk_padding = advanced_offset - chunk_offset;
-       auto remaining_len =
-           std::min(buffer_.CurrentSize() - chunk_padding, n - cached_len);
-       memcpy(scratch + cached_len, buffer_.BufferStart() + chunk_padding,
-              remaining_len);
-       *result = Slice(scratch, cached_len + remaining_len);
-     } else {
-       *result = Slice(scratch, cached_len);
-     }
+     // The data we need is now in cache, so we can safely read it
+     size_t remaining_len;
+     TryReadFromCache(advanced_offset, n - cached_len, &remaining_len,
+                      scratch + cached_len);
+     *result = Slice(scratch, cached_len + remaining_len);
    }
    return s;
  }
@@ -690,6 +679,9 @@ class ReadaheadRandomAccessFile : public RandomAccessFile {
      // `Read()` assumes a smaller prefetch buffer indicates EOF was reached.
      return Status::OK();
    }
+
+   std::unique_lock<std::mutex> lk(lock_);
+
    size_t offset_ = static_cast<size_t>(offset);
    size_t prefetch_offset = TruncateToPageBoundary(alignment_, offset_);
    if (prefetch_offset == buffer_offset_) {
@@ -706,12 +698,18 @@ class ReadaheadRandomAccessFile : public RandomAccessFile {
  void Hint(AccessPattern pattern) override { file_->Hint(pattern); }
 
  Status InvalidateCache(size_t offset, size_t length) override {
+   std::unique_lock<std::mutex> lk(lock_);
+   buffer_.Clear();
    return file_->InvalidateCache(offset, length);
  }
 
  bool use_direct_io() const override { return file_->use_direct_io(); }
 
 private:
+ // Tries to read from buffer_ n bytes starting at offset. If anything was read
+ // from the cache, it sets cached_len to the number of bytes actually read,
+ // copies these number of bytes to scratch and returns true.
+ // If nothing was read sets cached_len to 0 and returns false.
  bool TryReadFromCache(uint64_t offset, size_t n, size_t* cached_len,
                        char* scratch) const {
    if (offset < buffer_offset_ ||
@@ -726,6 +724,9 @@ private:
    return true;
   }
 
+  // Reads into buffer_ the next n bytes from file_ starting at offset.
+  // Can actually read less if EOF was reached.
+  // Returns the status of the read operastion on the file.
   Status ReadIntoBuffer(uint64_t offset, size_t n) const {
     if (n > buffer_.Capacity()) {
       n = buffer_.Capacity();
@@ -742,13 +743,170 @@ private:
     return s;
   }
 
-  std::unique_ptr<RandomAccessFile> file_;
+  const std::unique_ptr<RandomAccessFile> file_;
   const size_t alignment_;
-  size_t               readahead_size_;
+  const size_t readahead_size_;
 
   mutable std::mutex lock_;
+  // The buffer storing the prefetched data
   mutable AlignedBuffer buffer_;
+  // The offset in file_, corresponding to data stored in buffer_
   mutable uint64_t buffer_offset_;
+};
+
+// This class wraps a SequentialFile, exposing same API, with the differenece
+// of being able to prefetch up to readahead_size bytes and then serve them
+// from memory, avoiding the entire round-trip if, for example, the data for the
+// file is actually remote.
+class ReadaheadSequentialFile : public SequentialFile {
+ public:
+  ReadaheadSequentialFile(std::unique_ptr<SequentialFile>&& file,
+                          size_t readahead_size)
+      : file_(std::move(file)),
+        alignment_(file_->GetRequiredBufferAlignment()),
+        readahead_size_(Roundup(readahead_size, alignment_)),
+        buffer_(),
+        buffer_offset_(0),
+        read_offset_(0) {
+    buffer_.Alignment(alignment_);
+    buffer_.AllocateNewBuffer(readahead_size_);
+  }
+
+  ReadaheadSequentialFile(const ReadaheadSequentialFile&) = delete;
+
+  ReadaheadSequentialFile& operator=(const ReadaheadSequentialFile&) = delete;
+
+  Status Read(size_t n, Slice* result, char* scratch) override {
+    std::unique_lock<std::mutex> lk(lock_);
+
+    size_t cached_len = 0;
+    // Check if there is a cache hit, meaning that [offset, offset + n) is
+    // either completely or partially in the buffer. If it's completely cached,
+    // including end of file case when offset + n is greater than EOF, then
+    // return.
+    if (TryReadFromCache(n, &cached_len, scratch) &&
+        (cached_len == n || buffer_.CurrentSize() < readahead_size_)) {
+      // We read exactly what we needed, or we hit end of file - return.
+      *result = Slice(scratch, cached_len);
+      return Status::OK();
+    }
+    n -= cached_len;
+
+    Status s;
+    // Read-ahead only make sense if we have some slack left after reading
+    if (n + alignment_ >= readahead_size_) {
+      s = file_->Read(n, result, scratch + cached_len);
+      if (s.ok()) {
+        read_offset_ += result->size();
+        *result = Slice(scratch, cached_len + result->size());
+      }
+      buffer_.Clear();
+      return s;
+    }
+
+    s = ReadIntoBuffer(readahead_size_);
+    if (s.ok()) {
+      // The data we need is now in cache, so we can safely read it
+      size_t remaining_len;
+      TryReadFromCache(n, &remaining_len, scratch + cached_len);
+      *result = Slice(scratch, cached_len + remaining_len);
+    }
+    return s;
+  }
+
+  Status Skip(uint64_t n) override {
+    std::unique_lock<std::mutex> lk(lock_);
+    Status s = Status::OK();
+    // First check if we need to skip already cached data
+    if (buffer_.CurrentSize() > 0) {
+      // Do we need to skip beyond cached data?
+      if (read_offset_ + n >= buffer_offset_ + buffer_.CurrentSize()) {
+        // Yes. Skip whaterver is in memory and adjust offset accordingly
+        n -= buffer_offset_ + buffer_.CurrentSize() - read_offset_;
+        read_offset_ = buffer_offset_ + buffer_.CurrentSize();
+      } else {
+        // No. The entire section to be skipped is entirely i cache.
+        read_offset_ += n;
+        n = 0;
+      }
+    }
+    if (n > 0) {
+      // We still need to skip more, so call the file API for skipping
+      s = file_->Skip(n);
+      if (s.ok()) {
+        read_offset_ += n;
+      }
+      buffer_.Clear();
+    }
+    return s;
+  }
+
+  Status PositionedRead(uint64_t offset, size_t n, Slice* result,
+                        char* scratch) override {
+    return file_->PositionedRead(offset, n, result, scratch);
+  }
+
+  Status InvalidateCache(size_t offset, size_t length) override {
+    std::unique_lock<std::mutex> lk(lock_);
+    buffer_.Clear();
+    return file_->InvalidateCache(offset, length);
+  }
+
+  bool use_direct_io() const override { return file_->use_direct_io(); }
+
+ private:
+  // Tries to read from buffer_ n bytes. If anything was read from the cache, it
+  // sets cached_len to the number of bytes actually read, copies these number
+  // of bytes to scratch and returns true.
+  // If nothing was read sets cached_len to 0 and returns false.
+  bool TryReadFromCache(size_t n, size_t* cached_len, char* scratch) {
+    if (read_offset_ < buffer_offset_ ||
+        read_offset_ >= buffer_offset_ + buffer_.CurrentSize()) {
+      *cached_len = 0;
+      return false;
+    }
+    uint64_t offset_in_buffer = read_offset_ - buffer_offset_;
+    *cached_len = std::min(
+        buffer_.CurrentSize() - static_cast<size_t>(offset_in_buffer), n);
+    memcpy(scratch, buffer_.BufferStart() + offset_in_buffer, *cached_len);
+    read_offset_ += *cached_len;
+    return true;
+  }
+
+  // Reads into buffer_ the next n bytes from file_.
+  // Can actually read less if EOF was reached.
+  // Returns the status of the read operastion on the file.
+  Status ReadIntoBuffer(size_t n) {
+    if (n > buffer_.Capacity()) {
+      n = buffer_.Capacity();
+    }
+    assert(IsFileSectorAligned(n, alignment_));
+    Slice result;
+    Status s = file_->Read(n, &result, buffer_.BufferStart());
+    if (s.ok()) {
+      buffer_offset_ = read_offset_;
+      buffer_.Size(result.size());
+      assert(buffer_.BufferStart() == result.data());
+    }
+    return s;
+  }
+
+  const std::unique_ptr<SequentialFile> file_;
+  const size_t alignment_;
+  const size_t readahead_size_;
+
+  std::mutex lock_;
+  // The buffer storing the prefetched data
+  AlignedBuffer buffer_;
+  // The offset in file_, corresponding to data stored in buffer_
+  uint64_t buffer_offset_;
+  // The offset up to which data was read from file_. In fact, it can be larger
+  // than the actual file size, since the file_->Skip(n) call doesn't return the
+  // actual number of bytes that were skipped, which can be less than n.
+  // This is not a problemm since read_offset_ is monotonically increasing and
+  // its only use is to figure out if next piece of data should be read from
+  // buffer_ or file_ directly.
+  uint64_t read_offset_;
 };
 }  // namespace
 
@@ -863,6 +1021,14 @@ std::unique_ptr<RandomAccessFile> NewReadaheadRandomAccessFile(
     std::unique_ptr<RandomAccessFile>&& file, size_t readahead_size) {
   std::unique_ptr<RandomAccessFile> result(
     new ReadaheadRandomAccessFile(std::move(file), readahead_size));
+  return result;
+}
+
+std::unique_ptr<SequentialFile>
+SequentialFileReader::NewReadaheadSequentialFile(
+    std::unique_ptr<SequentialFile>&& file, size_t readahead_size) {
+  std::unique_ptr<SequentialFile> result(
+      new ReadaheadSequentialFile(std::move(file), readahead_size));
   return result;
 }
 
