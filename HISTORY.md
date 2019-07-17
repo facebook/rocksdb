@@ -916,6 +916,9 @@ Because of that, Options::disable_seek_compaction is now obsolete. It is still a
 * Put with `SliceParts` - Variant of `Put()` that gathers output like `writev(2)`
 * Bug fixes and code refactor for compatibility with upcoming Column
   Family feature.
+* Added new APIs ExportColumnFamily and CreateColumnFamilyWithImport to support
+  export and import of a Column Family by transferring sst files.
+  https://github.com/facebook/rocksdb/pull/5495
 
 ### Performance Improvements
 
