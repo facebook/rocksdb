@@ -27,6 +27,7 @@
 #include "db/external_sst_file_ingestion_job.h"
 #include "db/flush_job.h"
 #include "db/flush_scheduler.h"
+#include "db/import_column_family_job.h"
 #include "db/internal_stats.h"
 #include "db/log_writer.h"
 #include "db/logs_with_prep_tracker.h"
@@ -355,6 +356,13 @@ class DBImpl : public DB {
   using DB::IngestExternalFiles;
   virtual Status IngestExternalFiles(
       const std::vector<IngestExternalFileArg>& args) override;
+
+  using DB::CreateColumnFamilyWithImport;
+  virtual Status CreateColumnFamilyWithImport(
+      const ColumnFamilyOptions& options, const std::string& column_family_name,
+      const ImportColumnFamilyOptions& import_options,
+      const ExportImportFilesMetaData& metadata,
+      ColumnFamilyHandle** handle) override;
 
   virtual Status VerifyChecksum() override;
 
@@ -1803,7 +1811,8 @@ class DBImpl : public DB {
 
   std::string db_absolute_path_;
 
-  // Number of running IngestExternalFile() calls.
+  // Number of running IngestExternalFile() or CreateColumnFamilyWithImport()
+  // calls.
   // REQUIRES: mutex held
   int num_running_ingest_file_;
 

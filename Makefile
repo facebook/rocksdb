@@ -500,6 +500,7 @@ TESTS = \
 	plain_table_db_test \
 	comparator_db_test \
 	external_sst_file_test \
+	import_column_family_test \
 	prefix_test \
 	skiplist_test \
 	write_buffer_manager_test \
@@ -577,6 +578,7 @@ PARALLEL_TEST = \
 	db_universal_compaction_test \
 	db_wal_test \
 	external_sst_file_test \
+	import_column_family_test \
 	fault_injection_test \
 	inlineskiplist_test \
 	manual_compaction_test \
@@ -1272,6 +1274,9 @@ external_sst_file_basic_test: db/external_sst_file_basic_test.o db/db_test_util.
 	$(AM_LINK)
 
 external_sst_file_test: db/external_sst_file_test.o db/db_test_util.o $(LIBOBJECTS) $(TESTHARNESS)
+	$(AM_LINK)
+
+import_column_family_test: db/import_column_family_test.o db/db_test_util.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
 db_tailing_iter_test: db/db_tailing_iter_test.o db/db_test_util.o $(LIBOBJECTS) $(TESTHARNESS)
