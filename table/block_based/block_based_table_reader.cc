@@ -3292,7 +3292,7 @@ Status BlockBasedTable::Get(const ReadOptions& read_options, const Slice& key,
   uint64_t tracing_get_id = get_context->get_tracing_get_id();
   BlockCacheLookupContext lookup_context{
       TableReaderCaller::kUserGet, tracing_get_id,
-      /*is_snapshot_get=*/read_options.snapshot != nullptr};
+      /*get_from_user_specified_snapshot=*/read_options.snapshot != nullptr};
   if (block_cache_tracer_ && block_cache_tracer_->is_tracing_enabled()) {
     // Trace the key since it contains both user key and sequence number.
     lookup_context.referenced_key = key.ToString();
@@ -3356,7 +3356,8 @@ Status BlockBasedTable::Get(const ReadOptions& read_options, const Slice& key,
 
       BlockCacheLookupContext lookup_data_block_context{
           TableReaderCaller::kUserGet, tracing_get_id,
-          /*is_snapshot_get=*/read_options.snapshot != nullptr};
+          /*get_from_user_specified_snapshot=*/read_options.snapshot !=
+              nullptr};
       bool does_referenced_key_exist = false;
       DataBlockIter biter;
       uint64_t referenced_data_size = 0;
@@ -3470,9 +3471,9 @@ void BlockBasedTable::MultiGet(const ReadOptions& read_options,
   if (!sst_file_range.empty() && sst_file_range.begin()->get_context) {
     tracing_mget_id = sst_file_range.begin()->get_context->get_tracing_get_id();
   }
-BlockCacheLookupContext lookup_context{
-    TableReaderCaller::kUserMultiGet, tracing_mget_id,
-    /*is_snapshot_get=*/read_options.snapshot != nullptr};
+  BlockCacheLookupContext lookup_context{
+      TableReaderCaller::kUserMultiGet, tracing_mget_id,
+      /*get_from_user_specified_snapshot=*/read_options.snapshot != nullptr};
   FullFilterKeysMayMatch(read_options, filter, &sst_file_range, no_io,
                          prefix_extractor, &lookup_context);
 
@@ -3600,7 +3601,8 @@ BlockCacheLookupContext lookup_context{
         bool does_referenced_key_exist = false;
         BlockCacheLookupContext lookup_data_block_context(
             TableReaderCaller::kUserMultiGet, tracing_mget_id,
-            /*is_snapshot_get=*/read_options.snapshot != nullptr);
+            /*get_from_user_specified_snapshot=*/read_options.snapshot !=
+                nullptr);
         if (first_block) {
           if (!block_handles[idx_in_batch].IsNull() ||
               !results[idx_in_batch].IsEmpty()) {
