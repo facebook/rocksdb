@@ -33,6 +33,7 @@
 #include "db/error_handler.h"
 #include "db/event_helpers.h"
 #include "db/external_sst_file_ingestion_job.h"
+#include "db/import_column_family_job.h"
 #include "db/flush_job.h"
 #include "db/forward_iterator.h"
 #include "db/job_context.h"
@@ -3890,6 +3891,127 @@ Status DBImpl::IngestExternalFiles(
         NotifyOnExternalFileIngested(cfd, ingestion_jobs[i]);
       }
     }
+  }
+  return status;
+}
+
+Status DBImpl::CreateColumnFamilyWithImport(
+    const ColumnFamilyOptions& options, const std::string& column_family_name,
+    const ImportColumnFamilyOptions& import_options,
+    const ExportImportFilesMetaData& metadata,
+    ColumnFamilyHandle** handle) {
+  assert(handle != nullptr);
+  assert(*handle == nullptr);
+  std::string cf_comparator_name = options.comparator->Name();
+  if (cf_comparator_name != metadata.db_comparator_name) {
+    return Status::InvalidArgument("Comparator name mismatch");
+  }
+
+  // Create column family.
+  auto status = CreateColumnFamily(options, column_family_name, handle);
+  if (!status.ok()) {
+    return status;
+  }
+
+  // Import sst files from metadata.
+  auto cfh = reinterpret_cast<ColumnFamilyHandleImpl*>(*handle);
+  auto cfd = cfh->cfd();
+  ImportColumnFamilyJob import_job(env_, versions_.get(), cfd,
+                                   immutable_db_options_, env_options_,
+                                   import_options, metadata.files);
+
+  SuperVersionContext dummy_sv_ctx(/* create_superversion */ true);
+  VersionEdit dummy_edit;
+  uint64_t next_file_number = 0;
+  std::list<uint64_t>::iterator pending_output_elem;
+  {
+    // Lock db mutex
+    InstrumentedMutexLock l(&mutex_);
+    if (error_handler_.IsDBStopped()) {
+      // Don't import files when there is a bg_error
+      status = error_handler_.GetBGError();
+    }
+
+    // Make sure that bg cleanup wont delete the files that we are importing
+    pending_output_elem = CaptureCurrentFileNumberInPendingOutputs();
+
+    if (status.ok()) {
+      // If crash happen after a hard link established, Recover function may
+      // reuse the file number that has already assigned to the internal file,
+      // and this will overwrite the external file. To protect the external
+      // file, we have to make sure the file number will never being reused.
+      next_file_number =
+          versions_->FetchAddFileNumber(metadata.files.size());
+      auto cf_options = cfd->GetLatestMutableCFOptions();
+      status = versions_->LogAndApply(cfd, *cf_options, &dummy_edit, &mutex_,
+                                      directories_.GetDbDir());
+      if (status.ok()) {
+        InstallSuperVersionAndScheduleWork(cfd, &dummy_sv_ctx, *cf_options);
+      }
+    }
+  }
+  dummy_sv_ctx.Clean();
+
+  if (status.ok()) {
+    SuperVersion* sv = cfd->GetReferencedSuperVersion(&mutex_);
+    status = import_job.Prepare(next_file_number, sv);
+    CleanupSuperVersion(sv);
+  }
+
+  if (status.ok()) {
+    SuperVersionContext sv_context(true /*create_superversion*/);
+    {
+      // Lock db mutex
+      InstrumentedMutexLock l(&mutex_);
+
+      // Stop writes to the DB by entering both write threads
+      WriteThread::Writer w;
+      write_thread_.EnterUnbatched(&w, &mutex_);
+      WriteThread::Writer nonmem_w;
+      if (two_write_queues_) {
+        nonmem_write_thread_.EnterUnbatched(&nonmem_w, &mutex_);
+      }
+
+      num_running_ingest_file_++;
+      assert(!cfd->IsDropped());
+      status = import_job.Run();
+
+      // Install job edit [Mutex will be unlocked here]
+      if (status.ok()) {
+        auto cf_options = cfd->GetLatestMutableCFOptions();
+        status = versions_->LogAndApply(cfd, *cf_options, import_job.edit(),
+                                        &mutex_, directories_.GetDbDir());
+        if (status.ok()) {
+          InstallSuperVersionAndScheduleWork(cfd, &sv_context, *cf_options);
+        }
+      }
+
+      // Resume writes to the DB
+      if (two_write_queues_) {
+        nonmem_write_thread_.ExitUnbatched(&nonmem_w);
+      }
+      write_thread_.ExitUnbatched(&w);
+
+      num_running_ingest_file_--;
+      if (num_running_ingest_file_ == 0) {
+        bg_cv_.SignalAll();
+      }
+    }
+    // mutex_ is unlocked here
+
+    sv_context.Clean();
+  }
+
+  {
+    InstrumentedMutexLock l(&mutex_);
+    ReleaseFileNumberFromPendingOutputs(pending_output_elem);
+  }
+
+  import_job.Cleanup(status);
+  if (!status.ok()) {
+    DropColumnFamily(*handle);
+    DestroyColumnFamilyHandle(*handle);
+    *handle = nullptr;
   }
   return status;
 }
