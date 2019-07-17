@@ -317,6 +317,12 @@ class TransactionBaseImpl : public Transaction {
   // Records writes pending in this transaction
   WriteBatchWithIndex write_batch_;
 
+  // Map from column_family_id to map of keys that are involved in this
+  // transaction.
+  // For Pessimistic Transactions this is the list of locked keys.
+  // Optimistic Transactions will wait till commit time to do conflict checking.
+  TransactionKeyMap tracked_keys_;
+
  private:
   friend class WritePreparedTxn;
   // Extra data to be persisted with the commit. Note this is only used when
@@ -326,12 +332,6 @@ class TransactionBaseImpl : public Transaction {
   // Stack of the Snapshot saved at each save point.  Saved snapshots may be
   // nullptr if there was no snapshot at the time SetSavePoint() was called.
   std::unique_ptr<std::stack<TransactionBaseImpl::SavePoint, autovector<TransactionBaseImpl::SavePoint>>> save_points_;
-
-  // Map from column_family_id to map of keys that are involved in this
-  // transaction.
-  // For Pessimistic Transactions this is the list of locked keys.
-  // Optimistic Transactions will wait till commit time to do conflict checking.
-  TransactionKeyMap tracked_keys_;
 
   // If true, future Put/Merge/Deletes will be indexed in the
   // WriteBatchWithIndex.

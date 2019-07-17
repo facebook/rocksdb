@@ -6,8 +6,9 @@
 
 ### Public API Change
 * Now DB::Close() will return Aborted() error when there is unreleased snapshot. Users can retry after all snapshots are released.
+* Index and filter blocks are now handled similarly to data blocks with regards to the block cache: instead of storing reader objects in the cache, only the blocks themselves are cached. In addition, index and filter blocks (as well as filter partitions) no longer get evicted from the cache when a table is closed. Moreover, index blocks can now use the compressed block cache (if any).
 * Partitions of partitioned indexes no longer affect the read amplification statistics.
-* Due to a refactoring, block cache eviction statistics for indexes are temporarily broken. We plan to reintroduce them in a later phase.
+* Due to the above refactoring, block cache eviction statistics for indexes and filters are temporarily broken. We plan to reintroduce them in a later phase.
 * options.keep_log_file_num will be enforced strictly all the time. File names of all log files will be tracked, which may take significantly amount of memory if options.keep_log_file_num is large and either of options.max_log_file_size or options.log_file_time_to_roll is set.
 * Add initial support for Get/Put with user timestamps. Users can specify timestamps via ReadOptions and WriteOptions when calling DB::Get and DB::Put.
 * Accessing a partition of a partitioned filter or index through a pinned reference is no longer considered a cache hit.
