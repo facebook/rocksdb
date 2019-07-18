@@ -427,6 +427,7 @@ TEST_F(ImportColumnFamilyTest, ImportExportedSSTFromAnotherDB) {
   }
   db_copy->DropColumnFamily(cfh);
   db_copy->DestroyColumnFamilyHandle(cfh);
+  delete db_copy;
   test::DestroyDir(env_, dbname_ + "/db_copy");
 }
 
