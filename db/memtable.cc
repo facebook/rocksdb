@@ -830,7 +830,7 @@ bool MemTable::Get(const LookupKey& key, std::string* value, Status* s,
 }
 
 bool MemTable::GetMergeOperands(const LookupKey& key,
-		std::vector<PinnableSlice>* pinnable_val,
+		PinnableSlice* slice, int size,
 		Status* s, MergeContext* merge_context,
         SequenceNumber* max_covering_tombstone_seq,
 		const ReadOptions& read_opts,
@@ -894,10 +894,13 @@ bool MemTable::GetMergeOperands(const LookupKey& key,
 	saver.callback_ = callback;
 	saver.is_blob_index = is_blob_index;
 	table_->Get(key, &saver, SaveValue, false);
-	PinnableSlice* psliceptr = pinnable_val->data();
-	for (Slice slice : saver.merge_context->GetOperands()) {
-		psliceptr->PinSelf(slice);
-		psliceptr++;
+	if (saver.merge_context->GetNumOperands() > (unsigned)size) {
+		*s = Status::Aborted("Number of merge operands: "
+				+std::to_string(saver.merge_context->GetNumOperands())+" more than size of vector");
+	}
+	for (Slice sl : saver.merge_context->GetOperands()) {
+		slice->PinSelf(sl);
+		slice++;
 	}
   }
 

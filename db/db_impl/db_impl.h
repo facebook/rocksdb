@@ -162,7 +162,7 @@ class DBImpl : public DB {
   using DB::GetMergeOperands;
   virtual Status GetMergeOperands(const ReadOptions& options,
           ColumnFamilyHandle* column_family, const Slice& key,
-          std::vector<PinnableSlice>* value) override;
+          PinnableSlice* slice, int size) override;
 
   using DB::MultiGet;
   virtual std::vector<Status> MultiGet(
@@ -406,6 +406,11 @@ class DBImpl : public DB {
                  const Slice& key, PinnableSlice* value,
                  bool* value_found = nullptr, ReadCallback* callback = nullptr,
                  bool* is_blob_index = nullptr);
+
+  Status GetValOrGetMergeOperands(const ReadOptions& read_options,
+          ColumnFamilyHandle* column_family, const Slice& key,
+          PinnableSlice* pinnable_val, int num_records = 0, bool* value_found = nullptr,
+          ReadCallback* callback = nullptr, bool* is_blob_index = nullptr, bool get_val = false);
 
   ArenaWrappedDBIter* NewIteratorImpl(const ReadOptions& options,
                                       ColumnFamilyData* cfd,

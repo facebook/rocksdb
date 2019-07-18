@@ -584,7 +584,7 @@ class Version {
            bool* is_blob = nullptr);
 
   void GetMergeOperands(const ReadOptions&, const LookupKey& key,
-		   std::vector<PinnableSlice>* pinnable_val,
+		   PinnableSlice* slice, int size,
            Status* status, MergeContext* merge_context,
            SequenceNumber* max_covering_tombstone_seq,
            bool* value_found = nullptr, bool* key_exists = nullptr,
