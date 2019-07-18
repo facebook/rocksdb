@@ -298,6 +298,7 @@ TEST_F(ImportColumnFamilyTest, ImportExportedSSTFromAnotherCF) {
   ASSERT_OK(checkpoint->ExportColumnFamily(handles_[1], export_files_dir_,
                                            &metadata_ptr_));
   ASSERT_NE(metadata_ptr_, nullptr);
+  delete checkpoint;
 
   ImportColumnFamilyOptions import_options;
   import_options.move_files = false;
@@ -407,6 +408,7 @@ TEST_F(ImportColumnFamilyTest, ImportExportedSSTFromAnotherDB) {
   ASSERT_OK(checkpoint->ExportColumnFamily(handles_[1], export_files_dir_,
                                            &metadata_ptr_));
   ASSERT_NE(metadata_ptr_, nullptr);
+  delete checkpoint;
 
   // Create a new db and import the files.
   DB* db_copy;
@@ -424,6 +426,7 @@ TEST_F(ImportColumnFamilyTest, ImportExportedSSTFromAnotherDB) {
     ASSERT_EQ(Get(1, Key(i)), value);
   }
   db_copy->DropColumnFamily(cfh);
+  db_copy->DestroyColumnFamilyHandle(cfh);
   test::DestroyDir(env_, dbname_ + "/db_copy");
 }
 
