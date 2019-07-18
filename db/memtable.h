@@ -205,7 +205,7 @@ class MemTable {
   }
 
   bool GetMergeOperands(const LookupKey& key,
-		  std::vector<PinnableSlice>* pinnable_val,
+		  PinnableSlice* slice, int size,
 		  Status* s, MergeContext* merge_context,
           SequenceNumber* max_covering_tombstone_seq,
 		  const ReadOptions& read_opts,

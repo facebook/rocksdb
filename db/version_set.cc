@@ -1784,7 +1784,7 @@ void Version::Get(const ReadOptions& read_options, const LookupKey& k,
 }
 
 void Version::GetMergeOperands(const ReadOptions& read_options, const LookupKey& k,
-				  std::vector<PinnableSlice>* pinnable_val, Status* status,
+				  PinnableSlice* slice, int size, Status* status,
                   MergeContext* merge_context,
                   SequenceNumber* max_covering_tombstone_seq, bool* value_found,
                   bool* key_exists, SequenceNumber* seq, ReadCallback* callback,
@@ -1804,7 +1804,7 @@ void Version::GetMergeOperands(const ReadOptions& read_options, const LookupKey&
       user_comparator(), merge_operator_, info_log_, db_statistics_,
       status->ok() ? GetContext::kNotFound : GetContext::kMerge, user_key,
       nullptr, value_found, merge_context, max_covering_tombstone_seq, this->env_,
-      seq, merge_operator_ ? &pinned_iters_mgr : nullptr, callback, is_blob, false);
+      seq, merge_operator_ ? &pinned_iters_mgr : nullptr, callback, is_blob, 0, false);
 
   // Pin blocks that we read to hold merge operands
   if (merge_operator_) {
@@ -1890,10 +1890,13 @@ void Version::GetMergeOperands(const ReadOptions& read_options, const LookupKey&
   if (db_statistics_ != nullptr) {
     get_context.ReportCounters();
   }
-  PinnableSlice* pin_slice = pinnable_val->data();
-  for (Slice slice : merge_context->GetOperands()){
-	  pin_slice->PinSelf(slice);
-	  pin_slice++;
+  if (merge_context->GetNumOperands() > (unsigned)size) {
+		*status = Status::Aborted("NUmber of merge operands: "
+				+std::to_string(merge_context->GetNumOperands())+" more than size of vector");
+  }
+  for (Slice sl : merge_context->GetOperands()){
+	  slice->PinSelf(sl);
+	  slice++;
   }
 }
 

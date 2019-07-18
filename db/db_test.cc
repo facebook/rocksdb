@@ -2469,12 +2469,13 @@ class ModelDB : public DB {
   using DB::GetMergeOperands;
   virtual Status GetMergeOperands(const ReadOptions& options,
             ColumnFamilyHandle* column_family, const Slice& key,
-            std::vector<PinnableSlice>* value) override {
+            PinnableSlice* slice, int size) override {
 
 		(void)options;
 		(void) column_family;
 		(void) key;
-		(void) value;
+		(void) slice;
+		(void) size;
 		return Status::NotSupported(key);
   }
 

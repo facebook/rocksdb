@@ -1359,10 +1359,7 @@ TEST_F(DBBasicTest, GetMergeOperands) {
 	   private:
 	    size_t limit_ = 0;
 	  };
-	  std::vector<int> rest;
-	  int* a = new int();
-	  *a = 5;
-      rest.push_back(*a);
+
 	  Options options;
 	  options.create_if_missing = true;
 	  // Use only the latest two merge operands.
@@ -1370,22 +1367,26 @@ TEST_F(DBBasicTest, GetMergeOperands) {
 	      std::make_shared<LimitedStringAppendMergeOp>(2, ',');
 	  options.env = env_;
 	  Reopen(options);
+	  int size = 4;
+
 	  // All K1 values are in memtable.
 	  ASSERT_OK(Merge("k1", "a"));
-	  Put("k1", "asd");
+	  Put("k1", "x");
 	  ASSERT_OK(Merge("k1", "b"));
 	  ASSERT_OK(Merge("k1", "c"));
 	  ASSERT_OK(Merge("k1", "d"));
-	  std::vector<PinnableSlice> values;
-	  db_->GetMergeOperands(ReadOptions(), db_->DefaultColumnFamily(), "k1", &values);
+	  std::vector<PinnableSlice> values(size);
+	  db_->GetMergeOperands(ReadOptions(), db_->DefaultColumnFamily(), "k1", values.data(), size);
+	  ASSERT_EQ(values[0], "x");
+	  ASSERT_EQ(values[1], "b");
+	  ASSERT_EQ(values[2], "c");
+	  ASSERT_EQ(values[3], "d");
 	  for(PinnableSlice& value: values) {
 	      std::cout << *value.GetSelf() << "\n";
 	  }
-	  std::string value;
-	  ASSERT_TRUE(db_->Get(ReadOptions(), "k1", &value).ok());
-	  // Make sure that only the latest two merge operands are used. If this was
-	  // not the case the value would be "a,b,c,d".
-	  ASSERT_EQ(value, "c,d");
+	  // Size is less than number of merge operands so status should be Aborted.
+	  Status status = db_->GetMergeOperands(ReadOptions(), db_->DefaultColumnFamily(), "k1", values.data(), size-1);
+	  ASSERT_EQ(status.IsAborted(), true);
 
 	  // All K2 values are flushed to L0 into a single file.
 	  ASSERT_OK(Merge("k2", "a"));
@@ -1393,13 +1394,14 @@ TEST_F(DBBasicTest, GetMergeOperands) {
 	  ASSERT_OK(Merge("k2", "c"));
 	  ASSERT_OK(Merge("k2", "d"));
 	  ASSERT_OK(Flush());
-	  std::vector<PinnableSlice> values2(4);
-	  db_->GetMergeOperands(ReadOptions(), db_->DefaultColumnFamily(), "k2", &values2);
-	  for(PinnableSlice& psl: values2) {
+	  db_->GetMergeOperands(ReadOptions(), db_->DefaultColumnFamily(), "k2", values.data(), size);
+	  ASSERT_EQ(values[0], "a");
+	  ASSERT_EQ(values[1], "b");
+	  ASSERT_EQ(values[2], "c");
+	  ASSERT_EQ(values[3], "d");
+	  for(PinnableSlice& psl: values) {
 	      std::cout << *psl.GetSelf() << "\n";
 	  }
-	  ASSERT_TRUE(db_->Get(ReadOptions(), "k2", &value).ok());
-	  ASSERT_EQ(value, "c,d");
 
 	  // All K3 values are flushed and are in different files.
 	  ASSERT_OK(Merge("k3", "ab"));
@@ -1409,14 +1411,14 @@ TEST_F(DBBasicTest, GetMergeOperands) {
 	  ASSERT_OK(Merge("k3", "cd"));
 	  ASSERT_OK(Flush());
 	  ASSERT_OK(Merge("k3", "de"));
-	  std::vector<PinnableSlice> values3(4);
-	  db_->GetMergeOperands(ReadOptions(), db_->DefaultColumnFamily(), "k3", &values3);
-	  for(PinnableSlice& psl: values3) {
+	  db_->GetMergeOperands(ReadOptions(), db_->DefaultColumnFamily(), "k3", values.data(), size);
+	  ASSERT_EQ(values[0], "ab");
+	  ASSERT_EQ(values[1], "bc");
+	  ASSERT_EQ(values[2], "cd");
+	  ASSERT_EQ(values[3], "de");
+	  for(PinnableSlice& psl: values) {
 	      std::cout << *psl.GetSelf() << "\n";
 	  }
-
-	  ASSERT_TRUE(db_->Get(ReadOptions(), "k3", &value).ok());
-	  ASSERT_EQ(value, "cd,de");
 
 	  // All K4 values are in different levels
 	  ASSERT_OK(Merge("k4", "ab"));
@@ -1429,14 +1431,32 @@ TEST_F(DBBasicTest, GetMergeOperands) {
 	  ASSERT_OK(Flush());
 	  MoveFilesToLevel(1);
 	  ASSERT_OK(Merge("k4", "de"));
-	  ASSERT_TRUE(db_->Get(ReadOptions(), "k4", &value).ok());
-	  ASSERT_EQ(value, "cd,de");
-
-	  std::vector<PinnableSlice> values4(4);
-	  db_->GetMergeOperands(ReadOptions(), db_->DefaultColumnFamily(), "k4", &values4);
-	  for(PinnableSlice& psl: values4) {
+	  db_->GetMergeOperands(ReadOptions(), db_->DefaultColumnFamily(), "k4", values.data(), size);
+	  ASSERT_EQ(values[0], "ab");
+	  ASSERT_EQ(values[1], "bc");
+	  ASSERT_EQ(values[2], "cd");
+	  ASSERT_EQ(values[3], "de");
+	  for(PinnableSlice& psl: values) {
 	      std::cout << *psl.GetSelf() << "\n";
 	  }
+
+//	  ASSERT_OK(Merge("k5", "a"));
+//	  ASSERT_OK(Merge("k5", "b"));
+//	  ASSERT_OK(Merge("k5", "c"));
+//	  ASSERT_OK(Merge("k5", "d"));
+//      rocksdb::SyncPoint::GetInstance()->LoadDependency(
+//    		  {{"DBBasicTest.GetMergeOperands", "FlushJob::Start"}}
+//      );
+//      rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+//	  ASSERT_OK(Flush());
+//	  std::vector<PinnableSlice> values5(4);
+//	  db_->GetMergeOperands(ReadOptions(), db_->DefaultColumnFamily(), "k5", values5.data(), 4);
+//	  for(PinnableSlice& psl: values5) {
+//	      std::cout << *psl.GetSelf() << "\n";
+//	  }
+//	  TEST_SYNC_POINT("DBBasicTest.GetMergeOperands");
+//	  rocksdb::SyncPoint::GetInstance()->DisableProcessing();
+
 }
 
 class DBBasicTestWithParallelIO
