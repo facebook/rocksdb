@@ -1087,6 +1087,17 @@ struct DBOptions {
   // If set to true, takes precedence over
   // ReadOptions::background_purge_on_iterator_cleanup.
   bool avoid_unnecessary_blocking_io = false;
+
+  // The number of bytes to prefetch when reading the log. This is mostly useful
+  // for reading a remotely located log, as it can save the number of
+  // round-trips. If 0, then the prefetching is disabled.
+
+  // If non-zero, we perform bigger reads when reading the log.
+  // This is mostly useful for reading a remotely located log, as it can save
+  // the number of round-trips. If 0, then the prefetching is disabled.
+  //
+  // Default: 0
+  size_t log_readahead_size = 0;
 };
 
 // Options to control the behavior of a database (passed to DB::Open)
