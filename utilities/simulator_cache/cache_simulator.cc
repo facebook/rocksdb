@@ -240,8 +240,8 @@ void LeCaR::Evict(Policy policy, LeCaRHandle* handle) {
 
 bool CacheSimulatorDelegate::Lookup(const Slice& key,
                                     const BlockCacheTraceRecord& access) {
-  auto lecar_cache = std::dynamic_pointer_cast<LeCaR>(sim_cache_);
-  if (lecar_cache) {
+  if (strcmp(sim_cache_->Name(), "LeCaR") == 0) {
+    LeCaR* lecar_cache = static_cast<LeCaR*>(sim_cache_.get());
     return lecar_cache->Lookup(key, access.access_timestamp) != nullptr;
   }
   auto handle = sim_cache_->Lookup(key);
@@ -255,8 +255,8 @@ bool CacheSimulatorDelegate::Lookup(const Slice& key,
 Status CacheSimulatorDelegate::Insert(const Slice& key, uint64_t value_size,
                                       const BlockCacheTraceRecord& access,
                                       Cache::Priority priority) {
-  auto lecar_cache = std::dynamic_pointer_cast<LeCaR>(sim_cache_);
-  if (lecar_cache) {
+  if (strcmp(sim_cache_->Name(), "LeCaR") == 0) {
+    LeCaR* lecar_cache = static_cast<LeCaR*>(sim_cache_.get());
     LeCaR::LeCaRHandle* value = new LeCaR::LeCaRHandle;
     value->value_size = value_size;
     value->last_access_time = access.access_timestamp / kMicrosInSecond;

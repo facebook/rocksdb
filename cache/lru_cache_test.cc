@@ -137,8 +137,8 @@ TEST_F(LRUCacheTest, RandomSample) {
   ASSERT_EQ(100, table.size());
   std::vector<LRUHandle*> samples = table.RandomSample(16);
   for (auto sample : samples) {
-    ASSERT_GE(sample->hash, 1);
-    ASSERT_LE(sample->hash, 100);
+    ASSERT_GE(sample->hash, static_cast<uint32_t>(1));
+    ASSERT_LE(sample->hash, static_cast<uint32_t>(100));
   }
   ASSERT_EQ(16, samples.size());
 
@@ -146,8 +146,8 @@ TEST_F(LRUCacheTest, RandomSample) {
   ASSERT_EQ(100, samples.size());
   std::set<uint32_t> hashes;
   for (auto sample : samples) {
-    ASSERT_GE(sample->hash, 1);
-    ASSERT_LE(sample->hash, 100);
+    ASSERT_GE(sample->hash, static_cast<uint32_t>(1));
+    ASSERT_LE(sample->hash, static_cast<uint32_t>(100));
     hashes.insert(sample->hash);
   }
   ASSERT_EQ(100, hashes.size());
