@@ -11,7 +11,7 @@ namespace rocksdb {
 
 namespace {
 const std::string kGhostCachePrefix = "ghost_";
-static inline uint32_t HashSlice(const Slice& s) {
+inline uint32_t HashSlice(const Slice& s) {
   return static_cast<uint32_t>(GetSliceNPHash64(s));
 }
 }  // namespace
@@ -34,8 +34,6 @@ LeCaR::LeCaR(size_t cache_capacity,
   }
   ComputeRewardWeights();
 }
-
-LeCaR::~LeCaR() {}
 
 LeCaR::Policy LeCaR::DecidePolicy() {
   LeCaR::Policy policy = LeCaR::Policy::LRU;
@@ -63,7 +61,7 @@ void LeCaR::Erase(const Slice& key) {
 }
 
 Status LeCaR::Insert(const Slice& key, void* value, size_t /*charge*/,
-                     void (*/*deleter*/)(const Slice& key, void* value),
+                     void (*)(const Slice& key, void* value),
                      Handle** /*handle*/, Priority /*priority*/) {
   Erase(key);
   assert(value);
@@ -130,7 +128,7 @@ void LeCaR::UpdateWeight(const std::string& key, uint64_t now) {
   for (auto& policy_state : policy_states_) {
     if (policy_state.second.evicted_keys.find(key) !=
         policy_state.second.evicted_keys.end()) {
-      // The missing key is evicted by this policy. Increase the regret value
+      // The missing key is evicted by this policy. Increase the regret weight
       // for this policy.
       const LeCaRHandle handle = policy_state.second.evicted_keys[key];
       const double t = static_cast<double>(now - handle.last_access_time);

@@ -77,6 +77,23 @@ class MissRatioStats {
   std::map<uint64_t, uint64_t> num_misses_timeline_;
 };
 
+// An implementation of LeCaR [1]. It supports three policies: LRU, MRU, and
+// LFU.
+//
+// Reinforcement learning: Each policy is associated with a reward_weight.
+// The sum of reward_weight is 1. A policy maintains a set of keys that was
+// evicted by this policy. Upon a cache miss, we penalize a policy if it evicted
+// the key. Then, we adjust the reward_weights of all policies accordingly.
+//
+// Eviction: When the cache is full, it selects the policy based on their
+// reward_weight for eviction. A policy is more likely to be selected if it has
+// a higher reward_weight. Then, we randomly sample a few entries and evict keys
+// using the selected policy until the cache has sufficient space for the new
+// key-value pair.
+//
+// [1]. Vietri, Giuseppe, et al. "Driving Cache Replacement with ML-based
+// LeCaR." 10th {USENIX} Workshop on Hot Topics in Storage and File Systems
+// (HotStorage 18). 2018.
 class LeCaR : public Cache {
  public:
   struct LeCaRHandle {
@@ -104,8 +121,6 @@ class LeCaR : public Cache {
         const std::unordered_map<Policy, double, EnumClassHash>&
             policy_init_regret_weights,
         std::shared_ptr<MemoryAllocator> allocator = nullptr);
-
-  ~LeCaR();
 
   // The type of the Cache
   const char* Name() const override { return "LeCaR"; }
@@ -145,7 +160,7 @@ class LeCaR : public Cache {
   size_t GetUsage(Handle* /*handle*/) const override { return 0; }
   size_t GetPinnedUsage() const override { return 0; };
   size_t GetCharge(Handle* /*handle*/) const override { return 0; }
-  void ApplyToAllCacheEntries(void (*/*callback*/)(void*, size_t),
+  void ApplyToAllCacheEntries(void (*)(void*, size_t),
                               bool /*thread_safe*/) override {}
   void EraseUnRefEntries() override{};
 
@@ -192,6 +207,9 @@ class LeCaR : public Cache {
   std::unordered_map<Policy, PolicyState, EnumClassHash> policy_states_;
 };
 
+// It delegates lookup/insert calls to LeCaR or Cache.
+// This class is needed as LeCaR requires additional information of the access
+// for reinforcement learning.
 class CacheSimulatorDelegate {
  public:
   CacheSimulatorDelegate(std::shared_ptr<Cache> sim_cache)
@@ -240,7 +258,7 @@ class CacheSimulator {
 
   void reset_counter() { miss_ratio_stats_.reset_counter(); }
 
-  const MissRatioStats& miss_ratio_stats() { return miss_ratio_stats_; }
+  const MissRatioStats& miss_ratio_stats() const { return miss_ratio_stats_; }
 
  protected:
   MissRatioStats miss_ratio_stats_;

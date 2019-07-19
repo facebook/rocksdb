@@ -140,6 +140,7 @@ TEST_F(LRUCacheTest, RandomSample) {
     ASSERT_GE(sample->hash, 1);
     ASSERT_LE(sample->hash, 100);
   }
+  ASSERT_EQ(16, samples.size());
 
   samples = table.RandomSample(200);
   ASSERT_EQ(100, samples.size());

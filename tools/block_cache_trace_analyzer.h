@@ -17,6 +17,7 @@
 
 namespace rocksdb {
 
+// Statistics of a key refereneced by a Get.
 struct GetKeyInfo {
   std::vector<uint64_t> access_sequence_number_timeline;
   std::vector<uint64_t> access_timeline;
@@ -78,7 +79,7 @@ struct BlockAccessInfo {
     const uint64_t timestamp_in_seconds =
         access.access_timestamp / kMicrosInSecond;
     caller_num_accesses_timeline[access.caller][timestamp_in_seconds] += 1;
-    // Feature vectors.
+    // Populate the feature vectors.
     access_sequence_number_timeline.push_back(access_sequnce_number);
     caller_access_sequence__number_timeline[access.caller].push_back(
         access_sequnce_number);
@@ -121,13 +122,13 @@ struct ColumnFamilyAccessInfoAggregate {
   std::map<uint64_t, SSTFileAccessInfoAggregate> fd_aggregates_map;
 };
 
-struct past_features {
+struct Features {
   std::vector<uint64_t> elapsed_time_since_last_access;
   std::vector<uint64_t> num_accesses_since_last_access;
   std::vector<uint64_t> num_past_accesses;
 };
 
-struct future_features {
+struct Predictions {
   std::vector<uint64_t> elapsed_time_till_next_access;
   std::vector<uint64_t> num_accesses_till_next_access;
 };
@@ -231,7 +232,7 @@ class BlockCacheTraceAnalyzer {
   // (cache_name+num_shard_bits+ghost_capacity).
   void WriteMissRatioTimeline(uint64_t time_unit) const;
 
-  // Write miss ratio timeline of simulated cache configurations into several
+  // Write misses timeline of simulated cache configurations into several
   // csv files, one per cache capacity saved in 'output_dir'.
   //
   // The file format is
@@ -292,10 +293,10 @@ class BlockCacheTraceAnalyzer {
       const std::string& label_str,
       const std::vector<uint64_t>& percent_buckets) const;
 
-  void WriteCorrelationCoefficients(const std::string& label_str,
-                                    uint32_t max_number_of_values) const;
+  void WriteCorrelationFeatures(const std::string& label_str,
+                                uint32_t max_number_of_values) const;
 
-  void WriteCorrelationCoefficientsForGet(uint32_t max_number_of_values) const;
+  void WriteCorrelationFeaturesForGet(uint32_t max_number_of_values) const;
 
   const std::map<std::string, ColumnFamilyAccessInfoAggregate>&
   TEST_cf_aggregates_map() const {
@@ -339,19 +340,16 @@ class BlockCacheTraceAnalyzer {
                          const BlockAccessInfo& /*block_access_info*/)>
           block_callback) const;
 
-  double ComputePearsonCorrelationCoefficient(
-      const std::vector<uint64_t>& x, const std::vector<uint64_t>& y) const;
-
   void UpdateFeatureVectors(
       const std::vector<uint64_t>& access_sequence_number_timeline,
       const std::vector<uint64_t>& access_timeline, const std::string& label,
-      std::map<std::string, past_features>* label_past_features,
-      std::map<std::string, future_features>* label_future_features) const;
+      std::map<std::string, Features>* label_features,
+      std::map<std::string, Predictions>* label_predictions) const;
 
-  void WriteCorrelationCoefficientsToFile(
+  void WriteCorrelationFeaturesToFile(
       const std::string& label,
-      const std::map<std::string, past_features>& label_past_features,
-      const std::map<std::string, future_features>& label_future_features,
+      const std::map<std::string, Features>& label_features,
+      const std::map<std::string, Predictions>& label_predictions,
       uint32_t max_number_of_values) const;
 
   rocksdb::Env* env_;
