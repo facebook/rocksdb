@@ -128,7 +128,7 @@ TEST_F(LRUCacheTest, RandomSample) {
     e->key_length = key.size();
     e->flags = 0;
     e->hash = k;
-    e->refs = 1;
+    e->refs = 0;
     e->next = e->prev = nullptr;
     e->SetInCache(true);
     memcpy(e->key_data, key.data(), key.size());

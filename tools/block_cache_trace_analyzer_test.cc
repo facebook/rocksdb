@@ -607,6 +607,7 @@ TEST_F(BlockCacheTracerTest, MixedBlocks) {
     // Read blocks.
     BlockCacheTraceAnalyzer analyzer(trace_file_path_,
                                      /*output_miss_ratio_curve_path=*/"",
+                                     /*human_readable_trace_file_path=*/"",
                                      /*compute_reuse_distance=*/true,
                                      /*mrc_only=*/false,
                                      /*simulator=*/nullptr);

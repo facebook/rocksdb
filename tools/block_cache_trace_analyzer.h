@@ -19,6 +19,7 @@ namespace rocksdb {
 
 // Statistics of a key refereneced by a Get.
 struct GetKeyInfo {
+  uint64_t key_id = 0;
   std::vector<uint64_t> access_sequence_number_timeline;
   std::vector<uint64_t> access_timeline;
 
@@ -31,6 +32,7 @@ struct GetKeyInfo {
 
 // Statistics of a block.
 struct BlockAccessInfo {
+  uint64_t block_id = 0;
   uint64_t num_accesses = 0;
   uint64_t block_size = 0;
   uint64_t first_access_time = 0;
@@ -137,6 +139,7 @@ class BlockCacheTraceAnalyzer {
  public:
   BlockCacheTraceAnalyzer(
       const std::string& trace_file_path, const std::string& output_dir,
+      const std::string& human_readable_trace_file_path,
       bool compute_reuse_distance, bool mrc_only,
       std::unique_ptr<BlockCacheTraceSimulator>&& cache_simulator);
   ~BlockCacheTraceAnalyzer() = default;
@@ -313,7 +316,7 @@ class BlockCacheTraceAnalyzer {
 
   void ComputeReuseDistance(BlockAccessInfo* info) const;
 
-  void RecordAccess(const BlockCacheTraceRecord& access);
+  Status RecordAccess(const BlockCacheTraceRecord& access);
 
   void UpdateReuseIntervalStats(
       const std::string& label, const std::vector<uint64_t>& time_buckets,
@@ -352,9 +355,13 @@ class BlockCacheTraceAnalyzer {
       const std::map<std::string, Predictions>& label_predictions,
       uint32_t max_number_of_values) const;
 
+  Status WriteHumanReadableTraceRecord(const BlockCacheTraceRecord& access,
+                                       uint64_t block_id, uint64_t get_key_id);
+
   rocksdb::Env* env_;
   const std::string trace_file_path_;
   const std::string output_dir_;
+  std::string human_readable_trace_file_path_;
   const bool compute_reuse_distance_;
   const bool mrc_only_;
 
@@ -367,6 +374,10 @@ class BlockCacheTraceAnalyzer {
   uint64_t trace_start_timestamp_in_seconds_ = 0;
   uint64_t trace_end_timestamp_in_seconds_ = 0;
   MissRatioStats miss_ratio_stats_;
+  uint64_t unique_block_id_ = 1;
+  uint64_t unique_get_key_id_ = 1;
+  char trace_record_buffer_[1024 * 1024];
+  std::unique_ptr<rocksdb::WritableFile> human_readable_trace_file_writer_;
 };
 
 int block_cache_trace_analyzer_tool(int argc, char** argv);
