@@ -4454,8 +4454,6 @@ TEST_F(DBCompactionTest, PartialManualCompaction) {
   uint64_t max_compaction_bytes = atoi(prop.c_str()) / 2;
   ASSERT_OK(dbfull()->SetOptions(
       {{"max_compaction_bytes", std::to_string(max_compaction_bytes)}}));
-  ASSERT_OK(dbfull()->SetOptions(
-        {{"compaction_readahead_size", std::to_string(2097152)}}));
 
   CompactRangeOptions cro;
   cro.bottommost_level_compaction = BottommostLevelCompaction::kForceOptimized;
