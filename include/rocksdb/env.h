@@ -118,10 +118,10 @@ struct EnvOptions {
   bool fallocate_with_keep_size = true;
 
   // See DBOptions doc
-  size_t compaction_readahead_size;
+  size_t compaction_readahead_size = 0;
 
   // See DBOptions doc
-  size_t random_access_max_buffer_size;
+  size_t random_access_max_buffer_size = 0;
 
   // See DBOptions doc
   size_t writable_file_max_buffer_size = 1024 * 1024;
