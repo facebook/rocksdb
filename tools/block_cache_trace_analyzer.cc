@@ -142,8 +142,8 @@ DEFINE_int32(analyze_correlation_coefficients_max_number_of_values, 1000000,
 DEFINE_int32(stop_when_memory_is_low, 0,
              "The analyzer will terminate when the avaiable memory is below "
              "than the specified threshold. Unit: GB");
- DEFINE_string(human_readable_trace_file_path, "",
-               "The filt path that saves human readable access records.");
+DEFINE_string(human_readable_trace_file_path, "",
+              "The filt path that saves human readable access records.");
 
 namespace rocksdb {
 namespace {
@@ -162,8 +162,7 @@ const std::set<std::string> kGroupbyLabels{
 const std::string kSupportedCacheNames =
     " lru ghost_lru lru_priority ghost_lru_priority lru_hybrid "
     "ghost_lru_hybrid lru_hybrid_no_insert_on_row_miss "
-    "ghost_lru_hybrid_no_insert_on_row_miss lecar ghost_lecar lecar_hybrid "
-    "ghost_lecar_hybrid ";
+    "ghost_lru_hybrid_no_insert_on_row_miss ";
 
 // The suffix for the generated csv files.
 const std::string kFileNameSuffixMissRatioTimeline = "miss_ratio_timeline";
@@ -725,7 +724,8 @@ void BlockCacheTraceAnalyzer::TraverseBlocks(
              block_type_aggregates.second.block_access_info_map) {
           // Stats per block.
           block_callback(cf_name, fd, level, type, block_access_info.first,
-                         block_access_info.second.block_id, block_access_info.second);
+                         block_access_info.second.block_id,
+                         block_access_info.second);
         }
       }
     }
@@ -1383,7 +1383,7 @@ void BlockCacheTraceAnalyzer::WriteAccessCountSummaryStats(
 
 BlockCacheTraceAnalyzer::BlockCacheTraceAnalyzer(
     const std::string& trace_file_path, const std::string& output_dir,
-    const std::string &human_readable_trace_file_path,
+    const std::string& human_readable_trace_file_path,
     bool compute_reuse_distance, bool mrc_only,
     std::unique_ptr<BlockCacheTraceSimulator>&& cache_simulator)
     : env_(rocksdb::Env::Default()),
@@ -1413,19 +1413,20 @@ void BlockCacheTraceAnalyzer::ComputeReuseDistance(
 }
 
 Status BlockCacheTraceAnalyzer::WriteHumanReadableTraceRecord(
-    const BlockCacheTraceRecord &access,
-    uint64_t block_id, uint64_t get_key_id) {
+    const BlockCacheTraceRecord& access, uint64_t block_id,
+    uint64_t get_key_id) {
   if (!human_readable_trace_file_writer_) {
     return Status::OK();
   }
-  int ret = snprintf(trace_record_buffer_, sizeof(trace_record_buffer_),
-                "%" PRIu64  ",%" PRIu64 ",%u,%" PRIu64 ",%" PRIu64 ",%" PRIu32 ",%" PRIu64 ""
-                 ",%u,%u,%" PRIu64 ",%" PRIu64 ",%" PRIu64 "\n",
-                 access.access_timestamp,
-                 block_id, access.block_type,
-                 access.block_size, access.cf_id, access.level,
-                 access.sst_fd_number, access.caller, access.no_insert,
-                 access.get_id, get_key_id, access.referenced_data_size);
+  int ret = snprintf(
+      trace_record_buffer_, sizeof(trace_record_buffer_),
+      "%" PRIu64 ",%" PRIu64 ",%u,%" PRIu64 ",%" PRIu64 ",%" PRIu32 ",%" PRIu64
+      ""
+      ",%u,%u,%" PRIu64 ",%" PRIu64 ",%" PRIu64 ",%u\n",
+      access.access_timestamp, block_id, access.block_type, access.block_size,
+      access.cf_id, access.level, access.sst_fd_number, access.caller,
+      access.no_insert, access.get_id, get_key_id, access.referenced_data_size,
+      access.is_cache_hit);
   if (ret < 0) {
     return Status::IOError("failed to format the output");
   }
@@ -1481,7 +1482,8 @@ Status BlockCacheTraceAnalyzer::RecordAccess(
       }
     }
   }
-  return WriteHumanReadableTraceRecord(access, block_access_info.block_id, get_key_id);
+  return WriteHumanReadableTraceRecord(access, block_access_info.block_id,
+                                       get_key_id);
 }
 
 Status BlockCacheTraceAnalyzer::Analyze() {

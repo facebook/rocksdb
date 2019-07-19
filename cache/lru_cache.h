@@ -143,8 +143,6 @@ class LRUHandleTable {
   LRUHandle* Lookup(const Slice& key, uint32_t hash);
   LRUHandle* Insert(LRUHandle* h);
   LRUHandle* Remove(const Slice& key, uint32_t hash);
-  std::vector<LRUHandle*> RandomSample(uint32_t sample_size);
-  uint32_t size() { return elems_; }
 
   template <typename T>
   void ApplyToAllCacheEntries(T func) {

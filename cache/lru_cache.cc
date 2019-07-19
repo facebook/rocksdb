@@ -61,23 +61,6 @@ LRUHandle* LRUHandleTable::Remove(const Slice& key, uint32_t hash) {
   return result;
 }
 
-std::vector<LRUHandle*> LRUHandleTable::RandomSample(uint32_t sample_size) {
-  std::vector<LRUHandle*> samples;
-  uint32_t random_hash = static_cast<uint32_t>(rand());
-  uint32_t start_position = random_hash & (length_ - 1);
-  uint32_t pos = start_position;
-  do {
-    LRUHandle** ptr = &list_[pos];
-    while (*ptr != nullptr && samples.size() < sample_size) {
-      samples.push_back(*ptr);
-      ptr = &(*ptr)->next_hash;
-    }
-    pos++;
-    pos = pos & (length_ - 1);
-  } while (samples.size() < sample_size && pos != start_position);
-  return samples;
-}
-
 LRUHandle** LRUHandleTable::FindPointer(const Slice& key, uint32_t hash) {
   LRUHandle** ptr = &list_[hash & (length_ - 1)];
   while (*ptr != nullptr && ((*ptr)->hash != hash || key != (*ptr)->key())) {

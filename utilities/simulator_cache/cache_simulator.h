@@ -77,152 +77,6 @@ class MissRatioStats {
   std::map<uint64_t, uint64_t> num_misses_timeline_;
 };
 
-// An implementation of LeCaR [1]. It supports three policies: LRU, MRU, and
-// LFU.
-//
-// Reinforcement learning: Each policy is associated with a reward_weight.
-// The sum of reward_weight is 1. A policy maintains a set of keys that was
-// evicted by this policy. Upon a cache miss, we penalize a policy if it evicted
-// the key. Then, we adjust the reward_weights of all policies accordingly.
-//
-// Eviction: When the cache is full, it selects the policy based on their
-// reward_weight for eviction. A policy is more likely to be selected if it has
-// a higher reward_weight. Then, we randomly sample a few entries and evict keys
-// using the selected policy until the cache has sufficient space for the new
-// key-value pair.
-//
-// [1]. Vietri, Giuseppe, et al. "Driving Cache Replacement with ML-based
-// LeCaR." 10th {USENIX} Workshop on Hot Topics in Storage and File Systems
-// (HotStorage 18). 2018.
-class LeCaR : public Cache {
- public:
-  struct LeCaRHandle {
-    size_t value_size = 0;
-    uint64_t last_access_time = 0;
-    uint64_t number_of_hits = 0;
-  };
-
-  enum Policy : size_t { LRU = 0, LFU = 1, MRU = 2 };
-
-  struct EnumClassHash {
-    template <typename T>
-    std::size_t operator()(T t) const {
-      return static_cast<std::size_t>(t);
-    }
-  };
-
-  struct PolicyState {
-    std::unordered_map<std::string, LeCaRHandle> evicted_keys;
-    double reward_weight = 0;
-    double regret_weight = 0;
-  };
-
-  LeCaR(size_t cache_capacity,
-        const std::unordered_map<Policy, double, EnumClassHash>&
-            policy_init_regret_weights,
-        std::shared_ptr<MemoryAllocator> allocator = nullptr);
-
-  // The type of the Cache
-  const char* Name() const override { return "LeCaR"; }
-
-  Status Insert(const Slice& key, void* value, size_t charge,
-                void (*deleter)(const Slice& key, void* value),
-                Handle** handle = nullptr,
-                Priority priority = Priority::LOW) override;
-
-  Handle* Lookup(const Slice& key, uint64_t now);
-
-  void Erase(const Slice& key) override;
-
-  Policy current_policy() { return current_policy_; }
-
-  LRUHandle* NewLRUHandle(const Slice& key, LeCaRHandle* handle);
-
-  std::unordered_map<Policy, PolicyState, EnumClassHash>& Test_policy_states() {
-    return policy_states_;
-  }
-
-  Handle* Lookup(const Slice& /*key*/,
-                 Statistics* /*stats*/ = nullptr) override {
-    return nullptr;
-  }
-  bool Ref(Handle* /*handle*/) override { return false; };
-  bool Release(Handle* /*handle*/, bool /*force_erase*/ = false) override {
-    return false;
-  };
-  void* Value(Handle* /*handle*/) override { return nullptr; }
-  uint64_t NewId() override { return 0; }
-  void SetCapacity(size_t /*capacity*/) override {}
-  void SetStrictCapacityLimit(bool /*strict_capacity_limit*/) override {}
-  bool HasStrictCapacityLimit() const override { return false; }
-  size_t GetCapacity() const override { return cache_capacity_; }
-  size_t GetUsage() const override { return usage_; }
-  size_t GetUsage(Handle* /*handle*/) const override { return 0; }
-  size_t GetPinnedUsage() const override { return 0; };
-  size_t GetCharge(Handle* /*handle*/) const override { return 0; }
-  void ApplyToAllCacheEntries(void (*)(void*, size_t),
-                              bool /*thread_safe*/) override {}
-  void EraseUnRefEntries() override{};
-
-  static const uint32_t kSampleSize;
-  static const double kLearningRate;
-  static const std::vector<LeCaR::Policy> kPolicies;
-
- private:
-  Policy DecidePolicy();
-
-  void Evict(Policy policy, LeCaRHandle* handle);
-
-  bool LRUComparator(const std::pair<std::string, LeCaRHandle*>& a,
-                     const std::pair<std::string, LeCaRHandle*>& b) {
-    assert(a.second != nullptr);
-    assert(b.second != nullptr);
-    return a.second->last_access_time < b.second->last_access_time;
-  };
-
-  bool MRUComparator(const std::pair<std::string, LeCaRHandle*>& a,
-                     const std::pair<std::string, LeCaRHandle*>& b) {
-    assert(a.second != nullptr);
-    assert(b.second != nullptr);
-    return a.second->last_access_time > b.second->last_access_time;
-  };
-
-  bool LFUComparator(const std::pair<std::string, LeCaRHandle*>& a,
-                     const std::pair<std::string, LeCaRHandle*>& b) {
-    assert(a.second != nullptr);
-    assert(b.second != nullptr);
-    return a.second->number_of_hits < b.second->number_of_hits;
-  };
-
-  void UpdateWeight(const std::string& key, uint64_t now);
-  void NormalizeRegretWeights();
-  void ComputeRewardWeights();
-
-  const size_t cache_capacity_;
-  const double discount_rate_;
-  size_t usage_ = 0;
-  Policy current_policy_ = Policy::LRU;
-  LRUHandleTable cache_;
-  std::unordered_map<std::string, LeCaRHandle*> samples_;
-  std::unordered_map<Policy, PolicyState, EnumClassHash> policy_states_;
-};
-
-// It delegates lookup/insert calls to LeCaR or Cache.
-// This class is needed as LeCaR requires additional information of the access
-// for reinforcement learning.
-class CacheSimulatorDelegate {
- public:
-  CacheSimulatorDelegate(std::shared_ptr<Cache> sim_cache)
-      : sim_cache_(sim_cache) {}
-  bool Lookup(const Slice& key, const BlockCacheTraceRecord& access);
-
-  Status Insert(const Slice& key, uint64_t value_size,
-                const BlockCacheTraceRecord& access, Cache::Priority priority);
-
- private:
-  std::shared_ptr<Cache> sim_cache_;
-};
-
 // A ghost cache admits an entry on its second access.
 class GhostCache {
  public:
@@ -236,10 +90,10 @@ class GhostCache {
 
   // Returns true if the lookup_key is in the ghost cache.
   // Returns false otherwise.
-  bool Admit(const Slice& lookup_key, const BlockCacheTraceRecord& access);
+  bool Admit(const Slice& lookup_key);
 
  private:
-  std::unique_ptr<CacheSimulatorDelegate> sim_cache_;
+  std::shared_ptr<Cache> sim_cache_;
 };
 
 // A cache simulator that runs against a block cache trace.
@@ -263,7 +117,7 @@ class CacheSimulator {
  protected:
   MissRatioStats miss_ratio_stats_;
   std::unique_ptr<GhostCache> ghost_cache_;
-  std::unique_ptr<CacheSimulatorDelegate> sim_cache_;
+  std::shared_ptr<Cache> sim_cache_;
 };
 
 // A prioritized cache simulator that runs against a block cache trace.
