@@ -25,7 +25,8 @@ class WriteUnpreparedTxn;
 // keys that should be visible to us. First, we will need to change the seek to
 // snapshot logic, to seek to max_visible_seq = max(snap_seq, max_unprep_seq).
 // Any key greater than max_visible_seq should not be visible because they are
-// not unprepared, which means that they are committed after snap_seq.
+// not unprepared by the current transaction, which means that they are
+// committed after snap_seq, or unprepared by a different transaction.
 //
 // When we seek to max_visible_seq, one of these cases will happen:
 // 1. We hit a unprepared key from the current transaction.
@@ -40,7 +41,7 @@ class WriteUnpreparedTxn;
 //
 // Other notes:
 // Note that max_visible_seq is only calculated once at iterator construction
-// time, meaning if if the same transaction is adding more unprep seqs through
+// time, meaning if the same transaction is adding more unprep seqs through
 // writes during iteration, these newer writes may not be visible. This is not a
 // problem for MySQL though because it avoids modifying the index as it is
 // scanning through it to avoid the Halloween Problem. Instead, it scans the
@@ -160,6 +161,7 @@ class WriteUnpreparedTxn : public WritePreparedTxn {
 
   Status MaybeFlushWriteBatchToDB();
   Status FlushWriteBatchToDB(bool prepared);
+  Status HandleWrite(std::function<Status()> do_write);
 
   // For write unprepared, we check on every writebatch append to see if
   // max_write_batch_size_ has been exceeded, and then call
@@ -183,6 +185,14 @@ class WriteUnpreparedTxn : public WritePreparedTxn {
   // locked for efficiency reasons. For recovered transactions, skip unlocking
   // keys when transaction ends.
   bool recovered_txn_;
+
+  // Track the largest sequence number at which we performed snapshot
+  // validation. If snapshot validation was skipped because no snapshot was set,
+  // then this is set to kMaxSequenceNumber. This value is useful because it
+  // means that for keys that have unprepared seqnos, we can guarantee that no
+  // committed keys by other transactions exist at largest_validated_seq_ <
+  // commit_seq.
+  SequenceNumber largest_validated_seq_;
 };
 
 }  // namespace rocksdb

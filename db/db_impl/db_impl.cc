@@ -1504,7 +1504,7 @@ Status DBImpl::GetImpl(const ReadOptions& read_options,
       // However, we still want our callback to contain the actual snapshot so
       // that it can do the correct visibility filtering.
       callback->Refresh(snapshot);
-      snapshot = std::max(snapshot, callback->max_visible_seq());
+      snapshot = callback->max_visible_seq();
     }
   }
   TEST_SYNC_POINT("DBImpl::GetImpl:3");

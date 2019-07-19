@@ -622,6 +622,10 @@ inline bool DBIter::FindNextUserEntryInternal(bool skipping, bool prefix_check) 
     //
     // Do not reseek if we have already attempted to reseek previously to avoid
     // infinite loops.
+    //
+    // TODO(lth): If we reseek to sequence number greater than ikey_.sequence,
+    // than it does not make sense to reseek as we would actually land further
+    // away from the desired key. There is opportunity for optimization here.
     if (num_skipped > max_skip_ && !reseek_done) {
       is_key_seqnum_zero_ = false;
       num_skipped = 0;
@@ -631,9 +635,8 @@ inline bool DBIter::FindNextUserEntryInternal(bool skipping, bool prefix_check) 
         // We're looking for the next user-key but all we see are the same
         // user-key with decreasing sequence numbers. Fast forward to
         // sequence number 0 and type deletion (the smallest type).
-        AppendInternalKey(&last_key,
-                          ParsedInternalKey(saved_key_.GetUserKey(), 0,
-                                            kValueTypeForSeekForPrev));
+        AppendInternalKey(&last_key, ParsedInternalKey(saved_key_.GetUserKey(),
+                                                       0, kTypeDeletion));
         // Don't set skipping = false because we may still see more user-keys
         // equal to saved_key_.
       } else {

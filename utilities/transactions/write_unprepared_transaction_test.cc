@@ -129,8 +129,12 @@ TEST_P(WriteUnpreparedTransactionTest, ReadYourOwnWriteStress) {
   std::default_random_engine g(static_cast<uint32_t>(
       std::hash<std::thread::id>()(std::this_thread::get_id())));
 
-  // Test reading with and without read_options.snapshot set.
-  for (bool use_snapshot : {true, false}) {
+  enum Action { NO_SNAPSHOT, RO_SNAPSHOT, REFRESH_SNAPSHOT };
+  // Test with
+  // 1. no snapshots set
+  // 2. snapshot set on ReadOptions
+  // 3. snapshot set, and refreshing after every write.
+  for (Action a : {NO_SNAPSHOT, RO_SNAPSHOT, REFRESH_SNAPSHOT}) {
     WriteOptions write_options;
     txn_db_options.transaction_lock_timeout = -1;
     options.disable_auto_compactions = true;
@@ -168,7 +172,7 @@ TEST_P(WriteUnpreparedTransactionTest, ReadYourOwnWriteStress) {
         txn = db->BeginTransaction(write_options, txn_options);
         txn->SetName(ToString(id));
         txn->SetSnapshot();
-        if (use_snapshot) {
+        if (a >= RO_SNAPSHOT) {
           read_options.snapshot = txn->GetSnapshot();
           ASSERT_TRUE(read_options.snapshot != nullptr);
         }
@@ -187,6 +191,11 @@ TEST_P(WriteUnpreparedTransactionTest, ReadYourOwnWriteStress) {
           if (!s.ok()) {
             break;
           }
+          if (a == REFRESH_SNAPSHOT) {
+            txn->SetSnapshot();
+            read_options.snapshot = db->GetSnapshot();
+            snapshot_num = counter.fetch_add(1);
+          }
         }
 
         // Failure is possible due to snapshot validation. In this case,
@@ -198,19 +207,25 @@ TEST_P(WriteUnpreparedTransactionTest, ReadYourOwnWriteStress) {
           continue;
         }
 
-        auto verify_key = [&owned_keys, &use_snapshot, &id, &snapshot_num](
+        auto verify_key = [&owned_keys, &a, &id, &snapshot_num](
                               const std::string& key,
                               const std::string& value) {
           if (owned_keys.count(key) > 0) {
             ASSERT_EQ(value.size(), 16);
             ASSERT_EQ(((int64_t*)value.c_str())[0], id);
-            ASSERT_GE(((int64_t*)value.c_str())[1], snapshot_num);
-          } else if (use_snapshot) {
+            if (a == REFRESH_SNAPSHOT) {
+              // Since snapshot is refreshed after the last unprepared write,
+              // snapshot_num should be greater.
+              ASSERT_LT(((int64_t*)value.c_str())[1], snapshot_num);
+            } else {
+              ASSERT_GT(((int64_t*)value.c_str())[1], snapshot_num);
+            }
+          } else if (a >= RO_SNAPSHOT) {
             // If we're reading using a snapshot, then the key value should
             // always be less than snapshot_num. We can't say much about id
             // though.
             ASSERT_EQ(value.size(), 16);
-            ASSERT_LE(((int64_t*)value.c_str())[1], snapshot_num);
+            ASSERT_LT(((int64_t*)value.c_str())[1], snapshot_num);
           }
         };
 
