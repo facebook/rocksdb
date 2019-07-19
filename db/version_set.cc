@@ -1651,7 +1651,7 @@ void Version::Get(const ReadOptions& read_options, const LookupKey& k,
                   MergeContext* merge_context,
                   SequenceNumber* max_covering_tombstone_seq, bool* value_found,
                   bool* key_exists, SequenceNumber* seq, ReadCallback* callback,
-                  bool* is_blob) {
+                  bool* is_blob, bool do_merge, int num_records) {
   Slice ikey = k.internal_key();
   Slice user_key = k.user_key();
 
@@ -1671,9 +1671,9 @@ void Version::Get(const ReadOptions& read_options, const LookupKey& k,
   GetContext get_context(
       user_comparator(), merge_operator_, info_log_, db_statistics_,
       status->ok() ? GetContext::kNotFound : GetContext::kMerge, user_key,
-      value, value_found, merge_context, max_covering_tombstone_seq, this->env_,
+      do_merge ? value : nullptr, value_found, merge_context, max_covering_tombstone_seq, this->env_,
       seq, merge_operator_ ? &pinned_iters_mgr : nullptr, callback, is_blob,
-      tracing_get_id);
+      tracing_get_id, do_merge);
 
   // Pin blocks that we read to hold merge operands
   if (merge_operator_) {
@@ -1753,9 +1753,23 @@ void Version::Get(const ReadOptions& read_options, const LookupKey& k,
             "rocksdb::blob_db::BlobDB instead.");
         return;
     }
+//    if (get_context.State() == GetContext::kFound || get_context.State() == GetContext::kDeleted) {
+//   	  if (do_merge) {
+//   		  return;
+//   	  } else {
+//   		  if (merge_context->GetNumOperands() > (unsigned)num_records) {
+//   				*status = Status::Aborted("NUmber of merge operands: "
+//   						+std::to_string(merge_context->GetNumOperands())+" more than size of vector");
+//   		  }
+//   		  for (Slice sl : merge_context->GetOperands()){
+//   			  value->PinSelf(sl);
+//   			  value++;
+//   		  }
+//   	  }
+//     }
     f = fp.GetNextFile();
   }
-
+  (void)num_records;
   if (db_statistics_ != nullptr) {
     get_context.ReportCounters();
   }

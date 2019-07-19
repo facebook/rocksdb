@@ -1440,23 +1440,24 @@ TEST_F(DBBasicTest, GetMergeOperands) {
 	      std::cout << *psl.GetSelf() << "\n";
 	  }
 
-//	  ASSERT_OK(Merge("k5", "a"));
-//	  ASSERT_OK(Merge("k5", "b"));
-//	  ASSERT_OK(Merge("k5", "c"));
-//	  ASSERT_OK(Merge("k5", "d"));
-//      rocksdb::SyncPoint::GetInstance()->LoadDependency(
-//    		  {{"DBBasicTest.GetMergeOperands", "FlushJob::Start"}}
-//      );
-//      rocksdb::SyncPoint::GetInstance()->EnableProcessing();
-//	  ASSERT_OK(Flush());
-//	  std::vector<PinnableSlice> values5(4);
-//	  db_->GetMergeOperands(ReadOptions(), db_->DefaultColumnFamily(), "k5", values5.data(), 4);
-//	  for(PinnableSlice& psl: values5) {
-//	      std::cout << *psl.GetSelf() << "\n";
-//	  }
-//	  TEST_SYNC_POINT("DBBasicTest.GetMergeOperands");
-//	  rocksdb::SyncPoint::GetInstance()->DisableProcessing();
-
+	  // First 3 k5 values are in SST and next 4 k5 values are in Immutable Memtable
+	  ASSERT_OK(Merge("k5", "who"));
+	  ASSERT_OK(Merge("k5", "am"));
+	  ASSERT_OK(Merge("k5", "i"));
+	  ASSERT_OK(Flush());
+	  Put("k5", "remember");
+	  ASSERT_OK(Merge("k5", "i"));
+	  ASSERT_OK(Merge("k5", "am"));
+	  ASSERT_OK(Merge("k5", "rocks"));
+	  dbfull()->TEST_SwitchMemtable();
+	  db_->GetMergeOperands(ReadOptions(), db_->DefaultColumnFamily(), "k5", values.data(), size);
+	  ASSERT_EQ(values[0], "remember");
+	  ASSERT_EQ(values[1], "i");
+	  ASSERT_EQ(values[2], "am");
+	  ASSERT_EQ(values[3], "rocks");
+	  for(PinnableSlice& psl: values) {
+	  	      std::cout << *psl.GetSelf() << "\n";
+	  }
 }
 
 class DBBasicTestWithParallelIO
