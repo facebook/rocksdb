@@ -277,8 +277,17 @@ Status TableCache::Get(const ReadOptions& options,
     // sequence key increases. However, to support caching snapshot
     // reads, we append the sequence number (incremented by 1 to
     // distinguish from 0) only in this case.
-    uint64_t seq_no =
-        options.snapshot == nullptr ? 0 : 1 + GetInternalKeySeqno(k);
+    // If the snapshot is larger than the largest seqno in the file,
+    // all data should be exposed to the snapshot, so we treat it
+    // the same as there is no snapshot. The exception is that if
+    // a seqno checking callback is registered, some internal keys
+    // may still be filtered out.
+    uint64_t seq_no = 0;
+    if (options.snapshot != nullptr &&
+        (get_context->has_callback() ||
+         options.snapshot->GetSequenceNumber() <= fd.largest_seqno)) {
+      seq_no = 1 + GetInternalKeySeqno(k);
+    }
 
     // Compute row cache key.
     row_cache_key.TrimAppend(row_cache_key.Size(), row_cache_id_.data(),
