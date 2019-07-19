@@ -24,6 +24,7 @@ make_config.mk
 *.vcxproj.filters
 *.sln
 *.cmake
+.watchmanconfig
 CMakeCache.txt
 CMakeFiles/
 build/
