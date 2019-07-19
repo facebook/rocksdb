@@ -583,14 +583,6 @@ class Version {
            SequenceNumber* seq = nullptr, ReadCallback* callback = nullptr,
            bool* is_blob = nullptr, bool do_merge = true, int num_records = 0);
 
-  void GetMergeOperands(const ReadOptions&, const LookupKey& key,
-		   PinnableSlice* slice, int size,
-           Status* status, MergeContext* merge_context,
-           SequenceNumber* max_covering_tombstone_seq,
-           bool* value_found = nullptr, bool* key_exists = nullptr,
-           SequenceNumber* seq = nullptr, ReadCallback* callback = nullptr,
-           bool* is_blob = nullptr);
-
   void MultiGet(const ReadOptions&, MultiGetRange* range,
                 ReadCallback* callback = nullptr, bool* is_blob = nullptr);
 
