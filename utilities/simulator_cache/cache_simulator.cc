@@ -17,8 +17,9 @@ GhostCache::GhostCache(std::shared_ptr<Cache> sim_cache)
     : sim_cache_(sim_cache) {}
 
 bool GhostCache::Admit(const Slice& lookup_key) {
-  bool hit = sim_cache_->Lookup(lookup_key);
-  if (hit) {
+  auto handle = sim_cache_->Lookup(lookup_key);
+  if (handle != nullptr) {
+    sim_cache_->Release(handle);
     return true;
   }
   sim_cache_->Insert(lookup_key, /*value=*/nullptr, lookup_key.size(),
@@ -38,8 +39,9 @@ void CacheSimulator::Access(const BlockCacheTraceRecord& access) {
   if (ghost_cache_ && access.no_insert == Boolean::kFalse) {
     admit = ghost_cache_->Admit(access.block_key);
   }
-  bool hit = sim_cache_->Lookup(access.block_key);
-  if (hit) {
+  auto handle = sim_cache_->Lookup(access.block_key);
+  if (handle != nullptr) {
+    sim_cache_->Release(handle);
     is_cache_miss = false;
   } else {
     if (access.no_insert == Boolean::kFalse && admit && access.block_size > 0) {
@@ -93,8 +95,9 @@ void PrioritizedCacheSimulator::AccessKVPair(
   if (ghost_cache_ && !no_insert) {
     *admitted = ghost_cache_->Admit(key);
   }
-  bool hit = sim_cache_->Lookup(key);
-  if (hit) {
+  auto handle = sim_cache_->Lookup(key);
+  if (handle != nullptr) {
+    sim_cache_->Release(handle);
     *is_cache_miss = false;
   } else if (!no_insert && *admitted && value_size > 0) {
     sim_cache_->Insert(key, /*value=*/nullptr, value_size, /*deleter=*/nullptr,
