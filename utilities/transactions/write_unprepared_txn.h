@@ -24,18 +24,15 @@ class WriteUnpreparedTxn;
 // be visible or not, so we have to remember to check the DB for any uncommitted
 // keys that should be visible to us. First, we will need to change the seek to
 // snapshot logic, to seek to max_visible_seq = max(snap_seq, max_unprep_seq).
-// Any key greater than max_visible_seq should not be visible because they are
-// not unprepared by the current transaction, which means that they are
-// committed after snap_seq, or unprepared by a different transaction.
+// Any key greater than max_visible_seq should not be visible because they
+// cannot be unprepared by the current transaction and they are not in its
+// snapshot.
 //
 // When we seek to max_visible_seq, one of these cases will happen:
 // 1. We hit a unprepared key from the current transaction.
 // 2. We hit a unprepared key from the another transaction.
 // 3. We hit a committed key with snap_seq < seq < max_unprep_seq.
 // 4. We hit a committed key with seq <= snap_seq.
-//
-// If a key is not visible, keep iterating to smaller sequence numbers until a
-// visible key is found.
 //
 // IsVisibleFullCheck handles all cases correctly.
 //
@@ -51,8 +48,8 @@ class WriteUnpreparedTxn;
 // many keys. However, this assumes that the reseek seeks exactly to the
 // required key. In write unprepared, even after seeking directly to
 // max_visible_seq, some iteration may be required before hitting a visible key,
-// and special precautions must be taken to avoid performing another reseek
-// after the first reseek, leading to an infinite loop.
+// and special precautions must be taken to avoid performing another reseek,
+// leading to an infinite loop.
 //
 class WriteUnpreparedTxnReadCallback : public ReadCallback {
  public:
@@ -190,8 +187,14 @@ class WriteUnpreparedTxn : public WritePreparedTxn {
   // validation. If snapshot validation was skipped because no snapshot was set,
   // then this is set to kMaxSequenceNumber. This value is useful because it
   // means that for keys that have unprepared seqnos, we can guarantee that no
-  // committed keys by other transactions exist at largest_validated_seq_ <
-  // commit_seq.
+  // committed keys by other transactions can exist between
+  // largest_validated_seq_ and max_unprep_seq. See
+  // WriteUnpreparedTxnDB::NewIterator for an explanation for why this is
+  // necessary for iterator Prev().
+  //
+  // Currently this value only increases during the lifetime of a transaction,
+  // but in some cases, we should be able to restore the previously largest
+  // value when calling RollbackToSavepoint.
   SequenceNumber largest_validated_seq_;
 };
 

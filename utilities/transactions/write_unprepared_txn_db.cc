@@ -373,8 +373,8 @@ Iterator* WriteUnpreparedTxnDB::NewIterator(const ReadOptions& options,
 
   // Currently, the Prev() iterator logic does not work well without snapshot
   // validation. The logic simply iterates through versions of a key in
-  // ascending seqno order, stopping a non-visible key and returning the last
-  // visible key.
+  // ascending seqno order, stopping at the first non-visible key and returning
+  // the last visible key.
   //
   // For example, if snapshot sequence is 3, and we have the following keys:
   // foo: v1 1
@@ -392,10 +392,11 @@ Iterator* WriteUnpreparedTxnDB::NewIterator(const ReadOptions& options,
   // there are committed keys at snapshot_seq < commit_seq < unprep_seq.
   //
   // Snapshot validation can prevent this problem by ensuring that no committed
-  // keys exist at snapshot_seq < commit_seq, any keys greater than snapshot_seq
-  // must be unprepared keys. For example, if the transaction had a snapshot at
-  // 3, then snapshot validation would be performed during the Put(v5) call. It
-  // would find v4, and the Put would fail with snapshot validation failure.
+  // keys exist at snapshot_seq < commit_seq, and thus any value with a sequence
+  // number greater than snapshot_seq must be unprepared keys. For example, if
+  // the transaction had a snapshot at 3, then snapshot validation would be
+  // performed during the Put(v5) call. It would find v4, and the Put would fail
+  // with snapshot validation failure.
   //
   // Because of this, if any writes have occurred, then the transaction snapshot
   // must be used for the iterator. If no writes have occurred though, we can
@@ -405,8 +406,6 @@ Iterator* WriteUnpreparedTxnDB::NewIterator(const ReadOptions& options,
   // TODO(lth): Improve Prev() logic to continue iterating until
   // max_visible_seq, and then return the last visible key, so that this
   // restriction can be lifted.
-  //
-
   const Snapshot* snapshot = nullptr;
   if (options.snapshot == nullptr) {
     snapshot = GetSnapshot();
@@ -429,7 +428,9 @@ Iterator* WriteUnpreparedTxnDB::NewIterator(const ReadOptions& options,
   // For keys that were not modified by this transaction, largest_validated_seq_
   // is meaningless, and Prev() should just work with the existing visibility
   // logic.
-  if (txn->largest_validated_seq_ > snapshot->GetSequenceNumber()) {
+  if (txn->largest_validated_seq_ > snapshot->GetSequenceNumber() &&
+      !txn->unprep_seqs_.empty()) {
+    ROCKS_LOG_ERROR(info_log_, "WriteUnprepared iterator creation failed");
     return nullptr;
   }
   min_uncommitted =

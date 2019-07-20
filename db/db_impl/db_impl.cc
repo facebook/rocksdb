@@ -1504,6 +1504,9 @@ Status DBImpl::GetImpl(const ReadOptions& read_options,
       // However, we still want our callback to contain the actual snapshot so
       // that it can do the correct visibility filtering.
       callback->Refresh(snapshot);
+
+      // Internally, WriteUnpreparedTxnReadCallback::Refresh would set
+      // max_visible_seq = max(max_visible_seq, snapshot)
       snapshot = callback->max_visible_seq();
     }
   }

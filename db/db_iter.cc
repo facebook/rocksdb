@@ -447,10 +447,10 @@ inline bool DBIter::FindNextUserEntryInternal(bool skipping, bool prefix_check) 
   //                         greater than that,
   //  - none of the above  : saved_key_ can contain anything, it doesn't matter.
   uint64_t num_skipped = 0;
-  // For write unprepared, it is possible that even after reseeking to (key,
-  // sequence_), we may need to iterate through a few more keys before reaching
-  // a visible key. Disable reseeking after the first reseek to avoid infinite
-  // loops.
+  // For write unprepared, the target sequence number in reseek could be larger
+  // than the snapshot, and thus needs to be skipped again. This could result in
+  // an infinite loop of reseeks. To avoid that, we limit the number of reseeks
+  // to one.
   bool reseek_done = false;
 
   is_blob_ = false;
@@ -620,8 +620,8 @@ inline bool DBIter::FindNextUserEntryInternal(bool skipping, bool prefix_check) 
     // If we have sequentially iterated via numerous equal keys, then it's
     // better to seek so that we can avoid too many key comparisons.
     //
-    // Do not reseek if we have already attempted to reseek previously to avoid
-    // infinite loops.
+    // To avoid infinite loops, do not reseek if we have already attempted to
+    // reseek previously.
     //
     // TODO(lth): If we reseek to sequence number greater than ikey_.sequence,
     // than it does not make sense to reseek as we would actually land further

@@ -3599,8 +3599,8 @@ TEST_P(TransactionTest, DisableIndexingTest) {
   // read your own writes, so depending on whether batches are flushed or not,
   // only some writes will be visible.
   //
-  // Also, write unprepared does not support txn->Put() without snapshot
-  // validation, and then creating an iterator later.
+  // Also, write unprepared does not support creating iterators if there has
+  // been txn->Put() without snapshot validation.
   if (txn_db_options.write_policy == WRITE_UNPREPARED) {
     return;
   }

@@ -50,7 +50,6 @@ TEST_P(WriteUnpreparedTransactionTest, ReadYourOwnWrite) {
 
   // Test always reseeking vs never reseeking.
   for (uint64_t max_skip : {0, std::numeric_limits<int>::max()}) {
-    // for (uint64_t max_skip : {0, std::numeric_limits<uint64_t>::max()}) {
     options.max_sequential_skip_in_iterations = max_skip;
     options.disable_auto_compactions = true;
     ReOpen();
@@ -122,11 +121,11 @@ TEST_P(WriteUnpreparedTransactionTest, ReadYourOwnWriteStress) {
   // that it can read the keys it wrote, and the keys it did not write respect
   // the snapshot. To avoid row lock contention (and simply stressing the
   // locking system), each thread is mostly only writing to its own set of keys.
-  const uint32_t NUM_ITERS = 1000;
-  const uint32_t NUM_THREADS = 10;
-  const uint32_t NUM_KEYS = 5;
+  const uint32_t kNumIter = 1000;
+  const uint32_t kNumThreads = 10;
+  const uint32_t kNumKeys = 5;
 
-  std::default_random_engine g(static_cast<uint32_t>(
+  std::default_random_engine rand(static_cast<uint32_t>(
       std::hash<std::thread::id>()(std::this_thread::get_id())));
 
   enum Action { NO_SNAPSHOT, RO_SNAPSHOT, REFRESH_SNAPSHOT };
@@ -141,10 +140,10 @@ TEST_P(WriteUnpreparedTransactionTest, ReadYourOwnWriteStress) {
     ReOpen();
 
     std::vector<std::string> keys;
-    for (uint32_t k = 0; k < NUM_KEYS * NUM_THREADS; k++) {
+    for (uint32_t k = 0; k < kNumKeys * kNumThreads; k++) {
       keys.push_back("k" + ToString(k));
     }
-    std::shuffle(keys.begin(), keys.end(), g);
+    std::shuffle(keys.begin(), keys.end(), rand);
 
     // This counter will act as a "sequence number" to help us validate
     // visibility logic with snapshots.
@@ -160,13 +159,13 @@ TEST_P(WriteUnpreparedTransactionTest, ReadYourOwnWriteStress) {
       txn_options.max_write_batch_size = 1;
       ReadOptions read_options;
 
-      for (uint32_t i = 0; i < NUM_ITERS; i++) {
-        std::set<std::string> owned_keys(&keys[id * NUM_KEYS],
-                                         &keys[(id + 1) * NUM_KEYS]);
+      for (uint32_t i = 0; i < kNumIter; i++) {
+        std::set<std::string> owned_keys(&keys[id * kNumKeys],
+                                         &keys[(id + 1) * kNumKeys]);
         // Add unowned keys to make the workload more interesting, but this
         // increases row lock contention, so just do it sometimes.
         if (rnd.OneIn(2)) {
-          owned_keys.insert(keys[rnd.Uniform(NUM_KEYS * NUM_THREADS)]);
+          owned_keys.insert(keys[rnd.Uniform(kNumKeys * kNumThreads)]);
         }
 
         txn = db->BeginTransaction(write_options, txn_options);
@@ -278,7 +277,7 @@ TEST_P(WriteUnpreparedTransactionTest, ReadYourOwnWriteStress) {
     };
 
     std::vector<port::Thread> threads;
-    for (uint32_t i = 0; i < NUM_THREADS; i++) {
+    for (uint32_t i = 0; i < kNumThreads; i++) {
       threads.emplace_back(stress_thread, i);
     }
 
