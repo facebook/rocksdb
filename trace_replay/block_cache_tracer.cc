@@ -35,14 +35,13 @@ const std::string BlockCacheTraceHelper::kUnknownColumnFamilyName =
     "UnknownColumnFamily";
 const uint64_t BlockCacheTraceHelper::kReservedGetId = 0;
 
-bool BlockCacheTraceHelper::ShouldTraceReferencedKey(TraceType block_type,
-                                                     TableReaderCaller caller) {
+bool BlockCacheTraceHelper::IsGetOrMultiGetOnDataBlock(
+    TraceType block_type, TableReaderCaller caller) {
   return (block_type == TraceType::kBlockTraceDataBlock) &&
-         (caller == TableReaderCaller::kUserGet ||
-          caller == TableReaderCaller::kUserMultiGet);
+         IsGetOrMultiGet(caller);
 }
 
-bool BlockCacheTraceHelper::ShouldTraceGetId(TableReaderCaller caller) {
+bool BlockCacheTraceHelper::IsGetOrMultiGet(TableReaderCaller caller) {
   return caller == TableReaderCaller::kUserGet ||
          caller == TableReaderCaller::kUserMultiGet;
 }
@@ -81,12 +80,13 @@ Status BlockCacheTraceWriter::WriteBlockAccess(
   trace.payload.push_back(record.caller);
   trace.payload.push_back(record.is_cache_hit);
   trace.payload.push_back(record.no_insert);
-  if (BlockCacheTraceHelper::ShouldTraceGetId(record.caller)) {
+  if (BlockCacheTraceHelper::IsGetOrMultiGet(record.caller)) {
     PutFixed64(&trace.payload, record.get_id);
-  }
-  if (BlockCacheTraceHelper::ShouldTraceReferencedKey(record.block_type,
-                                                      record.caller)) {
+    trace.payload.push_back(record.get_from_user_specified_snapshot);
     PutLengthPrefixedSlice(&trace.payload, referenced_key);
+  }
+  if (BlockCacheTraceHelper::IsGetOrMultiGetOnDataBlock(record.block_type,
+                                                        record.caller)) {
     PutFixed64(&trace.payload, record.referenced_data_size);
     PutFixed64(&trace.payload, record.num_keys_in_block);
     trace.payload.push_back(record.referenced_key_exist_in_block);
@@ -216,20 +216,28 @@ Status BlockCacheTraceReader::ReadAccess(BlockCacheTraceRecord* record) {
   }
   record->no_insert = static_cast<Boolean>(enc_slice[0]);
   enc_slice.remove_prefix(kCharSize);
-  if (BlockCacheTraceHelper::ShouldTraceGetId(record->caller)) {
+  if (BlockCacheTraceHelper::IsGetOrMultiGet(record->caller)) {
     if (!GetFixed64(&enc_slice, &record->get_id)) {
       return Status::Incomplete(
           "Incomplete access record: Failed to read the get id.");
     }
-  }
-  if (BlockCacheTraceHelper::ShouldTraceReferencedKey(record->block_type,
-                                                      record->caller)) {
+    if (enc_slice.empty()) {
+      return Status::Incomplete(
+          "Incomplete access record: Failed to read "
+          "get_from_user_specified_snapshot.");
+    }
+    record->get_from_user_specified_snapshot =
+        static_cast<Boolean>(enc_slice[0]);
+    enc_slice.remove_prefix(kCharSize);
     Slice referenced_key;
     if (!GetLengthPrefixedSlice(&enc_slice, &referenced_key)) {
       return Status::Incomplete(
           "Incomplete access record: Failed to read the referenced key.");
     }
     record->referenced_key = referenced_key.ToString();
+  }
+  if (BlockCacheTraceHelper::IsGetOrMultiGetOnDataBlock(record->block_type,
+                                                        record->caller)) {
     if (!GetFixed64(&enc_slice, &record->referenced_data_size)) {
       return Status::Incomplete(
           "Incomplete access record: Failed to read the referenced data size.");

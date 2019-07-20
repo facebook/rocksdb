@@ -325,7 +325,7 @@ class ReadaheadSequentialFileTest : public testing::Test,
                                     public testing::WithParamInterface<size_t> {
  public:
   static std::vector<size_t> GetReadaheadSizeList() {
-    return {1lu << 12, 1lu << 16};
+    return {1lu << 8, 1lu << 12, 1lu << 16, 1lu << 18};
   }
   void SetUp() override {
     readahead_size_ = GetParam();

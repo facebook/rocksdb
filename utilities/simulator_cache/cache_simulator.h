@@ -137,7 +137,6 @@ class HybridRowBlockCacheSimulator : public PrioritizedCacheSimulator {
  private:
   // Row key is a concatenation of the access's fd_number and the referenced
   // user key.
-  // TODO(haoyu): the row key should contain sequence number.
   std::string ComputeRowKey(const BlockCacheTraceRecord& access);
 
   enum InsertResult : char {

@@ -738,7 +738,7 @@ private:
     if (s.ok()) {
       buffer_offset_ = offset;
       buffer_.Size(result.size());
-      assert(buffer_.BufferStart() == result.data());
+      assert(result.size() == 0 || buffer_.BufferStart() == result.data());
     }
     return s;
   }
@@ -886,7 +886,7 @@ class ReadaheadSequentialFile : public SequentialFile {
     if (s.ok()) {
       buffer_offset_ = read_offset_;
       buffer_.Size(result.size());
-      assert(buffer_.BufferStart() == result.data());
+      assert(result.size() == 0 || buffer_.BufferStart() == result.data());
     }
     return s;
   }
@@ -1027,6 +1027,11 @@ std::unique_ptr<RandomAccessFile> NewReadaheadRandomAccessFile(
 std::unique_ptr<SequentialFile>
 SequentialFileReader::NewReadaheadSequentialFile(
     std::unique_ptr<SequentialFile>&& file, size_t readahead_size) {
+  if (file->GetRequiredBufferAlignment() >= readahead_size) {
+    // Short-circuit and return the original file if readahead_size is
+    // too small and hence doesn't make sense to be used for prefetching.
+    return std::move(file);
+  }
   std::unique_ptr<SequentialFile> result(
       new ReadaheadSequentialFile(std::move(file), readahead_size));
   return result;
