@@ -3814,6 +3814,7 @@ TEST_F(DBTest2, RowCacheSnapshot) {
 
   db_->ReleaseSnapshot(s1);
   db_->ReleaseSnapshot(s2);
+  db_->ReleaseSnapshot(s3);
 }
 #endif  // ROCKSDB_LITE
 }  // namespace rocksdb
