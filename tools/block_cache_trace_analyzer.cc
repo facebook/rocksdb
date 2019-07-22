@@ -7,10 +7,10 @@
 #ifdef GFLAGS
 #include "tools/block_cache_trace_analyzer.h"
 
-#include <stdio.h>
-#include <stdlib.h>
 #include <algorithm>
 #include <cinttypes>
+#include <cstdio>
+#include <cstdlib>
 #include <fstream>
 #include <iomanip>
 #include <iostream>
@@ -139,9 +139,6 @@ DEFINE_int32(analyze_correlation_coefficients_max_number_of_values, 1000000,
              "The maximum number of values for a feature. If the number of "
              "values for a feature is larger than this max, it randomly "
              "selects 'max' number of values.");
-DEFINE_int32(stop_when_memory_is_low, 0,
-             "The analyzer will terminate when the avaiable memory is below "
-             "than the specified threshold. Unit: GB");
 DEFINE_string(human_readable_trace_file_path, "",
               "The filt path that saves human readable access records.");
 
@@ -316,22 +313,6 @@ std::map<uint64_t, uint64_t> adjust_time_unit(
   }
   return adjusted_time_stats;
 }
-
-int get_free_memory() {
-  FILE* fpipe = nullptr;
-  std::string command = "free -g | grep \"Mem\" | grep -o '[^ ]*$'";
-  char c = 0;
-  std::string output;
-  if (0 == (fpipe = (FILE*)popen(command.c_str(), "r"))) {
-    fprintf(stderr, "popen() failed.");
-    return -1;
-  }
-  while (fread(&c, sizeof c, 1, fpipe)) {
-    output += c;
-  }
-  pclose(fpipe);
-  return std::stoi(output);
-}
 }  // namespace
 
 void BlockCacheTraceAnalyzer::WriteMissRatioCurves() const {
@@ -414,10 +395,7 @@ void BlockCacheTraceAnalyzer::UpdateFeatureVectors(
 }
 
 void BlockCacheTraceAnalyzer::WriteMissRatioTimeline(uint64_t time_unit) const {
-  if (!cache_simulator_) {
-    return;
-  }
-  if (output_dir_.empty()) {
+  if (!cache_simulator_ || output_dir_.empty()) {
     return;
   }
   std::map<uint64_t, std::map<std::string, std::map<uint64_t, double>>>
@@ -497,10 +475,7 @@ void BlockCacheTraceAnalyzer::WriteMissRatioTimeline(uint64_t time_unit) const {
 }
 
 void BlockCacheTraceAnalyzer::WriteMissTimeline(uint64_t time_unit) const {
-  if (!cache_simulator_) {
-    return;
-  }
-  if (output_dir_.empty()) {
+  if (!cache_simulator_ || output_dir_.empty()) {
     return;
   }
   std::map<uint64_t, std::map<std::string, std::map<uint64_t, uint64_t>>>
@@ -1543,11 +1518,6 @@ Status BlockCacheTraceAnalyzer::Analyze() {
               duration, duration > 0 ? access_sequence_number_ / duration : 0,
               trace_duration, miss_ratio_stats_.miss_ratio());
       time_interval++;
-      int free_mem_gb = get_free_memory();
-      if (free_mem_gb != -1 && free_mem_gb < FLAGS_stop_when_memory_is_low) {
-        printf("The analyzer will run out of memory soon. Exit.\n");
-        break;
-      }
     }
   }
   if (human_readable_trace_file_writer_) {
@@ -1738,15 +1708,6 @@ void BlockCacheTraceAnalyzer::PrintAccessCountStats(bool user_access_only,
               "Top %" PRIu32 " access count blocks access_count=%" PRIu64
               " %s\n",
               top_k, naccess_it->first, statistics.c_str());
-      // if (block->referenced_data_size > block->block_size) {
-      //   for (auto const& ref_key_it : block->key_num_access_map) {
-      //     ParsedInternalKey internal_key;
-      //     ParseInternalKey(ref_key_it.first, &internal_key);
-      //     printf("######%lu %lu %d %s\n", block->referenced_data_size,
-      //     block->block_size, internal_key.type,
-      //     internal_key.user_key.ToString().c_str());
-      //   }
-      // }
     }
   }
 
