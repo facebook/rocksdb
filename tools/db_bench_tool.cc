@@ -3049,8 +3049,9 @@ class Benchmark {
   std::shared_ptr<TimestampEmulator> timestamp_emulator_;
   std::unique_ptr<port::Thread> secondary_update_thread_;
   std::atomic<int> secondary_update_stopped_{0};
+#ifndef ROCKSDB_LITE
   uint64_t secondary_db_updates_ = 0;
-
+#endif  // ROCKSDB_LITE
   struct ThreadArg {
     Benchmark* bm;
     SharedState* shared;

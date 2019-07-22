@@ -1637,7 +1637,7 @@ void BlockCacheTraceAnalyzer::PrintAccessCountStats(bool user_access_only,
     }
     fprintf(stdout,
             "Bottom %" PRIu32 " access count. Access count=%" PRIu64
-            " nblocks=%" PRIu64 " %s\n",
+            " nblocks=%" ROCKSDB_PRIszt " %s\n",
             bottom_k, naccess_it->first, naccess_it->second.size(),
             statistics.c_str());
   }
