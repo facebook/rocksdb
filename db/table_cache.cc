@@ -11,6 +11,7 @@
 
 #include "db/dbformat.h"
 #include "db/range_tombstone_fragmenter.h"
+#include "db/snapshot_impl.h"
 #include "db/version_edit.h"
 #include "file/filename.h"
 
@@ -24,6 +25,7 @@
 #include "table/table_builder.h"
 #include "table/table_reader.h"
 #include "test_util/sync_point.h"
+#include "util/cast_util.h"
 #include "util/coding.h"
 #include "util/file_reader_writer.h"
 #include "util/stop_watch.h"
@@ -280,12 +282,18 @@ Status TableCache::Get(const ReadOptions& options,
     // If the snapshot is larger than the largest seqno in the file,
     // all data should be exposed to the snapshot, so we treat it
     // the same as there is no snapshot. The exception is that if
-    // a seqno checking callback is registered, some internal keys
+    // a seq-checking callback is registered, some internal keys
     // may still be filtered out.
     uint64_t seq_no = 0;
+    // Maybe we can include the whole file ifsnapshot == fd.largest_seqno.
     if (options.snapshot != nullptr &&
         (get_context->has_callback() ||
-         options.snapshot->GetSequenceNumber() <= fd.largest_seqno)) {
+         static_cast_with_check<const SnapshotImpl, const Snapshot>(
+             options.snapshot)
+                 ->GetSequenceNumber() <= fd.largest_seqno)) {
+      // We should consider to use options.snapshot->GetSequenceNumber()
+      // instead of GetInternalKeySeqno(k), which will make the code
+      // easier to understand.
       seq_no = 1 + GetInternalKeySeqno(k);
     }
 
