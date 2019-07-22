@@ -141,6 +141,7 @@ atomic_flush_params = {
     "write_buffer_size": 1024 * 1024,
     # disable pipelined write when test_atomic_flush is true
     "enable_pipelined_write": 0,
+    "snap_refresh_nanos": 0,
 }
 
 
