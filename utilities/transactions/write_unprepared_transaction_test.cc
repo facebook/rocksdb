@@ -146,7 +146,8 @@ TEST_P(WriteUnpreparedTransactionTest, ReadYourOwnWriteStress) {
     std::shuffle(keys.begin(), keys.end(), rand);
 
     // This counter will act as a "sequence number" to help us validate
-    // visibility logic with snapshots.
+    // visibility logic with snapshots. If we had direct access to the seqno of
+    // snapshots and key/values, then we should directly compare those instead.
     std::atomic<int64_t> counter(0);
 
     std::function<void(uint32_t)> stress_thread = [&](int id) {
@@ -211,18 +212,25 @@ TEST_P(WriteUnpreparedTransactionTest, ReadYourOwnWriteStress) {
                               const std::string& value) {
           if (owned_keys.count(key) > 0) {
             ASSERT_EQ(value.size(), 16);
+
+            // Since this key is part of owned_keys, then this key must be
+            // unprepared by this transaction identified by 'id'
             ASSERT_EQ(((int64_t*)value.c_str())[0], id);
             if (a == REFRESH_SNAPSHOT) {
-              // Since snapshot is refreshed after the last unprepared write,
-              // snapshot_num should be greater.
+              // If refresh snapshot is true, then the snapshot is refreshed
+              // after every Put(), meaning that the current snapshot in
+              // snapshot_num must be greater than the "seqno" of any keys
+              // written by the current transaction.
               ASSERT_LT(((int64_t*)value.c_str())[1], snapshot_num);
             } else {
+              // If refresh snapshot is not on, then the snapshot was taken at
+              // the beginning of the transaction, meaning all writes must come
+              // after snapshot_num
               ASSERT_GT(((int64_t*)value.c_str())[1], snapshot_num);
             }
           } else if (a >= RO_SNAPSHOT) {
-            // If we're reading using a snapshot, then the key value should
-            // always be less than snapshot_num. We can't say much about id
-            // though.
+            // If this is not an unprepared key, just assert that the key
+            // "seqno" is smaller than the snapshot seqno.
             ASSERT_EQ(value.size(), 16);
             ASSERT_LT(((int64_t*)value.c_str())[1], snapshot_num);
           }
