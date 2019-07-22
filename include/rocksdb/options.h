@@ -1514,6 +1514,16 @@ struct SizeApproximationOptions {
   // Defines whether the returned size should include data serialized to disk.
   // If set to false, include_memtabtles must be true.
   bool include_files = true;
+  // When approximating the files total size that is used to store a keys range
+  // using DB::GetApproximateSizes, allow approximation with an error margin of
+  // up to total_files_size * files_size_error_margin. This allows to take some
+  // shortcuts in files size approximation, resulting in better performance,
+  // while guaranteeing the resulting error is within a reasonable margin.
+  // E.g., if the value is 0.1, then the error margin of the returned files size
+  // approximation will be within 10%.
+  // If the value is non-positive - a more precise yet more CPU intensive
+  // estimation is performed.
+  double files_size_error_margin = -1.0;
 };
 
 }  // namespace rocksdb
