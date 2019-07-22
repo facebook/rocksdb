@@ -467,7 +467,7 @@ void BlockCacheTraceAnalyzer::WriteMissRatioTimeline(uint64_t time_unit) const {
   }
   for (auto const& it : cs_name_timeline) {
     const std::string output_miss_ratio_timeline_path =
-        output_dir_ + "/" + BytesToHumanString(it.first) + "_" +
+        output_dir_ + "/" + std::to_string(it.first) + "_" +
         std::to_string(time_unit) + "_" + kFileNameSuffixMissRatioTimeline;
     std::ofstream out(output_miss_ratio_timeline_path);
     if (!out.is_open()) {
@@ -536,7 +536,7 @@ void BlockCacheTraceAnalyzer::WriteMissTimeline(uint64_t time_unit) const {
   }
   for (auto const& it : cs_name_timeline) {
     const std::string output_miss_ratio_timeline_path =
-        output_dir_ + "/" + BytesToHumanString(it.first) + "_" +
+        output_dir_ + "/" + std::to_string(it.first) + "_" +
         std::to_string(time_unit) + "_" + kFileNameSuffixMissTimeline;
     std::ofstream out(output_miss_ratio_timeline_path);
     if (!out.is_open()) {

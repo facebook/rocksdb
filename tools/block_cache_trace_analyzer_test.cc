@@ -274,7 +274,7 @@ TEST_F(BlockCacheTracerTest, BlockCacheAnalyzer) {
     for (auto const& expected_capacity : expected_capacities) {
       for (auto const& time_unit : time_units) {
         const std::string miss_ratio_timeline_path =
-            test_path_ + "/" + BytesToHumanString(expected_capacity) + "_" +
+            test_path_ + "/" + std::to_string(expected_capacity) + "_" +
             time_unit + "_miss_ratio_timeline";
         std::ifstream mrt_file(miss_ratio_timeline_path);
         // Read header.
@@ -302,7 +302,7 @@ TEST_F(BlockCacheTracerTest, BlockCacheAnalyzer) {
       }
       for (auto const& time_unit : time_units) {
         const std::string miss_timeline_path =
-            test_path_ + "/" + BytesToHumanString(expected_capacity) + "_" +
+            test_path_ + "/" + std::to_string(expected_capacity) + "_" +
             time_unit + "_miss_timeline";
         std::ifstream mt_file(miss_timeline_path);
         // Read header.
