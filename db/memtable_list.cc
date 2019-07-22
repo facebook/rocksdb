@@ -109,21 +109,19 @@ bool MemTableListVersion::Get(const LookupKey& key, std::string* value,
                      is_blob_index);
 }
 
-bool MemTableListVersion::GetMergeOperands(const LookupKey& key,
-		  PinnableSlice* slice, int size,
-		  Status* s, MergeContext* merge_context,
-		  SequenceNumber* max_covering_tombstone_seq,
-		  const ReadOptions& read_opts,
-		  ReadCallback* callback,
-		  bool* is_blob_index) {
-	for (MemTable* memtable : memlist_) {
-		bool done = memtable->GetMergeOperands(key, slice, size, s, merge_context,
-				max_covering_tombstone_seq, read_opts, callback, is_blob_index);
-		if (done) {
-			return true;
-		}
-	}
-	return false;
+bool MemTableListVersion::GetMergeOperands(
+    const LookupKey& key, PinnableSlice* slice, int num_records, Status* s,
+    MergeContext* merge_context, SequenceNumber* max_covering_tombstone_seq,
+    const ReadOptions& read_opts, ReadCallback* callback, bool* is_blob_index) {
+  for (MemTable* memtable : memlist_) {
+    bool done = memtable->GetMergeOperands(
+        key, slice, num_records, s, merge_context, max_covering_tombstone_seq,
+        read_opts, callback, is_blob_index);
+    if (done) {
+      return true;
+    }
+  }
+  return false;
 }
 
 bool MemTableListVersion::GetFromHistory(

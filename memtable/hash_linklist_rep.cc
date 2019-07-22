@@ -177,7 +177,8 @@ class HashLinkListRep : public MemTableRep {
   size_t ApproximateMemoryUsage() override;
 
   void Get(const LookupKey& k, void* callback_args,
-           bool (*callback_func)(void* arg, const char* entry, bool do_merge), bool do_merge) override;
+           bool (*callback_func)(void* arg, const char* entry, bool do_merge),
+           bool do_merge) override;
 
   ~HashLinkListRep() override;
 
@@ -714,7 +715,9 @@ size_t HashLinkListRep::ApproximateMemoryUsage() {
 }
 
 void HashLinkListRep::Get(const LookupKey& k, void* callback_args,
-                          bool (*callback_func)(void* arg, const char* entry, bool do_merge), bool do_merge) {
+                          bool (*callback_func)(void* arg, const char* entry,
+                                                bool do_merge),
+                          bool do_merge) {
   auto transformed = transform_->Transform(k.user_key());
   auto bucket = GetBucket(transformed);
 

@@ -128,7 +128,6 @@ TEST_F(DBMergeOperatorTest, LimitMergeOperands) {
   ASSERT_OK(Merge("k4", "de"));
   ASSERT_TRUE(db_->Get(ReadOptions(), "k4", &value).ok());
   ASSERT_EQ(value, "cd,de");
-
 }
 
 TEST_F(DBMergeOperatorTest, MergeErrorOnRead) {

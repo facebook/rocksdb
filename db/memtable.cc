@@ -677,18 +677,17 @@ static bool SaveValue(void* arg, const char* entry, bool do_merge) {
         Slice v = GetLengthPrefixedSlice(key_ptr + key_length);
         *(s->status) = Status::OK();
         if (*(s->merge_in_progress)) {
-        	if (!do_merge) {
-          	  merge_context->PushOperand(
-          			  v, s->inplace_update_support == false /* operand_pinned */);
-        	}
-        	else {
-                if (s->value != nullptr) {
-                  *(s->status) = MergeHelper::TimedFullMerge(
-                      merge_operator, s->key->user_key(), &v,
-                      merge_context->GetOperands(), s->value, s->logger,
-                      s->statistics, s->env_, nullptr /* result_operand */, true);
-                }
-        	}
+          if (!do_merge) {
+            merge_context->PushOperand(
+                v, s->inplace_update_support == false /* operand_pinned */);
+          } else {
+            if (s->value != nullptr) {
+              *(s->status) = MergeHelper::TimedFullMerge(
+                  merge_operator, s->key->user_key(), &v,
+                  merge_context->GetOperands(), s->value, s->logger,
+                  s->statistics, s->env_, nullptr /* result_operand */, true);
+            }
+          }
         } else if (s->value != nullptr) {
           s->value->assign(v.data(), v.size());
         }
@@ -732,7 +731,8 @@ static bool SaveValue(void* arg, const char* entry, bool do_merge) {
         *(s->merge_in_progress) = true;
         merge_context->PushOperand(
             v, s->inplace_update_support == false /* operand_pinned */);
-        if (do_merge && merge_operator->ShouldMerge(merge_context->GetOperandsDirectionBackward())) {
+        if (do_merge && merge_operator->ShouldMerge(
+                            merge_context->GetOperandsDirectionBackward())) {
           *(s->status) = MergeHelper::TimedFullMerge(
               merge_operator, s->key->user_key(), nullptr,
               merge_context->GetOperands(), s->value, s->logger, s->statistics,
@@ -816,7 +816,7 @@ bool MemTable::Get(const LookupKey& key, std::string* value, Status* s,
     saver.env_ = env_;
     saver.callback_ = callback;
     saver.is_blob_index = is_blob_index;
-    table_->Get(key, &saver, SaveValue, true);
+    table_->Get(key, &saver, SaveValue);
 
     *seq = saver.seq;
   }
@@ -829,27 +829,26 @@ bool MemTable::Get(const LookupKey& key, std::string* value, Status* s,
   return found_final_value;
 }
 
-bool MemTable::GetMergeOperands(const LookupKey& key,
-		PinnableSlice* slice, int size,
-		Status* s, MergeContext* merge_context,
-        SequenceNumber* max_covering_tombstone_seq,
-		const ReadOptions& read_opts,
-        ReadCallback* callback,
-        bool* is_blob_index) {
+bool MemTable::GetMergeOperands(const LookupKey& key, PinnableSlice* slice,
+                                int num_records, Status* s,
+                                MergeContext* merge_context,
+                                SequenceNumber* max_covering_tombstone_seq,
+                                const ReadOptions& read_opts,
+                                ReadCallback* callback, bool* is_blob_index) {
   // The sequence number is updated synchronously in version_set.h
   if (IsEmpty()) {
-	// Avoiding recording stats for speed.
-	return false;
+    // Avoiding recording stats for speed.
+    return false;
   }
   PERF_TIMER_GUARD(get_from_memtable_time);
 
   std::unique_ptr<FragmentedRangeTombstoneIterator> range_del_iter(
-	  NewRangeTombstoneIterator(read_opts,
-								GetInternalKeySeqno(key.internal_key())));
+      NewRangeTombstoneIterator(read_opts,
+                                GetInternalKeySeqno(key.internal_key())));
   if (range_del_iter != nullptr) {
-	*max_covering_tombstone_seq =
-		std::max(*max_covering_tombstone_seq,
-				 range_del_iter->MaxCoveringTombstoneSeqnum(key.user_key()));
+    *max_covering_tombstone_seq =
+        std::max(*max_covering_tombstone_seq,
+                 range_del_iter->MaxCoveringTombstoneSeqnum(key.user_key()));
   }
 
   Slice user_key = key.user_key();
@@ -858,55 +857,57 @@ bool MemTable::GetMergeOperands(const LookupKey& key,
   bool may_contain = true;
   size_t ts_sz = GetInternalKeyComparator().user_comparator()->timestamp_size();
   if (bloom_filter_) {
-	// when both memtable_whole_key_filtering and prefix_extractor_ are set,
-	// only do whole key filtering for Get() to save CPU
-	if (moptions_.memtable_whole_key_filtering) {
-	  may_contain =
-		  bloom_filter_->MayContain(StripTimestampFromUserKey(user_key, ts_sz));
-	} else {
-	  assert(prefix_extractor_);
-	  may_contain =
-		  !prefix_extractor_->InDomain(user_key) ||
-		  bloom_filter_->MayContain(prefix_extractor_->Transform(user_key));
-	}
+    // when both memtable_whole_key_filtering and prefix_extractor_ are set,
+    // only do whole key filtering for Get() to save CPU
+    if (moptions_.memtable_whole_key_filtering) {
+      may_contain =
+          bloom_filter_->MayContain(StripTimestampFromUserKey(user_key, ts_sz));
+    } else {
+      assert(prefix_extractor_);
+      may_contain =
+          !prefix_extractor_->InDomain(user_key) ||
+          bloom_filter_->MayContain(prefix_extractor_->Transform(user_key));
+    }
   }
   if (bloom_filter_ && !may_contain) {
-	// iter is null if prefix bloom says the key does not exist
-	PERF_COUNTER_ADD(bloom_memtable_miss_count, 1);
+    // iter is null if prefix bloom says the key does not exist
+    PERF_COUNTER_ADD(bloom_memtable_miss_count, 1);
   } else {
-	if (bloom_filter_) {
-	  PERF_COUNTER_ADD(bloom_memtable_hit_count, 1);
-	}
-	Saver saver;
-	saver.status = s;
-	saver.found_final_value = &found_final_value;
-	saver.merge_in_progress = &merge_in_progress;
-	saver.key = &key;
-	saver.seq = kMaxSequenceNumber;
-	saver.mem = this;
-	saver.merge_context = merge_context;
-	saver.max_covering_tombstone_seq = *max_covering_tombstone_seq;
-	saver.merge_operator = moptions_.merge_operator;
-	saver.logger = moptions_.info_log;
-	saver.inplace_update_support = moptions_.inplace_update_support;
-	saver.statistics = moptions_.statistics;
-	saver.env_ = env_;
-	saver.callback_ = callback;
-	saver.is_blob_index = is_blob_index;
-	table_->Get(key, &saver, SaveValue, false);
-	if (saver.merge_context->GetNumOperands() > (unsigned)size) {
-		*s = Status::Aborted("Number of merge operands: "
-				+std::to_string(saver.merge_context->GetNumOperands())+" more than size of vector");
-	}
-	for (Slice sl : saver.merge_context->GetOperands()) {
-		slice->PinSelf(sl);
-		slice++;
-	}
+    if (bloom_filter_) {
+      PERF_COUNTER_ADD(bloom_memtable_hit_count, 1);
+    }
+    Saver saver;
+    saver.status = s;
+    saver.found_final_value = &found_final_value;
+    saver.merge_in_progress = &merge_in_progress;
+    saver.key = &key;
+    saver.seq = kMaxSequenceNumber;
+    saver.mem = this;
+    saver.merge_context = merge_context;
+    saver.max_covering_tombstone_seq = *max_covering_tombstone_seq;
+    saver.merge_operator = moptions_.merge_operator;
+    saver.logger = moptions_.info_log;
+    saver.inplace_update_support = moptions_.inplace_update_support;
+    saver.statistics = moptions_.statistics;
+    saver.env_ = env_;
+    saver.callback_ = callback;
+    saver.is_blob_index = is_blob_index;
+    table_->Get(key, &saver, SaveValue, false);
+    if (saver.merge_context->GetNumOperands() > (unsigned)num_records) {
+      *s = Status::Aborted(
+          "Number of merge operands: " +
+          std::to_string(saver.merge_context->GetNumOperands()) +
+          " more than size of vector");
+    }
+    for (Slice sl : saver.merge_context->GetOperands()) {
+      slice->PinSelf(sl);
+      slice++;
+    }
   }
 
   // No change to value, since we have not yet found a Put/Delete
   if (!found_final_value && merge_in_progress) {
-	*s = Status::MergeInProgress();
+    *s = Status::MergeInProgress();
   }
   PERF_COUNTER_ADD(get_from_memtable_count, 1);
 
@@ -1086,7 +1087,9 @@ size_t MemTable::CountSuccessiveMergeEntries(const LookupKey& key) {
 }
 
 void MemTableRep::Get(const LookupKey& k, void* callback_args,
-                      bool (*callback_func)(void* arg, const char* entry, bool do_merge), bool do_merge) {
+                      bool (*callback_func)(void* arg, const char* entry,
+                                            bool do_merge),
+                      bool do_merge) {
   auto iter = GetDynamicPrefixIterator();
   for (iter->Seek(k.internal_key(), k.memtable_key().data());
        iter->Valid() && callback_func(callback_args, iter->key(), do_merge);

@@ -204,13 +204,15 @@ class MemTable {
                read_opts, callback, is_blob_index);
   }
 
-  bool GetMergeOperands(const LookupKey& key,
-		  PinnableSlice* slice, int size,
-		  Status* s, MergeContext* merge_context,
-          SequenceNumber* max_covering_tombstone_seq,
-		  const ReadOptions& read_opts,
-          ReadCallback* callback = nullptr,
-          bool* is_blob_index = nullptr);
+  // Returns all the merge operands corresponding to the key. If the
+  // number of merge operands in DB  is greater than num_records then
+  // no merge operands are returned and status is Aborted.
+  bool GetMergeOperands(const LookupKey& key, PinnableSlice* slice,
+                        int num_records, Status* s, MergeContext* merge_context,
+                        SequenceNumber* max_covering_tombstone_seq,
+                        const ReadOptions& read_opts,
+                        ReadCallback* callback = nullptr,
+                        bool* is_blob_index = nullptr);
 
   // Attempts to update the new_value inplace, else does normal Add
   // Pseudocode

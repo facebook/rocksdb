@@ -1671,8 +1671,9 @@ void Version::Get(const ReadOptions& read_options, const LookupKey& k,
   GetContext get_context(
       user_comparator(), merge_operator_, info_log_, db_statistics_,
       status->ok() ? GetContext::kNotFound : GetContext::kMerge, user_key,
-      do_merge ? value : nullptr, value_found, merge_context, max_covering_tombstone_seq, this->env_,
-      seq, merge_operator_ ? &pinned_iters_mgr : nullptr, callback, is_blob,
+      do_merge ? value : nullptr, value_found, merge_context,
+      max_covering_tombstone_seq, this->env_, seq,
+      merge_operator_ ? &pinned_iters_mgr : nullptr, callback, is_blob,
       tracing_get_id, do_merge);
 
   // Pin blocks that we read to hold merge operands
@@ -1730,45 +1731,50 @@ void Version::Get(const ReadOptions& read_options, const LookupKey& k,
         // TODO: update per-level perfcontext user_key_return_count for kMerge
         break;
       case GetContext::kFound:
-   	        if (fp.GetHitFileLevel() == 0) {
-   	          RecordTick(db_statistics_, GET_HIT_L0);
-   	        } else if (fp.GetHitFileLevel() == 1) {
-   	          RecordTick(db_statistics_, GET_HIT_L1);
-   	        } else if (fp.GetHitFileLevel() >= 2) {
-   	          RecordTick(db_statistics_, GET_HIT_L2_AND_UP);
-   	      }
-   	      PERF_COUNTER_BY_LEVEL_ADD(user_key_return_count, 1, fp.GetHitFileLevel());
-      	  if (do_merge){
-   	        return;
-    	  } else {
-       		  if (merge_context->GetNumOperands() > (unsigned)num_records) {
-       				*status = Status::Aborted("NUmber of merge operands: "
-       						+std::to_string(merge_context->GetNumOperands())+" more than size of vector");
-       				return;
-       		  }
-       		  for (Slice sl : merge_context->GetOperands()){
-       			  value->PinSelf(sl);
-       			  value++;
-       		  }
-       		  return;
-    	  }
+        if (fp.GetHitFileLevel() == 0) {
+          RecordTick(db_statistics_, GET_HIT_L0);
+        } else if (fp.GetHitFileLevel() == 1) {
+          RecordTick(db_statistics_, GET_HIT_L1);
+        } else if (fp.GetHitFileLevel() >= 2) {
+          RecordTick(db_statistics_, GET_HIT_L2_AND_UP);
+        }
+        PERF_COUNTER_BY_LEVEL_ADD(user_key_return_count, 1,
+                                  fp.GetHitFileLevel());
+        if (do_merge) {
+          return;
+        } else {
+          if (merge_context->GetNumOperands() > (unsigned)num_records) {
+            *status = Status::Aborted(
+                "NUmber of merge operands: " +
+                std::to_string(merge_context->GetNumOperands()) +
+                " more than size of vector");
+            return;
+          }
+          for (Slice sl : merge_context->GetOperands()) {
+            value->PinSelf(sl);
+            value++;
+          }
+          return;
+        }
       case GetContext::kDeleted:
-		  // Use empty error message for speed
-		  *status = Status::NotFound();
-    	  if (do_merge) {
-    		  return;
-    	  } else {
-    		  if (merge_context->GetNumOperands() > (unsigned)num_records) {
-					*status = Status::Aborted("NUmber of merge operands: "
-							+std::to_string(merge_context->GetNumOperands())+" more than size of vector");
-					return;
-			  }
-			  for (Slice sl : merge_context->GetOperands()){
-				  value->PinSelf(sl);
-				  value++;
-			  }
-			  return;
-    	  }
+        // Use empty error message for speed
+        *status = Status::NotFound();
+        if (do_merge) {
+          return;
+        } else {
+          if (merge_context->GetNumOperands() > (unsigned)num_records) {
+            *status = Status::Aborted(
+                "NUmber of merge operands: " +
+                std::to_string(merge_context->GetNumOperands()) +
+                " more than size of vector");
+            return;
+          }
+          for (Slice sl : merge_context->GetOperands()) {
+            value->PinSelf(sl);
+            value++;
+          }
+          return;
+        }
       case GetContext::kCorrupt:
         *status = Status::Corruption("corrupted key for ", user_key);
         return;
@@ -1785,18 +1791,20 @@ void Version::Get(const ReadOptions& read_options, const LookupKey& k,
     get_context.ReportCounters();
   }
   if (GetContext::kMerge == get_context.State()) {
-	if (!do_merge) {
-	  if (merge_context->GetNumOperands() > (unsigned)num_records) {
-			*status = Status::Aborted("NUmber of merge operands: "
-					+std::to_string(merge_context->GetNumOperands())+" more than size of vector");
-			return;
-	  }
-	  for (Slice sl : merge_context->GetOperands()){
-		  value->PinSelf(sl);
-		  value++;
-	  }
-	  return;
-	}
+    if (!do_merge) {
+      if (merge_context->GetNumOperands() > (unsigned)num_records) {
+        *status =
+            Status::Aborted("NUmber of merge operands: " +
+                            std::to_string(merge_context->GetNumOperands()) +
+                            " more than size of vector");
+        return;
+      }
+      for (Slice sl : merge_context->GetOperands()) {
+        value->PinSelf(sl);
+        value++;
+      }
+      return;
+    }
     if (!merge_operator_) {
       *status =  Status::InvalidArgument(
           "merge_operator is not properly initialized.");

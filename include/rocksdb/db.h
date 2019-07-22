@@ -403,9 +403,13 @@ class DB {
     return Get(options, DefaultColumnFamily(), key, value);
   }
 
+  // Returns all the merge operands corresponding to the key. If the
+  // number of merge operands in DB is greater than num_records
+  // no merge operands are returned and status is Aborted. The Status will
   virtual Status GetMergeOperands(const ReadOptions& options,
-                     ColumnFamilyHandle* column_family, const Slice& key,
-                     PinnableSlice* slice, int num_records) = 0;
+                                  ColumnFamilyHandle* column_family,
+                                  const Slice& key, PinnableSlice* slice,
+                                  int num_records) = 0;
 
   // If keys[i] does not exist in the database, then the i'th returned
   // status will be one for which Status::IsNotFound() is true, and

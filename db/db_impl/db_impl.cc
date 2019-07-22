@@ -1447,30 +1447,30 @@ Status DBImpl::Get(const ReadOptions& read_options,
 Status DBImpl::GetImpl(const ReadOptions& read_options,
                        ColumnFamilyHandle* column_family, const Slice& key,
                        PinnableSlice* pinnable_val, bool* value_found,
-                       ReadCallback* callback, bool* is_blob_index, bool get_val,
-					   int num_records) {
-	  assert(pinnable_val != nullptr);
-	  PERF_CPU_TIMER_GUARD(get_cpu_nanos, env_);
-	  StopWatch sw(env_, stats_, DB_GET);
-	  PERF_TIMER_GUARD(get_snapshot_time);
+                       ReadCallback* callback, bool* is_blob_index,
+                       bool get_val, int num_records) {
+  assert(pinnable_val != nullptr);
+  PERF_CPU_TIMER_GUARD(get_cpu_nanos, env_);
+  StopWatch sw(env_, stats_, DB_GET);
+  PERF_TIMER_GUARD(get_snapshot_time);
 
-	  auto cfh = reinterpret_cast<ColumnFamilyHandleImpl*>(column_family);
-	  auto cfd = cfh->cfd();
+  auto cfh = reinterpret_cast<ColumnFamilyHandleImpl*>(column_family);
+  auto cfd = cfh->cfd();
 
-	  if (tracer_) {
-		// TODO: This mutex should be removed later, to improve performance when
-		// tracing is enabled.
-		InstrumentedMutexLock lock(&trace_mutex_);
-		if (tracer_) {
-		  tracer_->Get(column_family, key);
-		}
-	  }
+  if (tracer_) {
+    // TODO: This mutex should be removed later, to improve performance when
+    // tracing is enabled.
+    InstrumentedMutexLock lock(&trace_mutex_);
+    if (tracer_) {
+      tracer_->Get(column_family, key);
+    }
+  }
 
-	  // Acquire SuperVersion
-	  SuperVersion* sv = GetAndRefSuperVersion(cfd);
+  // Acquire SuperVersion
+  SuperVersion* sv = GetAndRefSuperVersion(cfd);
 
-	  TEST_SYNC_POINT("DBImpl::GetImpl:1");
-	  TEST_SYNC_POINT("DBImpl::GetImpl:2");
+  TEST_SYNC_POINT("DBImpl::GetImpl:1");
+  TEST_SYNC_POINT("DBImpl::GetImpl:2");
 
   SequenceNumber snapshot;
   if (read_options.snapshot != nullptr) {
@@ -1512,9 +1512,9 @@ Status DBImpl::GetImpl(const ReadOptions& read_options,
   TEST_SYNC_POINT("DBImpl::GetImpl:3");
   TEST_SYNC_POINT("DBImpl::GetImpl:4");
 
-	  // Prepare to store a list of merge operations if merge occurs.
-	  MergeContext merge_context;
-	  SequenceNumber max_covering_tombstone_seq = 0;
+  // Prepare to store a list of merge operations if merge occurs.
+  MergeContext merge_context;
+  SequenceNumber max_covering_tombstone_seq = 0;
 
   Status s;
   // First look in the memtable, then in the immutable memtable (if any).

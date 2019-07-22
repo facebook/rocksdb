@@ -69,11 +69,13 @@ public:
  }
 
  void Get(const LookupKey& k, void* callback_args,
-          bool (*callback_func)(void* arg, const char* entry, bool do_merge), bool do_merge) override {
+          bool (*callback_func)(void* arg, const char* entry, bool do_merge),
+          bool do_merge) override {
    SkipListRep::Iterator iter(&skip_list_);
    Slice dummy_slice;
    for (iter.Seek(dummy_slice, k.memtable_key().data());
-        iter.Valid() && callback_func(callback_args, iter.key(), do_merge); iter.Next()) {
+        iter.Valid() && callback_func(callback_args, iter.key(), do_merge);
+        iter.Next()) {
    }
  }
 

@@ -71,13 +71,16 @@ class MemTableListVersion {
                read_opts, callback, is_blob_index);
   }
 
-  bool GetMergeOperands(const LookupKey& key,
-		  PinnableSlice* slice, int size,
-		  Status* s, MergeContext* merge_context,
-          SequenceNumber* max_covering_tombstone_seq,
-		  const ReadOptions& read_opts,
-          ReadCallback* callback = nullptr,
-          bool* is_blob_index = nullptr);
+  // Returns all the merge operands corresponding to the key by searching all
+  // memtables starting from the most recent one. If the number of merge
+  // operands in DB is greater than num_records then no merge operands are
+  // returned and status is Aborted.
+  bool GetMergeOperands(const LookupKey& key, PinnableSlice* slice,
+                        int num_records, Status* s, MergeContext* merge_context,
+                        SequenceNumber* max_covering_tombstone_seq,
+                        const ReadOptions& read_opts,
+                        ReadCallback* callback = nullptr,
+                        bool* is_blob_index = nullptr);
 
   // Similar to Get(), but searches the Memtable history of memtables that
   // have already been flushed.  Should only be used from in-memory only

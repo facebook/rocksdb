@@ -62,7 +62,7 @@ GetContext::GetContext(
       callback_(callback),
       is_blob_index_(is_blob_index),
       tracing_get_id_(tracing_get_id),
-	  do_merge_(do_merge){
+      do_merge_(do_merge) {
   if (seq_) {
     *seq_ = kMaxSequenceNumber;
   }
@@ -231,23 +231,23 @@ bool GetContext::SaveValue(const ParsedInternalKey& parsed_key,
           assert(merge_operator_ != nullptr);
           state_ = kFound;
           if (LIKELY(pinnable_val_ != nullptr)) {
-              Status merge_status = MergeHelper::TimedFullMerge(
-                  merge_operator_, user_key_, &value,
-                  merge_context_->GetOperands(), pinnable_val_->GetSelf(),
-                  logger_, statistics_, env_);
-              pinnable_val_->PinSelf();
-              if (!merge_status.ok()) {
-                state_ = kCorrupt;
-              }
+            Status merge_status = MergeHelper::TimedFullMerge(
+                merge_operator_, user_key_, &value,
+                merge_context_->GetOperands(), pinnable_val_->GetSelf(),
+                logger_, statistics_, env_);
+            pinnable_val_->PinSelf();
+            if (!merge_status.ok()) {
+              state_ = kCorrupt;
+            }
           } else {
-        	  assert (do_merge_ == false);
-    		  if (pinned_iters_mgr() && pinned_iters_mgr()->PinningEnabled() &&
-    	            value_pinner != nullptr) {
-    	          value_pinner->DelegateCleanupsTo(pinned_iters_mgr());
-    	          merge_context_->PushOperand(value, true /*value_pinned*/);
-    	      } else {
-    	          merge_context_->PushOperand(value, false);
-    	      }
+            assert(do_merge_ == false);
+            if (pinned_iters_mgr() && pinned_iters_mgr()->PinningEnabled() &&
+                value_pinner != nullptr) {
+              value_pinner->DelegateCleanupsTo(pinned_iters_mgr());
+              merge_context_->PushOperand(value, true /*value_pinned*/);
+            } else {
+              merge_context_->PushOperand(value, false);
+            }
           }
         }
         if (is_blob_index_ != nullptr) {
@@ -266,16 +266,16 @@ bool GetContext::SaveValue(const ParsedInternalKey& parsed_key,
         } else if (kMerge == state_) {
           state_ = kFound;
           if (LIKELY(pinnable_val_ != nullptr)) {
-        	  if (do_merge_) {
-                  Status merge_status = MergeHelper::TimedFullMerge(
-                      merge_operator_, user_key_, nullptr,
-                      merge_context_->GetOperands(), pinnable_val_->GetSelf(),
-                      logger_, statistics_, env_);
-                  pinnable_val_->PinSelf();
-                  if (!merge_status.ok()) {
-                    state_ = kCorrupt;
-                  }
-        	  }
+            if (do_merge_) {
+              Status merge_status = MergeHelper::TimedFullMerge(
+                  merge_operator_, user_key_, nullptr,
+                  merge_context_->GetOperands(), pinnable_val_->GetSelf(),
+                  logger_, statistics_, env_);
+              pinnable_val_->PinSelf();
+              if (!merge_status.ok()) {
+                state_ = kCorrupt;
+              }
+            }
           }
         }
         return false;
@@ -292,19 +292,20 @@ bool GetContext::SaveValue(const ParsedInternalKey& parsed_key,
           merge_context_->PushOperand(value, false);
         }
         if (do_merge_ && merge_operator_ != nullptr &&
-            merge_operator_->ShouldMerge(merge_context_->GetOperandsDirectionBackward())) {
+            merge_operator_->ShouldMerge(
+                merge_context_->GetOperandsDirectionBackward())) {
           state_ = kFound;
           if (LIKELY(pinnable_val_ != nullptr)) {
-        	  if (do_merge_) {
-                  Status merge_status = MergeHelper::TimedFullMerge(
-                      merge_operator_, user_key_, nullptr,
-                      merge_context_->GetOperands(), pinnable_val_->GetSelf(),
-                      logger_, statistics_, env_);
-                  pinnable_val_->PinSelf();
-                  if (!merge_status.ok()) {
-                    state_ = kCorrupt;
-                  }
-        	  }
+            if (do_merge_) {
+              Status merge_status = MergeHelper::TimedFullMerge(
+                  merge_operator_, user_key_, nullptr,
+                  merge_context_->GetOperands(), pinnable_val_->GetSelf(),
+                  logger_, statistics_, env_);
+              pinnable_val_->PinSelf();
+              if (!merge_status.ok()) {
+                state_ = kCorrupt;
+              }
+            }
           }
           return false;
         }

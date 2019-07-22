@@ -560,20 +560,26 @@ class Version {
                                   const Slice& largest_user_key,
                                   int level, bool* overlap);
 
-  // Lookup the value for key.  If found, store it in *val and
-  // return OK.  Else return a non-OK status.
-  // Uses *operands to store merge_operator operations to apply later.
+  // Lookup the value for key or get all merge operands for key.
+  // If do_merge = true (default) then lookup value.
+  // Behavior if do_merge = true:
+  // 	If found, store it in *value and
+  // 	return OK.  Else return a non-OK status.
+  // 	Uses *operands to store merge_operator operations to apply later.
   //
-  // If the ReadOptions.read_tier is set to do a read-only fetch, then
-  // *value_found will be set to false if it cannot be determined whether
-  // this value exists without doing IO.
+  // 	If the ReadOptions.read_tier is set to do a read-only fetch, then
+  // 	*value_found will be set to false if it cannot be determined whether
+  // 	this value exists without doing IO.
   //
-  // If the key is Deleted, *status will be set to NotFound and
+  // 	If the key is Deleted, *status will be set to NotFound and
   //                        *key_exists will be set to true.
-  // If no key was found, *status will be set to NotFound and
+  // 	If no key was found, *status will be set to NotFound and
   //                      *key_exists will be set to false.
-  // If seq is non-null, *seq will be set to the sequence number found
-  // for the key if a key was found.
+  // 	If seq is non-null, *seq will be set to the sequence number found
+  // 	for the key if a key was found.
+  // Behavior if do_merge = false
+  // 	If the key has any merge operands then store them in value array
+  //	only if the number of merge operands in DB is no more than num_records.
   //
   // REQUIRES: lock is not held
   void Get(const ReadOptions&, const LookupKey& key, PinnableSlice* value,

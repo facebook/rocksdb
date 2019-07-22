@@ -2541,16 +2541,11 @@ class ModelDB : public DB {
   }
 
   using DB::GetMergeOperands;
-  virtual Status GetMergeOperands(const ReadOptions& options,
-            ColumnFamilyHandle* column_family, const Slice& key,
-            PinnableSlice* slice, int size) override {
-
-		(void)options;
-		(void) column_family;
-		(void) key;
-		(void) slice;
-		(void) size;
-		return Status::NotSupported(key);
+  virtual Status GetMergeOperands(const ReadOptions& /*options*/,
+                                  ColumnFamilyHandle* /*column_family*/,
+                                  const Slice& key, PinnableSlice* /*slice*/,
+                                  int /*size*/) override {
+    return Status::NotSupported(key);
   }
 
   using DB::MultiGet;

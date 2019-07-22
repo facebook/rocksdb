@@ -161,10 +161,10 @@ class DBImpl : public DB {
 
   using DB::GetMergeOperands;
   Status GetMergeOperands(const ReadOptions& options,
-          ColumnFamilyHandle* column_family, const Slice& key,
-          PinnableSlice* slice, int num_records) {
-	  return GetImpl(options, column_family, key, slice, nullptr, nullptr,
-			  nullptr, false, num_records);
+                          ColumnFamilyHandle* column_family, const Slice& key,
+                          PinnableSlice* slice, int num_records) {
+    return GetImpl(options, column_family, key, slice, nullptr, nullptr,
+                   nullptr, false, num_records);
   }
 
   using DB::MultiGet;
@@ -405,10 +405,16 @@ class DBImpl : public DB {
 
   // Function that Get and KeyMayExist call with no_io true or false
   // Note: 'value_found' from KeyMayExist propagates here
+  // This function is also used to get all merge operands for a key.
+  // get_val - If true return value else return all merge operands for a key
+  // num_records - number of merge operands to return. If the actual number of
+  // 			merge operands in DB is more than num_records then no
+  // merge 			operands are returned and status is Aborted.
   Status GetImpl(const ReadOptions& options, ColumnFamilyHandle* column_family,
                  const Slice& key, PinnableSlice* value,
                  bool* value_found = nullptr, ReadCallback* callback = nullptr,
-                 bool* is_blob_index = nullptr, bool get_val = true, int num_records = 0);
+                 bool* is_blob_index = nullptr, bool get_val = true,
+                 int num_records = 0);
 
   ArenaWrappedDBIter* NewIteratorImpl(const ReadOptions& options,
                                       ColumnFamilyData* cfd,
