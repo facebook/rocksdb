@@ -21,6 +21,7 @@
 #include <string>
 
 #include "memory/memory_allocator.h"
+#include "rocksdb/cleanable.h"
 #include "rocksdb/options.h"
 #include "rocksdb/table.h"
 #include "util/coding.h"
@@ -216,34 +217,58 @@ struct CompressionDict {
 
 // Holds dictionary and related data, like ZSTD's digested uncompression
 // dictionary.
-struct UncompressionDict {
-#ifdef ROCKSDB_ZSTD_DDICT
-  ZSTD_DDict* zstd_ddict_;
-#endif  // ROCKSDB_ZSTD_DDICT
-  // Block containing the data for the compression dictionary. It may be
-  // redundant with the data held in `zstd_ddict_`.
+struct UncompressionDict : public Cleanable {
+  // Block containing the data for the compression dictionary. It is non-empty
+  // only if the constructor that takes a string parameter is used.
   std::string dict_;
-  // This `Statistics` pointer is intended to be used upon block cache eviction,
-  // so only needs to be populated on `UncompressionDict`s that'll be inserted
-  // into block cache.
-  Statistics* statistics_;
+
+  // Slice pointing to the compression dictionary data. Points to
+  // dict_ if the string constructor is used. In the case of the Slice
+  // constructor, it is a copy of the Slice passed by the caller.
+  Slice slice_;
 
 #ifdef ROCKSDB_ZSTD_DDICT
-  UncompressionDict(std::string dict, bool using_zstd,
-                    Statistics* _statistics = nullptr) {
-#else   // ROCKSDB_ZSTD_DDICT
-  UncompressionDict(std::string dict, bool /*using_zstd*/,
-                    Statistics* _statistics = nullptr) {
+  // Processed version of the contents of slice_ for ZSTD compression.
+  ZSTD_DDict* zstd_ddict_ = nullptr;
 #endif  // ROCKSDB_ZSTD_DDICT
-    dict_ = std::move(dict);
-    statistics_ = _statistics;
+
+  // Slice constructor: it is the caller's responsibility to either
+  // a) make sure slice remains valid throughout the lifecycle of this object OR
+  // b) transfer the management of the underlying resource (e.g. cache handle)
+  // to this object, in which case UncompressionDict is self-contained, and the
+  // resource is guaranteed to be released (via the cleanup logic in Cleanable)
+  // when UncompressionDict is destroyed.
 #ifdef ROCKSDB_ZSTD_DDICT
-    zstd_ddict_ = nullptr;
-    if (!dict_.empty() && using_zstd) {
-      zstd_ddict_ = ZSTD_createDDict_byReference(dict_.data(), dict_.size());
+  UncompressionDict(Slice slice, bool using_zstd)
+#else   // ROCKSDB_ZSTD_DDICT
+  UncompressionDict(Slice slice, bool /*using_zstd*/)
+#endif  // ROCKSDB_ZSTD_DDICT
+      : slice_(std::move(slice)) {
+#ifdef ROCKSDB_ZSTD_DDICT
+    if (!slice_.empty() && using_zstd) {
+      zstd_ddict_ = ZSTD_createDDict_byReference(slice_.data(), slice_.size());
       assert(zstd_ddict_ != nullptr);
     }
 #endif  // ROCKSDB_ZSTD_DDICT
+  }
+
+  // String constructor: results in a self-contained UncompressionDict.
+  UncompressionDict(std::string dict, bool using_zstd)
+      : UncompressionDict(Slice(dict), using_zstd) {
+    dict_ = std::move(dict);
+  }
+
+  UncompressionDict(UncompressionDict&& rhs)
+      : dict_(std::move(rhs.dict_)),
+        slice_(std::move(rhs.slice_))
+#ifdef ROCKSDB_ZSTD_DDICT
+        ,
+        zstd_ddict_(rhs.zstd_ddict_)
+#endif
+  {
+#ifdef ROCKSDB_ZSTD_DDICT
+    rhs.zstd_ddict_ = nullptr;
+#endif
   }
 
   ~UncompressionDict() {
@@ -257,20 +282,34 @@ struct UncompressionDict {
 #endif                 // ROCKSDB_ZSTD_DDICT
   }
 
+  UncompressionDict& operator=(UncompressionDict&& rhs) {
+    if (this == &rhs) {
+      return *this;
+    }
+
+    dict_ = std::move(rhs.dict_);
+    slice_ = std::move(rhs.slice_);
+
+#ifdef ROCKSDB_ZSTD_DDICT
+    zstd_ddict_ = rhs.zstd_ddict_;
+    rhs.zstd_ddict_ = nullptr;
+#endif
+
+    return *this;
+  }
+
+  const Slice& GetRawDict() const { return slice_; }
+
 #ifdef ROCKSDB_ZSTD_DDICT
   const ZSTD_DDict* GetDigestedZstdDDict() const { return zstd_ddict_; }
 #endif  // ROCKSDB_ZSTD_DDICT
-
-  Slice GetRawDict() const { return dict_; }
 
   static const UncompressionDict& GetEmptyDict() {
     static UncompressionDict empty_dict{};
     return empty_dict;
   }
 
-  Statistics* statistics() const { return statistics_; }
-
-  size_t ApproximateMemoryUsage() {
+  size_t ApproximateMemoryUsage() const {
     size_t usage = 0;
     usage += sizeof(struct UncompressionDict);
 #ifdef ROCKSDB_ZSTD_DDICT
@@ -281,11 +320,9 @@ struct UncompressionDict {
   }
 
   UncompressionDict() = default;
-  // Disable copy/move
+  // Disable copy
   UncompressionDict(const CompressionDict&) = delete;
   UncompressionDict& operator=(const CompressionDict&) = delete;
-  UncompressionDict(CompressionDict&&) = delete;
-  UncompressionDict& operator=(CompressionDict&&) = delete;
 };
 
 class CompressionContext {
@@ -725,7 +762,7 @@ inline CacheAllocationPtr Zlib_Uncompress(
     return nullptr;
   }
 
-  Slice compression_dict = info.dict().GetRawDict();
+  const Slice& compression_dict = info.dict().GetRawDict();
   if (compression_dict.size()) {
     // Initialize the compression library's dictionary
     st = inflateSetDictionary(
@@ -1040,7 +1077,7 @@ inline CacheAllocationPtr LZ4_Uncompress(const UncompressionInfo& info,
   auto output = AllocateBlock(output_len, allocator);
 #if LZ4_VERSION_NUMBER >= 10400  // r124+
   LZ4_streamDecode_t* stream = LZ4_createStreamDecode();
-  Slice compression_dict = info.dict().GetRawDict();
+  const Slice& compression_dict = info.dict().GetRawDict();
   if (compression_dict.size()) {
     LZ4_setStreamDecode(stream, compression_dict.data(),
                         static_cast<int>(compression_dict.size()));

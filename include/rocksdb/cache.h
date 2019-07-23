@@ -250,11 +250,6 @@ class Cache {
 
   virtual std::string GetPrintableOptions() const { return ""; }
 
-  // Mark the last inserted object as being a raw data block. This will be used
-  // in tests. The default implementation does nothing.
-  virtual void TEST_mark_as_data_block(const Slice& /*key*/,
-                                       size_t /*charge*/) {}
-
   MemoryAllocator* memory_allocator() const { return memory_allocator_.get(); }
 
  private:
