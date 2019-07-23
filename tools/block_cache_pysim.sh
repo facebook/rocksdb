@@ -17,30 +17,30 @@ fi
 
 trace_file="$1"
 result_dir="$2"
-downsaple_size="$3"
+downsample_size="$3"
 warmup_seconds="$4"
 max_jobs="$5"
 current_jobs=0
 
 ml_tmp_result_dir="$result_dir/ml"
-rm -rf $ml_tmp_result_dir
-mkdir -p $result_dir
-mkdir -p $ml_tmp_result_dir
+rm -rf "$ml_tmp_result_dir"
+mkdir -p "$result_dir"
+mkdir -p "$ml_tmp_result_dir"
 
 for cache_type in "ts" "linucb" "ts_hybrid" "linucb_hybrid"
 do
 for cache_size in "16M" "256M" "1G" "2G" "4G" "8G" "12G" "16G"
 do
-    while [ $current_jobs -ge $max_jobs ]
+    while [ "$current_jobs" -ge "$max_jobs" ]
     do
       sleep 10
       echo "Waiting jobs to complete. Number of running jobs: $current_jobs"
-      current_jobs=`ps aux | grep pysim | grep python | grep -v grep | wc -l`
+      current_jobs=$(ps aux | grep pysim | grep python | grep -cv grep)
       echo "Waiting jobs to complete. Number of running jobs: $current_jobs"
     done
     output="log-ml-$cache_type-$cache_size"
-    echo "Running jobs: $current_jobs. Running simulation for $cache_type and cache size $cache_size"
-    nohup python pysim.py "$cache_type" "$cache_size" "$downsample_size" "$warmup_seconds" "$trace_file" "$ml_tmp_result_dir" >& $ml_tmp_result_dir/$output &
+    echo "Running simulation for $cache_type and cache size $cache_size. Number of running jobs: $current_jobs. "
+    nohup python block_cache_pysim.py "$cache_type" "$cache_size" "$downsample_size" "$warmup_seconds" "$trace_file" "$ml_tmp_result_dir" >& $ml_tmp_result_dir/$output &
     current_jobs=$((current_jobs+1))
 done
 done
@@ -50,7 +50,7 @@ while [ $current_jobs -gt 0 ]
 do
   sleep 10
   echo "Waiting jobs to complete. Number of running jobs: $current_jobs"
-  current_jobs=`ps aux | grep pysim | grep python | grep -v grep | wc -l`
+  current_jobs=$(ps aux | grep pysim | grep python | grep -cv grep)
   echo "Waiting jobs to complete. Number of running jobs: $current_jobs"
 done
 
@@ -60,7 +60,7 @@ rm -rf "$result_dir/ml_*"
 mrc_file="$result_dir/ml_mrc"
 for header in "header-" "data-"
 do
-for fn in `ls $ml_tmp_result_dir`
+for fn in $ml_tmp_result_dir/*
 do
   sum_file=""
   time_unit=""
@@ -106,13 +106,13 @@ do
       continue
     fi
   fi
-  (cat "$ml_tmp_result_dir/$fn";) >> $sum_file
+  cat "$ml_tmp_result_dir/$fn" >> "$sum_file"
 done
 done
 
 echo "Done"
 # Sort MRC file by cache_type and cache_size.
 tmp_file="$result_dir/tmp_mrc"
-cat $mrc_file | sort -t ',' -k1,1 -k4,4n > $tmp_file
-cat $tmp_file > $mrc_file
-rm -rf $tmp_file
+cat "$mrc_file" | sort -t ',' -k1,1 -k4,4n > "$tmp_file"
+cat "$tmp_file" > "$mrc_file"
+rm -rf "$tmp_file"

@@ -519,10 +519,17 @@ class MLCache(object):
             self.enable_cache_row_key
             and trace_record.caller == 1
             and trace_record.key_id != 0
+            and trace_record.get_id != 0
         ):
             # This is a get request.
             if trace_record.get_id not in self.get_id_row_key_map:
                 self.get_id_row_key_map[trace_record.get_id] = {}
+                self.get_id_row_key_map[trace_record.get_id]["h"] = False
+            if self.get_id_row_key_map[trace_record.get_id]["h"]:
+                # We treat future accesses as hits since this get request
+                # completes.
+                self._update_stats(trace_record.access_time, is_hit=True)
+                return
             if trace_record.key_id not in self.get_id_row_key_map[trace_record.get_id]:
                 # First time seen this key.
                 is_hit = self._access_kv(
@@ -535,12 +542,13 @@ class MLCache(object):
                 inserted = False
                 if trace_record.kv_size > 0:
                     inserted = True
-                self.get_id_row_key_map[trace_record.get_id][trace_record.key_id] = (
-                    is_hit,
-                    inserted,
-                )
-            if self.get_id_row_key_map[trace_record.get_id][trace_record.key_id]:
-                # hit.
+                self.get_id_row_key_map[trace_record.get_id][
+                    trace_record.key_id
+                ] = inserted
+                self.get_id_row_key_map[trace_record.get_id]["h"] = is_hit
+            if self.get_id_row_key_map[trace_record.get_id]["h"]:
+                # We treat future accesses as hits since this get request
+                # completes.
                 self._update_stats(trace_record.access_time, is_hit=True)
                 return
             # Access its blocks.
@@ -556,20 +564,18 @@ class MLCache(object):
                 trace_record.kv_size > 0
                 and not self.get_id_row_key_map[trace_record.get_id][
                     trace_record.key_id
-                ].inserted
+                ]
             ):
-                self._insert(
+                # Insert the row key-value pair.
+                self._access_kv(
                     trace_record,
-                    "g{}".format(trace_record.key_id),
-                    trace_record.key_id,
-                    trace_record.kv_size,
+                    key="g{}".format(trace_record.key_id),
+                    hash=trace_record.key_id,
+                    value_size=trace_record.kv_size,
                     no_insert=False,
                 )
                 # Mark as inserted.
-                self.get_id_row_key_map[trace_record.get_id][trace_record.key_id] = (
-                    False,
-                    True,
-                )
+                self.get_id_row_key_map[trace_record.get_id][trace_record.key_id] = True
             return
         # Access the block.
         is_hit = self._access_kv(
@@ -631,18 +637,14 @@ class LinUCBCache(MLCache):
     def __init__(self, cache_size, enable_cache_row_key, policies):
         super(LinUCBCache, self).__init__(cache_size, enable_cache_row_key, policies)
         self.nfeatures = 4  # Block type, caller, level, cf.
-        self.th = np.zeros(
-            (len(self.policies), self.nfeatures)
-        )
+        self.th = np.zeros((len(self.policies), self.nfeatures))
         self.eps = 0.2
         self.b = np.zeros_like(self.th)
         self.A = np.zeros((len(self.policies), self.nfeatures, self.nfeatures))
         self.A_inv = np.zeros((len(self.policies), self.nfeatures, self.nfeatures))
         for i in range(len(self.policies)):
             self.A[i] = np.identity(self.nfeatures)
-        self.th_hat = np.zeros_like(
-            self.th
-        )
+        self.th_hat = np.zeros_like(self.th)
         self.p = np.zeros(len(self.policies))
         self.alph = 0.2
 
