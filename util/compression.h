@@ -232,6 +232,12 @@ struct UncompressionDict : public Cleanable {
   ZSTD_DDict* zstd_ddict_ = nullptr;
 #endif  // ROCKSDB_ZSTD_DDICT
 
+  // Slice constructor: it is the caller's responsibility to either
+  // a) make sure slice remains valid throughout the lifecycle of this object OR
+  // b) transfer the management of the underlying resource (e.g. cache handle)
+  // to this object, in which case UncompressionDict is self-contained, and the
+  // resource is guaranteed to be released (via the cleanup logic in Cleanable)
+  // when UncompressionDict is destroyed.
 #ifdef ROCKSDB_ZSTD_DDICT
   UncompressionDict(Slice slice, bool using_zstd)
 #else   // ROCKSDB_ZSTD_DDICT
@@ -246,6 +252,7 @@ struct UncompressionDict : public Cleanable {
 #endif  // ROCKSDB_ZSTD_DDICT
   }
 
+  // String constructor: results in a self-contained UncompressionDict.
   UncompressionDict(std::string dict, bool using_zstd)
       : UncompressionDict(Slice(dict), using_zstd) {
     dict_ = std::move(dict);
