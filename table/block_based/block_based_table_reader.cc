@@ -4018,10 +4018,11 @@ Status BlockBasedTable::CreateIndexReader(
 uint64_t BlockBasedTable::ApproximateOffsetOf(const Slice& key,
                                               TableReaderCaller caller) {
   BlockCacheLookupContext context(caller);
-  std::unique_ptr<InternalIteratorBase<IndexValue>> index_iter(
+  IndexBlockIter iiter_on_stack;
+  auto index_iter =
       NewIndexIterator(ReadOptions(), /*need_upper_bound_check=*/false,
-                       /*input_iter=*/nullptr, /*get_context=*/nullptr,
-                       /*lookup_context=*/&context));
+                       /*input_iter=*/&iiter_on_stack, /*get_context=*/nullptr,
+                       /*lookup_context=*/&context);
 
   index_iter->Seek(key);
   uint64_t result;
@@ -4041,6 +4042,11 @@ uint64_t BlockBasedTable::ApproximateOffsetOf(const Slice& key,
       result = rep_->footer.metaindex_handle().offset();
     }
   }
+
+  if (index_iter != &iiter_on_stack) {
+    delete index_iter;
+  }
+
   return result;
 }
 

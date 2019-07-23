@@ -4974,19 +4974,12 @@ uint64_t VersionSet::ApproximateSize(Version* v, const FdWithKeyRange& f,
   } else {
     // "key" falls in the range for this table.  Add the
     // approximate offset of "key" within the table.
-    TableReader* table_reader_ptr;
-    InternalIterator* iter = v->cfd_->table_cache()->NewIterator(
-        ReadOptions(), v->env_options_, v->cfd_->internal_comparator(),
-        *f.file_metadata, nullptr /* range_del_agg */,
-        v->GetMutableCFOptions().prefix_extractor.get(), &table_reader_ptr,
-        /*file_read_hist=*/nullptr, caller,
-        /*arena=*/nullptr, /*skip_filters=*/false, /*level=*/-1,
-        /*smallest_compaction_key=*/nullptr,
-        /*largest_compaction_key=*/nullptr);
-    if (table_reader_ptr != nullptr) {
-      result = table_reader_ptr->ApproximateOffsetOf(key, caller);
+    TableCache* table_cache = v->cfd_->table_cache();
+    if (table_cache != nullptr) {
+      result = table_cache->ApproximateOffsetOf(
+          key, f.file_metadata->fd, caller, v->cfd()->internal_comparator(),
+          v->GetMutableCFOptions().prefix_extractor.get());
     }
-    delete iter;
   }
   return result;
 }

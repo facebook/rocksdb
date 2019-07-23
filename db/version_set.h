@@ -655,7 +655,7 @@ class Version {
 
   uint64_t GetSstFilesSize();
 
-  MutableCFOptions GetMutableCFOptions() { return mutable_cf_options_; }
+  const MutableCFOptions& GetMutableCFOptions() { return mutable_cf_options_; }
 
  private:
   Env* env_;
@@ -981,7 +981,7 @@ class VersionSet {
   void AddLiveFiles(std::vector<FileDescriptor>* live_list);
 
   // Return the approximate size of data to be scanned for range [start, end)
-  // in levels [start_level, end_level). If end_level == 0 it will search
+  // in levels [start_level, end_level). If end_level == -1 it will search
   // through all non-empty levels
   uint64_t ApproximateSize(Version* v, const Slice& start, const Slice& end,
                            int start_level, int end_level,
