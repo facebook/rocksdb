@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# Copyright (c) Facebook, Inc. and its affiliates. All Rights Reserved.
 
 import gc
 import random
@@ -254,8 +255,8 @@ class MissRatioStats:
         if not path.exists(header_file_path):
             with open(header_file_path, "w+") as header_file:
                 header = "time"
-                for time in range(start, end):
-                    header += ",{}".format(time)
+                for trace_time in range(start, end):
+                    header += ",{}".format(trace_time)
                 header_file.write(header + "\n")
         file_path = "{}/data-ml-miss-timeline-{}-{}-{}".format(
             result_dir, self.time_unit, cache_type, cache_size
@@ -275,8 +276,8 @@ class MissRatioStats:
         if not path.exists(header_file_path):
             with open(header_file_path, "w+") as header_file:
                 header = "time"
-                for time in range(start, end):
-                    header += ",{}".format(time)
+                for trace_time in range(start, end):
+                    header += ",{}".format(trace_time)
                 header_file.write(header + "\n")
         file_path = "{}/data-ml-miss-ratio-timeline-{}-{}-{}".format(
             result_dir, self.time_unit, cache_type, cache_size
@@ -353,8 +354,8 @@ class PolicyStats:
         if not path.exists(header_file_path):
             with open(header_file_path, "w+") as header_file:
                 header = "time"
-                for time in range(start, end):
-                    header += ",{}".format(time)
+                for trace_time in range(start, end):
+                    header += ",{}".format(trace_time)
                 header_file.write(header + "\n")
         file_path = "{}/data-ml-policy-ratio-timeline-{}-{}-{}".format(
             result_dir, self.time_unit, cache_type, cache_size
@@ -629,10 +630,10 @@ class LinUCBCache(MLCache):
 
     def __init__(self, cache_size, enable_cache_row_key, policies):
         super(LinUCBCache, self).__init__(cache_size, enable_cache_row_key, policies)
-        self.nfeatures = 4 # Block type, caller, level, cf.
+        self.nfeatures = 4  # Block type, caller, level, cf.
         self.th = np.zeros(
             (len(self.policies), self.nfeatures)
-        )  # our real theta, what we will try to guess/
+        )
         self.eps = 0.2
         self.b = np.zeros_like(self.th)
         self.A = np.zeros((len(self.policies), self.nfeatures, self.nfeatures))
@@ -641,12 +642,12 @@ class LinUCBCache(MLCache):
             self.A[i] = np.identity(self.nfeatures)
         self.th_hat = np.zeros_like(
             self.th
-        )  # our temporary feature vectors, our best current guesses
+        )
         self.p = np.zeros(len(self.policies))
         self.alph = 0.2
 
     def _select_policy(self, trace_record, key):
-        x_i = np.zeros(self.nfeatures)  # the current context vector
+        x_i = np.zeros(self.nfeatures)  # The current context vector
         x_i[0] = trace_record.block_type
         x_i[1] = trace_record.caller
         x_i[2] = trace_record.level
