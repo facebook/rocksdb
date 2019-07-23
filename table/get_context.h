@@ -136,6 +136,8 @@ class GetContext {
 
   void ReportCounters();
 
+  bool has_callback() const { return callback_ != nullptr; }
+
   uint64_t get_tracing_get_id() const { return tracing_get_id_; }
 
  private:
