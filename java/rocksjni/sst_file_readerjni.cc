@@ -83,7 +83,7 @@ void Java_org_rocksdb_SstFileReader_disposeInternal(JNIEnv * /*env*/,
  * Method:    verifyChecksum
  * Signature: (J)V
  */
-void Java_org_rocksdb_RocksDB_verifyChecksum(JNIEnv *env,
+void Java_org_rocksdb_SstFileReader_verifyChecksum(JNIEnv *env,
                                              jobject /*jobj*/,
                                               jlong jhandle) {
   auto* sst_file_reader = reinterpret_cast<rocksdb::SstFileReader*>(jhandle);
@@ -98,7 +98,7 @@ void Java_org_rocksdb_RocksDB_verifyChecksum(JNIEnv *env,
  * Method:    getTableProperties
  * Signature: (J)J
  */
-jobject Java_org_rocksdb_RocksDB_getTableProperties(JNIEnv *env,
+jobject Java_org_rocksdb_SstFileReader_getTableProperties(JNIEnv *env,
                                                   jobject /*jobj*/,
                                                   jlong jhandle) {
   auto* sst_file_reader = reinterpret_cast<rocksdb::SstFileReader*>(jhandle);
