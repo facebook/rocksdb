@@ -23,15 +23,6 @@ struct UncompressionDict;
 // it is owned by the reader or stored in the cache, or whether it is pinned
 // in the cache or not.
 class UncompressionDictReader {
- private:
-  UncompressionDictReader(
-      const BlockBasedTable* t,
-      CachableEntry<BlockContents>&& uncompression_dict_block)
-      : table_(t),
-        uncompression_dict_block_(std::move(uncompression_dict_block)) {
-    assert(table_);
-  }
-
  public:
   static Status Create(
       const BlockBasedTable* table, FilePrefetchBuffer* prefetch_buffer,
@@ -47,6 +38,14 @@ class UncompressionDictReader {
   size_t ApproximateMemoryUsage() const;
 
  private:
+  UncompressionDictReader(
+      const BlockBasedTable* t,
+      CachableEntry<BlockContents>&& uncompression_dict_block)
+      : table_(t),
+        uncompression_dict_block_(std::move(uncompression_dict_block)) {
+    assert(table_);
+  }
+
   static Status ReadUncompressionDictionaryBlock(
       const BlockBasedTable* table, FilePrefetchBuffer* prefetch_buffer,
       const ReadOptions& read_options, GetContext* get_context,
