@@ -3471,6 +3471,12 @@ TEST_P(TransactionTest, LockLimitTest) {
 }
 
 TEST_P(TransactionTest, IteratorTest) {
+  // This test does writes without snapshot validation, and then tries to create
+  // iterator later, which is unsupported in write unprepared.
+  if (txn_db_options.write_policy == WRITE_UNPREPARED) {
+    return;
+  }
+
   WriteOptions write_options;
   ReadOptions read_options, snapshot_read_options;
   std::string value;
@@ -3589,6 +3595,16 @@ TEST_P(TransactionTest, IteratorTest) {
 }
 
 TEST_P(TransactionTest, DisableIndexingTest) {
+  // Skip this test for write unprepared. It does not solely rely on WBWI for
+  // read your own writes, so depending on whether batches are flushed or not,
+  // only some writes will be visible.
+  //
+  // Also, write unprepared does not support creating iterators if there has
+  // been txn->Put() without snapshot validation.
+  if (txn_db_options.write_policy == WRITE_UNPREPARED) {
+    return;
+  }
+
   WriteOptions write_options;
   ReadOptions read_options;
   std::string value;

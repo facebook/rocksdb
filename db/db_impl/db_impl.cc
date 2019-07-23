@@ -1499,7 +1499,22 @@ Status DBImpl::GetImpl(const ReadOptions& read_options,
                    ? versions_->LastSequence()
                    : versions_->LastPublishedSequence();
     if (callback) {
+      // The unprep_seqs are not published for write unprepared, so it could be
+      // that max_visible_seq is larger. Seek to the std::max of the two.
+      // However, we still want our callback to contain the actual snapshot so
+      // that it can do the correct visibility filtering.
       callback->Refresh(snapshot);
+
+      // Internally, WriteUnpreparedTxnReadCallback::Refresh would set
+      // max_visible_seq = max(max_visible_seq, snapshot)
+      //
+      // Currently, the commented out assert is broken by
+      // InvalidSnapshotReadCallback, but if write unprepared recovery followed
+      // the regular transaction flow, then this special read callback would not
+      // be needed.
+      //
+      // assert(callback->max_visible_seq() >= snapshot);
+      snapshot = callback->max_visible_seq();
     }
   }
   TEST_SYNC_POINT("DBImpl::GetImpl:3");

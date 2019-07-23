@@ -32,7 +32,7 @@ bool WriteUnpreparedTxnReadCallback::IsVisibleFullCheck(SequenceNumber seq) {
 
 SequenceNumber WriteUnpreparedTxnReadCallback::CalcMaxUnpreparedSequenceNumber(
     WriteUnpreparedTxn* txn) {
-  auto unprep_seqs = txn->GetUnpreparedSequenceNumbers();
+  const auto& unprep_seqs = txn->GetUnpreparedSequenceNumbers();
   if (unprep_seqs.size()) {
     return unprep_seqs.rbegin()->first + unprep_seqs.rbegin()->second - 1;
   }
@@ -44,7 +44,8 @@ WriteUnpreparedTxn::WriteUnpreparedTxn(WriteUnpreparedTxnDB* txn_db,
                                        const TransactionOptions& txn_options)
     : WritePreparedTxn(txn_db, write_options, txn_options),
       wupt_db_(txn_db),
-      recovered_txn_(false) {
+      recovered_txn_(false),
+      largest_validated_seq_(0) {
   max_write_batch_size_ = txn_options.max_write_batch_size;
   // We set max bytes to zero so that we don't get a memory limit error.
   // Instead of trying to keep write batch strictly under the size limit, we
@@ -85,75 +86,82 @@ void WriteUnpreparedTxn::Initialize(const TransactionOptions& txn_options) {
   write_batch_.SetMaxBytes(0);
   unprep_seqs_.clear();
   recovered_txn_ = false;
+  largest_validated_seq_ = 0;
+}
+
+Status WriteUnpreparedTxn::HandleWrite(std::function<Status()> do_write) {
+  Status s = MaybeFlushWriteBatchToDB();
+  if (!s.ok()) {
+    return s;
+  }
+  s = do_write();
+  if (s.ok()) {
+    if (snapshot_) {
+      largest_validated_seq_ =
+          std::max(largest_validated_seq_, snapshot_->GetSequenceNumber());
+    } else {
+      largest_validated_seq_ = kMaxSequenceNumber;
+    }
+  }
+  return s;
 }
 
 Status WriteUnpreparedTxn::Put(ColumnFamilyHandle* column_family,
                                const Slice& key, const Slice& value,
                                const bool assume_tracked) {
-  Status s = MaybeFlushWriteBatchToDB();
-  if (!s.ok()) {
-    return s;
-  }
-  return TransactionBaseImpl::Put(column_family, key, value, assume_tracked);
+  return HandleWrite([&]() {
+    return TransactionBaseImpl::Put(column_family, key, value, assume_tracked);
+  });
 }
 
 Status WriteUnpreparedTxn::Put(ColumnFamilyHandle* column_family,
                                const SliceParts& key, const SliceParts& value,
                                const bool assume_tracked) {
-  Status s = MaybeFlushWriteBatchToDB();
-  if (!s.ok()) {
-    return s;
-  }
-  return TransactionBaseImpl::Put(column_family, key, value, assume_tracked);
+  return HandleWrite([&]() {
+    return TransactionBaseImpl::Put(column_family, key, value, assume_tracked);
+  });
 }
 
 Status WriteUnpreparedTxn::Merge(ColumnFamilyHandle* column_family,
                                  const Slice& key, const Slice& value,
                                  const bool assume_tracked) {
-  Status s = MaybeFlushWriteBatchToDB();
-  if (!s.ok()) {
-    return s;
-  }
-  return TransactionBaseImpl::Merge(column_family, key, value, assume_tracked);
+  return HandleWrite([&]() {
+    return TransactionBaseImpl::Merge(column_family, key, value,
+                                      assume_tracked);
+  });
 }
 
 Status WriteUnpreparedTxn::Delete(ColumnFamilyHandle* column_family,
                                   const Slice& key, const bool assume_tracked) {
-  Status s = MaybeFlushWriteBatchToDB();
-  if (!s.ok()) {
-    return s;
-  }
-  return TransactionBaseImpl::Delete(column_family, key, assume_tracked);
+  return HandleWrite([&]() {
+    return TransactionBaseImpl::Delete(column_family, key, assume_tracked);
+  });
 }
 
 Status WriteUnpreparedTxn::Delete(ColumnFamilyHandle* column_family,
                                   const SliceParts& key,
                                   const bool assume_tracked) {
-  Status s = MaybeFlushWriteBatchToDB();
-  if (!s.ok()) {
-    return s;
-  }
-  return TransactionBaseImpl::Delete(column_family, key, assume_tracked);
+  return HandleWrite([&]() {
+    return TransactionBaseImpl::Delete(column_family, key, assume_tracked);
+  });
 }
 
 Status WriteUnpreparedTxn::SingleDelete(ColumnFamilyHandle* column_family,
                                         const Slice& key,
                                         const bool assume_tracked) {
-  Status s = MaybeFlushWriteBatchToDB();
-  if (!s.ok()) {
-    return s;
-  }
-  return TransactionBaseImpl::SingleDelete(column_family, key, assume_tracked);
+  return HandleWrite([&]() {
+    return TransactionBaseImpl::SingleDelete(column_family, key,
+                                             assume_tracked);
+  });
 }
 
 Status WriteUnpreparedTxn::SingleDelete(ColumnFamilyHandle* column_family,
                                         const SliceParts& key,
                                         const bool assume_tracked) {
-  Status s = MaybeFlushWriteBatchToDB();
-  if (!s.ok()) {
-    return s;
-  }
-  return TransactionBaseImpl::SingleDelete(column_family, key, assume_tracked);
+  return HandleWrite([&]() {
+    return TransactionBaseImpl::SingleDelete(column_family, key,
+                                             assume_tracked);
+  });
 }
 
 // WriteUnpreparedTxn::RebuildFromWriteBatch is only called on recovery. For
