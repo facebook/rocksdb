@@ -32,11 +32,9 @@
 # 3. cmake ..
 # 4. make -j
 
-cmake_minimum_required(VERSION 2.8.12)
-project(rocksdb)
-enable_language(CXX)
-enable_language(C)
-enable_language(ASM)
+cmake_minimum_required(VERSION 3.5.1)
+project(rocksdb
+  LANGUAGES CXX C ASM)
 
 if(POLICY CMP0042)
   cmake_policy(SET CMP0042 NEW)
@@ -100,14 +98,7 @@ else()
   if(WITH_ZLIB)
     find_package(ZLIB REQUIRED)
     add_definitions(-DZLIB)
-    if(ZLIB_INCLUDE_DIRS)
-      # CMake 3
-      include_directories(${ZLIB_INCLUDE_DIRS})
-    else()
-      # CMake 2
-      include_directories(${ZLIB_INCLUDE_DIR})
-    endif()
-    list(APPEND THIRDPARTY_LIBS ${ZLIB_LIBRARIES})
+    list(APPEND THIRDPARTY_LIBS ZLIB::ZLIB)
   endif()
 
   option(WITH_BZ2 "build with bzip2" OFF)
