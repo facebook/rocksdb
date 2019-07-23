@@ -31,6 +31,7 @@
 #include "util/coding.h"
 #include "util/stderr_logger.h"
 #include "util/string_util.h"
+#include "utilities/merge_operators.h"
 #include "utilities/ttl/db_ttl_impl.h"
 
 #include <cstdlib>
@@ -353,10 +354,23 @@ void LDBCommand::OpenDB() {
           stderr,
           "wal_dir loaded from the option file doesn't exist. Ignore it.\n");
     }
+
+    // If merge operator is not set, set a string append operator. There is
+    // no harm doing it.
+    for (auto& cf_entry : column_families_) {
+      if (!cf_entry.options.merge_operator) {
+        cf_entry.options.merge_operator =
+            MergeOperators::CreateStringAppendOperator(':');
+      }
+    }
   }
   options_ = PrepareOptionsForOpenDB();
   if (!exec_state_.IsNotStarted()) {
     return;
+  }
+  if (column_families_.empty() && !options_.merge_operator) {
+    // No harm to add a general merge operator if it is not specified.
+    options_.merge_operator = MergeOperators::CreateStringAppendOperator(':');
   }
   // Open the DB.
   Status st;
