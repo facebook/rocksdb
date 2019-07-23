@@ -318,8 +318,11 @@ class BlockBasedTable : public TableReader {
       BlockCacheLookupContext* lookup_context) const;
 
   // Get the iterator from the index reader.
-  // If input_iter is not set, return new Iterator
-  // If input_iter is set, update it and return it as Iterator
+  //
+  // If input_iter is not set, return a new Iterator.
+  // If input_iter is set, try to update it and return it as Iterator.
+  // However note that in some cases the returned iterator may be different
+  // from input_iter. In such case the returned iterator should be freed.
   //
   // Note: ErrorIterator with Status::Incomplete shall be returned if all the
   // following conditions are met:
