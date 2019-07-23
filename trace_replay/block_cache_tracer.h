@@ -20,6 +20,7 @@ extern const uint64_t kMicrosInSecond;
 extern const uint64_t kSecondInMinute;
 extern const uint64_t kSecondInHour;
 
+struct BlockCacheTraceRecord;
 
 class BlockCacheTraceHelper {
  public:
@@ -27,7 +28,9 @@ class BlockCacheTraceHelper {
                                          TableReaderCaller caller);
   static bool IsGetOrMultiGet(TableReaderCaller caller);
   static bool IsUserAccess(TableReaderCaller caller);
-
+  // Row key is a concatenation of the access's fd_number and the referenced
+  // user key.
+  static std::string ComputeRowKey(const BlockCacheTraceRecord& access);
   static const std::string kUnknownColumnFamilyName;
   static const uint64_t kReservedGetId;
 };

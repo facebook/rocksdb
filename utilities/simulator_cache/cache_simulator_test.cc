@@ -94,21 +94,21 @@ TEST_F(CacheSimulatorTest, CacheSimulator) {
       new CacheSimulator(nullptr, sim_cache));
   cache_simulator->Access(access);
   cache_simulator->Access(access);
-  ASSERT_EQ(2, cache_simulator->total_accesses());
-  ASSERT_EQ(50, cache_simulator->miss_ratio());
-  ASSERT_EQ(2, cache_simulator->user_accesses());
-  ASSERT_EQ(50, cache_simulator->user_miss_ratio());
+  ASSERT_EQ(2, cache_simulator->miss_ratio_stats().total_accesses());
+  ASSERT_EQ(50, cache_simulator->miss_ratio_stats().miss_ratio());
+  ASSERT_EQ(2, cache_simulator->miss_ratio_stats().user_accesses());
+  ASSERT_EQ(50, cache_simulator->miss_ratio_stats().user_miss_ratio());
 
   cache_simulator->Access(compaction_access);
   cache_simulator->Access(compaction_access);
-  ASSERT_EQ(4, cache_simulator->total_accesses());
-  ASSERT_EQ(75, cache_simulator->miss_ratio());
-  ASSERT_EQ(2, cache_simulator->user_accesses());
-  ASSERT_EQ(50, cache_simulator->user_miss_ratio());
+  ASSERT_EQ(4, cache_simulator->miss_ratio_stats().total_accesses());
+  ASSERT_EQ(75, cache_simulator->miss_ratio_stats().miss_ratio());
+  ASSERT_EQ(2, cache_simulator->miss_ratio_stats().user_accesses());
+  ASSERT_EQ(50, cache_simulator->miss_ratio_stats().user_miss_ratio());
 
   cache_simulator->reset_counter();
-  ASSERT_EQ(0, cache_simulator->total_accesses());
-  ASSERT_EQ(-1, cache_simulator->miss_ratio());
+  ASSERT_EQ(0, cache_simulator->miss_ratio_stats().total_accesses());
+  ASSERT_EQ(-1, cache_simulator->miss_ratio_stats().miss_ratio());
   auto handle = sim_cache->Lookup(access.block_key);
   ASSERT_NE(nullptr, handle);
   sim_cache->Release(handle);
@@ -129,9 +129,9 @@ TEST_F(CacheSimulatorTest, GhostCacheSimulator) {
                   /*high_pri_pool_ratio=*/0)));
   cache_simulator->Access(access);
   cache_simulator->Access(access);
-  ASSERT_EQ(2, cache_simulator->total_accesses());
+  ASSERT_EQ(2, cache_simulator->miss_ratio_stats().total_accesses());
   // Both of them will be miss since we have a ghost cache.
-  ASSERT_EQ(100, cache_simulator->miss_ratio());
+  ASSERT_EQ(100, cache_simulator->miss_ratio_stats().miss_ratio());
 }
 
 TEST_F(CacheSimulatorTest, PrioritizedCacheSimulator) {
@@ -144,8 +144,8 @@ TEST_F(CacheSimulatorTest, PrioritizedCacheSimulator) {
       new PrioritizedCacheSimulator(nullptr, sim_cache));
   cache_simulator->Access(access);
   cache_simulator->Access(access);
-  ASSERT_EQ(2, cache_simulator->total_accesses());
-  ASSERT_EQ(50, cache_simulator->miss_ratio());
+  ASSERT_EQ(2, cache_simulator->miss_ratio_stats().total_accesses());
+  ASSERT_EQ(50, cache_simulator->miss_ratio_stats().miss_ratio());
 
   auto handle = sim_cache->Lookup(access.block_key);
   ASSERT_NE(nullptr, handle);
@@ -166,9 +166,9 @@ TEST_F(CacheSimulatorTest, GhostPrioritizedCacheSimulator) {
                       /*high_pri_pool_ratio=*/0)));
   cache_simulator->Access(access);
   cache_simulator->Access(access);
-  ASSERT_EQ(2, cache_simulator->total_accesses());
+  ASSERT_EQ(2, cache_simulator->miss_ratio_stats().total_accesses());
   // Both of them will be miss since we have a ghost cache.
-  ASSERT_EQ(100, cache_simulator->miss_ratio());
+  ASSERT_EQ(100, cache_simulator->miss_ratio_stats().miss_ratio());
 }
 
 TEST_F(CacheSimulatorTest, HybridRowBlockCacheSimulator) {
@@ -200,10 +200,11 @@ TEST_F(CacheSimulatorTest, HybridRowBlockCacheSimulator) {
     cache_simulator->Access(first_get);
     block_id++;
   }
-  ASSERT_EQ(10, cache_simulator->total_accesses());
-  ASSERT_EQ(100, cache_simulator->miss_ratio());
-  ASSERT_EQ(10, cache_simulator->user_accesses());
-  ASSERT_EQ(100, cache_simulator->user_miss_ratio());
+
+  ASSERT_EQ(10, cache_simulator->miss_ratio_stats().total_accesses());
+  ASSERT_EQ(100, cache_simulator->miss_ratio_stats().miss_ratio());
+  ASSERT_EQ(10, cache_simulator->miss_ratio_stats().user_accesses());
+  ASSERT_EQ(100, cache_simulator->miss_ratio_stats().user_miss_ratio());
   auto handle = sim_cache->Lookup(
       std::to_string(first_get.sst_fd_number) + "_" +
       ExtractUserKey(first_get.referenced_key).ToString() + "_" +
@@ -225,10 +226,12 @@ TEST_F(CacheSimulatorTest, HybridRowBlockCacheSimulator) {
     cache_simulator->Access(second_get);
     block_id++;
   }
-  ASSERT_EQ(15, cache_simulator->total_accesses());
-  ASSERT_EQ(66, static_cast<uint64_t>(cache_simulator->miss_ratio()));
-  ASSERT_EQ(15, cache_simulator->user_accesses());
-  ASSERT_EQ(66, static_cast<uint64_t>(cache_simulator->user_miss_ratio()));
+  ASSERT_EQ(15, cache_simulator->miss_ratio_stats().total_accesses());
+  ASSERT_EQ(66, static_cast<uint64_t>(
+                    cache_simulator->miss_ratio_stats().miss_ratio()));
+  ASSERT_EQ(15, cache_simulator->miss_ratio_stats().user_accesses());
+  ASSERT_EQ(66, static_cast<uint64_t>(
+                    cache_simulator->miss_ratio_stats().user_miss_ratio()));
   handle = sim_cache->Lookup(
       std::to_string(second_get.sst_fd_number) + "_" +
       ExtractUserKey(second_get.referenced_key).ToString() + "_" +
@@ -252,10 +255,12 @@ TEST_F(CacheSimulatorTest, HybridRowBlockCacheSimulator) {
     cache_simulator->Access(third_get);
     block_id++;
   }
-  ASSERT_EQ(20, cache_simulator->total_accesses());
-  ASSERT_EQ(75, static_cast<uint64_t>(cache_simulator->miss_ratio()));
-  ASSERT_EQ(20, cache_simulator->user_accesses());
-  ASSERT_EQ(75, static_cast<uint64_t>(cache_simulator->user_miss_ratio()));
+  ASSERT_EQ(20, cache_simulator->miss_ratio_stats().total_accesses());
+  ASSERT_EQ(75, static_cast<uint64_t>(
+                    cache_simulator->miss_ratio_stats().miss_ratio()));
+  ASSERT_EQ(20, cache_simulator->miss_ratio_stats().user_accesses());
+  ASSERT_EQ(75, static_cast<uint64_t>(
+                    cache_simulator->miss_ratio_stats().user_miss_ratio()));
   // Assert that the third key is not inserted into the cache.
   handle = sim_cache->Lookup(std::to_string(third_get.sst_fd_number) + "_" +
                              third_get.referenced_key);
@@ -318,19 +323,21 @@ TEST_F(CacheSimulatorTest, GhostHybridRowBlockCacheSimulator) {
   // Two get requests access the same key.
   cache_simulator->Access(first_get);
   cache_simulator->Access(second_get);
-  ASSERT_EQ(2, cache_simulator->total_accesses());
-  ASSERT_EQ(100, cache_simulator->miss_ratio());
-  ASSERT_EQ(2, cache_simulator->user_accesses());
-  ASSERT_EQ(100, cache_simulator->user_miss_ratio());
+  ASSERT_EQ(2, cache_simulator->miss_ratio_stats().total_accesses());
+  ASSERT_EQ(100, cache_simulator->miss_ratio_stats().miss_ratio());
+  ASSERT_EQ(2, cache_simulator->miss_ratio_stats().user_accesses());
+  ASSERT_EQ(100, cache_simulator->miss_ratio_stats().user_miss_ratio());
   // We insert the key-value pair upon the second get request. A third get
   // request should observe a hit.
   for (uint32_t i = 0; i < 10; i++) {
     cache_simulator->Access(third_get);
   }
-  ASSERT_EQ(12, cache_simulator->total_accesses());
-  ASSERT_EQ(16, static_cast<uint64_t>(cache_simulator->miss_ratio()));
-  ASSERT_EQ(12, cache_simulator->user_accesses());
-  ASSERT_EQ(16, static_cast<uint64_t>(cache_simulator->user_miss_ratio()));
+  ASSERT_EQ(12, cache_simulator->miss_ratio_stats().total_accesses());
+  ASSERT_EQ(16, static_cast<uint64_t>(
+                    cache_simulator->miss_ratio_stats().miss_ratio()));
+  ASSERT_EQ(12, cache_simulator->miss_ratio_stats().user_accesses());
+  ASSERT_EQ(16, static_cast<uint64_t>(
+                    cache_simulator->miss_ratio_stats().user_miss_ratio()));
 }
 
 }  // namespace rocksdb
