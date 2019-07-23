@@ -1046,13 +1046,14 @@ Status ParseColumnFamilyOption(const std::string& name,
       if (name == kNameComparator) {
         // Try to get comparator from object registry first.
         // Only support static comparator for now.
-	Status status = ObjectRegistry::NewInstance()->NewStaticObject(value, &new_options->comparator);
+        Status status = ObjectRegistry::NewInstance()->NewStaticObject(
+            value, &new_options->comparator);
         if (status.ok()) {
           return status;
         }
       } else if (name == kNameMergeOperator) {
         // Try to get merge operator from object registry first.
-	std::shared_ptr<MergeOperator> mo;
+        std::shared_ptr<MergeOperator> mo;
         Status status =
             ObjectRegistry::NewInstance()->NewSharedObject<MergeOperator>(
                 value, &new_options->merge_operator);

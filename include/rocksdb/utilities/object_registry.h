@@ -20,26 +20,27 @@ class Logger;
 // Returns a new T when called with a string. Populates the std::unique_ptr
 // argument if granting ownership to caller.
 template <typename T>
-using FactoryFunc = std::function<T*(const std::string&, std::unique_ptr<T>*, std::string *)>;
-
+using FactoryFunc =
+    std::function<T*(const std::string&, std::unique_ptr<T>*, std::string*)>;
 
 class ObjectLibrary {
-public:
+ public:
   // Base class for an Entry in the Registry.
   class Entry {
-  public:
+   public:
     virtual ~Entry() {}
     Entry(const std::string& name) : name_(std::move(name)) {}
-    
+
     // Checks to see if the target matches this entry
     virtual bool matches(const std::string& target) const {
       return name_ == target;
     }
-    const std::string & Name() const { return name_; }
-  private:
+    const std::string& Name() const { return name_; }
+
+   private:
     const std::string name_;  // The name of the Entry
-  }; // End class Entry
-  
+  };                          // End class Entry
+
   // An Entry containing a FactoryFunc for creating new Objects
   template <typename T>
   class FactoryEntry : public Entry {
@@ -51,21 +52,21 @@ public:
       return std::regex_match(target, pattern_);
     }
     // Creates a new T object.
-    T* NewFactoryObject(const std::string& target,
-			std::unique_ptr<T>* guard,
-			std::string *msg) const {
+    T* NewFactoryObject(const std::string& target, std::unique_ptr<T>* guard,
+                        std::string* msg) const {
       return factory_(target, guard, msg);
     }
+
    private:
     std::regex pattern_;  // The pattern for this entry
     FactoryFunc<T> factory_;
-  }; // End class FactoryEntry
-public:
+  };  // End class FactoryEntry
+ public:
   // Finds the entry matching the input name and type
   const Entry* FindEntry(const std::string& type,
-			 const std::string& name) const;
-  void Dump(Logger *logger) const;
-  
+                         const std::string& name) const;
+  void Dump(Logger* logger) const;
+
   // Registers the factory with the library for the pattern.
   // If the pattern matches, the factory may be used to create a new object.
   template <typename T>
@@ -77,13 +78,13 @@ public:
   }
   // Returns the default ObjectLibrary
   static std::shared_ptr<ObjectLibrary>& Default();
-private:
+
+ private:
   // Adds the input entry to the list for the given type
-  void AddEntry(const std::string & type, std::unique_ptr<Entry> & entry);
-  
+  void AddEntry(const std::string& type, std::unique_ptr<Entry>& entry);
+
   // ** FactoryFunctions for this loader, organized by type
-  std::unordered_map<std::string,
-		     std::vector<std::unique_ptr<Entry> > > entries_;
+  std::unordered_map<std::string, std::vector<std::unique_ptr<Entry>>> entries_;
 };
 
 // The ObjectRegistry is used to register objects that can be created by a
@@ -94,11 +95,11 @@ class ObjectRegistry {
   static std::shared_ptr<ObjectRegistry> NewInstance();
 
   ObjectRegistry();
-  
-  void AddLibrary(const std::shared_ptr<ObjectLibrary> & library) {
+
+  void AddLibrary(const std::shared_ptr<ObjectLibrary>& library) {
     libraries_.emplace_back(library);
   }
-  
+
   // Creates a new T using the factory function that was registered with a
   // pattern that matches the provided "target" string according to
   // std::regex_match.
@@ -109,11 +110,12 @@ class ObjectRegistry {
   // Populates res_guard with result pointer if caller is granted ownership.
   template <typename T>
   T* NewObject(const std::string& target, std::unique_ptr<T>* guard,
-		     std::string *errmsg) {
+               std::string* errmsg) {
     guard->reset();
     const auto* basic = FindEntry(T::Type(), target);
     if (basic != nullptr) {
-      const auto* factory = static_cast<const ObjectLibrary::FactoryEntry<T>*>(basic);
+      const auto* factory =
+          static_cast<const ObjectLibrary::FactoryEntry<T>*>(basic);
       return factory->NewFactoryObject(target, guard, errmsg);
     } else {
       *errmsg = std::string("Could not load ") + T::Type();
@@ -137,11 +139,11 @@ class ObjectRegistry {
       return Status::OK();
     } else {
       return Status::InvalidArgument(std::string("Cannot make a unique ") +
-				     T::Type() + " from unguarded one ",
-				     target);
+                                         T::Type() + " from unguarded one ",
+                                     target);
     }
   }
-  
+
   // Creates a new shared T using the input factory functions.
   // Returns OK if a new shared T was successfully created
   // Returns NotFound if the type/target could not be created
@@ -160,8 +162,8 @@ class ObjectRegistry {
       return Status::OK();
     } else {
       return Status::InvalidArgument(std::string("Cannot make a shared ") +
-				     T::Type() + " from unguarded one ",
-				     target);
+                                         T::Type() + " from unguarded one ",
+                                     target);
     }
   }
 
@@ -179,8 +181,8 @@ class ObjectRegistry {
       return Status::NotFound(errmsg, target);
     } else if (guard.get()) {
       return Status::InvalidArgument(std::string("Cannot make a static ") +
-				     T::Type() + " from a guarded one ",
-				     target);
+                                         T::Type() + " from a guarded one ",
+                                     target);
     } else {
       *result = ptr;
       return Status::OK();
@@ -188,10 +190,11 @@ class ObjectRegistry {
   }
 
   // Dump the contents of the registry to the logger
-  void Dump(Logger *logger) const;
+  void Dump(Logger* logger) const;
+
  private:
   const ObjectLibrary::Entry* FindEntry(const std::string& type,
-					const std::string& name) const;
+                                        const std::string& name) const;
 
   // The set of libraries to search for factories for this registry.
   // The libraries are searched in reverse order (back to front) when

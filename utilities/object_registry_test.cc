@@ -20,16 +20,14 @@ int EnvRegistryTest::num_b = 0;
 static FactoryFunc<Env> test_reg_a = ObjectLibrary::Default()->Register<Env>(
     "a://.*",
     [](const std::string& /*uri*/, std::unique_ptr<Env>* /*env_guard*/,
-       std::string * /* errmsg */) {
+       std::string* /* errmsg */) {
       ++EnvRegistryTest::num_a;
       return Env::Default();
     });
 
 static FactoryFunc<Env> test_reg_b = ObjectLibrary::Default()->Register<Env>(
-    "b://.*",
-    [](const std::string& /*uri*/,
-       std::unique_ptr<Env>* env_guard,
-       std::string * /* errmsg */) {
+    "b://.*", [](const std::string& /*uri*/, std::unique_ptr<Env>* env_guard,
+                 std::string* /* errmsg */) {
       ++EnvRegistryTest::num_b;
       // Env::Default() is a singleton so we can't grant ownership directly to
       // the caller - we must wrap it first.
@@ -66,24 +64,22 @@ TEST_F(EnvRegistryTest, LocalRegistry) {
   auto registry = ObjectRegistry::NewInstance();
   std::shared_ptr<ObjectLibrary> library = std::make_shared<ObjectLibrary>();
   registry->AddLibrary(library);
-  library->Register<Env>("test-local", [](const std::string& /*uri*/,
-					  std::unique_ptr<Env>* /*guard */,
-					  std::string * /* errmsg */) {
-    return Env::Default();
-  });
-  
-  ObjectLibrary::Default()->Register<Env>("test-global",
-					   [](const std::string& /*uri*/,
-					      std::unique_ptr<Env>* /*guard */,
-					      std::string * /* errmsg */) {	
-        return Env::Default();
-      });
+  library->Register<Env>(
+      "test-local",
+      [](const std::string& /*uri*/, std::unique_ptr<Env>* /*guard */,
+         std::string* /* errmsg */) { return Env::Default(); });
+
+  ObjectLibrary::Default()->Register<Env>(
+      "test-global",
+      [](const std::string& /*uri*/, std::unique_ptr<Env>* /*guard */,
+         std::string* /* errmsg */) { return Env::Default(); });
 
   ASSERT_EQ(
-	    ObjectRegistry::NewInstance()->NewObject<Env>("test-local", &guard, &msg),
-	    nullptr);
-  ASSERT_NE(ObjectRegistry::NewInstance()->NewObject("test-global", &guard, &msg),
-            nullptr);
+      ObjectRegistry::NewInstance()->NewObject<Env>("test-local", &guard, &msg),
+      nullptr);
+  ASSERT_NE(
+      ObjectRegistry::NewInstance()->NewObject("test-global", &guard, &msg),
+      nullptr);
   ASSERT_NE(registry->NewObject<Env>("test-local", &guard, &msg), nullptr);
   ASSERT_NE(registry->NewObject<Env>("test-global", &guard, &msg), nullptr);
 }
@@ -93,15 +89,14 @@ TEST_F(EnvRegistryTest, CheckShared) {
   std::shared_ptr<ObjectRegistry> registry = ObjectRegistry::NewInstance();
   std::shared_ptr<ObjectLibrary> library = std::make_shared<ObjectLibrary>();
   registry->AddLibrary(library);
-  library->Register<Env>("unguarded", [](const std::string& /*uri*/,
-					 std::unique_ptr<Env>* /*guard */,
-					 std::string * /* errmsg */) {
-    return Env::Default();
-  });
+  library->Register<Env>(
+      "unguarded",
+      [](const std::string& /*uri*/, std::unique_ptr<Env>* /*guard */,
+         std::string* /* errmsg */) { return Env::Default(); });
 
   library->Register<Env>(
-       "guarded", [](const std::string& /*uri*/, std::unique_ptr<Env>* guard,
-		     std::string * /* errmsg */) {
+      "guarded", [](const std::string& /*uri*/, std::unique_ptr<Env>* guard,
+                    std::string* /* errmsg */) {
         guard->reset(new EnvWrapper(Env::Default()));
         return guard->get();
       });
@@ -112,21 +107,20 @@ TEST_F(EnvRegistryTest, CheckShared) {
   ASSERT_NOK(registry->NewSharedObject<Env>("unguarded", &shared));
   ASSERT_EQ(shared, nullptr);
 }
-  
+
 TEST_F(EnvRegistryTest, CheckStatic) {
-  Env *env = nullptr;
+  Env* env = nullptr;
   std::shared_ptr<ObjectRegistry> registry = ObjectRegistry::NewInstance();
   std::shared_ptr<ObjectLibrary> library = std::make_shared<ObjectLibrary>();
   registry->AddLibrary(library);
-  library->Register<Env>("unguarded", [](const std::string& /*uri*/,
-					 std::unique_ptr<Env>* /*guard */,
-					  std::string * /* errmsg */) {
-    return Env::Default();
-  });
+  library->Register<Env>(
+      "unguarded",
+      [](const std::string& /*uri*/, std::unique_ptr<Env>* /*guard */,
+         std::string* /* errmsg */) { return Env::Default(); });
 
-  library->Register<Env>("guarded", [](const std::string& /*uri*/,
-				       std::unique_ptr<Env>* guard,
-				       std::string * /* errmsg */) {
+  library->Register<Env>(
+      "guarded", [](const std::string& /*uri*/, std::unique_ptr<Env>* guard,
+                    std::string* /* errmsg */) {
         guard->reset(new EnvWrapper(Env::Default()));
         return guard->get();
       });
@@ -137,21 +131,20 @@ TEST_F(EnvRegistryTest, CheckStatic) {
   ASSERT_OK(registry->NewStaticObject<Env>("unguarded", &env));
   ASSERT_NE(env, nullptr);
 }
-  
+
 TEST_F(EnvRegistryTest, CheckUnique) {
   std::unique_ptr<Env> unique;
   std::shared_ptr<ObjectRegistry> registry = ObjectRegistry::NewInstance();
   std::shared_ptr<ObjectLibrary> library = std::make_shared<ObjectLibrary>();
   registry->AddLibrary(library);
-  library->Register<Env>("unguarded", [](const std::string& /*uri*/,
-					 std::unique_ptr<Env>* /*guard */,
-					  std::string * /* errmsg */) {
-    return Env::Default();
-  });
+  library->Register<Env>(
+      "unguarded",
+      [](const std::string& /*uri*/, std::unique_ptr<Env>* /*guard */,
+         std::string* /* errmsg */) { return Env::Default(); });
 
-  library->Register<Env>("guarded", [](const std::string& /*uri*/,
-				       std::unique_ptr<Env>* guard,
-				       std::string * /* errmsg */) {
+  library->Register<Env>(
+      "guarded", [](const std::string& /*uri*/, std::unique_ptr<Env>* guard,
+                    std::string* /* errmsg */) {
         guard->reset(new EnvWrapper(Env::Default()));
         return guard->get();
       });
@@ -162,7 +155,7 @@ TEST_F(EnvRegistryTest, CheckUnique) {
   ASSERT_NOK(registry->NewUniqueObject<Env>("unguarded", &unique));
   ASSERT_EQ(unique, nullptr);
 }
-  
+
 }  // namespace rocksdb
 
 int main(int argc, char** argv) {

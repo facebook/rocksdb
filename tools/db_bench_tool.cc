@@ -7,7 +7,6 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
-
 #ifdef GFLAGS
 #ifdef NUMA
 #include <numa.h>
@@ -6368,9 +6367,11 @@ int db_bench_tool(int argc, char** argv) {
     exit(1);
   }
   if (!FLAGS_statistics_string.empty()) {
-    Status s = ObjectRegistry::NewInstance()->NewSharedObject<Statistics>(FLAGS_statistics_string, &dbstats);
+    Status s = ObjectRegistry::NewInstance()->NewSharedObject<Statistics>(
+        FLAGS_statistics_string, &dbstats);
     if (dbstats == nullptr) {
-      fprintf(stderr, "No Statistics registered matching string: %s status=%s\n",
+      fprintf(stderr,
+              "No Statistics registered matching string: %s status=%s\n",
               FLAGS_statistics_string.c_str(), s.ToString().c_str());
       exit(1);
     }

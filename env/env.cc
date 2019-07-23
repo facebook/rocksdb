@@ -28,9 +28,9 @@ Status Env::NewLogger(const std::string& fname,
                       std::shared_ptr<Logger>* result) {
   return NewEnvLogger(fname, this, result);
 }
-  
-Status Env::LoadEnv(const std::string & value, Env **result) {
-  Env *env = *result;
+
+Status Env::LoadEnv(const std::string& value, Env** result) {
+  Env* env = *result;
   Status s;
 #ifndef ROCKSDB_LITE
   s = ObjectRegistry::NewInstance()->NewStaticObject<Env>(value, &env);

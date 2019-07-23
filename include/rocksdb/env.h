@@ -147,7 +147,7 @@ class Env {
   static const char* Type() { return "Environment"; }
 
   // Loads the environment specified by the input value into the result
-  static Status LoadEnv(const std::string & value, Env **result);
+  static Status LoadEnv(const std::string& value, Env** result);
 
   // Return a default environment suitable for the current operating
   // system.  Sophisticated users may wish to provide their own Env

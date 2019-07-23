@@ -342,11 +342,10 @@ TEST_F(OptionsTest, GetColumnFamilyOptionsFromStringTest) {
   // Comparator from object registry
   std::string kCompName = "reverse_comp";
   ObjectLibrary::Default()->Register<const Comparator>(
-      kCompName, [](const std::string& /*name*/,
-                    std::unique_ptr<const Comparator>* /*guard*/,
-		    std::string * /* errmsg */) {
-        return ReverseBytewiseComparator();
-      });
+      kCompName,
+      [](const std::string& /*name*/,
+         std::unique_ptr<const Comparator>* /*guard*/,
+         std::string* /* errmsg */) { return ReverseBytewiseComparator(); });
 
   ASSERT_OK(GetColumnFamilyOptionsFromString(
       base_cf_opt, "comparator=" + kCompName + ";", &new_cf_opt));
@@ -358,7 +357,7 @@ TEST_F(OptionsTest, GetColumnFamilyOptionsFromStringTest) {
   ObjectLibrary::Default()->Register<MergeOperator>(
       kMoName,
       [](const std::string& /*name*/, std::unique_ptr<MergeOperator>* guard,
-	 std::string * /* errmsg */) {
+         std::string* /* errmsg */) {
         guard->reset(new BytesXOROperator());
         return guard->get();
       });
@@ -771,13 +770,12 @@ TEST_F(OptionsTest, GetOptionsFromStringTest) {
   };
 
   ObjectLibrary::Default()->Register<Env>(
-	    kCustomEnvName,
-	    [](const std::string& /*name*/,
-	       std::unique_ptr<Env>* /*env_guard*/,
-	       std::string * /* errmsg */) {
-	      static CustomEnv env(Env::Default());
-	      return &env;
-	    });
+      kCustomEnvName,
+      [](const std::string& /*name*/, std::unique_ptr<Env>* /*env_guard*/,
+         std::string* /* errmsg */) {
+        static CustomEnv env(Env::Default());
+        return &env;
+      });
 
   ASSERT_OK(GetOptionsFromString(
       base_options,
@@ -815,7 +813,7 @@ TEST_F(OptionsTest, GetOptionsFromStringTest) {
   ASSERT_EQ(new_options.create_if_missing, true);
   ASSERT_EQ(new_options.max_open_files, 1);
   ASSERT_TRUE(new_options.rate_limiter.get() != nullptr);
-  Env *newEnv = new_options.env;
+  Env* newEnv = new_options.env;
   ASSERT_OK(Env::LoadEnv(kCustomEnvName, &newEnv));
   ASSERT_EQ(newEnv, new_options.env);
 }
