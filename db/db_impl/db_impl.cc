@@ -1507,6 +1507,13 @@ Status DBImpl::GetImpl(const ReadOptions& read_options,
 
       // Internally, WriteUnpreparedTxnReadCallback::Refresh would set
       // max_visible_seq = max(max_visible_seq, snapshot)
+      //
+      // Currently, the commented out assert is broken by
+      // InvalidSnapshotReadCallback, but if write unprepared recovery followed
+      // the regular transaction flow, then this special read callback would not
+      // be needed.
+      //
+      // assert(callback->max_visible_seq() >= snapshot);
       snapshot = callback->max_visible_seq();
     }
   }

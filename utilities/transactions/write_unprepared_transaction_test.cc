@@ -193,7 +193,7 @@ TEST_P(WriteUnpreparedTransactionTest, ReadYourOwnWriteStress) {
           }
           if (a == REFRESH_SNAPSHOT) {
             txn->SetSnapshot();
-            read_options.snapshot = db->GetSnapshot();
+            read_options.snapshot = txn->GetSnapshot();
             snapshot_num = counter.fetch_add(1);
           }
         }
