@@ -7,11 +7,16 @@
 #ifdef GFLAGS
 #include "tools/block_cache_trace_analyzer.h"
 
+#include <algorithm>
 #include <cinttypes>
+#include <cstdio>
+#include <cstdlib>
 #include <fstream>
 #include <iomanip>
 #include <iostream>
+#include <random>
 #include <sstream>
+
 #include "monitoring/histogram.h"
 #include "util/gflags_compat.h"
 #include "util/string_util.h"
@@ -122,6 +127,20 @@ DEFINE_string(analyze_get_spatial_locality_labels, "",
               "Group data blocks using these labels.");
 DEFINE_string(analyze_get_spatial_locality_buckets, "",
               "Group data blocks by their statistics using these buckets.");
+DEFINE_bool(mrc_only, false,
+            "Evaluate alternative cache policies only. When this flag is true, "
+            "the analyzer does NOT maintain states of each block in memory for "
+            "analysis. It only feeds the accesses into the cache simulators.");
+DEFINE_string(
+    analyze_correlation_coefficients_labels, "",
+    "Analyze the correlation coefficients of features such as number of past "
+    "accesses with regard to the number of accesses till the next access.");
+DEFINE_int32(analyze_correlation_coefficients_max_number_of_values, 1000000,
+             "The maximum number of values for a feature. If the number of "
+             "values for a feature is larger than this max, it randomly "
+             "selects 'max' number of values.");
+DEFINE_string(human_readable_trace_file_path, "",
+              "The filt path that saves human readable access records.");
 
 namespace rocksdb {
 namespace {
@@ -143,7 +162,10 @@ const std::string kSupportedCacheNames =
     "ghost_lru_hybrid_no_insert_on_row_miss ";
 
 // The suffix for the generated csv files.
+const std::string kFileNameSuffixMissRatioTimeline = "miss_ratio_timeline";
+const std::string kFileNameSuffixMissTimeline = "miss_timeline";
 const std::string kFileNameSuffixAccessTimeline = "access_timeline";
+const std::string kFileNameSuffixCorrelation = "correlation_input";
 const std::string kFileNameSuffixAvgReuseIntervalNaccesses =
     "avg_reuse_interval_naccesses";
 const std::string kFileNameSuffixAvgReuseInterval = "avg_reuse_interval";
@@ -279,6 +301,18 @@ double percent(uint64_t numerator, uint64_t denomenator) {
   return static_cast<double>(numerator * 100.0 / denomenator);
 }
 
+std::map<uint64_t, uint64_t> adjust_time_unit(
+    const std::map<uint64_t, uint64_t>& time_stats, uint64_t time_unit) {
+  if (time_unit == 1) {
+    return time_stats;
+  }
+  std::map<uint64_t, uint64_t> adjusted_time_stats;
+  for (auto const& time : time_stats) {
+    adjusted_time_stats[static_cast<uint64_t>(time.first / time_unit)] +=
+        time.second;
+  }
+  return adjusted_time_stats;
+}
 }  // namespace
 
 void BlockCacheTraceAnalyzer::WriteMissRatioCurves() const {
@@ -288,8 +322,12 @@ void BlockCacheTraceAnalyzer::WriteMissRatioCurves() const {
   if (output_dir_.empty()) {
     return;
   }
+  uint64_t trace_duration =
+      trace_end_timestamp_in_seconds_ - trace_start_timestamp_in_seconds_;
+  uint64_t total_accesses = access_sequence_number_;
   const std::string output_miss_ratio_curve_path =
-      output_dir_ + "/" + kMissRatioCurveFileName;
+      output_dir_ + "/" + std::to_string(trace_duration) + "_" +
+      std::to_string(total_accesses) + "_" + kMissRatioCurveFileName;
   std::ofstream out(output_miss_ratio_curve_path);
   if (!out.is_open()) {
     return;
@@ -302,7 +340,8 @@ void BlockCacheTraceAnalyzer::WriteMissRatioCurves() const {
   for (auto const& config_caches : cache_simulator_->sim_caches()) {
     const CacheConfiguration& config = config_caches.first;
     for (uint32_t i = 0; i < config.cache_capacities.size(); i++) {
-      double miss_ratio = config_caches.second[i]->miss_ratio();
+      double miss_ratio =
+          config_caches.second[i]->miss_ratio_stats().miss_ratio();
       // Write the body.
       out << config.cache_name;
       out << ",";
@@ -314,11 +353,285 @@ void BlockCacheTraceAnalyzer::WriteMissRatioCurves() const {
       out << ",";
       out << std::fixed << std::setprecision(4) << miss_ratio;
       out << ",";
-      out << config_caches.second[i]->total_accesses();
+      out << config_caches.second[i]->miss_ratio_stats().total_accesses();
       out << std::endl;
     }
   }
   out.close();
+}
+
+void BlockCacheTraceAnalyzer::UpdateFeatureVectors(
+    const std::vector<uint64_t>& access_sequence_number_timeline,
+    const std::vector<uint64_t>& access_timeline, const std::string& label,
+    std::map<std::string, Features>* label_features,
+    std::map<std::string, Predictions>* label_predictions) const {
+  if (access_sequence_number_timeline.empty() || access_timeline.empty()) {
+    return;
+  }
+  assert(access_timeline.size() == access_sequence_number_timeline.size());
+  uint64_t prev_access_sequence_number = access_sequence_number_timeline[0];
+  uint64_t prev_access_timestamp = access_timeline[0];
+  for (uint32_t i = 0; i < access_sequence_number_timeline.size(); i++) {
+    uint64_t num_accesses_since_last_access =
+        access_sequence_number_timeline[i] - prev_access_sequence_number;
+    uint64_t elapsed_time_since_last_access =
+        access_timeline[i] - prev_access_timestamp;
+    prev_access_sequence_number = access_sequence_number_timeline[i];
+    prev_access_timestamp = access_timeline[i];
+    if (i < access_sequence_number_timeline.size() - 1) {
+      (*label_features)[label].num_accesses_since_last_access.push_back(
+          num_accesses_since_last_access);
+      (*label_features)[label].num_past_accesses.push_back(i);
+      (*label_features)[label].elapsed_time_since_last_access.push_back(
+          elapsed_time_since_last_access);
+    }
+    if (i >= 1) {
+      (*label_predictions)[label].num_accesses_till_next_access.push_back(
+          num_accesses_since_last_access);
+      (*label_predictions)[label].elapsed_time_till_next_access.push_back(
+          elapsed_time_since_last_access);
+    }
+  }
+}
+
+void BlockCacheTraceAnalyzer::WriteMissRatioTimeline(uint64_t time_unit) const {
+  if (!cache_simulator_ || output_dir_.empty()) {
+    return;
+  }
+  std::map<uint64_t, std::map<std::string, std::map<uint64_t, double>>>
+      cs_name_timeline;
+  uint64_t start_time = port::kMaxUint64;
+  uint64_t end_time = 0;
+  const std::map<uint64_t, uint64_t>& trace_num_misses =
+      adjust_time_unit(miss_ratio_stats_.num_misses_timeline(), time_unit);
+  const std::map<uint64_t, uint64_t>& trace_num_accesses =
+      adjust_time_unit(miss_ratio_stats_.num_accesses_timeline(), time_unit);
+  assert(trace_num_misses.size() == trace_num_accesses.size());
+  for (auto const& num_miss : trace_num_misses) {
+    uint64_t time = num_miss.first;
+    start_time = std::min(start_time, time);
+    end_time = std::max(end_time, time);
+    uint64_t miss = num_miss.second;
+    auto it = trace_num_accesses.find(time);
+    assert(it != trace_num_accesses.end());
+    uint64_t access = it->second;
+    cs_name_timeline[port::kMaxUint64]["trace"][time] = percent(miss, access);
+  }
+  for (auto const& config_caches : cache_simulator_->sim_caches()) {
+    const CacheConfiguration& config = config_caches.first;
+    std::string cache_label = config.cache_name + "-" +
+                              std::to_string(config.num_shard_bits) + "-" +
+                              std::to_string(config.ghost_cache_capacity);
+    for (uint32_t i = 0; i < config.cache_capacities.size(); i++) {
+      const std::map<uint64_t, uint64_t>& num_misses = adjust_time_unit(
+          config_caches.second[i]->miss_ratio_stats().num_misses_timeline(),
+          time_unit);
+      const std::map<uint64_t, uint64_t>& num_accesses = adjust_time_unit(
+          config_caches.second[i]->miss_ratio_stats().num_accesses_timeline(),
+          time_unit);
+      assert(num_misses.size() == num_accesses.size());
+      for (auto const& num_miss : num_misses) {
+        uint64_t time = num_miss.first;
+        start_time = std::min(start_time, time);
+        end_time = std::max(end_time, time);
+        uint64_t miss = num_miss.second;
+        auto it = num_accesses.find(time);
+        assert(it != num_accesses.end());
+        uint64_t access = it->second;
+        cs_name_timeline[config.cache_capacities[i]][cache_label][time] =
+            percent(miss, access);
+      }
+    }
+  }
+  for (auto const& it : cs_name_timeline) {
+    const std::string output_miss_ratio_timeline_path =
+        output_dir_ + "/" + std::to_string(it.first) + "_" +
+        std::to_string(time_unit) + "_" + kFileNameSuffixMissRatioTimeline;
+    std::ofstream out(output_miss_ratio_timeline_path);
+    if (!out.is_open()) {
+      return;
+    }
+    std::string header("time");
+    for (uint64_t now = start_time; now <= end_time; now++) {
+      header += ",";
+      header += std::to_string(now);
+    }
+    out << header << std::endl;
+    for (auto const& label : it.second) {
+      std::string row(label.first);
+      for (uint64_t now = start_time; now <= end_time; now++) {
+        auto misses = label.second.find(now);
+        row += ",";
+        if (misses != label.second.end()) {
+          row += std::to_string(misses->second);
+        } else {
+          row += "0";
+        }
+      }
+      out << row << std::endl;
+    }
+    out.close();
+  }
+}
+
+void BlockCacheTraceAnalyzer::WriteMissTimeline(uint64_t time_unit) const {
+  if (!cache_simulator_ || output_dir_.empty()) {
+    return;
+  }
+  std::map<uint64_t, std::map<std::string, std::map<uint64_t, uint64_t>>>
+      cs_name_timeline;
+  uint64_t start_time = port::kMaxUint64;
+  uint64_t end_time = 0;
+  const std::map<uint64_t, uint64_t>& trace_num_misses =
+      adjust_time_unit(miss_ratio_stats_.num_misses_timeline(), time_unit);
+  for (auto const& num_miss : trace_num_misses) {
+    uint64_t time = num_miss.first;
+    start_time = std::min(start_time, time);
+    end_time = std::max(end_time, time);
+    uint64_t miss = num_miss.second;
+    cs_name_timeline[port::kMaxUint64]["trace"][time] = miss;
+  }
+  for (auto const& config_caches : cache_simulator_->sim_caches()) {
+    const CacheConfiguration& config = config_caches.first;
+    std::string cache_label = config.cache_name + "-" +
+                              std::to_string(config.num_shard_bits) + "-" +
+                              std::to_string(config.ghost_cache_capacity);
+    for (uint32_t i = 0; i < config.cache_capacities.size(); i++) {
+      const std::map<uint64_t, uint64_t>& num_misses = adjust_time_unit(
+          config_caches.second[i]->miss_ratio_stats().num_misses_timeline(),
+          time_unit);
+      for (auto const& num_miss : num_misses) {
+        uint64_t time = num_miss.first;
+        start_time = std::min(start_time, time);
+        end_time = std::max(end_time, time);
+        uint64_t miss = num_miss.second;
+        cs_name_timeline[config.cache_capacities[i]][cache_label][time] = miss;
+      }
+    }
+  }
+  for (auto const& it : cs_name_timeline) {
+    const std::string output_miss_ratio_timeline_path =
+        output_dir_ + "/" + std::to_string(it.first) + "_" +
+        std::to_string(time_unit) + "_" + kFileNameSuffixMissTimeline;
+    std::ofstream out(output_miss_ratio_timeline_path);
+    if (!out.is_open()) {
+      return;
+    }
+    std::string header("time");
+    for (uint64_t now = start_time; now <= end_time; now++) {
+      header += ",";
+      header += std::to_string(now);
+    }
+    out << header << std::endl;
+    for (auto const& label : it.second) {
+      std::string row(label.first);
+      for (uint64_t now = start_time; now <= end_time; now++) {
+        auto misses = label.second.find(now);
+        row += ",";
+        if (misses != label.second.end()) {
+          row += std::to_string(misses->second);
+        } else {
+          row += "0";
+        }
+      }
+      out << row << std::endl;
+    }
+    out.close();
+  }
+}
+
+void BlockCacheTraceAnalyzer::WriteCorrelationFeatures(
+    const std::string& label_str, uint32_t max_number_of_values) const {
+  std::set<std::string> labels = ParseLabelStr(label_str);
+  std::map<std::string, Features> label_features;
+  std::map<std::string, Predictions> label_predictions;
+  auto block_callback =
+      [&](const std::string& cf_name, uint64_t fd, uint32_t level,
+          TraceType block_type, const std::string& /*block_key*/,
+          uint64_t /*block_key_id*/, const BlockAccessInfo& block) {
+        if (labels.find(kGroupbyCaller) != labels.end()) {
+          // Group by caller.
+          for (auto const& caller_map : block.caller_access_timeline) {
+            const std::string label =
+                BuildLabel(labels, cf_name, fd, level, block_type,
+                           caller_map.first, /*block_id=*/0);
+            auto it = block.caller_access_sequence__number_timeline.find(
+                caller_map.first);
+            assert(it != block.caller_access_sequence__number_timeline.end());
+            UpdateFeatureVectors(it->second, caller_map.second, label,
+                                 &label_features, &label_predictions);
+          }
+          return;
+        }
+        const std::string label = BuildLabel(
+            labels, cf_name, fd, level, block_type,
+            TableReaderCaller::kMaxBlockCacheLookupCaller, /*block_id=*/0);
+        UpdateFeatureVectors(block.access_sequence_number_timeline,
+                             block.access_timeline, label, &label_features,
+                             &label_predictions);
+      };
+  TraverseBlocks(block_callback);
+  WriteCorrelationFeaturesToFile(label_str, label_features, label_predictions,
+                                 max_number_of_values);
+}
+
+void BlockCacheTraceAnalyzer::WriteCorrelationFeaturesToFile(
+    const std::string& label,
+    const std::map<std::string, Features>& label_features,
+    const std::map<std::string, Predictions>& label_predictions,
+    uint32_t max_number_of_values) const {
+  std::default_random_engine rand_engine(env_->NowMicros());
+  for (auto const& label_feature_vectors : label_features) {
+    const Features& past = label_feature_vectors.second;
+    auto it = label_predictions.find(label_feature_vectors.first);
+    assert(it != label_predictions.end());
+    const Predictions& future = it->second;
+    const std::string output_path = output_dir_ + "/" + label + "_" +
+                                    label_feature_vectors.first + "_" +
+                                    kFileNameSuffixCorrelation;
+    std::ofstream out(output_path);
+    if (!out.is_open()) {
+      return;
+    }
+    std::string header(
+        "num_accesses_since_last_access,elapsed_time_since_last_access,num_"
+        "past_accesses,num_accesses_till_next_access,elapsed_time_till_next_"
+        "access");
+    out << header << std::endl;
+    std::vector<uint32_t> indexes;
+    for (uint32_t i = 0; i < past.num_accesses_since_last_access.size(); i++) {
+      indexes.push_back(i);
+    }
+    std::shuffle(indexes.begin(), indexes.end(), rand_engine);
+    for (uint32_t i = 0; i < max_number_of_values && i < indexes.size(); i++) {
+      uint32_t rand_index = indexes[i];
+      out << std::to_string(past.num_accesses_since_last_access[rand_index])
+          << ",";
+      out << std::to_string(past.elapsed_time_since_last_access[rand_index])
+          << ",";
+      out << std::to_string(past.num_past_accesses[rand_index]) << ",";
+      out << std::to_string(future.num_accesses_till_next_access[rand_index])
+          << ",";
+      out << std::to_string(future.elapsed_time_till_next_access[rand_index])
+          << std::endl;
+    }
+    out.close();
+  }
+}
+
+void BlockCacheTraceAnalyzer::WriteCorrelationFeaturesForGet(
+    uint32_t max_number_of_values) const {
+  std::string label = "GetKeyInfo";
+  std::map<std::string, Features> label_features;
+  std::map<std::string, Predictions> label_predictions;
+  for (auto const& get_info : get_key_info_map_) {
+    const GetKeyInfo& info = get_info.second;
+    UpdateFeatureVectors(info.access_sequence_number_timeline,
+                         info.access_timeline, label, &label_features,
+                         &label_predictions);
+  }
+  WriteCorrelationFeaturesToFile(label, label_features, label_predictions,
+                                 max_number_of_values);
 }
 
 std::set<std::string> BlockCacheTraceAnalyzer::ParseLabelStr(
@@ -371,7 +684,6 @@ void BlockCacheTraceAnalyzer::TraverseBlocks(
                        uint64_t /*block_key_id*/,
                        const BlockAccessInfo& /*block_access_info*/)>
         block_callback) const {
-  uint64_t block_id = 0;
   for (auto const& cf_aggregates : cf_aggregates_map_) {
     // Stats per column family.
     const std::string& cf_name = cf_aggregates.first;
@@ -387,8 +699,8 @@ void BlockCacheTraceAnalyzer::TraverseBlocks(
              block_type_aggregates.second.block_access_info_map) {
           // Stats per block.
           block_callback(cf_name, fd, level, type, block_access_info.first,
-                         block_id, block_access_info.second);
-          block_id++;
+                         block_access_info.second.block_id,
+                         block_access_info.second);
         }
       }
     }
@@ -1046,12 +1358,15 @@ void BlockCacheTraceAnalyzer::WriteAccessCountSummaryStats(
 
 BlockCacheTraceAnalyzer::BlockCacheTraceAnalyzer(
     const std::string& trace_file_path, const std::string& output_dir,
-    bool compute_reuse_distance,
+    const std::string& human_readable_trace_file_path,
+    bool compute_reuse_distance, bool mrc_only,
     std::unique_ptr<BlockCacheTraceSimulator>&& cache_simulator)
     : env_(rocksdb::Env::Default()),
       trace_file_path_(trace_file_path),
       output_dir_(output_dir),
+      human_readable_trace_file_path_(human_readable_trace_file_path),
       compute_reuse_distance_(compute_reuse_distance),
+      mrc_only_(mrc_only),
       cache_simulator_(std::move(cache_simulator)) {}
 
 void BlockCacheTraceAnalyzer::ComputeReuseDistance(
@@ -1072,7 +1387,29 @@ void BlockCacheTraceAnalyzer::ComputeReuseDistance(
   info->unique_blocks_since_last_access.clear();
 }
 
-void BlockCacheTraceAnalyzer::RecordAccess(
+Status BlockCacheTraceAnalyzer::WriteHumanReadableTraceRecord(
+    const BlockCacheTraceRecord& access, uint64_t block_id,
+    uint64_t get_key_id) {
+  if (!human_readable_trace_file_writer_) {
+    return Status::OK();
+  }
+  int ret = snprintf(
+      trace_record_buffer_, sizeof(trace_record_buffer_),
+      "%" PRIu64 ",%" PRIu64 ",%u,%" PRIu64 ",%" PRIu64 ",%" PRIu32 ",%" PRIu64
+      ""
+      ",%u,%u,%" PRIu64 ",%" PRIu64 ",%" PRIu64 ",%u\n",
+      access.access_timestamp, block_id, access.block_type, access.block_size,
+      access.cf_id, access.level, access.sst_fd_number, access.caller,
+      access.no_insert, access.get_id, get_key_id, access.referenced_data_size,
+      access.is_cache_hit);
+  if (ret < 0) {
+    return Status::IOError("failed to format the output");
+  }
+  std::string printout(trace_record_buffer_);
+  return human_readable_trace_file_writer_->Append(printout);
+}
+
+Status BlockCacheTraceAnalyzer::RecordAccess(
     const BlockCacheTraceRecord& access) {
   ColumnFamilyAccessInfoAggregate& cf_aggr = cf_aggregates_map_[access.cf_name];
   SSTFileAccessInfoAggregate& file_aggr =
@@ -1080,18 +1417,30 @@ void BlockCacheTraceAnalyzer::RecordAccess(
   file_aggr.level = access.level;
   BlockTypeAccessInfoAggregate& block_type_aggr =
       file_aggr.block_type_aggregates_map[access.block_type];
+  if (block_type_aggr.block_access_info_map.find(access.block_key) ==
+      block_type_aggr.block_access_info_map.end()) {
+    block_type_aggr.block_access_info_map[access.block_key].block_id =
+        unique_block_id_;
+    unique_block_id_++;
+  }
   BlockAccessInfo& block_access_info =
       block_type_aggr.block_access_info_map[access.block_key];
   if (compute_reuse_distance_) {
     ComputeReuseDistance(&block_access_info);
   }
-  block_access_info.AddAccess(access);
+  block_access_info.AddAccess(access, access_sequence_number_);
   block_info_map_[access.block_key] = &block_access_info;
-  if (trace_start_timestamp_in_seconds_ == 0) {
-    trace_start_timestamp_in_seconds_ =
-        access.access_timestamp / kMicrosInSecond;
+  uint64_t get_key_id = 0;
+  if (access.caller == TableReaderCaller::kUserGet &&
+      access.get_id != BlockCacheTraceHelper::kReservedGetId) {
+    std::string row_key = BlockCacheTraceHelper::ComputeRowKey(access);
+    if (get_key_info_map_.find(row_key) == get_key_info_map_.end()) {
+      get_key_info_map_[row_key].key_id = unique_get_key_id_;
+      get_key_id = unique_get_key_id_;
+      unique_get_key_id_++;
+    }
+    get_key_info_map_[row_key].AddAccess(access, access_sequence_number_);
   }
-  trace_end_timestamp_in_seconds_ = access.access_timestamp / kMicrosInSecond;
 
   if (compute_reuse_distance_) {
     // Add this block to all existing blocks.
@@ -1108,6 +1457,8 @@ void BlockCacheTraceAnalyzer::RecordAccess(
       }
     }
   }
+  return WriteHumanReadableTraceRecord(access, block_access_info.block_id,
+                                       get_key_id);
 }
 
 Status BlockCacheTraceAnalyzer::Analyze() {
@@ -1122,32 +1473,68 @@ Status BlockCacheTraceAnalyzer::Analyze() {
   if (!s.ok()) {
     return s;
   }
+  if (!human_readable_trace_file_path_.empty()) {
+    s = env_->NewWritableFile(human_readable_trace_file_path_,
+                              &human_readable_trace_file_writer_, EnvOptions());
+    if (!s.ok()) {
+      return s;
+    }
+  }
   uint64_t start = env_->NowMicros();
-  uint64_t processed_records = 0;
   uint64_t time_interval = 0;
   while (s.ok()) {
     BlockCacheTraceRecord access;
     s = reader.ReadAccess(&access);
     if (!s.ok()) {
-      return s;
+      break;
     }
-    RecordAccess(access);
+    if (!mrc_only_) {
+      s = RecordAccess(access);
+      if (!s.ok()) {
+        break;
+      }
+    }
+    if (trace_start_timestamp_in_seconds_ == 0) {
+      trace_start_timestamp_in_seconds_ =
+          access.access_timestamp / kMicrosInSecond;
+    }
+    trace_end_timestamp_in_seconds_ = access.access_timestamp / kMicrosInSecond;
+    miss_ratio_stats_.UpdateMetrics(access.access_timestamp,
+                                    is_user_access(access.caller),
+                                    access.is_cache_hit == Boolean::kFalse);
     if (cache_simulator_) {
       cache_simulator_->Access(access);
     }
-    processed_records++;
+    access_sequence_number_++;
     uint64_t now = env_->NowMicros();
     uint64_t duration = (now - start) / kMicrosInSecond;
     if (duration > 10 * time_interval) {
+      uint64_t trace_duration =
+          trace_end_timestamp_in_seconds_ - trace_start_timestamp_in_seconds_;
       fprintf(stdout,
               "Running for %" PRIu64 " seconds: Processed %" PRIu64
-              " records/second\n",
-              duration, processed_records / duration);
-      processed_records = 0;
+              " records/second. Trace duration %" PRIu64
+              " seconds. Observed miss ratio %.2f\n",
+              duration, duration > 0 ? access_sequence_number_ / duration : 0,
+              trace_duration, miss_ratio_stats_.miss_ratio());
       time_interval++;
     }
   }
-  return Status::OK();
+  if (human_readable_trace_file_writer_) {
+    human_readable_trace_file_writer_->Flush();
+    human_readable_trace_file_writer_->Close();
+  }
+  uint64_t now = env_->NowMicros();
+  uint64_t duration = (now - start) / kMicrosInSecond;
+  uint64_t trace_duration =
+      trace_end_timestamp_in_seconds_ - trace_start_timestamp_in_seconds_;
+  fprintf(stdout,
+          "Running for %" PRIu64 " seconds: Processed %" PRIu64
+          " records/second. Trace duration %" PRIu64
+          " seconds. Observed miss ratio %.2f\n",
+          duration, duration > 0 ? access_sequence_number_ / duration : 0,
+          trace_duration, miss_ratio_stats_.miss_ratio());
+  return s;
 }
 
 void BlockCacheTraceAnalyzer::PrintBlockSizeStats() const {
@@ -1321,15 +1708,6 @@ void BlockCacheTraceAnalyzer::PrintAccessCountStats(bool user_access_only,
               "Top %" PRIu32 " access count blocks access_count=%" PRIu64
               " %s\n",
               top_k, naccess_it->first, statistics.c_str());
-      // if (block->referenced_data_size > block->block_size) {
-      //   for (auto const& ref_key_it : block->key_num_access_map) {
-      //     ParsedInternalKey internal_key;
-      //     ParseInternalKey(ref_key_it.first, &internal_key);
-      //     printf("######%lu %lu %d %s\n", block->referenced_data_size,
-      //     block->block_size, internal_key.type,
-      //     internal_key.user_key.ToString().c_str());
-      //   }
-      // }
     }
   }
 
@@ -1696,16 +2074,32 @@ int block_cache_trace_analyzer_tool(int argc, char** argv) {
       exit(1);
     }
   }
-  BlockCacheTraceAnalyzer analyzer(
-      FLAGS_block_cache_trace_path, FLAGS_block_cache_analysis_result_dir,
-      !FLAGS_reuse_distance_labels.empty(), std::move(cache_simulator));
+  BlockCacheTraceAnalyzer analyzer(FLAGS_block_cache_trace_path,
+                                   FLAGS_block_cache_analysis_result_dir,
+                                   FLAGS_human_readable_trace_file_path,
+                                   !FLAGS_reuse_distance_labels.empty(),
+                                   FLAGS_mrc_only, std::move(cache_simulator));
   Status s = analyzer.Analyze();
-  if (!s.IsIncomplete()) {
+  if (!s.IsIncomplete() && !s.ok()) {
     // Read all traces.
     fprintf(stderr, "Cannot process the trace %s\n", s.ToString().c_str());
     exit(1);
   }
   fprintf(stdout, "Status: %s\n", s.ToString().c_str());
+  analyzer.WriteMissRatioCurves();
+  analyzer.WriteMissRatioTimeline(1);
+  analyzer.WriteMissRatioTimeline(kSecondInMinute);
+  analyzer.WriteMissRatioTimeline(kSecondInHour);
+  analyzer.WriteMissTimeline(1);
+  analyzer.WriteMissTimeline(kSecondInMinute);
+  analyzer.WriteMissTimeline(kSecondInHour);
+
+  if (FLAGS_mrc_only) {
+    fprintf(stdout,
+            "Skipping the analysis statistics since the user wants to compute "
+            "MRC only");
+    return 0;
+  }
 
   analyzer.PrintStatsSummary();
   if (FLAGS_print_access_count_stats) {
@@ -1727,7 +2121,6 @@ int block_cache_trace_analyzer_tool(int argc, char** argv) {
     analyzer.PrintDataBlockAccessStats();
   }
   print_break_lines(/*num_break_lines=*/3);
-  analyzer.WriteMissRatioCurves();
 
   if (!FLAGS_timeline_labels.empty()) {
     std::stringstream ss(FLAGS_timeline_labels);
@@ -1818,6 +2211,18 @@ int block_cache_trace_analyzer_tool(int argc, char** argv) {
       getline(ss, label, ',');
       analyzer.WriteGetSpatialLocality(label, buckets);
     }
+  }
+
+  if (!FLAGS_analyze_correlation_coefficients_labels.empty()) {
+    std::stringstream ss(FLAGS_analyze_correlation_coefficients_labels);
+    while (ss.good()) {
+      std::string label;
+      getline(ss, label, ',');
+      analyzer.WriteCorrelationFeatures(
+          label, FLAGS_analyze_correlation_coefficients_max_number_of_values);
+    }
+    analyzer.WriteCorrelationFeaturesForGet(
+        FLAGS_analyze_correlation_coefficients_max_number_of_values);
   }
   return 0;
 }

@@ -117,7 +117,8 @@ class BlockCacheTracerTest : public testing::Test {
       // Provide these fields for all block types.
       // The writer should only write these fields for data blocks and the
       // caller is either GET or MGET.
-      record.referenced_key = kRefKeyPrefix + std::to_string(key_id);
+      record.referenced_key =
+          kRefKeyPrefix + std::to_string(key_id) + std::string(8, 0);
       record.referenced_key_exist_in_block = Boolean::kTrue;
       record.num_keys_in_block = kNumKeysInBlock;
       ASSERT_OK(writer->WriteBlockAccess(
@@ -179,7 +180,8 @@ class BlockCacheTracerTest : public testing::Test {
         "-analyze_get_spatial_locality_labels=" +
             analyze_get_spatial_locality_labels_,
         "-analyze_get_spatial_locality_buckets=" +
-            analyze_get_spatial_locality_buckets_};
+            analyze_get_spatial_locality_buckets_,
+        "-analyze_correlation_coefficients_labels=all"};
     char arg_buffer[kArgBufferSize];
     char* argv[kMaxArgCount];
     int argc = 0;
@@ -236,9 +238,9 @@ TEST_F(BlockCacheTracerTest, BlockCacheAnalyzer) {
   RunBlockCacheTraceAnalyzer();
   {
     // Validate the cache miss ratios.
-    const std::vector<uint64_t> expected_capacities{1024, 1024 * 1024,
-                                                    1024 * 1024 * 1024};
-    const std::string mrc_path = test_path_ + "/mrc";
+    std::vector<uint64_t> expected_capacities{1024, 1024 * 1024,
+                                              1024 * 1024 * 1024};
+    const std::string mrc_path = test_path_ + "/49_50_mrc";
     std::ifstream infile(mrc_path);
     uint32_t config_index = 0;
     std::string line;
@@ -266,6 +268,68 @@ TEST_F(BlockCacheTracerTest, BlockCacheAnalyzer) {
     ASSERT_EQ(expected_capacities.size(), config_index);
     infile.close();
     ASSERT_OK(env_->DeleteFile(mrc_path));
+
+    const std::vector<std::string> time_units{"1", "60", "3600"};
+    expected_capacities.push_back(port::kMaxUint64);
+    for (auto const& expected_capacity : expected_capacities) {
+      for (auto const& time_unit : time_units) {
+        const std::string miss_ratio_timeline_path =
+            test_path_ + "/" + std::to_string(expected_capacity) + "_" +
+            time_unit + "_miss_ratio_timeline";
+        std::ifstream mrt_file(miss_ratio_timeline_path);
+        // Read header.
+        ASSERT_TRUE(getline(mrt_file, line));
+        ASSERT_TRUE(getline(mrt_file, line));
+        std::stringstream ss(line);
+        bool read_header = false;
+        while (ss.good()) {
+          std::string substr;
+          getline(ss, substr, ',');
+          if (!read_header) {
+            if (expected_capacity == port::kMaxUint64) {
+              ASSERT_EQ("trace", substr);
+            } else {
+              ASSERT_EQ("lru-1-0", substr);
+            }
+            read_header = true;
+            continue;
+          }
+          ASSERT_DOUBLE_EQ(100.0, ParseDouble(substr));
+        }
+        ASSERT_FALSE(getline(mrt_file, line));
+        mrt_file.close();
+        ASSERT_OK(env_->DeleteFile(miss_ratio_timeline_path));
+      }
+      for (auto const& time_unit : time_units) {
+        const std::string miss_timeline_path =
+            test_path_ + "/" + std::to_string(expected_capacity) + "_" +
+            time_unit + "_miss_timeline";
+        std::ifstream mt_file(miss_timeline_path);
+        // Read header.
+        ASSERT_TRUE(getline(mt_file, line));
+        ASSERT_TRUE(getline(mt_file, line));
+        std::stringstream ss(line);
+        uint32_t num_misses = 0;
+        while (ss.good()) {
+          std::string substr;
+          getline(ss, substr, ',');
+          if (num_misses == 0) {
+            if (expected_capacity == port::kMaxUint64) {
+              ASSERT_EQ("trace", substr);
+            } else {
+              ASSERT_EQ("lru-1-0", substr);
+            }
+            num_misses++;
+            continue;
+          }
+          num_misses += ParseInt(substr);
+        }
+        ASSERT_EQ(51, num_misses);
+        ASSERT_FALSE(getline(mt_file, line));
+        mt_file.close();
+        ASSERT_OK(env_->DeleteFile(miss_timeline_path));
+      }
+    }
   }
   {
     // Validate the timeline csv files.
@@ -543,7 +607,9 @@ TEST_F(BlockCacheTracerTest, MixedBlocks) {
     // Read blocks.
     BlockCacheTraceAnalyzer analyzer(trace_file_path_,
                                      /*output_miss_ratio_curve_path=*/"",
+                                     /*human_readable_trace_file_path=*/"",
                                      /*compute_reuse_distance=*/true,
+                                     /*mrc_only=*/false,
                                      /*simulator=*/nullptr);
     // The analyzer ends when it detects an incomplete access record.
     ASSERT_EQ(Status::Incomplete(""), analyzer.Analyze());
