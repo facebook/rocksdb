@@ -122,9 +122,17 @@ Status UncompressionDictReader::GetOrReadUncompressionDictionary(
 size_t UncompressionDictReader::ApproximateMemoryUsage() const {
   assert(!uncompression_dict_block_.GetOwnValue() ||
          uncompression_dict_block_.GetValue() != nullptr);
-  return uncompression_dict_block_.GetOwnValue()
+  size_t usage = uncompression_dict_block_.GetOwnValue()
              ? uncompression_dict_block_.GetValue()->ApproximateMemoryUsage()
              : 0;
+
+#ifdef ROCKSDB_MALLOC_USABLE_SIZE
+    usage += malloc_usable_size(const_cast<UncompressionDictReader*>(this));
+#else
+    usage += sizeof(*this);
+#endif  // ROCKSDB_MALLOC_USABLE_SIZE
+
+    return usage;
 }
 
 }  // namespace rocksdb
