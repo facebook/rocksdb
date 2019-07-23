@@ -33,6 +33,7 @@
 * Reduce iterator key comparision for upper/lower bound check.
 * Log Writer will flush after finishing the whole record, rather than a fragment.
 * Lower MultiGet batching API latency by reading data blocks from disk in parallel
+* Improve performance of row_cache: make reads with newer snapshots than data in an SST file share the same cache key, except in some transaction cases.
 
 ### General Improvements
 * Added new status code kColumnFamilyDropped to distinguish between Column Family Dropped and DB Shutdown in progress.
