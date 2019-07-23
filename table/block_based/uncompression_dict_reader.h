@@ -57,7 +57,6 @@ class UncompressionDictReader {
       BlockCacheLookupContext* lookup_context,
       CachableEntry<BlockContents>* uncompression_dict_block) const;
 
- private:
   const BlockBasedTable* table_;
   CachableEntry<BlockContents> uncompression_dict_block_;
 };
