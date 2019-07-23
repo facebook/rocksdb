@@ -480,7 +480,6 @@ TESTS = \
 	fault_injection_test \
 	filelock_test \
 	filename_test \
-	file_reader_writer_test \
 	block_based_filter_block_test \
 	full_filter_block_test \
 	partitioned_filter_block_test \
@@ -580,6 +579,7 @@ PARALLEL_TEST = \
 	external_sst_file_test \
 	import_column_family_test \
 	fault_injection_test \
+	file_reader_writer_test \
 	inlineskiplist_test \
 	manual_compaction_test \
 	persistent_cache_test \
