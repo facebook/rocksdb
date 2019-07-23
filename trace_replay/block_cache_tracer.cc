@@ -6,6 +6,7 @@
 #include "trace_replay/block_cache_tracer.h"
 
 #include "db/db_impl/db_impl.h"
+#include "db/dbformat.h"
 #include "rocksdb/slice.h"
 #include "util/coding.h"
 #include "util/hash.h"
@@ -52,6 +53,19 @@ bool BlockCacheTraceHelper::IsUserAccess(TableReaderCaller caller) {
          caller == TableReaderCaller::kUserIterator ||
          caller == TableReaderCaller::kUserApproximateSize ||
          caller == TableReaderCaller::kUserVerifyChecksum;
+}
+
+std::string BlockCacheTraceHelper::ComputeRowKey(
+    const BlockCacheTraceRecord& access) {
+  if (!IsGetOrMultiGet(access.caller)) {
+    return "";
+  }
+  Slice key = ExtractUserKey(access.referenced_key);
+  uint64_t seq_no = access.get_from_user_specified_snapshot == Boolean::kFalse
+                        ? 0
+                        : 1 + GetInternalKeySeqno(access.referenced_key);
+  return std::to_string(access.sst_fd_number) + "_" + key.ToString() + "_" +
+         std::to_string(seq_no);
 }
 
 BlockCacheTraceWriter::BlockCacheTraceWriter(
