@@ -1,8 +1,7 @@
-import csv
+#!/usr/bin/env python3
+
 import gc
-import os
 import random
-import subprocess
 import sys
 import time
 from os import path
@@ -94,7 +93,9 @@ class HashEntry:
 class HashTable:
     """
     A custom implementation of hash table to support fast random sampling.
-    It is closed hashing and uses chaining to resolve hash conflicts. It grows/shrinks the hash table upon insertion/deletion to support fast lookups and random samplings.
+    It is closed hashing and uses chaining to resolve hash conflicts.
+    It grows/shrinks the hash table upon insertion/deletion to support
+    fast lookups and random samplings.
     """
 
     def __init__(self):
@@ -123,7 +124,10 @@ class HashTable:
         return samples
 
     def insert(self, key, hash, value):
-        """Insert a hash entry in the table. Replace the old entry if it already exists."""
+        """
+        Insert a hash entry in the table. Replace the old entry if it already
+        exists.
+        """
         self.grow()
         inserted = False
         index = hash % len(self.table)
@@ -248,21 +252,19 @@ class MissRatioStats:
             result_dir, self.time_unit, cache_type, cache_size
         )
         if not path.exists(header_file_path):
-            header_file = open(header_file_path, "w+")
-            header = "time"
-            for time in range(start, end):
-                header += ",{}".format(time)
-            header_file.write(header + "\n")
-            header_file.close()
+            with open(header_file_path, "w+") as header_file:
+                header = "time"
+                for time in range(start, end):
+                    header += ",{}".format(time)
+                header_file.write(header + "\n")
         file_path = "{}/data-ml-miss-timeline-{}-{}-{}".format(
             result_dir, self.time_unit, cache_type, cache_size
         )
-        file = open(file_path, "w+")
-        row = "{}".format(cache_type)
-        for time in range(start, end):
-            row += ",{}".format(self.time_misses.get(time, 0))
-        file.write(row + "\n")
-        file.close()
+        with open(file_path, "w+") as file:
+            row = "{}".format(cache_type)
+            for trace_time in range(start, end):
+                row += ",{}".format(self.time_misses.get(trace_time, 0))
+            file.write(row + "\n")
 
     def write_miss_ratio_timeline(self, cache_type, cache_size, result_dir, start, end):
         start /= kMicrosInSecond * self.time_unit
@@ -271,38 +273,35 @@ class MissRatioStats:
             result_dir, self.time_unit, cache_type, cache_size
         )
         if not path.exists(header_file_path):
-            header_file = open(header_file_path, "w+")
-            header = "time"
-            for time in range(start, end):
-                header += ",{}".format(time)
-            header_file.write(header + "\n")
-            header_file.close()
+            with open(header_file_path, "w+") as header_file:
+                header = "time"
+                for time in range(start, end):
+                    header += ",{}".format(time)
+                header_file.write(header + "\n")
         file_path = "{}/data-ml-miss-ratio-timeline-{}-{}-{}".format(
             result_dir, self.time_unit, cache_type, cache_size
         )
-        file = open(file_path, "w+")
-        row = "{}".format(cache_type)
-        for time in range(start, end):
-            naccesses = self.time_accesses.get(time, 0)
-            miss_ratio = 0
-            if naccesses > 0:
-                miss_ratio = float(self.time_misses.get(time, 0) * 100.0) / float(
-                    naccesses
-                )
-            row += ",{0:.2f}".format(miss_ratio)
-        file.write(row + "\n")
-        file.close()
+        with open(file_path, "w+") as file:
+            row = "{}".format(cache_type)
+            for trace_time in range(start, end):
+                naccesses = self.time_accesses.get(trace_time, 0)
+                miss_ratio = 0
+                if naccesses > 0:
+                    miss_ratio = float(
+                        self.time_misses.get(trace_time, 0) * 100.0
+                    ) / float(naccesses)
+                row += ",{0:.2f}".format(miss_ratio)
+            file.write(row + "\n")
 
 
 class PolicyStats:
-    def __init__(self, time_unit):
+    def __init__(self, time_unit, policies):
         self.time_selected_polices = {}
         self.time_accesses = {}
         self.policy_names = {}
         self.time_unit = time_unit
-        self.policy_names[0] = "lru"
-        self.policy_names[1] = "mru"
-        self.policy_names[2] = "lfu"
+        for i in range(len(policies)):
+            self.policy_names[i] = policies[i].policy_name()
 
     def update_metrics(self, access_time, selected_policy):
         access_time /= kMicrosInSecond * self.time_unit
@@ -323,25 +322,25 @@ class PolicyStats:
             result_dir, self.time_unit, cache_type, cache_size
         )
         if not path.exists(header_file_path):
-            header_file = open(header_file_path, "w+")
-            header = "time"
-            for time in range(start, end):
-                header += ",{}".format(time)
-            header_file.write(header + "\n")
-            header_file.close()
+            with open(header_file_path, "w+") as header_file:
+                header = "time"
+                for trace_time in range(start, end):
+                    header += ",{}".format(trace_time)
+                header_file.write(header + "\n")
         file_path = "{}/data-ml-policy-timeline-{}-{}-{}".format(
             result_dir, self.time_unit, cache_type, cache_size
         )
-        file = open(file_path, "w+")
-        for policy in self.policy_names:
-            policy_name = self.policy_names[policy]
-            row = "{}-{}".format(cache_type, policy_name)
-            for time in range(start, end):
-                row += ",{}".format(
-                    self.time_selected_polices.get(time, {}).get(policy_name, 0)
-                )
-            file.write(row + "\n")
-        file.close()
+        with open(file_path, "w+") as file:
+            for policy in self.policy_names:
+                policy_name = self.policy_names[policy]
+                row = "{}-{}".format(cache_type, policy_name)
+                for trace_time in range(start, end):
+                    row += ",{}".format(
+                        self.time_selected_polices.get(trace_time, {}).get(
+                            policy_name, 0
+                        )
+                    )
+                file.write(row + "\n")
 
     def write_policy_ratio_timeline(
         self, cache_type, cache_size, file_path, start, end
@@ -352,34 +351,38 @@ class PolicyStats:
             result_dir, self.time_unit, cache_type, cache_size
         )
         if not path.exists(header_file_path):
-            header_file = open(header_file_path, "w+")
-            header = "time"
-            for time in range(start, end):
-                header += ",{}".format(time)
-            header_file.write(header + "\n")
-            header_file.close()
+            with open(header_file_path, "w+") as header_file:
+                header = "time"
+                for time in range(start, end):
+                    header += ",{}".format(time)
+                header_file.write(header + "\n")
         file_path = "{}/data-ml-policy-ratio-timeline-{}-{}-{}".format(
             result_dir, self.time_unit, cache_type, cache_size
         )
-        file = open(file_path, "w+")
-        for policy in self.policy_names:
-            policy_name = self.policy_names[policy]
-            row = "{}-{}".format(cache_type, policy_name)
-            for time in range(start, end):
-                naccesses = self.time_accesses.get(time, 0)
-                ratio = 0
-                if naccesses > 0:
-                    ratio = float(
-                        self.time_selected_polices.get(time, {}).get(policy_name, 0)
-                        * 100.0
-                    ) / float(naccesses)
-                row += ",{0:.2f}".format(ratio)
-            file.write(row + "\n")
-        file.close()
+        with open(file_path, "w+") as file:
+            for policy in self.policy_names:
+                policy_name = self.policy_names[policy]
+                row = "{}-{}".format(cache_type, policy_name)
+                for trace_time in range(start, end):
+                    naccesses = self.time_accesses.get(trace_time, 0)
+                    ratio = 0
+                    if naccesses > 0:
+                        ratio = float(
+                            self.time_selected_polices.get(trace_time, {}).get(
+                                policy_name, 0
+                            )
+                            * 100.0
+                        ) / float(naccesses)
+                    row += ",{0:.2f}".format(ratio)
+                file.write(row + "\n")
 
 
 class Policy(object):
-    """A policy maintains a set of evicted keys. It returns a reward of one to itself if it has not evicted a missing key. Otherwise, it gives itself 0 reward."""
+    """
+    A policy maintains a set of evicted keys. It returns a reward of one to
+    itself if it has not evicted a missing key. Otherwise, it gives itself 0
+    reward.
+    """
 
     def __init__(self):
         self.evicted_keys = {}
@@ -391,6 +394,9 @@ class Policy(object):
         self.evicted_keys.pop(key, None)
 
     def prioritize_samples(self, samples):
+        raise NotImplementedError
+
+    def policy_name(self):
         raise NotImplementedError
 
     def generate_reward(self, key):
@@ -407,6 +413,9 @@ class LRUPolicy(Policy):
             - e2.value.last_access_number,
         )
 
+    def policy_name(self):
+        return "lru"
+
 
 class MRUPolicy(Policy):
     def prioritize_samples(self, samples):
@@ -416,10 +425,16 @@ class MRUPolicy(Policy):
             - e1.value.last_access_number,
         )
 
+    def policy_name(self):
+        return "mru"
+
 
 class LFUPolicy(Policy):
     def prioritize_samples(self, samples):
         return sorted(samples, cmp=lambda e1, e2: e1.value.num_hits - e2.value.num_hits)
+
+    def policy_name(self):
+        return "lfu"
 
 
 class MLCache(object):
@@ -427,50 +442,53 @@ class MLCache(object):
         self.cache_size = cache_size
         self.used_size = 0
         self.miss_ratio_stats = MissRatioStats(kSecondsInMinute)
-        self.policy_stats = PolicyStats(kSecondsInMinute)
+        self.policy_stats = PolicyStats(kSecondsInMinute, policies)
         self.per_hour_miss_ratio_stats = MissRatioStats(kSecondsInHour)
-        self.per_hour_policy_stats = PolicyStats(kSecondsInHour)
-        self.cache = HashTable()
+        self.per_hour_policy_stats = PolicyStats(kSecondsInHour, policies)
+        self.table = HashTable()
         self.enable_cache_row_key = enable_cache_row_key
         self.get_id_row_key_map = {}
         self.policies = policies
 
-    def lookup(self, key, hash):
-        value = self.cache.lookup(key, hash)
+    def _lookup(self, key, hash):
+        value = self.table.lookup(key, hash)
         if value is not None:
             value.last_access_number = self.miss_ratio_stats.num_accesses
             value.num_hits += 1
             return True
         return False
 
-    def select_policy(self, trace_record, key):
+    def _select_policy(self, trace_record, key):
         raise NotImplementedError
 
-    def evict(self, policy_index, value_size):
+    def cache_name(self):
+        raise NotImplementedError
+
+    def _evict(self, policy_index, value_size):
         # Randomly sample n entries.
-        samples = self.cache.random_sample(kSampleSize)
+        samples = self.table.random_sample(kSampleSize)
         samples = self.policies[policy_index].prioritize_samples(samples)
         for hash_entry in samples:
             self.used_size -= hash_entry.value.value_size
-            self.cache.delete(hash_entry.key, hash_entry.hash)
+            self.table.delete(hash_entry.key, hash_entry.hash)
             self.policies[policy_index].evict(
-                key=hash_entry.key, max_size=self.cache.elements
+                key=hash_entry.key, max_size=self.table.elements
             )
             if self.used_size + value_size <= self.cache_size:
                 break
 
-    def insert(self, trace_record, key, hash, value_size):
+    def _insert(self, trace_record, key, hash, value_size):
         if value_size > self.cache_size:
             return
-        policy_index = self.select_policy(trace_record, key)
+        policy_index = self._select_policy(trace_record, key)
         self.policies[policy_index].delete(key)
         self.policy_stats.update_metrics(trace_record.access_time, policy_index)
         self.per_hour_policy_stats.update_metrics(
             trace_record.access_time, policy_index
         )
         while self.used_size + value_size > self.cache_size:
-            self.evict(policy_index, value_size)
-        self.cache.insert(
+            self._evict(policy_index, value_size)
+        self.table.insert(
             key,
             hash,
             CacheEntry(
@@ -483,14 +501,14 @@ class MLCache(object):
         )
         self.used_size += value_size
 
-    def access_kv(self, trace_record, key, hash, value_size, no_insert):
-        if self.lookup(key, hash):
+    def _access_kv(self, trace_record, key, hash, value_size, no_insert):
+        if self._lookup(key, hash):
             return True
         if not no_insert and value_size > 0:
-            self.insert(trace_record, key, hash, value_size)
+            self._insert(trace_record, key, hash, value_size)
         return False
 
-    def update_stats(self, access_time, is_hit):
+    def _update_stats(self, access_time, is_hit):
         self.miss_ratio_stats.update_metrics(access_time, is_hit)
         self.per_hour_miss_ratio_stats.update_metrics(access_time, is_hit)
 
@@ -506,7 +524,7 @@ class MLCache(object):
                 self.get_id_row_key_map[trace_record.get_id] = {}
             if trace_record.key_id not in self.get_id_row_key_map[trace_record.get_id]:
                 # First time seen this key.
-                is_hit = self.access_kv(
+                is_hit = self._access_kv(
                     trace_record,
                     key="g{}".format(trace_record.key_id),
                     hash=trace_record.key_id,
@@ -522,24 +540,24 @@ class MLCache(object):
                 )
             if self.get_id_row_key_map[trace_record.get_id][trace_record.key_id]:
                 # hit.
-                self.update_stats(trace_record.access_time, is_hit=True)
+                self._update_stats(trace_record.access_time, is_hit=True)
                 return
             # Access its blocks.
-            is_hit = self.access_kv(
+            is_hit = self._access_kv(
                 trace_record,
                 key="b{}".format(trace_record.block_id),
                 hash=trace_record.block_id,
                 value_size=trace_record.block_size,
                 no_insert=trace_record.no_insert,
             )
-            self.update_stats(trace_record.access_time, is_hit)
+            self._update_stats(trace_record.access_time, is_hit)
             if (
                 trace_record.kv_size > 0
                 and not self.get_id_row_key_map[trace_record.get_id][
                     trace_record.key_id
                 ].inserted
             ):
-                self.insert(
+                self._insert(
                     trace_record,
                     "g{}".format(trace_record.key_id),
                     trace_record.key_id,
@@ -553,14 +571,14 @@ class MLCache(object):
                 )
             return
         # Access the block.
-        is_hit = self.access_kv(
+        is_hit = self._access_kv(
             trace_record,
             key="b{}".format(trace_record.block_id),
             hash=trace_record.block_id,
             value_size=trace_record.block_size,
             no_insert=trace_record.no_insert,
         )
-        self.update_stats(trace_record.access_time, is_hit)
+        self._update_stats(trace_record.access_time, is_hit)
 
 
 class ThompsonSamplingCache(MLCache):
@@ -578,11 +596,11 @@ class ThompsonSamplingCache(MLCache):
         )
         self._as = {}
         self._bs = {}
-        for i in range(len(policies)):
+        for _i in range(len(policies)):
             self._as = [init_a] * len(self.policies)
             self._bs = [init_b] * len(self.policies)
 
-    def select_policy(self, trace_record, key):
+    def _select_policy(self, trace_record, key):
         samples = [
             np.random.beta(self._as[x], self._bs[x]) for x in range(len(self.policies))
         ]
@@ -592,6 +610,11 @@ class ThompsonSamplingCache(MLCache):
         self._as[selected_policy] += reward
         self._bs[selected_policy] += 1 - reward
         return selected_policy
+
+    def cache_name(self):
+        if self.enable_cache_row_key:
+            return "Hybrid ThompsonSampling (ts_hybrid)"
+        return "ThompsonSampling (ts)"
 
 
 class LinUCBCache(MLCache):
@@ -604,9 +627,9 @@ class LinUCBCache(MLCache):
     DOI=http://dx.doi.org/10.1145/1772690.1772758
     """
 
-    def __init__(self, cache_size, enable_cache_row_key, policies, nfeatures):
+    def __init__(self, cache_size, enable_cache_row_key, policies):
         super(LinUCBCache, self).__init__(cache_size, enable_cache_row_key, policies)
-        self.nfeatures = nfeatures
+        self.nfeatures = 4 # Block type, caller, level, cf.
         self.th = np.zeros(
             (len(self.policies), self.nfeatures)
         )  # our real theta, what we will try to guess/
@@ -622,7 +645,7 @@ class LinUCBCache(MLCache):
         self.p = np.zeros(len(self.policies))
         self.alph = 0.2
 
-    def select_policy(self, trace_record, key):
+    def _select_policy(self, trace_record, key):
         x_i = np.zeros(self.nfeatures)  # the current context vector
         x_i[0] = trace_record.block_type
         x_i[1] = trace_record.caller
@@ -645,6 +668,11 @@ class LinUCBCache(MLCache):
         del x_i
         return selected_policy
 
+    def cache_name(self):
+        if self.enable_cache_row_key:
+            return "Hybrid LinUCB (linucb_hybrid)"
+        return "LinUCB (linucb)"
+
 
 def parse_cache_size(cs):
     cs = cs.replace("\n", "")
@@ -658,12 +686,10 @@ def parse_cache_size(cs):
 
 
 def create_cache(cache_type, cache_size, downsample_size):
-    ml_config_caches = {}
     policies = []
     policies.append(LRUPolicy())
     policies.append(MRUPolicy())
     policies.append(LFUPolicy())
-    linucb_nfeatures = 4
     cache_size = cache_size / downsample_size
     enable_cache_row_key = False
     if "hybrid" in cache_type:
@@ -672,10 +698,10 @@ def create_cache(cache_type, cache_size, downsample_size):
     if cache_type == "ts":
         return ThompsonSamplingCache(cache_size, enable_cache_row_key, policies)
     elif cache_type == "linucb":
-        return LinUCBCache(cache_size, enable_cache_row_key, policies, linucb_nfeatures)
+        return LinUCBCache(cache_size, enable_cache_row_key, policies)
     else:
         print("Unknown cache type {}".format(cache_type))
-        assert false
+        assert False
     return None
 
 
@@ -689,10 +715,9 @@ def run(trace_file_path, cache_type, cache, warmup_seconds):
     trace_miss_ratio_stats = MissRatioStats(kSecondsInMinute)
     with open(trace_file_path, "r") as trace_file:
         for line in trace_file:
-            # if num > 100000:
-            #     break
             num += 1
             if num % 1000000 == 0:
+                # Force a python gc periodically to reduce memory usage.
                 gc.collect()
             ts = line.split(",")
             timestamp = int(ts[0])
@@ -724,10 +749,13 @@ def run(trace_file_path, cache_type, cache, warmup_seconds):
             del record
             if num % 100 != 0:
                 continue
+            # Report progress every 10 seconds.
             now = time.time()
             if now - start_time > time_interval * 10:
                 print(
-                    "Take {} seconds to process {} trace records with trace duration of {} seconds. Throughput: {} records/second. Trace miss ratio {}".format(
+                    "Take {} seconds to process {} trace records with trace "
+                    "duration of {} seconds. Throughput: {} records/second. "
+                    "Trace miss ratio {}".format(
                         now - start_time,
                         num,
                         trace_duration / 1000000,
@@ -746,7 +774,8 @@ def run(trace_file_path, cache_type, cache, warmup_seconds):
                 )
     now = time.time()
     print(
-        "Take {} seconds to process {} trace records with trace duration of {} seconds. Throughput: {} records/second. Trace miss ratio {}".format(
+        "Take {} seconds to process {} trace records with trace duration of {} "
+        "seconds. Throughput: {} records/second. Trace miss ratio {}".format(
             now - start_time,
             num,
             trace_duration / 1000000,
@@ -761,16 +790,15 @@ def report_stats(
     cache, cache_type, cache_size, result_dir, trace_start_time, trace_end_time
 ):
     cache_label = "{}-{}".format(cache_type, cache_size)
-    mrc_file = open("{}/data-ml-mrc-{}".format(result_dir, cache_label), "w+")
-    mrc_file.write(
-        "{},0,0,{},{},{}\n".format(
-            cache_type,
-            cache_size,
-            cache.miss_ratio_stats.miss_ratio(),
-            cache.miss_ratio_stats.num_accesses,
+    with open("{}/data-ml-mrc-{}".format(result_dir, cache_label), "w+") as mrc_file:
+        mrc_file.write(
+            "{},0,0,{},{},{}\n".format(
+                cache_type,
+                cache_size,
+                cache.miss_ratio_stats.miss_ratio(),
+                cache.miss_ratio_stats.num_accesses,
+            )
         )
-    )
-    mrc_file.close()
     cache.policy_stats.write_policy_timeline(
         cache_type, cache_size, result_dir, trace_start_time, trace_end_time
     )
@@ -798,6 +826,18 @@ def report_stats(
 
 
 if __name__ == "__main__":
+    if len(sys.argv) <= 6:
+        print(
+            "Must provide 6 arguments. "
+            "1) cache_type (ts, ts_hybrid, linucb, linucb_hybrid). "
+            "2) cache size (xM, xG, xT). "
+            "3) The sampling frequency used to collect the trace. (The "
+            "simulation scales down the cache size by the sampling frequency). "
+            "4) Warmup seconds (The number of seconds used for warmup). "
+            "5) Trace file path. "
+            "6) Result directory (A directory that saves generated results)"
+        )
+        exit(1)
     cache_type = sys.argv[1]
     cache_size = parse_cache_size(sys.argv[2])
     downsample_size = int(sys.argv[3])
