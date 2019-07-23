@@ -6,9 +6,10 @@
 
 ### Public API Change
 * Now DB::Close() will return Aborted() error when there is unreleased snapshot. Users can retry after all snapshots are released.
-* Index and filter blocks are now handled similarly to data blocks with regards to the block cache: instead of storing reader objects in the cache, only the blocks themselves are cached. In addition, index and filter blocks (as well as filter partitions) no longer get evicted from the cache when a table is closed. Moreover, index blocks can now use the compressed block cache (if any).
+* Index, filter, and compression dictionary blocks are now handled similarly to data blocks with regards to the block cache: instead of storing objects in the cache, only the blocks themselves are cached. In addition, index, filter, and compression dictionary blocks (as well as filter partitions) no longer get evicted from the cache when a table is closed. Moreover, index blocks can now use the compressed block cache (if any), and cached index blocks can be shared among multiple table readers.
 * Partitions of partitioned indexes no longer affect the read amplification statistics.
-* Due to the above refactoring, block cache eviction statistics for indexes and filters are temporarily broken. We plan to reintroduce them in a later phase.
+* Due to the above refactoring, block cache eviction statistics for indexes, filters, and compression dictionaries are temporarily broken. We plan to reintroduce them in a later phase.
+* Errors related to the retrieval of the compression dictionary are now propagated to the user.
 * options.keep_log_file_num will be enforced strictly all the time. File names of all log files will be tracked, which may take significantly amount of memory if options.keep_log_file_num is large and either of options.max_log_file_size or options.log_file_time_to_roll is set.
 * Add initial support for Get/Put with user timestamps. Users can specify timestamps via ReadOptions and WriteOptions when calling DB::Get and DB::Put.
 * Accessing a partition of a partitioned filter or index through a pinned reference is no longer considered a cache hit.
@@ -26,6 +27,7 @@
 * Allow DBImplSecondary to remove memtables with obsolete data after replaying MANIFEST and WAL.
 * Add an option `failed_move_fall_back_to_copy` (default is true) for external SST ingestion. When `move_files` is true and hard link fails, ingestion falls back to copy if `failed_move_fall_back_to_copy` is true. Otherwise, ingestion reports an error.
 * Add argument `--secondary_path` to ldb to open the database as the secondary instance. This would keep the original DB intact.
+* Compression dictionary blocks are now prefetched and pinned in the cache (based on the customer's settings) the same way as index and filter blocks.
 
 ### Performance Improvements
 * Reduce binary search when iterator reseek into the same data block.
@@ -35,6 +37,7 @@
 * Log Writer will flush after finishing the whole record, rather than a fragment.
 * Lower MultiGet batching API latency by reading data blocks from disk in parallel
 * Improve performance of row_cache: make reads with newer snapshots than data in an SST file share the same cache key, except in some transaction cases.
+* The compression dictionary is no longer copied to a new object upon retrieval.
 
 ### General Improvements
 * Added new status code kColumnFamilyDropped to distinguish between Column Family Dropped and DB Shutdown in progress.

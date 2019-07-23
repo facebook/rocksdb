@@ -29,6 +29,7 @@
 #include "table/block_based/block_type.h"
 #include "table/block_based/cachable_entry.h"
 #include "table/block_based/filter_block.h"
+#include "table/block_based/uncompression_dict_reader.h"
 #include "table/format.h"
 #include "table/get_context.h"
 #include "table/multiget_context.h"
@@ -176,8 +177,6 @@ class BlockBasedTable : public TableReader {
 
   Status VerifyChecksum(TableReaderCaller caller) override;
 
-  void Close() override;
-
   ~BlockBasedTable();
 
   bool TEST_FilterBlockInCache() const;
@@ -242,7 +241,10 @@ class BlockBasedTable : public TableReader {
 
   template <typename TBlocklike>
   friend class FilterBlockReaderCommon;
+
   friend class PartitionIndexReader;
+
+  friend class UncompressionDictReader;
 
  protected:
   Rep* rep_;
@@ -312,10 +314,6 @@ class BlockBasedTable : public TableReader {
       autovector<
         CachableEntry<Block>, MultiGetContext::MAX_BATCH_SIZE>* results,
       char* scratch, const UncompressionDict& uncompression_dict) const;
-
-  CachableEntry<UncompressionDict> GetUncompressionDict(
-      FilePrefetchBuffer* prefetch_buffer, bool no_io, GetContext* get_context,
-      BlockCacheLookupContext* lookup_context) const;
 
   // Get the iterator from the index reader.
   //
@@ -416,9 +414,6 @@ class BlockBasedTable : public TableReader {
                            InternalIterator* meta_iter,
                            const InternalKeyComparator& internal_comparator,
                            BlockCacheLookupContext* lookup_context);
-  Status ReadCompressionDictBlock(
-      FilePrefetchBuffer* prefetch_buffer,
-      std::unique_ptr<const BlockContents>* compression_dict_block) const;
   Status PrefetchIndexAndFilterBlocks(
       FilePrefetchBuffer* prefetch_buffer, InternalIterator* meta_iter,
       BlockBasedTable* new_table, bool prefetch_all,
@@ -514,7 +509,7 @@ struct BlockBasedTable::Rep {
 
   std::unique_ptr<IndexReader> index_reader;
   std::unique_ptr<FilterBlockReader> filter;
-  std::unique_ptr<UncompressionDict> uncompression_dict;
+  std::unique_ptr<UncompressionDictReader> uncompression_dict_reader;
 
   enum class FilterType {
     kNoFilter,
@@ -566,7 +561,6 @@ struct BlockBasedTable::Rep {
   bool index_key_includes_seq = true;
   bool index_value_is_full = true;
 
-  bool closed = false;
   const bool immortal_table;
 
   SequenceNumber get_global_seqno(BlockType block_type) const {
