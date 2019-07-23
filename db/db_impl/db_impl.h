@@ -1571,6 +1571,10 @@ class DBImpl : public DB {
       const DBOptions& db_options,
       const std::vector<ColumnFamilyDescriptor>& column_families);
 
+  // Triggers compaction based on number of reads, if it hasn't been done yet.
+  void TriggerReadCompactionIfRequired(ColumnFamilyData* cfd,
+                                       VersionStorageInfo* storage_info);
+
   // table_cache_ provides its own synchronization
   std::shared_ptr<Cache> table_cache_;
 

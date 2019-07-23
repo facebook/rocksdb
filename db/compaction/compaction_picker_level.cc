@@ -36,6 +36,9 @@ bool LevelCompactionPicker::NeedsCompaction(
       return true;
     }
   }
+  if (vstorage->ReadTriggeredCompactionRequired()) {
+    return true;
+  }
   return false;
 }
 
@@ -94,6 +97,8 @@ class LevelCompactionBuilder {
   void PickExpiredTtlFiles();
 
   void PickFilesMarkedForPeriodicCompaction();
+
+  void PickFilesMarkedForReadTriggeredCompaction();
 
   const std::string& cf_name_;
   VersionStorageInfo* vstorage_;
@@ -181,6 +186,42 @@ void LevelCompactionBuilder::PickFilesMarkedForPeriodicCompaction() {
   };
 
   for (auto& level_file : vstorage_->FilesMarkedForPeriodicCompaction()) {
+    if (continuation(level_file)) {
+      // found the compaction!
+      return;
+    }
+  }
+
+  start_level_inputs_.files.clear();
+}
+
+void LevelCompactionBuilder::PickFilesMarkedForReadTriggeredCompaction() {
+  if (vstorage_->FilesMarkedForReadTriggeredCompaction().empty()) {
+    return;
+  }
+
+  auto continuation = [&](std::pair<int, FileMetaData*> level_file) {
+    // If it's being compacted it has nothing to do here.
+    // If this assert() fails that means that some function marked some
+    // files as being_compacted, but didn't call ComputeCompactionScore()
+    assert(!level_file.second->being_compacted);
+    start_level_ = level_file.first;
+    output_level_ =
+        (start_level_ == 0) ? vstorage_->base_level() : start_level_ + 1;
+
+    if ((start_level_ == vstorage_->num_non_empty_levels() - 1) ||
+        (start_level_ == 0 &&
+         !compaction_picker_->level0_compactions_in_progress()->empty())) {
+      return false;
+    }
+
+    start_level_inputs_.files = {level_file.second};
+    start_level_inputs_.level = start_level_;
+    return compaction_picker_->ExpandInputsToCleanCut(cf_name_, vstorage_,
+                                                      &start_level_inputs_);
+  };
+
+  for (auto& level_file : vstorage_->FilesMarkedForReadTriggeredCompaction()) {
     if (continuation(level_file)) {
       // found the compaction!
       return;
@@ -291,6 +332,15 @@ void LevelCompactionBuilder::SetupInitialFiles() {
     PickFilesMarkedForPeriodicCompaction();
     if (!start_level_inputs_.empty()) {
       compaction_reason_ = CompactionReason::kPeriodicCompaction;
+      return;
+    }
+  }
+
+  // Read-triggered Compaction
+  if (start_level_inputs_.empty()) {
+    PickFilesMarkedForReadTriggeredCompaction();
+    if (!start_level_inputs_.empty()) {
+      compaction_reason_ = CompactionReason::kReadTriggered;
       return;
     }
   }
