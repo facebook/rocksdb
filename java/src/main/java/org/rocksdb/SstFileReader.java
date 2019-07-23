@@ -49,6 +49,25 @@ public class SstFileReader extends RocksObject {
     open(nativeHandle_, filePath);
   }
 
+  /**
+   * Verify checksum
+   *
+   * @throws RocksDBException if the checksum is not valid
+   */
+  public void verifyChecksum() throws RocksDBException {
+    verifyChecksum(nativeHandle_);
+  }
+
+  /**
+   * Get the properties of the table.
+   *
+   *
+   * @return the properties
+   */
+  public TableProperties getTableProperties() throws RocksDBException {
+    return getTableProperties(nativeHandle_);
+  }
+
 
 
   @Override protected final native void disposeInternal(final long handle);
@@ -59,4 +78,6 @@ public class SstFileReader extends RocksObject {
         throws RocksDBException;
 
   private native static long newSstFileReader(final long optionsHandle);
+  private native void verifyChecksum(final long handle) throws RocksDBException;
+  private native TableProperties getTableProperties(final long handle) throws RocksDBException;
 }

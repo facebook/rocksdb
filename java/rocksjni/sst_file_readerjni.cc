@@ -78,4 +78,33 @@ void Java_org_rocksdb_SstFileReader_disposeInternal(JNIEnv * /*env*/,
     delete reinterpret_cast<rocksdb::SstFileReader *>(jhandle);
 }
 
+/*
+ * Class:     org_rocksdb_SstFileReader
+ * Method:    verifyChecksum
+ * Signature: (J)V
+ */
+void Java_org_rocksdb_RocksDB_verifyChecksum(JNIEnv *env,
+                                             jobject /*jobj*/,
+                                              jlong jhandle) {
+  auto* sst_file_reader = reinterpret_cast<rocksdb::SstFileReader*>(jhandle);
+  auto s = sst_file_reader->VerifyChecksum();
+  if (!s.ok()) {
+    rocksdb::RocksDBExceptionJni::ThrowNew(env, s);
+  }
+}
+
+/*
+ * Class:     org_rocksdb_SstFileReader
+ * Method:    getTableProperties
+ * Signature: (J)J
+ */
+jobject Java_org_rocksdb_RocksDB_getTableProperties(JNIEnv *env,
+                                                  jobject /*jobj*/,
+                                                  jlong jhandle) {
+  auto* sst_file_reader = reinterpret_cast<rocksdb::SstFileReader*>(jhandle);
+  std::shared_ptr<const rocksdb::TableProperties> tp = sst_file_reader->GetTableProperties();
+  jobject jtable_properties = rocksdb::TablePropertiesJni::fromCppTableProperties(
+      env, *(tp.get()));
+  return jtable_properties;
+}
 

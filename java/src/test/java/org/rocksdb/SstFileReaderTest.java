@@ -16,6 +16,7 @@ import java.util.ArrayList;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.fail;
 
 public class SstFileReaderTest {
@@ -120,6 +121,14 @@ public class SstFileReaderTest {
 
       // Use the iterator to read sst file
       iterator.seekToFirst();
+
+      // Verify Checksum
+      reader.verifyChecksum();
+
+      // Verify Table Properties
+      assertEquals(reader.getTableProperties().getNumEntries(), 1);
+
+      // Check key and value
       assertThat(iterator.key()).isEqualTo("key1".getBytes());
       assertThat(iterator.value()).isEqualTo("value1".getBytes());
     }
