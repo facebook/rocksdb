@@ -275,6 +275,8 @@ struct ColumnFamilyOptions : public AdvancedColumnFamilyOptions {
   // this option helps reducing the cpu usage of long-running compactions. The
   // feature is disabled when max_subcompactions is greater than one.
   //
+  // NOTE: This feautre is currently incompatible with RangeDeletes.
+  //
   // Default: 0
   //
   // Dynamically changeable through SetOptions() API
