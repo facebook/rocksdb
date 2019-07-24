@@ -17,6 +17,7 @@
 
 #include "db/dbformat.h"
 #include "db/pinned_iterators_manager.h"
+#include "options/options_helper.h"
 
 #include "rocksdb/cache.h"
 #include "rocksdb/comparator.h"

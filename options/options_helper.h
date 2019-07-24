@@ -10,15 +10,19 @@
 #include <string>
 #include <vector>
 
-#include "options/cf_options.h"
-#include "options/db_options.h"
 #include "rocksdb/options.h"
 #include "rocksdb/status.h"
 #include "rocksdb/table.h"
 #include "rocksdb/universal_compaction.h"
+#include "rocksdb/utilities/object_registry.h"
+#include "rocksdb/utilities/options_type.h"
 
 namespace rocksdb {
-
+struct ImmutableDBOptions;
+struct MutableCFOptions;
+struct MutableDBOptions;
+class SliceTransform;
+class TableFactory;
 DBOptions BuildDBOptions(const ImmutableDBOptions& immutable_db_options,
                          const MutableDBOptions& mutable_db_options);
 
@@ -44,76 +48,11 @@ Status GetTableFactoryFromMap(
     std::shared_ptr<TableFactory>* table_factory,
     bool ignore_unknown_options = false);
 
-enum class OptionType {
-  kBoolean,
-  kInt,
-  kInt32T,
-  kInt64T,
-  kVectorInt,
-  kUInt,
-  kUInt32T,
-  kUInt64T,
-  kSizeT,
-  kString,
-  kDouble,
-  kCompactionStyle,
-  kCompactionPri,
-  kSliceTransform,
-  kCompressionType,
-  kVectorCompressionType,
-  kTableFactory,
-  kComparator,
-  kCompactionFilter,
-  kCompactionFilterFactory,
-  kCompactionOptionsFIFO,
-  kCompactionOptionsUniversal,
-  kCompactionStopStyle,
-  kMergeOperator,
-  kMemTableRepFactory,
-  kBlockBasedTableIndexType,
-  kBlockBasedTableDataBlockIndexType,
-  kBlockBasedTableIndexShorteningMode,
-  kFilterPolicy,
-  kFlushBlockPolicyFactory,
-  kChecksumType,
-  kEncodingType,
-  kWALRecoveryMode,
-  kAccessHint,
-  kInfoLogLevel,
-  kLRUCacheOptions,
-  kEnv,
-  kUnknown,
-};
-
-enum class OptionVerificationType {
-  kNormal,
-  kByName,               // The option is pointer typed so we can only verify
-                         // based on it's name.
-  kByNameAllowNull,      // Same as kByName, but it also allows the case
-                         // where one of them is a nullptr.
-  kByNameAllowFromNull,  // Same as kByName, but it also allows the case
-                         // where the old option is nullptr.
-  kDeprecated            // The option is no longer used in rocksdb. The RocksDB
-                         // OptionsParser will still accept this option if it
-                         // happen to exists in some Options file.  However,
-                         // the parser will not include it in serialization
-                         // and verification processes.
-};
-
-// A struct for storing constant option information such as option name,
-// option type, and offset.
-struct OptionTypeInfo {
-  int offset;
-  OptionType type;
-  OptionVerificationType verification;
-  bool is_mutable;
-  int mutable_offset;
-};
-
 // A helper function that converts "opt_address" to a std::string
 // based on the specified OptionType.
 bool SerializeSingleOptionHelper(const char* opt_address,
-                                 const OptionType opt_type, std::string* value);
+                                 const OptionTypeInfo& opt_info,
+                                 std::string* value);
 
 // In addition to its public version defined in rocksdb/convenience.h,
 // this further takes an optional output vector "unsupported_options_names",
@@ -143,8 +82,32 @@ extern Status StringToMap(
     const std::string& opts_str,
     std::unordered_map<std::string, std::string>* opts_map);
 
-extern bool ParseOptionHelper(char* opt_address, const OptionType& opt_type,
+extern bool ParseOptionHelper(char* opt_address, const OptionTypeInfo& opt_info,
                               const std::string& value);
+
+template <typename T>
+bool ParseEnum(const std::unordered_map<std::string, T>& type_map,
+               const std::string& type, T* value) {
+  auto iter = type_map.find(type);
+  if (iter != type_map.end()) {
+    *value = iter->second;
+    return true;
+  }
+  return false;
+}
+
+template <typename T>
+bool SerializeEnum(const std::unordered_map<std::string, T>& type_map,
+                   const T& type, std::string* value) {
+  for (const auto& pair : type_map) {
+    if (pair.second == type) {
+      *value = pair.first;
+      return true;
+    }
+  }
+  return false;
+}
+
 #endif  // !ROCKSDB_LITE
 
 struct OptionsHelper {

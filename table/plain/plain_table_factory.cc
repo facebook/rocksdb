@@ -17,6 +17,34 @@
 #include "util/string_util.h"
 
 namespace rocksdb {
+static std::unordered_map<std::string, OptionTypeInfo> plain_table_type_info = {
+    {"user_key_len",
+     {offsetof(struct PlainTableOptions, user_key_len), OptionType::kUInt32T,
+      OptionVerificationType::kNormal, OptionTypeFlags::kNone, 0}},
+    {"bloom_bits_per_key",
+     {offsetof(struct PlainTableOptions, bloom_bits_per_key), OptionType::kInt,
+      OptionVerificationType::kNormal, OptionTypeFlags::kNone, 0}},
+    {"hash_table_ratio",
+     {offsetof(struct PlainTableOptions, hash_table_ratio), OptionType::kDouble,
+      OptionVerificationType::kNormal, OptionTypeFlags::kNone, 0}},
+    {"index_sparseness",
+     {offsetof(struct PlainTableOptions, index_sparseness), OptionType::kSizeT,
+      OptionVerificationType::kNormal, OptionTypeFlags::kNone, 0}},
+    {"huge_page_tlb_size",
+     {offsetof(struct PlainTableOptions, huge_page_tlb_size),
+      OptionType::kSizeT, OptionVerificationType::kNormal,
+      OptionTypeFlags::kNone, 0}},
+    {"encoding_type",
+     {offsetof(struct PlainTableOptions, encoding_type),
+      OptionType::kEncodingType, OptionVerificationType::kByName,
+      OptionTypeFlags::kEnum, 0}},
+    {"full_scan_mode",
+     {offsetof(struct PlainTableOptions, full_scan_mode), OptionType::kBoolean,
+      OptionVerificationType::kNormal, OptionTypeFlags::kNone, 0}},
+    {"store_index_in_file",
+     {offsetof(struct PlainTableOptions, store_index_in_file),
+      OptionType::kBoolean, OptionVerificationType::kNormal,
+      OptionTypeFlags::kNone, 0}}};
 
 Status PlainTableFactory::NewTableReader(
     const TableReaderOptions& table_reader_options,
@@ -180,7 +208,7 @@ std::string ParsePlainTableOptions(const std::string& name,
   const auto& opt_info = iter->second;
   if (opt_info.verification != OptionVerificationType::kDeprecated &&
       !ParseOptionHelper(reinterpret_cast<char*>(new_options) + opt_info.offset,
-                         opt_info.type, value)) {
+                         opt_info, value)) {
     return "Invalid value";
   }
   return "";

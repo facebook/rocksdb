@@ -486,14 +486,59 @@ bool AreEqualDoubles(const double a, const double b) {
 }
 }  // namespace
 
-bool AreEqualOptions(
-    const char* opt1, const char* opt2, const OptionTypeInfo& type_info,
-    const std::string& opt_name,
-    const std::unordered_map<std::string, std::string>* opt_map) {
-  const char* offset1 = opt1 + type_info.offset;
-  const char* offset2 = opt2 + type_info.offset;
+static bool IsEnumEqual(const OptionTypeInfo& opt_info, const char* offset1,
+                        const char* offset2) {
+  switch (opt_info.type) {
+    case OptionType::kCompactionStyle:
+      return (*reinterpret_cast<const CompactionStyle*>(offset1) ==
+              *reinterpret_cast<const CompactionStyle*>(offset2));
+    case OptionType::kCompactionPri:
+      return (*reinterpret_cast<const CompactionPri*>(offset1) ==
+              *reinterpret_cast<const CompactionPri*>(offset2));
+    case OptionType::kCompressionType:
+      return (*reinterpret_cast<const CompressionType*>(offset1) ==
+              *reinterpret_cast<const CompressionType*>(offset2));
+    case OptionType::kChecksumType:
+      return (*reinterpret_cast<const ChecksumType*>(offset1) ==
+              *reinterpret_cast<const ChecksumType*>(offset2));
+    case OptionType::kEncodingType:
+      return (*reinterpret_cast<const EncodingType*>(offset1) ==
+              *reinterpret_cast<const EncodingType*>(offset2));
+    case OptionType::kBlockBasedTableIndexType:
+      return (
+          *reinterpret_cast<const BlockBasedTableOptions::IndexType*>(
+              offset1) ==
+          *reinterpret_cast<const BlockBasedTableOptions::IndexType*>(offset2));
+    case OptionType::kBlockBasedTableDataBlockIndexType:
+      return (
+          *reinterpret_cast<const BlockBasedTableOptions::DataBlockIndexType*>(
+              offset1) ==
+          *reinterpret_cast<const BlockBasedTableOptions::DataBlockIndexType*>(
+              offset2));
+    case OptionType::kBlockBasedTableIndexShorteningMode:
+      return (
+          *reinterpret_cast<const BlockBasedTableOptions::IndexShorteningMode*>(
+              offset1) ==
+          *reinterpret_cast<const BlockBasedTableOptions::IndexShorteningMode*>(
+              offset2));
+    case OptionType::kWALRecoveryMode:
+      return (*reinterpret_cast<const WALRecoveryMode*>(offset1) ==
+              *reinterpret_cast<const WALRecoveryMode*>(offset2));
+    case OptionType::kAccessHint:
+      return (*reinterpret_cast<const DBOptions::AccessHint*>(offset1) ==
+              *reinterpret_cast<const DBOptions::AccessHint*>(offset2));
+    case OptionType::kInfoLogLevel:
+      return (*reinterpret_cast<const InfoLogLevel*>(offset1) ==
+              *reinterpret_cast<const InfoLogLevel*>(offset2));
+    default:
+      return false;
+  }
+}
 
-  switch (type_info.type) {
+bool IsOptionEqual(OptionsSanityCheckLevel /*level*/,
+                   const OptionTypeInfo& opt_info, const char* offset1,
+                   const char* offset2) {
+  switch (opt_info.type) {
     case OptionType::kBoolean:
       return (*reinterpret_cast<const bool*>(offset1) ==
               *reinterpret_cast<const bool*>(offset2));
@@ -539,15 +584,6 @@ bool AreEqualOptions(
     case OptionType::kDouble:
       return AreEqualDoubles(*reinterpret_cast<const double*>(offset1),
                              *reinterpret_cast<const double*>(offset2));
-    case OptionType::kCompactionStyle:
-      return (*reinterpret_cast<const CompactionStyle*>(offset1) ==
-              *reinterpret_cast<const CompactionStyle*>(offset2));
-    case OptionType::kCompactionPri:
-      return (*reinterpret_cast<const CompactionPri*>(offset1) ==
-              *reinterpret_cast<const CompactionPri*>(offset2));
-    case OptionType::kCompressionType:
-      return (*reinterpret_cast<const CompressionType*>(offset1) ==
-              *reinterpret_cast<const CompressionType*>(offset2));
     case OptionType::kVectorCompressionType: {
       const auto* vec1 =
           reinterpret_cast<const std::vector<CompressionType>*>(offset1);
@@ -555,35 +591,6 @@ bool AreEqualOptions(
           reinterpret_cast<const std::vector<CompressionType>*>(offset2);
       return (*vec1 == *vec2);
     }
-    case OptionType::kChecksumType:
-      return (*reinterpret_cast<const ChecksumType*>(offset1) ==
-              *reinterpret_cast<const ChecksumType*>(offset2));
-    case OptionType::kBlockBasedTableIndexType:
-      return (
-          *reinterpret_cast<const BlockBasedTableOptions::IndexType*>(
-              offset1) ==
-          *reinterpret_cast<const BlockBasedTableOptions::IndexType*>(offset2));
-    case OptionType::kBlockBasedTableDataBlockIndexType:
-      return (
-          *reinterpret_cast<const BlockBasedTableOptions::DataBlockIndexType*>(
-              offset1) ==
-          *reinterpret_cast<const BlockBasedTableOptions::DataBlockIndexType*>(
-              offset2));
-    case OptionType::kBlockBasedTableIndexShorteningMode:
-      return (
-          *reinterpret_cast<const BlockBasedTableOptions::IndexShorteningMode*>(
-              offset1) ==
-          *reinterpret_cast<const BlockBasedTableOptions::IndexShorteningMode*>(
-              offset2));
-    case OptionType::kWALRecoveryMode:
-      return (*reinterpret_cast<const WALRecoveryMode*>(offset1) ==
-              *reinterpret_cast<const WALRecoveryMode*>(offset2));
-    case OptionType::kAccessHint:
-      return (*reinterpret_cast<const DBOptions::AccessHint*>(offset1) ==
-              *reinterpret_cast<const DBOptions::AccessHint*>(offset2));
-    case OptionType::kInfoLogLevel:
-      return (*reinterpret_cast<const InfoLogLevel*>(offset1) ==
-              *reinterpret_cast<const InfoLogLevel*>(offset2));
     case OptionType::kCompactionOptionsFIFO: {
       CompactionOptionsFIFO lhs =
           *reinterpret_cast<const CompactionOptionsFIFO*>(offset1);
@@ -613,39 +620,53 @@ bool AreEqualOptions(
       return false;
     }
     default:
-      if (type_info.verification == OptionVerificationType::kByName ||
-          type_info.verification ==
-              OptionVerificationType::kByNameAllowFromNull ||
-          type_info.verification == OptionVerificationType::kByNameAllowNull) {
-        std::string value1;
-        bool result =
-            SerializeSingleOptionHelper(offset1, type_info.type, &value1);
-        if (result == false) {
-          return false;
-        }
-        if (opt_map == nullptr) {
-          return true;
-        }
-        auto iter = opt_map->find(opt_name);
-        if (iter == opt_map->end()) {
-          return true;
-        } else {
-          if (type_info.verification ==
-              OptionVerificationType::kByNameAllowNull) {
-            if (iter->second == kNullptrString || value1 == kNullptrString) {
-              return true;
-            }
-          } else if (type_info.verification ==
-                     OptionVerificationType::kByNameAllowFromNull) {
-            if (iter->second == kNullptrString) {
-              return true;
-            }
-          }
-          return (value1 == iter->second);
-        }
+      if (opt_info.IsEnum()) {
+        return IsEnumEqual(opt_info, offset1, offset2);
       }
       return false;
   }
+}
+
+bool AreEqualOptions(
+    OptionsSanityCheckLevel level, const char* opt1, const char* opt2,
+    const OptionTypeInfo& type_info, const std::string& opt_name,
+    const std::unordered_map<std::string, std::string>* opt_map) {
+  const char* offset1 = opt1 + type_info.offset;
+  const char* offset2 = opt2 + type_info.offset;
+
+  if (IsOptionEqual(level, type_info, offset1, offset2)) {
+    return true;
+  } else if (type_info.verification == OptionVerificationType::kByName ||
+             type_info.verification ==
+                 OptionVerificationType::kByNameAllowFromNull ||
+             type_info.verification ==
+                 OptionVerificationType::kByNameAllowNull) {
+    std::string value1;
+    bool result = SerializeSingleOptionHelper(offset1, type_info, &value1);
+    if (result == false) {
+      return false;
+    }
+    if (opt_map == nullptr) {
+      return true;
+    }
+    auto iter = opt_map->find(opt_name);
+    if (iter == opt_map->end()) {
+      return true;
+    } else {
+      if (type_info.verification == OptionVerificationType::kByNameAllowNull) {
+        if (iter->second == kNullptrString || value1 == kNullptrString) {
+          return true;
+        }
+      } else if (type_info.verification ==
+                 OptionVerificationType::kByNameAllowFromNull) {
+        if (iter->second == kNullptrString) {
+          return true;
+        }
+      }
+      return (value1 == iter->second);
+    }
+  }
+  return false;
 }
 
 Status RocksDBOptionsParser::VerifyRocksDBOptionsFromFile(
@@ -730,8 +751,9 @@ Status RocksDBOptionsParser::VerifyDBOptions(
       // contain random values since they might not be initialized
       continue;
     }
-    if (DBOptionSanityCheckLevel(pair.first) <= sanity_check_level) {
-      if (!AreEqualOptions(reinterpret_cast<const char*>(&base_opt),
+    OptionsSanityCheckLevel level = DBOptionSanityCheckLevel(pair.first);
+    if (level <= sanity_check_level) {
+      if (!AreEqualOptions(level, reinterpret_cast<const char*>(&base_opt),
                            reinterpret_cast<const char*>(&persisted_opt),
                            pair.second, pair.first, nullptr)) {
         const size_t kBufferSize = 2048;
@@ -740,10 +762,10 @@ Status RocksDBOptionsParser::VerifyDBOptions(
         std::string persisted_value;
         SerializeSingleOptionHelper(
             reinterpret_cast<const char*>(&base_opt) + pair.second.offset,
-            pair.second.type, &base_value);
+            pair.second, &base_value);
         SerializeSingleOptionHelper(
             reinterpret_cast<const char*>(&persisted_opt) + pair.second.offset,
-            pair.second.type, &persisted_value);
+            pair.second, &persisted_value);
         snprintf(buffer, sizeof(buffer),
                  "[RocksDBOptionsParser]: "
                  "failed the verification on DBOptions::%s --- "
@@ -768,8 +790,9 @@ Status RocksDBOptionsParser::VerifyCFOptions(
       // contain random values since they might not be initialized
       continue;
     }
-    if (CFOptionSanityCheckLevel(pair.first) <= sanity_check_level) {
-      if (!AreEqualOptions(reinterpret_cast<const char*>(&base_opt),
+    OptionsSanityCheckLevel level = CFOptionSanityCheckLevel(pair.first);
+    if (level <= sanity_check_level) {
+      if (!AreEqualOptions(level, reinterpret_cast<const char*>(&base_opt),
                            reinterpret_cast<const char*>(&persisted_opt),
                            pair.second, pair.first, persisted_opt_map)) {
         const size_t kBufferSize = 2048;
@@ -778,10 +801,10 @@ Status RocksDBOptionsParser::VerifyCFOptions(
         std::string persisted_value;
         SerializeSingleOptionHelper(
             reinterpret_cast<const char*>(&base_opt) + pair.second.offset,
-            pair.second.type, &base_value);
+            pair.second, &base_value);
         SerializeSingleOptionHelper(
             reinterpret_cast<const char*>(&persisted_opt) + pair.second.offset,
-            pair.second.type, &persisted_value);
+            pair.second, &persisted_value);
         snprintf(buffer, sizeof(buffer),
                  "[RocksDBOptionsParser]: "
                  "failed the verification on ColumnFamilyOptions::%s --- "

@@ -14,6 +14,8 @@
 #include <string>
 
 #include "options/options_helper.h"
+#include "options/options_parser.h"
+#include "options/options_sanity_check.h"
 #include "port/port.h"
 #include "rocksdb/cache.h"
 #include "rocksdb/convenience.h"
@@ -409,6 +411,124 @@ std::string BlockBasedTableFactory::GetPrintableTableOptions() const {
 }
 
 #ifndef ROCKSDB_LITE
+static std::unordered_map<std::string, OptionTypeInfo>
+    block_based_table_type_info = {
+        /* currently not supported
+          std::shared_ptr<Cache> block_cache = nullptr;
+          std::shared_ptr<Cache> block_cache_compressed = nullptr;
+         */
+        {"flush_block_policy_factory",
+         {offsetof(struct BlockBasedTableOptions, flush_block_policy_factory),
+          OptionType::kFlushBlockPolicyFactory, OptionVerificationType::kByName,
+          OptionTypeFlags::kNone, 0}},
+        {"cache_index_and_filter_blocks",
+         {offsetof(struct BlockBasedTableOptions,
+                   cache_index_and_filter_blocks),
+          OptionType::kBoolean, OptionVerificationType::kNormal,
+          OptionTypeFlags::kNone, 0}},
+        {"cache_index_and_filter_blocks_with_high_priority",
+         {offsetof(struct BlockBasedTableOptions,
+                   cache_index_and_filter_blocks_with_high_priority),
+          OptionType::kBoolean, OptionVerificationType::kNormal,
+          OptionTypeFlags::kNone, 0}},
+        {"pin_l0_filter_and_index_blocks_in_cache",
+         {offsetof(struct BlockBasedTableOptions,
+                   pin_l0_filter_and_index_blocks_in_cache),
+          OptionType::kBoolean, OptionVerificationType::kNormal,
+          OptionTypeFlags::kNone, 0}},
+        {"index_type",
+         {offsetof(struct BlockBasedTableOptions, index_type),
+          OptionType::kBlockBasedTableIndexType,
+          OptionVerificationType::kNormal, OptionTypeFlags::kEnum, 0}},
+        {"hash_index_allow_collision",
+         {offsetof(struct BlockBasedTableOptions, hash_index_allow_collision),
+          OptionType::kBoolean, OptionVerificationType::kNormal,
+          OptionTypeFlags::kNone, 0}},
+        {"data_block_index_type",
+         {offsetof(struct BlockBasedTableOptions, data_block_index_type),
+          OptionType::kBlockBasedTableDataBlockIndexType,
+          OptionVerificationType::kNormal, OptionTypeFlags::kEnum, 0}},
+        {"index_shortening",
+         {offsetof(struct BlockBasedTableOptions, index_shortening),
+          OptionType::kBlockBasedTableIndexShorteningMode,
+          OptionVerificationType::kNormal, OptionTypeFlags::kEnum, 0}},
+        {"data_block_hash_table_util_ratio",
+         {offsetof(struct BlockBasedTableOptions,
+                   data_block_hash_table_util_ratio),
+          OptionType::kDouble, OptionVerificationType::kNormal,
+          OptionTypeFlags::kNone, 0}},
+        {"checksum",
+         {offsetof(struct BlockBasedTableOptions, checksum),
+          OptionType::kChecksumType, OptionVerificationType::kNormal,
+          OptionTypeFlags::kEnum, 0}},
+        {"no_block_cache",
+         {offsetof(struct BlockBasedTableOptions, no_block_cache),
+          OptionType::kBoolean, OptionVerificationType::kNormal,
+          OptionTypeFlags::kNone, 0}},
+        {"block_size",
+         {offsetof(struct BlockBasedTableOptions, block_size),
+          OptionType::kSizeT, OptionVerificationType::kNormal,
+          OptionTypeFlags::kNone, 0}},
+        {"block_size_deviation",
+         {offsetof(struct BlockBasedTableOptions, block_size_deviation),
+          OptionType::kInt, OptionVerificationType::kNormal,
+          OptionTypeFlags::kNone, 0}},
+        {"block_restart_interval",
+         {offsetof(struct BlockBasedTableOptions, block_restart_interval),
+          OptionType::kInt, OptionVerificationType::kNormal,
+          OptionTypeFlags::kNone, 0}},
+        {"index_block_restart_interval",
+         {offsetof(struct BlockBasedTableOptions, index_block_restart_interval),
+          OptionType::kInt, OptionVerificationType::kNormal,
+          OptionTypeFlags::kNone, 0}},
+        {"index_per_partition",
+         {0, OptionType::kUInt64T, OptionVerificationType::kDeprecated,
+          OptionTypeFlags::kNone, 0}},
+        {"metadata_block_size",
+         {offsetof(struct BlockBasedTableOptions, metadata_block_size),
+          OptionType::kUInt64T, OptionVerificationType::kNormal,
+          OptionTypeFlags::kNone, 0}},
+        {"partition_filters",
+         {offsetof(struct BlockBasedTableOptions, partition_filters),
+          OptionType::kBoolean, OptionVerificationType::kNormal,
+          OptionTypeFlags::kNone, 0}},
+        {"filter_policy",
+         {offsetof(struct BlockBasedTableOptions, filter_policy),
+          OptionType::kFilterPolicy, OptionVerificationType::kByName,
+          OptionTypeFlags::kNone, 0}},
+        {"whole_key_filtering",
+         {offsetof(struct BlockBasedTableOptions, whole_key_filtering),
+          OptionType::kBoolean, OptionVerificationType::kNormal,
+          OptionTypeFlags::kNone, 0}},
+        {"skip_table_builder_flush",
+         {0, OptionType::kBoolean, OptionVerificationType::kDeprecated,
+          OptionTypeFlags::kNone, 0}},
+        {"format_version",
+         {offsetof(struct BlockBasedTableOptions, format_version),
+          OptionType::kUInt32T, OptionVerificationType::kNormal,
+          OptionTypeFlags::kNone, 0}},
+        {"verify_compression",
+         {offsetof(struct BlockBasedTableOptions, verify_compression),
+          OptionType::kBoolean, OptionVerificationType::kNormal,
+          OptionTypeFlags::kNone, 0}},
+        {"read_amp_bytes_per_bit",
+         {offsetof(struct BlockBasedTableOptions, read_amp_bytes_per_bit),
+          OptionType::kSizeT, OptionVerificationType::kNormal,
+          OptionTypeFlags::kNone, 0}},
+        {"enable_index_compression",
+         {offsetof(struct BlockBasedTableOptions, enable_index_compression),
+          OptionType::kBoolean, OptionVerificationType::kNormal,
+          OptionTypeFlags::kNone, 0}},
+        {"block_align",
+         {offsetof(struct BlockBasedTableOptions, block_align),
+          OptionType::kBoolean, OptionVerificationType::kNormal,
+          OptionTypeFlags::kNone, 0}},
+        {"pin_top_level_index_and_filter",
+         {offsetof(struct BlockBasedTableOptions,
+                   pin_top_level_index_and_filter),
+          OptionType::kBoolean, OptionVerificationType::kNormal,
+          OptionTypeFlags::kNone, 0}}};
+
 namespace {
 bool SerializeSingleBlockBasedTableOption(
     std::string* opt_string, const BlockBasedTableOptions& bbt_options,
@@ -421,7 +541,7 @@ bool SerializeSingleBlockBasedTableOption(
   const char* opt_address =
       reinterpret_cast<const char*>(&bbt_options) + opt_info.offset;
   std::string value;
-  bool result = SerializeSingleOptionHelper(opt_address, opt_info.type, &value);
+  bool result = SerializeSingleOptionHelper(opt_address, opt_info, &value);
   if (result) {
     *opt_string = name + "=" + value + delimiter;
   }
@@ -486,8 +606,11 @@ std::string ParseBlockBasedTableOption(const std::string& name,
         cache = NewLRUCache(ParseSizeT(value));
       } else {
         LRUCacheOptions cache_opts;
-        if (!ParseOptionHelper(reinterpret_cast<char*>(&cache_opts),
-                               OptionType::kLRUCacheOptions, value)) {
+        OptionTypeInfo cache_info{0, OptionType::kLRUCacheOptions,
+                                  OptionVerificationType::kNormal,
+                                  OptionTypeFlags::kNone, 0};
+        if (!ParseOptionHelper(reinterpret_cast<char*>(&cache_opts), cache_info,
+                               value)) {
           return "Invalid cache options";
         }
         cache = NewLRUCache(cache_opts);
@@ -530,7 +653,7 @@ std::string ParseBlockBasedTableOption(const std::string& name,
   const auto& opt_info = iter->second;
   if (opt_info.verification != OptionVerificationType::kDeprecated &&
       !ParseOptionHelper(reinterpret_cast<char*>(new_options) + opt_info.offset,
-                         opt_info.type, value)) {
+                         opt_info, value)) {
     return "Invalid value";
   }
   return "";
@@ -606,8 +729,9 @@ Status VerifyBlockBasedTableFactory(
       // contain random values since they might not be initialized
       continue;
     }
-    if (BBTOptionSanityCheckLevel(pair.first) <= sanity_check_level) {
-      if (!AreEqualOptions(reinterpret_cast<const char*>(&base_opt),
+    auto level = BBTOptionSanityCheckLevel(pair.first);
+    if (level <= sanity_check_level) {
+      if (!AreEqualOptions(level, reinterpret_cast<const char*>(&base_opt),
                            reinterpret_cast<const char*>(&file_opt),
                            pair.second, pair.first, nullptr)) {
         return Status::Corruption(

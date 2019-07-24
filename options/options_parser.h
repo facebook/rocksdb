@@ -37,9 +37,13 @@ Status PersistRocksDBOptions(const DBOptions& db_opt,
                              const std::vector<ColumnFamilyOptions>& cf_opts,
                              const std::string& file_name, Env* env);
 
+extern bool IsOptionEqual(OptionsSanityCheckLevel level,
+                          const OptionTypeInfo& opt_info, const char* offset1,
+                          const char* offset2);
+
 extern bool AreEqualOptions(
-    const char* opt1, const char* opt2, const OptionTypeInfo& type_info,
-    const std::string& opt_name,
+    OptionsSanityCheckLevel level, const char* opt1, const char* opt2,
+    const OptionTypeInfo& type_info, const std::string& opt_name,
     const std::unordered_map<std::string, std::string>* opt_map);
 
 class RocksDBOptionsParser {

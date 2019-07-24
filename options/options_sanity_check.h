@@ -9,17 +9,10 @@
 #include <unordered_map>
 
 #ifndef ROCKSDB_LITE
+#include "rocksdb/utilities/options_type.h"
+
 namespace rocksdb {
 // This enum defines the RocksDB options sanity level.
-enum OptionsSanityCheckLevel : unsigned char {
-  // Performs no sanity check at all.
-  kSanityLevelNone = 0x00,
-  // Performs minimum check to ensure the RocksDB instance can be
-  // opened without corrupting / mis-interpreting the data.
-  kSanityLevelLooselyCompatible = 0x01,
-  // Perform exact match sanity check.
-  kSanityLevelExactMatch = 0xFF,
-};
 
 // The sanity check level for DB options
 static const std::unordered_map<std::string, OptionsSanityCheckLevel>

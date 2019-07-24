@@ -10,9 +10,9 @@
 #include <string>
 #include <stdint.h>
 
-#include "options/options_helper.h"
 #include "rocksdb/options.h"
 #include "rocksdb/table.h"
+#include "rocksdb/utilities/options_type.h"
 
 namespace rocksdb {
 
@@ -192,32 +192,6 @@ class PlainTableFactory : public TableFactory {
  private:
   PlainTableOptions table_options_;
 };
-
-static std::unordered_map<std::string, OptionTypeInfo> plain_table_type_info = {
-    {"user_key_len",
-     {offsetof(struct PlainTableOptions, user_key_len), OptionType::kUInt32T,
-      OptionVerificationType::kNormal, false, 0}},
-    {"bloom_bits_per_key",
-     {offsetof(struct PlainTableOptions, bloom_bits_per_key), OptionType::kInt,
-      OptionVerificationType::kNormal, false, 0}},
-    {"hash_table_ratio",
-     {offsetof(struct PlainTableOptions, hash_table_ratio), OptionType::kDouble,
-      OptionVerificationType::kNormal, false, 0}},
-    {"index_sparseness",
-     {offsetof(struct PlainTableOptions, index_sparseness), OptionType::kSizeT,
-      OptionVerificationType::kNormal, false, 0}},
-    {"huge_page_tlb_size",
-     {offsetof(struct PlainTableOptions, huge_page_tlb_size),
-      OptionType::kSizeT, OptionVerificationType::kNormal, false, 0}},
-    {"encoding_type",
-     {offsetof(struct PlainTableOptions, encoding_type),
-      OptionType::kEncodingType, OptionVerificationType::kByName, false, 0}},
-    {"full_scan_mode",
-     {offsetof(struct PlainTableOptions, full_scan_mode), OptionType::kBoolean,
-      OptionVerificationType::kNormal, false, 0}},
-    {"store_index_in_file",
-     {offsetof(struct PlainTableOptions, store_index_in_file),
-      OptionType::kBoolean, OptionVerificationType::kNormal, false, 0}}};
 
 }  // namespace rocksdb
 #endif  // ROCKSDB_LITE
