@@ -199,7 +199,7 @@ def test_lfu_cache():
 
 
 def test_mix(cache):
-    print("Test {} cache".format(cache.cache_name()))
+    print("Test Mix {} cache".format(cache.cache_name()))
     n = 100000
     records = 199
     for i in range(n):
@@ -222,11 +222,11 @@ def test_mix(cache):
         )
         cache.access(k)
     assert cache.miss_ratio_stats.miss_ratio() > 0
-    print("Test {} cache: Success".format(cache.cache_name()))
+    print("Test Mix {} cache: Success".format(cache.cache_name()))
 
 
-def test_hybrid():
-    cache = ThompsonSamplingCache(kSampleSize, True, [LRUPolicy()])
+def test_hybrid(cache):
+    print("Test {} cache".format(cache.cache_name()))
     k = TraceRecord(
         access_time=0,
         block_id=1,
@@ -245,7 +245,7 @@ def test_hybrid():
     cache.access(k)  # Expect a miss.
     # used size, num accesses, num misses, hash table size, blocks, get keys.
     assert_metrics(cache, [1, 1, 1, [1], []])
-    k.access_time = 1
+    k.access_time += 1
     k.kv_size = 1
     k.block_id = 2
     cache.access(k)  # k should be inserted.
@@ -322,13 +322,13 @@ if __name__ == "__main__":
     policies.append(MRUPolicy())
     policies.append(LRUPolicy())
     policies.append(LFUPolicy())
-    # test_hash_table()
-    # test_lru_cache()
-    # test_mru_cache()
-    # test_lfu_cache()
-    # test_mix(ThompsonSamplingCache(100, False, policies))
-    # test_mix(ThompsonSamplingCache(100, True, policies))
-    # test_mix(LinUCBCache(100, False, policies))
-    # test_mix(LinUCBCache(100, True, policies))
-    test_hybrid()
-    # test_hybrid(LinUCBCache(kSampleSize, True, policies))
+    test_hash_table()
+    test_lru_cache()
+    test_mru_cache()
+    test_lfu_cache()
+    test_mix(ThompsonSamplingCache(100, False, policies))
+    test_mix(ThompsonSamplingCache(100, True, policies))
+    test_mix(LinUCBCache(100, False, policies))
+    test_mix(LinUCBCache(100, True, policies))
+    test_hybrid(ThompsonSamplingCache(kSampleSize, True, [LRUPolicy()]))
+    test_hybrid(LinUCBCache(kSampleSize, True, [LRUPolicy()]))
