@@ -407,6 +407,7 @@ inline void InlineSkipList<Comparator>::Iterator::Prev() {
   // Instead of using explicit "prev" links, we just search for the
   // last node that falls before key.
   assert(Valid());
+  auto current = node_;
   do {
     node_ = node_->Prev();
     // Because we insert node into prev linked list, there may be some node being inserted into next linked list.
@@ -414,6 +415,13 @@ inline void InlineSkipList<Comparator>::Iterator::Prev() {
   } while (node_ != list_->head_ && node_->Next(0) == nullptr);
   if (node_ == list_->head_) {
     node_ = nullptr;
+  } else if (node_->Prev()->Next(0) != node_) {
+    // The Prev() operation maybe happens before prev.CASNext(node_), so node_ has not been inserted into skiplist by other thread.
+    // Find prev pos by next-linked-list again.
+    node_ = list_->FindLessThan(current->Key());
+    if (node_ == list_->head_) {
+      node_ = nullptr;
+    }
   }
 }
 
@@ -563,6 +571,10 @@ InlineSkipList<Comparator>::FindLessThan(const char* key, Node** prev,
 template <class Comparator>
 typename InlineSkipList<Comparator>::Node*
 InlineSkipList<Comparator>::FindLast() const {
+  auto last = tail_->Prev();
+  if (last == head_ || last->Prev()->Next(0) == last) {
+    return last;
+  }
   Node* x = head_;
   int level = GetMaxHeight() - 1;
   while (true) {
