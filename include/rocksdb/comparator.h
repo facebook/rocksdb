@@ -35,6 +35,7 @@ class Comparator {
 
   virtual ~Comparator() {}
 
+  static const char* Type() { return "Comparator"; }
   // Three-way comparison.  Returns value:
   //   < 0 iff "a" < "b",
   //   == 0 iff "a" == "b",
