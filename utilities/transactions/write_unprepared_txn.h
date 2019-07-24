@@ -53,17 +53,17 @@ class WriteUnpreparedTxn;
 //
 class WriteUnpreparedTxnReadCallback : public ReadCallback {
  public:
-  WriteUnpreparedTxnReadCallback(WritePreparedTxnDB* db,
-                                 SequenceNumber snapshot,
-                                 SequenceNumber min_uncommitted,
-                                 WriteUnpreparedTxn* txn)
+  WriteUnpreparedTxnReadCallback(
+      WritePreparedTxnDB* db, SequenceNumber snapshot,
+      SequenceNumber min_uncommitted,
+      const std::map<SequenceNumber, size_t>& unprep_seqs)
       // Pass our last uncommitted seq as the snapshot to the parent class to
       // ensure that the parent will not prematurely filter out own writes. We
       // will do the exact comparison against snapshots in IsVisibleFullCheck
       // override.
-      : ReadCallback(CalcMaxVisibleSeq(txn, snapshot), min_uncommitted),
+      : ReadCallback(CalcMaxVisibleSeq(unprep_seqs, snapshot), min_uncommitted),
         db_(db),
-        txn_(txn),
+        unprep_seqs_(unprep_seqs),
         wup_snapshot_(snapshot) {}
 
   virtual bool IsVisibleFullCheck(SequenceNumber seq) override;
@@ -74,15 +74,18 @@ class WriteUnpreparedTxnReadCallback : public ReadCallback {
   }
 
  private:
-  static SequenceNumber CalcMaxVisibleSeq(WriteUnpreparedTxn* txn,
-                                          SequenceNumber snapshot_seq) {
-    SequenceNumber max_unprepared = CalcMaxUnpreparedSequenceNumber(txn);
+  static SequenceNumber CalcMaxVisibleSeq(
+      const std::map<SequenceNumber, size_t>& unprep_seqs,
+      SequenceNumber snapshot_seq) {
+    SequenceNumber max_unprepared = 0;
+    if (unprep_seqs.size()) {
+      max_unprepared =
+          unprep_seqs.rbegin()->first + unprep_seqs.rbegin()->second - 1;
+    }
     return std::max(max_unprepared, snapshot_seq);
   }
-  static SequenceNumber CalcMaxUnpreparedSequenceNumber(
-      WriteUnpreparedTxn* txn);
   WritePreparedTxnDB* db_;
-  WriteUnpreparedTxn* txn_;
+  const std::map<SequenceNumber, size_t>& unprep_seqs_;
   SequenceNumber wup_snapshot_;
 };
 
@@ -124,8 +127,6 @@ class WriteUnpreparedTxn : public WritePreparedTxn {
 
   virtual Status RebuildFromWriteBatch(WriteBatch*) override;
 
-  const std::map<SequenceNumber, size_t>& GetUnpreparedSequenceNumbers();
-
  protected:
   void Initialize(const TransactionOptions& txn_options) override;
 
@@ -155,6 +156,8 @@ class WriteUnpreparedTxn : public WritePreparedTxn {
   friend class WriteUnpreparedTransactionTest_RecoveryTest_Test;
   friend class WriteUnpreparedTransactionTest_UnpreparedBatch_Test;
   friend class WriteUnpreparedTxnDB;
+
+  const std::map<SequenceNumber, size_t>& GetUnpreparedSequenceNumbers();
 
   Status MaybeFlushWriteBatchToDB();
   Status FlushWriteBatchToDB(bool prepared);
