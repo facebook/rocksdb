@@ -520,7 +520,7 @@ set(SOURCES
         db/flush_job.cc
         db/flush_scheduler.cc
         db/forward_iterator.cc
-	db/import_column_family_job.cc
+        db/import_column_family_job.cc
         db/internal_stats.cc
         db/logs_with_prep_tracker.cc
         db/log_reader.cc
@@ -681,6 +681,7 @@ set(SOURCES
         utilities/merge_operators/string_append/stringappend.cc
         utilities/merge_operators/string_append/stringappend2.cc
         utilities/merge_operators/uint64add.cc
+        utilities/object_registry.cc
         utilities/option_change_migration/option_change_migration.cc
         utilities/options/options_util.cc
         utilities/persistent_cache/block_cache_tier.cc

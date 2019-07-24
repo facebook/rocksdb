@@ -341,11 +341,11 @@ TEST_F(OptionsTest, GetColumnFamilyOptionsFromStringTest) {
 
   // Comparator from object registry
   std::string kCompName = "reverse_comp";
-  static Registrar<const Comparator> test_reg_a(
-      kCompName, [](const std::string& /*name*/,
-                    std::unique_ptr<const Comparator>* /*comparator_guard*/) {
-        return ReverseBytewiseComparator();
-      });
+  ObjectLibrary::Default()->Register<const Comparator>(
+      kCompName,
+      [](const std::string& /*name*/,
+         std::unique_ptr<const Comparator>* /*guard*/,
+         std::string* /* errmsg */) { return ReverseBytewiseComparator(); });
 
   ASSERT_OK(GetColumnFamilyOptionsFromString(
       base_cf_opt, "comparator=" + kCompName + ";", &new_cf_opt));
@@ -354,13 +354,12 @@ TEST_F(OptionsTest, GetColumnFamilyOptionsFromStringTest) {
   // MergeOperator from object registry
   std::unique_ptr<BytesXOROperator> bxo(new BytesXOROperator());
   std::string kMoName = bxo->Name();
-  static Registrar<std::shared_ptr<MergeOperator>> test_reg_b(
-      kMoName, [](const std::string& /*name*/,
-                  std::unique_ptr<std::shared_ptr<MergeOperator>>*
-                      merge_operator_guard) {
-        merge_operator_guard->reset(
-            new std::shared_ptr<MergeOperator>(new BytesXOROperator()));
-        return merge_operator_guard->get();
+  ObjectLibrary::Default()->Register<MergeOperator>(
+      kMoName,
+      [](const std::string& /*name*/, std::unique_ptr<MergeOperator>* guard,
+         std::string* /* errmsg */) {
+        guard->reset(new BytesXOROperator());
+        return guard->get();
       });
 
   ASSERT_OK(GetColumnFamilyOptionsFromString(
@@ -770,9 +769,10 @@ TEST_F(OptionsTest, GetOptionsFromStringTest) {
     explicit CustomEnv(Env* _target) : EnvWrapper(_target) {}
   };
 
-  static Registrar<Env> test_reg_env(
+  ObjectLibrary::Default()->Register<Env>(
       kCustomEnvName,
-      [](const std::string& /*name*/, std::unique_ptr<Env>* /*env_guard*/) {
+      [](const std::string& /*name*/, std::unique_ptr<Env>* /*env_guard*/,
+         std::string* /* errmsg */) {
         static CustomEnv env(Env::Default());
         return &env;
       });
@@ -813,8 +813,9 @@ TEST_F(OptionsTest, GetOptionsFromStringTest) {
   ASSERT_EQ(new_options.create_if_missing, true);
   ASSERT_EQ(new_options.max_open_files, 1);
   ASSERT_TRUE(new_options.rate_limiter.get() != nullptr);
-  std::unique_ptr<Env> env_guard;
-  ASSERT_EQ(NewCustomObject<Env>(kCustomEnvName, &env_guard), new_options.env);
+  Env* newEnv = new_options.env;
+  ASSERT_OK(Env::LoadEnv(kCustomEnvName, &newEnv));
+  ASSERT_EQ(newEnv, new_options.env);
 }
 
 TEST_F(OptionsTest, DBOptionsSerialization) {

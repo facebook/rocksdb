@@ -276,6 +276,7 @@ cpp_library(
         "utilities/merge_operators/string_append/stringappend.cc",
         "utilities/merge_operators/string_append/stringappend2.cc",
         "utilities/merge_operators/uint64add.cc",
+        "utilities/object_registry.cc",
         "utilities/option_change_migration/option_change_migration.cc",
         "utilities/options/options_util.cc",
         "utilities/persistent_cache/block_cache_tier.cc",
@@ -372,11 +373,6 @@ ROCKS_TESTS = [
         "serial",
     ],
     [
-        "env_logger_test",
-        "logging/env_logger_test.cc",
-        "serial",
-    ],
-    [
         "autovector_test",
         "util/autovector_test.cc",
         "serial",
@@ -422,13 +418,13 @@ ROCKS_TESTS = [
         "serial",
     ],
     [
-        "cache_test",
-        "cache/cache_test.cc",
+        "cache_simulator_test",
+        "utilities/simulator_cache/cache_simulator_test.cc",
         "serial",
     ],
     [
-        "cache_simulator_test",
-        "utilities/simulator_cache/cache_simulator_test.cc",
+        "cache_test",
+        "cache/cache_test.cc",
         "serial",
     ],
     [
@@ -554,7 +550,7 @@ ROCKS_TESTS = [
     [
         "db_bloom_filter_test",
         "db/db_bloom_filter_test.cc",
-        "parallel",
+        "serial",
     ],
     [
         "db_compaction_filter_test",
@@ -712,6 +708,11 @@ ROCKS_TESTS = [
         "serial",
     ],
     [
+        "env_logger_test",
+        "logging/env_logger_test.cc",
+        "serial",
+    ],
+    [
         "env_test",
         "env/env_test.cc",
         "serial",
@@ -795,6 +796,11 @@ ROCKS_TESTS = [
         "histogram_test",
         "monitoring/histogram_test.cc",
         "serial",
+    ],
+    [
+        "import_column_family_test",
+        "db/import_column_family_test.cc",
+        "parallel",
     ],
     [
         "inlineskiplist_test",

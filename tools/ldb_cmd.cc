@@ -20,7 +20,6 @@
 #include "rocksdb/utilities/backupable_db.h"
 #include "rocksdb/utilities/checkpoint.h"
 #include "rocksdb/utilities/debug.h"
-#include "rocksdb/utilities/object_registry.h"
 #include "rocksdb/utilities/options_util.h"
 #include "rocksdb/write_batch.h"
 #include "rocksdb/write_buffer_manager.h"
@@ -2854,8 +2853,9 @@ void BackupCommand::DoCommand() {
     return;
   }
   printf("open db OK\n");
-  std::unique_ptr<Env> custom_env_guard;
-  Env* custom_env = NewCustomObject<Env>(backup_env_uri_, &custom_env_guard);
+  Env* custom_env = nullptr;
+  Env::LoadEnv(backup_env_uri_, &custom_env);
+
   BackupableDBOptions backup_options =
       BackupableDBOptions(backup_dir_, custom_env);
   backup_options.info_log = logger_.get();
@@ -2889,8 +2889,9 @@ void RestoreCommand::Help(std::string& ret) {
 }
 
 void RestoreCommand::DoCommand() {
-  std::unique_ptr<Env> custom_env_guard;
-  Env* custom_env = NewCustomObject<Env>(backup_env_uri_, &custom_env_guard);
+  Env* custom_env = nullptr;
+  Env::LoadEnv(backup_env_uri_, &custom_env);
+
   std::unique_ptr<BackupEngineReadOnly> restore_engine;
   Status status;
   {

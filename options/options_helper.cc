@@ -1045,21 +1045,21 @@ Status ParseColumnFamilyOption(const std::string& name,
     } else {
       if (name == kNameComparator) {
         // Try to get comparator from object registry first.
-        std::unique_ptr<const Comparator> comp_guard;
-        const Comparator* comp =
-            NewCustomObject<const Comparator>(value, &comp_guard);
         // Only support static comparator for now.
-        if (comp != nullptr && !comp_guard) {
-          new_options->comparator = comp;
+        Status status = ObjectRegistry::NewInstance()->NewStaticObject(
+            value, &new_options->comparator);
+        if (status.ok()) {
+          return status;
         }
       } else if (name == kNameMergeOperator) {
         // Try to get merge operator from object registry first.
-        std::unique_ptr<std::shared_ptr<MergeOperator>> mo_guard;
-        std::shared_ptr<MergeOperator>* mo =
-            NewCustomObject<std::shared_ptr<MergeOperator>>(value, &mo_guard);
+        std::shared_ptr<MergeOperator> mo;
+        Status status =
+            ObjectRegistry::NewInstance()->NewSharedObject<MergeOperator>(
+                value, &new_options->merge_operator);
         // Only support static comparator for now.
-        if (mo != nullptr) {
-          new_options->merge_operator = *mo;
+        if (status.ok()) {
+          return status;
         }
       }
 
@@ -1191,10 +1191,10 @@ Status ParseDBOption(const std::string& name,
           NewGenericRateLimiter(static_cast<int64_t>(ParseUint64(value))));
     } else if (name == kNameEnv) {
       // Currently `Env` can be deserialized from object registry only.
-      std::unique_ptr<Env> env_guard;
-      Env* env = NewCustomObject<Env>(value, &env_guard);
+      Env* env = new_options->env;
+      Status status = Env::LoadEnv(value, &env);
       // Only support static env for now.
-      if (env != nullptr && !env_guard) {
+      if (status.ok()) {
         new_options->env = env;
       }
     } else {
