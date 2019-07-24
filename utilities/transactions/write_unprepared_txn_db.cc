@@ -348,7 +348,8 @@ struct WriteUnpreparedTxnDB::IteratorState {
   IteratorState(WritePreparedTxnDB* txn_db, SequenceNumber sequence,
                 std::shared_ptr<ManagedSnapshot> s,
                 SequenceNumber min_uncommitted, WriteUnpreparedTxn* txn)
-      : callback(txn_db, sequence, min_uncommitted, txn), snapshot(s) {}
+      : callback(txn_db, sequence, min_uncommitted, txn->unprep_seqs_),
+        snapshot(s) {}
   SequenceNumber MaxVisibleSeq() { return callback.max_visible_seq(); }
 
   WriteUnpreparedTxnReadCallback callback;
@@ -384,27 +385,22 @@ Iterator* WriteUnpreparedTxnDB::NewIterator(const ReadOptions& options,
   // foo: v5 5
   //
   // Then 1, 2, 3 will be visible, but 4 will be non-visible, so we return v3,
-  // which is the last visible key.
+  // which is the last visible value.
   //
   // For unprepared transactions, if we have snap_seq = 3, but the current
-  // transaction has unprep_seq 5, then returning the first non-visible key
+  // transaction has unprep_seq 5, then returning the first non-visible value
   // would be incorrect, as we should return v5, and not v3. The problem is that
-  // there are committed keys at snapshot_seq < commit_seq < unprep_seq.
+  // there are committed values at snapshot_seq < commit_seq < unprep_seq.
   //
   // Snapshot validation can prevent this problem by ensuring that no committed
-  // keys exist at snapshot_seq < commit_seq, and thus any value with a sequence
-  // number greater than snapshot_seq must be unprepared keys. For example, if
-  // the transaction had a snapshot at 3, then snapshot validation would be
-  // performed during the Put(v5) call. It would find v4, and the Put would fail
-  // with snapshot validation failure.
-  //
-  // Because of this, if any writes have occurred, then the transaction snapshot
-  // must be used for the iterator. If no writes have occurred though, we can
-  // simply create a snapshot. Later writes would not be visible though, but we
-  // don't support iterating while writing anyway.
+  // values exist at snapshot_seq < commit_seq, and thus any value with a
+  // sequence number greater than snapshot_seq must be unprepared values. For
+  // example, if the transaction had a snapshot at 3, then snapshot validation
+  // would be performed during the Put(v5) call. It would find v4, and the Put
+  // would fail with snapshot validation failure.
   //
   // TODO(lth): Improve Prev() logic to continue iterating until
-  // max_visible_seq, and then return the last visible key, so that this
+  // max_visible_seq, and then return the last visible value, so that this
   // restriction can be lifted.
   const Snapshot* snapshot = nullptr;
   if (options.snapshot == nullptr) {
@@ -418,9 +414,9 @@ Iterator* WriteUnpreparedTxnDB::NewIterator(const ReadOptions& options,
   assert(snapshot_seq != kMaxSequenceNumber);
   // Iteration is safe as long as largest_validated_seq <= snapshot_seq. We are
   // guaranteed that for keys that were modified by this transaction (and thus
-  // might have unprepared versions), no committed versions exist at
+  // might have unprepared values), no committed values exist at
   // largest_validated_seq < commit_seq (or the contrapositive: any committed
-  // version must exist at commit_seq <= largest_validated_seq). This implies
+  // value must exist at commit_seq <= largest_validated_seq). This implies
   // that commit_seq <= largest_validated_seq <= snapshot_seq or commit_seq <=
   // snapshot_seq. As explained above, the problem with Prev() only happens when
   // snapshot_seq < commit_seq.

@@ -13,30 +13,19 @@
 namespace rocksdb {
 
 bool WriteUnpreparedTxnReadCallback::IsVisibleFullCheck(SequenceNumber seq) {
-  auto unprep_seqs = txn_->GetUnpreparedSequenceNumbers();
-
   // Since unprep_seqs maps prep_seq => prepare_batch_cnt, to check if seq is
   // in unprep_seqs, we have to check if seq is equal to prep_seq or any of
   // the prepare_batch_cnt seq nums after it.
   //
   // TODO(lth): Can be optimized with std::lower_bound if unprep_seqs is
   // large.
-  for (const auto& it : unprep_seqs) {
+  for (const auto& it : unprep_seqs_) {
     if (it.first <= seq && seq < it.first + it.second) {
       return true;
     }
   }
 
   return db_->IsInSnapshot(seq, wup_snapshot_, min_uncommitted_);
-}
-
-SequenceNumber WriteUnpreparedTxnReadCallback::CalcMaxUnpreparedSequenceNumber(
-    WriteUnpreparedTxn* txn) {
-  const auto& unprep_seqs = txn->GetUnpreparedSequenceNumbers();
-  if (unprep_seqs.size()) {
-    return unprep_seqs.rbegin()->first + unprep_seqs.rbegin()->second - 1;
-  }
-  return 0;
 }
 
 WriteUnpreparedTxn::WriteUnpreparedTxn(WriteUnpreparedTxnDB* txn_db,
@@ -537,7 +526,7 @@ Status WriteUnpreparedTxn::Get(const ReadOptions& options,
   const bool backed_by_snapshot =
       wupt_db_->AssignMinMaxSeqs(options.snapshot, &min_uncommitted, &snap_seq);
   WriteUnpreparedTxnReadCallback callback(wupt_db_, snap_seq, min_uncommitted,
-                                          this);
+                                          unprep_seqs_);
   auto res = write_batch_.GetFromBatchAndDB(db_, options, column_family, key,
                                             value, &callback);
   if (LIKELY(wupt_db_->ValidateSnapshot(snap_seq, backed_by_snapshot))) {
