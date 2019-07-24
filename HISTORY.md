@@ -1,5 +1,7 @@
 # Rocksdb Change Log
-## Unreleased
+## 6.3.1 (7/24/2019)
+### Bug Fixes
+* Fix auto rolling bug introduced in 6.3.0, which causes segfault if log file creation fails.
 
 ## 6.3.0 (6/18/2019)
 ### Public API Change
