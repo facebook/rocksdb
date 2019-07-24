@@ -635,6 +635,15 @@ TEST_F(AutoRollLoggerTest, LogFileExistence) {
   delete db;
 }
 
+TEST_F(AutoRollLoggerTest, FileCreateFailure) {
+  Options options;
+  options.max_log_file_size = 100 * 1024 * 1024;
+  options.db_log_dir = "/a/dir/does/not/exist/at/all";
+
+  std::shared_ptr<Logger> logger;
+  ASSERT_NOK(CreateLoggerFromOptions("", options, &logger));
+  ASSERT_TRUE(!logger);
+}
 }  // namespace rocksdb
 
 int main(int argc, char** argv) {
