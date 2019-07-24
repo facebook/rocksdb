@@ -99,6 +99,7 @@ LIB_SOURCES =                                                   \
   monitoring/thread_status_util.cc                              \
   monitoring/thread_status_util_debug.cc                        \
   options/cf_options.cc                                         \
+  options/configurable.cc                                       \
   options/db_options.cc                                         \
   options/options.cc                                            \
   options/options_helper.cc                                     \
@@ -360,6 +361,7 @@ MAIN_SOURCES =                                                          \
   monitoring/iostats_context_test.cc                                    \
   monitoring/statistics_test.cc                                         \
   monitoring/stats_history_test.cc                                      \
+  options/configurable_test.cc                                          \
   options/options_test.cc                                               \
   table/block_based/block_based_filter_block_test.cc                    \
   table/block_based/block_test.cc                                       \

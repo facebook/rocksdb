@@ -65,7 +65,15 @@ enum class OptionType {
   kLRUCacheOptions,
   kEnv,
   kEnum,
+  kConfigurable,
   kUnknown,
+};
+
+enum OptionStringMode {
+  kOptionNone = 0x00,
+  kOptionPrefix = 0x01,    // Includes a prefix on every option as it is printed
+  kOptionShallow = 0x02,   // Do not traverse into any nested options
+  kOptionDetached = 0x04,  // Print nested option values on separate lines
 };
 
 enum class OptionVerificationType {
@@ -94,16 +102,62 @@ enum OptionTypeFlags {
   kUnique = 0x08,   // The option is stored as a unique_ptr
   kEnum = 0x10,     // The option represents an enumerated type
   kMutableEnum = (kEnum | kMutable),  // Mutable enumerated type
+  kConfigurable = 0x100,              // The option is a ConfigurableObject
+  kMConfigurable = kConfigurable | kMutable,
+  kConfigurableP = kConfigurable | kPointer,
+  kConfigurableS = kConfigurable | kShared,
+  kConfigurableU = kConfigurable | kUnique,
+  kMConfigurableP = kMConfigurable | kPointer,
+  kMConfigurableS = kMConfigurable | kShared,
+  kMConfigurableU = kMConfigurable | kUnique,
 };
+
+using ParserFunc = std::function<Status(
+    const DBOptions & /*opts*/, const std::string & /*name*/,
+    char * /*address*/, const std::string & /*value*/)>;
+using StringFunc =
+    std::function<Status(uint32_t /*mode*/, const std::string & /*name*/,
+                         const char * /*address*/, std::string * /*value*/)>;
+using EqualsFunc =
+    std::function<bool(OptionsSanityCheckLevel, const std::string & /*name*/,
+                       const char * /*address1*/, const char * /*address2*/)>;
 
 // A struct for storing constant option information such as option name,
 // option type, and offset.
 struct OptionTypeInfo {
+  OptionTypeInfo(int _offset, OptionType _type,
+                 OptionVerificationType _verification, OptionTypeFlags _flags,
+                 int _mutable_offset)
+      : offset(_offset),
+        type(_type),
+        verification(_verification),
+        flags(_flags),
+        mutable_offset(_mutable_offset),
+        pfunc(nullptr),
+        sfunc(nullptr),
+        efunc(nullptr) {}
+  OptionTypeInfo(int _offset, OptionType _type,
+                 OptionVerificationType _verification, OptionTypeFlags _flags,
+                 int _mutable_offset, const ParserFunc &_pfunc,
+                 const StringFunc &_sfunc = nullptr,
+                 const EqualsFunc &_efunc = nullptr)
+      : offset(_offset),
+        type(_type),
+        verification(_verification),
+        flags(_flags),
+        mutable_offset(_mutable_offset),
+        pfunc(_pfunc),
+        sfunc(_sfunc),
+        efunc(_efunc) {}
+
   int offset;
   OptionType type;
   OptionVerificationType verification;
   OptionTypeFlags flags;  // This is a bitmask of OptionTypeFlag values
   int mutable_offset;
+  ParserFunc pfunc;
+  StringFunc sfunc;
+  EqualsFunc efunc;
 
   bool IsMutable() const {
     return (flags & OptionTypeFlags::kMutable) == OptionTypeFlags::kMutable;
@@ -121,6 +175,12 @@ struct OptionTypeInfo {
   bool IsEnum() const {
     return type == OptionType::kEnum ||
            ((flags & OptionTypeFlags::kEnum) == OptionTypeFlags::kEnum);
+  }
+
+  bool IsConfigurable() const {
+    return ((type == OptionType::kConfigurable) ||
+            (flags & OptionTypeFlags::kConfigurable) ==
+                OptionTypeFlags::kConfigurable);
   }
 
   template <typename T>

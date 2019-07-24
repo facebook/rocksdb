@@ -863,6 +863,10 @@ Status StringToMap(const std::string& opts_str,
   //              "nested_opt={opt1=1;opt2=2};max_bytes_for_level_base=100"
   size_t pos = 0;
   std::string opts = trim(opts_str);
+  // If the input string starts and ends with "{...}", strip off the brackets
+  while (opts.size() > 2 && opts[0] == '{' && opts[opts.size() - 1] == '}') {
+    opts = trim(opts.substr(1, opts.size() - 2));
+  }
   while (pos < opts.size()) {
     size_t eq_pos = opts.find('=', pos);
     if (eq_pos == std::string::npos) {
