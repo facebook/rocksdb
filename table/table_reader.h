@@ -124,6 +124,8 @@ class TableReader {
   virtual Status VerifyChecksum(TableReaderCaller /*caller*/) {
     return Status::NotSupported("VerifyChecksum() not supported");
   }
+
+  virtual void Close() {}
 };
 
 }  // namespace rocksdb
