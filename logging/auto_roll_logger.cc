@@ -155,6 +155,11 @@ std::string AutoRollLogger::ValistToString(const char* format,
 
 void AutoRollLogger::LogInternal(const char* format, ...) {
   mutex_.AssertHeld();
+
+  if (!logger_) {
+    return;
+  }
+
   va_list args;
   va_start(args, format);
   logger_->Logv(format, args);
@@ -163,7 +168,10 @@ void AutoRollLogger::LogInternal(const char* format, ...) {
 
 void AutoRollLogger::Logv(const char* format, va_list ap) {
   assert(GetStatus().ok());
-
+  if (!logger_) {
+    return;
+  }
+  
   std::shared_ptr<Logger> logger;
   {
     MutexLock l(&mutex_);
@@ -207,6 +215,10 @@ void AutoRollLogger::WriteHeaderInfo() {
 }
 
 void AutoRollLogger::LogHeader(const char* format, va_list args) {
+  if (!logger_) {
+    return;
+  }
+
   // header message are to be retained in memory. Since we cannot make any
   // assumptions about the data contained in va_list, we will retain them as
   // strings
