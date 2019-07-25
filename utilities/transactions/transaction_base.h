@@ -312,6 +312,8 @@ class TransactionBaseImpl : public Transaction {
           num_puts_(num_puts),
           num_deletes_(num_deletes),
           num_merges_(num_merges) {}
+
+    SavePoint() = default;
   };
 
   // Records writes pending in this transaction
