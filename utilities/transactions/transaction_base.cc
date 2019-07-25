@@ -227,7 +227,7 @@ Status TransactionBaseImpl::PopSavePoint() {
           } else {
             TransactionKeyMapInfo& prev_info_val = prev_info->second;
 
-            assert(prev_info_val.seq < info.seq);
+            assert(prev_info_val.seq <= info.seq);
             prev_info_val.num_reads += info.num_reads;
             prev_info_val.num_writes += info.num_writes;
             prev_info_val.exclusive |= info.exclusive;
