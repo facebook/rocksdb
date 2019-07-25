@@ -1445,7 +1445,9 @@ Status AwsEnv::LinkFile(const std::string& src, const std::string& target) {
   if (has_dest_bucket_ || has_src_bucket_) {
     return Status::NotSupported();
   }
-  return base_env_->LinkFile(src, target);
+  auto src_remapped = RemapFilename(src);
+  auto target_remapped = RemapFilename(target);
+  return base_env_->LinkFile(src_remapped, target_remapped);
 }
 
 //
