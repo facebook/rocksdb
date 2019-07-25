@@ -137,7 +137,6 @@ struct BatchContentClassifier : public WriteBatch::Handler {
 
 class TimestampAssigner : public WriteBatch::Handler {
  public:
-  explicit TimestampAssigner(const Slice& ts) : timestamp_(ts), idx_(0) {}
   explicit TimestampAssigner(const std::vector<Slice>& ts_list)
       : timestamps_(ts_list), idx_(0) {
     assert(!timestamps_.empty());
@@ -209,15 +208,15 @@ class TimestampAssigner : public WriteBatch::Handler {
 
  private:
   void AssignTimestamp(const Slice& key) {
-    assert(timestamps_.empty() || idx_ < timestamps_.size());
-    const Slice& ts = timestamps_.empty() ? timestamp_ : timestamps_[idx_];
+    assert(timestamps_.size() == 1 || idx_ < timestamps_.size());
+    const Slice& ts =
+        (timestamps_.size() == 1) ? timestamps_[0] : timestamps_[idx_];
     size_t ts_sz = ts.size();
     char* ptr = const_cast<char*>(key.data() + key.size() - ts_sz);
     memcpy(ptr, ts.data(), ts_sz);
   }
 
-  Slice timestamp_;
-  std::vector<Slice> timestamps_;
+  const std::vector<Slice>& timestamps_;
   size_t idx_;
 
   // No copy or move.
@@ -1154,7 +1153,7 @@ Status WriteBatch::PopSavePoint() {
 }
 
 Status WriteBatch::AssignTimestamp(const Slice& ts) {
-  TimestampAssigner ts_assigner(ts);
+  TimestampAssigner ts_assigner({ts});
   return Iterate(&ts_assigner);
 }
 

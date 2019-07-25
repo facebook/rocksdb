@@ -308,9 +308,8 @@ inline void PutLengthPrefixedSlice(std::string* dst, const Slice& value) {
   dst->append(value.data(), value.size());
 }
 
-inline void PutLengthPrefixedSliceParts(std::string* dst,
+inline void PutLengthPrefixedSliceParts(std::string* dst, size_t total_bytes,
                                         const SliceParts& slice_parts) {
-  size_t total_bytes = 0;
   for (int i = 0; i < slice_parts.num_parts; ++i) {
     total_bytes += slice_parts.parts[i].size();
   }
@@ -320,16 +319,14 @@ inline void PutLengthPrefixedSliceParts(std::string* dst,
   }
 }
 
+inline void PutLengthPrefixedSliceParts(std::string* dst,
+                                        const SliceParts& slice_parts) {
+  PutLengthPrefixedSliceParts(dst, /*total_bytes=*/0, slice_parts);
+}
+
 inline void PutLengthPrefixedSlicePartsWithPadding(
     std::string* dst, const SliceParts& slice_parts, size_t pad_sz) {
-  size_t total_bytes = pad_sz;
-  for (int i = 0; i < slice_parts.num_parts; ++i) {
-    total_bytes += slice_parts.parts[i].size();
-  }
-  PutVarint32(dst, static_cast<uint32_t>(total_bytes));
-  for (int i = 0; i < slice_parts.num_parts; ++i) {
-    dst->append(slice_parts.parts[i].data(), slice_parts.parts[i].size());
-  }
+  PutLengthPrefixedSliceParts(dst, /*total_bytes=*/pad_sz, slice_parts);
   dst->append(pad_sz, '\0');
 }
 
