@@ -49,6 +49,7 @@ rocksdb_undump
 db_test2
 trace_analyzer
 trace_analyzer_test
+block_cache_trace_analyzer
 .DS_Store
 
 java/out

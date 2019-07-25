@@ -669,20 +669,4 @@ struct ParsedInternalKeyComparator {
   const InternalKeyComparator* cmp;
 };
 
-// TODO (yanqin): this causes extra memory allocation and copy. Should be
-// addressed in the future.
-inline Status AppendTimestamp(const Slice& key, const Slice& timestamp,
-                              Slice* ret_key, std::string* ret_buf) {
-  assert(ret_key != nullptr);
-  assert(ret_buf != nullptr);
-  if (key.data() + key.size() == timestamp.data()) {
-    *ret_key = Slice(key.data(), key.size() + timestamp.size());
-  } else {
-    ret_buf->assign(key.data(), key.size());
-    ret_buf->append(timestamp.data(), timestamp.size());
-    *ret_key = Slice(*ret_buf);
-  }
-  return Status::OK();
-}
-
 }  // namespace rocksdb

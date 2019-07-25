@@ -135,6 +135,105 @@ struct BatchContentClassifier : public WriteBatch::Handler {
   }
 };
 
+class TimestampAssigner : public WriteBatch::Handler {
+ public:
+  explicit TimestampAssigner(const Slice& ts)
+      : timestamp_(ts), timestamps_(kEmptyTimestampList) {}
+  explicit TimestampAssigner(const std::vector<Slice>& ts_list)
+      : timestamps_(ts_list) {
+    SanityCheck();
+  }
+  ~TimestampAssigner() override {}
+
+  Status PutCF(uint32_t, const Slice& key, const Slice&) override {
+    AssignTimestamp(key);
+    ++idx_;
+    return Status::OK();
+  }
+
+  Status DeleteCF(uint32_t, const Slice& key) override {
+    AssignTimestamp(key);
+    ++idx_;
+    return Status::OK();
+  }
+
+  Status SingleDeleteCF(uint32_t, const Slice& key) override {
+    AssignTimestamp(key);
+    ++idx_;
+    return Status::OK();
+  }
+
+  Status DeleteRangeCF(uint32_t, const Slice& begin_key,
+                       const Slice& end_key) override {
+    AssignTimestamp(begin_key);
+    AssignTimestamp(end_key);
+    ++idx_;
+    return Status::OK();
+  }
+
+  Status MergeCF(uint32_t, const Slice& key, const Slice&) override {
+    AssignTimestamp(key);
+    ++idx_;
+    return Status::OK();
+  }
+
+  Status PutBlobIndexCF(uint32_t, const Slice&, const Slice&) override {
+    // TODO (yanqin): support blob db in the future.
+    return Status::OK();
+  }
+
+  Status MarkBeginPrepare(bool) override {
+    // TODO (yanqin): support in the future.
+    return Status::OK();
+  }
+
+  Status MarkEndPrepare(const Slice&) override {
+    // TODO (yanqin): support in the future.
+    return Status::OK();
+  }
+
+  Status MarkCommit(const Slice&) override {
+    // TODO (yanqin): support in the future.
+    return Status::OK();
+  }
+
+  Status MarkRollback(const Slice&) override {
+    // TODO (yanqin): support in the future.
+    return Status::OK();
+  }
+
+ private:
+  void SanityCheck() const {
+    assert(!timestamps_.empty());
+#ifndef NDEBUG
+    const size_t ts_sz = timestamps_[0].size();
+    for (size_t i = 1; i != timestamps_.size(); ++i) {
+      assert(ts_sz == timestamps_[i].size());
+    }
+#endif  // !NDEBUG
+  }
+
+  void AssignTimestamp(const Slice& key) {
+    assert(timestamps_.empty() || idx_ < timestamps_.size());
+    const Slice& ts = timestamps_.empty() ? timestamp_ : timestamps_[idx_];
+    size_t ts_sz = ts.size();
+    char* ptr = const_cast<char*>(key.data() + key.size() - ts_sz);
+    memcpy(ptr, ts.data(), ts_sz);
+  }
+
+  static const std::vector<Slice> kEmptyTimestampList;
+  const Slice timestamp_;
+  const std::vector<Slice>& timestamps_;
+  size_t idx_ = 0;
+
+  // No copy or move.
+  TimestampAssigner(const TimestampAssigner&) = delete;
+  TimestampAssigner(TimestampAssigner&&) = delete;
+  TimestampAssigner& operator=(const TimestampAssigner&) = delete;
+  TimestampAssigner&& operator=(TimestampAssigner&&) = delete;
+};
+const std::vector<Slice> TimestampAssigner::kEmptyTimestampList;
+
 }  // anon namespace
 
 struct SavePoints {
@@ -142,7 +241,15 @@ struct SavePoints {
 };
 
 WriteBatch::WriteBatch(size_t reserved_bytes, size_t max_bytes)
-    : content_flags_(0), max_bytes_(max_bytes), rep_() {
+    : content_flags_(0), max_bytes_(max_bytes), rep_(), timestamp_size_(0) {
+  rep_.reserve((reserved_bytes > WriteBatchInternal::kHeader)
+                   ? reserved_bytes
+                   : WriteBatchInternal::kHeader);
+  rep_.resize(WriteBatchInternal::kHeader);
+}
+
+WriteBatch::WriteBatch(size_t reserved_bytes, size_t max_bytes, size_t ts_sz)
+    : content_flags_(0), max_bytes_(max_bytes), rep_(), timestamp_size_(ts_sz) {
   rep_.reserve((reserved_bytes > WriteBatchInternal::kHeader) ?
     reserved_bytes : WriteBatchInternal::kHeader);
   rep_.resize(WriteBatchInternal::kHeader);
@@ -151,18 +258,21 @@ WriteBatch::WriteBatch(size_t reserved_bytes, size_t max_bytes)
 WriteBatch::WriteBatch(const std::string& rep)
     : content_flags_(ContentFlags::DEFERRED),
       max_bytes_(0),
-      rep_(rep) {}
+      rep_(rep),
+      timestamp_size_(0) {}
 
 WriteBatch::WriteBatch(std::string&& rep)
     : content_flags_(ContentFlags::DEFERRED),
       max_bytes_(0),
-      rep_(std::move(rep)) {}
+      rep_(std::move(rep)),
+      timestamp_size_(0) {}
 
 WriteBatch::WriteBatch(const WriteBatch& src)
     : wal_term_point_(src.wal_term_point_),
       content_flags_(src.content_flags_.load(std::memory_order_relaxed)),
       max_bytes_(src.max_bytes_),
-      rep_(src.rep_) {
+      rep_(src.rep_),
+      timestamp_size_(src.timestamp_size_) {
   if (src.save_points_ != nullptr) {
     save_points_.reset(new SavePoints());
     save_points_->stack = src.save_points_->stack;
@@ -174,7 +284,8 @@ WriteBatch::WriteBatch(WriteBatch&& src) noexcept
       wal_term_point_(std::move(src.wal_term_point_)),
       content_flags_(src.content_flags_.load(std::memory_order_relaxed)),
       max_bytes_(src.max_bytes_),
-      rep_(std::move(src.rep_)) {}
+      rep_(std::move(src.rep_)),
+      timestamp_size_(src.timestamp_size_) {}
 
 WriteBatch& WriteBatch::operator=(const WriteBatch& src) {
   if (&src != this) {
@@ -643,7 +754,14 @@ Status WriteBatchInternal::Put(WriteBatch* b, uint32_t column_family_id,
     b->rep_.push_back(static_cast<char>(kTypeColumnFamilyValue));
     PutVarint32(&b->rep_, column_family_id);
   }
-  PutLengthPrefixedSlice(&b->rep_, key);
+  if (0 == b->timestamp_size_) {
+    PutLengthPrefixedSlice(&b->rep_, key);
+  } else {
+    PutVarint32(&b->rep_,
+                static_cast<uint32_t>(key.size() + b->timestamp_size_));
+    b->rep_.append(key.data(), key.size());
+    b->rep_.append(b->timestamp_size_, '\0');
+  }
   PutLengthPrefixedSlice(&b->rep_, value);
   b->content_flags_.store(
       b->content_flags_.load(std::memory_order_relaxed) | ContentFlags::HAS_PUT,
@@ -692,7 +810,11 @@ Status WriteBatchInternal::Put(WriteBatch* b, uint32_t column_family_id,
     b->rep_.push_back(static_cast<char>(kTypeColumnFamilyValue));
     PutVarint32(&b->rep_, column_family_id);
   }
-  PutLengthPrefixedSliceParts(&b->rep_, key);
+  if (0 == b->timestamp_size_) {
+    PutLengthPrefixedSliceParts(&b->rep_, key);
+  } else {
+    PutLengthPrefixedSlicePartsWithPadding(&b->rep_, key, b->timestamp_size_);
+  }
   PutLengthPrefixedSliceParts(&b->rep_, value);
   b->content_flags_.store(
       b->content_flags_.load(std::memory_order_relaxed) | ContentFlags::HAS_PUT,
@@ -1036,6 +1158,16 @@ Status WriteBatch::PopSavePoint() {
   save_points_->stack.pop();
 
   return Status::OK();
+}
+
+Status WriteBatch::AssignTimestamp(const Slice& ts) {
+  TimestampAssigner ts_assigner(ts);
+  return Iterate(&ts_assigner);
+}
+
+Status WriteBatch::AssignTimestamps(const std::vector<Slice>& ts_list) {
+  TimestampAssigner ts_assigner(ts_list);
+  return Iterate(&ts_assigner);
 }
 
 class MemTableInserter : public WriteBatch::Handler {
