@@ -137,15 +137,11 @@ struct BatchContentClassifier : public WriteBatch::Handler {
 
 class TimestampAssigner : public WriteBatch::Handler {
  public:
+  explicit TimestampAssigner(const Slice& ts)
+      : timestamp_(ts), timestamps_(kEmptyTimestampList) {}
   explicit TimestampAssigner(const std::vector<Slice>& ts_list)
-      : timestamps_(ts_list), idx_(0) {
-    assert(!timestamps_.empty());
-#ifndef NDEBUG
-    const size_t ts_sz = timestamps_[0].size();
-    for (size_t i = 1; i != timestamps_.size(); ++i) {
-      assert(ts_sz == timestamps_[i].size());
-    }
-#endif  // !NDEBUG
+      : timestamps_(ts_list) {
+    SanityCheck();
   }
   ~TimestampAssigner() override {}
 
@@ -207,17 +203,28 @@ class TimestampAssigner : public WriteBatch::Handler {
   }
 
  private:
+  void SanityCheck() const {
+    assert(!timestamps_.empty());
+#ifndef NDEBUG
+    const size_t ts_sz = timestamps_[0].size();
+    for (size_t i = 1; i != timestamps_.size(); ++i) {
+      assert(ts_sz == timestamps_[i].size());
+    }
+#endif  // !NDEBUG
+  }
+
   void AssignTimestamp(const Slice& key) {
-    assert(timestamps_.size() == 1 || idx_ < timestamps_.size());
-    const Slice& ts =
-        (timestamps_.size() == 1) ? timestamps_[0] : timestamps_[idx_];
+    assert(timestamps_.empty() || idx_ < timestamps_.size());
+    const Slice& ts = timestamps_.empty() ? timestamp_ : timestamps_[idx_];
     size_t ts_sz = ts.size();
     char* ptr = const_cast<char*>(key.data() + key.size() - ts_sz);
     memcpy(ptr, ts.data(), ts_sz);
   }
 
+  static const std::vector<Slice> kEmptyTimestampList;
+  const Slice timestamp_;
   const std::vector<Slice>& timestamps_;
-  size_t idx_;
+  size_t idx_ = 0;
 
   // No copy or move.
   TimestampAssigner(const TimestampAssigner&) = delete;
@@ -225,6 +232,7 @@ class TimestampAssigner : public WriteBatch::Handler {
   TimestampAssigner& operator=(const TimestampAssigner&) = delete;
   TimestampAssigner&& operator=(TimestampAssigner&&) = delete;
 };
+const std::vector<Slice> TimestampAssigner::kEmptyTimestampList;
 
 }  // anon namespace
 
@@ -1153,7 +1161,7 @@ Status WriteBatch::PopSavePoint() {
 }
 
 Status WriteBatch::AssignTimestamp(const Slice& ts) {
-  TimestampAssigner ts_assigner({ts});
+  TimestampAssigner ts_assigner(ts);
   return Iterate(&ts_assigner);
 }
 
