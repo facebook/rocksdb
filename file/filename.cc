@@ -66,9 +66,22 @@ static std::string MakeFileName(const std::string& name, uint64_t number,
   return name + buf;
 }
 
+static std::string MakeFileName(uint64_t number, const char* suffix) {
+  char buf[100];
+  snprintf(buf, sizeof(buf), "%06llu.%s",
+           static_cast<unsigned long long>(number),
+           suffix);
+  return buf;
+}
+
 std::string LogFileName(const std::string& name, uint64_t number) {
   assert(number > 0);
   return MakeFileName(name, number, "log");
+}
+
+std::string LogFileName(uint64_t number) {
+  assert(number > 0);
+  return MakeFileName(number, "log");
 }
 
 std::string BlobFileName(const std::string& blobdirname, uint64_t number) {
@@ -93,6 +106,10 @@ std::string ArchivedLogFileName(const std::string& name, uint64_t number) {
 
 std::string MakeTableFileName(const std::string& path, uint64_t number) {
   return MakeFileName(path, number, kRocksDbTFileExt.c_str());
+}
+
+std::string MakeTableFileName(uint64_t number) {
+  return MakeFileName(number, kRocksDbTFileExt.c_str());
 }
 
 std::string Rocks2LevelTableFileName(const std::string& fullname) {
