@@ -1441,16 +1441,7 @@ ColumnFamilyHandle* DBImpl::PersistentStatsColumnFamily() const {
 Status DBImpl::Get(const ReadOptions& read_options,
                    ColumnFamilyHandle* column_family, const Slice& key,
                    PinnableSlice* value) {
-  if (nullptr == read_options.timestamp) {
-    return GetImpl(read_options, column_family, key, value);
-  }
-  Slice akey;
-  std::string buf;
-  Status s = AppendTimestamp(key, *(read_options.timestamp), &akey, &buf);
-  if (s.ok()) {
-    s = GetImpl(read_options, column_family, akey, value);
-  }
-  return s;
+  return GetImpl(read_options, column_family, key, value);
 }
 
 Status DBImpl::GetImpl(const ReadOptions& read_options,
@@ -1528,7 +1519,7 @@ Status DBImpl::GetImpl(const ReadOptions& read_options,
   // First look in the memtable, then in the immutable memtable (if any).
   // s is both in/out. When in, s could either be OK or MergeInProgress.
   // merge_operands will contain the sequence of merges in the latter case.
-  LookupKey lkey(key, snapshot);
+  LookupKey lkey(key, snapshot, read_options.timestamp);
   PERF_TIMER_STOP(get_snapshot_time);
 
   bool skip_memtable = (read_options.read_tier == kPersistedTier &&
