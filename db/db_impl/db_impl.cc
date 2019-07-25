@@ -3563,7 +3563,6 @@ void DumpRocksDBBuildVersion(Logger* log) {
 #ifndef ROCKSDB_LITE
 SequenceNumber DBImpl::GetEarliestMemTableSequenceNumber(SuperVersion* sv,
                                                          bool include_history) {
-  InstrumentedMutexLock l(&mutex_);
   // Find the earliest sequence number that we know we can rely on reading
   // from the memtable without needing to check sst files.
   SequenceNumber earliest_seq =

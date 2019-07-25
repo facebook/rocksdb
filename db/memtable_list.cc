@@ -480,6 +480,7 @@ Status MemTableList::TryInstallMemtableFlushResults(
           assert(m->file_number_ > 0);
           current_->Remove(m, to_delete);
           UpdateMemoryUsageExcludingLast();
+          ResetTrimHistoryNeeded();
           ++mem_id;
         }
       } else {
@@ -521,11 +522,14 @@ void MemTableList::Add(MemTable* m, autovector<MemTable*>* to_delete,
     imm_flush_needed.store(true, std::memory_order_release);
   }
   UpdateMemoryUsageExcludingLast();
+  ResetTrimHistoryNeeded();
 }
 
 void MemTableList::TrimHistory(autovector<MemTable*>* to_delete, size_t usage) {
+  InstallNewVersion();
   current_->TrimHistory(to_delete, usage);
   UpdateMemoryUsageExcludingLast();
+  ResetTrimHistoryNeeded();
 }
 
 // Returns an estimate of the number of bytes of data in use.
@@ -548,7 +552,7 @@ size_t MemTableList::ApproximateMemoryUsageExcludingLast() {
 // MemtableListVersion (whenever InstallNewVersion() is called)
 void MemTableList::UpdateMemoryUsageExcludingLast() {
   size_t total_memtable_size = current_->ApproximateMemoryUsageExcludingLast();
-  current_memory_usage_excluding_last_.store(total_memtable_size, std::memory_order_release);
+  current_memory_usage_excluding_last_.store(total_memtable_size, std::memory_order_relaxed);
 }
 
 uint64_t MemTableList::ApproximateOldestKeyTime() const {
@@ -679,6 +683,7 @@ Status InstallMemtableAtomicFlushResults(
                          mem_id);
         imm->current_->Remove(m, to_delete);
         imm->UpdateMemoryUsageExcludingLast();
+        imm->ResetTrimHistoryNeeded();
       }
     }
   } else {
@@ -721,6 +726,7 @@ void MemTableList::RemoveOldMemTables(uint64_t log_number,
     }
   }
   UpdateMemoryUsageExcludingLast();
+  ResetTrimHistoryNeeded();
 }
 
 }  // namespace rocksdb

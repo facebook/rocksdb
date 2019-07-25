@@ -1760,8 +1760,6 @@ class MemTableInserter : public WriteBatch::Handler {
       auto* cfd = cf_mems_->current();
       assert(cfd != nullptr);
       if (cfd->ioptions()->max_write_buffer_size_to_maintain > 0 &&
-          cfd->imm()->imm_trim_needed.load(std::memory_order_relaxed) ==
-              false &&
           cfd->mem()->ApproximateMemoryUsageCheap() +
                   cfd->imm()->ApproximateMemoryUsageExcludingLast() >=
               static_cast<size_t>(
