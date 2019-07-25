@@ -155,10 +155,8 @@ class AwsEnv : public CloudEnvImpl {
   virtual Status RenameFile(const std::string& src,
                             const std::string& target) override;
 
-  virtual Status LinkFile(const std::string& /*src*/,
-                          const std::string& /*target*/) override {
-    return Status::NotSupported();  // not supported
-  }
+  virtual Status LinkFile(const std::string& src,
+                          const std::string& target) override;
 
   virtual Status LockFile(const std::string& fname, FileLock** lock) override;
 

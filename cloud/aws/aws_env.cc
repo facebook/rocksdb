@@ -1440,6 +1440,14 @@ Status AwsEnv::RenameFile(const std::string& logical_src,
   return st;
 }
 
+Status AwsEnv::LinkFile(const std::string& src, const std::string& target) {
+  // We only know how to link file if both src and dest buckets are empty
+  if (has_dest_bucket_ || has_src_bucket_) {
+    return Status::NotSupported();
+  }
+  return base_env_->LinkFile(src, target);
+}
+
 //
 // Copy my IDENTITY file to cloud storage. Update dbid registry.
 //
