@@ -164,10 +164,10 @@ class WriteUnpreparedTxn : public WritePreparedTxn {
   Status HandleWrite(std::function<Status()> do_write);
 
   // For write unprepared, we check on every writebatch append to see if
-  // max_write_batch_size_ has been exceeded, and then call
+  // write_batch_flush_threshold_ has been exceeded, and then call
   // FlushWriteBatchToDB if so. This logic is encapsulated in
   // MaybeFlushWriteBatchToDB.
-  size_t max_write_batch_size_;
+  ssize_t write_batch_flush_threshold_;
   WriteUnpreparedTxnDB* wupt_db_;
 
   // Ordered list of unprep_seq sequence numbers that we have already written
