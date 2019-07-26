@@ -294,11 +294,11 @@ class TransactionBaseImpl : public Transaction {
 
   struct SavePoint {
     std::shared_ptr<const Snapshot> snapshot_;
-    bool snapshot_needed_;
+    bool snapshot_needed_ = false;
     std::shared_ptr<TransactionNotifier> snapshot_notifier_;
-    uint64_t num_puts_;
-    uint64_t num_deletes_;
-    uint64_t num_merges_;
+    uint64_t num_puts_ = 0;
+    uint64_t num_deletes_ = 0;
+    uint64_t num_merges_ = 0;
 
     // Record all keys tracked since the last savepoint
     TransactionKeyMap new_keys_;
@@ -312,6 +312,8 @@ class TransactionBaseImpl : public Transaction {
           num_puts_(num_puts),
           num_deletes_(num_deletes),
           num_merges_(num_merges) {}
+
+    SavePoint() = default;
   };
 
   // Records writes pending in this transaction
