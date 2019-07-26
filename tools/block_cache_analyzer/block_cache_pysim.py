@@ -17,7 +17,11 @@ kSecondsInHour = 3600
 
 
 class TraceRecord:
-    """A trace record represents a block access."""
+    """
+    A trace record represents a block access.
+    It holds the same struct as BlockCacheTraceRecord in
+    trace_replay/block_cache_tracer.h
+    """
 
     def __init__(
         self,
@@ -26,6 +30,7 @@ class TraceRecord:
         block_type,
         block_size,
         cf_id,
+        cf_name,
         level,
         fd,
         caller,
@@ -40,6 +45,7 @@ class TraceRecord:
         self.block_type = block_type
         self.block_size = block_size
         self.cf_id = cf_id
+        self.cf_name = cf_name
         self.level = level
         self.fd = fd
         self.caller = caller
@@ -736,14 +742,15 @@ def run(trace_file_path, cache_type, cache, warmup_seconds):
                 block_type=int(ts[2]),
                 block_size=int(ts[3]),
                 cf_id=int(ts[4]),
-                level=int(ts[5]),
-                fd=int(ts[6]),
-                caller=int(ts[7]),
-                no_insert=int(ts[8]),
-                get_id=int(ts[9]),
-                key_id=int(ts[10]),
-                kv_size=int(ts[11]),
-                is_hit=int(ts[12]),
+                cf_name=ts[5],
+                level=int(ts[6]),
+                fd=int(ts[7]),
+                caller=int(ts[8]),
+                no_insert=int(ts[9]),
+                get_id=int(ts[10]),
+                key_id=int(ts[11]),
+                kv_size=int(ts[12]),
+                is_hit=int(ts[13]),
             )
             trace_miss_ratio_stats.update_metrics(
                 record.access_time, is_hit=record.is_hit
