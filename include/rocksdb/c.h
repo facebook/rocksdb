@@ -1796,6 +1796,10 @@ extern ROCKSDB_LIBRARY_API uint64_t
 rocksdb_approximate_memory_usage_get_cache_total(
     rocksdb_memory_usage_t* memory_usage);
 
+extern ROCKSDB_LIBRARY_API void rocksdb_options_set_dump_malloc_stats(rocksdb_options_t*, int);
+
+extern ROCKSDB_LIBRARY_API void rocksdb_options_set_memtable_whole_key_filtering(rocksdb_options_t*, int);
+
 #ifdef __cplusplus
 }  /* end extern "C" */
 #endif
