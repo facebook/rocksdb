@@ -104,7 +104,7 @@ struct TransactionDBOptions {
   // This option is only valid for write unprepared. If a write batch exceeds
   // this threshold, then the transaction will implicitly flush the currently
   // pending writes into the database. A value of 0 or less means no limit.
-  ssize_t default_write_batch_flush_threshold = 0;
+  int64_t default_write_batch_flush_threshold = 0;
 
  private:
   // 128 entries
@@ -171,7 +171,7 @@ struct TransactionOptions {
   // See TransactionDBOptions::default_write_batch_flush_threshold for
   // description. If a negative value is specified, then the default value from
   // TransactionDBOptions is used.
-  ssize_t write_batch_flush_threshold = -1;
+  int64_t write_batch_flush_threshold = -1;
 };
 
 // The per-write optimizations that do not involve transactions. TransactionDB
