@@ -24,7 +24,7 @@ void FlushScheduler::ScheduleFlush(ColumnFamilyData* cfd) {
 #ifndef __clang_analyzer__
   Node* node = new Node{cfd, head_.load(std::memory_order_relaxed)};
   while (!head_.compare_exchange_strong(
-      node->next, node, std::memory_order_relaxed, std::memory_order_relaxed)) {
+      node->next, node)) {
     // failing CAS updates the first param, so we are already set for
     // retry.  TakeNextColumnFamily won't happen until after another
     // inter-thread synchronization, so we don't even need release
@@ -34,36 +34,37 @@ void FlushScheduler::ScheduleFlush(ColumnFamilyData* cfd) {
 }
 
 ColumnFamilyData* FlushScheduler::TakeNextColumnFamily() {
-  while (true) {
-    if (head_.load(std::memory_order_relaxed) == nullptr) {
+  Node* node;
+  do {
+    if ((node = head_.load(std::memory_order_acquire)) == nullptr) {
       return nullptr;
     }
+  // dequeue the head
+  } while (!head_.compare_exchange_strong(
+        node, node->next));
 
-    // dequeue the head
-    Node* node = head_.load(std::memory_order_relaxed);
-    head_.store(node->next, std::memory_order_relaxed);
-    ColumnFamilyData* cfd = node->column_family;
-    delete node;
+  ColumnFamilyData* cfd = node->column_family;
+  delete node;
 
 #ifndef NDEBUG
-    {
-      std::lock_guard<std::mutex> lock(checking_mutex_);
-      auto iter = checking_set_.find(cfd);
-      assert(iter != checking_set_.end());
-      checking_set_.erase(iter);
-    }
+  {
+    std::lock_guard<std::mutex> lock(checking_mutex_);
+    auto iter = checking_set_.find(cfd);
+    assert(iter != checking_set_.end());
+    checking_set_.erase(iter);
+  }
 #endif  // NDEBUG
 
-    if (!cfd->IsDropped()) {
-      // success
-      return cfd;
-    }
-
-    // no longer relevant, retry
-    if (cfd->Unref()) {
-      delete cfd;
-    }
+  if (!cfd->IsDropped()) {
+    // success
+    return cfd;
   }
+
+  // no longer relevant, retry
+  if (cfd->Unref()) {
+    delete cfd;
+  }
+  return nullptr;
 }
 
 bool FlushScheduler::Empty() {
