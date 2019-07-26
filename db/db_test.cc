@@ -2598,13 +2598,14 @@ class ModelDB : public DB {
     return false;
   }
   using DB::GetApproximateSizes;
-  void GetApproximateSizes(ColumnFamilyHandle* /*column_family*/,
-                           const Range* /*range*/, int n, uint64_t* sizes,
-                           uint8_t /*include_flags*/
-                           = INCLUDE_FILES) override {
+  Status GetApproximateSizes(const SizeApproximationOptions& /*options*/,
+                             ColumnFamilyHandle* /*column_family*/,
+                             const Range* /*range*/, int n,
+                             uint64_t* sizes) override {
     for (int i = 0; i < n; i++) {
       sizes[i] = 0;
     }
+    return Status::OK();
   }
   using DB::GetApproximateMemTableStats;
   void GetApproximateMemTableStats(ColumnFamilyHandle* /*column_family*/,

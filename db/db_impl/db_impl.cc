@@ -2770,11 +2770,13 @@ void DBImpl::GetApproximateMemTableStats(ColumnFamilyHandle* column_family,
   ReturnAndCleanupSuperVersion(cfd, sv);
 }
 
-void DBImpl::GetApproximateSizes(ColumnFamilyHandle* column_family,
-                                 const Range* range, int n, uint64_t* sizes,
-                                 uint8_t include_flags) {
-  assert(include_flags & DB::SizeApproximationFlags::INCLUDE_FILES ||
-         include_flags & DB::SizeApproximationFlags::INCLUDE_MEMTABLES);
+Status DBImpl::GetApproximateSizes(const SizeApproximationOptions& options,
+                                   ColumnFamilyHandle* column_family,
+                                   const Range* range, int n, uint64_t* sizes) {
+  if (!options.include_memtabtles && !options.include_files) {
+    return Status::InvalidArgument("Invalid options");
+  }
+
   Version* v;
   auto cfh = reinterpret_cast<ColumnFamilyHandleImpl*>(column_family);
   auto cfd = cfh->cfd();
@@ -2786,18 +2788,19 @@ void DBImpl::GetApproximateSizes(ColumnFamilyHandle* column_family,
     InternalKey k1(range[i].start, kMaxSequenceNumber, kValueTypeForSeek);
     InternalKey k2(range[i].limit, kMaxSequenceNumber, kValueTypeForSeek);
     sizes[i] = 0;
-    if (include_flags & DB::SizeApproximationFlags::INCLUDE_FILES) {
+    if (options.include_files) {
       sizes[i] += versions_->ApproximateSize(
           v, k1.Encode(), k2.Encode(), /*start_level=*/0, /*end_level=*/-1,
           TableReaderCaller::kUserApproximateSize);
     }
-    if (include_flags & DB::SizeApproximationFlags::INCLUDE_MEMTABLES) {
+    if (options.include_memtabtles) {
       sizes[i] += sv->mem->ApproximateStats(k1.Encode(), k2.Encode()).size;
       sizes[i] += sv->imm->ApproximateStats(k1.Encode(), k2.Encode()).size;
     }
   }
 
   ReturnAndCleanupSuperVersion(cfd, sv);
+  return Status::OK();
 }
 
 std::list<uint64_t>::iterator

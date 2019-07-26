@@ -1093,10 +1093,6 @@ struct DBOptions {
   // The number of bytes to prefetch when reading the log. This is mostly useful
   // for reading a remotely located log, as it can save the number of
   // round-trips. If 0, then the prefetching is disabled.
-
-  // If non-zero, we perform bigger reads when reading the log.
-  // This is mostly useful for reading a remotely located log, as it can save
-  // the number of round-trips. If 0, then the prefetching is disabled.
   //
   // Default: 0
   size_t log_readahead_size = 0;
@@ -1508,6 +1504,16 @@ struct TraceOptions {
 struct ImportColumnFamilyOptions {
   // Can be set to true to move the files instead of copying them.
   bool move_files = false;
+};
+
+// Options used with DB::GetApproximateSizes()
+struct SizeApproximationOptions {
+  // Defines whether the returned size should include the recently written
+  // data in the mem-tables. If set to false, include_files must be true.
+  bool include_memtabtles = false;
+  // Defines whether the returned size should include data serialized to disk.
+  // If set to false, include_memtabtles must be true.
+  bool include_files = true;
 };
 
 }  // namespace rocksdb
