@@ -4041,20 +4041,27 @@ TEST_P(TransactionTest, SavepointTest4) {
   ASSERT_TRUE(txn1);
 
   txn1->SetSavePoint();  // 1
-  s = txn1->Put("A", "");
+  s = txn1->Put("A", "a");
   ASSERT_OK(s);
 
   txn1->SetSavePoint();  // 2
-  s = txn1->Put("B", "");
+  s = txn1->Put("B", "b");
   ASSERT_OK(s);
 
   s = txn1->PopSavePoint();  // Remove 2
   ASSERT_OK(s);
 
+  // Verify that A/B still exists.
+  std::string value;
+  ASSERT_OK(txn1->Get(read_options, "A", &value));
+  ASSERT_EQ("a", value);
+
+  ASSERT_OK(txn1->Get(read_options, "B", &value));
+  ASSERT_EQ("b", value);
+
   ASSERT_OK(txn1->RollbackToSavePoint());  // Rollback to 1
 
   // Verify that everything was rolled back.
-  std::string value;
   s = txn1->Get(read_options, "A", &value);
   ASSERT_TRUE(s.IsNotFound());
 

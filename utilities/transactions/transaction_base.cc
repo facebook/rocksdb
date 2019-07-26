@@ -196,47 +196,42 @@ Status TransactionBaseImpl::PopSavePoint() {
   // to inherit tracked_keys in B so that if we rollback to savepoint A, we
   // remember to unlock keys in B. If there is no other savepoint below, then we
   // can safely discard savepoint info.
-  if (save_points_->size() > 1) {
+  if (save_points_->size() == 1) {
+    save_points_->pop();
+  } else {
     TransactionBaseImpl::SavePoint top;
     std::swap(top, save_points_->top());
     save_points_->pop();
 
-    const TransactionKeyMap& curr_key_map = top.new_keys_;
-    TransactionKeyMap& prev_key_map = save_points_->top().new_keys_;
+    const TransactionKeyMap& curr_cf_key_map = top.new_keys_;
+    TransactionKeyMap& prev_cf_key_map = save_points_->top().new_keys_;
 
-    for (const auto& key_map_iter : curr_key_map) {
-      uint32_t column_family_id = key_map_iter.first;
-      auto& keys = key_map_iter.second;
+    for (const auto& curr_cf_key_iter : curr_cf_key_map) {
+      uint32_t column_family_id = curr_cf_key_iter.first;
+      const std::unordered_map<std::string, TransactionKeyMapInfo>& curr_keys =
+          curr_cf_key_iter.second;
 
       // If cfid was not previously tracked, just copy everything over.
-      auto prev_tracked_keys = prev_key_map.find(column_family_id);
-      if (prev_tracked_keys == prev_key_map.end()) {
-        prev_key_map.emplace(key_map_iter);
+      auto prev_keys_iter = prev_cf_key_map.find(column_family_id);
+      if (prev_keys_iter == prev_cf_key_map.end()) {
+        prev_cf_key_map.emplace(curr_cf_key_iter);
       } else {
-        auto& prev_tracked_keys_map = prev_tracked_keys->second;
-
-        for (const auto& key_iter : keys) {
+        std::unordered_map<std::string, TransactionKeyMapInfo>& prev_keys =
+            prev_keys_iter->second;
+        for (const auto& key_iter : curr_keys) {
           const std::string& key = key_iter.first;
           const TransactionKeyMapInfo& info = key_iter.second;
-
           // If key was not previously tracked, just copy the whole struct over.
           // Otherwise, some merging needs to occur.
-          auto prev_info = prev_tracked_keys_map.find(key);
-          if (prev_info == prev_tracked_keys_map.end()) {
-            prev_tracked_keys_map.emplace(key_iter);
+          auto prev_info = prev_keys.find(key);
+          if (prev_info == prev_keys.end()) {
+            prev_keys.emplace(key_iter);
           } else {
-            TransactionKeyMapInfo& prev_info_val = prev_info->second;
-
-            assert(prev_info_val.seq <= info.seq);
-            prev_info_val.num_reads += info.num_reads;
-            prev_info_val.num_writes += info.num_writes;
-            prev_info_val.exclusive |= info.exclusive;
+            prev_info->second.Merge(info);
           }
         }
       }
     }
-  } else {
-    save_points_->pop();
   }
 
   return write_batch_.PopSavePoint();
