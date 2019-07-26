@@ -23,7 +23,7 @@ int main() {
 #include "rocksdb/trace_reader_writer.h"
 #include "test_util/testharness.h"
 #include "test_util/testutil.h"
-#include "tools/block_cache_trace_analyzer.h"
+#include "tools/block_cache_analyzer/block_cache_trace_analyzer.h"
 #include "trace_replay/block_cache_tracer.h"
 
 namespace rocksdb {
@@ -343,7 +343,7 @@ TEST_F(BlockCacheTracerTest, BlockCacheAnalyzer) {
           std::string l;
           ASSERT_TRUE(getline(ss, l, ','));
           if (l.find("block") == std::string::npos) {
-            if (unit != "_60" || user_access_only != "all_access_") {
+            if (user_access_only != "all_access_") {
               continue;
             }
           }
