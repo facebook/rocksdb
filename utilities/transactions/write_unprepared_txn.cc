@@ -35,13 +35,12 @@ WriteUnpreparedTxn::WriteUnpreparedTxn(WriteUnpreparedTxnDB* txn_db,
       wupt_db_(txn_db),
       recovered_txn_(false),
       largest_validated_seq_(0) {
-  max_write_batch_size_ = txn_options.max_write_batch_size;
-  // We set max bytes to zero so that we don't get a memory limit error.
-  // Instead of trying to keep write batch strictly under the size limit, we
-  // just flush to DB when the limit is exceeded in write unprepared, to avoid
-  // having retry logic. This also allows very big key-value pairs that exceed
-  // max bytes to succeed.
-  write_batch_.SetMaxBytes(0);
+  if (txn_options.write_batch_flush_threshold < 0) {
+    write_batch_flush_threshold_ =
+        txn_db_impl_->GetTxnDBOptions().default_write_batch_flush_threshold;
+  } else {
+    write_batch_flush_threshold_ = txn_options.write_batch_flush_threshold;
+  }
 }
 
 WriteUnpreparedTxn::~WriteUnpreparedTxn() {
@@ -71,8 +70,13 @@ WriteUnpreparedTxn::~WriteUnpreparedTxn() {
 
 void WriteUnpreparedTxn::Initialize(const TransactionOptions& txn_options) {
   PessimisticTransaction::Initialize(txn_options);
-  max_write_batch_size_ = txn_options.max_write_batch_size;
-  write_batch_.SetMaxBytes(0);
+  if (txn_options.write_batch_flush_threshold < 0) {
+    write_batch_flush_threshold_ =
+        txn_db_impl_->GetTxnDBOptions().default_write_batch_flush_threshold;
+  } else {
+    write_batch_flush_threshold_ = txn_options.write_batch_flush_threshold;
+  }
+
   unprep_seqs_.clear();
   recovered_txn_ = false;
   largest_validated_seq_ = 0;
@@ -222,8 +226,9 @@ Status WriteUnpreparedTxn::RebuildFromWriteBatch(WriteBatch* wb) {
 Status WriteUnpreparedTxn::MaybeFlushWriteBatchToDB() {
   const bool kPrepared = true;
   Status s;
-  if (max_write_batch_size_ != 0 &&
-      write_batch_.GetDataSize() > max_write_batch_size_) {
+  if (write_batch_flush_threshold_ > 0 &&
+      write_batch_.GetDataSize() >
+          static_cast<size_t>(write_batch_flush_threshold_)) {
     assert(GetState() != PREPARED);
     s = FlushWriteBatchToDB(!kPrepared);
   }
