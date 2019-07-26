@@ -1850,7 +1850,7 @@ Status AwsEnv::PutObject(const std::string& local_file,
     st = Status::IOError(local_file, errmsg);
     Log(InfoLogLevel::ERROR_LEVEL, info_log_,
         "[s3] PutObject %s/%s, size %zu, ERROR %s", s3_bucket.c_str(),
-        object_path.c_str(), errmsg.c_str());
+        object_path.c_str(), fsize, errmsg.c_str());
   } else {
     Log(InfoLogLevel::INFO_LEVEL, info_log_,
         "[s3] PutObject %s/%s, size %zu, OK", s3_bucket.c_str(),
