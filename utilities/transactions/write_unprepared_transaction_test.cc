@@ -157,7 +157,7 @@ TEST_P(WriteUnpreparedTransactionTest, ReadYourOwnWriteStress) {
       Transaction* txn;
       TransactionOptions txn_options;
       // batch_size of 1 causes writes to DB for every marker.
-      txn_options.max_write_batch_size = 1;
+      txn_options.write_batch_flush_threshold = 1;
       ReadOptions read_options;
 
       for (uint32_t i = 0; i < kNumIter; i++) {
@@ -311,7 +311,7 @@ TEST_P(WriteUnpreparedTransactionTest, RecoveryTest) {
 
   // batch_size of 1 causes writes to DB for every marker.
   for (size_t batch_size : {1, 1000000}) {
-    txn_options.max_write_batch_size = batch_size;
+    txn_options.write_batch_flush_threshold = batch_size;
     for (bool empty : {true, false}) {
       for (Action a : {UNPREPARED, ROLLBACK, COMMIT}) {
         for (int num_batches = 1; num_batches < 10; num_batches++) {
@@ -332,7 +332,7 @@ TEST_P(WriteUnpreparedTransactionTest, RecoveryTest) {
           txn->SetName("xid");
           for (int i = 0; i < num_batches; i++) {
             ASSERT_OK(txn->Put("k" + ToString(i), "value" + ToString(i)));
-            if (txn_options.max_write_batch_size == 1) {
+            if (txn_options.write_batch_flush_threshold == 1) {
               ASSERT_EQ(wup_txn->GetUnpreparedSequenceNumbers().size(), i + 1);
             } else {
               ASSERT_EQ(wup_txn->GetUnpreparedSequenceNumbers().size(), 0);
@@ -398,7 +398,7 @@ TEST_P(WriteUnpreparedTransactionTest, UnpreparedBatch) {
 
   // batch_size of 1 causes writes to DB for every marker.
   for (size_t batch_size : {1, 1000000}) {
-    txn_options.max_write_batch_size = batch_size;
+    txn_options.write_batch_flush_threshold = batch_size;
     for (bool prepare : {false, true}) {
       for (bool commit : {false, true}) {
         ReOpen();
@@ -408,7 +408,7 @@ TEST_P(WriteUnpreparedTransactionTest, UnpreparedBatch) {
 
         for (int i = 0; i < kNumKeys; i++) {
           txn->Put("k" + ToString(i), "v" + ToString(i));
-          if (txn_options.max_write_batch_size == 1) {
+          if (txn_options.write_batch_flush_threshold == 1) {
             ASSERT_EQ(wup_txn->GetUnpreparedSequenceNumbers().size(), i + 1);
           } else {
             ASSERT_EQ(wup_txn->GetUnpreparedSequenceNumbers().size(), 0);
@@ -457,7 +457,7 @@ TEST_P(WriteUnpreparedTransactionTest, MarkLogWithPrepSection) {
   WriteOptions write_options;
   TransactionOptions txn_options;
   // batch_size of 1 causes writes to DB for every marker.
-  txn_options.max_write_batch_size = 1;
+  txn_options.write_batch_flush_threshold = 1;
   const int kNumKeys = 10;
 
   WriteOptions wopts;
