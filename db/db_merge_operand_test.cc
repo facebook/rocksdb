@@ -76,7 +76,7 @@ TEST_F(DBMergeOperandTest, GetMergeOperandsBasic) {
   ASSERT_OK(Merge("k1", "d"));
   std::vector<PinnableSlice> values(num_records);
   MergeOperandsInfo merge_operands_info;
-  merge_operands_info.request_number_of_operands = num_records;
+  merge_operands_info.expected_number_of_operands = num_records;
   db_->GetMergeOperands(ReadOptions(), db_->DefaultColumnFamily(), "k1",
                         values.data(), &merge_operands_info);
   ASSERT_EQ(values[0], "x");
@@ -86,12 +86,12 @@ TEST_F(DBMergeOperandTest, GetMergeOperandsBasic) {
 
   // num_records is less than number of merge operands so status should be
   // Aborted.
-  merge_operands_info.request_number_of_operands = num_records-1;
+  merge_operands_info.expected_number_of_operands = num_records-1;
   Status status =
       db_->GetMergeOperands(ReadOptions(), db_->DefaultColumnFamily(), "k1",
                             values.data(), &merge_operands_info);
   ASSERT_EQ(status.IsAborted(), true);
-  merge_operands_info.request_number_of_operands = num_records;
+  merge_operands_info.expected_number_of_operands = num_records;
 
   // All K2 values are flushed to L0 into a single file.
   ASSERT_OK(Merge("k2", "a"));
@@ -199,7 +199,7 @@ TEST_F(DBMergeOperandTest, PerfTest) {
 	std::vector<PinnableSlice> a_slice((kTotalMerges/100)+1);
 	st = env_->NowNanos();
 	MergeOperandsInfo merge_operands_info;
-	merge_operands_info.request_number_of_operands = (kTotalMerges/100)+1;
+	merge_operands_info.expected_number_of_operands = (kTotalMerges/100)+1;
 	db_->GetMergeOperands(ReadOptions(), db_->DefaultColumnFamily(), key, a_slice.data(), &merge_operands_info);
 	int to_print = 0;
 	if (print_info)  {

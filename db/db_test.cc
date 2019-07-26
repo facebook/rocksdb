@@ -2544,7 +2544,7 @@ class ModelDB : public DB {
   virtual Status GetMergeOperands(const ReadOptions& /*options*/,
                                   ColumnFamilyHandle* /*column_family*/,
                                   const Slice& key, PinnableSlice* /*slice*/,
-                                  int /*size*/) override {
+                                  MergeOperandsInfo* /*merge_operands_info*/) override {
     return Status::NotSupported(key);
   }
 

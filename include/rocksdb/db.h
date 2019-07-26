@@ -116,6 +116,11 @@ struct IngestExternalFileArg {
   IngestExternalFileOptions options;
 };
 
+struct MergeOperandsInfo {
+	int expected_number_of_operands;
+	int actual_number_of_operands;
+};
+
 // A collections of table properties objects, where
 //  key: is the table's file name.
 //  value: the table properties object of the given table.
@@ -409,7 +414,7 @@ class DB {
   virtual Status GetMergeOperands(const ReadOptions& options,
                                   ColumnFamilyHandle* column_family,
                                   const Slice& key, PinnableSlice* slice,
-                                  int num_records) = 0;
+                                  MergeOperandsInfo* merge_operands_info) = 0;
 
   // If keys[i] does not exist in the database, then the i'th returned
   // status will be one for which Status::IsNotFound() is true, and

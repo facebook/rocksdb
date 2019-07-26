@@ -1448,7 +1448,7 @@ Status DBImpl::GetImpl(const ReadOptions& read_options,
                        ColumnFamilyHandle* column_family, const Slice& key,
                        PinnableSlice* pinnable_val, bool* value_found,
                        ReadCallback* callback, bool* is_blob_index,
-                       bool get_val, int num_records) {
+                       bool get_val, MergeOperandsInfo* merge_operands_info) {
   assert(pinnable_val != nullptr);
   PERF_CPU_TIMER_GUARD(get_cpu_nanos, env_);
   StopWatch sw(env_, stats_, DB_GET);
@@ -1523,80 +1523,86 @@ Status DBImpl::GetImpl(const ReadOptions& read_options,
   LookupKey lkey(key, snapshot, read_options.timestamp);
   PERF_TIMER_STOP(get_snapshot_time);
 
-	  bool skip_memtable = (read_options.read_tier == kPersistedTier &&
-							has_unpersisted_data_.load(std::memory_order_relaxed));
-	  bool done = false;
-	  if (!skip_memtable) {
-		  if (get_val) {
-				if (sv->mem->Get(lkey, pinnable_val->GetSelf(), &s, &merge_context,
-								 &max_covering_tombstone_seq, read_options, callback,
-								 is_blob_index)) {
-				  done = true;
-				  pinnable_val->PinSelf();
-				  RecordTick(stats_, MEMTABLE_HIT);
-				} else if ((s.ok() || s.IsMergeInProgress()) &&
-						   sv->imm->Get(lkey, pinnable_val->GetSelf(), &s, &merge_context,
-										&max_covering_tombstone_seq, read_options, callback,
-										is_blob_index)) {
-				  done = true;
-				  pinnable_val->PinSelf();
-				  RecordTick(stats_, MEMTABLE_HIT);
-				}
-				if (!done && !s.ok() && !s.IsMergeInProgress()) {
-				  ReturnAndCleanupSuperVersion(cfd, sv);
-				  return s;
-				}
-		  } else {
-				if (sv->mem->GetMergeOperands(lkey, pinnable_val, num_records, &s, &merge_context,
-								 &max_covering_tombstone_seq, read_options)) {
-					done = true;
-					RecordTick(stats_, MEMTABLE_HIT);
-				} else if ((s.ok() || s.IsMergeInProgress()) &&
-						sv->imm->GetMergeOperands(lkey, pinnable_val, num_records, &s, &merge_context,
-								 &max_covering_tombstone_seq, read_options)) {
-					done = true;
-					RecordTick(stats_, MEMTABLE_HIT);
-				}
-				if (!done && !s.ok() && !s.IsMergeInProgress()) {
-				  ReturnAndCleanupSuperVersion(cfd, sv);
-				  return s;
-				}
-		  }
-	  }
-	  if (!done) {
-		PERF_TIMER_GUARD(get_from_output_files_time);
-		sv->current->Get(read_options, lkey, pinnable_val, &s, &merge_context,
-						&max_covering_tombstone_seq, get_val ? value_found : nullptr,
-						nullptr, nullptr, get_val ? callback : nullptr,
-						get_val ? is_blob_index : nullptr, get_val ? true : false, num_records);
-		RecordTick(stats_, MEMTABLE_MISS);
-	  }
+  bool skip_memtable = (read_options.read_tier == kPersistedTier &&
+                        has_unpersisted_data_.load(std::memory_order_relaxed));
+  bool done = false;
+  if (!skip_memtable) {
+    if (get_val) {
+      if (sv->mem->Get(lkey, pinnable_val->GetSelf(), &s, &merge_context,
+                       &max_covering_tombstone_seq, read_options, callback,
+                       is_blob_index)) {
+        done = true;
+        pinnable_val->PinSelf();
+        RecordTick(stats_, MEMTABLE_HIT);
+      } else if ((s.ok() || s.IsMergeInProgress()) &&
+                 sv->imm->Get(lkey, pinnable_val->GetSelf(), &s, &merge_context,
+                              &max_covering_tombstone_seq, read_options,
+                              callback, is_blob_index)) {
+        done = true;
+        pinnable_val->PinSelf();
+        RecordTick(stats_, MEMTABLE_HIT);
+      }
+      if (!done && !s.ok() && !s.IsMergeInProgress()) {
+        ReturnAndCleanupSuperVersion(cfd, sv);
+        return s;
+      }
+    } else {
+      if (sv->mem->GetMergeOperands(lkey, pinnable_val, merge_operands_info->expected_number_of_operands, &s,
+                                    &merge_context, &max_covering_tombstone_seq,
+                                    read_options)) {
+        done = true;
+        RecordTick(stats_, MEMTABLE_HIT);
+      } else if ((s.ok() || s.IsMergeInProgress()) &&
+                 sv->imm->GetMergeOperands(
+                     lkey, pinnable_val,
+					 merge_operands_info->expected_number_of_operands, &s,
+					 &merge_context, &max_covering_tombstone_seq, read_options))
+      {
+        done = true;
+        RecordTick(stats_, MEMTABLE_HIT);
+      }
+      if (!done && !s.ok() && !s.IsMergeInProgress()) {
+        ReturnAndCleanupSuperVersion(cfd, sv);
+        return s;
+      }
+    }
+  }
+  if (!done) {
+    PERF_TIMER_GUARD(get_from_output_files_time);
+    sv->current->Get(
+        read_options, lkey, pinnable_val, &s, &merge_context,
+        &max_covering_tombstone_seq, get_val ? value_found : nullptr, nullptr,
+        nullptr, get_val ? callback : nullptr,
+        get_val ? is_blob_index : nullptr, get_val ? true : false,
+    	get_val ? 0 : merge_operands_info->expected_number_of_operands);
+    RecordTick(stats_, MEMTABLE_MISS);
+  }
 
-	  {
-		PERF_TIMER_GUARD(get_post_process_time);
+  {
+    PERF_TIMER_GUARD(get_post_process_time);
 
-		ReturnAndCleanupSuperVersion(cfd, sv);
+    ReturnAndCleanupSuperVersion(cfd, sv);
 
-		RecordTick(stats_, NUMBER_KEYS_READ);
-		size_t size = 0;
-		if (s.ok()) {
-			if (get_val) {
-				  size = pinnable_val->size();
-			} else {
-				int itr = 0;
-				while (itr < num_records) {
-					size += pinnable_val->size();
-					itr++;
-					pinnable_val++;
-				}
-			}
+    RecordTick(stats_, NUMBER_KEYS_READ);
+    size_t size = 0;
+    if (s.ok()) {
+      if (get_val) {
+        size = pinnable_val->size();
+      } else {
+        int itr = 0;
+        while (itr < merge_operands_info->expected_number_of_operands) {
+          size += pinnable_val->size();
+          itr++;
+          pinnable_val++;
+        }
+      }
 
-			RecordTick(stats_, BYTES_READ, size);
-			PERF_COUNTER_ADD(get_read_bytes, size);
-		}
-		RecordInHistogram(stats_, BYTES_PER_READ, size);
-	  }
-	  return s;
+      RecordTick(stats_, BYTES_READ, size);
+      PERF_COUNTER_ADD(get_read_bytes, size);
+    }
+    RecordInHistogram(stats_, BYTES_PER_READ, size);
+  }
+  return s;
 }
 
 std::vector<Status> DBImpl::MultiGet(

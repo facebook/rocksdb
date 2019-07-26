@@ -162,9 +162,9 @@ class DBImpl : public DB {
   using DB::GetMergeOperands;
   Status GetMergeOperands(const ReadOptions& options,
                           ColumnFamilyHandle* column_family, const Slice& key,
-                          PinnableSlice* slice, int num_records) override {
+                          PinnableSlice* slice, MergeOperandsInfo* merge_operands_info) override {
     return GetImpl(options, column_family, key, slice, nullptr, nullptr,
-                   nullptr, false, num_records);
+                   nullptr, false, merge_operands_info);
   }
 
   using DB::MultiGet;
@@ -414,7 +414,7 @@ class DBImpl : public DB {
                  const Slice& key, PinnableSlice* value,
                  bool* value_found = nullptr, ReadCallback* callback = nullptr,
                  bool* is_blob_index = nullptr, bool get_val = true,
-                 int num_records = 0);
+				 MergeOperandsInfo* merge_operands_info = nullptr);
 
   ArenaWrappedDBIter* NewIteratorImpl(const ReadOptions& options,
                                       ColumnFamilyData* cfd,
