@@ -442,7 +442,6 @@ TESTS = \
 	db_block_cache_test \
 	db_test \
 	db_blob_index_test \
-	db_bloom_filter_test \
 	db_iter_test \
 	db_iter_stress_test \
 	db_log_iter_test \
@@ -569,6 +568,7 @@ TESTS = \
 
 PARALLEL_TEST = \
 	backupable_db_test \
+	db_bloom_filter_test \
 	db_compaction_filter_test \
 	db_compaction_test \
 	db_merge_operator_test \
