@@ -167,7 +167,7 @@ class WriteUnpreparedTxn : public WritePreparedTxn {
   // write_batch_flush_threshold_ has been exceeded, and then call
   // FlushWriteBatchToDB if so. This logic is encapsulated in
   // MaybeFlushWriteBatchToDB.
-  ssize_t write_batch_flush_threshold_;
+  int64_t write_batch_flush_threshold_;
   WriteUnpreparedTxnDB* wupt_db_;
 
   // Ordered list of unprep_seq sequence numbers that we have already written
