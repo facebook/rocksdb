@@ -1114,7 +1114,7 @@ db_bench: tools/db_bench.o $(BENCHTOOLOBJECTS)
 trace_analyzer: tools/trace_analyzer.o $(ANALYZETOOLOBJECTS) $(LIBOBJECTS)
 	$(AM_LINK)
 
-block_cache_trace_analyzer: tools/block_cache_trace_analyzer_tool.o $(ANALYZETOOLOBJECTS) $(LIBOBJECTS)
+block_cache_trace_analyzer: tools/block_cache_analyzer/block_cache_trace_analyzer_tool.o $(ANALYZETOOLOBJECTS) $(LIBOBJECTS)
 	$(AM_LINK)
 
 cache_bench: cache/cache_bench.o $(LIBOBJECTS) $(TESTUTIL)
@@ -1614,7 +1614,7 @@ db_secondary_test: db/db_impl/db_secondary_test.o db/db_test_util.o $(LIBOBJECTS
 block_cache_tracer_test: trace_replay/block_cache_tracer_test.o trace_replay/block_cache_tracer.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
-block_cache_trace_analyzer_test: tools/block_cache_trace_analyzer_test.o tools/block_cache_trace_analyzer.o $(LIBOBJECTS) $(TESTHARNESS)
+block_cache_trace_analyzer_test: tools/block_cache_analyzer/block_cache_trace_analyzer_test.o tools/block_cache_analyzer/block_cache_trace_analyzer.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
 #-------------------------------------------------

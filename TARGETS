@@ -351,7 +351,7 @@ cpp_library(
         "test_util/fault_injection_test_env.cc",
         "test_util/testharness.cc",
         "test_util/testutil.cc",
-        "tools/block_cache_trace_analyzer.cc",
+        "tools/block_cache_analyzer/block_cache_trace_analyzer.cc",
         "tools/trace_analyzer_tool.cc",
         "utilities/cassandra/test_utils.cc",
     ],
@@ -369,7 +369,7 @@ cpp_library(
     name = "rocksdb_tools_lib",
     srcs = [
         "test_util/testutil.cc",
-        "tools/block_cache_trace_analyzer.cc",
+        "tools/block_cache_analyzer/block_cache_trace_analyzer.cc",
         "tools/db_bench_tool.cc",
         "tools/trace_analyzer_tool.cc",
     ],
@@ -430,7 +430,7 @@ ROCKS_TESTS = [
     ],
     [
         "block_cache_trace_analyzer_test",
-        "tools/block_cache_trace_analyzer_test.cc",
+        "tools/block_cache_analyzer/block_cache_trace_analyzer_test.cc",
         "serial",
     ],
     [
