@@ -27,6 +27,31 @@ class UniversalCompactionPicker : public CompactionPicker {
 
   virtual bool NeedsCompaction(
       const VersionStorageInfo* vstorage) const override;
+};
+
+// A helper class that form universal compactions. The class is used by
+// UniversalCompactionPicker::PickCompaction().
+// The usage is to create the class, and get the compaction object by calling
+// PickCompaction().
+class UniversalCompactionBuilder {
+ public:
+  UniversalCompactionBuilder(const ImmutableCFOptions& ioptions,
+                             const InternalKeyComparator* icmp,
+                             const std::string& cf_name,
+                             const MutableCFOptions& mutable_cf_options,
+                             VersionStorageInfo* vstorage,
+                             UniversalCompactionPicker* picker,
+                             LogBuffer* log_buffer)
+      : ioptions_(ioptions),
+        icmp_(icmp),
+        cf_name_(cf_name),
+        mutable_cf_options_(mutable_cf_options),
+        vstorage_(vstorage),
+        picker_(picker),
+        log_buffer_(log_buffer) {}
+
+  // Form and return the compaction object. The caller owns return object.
+  Compaction* PickCompaction();
 
  private:
   struct SortedRun {
@@ -62,27 +87,28 @@ class UniversalCompactionPicker : public CompactionPicker {
 
   // Pick Universal compaction to limit read amplification
   Compaction* PickCompactionToReduceSortedRuns(
-      const std::string& cf_name, const MutableCFOptions& mutable_cf_options,
-      VersionStorageInfo* vstorage, double score, unsigned int ratio,
-      unsigned int num_files, const std::vector<SortedRun>& sorted_runs,
-      LogBuffer* log_buffer);
+      unsigned int ratio, unsigned int max_number_of_files_to_compact);
 
   // Pick Universal compaction to limit space amplification.
-  Compaction* PickCompactionToReduceSizeAmp(
-      const std::string& cf_name, const MutableCFOptions& mutable_cf_options,
-      VersionStorageInfo* vstorage, double score,
-      const std::vector<SortedRun>& sorted_runs, LogBuffer* log_buffer);
+  Compaction* PickCompactionToReduceSizeAmp();
 
-  Compaction* PickDeleteTriggeredCompaction(
-      const std::string& cf_name, const MutableCFOptions& mutable_cf_options,
-      VersionStorageInfo* vstorage, double score,
-      const std::vector<SortedRun>& sorted_runs, LogBuffer* log_buffer);
+  Compaction* PickDeleteTriggeredCompaction();
 
   // Used in universal compaction when the enabled_trivial_move
   // option is set. Checks whether there are any overlapping files
   // in the input. Returns true if the input files are non
   // overlapping.
   bool IsInputFilesNonOverlapping(Compaction* c);
+
+  const ImmutableCFOptions& ioptions_;
+  const InternalKeyComparator* icmp_;
+  double score_;
+  std::vector<SortedRun> sorted_runs_;
+  const std::string& cf_name_;
+  const MutableCFOptions& mutable_cf_options_;
+  VersionStorageInfo* vstorage_;
+  UniversalCompactionPicker* picker_;
+  LogBuffer* log_buffer_;
 
   static std::vector<SortedRun> CalculateSortedRuns(
       const VersionStorageInfo& vstorage, const ImmutableCFOptions& ioptions,
