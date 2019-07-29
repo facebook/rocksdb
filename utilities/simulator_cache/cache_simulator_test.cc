@@ -14,6 +14,7 @@ namespace rocksdb {
 namespace {
 const std::string kBlockKeyPrefix = "test-block-";
 const std::string kRefKeyPrefix = "test-get-";
+const std::string kRefKeySequenceNumber = std::string(8, 'c');
 const uint64_t kGetId = 1;
 const uint64_t kGetBlockId = 100;
 const uint64_t kCompactionBlockId = 1000;
@@ -38,12 +39,12 @@ class CacheSimulatorTest : public testing::Test {
     record.cf_name = "test";
     record.caller = TableReaderCaller::kUserGet;
     record.level = 6;
-    record.sst_fd_number = kGetBlockId;
+    record.sst_fd_number = 0;
     record.get_id = getid;
     record.is_cache_hit = Boolean::kFalse;
     record.no_insert = Boolean::kFalse;
     record.referenced_key =
-        kRefKeyPrefix + std::to_string(kGetId) + std::string(8, 'c');
+        kRefKeyPrefix + std::to_string(kGetId) + kRefKeySequenceNumber;
     record.referenced_key_exist_in_block = Boolean::kTrue;
     record.referenced_data_size = 100;
     record.num_keys_in_block = 300;
@@ -64,6 +65,29 @@ class CacheSimulatorTest : public testing::Test {
     record.is_cache_hit = Boolean::kFalse;
     record.no_insert = Boolean::kTrue;
     return record;
+  }
+
+  void AssertCache(std::shared_ptr<Cache> sim_cache,
+                   const MissRatioStats& miss_ratio_stats,
+                   uint64_t expected_usage, uint64_t expected_num_accesses,
+                   uint64_t expected_num_misses,
+                   std::vector<std::string> blocks,
+                   std::vector<std::string> keys) {
+    EXPECT_EQ(expected_usage, sim_cache->GetUsage());
+    EXPECT_EQ(expected_num_accesses, miss_ratio_stats.total_accesses());
+    EXPECT_EQ(expected_num_misses, miss_ratio_stats.total_misses());
+    for (auto const& block : blocks) {
+      auto handle = sim_cache->Lookup(block);
+      EXPECT_NE(nullptr, handle);
+      sim_cache->Release(handle);
+    }
+    for (auto const& key : keys) {
+      std::string row_key = kRefKeyPrefix + key + kRefKeySequenceNumber;
+      auto handle =
+          sim_cache->Lookup("0_" + ExtractUserKey(row_key).ToString() + "_0");
+      EXPECT_NE(nullptr, handle);
+      sim_cache->Release(handle);
+    }
   }
 
   Env* env_;
@@ -274,6 +298,127 @@ TEST_F(CacheSimulatorTest, HybridRowBlockCacheSimulator) {
       handle = sim_cache->Lookup(kBlockKeyPrefix + std::to_string(i));
       ASSERT_EQ(nullptr, handle) << i;
     }
+  }
+}
+
+TEST_F(CacheSimulatorTest, HybridRowBlockCacheSimulatorGetTest) {
+  BlockCacheTraceRecord get = GenerateGetRecord(kGetId);
+  get.block_size = 1;
+  get.referenced_data_size = 0;
+  get.access_timestamp = 0;
+  get.block_key = "1";
+  get.get_id = 1;
+  get.get_from_user_specified_snapshot = Boolean::kFalse;
+  get.referenced_key =
+      kRefKeyPrefix + std::to_string(1) + kRefKeySequenceNumber;
+  get.no_insert = Boolean::kFalse;
+  get.sst_fd_number = 0;
+  get.get_from_user_specified_snapshot = Boolean::kFalse;
+
+  std::shared_ptr<Cache> sim_cache =
+      NewLRUCache(/*capacity=*/16, /*num_shard_bits=*/1,
+                  /*strict_capacity_limit=*/false,
+                  /*high_pri_pool_ratio=*/0);
+  std::unique_ptr<HybridRowBlockCacheSimulator> cache_simulator(
+      new HybridRowBlockCacheSimulator(
+          nullptr, sim_cache, /*insert_blocks_row_kvpair_misses=*/true));
+  // Expect a miss and does not insert the row key-value pair since it does not
+  // have size.
+  cache_simulator->Access(get);
+  AssertCache(sim_cache, cache_simulator->miss_ratio_stats(), 1, 1, 1, {"1"},
+              {});
+  get.access_timestamp += 1;
+  get.referenced_data_size = 1;
+  get.block_key = "2";
+  cache_simulator->Access(get);
+  AssertCache(sim_cache, cache_simulator->miss_ratio_stats(), 3, 2, 2,
+              {"1", "2"}, {"1"});
+  get.access_timestamp += 1;
+  get.block_key = "3";
+  // K1 should not inserted again.
+  cache_simulator->Access(get);
+  AssertCache(sim_cache, cache_simulator->miss_ratio_stats(), 4, 3, 3,
+              {"1", "2", "3"}, {"1"});
+
+  // A second get request referencing the same key.
+  get.access_timestamp += 1;
+  get.get_id = 2;
+  get.block_key = "4";
+  get.referenced_data_size = 0;
+  cache_simulator->Access(get);
+  AssertCache(sim_cache, cache_simulator->miss_ratio_stats(), 4, 4, 3,
+              {"1", "2", "3"}, {"1"});
+
+  // A third get request searches three files, three different keys.
+  // And the second key observes a hit.
+  get.access_timestamp += 1;
+  get.referenced_data_size = 1;
+  get.get_id = 3;
+  get.block_key = "3";
+  get.referenced_key = kRefKeyPrefix + "2" + kRefKeySequenceNumber;
+  // K2 should observe a miss. Block 3 observes a hit.
+  cache_simulator->Access(get);
+  AssertCache(sim_cache, cache_simulator->miss_ratio_stats(), 5, 5, 3,
+              {"1", "2", "3"}, {"1", "2"});
+
+  get.access_timestamp += 1;
+  get.referenced_data_size = 1;
+  get.get_id = 3;
+  get.block_key = "4";
+  get.referenced_data_size = 1;
+  get.referenced_key = kRefKeyPrefix + "1" + kRefKeySequenceNumber;
+  // K1 should observe a hit.
+  cache_simulator->Access(get);
+  AssertCache(sim_cache, cache_simulator->miss_ratio_stats(), 5, 6, 3,
+              {"1", "2", "3"}, {"1", "2"});
+
+  get.access_timestamp += 1;
+  get.referenced_data_size = 1;
+  get.get_id = 3;
+  get.block_key = "4";
+  get.referenced_data_size = 1;
+  get.referenced_key = kRefKeyPrefix + "3" + kRefKeySequenceNumber;
+  // K3 should observe a miss.
+  // However, as the get already complete, we should not access k3 any more.
+  cache_simulator->Access(get);
+  AssertCache(sim_cache, cache_simulator->miss_ratio_stats(), 5, 7, 3,
+              {"1", "2", "3"}, {"1", "2"});
+
+  // A fourth get request searches one file and two blocks. One row key.
+  get.access_timestamp += 1;
+  get.get_id = 4;
+  get.block_key = "5";
+  get.referenced_key = kRefKeyPrefix + "4" + kRefKeySequenceNumber;
+  get.referenced_data_size = 1;
+  cache_simulator->Access(get);
+  AssertCache(sim_cache, cache_simulator->miss_ratio_stats(), 7, 8, 4,
+              {"1", "2", "3", "5"}, {"1", "2", "4"});
+  for (auto const& key : {"1", "2", "4"}) {
+    auto handle = sim_cache->Lookup("0_" + kRefKeyPrefix + key + "_0");
+    ASSERT_NE(nullptr, handle);
+    sim_cache->Release(handle);
+  }
+
+  // A bunch of insertions which evict cached row keys.
+  for (uint32_t i = 6; i < 100; i++) {
+    get.access_timestamp += 1;
+    get.get_id = 0;
+    get.block_key = std::to_string(i);
+    cache_simulator->Access(get);
+  }
+
+  get.get_id = 4;
+  // A different block.
+  get.block_key = "100";
+  // Same row key and should not be inserted again.
+  get.referenced_key = kRefKeyPrefix + "4" + kRefKeySequenceNumber;
+  get.referenced_data_size = 1;
+  cache_simulator->Access(get);
+  AssertCache(sim_cache, cache_simulator->miss_ratio_stats(), 16, 103, 99, {},
+              {});
+  for (auto const& key : {"1", "2", "4"}) {
+    auto handle = sim_cache->Lookup("0_" + kRefKeyPrefix + key + "_0");
+    ASSERT_EQ(nullptr, handle);
   }
 }
 
