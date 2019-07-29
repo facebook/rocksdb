@@ -216,32 +216,43 @@ bool GetContext::SaveValue(const ParsedInternalKey& parsed_key,
         }
         if (kNotFound == state_) {
           state_ = kFound;
-          if (LIKELY(pinnable_val_ != nullptr)) {
-            if (LIKELY(value_pinner != nullptr)) {
-              // If the backing resources for the value are provided, pin them
-              pinnable_val_->PinSlice(value, value_pinner);
-            } else {
-              TEST_SYNC_POINT_CALLBACK("GetContext::SaveValue::PinSelf", this);
+          if (do_merge_) {
+            if (LIKELY(pinnable_val_ != nullptr)) {
+              if (LIKELY(value_pinner != nullptr)) {
+                // If the backing resources for the value are provided, pin them
+                pinnable_val_->PinSlice(value, value_pinner);
+              } else {
+                TEST_SYNC_POINT_CALLBACK("GetContext::SaveValue::PinSelf",
+                                         this);
 
-              // Otherwise copy the value
-              pinnable_val_->PinSelf(value);
+                // Otherwise copy the value
+                pinnable_val_->PinSelf(value);
+              }
             }
           } else {
+            // It means this function is called as part of DB GetMergeOperands
+            // API and the current value should be part of
+            // merge_context_->operand_list
             push_operand(value, value_pinner);
           }
         } else if (kMerge == state_) {
           assert(merge_operator_ != nullptr);
           state_ = kFound;
-          if (LIKELY(pinnable_val_ != nullptr)) {
-            Status merge_status = MergeHelper::TimedFullMerge(
-                merge_operator_, user_key_, &value,
-                merge_context_->GetOperands(), pinnable_val_->GetSelf(),
-                logger_, statistics_, env_);
-            pinnable_val_->PinSelf();
-            if (!merge_status.ok()) {
-              state_ = kCorrupt;
+          if (do_merge_) {
+            if (LIKELY(pinnable_val_ != nullptr)) {
+              Status merge_status = MergeHelper::TimedFullMerge(
+                  merge_operator_, user_key_, &value,
+                  merge_context_->GetOperands(), pinnable_val_->GetSelf(),
+                  logger_, statistics_, env_);
+              pinnable_val_->PinSelf();
+              if (!merge_status.ok()) {
+                state_ = kCorrupt;
+              }
             }
           } else {
+            // It means this function is called as part of DB GetMergeOperands
+            // API and the current value should be part of
+            // merge_context_->operand_list
             push_operand(value, value_pinner);
           }
         }
@@ -271,6 +282,8 @@ bool GetContext::SaveValue(const ParsedInternalKey& parsed_key,
                 state_ = kCorrupt;
               }
             }
+            // If do_merge_ = false then the current value shouldn't be part of
+            // merge_context_->operand_list
           }
         }
         return false;
@@ -285,6 +298,8 @@ bool GetContext::SaveValue(const ParsedInternalKey& parsed_key,
                 merge_context_->GetOperandsDirectionBackward())) {
           state_ = kFound;
           if (LIKELY(pinnable_val_ != nullptr)) {
+            // do_merge_ = true this is the case where this function is called
+            // as part of DB Get API hence merge operators should be merged.
             if (do_merge_) {
               Status merge_status = MergeHelper::TimedFullMerge(
                   merge_operator_, user_key_, nullptr,

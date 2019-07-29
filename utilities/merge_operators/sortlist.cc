@@ -29,13 +29,10 @@ bool SortList::FullMergeV2(const MergeOperationInput& merge_in,
     make_vector(right, slice);
     left = merge(left, right);
   }
-  std::string result;
   for (int i = 0; i < (int)left.size() - 1; i++) {
-    result.append(std::to_string(left[i])).append(",");
+	merge_out->new_value.append(std::to_string(left[i])).append(",");
   }
-  result.append(std::to_string(left.back()));
-  Slice result_slice(result);
-  merge_out->existing_operand = result_slice;
+  merge_out->new_value.append(std::to_string(left.back()));
   return true;
 }
 
@@ -74,7 +71,7 @@ void SortList::make_vector(std::vector<int>& operand, Slice slice) const {
       operand.push_back(std::stoi(std::string(begin, slice.data_)));
     } catch (...) {
       //			std::cout << "Malformed string: " <<
-      //std::string(begin, slice.data_) << "\n";
+      // std::string(begin, slice.data_) << "\n";
       errors++;
     }
   } while (0 != *slice.data_++);

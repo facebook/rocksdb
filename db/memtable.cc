@@ -821,7 +821,7 @@ bool MemTable::Get(const LookupKey& key, std::string* value, Status* s,
     saver.do_merge = new bool;
     *saver.do_merge = true;
     table_->Get(key, &saver, SaveValue);
-
+    delete saver.do_merge;
     *seq = saver.seq;
   }
 
@@ -900,6 +900,7 @@ bool MemTable::GetMergeOperands(const LookupKey& key,
     saver.do_merge = new bool;
     *saver.do_merge = false;
     table_->Get(key, &saver, SaveValue);
+    delete saver.do_merge;
     if (saver.merge_context->GetNumOperands() >
         (size_t)merge_operands_info->expected_max_number_of_operands) {
       *s = Status::Incomplete(

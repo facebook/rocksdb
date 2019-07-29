@@ -407,10 +407,13 @@ class DBImpl : public DB {
   // Function that Get and KeyMayExist call with no_io true or false
   // Note: 'value_found' from KeyMayExist propagates here
   // This function is also used to get all merge operands for a key.
-  // get_val - If true return value else return all merge operands for a key
+  // get_val - If true return value associated with key else return all merge
+  // 		operands for key
   // merge_operands - Pointer to an array of size
   //				merge_operands_info.expected_max_number_of_operands.
-  //If 				get_val = false then all the merge operands are stored in 				this pointer.
+  // 				If get_val = false then all the merge operands are stored in
+  // 				this pointer else the value associated with key is stored
+  //				in value.
   Status GetImpl(const ReadOptions& options, ColumnFamilyHandle* column_family,
                  const Slice& key, PinnableSlice* value,
                  bool* value_found = nullptr, ReadCallback* callback = nullptr,

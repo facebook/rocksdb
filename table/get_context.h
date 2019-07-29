@@ -82,9 +82,11 @@ class GetContext {
   //                 for visibility of a key
   // @param is_blob_index If non-nullptr, will be used to indicate if a found
   //                      key is of type blob index
-  // @param do_merge Controls if value for user_key has to be returned or all
-  //			     merge operands for user_key has to be returned
-
+  // @param do_merge True if value associated with user_key has to be returned
+  //				 and false if all the merge operands associated with
+  //				 user_key has to be returned. Id do_merge=false then
+  //				 all the merge operands are stored in merge_context and
+  //				 value pointer is untouched
   GetContext(const Comparator* ucmp, const MergeOperator* merge_operator,
              Logger* logger, Statistics* statistics, GetState init_state,
              const Slice& user_key, PinnableSlice* value, bool* value_found,
@@ -171,6 +173,9 @@ class GetContext {
   PinnedIteratorsManager* pinned_iters_mgr_;
   ReadCallback* callback_;
   bool sample_;
+  // Value is true if it's called as part of DB Get API and false if it's
+  // called as part of DB GetMergeOperands API. When it's false merge operators
+  // are never merged.
   bool do_merge_;
   bool* is_blob_index_;
   // Used for block cache tracing only. A tracing get id uniquely identifies a

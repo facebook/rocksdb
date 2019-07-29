@@ -415,7 +415,7 @@ class DB {
   // returned are in the order of insertion.
   // merge_operands- Points to an array of at-least
   //		merge_operands_info.expected_max_number_of_operands and the
-  //caller
+  // caller
   // 		is responsible for allocating it. If the status returned is
   // 		Incomplete then merge_operands_info.actual_number_of_operands
   // will
