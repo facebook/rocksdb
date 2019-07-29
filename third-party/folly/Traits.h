@@ -1,0 +1,128 @@
+/*
+ * Copyright 2017-present Facebook, Inc.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *   http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+#pragma once
+
+#include <type_traits>
+
+namespace folly {
+
+// Older versions of libstdc++ do not provide std::is_trivially_copyable
+#if defined(__clang__) && !defined(_LIBCPP_VERSION)
+template <class T>
+struct is_trivially_copyable
+    : std::integral_constant<bool, __is_trivially_copyable(T)> {};
+#else
+template <class T>
+using is_trivially_copyable = std::is_trivially_copyable<T>;
+#endif
+
+/**
+ *  type_t
+ *
+ *  A type alias for the first template type argument. `type_t` is useful for
+ *  controlling class-template and function-template partial specialization.
+ *
+ *  Example:
+ *
+ *    template <typename Value>
+ *    class Container {
+ *     public:
+ *      template <typename... Args>
+ *      Container(
+ *          type_t<in_place_t, decltype(Value(std::declval<Args>()...))>,
+ *          Args&&...);
+ *    };
+ *
+ *  void_t
+ *
+ *  A type alias for `void`. `void_t` is useful for controling class-template
+ *  and function-template partial specialization.
+ *
+ *  Example:
+ *
+ *    // has_value_type<T>::value is true if T has a nested type `value_type`
+ *    template <class T, class = void>
+ *    struct has_value_type
+ *        : std::false_type {};
+ *
+ *    template <class T>
+ *    struct has_value_type<T, folly::void_t<typename T::value_type>>
+ *        : std::true_type {};
+ */
+
+/**
+ * There is a bug in libstdc++, libc++, and MSVC's STL that causes it to
+ * ignore unused template parameter arguments in template aliases and does not
+ * cause substitution failures. This defect has been recorded here:
+ * http://open-std.org/JTC1/SC22/WG21/docs/cwg_defects.html#1558.
+ *
+ * This causes the implementation of std::void_t to be buggy, as it is likely
+ * defined as something like the following:
+ *
+ *  template <typename...>
+ *  using void_t = void;
+ *
+ * This causes the compiler to ignore all the template arguments and does not
+ * help when one wants to cause substitution failures.  Rather declarations
+ * which have void_t in orthogonal specializations are treated as the same.
+ * For example, assuming the possible `T` types are only allowed to have
+ * either the alias `one` or `two` and never both or none:
+ *
+ *  template <typename T,
+ *            typename std::void_t<std::decay_t<T>::one>* = nullptr>
+ *  void foo(T&&) {}
+ *  template <typename T,
+ *            typename std::void_t<std::decay_t<T>::two>* = nullptr>
+ *  void foo(T&&) {}
+ *
+ * The second foo() will be a redefinition because it conflicts with the first
+ * one; void_t does not cause substitution failures - the template types are
+ * just ignored.
+ */
+
+namespace traits_detail {
+template <class T, class...>
+struct type_t_ {
+  using type = T;
+};
+} // namespace traits_detail
+
+template <class T, class... Ts>
+using type_t = typename traits_detail::type_t_<T, Ts...>::type;
+template <class... Ts>
+using void_t = type_t<void, Ts...>;
+
+/**
+ * A type trait to remove all const volatile and reference qualifiers on a
+ * type T
+ */
+template <typename T>
+struct remove_cvref {
+  using type =
+      typename std::remove_cv<typename std::remove_reference<T>::type>::type;
+};
+template <typename T>
+using remove_cvref_t = typename remove_cvref<T>::type;
+
+template <class T>
+struct IsNothrowSwappable
+    : std::integral_constant<
+          bool,
+          std::is_nothrow_move_constructible<T>::value&& noexcept(
+              swap(std::declval<T&>(), std::declval<T&>()))> {};
+
+} // namespace folly

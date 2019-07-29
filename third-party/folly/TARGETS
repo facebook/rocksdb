@@ -1,0 +1,28 @@
+# @autodeps
+
+load("@fbcode_macros//build_defs:cpp_library.bzl", "cpp_library")
+
+cpp_library(
+    name = "distributed_mutex",
+    srcs = glob([
+        "synchronization/*.cpp",
+        "detail/*.cpp",
+    ]),
+    headers = glob([
+        "*.h",
+        "synchronization/*.h",
+        "synchronization/detail/*.h",
+        "chrono/*.h",
+        "functional/*.h",
+        "hash/*.h",
+        "lang/*.h",
+        "detail/*.h",
+        "portability/*.h",
+    ]),
+    deps = [
+        "//folly:optional",
+    ],
+    external_deps = [
+        "glog",
+    ],
+)
