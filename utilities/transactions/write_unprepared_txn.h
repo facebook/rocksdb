@@ -147,6 +147,10 @@ class WriteUnpreparedTxn : public WritePreparedTxn {
 
   virtual Status RebuildFromWriteBatch(WriteBatch*) override;
 
+  virtual uint64_t GetLastLogNumber() const override {
+    return last_log_number_;
+  }
+
  protected:
   void Initialize(const TransactionOptions& txn_options) override;
 
@@ -218,6 +222,8 @@ class WriteUnpreparedTxn : public WritePreparedTxn {
   // are treated similarily in prepare heap/commit map, so it simplifies the
   // commit callbacks.
   std::map<SequenceNumber, size_t> unprep_seqs_;
+
+  uint64_t last_log_number_;
 
   // Recovered transactions have tracked_keys_ populated, but are not actually
   // locked for efficiency reasons. For recovered transactions, skip unlocking

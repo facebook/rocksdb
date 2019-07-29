@@ -467,6 +467,7 @@ class Transaction {
   virtual void SetLogNumber(uint64_t log) { log_number_ = log; }
 
   virtual uint64_t GetLogNumber() const { return log_number_; }
+  virtual uint64_t GetLastLogNumber() const { return log_number_; }
 
   virtual Status SetName(const TransactionName& name) = 0;
 

@@ -34,6 +34,11 @@ class WriteUnpreparedTxnDB : public WritePreparedTxnDB {
 
  private:
   Status RollbackRecoveredTransaction(const DBImpl::RecoveredTransaction* rtxn);
+
+#ifndef NDEBUG
+ public:
+  bool autogenerate_name_ = false;
+#endif
 };
 
 class WriteUnpreparedCommitEntryPreReleaseCallback : public PreReleaseCallback {

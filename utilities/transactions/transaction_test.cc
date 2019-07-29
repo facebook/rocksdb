@@ -1727,7 +1727,7 @@ TEST_P(TransactionTest, TwoPhaseLogRollingTest) {
   // our log should be in the heap
   ASSERT_EQ(db_impl->TEST_FindMinLogContainingOutstandingPrep(),
             txn1->GetLogNumber());
-  ASSERT_EQ(db_impl->TEST_LogfileNumber(), txn1->GetLogNumber());
+  ASSERT_EQ(db_impl->TEST_LogfileNumber(), txn1->GetLastLogNumber());
 
   // flush default cf to crate new log
   s = db->Put(wopts, "foo", "bar");
@@ -1736,12 +1736,12 @@ TEST_P(TransactionTest, TwoPhaseLogRollingTest) {
   ASSERT_OK(s);
 
   // make sure we are on a new log
-  ASSERT_GT(db_impl->TEST_LogfileNumber(), txn1->GetLogNumber());
+  ASSERT_GT(db_impl->TEST_LogfileNumber(), txn1->GetLastLogNumber());
 
   // put txn2 prep section in this log
   s = txn2->Prepare();
   ASSERT_OK(s);
-  ASSERT_EQ(db_impl->TEST_LogfileNumber(), txn2->GetLogNumber());
+  ASSERT_EQ(db_impl->TEST_LogfileNumber(), txn2->GetLastLogNumber());
 
   // heap should still see first log
   ASSERT_EQ(db_impl->TEST_FindMinLogContainingOutstandingPrep(),
@@ -1777,7 +1777,7 @@ TEST_P(TransactionTest, TwoPhaseLogRollingTest) {
   ASSERT_OK(s);
 
   // make sure we are on a new log
-  ASSERT_GT(db_impl->TEST_LogfileNumber(), txn2->GetLogNumber());
+  ASSERT_GT(db_impl->TEST_LogfileNumber(), txn2->GetLastLogNumber());
 
   // commit txn2
   s = txn2->Commit();
@@ -1878,7 +1878,7 @@ TEST_P(TransactionTest, TwoPhaseLogRollingTest2) {
   s = db->Put(wopts, "cats", "dogs1");
   ASSERT_OK(s);
 
-  auto prepare_log_no = txn1->GetLogNumber();
+  auto prepare_log_no = txn1->GetLastLogNumber();
 
   // roll to LOG B
   s = db_impl->TEST_FlushMemTable(true);
@@ -1905,7 +1905,7 @@ TEST_P(TransactionTest, TwoPhaseLogRollingTest2) {
       assert(false);
   }
   ASSERT_EQ(db_impl->TEST_FindMinLogContainingOutstandingPrep(),
-            prepare_log_no);
+            txn1->GetLogNumber());
   ASSERT_EQ(db_impl->TEST_FindMinPrepLogReferencedByMemTable(), 0);
 
   // commit in LOG B
@@ -2604,8 +2604,7 @@ TEST_P(TransactionTest, ColumnFamiliesTest) {
 
   std::vector<ColumnFamilyHandle*> handles;
 
-  s = TransactionDB::Open(options, txn_db_options, dbname, column_families,
-                          &handles, &db);
+  ASSERT_OK(ReOpenNoDelete(column_families, &handles));
   assert(db != nullptr);
   ASSERT_OK(s);
 
@@ -2769,8 +2768,7 @@ TEST_P(TransactionTest, MultiGetBatchedTest) {
   std::vector<ColumnFamilyHandle*> handles;
 
   options.merge_operator = MergeOperators::CreateStringAppendOperator();
-  s = TransactionDB::Open(options, txn_db_options, dbname, column_families,
-                          &handles, &db);
+  ASSERT_OK(ReOpenNoDelete(column_families, &handles));
   assert(db != nullptr);
   ASSERT_OK(s);
 
@@ -3132,6 +3130,14 @@ TEST_P(TransactionTest, LostUpdate) {
 }
 
 TEST_P(TransactionTest, UntrackedWrites) {
+  // In WriteUnprepared, untracked writes will break snapshot validation logic.
+  // Snapshot validation will only check the largest sequence number of a key to
+  // see if it was committed or not. However, an untracked unprepared write will
+  // hide smaller committed sequence numbers. To fix this, snapshot validation
+  // will have to validate all values larger than snap_seq.
+  if (txn_db_options.write_policy == WRITE_UNPREPARED) {
+    return;
+  }
   WriteOptions write_options;
   ReadOptions read_options;
   std::string value;
@@ -3377,6 +3383,7 @@ TEST_P(TransactionTest, LockLimitTest) {
   // Open DB with a lock limit of 3
   txn_db_options.max_num_locks = 3;
   s = TransactionDB::Open(options, txn_db_options, dbname, &db);
+  ASSERT_OK(ReOpen());
   assert(db != nullptr);
   ASSERT_OK(s);
 
@@ -5285,6 +5292,7 @@ TEST_P(TransactionTest, MemoryLimitTest) {
   TransactionOptions txn_options;
   // Header (12 bytes) + NOOP (1 byte) + 2 * 8 bytes for data.
   txn_options.max_write_batch_size = 29;
+  txn_options.write_batch_flush_threshold = 0;
   std::string value;
   Status s;
 
