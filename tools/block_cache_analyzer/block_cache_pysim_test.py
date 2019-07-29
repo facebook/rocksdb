@@ -69,7 +69,7 @@ def test_hash_table():
                 del truth_map[key]
 
     # Check all keys are unique in the sample set.
-    for i in range(10):
+    for _i in range(10):
         samples = table.random_sample(kSampleSize)
         unique_keys = {}
         for sample in samples:
@@ -311,7 +311,6 @@ def test_end_to_end():
     nblocks = 1000
     block_size = 16 * 1024
     ncfs = 7
-    caches = []
     nlevels = 6
     nfds = 100000
     trace_file_path = "test_trace"
@@ -320,7 +319,6 @@ def test_end_to_end():
         access_records = ""
         for i in range(n):
             key_id = random.randint(0, nblocks)
-            vs = random.randint(0, 10)
             cf_id = random.randint(0, ncfs)
             level = random.randint(0, nlevels)
             fd = random.randint(0, nfds)
@@ -602,37 +600,36 @@ def test_trace_cache():
 
 
 if __name__ == "__main__":
-    for i in range(100000):
-        test_hash_table()
-        test_trace_cache()
-        test_opt_cache()
-        test_lru_cache(
-            ThompsonSamplingCache(3, False, [LRUPolicy()]), custom_hashtable=True
-        )
-        test_lru_cache(LRUCache(3, enable_cache_row_key=False), custom_hashtable=False)
-        test_mru_cache()
-        test_lfu_cache()
-        test_hybrid(ThompsonSamplingCache(kSampleSize, True, [LRUPolicy()]))
-        test_hybrid(LinUCBCache(kSampleSize, True, [LRUPolicy()]))
-        # ts, linucb, arc, lru, opt, pylru, pymru, pylfu, pyhb, gdsize
-        for cache_type in [
-            "ts",
-            "opt",
-            "arc",
-            "pylfu",
-            "pymru",
-            "trace",
-            "pyhb",
-            "lru",
-            "pylru",
-            "linucb",
-            "gdsize",
-        ]:
-            for enable_row_cache in [True, False]:
-                cache_type_str = cache_type
-                if enable_row_cache and cache_type != "opt" and cache_type != "trace":
-                    cache_type_str += "_hybrid"
-                test_mix(
-                    create_cache(cache_type_str, cache_size=100, downsample_size=1)
-                )
-        test_end_to_end()
+    test_hash_table()
+    test_trace_cache()
+    test_opt_cache()
+    test_lru_cache(
+        ThompsonSamplingCache(3, False, [LRUPolicy()]), custom_hashtable=True
+    )
+    test_lru_cache(LRUCache(3, enable_cache_row_key=False), custom_hashtable=False)
+    test_mru_cache()
+    test_lfu_cache()
+    test_hybrid(ThompsonSamplingCache(kSampleSize, True, [LRUPolicy()]))
+    test_hybrid(LinUCBCache(kSampleSize, True, [LRUPolicy()]))
+    # ts, linucb, arc, lru, opt, pylru, pymru, pylfu, pyhb, gdsize
+    for cache_type in [
+        "ts",
+        "opt",
+        "arc",
+        "pylfu",
+        "pymru",
+        "trace",
+        "pyhb",
+        "lru",
+        "pylru",
+        "linucb",
+        "gdsize",
+    ]:
+        for enable_row_cache in [True, False]:
+            cache_type_str = cache_type
+            if enable_row_cache and cache_type != "opt" and cache_type != "trace":
+                cache_type_str += "_hybrid"
+            test_mix(
+                create_cache(cache_type_str, cache_size=100, downsample_size=1)
+            )
+    test_end_to_end()

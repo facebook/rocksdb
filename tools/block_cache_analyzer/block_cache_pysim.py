@@ -1106,7 +1106,7 @@ class Deque(object):
 class ARCCache(Cache):
     """
     An implementation of ARC. ARC assumes that all blocks are having the
-    same size. The size of index and filter blocks are variable. To accomodate
+    same size. The size of index and filter blocks are variable. To accommodate
     this, we modified ARC as follows:
     1) We use 16 KB as the average block size and calculate the number of blocks
        (c) in the cache.
@@ -1280,6 +1280,7 @@ class TraceCache(Cache):
     def cache_name(self):
         return "Trace"
 
+
 def parse_cache_size(cs):
     cs = cs.replace("\n", "")
     if cs[-1] == "M":
@@ -1386,7 +1387,6 @@ def run(
     trace_start_time = 0
     trace_duration = 0
     is_opt_cache = False
-    stop_early = True
     if cache.cache_name() == "Belady MIN (opt)":
         is_opt_cache = True
 
@@ -1443,7 +1443,9 @@ def run(
                     )
                     time_interval += 1
             print(
-                "Trace contains {0} blocks, {1}({2:.2f}%) blocks with no size. {3} accesses, {4}({5:.2f}%) accesses with no_insert, {6}({7:.2f}%) accesses that want to insert but block size is 0.".format(
+                "Trace contains {0} blocks, {1}({2:.2f}%) blocks with no size."
+                "{3} accesses, {4}({5:.2f}%) accesses with no_insert,"
+                "{6}({7:.2f}%) accesses that want to insert but block size is 0.".format(
                     len(block_access_timelines),
                     num_blocks_with_no_size,
                     percent(num_blocks_with_no_size, len(block_access_timelines)),
@@ -1560,7 +1562,7 @@ def report_stats(
     target_cf_name,
     result_dir,
     trace_start_time,
-    trace_end_time
+    trace_end_time,
 ):
     cache_label = "{}-{}-{}".format(cache_type, cache_size, target_cf_name)
     with open("{}/data-ml-mrc-{}".format(result_dir, cache_label), "w+") as mrc_file:
@@ -1618,7 +1620,10 @@ if __name__ == "__main__":
     if len(sys.argv) <= 8:
         print(
             "Must provide 8 arguments.\n"
-            "1) Cache type (ts, linucb, arc, lru, opt, pylru, pymru, pylfu, pyhb, gdsize, trace). One may evaluate the hybrid row_block cache by appending '_hybrid' to a cache_type, e.g., ts_hybrid. Note that hybrid is not supported with opt and trace. \n"
+            "1) Cache type (ts, linucb, arc, lru, opt, pylru, pymru, pylfu, "
+            "pyhb, gdsize, trace). One may evaluate the hybrid row_block cache "
+            "by appending '_hybrid' to a cache_type, e.g., ts_hybrid. "
+            "Note that hybrid is not supported with opt and trace. \n"
             "2) Cache size (xM, xG, xT).\n"
             "3) The sampling frequency used to collect the trace. (The "
             "simulation scales down the cache size by the sampling frequency).\n"
@@ -1626,7 +1631,9 @@ if __name__ == "__main__":
             "5) Trace file path.\n"
             "6) Result directory (A directory that saves generated results)\n"
             "7) Max number of accesses to process\n"
-            "8) The target column family. (The simulation will only run accesses on the target column family. If it is set to all, it will run against all accesses.)"
+            "8) The target column family. (The simulation will only run "
+            "accesses on the target column family. If it is set to all, "
+            "it will run against all accesses.)"
         )
         exit(1)
     print("Arguments: {}".format(sys.argv))
@@ -1655,5 +1662,5 @@ if __name__ == "__main__":
         target_cf_name,
         result_dir,
         trace_start_time,
-        trace_end_time
+        trace_end_time,
     )

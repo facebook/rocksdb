@@ -29,9 +29,9 @@ mkdir -p "$result_dir"
 mkdir -p "$ml_tmp_result_dir"
 
 # Report miss ratio in the trace.
-for cf_name in "all"
+for cf_name in "cf_assoc" "cf_assoc_count" "cf_fbobj_type_id" "default" "rev:cf_assoc_id1_type"
 do
-for cache_size in "16M" "256M" "1G" "2G" "4G" "8G" "12G" "16G" "1T"
+for cache_size in "256M" #"16M" "256M" "1G" "2G" "4G" "8G" "12G" "16G" "1T"
 do
 for cache_type in "lru" "opt" "lru" "ts" "arc" "pylru" "pylru_hybrid" "gdsize" "pyhb" "trace"
 do
@@ -48,7 +48,7 @@ do
     done
     output="log-ml-$cache_type-$cache_size-$cf_name"
     echo "Running simulation for $cache_type, cache size $cache_size, and cf_name $cf_name. Number of running jobs: $current_jobs. "
-    nohup python block_cache_pysim.py "$cache_type" "$cache_size" "$downsample_size" "$warmup_seconds" "$trace_file" "$ml_tmp_result_dir" "$max_num_accesses" "$cf_name" "0" >& $ml_tmp_result_dir/$output &
+    nohup python block_cache_pysim.py "$cache_type" "$cache_size" "$downsample_size" "$warmup_seconds" "$trace_file" "$ml_tmp_result_dir" "$max_num_accesses" "$cf_name" >& "$ml_tmp_result_dir/$output" &
     current_jobs=$((current_jobs+1))
 done
 done
@@ -68,7 +68,7 @@ echo "Combine individual pysim output files"
 rm -rf "$result_dir/ml_*"
 for header in "header-" "data-"
 do
-for fn in $ml_tmp_result_dir/*
+for fn in "$ml_tmp_result_dir"/*
 do
   sum_file=""
   time_unit=""
@@ -112,7 +112,6 @@ do
     IFS='-' read -ra elements <<< "$tmpfn"
     target_cf_name=${elements[-1]}
     sum_file="${result_dir}/ml_${target_cf_name}_mrc"
-    echo $sum_file
   fi
   if [[ $sum_file == "" ]]; then
     continue
