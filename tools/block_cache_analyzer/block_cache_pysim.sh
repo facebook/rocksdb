@@ -20,6 +20,7 @@ result_dir="$2"
 downsample_size="$3"
 warmup_seconds="$4"
 max_jobs="$5"
+max_num_accesses=100000000
 current_jobs=0
 
 ml_tmp_result_dir="$result_dir/ml"
@@ -27,10 +28,17 @@ rm -rf "$ml_tmp_result_dir"
 mkdir -p "$result_dir"
 mkdir -p "$ml_tmp_result_dir"
 
-for cache_type in "ts" "linucb" "ts_hybrid" "linucb_hybrid"
+for cf_name in "all" #"cf_assoc" "cf_assoc_count" "cf_fbobj" "cf_fbobj_type_id" "default" "rev:cf_assoc_id1_type"
 do
-for cache_size in "16M" "256M" "1G" "2G" "4G" "8G" "12G" "16G"
+for cache_size in "16M" "256M" "1G" "2G" "4G" "8G" "12G" "16G" "1T"
 do
+for cache_type in "opt" "lru" "ts" "arc" "pylru" "pylru_hybrid" "gdsize" "pyhb"
+do
+    if [[ $result_dir != *"udb"* ]]; then
+      if [[ $cf_name != "all" ]]; then
+        continue
+      fi
+    fi
     while [ "$current_jobs" -ge "$max_jobs" ]
     do
       sleep 10
@@ -38,10 +46,11 @@ do
       current_jobs=$(ps aux | grep pysim | grep python | grep -cv grep)
       echo "Waiting jobs to complete. Number of running jobs: $current_jobs"
     done
-    output="log-ml-$cache_type-$cache_size"
-    echo "Running simulation for $cache_type and cache size $cache_size. Number of running jobs: $current_jobs. "
-    nohup python block_cache_pysim.py "$cache_type" "$cache_size" "$downsample_size" "$warmup_seconds" "$trace_file" "$ml_tmp_result_dir" >& $ml_tmp_result_dir/$output &
+    output="log-ml-$cache_type-$cache_size-$cf_name"
+    echo "Running simulation for $cache_type, cache size $cache_size, and cf_name $cf_name. Number of running jobs: $current_jobs. "
+    nohup python block_cache_pysim.py "$cache_type" "$cache_size" "$downsample_size" "$warmup_seconds" "$trace_file" "$ml_tmp_result_dir" "$max_num_accesses" "$cf_name" >& $ml_tmp_result_dir/$output &
     current_jobs=$((current_jobs+1))
+done
 done
 done
 
@@ -57,7 +66,6 @@ done
 echo "Combine individual pysim output files"
 
 rm -rf "$result_dir/ml_*"
-mrc_file="$result_dir/ml_mrc"
 for header in "header-" "data-"
 do
 for fn in $ml_tmp_result_dir/*
@@ -65,6 +73,7 @@ do
   sum_file=""
   time_unit=""
   capacity=""
+  target_cf_name=""
   if [[ $fn == *"timeline"* ]]; then
     tmpfn="$fn"
     IFS='-' read -ra elements <<< "$tmpfn"
@@ -79,24 +88,31 @@ do
     done
     time_unit_index=$((time_unit_index+1))
     capacity_index=$((time_unit_index+2))
+    target_cf_name_index=$((time_unit_index+3))
     time_unit="${elements[$time_unit_index]}_"
     capacity="${elements[$capacity_index]}_"
+    target_cf_name="${elements[$target_cf_name_index]}_"
   fi
 
-  if [[ $fn == "${header}ml-policy-timeline"* ]]; then
-    sum_file="$result_dir/ml_${capacity}${time_unit}policy_timeline"
+  if [[ $fn == *"${header}ml-policy-timeline"* ]]; then
+    sum_file="$result_dir/ml_${target_cf_name}${capacity}${time_unit}policy_timeline"
   fi
-  if [[ $fn == "${header}ml-policy-ratio-timeline"* ]]; then
-    sum_file="$result_dir/ml_${capacity}${time_unit}policy_ratio_timeline"
+  if [[ $fn == *"${header}ml-policy-ratio-timeline"* ]]; then
+    sum_file="$result_dir/ml_${target_cf_name}${capacity}${time_unit}policy_ratio_timeline"
   fi
-  if [[ $fn == "${header}ml-miss-timeline"* ]]; then
-    sum_file="$result_dir/ml_${capacity}${time_unit}miss_timeline"
+  if [[ $fn == *"${header}ml-miss-timeline"* ]]; then
+    sum_file="$result_dir/ml_${target_cf_name}${capacity}${time_unit}miss_timeline"
   fi
-  if [[ $fn == "${header}ml-miss-ratio-timeline"* ]]; then
-    sum_file="$result_dir/ml_${capacity}${time_unit}miss_ratio_timeline"
+  if [[ $fn == *"${header}ml-miss-ratio-timeline"* ]]; then
+    sum_file="$result_dir/ml_${target_cf_name}${capacity}${time_unit}miss_ratio_timeline"
   fi
-  if [[ $fn == "${header}ml-mrc"* ]]; then
-    sum_file="$mrc_file"
+  if [[ $fn == *"${header}ml-mrc"* ]]; then
+
+    tmpfn="$fn"
+    IFS='-' read -ra elements <<< "$tmpfn"
+    target_cf_name=${elements[-1]}
+    sum_file="${result_dir}/ml_${target_cf_name}_mrc"
+    echo $sum_file
   fi
   if [[ $sum_file == "" ]]; then
     continue
@@ -106,13 +122,18 @@ do
       continue
     fi
   fi
-  cat "$ml_tmp_result_dir/$fn" >> "$sum_file"
+  cat "$fn" >> "$sum_file"
 done
 done
 
 echo "Done"
-# Sort MRC file by cache_type and cache_size.
-tmp_file="$result_dir/tmp_mrc"
-cat "$mrc_file" | sort -t ',' -k1,1 -k4,4n > "$tmp_file"
-cat "$tmp_file" > "$mrc_file"
-rm -rf "$tmp_file"
+for fn in $result_dir/*
+do
+  if [[ $fn == *"_mrc" ]]; then
+    # Sort MRC file by cache_type and cache_size.
+    tmp_file="$result_dir/tmp_mrc"
+    cat "$fn" | sort -t ',' -k1,1 -k4,4n > "$tmp_file"
+    cat "$tmp_file" > "$fn"
+    rm -rf "$tmp_file"
+  fi
+done
