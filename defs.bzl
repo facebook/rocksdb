@@ -12,7 +12,8 @@ def test_binary(
         rocksdb_compiler_flags,
         rocksdb_preprocessor_flags,
         rocksdb_external_deps,
-        rocksdb_os_deps):
+        rocksdb_os_deps,
+        extra_deps):
     TEST_RUNNER = native.package_name() + "/buckifier/rocks_test_runner.sh"
 
     ttype = "gtest" if parallelism == "parallel" else "simple"
@@ -25,7 +26,7 @@ def test_binary(
         os_preprocessor_flags = rocksdb_os_preprocessor_flags,
         compiler_flags = rocksdb_compiler_flags,
         preprocessor_flags = rocksdb_preprocessor_flags,
-        deps = [":rocksdb_test_lib"],
+        deps = [":rocksdb_test_lib"] + extra_deps,
         os_deps = rocksdb_os_deps,
         external_deps = rocksdb_external_deps,
     )
