@@ -540,16 +540,13 @@ class Cache(object):
     replacement policies.
     """
 
-    def __init__(self, cache_size, enable_cache_row_key, policies):
+    def __init__(self, cache_size, enable_cache_row_key):
         self.cache_size = cache_size
         self.used_size = 0
         self.miss_ratio_stats = MissRatioStats(kSecondsInMinute)
-        self.policy_stats = PolicyStats(kSecondsInMinute, policies)
-        self.per_hour_miss_ratio_stats = MissRatioStats(kSecondsInHour)
-        self.per_hour_policy_stats = PolicyStats(kSecondsInHour, policies)
         self.enable_cache_row_key = enable_cache_row_key
         self.get_id_row_key_map = {}
-        self.policies = policies
+        self.per_hour_miss_ratio_stats = MissRatioStats(kSecondsInHour)
 
     def block_key(self, trace_record):
         return "b{}".format(trace_record.block_id)
@@ -557,27 +554,27 @@ class Cache(object):
     def row_key(self, trace_record):
         return "g{}".format(trace_record.key_id)
 
-    def lookup(self, trace_record, key, hash):
+    def _lookup(self, trace_record, key, hash):
         """
         Look up the key in the cache.
         Returns true upon a cache hit, false otherwise.
         """
         raise NotImplementedError
 
-    def evict(self, trace_record, key, hash, value_size):
+    def _evict(self, trace_record, key, hash, value_size):
         """
         Evict entries in the cache until there is enough room to insert the new
         entry with 'value_size'.
         """
         raise NotImplementedError
 
-    def insert(self, trace_record, key, hash, value_size):
+    def _insert(self, trace_record, key, hash, value_size):
         """
         Insert the new entry into the cache.
         """
         raise NotImplementedError
 
-    def should_admit(self, trace_record, key, hash, value_size):
+    def _should_admit(self, trace_record, key, hash, value_size):
         """
         A custom admission policy to decide whether we should admit the new
         entry upon a cache miss.
@@ -590,6 +587,9 @@ class Cache(object):
         The name of the replacement policy.
         """
         raise NotImplementedError
+
+    def is_ml_cache(self):
+        return False
 
     def _update_stats(self, access_time, is_hit):
         self.miss_ratio_stats.update_metrics(access_time, is_hit)
@@ -674,7 +674,7 @@ class Cache(object):
     def _access_kv(self, trace_record, key, hash, value_size, no_insert):
         # Sanity checks.
         assert self.used_size <= self.cache_size
-        if self.lookup(trace_record, key, hash):
+        if self._lookup(trace_record, key, hash):
             # A cache hit.
             return True
         if no_insert or value_size <= 0:
@@ -683,9 +683,9 @@ class Cache(object):
         if value_size > self.cache_size:
             # The block is too large to fit into the cache.
             return False
-        self.evict(trace_record, key, hash, value_size)
-        if self.should_admit(trace_record, key, hash, value_size):
-            self.insert(trace_record, key, hash, value_size)
+        self._evict(trace_record, key, hash, value_size)
+        if self._should_admit(trace_record, key, hash, value_size):
+            self._insert(trace_record, key, hash, value_size)
             self.used_size += value_size
         return False
 
@@ -697,10 +697,16 @@ class MLCache(Cache):
     """
 
     def __init__(self, cache_size, enable_cache_row_key, policies):
-        super(MLCache, self).__init__(cache_size, enable_cache_row_key, policies)
+        super(MLCache, self).__init__(cache_size, enable_cache_row_key)
         self.table = HashTable()
+        self.policy_stats = PolicyStats(kSecondsInMinute, policies)
+        self.per_hour_policy_stats = PolicyStats(kSecondsInHour, policies)
+        self.policies = policies
 
-    def lookup(self, trace_record, key, hash):
+    def is_ml_cache(self):
+        return True
+
+    def _lookup(self, trace_record, key, hash):
         value = self.table.lookup(key, hash)
         if value is not None:
             # Update the entry's last access time.
@@ -720,7 +726,7 @@ class MLCache(Cache):
             return True
         return False
 
-    def evict(self, trace_record, key, hash, value_size):
+    def _evict(self, trace_record, key, hash, value_size):
         # Select a policy, random sample kSampleSize keys from the cache, then
         # evict keys in the sample set until we have enough room for the new
         # entry.
@@ -746,7 +752,7 @@ class MLCache(Cache):
                 if self.used_size + value_size <= self.cache_size:
                     break
 
-    def insert(self, trace_record, key, hash, value_size):
+    def _insert(self, trace_record, key, hash, value_size):
         assert self.used_size + value_size <= self.cache_size
         self.table.insert(
             key,
@@ -761,7 +767,7 @@ class MLCache(Cache):
             ),
         )
 
-    def should_admit(self, trace_record, key, hash, value_size):
+    def _should_admit(self, trace_record, key, hash, value_size):
         return True
 
     def _select_policy(self, trace_record, key):
@@ -952,12 +958,10 @@ class OPTCache(Cache):
     """
 
     def __init__(self, cache_size):
-        super(OPTCache, self).__init__(
-            cache_size, enable_cache_row_key=False, policies=[]
-        )
+        super(OPTCache, self).__init__(cache_size, enable_cache_row_key=False)
         self.table = PQTable()
 
-    def lookup(self, trace_record, key, hash):
+    def _lookup(self, trace_record, key, hash):
         if key not in self.table:
             return False
         # A cache hit. Update its next access time.
@@ -971,13 +975,13 @@ class OPTCache(Cache):
         )
         return True
 
-    def evict(self, trace_record, key, hash, value_size):
+    def _evict(self, trace_record, key, hash, value_size):
         while self.used_size + value_size > self.cache_size:
             evict_entry = self.table.pqpop()
             assert evict_entry is not None
             self.used_size -= evict_entry.value_size
 
-    def insert(self, trace_record, key, hash, value_size):
+    def _insert(self, trace_record, key, hash, value_size):
         assert (
             self.table.pqinsert(
                 OPTCacheEntry(key, trace_record.next_access_seq_no, value_size)
@@ -985,11 +989,11 @@ class OPTCache(Cache):
             is None
         )
 
-    def should_admit(self, trace_record, key, hash, value_size):
+    def _should_admit(self, trace_record, key, hash, value_size):
         return True
 
     def cache_name(self):
-        return "opt"
+        return "Belady MIN (opt)"
 
 
 class GDSizeEntry:
@@ -1017,7 +1021,7 @@ class GDSizeEntry:
 class GDSizeCache(Cache):
     """
     An implementation of the greedy dual size algorithm.
-    We define cost as the size of an entry.
+    We define cost as an entry's size.
 
     See https://www.usenix.org/legacy/publications/library/proceedings/usits97/full_papers/cao/cao_html/node8.html
     and N. Young. The k-server dual and loose competitiveness for paging.
@@ -1026,47 +1030,43 @@ class GDSizeCache(Cache):
     in The 2nd Annual ACM-SIAM Symposium on Discrete Algorithms, 241-250, 1991.
     """
 
-    def __init__(self, cache_size):
-        super(GDSizeCache, self).__init__(
-            cache_size, enable_cache_row_key=False, policies=[]
-        )
+    def __init__(self, cache_size, enable_cache_row_key):
+        super(GDSizeCache, self).__init__(cache_size, enable_cache_row_key)
         self.table = PQTable()
         self.L = 0.0
 
     def cache_name(self):
-        return "gdsize"
+        if self.enable_cache_row_key:
+            return "Hybrid GreedyDualSize (gdsize_hybrid)"
+        return "GreedyDualSize (gdsize)"
 
-    def lookup(self, trace_record, key, hash):
+    def _lookup(self, trace_record, key, hash):
         if key not in self.table:
             return False
         # A cache hit. Update its priority.
         entry = self.table[key]
         assert (
             self.table.pqinsert(
-                GDSizeEntry(
-                    key, entry.value_size, self.L + entry.value_size
-                )
+                GDSizeEntry(key, entry.value_size, self.L + entry.value_size)
             )
             is not None
         )
         return True
 
-    def evict(self, trace_record, key, hash, value_size):
+    def _evict(self, trace_record, key, hash, value_size):
         while self.used_size + value_size > self.cache_size:
             evict_entry = self.table.pqpop()
             assert evict_entry is not None
             self.L = evict_entry.priority
             self.used_size -= evict_entry.value_size
 
-    def insert(self, trace_record, key, hash, value_size):
+    def _insert(self, trace_record, key, hash, value_size):
         assert (
-            self.table.pqinsert(
-                GDSizeEntry(key, value_size, self.L + value_size)
-            )
+            self.table.pqinsert(GDSizeEntry(key, value_size, self.L + value_size))
             is None
         )
 
-    def should_admit(self, trace_record, key, hash, value_size):
+    def _should_admit(self, trace_record, key, hash, value_size):
         return True
 
 
@@ -1120,10 +1120,8 @@ class ARCCache(Cache):
     USA, 115-130.
     """
 
-    def __init__(self, cache_size):
-        super(ARCCache, self).__init__(
-            cache_size, enable_cache_row_key=False, policies=[]
-        )
+    def __init__(self, cache_size, enable_cache_row_key):
+        super(ARCCache, self).__init__(cache_size, enable_cache_row_key)
         self.table = {}
         self.c = cache_size / 16 * 1024  # Number of elements in the cache.
         self.p = 0  # Target size for the list T1
@@ -1149,7 +1147,7 @@ class ARCCache(Cache):
             self.used_size -= self.table[old].value_size
             del self.table[old]
 
-    def lookup(self, trace_record, key, hash):
+    def _lookup(self, trace_record, key, hash):
         # Case I: key is in T1 or T2.
         #   Move key to MRU position in T2.
         if key in self.t1:
@@ -1163,7 +1161,7 @@ class ARCCache(Cache):
             return True
         return False
 
-    def evict(self, trace_record, key, hash, value_size):
+    def _evict(self, trace_record, key, hash, value_size):
         # Case II: key is in B1
         #   Move x from B1 to the MRU position in T2 (also fetch x to the cache).
         if key in self.b1:
@@ -1195,7 +1193,7 @@ class ARCCache(Cache):
         self.t1.appendleft(key)
         return
 
-    def insert(self, trace_record, key, hash, value_size):
+    def _insert(self, trace_record, key, hash, value_size):
         self.table[key] = CacheEntry(
             value_size,
             trace_record.cf_id,
@@ -1205,11 +1203,13 @@ class ARCCache(Cache):
             trace_record.access_time,
         )
 
-    def should_admit(self, trace_record, key, hash, value_size):
+    def _should_admit(self, trace_record, key, hash, value_size):
         return True
 
     def cache_name(self):
-        return "arc"
+        if self.enable_cache_row_key:
+            return "Hybrid Adaptive Replacement Cache (arc_hybrid)"
+        return "Adaptive Replacement Cache (arc)"
 
 
 class LRUCache(Cache):
@@ -1217,17 +1217,17 @@ class LRUCache(Cache):
     A strict LRU queue.
     """
 
-    def __init__(self, cache_size):
-        super(LRUCache, self).__init__(
-            cache_size, enable_cache_row_key=False, policies=[]
-        )
+    def __init__(self, cache_size, enable_cache_row_key):
+        super(LRUCache, self).__init__(cache_size, enable_cache_row_key)
         self.table = {}
         self.lru = Deque()
 
     def cache_name(self):
-        return "lru"
+        if self.enable_cache_row_key:
+            return "Hybrid LRU (lru_hybrid)"
+        return "LRU (lru)"
 
-    def lookup(self, trace_record, key, hash):
+    def _lookup(self, trace_record, key, hash):
         if key not in self.table:
             return False
         # A cache hit. Update LRU queue.
@@ -1235,13 +1235,13 @@ class LRUCache(Cache):
         self.lru.appendleft(key)
         return True
 
-    def evict(self, trace_record, key, hash, value_size):
+    def _evict(self, trace_record, key, hash, value_size):
         while self.used_size + value_size > self.cache_size:
             evict_key = self.lru.pop()
             self.used_size -= self.table[evict_key].value_size
             del self.table[evict_key]
 
-    def insert(self, trace_record, key, hash, value_size):
+    def _insert(self, trace_record, key, hash, value_size):
         self.table[key] = CacheEntry(
             value_size,
             trace_record.cf_id,
@@ -1252,9 +1252,33 @@ class LRUCache(Cache):
         )
         self.lru.appendleft(key)
 
-    def should_admit(self, trace_record, key, hash, value_size):
+    def _should_admit(self, trace_record, key, hash, value_size):
         return True
 
+
+class TraceCache(Cache):
+    """
+    A trace cache. Lookup returns true if the trace observes a cache hit.
+    It is used to maintain cache hits observed in the trace.
+    """
+
+    def __init__(self, cache_size):
+        super(TraceCache, self).__init__(cache_size, enable_cache_row_key=False)
+
+    def _lookup(self, trace_record, key, hash):
+        return trace_record.is_hit
+
+    def _evict(self, trace_record, key, hash, value_size):
+        pass
+
+    def _insert(self, trace_record, key, hash, value_size):
+        pass
+
+    def _should_admit(self, trace_record, key, hash, value_size):
+        return False
+
+    def cache_name(self):
+        return "Trace"
 
 def parse_cache_size(cs):
     cs = cs.replace("\n", "")
@@ -1296,13 +1320,21 @@ def create_cache(cache_type, cache_size, downsample_size):
             cache_size, enable_cache_row_key, [HyperbolicPolicy()]
         )
     elif cache_type == "opt":
+        if enable_cache_row_key:
+            print("opt does not support hybrid mode.")
+            assert False
         return OPTCache(cache_size)
+    elif cache_type == "trace":
+        if enable_cache_row_key:
+            print("trace does not support hybrid mode.")
+            assert False
+        return TraceCache(cache_size)
     elif cache_type == "lru":
-        return LRUCache(cache_size)
+        return LRUCache(cache_size, enable_cache_row_key)
     elif cache_type == "arc":
-        return ARCCache(cache_size)
+        return ARCCache(cache_size, enable_cache_row_key)
     elif cache_type == "gdsize":
-        return GDSizeCache(cache_size)
+        return GDSizeCache(cache_size, enable_cache_row_key)
     else:
         print("Unknown cache type {}".format(cache_type))
         assert False
@@ -1355,7 +1387,7 @@ def run(
     trace_duration = 0
     is_opt_cache = False
     stop_early = True
-    if cache.cache_name() == "opt":
+    if cache.cache_name() == "Belady MIN (opt)":
         is_opt_cache = True
 
     block_access_timelines = {}
@@ -1528,7 +1560,7 @@ def report_stats(
     target_cf_name,
     result_dir,
     trace_start_time,
-    trace_end_time,
+    trace_end_time
 ):
     cache_label = "{}-{}-{}".format(cache_type, cache_size, target_cf_name)
     with open("{}/data-ml-mrc-{}".format(result_dir, cache_label), "w+") as mrc_file:
@@ -1540,77 +1572,53 @@ def report_stats(
                 cache.miss_ratio_stats.num_accesses,
             )
         )
-    cache.policy_stats.write_policy_timeline(
-        cache_type,
-        cache_size,
-        target_cf_name,
-        result_dir,
-        trace_start_time,
-        trace_end_time,
-    )
-    cache.policy_stats.write_policy_ratio_timeline(
-        cache_type,
-        cache_size,
-        target_cf_name,
-        result_dir,
-        trace_start_time,
-        trace_end_time,
-    )
-    cache.miss_ratio_stats.write_miss_timeline(
-        cache_type,
-        cache_size,
-        target_cf_name,
-        result_dir,
-        trace_start_time,
-        trace_end_time,
-    )
-    cache.miss_ratio_stats.write_miss_ratio_timeline(
-        cache_type,
-        cache_size,
-        target_cf_name,
-        result_dir,
-        trace_start_time,
-        trace_end_time,
-    )
-    cache.per_hour_policy_stats.write_policy_timeline(
-        cache_type,
-        cache_size,
-        target_cf_name,
-        result_dir,
-        trace_start_time,
-        trace_end_time,
-    )
-    cache.per_hour_policy_stats.write_policy_ratio_timeline(
-        cache_type,
-        cache_size,
-        target_cf_name,
-        result_dir,
-        trace_start_time,
-        trace_end_time,
-    )
-    cache.per_hour_miss_ratio_stats.write_miss_timeline(
-        cache_type,
-        cache_size,
-        target_cf_name,
-        result_dir,
-        trace_start_time,
-        trace_end_time,
-    )
-    cache.per_hour_miss_ratio_stats.write_miss_ratio_timeline(
-        cache_type,
-        cache_size,
-        target_cf_name,
-        result_dir,
-        trace_start_time,
-        trace_end_time,
-    )
+    cache_stats = [cache.miss_ratio_stats, cache.per_hour_miss_ratio_stats]
+    for i in range(len(cache_stats)):
+        cache_stats[i].write_miss_timeline(
+            cache_type,
+            cache_size,
+            target_cf_name,
+            result_dir,
+            trace_start_time,
+            trace_end_time,
+        )
+        cache_stats[i].write_miss_ratio_timeline(
+            cache_type,
+            cache_size,
+            target_cf_name,
+            result_dir,
+            trace_start_time,
+            trace_end_time,
+        )
+
+    if not cache.is_ml_cache():
+        return
+
+    policy_stats = [cache.policy_stats, cache.per_hour_policy_stats]
+    for i in range(len(policy_stats)):
+        policy_stats[i].write_policy_timeline(
+            cache_type,
+            cache_size,
+            target_cf_name,
+            result_dir,
+            trace_start_time,
+            trace_end_time,
+        )
+        policy_stats[i].write_policy_ratio_timeline(
+            cache_type,
+            cache_size,
+            target_cf_name,
+            result_dir,
+            trace_start_time,
+            trace_end_time,
+        )
 
 
 if __name__ == "__main__":
     if len(sys.argv) <= 8:
         print(
             "Must provide 8 arguments.\n"
-            "1) Cache type (ts, ts_hybrid, linucb, linucb_hybrid, arc, lru, opt, pylru, pymru, pylfu, pyhb).\n"
+            "1) Cache type (ts, linucb, arc, lru, opt, pylru, pymru, pylfu, pyhb, gdsize, trace). One may evaluate the hybrid row_block cache by appending '_hybrid' to a cache_type, e.g., ts_hybrid. Note that hybrid is not supported with opt and trace. \n"
             "2) Cache size (xM, xG, xT).\n"
             "3) The sampling frequency used to collect the trace. (The "
             "simulation scales down the cache size by the sampling frequency).\n"
@@ -1647,5 +1655,5 @@ if __name__ == "__main__":
         target_cf_name,
         result_dir,
         trace_start_time,
-        trace_end_time,
+        trace_end_time
     )

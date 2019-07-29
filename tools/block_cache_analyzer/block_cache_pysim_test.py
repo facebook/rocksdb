@@ -19,6 +19,7 @@ from block_cache_pysim import (
     OPTCache,
     OPTCacheEntry,
     ThompsonSamplingCache,
+    TraceCache,
     TraceRecord,
     create_cache,
     kMicrosInSecond,
@@ -49,7 +50,6 @@ def test_hash_table():
         key = "k{}".format(key_id)
         value = CacheEntry(v, v, v, v, v, v)
         action = random.randint(0, 10)
-        # print "{}:{}:{}".format(action, key, value)
         assert len(truth_map) == table.elements, "{} {} {}".format(
             len(truth_map), table.elements, i
         )
@@ -67,7 +67,19 @@ def test_hash_table():
                 assert key in truth_map
             if key in truth_map:
                 del truth_map[key]
+
+    # Check all keys are unique in the sample set.
+    for i in range(10):
+        samples = table.random_sample(kSampleSize)
+        unique_keys = {}
+        for sample in samples:
+            unique_keys[sample.key] = True
+        assert len(samples) == len(unique_keys)
+
     assert len(table) == len(truth_map)
+    for key in truth_map:
+        assert table.lookup(key, int(key[1:])) is not None
+        assert truth_map[key].value_size == table.lookup(key, int(key[1:])).value_size
     print("Test hash table: Success")
 
 
@@ -246,6 +258,7 @@ def test_mix(cache):
     n = 100000
     records = 100
     block_size_table = {}
+    trace_num_misses = 0
     for i in range(n):
         key_id = random.randint(0, records)
         vs = random.randint(0, 10)
@@ -255,6 +268,9 @@ def test_mix(cache):
             block_size = block_size_table[key_id]
         else:
             block_size_table[key_id] = block_size
+        is_hit = key_id % 2
+        if is_hit == 0:
+            trace_num_misses += 1
         k = TraceRecord(
             access_time=now,
             block_id=key_id,
@@ -269,23 +285,27 @@ def test_mix(cache):
             get_id=key_id,
             key_id=key_id,
             kv_size=5,
-            is_hit=1,
+            is_hit=is_hit,
             next_access_seq_no=vs,
         )
         cache.access(k)
     assert cache.miss_ratio_stats.miss_ratio() > 0
-    assert cache.used_size <= cache.cache_size
-    all_values = cache.table.values()
-    cached_size = 0
-    for value in all_values:
-        cached_size += value.value_size
-    assert cached_size == cache.used_size, "Expeced {} Actual {}".format(
-        cache.used_size, cached_size
-    )
+    if cache.cache_name() == "Trace":
+        assert cache.miss_ratio_stats.num_accesses == n
+        assert cache.miss_ratio_stats.num_misses == trace_num_misses
+    else:
+        assert cache.used_size <= cache.cache_size
+        all_values = cache.table.values()
+        cached_size = 0
+        for value in all_values:
+            cached_size += value.value_size
+        assert cached_size == cache.used_size, "Expeced {} Actual {}".format(
+            cache.used_size, cached_size
+        )
     print("Test Mix {} cache: Success".format(cache.cache_name()))
 
 
-def test_all():
+def test_end_to_end():
     print("Test All caches")
     n = 100000
     nblocks = 1000
@@ -444,7 +464,9 @@ def test_hybrid(cache):
     k.key_id = 4  # Same row key and should not be inserted again.
     k.kv_size = 1
     cache.access(k)
-    assert_metrics(cache, [16, 103, 99, [i for i in range(101 - kSampleSize, 101)], []])
+    assert_metrics(
+        cache, [kSampleSize, 103, 99, [i for i in range(101 - kSampleSize, 101)], []]
+    )
     print("Test {} cache: Success".format(cache.cache_name()))
 
 
@@ -549,28 +571,68 @@ def test_opt_cache():
     print("Test OPT cache: Success")
 
 
-if __name__ == "__main__":
-    test_all()
-    test_hash_table()
-    test_opt_cache()
-    test_lru_cache(
-        ThompsonSamplingCache(3, False, [LRUPolicy()]), custom_hashtable=True
+def test_trace_cache():
+    print("Test trace cache")
+    cache = TraceCache(0)
+    k = TraceRecord(
+        access_time=0,
+        block_id=1,
+        block_type=1,
+        block_size=1,
+        cf_id=0,
+        cf_name="",
+        level=0,
+        fd=0,
+        caller=1,
+        no_insert=0,
+        get_id=1,
+        key_id=1,
+        kv_size=0,
+        is_hit=1,
+        next_access_seq_no=7,
     )
-    test_lru_cache(LRUCache(3), custom_hashtable=False)
-    test_mru_cache()
-    test_lfu_cache()
-    test_mix(OPTCache(100))
-    test_mix(OPTCache(100))
-    test_mix(GDSizeCache(100))
-    test_mix(ARCCache(100))
-    policies = []
-    policies.append(MRUPolicy())
-    policies.append(LRUPolicy())
-    policies.append(LFUPolicy())
-    policies.append(HyperbolicPolicy())
-    test_mix(ThompsonSamplingCache(100, False, policies))
-    test_mix(ThompsonSamplingCache(100, True, policies))
-    test_hybrid(ThompsonSamplingCache(kSampleSize, True, [LRUPolicy()]))
-    test_mix(LinUCBCache(100, False, policies))
-    test_mix(LinUCBCache(100, True, policies))
-    test_hybrid(LinUCBCache(kSampleSize, True, [LRUPolicy()]))
+    cache.access(k)
+    assert cache.miss_ratio_stats.num_accesses == 1
+    assert cache.miss_ratio_stats.num_misses == 0
+    k.is_hit = 0
+    cache.access(k)
+    assert cache.miss_ratio_stats.num_accesses == 2
+    assert cache.miss_ratio_stats.num_misses == 1
+    print("Test trace cache: Success")
+
+
+if __name__ == "__main__":
+    for i in range(100000):
+        test_hash_table()
+        test_trace_cache()
+        test_opt_cache()
+        test_lru_cache(
+            ThompsonSamplingCache(3, False, [LRUPolicy()]), custom_hashtable=True
+        )
+        test_lru_cache(LRUCache(3, enable_cache_row_key=False), custom_hashtable=False)
+        test_mru_cache()
+        test_lfu_cache()
+        test_hybrid(ThompsonSamplingCache(kSampleSize, True, [LRUPolicy()]))
+        test_hybrid(LinUCBCache(kSampleSize, True, [LRUPolicy()]))
+        # ts, linucb, arc, lru, opt, pylru, pymru, pylfu, pyhb, gdsize
+        for cache_type in [
+            "ts",
+            "opt",
+            "arc",
+            "pylfu",
+            "pymru",
+            "trace",
+            "pyhb",
+            "lru",
+            "pylru",
+            "linucb",
+            "gdsize",
+        ]:
+            for enable_row_cache in [True, False]:
+                cache_type_str = cache_type
+                if enable_row_cache and cache_type != "opt" and cache_type != "trace":
+                    cache_type_str += "_hybrid"
+                test_mix(
+                    create_cache(cache_type_str, cache_size=100, downsample_size=1)
+                )
+        test_end_to_end()

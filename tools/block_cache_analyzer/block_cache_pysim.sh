@@ -21,23 +21,23 @@ downsample_size="$3"
 warmup_seconds="$4"
 max_jobs="$5"
 max_num_accesses=100000000
-current_jobs=0
+current_jobs=1
 
 ml_tmp_result_dir="$result_dir/ml"
 rm -rf "$ml_tmp_result_dir"
 mkdir -p "$result_dir"
 mkdir -p "$ml_tmp_result_dir"
 
-for cf_name in "all" #"cf_assoc" "cf_assoc_count" "cf_fbobj" "cf_fbobj_type_id" "default" "rev:cf_assoc_id1_type"
+# Report miss ratio in the trace.
+for cf_name in "all"
 do
 for cache_size in "16M" "256M" "1G" "2G" "4G" "8G" "12G" "16G" "1T"
 do
-for cache_type in "opt" "lru" "ts" "arc" "pylru" "pylru_hybrid" "gdsize" "pyhb"
+for cache_type in "lru" "opt" "lru" "ts" "arc" "pylru" "pylru_hybrid" "gdsize" "pyhb" "trace"
 do
-    if [[ $result_dir != *"udb"* ]]; then
-      if [[ $cf_name != "all" ]]; then
-        continue
-      fi
+    if [[ $cache_type == "trace" && $cache_size != "16G" ]]; then
+      # We only need to collect miss ratios observed in the trace once.
+      continue
     fi
     while [ "$current_jobs" -ge "$max_jobs" ]
     do
@@ -48,7 +48,7 @@ do
     done
     output="log-ml-$cache_type-$cache_size-$cf_name"
     echo "Running simulation for $cache_type, cache size $cache_size, and cf_name $cf_name. Number of running jobs: $current_jobs. "
-    nohup python block_cache_pysim.py "$cache_type" "$cache_size" "$downsample_size" "$warmup_seconds" "$trace_file" "$ml_tmp_result_dir" "$max_num_accesses" "$cf_name" >& $ml_tmp_result_dir/$output &
+    nohup python block_cache_pysim.py "$cache_type" "$cache_size" "$downsample_size" "$warmup_seconds" "$trace_file" "$ml_tmp_result_dir" "$max_num_accesses" "$cf_name" "0" >& $ml_tmp_result_dir/$output &
     current_jobs=$((current_jobs+1))
 done
 done
