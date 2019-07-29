@@ -1448,8 +1448,9 @@ Status DBImpl::GetImpl(const ReadOptions& read_options,
                        ColumnFamilyHandle* column_family, const Slice& key,
                        PinnableSlice* pinnable_val, bool* value_found,
                        ReadCallback* callback, bool* is_blob_index,
-                       bool get_val, MergeOperandsInfo* merge_operands_info) {
-  assert(pinnable_val != nullptr);
+                       bool get_val, PinnableSlice* merge_operands,
+                       MergeOperandsInfo* merge_operands_info) {
+  assert(pinnable_val != nullptr || merge_operands != nullptr);
   PERF_CPU_TIMER_GUARD(get_cpu_nanos, env_);
   StopWatch sw(env_, stats_, DB_GET);
   PERF_TIMER_GUARD(get_snapshot_time);
@@ -1547,17 +1548,16 @@ Status DBImpl::GetImpl(const ReadOptions& read_options,
         return s;
       }
     } else {
-      if (sv->mem->GetMergeOperands(lkey, pinnable_val, merge_operands_info->expected_number_of_operands, &s,
-                                    &merge_context, &max_covering_tombstone_seq,
-                                    read_options)) {
+      if (sv->mem->GetMergeOperands(
+              lkey, merge_operands, merge_operands_info, &s, &merge_context,
+              &max_covering_tombstone_seq, read_options)) {
         done = true;
         RecordTick(stats_, MEMTABLE_HIT);
       } else if ((s.ok() || s.IsMergeInProgress()) &&
                  sv->imm->GetMergeOperands(
-                     lkey, pinnable_val,
-					 merge_operands_info->expected_number_of_operands, &s,
-					 &merge_context, &max_covering_tombstone_seq, read_options))
-      {
+                     lkey, merge_operands, merge_operands_info, &s,
+                     &merge_context, &max_covering_tombstone_seq,
+                     read_options)) {
         done = true;
         RecordTick(stats_, MEMTABLE_HIT);
       }
@@ -1569,12 +1569,12 @@ Status DBImpl::GetImpl(const ReadOptions& read_options,
   }
   if (!done) {
     PERF_TIMER_GUARD(get_from_output_files_time);
-    sv->current->Get(
-        read_options, lkey, pinnable_val, &s, &merge_context,
-        &max_covering_tombstone_seq, get_val ? value_found : nullptr, nullptr,
-        nullptr, get_val ? callback : nullptr,
-        get_val ? is_blob_index : nullptr, get_val ? true : false,
-    	get_val ? 0 : merge_operands_info->expected_number_of_operands);
+    sv->current->Get(read_options, lkey, pinnable_val, &s, &merge_context,
+                     &max_covering_tombstone_seq,
+                     get_val ? value_found : nullptr, nullptr, nullptr,
+                     get_val ? callback : nullptr,
+                     get_val ? is_blob_index : nullptr, get_val, merge_operands,
+                     merge_operands_info);
     RecordTick(stats_, MEMTABLE_MISS);
   }
 
@@ -1590,10 +1590,10 @@ Status DBImpl::GetImpl(const ReadOptions& read_options,
         size = pinnable_val->size();
       } else {
         int itr = 0;
-        while (itr < merge_operands_info->expected_number_of_operands) {
-          size += pinnable_val->size();
+        while (itr < merge_operands_info->expected_max_number_of_operands) {
+          size += merge_operands->size();
           itr++;
-          pinnable_val++;
+          merge_operands++;
         }
       }
 

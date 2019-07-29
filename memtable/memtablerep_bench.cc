@@ -293,7 +293,7 @@ class ReadBenchmarkThread : public BenchmarkThread {
       : BenchmarkThread(table, key_gen, bytes_written, bytes_read, sequence,
                         num_ops, read_hits) {}
 
-  static bool callback(void* arg, const char* entry, bool /*do_merge*/) {
+  static bool callback(void* arg, const char* entry) {
     CallbackVerifyArgs* callback_args = static_cast<CallbackVerifyArgs*>(arg);
     assert(callback_args != nullptr);
     uint32_t key_length;
@@ -318,7 +318,7 @@ class ReadBenchmarkThread : public BenchmarkThread {
     verify_args.key = &lookup_key;
     verify_args.table = table_;
     verify_args.comparator = &internal_key_comp;
-    table_->Get(lookup_key, &verify_args, callback, true);
+    table_->Get(lookup_key, &verify_args, callback);
     if (verify_args.found) {
       *bytes_read_ += VarintLength(16) + 16 + FLAGS_item_size;
       ++*read_hits_;

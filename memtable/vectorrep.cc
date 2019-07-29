@@ -41,8 +41,7 @@ class VectorRep : public MemTableRep {
   size_t ApproximateMemoryUsage() override;
 
   void Get(const LookupKey& k, void* callback_args,
-           bool (*callback_func)(void* arg, const char* entry, bool do_merge),
-           bool do_merge) override;
+           bool (*callback_func)(void* arg, const char* entry)) override;
 
   ~VectorRep() override {}
 
@@ -249,9 +248,7 @@ void VectorRep::Iterator::SeekToLast() {
 }
 
 void VectorRep::Get(const LookupKey& k, void* callback_args,
-                    bool (*callback_func)(void* arg, const char* entry,
-                                          bool do_merge),
-                    bool do_merge) {
+                    bool (*callback_func)(void* arg, const char* entry)) {
   rwlock_.ReadLock();
   VectorRep* vector_rep;
   std::shared_ptr<Bucket> bucket;
@@ -265,8 +262,7 @@ void VectorRep::Get(const LookupKey& k, void* callback_args,
   rwlock_.ReadUnlock();
 
   for (iter.Seek(k.user_key(), k.memtable_key().data());
-       iter.Valid() && callback_func(callback_args, iter.key(), do_merge);
-       iter.Next()) {
+       iter.Valid() && callback_func(callback_args, iter.key()); iter.Next()) {
   }
 }
 

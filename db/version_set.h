@@ -578,16 +578,18 @@ class Version {
   // 	If seq is non-null, *seq will be set to the sequence number found
   // 	for the key if a key was found.
   // Behavior if do_merge = false
-  // 	If the key has any merge operands then store them in value array
-  //	only if the number of merge operands in DB is no more than num_records.
-  //
+  // 	If the key has any merge operands then store them in merge_operands
+  //	array only if the number of merge operands in DB is no more than
+  //	merge_operands_info.expected_max_number_of_operands.
   // REQUIRES: lock is not held
   void Get(const ReadOptions&, const LookupKey& key, PinnableSlice* value,
            Status* status, MergeContext* merge_context,
            SequenceNumber* max_covering_tombstone_seq,
            bool* value_found = nullptr, bool* key_exists = nullptr,
            SequenceNumber* seq = nullptr, ReadCallback* callback = nullptr,
-           bool* is_blob = nullptr, bool do_merge = true, int num_records = 0);
+           bool* is_blob = nullptr, bool do_merge = true,
+           PinnableSlice* merge_operands = nullptr,
+           MergeOperandsInfo* merge_operands_info = nullptr);
 
   void MultiGet(const ReadOptions&, MultiGetRange* range,
                 ReadCallback* callback = nullptr, bool* is_blob = nullptr);
@@ -697,6 +699,12 @@ class Version {
   // record results in files_by_compaction_pri_. The largest files are listed
   // first.
   void UpdateFilesByCompactionPri();
+
+  //
+  void process_merge_operands(MergeContext* merge_context,
+                              PinnableSlice* merge_operands,
+                              MergeOperandsInfo* merge_operands_info,
+                              Status* status);
 
   ColumnFamilyData* cfd_;  // ColumnFamilyData to which this Version belongs
   Logger* info_log_;

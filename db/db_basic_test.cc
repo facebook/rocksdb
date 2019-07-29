@@ -1336,8 +1336,6 @@ TEST_F(DBBasicTest, GetAllKeyVersions) {
 }
 #endif  // !ROCKSDB_LITE
 
-
-
 class DBBasicTestWithParallelIO
     : public DBTestBase,
       public testing::WithParamInterface<std::tuple<bool,bool,bool,bool>> {

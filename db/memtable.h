@@ -204,11 +204,13 @@ class MemTable {
                read_opts, callback, is_blob_index);
   }
 
-  // Returns all the merge operands corresponding to the key. If the
-  // number of merge operands in DB  is greater than num_records then
-  // no merge operands are returned and status is Aborted.
+  // Returns all the merge operands corresponding to the key. If the number of
+  // merge operands in DB is greater than
+  // merge_operands_info.expected_max_number_of_operands then no merge operands
+  // are returned and status is Incomplete.
   bool GetMergeOperands(const LookupKey& key, PinnableSlice* slice,
-                        int num_records, Status* s, MergeContext* merge_context,
+                        MergeOperandsInfo* merge_operands_info, Status* s,
+                        MergeContext* merge_context,
                         SequenceNumber* max_covering_tombstone_seq,
                         const ReadOptions& read_opts,
                         ReadCallback* callback = nullptr,

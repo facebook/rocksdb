@@ -1651,7 +1651,8 @@ void Version::Get(const ReadOptions& read_options, const LookupKey& k,
                   MergeContext* merge_context,
                   SequenceNumber* max_covering_tombstone_seq, bool* value_found,
                   bool* key_exists, SequenceNumber* seq, ReadCallback* callback,
-                  bool* is_blob, bool do_merge, int num_records) {
+                  bool* is_blob, bool do_merge, PinnableSlice* merge_operands,
+                  MergeOperandsInfo* merge_operands_info) {
   Slice ikey = k.internal_key();
   Slice user_key = k.user_key();
 
@@ -1671,10 +1672,10 @@ void Version::Get(const ReadOptions& read_options, const LookupKey& k,
   GetContext get_context(
       user_comparator(), merge_operator_, info_log_, db_statistics_,
       status->ok() ? GetContext::kNotFound : GetContext::kMerge, user_key,
-      do_merge ? value : nullptr, value_found, merge_context,
+      do_merge ? value : nullptr, value_found, merge_context, do_merge,
       max_covering_tombstone_seq, this->env_, seq,
       merge_operator_ ? &pinned_iters_mgr : nullptr, callback, is_blob,
-      tracing_get_id, do_merge);
+      tracing_get_id);
 
   // Pin blocks that we read to hold merge operands
   if (merge_operator_) {
@@ -1743,17 +1744,8 @@ void Version::Get(const ReadOptions& read_options, const LookupKey& k,
         if (do_merge) {
           return;
         } else {
-          if (merge_context->GetNumOperands() > (unsigned)num_records) {
-            *status = Status::Aborted(
-                "NUmber of merge operands: " +
-                std::to_string(merge_context->GetNumOperands()) +
-                " more than size of vector");
-            return;
-          }
-          for (Slice sl : merge_context->GetOperands()) {
-            value->PinSelf(sl);
-            value++;
-          }
+          process_merge_operands(merge_context, merge_operands,
+                                 merge_operands_info, status);
           return;
         }
       case GetContext::kDeleted:
@@ -1762,17 +1754,8 @@ void Version::Get(const ReadOptions& read_options, const LookupKey& k,
         if (do_merge) {
           return;
         } else {
-          if (merge_context->GetNumOperands() > (unsigned)num_records) {
-            *status = Status::Aborted(
-                "NUmber of merge operands: " +
-                std::to_string(merge_context->GetNumOperands()) +
-                " more than size of vector");
-            return;
-          }
-          for (Slice sl : merge_context->GetOperands()) {
-            value->PinSelf(sl);
-            value++;
-          }
+          process_merge_operands(merge_context, merge_operands,
+                                 merge_operands_info, status);
           return;
         }
       case GetContext::kCorrupt:
@@ -1792,17 +1775,8 @@ void Version::Get(const ReadOptions& read_options, const LookupKey& k,
   }
   if (GetContext::kMerge == get_context.State()) {
     if (!do_merge) {
-      if (merge_context->GetNumOperands() > (unsigned)num_records) {
-        *status =
-            Status::Aborted("NUmber of merge operands: " +
-                            std::to_string(merge_context->GetNumOperands()) +
-                            " more than size of vector");
-        return;
-      }
-      for (Slice sl : merge_context->GetOperands()) {
-        value->PinSelf(sl);
-        value++;
-      }
+      process_merge_operands(merge_context, merge_operands, merge_operands_info,
+                             status);
       return;
     }
     if (!merge_operator_) {
@@ -1825,6 +1799,24 @@ void Version::Get(const ReadOptions& read_options, const LookupKey& k,
       *key_exists = false;
     }
     *status = Status::NotFound(); // Use an empty error message for speed
+  }
+}
+
+void Version::process_merge_operands(MergeContext* merge_context,
+                                     PinnableSlice* merge_operands,
+                                     MergeOperandsInfo* merge_operands_info,
+                                     Status* status) {
+  if (merge_context->GetNumOperands() >
+      (size_t)merge_operands_info->expected_max_number_of_operands) {
+    *status =
+        Status::Incomplete(Status::SubCode::KMergeOperandsInsufficientCapacity);
+    merge_operands_info->actual_number_of_operands =
+        merge_context->GetNumOperands();
+  } else {
+    for (Slice sl : merge_context->GetOperands()) {
+      merge_operands->PinSelf(sl);
+      merge_operands++;
+    }
   }
 }
 
@@ -1851,7 +1843,7 @@ void Version::MultiGet(const ReadOptions& read_options, MultiGetRange* range,
     get_ctx.emplace_back(
         user_comparator(), merge_operator_, info_log_, db_statistics_,
         iter->s->ok() ? GetContext::kNotFound : GetContext::kMerge, iter->ukey,
-        iter->value, nullptr, &(iter->merge_context),
+        iter->value, nullptr, &(iter->merge_context), true,
         &iter->max_covering_tombstone_seq, this->env_, &iter->seq,
         merge_operator_ ? &pinned_iters_mgr : nullptr, callback, is_blob,
         tracing_mget_id);

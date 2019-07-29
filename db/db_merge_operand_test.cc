@@ -18,25 +18,28 @@
 #endif
 #include "rocksdb/merge_operator.h"
 #include "utilities/merge_operators.h"
-#include "utilities/merge_operators/string_append/stringappend2.h"
 #include "utilities/merge_operators/sortlist.h"
+#include "utilities/merge_operators/string_append/stringappend2.h"
 
 namespace rocksdb {
 
 class DBMergeOperandTest : public DBTestBase {
  public:
-	DBMergeOperandTest() : DBTestBase("/db_merge_operand_test") {}
+  DBMergeOperandTest() : DBTestBase("/db_merge_operand_test") {}
 
-	bool binary_search(std::vector<int>& data, int start, int end, int key) {
-		if (start > end) return false;
-		int mid = start + (end-start)/2;
-		if (data[mid] == key) return true;
-		else if (data[mid] > key) return binary_search(data, start, mid-1, key);
-		else return binary_search(data, mid+1, end, key);
-	}
+  bool binary_search(std::vector<int>& data, int start, int end, int key) {
+    if (start > end) return false;
+    int mid = start + (end - start) / 2;
+    if (data[mid] == key)
+      return true;
+    else if (data[mid] > key)
+      return binary_search(data, start, mid - 1, key);
+    else
+      return binary_search(data, mid + 1, end, key);
+  }
 
-	bool print_info = false;
-	bool print_perf = true;
+  bool print_info = false;
+  bool print_perf = true;
 };
 
 TEST_F(DBMergeOperandTest, GetMergeOperandsBasic) {
@@ -68,7 +71,7 @@ TEST_F(DBMergeOperandTest, GetMergeOperandsBasic) {
   Reopen(options);
   int num_records = 4;
 
-  // All K1 values are in memtable.
+  // All k1 values are in memtable.
   ASSERT_OK(Merge("k1", "a"));
   Put("k1", "x");
   ASSERT_OK(Merge("k1", "b"));
@@ -76,7 +79,7 @@ TEST_F(DBMergeOperandTest, GetMergeOperandsBasic) {
   ASSERT_OK(Merge("k1", "d"));
   std::vector<PinnableSlice> values(num_records);
   MergeOperandsInfo merge_operands_info;
-  merge_operands_info.expected_number_of_operands = num_records;
+  merge_operands_info.expected_max_number_of_operands = num_records;
   db_->GetMergeOperands(ReadOptions(), db_->DefaultColumnFamily(), "k1",
                         values.data(), &merge_operands_info);
   ASSERT_EQ(values[0], "x");
@@ -86,27 +89,37 @@ TEST_F(DBMergeOperandTest, GetMergeOperandsBasic) {
 
   // num_records is less than number of merge operands so status should be
   // Aborted.
-  merge_operands_info.expected_number_of_operands = num_records-1;
+  merge_operands_info.expected_max_number_of_operands = num_records - 1;
   Status status =
       db_->GetMergeOperands(ReadOptions(), db_->DefaultColumnFamily(), "k1",
                             values.data(), &merge_operands_info);
-  ASSERT_EQ(status.IsAborted(), true);
-  merge_operands_info.expected_number_of_operands = num_records;
+  ASSERT_EQ(status.IsIncomplete(), true);
+  merge_operands_info.expected_max_number_of_operands = num_records;
 
-  // All K2 values are flushed to L0 into a single file.
-  ASSERT_OK(Merge("k2", "a"));
-  ASSERT_OK(Merge("k2", "b"));
-  ASSERT_OK(Merge("k2", "c"));
-  ASSERT_OK(Merge("k2", "d"));
+  // All k2 values are flushed to L0 into a single file.
+  ASSERT_OK(Merge("k2", "q"));
+  ASSERT_OK(Merge("k2", "w"));
+  ASSERT_OK(Merge("k2", "e"));
+  ASSERT_OK(Merge("k2", "r"));
   ASSERT_OK(Flush());
   db_->GetMergeOperands(ReadOptions(), db_->DefaultColumnFamily(), "k2",
                         values.data(), &merge_operands_info);
-  ASSERT_EQ(values[0], "a");
-  ASSERT_EQ(values[1], "b");
-  ASSERT_EQ(values[2], "c");
-  ASSERT_EQ(values[3], "d");
+  ASSERT_EQ(values[0], "q");
+  ASSERT_EQ(values[1], "w");
+  ASSERT_EQ(values[2], "e");
+  ASSERT_EQ(values[3], "r");
 
-  // All K3 values are flushed and are in different files.
+  // All k2.1 values are flushed to L0 into a single file.
+  ASSERT_OK(Merge("k2.1", "m"));
+  Put("k2.1", "l");
+  ASSERT_OK(Merge("k2.1", "n"));
+  ASSERT_OK(Merge("k2.1", "o"));
+  ASSERT_OK(Flush());
+  db_->GetMergeOperands(ReadOptions(), db_->DefaultColumnFamily(), "k2.1",
+                        values.data(), &merge_operands_info);
+  ASSERT_EQ(values[0], "l,n,o");
+
+  // All k3 values are flushed and are in different files.
   ASSERT_OK(Merge("k3", "ab"));
   ASSERT_OK(Flush());
   ASSERT_OK(Merge("k3", "bc"));
@@ -121,23 +134,37 @@ TEST_F(DBMergeOperandTest, GetMergeOperandsBasic) {
   ASSERT_EQ(values[2], "cd");
   ASSERT_EQ(values[3], "de");
 
+  // All k3.1 values are flushed and are in different files.
+  ASSERT_OK(Merge("k3.1", "ab"));
+  ASSERT_OK(Flush());
+  Put("k3.1", "bc");
+  ASSERT_OK(Flush());
+  ASSERT_OK(Merge("k3.1", "cd"));
+  ASSERT_OK(Flush());
+  ASSERT_OK(Merge("k3.1", "de"));
+  db_->GetMergeOperands(ReadOptions(), db_->DefaultColumnFamily(), "k3.1",
+                        values.data(), &merge_operands_info);
+  ASSERT_EQ(values[0], "bc");
+  ASSERT_EQ(values[1], "cd");
+  ASSERT_EQ(values[2], "de");
+
   // All K4 values are in different levels
-  ASSERT_OK(Merge("k4", "ab"));
+  ASSERT_OK(Merge("k4", "ba"));
   ASSERT_OK(Flush());
   MoveFilesToLevel(4);
-  ASSERT_OK(Merge("k4", "bc"));
+  ASSERT_OK(Merge("k4", "cb"));
   ASSERT_OK(Flush());
   MoveFilesToLevel(3);
-  ASSERT_OK(Merge("k4", "cd"));
+  ASSERT_OK(Merge("k4", "dc"));
   ASSERT_OK(Flush());
   MoveFilesToLevel(1);
-  ASSERT_OK(Merge("k4", "de"));
+  ASSERT_OK(Merge("k4", "ed"));
   db_->GetMergeOperands(ReadOptions(), db_->DefaultColumnFamily(), "k4",
                         values.data(), &merge_operands_info);
-  ASSERT_EQ(values[0], "ab");
-  ASSERT_EQ(values[1], "bc");
-  ASSERT_EQ(values[2], "cd");
-  ASSERT_EQ(values[3], "de");
+  ASSERT_EQ(values[0], "ba");
+  ASSERT_EQ(values[1], "cb");
+  ASSERT_EQ(values[2], "dc");
+  ASSERT_EQ(values[3], "ed");
 
   // First 3 k5 values are in SST and next 4 k5 values are in Immutable Memtable
   ASSERT_OK(Merge("k5", "who"));
@@ -154,73 +181,81 @@ TEST_F(DBMergeOperandTest, GetMergeOperandsBasic) {
   ASSERT_EQ(values[0], "remember");
   ASSERT_EQ(values[1], "i");
   ASSERT_EQ(values[2], "am");
-
 }
 
 TEST_F(DBMergeOperandTest, PerfTest) {
-	Options options = CurrentOptions();
-	options.create_if_missing = true;
-	options.merge_operator = MergeOperators::CreateSortAndSearchOperator();
-	DestroyAndReopen(options);
+  Options options = CurrentOptions();
+  options.create_if_missing = true;
+  options.merge_operator = MergeOperators::CreateSortAndSearchOperator();
+  DestroyAndReopen(options);
 
-	Random rnd(301);
+  Random rnd(301);
 
-	const int kTotalMerges = 100000;
-	std::string key = "my_key";
-	std::string value;
+  const int kTotalValues = 100000;
+  std::string key = "my_key";
+  std::string value;
 
-	// Do kTotalMerges merges
-	for (int i = 1; i < kTotalMerges; i++) {
-	if (i%100 == 0) {
-		ASSERT_OK(db_->Merge(WriteOptions(), key, value));
-	        if (print_info) std::cout << value << "\n";
-		value.clear();
-	} else {
-		value.append(std::to_string(i)).append(",");
-	}
-	}
-	// Get API call
-	PinnableSlice p_slice;
-	uint64_t st = env_->NowNanos();
-	db_->Get(ReadOptions(), db_->DefaultColumnFamily(), key, &p_slice);
-	SortList s;
-	std::vector<int> data;
-	s.make_vector(data, p_slice);
-	int lookup_key = 1;
-	bool found = binary_search(data, 0, data.size()-1, lookup_key);
-	if (print_info) std::cout << "Found key? " << std::to_string(found) << "\n";
-	uint64_t sp = env_->NowNanos();
-	if (print_perf) std::cout << "Get: " << (sp-st)/1000000000.0 << "\n";
-	std::string* dat_ = p_slice.GetSelf();
-	if (print_info) std::cout << "Sample data from Get API call: " << dat_->substr(0,10);
-	data.clear();
+  // Do kTotalMerges merges
+  for (int i = 1; i < kTotalValues; i++) {
+    if (i % 100 == 0) {
+      ASSERT_OK(db_->Merge(WriteOptions(), key, value));
+      if (print_info) std::cout << value << "\n";
+      value.clear();
+    } else {
+      value.append(std::to_string(i)).append(",");
+    }
+  }
 
-	// GetMergeOperands API call
-	std::vector<PinnableSlice> a_slice((kTotalMerges/100)+1);
-	st = env_->NowNanos();
-	MergeOperandsInfo merge_operands_info;
-	merge_operands_info.expected_number_of_operands = (kTotalMerges/100)+1;
-	db_->GetMergeOperands(ReadOptions(), db_->DefaultColumnFamily(), key, a_slice.data(), &merge_operands_info);
-	int to_print = 0;
-	if (print_info)  {
-		std::cout << "Sample data from GetMergeOperands API call: ";
-		for (PinnableSlice& psl : a_slice) {
-		  std::cout << to_print << " : " <<  *psl.GetSelf() << "\n";
-		  if (to_print++ > 2) break;
-		}
-	}
-	for (PinnableSlice& psl : a_slice) {
-		s.make_vector(data, psl);
-		found = binary_search(data, 0, data.size()-1, lookup_key);
-		data.clear();
-		if (found) break;
-	}
-	if (print_info)  std::cout << "Found key? " << std::to_string(found)  << "\n";
-	sp = env_->NowNanos();
-	if (print_perf)  std::cout << "Get Merge operands: " << (sp-st)/1000000000.0 << "\n";
+  SortList s;
+  std::vector<int> data;
+  // This value can be experimented with and it will demonstrate the
+  // perf difference between doing a Get and searching for key in the result
+  // vs doing GetMergeOperands and searching within this result.
+  int lookup_key = 1;
+
+  // Get API call
+  PinnableSlice p_slice;
+  s.make_vector(data, p_slice);
+  uint64_t st = env_->NowNanos();
+  db_->Get(ReadOptions(), db_->DefaultColumnFamily(), key, &p_slice);
+  bool found = binary_search(data, 0, data.size() - 1, lookup_key);
+  if (print_info) std::cout << "Found key? " << std::to_string(found) << "\n";
+  uint64_t sp = env_->NowNanos();
+  if (print_perf) std::cout << "Get: " << (sp - st) / 1000000000.0 << "\n";
+  std::string* dat_ = p_slice.GetSelf();
+  if (print_info)
+    std::cout << "Sample data from Get API call: " << dat_->substr(0, 10);
+  data.clear();
+
+  // GetMergeOperands API call
+  std::vector<PinnableSlice> a_slice((kTotalValues / 100) + 1);
+  st = env_->NowNanos();
+  MergeOperandsInfo merge_operands_info;
+  merge_operands_info.expected_max_number_of_operands =
+      (kTotalValues / 100) + 1;
+  db_->GetMergeOperands(ReadOptions(), db_->DefaultColumnFamily(), key,
+                        a_slice.data(), &merge_operands_info);
+  int to_print = 0;
+  if (print_info) {
+    std::cout << "Sample data from GetMergeOperands API call: ";
+    for (PinnableSlice& psl : a_slice) {
+      std::cout << to_print << " : " << *psl.GetSelf() << "\n";
+      if (to_print++ > 2) break;
+    }
+  }
+  for (PinnableSlice& psl : a_slice) {
+    s.make_vector(data, psl);
+    found = binary_search(data, 0, data.size() - 1, lookup_key);
+    data.clear();
+    if (found) break;
+  }
+  if (print_info) std::cout << "Found key? " << std::to_string(found) << "\n";
+  sp = env_->NowNanos();
+  if (print_perf)
+    std::cout << "Get Merge operands: " << (sp - st) / 1000000000.0 << "\n";
 }
 
-}
+}  // namespace rocksdb
 
 int main(int argc, char** argv) {
   rocksdb::port::InstallStackTraceHandler();

@@ -33,7 +33,7 @@ void appendToReplayLog(std::string* replay_log, ValueType type, Slice value) {
   (void)replay_log;
   (void)type;
   (void)value;
-#endif  // ROCKSDB_LITE
+#endif  // ROCKSDB_LITEtable_reader_bench.cc
 }
 
 }  // namespace
@@ -42,9 +42,9 @@ GetContext::GetContext(
     const Comparator* ucmp, const MergeOperator* merge_operator, Logger* logger,
     Statistics* statistics, GetState init_state, const Slice& user_key,
     PinnableSlice* pinnable_val, bool* value_found, MergeContext* merge_context,
-    SequenceNumber* _max_covering_tombstone_seq, Env* env, SequenceNumber* seq,
-    PinnedIteratorsManager* _pinned_iters_mgr, ReadCallback* callback,
-    bool* is_blob_index, uint64_t tracing_get_id, bool do_merge)
+    bool do_merge, SequenceNumber* _max_covering_tombstone_seq, Env* env,
+    SequenceNumber* seq, PinnedIteratorsManager* _pinned_iters_mgr,
+    ReadCallback* callback, bool* is_blob_index, uint64_t tracing_get_id)
     : ucmp_(ucmp),
       merge_operator_(merge_operator),
       logger_(logger),
@@ -60,9 +60,9 @@ GetContext::GetContext(
       replay_log_(nullptr),
       pinned_iters_mgr_(_pinned_iters_mgr),
       callback_(callback),
+      do_merge_(do_merge),
       is_blob_index_(is_blob_index),
-      tracing_get_id_(tracing_get_id),
-      do_merge_(do_merge) {
+      tracing_get_id_(tracing_get_id) {
   if (seq_) {
     *seq_ = kMaxSequenceNumber;
   }
@@ -226,6 +226,8 @@ bool GetContext::SaveValue(const ParsedInternalKey& parsed_key,
               // Otherwise copy the value
               pinnable_val_->PinSelf(value);
             }
+          } else {
+            push_operand(value, value_pinner);
           }
         } else if (kMerge == state_) {
           assert(merge_operator_ != nullptr);
@@ -240,14 +242,7 @@ bool GetContext::SaveValue(const ParsedInternalKey& parsed_key,
               state_ = kCorrupt;
             }
           } else {
-            assert(do_merge_ == false);
-            if (pinned_iters_mgr() && pinned_iters_mgr()->PinningEnabled() &&
-                value_pinner != nullptr) {
-              value_pinner->DelegateCleanupsTo(pinned_iters_mgr());
-              merge_context_->PushOperand(value, true /*value_pinned*/);
-            } else {
-              merge_context_->PushOperand(value, false);
-            }
+            push_operand(value, value_pinner);
           }
         }
         if (is_blob_index_ != nullptr) {
@@ -284,13 +279,7 @@ bool GetContext::SaveValue(const ParsedInternalKey& parsed_key,
         assert(state_ == kNotFound || state_ == kMerge);
         state_ = kMerge;
         // value_pinner is not set from plain_table_reader.cc for example.
-        if (pinned_iters_mgr() && pinned_iters_mgr()->PinningEnabled() &&
-            value_pinner != nullptr) {
-          value_pinner->DelegateCleanupsTo(pinned_iters_mgr());
-          merge_context_->PushOperand(value, true /*value_pinned*/);
-        } else {
-          merge_context_->PushOperand(value, false);
-        }
+        push_operand(value, value_pinner);
         if (do_merge_ && merge_operator_ != nullptr &&
             merge_operator_->ShouldMerge(
                 merge_context_->GetOperandsDirectionBackward())) {
@@ -319,6 +308,16 @@ bool GetContext::SaveValue(const ParsedInternalKey& parsed_key,
 
   // state_ could be Corrupt, merge or notfound
   return false;
+}
+
+void GetContext::push_operand(const Slice& value, Cleanable* value_pinner) {
+  if (pinned_iters_mgr() && pinned_iters_mgr()->PinningEnabled() &&
+      value_pinner != nullptr) {
+    value_pinner->DelegateCleanupsTo(pinned_iters_mgr());
+    merge_context_->PushOperand(value, true /*value_pinned*/);
+  } else {
+    merge_context_->PushOperand(value, false);
+  }
 }
 
 void replayGetContextLog(const Slice& replay_log, const Slice& user_key,

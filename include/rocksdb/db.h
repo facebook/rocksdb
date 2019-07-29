@@ -117,8 +117,8 @@ struct IngestExternalFileArg {
 };
 
 struct MergeOperandsInfo {
-	int expected_number_of_operands;
-	int actual_number_of_operands;
+  int expected_max_number_of_operands;
+  int actual_number_of_operands;
 };
 
 // A collections of table properties objects, where
@@ -409,11 +409,21 @@ class DB {
   }
 
   // Returns all the merge operands corresponding to the key. If the
-  // number of merge operands in DB is greater than num_records
-  // no merge operands are returned and status is Aborted. The Status will
+  // number of merge operands in DB is greater than
+  // merge_operands_info.expected_max_number_of_operands
+  // no merge operands are returned and status is Incomplete. Merge operands
+  // returned are in the order of insertion.
+  // merge_operands- Points to an array of at-least
+  //		merge_operands_info.expected_max_number_of_operands and the
+  //caller
+  // 		is responsible for allocating it. If the status returned is
+  // 		Incomplete then merge_operands_info.actual_number_of_operands
+  // will
+  //		contain the total number of merge operands found in DB for key.
   virtual Status GetMergeOperands(const ReadOptions& options,
                                   ColumnFamilyHandle* column_family,
-                                  const Slice& key, PinnableSlice* slice,
+                                  const Slice& key,
+                                  PinnableSlice* merge_operands,
                                   MergeOperandsInfo* merge_operands_info) = 0;
 
   // If keys[i] does not exist in the database, then the i'th returned
