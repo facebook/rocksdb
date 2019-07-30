@@ -53,6 +53,13 @@ class WritePreparedTxn : public PessimisticTransaction {
                      ColumnFamilyHandle* column_family, const Slice& key,
                      PinnableSlice* value) override;
 
+  using Transaction::MultiGet;
+  virtual void MultiGet(const ReadOptions& options,
+                        ColumnFamilyHandle* column_family,
+                        const size_t num_keys, const Slice* keys,
+                        PinnableSlice* values, Status* statuses,
+                        bool sorted_input = false) override;
+
   // Note: The behavior is undefined in presence of interleaved writes to the
   // same transaction.
   // To make WAL commit markers visible, the snapshot will be

@@ -146,6 +146,13 @@ class WriteUnpreparedTxn : public WritePreparedTxn {
                      ColumnFamilyHandle* column_family, const Slice& key,
                      PinnableSlice* value) override;
 
+  using Transaction::MultiGet;
+  virtual void MultiGet(const ReadOptions& options,
+                        ColumnFamilyHandle* column_family,
+                        const size_t num_keys, const Slice* keys,
+                        PinnableSlice* values, Status* statuses,
+                        bool sorted_input = false) override;
+
   using Transaction::GetIterator;
   virtual Iterator* GetIterator(const ReadOptions& options) override;
   virtual Iterator* GetIterator(const ReadOptions& options,
