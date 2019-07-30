@@ -524,6 +524,26 @@ void WriteUnpreparedTxn::Clear() {
   TransactionBaseImpl::Clear();
 }
 
+void WriteUnpreparedTxn::MultiGet(const ReadOptions& options,
+                                  ColumnFamilyHandle* column_family,
+                                  const size_t num_keys, const Slice* keys,
+                                  PinnableSlice* values, Status* statuses,
+                                  bool sorted_input) {
+  SequenceNumber min_uncommitted, snap_seq;
+  const bool backed_by_snapshot =
+      wupt_db_->AssignMinMaxSeqs(options.snapshot, &min_uncommitted, &snap_seq);
+  WriteUnpreparedTxnReadCallback callback(wupt_db_, snap_seq, min_uncommitted,
+                                          unprep_seqs_);
+  write_batch_.MultiGetFromBatchAndDB(db_, options, column_family, num_keys,
+                                      keys, values, statuses, sorted_input,
+                                      &callback);
+  if (UNLIKELY(!wupt_db_->ValidateSnapshot(snap_seq, backed_by_snapshot))) {
+    for (size_t i = 0; i < num_keys; i++) {
+      statuses[i] = Status::TryAgain();
+    }
+  }
+}
+
 Status WriteUnpreparedTxn::Get(const ReadOptions& options,
                                ColumnFamilyHandle* column_family,
                                const Slice& key, PinnableSlice* value) {
