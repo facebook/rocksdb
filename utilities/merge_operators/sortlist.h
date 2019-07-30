@@ -1,8 +1,11 @@
-/**
- * A test MergeOperator for rocksdb that implements Merge Sort.
- * It is built using the MergeOperator interface. This is useful for
- * testing/benchmarking
- */
+//  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
+
+// A test MergeOperator for rocksdb that implements Merge Sort.
+// It is built using the MergeOperator interface. This is useful for
+// testing/benchmarking
 #pragma once
 #include <deque>
 #include <string>
@@ -28,9 +31,9 @@ class SortList : public MergeOperator {
 
   virtual const char* Name() const override;
 
-  void make_vector(std::vector<int>& operand, Slice slice) const;
+  void Make(std::vector<int>& operand, Slice slice) const;
 
-  std::vector<int> merge(std::vector<int>& left, std::vector<int>& right) const;
+  std::vector<int> Merge(std::vector<int>& left, std::vector<int>& right) const;
 };
 
 }  // namespace rocksdb

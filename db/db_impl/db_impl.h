@@ -164,8 +164,9 @@ class DBImpl : public DB {
                           ColumnFamilyHandle* column_family, const Slice& key,
                           PinnableSlice* merge_operands,
                           MergeOperandsInfo* merge_operands_info) override {
-    return GetImpl(options, column_family, key, nullptr, nullptr, nullptr,
-                   nullptr, false, merge_operands, merge_operands_info);
+    return GetImpl(GetImplOptions(options, column_family, key, nullptr, nullptr,
+                                  nullptr, nullptr, false, merge_operands,
+                                  merge_operands_info));
   }
 
   using DB::MultiGet;
@@ -404,6 +405,40 @@ class DBImpl : public DB {
 
   // ---- End of implementations of the DB interface ----
 
+  struct GetImplOptions {
+    GetImplOptions(const ReadOptions& _read_options,
+                   ColumnFamilyHandle* _column_family, const Slice& _key,
+                   PinnableSlice* _value, bool* _value_found = nullptr,
+                   ReadCallback* _callback = nullptr,
+                   bool* _is_blob_index = nullptr, bool _get_value = true,
+                   PinnableSlice* _merge_operands = nullptr,
+                   MergeOperandsInfo* _merge_operands_info = nullptr)
+        : read_options(_read_options),
+          column_family(_column_family),
+          key(_key),
+          value(_value),
+          value_found(_value_found),
+          callback(_callback),
+          is_blob_index(_is_blob_index),
+          get_value(_get_value),
+          merge_operands(_merge_operands),
+          merge_operands_info(_merge_operands_info) {}
+    const ReadOptions& read_options;
+    ColumnFamilyHandle* column_family;
+    const Slice& key;
+    PinnableSlice* value;
+    bool* value_found;
+    ReadCallback* callback;
+    bool* is_blob_index;
+    // If true return value associated with key via value pointer else return
+    // all merge operands for key via merge_operands pointer
+    bool get_value;
+    // Pointer to an array of size
+    // merge_operands_info.expected_max_number_of_operands allocated by user
+    PinnableSlice* merge_operands;
+    MergeOperandsInfo* merge_operands_info;
+  };
+
   // Function that Get and KeyMayExist call with no_io true or false
   // Note: 'value_found' from KeyMayExist propagates here
   // This function is also used to get all merge operands for a key.
@@ -411,15 +446,11 @@ class DBImpl : public DB {
   // 		operands for key
   // merge_operands - Pointer to an array of size
   //				merge_operands_info.expected_max_number_of_operands.
-  // 				If get_val = false then all the merge operands are stored in
-  // 				this pointer else the value associated with key is stored
+  // 				If get_val = false then all the merge operands
+  // are stored in 				this pointer else the value
+  // associated with key is stored
   //				in value.
-  Status GetImpl(const ReadOptions& options, ColumnFamilyHandle* column_family,
-                 const Slice& key, PinnableSlice* value,
-                 bool* value_found = nullptr, ReadCallback* callback = nullptr,
-                 bool* is_blob_index = nullptr, bool get_val = true,
-                 PinnableSlice* merge_operands = nullptr,
-                 MergeOperandsInfo* merge_operands_info = nullptr);
+  Status GetImpl(GetImplOptions get_impl_options);
 
   ArenaWrappedDBIter* NewIteratorImpl(const ReadOptions& options,
                                       ColumnFamilyData* cfd,

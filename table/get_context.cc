@@ -33,7 +33,7 @@ void appendToReplayLog(std::string* replay_log, ValueType type, Slice value) {
   (void)replay_log;
   (void)type;
   (void)value;
-#endif  // ROCKSDB_LITEtable_reader_bench.cc
+#endif  // ROCKSDB_LITE
 }
 
 }  // namespace

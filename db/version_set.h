@@ -700,11 +700,10 @@ class Version {
   // first.
   void UpdateFilesByCompactionPri();
 
-  //
-  void process_merge_operands(MergeContext* merge_context,
-                              PinnableSlice* merge_operands,
-                              MergeOperandsInfo* merge_operands_info,
-                              Status* status);
+  void ProcessMergeOperands(MergeContext* merge_context,
+                            PinnableSlice* merge_operands,
+                            MergeOperandsInfo* merge_operands_info,
+                            Status* status);
 
   ColumnFamilyData* cfd_;  // ColumnFamilyData to which this Version belongs
   Logger* info_log_;

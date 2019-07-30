@@ -1744,8 +1744,8 @@ void Version::Get(const ReadOptions& read_options, const LookupKey& k,
         if (do_merge) {
           return;
         } else {
-          process_merge_operands(merge_context, merge_operands,
-                                 merge_operands_info, status);
+          ProcessMergeOperands(merge_context, merge_operands,
+                               merge_operands_info, status);
           return;
         }
       case GetContext::kDeleted:
@@ -1754,8 +1754,8 @@ void Version::Get(const ReadOptions& read_options, const LookupKey& k,
         if (do_merge) {
           return;
         } else {
-          process_merge_operands(merge_context, merge_operands,
-                                 merge_operands_info, status);
+          ProcessMergeOperands(merge_context, merge_operands,
+                               merge_operands_info, status);
           return;
         }
       case GetContext::kCorrupt:
@@ -1775,8 +1775,8 @@ void Version::Get(const ReadOptions& read_options, const LookupKey& k,
   }
   if (GetContext::kMerge == get_context.State()) {
     if (!do_merge) {
-      process_merge_operands(merge_context, merge_operands, merge_operands_info,
-                             status);
+      ProcessMergeOperands(merge_context, merge_operands, merge_operands_info,
+                           status);
       return;
     }
     if (!merge_operator_) {
@@ -1802,20 +1802,21 @@ void Version::Get(const ReadOptions& read_options, const LookupKey& k,
   }
 }
 
-void Version::process_merge_operands(MergeContext* merge_context,
-                                     PinnableSlice* merge_operands,
-                                     MergeOperandsInfo* merge_operands_info,
-                                     Status* status) {
+void Version::ProcessMergeOperands(MergeContext* merge_context,
+                                   PinnableSlice* merge_operands,
+                                   MergeOperandsInfo* merge_operands_info,
+                                   Status* status) {
   if (merge_context->GetNumOperands() >
       (size_t)merge_operands_info->expected_max_number_of_operands) {
     *status =
         Status::Incomplete(Status::SubCode::KMergeOperandsInsufficientCapacity);
     merge_operands_info->actual_number_of_operands =
-        merge_context->GetNumOperands();
+        static_cast<int>(merge_context->GetNumOperands());
   } else {
-    for (Slice sl : merge_context->GetOperands()) {
+    for (const Slice& sl : merge_context->GetOperands()) {
       merge_operands->PinSelf(sl);
       merge_operands++;
+      merge_operands_info->actual_number_of_operands++;
     }
   }
 }

@@ -26,11 +26,11 @@ bool SortList::FullMergeV2(const MergeOperationInput& merge_in,
   std::vector<int> left;
   for (Slice slice : merge_in.operand_list) {
     std::vector<int> right;
-    make_vector(right, slice);
-    left = merge(left, right);
+    Make(right, slice);
+    left = Merge(left, right);
   }
-  for (int i = 0; i < (int)left.size() - 1; i++) {
-	merge_out->new_value.append(std::to_string(left[i])).append(",");
+  for (int i = 0; i < static_cast<int>(left.size()) - 1; i++) {
+    merge_out->new_value.append(std::to_string(left[i])).append(",");
   }
   merge_out->new_value.append(std::to_string(left.back()));
   return true;
@@ -41,10 +41,10 @@ bool SortList::PartialMerge(const Slice& /*key*/, const Slice& left_operand,
                             Logger* /*logger*/) const {
   std::vector<int> left;
   std::vector<int> right;
-  make_vector(left, left_operand);
-  make_vector(right, right_operand);
-  left = merge(left, right);
-  for (int i = 0; i < (int)left.size() - 1; i++) {
+  Make(left, left_operand);
+  Make(right, right_operand);
+  left = Merge(left, right);
+  for (int i = 0; i < static_cast<int>(left.size()) - 1; i++) {
     new_value->append(std::to_string(left[i])).append(",");
   }
   new_value->append(std::to_string(left.back()));
@@ -62,7 +62,7 @@ bool SortList::PartialMergeMulti(const Slice& /*key*/,
 
 const char* SortList::Name() const { return "MergeSortOperator"; }
 
-void SortList::make_vector(std::vector<int>& operand, Slice slice) const {
+void SortList::Make(std::vector<int>& operand, Slice slice) const {
   int errors = 0;
   do {
     const char* begin = slice.data_;
@@ -77,7 +77,7 @@ void SortList::make_vector(std::vector<int>& operand, Slice slice) const {
   } while (0 != *slice.data_++);
 }
 
-std::vector<int> SortList::merge(std::vector<int>& left,
+std::vector<int> SortList::Merge(std::vector<int>& left,
                                  std::vector<int>& right) const {
   // Fill the resultant vector with sorted results from both vectors
   std::vector<int> result;

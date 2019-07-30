@@ -117,8 +117,8 @@ struct IngestExternalFileArg {
 };
 
 struct MergeOperandsInfo {
-  int expected_max_number_of_operands;
-  int actual_number_of_operands;
+  int expected_max_number_of_operands = 0;
+  int actual_number_of_operands = 0;
 };
 
 // A collections of table properties objects, where

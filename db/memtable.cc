@@ -601,10 +601,10 @@ struct Saver {
   Logger* logger;
   Statistics* statistics;
   bool inplace_update_support;
+  bool do_merge;
   Env* env_;
   ReadCallback* callback_;
   bool* is_blob_index;
-  bool* do_merge;
 
   bool CheckCallback(SequenceNumber _seq) {
     if (callback_) {
@@ -678,7 +678,7 @@ static bool SaveValue(void* arg, const char* entry) {
         Slice v = GetLengthPrefixedSlice(key_ptr + key_length);
         *(s->status) = Status::OK();
         if (*(s->merge_in_progress)) {
-          if (!*(s->do_merge)) {
+          if (!s->do_merge) {
             merge_context->PushOperand(
                 v, s->inplace_update_support == false /* operand_pinned */);
           } else {
@@ -732,9 +732,8 @@ static bool SaveValue(void* arg, const char* entry) {
         *(s->merge_in_progress) = true;
         merge_context->PushOperand(
             v, s->inplace_update_support == false /* operand_pinned */);
-        if (*(s->do_merge) &&
-            merge_operator->ShouldMerge(
-                merge_context->GetOperandsDirectionBackward())) {
+        if (s->do_merge && merge_operator->ShouldMerge(
+                               merge_context->GetOperandsDirectionBackward())) {
           *(s->status) = MergeHelper::TimedFullMerge(
               merge_operator, s->key->user_key(), nullptr,
               merge_context->GetOperands(), s->value, s->logger, s->statistics,
@@ -818,10 +817,8 @@ bool MemTable::Get(const LookupKey& key, std::string* value, Status* s,
     saver.env_ = env_;
     saver.callback_ = callback;
     saver.is_blob_index = is_blob_index;
-    saver.do_merge = new bool;
-    *saver.do_merge = true;
+    saver.do_merge = true;
     table_->Get(key, &saver, SaveValue);
-    delete saver.do_merge;
     *seq = saver.seq;
   }
 
@@ -833,13 +830,8 @@ bool MemTable::Get(const LookupKey& key, std::string* value, Status* s,
   return found_final_value;
 }
 
-bool MemTable::GetMergeOperands(const LookupKey& key,
-                                PinnableSlice* merge_operands,
-                                MergeOperandsInfo* merge_operands_info,
-                                Status* s, MergeContext* merge_context,
-                                SequenceNumber* max_covering_tombstone_seq,
-                                const ReadOptions& read_opts,
-                                ReadCallback* callback, bool* is_blob_index) {
+bool MemTable::GetMergeOperands(
+    GetMergeOperandsOptions get_merge_operands_options) {
   // The sequence number is updated synchronously in version_set.h
   if (IsEmpty()) {
     // Avoiding recording stats for speed.
@@ -848,17 +840,19 @@ bool MemTable::GetMergeOperands(const LookupKey& key,
   PERF_TIMER_GUARD(get_from_memtable_time);
 
   std::unique_ptr<FragmentedRangeTombstoneIterator> range_del_iter(
-      NewRangeTombstoneIterator(read_opts,
-                                GetInternalKeySeqno(key.internal_key())));
+      NewRangeTombstoneIterator(
+          get_merge_operands_options.read_opts,
+          GetInternalKeySeqno(get_merge_operands_options.key.internal_key())));
   if (range_del_iter != nullptr) {
-    *max_covering_tombstone_seq =
-        std::max(*max_covering_tombstone_seq,
-                 range_del_iter->MaxCoveringTombstoneSeqnum(key.user_key()));
+    *get_merge_operands_options.max_covering_tombstone_seq =
+        std::max(*get_merge_operands_options.max_covering_tombstone_seq,
+                 range_del_iter->MaxCoveringTombstoneSeqnum(
+                     get_merge_operands_options.key.user_key()));
   }
 
-  Slice user_key = key.user_key();
+  Slice user_key = get_merge_operands_options.key.user_key();
   bool found_final_value = false;
-  bool merge_in_progress = s->IsMergeInProgress();
+  bool merge_in_progress = get_merge_operands_options.s->IsMergeInProgress();
   bool may_contain = true;
   size_t ts_sz = GetInternalKeyComparator().user_comparator()->timestamp_size();
   if (bloom_filter_) {
@@ -882,42 +876,45 @@ bool MemTable::GetMergeOperands(const LookupKey& key,
       PERF_COUNTER_ADD(bloom_memtable_hit_count, 1);
     }
     Saver saver;
-    saver.status = s;
+    saver.status = get_merge_operands_options.s;
     saver.found_final_value = &found_final_value;
     saver.merge_in_progress = &merge_in_progress;
-    saver.key = &key;
+    saver.key = &get_merge_operands_options.key;
     saver.seq = kMaxSequenceNumber;
     saver.mem = this;
-    saver.merge_context = merge_context;
-    saver.max_covering_tombstone_seq = *max_covering_tombstone_seq;
+    saver.merge_context = get_merge_operands_options.merge_context;
+    saver.max_covering_tombstone_seq =
+        *get_merge_operands_options.max_covering_tombstone_seq;
     saver.merge_operator = moptions_.merge_operator;
     saver.logger = moptions_.info_log;
     saver.inplace_update_support = moptions_.inplace_update_support;
     saver.statistics = moptions_.statistics;
     saver.env_ = env_;
-    saver.callback_ = callback;
-    saver.is_blob_index = is_blob_index;
-    saver.do_merge = new bool;
-    *saver.do_merge = false;
-    table_->Get(key, &saver, SaveValue);
-    delete saver.do_merge;
+    saver.callback_ = nullptr;
+    saver.is_blob_index = nullptr;
+    saver.do_merge = false;
+    table_->Get(get_merge_operands_options.key, &saver, SaveValue);
     if (saver.merge_context->GetNumOperands() >
-        (size_t)merge_operands_info->expected_max_number_of_operands) {
-      *s = Status::Incomplete(
+        (size_t)get_merge_operands_options.merge_operands_info
+            ->expected_max_number_of_operands) {
+      *get_merge_operands_options.s = Status::Incomplete(
           Status::SubCode::KMergeOperandsInsufficientCapacity);
-      merge_operands_info->actual_number_of_operands =
-          merge_context->GetNumOperands();
+      get_merge_operands_options.merge_operands_info
+          ->actual_number_of_operands = static_cast<int>(
+          get_merge_operands_options.merge_context->GetNumOperands());
       return found_final_value;
     }
-    for (Slice sl : saver.merge_context->GetOperands()) {
-      merge_operands->PinSelf(sl);
-      merge_operands++;
+    for (const Slice& sl : saver.merge_context->GetOperands()) {
+      get_merge_operands_options.merge_operands->PinSelf(sl);
+      get_merge_operands_options.merge_operands++;
+      get_merge_operands_options.merge_operands_info
+          ->actual_number_of_operands++;
     }
   }
 
   // No change to value, since we have not yet found a Put/Delete
   if (!found_final_value && merge_in_progress) {
-    *s = Status::MergeInProgress();
+    *get_merge_operands_options.s = Status::MergeInProgress();
   }
   PERF_COUNTER_ADD(get_from_memtable_count, 1);
 

@@ -63,9 +63,9 @@ class DBBlobIndexTest : public DBTestBase {
     ReadOptions read_options;
     read_options.snapshot = snapshot;
     PinnableSlice value;
-    auto s = dbfull()->GetImpl(read_options, cfh(), key, &value,
-                               nullptr /*value_found*/, nullptr /*callback*/,
-                               is_blob_index);
+    auto s = dbfull()->GetImpl(DBImpl::GetImplOptions(
+        read_options, cfh(), key, &value, nullptr /*value_found*/,
+        nullptr /*callback*/, is_blob_index));
     if (s.IsNotFound()) {
       return "NOT_FOUND";
     }

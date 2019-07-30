@@ -83,10 +83,9 @@ class GetContext {
   // @param is_blob_index If non-nullptr, will be used to indicate if a found
   //                      key is of type blob index
   // @param do_merge True if value associated with user_key has to be returned
-  //				 and false if all the merge operands associated with
-  //				 user_key has to be returned. Id do_merge=false then
-  //				 all the merge operands are stored in merge_context and
-  //				 value pointer is untouched
+  // and false if all the merge operands associated with user_key has to be
+  // returned. Id do_merge=false then all the merge operands are stored in
+  // merge_context and value pointer is untouched
   GetContext(const Comparator* ucmp, const MergeOperator* merge_operator,
              Logger* logger, Statistics* statistics, GetState init_state,
              const Slice& user_key, PinnableSlice* value, bool* value_found,

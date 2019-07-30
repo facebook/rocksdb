@@ -204,17 +204,35 @@ class MemTable {
                read_opts, callback, is_blob_index);
   }
 
+  struct GetMergeOperandsOptions {
+    GetMergeOperandsOptions(const LookupKey& _key,
+                            PinnableSlice* _merge_operands,
+                            MergeOperandsInfo* _merge_operands_info, Status* _s,
+                            MergeContext* _merge_context,
+                            SequenceNumber* _max_covering_tombstone_seq,
+                            const ReadOptions& _read_opts)
+        : key(_key),
+          merge_operands(_merge_operands),
+          merge_operands_info(_merge_operands_info),
+          s(_s),
+          merge_context(_merge_context),
+          max_covering_tombstone_seq(_max_covering_tombstone_seq),
+          read_opts(_read_opts) {}
+    const LookupKey& key;
+    PinnableSlice* merge_operands;
+    MergeOperandsInfo* merge_operands_info;
+    Status* s;
+    MergeContext* merge_context;
+    SequenceNumber* max_covering_tombstone_seq;
+    const ReadOptions& read_opts;
+  };
+
   // Returns all the merge operands corresponding to the key. If the number of
   // merge operands in DB is greater than
-  // merge_operands_info.expected_max_number_of_operands then no merge operands
-  // are returned and status is Incomplete.
-  bool GetMergeOperands(const LookupKey& key, PinnableSlice* slice,
-                        MergeOperandsInfo* merge_operands_info, Status* s,
-                        MergeContext* merge_context,
-                        SequenceNumber* max_covering_tombstone_seq,
-                        const ReadOptions& read_opts,
-                        ReadCallback* callback = nullptr,
-                        bool* is_blob_index = nullptr);
+  // get_merge_operands_options.merge_operands_info.
+  // expected_max_number_of_operands then no merge operands are returned and
+  // status is Incomplete.
+  bool GetMergeOperands(GetMergeOperandsOptions get_merge_operands_options);
 
   // Attempts to update the new_value inplace, else does normal Add
   // Pseudocode

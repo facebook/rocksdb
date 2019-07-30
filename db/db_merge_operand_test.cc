@@ -1,12 +1,8 @@
-//  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
+//  Copyright (c) 2018-present, Facebook, Inc.  All rights reserved.
 //  This source code is licensed under both the GPLv2 (found in the
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
-//
-// Copyright (c) 2011 The LevelDB Authors. All rights reserved.
-// Use of this source code is governed by a BSD-style license that can be
-// found in the LICENSE file. See the AUTHORS file for names of contributors.
-// #include <iostream>
+
 #include "db/db_test_util.h"
 #include "port/stack_trace.h"
 #include "rocksdb/perf_context.h"
@@ -215,7 +211,7 @@ TEST_F(DBMergeOperandTest, PerfTest) {
 
   // Get API call
   PinnableSlice p_slice;
-  s.make_vector(data, p_slice);
+  s.Make(data, p_slice);
   uint64_t st = env_->NowNanos();
   db_->Get(ReadOptions(), db_->DefaultColumnFamily(), key, &p_slice);
   bool found = binary_search(data, 0, data.size() - 1, lookup_key);
@@ -244,7 +240,7 @@ TEST_F(DBMergeOperandTest, PerfTest) {
     }
   }
   for (PinnableSlice& psl : a_slice) {
-    s.make_vector(data, psl);
+    s.Make(data, psl);
     found = binary_search(data, 0, data.size() - 1, lookup_key);
     data.clear();
     if (found) break;

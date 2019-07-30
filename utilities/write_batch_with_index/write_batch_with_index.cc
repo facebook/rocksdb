@@ -892,8 +892,8 @@ Status WriteBatchWithIndex::GetFromBatchAndDB(
     s = db->Get(read_options, column_family, key, pinnable_val);
   } else {
     s = static_cast_with_check<DBImpl, DB>(db->GetRootDB())
-            ->GetImpl(read_options, column_family, key, pinnable_val, nullptr,
-                      callback);
+            ->GetImpl(DBImpl::GetImplOptions(read_options, column_family, key,
+                                             pinnable_val, nullptr, callback));
   }
 
   if (s.ok() || s.IsNotFound()) {  // DB Get Succeeded
