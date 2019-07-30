@@ -11,29 +11,9 @@ REPO_PATH = package_name() + "/"
 
 ROCKSDB_COMPILER_FLAGS = [
     "-fno-builtin-memcmp",
-    "-DROCKSDB_PLATFORM_POSIX",
-    "-DROCKSDB_LIB_IO_POSIX",
-    "-DROCKSDB_FALLOCATE_PRESENT",
-    "-DROCKSDB_MALLOC_USABLE_SIZE",
-    "-DROCKSDB_RANGESYNC_PRESENT",
-    "-DROCKSDB_SCHED_GETCPU_PRESENT",
-    "-DROCKSDB_SUPPORT_THREAD_LOCAL",
-    "-DOS_LINUX",
-    # Flags to enable libs we include
-    "-DSNAPPY",
-    "-DZLIB",
-    "-DBZIP2",
-    "-DLZ4",
-    "-DZSTD",
-    "-DZSTD_STATIC_LINKING_ONLY",
-    "-DGFLAGS=gflags",
-    "-DNUMA",
-    "-DTBB",
     # Needed to compile in fbcode
     "-Wno-expansion-to-defined",
     # Added missing flags from output of build_detect_platform
-    "-DROCKSDB_PTHREAD_ADAPTIVE_MUTEX",
-    "-DROCKSDB_BACKTRACE",
     "-Wnarrowing",
     "-DROCKSDB_NO_DYNAMIC_EXTENSION",
 ]
@@ -46,11 +26,54 @@ ROCKSDB_EXTERNAL_DEPS = [
     ("lz4", None, "lz4"),
     ("zstd", None),
     ("tbb", None),
-    ("numa", None, "numa"),
     ("googletest", None, "gtest"),
 ]
 
+ROCKSDB_OS_DEPS = [
+    (
+        "linux",
+        ["third-party//numa:numa"],
+    ),
+]
+
+ROCKSDB_OS_PREPROCESSOR_FLAGS = [
+    (
+        "linux",
+        [
+            "-DOS_LINUX",
+            "-DROCKSDB_FALLOCATE_PRESENT",
+            "-DROCKSDB_MALLOC_USABLE_SIZE",
+            "-DROCKSDB_PTHREAD_ADAPTIVE_MUTEX",
+            "-DROCKSDB_RANGESYNC_PRESENT",
+            "-DROCKSDB_SCHED_GETCPU_PRESENT",
+            "-DHAVE_SSE42",
+            "-DNUMA",
+        ],
+    ),
+    (
+        "macos",
+        ["-DOS_MACOSX"],
+    ),
+]
+
 ROCKSDB_PREPROCESSOR_FLAGS = [
+    "-DROCKSDB_PLATFORM_POSIX",
+    "-DROCKSDB_LIB_IO_POSIX",
+    "-DROCKSDB_SUPPORT_THREAD_LOCAL",
+
+    # Flags to enable libs we include
+    "-DSNAPPY",
+    "-DZLIB",
+    "-DBZIP2",
+    "-DLZ4",
+    "-DZSTD",
+    "-DZSTD_STATIC_LINKING_ONLY",
+    "-DGFLAGS=gflags",
+    "-DTBB",
+
+    # Added missing flags from output of build_detect_platform
+    "-DROCKSDB_BACKTRACE",
+
     # Directories with files for #include
     "-I" + REPO_PATH + "include/",
     "-I" + REPO_PATH,
@@ -58,7 +81,6 @@ ROCKSDB_PREPROCESSOR_FLAGS = [
 
 ROCKSDB_ARCH_PREPROCESSOR_FLAGS = {
     "x86_64": [
-        "-DHAVE_SSE42",
         "-DHAVE_PCLMUL",
     ],
 }
@@ -75,9 +97,15 @@ sanitizer = read_config("fbcode", "sanitizer")
 
 # Do not enable jemalloc if sanitizer presents. RocksDB will further detect
 # whether the binary is linked with jemalloc at runtime.
-ROCKSDB_COMPILER_FLAGS += (["-DROCKSDB_JEMALLOC"] if sanitizer == "" else [])
+ROCKSDB_OS_PREPROCESSOR_FLAGS += ([(
+    "linux",
+    ["-DROCKSDB_JEMALLOC"],
+)] if sanitizer == "" else [])
 
-ROCKSDB_EXTERNAL_DEPS += ([("jemalloc", None, "headers")] if sanitizer == "" else [])
+ROCKSDB_OS_DEPS += ([(
+    "linux",
+    ["third-party//jemalloc:headers"],
+)] if sanitizer == "" else [])
 """
 
 
@@ -88,6 +116,8 @@ cpp_library(
     {headers_attr_prefix}headers = {headers},
     arch_preprocessor_flags = ROCKSDB_ARCH_PREPROCESSOR_FLAGS,
     compiler_flags = ROCKSDB_COMPILER_FLAGS,
+    os_deps = ROCKSDB_OS_DEPS,
+    os_preprocessor_flags = ROCKSDB_OS_PREPROCESSOR_FLAGS,
     preprocessor_flags = ROCKSDB_PREPROCESSOR_FLAGS,
     deps = [{deps}],
     external_deps = ROCKSDB_EXTERNAL_DEPS,
@@ -127,6 +157,8 @@ ROCKS_TESTS = [
         rocksdb_arch_preprocessor_flags = ROCKSDB_ARCH_PREPROCESSOR_FLAGS,
         rocksdb_compiler_flags = ROCKSDB_COMPILER_FLAGS,
         rocksdb_external_deps = ROCKSDB_EXTERNAL_DEPS,
+        rocksdb_os_deps = ROCKSDB_OS_DEPS,
+        rocksdb_os_preprocessor_flags = ROCKSDB_OS_PREPROCESSOR_FLAGS,
         rocksdb_preprocessor_flags = ROCKSDB_PREPROCESSOR_FLAGS,
         test_cc = test_cc,
         test_name = test_name,
