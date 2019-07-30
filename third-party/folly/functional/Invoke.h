@@ -31,9 +31,20 @@ struct is_invocable : std::false_type {};
 template <typename F, typename... Args>
 struct is_invocable<void_t<invoke_result_<F, Args...>>, F, Args...>
     : std::true_type {};
+
+template <typename Void, typename R, typename F, typename... Args>
+struct is_invocable_r : std::false_type {};
+
+template <typename R, typename F, typename... Args>
+struct is_invocable_r<void_t<invoke_result_<F, Args...>>, R, F, Args...>
+    : std::is_convertible<invoke_result_<F, Args...>, R> {};
 } // namespace invoke_detail
 
 //  mimic: std::is_invocable, C++17
 template <typename F, typename... Args>
 struct is_invocable : invoke_detail::is_invocable<void, F, Args...> {};
+
+//  mimic: std::is_invocable_r, C++17
+template <typename R, typename F, typename... Args>
+struct is_invocable_r : invoke_detail::is_invocable_r<void, R, F, Args...> {};
 } // namespace folly

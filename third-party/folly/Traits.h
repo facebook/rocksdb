@@ -125,4 +125,18 @@ struct IsNothrowSwappable
           std::is_nothrow_move_constructible<T>::value&& noexcept(
               swap(std::declval<T&>(), std::declval<T&>()))> {};
 
+template <typename...>
+struct Conjunction : std::true_type {};
+template <typename T>
+struct Conjunction<T> : T {};
+template <typename T, typename... TList>
+struct Conjunction<T, TList...>
+    : std::conditional<T::value, Conjunction<TList...>, T>::type {};
+
+template <typename T>
+struct Negation : std::integral_constant<bool, !T::value> {};
+
+template <std::size_t I>
+using index_constant = std::integral_constant<std::size_t, I>;
+
 } // namespace folly
