@@ -28,8 +28,6 @@
 #include <folly/synchronization/detail/InlineFunctionRef.h>
 #include <folly/synchronization/detail/Sleeper.h>
 
-#include <glog/logging.h>
-
 #include <array>
 #include <atomic>
 #include <cstdint>
@@ -226,10 +224,10 @@ class Waiter {
     // we only initialize the function if we were actually given a non-null
     // task, otherwise
     if (task) {
-      DCHECK_EQ(futex, kCombineUninitialized);
+      assert(futex == kCombineUninitialized);
       new (&function_) CombineFunction{task};
     } else {
-      DCHECK((futex == kUninitialized) || (futex == kAboutToWait));
+      assert((futex == kUninitialized) || (futex == kAboutToWait));
       new (&metadata_) WakerMetadata<Atomic>{};
     }
 
@@ -527,13 +525,13 @@ class TaskWithBigReturnValue {
       : func_{std::move(func)} {}
 
   void operator()() const {
-    DCHECK(storage_);
+    assert(storage_);
     auto value = func_();
     new (storage_) ReturnType{std::move(value)};
   }
 
   void attach(StorageType* storage) {
-    DCHECK(!storage_);
+    assert(!storage_);
     storage_ = storage;
   }
 
@@ -656,7 +654,7 @@ void throwIfExceptionOccurred(Request&, Waiter& waiter, bool exception) {
  */
 template <typename Waiter>
 void detach(std::nullptr_t&, Waiter&, bool exception, std::nullptr_t&) {
-  DCHECK(!exception);
+  assert(!exception);
 }
 
 template <typename Waiter, typename F>
@@ -760,7 +758,7 @@ class DistributedMutex<Atomic, TimePublishing>::DistributedMutexStateProxy {
   }
 
   DistributedMutexStateProxy& operator=(DistributedMutexStateProxy&& other) {
-    DCHECK(!(*this)) << "Cannot move into a valid DistributedMutexStateProxy";
+    assert(!(*this));
 
     next_ = std::exchange(other.next_, nullptr);
     expected_ = std::exchange(other.expected_, 0);
@@ -968,7 +966,7 @@ template <typename Waiter>
 bool doFutexWait(Waiter* waiter, Waiter*& next) {
   // first we get ready to sleep by calling exchange() on the futex with a
   // kSleeping value
-  DCHECK(waiter->futex_.load(std::memory_order_relaxed) == kAboutToWait);
+  assert(waiter->futex_.load(std::memory_order_relaxed) == kAboutToWait);
 
   // note the semantics of using a futex here, when we exchange the sleeper_
   // with kSleeping, we are getting ready to sleep, but before sleeping we get
@@ -1006,12 +1004,12 @@ bool doFutexWait(Waiter* waiter, Waiter*& next) {
     // inefficient
     futexWait(&waiter->metadata_.sleeper_, kSleeping);
     pre = waiter->metadata_.sleeper_.load(std::memory_order_acquire);
-    DCHECK((pre == kSleeping) || (pre == kWake));
+    assert((pre == kSleeping) || (pre == kWake));
   }
 
   // when coming out of a futex, we might have some other sleeping threads
   // that we were supposed to wake up, assign that to the next pointer
-  DCHECK(next == nullptr);
+  assert(next == nullptr);
   next = extractPtr<Waiter>(waiter->next_.load(std::memory_order_relaxed));
   return false;
 }
@@ -1031,7 +1029,7 @@ inline void recordTimedWaiterAndClearTimedBit(
   // the previous value in the mutex can never be kTimedWaiter, timed waiters
   // always set (kTimedWaiter | kLocked) in the mutex word when they try and
   // acquire the mutex
-  DCHECK(previous != kTimedWaiter);
+  assert(previous != kTimedWaiter);
 
   if ((previous & kTimedWaiter)) {
     // record whether there was a timed waiter in the previous mutex state, and
@@ -1168,7 +1166,7 @@ lockImplementation(
     auto&& address = folly::bit_cast<std::uintptr_t>(&state);
     attach(task, storage);
     state.initialize(waitMode, std::move(task));
-    DCHECK(!(address & 0b1));
+    assert(!(address & 0b1));
 
     // set the locked bit in the address we will be persisting in the mutex
     address |= kLocked;
@@ -1195,7 +1193,7 @@ lockImplementation(
               /* waiters */ nullptr,
               /* ready */ nextSleeper};
     }
-    DCHECK(previous & kLocked);
+    assert(previous & kLocked);
 
     // wait until we get a signal from another thread, if this returns false,
     // we got skipped and had probably been scheduled out, so try again
@@ -1262,7 +1260,7 @@ inline bool preempted(std::uint64_t value, std::chrono::nanoseconds now) {
 
   // we say that the thread has been preempted if its timestamp says so, and
   // also if it is neither uninitialized nor skipped
-  DCHECK(value != kSkipped);
+  assert(value != kSkipped);
   return (preempted) && (value != kUninitialized) &&
       (value != kCombineUninitialized);
 }
@@ -1298,7 +1296,7 @@ CombineFunction loadTask(Waiter* current, std::uintptr_t value) {
 
 template <typename Waiter>
 void transferCurrentException(Waiter* waiter) {
-  DCHECK(std::current_exception());
+  assert(std::current_exception());
   new (&waiter->storage_) std::exception_ptr{std::current_exception()};
   waiter->futex_.store(kExceptionOccurred, std::memory_order_release);
 }
@@ -1398,8 +1396,8 @@ inline std::uintptr_t tryWake(
     // still sees the locked bit, and never gets woken up
     //
     // Can we relax this?
-    DCHECK(preempted(value, now));
-    DCHECK(!isCombiner(value));
+    assert(preempted(value, now));
+    assert(!isCombiner(value));
     next = waiter->next_.load(std::memory_order_relaxed);
     waiter->futex_.store(kSkipped, std::memory_order_release);
     return next;
@@ -1427,7 +1425,7 @@ inline std::uintptr_t tryWake(
   // event that we were able to catch the thread before it went to futex().
   // If we were unable to catch the thread before it slept, these fields will
   // be ignored when the thread wakes up anyway
-  DCHECK(isSleeper(value));
+  assert(isSleeper(value));
   waiter->metadata_.waker_ = waker;
   waiter->metadata_.waiters_ = folly::bit_cast<std::uintptr_t>(sleepers);
   auto pre =
@@ -1528,8 +1526,8 @@ template <template <typename> class Atomic, bool Publish>
 void DistributedMutex<Atomic, Publish>::unlock(
     DistributedMutex::DistributedMutexStateProxy proxy) {
   // we always wake up ready threads and timed waiters if we saw either
-  DCHECK(proxy) << "Invalid proxy passed to DistributedMutex::unlock()";
-  DCHECK(!proxy.combined_) << "Cannot unlock mutex after a successful combine";
+  assert(proxy);
+  assert(!proxy.combined_);
   SCOPE_EXIT {
     doFutexWake(proxy.ready_);
     wakeTimedWaiters(&state_, proxy.timedWaiters_);
@@ -1579,7 +1577,7 @@ void DistributedMutex<Atomic, Publish>::unlock(
     recordTimedWaiterAndClearTimedBit(proxy.timedWaiters_, head);
     auto next = extractPtr<Waiter<Atomic>>(head);
     auto expected = std::exchange(proxy.expected_, kLocked);
-    DCHECK((head & kLocked) && (head != kLocked)) << "incorrect state " << head;
+    assert((head & kLocked) && (head != kLocked));
     if (wake(Publish, *next, expected, sleepers, i)) {
       break;
     }
@@ -1634,7 +1632,7 @@ auto timedLock(Atomic& state, Deadline deadline, MakeProxy proxy) {
     auto data = kTimedWaiter | kLocked;
     auto previous = state.fetch_or(data, std::memory_order_acquire);
     if (!(previous & 0b1)) {
-      DCHECK(!previous);
+      assert(!previous);
       return proxy(nullptr, kLocked, true);
     }
 

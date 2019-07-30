@@ -307,13 +307,14 @@ endif
 export GTEST_THROW_ON_FAILURE=1
 export GTEST_HAS_EXCEPTIONS=1
 GTEST_DIR = ./third-party/gtest-1.7.0/fused-src
+FOLLY_DIR = ./third-party
 # AIX: pre-defined system headers are surrounded by an extern "C" block
 ifeq ($(PLATFORM), OS_AIX)
-	PLATFORM_CCFLAGS += -I$(GTEST_DIR)
-	PLATFORM_CXXFLAGS += -I$(GTEST_DIR)
+	PLATFORM_CCFLAGS += -I$(GTEST_DIR) -I$(FOLLY_DIR)
+	PLATFORM_CXXFLAGS += -I$(GTEST_DIR) -I$(FOLLY_DIR)
 else
-	PLATFORM_CCFLAGS += -isystem $(GTEST_DIR)
-	PLATFORM_CXXFLAGS += -isystem $(GTEST_DIR)
+	PLATFORM_CCFLAGS += -isystem $(GTEST_DIR) -isystem $(FOLLY_DIR)
+	PLATFORM_CXXFLAGS += -isystem $(GTEST_DIR) -isystem $(FOLLY_DIR)
 endif
 
 # This (the first rule) must depend on "all".
@@ -565,6 +566,7 @@ TESTS = \
 	db_secondary_test \
 	block_cache_tracer_test \
 	block_cache_trace_analyzer_test \
+	folly_synchronization_distributed_mutex_test \
 
 PARALLEL_TEST = \
 	backupable_db_test \
@@ -1116,6 +1118,8 @@ trace_analyzer: tools/trace_analyzer.o $(ANALYZETOOLOBJECTS) $(LIBOBJECTS)
 
 block_cache_trace_analyzer: tools/block_cache_analyzer/block_cache_trace_analyzer_tool.o $(ANALYZETOOLOBJECTS) $(LIBOBJECTS)
 	$(AM_LINK)
+
+folly_synchronization_distributed_mutex_test: $(LIBOBJECTS) $(TESTHARNESS) third-party/folly/folly/synchronization/test/DistributedMutexTest.o
 
 cache_bench: cache/cache_bench.o $(LIBOBJECTS) $(TESTUTIL)
 	$(AM_LINK)

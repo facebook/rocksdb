@@ -26,4 +26,3 @@ constexpr T constexpr_max(T a, T b, Ts... ts) {
   return b < a ? constexpr_max(a, ts...) : constexpr_max(b, ts...);
 }
 } // namespace folly
-
