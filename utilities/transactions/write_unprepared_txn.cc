@@ -574,6 +574,39 @@ Iterator* WriteUnpreparedTxn::GetIterator(const ReadOptions& options,
   return write_batch_.NewIteratorWithBase(column_family, db_iter);
 }
 
+Status WriteUnpreparedTxn::ValidateSnapshot(ColumnFamilyHandle* column_family,
+                                            const Slice& key,
+                                            SequenceNumber* tracked_at_seq) {
+  // TODO(lth): Reduce duplicate code with WritePrepared ValidateSnapshot logic.
+  assert(snapshot_);
+
+  SequenceNumber min_uncommitted =
+      static_cast_with_check<const SnapshotImpl, const Snapshot>(
+          snapshot_.get())
+          ->min_uncommitted_;
+  SequenceNumber snap_seq = snapshot_->GetSequenceNumber();
+  // tracked_at_seq is either max or the last snapshot with which this key was
+  // trackeed so there is no need to apply the IsInSnapshot to this comparison
+  // here as tracked_at_seq is not a prepare seq.
+  if (*tracked_at_seq <= snap_seq) {
+    // If the key has been previous validated at a sequence number earlier
+    // than the curent snapshot's sequence number, we already know it has not
+    // been modified.
+    return Status::OK();
+  }
+
+  *tracked_at_seq = snap_seq;
+
+  ColumnFamilyHandle* cfh =
+      column_family ? column_family : db_impl_->DefaultColumnFamily();
+
+  WriteUnpreparedTxnReadCallback snap_checker(wupt_db_, snap_seq,
+                                              min_uncommitted, unprep_seqs_);
+  return TransactionUtil::CheckKeyForConflicts(db_impl_, cfh, key.ToString(),
+                                               snap_seq, false /* cache_only */,
+                                               &snap_checker, min_uncommitted);
+}
+
 const std::map<SequenceNumber, size_t>&
 WriteUnpreparedTxn::GetUnpreparedSequenceNumbers() {
   return unprep_seqs_;

@@ -158,6 +158,10 @@ class WriteUnpreparedTxn : public WritePreparedTxn {
   virtual Iterator* GetIterator(const ReadOptions& options,
                                 ColumnFamilyHandle* column_family) override;
 
+  virtual Status ValidateSnapshot(ColumnFamilyHandle* column_family,
+                                  const Slice& key,
+                                  SequenceNumber* tracked_at_seq) override;
+
  private:
   friend class WriteUnpreparedTransactionTest_ReadYourOwnWrite_Test;
   friend class WriteUnpreparedTransactionTest_RecoveryTest_Test;
