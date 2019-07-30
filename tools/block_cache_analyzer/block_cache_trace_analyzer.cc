@@ -1397,14 +1397,16 @@ Status BlockCacheTraceAnalyzer::WriteHumanReadableTraceRecord(
       trace_record_buffer_, sizeof(trace_record_buffer_),
       "%" PRIu64 ",%" PRIu64 ",%u,%" PRIu64 ",%" PRIu64 ",%s,%" PRIu32
       ",%" PRIu64 ",%u,%u,%" PRIu64 ",%" PRIu64 ",%" PRIu64 ",%u,%u,%" PRIu64
-      ",%" PRIu64 ",%" PRIu64 "\n",
+      ",%" PRIu64 ",%" PRIu64 ",%" PRIu64 ",%" PRIu64 ",%" PRIu64 "\n",
       access.access_timestamp, block_id, access.block_type, access.block_size,
       access.cf_id, access.cf_name.c_str(), access.level, access.sst_fd_number,
       access.caller, access.no_insert, access.get_id, get_key_id,
       access.referenced_data_size, access.is_cache_hit,
       access.referenced_key_exist_in_block, access.num_keys_in_block,
       BlockCacheTraceHelper::GetTableId(access),
-      BlockCacheTraceHelper::GetSequenceNumber(access));
+      BlockCacheTraceHelper::GetSequenceNumber(access), access.block_key.size(),
+      access.referenced_key.size(),
+      BlockCacheTraceHelper::GetBlockOffsetInFile(access));
   if (ret < 0) {
     return Status::IOError("failed to format the output");
   }

@@ -229,10 +229,9 @@ TEST_F(CacheSimulatorTest, HybridRowBlockCacheSimulator) {
   ASSERT_EQ(100, cache_simulator->miss_ratio_stats().miss_ratio());
   ASSERT_EQ(10, cache_simulator->miss_ratio_stats().user_accesses());
   ASSERT_EQ(100, cache_simulator->miss_ratio_stats().user_miss_ratio());
-  auto handle = sim_cache->Lookup(
-      std::to_string(first_get.sst_fd_number) + "_" +
-      ExtractUserKey(first_get.referenced_key).ToString() + "_" +
-      std::to_string(1 + GetInternalKeySeqno(first_get.referenced_key)));
+  auto handle =
+      sim_cache->Lookup(std::to_string(first_get.sst_fd_number) + "_" +
+                        ExtractUserKey(first_get.referenced_key).ToString());
   ASSERT_NE(nullptr, handle);
   sim_cache->Release(handle);
   for (uint32_t i = 100; i < block_id; i++) {
@@ -256,10 +255,9 @@ TEST_F(CacheSimulatorTest, HybridRowBlockCacheSimulator) {
   ASSERT_EQ(15, cache_simulator->miss_ratio_stats().user_accesses());
   ASSERT_EQ(66, static_cast<uint64_t>(
                     cache_simulator->miss_ratio_stats().user_miss_ratio()));
-  handle = sim_cache->Lookup(
-      std::to_string(second_get.sst_fd_number) + "_" +
-      ExtractUserKey(second_get.referenced_key).ToString() + "_" +
-      std::to_string(1 + GetInternalKeySeqno(second_get.referenced_key)));
+  handle =
+      sim_cache->Lookup(std::to_string(second_get.sst_fd_number) + "_" +
+                        ExtractUserKey(second_get.referenced_key).ToString());
   ASSERT_NE(nullptr, handle);
   sim_cache->Release(handle);
   for (uint32_t i = 100; i < block_id; i++) {
@@ -437,9 +435,9 @@ TEST_F(CacheSimulatorTest, HybridRowBlockNoInsertCacheSimulator) {
     cache_simulator->Access(first_get);
     block_id++;
   }
-  auto handle = sim_cache->Lookup(
-      std::to_string(first_get.sst_fd_number) + "_" +
-      ExtractUserKey(first_get.referenced_key).ToString() + "_0");
+  auto handle =
+      sim_cache->Lookup(std::to_string(first_get.sst_fd_number) + "_" +
+                        ExtractUserKey(first_get.referenced_key).ToString());
   ASSERT_NE(nullptr, handle);
   sim_cache->Release(handle);
   // All blocks are missing from the cache since insert_blocks_row_kvpair_misses

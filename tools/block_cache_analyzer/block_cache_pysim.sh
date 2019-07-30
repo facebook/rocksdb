@@ -10,6 +10,8 @@
 # warmup_seconds: The number of seconds used for warmup.
 # max_jobs: The max number of concurrent pysims to run.
 
+sudo dnf install -y numpy scipy python-matplotlib ipython python-pandas sympy python-nose atlas-devel
+
 if [ $# -ne 5 ]; then
   echo "Usage: ./block_cache_pysim.sh trace_file_path result_dir downsample_size warmup_seconds max_jobs"
   exit 0
@@ -33,7 +35,7 @@ for cf_name in "all" #"cf_assoc" "cf_assoc_count" "cf_fbobj_type_id" "default" "
 do
 for cache_size in "16M" "256M" "1G" "2G" "4G" "8G" "12G" "16G" "1T"
 do
-for cache_type in "lru" "opt" "lru" "ts" "arc" "pylru" "pylru_hybrid" "gdsize" "pyhb" "trace"
+for cache_type in "lru" "opt" "arc" "ts" "pylru" "gdsize" "trace" "pycctbbt" "pyccbt" "pycctb" "pycccf" "pycccfbt" "pylru_hybrid"
 do
     if [[ $cache_type == "trace" && $cache_size != "16G" ]]; then
       # We only need to collect miss ratios observed in the trace once.

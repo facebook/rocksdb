@@ -48,7 +48,7 @@ def test_hash_table():
         key_id = random.randint(0, records)
         v = random.randint(0, records)
         key = "k{}".format(key_id)
-        value = CacheEntry(v, v, v, v, v, v)
+        value = CacheEntry(v, v, v, v, v, v, v)
         action = random.randint(0, 10)
         assert len(truth_map) == table.elements, "{} {} {}".format(
             len(truth_map), table.elements, i
@@ -113,9 +113,9 @@ def assert_metrics(cache, expected_value, expected_value_size=1, custom_hashtabl
         assert val.value_size == expected_value_size
     for expeceted_k in expected_value[4]:
         if custom_hashtable:
-            val = cache.table.lookup("g{}".format(expeceted_k), expeceted_k)
+            val = cache.table.lookup("g0-{}".format(expeceted_k), expeceted_k)
         else:
-            val = cache.table["g{}".format(expeceted_k)]
+            val = cache.table["g0-{}".format(expeceted_k)]
         assert val is not None
         assert val.value_size == expected_value_size
 
@@ -141,10 +141,13 @@ def test_cache(cache, expected_value, custom_hashtable=True):
         key_id=1,
         kv_size=5,
         is_hit=1,
-        referenced_key_exist_in_block = 1,
-        num_keys_in_block= 0,
-        table_id = 0,
-        seq_number = 0,
+        referenced_key_exist_in_block=1,
+        num_keys_in_block=0,
+        table_id=0,
+        seq_number=0,
+        block_key_size=0,
+        key_size=0,
+        block_offset_in_file=0,
         next_access_seq_no=0,
     )
     k2 = TraceRecord(
@@ -162,10 +165,13 @@ def test_cache(cache, expected_value, custom_hashtable=True):
         key_id=1,
         kv_size=5,
         is_hit=1,
-        referenced_key_exist_in_block = 1,
-        num_keys_in_block= 0,
-        table_id = 0,
-        seq_number = 0,
+        referenced_key_exist_in_block=1,
+        num_keys_in_block=0,
+        table_id=0,
+        seq_number=0,
+        block_key_size=0,
+        key_size=0,
+        block_offset_in_file=0,
         next_access_seq_no=0,
     )
     k3 = TraceRecord(
@@ -183,10 +189,13 @@ def test_cache(cache, expected_value, custom_hashtable=True):
         key_id=1,
         kv_size=5,
         is_hit=1,
-        referenced_key_exist_in_block = 1,
-        num_keys_in_block= 0,
-        table_id = 0,
-        seq_number = 0,
+        referenced_key_exist_in_block=1,
+        num_keys_in_block=0,
+        table_id=0,
+        seq_number=0,
+        block_key_size=0,
+        key_size=0,
+        block_offset_in_file=0,
         next_access_seq_no=0,
     )
     k4 = TraceRecord(
@@ -204,10 +213,13 @@ def test_cache(cache, expected_value, custom_hashtable=True):
         key_id=1,
         kv_size=5,
         is_hit=1,
-        referenced_key_exist_in_block = 1,
-        num_keys_in_block= 0,
-        table_id = 0,
-        seq_number = 0,
+        referenced_key_exist_in_block=1,
+        num_keys_in_block=0,
+        table_id=0,
+        seq_number=0,
+        block_key_size=0,
+        key_size=0,
+        block_offset_in_file=0,
         next_access_seq_no=0,
     )
     sequence = [k1, k1, k2, k3, k3, k3]
@@ -256,7 +268,10 @@ def test_mru_cache():
     policies = []
     policies.append(MRUPolicy())
     # Access k4, miss. evict k3
-    test_cache(ThompsonSamplingCache(3, False, policies), [3, 7, 4, [1, 2, 4], []])
+    test_cache(
+        ThompsonSamplingCache(3, False, policies, cost_class_label=None),
+        [3, 7, 4, [1, 2, 4], []],
+    )
     print("Test MRU cache: Success")
 
 
@@ -265,7 +280,10 @@ def test_lfu_cache():
     policies = []
     policies.append(LFUPolicy())
     # Access k4, miss. evict k2
-    test_cache(ThompsonSamplingCache(3, False, policies), [3, 7, 4, [1, 3, 4], []])
+    test_cache(
+        ThompsonSamplingCache(3, False, policies, cost_class_label=None),
+        [3, 7, 4, [1, 3, 4], []],
+    )
     print("Test LFU cache: Success")
 
 
@@ -302,10 +320,13 @@ def test_mix(cache):
             key_id=key_id,
             kv_size=5,
             is_hit=is_hit,
-            referenced_key_exist_in_block = 1,
-            num_keys_in_block= 0,
-            table_id = 0,
-            seq_number = 0,
+            referenced_key_exist_in_block=1,
+            num_keys_in_block=0,
+            table_id=0,
+            seq_number=0,
+            block_key_size=0,
+            key_size=0,
+            block_offset_in_file=0,
             next_access_seq_no=vs,
         )
         cache.access(k)
@@ -334,7 +355,8 @@ def test_end_to_end():
     nlevels = 6
     nfds = 100000
     trace_file_path = "test_trace"
-
+    # All blocks are of the same size so that OPT must achieve the lowest miss
+    # ratio.
     with open(trace_file_path, "w+") as trace_file:
         access_records = ""
         for i in range(n):
@@ -362,6 +384,9 @@ def test_end_to_end():
             access_record += "{},".format(10)  # num_keys_in_block
             access_record += "{},".format(1)  # table_id
             access_record += "{},".format(0)  # seq_number
+            access_record += "{},".format(10)  # block key size
+            access_record += "{},".format(20)  # key size
+            access_record += "{},".format(0)  # block offset
             access_record = access_record[:-1]
             access_records += access_record + "\n"
         trace_file.write(access_records)
@@ -370,7 +395,7 @@ def test_end_to_end():
     cache_size = block_size * nblocks / 10
     downsample_size = 1
     cache_ms = {}
-    for cache_type in ["ts", "opt", "lru", "pylru", "linucb", "gdsize"]:
+    for cache_type in ["ts", "opt", "lru", "pylru", "linucb", "gdsize", "pyccbt", "pycctbbt"]:
         cache = create_cache(cache_type, cache_size, downsample_size)
         run(trace_file_path, cache_type, cache, 0, -1, "all")
         cache_ms[cache_type] = cache
@@ -413,10 +438,13 @@ def test_hybrid(cache):
         key_id=1,
         kv_size=0,  # no size.
         is_hit=1,
-        referenced_key_exist_in_block = 1,
-        num_keys_in_block= 0,
-        table_id = 0,
-        seq_number = 0,
+        referenced_key_exist_in_block=1,
+        num_keys_in_block=0,
+        table_id=0,
+        seq_number=0,
+        block_key_size=0,
+        key_size=0,
+        block_offset_in_file=0,
         next_access_seq_no=0,
     )
     cache.access(k)  # Expect a miss.
@@ -517,10 +545,13 @@ def test_opt_cache():
         key_id=1,
         kv_size=0,  # no size.
         is_hit=1,
-        referenced_key_exist_in_block = 1,
-        num_keys_in_block= 0,
-        table_id = 0,
-        seq_number = 0,
+        referenced_key_exist_in_block=1,
+        num_keys_in_block=0,
+        table_id=0,
+        seq_number=0,
+        block_key_size=0,
+        key_size=0,
+        block_offset_in_file=0,
         next_access_seq_no=7,
     )
     cache.access(k)
@@ -619,10 +650,13 @@ def test_trace_cache():
         key_id=1,
         kv_size=0,
         is_hit=1,
-        referenced_key_exist_in_block = 1,
-        num_keys_in_block= 0,
-        table_id = 0,
-        seq_number = 0,
+        referenced_key_exist_in_block=1,
+        num_keys_in_block=0,
+        table_id=0,
+        seq_number=0,
+        block_key_size=0,
+        key_size=0,
+        block_offset_in_file=0,
         next_access_seq_no=7,
     )
     cache.access(k)
@@ -640,14 +674,16 @@ if __name__ == "__main__":
     test_trace_cache()
     test_opt_cache()
     test_lru_cache(
-        ThompsonSamplingCache(3, False, [LRUPolicy()]), custom_hashtable=True
+        ThompsonSamplingCache(3, False, [LRUPolicy()], cost_class_label=None),
+        custom_hashtable=True,
     )
     test_lru_cache(LRUCache(3, enable_cache_row_key=False), custom_hashtable=False)
     test_mru_cache()
     test_lfu_cache()
-    test_hybrid(ThompsonSamplingCache(kSampleSize, True, [LRUPolicy()]))
-    test_hybrid(LinUCBCache(kSampleSize, True, [LRUPolicy()]))
-    # ts, linucb, arc, lru, opt, pylru, pymru, pylfu, pyhb, gdsize
+    test_hybrid(
+        ThompsonSamplingCache(kSampleSize, True, [LRUPolicy()], cost_class_label=None)
+    )
+    test_hybrid(LinUCBCache(kSampleSize, True, [LRUPolicy()], cost_class_label=None))
     for cache_type in [
         "ts",
         "opt",
@@ -660,12 +696,13 @@ if __name__ == "__main__":
         "pylru",
         "linucb",
         "gdsize",
+        "pycctbbt",
+        "pycctb",
+        "pyccbt",
     ]:
         for enable_row_cache in [True, False]:
             cache_type_str = cache_type
             if enable_row_cache and cache_type != "opt" and cache_type != "trace":
                 cache_type_str += "_hybrid"
-            test_mix(
-                create_cache(cache_type_str, cache_size=100, downsample_size=1)
-            )
+            test_mix(create_cache(cache_type_str, cache_size=100, downsample_size=1))
     test_end_to_end()

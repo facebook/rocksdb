@@ -45,12 +45,15 @@ class TraceRecord:
         num_keys_in_block,
         table_id,
         seq_number,
+        block_key_size,
+        key_size,
+        block_offset_in_file,
         next_access_seq_no,
     ):
         self.access_time = access_time
         self.block_id = block_id
         self.block_type = block_type
-        self.block_size = block_size
+        self.block_size = block_size + block_key_size
         self.cf_id = cf_id
         self.cf_name = cf_name
         self.level = level
@@ -74,6 +77,9 @@ class TraceRecord:
         self.num_keys_in_block = num_keys_in_block
         self.table_id = table_id
         self.seq_number = seq_number
+        self.block_key_size = block_key_size
+        self.key_size = key_size
+        self.block_offset_in_file = block_offset_in_file
         self.next_access_seq_no = next_access_seq_no
 
 
@@ -81,7 +87,15 @@ class CacheEntry:
     """A cache entry stored in the cache."""
 
     def __init__(
-        self, value_size, cf_id, level, block_type, access_number, time_s, num_hits=0
+        self,
+        value_size,
+        cf_id,
+        level,
+        block_type,
+        table_id,
+        access_number,
+        time_s,
+        num_hits=0,
     ):
         self.value_size = value_size
         self.last_access_number = access_number
@@ -91,6 +105,7 @@ class CacheEntry:
         self.block_type = block_type
         self.last_access_time = time_s
         self.insertion_time = time_s
+        self.table_id = table_id
 
     def __repr__(self):
         """Debug string."""
@@ -102,6 +117,20 @@ class CacheEntry:
             self.level,
             self.block_type,
         )
+
+    def cost_class(self, cost_class_label):
+        if cost_class_label == "table_bt":
+            return "{}-{}".format(self.table_id, self.block_type)
+        elif cost_class_label == "table":
+            return "{}".format(self.table_id)
+        elif cost_class_label == "bt":
+            return "{}".format(self.block_type)
+        elif cost_class_label == "cf":
+            return "{}".format(self.cf_id)
+        elif cost_class_label == "cf_bt":
+            return "{}-{}".format(self.cf_id, self.block_type)
+        assert False, "Unknown cost class label {}".format(cost_class_label)
+        return None
 
 
 class HashEntry:
@@ -537,12 +566,64 @@ class HyperbolicPolicy(Policy):
             return -1
 
     def prioritize_samples(self, samples, auxilliary_info):
-        assert len(auxilliary_info) == 1
+        assert len(auxilliary_info) == 3
         now = auxilliary_info[0]
         return sorted(samples, cmp=lambda e1, e2: self.compare(e1, e2, now))
 
     def policy_name(self):
         return "hb"
+
+
+class CostClassPolicy(Policy):
+    """
+    We calculate the hit density of a cost class as
+    number of hits / total size in cache * average duration in the cache.
+
+    An entry has a higher priority if its class's hit density is higher.
+    """
+
+    def compare(self, e1, e2, now, cost_classes, cost_class_label):
+        e1_class = e1.value.cost_class(cost_class_label)
+        e2_class = e2.value.cost_class(cost_class_label)
+
+        assert e1_class in cost_classes
+        assert e2_class in cost_classes
+        e1_density = cost_classes[e1_class].density(now)
+        e2_density = cost_classes[e2_class].density(now)
+        e1_hits = cost_classes[e1_class].hits
+        e2_hits = cost_classes[e2_class].hits
+
+        if e1_density == e2_density:
+            return e1_hits - e2_hits
+
+        if e1_density == 0:
+            return 1
+        if e2_density == 0:
+            return 1
+        diff = (float(e1_hits) / float(e1_density)) - (
+            float(e2_hits) / float(e2_density)
+        )
+        if diff == 0:
+            return 0
+        elif diff > 0:
+            return 1
+        else:
+            return -1
+
+    def prioritize_samples(self, samples, auxilliary_info):
+        assert len(auxilliary_info) == 3
+        now = auxilliary_info[0]
+        cost_classes = auxilliary_info[1]
+        cost_class_label = auxilliary_info[2]
+        return sorted(
+            samples,
+            cmp=lambda e1, e2: self.compare(
+                e1, e2, now, cost_classes, cost_class_label
+            ),
+        )
+
+    def policy_name(self):
+        return "cc"
 
 
 class Cache(object):
@@ -701,18 +782,53 @@ class Cache(object):
         return False
 
 
+class CostClassEntry:
+    """
+    A cost class maintains aggregated statistics of cached entries in a class.
+    For example, we may define block type as a class. Then, cached blocks of the
+    same type will share one cost class entry.
+    """
+
+    def __init__(self):
+        self.hits = 0
+        self.num_entries_in_cache = 0
+        self.size_in_cache = 0
+        self.sum_insertion_times = 0
+
+    def insert(self, trace_record, key, value_size):
+        self.size_in_cache += value_size
+        self.num_entries_in_cache += 1
+        self.sum_insertion_times += trace_record.access_time / kMicrosInSecond
+
+    def remove(self, insertion_time, key, value_size, num_hits):
+        self.hits -= num_hits
+        self.num_entries_in_cache -= 1
+        self.sum_insertion_times -= insertion_time / kMicrosInSecond
+        self.size_in_cache -= value_size
+
+    def update_on_hit(self):
+        self.hits += 1
+
+    def density(self, now):
+        avg_insertion_time = self.sum_insertion_times / self.num_entries_in_cache
+        in_cache_duration = now / kMicrosInSecond - avg_insertion_time
+        return self.size_in_cache * in_cache_duration
+
+
 class MLCache(Cache):
     """
     MLCache is the base class for implementations of alternative replacement
     policies using reinforcement learning.
     """
 
-    def __init__(self, cache_size, enable_cache_row_key, policies):
+    def __init__(self, cache_size, enable_cache_row_key, policies, cost_class_label):
         super(MLCache, self).__init__(cache_size, enable_cache_row_key)
         self.table = HashTable()
         self.policy_stats = PolicyStats(kSecondsInMinute, policies)
         self.per_hour_policy_stats = PolicyStats(kSecondsInHour, policies)
         self.policies = policies
+        self.cost_classes = {}
+        self.cost_class_label = cost_class_label
 
     def is_ml_cache(self):
         return True
@@ -720,6 +836,11 @@ class MLCache(Cache):
     def _lookup(self, trace_record, key, hash):
         value = self.table.lookup(key, hash)
         if value is not None:
+            # Update the entry's cost class statistics.
+            if self.cost_class_label is not None:
+                cost_class = value.cost_class(self.cost_class_label)
+                assert cost_class in self.cost_classes
+                self.cost_classes[cost_class].update_on_hit()
             # Update the entry's last access time.
             self.table.insert(
                 key,
@@ -729,6 +850,7 @@ class MLCache(Cache):
                     cf_id=value.cf_id,
                     level=value.level,
                     block_type=value.block_type,
+                    table_id=value.table_id,
                     access_number=self.miss_ratio_stats.num_accesses,
                     time_s=trace_record.access_time,
                     num_hits=value.num_hits + 1,
@@ -752,7 +874,8 @@ class MLCache(Cache):
             # Randomly sample n entries.
             samples = self.table.random_sample(kSampleSize)
             samples = self.policies[policy_index].prioritize_samples(
-                samples, [trace_record.access_time]
+                samples,
+                [trace_record.access_time, self.cost_classes, self.cost_class_label],
             )
             for hash_entry in samples:
                 assert self.table.delete(hash_entry.key, hash_entry.hash) is not None
@@ -760,23 +883,37 @@ class MLCache(Cache):
                 self.policies[policy_index].evict(
                     key=hash_entry.key, max_size=self.table.elements
                 )
+                # Update the entry's cost class statistics.
+                if self.cost_class_label is not None:
+                    cost_class = hash_entry.value.cost_class(self.cost_class_label)
+                    assert cost_class in self.cost_classes
+                    self.cost_classes[cost_class].remove(
+                        hash_entry.value.insertion_time,
+                        key,
+                        hash_entry.value.value_size,
+                        hash_entry.value.num_hits,
+                    )
                 if self.used_size + value_size <= self.cache_size:
                     break
 
     def _insert(self, trace_record, key, hash, value_size):
         assert self.used_size + value_size <= self.cache_size
-        self.table.insert(
-            key,
-            hash,
-            CacheEntry(
-                value_size,
-                trace_record.cf_id,
-                trace_record.level,
-                trace_record.block_type,
-                self.miss_ratio_stats.num_accesses,
-                trace_record.access_time,
-            ),
+        entry = CacheEntry(
+            value_size,
+            trace_record.cf_id,
+            trace_record.level,
+            trace_record.block_type,
+            trace_record.table_id,
+            self.miss_ratio_stats.num_accesses,
+            trace_record.access_time,
         )
+        # Update the entry's cost class statistics.
+        if self.cost_class_label is not None:
+            cost_class = entry.cost_class(self.cost_class_label)
+            if cost_class not in self.cost_classes:
+                self.cost_classes[cost_class] = CostClassEntry()
+            self.cost_classes[cost_class].insert(trace_record, key, value_size)
+        self.table.insert(key, hash, entry)
 
     def _should_admit(self, trace_record, key, hash, value_size):
         return True
@@ -795,9 +932,17 @@ class ThompsonSamplingCache(MLCache):
     DOI: https://doi.org/10.1561/2200000070
     """
 
-    def __init__(self, cache_size, enable_cache_row_key, policies, init_a=1, init_b=1):
+    def __init__(
+        self,
+        cache_size,
+        enable_cache_row_key,
+        policies,
+        cost_class_label,
+        init_a=1,
+        init_b=1,
+    ):
         super(ThompsonSamplingCache, self).__init__(
-            cache_size, enable_cache_row_key, policies
+            cache_size, enable_cache_row_key, policies, cost_class_label
         )
         self._as = {}
         self._bs = {}
@@ -806,6 +951,8 @@ class ThompsonSamplingCache(MLCache):
             self._bs = [init_b] * len(self.policies)
 
     def _select_policy(self, trace_record, key):
+        if len(self.policies) == 1:
+            return 0
         samples = [
             np.random.beta(self._as[x], self._bs[x]) for x in range(len(self.policies))
         ]
@@ -818,8 +965,10 @@ class ThompsonSamplingCache(MLCache):
 
     def cache_name(self):
         if self.enable_cache_row_key:
-            return "Hybrid ThompsonSampling (ts_hybrid)"
-        return "ThompsonSampling (ts)"
+            return "Hybrid ThompsonSampling with cost class {} (ts_hybrid)".format(
+                self.cost_class_label
+            )
+        return "ThompsonSampling with cost class {} (ts)".format(self.cost_class_label)
 
 
 class LinUCBCache(MLCache):
@@ -833,8 +982,10 @@ class LinUCBCache(MLCache):
     DOI=http://dx.doi.org/10.1145/1772690.1772758
     """
 
-    def __init__(self, cache_size, enable_cache_row_key, policies):
-        super(LinUCBCache, self).__init__(cache_size, enable_cache_row_key, policies)
+    def __init__(self, cache_size, enable_cache_row_key, policies, cost_class_label):
+        super(LinUCBCache, self).__init__(
+            cache_size, enable_cache_row_key, policies, cost_class_label
+        )
         self.nfeatures = 3  # Block type, level, cf.
         self.th = np.zeros((len(self.policies), self.nfeatures))
         self.eps = 0.2
@@ -848,6 +999,8 @@ class LinUCBCache(MLCache):
         self.alph = 0.2
 
     def _select_policy(self, trace_record, key):
+        if len(self.policies) == 1:
+            return 0
         x_i = np.zeros(self.nfeatures)  # The current context vector
         x_i[0] = trace_record.block_type
         x_i[1] = trace_record.level
@@ -871,8 +1024,8 @@ class LinUCBCache(MLCache):
 
     def cache_name(self):
         if self.enable_cache_row_key:
-            return "Hybrid LinUCB (linucb_hybrid)"
-        return "LinUCB (linucb)"
+            return "Hybrid LinUCB with cost class {} (linucb_hybrid)".format(self.cost_class_label)
+        return "LinUCB with cost class {} (linucb)".format(self.cost_class_label)
 
 
 class OPTCacheEntry:
@@ -1210,6 +1363,7 @@ class ARCCache(Cache):
             trace_record.cf_id,
             trace_record.level,
             trace_record.block_type,
+            trace_record.table_id,
             0,
             trace_record.access_time,
         )
@@ -1258,6 +1412,7 @@ class LRUCache(Cache):
             trace_record.cf_id,
             trace_record.level,
             trace_record.block_type,
+            trace_record.table_id,
             0,
             trace_record.access_time,
         )
@@ -1314,22 +1469,62 @@ def create_cache(cache_type, cache_size, downsample_size):
             cache_size,
             enable_cache_row_key,
             [LRUPolicy(), LFUPolicy(), HyperbolicPolicy()],
+            cost_class_label=None,
         )
     elif cache_type == "linucb":
         return LinUCBCache(
             cache_size,
             enable_cache_row_key,
             [LRUPolicy(), LFUPolicy(), HyperbolicPolicy()],
+            cost_class_label=None,
         )
     elif cache_type == "pylru":
-        return ThompsonSamplingCache(cache_size, enable_cache_row_key, [LRUPolicy()])
+        return ThompsonSamplingCache(
+            cache_size, enable_cache_row_key, [LRUPolicy()], cost_class_label=None
+        )
     elif cache_type == "pymru":
-        return ThompsonSamplingCache(cache_size, enable_cache_row_key, [MRUPolicy()])
+        return ThompsonSamplingCache(
+            cache_size, enable_cache_row_key, [MRUPolicy()], cost_class_label=None
+        )
     elif cache_type == "pylfu":
-        return ThompsonSamplingCache(cache_size, enable_cache_row_key, [LFUPolicy()])
+        return ThompsonSamplingCache(
+            cache_size, enable_cache_row_key, [LFUPolicy()], cost_class_label=None
+        )
     elif cache_type == "pyhb":
         return ThompsonSamplingCache(
-            cache_size, enable_cache_row_key, [HyperbolicPolicy()]
+            cache_size,
+            enable_cache_row_key,
+            [HyperbolicPolicy()],
+            cost_class_label=None,
+        )
+    elif cache_type == "pycctbbt":
+        return ThompsonSamplingCache(
+            cache_size,
+            enable_cache_row_key,
+            [CostClassPolicy()],
+            cost_class_label="table_bt",
+        )
+    elif cache_type == "pycccf":
+        return ThompsonSamplingCache(
+            cache_size, enable_cache_row_key, [CostClassPolicy()], cost_class_label="cf"
+        )
+    elif cache_type == "pycccfbt":
+        return ThompsonSamplingCache(
+            cache_size,
+            enable_cache_row_key,
+            [CostClassPolicy()],
+            cost_class_label="cf_bt",
+        )
+    elif cache_type == "pycctb":
+        return ThompsonSamplingCache(
+            cache_size,
+            enable_cache_row_key,
+            [CostClassPolicy()],
+            cost_class_label="table",
+        )
+    elif cache_type == "pyccbt":
+        return ThompsonSamplingCache(
+            cache_size, enable_cache_row_key, [CostClassPolicy()], cost_class_label="bt"
         )
     elif cache_type == "opt":
         if enable_cache_row_key:
@@ -1519,9 +1714,12 @@ def run(
                 kv_size=int(ts[12]),
                 is_hit=int(ts[13]),
                 referenced_key_exist_in_block=int(ts[14]),
-                num_keys_in_block = int(ts[15]),
-                table_id = int(ts[16]),
-                seq_number = int(ts[17]),
+                num_keys_in_block=int(ts[15]),
+                table_id=int(ts[16]),
+                seq_number=int(ts[17]),
+                block_key_size=int(ts[18]),
+                key_size=int(ts[19]),
+                block_offset_in_file=int(ts[20]),
                 next_access_seq_no=next_access_seq_no,
             )
             trace_miss_ratio_stats.update_metrics(
