@@ -41,6 +41,10 @@ class TraceRecord:
         key_id,
         kv_size,
         is_hit,
+        referenced_key_exist_in_block,
+        num_keys_in_block,
+        table_id,
+        seq_number,
         next_access_seq_no,
     ):
         self.access_time = access_time
@@ -63,6 +67,13 @@ class TraceRecord:
             self.is_hit = True
         else:
             self.is_hit = False
+        if referenced_key_exist_in_block == 1:
+            self.referenced_key_exist_in_block = True
+        else:
+            self.referenced_key_exist_in_block = False
+        self.num_keys_in_block = num_keys_in_block
+        self.table_id = table_id
+        self.seq_number = seq_number
         self.next_access_seq_no = next_access_seq_no
 
 
@@ -552,7 +563,7 @@ class Cache(object):
         return "b{}".format(trace_record.block_id)
 
     def row_key(self, trace_record):
-        return "g{}".format(trace_record.key_id)
+        return "g{}-{}".format(trace_record.fd, trace_record.key_id)
 
     def _lookup(self, trace_record, key, hash):
         """
@@ -1507,6 +1518,10 @@ def run(
                 key_id=int(ts[11]),
                 kv_size=int(ts[12]),
                 is_hit=int(ts[13]),
+                referenced_key_exist_in_block=int(ts[14]),
+                num_keys_in_block = int(ts[15]),
+                table_id = int(ts[16]),
+                seq_number = int(ts[17]),
                 next_access_seq_no=next_access_seq_no,
             )
             trace_miss_ratio_stats.update_metrics(

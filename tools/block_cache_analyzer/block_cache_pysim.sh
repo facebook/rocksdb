@@ -29,9 +29,9 @@ mkdir -p "$result_dir"
 mkdir -p "$ml_tmp_result_dir"
 
 # Report miss ratio in the trace.
-for cf_name in "cf_assoc" "cf_assoc_count" "cf_fbobj_type_id" "default" "rev:cf_assoc_id1_type"
+for cf_name in "all" #"cf_assoc" "cf_assoc_count" "cf_fbobj_type_id" "default" "rev:cf_assoc_id1_type"
 do
-for cache_size in "256M" #"16M" "256M" "1G" "2G" "4G" "8G" "12G" "16G" "1T"
+for cache_size in "16M" "256M" "1G" "2G" "4G" "8G" "12G" "16G" "1T"
 do
 for cache_type in "lru" "opt" "lru" "ts" "arc" "pylru" "pylru_hybrid" "gdsize" "pyhb" "trace"
 do

@@ -1396,11 +1396,15 @@ Status BlockCacheTraceAnalyzer::WriteHumanReadableTraceRecord(
   int ret = snprintf(
       trace_record_buffer_, sizeof(trace_record_buffer_),
       "%" PRIu64 ",%" PRIu64 ",%u,%" PRIu64 ",%" PRIu64 ",%s,%" PRIu32
-      ",%" PRIu64 ",%u,%u,%" PRIu64 ",%" PRIu64 ",%" PRIu64 ",%u\n",
+      ",%" PRIu64 ",%u,%u,%" PRIu64 ",%" PRIu64 ",%" PRIu64 ",%u,%u,%" PRIu64
+      ",%" PRIu64 ",%" PRIu64 "\n",
       access.access_timestamp, block_id, access.block_type, access.block_size,
       access.cf_id, access.cf_name.c_str(), access.level, access.sst_fd_number,
       access.caller, access.no_insert, access.get_id, get_key_id,
-      access.referenced_data_size, access.is_cache_hit);
+      access.referenced_data_size, access.is_cache_hit,
+      access.referenced_key_exist_in_block, access.num_keys_in_block,
+      BlockCacheTraceHelper::GetTableId(access),
+      BlockCacheTraceHelper::GetSequenceNumber(access));
   if (ret < 0) {
     return Status::IOError("failed to format the output");
   }
@@ -1432,13 +1436,13 @@ Status BlockCacheTraceAnalyzer::RecordAccess(
   uint64_t get_key_id = 0;
   if (access.caller == TableReaderCaller::kUserGet &&
       access.get_id != BlockCacheTraceHelper::kReservedGetId) {
-    std::string row_key = BlockCacheTraceHelper::ComputeRowKey(access);
-    if (get_key_info_map_.find(row_key) == get_key_info_map_.end()) {
-      get_key_info_map_[row_key].key_id = unique_get_key_id_;
+    std::string user_key = ExtractUserKey(access.referenced_key).ToString();
+    if (get_key_info_map_.find(user_key) == get_key_info_map_.end()) {
+      get_key_info_map_[user_key].key_id = unique_get_key_id_;
       get_key_id = unique_get_key_id_;
       unique_get_key_id_++;
     }
-    get_key_info_map_[row_key].AddAccess(access, access_sequence_number_);
+    get_key_info_map_[user_key].AddAccess(access, access_sequence_number_);
   }
 
   if (compute_reuse_distance_) {

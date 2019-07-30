@@ -61,11 +61,27 @@ std::string BlockCacheTraceHelper::ComputeRowKey(
     return "";
   }
   Slice key = ExtractUserKey(access.referenced_key);
-  uint64_t seq_no = access.get_from_user_specified_snapshot == Boolean::kFalse
-                        ? 0
-                        : 1 + GetInternalKeySeqno(access.referenced_key);
+  uint64_t seq_no = GetSequenceNumber(access);
   return std::to_string(access.sst_fd_number) + "_" + key.ToString() + "_" +
          std::to_string(seq_no);
+}
+
+uint64_t BlockCacheTraceHelper::GetTableId(
+    const BlockCacheTraceRecord& access) {
+  if (!IsGetOrMultiGet(access.caller) || access.referenced_key.size() < 4) {
+    return 0;
+  }
+  return DecodeFixed32(access.referenced_key.data()) + 1;
+}
+
+uint64_t BlockCacheTraceHelper::GetSequenceNumber(
+    const BlockCacheTraceRecord& access) {
+  if (!IsGetOrMultiGet(access.caller)) {
+    return 0;
+  }
+  return access.get_from_user_specified_snapshot == Boolean::kFalse
+             ? 0
+             : 1 + GetInternalKeySeqno(access.referenced_key);
 }
 
 BlockCacheTraceWriter::BlockCacheTraceWriter(

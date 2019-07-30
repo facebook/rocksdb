@@ -141,6 +141,10 @@ def test_cache(cache, expected_value, custom_hashtable=True):
         key_id=1,
         kv_size=5,
         is_hit=1,
+        referenced_key_exist_in_block = 1,
+        num_keys_in_block= 0,
+        table_id = 0,
+        seq_number = 0,
         next_access_seq_no=0,
     )
     k2 = TraceRecord(
@@ -158,6 +162,10 @@ def test_cache(cache, expected_value, custom_hashtable=True):
         key_id=1,
         kv_size=5,
         is_hit=1,
+        referenced_key_exist_in_block = 1,
+        num_keys_in_block= 0,
+        table_id = 0,
+        seq_number = 0,
         next_access_seq_no=0,
     )
     k3 = TraceRecord(
@@ -175,6 +183,10 @@ def test_cache(cache, expected_value, custom_hashtable=True):
         key_id=1,
         kv_size=5,
         is_hit=1,
+        referenced_key_exist_in_block = 1,
+        num_keys_in_block= 0,
+        table_id = 0,
+        seq_number = 0,
         next_access_seq_no=0,
     )
     k4 = TraceRecord(
@@ -192,6 +204,10 @@ def test_cache(cache, expected_value, custom_hashtable=True):
         key_id=1,
         kv_size=5,
         is_hit=1,
+        referenced_key_exist_in_block = 1,
+        num_keys_in_block= 0,
+        table_id = 0,
+        seq_number = 0,
         next_access_seq_no=0,
     )
     sequence = [k1, k1, k2, k3, k3, k3]
@@ -286,6 +302,10 @@ def test_mix(cache):
             key_id=key_id,
             kv_size=5,
             is_hit=is_hit,
+            referenced_key_exist_in_block = 1,
+            num_keys_in_block= 0,
+            table_id = 0,
+            seq_number = 0,
             next_access_seq_no=vs,
         )
         cache.access(k)
@@ -338,6 +358,10 @@ def test_end_to_end():
             access_record += "{},".format(i)  # key_id
             access_record += "{},".format(100)  # kv_size
             access_record += "{},".format(1)  # is_hit
+            access_record += "{},".format(1)  # referenced_key_exist_in_block
+            access_record += "{},".format(10)  # num_keys_in_block
+            access_record += "{},".format(1)  # table_id
+            access_record += "{},".format(0)  # seq_number
             access_record = access_record[:-1]
             access_records += access_record + "\n"
         trace_file.write(access_records)
@@ -389,6 +413,10 @@ def test_hybrid(cache):
         key_id=1,
         kv_size=0,  # no size.
         is_hit=1,
+        referenced_key_exist_in_block = 1,
+        num_keys_in_block= 0,
+        table_id = 0,
+        seq_number = 0,
         next_access_seq_no=0,
     )
     cache.access(k)  # Expect a miss.
@@ -489,6 +517,10 @@ def test_opt_cache():
         key_id=1,
         kv_size=0,  # no size.
         is_hit=1,
+        referenced_key_exist_in_block = 1,
+        num_keys_in_block= 0,
+        table_id = 0,
+        seq_number = 0,
         next_access_seq_no=7,
     )
     cache.access(k)
@@ -587,6 +619,10 @@ def test_trace_cache():
         key_id=1,
         kv_size=0,
         is_hit=1,
+        referenced_key_exist_in_block = 1,
+        num_keys_in_block= 0,
+        table_id = 0,
+        seq_number = 0,
         next_access_seq_no=7,
     )
     cache.access(k)
