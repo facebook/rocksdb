@@ -348,12 +348,12 @@ MAIN_SOURCES =                                                          \
   env/env_basic_test.cc                                                 \
   env/env_test.cc                                                       \
   env/mock_env_test.cc                                                  \
-  third-party/folly/detail/Futex.cpp                                    \
-  third-party/folly/synchronization/AtomicNotification.cpp              \
-  third-party/folly/synchronization/DistributedMutex.cpp                \
-  third-party/folly/synchronization/ParkingLot.cpp                      \
-  third-party/folly/synchronization/WaitOptions.cpp                     \
-  third-party/folly/synchronization/test/DistributedMutexTest.cpp       \
+  third-party/folly/detail/Futex.cc                                     \
+  third-party/folly/synchronization/AtomicNotification.cc               \
+  third-party/folly/synchronization/DistributedMutex.cc                 \
+  third-party/folly/synchronization/ParkingLot.cc                       \
+  third-party/folly/synchronization/WaitOptions.cc                      \
+  third-party/folly/synchronization/test/DistributedMutexTest.cc        \
   logging/auto_roll_logger_test.cc                                      \
   logging/env_logger_test.cc                                            \
   logging/event_logger_test.cc                                          \
