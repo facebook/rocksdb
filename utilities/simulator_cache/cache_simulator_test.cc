@@ -84,7 +84,7 @@ class CacheSimulatorTest : public testing::Test {
     for (auto const& key : keys) {
       std::string row_key = kRefKeyPrefix + key + kRefKeySequenceNumber;
       auto handle =
-          sim_cache->Lookup("0_" + ExtractUserKey(row_key).ToString() + "_0");
+          sim_cache->Lookup("0_" + ExtractUserKey(row_key).ToString());
       EXPECT_NE(nullptr, handle);
       sim_cache->Release(handle);
     }
@@ -392,7 +392,7 @@ TEST_F(CacheSimulatorTest, HybridRowBlockCacheSimulatorGetTest) {
   AssertCache(sim_cache, cache_simulator->miss_ratio_stats(), 7, 8, 4,
               {"1", "2", "3", "5"}, {"1", "2", "4"});
   for (auto const& key : {"1", "2", "4"}) {
-    auto handle = sim_cache->Lookup("0_" + kRefKeyPrefix + key + "_0");
+    auto handle = sim_cache->Lookup("0_" + kRefKeyPrefix + key);
     ASSERT_NE(nullptr, handle);
     sim_cache->Release(handle);
   }
@@ -415,7 +415,7 @@ TEST_F(CacheSimulatorTest, HybridRowBlockCacheSimulatorGetTest) {
   AssertCache(sim_cache, cache_simulator->miss_ratio_stats(), 16, 103, 99, {},
               {});
   for (auto const& key : {"1", "2", "4"}) {
-    auto handle = sim_cache->Lookup("0_" + kRefKeyPrefix + key + "_0");
+    auto handle = sim_cache->Lookup("0_" + kRefKeyPrefix + key);
     ASSERT_EQ(nullptr, handle);
   }
 }
