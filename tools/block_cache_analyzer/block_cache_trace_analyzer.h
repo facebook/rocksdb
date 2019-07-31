@@ -306,7 +306,8 @@ class BlockCacheTraceAnalyzer {
   void WriteCorrelationFeaturesForGet(uint32_t max_number_of_values) const;
 
   void WriteSkewness(const std::string& label_str,
-                     const std::vector<uint64_t>& percent_buckets) const;
+                     const std::vector<uint64_t>& percent_buckets,
+                     TraceType target_block_type) const;
 
   const std::map<std::string, ColumnFamilyAccessInfoAggregate>&
   TEST_cf_aggregates_map() const {

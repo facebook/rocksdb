@@ -546,8 +546,8 @@ void BlockCacheTraceAnalyzer::WriteMissTimeline(uint64_t time_unit) const {
 }
 
 void BlockCacheTraceAnalyzer::WriteSkewness(
-    const std::string& label_str,
-    const std::vector<uint64_t>& percent_buckets) const {
+    const std::string& label_str, const std::vector<uint64_t>& percent_buckets,
+    TraceType target_block_type) const {
   std::set<std::string> labels = ParseLabelStr(label_str);
   std::map<std::string, uint64_t> label_naccesses;
   uint64_t total_naccesses = 0;
@@ -555,6 +555,10 @@ void BlockCacheTraceAnalyzer::WriteSkewness(
                             uint32_t level, TraceType type,
                             const std::string& /*block_key*/, uint64_t block_id,
                             const BlockAccessInfo& block) {
+    if (target_block_type != TraceType::kTraceMax &&
+        target_block_type != type) {
+      return;
+    }
     const std::string label = BuildLabel(
         labels, cf_name, fd, level, type,
         TableReaderCaller::kMaxBlockCacheLookupCaller, block_id, block);
@@ -587,7 +591,13 @@ void BlockCacheTraceAnalyzer::WriteSkewness(
     }
     prev_start_index = end_index;
   }
-  WriteStatsToFile(label_str, percent_buckets, kFileNameSuffixSkew,
+  std::string filename_suffix;
+  if (target_block_type != TraceType::kTraceMax) {
+    filename_suffix = block_type_to_string(target_block_type);
+    filename_suffix += "_";
+  }
+  filename_suffix += kFileNameSuffixSkew;
+  WriteStatsToFile(label_str, percent_buckets, filename_suffix,
                    label_bucket_naccesses, total_naccesses);
 }
 
@@ -2300,7 +2310,16 @@ int block_cache_trace_analyzer_tool(int argc, char** argv) {
     while (ss.good()) {
       std::string label;
       getline(ss, label, ',');
-      analyzer.WriteSkewness(label, buckets);
+      if (label.find("block") != std::string::npos) {
+        analyzer.WriteSkewness(label, buckets,
+                               TraceType::kBlockTraceIndexBlock);
+        analyzer.WriteSkewness(label, buckets,
+                               TraceType::kBlockTraceFilterBlock);
+        analyzer.WriteSkewness(label, buckets, TraceType::kBlockTraceDataBlock);
+        analyzer.WriteSkewness(label, buckets, TraceType::kTraceMax);
+      } else {
+        analyzer.WriteSkewness(label, buckets, TraceType::kTraceMax);
+      }
     }
   }
   return 0;
