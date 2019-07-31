@@ -30,7 +30,7 @@ TransactionBaseImpl::TransactionBaseImpl(DB* db,
   assert(dynamic_cast<DBImpl*>(db_) != nullptr);
   log_number_ = 0;
   if (dbimpl_->allow_2pc()) {
-    WriteBatchInternal::InsertNoop(write_batch_.GetWriteBatch());
+    InitWriteBatch();
   }
 }
 
@@ -49,7 +49,7 @@ void TransactionBaseImpl::Clear() {
   num_merges_ = 0;
 
   if (dbimpl_->allow_2pc()) {
-    WriteBatchInternal::InsertNoop(write_batch_.GetWriteBatch());
+    InitWriteBatch();
   }
 }
 

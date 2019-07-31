@@ -78,8 +78,8 @@ void WriteUnpreparedTxn::Initialize(const TransactionOptions& txn_options) {
   }
 
   unprep_seqs_.clear();
-  wup_save_points_.reset(nullptr);
-  save_point_boundaries_.reset(nullptr);
+  flushed_save_points_.reset(nullptr);
+  unflushed_save_points_.reset(nullptr);
   recovered_txn_ = false;
   largest_validated_seq_ = 0;
 }
@@ -243,8 +243,8 @@ Status WriteUnpreparedTxn::FlushWriteBatchToDB(bool prepared) {
   //
   // RollbackToSavepoint is not supported after Prepare() is called, so only do
   // this for unprepared batches.
-  if (!prepared && save_point_boundaries_ != nullptr &&
-      !save_point_boundaries_->empty()) {
+  if (!prepared && unflushed_save_points_ != nullptr &&
+      !unflushed_save_points_->empty()) {
     return FlushWriteBatchWithSavePointToDB();
   }
 
@@ -301,18 +301,18 @@ Status WriteUnpreparedTxn::FlushWriteBatchToDBInternal(bool prepared) {
   // Reset transaction state.
   if (!prepared) {
     prepare_batch_cnt_ = 0;
-    write_batch_.Clear();
-    WriteBatchInternal::InsertNoop(write_batch_.GetWriteBatch());
+    const bool kClear = true;
+    TransactionBaseImpl::InitWriteBatch(kClear);
   }
 
   return s;
 }
 
 Status WriteUnpreparedTxn::FlushWriteBatchWithSavePointToDB() {
-  assert(save_point_boundaries_ != nullptr &&
-         save_point_boundaries_->size() > 0);
+  assert(unflushed_save_points_ != nullptr &&
+         unflushed_save_points_->size() > 0);
   assert(save_points_ != nullptr && save_points_->size() > 0);
-  assert(save_points_->size() >= save_point_boundaries_->size());
+  assert(save_points_->size() >= unflushed_save_points_->size());
 
   // Handler class for creating an unprepared batch from a savepoint.
   struct SavePointBatchHandler : public WriteBatch::Handler {
@@ -360,21 +360,24 @@ Status WriteUnpreparedTxn::FlushWriteBatchWithSavePointToDB() {
     }
   };
 
+  // The comparator of the default cf is passed in, similar to the
+  // initialization of TransactionBaseImpl::write_batch_. This comparator is
+  // only used if the write batch encounters an invalid cf id, and falls back to
+  // this comparator.
   WriteBatchWithIndex wb(wpt_db_->DefaultColumnFamily()->GetComparator(), 0,
                          true, 0);
   // Swap with write_batch_ so that wb contains the complete write batch. The
   // actual write batch that will be flushed to DB will be built in
   // write_batch_, and will be read by FlushWriteBatchToDBInternal.
   std::swap(wb, write_batch_);
+  TransactionBaseImpl::InitWriteBatch();
 
   size_t prev_boundary = WriteBatchInternal::kHeader;
   const bool kPrepared = true;
-  for (size_t i = 0; i < save_point_boundaries_->size(); i++) {
-    WriteBatchInternal::InsertNoop(write_batch_.GetWriteBatch());
-
+  for (size_t i = 0; i < unflushed_save_points_->size(); i++) {
     SavePointBatchHandler sp_handler(&write_batch_,
                                      *wupt_db_->GetCFHandleMap().get());
-    size_t curr_boundary = (*save_point_boundaries_)[i];
+    size_t curr_boundary = (*unflushed_save_points_)[i];
 
     // Construct the partial write batch up to the savepoint.
     //
@@ -394,17 +397,19 @@ Status WriteUnpreparedTxn::FlushWriteBatchWithSavePointToDB() {
       return s;
     }
 
-    if (wup_save_points_ == nullptr) {
-      wup_save_points_.reset(new autovector<WriteUnpreparedTxn::SavePoint>());
+    if (flushed_save_points_ == nullptr) {
+      flushed_save_points_.reset(
+          new autovector<WriteUnpreparedTxn::SavePoint>());
     }
-    wup_save_points_->emplace_back(unprep_seqs_);
+    flushed_save_points_->emplace_back(
+        unprep_seqs_, new ManagedSnapshot(db_impl_, wupt_db_->GetSnapshot()));
 
     prev_boundary = curr_boundary;
-    write_batch_.Clear();
+    const bool kClear = true;
+    TransactionBaseImpl::InitWriteBatch(kClear);
   }
 
-  save_point_boundaries_->clear();
-  WriteBatchInternal::InsertNoop(write_batch_.GetWriteBatch());
+  unflushed_save_points_->clear();
   return Status::OK();
 }
 
@@ -495,8 +500,8 @@ Status WriteUnpreparedTxn::CommitInternal() {
       wpt_db_->RemovePrepared(commit_batch_seq, commit_batch_cnt);
     }
     unprep_seqs_.clear();
-    wup_save_points_.reset(nullptr);
-    save_point_boundaries_.reset(nullptr);
+    flushed_save_points_.reset(nullptr);
+    unflushed_save_points_.reset(nullptr);
     return s;
   }  // else do the 2nd write to publish seq
 
@@ -528,8 +533,8 @@ Status WriteUnpreparedTxn::CommitInternal() {
     wpt_db_->RemovePrepared(seq.first, seq.second);
   }
   unprep_seqs_.clear();
-  wup_save_points_.reset(nullptr);
-  save_point_boundaries_.reset(nullptr);
+  flushed_save_points_.reset(nullptr);
+  unflushed_save_points_.reset(nullptr);
   return s;
 }
 
@@ -608,8 +613,8 @@ Status WriteUnpreparedTxn::RollbackInternal() {
       wpt_db_->RemovePrepared(seq.first, seq.second);
     }
     unprep_seqs_.clear();
-    wup_save_points_.reset(nullptr);
-    save_point_boundaries_.reset(nullptr);
+    flushed_save_points_.reset(nullptr);
+    unflushed_save_points_.reset(nullptr);
     return s;
   }  // else do the 2nd write for commit
   uint64_t& prepare_seq = seq_used;
@@ -636,8 +641,8 @@ Status WriteUnpreparedTxn::RollbackInternal() {
   }
 
   unprep_seqs_.clear();
-  wup_save_points_.reset(nullptr);
-  save_point_boundaries_.reset(nullptr);
+  flushed_save_points_.reset(nullptr);
+  unflushed_save_points_.reset(nullptr);
   return s;
 }
 
@@ -649,28 +654,28 @@ void WriteUnpreparedTxn::Clear() {
 }
 
 void WriteUnpreparedTxn::SetSavePoint() {
-  assert((save_point_boundaries_ ? save_point_boundaries_->size() : 0) +
-             (wup_save_points_ ? wup_save_points_->size() : 0) ==
+  assert((unflushed_save_points_ ? unflushed_save_points_->size() : 0) +
+             (flushed_save_points_ ? flushed_save_points_->size() : 0) ==
          (save_points_ ? save_points_->size() : 0));
   PessimisticTransaction::SetSavePoint();
-  if (save_point_boundaries_ == nullptr) {
-    save_point_boundaries_.reset(new autovector<size_t>());
+  if (unflushed_save_points_ == nullptr) {
+    unflushed_save_points_.reset(new autovector<size_t>());
   }
-  save_point_boundaries_->push_back(write_batch_.GetDataSize());
+  unflushed_save_points_->push_back(write_batch_.GetDataSize());
 }
 
 Status WriteUnpreparedTxn::RollbackToSavePoint() {
-  assert((save_point_boundaries_ ? save_point_boundaries_->size() : 0) +
-             (wup_save_points_ ? wup_save_points_->size() : 0) ==
+  assert((unflushed_save_points_ ? unflushed_save_points_->size() : 0) +
+             (flushed_save_points_ ? flushed_save_points_->size() : 0) ==
          (save_points_ ? save_points_->size() : 0));
-  if (save_point_boundaries_ != nullptr && save_point_boundaries_->size() > 0) {
+  if (unflushed_save_points_ != nullptr && unflushed_save_points_->size() > 0) {
     Status s = PessimisticTransaction::RollbackToSavePoint();
     assert(!s.IsNotFound());
-    save_point_boundaries_->pop_back();
+    unflushed_save_points_->pop_back();
     return s;
   }
 
-  if (wup_save_points_ != nullptr && !wup_save_points_->empty()) {
+  if (flushed_save_points_ != nullptr && !flushed_save_points_->empty()) {
     return RollbackToSavePointInternal();
   }
 
@@ -680,20 +685,15 @@ Status WriteUnpreparedTxn::RollbackToSavePoint() {
 Status WriteUnpreparedTxn::RollbackToSavePointInternal() {
   Status s;
 
-  write_batch_.Clear();
-  WriteBatchInternal::InsertNoop(write_batch_.GetWriteBatch());
+  const bool kClear = true;
+  TransactionBaseImpl::InitWriteBatch(kClear);
 
-  assert(wup_save_points_->size() > 0);
-  WriteUnpreparedTxn::SavePoint& top = wup_save_points_->back();
+  assert(flushed_save_points_->size() > 0);
+  WriteUnpreparedTxn::SavePoint& top = flushed_save_points_->back();
 
   assert(top.unprep_seqs_.size() > 0);
-  auto snapshot_seq =
-      WriteUnpreparedTxnReadCallback::CalcMaxVisibleSeq(top.unprep_seqs_, 0);
-
   assert(save_points_ != nullptr && save_points_->size() > 0);
   const TransactionKeyMap& tracked_keys = save_points_->top().new_keys_;
-  WriteUnpreparedTxnReadCallback callback(wupt_db_, snapshot_seq,
-                                          kMinUnCommittedSeq, top.unprep_seqs_);
 
   // TODO(lth): Reduce duplicate code with RollbackInternal logic.
   ReadOptions roptions;
@@ -701,6 +701,15 @@ Status WriteUnpreparedTxn::RollbackToSavePointInternal() {
   for (const auto& cfkey : tracked_keys) {
     const auto cfid = cfkey.first;
     const auto& keys = cfkey.second;
+
+    roptions.snapshot = top.snapshot_->snapshot();
+    SequenceNumber min_uncommitted =
+        static_cast_with_check<const SnapshotImpl, const Snapshot>(
+            roptions.snapshot)
+            ->min_uncommitted_;
+    SequenceNumber snap_seq = roptions.snapshot->GetSequenceNumber();
+    WriteUnpreparedTxnReadCallback callback(wupt_db_, snap_seq, min_uncommitted,
+                                            top.unprep_seqs_);
     for (const auto& pair : keys) {
       const auto& key = pair.first;
       const auto& cf_handle = cf_map.at(cfid);
@@ -728,6 +737,10 @@ Status WriteUnpreparedTxn::RollbackToSavePointInternal() {
     return s;
   }
 
+  // PessimisticTransaction::RollbackToSavePoint will call also call
+  // RollbackToSavepoint on write_batch_. However, write_batch_ is empty and has
+  // no savepoints because this savepoint has already been flushed. Work around
+  // this by setting a fake savepoint.
   write_batch_.SetSavePoint();
   s = PessimisticTransaction::RollbackToSavePoint();
   assert(s.ok());
@@ -735,26 +748,30 @@ Status WriteUnpreparedTxn::RollbackToSavePointInternal() {
     return s;
   }
 
-  wup_save_points_->pop_back();
+  flushed_save_points_->pop_back();
   return s;
 }
 
 Status WriteUnpreparedTxn::PopSavePoint() {
-  assert((save_point_boundaries_ ? save_point_boundaries_->size() : 0) +
-             (wup_save_points_ ? wup_save_points_->size() : 0) ==
+  assert((unflushed_save_points_ ? unflushed_save_points_->size() : 0) +
+             (flushed_save_points_ ? flushed_save_points_->size() : 0) ==
          (save_points_ ? save_points_->size() : 0));
-  if (save_point_boundaries_ != nullptr && save_point_boundaries_->size() > 0) {
+  if (unflushed_save_points_ != nullptr && unflushed_save_points_->size() > 0) {
     Status s = PessimisticTransaction::PopSavePoint();
     assert(!s.IsNotFound());
-    save_point_boundaries_->pop_back();
+    unflushed_save_points_->pop_back();
     return s;
   }
 
-  if (wup_save_points_ != nullptr && !wup_save_points_->empty()) {
+  if (flushed_save_points_ != nullptr && !flushed_save_points_->empty()) {
+    // PessimisticTransaction::PopSavePoint will call also call PopSavePoint on
+    // write_batch_. However, write_batch_ is empty and has no savepoints
+    // because this savepoint has already been flushed. Work around this by
+    // setting a fake savepoint.
     write_batch_.SetSavePoint();
     Status s = PessimisticTransaction::PopSavePoint();
     assert(!s.IsNotFound());
-    wup_save_points_->pop_back();
+    flushed_save_points_->pop_back();
     return s;
   }
 

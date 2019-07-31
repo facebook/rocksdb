@@ -280,7 +280,7 @@ Status WriteUnpreparedTxnDB::Initialize(
     }
 
     wupt->write_batch_.Clear();
-    WriteBatchInternal::InsertNoop(wupt->write_batch_.GetWriteBatch());
+    wupt->InitWriteBatch();
 
     real_trx->SetState(Transaction::PREPARED);
     if (!s.ok()) {

@@ -192,7 +192,7 @@ class WriteBatchInternal {
   // leftByteSize and a WriteBatch with ByteSize rightByteSize
   static size_t AppendedByteSize(size_t leftByteSize, size_t rightByteSize);
 
-  // Iterate over a write batch from 'begin' to 'end'.
+  // Iterate over [begin, end) range of a write batch
   static Status Iterate(const WriteBatch* wb, WriteBatch::Handler* handler,
                         size_t begin, size_t end);
 

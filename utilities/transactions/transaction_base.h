@@ -11,6 +11,7 @@
 #include <string>
 #include <vector>
 
+#include "db/write_batch_internal.h"
 #include "rocksdb/db.h"
 #include "rocksdb/slice.h"
 #include "rocksdb/snapshot.h"
@@ -273,6 +274,15 @@ class TransactionBaseImpl : public Transaction {
   // Sets a snapshot if SetSnapshotOnNextOperation() has been called.
   void SetSnapshotIfNeeded();
 
+  // Initialize write_batch_ for 2PC by inserting Noop.
+  inline void InitWriteBatch(bool clear = false) {
+    if (clear) {
+      write_batch_.Clear();
+    }
+    assert(write_batch_.GetDataSize() == WriteBatchInternal::kHeader);
+    WriteBatchInternal::InsertNoop(write_batch_.GetWriteBatch());
+  }
+
   DB* db_;
   DBImpl* dbimpl_;
 
@@ -325,7 +335,7 @@ class TransactionBaseImpl : public Transaction {
   // Optimistic Transactions will wait till commit time to do conflict checking.
   TransactionKeyMap tracked_keys_;
 
-  // Stack of the Snapshot saved at each save point.  Saved snapshots may be
+  // Stack of the Snapshot saved at each save point. Saved snapshots may be
   // nullptr if there was no snapshot at the time SetSavePoint() was called.
   std::unique_ptr<std::stack<TransactionBaseImpl::SavePoint,
                              autovector<TransactionBaseImpl::SavePoint>>>

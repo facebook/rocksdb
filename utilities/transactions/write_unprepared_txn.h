@@ -73,9 +73,6 @@ class WriteUnpreparedTxnReadCallback : public ReadCallback {
     wup_snapshot_ = seq;
   }
 
- private:
-  friend class WriteUnpreparedTxn;
-
   static SequenceNumber CalcMaxVisibleSeq(
       const std::map<SequenceNumber, size_t>& unprep_seqs,
       SequenceNumber snapshot_seq) {
@@ -86,6 +83,8 @@ class WriteUnpreparedTxnReadCallback : public ReadCallback {
     }
     return std::max(max_unprepared, snapshot_seq);
   }
+
+ private:
   WritePreparedTxnDB* db_;
   const std::map<SequenceNumber, size_t>& unprep_seqs_;
   SequenceNumber wup_snapshot_;
@@ -221,43 +220,50 @@ class WriteUnpreparedTxn : public WritePreparedTxn {
     // used during RollbackToSavepoint to determine visibility when restoring
     // old values.
     //
-    // Since all unprep_seqs_ sets further down the stack must be subsets, this
-    // can potentially deduplicated by just storing set difference.
+    // TODO(lth): Since all unprep_seqs_ sets further down the stack must be
+    // subsets, this can potentially be deduplicated by just storing set
+    // difference. Investigate if this is worth it.
     std::map<SequenceNumber, size_t> unprep_seqs_;
 
-    SavePoint(const std::map<SequenceNumber, size_t>& seqs)
-        : unprep_seqs_(seqs){};
+    // This snapshot will be used to read keys at this savepoint if we call
+    // RollbackToSavePoint.
+    std::unique_ptr<ManagedSnapshot> snapshot_;
+
+    SavePoint(const std::map<SequenceNumber, size_t>& seqs,
+              ManagedSnapshot* snapshot)
+        : unprep_seqs_(seqs), snapshot_(snapshot){};
   };
 
   // We have 3 data structures holding savepoint information:
   // 1. TransactionBaseImpl::save_points_
-  // 2. WriteUnpreparedTxn::wup_save_points_
-  // 3. WriteUnpreparecTxn::save_point_boundaries_
+  // 2. WriteUnpreparedTxn::flushed_save_points_
+  // 3. WriteUnpreparecTxn::unflushed_save_points_
   //
   // TransactionBaseImpl::save_points_ holds information about all write
   // batches, including the current in-memory write_batch_, or unprepared
   // batches that have been written out. Its responsibility is just to track
   // which keys have been modified in every savepoint.
   //
-  // WriteUnpreparedTxn::wup_save_points_ holds information about savepoints set
-  // on unprepared batches that have already flushed. It just holds the
-  // unprep_seqs_ at that savepoint, so that the rollback process can determine
-  // which keys were visible at that point in time.
+  // WriteUnpreparedTxn::flushed_save_points_ holds information about savepoints
+  // set on unprepared batches that have already flushed. It holds the snapshot
+  // and unprep_seqs at that savepoint, so that the rollback process can
+  // determine which keys were visible at that point in time.
   //
-  // WriteUnpreparecTxn::save_point_boundaries_ holds information about
+  // WriteUnpreparecTxn::unflushed_save_points_ holds information about
   // savepoints on the current in-memory write_batch_. It simply records the
-  // size of the write batch at every savepoint. This information is actually
-  // already recorded in WriteBatch::save_points_, but because it is not easily
-  // accessible, it is duplicated here. If the contents of
-  // WriteBatch::save_points_ were exposed, and can be traversed in LIFO order,
-  // then we can get rid of save_point_boundaries_.
+  // size of the write batch at every savepoint.
+  //
+  // TODO(lth): Remove the redundancy between save_point_boundaries_ and
+  // write_batch_.save_points_.
   //
   // Based on this information, here are some invariants:
-  // size(save_point_boundaries_) == size(write_batch_.save_points_)
-  // size(wup_save_points_) + size(save_point_boundaries_) = size(save_points_)
+  // size(unflushed_save_points_) = size(write_batch_.save_points_)
+  // size(flushed_save_points_) + size(unflushed_save_points_)
+  //   = size(save_points_)
   //
-  std::unique_ptr<autovector<WriteUnpreparedTxn::SavePoint>> wup_save_points_;
-  std::unique_ptr<autovector<size_t>> save_point_boundaries_;
+  std::unique_ptr<autovector<WriteUnpreparedTxn::SavePoint>>
+      flushed_save_points_;
+  std::unique_ptr<autovector<size_t>> unflushed_save_points_;
 };
 
 }  // namespace rocksdb
