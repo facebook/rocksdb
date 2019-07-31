@@ -697,19 +697,19 @@ Status WriteUnpreparedTxn::RollbackToSavePointInternal() {
 
   // TODO(lth): Reduce duplicate code with RollbackInternal logic.
   ReadOptions roptions;
+  roptions.snapshot = top.snapshot_->snapshot();
+  SequenceNumber min_uncommitted =
+      static_cast_with_check<const SnapshotImpl, const Snapshot>(
+          roptions.snapshot)
+          ->min_uncommitted_;
+  SequenceNumber snap_seq = roptions.snapshot->GetSequenceNumber();
+  WriteUnpreparedTxnReadCallback callback(wupt_db_, snap_seq, min_uncommitted,
+                                          top.unprep_seqs_);
   const auto& cf_map = *wupt_db_->GetCFHandleMap();
   for (const auto& cfkey : tracked_keys) {
     const auto cfid = cfkey.first;
     const auto& keys = cfkey.second;
 
-    roptions.snapshot = top.snapshot_->snapshot();
-    SequenceNumber min_uncommitted =
-        static_cast_with_check<const SnapshotImpl, const Snapshot>(
-            roptions.snapshot)
-            ->min_uncommitted_;
-    SequenceNumber snap_seq = roptions.snapshot->GetSequenceNumber();
-    WriteUnpreparedTxnReadCallback callback(wupt_db_, snap_seq, min_uncommitted,
-                                            top.unprep_seqs_);
     for (const auto& pair : keys) {
       const auto& key = pair.first;
       const auto& cf_handle = cf_map.at(cfid);
