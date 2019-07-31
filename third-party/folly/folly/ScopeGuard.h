@@ -16,6 +16,11 @@
 
 #pragma once
 
+#include <folly/Traits.h>
+
+#include <utility>
+#include <type_traits>
+
 namespace folly {
 namespace scope_guard_detail {
 template <typename F>
@@ -31,7 +36,7 @@ class ScopeGuardImpl {
 };
 
 enum class ScopeGuardEnum {};
-template <typename Func, typename DecayedFunc = std::decay_t<Func>>
+template <typename Func, typename DecayedFunc = _t<std::decay<Func>>>
 ScopeGuardImpl<DecayedFunc> operator+(ScopeGuardEnum, Func&& func) {
   return ScopeGuardImpl<DecayedFunc>{std::forward<Func>(func)};
 }

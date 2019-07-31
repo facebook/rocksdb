@@ -30,6 +30,27 @@ template <class T>
 using is_trivially_copyable = std::is_trivially_copyable<T>;
 #endif
 
+/***
+ *  _t
+ *
+ *  Instead of:
+ *
+ *    using decayed = typename std::decay<T>::type;
+ *
+ *  With the C++14 standard trait aliases, we could use:
+ *
+ *    using decayed = std::decay_t<T>;
+ *
+ *  Without them, we could use:
+ *
+ *    using decayed = _t<std::decay<T>>;
+ *
+ *  Also useful for any other library with template types having dependent
+ *  member types named `type`, like the standard trait types.
+ */
+template <typename T>
+using _t = typename T::type;
+
 /**
  *  type_t
  *

@@ -307,7 +307,7 @@ endif
 export GTEST_THROW_ON_FAILURE=1
 export GTEST_HAS_EXCEPTIONS=1
 GTEST_DIR = ./third-party/gtest-1.7.0/fused-src
-FOLLY_DIR = ./third-party
+FOLLY_DIR = ./third-party/folly
 # AIX: pre-defined system headers are surrounded by an extern "C" block
 ifeq ($(PLATFORM), OS_AIX)
 	PLATFORM_CCFLAGS += -I$(GTEST_DIR) -I$(FOLLY_DIR)
@@ -403,6 +403,7 @@ endif
 
 LIBOBJECTS += $(TOOL_LIB_SOURCES:.cc=.o)
 MOCKOBJECTS = $(MOCK_LIB_SOURCES:.cc=.o)
+FOLLYOBJECTS = $(FOLLY_SOURCES:.cc=.o)
 
 GTEST = $(GTEST_DIR)/gtest/gtest-all.o
 TESTUTIL = ./test_util/testutil.o
@@ -1119,7 +1120,8 @@ trace_analyzer: tools/trace_analyzer.o $(ANALYZETOOLOBJECTS) $(LIBOBJECTS)
 block_cache_trace_analyzer: tools/block_cache_analyzer/block_cache_trace_analyzer_tool.o $(ANALYZETOOLOBJECTS) $(LIBOBJECTS)
 	$(AM_LINK)
 
-folly_synchronization_distributed_mutex_test: $(LIBOBJECTS) $(TESTHARNESS) third-party/folly/folly/synchronization/test/DistributedMutexTest.o
+folly_synchronization_distributed_mutex_test: $(LIBOBJECTS) $(TESTHARNESS) $(FOLLYOBJECTS) third-party/folly/folly/synchronization/test/DistributedMutexTest.o
+	$(AM_LINK)
 
 cache_bench: cache/cache_bench.o $(LIBOBJECTS) $(TESTUTIL)
 	$(AM_LINK)

@@ -80,21 +80,21 @@ class Indestructible final {
    */
   template <
       typename U = T,
-      std::enable_if_t<std::is_constructible<T, U&&>::value>* = nullptr,
-      std::enable_if_t<
-          !std::is_same<Indestructible<T>, remove_cvref_t<U>>::value>* =
+      _t<std::enable_if<std::is_constructible<T, U&&>::value>>* = nullptr,
+      _t<std::enable_if<
+          !std::is_same<Indestructible<T>, remove_cvref_t<U>>::value>>* =
           nullptr,
-      std::enable_if_t<!std::is_convertible<U&&, T>::value>* = nullptr>
+      _t<std::enable_if<!std::is_convertible<U&&, T>::value>>* = nullptr>
   explicit constexpr Indestructible(U&& u) noexcept(
       noexcept(T(std::declval<U>())))
       : storage_(std::forward<U>(u)) {}
   template <
       typename U = T,
-      std::enable_if_t<std::is_constructible<T, U&&>::value>* = nullptr,
-      std::enable_if_t<
-          !std::is_same<Indestructible<T>, remove_cvref_t<U>>::value>* =
+      _t<std::enable_if<std::is_constructible<T, U&&>::value>>* = nullptr,
+      _t<std::enable_if<
+          !std::is_same<Indestructible<T>, remove_cvref_t<U>>::value>>* =
           nullptr,
-      std::enable_if_t<std::is_convertible<U&&, T>::value>* = nullptr>
+      _t<std::enable_if<std::is_convertible<U&&, T>::value>>* = nullptr>
   /* implicit */ constexpr Indestructible(U&& u) noexcept(
       noexcept(T(std::declval<U>())))
       : storage_(std::forward<U>(u)) {}

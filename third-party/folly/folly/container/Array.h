@@ -20,6 +20,7 @@
 #include <utility>
 
 #include <folly/Traits.h>
+#include <folly/Utility.h>
 
 namespace folly {
 
@@ -61,7 +62,8 @@ namespace array_detail {
 template <typename MakeItem, std::size_t... Index>
 inline constexpr auto make_array_with(
     MakeItem const& make,
-    std::index_sequence<Index...>) {
+    folly::index_sequence<Index...>)
+      -> std::array<decltype(make(0)), sizeof...(Index)> {
   return std::array<decltype(make(0)), sizeof...(Index)>{{make(Index)...}};
 }
 } // namespace array_detail
@@ -70,8 +72,13 @@ inline constexpr auto make_array_with(
 //
 //  Constructs a std::array<..., Size> with elements m(i) for i in [0, Size).
 template <std::size_t Size, typename MakeItem>
-constexpr auto make_array_with(MakeItem const& make) {
-  return array_detail::make_array_with(make, std::make_index_sequence<Size>{});
+constexpr auto make_array_with(MakeItem const& make)
+    -> decltype(array_detail::make_array_with(
+          make,
+          folly::make_index_sequence<Size>{})) {
+  return array_detail::make_array_with(
+      make,
+      folly::make_index_sequence<Size>{});
 }
 
 } // namespace folly

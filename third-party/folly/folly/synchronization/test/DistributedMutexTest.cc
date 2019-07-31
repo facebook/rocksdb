@@ -27,8 +27,6 @@
 #include <cmath>
 #include <thread>
 
-using namespace std::literals;
-
 namespace folly {
 namespace test {
 template <template <typename> class Atomic>
@@ -39,7 +37,7 @@ using TestDistributedMutex =
 namespace {
 constexpr auto kStressFactor = 1000;
 constexpr auto kStressTestSeconds = 2;
-constexpr auto kForever = 100h;
+constexpr auto kForever = std::chrono::hours{100};
 
 int sum(int n) {
   return (n * (n + 1)) / 2;
@@ -52,10 +50,10 @@ void basicNThreads(int numThreads, int iterations = kStressFactor) {
   auto&& threads = std::vector<std::thread>{};
   auto&& result = std::vector<int>{};
 
-  auto&& function = [&](auto id) {
+  auto&& function = [&](int id) {
     return [&, id] {
       for (auto j = 0; j < iterations; ++j) {
-        auto lck = std::unique_lock<std::decay_t<decltype(mutex)>>{mutex};
+        auto lck = std::unique_lock<_t<std::decay<decltype(mutex)>>>{mutex};
         EXPECT_EQ(barrier.fetch_add(1, std::memory_order_relaxed), 0);
         std::this_thread::yield();
         result.push_back(id);
@@ -89,7 +87,7 @@ void lockWithTryAndTimedNThreads(
 
   auto&& lockUnlockFunction = [&]() {
     while (!stop.load()) {
-      auto lck = std::unique_lock<std::decay_t<decltype(mutex)>>{mutex};
+      auto lck = std::unique_lock<_t<std::decay<decltype(mutex)>>>{mutex};
       EXPECT_EQ(barrier.fetch_add(1, std::memory_order_relaxed), 0);
       std::this_thread::yield();
       EXPECT_EQ(barrier.fetch_sub(1, std::memory_order_relaxed), 1);
@@ -98,7 +96,7 @@ void lockWithTryAndTimedNThreads(
 
   auto tryLockFunction = [&]() {
     while (!stop.load()) {
-      using Mutex = std::decay_t<decltype(mutex)>;
+      using Mutex = _t<std::decay<decltype(mutex)>>;
       auto lck = std::unique_lock<Mutex>{mutex, std::defer_lock};
       if (lck.try_lock()) {
         EXPECT_EQ(barrier.fetch_add(1, std::memory_order_relaxed), 0);
@@ -110,7 +108,7 @@ void lockWithTryAndTimedNThreads(
 
   auto timedLockFunction = [&]() {
     while (!stop.load()) {
-      using Mutex = std::decay_t<decltype(mutex)>;
+      using Mutex = _t<std::decay<decltype(mutex)>>;
       auto lck = std::unique_lock<Mutex>{mutex, std::defer_lock};
       if (lck.try_lock_for(kForever)) {
         EXPECT_EQ(barrier.fetch_add(1, std::memory_order_relaxed), 0);
@@ -191,7 +189,7 @@ void combineWithLockNThreads(int numThreads, std::chrono::seconds duration) {
 
   auto&& lockUnlockFunction = [&]() {
     while (!stop.load()) {
-      auto lck = std::unique_lock<std::decay_t<decltype(mutex)>>{mutex};
+      auto lck = std::unique_lock<_t<std::decay<decltype(mutex)>>>{mutex};
       EXPECT_EQ(barrier.fetch_add(1, std::memory_order_relaxed), 0);
       std::this_thread::yield();
       EXPECT_EQ(barrier.fetch_sub(1, std::memory_order_relaxed), 1);
@@ -246,7 +244,7 @@ void combineWithTryLockNThreads(int numThreads, std::chrono::seconds duration) {
 
   auto&& lockUnlockFunction = [&]() {
     while (!stop.load()) {
-      auto lck = std::unique_lock<std::decay_t<decltype(mutex)>>{mutex};
+      auto lck = std::unique_lock<_t<std::decay<decltype(mutex)>>>{mutex};
       EXPECT_EQ(barrier.fetch_add(1, std::memory_order_relaxed), 0);
       std::this_thread::yield();
       EXPECT_EQ(barrier.fetch_sub(1, std::memory_order_relaxed), 1);
@@ -279,7 +277,7 @@ void combineWithTryLockNThreads(int numThreads, std::chrono::seconds duration) {
 
   auto tryLockFunction = [&]() {
     while (!stop.load()) {
-      using Mutex = std::decay_t<decltype(mutex)>;
+      using Mutex = _t<std::decay<decltype(mutex)>>;
       auto lck = std::unique_lock<Mutex>{mutex, std::defer_lock};
       if (lck.try_lock()) {
         EXPECT_EQ(barrier.fetch_add(1, std::memory_order_relaxed), 0);
@@ -318,7 +316,7 @@ void combineWithLockTryAndTimedNThreads(
 
   auto&& lockUnlockFunction = [&]() {
     while (!stop.load()) {
-      auto lck = std::unique_lock<std::decay_t<decltype(mutex)>>{mutex};
+      auto lck = std::unique_lock<_t<std::decay<decltype(mutex)>>>{mutex};
       EXPECT_EQ(barrier.fetch_add(1, std::memory_order_relaxed), 0);
       std::this_thread::yield();
       EXPECT_EQ(barrier.fetch_sub(1, std::memory_order_relaxed), 1);
@@ -365,7 +363,7 @@ void combineWithLockTryAndTimedNThreads(
 
   auto tryLockFunction = [&]() {
     while (!stop.load()) {
-      using Mutex = std::decay_t<decltype(mutex)>;
+      using Mutex = _t<std::decay<decltype(mutex)>>;
       auto lck = std::unique_lock<Mutex>{mutex, std::defer_lock};
       if (lck.try_lock()) {
         EXPECT_EQ(barrier.fetch_add(1, std::memory_order_relaxed), 0);
@@ -377,7 +375,7 @@ void combineWithLockTryAndTimedNThreads(
 
   auto timedLockFunction = [&]() {
     while (!stop.load()) {
-      using Mutex = std::decay_t<decltype(mutex)>;
+      using Mutex = _t<std::decay<decltype(mutex)>>;
       auto lck = std::unique_lock<Mutex>{mutex, std::defer_lock};
       if (lck.try_lock_for(kForever)) {
         EXPECT_EQ(barrier.fetch_add(1, std::memory_order_relaxed), 0);
@@ -627,17 +625,6 @@ TEST(DistributedMutex, StressTryLock) {
   }
 }
 
-namespace {
-constexpr auto numIterationsDeterministicTest(int threads) {
-  if (threads <= 8) {
-    return 100;
-  }
-
-  return 10;
-}
-
-} // namespace
-
 TEST(DistributedMutex, TimedLockTimeout) {
   auto&& mutex = folly::DistributedMutex{};
   auto&& start = folly::Baton<>{};
@@ -651,7 +638,7 @@ TEST(DistributedMutex, TimedLockTimeout) {
   }};
 
   start.wait();
-  auto result = mutex.try_lock_for(10ms);
+  auto result = mutex.try_lock_for(std::chrono::milliseconds{10});
   EXPECT_FALSE(result);
   done.post();
   thread.join();
@@ -665,7 +652,7 @@ TEST(DistributedMutex, TimedLockAcquireAfterUnlock) {
     auto state = mutex.lock();
     start.post();
     /* sleep override */
-    std::this_thread::sleep_for(10ms);
+    std::this_thread::sleep_for(std::chrono::milliseconds{10});
     mutex.unlock(std::move(state));
   }};
 
@@ -889,7 +876,7 @@ TEST(DistributedMutex, TestAppropriateDestructionAndConstructionWithCombine) {
       EXPECT_EQ(TestConstruction::copyAssigns().load(), 0);
 
       // increase duration by 100ms each iteration
-      duration = duration + 100ms;
+      duration = duration + std::chrono::milliseconds{100};
     }
   }};
 

@@ -16,14 +16,15 @@
 
 #pragma once
 
+#include <folly/Traits.h>
+
 #include <functional>
 #include <type_traits>
 
 namespace folly {
 namespace invoke_detail {
 template <typename F, typename... Args>
-using invoke_result_ =
-    decltype(invoke(std::declval<F>(), std::declval<Args>()...));
+using invoke_result_ = decltype(std::declval<F>()(std::declval<Args>()...));
 
 template <typename Void, typename F, typename... Args>
 struct is_invocable : std::false_type {};

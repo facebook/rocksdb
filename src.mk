@@ -262,6 +262,13 @@ TEST_LIB_SOURCES =                                              \
   test_util/testutil.cc                                         \
   utilities/cassandra/test_utils.cc                             \
 
+FOLLY_SOURCES = \
+  third-party/folly/folly/detail/Futex.cc                                     \
+  third-party/folly/folly/synchronization/AtomicNotification.cc               \
+  third-party/folly/folly/synchronization/DistributedMutex.cc                 \
+  third-party/folly/folly/synchronization/ParkingLot.cc                       \
+  third-party/folly/folly/synchronization/WaitOptions.cc                      \
+
 MAIN_SOURCES =                                                          \
   cache/cache_bench.cc                                                  \
   cache/cache_test.cc                                                   \
@@ -348,12 +355,6 @@ MAIN_SOURCES =                                                          \
   env/env_basic_test.cc                                                 \
   env/env_test.cc                                                       \
   env/mock_env_test.cc                                                  \
-  third-party/folly/detail/Futex.cc                                     \
-  third-party/folly/synchronization/AtomicNotification.cc               \
-  third-party/folly/synchronization/DistributedMutex.cc                 \
-  third-party/folly/synchronization/ParkingLot.cc                       \
-  third-party/folly/synchronization/WaitOptions.cc                      \
-  third-party/folly/synchronization/test/DistributedMutexTest.cc        \
   logging/auto_roll_logger_test.cc                                      \
   logging/env_logger_test.cc                                            \
   logging/event_logger_test.cc                                          \

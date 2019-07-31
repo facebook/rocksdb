@@ -18,6 +18,7 @@
 #include <folly/ConstexprMath.h>
 #include <folly/Portability.h>
 #include <folly/ScopeGuard.h>
+#include <folly/Utility.h>
 #include <folly/chrono/Hardware.h>
 #include <folly/detail/Futex.h>
 #include <folly/lang/Align.h>
@@ -160,6 +161,12 @@ constexpr auto kMaxCombineIterations = 2;
 template <template <typename> class Atomic>
 class WakerMetadata {
  public:
+  explicit WakerMetadata(
+      std::uintptr_t waker = 0,
+      std::uintptr_t waiters = 0,
+      std::uint32_t sleeper = kUninitialized)
+    : waker_{waker}, waiters_{waiters}, sleeper_{sleeper} {}
+
   // This is the thread that initiated wakeups for the contention chain.
   // There can only ever be one thread that initiates the wakeup for a
   // chain in the spin only version of this mutex.  When a thread that just
@@ -343,7 +350,7 @@ class Waiter {
     // knowledge of the return type and can apply the appropriate
     // reinterpret_cast and launder operation to safely retrieve the data from
     // this buffer
-    std::aligned_storage_t<48, 8> storage_;
+    _t<std::aligned_storage<48, 8>> storage_;
   };
   std::array<std::uint8_t, hardware_destructive_interference_size> padding2;
 };
@@ -433,10 +440,10 @@ class RequestWithoutReturn {
 // std::integral_constant::operator T() because MSVC errors out with the
 // implicit conversion
 template <typename Func>
-using Request = std::conditional_t<
+using Request = _t<std::conditional<
     std::is_void<decltype(std::declval<const Func&>()())>::value,
     RequestWithoutReturn<Func>,
-    RequestWithReturn<Func>>;
+    RequestWithReturn<Func>>>;
 
 /**
  * A template that helps us to transform a callable returning a value to one
@@ -517,9 +524,10 @@ class TaskWithBigReturnValue {
   static const auto kReturnValueAlignment = folly::constexpr_max(
       alignof(ReturnType),
       folly::hardware_destructive_interference_size);
-  using StorageType = std::aligned_storage_t<
-      sizeof(std::aligned_storage_t<sizeof(ReturnType), kReturnValueAlignment>),
-      kReturnValueAlignment>;
+  using StorageType = _t<std::aligned_storage<
+      sizeof(
+          _t<std::aligned_storage<sizeof(ReturnType), kReturnValueAlignment>>),
+      kReturnValueAlignment>>;
 
   explicit TaskWithBigReturnValue(Func func, Waiter&)
       : func_{std::move(func)} {}
@@ -556,14 +564,14 @@ struct Sizeof : Sizeof_<T, std::is_void<T>::value> {};
 // std::integral_constant::operator T() because MSVC errors out with the
 // implicit conversion
 template <typename Func, typename Waiter>
-using CoalescedTask = std::conditional_t<
+using CoalescedTask = _t<std::conditional<
     std::is_void<decltype(std::declval<const Func&>()())>::value,
     TaskWithoutCoalesce<Func, Waiter>,
-    std::conditional_t<
+    _t<std::conditional<
         Sizeof<decltype(std::declval<const Func&>()())>::value <=
             sizeof(Waiter::storage_),
         TaskWithCoalesce<Func, Waiter>,
-        TaskWithBigReturnValue<Func, Waiter>>>;
+        TaskWithBigReturnValue<Func, Waiter>>>>>;
 
 /**
  * Given a request and a wait node, coalesce them into a CoalescedTask that
@@ -724,7 +732,7 @@ Type* extractPtr(std::uintptr_t from) {
   auto mask = std::numeric_limits<std::uintptr_t>::max();
   mask >>= 1;
   mask <<= 1;
-  CHECK(!(mask & 0b1));
+  assert(!(mask & 0b1));
 
   return folly::bit_cast<Type*>(from & mask);
 }
@@ -760,13 +768,13 @@ class DistributedMutex<Atomic, TimePublishing>::DistributedMutexStateProxy {
   DistributedMutexStateProxy& operator=(DistributedMutexStateProxy&& other) {
     assert(!(*this));
 
-    next_ = std::exchange(other.next_, nullptr);
-    expected_ = std::exchange(other.expected_, 0);
-    timedWaiters_ = std::exchange(other.timedWaiters_, false);
-    combined_ = std::exchange(other.combined_, false);
-    waker_ = std::exchange(other.waker_, 0);
-    waiters_ = std::exchange(other.waiters_, nullptr);
-    ready_ = std::exchange(other.ready_, nullptr);
+    next_ = folly::exchange(other.next_, nullptr);
+    expected_ = folly::exchange(other.expected_, 0);
+    timedWaiters_ = folly::exchange(other.timedWaiters_, false);
+    combined_ = folly::exchange(other.combined_, false);
+    waker_ = folly::exchange(other.waker_, 0);
+    waiters_ = folly::exchange(other.waiters_, nullptr);
+    ready_ = folly::exchange(other.ready_, nullptr);
 
     return *this;
   }
@@ -994,7 +1002,7 @@ bool doFutexWait(Waiter* waiter, Waiter*& next) {
   while (pre != kWake) {
     // before enqueueing on the futex, we wake any waiters that we were
     // possibly responsible for
-    doFutexWake(std::exchange(next, nullptr));
+    doFutexWake(folly::exchange(next, nullptr));
 
     // then we wait on the futex
     //
@@ -1092,7 +1100,8 @@ DistributedMutex<Atomic, TimePublishing>::lock() {
 }
 
 template <typename Atomic, template <typename> class A, bool T>
-auto tryLockNoLoad(Atomic& atomic, DistributedMutex<A, T>&) {
+auto tryLockNoLoad(Atomic& atomic, DistributedMutex<A, T>&)
+    -> typename DistributedMutex<A, T>::DistributedMutexStateProxy {
   // Try and set the least significant bit of the centralized lock state to 1,
   // if this succeeds, it must have been the case that we had a kUnlocked (or
   // 0) in the central storage before, since that is the only case where a 0
@@ -1365,7 +1374,7 @@ inline std::uintptr_t tryWake(
     // new to set the relevant metadata without calling any destructor.  We
     // need to use placement new because the class contains a futex, which is
     // non-movable and non-copyable
-    using Metadata = std::decay_t<decltype(waiter->metadata_)>;
+    using Metadata = _t<std::decay<decltype(waiter->metadata_)>>;
     static_assert(std::is_trivially_destructible<Metadata>{}, "");
 
     // we need release here because of the write to waker_ and also because we
@@ -1385,7 +1394,7 @@ inline std::uintptr_t tryWake(
   // if a thread was preempted it must have stored next_ in the waiter struct,
   // as the store to futex_ that resets the value from kUninitialized happens
   // after the write to next
-  CHECK(publishing);
+  assert(publishing);
   if (!isSleeper(value)) {
     // go on to the next one
     //
@@ -1487,7 +1496,7 @@ bool wake(
     // we need to read the value of the next node in the list before skipping
     // it, this is because after we skip it the node might wake up and enqueue
     // itself, and thereby gain a new next node
-    CHECK(publishing);
+    assert(publishing);
     current = (next == waker) ? nullptr : extractPtr<Waiter>(next);
   }
 
@@ -1576,7 +1585,7 @@ void DistributedMutex<Atomic, Publish>::unlock(
     auto head = state_.exchange(kLocked, std::memory_order_acq_rel);
     recordTimedWaiterAndClearTimedBit(proxy.timedWaiters_, head);
     auto next = extractPtr<Waiter<Atomic>>(head);
-    auto expected = std::exchange(proxy.expected_, kLocked);
+    auto expected = folly::exchange(proxy.expected_, kLocked);
     assert((head & kLocked) && (head != kLocked));
     if (wake(Publish, *next, expected, sleepers, i)) {
       break;
@@ -1585,7 +1594,8 @@ void DistributedMutex<Atomic, Publish>::unlock(
 }
 
 template <typename Atomic, typename Deadline, typename MakeProxy>
-auto timedLock(Atomic& state, Deadline deadline, MakeProxy proxy) {
+auto timedLock(Atomic& state, Deadline deadline, MakeProxy proxy)
+    -> decltype(std::declval<MakeProxy&>()(nullptr, kLocked, true)) {
   while (true) {
     // we put a bit on the central state to show that there is a timed waiter
     // and go to sleep on the central state
@@ -1665,7 +1675,12 @@ DistributedMutex<Atomic, TimePublishing>::try_lock_until(
 
   // fall back to the timed locking algorithm
   using Proxy = DistributedMutexStateProxy;
-  return timedLock(state_, deadline, [](auto... as) { return Proxy{as...}; });
+  return timedLock(
+      state_,
+      deadline,
+      [](Waiter<Atomic>* next, std::uintptr_t expected, bool timedWaiter) {
+        return Proxy{next, expected, timedWaiter};
+      });
 }
 
 template <template <typename> class Atomic, bool TimePublishing>
@@ -1682,7 +1697,12 @@ DistributedMutex<Atomic, TimePublishing>::try_lock_for(
   // fall back to the timed locking algorithm
   using Proxy = DistributedMutexStateProxy;
   auto deadline = std::chrono::steady_clock::now() + duration;
-  return timedLock(state_, deadline, [](auto... as) { return Proxy{as...}; });
+  return timedLock(
+      state_,
+      deadline,
+      [](Waiter<Atomic>* next, std::uintptr_t expected, bool timedWaiter) {
+        return Proxy{next, expected, timedWaiter};
+      });
 }
 } // namespace distributed_mutex
 } // namespace detail

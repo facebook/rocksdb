@@ -16,6 +16,8 @@
 
 #pragma once
 
+#include <folly/Traits.h>
+
 #include <cstdint>
 #include <cstring>
 #include <type_traits>
@@ -25,10 +27,10 @@ namespace folly {
 template <
     typename To,
     typename From,
-    std::enable_if_t<
+    _t<std::enable_if<
         sizeof(From) == sizeof(To) && std::is_trivial<To>::value &&
             is_trivially_copyable<From>::value,
-        int> = 0>
+        int>> = 0>
 To bit_cast(const From& src) noexcept {
   To to;
   std::memcpy(&to, &src, sizeof(From));

@@ -42,7 +42,8 @@ template <typename Mutex>
 class ProxyLockableUniqueLock {
  public:
   using mutex_type = Mutex;
-  using proxy_type = std::decay_t<decltype(std::declval<mutex_type>().lock())>;
+  using proxy_type =
+      _t<std::decay<decltype(std::declval<mutex_type>().lock())>>;
 
   /**
    * Default constructor initializes the unique_lock to an empty state

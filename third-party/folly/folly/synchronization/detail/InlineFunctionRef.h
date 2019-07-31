@@ -69,7 +69,7 @@ class InlineFunctionRef;
 template <typename ReturnType, typename... Args, std::size_t Size>
 class InlineFunctionRef<ReturnType(Args...), Size> {
   using Storage =
-      std::aligned_storage_t<Size - sizeof(uintptr_t), sizeof(uintptr_t)>;
+      _t<std::aligned_storage<Size - sizeof(uintptr_t), sizeof(uintptr_t)>>;
   using Call = ReturnType (*)(const Storage&, Args&&...);
 
   struct InSituTag {};
@@ -87,12 +87,12 @@ class InlineFunctionRef<ReturnType(Args...), Size> {
   //
   // This requires that the we pass in a type that is not ref-qualified.
   template <typename Func>
-  using ConstructMode = std::conditional_t<
+  using ConstructMode = _t<std::conditional<
       folly::is_trivially_copyable<Func>{} &&
           (sizeof(Func) <= sizeof(Storage)) &&
           (alignof(Func) <= alignof(Storage)),
       InSituTag,
-      RefTag>;
+      RefTag>>;
 
  public:
   /**
@@ -129,12 +129,12 @@ class InlineFunctionRef<ReturnType(Args...), Size> {
    */
   template <
       typename Func,
-      std::enable_if_t<
-          !std::is_same<std::decay_t<Func>, InlineFunctionRef>{} &&
+      _t<std::enable_if<
+          !std::is_same<_t<std::decay<Func>>, InlineFunctionRef>{} &&
           !std::is_reference<Func>{} &&
           std::is_convertible<
               decltype(std::declval<Func&&>()(std::declval<Args&&>()...)),
-              ReturnType>{}>* = nullptr>
+              ReturnType>{}>>* = nullptr>
   InlineFunctionRef(Func&& func) {
     // We disallow construction from lvalues, so assert that this is not a
     // reference type.  When invoked with an lvalue, Func is a lvalue
@@ -171,7 +171,7 @@ class InlineFunctionRef<ReturnType(Args...), Size> {
    */
   template <typename Func>
   void construct(InSituTag, const Func& func) {
-    using Value = std::remove_reference_t<Func>;
+    using Value = _t<std::remove_reference<Func>>;
 
     // Assert that the following two assumptions are valid
     //    1) fit in the storage space we have and match alignments, and
@@ -179,7 +179,7 @@ class InlineFunctionRef<ReturnType(Args...), Size> {
     //       callable into inline storage if it makes state local
     //       modifications.
     static_assert(alignof(Value) <= alignof(Storage), "");
-    static_assert(is_invocable<const std::decay_t<Func>, Args&&...>{}, "");
+    static_assert(is_invocable<const _t<std::decay<Func>>, Args&&...>{}, "");
     static_assert(folly::is_trivially_copyable<Value>{}, "");
 
     new (&storage_) Value{func};
@@ -193,7 +193,7 @@ class InlineFunctionRef<ReturnType(Args...), Size> {
   template <typename Func>
   void construct(RefTag, const Func& func) {
     // store a pointer to the function
-    using Pointer = std::add_pointer_t<std::remove_reference_t<Func>>;
+    using Pointer = _t<std::add_pointer<_t<std::remove_reference<Func>>>>;
     new (&storage_) Pointer{&func};
     call_ = &callPointer<Pointer>;
   }
@@ -204,7 +204,7 @@ class InlineFunctionRef<ReturnType(Args...), Size> {
     // pointer types are invocable.
     static_assert(
         !std::is_pointer<Func>::value ||
-            std::is_function<std::remove_pointer_t<Func>>::value,
+            std::is_function<_t<std::remove_pointer<Func>>>::value,
         "");
     return (*folly::launder(reinterpret_cast<const Func*>(&object)))(
         static_cast<Args&&>(args)...);

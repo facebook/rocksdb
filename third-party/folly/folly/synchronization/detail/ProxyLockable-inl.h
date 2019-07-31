@@ -17,6 +17,7 @@
 
 #include <folly/Optional.h>
 #include <folly/Portability.h>
+#include <folly/Utility.h>
 
 #include <cassert>
 #include <memory>
@@ -76,7 +77,7 @@ template <typename Mutex>
 ProxyLockableUniqueLock<Mutex>& ProxyLockableUniqueLock<Mutex>::operator=(
     ProxyLockableUniqueLock&& other) noexcept {
   proxy_ = std::move(other.proxy_);
-  mutex_ = std::exchange(other.mutex_, nullptr);
+  mutex_ = folly::exchange(other.mutex_, nullptr);
   return *this;
 }
 
