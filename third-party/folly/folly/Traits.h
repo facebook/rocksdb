@@ -20,15 +20,9 @@
 
 namespace folly {
 
-// Older versions of libstdc++ do not provide std::is_trivially_copyable
-#if defined(__clang__) && !defined(_LIBCPP_VERSION)
 template <class T>
 struct is_trivially_copyable
-    : std::integral_constant<bool, __is_trivially_copyable(T)> {};
-#else
-template <class T>
-using is_trivially_copyable = std::is_trivially_copyable<T>;
-#endif
+    : std::integral_constant<bool, __has_trivial_copy(T)> {};
 
 /***
  *  _t

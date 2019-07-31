@@ -232,7 +232,7 @@ class Waiter {
     // task, otherwise
     if (task) {
       assert(futex == kCombineUninitialized);
-      new (&function_) CombineFunction{task};
+      new (&function_) CombineFunction(task);
     } else {
       assert((futex == kUninitialized) || (futex == kAboutToWait));
       new (&metadata_) WakerMetadata<Atomic>{};
@@ -478,11 +478,11 @@ class TaskWithCoalesce {
   using ReturnType = decltype(std::declval<const Func&>()());
   using StorageType = folly::Unit;
   explicit TaskWithCoalesce(Func func, Waiter& waiter)
-      : func_{std::move(func)}, waiter_{waiter} {}
+      : func_{std::move(func)}, waiter_(waiter) {}
 
   void operator()() const {
     auto value = func_();
-    new (&waiter_.storage_) ReturnType{std::move(value)};
+    new (&waiter_.storage_) ReturnType(std::move(value));
   }
 
  private:
@@ -535,7 +535,7 @@ class TaskWithBigReturnValue {
   void operator()() const {
     assert(storage_);
     auto value = func_();
-    new (storage_) ReturnType{std::move(value)};
+    new (storage_) ReturnType(std::move(value));
   }
 
   void attach(StorageType* storage) {
@@ -687,7 +687,7 @@ void detach(
   static_assert(sizeof(waiter.storage_) >= sizeof(ReturnType), "");
 
   auto& val = *folly::launder(reinterpret_cast<ReturnType*>(&waiter.storage_));
-  new (&request.value_) ReturnType{std::move(val)};
+  new (&request.value_) ReturnType(std::move(val));
   val.~ReturnType();
 }
 
@@ -704,7 +704,7 @@ void detach(
   static_assert(sizeof(storage) >= sizeof(ReturnType), "");
 
   auto& val = *folly::launder(reinterpret_cast<ReturnType*>(&storage));
-  new (&request.value_) ReturnType{std::move(val)};
+  new (&request.value_) ReturnType(std::move(val));
   val.~ReturnType();
 }
 
@@ -1306,7 +1306,7 @@ CombineFunction loadTask(Waiter* current, std::uintptr_t value) {
 template <typename Waiter>
 void transferCurrentException(Waiter* waiter) {
   assert(std::current_exception());
-  new (&waiter->storage_) std::exception_ptr{std::current_exception()};
+  new (&waiter->storage_) std::exception_ptr(std::current_exception());
   waiter->futex_.store(kExceptionOccurred, std::memory_order_release);
 }
 
@@ -1380,7 +1380,7 @@ inline std::uintptr_t tryWake(
     // we need release here because of the write to waker_ and also because we
     // are unlocking the mutex, the thread we do the handoff to here should
     // see the modified data
-    new (&waiter->metadata_) Metadata{waker, bit_cast<uintptr_t>(sleepers)};
+    new (&waiter->metadata_) Metadata(waker, bit_cast<uintptr_t>(sleepers));
     waiter->futex_.store(kWake, std::memory_order_release);
     return 0;
   }
