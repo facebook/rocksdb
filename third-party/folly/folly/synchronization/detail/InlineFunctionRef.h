@@ -193,9 +193,9 @@ class InlineFunctionRef<ReturnType(Args...), Size> {
   template <typename Func>
   void construct(RefTag, const Func& func) {
     // store a pointer to the function
-    using Pointer = _t<std::add_pointer<_t<std::remove_reference<Func>>>>;
-    new (&storage_) Pointer{&func};
-    call_ = &callPointer<Pointer>;
+    using Ptr = _t<std::add_pointer<_t<std::remove_reference<const Func&>>>>;
+    new (&storage_) Ptr{&func};
+    call_ = &callPointer<Ptr>;
   }
 
   template <typename Func>

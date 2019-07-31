@@ -10,6 +10,8 @@
 
 #include <string>
 
+#include <folly/synchronization/DistributedMutex.h>
+
 #include "cache/sharded_cache.h"
 
 #include "port/port.h"
@@ -285,7 +287,8 @@ class ALIGN_AS(CACHE_LINE_SIZE) LRUCacheShard final : public CacheShard {
   // mutex_ protects the following state.
   // We don't count mutex_ as the cache's internal state so semantically we
   // don't mind mutex_ invoking the non-const actions.
-  mutable port::Mutex mutex_;
+  alignas(folly::hardware_destructive_interference_size) mutable
+      folly::DistributedMutex mutex_;
 };
 
 class LRUCache

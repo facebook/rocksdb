@@ -1593,7 +1593,7 @@ statistics_test: monitoring/statistics_test.o $(LIBOBJECTS) $(TESTHARNESS)
 stats_history_test: monitoring/stats_history_test.o db/db_test_util.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
-lru_cache_test: cache/lru_cache_test.o $(LIBOBJECTS) $(TESTHARNESS)
+lru_cache_test: $(LIBOBJECTS) $(TESTHARNESS) $(FOLLYOBJECTS) cache/lru_cache_test.o
 	$(AM_LINK)
 
 range_del_aggregator_test: db/range_del_aggregator_test.o db/db_test_util.o $(LIBOBJECTS) $(TESTHARNESS)

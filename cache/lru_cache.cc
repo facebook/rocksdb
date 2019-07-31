@@ -97,7 +97,7 @@ void LRUHandleTable::Resize() {
 
 LRUCacheShard::LRUCacheShard(size_t capacity, bool strict_capacity_limit,
                              double high_pri_pool_ratio,
-                             bool use_adaptive_mutex)
+                             bool /* use_adaptive_mutex */)
     : capacity_(0),
       high_pri_pool_usage_(0),
       strict_capacity_limit_(strict_capacity_limit),
@@ -105,7 +105,7 @@ LRUCacheShard::LRUCacheShard(size_t capacity, bool strict_capacity_limit,
       high_pri_pool_capacity_(0),
       usage_(0),
       lru_usage_(0),
-      mutex_(use_adaptive_mutex) {
+      mutex_() {
   // Make empty circular linked list
   lru_.next = &lru_;
   lru_.prev = &lru_;
@@ -115,8 +115,7 @@ LRUCacheShard::LRUCacheShard(size_t capacity, bool strict_capacity_limit,
 
 void LRUCacheShard::EraseUnRefEntries() {
   autovector<LRUHandle*> last_reference_list;
-  {
-    MutexLock l(&mutex_);
+  mutex_.lock_combine([this, &last_reference_list]() {
     while (lru_.next != &lru_) {
       LRUHandle* old = lru_.next;
       // LRU list contains only elements which can be evicted
@@ -127,7 +126,7 @@ void LRUCacheShard::EraseUnRefEntries() {
       usage_ -= old->charge;
       last_reference_list.push_back(old);
     }
-  }
+  });
 
   for (auto entry : last_reference_list) {
     entry->Free();
@@ -136,39 +135,41 @@ void LRUCacheShard::EraseUnRefEntries() {
 
 void LRUCacheShard::ApplyToAllCacheEntries(void (*callback)(void*, size_t),
                                            bool thread_safe) {
-  const auto applyCallback = [&]() {
+  const auto applyCallback = [this, callback, thread_safe]() {
     table_.ApplyToAllCacheEntries(
         [callback](LRUHandle* h) { callback(h->value, h->charge); });
   };
 
   if (thread_safe) {
-    MutexLock l(&mutex_);
-    applyCallback();
+    mutex_.lock_combine(applyCallback);
   } else {
     applyCallback();
   }
 }
 
 void LRUCacheShard::TEST_GetLRUList(LRUHandle** lru, LRUHandle** lru_low_pri) {
-  MutexLock l(&mutex_);
-  *lru = &lru_;
-  *lru_low_pri = lru_low_pri_;
+  mutex_.lock_combine([&]() {
+    *lru = &lru_;
+    *lru_low_pri = lru_low_pri_;
+  });
 }
 
 size_t LRUCacheShard::TEST_GetLRUSize() {
-  MutexLock l(&mutex_);
-  LRUHandle* lru_handle = lru_.next;
-  size_t lru_size = 0;
-  while (lru_handle != &lru_) {
-    lru_size++;
-    lru_handle = lru_handle->next;
-  }
-  return lru_size;
+  return mutex_.lock_combine([&]() {
+    LRUHandle* lru_handle = lru_.next;
+    size_t lru_size = 0;
+    while (lru_handle != &lru_) {
+      lru_size++;
+      lru_handle = lru_handle->next;
+    }
+    return lru_size;
+  });
 }
 
 double LRUCacheShard::GetHighPriPoolRatio() {
-  MutexLock l(&mutex_);
-  return high_pri_pool_ratio_;
+  return mutex_.lock_combine([this]() {
+    return high_pri_pool_ratio_;
+  });
 }
 
 void LRUCacheShard::LRU_Remove(LRUHandle* e) {
@@ -238,12 +239,11 @@ void LRUCacheShard::EvictFromLRU(size_t charge,
 
 void LRUCacheShard::SetCapacity(size_t capacity) {
   autovector<LRUHandle*> last_reference_list;
-  {
-    MutexLock l(&mutex_);
+  mutex_.lock_combine([this, capacity, &last_reference_list]() {
     capacity_ = capacity;
     high_pri_pool_capacity_ = capacity_ * high_pri_pool_ratio_;
     EvictFromLRU(0, &last_reference_list);
-  }
+  });
 
   // Free the entries outside of mutex for performance reasons
   for (auto entry : last_reference_list) {
@@ -252,49 +252,55 @@ void LRUCacheShard::SetCapacity(size_t capacity) {
 }
 
 void LRUCacheShard::SetStrictCapacityLimit(bool strict_capacity_limit) {
-  MutexLock l(&mutex_);
-  strict_capacity_limit_ = strict_capacity_limit;
+  mutex_.lock_combine([this, strict_capacity_limit]() {
+    strict_capacity_limit_ = strict_capacity_limit;
+  });
 }
 
 Cache::Handle* LRUCacheShard::Lookup(const Slice& key, uint32_t hash) {
-  MutexLock l(&mutex_);
-  LRUHandle* e = table_.Lookup(key, hash);
-  if (e != nullptr) {
-    assert(e->InCache());
-    if (!e->HasRefs()) {
-      // The entry is in LRU since it's in hash and has no external references
-      LRU_Remove(e);
+  return mutex_.lock_combine([this, key, hash]() {
+    LRUHandle* e = table_.Lookup(key, hash);
+    if (e != nullptr) {
+      assert(e->InCache());
+      if (!e->HasRefs()) {
+        // The entry is in LRU since it's in hash and has no external references
+        LRU_Remove(e);
+      }
+      e->Ref();
+      e->SetHit();
     }
-    e->Ref();
-    e->SetHit();
-  }
-  return reinterpret_cast<Cache::Handle*>(e);
+    return reinterpret_cast<Cache::Handle*>(e);
+  });
 }
 
 bool LRUCacheShard::Ref(Cache::Handle* h) {
-  LRUHandle* e = reinterpret_cast<LRUHandle*>(h);
-  MutexLock l(&mutex_);
-  // To create another reference - entry must be already externally referenced
-  assert(e->HasRefs());
-  e->Ref();
+  mutex_.lock_combine([this, h]() {
+    LRUHandle* e = reinterpret_cast<LRUHandle*>(h);
+    // To create another reference - entry must be already externally referenced
+    assert(e->HasRefs());
+    e->Ref();
+  });
+
   return true;
 }
 
 void LRUCacheShard::SetHighPriorityPoolRatio(double high_pri_pool_ratio) {
-  MutexLock l(&mutex_);
-  high_pri_pool_ratio_ = high_pri_pool_ratio;
-  high_pri_pool_capacity_ = capacity_ * high_pri_pool_ratio_;
-  MaintainPoolSize();
+  mutex_.lock_combine([this, high_pri_pool_ratio]() {
+    high_pri_pool_ratio_ = high_pri_pool_ratio;
+    high_pri_pool_capacity_ = capacity_ * high_pri_pool_ratio_;
+    MaintainPoolSize();
+  });
 }
 
 bool LRUCacheShard::Release(Cache::Handle* handle, bool force_erase) {
   if (handle == nullptr) {
     return false;
   }
-  LRUHandle* e = reinterpret_cast<LRUHandle*>(handle);
-  bool last_reference = false;
-  {
-    MutexLock l(&mutex_);
+
+  auto values = mutex_.lock_combine([this, handle, force_erase]() {
+    LRUHandle* e = reinterpret_cast<LRUHandle*>(handle);
+    bool last_reference = false;
+
     last_reference = e->Unref();
     if (last_reference && e->InCache()) {
       // The item is still in cache, and nobody else holds a reference to it
@@ -313,13 +319,15 @@ bool LRUCacheShard::Release(Cache::Handle* handle, bool force_erase) {
     if (last_reference) {
       usage_ -= e->charge;
     }
-  }
+
+    return std::make_pair(last_reference, e);
+  });
 
   // Free the entry here outside of mutex for performance reasons
-  if (last_reference) {
-    e->Free();
+  if (values.first) {
+    values.second->Free();
   }
-  return last_reference;
+  return values.first;
 }
 
 Status LRUCacheShard::Insert(const Slice& key, uint32_t hash, void* value,
@@ -346,9 +354,7 @@ Status LRUCacheShard::Insert(const Slice& key, uint32_t hash, void* value,
   e->SetPriority(priority);
   memcpy(e->key_data, key.data(), key.size());
 
-  {
-    MutexLock l(&mutex_);
-
+  mutex_.lock_combine([&]() {
     // Free the space following strict LRU policy until enough space
     // is freed or the lru list is empty
     EvictFromLRU(charge, &last_reference_list);
@@ -387,7 +393,7 @@ Status LRUCacheShard::Insert(const Slice& key, uint32_t hash, void* value,
         *handle = reinterpret_cast<Cache::Handle*>(e);
       }
     }
-  }
+  });
 
   // Free the entries here outside of mutex for performance reasons
   for (auto entry : last_reference_list) {
@@ -398,11 +404,10 @@ Status LRUCacheShard::Insert(const Slice& key, uint32_t hash, void* value,
 }
 
 void LRUCacheShard::Erase(const Slice& key, uint32_t hash) {
-  LRUHandle* e;
-  bool last_reference = false;
-  {
-    MutexLock l(&mutex_);
-    e = table_.Remove(key, hash);
+  auto values = mutex_.lock_combine([this, key, hash]() {
+    LRUHandle* e = table_.Remove(key, hash);
+    auto last_reference = false;
+
     if (e != nullptr) {
       assert(e->InCache());
       e->SetInCache(false);
@@ -413,34 +418,37 @@ void LRUCacheShard::Erase(const Slice& key, uint32_t hash) {
         last_reference = true;
       }
     }
-  }
+
+    return std::make_pair(last_reference, e);
+  });
 
   // Free the entry here outside of mutex for performance reasons
   // last_reference will only be true if e != nullptr
-  if (last_reference) {
-    e->Free();
+  if (values.first) {
+    values.second->Free();
   }
 }
 
 size_t LRUCacheShard::GetUsage() const {
-  MutexLock l(&mutex_);
-  return usage_;
+  return mutex_.lock_combine([this]() {
+    return usage_;
+  });
 }
 
 size_t LRUCacheShard::GetPinnedUsage() const {
-  MutexLock l(&mutex_);
-  assert(usage_ >= lru_usage_);
-  return usage_ - lru_usage_;
+  return mutex_.lock_combine([this]() {
+    assert(usage_ >= lru_usage_);
+    return usage_ - lru_usage_;
+  });
 }
 
 std::string LRUCacheShard::GetPrintableOptions() const {
   const int kBufferSize = 200;
   char buffer[kBufferSize];
-  {
-    MutexLock l(&mutex_);
+  mutex_.lock_combine([&]() {
     snprintf(buffer, kBufferSize, "    high_pri_pool_ratio: %.3lf\n",
              high_pri_pool_ratio_);
-  }
+  });
   return std::string(buffer);
 }
 
