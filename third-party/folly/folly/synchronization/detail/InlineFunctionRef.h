@@ -19,6 +19,7 @@
 #include <type_traits>
 
 #include <folly/Traits.h>
+#include <folly/Utility.h>
 #include <folly/functional/Invoke.h>
 #include <folly/lang/Launder.h>
 
@@ -143,7 +144,7 @@ class InlineFunctionRef<ReturnType(Args...), Size> {
         !std::is_reference<Func>{},
         "InlineFunctionRef cannot be used with lvalues");
     static_assert(std::is_rvalue_reference<Func&&>{}, "");
-    construct(ConstructMode<Func>{}, func);
+    construct(ConstructMode<Func>{}, folly::as_const(func));
   }
 
   /**
@@ -170,7 +171,7 @@ class InlineFunctionRef<ReturnType(Args...), Size> {
    * Inline storage constructor implementation.
    */
   template <typename Func>
-  void construct(InSituTag, const Func& func) {
+  void construct(InSituTag, Func& func) {
     using Value = _t<std::remove_reference<Func>>;
 
     // Assert that the following two assumptions are valid
@@ -191,7 +192,7 @@ class InlineFunctionRef<ReturnType(Args...), Size> {
    * folly::FunctionRef.
    */
   template <typename Func>
-  void construct(RefTag, const Func& func) {
+  void construct(RefTag, Func& func) {
     // store a pointer to the function
     using Pointer = _t<std::add_pointer<_t<std::remove_reference<Func>>>>;
     new (&storage_) Pointer{&func};

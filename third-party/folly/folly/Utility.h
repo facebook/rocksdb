@@ -129,4 +129,24 @@ using make_index_sequence = make_integer_sequence<std::size_t, Size>;
 template <class... T>
 using index_sequence_for = make_index_sequence<sizeof...(T)>;
 
+/**
+ * A simple helper for getting a constant reference to an object.
+ *
+ * Example:
+ *
+ *   std::vector<int> v{1,2,3};
+ *   // The following two lines are equivalent:
+ *   auto a = const_cast<const std::vector<int>&>(v).begin();
+ *   auto b = folly::as_const(v).begin();
+ *
+ * Like C++17's std::as_const. See http://wg21.link/p0007
+ */
+template <class T>
+T const& as_const(T& t) noexcept {
+  return t;
+}
+
+template <class T>
+void as_const(T const&&) = delete;
+
 } // namespace folly
