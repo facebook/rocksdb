@@ -69,7 +69,7 @@ uint64_t BlockCacheTraceHelper::GetTableId(
   if (!IsGetOrMultiGet(access.caller) || access.referenced_key.size() < 4) {
     return 0;
   }
-  return DecodeFixed32(access.referenced_key.data()) + 1;
+  return static_cast<uint64_t>(DecodeFixed32(access.referenced_key.data())) + 1;
 }
 
 uint64_t BlockCacheTraceHelper::GetSequenceNumber(
