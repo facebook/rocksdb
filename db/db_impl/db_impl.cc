@@ -1549,7 +1549,7 @@ Status DBImpl::GetImpl(GetImplOptions get_impl_options) {
     } else {
       MemTable::GetMergeOperandsOptions merge_operand_options(
           lkey, get_impl_options.merge_operands,
-          get_impl_options.merge_operands_info, &s, &merge_context,
+          get_impl_options.merge_operands_options, &s, &merge_context,
           &max_covering_tombstone_seq, get_impl_options.read_options);
 
       if (sv->mem->GetMergeOperands(merge_operand_options)) {
@@ -1575,8 +1575,7 @@ Status DBImpl::GetImpl(GetImplOptions get_impl_options) {
         nullptr, nullptr,
         get_impl_options.get_value ? get_impl_options.callback : nullptr,
         get_impl_options.get_value ? get_impl_options.is_blob_index : nullptr,
-        get_impl_options.get_value, get_impl_options.merge_operands,
-        get_impl_options.merge_operands_info);
+        get_impl_options.get_value);
     RecordTick(stats_, MEMTABLE_MISS);
   }
 
@@ -1591,16 +1590,22 @@ Status DBImpl::GetImpl(GetImplOptions get_impl_options) {
       if (get_impl_options.get_value) {
         size = get_impl_options.value->size();
       } else {
-        int itr = 0;
-        while (
-            itr <
-            get_impl_options.merge_operands_info->actual_number_of_operands) {
-          size += get_impl_options.merge_operands->size();
-          itr++;
-          get_impl_options.merge_operands++;
+    	  // Return all merge operands for get_impl_options.key
+        *get_impl_options.number_of_operands =
+            static_cast<int>(merge_context.GetNumOperands());
+        if (*get_impl_options.number_of_operands >
+            get_impl_options.merge_operands_options
+                ->expected_max_number_of_operands) {
+          s = Status::Incomplete(
+              Status::SubCode::KMergeOperandsInsufficientCapacity);
+        } else {
+          for (const Slice& sl : merge_context.GetOperands()) {
+            size += sl.size();
+            get_impl_options.merge_operands->PinSelf(sl);
+            get_impl_options.merge_operands++;
+          }
         }
       }
-
       RecordTick(stats_, BYTES_READ, size);
       PERF_COUNTER_ADD(get_read_bytes, size);
     }

@@ -1651,8 +1651,7 @@ void Version::Get(const ReadOptions& read_options, const LookupKey& k,
                   MergeContext* merge_context,
                   SequenceNumber* max_covering_tombstone_seq, bool* value_found,
                   bool* key_exists, SequenceNumber* seq, ReadCallback* callback,
-                  bool* is_blob, bool do_merge, PinnableSlice* merge_operands,
-                  MergeOperandsInfo* merge_operands_info) {
+                  bool* is_blob, bool do_merge) {
   Slice ikey = k.internal_key();
   Slice user_key = k.user_key();
 
@@ -1741,23 +1740,11 @@ void Version::Get(const ReadOptions& read_options, const LookupKey& k,
         }
         PERF_COUNTER_BY_LEVEL_ADD(user_key_return_count, 1,
                                   fp.GetHitFileLevel());
-        if (do_merge) {
-          return;
-        } else {
-          ProcessMergeOperands(merge_context, merge_operands,
-                               merge_operands_info, status);
-          return;
-        }
+        return;
       case GetContext::kDeleted:
         // Use empty error message for speed
         *status = Status::NotFound();
-        if (do_merge) {
-          return;
-        } else {
-          ProcessMergeOperands(merge_context, merge_operands,
-                               merge_operands_info, status);
-          return;
-        }
+        return;
       case GetContext::kCorrupt:
         *status = Status::Corruption("corrupted key for ", user_key);
         return;
@@ -1775,8 +1762,6 @@ void Version::Get(const ReadOptions& read_options, const LookupKey& k,
   }
   if (GetContext::kMerge == get_context.State()) {
     if (!do_merge) {
-      ProcessMergeOperands(merge_context, merge_operands, merge_operands_info,
-                           status);
       return;
     }
     if (!merge_operator_) {
@@ -1799,25 +1784,6 @@ void Version::Get(const ReadOptions& read_options, const LookupKey& k,
       *key_exists = false;
     }
     *status = Status::NotFound(); // Use an empty error message for speed
-  }
-}
-
-void Version::ProcessMergeOperands(MergeContext* merge_context,
-                                   PinnableSlice* merge_operands,
-                                   MergeOperandsInfo* merge_operands_info,
-                                   Status* status) {
-  if (merge_context->GetNumOperands() >
-      (size_t)merge_operands_info->expected_max_number_of_operands) {
-    *status =
-        Status::Incomplete(Status::SubCode::KMergeOperandsInsufficientCapacity);
-    merge_operands_info->actual_number_of_operands =
-        static_cast<int>(merge_context->GetNumOperands());
-  } else {
-    for (const Slice& sl : merge_context->GetOperands()) {
-      merge_operands->PinSelf(sl);
-      merge_operands++;
-      merge_operands_info->actual_number_of_operands++;
-    }
   }
 }
 

@@ -74,7 +74,7 @@ class MemTableListVersion {
   // Returns all the merge operands corresponding to the key by searching all
   // memtables starting from the most recent one. If the number of merge
   // operands in DB is greater than
-  // get_merge_operands_options.merge_operands_info.
+  // get_merge_operands_options.merge_operands_options.
   // expected_max_number_of_operands then no merge operands are returned and
   // status is Incomplete.
   bool GetMergeOperands(

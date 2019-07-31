@@ -894,22 +894,6 @@ bool MemTable::GetMergeOperands(
     saver.is_blob_index = nullptr;
     saver.do_merge = false;
     table_->Get(get_merge_operands_options.key, &saver, SaveValue);
-    if (saver.merge_context->GetNumOperands() >
-        (size_t)get_merge_operands_options.merge_operands_info
-            ->expected_max_number_of_operands) {
-      *get_merge_operands_options.s = Status::Incomplete(
-          Status::SubCode::KMergeOperandsInsufficientCapacity);
-      get_merge_operands_options.merge_operands_info
-          ->actual_number_of_operands = static_cast<int>(
-          get_merge_operands_options.merge_context->GetNumOperands());
-      return found_final_value;
-    }
-    for (const Slice& sl : saver.merge_context->GetOperands()) {
-      get_merge_operands_options.merge_operands->PinSelf(sl);
-      get_merge_operands_options.merge_operands++;
-      get_merge_operands_options.merge_operands_info
-          ->actual_number_of_operands++;
-    }
   }
 
   // No change to value, since we have not yet found a Put/Delete

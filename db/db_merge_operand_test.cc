@@ -66,7 +66,7 @@ TEST_F(DBMergeOperandTest, GetMergeOperandsBasic) {
   options.env = env_;
   Reopen(options);
   int num_records = 4;
-
+  int number_of_operands = 0;
   // All k1 values are in memtable.
   ASSERT_OK(Merge("k1", "a"));
   Put("k1", "x");
@@ -74,10 +74,10 @@ TEST_F(DBMergeOperandTest, GetMergeOperandsBasic) {
   ASSERT_OK(Merge("k1", "c"));
   ASSERT_OK(Merge("k1", "d"));
   std::vector<PinnableSlice> values(num_records);
-  MergeOperandsInfo merge_operands_info;
+  MergeOperandsOptions merge_operands_info;
   merge_operands_info.expected_max_number_of_operands = num_records;
   db_->GetMergeOperands(ReadOptions(), db_->DefaultColumnFamily(), "k1",
-                        values.data(), &merge_operands_info);
+                        values.data(), &merge_operands_info, &number_of_operands);
   ASSERT_EQ(values[0], "x");
   ASSERT_EQ(values[1], "b");
   ASSERT_EQ(values[2], "c");
@@ -88,7 +88,7 @@ TEST_F(DBMergeOperandTest, GetMergeOperandsBasic) {
   merge_operands_info.expected_max_number_of_operands = num_records - 1;
   Status status =
       db_->GetMergeOperands(ReadOptions(), db_->DefaultColumnFamily(), "k1",
-                            values.data(), &merge_operands_info);
+                            values.data(), &merge_operands_info, &number_of_operands);
   ASSERT_EQ(status.IsIncomplete(), true);
   merge_operands_info.expected_max_number_of_operands = num_records;
 
@@ -99,7 +99,7 @@ TEST_F(DBMergeOperandTest, GetMergeOperandsBasic) {
   ASSERT_OK(Merge("k2", "r"));
   ASSERT_OK(Flush());
   db_->GetMergeOperands(ReadOptions(), db_->DefaultColumnFamily(), "k2",
-                        values.data(), &merge_operands_info);
+                        values.data(), &merge_operands_info, &number_of_operands);
   ASSERT_EQ(values[0], "q");
   ASSERT_EQ(values[1], "w");
   ASSERT_EQ(values[2], "e");
@@ -112,7 +112,7 @@ TEST_F(DBMergeOperandTest, GetMergeOperandsBasic) {
   ASSERT_OK(Merge("k2.1", "o"));
   ASSERT_OK(Flush());
   db_->GetMergeOperands(ReadOptions(), db_->DefaultColumnFamily(), "k2.1",
-                        values.data(), &merge_operands_info);
+                        values.data(), &merge_operands_info, &number_of_operands);
   ASSERT_EQ(values[0], "l,n,o");
 
   // All k3 values are flushed and are in different files.
@@ -124,7 +124,7 @@ TEST_F(DBMergeOperandTest, GetMergeOperandsBasic) {
   ASSERT_OK(Flush());
   ASSERT_OK(Merge("k3", "de"));
   db_->GetMergeOperands(ReadOptions(), db_->DefaultColumnFamily(), "k3",
-                        values.data(), &merge_operands_info);
+                        values.data(), &merge_operands_info, &number_of_operands);
   ASSERT_EQ(values[0], "ab");
   ASSERT_EQ(values[1], "bc");
   ASSERT_EQ(values[2], "cd");
@@ -139,7 +139,7 @@ TEST_F(DBMergeOperandTest, GetMergeOperandsBasic) {
   ASSERT_OK(Flush());
   ASSERT_OK(Merge("k3.1", "de"));
   db_->GetMergeOperands(ReadOptions(), db_->DefaultColumnFamily(), "k3.1",
-                        values.data(), &merge_operands_info);
+                        values.data(), &merge_operands_info, &number_of_operands);
   ASSERT_EQ(values[0], "bc");
   ASSERT_EQ(values[1], "cd");
   ASSERT_EQ(values[2], "de");
@@ -156,7 +156,7 @@ TEST_F(DBMergeOperandTest, GetMergeOperandsBasic) {
   MoveFilesToLevel(1);
   ASSERT_OK(Merge("k4", "ed"));
   db_->GetMergeOperands(ReadOptions(), db_->DefaultColumnFamily(), "k4",
-                        values.data(), &merge_operands_info);
+                        values.data(), &merge_operands_info, &number_of_operands);
   ASSERT_EQ(values[0], "ba");
   ASSERT_EQ(values[1], "cb");
   ASSERT_EQ(values[2], "dc");
@@ -173,7 +173,7 @@ TEST_F(DBMergeOperandTest, GetMergeOperandsBasic) {
   ASSERT_OK(Merge("k5", "rocks"));
   dbfull()->TEST_SwitchMemtable();
   db_->GetMergeOperands(ReadOptions(), db_->DefaultColumnFamily(), "k5",
-                        values.data(), &merge_operands_info);
+                        values.data(), &merge_operands_info, &number_of_operands);
   ASSERT_EQ(values[0], "remember");
   ASSERT_EQ(values[1], "i");
   ASSERT_EQ(values[2], "am");
@@ -226,11 +226,12 @@ TEST_F(DBMergeOperandTest, PerfTest) {
   // GetMergeOperands API call
   std::vector<PinnableSlice> a_slice((kTotalValues / 100) + 1);
   st = env_->NowNanos();
-  MergeOperandsInfo merge_operands_info;
+  int number_of_operands = 0;
+  MergeOperandsOptions merge_operands_info;
   merge_operands_info.expected_max_number_of_operands =
       (kTotalValues / 100) + 1;
   db_->GetMergeOperands(ReadOptions(), db_->DefaultColumnFamily(), key,
-                        a_slice.data(), &merge_operands_info);
+                        a_slice.data(), &merge_operands_info, &number_of_operands);
   int to_print = 0;
   if (print_info) {
     std::cout << "Sample data from GetMergeOperands API call: ";

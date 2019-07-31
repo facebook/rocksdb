@@ -163,10 +163,11 @@ class DBImpl : public DB {
   Status GetMergeOperands(const ReadOptions& options,
                           ColumnFamilyHandle* column_family, const Slice& key,
                           PinnableSlice* merge_operands,
-                          MergeOperandsInfo* merge_operands_info) override {
+                          MergeOperandsOptions* merge_operands_options,
+						  int* actual_number_operands) override {
     return GetImpl(GetImplOptions(options, column_family, key, nullptr, nullptr,
                                   nullptr, nullptr, false, merge_operands,
-                                  merge_operands_info));
+                                  merge_operands_options, actual_number_operands));
   }
 
   using DB::MultiGet;
@@ -412,7 +413,8 @@ class DBImpl : public DB {
                    ReadCallback* _callback = nullptr,
                    bool* _is_blob_index = nullptr, bool _get_value = true,
                    PinnableSlice* _merge_operands = nullptr,
-                   MergeOperandsInfo* _merge_operands_info = nullptr)
+                   MergeOperandsOptions* _merge_operands_options = nullptr,
+				   int* _number_of_operands = nullptr)
         : read_options(_read_options),
           column_family(_column_family),
           key(_key),
@@ -422,7 +424,8 @@ class DBImpl : public DB {
           is_blob_index(_is_blob_index),
           get_value(_get_value),
           merge_operands(_merge_operands),
-          merge_operands_info(_merge_operands_info) {}
+          merge_operands_options(_merge_operands_options),
+		  number_of_operands(_number_of_operands){}
     const ReadOptions& read_options;
     ColumnFamilyHandle* column_family;
     const Slice& key;
@@ -434,9 +437,10 @@ class DBImpl : public DB {
     // all merge operands for key via merge_operands pointer
     bool get_value;
     // Pointer to an array of size
-    // merge_operands_info.expected_max_number_of_operands allocated by user
+    // merge_operands_options.expected_max_number_of_operands allocated by user
     PinnableSlice* merge_operands;
-    MergeOperandsInfo* merge_operands_info;
+    MergeOperandsOptions* merge_operands_options;
+    int* number_of_operands;
   };
 
   // Function that Get and KeyMayExist call with no_io true or false
@@ -445,7 +449,7 @@ class DBImpl : public DB {
   // get_val - If true return value associated with key else return all merge
   // 		operands for key
   // merge_operands - Pointer to an array of size
-  //				merge_operands_info.expected_max_number_of_operands.
+  //				merge_operands_options.expected_max_number_of_operands.
   // 				If get_val = false then all the merge operands
   // are stored in 				this pointer else the value
   // associated with key is stored
