@@ -2808,8 +2808,8 @@ Status DBImpl::GetApproximateSizes(const SizeApproximationOptions& options,
     sizes[i] = 0;
     if (options.include_files) {
       sizes[i] += versions_->ApproximateSize(
-          v, k1.Encode(), k2.Encode(), /*start_level=*/0, /*end_level=*/-1,
-          TableReaderCaller::kUserApproximateSize);
+          options, v, k1.Encode(), k2.Encode(), /*start_level=*/0,
+          /*end_level=*/-1, TableReaderCaller::kUserApproximateSize);
     }
     if (options.include_memtabtles) {
       sizes[i] += sv->mem->ApproximateStats(k1.Encode(), k2.Encode()).size;
