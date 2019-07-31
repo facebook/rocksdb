@@ -627,6 +627,11 @@ WriteBatchWithIndex::WriteBatchWithIndex(
 
 WriteBatchWithIndex::~WriteBatchWithIndex() {}
 
+WriteBatchWithIndex::WriteBatchWithIndex(WriteBatchWithIndex&&) = default;
+
+WriteBatchWithIndex& WriteBatchWithIndex::operator=(WriteBatchWithIndex&&) =
+    default;
+
 WriteBatch* WriteBatchWithIndex::GetWriteBatch() { return &rep->write_batch; }
 
 size_t WriteBatchWithIndex::SubBatchCnt() { return rep->sub_batch_cnt; }

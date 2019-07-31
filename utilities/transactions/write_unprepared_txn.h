@@ -73,7 +73,6 @@ class WriteUnpreparedTxnReadCallback : public ReadCallback {
     wup_snapshot_ = seq;
   }
 
- private:
   static SequenceNumber CalcMaxVisibleSeq(
       const std::map<SequenceNumber, size_t>& unprep_seqs,
       SequenceNumber snapshot_seq) {
@@ -84,6 +83,8 @@ class WriteUnpreparedTxnReadCallback : public ReadCallback {
     }
     return std::max(max_unprepared, snapshot_seq);
   }
+
+ private:
   WritePreparedTxnDB* db_;
   const std::map<SequenceNumber, size_t>& unprep_seqs_;
   SequenceNumber wup_snapshot_;
@@ -139,6 +140,10 @@ class WriteUnpreparedTxn : public WritePreparedTxn {
 
   void Clear() override;
 
+  void SetSavePoint() override;
+  Status RollbackToSavePoint() override;
+  Status PopSavePoint() override;
+
   // Get and GetIterator needs to be overridden so that a ReadCallback to
   // handle read-your-own-write is used.
   using Transaction::Get;
@@ -172,6 +177,9 @@ class WriteUnpreparedTxn : public WritePreparedTxn {
 
   Status MaybeFlushWriteBatchToDB();
   Status FlushWriteBatchToDB(bool prepared);
+  Status FlushWriteBatchToDBInternal(bool prepared);
+  Status FlushWriteBatchWithSavePointToDB();
+  Status RollbackToSavePointInternal();
   Status HandleWrite(std::function<Status()> do_write);
 
   // For write unprepared, we check on every writebatch append to see if
@@ -210,6 +218,56 @@ class WriteUnpreparedTxn : public WritePreparedTxn {
   // but in some cases, we should be able to restore the previously largest
   // value when calling RollbackToSavepoint.
   SequenceNumber largest_validated_seq_;
+
+  struct SavePoint {
+    // Record of unprep_seqs_ at this savepoint. The set of unprep_seq is
+    // used during RollbackToSavepoint to determine visibility when restoring
+    // old values.
+    //
+    // TODO(lth): Since all unprep_seqs_ sets further down the stack must be
+    // subsets, this can potentially be deduplicated by just storing set
+    // difference. Investigate if this is worth it.
+    std::map<SequenceNumber, size_t> unprep_seqs_;
+
+    // This snapshot will be used to read keys at this savepoint if we call
+    // RollbackToSavePoint.
+    std::unique_ptr<ManagedSnapshot> snapshot_;
+
+    SavePoint(const std::map<SequenceNumber, size_t>& seqs,
+              ManagedSnapshot* snapshot)
+        : unprep_seqs_(seqs), snapshot_(snapshot){};
+  };
+
+  // We have 3 data structures holding savepoint information:
+  // 1. TransactionBaseImpl::save_points_
+  // 2. WriteUnpreparedTxn::flushed_save_points_
+  // 3. WriteUnpreparecTxn::unflushed_save_points_
+  //
+  // TransactionBaseImpl::save_points_ holds information about all write
+  // batches, including the current in-memory write_batch_, or unprepared
+  // batches that have been written out. Its responsibility is just to track
+  // which keys have been modified in every savepoint.
+  //
+  // WriteUnpreparedTxn::flushed_save_points_ holds information about savepoints
+  // set on unprepared batches that have already flushed. It holds the snapshot
+  // and unprep_seqs at that savepoint, so that the rollback process can
+  // determine which keys were visible at that point in time.
+  //
+  // WriteUnpreparecTxn::unflushed_save_points_ holds information about
+  // savepoints on the current in-memory write_batch_. It simply records the
+  // size of the write batch at every savepoint.
+  //
+  // TODO(lth): Remove the redundancy between save_point_boundaries_ and
+  // write_batch_.save_points_.
+  //
+  // Based on this information, here are some invariants:
+  // size(unflushed_save_points_) = size(write_batch_.save_points_)
+  // size(flushed_save_points_) + size(unflushed_save_points_)
+  //   = size(save_points_)
+  //
+  std::unique_ptr<autovector<WriteUnpreparedTxn::SavePoint>>
+      flushed_save_points_;
+  std::unique_ptr<autovector<size_t>> unflushed_save_points_;
 };
 
 }  // namespace rocksdb
