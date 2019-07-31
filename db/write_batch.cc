@@ -511,12 +511,25 @@ Status ReadRecordFromWriteBatch(Slice* input, char* tag,
 }
 
 Status WriteBatch::Iterate(Handler* handler) const {
-  Slice input(rep_);
-  if (input.size() < WriteBatchInternal::kHeader) {
+  if (rep_.size() < WriteBatchInternal::kHeader) {
     return Status::Corruption("malformed WriteBatch (too small)");
   }
 
-  input.remove_prefix(WriteBatchInternal::kHeader);
+  return WriteBatchInternal::Iterate(this, handler, WriteBatchInternal::kHeader,
+                                     rep_.size());
+}
+
+Status WriteBatchInternal::Iterate(const WriteBatch* wb,
+                                   WriteBatch::Handler* handler, size_t begin,
+                                   size_t end) {
+  if (begin > wb->rep_.size() || end > wb->rep_.size() || end < begin) {
+    return Status::Corruption("Invalid start/end bounds for Iterate");
+  }
+  assert(begin <= end);
+  Slice input(wb->rep_.data() + begin, static_cast<size_t>(end - begin));
+  bool whole_batch =
+      (begin == WriteBatchInternal::kHeader) && (end == wb->rep_.size());
+
   Slice key, value, blob, xid;
   // Sometimes a sub-batch starts with a Noop. We want to exclude such Noops as
   // the batch boundary symbols otherwise we would mis-count the number of
@@ -547,7 +560,7 @@ Status WriteBatch::Iterate(Handler* handler) const {
       }
     } else {
       assert(s.IsTryAgain());
-      assert(!last_was_try_again); // to detect infinite loop bugs
+      assert(!last_was_try_again);  // to detect infinite loop bugs
       if (UNLIKELY(last_was_try_again)) {
         return Status::Corruption(
             "two consecutive TryAgain in WriteBatch handler; this is either a "
@@ -560,7 +573,7 @@ Status WriteBatch::Iterate(Handler* handler) const {
     switch (tag) {
       case kTypeColumnFamilyValue:
       case kTypeValue:
-        assert(content_flags_.load(std::memory_order_relaxed) &
+        assert(wb->content_flags_.load(std::memory_order_relaxed) &
                (ContentFlags::DEFERRED | ContentFlags::HAS_PUT));
         s = handler->PutCF(column_family, key, value);
         if (LIKELY(s.ok())) {
@@ -570,7 +583,7 @@ Status WriteBatch::Iterate(Handler* handler) const {
         break;
       case kTypeColumnFamilyDeletion:
       case kTypeDeletion:
-        assert(content_flags_.load(std::memory_order_relaxed) &
+        assert(wb->content_flags_.load(std::memory_order_relaxed) &
                (ContentFlags::DEFERRED | ContentFlags::HAS_DELETE));
         s = handler->DeleteCF(column_family, key);
         if (LIKELY(s.ok())) {
@@ -580,7 +593,7 @@ Status WriteBatch::Iterate(Handler* handler) const {
         break;
       case kTypeColumnFamilySingleDeletion:
       case kTypeSingleDeletion:
-        assert(content_flags_.load(std::memory_order_relaxed) &
+        assert(wb->content_flags_.load(std::memory_order_relaxed) &
                (ContentFlags::DEFERRED | ContentFlags::HAS_SINGLE_DELETE));
         s = handler->SingleDeleteCF(column_family, key);
         if (LIKELY(s.ok())) {
@@ -590,7 +603,7 @@ Status WriteBatch::Iterate(Handler* handler) const {
         break;
       case kTypeColumnFamilyRangeDeletion:
       case kTypeRangeDeletion:
-        assert(content_flags_.load(std::memory_order_relaxed) &
+        assert(wb->content_flags_.load(std::memory_order_relaxed) &
                (ContentFlags::DEFERRED | ContentFlags::HAS_DELETE_RANGE));
         s = handler->DeleteRangeCF(column_family, key, value);
         if (LIKELY(s.ok())) {
@@ -600,7 +613,7 @@ Status WriteBatch::Iterate(Handler* handler) const {
         break;
       case kTypeColumnFamilyMerge:
       case kTypeMerge:
-        assert(content_flags_.load(std::memory_order_relaxed) &
+        assert(wb->content_flags_.load(std::memory_order_relaxed) &
                (ContentFlags::DEFERRED | ContentFlags::HAS_MERGE));
         s = handler->MergeCF(column_family, key, value);
         if (LIKELY(s.ok())) {
@@ -610,7 +623,7 @@ Status WriteBatch::Iterate(Handler* handler) const {
         break;
       case kTypeColumnFamilyBlobIndex:
       case kTypeBlobIndex:
-        assert(content_flags_.load(std::memory_order_relaxed) &
+        assert(wb->content_flags_.load(std::memory_order_relaxed) &
                (ContentFlags::DEFERRED | ContentFlags::HAS_BLOB_INDEX));
         s = handler->PutBlobIndexCF(column_family, key, value);
         if (LIKELY(s.ok())) {
@@ -623,7 +636,7 @@ Status WriteBatch::Iterate(Handler* handler) const {
         empty_batch = false;
         break;
       case kTypeBeginPrepareXID:
-        assert(content_flags_.load(std::memory_order_relaxed) &
+        assert(wb->content_flags_.load(std::memory_order_relaxed) &
                (ContentFlags::DEFERRED | ContentFlags::HAS_BEGIN_PREPARE));
         handler->MarkBeginPrepare();
         empty_batch = false;
@@ -642,7 +655,7 @@ Status WriteBatch::Iterate(Handler* handler) const {
         }
         break;
       case kTypeBeginPersistedPrepareXID:
-        assert(content_flags_.load(std::memory_order_relaxed) &
+        assert(wb->content_flags_.load(std::memory_order_relaxed) &
                (ContentFlags::DEFERRED | ContentFlags::HAS_BEGIN_PREPARE));
         handler->MarkBeginPrepare();
         empty_batch = false;
@@ -655,7 +668,7 @@ Status WriteBatch::Iterate(Handler* handler) const {
         }
         break;
       case kTypeBeginUnprepareXID:
-        assert(content_flags_.load(std::memory_order_relaxed) &
+        assert(wb->content_flags_.load(std::memory_order_relaxed) &
                (ContentFlags::DEFERRED | ContentFlags::HAS_BEGIN_UNPREPARE));
         handler->MarkBeginPrepare(true /* unprepared */);
         empty_batch = false;
@@ -674,19 +687,19 @@ Status WriteBatch::Iterate(Handler* handler) const {
         }
         break;
       case kTypeEndPrepareXID:
-        assert(content_flags_.load(std::memory_order_relaxed) &
+        assert(wb->content_flags_.load(std::memory_order_relaxed) &
                (ContentFlags::DEFERRED | ContentFlags::HAS_END_PREPARE));
         handler->MarkEndPrepare(xid);
         empty_batch = true;
         break;
       case kTypeCommitXID:
-        assert(content_flags_.load(std::memory_order_relaxed) &
+        assert(wb->content_flags_.load(std::memory_order_relaxed) &
                (ContentFlags::DEFERRED | ContentFlags::HAS_COMMIT));
         handler->MarkCommit(xid);
         empty_batch = true;
         break;
       case kTypeRollbackXID:
-        assert(content_flags_.load(std::memory_order_relaxed) &
+        assert(wb->content_flags_.load(std::memory_order_relaxed) &
                (ContentFlags::DEFERRED | ContentFlags::HAS_ROLLBACK));
         handler->MarkRollback(xid);
         empty_batch = true;
@@ -702,7 +715,8 @@ Status WriteBatch::Iterate(Handler* handler) const {
   if (!s.ok()) {
     return s;
   }
-  if (handler_continue && found != WriteBatchInternal::Count(this)) {
+  if (handler_continue && whole_batch &&
+      found != WriteBatchInternal::Count(wb)) {
     return Status::Corruption("WriteBatch has wrong count");
   } else {
     return Status::OK();
