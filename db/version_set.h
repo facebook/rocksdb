@@ -983,7 +983,8 @@ class VersionSet {
   // Return the approximate size of data to be scanned for range [start, end)
   // in levels [start_level, end_level). If end_level == -1 it will search
   // through all non-empty levels
-  uint64_t ApproximateSize(Version* v, const Slice& start, const Slice& end,
+  uint64_t ApproximateSize(const SizeApproximationOptions& options, Version* v,
+                           const Slice& start, const Slice& end,
                            int start_level, int end_level,
                            TableReaderCaller caller);
 
@@ -1032,11 +1033,6 @@ class VersionSet {
       if (this->status->ok()) *this->status = s;
     }
   };
-
-  // ApproximateSize helper
-  uint64_t ApproximateSizeLevel0(Version* v, const LevelFilesBrief& files_brief,
-                                 const Slice& start, const Slice& end,
-                                 TableReaderCaller caller);
 
   uint64_t ApproximateSize(Version* v, const FdWithKeyRange& f,
                            const Slice& key, TableReaderCaller caller);
