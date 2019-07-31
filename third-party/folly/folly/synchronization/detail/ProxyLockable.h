@@ -76,19 +76,19 @@ class ProxyLockableUniqueLock {
    * std::try_to_lock_t causes try_lock() to be called.  The current object is
    *                    converts to true if the lock was successful
    */
-  ProxyLockableUniqueLock(mutex_type& mutex, std::defer_lock_t) noexcept;
-  ProxyLockableUniqueLock(mutex_type& mutex, std::try_to_lock_t);
+  ProxyLockableUniqueLock(mutex_type& mtx, std::defer_lock_t) noexcept;
+  ProxyLockableUniqueLock(mutex_type& mtx, std::try_to_lock_t);
 
   /**
    * Timed locking constructors
    */
   template <typename Rep, typename Period>
   ProxyLockableUniqueLock(
-      mutex_type& mutex,
+      mutex_type& mtx,
       const std::chrono::duration<Rep, Period>& duration);
   template <typename Clock, typename Duration>
   ProxyLockableUniqueLock(
-      mutex_type& mutex,
+      mutex_type& mtx,
       const std::chrono::time_point<Clock, Duration>& time);
 
   /**
@@ -153,7 +153,7 @@ class ProxyLockableLockGuard : private ProxyLockableUniqueLock<Mutex> {
   /**
    * Constructor locks the mutex, and destructor unlocks
    */
-  ProxyLockableLockGuard(mutex_type& mutex);
+  ProxyLockableLockGuard(mutex_type& mtx);
   ~ProxyLockableLockGuard() = default;
 
   /**
