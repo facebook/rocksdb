@@ -7,7 +7,9 @@
 * Change BlockBasedTableOptions.cache_index_and_filter_blocks_with_high_priority's default value from false to true.
 
 ### Public API Change
-* Index, filter, and compression dictionary blocks are now handled similarly to data blocks with regards to the block cache: instead of storing objects in the cache, only the blocks themselves are cached. In addition, index, filter, and compression dictionary blocks (as well as filter partitions) no longer get evicted from the cache when a table is closed. Moreover, index blocks can now use the compressed block cache (if any), and cached index blocks can be shared among multiple table readers.
+* Filter and compression dictionary blocks are now handled similarly to data blocks with regards to the block cache: instead of storing objects in the cache, only the blocks themselves are cached. In addition, filter and compression dictionary blocks (as well as filter partitions) no longer get evicted from the cache when a table is closed.
+* Due to the above refactoring, block cache eviction statistics for filter and compression dictionary blocks are temporarily broken. We plan to reintroduce them in a later phase.
+* The semantics of the per-block-type block read counts in the performance context now match those of the generic block_read_count.
 * Errors related to the retrieval of the compression dictionary are now propagated to the user.
 * db_bench adds a "benchmark" stats_history, which prints out the whole stats history.
 * Overload GetAllKeyVersions() to support non-default column family.
@@ -38,12 +40,12 @@
 ## 6.3.0 (6/18/2019)
 ### Public API Change
 * Now DB::Close() will return Aborted() error when there is unreleased snapshot. Users can retry after all snapshots are released.
+* Index blocks are now handled similarly to data blocks with regards to the block cache: instead of storing objects in the cache, only the blocks themselves are cached. In addition, index blocks no longer get evicted from the cache when a table is closed, can now use the compressed block cache (if any), and can be shared among multiple table readers.
 * Partitions of partitioned indexes no longer affect the read amplification statistics.
-* Due to a refactoring, block cache eviction statistics for indexes are temporarily broken. We plan to reintroduce them in a later phase.
+* Due to the above refactoring, block cache eviction statistics for indexes are temporarily broken. We plan to reintroduce them in a later phase.
 * options.keep_log_file_num will be enforced strictly all the time. File names of all log files will be tracked, which may take significantly amount of memory if options.keep_log_file_num is large and either of options.max_log_file_size or options.log_file_time_to_roll is set.
 * Add initial support for Get/Put with user timestamps. Users can specify timestamps via ReadOptions and WriteOptions when calling DB::Get and DB::Put.
 * Accessing a partition of a partitioned filter or index through a pinned reference is no longer considered a cache hit.
-* The semantics of the per-block-type block read counts in the performance context now match those of the generic block_read_count.
 * Add C bindings for secondary instance, i.e. DBImplSecondary.
 * Rate limited deletion of WALs is only enabled if DBOptions::wal_dir is not set, or explicitly set to db_name passed to DB::Open and DBOptions::db_paths is empty, or same as db_paths[0].path
 
