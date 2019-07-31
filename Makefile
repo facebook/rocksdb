@@ -403,7 +403,7 @@ endif
 
 LIBOBJECTS += $(TOOL_LIB_SOURCES:.cc=.o)
 MOCKOBJECTS = $(MOCK_LIB_SOURCES:.cc=.o)
-FOLLYOBJECTS = $(FOLLY_SOURCES:.cc=.o)
+FOLLYOBJECTS = $(FOLLY_SOURCES:.cpp=.o)
 
 GTEST = $(GTEST_DIR)/gtest/gtest-all.o
 TESTUTIL = ./test_util/testutil.o

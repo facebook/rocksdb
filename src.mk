@@ -263,11 +263,11 @@ TEST_LIB_SOURCES =                                              \
   utilities/cassandra/test_utils.cc                             \
 
 FOLLY_SOURCES = \
-  third-party/folly/folly/detail/Futex.cc                                     \
-  third-party/folly/folly/synchronization/AtomicNotification.cc               \
-  third-party/folly/folly/synchronization/DistributedMutex.cc                 \
-  third-party/folly/folly/synchronization/ParkingLot.cc                       \
-  third-party/folly/folly/synchronization/WaitOptions.cc                      \
+  third-party/folly/folly/detail/Futex.cpp                                     \
+  third-party/folly/folly/synchronization/AtomicNotification.cpp               \
+  third-party/folly/folly/synchronization/DistributedMutex.cpp                 \
+  third-party/folly/folly/synchronization/ParkingLot.cpp                       \
+  third-party/folly/folly/synchronization/WaitOptions.cpp                      \
 
 MAIN_SOURCES =                                                          \
   cache/cache_bench.cc                                                  \
