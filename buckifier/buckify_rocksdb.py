@@ -100,7 +100,7 @@ def get_tests(repo_path):
 
 # Parse extra dependencies passed by user from command line
 def get_dependencies():
-    deps_map = {''.encode('ascii'): []}
+    deps_map = {''.encode('ascii'): {'targets'.encode('ascii'): [], 'extra_compiler_flags'.encode('ascii'): []}}
     if len(sys.argv) < 2:
         return deps_map
     def encode_dict(data):
@@ -158,7 +158,7 @@ def generate_targets(repo_path, deps_map):
 
     print("Extra dependencies:\n{0}".format(str(deps_map)))
     # test for every test we found in the Makefile
-    for dep_alias, deps_target in deps_map.items():
+    for alias, deps in deps_map.items():
         for test in sorted(tests):
             match_src = [src for src in cc_files if ("/%s.c" % test) in src]
             if len(match_src) == 0:
@@ -171,8 +171,8 @@ def generate_targets(repo_path, deps_map):
 
             assert(len(match_src) == 1)
             is_parallel = tests[test]
-            test_target_name = test if not dep_alias else test + "_" + dep_alias
-            TARGETS.register_test(test_target_name, match_src[0], is_parallel, deps_target)
+            test_target_name = test if not alias else test + "_" + alias
+            TARGETS.register_test(test_target_name, match_src[0], is_parallel, deps['targets'], deps['extra_compiler_flags'])
 
             if test in _EXPORTED_TEST_LIBS:
                 test_library = "%s_lib" % test_target_name

@@ -141,6 +141,7 @@ test_cfg_template = """    [
         "%s",
         "%s",
         %s,
+        %s,
     ],
 """
 
@@ -164,8 +165,9 @@ ROCKS_TESTS = [
         test_cc = test_cc,
         test_name = test_name,
         extra_deps = extra_deps,
+        extra_compiler_flags = extra_compiler_flags,
     )
-    for test_name, test_cc, parallelism, extra_deps in ROCKS_TESTS
+    for test_name, test_cc, parallelism, extra_deps, extra_compiler_flags in ROCKS_TESTS
     if not is_opt_mode
 ]
 """

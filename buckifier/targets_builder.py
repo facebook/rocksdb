@@ -51,7 +51,7 @@ class TARGETSBuilder:
             pretty_list(deps)))
         self.total_bin = self.total_bin + 1
 
-    def register_test(self, test_name, src, is_parallel, extra_deps):
+    def register_test(self, test_name, src, is_parallel, extra_deps, extra_compiler_flags):
         exec_mode = "serial"
         if is_parallel:
             exec_mode = "parallel"
@@ -59,7 +59,8 @@ class TARGETSBuilder:
             test_name,
             str(src),
             str(exec_mode),
-            extra_deps)
+            extra_deps,
+            extra_compiler_flags)
 
         self.total_test = self.total_test + 1
 
