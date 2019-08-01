@@ -75,3 +75,11 @@ constexpr auto kIsDebug = false;
 constexpr auto kIsDebug = true;
 #endif
 } // namespace folly
+
+namespace folly {
+#if defined(_MSC_VER)
+constexpr bool kIsMsvc = true;
+#else
+constexpr bool kIsMsvc = false;
+#endif
+} // namespace folly

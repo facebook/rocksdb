@@ -31,6 +31,7 @@
 
 #include <array>
 #include <atomic>
+#include <cstddef>
 #include <cstdint>
 #include <limits>
 #include <stdexcept>
@@ -521,9 +522,11 @@ class TaskWithBigReturnValue {
   // ensure we avoid false-sharing with the metadata used while the waiter
   // waits
   using ReturnType = decltype(std::declval<const Func&>()());
-  static const auto kReturnValueAlignment = folly::constexpr_max(
-      alignof(ReturnType),
-      folly::hardware_destructive_interference_size);
+  static const auto kReturnValueAlignment = folly::kIsMsvc
+      ? 8
+      : folly::constexpr_max(
+            alignof(ReturnType),
+            folly::hardware_destructive_interference_size);
   using StorageType = _t<std::aligned_storage<
       sizeof(
           _t<std::aligned_storage<sizeof(ReturnType), kReturnValueAlignment>>),
