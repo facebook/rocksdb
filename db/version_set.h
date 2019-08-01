@@ -561,7 +561,7 @@ class Version {
                                   int level, bool* overlap);
 
   // Lookup the value for key or get all merge operands for key.
-  // If do_merge = true (default) then lookup value.
+  // If do_merge = true (default) then lookup value for key.
   // Behavior if do_merge = true:
   // 	If found, store it in *value and
   // 	return OK.  Else return a non-OK status.
@@ -578,9 +578,8 @@ class Version {
   // 	If seq is non-null, *seq will be set to the sequence number found
   // 	for the key if a key was found.
   // Behavior if do_merge = false
-  // 	If the key has any merge operands then store them in merge_operands
-  //	array only if the number of merge operands in DB is no more than
-  //	merge_operands_options.expected_max_number_of_operands.
+  // 	If the key has any merge operands then store them in
+  //	merge_context.operands_list and don't merge the operands
   // REQUIRES: lock is not held
   void Get(const ReadOptions&, const LookupKey& key, PinnableSlice* value,
            Status* status, MergeContext* merge_context,

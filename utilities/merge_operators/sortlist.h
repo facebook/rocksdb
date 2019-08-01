@@ -3,7 +3,7 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
-// A test MergeOperator for rocksdb that implements Merge Sort.
+// A test MergeOperator for RocksDB that implements Merge Sort.
 // It is built using the MergeOperator interface. This is useful for
 // testing/benchmarking
 #pragma once

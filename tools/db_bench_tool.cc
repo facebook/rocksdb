@@ -5937,16 +5937,20 @@ class Benchmark {
       return binary_search(data, mid + 1, end, key);
   }
 
-  // Inserts a bunch of merge operations
+  // Does a bunch of merge operations for a key(key1) where the merge operand
+  // is a sorted list. Next performance comparison is done between doing a Get
+  // for key1 followed by searching for another key(key2) in the large sorted
+  // list vs calling GetMergeOperands for key1 and then searching for the key2
+  // in all the sub-lists. The later case is expected to be a lot faster.
   void GetMergeOperands(ThreadState* thread) {
     DB* db = SelectDB(thread);
     const int kTotalValues = 100000;
     std::string key = "my_key";
     std::string value;
 
-    // Do kTotalMerges merges
     for (int i = 1; i < kTotalValues; i++) {
       if (i % 100 == 0) {
+        value.pop_back();
         db->Merge(WriteOptions(), key, value);
         value.clear();
       } else {

@@ -18,11 +18,9 @@ using rocksdb::Slice;
 
 namespace rocksdb {
 
-// Merge operator that picks the maximum operand, Comparison is based on
-// Slice::compare
+// Merge operator that sorts a collection of sorted lists
 bool SortList::FullMergeV2(const MergeOperationInput& merge_in,
                            MergeOperationOutput* merge_out) const {
-  (void)merge_out;
   std::vector<int> left;
   for (Slice slice : merge_in.operand_list) {
     std::vector<int> right;
@@ -63,17 +61,10 @@ bool SortList::PartialMergeMulti(const Slice& /*key*/,
 const char* SortList::Name() const { return "MergeSortOperator"; }
 
 void SortList::Make(std::vector<int>& operand, Slice slice) const {
-  int errors = 0;
   do {
     const char* begin = slice.data_;
     while (*slice.data_ != ',' && *slice.data_) slice.data_++;
-    try {
-      operand.push_back(std::stoi(std::string(begin, slice.data_)));
-    } catch (...) {
-      //			std::cout << "Malformed string: " <<
-      // std::string(begin, slice.data_) << "\n";
-      errors++;
-    }
+    operand.push_back(std::stoi(std::string(begin, slice.data_)));
   } while (0 != *slice.data_++);
 }
 

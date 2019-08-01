@@ -1548,8 +1548,7 @@ Status DBImpl::GetImpl(GetImplOptions get_impl_options) {
       }
     } else {
       MemTable::GetMergeOperandsOptions merge_operand_options(
-          lkey, get_impl_options.merge_operands,
-          get_impl_options.merge_operands_options, &s, &merge_context,
+          lkey, get_impl_options.merge_operands_options, &s, &merge_context,
           &max_covering_tombstone_seq, get_impl_options.read_options);
 
       if (sv->mem->GetMergeOperands(merge_operand_options)) {
