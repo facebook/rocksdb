@@ -57,21 +57,17 @@ static size_t GetInfoLogPrefix(const std::string& path, char* dest, int len) {
   return write_idx;
 }
 
-static std::string MakeFileName(const std::string& name, uint64_t number,
-                                const char* suffix) {
-  char buf[100];
-  snprintf(buf, sizeof(buf), "/%06llu.%s",
-           static_cast<unsigned long long>(number),
-           suffix);
-  return name + buf;
-}
-
 static std::string MakeFileName(uint64_t number, const char* suffix) {
   char buf[100];
   snprintf(buf, sizeof(buf), "%06llu.%s",
            static_cast<unsigned long long>(number),
            suffix);
   return buf;
+}
+
+static std::string MakeFileName(const std::string& name, uint64_t number,
+                                const char* suffix) {
+  return name + "/" + MakeFileName(number, suffix);
 }
 
 std::string LogFileName(const std::string& name, uint64_t number) {
