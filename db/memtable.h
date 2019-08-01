@@ -175,6 +175,10 @@ class MemTable {
            const Slice& value, bool allow_concurrent = false,
            MemTablePostProcessInfo* post_process_info = nullptr);
 
+  // Used to Get value associated with key or Get Merge Operands associated
+  // with key.
+  // If do_merge = true the default behavior which is Get value for key is
+  // executed. Expected behavior is described right below.
   // If memtable contains a value for key, store it in *value and return true.
   // If memtable contains a deletion for key, store a NotFound() error
   // in *status and return true.
@@ -188,48 +192,24 @@ class MemTable {
   // returned).  Otherwise, *seq will be set to kMaxSequenceNumber.
   // On success, *s may be set to OK, NotFound, or MergeInProgress.  Any other
   // status returned indicates a corruption or other unexpected error.
+  // If do_merge = false then any Merge Operands encountered for key are simply
+  // stored in merge_context.operands_list and never actually merged to get a
+  // final value. The raw Merge Operands are eventually returned to the user.
   bool Get(const LookupKey& key, std::string* value, Status* s,
            MergeContext* merge_context,
            SequenceNumber* max_covering_tombstone_seq, SequenceNumber* seq,
            const ReadOptions& read_opts, ReadCallback* callback = nullptr,
-           bool* is_blob_index = nullptr);
+           bool* is_blob_index = nullptr, bool do_merge = true);
 
   bool Get(const LookupKey& key, std::string* value, Status* s,
            MergeContext* merge_context,
            SequenceNumber* max_covering_tombstone_seq,
            const ReadOptions& read_opts, ReadCallback* callback = nullptr,
-           bool* is_blob_index = nullptr) {
+           bool* is_blob_index = nullptr, bool do_merge = true) {
     SequenceNumber seq;
     return Get(key, value, s, merge_context, max_covering_tombstone_seq, &seq,
-               read_opts, callback, is_blob_index);
+               read_opts, callback, is_blob_index, do_merge);
   }
-
-  struct GetMergeOperandsOptions {
-    GetMergeOperandsOptions(const LookupKey& _key,
-                            MergeOperandsOptions* _merge_operands_options,
-                            Status* _s, MergeContext* _merge_context,
-                            SequenceNumber* _max_covering_tombstone_seq,
-                            const ReadOptions& _read_opts)
-        : key(_key),
-          merge_operands_options(_merge_operands_options),
-          s(_s),
-          merge_context(_merge_context),
-          max_covering_tombstone_seq(_max_covering_tombstone_seq),
-          read_opts(_read_opts) {}
-    const LookupKey& key;
-    MergeOperandsOptions* merge_operands_options;
-    Status* s;
-    MergeContext* merge_context;
-    SequenceNumber* max_covering_tombstone_seq;
-    const ReadOptions& read_opts;
-  };
-
-  // Returns all the merge operands corresponding to the key. If the number of
-  // merge operands in DB is greater than
-  // get_merge_operands_options.merge_operands_options.
-  // expected_max_number_of_operands then no merge operands are returned and
-  // status is Incomplete.
-  bool GetMergeOperands(GetMergeOperandsOptions get_merge_operands_options);
 
   // Attempts to update the new_value inplace, else does normal Add
   // Pseudocode

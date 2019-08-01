@@ -1528,6 +1528,7 @@ Status DBImpl::GetImpl(GetImplOptions get_impl_options) {
        has_unpersisted_data_.load(std::memory_order_relaxed));
   bool done = false;
   if (!skip_memtable) {
+    // Get value associated with key
     if (get_impl_options.get_value) {
       if (sv->mem->Get(lkey, get_impl_options.value->GetSelf(), &s,
                        &merge_context, &max_covering_tombstone_seq,
@@ -1547,15 +1548,17 @@ Status DBImpl::GetImpl(GetImplOptions get_impl_options) {
         RecordTick(stats_, MEMTABLE_HIT);
       }
     } else {
-      MemTable::GetMergeOperandsOptions merge_operand_options(
-          lkey, get_impl_options.merge_operands_options, &s, &merge_context,
-          &max_covering_tombstone_seq, get_impl_options.read_options);
-
-      if (sv->mem->GetMergeOperands(merge_operand_options)) {
+      // Get Merge Operands associated with key, Merge Operands should not be
+      // merged and raw values should be returned to the user.
+      if (sv->mem->Get(
+              lkey, nullptr, &s, &merge_context, &max_covering_tombstone_seq,
+              get_impl_options.read_options, nullptr, nullptr, false)) {
         done = true;
         RecordTick(stats_, MEMTABLE_HIT);
       } else if ((s.ok() || s.IsMergeInProgress()) &&
-                 sv->imm->GetMergeOperands(merge_operand_options)) {
+                 sv->imm->GetMergeOperands(lkey, &s, &merge_context,
+                                           &max_covering_tombstone_seq,
+                                           get_impl_options.read_options)) {
         done = true;
         RecordTick(stats_, MEMTABLE_HIT);
       }
@@ -1593,7 +1596,7 @@ Status DBImpl::GetImpl(GetImplOptions get_impl_options) {
         *get_impl_options.number_of_operands =
             static_cast<int>(merge_context.GetNumOperands());
         if (*get_impl_options.number_of_operands >
-            get_impl_options.merge_operands_options
+            get_impl_options.get_merge_operands_options
                 ->expected_max_number_of_operands) {
           s = Status::Incomplete(
               Status::SubCode::KMergeOperandsInsufficientCapacity);

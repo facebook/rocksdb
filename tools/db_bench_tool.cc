@@ -5941,15 +5941,17 @@ class Benchmark {
   // is a sorted list. Next performance comparison is done between doing a Get
   // for key1 followed by searching for another key(key2) in the large sorted
   // list vs calling GetMergeOperands for key1 and then searching for the key2
-  // in all the sub-lists. The later case is expected to be a lot faster.
+  // in all the sorted sub-lists. Later case is expected to be a lot faster.
   void GetMergeOperands(ThreadState* thread) {
     DB* db = SelectDB(thread);
     const int kTotalValues = 100000;
+    const int kListSize = 100;
     std::string key = "my_key";
     std::string value;
 
     for (int i = 1; i < kTotalValues; i++) {
-      if (i % 100 == 0) {
+      if (i % kListSize == 0) {
+        // Remove trailing ','
         value.pop_back();
         db->Merge(WriteOptions(), key, value);
         value.clear();
@@ -5961,8 +5963,9 @@ class Benchmark {
     SortList s;
     std::vector<int> data;
     // This value can be experimented with and it will demonstrate the
-    // perf difference between doing a Get and searching for key in the result
-    // vs doing GetMergeOperands and searching within this result.
+    // perf difference between doing a Get and searching for lookup_key in the
+    // resultant large sorted list vs doing GetMergeOperands and searching
+    // for lookup_key within this resultant sorted sub-lists.
     int lookup_key = 1;
 
     // Get API call
@@ -5970,7 +5973,7 @@ class Benchmark {
     PinnableSlice p_slice;
     uint64_t st = FLAGS_env->NowNanos();
     db->Get(ReadOptions(), db->DefaultColumnFamily(), key, &p_slice);
-    s.Make(data, p_slice);
+    s.MakeVector(data, p_slice);
     bool found =
         binary_search(data, 0, static_cast<int>(data.size() - 1), lookup_key);
     std::cout << "Found key? " << std::to_string(found) << "\n";
@@ -5983,17 +5986,17 @@ class Benchmark {
 
     // GetMergeOperands API call
     std::cout << "--- GetMergeOperands API --- \n";
-    std::vector<PinnableSlice> a_slice((kTotalValues / 100) + 1);
+    std::vector<PinnableSlice> a_slice((kTotalValues / kListSize) + 1);
     st = FLAGS_env->NowNanos();
     int number_of_operands = 0;
-    MergeOperandsOptions merge_operands_info;
-    merge_operands_info.expected_max_number_of_operands =
+    GetMergeOperandsOptions get_merge_operands_options;
+    get_merge_operands_options.expected_max_number_of_operands =
         (kTotalValues / 100) + 1;
     db->GetMergeOperands(ReadOptions(), db->DefaultColumnFamily(), key,
-                         a_slice.data(), &merge_operands_info,
+                         a_slice.data(), &get_merge_operands_options,
                          &number_of_operands);
     for (PinnableSlice& psl : a_slice) {
-      s.Make(data, psl);
+      s.MakeVector(data, psl);
       found =
           binary_search(data, 0, static_cast<int>(data.size() - 1), lookup_key);
       data.clear();

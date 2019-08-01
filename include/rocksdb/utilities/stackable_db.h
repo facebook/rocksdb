@@ -89,13 +89,14 @@ class StackableDB : public DB {
   }
 
   using DB::GetMergeOperands;
-  virtual Status GetMergeOperands(const ReadOptions& options,
-                                  ColumnFamilyHandle* column_family,
-                                  const Slice& key, PinnableSlice* slice,
-                                  MergeOperandsOptions* merge_operands_options,
-                                  int* number_of_operands) override {
+  virtual Status GetMergeOperands(
+      const ReadOptions& options, ColumnFamilyHandle* column_family,
+      const Slice& key, PinnableSlice* slice,
+      GetMergeOperandsOptions* get_merge_operands_options,
+      int* number_of_operands) override {
     return db_->GetMergeOperands(options, column_family, key, slice,
-                                 merge_operands_options, number_of_operands);
+                                 get_merge_operands_options,
+                                 number_of_operands);
   }
 
   using DB::MultiGet;

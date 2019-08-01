@@ -116,7 +116,7 @@ struct IngestExternalFileArg {
   IngestExternalFileOptions options;
 };
 
-struct MergeOperandsOptions {
+struct GetMergeOperandsOptions {
   int expected_max_number_of_operands = 0;
 };
 
@@ -419,12 +419,11 @@ class DB {
   // 		Incomplete then number_of_operands
   // will
   //		contain the total number of merge operands found in DB for key.
-  virtual Status GetMergeOperands(const ReadOptions& options,
-                                  ColumnFamilyHandle* column_family,
-                                  const Slice& key,
-                                  PinnableSlice* merge_operands,
-                                  MergeOperandsOptions* merge_operands_options,
-                                  int* number_of_operands) = 0;
+  virtual Status GetMergeOperands(
+      const ReadOptions& options, ColumnFamilyHandle* column_family,
+      const Slice& key, PinnableSlice* merge_operands,
+      GetMergeOperandsOptions* get_merge_operands_options,
+      int* number_of_operands) = 0;
 
   // If keys[i] does not exist in the database, then the i'th returned
   // status will be one for which Status::IsNotFound() is true, and

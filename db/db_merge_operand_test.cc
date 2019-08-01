@@ -60,7 +60,7 @@ TEST_F(DBMergeOperandTest, GetMergeOperandsBasic) {
   ASSERT_OK(Merge("k1", "c"));
   ASSERT_OK(Merge("k1", "d"));
   std::vector<PinnableSlice> values(num_records);
-  MergeOperandsOptions merge_operands_info;
+  GetMergeOperandsOptions merge_operands_info;
   merge_operands_info.expected_max_number_of_operands = num_records;
   db_->GetMergeOperands(ReadOptions(), db_->DefaultColumnFamily(), "k1",
                         values.data(), &merge_operands_info,
@@ -70,8 +70,8 @@ TEST_F(DBMergeOperandTest, GetMergeOperandsBasic) {
   ASSERT_EQ(values[2], "c");
   ASSERT_EQ(values[3], "d");
 
-  // num_records is less than number of merge operands so status should be
-  // Aborted.
+  // expected_max_number_of_operands is less than number of merge operands so
+  // status should be Incomplete.
   merge_operands_info.expected_max_number_of_operands = num_records - 1;
   Status status = db_->GetMergeOperands(
       ReadOptions(), db_->DefaultColumnFamily(), "k1", values.data(),

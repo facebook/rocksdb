@@ -721,8 +721,8 @@ Status WriteUnpreparedTxn::RollbackToSavePointInternal() {
       const auto& cf_handle = cf_map.at(cfid);
       PinnableSlice pinnable_val;
       bool not_used;
-      s = db_impl_->GetImpl(roptions, cf_handle, key, &pinnable_val, &not_used,
-                            &callback);
+      s = db_impl_->GetImpl(DBImpl::GetImplOptions(
+          roptions, cf_handle, key, &pinnable_val, &not_used, &callback));
 
       if (s.ok()) {
         s = write_batch_.Put(cf_handle, key, pinnable_val);

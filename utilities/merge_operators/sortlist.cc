@@ -24,7 +24,7 @@ bool SortList::FullMergeV2(const MergeOperationInput& merge_in,
   std::vector<int> left;
   for (Slice slice : merge_in.operand_list) {
     std::vector<int> right;
-    Make(right, slice);
+    MakeVector(right, slice);
     left = Merge(left, right);
   }
   for (int i = 0; i < static_cast<int>(left.size()) - 1; i++) {
@@ -39,8 +39,8 @@ bool SortList::PartialMerge(const Slice& /*key*/, const Slice& left_operand,
                             Logger* /*logger*/) const {
   std::vector<int> left;
   std::vector<int> right;
-  Make(left, left_operand);
-  Make(right, right_operand);
+  MakeVector(left, left_operand);
+  MakeVector(right, right_operand);
   left = Merge(left, right);
   for (int i = 0; i < static_cast<int>(left.size()) - 1; i++) {
     new_value->append(std::to_string(left[i])).append(",");
@@ -60,7 +60,7 @@ bool SortList::PartialMergeMulti(const Slice& /*key*/,
 
 const char* SortList::Name() const { return "MergeSortOperator"; }
 
-void SortList::Make(std::vector<int>& operand, Slice slice) const {
+void SortList::MakeVector(std::vector<int>& operand, Slice slice) const {
   do {
     const char* begin = slice.data_;
     while (*slice.data_ != ',' && *slice.data_) slice.data_++;

@@ -163,11 +163,11 @@ class DBImpl : public DB {
   Status GetMergeOperands(const ReadOptions& options,
                           ColumnFamilyHandle* column_family, const Slice& key,
                           PinnableSlice* merge_operands,
-                          MergeOperandsOptions* merge_operands_options,
-                          int* actual_number_operands) override {
+                          GetMergeOperandsOptions* get_merge_operands_options,
+                          int* number_of_operands) override {
     return GetImpl(GetImplOptions(
         options, column_family, key, nullptr, nullptr, nullptr, nullptr, false,
-        merge_operands, merge_operands_options, actual_number_operands));
+        merge_operands, get_merge_operands_options, number_of_operands));
   }
 
   using DB::MultiGet;
@@ -407,14 +407,13 @@ class DBImpl : public DB {
   // ---- End of implementations of the DB interface ----
 
   struct GetImplOptions {
-    GetImplOptions(const ReadOptions& _read_options,
-                   ColumnFamilyHandle* _column_family, const Slice& _key,
-                   PinnableSlice* _value, bool* _value_found = nullptr,
-                   ReadCallback* _callback = nullptr,
-                   bool* _is_blob_index = nullptr, bool _get_value = true,
-                   PinnableSlice* _merge_operands = nullptr,
-                   MergeOperandsOptions* _merge_operands_options = nullptr,
-                   int* _number_of_operands = nullptr)
+    GetImplOptions(
+        const ReadOptions& _read_options, ColumnFamilyHandle* _column_family,
+        const Slice& _key, PinnableSlice* _value, bool* _value_found = nullptr,
+        ReadCallback* _callback = nullptr, bool* _is_blob_index = nullptr,
+        bool _get_value = true, PinnableSlice* _merge_operands = nullptr,
+        GetMergeOperandsOptions* _get_merge_operands_options = nullptr,
+        int* _number_of_operands = nullptr)
         : read_options(_read_options),
           column_family(_column_family),
           key(_key),
@@ -424,7 +423,7 @@ class DBImpl : public DB {
           is_blob_index(_is_blob_index),
           get_value(_get_value),
           merge_operands(_merge_operands),
-          merge_operands_options(_merge_operands_options),
+          get_merge_operands_options(_get_merge_operands_options),
           number_of_operands(_number_of_operands) {}
     const ReadOptions& read_options;
     ColumnFamilyHandle* column_family;
@@ -437,9 +436,10 @@ class DBImpl : public DB {
     // all merge operands for key via merge_operands pointer
     bool get_value;
     // Pointer to an array of size
-    // merge_operands_options.expected_max_number_of_operands allocated by user
+    // get_merge_operands_options.expected_max_number_of_operands allocated by
+    // user
     PinnableSlice* merge_operands;
-    MergeOperandsOptions* merge_operands_options;
+    GetMergeOperandsOptions* get_merge_operands_options;
     int* number_of_operands;
   };
 
@@ -449,7 +449,7 @@ class DBImpl : public DB {
   // get_val - If true return value associated with key else return all merge
   // 		operands for key
   // merge_operands - Pointer to an array of size
-  //				merge_operands_options.expected_max_number_of_operands.
+  //				get_merge_operands_options.expected_max_number_of_operands.
   // 				If get_val = false then all the merge operands
   // are stored in 				this pointer else the value
   // associated with key is stored

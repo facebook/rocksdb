@@ -757,7 +757,7 @@ bool MemTable::Get(const LookupKey& key, std::string* value, Status* s,
                    MergeContext* merge_context,
                    SequenceNumber* max_covering_tombstone_seq,
                    SequenceNumber* seq, const ReadOptions& read_opts,
-                   ReadCallback* callback, bool* is_blob_index) {
+                   ReadCallback* callback, bool* is_blob_index, bool do_merge) {
   // The sequence number is updated synchronously in version_set.h
   if (IsEmpty()) {
     // Avoiding recording stats for speed.
@@ -817,7 +817,7 @@ bool MemTable::Get(const LookupKey& key, std::string* value, Status* s,
     saver.env_ = env_;
     saver.callback_ = callback;
     saver.is_blob_index = is_blob_index;
-    saver.do_merge = true;
+    saver.do_merge = do_merge;
     table_->Get(key, &saver, SaveValue);
     *seq = saver.seq;
   }
@@ -827,81 +827,6 @@ bool MemTable::Get(const LookupKey& key, std::string* value, Status* s,
     *s = Status::MergeInProgress();
   }
   PERF_COUNTER_ADD(get_from_memtable_count, 1);
-  return found_final_value;
-}
-
-bool MemTable::GetMergeOperands(
-    GetMergeOperandsOptions get_merge_operands_options) {
-  // The sequence number is updated synchronously in version_set.h
-  if (IsEmpty()) {
-    // Avoiding recording stats for speed.
-    return false;
-  }
-  PERF_TIMER_GUARD(get_from_memtable_time);
-
-  std::unique_ptr<FragmentedRangeTombstoneIterator> range_del_iter(
-      NewRangeTombstoneIterator(
-          get_merge_operands_options.read_opts,
-          GetInternalKeySeqno(get_merge_operands_options.key.internal_key())));
-  if (range_del_iter != nullptr) {
-    *get_merge_operands_options.max_covering_tombstone_seq =
-        std::max(*get_merge_operands_options.max_covering_tombstone_seq,
-                 range_del_iter->MaxCoveringTombstoneSeqnum(
-                     get_merge_operands_options.key.user_key()));
-  }
-
-  Slice user_key = get_merge_operands_options.key.user_key();
-  bool found_final_value = false;
-  bool merge_in_progress = get_merge_operands_options.s->IsMergeInProgress();
-  bool may_contain = true;
-  size_t ts_sz = GetInternalKeyComparator().user_comparator()->timestamp_size();
-  if (bloom_filter_) {
-    // when both memtable_whole_key_filtering and prefix_extractor_ are set,
-    // only do whole key filtering for Get() to save CPU
-    if (moptions_.memtable_whole_key_filtering) {
-      may_contain =
-          bloom_filter_->MayContain(StripTimestampFromUserKey(user_key, ts_sz));
-    } else {
-      assert(prefix_extractor_);
-      may_contain =
-          !prefix_extractor_->InDomain(user_key) ||
-          bloom_filter_->MayContain(prefix_extractor_->Transform(user_key));
-    }
-  }
-  if (bloom_filter_ && !may_contain) {
-    // iter is null if prefix bloom says the key does not exist
-    PERF_COUNTER_ADD(bloom_memtable_miss_count, 1);
-  } else {
-    if (bloom_filter_) {
-      PERF_COUNTER_ADD(bloom_memtable_hit_count, 1);
-    }
-    Saver saver;
-    saver.status = get_merge_operands_options.s;
-    saver.found_final_value = &found_final_value;
-    saver.merge_in_progress = &merge_in_progress;
-    saver.key = &get_merge_operands_options.key;
-    saver.seq = kMaxSequenceNumber;
-    saver.mem = this;
-    saver.merge_context = get_merge_operands_options.merge_context;
-    saver.max_covering_tombstone_seq =
-        *get_merge_operands_options.max_covering_tombstone_seq;
-    saver.merge_operator = moptions_.merge_operator;
-    saver.logger = moptions_.info_log;
-    saver.inplace_update_support = moptions_.inplace_update_support;
-    saver.statistics = moptions_.statistics;
-    saver.env_ = env_;
-    saver.callback_ = nullptr;
-    saver.is_blob_index = nullptr;
-    saver.do_merge = false;
-    table_->Get(get_merge_operands_options.key, &saver, SaveValue);
-  }
-
-  // No change to value, since we have not yet found a Put/Delete
-  if (!found_final_value && merge_in_progress) {
-    *get_merge_operands_options.s = Status::MergeInProgress();
-  }
-  PERF_COUNTER_ADD(get_from_memtable_count, 1);
-
   return found_final_value;
 }
 
