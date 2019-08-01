@@ -588,18 +588,37 @@ class CostClassPolicy(Policy):
 
         assert e1_class in cost_classes
         assert e2_class in cost_classes
-        e1_density = cost_classes[e1_class].density(now)
-        e2_density = cost_classes[e2_class].density(now)
+
+        e1_entry = cost_classes[e1_class]
+        e2_entry = cost_classes[e2_class]
+        # e1_last = e1_entry.avg_last_access_time()
+        # e2_last = e2_entry.avg_last_access_time()
+        #
+        # diff = e1_last - e2_last
+        # if diff == 0:
+        #     return 0
+        # elif diff > 0:
+        #     return 1
+        # else:
+        #     return -1
+
+        e1_density = e1_entry.density(now)
+        e2_density = e2_entry.density(now)
         e1_hits = cost_classes[e1_class].hits
         e2_hits = cost_classes[e2_class].hits
 
         if e1_density == e2_density:
             return e1_hits - e2_hits
 
+        if e1_entry.num_entries_in_cache == 0:
+            return -1
+        if e2_entry.num_entries_in_cache == 0:
+            return 1
+
         if e1_density == 0:
             return 1
         if e2_density == 0:
-            return 1
+            return -1
         diff = (float(e1_hits) / float(e1_density)) - (
             float(e2_hits) / float(e2_density)
         )
@@ -794,20 +813,35 @@ class CostClassEntry:
         self.num_entries_in_cache = 0
         self.size_in_cache = 0
         self.sum_insertion_times = 0
+        self.sum_last_access_time = 0
 
     def insert(self, trace_record, key, value_size):
         self.size_in_cache += value_size
         self.num_entries_in_cache += 1
         self.sum_insertion_times += trace_record.access_time / kMicrosInSecond
+        self.sum_last_access_time += trace_record.access_time  / kMicrosInSecond
 
-    def remove(self, insertion_time, key, value_size, num_hits):
+    def remove(self, insertion_time, last_access_time, key, value_size, num_hits):
         self.hits -= num_hits
         self.num_entries_in_cache -= 1
         self.sum_insertion_times -= insertion_time / kMicrosInSecond
         self.size_in_cache -= value_size
+        self.sum_last_access_time -= last_access_time  / kMicrosInSecond
 
-    def update_on_hit(self):
+    def update_on_hit(self, trace_record, last_access_time):
         self.hits += 1
+        self.sum_last_access_time -= last_access_time  / kMicrosInSecond
+        self.sum_last_access_time += trace_record.access_time  / kMicrosInSecond
+
+    def avg_last_access_time(self):
+        if self.num_entries_in_cache == 0:
+            return 0
+        return float(self.sum_last_access_time) / float(self.num_entries_in_cache)
+
+    def avg_size(self):
+        if self.num_entries_in_cache == 0:
+            return 0
+        return float(self.sum_last_access_time) / float(self.num_entries_in_cache)
 
     def density(self, now):
         avg_insertion_time = self.sum_insertion_times / self.num_entries_in_cache
@@ -840,7 +874,7 @@ class MLCache(Cache):
             if self.cost_class_label is not None:
                 cost_class = value.cost_class(self.cost_class_label)
                 assert cost_class in self.cost_classes
-                self.cost_classes[cost_class].update_on_hit()
+                self.cost_classes[cost_class].update_on_hit(trace_record, value.last_access_time)
             # Update the entry's last access time.
             self.table.insert(
                 key,
@@ -889,6 +923,7 @@ class MLCache(Cache):
                     assert cost_class in self.cost_classes
                     self.cost_classes[cost_class].remove(
                         hash_entry.value.insertion_time,
+                        hash_entry.value.last_access_time,
                         key,
                         hash_entry.value.value_size,
                         hash_entry.value.num_hits,

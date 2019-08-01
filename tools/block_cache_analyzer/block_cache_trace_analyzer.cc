@@ -1514,9 +1514,9 @@ Status BlockCacheTraceAnalyzer::RecordAccess(
     std::string user_key = ExtractUserKey(access.referenced_key).ToString();
     if (get_key_info_map_.find(user_key) == get_key_info_map_.end()) {
       get_key_info_map_[user_key].key_id = unique_get_key_id_;
-      get_key_id = unique_get_key_id_;
       unique_get_key_id_++;
     }
+    get_key_id = get_key_info_map_[user_key].key_id;
     get_key_info_map_[user_key].AddAccess(access, access_sequence_number_);
   }
 
