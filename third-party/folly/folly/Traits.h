@@ -20,9 +20,14 @@
 
 namespace folly {
 
+#if !defined(_MSC_VER)
 template <class T>
 struct is_trivially_copyable
     : std::integral_constant<bool, __has_trivial_copy(T)> {};
+#else
+template <class T>
+using is_trivially_copyable = std::is_trivially_copyable<T>;
+#endif
 
 /***
  *  _t
