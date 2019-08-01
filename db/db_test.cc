@@ -2545,7 +2545,7 @@ class ModelDB : public DB {
       const ReadOptions& /*options*/, ColumnFamilyHandle* /*column_family*/,
       const Slice& key, PinnableSlice* /*slice*/,
       MergeOperandsOptions* /*merge_operands_options*/,
-	  int* /*number_of_operands*/) override {
+      int* /*number_of_operands*/) override {
     return Status::NotSupported(key);
   }
 

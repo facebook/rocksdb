@@ -1590,7 +1590,7 @@ Status DBImpl::GetImpl(GetImplOptions get_impl_options) {
       if (get_impl_options.get_value) {
         size = get_impl_options.value->size();
       } else {
-    	  // Return all merge operands for get_impl_options.key
+        // Return all merge operands for get_impl_options.key
         *get_impl_options.number_of_operands =
             static_cast<int>(merge_context.GetNumOperands());
         if (*get_impl_options.number_of_operands >

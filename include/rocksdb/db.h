@@ -424,7 +424,7 @@ class DB {
                                   const Slice& key,
                                   PinnableSlice* merge_operands,
                                   MergeOperandsOptions* merge_operands_options,
-								  int* number_of_operands) = 0;
+                                  int* number_of_operands) = 0;
 
   // If keys[i] does not exist in the database, then the i'th returned
   // status will be one for which Status::IsNotFound() is true, and

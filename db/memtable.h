@@ -207,8 +207,8 @@ class MemTable {
   struct GetMergeOperandsOptions {
     GetMergeOperandsOptions(const LookupKey& _key,
                             PinnableSlice* _merge_operands,
-                            MergeOperandsOptions* _merge_operands_options, Status* _s,
-                            MergeContext* _merge_context,
+                            MergeOperandsOptions* _merge_operands_options,
+                            Status* _s, MergeContext* _merge_context,
                             SequenceNumber* _max_covering_tombstone_seq,
                             const ReadOptions& _read_opts)
         : key(_key),

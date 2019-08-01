@@ -71,6 +71,7 @@
 #include "utilities/blob_db/blob_db.h"
 #include "utilities/merge_operators.h"
 #include "utilities/merge_operators/bytesxor.h"
+#include "utilities/merge_operators/sortlist.h"
 #include "utilities/persistent_cache/block_cache_tier.h"
 
 #ifdef OS_WIN
@@ -121,6 +122,7 @@ DEFINE_string(
     "randomtransaction,"
     "randomreplacekeys,"
     "timeseries",
+    "getmergeoperands,"
 
     "Comma-separated list of operations to run in the specified"
     " order. Available benchmarks:\n"
@@ -190,7 +192,8 @@ DEFINE_string(
     "\tlevelstats  -- Print the number of files and bytes per level\n"
     "\tsstables    -- Print sstable info\n"
     "\theapprofile -- Dump a heap profile (if supported by this port)\n"
-    "\treplay      -- replay the trace file specified with trace_file\n");
+    "\treplay      -- replay the trace file specified with trace_file\n"
+    "\tgetmergeoperands -- Compare DB Get and GetMergeOperands performance\n");
 
 DEFINE_int64(num, 1000000, "Number of key/values to place in database");
 
@@ -2880,6 +2883,8 @@ class Benchmark {
           exit(1);
         }
         method = &Benchmark::Replay;
+      } else if (name == "getmergeoperands") {
+        method = &Benchmark::GetMergeOperands;
       } else if (!name.empty()) {  // No error message for empty name
         fprintf(stderr, "unknown benchmark '%s'\n", name.c_str());
         exit(1);
@@ -5918,6 +5923,87 @@ class Benchmark {
       iter->Seek(key);
       assert(iter->Valid() && iter->key() == key);
       thread->stats.FinishedOps(nullptr, db, 1, kSeek);
+    }
+  }
+
+  bool binary_search(std::vector<int>& data, int start, int end, int key) {
+    if (start > end) return false;
+    int mid = start + (end - start) / 2;
+    if (data[mid] == key)
+      return true;
+    else if (data[mid] > key)
+      return binary_search(data, start, mid - 1, key);
+    else
+      return binary_search(data, mid + 1, end, key);
+  }
+
+  // Inserts a bunch of merge operations
+  void GetMergeOperands(ThreadState* thread) {
+    DB* db = SelectDB(thread);
+    const int kTotalValues = 100000;
+    std::string key = "my_key";
+    std::string value;
+
+    // Do kTotalMerges merges
+    for (int i = 1; i < kTotalValues; i++) {
+      if (i % 100 == 0) {
+        db->Merge(WriteOptions(), key, value);
+        value.clear();
+      } else {
+        value.append(std::to_string(i)).append(",");
+      }
+    }
+
+    SortList s;
+    std::vector<int> data;
+    // This value can be experimented with and it will demonstrate the
+    // perf difference between doing a Get and searching for key in the result
+    // vs doing GetMergeOperands and searching within this result.
+    int lookup_key = 1;
+
+    // Get API call
+    std::cout << "--- Get API call --- \n";
+    PinnableSlice p_slice;
+    uint64_t st = FLAGS_env->NowNanos();
+    db->Get(ReadOptions(), db->DefaultColumnFamily(), key, &p_slice);
+    s.Make(data, p_slice);
+    bool found =
+        binary_search(data, 0, static_cast<int>(data.size() - 1), lookup_key);
+    std::cout << "Found key? " << std::to_string(found) << "\n";
+    uint64_t sp = FLAGS_env->NowNanos();
+    std::cout << "Get: " << (sp - st) / 1000000000.0 << " seconds\n";
+    std::string* dat_ = p_slice.GetSelf();
+    std::cout << "Sample data from Get API call: " << dat_->substr(0, 10)
+              << "\n";
+    data.clear();
+
+    // GetMergeOperands API call
+    std::cout << "--- GetMergeOperands API --- \n";
+    std::vector<PinnableSlice> a_slice((kTotalValues / 100) + 1);
+    st = FLAGS_env->NowNanos();
+    int number_of_operands = 0;
+    MergeOperandsOptions merge_operands_info;
+    merge_operands_info.expected_max_number_of_operands =
+        (kTotalValues / 100) + 1;
+    db->GetMergeOperands(ReadOptions(), db->DefaultColumnFamily(), key,
+                         a_slice.data(), &merge_operands_info,
+                         &number_of_operands);
+    for (PinnableSlice& psl : a_slice) {
+      s.Make(data, psl);
+      found =
+          binary_search(data, 0, static_cast<int>(data.size() - 1), lookup_key);
+      data.clear();
+      if (found) break;
+    }
+    std::cout << "Found key? " << std::to_string(found) << "\n";
+    sp = FLAGS_env->NowNanos();
+    std::cout << "Get Merge operands: " << (sp - st) / 1000000000.0
+              << " seconds \n";
+    int to_print = 0;
+    std::cout << "Sample data from GetMergeOperands API call: ";
+    for (PinnableSlice& psl : a_slice) {
+      std::cout << "List: " << to_print << " : " << *psl.GetSelf() << "\n";
+      if (to_print++ > 2) break;
     }
   }
 

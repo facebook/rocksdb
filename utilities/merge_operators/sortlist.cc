@@ -109,7 +109,7 @@ std::vector<int> SortList::Merge(std::vector<int>& left,
   return result;
 }
 
-std::shared_ptr<MergeOperator> MergeOperators::CreateSortAndSearchOperator() {
+std::shared_ptr<MergeOperator> MergeOperators::CreateSortOperator() {
   return std::make_shared<SortList>();
 }
 }  // namespace rocksdb

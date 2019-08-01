@@ -1762,6 +1762,7 @@ void Version::Get(const ReadOptions& read_options, const LookupKey& k,
   }
   if (GetContext::kMerge == get_context.State()) {
     if (!do_merge) {
+      *status = Status::OK();
       return;
     }
     if (!merge_operator_) {

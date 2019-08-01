@@ -164,10 +164,10 @@ class DBImpl : public DB {
                           ColumnFamilyHandle* column_family, const Slice& key,
                           PinnableSlice* merge_operands,
                           MergeOperandsOptions* merge_operands_options,
-						  int* actual_number_operands) override {
-    return GetImpl(GetImplOptions(options, column_family, key, nullptr, nullptr,
-                                  nullptr, nullptr, false, merge_operands,
-                                  merge_operands_options, actual_number_operands));
+                          int* actual_number_operands) override {
+    return GetImpl(GetImplOptions(
+        options, column_family, key, nullptr, nullptr, nullptr, nullptr, false,
+        merge_operands, merge_operands_options, actual_number_operands));
   }
 
   using DB::MultiGet;
@@ -414,7 +414,7 @@ class DBImpl : public DB {
                    bool* _is_blob_index = nullptr, bool _get_value = true,
                    PinnableSlice* _merge_operands = nullptr,
                    MergeOperandsOptions* _merge_operands_options = nullptr,
-				   int* _number_of_operands = nullptr)
+                   int* _number_of_operands = nullptr)
         : read_options(_read_options),
           column_family(_column_family),
           key(_key),
@@ -425,7 +425,7 @@ class DBImpl : public DB {
           get_value(_get_value),
           merge_operands(_merge_operands),
           merge_operands_options(_merge_operands_options),
-		  number_of_operands(_number_of_operands){}
+          number_of_operands(_number_of_operands) {}
     const ReadOptions& read_options;
     ColumnFamilyHandle* column_family;
     const Slice& key;
