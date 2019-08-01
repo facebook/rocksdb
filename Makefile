@@ -89,7 +89,7 @@ endif
 
 ifeq ($(MAKECMDGOALS),rocksdbjavastaticreleasedocker)
 	ifneq ($(DEBUG_LEVEL),2)
-        	DEBUG_LEVEL=0
+		DEBUG_LEVEL=0
 	endif
 endif
 
@@ -305,7 +305,7 @@ ifndef DISABLE_JEMALLOC
 endif
 
 ifndef USE_FOLLY_DISTRIBUTED_MUTEX
-       USE_FOLLY_DISTRIBUTED_MUTEX=1
+	USE_FOLLY_DISTRIBUTED_MUTEX=1
 endif
 
 export GTEST_THROW_ON_FAILURE=1
@@ -586,7 +586,7 @@ TESTS = \
 	block_cache_trace_analyzer_test \
 
 ifeq ($(USE_FOLLY_DISTRIBUTED_MUTEX),1)
-       TESTS += folly_synchronization_distributed_mutex_test
+	TESTS += folly_synchronization_distributed_mutex_test
 endif
 
 PARALLEL_TEST = \
