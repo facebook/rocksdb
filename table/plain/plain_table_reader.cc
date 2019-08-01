@@ -733,7 +733,7 @@ void PlainTableIterator::SeekForPrev(const Slice& /*target*/) {
 void PlainTableIterator::Next() {
   offset_ = next_offset_;
   if (offset_ < table_->file_info_.data_end_offset) {
-    Slice tmp_slice;
+    
     ParsedInternalKey parsed_key;
     status_ =
         table_->Next(&decoder_, &next_offset_, &parsed_key, &key_, &value_);
