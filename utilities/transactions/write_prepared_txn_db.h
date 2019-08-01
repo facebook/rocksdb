@@ -488,6 +488,7 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
   friend class WritePreparedTransactionTest_IsInSnapshotTest_Test;
   friend class WritePreparedTransactionTest_NewSnapshotLargerThanMax_Test;
   friend class WritePreparedTransactionTest_MaxCatchupWithNewSnapshot_Test;
+  friend class WritePreparedTransactionTest_MaxCatchupWithUnbackedSnapshot_Test;
   friend class
       WritePreparedTransactionTest_NonAtomicCommitOfDelayedPrepared_Test;
   friend class
@@ -785,24 +786,40 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
   std::shared_ptr<std::map<uint32_t, ColumnFamilyHandle*>> handle_map_;
 };
 
+enum SnapshotBackup : bool { kBackedByDBSnapshot, kUnbackedByDBSnapshot };
+
 class WritePreparedTxnReadCallback : public ReadCallback {
  public:
   WritePreparedTxnReadCallback(WritePreparedTxnDB* db, SequenceNumber snapshot)
-      : ReadCallback(snapshot), db_(db) {}
+      : ReadCallback(snapshot), db_(db), backed_by_snapshot_(kUnbackedByDBSnapshot) {}
+  WritePreparedTxnReadCallback(WritePreparedTxnDB* db, SequenceNumber snapshot,
+                               SequenceNumber min_uncommitted, SnapshotBackup backed_by_snapshot)
+      : ReadCallback(snapshot, min_uncommitted), db_(db), backed_by_snapshot_(backed_by_snapshot) {}
+
+
   WritePreparedTxnReadCallback(WritePreparedTxnDB* db, SequenceNumber snapshot,
                                SequenceNumber min_uncommitted)
-      : ReadCallback(snapshot, min_uncommitted), db_(db) {}
-
+      : ReadCallback(snapshot, min_uncommitted), db_(db), backed_by_snapshot_(kBackedByDBSnapshot) {}
   // Will be called to see if the seq number visible; if not it moves on to
   // the next seq number.
   inline virtual bool IsVisibleFullCheck(SequenceNumber seq) override {
     auto snapshot = max_visible_seq_;
-    return db_->IsInSnapshot(seq, snapshot, min_uncommitted_);
+    bool snap_released = false;
+    auto ret = db_->IsInSnapshot(seq, snapshot, min_uncommitted_, &snap_released);
+    assert(!snap_released || backed_by_snapshot_ == kUnbackedByDBSnapshot);
+    snap_released_ |= snap_released;
+    return ret;
+  }
+
+  inline bool valid() {
+    return snap_released_ == false;
   }
 
   // TODO(myabandeh): override Refresh when Iterator::Refresh is supported
  private:
   WritePreparedTxnDB* db_;
+  bool snap_released_ = false;
+  const SnapshotBackup backed_by_snapshot_; // Whether max_visible_seq_ is backed by a snapshot
 };
 
 class AddPreparedCallback : public PreReleaseCallback {

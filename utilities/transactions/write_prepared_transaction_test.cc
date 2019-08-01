@@ -1372,7 +1372,7 @@ TEST_P(WritePreparedTransactionTest, MaxCatchupWithNewSnapshot) {
     for (int i = 0; i < writes; i++) {
       WriteBatch batch;
       // For duplicate keys cause 4 commit entries, each evicting an entry that
-      // is not published yet, thus causing max ecited seq go higher than last
+      // is not published yet, thus causing max evcited seq go higher than last
       // published.
       for (int b = 0; b < batch_cnt; b++) {
         batch.Put("foo", "foo");
@@ -1391,6 +1391,51 @@ TEST_P(WritePreparedTransactionTest, MaxCatchupWithNewSnapshot) {
         ASSERT_LT(wp_db->max_evicted_seq_, snap->GetSequenceNumber());
       }  // seq 0 is ok to be less than max since nothing is visible to it
       db->ReleaseSnapshot(snap);
+    }
+  });
+
+  t1.join();
+  t2.join();
+
+  // Make sure that the test has worked and seq number has advanced as we
+  // thought
+  auto snap = db->GetSnapshot();
+  ASSERT_GT(snap->GetSequenceNumber(), batch_cnt * writes - 1);
+  db->ReleaseSnapshot(snap);
+}
+
+TEST_P(WritePreparedTransactionTest, MaxCatchupWithUnbackedSnapshot) {
+  const size_t snapshot_cache_bits = 7;  // same as default
+  const size_t commit_cache_bits = 0;    // only 1 entry => frequent eviction
+  UpdateTransactionDBOptions(snapshot_cache_bits, commit_cache_bits);
+  ReOpen();
+  WriteOptions woptions;
+  WritePreparedTxnDB* wp_db = dynamic_cast<WritePreparedTxnDB*>(db);
+
+  const int writes = 50;
+  const int batch_cnt = 1;
+  rocksdb::port::Thread t1([&]() {
+    for (int i = 0; i < writes; i++) {
+      WriteBatch batch;
+      // For duplicate keys cause 4 commit entries, each evicting an entry that
+      // is not published yet, thus causing max evcited seq go higher than last
+      // published.
+      for (int b = 0; b < batch_cnt; b++) {
+        batch.Put("foo", "foo");
+      }
+      db->Write(woptions, &batch);
+    }
+  });
+
+  rocksdb::port::Thread t2([&]() {
+    while (wp_db->max_evicted_seq_ == 0) {  // wait for insert thread
+      std::this_thread::yield();
+    }
+    ReadOptions ropt;
+    for (int i = 0; i < 10; i++) {
+      PinnableSlice pinnable_val;
+      auto s = db->Get(ropt, db->DefaultColumnFamily(), "foo", &pinnable_val);
+      ASSERT_TRUE(s.ok() || s.IsTryAgain());
     }
   });
 
