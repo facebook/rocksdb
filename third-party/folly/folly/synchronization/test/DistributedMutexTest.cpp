@@ -1093,7 +1093,7 @@ void concurrentBigValueReturnStress(
             EXPECT_EQ(barrier.fetch_sub(1, std::memory_order_relaxed), 1);
           };
           EXPECT_EQ(barrier.fetch_sub(1, std::memory_order_relaxed), 2);
-          return makeMonotonicArray(current);
+          return makeMonotonicArray(static_cast<int>(current));
         });
 
         auto expected = value.load() - 1;

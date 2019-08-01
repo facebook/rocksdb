@@ -17,6 +17,7 @@
 #pragma once
 
 #include <type_traits>
+#include <utility>
 
 namespace folly {
 
@@ -143,7 +144,7 @@ struct IsNothrowSwappable
     : std::integral_constant<
           bool,
           std::is_nothrow_move_constructible<T>::value&& noexcept(
-              swap(std::declval<T&>(), std::declval<T&>()))> {};
+              std::swap(std::declval<T&>(), std::declval<T&>()))> {};
 
 template <typename...>
 struct Conjunction : std::true_type {};
