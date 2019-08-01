@@ -800,6 +800,12 @@ class WritePreparedTxnReadCallback : public ReadCallback {
   WritePreparedTxnReadCallback(WritePreparedTxnDB* db, SequenceNumber snapshot,
                                SequenceNumber min_uncommitted)
       : ReadCallback(snapshot, min_uncommitted), db_(db), backed_by_snapshot_(kBackedByDBSnapshot) {}
+
+  virtual ~WritePreparedTxnReadCallback() {
+    // If it is not backed by snapshot, the caller must check validity
+    assert(valid_checked_ || backed_by_snapshot_ == kBackedByDBSnapshot);
+  }
+
   // Will be called to see if the seq number visible; if not it moves on to
   // the next seq number.
   inline virtual bool IsVisibleFullCheck(SequenceNumber seq) override {
@@ -812,14 +818,18 @@ class WritePreparedTxnReadCallback : public ReadCallback {
   }
 
   inline bool valid() {
+    valid_checked_ = true;
     return snap_released_ == false;
   }
 
   // TODO(myabandeh): override Refresh when Iterator::Refresh is supported
  private:
   WritePreparedTxnDB* db_;
+  // Whether max_visible_seq_ is backed by a snapshot
+  const SnapshotBackup backed_by_snapshot_;
   bool snap_released_ = false;
-  const SnapshotBackup backed_by_snapshot_; // Whether max_visible_seq_ is backed by a snapshot
+  // Safety check to ensure that the caller has checked invalid statuses
+  bool valid_checked_ = false;
 };
 
 class AddPreparedCallback : public PreReleaseCallback {

@@ -232,7 +232,7 @@ Status WritePreparedTxnDB::Get(const ReadOptions& options,
   bool* dont_care = nullptr;
   auto res = db_impl_->GetImpl(options, column_family, key, value, dont_care,
                                &callback);
-  if (LIKELY(
+  if (LIKELY(callback.valid() &&
           ValidateSnapshot(callback.max_visible_seq(), backed_by_snapshot))) {
     return res;
   } else {
