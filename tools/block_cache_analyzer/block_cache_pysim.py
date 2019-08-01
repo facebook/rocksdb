@@ -129,6 +129,8 @@ class CacheEntry:
             return "{}".format(self.cf_id)
         elif cost_class_label == "cf_bt":
             return "{}-{}".format(self.cf_id, self.block_type)
+        elif cost_class_label == "table_level_bt":
+            return "{}-{}-{}".format(self.table_id, self.level, self.block_type)
         assert False, "Unknown cost class label {}".format(cost_class_label)
         return None
 
@@ -658,6 +660,8 @@ class Cache(object):
         self.enable_cache_row_key = enable_cache_row_key
         self.get_id_row_key_map = {}
         self.per_hour_miss_ratio_stats = MissRatioStats(kSecondsInHour)
+        self.max_seen_get_id = 0
+        self.retain_get_id_range = 1000000
 
     def block_key(self, trace_record):
         return "b{}".format(trace_record.block_id)
@@ -731,19 +735,25 @@ class Cache(object):
         self._update_stats(trace_record.access_time, is_hit=is_hit)
 
     def _access_row(self, trace_record):
+        row_key = self.row_key(trace_record)
+        self.max_seen_get_id = max(self.max_seen_get_id, trace_record.get_id)
+        self.get_id_row_key_map.pop(
+            self.max_seen_get_id - self.retain_get_id_range, None
+        )
         if trace_record.get_id not in self.get_id_row_key_map:
             self.get_id_row_key_map[trace_record.get_id] = {}
             self.get_id_row_key_map[trace_record.get_id]["h"] = False
         if self.get_id_row_key_map[trace_record.get_id]["h"]:
             # We treat future accesses as hits since this get request
             # completes.
+            # print("row hit 1")
             self._update_stats(trace_record.access_time, is_hit=True)
             return
-        if trace_record.key_id not in self.get_id_row_key_map[trace_record.get_id]:
+        if row_key not in self.get_id_row_key_map[trace_record.get_id]:
             # First time seen this key.
             is_hit = self._access_kv(
                 trace_record,
-                key=self.row_key(trace_record),
+                key=row_key,
                 hash=trace_record.key_id,
                 value_size=trace_record.kv_size,
                 no_insert=False,
@@ -751,36 +761,44 @@ class Cache(object):
             inserted = False
             if trace_record.kv_size > 0:
                 inserted = True
-            self.get_id_row_key_map[trace_record.get_id][trace_record.key_id] = inserted
+            self.get_id_row_key_map[trace_record.get_id][row_key] = inserted
             self.get_id_row_key_map[trace_record.get_id]["h"] = is_hit
         if self.get_id_row_key_map[trace_record.get_id]["h"]:
             # We treat future accesses as hits since this get request
             # completes.
+            # print("row hit 2")
             self._update_stats(trace_record.access_time, is_hit=True)
             return
         # Access its blocks.
+        no_insert = trace_record.no_insert
+        if (
+            self.enable_cache_row_key == 2
+            and trace_record.kv_size > 0
+            and trace_record.block_type == 9
+        ):
+            no_insert = True
         is_hit = self._access_kv(
             trace_record,
             key=self.block_key(trace_record),
             hash=trace_record.block_id,
             value_size=trace_record.block_size,
-            no_insert=trace_record.no_insert,
+            no_insert=no_insert,
         )
         self._update_stats(trace_record.access_time, is_hit)
         if (
             trace_record.kv_size > 0
-            and not self.get_id_row_key_map[trace_record.get_id][trace_record.key_id]
+            and not self.get_id_row_key_map[trace_record.get_id][row_key]
         ):
             # Insert the row key-value pair.
             self._access_kv(
                 trace_record,
-                key=self.row_key(trace_record),
+                key=row_key,
                 hash=trace_record.key_id,
                 value_size=trace_record.kv_size,
                 no_insert=False,
             )
             # Mark as inserted.
-            self.get_id_row_key_map[trace_record.get_id][trace_record.key_id] = True
+            self.get_id_row_key_map[trace_record.get_id][row_key] = True
 
     def _access_kv(self, trace_record, key, hash, value_size, no_insert):
         # Sanity checks.
@@ -819,19 +837,19 @@ class CostClassEntry:
         self.size_in_cache += value_size
         self.num_entries_in_cache += 1
         self.sum_insertion_times += trace_record.access_time / kMicrosInSecond
-        self.sum_last_access_time += trace_record.access_time  / kMicrosInSecond
+        self.sum_last_access_time += trace_record.access_time / kMicrosInSecond
 
     def remove(self, insertion_time, last_access_time, key, value_size, num_hits):
         self.hits -= num_hits
         self.num_entries_in_cache -= 1
         self.sum_insertion_times -= insertion_time / kMicrosInSecond
         self.size_in_cache -= value_size
-        self.sum_last_access_time -= last_access_time  / kMicrosInSecond
+        self.sum_last_access_time -= last_access_time / kMicrosInSecond
 
     def update_on_hit(self, trace_record, last_access_time):
         self.hits += 1
-        self.sum_last_access_time -= last_access_time  / kMicrosInSecond
-        self.sum_last_access_time += trace_record.access_time  / kMicrosInSecond
+        self.sum_last_access_time -= last_access_time / kMicrosInSecond
+        self.sum_last_access_time += trace_record.access_time / kMicrosInSecond
 
     def avg_last_access_time(self):
         if self.num_entries_in_cache == 0:
@@ -874,7 +892,9 @@ class MLCache(Cache):
             if self.cost_class_label is not None:
                 cost_class = value.cost_class(self.cost_class_label)
                 assert cost_class in self.cost_classes
-                self.cost_classes[cost_class].update_on_hit(trace_record, value.last_access_time)
+                self.cost_classes[cost_class].update_on_hit(
+                    trace_record, value.last_access_time
+                )
             # Update the entry's last access time.
             self.table.insert(
                 key,
@@ -1059,7 +1079,9 @@ class LinUCBCache(MLCache):
 
     def cache_name(self):
         if self.enable_cache_row_key:
-            return "Hybrid LinUCB with cost class {} (linucb_hybrid)".format(self.cost_class_label)
+            return "Hybrid LinUCB with cost class {} (linucb_hybrid)".format(
+                self.cost_class_label
+            )
         return "LinUCB with cost class {} (linucb)".format(self.cost_class_label)
 
 
@@ -1157,7 +1179,7 @@ class OPTCache(Cache):
     """
 
     def __init__(self, cache_size):
-        super(OPTCache, self).__init__(cache_size, enable_cache_row_key=False)
+        super(OPTCache, self).__init__(cache_size, enable_cache_row_key=-1)
         self.table = PQTable()
 
     def _lookup(self, trace_record, key, hash):
@@ -1464,7 +1486,7 @@ class TraceCache(Cache):
     """
 
     def __init__(self, cache_size):
-        super(TraceCache, self).__init__(cache_size, enable_cache_row_key=False)
+        super(TraceCache, self).__init__(cache_size, enable_cache_row_key=-1)
 
     def _lookup(self, trace_record, key, hash):
         return trace_record.is_hit
@@ -1495,9 +1517,12 @@ def parse_cache_size(cs):
 
 def create_cache(cache_type, cache_size, downsample_size):
     cache_size = cache_size / downsample_size
-    enable_cache_row_key = False
+    enable_cache_row_key = 0
+    if "hybridn" in cache_type:
+        enable_cache_row_key = 2
+        cache_type = cache_type[:-8]
     if "hybrid" in cache_type:
-        enable_cache_row_key = True
+        enable_cache_row_key = 1
         cache_type = cache_type[:-7]
     if cache_type == "ts":
         return ThompsonSamplingCache(
@@ -1542,6 +1567,13 @@ def create_cache(cache_type, cache_size, downsample_size):
     elif cache_type == "pycccf":
         return ThompsonSamplingCache(
             cache_size, enable_cache_row_key, [CostClassPolicy()], cost_class_label="cf"
+        )
+    elif cache_type == "pycctblevelbt":
+        return ThompsonSamplingCache(
+            cache_size,
+            enable_cache_row_key,
+            [CostClassPolicy()],
+            cost_class_label="table_level_bt",
         )
     elif cache_type == "pycccfbt":
         return ThompsonSamplingCache(
@@ -1798,6 +1830,14 @@ def run(
             trace_duration / 1000000,
             access_seq_no / (now - start_time),
             trace_miss_ratio_stats.miss_ratio(),
+        )
+    )
+    print(
+        "{},0,0,{},{},{}".format(
+            cache_type,
+            cache.cache_size,
+            cache.miss_ratio_stats.miss_ratio(),
+            cache.miss_ratio_stats.num_accesses,
         )
     )
     return trace_start_time, trace_duration
