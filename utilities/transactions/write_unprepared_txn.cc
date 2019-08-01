@@ -25,7 +25,11 @@ bool WriteUnpreparedTxnReadCallback::IsVisibleFullCheck(SequenceNumber seq) {
     }
   }
 
-  return db_->IsInSnapshot(seq, wup_snapshot_, min_uncommitted_);
+  bool snap_released = false;
+  auto ret = db_->IsInSnapshot(seq, wup_snapshot_, min_uncommitted_);
+  assert(!snap_released || backed_by_snapshot_ == kUnbackedByDBSnapshot);
+  snap_released_ |= snap_released;
+  return ret;
 }
 
 WriteUnpreparedTxn::WriteUnpreparedTxn(WriteUnpreparedTxnDB* txn_db,
@@ -704,7 +708,8 @@ Status WriteUnpreparedTxn::RollbackToSavePointInternal() {
           ->min_uncommitted_;
   SequenceNumber snap_seq = roptions.snapshot->GetSequenceNumber();
   WriteUnpreparedTxnReadCallback callback(wupt_db_, snap_seq, min_uncommitted,
-                                          top.unprep_seqs_);
+                                          top.unprep_seqs_,
+                                          kBackedByDBSnapshot);
   const auto& cf_map = *wupt_db_->GetCFHandleMap();
   for (const auto& cfkey : tracked_keys) {
     const auto cfid = cfkey.first;
@@ -784,14 +789,15 @@ void WriteUnpreparedTxn::MultiGet(const ReadOptions& options,
                                   PinnableSlice* values, Status* statuses,
                                   bool sorted_input) {
   SequenceNumber min_uncommitted, snap_seq;
-  const bool backed_by_snapshot =
+  const SnapshotBackup backed_by_snapshot =
       wupt_db_->AssignMinMaxSeqs(options.snapshot, &min_uncommitted, &snap_seq);
   WriteUnpreparedTxnReadCallback callback(wupt_db_, snap_seq, min_uncommitted,
-                                          unprep_seqs_);
+                                          unprep_seqs_, backed_by_snapshot);
   write_batch_.MultiGetFromBatchAndDB(db_, options, column_family, num_keys,
                                       keys, values, statuses, sorted_input,
                                       &callback);
-  if (UNLIKELY(!wupt_db_->ValidateSnapshot(snap_seq, backed_by_snapshot))) {
+  if (UNLIKELY(callback.valid() &&
+               !wupt_db_->ValidateSnapshot(snap_seq, backed_by_snapshot))) {
     for (size_t i = 0; i < num_keys; i++) {
       statuses[i] = Status::TryAgain();
     }
@@ -802,13 +808,14 @@ Status WriteUnpreparedTxn::Get(const ReadOptions& options,
                                ColumnFamilyHandle* column_family,
                                const Slice& key, PinnableSlice* value) {
   SequenceNumber min_uncommitted, snap_seq;
-  const bool backed_by_snapshot =
+  const SnapshotBackup backed_by_snapshot =
       wupt_db_->AssignMinMaxSeqs(options.snapshot, &min_uncommitted, &snap_seq);
   WriteUnpreparedTxnReadCallback callback(wupt_db_, snap_seq, min_uncommitted,
-                                          unprep_seqs_);
+                                          unprep_seqs_, backed_by_snapshot);
   auto res = write_batch_.GetFromBatchAndDB(db_, options, column_family, key,
                                             value, &callback);
-  if (LIKELY(wupt_db_->ValidateSnapshot(snap_seq, backed_by_snapshot))) {
+  if (LIKELY(callback.valid() &&
+             wupt_db_->ValidateSnapshot(snap_seq, backed_by_snapshot))) {
     return res;
   } else {
     return Status::TryAgain();
@@ -854,8 +861,8 @@ Status WriteUnpreparedTxn::ValidateSnapshot(ColumnFamilyHandle* column_family,
   ColumnFamilyHandle* cfh =
       column_family ? column_family : db_impl_->DefaultColumnFamily();
 
-  WriteUnpreparedTxnReadCallback snap_checker(wupt_db_, snap_seq,
-                                              min_uncommitted, unprep_seqs_);
+  WriteUnpreparedTxnReadCallback snap_checker(
+      wupt_db_, snap_seq, min_uncommitted, unprep_seqs_, kBackedByDBSnapshot);
   return TransactionUtil::CheckKeyForConflicts(db_impl_, cfh, key.ToString(),
                                                snap_seq, false /* cache_only */,
                                                &snap_checker, min_uncommitted);

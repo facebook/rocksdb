@@ -348,7 +348,8 @@ struct WriteUnpreparedTxnDB::IteratorState {
   IteratorState(WritePreparedTxnDB* txn_db, SequenceNumber sequence,
                 std::shared_ptr<ManagedSnapshot> s,
                 SequenceNumber min_uncommitted, WriteUnpreparedTxn* txn)
-      : callback(txn_db, sequence, min_uncommitted, txn->unprep_seqs_),
+      : callback(txn_db, sequence, min_uncommitted, txn->unprep_seqs_,
+                 kBackedByDBSnapshot),
         snapshot(s) {}
   SequenceNumber MaxVisibleSeq() { return callback.max_visible_seq(); }
 
