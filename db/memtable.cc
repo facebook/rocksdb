@@ -678,17 +678,24 @@ static bool SaveValue(void* arg, const char* entry) {
         Slice v = GetLengthPrefixedSlice(key_ptr + key_length);
         *(s->status) = Status::OK();
         if (*(s->merge_in_progress)) {
-          if (!s->do_merge) {
-            merge_context->PushOperand(
-                v, s->inplace_update_support == false /* operand_pinned */);
-          } else {
+          if (s->do_merge) {
             if (s->value != nullptr) {
               *(s->status) = MergeHelper::TimedFullMerge(
                   merge_operator, s->key->user_key(), &v,
                   merge_context->GetOperands(), s->value, s->logger,
                   s->statistics, s->env_, nullptr /* result_operand */, true);
             }
+          } else {
+            // Preserve the value with the goal of returning it as part of
+            // raw merge operands to the user
+            merge_context->PushOperand(
+                v, s->inplace_update_support == false /* operand_pinned */);
           }
+        } else if (!s->do_merge) {
+          // Preserve the value with the goal of returning it as part of
+          // raw merge operands to the user
+          merge_context->PushOperand(
+              v, s->inplace_update_support == false /* operand_pinned */);
         } else if (s->value != nullptr) {
           s->value->assign(v.data(), v.size());
         }
