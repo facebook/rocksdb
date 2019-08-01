@@ -228,12 +228,13 @@ Status WritePreparedTxnDB::Get(const ReadOptions& options,
   SequenceNumber min_uncommitted, snap_seq;
   const SnapshotBackup backed_by_snapshot =
       AssignMinMaxSeqs(options.snapshot, &min_uncommitted, &snap_seq);
-  WritePreparedTxnReadCallback callback(this, snap_seq, min_uncommitted, backed_by_snapshot);
+  WritePreparedTxnReadCallback callback(this, snap_seq, min_uncommitted,
+                                        backed_by_snapshot);
   bool* dont_care = nullptr;
   auto res = db_impl_->GetImpl(options, column_family, key, value, dont_care,
                                &callback);
-  if (LIKELY(callback.valid() &&
-          ValidateSnapshot(callback.max_visible_seq(), backed_by_snapshot))) {
+  if (LIKELY(callback.valid() && ValidateSnapshot(callback.max_visible_seq(),
+                                                  backed_by_snapshot))) {
     return res;
   } else {
     return Status::TryAgain();
@@ -298,7 +299,8 @@ struct WritePreparedTxnDB::IteratorState {
   IteratorState(WritePreparedTxnDB* txn_db, SequenceNumber sequence,
                 std::shared_ptr<ManagedSnapshot> s,
                 SequenceNumber min_uncommitted)
-      : callback(txn_db, sequence, min_uncommitted, kBackedByDBSnapshot), snapshot(s) {}
+      : callback(txn_db, sequence, min_uncommitted, kBackedByDBSnapshot),
+        snapshot(s) {}
 
   WritePreparedTxnReadCallback callback;
   std::shared_ptr<ManagedSnapshot> snapshot;

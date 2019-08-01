@@ -48,11 +48,13 @@ void WritePreparedTxn::MultiGet(const ReadOptions& options,
   SequenceNumber min_uncommitted, snap_seq;
   const SnapshotBackup backed_by_snapshot =
       wpt_db_->AssignMinMaxSeqs(options.snapshot, &min_uncommitted, &snap_seq);
-  WritePreparedTxnReadCallback callback(wpt_db_, snap_seq, min_uncommitted, backed_by_snapshot);
+  WritePreparedTxnReadCallback callback(wpt_db_, snap_seq, min_uncommitted,
+                                        backed_by_snapshot);
   write_batch_.MultiGetFromBatchAndDB(db_, options, column_family, num_keys,
                                       keys, values, statuses, sorted_input,
                                       &callback);
-  if (UNLIKELY(callback.valid() && !wpt_db_->ValidateSnapshot(snap_seq, backed_by_snapshot))) {
+  if (UNLIKELY(callback.valid() &&
+               !wpt_db_->ValidateSnapshot(snap_seq, backed_by_snapshot))) {
     for (size_t i = 0; i < num_keys; i++) {
       statuses[i] = Status::TryAgain();
     }
@@ -65,10 +67,12 @@ Status WritePreparedTxn::Get(const ReadOptions& options,
   SequenceNumber min_uncommitted, snap_seq;
   const SnapshotBackup backed_by_snapshot =
       wpt_db_->AssignMinMaxSeqs(options.snapshot, &min_uncommitted, &snap_seq);
-  WritePreparedTxnReadCallback callback(wpt_db_, snap_seq, min_uncommitted, backed_by_snapshot);
+  WritePreparedTxnReadCallback callback(wpt_db_, snap_seq, min_uncommitted,
+                                        backed_by_snapshot);
   auto res = write_batch_.GetFromBatchAndDB(db_, options, column_family, key,
                                             pinnable_val, &callback);
-  if (LIKELY(callback.valid() && wpt_db_->ValidateSnapshot(callback.max_visible_seq(),
+  if (LIKELY(callback.valid() &&
+             wpt_db_->ValidateSnapshot(callback.max_visible_seq(),
                                        backed_by_snapshot))) {
     return res;
   } else {

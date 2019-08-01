@@ -451,8 +451,9 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
   // max is not valid, and a seq < min is valid, and a min <= seq < max requires
   // further checking. Normally max is defined by the snapshot and min is by
   // minimum uncommitted seq.
-  inline SnapshotBackup AssignMinMaxSeqs(const Snapshot* snapshot, SequenceNumber* min,
-                               SequenceNumber* max);
+  inline SnapshotBackup AssignMinMaxSeqs(const Snapshot* snapshot,
+                                         SequenceNumber* min,
+                                         SequenceNumber* max);
   // Validate is a snapshot sequence number is still valid based on the latest
   // db status. backed_by_snapshot specifies if the number is baked by an actual
   // snapshot object. order specified the memory order with which we load the
@@ -810,7 +811,8 @@ class WritePreparedTxnReadCallback : public ReadCallback {
   inline virtual bool IsVisibleFullCheck(SequenceNumber seq) override {
     auto snapshot = max_visible_seq_;
     bool snap_released = false;
-    auto ret = db_->IsInSnapshot(seq, snapshot, min_uncommitted_, &snap_released);
+    auto ret =
+        db_->IsInSnapshot(seq, snapshot, min_uncommitted_, &snap_released);
     assert(!snap_released || backed_by_snapshot_ == kUnbackedByDBSnapshot);
     snap_released_ |= snap_released;
     return ret;
@@ -1061,8 +1063,8 @@ struct SubBatchCounter : public WriteBatch::Handler {
 };
 
 SnapshotBackup WritePreparedTxnDB::AssignMinMaxSeqs(const Snapshot* snapshot,
-                                          SequenceNumber* min,
-                                          SequenceNumber* max) {
+                                                    SequenceNumber* min,
+                                                    SequenceNumber* max) {
   if (snapshot != nullptr) {
     *min = static_cast_with_check<const SnapshotImpl, const Snapshot>(snapshot)
                ->min_uncommitted_;
