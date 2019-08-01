@@ -46,9 +46,9 @@ void WritePreparedTxn::MultiGet(const ReadOptions& options,
                                 PinnableSlice* values, Status* statuses,
                                 bool sorted_input) {
   SequenceNumber min_uncommitted, snap_seq;
-  const bool backed_by_snapshot =
+  const SnapshotBackup backed_by_snapshot =
       wpt_db_->AssignMinMaxSeqs(options.snapshot, &min_uncommitted, &snap_seq);
-  WritePreparedTxnReadCallback callback(wpt_db_, snap_seq, min_uncommitted, backed_by_snapshot ? kBackedByDBSnapshot : kUnbackedByDBSnapshot);
+  WritePreparedTxnReadCallback callback(wpt_db_, snap_seq, min_uncommitted, backed_by_snapshot);
   write_batch_.MultiGetFromBatchAndDB(db_, options, column_family, num_keys,
                                       keys, values, statuses, sorted_input,
                                       &callback);
@@ -63,9 +63,9 @@ Status WritePreparedTxn::Get(const ReadOptions& options,
                              ColumnFamilyHandle* column_family,
                              const Slice& key, PinnableSlice* pinnable_val) {
   SequenceNumber min_uncommitted, snap_seq;
-  const bool backed_by_snapshot =
+  const SnapshotBackup backed_by_snapshot =
       wpt_db_->AssignMinMaxSeqs(options.snapshot, &min_uncommitted, &snap_seq);
-  WritePreparedTxnReadCallback callback(wpt_db_, snap_seq, min_uncommitted, backed_by_snapshot ? kBackedByDBSnapshot : kUnbackedByDBSnapshot);
+  WritePreparedTxnReadCallback callback(wpt_db_, snap_seq, min_uncommitted, backed_by_snapshot);
   auto res = write_batch_.GetFromBatchAndDB(db_, options, column_family, key,
                                             pinnable_val, &callback);
   if (LIKELY(callback.valid() && wpt_db_->ValidateSnapshot(callback.max_visible_seq(),

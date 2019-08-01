@@ -1404,6 +1404,7 @@ TEST_P(WritePreparedTransactionTest, MaxCatchupWithNewSnapshot) {
   db->ReleaseSnapshot(snap);
 }
 
+// Test that reads without snapshots would not hit an undefined state
 TEST_P(WritePreparedTransactionTest, MaxCatchupWithUnbackedSnapshot) {
   const size_t snapshot_cache_bits = 7;  // same as default
   const size_t commit_cache_bits = 0;    // only 1 entry => frequent eviction
@@ -1413,16 +1414,10 @@ TEST_P(WritePreparedTransactionTest, MaxCatchupWithUnbackedSnapshot) {
   WritePreparedTxnDB* wp_db = dynamic_cast<WritePreparedTxnDB*>(db);
 
   const int writes = 50;
-  const int batch_cnt = 1;
   rocksdb::port::Thread t1([&]() {
     for (int i = 0; i < writes; i++) {
       WriteBatch batch;
-      // For duplicate keys cause 4 commit entries, each evicting an entry that
-      // is not published yet, thus causing max evcited seq go higher than last
-      // published.
-      for (int b = 0; b < batch_cnt; b++) {
-        batch.Put("foo", "foo");
-      }
+      batch.Put("key", "foo");
       db->Write(woptions, &batch);
     }
   });
@@ -1432,12 +1427,18 @@ TEST_P(WritePreparedTransactionTest, MaxCatchupWithUnbackedSnapshot) {
       std::this_thread::yield();
     }
     ReadOptions ropt;
+    PinnableSlice pinnable_val;
     for (int i = 0; i < 10; i++) {
-      PinnableSlice pinnable_val;
-      auto s = db->Get(ropt, db->DefaultColumnFamily(), "foo", &pinnable_val);
-      // TODO(myabandeh): add txn->Get
-      // TODO(myabandeh): add txn->MultiGet
+      auto s = db->Get(ropt, db->DefaultColumnFamily(), "key", &pinnable_val);
       ASSERT_TRUE(s.ok() || s.IsTryAgain());
+      pinnable_val.Reset();
+      Transaction* txn = db->BeginTransaction(woptions, txn_options);
+      s = txn->Get(ropt, db->DefaultColumnFamily(), "key", &pinnable_val);
+      ASSERT_TRUE(s.ok() || s.IsTryAgain());
+      std::vector<std::string> values;
+      s = txn->MultiGet(ropt, db->DefaultColumnFamily(), 1, {"key"}, &values);
+      ASSERT_TRUE(s.ok() || s.IsTryAgain());
+      delete txn;
     }
   });
 
@@ -1447,7 +1448,7 @@ TEST_P(WritePreparedTransactionTest, MaxCatchupWithUnbackedSnapshot) {
   // Make sure that the test has worked and seq number has advanced as we
   // thought
   auto snap = db->GetSnapshot();
-  ASSERT_GT(snap->GetSequenceNumber(), batch_cnt * writes - 1);
+  ASSERT_GT(snap->GetSequenceNumber(), writes - 1);
   db->ReleaseSnapshot(snap);
 }
 

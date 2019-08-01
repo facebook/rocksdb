@@ -30,6 +30,7 @@
 #include "utilities/transactions/write_prepared_txn.h"
 
 namespace rocksdb {
+enum SnapshotBackup : bool { kBackedByDBSnapshot, kUnbackedByDBSnapshot };
 
 // A PessimisticTransactionDB that writes data to DB after prepare phase of 2PC.
 // In this way some data in the DB might not be committed. The DB provides
@@ -448,9 +449,9 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
       const ColumnFamilyOptions& cf_options) override;
   // Assign the min and max sequence numbers for reading from the db. A seq >
   // max is not valid, and a seq < min is valid, and a min <= seq < max requires
-  // further checkings. Normally max is defined by the snapshot and min is by
+  // further checking. Normally max is defined by the snapshot and min is by
   // minimum uncommitted seq.
-  inline bool AssignMinMaxSeqs(const Snapshot* snapshot, SequenceNumber* min,
+  inline SnapshotBackup AssignMinMaxSeqs(const Snapshot* snapshot, SequenceNumber* min,
                                SequenceNumber* max);
   // Validate is a snapshot sequence number is still valid based on the latest
   // db status. backed_by_snapshot specifies if the number is baked by an actual
@@ -786,15 +787,18 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
   std::shared_ptr<std::map<uint32_t, ColumnFamilyHandle*>> handle_map_;
 };
 
-enum SnapshotBackup : bool { kBackedByDBSnapshot, kUnbackedByDBSnapshot };
-
 class WritePreparedTxnReadCallback : public ReadCallback {
  public:
   WritePreparedTxnReadCallback(WritePreparedTxnDB* db, SequenceNumber snapshot)
-      : ReadCallback(snapshot), db_(db), backed_by_snapshot_(kUnbackedByDBSnapshot) {}
+      : ReadCallback(snapshot),
+        db_(db),
+        backed_by_snapshot_(kBackedByDBSnapshot) {}
   WritePreparedTxnReadCallback(WritePreparedTxnDB* db, SequenceNumber snapshot,
-                               SequenceNumber min_uncommitted, SnapshotBackup backed_by_snapshot)
-      : ReadCallback(snapshot, min_uncommitted), db_(db), backed_by_snapshot_(backed_by_snapshot) {}
+                               SequenceNumber min_uncommitted,
+                               SnapshotBackup backed_by_snapshot)
+      : ReadCallback(snapshot, min_uncommitted),
+        db_(db),
+        backed_by_snapshot_(backed_by_snapshot) {}
 
   virtual ~WritePreparedTxnReadCallback() {
     // If it is not backed by snapshot, the caller must check validity
@@ -1056,7 +1060,7 @@ struct SubBatchCounter : public WriteBatch::Handler {
   bool WriteAfterCommit() const override { return false; }
 };
 
-bool WritePreparedTxnDB::AssignMinMaxSeqs(const Snapshot* snapshot,
+SnapshotBackup WritePreparedTxnDB::AssignMinMaxSeqs(const Snapshot* snapshot,
                                           SequenceNumber* min,
                                           SequenceNumber* max) {
   if (snapshot != nullptr) {
@@ -1064,11 +1068,11 @@ bool WritePreparedTxnDB::AssignMinMaxSeqs(const Snapshot* snapshot,
                ->min_uncommitted_;
     *max = static_cast_with_check<const SnapshotImpl, const Snapshot>(snapshot)
                ->number_;
-    return true;
+    return kBackedByDBSnapshot;
   } else {
     *min = SmallestUnCommittedSeq();
     *max = 0;  // to be assigned later after sv is referenced.
-    return false;
+    return kUnbackedByDBSnapshot;
   }
 }
 
