@@ -321,15 +321,15 @@ else
 endif
 
 ifeq ($(USE_FOLLY_DISTRIBUTED_MUTEX),1)
-       FOLLY_DIR = ./third-party/folly
-       # AIX: pre-defined system headers are surrounded by an extern "C" block
-       ifeq ($(PLATFORM), OS_AIX)
-       PLATFORM_CCFLAGS += -I$(FOLLY_DIR)
-       PLATFORM_CXXFLAGS += -I$(FOLLY_DIR)
-else
-       PLATFORM_CCFLAGS += -isystem $(FOLLY_DIR)
-       PLATFORM_CXXFLAGS += -isystem $(FOLLY_DIR)
-endif
+	FOLLY_DIR = ./third-party/folly
+	# AIX: pre-defined system headers are surrounded by an extern "C" block
+	ifeq ($(PLATFORM), OS_AIX)
+		PLATFORM_CCFLAGS += -I$(FOLLY_DIR)
+		PLATFORM_CXXFLAGS += -I$(FOLLY_DIR)
+	else
+		PLATFORM_CCFLAGS += -isystem $(FOLLY_DIR)
+		PLATFORM_CXXFLAGS += -isystem $(FOLLY_DIR)
+	endif
 endif
 
 # This (the first rule) must depend on "all".
