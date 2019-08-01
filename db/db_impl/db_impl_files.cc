@@ -316,10 +316,9 @@ void DBImpl::PurgeObsoleteFiles(JobContext& state, bool schedule_only) {
       candidate_files.size() + state.sst_delete_files.size() +
       state.log_delete_files.size() + state.manifest_delete_files.size());
   // We may ignore the dbname when generating the file names.
-  const char* kDumbDbName = "";
   for (auto& file : state.sst_delete_files) {
     candidate_files.emplace_back(
-        MakeTableFileName(kDumbDbName, file.metadata->fd.GetNumber()),
+        MakeTableFileName(file.metadata->fd.GetNumber()),
         file.path);
     if (file.metadata->table_reader_handle) {
       table_cache_->Release(file.metadata->table_reader_handle);
@@ -329,7 +328,7 @@ void DBImpl::PurgeObsoleteFiles(JobContext& state, bool schedule_only) {
 
   for (auto file_num : state.log_delete_files) {
     if (file_num > 0) {
-      candidate_files.emplace_back(LogFileName(kDumbDbName, file_num),
+      candidate_files.emplace_back(LogFileName(file_num),
                                    immutable_db_options_.wal_dir);
     }
   }
