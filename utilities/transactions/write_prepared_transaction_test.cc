@@ -1435,6 +1435,8 @@ TEST_P(WritePreparedTransactionTest, MaxCatchupWithUnbackedSnapshot) {
     for (int i = 0; i < 10; i++) {
       PinnableSlice pinnable_val;
       auto s = db->Get(ropt, db->DefaultColumnFamily(), "foo", &pinnable_val);
+      // TODO(myabandeh): add txn->Get
+      // TODO(myabandeh): add txn->MultiGet
       ASSERT_TRUE(s.ok() || s.IsTryAgain());
     }
   });

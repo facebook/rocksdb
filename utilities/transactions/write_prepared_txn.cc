@@ -48,11 +48,11 @@ void WritePreparedTxn::MultiGet(const ReadOptions& options,
   SequenceNumber min_uncommitted, snap_seq;
   const bool backed_by_snapshot =
       wpt_db_->AssignMinMaxSeqs(options.snapshot, &min_uncommitted, &snap_seq);
-  WritePreparedTxnReadCallback callback(wpt_db_, snap_seq, min_uncommitted);
+  WritePreparedTxnReadCallback callback(wpt_db_, snap_seq, min_uncommitted, backed_by_snapshot ? kBackedByDBSnapshot : kUnbackedByDBSnapshot);
   write_batch_.MultiGetFromBatchAndDB(db_, options, column_family, num_keys,
                                       keys, values, statuses, sorted_input,
                                       &callback);
-  if (UNLIKELY(!wpt_db_->ValidateSnapshot(snap_seq, backed_by_snapshot))) {
+  if (UNLIKELY(callback.valid() && !wpt_db_->ValidateSnapshot(snap_seq, backed_by_snapshot))) {
     for (size_t i = 0; i < num_keys; i++) {
       statuses[i] = Status::TryAgain();
     }
@@ -65,10 +65,10 @@ Status WritePreparedTxn::Get(const ReadOptions& options,
   SequenceNumber min_uncommitted, snap_seq;
   const bool backed_by_snapshot =
       wpt_db_->AssignMinMaxSeqs(options.snapshot, &min_uncommitted, &snap_seq);
-  WritePreparedTxnReadCallback callback(wpt_db_, snap_seq, min_uncommitted);
+  WritePreparedTxnReadCallback callback(wpt_db_, snap_seq, min_uncommitted, backed_by_snapshot ? kBackedByDBSnapshot : kUnbackedByDBSnapshot);
   auto res = write_batch_.GetFromBatchAndDB(db_, options, column_family, key,
                                             pinnable_val, &callback);
-  if (LIKELY(wpt_db_->ValidateSnapshot(callback.max_visible_seq(),
+  if (LIKELY(callback.valid() && wpt_db_->ValidateSnapshot(callback.max_visible_seq(),
                                        backed_by_snapshot))) {
     return res;
   } else {
@@ -434,7 +434,8 @@ Status WritePreparedTxn::ValidateSnapshot(ColumnFamilyHandle* column_family,
   ColumnFamilyHandle* cfh =
       column_family ? column_family : db_impl_->DefaultColumnFamily();
 
-  WritePreparedTxnReadCallback snap_checker(wpt_db_, snap_seq, min_uncommitted);
+  WritePreparedTxnReadCallback snap_checker(wpt_db_, snap_seq, min_uncommitted,
+                                            kBackedByDBSnapshot);
   return TransactionUtil::CheckKeyForConflicts(db_impl_, cfh, key.ToString(),
                                                snap_seq, false /* cache_only */,
                                                &snap_checker, min_uncommitted);

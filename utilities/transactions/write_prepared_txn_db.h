@@ -796,11 +796,6 @@ class WritePreparedTxnReadCallback : public ReadCallback {
                                SequenceNumber min_uncommitted, SnapshotBackup backed_by_snapshot)
       : ReadCallback(snapshot, min_uncommitted), db_(db), backed_by_snapshot_(backed_by_snapshot) {}
 
-
-  WritePreparedTxnReadCallback(WritePreparedTxnDB* db, SequenceNumber snapshot,
-                               SequenceNumber min_uncommitted)
-      : ReadCallback(snapshot, min_uncommitted), db_(db), backed_by_snapshot_(kBackedByDBSnapshot) {}
-
   virtual ~WritePreparedTxnReadCallback() {
     // If it is not backed by snapshot, the caller must check validity
     assert(valid_checked_ || backed_by_snapshot_ == kBackedByDBSnapshot);
