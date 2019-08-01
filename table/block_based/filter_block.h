@@ -137,7 +137,8 @@ class FilterBlockReader {
       const Slice ukey = iter->ukey;
       const Slice ikey = iter->ikey;
       GetContext* const get_context = iter->get_context;
-      if (!KeyMayMatch(prefix_extractor->Transform(ukey), prefix_extractor,
+      if (prefix_extractor->InDomain(ukey) &&
+          !KeyMayMatch(prefix_extractor->Transform(ukey), prefix_extractor,
                        block_offset, no_io, &ikey, get_context,
                        lookup_context)) {
         range->SkipKey(iter);
