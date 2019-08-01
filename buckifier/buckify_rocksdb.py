@@ -19,9 +19,10 @@ from util import ColorString
 # $python buckifier/buckify_rocksdb.py
 # (This generates a TARGET file without user-specified dependency for unit
 # tests.)
-# $python buckifier/buckify_rocksdb.py '{"fake": [":test_dep", "//fakes/module:mock1"]}'
+# $python buckifier/buckify_rocksdb.py '{"fake": {"targets": [":test_dep", "//fakes/module:mock1"], "extra_compiler_flags": ["-DROCKSDB_LITE", "-Os"]}}'
 # (Generated TARGETS file has test_dep and mock1 as dependencies for RocksDB
-# unit tests.)
+# unit tests, and will use the extra_compiler_flags to compile the unit test
+# source.)
 
 # tests to export as libraries for inclusion in other projects
 _EXPORTED_TEST_LIBS = ["env_basic_test"]
