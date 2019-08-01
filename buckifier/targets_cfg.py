@@ -146,7 +146,7 @@ test_cfg_template = """    [
 """
 
 unittests_template = """
-# [test_name, test_src, test_type, extra_deps]
+# [test_name, test_src, test_type, extra_deps, extra_compiler_flags]
 ROCKS_TESTS = [
 %s]
 
