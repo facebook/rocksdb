@@ -1428,6 +1428,7 @@ TEST_P(WritePreparedTransactionTest, MaxCatchupWithUnbackedSnapshot) {
     }
     ReadOptions ropt;
     PinnableSlice pinnable_val;
+    TransactionOptions txn_options;
     for (int i = 0; i < 10; i++) {
       auto s = db->Get(ropt, db->DefaultColumnFamily(), "key", &pinnable_val);
       ASSERT_TRUE(s.ok() || s.IsTryAgain());
@@ -1436,7 +1437,11 @@ TEST_P(WritePreparedTransactionTest, MaxCatchupWithUnbackedSnapshot) {
       s = txn->Get(ropt, db->DefaultColumnFamily(), "key", &pinnable_val);
       ASSERT_TRUE(s.ok() || s.IsTryAgain());
       std::vector<std::string> values;
-      s = txn->MultiGet(ropt, db->DefaultColumnFamily(), 1, {"key"}, &values);
+      auto s_vec =
+          txn->MultiGet(ropt, {db->DefaultColumnFamily()}, {"key"}, &values);
+      ASSERT_EQ(1, values.size());
+      ASSERT_EQ(1, s_vec.size());
+      s = s_vec[0];
       ASSERT_TRUE(s.ok() || s.IsTryAgain());
       delete txn;
     }
