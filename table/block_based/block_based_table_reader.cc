@@ -3155,13 +3155,6 @@ void BlockBasedTable::FullFilterKeysMayMatch(
   } else if (!read_options.total_order_seek && prefix_extractor &&
              rep_->table_properties->prefix_extractor_name.compare(
                  prefix_extractor->Name()) == 0) {
-    for (auto iter = range->begin(); iter != range->end(); ++iter) {
-      Slice user_key = iter->lkey->user_key();
-
-      if (!prefix_extractor->InDomain(user_key)) {
-        range->SkipKey(iter);
-      }
-    }
     filter->PrefixesMayMatch(range, prefix_extractor, kNotValid, false,
                              lookup_context);
   }

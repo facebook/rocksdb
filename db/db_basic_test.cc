@@ -1287,6 +1287,45 @@ TEST_F(DBBasicTest, MultiGetBatchedMultiLevel) {
   }
 }
 
+TEST_F(DBBasicTest, MultiGetPrefixExtractor) {
+  Options options = CurrentOptions();
+  options.prefix_extractor.reset(NewFixedPrefixTransform(2));
+  BlockBasedTableOptions bbto;
+  bbto.filter_policy.reset(NewBloomFilterPolicy(10, false));
+  bbto.whole_key_filtering = false;
+  bbto.cache_index_and_filter_blocks = false;
+  options.table_factory.reset(NewBlockBasedTableFactory(bbto));
+  Reopen(options);
+
+  // First key is not in the prefix_extractor domain
+  ASSERT_OK(Put("k", "v0"));
+  ASSERT_OK(Put("kk1", "v1"));
+  ASSERT_OK(Put("kk2", "v2"));
+  ASSERT_OK(Put("kk3", "v3"));
+  ASSERT_OK(Put("kk4", "v4"));
+  ASSERT_OK(Flush());
+
+  std::vector<Slice> keys({"k", "kk1", "kk2", "kk3", "kk4"});
+  std::vector<PinnableSlice> values(keys.size());
+  std::vector<Status> s(keys.size());
+
+  db_->MultiGet(ReadOptions(), dbfull()->DefaultColumnFamily(), keys.size(),
+                keys.data(), values.data(), s.data(), true);
+
+  ASSERT_EQ(values.size(), keys.size());
+  ASSERT_EQ(std::string(values[0].data(), values[0].size()), "v0");
+  ASSERT_EQ(std::string(values[1].data(), values[1].size()), "v1");
+  ASSERT_EQ(std::string(values[2].data(), values[2].size()), "v2");
+  ASSERT_EQ(std::string(values[3].data(), values[3].size()), "v3");
+  ASSERT_EQ(std::string(values[4].data(), values[4].size()), "v4");
+
+  ASSERT_OK(s[0]);
+  ASSERT_OK(s[1]);
+  ASSERT_OK(s[2]);
+  ASSERT_OK(s[3]);
+  ASSERT_OK(s[4]);
+}
+
 #ifndef ROCKSDB_LITE
 TEST_F(DBBasicTest, GetAllKeyVersions) {
   Options options = CurrentOptions();
