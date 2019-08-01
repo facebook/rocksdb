@@ -1521,7 +1521,7 @@ bool tryUnlockClean(Atomic& state, Proxy& proxy, Sleepers sleepers) {
     // if we failed the compare_exchange_strong() above, we check to see if
     // the failure was because of the presence of a timed waiter.  If that
     // was the case then we try one more time with the kTimedWaiter bit set
-    if ((expected == (proxy.expected_ | kTimedWaiter))) {
+    if (expected == (proxy.expected_ | kTimedWaiter)) {
       proxy.timedWaiters_ = true;
       continue;
     }
