@@ -237,6 +237,7 @@ Status WritePreparedTxnDB::Get(const ReadOptions& options,
                                                   backed_by_snapshot))) {
     return res;
   } else {
+    WPRecordTick(TXN_GET_TRY_AGAIN);
     return Status::TryAgain();
   }
 }
