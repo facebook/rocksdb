@@ -30,7 +30,7 @@
 #include "utilities/transactions/write_prepared_txn.h"
 
 namespace rocksdb {
-enum SnapshotBackup : bool { kBackedByDBSnapshot, kUnbackedByDBSnapshot };
+enum SnapshotBackup : bool { kUnbackedByDBSnapshot, kBackedByDBSnapshot };
 
 // A PessimisticTransactionDB that writes data to DB after prepare phase of 2PC.
 // In this way some data in the DB might not be committed. The DB provides
@@ -460,7 +460,7 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
   // atomic variables: relax is enough for the default since we care about last
   // value seen by same thread.
   inline bool ValidateSnapshot(
-      const SequenceNumber snap_seq, const bool backed_by_snapshot,
+      const SequenceNumber snap_seq, const SnapshotBackup backed_by_snapshot,
       std::memory_order order = std::memory_order_relaxed);
 
  private:
@@ -1078,10 +1078,10 @@ SnapshotBackup WritePreparedTxnDB::AssignMinMaxSeqs(const Snapshot* snapshot,
   }
 }
 
-bool WritePreparedTxnDB::ValidateSnapshot(const SequenceNumber snap_seq,
-                                          const bool backed_by_snapshot,
-                                          std::memory_order order) {
-  if (backed_by_snapshot) {
+bool WritePreparedTxnDB::ValidateSnapshot(
+    const SequenceNumber snap_seq, const SnapshotBackup backed_by_snapshot,
+    std::memory_order order) {
+  if (backed_by_snapshot == kBackedByDBSnapshot) {
     return true;
   } else {
     SequenceNumber max = max_evicted_seq_.load(order);
