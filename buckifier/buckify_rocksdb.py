@@ -19,7 +19,12 @@ from util import ColorString
 # $python buckifier/buckify_rocksdb.py
 # (This generates a TARGET file without user-specified dependency for unit
 # tests.)
-# $python buckifier/buckify_rocksdb.py '{"fake": {"targets": [":test_dep", "//fakes/module:mock1"], "extra_compiler_flags": ["-DROCKSDB_LITE", "-Os"]}}'
+# $python buckifier/buckify_rocksdb.py \
+#        '{"fake": { \
+#                      "targets": [":test_dep", "//fakes/module:mock1"],  \
+#                      "extra_compiler_flags": ["-DROCKSDB_LITE", "-Os"], \
+#                  } \
+#         }'
 # (Generated TARGETS file has test_dep and mock1 as dependencies for RocksDB
 # unit tests, and will use the extra_compiler_flags to compile the unit test
 # source.)
@@ -99,11 +104,18 @@ def get_tests(repo_path):
 
     return tests
 
+
 # Parse extra dependencies passed by user from command line
 def get_dependencies():
-    deps_map = {''.encode('ascii'): {'targets'.encode('ascii'): [], 'extra_compiler_flags'.encode('ascii'): []}}
+    deps_map = {
+            ''.encode('ascii'): {
+                                    'targets'.encode('ascii'): [],
+                                    'extra_compiler_flags'.encode('ascii'): []
+                                }
+    }
     if len(sys.argv) < 2:
         return deps_map
+
     def encode_dict(data):
         rv = {}
         for k, v in data.items():
@@ -121,6 +133,7 @@ def get_dependencies():
     for alias, deps in extra_deps.items():
         deps_map[alias] = deps
     return deps_map
+
 
 # Prepare TARGETS file for buck
 def generate_targets(repo_path, deps_map):
@@ -173,7 +186,12 @@ def generate_targets(repo_path, deps_map):
             assert(len(match_src) == 1)
             is_parallel = tests[test]
             test_target_name = test if not alias else test + "_" + alias
-            TARGETS.register_test(test_target_name, match_src[0], is_parallel, deps['targets'], deps['extra_compiler_flags'])
+            TARGETS.register_test(
+                test_target_name,
+                match_src[0],
+                is_parallel,
+                deps['targets'],
+                deps['extra_compiler_flags'])
 
             if test in _EXPORTED_TEST_LIBS:
                 test_library = "%s_lib" % test_target_name
