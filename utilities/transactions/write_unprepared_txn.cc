@@ -799,7 +799,7 @@ void WriteUnpreparedTxn::MultiGet(const ReadOptions& options,
                                       &callback);
   if (UNLIKELY(!callback.valid() ||
                !wupt_db_->ValidateSnapshot(snap_seq, backed_by_snapshot))) {
-    WPRecordTick(TXN_GET_TRY_AGAIN);
+    wupt_db_->WPRecordTick(TXN_GET_TRY_AGAIN);
     for (size_t i = 0; i < num_keys; i++) {
       statuses[i] = Status::TryAgain();
     }
@@ -820,7 +820,7 @@ Status WriteUnpreparedTxn::Get(const ReadOptions& options,
              wupt_db_->ValidateSnapshot(snap_seq, backed_by_snapshot))) {
     return res;
   } else {
-    WPRecordTick(TXN_GET_TRY_AGAIN);
+    wupt_db_->WPRecordTick(TXN_GET_TRY_AGAIN);
     return Status::TryAgain();
   }
 }
