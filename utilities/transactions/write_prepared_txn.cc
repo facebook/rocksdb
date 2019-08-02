@@ -245,9 +245,11 @@ Status WritePreparedTxn::RollbackInternal() {
   auto cf_map_shared_ptr = wpt_db_->GetCFHandleMap();
   auto cf_comp_map_shared_ptr = wpt_db_->GetCFComparatorMap();
   auto read_at_seq = kMaxSequenceNumber;
+  ReadOptions roptions;
+  // to prevent callback's seq to be overrriden inside DBImpk::Get
+  roptions.snapshot = wpt_db_->GetMaxSnapshot();
   struct RollbackWriteBatchBuilder : public WriteBatch::Handler {
     DBImpl* db_;
-    ReadOptions roptions;
     WritePreparedTxnReadCallback callback;
     WriteBatch* rollback_batch_;
     std::map<uint32_t, const Comparator*>& comparators_;
@@ -255,18 +257,20 @@ Status WritePreparedTxn::RollbackInternal() {
     using CFKeys = std::set<Slice, SetComparator>;
     std::map<uint32_t, CFKeys> keys_;
     bool rollback_merge_operands_;
+    ReadOptions roptions_;
     RollbackWriteBatchBuilder(
         DBImpl* db, WritePreparedTxnDB* wpt_db, SequenceNumber snap_seq,
         WriteBatch* dst_batch,
         std::map<uint32_t, const Comparator*>& comparators,
         std::map<uint32_t, ColumnFamilyHandle*>& handles,
-        bool rollback_merge_operands)
+        bool rollback_merge_operands, ReadOptions roptions)
         : db_(db),
           callback(wpt_db, snap_seq),  // disable min_uncommitted optimization
           rollback_batch_(dst_batch),
           comparators_(comparators),
           handles_(handles),
-          rollback_merge_operands_(rollback_merge_operands) {}
+          rollback_merge_operands_(rollback_merge_operands),
+          roptions_(roptions) {}
 
     Status Rollback(uint32_t cf, const Slice& key) {
       Status s;
@@ -284,7 +288,7 @@ Status WritePreparedTxn::RollbackInternal() {
       PinnableSlice pinnable_val;
       bool not_used;
       auto cf_handle = handles_[cf];
-      s = db_->GetImpl(roptions, cf_handle, key, &pinnable_val, &not_used,
+      s = db_->GetImpl(roptions_, cf_handle, key, &pinnable_val, &not_used,
                        &callback);
       assert(s.ok() || s.IsNotFound());
       if (s.ok()) {
@@ -334,7 +338,8 @@ Status WritePreparedTxn::RollbackInternal() {
     bool WriteAfterCommit() const override { return false; }
   } rollback_handler(db_impl_, wpt_db_, read_at_seq, &rollback_batch,
                      *cf_comp_map_shared_ptr.get(), *cf_map_shared_ptr.get(),
-                     wpt_db_->txn_db_options_.rollback_merge_operands);
+                     wpt_db_->txn_db_options_.rollback_merge_operands,
+                     roptions);
   auto s = GetWriteBatch()->GetWriteBatch()->Iterate(&rollback_handler);
   assert(s.ok());
   if (!s.ok()) {

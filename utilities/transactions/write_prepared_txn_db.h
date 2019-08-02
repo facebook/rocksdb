@@ -462,6 +462,8 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
   inline bool ValidateSnapshot(
       const SequenceNumber snap_seq, const SnapshotBackup backed_by_snapshot,
       std::memory_order order = std::memory_order_relaxed);
+  // Get a dummy snapshot that refers to kMaxSequenceNumber
+  Snapshot* GetMaxSnapshot() { return &dummy_max_snapshot_; }
 
  private:
   friend class AddPreparedCallback;
@@ -786,6 +788,8 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
   // Thread safety: since the handle is read-only object it is a const it is
   // safe to read it concurrently
   std::shared_ptr<std::map<uint32_t, ColumnFamilyHandle*>> handle_map_;
+  // A dummy snapshot object that refers to kMaxSequenceNumber
+  SnapshotImpl dummy_max_snapshot_;
 };
 
 class WritePreparedTxnReadCallback : public ReadCallback {
@@ -799,7 +803,9 @@ class WritePreparedTxnReadCallback : public ReadCallback {
                                SnapshotBackup backed_by_snapshot)
       : ReadCallback(snapshot, min_uncommitted),
         db_(db),
-        backed_by_snapshot_(backed_by_snapshot) {}
+        backed_by_snapshot_(backed_by_snapshot) {
+    (void)backed_by_snapshot_;  // to silence unused private field warning
+  }
 
   virtual ~WritePreparedTxnReadCallback() {
     // If it is not backed by snapshot, the caller must check validity
@@ -827,7 +833,7 @@ class WritePreparedTxnReadCallback : public ReadCallback {
  private:
   WritePreparedTxnDB* db_;
   // Whether max_visible_seq_ is backed by a snapshot
-  const SnapshotBackup backed_by_snapshot_ __attribute__((__unused__));
+  const SnapshotBackup backed_by_snapshot_;
   bool snap_released_ = false;
   // Safety check to ensure that the caller has checked invalid statuses
   bool valid_checked_ = false;

@@ -551,8 +551,9 @@ Status WriteUnpreparedTxn::RollbackInternal() {
   Status s;
   const auto& cf_map = *wupt_db_->GetCFHandleMap();
   auto read_at_seq = kMaxSequenceNumber;
-
   ReadOptions roptions;
+  // to prevent callback's seq to be overrriden inside DBImpk::Get
+  roptions.snapshot = wpt_db_->GetMaxSnapshot();
   // Note that we do not use WriteUnpreparedTxnReadCallback because we do not
   // need to read our own writes when reading prior versions of the key for
   // rollback.
