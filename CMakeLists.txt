@@ -33,14 +33,17 @@
 # 4. make -j
 
 cmake_minimum_required(VERSION 3.5.1)
+
+list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_LIST_DIR}/cmake/modules/")
+include(ReadVersion)
+get_rocksdb_version(rocksdb_VERSION)
 project(rocksdb
+  VERSION ${rocksdb_VERSION}
   LANGUAGES CXX C ASM)
 
 if(POLICY CMP0042)
   cmake_policy(SET CMP0042 NEW)
 endif()
-
-list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_LIST_DIR}/cmake/modules/")
 
 find_program(CCACHE_FOUND ccache)
 if(CCACHE_FOUND)
@@ -140,17 +143,6 @@ else()
 endif()
 
 string(REGEX REPLACE "[^0-9a-f]+" "" GIT_SHA "${GIT_SHA}")
-
-
-# Read rocksdb version from version.h header file.
-file(READ include/rocksdb/version.h version_header_file)
-string(REGEX MATCH "#define ROCKSDB_MAJOR ([0-9]+)" _ ${version_header_file})
-set(ROCKSDB_VERSION_MAJOR ${CMAKE_MATCH_1})
-string(REGEX MATCH "#define ROCKSDB_MINOR ([0-9]+)" _ ${version_header_file})
-set(ROCKSDB_VERSION_MINOR ${CMAKE_MATCH_1})
-string(REGEX MATCH "#define ROCKSDB_PATCH ([0-9]+)" _ ${version_header_file})
-set(ROCKSDB_VERSION_PATCH ${CMAKE_MATCH_1})
-set(ROCKSDB_VERSION ${ROCKSDB_VERSION_MAJOR}.${ROCKSDB_VERSION_MINOR}.${ROCKSDB_VERSION_PATCH})
 
 
 option(WITH_MD_LIBRARY "build with MD" ON)
@@ -768,8 +760,8 @@ else()
     ${THIRDPARTY_LIBS} ${SYSTEM_LIBS})
   set_target_properties(${ROCKSDB_SHARED_LIB} PROPERTIES
                         LINKER_LANGUAGE CXX
-                        VERSION ${ROCKSDB_VERSION}
-                        SOVERSION ${ROCKSDB_VERSION_MAJOR}
+                        VERSION ${rocksdb_VERSION}
+                        SOVERSION ${rocksdb_VERSION_MAJOR}
                         CXX_STANDARD 11
                         OUTPUT_NAME "rocksdb")
 endif()
@@ -824,7 +816,7 @@ if(NOT WIN32 OR ROCKSDB_INSTALL_ON_WINDOWS)
 
   write_basic_package_version_file(
     RocksDBConfigVersion.cmake
-    VERSION ${ROCKSDB_VERSION}
+    VERSION ${rocksdb_VERSION}
     COMPATIBILITY SameMajorVersion
   )
 
