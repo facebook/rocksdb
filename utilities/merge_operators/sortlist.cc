@@ -18,7 +18,6 @@ using rocksdb::Slice;
 
 namespace rocksdb {
 
-// Merge operator that sorts a collection of sorted lists
 bool SortList::FullMergeV2(const MergeOperationInput& merge_in,
                            MergeOperationOutput* merge_out) const {
   std::vector<int> left;

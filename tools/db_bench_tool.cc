@@ -121,8 +121,8 @@ DEFINE_string(
     "fillseekseq,"
     "randomtransaction,"
     "randomreplacekeys,"
-    "timeseries",
-    "getmergeoperands,"
+    "timeseries,"
+    "getmergeoperands",
 
     "Comma-separated list of operations to run in the specified"
     " order. Available benchmarks:\n"
@@ -193,7 +193,12 @@ DEFINE_string(
     "\tsstables    -- Print sstable info\n"
     "\theapprofile -- Dump a heap profile (if supported by this port)\n"
     "\treplay      -- replay the trace file specified with trace_file\n"
-    "\tgetmergeoperands -- Compare DB Get and GetMergeOperands performance\n");
+    "\tgetmergeoperands -- Insert lots of merge records which are a list of "
+    "sorted ints for a key and then compare performance of lookup for another "
+    "key "
+    "by doing a Get followed by binary searching in the large sorted list vs "
+    "doing a GetMergeOperands and binary searching in the operands which are"
+    "sorted sub-lists. The MergeOperator used is sortlist.h\n");
 
 DEFINE_int64(num, 1000000, "Number of key/values to place in database");
 

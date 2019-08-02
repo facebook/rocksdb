@@ -64,7 +64,7 @@ TEST_F(DBMergeOperandTest, GetMergeOperandsBasic) {
                         &number_of_operands);
   ASSERT_EQ(values[0], "PutARock");
 
-  // k0.1 value in memtable
+  // k0.1 value in SST
   Put("k0.1", "RockInSST");
   ASSERT_OK(Flush());
   db_->GetMergeOperands(ReadOptions(), db_->DefaultColumnFamily(), "k0.1",
@@ -143,6 +143,11 @@ TEST_F(DBMergeOperandTest, GetMergeOperandsBasic) {
                         values.data(), &merge_operands_info,
                         &number_of_operands);
   ASSERT_EQ(values[0], "o,t");
+
+  // Do some compaction that will make the following tests more predictable
+  //  Slice start("PutARock");
+  //  Slice end("t");
+  db_->CompactRange(CompactRangeOptions(), nullptr, nullptr);
 
   // All k3 values are flushed and are in different files.
   ASSERT_OK(Merge("k3", "ab"));
