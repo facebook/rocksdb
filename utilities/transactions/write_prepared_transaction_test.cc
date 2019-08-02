@@ -1372,7 +1372,7 @@ TEST_P(WritePreparedTransactionTest, MaxCatchupWithNewSnapshot) {
     for (int i = 0; i < writes; i++) {
       WriteBatch batch;
       // For duplicate keys cause 4 commit entries, each evicting an entry that
-      // is not published yet, thus causing max evcited seq go higher than last
+      // is not published yet, thus causing max evicted seq go higher than last
       // published.
       for (int b = 0; b < batch_cnt; b++) {
         batch.Put("foo", "foo");

@@ -827,7 +827,7 @@ class WritePreparedTxnReadCallback : public ReadCallback {
  private:
   WritePreparedTxnDB* db_;
   // Whether max_visible_seq_ is backed by a snapshot
-  const SnapshotBackup backed_by_snapshot_;
+  const SnapshotBackup backed_by_snapshot_ __attribute__((__unused__));
   bool snap_released_ = false;
   // Safety check to ensure that the caller has checked invalid statuses
   bool valid_checked_ = false;
