@@ -21,7 +21,7 @@ from util import ColorString
 # tests.)
 # $python buckifier/buckify_rocksdb.py \
 #        '{"fake": { \
-#                      "targets": [":test_dep", "//fakes/module:mock1"],  \
+#                      "extra_deps": [":test_dep", "//fakes/module:mock1"],  \
 #                      "extra_compiler_flags": ["-DROCKSDB_LITE", "-Os"], \
 #                  } \
 #         }'
@@ -108,10 +108,10 @@ def get_tests(repo_path):
 # Parse extra dependencies passed by user from command line
 def get_dependencies():
     deps_map = {
-            ''.encode('ascii'): {
-                                    'targets'.encode('ascii'): [],
-                                    'extra_compiler_flags'.encode('ascii'): []
-                                }
+        ''.encode('ascii'): {
+            'extra_deps'.encode('ascii'): [],
+            'extra_compiler_flags'.encode('ascii'): []
+        }
     }
     if len(sys.argv) < 2:
         return deps_map
@@ -130,8 +130,8 @@ def get_dependencies():
             rv[k] = v
         return rv
     extra_deps = json.loads(sys.argv[1], object_hook=encode_dict)
-    for alias, deps in extra_deps.items():
-        deps_map[alias] = deps
+    for target_alias, deps in extra_deps.items():
+        deps_map[target_alias] = deps
     return deps_map
 
 
@@ -172,7 +172,7 @@ def generate_targets(repo_path, deps_map):
 
     print("Extra dependencies:\n{0}".format(str(deps_map)))
     # test for every test we found in the Makefile
-    for alias, deps in deps_map.items():
+    for target_alias, deps in deps_map.items():
         for test in sorted(tests):
             match_src = [src for src in cc_files if ("/%s.c" % test) in src]
             if len(match_src) == 0:
@@ -185,12 +185,13 @@ def generate_targets(repo_path, deps_map):
 
             assert(len(match_src) == 1)
             is_parallel = tests[test]
-            test_target_name = test if not alias else test + "_" + alias
+            test_target_name = \
+                test if not target_alias else test + "_" + target_alias
             TARGETS.register_test(
                 test_target_name,
                 match_src[0],
                 is_parallel,
-                deps['targets'],
+                deps['extra_deps'],
                 deps['extra_compiler_flags'])
 
             if test in _EXPORTED_TEST_LIBS:

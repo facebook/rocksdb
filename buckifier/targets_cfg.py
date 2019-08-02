@@ -155,6 +155,8 @@ ROCKS_TESTS = [
 # will not be included.
 [
     test_binary(
+        extra_compiler_flags = extra_compiler_flags,
+        extra_deps = extra_deps,
         parallelism = parallelism,
         rocksdb_arch_preprocessor_flags = ROCKSDB_ARCH_PREPROCESSOR_FLAGS,
         rocksdb_compiler_flags = ROCKSDB_COMPILER_FLAGS,
@@ -164,8 +166,6 @@ ROCKS_TESTS = [
         rocksdb_preprocessor_flags = ROCKSDB_PREPROCESSOR_FLAGS,
         test_cc = test_cc,
         test_name = test_name,
-        extra_deps = extra_deps,
-        extra_compiler_flags = extra_compiler_flags,
     )
     for test_name, test_cc, parallelism, extra_deps, extra_compiler_flags in ROCKS_TESTS
     if not is_opt_mode
