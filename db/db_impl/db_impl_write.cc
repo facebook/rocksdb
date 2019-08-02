@@ -861,7 +861,7 @@ Status DBImpl::PreprocessWrite(const WriteOptions& write_options,
   }
 
   if (UNLIKELY(status.ok() && !trim_history_scheduler_.Empty())) {
-    status = TrimMemtableHistory();
+    status = TrimMemtableHistory(write_context);
   }
 
   if (UNLIKELY(status.ok() && !flush_scheduler_.Empty())) {
@@ -1482,7 +1482,7 @@ void DBImpl::MaybeFlushStatsCF(autovector<ColumnFamilyData*>* cfds) {
   }
 }
 
-Status DBImpl::TrimMemtableHistory() {
+Status DBImpl::TrimMemtableHistory(WriteContext* context) {
   autovector<ColumnFamilyData*> cfds;
   ColumnFamilyData* tmp_cfd;
   while ((tmp_cfd = trim_history_scheduler_.TakeNextColumnFamily()) !=
@@ -1495,6 +1495,10 @@ Status DBImpl::TrimMemtableHistory() {
     for (auto m : to_delete) {
       delete m;
     }
+    context->superversion_context.NewSuperVersion();
+    assert(context->superversion_context.new_superversion.get() != nullptr);
+    cfd->InstallSuperVersion(&context->superversion_context, &mutex_);
+
     if (cfd->Unref()) {
       delete cfd;
       cfd = nullptr;

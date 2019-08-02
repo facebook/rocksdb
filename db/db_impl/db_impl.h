@@ -1355,7 +1355,7 @@ class DBImpl : public DB {
 
   void MaybeFlushStatsCF(autovector<ColumnFamilyData*>* cfds);
 
-  Status TrimMemtableHistory();
+  Status TrimMemtableHistory(WriteContext* context);
 
   Status SwitchMemtable(ColumnFamilyData* cfd, WriteContext* context);
 
