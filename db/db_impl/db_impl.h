@@ -165,9 +165,12 @@ class DBImpl : public DB {
                           PinnableSlice* merge_operands,
                           GetMergeOperandsOptions* get_merge_operands_options,
                           int* number_of_operands) override {
-    return GetImpl(GetImplOptions(
-        options, column_family, key, nullptr, nullptr, nullptr, nullptr, false,
-        merge_operands, get_merge_operands_options, number_of_operands));
+    GetImplOptions get_impl_options(options, column_family, key, nullptr);
+    get_impl_options.merge_operands = merge_operands;
+    get_impl_options.get_merge_operands_options = get_merge_operands_options;
+    get_impl_options.number_of_operands = number_of_operands;
+    get_impl_options.get_value = false;
+    return GetImpl(get_impl_options);
   }
 
   using DB::MultiGet;
@@ -407,40 +410,29 @@ class DBImpl : public DB {
   // ---- End of implementations of the DB interface ----
 
   struct GetImplOptions {
-    GetImplOptions(
-        const ReadOptions& _read_options, ColumnFamilyHandle* _column_family,
-        const Slice& _key, PinnableSlice* _value, bool* _value_found = nullptr,
-        ReadCallback* _callback = nullptr, bool* _is_blob_index = nullptr,
-        bool _get_value = true, PinnableSlice* _merge_operands = nullptr,
-        GetMergeOperandsOptions* _get_merge_operands_options = nullptr,
-        int* _number_of_operands = nullptr)
+    GetImplOptions(const ReadOptions& _read_options,
+                   ColumnFamilyHandle* _column_family, const Slice& _key,
+                   PinnableSlice* _value)
         : read_options(_read_options),
           column_family(_column_family),
           key(_key),
-          value(_value),
-          value_found(_value_found),
-          callback(_callback),
-          is_blob_index(_is_blob_index),
-          get_value(_get_value),
-          merge_operands(_merge_operands),
-          get_merge_operands_options(_get_merge_operands_options),
-          number_of_operands(_number_of_operands) {}
+          value(_value) {}
     const ReadOptions& read_options;
     ColumnFamilyHandle* column_family;
     const Slice& key;
     PinnableSlice* value;
-    bool* value_found;
-    ReadCallback* callback;
-    bool* is_blob_index;
+    bool* value_found = nullptr;
+    ReadCallback* callback = nullptr;
+    bool* is_blob_index = nullptr;
     // If true return value associated with key via value pointer else return
     // all merge operands for key via merge_operands pointer
-    bool get_value;
+    bool get_value = true;
     // Pointer to an array of size
     // get_merge_operands_options.expected_max_number_of_operands allocated by
     // user
-    PinnableSlice* merge_operands;
-    GetMergeOperandsOptions* get_merge_operands_options;
-    int* number_of_operands;
+    PinnableSlice* merge_operands = nullptr;
+    GetMergeOperandsOptions* get_merge_operands_options = nullptr;
+    int* number_of_operands = nullptr;
   };
 
   // Function that Get and KeyMayExist call with no_io true or false

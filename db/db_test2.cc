@@ -2797,9 +2797,11 @@ TEST_F(DBTest2, ReadCallbackTest) {
     ReadOptions roptions;
     TestReadCallback callback(seq);
     bool dont_care = true;
-    Status s = dbfull()->GetImpl(
-        DBImpl::GetImplOptions(roptions, dbfull()->DefaultColumnFamily(), key,
-                               &pinnable_val, &dont_care, &callback));
+    DBImpl::GetImplOptions get_impl_options(
+        roptions, dbfull()->DefaultColumnFamily(), key, &pinnable_val);
+    get_impl_options.value_found = &dont_care;
+    get_impl_options.callback = &callback;
+    Status s = dbfull()->GetImpl(get_impl_options);
     ASSERT_TRUE(s.ok());
     // Assuming that after each Put the DB increased seq by one, the value and
     // seq number must be equal since we also inc value by 1 after each Put.

@@ -2268,8 +2268,9 @@ bool DBImpl::KeyMayExist(const ReadOptions& read_options,
   ReadOptions roptions = read_options;
   roptions.read_tier = kBlockCacheTier;  // read from block cache only
   PinnableSlice pinnable_val;
-  auto s = GetImpl(
-      GetImplOptions(roptions, column_family, key, &pinnable_val, value_found));
+  GetImplOptions get_impl_options(roptions, column_family, key, &pinnable_val);
+  get_impl_options.value_found = value_found;
+  auto s = GetImpl(get_impl_options);
   value->assign(pinnable_val.data(), pinnable_val.size());
 
   // If block_cache is enabled and the index block of the table didn't

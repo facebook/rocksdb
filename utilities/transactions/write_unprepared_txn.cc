@@ -567,8 +567,11 @@ Status WriteUnpreparedTxn::RollbackInternal() {
       const auto& cf_handle = cf_map.at(cfid);
       PinnableSlice pinnable_val;
       bool not_used;
-      s = db_impl_->GetImpl(DBImpl::GetImplOptions(
-          roptions, cf_handle, key, &pinnable_val, &not_used, &callback));
+      DBImpl::GetImplOptions get_impl_options(roptions, cf_handle, key,
+                                              &pinnable_val);
+      get_impl_options.value_found = &not_used;
+      get_impl_options.callback = &callback;
+      s = db_impl_->GetImpl(get_impl_options);
 
       if (s.ok()) {
         s = rollback_batch.Put(cf_handle, key, pinnable_val);
@@ -721,8 +724,11 @@ Status WriteUnpreparedTxn::RollbackToSavePointInternal() {
       const auto& cf_handle = cf_map.at(cfid);
       PinnableSlice pinnable_val;
       bool not_used;
-      s = db_impl_->GetImpl(DBImpl::GetImplOptions(
-          roptions, cf_handle, key, &pinnable_val, &not_used, &callback));
+      DBImpl::GetImplOptions get_impl_options(roptions, cf_handle, key,
+                                              &pinnable_val);
+      get_impl_options.value_found = &not_used;
+      get_impl_options.callback = &callback;
+      s = db_impl_->GetImpl(get_impl_options);
 
       if (s.ok()) {
         s = write_batch_.Put(cf_handle, key, pinnable_val);
