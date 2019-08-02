@@ -53,8 +53,9 @@ void WritePreparedTxn::MultiGet(const ReadOptions& options,
   write_batch_.MultiGetFromBatchAndDB(db_, options, column_family, num_keys,
                                       keys, values, statuses, sorted_input,
                                       &callback);
-  if (UNLIKELY(callback.valid() &&
+  if (UNLIKELY(!callback.valid() ||
                !wpt_db_->ValidateSnapshot(snap_seq, backed_by_snapshot))) {
+    //WPRecordTick(TXN_GET_TRY_AGAIN);
     for (size_t i = 0; i < num_keys; i++) {
       statuses[i] = Status::TryAgain();
     }

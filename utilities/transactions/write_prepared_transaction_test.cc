@@ -1436,12 +1436,17 @@ TEST_P(WritePreparedTransactionTest, MaxCatchupWithUnbackedSnapshot) {
       Transaction* txn = db->BeginTransaction(woptions, txn_options);
       s = txn->Get(ropt, db->DefaultColumnFamily(), "key", &pinnable_val);
       ASSERT_TRUE(s.ok() || s.IsTryAgain());
+      pinnable_val.Reset();
       std::vector<std::string> values;
       auto s_vec =
           txn->MultiGet(ropt, {db->DefaultColumnFamily()}, {"key"}, &values);
       ASSERT_EQ(1, values.size());
       ASSERT_EQ(1, s_vec.size());
       s = s_vec[0];
+      ASSERT_TRUE(s.ok() || s.IsTryAgain());
+      Slice key("key");
+      txn->MultiGet(ropt, db->DefaultColumnFamily(), 1, &key, &pinnable_val,
+                    &s, true);
       ASSERT_TRUE(s.ok() || s.IsTryAgain());
       delete txn;
     }
