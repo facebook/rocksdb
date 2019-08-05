@@ -6,12 +6,14 @@ import random
 import sys
 
 import matplotlib
-matplotlib.use("Agg")
 import matplotlib.backends.backend_pdf
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import seaborn as sns
+
+
+matplotlib.use("Agg")
 
 
 # Make sure a legend has the same color across all generated graphs.
@@ -120,7 +122,6 @@ def plot_miss_stats_diff_lru_graphs(
                         miss_ratios[config]["y"][j] - miss_ratios["lru-0-0"]["y"][i]
                     )
                     break
-        # print
         plt.plot(miss_ratios["lru-0-0"]["x"], diffs, label=config)
     plt.xlabel("Cache capacity")
     plt.ylabel(ylabel)
@@ -639,6 +640,8 @@ if __name__ == "__main__":
         plot_timeline(csv_abs_dir, result_dir)
         plot_miss_ratio_timeline(csv_result_dir, output_result_dir)
         plot_correlation(csv_abs_dir, result_dir)
+        plot_reuse_graphs(csv_abs_dir, result_dir)
+        plot_percentage_access_summary(csv_abs_dir, result_dir)
         plot_miss_stats_graphs(
             csv_abs_dir,
             result_dir,
@@ -655,13 +658,14 @@ if __name__ == "__main__":
             ylabel="Miss ratio (%)",
             pdf_file_name="mrc_diff_lru",
         )
+        # The following stats are only available in pysim.
         for time_unit in ["1", "60", "3600"]:
             plot_miss_stats_graphs(
                 csv_abs_dir,
                 result_dir,
                 file_prefix="ml_{}_".format(time_unit),
                 file_suffix="p95mb",
-                ylabel="p95 number of miss bytes per {} seconds".format(time_unit),
+                ylabel="p95 number of byte miss per {} seconds".format(time_unit),
                 pdf_file_name="p95mb_per{}_seconds".format(time_unit),
             )
             plot_miss_stats_graphs(
@@ -669,7 +673,7 @@ if __name__ == "__main__":
                 result_dir,
                 file_prefix="ml_{}_".format(time_unit),
                 file_suffix="avgmb",
-                ylabel="Average number of miss bytes per {} seconds".format(time_unit),
+                ylabel="Average number of byte miss per {} seconds".format(time_unit),
                 pdf_file_name="avgmb_per{}_seconds".format(time_unit),
             )
             plot_miss_stats_diff_lru_graphs(
@@ -677,7 +681,7 @@ if __name__ == "__main__":
                 result_dir,
                 file_prefix="ml_{}_".format(time_unit),
                 file_suffix="p95mb",
-                ylabel="p95 number of miss bytes per {} seconds".format(time_unit),
+                ylabel="p95 number of byte miss per {} seconds".format(time_unit),
                 pdf_file_name="p95mb_per{}_seconds_diff_lru".format(time_unit),
             )
             plot_miss_stats_diff_lru_graphs(
@@ -685,8 +689,6 @@ if __name__ == "__main__":
                 result_dir,
                 file_prefix="ml_{}_".format(time_unit),
                 file_suffix="avgmb",
-                ylabel="Average number of miss bytes per {} seconds".format(time_unit),
+                ylabel="Average number of byte miss per {} seconds".format(time_unit),
                 pdf_file_name="avgmb_per{}_seconds_diff_lru".format(time_unit),
             )
-        plot_reuse_graphs(csv_abs_dir, result_dir)
-        plot_percentage_access_summary(csv_abs_dir, result_dir)
