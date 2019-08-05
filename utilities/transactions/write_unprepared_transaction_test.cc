@@ -115,6 +115,7 @@ TEST_P(WriteUnpreparedTransactionTest, ReadYourOwnWrite) {
   }
 }
 
+#ifndef ROCKSDB_VALGRIND_RUN
 TEST_P(WriteUnpreparedTransactionTest, ReadYourOwnWriteStress) {
   // This is a stress test where different threads are writing random keys, and
   // then before committing or aborting the transaction, it validates to see
@@ -294,6 +295,7 @@ TEST_P(WriteUnpreparedTransactionTest, ReadYourOwnWriteStress) {
     }
   }
 }
+#endif  // ROCKSDB_VALGRIND_RUN
 
 // This tests how write unprepared behaves during recovery when the DB crashes
 // after a transaction has either been unprepared or prepared, and tests if
