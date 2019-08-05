@@ -165,12 +165,13 @@ class DBImpl : public DB {
                           PinnableSlice* merge_operands,
                           GetMergeOperandsOptions* get_merge_operands_options,
                           int* number_of_operands) override {
-    GetImplOptions get_impl_options(options, column_family, key, nullptr);
+    GetImplOptions get_impl_options;
+    get_impl_options.column_family = column_family;
     get_impl_options.merge_operands = merge_operands;
     get_impl_options.get_merge_operands_options = get_merge_operands_options;
     get_impl_options.number_of_operands = number_of_operands;
     get_impl_options.get_value = false;
-    return GetImpl(get_impl_options);
+    return GetImpl(options, key, get_impl_options);
   }
 
   using DB::MultiGet;
@@ -410,17 +411,8 @@ class DBImpl : public DB {
   // ---- End of implementations of the DB interface ----
 
   struct GetImplOptions {
-    GetImplOptions(const ReadOptions& _read_options,
-                   ColumnFamilyHandle* _column_family, const Slice& _key,
-                   PinnableSlice* _value)
-        : read_options(_read_options),
-          column_family(_column_family),
-          key(_key),
-          value(_value) {}
-    const ReadOptions& read_options;
-    ColumnFamilyHandle* column_family;
-    const Slice& key;
-    PinnableSlice* value;
+    ColumnFamilyHandle* column_family = nullptr;
+    PinnableSlice* value = nullptr;
     bool* value_found = nullptr;
     ReadCallback* callback = nullptr;
     bool* is_blob_index = nullptr;
@@ -442,7 +434,8 @@ class DBImpl : public DB {
   // get_impl_options.key via get_impl_options.value
   // If get_impl_options.get_value = false get merge operands associated with
   // get_impl_options.key via get_impl_options.merge_operands
-  Status GetImpl(GetImplOptions get_impl_options);
+  Status GetImpl(const ReadOptions& options, const Slice& key,
+                 GetImplOptions get_impl_options);
 
   ArenaWrappedDBIter* NewIteratorImpl(const ReadOptions& options,
                                       ColumnFamilyData* cfd,

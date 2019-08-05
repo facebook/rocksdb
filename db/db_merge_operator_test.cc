@@ -46,10 +46,11 @@ class DBMergeOperatorTest : public DBTestBase {
     ReadOptions read_opt;
     read_opt.snapshot = snapshot;
     PinnableSlice value;
-    DBImpl::GetImplOptions get_impl_options(
-        read_opt, db_->DefaultColumnFamily(), key, &value);
+    DBImpl::GetImplOptions get_impl_options;
+    get_impl_options.column_family = db_->DefaultColumnFamily();
+    get_impl_options.value = &value;
     get_impl_options.callback = &read_callback;
-    Status s = dbfull()->GetImpl(get_impl_options);
+    Status s = dbfull()->GetImpl(read_opt, key, get_impl_options);
     if (!s.ok()) {
       return s.ToString();
     }

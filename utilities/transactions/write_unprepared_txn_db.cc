@@ -86,11 +86,12 @@ Status WriteUnpreparedTxnDB::RollbackRecoveredTransaction(
         PinnableSlice pinnable_val;
         bool not_used;
         auto cf_handle = handles_[cf];
-        DBImpl::GetImplOptions get_impl_options(roptions, cf_handle, key,
-                                                &pinnable_val);
+        DBImpl::GetImplOptions get_impl_options;
+        get_impl_options.column_family = cf_handle;
+        get_impl_options.value = &pinnable_val;
         get_impl_options.value_found = &not_used;
         get_impl_options.callback = &callback;
-        s = db_->GetImpl(get_impl_options);
+        s = db_->GetImpl(roptions, key, get_impl_options);
         assert(s.ok() || s.IsNotFound());
         if (s.ok()) {
           s = rollback_batch_->Put(cf_handle, key, pinnable_val);

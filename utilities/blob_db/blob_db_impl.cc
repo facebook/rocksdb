@@ -1146,9 +1146,11 @@ Status BlobDBImpl::GetImpl(const ReadOptions& read_options,
   PinnableSlice index_entry;
   Status s;
   bool is_blob_index = false;
-  DBImpl::GetImplOptions get_impl_options(ro, column_family, key, &index_entry);
+  DBImpl::GetImplOptions get_impl_options;
+  get_impl_options.column_family = column_family;
+  get_impl_options.value = &index_entry;
   get_impl_options.is_blob_index = &is_blob_index;
-  s = db_impl_->GetImpl(get_impl_options);
+  s = db_impl_->GetImpl(ro, key, get_impl_options);
   TEST_SYNC_POINT("BlobDBImpl::Get:AfterIndexEntryGet:1");
   TEST_SYNC_POINT("BlobDBImpl::Get:AfterIndexEntryGet:2");
   if (expiration != nullptr) {
@@ -1535,10 +1537,12 @@ Status BlobDBImpl::GCFileAndUpdateLSM(const std::shared_ptr<BlobFile>& bfptr,
     SequenceNumber latest_seq = GetLatestSequenceNumber();
     bool is_blob_index = false;
     PinnableSlice index_entry;
-    DBImpl::GetImplOptions get_impl_options(ReadOptions(), cfh, record.key,
-                                            &index_entry);
+    DBImpl::GetImplOptions get_impl_options;
+    get_impl_options.column_family = cfh;
+    get_impl_options.value = &index_entry;
     get_impl_options.is_blob_index = &is_blob_index;
-    Status get_status = db_impl_->GetImpl(get_impl_options);
+    Status get_status =
+        db_impl_->GetImpl(ReadOptions(), record.key, get_impl_options);
     TEST_SYNC_POINT("BlobDBImpl::GCFileAndUpdateLSM:AfterGetFromBaseDB");
     if (!get_status.ok() && !get_status.IsNotFound()) {
       // error
