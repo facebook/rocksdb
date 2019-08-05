@@ -313,9 +313,10 @@ class MissRatioStats:
         self.num_accesses = 0
         self.time_unit = time_unit
         self.time_misses = {}
+        self.time_miss_bytes = {}
         self.time_accesses = {}
 
-    def update_metrics(self, access_time, is_hit):
+    def update_metrics(self, access_time, is_hit, miss_bytes):
         access_time /= kMicrosInSecond * self.time_unit
         self.num_accesses += 1
         if access_time not in self.time_accesses:
@@ -325,11 +326,30 @@ class MissRatioStats:
             self.num_misses += 1
             if access_time not in self.time_misses:
                 self.time_misses[access_time] = 0
+                self.time_miss_bytes[access_time] = 0
             self.time_misses[access_time] += 1
+            self.time_miss_bytes[access_time] += miss_bytes
 
     def reset_counter(self):
         self.num_misses = 0
         self.num_accesses = 0
+        self.time_miss_bytes.clear()
+        self.time_misses.clear()
+        self.time_accesses.clear()
+
+    def compute_miss_bytes(self):
+        miss_bytes = []
+        for at in self.time_miss_bytes:
+            miss_bytes.append(self.time_miss_bytes[at])
+        miss_bytes = sorted(miss_bytes)
+        avg_miss_bytes = 0
+        p95_miss_bytes = 0
+        for i in range(len(miss_bytes)):
+            avg_miss_bytes += float(miss_bytes[i]) / float(len(miss_bytes))
+
+        p95_index = min(int(0.95 * float(len(miss_bytes))), len(miss_bytes) - 1)
+        p95_miss_bytes = miss_bytes[p95_index]
+        return avg_miss_bytes, p95_miss_bytes
 
     def miss_ratio(self):
         return float(self.num_misses) * 100.0 / float(self.num_accesses)
@@ -543,13 +563,11 @@ class HyperbolicPolicy(Policy):
     """
 
     def compare(self, e1, e2, now):
-        e1_duration = (
-            max(0, (now - e1.value.insertion_time) / kMicrosInSecond)
-            * e1.value.value_size
+        e1_duration = max(0, (now - e1.value.insertion_time) / kMicrosInSecond) * float(
+            e1.value.value_size
         )
-        e2_duration = (
-            max(0, (now - e2.value.insertion_time) / kMicrosInSecond)
-            * e2.value.value_size
+        e2_duration = max(0, (now - e2.value.insertion_time) / kMicrosInSecond) * float(
+            e2.value.value_size
         )
         if e1_duration == e2_duration:
             return e1.value.num_hits - e2.value.num_hits
@@ -593,17 +611,6 @@ class CostClassPolicy(Policy):
 
         e1_entry = cost_classes[e1_class]
         e2_entry = cost_classes[e2_class]
-        # e1_last = e1_entry.avg_last_access_time()
-        # e2_last = e2_entry.avg_last_access_time()
-        #
-        # diff = e1_last - e2_last
-        # if diff == 0:
-        #     return 0
-        # elif diff > 0:
-        #     return 1
-        # else:
-        #     return -1
-
         e1_density = e1_entry.density(now)
         e2_density = e2_entry.density(now)
         e1_hits = cost_classes[e1_class].hits
@@ -656,12 +663,13 @@ class Cache(object):
     def __init__(self, cache_size, enable_cache_row_key):
         self.cache_size = cache_size
         self.used_size = 0
+        self.per_second_miss_ratio_stats = MissRatioStats(1)
         self.miss_ratio_stats = MissRatioStats(kSecondsInMinute)
+        self.per_hour_miss_ratio_stats = MissRatioStats(kSecondsInHour)
         self.enable_cache_row_key = enable_cache_row_key
         self.get_id_row_key_map = {}
-        self.per_hour_miss_ratio_stats = MissRatioStats(kSecondsInHour)
         self.max_seen_get_id = 0
-        self.retain_get_id_range = 1000000
+        self.retain_get_id_range = 100000
 
     def block_key(self, trace_record):
         return "b{}".format(trace_record.block_id)
@@ -706,9 +714,10 @@ class Cache(object):
     def is_ml_cache(self):
         return False
 
-    def _update_stats(self, access_time, is_hit):
-        self.miss_ratio_stats.update_metrics(access_time, is_hit)
-        self.per_hour_miss_ratio_stats.update_metrics(access_time, is_hit)
+    def _update_stats(self, access_time, is_hit, miss_bytes):
+        self.per_second_miss_ratio_stats.update_metrics(access_time, is_hit, miss_bytes)
+        self.miss_ratio_stats.update_metrics(access_time, is_hit, miss_bytes)
+        self.per_hour_miss_ratio_stats.update_metrics(access_time, is_hit, miss_bytes)
 
     def access(self, trace_record):
         """
@@ -717,7 +726,7 @@ class Cache(object):
         """
         assert self.used_size <= self.cache_size
         if (
-            self.enable_cache_row_key
+            self.enable_cache_row_key > 0
             and trace_record.caller == 1
             and trace_record.key_id != 0
             and trace_record.get_id != 0
@@ -732,7 +741,9 @@ class Cache(object):
             trace_record.block_size,
             trace_record.no_insert,
         )
-        self._update_stats(trace_record.access_time, is_hit=is_hit)
+        self._update_stats(
+            trace_record.access_time, is_hit=is_hit, miss_bytes=trace_record.block_size
+        )
 
     def _access_row(self, trace_record):
         row_key = self.row_key(trace_record)
@@ -747,7 +758,7 @@ class Cache(object):
             # We treat future accesses as hits since this get request
             # completes.
             # print("row hit 1")
-            self._update_stats(trace_record.access_time, is_hit=True)
+            self._update_stats(trace_record.access_time, is_hit=True, miss_bytes=0)
             return
         if row_key not in self.get_id_row_key_map[trace_record.get_id]:
             # First time seen this key.
@@ -767,7 +778,7 @@ class Cache(object):
             # We treat future accesses as hits since this get request
             # completes.
             # print("row hit 2")
-            self._update_stats(trace_record.access_time, is_hit=True)
+            self._update_stats(trace_record.access_time, is_hit=True, miss_bytes=0)
             return
         # Access its blocks.
         no_insert = trace_record.no_insert
@@ -784,7 +795,9 @@ class Cache(object):
             value_size=trace_record.block_size,
             no_insert=no_insert,
         )
-        self._update_stats(trace_record.access_time, is_hit)
+        self._update_stats(
+            trace_record.access_time, is_hit, miss_bytes=trace_record.block_size
+        )
         if (
             trace_record.kv_size > 0
             and not self.get_id_row_key_map[trace_record.get_id][row_key]
@@ -850,6 +863,10 @@ class CostClassEntry:
         self.hits += 1
         self.sum_last_access_time -= last_access_time / kMicrosInSecond
         self.sum_last_access_time += trace_record.access_time / kMicrosInSecond
+
+    def avg_lifetime_in_cache(self, now):
+        avg_insertion_time = self.sum_insertion_times / self.num_entries_in_cache
+        return now / kMicrosInSecond - avg_insertion_time
 
     def avg_last_access_time(self):
         if self.num_entries_in_cache == 0:
@@ -1041,7 +1058,7 @@ class LinUCBCache(MLCache):
         super(LinUCBCache, self).__init__(
             cache_size, enable_cache_row_key, policies, cost_class_label
         )
-        self.nfeatures = 3  # Block type, level, cf.
+        self.nfeatures = 4  # Block type, level, cf.
         self.th = np.zeros((len(self.policies), self.nfeatures))
         self.eps = 0.2
         self.b = np.zeros_like(self.th)
@@ -1179,7 +1196,7 @@ class OPTCache(Cache):
     """
 
     def __init__(self, cache_size):
-        super(OPTCache, self).__init__(cache_size, enable_cache_row_key=-1)
+        super(OPTCache, self).__init__(cache_size, enable_cache_row_key=0)
         self.table = PQTable()
 
     def _lookup(self, trace_record, key, hash):
@@ -1486,7 +1503,7 @@ class TraceCache(Cache):
     """
 
     def __init__(self, cache_size):
-        super(TraceCache, self).__init__(cache_size, enable_cache_row_key=-1)
+        super(TraceCache, self).__init__(cache_size, enable_cache_row_key=0)
 
     def _lookup(self, trace_record, key, hash):
         return trace_record.is_hit
@@ -1790,7 +1807,7 @@ def run(
                 next_access_seq_no=next_access_seq_no,
             )
             trace_miss_ratio_stats.update_metrics(
-                record.access_time, is_hit=record.is_hit
+                record.access_time, is_hit=record.is_hit, miss_bytes=record.block_size
             )
             cache.access(record)
             access_seq_no += 1
@@ -1862,8 +1879,35 @@ def report_stats(
                 cache.miss_ratio_stats.num_accesses,
             )
         )
-    cache_stats = [cache.miss_ratio_stats, cache.per_hour_miss_ratio_stats]
+
+    cache_stats = [
+        cache.per_second_miss_ratio_stats,
+        cache.miss_ratio_stats,
+        cache.per_hour_miss_ratio_stats,
+    ]
     for i in range(len(cache_stats)):
+        avg_miss_bytes, p95_miss_bytes = cache_stats[i].compute_miss_bytes()
+
+        with open(
+            "{}/data-ml-avgmb-{}-{}".format(
+                result_dir, cache_stats[i].time_unit, cache_label
+            ),
+            "w+",
+        ) as mb_file:
+            mb_file.write(
+                "{},0,0,{},{}\n".format(cache_type, cache_size, avg_miss_bytes)
+            )
+
+        with open(
+            "{}/data-ml-p95mb-{}-{}".format(
+                result_dir, cache_stats[i].time_unit, cache_label
+            ),
+            "w+",
+        ) as mb_file:
+            mb_file.write(
+                "{},0,0,{},{}\n".format(cache_type, cache_size, p95_miss_bytes)
+            )
+
         cache_stats[i].write_miss_timeline(
             cache_type,
             cache_size,
