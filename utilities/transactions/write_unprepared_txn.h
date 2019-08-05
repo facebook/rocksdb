@@ -66,7 +66,9 @@ class WriteUnpreparedTxnReadCallback : public ReadCallback {
         db_(db),
         unprep_seqs_(unprep_seqs),
         wup_snapshot_(snapshot),
-        backed_by_snapshot_(backed_by_snapshot) {}
+        backed_by_snapshot_(backed_by_snapshot) {
+    (void)backed_by_snapshot_;  // to silence unused private field warning
+  }
 
   virtual ~WriteUnpreparedTxnReadCallback() {
     // If it is not backed by snapshot, the caller must check validity
