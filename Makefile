@@ -1662,7 +1662,7 @@ JAVA_INCLUDE = -I$(JAVA_HOME)/include/ -I$(JAVA_HOME)/include/linux
 ifeq ($(PLATFORM), OS_SOLARIS)
 	ARCH := $(shell isainfo -b)
 else ifeq ($(PLATFORM), OS_OPENBSD)
-	ifneq (,$(filter $(MACHINE), amd64 arm64 sparc64 aarch64))
+	ifneq (,$(filter $(MACHINE), amd64 arm64 aarch64 sparc64))
 		ARCH := 64
 	else
 		ARCH := 32
@@ -1671,12 +1671,9 @@ else
 	ARCH := $(shell getconf LONG_BIT)
 endif
 
-ifeq (,$(findstring ppc,$(MACHINE)))
+ifeq (,$(filter $(MACHINE), ppc arm64 aarch64 sparc64))
         ROCKSDBJNILIB = librocksdbjni-linux$(ARCH).so
 else
-        ROCKSDBJNILIB = librocksdbjni-linux-$(MACHINE).so
-endif
-ifneq (,$(findstring aarch64,$(MACHINE)))
         ROCKSDBJNILIB = librocksdbjni-linux-$(MACHINE).so
 endif
 ROCKSDB_JAR = rocksdbjni-$(ROCKSDB_MAJOR).$(ROCKSDB_MINOR).$(ROCKSDB_PATCH)-linux$(ARCH).jar
@@ -1874,6 +1871,14 @@ rocksdbjavastaticdockerx86_64:
 rocksdbjavastaticdockerppc64le:
 	mkdir -p java/target
 	docker run --rm --name rocksdb_linux_ppc64le-be --attach stdin --attach stdout --attach stderr --volume `pwd`:/rocksdb-host --env DEBUG_LEVEL=$(DEBUG_LEVEL) evolvedbinary/rocksjava:centos7_ppc64le-be /rocksdb-host/java/crossbuild/docker-build-linux-centos.sh
+
+rocksdbjavastaticdockerarm64v8:
+	mkdir -p java/target
+	DOCKER_LINUX_ARM64V8_CONTAINER=`docker ps -aqf name=rocksdb_linux_arm64v8-be`; \
+	if [ -z "$$DOCKER_LINUX_ARM64V8_CONTAINER" ]; then \
+		docker container create --attach stdin --attach stdout --attach stderr --volume `pwd`:/rocksdb-host --name rocksdb_linux_arm64v8-be evolvedbinary/rocksjava:centos7_arm64v8-be /rocksdb-host/java/crossbuild/docker-build-linux-centos.sh; \
+	fi
+	docker start -a rocksdb_linux_arm64v8-be
 
 rocksdbjavastaticpublish: rocksdbjavastaticrelease rocksdbjavastaticpublishcentral
 
