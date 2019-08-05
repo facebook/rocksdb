@@ -30,6 +30,7 @@
 #include "utilities/transactions/write_prepared_txn.h"
 
 namespace rocksdb {
+enum SnapshotBackup : bool { kUnbackedByDBSnapshot, kBackedByDBSnapshot };
 
 // A PessimisticTransactionDB that writes data to DB after prepare phase of 2PC.
 // In this way some data in the DB might not be committed. The DB provides
@@ -448,18 +449,21 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
       const ColumnFamilyOptions& cf_options) override;
   // Assign the min and max sequence numbers for reading from the db. A seq >
   // max is not valid, and a seq < min is valid, and a min <= seq < max requires
-  // further checkings. Normally max is defined by the snapshot and min is by
+  // further checking. Normally max is defined by the snapshot and min is by
   // minimum uncommitted seq.
-  inline bool AssignMinMaxSeqs(const Snapshot* snapshot, SequenceNumber* min,
-                               SequenceNumber* max);
+  inline SnapshotBackup AssignMinMaxSeqs(const Snapshot* snapshot,
+                                         SequenceNumber* min,
+                                         SequenceNumber* max);
   // Validate is a snapshot sequence number is still valid based on the latest
   // db status. backed_by_snapshot specifies if the number is baked by an actual
   // snapshot object. order specified the memory order with which we load the
   // atomic variables: relax is enough for the default since we care about last
   // value seen by same thread.
   inline bool ValidateSnapshot(
-      const SequenceNumber snap_seq, const bool backed_by_snapshot,
+      const SequenceNumber snap_seq, const SnapshotBackup backed_by_snapshot,
       std::memory_order order = std::memory_order_relaxed);
+  // Get a dummy snapshot that refers to kMaxSequenceNumber
+  Snapshot* GetMaxSnapshot() { return &dummy_max_snapshot_; }
 
  private:
   friend class AddPreparedCallback;
@@ -488,6 +492,7 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
   friend class WritePreparedTransactionTest_IsInSnapshotTest_Test;
   friend class WritePreparedTransactionTest_NewSnapshotLargerThanMax_Test;
   friend class WritePreparedTransactionTest_MaxCatchupWithNewSnapshot_Test;
+  friend class WritePreparedTransactionTest_MaxCatchupWithUnbackedSnapshot_Test;
   friend class
       WritePreparedTransactionTest_NonAtomicCommitOfDelayedPrepared_Test;
   friend class
@@ -783,26 +788,55 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
   // Thread safety: since the handle is read-only object it is a const it is
   // safe to read it concurrently
   std::shared_ptr<std::map<uint32_t, ColumnFamilyHandle*>> handle_map_;
+  // A dummy snapshot object that refers to kMaxSequenceNumber
+  SnapshotImpl dummy_max_snapshot_;
 };
 
 class WritePreparedTxnReadCallback : public ReadCallback {
  public:
   WritePreparedTxnReadCallback(WritePreparedTxnDB* db, SequenceNumber snapshot)
-      : ReadCallback(snapshot), db_(db) {}
+      : ReadCallback(snapshot),
+        db_(db),
+        backed_by_snapshot_(kBackedByDBSnapshot) {}
   WritePreparedTxnReadCallback(WritePreparedTxnDB* db, SequenceNumber snapshot,
-                               SequenceNumber min_uncommitted)
-      : ReadCallback(snapshot, min_uncommitted), db_(db) {}
+                               SequenceNumber min_uncommitted,
+                               SnapshotBackup backed_by_snapshot)
+      : ReadCallback(snapshot, min_uncommitted),
+        db_(db),
+        backed_by_snapshot_(backed_by_snapshot) {
+    (void)backed_by_snapshot_;  // to silence unused private field warning
+  }
+
+  virtual ~WritePreparedTxnReadCallback() {
+    // If it is not backed by snapshot, the caller must check validity
+    assert(valid_checked_ || backed_by_snapshot_ == kBackedByDBSnapshot);
+  }
 
   // Will be called to see if the seq number visible; if not it moves on to
   // the next seq number.
   inline virtual bool IsVisibleFullCheck(SequenceNumber seq) override {
     auto snapshot = max_visible_seq_;
-    return db_->IsInSnapshot(seq, snapshot, min_uncommitted_);
+    bool snap_released = false;
+    auto ret =
+        db_->IsInSnapshot(seq, snapshot, min_uncommitted_, &snap_released);
+    assert(!snap_released || backed_by_snapshot_ == kUnbackedByDBSnapshot);
+    snap_released_ |= snap_released;
+    return ret;
+  }
+
+  inline bool valid() {
+    valid_checked_ = true;
+    return snap_released_ == false;
   }
 
   // TODO(myabandeh): override Refresh when Iterator::Refresh is supported
  private:
   WritePreparedTxnDB* db_;
+  // Whether max_visible_seq_ is backed by a snapshot
+  const SnapshotBackup backed_by_snapshot_;
+  bool snap_released_ = false;
+  // Safety check to ensure that the caller has checked invalid statuses
+  bool valid_checked_ = false;
 };
 
 class AddPreparedCallback : public PreReleaseCallback {
@@ -1034,26 +1068,26 @@ struct SubBatchCounter : public WriteBatch::Handler {
   bool WriteAfterCommit() const override { return false; }
 };
 
-bool WritePreparedTxnDB::AssignMinMaxSeqs(const Snapshot* snapshot,
-                                          SequenceNumber* min,
-                                          SequenceNumber* max) {
+SnapshotBackup WritePreparedTxnDB::AssignMinMaxSeqs(const Snapshot* snapshot,
+                                                    SequenceNumber* min,
+                                                    SequenceNumber* max) {
   if (snapshot != nullptr) {
     *min = static_cast_with_check<const SnapshotImpl, const Snapshot>(snapshot)
                ->min_uncommitted_;
     *max = static_cast_with_check<const SnapshotImpl, const Snapshot>(snapshot)
                ->number_;
-    return true;
+    return kBackedByDBSnapshot;
   } else {
     *min = SmallestUnCommittedSeq();
     *max = 0;  // to be assigned later after sv is referenced.
-    return false;
+    return kUnbackedByDBSnapshot;
   }
 }
 
-bool WritePreparedTxnDB::ValidateSnapshot(const SequenceNumber snap_seq,
-                                          const bool backed_by_snapshot,
-                                          std::memory_order order) {
-  if (backed_by_snapshot) {
+bool WritePreparedTxnDB::ValidateSnapshot(
+    const SequenceNumber snap_seq, const SnapshotBackup backed_by_snapshot,
+    std::memory_order order) {
+  if (backed_by_snapshot == kBackedByDBSnapshot) {
     return true;
   } else {
     SequenceNumber max = max_evicted_seq_.load(order);

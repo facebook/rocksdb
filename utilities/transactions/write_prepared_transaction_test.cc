@@ -1372,7 +1372,7 @@ TEST_P(WritePreparedTransactionTest, MaxCatchupWithNewSnapshot) {
     for (int i = 0; i < writes; i++) {
       WriteBatch batch;
       // For duplicate keys cause 4 commit entries, each evicting an entry that
-      // is not published yet, thus causing max ecited seq go higher than last
+      // is not published yet, thus causing max evicted seq go higher than last
       // published.
       for (int b = 0; b < batch_cnt; b++) {
         batch.Put("foo", "foo");
@@ -1401,6 +1401,64 @@ TEST_P(WritePreparedTransactionTest, MaxCatchupWithNewSnapshot) {
   // thought
   auto snap = db->GetSnapshot();
   ASSERT_GT(snap->GetSequenceNumber(), batch_cnt * writes - 1);
+  db->ReleaseSnapshot(snap);
+}
+
+// Test that reads without snapshots would not hit an undefined state
+TEST_P(WritePreparedTransactionTest, MaxCatchupWithUnbackedSnapshot) {
+  const size_t snapshot_cache_bits = 7;  // same as default
+  const size_t commit_cache_bits = 0;    // only 1 entry => frequent eviction
+  UpdateTransactionDBOptions(snapshot_cache_bits, commit_cache_bits);
+  ReOpen();
+  WriteOptions woptions;
+  WritePreparedTxnDB* wp_db = dynamic_cast<WritePreparedTxnDB*>(db);
+
+  const int writes = 50;
+  rocksdb::port::Thread t1([&]() {
+    for (int i = 0; i < writes; i++) {
+      WriteBatch batch;
+      batch.Put("key", "foo");
+      db->Write(woptions, &batch);
+    }
+  });
+
+  rocksdb::port::Thread t2([&]() {
+    while (wp_db->max_evicted_seq_ == 0) {  // wait for insert thread
+      std::this_thread::yield();
+    }
+    ReadOptions ropt;
+    PinnableSlice pinnable_val;
+    TransactionOptions txn_options;
+    for (int i = 0; i < 10; i++) {
+      auto s = db->Get(ropt, db->DefaultColumnFamily(), "key", &pinnable_val);
+      ASSERT_TRUE(s.ok() || s.IsTryAgain());
+      pinnable_val.Reset();
+      Transaction* txn = db->BeginTransaction(woptions, txn_options);
+      s = txn->Get(ropt, db->DefaultColumnFamily(), "key", &pinnable_val);
+      ASSERT_TRUE(s.ok() || s.IsTryAgain());
+      pinnable_val.Reset();
+      std::vector<std::string> values;
+      auto s_vec =
+          txn->MultiGet(ropt, {db->DefaultColumnFamily()}, {"key"}, &values);
+      ASSERT_EQ(1, values.size());
+      ASSERT_EQ(1, s_vec.size());
+      s = s_vec[0];
+      ASSERT_TRUE(s.ok() || s.IsTryAgain());
+      Slice key("key");
+      txn->MultiGet(ropt, db->DefaultColumnFamily(), 1, &key, &pinnable_val,
+                    &s, true);
+      ASSERT_TRUE(s.ok() || s.IsTryAgain());
+      delete txn;
+    }
+  });
+
+  t1.join();
+  t2.join();
+
+  // Make sure that the test has worked and seq number has advanced as we
+  // thought
+  auto snap = db->GetSnapshot();
+  ASSERT_GT(snap->GetSequenceNumber(), writes - 1);
   db->ReleaseSnapshot(snap);
 }
 
