@@ -445,6 +445,7 @@ TESTS = \
 	db_iter_test \
 	db_iter_stress_test \
 	db_log_iter_test \
+	db_bloom_filter_test \
 	db_compaction_filter_test \
 	db_compaction_test \
 	db_dynamic_level_test \
@@ -479,6 +480,7 @@ TESTS = \
 	fault_injection_test \
 	filelock_test \
 	filename_test \
+	file_reader_writer_test \
 	block_based_filter_block_test \
 	full_filter_block_test \
 	partitioned_filter_block_test \
