@@ -181,6 +181,7 @@ Status BuildTable(
     tp = builder->GetTableProperties();
     bool empty = builder->NumEntries() == 0 && tp.num_range_deletions == 0;
     s = c_iter.status();
+    auto need_compact = builder->NeedCompact();
     if (!s.ok() || empty) {
       builder->Abandon();
     } else {
@@ -190,7 +191,7 @@ Status BuildTable(
     if (s.ok() && !empty) {
       uint64_t file_size = builder->FileSize();
       meta->fd.file_size = file_size;
-      meta->marked_for_compaction = builder->NeedCompact();
+      meta->marked_for_compaction = need_compact;
       assert(meta->fd.GetFileSize() > 0);
       tp = builder->GetTableProperties(); // refresh now that builder is finished
       if (table_properties) {
