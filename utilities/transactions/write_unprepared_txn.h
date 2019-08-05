@@ -56,7 +56,8 @@ class WriteUnpreparedTxnReadCallback : public ReadCallback {
   WriteUnpreparedTxnReadCallback(
       WritePreparedTxnDB* db, SequenceNumber snapshot,
       SequenceNumber min_uncommitted,
-      const std::map<SequenceNumber, size_t>& unprep_seqs)
+      const std::map<SequenceNumber, size_t>& unprep_seqs,
+      SnapshotBackup backed_by_snapshot)
       // Pass our last uncommitted seq as the snapshot to the parent class to
       // ensure that the parent will not prematurely filter out own writes. We
       // will do the exact comparison against snapshots in IsVisibleFullCheck
@@ -64,9 +65,22 @@ class WriteUnpreparedTxnReadCallback : public ReadCallback {
       : ReadCallback(CalcMaxVisibleSeq(unprep_seqs, snapshot), min_uncommitted),
         db_(db),
         unprep_seqs_(unprep_seqs),
-        wup_snapshot_(snapshot) {}
+        wup_snapshot_(snapshot),
+        backed_by_snapshot_(backed_by_snapshot) {
+    (void)backed_by_snapshot_;  // to silence unused private field warning
+  }
+
+  virtual ~WriteUnpreparedTxnReadCallback() {
+    // If it is not backed by snapshot, the caller must check validity
+    assert(valid_checked_ || backed_by_snapshot_ == kBackedByDBSnapshot);
+  }
 
   virtual bool IsVisibleFullCheck(SequenceNumber seq) override;
+
+  inline bool valid() {
+    valid_checked_ = true;
+    return snap_released_ == false;
+  }
 
   void Refresh(SequenceNumber seq) override {
     max_visible_seq_ = std::max(max_visible_seq_, seq);
@@ -88,6 +102,11 @@ class WriteUnpreparedTxnReadCallback : public ReadCallback {
   WritePreparedTxnDB* db_;
   const std::map<SequenceNumber, size_t>& unprep_seqs_;
   SequenceNumber wup_snapshot_;
+  // Whether max_visible_seq_ is backed by a snapshot
+  const SnapshotBackup backed_by_snapshot_;
+  bool snap_released_ = false;
+  // Safety check to ensure that the caller has checked invalid statuses
+  bool valid_checked_ = false;
 };
 
 class WriteUnpreparedTxn : public WritePreparedTxn {
