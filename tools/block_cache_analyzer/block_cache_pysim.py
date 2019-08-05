@@ -666,6 +666,8 @@ class Cache(object):
         self.per_second_miss_ratio_stats = MissRatioStats(1)
         self.miss_ratio_stats = MissRatioStats(kSecondsInMinute)
         self.per_hour_miss_ratio_stats = MissRatioStats(kSecondsInHour)
+        # 0: disabled. 1: enabled. Insert both row and the refereneced data block.
+        # 2: enabled. Insert only the row but NOT the referenced data block.
         self.enable_cache_row_key = enable_cache_row_key
         self.get_id_row_key_map = {}
         self.max_seen_get_id = 0

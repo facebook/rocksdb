@@ -395,7 +395,16 @@ def test_end_to_end():
     cache_size = block_size * nblocks / 10
     downsample_size = 1
     cache_ms = {}
-    for cache_type in ["ts", "opt", "lru", "pylru", "linucb", "gdsize", "pyccbt", "pycctbbt"]:
+    for cache_type in [
+        "ts",
+        "opt",
+        "lru",
+        "pylru",
+        "linucb",
+        "gdsize",
+        "pyccbt",
+        "pycctbbt",
+    ]:
         cache = create_cache(cache_type, cache_size, downsample_size)
         run(trace_file_path, cache_type, cache, 0, -1, "all")
         cache_ms[cache_type] = cache
@@ -674,16 +683,30 @@ if __name__ == "__main__":
     test_trace_cache()
     test_opt_cache()
     test_lru_cache(
-        ThompsonSamplingCache(3, False, [LRUPolicy()], cost_class_label=None),
+        ThompsonSamplingCache(
+            3, enable_cache_row_key=0, policies=[LRUPolicy()], cost_class_label=None
+        ),
         custom_hashtable=True,
     )
-    test_lru_cache(LRUCache(3, enable_cache_row_key=False), custom_hashtable=False)
+    test_lru_cache(LRUCache(3, enable_cache_row_key=0), custom_hashtable=False)
     test_mru_cache()
     test_lfu_cache()
     test_hybrid(
-        ThompsonSamplingCache(kSampleSize, True, [LRUPolicy()], cost_class_label=None)
+        ThompsonSamplingCache(
+            kSampleSize,
+            enable_cache_row_key=1,
+            policies=[LRUPolicy()],
+            cost_class_label=None,
+        )
     )
-    test_hybrid(LinUCBCache(kSampleSize, True, [LRUPolicy()], cost_class_label=None))
+    test_hybrid(
+        LinUCBCache(
+            kSampleSize,
+            enable_cache_row_key=1,
+            policies=[LRUPolicy()],
+            cost_class_label=None,
+        )
+    )
     for cache_type in [
         "ts",
         "opt",
@@ -700,9 +723,12 @@ if __name__ == "__main__":
         "pycctb",
         "pyccbt",
     ]:
-        for enable_row_cache in [True, False]:
+        for enable_row_cache in [0, 1, 2]:
             cache_type_str = cache_type
-            if enable_row_cache and cache_type != "opt" and cache_type != "trace":
-                cache_type_str += "_hybrid"
+            if cache_type != "opt" and cache_type != "trace":
+                if enable_row_cache == 1:
+                    cache_type_str += "_hybrid"
+                elif enable_row_cache == 2:
+                    cache_type_str += "_hybridn"
             test_mix(create_cache(cache_type_str, cache_size=100, downsample_size=1))
     test_end_to_end()
