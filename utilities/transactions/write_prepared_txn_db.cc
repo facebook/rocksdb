@@ -231,8 +231,6 @@ Status WritePreparedTxnDB::Get(const ReadOptions& options,
   WritePreparedTxnReadCallback callback(this, snap_seq, min_uncommitted,
                                         backed_by_snapshot);
   bool* dont_care = nullptr;
-  auto res = db_impl_->GetImpl(options, column_family, key, value, dont_care,
-                               &callback);
   DBImpl::GetImplOptions get_impl_options;
   get_impl_options.column_family = column_family;
   get_impl_options.value = value;
