@@ -1651,7 +1651,7 @@ void Version::Get(const ReadOptions& read_options, const LookupKey& k,
                   MergeContext* merge_context,
                   SequenceNumber* max_covering_tombstone_seq, bool* value_found,
                   bool* key_exists, SequenceNumber* seq, ReadCallback* callback,
-                  bool* is_blob) {
+                  bool* is_blob, bool do_merge) {
   Slice ikey = k.internal_key();
   Slice user_key = k.user_key();
 
@@ -1671,8 +1671,9 @@ void Version::Get(const ReadOptions& read_options, const LookupKey& k,
   GetContext get_context(
       user_comparator(), merge_operator_, info_log_, db_statistics_,
       status->ok() ? GetContext::kNotFound : GetContext::kMerge, user_key,
-      value, value_found, merge_context, max_covering_tombstone_seq, this->env_,
-      seq, merge_operator_ ? &pinned_iters_mgr : nullptr, callback, is_blob,
+      do_merge ? value : nullptr, value_found, merge_context, do_merge,
+      max_covering_tombstone_seq, this->env_, seq,
+      merge_operator_ ? &pinned_iters_mgr : nullptr, callback, is_blob,
       tracing_get_id);
 
   // Pin blocks that we read to hold merge operands
@@ -1737,7 +1738,8 @@ void Version::Get(const ReadOptions& read_options, const LookupKey& k,
         } else if (fp.GetHitFileLevel() >= 2) {
           RecordTick(db_statistics_, GET_HIT_L2_AND_UP);
         }
-        PERF_COUNTER_BY_LEVEL_ADD(user_key_return_count, 1, fp.GetHitFileLevel());
+        PERF_COUNTER_BY_LEVEL_ADD(user_key_return_count, 1,
+                                  fp.GetHitFileLevel());
         return;
       case GetContext::kDeleted:
         // Use empty error message for speed
@@ -1755,11 +1757,14 @@ void Version::Get(const ReadOptions& read_options, const LookupKey& k,
     }
     f = fp.GetNextFile();
   }
-
   if (db_statistics_ != nullptr) {
     get_context.ReportCounters();
   }
   if (GetContext::kMerge == get_context.State()) {
+    if (!do_merge) {
+      *status = Status::OK();
+      return;
+    }
     if (!merge_operator_) {
       *status =  Status::InvalidArgument(
           "merge_operator is not properly initialized.");
@@ -1806,7 +1811,7 @@ void Version::MultiGet(const ReadOptions& read_options, MultiGetRange* range,
     get_ctx.emplace_back(
         user_comparator(), merge_operator_, info_log_, db_statistics_,
         iter->s->ok() ? GetContext::kNotFound : GetContext::kMerge, iter->ukey,
-        iter->value, nullptr, &(iter->merge_context),
+        iter->value, nullptr, &(iter->merge_context), true,
         &iter->max_covering_tombstone_seq, this->env_, &iter->seq,
         merge_operator_ ? &pinned_iters_mgr : nullptr, callback, is_blob,
         tracing_mget_id);

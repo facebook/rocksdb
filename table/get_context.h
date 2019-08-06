@@ -66,6 +66,9 @@ class GetContext {
   GetContextStats get_context_stats_;
 
   // Constructor
+  // @param value Holds the value corresponding to user_key. If its nullptr
+  //              then return all merge operands corresponding to user_key
+  //              via merge_context
   // @param value_found If non-nullptr, set to false if key may be present
   //                    but we can't be certain because we cannot do IO
   // @param max_covering_tombstone_seq Pointer to highest sequence number of
@@ -78,10 +81,14 @@ class GetContext {
   //                 for visibility of a key
   // @param is_blob_index If non-nullptr, will be used to indicate if a found
   //                      key is of type blob index
+  // @param do_merge True if value associated with user_key has to be returned
+  // and false if all the merge operands associated with user_key has to be
+  // returned. Id do_merge=false then all the merge operands are stored in
+  // merge_context and they are never merged. The value pointer is untouched.
   GetContext(const Comparator* ucmp, const MergeOperator* merge_operator,
              Logger* logger, Statistics* statistics, GetState init_state,
              const Slice& user_key, PinnableSlice* value, bool* value_found,
-             MergeContext* merge_context,
+             MergeContext* merge_context, bool do_merge,
              SequenceNumber* max_covering_tombstone_seq, Env* env,
              SequenceNumber* seq = nullptr,
              PinnedIteratorsManager* _pinned_iters_mgr = nullptr,
@@ -140,6 +147,8 @@ class GetContext {
 
   uint64_t get_tracing_get_id() const { return tracing_get_id_; }
 
+  void push_operand(const Slice& value, Cleanable* value_pinner);
+
  private:
   const Comparator* ucmp_;
   const MergeOperator* merge_operator_;
@@ -162,6 +171,10 @@ class GetContext {
   PinnedIteratorsManager* pinned_iters_mgr_;
   ReadCallback* callback_;
   bool sample_;
+  // Value is true if it's called as part of DB Get API and false if it's
+  // called as part of DB GetMergeOperands API. When it's false merge operators
+  // are never merged.
+  bool do_merge_;
   bool* is_blob_index_;
   // Used for block cache tracing only. A tracing get id uniquely identifies a
   // Get or a MultiGet.

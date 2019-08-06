@@ -63,7 +63,6 @@ class VersionSet;
 class WriteBufferManager;
 class MergeContext;
 class ColumnFamilySet;
-class TableCache;
 class MergeIteratorBuilder;
 
 // Return the smallest index i such that file_level.files[i]->largest >= key.
@@ -561,28 +560,33 @@ class Version {
                                   const Slice& largest_user_key,
                                   int level, bool* overlap);
 
-  // Lookup the value for key.  If found, store it in *val and
-  // return OK.  Else return a non-OK status.
-  // Uses *operands to store merge_operator operations to apply later.
+  // Lookup the value for key or get all merge operands for key.
+  // If do_merge = true (default) then lookup value for key.
+  // Behavior if do_merge = true:
+  //    If found, store it in *value and
+  //    return OK.  Else return a non-OK status.
+  //    Uses *operands to store merge_operator operations to apply later.
   //
-  // If the ReadOptions.read_tier is set to do a read-only fetch, then
-  // *value_found will be set to false if it cannot be determined whether
-  // this value exists without doing IO.
+  //    If the ReadOptions.read_tier is set to do a read-only fetch, then
+  //    *value_found will be set to false if it cannot be determined whether
+  //    this value exists without doing IO.
   //
-  // If the key is Deleted, *status will be set to NotFound and
+  //    If the key is Deleted, *status will be set to NotFound and
   //                        *key_exists will be set to true.
-  // If no key was found, *status will be set to NotFound and
+  //    If no key was found, *status will be set to NotFound and
   //                      *key_exists will be set to false.
-  // If seq is non-null, *seq will be set to the sequence number found
-  // for the key if a key was found.
-  //
+  //    If seq is non-null, *seq will be set to the sequence number found
+  //    for the key if a key was found.
+  // Behavior if do_merge = false
+  //    If the key has any merge operands then store them in
+  //    merge_context.operands_list and don't merge the operands
   // REQUIRES: lock is not held
   void Get(const ReadOptions&, const LookupKey& key, PinnableSlice* value,
            Status* status, MergeContext* merge_context,
            SequenceNumber* max_covering_tombstone_seq,
            bool* value_found = nullptr, bool* key_exists = nullptr,
            SequenceNumber* seq = nullptr, ReadCallback* callback = nullptr,
-           bool* is_blob = nullptr);
+           bool* is_blob = nullptr, bool do_merge = true);
 
   void MultiGet(const ReadOptions&, MultiGetRange* range,
                 ReadCallback* callback = nullptr, bool* is_blob = nullptr);

@@ -454,6 +454,7 @@ TESTS = \
 	db_iterator_test \
 	db_memtable_test \
 	db_merge_operator_test \
+	db_merge_operand_test \
 	db_options_test \
 	db_range_del_test \
 	db_secondary_test \
@@ -1254,6 +1255,9 @@ db_memtable_test: db/db_memtable_test.o db/db_test_util.o $(LIBOBJECTS) $(TESTHA
 db_merge_operator_test: db/db_merge_operator_test.o db/db_test_util.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
+db_merge_operand_test: db/db_merge_operand_test.o db/db_test_util.o $(LIBOBJECTS) $(TESTHARNESS)
+	$(AM_LINK)
+	
 db_options_test: db/db_options_test.o db/db_test_util.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 

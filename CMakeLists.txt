@@ -661,6 +661,7 @@ set(SOURCES
         utilities/merge_operators/bytesxor.cc
         utilities/merge_operators/max.cc
         utilities/merge_operators/put.cc
+        utilities/merge_operators/sortlist.cc
         utilities/merge_operators/string_append/stringappend.cc
         utilities/merge_operators/string_append/stringappend2.cc
         utilities/merge_operators/uint64add.cc
@@ -887,6 +888,7 @@ if(WITH_TESTS)
         db/db_log_iter_test.cc
         db/db_memtable_test.cc
         db/db_merge_operator_test.cc
+        db/db_merge_operand_test.cc
         db/db_options_test.cc
         db/db_properties_test.cc
         db/db_range_del_test.cc

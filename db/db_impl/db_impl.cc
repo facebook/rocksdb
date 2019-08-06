@@ -1441,19 +1441,22 @@ ColumnFamilyHandle* DBImpl::PersistentStatsColumnFamily() const {
 Status DBImpl::Get(const ReadOptions& read_options,
                    ColumnFamilyHandle* column_family, const Slice& key,
                    PinnableSlice* value) {
-  return GetImpl(read_options, column_family, key, value);
+  GetImplOptions get_impl_options;
+  get_impl_options.column_family = column_family;
+  get_impl_options.value = value;
+  return GetImpl(read_options, key, get_impl_options);
 }
 
-Status DBImpl::GetImpl(const ReadOptions& read_options,
-                       ColumnFamilyHandle* column_family, const Slice& key,
-                       PinnableSlice* pinnable_val, bool* value_found,
-                       ReadCallback* callback, bool* is_blob_index) {
-  assert(pinnable_val != nullptr);
+Status DBImpl::GetImpl(const ReadOptions& read_options, const Slice& key,
+                       GetImplOptions get_impl_options) {
+  assert(get_impl_options.value != nullptr ||
+         get_impl_options.merge_operands != nullptr);
   PERF_CPU_TIMER_GUARD(get_cpu_nanos, env_);
   StopWatch sw(env_, stats_, DB_GET);
   PERF_TIMER_GUARD(get_snapshot_time);
 
-  auto cfh = reinterpret_cast<ColumnFamilyHandleImpl*>(column_family);
+  auto cfh =
+      reinterpret_cast<ColumnFamilyHandleImpl*>(get_impl_options.column_family);
   auto cfd = cfh->cfd();
 
   if (tracer_) {
@@ -1461,7 +1464,7 @@ Status DBImpl::GetImpl(const ReadOptions& read_options,
     // tracing is enabled.
     InstrumentedMutexLock lock(&trace_mutex_);
     if (tracer_) {
-      tracer_->Get(column_family, key);
+      tracer_->Get(get_impl_options.column_family, key);
     }
   }
 
@@ -1473,9 +1476,9 @@ Status DBImpl::GetImpl(const ReadOptions& read_options,
 
   SequenceNumber snapshot;
   if (read_options.snapshot != nullptr) {
-    if (callback) {
+    if (get_impl_options.callback) {
       // Already calculated based on read_options.snapshot
-      snapshot = callback->max_visible_seq();
+      snapshot = get_impl_options.callback->max_visible_seq();
     } else {
       snapshot =
           reinterpret_cast<const SnapshotImpl*>(read_options.snapshot)->number_;
@@ -1489,12 +1492,12 @@ Status DBImpl::GetImpl(const ReadOptions& read_options,
     snapshot = last_seq_same_as_publish_seq_
                    ? versions_->LastSequence()
                    : versions_->LastPublishedSequence();
-    if (callback) {
+    if (get_impl_options.callback) {
       // The unprep_seqs are not published for write unprepared, so it could be
       // that max_visible_seq is larger. Seek to the std::max of the two.
       // However, we still want our callback to contain the actual snapshot so
       // that it can do the correct visibility filtering.
-      callback->Refresh(snapshot);
+      get_impl_options.callback->Refresh(snapshot);
 
       // Internally, WriteUnpreparedTxnReadCallback::Refresh would set
       // max_visible_seq = max(max_visible_seq, snapshot)
@@ -1505,7 +1508,7 @@ Status DBImpl::GetImpl(const ReadOptions& read_options,
       // be needed.
       //
       // assert(callback->max_visible_seq() >= snapshot);
-      snapshot = callback->max_visible_seq();
+      snapshot = get_impl_options.callback->max_visible_seq();
     }
   }
   TEST_SYNC_POINT("DBImpl::GetImpl:3");
@@ -1526,19 +1529,39 @@ Status DBImpl::GetImpl(const ReadOptions& read_options,
                         has_unpersisted_data_.load(std::memory_order_relaxed));
   bool done = false;
   if (!skip_memtable) {
-    if (sv->mem->Get(lkey, pinnable_val->GetSelf(), &s, &merge_context,
-                     &max_covering_tombstone_seq, read_options, callback,
-                     is_blob_index)) {
-      done = true;
-      pinnable_val->PinSelf();
-      RecordTick(stats_, MEMTABLE_HIT);
-    } else if ((s.ok() || s.IsMergeInProgress()) &&
-               sv->imm->Get(lkey, pinnable_val->GetSelf(), &s, &merge_context,
-                            &max_covering_tombstone_seq, read_options, callback,
-                            is_blob_index)) {
-      done = true;
-      pinnable_val->PinSelf();
-      RecordTick(stats_, MEMTABLE_HIT);
+    // Get value associated with key
+    if (get_impl_options.get_value) {
+      if (sv->mem->Get(lkey, get_impl_options.value->GetSelf(), &s,
+                       &merge_context, &max_covering_tombstone_seq,
+                       read_options, get_impl_options.callback,
+                       get_impl_options.is_blob_index)) {
+        done = true;
+        get_impl_options.value->PinSelf();
+        RecordTick(stats_, MEMTABLE_HIT);
+      } else if ((s.ok() || s.IsMergeInProgress()) &&
+                 sv->imm->Get(lkey, get_impl_options.value->GetSelf(), &s,
+                              &merge_context, &max_covering_tombstone_seq,
+                              read_options, get_impl_options.callback,
+                              get_impl_options.is_blob_index)) {
+        done = true;
+        get_impl_options.value->PinSelf();
+        RecordTick(stats_, MEMTABLE_HIT);
+      }
+    } else {
+      // Get Merge Operands associated with key, Merge Operands should not be
+      // merged and raw values should be returned to the user.
+      if (sv->mem->Get(lkey, nullptr, &s, &merge_context,
+                       &max_covering_tombstone_seq, read_options, nullptr,
+                       nullptr, false)) {
+        done = true;
+        RecordTick(stats_, MEMTABLE_HIT);
+      } else if ((s.ok() || s.IsMergeInProgress()) &&
+                 sv->imm->GetMergeOperands(lkey, &s, &merge_context,
+                                           &max_covering_tombstone_seq,
+                                           read_options)) {
+        done = true;
+        RecordTick(stats_, MEMTABLE_HIT);
+      }
     }
     if (!done && !s.ok() && !s.IsMergeInProgress()) {
       ReturnAndCleanupSuperVersion(cfd, sv);
@@ -1547,9 +1570,14 @@ Status DBImpl::GetImpl(const ReadOptions& read_options,
   }
   if (!done) {
     PERF_TIMER_GUARD(get_from_output_files_time);
-    sv->current->Get(read_options, lkey, pinnable_val, &s, &merge_context,
-                     &max_covering_tombstone_seq, value_found, nullptr, nullptr,
-                     callback, is_blob_index);
+    sv->current->Get(
+        read_options, lkey, get_impl_options.value, &s, &merge_context,
+        &max_covering_tombstone_seq,
+        get_impl_options.get_value ? get_impl_options.value_found : nullptr,
+        nullptr, nullptr,
+        get_impl_options.get_value ? get_impl_options.callback : nullptr,
+        get_impl_options.get_value ? get_impl_options.is_blob_index : nullptr,
+        get_impl_options.get_value);
     RecordTick(stats_, MEMTABLE_MISS);
   }
 
@@ -1561,7 +1589,25 @@ Status DBImpl::GetImpl(const ReadOptions& read_options,
     RecordTick(stats_, NUMBER_KEYS_READ);
     size_t size = 0;
     if (s.ok()) {
-      size = pinnable_val->size();
+      if (get_impl_options.get_value) {
+        size = get_impl_options.value->size();
+      } else {
+        // Return all merge operands for get_impl_options.key
+        *get_impl_options.number_of_operands =
+            static_cast<int>(merge_context.GetNumOperands());
+        if (*get_impl_options.number_of_operands >
+            get_impl_options.get_merge_operands_options
+                ->expected_max_number_of_operands) {
+          s = Status::Incomplete(
+              Status::SubCode::KMergeOperandsInsufficientCapacity);
+        } else {
+          for (const Slice& sl : merge_context.GetOperands()) {
+            size += sl.size();
+            get_impl_options.merge_operands->PinSelf(sl);
+            get_impl_options.merge_operands++;
+          }
+        }
+      }
       RecordTick(stats_, BYTES_READ, size);
       PERF_COUNTER_ADD(get_read_bytes, size);
     }
@@ -2222,7 +2268,11 @@ bool DBImpl::KeyMayExist(const ReadOptions& read_options,
   ReadOptions roptions = read_options;
   roptions.read_tier = kBlockCacheTier;  // read from block cache only
   PinnableSlice pinnable_val;
-  auto s = GetImpl(roptions, column_family, key, &pinnable_val, value_found);
+  GetImplOptions get_impl_options;
+  get_impl_options.column_family = column_family;
+  get_impl_options.value = &pinnable_val;
+  get_impl_options.value_found = value_found;
+  auto s = GetImpl(roptions, key, get_impl_options);
   value->assign(pinnable_val.data(), pinnable_val.size());
 
   // If block_cache is enabled and the index block of the table didn't
