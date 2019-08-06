@@ -71,6 +71,13 @@ class MemTableListVersion {
                read_opts, callback, is_blob_index);
   }
 
+  // Returns all the merge operands corresponding to the key by searching all
+  // memtables starting from the most recent one.
+  bool GetMergeOperands(const LookupKey& key, Status* s,
+                        MergeContext* merge_context,
+                        SequenceNumber* max_covering_tombstone_seq,
+                        const ReadOptions& read_opts);
+
   // Similar to Get(), but searches the Memtable history of memtables that
   // have already been flushed.  Should only be used from in-memory only
   // queries (such as Transaction validation) as the history may contain

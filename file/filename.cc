@@ -60,8 +60,7 @@ static size_t GetInfoLogPrefix(const std::string& path, char* dest, int len) {
 static std::string MakeFileName(uint64_t number, const char* suffix) {
   char buf[100];
   snprintf(buf, sizeof(buf), "%06llu.%s",
-           static_cast<unsigned long long>(number),
-           suffix);
+           static_cast<unsigned long long>(number), suffix);
   return buf;
 }
 
