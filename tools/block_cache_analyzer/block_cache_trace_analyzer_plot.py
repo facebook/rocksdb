@@ -6,14 +6,12 @@ import random
 import sys
 
 import matplotlib
+matplotlib.use("Agg")
 import matplotlib.backends.backend_pdf
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import seaborn as sns
-
-
-matplotlib.use("Agg")
 
 
 # Make sure a legend has the same color across all generated graphs.
@@ -400,10 +398,39 @@ def plot_correlation(csv_result_dir, output_result_dir):
                 ),
             )
         )
-
-        # f.write("{},{},{}\n".format(label, "LA+T", corr_table["num_accesses_since_last_access"].corr(corr_table["elapsed_time_till_next_access"], method='spearman')))
-        # f.write("{},{},{}\n".format(label, "LT+T", corr_table["elapsed_time_since_last_access"].corr(corr_table["elapsed_time_till_next_access"], method='spearman')))
-        # f.write("{},{},{}\n".format(label, "PA+T", corr_table["num_past_accesses"].corr(corr_table["elapsed_time_till_next_access"], method='spearman')))
+        f.write(
+            "{},{},{}\n".format(
+                label,
+                "LA+T",
+                convert_to_0_if_nan(
+                    corr_table["num_accesses_since_last_access"].corr(
+                        corr_table["elapsed_time_till_next_access"], method="spearman"
+                    )
+                ),
+            )
+        )
+        f.write(
+            "{},{},{}\n".format(
+                label,
+                "LT+T",
+                convert_to_0_if_nan(
+                    corr_table["elapsed_time_since_last_access"].corr(
+                        corr_table["elapsed_time_till_next_access"], method="spearman"
+                    )
+                ),
+            )
+        )
+        f.write(
+            "{},{},{}\n".format(
+                label,
+                "PA+T",
+                convert_to_0_if_nan(
+                    corr_table["num_past_accesses"].corr(
+                        corr_table["elapsed_time_till_next_access"], method="spearman"
+                    )
+                ),
+            )
+        )
     for label_str in label_str_file:
         label_str_file[label_str].close()
 
