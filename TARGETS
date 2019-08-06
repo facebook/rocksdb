@@ -752,7 +752,9 @@ ROCKS_TESTS = [
     [
         "db_merge_operator_test",
         "db/db_merge_operator_test.cc",
-        "serial",
+        "parallel",
+        [],
+        [],
     ],
     [
         "db_merge_operand_test",

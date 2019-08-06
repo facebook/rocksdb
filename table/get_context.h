@@ -67,9 +67,8 @@ class GetContext {
 
   // Constructor
   // @param value Holds the value corresponding to user_key. If its nullptr
-  //	  	      then return all merge operands corresponding to user_key
-  // via
-  //              merge_context
+  //              then return all merge operands corresponding to user_key
+  //              via merge_context
   // @param value_found If non-nullptr, set to false if key may be present
   //                    but we can't be certain because we cannot do IO
   // @param max_covering_tombstone_seq Pointer to highest sequence number of

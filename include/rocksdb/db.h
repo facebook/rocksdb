@@ -413,12 +413,10 @@ class DB {
   // no merge operands are returned and status is Incomplete. Merge operands
   // returned are in the order of insertion.
   // merge_operands- Points to an array of at-least
-  //		merge_operands_options.expected_max_number_of_operands and the
-  // caller
-  // 		is responsible for allocating it. If the status returned is
-  // 		Incomplete then number_of_operands
-  // will
-  //		contain the total number of merge operands found in DB for key.
+  //             merge_operands_options.expected_max_number_of_operands and the
+  //             caller is responsible for allocating it. If the status
+  //             returned is Incomplete then number_of_operands will contain
+  //             the total number of merge operands found in DB for key.
   virtual Status GetMergeOperands(
       const ReadOptions& options, ColumnFamilyHandle* column_family,
       const Slice& key, PinnableSlice* merge_operands,
