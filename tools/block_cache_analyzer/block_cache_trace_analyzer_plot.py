@@ -319,7 +319,7 @@ def plot_heatmap(csv_result_dir, output_result_dir, filename_suffix, pdf_name, t
         corr_table = pd.read_csv(csv_file_name)
         corr_table = corr_table.pivot("label", "corr", "value")
         fig = plt.figure()
-        ax = sns.heatmap(corr_table, annot=True, linewidths=0.5, fmt=".2")
+        sns.heatmap(corr_table, annot=True, linewidths=0.5, fmt=".2")
         plt.title("{} filename:{}".format(title, file))
         pdf.savefig(fig)
     pdf.close()
