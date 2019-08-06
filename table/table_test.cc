@@ -2324,7 +2324,7 @@ TEST_P(BlockBasedTableTest, TracingGetTest) {
     GetContext get_context(options.comparator, nullptr, nullptr, nullptr,
                            GetContext::kNotFound, user_key, &value, nullptr,
                            nullptr, true, nullptr, nullptr, nullptr, nullptr,
-                           nullptr, nullptr, /*get_id=*/i);
+                           nullptr, nullptr, /*tracing_get_id=*/i);
     get_perf_context()->Reset();
     ASSERT_OK(c.GetTableReader()->Get(ReadOptions(), encoded_key, &get_context,
                                       moptions.prefix_extractor.get()));

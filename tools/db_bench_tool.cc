@@ -5932,14 +5932,17 @@ class Benchmark {
   }
 
   bool binary_search(std::vector<int>& data, int start, int end, int key) {
+    if (data.empty()) return false;
     if (start > end) return false;
     int mid = start + (end - start) / 2;
-    if (data[mid] == key)
+    if (mid > static_cast<int>(data.size()) - 1) return false;
+    if (data[mid] == key) {
       return true;
-    else if (data[mid] > key)
+    } else if (data[mid] > key) {
       return binary_search(data, start, mid - 1, key);
-    else
+    } else {
       return binary_search(data, mid + 1, end, key);
+    }
   }
 
   // Does a bunch of merge operations for a key(key1) where the merge operand
