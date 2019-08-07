@@ -89,7 +89,7 @@ endif
 
 ifeq ($(MAKECMDGOALS),rocksdbjavastaticreleasedocker)
 	ifneq ($(DEBUG_LEVEL),2)
-        	DEBUG_LEVEL=0
+		DEBUG_LEVEL=0
 	endif
 endif
 
@@ -304,6 +304,10 @@ ifndef DISABLE_JEMALLOC
 	PLATFORM_CCFLAGS += $(JEMALLOC_INCLUDE)
 endif
 
+ifndef USE_FOLLY_DISTRIBUTED_MUTEX
+	USE_FOLLY_DISTRIBUTED_MUTEX=0
+endif
+
 export GTEST_THROW_ON_FAILURE=1
 export GTEST_HAS_EXCEPTIONS=1
 GTEST_DIR = ./third-party/gtest-1.7.0/fused-src
@@ -314,6 +318,18 @@ ifeq ($(PLATFORM), OS_AIX)
 else
 	PLATFORM_CCFLAGS += -isystem $(GTEST_DIR)
 	PLATFORM_CXXFLAGS += -isystem $(GTEST_DIR)
+endif
+
+ifeq ($(USE_FOLLY_DISTRIBUTED_MUTEX),1)
+	FOLLY_DIR = ./third-party/folly
+	# AIX: pre-defined system headers are surrounded by an extern "C" block
+	ifeq ($(PLATFORM), OS_AIX)
+		PLATFORM_CCFLAGS += -I$(FOLLY_DIR)
+		PLATFORM_CXXFLAGS += -I$(FOLLY_DIR)
+	else
+		PLATFORM_CCFLAGS += -isystem $(FOLLY_DIR)
+		PLATFORM_CXXFLAGS += -isystem $(FOLLY_DIR)
+	endif
 endif
 
 # This (the first rule) must depend on "all".
@@ -402,6 +418,9 @@ endif
 
 LIBOBJECTS += $(TOOL_LIB_SOURCES:.cc=.o)
 MOCKOBJECTS = $(MOCK_LIB_SOURCES:.cc=.o)
+ifeq ($(USE_FOLLY_DISTRIBUTED_MUTEX),1)
+  FOLLYOBJECTS = $(FOLLY_SOURCES:.cpp=.o)
+endif
 
 GTEST = $(GTEST_DIR)/gtest/gtest-all.o
 TESTUTIL = ./test_util/testutil.o
@@ -568,6 +587,10 @@ TESTS = \
 	db_secondary_test \
 	block_cache_tracer_test \
 	block_cache_trace_analyzer_test \
+
+ifeq ($(USE_FOLLY_DISTRIBUTED_MUTEX),1)
+	TESTS += folly_synchronization_distributed_mutex_test
+endif
 
 PARALLEL_TEST = \
 	backupable_db_test \
@@ -1119,6 +1142,11 @@ trace_analyzer: tools/trace_analyzer.o $(ANALYZETOOLOBJECTS) $(LIBOBJECTS)
 
 block_cache_trace_analyzer: tools/block_cache_analyzer/block_cache_trace_analyzer_tool.o $(ANALYZETOOLOBJECTS) $(LIBOBJECTS)
 	$(AM_LINK)
+
+ifeq ($(USE_FOLLY_DISTRIBUTED_MUTEX),1)
+folly_synchronization_distributed_mutex_test: $(LIBOBJECTS) $(TESTHARNESS) $(FOLLYOBJECTS) third-party/folly/folly/synchronization/test/DistributedMutexTest.o
+	$(AM_LINK)
+endif
 
 cache_bench: cache/cache_bench.o $(LIBOBJECTS) $(TESTUTIL)
 	$(AM_LINK)
