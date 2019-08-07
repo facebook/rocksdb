@@ -24,6 +24,8 @@
 using GFLAGS_NAMESPACE::ParseCommandLineFlags;
 
 DEFINE_string(block_cache_trace_path, "", "The trace file path.");
+DEFINE_bool(is_block_cache_human_readable_trace, false,
+            "Is the trace file provided for analysis human readable");
 DEFINE_string(
     block_cache_sim_config_path, "",
     "The config file path. One cache configuration per line. The format of a "
@@ -1433,6 +1435,7 @@ BlockCacheTraceAnalyzer::BlockCacheTraceAnalyzer(
     const std::string& trace_file_path, const std::string& output_dir,
     const std::string& human_readable_trace_file_path,
     bool compute_reuse_distance, bool mrc_only,
+    bool is_human_readable_trace_file,
     std::unique_ptr<BlockCacheTraceSimulator>&& cache_simulator)
     : env_(rocksdb::Env::Default()),
       trace_file_path_(trace_file_path),
@@ -1440,6 +1443,7 @@ BlockCacheTraceAnalyzer::BlockCacheTraceAnalyzer(
       human_readable_trace_file_path_(human_readable_trace_file_path),
       compute_reuse_distance_(compute_reuse_distance),
       mrc_only_(mrc_only),
+      is_human_readable_trace_file_(is_human_readable_trace_file),
       cache_simulator_(std::move(cache_simulator)) {}
 
 void BlockCacheTraceAnalyzer::ComputeReuseDistance(
@@ -1458,33 +1462,6 @@ void BlockCacheTraceAnalyzer::ComputeReuseDistance(
   info->reuse_distance_count[reuse_distance] += 1;
   // We clear this hash set since this is the second access on this block.
   info->unique_blocks_since_last_access.clear();
-}
-
-Status BlockCacheTraceAnalyzer::WriteHumanReadableTraceRecord(
-    const BlockCacheTraceRecord& access, uint64_t block_id,
-    uint64_t get_key_id) {
-  if (!human_readable_trace_file_writer_) {
-    return Status::OK();
-  }
-  int ret = snprintf(
-      trace_record_buffer_, sizeof(trace_record_buffer_),
-      "%" PRIu64 ",%" PRIu64 ",%u,%" PRIu64 ",%" PRIu64 ",%s,%" PRIu32
-      ",%" PRIu64 ",%u,%u,%" PRIu64 ",%" PRIu64 ",%" PRIu64 ",%u,%u,%" PRIu64
-      ",%" PRIu64 ",%" PRIu64 ",%" PRIu64 ",%" PRIu64 ",%" PRIu64 "\n",
-      access.access_timestamp, block_id, access.block_type, access.block_size,
-      access.cf_id, access.cf_name.c_str(), access.level, access.sst_fd_number,
-      access.caller, access.no_insert, access.get_id, get_key_id,
-      access.referenced_data_size, access.is_cache_hit,
-      access.referenced_key_exist_in_block, access.num_keys_in_block,
-      BlockCacheTraceHelper::GetTableId(access),
-      BlockCacheTraceHelper::GetSequenceNumber(access), access.block_key.size(),
-      access.referenced_key.size(),
-      BlockCacheTraceHelper::GetBlockOffsetInFile(access));
-  if (ret < 0) {
-    return Status::IOError("failed to format the output");
-  }
-  std::string printout(trace_record_buffer_);
-  return human_readable_trace_file_writer_->Append(printout);
 }
 
 Status BlockCacheTraceAnalyzer::RecordAccess(
@@ -1535,25 +1512,30 @@ Status BlockCacheTraceAnalyzer::RecordAccess(
       }
     }
   }
-  return WriteHumanReadableTraceRecord(access, block_access_info.block_id,
-                                       get_key_id);
+  return human_readable_trace_writer_.WriteHumanReadableTraceRecord(
+      access, block_access_info.block_id, get_key_id);
 }
 
 Status BlockCacheTraceAnalyzer::Analyze() {
-  std::unique_ptr<TraceReader> trace_reader;
-  Status s =
-      NewFileTraceReader(env_, EnvOptions(), trace_file_path_, &trace_reader);
-  if (!s.ok()) {
-    return s;
-  }
-  BlockCacheTraceReader reader(std::move(trace_reader));
-  s = reader.ReadHeader(&header_);
-  if (!s.ok()) {
-    return s;
+  std::unique_ptr<BlockCacheTraceReader> reader;
+  Status s = Status::OK();
+  if (is_human_readable_trace_file_) {
+    reader.reset(new BlockCacheHumanReadableTraceReader(trace_file_path_));
+  } else {
+    std::unique_ptr<TraceReader> trace_reader;
+    s = NewFileTraceReader(env_, EnvOptions(), trace_file_path_, &trace_reader);
+    if (!s.ok()) {
+      return s;
+    }
+    reader.reset(new BlockCacheTraceReader(std::move(trace_reader)));
+    s = reader->ReadHeader(&header_);
+    if (!s.ok()) {
+      return s;
+    }
   }
   if (!human_readable_trace_file_path_.empty()) {
-    s = env_->NewWritableFile(human_readable_trace_file_path_,
-                              &human_readable_trace_file_writer_, EnvOptions());
+    s = human_readable_trace_writer_.NewWritableFile(
+        human_readable_trace_file_path_, env_);
     if (!s.ok()) {
       return s;
     }
@@ -1562,7 +1544,7 @@ Status BlockCacheTraceAnalyzer::Analyze() {
   uint64_t time_interval = 0;
   while (s.ok()) {
     BlockCacheTraceRecord access;
-    s = reader.ReadAccess(&access);
+    s = reader->ReadAccess(&access);
     if (!s.ok()) {
       break;
     }
@@ -1597,10 +1579,6 @@ Status BlockCacheTraceAnalyzer::Analyze() {
               trace_duration, miss_ratio_stats_.miss_ratio());
       time_interval++;
     }
-  }
-  if (human_readable_trace_file_writer_) {
-    human_readable_trace_file_writer_->Flush();
-    human_readable_trace_file_writer_->Close();
   }
   uint64_t now = env_->NowMicros();
   uint64_t duration = (now - start) / kMicrosInSecond;
@@ -2152,11 +2130,11 @@ int block_cache_trace_analyzer_tool(int argc, char** argv) {
       exit(1);
     }
   }
-  BlockCacheTraceAnalyzer analyzer(FLAGS_block_cache_trace_path,
-                                   FLAGS_block_cache_analysis_result_dir,
-                                   FLAGS_human_readable_trace_file_path,
-                                   !FLAGS_reuse_distance_labels.empty(),
-                                   FLAGS_mrc_only, std::move(cache_simulator));
+  BlockCacheTraceAnalyzer analyzer(
+      FLAGS_block_cache_trace_path, FLAGS_block_cache_analysis_result_dir,
+      FLAGS_human_readable_trace_file_path,
+      !FLAGS_reuse_distance_labels.empty(), FLAGS_mrc_only,
+      FLAGS_is_block_cache_human_readable_trace, std::move(cache_simulator));
   Status s = analyzer.Analyze();
   if (!s.IsIncomplete() && !s.ok()) {
     // Read all traces.
