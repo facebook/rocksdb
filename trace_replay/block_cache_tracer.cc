@@ -399,11 +399,15 @@ Status BlockCacheHumanReadableTraceReader::ReadAccess(
   record->num_keys_in_block = ParseUint64(record_strs[15]);
   uint64_t table_id = ParseUint64(record_strs[16]);
   if (table_id > 0) {
+    // Decrement since valid table id in the trace file equals traced table id
+    // + 1.
     table_id -= 1;
   }
   uint64_t get_sequence_number = ParseUint64(record_strs[17]);
   if (get_sequence_number > 0) {
     record->get_from_user_specified_snapshot = Boolean::kTrue;
+    // Decrement since valid seq number in the trace file equals traced seq
+    // number + 1.
     get_sequence_number -= 1;
   }
   uint64_t block_key_size = ParseUint64(record_strs[18]);
@@ -413,6 +417,7 @@ Status BlockCacheHumanReadableTraceReader::ReadAccess(
   std::string tmp_block_key;
   PutVarint64(&tmp_block_key, block_key);
   PutVarint64(&tmp_block_key, block_offset);
+  // Append 1 until the size is the same as traced block key size.
   while (record->block_key.size() < block_key_size - tmp_block_key.size()) {
     record->block_key += "1";
   }
@@ -423,6 +428,7 @@ Status BlockCacheHumanReadableTraceReader::ReadAccess(
     PutFixed64(&tmp_get_key, get_key_id);
     PutFixed64(&tmp_get_key, get_sequence_number << 8);
     PutFixed32(&record->referenced_key, static_cast<uint32_t>(table_id));
+    // Append 1 until the size is the same as traced key size.
     while (record->referenced_key.size() < get_key_size - tmp_get_key.size()) {
       record->referenced_key += "1";
     }

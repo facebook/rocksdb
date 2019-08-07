@@ -334,7 +334,7 @@ TEST_F(BlockCacheTracerTest, HumanReadableTrace) {
   PutLengthPrefixedSlice(&record.block_key, "block_key");
   PutVarint64(&record.block_key, 333);
   {
-    // Generate a trace file containing a mix of blocks.
+    // Generate a human readable trace file.
     BlockCacheHumanReadableTraceWriter writer;
     ASSERT_OK(writer.NewWritableFile(trace_file_path_, env_));
     ASSERT_OK(writer.WriteHumanReadableTraceRecord(record, 1, 1));
