@@ -334,13 +334,15 @@ Compaction* CompactionPicker::CompactFiles(
     // without configurable `CompressionOptions`, which is inconsistent.
     compression_type = compact_options.compression;
   }
+  DbPathSupplier* db_path_supplier = new FixedDbPathSupplier(ioptions_,
+      output_path_id);
   auto c = new Compaction(
       vstorage, ioptions_, mutable_cf_options, input_files, output_level,
       compact_options.output_file_size_limit,
-      mutable_cf_options.max_compaction_bytes, output_path_id, compression_type,
+      mutable_cf_options.max_compaction_bytes, compression_type,
       GetCompressionOptions(ioptions_, vstorage, output_level),
       compact_options.max_subcompactions,
-      /* grandparents */ {}, true);
+      /* grandparents */ {}, db_path_supplier, true);
   RegisterCompaction(c);
   return c;
 }
@@ -604,18 +606,20 @@ Compaction* CompactionPicker::CompactRange(
       return nullptr;
     }
 
+    DbPathSupplier* db_path_supplier = new FixedDbPathSupplier(ioptions_,
+        compact_range_options.target_path_id);
+
     Compaction* c = new Compaction(
         vstorage, ioptions_, mutable_cf_options, std::move(inputs),
         output_level,
         MaxFileSizeForLevel(mutable_cf_options, output_level,
                             ioptions_.compaction_style),
         /* max_compaction_bytes */ LLONG_MAX,
-        compact_range_options.target_path_id,
         GetCompressionType(ioptions_, vstorage, mutable_cf_options,
                            output_level, 1),
         GetCompressionOptions(ioptions_, vstorage, output_level),
         compact_range_options.max_subcompactions, /* grandparents */ {},
-        /* is manual */ true);
+        db_path_supplier, /* is manual */ true);
     RegisterCompaction(c);
     return c;
   }
@@ -754,6 +758,9 @@ Compaction* CompactionPicker::CompactRange(
     return nullptr;
   }
 
+  DbPathSupplier* db_path_supplier = new FixedDbPathSupplier(ioptions_,
+      compact_range_options.target_path_id);
+
   std::vector<FileMetaData*> grandparents;
   GetGrandparents(vstorage, inputs, output_level_inputs, &grandparents);
   Compaction* compaction = new Compaction(
@@ -763,12 +770,11 @@ Compaction* CompactionPicker::CompactRange(
                           ioptions_.compaction_style, vstorage->base_level(),
                           ioptions_.level_compaction_dynamic_level_bytes),
       mutable_cf_options.max_compaction_bytes,
-      compact_range_options.target_path_id,
       GetCompressionType(ioptions_, vstorage, mutable_cf_options, output_level,
                          vstorage->base_level()),
       GetCompressionOptions(ioptions_, vstorage, output_level),
       compact_range_options.max_subcompactions, std::move(grandparents),
-      /* is manual compaction */ true);
+      db_path_supplier, /* is manual compaction */ true);
 
   TEST_SYNC_POINT_CALLBACK("CompactionPicker::CompactRange:Return", compaction);
   RegisterCompaction(compaction);

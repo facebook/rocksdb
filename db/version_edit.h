@@ -22,10 +22,6 @@ namespace rocksdb {
 
 class VersionSet;
 
-const uint64_t kFileNumberMask = 0x3FFFFFFFFFFFFFFF;
-
-extern uint64_t PackFileNumberAndPathId(uint64_t number, uint64_t path_id);
-
 // A copyable structure contains information needed to read data from an SST
 // file. It can contain a pointer to a table reader opened for the file, or
 // file number and size, which can be used to create a new table reader for it.
@@ -34,7 +30,8 @@ extern uint64_t PackFileNumberAndPathId(uint64_t number, uint64_t path_id);
 struct FileDescriptor {
   // Table reader in table_reader_handle
   TableReader* table_reader;
-  uint64_t packed_number_and_path_id;
+  uint32_t path_id;
+  uint64_t file_number;
   uint64_t file_size;  // File size in bytes
   SequenceNumber smallest_seqno;  // The smallest seqno in this file
   SequenceNumber largest_seqno;   // The largest seqno in this file
@@ -47,7 +44,8 @@ struct FileDescriptor {
   FileDescriptor(uint64_t number, uint32_t path_id, uint64_t _file_size,
                  SequenceNumber _smallest_seqno, SequenceNumber _largest_seqno)
       : table_reader(nullptr),
-        packed_number_and_path_id(PackFileNumberAndPathId(number, path_id)),
+        path_id(path_id),
+        file_number(number),
         file_size(_file_size),
         smallest_seqno(_smallest_seqno),
         largest_seqno(_largest_seqno) {}
@@ -56,7 +54,8 @@ struct FileDescriptor {
 
   FileDescriptor& operator=(const FileDescriptor& fd) {
     table_reader = fd.table_reader;
-    packed_number_and_path_id = fd.packed_number_and_path_id;
+    path_id = fd.path_id;
+    file_number = fd.file_number;
     file_size = fd.file_size;
     smallest_seqno = fd.smallest_seqno;
     largest_seqno = fd.largest_seqno;
@@ -64,11 +63,10 @@ struct FileDescriptor {
   }
 
   uint64_t GetNumber() const {
-    return packed_number_and_path_id & kFileNumberMask;
+    return file_number;
   }
   uint32_t GetPathId() const {
-    return static_cast<uint32_t>(
-        packed_number_and_path_id / (kFileNumberMask + 1));
+    return path_id;
   }
   uint64_t GetFileSize() const { return file_size; }
 };

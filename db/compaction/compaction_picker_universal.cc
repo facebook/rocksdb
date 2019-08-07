@@ -494,40 +494,6 @@ Compaction* UniversalCompactionBuilder::PickCompaction() {
   return c;
 }
 
-uint32_t UniversalCompactionBuilder::GetPathId(
-    const ImmutableCFOptions& ioptions,
-    const MutableCFOptions& mutable_cf_options, uint64_t file_size) {
-  // Two conditions need to be satisfied:
-  // (1) the target path needs to be able to hold the file's size
-  // (2) Total size left in this and previous paths need to be not
-  //     smaller than expected future file size before this new file is
-  //     compacted, which is estimated based on size_ratio.
-  // For example, if now we are compacting files of size (1, 1, 2, 4, 8),
-  // we will make sure the target file, probably with size of 16, will be
-  // placed in a path so that eventually when new files are generated and
-  // compacted to (1, 1, 2, 4, 8, 16), all those files can be stored in or
-  // before the path we chose.
-  //
-  // TODO(sdong): now the case of multiple column families is not
-  // considered in this algorithm. So the target size can be violated in
-  // that case. We need to improve it.
-  uint64_t accumulated_size = 0;
-  uint64_t future_size =
-      file_size *
-      (100 - mutable_cf_options.compaction_options_universal.size_ratio) / 100;
-  uint32_t p = 0;
-  assert(!ioptions.cf_paths.empty());
-  for (; p < ioptions.cf_paths.size() - 1; p++) {
-    uint64_t target_size = ioptions.cf_paths[p].target_size;
-    if (target_size > file_size &&
-        accumulated_size + (target_size - file_size) > future_size) {
-      return p;
-    }
-    accumulated_size += target_size;
-  }
-  return p;
-}
-
 //
 // Consider compaction files based on their size differences with
 // the next file in time order.
@@ -669,9 +635,7 @@ Compaction* UniversalCompactionBuilder::PickCompactionToReduceSortedRuns(
   for (unsigned int i = 0; i < first_index_after; i++) {
     estimated_total_size += sorted_runs_[i].size;
   }
-  uint32_t path_id =
-      GetPathId(ioptions_, mutable_cf_options_, estimated_total_size);
-  int start_level = sorted_runs_[start_index].level;
+  int start_level = sorted_runs[start_index].level;
   int output_level;
   if (first_index_after == sorted_runs_.size()) {
     output_level = vstorage_->num_levels() - 1;
@@ -720,12 +684,14 @@ Compaction* UniversalCompactionBuilder::PickCompactionToReduceSortedRuns(
       output_level,
       MaxFileSizeForLevel(mutable_cf_options_, output_level,
                           kCompactionStyleUniversal),
-      LLONG_MAX, path_id,
+      LLONG_MAX,
       GetCompressionType(ioptions_, vstorage_, mutable_cf_options_, start_level,
                          1, enable_compression),
       GetCompressionOptions(ioptions_, vstorage_, start_level,
                             enable_compression),
-      /* max_subcompactions */ 0, /* grandparents */ {}, /* is manual */ false,
+      /* max_subcompactions */ 0, /* grandparents */ {},
+      GetDbPathSupplier(mutable_cf_options_, estimated_total_size),
+      /* is manual */ false,
       score_, false /* deletion_compaction */, compaction_reason);
 }
 
@@ -822,8 +788,6 @@ Compaction* UniversalCompactionBuilder::PickCompactionToReduceSizeAmp() {
   for (size_t loop = start_index; loop < sorted_runs_.size(); loop++) {
     estimated_total_size += sorted_runs_[loop].size;
   }
-  uint32_t path_id =
-      GetPathId(ioptions_, mutable_cf_options_, estimated_total_size);
   int start_level = sorted_runs_[start_index].level;
 
   std::vector<CompactionInputFiles> inputs(vstorage_->num_levels());
@@ -861,11 +825,13 @@ Compaction* UniversalCompactionBuilder::PickCompactionToReduceSizeAmp() {
       output_level,
       MaxFileSizeForLevel(mutable_cf_options_, output_level,
                           kCompactionStyleUniversal),
-      /* max_grandparent_overlap_bytes */ LLONG_MAX, path_id,
-      GetCompressionType(ioptions_, vstorage_, mutable_cf_options_,
-                         output_level, 1),
+      /* max_grandparent_overlap_bytes */ LLONG_MAX,
+      GetCompressionType(ioptions_, vstorage_, mutable_cf_options_, output_level,
+                         1),
       GetCompressionOptions(ioptions_, vstorage_, output_level),
-      /* max_subcompactions */ 0, /* grandparents */ {}, /* is manual */ false,
+      /* max_subcompactions */ 0, /* grandparents */ {},
+      GetDbPathSupplier(mutable_cf_options_, estimated_total_size),
+      /* is manual */ false,
       score_, false /* deletion_compaction */,
       CompactionReason::kUniversalSizeAmplification);
 }
@@ -972,21 +938,25 @@ Compaction* UniversalCompactionBuilder::PickDeleteTriggeredCompaction() {
   for (FileMetaData* f : vstorage_->LevelFiles(output_level)) {
     estimated_total_size += f->fd.GetFileSize();
   }
-  uint32_t path_id =
-      GetPathId(ioptions_, mutable_cf_options_, estimated_total_size);
   return new Compaction(
       vstorage_, ioptions_, mutable_cf_options_, std::move(inputs),
       output_level,
       MaxFileSizeForLevel(mutable_cf_options_, output_level,
                           kCompactionStyleUniversal),
       /* max_grandparent_overlap_bytes */ LLONG_MAX, path_id,
-      GetCompressionType(ioptions_, vstorage_, mutable_cf_options_,
-                         output_level, 1),
+      GetCompressionType(ioptions_, vstorage_, mutable_cf_options_, output_level,
+                         1),
       GetCompressionOptions(ioptions_, vstorage_, output_level),
       /* max_subcompactions */ 0, /* grandparents */ {}, /* is manual */ true,
       score_, false /* deletion_compaction */,
       CompactionReason::kFilesMarkedForCompaction);
 }
+
+DbPathSupplier* UniversalCompactionPicker::GetDbPathSupplier(
+    const rocksdb::MutableCFOptions &moptions, uint64_t estimated_file_size) {
+  return new UniversalTargetSizeDbPathSupplier(ioptions_, moptions, estimated_file_size);
+}
+
 }  // namespace rocksdb
 
 #endif  // !ROCKSDB_LITE

@@ -78,6 +78,51 @@ enum CompressionType : unsigned char {
 
 struct Options;
 struct DbPath;
+enum DbPathPlacementStrategy : unsigned char {
+  // Fill DbPaths according to the target size set with the db path.
+  //
+  // Newer data is placed into paths specified earlier in the vector while
+  // older data gradually moves to paths specified later in the vector.
+  //
+  // For example, you have a flash device with 10GB allocated for the DB,
+  // as well as a hard drive of 2TB, you should config it to be:
+  //   [{"/flash_path", 10GB}, {"/hard_drive", 2TB}]
+  //
+  // The system will try to guarantee data under each path is close to but
+  // not larger than the target size. But current and future file sizes used
+  // by determining where to place a file are based on best-effort estimation,
+  // which means there is a chance that the actual size under the directory
+  // is slightly more than target size under some workloads. User should give
+  // some buffer room for those cases.
+  //
+  // If none of the paths has sufficient room to place a file, the file will
+  // be placed to the last path anyway, despite to the target size.
+  //
+  // Placing newer data to earlier paths is also best-efforts. User should
+  // expect user files to be placed in higher levels in some extreme cases.
+  kGradualMoveOldDataTowardsEnd = 0x01,
+
+  // Randomly distribute files into the list of db paths.
+  //
+  // For example, you have a few data drives on your host that are mounted
+  // as [/sdb1, /sdc1, /sdd1, /sde1]. Say that the database will create 6
+  // table files -- 0[0-5].sst, then they will end up on in these places:
+  //
+  // /sdb1/02.sst
+  // /sdb1/04.sst
+  // /sdc1/05.sst
+  // /sdc1/03.sst
+  // /sdd1/00.sst
+  // /sde1/01.sst
+  //
+  // This is useful if you want the database to equally use all the disks
+  // (such that you can stop worrying about moving data around hosts to
+  // avoid a single host having a full disk).
+  //
+  // Note that the target_size attr in DbPath will not be useful if this
+  // strategy is chosen.
+  kRandomlyChoosePath = 0x02,
+};
 
 struct ColumnFamilyOptions : public AdvancedColumnFamilyOptions {
   // The function recovers options to a previous version. Only 4.6 or later
@@ -284,19 +329,18 @@ struct ColumnFamilyOptions : public AdvancedColumnFamilyOptions {
   // BlockBasedTableOptions.
   std::shared_ptr<TableFactory> table_factory;
 
-  // A list of paths where SST files for this column family
-  // can be put into, with its target size. Similar to db_paths,
-  // newer data is placed into paths specified earlier in the
-  // vector while older data gradually moves to paths specified
-  // later in the vector.
-  // Note that, if a path is supplied to multiple column
-  // families, it would have files and total size from all
-  // the column families combined. User should provision for the
-  // total size(from all the column families) in such cases.
+  // A list of paths where SST files can be put into. See doc for
+  // DbPathPlacementStrategy to learn how files are distributed to different
+  // paths.
   //
-  // If left empty, db_paths will be used.
   // Default: empty
   std::vector<DbPath> cf_paths;
+
+  // Controls how sst files are distributed into the set of db paths.
+  //
+  // Default: kGradualMoveOldDataTowardsEnd
+  DbPathPlacementStrategy cf_path_placement_strategy =
+          DbPathPlacementStrategy::kGradualMoveOldDataTowardsEnd;
 
   // Compaction concurrent thread limiter for the column family.
   // If non-nullptr, use given concurrent thread limiter to control
@@ -468,31 +512,18 @@ struct DBOptions {
   // fdatasync with ext4 in kernel versions prior to 3.7.
   bool use_fsync = false;
 
-  // A list of paths where SST files can be put into, with its target size.
-  // Newer data is placed into paths specified earlier in the vector while
-  // older data gradually moves to paths specified later in the vector.
+  // A list of paths where SST files can be put into. See doc for
+  // DbPathPlacementStrategy to learn how files are distributed to different
+  // paths.
   //
-  // For example, you have a flash device with 10GB allocated for the DB,
-  // as well as a hard drive of 2TB, you should config it to be:
-  //   [{"/flash_path", 10GB}, {"/hard_drive", 2TB}]
-  //
-  // The system will try to guarantee data under each path is close to but
-  // not larger than the target size. But current and future file sizes used
-  // by determining where to place a file are based on best-effort estimation,
-  // which means there is a chance that the actual size under the directory
-  // is slightly more than target size under some workloads. User should give
-  // some buffer room for those cases.
-  //
-  // If none of the paths has sufficient room to place a file, the file will
-  // be placed to the last path anyway, despite to the target size.
-  //
-  // Placing newer data to earlier paths is also best-efforts. User should
-  // expect user files to be placed in higher levels in some extreme cases.
-  //
-  // If left empty, only one path will be used, which is db_name passed when
-  // opening the DB.
   // Default: empty
   std::vector<DbPath> db_paths;
+
+  // Controls how sst files are distributed into the set of db paths.
+  //
+  // Default: kGradualMoveOldDataTowardsEnd
+  DbPathPlacementStrategy db_path_placement_strategy =
+          DbPathPlacementStrategy::kGradualMoveOldDataTowardsEnd;
 
   // This specifies the info LOG dir.
   // If it is empty, the log files will be in the same dir as data.

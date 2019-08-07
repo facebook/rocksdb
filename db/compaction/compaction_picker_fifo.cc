@@ -104,9 +104,10 @@ Compaction* FIFOCompactionPicker::PickTTLCompaction(
   }
 
   Compaction* c = new Compaction(
-      vstorage, ioptions_, mutable_cf_options, std::move(inputs), 0, 0, 0, 0,
+      vstorage, ioptions_, mutable_cf_options, std::move(inputs), 0, 0, 0,
       kNoCompression, ioptions_.compression_opts, /* max_subcompactions */ 0,
-      {}, /* is manual */ false, vstorage->CompactionScore(0),
+      {}, GetDbPathSupplier(), /* is manual */ false,
+      vstorage->CompactionScore(0),
       /* is deletion compaction */ true, CompactionReason::kFIFOTtl);
   return c;
 }
@@ -145,9 +146,10 @@ Compaction* FIFOCompactionPicker::PickSizeCompaction(
             vstorage, ioptions_, mutable_cf_options, {comp_inputs}, 0,
             16 * 1024 * 1024 /* output file size limit */,
             0 /* max compaction bytes, not applicable */,
-            0 /* output path ID */, mutable_cf_options.compression,
+            mutable_cf_options.compression,
             ioptions_.compression_opts, 0 /* max_subcompactions */, {},
-            /* is manual */ false, vstorage->CompactionScore(0),
+            GetDbPathSupplier(), /* is manual */ false,
+            vstorage->CompactionScore(0),
             /* is deletion compaction */ false,
             CompactionReason::kFIFOReduceNumFiles);
         return c;
@@ -193,9 +195,10 @@ Compaction* FIFOCompactionPicker::PickSizeCompaction(
   }
 
   Compaction* c = new Compaction(
-      vstorage, ioptions_, mutable_cf_options, std::move(inputs), 0, 0, 0, 0,
+      vstorage, ioptions_, mutable_cf_options, std::move(inputs), 0, 0, 0,
       kNoCompression, ioptions_.compression_opts, /* max_subcompactions */ 0,
-      {}, /* is manual */ false, vstorage->CompactionScore(0),
+      {}, GetDbPathSupplier(), /* is manual */ false,
+      vstorage->CompactionScore(0),
       /* is deletion compaction */ true, CompactionReason::kFIFOMaxSize);
   return c;
 }
@@ -235,6 +238,10 @@ Compaction* FIFOCompactionPicker::CompactRange(
       PickCompaction(cf_name, mutable_cf_options, vstorage, &log_buffer);
   log_buffer.FlushBufferToLog();
   return c;
+}
+
+DbPathSupplier* FIFOCompactionPicker::GetDbPathSupplier() {
+  return new FixedDbPathSupplier(ioptions_, 0);
 }
 
 }  // namespace rocksdb

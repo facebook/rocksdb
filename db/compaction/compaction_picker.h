@@ -16,6 +16,7 @@
 #include <vector>
 
 #include "db/compaction/compaction.h"
+#include "db/db_path_supplier.h"
 #include "db/version_set.h"
 #include "options/cf_options.h"
 #include "rocksdb/env.h"

@@ -70,6 +70,8 @@ struct ImmutableCFOptions {
 
   std::vector<DbPath> db_paths;
 
+  DbPathPlacementStrategy db_path_placement_strategy;
+
   MemTableRepFactory* memtable_factory;
 
   TableFactory* table_factory;

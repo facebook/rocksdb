@@ -9,6 +9,7 @@
 
 #pragma once
 #include "db/version_set.h"
+#include "db/db_path_supplier.h"
 #include "memory/arena.h"
 #include "options/cf_options.h"
 #include "util/autovector.h"
@@ -73,9 +74,10 @@ class Compaction {
              const MutableCFOptions& mutable_cf_options,
              std::vector<CompactionInputFiles> inputs, int output_level,
              uint64_t target_file_size, uint64_t max_compaction_bytes,
-             uint32_t output_path_id, CompressionType compression,
+             CompressionType compression,
              CompressionOptions compression_opts, uint32_t max_subcompactions,
              std::vector<FileMetaData*> grandparents,
+             DbPathSupplier* db_path_supplier,
              bool manual_compaction = false, double score = -1,
              bool deletion_compaction = false,
              CompactionReason compaction_reason = CompactionReason::kUnknown);
@@ -163,9 +165,6 @@ class Compaction {
   CompressionOptions output_compression_opts() const {
     return output_compression_opts_;
   }
-
-  // Whether need to write output file to second DB path.
-  uint32_t output_path_id() const { return output_path_id_; }
 
   // Is this a trivial compaction that can be implemented by just
   // moving a single input file to the next level (no merging or splitting)
@@ -293,6 +292,8 @@ class Compaction {
 
   uint64_t MaxInputFileCreationTime() const;
 
+  DbPathSupplier* GetDbPathSupplier() { return db_path_supplier_.get(); }
+
  private:
   // mark (or clear) all files that are being compacted
   void MarkFilesBeingCompacted(bool mark_as_compacted);
@@ -333,7 +334,6 @@ class Compaction {
   ColumnFamilyData* cfd_;
   Arena arena_;          // Arena used to allocate space for file_levels_
 
-  const uint32_t output_path_id_;
   CompressionType output_compression_;
   CompressionOptions output_compression_opts_;
   // If true, then the comaction can be done by simply deleting input files.
@@ -376,6 +376,8 @@ class Compaction {
 
   // Reason for compaction
   CompactionReason compaction_reason_;
+
+  std::unique_ptr<DbPathSupplier> db_path_supplier_;
 };
 
 // Return sum of sizes of all files in `files`.

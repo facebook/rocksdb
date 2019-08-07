@@ -62,23 +62,21 @@ class VersionSet;
 // if needed.
 class CompactionJob {
  public:
-  CompactionJob(int job_id, Compaction* compaction,
-                const ImmutableDBOptions& db_options,
-                const EnvOptions env_options, VersionSet* versions,
-                const std::atomic<bool>* shutting_down,
-                const SequenceNumber preserve_deletes_seqnum,
-                LogBuffer* log_buffer, Directory* db_directory,
-                Directory* output_directory, Statistics* stats,
-                InstrumentedMutex* db_mutex, ErrorHandler* db_error_handler,
-                std::vector<SequenceNumber> existing_snapshots,
-                SequenceNumber earliest_write_conflict_snapshot,
-                const SnapshotChecker* snapshot_checker,
-                std::shared_ptr<Cache> table_cache, EventLogger* event_logger,
-                bool paranoid_file_checks, bool measure_io_stats,
-                const std::string& dbname,
-                CompactionJobStats* compaction_job_stats,
-                Env::Priority thread_pri,
-                const std::atomic<bool>* manual_compaction_paused = nullptr);
+  CompactionJob(
+      int job_id, Compaction* compaction, const ImmutableDBOptions& db_options,
+      const EnvOptions env_options, VersionSet* versions,
+      const std::atomic<bool>* shutting_down,
+      const SequenceNumber preserve_deletes_seqnum, LogBuffer* log_buffer,
+      Directory* db_directory, Statistics* stats,
+      InstrumentedMutex* db_mutex, ErrorHandler* db_error_handler,
+      std::vector<SequenceNumber> existing_snapshots,
+      SequenceNumber earliest_write_conflict_snapshot,
+      const SnapshotChecker* snapshot_checker,
+      std::shared_ptr<Cache> table_cache, EventLogger* event_logger,
+      bool paranoid_file_checks, bool measure_io_stats,
+      const std::string& dbname, CompactionJobStats* compaction_job_stats,
+      Env::Priority thread_pri,
+      const std::atomic<bool>* manual_compaction_paused = nullptr);
 
   ~CompactionJob();
 
@@ -139,6 +137,8 @@ class CompactionJob {
 
   void LogCompaction();
 
+  Status FsyncOutputPaths();
+
   int job_id_;
 
   // CompactionJob state
@@ -161,7 +161,6 @@ class CompactionJob {
   const SequenceNumber preserve_deletes_seqnum_;
   LogBuffer* log_buffer_;
   Directory* db_directory_;
-  Directory* output_directory_;
   Statistics* stats_;
   InstrumentedMutex* db_mutex_;
   ErrorHandler* db_error_handler_;

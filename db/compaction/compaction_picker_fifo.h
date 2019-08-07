@@ -37,6 +37,9 @@ class FIFOCompactionPicker : public CompactionPicker {
 
   virtual bool NeedsCompaction(
       const VersionStorageInfo* vstorage) const override;
+  
+ protected:
+  DbPathSupplier* GetDbPathSupplier() override;
 
  private:
   Compaction* PickTTLCompaction(const std::string& cf_name,

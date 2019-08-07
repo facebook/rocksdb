@@ -27,6 +27,9 @@ class LevelCompactionPicker : public CompactionPicker {
 
   virtual bool NeedsCompaction(
       const VersionStorageInfo* vstorage) const override;
+
+ private:
+  DbPathSupplier* GetDbPathSupplier(const MutableCFOptions& moptions);
 };
 
 }  // namespace rocksdb

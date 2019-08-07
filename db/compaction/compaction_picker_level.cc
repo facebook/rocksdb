@@ -95,6 +95,8 @@ class LevelCompactionBuilder {
 
   void PickFilesMarkedForPeriodicCompaction();
 
+  DbPathSupplier* GetDbPathSupplier();
+
   const std::string& cf_name_;
   VersionStorageInfo* vstorage_;
   CompactionPicker* compaction_picker_;
@@ -378,11 +380,11 @@ Compaction* LevelCompactionBuilder::GetCompaction() {
                           ioptions_.compaction_style, vstorage_->base_level(),
                           ioptions_.level_compaction_dynamic_level_bytes),
       mutable_cf_options_.max_compaction_bytes,
-      GetPathId(ioptions_, mutable_cf_options_, output_level_),
       GetCompressionType(ioptions_, vstorage_, mutable_cf_options_,
                          output_level_, vstorage_->base_level()),
       GetCompressionOptions(ioptions_, vstorage_, output_level_),
-      /* max_subcompactions */ 0, std::move(grandparents_), is_manual_,
+      /* max_subcompactions */ 0, std::move(grandparents_),
+      GetDbPathSupplier(), is_manual_,
       start_level_score_, false /* deletion_compaction */, compaction_reason_);
 
   // If it's level 0 compaction, make sure we don't execute any other level 0
@@ -549,5 +551,9 @@ Compaction* LevelCompactionPicker::PickCompaction(
   LevelCompactionBuilder builder(cf_name, vstorage, this, log_buffer,
                                  mutable_cf_options, ioptions_);
   return builder.PickCompaction();
+}
+
+DbPathSupplier* LevelCompactionBuilder::GetDbPathSupplier() {
+  return new LeveledTargetSizeDbPathSupplier(ioptions_, mutable_cf_options_);
 }
 }  // namespace rocksdb

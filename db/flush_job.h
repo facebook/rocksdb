@@ -66,10 +66,10 @@ class FlushJob {
            SequenceNumber earliest_write_conflict_snapshot,
            SnapshotChecker* snapshot_checker, JobContext* job_context,
            LogBuffer* log_buffer, Directory* db_directory,
-           Directory* output_file_directory, CompressionType output_compression,
+           CompressionType output_compression,
            Statistics* stats, EventLogger* event_logger, bool measure_io_stats,
            const bool sync_output_directory, const bool write_manifest,
-           Env::Priority thread_pri);
+           Env::Priority thread_pri, std::shared_ptr<DbPathSupplier> db_path_supplier);
 
   ~FlushJob();
 
@@ -81,6 +81,7 @@ class FlushJob {
   void Cancel();
   TableProperties GetTableProperties() const { return table_properties_; }
   const autovector<MemTable*>& GetMemTables() const { return mems_; }
+  const FileMetaData GetOutputFileMd() { return meta_; };
 
  private:
   void ReportStartedFlush();
@@ -108,7 +109,6 @@ class FlushJob {
   JobContext* job_context_;
   LogBuffer* log_buffer_;
   Directory* db_directory_;
-  Directory* output_file_directory_;
   CompressionType output_compression_;
   Statistics* stats_;
   EventLogger* event_logger_;
@@ -139,6 +139,7 @@ class FlushJob {
   Version* base_;
   bool pick_memtable_called;
   Env::Priority thread_pri_;
+  std::shared_ptr<DbPathSupplier> db_path_supplier_;
 };
 
 }  // namespace rocksdb
