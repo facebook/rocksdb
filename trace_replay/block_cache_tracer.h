@@ -31,6 +31,15 @@ class BlockCacheTraceHelper {
   // Row key is a concatenation of the access's fd_number and the referenced
   // user key.
   static std::string ComputeRowKey(const BlockCacheTraceRecord& access);
+  // The first four bytes of the referenced key in a Get request is the table
+  // id.
+  static uint64_t GetTableId(const BlockCacheTraceRecord& access);
+  // The sequence number of a get request is the last part of the referenced
+  // key.
+  static uint64_t GetSequenceNumber(const BlockCacheTraceRecord& access);
+  // Block offset in a file is the last varint64 in the block key.
+  static uint64_t GetBlockOffsetInFile(const BlockCacheTraceRecord& access);
+
   static const std::string kUnknownColumnFamilyName;
   static const uint64_t kReservedGetId;
 };
