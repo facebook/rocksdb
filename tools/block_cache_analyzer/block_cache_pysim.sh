@@ -10,6 +10,7 @@
 # warmup_seconds: The number of seconds used for warmup.
 # max_jobs: The max number of concurrent pysims to run.
 
+# Install required packages to run simulations.
 # sudo dnf install -y numpy scipy python-matplotlib ipython python-pandas sympy python-nose atlas-devel
 ulimit -c 0
 
