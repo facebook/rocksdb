@@ -240,12 +240,11 @@ SequenceNumber MemTableListVersion::GetEarliestSequenceNumber(
 }
 
 // caller is responsible for referencing m
-void MemTableListVersion::Add(MemTable* m, autovector<MemTable*>* to_delete,
-                              size_t usage) {
+void MemTableListVersion::Add(MemTable* m, autovector<MemTable*>* to_delete) {
   assert(refs_ == 1);  // only when refs_ == 1 is MemTableListVersion mutable
   AddMemTable(m);
 
-  TrimHistory(to_delete, usage);
+  TrimHistory(to_delete, m->ApproximateMemoryUsage());
 }
 
 // Removes m from list of memtables not flushed.  Caller should NOT Unref m.
@@ -258,6 +257,8 @@ void MemTableListVersion::Remove(MemTable* m,
   if (max_write_buffer_size_to_maintain_ > 0 ||
       max_write_buffer_number_to_maintain_ > 0) {
     memlist_history_.push_front(m);
+    // Unable to get size of mutable memtable at this point, pass 0 to
+    // TrimHistory as a best effort.
     TrimHistory(to_delete, 0);
   } else {
     UnrefMemTable(to_delete, m);
@@ -506,8 +507,7 @@ Status MemTableList::TryInstallMemtableFlushResults(
 }
 
 // New memtables are inserted at the front of the list.
-void MemTableList::Add(MemTable* m, autovector<MemTable*>* to_delete,
-                       size_t usage) {
+void MemTableList::Add(MemTable* m, autovector<MemTable*>* to_delete) {
   assert(static_cast<int>(current_->memlist_.size()) >= num_flush_not_started_);
   InstallNewVersion();
   // this method is used to move mutable memtable into an immutable list.
@@ -515,7 +515,7 @@ void MemTableList::Add(MemTable* m, autovector<MemTable*>* to_delete,
   // and when moving to the imutable list we don't unref it,
   // we don't have to ref the memtable here. we just take over the
   // reference from the DBImpl.
-  current_->Add(m, to_delete, usage);
+  current_->Add(m, to_delete);
   m->MarkImmutable();
   num_flush_not_started_++;
   if (num_flush_not_started_ == 1) {
@@ -544,15 +544,17 @@ size_t MemTableList::ApproximateUnflushedMemTablesMemoryUsage() {
 size_t MemTableList::ApproximateMemoryUsage() { return current_memory_usage_; }
 
 size_t MemTableList::ApproximateMemoryUsageExcludingLast() {
-  size_t usage = current_memory_usage_excluding_last_.load(std::memory_order_relaxed);
+  size_t usage =
+      current_memory_usage_excluding_last_.load(std::memory_order_relaxed);
   return usage;
 }
 
-// Update current_memory_usage_excluding_last_, need to call whenever state changes for
-// MemtableListVersion (whenever InstallNewVersion() is called)
+// Update current_memory_usage_excluding_last_, need to call whenever state
+// changes for MemtableListVersion (whenever InstallNewVersion() is called)
 void MemTableList::UpdateMemoryUsageExcludingLast() {
   size_t total_memtable_size = current_->ApproximateMemoryUsageExcludingLast();
-  current_memory_usage_excluding_last_.store(total_memtable_size, std::memory_order_relaxed);
+  current_memory_usage_excluding_last_.store(total_memtable_size,
+                                             std::memory_order_relaxed);
 }
 
 uint64_t MemTableList::ApproximateOldestKeyTime() const {

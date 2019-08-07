@@ -260,7 +260,7 @@ TEST_F(MemTableListTest, GetTest) {
   ASSERT_EQ(1, mem->num_deletes());
 
   // Add memtable to list
-  list.Add(mem, &to_delete, mem->ApproximateMemoryUsage());
+  list.Add(mem, &to_delete);
 
   SequenceNumber saved_seq = seq;
 
@@ -274,7 +274,7 @@ TEST_F(MemTableListTest, GetTest) {
   mem2->Add(++seq, kTypeValue, "key2", "value2.3");
 
   // Add second memtable to list
-  list.Add(mem2, &to_delete, mem2->ApproximateMemoryUsage());
+  list.Add(mem2, &to_delete);
 
   // Fetch keys via MemTableList
   merge_context.Clear();
@@ -362,7 +362,7 @@ TEST_F(MemTableListTest, GetFromHistoryTest) {
   ASSERT_EQ(value, "value2.2");
 
   // Add memtable to list
-  list.Add(mem, &to_delete, mem->ApproximateMemoryUsage());
+  list.Add(mem, &to_delete);
   ASSERT_EQ(0, to_delete.size());
 
   // Fetch keys via MemTableList
@@ -430,7 +430,7 @@ TEST_F(MemTableListTest, GetFromHistoryTest) {
   mem2->Add(++seq, kTypeValue, "key3", "value3");
 
   // Add second memtable to list
-  list.Add(mem2, &to_delete, mem2->ApproximateMemoryUsage());
+  list.Add(mem2, &to_delete);
   ASSERT_EQ(0, to_delete.size());
 
   to_flush.clear();
@@ -450,7 +450,7 @@ TEST_F(MemTableListTest, GetFromHistoryTest) {
   MemTable* mem3 = new MemTable(cmp, ioptions, MutableCFOptions(options), &wb3,
                                 kMaxSequenceNumber, 0 /* column_family_id */);
   mem3->Ref();
-  list.Add(mem3, &to_delete, mem3->ApproximateMemoryUsage());
+  list.Add(mem3, &to_delete);
   ASSERT_EQ(1, list.NumNotFlushed());
   ASSERT_EQ(1, list.NumFlushed());
   ASSERT_EQ(1, to_delete.size());
@@ -571,8 +571,8 @@ TEST_F(MemTableListTest, FlushPendingTest) {
   ASSERT_FALSE(list.imm_flush_needed.load(std::memory_order_acquire));
 
   // Add 2 tables
-  list.Add(tables[0], &to_delete, tables[0]->ApproximateMemoryUsage());
-  list.Add(tables[1], &to_delete, tables[1]->ApproximateMemoryUsage());
+  list.Add(tables[0], &to_delete);
+  list.Add(tables[1], &to_delete);
   ASSERT_EQ(2, list.NumNotFlushed());
   ASSERT_EQ(0, to_delete.size());
 
@@ -596,7 +596,7 @@ TEST_F(MemTableListTest, FlushPendingTest) {
   to_flush.clear();
 
   // Add another table
-  list.Add(tables[2], &to_delete, tables[2]->ApproximateMemoryUsage());
+  list.Add(tables[2], &to_delete);
   // We now have the minimum to flush regardles of whether FlushRequested()
   // was called.
   ASSERT_TRUE(list.IsFlushPending());
@@ -619,7 +619,7 @@ TEST_F(MemTableListTest, FlushPendingTest) {
   ASSERT_FALSE(list.imm_flush_needed.load(std::memory_order_acquire));
 
   // Add another table
-  list.Add(tables[3], &to_delete, tables[3]->ApproximateMemoryUsage());
+  list.Add(tables[3], &to_delete);
   ASSERT_FALSE(list.IsFlushPending());
   ASSERT_TRUE(list.imm_flush_needed.load(std::memory_order_acquire));
   ASSERT_EQ(0, to_delete.size());
@@ -643,7 +643,7 @@ TEST_F(MemTableListTest, FlushPendingTest) {
   to_flush.clear();
 
   // Add another tables
-  list.Add(tables[4], &to_delete, tables[4]->ApproximateMemoryUsage());
+  list.Add(tables[4], &to_delete);
   ASSERT_EQ(5, list.NumNotFlushed());
   // We now have the minimum to flush regardles of whether FlushRequested()
   ASSERT_TRUE(list.IsFlushPending());
@@ -712,7 +712,7 @@ TEST_F(MemTableListTest, FlushPendingTest) {
   to_delete.clear();
 
   // Add another table
-  list.Add(tables[5], &to_delete, tables[5]->ApproximateMemoryUsage());
+  list.Add(tables[5], &to_delete);
   ASSERT_EQ(1, list.NumNotFlushed());
   ASSERT_EQ(5, list.GetLatestMemTableID());
   memtable_id = 4;
@@ -838,8 +838,7 @@ TEST_F(MemTableListTest, AtomicFlusTest) {
   // Add tables to the immutable memtalbe lists associated with column families
   for (auto i = 0; i != num_cfs; ++i) {
     for (auto j = 0; j != num_tables_per_cf; ++j) {
-      lists[i]->Add(tables[i][j], &to_delete,
-                    tables[i][j]->ApproximateMemoryUsage());
+      lists[i]->Add(tables[i][j], &to_delete);
     }
     ASSERT_EQ(num_tables_per_cf, lists[i]->NumNotFlushed());
     ASSERT_TRUE(lists[i]->IsFlushPending());

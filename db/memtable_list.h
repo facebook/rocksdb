@@ -136,7 +136,7 @@ class MemTableListVersion {
       LogBuffer* log_buffer);
 
   // REQUIRE: m is an immutable memtable
-  void Add(MemTable* m, autovector<MemTable*>* to_delete, size_t usage);
+  void Add(MemTable* m, autovector<MemTable*>* to_delete);
   // REQUIRE: m is an immutable memtable
   void Remove(MemTable* m, autovector<MemTable*>* to_delete);
 
@@ -255,7 +255,7 @@ class MemTableList {
 
   // New memtables are inserted at the front of the list.
   // Takes ownership of the referenced held on *m by the caller of Add().
-  void Add(MemTable* m, autovector<MemTable*>* to_delete, size_t usage);
+  void Add(MemTable* m, autovector<MemTable*>* to_delete);
 
   // Returns an estimate of the number of bytes of data in use.
   size_t ApproximateMemoryUsage();
@@ -266,6 +266,10 @@ class MemTableList {
   // Update current_memory_usage_excluding_last_ from MemtableListVersion
   void UpdateMemoryUsageExcludingLast();
 
+  // `usage` is the current size of the mutable Memtable. When
+  // max_write_buffer_size_to_maintain is used, total size of mutable and
+  // immutable memtables is checked against it to decide whether to trim
+  // memtable list.
   void TrimHistory(autovector<MemTable*>* to_delete, size_t usage);
 
   // Returns an estimate of the number of bytes of data used by

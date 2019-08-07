@@ -615,9 +615,9 @@ TEST_F(DBPropertiesTest, NumImmutableMemTable) {
     writeOpt.disableWAL = true;
     options.max_write_buffer_number = 4;
     options.min_write_buffer_number_to_merge = 3;
-    options.write_buffer_size = 2000000;
+    options.write_buffer_size = 1000000;
     options.max_write_buffer_size_to_maintain =
-        4 * static_cast<int64_t>(options.write_buffer_size);
+        5 * static_cast<int64_t>(options.write_buffer_size);
     CreateAndReopenWithCF({"pikachu"}, options);
 
     std::string big_value(1000000 * 2, 'x');
