@@ -33,6 +33,8 @@ struct GetKeyInfo {
 // Statistics of a block.
 struct BlockAccessInfo {
   uint64_t block_id = 0;
+  uint64_t table_id = 0;
+  uint64_t block_offset = 0;
   uint64_t num_accesses = 0;
   uint64_t block_size = 0;
   uint64_t first_access_time = 0;
@@ -73,6 +75,8 @@ struct BlockAccessInfo {
     if (first_access_time == 0) {
       first_access_time = access.access_timestamp;
     }
+    table_id = BlockCacheTraceHelper::GetTableId(access);
+    block_offset = BlockCacheTraceHelper::GetBlockOffsetInFile(access);
     last_access_time = access.access_timestamp;
     block_size = access.block_size;
     caller_num_access_map[access.caller]++;
@@ -301,6 +305,10 @@ class BlockCacheTraceAnalyzer {
 
   void WriteCorrelationFeaturesForGet(uint32_t max_number_of_values) const;
 
+  void WriteSkewness(const std::string& label_str,
+                     const std::vector<uint64_t>& percent_buckets,
+                     TraceType target_block_type) const;
+
   const std::map<std::string, ColumnFamilyAccessInfoAggregate>&
   TEST_cf_aggregates_map() const {
     return cf_aggregates_map_;
@@ -312,7 +320,8 @@ class BlockCacheTraceAnalyzer {
   std::string BuildLabel(const std::set<std::string>& labels,
                          const std::string& cf_name, uint64_t fd,
                          uint32_t level, TraceType type,
-                         TableReaderCaller caller, uint64_t block_key) const;
+                         TableReaderCaller caller, uint64_t block_key,
+                         const BlockAccessInfo& block) const;
 
   void ComputeReuseDistance(BlockAccessInfo* info) const;
 
@@ -341,7 +350,8 @@ class BlockCacheTraceAnalyzer {
                          const std::string& /*block_key*/,
                          uint64_t /*block_key_id*/,
                          const BlockAccessInfo& /*block_access_info*/)>
-          block_callback) const;
+          block_callback,
+      std::set<std::string>* labels = nullptr) const;
 
   void UpdateFeatureVectors(
       const std::vector<uint64_t>& access_sequence_number_timeline,

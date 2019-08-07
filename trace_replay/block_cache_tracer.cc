@@ -61,11 +61,40 @@ std::string BlockCacheTraceHelper::ComputeRowKey(
     return "";
   }
   Slice key = ExtractUserKey(access.referenced_key);
-  uint64_t seq_no = access.get_from_user_specified_snapshot == Boolean::kFalse
-                        ? 0
-                        : 1 + GetInternalKeySeqno(access.referenced_key);
-  return std::to_string(access.sst_fd_number) + "_" + key.ToString() + "_" +
-         std::to_string(seq_no);
+  return std::to_string(access.sst_fd_number) + "_" + key.ToString();
+}
+
+uint64_t BlockCacheTraceHelper::GetTableId(
+    const BlockCacheTraceRecord& access) {
+  if (!IsGetOrMultiGet(access.caller) || access.referenced_key.size() < 4) {
+    return 0;
+  }
+  return static_cast<uint64_t>(DecodeFixed32(access.referenced_key.data())) + 1;
+}
+
+uint64_t BlockCacheTraceHelper::GetSequenceNumber(
+    const BlockCacheTraceRecord& access) {
+  if (!IsGetOrMultiGet(access.caller)) {
+    return 0;
+  }
+  return access.get_from_user_specified_snapshot == Boolean::kFalse
+             ? 0
+             : 1 + GetInternalKeySeqno(access.referenced_key);
+}
+
+uint64_t BlockCacheTraceHelper::GetBlockOffsetInFile(
+    const BlockCacheTraceRecord& access) {
+  Slice input(access.block_key);
+  uint64_t offset = 0;
+  while (true) {
+    uint64_t tmp = 0;
+    if (GetVarint64(&input, &tmp)) {
+      offset = tmp;
+    } else {
+      break;
+    }
+  }
+  return offset;
 }
 
 BlockCacheTraceWriter::BlockCacheTraceWriter(
