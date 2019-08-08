@@ -69,7 +69,7 @@ class FlushJob {
            CompressionType output_compression,
            Statistics* stats, EventLogger* event_logger, bool measure_io_stats,
            const bool sync_output_directory, const bool write_manifest,
-           Env::Priority thread_pri, std::shared_ptr<DbPathSupplier> db_path_supplier);
+           Env::Priority thread_pri, DbPathSupplier* db_path_supplier);
 
   ~FlushJob();
 
@@ -139,7 +139,7 @@ class FlushJob {
   Version* base_;
   bool pick_memtable_called;
   Env::Priority thread_pri_;
-  std::shared_ptr<DbPathSupplier> db_path_supplier_;
+  std::unique_ptr<DbPathSupplier> db_path_supplier_;
 };
 
 }  // namespace rocksdb

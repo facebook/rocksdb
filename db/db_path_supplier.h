@@ -15,7 +15,9 @@ class DbPathSupplier {
 
   virtual ~DbPathSupplier() = default;
 
-  virtual uint32_t GetPathId(int level) const;
+  virtual uint32_t GetPathId(int level) const {
+    return 0;
+  }
 
   virtual Status FsyncDbPath(uint32_t path_id) const;
 
@@ -34,7 +36,9 @@ class DbPathSupplier {
   // path_id really needs to match the fixed
   // path_id in order for us to say it's trivial.
   virtual bool AcceptPathId(
-      uint32_t path_id, int output_level) const;
+      uint32_t path_id, int output_level) const {
+    return false;
+  }
 
  protected:
   const ImmutableCFOptions ioptions_;

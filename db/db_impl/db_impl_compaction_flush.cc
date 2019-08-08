@@ -146,6 +146,13 @@ Status DBImpl::FlushMemTableToOutputFile(
   assert(cfd->imm()->NumNotFlushed() != 0);
   assert(cfd->imm()->IsFlushPending());
 
+  DbPathSupplier* db_path_supplier;
+  if (cfd->ioptions()->db_path_placement_strategy == kRandomlyChoosePath) {
+    db_path_supplier = new RandomDbPathSupplier(*(cfd->ioptions()));
+  } else {
+    db_path_supplier = new FixedDbPathSupplier(*(cfd->ioptions()), 0);
+  }
+
   FlushJob flush_job(
       dbname_, cfd, immutable_db_options_, mutable_cf_options,
       nullptr /* memtable_id */, env_options_for_compaction_, versions_.get(),
@@ -153,7 +160,8 @@ Status DBImpl::FlushMemTableToOutputFile(
       snapshot_checker, job_context, log_buffer, directories_.GetDbDir(),
       GetCompressionFlush(*cfd->ioptions(), mutable_cf_options), stats_,
       &event_logger_, mutable_cf_options.report_bg_io_stats,
-      true /* sync_output_directory */, true /* write_manifest */, thread_pri);
+      true /* sync_output_directory */, true /* write_manifest */, thread_pri,
+      db_path_supplier);
 
   FileMetaData file_meta;
 
@@ -302,17 +310,24 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
 
   autovector<Directory*> distinct_output_dirs;
   autovector<std::string> distinct_output_dir_paths;
-  std::vector<FlushJob> jobs;
+  std::vector<std::unique_ptr<FlushJob>> jobs;
   std::vector<MutableCFOptions> all_mutable_cf_options;
   int num_cfs = static_cast<int>(cfds.size());
   all_mutable_cf_options.reserve(num_cfs);
   for (int i = 0; i < num_cfs; ++i) {
     auto cfd = cfds[i];
 
+    DbPathSupplier* db_path_supplier;
+    if (cfd->ioptions()->db_path_placement_strategy == kRandomlyChoosePath) {
+      db_path_supplier = new RandomDbPathSupplier(*(cfd->ioptions()));
+    } else {
+      db_path_supplier = new FixedDbPathSupplier(*(cfd->ioptions()), 0);
+    }
+
     all_mutable_cf_options.emplace_back(*cfd->GetLatestMutableCFOptions());
     const MutableCFOptions& mutable_cf_options = all_mutable_cf_options.back();
     const uint64_t* max_memtable_id = &(bg_flush_args[i].max_memtable_id_);
-    jobs.emplace_back(
+    FlushJob* flush_job = new FlushJob(
         dbname_, cfd, immutable_db_options_, mutable_cf_options,
         max_memtable_id, env_options_for_compaction_, versions_.get(), &mutex_,
         &shutting_down_, snapshot_seqs, earliest_write_conflict_snapshot,
@@ -320,12 +335,14 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
         GetCompressionFlush(*cfd->ioptions(), mutable_cf_options),
         stats_, &event_logger_, mutable_cf_options.report_bg_io_stats,
         false /* sync_output_directory */, false /* write_manifest */,
-        thread_pri);
-    jobs.back().PickMemTable();
+        thread_pri, db_path_supplier);
+    flush_job->PickMemTable();
 
-    uint32_t chosen_path_id = jobs.back().GetOutputFileMd().fd.GetPathId();
-    Directory* data_dir = cfd->GetCfAndDbDir(chosen_path_id);
+    uint32_t chosen_path_id = flush_job->GetOutputFileMd().fd.GetPathId();
+    Directory* data_dir = cfd->GetDataDir(chosen_path_id);
     const std::string& curr_path = cfd->ioptions()->cf_paths[chosen_path_id].path;
+
+    jobs.push_back(std::unique_ptr<FlushJob>(flush_job));
 
     // Add to distinct output directories if eligible. Use linear search. Since
     // the number of elements in the vector is not large, performance should be
@@ -352,7 +369,7 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
     const MutableCFOptions& mutable_cf_options = all_mutable_cf_options.at(i);
     // may temporarily unlock and lock the mutex.
     NotifyOnFlushBegin(cfds[i], &file_meta[i], mutable_cf_options,
-                       job_context->job_id, jobs[i].GetTableProperties());
+                       job_context->job_id, jobs[i]->GetTableProperties());
   }
 #endif /* !ROCKSDB_LITE */
 
@@ -374,7 +391,7 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
     // TODO (yanqin): parallelize jobs with threads.
     for (int i = 1; i != num_cfs; ++i) {
       exec_status[i].second =
-          jobs[i].Run(&logs_with_prep_tracker_, &file_meta[i]);
+          jobs[i]->Run(&logs_with_prep_tracker_, &file_meta[i]);
       exec_status[i].first = true;
     }
     if (num_cfs > 1) {
@@ -384,7 +401,7 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
           "DBImpl::AtomicFlushMemTablesToOutputFiles:SomeFlushJobsComplete:2");
     }
     exec_status[0].second =
-        jobs[0].Run(&logs_with_prep_tracker_, &file_meta[0]);
+        jobs[0]->Run(&logs_with_prep_tracker_, &file_meta[0]);
     exec_status[0].first = true;
 
     Status error_status;
@@ -425,7 +442,7 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
     auto wait_to_install_func = [&]() {
       bool ready = true;
       for (size_t i = 0; i != cfds.size(); ++i) {
-        const auto& mems = jobs[i].GetMemTables();
+        const auto& mems = jobs[i]->GetMemTables();
         if (cfds[i]->IsDropped()) {
           // If the column family is dropped, then do not wait.
           continue;
@@ -466,7 +483,7 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
     autovector<const MutableCFOptions*> mutable_cf_options_list;
     autovector<FileMetaData*> tmp_file_meta;
     for (int i = 0; i != num_cfs; ++i) {
-      const auto& mems = jobs[i].GetMemTables();
+      const auto& mems = jobs[i]->GetMemTables();
       if (!cfds[i]->IsDropped() && !mems.empty()) {
         tmp_cfds.emplace_back(cfds[i]);
         mems_list.emplace_back(&mems);
@@ -507,7 +524,7 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
         continue;
       }
       NotifyOnFlushCompleted(cfds[i], &file_meta[i], all_mutable_cf_options[i],
-                             job_context->job_id, jobs[i].GetTableProperties());
+                             job_context->job_id, jobs[i]->GetTableProperties());
       if (sfm) {
         std::string file_path = MakeTableFileName(
             cfds[i]->ioptions()->cf_paths[0].path, file_meta[i].fd.GetNumber());
@@ -531,12 +548,12 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
     // unref the versions.
     for (int i = 0; i != num_cfs; ++i) {
       if (!exec_status[i].first) {
-        jobs[i].Cancel();
+        jobs[i]->Cancel();
       }
     }
     for (int i = 0; i != num_cfs; ++i) {
       if (exec_status[i].first && exec_status[i].second.ok()) {
-        auto& mems = jobs[i].GetMemTables();
+        auto& mems = jobs[i]->GetMemTables();
         cfds[i]->imm()->RollbackMemtableFlush(mems,
                                               file_meta[i].fd.GetNumber());
       }
@@ -907,12 +924,26 @@ Status DBImpl::CompactFilesImpl(
   // following functions call is pluggable to external developers.
   version->GetColumnFamilyMetaData(&cf_meta);
 
+  const ImmutableCFOptions* ioptions = cfd->ioptions();
   DbPathSupplier* db_path_supplier;
   if (output_path_id < 0) {
-    db_path_supplier = DbPathSupplier::CreateDbPathSupplier(cfd);
+    if (ioptions->db_path_placement_strategy
+          == kRandomlyChoosePath) {
+      db_path_supplier = new RandomDbPathSupplier(*ioptions);
+    } else {
+      if (ioptions->cf_paths.size() == 1U) {
+        db_path_supplier = new FixedDbPathSupplier(*ioptions, 0);
+      } else {
+        return Status::NotSupported(
+            "Automatic output path selection is not "
+            "yet supported in CompactFiles() when the"
+            "db_path_placement_strategy is not "
+            "kRandomlyChoosePath");
+      }
+    }
   } else {
     auto output_path_id_u32 = static_cast<uint32_t>(output_path_id);
-    db_path_supplier = new FixedDbPathSupplier(output_path_id_u32, cfd);
+    db_path_supplier = new FixedDbPathSupplier(*ioptions, output_path_id_u32);
   }
 
   Status s = cfd->compaction_picker()->SanitizeCompactionInputFiles(

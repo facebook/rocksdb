@@ -292,7 +292,7 @@ class Compaction {
 
   uint64_t MaxInputFileCreationTime() const;
 
-  DbPathSupplier* GetDbPathSupplier() { return db_path_supplier_.get(); }
+  DbPathSupplier* GetDbPathSupplier() const { return db_path_supplier_.get(); }
 
  private:
   // mark (or clear) all files that are being compacted

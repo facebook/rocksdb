@@ -100,7 +100,7 @@ enum DbPathPlacementStrategy : unsigned char {
   //
   // Placing newer data to earlier paths is also best-efforts. User should
   // expect user files to be placed in higher levels in some extreme cases.
-  kGradualMoveOldDataTowardsEnd = 0x01,
+  kGradualMoveOldDataTowardsEnd = 0x00,
 
   // Randomly distribute files into the list of db paths.
   //
@@ -121,7 +121,7 @@ enum DbPathPlacementStrategy : unsigned char {
   //
   // Note that the target_size attr in DbPath will not be useful if this
   // strategy is chosen.
-  kRandomlyChoosePath = 0x02,
+  kRandomlyChoosePath = 0x01,
 };
 
 struct ColumnFamilyOptions : public AdvancedColumnFamilyOptions {
@@ -339,7 +339,7 @@ struct ColumnFamilyOptions : public AdvancedColumnFamilyOptions {
   // Controls how sst files are distributed into the set of db paths.
   //
   // Default: kGradualMoveOldDataTowardsEnd
-  DbPathPlacementStrategy cf_path_placement_strategy =
+  DbPathPlacementStrategy db_path_placement_strategy =
           DbPathPlacementStrategy::kGradualMoveOldDataTowardsEnd;
 
   // Compaction concurrent thread limiter for the column family.

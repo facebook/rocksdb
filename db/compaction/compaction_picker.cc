@@ -311,7 +311,7 @@ Compaction* CompactionPicker::CompactFiles(
     const CompactionOptions& compact_options,
     const std::vector<CompactionInputFiles>& input_files, int output_level,
     VersionStorageInfo* vstorage, const MutableCFOptions& mutable_cf_options,
-    uint32_t output_path_id) {
+    DbPathSupplier* db_path_supplier) {
   assert(input_files.size());
   // This compaction output should not overlap with a running compaction as
   // `SanitizeCompactionInputFiles` should've checked earlier and db mutex
@@ -334,8 +334,7 @@ Compaction* CompactionPicker::CompactFiles(
     // without configurable `CompressionOptions`, which is inconsistent.
     compression_type = compact_options.compression;
   }
-  DbPathSupplier* db_path_supplier = new FixedDbPathSupplier(ioptions_,
-      output_path_id);
+
   auto c = new Compaction(
       vstorage, ioptions_, mutable_cf_options, input_files, output_level,
       compact_options.output_file_size_limit,

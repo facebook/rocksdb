@@ -49,6 +49,8 @@ DBOptions BuildDBOptions(const ImmutableDBOptions& immutable_db_options,
   options.statistics = immutable_db_options.statistics;
   options.use_fsync = immutable_db_options.use_fsync;
   options.db_paths = immutable_db_options.db_paths;
+  options.db_path_placement_strategy =
+      immutable_db_options.db_path_placement_strategy;
   options.db_log_dir = immutable_db_options.db_log_dir;
   options.wal_dir = immutable_db_options.wal_dir;
   options.delete_obsolete_files_period_micros =
@@ -207,6 +209,8 @@ ColumnFamilyOptions BuildColumnFamilyOptions(
   cf_opts.sample_for_compression = mutable_cf_options.sample_for_compression;
 
   cf_opts.table_factory = options.table_factory;
+  cf_opts.cf_paths = options.cf_paths;
+  cf_opts.db_path_placement_strategy = options.db_path_placement_strategy;
   // TODO(yhchiang): find some way to handle the following derived options
   // * max_file_size
 
@@ -225,6 +229,12 @@ std::map<CompactionPri, std::string> OptionsHelper::compaction_pri_to_string = {
     {kOldestLargestSeqFirst, "kOldestLargestSeqFirst"},
     {kOldestSmallestSeqFirst, "kOldestSmallestSeqFirst"},
     {kMinOverlappingRatio, "kMinOverlappingRatio"}};
+//
+//std::map<DbPathPlacementStrategy, std::string>
+//    OptionsHelper::db_path_placement_strategy_to_string = {
+//    {kGradualMoveOldDataTowardsEnd, "kGradualMoveOldDataTowardsEnd"},
+//    {kRandomlyChoosePath, "kRandomlyChoosePath"},
+//};
 
 std::map<CompactionStopStyle, std::string>
     OptionsHelper::compaction_stop_style_to_string = {
@@ -249,6 +259,12 @@ std::unordered_map<std::string, CompressionType>
         {"kZSTD", kZSTD},
         {"kZSTDNotFinalCompression", kZSTDNotFinalCompression},
         {"kDisableCompressionOption", kDisableCompressionOption}};
+//
+//std::unordered_map<std::string, DbPathPlacementStrategy>
+//    OptionsHelper::db_path_placement_strategy_string_map = {
+//      {"kGradualMoveOldDataTowardsEnd", kGradualMoveOldDataTowardsEnd},
+//      {"kRandomlyChoosePath", kRandomlyChoosePath},
+//};
 #ifndef ROCKSDB_LITE
 
 const std::string kNameComparator = "comparator";
@@ -577,6 +593,10 @@ bool ParseOptionHelper(char* opt_address, const OptionType& opt_type,
       return ParseEnum<CompactionStopStyle>(
           compaction_stop_style_string_map, value,
           reinterpret_cast<CompactionStopStyle*>(opt_address));
+//    case OptionType::kDbPathPlacementStrategy:
+//      return ParseEnum<DbPathPlacementStrategy>(
+//          OptionsHelper::db_path_placement_strategy_string_map, value,
+//          reinterpret_cast<DbPathPlacementStrategy *>(opt_address));
     default:
       return false;
   }
@@ -775,6 +795,10 @@ bool SerializeSingleOptionHelper(const char* opt_address,
       return SerializeEnum<CompactionStopStyle>(
           compaction_stop_style_string_map,
           *reinterpret_cast<const CompactionStopStyle*>(opt_address), value);
+//    case OptionType::kDbPathPlacementStrategy:
+//      return SerializeEnum<DbPathPlacementStrategy>(
+//          db_path_placement_strategy_string_map,
+//          *reinterpret_cast<const DbPathPlacementStrategy*>(opt_address), value);
     default:
       return false;
   }
@@ -1414,6 +1438,7 @@ std::unordered_map<std::string, OptionTypeInfo>
           std::shared_ptr<Statistics> statistics;
           std::vector<DbPath> db_paths;
           std::vector<std::shared_ptr<EventListener>> listeners;
+          DbPathPlacementStrategy db_path_placement_strategy;
          */
         {"advise_random_on_open",
          {offsetof(struct DBOptions, advise_random_on_open),

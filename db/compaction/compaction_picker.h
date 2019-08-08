@@ -114,7 +114,7 @@ class CompactionPicker {
                            const std::vector<CompactionInputFiles>& input_files,
                            int output_level, VersionStorageInfo* vstorage,
                            const MutableCFOptions& mutable_cf_options,
-                           uint32_t output_path_id);
+                           DbPathSupplier* db_path_supplier);
 
   // Converts a set of compaction input file numbers into
   // a list of CompactionInputFiles.

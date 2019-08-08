@@ -97,7 +97,7 @@ FlushJob::FlushJob(const std::string& dbname, ColumnFamilyData* cfd,
                    EventLogger* event_logger, bool measure_io_stats,
                    const bool sync_output_directory, const bool write_manifest,
                    Env::Priority thread_pri,
-                   std::shared_ptr<DbPathSupplier> db_path_supplier)
+                   DbPathSupplier* db_path_supplier)
     : dbname_(dbname),
       cfd_(cfd),
       db_options_(db_options),
