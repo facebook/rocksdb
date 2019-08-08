@@ -1311,6 +1311,7 @@ inline std::uintptr_t tryCombine(
     std::uint64_t iteration,
     std::chrono::nanoseconds now,
     CombineFunction task) {
+#ifndef ROCKSDB_LITE
   // if the waiter has asked for a combine operation, we should combine its
   // critical section and move on to the next waiter
   //
@@ -1339,7 +1340,7 @@ inline std::uintptr_t tryCombine(
     }
     return next;
   }
-
+#endif  // ROCKSDB_LITE
   return 0;
 }
 
