@@ -1257,6 +1257,7 @@ TEST_F(DBTest, ApproximateSizesMemTable) {
   options.compression = kNoCompression;
   options.create_if_missing = true;
   DestroyAndReopen(options);
+  auto default_cf = db_->DefaultColumnFamily();
 
   const int N = 128;
   Random rnd(301);
@@ -1268,9 +1269,10 @@ TEST_F(DBTest, ApproximateSizesMemTable) {
   std::string start = Key(50);
   std::string end = Key(60);
   Range r(start, end);
-  uint8_t include_both = DB::SizeApproximationFlags::INCLUDE_FILES |
-                         DB::SizeApproximationFlags::INCLUDE_MEMTABLES;
-  db_->GetApproximateSizes(&r, 1, &size, include_both);
+  SizeApproximationOptions size_approx_options;
+  size_approx_options.include_memtabtles = true;
+  size_approx_options.include_files = true;
+  db_->GetApproximateSizes(size_approx_options, default_cf, &r, 1, &size);
   ASSERT_GT(size, 6000);
   ASSERT_LT(size, 204800);
   // Zero if not including mem table
@@ -1280,7 +1282,7 @@ TEST_F(DBTest, ApproximateSizesMemTable) {
   start = Key(500);
   end = Key(600);
   r = Range(start, end);
-  db_->GetApproximateSizes(&r, 1, &size, include_both);
+  db_->GetApproximateSizes(size_approx_options, default_cf, &r, 1, &size);
   ASSERT_EQ(size, 0);
 
   for (int i = 0; i < N; i++) {
@@ -1290,19 +1292,20 @@ TEST_F(DBTest, ApproximateSizesMemTable) {
   start = Key(500);
   end = Key(600);
   r = Range(start, end);
-  db_->GetApproximateSizes(&r, 1, &size, include_both);
+  db_->GetApproximateSizes(size_approx_options, default_cf, &r, 1, &size);
   ASSERT_EQ(size, 0);
 
   start = Key(100);
   end = Key(1020);
   r = Range(start, end);
-  db_->GetApproximateSizes(&r, 1, &size, include_both);
+  db_->GetApproximateSizes(size_approx_options, default_cf, &r, 1, &size);
   ASSERT_GT(size, 6000);
 
   options.max_write_buffer_number = 8;
   options.min_write_buffer_number_to_merge = 5;
   options.write_buffer_size = 1024 * N;  // Not very large
   DestroyAndReopen(options);
+  default_cf = db_->DefaultColumnFamily();
 
   int keys[N * 3];
   for (int i = 0; i < N; i++) {
@@ -1319,26 +1322,27 @@ TEST_F(DBTest, ApproximateSizesMemTable) {
   start = Key(100);
   end = Key(300);
   r = Range(start, end);
-  db_->GetApproximateSizes(&r, 1, &size, include_both);
+  db_->GetApproximateSizes(size_approx_options, default_cf, &r, 1, &size);
   ASSERT_EQ(size, 0);
 
   start = Key(1050);
   end = Key(1080);
   r = Range(start, end);
-  db_->GetApproximateSizes(&r, 1, &size, include_both);
+  db_->GetApproximateSizes(size_approx_options, default_cf, &r, 1, &size);
   ASSERT_GT(size, 6000);
 
   start = Key(2100);
   end = Key(2300);
   r = Range(start, end);
-  db_->GetApproximateSizes(&r, 1, &size, include_both);
+  db_->GetApproximateSizes(size_approx_options, default_cf, &r, 1, &size);
   ASSERT_EQ(size, 0);
 
   start = Key(1050);
   end = Key(1080);
   r = Range(start, end);
   uint64_t size_with_mt, size_without_mt;
-  db_->GetApproximateSizes(&r, 1, &size_with_mt, include_both);
+  db_->GetApproximateSizes(size_approx_options, default_cf, &r, 1,
+                           &size_with_mt);
   ASSERT_GT(size_with_mt, 6000);
   db_->GetApproximateSizes(&r, 1, &size_without_mt);
   ASSERT_EQ(size_without_mt, 0);
@@ -1352,10 +1356,80 @@ TEST_F(DBTest, ApproximateSizesMemTable) {
   start = Key(1050);
   end = Key(1080);
   r = Range(start, end);
-  db_->GetApproximateSizes(&r, 1, &size_with_mt, include_both);
+  db_->GetApproximateSizes(size_approx_options, default_cf, &r, 1,
+                           &size_with_mt);
   db_->GetApproximateSizes(&r, 1, &size_without_mt);
   ASSERT_GT(size_with_mt, size_without_mt);
   ASSERT_GT(size_without_mt, 6000);
+
+  // Check that include_memtabtles flag works as expected
+  size_approx_options.include_memtabtles = false;
+  db_->GetApproximateSizes(size_approx_options, default_cf, &r, 1, &size);
+  ASSERT_EQ(size, size_without_mt);
+
+  // Check that files_size_error_margin works as expected, when the heuristic
+  // conditions are not met
+  start = Key(1);
+  end = Key(1000 + N - 2);
+  r = Range(start, end);
+  size_approx_options.files_size_error_margin = -1.0;  // disabled
+  db_->GetApproximateSizes(size_approx_options, default_cf, &r, 1, &size);
+  uint64_t size2;
+  size_approx_options.files_size_error_margin = 0.5;  // enabled, but not used
+  db_->GetApproximateSizes(size_approx_options, default_cf, &r, 1, &size2);
+  ASSERT_EQ(size, size2);
+}
+
+TEST_F(DBTest, ApproximateSizesFilesWithErrorMargin) {
+  Options options = CurrentOptions();
+  options.write_buffer_size = 1024 * 1024;
+  options.compression = kNoCompression;
+  options.create_if_missing = true;
+  options.target_file_size_base = 1024 * 1024;
+  DestroyAndReopen(options);
+  const auto default_cf = db_->DefaultColumnFamily();
+
+  const int N = 64000;
+  Random rnd(301);
+  for (int i = 0; i < N; i++) {
+    ASSERT_OK(Put(Key(i), RandomString(&rnd, 1024)));
+  }
+  // Flush everything to files
+  Flush();
+  // Compact the entire key space into the next level
+  db_->CompactRange(CompactRangeOptions(), default_cf, nullptr, nullptr);
+
+  // Write more keys
+  for (int i = N; i < (N + N / 4); i++) {
+    ASSERT_OK(Put(Key(i), RandomString(&rnd, 1024)));
+  }
+  // Flush everything to files again
+  Flush();
+
+  // Wait for compaction to finish
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
+
+  const std::string start = Key(0);
+  const std::string end = Key(2 * N);
+  const Range r(start, end);
+
+  SizeApproximationOptions size_approx_options;
+  size_approx_options.include_memtabtles = false;
+  size_approx_options.include_files = true;
+  size_approx_options.files_size_error_margin = -1.0;  // disabled
+
+  // Get the precise size without any approximation heuristic
+  uint64_t size;
+  db_->GetApproximateSizes(size_approx_options, default_cf, &r, 1, &size);
+  ASSERT_NE(size, 0);
+
+  // Get the size with an approximation heuristic
+  uint64_t size2;
+  const double error_margin = 0.2;
+  size_approx_options.files_size_error_margin = error_margin;
+  db_->GetApproximateSizes(size_approx_options, default_cf, &r, 1, &size2);
+  ASSERT_LT(size2, size * (1 + error_margin));
+  ASSERT_GT(size2, size * (1 - error_margin));
 }
 
 TEST_F(DBTest, GetApproximateMemTableStats) {
@@ -2466,6 +2540,15 @@ class ModelDB : public DB {
     return Status::NotSupported(key);
   }
 
+  using DB::GetMergeOperands;
+  virtual Status GetMergeOperands(
+      const ReadOptions& /*options*/, ColumnFamilyHandle* /*column_family*/,
+      const Slice& key, PinnableSlice* /*slice*/,
+      GetMergeOperandsOptions* /*merge_operands_options*/,
+      int* /*number_of_operands*/) override {
+    return Status::NotSupported(key);
+  }
+
   using DB::MultiGet;
   std::vector<Status> MultiGet(
       const ReadOptions& /*options*/,
@@ -2490,6 +2573,16 @@ class ModelDB : public DB {
   Status IngestExternalFiles(
       const std::vector<IngestExternalFileArg>& /*args*/) override {
     return Status::NotSupported("Not implemented");
+  }
+
+  using DB::CreateColumnFamilyWithImport;
+  virtual Status CreateColumnFamilyWithImport(
+      const ColumnFamilyOptions& /*options*/,
+      const std::string& /*column_family_name*/,
+      const ImportColumnFamilyOptions& /*import_options*/,
+      const ExportImportFilesMetaData& /*metadata*/,
+      ColumnFamilyHandle** /*handle*/) override {
+    return Status::NotSupported("Not implemented.");
   }
 
   Status VerifyChecksum() override {
@@ -2588,13 +2681,14 @@ class ModelDB : public DB {
     return false;
   }
   using DB::GetApproximateSizes;
-  void GetApproximateSizes(ColumnFamilyHandle* /*column_family*/,
-                           const Range* /*range*/, int n, uint64_t* sizes,
-                           uint8_t /*include_flags*/
-                           = INCLUDE_FILES) override {
+  Status GetApproximateSizes(const SizeApproximationOptions& /*options*/,
+                             ColumnFamilyHandle* /*column_family*/,
+                             const Range* /*range*/, int n,
+                             uint64_t* sizes) override {
     for (int i = 0; i < n; i++) {
       sizes[i] = 0;
     }
+    return Status::OK();
   }
   using DB::GetApproximateMemTableStats;
   void GetApproximateMemTableStats(ColumnFamilyHandle* /*column_family*/,
@@ -6156,6 +6250,17 @@ TEST_F(DBTest, ThreadLocalPtrDeadlock) {
   fprintf(stderr, "Done. Flushed %d times, destroyed %d threads\n",
           flushes_done.load(), threads_destroyed.load());
 }
+
+TEST_F(DBTest, LargeBlockSizeTest) {
+  Options options = CurrentOptions();
+  CreateAndReopenWithCF({"pikachu"}, options);
+  ASSERT_OK(Put(0, "foo", "bar"));
+  BlockBasedTableOptions table_options;
+  table_options.block_size = 8LL*1024*1024*1024LL;
+  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+  ASSERT_NOK(TryReopenWithColumnFamilies({"default", "pikachu"}, options));
+}
+
 }  // namespace rocksdb
 
 int main(int argc, char** argv) {

@@ -27,6 +27,7 @@
 #include "db/external_sst_file_ingestion_job.h"
 #include "db/flush_job.h"
 #include "db/flush_scheduler.h"
+#include "db/import_column_family_job.h"
 #include "db/internal_stats.h"
 #include "db/log_writer.h"
 #include "db/logs_with_prep_tracker.h"
@@ -77,6 +78,38 @@ struct JobContext;
 struct ExternalSstFileInfo;
 struct MemTableInfo;
 
+// Class to maintain directories for all database paths other than main one.
+class Directories {
+ public:
+  Status SetDirectories(Env* env, const std::string& dbname,
+                        const std::string& wal_dir,
+                        const std::vector<DbPath>& data_paths);
+
+  Directory* GetDataDir(size_t path_id) const {
+    assert(path_id < data_dirs_.size());
+    Directory* ret_dir = data_dirs_[path_id].get();
+    if (ret_dir == nullptr) {
+      // Should use db_dir_
+      return db_dir_.get();
+    }
+    return ret_dir;
+  }
+
+  Directory* GetWalDir() {
+    if (wal_dir_) {
+      return wal_dir_.get();
+    }
+    return db_dir_.get();
+  }
+
+  Directory* GetDbDir() { return db_dir_.get(); }
+
+ private:
+  std::unique_ptr<Directory> db_dir_;
+  std::vector<std::unique_ptr<Directory>> data_dirs_;
+  std::unique_ptr<Directory> wal_dir_;
+};
+
 // While DB is the public interface of RocksDB, and DBImpl is the actual
 // class implementing it. It's the entrance of the core RocksdB engine.
 // All other DB implementations, e.g. TransactionDB, BlobDB, etc, wrap a
@@ -125,6 +158,21 @@ class DBImpl : public DB {
   virtual Status Get(const ReadOptions& options,
                      ColumnFamilyHandle* column_family, const Slice& key,
                      PinnableSlice* value) override;
+
+  using DB::GetMergeOperands;
+  Status GetMergeOperands(const ReadOptions& options,
+                          ColumnFamilyHandle* column_family, const Slice& key,
+                          PinnableSlice* merge_operands,
+                          GetMergeOperandsOptions* get_merge_operands_options,
+                          int* number_of_operands) override {
+    GetImplOptions get_impl_options;
+    get_impl_options.column_family = column_family;
+    get_impl_options.merge_operands = merge_operands;
+    get_impl_options.get_merge_operands_options = get_merge_operands_options;
+    get_impl_options.number_of_operands = number_of_operands;
+    get_impl_options.get_value = false;
+    return GetImpl(options, key, get_impl_options);
+  }
 
   using DB::MultiGet;
   virtual std::vector<Status> MultiGet(
@@ -200,9 +248,10 @@ class DBImpl : public DB {
   virtual bool GetAggregatedIntProperty(const Slice& property,
                                         uint64_t* aggregated_value) override;
   using DB::GetApproximateSizes;
-  virtual void GetApproximateSizes(
-      ColumnFamilyHandle* column_family, const Range* range, int n,
-      uint64_t* sizes, uint8_t include_flags = INCLUDE_FILES) override;
+  virtual Status GetApproximateSizes(const SizeApproximationOptions& options,
+                                     ColumnFamilyHandle* column_family,
+                                     const Range* range, int n,
+                                     uint64_t* sizes) override;
   using DB::GetApproximateMemTableStats;
   virtual void GetApproximateMemTableStats(ColumnFamilyHandle* column_family,
                                            const Range& range,
@@ -324,6 +373,13 @@ class DBImpl : public DB {
   virtual Status IngestExternalFiles(
       const std::vector<IngestExternalFileArg>& args) override;
 
+  using DB::CreateColumnFamilyWithImport;
+  virtual Status CreateColumnFamilyWithImport(
+      const ColumnFamilyOptions& options, const std::string& column_family_name,
+      const ImportColumnFamilyOptions& import_options,
+      const ExportImportFilesMetaData& metadata,
+      ColumnFamilyHandle** handle) override;
+
   virtual Status VerifyChecksum() override;
 
   using DB::StartTrace;
@@ -354,12 +410,32 @@ class DBImpl : public DB {
 
   // ---- End of implementations of the DB interface ----
 
+  struct GetImplOptions {
+    ColumnFamilyHandle* column_family = nullptr;
+    PinnableSlice* value = nullptr;
+    bool* value_found = nullptr;
+    ReadCallback* callback = nullptr;
+    bool* is_blob_index = nullptr;
+    // If true return value associated with key via value pointer else return
+    // all merge operands for key via merge_operands pointer
+    bool get_value = true;
+    // Pointer to an array of size
+    // get_merge_operands_options.expected_max_number_of_operands allocated by
+    // user
+    PinnableSlice* merge_operands = nullptr;
+    GetMergeOperandsOptions* get_merge_operands_options = nullptr;
+    int* number_of_operands = nullptr;
+  };
+
   // Function that Get and KeyMayExist call with no_io true or false
   // Note: 'value_found' from KeyMayExist propagates here
-  Status GetImpl(const ReadOptions& options, ColumnFamilyHandle* column_family,
-                 const Slice& key, PinnableSlice* value,
-                 bool* value_found = nullptr, ReadCallback* callback = nullptr,
-                 bool* is_blob_index = nullptr);
+  // This function is also called by GetMergeOperands
+  // If get_impl_options.get_value = true get value associated with
+  // get_impl_options.key via get_impl_options.value
+  // If get_impl_options.get_value = false get merge operands associated with
+  // get_impl_options.key via get_impl_options.merge_operands
+  Status GetImpl(const ReadOptions& options, const Slice& key,
+                 GetImplOptions get_impl_options);
 
   ArenaWrappedDBIter* NewIteratorImpl(const ReadOptions& options,
                                       ColumnFamilyData* cfd,
@@ -756,6 +832,16 @@ class DBImpl : public DB {
   Status TEST_FlushMemTable(bool wait = true, bool allow_write_stall = false,
                             ColumnFamilyHandle* cfh = nullptr);
 
+  Status TEST_FlushMemTable(ColumnFamilyData* cfd,
+                            const FlushOptions& flush_opts);
+
+  // Flush (multiple) ColumnFamilyData without using ColumnFamilyHandle. This
+  // is because in certain cases, we can flush column families, wait for the
+  // flush to complete, but delete the column family handle before the wait
+  // finishes. For example in CompactRange.
+  Status TEST_AtomicFlushMemTables(const autovector<ColumnFamilyData*>& cfds,
+                                   const FlushOptions& flush_opts);
+
   // Wait for memtable compaction
   Status TEST_WaitForFlushMemTable(ColumnFamilyHandle* column_family = nullptr);
 
@@ -1047,30 +1133,6 @@ class DBImpl : public DB {
     }
   };
 
-  // Class to maintain directories for all database paths other than main one.
-  class Directories {
-   public:
-    Status SetDirectories(Env* env, const std::string& dbname,
-                          const std::string& wal_dir,
-                          const std::vector<DbPath>& data_paths);
-
-    Directory* GetDataDir(size_t path_id) const;
-
-    Directory* GetWalDir() {
-      if (wal_dir_) {
-        return wal_dir_.get();
-      }
-      return db_dir_.get();
-    }
-
-    Directory* GetDbDir() { return db_dir_.get(); }
-
-   private:
-    std::unique_ptr<Directory> db_dir_;
-    std::vector<std::unique_ptr<Directory>> data_dirs_;
-    std::unique_ptr<Directory> wal_dir_;
-  };
-
   struct LogFileNumberSize {
     explicit LogFileNumberSize(uint64_t _number) : number(_number) {}
     void AddSize(uint64_t new_size) { size += new_size; }
@@ -1283,6 +1345,8 @@ class DBImpl : public DB {
                                       WriteBatch* my_batch);
 
   Status ScheduleFlushes(WriteContext* context);
+
+  void MaybeFlushStatsCF(autovector<ColumnFamilyData*>* cfds);
 
   Status SwitchMemtable(ColumnFamilyData* cfd, WriteContext* context);
 
@@ -1783,7 +1847,8 @@ class DBImpl : public DB {
 
   std::string db_absolute_path_;
 
-  // Number of running IngestExternalFile() calls.
+  // Number of running IngestExternalFile() or CreateColumnFamilyWithImport()
+  // calls.
   // REQUIRES: mutex held
   int num_running_ingest_file_;
 
@@ -1873,6 +1938,8 @@ class DBImpl : public DB {
   // results sequentially. Flush results of memtables with lower IDs get
   // installed to MANIFEST first.
   InstrumentedCondVar atomic_flush_install_cv_;
+
+  bool wal_in_db_path_;
 };
 
 extern Options SanitizeOptions(const std::string& db, const Options& src);

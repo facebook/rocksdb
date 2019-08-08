@@ -11,7 +11,6 @@
 
 #include "env/mock_env.h"
 #include "rocksdb/env.h"
-#include "rocksdb/utilities/object_registry.h"
 #include "test_util/testharness.h"
 
 namespace rocksdb {
@@ -104,13 +103,12 @@ namespace {
 // ValuesIn() will skip running tests when given an empty collection.
 std::vector<Env*> GetCustomEnvs() {
   static Env* custom_env;
-  static std::unique_ptr<Env> custom_env_guard;
   static bool init = false;
   if (!init) {
     init = true;
     const char* uri = getenv("TEST_ENV_URI");
     if (uri != nullptr) {
-      custom_env = NewCustomObject<Env>(uri, &custom_env_guard);
+      Env::LoadEnv(uri, &custom_env);
     }
   }
 

@@ -1146,9 +1146,11 @@ Status BlobDBImpl::GetImpl(const ReadOptions& read_options,
   PinnableSlice index_entry;
   Status s;
   bool is_blob_index = false;
-  s = db_impl_->GetImpl(ro, column_family, key, &index_entry,
-                        nullptr /*value_found*/, nullptr /*read_callback*/,
-                        &is_blob_index);
+  DBImpl::GetImplOptions get_impl_options;
+  get_impl_options.column_family = column_family;
+  get_impl_options.value = &index_entry;
+  get_impl_options.is_blob_index = &is_blob_index;
+  s = db_impl_->GetImpl(ro, key, get_impl_options);
   TEST_SYNC_POINT("BlobDBImpl::Get:AfterIndexEntryGet:1");
   TEST_SYNC_POINT("BlobDBImpl::Get:AfterIndexEntryGet:2");
   if (expiration != nullptr) {
@@ -1535,9 +1537,12 @@ Status BlobDBImpl::GCFileAndUpdateLSM(const std::shared_ptr<BlobFile>& bfptr,
     SequenceNumber latest_seq = GetLatestSequenceNumber();
     bool is_blob_index = false;
     PinnableSlice index_entry;
-    Status get_status = db_impl_->GetImpl(
-        ReadOptions(), cfh, record.key, &index_entry, nullptr /*value_found*/,
-        nullptr /*read_callback*/, &is_blob_index);
+    DBImpl::GetImplOptions get_impl_options;
+    get_impl_options.column_family = cfh;
+    get_impl_options.value = &index_entry;
+    get_impl_options.is_blob_index = &is_blob_index;
+    Status get_status =
+        db_impl_->GetImpl(ReadOptions(), record.key, get_impl_options);
     TEST_SYNC_POINT("BlobDBImpl::GCFileAndUpdateLSM:AfterGetFromBaseDB");
     if (!get_status.ok() && !get_status.IsNotFound()) {
       // error
@@ -1758,7 +1763,8 @@ std::pair<bool, int64_t> BlobDBImpl::DeleteObsoleteFiles(bool aborted) {
 
     blob_files_.erase(bfile->BlobFileNumber());
     Status s = DeleteDBFile(&(db_impl_->immutable_db_options()),
-                             bfile->PathName(), blob_dir_, true);
+                            bfile->PathName(), blob_dir_, true,
+                            /*force_fg=*/false);
     if (!s.ok()) {
       ROCKS_LOG_ERROR(db_options_.info_log,
                       "File failed to be deleted as obsolete %s",
@@ -1848,7 +1854,8 @@ Status DestroyBlobDB(const std::string& dbname, const Options& options,
     uint64_t number;
     FileType type;
     if (ParseFileName(f, &number, &type) && type == kBlobFile) {
-      Status del = DeleteDBFile(&soptions, blobdir + "/" + f, blobdir, true);
+      Status del = DeleteDBFile(&soptions, blobdir + "/" + f, blobdir, true,
+                                /*force_fg=*/false);
       if (status.ok() && !del.ok()) {
         status = del;
       }

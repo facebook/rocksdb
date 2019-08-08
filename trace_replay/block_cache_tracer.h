@@ -11,19 +11,37 @@
 #include "rocksdb/env.h"
 #include "rocksdb/options.h"
 #include "rocksdb/trace_reader_writer.h"
+#include "table/table_reader_caller.h"
 #include "trace_replay/trace_replay.h"
 
 namespace rocksdb {
 
-enum BlockCacheLookupCaller : char {
-  kUserGet = 1,
-  kUserMGet = 2,
-  kUserIterator = 3,
-  kUserApproximateSize = 4,
-  kPrefetch = 5,
-  kCompaction = 6,
-  // All callers should be added before kMaxBlockCacheLookupCaller.
-  kMaxBlockCacheLookupCaller
+extern const uint64_t kMicrosInSecond;
+extern const uint64_t kSecondInMinute;
+extern const uint64_t kSecondInHour;
+
+struct BlockCacheTraceRecord;
+
+class BlockCacheTraceHelper {
+ public:
+  static bool IsGetOrMultiGetOnDataBlock(TraceType block_type,
+                                         TableReaderCaller caller);
+  static bool IsGetOrMultiGet(TableReaderCaller caller);
+  static bool IsUserAccess(TableReaderCaller caller);
+  // Row key is a concatenation of the access's fd_number and the referenced
+  // user key.
+  static std::string ComputeRowKey(const BlockCacheTraceRecord& access);
+  // The first four bytes of the referenced key in a Get request is the table
+  // id.
+  static uint64_t GetTableId(const BlockCacheTraceRecord& access);
+  // The sequence number of a get request is the last part of the referenced
+  // key.
+  static uint64_t GetSequenceNumber(const BlockCacheTraceRecord& access);
+  // Block offset in a file is the last varint64 in the block key.
+  static uint64_t GetBlockOffsetInFile(const BlockCacheTraceRecord& access);
+
+  static const std::string kUnknownColumnFamilyName;
+  static const uint64_t kReservedGetId;
 };
 
 // Lookup context for tracing block cache accesses.
@@ -46,9 +64,13 @@ enum BlockCacheLookupCaller : char {
 // 6. BlockBasedTable::ApproximateOffsetOf. (kCompaction or
 // kUserApproximateSize).
 struct BlockCacheLookupContext {
-  BlockCacheLookupContext(const BlockCacheLookupCaller& _caller)
-      : caller(_caller) {}
-  const BlockCacheLookupCaller caller;
+  BlockCacheLookupContext(const TableReaderCaller& _caller) : caller(_caller) {}
+  BlockCacheLookupContext(const TableReaderCaller& _caller, uint64_t _get_id,
+                          bool _get_from_user_specified_snapshot)
+      : caller(_caller),
+        get_id(_get_id),
+        get_from_user_specified_snapshot(_get_from_user_specified_snapshot) {}
+  const TableReaderCaller caller;
   // These are populated when we perform lookup/insert on block cache. The block
   // cache tracer uses these inforation when logging the block access at
   // BlockBasedTable::GET and BlockBasedTable::MultiGet.
@@ -58,6 +80,12 @@ struct BlockCacheLookupContext {
   uint64_t block_size = 0;
   std::string block_key;
   uint64_t num_keys_in_block = 0;
+  // The unique id associated with Get and MultiGet. This enables us to track
+  // how many blocks a Get/MultiGet request accesses. We can also measure the
+  // impact of row cache vs block cache.
+  uint64_t get_id = 0;
+  std::string referenced_key;
+  bool get_from_user_specified_snapshot = false;
 
   void FillLookupContext(bool _is_cache_hit, bool _no_insert,
                          TraceType _block_type, uint64_t _block_size,
@@ -84,28 +112,30 @@ struct BlockCacheTraceRecord {
   std::string cf_name;
   uint32_t level = 0;
   uint64_t sst_fd_number = 0;
-  BlockCacheLookupCaller caller =
-      BlockCacheLookupCaller::kMaxBlockCacheLookupCaller;
+  TableReaderCaller caller = TableReaderCaller::kMaxBlockCacheLookupCaller;
   Boolean is_cache_hit = Boolean::kFalse;
   Boolean no_insert = Boolean::kFalse;
-
-  // Required fields for data block and user Get/Multi-Get only.
+  // Required field for Get and MultiGet
+  uint64_t get_id = BlockCacheTraceHelper::kReservedGetId;
+  Boolean get_from_user_specified_snapshot = Boolean::kFalse;
   std::string referenced_key;
+  // Required fields for data block and user Get/Multi-Get only.
   uint64_t referenced_data_size = 0;
   uint64_t num_keys_in_block = 0;
   Boolean referenced_key_exist_in_block = Boolean::kFalse;
 
   BlockCacheTraceRecord() {}
 
-  BlockCacheTraceRecord(uint64_t _access_timestamp, std::string _block_key,
-                        TraceType _block_type, uint64_t _block_size,
-                        uint64_t _cf_id, std::string _cf_name, uint32_t _level,
-                        uint64_t _sst_fd_number, BlockCacheLookupCaller _caller,
-                        bool _is_cache_hit, bool _no_insert,
-                        std::string _referenced_key = "",
-                        uint64_t _referenced_data_size = 0,
-                        uint64_t _num_keys_in_block = 0,
-                        bool _referenced_key_exist_in_block = false)
+  BlockCacheTraceRecord(
+      uint64_t _access_timestamp, std::string _block_key, TraceType _block_type,
+      uint64_t _block_size, uint64_t _cf_id, std::string _cf_name,
+      uint32_t _level, uint64_t _sst_fd_number, TableReaderCaller _caller,
+      bool _is_cache_hit, bool _no_insert,
+      uint64_t _get_id = BlockCacheTraceHelper::kReservedGetId,
+      bool _get_from_user_specified_snapshot = false,
+      std::string _referenced_key = "", uint64_t _referenced_data_size = 0,
+      uint64_t _num_keys_in_block = 0,
+      bool _referenced_key_exist_in_block = false)
       : access_timestamp(_access_timestamp),
         block_key(_block_key),
         block_type(_block_type),
@@ -117,6 +147,10 @@ struct BlockCacheTraceRecord {
         caller(_caller),
         is_cache_hit(_is_cache_hit ? Boolean::kTrue : Boolean::kFalse),
         no_insert(_no_insert ? Boolean::kTrue : Boolean::kFalse),
+        get_id(_get_id),
+        get_from_user_specified_snapshot(_get_from_user_specified_snapshot
+                                             ? Boolean::kTrue
+                                             : Boolean::kFalse),
         referenced_key(_referenced_key),
         referenced_data_size(_referenced_data_size),
         num_keys_in_block(_num_keys_in_block),
@@ -129,14 +163,6 @@ struct BlockCacheTraceHeader {
   uint64_t start_time;
   uint32_t rocksdb_major_version;
   uint32_t rocksdb_minor_version;
-};
-
-class BlockCacheTraceHelper {
- public:
-  static bool ShouldTraceReferencedKey(TraceType block_type,
-                                       BlockCacheLookupCaller caller);
-
-  static const std::string kUnknownColumnFamilyName;
 };
 
 // BlockCacheTraceWriter captures all RocksDB block cache accesses using a
@@ -209,15 +235,23 @@ class BlockCacheTracer {
   // Stop writing block cache accesses to the trace_writer.
   void EndTrace();
 
+  bool is_tracing_enabled() const {
+    return writer_.load(std::memory_order_relaxed);
+  }
+
   Status WriteBlockAccess(const BlockCacheTraceRecord& record,
                           const Slice& block_key, const Slice& cf_name,
                           const Slice& referenced_key);
+
+  // GetId cycles from 1 to port::kMaxUint64.
+  uint64_t NextGetId();
 
  private:
   TraceOptions trace_options_;
   // A mutex protects the writer_.
   InstrumentedMutex trace_writer_mutex_;
   std::atomic<BlockCacheTraceWriter*> writer_;
+  std::atomic<uint64_t> get_id_counter_;
 };
 
 }  // namespace rocksdb

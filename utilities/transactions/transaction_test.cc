@@ -3471,6 +3471,12 @@ TEST_P(TransactionTest, LockLimitTest) {
 }
 
 TEST_P(TransactionTest, IteratorTest) {
+  // This test does writes without snapshot validation, and then tries to create
+  // iterator later, which is unsupported in write unprepared.
+  if (txn_db_options.write_policy == WRITE_UNPREPARED) {
+    return;
+  }
+
   WriteOptions write_options;
   ReadOptions read_options, snapshot_read_options;
   std::string value;
@@ -3589,6 +3595,16 @@ TEST_P(TransactionTest, IteratorTest) {
 }
 
 TEST_P(TransactionTest, DisableIndexingTest) {
+  // Skip this test for write unprepared. It does not solely rely on WBWI for
+  // read your own writes, so depending on whether batches are flushed or not,
+  // only some writes will be visible.
+  //
+  // Also, write unprepared does not support creating iterators if there has
+  // been txn->Put() without snapshot validation.
+  if (txn_db_options.write_policy == WRITE_UNPREPARED) {
+    return;
+  }
+
   WriteOptions write_options;
   ReadOptions read_options;
   std::string value;
@@ -4012,6 +4028,58 @@ TEST_P(TransactionTest, SavepointTest3) {
 
   s = db->Get(read_options, "C", &value);
   ASSERT_TRUE(s.IsNotFound());
+}
+
+TEST_P(TransactionTest, SavepointTest4) {
+  WriteOptions write_options;
+  ReadOptions read_options;
+  TransactionOptions txn_options;
+  Status s;
+
+  txn_options.lock_timeout = 1;  // 1 ms
+  Transaction* txn1 = db->BeginTransaction(write_options, txn_options);
+  ASSERT_TRUE(txn1);
+
+  txn1->SetSavePoint();  // 1
+  s = txn1->Put("A", "a");
+  ASSERT_OK(s);
+
+  txn1->SetSavePoint();  // 2
+  s = txn1->Put("B", "b");
+  ASSERT_OK(s);
+
+  s = txn1->PopSavePoint();  // Remove 2
+  ASSERT_OK(s);
+
+  // Verify that A/B still exists.
+  std::string value;
+  ASSERT_OK(txn1->Get(read_options, "A", &value));
+  ASSERT_EQ("a", value);
+
+  ASSERT_OK(txn1->Get(read_options, "B", &value));
+  ASSERT_EQ("b", value);
+
+  ASSERT_OK(txn1->RollbackToSavePoint());  // Rollback to 1
+
+  // Verify that everything was rolled back.
+  s = txn1->Get(read_options, "A", &value);
+  ASSERT_TRUE(s.IsNotFound());
+
+  s = txn1->Get(read_options, "B", &value);
+  ASSERT_TRUE(s.IsNotFound());
+
+  // Nothing should be locked
+  Transaction* txn2 = db->BeginTransaction(write_options, txn_options);
+  ASSERT_TRUE(txn2);
+
+  s = txn2->Put("A", "");
+  ASSERT_OK(s);
+
+  s = txn2->Put("B", "");
+  ASSERT_OK(s);
+
+  delete txn2;
+  delete txn1;
 }
 
 TEST_P(TransactionTest, UndoGetForUpdateTest) {
@@ -5235,16 +5303,8 @@ TEST_P(TransactionTest, MemoryLimitTest) {
   ASSERT_EQ(2, txn->GetNumPuts());
 
   s = txn->Put(Slice("b"), Slice("...."));
-  auto pdb = reinterpret_cast<PessimisticTransactionDB*>(db);
-  // For write unprepared, write batches exceeding max_write_batch_size will
-  // just flush to DB instead of returning a memory limit error.
-  if (pdb->GetTxnDBOptions().write_policy != WRITE_UNPREPARED) {
-    ASSERT_TRUE(s.IsMemoryLimit());
-    ASSERT_EQ(2, txn->GetNumPuts());
-  } else {
-    ASSERT_OK(s);
-    ASSERT_EQ(3, txn->GetNumPuts());
-  }
+  ASSERT_TRUE(s.IsMemoryLimit());
+  ASSERT_EQ(2, txn->GetNumPuts());
 
   txn->Rollback();
   delete txn;

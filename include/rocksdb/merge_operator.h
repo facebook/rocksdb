@@ -46,6 +46,7 @@ class Logger;
 class MergeOperator {
  public:
   virtual ~MergeOperator() {}
+  static const char* Type() { return "MergeOperator"; }
 
   // Gives the client a way to express the read -> modify -> write semantics
   // key:      (IN)    The key that's associated with this merge operation.

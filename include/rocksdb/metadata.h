@@ -108,4 +108,11 @@ struct LiveFileMetaData : SstFileMetaData {
   int level;                       // Level at which this file resides.
   LiveFileMetaData() : column_family_name(), level(0) {}
 };
+
+// Metadata returned as output from ExportColumnFamily() and used as input to
+// CreateColumnFamiliesWithImport().
+struct ExportImportFilesMetaData {
+  std::string db_comparator_name;       // Used to safety check at import.
+  std::vector<LiveFileMetaData> files;  // Vector of file metadata.
+};
 }  // namespace rocksdb

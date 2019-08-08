@@ -15,7 +15,8 @@
 #include "rocksdb/options.h"
 #include "rocksdb/slice.h"
 #include "rocksdb/slice_transform.h"
-#include "table/block_based/filter_block.h"
+#include "table/block_based/filter_block_reader_common.h"
+#include "table/format.h"
 #include "util/hash.h"
 
 namespace rocksdb {
@@ -78,71 +79,58 @@ class FullFilterBlockBuilder : public FilterBlockBuilder {
 
 // A FilterBlockReader is used to parse filter from SST table.
 // KeyMayMatch and PrefixMayMatch would trigger filter checking
-class FullFilterBlockReader : public FilterBlockReader {
+class FullFilterBlockReader : public FilterBlockReaderCommon<BlockContents> {
  public:
-  // REQUIRES: "contents" and filter_bits_reader must stay live
-  // while *this is live.
-  explicit FullFilterBlockReader(const SliceTransform* prefix_extractor,
-                                 bool whole_key_filtering,
-                                 const Slice& contents,
-                                 FilterBitsReader* filter_bits_reader,
-                                 Statistics* statistics);
-  explicit FullFilterBlockReader(const SliceTransform* prefix_extractor,
-                                 bool whole_key_filtering,
-                                 BlockContents&& contents,
-                                 FilterBitsReader* filter_bits_reader,
-                                 Statistics* statistics);
+  FullFilterBlockReader(const BlockBasedTable* t,
+                        CachableEntry<BlockContents>&& filter_block);
 
-  // bits_reader is created in filter_policy, it should be passed in here
-  // directly. and be deleted here
-  ~FullFilterBlockReader() override {}
+  static std::unique_ptr<FilterBlockReader> Create(
+      const BlockBasedTable* table, FilePrefetchBuffer* prefetch_buffer,
+      bool use_cache, bool prefetch, bool pin,
+      BlockCacheLookupContext* lookup_context);
 
   bool IsBlockBased() override { return false; }
 
   bool KeyMayMatch(const Slice& key, const SliceTransform* prefix_extractor,
                    uint64_t block_offset, const bool no_io,
-                   const Slice* const const_ikey_ptr,
-                   BlockCacheLookupContext* context) override;
+                   const Slice* const const_ikey_ptr, GetContext* get_context,
+                   BlockCacheLookupContext* lookup_context) override;
 
   bool PrefixMayMatch(const Slice& prefix,
                       const SliceTransform* prefix_extractor,
                       uint64_t block_offset, const bool no_io,
                       const Slice* const const_ikey_ptr,
-                      BlockCacheLookupContext* context) override;
+                      GetContext* get_context,
+                      BlockCacheLookupContext* lookup_context) override;
 
   void KeysMayMatch(MultiGetRange* range,
                     const SliceTransform* prefix_extractor,
                     uint64_t block_offset, const bool no_io,
-                    BlockCacheLookupContext* context) override;
+                    BlockCacheLookupContext* lookup_context) override;
 
   void PrefixesMayMatch(MultiGetRange* range,
                         const SliceTransform* prefix_extractor,
                         uint64_t block_offset, const bool no_io,
-                        BlockCacheLookupContext* context) override;
+                        BlockCacheLookupContext* lookup_context) override;
   size_t ApproximateMemoryUsage() const override;
   bool RangeMayExist(const Slice* iterate_upper_bound, const Slice& user_key,
                      const SliceTransform* prefix_extractor,
                      const Comparator* comparator,
                      const Slice* const const_ikey_ptr, bool* filter_checked,
                      bool need_upper_bound_check,
-                     BlockCacheLookupContext* context) override;
+                     BlockCacheLookupContext* lookup_context) override;
 
  private:
-  const SliceTransform* prefix_extractor_;
-  Slice contents_;
-  std::unique_ptr<FilterBitsReader> filter_bits_reader_;
-  BlockContents block_contents_;
+  bool MayMatch(const Slice& entry, bool no_io, GetContext* get_context,
+                BlockCacheLookupContext* lookup_context) const;
+  void MayMatch(MultiGetRange* range, bool no_io,
+                BlockCacheLookupContext* lookup_context) const;
+  bool IsFilterCompatible(const Slice* iterate_upper_bound, const Slice& prefix,
+                          const Comparator* comparator) const;
+
+ private:
   bool full_length_enabled_;
   size_t prefix_extractor_full_length_;
-
-  // No copying allowed
-  FullFilterBlockReader(const FullFilterBlockReader&);
-  bool MayMatch(const Slice& entry);
-  void MayMatch(MultiGetRange* range);
-  void operator=(const FullFilterBlockReader&);
-  bool IsFilterCompatible(const Slice* iterate_upper_bound,
-                          const Slice& prefix, const Comparator* comparator);
-
 };
 
 }  // namespace rocksdb

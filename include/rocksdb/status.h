@@ -76,6 +76,7 @@ class Status {
     kMemoryLimit = 7,
     kSpaceLimit = 8,
     kPathNotFound = 9,
+    KMergeOperandsInsufficientCapacity = 10,
     kMaxSubCode
   };
 

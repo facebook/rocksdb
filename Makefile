@@ -89,7 +89,7 @@ endif
 
 ifeq ($(MAKECMDGOALS),rocksdbjavastaticreleasedocker)
 	ifneq ($(DEBUG_LEVEL),2)
-        	DEBUG_LEVEL=0
+		DEBUG_LEVEL=0
 	endif
 endif
 
@@ -144,8 +144,8 @@ HAVE_POWER8=1
 endif
 
 ifeq (,$(shell $(CXX) -fsyntax-only -march=armv8-a+crc -xc /dev/null 2>&1))
-CXXFLAGS += -march=armv8-a+crc
-CFLAGS += -march=armv8-a+crc
+CXXFLAGS += -march=armv8-a+crc+crypto
+CFLAGS += -march=armv8-a+crc+crypto
 ARMCRC_SOURCE=1
 endif
 
@@ -304,6 +304,10 @@ ifndef DISABLE_JEMALLOC
 	PLATFORM_CCFLAGS += $(JEMALLOC_INCLUDE)
 endif
 
+ifndef USE_FOLLY_DISTRIBUTED_MUTEX
+	USE_FOLLY_DISTRIBUTED_MUTEX=0
+endif
+
 export GTEST_THROW_ON_FAILURE=1
 export GTEST_HAS_EXCEPTIONS=1
 GTEST_DIR = ./third-party/gtest-1.7.0/fused-src
@@ -314,6 +318,18 @@ ifeq ($(PLATFORM), OS_AIX)
 else
 	PLATFORM_CCFLAGS += -isystem $(GTEST_DIR)
 	PLATFORM_CXXFLAGS += -isystem $(GTEST_DIR)
+endif
+
+ifeq ($(USE_FOLLY_DISTRIBUTED_MUTEX),1)
+	FOLLY_DIR = ./third-party/folly
+	# AIX: pre-defined system headers are surrounded by an extern "C" block
+	ifeq ($(PLATFORM), OS_AIX)
+		PLATFORM_CCFLAGS += -I$(FOLLY_DIR)
+		PLATFORM_CXXFLAGS += -I$(FOLLY_DIR)
+	else
+		PLATFORM_CCFLAGS += -isystem $(FOLLY_DIR)
+		PLATFORM_CXXFLAGS += -isystem $(FOLLY_DIR)
+	endif
 endif
 
 # This (the first rule) must depend on "all".
@@ -402,6 +418,9 @@ endif
 
 LIBOBJECTS += $(TOOL_LIB_SOURCES:.cc=.o)
 MOCKOBJECTS = $(MOCK_LIB_SOURCES:.cc=.o)
+ifeq ($(USE_FOLLY_DISTRIBUTED_MUTEX),1)
+  FOLLYOBJECTS = $(FOLLY_SOURCES:.cpp=.o)
+endif
 
 GTEST = $(GTEST_DIR)/gtest/gtest-all.o
 TESTUTIL = ./test_util/testutil.o
@@ -432,6 +451,7 @@ TESTS = \
 	inlineskiplist_test \
 	env_basic_test \
 	env_test \
+	env_logger_test \
 	hash_test \
 	thread_local_test \
 	rate_limiter_test \
@@ -441,10 +461,10 @@ TESTS = \
 	db_block_cache_test \
 	db_test \
 	db_blob_index_test \
-	db_bloom_filter_test \
 	db_iter_test \
 	db_iter_stress_test \
 	db_log_iter_test \
+	db_bloom_filter_test \
 	db_compaction_filter_test \
 	db_compaction_test \
 	db_dynamic_level_test \
@@ -453,6 +473,7 @@ TESTS = \
 	db_iterator_test \
 	db_memtable_test \
 	db_merge_operator_test \
+	db_merge_operand_test \
 	db_options_test \
 	db_range_del_test \
 	db_secondary_test \
@@ -499,6 +520,7 @@ TESTS = \
 	plain_table_db_test \
 	comparator_db_test \
 	external_sst_file_test \
+	import_column_family_test \
 	prefix_test \
 	skiplist_test \
 	write_buffer_manager_test \
@@ -509,6 +531,7 @@ TESTS = \
 	cassandra_serialize_test \
 	ttl_test \
 	backupable_db_test \
+	cache_simulator_test \
 	sim_cache_test \
 	version_edit_test \
 	version_set_test \
@@ -565,8 +588,13 @@ TESTS = \
 	block_cache_tracer_test \
 	block_cache_trace_analyzer_test \
 
+ifeq ($(USE_FOLLY_DISTRIBUTED_MUTEX),1)
+	TESTS += folly_synchronization_distributed_mutex_test
+endif
+
 PARALLEL_TEST = \
 	backupable_db_test \
+	db_bloom_filter_test \
 	db_compaction_filter_test \
 	db_compaction_test \
 	db_merge_operator_test \
@@ -575,7 +603,9 @@ PARALLEL_TEST = \
 	db_universal_compaction_test \
 	db_wal_test \
 	external_sst_file_test \
+	import_column_family_test \
 	fault_injection_test \
+	file_reader_writer_test \
 	inlineskiplist_test \
 	manual_compaction_test \
 	persistent_cache_test \
@@ -1064,7 +1094,7 @@ rocksdb.h rocksdb.cc: build_tools/amalgamate.py Makefile $(LIB_SOURCES) unity.cc
 	build_tools/amalgamate.py -I. -i./include unity.cc -x include/rocksdb/c.h -H rocksdb.h -o rocksdb.cc
 
 clean:
-	rm -f $(BENCHMARKS) $(TOOLS) $(TESTS) $(LIBRARY) $(SHARED)
+	rm -f $(BENCHMARKS) $(TOOLS) $(TESTS) $(PARALLEL_TEST) $(LIBRARY) $(SHARED)
 	rm -rf $(CLEAN_FILES) ios-x86 ios-arm scan_build_report
 	$(FIND) . -name "*.[oda]" -exec rm -f {} \;
 	$(FIND) . -type f -regex ".*\.\(\(gcda\)\|\(gcno\)\)" -exec rm {} \;
@@ -1110,8 +1140,13 @@ db_bench: tools/db_bench.o $(BENCHTOOLOBJECTS)
 trace_analyzer: tools/trace_analyzer.o $(ANALYZETOOLOBJECTS) $(LIBOBJECTS)
 	$(AM_LINK)
 
-block_cache_trace_analyzer: tools/block_cache_trace_analyzer_tool.o $(ANALYZETOOLOBJECTS) $(LIBOBJECTS)
+block_cache_trace_analyzer: tools/block_cache_analyzer/block_cache_trace_analyzer_tool.o $(ANALYZETOOLOBJECTS) $(LIBOBJECTS)
 	$(AM_LINK)
+
+ifeq ($(USE_FOLLY_DISTRIBUTED_MUTEX),1)
+folly_synchronization_distributed_mutex_test: $(LIBOBJECTS) $(TESTHARNESS) $(FOLLYOBJECTS) third-party/folly/folly/synchronization/test/DistributedMutexTest.o
+	$(AM_LINK)
+endif
 
 cache_bench: cache/cache_bench.o $(LIBOBJECTS) $(TESTUTIL)
 	$(AM_LINK)
@@ -1248,6 +1283,9 @@ db_memtable_test: db/db_memtable_test.o db/db_test_util.o $(LIBOBJECTS) $(TESTHA
 db_merge_operator_test: db/db_merge_operator_test.o db/db_test_util.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
+db_merge_operand_test: db/db_merge_operand_test.o db/db_test_util.o $(LIBOBJECTS) $(TESTHARNESS)
+	$(AM_LINK)
+	
 db_options_test: db/db_options_test.o db/db_test_util.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
@@ -1270,6 +1308,9 @@ external_sst_file_basic_test: db/external_sst_file_basic_test.o db/db_test_util.
 	$(AM_LINK)
 
 external_sst_file_test: db/external_sst_file_test.o db/db_test_util.o $(LIBOBJECTS) $(TESTHARNESS)
+	$(AM_LINK)
+
+import_column_family_test: db/import_column_family_test.o db/db_test_util.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
 db_tailing_iter_test: db/db_tailing_iter_test.o db/db_test_util.o $(LIBOBJECTS) $(TESTHARNESS)
@@ -1318,6 +1359,9 @@ backupable_db_test: utilities/backupable/backupable_db_test.o $(LIBOBJECTS) $(TE
 	$(AM_LINK)
 
 checkpoint_test: utilities/checkpoint/checkpoint_test.o $(LIBOBJECTS) $(TESTHARNESS)
+	$(AM_LINK)
+
+cache_simulator_test: utilities/simulator_cache/cache_simulator_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
 sim_cache_test: utilities/simulator_cache/sim_cache_test.o db/db_test_util.o $(LIBOBJECTS) $(TESTHARNESS)
@@ -1529,6 +1573,9 @@ filelock_test: util/filelock_test.o $(LIBOBJECTS) $(TESTHARNESS)
 auto_roll_logger_test: logging/auto_roll_logger_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
+env_logger_test: logging/env_logger_test.o $(LIBOBJECTS) $(TESTHARNESS)
+	$(AM_LINK)
+
 memtable_list_test: db/memtable_list_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
@@ -1601,7 +1648,7 @@ db_secondary_test: db/db_impl/db_secondary_test.o db/db_test_util.o $(LIBOBJECTS
 block_cache_tracer_test: trace_replay/block_cache_tracer_test.o trace_replay/block_cache_tracer.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
-block_cache_trace_analyzer_test: tools/block_cache_trace_analyzer_test.o tools/block_cache_trace_analyzer.o $(LIBOBJECTS) $(TESTHARNESS)
+block_cache_trace_analyzer_test: tools/block_cache_analyzer/block_cache_trace_analyzer_test.o tools/block_cache_analyzer/block_cache_trace_analyzer.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
 #-------------------------------------------------

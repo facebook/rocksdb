@@ -258,7 +258,8 @@ void DBImpl::DeleteObsoleteFileImpl(int job_id, const std::string& fname,
   Status file_deletion_status;
   if (type == kTableFile || type == kLogFile) {
     file_deletion_status =
-        DeleteDBFile(&immutable_db_options_, fname, path_to_sync);
+        DeleteDBFile(&immutable_db_options_, fname, path_to_sync,
+                     /*force_bg=*/false, /*force_fg=*/!wal_in_db_path_);
   } else {
     file_deletion_status = env_->DeleteFile(fname);
   }
@@ -315,11 +316,9 @@ void DBImpl::PurgeObsoleteFiles(JobContext& state, bool schedule_only) {
       candidate_files.size() + state.sst_delete_files.size() +
       state.log_delete_files.size() + state.manifest_delete_files.size());
   // We may ignore the dbname when generating the file names.
-  const char* kDumbDbName = "";
   for (auto& file : state.sst_delete_files) {
     candidate_files.emplace_back(
-        MakeTableFileName(kDumbDbName, file.metadata->fd.GetNumber()),
-        file.path);
+        MakeTableFileName(file.metadata->fd.GetNumber()), file.path);
     if (file.metadata->table_reader_handle) {
       table_cache_->Release(file.metadata->table_reader_handle);
     }
@@ -328,7 +327,7 @@ void DBImpl::PurgeObsoleteFiles(JobContext& state, bool schedule_only) {
 
   for (auto file_num : state.log_delete_files) {
     if (file_num > 0) {
-      candidate_files.emplace_back(LogFileName(kDumbDbName, file_num),
+      candidate_files.emplace_back(LogFileName(file_num),
                                    immutable_db_options_.wal_dir);
     }
   }

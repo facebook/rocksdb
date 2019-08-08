@@ -150,7 +150,8 @@ Status DBImplSecondary::MaybeInitLogReader(
         *log_reader = nullptr;
         return status;
       }
-      file_reader.reset(new SequentialFileReader(std::move(file), fname));
+      file_reader.reset(new SequentialFileReader(
+          std::move(file), fname, immutable_db_options_.log_readahead_size));
     }
 
     // Create the log reader.
@@ -587,6 +588,9 @@ Status DB::OpenAsSecondary(
       &impl->write_controller_));
   impl->column_family_memtables_.reset(
       new ColumnFamilyMemTablesImpl(impl->versions_->GetColumnFamilySet()));
+  impl->wal_in_db_path_ =
+      IsWalDirSameAsDBPath(&impl->immutable_db_options_);
+
   impl->mutex_.Lock();
   s = impl->Recover(column_families, true, false, false);
   if (s.ok()) {

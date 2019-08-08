@@ -49,6 +49,7 @@
 #include "rocksdb/rate_limiter.h"
 #include "rocksdb/slice.h"
 #include "rocksdb/slice_transform.h"
+#include "rocksdb/stats_history.h"
 #include "rocksdb/utilities/object_registry.h"
 #include "rocksdb/utilities/optimistic_transaction_db.h"
 #include "rocksdb/utilities/options_util.h"
@@ -70,6 +71,7 @@
 #include "utilities/blob_db/blob_db.h"
 #include "utilities/merge_operators.h"
 #include "utilities/merge_operators/bytesxor.h"
+#include "utilities/merge_operators/sortlist.h"
 #include "utilities/persistent_cache/block_cache_tier.h"
 
 #ifdef OS_WIN
@@ -119,7 +121,8 @@ DEFINE_string(
     "fillseekseq,"
     "randomtransaction,"
     "randomreplacekeys,"
-    "timeseries",
+    "timeseries,"
+    "getmergeoperands",
 
     "Comma-separated list of operations to run in the specified"
     " order. Available benchmarks:\n"
@@ -189,7 +192,13 @@ DEFINE_string(
     "\tlevelstats  -- Print the number of files and bytes per level\n"
     "\tsstables    -- Print sstable info\n"
     "\theapprofile -- Dump a heap profile (if supported by this port)\n"
-    "\treplay      -- replay the trace file specified with trace_file\n");
+    "\treplay      -- replay the trace file specified with trace_file\n"
+    "\tgetmergeoperands -- Insert lots of merge records which are a list of "
+    "sorted ints for a key and then compare performance of lookup for another "
+    "key "
+    "by doing a Get followed by binary searching in the large sorted list vs "
+    "doing a GetMergeOperands and binary searching in the operands which are"
+    "sorted sub-lists. The MergeOperator used is sortlist.h\n");
 
 DEFINE_int64(num, 1000000, "Number of key/values to place in database");
 
@@ -1547,7 +1556,6 @@ class ReporterAgent {
  private:
   std::string Header() const { return "secs_elapsed,interval_qps"; }
   void SleepAndReport() {
-    uint64_t kMicrosInSecond = 1000 * 1000;
     auto time_started = env_->NowMicros();
     while (true) {
       {
@@ -2397,16 +2405,17 @@ class Benchmark {
       return nullptr;
     }
     if (FLAGS_use_clock_cache) {
-      auto cache = NewClockCache((size_t)capacity, FLAGS_cache_numshardbits);
+      auto cache = NewClockCache(static_cast<size_t>(capacity),
+                                 FLAGS_cache_numshardbits);
       if (!cache) {
         fprintf(stderr, "Clock cache not supported.");
         exit(1);
       }
       return cache;
     } else {
-      return NewLRUCache((size_t)capacity, FLAGS_cache_numshardbits,
-                         false /*strict_capacity_limit*/,
-                         FLAGS_cache_high_pri_pool_ratio);
+      return NewLRUCache(
+          static_cast<size_t>(capacity), FLAGS_cache_numshardbits,
+          false /*strict_capacity_limit*/, FLAGS_cache_high_pri_pool_ratio);
     }
   }
 
@@ -2867,6 +2876,8 @@ class Benchmark {
         PrintStats("rocksdb.levelstats");
       } else if (name == "sstables") {
         PrintStats("rocksdb.sstables");
+      } else if (name == "stats_history") {
+        PrintStatsHistory();
       } else if (name == "replay") {
         if (num_threads > 1) {
           fprintf(stderr, "Multi-threaded replay is not yet supported\n");
@@ -2877,6 +2888,8 @@ class Benchmark {
           exit(1);
         }
         method = &Benchmark::Replay;
+      } else if (name == "getmergeoperands") {
+        method = &Benchmark::GetMergeOperands;
       } else if (!name.empty()) {  // No error message for empty name
         fprintf(stderr, "unknown benchmark '%s'\n", name.c_str());
         exit(1);
@@ -3046,8 +3059,9 @@ class Benchmark {
   std::shared_ptr<TimestampEmulator> timestamp_emulator_;
   std::unique_ptr<port::Thread> secondary_update_thread_;
   std::atomic<int> secondary_update_stopped_{0};
+#ifndef ROCKSDB_LITE
   uint64_t secondary_db_updates_ = 0;
-
+#endif  // ROCKSDB_LITE
   struct ThreadArg {
     Benchmark* bm;
     SharedState* shared;
@@ -3604,9 +3618,10 @@ class Benchmark {
     }
     if (FLAGS_max_bytes_for_level_multiplier_additional_v.size() > 0) {
       if (FLAGS_max_bytes_for_level_multiplier_additional_v.size() !=
-          (unsigned int)FLAGS_num_levels) {
+          static_cast<unsigned int>(FLAGS_num_levels)) {
         fprintf(stderr, "Insufficient number of fanouts specified %d\n",
-                (int)FLAGS_max_bytes_for_level_multiplier_additional_v.size());
+                static_cast<int>(
+                    FLAGS_max_bytes_for_level_multiplier_additional_v.size()));
         exit(1);
       }
       options.max_bytes_for_level_multiplier_additional =
@@ -4791,7 +4806,7 @@ class Benchmark {
       if (FLAGS_multiread_stride) {
         int64_t key = GetRandomKey(&thread->rand);
         if ((key + (entries_per_batch_ - 1) * FLAGS_multiread_stride) >=
-            (int64_t)FLAGS_num) {
+            static_cast<int64_t>(FLAGS_num)) {
           key = FLAGS_num - entries_per_batch_ * FLAGS_multiread_stride;
         }
         for (int64_t i = 0; i < entries_per_batch_; ++i) {
@@ -5161,9 +5176,10 @@ class Benchmark {
               FLAGS_num, &lower_bound);
           options.iterate_lower_bound = &lower_bound;
         } else {
-          GenerateKeyFromInt(
-              (uint64_t)std::min(FLAGS_num, seek_pos + FLAGS_max_scan_distance),
-              FLAGS_num, &upper_bound);
+          auto min_num =
+              std::min(FLAGS_num, seek_pos + FLAGS_max_scan_distance);
+          GenerateKeyFromInt(static_cast<uint64_t>(min_num), FLAGS_num,
+                             &upper_bound);
           options.iterate_upper_bound = &upper_bound;
         }
       }
@@ -5331,7 +5347,7 @@ class Benchmark {
             // Wait for the writes to be finished
             if (!hint_printed) {
               fprintf(stderr, "Reads are finished. Have %d more writes to do\n",
-                      (int)writes_ - written);
+                      static_cast<int>(writes_) - written);
               hint_printed = true;
             }
           } else {
@@ -5915,6 +5931,97 @@ class Benchmark {
     }
   }
 
+  bool binary_search(std::vector<int>& data, int start, int end, int key) {
+    if (data.empty()) return false;
+    if (start > end) return false;
+    int mid = start + (end - start) / 2;
+    if (mid > static_cast<int>(data.size()) - 1) return false;
+    if (data[mid] == key) {
+      return true;
+    } else if (data[mid] > key) {
+      return binary_search(data, start, mid - 1, key);
+    } else {
+      return binary_search(data, mid + 1, end, key);
+    }
+  }
+
+  // Does a bunch of merge operations for a key(key1) where the merge operand
+  // is a sorted list. Next performance comparison is done between doing a Get
+  // for key1 followed by searching for another key(key2) in the large sorted
+  // list vs calling GetMergeOperands for key1 and then searching for the key2
+  // in all the sorted sub-lists. Later case is expected to be a lot faster.
+  void GetMergeOperands(ThreadState* thread) {
+    DB* db = SelectDB(thread);
+    const int kTotalValues = 100000;
+    const int kListSize = 100;
+    std::string key = "my_key";
+    std::string value;
+
+    for (int i = 1; i < kTotalValues; i++) {
+      if (i % kListSize == 0) {
+        // Remove trailing ','
+        value.pop_back();
+        db->Merge(WriteOptions(), key, value);
+        value.clear();
+      } else {
+        value.append(std::to_string(i)).append(",");
+      }
+    }
+
+    SortList s;
+    std::vector<int> data;
+    // This value can be experimented with and it will demonstrate the
+    // perf difference between doing a Get and searching for lookup_key in the
+    // resultant large sorted list vs doing GetMergeOperands and searching
+    // for lookup_key within this resultant sorted sub-lists.
+    int lookup_key = 1;
+
+    // Get API call
+    std::cout << "--- Get API call --- \n";
+    PinnableSlice p_slice;
+    uint64_t st = FLAGS_env->NowNanos();
+    db->Get(ReadOptions(), db->DefaultColumnFamily(), key, &p_slice);
+    s.MakeVector(data, p_slice);
+    bool found =
+        binary_search(data, 0, static_cast<int>(data.size() - 1), lookup_key);
+    std::cout << "Found key? " << std::to_string(found) << "\n";
+    uint64_t sp = FLAGS_env->NowNanos();
+    std::cout << "Get: " << (sp - st) / 1000000000.0 << " seconds\n";
+    std::string* dat_ = p_slice.GetSelf();
+    std::cout << "Sample data from Get API call: " << dat_->substr(0, 10)
+              << "\n";
+    data.clear();
+
+    // GetMergeOperands API call
+    std::cout << "--- GetMergeOperands API --- \n";
+    std::vector<PinnableSlice> a_slice((kTotalValues / kListSize) + 1);
+    st = FLAGS_env->NowNanos();
+    int number_of_operands = 0;
+    GetMergeOperandsOptions get_merge_operands_options;
+    get_merge_operands_options.expected_max_number_of_operands =
+        (kTotalValues / 100) + 1;
+    db->GetMergeOperands(ReadOptions(), db->DefaultColumnFamily(), key,
+                         a_slice.data(), &get_merge_operands_options,
+                         &number_of_operands);
+    for (PinnableSlice& psl : a_slice) {
+      s.MakeVector(data, psl);
+      found =
+          binary_search(data, 0, static_cast<int>(data.size() - 1), lookup_key);
+      data.clear();
+      if (found) break;
+    }
+    std::cout << "Found key? " << std::to_string(found) << "\n";
+    sp = FLAGS_env->NowNanos();
+    std::cout << "Get Merge operands: " << (sp - st) / 1000000000.0
+              << " seconds \n";
+    int to_print = 0;
+    std::cout << "Sample data from GetMergeOperands API call: ";
+    for (PinnableSlice& psl : a_slice) {
+      std::cout << "List: " << to_print << " : " << *psl.GetSelf() << "\n";
+      if (to_print++ > 2) break;
+    }
+  }
+
 #ifndef ROCKSDB_LITE
   // This benchmark stress tests Transactions.  For a given --duration (or
   // total number of --writes, a Transaction will perform a read-modify-write
@@ -6257,6 +6364,39 @@ class Benchmark {
     }
   }
 
+  void PrintStatsHistory() {
+    if (db_.db != nullptr) {
+      PrintStatsHistoryImpl(db_.db, false);
+    }
+    for (const auto& db_with_cfh : multi_dbs_) {
+      PrintStatsHistoryImpl(db_with_cfh.db, true);
+    }
+  }
+
+  void PrintStatsHistoryImpl(DB* db, bool print_header) {
+    if (print_header) {
+      fprintf(stdout, "\n==== DB: %s ===\n", db->GetName().c_str());
+    }
+
+    std::unique_ptr<StatsHistoryIterator> shi;
+    Status s = db->GetStatsHistory(0, port::kMaxUint64, &shi);
+    if (!s.ok()) {
+      fprintf(stdout, "%s\n", s.ToString().c_str());
+      return;
+    }
+    assert(shi);
+    while (shi->Valid()) {
+      uint64_t stats_time = shi->GetStatsTime();
+      fprintf(stdout, "------ %s ------\n",
+              TimeToHumanString(static_cast<int>(stats_time)).c_str());
+      for (auto& entry : shi->GetStatsMap()) {
+        fprintf(stdout, " %" PRIu64 "   %s  %" PRIu64 "\n", stats_time,
+                entry.first.c_str(), entry.second);
+      }
+      shi->Next();
+    }
+  }
+
   void PrintStats(const char* key) {
     if (db_.db != nullptr) {
       PrintStats(db_.db, key, false);
@@ -6328,13 +6468,12 @@ int db_bench_tool(int argc, char** argv) {
     exit(1);
   }
   if (!FLAGS_statistics_string.empty()) {
-    std::unique_ptr<Statistics> custom_stats_guard;
-    dbstats.reset(NewCustomObject<Statistics>(FLAGS_statistics_string,
-                                              &custom_stats_guard));
-    custom_stats_guard.release();
+    Status s = ObjectRegistry::NewInstance()->NewSharedObject<Statistics>(
+        FLAGS_statistics_string, &dbstats);
     if (dbstats == nullptr) {
-      fprintf(stderr, "No Statistics registered matching string: %s\n",
-              FLAGS_statistics_string.c_str());
+      fprintf(stderr,
+              "No Statistics registered matching string: %s status=%s\n",
+              FLAGS_statistics_string.c_str(), s.ToString().c_str());
       exit(1);
     }
   }
@@ -6362,12 +6501,11 @@ int db_bench_tool(int argc, char** argv) {
     StringToCompressionType(FLAGS_compression_type.c_str());
 
 #ifndef ROCKSDB_LITE
-  std::unique_ptr<Env> custom_env_guard;
   if (!FLAGS_hdfs.empty() && !FLAGS_env_uri.empty()) {
     fprintf(stderr, "Cannot provide both --hdfs and --env_uri.\n");
     exit(1);
   } else if (!FLAGS_env_uri.empty()) {
-    FLAGS_env = NewCustomObject<Env>(FLAGS_env_uri, &custom_env_guard);
+    Status s = Env::LoadEnv(FLAGS_env_uri, &FLAGS_env);
     if (FLAGS_env == nullptr) {
       fprintf(stderr, "No Env registered for URI: %s\n", FLAGS_env_uri.c_str());
       exit(1);

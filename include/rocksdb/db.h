@@ -116,6 +116,10 @@ struct IngestExternalFileArg {
   IngestExternalFileOptions options;
 };
 
+struct GetMergeOperandsOptions {
+  int expected_max_number_of_operands = 0;
+};
+
 // A collections of table properties objects, where
 //  key: is the table's file name.
 //  value: the table properties object of the given table.
@@ -402,6 +406,22 @@ class DB {
                      std::string* value) {
     return Get(options, DefaultColumnFamily(), key, value);
   }
+
+  // Returns all the merge operands corresponding to the key. If the
+  // number of merge operands in DB is greater than
+  // merge_operands_options.expected_max_number_of_operands
+  // no merge operands are returned and status is Incomplete. Merge operands
+  // returned are in the order of insertion.
+  // merge_operands- Points to an array of at-least
+  //             merge_operands_options.expected_max_number_of_operands and the
+  //             caller is responsible for allocating it. If the status
+  //             returned is Incomplete then number_of_operands will contain
+  //             the total number of merge operands found in DB for key.
+  virtual Status GetMergeOperands(
+      const ReadOptions& options, ColumnFamilyHandle* column_family,
+      const Slice& key, PinnableSlice* merge_operands,
+      GetMergeOperandsOptions* get_merge_operands_options,
+      int* number_of_operands) = 0;
 
   // If keys[i] does not exist in the database, then the i'th returned
   // status will be one for which Status::IsNotFound() is true, and
@@ -808,7 +828,7 @@ class DB {
   // stats should be included, or file stats approximation or both
   enum SizeApproximationFlags : uint8_t {
     NONE = 0,
-    INCLUDE_MEMTABLES = 1,
+    INCLUDE_MEMTABLES = 1 << 0,
     INCLUDE_FILES = 1 << 1
   };
 
@@ -818,14 +838,24 @@ class DB {
   // Note that the returned sizes measure file system space usage, so
   // if the user data compresses by a factor of ten, the returned
   // sizes will be one-tenth the size of the corresponding user data size.
-  //
-  // If include_flags defines whether the returned size should include
-  // the recently written data in the mem-tables (if
-  // the mem-table type supports it), data serialized to disk, or both.
-  // include_flags should be of type DB::SizeApproximationFlags
+  virtual Status GetApproximateSizes(const SizeApproximationOptions& options,
+                                     ColumnFamilyHandle* column_family,
+                                     const Range* range, int n,
+                                     uint64_t* sizes) = 0;
+
+  // Simpler versions of the GetApproximateSizes() method above.
+  // The include_flags argumenbt must of type DB::SizeApproximationFlags
+  // and can not be NONE.
   virtual void GetApproximateSizes(ColumnFamilyHandle* column_family,
                                    const Range* range, int n, uint64_t* sizes,
-                                   uint8_t include_flags = INCLUDE_FILES) = 0;
+                                   uint8_t include_flags = INCLUDE_FILES) {
+    SizeApproximationOptions options;
+    options.include_memtabtles =
+        (include_flags & SizeApproximationFlags::INCLUDE_MEMTABLES) != 0;
+    options.include_files =
+        (include_flags & SizeApproximationFlags::INCLUDE_FILES) != 0;
+    GetApproximateSizes(options, column_family, range, n, sizes);
+  }
   virtual void GetApproximateSizes(const Range* range, int n, uint64_t* sizes,
                                    uint8_t include_flags = INCLUDE_FILES) {
     GetApproximateSizes(DefaultColumnFamily(), range, n, sizes, include_flags);
@@ -1173,6 +1203,27 @@ class DB {
   // 0 <= i < j < len(args), args[i].column_family != args[j].column_family.
   virtual Status IngestExternalFiles(
       const std::vector<IngestExternalFileArg>& args) = 0;
+
+  // CreateColumnFamilyWithImport() will create a new column family with
+  // column_family_name and import external SST files specified in metadata into
+  // this column family.
+  // (1) External SST files can be created using SstFileWriter.
+  // (2) External SST files can be exported from a particular column family in
+  //     an existing DB.
+  // Option in import_options specifies whether the external files are copied or
+  // moved (default is copy). When option specifies copy, managing files at
+  // external_file_path is caller's responsibility. When option specifies a
+  // move, the call ensures that the specified files at external_file_path are
+  // deleted on successful return and files are not modified on any error
+  // return.
+  // On error return, column family handle returned will be nullptr.
+  // ColumnFamily will be present on successful return and will not be present
+  // on error return. ColumnFamily may be present on any crash during this call.
+  virtual Status CreateColumnFamilyWithImport(
+      const ColumnFamilyOptions& options, const std::string& column_family_name,
+      const ImportColumnFamilyOptions& import_options,
+      const ExportImportFilesMetaData& metadata,
+      ColumnFamilyHandle** handle) = 0;
 
   virtual Status VerifyChecksum() = 0;
 

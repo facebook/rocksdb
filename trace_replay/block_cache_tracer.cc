@@ -6,6 +6,7 @@
 #include "trace_replay/block_cache_tracer.h"
 
 #include "db/db_impl/db_impl.h"
+#include "db/dbformat.h"
 #include "rocksdb/slice.h"
 #include "util/coding.h"
 #include "util/hash.h"
@@ -28,14 +29,72 @@ bool ShouldTrace(const Slice& block_key, const TraceOptions& trace_options) {
 }
 }  // namespace
 
+const uint64_t kMicrosInSecond = 1000 * 1000;
+const uint64_t kSecondInMinute = 60;
+const uint64_t kSecondInHour = 3600;
 const std::string BlockCacheTraceHelper::kUnknownColumnFamilyName =
     "UnknownColumnFamily";
+const uint64_t BlockCacheTraceHelper::kReservedGetId = 0;
 
-bool BlockCacheTraceHelper::ShouldTraceReferencedKey(
-    TraceType block_type, BlockCacheLookupCaller caller) {
+bool BlockCacheTraceHelper::IsGetOrMultiGetOnDataBlock(
+    TraceType block_type, TableReaderCaller caller) {
   return (block_type == TraceType::kBlockTraceDataBlock) &&
-         (caller == BlockCacheLookupCaller::kUserGet ||
-          caller == BlockCacheLookupCaller::kUserMGet);
+         IsGetOrMultiGet(caller);
+}
+
+bool BlockCacheTraceHelper::IsGetOrMultiGet(TableReaderCaller caller) {
+  return caller == TableReaderCaller::kUserGet ||
+         caller == TableReaderCaller::kUserMultiGet;
+}
+
+bool BlockCacheTraceHelper::IsUserAccess(TableReaderCaller caller) {
+  return caller == TableReaderCaller::kUserGet ||
+         caller == TableReaderCaller::kUserMultiGet ||
+         caller == TableReaderCaller::kUserIterator ||
+         caller == TableReaderCaller::kUserApproximateSize ||
+         caller == TableReaderCaller::kUserVerifyChecksum;
+}
+
+std::string BlockCacheTraceHelper::ComputeRowKey(
+    const BlockCacheTraceRecord& access) {
+  if (!IsGetOrMultiGet(access.caller)) {
+    return "";
+  }
+  Slice key = ExtractUserKey(access.referenced_key);
+  return std::to_string(access.sst_fd_number) + "_" + key.ToString();
+}
+
+uint64_t BlockCacheTraceHelper::GetTableId(
+    const BlockCacheTraceRecord& access) {
+  if (!IsGetOrMultiGet(access.caller) || access.referenced_key.size() < 4) {
+    return 0;
+  }
+  return static_cast<uint64_t>(DecodeFixed32(access.referenced_key.data())) + 1;
+}
+
+uint64_t BlockCacheTraceHelper::GetSequenceNumber(
+    const BlockCacheTraceRecord& access) {
+  if (!IsGetOrMultiGet(access.caller)) {
+    return 0;
+  }
+  return access.get_from_user_specified_snapshot == Boolean::kFalse
+             ? 0
+             : 1 + GetInternalKeySeqno(access.referenced_key);
+}
+
+uint64_t BlockCacheTraceHelper::GetBlockOffsetInFile(
+    const BlockCacheTraceRecord& access) {
+  Slice input(access.block_key);
+  uint64_t offset = 0;
+  while (true) {
+    uint64_t tmp = 0;
+    if (GetVarint64(&input, &tmp)) {
+      offset = tmp;
+    } else {
+      break;
+    }
+  }
+  return offset;
 }
 
 BlockCacheTraceWriter::BlockCacheTraceWriter(
@@ -64,9 +123,13 @@ Status BlockCacheTraceWriter::WriteBlockAccess(
   trace.payload.push_back(record.caller);
   trace.payload.push_back(record.is_cache_hit);
   trace.payload.push_back(record.no_insert);
-  if (BlockCacheTraceHelper::ShouldTraceReferencedKey(record.block_type,
-                                                      record.caller)) {
+  if (BlockCacheTraceHelper::IsGetOrMultiGet(record.caller)) {
+    PutFixed64(&trace.payload, record.get_id);
+    trace.payload.push_back(record.get_from_user_specified_snapshot);
     PutLengthPrefixedSlice(&trace.payload, referenced_key);
+  }
+  if (BlockCacheTraceHelper::IsGetOrMultiGetOnDataBlock(record.block_type,
+                                                        record.caller)) {
     PutFixed64(&trace.payload, record.referenced_data_size);
     PutFixed64(&trace.payload, record.num_keys_in_block);
     trace.payload.push_back(record.referenced_key_exist_in_block);
@@ -182,7 +245,7 @@ Status BlockCacheTraceReader::ReadAccess(BlockCacheTraceRecord* record) {
     return Status::Incomplete(
         "Incomplete access record: Failed to read caller.");
   }
-  record->caller = static_cast<BlockCacheLookupCaller>(enc_slice[0]);
+  record->caller = static_cast<TableReaderCaller>(enc_slice[0]);
   enc_slice.remove_prefix(kCharSize);
   if (enc_slice.empty()) {
     return Status::Incomplete(
@@ -196,15 +259,28 @@ Status BlockCacheTraceReader::ReadAccess(BlockCacheTraceRecord* record) {
   }
   record->no_insert = static_cast<Boolean>(enc_slice[0]);
   enc_slice.remove_prefix(kCharSize);
-
-  if (BlockCacheTraceHelper::ShouldTraceReferencedKey(record->block_type,
-                                                      record->caller)) {
+  if (BlockCacheTraceHelper::IsGetOrMultiGet(record->caller)) {
+    if (!GetFixed64(&enc_slice, &record->get_id)) {
+      return Status::Incomplete(
+          "Incomplete access record: Failed to read the get id.");
+    }
+    if (enc_slice.empty()) {
+      return Status::Incomplete(
+          "Incomplete access record: Failed to read "
+          "get_from_user_specified_snapshot.");
+    }
+    record->get_from_user_specified_snapshot =
+        static_cast<Boolean>(enc_slice[0]);
+    enc_slice.remove_prefix(kCharSize);
     Slice referenced_key;
     if (!GetLengthPrefixedSlice(&enc_slice, &referenced_key)) {
       return Status::Incomplete(
           "Incomplete access record: Failed to read the referenced key.");
     }
     record->referenced_key = referenced_key.ToString();
+  }
+  if (BlockCacheTraceHelper::IsGetOrMultiGetOnDataBlock(record->block_type,
+                                                        record->caller)) {
     if (!GetFixed64(&enc_slice, &record->referenced_data_size)) {
       return Status::Incomplete(
           "Incomplete access record: Failed to read the referenced data size.");
@@ -233,8 +309,9 @@ Status BlockCacheTracer::StartTrace(
     std::unique_ptr<TraceWriter>&& trace_writer) {
   InstrumentedMutexLock lock_guard(&trace_writer_mutex_);
   if (writer_.load()) {
-    return Status::OK();
+    return Status::Busy();
   }
+  get_id_counter_.store(1);
   trace_options_ = trace_options;
   writer_.store(
       new BlockCacheTraceWriter(env, trace_options, std::move(trace_writer)));
@@ -263,6 +340,18 @@ Status BlockCacheTracer::WriteBlockAccess(const BlockCacheTraceRecord& record,
   }
   return writer_.load()->WriteBlockAccess(record, block_key, cf_name,
                                           referenced_key);
+}
+
+uint64_t BlockCacheTracer::NextGetId() {
+  if (!writer_.load(std::memory_order_relaxed)) {
+    return BlockCacheTraceHelper::kReservedGetId;
+  }
+  uint64_t prev_value = get_id_counter_.fetch_add(1);
+  if (prev_value == BlockCacheTraceHelper::kReservedGetId) {
+    // fetch and add again.
+    return get_id_counter_.fetch_add(1);
+  }
+  return prev_value;
 }
 
 }  // namespace rocksdb

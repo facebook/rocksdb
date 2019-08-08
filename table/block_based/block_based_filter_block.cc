@@ -13,6 +13,7 @@
 #include "db/dbformat.h"
 #include "monitoring/perf_context_imp.h"
 #include "rocksdb/filter_policy.h"
+#include "table/block_based/block_based_table_reader.h"
 #include "util/coding.h"
 #include "util/string_util.h"
 
@@ -162,58 +163,120 @@ void BlockBasedFilterBlockBuilder::GenerateFilter() {
 }
 
 BlockBasedFilterBlockReader::BlockBasedFilterBlockReader(
-    const SliceTransform* prefix_extractor,
-    const BlockBasedTableOptions& table_opt, bool _whole_key_filtering,
-    BlockContents&& contents, Statistics* stats)
-    : FilterBlockReader(contents.data.size(), stats, _whole_key_filtering),
-      policy_(table_opt.filter_policy.get()),
-      prefix_extractor_(prefix_extractor),
-      data_(nullptr),
-      offset_(nullptr),
-      num_(0),
-      base_lg_(0),
-      contents_(std::move(contents)) {
-  assert(policy_);
-  size_t n = contents_.data.size();
-  if (n < 5) return;  // 1 byte for base_lg_ and 4 for start of offset array
-  base_lg_ = contents_.data[n - 1];
-  uint32_t last_word = DecodeFixed32(contents_.data.data() + n - 5);
-  if (last_word > n - 5) return;
-  data_ = contents_.data.data();
-  offset_ = data_ + last_word;
-  num_ = (n - 5 - last_word) / 4;
+    const BlockBasedTable* t, CachableEntry<BlockContents>&& filter_block)
+    : FilterBlockReaderCommon(t, std::move(filter_block)) {
+  assert(table());
+  assert(table()->get_rep());
+  assert(table()->get_rep()->filter_policy);
+}
+
+std::unique_ptr<FilterBlockReader> BlockBasedFilterBlockReader::Create(
+    const BlockBasedTable* table, FilePrefetchBuffer* prefetch_buffer,
+    bool use_cache, bool prefetch, bool pin,
+    BlockCacheLookupContext* lookup_context) {
+  assert(table);
+  assert(table->get_rep());
+  assert(!pin || prefetch);
+
+  CachableEntry<BlockContents> filter_block;
+  if (prefetch || !use_cache) {
+    const Status s = ReadFilterBlock(table, prefetch_buffer, ReadOptions(),
+                                     nullptr /* get_context */, lookup_context,
+                                     &filter_block);
+    if (!s.ok()) {
+      return std::unique_ptr<FilterBlockReader>();
+    }
+
+    if (use_cache && !pin) {
+      filter_block.Reset();
+    }
+  }
+
+  return std::unique_ptr<FilterBlockReader>(
+      new BlockBasedFilterBlockReader(table, std::move(filter_block)));
 }
 
 bool BlockBasedFilterBlockReader::KeyMayMatch(
     const Slice& key, const SliceTransform* /* prefix_extractor */,
-    uint64_t block_offset, const bool /*no_io*/,
-    const Slice* const /*const_ikey_ptr*/,
-    BlockCacheLookupContext* /*context*/) {
+    uint64_t block_offset, const bool no_io,
+    const Slice* const /*const_ikey_ptr*/, GetContext* get_context,
+    BlockCacheLookupContext* lookup_context) {
   assert(block_offset != kNotValid);
-  if (!whole_key_filtering_) {
+  if (!whole_key_filtering()) {
     return true;
   }
-  return MayMatch(key, block_offset);
+  return MayMatch(key, block_offset, no_io, get_context, lookup_context);
 }
 
 bool BlockBasedFilterBlockReader::PrefixMayMatch(
     const Slice& prefix, const SliceTransform* /* prefix_extractor */,
-    uint64_t block_offset, const bool /*no_io*/,
-    const Slice* const /*const_ikey_ptr*/,
-    BlockCacheLookupContext* /*context*/) {
+    uint64_t block_offset, const bool no_io,
+    const Slice* const /*const_ikey_ptr*/, GetContext* get_context,
+    BlockCacheLookupContext* lookup_context) {
   assert(block_offset != kNotValid);
-  return MayMatch(prefix, block_offset);
+  return MayMatch(prefix, block_offset, no_io, get_context, lookup_context);
 }
 
-bool BlockBasedFilterBlockReader::MayMatch(const Slice& entry,
-                                           uint64_t block_offset) {
-  uint64_t index = block_offset >> base_lg_;
-  if (index < num_) {
-    uint32_t start = DecodeFixed32(offset_ + index * 4);
-    uint32_t limit = DecodeFixed32(offset_ + index * 4 + 4);
-    if (start <= limit && limit <= (uint32_t)(offset_ - data_)) {
-      Slice filter = Slice(data_ + start, limit - start);
-      bool const may_match = policy_->KeyMayMatch(entry, filter);
+bool BlockBasedFilterBlockReader::ParseFieldsFromBlock(
+    const BlockContents& contents, const char** data, const char** offset,
+    size_t* num, size_t* base_lg) {
+  assert(data);
+  assert(offset);
+  assert(num);
+  assert(base_lg);
+
+  const size_t n = contents.data.size();
+  if (n < 5) {  // 1 byte for base_lg and 4 for start of offset array
+    return false;
+  }
+
+  const uint32_t last_word = DecodeFixed32(contents.data.data() + n - 5);
+  if (last_word > n - 5) {
+    return false;
+  }
+
+  *data = contents.data.data();
+  *offset = (*data) + last_word;
+  *num = (n - 5 - last_word) / 4;
+  *base_lg = contents.data[n - 1];
+
+  return true;
+}
+
+bool BlockBasedFilterBlockReader::MayMatch(
+    const Slice& entry, uint64_t block_offset, bool no_io,
+    GetContext* get_context, BlockCacheLookupContext* lookup_context) const {
+  CachableEntry<BlockContents> filter_block;
+
+  const Status s =
+      GetOrReadFilterBlock(no_io, get_context, lookup_context, &filter_block);
+  if (!s.ok()) {
+    return true;
+  }
+
+  assert(filter_block.GetValue());
+
+  const char* data = nullptr;
+  const char* offset = nullptr;
+  size_t num = 0;
+  size_t base_lg = 0;
+  if (!ParseFieldsFromBlock(*filter_block.GetValue(), &data, &offset, &num,
+                            &base_lg)) {
+    return true;  // Errors are treated as potential matches
+  }
+
+  const uint64_t index = block_offset >> base_lg;
+  if (index < num) {
+    const uint32_t start = DecodeFixed32(offset + index * 4);
+    const uint32_t limit = DecodeFixed32(offset + index * 4 + 4);
+    if (start <= limit && limit <= (uint32_t)(offset - data)) {
+      const Slice filter = Slice(data + start, limit - start);
+
+      assert(table());
+      assert(table()->get_rep());
+      const FilterPolicy* const policy = table()->get_rep()->filter_policy;
+
+      const bool may_match = policy->KeyMayMatch(entry, filter);
       if (may_match) {
         PERF_COUNTER_ADD(bloom_sst_hit_count, 1);
         return true;
@@ -230,27 +293,54 @@ bool BlockBasedFilterBlockReader::MayMatch(const Slice& entry,
 }
 
 size_t BlockBasedFilterBlockReader::ApproximateMemoryUsage() const {
-  return num_ * 4 + 5 + (offset_ - data_);
+  size_t usage = ApproximateFilterBlockMemoryUsage();
+#ifdef ROCKSDB_MALLOC_USABLE_SIZE
+  usage += malloc_usable_size(const_cast<BlockBasedFilterBlockReader*>(this));
+#else
+  usage += sizeof(*this);
+#endif  // ROCKSDB_MALLOC_USABLE_SIZE
+  return usage;
 }
 
 std::string BlockBasedFilterBlockReader::ToString() const {
+  CachableEntry<BlockContents> filter_block;
+
+  const Status s =
+      GetOrReadFilterBlock(false /* no_io */, nullptr /* get_context */,
+                           nullptr /* lookup_context */, &filter_block);
+  if (!s.ok()) {
+    return std::string("Unable to retrieve filter block");
+  }
+
+  assert(filter_block.GetValue());
+
+  const char* data = nullptr;
+  const char* offset = nullptr;
+  size_t num = 0;
+  size_t base_lg = 0;
+  if (!ParseFieldsFromBlock(*filter_block.GetValue(), &data, &offset, &num,
+                            &base_lg)) {
+    return std::string("Error parsing filter block");
+  }
+
   std::string result;
   result.reserve(1024);
 
   std::string s_bo("Block offset"), s_hd("Hex dump"), s_fb("# filter blocks");
-  AppendItem(&result, s_fb, rocksdb::ToString(num_));
+  AppendItem(&result, s_fb, rocksdb::ToString(num));
   AppendItem(&result, s_bo, s_hd);
 
-  for (size_t index = 0; index < num_; index++) {
-    uint32_t start = DecodeFixed32(offset_ + index * 4);
-    uint32_t limit = DecodeFixed32(offset_ + index * 4 + 4);
+  for (size_t index = 0; index < num; index++) {
+    uint32_t start = DecodeFixed32(offset + index * 4);
+    uint32_t limit = DecodeFixed32(offset + index * 4 + 4);
 
     if (start != limit) {
       result.append(" filter block # " + rocksdb::ToString(index + 1) + "\n");
-      Slice filter = Slice(data_ + start, limit - start);
+      Slice filter = Slice(data + start, limit - start);
       AppendItem(&result, start, filter.ToString(true));
     }
   }
   return result;
 }
+
 }  // namespace rocksdb

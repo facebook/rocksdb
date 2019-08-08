@@ -14,6 +14,7 @@
 #include "table/get_context.h"
 #include "table/internal_iterator.h"
 #include "table/multiget_context.h"
+#include "table/table_reader_caller.h"
 
 namespace rocksdb {
 
@@ -44,11 +45,11 @@ class TableReader {
   //        all the states but those allocated in arena.
   // skip_filters: disables checking the bloom filters even if they exist. This
   //               option is effective only for block-based table format.
+  // compaction_readahead_size: its value will only be used if caller = kCompaction
   virtual InternalIterator* NewIterator(const ReadOptions&,
                                         const SliceTransform* prefix_extractor,
-                                        Arena* arena = nullptr,
-                                        bool skip_filters = false,
-                                        bool for_compaction = false) = 0;
+                                        Arena* arena, bool skip_filters,
+                                        TableReaderCaller caller, size_t compaction_readahead_size = 0) = 0;
 
   virtual FragmentedRangeTombstoneIterator* NewRangeTombstoneIterator(
       const ReadOptions& /*read_options*/) {
@@ -62,7 +63,7 @@ class TableReader {
   // E.g., the approximate offset of the last key in the table will
   // be close to the file length.
   virtual uint64_t ApproximateOffsetOf(const Slice& key,
-                                       bool for_compaction = false) = 0;
+                                       TableReaderCaller caller) = 0;
 
   // Set up the table for Compaction. Might change some parameters with
   // posix_fadvise
@@ -115,17 +116,14 @@ class TableReader {
   }
 
   // convert db file to a human readable form
-  virtual Status DumpTable(WritableFile* /*out_file*/,
-                           const SliceTransform* /*prefix_extractor*/) {
+  virtual Status DumpTable(WritableFile* /*out_file*/) {
     return Status::NotSupported("DumpTable() not supported");
   }
 
   // check whether there is corruption in this db file
-  virtual Status VerifyChecksum() {
+  virtual Status VerifyChecksum(TableReaderCaller /*caller*/) {
     return Status::NotSupported("VerifyChecksum() not supported");
   }
-
-  virtual void Close() {}
 };
 
 }  // namespace rocksdb

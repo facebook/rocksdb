@@ -88,6 +88,17 @@ class StackableDB : public DB {
     return db_->Get(options, column_family, key, value);
   }
 
+  using DB::GetMergeOperands;
+  virtual Status GetMergeOperands(
+      const ReadOptions& options, ColumnFamilyHandle* column_family,
+      const Slice& key, PinnableSlice* slice,
+      GetMergeOperandsOptions* get_merge_operands_options,
+      int* number_of_operands) override {
+    return db_->GetMergeOperands(options, column_family, key, slice,
+                                 get_merge_operands_options,
+                                 number_of_operands);
+  }
+
   using DB::MultiGet;
   virtual std::vector<Status> MultiGet(
       const ReadOptions& options,
@@ -118,6 +129,16 @@ class StackableDB : public DB {
   virtual Status IngestExternalFiles(
       const std::vector<IngestExternalFileArg>& args) override {
     return db_->IngestExternalFiles(args);
+  }
+
+  using DB::CreateColumnFamilyWithImport;
+  virtual Status CreateColumnFamilyWithImport(
+      const ColumnFamilyOptions& options, const std::string& column_family_name,
+      const ImportColumnFamilyOptions& import_options,
+      const ExportImportFilesMetaData& metadata,
+      ColumnFamilyHandle** handle) override {
+    return db_->CreateColumnFamilyWithImport(options, column_family_name,
+                                             import_options, metadata, handle);
   }
 
   virtual Status VerifyChecksum() override { return db_->VerifyChecksum(); }
@@ -199,10 +220,11 @@ class StackableDB : public DB {
   }
 
   using DB::GetApproximateSizes;
-  virtual void GetApproximateSizes(
-      ColumnFamilyHandle* column_family, const Range* r, int n, uint64_t* sizes,
-      uint8_t include_flags = INCLUDE_FILES) override {
-    return db_->GetApproximateSizes(column_family, r, n, sizes, include_flags);
+  virtual Status GetApproximateSizes(const SizeApproximationOptions& options,
+                                     ColumnFamilyHandle* column_family,
+                                     const Range* r, int n,
+                                     uint64_t* sizes) override {
+    return db_->GetApproximateSizes(options, column_family, r, n, sizes);
   }
 
   using DB::GetApproximateMemTableStats;

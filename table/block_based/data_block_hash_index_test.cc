@@ -391,7 +391,7 @@ TEST(DataBlockHashIndex, BlockTestSingleKey) {
   Block reader(std::move(contents), kDisableGlobalSequenceNumber);
 
   const InternalKeyComparator icmp(BytewiseComparator());
-  auto iter = reader.NewIterator<DataBlockIter>(&icmp, icmp.user_comparator());
+  auto iter = reader.NewDataIterator(&icmp, icmp.user_comparator());
   bool may_exist;
   // search in block for the key just inserted
   {
@@ -474,8 +474,7 @@ TEST(DataBlockHashIndex, BlockTestLarge) {
 
   // random seek existent keys
   for (int i = 0; i < num_records; i++) {
-    auto iter =
-        reader.NewIterator<DataBlockIter>(&icmp, icmp.user_comparator());
+    auto iter = reader.NewDataIterator(&icmp, icmp.user_comparator());
     // find a random key in the lookaside array
     int index = rnd.Uniform(num_records);
     std::string ukey(keys[index] + "1" /* existing key marker */);
@@ -512,8 +511,7 @@ TEST(DataBlockHashIndex, BlockTestLarge) {
   //     C         true          false
 
   for (int i = 0; i < num_records; i++) {
-    auto iter =
-        reader.NewIterator<DataBlockIter>(&icmp, icmp.user_comparator());
+    auto iter = reader.NewDataIterator(&icmp, icmp.user_comparator());
     // find a random key in the lookaside array
     int index = rnd.Uniform(num_records);
     std::string ukey(keys[index] + "0" /* non-existing key marker */);
@@ -633,7 +631,7 @@ TEST(DataBlockHashIndex, BlockBoundary) {
     InternalKey seek_ikey(seek_ukey, 60, kTypeValue);
     GetContext get_context(options.comparator, nullptr, nullptr, nullptr,
                            GetContext::kNotFound, seek_ukey, &value, nullptr,
-                           nullptr, nullptr, nullptr);
+                           nullptr, true, nullptr, nullptr);
 
     TestBoundary(ik1, v1, ik2, v2, seek_ikey, get_context, options);
     ASSERT_EQ(get_context.State(), GetContext::kFound);
@@ -658,7 +656,7 @@ TEST(DataBlockHashIndex, BlockBoundary) {
     InternalKey seek_ikey(seek_ukey, 60, kTypeValue);
     GetContext get_context(options.comparator, nullptr, nullptr, nullptr,
                            GetContext::kNotFound, seek_ukey, &value, nullptr,
-                           nullptr, nullptr, nullptr);
+                           nullptr, true, nullptr, nullptr);
 
     TestBoundary(ik1, v1, ik2, v2, seek_ikey, get_context, options);
     ASSERT_EQ(get_context.State(), GetContext::kFound);
@@ -683,7 +681,7 @@ TEST(DataBlockHashIndex, BlockBoundary) {
     InternalKey seek_ikey(seek_ukey, 120, kTypeValue);
     GetContext get_context(options.comparator, nullptr, nullptr, nullptr,
                            GetContext::kNotFound, seek_ukey, &value, nullptr,
-                           nullptr, nullptr, nullptr);
+                           nullptr, true, nullptr, nullptr);
 
     TestBoundary(ik1, v1, ik2, v2, seek_ikey, get_context, options);
     ASSERT_EQ(get_context.State(), GetContext::kFound);
@@ -708,7 +706,7 @@ TEST(DataBlockHashIndex, BlockBoundary) {
     InternalKey seek_ikey(seek_ukey, 5, kTypeValue);
     GetContext get_context(options.comparator, nullptr, nullptr, nullptr,
                            GetContext::kNotFound, seek_ukey, &value, nullptr,
-                           nullptr, nullptr, nullptr);
+                           nullptr, true, nullptr, nullptr);
 
     TestBoundary(ik1, v1, ik2, v2, seek_ikey, get_context, options);
     ASSERT_EQ(get_context.State(), GetContext::kNotFound);

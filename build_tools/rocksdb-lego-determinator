@@ -63,6 +63,21 @@ CLEANUP_ENV="
     'user':'root'
 }"
 
+UPLOAD_DB_DIR="
+{
+    'name':'Upload database directory',
+    'shell':'tar -cvzf rocksdb_db.tar.gz /dev/shm/rocksdb/',
+    'user':'root',
+    'cleanup':true,
+    'provide_artifacts': [
+    {
+      'name':'rocksdb_db_dir',
+      'paths': ['rocksdb_db.tar.gz'],
+      'bundle': false,
+    },
+    ],
+}"
+
 # We will eventually set the RATIO to 1, but we want do this
 # in steps. RATIO=$(nproc) will make it work as J=1
 if [ -z $RATIO ]; then
@@ -428,7 +443,8 @@ STRESS_CRASH_TEST_WITH_ATOMIC_FLUSH_COMMANDS="[
                 'shell':'$SHM $DEBUG $NON_TSAN_CRASH make J=1 crash_test_with_atomic_flush || $CONTRUN_NAME=crash_test_with_atomic_flush $TASK_CREATION_TOOL',
                 'user':'root',
                 $PARSER
-            }
+            },
+            $UPLOAD_DB_DIR,
         ],
         $REPORT
     }
@@ -519,6 +535,7 @@ ASAN_CRASH_TEST_WITH_ATOMIC_FLUSH_COMMANDS="[
                 'user':'root',
                 $PARSER
             },
+            $UPLOAD_DB_DIR,
         ],
         $REPORT
     }
@@ -586,6 +603,7 @@ UBSAN_CRASH_TEST_WITH_ATOMIC_FLUSH_COMMANDS="[
                 'user':'root',
                 $PARSER
             },
+            $UPLOAD_DB_DIR,
         ],
         $REPORT
     }
@@ -678,6 +696,7 @@ TSAN_CRASH_TEST_WITH_ATOMIC_FLUSH_COMMANDS="[
                 'user':'root',
                 $PARSER
             },
+            $UPLOAD_DB_DIR,
         ],
         $REPORT
     }

@@ -172,7 +172,8 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
       w.status = WriteBatchInternal::InsertInto(
           &w, w.sequence, &column_family_memtables, &flush_scheduler_,
           write_options.ignore_missing_column_families, 0 /*log_number*/, this,
-          true /*concurrent_memtable_writes*/, seq_per_batch_, w.batch_cnt);
+          true /*concurrent_memtable_writes*/, seq_per_batch_, w.batch_cnt,
+          batch_per_txn_);
 
       PERF_TIMER_START(write_pre_and_post_process_time);
     }
@@ -1228,6 +1229,7 @@ Status DBImpl::SwitchWAL(WriteContext* write_context) {
         cfds.push_back(cfd);
       }
     }
+    MaybeFlushStatsCF(&cfds);
   }
   for (const auto cfd : cfds) {
     cfd->Ref();
@@ -1294,6 +1296,7 @@ Status DBImpl::HandleWriteBufferFull(WriteContext* write_context) {
     if (cfd_picked != nullptr) {
       cfds.push_back(cfd_picked);
     }
+    MaybeFlushStatsCF(&cfds);
   }
 
   for (const auto cfd : cfds) {
@@ -1437,6 +1440,40 @@ Status DBImpl::ThrottleLowPriWritesIfNeeded(const WriteOptions& write_options,
   return Status::OK();
 }
 
+void DBImpl::MaybeFlushStatsCF(autovector<ColumnFamilyData*>* cfds) {
+  assert(cfds != nullptr);
+  if (!cfds->empty() && immutable_db_options_.persist_stats_to_disk) {
+    ColumnFamilyData* cfd_stats =
+        versions_->GetColumnFamilySet()->GetColumnFamily(
+            kPersistentStatsColumnFamilyName);
+    if (cfd_stats != nullptr && !cfd_stats->mem()->IsEmpty()) {
+      for (ColumnFamilyData* cfd : *cfds) {
+        if (cfd == cfd_stats) {
+          // stats CF already included in cfds
+          return;
+        }
+      }
+      // force flush stats CF when its log number is less than all other CF's
+      // log numbers
+      bool force_flush_stats_cf = true;
+      for (auto* loop_cfd : *versions_->GetColumnFamilySet()) {
+        if (loop_cfd == cfd_stats) {
+          continue;
+        }
+        if (loop_cfd->GetLogNumber() <= cfd_stats->GetLogNumber()) {
+          force_flush_stats_cf = false;
+        }
+      }
+      if (force_flush_stats_cf) {
+        cfds->push_back(cfd_stats);
+        ROCKS_LOG_INFO(immutable_db_options_.info_log,
+                       "Force flushing stats CF with automated flush "
+                       "to avoid holding old logs");
+      }
+    }
+  }
+}
+
 Status DBImpl::ScheduleFlushes(WriteContext* context) {
   autovector<ColumnFamilyData*> cfds;
   if (immutable_db_options_.atomic_flush) {
@@ -1450,6 +1487,7 @@ Status DBImpl::ScheduleFlushes(WriteContext* context) {
     while ((tmp_cfd = flush_scheduler_.TakeNextColumnFamily()) != nullptr) {
       cfds.push_back(tmp_cfd);
     }
+    MaybeFlushStatsCF(&cfds);
   }
   Status status;
   for (auto& cfd : cfds) {
@@ -1696,14 +1734,16 @@ Status DB::Put(const WriteOptions& opt, ColumnFamilyHandle* column_family,
     }
     return Write(opt, &batch);
   }
-  Slice akey;
-  std::string buf;
-  Status s = AppendTimestamp(key, *(opt.timestamp), &akey, &buf);
+  const Slice* ts = opt.timestamp;
+  assert(nullptr != ts);
+  size_t ts_sz = ts->size();
+  WriteBatch batch(key.size() + ts_sz + value.size() + 24, /*max_bytes=*/0,
+                   ts_sz);
+  Status s = batch.Put(column_family, key, value);
   if (!s.ok()) {
     return s;
   }
-  WriteBatch batch(akey.size() + value.size() + 24);
-  s = batch.Put(column_family, akey, value);
+  s = batch.AssignTimestamp(*ts);
   if (!s.ok()) {
     return s;
   }

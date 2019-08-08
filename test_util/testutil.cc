@@ -9,7 +9,9 @@
 
 #include "test_util/testutil.h"
 
+#include <array>
 #include <cctype>
+#include <fstream>
 #include <sstream>
 
 #include "db/memtable_list.h"
@@ -197,8 +199,12 @@ BlockBasedTableOptions RandomBlockBasedTableOptions(Random* rnd) {
   opt.cache_index_and_filter_blocks = rnd->Uniform(2);
   opt.pin_l0_filter_and_index_blocks_in_cache = rnd->Uniform(2);
   opt.pin_top_level_index_and_filter = rnd->Uniform(2);
-  opt.index_type = rnd->Uniform(2) ? BlockBasedTableOptions::kBinarySearch
-                                   : BlockBasedTableOptions::kHashSearch;
+  using IndexType = BlockBasedTableOptions::IndexType;
+  const std::array<IndexType, 4> index_types = {
+      {IndexType::kBinarySearch, IndexType::kHashSearch,
+       IndexType::kTwoLevelIndexSearch, IndexType::kBinarySearchWithFirstKey}};
+  opt.index_type =
+      index_types[rnd->Uniform(static_cast<int>(index_types.size()))];
   opt.hash_index_allow_collision = rnd->Uniform(2);
   opt.checksum = static_cast<ChecksumType>(rnd->Uniform(3));
   opt.block_size = rnd->Uniform(10000000);
@@ -419,6 +425,23 @@ bool IsDirectIOSupported(Env* env, const std::string& dir) {
     s = env->DeleteFile(tmp);
   }
   return s.ok();
+}
+
+size_t GetLinesCount(const std::string& fname, const std::string& pattern) {
+  std::stringstream ssbuf;
+  std::string line;
+  size_t count = 0;
+
+  std::ifstream inFile(fname.c_str());
+  ssbuf << inFile.rdbuf();
+
+  while (getline(ssbuf, line)) {
+    if (line.find(pattern) != std::string::npos) {
+      count++;
+    }
+  }
+
+  return count;
 }
 
 }  // namespace test

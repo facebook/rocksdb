@@ -143,15 +143,14 @@ Status SstFileDumper::NewTableReader(
 }
 
 Status SstFileDumper::VerifyChecksum() {
-  return table_reader_->VerifyChecksum();
+  return table_reader_->VerifyChecksum(TableReaderCaller::kSSTDumpTool);
 }
 
 Status SstFileDumper::DumpTable(const std::string& out_filename) {
   std::unique_ptr<WritableFile> out_file;
   Env* env = Env::Default();
   env->NewWritableFile(out_filename, &out_file, soptions_);
-  Status s = table_reader_->DumpTable(out_file.get(),
-                                      moptions_.prefix_extractor.get());
+  Status s = table_reader_->DumpTable(out_file.get());
   out_file->Close();
   return s;
 }
@@ -173,7 +172,8 @@ uint64_t SstFileDumper::CalculateCompressedTableSize(
       TablePropertiesCollectorFactory::Context::kUnknownColumnFamily,
       dest_writer.get()));
   std::unique_ptr<InternalIterator> iter(table_reader_->NewIterator(
-      ReadOptions(), moptions_.prefix_extractor.get()));
+      ReadOptions(), moptions_.prefix_extractor.get(), /*arena=*/nullptr,
+      /*skip_filters=*/false, TableReaderCaller::kSSTDumpTool));
   for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
     if (!iter->status().ok()) {
       fputs(iter->status().ToString().c_str(), stderr);
@@ -299,7 +299,9 @@ Status SstFileDumper::ReadSequential(bool print_kv, uint64_t read_num,
   }
 
   InternalIterator* iter = table_reader_->NewIterator(
-      ReadOptions(verify_checksum_, false), moptions_.prefix_extractor.get());
+      ReadOptions(verify_checksum_, false), moptions_.prefix_extractor.get(),
+      /*arena=*/nullptr, /*skip_filters=*/false,
+      TableReaderCaller::kSSTDumpTool);
   uint64_t i = 0;
   if (has_from) {
     InternalKey ikey;

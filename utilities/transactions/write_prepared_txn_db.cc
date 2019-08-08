@@ -226,16 +226,22 @@ Status WritePreparedTxnDB::Get(const ReadOptions& options,
                                ColumnFamilyHandle* column_family,
                                const Slice& key, PinnableSlice* value) {
   SequenceNumber min_uncommitted, snap_seq;
-  const bool backed_by_snapshot =
+  const SnapshotBackup backed_by_snapshot =
       AssignMinMaxSeqs(options.snapshot, &min_uncommitted, &snap_seq);
-  WritePreparedTxnReadCallback callback(this, snap_seq, min_uncommitted);
+  WritePreparedTxnReadCallback callback(this, snap_seq, min_uncommitted,
+                                        backed_by_snapshot);
   bool* dont_care = nullptr;
-  auto res = db_impl_->GetImpl(options, column_family, key, value, dont_care,
-                               &callback);
-  if (LIKELY(
-          ValidateSnapshot(callback.max_visible_seq(), backed_by_snapshot))) {
+  DBImpl::GetImplOptions get_impl_options;
+  get_impl_options.column_family = column_family;
+  get_impl_options.value = value;
+  get_impl_options.value_found = dont_care;
+  get_impl_options.callback = &callback;
+  auto res = db_impl_->GetImpl(options, key, get_impl_options);
+  if (LIKELY(callback.valid() && ValidateSnapshot(callback.max_visible_seq(),
+                                                  backed_by_snapshot))) {
     return res;
   } else {
+    WPRecordTick(TXN_GET_TRY_AGAIN);
     return Status::TryAgain();
   }
 }
@@ -298,7 +304,8 @@ struct WritePreparedTxnDB::IteratorState {
   IteratorState(WritePreparedTxnDB* txn_db, SequenceNumber sequence,
                 std::shared_ptr<ManagedSnapshot> s,
                 SequenceNumber min_uncommitted)
-      : callback(txn_db, sequence, min_uncommitted), snapshot(s) {}
+      : callback(txn_db, sequence, min_uncommitted, kBackedByDBSnapshot),
+        snapshot(s) {}
 
   WritePreparedTxnReadCallback callback;
   std::shared_ptr<ManagedSnapshot> snapshot;
@@ -392,6 +399,7 @@ void WritePreparedTxnDB::Init(const TransactionDBOptions& /* unused */) {
       new std::atomic<SequenceNumber>[SNAPSHOT_CACHE_SIZE] {});
   commit_cache_ = std::unique_ptr<std::atomic<CommitEntry64b>[]>(
       new std::atomic<CommitEntry64b>[COMMIT_CACHE_SIZE] {});
+  dummy_max_snapshot_.number_ = kMaxSequenceNumber;
 }
 
 void WritePreparedTxnDB::CheckPreparedAgainstMax(SequenceNumber new_max,
