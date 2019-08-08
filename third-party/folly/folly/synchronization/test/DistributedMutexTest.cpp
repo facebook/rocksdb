@@ -13,6 +13,8 @@
 #include <gtest/gtest.h>
 #endif
 
+#ifndef ROCKSDB_LITE
+
 #include <chrono>
 #include <cmath>
 #include <thread>
@@ -960,7 +962,6 @@ class ExceptionWithConstructionTrack : public std::exception {
 TEST(DistributedMutex, TestExceptionPropagationUncontended) {
   TestConstruction::reset();
   auto&& mutex = folly::DistributedMutex{};
-
   auto&& thread = std::thread{[&]() {
     try {
       mutex.lock_combine([&]() { throw ExceptionWithConstructionTrack{46}; });
@@ -969,11 +970,9 @@ TEST(DistributedMutex, TestExceptionPropagationUncontended) {
       EXPECT_EQ(integer, 46);
       EXPECT_GT(TestConstruction::defaultConstructs(), 0);
     }
-
     EXPECT_EQ(
         TestConstruction::defaultConstructs(), TestConstruction::destructs());
   }};
-
   thread.join();
 }
 
@@ -1123,6 +1122,7 @@ TEST(DistributedMutex, StressBigValueReturnSixtyFourThreads) {
 }
 
 } // namespace folly
+#endif  // ROCKSDB_LITE
 
 int main(int argc, char** argv) {
   ::testing::InitGoogleTest(&argc, argv);
