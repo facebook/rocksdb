@@ -239,8 +239,6 @@ class AwsEnv : public CloudEnvImpl {
 
   bool IsRunning() const { return running_; }
 
-
-
   std::string GetWALCacheDir();
 
   std::shared_ptr<Logger> info_log_;  // informational messages
@@ -351,15 +349,6 @@ class AwsEnv : public CloudEnvImpl {
       files_to_delete_;
 
   Aws::S3::Model::BucketLocationConstraint bucket_location_;
-
-  // Is there a src bucket specified?
-  bool has_src_bucket_;
-
-  // Is there a dest bucket specified?
-  bool has_dest_bucket_;
-
-  // Is the src bucket different from the destination bucket?
-  bool dest_equal_src_;
 
   Status status();
 

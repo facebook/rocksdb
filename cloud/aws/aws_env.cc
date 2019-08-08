@@ -264,10 +264,7 @@ AwsEnv::AwsEnv(Env* underlying_env,
     : CloudEnvImpl(_cloud_env_options,
                    underlying_env),
       info_log_(info_log),
-      running_(true),
-      has_src_bucket_(false),
-      has_dest_bucket_(false),
-      dest_equal_src_(false) {
+      running_(true) {
   Aws::InitAPI(Aws::SDKOptions());
   if (cloud_env_options.src_bucket.GetRegion().empty() ||
       cloud_env_options.dest_bucket.GetRegion().empty()) {
@@ -282,14 +279,6 @@ AwsEnv::AwsEnv(Env* underlying_env,
       cloud_env_options.dest_bucket.SetRegion(region);
     }
   }
-  has_src_bucket_ = cloud_env_options.src_bucket.IsValid();
-  has_dest_bucket_ = cloud_env_options.dest_bucket.IsValid();
-
-  // Do we have two unique buckets?
-  dest_equal_src_ = has_src_bucket_ && has_dest_bucket_ &&
-                    GetSrcBucketName() == GetDestBucketName() &&
-                    GetSrcObjectPath() == GetDestObjectPath();
-
 
   unique_ptr<Aws::Auth::AWSCredentials> creds;
   if (!cloud_env_options.credentials.access_key_id.empty() &&
@@ -328,7 +317,7 @@ AwsEnv::AwsEnv(Env* underlying_env,
   }
 
   // TODO: support buckets being in different regions
-  if (!dest_equal_src_ && has_src_bucket_ && has_dest_bucket_) {
+  if (!SrcMatchesDest() && HasSrcBucket() && HasDestBucket()) {
     if (cloud_env_options.src_bucket.GetRegion() == cloud_env_options.dest_bucket.GetRegion()) {
       // alls good
     } else {
@@ -373,7 +362,7 @@ AwsEnv::AwsEnv(Env* underlying_env,
   }
 
   // create dest bucket if specified
-  if (has_dest_bucket_) {
+  if (HasDestBucket()) {
     if (S3WritableFile::BucketExistsInS3(s3client_, GetDestBucketName(),
                                          bucket_location_)
             .ok()) {
@@ -555,10 +544,10 @@ Status AwsEnv::NewSequentialFile(const std::string& logical_fname,
     if (!st.ok()) {
       if (cloud_env_options.keep_local_sst_files || !sstfile) {
         // copy the file to the local storage if keep_local_sst_files is true
-        if (has_dest_bucket_) {
+        if (HasDestBucket()) {
           st = GetObject(GetDestBucketName(), destname(fname), fname);
         }
-        if (!st.ok() && has_src_bucket_ && !dest_equal_src_) {
+        if (!st.ok() && HasSrcBucket() && !SrcMatchesDest()) {
           st = GetObject(GetSrcBucketName(), srcname(fname), fname);
         }
         if (st.ok()) {
@@ -567,10 +556,10 @@ Status AwsEnv::NewSequentialFile(const std::string& logical_fname,
         }
       } else {
         unique_ptr<S3ReadableFile> file;
-        if (!st.ok() && has_dest_bucket_) {  // read from destination S3
+        if (!st.ok() && HasDestBucket()) {  // read from destination S3
           st = NewS3ReadableFile(GetDestBucketName(), destname(fname), &file);
         }
-        if (!st.ok() && has_src_bucket_) {  // read from src bucket
+        if (!st.ok() && HasSrcBucket()) {  // read from src bucket
           st = NewS3ReadableFile(GetSrcBucketName(), srcname(fname), &file);
         }
         if (st.ok()) {
@@ -636,10 +625,10 @@ Status AwsEnv::NewRandomAccessFile(const std::string& logical_fname,
     if (cloud_env_options.keep_local_sst_files || !sstfile) {
       if (!st.ok()) {
         // copy the file to the local storage if keep_local_sst_files is true
-        if (has_dest_bucket_) {
+        if (HasDestBucket()) {
           st = GetObject(GetDestBucketName(), destname(fname), fname);
         }
-        if (!st.ok() && has_src_bucket_ && !dest_equal_src_) {
+        if (!st.ok() && HasSrcBucket() && !SrcMatchesDest()) {
           st = GetObject(GetSrcBucketName(), srcname(fname), fname);
         }
         if (st.ok()) {
@@ -657,15 +646,15 @@ Status AwsEnv::NewRandomAccessFile(const std::string& logical_fname,
           return stax;
         }
         stax = Status::NotFound();
-        if (has_dest_bucket_) {
+        if (HasDestBucket()) {
           stax = HeadObject(GetDestBucketName(), destname(fname), nullptr,
                             &remote_size, nullptr);
         }
-        if (stax.IsNotFound() && has_src_bucket_) {
+        if (stax.IsNotFound() && HasSrcBucket()) {
           stax = HeadObject(GetSrcBucketName(), srcname(fname), nullptr,
                             &remote_size, nullptr);
         }
-        if (stax.IsNotFound() && !has_dest_bucket_) {
+        if (stax.IsNotFound() && !HasDestBucket()) {
           // It is legal for file to not be present in S3 if destination bucket
           // is not set.
         } else if (!stax.ok() || remote_size != local_size) {
@@ -681,10 +670,10 @@ Status AwsEnv::NewRandomAccessFile(const std::string& logical_fname,
       // true, we will never use S3ReadableFile to read; we copy the file
       // locally and read using base_env.
       unique_ptr<S3ReadableFile> file;
-      if (!st.ok() && has_dest_bucket_) {
+      if (!st.ok() && HasDestBucket()) {
         st = NewS3ReadableFile(GetDestBucketName(), destname(fname), &file);
       }
-      if (!st.ok() && has_src_bucket_) {
+      if (!st.ok() && HasSrcBucket()) {
         st = NewS3ReadableFile(GetSrcBucketName(), srcname(fname), &file);
       }
       if (st.ok()) {
@@ -734,7 +723,7 @@ Status AwsEnv::NewWritableFile(const std::string& logical_fname,
 
   Status s;
 
-  if (has_dest_bucket_ && (sstfile || identity || manifest)) {
+  if (HasDestBucket() && (sstfile || identity || manifest)) {
     unique_ptr<S3WritableFile> f(
         new S3WritableFile(this, fname, GetDestBucketName(), destname(fname),
                            options, cloud_env_options));
@@ -834,10 +823,10 @@ Status AwsEnv::FileExists(const std::string& logical_fname) {
   if (sstfile || manifest || identity) {
     // We read first from local storage and then from cloud storage.
     st = base_env_->FileExists(fname);
-    if (st.IsNotFound() && has_dest_bucket_) {
+    if (st.IsNotFound() && HasDestBucket()) {
       st = ExistsObject(GetDestBucketName(), destname(fname));
     }
-    if (!st.ok() && has_src_bucket_) {
+    if (!st.ok() && HasSrcBucket()) {
       st = ExistsObject(GetSrcBucketName(), srcname(fname));
     }
   } else if (logfile && !cloud_env_options.keep_local_log_files) {
@@ -1026,7 +1015,7 @@ Status AwsEnv::GetChildren(const std::string& path,
 
   // Fetch the list of children from both buckets in S3
   Status st;
-  if (has_src_bucket_) {
+  if (HasSrcBucket()) {
     st = GetChildrenFromS3(GetSrcObjectPath(), GetSrcBucketName(), result);
     if (!st.ok()) {
       Log(InfoLogLevel::ERROR_LEVEL, info_log_,
@@ -1035,7 +1024,7 @@ Status AwsEnv::GetChildren(const std::string& path,
       return st;
     }
   }
-  if (has_dest_bucket_ && !dest_equal_src_) {
+  if (HasDestBucket() && !SrcMatchesDest()) {
     st = GetChildrenFromS3(GetDestObjectPath(), GetDestBucketName(), result);
     if (!st.ok()) {
       Log(InfoLogLevel::ERROR_LEVEL, info_log_,
@@ -1135,7 +1124,7 @@ Status AwsEnv::DeleteFile(const std::string& logical_fname) {
   Status st;
   // Delete from destination bucket and local dir
   if (sstfile || manifest || identity) {
-    if (has_dest_bucket_) {
+    if (HasDestBucket()) {
       // add the remote file deletion to the queue
       st = DeleteCloudFileFromDest(basename(fname));
     }
@@ -1164,7 +1153,7 @@ Status AwsEnv::DeleteFile(const std::string& logical_fname) {
 }
 
 Status AwsEnv::DeleteCloudFileFromDest(const std::string& fname) {
-  assert(!GetDestBucketName().empty());
+  assert(HasDestBucket());
   auto base = basename(fname);
   // add the job to delete the file in 1 hour
   auto doDeleteFile = [this, base]() {
@@ -1302,11 +1291,11 @@ Status AwsEnv::GetFileSize(const std::string& logical_fname, uint64_t* size) {
     } else {
       st = Status::NotFound();
       // Get file length from S3
-      if (has_dest_bucket_) {
+      if (HasDestBucket()) {
         st = HeadObject(GetDestBucketName(), destname(fname), nullptr, size,
                         nullptr);
       }
-      if (st.IsNotFound() && has_src_bucket_) {
+      if (st.IsNotFound() && HasSrcBucket()) {
         st = HeadObject(GetSrcBucketName(), srcname(fname), nullptr, size,
                         nullptr);
       }
@@ -1349,11 +1338,11 @@ Status AwsEnv::GetFileModificationTime(const std::string& logical_fname,
       st = base_env_->GetFileModificationTime(fname, time);
     } else {
       st = Status::NotFound();
-      if (has_dest_bucket_) {
+      if (HasDestBucket()) {
         st = HeadObject(GetDestBucketName(), destname(fname), nullptr,
                         nullptr, time);
       }
-      if (st.IsNotFound() && has_src_bucket_) {
+      if (st.IsNotFound() && HasSrcBucket()) {
         st = HeadObject(GetSrcBucketName(), srcname(fname), nullptr, nullptr,
                         time);
       }
@@ -1419,12 +1408,12 @@ Status AwsEnv::RenameFile(const std::string& logical_src,
     assert(0);
     return Status::NotSupported(Slice(src), Slice(target));
 
-  } else if (!identity || !has_dest_bucket_) {
+  } else if (!identity || !HasDestBucket()) {
     return base_env_->RenameFile(src, target);
   }
   // Only ID file should come here
   assert(identity);
-  assert(has_dest_bucket_);
+  assert(HasDestBucket());
   assert(basename(target) == "IDENTITY");
 
   // Save Identity to S3
@@ -1442,7 +1431,7 @@ Status AwsEnv::RenameFile(const std::string& logical_src,
 
 Status AwsEnv::LinkFile(const std::string& src, const std::string& target) {
   // We only know how to link file if both src and dest buckets are empty
-  if (has_dest_bucket_ || has_src_bucket_) {
+  if (HasDestBucket() || HasSrcBucket()) {
     return Status::NotSupported();
   }
   auto src_remapped = RemapFilename(src);
