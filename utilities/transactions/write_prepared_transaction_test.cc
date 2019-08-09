@@ -1575,6 +1575,68 @@ TEST_P(WritePreparedTransactionTest, AdvanceMaxEvictedSeqWithDuplicatesTest) {
   delete txn0;
 }
 
+// Stress SmallestUnCommittedSeq, which reads from both prepared_txns_ and
+// delayed_prepared_, when is run concurrently with advancing max_evicted_seq,
+// which moves prepared txns from prepared_txns_ to delayed_prepared_.
+TEST_P(WritePreparedTransactionTest, SmallestUnCommittedSeq) {
+  const size_t snapshot_cache_bits = 7;  // same as default
+  const size_t commit_cache_bits = 1;    // disable commit cache
+  UpdateTransactionDBOptions(snapshot_cache_bits, commit_cache_bits);
+  ReOpen();
+  WritePreparedTxnDB* wp_db = dynamic_cast<WritePreparedTxnDB*>(db);
+  ReadOptions ropt;
+  PinnableSlice pinnable_val;
+  WriteOptions write_options;
+  TransactionOptions txn_options;
+  std::vector<Transaction*> txns, committed_txns;
+
+  const int cnt = 100;
+  for (int i = 0; i < cnt; i++) {
+    Transaction* txn = db->BeginTransaction(write_options, txn_options);
+    ASSERT_OK(txn->SetName("xid" + ToString(i)));
+    auto key = "key1" + ToString(i);
+    auto value = "value1" + ToString(i);
+    ASSERT_OK(txn->Put(Slice(key), Slice(value)));
+    ASSERT_OK(txn->Prepare());
+    txns.push_back(txn);
+  }
+
+  port::Mutex mutex;
+  Random rnd(1103);
+  rocksdb::port::Thread commit_thread([&]() {
+    for (int i = 0; i < cnt; i++) {
+      uint32_t index = rnd.Uniform(cnt - i);
+      Transaction* txn;
+      {
+        MutexLock l(&mutex);
+        txn = txns[index];
+        txns.erase(txns.begin() + index);
+      }
+      // Since commit cahce is practically disabled, commit results in immediate
+      // advance in max_evicted_seq_ and subsequently moving some prepared txns
+      // to delayed_prepared_.
+      txn->Commit();
+      committed_txns.push_back(txn);
+    }
+  });
+  rocksdb::port::Thread read_thread([&]() {
+    while (1) {
+      MutexLock l(&mutex);
+      if (txns.empty()) {
+        break;
+      }
+      auto min_uncommitted = wp_db->SmallestUnCommittedSeq();
+      ASSERT_LE(min_uncommitted, (*txns.begin())->GetId());
+    }
+  });
+
+  commit_thread.join();
+  read_thread.join();
+  for (auto txn : committed_txns) {
+    delete txn;
+  }
+}
+
 TEST_P(SeqAdvanceConcurrentTest, SeqAdvanceConcurrentTest) {
   // Given the sequential run of txns, with this timeout we should never see a
   // deadlock nor a timeout unless we have a key conflict, which should be
