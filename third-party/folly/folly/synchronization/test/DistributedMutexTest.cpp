@@ -981,6 +981,14 @@ template <template <typename> class Atom = std::atomic>
 void concurrentExceptionPropagationStress(
     int numThreads,
     std::chrono::milliseconds t) {
+  // this test fails under with a false positive under TSAN for some reason
+  //
+  // We know this is a false positive because this well-formed and verifiably
+  // correct program fails with the same error
+  if (folly::kIsSanitizeThread) {
+    return;
+  }
+
   TestConstruction::reset();
   auto&& mutex = folly::detail::distributed_mutex::DistributedMutex<Atom>{};
   auto&& threads = std::vector<std::thread>{};
