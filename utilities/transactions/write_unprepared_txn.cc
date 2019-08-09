@@ -61,13 +61,10 @@ WriteUnpreparedTxn::~WriteUnpreparedTxn() {
       auto s = RollbackInternal();
       assert(s.ok());
       if (!s.ok()) {
-        ROCKS_LOG_ERROR(
+        ROCKS_LOG_FATAL(
             wupt_db_->info_log_,
             "Rollback of WriteUnprepared transaction failed in destructor: %s",
             s.ToString().c_str());
-        throw std::runtime_error(
-            "Rollback of WriteUnprepared transaction failed in destructor: " +
-            s.ToString());
       }
       dbimpl_->logs_with_prep_tracker()->MarkLogAsHavingPrepSectionFlushed(
           log_number_);
@@ -241,7 +238,10 @@ Status WriteUnpreparedTxn::RebuildFromWriteBatch(WriteBatch* wb) {
 Status WriteUnpreparedTxn::MaybeFlushWriteBatchToDB() {
   const bool kPrepared = true;
   Status s;
-  if (write_batch_flush_threshold_ > 0 && write_batch_.GetWriteBatch()->Count() > 0 && write_batch_.GetDataSize() > static_cast<size_t>(write_batch_flush_threshold_)) {
+  if (write_batch_flush_threshold_ > 0 &&
+      write_batch_.GetWriteBatch()->Count() > 0 &&
+      write_batch_.GetDataSize() >
+          static_cast<size_t>(write_batch_flush_threshold_)) {
     assert(GetState() != PREPARED);
     s = FlushWriteBatchToDB(!kPrepared);
   }
@@ -263,13 +263,16 @@ Status WriteUnpreparedTxn::FlushWriteBatchToDB(bool prepared) {
 }
 
 Status WriteUnpreparedTxn::FlushWriteBatchToDBInternal(bool prepared) {
-  static std::atomic_ullong autogen_id{0};
   if (name_.empty()) {
     assert(!prepared);
+#ifndef NDEBUG
+    static std::atomic_ullong autogen_id{0};
     // To avoid changing all tests to call SetName, just autogenerate one.
     if (wupt_db_->txn_db_options_.autogenerate_name) {
       SetName(std::string("autoxid") + ToString(autogen_id.fetch_add(1)));
-    } else {
+    } else
+#endif
+    {
       Status::InvalidArgument("Cannot write to DB without SetName.");
     }
   }

@@ -145,6 +145,15 @@ class WriteUnpreparedTxn : public WritePreparedTxn {
                               const SliceParts& key,
                               const bool assume_tracked = false) override;
 
+  // In WriteUnprepared, untracked writes will break snapshot validation logic.
+  // Snapshot validation will only check the largest sequence number of a key to
+  // see if it was committed or not. However, an untracked unprepared write will
+  // hide smaller committed sequence numbers.
+  //
+  // TODO(lth): Investigate whether it is worth having snapshot validation
+  // validate all values larger than snap_seq. Otherwise, we should return
+  // Status::NotSupported for untracked writes.
+
   virtual Status RebuildFromWriteBatch(WriteBatch*) override;
 
   virtual uint64_t GetLastLogNumber() const override {

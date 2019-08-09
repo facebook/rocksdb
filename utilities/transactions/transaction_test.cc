@@ -3128,17 +3128,12 @@ TEST_P(TransactionTest, LostUpdate) {
 }
 
 TEST_P(TransactionTest, UntrackedWrites) {
-  // In WriteUnprepared, untracked writes will break snapshot validation logic.
-  // Snapshot validation will only check the largest sequence number of a key to
-  // see if it was committed or not. However, an untracked unprepared write will
-  // hide smaller committed sequence numbers.
-  //
-  // TODO(lth): To fix this, snapshot validation will have to validate all
-  // values larger than snap_seq. If the performance cost is too high, then for
-  // WriteUnprepard, return Status::NotSupported for the untracked calls.
   if (txn_db_options.write_policy == WRITE_UNPREPARED) {
+    // TODO(lth): For WriteUnprepared, validate that untracked writes are
+    // not supported.
     return;
   }
+
   WriteOptions write_options;
   ReadOptions read_options;
   std::string value;
