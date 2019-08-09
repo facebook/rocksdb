@@ -17,9 +17,11 @@
 #include "memtable/hash_skiplist_rep.h"
 #include "options/options_parser.h"
 #include "port/port.h"
+#include "port/stack_trace.h"
 #include "rocksdb/db.h"
 #include "rocksdb/env.h"
 #include "rocksdb/iterator.h"
+#include "rocksdb/utilities/object_registry.h"
 #include "test_util/fault_injection_test_env.h"
 #include "test_util/sync_point.h"
 #include "test_util/testharness.h"
@@ -60,8 +62,18 @@ class EnvCounter : public EnvWrapper {
 
 class ColumnFamilyTestBase : public testing::Test {
  public:
-  ColumnFamilyTestBase(uint32_t format) : rnd_(139), format_(format) {
-    env_ = new EnvCounter(Env::Default());
+  explicit ColumnFamilyTestBase(uint32_t format) : rnd_(139), format_(format) {
+    const char* test_env_uri = getenv("TEST_ENV_URI");
+    Env* base_env = Env::Default();
+    if (test_env_uri) {
+      Status s = ObjectRegistry::NewInstance()->NewSharedObject(test_env_uri,
+                                                                &env_guard_);
+      base_env = env_guard_.get();
+      EXPECT_OK(s);
+      EXPECT_NE(Env::Default(), base_env);
+    }
+    EXPECT_NE(nullptr, base_env);
+    env_ = new EnvCounter(base_env);
     dbname_ = test::PerThreadDBPath("column_family_test");
     db_options_.create_if_missing = true;
     db_options_.fail_if_options_file_error = true;
@@ -532,6 +544,7 @@ class ColumnFamilyTestBase : public testing::Test {
   std::string dbname_;
   DB* db_ = nullptr;
   EnvCounter* env_;
+  std::shared_ptr<Env> env_guard_;
   Random rnd_;
   uint32_t format_;
 };
@@ -3312,7 +3325,17 @@ TEST_P(ColumnFamilyTest, MultipleCFPathsTest) {
 
 }  // namespace rocksdb
 
+#ifdef ROCKSDB_UNITTESTS_WITH_CUSTOM_OBJECTS_FROM_STATIC_LIBS
+extern "C" {
+void RegisterCustomObjects(int argc, char** argv);
+}
+#else
+void RegisterCustomObjects(int /*argc*/, char** /*argv*/) {}
+#endif  // !ROCKSDB_UNITTESTS_WITH_CUSTOM_OBJECTS_FROM_STATIC_LIBS
+
 int main(int argc, char** argv) {
+  rocksdb::port::InstallStackTraceHandler();
   ::testing::InitGoogleTest(&argc, argv);
+  RegisterCustomObjects(argc, argv);
   return RUN_ALL_TESTS();
 }
