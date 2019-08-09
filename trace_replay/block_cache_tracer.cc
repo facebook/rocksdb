@@ -314,7 +314,8 @@ BlockCacheHumanReadableTraceWriter::~BlockCacheHumanReadableTraceWriter() {
 Status BlockCacheHumanReadableTraceWriter::NewWritableFile(
     const std::string& human_readable_trace_file_path, rocksdb::Env* env) {
   if (human_readable_trace_file_path.empty()) {
-    return Status::OK();
+    return Status::InvalidArgument(
+        "The provided human_readable_trace_file_path is null.");
   }
   return env->NewWritableFile(human_readable_trace_file_path,
                               &human_readable_trace_file_writer_, EnvOptions());
@@ -337,8 +338,9 @@ Status BlockCacheHumanReadableTraceWriter::WriteHumanReadableTraceRecord(
       access.referenced_data_size, access.is_cache_hit,
       access.referenced_key_exist_in_block, access.num_keys_in_block,
       BlockCacheTraceHelper::GetTableId(access),
-      BlockCacheTraceHelper::GetSequenceNumber(access), access.block_key.size(),
-      access.referenced_key.size(),
+      BlockCacheTraceHelper::GetSequenceNumber(access),
+      static_cast<uint64_t>(access.block_key.size()),
+      static_cast<uint64_t>(access.referenced_key.size()),
       BlockCacheTraceHelper::GetBlockOffsetInFile(access));
   if (ret < 0) {
     return Status::IOError("failed to format the output");
@@ -376,26 +378,26 @@ Status BlockCacheHumanReadableTraceReader::ReadAccess(
     record_strs.push_back(substr);
   }
   if (record_strs.size() != 21) {
-    return Status::Incomplete("Records length is wrong.");
+    return Status::Incomplete("Records format is wrong.");
   }
 
   record->access_timestamp = ParseUint64(record_strs[0]);
   uint64_t block_key = ParseUint64(record_strs[1]);
-  record->block_type = static_cast<TraceType>(ParseUint32(record_strs[2]));
+  record->block_type = static_cast<TraceType>(ParseUint64(record_strs[2]));
   record->block_size = ParseUint64(record_strs[3]);
   record->cf_id = ParseUint64(record_strs[4]);
   record->cf_name = record_strs[5];
-  record->level = ParseUint32(record_strs[6]);
+  record->level = static_cast<uint32_t>(ParseUint64(record_strs[6]));
   record->sst_fd_number = ParseUint64(record_strs[7]);
-  record->caller = static_cast<TableReaderCaller>(ParseUint32(record_strs[8]));
-  record->no_insert = static_cast<Boolean>(ParseUint32(record_strs[9]));
+  record->caller = static_cast<TableReaderCaller>(ParseUint64(record_strs[8]));
+  record->no_insert = static_cast<Boolean>(ParseUint64(record_strs[9]));
   record->get_id = ParseUint64(record_strs[10]);
   uint64_t get_key_id = ParseUint64(record_strs[11]);
 
   record->referenced_data_size = ParseUint64(record_strs[12]);
-  record->is_cache_hit = static_cast<Boolean>(ParseUint32(record_strs[13]));
+  record->is_cache_hit = static_cast<Boolean>(ParseUint64(record_strs[13]));
   record->referenced_key_exist_in_block =
-      static_cast<Boolean>(ParseUint32(record_strs[14]));
+      static_cast<Boolean>(ParseUint64(record_strs[14]));
   record->num_keys_in_block = ParseUint64(record_strs[15]);
   uint64_t table_id = ParseUint64(record_strs[16]);
   if (table_id > 0) {
