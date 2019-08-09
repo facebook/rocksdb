@@ -2606,7 +2606,6 @@ TEST_P(TransactionTest, ColumnFamiliesTest) {
 
   ASSERT_OK(ReOpenNoDelete(column_families, &handles));
   assert(db != nullptr);
-  ASSERT_OK(s);
 
   Transaction* txn = db->BeginTransaction(write_options);
   ASSERT_TRUE(txn);
@@ -2770,7 +2769,6 @@ TEST_P(TransactionTest, MultiGetBatchedTest) {
   options.merge_operator = MergeOperators::CreateStringAppendOperator();
   ASSERT_OK(ReOpenNoDelete(column_families, &handles));
   assert(db != nullptr);
-  ASSERT_OK(s);
 
   // Write some data to the db
   WriteBatch batch;
@@ -3133,8 +3131,11 @@ TEST_P(TransactionTest, UntrackedWrites) {
   // In WriteUnprepared, untracked writes will break snapshot validation logic.
   // Snapshot validation will only check the largest sequence number of a key to
   // see if it was committed or not. However, an untracked unprepared write will
-  // hide smaller committed sequence numbers. To fix this, snapshot validation
-  // will have to validate all values larger than snap_seq.
+  // hide smaller committed sequence numbers.
+  //
+  // TODO(lth): To fix this, snapshot validation will have to validate all
+  // values larger than snap_seq. If the performance cost is too high, then for
+  // WriteUnprepard, return Status::NotSupported for the untracked calls.
   if (txn_db_options.write_policy == WRITE_UNPREPARED) {
     return;
   }
@@ -3382,7 +3383,6 @@ TEST_P(TransactionTest, LockLimitTest) {
 
   // Open DB with a lock limit of 3
   txn_db_options.max_num_locks = 3;
-  s = TransactionDB::Open(options, txn_db_options, dbname, &db);
   ASSERT_OK(ReOpen());
   assert(db != nullptr);
   ASSERT_OK(s);
@@ -5292,6 +5292,8 @@ TEST_P(TransactionTest, MemoryLimitTest) {
   TransactionOptions txn_options;
   // Header (12 bytes) + NOOP (1 byte) + 2 * 8 bytes for data.
   txn_options.max_write_batch_size = 29;
+  // Set threshold to unlimited so that the write batch does not get flushed,
+  // and can hit the memory limit.
   txn_options.write_batch_flush_threshold = 0;
   std::string value;
   Status s;

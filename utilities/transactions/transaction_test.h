@@ -68,7 +68,12 @@ class TransactionTestBase : public ::testing::Test {
     txn_db_options.default_lock_timeout = 0;
     txn_db_options.write_policy = write_policy;
     txn_db_options.rollback_merge_operands = true;
+    // This will stress write unprepared, by forcing write batch flush on every
+    // write.
     txn_db_options.default_write_batch_flush_threshold = 1;
+    // Write unprepared requires all transactions to be named. This setting
+    // autogenerates the name so that existing tests can pass.
+    txn_db_options.autogenerate_name = true;
     Status s;
     if (use_stackable_db == false) {
       s = TransactionDB::Open(options, txn_db_options, dbname, &db);
@@ -76,9 +81,6 @@ class TransactionTestBase : public ::testing::Test {
       s = OpenWithStackableDB();
     }
     assert(s.ok());
-    if (txn_db_options.write_policy == WRITE_UNPREPARED) {
-      static_cast<WriteUnpreparedTxnDB*>(db)->autogenerate_name_ = true;
-    }
   }
 
   ~TransactionTestBase() {
@@ -106,9 +108,6 @@ class TransactionTestBase : public ::testing::Test {
       s = OpenWithStackableDB();
     }
     assert(!s.ok() || db != nullptr);
-    if (txn_db_options.write_policy == WRITE_UNPREPARED) {
-      static_cast<WriteUnpreparedTxnDB*>(db)->autogenerate_name_ = true;
-    }
     return s;
   }
 
@@ -131,9 +130,6 @@ class TransactionTestBase : public ::testing::Test {
       s = OpenWithStackableDB(cfs, handles);
     }
     assert(db != nullptr);
-    if (txn_db_options.write_policy == WRITE_UNPREPARED) {
-      static_cast<WriteUnpreparedTxnDB*>(db)->autogenerate_name_ = true;
-    }
     return s;
   }
 
@@ -148,9 +144,6 @@ class TransactionTestBase : public ::testing::Test {
       s = OpenWithStackableDB();
     }
     assert(db != nullptr);
-    if (txn_db_options.write_policy == WRITE_UNPREPARED) {
-      static_cast<WriteUnpreparedTxnDB*>(db)->autogenerate_name_ = true;
-    }
     return s;
   }
 
@@ -235,14 +228,6 @@ class TransactionTestBase : public ::testing::Test {
     if (txn_db_options.write_policy == TxnDBWritePolicy::WRITE_COMMITTED) {
       // Consume one seq per key
       exp_seq++;
-    } else if (txn_db_options.write_policy ==
-               TxnDBWritePolicy::WRITE_PREPARED) {
-      // Consume one seq per batch
-      exp_seq++;
-      if (options.two_write_queues) {
-        // Consume one seq for commit
-        exp_seq++;
-      }
     } else {
       // Consume one seq per batch
       exp_seq++;
@@ -304,7 +289,7 @@ class TransactionTestBase : public ::testing::Test {
         exp_seq++;
       }
     } else {
-      // Consume one seq per key
+      // Flushed after each key, consume one seq per flushed batch
       exp_seq += 4;
       // WriteUnprepared implements CommitWithoutPrepareInternal by simply
       // calling Prepare then Commit. Consume one seq for the prepare.
@@ -339,7 +324,7 @@ class TransactionTestBase : public ::testing::Test {
       // Consume one seq per commit marker
       exp_seq++;
     } else {
-      // Consume one seq per key
+      // Flushed after each key, consume one seq per flushed batch
       exp_seq += 5;
       // Consume one seq per commit marker
       exp_seq++;
@@ -376,7 +361,7 @@ class TransactionTestBase : public ::testing::Test {
         exp_seq++;
       }
     } else {
-      // Consume one seq per key
+      // Flushed after each key, consume one seq per flushed batch
       exp_seq += 5;
       // Consume one seq per rollback batch
       exp_seq++;

@@ -467,7 +467,6 @@ class Transaction {
   virtual void SetLogNumber(uint64_t log) { log_number_ = log; }
 
   virtual uint64_t GetLogNumber() const { return log_number_; }
-  virtual uint64_t GetLastLogNumber() const { return log_number_; }
 
   virtual Status SetName(const TransactionName& name) = 0;
 
@@ -523,9 +522,13 @@ class Transaction {
     id_ = id;
   }
 
+  virtual uint64_t GetLastLogNumber() const { return log_number_; }
+
  private:
   friend class PessimisticTransactionDB;
   friend class WriteUnpreparedTxnDB;
+  friend class TransactionTest_TwoPhaseLogRollingTest_Test;
+  friend class TransactionTest_TwoPhaseLogRollingTest2_Test;
   // No copying allowed
   Transaction(const Transaction&);
   void operator=(const Transaction&);

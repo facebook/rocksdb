@@ -65,6 +65,9 @@ WriteUnpreparedTxn::~WriteUnpreparedTxn() {
             wupt_db_->info_log_,
             "Rollback of WriteUnprepared transaction failed in destructor: %s",
             s.ToString().c_str());
+        throw std::runtime_error(
+            "Rollback of WriteUnprepared transaction failed in destructor: " +
+            s.ToString());
       }
       dbimpl_->logs_with_prep_tracker()->MarkLogAsHavingPrepSectionFlushed(
           log_number_);
@@ -238,10 +241,7 @@ Status WriteUnpreparedTxn::RebuildFromWriteBatch(WriteBatch* wb) {
 Status WriteUnpreparedTxn::MaybeFlushWriteBatchToDB() {
   const bool kPrepared = true;
   Status s;
-  if (write_batch_flush_threshold_ > 0 &&
-      WriteBatchInternal::Count(write_batch_.GetWriteBatch()) > 0 &&
-      write_batch_.GetDataSize() >
-          static_cast<size_t>(write_batch_flush_threshold_)) {
+  if (write_batch_flush_threshold_ > 0 && write_batch_.GetWriteBatch()->Count() > 0 && write_batch_.GetDataSize() > static_cast<size_t>(write_batch_flush_threshold_)) {
     assert(GetState() != PREPARED);
     s = FlushWriteBatchToDB(!kPrepared);
   }
@@ -263,15 +263,13 @@ Status WriteUnpreparedTxn::FlushWriteBatchToDB(bool prepared) {
 }
 
 Status WriteUnpreparedTxn::FlushWriteBatchToDBInternal(bool prepared) {
+  static std::atomic_ullong autogen_id{0};
   if (name_.empty()) {
     assert(!prepared);
-#ifndef NDEBUG
     // To avoid changing all tests to call SetName, just autogenerate one.
-    if (wupt_db_->autogenerate_name_) {
-      SetName(std::string("xid") + ToString(db_->GetEnv()->NowMicros()));
-    }
-#endif
-    if (name_.empty()) {
+    if (wupt_db_->txn_db_options_.autogenerate_name) {
+      SetName(std::string("autoxid") + ToString(autogen_id.fetch_add(1)));
+    } else {
       Status::InvalidArgument("Cannot write to DB without SetName.");
     }
   }
