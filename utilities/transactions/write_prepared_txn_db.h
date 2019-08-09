@@ -500,6 +500,7 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
   friend class WritePreparedTransactionTest_NonAtomicUpdateOfMaxEvictedSeq_Test;
   friend class WritePreparedTransactionTest_OldCommitMapGC_Test;
   friend class WritePreparedTransactionTest_RollbackTest_Test;
+  friend class WritePreparedTransactionTest_SmallestUnCommittedSeq_Test;
   friend class WriteUnpreparedTxn;
   friend class WriteUnpreparedTxnDB;
   friend class WriteUnpreparedTransactionTest_RecoveryTest_Test;
@@ -626,6 +627,19 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
                             const SequenceNumber& new_max);
 
   inline SequenceNumber SmallestUnCommittedSeq() {
+    // Note: We have two lists to look into, and they are not updated atomically.
+    // Since CheckPreparedAgainstMax copies the entry to delayed_prepared_
+    // before removing it from prepared_txns_, to ensure that a prepared entry
+    // will not go unmissed, we look into them in opposite order: first read
+    // prepared_txns_ and then delayed_prepared_.
+
+    // This must be called before calling ::top. This is because the concurrent
+    // thread would call ::RemovePrepared before updating
+    // GetLatestSequenceNumber(). Reading then in opposite order here guarantees
+    // that the ::top that we read would be lower the ::top if we had otherwise
+    // update/read them atomically.
+    auto next_prepare = db_impl_->GetLatestSequenceNumber() + 1;
+    auto min_prepare = prepared_txns_.top();
     // Since we update the prepare_heap always from the main write queue via
     // PreReleaseCallback, the prepared_txns_.top() indicates the smallest
     // prepared data in 2pc transactions. For non-2pc transactions that are
@@ -638,13 +652,6 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
         return *delayed_prepared_.begin();
       }
     }
-    // This must be called before calling ::top. This is because the concurrent
-    // thread would call ::RemovePrepared before updating
-    // GetLatestSequenceNumber(). Reading then in opposite order here guarantees
-    // that the ::top that we read would be lower the ::top if we had otherwise
-    // update/read them atomically.
-    auto next_prepare = db_impl_->GetLatestSequenceNumber() + 1;
-    auto min_prepare = prepared_txns_.top();
     bool empty = min_prepare == kMaxSequenceNumber;
     if (empty) {
       // Since GetLatestSequenceNumber is updated
