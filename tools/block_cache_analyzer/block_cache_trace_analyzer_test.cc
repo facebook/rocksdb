@@ -634,12 +634,14 @@ TEST_F(BlockCacheTracerTest, MixedBlocks) {
     ASSERT_EQ(kMajorVersion, header.rocksdb_major_version);
     ASSERT_EQ(kMinorVersion, header.rocksdb_minor_version);
     // Read blocks.
-    BlockCacheTraceAnalyzer analyzer(trace_file_path_,
-                                     /*output_miss_ratio_curve_path=*/"",
-                                     /*human_readable_trace_file_path=*/"",
-                                     /*compute_reuse_distance=*/true,
-                                     /*mrc_only=*/false,
-                                     /*simulator=*/nullptr);
+    BlockCacheTraceAnalyzer analyzer(
+        trace_file_path_,
+        /*output_miss_ratio_curve_path=*/"",
+        /*human_readable_trace_file_path=*/"",
+        /*compute_reuse_distance=*/true,
+        /*mrc_only=*/false,
+        /*is_block_cache_human_readable_trace=*/false,
+        /*simulator=*/nullptr);
     // The analyzer ends when it detects an incomplete access record.
     ASSERT_EQ(Status::Incomplete(""), analyzer.Analyze());
     const uint64_t expected_num_cfs = 1;
