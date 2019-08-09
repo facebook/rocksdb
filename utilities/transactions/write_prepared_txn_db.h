@@ -627,11 +627,11 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
                             const SequenceNumber& new_max);
 
   inline SequenceNumber SmallestUnCommittedSeq() {
-    // Note: We have two lists to look into, and they are not updated atomically.
-    // Since CheckPreparedAgainstMax copies the entry to delayed_prepared_
-    // before removing it from prepared_txns_, to ensure that a prepared entry
-    // will not go unmissed, we look into them in opposite order: first read
-    // prepared_txns_ and then delayed_prepared_.
+    // Note: We have two lists to look into, but for performance reasons they
+    // are not read atomically. Since CheckPreparedAgainstMax copies the entry
+    // to delayed_prepared_ before removing it from prepared_txns_, to ensure
+    // that a prepared entry will not go unmissed, we look into them in opposite
+    // order: first read prepared_txns_ and then delayed_prepared_.
 
     // This must be called before calling ::top. This is because the concurrent
     // thread would call ::RemovePrepared before updating
