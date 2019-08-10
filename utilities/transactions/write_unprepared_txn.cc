@@ -273,7 +273,7 @@ Status WriteUnpreparedTxn::FlushWriteBatchToDBInternal(bool prepared) {
     } else
 #endif
     {
-      Status::InvalidArgument("Cannot write to DB without SetName.");
+      return Status::InvalidArgument("Cannot write to DB without SetName.");
     }
   }
 

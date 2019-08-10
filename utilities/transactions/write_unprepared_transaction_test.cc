@@ -335,7 +335,7 @@ TEST_P(WriteUnpreparedTransactionTest, RecoveryTest) {
           for (int i = 0; i < num_batches; i++) {
             ASSERT_OK(txn->Put("k" + ToString(i), "value" + ToString(i)));
             if (txn_options.write_batch_flush_threshold == 1) {
-              ASSERT_EQ(wup_txn->GetUnpreparedSequenceNumbers().size(), i + 1);
+              ASSERT_EQ(wup_txn->GetUnpreparedSequenceNumbers().size(), i);
             } else {
               ASSERT_EQ(wup_txn->GetUnpreparedSequenceNumbers().size(), 0);
             }
@@ -411,7 +411,7 @@ TEST_P(WriteUnpreparedTransactionTest, UnpreparedBatch) {
         for (int i = 0; i < kNumKeys; i++) {
           txn->Put("k" + ToString(i), "v" + ToString(i));
           if (txn_options.write_batch_flush_threshold == 1) {
-            ASSERT_EQ(wup_txn->GetUnpreparedSequenceNumbers().size(), i + 1);
+            ASSERT_EQ(wup_txn->GetUnpreparedSequenceNumbers().size(), i);
           } else {
             ASSERT_EQ(wup_txn->GetUnpreparedSequenceNumbers().size(), 0);
           }
