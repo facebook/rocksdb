@@ -63,8 +63,9 @@ class EnvCounter : public EnvWrapper {
 class ColumnFamilyTestBase : public testing::Test {
  public:
   explicit ColumnFamilyTestBase(uint32_t format) : rnd_(139), format_(format) {
-    const char* test_env_uri = getenv("TEST_ENV_URI");
     Env* base_env = Env::Default();
+#ifndef ROCKSDB_LITE
+    const char* test_env_uri = getenv("TEST_ENV_URI");
     if (test_env_uri) {
       Status s = ObjectRegistry::NewInstance()->NewSharedObject(test_env_uri,
                                                                 &env_guard_);
@@ -72,6 +73,7 @@ class ColumnFamilyTestBase : public testing::Test {
       EXPECT_OK(s);
       EXPECT_NE(Env::Default(), base_env);
     }
+#endif  // !ROCKSDB_LITE
     EXPECT_NE(nullptr, base_env);
     env_ = new EnvCounter(base_env);
     dbname_ = test::PerThreadDBPath("column_family_test");

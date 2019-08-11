@@ -51,8 +51,9 @@ DBTestBase::DBTestBase(const std::string path)
     : mem_env_(nullptr),
       encrypted_env_(nullptr),
       option_config_(kDefault) {
-  const char* test_env_uri = getenv("TEST_ENV_URI");
   Env* base_env = Env::Default();
+#ifndef ROCKSDB_LITE
+  const char* test_env_uri = getenv("TEST_ENV_URI");
   if (test_env_uri) {
     Status s = ObjectRegistry::NewInstance()->NewSharedObject(test_env_uri,
                                                               &env_guard_);
@@ -60,6 +61,7 @@ DBTestBase::DBTestBase(const std::string path)
     EXPECT_OK(s);
     EXPECT_NE(Env::Default(), base_env);
   }
+#endif  // !ROCKSDB_LITE
   EXPECT_NE(nullptr, base_env);
   if (getenv("MEM_ENV")) {
     mem_env_ = new MockEnv(base_env);
