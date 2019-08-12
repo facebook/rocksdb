@@ -378,7 +378,8 @@ class PartitionIndexReader : public BlockBasedTable::IndexReaderCommon {
               internal_comparator(), internal_comparator()->user_comparator(),
               nullptr, kNullStats, true, index_has_first_key(),
               index_key_includes_seq(), index_value_is_full()),
-          false, true, /* prefix_extractor */ nullptr, BlockType::kIndex,
+          false, true, /* prefix_extractor */ nullptr,
+          BlockType::kIndexPartition,
           lookup_context ? lookup_context->caller
                          : TableReaderCaller::kUncategorized);
     }
@@ -454,8 +455,8 @@ class PartitionIndexReader : public BlockBasedTable::IndexReaderCommon {
       // filter blocks
       s = table()->MaybeReadBlockAndLoadToCache(
           prefetch_buffer.get(), ro, handle, UncompressionDict::GetEmptyDict(),
-          &block, BlockType::kIndex, /*get_context=*/nullptr, &lookup_context,
-          /*contents=*/nullptr);
+          &block, BlockType::kIndexPartition, /*get_context=*/nullptr,
+          &lookup_context, /*contents=*/nullptr);
 
       assert(s.ok() || block.GetValue() == nullptr);
       if (s.ok() && block.GetValue() != nullptr) {
@@ -745,6 +746,7 @@ void BlockBasedTable::UpdateCacheHitMetrics(BlockType block_type,
 
   switch (block_type) {
     case BlockType::kFilter:
+    case BlockType::kFilterPartition:
       PERF_COUNTER_ADD(block_cache_filter_hit_count, 1);
 
       if (get_context) {
@@ -764,6 +766,7 @@ void BlockBasedTable::UpdateCacheHitMetrics(BlockType block_type,
       break;
 
     case BlockType::kIndex:
+    case BlockType::kIndexPartition:
       PERF_COUNTER_ADD(block_cache_index_hit_count, 1);
 
       if (get_context) {
@@ -802,6 +805,7 @@ void BlockBasedTable::UpdateCacheMissMetrics(BlockType block_type,
   // TODO: introduce perf counters for misses per block type
   switch (block_type) {
     case BlockType::kFilter:
+    case BlockType::kFilterPartition:
       if (get_context) {
         ++get_context->get_context_stats_.num_cache_filter_miss;
       } else {
@@ -818,6 +822,7 @@ void BlockBasedTable::UpdateCacheMissMetrics(BlockType block_type,
       break;
 
     case BlockType::kIndex:
+    case BlockType::kIndexPartition:
       if (get_context) {
         ++get_context->get_context_stats_.num_cache_index_miss;
       } else {
@@ -853,6 +858,7 @@ void BlockBasedTable::UpdateCacheInsertionMetrics(BlockType block_type,
 
   switch (block_type) {
     case BlockType::kFilter:
+    case BlockType::kFilterPartition:
       if (get_context) {
         ++get_context->get_context_stats_.num_cache_filter_add;
         get_context->get_context_stats_.num_cache_filter_bytes_insert += usage;
@@ -875,6 +881,7 @@ void BlockBasedTable::UpdateCacheInsertionMetrics(BlockType block_type,
       break;
 
     case BlockType::kIndex:
+    case BlockType::kIndexPartition:
       if (get_context) {
         ++get_context->get_context_stats_.num_cache_index_add;
         get_context->get_context_stats_.num_cache_index_bytes_insert += usage;
@@ -1753,8 +1760,10 @@ Status BlockBasedTable::PutDataBlockToCache(
   const Cache::Priority priority =
       rep_->table_options.cache_index_and_filter_blocks_with_high_priority &&
               (block_type == BlockType::kFilter ||
+               block_type == BlockType::kFilterPartition ||
                block_type == BlockType::kCompressionDictionary ||
-               block_type == BlockType::kIndex)
+               block_type == BlockType::kIndex ||
+               block_type == BlockType::kIndexPartition)
           ? Cache::Priority::HIGH
           : Cache::Priority::LOW;
   assert(cached_block);
@@ -2146,6 +2155,7 @@ Status BlockBasedTable::MaybeReadBlockAndLoadToCache(
       Statistics* statistics = rep_->ioptions.statistics;
       const bool maybe_compressed =
           block_type != BlockType::kFilter &&
+          block_type != BlockType::kFilterPartition &&
           block_type != BlockType::kCompressionDictionary &&
           rep_->blocks_maybe_compressed;
       const bool do_uncompress = maybe_compressed && !block_cache_compressed;
@@ -2198,6 +2208,7 @@ Status BlockBasedTable::MaybeReadBlockAndLoadToCache(
         trace_block_type = TraceType::kBlockTraceDataBlock;
         break;
       case BlockType::kFilter:
+      case BlockType::kFilterPartition:
         trace_block_type = TraceType::kBlockTraceFilterBlock;
         break;
       case BlockType::kCompressionDictionary:
@@ -2207,6 +2218,7 @@ Status BlockBasedTable::MaybeReadBlockAndLoadToCache(
         trace_block_type = TraceType::kBlockTraceRangeDeletionBlock;
         break;
       case BlockType::kIndex:
+      case BlockType::kIndexPartition:
         trace_block_type = TraceType::kBlockTraceIndexBlock;
         break;
       default:
@@ -2451,6 +2463,7 @@ Status BlockBasedTable::RetrieveBlock(
 
   const bool maybe_compressed =
       block_type != BlockType::kFilter &&
+      block_type != BlockType::kFilterPartition &&
       block_type != BlockType::kCompressionDictionary &&
       rep_->blocks_maybe_compressed;
   const bool do_uncompress = maybe_compressed;
@@ -2728,7 +2741,7 @@ void BlockBasedTableIterator<TBlockIter, TValue>::SeekImpl(
   CheckOutOfBound();
 
   if (target) {
-    assert(!Valid() || ((block_type_ == BlockType::kIndex &&
+    assert(!Valid() || ((block_type_ == BlockType::kIndexPartition &&
                          !table_->get_rep()->index_key_includes_seq)
                             ? (user_comparator_.Compare(ExtractUserKey(*target),
                                                         key()) <= 0)

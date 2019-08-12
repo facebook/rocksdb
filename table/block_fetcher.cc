@@ -224,6 +224,7 @@ Status BlockFetcher::ReadBlockContents() {
     // TODO: introduce dedicated perf counter for range tombstones
     switch (block_type_) {
       case BlockType::kFilter:
+      case BlockType::kFilterPartition:
         PERF_COUNTER_ADD(filter_block_read_count, 1);
         break;
 
@@ -232,6 +233,7 @@ Status BlockFetcher::ReadBlockContents() {
         break;
 
       case BlockType::kIndex:
+      case BlockType::kIndexPartition:
         PERF_COUNTER_ADD(index_block_read_count, 1);
         break;
 

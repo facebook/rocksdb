@@ -223,10 +223,10 @@ Status PartitionedFilterBlockReader::GetFilterPartitionBlock(
     read_options.read_tier = kBlockCacheTier;
   }
 
-  const Status s =
-      table()->RetrieveBlock(prefetch_buffer, read_options, fltr_blk_handle,
-                             UncompressionDict::GetEmptyDict(), filter_block,
-                             BlockType::kFilter, get_context, lookup_context);
+  const Status s = table()->RetrieveBlock(
+      prefetch_buffer, read_options, fltr_blk_handle,
+      UncompressionDict::GetEmptyDict(), filter_block,
+      BlockType::kFilterPartition, get_context, lookup_context);
 
   return s;
 }
@@ -336,7 +336,7 @@ void PartitionedFilterBlockReader::CacheDependencies(bool pin) {
     // filter blocks
     s = table()->MaybeReadBlockAndLoadToCache(
         prefetch_buffer.get(), read_options, handle,
-        UncompressionDict::GetEmptyDict(), &block, BlockType::kFilter,
+        UncompressionDict::GetEmptyDict(), &block, BlockType::kFilterPartition,
         nullptr /* get_context */, &lookup_context, nullptr /* contents */);
 
     assert(s.ok() || block.GetValue() == nullptr);
