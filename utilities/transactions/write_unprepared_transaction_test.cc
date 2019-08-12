@@ -335,6 +335,10 @@ TEST_P(WriteUnpreparedTransactionTest, RecoveryTest) {
           for (int i = 0; i < num_batches; i++) {
             ASSERT_OK(txn->Put("k" + ToString(i), "value" + ToString(i)));
             if (txn_options.write_batch_flush_threshold == 1) {
+              // WriteUnprepared will check write_batch_flush_threshold and
+              // possibly flush before appending to the write batch. No flush
+              // will happen at the first write because the batch is still
+              // empty, so after k puts, there should be k-1 flushed batches.
               ASSERT_EQ(wup_txn->GetUnpreparedSequenceNumbers().size(), i);
             } else {
               ASSERT_EQ(wup_txn->GetUnpreparedSequenceNumbers().size(), 0);
@@ -411,6 +415,10 @@ TEST_P(WriteUnpreparedTransactionTest, UnpreparedBatch) {
         for (int i = 0; i < kNumKeys; i++) {
           txn->Put("k" + ToString(i), "v" + ToString(i));
           if (txn_options.write_batch_flush_threshold == 1) {
+            // WriteUnprepared will check write_batch_flush_threshold and
+            // possibly flush before appending to the write batch. No flush will
+            // happen at the first write because the batch is still empty, so
+            // after k puts, there should be k-1 flushed batches.
             ASSERT_EQ(wup_txn->GetUnpreparedSequenceNumbers().size(), i);
           } else {
             ASSERT_EQ(wup_txn->GetUnpreparedSequenceNumbers().size(), 0);
