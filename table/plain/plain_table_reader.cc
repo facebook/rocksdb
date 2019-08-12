@@ -620,6 +620,12 @@ uint64_t PlainTableReader::ApproximateOffsetOf(const Slice& /*key*/,
   return 0;
 }
 
+uint64_t PlainTableReader::ApproximateSize(const Slice& /*start*/,
+                                           const Slice& /*end*/,
+                                           TableReaderCaller /*caller*/) {
+  return 0;
+}
+
 PlainTableIterator::PlainTableIterator(PlainTableReader* table,
                                        bool use_prefix_seek)
     : table_(table),

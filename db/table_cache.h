@@ -159,6 +159,13 @@ class TableCache {
       const InternalKeyComparator& internal_comparator,
       const SliceTransform* prefix_extractor = nullptr);
 
+  // Returns approximated data size between start and end keys in a file
+  // represented by fd (the start key must not be greater than the end key).
+  uint64_t ApproximateSize(const Slice& start, const Slice& end,
+                           const FileDescriptor& fd, TableReaderCaller caller,
+                           const InternalKeyComparator& internal_comparator,
+                           const SliceTransform* prefix_extractor = nullptr);
+
   // Release the handle from a cache
   void ReleaseHandle(Cache::Handle* handle);
 

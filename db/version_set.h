@@ -1038,8 +1038,15 @@ class VersionSet {
     }
   };
 
+  // Returns approximated offset of a key in a file for a given version.
+  uint64_t ApproximateOffsetOf(Version* v, const FdWithKeyRange& f,
+                               const Slice& key, TableReaderCaller caller);
+
+  // Returns approximated data size between start and end keys in a file
+  // for a given version.
   uint64_t ApproximateSize(Version* v, const FdWithKeyRange& f,
-                           const Slice& key, TableReaderCaller caller);
+                           const Slice& start, const Slice& end,
+                           TableReaderCaller caller);
 
   // Save current contents to *log
   Status WriteSnapshot(log::Writer* log);
