@@ -37,6 +37,7 @@ WriteUnpreparedTxn::WriteUnpreparedTxn(WriteUnpreparedTxnDB* txn_db,
                                        const TransactionOptions& txn_options)
     : WritePreparedTxn(txn_db, write_options, txn_options),
       wupt_db_(txn_db),
+      last_log_number_(0),
       recovered_txn_(false),
       largest_validated_seq_(0) {
   if (txn_options.write_batch_flush_threshold < 0) {
@@ -56,10 +57,15 @@ WriteUnpreparedTxn::~WriteUnpreparedTxn() {
     // We should rollback regardless of GetState, but some unit tests that
     // test crash recovery run the destructor assuming that rollback does not
     // happen, so that rollback during recovery can be exercised.
-    if (GetState() == STARTED) {
-      auto s __attribute__((__unused__)) = RollbackInternal();
-      // TODO(lth): Better error handling.
+    if (GetState() == STARTED || GetState() == LOCKS_STOLEN) {
+      auto s = RollbackInternal();
       assert(s.ok());
+      if (!s.ok()) {
+        ROCKS_LOG_FATAL(
+            wupt_db_->info_log_,
+            "Rollback of WriteUnprepared transaction failed in destructor: %s",
+            s.ToString().c_str());
+      }
       dbimpl_->logs_with_prep_tracker()->MarkLogAsHavingPrepSectionFlushed(
           log_number_);
     }
@@ -233,6 +239,7 @@ Status WriteUnpreparedTxn::MaybeFlushWriteBatchToDB() {
   const bool kPrepared = true;
   Status s;
   if (write_batch_flush_threshold_ > 0 &&
+      write_batch_.GetWriteBatch()->Count() > 0 &&
       write_batch_.GetDataSize() >
           static_cast<size_t>(write_batch_flush_threshold_)) {
     assert(GetState() != PREPARED);
@@ -257,7 +264,17 @@ Status WriteUnpreparedTxn::FlushWriteBatchToDB(bool prepared) {
 
 Status WriteUnpreparedTxn::FlushWriteBatchToDBInternal(bool prepared) {
   if (name_.empty()) {
-    return Status::InvalidArgument("Cannot write to DB without SetName.");
+    assert(!prepared);
+#ifndef NDEBUG
+    static std::atomic_ullong autogen_id{0};
+    // To avoid changing all tests to call SetName, just autogenerate one.
+    if (wupt_db_->txn_db_options_.autogenerate_name) {
+      SetName(std::string("autoxid") + ToString(autogen_id.fetch_add(1)));
+    } else
+#endif
+    {
+      return Status::InvalidArgument("Cannot write to DB without SetName.");
+    }
   }
 
   // TODO(lth): Reduce duplicate code with WritePrepared prepare logic.
@@ -285,11 +302,14 @@ Status WriteUnpreparedTxn::FlushWriteBatchToDBInternal(bool prepared) {
   // from the current transaction. This means that if log_number_ is set,
   // WriteImpl should not overwrite that value, so set log_used to nullptr if
   // log_number_ is already set.
-  uint64_t* log_used = log_number_ ? nullptr : &log_number_;
-  auto s = db_impl_->WriteImpl(write_options, GetWriteBatch()->GetWriteBatch(),
-                               /*callback*/ nullptr, log_used, /*log ref*/
-                               0, !DISABLE_MEMTABLE, &seq_used,
-                               prepare_batch_cnt_, &add_prepared_callback);
+  auto s =
+      db_impl_->WriteImpl(write_options, GetWriteBatch()->GetWriteBatch(),
+                          /*callback*/ nullptr, &last_log_number_, /*log ref*/
+                          0, !DISABLE_MEMTABLE, &seq_used, prepare_batch_cnt_,
+                          &add_prepared_callback);
+  if (log_number_ == 0) {
+    log_number_ = last_log_number_;
+  }
   assert(!s.ok() || seq_used != kMaxSequenceNumber);
   auto prepare_seq = seq_used;
 

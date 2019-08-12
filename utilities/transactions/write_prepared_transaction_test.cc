@@ -1612,7 +1612,7 @@ TEST_P(WritePreparedTransactionTest, SmallestUnCommittedSeq) {
         txn = txns[index];
         txns.erase(txns.begin() + index);
       }
-      // Since commit cahce is practically disabled, commit results in immediate
+      // Since commit cache is practically disabled, commit results in immediate
       // advance in max_evicted_seq_ and subsequently moving some prepared txns
       // to delayed_prepared_.
       txn->Commit();

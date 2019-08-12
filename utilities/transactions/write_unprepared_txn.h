@@ -145,7 +145,20 @@ class WriteUnpreparedTxn : public WritePreparedTxn {
                               const SliceParts& key,
                               const bool assume_tracked = false) override;
 
+  // In WriteUnprepared, untracked writes will break snapshot validation logic.
+  // Snapshot validation will only check the largest sequence number of a key to
+  // see if it was committed or not. However, an untracked unprepared write will
+  // hide smaller committed sequence numbers.
+  //
+  // TODO(lth): Investigate whether it is worth having snapshot validation
+  // validate all values larger than snap_seq. Otherwise, we should return
+  // Status::NotSupported for untracked writes.
+
   virtual Status RebuildFromWriteBatch(WriteBatch*) override;
+
+  virtual uint64_t GetLastLogNumber() const override {
+    return last_log_number_;
+  }
 
  protected:
   void Initialize(const TransactionOptions& txn_options) override;
@@ -218,6 +231,8 @@ class WriteUnpreparedTxn : public WritePreparedTxn {
   // are treated similarily in prepare heap/commit map, so it simplifies the
   // commit callbacks.
   std::map<SequenceNumber, size_t> unprep_seqs_;
+
+  uint64_t last_log_number_;
 
   // Recovered transactions have tracked_keys_ populated, but are not actually
   // locked for efficiency reasons. For recovered transactions, skip unlocking
