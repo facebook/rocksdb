@@ -26,7 +26,8 @@ bool WriteUnpreparedTxnReadCallback::IsVisibleFullCheck(SequenceNumber seq) {
   }
 
   bool snap_released = false;
-  auto ret = db_->IsInSnapshot(seq, wup_snapshot_, min_uncommitted_);
+  auto ret =
+      db_->IsInSnapshot(seq, wup_snapshot_, min_uncommitted_, &snap_released);
   assert(!snap_released || backed_by_snapshot_ == kUnbackedByDBSnapshot);
   snap_released_ |= snap_released;
   return ret;
