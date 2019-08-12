@@ -95,7 +95,7 @@ class GetContext {
              ReadCallback* callback = nullptr, bool* is_blob_index = nullptr,
              uint64_t tracing_get_id = 0);
 
-  GetContext() = default;
+  GetContext() = delete;
 
   // This can be called to indicate that a key may be present, but cannot be
   // confirmed due to IO not allowed
