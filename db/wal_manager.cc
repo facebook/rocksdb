@@ -323,14 +323,15 @@ Status WalManager::GetSortedWalsOfType(const std::string& path,
       uint64_t size_bytes;
       s = env_->GetFileSize(LogFileName(path, number), &size_bytes);
       // re-try in case the alive log file has been moved to archive.
-      std::string archived_file = ArchivedLogFileName(path, number);
-      if (!s.ok() && log_type == kAliveLogFile &&
-          env_->FileExists(archived_file).ok()) {
-        s = env_->GetFileSize(archived_file, &size_bytes);
-        if (!s.ok() && env_->FileExists(archived_file).IsNotFound()) {
-          // oops, the file just got deleted from archived dir! move on
-          s = Status::OK();
-          continue;
+      if (!s.ok() && log_type == kAliveLogFile) {
+        std::string archived_file = ArchivedLogFileName(path, number);
+        if (env_->FileExists(archived_file).ok()) {
+          s = env_->GetFileSize(archived_file, &size_bytes);
+          if (!s.ok() && env_->FileExists(archived_file).IsNotFound()) {
+            // oops, the file just got deleted from archived dir! move on
+            s = Status::OK();
+            continue;
+          }
         }
       }
       if (!s.ok()) {
@@ -392,7 +393,7 @@ Status WalManager::ReadFirstRecord(const WalFileType type,
   if (type == kAliveLogFile) {
     std::string fname = LogFileName(db_options_.wal_dir, number);
     s = ReadFirstLine(fname, number, sequence);
-    if (env_->FileExists(fname).ok() && !s.ok()) {
+    if (!s.ok() && env_->FileExists(fname).ok()) {
       // return any error that is not caused by non-existing file
       return s;
     }
