@@ -58,6 +58,9 @@ uint32_t crc32c_arm64(uint32_t crc, unsigned char const *data,
     }
     buf64 += (BLK_LENGTH * 2);
 
+	/* Prefetch data for following block to avoid cache miss */
+	PREF1KL1((uint8_t *)buf64, 1024);
+
     /* Last 8 bytes */
     crc = crc32c_u64(crc2, *buf64++);
 
