@@ -397,7 +397,7 @@ TEST_F(FlushJobTest, Snapshots) {
   int max_inserts_per_keys = 8;
 
   Random rnd(301);
-  for (int i = 0; i < keys / 2;s++i) {
+  for (int i = 0; i < keys / 2; ++i) {
     snapshots_set.insert(rnd.Uniform(keys * (max_inserts_per_keys / 2)) + 1);
   }
   // set has already removed the duplicate snapshots

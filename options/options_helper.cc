@@ -210,7 +210,6 @@ ColumnFamilyOptions BuildColumnFamilyOptions(
 
   cf_opts.table_factory = options.table_factory;
   cf_opts.cf_paths = options.cf_paths;
-  cf_opts.db_path_placement_strategy = options.db_path_placement_strategy;
   // TODO(yhchiang): find some way to handle the following derived options
   // * max_file_size
 

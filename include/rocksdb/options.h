@@ -335,12 +335,6 @@ struct ColumnFamilyOptions : public AdvancedColumnFamilyOptions {
   // Default: empty
   std::vector<DbPath> cf_paths;
 
-  // Controls how sst files are distributed into the set of db paths.
-  //
-  // Default: kGradualMoveOldDataTowardsEnd
-  DbPathPlacementStrategy db_path_placement_strategy =
-          DbPathPlacementStrategy::kGradualMoveOldDataTowardsEnd;
-
   // Compaction concurrent thread limiter for the column family.
   // If non-nullptr, use given concurrent thread limiter to control
   // the max outstanding compaction tasks. Limiter can be shared with
