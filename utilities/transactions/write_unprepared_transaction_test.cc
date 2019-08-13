@@ -537,6 +537,33 @@ TEST_P(WriteUnpreparedTransactionTest, MarkLogWithPrepSection) {
   }
 }
 
+TEST_P(WriteUnpreparedTransactionTest, NoSnapshotWrite) {
+  WriteOptions woptions;
+  TransactionOptions txn_options;
+  txn_options.write_batch_flush_threshold = 1;
+
+  Transaction* txn = db->BeginTransaction(woptions, txn_options);
+
+  // Do some writes with no snapshot
+  ASSERT_OK(txn->Put("a", "a"));
+  ASSERT_OK(txn->Put("b", "b"));
+  ASSERT_OK(txn->Put("c", "c"));
+
+  // Test that it is still possible to create iterators after writes with no
+  // snapshot, if iterator snapshot is fresh enough.
+  ReadOptions roptions;
+  auto iter = txn->GetIterator(roptions);
+  uint keys = 0;
+  for (iter->SeekToLast(); iter->Valid(); iter->Prev(), keys++) {
+    ASSERT_OK(iter->status());
+    ASSERT_EQ(iter->key().ToString(), iter->value().ToString());
+  }
+  ASSERT_EQ(keys, 3);
+
+  delete iter;
+  delete txn;
+}
+
 }  // namespace rocksdb
 
 int main(int argc, char** argv) {
