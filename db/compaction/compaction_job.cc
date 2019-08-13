@@ -1467,7 +1467,7 @@ Status CompactionJob::OpenCompactionOutputFile(
   // no need to lock because VersionSet::next_file_number_ is atomic
   uint64_t file_number = versions_->NewFileNumber();
   int output_level = sub_compact->compaction->output_level();
-  uint64_t output_path_id =
+  uint32_t output_path_id =
       sub_compact->compaction->GetDbPathSupplier()->GetPathId(output_level);
   std::string fname =
       TableFileName(sub_compact->compaction->immutable_cf_options()->cf_paths,
