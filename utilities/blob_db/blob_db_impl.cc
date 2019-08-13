@@ -1177,6 +1177,8 @@ std::pair<bool, int64_t> BlobDBImpl::SanityCheck(bool aborted) {
     return std::make_pair(false, -1);
   }
 
+  ReadLock rl(&mutex_);
+
   ROCKS_LOG_INFO(db_options_.info_log, "Starting Sanity Check");
   ROCKS_LOG_INFO(db_options_.info_log, "Number of files %" ROCKSDB_PRIszt,
                  blob_files_.size());
@@ -1761,7 +1763,11 @@ std::pair<bool, int64_t> BlobDBImpl::DeleteObsoleteFiles(bool aborted) {
                    "Will delete file due to snapshot success %s",
                    bfile->PathName().c_str());
 
-    blob_files_.erase(bfile->BlobFileNumber());
+    {
+      WriteLock wl(&mutex_);
+      blob_files_.erase(bfile->BlobFileNumber());
+    }
+
     Status s = DeleteDBFile(&(db_impl_->immutable_db_options()),
                             bfile->PathName(), blob_dir_, true,
                             /*force_fg=*/false);
@@ -1794,6 +1800,7 @@ std::pair<bool, int64_t> BlobDBImpl::DeleteObsoleteFiles(bool aborted) {
   if (!tobsolete.empty()) {
     WriteLock wl(&mutex_);
     for (auto bfile : tobsolete) {
+      blob_files_.insert(std::make_pair(bfile->BlobFileNumber(), bfile));
       obsolete_files_.push_front(bfile);
     }
   }
