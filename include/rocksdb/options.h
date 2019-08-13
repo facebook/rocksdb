@@ -115,9 +115,8 @@ enum DbPathPlacementStrategy : unsigned char {
   // /sdd1/00.sst
   // /sde1/01.sst
   //
-  // This is useful if you want the database to equally use all the disks
-  // (such that you can stop worrying about moving data around hosts to
-  // avoid a single host having a full disk).
+  // This is useful if you want the database to evenly use a set of disks
+  // mounted on your host.
   //
   // Note that the target_size attr in DbPath will not be useful if this
   // strategy is chosen.

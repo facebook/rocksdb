@@ -389,6 +389,54 @@ public class Options extends RocksObject
   }
 
   @Override
+  public Options setDbPathPlacementStrategy(DbPathPlacementStrategy strategy) {
+    setDbPathPlacementStrategy(nativeHandle_, strategy.getValue());
+    return this;
+  }
+
+  @Override
+  public DbPathPlacementStrategy dbPathPlacementStrategy() {
+    return DbPathPlacementStrategy.fromValue(dbPathPlacementStrategy(nativeHandle_));
+  }
+
+  @Override
+  public Options setCFPaths(final Collection<DbPath> dbPaths) {
+    assert(isOwningHandle());
+
+    final int len = dbPaths.size();
+    final String paths[] = new String[len];
+    final long targetSizes[] = new long[len];
+
+    int i = 0;
+    for(final DbPath dbPath : dbPaths) {
+      paths[i] = dbPath.path.toString();
+      targetSizes[i] = dbPath.targetSize;
+      i++;
+    }
+    setCFPaths(nativeHandle_, paths, targetSizes);
+    return this;
+  }
+
+  @Override
+  public List<DbPath> cfPaths() {
+    final int len = (int)cfPathsLen(nativeHandle_);
+    if(len == 0) {
+      return Collections.emptyList();
+    } else {
+      final String paths[] = new String[len];
+      final long targetSizes[] = new long[len];
+
+      cfPaths(nativeHandle_, paths, targetSizes);
+
+      final List<DbPath> dbPaths = new ArrayList<>();
+      for(int i = 0; i < len; i++) {
+        dbPaths.add(new DbPath(Paths.get(paths[i]), targetSizes[i]));
+      }
+      return dbPaths;
+    }
+  }
+
+  @Override
   public String dbLogDir() {
     assert(isOwningHandle());
     return dbLogDir(nativeHandle_);
@@ -1779,6 +1827,13 @@ public class Options extends RocksObject
       final long[] targetSizes);
   private native long dbPathsLen(final long handle);
   private native void dbPaths(final long handle, final String[] paths,
+      final long[] targetSizes);
+  private native void setDbPathPlacementStrategy(long handle, byte strategy);
+  private native byte dbPathPlacementStrategy(long handle);
+  private native void setCFPaths(final long handle, final String[] paths,
+      final long[] targetSizes);
+  private native long cfPathsLen(final long handle);
+  private native void cfPaths(final long handle, final String[] paths,
       final long[] targetSizes);
   private native void setDbLogDir(long handle, String dbLogDir);
   private native String dbLogDir(long handle);

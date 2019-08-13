@@ -1269,4 +1269,33 @@ public class OptionsTest {
     }
   }
 
+  @Test
+  public void dbPathPlacementStrategy() {
+    final DbPathPlacementStrategy strategy = DbPathPlacementStrategy.RANDOMLY_CHOOSE_PATH;
+
+    try (final ColumnFamilyOptions opt = new ColumnFamilyOptions()) {
+      assertThat(opt.dbPathPlacementStrategy()).isEqualTo(
+        DbPathPlacementStrategy.GRADUAL_MOVE_OLD_DATA_TOWARDS_END);
+
+      opt.setDbPathPlacementStrategy(strategy);
+
+      assertThat(opt.dbPathPlacementStrategy()).isEqualTo(strategy);
+    }
+  }
+
+  @Test
+  public void cfPaths() {
+    final List<DbPath> cfPaths = new ArrayList<>();
+    cfPaths.add(new DbPath(Paths.get("/a"), 10));
+    cfPaths.add(new DbPath(Paths.get("/b"), 100));
+    cfPaths.add(new DbPath(Paths.get("/c"), 1000));
+
+    try(final ColumnFamilyOptions opt = new ColumnFamilyOptions()) {
+      assertThat(opt.cfPaths()).isEqualTo(Collections.emptyList());
+
+      opt.setCFPaths(cfPaths);
+
+      assertThat(opt.cfPaths()).isEqualTo(cfPaths);
+    }
+  }
 }

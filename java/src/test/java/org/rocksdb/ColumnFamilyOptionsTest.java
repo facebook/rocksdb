@@ -10,9 +10,12 @@ import org.junit.Test;
 import org.rocksdb.test.RemoveEmptyValueCompactionFilterFactory;
 
 import java.util.ArrayList;
+import java.util.Collection;
+import java.util.Collections;
 import java.util.List;
 import java.util.Properties;
 import java.util.Random;
+import java.nio.file.Paths;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -619,6 +622,22 @@ public class ColumnFamilyOptionsTest {
         final RemoveEmptyValueCompactionFilterFactory cff = new RemoveEmptyValueCompactionFilterFactory()) {
       options.setCompactionFilterFactory(cff);
       assertThat(options.compactionFilterFactory()).isEqualTo(cff);
+    }
+  }
+
+  @Test
+  public void cfPaths() {
+    final List<DbPath> cfPaths = new ArrayList<>();
+    cfPaths.add(new DbPath(Paths.get("/a"), 10));
+    cfPaths.add(new DbPath(Paths.get("/b"), 100));
+    cfPaths.add(new DbPath(Paths.get("/c"), 1000));
+
+    try(final ColumnFamilyOptions opt = new ColumnFamilyOptions()) {
+      assertThat(opt.cfPaths()).isEqualTo(Collections.emptyList());
+
+      opt.setCFPaths(cfPaths);
+
+      assertThat(opt.cfPaths()).isEqualTo(cfPaths);
     }
   }
 

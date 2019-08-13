@@ -131,6 +131,7 @@ set(JAVA_MAIN_CLASSES
   src/main/java/org/rocksdb/DBOptionsInterface.java
   src/main/java/org/rocksdb/DBOptions.java
   src/main/java/org/rocksdb/DbPath.java
+  src/main/java/org/rocksdb/DbPathPlacementStrategy.java
   src/main/java/org/rocksdb/DirectComparator.java
   src/main/java/org/rocksdb/DirectSlice.java
   src/main/java/org/rocksdb/EncodingType.java
@@ -401,6 +402,7 @@ if(${CMAKE_VERSION} VERSION_LESS "3.11.4" OR (${Java_VERSION_MINOR} STREQUAL "7"
           org.rocksdb.ComparatorOptions
           org.rocksdb.CompressionOptions
           org.rocksdb.DBOptions
+          org.rocksdb.DbPathPlacementStrategy
           org.rocksdb.DirectComparator
           org.rocksdb.DirectSlice
           org.rocksdb.Env

@@ -613,13 +613,6 @@ bool AreEqualOptions(
       }
       return false;
     }
-//    case OptionType::kDbPathPlacementStrategy: {
-//      DbPathPlacementStrategy lhs =
-//          *reinterpret_cast<const DbPathPlacementStrategy *>(offset1);
-//      DbPathPlacementStrategy rhs =
-//          *reinterpret_cast<const DbPathPlacementStrategy *>(offset2);
-//      return lhs == rhs;
-//    }
     default:
       if (type_info.verification == OptionVerificationType::kByName ||
           type_info.verification ==

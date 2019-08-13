@@ -6,8 +6,11 @@
 package org.rocksdb;
 
 import java.util.ArrayList;
+import java.util.Collection;
+import java.util.Collections;
 import java.util.List;
 import java.util.Properties;
+import java.nio.file.Paths;
 
 /**
  * ColumnFamilyOptions to control the behavior of a database.  It will be used
@@ -824,6 +827,43 @@ public class ColumnFamilyOptions extends RocksObject
     return forceConsistencyChecks(nativeHandle_);
   }
 
+  @Override
+  public ColumnFamilyOptions setCFPaths(final Collection<DbPath> dbPaths) {
+    assert(isOwningHandle());
+
+    final int len = dbPaths.size();
+    final String paths[] = new String[len];
+    final long targetSizes[] = new long[len];
+
+    int i = 0;
+    for(final DbPath dbPath : dbPaths) {
+      paths[i] = dbPath.path.toString();
+      targetSizes[i] = dbPath.targetSize;
+      i++;
+    }
+    setCFPaths(nativeHandle_, paths, targetSizes);
+    return this;
+  }
+
+  @Override
+  public List<DbPath> cfPaths() {
+    final int len = (int)cfPathsLen(nativeHandle_);
+    if(len == 0) {
+      return Collections.emptyList();
+    } else {
+      final String paths[] = new String[len];
+      final long targetSizes[] = new long[len];
+
+      cfPaths(nativeHandle_, paths, targetSizes);
+
+      final List<DbPath> dbPaths = new ArrayList<>();
+      for(int i = 0; i < len; i++) {
+        dbPaths.add(new DbPath(Paths.get(paths[i]), targetSizes[i]));
+      }
+      return dbPaths;
+    }
+  }
+
   private static native long getColumnFamilyOptionsFromProps(
       String optString);
 
@@ -984,6 +1024,11 @@ public class ColumnFamilyOptions extends RocksObject
   private native void setForceConsistencyChecks(final long handle,
     final boolean forceConsistencyChecks);
   private native boolean forceConsistencyChecks(final long handle);
+  private native void setCFPaths(final long handle, final String[] paths,
+    final long[] targetSizes);
+  private native long cfPathsLen(final long handle);
+  private native void cfPaths(final long handle, final String[] paths,
+    final long[] targetSizes);
 
   // instance variables
   // NOTE: If you add new member variables, please update the copy constructor above!
