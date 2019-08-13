@@ -18,13 +18,13 @@
 #define crc32c_u32(crc, v) __crc32cw(crc, v)
 #define crc32c_u64(crc, v) __crc32cd(crc, v)
 #define PREF4X64L1(buffer,PREF_OFFSET, ITR) \
-	    __asm__("PRFM PLDL1KEEP, [%x[v],%[c]]"::[v]"r"(buffer), [c]"I"((PREF_OFFSET) + ((ITR) + 0)*64));\
+        __asm__("PRFM PLDL1KEEP, [%x[v],%[c]]"::[v]"r"(buffer), [c]"I"((PREF_OFFSET) + ((ITR) + 0)*64));\
         __asm__("PRFM PLDL1KEEP, [%x[v],%[c]]"::[v]"r"(buffer), [c]"I"((PREF_OFFSET) + ((ITR) + 1)*64));\
         __asm__("PRFM PLDL1KEEP, [%x[v],%[c]]"::[v]"r"(buffer), [c]"I"((PREF_OFFSET) + ((ITR) + 2)*64));\
         __asm__("PRFM PLDL1KEEP, [%x[v],%[c]]"::[v]"r"(buffer), [c]"I"((PREF_OFFSET) + ((ITR) + 3)*64));
 
 #define PREF1KL1(buffer,PREF_OFFSET) \
-	    PREF4X64L1(buffer,(PREF_OFFSET), 0) \
+        PREF4X64L1(buffer,(PREF_OFFSET), 0) \
         PREF4X64L1(buffer,(PREF_OFFSET), 4) \
         PREF4X64L1(buffer,(PREF_OFFSET), 8) \
         PREF4X64L1(buffer,(PREF_OFFSET), 12)
