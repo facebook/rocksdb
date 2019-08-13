@@ -106,7 +106,10 @@ Status WriteUnpreparedTxn::HandleWrite(std::function<Status()> do_write) {
       largest_validated_seq_ =
           std::max(largest_validated_seq_, snapshot_->GetSequenceNumber());
     } else {
-      largest_validated_seq_ = kMaxSequenceNumber;
+      // TODO(lth): We should use the same number as tracked_at_seq in TryLock,
+      // because what is actually being tracked is the sequence number at which
+      // this key was locked at.
+      largest_validated_seq_ = db_impl_->GetLastPublishedSequence();
     }
   }
   return s;
@@ -680,6 +683,11 @@ void WriteUnpreparedTxn::Clear() {
   if (!recovered_txn_) {
     txn_db_impl_->UnLock(this, &GetTrackedKeys());
   }
+  unprep_seqs_.clear();
+  flushed_save_points_.reset(nullptr);
+  unflushed_save_points_.reset(nullptr);
+  recovered_txn_ = false;
+  largest_validated_seq_ = 0;
   TransactionBaseImpl::Clear();
 }
 
