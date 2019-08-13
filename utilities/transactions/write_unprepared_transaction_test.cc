@@ -553,7 +553,7 @@ TEST_P(WriteUnpreparedTransactionTest, NoSnapshotWrite) {
   // snapshot, if iterator snapshot is fresh enough.
   ReadOptions roptions;
   auto iter = txn->GetIterator(roptions);
-  uint keys = 0;
+  int keys = 0;
   for (iter->SeekToLast(); iter->Valid(); iter->Prev(), keys++) {
     ASSERT_OK(iter->status());
     ASSERT_EQ(iter->key().ToString(), iter->value().ToString());
