@@ -23,7 +23,7 @@ class DbPathSupplier {
  public:
   DbPathSupplier(const ImmutableCFOptions& ioptions): ioptions_(ioptions) {}
 
-  virtual ~DbPathSupplier() = default;
+  virtual ~DbPathSupplier() {}
 
   virtual uint32_t GetPathId(int level) const {
     UNUSED(level);
@@ -62,6 +62,8 @@ class FixedDbPathSupplier: public DbPathSupplier {
   FixedDbPathSupplier(const ImmutableCFOptions& ioptions, uint32_t path_id)
     : DbPathSupplier(ioptions), path_id_(path_id) {}
 
+  ~FixedDbPathSupplier() {}
+
   uint32_t GetPathId(int level) const override {
     UNUSED(level);
     return path_id_;
@@ -82,6 +84,8 @@ class RandomDbPathSupplier: public DbPathSupplier {
   RandomDbPathSupplier(const ImmutableCFOptions& ioptions)
     : DbPathSupplier(ioptions) {}
 
+  ~RandomDbPathSupplier() {}
+
   uint32_t GetPathId(int level) const override;
 
   bool AcceptPathId(
@@ -94,6 +98,8 @@ class LeveledTargetSizeDbPathSupplier: public DbPathSupplier {
       const ImmutableCFOptions& ioptions,
       const MutableCFOptions& moptions)
     : DbPathSupplier(ioptions), moptions_(moptions) {}
+
+  ~LeveledTargetSizeDbPathSupplier() {}
 
   uint32_t GetPathId(int level) const override;
 
@@ -112,6 +118,8 @@ class UniversalTargetSizeDbPathSupplier: public DbPathSupplier {
       uint64_t file_size)
     : DbPathSupplier(ioptions), file_size_(file_size),
       moptions_(moptions) {}
+
+  ~UniversalTargetSizeDbPathSupplier() {}
 
   uint32_t GetPathId(int level) const override;
 
