@@ -1,7 +1,17 @@
+// Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
+// Copyright (c) 2011 The LevelDB Authors. All rights reserved.
+// Use of this source code is governed by a BSD-style license that can be
+// found in the LICENSE file. See the AUTHORS file for names of contributors.
 
 #pragma once
+
 #include "db/column_family.h"
 #include "rocksdb/status.h"
+
+#define UNUSED(expr) do { (void)(expr); } while (0)
 
 namespace rocksdb {
 
@@ -16,6 +26,7 @@ class DbPathSupplier {
   virtual ~DbPathSupplier() = default;
 
   virtual uint32_t GetPathId(int level) const {
+    UNUSED(level);
     return 0;
   }
 
@@ -37,6 +48,8 @@ class DbPathSupplier {
   // path_id in order for us to say it's trivial.
   virtual bool AcceptPathId(
       uint32_t path_id, int output_level) const {
+    UNUSED(path_id);
+    UNUSED(output_level);
     return false;
   }
 
@@ -50,11 +63,13 @@ class FixedDbPathSupplier: public DbPathSupplier {
     : DbPathSupplier(ioptions), path_id_(path_id) {}
 
   uint32_t GetPathId(int level) const override {
+    UNUSED(level);
     return path_id_;
   }
 
   bool AcceptPathId(
       uint32_t path_id, int output_level) const override {
+    UNUSED(output_level);
     return path_id == path_id_;
   }
 

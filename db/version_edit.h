@@ -38,13 +38,13 @@ struct FileDescriptor {
 
   FileDescriptor() : FileDescriptor(0, 0, 0) {}
 
-  FileDescriptor(uint64_t number, uint32_t path_id, uint64_t _file_size)
-      : FileDescriptor(number, path_id, _file_size, kMaxSequenceNumber, 0) {}
+  FileDescriptor(uint64_t number, uint32_t _path_id, uint64_t _file_size)
+      : FileDescriptor(number, _path_id, _file_size, kMaxSequenceNumber, 0) {}
 
-  FileDescriptor(uint64_t number, uint32_t path_id, uint64_t _file_size,
+  FileDescriptor(uint64_t number, uint32_t _path_id, uint64_t _file_size,
                  SequenceNumber _smallest_seqno, SequenceNumber _largest_seqno)
       : table_reader(nullptr),
-        path_id(path_id),
+        path_id(_path_id),
         file_number(number),
         file_size(_file_size),
         smallest_seqno(_smallest_seqno),
