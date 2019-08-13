@@ -9,6 +9,7 @@
 
 #include "db/version_set.h"
 
+#include <iostream>
 #include <stdio.h>
 #include <algorithm>
 #include <array>
@@ -4641,6 +4642,7 @@ Status VersionSet::ReduceNumberOfLevels(const std::string& dbname,
 
 Status VersionSet::DumpManifest(Options& options, std::string& dscname,
                                 bool verbose, bool hex, bool json) {
+    std::cout << "Dump Manifest";
   // Open the specified manifest file.
   std::unique_ptr<SequentialFileReader> file_reader;
   Status s;
@@ -4684,6 +4686,7 @@ Status VersionSet::DumpManifest(Options& options, std::string& dscname,
     Slice record;
     std::string scratch;
     while (reader.ReadRecord(&record, &scratch) && s.ok()) {
+        std::cout << record.ToString() << ":" << scratch;
       VersionEdit edit;
       s = edit.DecodeFrom(record);
       if (!s.ok()) {
@@ -4868,6 +4871,25 @@ Status VersionSet::WriteSnapshot(log::Writer* log) {
   // This is done without DB mutex lock held, but only within single-threaded
   // LogAndApply. Column family manipulations can only happen within LogAndApply
   // (the same single thread), so we're safe to iterate.
+
+  DBImpl db_impl(DBOptions(), dbname_, true, false);
+  std::string db_id;
+  Status found_dbid =db_impl.GetDbIdentity(db_id);
+  if (!found_dbid.ok()){
+      return found_dbid;
+  }
+  VersionEdit edit_for_db_id;
+  edit_for_db_id.SetDBId(db_id);
+  std::string db_id_record;
+  if (!edit_for_db_id.EncodeTo(&db_id_record)) {
+      return Status::Corruption(
+          "Unable to Encode VersionEdit:" + edit_for_db_id.DebugString(true));
+  }
+  Status add_record = log->AddRecord(db_id_record);
+  if (!add_record.ok()) {
+    return add_record;
+  }
+
   for (auto cfd : *column_family_set_) {
     if (cfd->IsDropped()) {
       continue;

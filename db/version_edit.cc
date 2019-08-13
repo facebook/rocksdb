@@ -8,7 +8,7 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
 #include "db/version_edit.h"
-
+#include <iostream>
 #include "db/version_set.h"
 #include "logging/event_logger.h"
 #include "rocksdb/slice.h"
@@ -31,6 +31,7 @@ enum Tag : uint32_t {
   // 8 was used for large value refs
   kPrevLogNumber = 9,
   kMinLogNumberToKeep = 10,
+  kDbId = 11,
 
   // these are new formats divergent from open source leveldb
   kNewFile2 = 100,
@@ -67,6 +68,7 @@ uint64_t PackFileNumberAndPathId(uint64_t number, uint64_t path_id) {
 }
 
 void VersionEdit::Clear() {
+  db_id_.clear();
   comparator_.clear();
   max_level_ = 0;
   log_number_ = 0;
@@ -75,6 +77,7 @@ void VersionEdit::Clear() {
   next_file_number_ = 0;
   max_column_family_ = 0;
   min_log_number_to_keep_ = 0;
+  has_db_id_ = false;
   has_comparator_ = false;
   has_log_number_ = false;
   has_prev_log_number_ = false;
@@ -93,6 +96,10 @@ void VersionEdit::Clear() {
 }
 
 bool VersionEdit::EncodeTo(std::string* dst) const {
+  if (has_db_id_) {
+      PutVarint32(dst, kDbId);
+      PutLengthPrefixedSlice(dst, db_id_);
+  }
   if (has_comparator_) {
     PutVarint32(dst, kComparator);
     PutLengthPrefixedSlice(dst, comparator_);
@@ -320,9 +327,17 @@ Status VersionEdit::DecodeFrom(const Slice& src) {
   FileMetaData f;
   Slice str;
   InternalKey key;
-
+  std::cout << "Data: " << src.ToString();
   while (msg == nullptr && GetVarint32(&input, &tag)) {
     switch (tag) {
+      case kDbId:
+        if (GetLengthPrefixedSlice(&input, &str)) {
+            db_id_ = str.ToString();
+            has_db_id_ = true;
+        } else {
+            msg = "db id";
+        }
+        break;
       case kComparator:
         if (GetLengthPrefixedSlice(&input, &str)) {
           comparator_ = str.ToString();
@@ -537,6 +552,10 @@ Status VersionEdit::DecodeFrom(const Slice& src) {
 std::string VersionEdit::DebugString(bool hex_key) const {
   std::string r;
   r.append("VersionEdit {");
+  if (has_db_id_) {
+    r.append("\n DB ID: ");
+    r.append(db_id_);
+  }
   if (has_comparator_) {
     r.append("\n  Comparator: ");
     r.append(comparator_);
@@ -608,6 +627,9 @@ std::string VersionEdit::DebugJSON(int edit_num, bool hex_key) const {
   JSONWriter jw;
   jw << "EditNumber" << edit_num;
 
+  if (has_db_id_) {
+      jw << "DB ID" << db_id_;
+  }
   if (has_comparator_) {
     jw << "Comparator" << comparator_;
   }

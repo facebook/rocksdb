@@ -231,6 +231,9 @@ Status DBImpl::ValidateOptions(const DBOptions& db_options) {
 
 Status DBImpl::NewDB() {
   VersionEdit new_db;
+  std::string db_id;
+  GetDbIdentity(db_id);
+//  new_db.SetDBId(db_id);
   new_db.SetLogNumber(0);
   new_db.SetNextFile(2);
   new_db.SetLastSequence(0);
@@ -336,6 +339,18 @@ Status DBImpl::Recover(
       return s;
     }
 
+    // Check for the IDENTITY file and create it if not there
+    s = env_->FileExists(IdentityFileName(dbname_));
+    if (s.IsNotFound()) {
+      s = SetIdentityFile(env_, dbname_);
+      if (!s.ok()) {
+        return s;
+      }
+    } else if (!s.ok()) {
+      assert(s.IsIOError());
+      return s;
+    }
+
     s = env_->FileExists(CurrentFileName(dbname_));
     if (s.IsNotFound()) {
       if (immutable_db_options_.create_if_missing) {
@@ -355,17 +370,6 @@ Status DBImpl::Recover(
       }
     } else {
       // Unexpected error reading file
-      assert(s.IsIOError());
-      return s;
-    }
-    // Check for the IDENTITY file and create it if not there
-    s = env_->FileExists(IdentityFileName(dbname_));
-    if (s.IsNotFound()) {
-      s = SetIdentityFile(env_, dbname_);
-      if (!s.ok()) {
-        return s;
-      }
-    } else if (!s.ok()) {
       assert(s.IsIOError());
       return s;
     }
