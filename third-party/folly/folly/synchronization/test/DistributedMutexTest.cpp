@@ -981,10 +981,8 @@ template <template <typename> class Atom = std::atomic>
 void concurrentExceptionPropagationStress(
     int numThreads,
     std::chrono::milliseconds t) {
-  // this test fails under with a false positive under TSAN for some reason
-  //
-  // We know this is a false positive because this well-formed and verifiably
-  // correct program fails with the same error
+  // this test fails under with a false negative under older versions of TSAN
+  // for some reason so disable it when TSAN is enabled
   if (folly::kIsSanitizeThread) {
     return;
   }
