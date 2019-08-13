@@ -75,8 +75,8 @@ Status TransactionUtil::CheckKey(DBImpl* db_impl, SuperVersion* sv,
 
     if (cache_only) {
       result = Status::TryAgain(
-          "Transaction ould not check for conflicts as the MemTable does not "
-          "countain a long enough history to check write at SequenceNumber: ",
+          "Transaction could not check for conflicts as the MemTable does not "
+          "contain a long enough history to check write at SequenceNumber: ",
           ToString(snap_seq));
     }
   } else if (snap_seq < earliest_seq || min_uncommitted <= earliest_seq) {
