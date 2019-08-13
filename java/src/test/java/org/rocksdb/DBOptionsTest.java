@@ -776,7 +776,7 @@ public class DBOptionsTest {
   public void dbPathPlacementStrategy() {
     final DbPathPlacementStrategy strategy = DbPathPlacementStrategy.RANDOMLY_CHOOSE_PATH;
 
-    try (final ColumnFamilyOptions opt = new ColumnFamilyOptions()) {
+    try (final DBOptions opt = new DBOptions()) {
       assertThat(opt.dbPathPlacementStrategy()).isEqualTo(
         DbPathPlacementStrategy.GRADUAL_MOVE_OLD_DATA_TOWARDS_END);
 
