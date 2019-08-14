@@ -55,6 +55,7 @@ enum CustomTag : uint32_t {
   // kMinLogNumberToKeep as part of a CustomTag as a hack. This should be
   // removed when manifest becomes forward-comptabile.
   kMinLogNumberToKeepHack = 3,
+  kHasGlobalSequence = 4,
   kPathId = 65,
 };
 // If this bit for the custom tag is set, opening DB should fail if
@@ -124,7 +125,8 @@ bool VersionEdit::EncodeTo(std::string* dst) const {
       return false;
     }
     bool has_customized_fields = false;
-    if (f.marked_for_compaction || has_min_log_number_to_keep_) {
+    if (f.marked_for_compaction || has_min_log_number_to_keep_ ||
+        f.fd.has_global_seqno) {
       PutVarint32(dst, kNewFile4);
       has_customized_fields = true;
     } else if (f.fd.GetPathId() == 0) {
@@ -187,6 +189,11 @@ bool VersionEdit::EncodeTo(std::string* dst) const {
         PutLengthPrefixedSlice(dst, Slice(varint_log_number));
         min_log_num_written = true;
       }
+      if (f.fd.has_global_seqno) {
+        PutVarint32(dst, CustomTag::kHasGlobalSequence);
+        char p = static_cast<char>(1);
+        PutLengthPrefixedSlice(dst, Slice(&p, 1));
+      }
       TEST_SYNC_POINT_CALLBACK("VersionEdit::EncodeTo:NewFile4:CustomizeFields",
                                dst);
 
@@ -247,6 +254,7 @@ const char* VersionEdit::DecodeNewFile4From(Slice* input) {
   uint64_t file_size;
   SequenceNumber smallest_seqno;
   SequenceNumber largest_seqno;
+  bool has_global_seqno = false;
   // Since this is the only forward-compatible part of the code, we hack new
   // extension into this record. When we do, we set this boolean to distinguish
   // the record from the normal NewFile records.
@@ -292,6 +300,12 @@ const char* VersionEdit::DecodeNewFile4From(Slice* input) {
           }
           has_min_log_number_to_keep_ = true;
           break;
+        case kHasGlobalSequence:
+          if (field.size() != 1) {
+            return "has global sequence field wrong size";
+          }
+          has_global_seqno = (field[0] == 1);
+          break;
         default:
           if ((custom_tag & kCustomTagNonSafeIgnoreMask) != 0) {
             // Should not proceed if cannot understand it
@@ -304,7 +318,8 @@ const char* VersionEdit::DecodeNewFile4From(Slice* input) {
     return "new-file4 entry";
   }
   f.fd =
-      FileDescriptor(number, path_id, file_size, smallest_seqno, largest_seqno);
+      FileDescriptor(number, path_id, file_size, smallest_seqno, largest_seqno,
+      has_global_seqno);
   new_files_.push_back(std::make_pair(level, f));
   return nullptr;
 }
@@ -433,7 +448,7 @@ Status VersionEdit::DecodeFrom(const Slice& src) {
             GetVarint64(&input, &smallest_seqno) &&
             GetVarint64(&input, &largest_seqno)) {
           f.fd = FileDescriptor(number, 0, file_size, smallest_seqno,
-                                largest_seqno);
+                                largest_seqno, false);
           new_files_.push_back(std::make_pair(level, f));
         } else {
           if (!msg) {
@@ -456,7 +471,7 @@ Status VersionEdit::DecodeFrom(const Slice& src) {
             GetVarint64(&input, &smallest_seqno) &&
             GetVarint64(&input, &largest_seqno)) {
           f.fd = FileDescriptor(number, path_id, file_size, smallest_seqno,
-                                largest_seqno);
+                                largest_seqno, false);
           new_files_.push_back(std::make_pair(level, f));
         } else {
           if (!msg) {

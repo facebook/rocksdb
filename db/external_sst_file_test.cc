@@ -1874,6 +1874,77 @@ TEST_P(ExternalSSTFileTest, IngestFileWithGlobalSeqnoMemtableFlush) {
   VerifyDBFromMap(true_data, &kcnt, false);
 }
 
+TEST_P(ExternalSSTFileTest, IngestLiveDBFiles) {
+  auto s = Status::OK();
+
+  // 1. Create CFs foo and bar
+  auto options = CurrentOptions();
+  CreateAndReopenWithCF({"foo", "bar"}, options);
+
+  // 2. Write (i, i_foo) to CF:foo and write (i, i_bar) to CF:bar
+  for (int i = 0; i < 100; ++i) {
+    s = Put(1, Key(i), Key(i) + "_foo");
+    ASSERT_OK(s);
+    s = Put(2, Key(i), Key(i) + "_bar");
+    ASSERT_OK(s);
+  }
+
+  // 3. Flush memtables of CF foo and bar
+  s = Flush(1);
+  ASSERT_OK(s);
+  s = Flush(2);
+  ASSERT_OK(s);
+
+  // 4. Create checkpoint and export CF:foo's SST to /external_live_db dir
+  Checkpoint* checkpoint = nullptr;
+  s = Checkpoint::Create(db_, &checkpoint);
+  ASSERT_OK(s);
+  ASSERT_NE(checkpoint, nullptr);
+  ExportImportFilesMetaData* external_files_metadata = nullptr;
+  s = checkpoint->ExportColumnFamily(handles_[1],
+      test::TmpDir(env_) + "/external_live_db", &external_files_metadata);
+  ASSERT_OK(s);
+  ASSERT_NE(external_files_metadata, nullptr);
+
+  // 5. Check values in CF:bar are i_bar before ingestion
+  for (int i = 0; i < 100; ++i) {
+    std::string value;
+    s = db_->Get(ReadOptions(), handles_[2], Key(i), &value);
+    ASSERT_OK(s);
+    ASSERT_EQ(Key(i) + "_bar", value);
+  }
+
+  // 6. Ingest exported CF:foo's SST in /external_live_db dir to CF:bar
+  IngestExternalFileArg arg;
+  arg.column_family = handles_[2];
+  arg.options.move_files = true;
+  arg.options.ingest_live_db_files = true;
+  // We must ignore check CF ID table property before ingest,
+  // because foo and bar's CF ID is not same.
+  arg.options.check_cf_id_property_before_ingest = false;
+  // write_global_seqno was disabled when ingest live db files
+  arg.options.write_global_seqno = false;
+  for (const auto& file : external_files_metadata->files) {
+    arg.external_files.emplace_back(file.db_path + "/" + file.name);
+  }
+  s = db_->IngestExternalFiles({arg});
+  ASSERT_OK(s);
+
+  // 7. Check values in CF:bar are i_foo after ingestion
+  for (int i = 0; i < 100; ++i) {
+    std::string value;
+    s = db_->Get(ReadOptions(), handles_[2], Key(i), &value);
+    ASSERT_OK(s);
+    ASSERT_EQ(Key(i) + "_foo", value);
+  }
+
+  // 8. Do cleanup
+  delete external_files_metadata;
+  delete checkpoint;
+  s = test::DestroyDir(env_, test::TmpDir(env_) + "/external_live_db");
+  ASSERT_OK(s);
+}
+
 TEST_P(ExternalSSTFileTest, L0SortingIssue) {
   Options options = CurrentOptions();
   options.num_levels = 2;

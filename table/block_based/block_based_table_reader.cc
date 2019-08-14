@@ -982,12 +982,13 @@ bool IsFeatureSupported(const TableProperties& table_properties,
 // Caller has to ensure seqno is not nullptr.
 Status GetGlobalSequenceNumber(const TableProperties& table_properties,
                                SequenceNumber largest_seqno,
+                               bool has_global_seqno,
                                SequenceNumber* seqno) {
   const auto& props = table_properties.user_collected_properties;
   const auto version_pos = props.find(ExternalSstFilePropertyNames::kVersion);
   const auto seqno_pos = props.find(ExternalSstFilePropertyNames::kGlobalSeqno);
 
-  *seqno = kDisableGlobalSequenceNumber;
+  *seqno = has_global_seqno ? largest_seqno : kDisableGlobalSequenceNumber;
   if (version_pos == props.end()) {
     if (seqno_pos != props.end()) {
       std::array<char, 200> msg_buf;
@@ -1075,7 +1076,8 @@ Status BlockBasedTable::Open(
     const SliceTransform* prefix_extractor,
     const bool prefetch_index_and_filter_in_cache, const bool skip_filters,
     const int level, const bool immortal_table,
-    const SequenceNumber largest_seqno, TailPrefetchStats* tail_prefetch_stats,
+    const SequenceNumber largest_seqno, const bool has_global_seqno,
+    TailPrefetchStats* tail_prefetch_stats,
     BlockCacheTracer* const block_cache_tracer) {
   table_reader->reset();
 
@@ -1151,7 +1153,7 @@ Status BlockBasedTable::Open(
   // Populates table_properties and some fields that depend on it,
   // such as index_type.
   s = new_table->ReadPropertiesBlock(prefetch_buffer.get(), meta_iter.get(),
-                                     largest_seqno);
+                                     largest_seqno, has_global_seqno);
   if (!s.ok()) {
     return s;
   }
@@ -1286,7 +1288,7 @@ Status BlockBasedTable::TryReadPropertiesWithGlobalSeqno(
 
 Status BlockBasedTable::ReadPropertiesBlock(
     FilePrefetchBuffer* prefetch_buffer, InternalIterator* meta_iter,
-    const SequenceNumber largest_seqno) {
+    const SequenceNumber largest_seqno, const bool has_global_seqno) {
   bool found_properties_block = true;
   Status s;
   s = SeekToPropertiesBlock(meta_iter, &found_properties_block);
@@ -1373,7 +1375,7 @@ Status BlockBasedTable::ReadPropertiesBlock(
         rep_->index_type == BlockBasedTableOptions::kBinarySearchWithFirstKey;
 
     s = GetGlobalSequenceNumber(*(rep_->table_properties), largest_seqno,
-                                &(rep_->global_seqno));
+                                has_global_seqno, &(rep_->global_seqno));
     if (!s.ok()) {
       ROCKS_LOG_ERROR(rep_->ioptions.info_log, "%s", s.ToString().c_str());
     }
