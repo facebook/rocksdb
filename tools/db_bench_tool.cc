@@ -103,6 +103,7 @@ DEFINE_string(
     "multireadrandom,"
     "mixgraph,"
     "readseq,"
+    "readtorowcache,"
     "readtocache,"
     "readreverse,"
     "readwhilewriting,"
@@ -2771,6 +2772,14 @@ class Benchmark {
         method = &Benchmark::WriteRandom;
       } else if (name == "readseq") {
         method = &Benchmark::ReadSequential;
+      } else if (name == "readtorowcache") {
+        if (!FLAGS_use_existing_keys) {
+          fprintf(stderr,
+                  "Please set use_existing_keys to true in readtorowcache "
+                  "benchmark\n");
+          exit(1);
+        }
+        method = &Benchmark::ReadToRowCache;
       } else if (name == "readtocache") {
         method = &Benchmark::ReadSequential;
         num_threads = 1;
@@ -4615,6 +4624,65 @@ class Benchmark {
 
     delete iter;
     thread->stats.AddBytes(bytes);
+    if (FLAGS_perf_level > rocksdb::PerfLevel::kDisable) {
+      thread->stats.AddMessage(std::string("PERF_CONTEXT:\n") +
+                               get_perf_context()->ToString());
+    }
+  }
+
+  void ReadToRowCache(ThreadState* thread) {
+    int64_t read = 0;
+    int64_t found = 0;
+    int64_t bytes = 0;
+    int64_t key_rand = 0;
+    ReadOptions options(FLAGS_verify_checksum, true);
+    std::unique_ptr<const char[]> key_guard;
+    Slice key = AllocateKey(&key_guard);
+    PinnableSlice pinnable_val;
+
+    while (key_rand < FLAGS_num) {
+      DBWithColumnFamilies* db_with_cfh = SelectDBWithCfh(thread);
+      // We use same key_rand as seed for key and column family so that we can
+      // deterministically find the cfh corresponding to a particular key, as it
+      // is done in DoWrite method.
+      GenerateKeyFromInt(key_rand, FLAGS_num, &key);
+      key_rand++;
+      read++;
+      Status s;
+      if (FLAGS_num_column_families > 1) {
+        s = db_with_cfh->db->Get(options, db_with_cfh->GetCfh(key_rand), key,
+                                 &pinnable_val);
+      } else {
+        pinnable_val.Reset();
+        s = db_with_cfh->db->Get(options,
+                                 db_with_cfh->db->DefaultColumnFamily(), key,
+                                 &pinnable_val);
+      }
+
+      if (s.ok()) {
+        found++;
+        bytes += key.size() + pinnable_val.size();
+      } else if (!s.IsNotFound()) {
+        fprintf(stderr, "Get returned an error: %s\n", s.ToString().c_str());
+        abort();
+      }
+
+      if (thread->shared->read_rate_limiter.get() != nullptr &&
+          read % 256 == 255) {
+        thread->shared->read_rate_limiter->Request(
+            256, Env::IO_HIGH, nullptr /* stats */, RateLimiter::OpType::kRead);
+      }
+
+      thread->stats.FinishedOps(db_with_cfh, db_with_cfh->db, 1, kRead);
+    }
+
+    char msg[100];
+    snprintf(msg, sizeof(msg), "(%" PRIu64 " of %" PRIu64 " found)\n",
+             found, read);
+
+    thread->stats.AddBytes(bytes);
+    thread->stats.AddMessage(msg);
+
     if (FLAGS_perf_level > rocksdb::PerfLevel::kDisable) {
       thread->stats.AddMessage(std::string("PERF_CONTEXT:\n") +
                                get_perf_context()->ToString());
