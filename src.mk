@@ -17,6 +17,7 @@ LIB_SOURCES =                                                   \
   db/compaction/compaction_picker_universal.cc                 	\
   db/convenience.cc                                             \
   db/db_filesnapshot.cc                                         \
+  db/db_path_supplier.cc                                        \
   db/db_impl/db_impl.cc                                         \
   db/db_impl/db_impl_compaction_flush.cc                        \
   db/db_impl/db_impl_debug.cc                                   \
