@@ -230,8 +230,9 @@ bool atomic_fetch_set(Atomic& atomic, std::size_t bit, std::memory_order mo) {
   static_assert(!std::is_const<Atomic>{}, "");
   assert(bit < (sizeof(Integer) * 8));
 
-  if (folly::kIsArchAmd64) {
-    // do the optimized thing on x86 builds
+  // do the optimized thing on x86 builds.  Also, some versions of TSAN do not
+  // properly instrument the inline assembly, so avoid it when TSAN is enabled
+  if (folly::kIsArchAmd64 && !folly::kIsSanitizeThread) {
     return detail::atomic_fetch_set_x86(atomic, bit, mo);
   } else {
     // otherwise default to the default implementation using fetch_or()
@@ -246,8 +247,9 @@ bool atomic_fetch_reset(Atomic& atomic, std::size_t bit, std::memory_order mo) {
   static_assert(!std::is_const<Atomic>{}, "");
   assert(bit < (sizeof(Integer) * 8));
 
-  if (folly::kIsArchAmd64) {
-    // do the optimized thing on x86 builds
+  // do the optimized thing on x86 builds.  Also, some versions of TSAN do not
+  // properly instrument the inline assembly, so avoid it when TSAN is enabled
+  if (folly::kIsArchAmd64 && !folly::kIsSanitizeThread) {
     return detail::atomic_fetch_reset_x86(atomic, bit, mo);
   } else {
     // otherwise default to the default implementation using fetch_and()
