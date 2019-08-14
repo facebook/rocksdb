@@ -724,6 +724,7 @@ Status BlobDBImpl::PutBlobValue(const WriteOptions& /*options*/,
     }
     if (s.ok()) {
       if (expiration != kNoExpiration) {
+        WriteLock file_lock(&blob_file->mutex_);
         blob_file->ExtendExpirationRange(expiration);
       }
       s = CloseBlobFileIfNeeded(blob_file);
@@ -1200,7 +1201,13 @@ std::pair<bool, int64_t> BlobDBImpl::SanityCheck(bool aborted) {
                        blob_file->BlobFileNumber(), blob_file->GetFileSize(),
                        blob_file->BlobCount(), blob_file->Immutable());
     if (blob_file->HasTTL()) {
-      auto expiration_range = blob_file->GetExpirationRange();
+      ExpirationRange expiration_range;
+
+      {
+        ReadLock file_lock(&blob_file->mutex_);
+        expiration_range = blob_file->GetExpirationRange();
+      }
+
       pos += snprintf(buf + pos, sizeof(buf) - pos,
                       ", expiration range (%" PRIu64 ", %" PRIu64 ")",
                       expiration_range.first, expiration_range.second);
@@ -1503,7 +1510,14 @@ Status BlobDBImpl::GCFileAndUpdateLSM(const std::shared_ptr<BlobFile>& bfptr,
   // this reads the key but skips the blob
   Reader::ReadLevel shallow = Reader::kReadHeaderKey;
 
-  bool file_expired = has_ttl && now >= bfptr->GetExpirationRange().second;
+  ExpirationRange expiration_range;
+
+  {
+    ReadLock file_lock(&bfptr->mutex_);
+    expiration_range = bfptr->GetExpirationRange();
+  }
+
+  bool file_expired = has_ttl && now >= expiration_range.second;
 
   if (!file_expired) {
     // read the blob because you have to write it back to new file
