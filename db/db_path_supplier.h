@@ -21,9 +21,10 @@ namespace rocksdb {
 // can update global file counters, so usage should be inside proper locking.
 class DbPathSupplier {
  public:
-  DbPathSupplier(const ImmutableCFOptions& ioptions): ioptions_(ioptions) {}
+  explicit DbPathSupplier(const ImmutableCFOptions& ioptions):
+    ioptions_(ioptions) {}
 
-  virtual ~DbPathSupplier() {}
+  virtual ~DbPathSupplier() = default;
 
   virtual uint32_t GetPathId(int level) const {
     UNUSED(level);
@@ -62,7 +63,7 @@ class FixedDbPathSupplier: public DbPathSupplier {
   FixedDbPathSupplier(const ImmutableCFOptions& ioptions, uint32_t path_id)
     : DbPathSupplier(ioptions), path_id_(path_id) {}
 
-  ~FixedDbPathSupplier() {}
+  ~FixedDbPathSupplier() override {}
 
   uint32_t GetPathId(int level) const override {
     UNUSED(level);
@@ -84,7 +85,7 @@ class RandomDbPathSupplier: public DbPathSupplier {
   RandomDbPathSupplier(const ImmutableCFOptions& ioptions)
     : DbPathSupplier(ioptions) {}
 
-  ~RandomDbPathSupplier() {}
+  ~RandomDbPathSupplier() override {}
 
   uint32_t GetPathId(int level) const override;
 
@@ -99,7 +100,7 @@ class LeveledTargetSizeDbPathSupplier: public DbPathSupplier {
       const MutableCFOptions& moptions)
     : DbPathSupplier(ioptions), moptions_(moptions) {}
 
-  ~LeveledTargetSizeDbPathSupplier() {}
+  ~LeveledTargetSizeDbPathSupplier() override {}
 
   uint32_t GetPathId(int level) const override;
 
@@ -119,7 +120,7 @@ class UniversalTargetSizeDbPathSupplier: public DbPathSupplier {
     : DbPathSupplier(ioptions), file_size_(file_size),
       moptions_(moptions) {}
 
-  ~UniversalTargetSizeDbPathSupplier() {}
+  ~UniversalTargetSizeDbPathSupplier() override {}
 
   uint32_t GetPathId(int level) const override;
 
