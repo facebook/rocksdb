@@ -578,6 +578,27 @@ void Java_org_rocksdb_Options_dbPaths(
 
 /*
  * Class:     org_rocksdb_Options
+ * Method:    setDbPathPlacementStrategy
+ * Signature: (JB)V
+ */
+void Java_org_rocksdb_Options_setDbPathPlacementStrategy(
+    JNIEnv* /*env*/, jobject /*jobj*/, jlong jhandle, jbyte strategy) {
+reinterpret_cast<rocksdb::Options*>(jhandle)->db_path_placement_strategy =
+static_cast<rocksdb::DbPathPlacementStrategy>(strategy);
+}
+
+/*
+ * Class:     org_rocksdb_Options
+ * Method:    dbPathPlacementStrategy
+ * Signature: (J)B
+ */
+jbyte Java_org_rocksdb_Options_dbPathPlacementStrategy(
+    JNIEnv* /*env*/, jobject /*jobj*/, jlong jhandle) {
+return reinterpret_cast<rocksdb::Options*>(jhandle)->db_path_placement_strategy;
+}
+
+/*
+ * Class:     org_rocksdb_Options
  * Method:    dbLogDir
  * Signature: (J)Ljava/lang/String
  */
@@ -4416,6 +4437,102 @@ jboolean Java_org_rocksdb_ColumnFamilyOptions_forceConsistencyChecks(
   return static_cast<bool>(cf_opts->force_consistency_checks);
 }
 
+/*
+ * Class:     org_rocksdb_ColumnFamilyOptions
+ * Method:    setCFPaths
+ * Signature: (J[Ljava/lang/String;[J)V
+ */
+void Java_org_rocksdb_ColumnFamilyOptions_setCFPaths(
+    JNIEnv* env, jobject, jlong jhandle, jobjectArray jpaths,
+    jlongArray jtarget_sizes) {
+  std::vector<rocksdb::DbPath> cf_paths;
+  jlong* ptr_jtarget_size = env->GetLongArrayElements(jtarget_sizes, nullptr);
+  if (ptr_jtarget_size == nullptr) {
+    // exception thrown: OutOfMemoryError
+    return;
+  }
+
+  jboolean has_exception = JNI_FALSE;
+  const jsize len = env->GetArrayLength(jpaths);
+  for (jsize i = 0; i < len; i++) {
+    jobject jpath =
+        reinterpret_cast<jstring>(env->GetObjectArrayElement(jpaths, i));
+    if (env->ExceptionCheck()) {
+      // exception thrown: ArrayIndexOutOfBoundsException
+      env->ReleaseLongArrayElements(jtarget_sizes, ptr_jtarget_size, JNI_ABORT);
+      return;
+    }
+    std::string path = rocksdb::JniUtil::copyStdString(
+        env, static_cast<jstring>(jpath), &has_exception);
+    env->DeleteLocalRef(jpath);
+
+    if (has_exception == JNI_TRUE) {
+      env->ReleaseLongArrayElements(jtarget_sizes, ptr_jtarget_size, JNI_ABORT);
+      return;
+    }
+
+    jlong jtarget_size = ptr_jtarget_size[i];
+
+    cf_paths.push_back(
+        rocksdb::DbPath(path, static_cast<uint64_t>(jtarget_size)));
+  }
+
+  env->ReleaseLongArrayElements(jtarget_sizes, ptr_jtarget_size, JNI_ABORT);
+
+  auto* opt = reinterpret_cast<rocksdb::ColumnFamilyOptions*>(jhandle);
+  opt->cf_paths = cf_paths;
+}
+
+/*
+ * Class:     org_rocksdb_ColumnFamilyOptions
+ * Method:    cfPathsLen
+ * Signature: (J)J
+ */
+jlong Java_org_rocksdb_ColumnFamilyOptions_cfPathsLen(
+    JNIEnv*, jobject, jlong jhandle) {
+  auto* opt = reinterpret_cast<rocksdb::ColumnFamilyOptions*>(jhandle);
+  return static_cast<jlong>(opt->cf_paths.size());
+}
+
+/*
+ * Class:     org_rocksdb_ColumnFamilyOptions
+ * Method:    cfPaths
+ * Signature: (J[Ljava/lang/String;[J)V
+ */
+void Java_org_rocksdb_ColumnFamilyOptions_cfPaths(
+    JNIEnv* env, jobject, jlong jhandle, jobjectArray jpaths,
+    jlongArray jtarget_sizes) {
+  jlong* ptr_jtarget_size = env->GetLongArrayElements(jtarget_sizes, nullptr);
+  if (ptr_jtarget_size == nullptr) {
+    // exception thrown: OutOfMemoryError
+    return;
+  }
+
+  auto* opt = reinterpret_cast<rocksdb::ColumnFamilyOptions*>(jhandle);
+  const jsize len = env->GetArrayLength(jpaths);
+  for (jsize i = 0; i < len; i++) {
+    rocksdb::DbPath cf_path = opt->cf_paths[i];
+
+    jstring jpath = env->NewStringUTF(cf_path.path.c_str());
+    if (jpath == nullptr) {
+      // exception thrown: OutOfMemoryError
+      env->ReleaseLongArrayElements(jtarget_sizes, ptr_jtarget_size, JNI_ABORT);
+      return;
+    }
+    env->SetObjectArrayElement(jpaths, i, jpath);
+    if (env->ExceptionCheck()) {
+      // exception thrown: ArrayIndexOutOfBoundsException
+      env->DeleteLocalRef(jpath);
+      env->ReleaseLongArrayElements(jtarget_sizes, ptr_jtarget_size, JNI_ABORT);
+      return;
+    }
+
+    ptr_jtarget_size[i] = static_cast<jint>(cf_path.target_size);
+  }
+
+  env->ReleaseLongArrayElements(jtarget_sizes, ptr_jtarget_size, JNI_COMMIT);
+}
+
 /////////////////////////////////////////////////////////////////////
 // rocksdb::DBOptions
 
@@ -4982,24 +5099,24 @@ void Java_org_rocksdb_DBOptions_dbPaths(
 }
 
 /*
- * Class:     org_rocksdb_Options
+ * Class:     org_rocksdb_DBOptions
  * Method:    setDbPathPlacementStrategy
  * Signature: (JB)V
  */
-void Java_org_rocksdb_Options_setDbPathPlacementStrategy(
+void Java_org_rocksdb_DBOptions_setDbPathPlacementStrategy(
     JNIEnv* /*env*/, jobject /*jobj*/, jlong jhandle, jbyte strategy) {
-  reinterpret_cast<rocksdb::Options*>(jhandle)->db_path_placement_strategy =
+  reinterpret_cast<rocksdb::DBOptions*>(jhandle)->db_path_placement_strategy =
   static_cast<rocksdb::DbPathPlacementStrategy>(strategy);
 }
 
 /*
- * Class:     org_rocksdb_Options
+ * Class:     org_rocksdb_DBOptions
  * Method:    dbPathPlacementStrategy
  * Signature: (J)B
  */
-jbyte Java_org_rocksdb_Options_dbPathPlacementStrategy(
+jbyte Java_org_rocksdb_DBOptions_dbPathPlacementStrategy(
     JNIEnv* /*env*/, jobject /*jobj*/, jlong jhandle) {
-  return reinterpret_cast<rocksdb::Options*>(jhandle)->db_path_placement_strategy;
+  return reinterpret_cast<rocksdb::DBOptions*>(jhandle)->db_path_placement_strategy;
 }
 
 /*
