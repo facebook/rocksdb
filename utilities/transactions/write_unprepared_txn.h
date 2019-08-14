@@ -160,6 +160,12 @@ class WriteUnpreparedTxn : public WritePreparedTxn {
     return last_log_number_;
   }
 
+  void RemoveActiveIterator(Iterator* iter) {
+    active_iterators_.erase(
+        std::remove(active_iterators_.begin(), active_iterators_.end(), iter),
+        active_iterators_.end());
+  }
+
  protected:
   void Initialize(const TransactionOptions& txn_options) override;
 
@@ -302,6 +308,13 @@ class WriteUnpreparedTxn : public WritePreparedTxn {
   std::unique_ptr<autovector<WriteUnpreparedTxn::SavePoint>>
       flushed_save_points_;
   std::unique_ptr<autovector<size_t>> unflushed_save_points_;
+
+  // It is currently unsafe to flush a write batch if there are active iterators
+  // created from this transaction. This is because we use WriteBatchWithIndex
+  // to do merging reads from the DB and the write batch. If we flush the write
+  // batch, it is possible that the delta iterator on the iterator will point to
+  // invalid memory.
+  std::vector<Iterator*> active_iterators_;
 };
 
 }  // namespace rocksdb

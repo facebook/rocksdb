@@ -93,12 +93,17 @@ void WriteUnpreparedTxn::Initialize(const TransactionOptions& txn_options) {
   unflushed_save_points_.reset(nullptr);
   recovered_txn_ = false;
   largest_validated_seq_ = 0;
+  assert(active_iterators_.empty());
+  active_iterators_.clear();
 }
 
 Status WriteUnpreparedTxn::HandleWrite(std::function<Status()> do_write) {
-  Status s = MaybeFlushWriteBatchToDB();
-  if (!s.ok()) {
-    return s;
+  Status s;
+  if (active_iterators_.empty()) {
+    s = MaybeFlushWriteBatchToDB();
+    if (!s.ok()) {
+      return s;
+    }
   }
   s = do_write();
   if (s.ok()) {
@@ -688,6 +693,8 @@ void WriteUnpreparedTxn::Clear() {
   unflushed_save_points_.reset(nullptr);
   recovered_txn_ = false;
   largest_validated_seq_ = 0;
+  assert(active_iterators_.empty());
+  active_iterators_.clear();
   TransactionBaseImpl::Clear();
 }
 
@@ -862,6 +869,14 @@ Status WriteUnpreparedTxn::Get(const ReadOptions& options,
   }
 }
 
+namespace {
+static void CleanupWriteUnpreparedWBWIIterator(void* arg1, void* arg2) {
+  auto txn = reinterpret_cast<WriteUnpreparedTxn*>(arg1);
+  auto iter = reinterpret_cast<Iterator*>(arg2);
+  txn->RemoveActiveIterator(iter);
+}
+}  // anonymous namespace
+
 Iterator* WriteUnpreparedTxn::GetIterator(const ReadOptions& options) {
   return GetIterator(options, wupt_db_->DefaultColumnFamily());
 }
@@ -872,7 +887,10 @@ Iterator* WriteUnpreparedTxn::GetIterator(const ReadOptions& options,
   Iterator* db_iter = wupt_db_->NewIterator(options, column_family, this);
   assert(db_iter);
 
-  return write_batch_.NewIteratorWithBase(column_family, db_iter);
+  auto iter = write_batch_.NewIteratorWithBase(column_family, db_iter);
+  active_iterators_.push_back(iter);
+  iter->RegisterCleanup(CleanupWriteUnpreparedWBWIIterator, this, iter);
+  return iter;
 }
 
 Status WriteUnpreparedTxn::ValidateSnapshot(ColumnFamilyHandle* column_family,
