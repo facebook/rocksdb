@@ -12,7 +12,6 @@
 #include "rocksdb/env.h"
 #include "rocksdb/options.h"
 #include "util/file_reader_writer.h"
-#include "util/mutexlock.h"
 #include "utilities/blob_db/blob_log_format.h"
 #include "utilities/blob_db/blob_log_reader.h"
 #include "utilities/blob_db/blob_log_writer.h"
@@ -158,13 +157,9 @@ class BlobFile {
 
   // All Get functions which are not atomic, will need ReadLock on the mutex
 
-  ExpirationRange GetExpirationRange() const {
-    ReadLock rl(&mutex_);
-    return expiration_range_;
-  }
+  ExpirationRange GetExpirationRange() const { return expiration_range_; }
 
   void ExtendExpirationRange(uint64_t expiration) {
-    WriteLock wl(&mutex_);
     expiration_range_.first = std::min(expiration_range_.first, expiration);
     expiration_range_.second = std::max(expiration_range_.second, expiration);
   }
