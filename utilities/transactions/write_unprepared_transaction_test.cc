@@ -570,9 +570,9 @@ TEST_P(WriteUnpreparedTransactionTest, IterateAndWrite) {
   TransactionOptions txn_options;
   txn_options.write_batch_flush_threshold = 1;
 
-  enum Action { DELETE, UPDATE };
+  enum Action { DO_DELETE, DO_UPDATE };
 
-  for (Action a : {DELETE, UPDATE}) {
+  for (Action a : {DO_DELETE, DO_UPDATE}) {
     for (int i = 0; i < 100; i++) {
       ASSERT_OK(db->Put(woptions, ToString(i), ToString(i)));
     }
@@ -591,7 +591,7 @@ TEST_P(WriteUnpreparedTransactionTest, IterateAndWrite) {
         ASSERT_EQ(iter->key().ToString(), iter->value().ToString());
       }
 
-      if (a == DELETE) {
+      if (a == DO_DELETE) {
         ASSERT_OK(txn->Delete(iter->key()));
       } else {
         ASSERT_OK(txn->Put(iter->key(), "b"));
@@ -602,7 +602,7 @@ TEST_P(WriteUnpreparedTransactionTest, IterateAndWrite) {
     ASSERT_OK(txn->Commit());
 
     iter = db->NewIterator(roptions);
-    if (a == DELETE) {
+    if (a == DO_DELETE) {
       // Check that db is empty.
       iter->SeekToFirst();
       ASSERT_FALSE(iter->Valid());
