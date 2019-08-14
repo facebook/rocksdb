@@ -621,6 +621,26 @@ TEST_P(WriteUnpreparedTransactionTest, IterateAndWrite) {
   }
 }
 
+TEST_P(WriteUnpreparedTransactionTest, SavePoint) {
+  WriteOptions woptions;
+  TransactionOptions txn_options;
+  txn_options.write_batch_flush_threshold = 1;
+
+  Transaction* txn = db->BeginTransaction(woptions, txn_options);
+  txn->SetSavePoint();
+  ASSERT_OK(txn->Put("a", "a"));
+  ASSERT_OK(txn->Put("b", "b"));
+  ASSERT_OK(txn->Commit());
+
+  ReadOptions roptions;
+  std::string value;
+  ASSERT_OK(txn->Get(roptions, "a", &value));
+  ASSERT_EQ(value, "a");
+  ASSERT_OK(txn->Get(roptions, "b", &value));
+  ASSERT_EQ(value, "b");
+  delete txn;
+}
+
 }  // namespace rocksdb
 
 int main(int argc, char** argv) {
