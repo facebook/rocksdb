@@ -1273,7 +1273,7 @@ public class OptionsTest {
   public void dbPathPlacementStrategy() {
     final DbPathPlacementStrategy strategy = DbPathPlacementStrategy.RANDOMLY_CHOOSE_PATH;
 
-    try (final ColumnFamilyOptions opt = new ColumnFamilyOptions()) {
+    try (final Options opt = new Options()) {
       assertThat(opt.dbPathPlacementStrategy()).isEqualTo(
         DbPathPlacementStrategy.GRADUAL_MOVE_OLD_DATA_TOWARDS_END);
 
@@ -1290,7 +1290,7 @@ public class OptionsTest {
     cfPaths.add(new DbPath(Paths.get("/b"), 100));
     cfPaths.add(new DbPath(Paths.get("/c"), 1000));
 
-    try(final ColumnFamilyOptions opt = new ColumnFamilyOptions()) {
+    try(final Options opt = new Options()) {
       assertThat(opt.cfPaths()).isEqualTo(Collections.emptyList());
 
       opt.setCFPaths(cfPaths);
