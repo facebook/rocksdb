@@ -592,14 +592,14 @@ TEST_P(WriteUnpreparedTransactionTest, IterateAndWrite) {
       }
 
       if (a == DELETE) {
-        txn->Delete(iter->key());
+        ASSERT_OK(txn->Delete(iter->key()));
       } else {
-        txn->Put(iter->key(), "b");
+        ASSERT_OK(txn->Put(iter->key(), "b"));
       }
     }
 
     delete iter;
-    txn->Commit();
+    ASSERT_OK(txn->Commit());
 
     iter = db->NewIterator(roptions);
     if (a == DELETE) {
