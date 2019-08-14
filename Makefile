@@ -256,8 +256,8 @@ endif
 ifdef COMPILE_WITH_TSAN
 	DISABLE_JEMALLOC=1
 	EXEC_LDFLAGS += -fsanitize=thread
-	PLATFORM_CCFLAGS += -fsanitize=thread -fPIC
-	PLATFORM_CXXFLAGS += -fsanitize=thread -fPIC
+	PLATFORM_CCFLAGS += -fsanitize=thread -fPIC -DFOLLY_SANITIZE_THREAD
+	PLATFORM_CXXFLAGS += -fsanitize=thread -fPIC -DFOLLY_SANITIZE_THREAD
         # Turn off -pg when enabling TSAN testing, because that induces
         # a link failure.  TODO: find the root cause
 	PROFILING_FLAGS =
@@ -1285,7 +1285,7 @@ db_merge_operator_test: db/db_merge_operator_test.o db/db_test_util.o $(LIBOBJEC
 
 db_merge_operand_test: db/db_merge_operand_test.o db/db_test_util.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
-	
+
 db_options_test: db/db_options_test.o db/db_test_util.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
