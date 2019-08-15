@@ -9,11 +9,11 @@
 
 #include "db/version_set.h"
 
-#include <iostream>
 #include <stdio.h>
 #include <algorithm>
 #include <array>
 #include <cinttypes>
+#include <iostream>
 #include <list>
 #include <map>
 #include <set>
@@ -35,6 +35,7 @@
 #include "monitoring/perf_context_imp.h"
 #include "monitoring/persistent_stats_history.h"
 #include "rocksdb/env.h"
+#include "rocksdb/ldb_tool.h"
 #include "rocksdb/merge_operator.h"
 #include "rocksdb/write_buffer_manager.h"
 #include "table/format.h"
@@ -52,7 +53,6 @@
 #include "util/stop_watch.h"
 #include "util/string_util.h"
 #include "util/user_comparator_wrapper.h"
-#include "rocksdb/ldb_tool.h"
 
 namespace rocksdb {
 
@@ -4873,22 +4873,24 @@ Status VersionSet::WriteSnapshot(log::Writer* log) {
   // LogAndApply. Column family manipulations can only happen within LogAndApply
   // (the same single thread), so we're safe to iterate.
 
-  DBImpl db_impl(DBOptions(), dbname_, true, false);
-  std::string db_id;
-  Status found_dbid =db_impl.GetDbIdentity(db_id);
-  if (!found_dbid.ok()){
+  if (db_options_->write_dbid_to_manifest) {
+    DBImpl db_impl(DBOptions(), dbname_, true, false);
+    std::string db_id;
+    Status found_dbid = db_impl.GetDbIdentity(db_id);
+    if (!found_dbid.ok()) {
       return found_dbid;
-  }
-  VersionEdit edit_for_db_id;
-  edit_for_db_id.SetDBId(db_id);
-  std::string db_id_record;
-  if (!edit_for_db_id.EncodeTo(&db_id_record)) {
-      return Status::Corruption(
-          "Unable to Encode VersionEdit:" + edit_for_db_id.DebugString(true));
-  }
-  Status add_record = log->AddRecord(db_id_record);
-  if (!add_record.ok()) {
-    return add_record;
+    }
+    VersionEdit edit_for_db_id;
+    edit_for_db_id.SetDBId(db_id);
+    std::string db_id_record;
+    if (!edit_for_db_id.EncodeTo(&db_id_record)) {
+      return Status::Corruption("Unable to Encode VersionEdit:" +
+                                edit_for_db_id.DebugString(true));
+    }
+    Status add_record = log->AddRecord(db_id_record);
+    if (!add_record.ok()) {
+      return add_record;
+    }
   }
 
   for (auto cfd : *column_family_set_) {
@@ -4944,15 +4946,13 @@ Status VersionSet::WriteSnapshot(log::Writer* log) {
       }
     }
   }
-//  std::string manifest = DescriptorFileName(dbname_, 1);
-//   std::string mp;
-//   GetCurrentManifestPath(dbname_, env_, &mp, &manifest_file_number_);
-//   std::string temp = "--path="+mp;
-//   std::cout << "Open Path:" << temp << ":"<< mp;
-//   char **argv = DBImpl::new_argv(4, "ldb", "manifest_dump", "--verbose", temp.c_str());
-//   int argc = 4;
-//   rocksdb::LDBTool tool;
-//   tool.Run(argc, argv);
+  //  std::string manifest = DescriptorFileName(dbname_, 1);
+  //   std::string mp;
+  //   GetCurrentManifestPath(dbname_, env_, &mp, &manifest_file_number_);
+  //   std::string temp = "--path="+mp;
+  //   std::cout << "Open Path:" << temp << ":"<< mp;
+  //   char **argv = DBImpl::new_argv(4, "ldb", "manifest_dump", "--verbose",
+  //   temp.c_str()); int argc = 4; rocksdb::LDBTool tool; tool.Run(argc, argv);
 
   return Status::OK();
 }
