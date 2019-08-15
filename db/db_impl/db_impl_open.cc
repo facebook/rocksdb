@@ -167,7 +167,7 @@ Status SanitizeOptionsByTable(
     const std::vector<ColumnFamilyDescriptor>& column_families) {
   Status s;
   for (auto cf : column_families) {
-    s = cf.options.table_factory->SanitizeOptions(db_opts, cf.options);
+    s = cf.options.table_factory->ValidateOptions(db_opts, cf.options);
     if (!s.ok()) {
       return s;
     }

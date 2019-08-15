@@ -621,6 +621,7 @@ set(SOURCES
         table/plain/plain_table_reader.cc
         table/sst_file_reader.cc
         table/sst_file_writer.cc
+        table/table_factory.cc
         table/table_properties.cc
         table/two_level_iterator.cc
         test_util/sync_point.cc

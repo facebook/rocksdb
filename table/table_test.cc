@@ -2765,7 +2765,8 @@ void ValidateBlockSizeDeviation(int value, int expected) {
   BlockBasedTableFactory* factory = new BlockBasedTableFactory(table_options);
 
   const BlockBasedTableOptions* normalized_table_options =
-      (const BlockBasedTableOptions*)factory->GetOptions();
+      factory->GetOptions<BlockBasedTableOptions>(
+          TableFactory::kBlockBasedTableOpts);
   ASSERT_EQ(normalized_table_options->block_size_deviation, expected);
 
   delete factory;
@@ -2777,7 +2778,8 @@ void ValidateBlockRestartInterval(int value, int expected) {
   BlockBasedTableFactory* factory = new BlockBasedTableFactory(table_options);
 
   const BlockBasedTableOptions* normalized_table_options =
-      (const BlockBasedTableOptions*)factory->GetOptions();
+      factory->GetOptions<BlockBasedTableOptions>(
+          TableFactory::kBlockBasedTableOpts);
   ASSERT_EQ(normalized_table_options->block_restart_interval, expected);
 
   delete factory;

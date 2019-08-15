@@ -175,16 +175,6 @@ class MockTableFactory : public TableFactory {
   Status CreateMockTable(Env* env, const std::string& fname,
                          stl_wrappers::KVMap file_contents);
 
-  virtual Status SanitizeOptions(
-      const DBOptions& /*db_opts*/,
-      const ColumnFamilyOptions& /*cf_opts*/) const override {
-    return Status::OK();
-  }
-
-  virtual std::string GetPrintableTableOptions() const override {
-    return std::string();
-  }
-
   // This function will assert that only a single file exists and that the
   // contents are equal to file_contents
   void AssertSingleFile(const stl_wrappers::KVMap& file_contents);

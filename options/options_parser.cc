@@ -401,10 +401,14 @@ Status RocksDBOptionsParser::EndSection(
           section_arg);
     }
     // Ignore error as table factory deserialization is optional
-    s = GetTableFactoryFromMap(
+    s = TableFactory::LoadTableFactory(
         section_title.substr(
             opt_section_titles[kOptionSectionTableOptions].size()),
-        opt_map, &(cf_opt->table_factory), ignore_unknown_options);
+        &(cf_opt->table_factory));
+    if (s.ok()) {
+      s = cf_opt->table_factory->ConfigureFromMap(db_opt_, opt_map, true,
+                                                  ignore_unknown_options);
+    }
     if (!s.ok()) {
       return s;
     }
@@ -790,15 +794,14 @@ Status RocksDBOptionsParser::VerifyTableFactory(
           "[RocksDBOptionsParser]: "
           "failed the verification on TableFactory->Name()");
     }
-    if (base_tf->Name() == BlockBasedTableFactory::kName) {
-      return VerifyBlockBasedTableFactory(
-          static_cast_with_check<const BlockBasedTableFactory,
-                                 const TableFactory>(base_tf),
-          static_cast_with_check<const BlockBasedTableFactory,
-                                 const TableFactory>(file_tf),
-          sanity_check_level);
+    std::string mismatch;
+    bool matches = base_tf->Matches(file_tf, sanity_check_level, &mismatch);
+    if (!matches) {
+      return Status::Corruption(
+          "[RocksDBOptionsParser]: "
+          "failed the verification on BlockBasedTableOptions::",
+          mismatch);
     }
-    // TODO(yhchiang): add checks for other table factory types
   } else {
     // TODO(yhchiang): further support sanity check here
   }

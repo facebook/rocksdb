@@ -128,7 +128,7 @@ Status SstFileDumper::NewTableReader(
     std::unique_ptr<TableReader>* /*table_reader*/) {
   // We need to turn off pre-fetching of index and filter nodes for
   // BlockBasedTable
-  if (BlockBasedTableFactory::kName == options_.table_factory->Name()) {
+  if (TableFactory::kBlockBasedTableName == options_.table_factory->Name()) {
     return options_.table_factory->NewTableReader(
         TableReaderOptions(ioptions_, moptions_.prefix_extractor.get(),
                            soptions_, internal_comparator_),

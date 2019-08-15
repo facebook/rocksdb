@@ -18,13 +18,7 @@ namespace rocksdb {
 static const std::unordered_map<std::string, OptionsSanityCheckLevel>
     sanity_level_db_options {};
 
-// The sanity check level for block-based table options
-static const std::unordered_map<std::string, OptionsSanityCheckLevel>
-    sanity_level_bbt_options {};
-
 OptionsSanityCheckLevel DBOptionSanityCheckLevel(
-    const std::string& options_name);
-OptionsSanityCheckLevel BBTOptionSanityCheckLevel(
     const std::string& options_name);
 
 }  // namespace rocksdb

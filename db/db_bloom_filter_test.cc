@@ -76,13 +76,17 @@ TEST_P(DBBloomFilterTestDefFormatVersion, KeyMayExist) {
     options_override.partition_filters = partition_filters_;
     options_override.metadata_block_size = 32;
     Options options = CurrentOptions(options_override);
-    if (partition_filters_ &&
-        static_cast<BlockBasedTableOptions*>(
-            options.table_factory->GetOptions())
-                ->index_type != BlockBasedTableOptions::kTwoLevelIndexSearch) {
-      // In the current implementation partitioned filters depend on partitioned
-      // indexes
-      continue;
+    if (partition_filters_) {
+      auto* table_options =
+          options.table_factory->GetOptions<BlockBasedTableOptions>(
+              TableFactory::kBlockBasedTableOpts);
+      if (table_options != nullptr &&
+          table_options->index_type !=
+              BlockBasedTableOptions::kTwoLevelIndexSearch) {
+        // In the current implementation partitioned filters depend on
+        // partitioned indexes
+        continue;
+      }
     }
     options.statistics = rocksdb::CreateDBStatistics();
     CreateAndReopenWithCF({"pikachu"}, options);
@@ -883,8 +887,7 @@ class BloomStatsTestWithParam
       options_.table_factory.reset(NewBlockBasedTableFactory(table_options));
     } else {
       assert(!partition_filters_);  // not supported in plain table
-      PlainTableOptions table_options;
-      options_.table_factory.reset(NewPlainTableFactory(table_options));
+      options_.table_factory.reset(NewPlainTableFactory());
     }
     options_.env = env_;
 

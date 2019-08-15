@@ -1169,39 +1169,6 @@ Status GetOptionsFromString(const Options& base_options,
   return Status::OK();
 }
 
-Status GetTableFactoryFromMap(
-    const std::string& factory_name,
-    const std::unordered_map<std::string, std::string>& opt_map,
-    std::shared_ptr<TableFactory>* table_factory, bool ignore_unknown_options) {
-  Status s;
-  if (factory_name == BlockBasedTableFactory().Name()) {
-    BlockBasedTableOptions bbt_opt;
-    s = GetBlockBasedTableOptionsFromMap(BlockBasedTableOptions(), opt_map,
-                                         &bbt_opt,
-                                         true, /* input_strings_escaped */
-                                         ignore_unknown_options);
-    if (!s.ok()) {
-      return s;
-    }
-    table_factory->reset(new BlockBasedTableFactory(bbt_opt));
-    return Status::OK();
-  } else if (factory_name == PlainTableFactory().Name()) {
-    PlainTableOptions pt_opt;
-    s = GetPlainTableOptionsFromMap(PlainTableOptions(), opt_map, &pt_opt,
-                                    true, /* input_strings_escaped */
-                                    ignore_unknown_options);
-    if (!s.ok()) {
-      return s;
-    }
-    table_factory->reset(new PlainTableFactory(pt_opt));
-    return Status::OK();
-  }
-  // Return OK for not supported table factories as TableFactory
-  // Deserialization is optional.
-  table_factory->reset();
-  return Status::OK();
-}
-
 std::unordered_map<std::string, OptionTypeInfo>
     OptionsHelper::db_options_type_info = {
         /*

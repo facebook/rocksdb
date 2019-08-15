@@ -17,7 +17,9 @@
 #include "util/string_util.h"
 
 namespace rocksdb {
+const std::string PlainTableFactory::kPlainTablePrefix = "rocksdb.table.plain.";
 static std::unordered_map<std::string, OptionTypeInfo> plain_table_type_info = {
+#ifndef ROCKSDB_LITE
     {"user_key_len",
      {offsetof(struct PlainTableOptions, user_key_len), OptionType::kUInt32T,
       OptionVerificationType::kNormal, OptionTypeFlags::kNone, 0}},
@@ -36,7 +38,7 @@ static std::unordered_map<std::string, OptionTypeInfo> plain_table_type_info = {
       OptionTypeFlags::kNone, 0}},
     {"encoding_type",
      {offsetof(struct PlainTableOptions, encoding_type),
-      OptionType::kEncodingType, OptionVerificationType::kByName,
+      OptionType::kEncodingType, OptionVerificationType::kNormal,
       OptionTypeFlags::kEnum, 0}},
     {"full_scan_mode",
      {offsetof(struct PlainTableOptions, full_scan_mode), OptionType::kBoolean,
@@ -44,7 +46,14 @@ static std::unordered_map<std::string, OptionTypeInfo> plain_table_type_info = {
     {"store_index_in_file",
      {offsetof(struct PlainTableOptions, store_index_in_file),
       OptionType::kBoolean, OptionVerificationType::kNormal,
-      OptionTypeFlags::kNone, 0}}};
+      OptionTypeFlags::kNone, 0}},
+#endif  // ROCKSDB_LITE
+};
+
+PlainTableFactory::PlainTableFactory(const PlainTableOptions& options)
+    : table_options_(options) {
+  RegisterOptionsMap(kPlainTableOpts, &table_options_, plain_table_type_info);
+}
 
 Status PlainTableFactory::NewTableReader(
     const TableReaderOptions& table_reader_options,
@@ -75,55 +84,6 @@ TableBuilder* PlainTableFactory::NewTableBuilder(
       table_builder_options.column_family_name, 6,
       table_options_.huge_page_tlb_size, table_options_.hash_table_ratio,
       table_options_.store_index_in_file);
-}
-
-std::string PlainTableFactory::GetPrintableTableOptions() const {
-  std::string ret;
-  ret.reserve(20000);
-  const int kBufferSize = 200;
-  char buffer[kBufferSize];
-
-  snprintf(buffer, kBufferSize, "  user_key_len: %u\n",
-           table_options_.user_key_len);
-  ret.append(buffer);
-  snprintf(buffer, kBufferSize, "  bloom_bits_per_key: %d\n",
-           table_options_.bloom_bits_per_key);
-  ret.append(buffer);
-  snprintf(buffer, kBufferSize, "  hash_table_ratio: %lf\n",
-           table_options_.hash_table_ratio);
-  ret.append(buffer);
-  snprintf(buffer, kBufferSize, "  index_sparseness: %" ROCKSDB_PRIszt "\n",
-           table_options_.index_sparseness);
-  ret.append(buffer);
-  snprintf(buffer, kBufferSize, "  huge_page_tlb_size: %" ROCKSDB_PRIszt "\n",
-           table_options_.huge_page_tlb_size);
-  ret.append(buffer);
-  snprintf(buffer, kBufferSize, "  encoding_type: %d\n",
-           table_options_.encoding_type);
-  ret.append(buffer);
-  snprintf(buffer, kBufferSize, "  full_scan_mode: %d\n",
-           table_options_.full_scan_mode);
-  ret.append(buffer);
-  snprintf(buffer, kBufferSize, "  store_index_in_file: %d\n",
-           table_options_.store_index_in_file);
-  ret.append(buffer);
-  return ret;
-}
-
-const PlainTableOptions& PlainTableFactory::table_options() const {
-  return table_options_;
-}
-
-Status GetPlainTableOptionsFromString(const PlainTableOptions& table_options,
-                                      const std::string& opts_str,
-                                      PlainTableOptions* new_table_options) {
-  std::unordered_map<std::string, std::string> opts_map;
-  Status s = StringToMap(opts_str, &opts_map);
-  if (!s.ok()) {
-    return s;
-  }
-  return GetPlainTableOptionsFromMap(table_options, opts_map,
-                                     new_table_options);
 }
 
 Status GetMemTableRepFactoryFromString(
@@ -189,62 +149,6 @@ Status GetMemTableRepFactoryFromString(
     new_mem_factory->reset(mem_factory);
   }
 
-  return Status::OK();
-}
-
-std::string ParsePlainTableOptions(const std::string& name,
-                                   const std::string& org_value,
-                                   PlainTableOptions* new_options,
-                                   bool input_strings_escaped = false,
-                                   bool ignore_unknown_options = false) {
-  const std::string& value =
-      input_strings_escaped ? UnescapeOptionString(org_value) : org_value;
-  const auto iter = plain_table_type_info.find(name);
-  if (iter == plain_table_type_info.end()) {
-    if (ignore_unknown_options) {
-      return "";
-    } else {
-      return "Unrecognized option";
-    }
-  }
-  const auto& opt_info = iter->second;
-  if (opt_info.verification != OptionVerificationType::kDeprecated &&
-      !ParseOptionHelper(reinterpret_cast<char*>(new_options) + opt_info.offset,
-                         opt_info, value)) {
-    return "Invalid value";
-  }
-  return "";
-}
-
-Status GetPlainTableOptionsFromMap(
-    const PlainTableOptions& table_options,
-    const std::unordered_map<std::string, std::string>& opts_map,
-    PlainTableOptions* new_table_options, bool input_strings_escaped,
-    bool /*ignore_unknown_options*/) {
-  assert(new_table_options);
-  *new_table_options = table_options;
-  for (const auto& o : opts_map) {
-    auto error_message = ParsePlainTableOptions(
-        o.first, o.second, new_table_options, input_strings_escaped);
-    if (error_message != "") {
-      const auto iter = plain_table_type_info.find(o.first);
-      if (iter == plain_table_type_info.end() ||
-          !input_strings_escaped ||  // !input_strings_escaped indicates
-                                     // the old API, where everything is
-                                     // parsable.
-          (iter->second.verification != OptionVerificationType::kByName &&
-           iter->second.verification !=
-               OptionVerificationType::kByNameAllowNull &&
-           iter->second.verification !=
-               OptionVerificationType::kByNameAllowFromNull &&
-           iter->second.verification != OptionVerificationType::kDeprecated)) {
-        // Restore "new_options" to the default "base_options".
-        *new_table_options = table_options;
-        return Status::InvalidArgument("Can't parse PlainTableOptions:",
-                                       o.first + " " + error_message);
-      }
-    }
-  }
   return Status::OK();
 }
 

@@ -1166,7 +1166,8 @@ Status ColumnFamilyData::ValidateOptions(
           "TTL is only supported when files are always "
           "kept open (set max_open_files = -1). ");
     }
-    if (cf_options.table_factory->Name() != BlockBasedTableFactory().Name()) {
+    if (cf_options.table_factory->Name() !=
+        TableFactory::kBlockBasedTableName) {
       return Status::NotSupported(
           "TTL is only supported in Block-Based Table format. ");
     }
@@ -1178,7 +1179,8 @@ Status ColumnFamilyData::ValidateOptions(
           "Periodic Compaction is only supported when files are always "
           "kept open (set max_open_files = -1). ");
     }
-    if (cf_options.table_factory->Name() != BlockBasedTableFactory().Name()) {
+    if (cf_options.table_factory->Name() !=
+        TableFactory::kBlockBasedTableName) {
       return Status::NotSupported(
           "Periodic Compaction is only supported in "
           "Block-Based Table format. ");

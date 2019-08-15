@@ -43,12 +43,6 @@ Status GetMutableDBOptionsFromStrings(
     const std::unordered_map<std::string, std::string>& options_map,
     MutableDBOptions* new_options);
 
-Status GetTableFactoryFromMap(
-    const std::string& factory_name,
-    const std::unordered_map<std::string, std::string>& opt_map,
-    std::shared_ptr<TableFactory>* table_factory,
-    bool ignore_unknown_options = false);
-
 // A helper function that converts "opt_address" to a std::string
 // based on the specified OptionType.
 bool SerializeSingleOptionHelper(const char* opt_address,

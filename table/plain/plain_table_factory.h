@@ -138,6 +138,9 @@ class TableBuilder;
 //
 //
 class PlainTableFactory : public TableFactory {
+ private:
+  static const std::string kPlainTablePrefix /* = rocksdb.table.plain */;
+
  public:
   ~PlainTableFactory() {}
   // user_key_len is the length of the user key. If it is set to be
@@ -156,10 +159,9 @@ class PlainTableFactory : public TableFactory {
   // page TLB and the page size if allocating from there. See comments of
   // Arena::AllocateAligned() for details.
   explicit PlainTableFactory(
-      const PlainTableOptions& _table_options = PlainTableOptions())
-      : table_options_(_table_options) {}
+      const PlainTableOptions& _table_options = PlainTableOptions());
 
-  const char* Name() const override { return "PlainTable"; }
+  const char* Name() const override { return kPlainTableName.c_str(); }
   Status NewTableReader(const TableReaderOptions& table_reader_options,
                         std::unique_ptr<RandomAccessFileReader>&& file,
                         uint64_t file_size, std::unique_ptr<TableReader>* table,
@@ -169,24 +171,11 @@ class PlainTableFactory : public TableFactory {
       const TableBuilderOptions& table_builder_options,
       uint32_t column_family_id, WritableFileWriter* file) const override;
 
-  std::string GetPrintableTableOptions() const override;
-
-  const PlainTableOptions& table_options() const;
-
   static const char kValueTypeSeqId0 = char(~0);
 
-  // Sanitizes the specified DB Options.
-  Status SanitizeOptions(
-      const DBOptions& /*db_opts*/,
-      const ColumnFamilyOptions& /*cf_opts*/) const override {
-    return Status::OK();
-  }
-
-  void* GetOptions() override { return &table_options_; }
-
-  Status GetOptionString(std::string* /*opt_string*/,
-                         const std::string& /*delimiter*/) const override {
-    return Status::OK();
+ protected:
+  virtual const std::string& GetOptionsPrefix() const override {
+    return kPlainTablePrefix;
   }
 
  private:

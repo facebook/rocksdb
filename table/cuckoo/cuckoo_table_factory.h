@@ -51,13 +51,18 @@ static inline uint64_t CuckooHash(
 // - Does not support Merge operations.
 // - Does not support prefix bloom filters.
 class CuckooTableFactory : public TableFactory {
+ private:
+  static const std::string kCuckooTablePrefix;
+
  public:
-  explicit CuckooTableFactory(const CuckooTableOptions& table_options)
-    : table_options_(table_options) {}
+  explicit CuckooTableFactory(
+      const CuckooTableOptions& table_options = CuckooTableOptions());
   ~CuckooTableFactory() {}
 
   const char* Name() const override { return "CuckooTable"; }
-
+  const std::string& GetOptionsPrefix() const override {
+    return kCuckooTablePrefix;
+  }
   Status NewTableReader(
       const TableReaderOptions& table_reader_options,
       std::unique_ptr<RandomAccessFileReader>&& file, uint64_t file_size,
@@ -67,23 +72,6 @@ class CuckooTableFactory : public TableFactory {
   TableBuilder* NewTableBuilder(
       const TableBuilderOptions& table_builder_options,
       uint32_t column_family_id, WritableFileWriter* file) const override;
-
-  // Sanitizes the specified DB Options.
-  Status SanitizeOptions(
-      const DBOptions& /*db_opts*/,
-      const ColumnFamilyOptions& /*cf_opts*/) const override {
-    return Status::OK();
-  }
-
-  std::string GetPrintableTableOptions() const override;
-
-  void* GetOptions() override { return &table_options_; }
-
-  Status GetOptionString(std::string* /*opt_string*/,
-                         const std::string& /*delimiter*/) const override {
-    return Status::OK();
-  }
-
  private:
   CuckooTableOptions table_options_;
 };

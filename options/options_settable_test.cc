@@ -95,44 +95,41 @@ TEST_F(OptionsSettableTest, BlockBasedTableOptionsAllFieldsSettable) {
        sizeof(std::shared_ptr<const FilterPolicy>)},
   };
 
+  DBOptions db_opts;
   // In this test, we catch a new option of BlockBasedTableOptions that is not
-  // settable through GetBlockBasedTableOptionsFromString().
+  // settable through ConfigureFromString().
   // We count padding bytes of the option struct, and assert it to be the same
   // as unset bytes of an option struct initialized by
-  // GetBlockBasedTableOptionsFromString().
+  // ConfigureFromString().
 
-  char* bbto_ptr = new char[sizeof(BlockBasedTableOptions)];
+  BlockBasedTableOptions base;
 
   // Count padding bytes by setting all bytes in the memory to a special char,
   // copy a well constructed struct to this memory and see how many special
   // bytes left.
-  BlockBasedTableOptions* bbto = new (bbto_ptr) BlockBasedTableOptions();
-  FillWithSpecialChar(bbto_ptr, sizeof(BlockBasedTableOptions), kBbtoBlacklist);
+  FillWithSpecialChar(reinterpret_cast<char*>(&base),
+                      sizeof(BlockBasedTableOptions), kBbtoBlacklist);
+
   // It based on the behavior of compiler that padding bytes are not changed
   // when copying the struct. It's prone to failure when compiler behavior
   // changes. We verify there is unset bytes to detect the case.
-  *bbto = BlockBasedTableOptions();
+  base = BlockBasedTableOptions();
   int unset_bytes_base =
-      NumUnsetBytes(bbto_ptr, sizeof(BlockBasedTableOptions), kBbtoBlacklist);
+      NumUnsetBytes(reinterpret_cast<char*>(&base),
+                    sizeof(BlockBasedTableOptions), kBbtoBlacklist);
   ASSERT_GT(unset_bytes_base, 0);
-  bbto->~BlockBasedTableOptions();
 
-  // Construct the base option passed into
-  // GetBlockBasedTableOptionsFromString().
-  bbto = new (bbto_ptr) BlockBasedTableOptions();
-  FillWithSpecialChar(bbto_ptr, sizeof(BlockBasedTableOptions), kBbtoBlacklist);
-  // This option is not setable:
+  std::unique_ptr<TableFactory> bbtf(NewBlockBasedTableFactory());
+  auto* bbto = bbtf->GetOptions<BlockBasedTableOptions>(
+      TableFactory::kBlockBasedTableOpts);
+  FillWithSpecialChar(reinterpret_cast<char*>(bbto),
+                      sizeof(BlockBasedTableOptions), kBbtoBlacklist);
+
   bbto->use_delta_encoding = true;
 
-  char* new_bbto_ptr = new char[sizeof(BlockBasedTableOptions)];
-  BlockBasedTableOptions* new_bbto =
-      new (new_bbto_ptr) BlockBasedTableOptions();
-  FillWithSpecialChar(new_bbto_ptr, sizeof(BlockBasedTableOptions),
-                      kBbtoBlacklist);
-
   // Need to update the option string if a new option is added.
-  ASSERT_OK(GetBlockBasedTableOptionsFromString(
-      *bbto,
+  ASSERT_OK(bbtf->ConfigureFromString(
+      db_opts,
       "cache_index_and_filter_blocks=1;"
       "cache_index_and_filter_blocks_with_high_priority=true;"
       "pin_l0_filter_and_index_blocks_in_cache=1;"
@@ -152,22 +149,15 @@ TEST_F(OptionsSettableTest, BlockBasedTableOptionsAllFieldsSettable) {
       "hash_index_allow_collision=false;"
       "verify_compression=true;read_amp_bytes_per_bit=0;"
       "enable_index_compression=false;"
-      "block_align=true",
-      new_bbto));
+      "block_align=true"));
 
   ASSERT_EQ(unset_bytes_base,
-            NumUnsetBytes(new_bbto_ptr, sizeof(BlockBasedTableOptions),
-                          kBbtoBlacklist));
+            NumUnsetBytes(reinterpret_cast<char*>(bbto),
+                          sizeof(BlockBasedTableOptions), kBbtoBlacklist));
 
-  ASSERT_TRUE(new_bbto->block_cache.get() != nullptr);
-  ASSERT_TRUE(new_bbto->block_cache_compressed.get() != nullptr);
-  ASSERT_TRUE(new_bbto->filter_policy.get() != nullptr);
-
-  bbto->~BlockBasedTableOptions();
-  new_bbto->~BlockBasedTableOptions();
-
-  delete[] bbto_ptr;
-  delete[] new_bbto_ptr;
+  ASSERT_NE(bbto->block_cache, nullptr);
+  ASSERT_NE(bbto->block_cache_compressed.get(), nullptr);
+  ASSERT_NE(bbto->filter_policy.get(), nullptr);
 }
 
 // If the test fails, likely a new option is added to DBOptions

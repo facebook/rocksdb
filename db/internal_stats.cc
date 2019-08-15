@@ -896,19 +896,8 @@ bool InternalStats::HandleBlockCacheStat(Cache** block_cache) {
   assert(block_cache != nullptr);
   auto* table_factory = cfd_->ioptions()->table_factory;
   assert(table_factory != nullptr);
-  if (BlockBasedTableFactory::kName != table_factory->Name()) {
-    return false;
-  }
-  auto* table_options =
-      reinterpret_cast<BlockBasedTableOptions*>(table_factory->GetOptions());
-  if (table_options == nullptr) {
-    return false;
-  }
-  *block_cache = table_options->block_cache.get();
-  if (table_options->no_block_cache || *block_cache == nullptr) {
-    return false;
-  }
-  return true;
+  *block_cache = table_factory->GetOptions<Cache>("BlockCache");
+  return *block_cache != nullptr;
 }
 
 bool InternalStats::HandleBlockCacheCapacity(uint64_t* value, DBImpl* /*db*/,

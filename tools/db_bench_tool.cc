@@ -36,6 +36,7 @@
 #include "monitoring/histogram.h"
 #include "monitoring/statistics.h"
 #include "options/cf_options.h"
+#include "options/options_helper.h"
 #include "port/port.h"
 #include "port/stack_trace.h"
 #include "rocksdb/cache.h"
@@ -3743,11 +3744,10 @@ class Benchmark {
     options.compression_opts.zstd_max_train_bytes =
         FLAGS_compression_zstd_max_train_bytes;
     // If this is a block based table, set some related options
-    if (options.table_factory->Name() == BlockBasedTableFactory::kName &&
-        options.table_factory->GetOptions() != nullptr) {
-      BlockBasedTableOptions* table_options =
-          reinterpret_cast<BlockBasedTableOptions*>(
-              options.table_factory->GetOptions());
+    auto* table_options =
+        options.table_factory->GetOptions<BlockBasedTableOptions>(
+            TableFactory::kBlockBasedTableOpts);
+    if (table_options != nullptr) {
       if (FLAGS_cache_size) {
         table_options->block_cache = cache_;
       }
@@ -6353,6 +6353,7 @@ class Benchmark {
 int db_bench_tool(int argc, char** argv) {
   rocksdb::port::InstallStackTraceHandler();
   static bool initialized = false;
+  DBOptions db_options;  //**TODO: This should be initialized from the file...
   if (!initialized) {
     SetUsageMessage(std::string("\nUSAGE:\n") + std::string(argv[0]) +
                     " [OPTIONS]...");

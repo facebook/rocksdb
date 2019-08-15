@@ -576,7 +576,6 @@ static std::unordered_map<std::string, OptionTypeInfo> cf_options_type_info = {
         Status status =
             ObjectRegistry::NewInstance()->NewStaticObject<const Comparator>(
                 value, comp);
-
         return Status::OK();
       }}},
     {"prefix_extractor",
@@ -626,56 +625,36 @@ static std::unordered_map<std::string, OptionTypeInfo> cf_options_type_info = {
       OptionVerificationType::kByName, OptionTypeFlags::kNone, 0,
       [](const DBOptions&, const std::string&, char* addr,
          const std::string& value) {
-        std::unordered_map<std::string, std::string> dummy;
-        auto tf = reinterpret_cast<std::shared_ptr<TableFactory>*>(addr);
-        Status s = GetTableFactoryFromMap(value, dummy, tf, true);
-        return s;
+        auto* tf = reinterpret_cast<std::shared_ptr<TableFactory>*>(addr);
+        return TableFactory::LoadTableFactory(value, tf);
       }}},
     {"block_based_table_factory",
      {offset_of(&ColumnFamilyOptions::table_factory), OptionType::kUnknown,
       OptionVerificationType::kAlias, OptionTypeFlags::kNone, 0,
-      [](const DBOptions&, const std::string& name, char* addr,
+      [](const DBOptions& opts, const std::string&, char* addr,
          const std::string& value) {
-        // Nested options
-        BlockBasedTableOptions table_opt, base_table_options;
-        auto tf = reinterpret_cast<std::shared_ptr<TableFactory>*>(addr);
-        BlockBasedTableFactory* block_based_table_factory =
-            static_cast_with_check<BlockBasedTableFactory, TableFactory>(
-                tf->get());
-        if (block_based_table_factory != nullptr) {
-          base_table_options = block_based_table_factory->table_options();
+        auto* tf = reinterpret_cast<std::shared_ptr<TableFactory>*>(addr);
+        Status s = TableFactory::LoadTableFactory(
+            TableFactory::kBlockBasedTableName, tf);
+        if (s.ok()) {
+          s = tf->get()->ConfigureFromString(opts, value);
         }
-        Status table_opt_s = GetBlockBasedTableOptionsFromString(
-            base_table_options, value, &table_opt);
-        if (!table_opt_s.ok()) {
-          return Status::InvalidArgument(
-              "unable to parse the specified CF option " + name);
-        }
-        tf->reset(NewBlockBasedTableFactory(table_opt));
-        return Status::OK();
+        return s;
       }}},
     {"plain_table_factory",
      {offset_of(&ColumnFamilyOptions::table_factory), OptionType::kUnknown,
       OptionVerificationType::kAlias, OptionTypeFlags::kNone, 0,
-      [](const DBOptions&, const std::string& name, char* addr,
+      [](const DBOptions& opts, const std::string&, char* addr,
          const std::string& value) {
-        // Nested options
         auto tf = reinterpret_cast<std::shared_ptr<TableFactory>*>(addr);
-        PlainTableOptions table_opt, base_table_options;
-        PlainTableFactory* plain_table_factory =
-            static_cast_with_check<PlainTableFactory, TableFactory>(tf->get());
-        if (plain_table_factory != nullptr) {
-          base_table_options = plain_table_factory->table_options();
+        Status s =
+            TableFactory::LoadTableFactory(TableFactory::kPlainTableName, tf);
+        if (s.ok()) {
+          s = tf->get()->ConfigureFromString(opts, value);
         }
-        Status table_opt_s = GetPlainTableOptionsFromString(base_table_options,
-                                                            value, &table_opt);
-        if (!table_opt_s.ok()) {
-          return Status::InvalidArgument(
-              "unable to parse the specified CF option " + name);
-        }
-        tf->reset(NewPlainTableFactory(table_opt));
-        return Status::OK();
+        return s;
       }}},
+
     {"compaction_filter",
      {offset_of(&ColumnFamilyOptions::compaction_filter),
       OptionType::kCompactionFilter, OptionVerificationType::kByName,
@@ -764,7 +743,7 @@ class ConfigurableCFOptions : public Configurable {
 
  protected:
   Status UnknownToString(uint32_t /* mode */, const std::string& name,
-                                 std::string* result) const override;
+                         std::string* result) const override;
   const std::unordered_map<std::string, OptionsSanityCheckLevel>*
   GetOptionsSanityCheckLevel(const std::string& name) const override;
   bool VerifyOptionEqual(const std::string& opt_name,
@@ -802,9 +781,11 @@ bool ConfigurableCFOptions::VerifyOptionEqual(const std::string& opt_name,
       return false;
     }
   } else if (!SerializeOption(opt_name, opt_info, this_offset, mode,
-                              &this_value, "", ";").ok() ||
+                              &this_value, "", ";")
+                  .ok() ||
              !SerializeOption(opt_name, opt_info, that_offset, mode,
-                              &that_value, "", ";").ok()) {
+                              &that_value, "", ";")
+                  .ok()) {
     return false;
   }
   if (opt_map == nullptr) {
@@ -863,7 +844,8 @@ bool ConfigurableCFOptions::IsConfigEqual(const std::string& opt_name,
                                           const Configurable* this_config,
                                           const Configurable* that_config,
                                           std::string* mismatch) const {
-  bool is_equal = Configurable::IsConfigEqual(opt_name, opt_info, level, this_config, that_config, mismatch);
+  bool is_equal = Configurable::IsConfigEqual(
+      opt_name, opt_info, level, this_config, that_config, mismatch);
   // If the options are equal and there is no config but there is a map
   if (is_equal && this_config == nullptr && opt_map != nullptr) {
     // Check if the option name exists in the map
@@ -876,7 +858,7 @@ bool ConfigurableCFOptions::IsConfigEqual(const std::string& opt_name,
   }
   return is_equal;
 }
-  
+
 Status GetColumnFamilyOptionsFromMap(
     const DBOptions& db_options, const ColumnFamilyOptions& base_options,
     const std::unordered_map<std::string, std::string>& opts_map,

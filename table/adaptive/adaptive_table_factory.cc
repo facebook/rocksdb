@@ -75,40 +75,29 @@ TableBuilder* AdaptiveTableFactory::NewTableBuilder(
                                                   column_family_id, file);
 }
 
-std::string AdaptiveTableFactory::GetPrintableTableOptions() const {
-  std::string ret;
-  ret.reserve(20000);
-  const int kBufferSize = 200;
-  char buffer[kBufferSize];
-
+void AdaptiveTableFactory::DumpOptions(Logger* logger,
+                                       const std::string& indent,
+                                       uint32_t mode) const {
   if (table_factory_to_write_) {
-    snprintf(buffer, kBufferSize, "  write factory (%s) options:\n%s\n",
-             (table_factory_to_write_->Name() ? table_factory_to_write_->Name()
-                                              : ""),
-             table_factory_to_write_->GetPrintableTableOptions().c_str());
-    ret.append(buffer);
+    ROCKS_LOG_HEADER(logger, "%swrite factory(%s) options:", indent.c_str(),
+                     table_factory_to_write_->Name());
+    table_factory_to_write_->Dump(logger, indent + "  ", mode);
   }
   if (plain_table_factory_) {
-    snprintf(buffer, kBufferSize, "  %s options:\n%s\n",
-             plain_table_factory_->Name() ? plain_table_factory_->Name() : "",
-             plain_table_factory_->GetPrintableTableOptions().c_str());
-    ret.append(buffer);
+    ROCKS_LOG_HEADER(logger, "%s%s options:", indent.c_str(),
+                     plain_table_factory_->Name());
+    plain_table_factory_->Dump(logger, indent + " ", mode);
   }
   if (block_based_table_factory_) {
-    snprintf(
-        buffer, kBufferSize, "  %s options:\n%s\n",
-        (block_based_table_factory_->Name() ? block_based_table_factory_->Name()
-                                            : ""),
-        block_based_table_factory_->GetPrintableTableOptions().c_str());
-    ret.append(buffer);
+    ROCKS_LOG_HEADER(logger, "%s%s options:", indent.c_str(),
+                     block_based_table_factory_->Name());
+    block_based_table_factory_->Dump(logger, indent + " ", mode);
   }
   if (cuckoo_table_factory_) {
-    snprintf(buffer, kBufferSize, "  %s options:\n%s\n",
-             cuckoo_table_factory_->Name() ? cuckoo_table_factory_->Name() : "",
-             cuckoo_table_factory_->GetPrintableTableOptions().c_str());
-    ret.append(buffer);
+    ROCKS_LOG_HEADER(logger, "%s%s options:", indent.c_str(),
+                     cuckoo_table_factory_->Name());
+    cuckoo_table_factory_->Dump(logger, indent + " ", mode);
   }
-  return ret;
 }
 
 extern TableFactory* NewAdaptiveTableFactory(
