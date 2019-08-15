@@ -191,6 +191,7 @@ LIB_SOURCES =                                                   \
   utilities/memory/memory_util.cc                               \
   utilities/merge_operators/max.cc                              \
   utilities/merge_operators/put.cc                              \
+  utilities/merge_operators/sortlist.cc                  		\
   utilities/merge_operators/string_append/stringappend.cc       \
   utilities/merge_operators/string_append/stringappend2.cc      \
   utilities/merge_operators/uint64add.cc                        \
@@ -262,6 +263,13 @@ TEST_LIB_SOURCES =                                              \
   test_util/testutil.cc                                         \
   utilities/cassandra/test_utils.cc                             \
 
+FOLLY_SOURCES = \
+  third-party/folly/folly/detail/Futex.cpp                                     \
+  third-party/folly/folly/synchronization/AtomicNotification.cpp               \
+  third-party/folly/folly/synchronization/DistributedMutex.cpp                 \
+  third-party/folly/folly/synchronization/ParkingLot.cpp                       \
+  third-party/folly/folly/synchronization/WaitOptions.cpp                      \
+
 MAIN_SOURCES =                                                          \
   cache/cache_bench.cc                                                  \
   cache/cache_test.cc                                                   \
@@ -291,6 +299,7 @@ MAIN_SOURCES =                                                          \
   db/db_log_iter_test.cc                                                \
   db/db_memtable_test.cc                                                \
   db/db_merge_operator_test.cc                                          \
+  db/db_merge_operand_test.cc                                          	\
   db/db_options_test.cc                                                 \
   db/db_properties_test.cc                                              \
   db/db_range_del_test.cc                                               \

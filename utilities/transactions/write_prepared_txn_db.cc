@@ -231,8 +231,12 @@ Status WritePreparedTxnDB::Get(const ReadOptions& options,
   WritePreparedTxnReadCallback callback(this, snap_seq, min_uncommitted,
                                         backed_by_snapshot);
   bool* dont_care = nullptr;
-  auto res = db_impl_->GetImpl(options, column_family, key, value, dont_care,
-                               &callback);
+  DBImpl::GetImplOptions get_impl_options;
+  get_impl_options.column_family = column_family;
+  get_impl_options.value = value;
+  get_impl_options.value_found = dont_care;
+  get_impl_options.callback = &callback;
+  auto res = db_impl_->GetImpl(options, key, get_impl_options);
   if (LIKELY(callback.valid() && ValidateSnapshot(callback.max_visible_seq(),
                                                   backed_by_snapshot))) {
     return res;
@@ -428,8 +432,12 @@ void WritePreparedTxnDB::CheckPreparedAgainstMax(SequenceNumber new_max,
                      " new_max=%" PRIu64,
                      static_cast<uint64_t>(delayed_prepared_.size()),
                      to_be_popped, new_max);
-      prepared_txns_.pop();
       delayed_prepared_empty_.store(false, std::memory_order_release);
+      // Update prepared_txns_ after updating delayed_prepared_empty_ otherwise
+      // there will be a point in time that the entry is neither in
+      // prepared_txns_ nor in delayed_prepared_, which will not be checked if
+      // delayed_prepared_empty_ is false.
+      prepared_txns_.pop();
     }
     if (locked) {
       prepared_txns_.push_pop_mutex()->Lock();

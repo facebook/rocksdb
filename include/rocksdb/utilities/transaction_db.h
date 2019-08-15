@@ -112,8 +112,14 @@ struct TransactionDBOptions {
   // 8m entry, 64MB size
   size_t wp_commit_cache_bits = static_cast<size_t>(23);
 
+  // For testing, whether transaction name should be auto-generated or not. This
+  // is useful for write unprepared which requires named transactions.
+  bool autogenerate_name = false;
+
   friend class WritePreparedTxnDB;
+  friend class WriteUnpreparedTxn;
   friend class WritePreparedTransactionTestBase;
+  friend class TransactionTestBase;
   friend class MySQLStyleTransactionTest;
 };
 

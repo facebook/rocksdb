@@ -335,7 +335,11 @@ TEST_P(WriteUnpreparedTransactionTest, RecoveryTest) {
           for (int i = 0; i < num_batches; i++) {
             ASSERT_OK(txn->Put("k" + ToString(i), "value" + ToString(i)));
             if (txn_options.write_batch_flush_threshold == 1) {
-              ASSERT_EQ(wup_txn->GetUnpreparedSequenceNumbers().size(), i + 1);
+              // WriteUnprepared will check write_batch_flush_threshold and
+              // possibly flush before appending to the write batch. No flush
+              // will happen at the first write because the batch is still
+              // empty, so after k puts, there should be k-1 flushed batches.
+              ASSERT_EQ(wup_txn->GetUnpreparedSequenceNumbers().size(), i);
             } else {
               ASSERT_EQ(wup_txn->GetUnpreparedSequenceNumbers().size(), 0);
             }
@@ -411,7 +415,11 @@ TEST_P(WriteUnpreparedTransactionTest, UnpreparedBatch) {
         for (int i = 0; i < kNumKeys; i++) {
           txn->Put("k" + ToString(i), "v" + ToString(i));
           if (txn_options.write_batch_flush_threshold == 1) {
-            ASSERT_EQ(wup_txn->GetUnpreparedSequenceNumbers().size(), i + 1);
+            // WriteUnprepared will check write_batch_flush_threshold and
+            // possibly flush before appending to the write batch. No flush will
+            // happen at the first write because the batch is still empty, so
+            // after k puts, there should be k-1 flushed batches.
+            ASSERT_EQ(wup_txn->GetUnpreparedSequenceNumbers().size(), i);
           } else {
             ASSERT_EQ(wup_txn->GetUnpreparedSequenceNumbers().size(), 0);
           }
@@ -527,6 +535,110 @@ TEST_P(WriteUnpreparedTransactionTest, MarkLogWithPrepSection) {
       delete txn2;
     }
   }
+}
+
+TEST_P(WriteUnpreparedTransactionTest, NoSnapshotWrite) {
+  WriteOptions woptions;
+  TransactionOptions txn_options;
+  txn_options.write_batch_flush_threshold = 1;
+
+  Transaction* txn = db->BeginTransaction(woptions, txn_options);
+
+  // Do some writes with no snapshot
+  ASSERT_OK(txn->Put("a", "a"));
+  ASSERT_OK(txn->Put("b", "b"));
+  ASSERT_OK(txn->Put("c", "c"));
+
+  // Test that it is still possible to create iterators after writes with no
+  // snapshot, if iterator snapshot is fresh enough.
+  ReadOptions roptions;
+  auto iter = txn->GetIterator(roptions);
+  int keys = 0;
+  for (iter->SeekToLast(); iter->Valid(); iter->Prev(), keys++) {
+    ASSERT_OK(iter->status());
+    ASSERT_EQ(iter->key().ToString(), iter->value().ToString());
+  }
+  ASSERT_EQ(keys, 3);
+
+  delete iter;
+  delete txn;
+}
+
+// Test whether write to a transaction while iterating is supported.
+TEST_P(WriteUnpreparedTransactionTest, IterateAndWrite) {
+  WriteOptions woptions;
+  TransactionOptions txn_options;
+  txn_options.write_batch_flush_threshold = 1;
+
+  enum Action { DO_DELETE, DO_UPDATE };
+
+  for (Action a : {DO_DELETE, DO_UPDATE}) {
+    for (int i = 0; i < 100; i++) {
+      ASSERT_OK(db->Put(woptions, ToString(i), ToString(i)));
+    }
+
+    Transaction* txn = db->BeginTransaction(woptions, txn_options);
+    // write_batch_ now contains 1 key.
+    ASSERT_OK(txn->Put("9", "a"));
+
+    ReadOptions roptions;
+    auto iter = txn->GetIterator(roptions);
+    for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
+      ASSERT_OK(iter->status());
+      if (iter->key() == "9") {
+        ASSERT_EQ(iter->value().ToString(), "a");
+      } else {
+        ASSERT_EQ(iter->key().ToString(), iter->value().ToString());
+      }
+
+      if (a == DO_DELETE) {
+        ASSERT_OK(txn->Delete(iter->key()));
+      } else {
+        ASSERT_OK(txn->Put(iter->key(), "b"));
+      }
+    }
+
+    delete iter;
+    ASSERT_OK(txn->Commit());
+
+    iter = db->NewIterator(roptions);
+    if (a == DO_DELETE) {
+      // Check that db is empty.
+      iter->SeekToFirst();
+      ASSERT_FALSE(iter->Valid());
+    } else {
+      int keys = 0;
+      // Check that all values are updated to b.
+      for (iter->SeekToFirst(); iter->Valid(); iter->Next(), keys++) {
+        ASSERT_OK(iter->status());
+        ASSERT_EQ(iter->value().ToString(), "b");
+      }
+      ASSERT_EQ(keys, 100);
+    }
+
+    delete iter;
+    delete txn;
+  }
+}
+
+TEST_P(WriteUnpreparedTransactionTest, SavePoint) {
+  WriteOptions woptions;
+  TransactionOptions txn_options;
+  txn_options.write_batch_flush_threshold = 1;
+
+  Transaction* txn = db->BeginTransaction(woptions, txn_options);
+  txn->SetSavePoint();
+  ASSERT_OK(txn->Put("a", "a"));
+  ASSERT_OK(txn->Put("b", "b"));
+  ASSERT_OK(txn->Commit());
+
+  ReadOptions roptions;
+  std::string value;
+  ASSERT_OK(txn->Get(roptions, "a", &value));
+  ASSERT_EQ(value, "a");
+  ASSERT_OK(txn->Get(roptions, "b", &value));
+  ASSERT_EQ(value, "b");
+  delete txn;
 }
 
 }  // namespace rocksdb

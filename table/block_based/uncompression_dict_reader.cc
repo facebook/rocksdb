@@ -24,8 +24,8 @@ Status UncompressionDictReader::Create(
   CachableEntry<BlockContents> uncompression_dict_block;
   if (prefetch || !use_cache) {
     const Status s = ReadUncompressionDictionaryBlock(
-        table, prefetch_buffer, ReadOptions(), nullptr /* get_context */,
-        lookup_context, &uncompression_dict_block);
+        table, prefetch_buffer, ReadOptions(), use_cache,
+        nullptr /* get_context */, lookup_context, &uncompression_dict_block);
     if (!s.ok()) {
       return s;
     }
@@ -43,7 +43,7 @@ Status UncompressionDictReader::Create(
 
 Status UncompressionDictReader::ReadUncompressionDictionaryBlock(
     const BlockBasedTable* table, FilePrefetchBuffer* prefetch_buffer,
-    const ReadOptions& read_options, GetContext* get_context,
+    const ReadOptions& read_options, bool use_cache, GetContext* get_context,
     BlockCacheLookupContext* lookup_context,
     CachableEntry<BlockContents>* uncompression_dict_block) {
   // TODO: add perf counter for compression dictionary read time
@@ -59,7 +59,8 @@ Status UncompressionDictReader::ReadUncompressionDictionaryBlock(
   const Status s = table->RetrieveBlock(
       prefetch_buffer, read_options, rep->compression_dict_handle,
       UncompressionDict::GetEmptyDict(), uncompression_dict_block,
-      BlockType::kCompressionDictionary, get_context, lookup_context);
+      BlockType::kCompressionDictionary, get_context, lookup_context,
+      /* for_compaction */ false, use_cache);
 
   if (!s.ok()) {
     ROCKS_LOG_WARN(
@@ -89,9 +90,9 @@ Status UncompressionDictReader::GetOrReadUncompressionDictionaryBlock(
     read_options.read_tier = kBlockCacheTier;
   }
 
-  return ReadUncompressionDictionaryBlock(table_, prefetch_buffer, read_options,
-                                          get_context, lookup_context,
-                                          uncompression_dict_block);
+  return ReadUncompressionDictionaryBlock(
+      table_, prefetch_buffer, read_options, cache_dictionary_blocks(),
+      get_context, lookup_context, uncompression_dict_block);
 }
 
 Status UncompressionDictReader::GetOrReadUncompressionDictionary(
@@ -133,6 +134,13 @@ size_t UncompressionDictReader::ApproximateMemoryUsage() const {
 #endif  // ROCKSDB_MALLOC_USABLE_SIZE
 
     return usage;
+}
+
+bool UncompressionDictReader::cache_dictionary_blocks() const {
+  assert(table_);
+  assert(table_->get_rep());
+
+  return table_->get_rep()->table_options.cache_index_and_filter_blocks;
 }
 
 }  // namespace rocksdb
