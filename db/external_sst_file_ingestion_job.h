@@ -25,10 +25,10 @@ class Directories;
 struct IngestedFileInfo {
   // External file path
   std::string external_file_path;
-  // Smallest user key in external file
-  std::string smallest_user_key;
-  // Largest user key in external file
-  std::string largest_user_key;
+  // Smallest internal key in external file
+  InternalKey smallest_internal_key;
+  // Largest internal key in external file
+  InternalKey largest_internal_key;
   // Sequence number for keys in external file
   SequenceNumber original_seqno;
   // Offset of the global sequence number field in the file, will
@@ -62,15 +62,6 @@ struct IngestedFileInfo {
   // ingestion_options.move_files is false by default, thus copy_file is true
   // by default.
   bool copy_file = true;
-
-  InternalKey smallest_internal_key() const {
-    return InternalKey(smallest_user_key, assigned_seqno,
-                       ValueType::kTypeValue);
-  }
-
-  InternalKey largest_internal_key() const {
-    return InternalKey(largest_user_key, assigned_seqno, ValueType::kTypeValue);
-  }
 };
 
 class ExternalSstFileIngestionJob {
