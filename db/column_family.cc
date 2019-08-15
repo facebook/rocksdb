@@ -173,15 +173,19 @@ Status CheckCFPathsSupported(const DBOptions& db_options,
   // being used.
   if ((cf_options.compaction_style != kCompactionStyleUniversal) &&
       (cf_options.compaction_style != kCompactionStyleLevel)) {
-    if (cf_options.cf_paths.size() > 1) {
-      return Status::NotSupported(
-          "More than one CF paths are only supported in "
-          "universal and level compaction styles. ");
-    } else if (cf_options.cf_paths.empty() &&
-               db_options.db_paths.size() > 1) {
-      return Status::NotSupported(
-          "More than one DB paths are only supported in "
-          "universal and level compaction styles. ");
+    if (db_options.db_path_placement_strategy != kRandomlyChoosePath) {
+      if (cf_options.cf_paths.size() > 1) {
+        return Status::NotSupported(
+            "More than one CF paths are only supported in "
+            "universal and level compaction styles, or using "
+            "kRandomlyChoosePath strategy");
+      } else if (cf_options.cf_paths.empty() &&
+                 db_options.db_paths.size() > 1) {
+        return Status::NotSupported(
+            "More than one DB paths are only supported in "
+            "universal and level compaction styles, or using "
+            "kRandomlyChoosePath strategy");
+      }
     }
   }
   return Status::OK();
