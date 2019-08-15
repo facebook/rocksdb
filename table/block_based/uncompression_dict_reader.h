@@ -46,9 +46,11 @@ class UncompressionDictReader {
     assert(table_);
   }
 
+  bool cache_dictionary_blocks() const;
+
   static Status ReadUncompressionDictionaryBlock(
       const BlockBasedTable* table, FilePrefetchBuffer* prefetch_buffer,
-      const ReadOptions& read_options, GetContext* get_context,
+      const ReadOptions& read_options, bool use_cache, GetContext* get_context,
       BlockCacheLookupContext* lookup_context,
       CachableEntry<BlockContents>* uncompression_dict_block);
 

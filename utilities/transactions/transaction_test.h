@@ -170,8 +170,6 @@ class TransactionTestBase : public ::testing::Test {
     }
     if (!s.ok()) {
       delete stackable_db;
-      // just in case it was not deleted (and not set to nullptr).
-      delete root_db;
     }
     return s;
   }
@@ -207,8 +205,6 @@ class TransactionTestBase : public ::testing::Test {
     delete handles[0];
     if (!s.ok()) {
       delete stackable_db;
-      // just in case it was not deleted (and not set to nullptr).
-      delete root_db;
     }
     return s;
   }

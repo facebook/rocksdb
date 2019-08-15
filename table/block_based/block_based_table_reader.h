@@ -299,7 +299,7 @@ class BlockBasedTable : public TableReader {
                        CachableEntry<TBlocklike>* block_entry,
                        BlockType block_type, GetContext* get_context,
                        BlockCacheLookupContext* lookup_context,
-                       bool for_compaction = false) const;
+                       bool for_compaction, bool use_cache) const;
 
   Status GetDataBlockFromCache(
       const ReadOptions& ro, const BlockHandle& handle,
