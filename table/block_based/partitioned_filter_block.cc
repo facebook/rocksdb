@@ -133,8 +133,8 @@ std::unique_ptr<FilterBlockReader> PartitionedFilterBlockReader::Create(
   CachableEntry<Block> filter_block;
   if (prefetch || !use_cache) {
     const Status s = ReadFilterBlock(table, prefetch_buffer, ReadOptions(),
-                                     nullptr /* get_context */, lookup_context,
-                                     &filter_block);
+                                     use_cache, nullptr /* get_context */,
+                                     lookup_context, &filter_block);
     if (!s.ok()) {
       return std::unique_ptr<FilterBlockReader>();
     }
@@ -226,7 +226,8 @@ Status PartitionedFilterBlockReader::GetFilterPartitionBlock(
   const Status s =
       table()->RetrieveBlock(prefetch_buffer, read_options, fltr_blk_handle,
                              UncompressionDict::GetEmptyDict(), filter_block,
-                             BlockType::kFilter, get_context, lookup_context);
+                             BlockType::kFilter, get_context, lookup_context,
+                             /* for_compaction */ false, /* use_cache */ true);
 
   return s;
 }
