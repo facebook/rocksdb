@@ -241,6 +241,10 @@ Compaction* FIFOCompactionPicker::CompactRange(
 }
 
 DbPathSupplier* FIFOCompactionPicker::GetDbPathSupplier() {
+  if (ioptions_.db_path_placement_strategy == kRandomlyChoosePath) {
+    return new RandomDbPathSupplier(ioptions_);
+  }
+
   return new FixedDbPathSupplier(ioptions_, 0);
 }
 

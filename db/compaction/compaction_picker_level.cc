@@ -496,6 +496,10 @@ Compaction* LevelCompactionPicker::PickCompaction(
 }
 
 DbPathSupplier* LevelCompactionBuilder::GetDbPathSupplier() {
+  if (ioptions_.db_path_placement_strategy == kRandomlyChoosePath) {
+    return new RandomDbPathSupplier(ioptions_);
+  }
+
   return new LeveledTargetSizeDbPathSupplier(ioptions_, mutable_cf_options_);
 }
 }  // namespace rocksdb
