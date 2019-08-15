@@ -212,6 +212,9 @@ class WriteUnpreparedTxn : public WritePreparedTxn {
   friend class WriteUnpreparedTxnDB;
 
   const std::map<SequenceNumber, size_t>& GetUnpreparedSequenceNumbers();
+  Status WriteRollbackKeys(const TransactionKeyMap& tracked_keys,
+                           WriteBatchWithIndex* rollback_batch,
+                           ReadCallback* callback, const ReadOptions& roptions);
 
   Status MaybeFlushWriteBatchToDB();
   Status FlushWriteBatchToDB(bool prepared);
@@ -259,6 +262,7 @@ class WriteUnpreparedTxn : public WritePreparedTxn {
   // value when calling RollbackToSavepoint.
   SequenceNumber largest_validated_seq_;
 
+  using KeySet = std::unordered_map<uint32_t, std::vector<std::string>>;
   struct SavePoint {
     // Record of unprep_seqs_ at this savepoint. The set of unprep_seq is
     // used during RollbackToSavepoint to determine visibility when restoring
@@ -315,6 +319,21 @@ class WriteUnpreparedTxn : public WritePreparedTxn {
   // batch, it is possible that the delta iterator on the iterator will point to
   // invalid memory.
   std::vector<Iterator*> active_iterators_;
+
+  // Untracked keys that we have to rollback.
+  //
+  // TODO(lth): Currently we we do not record untracked keys per-savepoint.
+  // This means that when rolling back to savepoints, we have to check all
+  // keys in the current transaction for rollback. Note that this is only
+  // inefficient, but still correct because we take a snapshot at every
+  // savepoint, and we will use that snapshot to construct the rollback batch.
+  // The rollback batch will then contain a reissue of the same marker.
+  //
+  // A more optimal solution would be to only check keys changed since the
+  // last savepoint. Also, it may make sense to merge this into tracked_keys_
+  // and differentiate between tracked but not locked keys to avoid having two
+  // very similar data structures.
+  KeySet untracked_keys_;
 };
 
 }  // namespace rocksdb
