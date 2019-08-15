@@ -181,8 +181,8 @@ std::unique_ptr<FilterBlockReader> BlockBasedFilterBlockReader::Create(
   CachableEntry<BlockContents> filter_block;
   if (prefetch || !use_cache) {
     const Status s = ReadFilterBlock(table, prefetch_buffer, ReadOptions(),
-                                     nullptr /* get_context */, lookup_context,
-                                     &filter_block);
+                                     use_cache, nullptr /* get_context */,
+                                     lookup_context, &filter_block);
     if (!s.ok()) {
       return std::unique_ptr<FilterBlockReader>();
     }
