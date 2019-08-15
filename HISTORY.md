@@ -4,7 +4,7 @@
 * Support loading custom objects in unit tests. In the affected unit tests, RocksDB will create custom Env objects based on environment variable TEST_ENV_URI. Users need to make sure custom object types are properly registered. For example, a static library should expose a `RegisterCustomObjects` function. By linking the unit test binary with the static library, the unit test can execute this function.
 
 ### Bug Fixes
-Fixed a number of data races in BlobDB.
+* Fixed a number of data races in BlobDB.
 
 ## 6.4.0 (7/30/2019)
 ### Default Option Change
