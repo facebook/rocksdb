@@ -14,10 +14,6 @@
 namespace rocksdb {
 // This enum defines the RocksDB options sanity level.
 
-// The sanity check level for DB options
-static const std::unordered_map<std::string, OptionsSanityCheckLevel>
-    sanity_level_db_options {};
-
 // The sanity check level for column-family options
 static const std::unordered_map<std::string, OptionsSanityCheckLevel>
     sanity_level_cf_options = {
@@ -29,8 +25,6 @@ static const std::unordered_map<std::string, OptionsSanityCheckLevel>
 static const std::unordered_map<std::string, OptionsSanityCheckLevel>
     sanity_level_bbt_options {};
 
-OptionsSanityCheckLevel DBOptionSanityCheckLevel(
-    const std::string& options_name);
 OptionsSanityCheckLevel CFOptionSanityCheckLevel(
     const std::string& options_name);
 OptionsSanityCheckLevel BBTOptionSanityCheckLevel(

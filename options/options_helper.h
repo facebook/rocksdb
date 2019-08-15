@@ -8,6 +8,8 @@
 #include <map>
 #include <stdexcept>
 #include <string>
+#include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 #include "rocksdb/options.h"
@@ -61,8 +63,13 @@ Status GetDBOptionsFromMapInternal(
     const DBOptions& base_options,
     const std::unordered_map<std::string, std::string>& opts_map,
     DBOptions* new_options, bool input_strings_escaped,
-    std::vector<std::string>* unsupported_options_names = nullptr,
+    std::unordered_set<std::string>* unsupported_options_names = nullptr,
     bool ignore_unknown_options = false);
+
+// List the names of the options for a DBOptions.
+// If use_mutable is true, only the mutable option names are returned.
+Status GetDBOptionNames(std::unordered_set<std::string>* opt_names,
+                        bool use_mutable = false);
 
 // In addition to its public version defined in rocksdb/convenience.h,
 // this further takes an optional output vector "unsupported_options_names",
@@ -126,7 +133,6 @@ struct OptionsHelper {
       universal_compaction_options_type_info;
   static std::unordered_map<std::string, CompactionStopStyle>
       compaction_stop_style_string_map;
-  static std::unordered_map<std::string, OptionTypeInfo> db_options_type_info;
   static std::unordered_map<std::string, OptionTypeInfo>
       lru_cache_options_type_info;
   static std::unordered_map<std::string, BlockBasedTableOptions::IndexType>
@@ -170,7 +176,6 @@ static auto& universal_compaction_options_type_info =
     OptionsHelper::universal_compaction_options_type_info;
 static auto& compaction_stop_style_string_map =
     OptionsHelper::compaction_stop_style_string_map;
-static auto& db_options_type_info = OptionsHelper::db_options_type_info;
 static auto& lru_cache_options_type_info =
     OptionsHelper::lru_cache_options_type_info;
 static auto& compression_type_string_map =

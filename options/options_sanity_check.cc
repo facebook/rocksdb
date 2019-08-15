@@ -18,10 +18,6 @@ OptionsSanityCheckLevel SanityCheckLevelHelper(
 }
 }
 
-OptionsSanityCheckLevel DBOptionSanityCheckLevel(
-    const std::string& option_name) {
-  return SanityCheckLevelHelper(sanity_level_db_options, option_name);
-}
 
 OptionsSanityCheckLevel CFOptionSanityCheckLevel(
     const std::string& option_name) {
