@@ -8,6 +8,8 @@
 #include <map>
 #include <stdexcept>
 #include <string>
+#include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 #include "rocksdb/options.h"
@@ -31,7 +33,6 @@ ColumnFamilyOptions BuildColumnFamilyOptions(
     const MutableCFOptions& mutable_cf_options);
 
 #ifndef ROCKSDB_LITE
-
 Status GetMutableOptionsFromStrings(
     const MutableCFOptions& base_options,
     const std::unordered_map<std::string, std::string>& options_map,
@@ -68,11 +69,14 @@ Status GetDBOptionsFromMapInternal(
 // this further takes an optional output vector "unsupported_options_names",
 // which stores the name of all the unsupported options specified in "opts_map".
 Status GetColumnFamilyOptionsFromMapInternal(
-    const ColumnFamilyOptions& base_options,
+    const DBOptions& db_options, const ColumnFamilyOptions& base_options,
     const std::unordered_map<std::string, std::string>& opts_map,
     ColumnFamilyOptions* new_options, bool input_strings_escaped,
-    std::vector<std::string>* unsupported_options_names = nullptr,
+    std::unordered_set<std::string>* unsupported_options_names = nullptr,
     bool ignore_unknown_options = false);
+
+Status GetColumnFamilyOptionNames(std::unordered_set<std::string>* option_names,
+                                  bool use_mutable = false);
 
 bool ParseSliceTransform(
     const std::string& value,
@@ -119,7 +123,6 @@ struct OptionsHelper {
   static std::unordered_map<std::string, CompressionType>
       compression_type_string_map;
 #ifndef ROCKSDB_LITE
-  static std::unordered_map<std::string, OptionTypeInfo> cf_options_type_info;
   static std::unordered_map<std::string, OptionTypeInfo>
       fifo_compaction_options_type_info;
   static std::unordered_map<std::string, OptionTypeInfo>
@@ -148,7 +151,6 @@ struct OptionsHelper {
       access_hint_string_map;
   static std::unordered_map<std::string, InfoLogLevel>
       info_log_level_string_map;
-  static ColumnFamilyOptions dummy_cf_options;
   static CompactionOptionsFIFO dummy_comp_options;
   static LRUCacheOptions dummy_lru_cache_options;
   static CompactionOptionsUniversal dummy_comp_options_universal;
@@ -163,7 +165,6 @@ static auto& compaction_stop_style_to_string =
     OptionsHelper::compaction_stop_style_to_string;
 static auto& checksum_type_string_map = OptionsHelper::checksum_type_string_map;
 #ifndef ROCKSDB_LITE
-static auto& cf_options_type_info = OptionsHelper::cf_options_type_info;
 static auto& fifo_compaction_options_type_info =
     OptionsHelper::fifo_compaction_options_type_info;
 static auto& universal_compaction_options_type_info =

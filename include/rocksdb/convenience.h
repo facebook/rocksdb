@@ -7,6 +7,7 @@
 
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 #include "rocksdb/db.h"
@@ -166,10 +167,13 @@ namespace rocksdb {
 // @return Status::OK() on success.  Otherwise, a non-ok status indicating
 //     error will be returned, and "new_options" will be set to "base_options".
 Status GetColumnFamilyOptionsFromMap(
-    const ColumnFamilyOptions& base_options,
+    const DBOptions& db_options, const ColumnFamilyOptions& base_options,
     const std::unordered_map<std::string, std::string>& opts_map,
     ColumnFamilyOptions* new_options, bool input_strings_escaped = false,
     bool ignore_unknown_options = false);
+
+Status GetCFOptionNames(std::unordered_set<std::string>* opt_names,
+                        bool use_mutable = false);
 
 // Take a default DBOptions "base_options" in addition to a
 // map "opts_map" of option name to option value to construct the new
@@ -277,7 +281,8 @@ Status GetPlainTableOptionsFromMap(
 // BlockBasedTableOptions as part of the string for block-based table factory:
 //   "write_buffer_size=1024;block_based_table_factory={block_size=4k};"
 //   "max_write_buffer_num=2"
-Status GetColumnFamilyOptionsFromString(const ColumnFamilyOptions& base_options,
+Status GetColumnFamilyOptionsFromString(const DBOptions& db_options,
+                                        const ColumnFamilyOptions& base_options,
                                         const std::string& opts_str,
                                         ColumnFamilyOptions* new_options);
 

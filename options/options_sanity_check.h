@@ -18,20 +18,11 @@ namespace rocksdb {
 static const std::unordered_map<std::string, OptionsSanityCheckLevel>
     sanity_level_db_options {};
 
-// The sanity check level for column-family options
-static const std::unordered_map<std::string, OptionsSanityCheckLevel>
-    sanity_level_cf_options = {
-        {"comparator", kSanityLevelLooselyCompatible},
-        {"table_factory", kSanityLevelLooselyCompatible},
-        {"merge_operator", kSanityLevelLooselyCompatible}};
-
 // The sanity check level for block-based table options
 static const std::unordered_map<std::string, OptionsSanityCheckLevel>
     sanity_level_bbt_options {};
 
 OptionsSanityCheckLevel DBOptionSanityCheckLevel(
-    const std::string& options_name);
-OptionsSanityCheckLevel CFOptionSanityCheckLevel(
     const std::string& options_name);
 OptionsSanityCheckLevel BBTOptionSanityCheckLevel(
     const std::string& options_name);

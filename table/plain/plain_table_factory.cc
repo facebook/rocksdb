@@ -139,7 +139,7 @@ Status GetMemTableRepFactoryFromString(
 
   MemTableRepFactory* mem_factory = nullptr;
 
-  if (opts_list[0] == "skip_list") {
+  if (opts_list[0] == "skip_list" || opts_list[0] == "SkipListFactory") {
     // Expecting format
     // skip_list:<lookahead>
     if (2 == len) {
@@ -148,7 +148,8 @@ Status GetMemTableRepFactoryFromString(
     } else if (1 == len) {
       mem_factory = new SkipListFactory();
     }
-  } else if (opts_list[0] == "prefix_hash") {
+  } else if (opts_list[0] == "prefix_hash" ||
+             opts_list[0] == "HashSkipListRepFactory") {
     // Expecting format
     // prfix_hash:<hash_bucket_count>
     if (2 == len) {
@@ -157,7 +158,8 @@ Status GetMemTableRepFactoryFromString(
     } else if (1 == len) {
       mem_factory = NewHashSkipListRepFactory();
     }
-  } else if (opts_list[0] == "hash_linkedlist") {
+  } else if (opts_list[0] == "hash_linkedlist" ||
+             opts_list[0] == "HashLinkListRepFactory") {
     // Expecting format
     // hash_linkedlist:<hash_bucket_count>
     if (2 == len) {
@@ -166,7 +168,7 @@ Status GetMemTableRepFactoryFromString(
     } else if (1 == len) {
       mem_factory = NewHashLinkListRepFactory();
     }
-  } else if (opts_list[0] == "vector") {
+  } else if (opts_list[0] == "vector" || opts_list[0] == "VectorRepFactory") {
     // Expecting format
     // vector:<count>
     if (2 == len) {

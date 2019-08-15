@@ -23,11 +23,6 @@ OptionsSanityCheckLevel DBOptionSanityCheckLevel(
   return SanityCheckLevelHelper(sanity_level_db_options, option_name);
 }
 
-OptionsSanityCheckLevel CFOptionSanityCheckLevel(
-    const std::string& option_name) {
-  return SanityCheckLevelHelper(sanity_level_cf_options, option_name);
-}
-
 OptionsSanityCheckLevel BBTOptionSanityCheckLevel(
     const std::string& option_name) {
   return SanityCheckLevelHelper(sanity_level_bbt_options, option_name);

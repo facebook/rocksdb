@@ -383,7 +383,7 @@ Status RocksDBOptionsParser::EndSection(
     assert(GetCFOptions(section_arg) == nullptr);
     cf_names_.emplace_back(section_arg);
     cf_opts_.emplace_back();
-    s = GetColumnFamilyOptionsFromMap(ColumnFamilyOptions(), opt_map,
+    s = GetColumnFamilyOptionsFromMap(db_opt_, ColumnFamilyOptions(), opt_map,
                                       &cf_opts_.back(), true,
                                       ignore_unknown_options);
     if (!s.ok()) {
@@ -746,12 +746,13 @@ Status RocksDBOptionsParser::VerifyDBOptions(
     const std::unordered_map<std::string, std::string>* /*opt_map*/,
     OptionsSanityCheckLevel sanity_check_level) {
   for (auto pair : db_options_type_info) {
-    if (pair.second.verification == OptionVerificationType::kDeprecated) {
+    if (pair.second.verification == OptionVerificationType::kDeprecated ||
+        pair.second.verification == OptionVerificationType::kAlias) {
       // We skip checking deprecated variables as they might
       // contain random values since they might not be initialized
       continue;
     }
-    OptionsSanityCheckLevel level = DBOptionSanityCheckLevel(pair.first);
+    auto level = DBOptionSanityCheckLevel(pair.first);
     if (level <= sanity_check_level) {
       if (!AreEqualOptions(level, reinterpret_cast<const char*>(&base_opt),
                            reinterpret_cast<const char*>(&persisted_opt),
@@ -773,45 +774,6 @@ Status RocksDBOptionsParser::VerifyDBOptions(
                  pair.first.c_str(), base_value.c_str(),
                  persisted_value.c_str());
         return Status::InvalidArgument(Slice(buffer, strlen(buffer)));
-      }
-    }
-  }
-  return Status::OK();
-}
-
-Status RocksDBOptionsParser::VerifyCFOptions(
-    const ColumnFamilyOptions& base_opt,
-    const ColumnFamilyOptions& persisted_opt,
-    const std::unordered_map<std::string, std::string>* persisted_opt_map,
-    OptionsSanityCheckLevel sanity_check_level) {
-  for (auto& pair : cf_options_type_info) {
-    if (pair.second.verification == OptionVerificationType::kDeprecated) {
-      // We skip checking deprecated variables as they might
-      // contain random values since they might not be initialized
-      continue;
-    }
-    OptionsSanityCheckLevel level = CFOptionSanityCheckLevel(pair.first);
-    if (level <= sanity_check_level) {
-      if (!AreEqualOptions(level, reinterpret_cast<const char*>(&base_opt),
-                           reinterpret_cast<const char*>(&persisted_opt),
-                           pair.second, pair.first, persisted_opt_map)) {
-        const size_t kBufferSize = 2048;
-        char buffer[kBufferSize];
-        std::string base_value;
-        std::string persisted_value;
-        SerializeSingleOptionHelper(
-            reinterpret_cast<const char*>(&base_opt) + pair.second.offset,
-            pair.second, &base_value);
-        SerializeSingleOptionHelper(
-            reinterpret_cast<const char*>(&persisted_opt) + pair.second.offset,
-            pair.second, &persisted_value);
-        snprintf(buffer, sizeof(buffer),
-                 "[RocksDBOptionsParser]: "
-                 "failed the verification on ColumnFamilyOptions::%s --- "
-                 "The specified one is %s while the persisted one is %s.\n",
-                 pair.first.c_str(), base_value.c_str(),
-                 persisted_value.c_str());
-        return Status::InvalidArgument(Slice(buffer, sizeof(buffer)));
       }
     }
   }

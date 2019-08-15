@@ -52,12 +52,12 @@ class DBOptionsTest : public DBTestBase {
     GetStringFromColumnFamilyOptions(&options_str, options);
     std::unordered_map<std::string, std::string> options_map;
     StringToMap(options_str, &options_map);
+
     std::unordered_map<std::string, std::string> mutable_map;
-    for (const auto opt : cf_options_type_info) {
-      if (opt.second.IsMutable() &&
-          opt.second.verification != OptionVerificationType::kDeprecated) {
-        mutable_map[opt.first] = options_map[opt.first];
-      }
+    std::unordered_set<std::string> mutable_names;
+    GetColumnFamilyOptionNames(&mutable_names, true);
+    for (const auto opt : mutable_names) {
+      mutable_map[opt] = options_map[opt];
     }
     return mutable_map;
   }

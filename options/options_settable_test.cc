@@ -402,10 +402,10 @@ TEST_F(OptionsSettableTest, ColumnFamilyOptionsAllFieldsSettable) {
       new (new_options_ptr) ColumnFamilyOptions();
   FillWithSpecialChar(new_options_ptr, sizeof(ColumnFamilyOptions),
                       kColumnFamilyOptionsBlacklist);
-
+  DBOptions db_opts;
   // Need to update the option string if a new option is added.
   ASSERT_OK(GetColumnFamilyOptionsFromString(
-      *options,
+      db_opts, *options,
       "compaction_filter_factory=mpudlojcujCompactionFilterFactory;"
       "table_factory=PlainTable;"
       "prefix_extractor=rocksdb.CappedPrefix.13;"
