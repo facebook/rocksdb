@@ -1854,6 +1854,78 @@ TEST_P(DBCompactionTestWithParam, TrivialMoveToLastLevelWithFiles) {
   rocksdb::SyncPoint::GetInstance()->DisableProcessing();
 }
 
+TEST_P(DBCompactionTestWithParam, LevelCompactionRandomCFPathSelection) {
+  Options options = CurrentOptions();
+  options.cf_paths.emplace_back(dbname_, 0);
+  options.cf_paths.emplace_back(dbname_ + "_2", 0);
+  options.cf_paths.emplace_back(dbname_ + "_3", 0);
+  options.cf_paths.emplace_back(dbname_ + "_4", 0);
+  options.memtable_factory.reset(
+      new SpecialSkipListFactory(KNumKeysByGenerateNewFile - 1));
+  options.compaction_style = kCompactionStyleLevel;
+  options.compaction_options_universal.size_ratio = 5;
+  options.write_buffer_size = 1 << 10;  // 1KB
+  options.target_file_size_base = 1 << 10; // 1KB
+  options.max_bytes_for_level_base = 2 << 10; // 2KB
+  options.arena_block_size = 1 << 9;
+  options.level0_file_num_compaction_trigger = 2;
+  options.num_levels = 1;
+  options.db_path_placement_strategy = kRandomlyChoosePath;
+
+  Reopen(options);
+
+  Random rnd(301);
+  int key_idx = 0;
+
+  // generate a few dozens of files and see that they are scattered
+  // around each path
+  for (int num = 0; num < 32; num++) {
+    GenerateNewFile(&rnd, &key_idx);
+  }
+
+  for (int num = 0; num < 4; num++) {
+    ASSERT_GT(GetSstFileCount(options.cf_paths[num].path), 0);
+  }
+
+  Destroy(options);
+}
+
+TEST_P(DBCompactionTestWithParam, LevelCompactionRandomDbPathSelection) {
+  Options options = CurrentOptions();
+  options.db_paths.emplace_back(dbname_, 0);
+  options.db_paths.emplace_back(dbname_ + "_2", 0);
+  options.db_paths.emplace_back(dbname_ + "_3", 0);
+  options.db_paths.emplace_back(dbname_ + "_4", 0);
+  options.memtable_factory.reset(
+      new SpecialSkipListFactory(KNumKeysByGenerateNewFile - 1));
+  options.compaction_style = kCompactionStyleLevel;
+  options.compaction_options_universal.size_ratio = 5;
+  options.write_buffer_size = 1 << 10;  // 1KB
+  options.target_file_size_base = 1 << 10; // 1KB
+  options.max_bytes_for_level_base = 2 << 10; // 2KB
+  options.arena_block_size = 1 << 9;
+  options.level0_file_num_compaction_trigger = 2;
+  options.num_levels = 1;
+  options.db_path_placement_strategy = kRandomlyChoosePath;
+
+  Reopen(options);
+
+  Random rnd(301);
+  int key_idx = 0;
+
+  // generate a few dozens of files and see that they are scattered
+  // around each path
+  for (int num = 0; num < 32; num++) {
+    GenerateNewFile(&rnd, &key_idx);
+  }
+
+  for (int num = 0; num < 4; num++) {
+    ASSERT_GT(GetSstFileCount(options.db_paths[num].path), 0);
+  }
+
+  Destroy(options);
+}
+
 TEST_P(DBCompactionTestWithParam, LevelCompactionThirdPath) {
   Options options = CurrentOptions();
   options.db_paths.emplace_back(dbname_, 500 * 1024);
