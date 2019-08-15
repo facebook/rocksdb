@@ -259,11 +259,6 @@ std::unordered_map<std::string, CompressionType>
         {"kZSTDNotFinalCompression", kZSTDNotFinalCompression},
         {"kDisableCompressionOption", kDisableCompressionOption}};
 
-std::unordered_map<std::string, DbPathPlacementStrategy>
-    OptionsHelper::db_path_placement_strategy_string_map = {
-      {"kGradualMoveOldDataTowardsEnd", kGradualMoveOldDataTowardsEnd},
-      {"kRandomlyChoosePath", kRandomlyChoosePath},
-};
 #ifndef ROCKSDB_LITE
 
 const std::string kNameComparator = "comparator";
@@ -1771,6 +1766,12 @@ std::unordered_map<std::string, InfoLogLevel>
         {"ERROR_LEVEL", InfoLogLevel::ERROR_LEVEL},
         {"FATAL_LEVEL", InfoLogLevel::FATAL_LEVEL},
         {"HEADER_LEVEL", InfoLogLevel::HEADER_LEVEL}};
+
+std::unordered_map<std::string, DbPathPlacementStrategy>
+    OptionsHelper::db_path_placement_strategy_string_map = {
+    {"kGradualMoveOldDataTowardsEnd", kGradualMoveOldDataTowardsEnd},
+    {"kRandomlyChoosePath", kRandomlyChoosePath},
+};
 
 ColumnFamilyOptions OptionsHelper::dummy_cf_options;
 CompactionOptionsFIFO OptionsHelper::dummy_comp_options;
