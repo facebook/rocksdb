@@ -52,6 +52,7 @@
 #include "util/stop_watch.h"
 #include "util/string_util.h"
 #include "util/user_comparator_wrapper.h"
+#include "rocksdb/ldb_tool.h"
 
 namespace rocksdb {
 
@@ -4943,6 +4944,15 @@ Status VersionSet::WriteSnapshot(log::Writer* log) {
       }
     }
   }
+//  std::string manifest = DescriptorFileName(dbname_, 1);
+//   std::string mp;
+//   GetCurrentManifestPath(dbname_, env_, &mp, &manifest_file_number_);
+//   std::string temp = "--path="+mp;
+//   std::cout << "Open Path:" << temp << ":"<< mp;
+//   char **argv = DBImpl::new_argv(4, "ldb", "manifest_dump", "--verbose", temp.c_str());
+//   int argc = 4;
+//   rocksdb::LDBTool tool;
+//   tool.Run(argc, argv);
 
   return Status::OK();
 }

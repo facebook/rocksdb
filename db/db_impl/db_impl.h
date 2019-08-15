@@ -132,6 +132,23 @@ class DBImpl : public DB {
 
   // ---- Implementations of the DB interface ----
 
+  static char **new_argv(int count, ...)
+  {
+      va_list args;
+      int i;
+      char **argv = (char**)malloc((count+1) * sizeof(char*));
+      char *temp;
+      va_start(args, count);
+      for (i = 0; i < count; i++) {
+          temp = va_arg(args, char*);
+          argv[i] = (char*)malloc(sizeof(temp));
+          argv[i] = temp;
+      }
+      argv[i] = NULL;
+      va_end(args);
+      return argv;
+  }
+
   using DB::Resume;
   virtual Status Resume() override;
 
@@ -316,6 +333,8 @@ class DBImpl : public DB {
   virtual bool SetPreserveDeletesSequenceNumber(SequenceNumber seqnum) override;
 
   virtual Status GetDbIdentity(std::string& identity) const override;
+
+  virtual Status GetDbIdentityFromIdentityFile(std::string& identity) const;
 
   ColumnFamilyHandle* DefaultColumnFamily() const override;
 

@@ -3158,38 +3158,109 @@ Status DBImpl::CheckConsistency() {
 }
 
 Status DBImpl::GetDbIdentity(std::string& identity) const {
-  std::string idfilename = IdentityFileName(dbname_);
-  const EnvOptions soptions;
-  std::unique_ptr<SequentialFileReader> id_file_reader;
+
+  std::string manifest_path;
   Status s;
+  versions_->GetCurrentManifestPath(dbname_, env_, &manifest_path, &versions_->manifest_file_number_);
+  // Open the specified manifest file.
+  std::unique_ptr<SequentialFileReader> manifest_file_reader;
   {
-    std::unique_ptr<SequentialFile> idfile;
-    s = env_->NewSequentialFile(idfilename, &idfile, soptions);
+    std::unique_ptr<SequentialFile> manifest_file;
+    s = env_->NewSequentialFile(manifest_path, &manifest_file,
+                                  env_->OptimizeForManifestRead(env_options_));
     if (!s.ok()) {
       return s;
     }
-    id_file_reader.reset(
-        new SequentialFileReader(std::move(idfile), idfilename));
+    manifest_file_reader.reset(
+        new SequentialFileReader(std::move(manifest_file), manifest_path,
+                versions_->db_options_->log_readahead_size));
+  }
+  VersionSet::LogReporter reporter;
+  reporter.status = &s;
+  log::Reader reader(nullptr, std::move(manifest_file_reader), &reporter,
+                         true /* checksum */, 0 /* log_number */);
+  Slice record;
+  std::string scratch;
+  while (reader.ReadRecord(&record, &scratch) && s.ok()) {
+      VersionEdit edit;
+      s = edit.DecodeFrom(record);
+      if (!s.ok()) {
+        return s;
+      }
+      if (edit.has_db_id()) {
+          identity.assign(edit.GetDbId());
+      }
   }
 
-  uint64_t file_size;
-  s = env_->GetFileSize(idfilename, &file_size);
-  if (!s.ok()) {
-    return s;
-  }
-  char* buffer =
-      reinterpret_cast<char*>(alloca(static_cast<size_t>(file_size)));
-  Slice id;
-  s = id_file_reader->Read(static_cast<size_t>(file_size), &id, buffer);
-  if (!s.ok()) {
-    return s;
-  }
-  identity.assign(id.ToString());
-  // If last character is '\n' remove it from identity
-  if (identity.size() > 0 && identity.back() == '\n') {
-    identity.pop_back();
-  }
   return s;
+
+//  std::string idfilename = IdentityFileName(dbname_);
+//  const EnvOptions soptions;
+//  std::unique_ptr<SequentialFileReader> id_file_reader;
+//  Status s;
+//  {
+//    std::unique_ptr<SequentialFile> idfile;
+//    s = env_->NewSequentialFile(idfilename, &idfile, soptions);
+//    if (!s.ok()) {
+//      return s;
+//    }
+//    id_file_reader.reset(
+//        new SequentialFileReader(std::move(idfile), idfilename));
+//  }
+//
+//  uint64_t file_size;
+//  s = env_->GetFileSize(idfilename, &file_size);
+//  if (!s.ok()) {
+//    return s;
+//  }
+//  char* buffer =
+//      reinterpret_cast<char*>(alloca(static_cast<size_t>(file_size)));
+//  Slice id;
+//  s = id_file_reader->Read(static_cast<size_t>(file_size), &id, buffer);
+//  if (!s.ok()) {
+//    return s;
+//  }
+//  identity.assign(id.ToString());
+//  // If last character is '\n' remove it from identity
+//  if (identity.size() > 0 && identity.back() == '\n') {
+//    identity.pop_back();
+//  }
+//  return s;
+}
+
+Status DBImpl::GetDbIdentityFromIdentityFile(std::string& identity) const {
+    std::string idfilename = IdentityFileName(dbname_);
+      const EnvOptions soptions;
+      std::unique_ptr<SequentialFileReader> id_file_reader;
+      Status s;
+      {
+        std::unique_ptr<SequentialFile> idfile;
+        s = env_->NewSequentialFile(idfilename, &idfile, soptions);
+        if (!s.ok()) {
+          return s;
+        }
+        id_file_reader.reset(
+            new SequentialFileReader(std::move(idfile), idfilename));
+      }
+
+      uint64_t file_size;
+      s = env_->GetFileSize(idfilename, &file_size);
+      if (!s.ok()) {
+        return s;
+      }
+      char* buffer =
+          reinterpret_cast<char*>(alloca(static_cast<size_t>(file_size)));
+      Slice id;
+      s = id_file_reader->Read(static_cast<size_t>(file_size), &id, buffer);
+      if (!s.ok()) {
+        return s;
+      }
+      identity.assign(id.ToString());
+      // If last character is '\n' remove it from identity
+      if (identity.size() > 0 && identity.back() == '\n') {
+        identity.pop_back();
+      }
+      return s;
 }
 
 // Default implementation -- returns not supported status

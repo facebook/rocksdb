@@ -232,6 +232,8 @@ class VersionEdit {
     min_log_number_to_keep_ = num;
   }
 
+  bool has_db_id() {return has_db_id_;}
+
   bool has_log_number() { return has_log_number_; }
 
   uint64_t log_number() { return log_number_; }
@@ -318,6 +320,8 @@ class VersionEdit {
 
   std::string DebugString(bool hex_key = false) const;
   std::string DebugJSON(int edit_num, bool hex_key = false) const;
+
+ const std::string GetDbId() {return db_id_;}
 
  private:
   friend class ReactiveVersionSet;

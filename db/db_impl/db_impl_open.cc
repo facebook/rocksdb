@@ -19,6 +19,8 @@
 #include "table/block_based/block_based_table_factory.h"
 #include "test_util/sync_point.h"
 #include "util/rate_limiter.h"
+#include "rocksdb/ldb_tool.h"
+
 
 namespace rocksdb {
 Options SanitizeOptions(const std::string& dbname, const Options& src) {
@@ -232,8 +234,8 @@ Status DBImpl::ValidateOptions(const DBOptions& db_options) {
 Status DBImpl::NewDB() {
   VersionEdit new_db;
   std::string db_id;
-  GetDbIdentity(db_id);
-//  new_db.SetDBId(db_id);
+  GetDbIdentityFromIdentityFile(db_id);
+  new_db.SetDBId(db_id);
   new_db.SetLogNumber(0);
   new_db.SetNextFile(2);
   new_db.SetLastSequence(0);
@@ -397,6 +399,14 @@ Status DBImpl::Recover(
       }
     }
   }
+//  std::string manifest = DescriptorFileName(dbname_, 1);
+//   std::string mp;
+//   versions_->GetCurrentManifestPath(dbname_, env_, &mp, &versions_->manifest_file_number_);
+//   std::string temp = "--path="+mp;
+//   char **argv = DBImpl::new_argv(4, "ldb", "manifest_dump", "--verbose", temp.c_str());
+//   int argc = 4;
+//   rocksdb::LDBTool tool;
+//   tool.Run(argc, argv);
 
   Status s = versions_->Recover(column_families, read_only);
 
