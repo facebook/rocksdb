@@ -2,6 +2,8 @@
 ## Unreleased
 ### Bug Fixes
 * Fixed a number of data races in BlobDB.
+### New Features
+* VerifyChecksum() by default will issue readahead. Allow ReadOptions to be passed in to those functions to override the readhead size.
 
 ## 6.4.0 (7/30/2019)
 ### Default Option Change
