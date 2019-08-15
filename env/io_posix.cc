@@ -14,6 +14,7 @@
 #include <algorithm>
 #if defined(OS_LINUX)
 #include <linux/fs.h>
+#include <linux/falloc.h>
 #endif
 #include <stdio.h>
 #include <stdlib.h>
