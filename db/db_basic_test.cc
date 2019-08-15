@@ -1419,6 +1419,8 @@ TEST_P(DBMultiGetRowCacheTest, MultiGetBatched) {
     }
 
     SetPerfLevel(kDisable);
+    dbfull()->ReleaseSnapshot(snap1);
+    dbfull()->ReleaseSnapshot(snap2);
   } while (ChangeCompactOptions());
 }
 
