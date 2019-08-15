@@ -400,12 +400,17 @@ Status DBImpl::Recover(
       }
     }
   }
-  //  std::string manifest = DescriptorFileName(dbname_, 1);
-  //   std::string mp;
-  //   versions_->GetCurrentManifestPath(dbname_, env_, &mp,
-  //   &versions_->manifest_file_number_); std::string temp = "--path="+mp; char
-  //   **argv = DBImpl::new_argv(4, "ldb", "manifest_dump", "--verbose",
-  //   temp.c_str()); int argc = 4; rocksdb::LDBTool tool; tool.Run(argc, argv);
+  if (immutable_db_options_.write_dbid_to_manifest) {
+      std::string manifest = DescriptorFileName(dbname_, 1);
+      std::string mp;
+      versions_->GetCurrentManifestPath(dbname_, env_, &mp,
+      &versions_->manifest_file_number_); std::string temp = "--path="+mp; char
+      **argv = DBImpl::new_argv(4, "ldb", "manifest_dump", "--verbose",
+      temp.c_str());
+      int argc = 4;
+      rocksdb::LDBTool tool;
+      tool.Run(argc, argv);
+  }
 
   Status s = versions_->Recover(column_families, read_only);
 

@@ -19,7 +19,9 @@
 namespace rocksdb {
 
 // Tag numbers for serialized VersionEdit.  These numbers are written to
-// disk and should not be changed.
+// disk and should not be changed. The number should be forward compatible so
+// users can down-grade RocksDB safely. A future Tag is ignored by doing '&'
+// between Tag and kTagSafeIgnoreMask field.
 enum Tag : uint32_t {
   kComparator = 1,
   kLogNumber = 2,

@@ -45,6 +45,7 @@ TEST_F(DBBasicTest, ReadOnlyDB) {
   Close();
 
   auto options = CurrentOptions();
+  options.write_dbid_to_manifest = true;
   assert(options.env == env_);
   ASSERT_OK(ReadOnlyReopen(options));
   ASSERT_EQ("v3", Get("foo"));
