@@ -630,6 +630,11 @@ class Version {
   Status GetPropertiesOfTablesInRange(const Range* range, std::size_t n,
                                       TablePropertiesCollection* props) const;
 
+  // Print summary of range delete tombstones in SST files into out_str,
+  // with maximum max_entries_to_print entries printed out.
+  Status TablesRangeTombstoneSummary(int max_entries_to_print,
+                                     std::string* out_str);
+
   // REQUIRES: lock is held
   // On success, "tp" will contains the aggregated table property among
   // the table properties of all sst files in this version.

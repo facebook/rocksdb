@@ -261,6 +261,9 @@ LDBCommand* LDBCommand::SelectCommand(const ParsedParams& parsed_params) {
     return new IngestExternalSstFilesCommand(parsed_params.cmd_params,
                                              parsed_params.option_map,
                                              parsed_params.flags);
+  } else if (parsed_params.cmd == ListFileRangeDeletesCommand::Name()) {
+    return new ListFileRangeDeletesCommand(parsed_params.option_map,
+                                           parsed_params.flags);
   }
   return nullptr;
 }
@@ -3226,6 +3229,57 @@ Options IngestExternalSstFilesCommand::PrepareOptionsForOpenDB() {
   Options opt = LDBCommand::PrepareOptionsForOpenDB();
   opt.create_if_missing = create_if_missing_;
   return opt;
+}
+
+ListFileRangeDeletesCommand::ListFileRangeDeletesCommand(
+    const std::map<std::string, std::string>& options,
+    const std::vector<std::string>& flags)
+    : LDBCommand(options, flags, true, BuildCmdLineOptions({ARG_MAX_KEYS})) {
+  std::map<std::string, std::string>::const_iterator itr =
+      options.find(ARG_MAX_KEYS);
+  if (itr != options.end()) {
+    try {
+#if defined(CYGWIN)
+      max_keys_ = strtol(itr->second.c_str(), 0, 10);
+#else
+      max_keys_ = std::stoi(itr->second);
+#endif
+    } catch (const std::invalid_argument&) {
+      exec_state_ = LDBCommandExecuteResult::Failed(ARG_MAX_KEYS +
+                                                    " has an invalid value");
+    } catch (const std::out_of_range&) {
+      exec_state_ = LDBCommandExecuteResult::Failed(
+          ARG_MAX_KEYS + " has a value out-of-range");
+    }
+  }
+}
+
+void ListFileRangeDeletesCommand::Help(std::string& ret) {
+  ret.append("  ");
+  ret.append(ListFileRangeDeletesCommand::Name());
+  ret.append(" [--" + ARG_MAX_KEYS + "=<N>]");
+  ret.append(" : print tombstones in SST files.\n");
+}
+
+void ListFileRangeDeletesCommand::DoCommand() {
+  if (!db_) {
+    assert(GetExecuteState().IsFailed());
+    return;
+  }
+
+  DBImpl* db_impl = static_cast_with_check<DBImpl, DB>(db_->GetRootDB());
+
+  std::string out_str;
+
+  Status st =
+      db_impl->TablesRangeTombstoneSummary(GetCfHandle(), max_keys_, &out_str);
+  if (st.ok()) {
+    TEST_SYNC_POINT_CALLBACK(
+        "ListFileRangeDeletesCommand::DoCommand:BeforePrint", &out_str);
+    fprintf(stdout, "%s\n", out_str.c_str());
+  } else {
+    exec_state_ = LDBCommandExecuteResult::Failed(st.ToString());
+  }
 }
 
 }   // namespace rocksdb
