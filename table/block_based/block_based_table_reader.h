@@ -290,7 +290,8 @@ class BlockBasedTable : public TableReader {
                        const UncompressionDict& uncompression_dict,
                        CachableEntry<Block>* block_entry, BlockType block_type,
                        GetContext* get_context,
-                       BlockCacheLookupContext* lookup_context) const;
+                       BlockCacheLookupContext* lookup_context,
+                       bool use_cache) const;
 
   Status GetDataBlockFromCache(
       const ReadOptions& ro, const BlockHandle& handle,

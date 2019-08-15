@@ -183,7 +183,7 @@ class BlockBasedTable::IndexReaderCommon : public BlockBasedTable::IndexReader {
  protected:
   static Status ReadIndexBlock(const BlockBasedTable* table,
                                FilePrefetchBuffer* prefetch_buffer,
-                               const ReadOptions& read_options,
+                               const ReadOptions& read_options, bool use_cache,
                                GetContext* get_context,
                                BlockCacheLookupContext* lookup_context,
                                CachableEntry<Block>* index_block);
@@ -217,6 +217,12 @@ class BlockBasedTable::IndexReaderCommon : public BlockBasedTable::IndexReader {
     return properties == nullptr || !properties->index_value_is_delta_encoded;
   }
 
+  bool cache_index_blocks() const {
+    assert(table_ != nullptr);
+    assert(table_->get_rep() != nullptr);
+    return table_->get_rep()->table_options.cache_index_and_filter_blocks;
+  }
+
   Status GetOrReadIndexBlock(bool no_io, GetContext* get_context,
                              BlockCacheLookupContext* lookup_context,
                              CachableEntry<Block>* index_block) const;
@@ -235,7 +241,7 @@ class BlockBasedTable::IndexReaderCommon : public BlockBasedTable::IndexReader {
 
 Status BlockBasedTable::IndexReaderCommon::ReadIndexBlock(
     const BlockBasedTable* table, FilePrefetchBuffer* prefetch_buffer,
-    const ReadOptions& read_options, GetContext* get_context,
+    const ReadOptions& read_options, bool use_cache, GetContext* get_context,
     BlockCacheLookupContext* lookup_context,
     CachableEntry<Block>* index_block) {
   PERF_TIMER_GUARD(read_index_block_nanos);
@@ -250,7 +256,7 @@ Status BlockBasedTable::IndexReaderCommon::ReadIndexBlock(
   const Status s = table->RetrieveBlock(
       prefetch_buffer, read_options, rep->footer.index_handle(),
       UncompressionDict::GetEmptyDict(), index_block, BlockType::kIndex,
-      get_context, lookup_context);
+      get_context, lookup_context, use_cache);
 
   return s;
 }
@@ -272,7 +278,8 @@ Status BlockBasedTable::IndexReaderCommon::GetOrReadIndexBlock(
   }
 
   return ReadIndexBlock(table_, /*prefetch_buffer=*/nullptr, read_options,
-                        get_context, lookup_context, index_block);
+                        cache_index_blocks(), get_context, lookup_context,
+                        index_block);
 }
 
 // Index that allows binary search lookup in a two-level index structure.
@@ -294,7 +301,7 @@ class PartitionIndexReader : public BlockBasedTable::IndexReaderCommon {
     CachableEntry<Block> index_block;
     if (prefetch || !use_cache) {
       const Status s =
-          ReadIndexBlock(table, prefetch_buffer, ReadOptions(),
+          ReadIndexBlock(table, prefetch_buffer, ReadOptions(), use_cache,
                          /*get_context=*/nullptr, lookup_context, &index_block);
       if (!s.ok()) {
         return s;
@@ -482,7 +489,7 @@ class BinarySearchIndexReader : public BlockBasedTable::IndexReaderCommon {
     CachableEntry<Block> index_block;
     if (prefetch || !use_cache) {
       const Status s =
-          ReadIndexBlock(table, prefetch_buffer, ReadOptions(),
+          ReadIndexBlock(table, prefetch_buffer, ReadOptions(), use_cache,
                          /*get_context=*/nullptr, lookup_context, &index_block);
       if (!s.ok()) {
         return s;
@@ -563,7 +570,7 @@ class HashIndexReader : public BlockBasedTable::IndexReaderCommon {
     CachableEntry<Block> index_block;
     if (prefetch || !use_cache) {
       const Status s =
-          ReadIndexBlock(table, prefetch_buffer, ReadOptions(),
+          ReadIndexBlock(table, prefetch_buffer, ReadOptions(), use_cache,
                          /*get_context=*/nullptr, lookup_context, &index_block);
       if (!s.ok()) {
         return s;
@@ -2102,7 +2109,8 @@ TBlockIter* BlockBasedTable::NewDataBlockIterator(
 
   CachableEntry<Block> block;
   s = RetrieveBlock(prefetch_buffer, ro, handle, uncompression_dict, &block,
-                    block_type, get_context, lookup_context);
+                    block_type, get_context, lookup_context,
+                    /* use_cache */ true);
 
   if (!s.ok()) {
     assert(block.IsEmpty());
@@ -2248,8 +2256,10 @@ Status BlockBasedTable::GetDataBlockFromCache(
     GetContext* get_context) const {
   BlockCacheLookupContext lookup_data_block_context(
       BlockCacheLookupCaller::kUserMGet);
+  assert(block_type == BlockType::kData);
   Status s = RetrieveBlock(nullptr, ro, handle, uncompression_dict, block,
-                    block_type, get_context, &lookup_data_block_context);
+                           block_type, get_context, &lookup_data_block_context,
+                           /* use_cache */ true);
   if (s.IsIncomplete()) {
     s = Status::OK();
   }
@@ -2448,9 +2458,11 @@ void BlockBasedTable::MaybeLoadBlocksToCache(
         continue;
       }
 
-      (*statuses)[idx_in_batch] = RetrieveBlock(nullptr, options, handle,
-            uncompression_dict, &(*results)[idx_in_batch], BlockType::kData,
-            mget_iter->get_context, &lookup_data_block_context);
+      (*statuses)[idx_in_batch] =
+          RetrieveBlock(nullptr, options, handle, uncompression_dict,
+                        &(*results)[idx_in_batch], BlockType::kData,
+                        mget_iter->get_context, &lookup_data_block_context,
+                        /* use_cache */ true);
     }
     return;
   }
@@ -2575,15 +2587,13 @@ Status BlockBasedTable::RetrieveBlock(
     FilePrefetchBuffer* prefetch_buffer, const ReadOptions& ro,
     const BlockHandle& handle, const UncompressionDict& uncompression_dict,
     CachableEntry<Block>* block_entry, BlockType block_type,
-    GetContext* get_context, BlockCacheLookupContext* lookup_context) const {
+    GetContext* get_context, BlockCacheLookupContext* lookup_context,
+    bool use_cache) const {
   assert(block_entry);
   assert(block_entry->IsEmpty());
 
   Status s;
-  if (rep_->table_options.cache_index_and_filter_blocks ||
-      (block_type != BlockType::kFilter &&
-       block_type != BlockType::kCompressionDictionary &&
-       block_type != BlockType::kIndex)) {
+  if (use_cache) {
     s = MaybeReadBlockAndLoadToCache(prefetch_buffer, ro, handle,
                                      uncompression_dict, block_entry,
                                      block_type, get_context, lookup_context,
