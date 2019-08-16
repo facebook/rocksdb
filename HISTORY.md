@@ -31,7 +31,8 @@
 ### Bug Fixes
 * Fix ingested file and directory not being fsync.
 * Return TryAgain status in place of Corruption when new tail is not visible to TransactionLogIterator.
-
+* Fixed a regression where the fill_cache read option also affected index blocks.
+* Fixed an issue where using cache_index_and_filter_blocks==false affected partitions of partitioned indexes/filters as well.
 
 ## 6.3.1 (7/24/2019)
 ### Bug Fixes
