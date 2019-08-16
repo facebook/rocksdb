@@ -22,7 +22,7 @@ void FlushScheduler::ScheduleFlush(ColumnFamilyData* cfd) {
   cfd->Ref();
 // Suppress false positive clang analyzer warnings.
 #ifndef __clang_analyzer__
-  Node* node = new Node{cfd, head_.load(std::memory_order_relaxed)};
+  Node* node = new Node{cfd, head_.load(std::memory_order_acquire)};
   while (!head_.compare_exchange_strong(
       node->next, node)) {
     // failing CAS updates the first param, so we are already set for
