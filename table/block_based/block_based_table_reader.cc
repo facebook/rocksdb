@@ -3084,7 +3084,8 @@ InternalIterator* BlockBasedTable::NewIterator(
         arena->AllocateAligned(sizeof(BlockBasedTableIterator<DataBlockIter>));
     return new (mem) BlockBasedTableIterator<DataBlockIter>(
         this, read_options, rep_->internal_comparator,
-        NewIndexIterator(read_options, need_upper_bound_check,
+        NewIndexIterator(read_options, need_upper_bound_check &&
+                         rep_->index_type == BlockBasedTableOptions::kHashSearch,
                          /*input_iter=*/nullptr, /*get_context=*/nullptr,
                          &lookup_context),
         !skip_filters && !read_options.total_order_seek &&
