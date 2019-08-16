@@ -553,4 +553,31 @@ uint64_t TableCache::ApproximateOffsetOf(
 
   return result;
 }
+
+uint64_t TableCache::ApproximateSize(
+    const Slice& start, const Slice& end, const FileDescriptor& fd,
+    TableReaderCaller caller, const InternalKeyComparator& internal_comparator,
+    const SliceTransform* prefix_extractor) {
+  uint64_t result = 0;
+  TableReader* table_reader = fd.table_reader;
+  Cache::Handle* table_handle = nullptr;
+  if (table_reader == nullptr) {
+    const bool for_compaction = (caller == TableReaderCaller::kCompaction);
+    Status s = FindTable(env_options_, internal_comparator, fd, &table_handle,
+                         prefix_extractor, false /* no_io */,
+                         !for_compaction /* record_read_stats */);
+    if (s.ok()) {
+      table_reader = GetTableReaderFromHandle(table_handle);
+    }
+  }
+
+  if (table_reader != nullptr) {
+    result = table_reader->ApproximateSize(start, end, caller);
+  }
+  if (table_handle != nullptr) {
+    ReleaseHandle(table_handle);
+  }
+
+  return result;
+}
 }  // namespace rocksdb
