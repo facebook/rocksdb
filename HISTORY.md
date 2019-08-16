@@ -1,7 +1,4 @@
 # Rocksdb Change Log
-## Unreleased
-### New Features
-* Support loading custom objects in unit tests. In the affected unit tests, RocksDB will create custom Env objects based on environment variable TEST_ENV_URI. Users need to make sure custom object types are properly registered. For example, a static library should expose a `RegisterCustomObjects` function. By linking the unit test binary with the static library, the unit test can execute this function.
 
 ## 6.4.0 (7/30/2019)
 ### Default Option Change
@@ -24,6 +21,7 @@
 * Add argument `--secondary_path` to ldb to open the database as the secondary instance. This would keep the original DB intact.
 * Compression dictionary blocks are now prefetched and pinned in the cache (based on the customer's settings) the same way as index and filter blocks.
 * Added DBOptions::log_readahead_size which specifies the number of bytes to prefetch when reading the log. This is mostly useful for reading a remotely located log, as it can save the number of round-trips. If 0 (default), then the prefetching is disabled.
+* Support loading custom objects in unit tests. In the affected unit tests, RocksDB will create custom Env objects based on environment variable TEST_ENV_URI. Users need to make sure custom object types are properly registered. For example, a static library should expose a `RegisterCustomObjects` function. By linking the unit test binary with the static library, the unit test can execute this function.
 
 ### Performance Improvements
 * Reduce iterator key comparision for upper/lower bound check.
