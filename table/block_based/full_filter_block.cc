@@ -278,6 +278,9 @@ void FullFilterBlockReader::MayMatch(
       // Update original MultiGet range to skip this key. The filter_range
       // was temporarily used just to skip keys not in prefix_extractor domain
       range->SkipKey(iter);
+      PERF_COUNTER_ADD(bloom_sst_miss_count, 1);
+    } else {
+      PERF_COUNTER_ADD(bloom_sst_hit_count, 1);
     }
     ++i;
   }

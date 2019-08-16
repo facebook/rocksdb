@@ -1309,6 +1309,7 @@ TEST_F(DBBasicTest, MultiGetPrefixExtractor) {
   std::vector<PinnableSlice> values(keys.size());
   std::vector<Status> s(keys.size());
 
+  get_perf_context()->Reset();
   db_->MultiGet(ReadOptions(), dbfull()->DefaultColumnFamily(), keys.size(),
                 keys.data(), values.data(), s.data(), true);
 
@@ -1318,6 +1319,8 @@ TEST_F(DBBasicTest, MultiGetPrefixExtractor) {
   ASSERT_EQ(std::string(values[2].data(), values[2].size()), "v2");
   ASSERT_EQ(std::string(values[3].data(), values[3].size()), "v3");
   ASSERT_EQ(std::string(values[4].data(), values[4].size()), "v4");
+  // Filter hits for 4 in-domain keys
+  ASSERT_EQ(get_perf_context()->bloom_sst_hit_count, 4);
 
   ASSERT_OK(s[0]);
   ASSERT_OK(s[1]);
