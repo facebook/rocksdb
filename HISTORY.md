@@ -1,4 +1,12 @@
 # Rocksdb Change Log
+## 6.3.2 (8/15/2019)
+### Public API Change
+* The semantics of the per-block-type block read counts in the performance context now match those of the generic block_read_count.
+
+### Bug Fixes
+* Fixed a regression where the fill_cache read option also affected index blocks.
+* Fixed an issue where using cache_index_and_filter_blocks==false affected partitions of partitioned indexes as well.
+
 ## 6.3.1 (7/24/2019)
 ### Bug Fixes
 * Fix auto rolling bug introduced in 6.3.0, which causes segfault if log file creation fails.
