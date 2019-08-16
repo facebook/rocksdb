@@ -380,7 +380,8 @@ class DBImpl : public DB {
       const ExportImportFilesMetaData& metadata,
       ColumnFamilyHandle** handle) override;
 
-  virtual Status VerifyChecksum() override;
+  using DB::VerifyChecksum;
+  virtual Status VerifyChecksum(const ReadOptions& /*read_options*/) override;
 
   using DB::StartTrace;
   virtual Status StartTrace(

@@ -127,7 +127,8 @@ class TableReader {
   }
 
   // check whether there is corruption in this db file
-  virtual Status VerifyChecksum(TableReaderCaller /*caller*/) {
+  virtual Status VerifyChecksum(const ReadOptions& /*read_options*/,
+                                TableReaderCaller /*caller*/) {
     return Status::NotSupported("VerifyChecksum() not supported");
   }
 };
