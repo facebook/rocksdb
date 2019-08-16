@@ -3,6 +3,9 @@
 ### New Features
 * Support loading custom objects in unit tests. In the affected unit tests, RocksDB will create custom Env objects based on environment variable TEST_ENV_URI. Users need to make sure custom object types are properly registered. For example, a static library should expose a `RegisterCustomObjects` function. By linking the unit test binary with the static library, the unit test can execute this function.
 
+### Bug Fixes
+* Fixed a number of data races in BlobDB.
+
 ## 6.4.0 (7/30/2019)
 ### Default Option Change
 * LRUCacheOptions.high_pri_pool_ratio is set to 0.5 (previously 0.0) by default, which means that by default midpoint insertion is enabled. The same change is made for the default value of high_pri_pool_ratio argument in NewLRUCache(). When block cache is not explictly created, the small block cache created by BlockBasedTable will still has this option to be 0.0.
@@ -35,7 +38,16 @@
 ### Bug Fixes
 * Fix ingested file and directory not being fsync.
 * Return TryAgain status in place of Corruption when new tail is not visible to TransactionLogIterator.
+* Fixed a regression where the fill_cache read option also affected index blocks.
+* Fixed an issue where using cache_index_and_filter_blocks==false affected partitions of partitioned indexes/filters as well.
 
+## 6.3.2 (8/15/2019)
+### Public API Change
+* The semantics of the per-block-type block read counts in the performance context now match those of the generic block_read_count.
+
+### Bug Fixes
+* Fixed a regression where the fill_cache read option also affected index blocks.
+* Fixed an issue where using cache_index_and_filter_blocks==false affected partitions of partitioned indexes as well.
 
 ## 6.3.1 (7/24/2019)
 ### Bug Fixes
