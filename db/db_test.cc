@@ -2585,7 +2585,8 @@ class ModelDB : public DB {
     return Status::NotSupported("Not implemented.");
   }
 
-  Status VerifyChecksum() override {
+  using DB::VerifyChecksum;
+  Status VerifyChecksum(const ReadOptions&) override {
     return Status::NotSupported("Not implemented.");
   }
 

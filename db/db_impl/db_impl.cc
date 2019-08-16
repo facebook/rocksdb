@@ -4112,7 +4112,7 @@ Status DBImpl::CreateColumnFamilyWithImport(
   return status;
 }
 
-Status DBImpl::VerifyChecksum() {
+Status DBImpl::VerifyChecksum(const ReadOptions& read_options) {
   Status s;
   std::vector<ColumnFamilyData*> cfd_list;
   {
@@ -4143,7 +4143,8 @@ Status DBImpl::VerifyChecksum() {
         const auto& fd = vstorage->LevelFilesBrief(i).files[j].fd;
         std::string fname = TableFileName(cfd->ioptions()->cf_paths,
                                           fd.GetNumber(), fd.GetPathId());
-        s = rocksdb::VerifySstFileChecksum(opts, env_options_, fname);
+        s = rocksdb::VerifySstFileChecksum(opts, env_options_, read_options,
+                                           fname);
       }
     }
     if (!s.ok()) {

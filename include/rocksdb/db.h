@@ -1225,7 +1225,9 @@ class DB {
       const ExportImportFilesMetaData& metadata,
       ColumnFamilyHandle** handle) = 0;
 
-  virtual Status VerifyChecksum() = 0;
+  virtual Status VerifyChecksum(const ReadOptions& read_options) = 0;
+
+  virtual Status VerifyChecksum() { return VerifyChecksum(ReadOptions()); }
 
   // AddFile() is deprecated, please use IngestExternalFile()
   ROCKSDB_DEPRECATED_FUNC virtual Status AddFile(
