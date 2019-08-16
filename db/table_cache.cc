@@ -255,6 +255,28 @@ InternalIterator* TableCache::NewIterator(
   return result;
 }
 
+Status TableCache::GetRangeTombstoneIterator(
+    const ReadOptions& options,
+    const InternalKeyComparator& internal_comparator,
+    const FileMetaData& file_meta,
+    std::unique_ptr<FragmentedRangeTombstoneIterator>* out_iter) {
+  const FileDescriptor& fd = file_meta.fd;
+  Status s;
+  TableReader* t = fd.table_reader;
+  Cache::Handle* handle = nullptr;
+  if (t == nullptr) {
+    s = FindTable(env_options_, internal_comparator, fd, &handle);
+    if (s.ok()) {
+      t = GetTableReaderFromHandle(handle);
+    }
+  }
+  if (s.ok()) {
+    out_iter->reset(t->NewRangeTombstoneIterator(options));
+    assert(out_iter);
+  }
+  return s;
+}
+
 Status TableCache::Get(const ReadOptions& options,
                        const InternalKeyComparator& internal_comparator,
                        const FileMetaData& file_meta, const Slice& k,

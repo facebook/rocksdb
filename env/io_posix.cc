@@ -803,8 +803,8 @@ Status PosixMmapFile::InvalidateCache(size_t offset, size_t length) {
 
 #ifdef ROCKSDB_FALLOCATE_PRESENT
 Status PosixMmapFile::Allocate(uint64_t offset, uint64_t len) {
-  assert(offset <= std::numeric_limits<off_t>::max());
-  assert(len <= std::numeric_limits<off_t>::max());
+  assert(offset <= static_cast<uint64_t>(std::numeric_limits<off_t>::max()));
+  assert(len <= static_cast<uint64_t>(std::numeric_limits<off_t>::max()));
   TEST_KILL_RANDOM("PosixMmapFile::Allocate:0", rocksdb_kill_odds);
   int alloc_status = 0;
   if (allow_fallocate_) {
@@ -873,7 +873,7 @@ Status PosixWritableFile::PositionedAppend(const Slice& data, uint64_t offset) {
     assert(IsSectorAligned(data.size(), GetRequiredBufferAlignment()));
     assert(IsSectorAligned(data.data(), GetRequiredBufferAlignment()));
   }
-  assert(offset <= std::numeric_limits<off_t>::max());
+  assert(offset <= static_cast<uint64_t>(std::numeric_limits<off_t>::max()));
   const char* src = data.data();
   size_t nbytes = data.size();
   if (!PosixPositionedWrite(fd_, src, nbytes, static_cast<off_t>(offset))) {
@@ -1009,8 +1009,8 @@ Status PosixWritableFile::InvalidateCache(size_t offset, size_t length) {
 
 #ifdef ROCKSDB_FALLOCATE_PRESENT
 Status PosixWritableFile::Allocate(uint64_t offset, uint64_t len) {
-  assert(offset <= std::numeric_limits<off_t>::max());
-  assert(len <= std::numeric_limits<off_t>::max());
+  assert(offset <= static_cast<uint64_t>(std::numeric_limits<off_t>::max()));
+  assert(len <= static_cast<uint64_t>(std::numeric_limits<off_t>::max()));
   TEST_KILL_RANDOM("PosixWritableFile::Allocate:0", rocksdb_kill_odds);
   IOSTATS_TIMER_GUARD(allocate_nanos);
   int alloc_status = 0;
@@ -1031,8 +1031,8 @@ Status PosixWritableFile::Allocate(uint64_t offset, uint64_t len) {
 
 Status PosixWritableFile::RangeSync(uint64_t offset, uint64_t nbytes) {
 #ifdef ROCKSDB_RANGESYNC_PRESENT
-  assert(offset <= std::numeric_limits<off_t>::max());
-  assert(nbytes <= std::numeric_limits<off_t>::max());
+  assert(offset <= static_cast<uint64_t>(std::numeric_limits<off_t>::max()));
+  assert(nbytes <= static_cast<uint64_t>(std::numeric_limits<off_t>::max()));
   if (sync_file_range_supported_) {
     int ret;
     if (strict_bytes_per_sync_) {

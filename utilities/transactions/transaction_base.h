@@ -11,6 +11,7 @@
 #include <string>
 #include <vector>
 
+#include "db/write_batch_internal.h"
 #include "rocksdb/db.h"
 #include "rocksdb/slice.h"
 #include "rocksdb/snapshot.h"
@@ -273,6 +274,15 @@ class TransactionBaseImpl : public Transaction {
   // Sets a snapshot if SetSnapshotOnNextOperation() has been called.
   void SetSnapshotIfNeeded();
 
+  // Initialize write_batch_ for 2PC by inserting Noop.
+  inline void InitWriteBatch(bool clear = false) {
+    if (clear) {
+      write_batch_.Clear();
+    }
+    assert(write_batch_.GetDataSize() == WriteBatchInternal::kHeader);
+    WriteBatchInternal::InsertNoop(write_batch_.GetWriteBatch());
+  }
+
   DB* db_;
   DBImpl* dbimpl_;
 
@@ -294,11 +304,11 @@ class TransactionBaseImpl : public Transaction {
 
   struct SavePoint {
     std::shared_ptr<const Snapshot> snapshot_;
-    bool snapshot_needed_;
+    bool snapshot_needed_ = false;
     std::shared_ptr<TransactionNotifier> snapshot_notifier_;
-    uint64_t num_puts_;
-    uint64_t num_deletes_;
-    uint64_t num_merges_;
+    uint64_t num_puts_ = 0;
+    uint64_t num_deletes_ = 0;
+    uint64_t num_merges_ = 0;
 
     // Record all keys tracked since the last savepoint
     TransactionKeyMap new_keys_;
@@ -312,6 +322,8 @@ class TransactionBaseImpl : public Transaction {
           num_puts_(num_puts),
           num_deletes_(num_deletes),
           num_merges_(num_merges) {}
+
+    SavePoint() = default;
   };
 
   // Records writes pending in this transaction
@@ -323,15 +335,17 @@ class TransactionBaseImpl : public Transaction {
   // Optimistic Transactions will wait till commit time to do conflict checking.
   TransactionKeyMap tracked_keys_;
 
+  // Stack of the Snapshot saved at each save point. Saved snapshots may be
+  // nullptr if there was no snapshot at the time SetSavePoint() was called.
+  std::unique_ptr<std::stack<TransactionBaseImpl::SavePoint,
+                             autovector<TransactionBaseImpl::SavePoint>>>
+      save_points_;
+
  private:
   friend class WritePreparedTxn;
   // Extra data to be persisted with the commit. Note this is only used when
   // prepare phase is not skipped.
   WriteBatch commit_time_batch_;
-
-  // Stack of the Snapshot saved at each save point.  Saved snapshots may be
-  // nullptr if there was no snapshot at the time SetSavePoint() was called.
-  std::unique_ptr<std::stack<TransactionBaseImpl::SavePoint, autovector<TransactionBaseImpl::SavePoint>>> save_points_;
 
   // If true, future Put/Merge/Deletes will be indexed in the
   // WriteBatchWithIndex.

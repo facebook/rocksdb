@@ -159,6 +159,21 @@ class DBImpl : public DB {
                      ColumnFamilyHandle* column_family, const Slice& key,
                      PinnableSlice* value) override;
 
+  using DB::GetMergeOperands;
+  Status GetMergeOperands(const ReadOptions& options,
+                          ColumnFamilyHandle* column_family, const Slice& key,
+                          PinnableSlice* merge_operands,
+                          GetMergeOperandsOptions* get_merge_operands_options,
+                          int* number_of_operands) override {
+    GetImplOptions get_impl_options;
+    get_impl_options.column_family = column_family;
+    get_impl_options.merge_operands = merge_operands;
+    get_impl_options.get_merge_operands_options = get_merge_operands_options;
+    get_impl_options.number_of_operands = number_of_operands;
+    get_impl_options.get_value = false;
+    return GetImpl(options, key, get_impl_options);
+  }
+
   using DB::MultiGet;
   virtual std::vector<Status> MultiGet(
       const ReadOptions& options,
@@ -233,9 +248,10 @@ class DBImpl : public DB {
   virtual bool GetAggregatedIntProperty(const Slice& property,
                                         uint64_t* aggregated_value) override;
   using DB::GetApproximateSizes;
-  virtual void GetApproximateSizes(
-      ColumnFamilyHandle* column_family, const Range* range, int n,
-      uint64_t* sizes, uint8_t include_flags = INCLUDE_FILES) override;
+  virtual Status GetApproximateSizes(const SizeApproximationOptions& options,
+                                     ColumnFamilyHandle* column_family,
+                                     const Range* range, int n,
+                                     uint64_t* sizes) override;
   using DB::GetApproximateMemTableStats;
   virtual void GetApproximateMemTableStats(ColumnFamilyHandle* column_family,
                                            const Range& range,
@@ -394,12 +410,32 @@ class DBImpl : public DB {
 
   // ---- End of implementations of the DB interface ----
 
+  struct GetImplOptions {
+    ColumnFamilyHandle* column_family = nullptr;
+    PinnableSlice* value = nullptr;
+    bool* value_found = nullptr;
+    ReadCallback* callback = nullptr;
+    bool* is_blob_index = nullptr;
+    // If true return value associated with key via value pointer else return
+    // all merge operands for key via merge_operands pointer
+    bool get_value = true;
+    // Pointer to an array of size
+    // get_merge_operands_options.expected_max_number_of_operands allocated by
+    // user
+    PinnableSlice* merge_operands = nullptr;
+    GetMergeOperandsOptions* get_merge_operands_options = nullptr;
+    int* number_of_operands = nullptr;
+  };
+
   // Function that Get and KeyMayExist call with no_io true or false
   // Note: 'value_found' from KeyMayExist propagates here
-  Status GetImpl(const ReadOptions& options, ColumnFamilyHandle* column_family,
-                 const Slice& key, PinnableSlice* value,
-                 bool* value_found = nullptr, ReadCallback* callback = nullptr,
-                 bool* is_blob_index = nullptr);
+  // This function is also called by GetMergeOperands
+  // If get_impl_options.get_value = true get value associated with
+  // get_impl_options.key via get_impl_options.value
+  // If get_impl_options.get_value = false get merge operands associated with
+  // get_impl_options.key via get_impl_options.merge_operands
+  Status GetImpl(const ReadOptions& options, const Slice& key,
+                 GetImplOptions get_impl_options);
 
   ArenaWrappedDBIter* NewIteratorImpl(const ReadOptions& options,
                                       ColumnFamilyData* cfd,
@@ -776,6 +812,13 @@ class DBImpl : public DB {
                        uint64_t* new_time,
                        std::map<std::string, uint64_t>* stats_map);
 
+  // Print information of all tombstones of all iterators to the std::string
+  // This is only used by ldb. The output might be capped. Tombstones
+  // printed out are not guaranteed to be in any order.
+  Status TablesRangeTombstoneSummary(ColumnFamilyHandle* column_family,
+                                     int max_entries_to_print,
+                                     std::string* out_str);
+
 #ifndef NDEBUG
   // Compact any files in the named level that overlap [*begin, *end]
   Status TEST_CompactRange(int level, const Slice* begin, const Slice* end,
@@ -876,7 +919,6 @@ class DBImpl : public DB {
   void TEST_WaitForPersistStatsRun(std::function<void()> callback) const;
   bool TEST_IsPersistentStatsEnabled() const;
   size_t TEST_EstimateInMemoryStatsHistorySize() const;
-
 #endif  // NDEBUG
 
  protected:

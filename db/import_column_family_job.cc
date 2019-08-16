@@ -58,13 +58,13 @@ Status ImportColumnFamilyJob::Prepare(uint64_t next_file_number,
       std::sort(sorted_files.begin(), sorted_files.end(),
                 [&ucmp](const IngestedFileInfo* info1,
                         const IngestedFileInfo* info2) {
-                  return ucmp->Compare(info1->smallest_user_key,
-                                       info2->smallest_user_key) < 0;
+                  return sstableKeyCompare(ucmp, info1->smallest_internal_key,
+                                           info2->smallest_internal_key) < 0;
                 });
 
       for (size_t i = 0; i < sorted_files.size() - 1; i++) {
-        if (ucmp->Compare(sorted_files[i]->largest_user_key,
-                          sorted_files[i + 1]->smallest_user_key) >= 0) {
+        if (sstableKeyCompare(ucmp, sorted_files[i]->largest_internal_key,
+                              sorted_files[i + 1]->smallest_internal_key) >= 0) {
           return Status::InvalidArgument("Files have overlapping ranges");
         }
       }
@@ -76,8 +76,8 @@ Status ImportColumnFamilyJob::Prepare(uint64_t next_file_number,
       return Status::InvalidArgument("File contain no entries");
     }
 
-    if (!f.smallest_internal_key().Valid() ||
-        !f.largest_internal_key().Valid()) {
+    if (!f.smallest_internal_key.Valid() ||
+        !f.largest_internal_key.Valid()) {
       return Status::Corruption("File has corrupted keys");
     }
   }
@@ -137,8 +137,8 @@ Status ImportColumnFamilyJob::Run() {
     const auto& f = files_to_import_[i];
     const auto& file_metadata = metadata_[i];
     edit_.AddFile(file_metadata.level, f.fd.GetNumber(), f.fd.GetPathId(),
-                  f.fd.GetFileSize(), f.smallest_internal_key(),
-                  f.largest_internal_key(), file_metadata.smallest_seqno,
+                  f.fd.GetFileSize(), f.smallest_internal_key,
+                  f.largest_internal_key, file_metadata.smallest_seqno,
                   file_metadata.largest_seqno, false);
 
     // If incoming sequence number is higher, update local sequence number.
@@ -236,14 +236,14 @@ Status ImportColumnFamilyJob::GetIngestedFileInfo(
   if (!ParseInternalKey(iter->key(), &key)) {
     return Status::Corruption("external file have corrupted keys");
   }
-  file_to_import->smallest_user_key = key.user_key.ToString();
+  file_to_import->smallest_internal_key.SetFrom(key);
 
   // Get last (largest) key from file
   iter->SeekToLast();
   if (!ParseInternalKey(iter->key(), &key)) {
     return Status::Corruption("external file have corrupted keys");
   }
-  file_to_import->largest_user_key = key.user_key.ToString();
+  file_to_import->largest_internal_key.SetFrom(key);
 
   file_to_import->cf_id = static_cast<uint32_t>(props->column_family_id);
 

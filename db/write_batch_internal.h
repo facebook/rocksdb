@@ -192,6 +192,10 @@ class WriteBatchInternal {
   // leftByteSize and a WriteBatch with ByteSize rightByteSize
   static size_t AppendedByteSize(size_t leftByteSize, size_t rightByteSize);
 
+  // Iterate over [begin, end) range of a write batch
+  static Status Iterate(const WriteBatch* wb, WriteBatch::Handler* handler,
+                        size_t begin, size_t end);
+
   // This write batch includes the latest state that should be persisted. Such
   // state meant to be used only during recovery.
   static void SetAsLastestPersistentState(WriteBatch* b);

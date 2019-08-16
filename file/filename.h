@@ -47,6 +47,8 @@ enum FileType {
 // "dbname".
 extern std::string LogFileName(const std::string& dbname, uint64_t number);
 
+extern std::string LogFileName(uint64_t number);
+
 extern std::string BlobFileName(const std::string& bdirname, uint64_t number);
 
 extern std::string BlobFileName(const std::string& dbname,
@@ -62,6 +64,8 @@ extern std::string ArchivedLogFileName(const std::string& dbname,
                                        uint64_t num);
 
 extern std::string MakeTableFileName(const std::string& name, uint64_t number);
+
+extern std::string MakeTableFileName(uint64_t number);
 
 // Return the name of sstable with LevelDB suffix
 // created from RocksDB sstable suffixed name
