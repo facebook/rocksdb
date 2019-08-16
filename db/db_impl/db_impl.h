@@ -944,6 +944,7 @@ class DBImpl : public DB {
  protected:
   Env* const env_;
   const std::string dbname_;
+  std::string db_id_;
   std::unique_ptr<VersionSet> versions_;
   // Flag to check whether we allocated and own the info log file
   bool own_info_log_;

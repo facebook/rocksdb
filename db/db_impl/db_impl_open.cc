@@ -233,9 +233,8 @@ Status DBImpl::ValidateOptions(const DBOptions& db_options) {
 Status DBImpl::NewDB() {
   VersionEdit new_db;
   if (immutable_db_options_.write_dbid_to_manifest) {
-    std::string db_id;
-    GetDbIdentityFromIdentityFile(db_id);
-    new_db.SetDBId(db_id);
+    GetDbIdentityFromIdentityFile(db_id_);
+    new_db.SetDBId(db_id_);
   }
   new_db.SetLogNumber(0);
   new_db.SetNextFile(2);
@@ -400,20 +399,24 @@ Status DBImpl::Recover(
       }
     }
   }
-  if (immutable_db_options_.write_dbid_to_manifest) {
-      std::string manifest = DescriptorFileName(dbname_, 1);
-      std::string mp;
-      versions_->GetCurrentManifestPath(dbname_, env_, &mp,
-      &versions_->manifest_file_number_); std::string temp = "--path="+mp; char
-      **argv = DBImpl::new_argv(4, "ldb", "manifest_dump", "--verbose",
-      temp.c_str());
-      int argc = 4;
-      rocksdb::LDBTool tool;
-      tool.Run(argc, argv);
+//  if (immutable_db_options_.write_dbid_to_manifest) {
+//    std::string mp;
+//    versions_->GetCurrentManifestPath(dbname_, env_, &mp,
+//                                      &versions_->manifest_file_number_);
+//    std::string temp = "--path=" + mp;
+//    char** argv =
+//        DBImpl::new_argv(4, "ldb", "manifest_dump", "--verbose", temp.c_str());
+//    int argc = 4;
+//    rocksdb::LDBTool tool;
+//    tool.Run(argc, argv);
+//  }
+  Status s;
+  if (immutable_db_options_.write_dbid_to_manifest && db_id_.empty()) {
+    assert(!is_new_db);
+    s = versions_->Recover(column_families, read_only, &db_id_);
+  } else {
+    s = versions_->Recover(column_families, read_only);
   }
-
-  Status s = versions_->Recover(column_families, read_only);
-
   if (immutable_db_options_.paranoid_checks && s.ok()) {
     s = CheckConsistency();
   }

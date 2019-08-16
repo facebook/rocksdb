@@ -851,7 +851,7 @@ class VersionSet {
   // If read_only == true, Recover() will not complain if some column families
   // are not opened
   Status Recover(const std::vector<ColumnFamilyDescriptor>& column_families,
-                 bool read_only = false);
+                 bool read_only = false, std::string* db_id = nullptr);
 
   // Reads a manifest file and returns a list of column families in
   // column_families.
@@ -1068,10 +1068,7 @@ class VersionSet {
       std::unordered_map<int, std::string>& column_families_not_found,
       std::unordered_map<
           uint32_t, std::unique_ptr<BaseReferencedVersionBuilder>>& builders,
-      bool* have_log_number, uint64_t* log_number, bool* have_prev_log_number,
-      uint64_t* previous_log_number, bool* have_next_file, uint64_t* next_file,
-      bool* have_last_sequence, SequenceNumber* last_sequence,
-      uint64_t* min_log_number_to_keep, uint32_t* max_column_family);
+      VersionEdit* version_edit, std::string* db_id = nullptr);
 
   // REQUIRES db mutex
   Status ApplyOneVersionEditToBuilder(
@@ -1080,17 +1077,11 @@ class VersionSet {
       std::unordered_map<int, std::string>& column_families_not_found,
       std::unordered_map<
           uint32_t, std::unique_ptr<BaseReferencedVersionBuilder>>& builders,
-      bool* have_log_number, uint64_t* log_number, bool* have_prev_log_number,
-      uint64_t* previous_log_number, bool* have_next_file, uint64_t* next_file,
-      bool* have_last_sequence, SequenceNumber* last_sequence,
-      uint64_t* min_log_number_to_keep, uint32_t* max_column_family);
+      VersionEdit* version_edit);
 
-  Status ExtractInfoFromVersionEdit(
-      ColumnFamilyData* cfd, const VersionEdit& edit, bool* have_log_number,
-      uint64_t* log_number, bool* have_prev_log_number,
-      uint64_t* previous_log_number, bool* have_next_file, uint64_t* next_file,
-      bool* have_last_sequence, SequenceNumber* last_sequence,
-      uint64_t* min_log_number_to_keep, uint32_t* max_column_family);
+  Status ExtractInfoFromVersionEdit(ColumnFamilyData* cfd,
+                                    const VersionEdit& from_edit,
+                                    VersionEdit* to_edit);
 
   std::unique_ptr<ColumnFamilySet> column_family_set_;
 
@@ -1195,10 +1186,7 @@ class ReactiveVersionSet : public VersionSet {
   // REQUIRES db mutex
   Status ApplyOneVersionEditToBuilder(
       VersionEdit& edit, std::unordered_set<ColumnFamilyData*>* cfds_changed,
-      bool* have_log_number, uint64_t* log_number, bool* have_prev_log_number,
-      uint64_t* previous_log_number, bool* have_next_file, uint64_t* next_file,
-      bool* have_last_sequence, SequenceNumber* last_sequence,
-      uint64_t* min_log_number_to_keep, uint32_t* max_column_family);
+      VersionEdit* version_edit);
 
   Status MaybeSwitchManifest(
       log::Reader::Reporter* reporter,

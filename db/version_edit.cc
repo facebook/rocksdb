@@ -8,7 +8,7 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
 #include "db/version_edit.h"
-#include <iostream>
+
 #include "db/version_set.h"
 #include "logging/event_logger.h"
 #include "rocksdb/slice.h"
@@ -329,7 +329,6 @@ Status VersionEdit::DecodeFrom(const Slice& src) {
   FileMetaData f;
   Slice str;
   InternalKey key;
-  //  std::cout << "Data: " << src.ToString();
   while (msg == nullptr && GetVarint32(&input, &tag)) {
     switch (tag) {
       case kDbId:
