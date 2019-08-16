@@ -3921,25 +3921,16 @@ Status BlockBasedTable::CreateIndexReader(
   }
 }
 
-uint64_t BlockBasedTable::ApproximateOffsetOf(const Slice& key,
-                                              TableReaderCaller caller) {
-  BlockCacheLookupContext context(caller);
-  IndexBlockIter iiter_on_stack;
-  auto index_iter =
-      NewIndexIterator(ReadOptions(), /*need_upper_bound_check=*/false,
-                       /*input_iter=*/&iiter_on_stack, /*get_context=*/nullptr,
-                       /*lookup_context=*/&context);
-
-  index_iter->Seek(key);
-  uint64_t result;
-  if (index_iter->Valid()) {
-    BlockHandle handle = index_iter->value().handle;
+uint64_t BlockBasedTable::ApproximateOffsetOf(
+    const InternalIteratorBase<IndexValue>& index_iter) const {
+  uint64_t result = 0;
+  if (index_iter.Valid()) {
+    BlockHandle handle = index_iter.value().handle;
     result = handle.offset();
   } else {
-    // key is past the last key in the file. If table_properties is not
+    // The iterator is past the last key in the file. If table_properties is not
     // available, approximate the offset by returning the offset of the
     // metaindex block (which is right near the end of the file).
-    result = 0;
     if (rep_->table_properties) {
       result = rep_->table_properties->data_size;
     }
@@ -3949,11 +3940,48 @@ uint64_t BlockBasedTable::ApproximateOffsetOf(const Slice& key,
     }
   }
 
+  return result;
+}
+
+uint64_t BlockBasedTable::ApproximateOffsetOf(const Slice& key,
+                                              TableReaderCaller caller) {
+  BlockCacheLookupContext context(caller);
+  IndexBlockIter iiter_on_stack;
+  auto index_iter =
+      NewIndexIterator(ReadOptions(), /*disable_prefix_seek=*/false,
+                       /*input_iter=*/&iiter_on_stack, /*get_context=*/nullptr,
+                       /*lookup_context=*/&context);
+  std::unique_ptr<InternalIteratorBase<IndexValue>> iiter_unique_ptr;
   if (index_iter != &iiter_on_stack) {
-    delete index_iter;
+    iiter_unique_ptr.reset(index_iter);
   }
 
-  return result;
+  index_iter->Seek(key);
+  return ApproximateOffsetOf(*index_iter);
+}
+
+uint64_t BlockBasedTable::ApproximateSize(const Slice& start, const Slice& end,
+                                          TableReaderCaller caller) {
+  assert(rep_->internal_comparator.Compare(start, end) <= 0);
+
+  BlockCacheLookupContext context(caller);
+  IndexBlockIter iiter_on_stack;
+  auto index_iter =
+      NewIndexIterator(ReadOptions(), /*disable_prefix_seek=*/false,
+                       /*input_iter=*/&iiter_on_stack, /*get_context=*/nullptr,
+                       /*lookup_context=*/&context);
+  std::unique_ptr<InternalIteratorBase<IndexValue>> iiter_unique_ptr;
+  if (index_iter != &iiter_on_stack) {
+    iiter_unique_ptr.reset(index_iter);
+  }
+
+  index_iter->Seek(start);
+  uint64_t start_offset = ApproximateOffsetOf(*index_iter);
+  index_iter->Seek(end);
+  uint64_t end_offset = ApproximateOffsetOf(*index_iter);
+
+  assert(end_offset >= start_offset);
+  return end_offset - start_offset;
 }
 
 bool BlockBasedTable::TEST_FilterBlockInCache() const {

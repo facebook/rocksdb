@@ -151,12 +151,19 @@ class BlockBasedTable : public TableReader {
 
   // Given a key, return an approximate byte offset in the file where
   // the data for that key begins (or would begin if the key were
-  // present in the file).  The returned value is in terms of file
+  // present in the file). The returned value is in terms of file
   // bytes, and so includes effects like compression of the underlying data.
   // E.g., the approximate offset of the last key in the table will
   // be close to the file length.
   uint64_t ApproximateOffsetOf(const Slice& key,
                                TableReaderCaller caller) override;
+
+  // Given start and end keys, return the approximate data size in the file
+  // between the keys. The returned value is in terms of file bytes, and so
+  // includes effects like compression of the underlying data.
+  // The start key must not be greater than the end key.
+  uint64_t ApproximateSize(const Slice& start, const Slice& end,
+                           TableReaderCaller caller) override;
 
   bool TEST_BlockInCache(const BlockHandle& handle) const;
 
@@ -437,6 +444,10 @@ class BlockBasedTable : public TableReader {
                                   char* buffer, size_t* size);
   static void GenerateCachePrefix(Cache* cc, WritableFile* file, char* buffer,
                                   size_t* size);
+
+  // Given an iterator return its offset in file.
+  uint64_t ApproximateOffsetOf(
+      const InternalIteratorBase<IndexValue>& index_iter) const;
 
   // Helper functions for DumpTable()
   Status DumpIndexBlock(WritableFile* out_file);

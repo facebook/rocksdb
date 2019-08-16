@@ -5011,7 +5011,7 @@ uint64_t VersionSet::ApproximateSize(const SizeApproximationOptions& options,
       uint64_t file_size = files_brief.files[i].fd.GetFileSize();
       // The entire file falls into the range, so we can just take its size.
       assert(file_size ==
-             ApproximateSize(v, files_brief.files[i], end, caller));
+             ApproximateSize(v, files_brief.files[i], start, end, caller));
       total_full_size += file_size;
     }
 
@@ -5045,25 +5045,23 @@ uint64_t VersionSet::ApproximateSize(const SizeApproximationOptions& options,
   } else {
     // Estimate for all the first files, at each level
     for (const auto file_ptr : first_files) {
-      total_full_size += ApproximateSize(v, *file_ptr, end, caller);
-      // subtract the bytes needed to be scanned to get to the starting key
-      uint64_t val = ApproximateSize(v, *file_ptr, start, caller);
-      assert(total_full_size >= val);
-      total_full_size -= val;
+      total_full_size += ApproximateSize(v, *file_ptr, start, end, caller);
     }
 
     // Estimate for all the last files, at each level
     for (const auto file_ptr : last_files) {
-      total_full_size += ApproximateSize(v, *file_ptr, end, caller);
+      // We could use ApproximateSize here, but calling ApproximateOffsetOf
+      // directly is just more efficient.
+      total_full_size += ApproximateOffsetOf(v, *file_ptr, end, caller);
     }
   }
 
   return total_full_size;
 }
 
-uint64_t VersionSet::ApproximateSize(Version* v, const FdWithKeyRange& f,
-                                     const Slice& key,
-                                     TableReaderCaller caller) {
+uint64_t VersionSet::ApproximateOffsetOf(Version* v, const FdWithKeyRange& f,
+                                         const Slice& key,
+                                         TableReaderCaller caller) {
   // pre-condition
   assert(v);
   const auto& icmp = v->cfd_->internal_comparator();
@@ -5086,6 +5084,43 @@ uint64_t VersionSet::ApproximateSize(Version* v, const FdWithKeyRange& f,
     }
   }
   return result;
+}
+
+uint64_t VersionSet::ApproximateSize(Version* v, const FdWithKeyRange& f,
+                                     const Slice& start, const Slice& end,
+                                     TableReaderCaller caller) {
+  // pre-condition
+  assert(v);
+  const auto& icmp = v->cfd_->internal_comparator();
+  assert(icmp.Compare(start, end) <= 0);
+
+  if (icmp.Compare(f.largest_key, start) <= 0 ||
+      icmp.Compare(f.smallest_key, end) > 0) {
+    // Entire file is before or after the start/end keys range
+    return 0;
+  }
+
+  if (icmp.Compare(f.smallest_key, start) >= 0) {
+    // Start of the range is before the file start - approximate by end offset
+    return ApproximateOffsetOf(v, f, end, caller);
+  }
+
+  if (icmp.Compare(f.largest_key, end) < 0) {
+    // End of the range is after the file end - approximate by subtracting
+    // start offset from the file size
+    uint64_t start_offset = ApproximateOffsetOf(v, f, start, caller);
+    assert(f.fd.GetFileSize() >= start_offset);
+    return f.fd.GetFileSize() - start_offset;
+  }
+
+  // The interval falls entirely in the range for this file.
+  TableCache* table_cache = v->cfd_->table_cache();
+  if (table_cache == nullptr) {
+    return 0;
+  }
+  return table_cache->ApproximateSize(
+      start, end, f.file_metadata->fd, caller, icmp,
+      v->GetMutableCFOptions().prefix_extractor.get());
 }
 
 void VersionSet::AddLiveFiles(std::vector<FileDescriptor>* live_list) {
