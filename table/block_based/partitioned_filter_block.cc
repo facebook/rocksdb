@@ -187,8 +187,9 @@ BlockHandle PartitionedFilterBlockReader::GetFilterPartitionHandle(
   const InternalKeyComparator* const comparator = internal_comparator();
   Statistics* kNullStats = nullptr;
   filter_block.GetValue()->NewIndexIterator(
-      comparator, comparator->user_comparator(), &iter, kNullStats,
-      true /* total_order_seek */, false /* have_first_key */,
+      comparator, comparator->user_comparator(),
+      table()->get_rep()->get_global_seqno(BlockType::kFilter), &iter,
+      kNullStats, true /* total_order_seek */, false /* have_first_key */,
       index_key_includes_seq(), index_value_is_full());
   iter.Seek(entry);
   if (UNLIKELY(!iter.Valid())) {
@@ -307,8 +308,9 @@ void PartitionedFilterBlockReader::CacheDependencies(bool pin) {
   const InternalKeyComparator* const comparator = internal_comparator();
   Statistics* kNullStats = nullptr;
   filter_block.GetValue()->NewIndexIterator(
-      comparator, comparator->user_comparator(), &biter, kNullStats,
-      true /* total_order_seek */, false /* have_first_key */,
+      comparator, comparator->user_comparator(),
+      table()->get_rep()->get_global_seqno(BlockType::kFilter), &biter,
+      kNullStats, true /* total_order_seek */, false /* have_first_key */,
       index_key_includes_seq(), index_value_is_full());
   // Index partitions are assumed to be consecuitive. Prefetch them all.
   // Read the first block offset
