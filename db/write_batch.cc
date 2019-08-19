@@ -1173,7 +1173,6 @@ Status WriteBatch::PopSavePoint() {
 
   return Status::OK();
 }
-using TrimHistoryScheduler = FlushScheduler;
 
 Status WriteBatch::AssignTimestamp(const Slice& ts) {
   TimestampAssigner ts_assigner(ts);

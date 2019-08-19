@@ -9,6 +9,7 @@
 
 #pragma once
 #include <vector>
+#include "db/flush_scheduler.h"
 #include "db/write_thread.h"
 #include "rocksdb/types.h"
 #include "rocksdb/write_batch.h"
@@ -21,7 +22,6 @@ namespace rocksdb {
 class MemTable;
 class FlushScheduler;
 class ColumnFamilyData;
-using TrimHistoryScheduler = FlushScheduler;
 
 class ColumnFamilyMemTables {
  public:

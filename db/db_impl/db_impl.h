@@ -1735,7 +1735,6 @@ class DBImpl : public DB {
 
   FlushScheduler flush_scheduler_;
 
-  using TrimHistoryScheduler = FlushScheduler;
   TrimHistoryScheduler trim_history_scheduler_;
 
   SnapshotList snapshots_;

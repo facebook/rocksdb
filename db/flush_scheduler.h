@@ -9,6 +9,7 @@
 #include <atomic>
 #include <mutex>
 #include <set>
+#include "util/autovector.h"
 
 namespace rocksdb {
 
@@ -46,6 +47,26 @@ class FlushScheduler {
   std::mutex checking_mutex_;
   std::set<ColumnFamilyData*> checking_set_;
 #endif  // NDEBUG
+};
+
+class TrimHistoryScheduler {
+ public:
+  TrimHistoryScheduler() {}
+
+  void ScheduleWork(ColumnFamilyData* cfd);
+
+  ColumnFamilyData* TakeNextColumnFamily();
+
+  bool Empty();
+
+  void Clear();
+
+  // Not on critical path, always use mutex and checking set to ensure thread
+  // safety
+ private:
+  autovector<ColumnFamilyData*> cfds;
+  std::mutex checking_mutex_;
+  std::set<ColumnFamilyData*> checking_set_;
 };
 
 }  // namespace rocksdb

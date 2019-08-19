@@ -87,4 +87,50 @@ void FlushScheduler::Clear() {
   assert(head_.load(std::memory_order_relaxed) == nullptr);
 }
 
+void TrimHistoryScheduler::ScheduleWork(ColumnFamilyData* cfd) {
+  std::lock_guard<std::mutex> lock(checking_mutex_);
+  assert(checking_set_.count(cfd) == 0);
+  checking_set_.insert(cfd);
+  cfd->Ref();
+  cfds.push_back(cfd);
+}
+
+ColumnFamilyData* TrimHistoryScheduler::TakeNextColumnFamily() {
+  std::lock_guard<std::mutex> lock(checking_mutex_);
+  while (true) {
+    if (cfds.empty()) {
+      return nullptr;
+    }
+    ColumnFamilyData* cfd = cfds.back();
+    cfds.pop_back();
+    auto iter = checking_set_.find(cfd);
+    assert(iter != checking_set_.end());
+    checking_set_.erase(iter);
+
+    if (!cfd->IsDropped()) {
+      // success
+      return cfd;
+    }
+    if (cfd->Unref()) {
+      // no longer relevant, retry
+      delete cfd;
+    }
+  }
+}
+
+bool TrimHistoryScheduler::Empty() {
+  std::lock_guard<std::mutex> lock(checking_mutex_);
+  return cfds.empty();
+}
+
+void TrimHistoryScheduler::Clear() {
+  ColumnFamilyData* cfd;
+  while ((cfd = TakeNextColumnFamily()) != nullptr) {
+    if (cfd->Unref()) {
+      delete cfd;
+    }
+  }
+  assert(Empty());
+}
+
 }  // namespace rocksdb
