@@ -627,6 +627,11 @@ WriteBatchWithIndex::WriteBatchWithIndex(
 
 WriteBatchWithIndex::~WriteBatchWithIndex() {}
 
+WriteBatchWithIndex::WriteBatchWithIndex(WriteBatchWithIndex&&) = default;
+
+WriteBatchWithIndex& WriteBatchWithIndex::operator=(WriteBatchWithIndex&&) =
+    default;
+
 WriteBatch* WriteBatchWithIndex::GetWriteBatch() { return &rep->write_batch; }
 
 size_t WriteBatchWithIndex::SubBatchCnt() { return rep->sub_batch_cnt; }
@@ -886,9 +891,12 @@ Status WriteBatchWithIndex::GetFromBatchAndDB(
   if (!callback) {
     s = db->Get(read_options, column_family, key, pinnable_val);
   } else {
+    DBImpl::GetImplOptions get_impl_options;
+    get_impl_options.column_family = column_family;
+    get_impl_options.value = pinnable_val;
+    get_impl_options.callback = callback;
     s = static_cast_with_check<DBImpl, DB>(db->GetRootDB())
-            ->GetImpl(read_options, column_family, key, pinnable_val, nullptr,
-                      callback);
+            ->GetImpl(read_options, key, get_impl_options);
   }
 
   if (s.ok() || s.IsNotFound()) {  // DB Get Succeeded

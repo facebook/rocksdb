@@ -16,6 +16,7 @@
 #include "port/port.h"
 #include "port/sys_time.h"
 #include "rocksdb/options.h"
+#include "rocksdb/utilities/object_registry.h"
 #include "util/autovector.h"
 
 namespace rocksdb {
@@ -26,6 +27,20 @@ Env::~Env() {
 Status Env::NewLogger(const std::string& fname,
                       std::shared_ptr<Logger>* result) {
   return NewEnvLogger(fname, this, result);
+}
+
+Status Env::LoadEnv(const std::string& value, Env** result) {
+  Env* env = *result;
+  Status s;
+#ifndef ROCKSDB_LITE
+  s = ObjectRegistry::NewInstance()->NewStaticObject<Env>(value, &env);
+#else
+  s = Status::NotSupported("Cannot load environment in LITE mode: ", value);
+#endif
+  if (s.ok()) {
+    *result = env;
+  }
+  return s;
 }
 
 std::string Env::PriorityToString(Env::Priority priority) {

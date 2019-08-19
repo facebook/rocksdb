@@ -63,7 +63,6 @@ class VersionSet;
 class WriteBufferManager;
 class MergeContext;
 class ColumnFamilySet;
-class TableCache;
 class MergeIteratorBuilder;
 
 // Return the smallest index i such that file_level.files[i]->largest >= key.
@@ -561,28 +560,33 @@ class Version {
                                   const Slice& largest_user_key,
                                   int level, bool* overlap);
 
-  // Lookup the value for key.  If found, store it in *val and
-  // return OK.  Else return a non-OK status.
-  // Uses *operands to store merge_operator operations to apply later.
+  // Lookup the value for key or get all merge operands for key.
+  // If do_merge = true (default) then lookup value for key.
+  // Behavior if do_merge = true:
+  //    If found, store it in *value and
+  //    return OK.  Else return a non-OK status.
+  //    Uses *operands to store merge_operator operations to apply later.
   //
-  // If the ReadOptions.read_tier is set to do a read-only fetch, then
-  // *value_found will be set to false if it cannot be determined whether
-  // this value exists without doing IO.
+  //    If the ReadOptions.read_tier is set to do a read-only fetch, then
+  //    *value_found will be set to false if it cannot be determined whether
+  //    this value exists without doing IO.
   //
-  // If the key is Deleted, *status will be set to NotFound and
+  //    If the key is Deleted, *status will be set to NotFound and
   //                        *key_exists will be set to true.
-  // If no key was found, *status will be set to NotFound and
+  //    If no key was found, *status will be set to NotFound and
   //                      *key_exists will be set to false.
-  // If seq is non-null, *seq will be set to the sequence number found
-  // for the key if a key was found.
-  //
+  //    If seq is non-null, *seq will be set to the sequence number found
+  //    for the key if a key was found.
+  // Behavior if do_merge = false
+  //    If the key has any merge operands then store them in
+  //    merge_context.operands_list and don't merge the operands
   // REQUIRES: lock is not held
   void Get(const ReadOptions&, const LookupKey& key, PinnableSlice* value,
            Status* status, MergeContext* merge_context,
            SequenceNumber* max_covering_tombstone_seq,
            bool* value_found = nullptr, bool* key_exists = nullptr,
            SequenceNumber* seq = nullptr, ReadCallback* callback = nullptr,
-           bool* is_blob = nullptr);
+           bool* is_blob = nullptr, bool do_merge = true);
 
   void MultiGet(const ReadOptions&, MultiGetRange* range,
                 ReadCallback* callback = nullptr, bool* is_blob = nullptr);
@@ -626,6 +630,11 @@ class Version {
   Status GetPropertiesOfTablesInRange(const Range* range, std::size_t n,
                                       TablePropertiesCollection* props) const;
 
+  // Print summary of range delete tombstones in SST files into out_str,
+  // with maximum max_entries_to_print entries printed out.
+  Status TablesRangeTombstoneSummary(int max_entries_to_print,
+                                     std::string* out_str);
+
   // REQUIRES: lock is held
   // On success, "tp" will contains the aggregated table property among
   // the table properties of all sst files in this version.
@@ -655,7 +664,7 @@ class Version {
 
   uint64_t GetSstFilesSize();
 
-  MutableCFOptions GetMutableCFOptions() { return mutable_cf_options_; }
+  const MutableCFOptions& GetMutableCFOptions() { return mutable_cf_options_; }
 
  private:
   Env* env_;
@@ -981,9 +990,10 @@ class VersionSet {
   void AddLiveFiles(std::vector<FileDescriptor>* live_list);
 
   // Return the approximate size of data to be scanned for range [start, end)
-  // in levels [start_level, end_level). If end_level == 0 it will search
+  // in levels [start_level, end_level). If end_level == -1 it will search
   // through all non-empty levels
-  uint64_t ApproximateSize(Version* v, const Slice& start, const Slice& end,
+  uint64_t ApproximateSize(const SizeApproximationOptions& options, Version* v,
+                           const Slice& start, const Slice& end,
                            int start_level, int end_level,
                            TableReaderCaller caller);
 
@@ -1033,13 +1043,15 @@ class VersionSet {
     }
   };
 
-  // ApproximateSize helper
-  uint64_t ApproximateSizeLevel0(Version* v, const LevelFilesBrief& files_brief,
-                                 const Slice& start, const Slice& end,
-                                 TableReaderCaller caller);
+  // Returns approximated offset of a key in a file for a given version.
+  uint64_t ApproximateOffsetOf(Version* v, const FdWithKeyRange& f,
+                               const Slice& key, TableReaderCaller caller);
 
+  // Returns approximated data size between start and end keys in a file
+  // for a given version.
   uint64_t ApproximateSize(Version* v, const FdWithKeyRange& f,
-                           const Slice& key, TableReaderCaller caller);
+                           const Slice& start, const Slice& end,
+                           TableReaderCaller caller);
 
   // Save current contents to *log
   Status WriteSnapshot(log::Writer* log);

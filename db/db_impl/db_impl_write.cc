@@ -172,7 +172,8 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
       w.status = WriteBatchInternal::InsertInto(
           &w, w.sequence, &column_family_memtables, &flush_scheduler_,
           write_options.ignore_missing_column_families, 0 /*log_number*/, this,
-          true /*concurrent_memtable_writes*/, seq_per_batch_, w.batch_cnt);
+          true /*concurrent_memtable_writes*/, seq_per_batch_, w.batch_cnt,
+          batch_per_txn_);
 
       PERF_TIMER_START(write_pre_and_post_process_time);
     }
@@ -1733,14 +1734,16 @@ Status DB::Put(const WriteOptions& opt, ColumnFamilyHandle* column_family,
     }
     return Write(opt, &batch);
   }
-  Slice akey;
-  std::string buf;
-  Status s = AppendTimestamp(key, *(opt.timestamp), &akey, &buf);
+  const Slice* ts = opt.timestamp;
+  assert(nullptr != ts);
+  size_t ts_sz = ts->size();
+  WriteBatch batch(key.size() + ts_sz + value.size() + 24, /*max_bytes=*/0,
+                   ts_sz);
+  Status s = batch.Put(column_family, key, value);
   if (!s.ok()) {
     return s;
   }
-  WriteBatch batch(akey.size() + value.size() + 24);
-  s = batch.Put(column_family, akey, value);
+  s = batch.AssignTimestamp(*ts);
   if (!s.ok()) {
     return s;
   }

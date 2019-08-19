@@ -55,6 +55,11 @@ class MockTableReader : public TableReader {
     return 0;
   }
 
+  uint64_t ApproximateSize(const Slice& /*start*/, const Slice& /*end*/,
+                           TableReaderCaller /*caller*/) override {
+    return 0;
+  }
+
   size_t ApproximateMemoryUsage() const override { return 0; }
 
   void SetupForCompaction() override {}

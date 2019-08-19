@@ -31,6 +31,14 @@ struct TransactionKeyMapInfo {
 
   explicit TransactionKeyMapInfo(SequenceNumber seq_no)
       : seq(seq_no), num_writes(0), num_reads(0), exclusive(false) {}
+
+  // Used in PopSavePoint to collapse two savepoints together.
+  void Merge(const TransactionKeyMapInfo& info) {
+    assert(seq <= info.seq);
+    num_reads += info.num_reads;
+    num_writes += info.num_writes;
+    exclusive |= info.exclusive;
+  }
 };
 
 using TransactionKeyMap =

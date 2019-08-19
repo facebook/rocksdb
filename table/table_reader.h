@@ -65,6 +65,12 @@ class TableReader {
   virtual uint64_t ApproximateOffsetOf(const Slice& key,
                                        TableReaderCaller caller) = 0;
 
+  // Given start and end keys, return the approximate data size in the file
+  // between the keys. The returned value is in terms of file bytes, and so
+  // includes effects like compression of the underlying data.
+  virtual uint64_t ApproximateSize(const Slice& start, const Slice& end,
+                                   TableReaderCaller caller) = 0;
+
   // Set up the table for Compaction. Might change some parameters with
   // posix_fadvise
   virtual void SetupForCompaction() = 0;
@@ -121,11 +127,10 @@ class TableReader {
   }
 
   // check whether there is corruption in this db file
-  virtual Status VerifyChecksum(TableReaderCaller /*caller*/) {
+  virtual Status VerifyChecksum(const ReadOptions& /*read_options*/,
+                                TableReaderCaller /*caller*/) {
     return Status::NotSupported("VerifyChecksum() not supported");
   }
-
-  virtual void Close() {}
 };
 
 }  // namespace rocksdb

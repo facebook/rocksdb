@@ -601,6 +601,7 @@ struct Saver {
   Logger* logger;
   Statistics* statistics;
   bool inplace_update_support;
+  bool do_merge;
   Env* env_;
   ReadCallback* callback_;
   bool* is_blob_index;
@@ -627,7 +628,7 @@ static bool SaveValue(void* arg, const char* entry) {
   //    klength  varint32
   //    userkey  char[klength-8]
   //    tag      uint64
-  //    vlength  varint32
+  //    vlength  varint32f
   //    value    char[vlength]
   // Check that it belongs to same user key.  We do not check the
   // sequence number since the Seek() call above should have skipped
@@ -677,12 +678,24 @@ static bool SaveValue(void* arg, const char* entry) {
         Slice v = GetLengthPrefixedSlice(key_ptr + key_length);
         *(s->status) = Status::OK();
         if (*(s->merge_in_progress)) {
-          if (s->value != nullptr) {
-            *(s->status) = MergeHelper::TimedFullMerge(
-                merge_operator, s->key->user_key(), &v,
-                merge_context->GetOperands(), s->value, s->logger,
-                s->statistics, s->env_, nullptr /* result_operand */, true);
+          if (s->do_merge) {
+            if (s->value != nullptr) {
+              *(s->status) = MergeHelper::TimedFullMerge(
+                  merge_operator, s->key->user_key(), &v,
+                  merge_context->GetOperands(), s->value, s->logger,
+                  s->statistics, s->env_, nullptr /* result_operand */, true);
+            }
+          } else {
+            // Preserve the value with the goal of returning it as part of
+            // raw merge operands to the user
+            merge_context->PushOperand(
+                v, s->inplace_update_support == false /* operand_pinned */);
           }
+        } else if (!s->do_merge) {
+          // Preserve the value with the goal of returning it as part of
+          // raw merge operands to the user
+          merge_context->PushOperand(
+              v, s->inplace_update_support == false /* operand_pinned */);
         } else if (s->value != nullptr) {
           s->value->assign(v.data(), v.size());
         }
@@ -726,7 +739,8 @@ static bool SaveValue(void* arg, const char* entry) {
         *(s->merge_in_progress) = true;
         merge_context->PushOperand(
             v, s->inplace_update_support == false /* operand_pinned */);
-        if (merge_operator->ShouldMerge(merge_context->GetOperandsDirectionBackward())) {
+        if (s->do_merge && merge_operator->ShouldMerge(
+                               merge_context->GetOperandsDirectionBackward())) {
           *(s->status) = MergeHelper::TimedFullMerge(
               merge_operator, s->key->user_key(), nullptr,
               merge_context->GetOperands(), s->value, s->logger, s->statistics,
@@ -750,7 +764,7 @@ bool MemTable::Get(const LookupKey& key, std::string* value, Status* s,
                    MergeContext* merge_context,
                    SequenceNumber* max_covering_tombstone_seq,
                    SequenceNumber* seq, const ReadOptions& read_opts,
-                   ReadCallback* callback, bool* is_blob_index) {
+                   ReadCallback* callback, bool* is_blob_index, bool do_merge) {
   // The sequence number is updated synchronously in version_set.h
   if (IsEmpty()) {
     // Avoiding recording stats for speed.
@@ -810,8 +824,8 @@ bool MemTable::Get(const LookupKey& key, std::string* value, Status* s,
     saver.env_ = env_;
     saver.callback_ = callback;
     saver.is_blob_index = is_blob_index;
+    saver.do_merge = do_merge;
     table_->Get(key, &saver, SaveValue);
-
     *seq = saver.seq;
   }
 

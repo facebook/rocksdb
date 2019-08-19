@@ -47,6 +47,7 @@ class MissRatioStats {
     return static_cast<double>(num_misses_ * 100.0 / num_accesses_);
   }
   uint64_t total_accesses() const { return num_accesses_; }
+  uint64_t total_misses() const { return num_misses_; }
 
   const std::map<uint64_t, uint64_t>& num_accesses_timeline() const {
     return num_accesses_timeline_;
@@ -63,6 +64,7 @@ class MissRatioStats {
     return static_cast<double>(user_misses_ * 100.0 / user_accesses_);
   }
   uint64_t user_accesses() const { return user_accesses_; }
+  uint64_t user_misses() const { return user_misses_; }
 
   void UpdateMetrics(uint64_t timestamp_in_ms, bool is_user_access,
                      bool is_cache_miss);
@@ -168,17 +170,24 @@ class HybridRowBlockCacheSimulator : public PrioritizedCacheSimulator {
     NO_INSERT,
   };
 
-  // A map stores get_id to a map of row keys. For each row key, it stores a
-  // boolean and an enum. The first bool is true when we observe a miss upon the
-  // first time we encounter the row key. The second arg is INSERTED when the
+  // We set is_complete to true when the referenced row-key of a get request
+  // hits the cache. If is_complete is true, we treat future accesses of this
+  // get request as hits.
+  //
+  // For each row key, it stores an enum. It is INSERTED when the
   // kv-pair has been inserted into the cache, ADMITTED if it should be inserted
   // but haven't been, NO_INSERT if it should not be inserted.
   //
   // A kv-pair is in ADMITTED state when we encounter this kv-pair but do not
   // know its size. This may happen if the first access on the referenced key is
   // an index/filter block.
-  std::map<uint64_t, std::map<std::string, std::pair<bool, InsertResult>>>
-      getid_getkeys_map_;
+  struct GetRequestStatus {
+    bool is_complete = false;
+    std::map<std::string, InsertResult> row_key_status;
+  };
+
+  // A map stores get_id to a map of row keys.
+  std::map<uint64_t, GetRequestStatus> getid_status_map_;
   bool insert_blocks_upon_row_kvpair_miss_;
 };
 

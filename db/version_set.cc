@@ -1257,6 +1257,60 @@ Status Version::GetPropertiesOfAllTables(TablePropertiesCollection* props) {
   return Status::OK();
 }
 
+Status Version::TablesRangeTombstoneSummary(int max_entries_to_print,
+                                            std::string* out_str) {
+  if (max_entries_to_print <= 0) {
+    return Status::OK();
+  }
+  int num_entries_left = max_entries_to_print;
+
+  std::stringstream ss;
+
+  for (int level = 0; level < storage_info_.num_levels_; level++) {
+    for (const auto& file_meta : storage_info_.files_[level]) {
+      auto fname =
+          TableFileName(cfd_->ioptions()->cf_paths, file_meta->fd.GetNumber(),
+                        file_meta->fd.GetPathId());
+
+      ss << "=== file : " << fname << " ===\n";
+
+      TableCache* table_cache = cfd_->table_cache();
+      std::unique_ptr<FragmentedRangeTombstoneIterator> tombstone_iter;
+
+      Status s = table_cache->GetRangeTombstoneIterator(
+          ReadOptions(), cfd_->internal_comparator(), *file_meta,
+          &tombstone_iter);
+      if (!s.ok()) {
+        return s;
+      }
+      if (tombstone_iter) {
+        tombstone_iter->SeekToFirst();
+
+        while (tombstone_iter->Valid() && num_entries_left > 0) {
+          ss << "start: " << tombstone_iter->start_key().ToString(true)
+             << " end: " << tombstone_iter->end_key().ToString(true)
+             << " seq: " << tombstone_iter->seq() << '\n';
+          tombstone_iter->Next();
+          num_entries_left--;
+        }
+        if (num_entries_left <= 0) {
+          break;
+        }
+      }
+    }
+    if (num_entries_left <= 0) {
+      break;
+    }
+  }
+  assert(num_entries_left >= 0);
+  if (num_entries_left <= 0) {
+    ss << "(results may not be complete)\n";
+  }
+
+  *out_str = ss.str();
+  return Status::OK();
+}
+
 Status Version::GetPropertiesOfAllTables(TablePropertiesCollection* props,
                                          int level) {
   for (const auto& file_meta : storage_info_.files_[level]) {
@@ -1651,7 +1705,7 @@ void Version::Get(const ReadOptions& read_options, const LookupKey& k,
                   MergeContext* merge_context,
                   SequenceNumber* max_covering_tombstone_seq, bool* value_found,
                   bool* key_exists, SequenceNumber* seq, ReadCallback* callback,
-                  bool* is_blob) {
+                  bool* is_blob, bool do_merge) {
   Slice ikey = k.internal_key();
   Slice user_key = k.user_key();
 
@@ -1671,8 +1725,9 @@ void Version::Get(const ReadOptions& read_options, const LookupKey& k,
   GetContext get_context(
       user_comparator(), merge_operator_, info_log_, db_statistics_,
       status->ok() ? GetContext::kNotFound : GetContext::kMerge, user_key,
-      value, value_found, merge_context, max_covering_tombstone_seq, this->env_,
-      seq, merge_operator_ ? &pinned_iters_mgr : nullptr, callback, is_blob,
+      do_merge ? value : nullptr, value_found, merge_context, do_merge,
+      max_covering_tombstone_seq, this->env_, seq,
+      merge_operator_ ? &pinned_iters_mgr : nullptr, callback, is_blob,
       tracing_get_id);
 
   // Pin blocks that we read to hold merge operands
@@ -1737,7 +1792,8 @@ void Version::Get(const ReadOptions& read_options, const LookupKey& k,
         } else if (fp.GetHitFileLevel() >= 2) {
           RecordTick(db_statistics_, GET_HIT_L2_AND_UP);
         }
-        PERF_COUNTER_BY_LEVEL_ADD(user_key_return_count, 1, fp.GetHitFileLevel());
+        PERF_COUNTER_BY_LEVEL_ADD(user_key_return_count, 1,
+                                  fp.GetHitFileLevel());
         return;
       case GetContext::kDeleted:
         // Use empty error message for speed
@@ -1755,11 +1811,14 @@ void Version::Get(const ReadOptions& read_options, const LookupKey& k,
     }
     f = fp.GetNextFile();
   }
-
   if (db_statistics_ != nullptr) {
     get_context.ReportCounters();
   }
   if (GetContext::kMerge == get_context.State()) {
+    if (!do_merge) {
+      *status = Status::OK();
+      return;
+    }
     if (!merge_operator_) {
       *status =  Status::InvalidArgument(
           "merge_operator is not properly initialized.");
@@ -1806,7 +1865,7 @@ void Version::MultiGet(const ReadOptions& read_options, MultiGetRange* range,
     get_ctx.emplace_back(
         user_comparator(), merge_operator_, info_log_, db_statistics_,
         iter->s->ok() ? GetContext::kNotFound : GetContext::kMerge, iter->ukey,
-        iter->value, nullptr, &(iter->merge_context),
+        iter->value, nullptr, &(iter->merge_context), true,
         &iter->max_covering_tombstone_seq, this->env_, &iter->seq,
         merge_operator_ ? &pinned_iters_mgr : nullptr, callback, is_blob,
         tracing_mget_id);
@@ -3420,16 +3479,10 @@ VersionSet::VersionSet(const std::string& dbname,
       env_options_(storage_options),
       block_cache_tracer_(block_cache_tracer) {}
 
-void CloseTables(void* ptr, size_t) {
-  TableReader* table_reader = reinterpret_cast<TableReader*>(ptr);
-  table_reader->Close();
-}
-
 VersionSet::~VersionSet() {
   // we need to delete column_family_set_ because its destructor depends on
   // VersionSet
   Cache* table_cache = column_family_set_->get_table_cache();
-  table_cache->ApplyToAllCacheEntries(&CloseTables, false /* thread_safe */);
   column_family_set_.reset();
   for (auto& file : obsolete_files_) {
     if (file.metadata->table_reader_handle) {
@@ -4878,117 +4931,196 @@ Status VersionSet::WriteSnapshot(log::Writer* log) {
 // (a,b) then (b,c) then (c,d). Knowing this, an optimization is possible where
 // we avoid doing binary search for the keys b and c twice and instead somehow
 // maintain state of where they first appear in the files.
-uint64_t VersionSet::ApproximateSize(Version* v, const Slice& start,
+uint64_t VersionSet::ApproximateSize(const SizeApproximationOptions& options,
+                                     Version* v, const Slice& start,
                                      const Slice& end, int start_level,
                                      int end_level, TableReaderCaller caller) {
-  // pre-condition
-  assert(v->cfd_->internal_comparator().Compare(start, end) <= 0);
+  const auto& icmp = v->cfd_->internal_comparator();
 
-  uint64_t size = 0;
+  // pre-condition
+  assert(icmp.Compare(start, end) <= 0);
+
+  uint64_t total_full_size = 0;
   const auto* vstorage = v->storage_info();
-  end_level = end_level == -1
-                  ? vstorage->num_non_empty_levels()
-                  : std::min(end_level, vstorage->num_non_empty_levels());
+  const int num_non_empty_levels = vstorage->num_non_empty_levels();
+  end_level = (end_level == -1) ? num_non_empty_levels
+                                : std::min(end_level, num_non_empty_levels);
 
   assert(start_level <= end_level);
 
-  for (int level = start_level; level < end_level; level++) {
+  // Outline of the optimization that uses options.files_size_error_margin.
+  // When approximating the files total size that is used to store a keys range,
+  // we first sum up the sizes of the files that fully fall into the range.
+  // Then we sum up the sizes of all the files that may intersect with the range
+  // (this includes all files in L0 as well). Then, if total_intersecting_size
+  // is smaller than total_full_size * options.files_size_error_margin - we can
+  // infer that the intersecting files have a sufficiently negligible
+  // contribution to the total size, and we can approximate the storage required
+  // for the keys in range as just half of the intersecting_files_size.
+  // E.g., if the value of files_size_error_margin is 0.1, then the error of the
+  // approximation is limited to only ~10% of the total size of files that fully
+  // fall into the keys range. In such case, this helps to avoid a costly
+  // process of binary searching the intersecting files that is required only
+  // for a more precise calculation of the total size.
+
+  autovector<FdWithKeyRange*, 32> first_files;
+  autovector<FdWithKeyRange*, 16> last_files;
+
+  // scan all the levels
+  for (int level = start_level; level < end_level; ++level) {
     const LevelFilesBrief& files_brief = vstorage->LevelFilesBrief(level);
-    if (!files_brief.num_files) {
+    if (files_brief.num_files == 0) {
       // empty level, skip exploration
       continue;
     }
 
-    if (!level) {
-      // level 0 data is sorted order, handle the use case explicitly
-      size += ApproximateSizeLevel0(v, files_brief, start, end, caller);
+    if (level == 0) {
+      // level 0 files are not in sorted order, we need to iterate through
+      // the list to compute the total bytes that require scanning,
+      // so handle the case explicitly (similarly to first_files case)
+      for (size_t i = 0; i < files_brief.num_files; i++) {
+        first_files.push_back(&files_brief.files[i]);
+      }
       continue;
     }
 
     assert(level > 0);
     assert(files_brief.num_files > 0);
 
-    // identify the file position for starting key
-    const uint64_t idx_start = FindFileInRange(
-        v->cfd_->internal_comparator(), files_brief, start,
-        /*start=*/0, static_cast<uint32_t>(files_brief.num_files - 1));
-    assert(idx_start < files_brief.num_files);
+    // identify the file position for start key
+    const int idx_start =
+        FindFileInRange(icmp, files_brief, start, 0,
+                        static_cast<uint32_t>(files_brief.num_files - 1));
+    assert(static_cast<size_t>(idx_start) < files_brief.num_files);
 
-    // scan all files from the starting position until the ending position
-    // inferred from the sorted order
-    for (uint64_t i = idx_start; i < files_brief.num_files; i++) {
-      uint64_t val;
-      val = ApproximateSize(v, files_brief.files[i], end, caller);
-      if (!val) {
-        // the files after this will not have the range
-        break;
-      }
+    // identify the file position for end key
+    int idx_end = idx_start;
+    if (icmp.Compare(files_brief.files[idx_end].largest_key, end) < 0) {
+      idx_end =
+          FindFileInRange(icmp, files_brief, end, idx_start,
+                          static_cast<uint32_t>(files_brief.num_files - 1));
+    }
+    assert(idx_end >= idx_start &&
+           static_cast<size_t>(idx_end) < files_brief.num_files);
 
-      size += val;
+    // scan all files from the starting index to the ending index
+    // (inferred from the sorted order)
 
-      if (i == idx_start) {
-        // subtract the bytes needed to be scanned to get to the starting
-        // key
-        val = ApproximateSize(v, files_brief.files[i], start, caller);
-        assert(size >= val);
-        size -= val;
-      }
+    // first scan all the intermediate full files (excluding first and last)
+    for (int i = idx_start + 1; i < idx_end; ++i) {
+      uint64_t file_size = files_brief.files[i].fd.GetFileSize();
+      // The entire file falls into the range, so we can just take its size.
+      assert(file_size ==
+             ApproximateSize(v, files_brief.files[i], start, end, caller));
+      total_full_size += file_size;
+    }
+
+    // save the first and the last files (which may be the same file), so we
+    // can scan them later.
+    first_files.push_back(&files_brief.files[idx_start]);
+    if (idx_start != idx_end) {
+      // we need to estimate size for both files, only if they are different
+      last_files.push_back(&files_brief.files[idx_end]);
     }
   }
 
-  return size;
-}
-
-uint64_t VersionSet::ApproximateSizeLevel0(Version* v,
-                                           const LevelFilesBrief& files_brief,
-                                           const Slice& key_start,
-                                           const Slice& key_end,
-                                           TableReaderCaller caller) {
-  // level 0 files are not in sorted order, we need to iterate through
-  // the list to compute the total bytes that require scanning
-  uint64_t size = 0;
-  for (size_t i = 0; i < files_brief.num_files; i++) {
-    const uint64_t start =
-        ApproximateSize(v, files_brief.files[i], key_start, caller);
-    const uint64_t end =
-        ApproximateSize(v, files_brief.files[i], key_end, caller);
-    assert(end >= start);
-    size += end - start;
+  // The sum of all file sizes that intersect the [start, end] keys range.
+  uint64_t total_intersecting_size = 0;
+  for (const auto* file_ptr : first_files) {
+    total_intersecting_size += file_ptr->fd.GetFileSize();
   }
-  return size;
+  for (const auto* file_ptr : last_files) {
+    total_intersecting_size += file_ptr->fd.GetFileSize();
+  }
+
+  // Now scan all the first & last files at each level, and estimate their size.
+  // If the total_intersecting_size is less than X% of the total_full_size - we
+  // want to approximate the result in order to avoid the costly binary search
+  // inside ApproximateSize. We use half of file size as an approximation below.
+
+  const double margin = options.files_size_error_margin;
+  if (margin > 0 && total_intersecting_size <
+                        static_cast<uint64_t>(total_full_size * margin)) {
+    total_full_size += total_intersecting_size / 2;
+  } else {
+    // Estimate for all the first files, at each level
+    for (const auto file_ptr : first_files) {
+      total_full_size += ApproximateSize(v, *file_ptr, start, end, caller);
+    }
+
+    // Estimate for all the last files, at each level
+    for (const auto file_ptr : last_files) {
+      // We could use ApproximateSize here, but calling ApproximateOffsetOf
+      // directly is just more efficient.
+      total_full_size += ApproximateOffsetOf(v, *file_ptr, end, caller);
+    }
+  }
+
+  return total_full_size;
 }
 
-uint64_t VersionSet::ApproximateSize(Version* v, const FdWithKeyRange& f,
-                                     const Slice& key,
-                                     TableReaderCaller caller) {
+uint64_t VersionSet::ApproximateOffsetOf(Version* v, const FdWithKeyRange& f,
+                                         const Slice& key,
+                                         TableReaderCaller caller) {
   // pre-condition
   assert(v);
+  const auto& icmp = v->cfd_->internal_comparator();
 
   uint64_t result = 0;
-  if (v->cfd_->internal_comparator().Compare(f.largest_key, key) <= 0) {
+  if (icmp.Compare(f.largest_key, key) <= 0) {
     // Entire file is before "key", so just add the file size
     result = f.fd.GetFileSize();
-  } else if (v->cfd_->internal_comparator().Compare(f.smallest_key, key) > 0) {
+  } else if (icmp.Compare(f.smallest_key, key) > 0) {
     // Entire file is after "key", so ignore
     result = 0;
   } else {
     // "key" falls in the range for this table.  Add the
     // approximate offset of "key" within the table.
-    TableReader* table_reader_ptr;
-    InternalIterator* iter = v->cfd_->table_cache()->NewIterator(
-        ReadOptions(), v->env_options_, v->cfd_->internal_comparator(),
-        *f.file_metadata, nullptr /* range_del_agg */,
-        v->GetMutableCFOptions().prefix_extractor.get(), &table_reader_ptr,
-        /*file_read_hist=*/nullptr, caller,
-        /*arena=*/nullptr, /*skip_filters=*/false, /*level=*/-1,
-        /*smallest_compaction_key=*/nullptr,
-        /*largest_compaction_key=*/nullptr);
-    if (table_reader_ptr != nullptr) {
-      result = table_reader_ptr->ApproximateOffsetOf(key, caller);
+    TableCache* table_cache = v->cfd_->table_cache();
+    if (table_cache != nullptr) {
+      result = table_cache->ApproximateOffsetOf(
+          key, f.file_metadata->fd, caller, icmp,
+          v->GetMutableCFOptions().prefix_extractor.get());
     }
-    delete iter;
   }
   return result;
+}
+
+uint64_t VersionSet::ApproximateSize(Version* v, const FdWithKeyRange& f,
+                                     const Slice& start, const Slice& end,
+                                     TableReaderCaller caller) {
+  // pre-condition
+  assert(v);
+  const auto& icmp = v->cfd_->internal_comparator();
+  assert(icmp.Compare(start, end) <= 0);
+
+  if (icmp.Compare(f.largest_key, start) <= 0 ||
+      icmp.Compare(f.smallest_key, end) > 0) {
+    // Entire file is before or after the start/end keys range
+    return 0;
+  }
+
+  if (icmp.Compare(f.smallest_key, start) >= 0) {
+    // Start of the range is before the file start - approximate by end offset
+    return ApproximateOffsetOf(v, f, end, caller);
+  }
+
+  if (icmp.Compare(f.largest_key, end) < 0) {
+    // End of the range is after the file end - approximate by subtracting
+    // start offset from the file size
+    uint64_t start_offset = ApproximateOffsetOf(v, f, start, caller);
+    assert(f.fd.GetFileSize() >= start_offset);
+    return f.fd.GetFileSize() - start_offset;
+  }
+
+  // The interval falls entirely in the range for this file.
+  TableCache* table_cache = v->cfd_->table_cache();
+  if (table_cache == nullptr) {
+    return 0;
+  }
+  return table_cache->ApproximateSize(
+      start, end, f.file_metadata->fd, caller, icmp,
+      v->GetMutableCFOptions().prefix_extractor.get());
 }
 
 void VersionSet::AddLiveFiles(std::vector<FileDescriptor>* live_list) {

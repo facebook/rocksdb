@@ -50,6 +50,8 @@ extern void PutVarint32Varint32Varint64(std::string* dst, uint32_t value1,
 extern void PutLengthPrefixedSlice(std::string* dst, const Slice& value);
 extern void PutLengthPrefixedSliceParts(std::string* dst,
                                         const SliceParts& slice_parts);
+extern void PutLengthPrefixedSlicePartsWithPadding(
+    std::string* dst, const SliceParts& slice_parts, size_t pad_sz);
 
 // Standard Get... routines parse a value from the beginning of a Slice
 // and advance the slice past the parsed value.
@@ -306,9 +308,8 @@ inline void PutLengthPrefixedSlice(std::string* dst, const Slice& value) {
   dst->append(value.data(), value.size());
 }
 
-inline void PutLengthPrefixedSliceParts(std::string* dst,
+inline void PutLengthPrefixedSliceParts(std::string* dst, size_t total_bytes,
                                         const SliceParts& slice_parts) {
-  size_t total_bytes = 0;
   for (int i = 0; i < slice_parts.num_parts; ++i) {
     total_bytes += slice_parts.parts[i].size();
   }
@@ -316,6 +317,17 @@ inline void PutLengthPrefixedSliceParts(std::string* dst,
   for (int i = 0; i < slice_parts.num_parts; ++i) {
     dst->append(slice_parts.parts[i].data(), slice_parts.parts[i].size());
   }
+}
+
+inline void PutLengthPrefixedSliceParts(std::string* dst,
+                                        const SliceParts& slice_parts) {
+  PutLengthPrefixedSliceParts(dst, /*total_bytes=*/0, slice_parts);
+}
+
+inline void PutLengthPrefixedSlicePartsWithPadding(
+    std::string* dst, const SliceParts& slice_parts, size_t pad_sz) {
+  PutLengthPrefixedSliceParts(dst, /*total_bytes=*/pad_sz, slice_parts);
+  dst->append(pad_sz, '\0');
 }
 
 inline int VarintLength(uint64_t v) {

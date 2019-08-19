@@ -122,14 +122,26 @@ void HybridRowBlockCacheSimulator::Access(const BlockCacheTraceRecord& access) {
   // TODO (haoyu): We only support Get for now. We need to extend the tracing
   // for MultiGet, i.e., non-data block accesses must log all keys in a
   // MultiGet.
-  bool is_cache_miss = false;
+  bool is_cache_miss = true;
   bool admitted = false;
   if (access.caller == TableReaderCaller::kUserGet &&
       access.get_id != BlockCacheTraceHelper::kReservedGetId) {
-    // This is a Get/MultiGet request.
+    // This is a Get request.
     const std::string& row_key = BlockCacheTraceHelper::ComputeRowKey(access);
-    if (getid_getkeys_map_[access.get_id].find(row_key) ==
-        getid_getkeys_map_[access.get_id].end()) {
+    GetRequestStatus& status = getid_status_map_[access.get_id];
+    if (status.is_complete) {
+      // This Get request completes.
+      // Skip future accesses to its index/filter/data
+      // blocks. These block lookups are unnecessary if we observe a hit for the
+      // referenced key-value pair already. Thus, we treat these lookups as
+      // hits. This is also to ensure the total number of accesses are the same
+      // when comparing to other policies.
+      miss_ratio_stats_.UpdateMetrics(access.access_timestamp,
+                                      /*is_user_access=*/true,
+                                      /*is_cache_miss=*/false);
+      return;
+    }
+    if (status.row_key_status.find(row_key) == status.row_key_status.end()) {
       // This is the first time that this key is accessed. Look up the key-value
       // pair first. Do not update the miss/accesses metrics here since it will
       // be updated later.
@@ -144,37 +156,30 @@ void HybridRowBlockCacheSimulator::Access(const BlockCacheTraceRecord& access) {
       } else if (admitted) {
         result = InsertResult::ADMITTED;
       }
-      getid_getkeys_map_[access.get_id][row_key] =
-          std::make_pair(is_cache_miss, result);
+      status.row_key_status[row_key] = result;
     }
-    std::pair<bool, InsertResult> miss_inserted =
-        getid_getkeys_map_[access.get_id][row_key];
-    if (!miss_inserted.first) {
-      // This is a cache hit. Skip future accesses to its index/filter/data
-      // blocks. These block lookups are unnecessary if we observe a hit for the
-      // referenced key-value pair already. Thus, we treat these lookups as
-      // hits. This is also to ensure the total number of accesses are the same
-      // when comparing to other policies.
+    if (!is_cache_miss) {
+      // A cache hit.
+      status.is_complete = true;
       miss_ratio_stats_.UpdateMetrics(access.access_timestamp,
                                       /*is_user_access=*/true,
                                       /*is_cache_miss=*/false);
       return;
     }
-    // The key-value pair observes a cache miss. We need to access its
+    // The row key-value pair observes a cache miss. We need to access its
     // index/filter/data blocks.
+    InsertResult inserted = status.row_key_status[row_key];
     AccessKVPair(
-        access.block_key, access.block_type, ComputeBlockPriority(access),
+        access.block_key, access.block_size, ComputeBlockPriority(access),
         access,
         /*no_insert=*/!insert_blocks_upon_row_kvpair_miss_ || access.no_insert,
         /*is_user_access=*/true, &is_cache_miss, &admitted,
         /*update_metrics=*/true);
-    if (access.referenced_data_size > 0 &&
-        miss_inserted.second == InsertResult::ADMITTED) {
+    if (access.referenced_data_size > 0 && inserted == InsertResult::ADMITTED) {
       sim_cache_->Insert(row_key, /*value=*/nullptr,
                          access.referenced_data_size, /*deleter=*/nullptr,
                          /*handle=*/nullptr, Cache::Priority::HIGH);
-      getid_getkeys_map_[access.get_id][row_key] =
-          std::make_pair(true, InsertResult::INSERTED);
+      status.row_key_status[row_key] = InsertResult::INSERTED;
     }
     return;
   }

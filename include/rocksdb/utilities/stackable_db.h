@@ -88,6 +88,17 @@ class StackableDB : public DB {
     return db_->Get(options, column_family, key, value);
   }
 
+  using DB::GetMergeOperands;
+  virtual Status GetMergeOperands(
+      const ReadOptions& options, ColumnFamilyHandle* column_family,
+      const Slice& key, PinnableSlice* slice,
+      GetMergeOperandsOptions* get_merge_operands_options,
+      int* number_of_operands) override {
+    return db_->GetMergeOperands(options, column_family, key, slice,
+                                 get_merge_operands_options,
+                                 number_of_operands);
+  }
+
   using DB::MultiGet;
   virtual std::vector<Status> MultiGet(
       const ReadOptions& options,
@@ -131,6 +142,10 @@ class StackableDB : public DB {
   }
 
   virtual Status VerifyChecksum() override { return db_->VerifyChecksum(); }
+
+  virtual Status VerifyChecksum(const ReadOptions& options) override {
+    return db_->VerifyChecksum(options);
+  }
 
   using DB::KeyMayExist;
   virtual bool KeyMayExist(const ReadOptions& options,
@@ -209,10 +224,11 @@ class StackableDB : public DB {
   }
 
   using DB::GetApproximateSizes;
-  virtual void GetApproximateSizes(
-      ColumnFamilyHandle* column_family, const Range* r, int n, uint64_t* sizes,
-      uint8_t include_flags = INCLUDE_FILES) override {
-    return db_->GetApproximateSizes(column_family, r, n, sizes, include_flags);
+  virtual Status GetApproximateSizes(const SizeApproximationOptions& options,
+                                     ColumnFamilyHandle* column_family,
+                                     const Range* r, int n,
+                                     uint64_t* sizes) override {
+    return db_->GetApproximateSizes(options, column_family, r, n, sizes);
   }
 
   using DB::GetApproximateMemTableStats;

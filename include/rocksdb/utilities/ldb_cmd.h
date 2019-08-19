@@ -261,7 +261,8 @@ class LDBCommandRunner {
  public:
   static void PrintHelp(const LDBOptions& ldb_options, const char* exec_name);
 
-  static void RunCommand(
+  // Returns the status code to return. 0 is no error.
+  static int RunCommand(
       int argc, char** argv, Options options, const LDBOptions& ldb_options,
       const std::vector<ColumnFamilyDescriptor>* column_families);
 };
