@@ -280,7 +280,9 @@ void FullFilterBlockReader::MayMatch(
       range->SkipKey(iter);
       PERF_COUNTER_ADD(bloom_sst_miss_count, 1);
     } else {
-      PERF_COUNTER_ADD(bloom_sst_hit_count, 1);
+      //PERF_COUNTER_ADD(bloom_sst_hit_count, 1);
+      PerfContext* perf_ctx = get_perf_context();
+      perf_ctx->bloom_sst_hit_count++;
     }
     ++i;
   }
