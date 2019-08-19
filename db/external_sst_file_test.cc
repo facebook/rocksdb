@@ -696,10 +696,10 @@ TEST_F(ExternalSSTFileTest, AddList) {
     ASSERT_EQ(file6_info.smallest_range_del_key, Key(0));
     ASSERT_EQ(file6_info.largest_range_del_key, Key(100));
 
-    // file7.sst (delete 100 => 200)
+    // file7.sst (delete 99 => 201)
     std::string file7 = sst_files_dir_ + "file7.sst";
     ASSERT_OK(sst_file_writer.Open(file7));
-    ASSERT_OK(sst_file_writer.DeleteRange(Key(100), Key(200)));
+    ASSERT_OK(sst_file_writer.DeleteRange(Key(99), Key(201)));
     ExternalSstFileInfo file7_info;
     s = sst_file_writer.Finish(&file7_info);
     ASSERT_TRUE(s.ok()) << s.ToString();
@@ -708,8 +708,8 @@ TEST_F(ExternalSSTFileTest, AddList) {
     ASSERT_EQ(file7_info.smallest_key, "");
     ASSERT_EQ(file7_info.largest_key, "");
     ASSERT_EQ(file7_info.num_range_del_entries, 1);
-    ASSERT_EQ(file7_info.smallest_range_del_key, Key(100));
-    ASSERT_EQ(file7_info.largest_range_del_key, Key(200));
+    ASSERT_EQ(file7_info.smallest_range_del_key, Key(99));
+    ASSERT_EQ(file7_info.largest_range_del_key, Key(201));
 
     // list 1 has internal key range conflict
     std::vector<std::string> file_list0({file1, file2});
@@ -724,9 +724,7 @@ TEST_F(ExternalSSTFileTest, AddList) {
     // These lists of files have key ranges that overlap with each other
     s = DeprecatedAddFile(file_list1);
     ASSERT_FALSE(s.ok()) << s.ToString();
-    // Both of the following overlap on the end key of a range deletion
-    // tombstone. This is a limitation because these tombstones have exclusive
-    // end keys that should not count as overlapping with other keys.
+    // Both of the following overlap on the range deletion tombstone.
     s = DeprecatedAddFile(file_list4);
     ASSERT_FALSE(s.ok()) << s.ToString();
     s = DeprecatedAddFile(file_list5);

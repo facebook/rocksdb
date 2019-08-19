@@ -835,6 +835,48 @@ TEST_P(ExternalSSTFileBasicTest, IngestionWithRangeDeletions) {
   ASSERT_EQ(2, NumTableFilesAtLevel(options.num_levels - 1));
 }
 
+TEST_F(ExternalSSTFileBasicTest, AdjacentRangeDeletionTombstones) {
+  Options options = CurrentOptions();
+  SstFileWriter sst_file_writer(EnvOptions(), options);
+
+  // file8.sst (delete 300 => 400)
+  std::string file8 = sst_files_dir_ + "file8.sst";
+  ASSERT_OK(sst_file_writer.Open(file8));
+  ASSERT_OK(sst_file_writer.DeleteRange(Key(300), Key(400)));
+  ExternalSstFileInfo file8_info;
+  Status s = sst_file_writer.Finish(&file8_info);
+  ASSERT_TRUE(s.ok()) << s.ToString();
+  ASSERT_EQ(file8_info.file_path, file8);
+  ASSERT_EQ(file8_info.num_entries, 0);
+  ASSERT_EQ(file8_info.smallest_key, "");
+  ASSERT_EQ(file8_info.largest_key, "");
+  ASSERT_EQ(file8_info.num_range_del_entries, 1);
+  ASSERT_EQ(file8_info.smallest_range_del_key, Key(300));
+  ASSERT_EQ(file8_info.largest_range_del_key, Key(400));
+
+  // file9.sst (delete 400 => 500)
+  std::string file9 = sst_files_dir_ + "file9.sst";
+  ASSERT_OK(sst_file_writer.Open(file9));
+  ASSERT_OK(sst_file_writer.DeleteRange(Key(400), Key(500)));
+  ExternalSstFileInfo file9_info;
+  s = sst_file_writer.Finish(&file9_info);
+  ASSERT_TRUE(s.ok()) << s.ToString();
+  ASSERT_EQ(file9_info.file_path, file9);
+  ASSERT_EQ(file9_info.num_entries, 0);
+  ASSERT_EQ(file9_info.smallest_key, "");
+  ASSERT_EQ(file9_info.largest_key, "");
+  ASSERT_EQ(file9_info.num_range_del_entries, 1);
+  ASSERT_EQ(file9_info.smallest_range_del_key, Key(400));
+  ASSERT_EQ(file9_info.largest_range_del_key, Key(500));
+
+  // Range deletion tombstones are exclusive on their end key, so these SSTs
+  // should not be considered as overlapping.
+  s = DeprecatedAddFile({file8, file9});
+  ASSERT_TRUE(s.ok()) << s.ToString();
+  ASSERT_EQ(db_->GetLatestSequenceNumber(), 0U);
+  DestroyAndRecreateExternalSSTFilesDir();
+}
+
 TEST_P(ExternalSSTFileBasicTest, IngestFileWithBadBlockChecksum) {
   bool change_checksum_called = false;
   const auto& change_checksum = [&](void* arg) {

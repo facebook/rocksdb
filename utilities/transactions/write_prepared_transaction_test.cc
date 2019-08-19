@@ -1372,7 +1372,7 @@ TEST_P(WritePreparedTransactionTest, MaxCatchupWithNewSnapshot) {
     for (int i = 0; i < writes; i++) {
       WriteBatch batch;
       // For duplicate keys cause 4 commit entries, each evicting an entry that
-      // is not published yet, thus causing max ecited seq go higher than last
+      // is not published yet, thus causing max evicted seq go higher than last
       // published.
       for (int b = 0; b < batch_cnt; b++) {
         batch.Put("foo", "foo");
@@ -1401,6 +1401,64 @@ TEST_P(WritePreparedTransactionTest, MaxCatchupWithNewSnapshot) {
   // thought
   auto snap = db->GetSnapshot();
   ASSERT_GT(snap->GetSequenceNumber(), batch_cnt * writes - 1);
+  db->ReleaseSnapshot(snap);
+}
+
+// Test that reads without snapshots would not hit an undefined state
+TEST_P(WritePreparedTransactionTest, MaxCatchupWithUnbackedSnapshot) {
+  const size_t snapshot_cache_bits = 7;  // same as default
+  const size_t commit_cache_bits = 0;    // only 1 entry => frequent eviction
+  UpdateTransactionDBOptions(snapshot_cache_bits, commit_cache_bits);
+  ReOpen();
+  WriteOptions woptions;
+  WritePreparedTxnDB* wp_db = dynamic_cast<WritePreparedTxnDB*>(db);
+
+  const int writes = 50;
+  rocksdb::port::Thread t1([&]() {
+    for (int i = 0; i < writes; i++) {
+      WriteBatch batch;
+      batch.Put("key", "foo");
+      db->Write(woptions, &batch);
+    }
+  });
+
+  rocksdb::port::Thread t2([&]() {
+    while (wp_db->max_evicted_seq_ == 0) {  // wait for insert thread
+      std::this_thread::yield();
+    }
+    ReadOptions ropt;
+    PinnableSlice pinnable_val;
+    TransactionOptions txn_options;
+    for (int i = 0; i < 10; i++) {
+      auto s = db->Get(ropt, db->DefaultColumnFamily(), "key", &pinnable_val);
+      ASSERT_TRUE(s.ok() || s.IsTryAgain());
+      pinnable_val.Reset();
+      Transaction* txn = db->BeginTransaction(woptions, txn_options);
+      s = txn->Get(ropt, db->DefaultColumnFamily(), "key", &pinnable_val);
+      ASSERT_TRUE(s.ok() || s.IsTryAgain());
+      pinnable_val.Reset();
+      std::vector<std::string> values;
+      auto s_vec =
+          txn->MultiGet(ropt, {db->DefaultColumnFamily()}, {"key"}, &values);
+      ASSERT_EQ(1, values.size());
+      ASSERT_EQ(1, s_vec.size());
+      s = s_vec[0];
+      ASSERT_TRUE(s.ok() || s.IsTryAgain());
+      Slice key("key");
+      txn->MultiGet(ropt, db->DefaultColumnFamily(), 1, &key, &pinnable_val,
+                    &s, true);
+      ASSERT_TRUE(s.ok() || s.IsTryAgain());
+      delete txn;
+    }
+  });
+
+  t1.join();
+  t2.join();
+
+  // Make sure that the test has worked and seq number has advanced as we
+  // thought
+  auto snap = db->GetSnapshot();
+  ASSERT_GT(snap->GetSequenceNumber(), writes - 1);
   db->ReleaseSnapshot(snap);
 }
 
@@ -1515,6 +1573,68 @@ TEST_P(WritePreparedTransactionTest, AdvanceMaxEvictedSeqWithDuplicatesTest) {
   txn0 = db->GetTransactionByName("xid");
   ASSERT_OK(txn0->Rollback());
   delete txn0;
+}
+
+// Stress SmallestUnCommittedSeq, which reads from both prepared_txns_ and
+// delayed_prepared_, when is run concurrently with advancing max_evicted_seq,
+// which moves prepared txns from prepared_txns_ to delayed_prepared_.
+TEST_P(WritePreparedTransactionTest, SmallestUnCommittedSeq) {
+  const size_t snapshot_cache_bits = 7;  // same as default
+  const size_t commit_cache_bits = 1;    // disable commit cache
+  UpdateTransactionDBOptions(snapshot_cache_bits, commit_cache_bits);
+  ReOpen();
+  WritePreparedTxnDB* wp_db = dynamic_cast<WritePreparedTxnDB*>(db);
+  ReadOptions ropt;
+  PinnableSlice pinnable_val;
+  WriteOptions write_options;
+  TransactionOptions txn_options;
+  std::vector<Transaction*> txns, committed_txns;
+
+  const int cnt = 100;
+  for (int i = 0; i < cnt; i++) {
+    Transaction* txn = db->BeginTransaction(write_options, txn_options);
+    ASSERT_OK(txn->SetName("xid" + ToString(i)));
+    auto key = "key1" + ToString(i);
+    auto value = "value1" + ToString(i);
+    ASSERT_OK(txn->Put(Slice(key), Slice(value)));
+    ASSERT_OK(txn->Prepare());
+    txns.push_back(txn);
+  }
+
+  port::Mutex mutex;
+  Random rnd(1103);
+  rocksdb::port::Thread commit_thread([&]() {
+    for (int i = 0; i < cnt; i++) {
+      uint32_t index = rnd.Uniform(cnt - i);
+      Transaction* txn;
+      {
+        MutexLock l(&mutex);
+        txn = txns[index];
+        txns.erase(txns.begin() + index);
+      }
+      // Since commit cache is practically disabled, commit results in immediate
+      // advance in max_evicted_seq_ and subsequently moving some prepared txns
+      // to delayed_prepared_.
+      txn->Commit();
+      committed_txns.push_back(txn);
+    }
+  });
+  rocksdb::port::Thread read_thread([&]() {
+    while (1) {
+      MutexLock l(&mutex);
+      if (txns.empty()) {
+        break;
+      }
+      auto min_uncommitted = wp_db->SmallestUnCommittedSeq();
+      ASSERT_LE(min_uncommitted, (*txns.begin())->GetId());
+    }
+  });
+
+  commit_thread.join();
+  read_thread.join();
+  for (auto txn : committed_txns) {
+    delete txn;
+  }
 }
 
 TEST_P(SeqAdvanceConcurrentTest, SeqAdvanceConcurrentTest) {

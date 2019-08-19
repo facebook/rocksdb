@@ -121,6 +121,7 @@ LIB_SOURCES =                                                   \
   table/block_based/full_filter_block.cc                        \
   table/block_based/index_builder.cc                            \
   table/block_based/partitioned_filter_block.cc                 \
+  table/block_based/uncompression_dict_reader.cc                \
   table/block_fetcher.cc                             		\
   table/bloom_block.cc                               		\
   table/cuckoo/cuckoo_table_builder.cc                          \
@@ -190,10 +191,12 @@ LIB_SOURCES =                                                   \
   utilities/memory/memory_util.cc                               \
   utilities/merge_operators/max.cc                              \
   utilities/merge_operators/put.cc                              \
+  utilities/merge_operators/sortlist.cc                  		\
   utilities/merge_operators/string_append/stringappend.cc       \
   utilities/merge_operators/string_append/stringappend2.cc      \
   utilities/merge_operators/uint64add.cc                        \
   utilities/merge_operators/bytesxor.cc                         \
+  utilities/object_registry.cc                                  \
   utilities/option_change_migration/option_change_migration.cc  \
   utilities/options/options_util.cc                             \
   utilities/persistent_cache/block_cache_tier.cc                \
@@ -244,7 +247,7 @@ TOOL_LIB_SOURCES =                                              \
   utilities/blob_db/blob_dump_tool.cc                           \
 
 ANALYZER_LIB_SOURCES =                                          \
-  tools/block_cache_trace_analyzer.cc                           \
+  tools/block_cache_analyzer/block_cache_trace_analyzer.cc      \
   tools/trace_analyzer_tool.cc                                  \
 
 MOCK_LIB_SOURCES =                                              \
@@ -259,6 +262,13 @@ TEST_LIB_SOURCES =                                              \
   test_util/testharness.cc                                      \
   test_util/testutil.cc                                         \
   utilities/cassandra/test_utils.cc                             \
+
+FOLLY_SOURCES = \
+  third-party/folly/folly/detail/Futex.cpp                                     \
+  third-party/folly/folly/synchronization/AtomicNotification.cpp               \
+  third-party/folly/folly/synchronization/DistributedMutex.cpp                 \
+  third-party/folly/folly/synchronization/ParkingLot.cpp                       \
+  third-party/folly/folly/synchronization/WaitOptions.cpp                      \
 
 MAIN_SOURCES =                                                          \
   cache/cache_bench.cc                                                  \
@@ -289,6 +299,7 @@ MAIN_SOURCES =                                                          \
   db/db_log_iter_test.cc                                                \
   db/db_memtable_test.cc                                                \
   db/db_merge_operator_test.cc                                          \
+  db/db_merge_operand_test.cc                                          	\
   db/db_options_test.cc                                                 \
   db/db_properties_test.cc                                              \
   db/db_range_del_test.cc                                               \
@@ -372,8 +383,8 @@ MAIN_SOURCES =                                                          \
   table/table_reader_bench.cc                                           \
   table/table_test.cc                                                   \
   third-party/gtest-1.7.0/fused-src/gtest/gtest-all.cc                  \
-  tools/block_cache_trace_analyzer_test.cc                              \
-  tools/block_cache_trace_analyzer_tool.cc                              \
+  tools/block_cache_analyzer/block_cache_trace_analyzer_test.cc         \
+  tools/block_cache_analyzer/block_cache_trace_analyzer_tool.cc         \
   tools/db_bench.cc                                                     \
   tools/db_bench_tool_test.cc                                           \
   tools/db_sanity_test.cc                                               \

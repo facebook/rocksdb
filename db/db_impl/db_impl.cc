@@ -33,9 +33,9 @@
 #include "db/error_handler.h"
 #include "db/event_helpers.h"
 #include "db/external_sst_file_ingestion_job.h"
-#include "db/import_column_family_job.h"
 #include "db/flush_job.h"
 #include "db/forward_iterator.h"
+#include "db/import_column_family_job.h"
 #include "db/job_context.h"
 #include "db/log_reader.h"
 #include "db/log_writer.h"
@@ -91,6 +91,7 @@
 #include "tools/sst_dump_tool_imp.h"
 #include "util/autovector.h"
 #include "util/build_version.h"
+#include "util/cast_util.h"
 #include "util/coding.h"
 #include "util/compression.h"
 #include "util/crc32c.h"
@@ -864,6 +865,24 @@ void DBImpl::DumpStats() {
   PrintStatistics();
 }
 
+Status DBImpl::TablesRangeTombstoneSummary(ColumnFamilyHandle* column_family,
+                                           int max_entries_to_print,
+                                           std::string* out_str) {
+  auto* cfh =
+      static_cast_with_check<ColumnFamilyHandleImpl, ColumnFamilyHandle>(
+          column_family);
+  ColumnFamilyData* cfd = cfh->cfd();
+
+  SuperVersion* super_version = cfd->GetReferencedSuperVersion(&mutex_);
+  Version* version = super_version->current;
+
+  Status s =
+      version->TablesRangeTombstoneSummary(max_entries_to_print, out_str);
+
+  CleanupSuperVersion(super_version);
+  return s;
+}
+
 void DBImpl::ScheduleBgLogWriterClose(JobContext* job_context) {
   if (!job_context->logs_to_free.empty()) {
     for (auto l : job_context->logs_to_free) {
@@ -1441,28 +1460,22 @@ ColumnFamilyHandle* DBImpl::PersistentStatsColumnFamily() const {
 Status DBImpl::Get(const ReadOptions& read_options,
                    ColumnFamilyHandle* column_family, const Slice& key,
                    PinnableSlice* value) {
-  if (nullptr == read_options.timestamp) {
-    return GetImpl(read_options, column_family, key, value);
-  }
-  Slice akey;
-  std::string buf;
-  Status s = AppendTimestamp(key, *(read_options.timestamp), &akey, &buf);
-  if (s.ok()) {
-    s = GetImpl(read_options, column_family, akey, value);
-  }
-  return s;
+  GetImplOptions get_impl_options;
+  get_impl_options.column_family = column_family;
+  get_impl_options.value = value;
+  return GetImpl(read_options, key, get_impl_options);
 }
 
-Status DBImpl::GetImpl(const ReadOptions& read_options,
-                       ColumnFamilyHandle* column_family, const Slice& key,
-                       PinnableSlice* pinnable_val, bool* value_found,
-                       ReadCallback* callback, bool* is_blob_index) {
-  assert(pinnable_val != nullptr);
+Status DBImpl::GetImpl(const ReadOptions& read_options, const Slice& key,
+                       GetImplOptions get_impl_options) {
+  assert(get_impl_options.value != nullptr ||
+         get_impl_options.merge_operands != nullptr);
   PERF_CPU_TIMER_GUARD(get_cpu_nanos, env_);
   StopWatch sw(env_, stats_, DB_GET);
   PERF_TIMER_GUARD(get_snapshot_time);
 
-  auto cfh = reinterpret_cast<ColumnFamilyHandleImpl*>(column_family);
+  auto cfh =
+      reinterpret_cast<ColumnFamilyHandleImpl*>(get_impl_options.column_family);
   auto cfd = cfh->cfd();
 
   if (tracer_) {
@@ -1470,7 +1483,7 @@ Status DBImpl::GetImpl(const ReadOptions& read_options,
     // tracing is enabled.
     InstrumentedMutexLock lock(&trace_mutex_);
     if (tracer_) {
-      tracer_->Get(column_family, key);
+      tracer_->Get(get_impl_options.column_family, key);
     }
   }
 
@@ -1482,9 +1495,9 @@ Status DBImpl::GetImpl(const ReadOptions& read_options,
 
   SequenceNumber snapshot;
   if (read_options.snapshot != nullptr) {
-    if (callback) {
+    if (get_impl_options.callback) {
       // Already calculated based on read_options.snapshot
-      snapshot = callback->max_visible_seq();
+      snapshot = get_impl_options.callback->max_visible_seq();
     } else {
       snapshot =
           reinterpret_cast<const SnapshotImpl*>(read_options.snapshot)->number_;
@@ -1498,8 +1511,23 @@ Status DBImpl::GetImpl(const ReadOptions& read_options,
     snapshot = last_seq_same_as_publish_seq_
                    ? versions_->LastSequence()
                    : versions_->LastPublishedSequence();
-    if (callback) {
-      callback->Refresh(snapshot);
+    if (get_impl_options.callback) {
+      // The unprep_seqs are not published for write unprepared, so it could be
+      // that max_visible_seq is larger. Seek to the std::max of the two.
+      // However, we still want our callback to contain the actual snapshot so
+      // that it can do the correct visibility filtering.
+      get_impl_options.callback->Refresh(snapshot);
+
+      // Internally, WriteUnpreparedTxnReadCallback::Refresh would set
+      // max_visible_seq = max(max_visible_seq, snapshot)
+      //
+      // Currently, the commented out assert is broken by
+      // InvalidSnapshotReadCallback, but if write unprepared recovery followed
+      // the regular transaction flow, then this special read callback would not
+      // be needed.
+      //
+      // assert(callback->max_visible_seq() >= snapshot);
+      snapshot = get_impl_options.callback->max_visible_seq();
     }
   }
   TEST_SYNC_POINT("DBImpl::GetImpl:3");
@@ -1513,26 +1541,46 @@ Status DBImpl::GetImpl(const ReadOptions& read_options,
   // First look in the memtable, then in the immutable memtable (if any).
   // s is both in/out. When in, s could either be OK or MergeInProgress.
   // merge_operands will contain the sequence of merges in the latter case.
-  LookupKey lkey(key, snapshot);
+  LookupKey lkey(key, snapshot, read_options.timestamp);
   PERF_TIMER_STOP(get_snapshot_time);
 
   bool skip_memtable = (read_options.read_tier == kPersistedTier &&
                         has_unpersisted_data_.load(std::memory_order_relaxed));
   bool done = false;
   if (!skip_memtable) {
-    if (sv->mem->Get(lkey, pinnable_val->GetSelf(), &s, &merge_context,
-                     &max_covering_tombstone_seq, read_options, callback,
-                     is_blob_index)) {
-      done = true;
-      pinnable_val->PinSelf();
-      RecordTick(stats_, MEMTABLE_HIT);
-    } else if ((s.ok() || s.IsMergeInProgress()) &&
-               sv->imm->Get(lkey, pinnable_val->GetSelf(), &s, &merge_context,
-                            &max_covering_tombstone_seq, read_options, callback,
-                            is_blob_index)) {
-      done = true;
-      pinnable_val->PinSelf();
-      RecordTick(stats_, MEMTABLE_HIT);
+    // Get value associated with key
+    if (get_impl_options.get_value) {
+      if (sv->mem->Get(lkey, get_impl_options.value->GetSelf(), &s,
+                       &merge_context, &max_covering_tombstone_seq,
+                       read_options, get_impl_options.callback,
+                       get_impl_options.is_blob_index)) {
+        done = true;
+        get_impl_options.value->PinSelf();
+        RecordTick(stats_, MEMTABLE_HIT);
+      } else if ((s.ok() || s.IsMergeInProgress()) &&
+                 sv->imm->Get(lkey, get_impl_options.value->GetSelf(), &s,
+                              &merge_context, &max_covering_tombstone_seq,
+                              read_options, get_impl_options.callback,
+                              get_impl_options.is_blob_index)) {
+        done = true;
+        get_impl_options.value->PinSelf();
+        RecordTick(stats_, MEMTABLE_HIT);
+      }
+    } else {
+      // Get Merge Operands associated with key, Merge Operands should not be
+      // merged and raw values should be returned to the user.
+      if (sv->mem->Get(lkey, nullptr, &s, &merge_context,
+                       &max_covering_tombstone_seq, read_options, nullptr,
+                       nullptr, false)) {
+        done = true;
+        RecordTick(stats_, MEMTABLE_HIT);
+      } else if ((s.ok() || s.IsMergeInProgress()) &&
+                 sv->imm->GetMergeOperands(lkey, &s, &merge_context,
+                                           &max_covering_tombstone_seq,
+                                           read_options)) {
+        done = true;
+        RecordTick(stats_, MEMTABLE_HIT);
+      }
     }
     if (!done && !s.ok() && !s.IsMergeInProgress()) {
       ReturnAndCleanupSuperVersion(cfd, sv);
@@ -1541,9 +1589,14 @@ Status DBImpl::GetImpl(const ReadOptions& read_options,
   }
   if (!done) {
     PERF_TIMER_GUARD(get_from_output_files_time);
-    sv->current->Get(read_options, lkey, pinnable_val, &s, &merge_context,
-                     &max_covering_tombstone_seq, value_found, nullptr, nullptr,
-                     callback, is_blob_index);
+    sv->current->Get(
+        read_options, lkey, get_impl_options.value, &s, &merge_context,
+        &max_covering_tombstone_seq,
+        get_impl_options.get_value ? get_impl_options.value_found : nullptr,
+        nullptr, nullptr,
+        get_impl_options.get_value ? get_impl_options.callback : nullptr,
+        get_impl_options.get_value ? get_impl_options.is_blob_index : nullptr,
+        get_impl_options.get_value);
     RecordTick(stats_, MEMTABLE_MISS);
   }
 
@@ -1555,7 +1608,25 @@ Status DBImpl::GetImpl(const ReadOptions& read_options,
     RecordTick(stats_, NUMBER_KEYS_READ);
     size_t size = 0;
     if (s.ok()) {
-      size = pinnable_val->size();
+      if (get_impl_options.get_value) {
+        size = get_impl_options.value->size();
+      } else {
+        // Return all merge operands for get_impl_options.key
+        *get_impl_options.number_of_operands =
+            static_cast<int>(merge_context.GetNumOperands());
+        if (*get_impl_options.number_of_operands >
+            get_impl_options.get_merge_operands_options
+                ->expected_max_number_of_operands) {
+          s = Status::Incomplete(
+              Status::SubCode::KMergeOperandsInsufficientCapacity);
+        } else {
+          for (const Slice& sl : merge_context.GetOperands()) {
+            size += sl.size();
+            get_impl_options.merge_operands->PinSelf(sl);
+            get_impl_options.merge_operands++;
+          }
+        }
+      }
       RecordTick(stats_, BYTES_READ, size);
       PERF_COUNTER_ADD(get_read_bytes, size);
     }
@@ -1851,6 +1922,24 @@ void DBImpl::MultiGetImpl(
     snapshot = last_seq_same_as_publish_seq_
                    ? versions_->LastSequence()
                    : versions_->LastPublishedSequence();
+    if (callback) {
+      // The unprep_seqs are not published for write unprepared, so it could be
+      // that max_visible_seq is larger. Seek to the std::max of the two.
+      // However, we still want our callback to contain the actual snapshot so
+      // that it can do the correct visibility filtering.
+      callback->Refresh(snapshot);
+
+      // Internally, WriteUnpreparedTxnReadCallback::Refresh would set
+      // max_visible_seq = max(max_visible_seq, snapshot)
+      //
+      // Currently, the commented out assert is broken by
+      // InvalidSnapshotReadCallback, but if write unprepared recovery followed
+      // the regular transaction flow, then this special read callback would not
+      // be needed.
+      //
+      // assert(callback->max_visible_seq() >= snapshot);
+      snapshot = callback->max_visible_seq();
+    }
   }
 
   // For each of the given keys, apply the entire "get" process as follows:
@@ -2198,7 +2287,11 @@ bool DBImpl::KeyMayExist(const ReadOptions& read_options,
   ReadOptions roptions = read_options;
   roptions.read_tier = kBlockCacheTier;  // read from block cache only
   PinnableSlice pinnable_val;
-  auto s = GetImpl(roptions, column_family, key, &pinnable_val, value_found);
+  GetImplOptions get_impl_options;
+  get_impl_options.column_family = column_family;
+  get_impl_options.value = &pinnable_val;
+  get_impl_options.value_found = value_found;
+  auto s = GetImpl(roptions, key, get_impl_options);
   value->assign(pinnable_val.data(), pinnable_val.size());
 
   // If block_cache is enabled and the index block of the table didn't
@@ -2764,11 +2857,13 @@ void DBImpl::GetApproximateMemTableStats(ColumnFamilyHandle* column_family,
   ReturnAndCleanupSuperVersion(cfd, sv);
 }
 
-void DBImpl::GetApproximateSizes(ColumnFamilyHandle* column_family,
-                                 const Range* range, int n, uint64_t* sizes,
-                                 uint8_t include_flags) {
-  assert(include_flags & DB::SizeApproximationFlags::INCLUDE_FILES ||
-         include_flags & DB::SizeApproximationFlags::INCLUDE_MEMTABLES);
+Status DBImpl::GetApproximateSizes(const SizeApproximationOptions& options,
+                                   ColumnFamilyHandle* column_family,
+                                   const Range* range, int n, uint64_t* sizes) {
+  if (!options.include_memtabtles && !options.include_files) {
+    return Status::InvalidArgument("Invalid options");
+  }
+
   Version* v;
   auto cfh = reinterpret_cast<ColumnFamilyHandleImpl*>(column_family);
   auto cfd = cfh->cfd();
@@ -2780,18 +2875,19 @@ void DBImpl::GetApproximateSizes(ColumnFamilyHandle* column_family,
     InternalKey k1(range[i].start, kMaxSequenceNumber, kValueTypeForSeek);
     InternalKey k2(range[i].limit, kMaxSequenceNumber, kValueTypeForSeek);
     sizes[i] = 0;
-    if (include_flags & DB::SizeApproximationFlags::INCLUDE_FILES) {
+    if (options.include_files) {
       sizes[i] += versions_->ApproximateSize(
-          v, k1.Encode(), k2.Encode(), /*start_level=*/0, /*end_level=*/-1,
-          TableReaderCaller::kUserApproximateSize);
+          options, v, k1.Encode(), k2.Encode(), /*start_level=*/0,
+          /*end_level=*/-1, TableReaderCaller::kUserApproximateSize);
     }
-    if (include_flags & DB::SizeApproximationFlags::INCLUDE_MEMTABLES) {
+    if (options.include_memtabtles) {
       sizes[i] += sv->mem->ApproximateStats(k1.Encode(), k2.Encode()).size;
       sizes[i] += sv->imm->ApproximateStats(k1.Encode(), k2.Encode()).size;
     }
   }
 
   ReturnAndCleanupSuperVersion(cfd, sv);
+  return Status::OK();
 }
 
 std::list<uint64_t>::iterator
@@ -4016,7 +4112,7 @@ Status DBImpl::CreateColumnFamilyWithImport(
   return status;
 }
 
-Status DBImpl::VerifyChecksum() {
+Status DBImpl::VerifyChecksum(const ReadOptions& read_options) {
   Status s;
   std::vector<ColumnFamilyData*> cfd_list;
   {
@@ -4047,7 +4143,8 @@ Status DBImpl::VerifyChecksum() {
         const auto& fd = vstorage->LevelFilesBrief(i).files[j].fd;
         std::string fname = TableFileName(cfd->ioptions()->cf_paths,
                                           fd.GetNumber(), fd.GetPathId());
-        s = rocksdb::VerifySstFileChecksum(opts, env_options_, fname);
+        s = rocksdb::VerifySstFileChecksum(opts, env_options_, read_options,
+                                           fname);
       }
     }
     if (!s.ok()) {

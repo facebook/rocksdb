@@ -101,14 +101,25 @@ struct TransactionDBOptions {
   // ordering rather than concurrency control.
   bool skip_concurrency_control = false;
 
+  // This option is only valid for write unprepared. If a write batch exceeds
+  // this threshold, then the transaction will implicitly flush the currently
+  // pending writes into the database. A value of 0 or less means no limit.
+  int64_t default_write_batch_flush_threshold = 0;
+
  private:
   // 128 entries
   size_t wp_snapshot_cache_bits = static_cast<size_t>(7);
   // 8m entry, 64MB size
   size_t wp_commit_cache_bits = static_cast<size_t>(23);
 
+  // For testing, whether transaction name should be auto-generated or not. This
+  // is useful for write unprepared which requires named transactions.
+  bool autogenerate_name = false;
+
   friend class WritePreparedTxnDB;
+  friend class WriteUnpreparedTxn;
   friend class WritePreparedTransactionTestBase;
+  friend class TransactionTestBase;
   friend class MySQLStyleTransactionTest;
 };
 
@@ -162,6 +173,11 @@ struct TransactionOptions {
   // back/commit before new transactions start.
   // Default: false
   bool skip_concurrency_control = false;
+
+  // See TransactionDBOptions::default_write_batch_flush_threshold for
+  // description. If a negative value is specified, then the default value from
+  // TransactionDBOptions is used.
+  int64_t write_batch_flush_threshold = -1;
 };
 
 // The per-write optimizations that do not involve transactions. TransactionDB

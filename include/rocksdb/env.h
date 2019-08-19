@@ -118,10 +118,10 @@ struct EnvOptions {
   bool fallocate_with_keep_size = true;
 
   // See DBOptions doc
-  size_t compaction_readahead_size;
+  size_t compaction_readahead_size = 0;
 
   // See DBOptions doc
-  size_t random_access_max_buffer_size;
+  size_t random_access_max_buffer_size = 0;
 
   // See DBOptions doc
   size_t writable_file_max_buffer_size = 1024 * 1024;
@@ -143,6 +143,11 @@ class Env {
   Env() : thread_status_updater_(nullptr) {}
 
   virtual ~Env();
+
+  static const char* Type() { return "Environment"; }
+
+  // Loads the environment specified by the input value into the result
+  static Status LoadEnv(const std::string& value, Env** result);
 
   // Return a default environment suitable for the current operating
   // system.  Sophisticated users may wish to provide their own Env

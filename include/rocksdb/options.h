@@ -275,10 +275,12 @@ struct ColumnFamilyOptions : public AdvancedColumnFamilyOptions {
   // this option helps reducing the cpu usage of long-running compactions. The
   // feature is disabled when max_subcompactions is greater than one.
   //
-  // Default: 0.1s
+  // NOTE: This feautre is currently incompatible with RangeDeletes.
+  //
+  // Default: 0
   //
   // Dynamically changeable through SetOptions() API
-  uint64_t snap_refresh_nanos = 100 * 1000 * 1000;  // 0.1s
+  uint64_t snap_refresh_nanos = 0;
 
   // Disable automatic compactions. Manual compactions can still
   // be issued on this column family
@@ -1087,6 +1089,13 @@ struct DBOptions {
   // If set to true, takes precedence over
   // ReadOptions::background_purge_on_iterator_cleanup.
   bool avoid_unnecessary_blocking_io = false;
+
+  // The number of bytes to prefetch when reading the log. This is mostly useful
+  // for reading a remotely located log, as it can save the number of
+  // round-trips. If 0, then the prefetching is disabled.
+  //
+  // Default: 0
+  size_t log_readahead_size = 0;
 };
 
 // Options to control the behavior of a database (passed to DB::Open)
@@ -1495,6 +1504,26 @@ struct TraceOptions {
 struct ImportColumnFamilyOptions {
   // Can be set to true to move the files instead of copying them.
   bool move_files = false;
+};
+
+// Options used with DB::GetApproximateSizes()
+struct SizeApproximationOptions {
+  // Defines whether the returned size should include the recently written
+  // data in the mem-tables. If set to false, include_files must be true.
+  bool include_memtabtles = false;
+  // Defines whether the returned size should include data serialized to disk.
+  // If set to false, include_memtabtles must be true.
+  bool include_files = true;
+  // When approximating the files total size that is used to store a keys range
+  // using DB::GetApproximateSizes, allow approximation with an error margin of
+  // up to total_files_size * files_size_error_margin. This allows to take some
+  // shortcuts in files size approximation, resulting in better performance,
+  // while guaranteeing the resulting error is within a reasonable margin.
+  // E.g., if the value is 0.1, then the error margin of the returned files size
+  // approximation will be within 10%.
+  // If the value is non-positive - a more precise yet more CPU intensive
+  // estimation is performed.
+  double files_size_error_margin = -1.0;
 };
 
 }  // namespace rocksdb

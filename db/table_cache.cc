@@ -11,6 +11,7 @@
 
 #include "db/dbformat.h"
 #include "db/range_tombstone_fragmenter.h"
+#include "db/snapshot_impl.h"
 #include "db/version_edit.h"
 #include "file/filename.h"
 
@@ -24,6 +25,7 @@
 #include "table/table_builder.h"
 #include "table/table_reader.h"
 #include "test_util/sync_point.h"
+#include "util/cast_util.h"
 #include "util/coding.h"
 #include "util/file_reader_writer.h"
 #include "util/stop_watch.h"
@@ -192,7 +194,7 @@ InternalIterator* TableCache::NewIterator(
   if (table_reader == nullptr) {
     s = FindTable(env_options, icomparator, fd, &handle, prefix_extractor,
                   options.read_tier == kBlockCacheTier /* no_io */,
-                  !for_compaction /* record read_stats */, file_read_hist,
+                  !for_compaction /* record_read_stats */, file_read_hist,
                   skip_filters, level);
     if (s.ok()) {
       table_reader = GetTableReaderFromHandle(handle);
@@ -253,6 +255,28 @@ InternalIterator* TableCache::NewIterator(
   return result;
 }
 
+Status TableCache::GetRangeTombstoneIterator(
+    const ReadOptions& options,
+    const InternalKeyComparator& internal_comparator,
+    const FileMetaData& file_meta,
+    std::unique_ptr<FragmentedRangeTombstoneIterator>* out_iter) {
+  const FileDescriptor& fd = file_meta.fd;
+  Status s;
+  TableReader* t = fd.table_reader;
+  Cache::Handle* handle = nullptr;
+  if (t == nullptr) {
+    s = FindTable(env_options_, internal_comparator, fd, &handle);
+    if (s.ok()) {
+      t = GetTableReaderFromHandle(handle);
+    }
+  }
+  if (s.ok()) {
+    out_iter->reset(t->NewRangeTombstoneIterator(options));
+    assert(out_iter);
+  }
+  return s;
+}
+
 Status TableCache::Get(const ReadOptions& options,
                        const InternalKeyComparator& internal_comparator,
                        const FileMetaData& file_meta, const Slice& k,
@@ -277,8 +301,23 @@ Status TableCache::Get(const ReadOptions& options,
     // sequence key increases. However, to support caching snapshot
     // reads, we append the sequence number (incremented by 1 to
     // distinguish from 0) only in this case.
-    uint64_t seq_no =
-        options.snapshot == nullptr ? 0 : 1 + GetInternalKeySeqno(k);
+    // If the snapshot is larger than the largest seqno in the file,
+    // all data should be exposed to the snapshot, so we treat it
+    // the same as there is no snapshot. The exception is that if
+    // a seq-checking callback is registered, some internal keys
+    // may still be filtered out.
+    uint64_t seq_no = 0;
+    // Maybe we can include the whole file ifsnapshot == fd.largest_seqno.
+    if (options.snapshot != nullptr &&
+        (get_context->has_callback() ||
+         static_cast_with_check<const SnapshotImpl, const Snapshot>(
+             options.snapshot)
+                 ->GetSequenceNumber() <= fd.largest_seqno)) {
+      // We should consider to use options.snapshot->GetSequenceNumber()
+      // instead of GetInternalKeySeqno(k), which will make the code
+      // easier to understand.
+      seq_no = 1 + GetInternalKeySeqno(k);
+    }
 
     // Compute row cache key.
     row_cache_key.TrimAppend(row_cache_key.Size(), row_cache_id_.data(),
@@ -488,4 +527,57 @@ void TableCache::Evict(Cache* cache, uint64_t file_number) {
   cache->Erase(GetSliceForFileNumber(&file_number));
 }
 
+uint64_t TableCache::ApproximateOffsetOf(
+    const Slice& key, const FileDescriptor& fd, TableReaderCaller caller,
+    const InternalKeyComparator& internal_comparator,
+    const SliceTransform* prefix_extractor) {
+  uint64_t result = 0;
+  TableReader* table_reader = fd.table_reader;
+  Cache::Handle* table_handle = nullptr;
+  if (table_reader == nullptr) {
+    const bool for_compaction = (caller == TableReaderCaller::kCompaction);
+    Status s = FindTable(env_options_, internal_comparator, fd, &table_handle,
+                         prefix_extractor, false /* no_io */,
+                         !for_compaction /* record_read_stats */);
+    if (s.ok()) {
+      table_reader = GetTableReaderFromHandle(table_handle);
+    }
+  }
+
+  if (table_reader != nullptr) {
+    result = table_reader->ApproximateOffsetOf(key, caller);
+  }
+  if (table_handle != nullptr) {
+    ReleaseHandle(table_handle);
+  }
+
+  return result;
+}
+
+uint64_t TableCache::ApproximateSize(
+    const Slice& start, const Slice& end, const FileDescriptor& fd,
+    TableReaderCaller caller, const InternalKeyComparator& internal_comparator,
+    const SliceTransform* prefix_extractor) {
+  uint64_t result = 0;
+  TableReader* table_reader = fd.table_reader;
+  Cache::Handle* table_handle = nullptr;
+  if (table_reader == nullptr) {
+    const bool for_compaction = (caller == TableReaderCaller::kCompaction);
+    Status s = FindTable(env_options_, internal_comparator, fd, &table_handle,
+                         prefix_extractor, false /* no_io */,
+                         !for_compaction /* record_read_stats */);
+    if (s.ok()) {
+      table_reader = GetTableReaderFromHandle(table_handle);
+    }
+  }
+
+  if (table_reader != nullptr) {
+    result = table_reader->ApproximateSize(start, end, caller);
+  }
+  if (table_handle != nullptr) {
+    ReleaseHandle(table_handle);
+  }
+
+  return result;
+}
 }  // namespace rocksdb

@@ -20,7 +20,6 @@
 #include "rocksdb/utilities/backupable_db.h"
 #include "rocksdb/utilities/checkpoint.h"
 #include "rocksdb/utilities/debug.h"
-#include "rocksdb/utilities/object_registry.h"
 #include "rocksdb/utilities/options_util.h"
 #include "rocksdb/write_batch.h"
 #include "rocksdb/write_buffer_manager.h"
@@ -31,6 +30,7 @@
 #include "util/coding.h"
 #include "util/stderr_logger.h"
 #include "util/string_util.h"
+#include "utilities/merge_operators.h"
 #include "utilities/ttl/db_ttl_impl.h"
 
 #include <cstdlib>
@@ -261,6 +261,9 @@ LDBCommand* LDBCommand::SelectCommand(const ParsedParams& parsed_params) {
     return new IngestExternalSstFilesCommand(parsed_params.cmd_params,
                                              parsed_params.option_map,
                                              parsed_params.flags);
+  } else if (parsed_params.cmd == ListFileRangeDeletesCommand::Name()) {
+    return new ListFileRangeDeletesCommand(parsed_params.option_map,
+                                           parsed_params.flags);
   }
   return nullptr;
 }
@@ -353,10 +356,23 @@ void LDBCommand::OpenDB() {
           stderr,
           "wal_dir loaded from the option file doesn't exist. Ignore it.\n");
     }
+
+    // If merge operator is not set, set a string append operator. There is
+    // no harm doing it.
+    for (auto& cf_entry : column_families_) {
+      if (!cf_entry.options.merge_operator) {
+        cf_entry.options.merge_operator =
+            MergeOperators::CreateStringAppendOperator(':');
+      }
+    }
   }
   options_ = PrepareOptionsForOpenDB();
   if (!exec_state_.IsNotStarted()) {
     return;
+  }
+  if (column_families_.empty() && !options_.merge_operator) {
+    // No harm to add a general merge operator if it is not specified.
+    options_.merge_operator = MergeOperators::CreateStringAppendOperator(':');
   }
   // Open the DB.
   Status st;
@@ -1301,7 +1317,8 @@ void InternalDumpCommand::DoCommand() {
 
   // Cast as DBImpl to get internal iterator
   std::vector<KeyVersion> key_versions;
-  Status st = GetAllKeyVersions(db_, from_, to_, max_keys_, &key_versions);
+  Status st = GetAllKeyVersions(db_, GetCfHandle(), from_, to_, max_keys_,
+                                &key_versions);
   if (!st.ok()) {
     exec_state_ = LDBCommandExecuteResult::Failed(st.ToString());
     return;
@@ -2839,8 +2856,9 @@ void BackupCommand::DoCommand() {
     return;
   }
   printf("open db OK\n");
-  std::unique_ptr<Env> custom_env_guard;
-  Env* custom_env = NewCustomObject<Env>(backup_env_uri_, &custom_env_guard);
+  Env* custom_env = nullptr;
+  Env::LoadEnv(backup_env_uri_, &custom_env);
+
   BackupableDBOptions backup_options =
       BackupableDBOptions(backup_dir_, custom_env);
   backup_options.info_log = logger_.get();
@@ -2874,8 +2892,9 @@ void RestoreCommand::Help(std::string& ret) {
 }
 
 void RestoreCommand::DoCommand() {
-  std::unique_ptr<Env> custom_env_guard;
-  Env* custom_env = NewCustomObject<Env>(backup_env_uri_, &custom_env_guard);
+  Env* custom_env = nullptr;
+  Env::LoadEnv(backup_env_uri_, &custom_env);
+
   std::unique_ptr<BackupEngineReadOnly> restore_engine;
   Status status;
   {
@@ -3210,6 +3229,57 @@ Options IngestExternalSstFilesCommand::PrepareOptionsForOpenDB() {
   Options opt = LDBCommand::PrepareOptionsForOpenDB();
   opt.create_if_missing = create_if_missing_;
   return opt;
+}
+
+ListFileRangeDeletesCommand::ListFileRangeDeletesCommand(
+    const std::map<std::string, std::string>& options,
+    const std::vector<std::string>& flags)
+    : LDBCommand(options, flags, true, BuildCmdLineOptions({ARG_MAX_KEYS})) {
+  std::map<std::string, std::string>::const_iterator itr =
+      options.find(ARG_MAX_KEYS);
+  if (itr != options.end()) {
+    try {
+#if defined(CYGWIN)
+      max_keys_ = strtol(itr->second.c_str(), 0, 10);
+#else
+      max_keys_ = std::stoi(itr->second);
+#endif
+    } catch (const std::invalid_argument&) {
+      exec_state_ = LDBCommandExecuteResult::Failed(ARG_MAX_KEYS +
+                                                    " has an invalid value");
+    } catch (const std::out_of_range&) {
+      exec_state_ = LDBCommandExecuteResult::Failed(
+          ARG_MAX_KEYS + " has a value out-of-range");
+    }
+  }
+}
+
+void ListFileRangeDeletesCommand::Help(std::string& ret) {
+  ret.append("  ");
+  ret.append(ListFileRangeDeletesCommand::Name());
+  ret.append(" [--" + ARG_MAX_KEYS + "=<N>]");
+  ret.append(" : print tombstones in SST files.\n");
+}
+
+void ListFileRangeDeletesCommand::DoCommand() {
+  if (!db_) {
+    assert(GetExecuteState().IsFailed());
+    return;
+  }
+
+  DBImpl* db_impl = static_cast_with_check<DBImpl, DB>(db_->GetRootDB());
+
+  std::string out_str;
+
+  Status st =
+      db_impl->TablesRangeTombstoneSummary(GetCfHandle(), max_keys_, &out_str);
+  if (st.ok()) {
+    TEST_SYNC_POINT_CALLBACK(
+        "ListFileRangeDeletesCommand::DoCommand:BeforePrint", &out_str);
+    fprintf(stdout, "%s\n", out_str.c_str());
+  } else {
+    exec_state_ = LDBCommandExecuteResult::Failed(st.ToString());
+  }
 }
 
 }   // namespace rocksdb

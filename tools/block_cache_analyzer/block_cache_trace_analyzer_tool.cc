@@ -11,7 +11,7 @@ int main() {
   return 1;
 }
 #else  // GFLAGS
-#include "tools/block_cache_trace_analyzer.h"
+#include "tools/block_cache_analyzer/block_cache_trace_analyzer.h"
 int main(int argc, char** argv) {
   return rocksdb::block_cache_trace_analyzer_tool(argc, argv);
 }
