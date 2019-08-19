@@ -199,8 +199,8 @@ class VersionEdit {
   void Clear();
 
   void SetDBId(const std::string& db_id) {
-      has_db_id_ = true;
-      db_id_ = db_id;
+    has_db_id_ = true;
+    db_id_ = db_id;
   }
 
   void SetComparatorName(const Slice& name) {

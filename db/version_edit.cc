@@ -99,8 +99,8 @@ void VersionEdit::Clear() {
 
 bool VersionEdit::EncodeTo(std::string* dst) const {
   if (has_db_id_) {
-      PutVarint32(dst, kDbId);
-      PutLengthPrefixedSlice(dst, db_id_);
+    PutVarint32(dst, kDbId);
+    PutLengthPrefixedSlice(dst, db_id_);
   }
   if (has_comparator_) {
     PutVarint32(dst, kComparator);
@@ -333,10 +333,10 @@ Status VersionEdit::DecodeFrom(const Slice& src) {
     switch (tag) {
       case kDbId:
         if (GetLengthPrefixedSlice(&input, &str)) {
-            db_id_ = str.ToString();
-            has_db_id_ = true;
+          db_id_ = str.ToString();
+          has_db_id_ = true;
         } else {
-            msg = "db id";
+          msg = "db id";
         }
         break;
       case kComparator:
@@ -629,7 +629,7 @@ std::string VersionEdit::DebugJSON(int edit_num, bool hex_key) const {
   jw << "EditNumber" << edit_num;
 
   if (has_db_id_) {
-      jw << "DB ID" << db_id_;
+    jw << "DB ID" << db_id_;
   }
   if (has_comparator_) {
     jw << "Comparator" << comparator_;

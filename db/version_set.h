@@ -1054,7 +1054,7 @@ class VersionSet {
                            TableReaderCaller caller);
 
   // Save current contents to *log
-  Status WriteSnapshot(log::Writer* log);
+  Status WriteCurrentStateToManifest(log::Writer* log);
 
   void AppendVersion(ColumnFamilyData* column_family_data, Version* v);
 

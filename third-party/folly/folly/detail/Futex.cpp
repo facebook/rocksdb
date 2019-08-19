@@ -49,14 +49,12 @@ namespace {
 #endif
 
 int nativeFutexWake(const void* addr, int count, uint32_t wakeMask) {
-  long rv = syscall(
-      __NR_futex,
-      addr, /* addr1 */
-      FUTEX_WAKE_BITSET | FUTEX_PRIVATE_FLAG, /* op */
-      count, /* val */
-      nullptr, /* timeout */
-      nullptr, /* addr2 */
-      wakeMask); /* val3 */
+  long rv = syscall(__NR_futex, addr,                       /* addr1 */
+                    FUTEX_WAKE_BITSET | FUTEX_PRIVATE_FLAG, /* op */
+                    count,                                  /* val */
+                    nullptr,                                /* timeout */
+                    nullptr,                                /* addr2 */
+                    wakeMask);                              /* val3 */
 
   /* NOTE: we ignore errors on wake for the case of a futex
      guarding its own destruction, similar to this
@@ -111,14 +109,12 @@ FutexResult nativeFutexWaitImpl(
 
   // Unlike FUTEX_WAIT, FUTEX_WAIT_BITSET requires an absolute timeout
   // value - http://locklessinc.com/articles/futex_cheat_sheet/
-  long rv = syscall(
-      __NR_futex,
-      addr, /* addr1 */
-      op, /* op */
-      expected, /* val */
-      timeout, /* timeout */
-      nullptr, /* addr2 */
-      waitMask); /* val3 */
+  long rv = syscall(__NR_futex, addr, /* addr1 */
+                    op,               /* op */
+                    expected,         /* val */
+                    timeout,          /* timeout */
+                    nullptr,          /* addr2 */
+                    waitMask);        /* val3 */
 
   if (rv == 0) {
     return FutexResult::AWOKEN;
