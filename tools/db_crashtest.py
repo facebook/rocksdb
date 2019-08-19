@@ -288,7 +288,7 @@ def whitebox_crash_main(args, unknown_args):
                     "kill_random_test": kill_random_test,
                 })
             elif kill_mode == 1:
-                if cmd_params.get('disable_wal') == 1:
+                if cmd_params.get('disable_wal', 0) == 1:
                     my_kill_odd = kill_random_test / 50 + 1
                 else:
                     my_kill_odd = kill_random_test / 10 + 1
