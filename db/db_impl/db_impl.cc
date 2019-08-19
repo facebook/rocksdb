@@ -33,9 +33,9 @@
 #include "db/error_handler.h"
 #include "db/event_helpers.h"
 #include "db/external_sst_file_ingestion_job.h"
-#include "db/import_column_family_job.h"
 #include "db/flush_job.h"
 #include "db/forward_iterator.h"
+#include "db/import_column_family_job.h"
 #include "db/job_context.h"
 #include "db/log_reader.h"
 #include "db/log_writer.h"
@@ -91,6 +91,7 @@
 #include "tools/sst_dump_tool_imp.h"
 #include "util/autovector.h"
 #include "util/build_version.h"
+#include "util/cast_util.h"
 #include "util/coding.h"
 #include "util/compression.h"
 #include "util/crc32c.h"
@@ -862,6 +863,24 @@ void DBImpl::DumpStats() {
 #endif  // !ROCKSDB_LITE
 
   PrintStatistics();
+}
+
+Status DBImpl::TablesRangeTombstoneSummary(ColumnFamilyHandle* column_family,
+                                           int max_entries_to_print,
+                                           std::string* out_str) {
+  auto* cfh =
+      static_cast_with_check<ColumnFamilyHandleImpl, ColumnFamilyHandle>(
+          column_family);
+  ColumnFamilyData* cfd = cfh->cfd();
+
+  SuperVersion* super_version = cfd->GetReferencedSuperVersion(&mutex_);
+  Version* version = super_version->current;
+
+  Status s =
+      version->TablesRangeTombstoneSummary(max_entries_to_print, out_str);
+
+  CleanupSuperVersion(super_version);
+  return s;
 }
 
 void DBImpl::ScheduleBgLogWriterClose(JobContext* job_context) {
@@ -4093,7 +4112,7 @@ Status DBImpl::CreateColumnFamilyWithImport(
   return status;
 }
 
-Status DBImpl::VerifyChecksum() {
+Status DBImpl::VerifyChecksum(const ReadOptions& read_options) {
   Status s;
   std::vector<ColumnFamilyData*> cfd_list;
   {
@@ -4124,7 +4143,8 @@ Status DBImpl::VerifyChecksum() {
         const auto& fd = vstorage->LevelFilesBrief(i).files[j].fd;
         std::string fname = TableFileName(cfd->ioptions()->cf_paths,
                                           fd.GetNumber(), fd.GetPathId());
-        s = rocksdb::VerifySstFileChecksum(opts, env_options_, fname);
+        s = rocksdb::VerifySstFileChecksum(opts, env_options_, read_options,
+                                           fname);
       }
     }
     if (!s.ok()) {

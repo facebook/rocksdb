@@ -9,7 +9,7 @@ find_path(snappy_INCLUDE_DIRS
   NAMES snappy.h
   HINTS ${snappy_ROOT_DIR}/include)
 
-find_library(SNAPPY_LIBRARIES
+find_library(snappy_LIBRARIES
   NAMES snappy
   HINTS ${snappy_ROOT_DIR}/lib)
 

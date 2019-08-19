@@ -82,6 +82,13 @@ class BlockBasedTable : public TableReader {
   // For Posix files the unique ID is three varints.
   static const size_t kMaxCacheKeyPrefixSize = kMaxVarint64Length * 3 + 1;
 
+  // All the below fields control iterator readahead
+  static const size_t kInitAutoReadaheadSize = 8 * 1024;
+  // Found that 256 KB readahead size provides the best performance, based on
+  // experiments, for auto readahead. Experiment data is in PR #3282.
+  static const size_t kMaxAutoReadaheadSize;
+  static const int kMinNumFileReadsToStartAutoReadahead = 2;
+
   // Attempt to open the table that is stored in bytes [0..file_size)
   // of "file", and read the metadata entries necessary to allow
   // retrieving data from the table.
@@ -151,12 +158,19 @@ class BlockBasedTable : public TableReader {
 
   // Given a key, return an approximate byte offset in the file where
   // the data for that key begins (or would begin if the key were
-  // present in the file).  The returned value is in terms of file
+  // present in the file). The returned value is in terms of file
   // bytes, and so includes effects like compression of the underlying data.
   // E.g., the approximate offset of the last key in the table will
   // be close to the file length.
   uint64_t ApproximateOffsetOf(const Slice& key,
                                TableReaderCaller caller) override;
+
+  // Given start and end keys, return the approximate data size in the file
+  // between the keys. The returned value is in terms of file bytes, and so
+  // includes effects like compression of the underlying data.
+  // The start key must not be greater than the end key.
+  uint64_t ApproximateSize(const Slice& start, const Slice& end,
+                           TableReaderCaller caller) override;
 
   bool TEST_BlockInCache(const BlockHandle& handle) const;
 
@@ -175,7 +189,8 @@ class BlockBasedTable : public TableReader {
   // convert SST file to a human readable form
   Status DumpTable(WritableFile* out_file) override;
 
-  Status VerifyChecksum(TableReaderCaller caller) override;
+  Status VerifyChecksum(const ReadOptions& readOptions,
+                        TableReaderCaller caller) override;
 
   ~BlockBasedTable();
 
@@ -299,7 +314,7 @@ class BlockBasedTable : public TableReader {
                        CachableEntry<TBlocklike>* block_entry,
                        BlockType block_type, GetContext* get_context,
                        BlockCacheLookupContext* lookup_context,
-                       bool for_compaction = false) const;
+                       bool for_compaction, bool use_cache) const;
 
   Status GetDataBlockFromCache(
       const ReadOptions& ro, const BlockHandle& handle,
@@ -423,7 +438,8 @@ class BlockBasedTable : public TableReader {
   static BlockType GetBlockTypeForMetaBlockByName(const Slice& meta_block_name);
 
   Status VerifyChecksumInMetaBlocks(InternalIteratorBase<Slice>* index_iter);
-  Status VerifyChecksumInBlocks(InternalIteratorBase<IndexValue>* index_iter);
+  Status VerifyChecksumInBlocks(const ReadOptions& read_options,
+                                InternalIteratorBase<IndexValue>* index_iter);
 
   // Create the filter from the filter block.
   std::unique_ptr<FilterBlockReader> CreateFilterBlockReader(
@@ -437,6 +453,10 @@ class BlockBasedTable : public TableReader {
                                   char* buffer, size_t* size);
   static void GenerateCachePrefix(Cache* cc, WritableFile* file, char* buffer,
                                   size_t* size);
+
+  // Given an iterator return its offset in file.
+  uint64_t ApproximateOffsetOf(
+      const InternalIteratorBase<IndexValue>& index_iter) const;
 
   // Helper functions for DumpTable()
   Status DumpIndexBlock(WritableFile* out_file);
@@ -761,13 +781,7 @@ class BlockBasedTableIterator : public InternalIteratorBase<TValue> {
   // lookup_context_.caller = kCompaction.
   size_t compaction_readahead_size_;
 
-  // All the below fields control iterator readahead
-  static const size_t kInitAutoReadaheadSize = 8 * 1024;
-  // Found that 256 KB readahead size provides the best performance, based on
-  // experiments, for auto readahead. Experiment data is in PR #3282.
-  static const size_t kMaxAutoReadaheadSize;
-  static const int kMinNumFileReadsToStartAutoReadahead = 2;
-  size_t readahead_size_ = kInitAutoReadaheadSize;
+  size_t readahead_size_ = BlockBasedTable::kInitAutoReadaheadSize;
   size_t readahead_limit_ = 0;
   int64_t num_file_reads_ = 0;
   std::unique_ptr<FilePrefetchBuffer> prefetch_buffer_;

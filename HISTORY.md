@@ -1,7 +1,9 @@
 # Rocksdb Change Log
 ## Unreleased
+### Bug Fixes
+* Fixed a number of data races in BlobDB.
 ### New Features
-* Support loading custom objects in unit tests. In the affected unit tests, RocksDB will create custom Env objects based on environment variable TEST_ENV_URI. Users need to make sure custom object types are properly registered. For example, a static library should expose a `RegisterCustomObjects` function. By linking the unit test binary with the static library, the unit test can execute this function.
+* VerifyChecksum() by default will issue readahead. Allow ReadOptions to be passed in to those functions to override the readhead size.
 
 ## 6.4.0 (7/30/2019)
 ### Default Option Change
@@ -19,12 +21,14 @@
 * ldb sometimes uses a string-append merge operator if no merge operator is passed in. This is to allow users to print keys from a DB with a merge operator.
 * Replaces old Registra with ObjectRegistry to allow user to create custom object from string, also add LoadEnv() to Env.
 * Added new overload of GetApproximateSizes which gets SizeApproximationOptions object and returns a Status. The older overloads are redirecting their calls to this new method and no longer assert if the include_flags doesn't have either of INCLUDE_MEMTABLES or INCLUDE_FILES bits set. It's recommended to use the new method only, as it is more type safe and returns a meaningful status in case of errors.
+* LDBCommandRunner::RunCommand() to return the status code as an integer, rather than call exit() using the code.
 
 ### New Features
 * Add argument `--secondary_path` to ldb to open the database as the secondary instance. This would keep the original DB intact.
 * Compression dictionary blocks are now prefetched and pinned in the cache (based on the customer's settings) the same way as index and filter blocks.
 * Added DBOptions::log_readahead_size which specifies the number of bytes to prefetch when reading the log. This is mostly useful for reading a remotely located log, as it can save the number of round-trips. If 0 (default), then the prefetching is disabled.
 * Added new option in SizeApproximationOptions used with DB::GetApproximateSizes. When approximating the files total size that is used to store a keys range, allow approximation with an error margin of up to total_files_size * files_size_error_margin. This allows to take some shortcuts in files size approximation, resulting in better performance, while guaranteeing the resulting error is within a reasonable margin.
+* Support loading custom objects in unit tests. In the affected unit tests, RocksDB will create custom Env objects based on environment variable TEST_ENV_URI. Users need to make sure custom object types are properly registered. For example, a static library should expose a `RegisterCustomObjects` function. By linking the unit test binary with the static library, the unit test can execute this function.
 
 ### Performance Improvements
 * Reduce iterator key comparision for upper/lower bound check.
@@ -34,7 +38,16 @@
 ### Bug Fixes
 * Fix ingested file and directory not being fsync.
 * Return TryAgain status in place of Corruption when new tail is not visible to TransactionLogIterator.
+* Fixed a regression where the fill_cache read option also affected index blocks.
+* Fixed an issue where using cache_index_and_filter_blocks==false affected partitions of partitioned indexes/filters as well.
 
+## 6.3.2 (8/15/2019)
+### Public API Change
+* The semantics of the per-block-type block read counts in the performance context now match those of the generic block_read_count.
+
+### Bug Fixes
+* Fixed a regression where the fill_cache read option also affected index blocks.
+* Fixed an issue where using cache_index_and_filter_blocks==false affected partitions of partitioned indexes as well.
 
 ## 6.3.1 (7/24/2019)
 ### Bug Fixes
@@ -57,6 +70,7 @@
 * Add an option `unordered_write` which trades snapshot guarantees with higher write throughput. When used with WRITE_PREPARED transactions with two_write_queues=true, it offers higher throughput with however no compromise on guarantees.
 * Allow DBImplSecondary to remove memtables with obsolete data after replaying MANIFEST and WAL.
 * Add an option `failed_move_fall_back_to_copy` (default is true) for external SST ingestion. When `move_files` is true and hard link fails, ingestion falls back to copy if `failed_move_fall_back_to_copy` is true. Otherwise, ingestion reports an error.
+* Add command `list_file_range_deletes` in ldb, which prints out tombstones in SST files.
 
 ### Performance Improvements
 * Reduce binary search when iterator reseek into the same data block.

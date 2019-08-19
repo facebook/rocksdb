@@ -5488,6 +5488,7 @@ class ThreeBytewiseComparator : public Comparator {
   }
 };
 
+#ifndef ROCKSDB_VALGRIND_RUN
 TEST_P(TransactionTest, GetWithoutSnapshot) {
   WriteOptions write_options;
   std::atomic<bool> finish = {false};
@@ -5516,6 +5517,7 @@ TEST_P(TransactionTest, GetWithoutSnapshot) {
   commit_thread.join();
   read_thread.join();
 }
+#endif  // ROCKSDB_VALGRIND_RUN
 
 // Test that the transactional db can handle duplicate keys in the write batch
 TEST_P(TransactionTest, DuplicateKeys) {

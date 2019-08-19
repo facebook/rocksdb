@@ -94,6 +94,9 @@ class PlainTableReader: public TableReader {
   uint64_t ApproximateOffsetOf(const Slice& key,
                                TableReaderCaller caller) override;
 
+  uint64_t ApproximateSize(const Slice& start, const Slice& end,
+                           TableReaderCaller caller) override;
+
   uint32_t GetIndexSize() const { return index_.GetIndexSize(); }
   void SetupForCompaction() override;
 

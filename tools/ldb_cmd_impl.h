@@ -592,4 +592,20 @@ class IngestExternalSstFilesCommand : public LDBCommand {
   static const std::string ARG_WRITE_GLOBAL_SEQNO;
 };
 
+// Command that prints out range delete tombstones in SST files.
+class ListFileRangeDeletesCommand : public LDBCommand {
+ public:
+  static std::string Name() { return "list_file_range_deletes"; }
+
+  ListFileRangeDeletesCommand(const std::map<std::string, std::string>& options,
+                              const std::vector<std::string>& flags);
+
+  void DoCommand() override;
+
+  static void Help(std::string& ret);
+
+ private:
+  int max_keys_ = 1000;
+};
+
 }  // namespace rocksdb

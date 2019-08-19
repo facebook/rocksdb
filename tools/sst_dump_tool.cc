@@ -143,7 +143,9 @@ Status SstFileDumper::NewTableReader(
 }
 
 Status SstFileDumper::VerifyChecksum() {
-  return table_reader_->VerifyChecksum(TableReaderCaller::kSSTDumpTool);
+  // We could pass specific readahead setting into read options if needed.
+  return table_reader_->VerifyChecksum(ReadOptions(),
+                                       TableReaderCaller::kSSTDumpTool);
 }
 
 Status SstFileDumper::DumpTable(const std::string& out_filename) {
