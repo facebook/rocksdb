@@ -1087,6 +1087,7 @@ class VersionSet {
 
   Env* const env_;
   const std::string dbname_;
+  std::string db_id_;
   const ImmutableDBOptions* const db_options_;
   std::atomic<uint64_t> next_file_number_;
   // Any log number equal or lower than this should be ignored during recovery,

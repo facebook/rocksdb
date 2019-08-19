@@ -4045,7 +4045,8 @@ Status VersionSet::ApplyOneVersionEditToBuilder(
     const std::unordered_map<std::string, ColumnFamilyOptions>& name_to_options,
     std::unordered_map<int, std::string>& column_families_not_found,
     std::unordered_map<uint32_t, std::unique_ptr<BaseReferencedVersionBuilder>>&
-        builders, VersionEdit* version_edit) {
+        builders,
+    VersionEdit* version_edit) {
   // Not found means that user didn't supply that column
   // family option AND we encountered column family add
   // record. Once we encounter column family drop record,
@@ -4128,12 +4129,12 @@ Status VersionSet::ApplyOneVersionEditToBuilder(
     assert(builder != builders.end());
     builder->second->version_builder()->Apply(&edit);
   }
-  return ExtractInfoFromVersionEdit(
-      cfd, edit, version_edit);
+  return ExtractInfoFromVersionEdit(cfd, edit, version_edit);
 }
 
-Status VersionSet::ExtractInfoFromVersionEdit(
-    ColumnFamilyData* cfd, const VersionEdit& from_edit, VersionEdit* to_edit) {
+Status VersionSet::ExtractInfoFromVersionEdit(ColumnFamilyData* cfd,
+                                              const VersionEdit& from_edit,
+                                              VersionEdit* to_edit) {
   if (cfd != nullptr) {
     if (from_edit.has_log_number_) {
       if (cfd->GetLogNumber() > from_edit.log_number_) {
@@ -4155,24 +4156,24 @@ Status VersionSet::ExtractInfoFromVersionEdit(
   }
 
   if (from_edit.has_prev_log_number_) {
-      to_edit->SetPrevLogNumber(from_edit.prev_log_number_);
+    to_edit->SetPrevLogNumber(from_edit.prev_log_number_);
   }
 
   if (from_edit.has_next_file_number_) {
-      to_edit->SetNextFile(from_edit.next_file_number_);
+    to_edit->SetNextFile(from_edit.next_file_number_);
   }
 
   if (from_edit.has_max_column_family_) {
-      to_edit->SetMaxColumnFamily(from_edit.max_column_family_);
+    to_edit->SetMaxColumnFamily(from_edit.max_column_family_);
   }
 
   if (from_edit.has_min_log_number_to_keep_) {
-    to_edit->min_log_number_to_keep_ =
-        std::max(to_edit->min_log_number_to_keep_, from_edit.min_log_number_to_keep_);
+    to_edit->min_log_number_to_keep_ = std::max(
+        to_edit->min_log_number_to_keep_, from_edit.min_log_number_to_keep_);
   }
 
   if (from_edit.has_last_sequence_) {
-      to_edit->SetLastSequence(from_edit.last_sequence_);
+    to_edit->SetLastSequence(from_edit.last_sequence_);
   }
   return Status::OK();
 }
@@ -4212,7 +4213,8 @@ Status VersionSet::ReadAndRecover(
     const std::unordered_map<std::string, ColumnFamilyOptions>& name_to_options,
     std::unordered_map<int, std::string>& column_families_not_found,
     std::unordered_map<uint32_t, std::unique_ptr<BaseReferencedVersionBuilder>>&
-        builders, VersionEdit* version_edit, std::string* db_id) {
+        builders,
+    VersionEdit* version_edit, std::string* db_id) {
   assert(reader != nullptr);
   assert(read_buffer != nullptr);
   Status s;
@@ -4226,7 +4228,8 @@ Status VersionSet::ReadAndRecover(
       break;
     }
     if (db_id != nullptr && edit.has_db_id_) {
-        db_id->assign(edit.GetDbId());
+      db_id->assign(edit.GetDbId());
+      db_id_ = *db_id;
     }
     s = read_buffer->AddEdit(&edit);
     if (!s.ok()) {
@@ -4237,9 +4240,9 @@ Status VersionSet::ReadAndRecover(
         // Apply edits in an atomic group when we have read all edits in the
         // group.
         for (auto& e : read_buffer->replay_buffer()) {
-          s = ApplyOneVersionEditToBuilder(
-              e, name_to_options, column_families_not_found, builders,
-              version_edit);
+          s = ApplyOneVersionEditToBuilder(e, name_to_options,
+                                           column_families_not_found, builders,
+                                           version_edit);
           if (!s.ok()) {
             break;
           }
@@ -4252,9 +4255,9 @@ Status VersionSet::ReadAndRecover(
       }
     } else {
       // Apply a normal edit immediately.
-      s = ApplyOneVersionEditToBuilder(
-          edit, name_to_options, column_families_not_found, builders,
-          version_edit);
+      s = ApplyOneVersionEditToBuilder(edit, name_to_options,
+                                       column_families_not_found, builders,
+                                       version_edit);
       if (s.ok()) {
         recovered_edits++;
       }
@@ -4270,8 +4273,8 @@ Status VersionSet::ReadAndRecover(
 }
 
 Status VersionSet::Recover(
-    const std::vector<ColumnFamilyDescriptor>& column_families,
-    bool read_only, std::string* db_id) {
+    const std::vector<ColumnFamilyDescriptor>& column_families, bool read_only,
+    std::string* db_id) {
   std::unordered_map<std::string, ColumnFamilyOptions> cf_name_to_options;
   for (auto cf : column_families) {
     cf_name_to_options.insert({cf.name, cf.options});
@@ -4310,16 +4313,16 @@ Status VersionSet::Recover(
     return s;
   }
 
-//  bool have_log_number = false;
-//  bool have_prev_log_number = false;
-//  bool have_next_file = false;
-//  bool have_last_sequence = false;
-//  uint64_t next_file = 0;
-//  uint64_t last_sequence = 0;
-//  uint64_t log_number = 0;
-//  uint64_t previous_log_number = 0;
-//  uint32_t max_column_family = 0;
-//  uint64_t min_log_number_to_keep = 0;
+  //  bool have_log_number = false;
+  //  bool have_prev_log_number = false;
+  //  bool have_next_file = false;
+  //  bool have_last_sequence = false;
+  //  uint64_t next_file = 0;
+  //  uint64_t last_sequence = 0;
+  //  uint64_t log_number = 0;
+  //  uint64_t previous_log_number = 0;
+  //  uint32_t max_column_family = 0;
+  //  uint64_t min_log_number_to_keep = 0;
   std::unordered_map<uint32_t, std::unique_ptr<BaseReferencedVersionBuilder>>
       builders;
 
@@ -4348,9 +4351,9 @@ Status VersionSet::Recover(
     Slice record;
     std::string scratch;
     AtomicGroupReadBuffer read_buffer;
-    s = ReadAndRecover(
-        &reader, &read_buffer, cf_name_to_options, column_families_not_found,
-        builders, &version_edit, db_id);
+    s = ReadAndRecover(&reader, &read_buffer, cf_name_to_options,
+                       column_families_not_found, builders, &version_edit,
+                       db_id);
   }
 
   if (s.ok()) {
@@ -4363,7 +4366,7 @@ Status VersionSet::Recover(
     }
 
     if (!version_edit.has_prev_log_number_) {
-        version_edit.SetPrevLogNumber(0);
+      version_edit.SetPrevLogNumber(0);
     }
 
     column_family_set_->UpdateMaxColumnFamily(version_edit.max_column_family_);
@@ -4849,14 +4852,16 @@ Status VersionSet::WriteSnapshot(log::Writer* log) {
   // (the same single thread), so we're safe to iterate.
 
   if (db_options_->write_dbid_to_manifest) {
-    DBImpl db_impl(DBOptions(), dbname_, true, false);
-    std::string db_id;
-    Status found_dbid = db_impl.GetDbIdentity(db_id);
-    if (!found_dbid.ok()) {
-      return found_dbid;
-    }
+    //    DBOptions db_opts;
+    //    db_opts.env = db_options_->env;
+    //    DBImpl db_impl(db_opts, dbname_, true, false);
+    //    std::string db_id;
+    //    Status found_dbid = db_impl.GetDbIdentity(db_id);
+    //    if (!found_dbid.ok()) {
+    //      return found_dbid;
+    //    }
     VersionEdit edit_for_db_id;
-    edit_for_db_id.SetDBId(db_id);
+    edit_for_db_id.SetDBId(db_id_);
     std::string db_id_record;
     if (!edit_for_db_id.EncodeTo(&db_id_record)) {
       return Status::Corruption("Unable to Encode VersionEdit:" +
@@ -4921,15 +4926,14 @@ Status VersionSet::WriteSnapshot(log::Writer* log) {
       }
     }
   }
-//  if (db_options_->write_dbid_to_manifest) {
-//    std::string mp;
-//    GetCurrentManifestPath(dbname_, env_, &mp, &manifest_file_number_);
-//    std::string temp = "--path="+mp;
-//    char **argv = DBImpl::new_argv(4, "ldb", "manifest_dump", "--verbose", temp.c_str());
-//    int argc = 4;
-//    rocksdb::LDBTool tool;
-//    tool.Run(argc, argv);
-//  }
+  //  if (db_options_->write_dbid_to_manifest) {
+  //    std::string mp;
+  //    GetCurrentManifestPath(dbname_, env_, &mp, &manifest_file_number_);
+  //    std::string temp = "--path="+mp;
+  //    char **argv = DBImpl::new_argv(4, "ldb", "manifest_dump", "--verbose",
+  //    temp.c_str()); int argc = 4; rocksdb::LDBTool tool; tool.Run(argc,
+  //    argv);
+  //  }
   return Status::OK();
 }
 
@@ -5473,11 +5477,12 @@ Status ReactiveVersionSet::Recover(
     assert(reader != nullptr);
     Slice record;
     std::string scratch;
-    s = ReadAndRecover(
-        reader, &read_buffer_, cf_name_to_options, column_families_not_found,
-        builders, &version_edit);
+    s = ReadAndRecover(reader, &read_buffer_, cf_name_to_options,
+                       column_families_not_found, builders, &version_edit);
     if (s.ok()) {
-      bool enough = version_edit.has_next_file_number_ && version_edit.has_log_number_ && version_edit.has_last_sequence_;
+      bool enough = version_edit.has_next_file_number_ &&
+                    version_edit.has_log_number_ &&
+                    version_edit.has_last_sequence_;
       if (enough) {
         for (const auto& cf : column_families) {
           auto cfd = column_family_set_->GetColumnFamily(cf.name);
@@ -5520,7 +5525,7 @@ Status ReactiveVersionSet::Recover(
 
   if (s.ok()) {
     if (!version_edit.has_prev_log_number_) {
-        version_edit.prev_log_number_ = 0;
+      version_edit.prev_log_number_ = 0;
     }
     column_family_set_->UpdateMaxColumnFamily(version_edit.max_column_family_);
 
@@ -5619,8 +5624,7 @@ Status ReactiveVersionSet::ReadAndApply(
           // Apply edits in an atomic group when we have read all edits in the
           // group.
           for (auto& e : read_buffer_.replay_buffer()) {
-            s = ApplyOneVersionEditToBuilder(
-                e, cfds_changed, &temp_edit);
+            s = ApplyOneVersionEditToBuilder(e, cfds_changed, &temp_edit);
             if (!s.ok()) {
               break;
             }
@@ -5633,8 +5637,7 @@ Status ReactiveVersionSet::ReadAndApply(
         }
       } else {
         // Apply a normal edit immediately.
-        s = ApplyOneVersionEditToBuilder(
-            edit, cfds_changed, &temp_edit);
+        s = ApplyOneVersionEditToBuilder(edit, cfds_changed, &temp_edit);
         if (s.ok()) {
           applied_edits++;
         }
@@ -5747,8 +5750,7 @@ Status ReactiveVersionSet::ApplyOneVersionEditToBuilder(
   } else {
     builder->Apply(&edit);
   }
-  Status s = ExtractInfoFromVersionEdit(
-      cfd, edit, version_edit);
+  Status s = ExtractInfoFromVersionEdit(cfd, edit, version_edit);
   if (!s.ok()) {
     return s;
   }

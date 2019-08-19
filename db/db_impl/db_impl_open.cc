@@ -399,17 +399,18 @@ Status DBImpl::Recover(
       }
     }
   }
-//  if (immutable_db_options_.write_dbid_to_manifest) {
-//    std::string mp;
-//    versions_->GetCurrentManifestPath(dbname_, env_, &mp,
-//                                      &versions_->manifest_file_number_);
-//    std::string temp = "--path=" + mp;
-//    char** argv =
-//        DBImpl::new_argv(4, "ldb", "manifest_dump", "--verbose", temp.c_str());
-//    int argc = 4;
-//    rocksdb::LDBTool tool;
-//    tool.Run(argc, argv);
-//  }
+  //  if (immutable_db_options_.write_dbid_to_manifest) {
+  //    std::string mp;
+  //    versions_->GetCurrentManifestPath(dbname_, env_, &mp,
+  //                                      &versions_->manifest_file_number_);
+  //    std::string temp = "--path=" + mp;
+  //    char** argv =
+  //        DBImpl::new_argv(4, "ldb", "manifest_dump", "--verbose",
+  //        temp.c_str());
+  //    int argc = 4;
+  //    rocksdb::LDBTool tool;
+  //    tool.Run(argc, argv);
+  //  }
   Status s;
   if (immutable_db_options_.write_dbid_to_manifest && db_id_.empty()) {
     assert(!is_new_db);
