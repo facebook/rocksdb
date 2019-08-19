@@ -3,7 +3,7 @@
 ### Bug Fixes
 * Fixed a number of data races in BlobDB.
 ### New Features
-* VerifyChecksum() by default will issue readahead. Allow ReadOptions to be passed in to those functions to override the readhead size. For checksum verifying before external SST file ingestion, a new option IngestExternalFileOptions.verify_checksums_readahead_size for this readahead setting.
+* VerifyChecksum() by default will issue readahead. Allow ReadOptions to be passed in to those functions to override the readhead size. For checksum verifying before external SST file ingestion, a new option IngestExternalFileOptions.verify_checksums_readahead_size, is added for this readahead setting.
 
 ## 6.4.0 (7/30/2019)
 ### Default Option Change
