@@ -3,6 +3,7 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
+#include <array>
 #include "table/block_based/full_filter_block.h"
 
 #ifdef ROCKSDB_MALLOC_USABLE_SIZE
