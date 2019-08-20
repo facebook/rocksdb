@@ -1,4 +1,7 @@
 # Rocksdb Change Log
+## 6.4.1 (8/20/2019)
+### Bug Fixes
+* Fix a bug where the compaction snapshot refresh feature is not disabled as advertised when `snap_refresh_nanos` is set to 0..
 
 ## 6.4.0 (7/30/2019)
 ### Default Option Change
