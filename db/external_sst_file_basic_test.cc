@@ -745,6 +745,57 @@ TEST_F(ExternalSSTFileBasicTest, SyncFailure) {
   }
 }
 
+TEST_F(ExternalSSTFileBasicTest, VerifyChecksumReadahead) {
+  Options options;
+  options.create_if_missing = true;
+  SpecialEnv senv(Env::Default());
+  options.env = &senv;
+  DestroyAndReopen(options);
+
+  Options sst_file_writer_options;
+  std::unique_ptr<SstFileWriter> sst_file_writer(
+      new SstFileWriter(EnvOptions(), sst_file_writer_options));
+  std::string file_name = sst_files_dir_ + "verify_checksum_readahead_test.sst";
+  ASSERT_OK(sst_file_writer->Open(file_name));
+  Random rnd(301);
+  std::string value = DBTestBase::RandomString(&rnd, 4000);
+  for (int i = 0; i < 5000; i++) {
+    ASSERT_OK(sst_file_writer->Put(DBTestBase::Key(i), value));
+  }
+  ASSERT_OK(sst_file_writer->Finish());
+
+  // Ingest it once without verifying checksums to see the baseline
+  // preads.
+  IngestExternalFileOptions ingest_opt;
+  ingest_opt.move_files = false;
+  senv.count_random_reads_ = true;
+  senv.random_read_bytes_counter_ = 0;
+  ASSERT_OK(db_->IngestExternalFile({file_name}, ingest_opt));
+
+  auto base_num_reads = senv.random_read_counter_.Read();
+  // Make sure the counter is enabled.
+  ASSERT_GT(base_num_reads, 0);
+
+  // Ingest again and observe the reads made for for readahead.
+  ingest_opt.move_files = false;
+  ingest_opt.verify_checksums_before_ingest = true;
+  ingest_opt.verify_checksums_readahead_size = size_t{2 * 1024 * 1024};
+
+  senv.count_random_reads_ = true;
+  senv.random_read_bytes_counter_ = 0;
+  ASSERT_OK(db_->IngestExternalFile({file_name}, ingest_opt));
+
+  // Make sure the counter is enabled.
+  ASSERT_GT(senv.random_read_counter_.Read() - base_num_reads, 0);
+
+  // The SST file is about 20MB. Readahead size is 2MB.
+  // Give a conservative 15 reads for metadata blocks, the number
+  // of random reads should be within 20 MB / 2MB + 15 = 25.
+  ASSERT_LE(senv.random_read_counter_.Read() - base_num_reads, 40);
+
+  Destroy(options);
+}
+
 TEST_P(ExternalSSTFileBasicTest, IngestionWithRangeDeletions) {
   int kNumLevels = 7;
   Options options = CurrentOptions();

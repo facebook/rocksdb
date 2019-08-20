@@ -350,8 +350,10 @@ Status ExternalSstFileIngestionJob::GetIngestedFileInfo(
     // If customized readahead size is needed, we can pass a user option
     // all the way to here. Right now we just rely on the default readahead
     // to keep things simple.
+    ReadOptions ro;
+    ro.readahead_size = ingestion_options_.verify_checksums_readahead_size;
     status = table_reader->VerifyChecksum(
-        ReadOptions(), TableReaderCaller::kExternalSSTIngestion);
+        ro, TableReaderCaller::kExternalSSTIngestion);
   }
   if (!status.ok()) {
     return status;
