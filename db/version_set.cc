@@ -4316,16 +4316,6 @@ Status VersionSet::Recover(
     return s;
   }
 
-  //  bool have_log_number = false;
-  //  bool have_prev_log_number = false;
-  //  bool have_next_file = false;
-  //  bool have_last_sequence = false;
-  //  uint64_t next_file = 0;
-  //  uint64_t last_sequence = 0;
-  //  uint64_t log_number = 0;
-  //  uint64_t previous_log_number = 0;
-  //  uint32_t max_column_family = 0;
-  //  uint64_t min_log_number_to_keep = 0;
   std::unordered_map<uint32_t, std::unique_ptr<BaseReferencedVersionBuilder>>
       builders;
 
@@ -4836,7 +4826,6 @@ void VersionSet::MarkFileNumberUsed(uint64_t number) {
     next_file_number_.store(number + 1, std::memory_order_relaxed);
   }
 }
-
 // Called only either from ::LogAndApply which is protected by mutex or during
 // recovery which is single-threaded.
 void VersionSet::MarkMinLogNumberToKeep2PC(uint64_t number) {
@@ -4855,16 +4844,18 @@ Status VersionSet::WriteCurrentStateToManifest(log::Writer* log) {
   // (the same single thread), so we're safe to iterate.
 
   if (db_options_->write_dbid_to_manifest) {
-    VersionEdit edit_for_db_id;
-    edit_for_db_id.SetDBId(db_id_);
-    std::string db_id_record;
-    if (!edit_for_db_id.EncodeTo(&db_id_record)) {
-      return Status::Corruption("Unable to Encode VersionEdit:" +
-                                edit_for_db_id.DebugString(true));
-    }
-    Status add_record = log->AddRecord(db_id_record);
-    if (!add_record.ok()) {
-      return add_record;
+    if (!db_id_.empty()) {
+      VersionEdit edit_for_db_id;
+      edit_for_db_id.SetDBId(db_id_);
+      std::string db_id_record;
+      if (!edit_for_db_id.EncodeTo(&db_id_record)) {
+        return Status::Corruption("Unable to Encode VersionEdit:" +
+                                  edit_for_db_id.DebugString(true));
+      }
+      Status add_record = log->AddRecord(db_id_record);
+      if (!add_record.ok()) {
+        return add_record;
+      }
     }
   }
 

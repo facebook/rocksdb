@@ -1096,7 +1096,7 @@ struct DBOptions {
   // 2. Since the source of truth for DB is Manifest file DB ID will sit with
   //    the source of truth. Previously the Identity file could be copied
   //    independent of Manifest and that can result in wrong DB ID.
-  bool write_dbid_to_manifest = true;
+  bool write_dbid_to_manifest = false;
 
   // The number of bytes to prefetch when reading the log. This is mostly useful
   // for reading a remotely located log, as it can save the number of

@@ -44,31 +44,31 @@ TEST_F(DBBasicTest, ReadOnlyDB) {
   ASSERT_OK(Put("foo", "v3"));
   Close();
 
-  //  auto options = CurrentOptions();
-  //  options.write_dbid_to_manifest = true;
-  //  assert(options.env == env_);
-  //  ASSERT_OK(ReadOnlyReopen(options));
-  //  ASSERT_EQ("v3", Get("foo"));
-  //  ASSERT_EQ("v2", Get("bar"));
-  //  Iterator* iter = db_->NewIterator(ReadOptions());
-  //  int count = 0;
-  //  for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
-  //    ASSERT_OK(iter->status());
-  //    ++count;
-  //  }
-  //  ASSERT_EQ(count, 2);
-  //  delete iter;
-  //  Close();
-  //
-  //  // Reopen and flush memtable.
-  //  Reopen(options);
-  //  Flush();
-  //  Close();
-  //  // Now check keys in read only mode.
-  //  ASSERT_OK(ReadOnlyReopen(options));
-  //  ASSERT_EQ("v3", Get("foo"));
-  //  ASSERT_EQ("v2", Get("bar"));
-  //  ASSERT_TRUE(db_->SyncWAL().IsNotSupported());
+  auto options = CurrentOptions();
+  options.write_dbid_to_manifest = true;
+  assert(options.env == env_);
+  ASSERT_OK(ReadOnlyReopen(options));
+  ASSERT_EQ("v3", Get("foo"));
+  ASSERT_EQ("v2", Get("bar"));
+  Iterator* iter = db_->NewIterator(ReadOptions());
+  int count = 0;
+  for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
+    ASSERT_OK(iter->status());
+    ++count;
+  }
+  ASSERT_EQ(count, 2);
+  delete iter;
+  Close();
+
+  // Reopen and flush memtable.
+  Reopen(options);
+  Flush();
+  Close();
+  // Now check keys in read only mode.
+  ASSERT_OK(ReadOnlyReopen(options));
+  ASSERT_EQ("v3", Get("foo"));
+  ASSERT_EQ("v2", Get("bar"));
+  ASSERT_TRUE(db_->SyncWAL().IsNotSupported());
 }
 
 TEST_F(DBBasicTest, CompactedDB) {

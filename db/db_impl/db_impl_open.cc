@@ -418,6 +418,18 @@ Status DBImpl::Recover(
   } else {
     s = versions_->Recover(column_families, read_only);
   }
+  if (db_id_.empty()) {
+    GetDbIdentityFromIdentityFile(db_id_);
+    if (immutable_db_options_.write_dbid_to_manifest) {
+      VersionEdit edit;
+      edit.SetDBId(db_id_);
+      Options options;
+      MutableCFOptions mutable_cf_options(options);
+      versions_->LogAndApply(versions_->GetColumnFamilySet()->GetDefault(),
+                             mutable_cf_options, &edit, &mutex_, nullptr,
+                             false);
+    }
+  }
   if (immutable_db_options_.paranoid_checks && s.ok()) {
     s = CheckConsistency();
   }
