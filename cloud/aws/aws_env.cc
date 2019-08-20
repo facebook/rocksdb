@@ -258,11 +258,9 @@ Aws::S3::Model::HeadObjectOutcome AwsS3ClientWrapper::HeadObject(
 // The AWS credentials are specified to the constructor via
 // access_key_id and secret_key.
 //
-AwsEnv::AwsEnv(Env* underlying_env,
-               const CloudEnvOptions& _cloud_env_options,
-               const std::shared_ptr<Logger> & info_log)
-    : CloudEnvImpl(_cloud_env_options,
-                   underlying_env),
+AwsEnv::AwsEnv(Env* underlying_env, const CloudEnvOptions& _cloud_env_options,
+               const std::shared_ptr<Logger>& info_log)
+    : CloudEnvImpl(_cloud_env_options, underlying_env),
       info_log_(info_log),
       running_(true) {
   Aws::InitAPI(Aws::SDKOptions());

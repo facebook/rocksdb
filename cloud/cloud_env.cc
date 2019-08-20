@@ -31,9 +31,9 @@ bool CloudEnvOptions::GetNameFromEnvironment(const char *name, const char *alt, 
     return false;                           // No, return not found
   }
 }
-void CloudEnvOptions::TEST_Initialize(const std::string & bucket,
-				    const std::string & object,
-				    const std::string & region) {
+void CloudEnvOptions::TEST_Initialize(const std::string& bucket,
+                                      const std::string& object,
+                                      const std::string& region) {
   src_bucket.TEST_Initialize(bucket, object, region);
   dest_bucket = src_bucket;
 }
@@ -42,8 +42,8 @@ BucketOptions::BucketOptions() {
     prefix_ = "rockset.";
 }
 
-void BucketOptions::SetBucketName(const std::string & bucket,
-				  const std::string & prefix) {
+void BucketOptions::SetBucketName(const std::string& bucket,
+                                  const std::string& prefix) {
   if (!prefix.empty()) {
     prefix_ = prefix;
   }
@@ -56,30 +56,32 @@ void BucketOptions::SetBucketName(const std::string & bucket,
   }
 }
 
-
 // Initializes the bucket properties
 
-void BucketOptions::TEST_Initialize(const std::string & bucket,
-				    const std::string & object,
-				    const std::string & region) {
+void BucketOptions::TEST_Initialize(const std::string& bucket,
+                                    const std::string& object,
+                                    const std::string& region) {
   std::string prefix;
   // If the bucket name is not set, then the bucket name is not set,
   // Set it to either the value of the environment variable or geteuid
-  if (! CloudEnvOptions::GetNameFromEnvironment("ROCKSDB_CLOUD_TEST_BUCKET_NAME",
-						"ROCKSDB_CLOUD_BUCKET_NAME", &bucket_)) {
+  if (!CloudEnvOptions::GetNameFromEnvironment("ROCKSDB_CLOUD_TEST_BUCKET_NAME",
+                                               "ROCKSDB_CLOUD_BUCKET_NAME",
+                                               &bucket_)) {
     bucket_ = bucket + std::to_string(geteuid());
   }
-  if (CloudEnvOptions::GetNameFromEnvironment("ROCKSDB_CLOUD_TEST_BUCKET_PREFIX",
-					      "ROCKSDB_CLOUD_BUCKET_PREFIX", &prefix)) {
+  if (CloudEnvOptions::GetNameFromEnvironment(
+          "ROCKSDB_CLOUD_TEST_BUCKET_PREFIX", "ROCKSDB_CLOUD_BUCKET_PREFIX",
+          &prefix)) {
     prefix_ = prefix;
   }
   name_ = prefix_ + bucket_;
-  if (! CloudEnvOptions::GetNameFromEnvironment("ROCKSDB_CLOUD_TEST_OBECT_PATH",
-						"ROCKSDB_CLOUD_OBJECT_PATH", &object_)) {
+  if (!CloudEnvOptions::GetNameFromEnvironment("ROCKSDB_CLOUD_TEST_OBECT_PATH",
+                                               "ROCKSDB_CLOUD_OBJECT_PATH",
+                                               &object_)) {
     object_ = object;
   }
-  if (! CloudEnvOptions::GetNameFromEnvironment("ROCKSDB_CLOUD_TEST_REGION",
-						"ROCKSDB_CLOUD_REGION", &region_)) {
+  if (!CloudEnvOptions::GetNameFromEnvironment(
+          "ROCKSDB_CLOUD_TEST_REGION", "ROCKSDB_CLOUD_REGION", &region_)) {
     region_ = region;
   }
 }
@@ -88,137 +90,12 @@ CloudEnv::~CloudEnv() {}
 
 CloudEnvWrapper::~CloudEnvWrapper() {}
 
-CloudEnvImpl::CloudEnvImpl(const CloudEnvOptions& opts, Env* base_env)
-  : CloudEnv(opts),
-      base_env_(base_env), purger_is_running_(true) {}
-
-CloudEnvImpl::~CloudEnvImpl() { StopPurger(); }
-
-void CloudEnvImpl::StopPurger() {
-  {
-    std::lock_guard<std::mutex> lk(purger_lock_);
-    purger_is_running_ = false;
-    purger_cv_.notify_one();
-  }
-
-  // wait for the purger to stop
-  if (purge_thread_.joinable()) {
-    purge_thread_.join();
-  }
-}
-
-Status CloudEnvImpl::LoadLocalCloudManifest(const std::string& dbname) {
-  if (cloud_manifest_) {
-    cloud_manifest_.reset();
-  }
-  unique_ptr<SequentialFile> file;
-  auto cloudManifestFile = CloudManifestFile(dbname);
-  auto s = GetBaseEnv()->NewSequentialFile(cloudManifestFile, &file, EnvOptions());
-  if (!s.ok()) {
-    return s;
-  }
-  return CloudManifest::LoadFromLog(
-      unique_ptr<SequentialFileReader>(
-          new SequentialFileReader(std::move(file), cloudManifestFile)),
-      &cloud_manifest_);
-}
-
-std::string CloudEnvImpl::RemapFilename(const std::string& logical_path) const {
-  if (UNLIKELY(GetCloudType() == CloudType::kCloudNone) ||
-      UNLIKELY(test_disable_cloud_manifest_)) {
-    return logical_path;
-  }
-  auto file_name = basename(logical_path);
-  uint64_t fileNumber;
-  FileType type;
-  WalFileType walType;
-  if (file_name == "MANIFEST") {
-    type = kDescriptorFile;
-  } else {
-    bool ok = ParseFileName(file_name, &fileNumber, &type, &walType);
-    if (!ok) {
-      return logical_path;
-    }
-  }
-  Slice epoch;
-  switch (type) {
-    case kTableFile:
-      // We should not be accessing sst files before CLOUDMANIFEST is loaded
-      assert(cloud_manifest_);
-      epoch = cloud_manifest_->GetEpoch(fileNumber);
-      break;
-    case kDescriptorFile:
-      // We should not be accessing MANIFEST files before CLOUDMANIFEST is
-      // loaded
-      assert(cloud_manifest_);
-      // Even though logical file might say MANIFEST-000001, we cut the number
-      // suffix and store MANIFEST-[epoch] in the cloud and locally.
-      file_name = "MANIFEST";
-      epoch = cloud_manifest_->GetCurrentEpoch();
-      break;
-    default:
-      return logical_path;
-  };
-  auto dir = dirname(logical_path);
-  return dir + (dir.empty() ? "" : "/") + file_name +
-         (epoch.empty() ? "" : ("-" + epoch.ToString()));
-}
-
-Status CloudEnvImpl::DeleteInvisibleFiles(const std::string& dbname) {
-  Status s;
-  if (HasDestBucket()) {
-    BucketObjectMetadata metadata;
-    s = ListObjects(GetDestBucketName(), GetDestObjectPath(), &metadata);
-    if (!s.ok()) {
-      return s;
-    }
-
-    for (auto& fname : metadata.pathnames) {
-      auto noepoch = RemoveEpoch(fname);
-      if (IsSstFile(noepoch) || IsManifestFile(noepoch)) {
-        if (RemapFilename(noepoch) != fname) {
-          // Ignore returned status on purpose.
-          Log(InfoLogLevel::INFO_LEVEL, info_log_,
-              "DeleteInvisibleFiles deleting %s from destination bucket",
-              fname.c_str());
-          DeleteCloudFileFromDest(fname);
-        }
-      }
-    }
-  }
-  std::vector<std::string> children;
-  s = GetBaseEnv()->GetChildren(dbname, &children);
-  if (!s.ok()) {
-    return s;
-  }
-  for (auto& fname : children) {
-    auto noepoch = RemoveEpoch(fname);
-    if (IsSstFile(noepoch) || IsManifestFile(noepoch)) {
-      if (RemapFilename(RemoveEpoch(fname)) != fname) {
-        // Ignore returned status on purpose.
-        Log(InfoLogLevel::INFO_LEVEL, info_log_,
-            "DeleteInvisibleFiles deleting file %s from local dir",
-            fname.c_str());
-        GetBaseEnv()->DeleteFile(dbname + "/" + fname);
-      }
-    }
-  }
-  return s;
-}
-
-void CloudEnvImpl::TEST_InitEmptyCloudManifest() {
-  CloudManifest::CreateForEmptyDatabase("", &cloud_manifest_);
-}
-
-Status CloudEnv::NewAwsEnv(Env* base_env,
-			   const std::string& src_cloud_bucket,
-                           const std::string& src_cloud_object,
-                           const std::string& src_cloud_region,
-                           const std::string& dest_cloud_bucket,
-                           const std::string& dest_cloud_object,
-                           const std::string& dest_cloud_region,
-                           const CloudEnvOptions& cloud_options,
-                           const std::shared_ptr<Logger> & logger, CloudEnv** cenv) {
+Status CloudEnv::NewAwsEnv(
+    Env* base_env, const std::string& src_cloud_bucket,
+    const std::string& src_cloud_object, const std::string& src_cloud_region,
+    const std::string& dest_cloud_bucket, const std::string& dest_cloud_object,
+    const std::string& dest_cloud_region, const CloudEnvOptions& cloud_options,
+    const std::shared_ptr<Logger>& logger, CloudEnv** cenv) {
   CloudEnvOptions options = cloud_options;
   if (!src_cloud_bucket.empty()) options.src_bucket.SetBucketName(src_cloud_bucket);
   if (!src_cloud_object.empty()) options.src_bucket.SetObjectPath(src_cloud_object);
