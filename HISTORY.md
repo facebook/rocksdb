@@ -1,4 +1,8 @@
 # Rocksdb Change Log
+## 6.3.3 (8/20/2019)
+### Bug Fixes
+* Fix a bug where the compaction snapshot refresh feature is not disabled as advertised when `snap_refresh_nanos` is set to 0..
+
 ## 6.3.2 (8/15/2019)
 ### Public API Change
 * The semantics of the per-block-type block read counts in the performance context now match those of the generic block_read_count.
