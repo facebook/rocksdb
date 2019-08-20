@@ -964,7 +964,7 @@ TEST_F(CompactionJobTest, SnapshotRefresh) {
    public:
     SnapshotListFetchCallbackTest(Env* env, Random64& rand,
                                   std::vector<SequenceNumber>* snapshots)
-        : SnapshotListFetchCallback(env, 0 /*no time delay*/,
+        : SnapshotListFetchCallback(env, 1 /*short time delay*/,
                                     1 /*fetch after each key*/),
           rand_(rand),
           snapshots_(snapshots) {}

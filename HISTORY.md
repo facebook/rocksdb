@@ -2,6 +2,7 @@
 ## Unreleased
 ### Bug Fixes
 * Fixed a number of data races in BlobDB.
+* Fix a bug where the compaction snapshot refresh feature is not disabled as advertised when `snap_refresh_nanos` is set to 0..
 ### New Features
 * VerifyChecksum() by default will issue readahead. Allow ReadOptions to be passed in to those functions to override the readhead size.
 
