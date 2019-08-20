@@ -39,6 +39,7 @@ class SnapshotListFetchCallback {
   virtual void Refresh(std::vector<SequenceNumber>* snapshots,
                        SequenceNumber max) = 0;
   inline bool TimeToRefresh(const size_t key_index) {
+    assert(snap_refresh_nanos_ != 0);
     // skip the key if key_index % every_nth_key (which is of power 2) is not 0.
     if ((key_index & every_nth_key_minus_one_) != 0) {
       return false;

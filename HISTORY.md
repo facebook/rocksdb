@@ -1,4 +1,8 @@
 # Rocksdb Change Log
+## 6.2.4 (9/18/2019)
+### Bug Fixes
+* Disable snap_refresh_nanos by default. The feature is to be deprecated in the next release.
+
 ## 6.2.3 (9/3/2019)
 ### Bug Fixes
 * Fix a bug in file ingestion caused by incorrect file number allocation when the number of column families involved in the ingestion exceeds 2.
