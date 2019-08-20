@@ -2080,27 +2080,6 @@ TBlockIter* BlockBasedTable::NewDataBlockIterator(
   return iter;
 }
 
-// Lookup the cache for the given data block referenced by an index iterator
-// value (i.e BlockHandle). If it exists in the cache, initialize block to
-// the contents of the data block.
-Status BlockBasedTable::GetDataBlockFromCache(
-    const ReadOptions& ro, const BlockHandle& handle,
-    const UncompressionDict& uncompression_dict,
-    CachableEntry<Block>* block, BlockType block_type,
-    GetContext* get_context) const {
-  BlockCacheLookupContext lookup_data_block_context(
-      TableReaderCaller::kUserMultiGet);
-  assert(block_type == BlockType::kData);
-  Status s = RetrieveBlock(nullptr, ro, handle, uncompression_dict, block,
-                           block_type, get_context, &lookup_data_block_context,
-                           /* for_compaction */ false, /* use_cache */ true);
-  if (s.IsIncomplete()) {
-    s = Status::OK();
-  }
-
-  return s;
-}
-
 // If contents is nullptr, this function looks up the block caches for the
 // data block referenced by handle, and read the block from disk if necessary.
 // If contents is non-null, it skips the cache lookup and disk read, since
@@ -2275,7 +2254,7 @@ Status BlockBasedTable::MaybeReadBlockAndLoadToCache(
 //         found in cache
 // handles - A vector of block handles. Some of them me be NULL handles
 // scratch - An optional contiguous buffer to read compressed blocks into
-void BlockBasedTable::MaybeLoadBlocksToCache(
+void BlockBasedTable::RetrieveMultipleBlock(
     const ReadOptions& options,
     const MultiGetRange* batch,
     const autovector<BlockHandle, MultiGetContext::MAX_BATCH_SIZE>*  handles,
@@ -3448,10 +3427,20 @@ void BlockBasedTable::MultiGet(const ReadOptions& read_options,
           block_handles.emplace_back(BlockHandle::NullBlockHandle());
           continue;
         }
+        // Lookup the cache for the given data block referenced by an index
+        // iterator value (i.e BlockHandle). If it exists in the cache,
+        // initialize block to the contents of the data block.
         offset = v.handle.offset();
         BlockHandle handle = v.handle;
-        Status s = GetDataBlockFromCache(ro, handle, uncompression_dict,
-              &(results.back()), BlockType::kData, miter->get_context);
+        BlockCacheLookupContext lookup_data_block_context(
+            TableReaderCaller::kUserMultiGet);
+        Status s = RetrieveBlock(nullptr, ro, handle, uncompression_dict,
+                          &(results.back()), BlockType::kData,
+                          miter->get_context, &lookup_data_block_context,
+                          /* for_compaction */ false, /* use_cache */ true);
+        if (s.IsIncomplete()) {
+          s = Status::OK();
+        }
         if (s.ok() && !results.back().IsEmpty()) {
           // Found it in the cache. Add NULL handle to indicate there is
           // nothing to read from disk
@@ -3482,7 +3471,7 @@ void BlockBasedTable::MultiGet(const ReadOptions& read_options,
             block_buf.reset(scratch);
           }
         }
-        MaybeLoadBlocksToCache(read_options,
+        RetrieveMultipleBlock(read_options,
             &data_block_range, &block_handles, &statuses, &results,
             scratch, uncompression_dict);
       }
