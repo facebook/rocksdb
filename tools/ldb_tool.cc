@@ -122,7 +122,7 @@ int LDBCommandRunner::RunCommand(
   fprintf(stderr, "%s\n", ret.ToString().c_str());
   delete cmdObj;
 
-  exit(ret.IsFailed());
+  return ret.IsFailed() ? 1 : 0;
 }
 
 void LDBTool::Run(int argc, char** argv, Options options,
