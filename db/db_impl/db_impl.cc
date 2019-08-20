@@ -3158,6 +3158,7 @@ Status DBImpl::CheckConsistency() {
 }
 
 Status DBImpl::GetDbIdentity(std::string& identity) const {
+  assert(!db_id_.empty());
   if (immutable_db_options_.write_dbid_to_manifest) {
     std::string manifest_path;
     Status s;

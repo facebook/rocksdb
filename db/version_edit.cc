@@ -554,7 +554,7 @@ std::string VersionEdit::DebugString(bool hex_key) const {
   std::string r;
   r.append("VersionEdit {");
   if (has_db_id_) {
-    r.append("\n DB ID: ");
+    r.append("\n  DB ID: ");
     r.append(db_id_);
   }
   if (has_comparator_) {

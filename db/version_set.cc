@@ -34,7 +34,6 @@
 #include "monitoring/perf_context_imp.h"
 #include "monitoring/persistent_stats_history.h"
 #include "rocksdb/env.h"
-#include "rocksdb/ldb_tool.h"
 #include "rocksdb/merge_operator.h"
 #include "rocksdb/write_buffer_manager.h"
 #include "table/format.h"
@@ -4912,14 +4911,6 @@ Status VersionSet::WriteCurrentStateToManifest(log::Writer* log) {
       }
     }
   }
-  //  if (db_options_->write_dbid_to_manifest) {
-  //    std::string mp;
-  //    GetCurrentManifestPath(dbname_, env_, &mp, &manifest_file_number_);
-  //    std::string temp = "--path="+mp;
-  //    char **argv = DBImpl::new_argv(4, "ldb", "manifest_dump", "--verbose",
-  //    temp.c_str()); int argc = 4; rocksdb::LDBTool tool; tool.Run(argc,
-  //    argv);
-  //  }
   return Status::OK();
 }
 

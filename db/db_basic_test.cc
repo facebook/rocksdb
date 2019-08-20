@@ -71,6 +71,39 @@ TEST_F(DBBasicTest, ReadOnlyDB) {
   ASSERT_TRUE(db_->SyncWAL().IsNotSupported());
 }
 
+TEST_F(DBBasicTest, ReadOnlyDBWithWriteDBIdToManifestSet) {
+  ASSERT_OK(Put("foo", "v1"));
+  ASSERT_OK(Put("bar", "v2"));
+  ASSERT_OK(Put("foo", "v3"));
+  Close();
+
+  auto options = CurrentOptions();
+  options.write_dbid_to_manifest = true;
+  assert(options.env == env_);
+  ASSERT_OK(ReadOnlyReopen(options));
+  ASSERT_EQ("v3", Get("foo"));
+  ASSERT_EQ("v2", Get("bar"));
+  Iterator* iter = db_->NewIterator(ReadOptions());
+  int count = 0;
+  for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
+    ASSERT_OK(iter->status());
+    ++count;
+  }
+  ASSERT_EQ(count, 2);
+  delete iter;
+  Close();
+
+  // Reopen and flush memtable.
+  Reopen(options);
+  Flush();
+  Close();
+  // Now check keys in read only mode.
+  ASSERT_OK(ReadOnlyReopen(options));
+  ASSERT_EQ("v3", Get("foo"));
+  ASSERT_EQ("v2", Get("bar"));
+  ASSERT_TRUE(db_->SyncWAL().IsNotSupported());
+}
+
 TEST_F(DBBasicTest, CompactedDB) {
   const uint64_t kFileSize = 1 << 20;
   Options options = CurrentOptions();
@@ -443,7 +476,7 @@ TEST_F(DBBasicTest, IdentityAcrossRestarts1) {
     std::string id3;
     ASSERT_OK(db_->GetDbIdentity(id3));
     // id1 should NOT match id3 because identity was regenerated
-    //    ASSERT_NE(id1.compare(id3), 0);
+    ASSERT_NE(id1.compare(id3), 0);
   } while (ChangeCompactOptions());
 }
 

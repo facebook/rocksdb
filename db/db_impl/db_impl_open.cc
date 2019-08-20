@@ -15,7 +15,6 @@
 #include "file/sst_file_manager_impl.h"
 #include "monitoring/persistent_stats_history.h"
 #include "options/options_helper.h"
-#include "rocksdb/ldb_tool.h"
 #include "rocksdb/wal_filter.h"
 #include "table/block_based/block_based_table_factory.h"
 #include "test_util/sync_point.h"
@@ -356,6 +355,9 @@ Status DBImpl::Recover(
     s = env_->FileExists(CurrentFileName(dbname_));
     if (s.IsNotFound()) {
       if (immutable_db_options_.create_if_missing) {
+        // Has to be called only after Identity File creation is successful
+        // because DB ID is stored in Manifest if
+        // immutable_db_options_.write_dbid_to_manifest = true
         s = NewDB();
         is_new_db = true;
         if (!s.ok()) {
@@ -399,18 +401,6 @@ Status DBImpl::Recover(
       }
     }
   }
-  //  if (immutable_db_options_.write_dbid_to_manifest) {
-  //    std::string mp;
-  //    versions_->GetCurrentManifestPath(dbname_, env_, &mp,
-  //                                      &versions_->manifest_file_number_);
-  //    std::string temp = "--path=" + mp;
-  //    char** argv =
-  //        DBImpl::new_argv(4, "ldb", "manifest_dump", "--verbose",
-  //        temp.c_str());
-  //    int argc = 4;
-  //    rocksdb::LDBTool tool;
-  //    tool.Run(argc, argv);
-  //  }
   Status s;
   if (immutable_db_options_.write_dbid_to_manifest && db_id_.empty()) {
     assert(!is_new_db);
@@ -418,6 +408,8 @@ Status DBImpl::Recover(
   } else {
     s = versions_->Recover(column_families, read_only);
   }
+  // Happens when immutable_db_options_.write_dbid_to_manifest is set to true
+  // the very first time.
   if (db_id_.empty()) {
     GetDbIdentityFromIdentityFile(db_id_);
     if (immutable_db_options_.write_dbid_to_manifest) {
