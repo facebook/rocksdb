@@ -255,7 +255,7 @@ void FullFilterBlockReader::MayMatch(
   // declare both keys and may_match as arrays, which is also slightly less
   // expensive compared to autovector
   std::array<Slice*, MultiGetContext::MAX_BATCH_SIZE> keys;
-  std::array<bool, MultiGetContext::MAX_BATCH_SIZE> may_match = {true};
+  std::array<bool, MultiGetContext::MAX_BATCH_SIZE> may_match = {{true}};
   autovector<Slice, MultiGetContext::MAX_BATCH_SIZE> prefixes;
   int num_keys = 0;
   MultiGetRange filter_range(*range, range->begin(), range->end());
