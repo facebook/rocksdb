@@ -380,7 +380,8 @@ class DBImpl : public DB {
       const ExportImportFilesMetaData& metadata,
       ColumnFamilyHandle** handle) override;
 
-  virtual Status VerifyChecksum() override;
+  using DB::VerifyChecksum;
+  virtual Status VerifyChecksum(const ReadOptions& /*read_options*/) override;
 
   using DB::StartTrace;
   virtual Status StartTrace(
@@ -812,6 +813,13 @@ class DBImpl : public DB {
                        uint64_t* new_time,
                        std::map<std::string, uint64_t>* stats_map);
 
+  // Print information of all tombstones of all iterators to the std::string
+  // This is only used by ldb. The output might be capped. Tombstones
+  // printed out are not guaranteed to be in any order.
+  Status TablesRangeTombstoneSummary(ColumnFamilyHandle* column_family,
+                                     int max_entries_to_print,
+                                     std::string* out_str);
+
 #ifndef NDEBUG
   // Compact any files in the named level that overlap [*begin, *end]
   Status TEST_CompactRange(int level, const Slice* begin, const Slice* end,
@@ -912,7 +920,6 @@ class DBImpl : public DB {
   void TEST_WaitForPersistStatsRun(std::function<void()> callback) const;
   bool TEST_IsPersistentStatsEnabled() const;
   size_t TEST_EstimateInMemoryStatsHistorySize() const;
-
 #endif  // NDEBUG
 
  protected:

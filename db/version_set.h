@@ -630,6 +630,11 @@ class Version {
   Status GetPropertiesOfTablesInRange(const Range* range, std::size_t n,
                                       TablePropertiesCollection* props) const;
 
+  // Print summary of range delete tombstones in SST files into out_str,
+  // with maximum max_entries_to_print entries printed out.
+  Status TablesRangeTombstoneSummary(int max_entries_to_print,
+                                     std::string* out_str);
+
   // REQUIRES: lock is held
   // On success, "tp" will contains the aggregated table property among
   // the table properties of all sst files in this version.
@@ -1038,8 +1043,15 @@ class VersionSet {
     }
   };
 
+  // Returns approximated offset of a key in a file for a given version.
+  uint64_t ApproximateOffsetOf(Version* v, const FdWithKeyRange& f,
+                               const Slice& key, TableReaderCaller caller);
+
+  // Returns approximated data size between start and end keys in a file
+  // for a given version.
   uint64_t ApproximateSize(Version* v, const FdWithKeyRange& f,
-                           const Slice& key, TableReaderCaller caller);
+                           const Slice& start, const Slice& end,
+                           TableReaderCaller caller);
 
   // Save current contents to *log
   Status WriteSnapshot(log::Writer* log);

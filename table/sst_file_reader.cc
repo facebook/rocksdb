@@ -79,8 +79,9 @@ std::shared_ptr<const TableProperties> SstFileReader::GetTableProperties()
   return rep_->table_reader->GetTableProperties();
 }
 
-Status SstFileReader::VerifyChecksum() {
-  return rep_->table_reader->VerifyChecksum(TableReaderCaller::kSSTFileReader);
+Status SstFileReader::VerifyChecksum(const ReadOptions& read_options) {
+  return rep_->table_reader->VerifyChecksum(read_options,
+                                            TableReaderCaller::kSSTFileReader);
 }
 
 }  // namespace rocksdb
