@@ -277,6 +277,78 @@ Status TableCache::GetRangeTombstoneIterator(
   return s;
 }
 
+void TableCache::CreateRowCacheKeyPrefix(
+        const ReadOptions& options,
+        const FileDescriptor& fd, const Slice& internal_key,
+        GetContext* get_context, IterKey& row_cache_key) {
+  uint64_t fd_number = fd.GetNumber();
+  // We use the user key as cache key instead of the internal key,
+  // otherwise the whole cache would be invalidated every time the
+  // sequence key increases. However, to support caching snapshot
+  // reads, we append the sequence number (incremented by 1 to
+  // distinguish from 0) only in this case.
+  // If the snapshot is larger than the largest seqno in the file,
+  // all data should be exposed to the snapshot, so we treat it
+  // the same as there is no snapshot. The exception is that if
+  // a seq-checking callback is registered, some internal keys
+  // may still be filtered out.
+  uint64_t seq_no = 0;
+  // Maybe we can include the whole file ifsnapshot == fd.largest_seqno.
+  if (options.snapshot != nullptr &&
+      (get_context->has_callback() ||
+       static_cast_with_check<const SnapshotImpl, const Snapshot>(
+           options.snapshot)
+               ->GetSequenceNumber() <= fd.largest_seqno)) {
+    // We should consider to use options.snapshot->GetSequenceNumber()
+    // instead of GetInternalKeySeqno(k), which will make the code
+    // easier to understand.
+    seq_no = 1 + GetInternalKeySeqno(internal_key);
+  }
+
+  // Compute row cache key.
+  row_cache_key.TrimAppend(row_cache_key.Size(), row_cache_id_.data(),
+                           row_cache_id_.size());
+  AppendVarint64(&row_cache_key, fd_number);
+  AppendVarint64(&row_cache_key, seq_no);
+}
+
+bool TableCache::GetFromRowCache(
+          const Slice& user_key, IterKey& row_cache_key,
+          size_t prefix_size, GetContext* get_context) {
+  bool found = false;
+
+  row_cache_key.TrimAppend(prefix_size, user_key.data(),
+                           user_key.size());
+  if (auto row_handle =
+          ioptions_.row_cache->Lookup(row_cache_key.GetUserKey())) {
+    // Cleanable routine to release the cache entry
+    Cleanable value_pinner;
+    auto release_cache_entry_func = [](void* cache_to_clean,
+                                       void* cache_handle) {
+      ((Cache*)cache_to_clean)->Release((Cache::Handle*)cache_handle);
+    };
+    auto found_row_cache_entry = static_cast<const std::string*>(
+        ioptions_.row_cache->Value(row_handle));
+    // If it comes here value is located on the cache.
+    // found_row_cache_entry points to the value on cache,
+    // and value_pinner has cleanup procedure for the cached entry.
+    // After replayGetContextLog() returns, get_context.pinnable_slice_
+    // will point to cache entry buffer (or a copy based on that) and
+    // cleanup routine under value_pinner will be delegated to
+    // get_context.pinnable_slice_. Cache entry is released when
+    // get_context.pinnable_slice_ is reset.
+    value_pinner.RegisterCleanup(release_cache_entry_func,
+                                 ioptions_.row_cache.get(), row_handle);
+    replayGetContextLog(*found_row_cache_entry, user_key, get_context,
+                        &value_pinner);
+    RecordTick(ioptions_.statistics, ROW_CACHE_HIT);
+    found = true;
+  } else {
+    RecordTick(ioptions_.statistics, ROW_CACHE_MISS);
+  }
+  return found;
+}
+
 Status TableCache::Get(const ReadOptions& options,
                        const InternalKeyComparator& internal_comparator,
                        const FileMetaData& file_meta, const Slice& k,
@@ -294,66 +366,10 @@ Status TableCache::Get(const ReadOptions& options,
   // Check row cache if enabled. Since row cache does not currently store
   // sequence numbers, we cannot use it if we need to fetch the sequence.
   if (ioptions_.row_cache && !get_context->NeedToReadSequence()) {
-    uint64_t fd_number = fd.GetNumber();
     auto user_key = ExtractUserKey(k);
-    // We use the user key as cache key instead of the internal key,
-    // otherwise the whole cache would be invalidated every time the
-    // sequence key increases. However, to support caching snapshot
-    // reads, we append the sequence number (incremented by 1 to
-    // distinguish from 0) only in this case.
-    // If the snapshot is larger than the largest seqno in the file,
-    // all data should be exposed to the snapshot, so we treat it
-    // the same as there is no snapshot. The exception is that if
-    // a seq-checking callback is registered, some internal keys
-    // may still be filtered out.
-    uint64_t seq_no = 0;
-    // Maybe we can include the whole file ifsnapshot == fd.largest_seqno.
-    if (options.snapshot != nullptr &&
-        (get_context->has_callback() ||
-         static_cast_with_check<const SnapshotImpl, const Snapshot>(
-             options.snapshot)
-                 ->GetSequenceNumber() <= fd.largest_seqno)) {
-      // We should consider to use options.snapshot->GetSequenceNumber()
-      // instead of GetInternalKeySeqno(k), which will make the code
-      // easier to understand.
-      seq_no = 1 + GetInternalKeySeqno(k);
-    }
-
-    // Compute row cache key.
-    row_cache_key.TrimAppend(row_cache_key.Size(), row_cache_id_.data(),
-                             row_cache_id_.size());
-    AppendVarint64(&row_cache_key, fd_number);
-    AppendVarint64(&row_cache_key, seq_no);
-    row_cache_key.TrimAppend(row_cache_key.Size(), user_key.data(),
-                             user_key.size());
-
-    if (auto row_handle =
-            ioptions_.row_cache->Lookup(row_cache_key.GetUserKey())) {
-      // Cleanable routine to release the cache entry
-      Cleanable value_pinner;
-      auto release_cache_entry_func = [](void* cache_to_clean,
-                                         void* cache_handle) {
-        ((Cache*)cache_to_clean)->Release((Cache::Handle*)cache_handle);
-      };
-      auto found_row_cache_entry = static_cast<const std::string*>(
-          ioptions_.row_cache->Value(row_handle));
-      // If it comes here value is located on the cache.
-      // found_row_cache_entry points to the value on cache,
-      // and value_pinner has cleanup procedure for the cached entry.
-      // After replayGetContextLog() returns, get_context.pinnable_slice_
-      // will point to cache entry buffer (or a copy based on that) and
-      // cleanup routine under value_pinner will be delegated to
-      // get_context.pinnable_slice_. Cache entry is released when
-      // get_context.pinnable_slice_ is reset.
-      value_pinner.RegisterCleanup(release_cache_entry_func,
-                                   ioptions_.row_cache.get(), row_handle);
-      replayGetContextLog(*found_row_cache_entry, user_key, get_context,
-                          &value_pinner);
-      RecordTick(ioptions_.statistics, ROW_CACHE_HIT);
-      done = true;
-    } else {
-      // Not found, setting up the replay log.
-      RecordTick(ioptions_.statistics, ROW_CACHE_MISS);
+    CreateRowCacheKeyPrefix(options, fd, k, get_context, row_cache_key);
+    if (!(done = GetFromRowCache(user_key, row_cache_key,
+            row_cache_key.Size(), get_context))) {
       row_cache_entry = &row_cache_entry_buffer;
     }
   }
@@ -413,8 +429,6 @@ Status TableCache::Get(const ReadOptions& options,
 }
 
 // Batched version of TableCache::MultiGet.
-// TODO: Add support for row cache. As of now, this ignores the row cache
-// and directly looks up in the table files
 Status TableCache::MultiGet(const ReadOptions& options,
                             const InternalKeyComparator& internal_comparator,
                             const FileMetaData& file_meta,
@@ -438,69 +452,19 @@ Status TableCache::MultiGet(const ReadOptions& options,
   // Check row cache if enabled. Since row cache does not currently store
   // sequence numbers, we cannot use it if we need to fetch the sequence.
   if (lookup_row_cache) {
-    uint64_t fd_number = fd.GetNumber();
-    // We use the user key as cache key instead of the internal key,
-    // otherwise the whole cache would be invalidated every time the
-    // sequence key increases. However, to support caching snapshot
-    // reads, we append the sequence number (incremented by 1 to
-    // distinguish from 0) only in this case.
-    // We only need to look at the sequence number of the first key in the
-    // batch since all keys in the MultiGet batch would be read from the
-    // same snapshot.
-    uint64_t seq_no = 0;
-    if (options.snapshot != nullptr &&
-        (first_key.get_context->has_callback() ||
-         static_cast_with_check<const SnapshotImpl, const Snapshot>(
-             options.snapshot)
-                 ->GetSequenceNumber() <= fd.largest_seqno)) {
-      // We should consider to use options.snapshot->GetSequenceNumber()
-      // instead of GetInternalKeySeqno(k), which will make the code
-      // easier to understand.
-      seq_no = 1 + GetInternalKeySeqno(first_key.ikey);
-    }
-
-    // Prepare the common row cache key prefix
-    row_cache_key.TrimAppend(row_cache_key.Size(), row_cache_id_.data(),
-                             row_cache_id_.size());
-    AppendVarint64(&row_cache_key, fd_number);
-    AppendVarint64(&row_cache_key, seq_no);
+    GetContext* first_context = first_key.get_context;
+    CreateRowCacheKeyPrefix(options, fd, first_key.ikey, first_context,
+                            row_cache_key);
     row_cache_key_prefix = row_cache_key.Size();
 
     for (auto miter = table_range.begin(); miter != table_range.end(); ++miter) {
       const Slice& user_key = miter->ukey;;
       GetContext* get_context = miter->get_context;
 
-      // Compute row cache key.
-      row_cache_key.TrimAppend(row_cache_key_prefix, user_key.data(),
-                               user_key.size());
-
-      if (auto row_handle =
-              ioptions_.row_cache->Lookup(row_cache_key.GetUserKey())) {
-        // Cleanable routine to release the cache entry
-        Cleanable value_pinner;
-        auto release_cache_entry_func = [](void* cache_to_clean,
-                                           void* cache_handle) {
-          ((Cache*)cache_to_clean)->Release((Cache::Handle*)cache_handle);
-        };
-        auto found_row_cache_entry = static_cast<const std::string*>(
-            ioptions_.row_cache->Value(row_handle));
-        // If it comes here value is located on the cache.
-        // found_row_cache_entry points to the value on cache,
-        // and value_pinner has cleanup procedure for the cached entry.
-        // After replayGetContextLog() returns, get_context.pinnable_slice_
-        // will point to cache entry buffer (or a copy based on that) and
-        // cleanup routine under value_pinner will be delegated to
-        // get_context.pinnable_slice_. Cache entry is released when
-        // get_context.pinnable_slice_ is reset.
-        value_pinner.RegisterCleanup(release_cache_entry_func,
-                                     ioptions_.row_cache.get(), row_handle);
-        replayGetContextLog(*found_row_cache_entry, user_key, get_context,
-                            &value_pinner);
-        RecordTick(ioptions_.statistics, ROW_CACHE_HIT);
+      if (GetFromRowCache(user_key, row_cache_key, row_cache_key_prefix,
+                          get_context)) {
         table_range.SkipKey(miter);
       } else {
-        // Not found, setting up the replay log.
-        RecordTick(ioptions_.statistics, ROW_CACHE_MISS);
         row_cache_entries.emplace_back();
         get_context->SetReplayLog(&(row_cache_entries.back()));
       }

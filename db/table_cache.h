@@ -202,6 +202,20 @@ class TableCache {
                         bool skip_filters = false, int level = -1,
                         bool prefetch_index_and_filter_in_cache = true);
 
+  // Create a key prefix for looking up the row cache. The prefix is of the
+  // format row_cache_id + fd_number + seq_no. Later, the user key can be
+  // appended to form the full key
+  void CreateRowCacheKeyPrefix(const ReadOptions& options,
+                               const FileDescriptor& fd,
+                               const Slice& internal_key,
+                               GetContext* get_context,
+                               IterKey& row_cache_key);
+
+  // Helper function to lookup the row cache for a key. It appends the
+  // user key to row_cache_key at offset prefix_size
+  bool GetFromRowCache(const Slice& user_key, IterKey& row_cache_key,
+                       size_t prefix_size, GetContext* get_context);
+
   const ImmutableCFOptions& ioptions_;
   const EnvOptions& env_options_;
   Cache* const cache_;
