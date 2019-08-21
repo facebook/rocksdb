@@ -124,6 +124,7 @@ class FullFilterBlockReader : public FilterBlockReaderCommon<BlockContents> {
   bool MayMatch(const Slice& entry, bool no_io, GetContext* get_context,
                 BlockCacheLookupContext* lookup_context) const;
   void MayMatch(MultiGetRange* range, bool no_io,
+                const SliceTransform* prefix_extractor,
                 BlockCacheLookupContext* lookup_context) const;
   bool IsFilterCompatible(const Slice* iterate_upper_bound, const Slice& prefix,
                           const Comparator* comparator) const;
