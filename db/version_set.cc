@@ -4843,7 +4843,6 @@ Status VersionSet::WriteCurrentStateToManifest(log::Writer* log) {
   // (the same single thread), so we're safe to iterate.
 
   if (db_options_->write_dbid_to_manifest) {
-      assert(!db_id_.empty());
       VersionEdit edit_for_db_id;
       edit_for_db_id.SetDBId(db_id_);
       std::string db_id_record;
