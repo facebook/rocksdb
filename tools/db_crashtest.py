@@ -161,7 +161,7 @@ def finalize_and_sanitize(src_params):
         dest_params["delpercent"] += dest_params["delrangepercent"]
         dest_params["delrangepercent"] = 0
     if dest_params.get("disable_wal", 0) == 1:
-        dest_params["atomic_flush"] = 1;
+        dest_params["atomic_flush"] = 1
     return dest_params
 
 
