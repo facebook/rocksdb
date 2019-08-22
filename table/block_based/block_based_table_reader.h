@@ -316,13 +316,7 @@ class BlockBasedTable : public TableReader {
                        BlockCacheLookupContext* lookup_context,
                        bool for_compaction, bool use_cache) const;
 
-  Status GetDataBlockFromCache(
-      const ReadOptions& ro, const BlockHandle& handle,
-      const UncompressionDict& uncompression_dict,
-      CachableEntry<Block>* block_entry, BlockType block_type,
-      GetContext* get_context) const;
-
-  void MaybeLoadBlocksToCache(
+  void RetrieveMultipleBlocks(
       const ReadOptions& options, const MultiGetRange* batch,
       const autovector<BlockHandle, MultiGetContext::MAX_BATCH_SIZE>*  handles,
       autovector<Status, MultiGetContext::MAX_BATCH_SIZE>* statuses,
