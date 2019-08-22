@@ -59,6 +59,7 @@ class CompactionFilter {
     Slice start_key;
     Slice end_key;
     bool is_end_key_inclusive;
+    int output_level;
   };
 
   virtual ~CompactionFilter() {}

@@ -528,6 +528,7 @@ std::unique_ptr<CompactionFilter> Compaction::CreateCompactionFilter(
   context.end_key =
       (end == nullptr) ? GetLargestUserKey() : ExtractUserKey(*end);
   context.is_end_key_inclusive = (end == nullptr);
+  context.output_level = output_level_;
   return cfd_->ioptions()->compaction_filter_factory->CreateCompactionFilter(
       context);
 }
