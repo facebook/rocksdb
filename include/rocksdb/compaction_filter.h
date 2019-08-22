@@ -13,9 +13,10 @@
 #include <string>
 #include <vector>
 
+#include "rocksdb/slice.h"
+
 namespace rocksdb {
 
-class Slice;
 class SliceTransform;
 
 // Context information of a compaction run
@@ -54,6 +55,10 @@ class CompactionFilter {
     bool is_manual_compaction;
     // Which column family this compaction is for.
     uint32_t column_family_id;
+
+    Slice start_key;
+    Slice end_key;
+    bool is_end_key_inclusive;
   };
 
   virtual ~CompactionFilter() {}

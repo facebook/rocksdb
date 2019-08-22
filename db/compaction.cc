@@ -513,7 +513,8 @@ uint64_t Compaction::OutputFilePreallocationSize() const {
                   preallocation_size + (preallocation_size / 10));
 }
 
-std::unique_ptr<CompactionFilter> Compaction::CreateCompactionFilter() const {
+std::unique_ptr<CompactionFilter> Compaction::CreateCompactionFilter(
+    const Slice* start, const Slice* end) const {
   if (!cfd_->ioptions()->compaction_filter_factory) {
     return nullptr;
   }
@@ -522,6 +523,11 @@ std::unique_ptr<CompactionFilter> Compaction::CreateCompactionFilter() const {
   context.is_full_compaction = is_full_compaction_;
   context.is_manual_compaction = is_manual_compaction_;
   context.column_family_id = cfd_->GetID();
+  context.start_key =
+      (start == nullptr) ? GetSmallestUserKey() : ExtractUserKey(*start);
+  context.end_key =
+      (end == nullptr) ? GetLargestUserKey() : ExtractUserKey(*end);
+  context.is_end_key_inclusive = (end == nullptr);
   return cfd_->ioptions()->compaction_filter_factory->CreateCompactionFilter(
       context);
 }
