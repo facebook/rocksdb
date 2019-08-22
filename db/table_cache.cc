@@ -277,6 +277,7 @@ Status TableCache::GetRangeTombstoneIterator(
   return s;
 }
 
+#ifndef ROCKSDB_LITE
 void TableCache::CreateRowCacheKeyPrefix(
         const ReadOptions& options,
         const FileDescriptor& fd, const Slice& internal_key,
@@ -348,6 +349,7 @@ bool TableCache::GetFromRowCache(
   }
   return found;
 }
+#endif // ROCKSDB_LITE
 
 Status TableCache::Get(const ReadOptions& options,
                        const InternalKeyComparator& internal_comparator,
@@ -368,8 +370,9 @@ Status TableCache::Get(const ReadOptions& options,
   if (ioptions_.row_cache && !get_context->NeedToReadSequence()) {
     auto user_key = ExtractUserKey(k);
     CreateRowCacheKeyPrefix(options, fd, k, get_context, row_cache_key);
-    if (!(done = GetFromRowCache(user_key, row_cache_key,
-            row_cache_key.Size(), get_context))) {
+    done = GetFromRowCache(user_key, row_cache_key, row_cache_key.Size(),
+                           get_context);
+    if (!done) {
       row_cache_entry = &row_cache_entry_buffer;
     }
   }
