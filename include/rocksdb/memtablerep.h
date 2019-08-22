@@ -120,6 +120,20 @@ class MemTableRep {
     return true;
   }
 
+  // Same as ::InsertWithHint, but allow concurrnet write
+  virtual void InsertWithHintConcurrently(KeyHandle handle, void** /*hint*/) {
+    // Ignore the hint by default.
+    InsertConcurrently(handle);
+  }
+
+  // Same as ::InsertWithHintConcurrently
+  // Returns false if MemTableRepFactory::CanHandleDuplicatedKey() is true and
+  // the <key, seq> already exists.
+  virtual bool InsertKeyWithHintConcurrently(KeyHandle handle, void** hint) {
+    InsertWithHintConcurrently(handle, hint);
+    return true;
+  }
+
   // Like Insert(handle), but may be called concurrent with other calls
   // to InsertConcurrently for other handles.
   //

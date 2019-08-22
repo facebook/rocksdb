@@ -102,6 +102,12 @@ class InlineSkipList {
   // REQUIRES: no concurrent calls to any of inserts.
   bool InsertWithHint(const char* key, void** hint);
 
+  // Like InsertConcurrently, but with a hint
+  //
+  // REQUIRES: nothing that compares equal to key is currently in the list.
+  // REQUIRES: no concurrent calls that use same hint
+  bool InsertWithHintConcurrently(const char* key, void** hint);
+
   // Like Insert, but external synchronization is not required.
   bool InsertConcurrently(const char* key);
 
@@ -667,6 +673,17 @@ bool InlineSkipList<Comparator>::InsertWithHint(const char* key, void** hint) {
     *hint = reinterpret_cast<void*>(splice);
   }
   return Insert<false>(key, splice, true);
+}
+
+template <class Comparator>
+bool InlineSkipList<Comparator>::InsertWithHintConcurrently(const char* key, void** hint) {
+  assert(hint != nullptr);
+  Splice* splice = reinterpret_cast<Splice*>(*hint);
+  if (splice == nullptr) {
+    splice = AllocateSplice();
+    *hint = reinterpret_cast<void*>(splice);
+  }
+  return Insert<true>(key, splice, true);
 }
 
 template <class Comparator>

@@ -183,7 +183,8 @@ class WriteBatchInternal {
                            uint64_t log_number = 0, DB* db = nullptr,
                            bool concurrent_memtable_writes = false,
                            bool seq_per_batch = false, size_t batch_cnt = 0,
-                           bool batch_per_txn = true);
+                           bool batch_per_txn = true,
+                           bool hint_per_batch = false);
 
   static Status Append(WriteBatch* dst, const WriteBatch* src,
                        const bool WAL_only = false);
