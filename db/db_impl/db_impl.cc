@@ -3158,45 +3158,8 @@ Status DBImpl::CheckConsistency() {
 }
 
 Status DBImpl::GetDbIdentity(std::string& identity) const {
-  assert(!db_id_.empty());
-  if (immutable_db_options_.write_dbid_to_manifest) {
-    std::string manifest_path;
-    Status s;
-    versions_->GetCurrentManifestPath(dbname_, env_, &manifest_path,
-                                      &versions_->manifest_file_number_);
-    // Open the specified manifest file.
-    std::unique_ptr<SequentialFileReader> manifest_file_reader;
-    {
-      std::unique_ptr<SequentialFile> manifest_file;
-      s = env_->NewSequentialFile(manifest_path, &manifest_file,
-                                  env_->OptimizeForManifestRead(env_options_));
-      if (!s.ok()) {
-        return s;
-      }
-      manifest_file_reader.reset(
-          new SequentialFileReader(std::move(manifest_file), manifest_path,
-                                   versions_->db_options_->log_readahead_size));
-    }
-    VersionSet::LogReporter reporter;
-    reporter.status = &s;
-    log::Reader reader(nullptr, std::move(manifest_file_reader), &reporter,
-                       true /* checksum */, 0 /* log_number */);
-    Slice record;
-    std::string scratch;
-    while (reader.ReadRecord(&record, &scratch) && s.ok()) {
-      VersionEdit edit;
-      s = edit.DecodeFrom(record);
-      if (!s.ok()) {
-        return s;
-      }
-      if (edit.has_db_id()) {
-        identity.assign(edit.GetDbId());
-      }
-    }
-    return s;
-  } else {
-    return GetDbIdentityFromIdentityFile(identity);
-  }
+  identity.assign(db_id_);
+  return Status::OK();
 }
 
 Status DBImpl::GetDbIdentityFromIdentityFile(std::string& identity) const {
