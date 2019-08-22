@@ -624,8 +624,8 @@ Status DBImpl::CompactRange(const CompactRangeOptions& options,
 
   bool exclusive = options.exclusive_manual_compaction;
 
-  bool flush_needed = true;
-  if (begin != nullptr && end != nullptr) {
+  bool flush_needed = options.first_level == -1;
+  if (flush_needed && begin != nullptr && end != nullptr) {
     // TODO(ajkr): We could also optimize away the flush in certain cases where
     // one/both sides of the interval are unbounded. But it requires more
     // changes to RangesOverlapWithMemtables.
@@ -681,7 +681,8 @@ Status DBImpl::CompactRange(const CompactRangeOptions& options,
                             final_output_level, options.target_path_id,
                             options.max_subcompactions, begin, end, exclusive);
   } else {
-    for (int level = 0; level <= max_level_with_files; level++) {
+    int level = options.first_level < 0? 0: options.first_level;
+    for (; level <= max_level_with_files; level++) {
       int output_level;
       // in case the compaction is universal or if we're compacting the
       // bottom-most level, the output level will be the same as input one.
