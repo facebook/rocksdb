@@ -72,8 +72,7 @@ public:
   // Sets the name of the bucket to be the new bucket name.
   // If prefix is specified, the new bucket name will be [prefix][bucket]
   // If no prefix is specified, the bucket name will use the existing prefix
-  void SetBucketName(const std::string& bucket,
-		     const std::string& prefix = "");
+  void SetBucketName(const std::string& bucket, const std::string& prefix = "");
   const std::string & GetBucketName() const { return name_; }
   const std::string & GetObjectPath() const { return object_; }
   void SetObjectPath(const std::string& object) { object_ = object; }
@@ -82,8 +81,8 @@ public:
 
   // Initializes the bucket properties for test purposes
   void TEST_Initialize(const std::string& name_prefix,
-		       const std::string& object_path,
-		       const std::string& region = "");
+                       const std::string& object_path,
+                       const std::string& region = "");
   bool IsValid() const {
     if (object_.empty() || name_.empty()) {
       return false;
@@ -92,17 +91,17 @@ public:
     }
   }
 };
-  
-inline bool operator==(const BucketOptions&lhs, const BucketOptions & rhs) {
+
+inline bool operator==(const BucketOptions& lhs, const BucketOptions& rhs) {
   if (lhs.IsValid() && rhs.IsValid()) {
     return ((lhs.GetBucketName() == rhs.GetBucketName()) &&
-	    (lhs.GetObjectPath() == rhs.GetObjectPath()) &&
-	    (lhs.GetRegion() == rhs.GetRegion()));
+            (lhs.GetObjectPath() == rhs.GetObjectPath()) &&
+            (lhs.GetRegion() == rhs.GetRegion()));
   } else {
     return false;
   }
 }
-inline bool operator!=(const BucketOptions&lhs, const BucketOptions & rhs) {
+inline bool operator!=(const BucketOptions& lhs, const BucketOptions& rhs) {
   return !(lhs == rhs);
 }
 
@@ -224,10 +223,11 @@ private:
       bool _server_side_encryption = false, std::string _encryption_key_id = "",
       bool _create_bucket_if_missing = true, uint64_t _request_timeout_ms = 0,
       bool _run_purger = false, bool _ephemeral_resync_on_open = false,
-      bool _skip_dbid_verification = false, bool _use_aws_transfer_manager = false)
+      bool _skip_dbid_verification = false,
+      bool _use_aws_transfer_manager = false)
       : cloud_type(_cloud_type),
         log_type(_log_type),
-	keep_local_sst_files(_keep_local_sst_files),
+        keep_local_sst_files(_keep_local_sst_files),
         keep_local_log_files(_keep_local_log_files),
         purger_periodicity_millis(_purger_periodicity_millis),
         validate_filesize(_validate_filesize),
@@ -247,9 +247,9 @@ private:
   // Sets result based on the value of name or alt in the environment
   // Returns true if the name/alt exists in the environment, false otherwise
   static bool GetNameFromEnvironment(const char *name, const char *alt, std::string * result);
-  void TEST_Initialize(const std::string & name_prefix,
-		       const std::string & object_path,
-		       const std::string & region = "");
+  void TEST_Initialize(const std::string& name_prefix,
+                       const std::string& object_path,
+                       const std::string& region = "");
 };
 
 struct CheckpointToCloudOptions {
@@ -271,6 +271,7 @@ class CloudEnv : public Env {
   // Returns the underlying env
   virtual Env* GetBaseEnv() = 0;
   virtual ~CloudEnv();
+  virtual Status PreloadCloudManifest(const std::string& local_dbname) = 0;
 
   // Empties all contents of the associated cloud storage bucket.
   virtual Status EmptyBucket(const std::string& bucket_prefix,
@@ -304,9 +305,7 @@ class CloudEnv : public Env {
   const std::string& GetSrcObjectPath() const {
     return cloud_env_options.src_bucket.GetObjectPath();
   }
-  bool HasSrcBucket() const {
-    return cloud_env_options.src_bucket.IsValid();
-  }
+  bool HasSrcBucket() const { return cloud_env_options.src_bucket.IsValid(); }
 
   // The DestBucketName identifies the cloud storage bucket and
   // GetDestObjectPath specifies the path inside that bucket
@@ -319,9 +318,7 @@ class CloudEnv : public Env {
     return cloud_env_options.dest_bucket.GetObjectPath();
   }
 
-  bool HasDestBucket() const {
-    return cloud_env_options.dest_bucket.IsValid();
-  }
+  bool HasDestBucket() const { return cloud_env_options.dest_bucket.IsValid(); }
   bool SrcMatchesDest() const {
     if (HasSrcBucket() && HasDestBucket()) {
       return cloud_env_options.src_bucket == cloud_env_options.dest_bucket;
@@ -329,7 +326,7 @@ class CloudEnv : public Env {
       return false;
     }
   }
-  
+
   // returns the options used to create this env
   const CloudEnvOptions& GetCloudEnvOptions() const {
     return cloud_env_options;
@@ -385,8 +382,7 @@ class CloudEnv : public Env {
   // data from cloud storage.
   // If dest_bucket_name is empty, then the associated db does not write any
   // data to cloud storage.
-  static Status NewAwsEnv(Env* base_env,
-			  const std::string& src_bucket_name,
+  static Status NewAwsEnv(Env* base_env, const std::string& src_bucket_name,
                           const std::string& src_object_prefix,
                           const std::string& src_bucket_region,
                           const std::string& dest_bucket_name,
@@ -394,11 +390,10 @@ class CloudEnv : public Env {
                           const std::string& dest_bucket_region,
                           const CloudEnvOptions& env_options,
                           const std::shared_ptr<Logger>& logger,
-			  CloudEnv** cenv);
-  static Status NewAwsEnv(Env* base_env,
-                          const CloudEnvOptions& env_options,
+                          CloudEnv** cenv);
+  static Status NewAwsEnv(Env* base_env, const CloudEnvOptions& env_options,
                           const std::shared_ptr<Logger>& logger,
-			  CloudEnv** cenv);
+                          CloudEnv** cenv);
 };
 
 /*

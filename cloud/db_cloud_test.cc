@@ -54,7 +54,8 @@ class CloudTest : public testing::Test {
     // Get cloud credentials
     std::string dummy;
     AwsEnv::GetTestCredentials(&cloud_env_options_.credentials.access_key_id,
-			       &cloud_env_options_.credentials.secret_key, &dummy);
+                               &cloud_env_options_.credentials.secret_key,
+                               &dummy);
     Cleanup();
   }
 
@@ -64,7 +65,7 @@ class CloudTest : public testing::Test {
     CloudEnv* aenv;
     // create a dummy aws env
     ASSERT_OK(CloudEnv::NewAwsEnv(base_env_, cloud_env_options_,
-				  options_.info_log, &aenv));
+                                  options_.info_log, &aenv));
     aenv_.reset(aenv);
     // delete all pre-existing contents from the bucket
     Status st = aenv_->EmptyBucket(aenv_->GetSrcBucketName(), "");
@@ -104,7 +105,7 @@ class CloudTest : public testing::Test {
   void CreateAwsEnv() {
     CloudEnv* aenv;
     ASSERT_OK(CloudEnv::NewAwsEnv(base_env_, cloud_env_options_,
-				  options_.info_log, &aenv));
+                                  options_.info_log, &aenv));
     // To catch any possible file deletion bugs, we set file deletion delay to
     // smallest possible
     ((AwsEnv*)aenv)->TEST_SetFileDeletionDelay(std::chrono::seconds(0));
@@ -413,8 +414,8 @@ TEST_F(CloudTest, TrueClone) {
     // This is true clone and should have all the contents of the masterdb
     std::unique_ptr<CloudEnv> cloud_env;
     std::unique_ptr<DBCloud> cloud_db;
-    CloneDB("localpath1", cloud_env_options_.src_bucket.GetBucketName(), "clone1_path",
-	    &cloud_db, &cloud_env);
+    CloneDB("localpath1", cloud_env_options_.src_bucket.GetBucketName(),
+            "clone1_path", &cloud_db, &cloud_env);
 
     // Retrieve the id of the clone db
     ASSERT_OK(cloud_db->GetDbIdentity(newdb1_dbid));
@@ -439,8 +440,8 @@ TEST_F(CloudTest, TrueClone) {
     // Reopen clone1 with a different local path
     std::unique_ptr<CloudEnv> cloud_env;
     std::unique_ptr<DBCloud> cloud_db;
-    CloneDB("localpath2", cloud_env_options_.src_bucket.GetBucketName(), "clone1_path",
-	    &cloud_db, &cloud_env);
+    CloneDB("localpath2", cloud_env_options_.src_bucket.GetBucketName(),
+            "clone1_path", &cloud_db, &cloud_env);
 
     // Retrieve the id of the clone db
     ASSERT_OK(cloud_db->GetDbIdentity(newdb2_dbid));
@@ -454,8 +455,8 @@ TEST_F(CloudTest, TrueClone) {
     // Reopen clone1 with the same local path as above.
     std::unique_ptr<CloudEnv> cloud_env;
     std::unique_ptr<DBCloud> cloud_db;
-    CloneDB("localpath2", cloud_env_options_.src_bucket.GetBucketName(), "clone1_path",
-	    &cloud_db, &cloud_env);
+    CloneDB("localpath2", cloud_env_options_.src_bucket.GetBucketName(),
+            "clone1_path", &cloud_db, &cloud_env);
 
     // Retrieve the id of the clone db
     ASSERT_OK(cloud_db->GetDbIdentity(newdb2_dbid));
@@ -670,8 +671,8 @@ TEST_F(CloudTest, Savepoint) {
 
     // Verify that the destination path does not have any sst files
     std::string dpath = dest_path + "/" + remapped_fname;
-    ASSERT_TRUE(
-		cloud_env->ExistsObject(cloud_env->GetSrcBucketName(), dpath).IsNotFound());
+    ASSERT_TRUE(cloud_env->ExistsObject(cloud_env->GetSrcBucketName(), dpath)
+                    .IsNotFound());
 
     // write a new value to the clone
     ASSERT_OK(cloud_db->Put(WriteOptions(), "Hell", "Done"));
@@ -898,8 +899,8 @@ TEST_F(CloudTest, TwoDBsOneBucket) {
   // We need to sleep a bit because file deletion happens in a different thread,
   // so it might not be immediately deleted.
   std::this_thread::sleep_for(std::chrono::milliseconds(10));
-  EXPECT_TRUE(aenv_->ExistsObject(aenv_->GetDestBucketName(),
-				  firstManifestFile).IsNotFound());
+  EXPECT_TRUE(aenv_->ExistsObject(aenv_->GetDestBucketName(), firstManifestFile)
+                  .IsNotFound());
   CloseDB();
 }
 
@@ -1066,7 +1067,7 @@ TEST_F(CloudTest, PreloadCloudManifest) {
   value.clear();
 
   // Reopen and validate, preload cloud manifest
-  DBCloud::PreloadCloudManifest(aenv_.get(), options_, dbname_);
+  aenv_->PreloadCloudManifest(dbname_);
 
   OpenDB();
   ASSERT_OK(db_->Get(ReadOptions(), "Hello", &value));

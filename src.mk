@@ -229,6 +229,7 @@ LIB_SOURCES =                                                   \
   cloud/aws/aws_s3.cc                                           \
   cloud/db_cloud_impl.cc                                        \
   cloud/cloud_env.cc                                            \
+  cloud/cloud_env_impl.cc                                       \
   cloud/cloud_env_options.cc                                    \
   cloud/manifest_reader.cc                                      \
   cloud/purge.cc                                                \

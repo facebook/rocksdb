@@ -29,6 +29,9 @@ class CloudEnvImpl : public CloudEnv {
   // Returns the underlying env
   Env* GetBaseEnv() override { return base_env_; }
 
+  Status SanitizeDirectory(const DBOptions& options,
+                           const std::string& clone_name, bool read_only);
+  Status LoadCloudManifest(const std::string& local_dbname, bool read_only);
   // The separator used to separate dbids while creating the dbid of a clone
   static constexpr const char* DBID_SEPARATOR = "rockset";
 
@@ -41,6 +44,7 @@ class CloudEnvImpl : public CloudEnv {
                           std::vector<std::string>* dbids);
   Status extractParents(const std::string& bucket_name_prefix,
                         const DbidList& dbid_list, DbidParents* parents);
+  virtual Status PreloadCloudManifest(const std::string& local_dbname) override;
 
   Status LoadLocalCloudManifest(const std::string& dbname);
   // Transfers the filename from RocksDB's domain to the physical domain, based
@@ -97,7 +101,21 @@ class CloudEnvImpl : public CloudEnv {
   }
 
  protected:
+  // Does the dir need to be re-initialized?
+  Status NeedsReinitialization(const std::string& clone_dir, bool* do_reinit);
 
+  Status GetCloudDbid(const std::string& local_dir, std::string* src_dbid,
+                      std::string* dest_dbid);
+
+  Status ResyncDir(const std::string& local_dir);
+
+  Status CreateNewIdentityFile(const std::string& dbid,
+                               const std::string& local_name);
+
+  Status MaybeMigrateManifestFile(const std::string& local_dbname);
+  Status FetchCloudManifest(const std::string& local_dbname, bool force);
+
+  Status RollNewEpoch(const std::string& local_dbname);
   // The dbid of the source database that is cloned
   std::string src_dbid_;
 
@@ -122,6 +140,8 @@ class CloudEnvImpl : public CloudEnv {
   void StopPurger();
 
  private:
+  Status writeCloudManifest(CloudManifest* manifest, const std::string& fname);
+  std::string generateNewEpochId();
   unique_ptr<CloudManifest> cloud_manifest_;
   // This runs only in tests when we want to disable cloud manifest
   // functionality

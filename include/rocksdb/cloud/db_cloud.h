@@ -55,9 +55,6 @@ class DBCloud : public StackableDB {
   virtual Status CheckpointToCloud(const BucketOptions& destination,
                                    const CheckpointToCloudOptions& options) = 0;
 
-  static Status PreloadCloudManifest(CloudEnv* cenv, const Options& options,
-                                     const std::string& dbname);
-
   virtual ~DBCloud() {}
 
  protected:
