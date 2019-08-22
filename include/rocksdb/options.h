@@ -1434,6 +1434,8 @@ struct CompactRangeOptions {
   // If change_level is true and target_level have non-negative value, compacted
   // files will be moved to target_level.
   int target_level = -1;
+  // First level to do the compaction. Memtable is treated as level -1.
+  int first_level = -1;
   // Compaction outputs will be placed in options.db_paths[target_path_id].
   // Behavior is undefined if target_path_id is out of range.
   uint32_t target_path_id = 0;
