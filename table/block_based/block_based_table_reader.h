@@ -316,7 +316,7 @@ class BlockBasedTable : public TableReader {
                        BlockCacheLookupContext* lookup_context,
                        bool for_compaction, bool use_cache) const;
 
-  void RetrieveMultipleBlock(
+  void RetrieveMultipleBlocks(
       const ReadOptions& options, const MultiGetRange* batch,
       const autovector<BlockHandle, MultiGetContext::MAX_BATCH_SIZE>*  handles,
       autovector<Status, MultiGetContext::MAX_BATCH_SIZE>* statuses,

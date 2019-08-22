@@ -2254,7 +2254,7 @@ Status BlockBasedTable::MaybeReadBlockAndLoadToCache(
 //         found in cache
 // handles - A vector of block handles. Some of them me be NULL handles
 // scratch - An optional contiguous buffer to read compressed blocks into
-void BlockBasedTable::RetrieveMultipleBlock(
+void BlockBasedTable::RetrieveMultipleBlocks(
     const ReadOptions& options,
     const MultiGetRange* batch,
     const autovector<BlockHandle, MultiGetContext::MAX_BATCH_SIZE>*  handles,
@@ -3471,7 +3471,7 @@ void BlockBasedTable::MultiGet(const ReadOptions& read_options,
             block_buf.reset(scratch);
           }
         }
-        RetrieveMultipleBlock(read_options,
+        RetrieveMultipleBlocks(read_options,
             &data_block_range, &block_handles, &statuses, &results,
             scratch, uncompression_dict);
       }
