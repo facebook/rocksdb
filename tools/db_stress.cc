@@ -136,9 +136,10 @@ DEFINE_bool(test_batches_snapshots, false,
 DEFINE_bool(atomic_flush, false,
             "If set, enables atomic flush in the options.\n");
 
-DEFINE_bool(test_atomic_flush, false,
-            "If set, runs the stress test dedicated to verifying atomic flush "
-            "functionality. Setting this implies `atomic_flush=true`.\n");
+DEFINE_bool(test_cf_consistency, false,
+            "If set, runs the stress test dedicated to verifying writes to "
+            "multiple column families are consistent. Setting this implies "
+            "`atomic_flush=true` is set true if `disable_wal=false`.\n");
 
 DEFINE_int32(threads, 32, "Number of concurrent threads to run.");
 
@@ -3950,11 +3951,11 @@ class BatchedOpsStressTest : public StressTest {
   virtual void VerifyDb(ThreadState* /* thread */) const {}
 };
 
-class AtomicFlushStressTest : public StressTest {
+class CfConsistencyStressTest : public StressTest {
  public:
-  AtomicFlushStressTest() : batch_id_(0) {}
+  CfConsistencyStressTest() : batch_id_(0) {}
 
-  virtual ~AtomicFlushStressTest() {}
+  virtual ~CfConsistencyStressTest() {}
 
   virtual Status TestPut(ThreadState* thread, WriteOptions& write_opts,
                          const ReadOptions& /* read_opts */,
@@ -4048,7 +4049,7 @@ class AtomicFlushStressTest : public StressTest {
       std::unique_ptr<MutexLock>& /* lock */) {
     assert(false);
     fprintf(stderr,
-            "AtomicFlushStressTest does not support TestIngestExternalFile "
+            "CfConsistencyStressTest does not support TestIngestExternalFile "
             "because it's not possible to verify the result\n");
     std::terminate();
   }
@@ -4461,9 +4462,10 @@ int main(int argc, char** argv) {
             "Error: clear_column_family_one_in must be 0 when using backup\n");
     exit(1);
   }
-  if (FLAGS_test_atomic_flush) {
+  if (FLAGS_test_cf_consistency && FLAGS_disable_wal) {
     FLAGS_atomic_flush = true;
   }
+
   if (FLAGS_read_only) {
     if (FLAGS_writepercent != 0 || FLAGS_delpercent != 0 ||
         FLAGS_delrangepercent != 0) {
@@ -4507,8 +4509,8 @@ int main(int argc, char** argv) {
   rocksdb_kill_prefix_blacklist = SplitString(FLAGS_kill_prefix_blacklist);
 
   std::unique_ptr<rocksdb::StressTest> stress;
-  if (FLAGS_test_atomic_flush) {
-    stress.reset(new rocksdb::AtomicFlushStressTest());
+  if (FLAGS_test_cf_consistency) {
+    stress.reset(new rocksdb::CfConsistencyStressTest());
   } else if (FLAGS_test_batches_snapshots) {
     stress.reset(new rocksdb::BatchedOpsStressTest());
   } else {
