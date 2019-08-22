@@ -54,6 +54,8 @@ class CompactionFilter {
     bool is_manual_compaction;
     // Which column family this compaction is for.
     uint32_t column_family_id;
+    // Output level of the compaction.
+    int output_level;
   };
 
   virtual ~CompactionFilter() {}
