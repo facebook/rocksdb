@@ -4,30 +4,11 @@ from __future__ import division
 from __future__ import print_function
 from __future__ import unicode_literals
 from targets_builder import TARGETSBuilder
-import json
 import os
 import fnmatch
 import sys
 
 from util import ColorString
-
-# This script generates TARGETS file for Buck.
-# Buck is a build tool specifying dependencies among different build targets.
-# User can pass extra dependencies as a JSON object via command line, and this
-# script can include these dependencies in the generate TARGETS file.
-# Usage:
-# $python buckifier/buckify_rocksdb.py
-# (This generates a TARGET file without user-specified dependency for unit
-# tests.)
-# $python buckifier/buckify_rocksdb.py \
-#        '{"fake": { \
-#                      "extra_deps": [":test_dep", "//fakes/module:mock1"],  \
-#                      "extra_compiler_flags": ["-DROCKSDB_LITE", "-Os"], \
-#                  } \
-#         }'
-# (Generated TARGETS file has test_dep and mock1 as dependencies for RocksDB
-# unit tests, and will use the extra_compiler_flags to compile the unit test
-# source.)
 
 # tests to export as libraries for inclusion in other projects
 _EXPORTED_TEST_LIBS = ["env_basic_test"]
@@ -105,38 +86,8 @@ def get_tests(repo_path):
     return tests
 
 
-# Parse extra dependencies passed by user from command line
-def get_dependencies():
-    deps_map = {
-        ''.encode('ascii'): {
-            'extra_deps'.encode('ascii'): [],
-            'extra_compiler_flags'.encode('ascii'): []
-        }
-    }
-    if len(sys.argv) < 2:
-        return deps_map
-
-    def encode_dict(data):
-        rv = {}
-        for k, v in data.items():
-            if isinstance(k, unicode):
-                k = k.encode('ascii')
-            if isinstance(v, unicode):
-                v = v.encode('ascii')
-            elif isinstance(v, list):
-                v = [x.encode('ascii') for x in v]
-            elif isinstance(v, dict):
-                v = encode_dict(v)
-            rv[k] = v
-        return rv
-    extra_deps = json.loads(sys.argv[1], object_hook=encode_dict)
-    for target_alias, deps in extra_deps.items():
-        deps_map[target_alias] = deps
-    return deps_map
-
-
 # Prepare TARGETS file for buck
-def generate_targets(repo_path, deps_map):
+def generate_targets(repo_path):
     print(ColorString.info("Generating TARGETS"))
     # parsed src.mk file
     src_mk = parse_src_mk(repo_path)
@@ -170,33 +121,24 @@ def generate_targets(repo_path, deps_map):
         ["test_util/testutil.cc"],
         [":rocksdb_lib"])
 
-    print("Extra dependencies:\n{0}".format(str(deps_map)))
     # test for every test we found in the Makefile
-    for target_alias, deps in deps_map.items():
-        for test in sorted(tests):
-            match_src = [src for src in cc_files if ("/%s.c" % test) in src]
-            if len(match_src) == 0:
-                print(ColorString.warning("Cannot find .cc file for %s" % test))
-                continue
-            elif len(match_src) > 1:
-                print(ColorString.warning("Found more than one .cc for %s" % test))
-                print(match_src)
-                continue
+    for test in sorted(tests):
+        match_src = [src for src in cc_files if ("/%s.c" % test) in src]
+        if len(match_src) == 0:
+            print(ColorString.warning("Cannot find .cc file for %s" % test))
+            continue
+        elif len(match_src) > 1:
+            print(ColorString.warning("Found more than one .cc for %s" % test))
+            print(match_src)
+            continue
 
-            assert(len(match_src) == 1)
-            is_parallel = tests[test]
-            test_target_name = \
-                test if not target_alias else test + "_" + target_alias
-            TARGETS.register_test(
-                test_target_name,
-                match_src[0],
-                is_parallel,
-                deps['extra_deps'],
-                deps['extra_compiler_flags'])
+        assert(len(match_src) == 1)
+        is_parallel = tests[test]
+        TARGETS.register_test(test, match_src[0], is_parallel)
 
-            if test in _EXPORTED_TEST_LIBS:
-                test_library = "%s_lib" % test_target_name
-                TARGETS.add_library(test_library, match_src, [":rocksdb_test_lib"])
+        if test in _EXPORTED_TEST_LIBS:
+            test_library = "%s_lib" % test
+            TARGETS.add_library(test_library, match_src, [":rocksdb_test_lib"])
     TARGETS.flush_tests()
 
     print(ColorString.info("Generated TARGETS Summary:"))
@@ -221,9 +163,8 @@ def exit_with_error(msg):
 
 
 def main():
-    deps_map = get_dependencies()
     # Generate TARGETS file for buck
-    ok = generate_targets(get_rocksdb_path(), deps_map)
+    ok = generate_targets(get_rocksdb_path())
     if not ok:
         exit_with_error("Failed to generate TARGETS files")
 

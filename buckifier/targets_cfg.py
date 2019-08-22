@@ -140,13 +140,11 @@ test_cfg_template = """    [
         "%s",
         "%s",
         "%s",
-        %s,
-        %s,
     ],
 """
 
 unittests_template = """
-# [test_name, test_src, test_type, extra_deps, extra_compiler_flags]
+# [test_name, test_src, test_type]
 ROCKS_TESTS = [
 %s]
 
@@ -155,8 +153,6 @@ ROCKS_TESTS = [
 # will not be included.
 [
     test_binary(
-        extra_compiler_flags = extra_compiler_flags,
-        extra_deps = extra_deps,
         parallelism = parallelism,
         rocksdb_arch_preprocessor_flags = ROCKSDB_ARCH_PREPROCESSOR_FLAGS,
         rocksdb_compiler_flags = ROCKSDB_COMPILER_FLAGS,
@@ -167,7 +163,7 @@ ROCKS_TESTS = [
         test_cc = test_cc,
         test_name = test_name,
     )
-    for test_name, test_cc, parallelism, extra_deps, extra_compiler_flags in ROCKS_TESTS
+    for test_name, test_cc, parallelism in ROCKS_TESTS
     if not is_opt_mode
 ]
 """

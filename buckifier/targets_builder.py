@@ -51,21 +51,14 @@ class TARGETSBuilder:
             pretty_list(deps)))
         self.total_bin = self.total_bin + 1
 
-    def register_test(self,
-                      test_name,
-                      src,
-                      is_parallel,
-                      extra_deps,
-                      extra_compiler_flags):
+    def register_test(self, test_name, src, is_parallel):
         exec_mode = "serial"
         if is_parallel:
             exec_mode = "parallel"
         self.tests_cfg += targets_cfg.test_cfg_template % (
             test_name,
             str(src),
-            str(exec_mode),
-            extra_deps,
-            extra_compiler_flags)
+            str(exec_mode))
 
         self.total_test = self.total_test + 1
 
