@@ -33,34 +33,27 @@ class UncompressionDictReader {
   Status GetOrReadUncompressionDictionary(
       FilePrefetchBuffer* prefetch_buffer, bool no_io, GetContext* get_context,
       BlockCacheLookupContext* lookup_context,
-      UncompressionDict* uncompression_dict) const;
+      CachableEntry<UncompressionDict>* uncompression_dict) const;
 
   size_t ApproximateMemoryUsage() const;
 
  private:
-  UncompressionDictReader(
-      const BlockBasedTable* t,
-      CachableEntry<BlockContents>&& uncompression_dict_block)
-      : table_(t),
-        uncompression_dict_block_(std::move(uncompression_dict_block)) {
+  UncompressionDictReader(const BlockBasedTable* t,
+                          CachableEntry<UncompressionDict>&& uncompression_dict)
+      : table_(t), uncompression_dict_(std::move(uncompression_dict)) {
     assert(table_);
   }
 
   bool cache_dictionary_blocks() const;
 
-  static Status ReadUncompressionDictionaryBlock(
+  static Status ReadUncompressionDictionary(
       const BlockBasedTable* table, FilePrefetchBuffer* prefetch_buffer,
       const ReadOptions& read_options, bool use_cache, GetContext* get_context,
       BlockCacheLookupContext* lookup_context,
-      CachableEntry<BlockContents>* uncompression_dict_block);
-
-  Status GetOrReadUncompressionDictionaryBlock(
-      FilePrefetchBuffer* prefetch_buffer, bool no_io, GetContext* get_context,
-      BlockCacheLookupContext* lookup_context,
-      CachableEntry<BlockContents>* uncompression_dict_block) const;
+      CachableEntry<UncompressionDict>* uncompression_dict);
 
   const BlockBasedTable* table_;
-  CachableEntry<BlockContents> uncompression_dict_block_;
+  CachableEntry<UncompressionDict> uncompression_dict_;
 };
 
 }  // namespace rocksdb

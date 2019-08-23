@@ -68,6 +68,57 @@ BlockBasedTable::~BlockBasedTable() {
 
 std::atomic<uint64_t> BlockBasedTable::next_cache_key_id_(0);
 
+template <typename TBlocklike>
+class BlocklikeTraits;
+
+template <>
+class BlocklikeTraits<BlockContents> {
+ public:
+  static BlockContents* Create(BlockContents&& contents,
+                               SequenceNumber /* global_seqno */,
+                               size_t /* read_amp_bytes_per_bit */,
+                               Statistics* /* statistics */,
+                               bool /* using_zstd */) {
+    return new BlockContents(std::move(contents));
+  }
+
+  static uint32_t GetNumRestarts(const BlockContents& /* contents */) {
+    return 0;
+  }
+};
+
+template <>
+class BlocklikeTraits<Block> {
+ public:
+  static Block* Create(BlockContents&& contents, SequenceNumber global_seqno,
+                       size_t read_amp_bytes_per_bit, Statistics* statistics,
+                       bool /* using_zstd */) {
+    return new Block(std::move(contents), global_seqno, read_amp_bytes_per_bit,
+                     statistics);
+  }
+
+  static uint32_t GetNumRestarts(const Block& block) {
+    return block.NumRestarts();
+  }
+};
+
+template <>
+class BlocklikeTraits<UncompressionDict> {
+ public:
+  static UncompressionDict* Create(BlockContents&& contents,
+                                   SequenceNumber /* global_seqno */,
+                                   size_t /* read_amp_bytes_per_bit */,
+                                   Statistics* /* statistics */,
+                                   bool using_zstd) {
+    return new UncompressionDict(contents.data, std::move(contents.allocation),
+                                 using_zstd);
+  }
+
+  static uint32_t GetNumRestarts(const UncompressionDict& /* dict */) {
+    return 0;
+  }
+};
+
 namespace {
 // Read the block identified by "handle" from "file".
 // The only relevant option is options.verify_checksums for now.
@@ -75,15 +126,16 @@ namespace {
 // On success fill *result and return OK - caller owns *result
 // @param uncompression_dict Data for presetting the compression library's
 //    dictionary.
+template <typename TBlocklike>
 Status ReadBlockFromFile(
     RandomAccessFileReader* file, FilePrefetchBuffer* prefetch_buffer,
     const Footer& footer, const ReadOptions& options, const BlockHandle& handle,
-    std::unique_ptr<Block>* result, const ImmutableCFOptions& ioptions,
+    std::unique_ptr<TBlocklike>* result, const ImmutableCFOptions& ioptions,
     bool do_uncompress, bool maybe_compressed, BlockType block_type,
     const UncompressionDict& uncompression_dict,
     const PersistentCacheOptions& cache_options, SequenceNumber global_seqno,
     size_t read_amp_bytes_per_bit, MemoryAllocator* memory_allocator,
-    bool for_compaction = false) {
+    bool for_compaction, bool using_zstd) {
   assert(result);
 
   BlockContents contents;
@@ -93,34 +145,9 @@ Status ReadBlockFromFile(
       cache_options, memory_allocator, nullptr, for_compaction);
   Status s = block_fetcher.ReadBlockContents();
   if (s.ok()) {
-    result->reset(new Block(std::move(contents), global_seqno,
-                            read_amp_bytes_per_bit, ioptions.statistics));
-  }
-
-  return s;
-}
-
-Status ReadBlockFromFile(
-    RandomAccessFileReader* file, FilePrefetchBuffer* prefetch_buffer,
-    const Footer& footer, const ReadOptions& options, const BlockHandle& handle,
-    std::unique_ptr<BlockContents>* result, const ImmutableCFOptions& ioptions,
-    bool do_uncompress, bool maybe_compressed, BlockType block_type,
-    const UncompressionDict& uncompression_dict,
-    const PersistentCacheOptions& cache_options,
-    SequenceNumber /* global_seqno */, size_t /* read_amp_bytes_per_bit */,
-    MemoryAllocator* memory_allocator, bool for_compaction = false) {
-  assert(result);
-
-  result->reset(new BlockContents);
-
-  BlockFetcher block_fetcher(
-      file, prefetch_buffer, footer, options, handle, result->get(), ioptions,
-      do_uncompress, maybe_compressed, block_type, uncompression_dict,
-      cache_options, memory_allocator, nullptr, for_compaction);
-
-  const Status s = block_fetcher.ReadBlockContents();
-  if (!s.ok()) {
-    result->reset();
+    result->reset(BlocklikeTraits<TBlocklike>::Create(
+        std::move(contents), global_seqno, read_amp_bytes_per_bit,
+        ioptions.statistics, using_zstd));
   }
 
   return s;
@@ -1595,7 +1622,8 @@ Status BlockBasedTable::ReadMetaBlock(FilePrefetchBuffer* prefetch_buffer,
       true /* decompress */, true /*maybe_compressed*/, BlockType::kMetaIndex,
       UncompressionDict::GetEmptyDict(), rep_->persistent_cache_options,
       kDisableGlobalSequenceNumber, 0 /* read_amp_bytes_per_bit */,
-      GetMemoryAllocator(rep_->table_options));
+      GetMemoryAllocator(rep_->table_options), false /* for_compaction */,
+      rep_->blocks_definitely_zstd_compressed);
 
   if (!s.ok()) {
     ROCKS_LOG_ERROR(rep_->ioptions.info_log,
@@ -1611,38 +1639,6 @@ Status BlockBasedTable::ReadMetaBlock(FilePrefetchBuffer* prefetch_buffer,
                                                  BytewiseComparator()));
   return Status::OK();
 }
-
-template <typename TBlocklike>
-class BlocklikeTraits;
-
-template <>
-class BlocklikeTraits<BlockContents> {
- public:
-  static BlockContents* Create(BlockContents&& contents,
-                               SequenceNumber /* global_seqno */,
-                               size_t /* read_amp_bytes_per_bit */,
-                               Statistics* /* statistics */) {
-    return new BlockContents(std::move(contents));
-  }
-
-  static uint32_t GetNumRestarts(const BlockContents& /* contents */) {
-    return 0;
-  }
-};
-
-template <>
-class BlocklikeTraits<Block> {
- public:
-  static Block* Create(BlockContents&& contents, SequenceNumber global_seqno,
-                       size_t read_amp_bytes_per_bit, Statistics* statistics) {
-    return new Block(std::move(contents), global_seqno, read_amp_bytes_per_bit,
-                     statistics);
-  }
-
-  static uint32_t GetNumRestarts(const Block& block) {
-    return block.NumRestarts();
-  }
-};
 
 template <typename TBlocklike>
 Status BlockBasedTable::GetDataBlockFromCache(
@@ -1715,7 +1711,8 @@ Status BlockBasedTable::GetDataBlockFromCache(
     std::unique_ptr<TBlocklike> block_holder(
         BlocklikeTraits<TBlocklike>::Create(
             std::move(contents), rep_->get_global_seqno(block_type),
-            read_amp_bytes_per_bit, statistics));  // uncompressed block
+            read_amp_bytes_per_bit, statistics,
+            rep_->blocks_definitely_zstd_compressed));  // uncompressed block
 
     if (block_cache != nullptr && block_holder->own_bytes() &&
         read_options.fill_cache) {
@@ -1786,11 +1783,11 @@ Status BlockBasedTable::PutDataBlockToCache(
 
     block_holder.reset(BlocklikeTraits<TBlocklike>::Create(
         std::move(uncompressed_block_contents), seq_no, read_amp_bytes_per_bit,
-        statistics));
+        statistics, rep_->blocks_definitely_zstd_compressed));
   } else {
     block_holder.reset(BlocklikeTraits<TBlocklike>::Create(
         std::move(*raw_block_contents), seq_no, read_amp_bytes_per_bit,
-        statistics));
+        statistics, rep_->blocks_definitely_zstd_compressed));
   }
 
   // Insert compressed block into compressed block cache.
@@ -1908,7 +1905,7 @@ TBlockIter* BlockBasedTable::NewDataBlockIterator(
     return iter;
   }
 
-  UncompressionDict uncompression_dict;
+  CachableEntry<UncompressionDict> uncompression_dict;
   if (rep_->uncompression_dict_reader) {
     const bool no_io = (ro.read_tier == kBlockCacheTier);
     s = rep_->uncompression_dict_reader->GetOrReadUncompressionDictionary(
@@ -1920,9 +1917,13 @@ TBlockIter* BlockBasedTable::NewDataBlockIterator(
     }
   }
 
+  const UncompressionDict& dict = uncompression_dict.GetValue()
+                                      ? *uncompression_dict.GetValue()
+                                      : UncompressionDict::GetEmptyDict();
+
   CachableEntry<Block> block;
-  s = RetrieveBlock(prefetch_buffer, ro, handle, uncompression_dict, &block,
-                    block_type, get_context, lookup_context, for_compaction,
+  s = RetrieveBlock(prefetch_buffer, ro, handle, dict, &block, block_type,
+                    get_context, lookup_context, for_compaction,
                     /* use_cache */ true);
 
   if (!s.ok()) {
@@ -2272,15 +2273,11 @@ Status BlockBasedTable::MaybeReadBlockAndLoadToCache(
 // handles - A vector of block handles. Some of them me be NULL handles
 // scratch - An optional contiguous buffer to read compressed blocks into
 void BlockBasedTable::MaybeLoadBlocksToCache(
-    const ReadOptions& options,
-    const MultiGetRange* batch,
-    const autovector<BlockHandle, MultiGetContext::MAX_BATCH_SIZE>*  handles,
+    const ReadOptions& options, const MultiGetRange* batch,
+    const autovector<BlockHandle, MultiGetContext::MAX_BATCH_SIZE>* handles,
     autovector<Status, MultiGetContext::MAX_BATCH_SIZE>* statuses,
-    autovector<
-      CachableEntry<Block>, MultiGetContext::MAX_BATCH_SIZE>* results,
-    char* scratch,
-    const UncompressionDict& uncompression_dict) const {
-
+    autovector<CachableEntry<Block>, MultiGetContext::MAX_BATCH_SIZE>* results,
+    char* scratch, const UncompressionDict& uncompression_dict) const {
   RandomAccessFileReader* file = rep_->file.get();
   const Footer& footer = rep_->footer;
   const ImmutableCFOptions& ioptions = rep_->ioptions;
@@ -2476,7 +2473,8 @@ Status BlockBasedTable::RetrieveBlock(
         block_type == BlockType::kData
             ? rep_->table_options.read_amp_bytes_per_bit
             : 0,
-        GetMemoryAllocator(rep_->table_options), for_compaction);
+        GetMemoryAllocator(rep_->table_options), for_compaction,
+        rep_->blocks_definitely_zstd_compressed);
   }
 
   if (!s.ok()) {
@@ -2502,6 +2500,13 @@ template Status BlockBasedTable::RetrieveBlock<Block>(
     FilePrefetchBuffer* prefetch_buffer, const ReadOptions& ro,
     const BlockHandle& handle, const UncompressionDict& uncompression_dict,
     CachableEntry<Block>* block_entry, BlockType block_type,
+    GetContext* get_context, BlockCacheLookupContext* lookup_context,
+    bool for_compaction, bool use_cache) const;
+
+template Status BlockBasedTable::RetrieveBlock<UncompressionDict>(
+    FilePrefetchBuffer* prefetch_buffer, const ReadOptions& ro,
+    const BlockHandle& handle, const UncompressionDict& uncompression_dict,
+    CachableEntry<UncompressionDict>* block_entry, BlockType block_type,
     GetContext* get_context, BlockCacheLookupContext* lookup_context,
     bool for_compaction, bool use_cache) const;
 
@@ -3398,7 +3403,7 @@ void BlockBasedTable::MultiGet(const ReadOptions& read_options,
       MultiGetRange data_block_range(sst_file_range, sst_file_range.begin(),
                                      sst_file_range.end());
 
-      UncompressionDict uncompression_dict;
+      CachableEntry<UncompressionDict> uncompression_dict;
       Status uncompression_dict_status;
       if (rep_->uncompression_dict_reader) {
         uncompression_dict_status =
@@ -3407,6 +3412,10 @@ void BlockBasedTable::MultiGet(const ReadOptions& read_options,
                 sst_file_range.begin()->get_context, &lookup_context,
                 &uncompression_dict);
       }
+
+      const UncompressionDict& dict = uncompression_dict.GetValue()
+                                          ? *uncompression_dict.GetValue()
+                                          : UncompressionDict::GetEmptyDict();
 
       size_t total_len = 0;
       ReadOptions ro = read_options;
@@ -3451,8 +3460,8 @@ void BlockBasedTable::MultiGet(const ReadOptions& read_options,
         }
         offset = v.handle.offset();
         BlockHandle handle = v.handle;
-        Status s = GetDataBlockFromCache(ro, handle, uncompression_dict,
-              &(results.back()), BlockType::kData, miter->get_context);
+        Status s = GetDataBlockFromCache(ro, handle, dict, &(results.back()),
+                                         BlockType::kData, miter->get_context);
         if (s.ok() && !results.back().IsEmpty()) {
           // Found it in the cache. Add NULL handle to indicate there is
           // nothing to read from disk
@@ -3483,9 +3492,8 @@ void BlockBasedTable::MultiGet(const ReadOptions& read_options,
             block_buf.reset(scratch);
           }
         }
-        MaybeLoadBlocksToCache(read_options,
-            &data_block_range, &block_handles, &statuses, &results,
-            scratch, uncompression_dict);
+        MaybeLoadBlocksToCache(read_options, &data_block_range, &block_handles,
+                               &statuses, &results, scratch, dict);
       }
     }
 
@@ -4098,7 +4106,7 @@ Status BlockBasedTable::DumpTable(WritableFile* out_file) {
 
   // Output compression dictionary
   if (rep_->uncompression_dict_reader) {
-    UncompressionDict uncompression_dict;
+    CachableEntry<UncompressionDict> uncompression_dict;
     s = rep_->uncompression_dict_reader->GetOrReadUncompressionDictionary(
         nullptr /* prefetch_buffer */, false /* no_io */,
         nullptr /* get_context */, nullptr /* lookup_context */,
@@ -4107,7 +4115,9 @@ Status BlockBasedTable::DumpTable(WritableFile* out_file) {
       return s;
     }
 
-    const Slice& raw_dict = uncompression_dict.GetRawDict();
+    assert(uncompression_dict.GetValue());
+
+    const Slice& raw_dict = uncompression_dict.GetValue()->GetRawDict();
     out_file->Append(
         "Compression Dictionary:\n"
         "--------------------------------------\n");
