@@ -309,10 +309,10 @@ class BlockBasedTable : public TableReader {
 
   void MaybeLoadBlocksToCache(
       const ReadOptions& options, const MultiGetRange* batch,
-      const autovector<BlockHandle, MultiGetContext::MAX_BATCH_SIZE>*  handles,
+      const autovector<BlockHandle, MultiGetContext::MAX_BATCH_SIZE>* handles,
       autovector<Status, MultiGetContext::MAX_BATCH_SIZE>* statuses,
-      autovector<
-        CachableEntry<Block>, MultiGetContext::MAX_BATCH_SIZE>* results,
+      autovector<CachableEntry<Block>, MultiGetContext::MAX_BATCH_SIZE>*
+          results,
       char* scratch, const UncompressionDict& uncompression_dict) const;
 
   // Get the iterator from the index reader.

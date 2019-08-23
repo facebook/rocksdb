@@ -21,36 +21,36 @@ Status UncompressionDictReader::Create(
   assert(!pin || prefetch);
   assert(uncompression_dict_reader);
 
-  CachableEntry<BlockContents> uncompression_dict_block;
+  CachableEntry<UncompressionDict> uncompression_dict;
   if (prefetch || !use_cache) {
-    const Status s = ReadUncompressionDictionaryBlock(
+    const Status s = ReadUncompressionDictionary(
         table, prefetch_buffer, ReadOptions(), use_cache,
-        nullptr /* get_context */, lookup_context, &uncompression_dict_block);
+        nullptr /* get_context */, lookup_context, &uncompression_dict);
     if (!s.ok()) {
       return s;
     }
 
     if (use_cache && !pin) {
-      uncompression_dict_block.Reset();
+      uncompression_dict.Reset();
     }
   }
 
   uncompression_dict_reader->reset(
-      new UncompressionDictReader(table, std::move(uncompression_dict_block)));
+      new UncompressionDictReader(table, std::move(uncompression_dict)));
 
   return Status::OK();
 }
 
-Status UncompressionDictReader::ReadUncompressionDictionaryBlock(
+Status UncompressionDictReader::ReadUncompressionDictionary(
     const BlockBasedTable* table, FilePrefetchBuffer* prefetch_buffer,
     const ReadOptions& read_options, bool use_cache, GetContext* get_context,
     BlockCacheLookupContext* lookup_context,
-    CachableEntry<BlockContents>* uncompression_dict_block) {
+    CachableEntry<UncompressionDict>* uncompression_dict) {
   // TODO: add perf counter for compression dictionary read time
 
   assert(table);
-  assert(uncompression_dict_block);
-  assert(uncompression_dict_block->IsEmpty());
+  assert(uncompression_dict);
+  assert(uncompression_dict->IsEmpty());
 
   const BlockBasedTable::Rep* const rep = table->get_rep();
   assert(rep);
@@ -58,7 +58,7 @@ Status UncompressionDictReader::ReadUncompressionDictionaryBlock(
 
   const Status s = table->RetrieveBlock(
       prefetch_buffer, read_options, rep->compression_dict_handle,
-      UncompressionDict::GetEmptyDict(), uncompression_dict_block,
+      UncompressionDict::GetEmptyDict(), uncompression_dict,
       BlockType::kCompressionDictionary, get_context, lookup_context,
       /* for_compaction */ false, use_cache);
 
@@ -73,15 +73,14 @@ Status UncompressionDictReader::ReadUncompressionDictionaryBlock(
   return s;
 }
 
-Status UncompressionDictReader::GetOrReadUncompressionDictionaryBlock(
+Status UncompressionDictReader::GetOrReadUncompressionDictionary(
     FilePrefetchBuffer* prefetch_buffer, bool no_io, GetContext* get_context,
     BlockCacheLookupContext* lookup_context,
-    CachableEntry<BlockContents>* uncompression_dict_block) const {
-  assert(uncompression_dict_block);
+    CachableEntry<UncompressionDict>* uncompression_dict) const {
+  assert(uncompression_dict);
 
-  if (!uncompression_dict_block_.IsEmpty()) {
-    uncompression_dict_block->SetUnownedValue(
-        uncompression_dict_block_.GetValue());
+  if (!uncompression_dict_.IsEmpty()) {
+    uncompression_dict->SetUnownedValue(uncompression_dict_.GetValue());
     return Status::OK();
   }
 
@@ -90,42 +89,17 @@ Status UncompressionDictReader::GetOrReadUncompressionDictionaryBlock(
     read_options.read_tier = kBlockCacheTier;
   }
 
-  return ReadUncompressionDictionaryBlock(
-      table_, prefetch_buffer, read_options, cache_dictionary_blocks(),
-      get_context, lookup_context, uncompression_dict_block);
-}
-
-Status UncompressionDictReader::GetOrReadUncompressionDictionary(
-    FilePrefetchBuffer* prefetch_buffer, bool no_io, GetContext* get_context,
-    BlockCacheLookupContext* lookup_context,
-    UncompressionDict* uncompression_dict) const {
-  CachableEntry<BlockContents> uncompression_dict_block;
-  const Status s = GetOrReadUncompressionDictionaryBlock(
-      prefetch_buffer, no_io, get_context, lookup_context,
-      &uncompression_dict_block);
-
-  if (!s.ok()) {
-    return s;
-  }
-
-  assert(uncompression_dict);
-  assert(table_);
-  assert(table_->get_rep());
-
-  UncompressionDict dict(uncompression_dict_block.GetValue()->data,
-                         table_->get_rep()->blocks_definitely_zstd_compressed);
-  *uncompression_dict = std::move(dict);
-  uncompression_dict_block.TransferTo(uncompression_dict);
-
-  return Status::OK();
+  return ReadUncompressionDictionary(table_, prefetch_buffer, read_options,
+                                     cache_dictionary_blocks(), get_context,
+                                     lookup_context, uncompression_dict);
 }
 
 size_t UncompressionDictReader::ApproximateMemoryUsage() const {
-  assert(!uncompression_dict_block_.GetOwnValue() ||
-         uncompression_dict_block_.GetValue() != nullptr);
-  size_t usage = uncompression_dict_block_.GetOwnValue()
-             ? uncompression_dict_block_.GetValue()->ApproximateMemoryUsage()
-             : 0;
+  assert(!uncompression_dict_.GetOwnValue() ||
+         uncompression_dict_.GetValue() != nullptr);
+  size_t usage = uncompression_dict_.GetOwnValue()
+                     ? uncompression_dict_.GetValue()->ApproximateMemoryUsage()
+                     : 0;
 
 #ifdef ROCKSDB_MALLOC_USABLE_SIZE
     usage += malloc_usable_size(const_cast<UncompressionDictReader*>(this));
