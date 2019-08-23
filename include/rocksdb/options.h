@@ -1090,12 +1090,15 @@ struct DBOptions {
   // ReadOptions::background_purge_on_iterator_cleanup.
   bool avoid_unnecessary_blocking_io = false;
 
-  // If true, the DB ID is written to Manifest file in addition to the
-  // Identity file. By doing this 2 problems are solved
-  // 1. We don't checksum the Identity file where Manifest file is.
+  // Historically DB ID has always been stored in Identity File in DB folder.
+  // If this flag is true, the DB ID is written to Manifest file in addition
+  // to the Identity file. By doing this 2 problems are solved
+  // 1. We don't checksum the Identity file where as Manifest file is.
   // 2. Since the source of truth for DB is Manifest file DB ID will sit with
   //    the source of truth. Previously the Identity file could be copied
   //    independent of Manifest and that can result in wrong DB ID.
+  // We recommend setting this flag to true.
+  // Default: false
   bool write_dbid_to_manifest = false;
 
   // The number of bytes to prefetch when reading the log. This is mostly useful
