@@ -421,6 +421,14 @@ Status DBImpl::Recover(
                              mutable_cf_options, &edit, &mutex_, nullptr,
                              false);
     }
+  } else {
+      // Make sure DB ID in Identity file is consistent with the one in
+      // Manifest else update Identity file.
+      std::string tmp_db_id;
+      GetDbIdentityFromIdentityFile(tmp_db_id);
+      if (db_id_.compare(tmp_db_id) != 0) {
+          SetIdentityFile(env_, dbname_, db_id_);
+      }
   }
   if (immutable_db_options_.paranoid_checks && s.ok()) {
     s = CheckConsistency();
