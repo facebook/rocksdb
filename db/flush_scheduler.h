@@ -15,8 +15,10 @@ namespace rocksdb {
 
 class ColumnFamilyData;
 
-// Unless otherwise noted, all methods on FlushScheduler should be called
-// only with the DB mutex held or from a single-threaded recovery context.
+// FlushScheduler keeps track of all column families whose memtable may
+// be full and require flushing. Unless otherwise noted, all methods on
+// FlushScheduler should be called only with the DB mutex held or from
+// a single-threaded recovery context.
 class FlushScheduler {
  public:
   FlushScheduler() : head_(nullptr) {}
@@ -47,26 +49,6 @@ class FlushScheduler {
   std::mutex checking_mutex_;
   std::set<ColumnFamilyData*> checking_set_;
 #endif  // NDEBUG
-};
-
-class TrimHistoryScheduler {
- public:
-  TrimHistoryScheduler() {}
-
-  void ScheduleWork(ColumnFamilyData* cfd);
-
-  ColumnFamilyData* TakeNextColumnFamily();
-
-  bool Empty();
-
-  void Clear();
-
-  // Not on critical path, always use mutex and checking set to ensure thread
-  // safety
- private:
-  autovector<ColumnFamilyData*> cfds;
-  std::mutex checking_mutex_;
-  std::set<ColumnFamilyData*> checking_set_;
 };
 
 }  // namespace rocksdb

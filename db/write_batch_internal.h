@@ -10,11 +10,12 @@
 #pragma once
 #include <vector>
 #include "db/flush_scheduler.h"
+#include "db/trim_history_scheduler.h"
 #include "db/write_thread.h"
-#include "rocksdb/types.h"
-#include "rocksdb/write_batch.h"
 #include "rocksdb/db.h"
 #include "rocksdb/options.h"
+#include "rocksdb/types.h"
+#include "rocksdb/write_batch.h"
 #include "util/autovector.h"
 
 namespace rocksdb {

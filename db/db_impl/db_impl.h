@@ -37,6 +37,7 @@
 #include "db/read_callback.h"
 #include "db/snapshot_checker.h"
 #include "db/snapshot_impl.h"
+#include "db/trim_history_scheduler.h"
 #include "db/version_edit.h"
 #include "db/wal_manager.h"
 #include "db/write_controller.h"

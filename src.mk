@@ -53,6 +53,7 @@ LIB_SOURCES =                                                   \
   db/table_cache.cc                                             \
   db/table_properties_collector.cc                              \
   db/transaction_log_impl.cc                                    \
+  db/trim_history_scheduler.cc                                  \
   db/version_builder.cc                                         \
   db/version_edit.cc                                            \
   db/version_set.cc                                             \
