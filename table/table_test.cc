@@ -3300,7 +3300,8 @@ TEST_F(MemTableTest, Simple) {
   batch.DeleteRange(std::string("begin"), std::string("end"));
   ColumnFamilyMemTablesDefault cf_mems_default(memtable);
   ASSERT_TRUE(
-      WriteBatchInternal::InsertInto(&batch, &cf_mems_default, nullptr).ok());
+      WriteBatchInternal::InsertInto(&batch, &cf_mems_default, nullptr, nullptr)
+          .ok());
 
   for (int i = 0; i < 2; ++i) {
     Arena arena;

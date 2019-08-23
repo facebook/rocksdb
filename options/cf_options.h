@@ -43,6 +43,8 @@ struct ImmutableCFOptions {
 
   int max_write_buffer_number_to_maintain;
 
+  int64_t max_write_buffer_size_to_maintain;
+
   bool inplace_update_support;
 
   UpdateStatus (*inplace_callback)(char* existing_value,
