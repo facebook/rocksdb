@@ -49,6 +49,7 @@ TEST_F(OptionsTest, GetOptionsFromMapTest) {
       {"max_write_buffer_number", "2"},
       {"min_write_buffer_number_to_merge", "3"},
       {"max_write_buffer_number_to_maintain", "99"},
+      {"max_write_buffer_size_to_maintain", "-99999"},
       {"compression", "kSnappyCompression"},
       {"compression_per_level",
        "kNoCompression:"
@@ -150,6 +151,7 @@ TEST_F(OptionsTest, GetOptionsFromMapTest) {
   ASSERT_EQ(new_cf_opt.max_write_buffer_number, 2);
   ASSERT_EQ(new_cf_opt.min_write_buffer_number_to_merge, 3);
   ASSERT_EQ(new_cf_opt.max_write_buffer_number_to_maintain, 99);
+  ASSERT_EQ(new_cf_opt.max_write_buffer_size_to_maintain, -99999);
   ASSERT_EQ(new_cf_opt.compression, kSnappyCompression);
   ASSERT_EQ(new_cf_opt.compression_per_level.size(), 9U);
   ASSERT_EQ(new_cf_opt.compression_per_level[0], kNoCompression);

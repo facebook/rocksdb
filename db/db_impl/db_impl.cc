@@ -472,6 +472,7 @@ Status DBImpl::CloseHelper() {
                            &files_grabbed_for_purge_);
   EraseThreadStatusDbInfo();
   flush_scheduler_.Clear();
+  trim_history_scheduler_.Clear();
 
   while (!flush_queue_.empty()) {
     const FlushRequest& flush_req = PopFirstFromFlushQueue();
