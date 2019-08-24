@@ -1403,10 +1403,9 @@ class MemTableInserter : public WriteBatch::Handler {
     // any kind of transactions including the ones that use seq_per_batch
     assert(!seq_per_batch_ || !moptions->inplace_update_support);
     if (!moptions->inplace_update_support) {
-      bool mem_res =
-          mem->Add(sequence_, value_type, key, value,
-                   concurrent_memtable_writes_, get_post_process_info(mem),
-                   hint_per_batch_?&hint_[mem]:nullptr);
+      bool mem_res = mem->Add(
+          sequence_, value_type, key, value, concurrent_memtable_writes_,
+          get_post_process_info(mem), hint_per_batch_ ? &hint_[mem] : nullptr);
       if (UNLIKELY(!mem_res)) {
         assert(seq_per_batch_);
         ret_status = Status::TryAgain("key+seq exists");
@@ -1487,10 +1486,9 @@ class MemTableInserter : public WriteBatch::Handler {
                     const Slice& value, ValueType delete_type) {
     Status ret_status;
     MemTable* mem = cf_mems_->GetMemTable();
-    bool mem_res =
-        mem->Add(sequence_, delete_type, key, value,
-                 concurrent_memtable_writes_, get_post_process_info(mem),
-                 hint_per_batch_?&hint_[mem]:nullptr);
+    bool mem_res = mem->Add(
+        sequence_, delete_type, key, value, concurrent_memtable_writes_,
+        get_post_process_info(mem), hint_per_batch_ ? &hint_[mem] : nullptr);
     if (UNLIKELY(!mem_res)) {
       assert(seq_per_batch_);
       ret_status = Status::TryAgain("key+seq exists");

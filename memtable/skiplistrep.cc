@@ -55,7 +55,8 @@ public:
  }
 
  bool InsertKeyWithHintConcurrently(KeyHandle handle, void** hint) override {
-   return skip_list_.InsertWithHintConcurrently(static_cast<char*>(handle), hint);
+   return skip_list_.InsertWithHintConcurrently(static_cast<char*>(handle),
+                                                hint);
  }
 
  void InsertConcurrently(KeyHandle handle) override {

@@ -174,7 +174,7 @@ class MemTable {
   bool Add(SequenceNumber seq, ValueType type, const Slice& key,
            const Slice& value, bool allow_concurrent = false,
            MemTablePostProcessInfo* post_process_info = nullptr,
-           void **hint = nullptr);
+           void** hint = nullptr);
 
   // Used to Get value associated with key or Get Merge Operands associated
   // with key.
