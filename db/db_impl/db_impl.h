@@ -317,7 +317,7 @@ class DBImpl : public DB {
 
   virtual Status GetDbIdentity(std::string& identity) const override;
 
-  virtual Status GetDbIdentityFromIdentityFile(std::string& identity) const;
+  virtual Status GetDbIdentityFromIdentityFile(std::string* identity) const;
 
   ColumnFamilyHandle* DefaultColumnFamily() const override;
 

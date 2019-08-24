@@ -4230,8 +4230,8 @@ Status VersionSet::ReadAndRecover(
     if (!s.ok()) {
       break;
     }
-    if (db_id != nullptr && edit.has_db_id_) {
-      db_id->assign(edit.GetDbId());
+    if (edit.has_db_id_) {
+        db_id->assign(edit.GetDbId());
       db_id_ = *db_id;
     }
     s = read_buffer->AddEdit(&edit);
@@ -4847,6 +4847,7 @@ Status VersionSet::WriteCurrentStateToManifest(log::Writer* log) {
 
   if (db_options_->write_dbid_to_manifest) {
       VersionEdit edit_for_db_id;
+      assert(!db_id_.empty());
       edit_for_db_id.SetDBId(db_id_);
       std::string db_id_record;
       if (!edit_for_db_id.EncodeTo(&db_id_record)) {

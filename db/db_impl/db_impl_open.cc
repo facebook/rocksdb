@@ -232,8 +232,9 @@ Status DBImpl::ValidateOptions(const DBOptions& db_options) {
 Status DBImpl::NewDB() {
   VersionEdit new_db;
   if (immutable_db_options_.write_dbid_to_manifest) {
-    GetDbIdentityFromIdentityFile(db_id_);
-    new_db.SetDBId(db_id_);
+    std::string temp_db_id;
+    GetDbIdentityFromIdentityFile(&temp_db_id);
+    new_db.SetDBId(temp_db_id);
   }
   new_db.SetLogNumber(0);
   new_db.SetNextFile(2);
@@ -401,22 +402,18 @@ Status DBImpl::Recover(
       }
     }
   }
-  Status s;
-  if (immutable_db_options_.write_dbid_to_manifest && db_id_.empty()) {
-    assert(!is_new_db);
-    s = versions_->Recover(column_families, read_only, &db_id_);
-  } else {
-    s = versions_->Recover(column_families, read_only);
-  }
+  assert (db_id_.empty());
+  Status s = versions_->Recover(column_families, read_only, &db_id_);
   // Happens when immutable_db_options_.write_dbid_to_manifest is set to true
   // the very first time.
   if (db_id_.empty()) {
-    GetDbIdentityFromIdentityFile(db_id_);
+    GetDbIdentityFromIdentityFile(&db_id_);
     if (immutable_db_options_.write_dbid_to_manifest) {
       VersionEdit edit;
       edit.SetDBId(db_id_);
       Options options;
       MutableCFOptions mutable_cf_options(options);
+      versions_->db_id_ = db_id_;
       versions_->LogAndApply(versions_->GetColumnFamilySet()->GetDefault(),
                              mutable_cf_options, &edit, &mutex_, nullptr,
                              false);
@@ -425,7 +422,7 @@ Status DBImpl::Recover(
       // Make sure DB ID in Identity file is consistent with the one in
       // Manifest else update Identity file.
       std::string tmp_db_id;
-      GetDbIdentityFromIdentityFile(tmp_db_id);
+      GetDbIdentityFromIdentityFile(&tmp_db_id);
       if (db_id_.compare(tmp_db_id) != 0) {
           SetIdentityFile(env_, dbname_, db_id_);
       }

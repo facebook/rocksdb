@@ -18,6 +18,9 @@
 
 namespace rocksdb {
 
+// Mask for an identified tag from the future which can be safely ignored.
+const uint32_t kTagSafeIgnoreMask = 1 << 13;
+
 // Tag numbers for serialized VersionEdit.  These numbers are written to
 // disk and should not be changed. The number should be forward compatible so
 // users can down-grade RocksDB safely. A future Tag is ignored by doing '&'
@@ -33,7 +36,7 @@ enum Tag : uint32_t {
   // 8 was used for large value refs
   kPrevLogNumber = 9,
   kMinLogNumberToKeep = 10,
-  kDbId = 11,
+  kDbId = kTagSafeIgnoreMask + 1,
 
   // these are new formats divergent from open source leveldb
   kNewFile2 = 100,
@@ -46,9 +49,6 @@ enum Tag : uint32_t {
 
   kInAtomicGroup = 300,
 };
-
-// Mask for an identified tag from the future which can be safely ignored.
-uint32_t kTagSafeIgnoreMask = 1 << 13;
 
 enum CustomTag : uint32_t {
   kTerminate = 1,  // The end of customized fields
