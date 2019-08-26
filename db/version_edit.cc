@@ -36,6 +36,7 @@ enum Tag : uint32_t {
   // 8 was used for large value refs
   kPrevLogNumber = 9,
   kMinLogNumberToKeep = 10,
+  // Ignore-able field
   kDbId = kTagSafeIgnoreMask + 1,
 
   // these are new formats divergent from open source leveldb
