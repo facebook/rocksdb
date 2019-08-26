@@ -1089,7 +1089,7 @@ class VersionSet {
 
   Status ExtractInfoFromVersionEdit(ColumnFamilyData* cfd,
                                     const VersionEdit& from_edit,
-                                    VersionEditParams* to_edit);
+                                    VersionEditParams* version_edit_params);
 
   std::unique_ptr<ColumnFamilySet> column_family_set_;
 

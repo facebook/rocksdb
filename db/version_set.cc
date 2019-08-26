@@ -4230,7 +4230,7 @@ Status VersionSet::ReadAndRecover(
     if (!s.ok()) {
       break;
     }
-    if (edit.has_db_id_) {
+    if (db_id != nullptr && edit.has_db_id_) {
         db_id->assign(edit.GetDbId());
       db_id_ = *db_id;
     }
