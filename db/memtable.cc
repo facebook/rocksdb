@@ -105,7 +105,8 @@ MemTable::MemTable(const InternalKeyComparator& cmp,
       insert_with_hint_prefix_extractor_(
           ioptions.memtable_insert_with_hint_prefix_extractor),
       oldest_key_time_(std::numeric_limits<uint64_t>::max()),
-      atomic_flush_seqno_(kMaxSequenceNumber) {
+      atomic_flush_seqno_(kMaxSequenceNumber),
+      approximate_memory_usage_(0) {
   UpdateFlushState();
   // something went wrong if we need to flush before inserting anything
   assert(!ShouldScheduleFlush());
@@ -139,11 +140,12 @@ size_t MemTable::ApproximateMemoryUsage() {
     }
     total_usage += usage;
   }
+  approximate_memory_usage_.store(total_usage, std::memory_order_relaxed);
   // otherwise, return the actual usage
   return total_usage;
 }
 
-bool MemTable::ShouldFlushNow() const {
+bool MemTable::ShouldFlushNow() {
   size_t write_buffer_size = write_buffer_size_.load(std::memory_order_relaxed);
   // In a lot of times, we cannot allocate arena blocks that exactly matches the
   // buffer size. Thus we have to decide if we should over-allocate or
@@ -158,6 +160,8 @@ bool MemTable::ShouldFlushNow() const {
   auto allocated_memory = table_->ApproximateMemoryUsage() +
                           range_del_table_->ApproximateMemoryUsage() +
                           arena_.MemoryAllocatedBytes();
+
+  approximate_memory_usage_.store(allocated_memory, std::memory_order_relaxed);
 
   // if we can still allocate one more block without exceeding the
   // over-allocation ratio, then we should not flush.

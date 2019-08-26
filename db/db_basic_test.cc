@@ -297,7 +297,7 @@ TEST_F(DBBasicTest, FlushMultipleMemtable) {
     writeOpt.disableWAL = true;
     options.max_write_buffer_number = 4;
     options.min_write_buffer_number_to_merge = 3;
-    options.max_write_buffer_number_to_maintain = -1;
+    options.max_write_buffer_size_to_maintain = -1;
     CreateAndReopenWithCF({"pikachu"}, options);
     ASSERT_OK(dbfull()->Put(writeOpt, handles_[1], "foo", "v1"));
     ASSERT_OK(Flush(1));
@@ -327,7 +327,8 @@ TEST_F(DBBasicTest, FlushEmptyColumnFamily) {
   writeOpt.disableWAL = true;
   options.max_write_buffer_number = 2;
   options.min_write_buffer_number_to_merge = 1;
-  options.max_write_buffer_number_to_maintain = 1;
+  options.max_write_buffer_size_to_maintain =
+      static_cast<int64_t>(options.write_buffer_size);
   CreateAndReopenWithCF({"pikachu"}, options);
 
   // Compaction can still go through even if no thread can flush the
@@ -1286,6 +1287,53 @@ TEST_F(DBBasicTest, MultiGetBatchedMultiLevel) {
     }
   }
 }
+
+// Test class for batched MultiGet with prefix extractor
+// Param bool - If true, use partitioned filters
+//              If false, use full filter block
+class MultiGetPrefixExtractorTest
+    : public DBBasicTest,
+      public ::testing::WithParamInterface<bool> {};
+
+TEST_P(MultiGetPrefixExtractorTest, Batched) {
+  Options options = CurrentOptions();
+  options.prefix_extractor.reset(NewFixedPrefixTransform(2));
+  BlockBasedTableOptions bbto;
+  if (GetParam()) {
+    bbto.index_type = BlockBasedTableOptions::IndexType::kTwoLevelIndexSearch;
+    bbto.partition_filters = true;
+  }
+  bbto.filter_policy.reset(NewBloomFilterPolicy(10, false));
+  bbto.whole_key_filtering = false;
+  bbto.cache_index_and_filter_blocks = false;
+  options.table_factory.reset(NewBlockBasedTableFactory(bbto));
+  Reopen(options);
+
+  // First key is not in the prefix_extractor domain
+  ASSERT_OK(Put("k", "v0"));
+  ASSERT_OK(Put("kk1", "v1"));
+  ASSERT_OK(Put("kk2", "v2"));
+  ASSERT_OK(Put("kk3", "v3"));
+  ASSERT_OK(Put("kk4", "v4"));
+  ASSERT_OK(Flush());
+
+  std::vector<std::string> keys({"k", "kk1", "kk2", "kk3", "kk4"});
+  std::vector<std::string> values;
+  SetPerfLevel(kEnableCount);
+  get_perf_context()->Reset();
+  values = MultiGet(keys, nullptr);
+  ASSERT_EQ(values[0], "v0");
+  ASSERT_EQ(values[1], "v1");
+  ASSERT_EQ(values[2], "v2");
+  ASSERT_EQ(values[3], "v3");
+  ASSERT_EQ(values[4], "v4");
+  // Filter hits for 4 in-domain keys
+  ASSERT_EQ(get_perf_context()->bloom_sst_hit_count, 4);
+}
+
+INSTANTIATE_TEST_CASE_P(
+    MultiGetPrefix, MultiGetPrefixExtractorTest,
+    ::testing::Bool());
 
 #ifndef ROCKSDB_LITE
 TEST_F(DBBasicTest, GetAllKeyVersions) {

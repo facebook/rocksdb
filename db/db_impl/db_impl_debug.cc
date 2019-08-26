@@ -9,12 +9,13 @@
 
 #ifndef NDEBUG
 
+#include "db/column_family.h"
 #include "db/db_impl/db_impl.h"
 #include "db/error_handler.h"
 #include "monitoring/thread_status_updater.h"
+#include "util/cast_util.h"
 
 namespace rocksdb {
-
 uint64_t DBImpl::TEST_GetLevel0TotalSize() {
   InstrumentedMutexLock l(&mutex_);
   return default_cf_handle_->cfd()->current()->storage_info()->NumLevelBytes(0);

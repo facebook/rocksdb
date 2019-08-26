@@ -143,6 +143,10 @@ class StackableDB : public DB {
 
   virtual Status VerifyChecksum() override { return db_->VerifyChecksum(); }
 
+  virtual Status VerifyChecksum(const ReadOptions& options) override {
+    return db_->VerifyChecksum(options);
+  }
+
   using DB::KeyMayExist;
   virtual bool KeyMayExist(const ReadOptions& options,
                            ColumnFamilyHandle* column_family, const Slice& key,

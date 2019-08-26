@@ -950,7 +950,7 @@ blackbox_crash_test: db_stress
 	python -u tools/db_crashtest.py blackbox $(CRASH_TEST_EXT_ARGS)
 
 blackbox_crash_test_with_atomic_flush: db_stress
-	python -u tools/db_crashtest.py --enable_atomic_flush blackbox $(CRASH_TEST_EXT_ARGS)
+	python -u tools/db_crashtest.py --cf_consistency blackbox $(CRASH_TEST_EXT_ARGS)
 
 ifeq ($(CRASH_TEST_KILL_ODD),)
   CRASH_TEST_KILL_ODD=888887
@@ -963,7 +963,7 @@ whitebox_crash_test: db_stress
       $(CRASH_TEST_KILL_ODD) $(CRASH_TEST_EXT_ARGS)
 
 whitebox_crash_test_with_atomic_flush: db_stress
-	python -u tools/db_crashtest.py --enable_atomic_flush whitebox  --random_kill_odd \
+	python -u tools/db_crashtest.py --cf_consistency whitebox  --random_kill_odd \
       $(CRASH_TEST_KILL_ODD) $(CRASH_TEST_EXT_ARGS)
 
 asan_check:
@@ -1226,7 +1226,7 @@ histogram_test: monitoring/histogram_test.o $(LIBOBJECTS) $(TESTHARNESS)
 thread_local_test: util/thread_local_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
-corruption_test: db/corruption_test.o $(LIBOBJECTS) $(TESTHARNESS)
+corruption_test: db/corruption_test.o db/db_test_util.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
 crc32c_test: util/crc32c_test.o $(LIBOBJECTS) $(TESTHARNESS)
@@ -1696,7 +1696,7 @@ JAVA_INCLUDE = -I$(JAVA_HOME)/include/ -I$(JAVA_HOME)/include/linux
 ifeq ($(PLATFORM), OS_SOLARIS)
 	ARCH := $(shell isainfo -b)
 else ifeq ($(PLATFORM), OS_OPENBSD)
-	ifneq (,$(filter $(MACHINE), amd64 arm64 sparc64 aarch64))
+	ifneq (,$(filter $(MACHINE), amd64 arm64 aarch64 sparc64))
 		ARCH := 64
 	else
 		ARCH := 32
@@ -1705,12 +1705,9 @@ else
 	ARCH := $(shell getconf LONG_BIT)
 endif
 
-ifeq (,$(findstring ppc,$(MACHINE)))
+ifeq (,$(filter $(MACHINE), ppc arm64 aarch64 sparc64))
         ROCKSDBJNILIB = librocksdbjni-linux$(ARCH).so
 else
-        ROCKSDBJNILIB = librocksdbjni-linux-$(MACHINE).so
-endif
-ifneq (,$(findstring aarch64,$(MACHINE)))
         ROCKSDBJNILIB = librocksdbjni-linux-$(MACHINE).so
 endif
 ROCKSDB_JAR = rocksdbjni-$(ROCKSDB_MAJOR).$(ROCKSDB_MINOR).$(ROCKSDB_PATCH)-linux$(ARCH).jar
@@ -1908,6 +1905,14 @@ rocksdbjavastaticdockerx86_64:
 rocksdbjavastaticdockerppc64le:
 	mkdir -p java/target
 	docker run --rm --name rocksdb_linux_ppc64le-be --attach stdin --attach stdout --attach stderr --volume `pwd`:/rocksdb-host --env DEBUG_LEVEL=$(DEBUG_LEVEL) evolvedbinary/rocksjava:centos7_ppc64le-be /rocksdb-host/java/crossbuild/docker-build-linux-centos.sh
+
+rocksdbjavastaticdockerarm64v8:
+	mkdir -p java/target
+	DOCKER_LINUX_ARM64V8_CONTAINER=`docker ps -aqf name=rocksdb_linux_arm64v8-be`; \
+	if [ -z "$$DOCKER_LINUX_ARM64V8_CONTAINER" ]; then \
+		docker container create --attach stdin --attach stdout --attach stderr --volume `pwd`:/rocksdb-host --name rocksdb_linux_arm64v8-be evolvedbinary/rocksjava:centos7_arm64v8-be /rocksdb-host/java/crossbuild/docker-build-linux-centos.sh; \
+	fi
+	docker start -a rocksdb_linux_arm64v8-be
 
 rocksdbjavastaticpublish: rocksdbjavastaticrelease rocksdbjavastaticpublishcentral
 

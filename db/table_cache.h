@@ -93,6 +93,14 @@ class TableCache {
              HistogramImpl* file_read_hist = nullptr, bool skip_filters = false,
              int level = -1);
 
+  // Return the range delete tombstone iterator of the file specified by
+  // `file_meta`.
+  Status GetRangeTombstoneIterator(
+      const ReadOptions& options,
+      const InternalKeyComparator& internal_comparator,
+      const FileMetaData& file_meta,
+      std::unique_ptr<FragmentedRangeTombstoneIterator>* out_iter);
+
   // If a seek to internal key "k" in specified file finds an entry,
   // call get_context->SaveValue() repeatedly until
   // it returns false. As a side effect, it will insert the TableReader
@@ -158,6 +166,13 @@ class TableCache {
       const Slice& key, const FileDescriptor& fd, TableReaderCaller caller,
       const InternalKeyComparator& internal_comparator,
       const SliceTransform* prefix_extractor = nullptr);
+
+  // Returns approximated data size between start and end keys in a file
+  // represented by fd (the start key must not be greater than the end key).
+  uint64_t ApproximateSize(const Slice& start, const Slice& end,
+                           const FileDescriptor& fd, TableReaderCaller caller,
+                           const InternalKeyComparator& internal_comparator,
+                           const SliceTransform* prefix_extractor = nullptr);
 
   // Release the handle from a cache
   void ReleaseHandle(Cache::Handle* handle);

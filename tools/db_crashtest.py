@@ -16,9 +16,9 @@ import argparse
 #       default_params < {blackbox,whitebox}_default_params <
 #       simple_default_params <
 #       {blackbox,whitebox}_simple_default_params < args
-#   for enable_atomic_flush:
+#   for cf_consistency:
 #       default_params < {blackbox,whitebox}_default_params <
-#       atomic_flush_params < args
+#       cf_consistency_params < args
 
 expected_values_file = tempfile.NamedTemporaryFile()
 
@@ -132,10 +132,10 @@ blackbox_simple_default_params = {
 
 whitebox_simple_default_params = {}
 
-atomic_flush_params = {
-    "disable_wal": 1,
+cf_consistency_params = {
+    "disable_wal": lambda: random.randint(0, 1),
     "reopen": 0,
-    "test_atomic_flush": 1,
+    "test_cf_consistency": 1,
     # use small value for write_buffer_size so that RocksDB triggers flush
     # more frequently
     "write_buffer_size": 1024 * 1024,
@@ -160,6 +160,8 @@ def finalize_and_sanitize(src_params):
     if dest_params.get("test_batches_snapshots") == 1:
         dest_params["delpercent"] += dest_params["delrangepercent"]
         dest_params["delrangepercent"] = 0
+    if dest_params.get("disable_wal", 0) == 1:
+        dest_params["atomic_flush"] = 1
     return dest_params
 
 
@@ -177,8 +179,8 @@ def gen_cmd_params(args):
             params.update(blackbox_simple_default_params)
         if args.test_type == 'whitebox':
             params.update(whitebox_simple_default_params)
-    if args.enable_atomic_flush:
-        params.update(atomic_flush_params)
+    if args.cf_consistency:
+        params.update(cf_consistency_params)
 
     for k, v in vars(args).items():
         if v is not None:
@@ -191,7 +193,7 @@ def gen_cmd(params, unknown_params):
         '--{0}={1}'.format(k, v)
         for k, v in finalize_and_sanitize(params).items()
         if k not in set(['test_type', 'simple', 'duration', 'interval',
-                         'random_kill_odd', 'enable_atomic_flush'])
+                         'random_kill_odd', 'cf_consistency'])
         and v is not None] + unknown_params
     return cmd
 
@@ -288,8 +290,12 @@ def whitebox_crash_main(args, unknown_args):
                     "kill_random_test": kill_random_test,
                 })
             elif kill_mode == 1:
+                if cmd_params.get('disable_wal', 0) == 1:
+                    my_kill_odd = kill_random_test / 50 + 1
+                else:
+                    my_kill_odd = kill_random_test / 10 + 1
                 additional_opts.update({
-                    "kill_random_test": (kill_random_test / 10 + 1),
+                    "kill_random_test": my_kill_odd,
                     "kill_prefix_blacklist": "WritableFileWriter::Append,"
                     + "WritableFileWriter::WriteBuffered",
                 })
@@ -384,7 +390,7 @@ def main():
         db_stress multiple times")
     parser.add_argument("test_type", choices=["blackbox", "whitebox"])
     parser.add_argument("--simple", action="store_true")
-    parser.add_argument("--enable_atomic_flush", action='store_true')
+    parser.add_argument("--cf_consistency", action='store_true')
 
     all_params = dict(default_params.items()
                       + blackbox_default_params.items()

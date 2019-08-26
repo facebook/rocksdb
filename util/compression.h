@@ -21,7 +21,6 @@
 #include <string>
 
 #include "memory/memory_allocator.h"
-#include "rocksdb/cleanable.h"
 #include "rocksdb/options.h"
 #include "rocksdb/table.h"
 #include "util/coding.h"
@@ -217,14 +216,19 @@ struct CompressionDict {
 
 // Holds dictionary and related data, like ZSTD's digested uncompression
 // dictionary.
-struct UncompressionDict : public Cleanable {
-  // Block containing the data for the compression dictionary. It is non-empty
-  // only if the constructor that takes a string parameter is used.
+struct UncompressionDict {
+  // Block containing the data for the compression dictionary in case the
+  // constructor that takes a string parameter is used.
   std::string dict_;
 
-  // Slice pointing to the compression dictionary data. Points to
-  // dict_ if the string constructor is used. In the case of the Slice
-  // constructor, it is a copy of the Slice passed by the caller.
+  // Block containing the data for the compression dictionary in case the
+  // constructor that takes a Slice parameter is used and the passed in
+  // CacheAllocationPtr is not nullptr.
+  CacheAllocationPtr allocation_;
+
+  // Slice pointing to the compression dictionary data. Can point to
+  // dict_, allocation_, or some other memory location, depending on how
+  // the object was constructed.
   Slice slice_;
 
 #ifdef ROCKSDB_ZSTD_DDICT
@@ -232,18 +236,12 @@ struct UncompressionDict : public Cleanable {
   ZSTD_DDict* zstd_ddict_ = nullptr;
 #endif  // ROCKSDB_ZSTD_DDICT
 
-  // Slice constructor: it is the caller's responsibility to either
-  // a) make sure slice remains valid throughout the lifecycle of this object OR
-  // b) transfer the management of the underlying resource (e.g. cache handle)
-  // to this object, in which case UncompressionDict is self-contained, and the
-  // resource is guaranteed to be released (via the cleanup logic in Cleanable)
-  // when UncompressionDict is destroyed.
 #ifdef ROCKSDB_ZSTD_DDICT
-  UncompressionDict(Slice slice, bool using_zstd)
+  UncompressionDict(std::string dict, bool using_zstd)
 #else   // ROCKSDB_ZSTD_DDICT
-  UncompressionDict(Slice slice, bool /*using_zstd*/)
+  UncompressionDict(std::string dict, bool /* using_zstd */)
 #endif  // ROCKSDB_ZSTD_DDICT
-      : slice_(std::move(slice)) {
+      : dict_(std::move(dict)), slice_(dict_) {
 #ifdef ROCKSDB_ZSTD_DDICT
     if (!slice_.empty() && using_zstd) {
       zstd_ddict_ = ZSTD_createDDict_byReference(slice_.data(), slice_.size());
@@ -252,14 +250,25 @@ struct UncompressionDict : public Cleanable {
 #endif  // ROCKSDB_ZSTD_DDICT
   }
 
-  // String constructor: results in a self-contained UncompressionDict.
-  UncompressionDict(std::string dict, bool using_zstd)
-      : UncompressionDict(Slice(dict), using_zstd) {
-    dict_ = std::move(dict);
+#ifdef ROCKSDB_ZSTD_DDICT
+  UncompressionDict(Slice slice, CacheAllocationPtr&& allocation,
+                    bool using_zstd)
+#else   // ROCKSDB_ZSTD_DDICT
+  UncompressionDict(Slice slice, CacheAllocationPtr&& allocation,
+                    bool /* using_zstd */)
+#endif  // ROCKSDB_ZSTD_DDICT
+      : allocation_(std::move(allocation)), slice_(std::move(slice)) {
+#ifdef ROCKSDB_ZSTD_DDICT
+    if (!slice_.empty() && using_zstd) {
+      zstd_ddict_ = ZSTD_createDDict_byReference(slice_.data(), slice_.size());
+      assert(zstd_ddict_ != nullptr);
+    }
+#endif  // ROCKSDB_ZSTD_DDICT
   }
 
   UncompressionDict(UncompressionDict&& rhs)
       : dict_(std::move(rhs.dict_)),
+        allocation_(std::move(rhs.allocation_)),
         slice_(std::move(rhs.slice_))
 #ifdef ROCKSDB_ZSTD_DDICT
         ,
@@ -288,6 +297,7 @@ struct UncompressionDict : public Cleanable {
     }
 
     dict_ = std::move(rhs.dict_);
+    allocation_ = std::move(rhs.allocation_);
     slice_ = std::move(rhs.slice_);
 
 #ifdef ROCKSDB_ZSTD_DDICT
@@ -297,6 +307,12 @@ struct UncompressionDict : public Cleanable {
 
     return *this;
   }
+
+  // The object is self-contained if the string constructor is used, or the
+  // Slice constructor is invoked with a non-null allocation. Otherwise, it
+  // is the caller's responsibility to ensure that the underlying storage
+  // outlives this object.
+  bool own_bytes() const { return !dict_.empty() || allocation_; }
 
   const Slice& GetRawDict() const { return slice_; }
 
@@ -310,12 +326,19 @@ struct UncompressionDict : public Cleanable {
   }
 
   size_t ApproximateMemoryUsage() const {
-    size_t usage = 0;
-    usage += sizeof(struct UncompressionDict);
+    size_t usage = sizeof(struct UncompressionDict);
+    usage += dict_.size();
+    if (allocation_) {
+      auto allocator = allocation_.get_deleter().allocator;
+      if (allocator) {
+        usage += allocator->UsableSize(allocation_.get(), slice_.size());
+      } else {
+        usage += slice_.size();
+      }
+    }
 #ifdef ROCKSDB_ZSTD_DDICT
     usage += ZSTD_sizeof_DDict(zstd_ddict_);
 #endif  // ROCKSDB_ZSTD_DDICT
-    usage += dict_.size();
     return usage;
   }
 

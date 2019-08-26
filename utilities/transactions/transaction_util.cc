@@ -94,7 +94,7 @@ Status TransactionUtil::CheckKey(DBImpl* db_impl, SuperVersion* sv,
                " as the MemTable only contains changes newer than "
                "SequenceNumber %" PRIu64
                ".  Increasing the value of the "
-               "max_write_buffer_number_to_maintain option could reduce the "
+               "max_write_buffer_size_to_maintain option could reduce the "
                "frequency "
                "of this error.",
                snap_seq, earliest_seq);

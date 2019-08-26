@@ -245,6 +245,7 @@ const std::string options_file_content = R"OPTIONS_FILE(
   expanded_compaction_factor=25
   soft_rate_limit=0.000000
   max_write_buffer_number_to_maintain=0
+  max_write_buffer_size_to_maintain=0
   verify_checksums_in_compaction=true
   merge_operator=nullptr
   memtable_prefix_bloom_bits=0
