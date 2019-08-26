@@ -19,6 +19,7 @@
 #include "monitoring/thread_status_updater.h"
 #include "monitoring/thread_status_util.h"
 #include "test_util/sync_point.h"
+#include "util/cast_util.h"
 #include "util/concurrent_task_limiter_impl.h"
 
 namespace rocksdb {
@@ -2072,7 +2073,8 @@ void DBImpl::BGWorkFlush(void* arg) {
 
   IOSTATS_SET_THREAD_POOL_ID(fta.thread_pri_);
   TEST_SYNC_POINT("DBImpl::BGWorkFlush");
-  reinterpret_cast<DBImpl*>(fta.db_)->BackgroundCallFlush(fta.thread_pri_);
+  static_cast_with_check<DBImpl, DB>(fta.db_)->BackgroundCallFlush(
+      fta.thread_pri_);
   TEST_SYNC_POINT("DBImpl::BGWorkFlush:done");
 }
 
@@ -2083,7 +2085,7 @@ void DBImpl::BGWorkCompaction(void* arg) {
   TEST_SYNC_POINT("DBImpl::BGWorkCompaction");
   auto prepicked_compaction =
       static_cast<PrepickedCompaction*>(ca.prepicked_compaction);
-  reinterpret_cast<DBImpl*>(ca.db)->BackgroundCallCompaction(
+  static_cast_with_check<DBImpl, DB>(ca.db)->BackgroundCallCompaction(
       prepicked_compaction, Env::Priority::LOW);
   delete prepicked_compaction;
 }
