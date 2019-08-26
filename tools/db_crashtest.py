@@ -47,7 +47,7 @@ default_params = {
     "max_write_buffer_number": 3,
     "mmap_read": lambda: random.randint(0, 1),
     "nooverwritepercent": 1,
-    "open_files": 500000,
+    "open_files": lambda : random.choice([-1, 500000]),
     "prefixpercent": 5,
     "progress_reports": 0,
     "readpercent": 45,
@@ -67,6 +67,9 @@ default_params = {
     "format_version": lambda: random.randint(2, 4),
     "index_block_restart_interval": lambda: random.choice(range(1, 16)),
     "use_multiget" : lambda: random.randint(0, 1),
+    "periodic_compaction_seconds" :
+        lambda: random.choice([0, 0, 1, 2, 10, 100, 1000]),
+    "compaction_ttl" : lambda: random.choice([0, 0, 1, 2, 10, 100, 1000]),
 }
 
 _TEST_DIR_ENV_VAR = 'TEST_TMPDIR'
@@ -162,6 +165,11 @@ def finalize_and_sanitize(src_params):
         dest_params["delrangepercent"] = 0
     if dest_params.get("disable_wal", 0) == 1:
         dest_params["atomic_flush"] = 1
+    if dest_params.get("open_files", 1) != -1:
+        # Compaction TTL and periodic compactions are only compatible
+        # with open_files = -1
+        dest_params["compaction_ttl"] = 0
+        dest_params["periodic_compaction_seconds"] = 0
     return dest_params
 
 

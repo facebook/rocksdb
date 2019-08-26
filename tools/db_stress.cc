@@ -320,6 +320,12 @@ DEFINE_uint64(subcompactions, 1,
               "Maximum number of subcompactions to divide L0-L1 compactions "
               "into.");
 
+DEFINE_uint64(periodic_compaction_seconds, 1000,
+              "Files older than this value will be picked up for compaction.");
+
+DEFINE_uint64(compaction_ttl, 1000,
+              "Files older than TTL will be compacted to the next level.");
+
 DEFINE_bool(allow_concurrent_memtable_write, false,
             "Allow multi-writers to update mem tables in parallel.");
 
@@ -2745,6 +2751,10 @@ class StressTest {
     }
     fprintf(stdout, "Snapshot refresh nanos    : %" PRIu64 "\n",
             FLAGS_snap_refresh_nanos);
+    fprintf(stdout, "Periodic Compaction Secs  : %" PRIu64 "\n",
+            FLAGS_periodic_compaction_seconds);
+    fprintf(stdout, "Compaction TTL            : %" PRIu64 "\n",
+            FLAGS_compaction_ttl);
 
     fprintf(stdout, "------------------------------------------------\n");
   }
@@ -2821,6 +2831,8 @@ class StressTest {
       options_.max_subcompactions = static_cast<uint32_t>(FLAGS_subcompactions);
       options_.allow_concurrent_memtable_write =
           FLAGS_allow_concurrent_memtable_write;
+      options_.periodic_compaction_seconds = FLAGS_periodic_compaction_seconds;
+      options_.ttl = FLAGS_compaction_ttl;
       options_.enable_pipelined_write = FLAGS_enable_pipelined_write;
       options_.enable_write_thread_adaptive_yield =
           FLAGS_enable_write_thread_adaptive_yield;
