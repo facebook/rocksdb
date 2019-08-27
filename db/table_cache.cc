@@ -349,7 +349,7 @@ bool TableCache::GetFromRowCache(
   }
   return found;
 }
-#endif // ROCKSDB_LITE
+#endif  // ROCKSDB_LITE
 
 Status TableCache::Get(const ReadOptions& options,
                        const InternalKeyComparator& internal_comparator,
@@ -447,7 +447,7 @@ Status TableCache::MultiGet(const ReadOptions& options,
 #ifndef ROCKSDB_LITE
   autovector<std::string, MultiGetContext::MAX_BATCH_SIZE> row_cache_entries;
   IterKey row_cache_key;
-  size_t row_cache_key_prefix = 0;
+  size_t row_cache_key_prefix_size = 0;
   KeyContext& first_key = *table_range.begin();
   bool lookup_row_cache = ioptions_.row_cache &&
           !first_key.get_context->NeedToReadSequence();
@@ -458,13 +458,13 @@ Status TableCache::MultiGet(const ReadOptions& options,
     GetContext* first_context = first_key.get_context;
     CreateRowCacheKeyPrefix(options, fd, first_key.ikey, first_context,
                             row_cache_key);
-    row_cache_key_prefix = row_cache_key.Size();
+    row_cache_key_prefix_size = row_cache_key.Size();
 
     for (auto miter = table_range.begin(); miter != table_range.end(); ++miter) {
       const Slice& user_key = miter->ukey;;
       GetContext* get_context = miter->get_context;
 
-      if (GetFromRowCache(user_key, row_cache_key, row_cache_key_prefix,
+      if (GetFromRowCache(user_key, row_cache_key, row_cache_key_prefix_size,
                           get_context)) {
         table_range.SkipKey(miter);
       } else {
@@ -494,12 +494,11 @@ Status TableCache::MultiGet(const ReadOptions& options,
       if (range_del_iter != nullptr) {
         for (auto iter = table_range.begin(); iter != table_range.end();
              ++iter) {
-          const Slice& k = iter->ikey;
           SequenceNumber* max_covering_tombstone_seq =
               iter->get_context->max_covering_tombstone_seq();
-          *max_covering_tombstone_seq = std::max(
-              *max_covering_tombstone_seq,
-              range_del_iter->MaxCoveringTombstoneSeqnum(ExtractUserKey(k)));
+          *max_covering_tombstone_seq =
+              std::max(*max_covering_tombstone_seq,
+                       range_del_iter->MaxCoveringTombstoneSeqnum(iter->ukey));
         }
       }
     }
@@ -528,7 +527,7 @@ Status TableCache::MultiGet(const ReadOptions& options,
 
       get_context->SetReplayLog(nullptr);
       // Compute row cache key.
-      row_cache_key.TrimAppend(row_cache_key_prefix, user_key.data(),
+      row_cache_key.TrimAppend(row_cache_key_prefix_size, user_key.data(),
                                user_key.size());
       // Put the replay log in row cache only if something was found.
       if (s.ok() && !row_cache_entry.empty()) {

@@ -1388,7 +1388,7 @@ TEST_P(DBMultiGetRowCacheTest, MultiGetBatched) {
     // Call MultiGet() again with some intersection with the previous set of
     // keys. Those should already be in the row cache.
     keys.assign({"no_key", "k5", "k3", "k2"});
-    for (int i = 0; i < 4; ++i) {
+    for (size_t i = 0; i < keys.size(); ++i) {
       values[i].Reset();
       s[i] = Status::OK();
     }
