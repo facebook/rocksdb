@@ -505,8 +505,7 @@ bool MemTable::Add(SequenceNumber s, ValueType type,
         return res;
       }
     } else {
-      bool res = (hint == nullptr) ? table->InsertKey(handle)
-                                   : table->InsertKeyWithHint(handle, hint);
+      bool res = table->InsertKey(handle);
       if (UNLIKELY(!res)) {
         return res;
       }

@@ -1224,8 +1224,20 @@ class MemTableInserter : public WriteBatch::Handler {
   bool              dup_dectector_on_;
 
   bool hint_per_batch_;
+  bool hint_created_;
   // Hints for this batch
-  std::unordered_map<MemTable*, void*> hint_;
+  using HintMap = std::unordered_map<MemTable*, void*>;
+  using HintMapType = std::aligned_storage<sizeof(HintMap)>::type;
+  HintMapType hint_;
+
+  HintMap& GetHintMap() {
+    assert(hint_per_batch_);
+    if (!hint_created_) {
+      new (&hint_) HintMap();
+      hint_created_ = true;
+    }
+    return *reinterpret_cast<HintMap*>(&hint_);
+  }
 
   MemPostInfoMap& GetPostMap() {
     assert(concurrent_memtable_writes_);
@@ -1283,7 +1295,8 @@ class MemTableInserter : public WriteBatch::Handler {
         unprepared_batch_(false),
         duplicate_detector_(),
         dup_dectector_on_(false),
-        hint_per_batch_(hint_per_batch) {
+        hint_per_batch_(hint_per_batch),
+        hint_created_(false) {
     assert(cf_mems_);
   }
 
@@ -1295,6 +1308,9 @@ class MemTableInserter : public WriteBatch::Handler {
     if (post_info_created_) {
       reinterpret_cast<MemPostInfoMap*>
         (&mem_post_info_map_)->~MemPostInfoMap();
+    }
+    if (hint_created_) {
+      reinterpret_cast<HintMap*>(&hint_)->~HintMap();
     }
     delete rebuilding_trx_;
   }
@@ -1403,9 +1419,10 @@ class MemTableInserter : public WriteBatch::Handler {
     // any kind of transactions including the ones that use seq_per_batch
     assert(!seq_per_batch_ || !moptions->inplace_update_support);
     if (!moptions->inplace_update_support) {
-      bool mem_res = mem->Add(
-          sequence_, value_type, key, value, concurrent_memtable_writes_,
-          get_post_process_info(mem), hint_per_batch_ ? &hint_[mem] : nullptr);
+      bool mem_res =
+          mem->Add(sequence_, value_type, key, value,
+                   concurrent_memtable_writes_, get_post_process_info(mem),
+                   hint_per_batch_ ? &GetHintMap()[mem] : nullptr);
       if (UNLIKELY(!mem_res)) {
         assert(seq_per_batch_);
         ret_status = Status::TryAgain("key+seq exists");
@@ -1486,9 +1503,10 @@ class MemTableInserter : public WriteBatch::Handler {
                     const Slice& value, ValueType delete_type) {
     Status ret_status;
     MemTable* mem = cf_mems_->GetMemTable();
-    bool mem_res = mem->Add(
-        sequence_, delete_type, key, value, concurrent_memtable_writes_,
-        get_post_process_info(mem), hint_per_batch_ ? &hint_[mem] : nullptr);
+    bool mem_res =
+        mem->Add(sequence_, delete_type, key, value,
+                 concurrent_memtable_writes_, get_post_process_info(mem),
+                 hint_per_batch_ ? &GetHintMap()[mem] : nullptr);
     if (UNLIKELY(!mem_res)) {
       assert(seq_per_batch_);
       ret_status = Status::TryAgain("key+seq exists");
