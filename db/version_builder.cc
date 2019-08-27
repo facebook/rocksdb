@@ -255,7 +255,7 @@ class VersionBuilder::Rep {
     }
     if (!found) {
       fprintf(stderr, "not found %" PRIu64 "\n", number);
-      return Status::Corruption("not found "+ number);
+      return Status::Corruption("not found "+ NumberToString(number));
     }
     return Status::OK();
   }
