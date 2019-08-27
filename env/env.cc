@@ -10,6 +10,7 @@
 #include "rocksdb/env.h"
 
 #include <thread>
+#include "env/composite_env_wrapper.h"
 #include "logging/env_logger.h"
 #include "memory/arena.h"
 #include "options/db_options.h"
@@ -485,8 +486,9 @@ Status NewEnvLogger(const std::string& fname, Env* env,
     return status;
   }
 
-  *result = std::make_shared<EnvLogger>(std::move(writable_file), fname,
-                                        options, env);
+  *result = std::make_shared<EnvLogger>(
+      NewLegacyWritableFileWrapper(std::move(writable_file)), fname, options,
+      env);
   return Status::OK();
 }
 

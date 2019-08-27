@@ -5,6 +5,7 @@
 
 #include "rocksdb/utilities/sim_cache.h"
 #include <atomic>
+#include "env/composite_env_wrapper.h"
 #include "file/writable_file_writer.h"
 #include "monitoring/statistics.h"
 #include "port/port.h"
@@ -46,8 +47,9 @@ class CacheActivityLogger {
     if (!status.ok()) {
       return status;
     }
-    file_writer_.reset(new WritableFileWriter(std::move(log_file),
-                                              activity_log_file, env_opts));
+    file_writer_.reset(new WritableFileWriter(
+        NewLegacyWritableFileWrapper(std::move(log_file)), activity_log_file,
+        env_opts));
 
     max_logging_size_ = max_logging_size;
     activity_logging_enabled_.store(true);

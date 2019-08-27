@@ -68,6 +68,8 @@ LIB_SOURCES =                                                   \
   env/env_encryption.cc                                         \
   env/env_hdfs.cc                                               \
   env/env_posix.cc                                              \
+  env/file_system.cc                                            \
+  env/fs_posix.cc                                           	\
   env/io_posix.cc                                               \
   env/mock_env.cc                                               \
   file/delete_scheduler.cc                                      \

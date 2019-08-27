@@ -9,6 +9,7 @@
 #include "rocksdb/convenience.h"
 
 #include "db/db_impl/db_impl.h"
+#include "env/composite_env_wrapper.h"
 #include "util/cast_util.h"
 
 namespace rocksdb {
@@ -41,14 +42,16 @@ Status VerifySstFileChecksum(const Options& options,
                              const EnvOptions& env_options,
                              const ReadOptions& read_options,
                              const std::string& file_path) {
-  std::unique_ptr<RandomAccessFile> file;
+  std::unique_ptr<FSRandomAccessFile> file;
   uint64_t file_size;
   InternalKeyComparator internal_comparator(options.comparator);
   ImmutableCFOptions ioptions(options);
 
-  Status s = ioptions.env->NewRandomAccessFile(file_path, &file, env_options);
+  Status s = ioptions.fs->NewRandomAccessFile(file_path,
+                                              FileOptions(env_options),
+                                              &file, nullptr);
   if (s.ok()) {
-    s = ioptions.env->GetFileSize(file_path, &file_size);
+    s = ioptions.fs->GetFileSize(file_path, IOOptions(), &file_size, nullptr);
   } else {
     return s;
   }

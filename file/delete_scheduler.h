@@ -15,6 +15,7 @@
 #include "monitoring/instrumented_mutex.h"
 #include "port/port.h"
 
+#include "rocksdb/file_system.h"
 #include "rocksdb/status.h"
 
 namespace rocksdb {
@@ -32,8 +33,8 @@ class SstFileManagerImpl;
 // case DeleteScheduler will delete files immediately.
 class DeleteScheduler {
  public:
-  DeleteScheduler(Env* env, int64_t rate_bytes_per_sec, Logger* info_log,
-                  SstFileManagerImpl* sst_file_manager,
+  DeleteScheduler(Env* env, FileSystem* fs, int64_t rate_bytes_per_sec,
+                  Logger* info_log, SstFileManagerImpl* sst_file_manager,
                   double max_trash_db_ratio, uint64_t bytes_max_delete_chunk);
 
   ~DeleteScheduler();
@@ -91,6 +92,8 @@ class DeleteScheduler {
   void BackgroundEmptyTrash();
 
   Env* env_;
+  FileSystem* fs_;
+
   // total size of trash files
   std::atomic<uint64_t> total_trash_size_;
   // Maximum number of bytes that should be deleted per second

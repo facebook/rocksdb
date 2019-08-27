@@ -24,6 +24,7 @@
 #include "rocksdb/cache.h"
 #include "rocksdb/comparator.h"
 #include "rocksdb/env.h"
+#include "rocksdb/file_system.h"
 #include "rocksdb/filter_policy.h"
 #include "rocksdb/iterator.h"
 #include "rocksdb/options.h"
@@ -994,7 +995,7 @@ void BlockBasedTable::SetupCacheKeyPrefix(Rep* rep) {
   }
 }
 
-void BlockBasedTable::GenerateCachePrefix(Cache* cc, RandomAccessFile* file,
+void BlockBasedTable::GenerateCachePrefix(Cache* cc, FSRandomAccessFile* file,
                                           char* buffer, size_t* size) {
   // generate an id from the file
   *size = file->GetUniqueId(buffer, kMaxCacheKeyPrefixSize);
@@ -1007,7 +1008,7 @@ void BlockBasedTable::GenerateCachePrefix(Cache* cc, RandomAccessFile* file,
   }
 }
 
-void BlockBasedTable::GenerateCachePrefix(Cache* cc, WritableFile* file,
+void BlockBasedTable::GenerateCachePrefix(Cache* cc, FSWritableFile* file,
                                           char* buffer, size_t* size) {
   // generate an id from the file
   *size = file->GetUniqueId(buffer, kMaxCacheKeyPrefixSize);
@@ -1603,13 +1604,13 @@ void BlockBasedTable::SetupForCompaction() {
     case Options::NONE:
       break;
     case Options::NORMAL:
-      rep_->file->file()->Hint(RandomAccessFile::NORMAL);
+      rep_->file->file()->Hint(FSRandomAccessFile::kNormal);
       break;
     case Options::SEQUENTIAL:
-      rep_->file->file()->Hint(RandomAccessFile::SEQUENTIAL);
+      rep_->file->file()->Hint(FSRandomAccessFile::kSequential);
       break;
     case Options::WILLNEED:
-      rep_->file->file()->Hint(RandomAccessFile::WILLNEED);
+      rep_->file->file()->Hint(FSRandomAccessFile::kWillNeed);
       break;
     default:
       assert(false);
@@ -2316,7 +2317,7 @@ void BlockBasedTable::RetrieveMultipleBlocks(
     return;
   }
 
-  autovector<ReadRequest, MultiGetContext::MAX_BATCH_SIZE> read_reqs;
+  autovector<FSReadRequest, MultiGetContext::MAX_BATCH_SIZE> read_reqs;
   size_t buf_offset = 0;
   size_t idx_in_batch = 0;
   for (auto mget_iter = batch->begin(); mget_iter != batch->end();
@@ -2326,7 +2327,7 @@ void BlockBasedTable::RetrieveMultipleBlocks(
       continue;
     }
 
-    ReadRequest req;
+    FSReadRequest req;
     req.len = block_size(handle);
     if (scratch == nullptr) {
       req.scratch = new char[req.len];
@@ -2335,7 +2336,7 @@ void BlockBasedTable::RetrieveMultipleBlocks(
       buf_offset += req.len;
     }
     req.offset = handle.offset();
-    req.status = Status::OK();
+    req.status = IOStatus::OK();
     read_reqs.emplace_back(req);
   }
 
@@ -2351,7 +2352,7 @@ void BlockBasedTable::RetrieveMultipleBlocks(
       continue;
     }
 
-    ReadRequest& req = read_reqs[read_req_idx++];
+    FSReadRequest& req = read_reqs[read_req_idx++];
     Status s = req.status;
     if (s.ok()) {
       if (req.result.size() != req.len) {

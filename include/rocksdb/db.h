@@ -57,6 +57,7 @@ class TraceWriter;
 #ifdef ROCKSDB_LITE
 class CompactionJobInfo;
 #endif
+class FileSystem;
 
 extern const std::string kDefaultColumnFamilyName;
 extern const std::string kPersistentStatsColumnFamilyName;
@@ -1066,6 +1067,8 @@ class DB {
 
   // Get Env object from the DB
   virtual Env* GetEnv() const = 0;
+
+  virtual FileSystem* GetFileSystem() const { return nullptr; }
 
   // Get DB Options that we use.  During the process of opening the
   // column family, the options provided when calling DB::Open() or

@@ -27,7 +27,7 @@ namespace rocksdb {
 
 class EnvLogger : public Logger {
  public:
-  EnvLogger(std::unique_ptr<WritableFile>&& writable_file,
+  EnvLogger(std::unique_ptr<FSWritableFile>&& writable_file,
             const std::string& fname, const EnvOptions& options, Env* env,
             InfoLogLevel log_level = InfoLogLevel::ERROR_LEVEL)
       : Logger(log_level),

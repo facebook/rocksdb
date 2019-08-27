@@ -318,7 +318,7 @@ class ColumnFamilyData {
   }
   FlushReason GetFlushReason() const { return flush_reason_; }
   // thread-safe
-  const EnvOptions* soptions() const;
+  const FileOptions* soptions() const;
   const ImmutableCFOptions* ioptions() const { return &ioptions_; }
   // REQUIRES: DB mutex held
   // This returns the MutableCFOptions used by current SuperVersion
@@ -504,7 +504,7 @@ class ColumnFamilyData {
                    WriteBufferManager* write_buffer_manager,
                    const ColumnFamilyOptions& options,
                    const ImmutableDBOptions& db_options,
-                   const EnvOptions& env_options,
+                   const FileOptions& file_options,
                    ColumnFamilySet* column_family_set,
                    BlockCacheTracer* const block_cache_tracer);
 
@@ -632,7 +632,7 @@ class ColumnFamilySet {
 
   ColumnFamilySet(const std::string& dbname,
                   const ImmutableDBOptions* db_options,
-                  const EnvOptions& env_options, Cache* table_cache,
+                  const FileOptions& file_options, Cache* table_cache,
                   WriteBufferManager* write_buffer_manager,
                   WriteController* write_controller,
                   BlockCacheTracer* const block_cache_tracer);
@@ -690,7 +690,7 @@ class ColumnFamilySet {
 
   const std::string db_name_;
   const ImmutableDBOptions* const db_options_;
-  const EnvOptions env_options_;
+  const FileOptions file_options_;
   Cache* table_cache_;
   WriteBufferManager* write_buffer_manager_;
   WriteController* write_controller_;
