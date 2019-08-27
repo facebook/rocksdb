@@ -21,6 +21,9 @@ class Slice;
 class Allocator;
 class Logger;
 
+// A Bloom filter intended only to be used in memory, never serialized in a way
+// that could lead to schema incompatibility. Supports opt-in lock-free
+// concurrent access.
 class DynamicBloom {
  public:
   // allocator: pass allocator to bloom filter, hence trace the usage of memory
@@ -38,12 +41,6 @@ class DynamicBloom {
                         uint32_t num_probes = 6,
                         size_t huge_page_tlb_size = 0,
                         Logger* logger = nullptr);
-
-  explicit DynamicBloom(uint32_t num_probes = 6);
-
-  void SetTotalBits(Allocator* allocator, uint32_t total_bits,
-                    uint32_t locality, size_t huge_page_tlb_size,
-                    Logger* logger);
 
   ~DynamicBloom() {}
 
@@ -68,17 +65,6 @@ class DynamicBloom {
   void Prefetch(uint32_t h);
 
   uint32_t GetNumBlocks() const { return kNumBlocks; }
-
-  Slice GetRawData() const {
-    return Slice(reinterpret_cast<char*>(data_), GetTotalBits() / 8);
-  }
-
-  void SetRawData(unsigned char* raw_data, uint32_t total_bits,
-                  uint32_t num_blocks = 0);
-
-  uint32_t GetTotalBits() const { return kTotalBits; }
-
-  bool IsInitialized() const { return kNumBlocks > 0 || kTotalBits > 0; }
 
  private:
   uint32_t kTotalBits;
@@ -139,7 +125,6 @@ inline void DynamicBloom::Prefetch(uint32_t h) {
 #endif
 
 inline bool DynamicBloom::MayContainHash(uint32_t h) const {
-  assert(IsInitialized());
   const uint32_t delta = (h >> 17) | (h << 15);  // Rotate right 17 bits
   if (kNumBlocks != 0) {
     uint32_t b = ((h >> 11 | (h << 21)) % kNumBlocks) * (CACHE_LINE_SIZE * 8);
@@ -171,7 +156,6 @@ inline bool DynamicBloom::MayContainHash(uint32_t h) const {
 
 template <typename OrFunc>
 inline void DynamicBloom::AddHash(uint32_t h, const OrFunc& or_func) {
-  assert(IsInitialized());
   const uint32_t delta = (h >> 17) | (h << 15);  // Rotate right 17 bits
   if (kNumBlocks != 0) {
     uint32_t b = ((h >> 11 | (h << 21)) % kNumBlocks) * (CACHE_LINE_SIZE * 8);

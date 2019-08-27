@@ -33,24 +33,7 @@ uint32_t GetTotalBitsForLocality(uint32_t total_bits) {
 DynamicBloom::DynamicBloom(Allocator* allocator, uint32_t total_bits,
                            uint32_t locality, uint32_t num_probes,
                            size_t huge_page_tlb_size, Logger* logger)
-    : DynamicBloom(num_probes) {
-  SetTotalBits(allocator, total_bits, locality, huge_page_tlb_size, logger);
-}
-
-DynamicBloom::DynamicBloom(uint32_t num_probes)
-    : kTotalBits(0), kNumBlocks(0), kNumProbes(num_probes), data_(nullptr) {}
-
-void DynamicBloom::SetRawData(unsigned char* raw_data, uint32_t total_bits,
-                              uint32_t num_blocks) {
-  data_ = reinterpret_cast<std::atomic<uint8_t>*>(raw_data);
-  kTotalBits = total_bits;
-  kNumBlocks = num_blocks;
-}
-
-void DynamicBloom::SetTotalBits(Allocator* allocator,
-                                uint32_t total_bits, uint32_t locality,
-                                size_t huge_page_tlb_size,
-                                Logger* logger) {
+    : kNumProbes(num_probes) {
   kTotalBits = (locality > 0) ? GetTotalBitsForLocality(total_bits)
                               : (total_bits + 7) / 8 * 8;
   kNumBlocks = (locality > 0) ? (kTotalBits / (CACHE_LINE_SIZE * 8)) : 0;
