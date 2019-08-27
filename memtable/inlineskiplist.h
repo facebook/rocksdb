@@ -681,7 +681,13 @@ bool InlineSkipList<Comparator>::InsertWithHintConcurrently(const char* key,
   assert(hint != nullptr);
   Splice* splice = reinterpret_cast<Splice*>(*hint);
   if (splice == nullptr) {
-    splice = AllocateSplice();
+    size_t array_size = sizeof(Node*) * (kMaxHeight_ + 1);
+    char* raw = new char[sizeof(Splice) + array_size * 2];
+    splice = reinterpret_cast<Splice*>(raw);
+    splice->height_ = 0;
+    splice->prev_ = reinterpret_cast<Node**>(raw + sizeof(Splice));
+    splice->next_ = reinterpret_cast<Node**>(raw + sizeof(Splice) + array_size);
+
     *hint = reinterpret_cast<void*>(splice);
   }
   return Insert<true>(key, splice, true);

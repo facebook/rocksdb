@@ -1310,6 +1310,9 @@ class MemTableInserter : public WriteBatch::Handler {
         (&mem_post_info_map_)->~MemPostInfoMap();
     }
     if (hint_created_) {
+      for (auto iter : GetHintMap()) {
+        delete[] reinterpret_cast<char*>(iter.second);
+      }
       reinterpret_cast<HintMap*>(&hint_)->~HintMap();
     }
     delete rebuilding_trx_;
