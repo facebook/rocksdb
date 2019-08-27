@@ -30,19 +30,12 @@ uint32_t GetTotalBitsForLocality(uint32_t total_bits) {
 }
 }
 
-PlainTableBloomV1::PlainTableBloomV1(Allocator* allocator, uint32_t total_bits,
-                           uint32_t locality, uint32_t num_probes,
-                           size_t huge_page_tlb_size, Logger* logger)
-    : PlainTableBloomV1(num_probes) {
-  SetTotalBits(allocator, total_bits, locality, huge_page_tlb_size, logger);
-}
-
 PlainTableBloomV1::PlainTableBloomV1(uint32_t num_probes)
     : kTotalBits(0), kNumBlocks(0), kNumProbes(num_probes), data_(nullptr) {}
 
 void PlainTableBloomV1::SetRawData(unsigned char* raw_data, uint32_t total_bits,
                               uint32_t num_blocks) {
-  data_ = reinterpret_cast<std::atomic<uint8_t>*>(raw_data);
+  data_ = reinterpret_cast<uint8_t*>(raw_data);
   kTotalBits = total_bits;
   kNumBlocks = num_blocks;
 }
@@ -70,7 +63,7 @@ void PlainTableBloomV1::SetTotalBits(Allocator* allocator,
   if (kNumBlocks > 0 && cache_line_offset > 0) {
     raw += CACHE_LINE_SIZE - cache_line_offset;
   }
-  data_ = reinterpret_cast<std::atomic<uint8_t>*>(raw);
+  data_ = reinterpret_cast<uint8_t*>(raw);
 }
 
 void BloomBlockBuilder::AddKeysHashes(const std::vector<uint32_t>& keys_hashes) {

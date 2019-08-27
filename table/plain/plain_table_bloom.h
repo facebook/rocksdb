@@ -12,7 +12,6 @@
 #include "port/port.h"
 #include "util/hash.h"
 
-#include <atomic>
 #include <memory>
 
 namespace rocksdb {
@@ -32,14 +31,7 @@ class PlainTableBloomV1 {
   //                      it to be allocated, like:
   //                         sysctl -w vm.nr_hugepages=20
   //                     See linux doc Documentation/vm/hugetlbpage.txt
-  explicit PlainTableBloomV1(Allocator* allocator,
-                        uint32_t total_bits, uint32_t locality = 0,
-                        uint32_t num_probes = 6,
-                        size_t huge_page_tlb_size = 0,
-                        Logger* logger = nullptr);
-
   explicit PlainTableBloomV1(uint32_t num_probes = 6);
-
   void SetTotalBits(Allocator* allocator, uint32_t total_bits,
                     uint32_t locality, size_t huge_page_tlb_size,
                     Logger* logger);
@@ -47,24 +39,12 @@ class PlainTableBloomV1 {
   ~PlainTableBloomV1() {}
 
   // Assuming single threaded access to this function.
-  void Add(const Slice& key);
-
-  // Like Add, but may be called concurrent with other functions.
-  void AddConcurrently(const Slice& key);
-
-  // Assuming single threaded access to this function.
   void AddHash(uint32_t hash);
-
-  // Like AddHash, but may be called concurrent with other functions.
-  void AddHashConcurrently(uint32_t hash);
-
-  // Multithreaded access to this function is OK
-  bool MayContain(const Slice& key) const;
 
   // Multithreaded access to this function is OK
   bool MayContainHash(uint32_t hash) const;
 
-  void Prefetch(uint32_t h);
+  void Prefetch(uint32_t hash);
 
   uint32_t GetNumBlocks() const { return kNumBlocks; }
 
@@ -84,43 +64,8 @@ class PlainTableBloomV1 {
   uint32_t kNumBlocks;
   const uint32_t kNumProbes;
 
-  std::atomic<uint8_t>* data_;
-
-  // or_func(ptr, mask) should effect *ptr |= mask with the appropriate
-  // concurrency safety, working with bytes.
-  template <typename OrFunc>
-  void AddHash(uint32_t hash, const OrFunc& or_func);
+  uint8_t* data_;
 };
-
-inline void PlainTableBloomV1::Add(const Slice& key) { AddHash(BloomHash(key)); }
-
-inline void PlainTableBloomV1::AddConcurrently(const Slice& key) {
-  AddHashConcurrently(BloomHash(key));
-}
-
-inline void PlainTableBloomV1::AddHash(uint32_t hash) {
-  AddHash(hash, [](std::atomic<uint8_t>* ptr, uint8_t mask) {
-    ptr->store(ptr->load(std::memory_order_relaxed) | mask,
-               std::memory_order_relaxed);
-  });
-}
-
-inline void PlainTableBloomV1::AddHashConcurrently(uint32_t hash) {
-  AddHash(hash, [](std::atomic<uint8_t>* ptr, uint8_t mask) {
-    // Happens-before between AddHash and MaybeContains is handled by
-    // access to versions_->LastSequence(), so all we have to do here is
-    // avoid races (so we don't give the compiler a license to mess up
-    // our code) and not lose bits.  std::memory_order_relaxed is enough
-    // for that.
-    if ((mask & ptr->load(std::memory_order_relaxed)) != mask) {
-      ptr->fetch_or(mask, std::memory_order_relaxed);
-    }
-  });
-}
-
-inline bool PlainTableBloomV1::MayContain(const Slice& key) const {
-  return (MayContainHash(BloomHash(key)));
-}
 
 #if defined(_MSC_VER)
 #pragma warning(push)
@@ -146,8 +91,7 @@ inline bool PlainTableBloomV1::MayContainHash(uint32_t h) const {
       // Since CACHE_LINE_SIZE is defined as 2^n, this line will be optimized
       //  to a simple and operation by compiler.
       const uint32_t bitpos = b + (h % (CACHE_LINE_SIZE * 8));
-      uint8_t byteval = data_[bitpos / 8].load(std::memory_order_relaxed);
-      if ((byteval & (1 << (bitpos % 8))) == 0) {
+      if ((data_[bitpos / 8] & (1 << (bitpos % 8))) == 0) {
         return false;
       }
       // Rotate h so that we don't reuse the same bytes.
@@ -158,8 +102,7 @@ inline bool PlainTableBloomV1::MayContainHash(uint32_t h) const {
   } else {
     for (uint32_t i = 0; i < kNumProbes; ++i) {
       const uint32_t bitpos = h % kTotalBits;
-      uint8_t byteval = data_[bitpos / 8].load(std::memory_order_relaxed);
-      if ((byteval & (1 << (bitpos % 8))) == 0) {
+      if ((data_[bitpos / 8] & (1 << (bitpos % 8))) == 0) {
         return false;
       }
       h += delta;
@@ -168,8 +111,7 @@ inline bool PlainTableBloomV1::MayContainHash(uint32_t h) const {
   return true;
 }
 
-template <typename OrFunc>
-inline void PlainTableBloomV1::AddHash(uint32_t h, const OrFunc& or_func) {
+inline void PlainTableBloomV1::AddHash(uint32_t h) {
   assert(IsInitialized());
   const uint32_t delta = (h >> 17) | (h << 15);  // Rotate right 17 bits
   if (kNumBlocks != 0) {
@@ -178,7 +120,7 @@ inline void PlainTableBloomV1::AddHash(uint32_t h, const OrFunc& or_func) {
       // Since CACHE_LINE_SIZE is defined as 2^n, this line will be optimized
       // to a simple and operation by compiler.
       const uint32_t bitpos = b + (h % (CACHE_LINE_SIZE * 8));
-      or_func(&data_[bitpos / 8], (1 << (bitpos % 8)));
+      data_[bitpos / 8] |= (1 << (bitpos % 8));
       // Rotate h so that we don't reuse the same bytes.
       h = h / (CACHE_LINE_SIZE * 8) +
           (h % (CACHE_LINE_SIZE * 8)) * (0x20000000U / CACHE_LINE_SIZE);
@@ -187,7 +129,7 @@ inline void PlainTableBloomV1::AddHash(uint32_t h, const OrFunc& or_func) {
   } else {
     for (uint32_t i = 0; i < kNumProbes; ++i) {
       const uint32_t bitpos = h % kTotalBits;
-      or_func(&data_[bitpos / 8], (1 << (bitpos % 8)));
+      data_[bitpos / 8] |= (1 << (bitpos % 8));
       h += delta;
     }
   }
