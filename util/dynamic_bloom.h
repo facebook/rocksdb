@@ -126,7 +126,7 @@ inline bool DynamicBloom::MayContain(const Slice& key) const {
 #if defined(_MSC_VER)
 #pragma warning(push)
 // local variable is initialized but not referenced
-#pragma warning(disable : 4189) 
+#pragma warning(disable : 4189)
 #endif
 inline void DynamicBloom::Prefetch(uint32_t h) {
   if (kNumBlocks != 0) {
