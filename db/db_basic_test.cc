@@ -1335,6 +1335,98 @@ INSTANTIATE_TEST_CASE_P(
     MultiGetPrefix, MultiGetPrefixExtractorTest,
     ::testing::Bool());
 
+class DBMultiGetRowCacheTest
+    : public DBBasicTest,
+      public ::testing::WithParamInterface<bool> {};
+
+TEST_P(DBMultiGetRowCacheTest, MultiGetBatched) {
+  do {
+    option_config_ = kRowCache;
+    Options options = CurrentOptions();
+    options.statistics = rocksdb::CreateDBStatistics();
+    CreateAndReopenWithCF({"pikachu"}, options);
+    SetPerfLevel(kEnableCount);
+    ASSERT_OK(Put(1, "k1", "v1"));
+    ASSERT_OK(Put(1, "k2", "v2"));
+    ASSERT_OK(Put(1, "k3", "v3"));
+    ASSERT_OK(Put(1, "k4", "v4"));
+    Flush(1);
+    ASSERT_OK(Put(1, "k5", "v5"));
+    const Snapshot* snap1 = dbfull()->GetSnapshot();
+    ASSERT_OK(Delete(1, "k4"));
+    Flush(1);
+    const Snapshot* snap2 = dbfull()->GetSnapshot();
+
+    get_perf_context()->Reset();
+
+    std::vector<Slice> keys({"no_key", "k5", "k4", "k3", "k1"});
+    std::vector<PinnableSlice> values(keys.size());
+    std::vector<ColumnFamilyHandle*> cfs(keys.size(), handles_[1]);
+    std::vector<Status> s(keys.size());
+
+    ReadOptions ro;
+    bool use_snapshots = GetParam();
+    if (use_snapshots) {
+      ro.snapshot = snap2;
+    }
+    db_->MultiGet(ro, handles_[1], keys.size(), keys.data(),
+                  values.data(), s.data(), false);
+
+    ASSERT_EQ(values.size(), keys.size());
+    ASSERT_EQ(std::string(values[4].data(), values[4].size()), "v1");
+    ASSERT_EQ(std::string(values[3].data(), values[3].size()), "v3");
+    ASSERT_EQ(std::string(values[1].data(), values[1].size()), "v5");
+    // four kv pairs * two bytes per value
+    ASSERT_EQ(6, (int)get_perf_context()->multiget_read_bytes);
+
+    ASSERT_TRUE(s[0].IsNotFound());
+    ASSERT_OK(s[1]);
+    ASSERT_TRUE(s[2].IsNotFound());
+    ASSERT_OK(s[3]);
+    ASSERT_OK(s[4]);
+
+    // Call MultiGet() again with some intersection with the previous set of
+    // keys. Those should already be in the row cache.
+    keys.assign({"no_key", "k5", "k3", "k2"});
+    for (size_t i = 0; i < keys.size(); ++i) {
+      values[i].Reset();
+      s[i] = Status::OK();
+    }
+    get_perf_context()->Reset();
+
+    if (use_snapshots) {
+      ro.snapshot = snap1;
+    }
+    db_->MultiGet(ReadOptions(), handles_[1], keys.size(), keys.data(),
+                  values.data(), s.data(), false);
+
+    ASSERT_EQ(std::string(values[3].data(), values[3].size()), "v2");
+    ASSERT_EQ(std::string(values[2].data(), values[2].size()), "v3");
+    ASSERT_EQ(std::string(values[1].data(), values[1].size()), "v5");
+    // four kv pairs * two bytes per value
+    ASSERT_EQ(6, (int)get_perf_context()->multiget_read_bytes);
+
+    ASSERT_TRUE(s[0].IsNotFound());
+    ASSERT_OK(s[1]);
+    ASSERT_OK(s[2]);
+    ASSERT_OK(s[3]);
+    if (use_snapshots) {
+      // Only reads from the first SST file would have been cached, since
+      // snapshot seq no is > fd.largest_seqno
+      ASSERT_EQ(1, TestGetTickerCount(options, ROW_CACHE_HIT));
+    } else {
+      ASSERT_EQ(2, TestGetTickerCount(options, ROW_CACHE_HIT));
+    }
+
+    SetPerfLevel(kDisable);
+    dbfull()->ReleaseSnapshot(snap1);
+    dbfull()->ReleaseSnapshot(snap2);
+  } while (ChangeCompactOptions());
+}
+
+INSTANTIATE_TEST_CASE_P(DBMultiGetRowCacheTest, DBMultiGetRowCacheTest,
+    testing::Values(true, false));
+
 #ifndef ROCKSDB_LITE
 TEST_F(DBBasicTest, GetAllKeyVersions) {
   Options options = CurrentOptions();
