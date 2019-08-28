@@ -78,19 +78,16 @@ Status TransactionLogIteratorImpl::status() { return current_status_; }
 
 bool TransactionLogIteratorImpl::Valid() { return started_ && is_valid_; }
 
-bool TransactionLogIteratorImpl::RestrictedRead(
-    Slice* record,
-    std::string* scratch) {
+bool TransactionLogIteratorImpl::RestrictedRead(Slice* record) {
   // Don't read if no more complete entries to read from logs
   if (current_last_seq_ >= versions_->LastSequence()) {
     return false;
   }
-  return current_log_reader_->ReadRecord(record, scratch);
+  return current_log_reader_->ReadRecord(record, &scratch_);
 }
 
 void TransactionLogIteratorImpl::SeekToStartSequence(uint64_t start_file_index,
                                                      bool strict) {
-  std::string scratch;
   Slice record;
   started_ = false;
   is_valid_ = false;
@@ -104,7 +101,7 @@ void TransactionLogIteratorImpl::SeekToStartSequence(uint64_t start_file_index,
     reporter_.Info(current_status_.ToString().c_str());
     return;
   }
-  while (RestrictedRead(&record, &scratch)) {
+  while (RestrictedRead(&record)) {
     if (record.size() < WriteBatchInternal::kHeader) {
       reporter_.Corruption(
         record.size(), Status::Corruption("very small log record"));
@@ -155,7 +152,6 @@ void TransactionLogIteratorImpl::Next() {
 }
 
 void TransactionLogIteratorImpl::NextImpl(bool internal) {
-  std::string scratch;
   Slice record;
   is_valid_ = false;
   if (!internal && !started_) {
@@ -167,7 +163,7 @@ void TransactionLogIteratorImpl::NextImpl(bool internal) {
     if (current_log_reader_->IsEOF()) {
       current_log_reader_->UnmarkEOF();
     }
-    while (RestrictedRead(&record, &scratch)) {
+    while (RestrictedRead(&record)) {
       if (record.size() < WriteBatchInternal::kHeader) {
         reporter_.Corruption(
           record.size(), Status::Corruption("very small log record"));

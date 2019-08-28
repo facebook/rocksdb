@@ -12,6 +12,26 @@
 #ifndef HWCAP_CRC32
 #define HWCAP_CRC32 (1 << 7)
 #endif
+
+#ifdef HAVE_ARM64_CRYPTO
+/* unfolding to compute 8 * 3 = 24 bytes parallelly */
+#define CRC32C24BYTES(ITR) \
+  crc1 = crc32c_u64(crc1, *(buf64 + BLK_LENGTH + (ITR)));\
+  crc2 = crc32c_u64(crc2, *(buf64 + BLK_LENGTH*2 + (ITR)));\
+  crc0 = crc32c_u64(crc0, *(buf64 + (ITR)));
+
+/* unfolding to compute 24 * 7 = 168 bytes parallelly */
+#define CRC32C7X24BYTES(ITR) do {\
+  CRC32C24BYTES((ITR)*7+0) \
+  CRC32C24BYTES((ITR)*7+1) \
+  CRC32C24BYTES((ITR)*7+2) \
+  CRC32C24BYTES((ITR)*7+3) \
+  CRC32C24BYTES((ITR)*7+4) \
+  CRC32C24BYTES((ITR)*7+5) \
+  CRC32C24BYTES((ITR)*7+6) \
+} while(0)
+#endif
+
 uint32_t crc32c_runtime_check(void) {
   uint64_t auxv = getauxval(AT_HWCAP);
   return (auxv & HWCAP_CRC32) != 0;
@@ -48,15 +68,16 @@ uint32_t crc32c_arm64(uint32_t crc, unsigned char const *data,
     crc0 = crc32c_u64(crc, *buf64++);
 
     /* 3 blocks crc32c parallel computation
-     *
-     * 42 * 8 * 3 = 1008 (bytes)
+     * Macro unfolding to compute parallelly
+     * 168 * 6 = 1008 (bytes)
      */
-    for (int i = 0; i < BLK_LENGTH; i++, buf64++) {
-      crc0 = crc32c_u64(crc0, *buf64);
-      crc1 = crc32c_u64(crc1, *(buf64 + BLK_LENGTH));
-      crc2 = crc32c_u64(crc2, *(buf64 + (BLK_LENGTH * 2)));
-    }
-    buf64 += (BLK_LENGTH * 2);
+    CRC32C7X24BYTES(0);
+    CRC32C7X24BYTES(1);
+    CRC32C7X24BYTES(2);
+    CRC32C7X24BYTES(3);
+    CRC32C7X24BYTES(4);
+    CRC32C7X24BYTES(5);
+    buf64 += (BLK_LENGTH * 3);
 
     /* Last 8 bytes */
     crc = crc32c_u64(crc2, *buf64++);
@@ -72,6 +93,9 @@ uint32_t crc32c_arm64(uint32_t crc, unsigned char const *data,
 
     length -= 1024;
   }
+
+  if (length == 0)
+    return crc ^ (0xffffffffU);
 #endif
   buf8 = (const uint8_t *)buf64;
   while (length >= 8) {

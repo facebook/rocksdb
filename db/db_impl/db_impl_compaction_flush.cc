@@ -19,6 +19,7 @@
 #include "monitoring/thread_status_updater.h"
 #include "monitoring/thread_status_util.h"
 #include "test_util/sync_point.h"
+#include "util/cast_util.h"
 #include "util/concurrent_task_limiter_impl.h"
 
 namespace rocksdb {
@@ -1008,8 +1009,10 @@ Status DBImpl::CompactFilesImpl(
       c->mutable_cf_options()->paranoid_file_checks,
       c->mutable_cf_options()->report_bg_io_stats, dbname_,
       &compaction_job_stats, Env::Priority::USER,
-      immutable_db_options_.max_subcompactions <= 1 ? &fetch_callback
-                                                    : nullptr);
+      immutable_db_options_.max_subcompactions <= 1 &&
+              c->mutable_cf_options()->snap_refresh_nanos > 0
+          ? &fetch_callback
+          : nullptr);
 
   // Creating a compaction influences the compaction score because the score
   // takes running compactions into account (by skipping files that are already
@@ -2070,7 +2073,8 @@ void DBImpl::BGWorkFlush(void* arg) {
 
   IOSTATS_SET_THREAD_POOL_ID(fta.thread_pri_);
   TEST_SYNC_POINT("DBImpl::BGWorkFlush");
-  reinterpret_cast<DBImpl*>(fta.db_)->BackgroundCallFlush(fta.thread_pri_);
+  static_cast_with_check<DBImpl, DB>(fta.db_)->BackgroundCallFlush(
+      fta.thread_pri_);
   TEST_SYNC_POINT("DBImpl::BGWorkFlush:done");
 }
 
@@ -2081,7 +2085,7 @@ void DBImpl::BGWorkCompaction(void* arg) {
   TEST_SYNC_POINT("DBImpl::BGWorkCompaction");
   auto prepicked_compaction =
       static_cast<PrepickedCompaction*>(ca.prepicked_compaction);
-  reinterpret_cast<DBImpl*>(ca.db)->BackgroundCallCompaction(
+  static_cast_with_check<DBImpl, DB>(ca.db)->BackgroundCallCompaction(
       prepicked_compaction, Env::Priority::LOW);
   delete prepicked_compaction;
 }
@@ -2737,8 +2741,10 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
         &event_logger_, c->mutable_cf_options()->paranoid_file_checks,
         c->mutable_cf_options()->report_bg_io_stats, dbname_,
         &compaction_job_stats, thread_pri,
-        immutable_db_options_.max_subcompactions <= 1 ? &fetch_callback
-                                                      : nullptr);
+        immutable_db_options_.max_subcompactions <= 1 &&
+                c->mutable_cf_options()->snap_refresh_nanos > 0
+            ? &fetch_callback
+            : nullptr);
     compaction_job.Prepare();
 
     NotifyOnCompactionBegin(c->column_family_data(), c.get(), status,

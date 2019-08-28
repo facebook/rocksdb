@@ -3,6 +3,7 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
+#include <array>
 #include "table/block_based/full_filter_block.h"
 
 #ifdef ROCKSDB_MALLOC_USABLE_SIZE
@@ -134,8 +135,8 @@ std::unique_ptr<FilterBlockReader> FullFilterBlockReader::Create(
   CachableEntry<BlockContents> filter_block;
   if (prefetch || !use_cache) {
     const Status s = ReadFilterBlock(table, prefetch_buffer, ReadOptions(),
-                                     nullptr /* get_context */, lookup_context,
-                                     &filter_block);
+                                     use_cache, nullptr /* get_context */,
+                                     lookup_context, &filter_block);
     if (!s.ok()) {
       return std::unique_ptr<FilterBlockReader>();
     }
@@ -208,11 +209,11 @@ void FullFilterBlockReader::KeysMayMatch(
     // present
     return;
   }
-  MayMatch(range, no_io, lookup_context);
+  MayMatch(range, no_io, nullptr, lookup_context);
 }
 
 void FullFilterBlockReader::PrefixesMayMatch(
-    MultiGetRange* range, const SliceTransform* /* prefix_extractor */,
+    MultiGetRange* range, const SliceTransform* prefix_extractor,
     uint64_t block_offset, const bool no_io,
     BlockCacheLookupContext* lookup_context) {
 #ifdef NDEBUG
@@ -220,11 +221,12 @@ void FullFilterBlockReader::PrefixesMayMatch(
   (void)block_offset;
 #endif
   assert(block_offset == kNotValid);
-  MayMatch(range, no_io, lookup_context);
+  MayMatch(range, no_io, prefix_extractor, lookup_context);
 }
 
 void FullFilterBlockReader::MayMatch(
     MultiGetRange* range, bool no_io,
+    const SliceTransform* prefix_extractor,
     BlockCacheLookupContext* lookup_context) const {
   CachableEntry<BlockContents> filter_block;
 
@@ -252,18 +254,36 @@ void FullFilterBlockReader::MayMatch(
   // &may_match[0] doesn't work for autovector<bool> (compiler error). So
   // declare both keys and may_match as arrays, which is also slightly less
   // expensive compared to autovector
-  Slice* keys[MultiGetContext::MAX_BATCH_SIZE];
-  bool may_match[MultiGetContext::MAX_BATCH_SIZE] = {false};
+  std::array<Slice*, MultiGetContext::MAX_BATCH_SIZE> keys;
+  std::array<bool, MultiGetContext::MAX_BATCH_SIZE> may_match = {{true}};
+  autovector<Slice, MultiGetContext::MAX_BATCH_SIZE> prefixes;
   int num_keys = 0;
-  for (auto iter = range->begin(); iter != range->end(); ++iter) {
-    keys[num_keys++] = &iter->ukey;
+  MultiGetRange filter_range(*range, range->begin(), range->end());
+  for (auto iter = filter_range.begin();
+       iter != filter_range.end(); ++iter) {
+    if (!prefix_extractor) {
+      keys[num_keys++] = &iter->ukey;
+    } else if (prefix_extractor->InDomain(iter->ukey)) {
+      prefixes.emplace_back(prefix_extractor->Transform(iter->ukey));
+      keys[num_keys++] = &prefixes.back();
+    } else {
+      filter_range.SkipKey(iter);
+    }
   }
   filter_bits_reader->MayMatch(num_keys, &keys[0], &may_match[0]);
 
   int i = 0;
-  for (auto iter = range->begin(); iter != range->end(); ++iter) {
+  for (auto iter = filter_range.begin();
+       iter != filter_range.end(); ++iter) {
     if (!may_match[i]) {
+      // Update original MultiGet range to skip this key. The filter_range
+      // was temporarily used just to skip keys not in prefix_extractor domain
       range->SkipKey(iter);
+      PERF_COUNTER_ADD(bloom_sst_miss_count, 1);
+    } else {
+      //PERF_COUNTER_ADD(bloom_sst_hit_count, 1);
+      PerfContext* perf_ctx = get_perf_context();
+      perf_ctx->bloom_sst_hit_count++;
     }
     ++i;
   }

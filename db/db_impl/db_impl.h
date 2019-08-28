@@ -37,6 +37,7 @@
 #include "db/read_callback.h"
 #include "db/snapshot_checker.h"
 #include "db/snapshot_impl.h"
+#include "db/trim_history_scheduler.h"
 #include "db/version_edit.h"
 #include "db/wal_manager.h"
 #include "db/write_controller.h"
@@ -380,7 +381,8 @@ class DBImpl : public DB {
       const ExportImportFilesMetaData& metadata,
       ColumnFamilyHandle** handle) override;
 
-  virtual Status VerifyChecksum() override;
+  using DB::VerifyChecksum;
+  virtual Status VerifyChecksum(const ReadOptions& /*read_options*/) override;
 
   using DB::StartTrace;
   virtual Status StartTrace(
@@ -812,6 +814,13 @@ class DBImpl : public DB {
                        uint64_t* new_time,
                        std::map<std::string, uint64_t>* stats_map);
 
+  // Print information of all tombstones of all iterators to the std::string
+  // This is only used by ldb. The output might be capped. Tombstones
+  // printed out are not guaranteed to be in any order.
+  Status TablesRangeTombstoneSummary(ColumnFamilyHandle* column_family,
+                                     int max_entries_to_print,
+                                     std::string* out_str);
+
 #ifndef NDEBUG
   // Compact any files in the named level that overlap [*begin, *end]
   Status TEST_CompactRange(int level, const Slice* begin, const Slice* end,
@@ -912,7 +921,6 @@ class DBImpl : public DB {
   void TEST_WaitForPersistStatsRun(std::function<void()> callback) const;
   bool TEST_IsPersistentStatsEnabled() const;
   size_t TEST_EstimateInMemoryStatsHistorySize() const;
-
 #endif  // NDEBUG
 
  protected:
@@ -1348,6 +1356,8 @@ class DBImpl : public DB {
 
   void MaybeFlushStatsCF(autovector<ColumnFamilyData*>* cfds);
 
+  Status TrimMemtableHistory(WriteContext* context);
+
   Status SwitchMemtable(ColumnFamilyData* cfd, WriteContext* context);
 
   void SelectColumnFamiliesForAtomicFlush(autovector<ColumnFamilyData*>* cfds);
@@ -1725,6 +1735,8 @@ class DBImpl : public DB {
   uint64_t last_batch_group_size_;
 
   FlushScheduler flush_scheduler_;
+
+  TrimHistoryScheduler trim_history_scheduler_;
 
   SnapshotList snapshots_;
 

@@ -1257,6 +1257,60 @@ Status Version::GetPropertiesOfAllTables(TablePropertiesCollection* props) {
   return Status::OK();
 }
 
+Status Version::TablesRangeTombstoneSummary(int max_entries_to_print,
+                                            std::string* out_str) {
+  if (max_entries_to_print <= 0) {
+    return Status::OK();
+  }
+  int num_entries_left = max_entries_to_print;
+
+  std::stringstream ss;
+
+  for (int level = 0; level < storage_info_.num_levels_; level++) {
+    for (const auto& file_meta : storage_info_.files_[level]) {
+      auto fname =
+          TableFileName(cfd_->ioptions()->cf_paths, file_meta->fd.GetNumber(),
+                        file_meta->fd.GetPathId());
+
+      ss << "=== file : " << fname << " ===\n";
+
+      TableCache* table_cache = cfd_->table_cache();
+      std::unique_ptr<FragmentedRangeTombstoneIterator> tombstone_iter;
+
+      Status s = table_cache->GetRangeTombstoneIterator(
+          ReadOptions(), cfd_->internal_comparator(), *file_meta,
+          &tombstone_iter);
+      if (!s.ok()) {
+        return s;
+      }
+      if (tombstone_iter) {
+        tombstone_iter->SeekToFirst();
+
+        while (tombstone_iter->Valid() && num_entries_left > 0) {
+          ss << "start: " << tombstone_iter->start_key().ToString(true)
+             << " end: " << tombstone_iter->end_key().ToString(true)
+             << " seq: " << tombstone_iter->seq() << '\n';
+          tombstone_iter->Next();
+          num_entries_left--;
+        }
+        if (num_entries_left <= 0) {
+          break;
+        }
+      }
+    }
+    if (num_entries_left <= 0) {
+      break;
+    }
+  }
+  assert(num_entries_left >= 0);
+  if (num_entries_left <= 0) {
+    ss << "(results may not be complete)\n";
+  }
+
+  *out_str = ss.str();
+  return Status::OK();
+}
+
 Status Version::GetPropertiesOfAllTables(TablePropertiesCollection* props,
                                          int level) {
   for (const auto& file_meta : storage_info_.files_[level]) {
@@ -3161,7 +3215,7 @@ void VersionStorageInfo::CalculateBaseBytes(const ImmutableCFOptions& ioptions,
         // base_bytes_min. We set it be base_bytes_min.
         base_level_size = base_bytes_min + 1U;
         base_level_ = first_non_empty_level;
-        ROCKS_LOG_WARN(ioptions.info_log,
+        ROCKS_LOG_INFO(ioptions.info_log,
                        "More existing levels in DB than needed. "
                        "max_bytes_for_level_multiplier may not be guaranteed.");
       } else {
@@ -4957,7 +5011,7 @@ uint64_t VersionSet::ApproximateSize(const SizeApproximationOptions& options,
       uint64_t file_size = files_brief.files[i].fd.GetFileSize();
       // The entire file falls into the range, so we can just take its size.
       assert(file_size ==
-             ApproximateSize(v, files_brief.files[i], end, caller));
+             ApproximateSize(v, files_brief.files[i], start, end, caller));
       total_full_size += file_size;
     }
 
@@ -4991,25 +5045,23 @@ uint64_t VersionSet::ApproximateSize(const SizeApproximationOptions& options,
   } else {
     // Estimate for all the first files, at each level
     for (const auto file_ptr : first_files) {
-      total_full_size += ApproximateSize(v, *file_ptr, end, caller);
-      // subtract the bytes needed to be scanned to get to the starting key
-      uint64_t val = ApproximateSize(v, *file_ptr, start, caller);
-      assert(total_full_size >= val);
-      total_full_size -= val;
+      total_full_size += ApproximateSize(v, *file_ptr, start, end, caller);
     }
 
     // Estimate for all the last files, at each level
     for (const auto file_ptr : last_files) {
-      total_full_size += ApproximateSize(v, *file_ptr, end, caller);
+      // We could use ApproximateSize here, but calling ApproximateOffsetOf
+      // directly is just more efficient.
+      total_full_size += ApproximateOffsetOf(v, *file_ptr, end, caller);
     }
   }
 
   return total_full_size;
 }
 
-uint64_t VersionSet::ApproximateSize(Version* v, const FdWithKeyRange& f,
-                                     const Slice& key,
-                                     TableReaderCaller caller) {
+uint64_t VersionSet::ApproximateOffsetOf(Version* v, const FdWithKeyRange& f,
+                                         const Slice& key,
+                                         TableReaderCaller caller) {
   // pre-condition
   assert(v);
   const auto& icmp = v->cfd_->internal_comparator();
@@ -5032,6 +5084,43 @@ uint64_t VersionSet::ApproximateSize(Version* v, const FdWithKeyRange& f,
     }
   }
   return result;
+}
+
+uint64_t VersionSet::ApproximateSize(Version* v, const FdWithKeyRange& f,
+                                     const Slice& start, const Slice& end,
+                                     TableReaderCaller caller) {
+  // pre-condition
+  assert(v);
+  const auto& icmp = v->cfd_->internal_comparator();
+  assert(icmp.Compare(start, end) <= 0);
+
+  if (icmp.Compare(f.largest_key, start) <= 0 ||
+      icmp.Compare(f.smallest_key, end) > 0) {
+    // Entire file is before or after the start/end keys range
+    return 0;
+  }
+
+  if (icmp.Compare(f.smallest_key, start) >= 0) {
+    // Start of the range is before the file start - approximate by end offset
+    return ApproximateOffsetOf(v, f, end, caller);
+  }
+
+  if (icmp.Compare(f.largest_key, end) < 0) {
+    // End of the range is after the file end - approximate by subtracting
+    // start offset from the file size
+    uint64_t start_offset = ApproximateOffsetOf(v, f, start, caller);
+    assert(f.fd.GetFileSize() >= start_offset);
+    return f.fd.GetFileSize() - start_offset;
+  }
+
+  // The interval falls entirely in the range for this file.
+  TableCache* table_cache = v->cfd_->table_cache();
+  if (table_cache == nullptr) {
+    return 0;
+  }
+  return table_cache->ApproximateSize(
+      start, end, f.file_metadata->fd, caller, icmp,
+      v->GetMutableCFOptions().prefix_extractor.get());
 }
 
 void VersionSet::AddLiveFiles(std::vector<FileDescriptor>* live_list) {

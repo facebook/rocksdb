@@ -13,3 +13,15 @@
 #else
 #define FOLLY_EXPORT
 #endif
+
+#if defined(__has_feature)
+#define FOLLY_HAS_FEATURE(...) __has_feature(__VA_ARGS__)
+#else
+#define FOLLY_HAS_FEATURE(...) 0
+#endif
+
+#if FOLLY_HAS_FEATURE(thread_sanitizer) || __SANITIZE_THREAD__
+#ifndef FOLLY_SANITIZE_THREAD
+#define FOLLY_SANITIZE_THREAD 1
+#endif
+#endif

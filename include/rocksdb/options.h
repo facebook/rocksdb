@@ -1477,6 +1477,13 @@ struct IngestExternalFileOptions {
   // Warning: setting this to true causes slowdown in file ingestion because
   // the external SST file has to be read.
   bool verify_checksums_before_ingest = false;
+  // When verify_checksums_before_ingest = true, RocksDB uses default
+  // readahead setting to scan the file while verifying checksums before
+  // ingestion.
+  // Users can override the default value using this option.
+  // Using a large readahead size (> 2MB) can typically improve the performance
+  // of forward iteration on spinning disks.
+  size_t verify_checksums_readahead_size = 0;
 };
 
 enum TraceFilterType : uint64_t {

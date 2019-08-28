@@ -113,7 +113,7 @@ Status PessimisticTransactionDB::Initialize(
   Status s = EnableAutoCompaction(compaction_enabled_cf_handles);
 
   // create 'real' transactions from recovered shell transactions
-  auto dbimpl = reinterpret_cast<DBImpl*>(GetRootDB());
+  auto dbimpl = static_cast_with_check<DBImpl, DB>(GetRootDB());
   assert(dbimpl != nullptr);
   auto rtrxs = dbimpl->recovered_transactions();
 
@@ -271,9 +271,11 @@ void TransactionDB::PrepareWrap(
   for (size_t i = 0; i < column_families->size(); i++) {
     ColumnFamilyOptions* cf_options = &(*column_families)[i].options;
 
-    if (cf_options->max_write_buffer_number_to_maintain == 0) {
-      // Setting to -1 will set the History size to max_write_buffer_number.
-      cf_options->max_write_buffer_number_to_maintain = -1;
+    if (cf_options->max_write_buffer_size_to_maintain == 0 &&
+        cf_options->max_write_buffer_number_to_maintain == 0) {
+      // Setting to -1 will set the History size to
+      // max_write_buffer_number * write_buffer_size.
+      cf_options->max_write_buffer_size_to_maintain = -1;
     }
     if (!cf_options->disable_auto_compactions) {
       // Disable compactions momentarily to prevent race with DB::Open

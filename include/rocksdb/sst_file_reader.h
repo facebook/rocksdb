@@ -33,7 +33,9 @@ class SstFileReader {
   std::shared_ptr<const TableProperties> GetTableProperties() const;
 
   // Verifies whether there is corruption in this table.
-  Status VerifyChecksum();
+  Status VerifyChecksum(const ReadOptions& /*read_options*/);
+
+  Status VerifyChecksum() { return VerifyChecksum(ReadOptions()); }
 
  private:
   struct Rep;
