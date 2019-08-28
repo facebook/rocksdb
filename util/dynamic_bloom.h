@@ -64,14 +64,15 @@ class DynamicBloom {
 
   void Prefetch(uint32_t h);
 
-  uint32_t GetNumBlocks() const { return kNumBlocks; }
-
  private:
-  uint32_t kTotalBits;
-  uint32_t kNumBlocks;
-  const uint32_t kNumProbes;
+  // Length of the structure, in 64-bit words. For this structure, "word"
+  // will always refer to 64-bit words.
+  uint32_t kLen;
+  // We make the k probes in pairs, two for each 64-bit read/write. Thus,
+  // this stores k/2, the number of words to double-probe.
+  const uint32_t kNumDoubleProbes;
 
-  std::atomic<uint8_t>* data_;
+  std::atomic<uint64_t>* data_;
 
   // or_func(ptr, mask) should effect *ptr |= mask with the appropriate
   // concurrency safety, working with bytes.
@@ -86,14 +87,14 @@ inline void DynamicBloom::AddConcurrently(const Slice& key) {
 }
 
 inline void DynamicBloom::AddHash(uint32_t hash) {
-  AddHash(hash, [](std::atomic<uint8_t>* ptr, uint8_t mask) {
+  AddHash(hash, [](std::atomic<uint64_t>* ptr, uint64_t mask) {
     ptr->store(ptr->load(std::memory_order_relaxed) | mask,
                std::memory_order_relaxed);
   });
 }
 
 inline void DynamicBloom::AddHashConcurrently(uint32_t hash) {
-  AddHash(hash, [](std::atomic<uint8_t>* ptr, uint8_t mask) {
+  AddHash(hash, [](std::atomic<uint64_t>* ptr, uint64_t mask) {
     // Happens-before between AddHash and MaybeContains is handled by
     // access to versions_->LastSequence(), so all we have to do here is
     // avoid races (so we don't give the compiler a license to mess up
@@ -114,66 +115,49 @@ inline bool DynamicBloom::MayContain(const Slice& key) const {
 // local variable is initialized but not referenced
 #pragma warning(disable : 4189)
 #endif
-inline void DynamicBloom::Prefetch(uint32_t h) {
-  if (kNumBlocks != 0) {
-    uint32_t b = ((h >> 11 | (h << 21)) % kNumBlocks) * (CACHE_LINE_SIZE * 8);
-    PREFETCH(&(data_[b / 8]), 0, 3);
-  }
+inline void DynamicBloom::Prefetch(uint32_t h32) {
+  size_t a = fastrange32(kLen, h32);
+  PREFETCH(data_ + a, 0, 3);
 }
 #if defined(_MSC_VER)
 #pragma warning(pop)
 #endif
 
-inline bool DynamicBloom::MayContainHash(uint32_t h) const {
-  const uint32_t delta = (h >> 17) | (h << 15);  // Rotate right 17 bits
-  if (kNumBlocks != 0) {
-    uint32_t b = ((h >> 11 | (h << 21)) % kNumBlocks) * (CACHE_LINE_SIZE * 8);
-    for (uint32_t i = 0; i < kNumProbes; ++i) {
-      // Since CACHE_LINE_SIZE is defined as 2^n, this line will be optimized
-      //  to a simple and operation by compiler.
-      const uint32_t bitpos = b + (h % (CACHE_LINE_SIZE * 8));
-      uint8_t byteval = data_[bitpos / 8].load(std::memory_order_relaxed);
-      if ((byteval & (1 << (bitpos % 8))) == 0) {
+inline bool DynamicBloom::MayContainHash(uint32_t h32) const {
+  size_t a = fastrange32(kLen, h32);
+  PREFETCH(data_ + a, 0, 3);
+  uint64_t h = h32;
+  for (unsigned i = 0;;) {
+    h *= 0x9e3779b97f4a7c13ULL;
+    for (int j = 0; j < 5; ++j, ++i) {
+      uint64_t mask = ((uint64_t)1 << (h & 63))
+                    | ((uint64_t)1 << ((h >> 6) & 63));
+      uint64_t val = data_[a ^ i].load(std::memory_order_relaxed);
+      if (i + 1 >= kNumDoubleProbes) {
+        return (val & mask) == mask;
+      } else if ((val & mask) != mask) {
         return false;
       }
-      // Rotate h so that we don't reuse the same bytes.
-      h = h / (CACHE_LINE_SIZE * 8) +
-          (h % (CACHE_LINE_SIZE * 8)) * (0x20000000U / CACHE_LINE_SIZE);
-      h += delta;
-    }
-  } else {
-    for (uint32_t i = 0; i < kNumProbes; ++i) {
-      const uint32_t bitpos = h % kTotalBits;
-      uint8_t byteval = data_[bitpos / 8].load(std::memory_order_relaxed);
-      if ((byteval & (1 << (bitpos % 8))) == 0) {
-        return false;
-      }
-      h += delta;
+      h = (h >> 12) | (h << 52);
     }
   }
-  return true;
 }
 
 template <typename OrFunc>
-inline void DynamicBloom::AddHash(uint32_t h, const OrFunc& or_func) {
-  const uint32_t delta = (h >> 17) | (h << 15);  // Rotate right 17 bits
-  if (kNumBlocks != 0) {
-    uint32_t b = ((h >> 11 | (h << 21)) % kNumBlocks) * (CACHE_LINE_SIZE * 8);
-    for (uint32_t i = 0; i < kNumProbes; ++i) {
-      // Since CACHE_LINE_SIZE is defined as 2^n, this line will be optimized
-      // to a simple and operation by compiler.
-      const uint32_t bitpos = b + (h % (CACHE_LINE_SIZE * 8));
-      or_func(&data_[bitpos / 8], (1 << (bitpos % 8)));
-      // Rotate h so that we don't reuse the same bytes.
-      h = h / (CACHE_LINE_SIZE * 8) +
-          (h % (CACHE_LINE_SIZE * 8)) * (0x20000000U / CACHE_LINE_SIZE);
-      h += delta;
-    }
-  } else {
-    for (uint32_t i = 0; i < kNumProbes; ++i) {
-      const uint32_t bitpos = h % kTotalBits;
-      or_func(&data_[bitpos / 8], (1 << (bitpos % 8)));
-      h += delta;
+inline void DynamicBloom::AddHash(uint32_t h32, const OrFunc& or_func) {
+  size_t a = fastrange32(kLen, h32);
+  PREFETCH(data_ + a, 0, 3);
+  uint64_t h = h32;
+  for (unsigned i = 0;;) {
+    h *= 0x9e3779b97f4a7c13ULL;
+    for (int j = 0; j < 5; ++j, ++i) {
+      uint64_t mask = ((uint64_t)1 << (h & 63))
+                    | ((uint64_t)1 << ((h >> 6) & 63));
+      or_func(&data_[a ^ i], mask);
+      if (i + 1 >= kNumDoubleProbes) {
+        return;
+      }
+      h = (h >> 12) | (h << 52);
     }
   }
 }
