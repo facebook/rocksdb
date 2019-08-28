@@ -1995,9 +1995,10 @@ Status WriteBatchInternal::InsertInto(
 #endif
   assert(writer->ShouldWriteToMemtable());
   MemTableInserter inserter(
-      sequence, memtables, flush_scheduler, trim_history_scheduler, ignore_missing_column_families,
-      log_number, db, concurrent_memtable_writes, nullptr /*has_valid_writes*/,
-      seq_per_batch, batch_per_txn, hint_per_batch);
+      sequence, memtables, flush_scheduler, trim_history_scheduler,
+      ignore_missing_column_families, log_number, db,
+      concurrent_memtable_writes, nullptr /*has_valid_writes*/, seq_per_batch,
+      batch_per_txn, hint_per_batch);
   SetSequence(writer->batch, sequence);
   inserter.set_log_number_ref(writer->log_ref);
   Status s = writer->batch->Iterate(&inserter);

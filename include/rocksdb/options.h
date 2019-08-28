@@ -1338,7 +1338,11 @@ struct WriteOptions {
   // Default: false
   bool low_pri;
 
-  // If true, this writebatch will use its own insert hints in concurrent write
+  // If true, this writebatch will maintain the last insert positions of each
+  // memtable as hints in concurrent write. It can improve write performance
+  // in concurrent writes if keys in one writebatch are sequential. In
+  // non-concurrent writes (when concurrent_memtable_writes is false) this
+  // option will be ignored.
   //
   // Default: false
   bool hint_per_batch;
