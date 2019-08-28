@@ -98,4 +98,4 @@ LzLabs is using RocksDB as a storage engine in their multi-database distributed 
  [IOTA Foundation](https://www.iota.org/) is using RocksDB in the [IOTA Reference Implementation (IRI)](https://github.com/iotaledger/iri) to store the local state of the Tangle. The Tangle is the first open-source distributed ledger powering the future of the Internet of Things.
  
  ## Avrio Project
- [Avrio Project](http://avrio-project.github.io/avrio.network/) is using RocksDB in [Avrio ](https://github.com/avrio-project/avrio) to storeBlocks, account balances and data and other blockchain releated data. Avrio is a multiblockchain decentrilsed cryptocurrency empowering monitary transactions.
+ [Avrio Project](http://avrio-project.github.io/avrio.network/) is using RocksDB in [Avrio ](https://github.com/avrio-project/avrio) to store blocks, account balances and data and other blockchain-releated data. Avrio is a multiblockchain decentralized cryptocurrency empowering monetary transactions.
