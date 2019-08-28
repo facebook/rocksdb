@@ -4017,8 +4017,8 @@ void VersionSet::LogAndApplyCFHelper(VersionEdit* edit) {
 }
 
 Status VersionSet::LogAndApplyHelper(ColumnFamilyData* cfd,
-                                   VersionBuilder* builder, VersionEdit* edit,
-                                   InstrumentedMutex* mu) {
+                                     VersionBuilder* builder, VersionEdit* edit,
+                                     InstrumentedMutex* mu) {
 #ifdef NDEBUG
   (void)cfd;
 #endif
@@ -4138,7 +4138,7 @@ Status VersionSet::ApplyOneVersionEditToBuilder(
     auto builder = builders.find(edit.column_family_);
     assert(builder != builders.end());
     Status s = builder->second->version_builder()->Apply(&edit);
-    if(!s.ok()) {
+    if (!s.ok()) {
       return s;
     }
   }

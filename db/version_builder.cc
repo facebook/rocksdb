@@ -153,9 +153,8 @@ class VersionBuilder::Rep {
       for (size_t i = 1; i < level_files.size(); i++) {
         auto f1 = level_files[i - 1];
         auto f2 = level_files[i];
-        auto pair = std::make_pair(&f1,&f2);
-        TEST_SYNC_POINT_CALLBACK(
-            "VersionBuilder::CheckConsistency", &pair);
+        auto pair = std::make_pair(&f1, &f2);
+        TEST_SYNC_POINT_CALLBACK("VersionBuilder::CheckConsistency", &pair);
         if (level == 0) {
           if (!level_zero_cmp_(f1, f2)) {
             fprintf(stderr, "L0 files are not sorted properly");
@@ -172,11 +171,14 @@ class VersionBuilder::Rep {
                       " vs. file with global_seqno %" PRIu64 "\n",
                       f1->fd.smallest_seqno, f1->fd.largest_seqno,
                       external_file_seqno);
-              return Status::Corruption(
-                  "L0 file with seqno " + NumberToString(f1->fd.smallest_seqno) +
-                  " " + NumberToString(f1->fd.largest_seqno) +
-                  " vs. file with global_seqno"
-                  + NumberToString(external_file_seqno));
+              return Status::Corruption("L0 file with seqno " +
+                                        NumberToString(f1->fd.smallest_seqno) +
+                                        " " +
+                                        NumberToString(f1->fd.largest_seqno) +
+                                        " vs. file with global_seqno" +
+                                        NumberToString(external_file_seqno) +
+                                        " with fileNumber " +
+                                        NumberToString(f1->fd.GetNumber()));
             }
           } else if (f1->fd.smallest_seqno <= f2->fd.smallest_seqno) {
             fprintf(stderr,
@@ -185,16 +187,18 @@ class VersionBuilder::Rep {
                     f1->fd.smallest_seqno, f1->fd.largest_seqno,
                     f2->fd.smallest_seqno, f2->fd.largest_seqno);
             return Status::Corruption(
-                "L0 files seqno " + NumberToString(f1->fd.smallest_seqno) + " "
-                + NumberToString(f1->fd.largest_seqno) + " vs. "
-                + NumberToString(f2->fd.smallest_seqno)
-                + " " + NumberToString(f2->fd.largest_seqno));
+                "L0 files seqno " + NumberToString(f1->fd.smallest_seqno) +
+                " " + NumberToString(f1->fd.largest_seqno) + " " +
+                NumberToString(f1->fd.GetNumber()) + " vs. " +
+                NumberToString(f2->fd.smallest_seqno) + " " +
+                NumberToString(f2->fd.largest_seqno) + " " +
+                NumberToString(f2->fd.GetNumber()));
           }
         } else {
           if (!level_nonzero_cmp_(f1, f2)) {
             fprintf(stderr, "L%d files are not sorted properly", level);
             return Status::Corruption("L" + NumberToString(level) +
-                " files are not sorted properly");
+                                      " files are not sorted properly");
           }
 
           // Make sure there is no overlap in levels > 0
@@ -203,10 +207,10 @@ class VersionBuilder::Rep {
             fprintf(stderr, "L%d have overlapping ranges %s vs. %s\n", level,
                     (f1->largest).DebugString(true).c_str(),
                     (f2->smallest).DebugString(true).c_str());
-            return Status::Corruption("L" + NumberToString(level)
-                + " have overlapping ranges "
-                + (f1->largest).DebugString(true) + " vs. "
-                + (f2->smallest).DebugString(true));
+            return Status::Corruption(
+                "L" + NumberToString(level) + " have overlapping ranges " +
+                (f1->largest).DebugString(true) + " vs. " +
+                (f2->smallest).DebugString(true));
           }
         }
       }
@@ -215,7 +219,7 @@ class VersionBuilder::Rep {
   }
 
   Status CheckConsistencyForDeletes(VersionEdit* /*edit*/, uint64_t number,
-                                  int level) {
+                                    int level) {
 #ifdef NDEBUG
     if (!base_vstorage_->force_consistency_checks()) {
       // Dont run consistency checks in release mode except if
@@ -258,7 +262,7 @@ class VersionBuilder::Rep {
     }
     if (!found) {
       fprintf(stderr, "not found %" PRIu64 "\n", number);
-      return Status::Corruption("not found "+ NumberToString(number));
+      return Status::Corruption("not found " + NumberToString(number));
     }
     return Status::OK();
   }
@@ -510,7 +514,7 @@ Status VersionBuilder::CheckConsistency(VersionStorageInfo* vstorage) {
 }
 
 Status VersionBuilder::CheckConsistencyForDeletes(VersionEdit* edit,
-                                                uint64_t number, int level) {
+                                                  uint64_t number, int level) {
   return rep_->CheckConsistencyForDeletes(edit, number, level);
 }
 

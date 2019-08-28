@@ -29,7 +29,7 @@ class VersionBuilder {
   ~VersionBuilder();
   Status CheckConsistency(VersionStorageInfo* vstorage);
   Status CheckConsistencyForDeletes(VersionEdit* edit, uint64_t number,
-                                  int level);
+                                    int level);
   bool CheckConsistencyForNumLevels();
   Status Apply(VersionEdit* edit);
   Status SaveTo(VersionStorageInfo* vstorage);

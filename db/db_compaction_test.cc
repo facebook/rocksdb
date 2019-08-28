@@ -4662,35 +4662,26 @@ TEST_F(DBCompactionTest, ConsistencyFailTest) {
   Options options = CurrentOptions();
   DestroyAndReopen(options);
 
-  const int kKeySize = 16;
-  const int kKvSize = 1000;
   rocksdb::SyncPoint::GetInstance()->SetCallBack(
       "VersionBuilder::CheckConsistency", [&](void* arg) {
-        auto* p =
-        reinterpret_cast<std::pair<FileMetaData**, FileMetaData**>*>(arg);
+      auto p =
+            reinterpret_cast<std::pair<FileMetaData**, FileMetaData**>*>(arg);
         // just swap the two FileMetaData so that we hit error
         // in CheckConsistency funcion
-        auto temp = *(p->first);
+        FileMetaData* temp = *(p->first);
         *(p->first) = *(p->second);
         *(p->second) = temp;
       });
 
-
   rocksdb::SyncPoint::GetInstance()->EnableProcessing();
 
-  Random rnd(301);
-  std::vector<std::string> keys;
-  std::vector<std::string> values;
   for (int k = 0; k < 2; ++k) {
-    keys.emplace_back(RandomString(&rnd, kKeySize));
-    values.emplace_back(RandomString(&rnd, kKvSize - kKeySize));
-    ASSERT_OK(Put(Slice(keys[k]), Slice(values[k])));
+    ASSERT_OK(Put("foo", "bar"));
     Flush();
   }
 
-  ASSERT_NOK(Put(Slice(keys[0]), Slice(keys[0])));
+  ASSERT_NOK(Put("foo", "bar"));
   rocksdb::SyncPoint::GetInstance()->DisableProcessing();
-
 }
 #endif // !defined(ROCKSDB_LITE)
 }  // namespace rocksdb
