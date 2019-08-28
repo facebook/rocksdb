@@ -83,6 +83,9 @@ class InlineSkipList {
   // Allocate a splice using allocator.
   Splice* AllocateSplice();
 
+  // Allocate a splice on heap.
+  Splice* AllocateSpliceOnHeap();
+
   // Inserts a key allocated by AllocateKey, after the actual key value
   // has been filled in.
   //
@@ -650,6 +653,18 @@ InlineSkipList<Comparator>::AllocateSplice() {
 }
 
 template <class Comparator>
+typename InlineSkipList<Comparator>::Splice*
+InlineSkipList<Comparator>::AllocateSpliceOnHeap() {
+  size_t array_size = sizeof(Node*) * (kMaxHeight_ + 1);
+  char* raw = new char[sizeof(Splice) + array_size * 2];
+  Splice* splice = reinterpret_cast<Splice*>(raw);
+  splice->height_ = 0;
+  splice->prev_ = reinterpret_cast<Node**>(raw + sizeof(Splice));
+  splice->next_ = reinterpret_cast<Node**>(raw + sizeof(Splice) + array_size);
+  return splice;
+}
+
+template <class Comparator>
 bool InlineSkipList<Comparator>::Insert(const char* key) {
   return Insert<false>(key, seq_splice_, false);
 }
@@ -681,13 +696,7 @@ bool InlineSkipList<Comparator>::InsertWithHintConcurrently(const char* key,
   assert(hint != nullptr);
   Splice* splice = reinterpret_cast<Splice*>(*hint);
   if (splice == nullptr) {
-    size_t array_size = sizeof(Node*) * (kMaxHeight_ + 1);
-    char* raw = new char[sizeof(Splice) + array_size * 2];
-    splice = reinterpret_cast<Splice*>(raw);
-    splice->height_ = 0;
-    splice->prev_ = reinterpret_cast<Node**>(raw + sizeof(Splice));
-    splice->next_ = reinterpret_cast<Node**>(raw + sizeof(Splice) + array_size);
-
+    splice = AllocateSpliceOnHeap();
     *hint = reinterpret_cast<void*>(splice);
   }
   return Insert<true>(key, splice, true);
