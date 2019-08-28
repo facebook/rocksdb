@@ -153,6 +153,9 @@ class VersionBuilder::Rep {
       for (size_t i = 1; i < level_files.size(); i++) {
         auto f1 = level_files[i - 1];
         auto f2 = level_files[i];
+        auto pair = std::make_pair(&f1,&f2);
+        TEST_SYNC_POINT_CALLBACK(
+            "VersionBuilder::CheckConsistency", &pair);
         if (level == 0) {
           if (!level_zero_cmp_(f1, f2)) {
             fprintf(stderr, "L0 files are not sorted properly");

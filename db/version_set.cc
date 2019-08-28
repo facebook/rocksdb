@@ -3633,7 +3633,10 @@ Status VersionSet::ProcessManifestWrites(
       assert(!builder_guards.empty() &&
              builder_guards.size() == versions.size());
       auto* builder = builder_guards[i]->version_builder();
-      builder->SaveTo(versions[i]->storage_info());
+      Status s = builder->SaveTo(versions[i]->storage_info());
+      if (!s.ok()) {
+        return s;
+      }
     }
   }
 
