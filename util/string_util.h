@@ -121,7 +121,6 @@ uint64_t ParseUint64(const std::string& value);
 
 int ParseInt(const std::string& value);
 
-
 int64_t ParseInt64(const std::string& value);
 
 double ParseDouble(const std::string& value);

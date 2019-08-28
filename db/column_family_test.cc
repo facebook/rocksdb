@@ -1132,22 +1132,25 @@ TEST_P(ColumnFamilyTest, DifferentWriteBufferSizes) {
   default_cf.arena_block_size = 4 * 4096;
   default_cf.max_write_buffer_number = 10;
   default_cf.min_write_buffer_number_to_merge = 1;
-  default_cf.max_write_buffer_number_to_maintain = 0;
+  default_cf.max_write_buffer_size_to_maintain = 0;
   one.write_buffer_size = 200000;
   one.arena_block_size = 4 * 4096;
   one.max_write_buffer_number = 10;
   one.min_write_buffer_number_to_merge = 2;
-  one.max_write_buffer_number_to_maintain = 1;
+  one.max_write_buffer_size_to_maintain =
+      static_cast<int>(one.write_buffer_size);
   two.write_buffer_size = 1000000;
   two.arena_block_size = 4 * 4096;
   two.max_write_buffer_number = 10;
   two.min_write_buffer_number_to_merge = 3;
-  two.max_write_buffer_number_to_maintain = 2;
+  two.max_write_buffer_size_to_maintain =
+      static_cast<int>(two.write_buffer_size);
   three.write_buffer_size = 4096 * 22;
   three.arena_block_size = 4096;
   three.max_write_buffer_number = 10;
   three.min_write_buffer_number_to_merge = 4;
-  three.max_write_buffer_number_to_maintain = -1;
+  three.max_write_buffer_size_to_maintain =
+      static_cast<int>(three.write_buffer_size);
 
   Reopen({default_cf, one, two, three});
 

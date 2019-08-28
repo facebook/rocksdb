@@ -1431,7 +1431,7 @@ class BlobDBImpl::GarbageCollectionWriteCallback : public WriteCallback {
       : cfd_(cfd), key_(key), upper_bound_(upper_bound) {}
 
   Status Callback(DB* db) override {
-    auto* db_impl = reinterpret_cast<DBImpl*>(db);
+    auto* db_impl = static_cast_with_check<DBImpl, DB>(db);
     auto* sv = db_impl->GetAndRefSuperVersion(cfd_);
     SequenceNumber latest_seq = 0;
     bool found_record_for_key = false;

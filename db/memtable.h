@@ -130,6 +130,12 @@ class MemTable {
   // operations on the same MemTable (unless this Memtable is immutable).
   size_t ApproximateMemoryUsage();
 
+  // As a cheap version of `ApproximateMemoryUsage()`, this function doens't
+  // require external synchronization. The value may be less accurate though
+  size_t ApproximateMemoryUsageFast() {
+    return approximate_memory_usage_.load(std::memory_order_relaxed);
+  }
+
   // This method heuristically determines if the memtable should continue to
   // host more data.
   bool ShouldScheduleFlush() const {
@@ -487,8 +493,12 @@ class MemTable {
   // writes with sequence number smaller than seq are flushed.
   SequenceNumber atomic_flush_seqno_;
 
+  // keep track of memory usage in table_, arena_, and range_del_table_.
+  // Gets refrshed inside `ApproximateMemoryUsage()` or `ShouldFlushNow`
+  std::atomic<uint64_t> approximate_memory_usage_;
+
   // Returns a heuristic flush decision
-  bool ShouldFlushNow() const;
+  bool ShouldFlushNow();
 
   // Updates flush_state_ using ShouldFlushNow()
   void UpdateFlushState();

@@ -6,6 +6,8 @@
 * Fix bloom filter lookups by the MultiGet batching API when BlockBasedTableOptions::whole_key_filtering is false, by checking that a key is in the perfix_extractor domain and extracting the prefix before looking up.
 ### New Features
 * VerifyChecksum() by default will issue readahead. Allow ReadOptions to be passed in to those functions to override the readhead size. For checksum verifying before external SST file ingestion, a new option IngestExternalFileOptions.verify_checksums_readahead_size, is added for this readahead setting.
+### Public API Change
+* Added max_write_buffer_size_to_maintain option to better control memory usage of immutable memtables.
 
 ## 6.4.0 (7/30/2019)
 ### Default Option Change
