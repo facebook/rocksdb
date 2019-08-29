@@ -4850,17 +4850,15 @@ Status VersionSet::WriteCurrentStateToManifest(log::Writer* log) {
   if (db_options_->write_dbid_to_manifest) {
     VersionEdit edit_for_db_id;
     assert(!db_id_.empty());
-    if (!db_id_.empty()) {
-      edit_for_db_id.SetDBId(db_id_);
-      std::string db_id_record;
-      if (!edit_for_db_id.EncodeTo(&db_id_record)) {
-        return Status::Corruption("Unable to Encode VersionEdit:" +
-                                  edit_for_db_id.DebugString(true));
-      }
-      Status add_record = log->AddRecord(db_id_record);
-      if (!add_record.ok()) {
-        return add_record;
-      }
+    edit_for_db_id.SetDBId(db_id_);
+    std::string db_id_record;
+    if (!edit_for_db_id.EncodeTo(&db_id_record)) {
+      return Status::Corruption("Unable to Encode VersionEdit:" +
+                                edit_for_db_id.DebugString(true));
+    }
+    Status add_record = log->AddRecord(db_id_record);
+    if (!add_record.ok()) {
+      return add_record;
     }
   }
 

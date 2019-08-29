@@ -231,8 +231,11 @@ Status DBImpl::ValidateOptions(const DBOptions& db_options) {
 
 Status DBImpl::NewDB() {
   VersionEdit new_db;
+  Status s = SetIdentityFile(env_, dbname_);
+  if (!s.ok()) {
+    return s;
+  }
   if (immutable_db_options_.write_dbid_to_manifest) {
-    SetIdentityFile(env_, dbname_);
     std::string temp_db_id;
     GetDbIdentityFromIdentityFile(&temp_db_id);
     new_db.SetDBId(temp_db_id);
@@ -240,8 +243,6 @@ Status DBImpl::NewDB() {
   new_db.SetLogNumber(0);
   new_db.SetNextFile(2);
   new_db.SetLastSequence(0);
-
-  Status s;
 
   ROCKS_LOG_INFO(immutable_db_options_.info_log, "Creating manifest 1 \n");
   const std::string manifest = DescriptorFileName(dbname_, 1);

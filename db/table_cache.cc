@@ -278,11 +278,10 @@ Status TableCache::GetRangeTombstoneIterator(
 }
 
 #ifndef ROCKSDB_LITE
-void TableCache::CreateRowCacheKeyPrefix(const ReadOptions& options,
-                                         const FileDescriptor& fd,
-                                         const Slice& internal_key,
-                                         GetContext* get_context,
-                                         IterKey& row_cache_key) {
+void TableCache::CreateRowCacheKeyPrefix(
+        const ReadOptions& options,
+        const FileDescriptor& fd, const Slice& internal_key,
+        GetContext* get_context, IterKey& row_cache_key) {
   uint64_t fd_number = fd.GetNumber();
   // We use the user key as cache key instead of the internal key,
   // otherwise the whole cache would be invalidated every time the
@@ -314,11 +313,13 @@ void TableCache::CreateRowCacheKeyPrefix(const ReadOptions& options,
   AppendVarint64(&row_cache_key, seq_no);
 }
 
-bool TableCache::GetFromRowCache(const Slice& user_key, IterKey& row_cache_key,
-                                 size_t prefix_size, GetContext* get_context) {
+bool TableCache::GetFromRowCache(
+          const Slice& user_key, IterKey& row_cache_key,
+          size_t prefix_size, GetContext* get_context) {
   bool found = false;
 
-  row_cache_key.TrimAppend(prefix_size, user_key.data(), user_key.size());
+  row_cache_key.TrimAppend(prefix_size, user_key.data(),
+                           user_key.size());
   if (auto row_handle =
           ioptions_.row_cache->Lookup(row_cache_key.GetUserKey())) {
     // Cleanable routine to release the cache entry
@@ -327,8 +328,8 @@ bool TableCache::GetFromRowCache(const Slice& user_key, IterKey& row_cache_key,
                                        void* cache_handle) {
       ((Cache*)cache_to_clean)->Release((Cache::Handle*)cache_handle);
     };
-    auto found_row_cache_entry =
-        static_cast<const std::string*>(ioptions_.row_cache->Value(row_handle));
+    auto found_row_cache_entry = static_cast<const std::string*>(
+        ioptions_.row_cache->Value(row_handle));
     // If it comes here value is located on the cache.
     // found_row_cache_entry points to the value on cache,
     // and value_pinner has cleanup procedure for the cached entry.
@@ -442,15 +443,14 @@ Status TableCache::MultiGet(const ReadOptions& options,
   Status s;
   TableReader* t = fd.table_reader;
   Cache::Handle* handle = nullptr;
-  MultiGetRange table_range(*mget_range, mget_range->begin(),
-                            mget_range->end());
+  MultiGetRange table_range(*mget_range, mget_range->begin(), mget_range->end());
 #ifndef ROCKSDB_LITE
   autovector<std::string, MultiGetContext::MAX_BATCH_SIZE> row_cache_entries;
   IterKey row_cache_key;
   size_t row_cache_key_prefix_size = 0;
   KeyContext& first_key = *table_range.begin();
-  bool lookup_row_cache =
-      ioptions_.row_cache && !first_key.get_context->NeedToReadSequence();
+  bool lookup_row_cache = ioptions_.row_cache &&
+          !first_key.get_context->NeedToReadSequence();
 
   // Check row cache if enabled. Since row cache does not currently store
   // sequence numbers, we cannot use it if we need to fetch the sequence.
@@ -460,10 +460,8 @@ Status TableCache::MultiGet(const ReadOptions& options,
                             row_cache_key);
     row_cache_key_prefix_size = row_cache_key.Size();
 
-    for (auto miter = table_range.begin(); miter != table_range.end();
-         ++miter) {
-      const Slice& user_key = miter->ukey;
-      ;
+    for (auto miter = table_range.begin(); miter != table_range.end(); ++miter) {
+      const Slice& user_key = miter->ukey;;
       GetContext* get_context = miter->get_context;
 
       if (GetFromRowCache(user_key, row_cache_key, row_cache_key_prefix_size,
@@ -522,11 +520,9 @@ Status TableCache::MultiGet(const ReadOptions& options,
   if (lookup_row_cache) {
     size_t row_idx = 0;
 
-    for (auto miter = table_range.begin(); miter != table_range.end();
-         ++miter) {
+    for (auto miter = table_range.begin(); miter != table_range.end(); ++miter) {
       std::string& row_cache_entry = row_cache_entries[row_idx++];
-      const Slice& user_key = miter->ukey;
-      ;
+      const Slice& user_key = miter->ukey;;
       GetContext* get_context = miter->get_context;
 
       get_context->SetReplayLog(nullptr);
