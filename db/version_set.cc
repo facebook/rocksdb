@@ -3624,6 +3624,10 @@ Status VersionSet::ProcessManifestWrites(
         }
         Status s = LogAndApplyHelper(last_writer->cfd, builder, e, mu);
         if (!s.ok()) {
+          // free up the allocated memory
+          for (auto v : versions) {
+            delete v;
+          }
           return s;
         }
         batch_edits.push_back(e);
@@ -3635,6 +3639,10 @@ Status VersionSet::ProcessManifestWrites(
       auto* builder = builder_guards[i]->version_builder();
       Status s = builder->SaveTo(versions[i]->storage_info());
       if (!s.ok()) {
+        // free up the allocated memory
+        for (auto v : versions) {
+          delete v;
+        }
         return s;
       }
     }
