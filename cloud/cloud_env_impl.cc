@@ -827,7 +827,7 @@ Status CloudEnvImpl::SanitizeDirectory(const DBOptions& options,
       return st;
     }
   }
-  return LoadCloudManifest(local_name, read_only);
+  return st;
 }
 
 Status CloudEnvImpl::FetchCloudManifest(const std::string& local_dbname,

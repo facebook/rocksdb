@@ -1070,16 +1070,13 @@ rocksdb::Env* CreateAwsEnv(const std::string& dbpath ,
 		     rocksdb::InfoLogLevel::WARN_LEVEL));
   rocksdb::CloudEnvOptions coptions;
   std::string region;
-  if (FLAGS_aws_access_id.size() == 0) {
-      rocksdb::Status st = rocksdb::AwsEnv::GetTestCredentials(&coptions.credentials.access_key_id,
-							       &coptions.credentials.secret_key,
-							       &region);
-      assert(st.ok());
-  } else {
-    coptions.credentials.access_key_id = FLAGS_aws_access_id;
-    coptions.credentials.secret_key = FLAGS_aws_secret_key;
+  if (FLAGS_aws_access_id.size() != 0) {
+    coptions.credentials.InitializeSimple(FLAGS_aws_access_id,
+                                          FLAGS_aws_secret_key);
     region = FLAGS_aws_region;
   }
+  assert(coptions.credentials.HasValid().ok());
+
   coptions.keep_local_sst_files = FLAGS_keep_local_sst_files;
   coptions.TEST_Initialize("dbbench.", "", region);
   rocksdb::CloudEnv* s;

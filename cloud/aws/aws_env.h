@@ -249,13 +249,6 @@ class AwsEnv : public CloudEnvImpl {
   // AWS's utility to help out with uploading and downloading S3 file
   std::shared_ptr<Aws::Transfer::TransferManager> awsTransferManager_;
 
-  //
-  // Get credentials for running unit tests
-  //
-  static Status GetTestCredentials(std::string* aws_access_key_id,
-				   std::string* aws_secret_access_key,
-				   std::string* region);
-
   Status StartTailingStream();
 
   // Saves and retrieves the dbid->dirname mapping in S3

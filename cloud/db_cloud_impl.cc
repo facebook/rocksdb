@@ -78,10 +78,13 @@ Status DBCloud::Open(const Options& opt, const std::string& local_dbname,
   }
 
   st = cenv->SanitizeDirectory(options, local_dbname, read_only);
+
+  if (st.ok()) {
+    st = cenv->LoadCloudManifest(local_dbname, read_only);
+  }
   if (!st.ok()) {
     return st;
   }
-
   // If a persistent cache path is specified, then we set it in the options.
   if (!persistent_cache_path.empty() && persistent_cache_size_gb) {
     // Get existing options. If the persistent cache is already set, then do

@@ -621,28 +621,22 @@ Options DBTestBase::GetOptions(
 Env* DBTestBase::CreateNewAwsEnv(const std::string& prefix) {
   // get AWS credentials
   rocksdb::CloudEnvOptions coptions;
-  std::string region;
   CloudEnv* cenv = nullptr;
-  Status st = AwsEnv::GetTestCredentials(&coptions.credentials.access_key_id,
-					 &coptions.credentials.secret_key,
-					 &region);
+  std::string region;
+  coptions.TEST_Initialize("dbtest.", prefix, region);
+  Status st = AwsEnv::NewAwsEnv(Env::Default(), coptions, info_log_, &cenv);
+  ((CloudEnvImpl*)cenv)->TEST_DisableCloudManifest();
+  ((AwsEnv*)cenv)->TEST_SetFileDeletionDelay(std::chrono::seconds(0));
+  ROCKS_LOG_INFO(info_log_, "Created new aws env with path %s", prefix.c_str());
   if (!st.ok()) {
     Log(InfoLogLevel::DEBUG_LEVEL, info_log_, st.ToString().c_str());
-    assert(st.ok());
-  } else {
-    coptions.TEST_Initialize("dbtest.", prefix, region);
-    st = AwsEnv::NewAwsEnv(Env::Default(),
-                           coptions, info_log_, &cenv);
-    ((CloudEnvImpl*)cenv)->TEST_DisableCloudManifest();
-    ((AwsEnv*)cenv)->TEST_SetFileDeletionDelay(std::chrono::seconds(0));
-    ROCKS_LOG_INFO(info_log_, "Created new aws env with path %s", prefix.c_str());
-    assert(st.ok() && cenv);
-    // If we are keeping wal in cloud storage, then tail it as well.
-    // so that our unit tests can run to completion.
-    if (!coptions.keep_local_log_files) {
-      AwsEnv* aws = static_cast<AwsEnv*>(cenv);
-      aws->StartTailingStream();
-    }
+  }
+  assert(st.ok() && cenv);
+  // If we are keeping wal in cloud storage, then tail it as well.
+  // so that our unit tests can run to completion.
+  if (!coptions.keep_local_log_files) {
+    AwsEnv* aws = static_cast<AwsEnv*>(cenv);
+    aws->StartTailingStream();
   }
   return cenv;
 }

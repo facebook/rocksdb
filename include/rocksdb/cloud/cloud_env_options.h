@@ -8,6 +8,12 @@
 #include <memory>
 #include <unordered_map>
 
+namespace Aws {
+namespace Auth {
+class AWSCredentialsProvider;
+}  // namespace Auth
+}  // namespace Aws
+
 namespace rocksdb {
 
 class BucketObjectMetadata;
@@ -30,11 +36,49 @@ enum LogType : unsigned char {
   kLogEnd = 0x3,
 };
 
+// Type of AWS access credentials
+enum class AwsAccessType {
+  kUndefined,
+  kSimple,
+  kInstance,
+  kTaskRole,
+  kEnvironment,
+  kConfig,
+  kAnonymous,
+};
+
 // Credentials needed to access AWS cloud service
 class AwsCloudAccessCredentials {
  public:
+  AwsCloudAccessCredentials();
+
+ public:
+  // functions to support AWS credentials
+  //
+  // Initialize AWS credentials using access_key_id and secret_key
+  void InitializeSimple(const std::string& aws_access_key_id,
+                        const std::string& aws_secret_key);
+  // Initialize AWS credentials using a config file
+  void InitializeConfig(const std::string& aws_config_file);
+  // Initialize credentials for tests (relies on config vars)
+  Status TEST_Initialize();
+
+  // test if valid AWS credentials are present
+  Status HasValid() const;
+  // Get AWSCredentialsProvider to supply to AWS API calls when required (e.g.
+  // to create S3Client)
+  Status GetCredentialsProvider(
+      std::shared_ptr<Aws::Auth::AWSCredentialsProvider>* result) const;
+
+ private:
+  AwsAccessType GetAccessType() const;
+  Status CheckCredentials(const AwsAccessType& aws_type) const;
+
+ public:
   std::string access_key_id;
   std::string secret_key;
+  std::string config_file;
+  AwsAccessType type;
 };
 
 // Defines parameters required to connect to Kafka
