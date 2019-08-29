@@ -1335,6 +1335,7 @@ INSTANTIATE_TEST_CASE_P(
     MultiGetPrefix, MultiGetPrefixExtractorTest,
     ::testing::Bool());
 
+#ifndef ROCKSDB_LITE
 class DBMultiGetRowCacheTest
     : public DBBasicTest,
       public ::testing::WithParamInterface<bool> {};
@@ -1427,7 +1428,6 @@ TEST_P(DBMultiGetRowCacheTest, MultiGetBatched) {
 INSTANTIATE_TEST_CASE_P(DBMultiGetRowCacheTest, DBMultiGetRowCacheTest,
     testing::Values(true, false));
 
-#ifndef ROCKSDB_LITE
 TEST_F(DBBasicTest, GetAllKeyVersions) {
   Options options = CurrentOptions();
   options.env = env_;
