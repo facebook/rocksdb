@@ -1099,7 +1099,7 @@ struct DBOptions {
   //    independent of Manifest and that can result in wrong DB ID.
   // We recommend setting this flag to true.
   // Default: false
-  bool write_dbid_to_manifest = true;
+  bool write_dbid_to_manifest = false;
 
   // The number of bytes to prefetch when reading the log. This is mostly useful
   // for reading a remotely located log, as it can save the number of
