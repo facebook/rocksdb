@@ -966,6 +966,7 @@ extern ROCKSDB_LIBRARY_API void rocksdb_options_set_hash_skip_list_rep(
     rocksdb_options_t*, size_t, int32_t, int32_t);
 extern ROCKSDB_LIBRARY_API void rocksdb_options_set_hash_link_list_rep(
     rocksdb_options_t*, size_t);
+extern ROCKSDB_LIBRARY_API void rocksdb_options_set_doubly_skip_list_rep(rocksdb_options_t *opt);
 extern ROCKSDB_LIBRARY_API void rocksdb_options_set_plain_table_factory(
     rocksdb_options_t*, uint32_t, int, double, size_t);
 

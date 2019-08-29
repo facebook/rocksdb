@@ -8,6 +8,7 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
 #include "memtable/inlineskiplist.h"
+#include "memtable/doubly_skiplist.h"
 #include <set>
 #include <unordered_set>
 #include "memory/concurrent_arena.h"
@@ -334,6 +335,7 @@ TEST_F(InlineSkipTest, InsertWithHint_CompatibleWithInsertWithoutHint) {
 // calls to Next() and Seek().  For every key we encounter, we
 // check that it is either expected given the initial snapshot or has
 // been concurrently added since the iterator started.
+template<template<typename U> class SkipList>
 class ConcurrentTest {
  public:
   static const uint32_t K = 8;
@@ -395,7 +397,7 @@ class ConcurrentTest {
 
   // InlineSkipList is not protected by mu_.  We just use a single writer
   // thread to modify it.
-  InlineSkipList<TestComparator> list_;
+  SkipList<TestComparator> list_;
 
  public:
   ConcurrentTest() : list_(TestComparator(), &arena_) {}
@@ -430,7 +432,7 @@ class ConcurrentTest {
     }
 
     Key pos = RandomTarget(rnd);
-    InlineSkipList<TestComparator>::Iterator iter(&list_);
+    typename SkipList<TestComparator>::Iterator iter(&list_);
     iter.Seek(Encode(&pos));
     while (true) {
       Key current;
@@ -480,48 +482,84 @@ class ConcurrentTest {
     }
   }
 };
-const uint32_t ConcurrentTest::K;
+
+template<template <typename U> class SkipList>
+const uint32_t ConcurrentTest<SkipList>::K;
 
 // Simple test that does single-threaded testing of the ConcurrentTest
 // scaffolding.
 TEST_F(InlineSkipTest, ConcurrentReadWithoutThreads) {
-  ConcurrentTest test;
-  Random rnd(test::RandomSeed());
-  for (int i = 0; i < 10000; i++) {
-    test.ReadStep(&rnd);
-    test.WriteStep(&rnd);
+
+  {
+    ConcurrentTest<rocksdb::InlineSkipList> test;
+    Random rnd(test::RandomSeed());
+    for (int i = 0; i < 10000; i++) {
+      test.ReadStep(&rnd);
+      test.WriteStep(&rnd);
+    }
+  }
+  {
+    ConcurrentTest<rocksdb::DoublySkipList> test;
+    Random rnd(test::RandomSeed());
+    for (int i = 0; i < 10000; i++) {
+      test.ReadStep(&rnd);
+      test.WriteStep(&rnd);
+    }
   }
 }
 
-TEST_F(InlineSkipTest, ConcurrentInsertWithoutThreads) {
-  ConcurrentTest test;
+template <template <typename U> class SkipList>
+static void InnerConcurrentInsertWithoutThreads() {
+  ConcurrentTest<SkipList> test;
   Random rnd(test::RandomSeed());
   for (int i = 0; i < 10000; i++) {
     test.ReadStep(&rnd);
     uint32_t base = rnd.Next();
     for (int j = 0; j < 4; ++j) {
-      test.ConcurrentWriteStep((base + j) % ConcurrentTest::K);
+      test.ConcurrentWriteStep((base + j) % ConcurrentTest<SkipList>::K);
     }
   }
 }
 
+TEST_F(InlineSkipTest, ConcurrentInsertWithoutThreads) {
+  InnerConcurrentInsertWithoutThreads<rocksdb::InlineSkipList>();
+  InnerConcurrentInsertWithoutThreads<rocksdb::DoublySkipList>();
+}
+
 class TestState {
+  public:
+    TestState(int s)
+            : seed_(s),
+              quit_flag_(false) {}
+
+    enum ReaderState { STARTING, RUNNING, DONE };
+    virtual ~TestState() {}
+    virtual void Wait(ReaderState s) = 0;
+    virtual void Change(ReaderState s) = 0;
+    virtual void AdjustPendingWriters(int delta) = 0;
+    virtual void WaitForPendingWriters()  = 0;
+      // REQUIRES: No concurrent calls for the same k
+    virtual void ConcurrentWriteStep(uint32_t k) = 0;
+    virtual void ReadStep(Random* rnd) = 0;
+
+  public:
+    int seed_;
+    std::atomic<bool> quit_flag_;
+    std::atomic<uint32_t> next_writer_;
+};
+
+template <template <typename U> class SkipList>
+class TestStateImpl : public TestState {
  public:
-  ConcurrentTest t_;
-  int seed_;
-  std::atomic<bool> quit_flag_;
-  std::atomic<uint32_t> next_writer_;
+  ConcurrentTest<SkipList> t_;
 
-  enum ReaderState { STARTING, RUNNING, DONE };
-
-  explicit TestState(int s)
-      : seed_(s),
-        quit_flag_(false),
+  explicit TestStateImpl(int s)
+        : TestState(s),
         state_(STARTING),
         pending_writers_(0),
         state_cv_(&mu_) {}
 
-  void Wait(ReaderState s) {
+  void Wait(ReaderState s) override {
     mu_.Lock();
     while (state_ != s) {
       state_cv_.Wait();
@@ -529,14 +567,14 @@ class TestState {
     mu_.Unlock();
   }
 
-  void Change(ReaderState s) {
+  void Change(ReaderState s) override {
     mu_.Lock();
     state_ = s;
     state_cv_.Signal();
     mu_.Unlock();
   }
 
-  void AdjustPendingWriters(int delta) {
+  void AdjustPendingWriters(int delta) override {
     mu_.Lock();
     pending_writers_ += delta;
     if (pending_writers_ == 0) {
@@ -545,13 +583,21 @@ class TestState {
     mu_.Unlock();
   }
 
-  void WaitForPendingWriters() {
+  void WaitForPendingWriters() override {
     mu_.Lock();
     while (pending_writers_ != 0) {
       state_cv_.Wait();
     }
     mu_.Unlock();
   }
+
+  void ConcurrentWriteStep(uint32_t k) override {
+    t_.ConcurrentWriteStep(k);
+  }
+  void ReadStep(Random* rnd) override {
+    t_.ReadStep(rnd);
+  }
+
 
  private:
   port::Mutex mu_;
@@ -566,7 +612,7 @@ static void ConcurrentReader(void* arg) {
   int64_t reads = 0;
   state->Change(TestState::RUNNING);
   while (!state->quit_flag_.load(std::memory_order_acquire)) {
-    state->t_.ReadStep(&rnd);
+    state->ReadStep(&rnd);
     ++reads;
   }
   state->Change(TestState::DONE);
@@ -574,11 +620,12 @@ static void ConcurrentReader(void* arg) {
 
 static void ConcurrentWriter(void* arg) {
   TestState* state = reinterpret_cast<TestState*>(arg);
-  uint32_t k = state->next_writer_++ % ConcurrentTest::K;
-  state->t_.ConcurrentWriteStep(k);
+  uint32_t k = state->next_writer_++ % ConcurrentTest<rocksdb::InlineSkipList>::K;
+  state->ConcurrentWriteStep(k);
   state->AdjustPendingWriters(-1);
 }
 
+template <template <typename U> class SkipList>
 static void RunConcurrentRead(int run) {
   const int seed = test::RandomSeed() + (run * 100);
   Random rnd(seed);
@@ -588,7 +635,7 @@ static void RunConcurrentRead(int run) {
     if ((i % 100) == 0) {
       fprintf(stderr, "Run %d of %d\n", i, N);
     }
-    TestState state(seed + 1);
+    TestStateImpl<SkipList> state(seed + 1);
     Env::Default()->SetBackgroundThreads(1);
     Env::Default()->Schedule(ConcurrentReader, &state);
     state.Wait(TestState::RUNNING);
@@ -600,6 +647,7 @@ static void RunConcurrentRead(int run) {
   }
 }
 
+template <template <typename U> class SkipList>
 static void RunConcurrentInsert(int run, int write_parallelism = 4) {
   Env::Default()->SetBackgroundThreads(1 + write_parallelism,
                                        Env::Priority::LOW);
@@ -611,7 +659,7 @@ static void RunConcurrentInsert(int run, int write_parallelism = 4) {
     if ((i % 100) == 0) {
       fprintf(stderr, "Run %d of %d\n", i, N);
     }
-    TestState state(seed + 1);
+    TestStateImpl<SkipList> state(seed + 1);
     Env::Default()->Schedule(ConcurrentReader, &state);
     state.Wait(TestState::RUNNING);
     for (int k = 0; k < kSize; k += write_parallelism) {
@@ -627,14 +675,37 @@ static void RunConcurrentInsert(int run, int write_parallelism = 4) {
   }
 }
 
-TEST_F(InlineSkipTest, ConcurrentRead1) { RunConcurrentRead(1); }
-TEST_F(InlineSkipTest, ConcurrentRead2) { RunConcurrentRead(2); }
-TEST_F(InlineSkipTest, ConcurrentRead3) { RunConcurrentRead(3); }
-TEST_F(InlineSkipTest, ConcurrentRead4) { RunConcurrentRead(4); }
-TEST_F(InlineSkipTest, ConcurrentRead5) { RunConcurrentRead(5); }
-TEST_F(InlineSkipTest, ConcurrentInsert1) { RunConcurrentInsert(1); }
-TEST_F(InlineSkipTest, ConcurrentInsert2) { RunConcurrentInsert(2); }
-TEST_F(InlineSkipTest, ConcurrentInsert3) { RunConcurrentInsert(3); }
+TEST_F(InlineSkipTest, ConcurrentRead1) {
+  RunConcurrentRead<InlineSkipList>(1);
+  RunConcurrentRead<DoublySkipList>(1);
+}
+TEST_F(InlineSkipTest, ConcurrentRead2) {
+  RunConcurrentRead<InlineSkipList>(2);
+  RunConcurrentRead<DoublySkipList>(2);
+}
+TEST_F(InlineSkipTest, ConcurrentRead3) {
+  RunConcurrentRead<InlineSkipList>(3);
+  RunConcurrentRead<DoublySkipList>(3);
+}
+TEST_F(InlineSkipTest, ConcurrentRead4) {
+  RunConcurrentRead<InlineSkipList>(4);
+  RunConcurrentRead<DoublySkipList>(4);
+}
+TEST_F(InlineSkipTest, ConcurrentRead5) {
+  RunConcurrentRead<InlineSkipList>(5);
+  RunConcurrentRead<DoublySkipList>(5);
+}
+TEST_F(InlineSkipTest, ConcurrentInsert1) {
+  RunConcurrentInsert<InlineSkipList>(1);
+}
+TEST_F(InlineSkipTest, ConcurrentInsert2) {
+  RunConcurrentInsert<InlineSkipList>(2);
+  RunConcurrentInsert<DoublySkipList>(2);
+}
+TEST_F(InlineSkipTest, ConcurrentInsert3) {
+  RunConcurrentInsert<InlineSkipList>(3);
+  RunConcurrentInsert<DoublySkipList>(3);
+}
 
 #endif  // ROCKSDB_VALGRIND_RUN
 }  // namespace rocksdb
