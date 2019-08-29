@@ -1142,8 +1142,8 @@ class VersionSet {
                                const ColumnFamilyOptions* new_cf_options);
 
   void LogAndApplyCFHelper(VersionEdit* edit);
-  void LogAndApplyHelper(ColumnFamilyData* cfd, VersionBuilder* b,
-                         VersionEdit* edit, InstrumentedMutex* mu);
+  Status LogAndApplyHelper(ColumnFamilyData* cfd, VersionBuilder* b,
+                           VersionEdit* edit, InstrumentedMutex* mu);
 };
 
 // ReactiveVersionSet represents a collection of versions of the column
