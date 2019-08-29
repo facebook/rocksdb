@@ -4582,6 +4582,21 @@ TEST_F(DBCompactionTest, CompactionDuringShutdown) {
   ASSERT_OK(dbfull()->error_handler_.GetBGError());
 }
 
+TEST_F(DBCompactionTest, FIFOCompactionPickSameCFTwice) {
+  Options options = CurrentOptions();
+  options.env = env_;
+  options.max_open_files = -1;  // Necessary to enable ttl
+  options.compaction_style = kCompactionStyleFIFO;
+  options.ttl = 1;
+  DestroyAndReopen(options);
+  WriteOptions write_opts;
+  ASSERT_OK(dbfull()->Put(write_opts, "key0", "value0"));
+  FlushOptions flush_opts;
+  ASSERT_OK(dbfull()->Flush(flush_opts));
+  env_->SleepForMicroseconds((options.ttl + 1) * 1000 * 1000);
+  ASSERT_EQ("NOT_FOUND", Get("key0"));
+}
+
 // FixFileIngestionCompactionDeadlock tests and verifies that compaction and
 // file ingestion do not cause deadlock in the event of write stall triggered
 // by number of L0 files reaching level0_stop_writes_trigger.
