@@ -4230,9 +4230,11 @@ Status VersionSet::ReadAndRecover(
     if (!s.ok()) {
       break;
     }
-    if (db_id != nullptr && edit.has_db_id_) {
+    if (edit.has_db_id_) {
+      db_id_ = edit.GetDbId();
+      if (db_id != nullptr) {
         db_id->assign(edit.GetDbId());
-      db_id_ = *db_id;
+      }
     }
     s = read_buffer->AddEdit(&edit);
     if (!s.ok()) {
@@ -4846,8 +4848,9 @@ Status VersionSet::WriteCurrentStateToManifest(log::Writer* log) {
   // (the same single thread), so we're safe to iterate.
 
   if (db_options_->write_dbid_to_manifest) {
-      VersionEdit edit_for_db_id;
-      assert(!db_id_.empty());
+    VersionEdit edit_for_db_id;
+    assert(!db_id_.empty());
+    if (!db_id_.empty()) {
       edit_for_db_id.SetDBId(db_id_);
       std::string db_id_record;
       if (!edit_for_db_id.EncodeTo(&db_id_record)) {
@@ -4858,6 +4861,7 @@ Status VersionSet::WriteCurrentStateToManifest(log::Writer* log) {
       if (!add_record.ok()) {
         return add_record;
       }
+    }
   }
 
   for (auto cfd : *column_family_set_) {
@@ -5658,7 +5662,11 @@ Status ReactiveVersionSet::ReadAndApply(
           // WriteCurrentStatetoManifest() writes 2 version edits for each
           // column family at the beginning of the newly-generated MANIFEST.
           // TODO(yanqin) remove hard-coded value.
-          number_of_edits_to_skip_ += 2;
+          if (db_options_->write_dbid_to_manifest) {
+            number_of_edits_to_skip_ += 3;
+          } else {
+            number_of_edits_to_skip_ += 2;
+          }
         }
       }
     }

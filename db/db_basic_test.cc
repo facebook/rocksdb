@@ -474,8 +474,12 @@ TEST_F(DBBasicTest, IdentityAcrossRestarts1) {
     Reopen(options);
     std::string id3;
     ASSERT_OK(db_->GetDbIdentity(id3));
-    // id1 should NOT match id3 because identity was regenerated
-    ASSERT_NE(id1.compare(id3), 0);
+    if (options.write_dbid_to_manifest) {
+      ASSERT_EQ(id1.compare(id3), 0);
+    } else {
+      // id1 should NOT match id3 because identity was regenerated
+      ASSERT_NE(id1.compare(id3), 0);
+    }
   } while (ChangeCompactOptions());
 }
 
@@ -1426,8 +1430,8 @@ TEST_P(DBMultiGetRowCacheTest, MultiGetBatched) {
     if (use_snapshots) {
       ro.snapshot = snap2;
     }
-    db_->MultiGet(ro, handles_[1], keys.size(), keys.data(),
-                  values.data(), s.data(), false);
+    db_->MultiGet(ro, handles_[1], keys.size(), keys.data(), values.data(),
+                  s.data(), false);
 
     ASSERT_EQ(values.size(), keys.size());
     ASSERT_EQ(std::string(values[4].data(), values[4].size()), "v1");
@@ -1482,7 +1486,7 @@ TEST_P(DBMultiGetRowCacheTest, MultiGetBatched) {
 }
 
 INSTANTIATE_TEST_CASE_P(DBMultiGetRowCacheTest, DBMultiGetRowCacheTest,
-    testing::Values(true, false));
+                        testing::Values(true, false));
 
 TEST_F(DBBasicTest, GetAllKeyVersions) {
   Options options = CurrentOptions();
