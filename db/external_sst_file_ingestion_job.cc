@@ -291,6 +291,12 @@ void ExternalSstFileIngestionJob::Cleanup(const Status& status) {
     // We failed to add the files to the database
     // remove all the files we copied
     for (IngestedFileInfo& f : files_to_ingest_) {
+      // If internal_file_path is empty str, we have reached the first file
+      // that has not been linked/copied successfully, thus no need to iterate
+      // over the rest of files_to_ingest_.
+      if (f.internal_file_path.empty()) {
+        break;
+      }
       Status s = env_->DeleteFile(f.internal_file_path);
       if (!s.ok()) {
         ROCKS_LOG_WARN(db_options_.info_log,
