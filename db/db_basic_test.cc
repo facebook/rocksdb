@@ -80,6 +80,8 @@ TEST_F(DBBasicTest, ReadOnlyDBWithWriteDBIdToManifestSet) {
   options.write_dbid_to_manifest = true;
   assert(options.env == env_);
   ASSERT_OK(ReadOnlyReopen(options));
+  std::string db_id1;
+  db_->GetDbIdentity(db_id1);
   ASSERT_EQ("v3", Get("foo"));
   ASSERT_EQ("v2", Get("bar"));
   Iterator* iter = db_->NewIterator(ReadOptions());
@@ -101,6 +103,9 @@ TEST_F(DBBasicTest, ReadOnlyDBWithWriteDBIdToManifestSet) {
   ASSERT_EQ("v3", Get("foo"));
   ASSERT_EQ("v2", Get("bar"));
   ASSERT_TRUE(db_->SyncWAL().IsNotSupported());
+  std::string db_id2;
+  db_->GetDbIdentity(db_id2);
+  ASSERT_EQ(db_id1, db_id2);
 }
 
 TEST_F(DBBasicTest, CompactedDB) {
@@ -502,7 +507,7 @@ TEST_F(DBBasicTest, IdentityAcrossRestarts2) {
     std::string id3;
     ASSERT_OK(db_->GetDbIdentity(id3));
     // id1 should NOT match id3 because identity was regenerated
-    ASSERT_EQ(id1.compare(id3), 0);
+    ASSERT_EQ(id1, id3);
   } while (ChangeCompactOptions());
 }
 
