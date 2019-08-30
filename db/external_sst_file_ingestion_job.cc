@@ -160,7 +160,7 @@ Status ExternalSstFileIngestionJob::Prepare(
     // We failed, remove all files that we copied into the db
     for (IngestedFileInfo& f : files_to_ingest_) {
       if (f.internal_file_path.empty()) {
-        break;
+        continue;
       }
       Status s = env_->DeleteFile(f.internal_file_path);
       if (!s.ok()) {
@@ -295,7 +295,7 @@ void ExternalSstFileIngestionJob::Cleanup(const Status& status) {
       // that has not been linked/copied successfully, thus no need to iterate
       // over the rest of files_to_ingest_.
       if (f.internal_file_path.empty()) {
-        break;
+        continue;
       }
       Status s = env_->DeleteFile(f.internal_file_path);
       if (!s.ok()) {
