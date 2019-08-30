@@ -43,6 +43,8 @@ struct ImmutableDBOptions {
   int table_cache_numshardbits;
   uint64_t wal_ttl_seconds;
   uint64_t wal_size_limit_mb;
+  uint64_t lower_limit_write_batch_group_size_bytes;
+  uint64_t upper_limit_write_batch_group_size_bytes;
   size_t manifest_preallocation_size;
   bool allow_mmap_reads;
   bool allow_mmap_writes;
