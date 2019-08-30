@@ -89,7 +89,7 @@ void NotifyCollectTableCollectorsOnBlockAdd(
     uint64_t blockRawBytes, uint64_t blockCompressedBytesFast,
     uint64_t blockCompressedBytesSlow);
 
-// NotifyCollectTableCollectorsOnAdd() triggers the `Finish` event for all
+// NotifyCollectTableCollectorsOnFinish() triggers the `Finish` event for all
 // property collectors. The collected properties will be added to `builder`.
 bool NotifyCollectTableCollectorsOnFinish(
     const std::vector<std::unique_ptr<IntTblPropCollector>>& collectors,
