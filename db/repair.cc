@@ -187,7 +187,6 @@ class Repairer {
 
     if (status.ok()) {
       // Recover using the fresh manifest created by NewDB()
-      //    	std::string db_id;
       status =
           vset_.Recover({{kDefaultColumnFamilyName, default_cf_opts_}}, false);
     }

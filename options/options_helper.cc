@@ -1666,7 +1666,7 @@ std::unordered_map<std::string, OptionTypeInfo>
           offsetof(struct ImmutableDBOptions, avoid_unnecessary_blocking_io)}},
         {"write_dbid_to_manifest",
          {offsetof(struct DBOptions, write_dbid_to_manifest),
-          OptionType::kBoolean, OptionVerificationType::kNormal, false}},
+          OptionType::kBoolean, OptionVerificationType::kNormal, false, 0}},
         {"log_readahead_size",
          {offsetof(struct DBOptions, log_readahead_size), OptionType::kSizeT,
           OptionVerificationType::kNormal, false, 0}},
