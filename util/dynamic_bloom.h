@@ -29,7 +29,6 @@ class DynamicBloom {
   // allocator: pass allocator to bloom filter, hence trace the usage of memory
   // total_bits: fixed total bits for the bloom
   // num_probes: number of hash probes for a single key
-  // locality:  If positive, optimize for cache line locality, 0 otherwise.
   // hash_func:  customized hash function
   // huge_page_tlb_size:  if >0, try to allocate bloom bytes from huge page TLB
   //                      within this page size. Need to reserve huge pages for
@@ -37,7 +36,7 @@ class DynamicBloom {
   //                         sysctl -w vm.nr_hugepages=20
   //                     See linux doc Documentation/vm/hugetlbpage.txt
   explicit DynamicBloom(Allocator* allocator,
-                        uint32_t total_bits, uint32_t locality = 0,
+                        uint32_t total_bits,
                         uint32_t num_probes = 6,
                         size_t huge_page_tlb_size = 0,
                         Logger* logger = nullptr);

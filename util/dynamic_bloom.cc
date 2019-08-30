@@ -27,11 +27,10 @@ unsigned roundUpToPow2(unsigned x) {
 }
 
 DynamicBloom::DynamicBloom(Allocator* allocator, uint32_t total_bits,
-                           uint32_t locality, uint32_t num_probes,
+                           uint32_t num_probes,
                            size_t huge_page_tlb_size, Logger* logger)
-      // Round down, except round up with 1
+    // Round down, except round up with 1
     : kNumDoubleProbes((num_probes + (num_probes == 1)) / 2) {
-  (void)locality; // ignore for now
   assert(num_probes % 2 == 0); // limitation of current implementation
   assert(kNumDoubleProbes > 0);
 
