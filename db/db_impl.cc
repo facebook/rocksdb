@@ -3538,9 +3538,9 @@ Status DBImpl::IngestExternalFiles(
     exec_results.emplace_back(false, Status::OK());
   }
   // TODO(yanqin) maybe make jobs run in parallel
+  uint64_t start_file_number = next_file_number;
   for (size_t i = 1; i != num_cfs; ++i) {
-    uint64_t start_file_number =
-        next_file_number + args[i - 1].external_files.size();
+    start_file_number += args[i - 1].external_files.size();
     auto* cfd =
         static_cast<ColumnFamilyHandleImpl*>(args[i].column_family)->cfd();
     SuperVersion* super_version = cfd->GetReferencedSuperVersion(&mutex_);

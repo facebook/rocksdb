@@ -2300,10 +2300,11 @@ TEST_P(ExternalSSTFileTest, IngestFilesIntoMultipleColumnFamilies_Success) {
       new FaultInjectionTestEnv(env_));
   Options options = CurrentOptions();
   options.env = fault_injection_env.get();
-  CreateAndReopenWithCF({"pikachu"}, options);
+  CreateAndReopenWithCF({"pikachu", "eevee"}, options);
   std::vector<ColumnFamilyHandle*> column_families;
   column_families.push_back(handles_[0]);
   column_families.push_back(handles_[1]);
+  column_families.push_back(handles_[2]);
   std::vector<IngestExternalFileOptions> ifos(column_families.size());
   for (auto& ifo : ifos) {
     ifo.allow_global_seqno = true;  // Always allow global_seqno
@@ -2317,6 +2318,9 @@ TEST_P(ExternalSSTFileTest, IngestFilesIntoMultipleColumnFamilies_Success) {
       {std::make_pair("foo1", "fv1"), std::make_pair("foo2", "fv2")});
   data.push_back(
       {std::make_pair("bar1", "bv1"), std::make_pair("bar2", "bv2")});
+  data.push_back(
+      {std::make_pair("bar3", "bv3"), std::make_pair("bar4", "bv4")});
+
   // Resize the true_data vector upon construction to avoid re-alloc
   std::vector<std::map<std::string, std::string>> true_data(
       column_families.size());
@@ -2324,8 +2328,9 @@ TEST_P(ExternalSSTFileTest, IngestFilesIntoMultipleColumnFamilies_Success) {
                                          -1, true, true_data);
   ASSERT_OK(s);
   Close();
-  ReopenWithColumnFamilies({kDefaultColumnFamilyName, "pikachu"}, options);
-  ASSERT_EQ(2, handles_.size());
+  ReopenWithColumnFamilies({kDefaultColumnFamilyName, "pikachu", "eevee"},
+                           options);
+  ASSERT_EQ(3, handles_.size());
   int cf = 0;
   for (const auto& verify_map : true_data) {
     for (const auto& elem : verify_map) {
@@ -2357,10 +2362,11 @@ TEST_P(ExternalSSTFileTest,
 
   Options options = CurrentOptions();
   options.env = fault_injection_env.get();
-  CreateAndReopenWithCF({"pikachu"}, options);
+  CreateAndReopenWithCF({"pikachu", "eevee"}, options);
   const std::vector<std::map<std::string, std::string>> data_before_ingestion =
       {{{"foo1", "fv1_0"}, {"foo2", "fv2_0"}, {"foo3", "fv3_0"}},
-       {{"bar1", "bv1_0"}, {"bar2", "bv2_0"}, {"bar3", "bv3_0"}}};
+       {{"bar1", "bv1_0"}, {"bar2", "bv2_0"}, {"bar3", "bv3_0"}},
+       {{"bar4", "bv4_0"}, {"bar5", "bv5_0"}, {"bar6", "bv6_0"}}};
   for (size_t i = 0; i != handles_.size(); ++i) {
     int cf = static_cast<int>(i);
     const auto& orig_data = data_before_ingestion[i];
@@ -2373,6 +2379,7 @@ TEST_P(ExternalSSTFileTest,
   std::vector<ColumnFamilyHandle*> column_families;
   column_families.push_back(handles_[0]);
   column_families.push_back(handles_[1]);
+  column_families.push_back(handles_[2]);
   std::vector<IngestExternalFileOptions> ifos(column_families.size());
   for (auto& ifo : ifos) {
     ifo.allow_global_seqno = true;  // Always allow global_seqno
@@ -2386,6 +2393,8 @@ TEST_P(ExternalSSTFileTest,
       {std::make_pair("foo1", "fv1"), std::make_pair("foo2", "fv2")});
   data.push_back(
       {std::make_pair("bar1", "bv1"), std::make_pair("bar2", "bv2")});
+  data.push_back(
+      {std::make_pair("bar3", "bv3"), std::make_pair("bar4", "bv4")});
   // Resize the true_data vector upon construction to avoid re-alloc
   std::vector<std::map<std::string, std::string>> true_data(
       column_families.size());
@@ -2439,10 +2448,11 @@ TEST_P(ExternalSSTFileTest,
   dbfull()->ReleaseSnapshot(read_opts.snapshot);
 
   Close();
-  ReopenWithColumnFamilies({kDefaultColumnFamilyName, "pikachu"}, options);
+  ReopenWithColumnFamilies({kDefaultColumnFamilyName, "pikachu", "eevee"},
+                           options);
   // Should see consistent state after ingestion for all column families even
   // without snapshot.
-  ASSERT_EQ(2, handles_.size());
+  ASSERT_EQ(3, handles_.size());
   int cf = 0;
   for (const auto& verify_map : true_data) {
     for (const auto& elem : verify_map) {
@@ -2472,10 +2482,11 @@ TEST_P(ExternalSSTFileTest, IngestFilesIntoMultipleColumnFamilies_PrepareFail) {
        "DBImpl::IngestExternalFiles:BeforeLastJobPrepare:1"},
   });
   SyncPoint::GetInstance()->EnableProcessing();
-  CreateAndReopenWithCF({"pikachu"}, options);
+  CreateAndReopenWithCF({"pikachu", "eevee"}, options);
   std::vector<ColumnFamilyHandle*> column_families;
   column_families.push_back(handles_[0]);
   column_families.push_back(handles_[1]);
+  column_families.push_back(handles_[2]);
   std::vector<IngestExternalFileOptions> ifos(column_families.size());
   for (auto& ifo : ifos) {
     ifo.allow_global_seqno = true;  // Always allow global_seqno
@@ -2489,6 +2500,9 @@ TEST_P(ExternalSSTFileTest, IngestFilesIntoMultipleColumnFamilies_PrepareFail) {
       {std::make_pair("foo1", "fv1"), std::make_pair("foo2", "fv2")});
   data.push_back(
       {std::make_pair("bar1", "bv1"), std::make_pair("bar2", "bv2")});
+  data.push_back(
+      {std::make_pair("bar3", "bv3"), std::make_pair("bar4", "bv4")});
+
   // Resize the true_data vector upon construction to avoid re-alloc
   std::vector<std::map<std::string, std::string>> true_data(
       column_families.size());
@@ -2508,8 +2522,9 @@ TEST_P(ExternalSSTFileTest, IngestFilesIntoMultipleColumnFamilies_PrepareFail) {
 
   fault_injection_env->SetFilesystemActive(true);
   Close();
-  ReopenWithColumnFamilies({kDefaultColumnFamilyName, "pikachu"}, options);
-  ASSERT_EQ(2, handles_.size());
+  ReopenWithColumnFamilies({kDefaultColumnFamilyName, "pikachu", "eevee"},
+                           options);
+  ASSERT_EQ(3, handles_.size());
   int cf = 0;
   for (const auto& verify_map : true_data) {
     for (const auto& elem : verify_map) {
@@ -2538,10 +2553,11 @@ TEST_P(ExternalSSTFileTest, IngestFilesIntoMultipleColumnFamilies_CommitFail) {
        "DBImpl::IngestExternalFiles:BeforeJobsRun:1"},
   });
   SyncPoint::GetInstance()->EnableProcessing();
-  CreateAndReopenWithCF({"pikachu"}, options);
+  CreateAndReopenWithCF({"pikachu", "eevee"}, options);
   std::vector<ColumnFamilyHandle*> column_families;
   column_families.push_back(handles_[0]);
   column_families.push_back(handles_[1]);
+  column_families.push_back(handles_[2]);
   std::vector<IngestExternalFileOptions> ifos(column_families.size());
   for (auto& ifo : ifos) {
     ifo.allow_global_seqno = true;  // Always allow global_seqno
@@ -2555,6 +2571,8 @@ TEST_P(ExternalSSTFileTest, IngestFilesIntoMultipleColumnFamilies_CommitFail) {
       {std::make_pair("foo1", "fv1"), std::make_pair("foo2", "fv2")});
   data.push_back(
       {std::make_pair("bar1", "bv1"), std::make_pair("bar2", "bv2")});
+  data.push_back(
+      {std::make_pair("bar3", "bv3"), std::make_pair("bar4", "bv4")});
   // Resize the true_data vector upon construction to avoid re-alloc
   std::vector<std::map<std::string, std::string>> true_data(
       column_families.size());
@@ -2574,8 +2592,9 @@ TEST_P(ExternalSSTFileTest, IngestFilesIntoMultipleColumnFamilies_CommitFail) {
 
   fault_injection_env->SetFilesystemActive(true);
   Close();
-  ReopenWithColumnFamilies({kDefaultColumnFamilyName, "pikachu"}, options);
-  ASSERT_EQ(2, handles_.size());
+  ReopenWithColumnFamilies({kDefaultColumnFamilyName, "pikachu", "eevee"},
+                           options);
+  ASSERT_EQ(3, handles_.size());
   int cf = 0;
   for (const auto& verify_map : true_data) {
     for (const auto& elem : verify_map) {
@@ -2595,7 +2614,7 @@ TEST_P(ExternalSSTFileTest,
   Options options = CurrentOptions();
   options.env = fault_injection_env.get();
 
-  CreateAndReopenWithCF({"pikachu"}, options);
+  CreateAndReopenWithCF({"pikachu", "eevee"}, options);
 
   SyncPoint::GetInstance()->ClearTrace();
   SyncPoint::GetInstance()->DisableProcessing();
@@ -2613,6 +2632,7 @@ TEST_P(ExternalSSTFileTest,
   std::vector<ColumnFamilyHandle*> column_families;
   column_families.push_back(handles_[0]);
   column_families.push_back(handles_[1]);
+  column_families.push_back(handles_[2]);
   std::vector<IngestExternalFileOptions> ifos(column_families.size());
   for (auto& ifo : ifos) {
     ifo.allow_global_seqno = true;  // Always allow global_seqno
@@ -2626,6 +2646,8 @@ TEST_P(ExternalSSTFileTest,
       {std::make_pair("foo1", "fv1"), std::make_pair("foo2", "fv2")});
   data.push_back(
       {std::make_pair("bar1", "bv1"), std::make_pair("bar2", "bv2")});
+  data.push_back(
+      {std::make_pair("bar3", "bv3"), std::make_pair("bar4", "bv4")});
   // Resize the true_data vector upon construction to avoid re-alloc
   std::vector<std::map<std::string, std::string>> true_data(
       column_families.size());
@@ -2646,8 +2668,9 @@ TEST_P(ExternalSSTFileTest,
   fault_injection_env->DropUnsyncedFileData();
   fault_injection_env->SetFilesystemActive(true);
   Close();
-  ReopenWithColumnFamilies({kDefaultColumnFamilyName, "pikachu"}, options);
-  ASSERT_EQ(2, handles_.size());
+  ReopenWithColumnFamilies({kDefaultColumnFamilyName, "pikachu", "eevee"},
+                           options);
+  ASSERT_EQ(3, handles_.size());
   int cf = 0;
   for (const auto& verify_map : true_data) {
     for (const auto& elem : verify_map) {

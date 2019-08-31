@@ -1,4 +1,8 @@
 # Rocksdb Change Log
+## 6.2.3 (9/3/2019)
+### Bug Fixes
+* Fix a bug in file ingestion caused by incorrect file number allocation when the number of column families involved in the ingestion exceeds 2.
+
 ## 6.2.2 (6/7/2019)
 ### Bug Fixes
 * Disable dynamic extension support by default for CMake.
