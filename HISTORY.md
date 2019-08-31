@@ -1,4 +1,8 @@
 # Rocksdb Change Log
+## 6.4.2 (9/3/2019)
+### Bug Fixes
+* Fix a bug in file ingestion caused by incorrect file number allocation when the number of column families involved in the ingestion exceeds 2.
+
 ## 6.4.1 (8/20/2019)
 ### Bug Fixes
 * Fix a bug where the compaction snapshot refresh feature is not disabled as advertised when `snap_refresh_nanos` is set to 0..
