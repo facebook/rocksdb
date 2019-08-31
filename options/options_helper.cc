@@ -110,6 +110,10 @@ DBOptions BuildDBOptions(const ImmutableDBOptions& immutable_db_options,
       immutable_db_options.allow_concurrent_memtable_write;
   options.enable_write_thread_adaptive_yield =
       immutable_db_options.enable_write_thread_adaptive_yield;
+  options.lower_limit_write_batch_group_size_bytes =
+      immutable_db_options.lower_limit_write_batch_group_size_bytes;
+  options.upper_limit_write_batch_group_size_bytes =
+      immutable_db_options.upper_limit_write_batch_group_size_bytes;
   options.write_thread_max_yield_usec =
       immutable_db_options.write_thread_max_yield_usec;
   options.write_thread_slow_yield_usec =
@@ -1610,6 +1614,12 @@ std::unordered_map<std::string, OptionTypeInfo>
           OptionType::kBoolean, OptionVerificationType::kNormal, false, 0}},
         {"write_thread_slow_yield_usec",
          {offsetof(struct DBOptions, write_thread_slow_yield_usec),
+          OptionType::kUInt64T, OptionVerificationType::kNormal, false, 0}},
+        {"lower_limit_write_batch_group_size_bytes",
+         {offsetof(struct DBOptions, lower_limit_write_batch_group_size_bytes),
+          OptionType::kUInt64T, OptionVerificationType::kNormal, false, 0}},
+        {"upper_limit_write_batch_group_size_bytes",
+         {offsetof(struct DBOptions, upper_limit_write_batch_group_size_bytes),
           OptionType::kUInt64T, OptionVerificationType::kNormal, false, 0}},
         {"write_thread_max_yield_usec",
          {offsetof(struct DBOptions, write_thread_max_yield_usec),
