@@ -418,6 +418,47 @@ Status WalManager::ReadFirstRecord(const WalFileType type,
   return s;
 }
 
+Status WalManager::GetWalFile(uint64_t number, LogFile** log_file) {
+  if(!number) {
+    return Status::PathNotFound("log file not available");
+  }
+
+  Status s;
+  *log_file = nullptr;
+
+  uint64_t size_bytes;
+  WalFileType log_type = kAliveLogFile;
+  s = env_->GetFileSize(LogFileName(db_options_.wal_dir, number), &size_bytes);
+
+  // re-try in case the alive log file has been moved to archive.
+  std::string archived_file = ArchivedLogFileName(db_options_.wal_dir, number);
+
+  if (!s.ok() && env_->FileExists(archived_file).ok()) {
+
+    s = env_->GetFileSize(archived_file, &size_bytes);
+    if (!s.ok()) {
+      return s;
+    }
+
+    log_type = kArchivedLogFile;
+  }
+
+  SequenceNumber sequence;
+  s = ReadFirstRecord(log_type, number, &sequence);
+  if (!s.ok()) {
+    return s;
+  }
+
+  *log_file = new LogFileImpl(
+      number,
+      log_type,
+      sequence,
+      size_bytes);
+
+  return Status::OK();
+}
+
+
 // the function returns status.ok() and sequence == 0 if the file exists, but is
 // empty
 Status WalManager::ReadFirstLine(const std::string& fname,

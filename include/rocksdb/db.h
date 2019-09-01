@@ -1123,6 +1123,13 @@ class DB {
   // Retrieve the sorted list of all wal files with earliest file first
   virtual Status GetSortedWalFiles(VectorLogPtr& files) = 0;
 
+  // Retrieve information about the current wal file
+  //
+  // This should only be used as an optimization for opportunistically looking
+  // up the current log. The log might have rolled after this call in which case
+  // the current_log_file would not point to the current or even live log file.
+  virtual Status GetCurrentWalFile(LogFile** current_log_file) = 0;
+
   // Note: this API is not yet consistent with WritePrepared transactions.
   // Sets iter to an iterator that is positioned at a write-batch containing
   // seq_number. If the sequence number is non existent, it returns an iterator
