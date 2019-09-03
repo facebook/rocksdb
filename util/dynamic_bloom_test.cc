@@ -177,8 +177,8 @@ TEST_F(DynamicBloomTest, perf) {
     }
 
     uint64_t elapsed = timer.ElapsedNanos();
-    fprintf(stderr, "dynamic bloom, avg add latency %" PRIu64 "\n",
-            elapsed / num_keys);
+    fprintf(stderr, "dynamic bloom, avg add latency %3g\n",
+            static_cast<double>(elapsed) / num_keys);
 
     uint32_t count = 0;
     timer.Start();
@@ -190,13 +190,12 @@ TEST_F(DynamicBloomTest, perf) {
     ASSERT_EQ(count, num_keys);
     elapsed = timer.ElapsedNanos();
     assert(count > 0);
-    fprintf(stderr, "dynamic bloom, avg query latency %" PRIu64 "\n",
-            elapsed / count);
+    fprintf(stderr, "dynamic bloom, avg query latency %3g\n",
+            static_cast<double>(elapsed) / count);
   }
 }
 
 TEST_F(DynamicBloomTest, concurrent_with_perf) {
-  StopWatchNano timer(Env::Default());
   uint32_t num_probes = static_cast<uint32_t>(FLAGS_num_probes);
 
   uint32_t m_limit = FLAGS_enable_perf ? 8 : 1;
@@ -211,13 +210,16 @@ TEST_F(DynamicBloomTest, concurrent_with_perf) {
 
     DynamicBloom std_bloom(&arena, num_keys * 10, num_probes);
 
-    timer.Start();
+    std::atomic<uint64_t> elapsed(0);
 
     std::function<void(size_t)> adder([&](size_t t) {
+      StopWatchNano timer(Env::Default());
+      timer.Start();
       for (uint64_t i = 1 + t; i <= num_keys; i += num_threads) {
         std_bloom.AddConcurrently(
             Slice(reinterpret_cast<const char*>(&i), 8));
       }
+      elapsed += timer.ElapsedNanos();
     });
     for (size_t t = 0; t < num_threads; ++t) {
       threads.emplace_back(adder, t);
@@ -227,19 +229,20 @@ TEST_F(DynamicBloomTest, concurrent_with_perf) {
       threads.pop_back();
     }
 
-    uint64_t elapsed = timer.ElapsedNanos();
-    fprintf(stderr, "standard bloom, avg parallel add latency %" PRIu64
+    fprintf(stderr, "dynamic bloom, avg parallel add latency %3g"
                     " nanos/key\n",
-            elapsed / num_keys);
+            static_cast<double>(elapsed) / num_threads / num_keys);
 
-    timer.Start();
-
+    elapsed = 0;
     std::function<void(size_t)> hitter([&](size_t t) {
+      StopWatchNano timer(Env::Default());
+      timer.Start();
       for (uint64_t i = 1 + t; i <= num_keys; i += num_threads) {
         bool f =
             std_bloom.MayContain(Slice(reinterpret_cast<const char*>(&i), 8));
         ASSERT_TRUE(f);
       }
+      elapsed += timer.ElapsedNanos();
     });
     for (size_t t = 0; t < num_threads; ++t) {
       threads.emplace_back(hitter, t);
@@ -249,15 +252,15 @@ TEST_F(DynamicBloomTest, concurrent_with_perf) {
       threads.pop_back();
     }
 
-    elapsed = timer.ElapsedNanos();
-    fprintf(stderr, "standard bloom, avg parallel hit latency %" PRIu64
+    fprintf(stderr, "dynamic bloom, avg parallel hit latency %3g"
                     " nanos/key\n",
-            elapsed / num_keys);
+            static_cast<double>(elapsed) / num_threads / num_keys);
 
-    timer.Start();
-
+    elapsed = 0;
     std::atomic<uint32_t> false_positives(0);
     std::function<void(size_t)> misser([&](size_t t) {
+      StopWatchNano timer(Env::Default());
+      timer.Start();
       for (uint64_t i = num_keys + 1 + t; i <= 2 * num_keys;
            i += num_threads) {
         bool f =
@@ -266,6 +269,7 @@ TEST_F(DynamicBloomTest, concurrent_with_perf) {
           ++false_positives;
         }
       }
+      elapsed += timer.ElapsedNanos();
     });
     for (size_t t = 0; t < num_threads; ++t) {
       threads.emplace_back(misser, t);
@@ -275,10 +279,10 @@ TEST_F(DynamicBloomTest, concurrent_with_perf) {
       threads.pop_back();
     }
 
-    elapsed = timer.ElapsedNanos();
-    fprintf(stderr, "dynamic bloom, avg parallel miss latency %" PRIu64
+    fprintf(stderr, "dynamic bloom, avg parallel miss latency %3g"
                     " nanos/key, %f%% false positive rate\n",
-            elapsed / num_keys, false_positives.load() * 100.0 / num_keys);
+            static_cast<double>(elapsed) / num_threads / num_keys,
+            false_positives.load() * 100.0 / num_keys);
   }
 }
 
