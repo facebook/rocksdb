@@ -393,8 +393,14 @@ Status SetCurrentFile(Env* env, const std::string& dbname,
   return s;
 }
 
-Status SetIdentityFile(Env* env, const std::string& dbname) {
-  std::string id = env->GenerateUniqueId();
+Status SetIdentityFile(Env* env, const std::string& dbname,
+                       const std::string& db_id) {
+  std::string id;
+  if (db_id.empty()) {
+    id = env->GenerateUniqueId();
+  } else {
+    id = db_id;
+  }
   assert(!id.empty());
   // Reserve the filename dbname/000000.dbtmp for the temporary identity file
   std::string tmp = TempFileName(dbname, 0);

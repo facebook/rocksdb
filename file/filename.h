@@ -167,7 +167,8 @@ extern Status SetCurrentFile(Env* env, const std::string& dbname,
                              Directory* directory_to_fsync);
 
 // Make the IDENTITY file for the db
-extern Status SetIdentityFile(Env* env, const std::string& dbname);
+extern Status SetIdentityFile(Env* env, const std::string& dbname,
+                              const std::string& db_id = {});
 
 // Sync manifest file `file`.
 extern Status SyncManifest(Env* env, const ImmutableDBOptions* db_options,

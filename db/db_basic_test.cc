@@ -70,6 +70,44 @@ TEST_F(DBBasicTest, ReadOnlyDB) {
   ASSERT_TRUE(db_->SyncWAL().IsNotSupported());
 }
 
+TEST_F(DBBasicTest, ReadOnlyDBWithWriteDBIdToManifestSet) {
+  ASSERT_OK(Put("foo", "v1"));
+  ASSERT_OK(Put("bar", "v2"));
+  ASSERT_OK(Put("foo", "v3"));
+  Close();
+
+  auto options = CurrentOptions();
+  options.write_dbid_to_manifest = true;
+  assert(options.env == env_);
+  ASSERT_OK(ReadOnlyReopen(options));
+  std::string db_id1;
+  db_->GetDbIdentity(db_id1);
+  ASSERT_EQ("v3", Get("foo"));
+  ASSERT_EQ("v2", Get("bar"));
+  Iterator* iter = db_->NewIterator(ReadOptions());
+  int count = 0;
+  for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
+    ASSERT_OK(iter->status());
+    ++count;
+  }
+  ASSERT_EQ(count, 2);
+  delete iter;
+  Close();
+
+  // Reopen and flush memtable.
+  Reopen(options);
+  Flush();
+  Close();
+  // Now check keys in read only mode.
+  ASSERT_OK(ReadOnlyReopen(options));
+  ASSERT_EQ("v3", Get("foo"));
+  ASSERT_EQ("v2", Get("bar"));
+  ASSERT_TRUE(db_->SyncWAL().IsNotSupported());
+  std::string db_id2;
+  db_->GetDbIdentity(db_id2);
+  ASSERT_EQ(db_id1, db_id2);
+}
+
 TEST_F(DBBasicTest, CompactedDB) {
   const uint64_t kFileSize = 1 << 20;
   Options options = CurrentOptions();
@@ -424,7 +462,7 @@ TEST_F(DBBasicTest, ManifestRollOver) {
   } while (ChangeCompactOptions());
 }
 
-TEST_F(DBBasicTest, IdentityAcrossRestarts) {
+TEST_F(DBBasicTest, IdentityAcrossRestarts1) {
   do {
     std::string id1;
     ASSERT_OK(db_->GetDbIdentity(id1));
@@ -441,8 +479,35 @@ TEST_F(DBBasicTest, IdentityAcrossRestarts) {
     Reopen(options);
     std::string id3;
     ASSERT_OK(db_->GetDbIdentity(id3));
+    if (options.write_dbid_to_manifest) {
+      ASSERT_EQ(id1.compare(id3), 0);
+    } else {
+      // id1 should NOT match id3 because identity was regenerated
+      ASSERT_NE(id1.compare(id3), 0);
+    }
+  } while (ChangeCompactOptions());
+}
+
+TEST_F(DBBasicTest, IdentityAcrossRestarts2) {
+  do {
+    std::string id1;
+    ASSERT_OK(db_->GetDbIdentity(id1));
+
+    Options options = CurrentOptions();
+    options.write_dbid_to_manifest = true;
+    Reopen(options);
+    std::string id2;
+    ASSERT_OK(db_->GetDbIdentity(id2));
+    // id1 should match id2 because identity was not regenerated
+    ASSERT_EQ(id1.compare(id2), 0);
+
+    std::string idfilename = IdentityFileName(dbname_);
+    ASSERT_OK(env_->DeleteFile(idfilename));
+    Reopen(options);
+    std::string id3;
+    ASSERT_OK(db_->GetDbIdentity(id3));
     // id1 should NOT match id3 because identity was regenerated
-    ASSERT_NE(id1.compare(id3), 0);
+    ASSERT_EQ(id1, id3);
   } while (ChangeCompactOptions());
 }
 
@@ -1370,8 +1435,8 @@ TEST_P(DBMultiGetRowCacheTest, MultiGetBatched) {
     if (use_snapshots) {
       ro.snapshot = snap2;
     }
-    db_->MultiGet(ro, handles_[1], keys.size(), keys.data(),
-                  values.data(), s.data(), false);
+    db_->MultiGet(ro, handles_[1], keys.size(), keys.data(), values.data(),
+                  s.data(), false);
 
     ASSERT_EQ(values.size(), keys.size());
     ASSERT_EQ(std::string(values[4].data(), values[4].size()), "v1");
@@ -1426,7 +1491,7 @@ TEST_P(DBMultiGetRowCacheTest, MultiGetBatched) {
 }
 
 INSTANTIATE_TEST_CASE_P(DBMultiGetRowCacheTest, DBMultiGetRowCacheTest,
-    testing::Values(true, false));
+                        testing::Values(true, false));
 
 TEST_F(DBBasicTest, GetAllKeyVersions) {
   Options options = CurrentOptions();
