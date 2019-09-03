@@ -3158,6 +3158,11 @@ Status DBImpl::CheckConsistency() {
 }
 
 Status DBImpl::GetDbIdentity(std::string& identity) const {
+  identity.assign(db_id_);
+  return Status::OK();
+}
+
+Status DBImpl::GetDbIdentityFromIdentityFile(std::string* identity) const {
   std::string idfilename = IdentityFileName(dbname_);
   const EnvOptions soptions;
   std::unique_ptr<SequentialFileReader> id_file_reader;
@@ -3184,10 +3189,10 @@ Status DBImpl::GetDbIdentity(std::string& identity) const {
   if (!s.ok()) {
     return s;
   }
-  identity.assign(id.ToString());
+  identity->assign(id.ToString());
   // If last character is '\n' remove it from identity
-  if (identity.size() > 0 && identity.back() == '\n') {
-    identity.pop_back();
+  if (identity->size() > 0 && identity->back() == '\n') {
+    identity->pop_back();
   }
   return s;
 }
