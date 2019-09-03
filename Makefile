@@ -143,7 +143,7 @@ CFLAGS +=  -DHAVE_POWER8
 HAVE_POWER8=1
 endif
 
-ifeq (,$(shell $(CXX) -fsyntax-only -march=armv8-a+crc -xc /dev/null 2>&1))
+ifeq (,$(shell $(CXX) -fsyntax-only -march=armv8-a+crc+crypto -xc /dev/null 2>&1))
 CXXFLAGS += -march=armv8-a+crc+crypto
 CFLAGS += -march=armv8-a+crc+crypto
 ARMCRC_SOURCE=1
