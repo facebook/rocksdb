@@ -280,17 +280,6 @@ void WalManager::ArchiveWALFile(const std::string& fname, uint64_t number) {
                  s.ToString().c_str());
 }
 
-namespace {
-struct CompareLogByPointer {
-  bool operator()(const std::unique_ptr<LogFile>& a,
-                  const std::unique_ptr<LogFile>& b) {
-    LogFileImpl* a_impl = static_cast_with_check<LogFileImpl, LogFile>(a.get());
-    LogFileImpl* b_impl = static_cast_with_check<LogFileImpl, LogFile>(b.get());
-    return *a_impl < *b_impl;
-  }
-};
-}
-
 Status WalManager::GetSortedWalsOfType(const std::string& path,
                                        VectorLogPtr& log_files,
                                        WalFileType log_type) {
@@ -341,8 +330,15 @@ Status WalManager::GetSortedWalsOfType(const std::string& path,
           new LogFileImpl(number, log_type, sequence, size_bytes)));
     }
   }
-  CompareLogByPointer compare_log_files;
-  std::sort(log_files.begin(), log_files.end(), compare_log_files);
+  std::sort(
+      log_files.begin(), log_files.end(),
+      [](const std::unique_ptr<LogFile>& a, const std::unique_ptr<LogFile>& b) {
+        LogFileImpl* a_impl =
+            static_cast_with_check<LogFileImpl, LogFile>(a.get());
+        LogFileImpl* b_impl =
+            static_cast_with_check<LogFileImpl, LogFile>(b.get());
+        return *a_impl < *b_impl;
+      });
   return status;
 }
 
