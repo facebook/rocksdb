@@ -573,7 +573,10 @@ TEST_F(DBWALTest, GetCurrentWalFile) {
   do {
     CreateAndReopenWithCF({"pikachu"}, CurrentOptions());
 
-    LogFile *log_file;
+    std::unique_ptr<LogFile>* bad_log_file = nullptr;
+    ASSERT_NOK(dbfull()->GetCurrentWalFile(bad_log_file));
+
+    std::unique_ptr<LogFile> log_file;
     ASSERT_OK(dbfull()->GetCurrentWalFile(&log_file));
 
     // nothing has been written to the log yet
@@ -582,23 +585,20 @@ TEST_F(DBWALTest, GetCurrentWalFile) {
     ASSERT_EQ(log_file->Type(), kAliveLogFile);
     ASSERT_GT(log_file->LogNumber(), 0);
 
-    delete log_file;
-
-    // add some data and verify that the log actually moves
+    // add some data and verify that the file size actually moves foward
     ASSERT_OK(Put(0, "foo", "v1"));
     ASSERT_OK(Put(0, "foo2", "v2"));
     ASSERT_OK(Put(0, "foo3", "v3"));
 
     ASSERT_OK(dbfull()->GetCurrentWalFile(&log_file));
 
-    ASSERT_EQ(log_file->StartSequence(), 1);
+    ASSERT_EQ(log_file->StartSequence(), 0);
     ASSERT_GT(log_file->SizeFileBytes(), 0);
     ASSERT_EQ(log_file->Type(), kAliveLogFile);
     ASSERT_GT(log_file->LogNumber(), 0);
 
-    delete log_file;
-
-    // force log files to cycle and add some more data
+    // force log files to cycle and add some more data, then check if
+    // log number moves forward
 
     ReopenWithColumnFamilies({"default", "pikachu"}, CurrentOptions());
     for (int i = 0; i < 10; i++) {
@@ -611,12 +611,10 @@ TEST_F(DBWALTest, GetCurrentWalFile) {
 
     ASSERT_OK(dbfull()->GetCurrentWalFile(&log_file));
 
-    ASSERT_GT(log_file->StartSequence(), 1);
+    ASSERT_EQ(log_file->StartSequence(), 0);
     ASSERT_GT(log_file->SizeFileBytes(), 0);
     ASSERT_EQ(log_file->Type(), kAliveLogFile);
     ASSERT_GT(log_file->LogNumber(), 0);
-
-    delete log_file;
 
   } while (ChangeWalOptions());
 }

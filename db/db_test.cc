@@ -2790,7 +2790,7 @@ class ModelDB : public DB {
     return Status::OK();
   }
 
-  Status GetCurrentWalFile(LogFile** /*current_log_file*/) override {
+  Status GetCurrentWalFile(std::unique_ptr<LogFile>* /*current_log_file*/) override {
     return Status::OK();
   }
 
