@@ -24,6 +24,15 @@ class Logger;
 // A Bloom filter intended only to be used in memory, never serialized in a way
 // that could lead to schema incompatibility. Supports opt-in lock-free
 // concurrent access.
+//
+// This implementation is also intended for applications generally preferring
+// speed vs. maximum accuracy: roughly 0.9x BF op latency for 1.1x FP rate.
+// For 1% FP rate, that means that the latency of a look-up triggered by an FP
+// should be less than roughly 100x the cost of a Bloom filter op.
+//
+// For simplicity and performance, the current implementation requires
+// num_probes to be a multiple of two and <= 10.
+//
 class DynamicBloom {
  public:
   // allocator: pass allocator to bloom filter, hence trace the usage of memory
@@ -122,23 +131,43 @@ inline void DynamicBloom::Prefetch(uint32_t h32) {
 #pragma warning(pop)
 #endif
 
+// Speed hacks in this implementation:
+// * Uses fastrange instead of %
+// * Minimum logic to determine first (and all) probed memory addresses.
+//   (Uses constant bit-xor offsets from the starting probe address.)
+// * (Major) Two probes per 64-bit memory fetch/write.
+//   Code simplification / optimization: only allow even number of probes.
+// * Very fast and effective (murmur-like) hash expansion/re-mixing. (At
+// least on recent CPUs, integer multiplication is very cheap. Each 64-bit
+// remix provides five pairs of bit addresses within a uint64_t.)
+//   Code simplification / optimization: only allow up to 10 probes, from a
+//   single 64-bit remix.
+//
+// The FP rate penalty for this implementation, vs. standard Bloom filter, is
+// roughly 1.12x on top of the 1.15x penalty for a 512-bit cache-local Bloom.
+// This implementation does not explicitly use the cache line size, but is
+// effectively cache-local (up to 16 probes) because of the bit-xor offsetting.
+//
+// NB: could easily be upgraded to support a 64-bit hash and
+// total_bits > 2^32 (512MB). (The latter is a bad idea without the former,
+// because of false positives.)
+
 inline bool DynamicBloom::MayContainHash(uint32_t h32) const {
   size_t a = fastrange32(kLen, h32);
   PREFETCH(data_ + a, 0, 3);
-  uint64_t h = h32;
-  for (unsigned i = 0;;) {
-    h *= 0x9e3779b97f4a7c13ULL;
-    for (int j = 0; j < 5; ++j, ++i) {
-      uint64_t mask = ((uint64_t)1 << (h & 63))
-                    | ((uint64_t)1 << ((h >> 6) & 63));
-      uint64_t val = data_[a ^ i].load(std::memory_order_relaxed);
-      if (i + 1 >= kNumDoubleProbes) {
-        return (val & mask) == mask;
-      } else if ((val & mask) != mask) {
-        return false;
-      }
-      h = (h >> 12) | (h << 52);
+  // Expand/remix with 64-bit golden ratio
+  uint64_t h = 0x9e3779b97f4a7c13ULL * h32;
+  for (unsigned i = 0;; ++i) {
+    // Two bit probes per uint64_t probe
+    uint64_t mask = ((uint64_t)1 << (h & 63))
+                  | ((uint64_t)1 << ((h >> 6) & 63));
+    uint64_t val = data_[a ^ i].load(std::memory_order_relaxed);
+    if (i + 1 >= kNumDoubleProbes) {
+      return (val & mask) == mask;
+    } else if ((val & mask) != mask) {
+      return false;
     }
+    h = (h >> 12) | (h << 52);
   }
 }
 
@@ -146,18 +175,17 @@ template <typename OrFunc>
 inline void DynamicBloom::AddHash(uint32_t h32, const OrFunc& or_func) {
   size_t a = fastrange32(kLen, h32);
   PREFETCH(data_ + a, 0, 3);
-  uint64_t h = h32;
-  for (unsigned i = 0;;) {
-    h *= 0x9e3779b97f4a7c13ULL;
-    for (int j = 0; j < 5; ++j, ++i) {
-      uint64_t mask = ((uint64_t)1 << (h & 63))
-                    | ((uint64_t)1 << ((h >> 6) & 63));
-      or_func(&data_[a ^ i], mask);
-      if (i + 1 >= kNumDoubleProbes) {
-        return;
-      }
-      h = (h >> 12) | (h << 52);
+  // Expand/remix with 64-bit golden ratio
+  uint64_t h = 0x9e3779b97f4a7c13ULL * h32;
+  for (unsigned i = 0;; ++i) {
+    // Two bit probes per uint64_t probe
+    uint64_t mask = ((uint64_t)1 << (h & 63))
+                  | ((uint64_t)1 << ((h >> 6) & 63));
+    or_func(&data_[a ^ i], mask);
+    if (i + 1 >= kNumDoubleProbes) {
+      return;
     }
+    h = (h >> 12) | (h << 52);
   }
 }
 

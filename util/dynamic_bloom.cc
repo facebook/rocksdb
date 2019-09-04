@@ -16,8 +16,8 @@ namespace rocksdb {
 
 namespace {
 
-unsigned roundUpToPow2(unsigned x) {
-  unsigned rv = 1;
+uint32_t roundUpToPow2(uint32_t x) {
+  uint32_t rv = 1;
   while (rv < x) {
     rv <<= 1;
   }
@@ -32,17 +32,20 @@ DynamicBloom::DynamicBloom(Allocator* allocator, uint32_t total_bits,
     // Round down, except round up with 1
     : kNumDoubleProbes((num_probes + (num_probes == 1)) / 2) {
   assert(num_probes % 2 == 0); // limitation of current implementation
+  assert(num_probes <= 10); // limitation of current implementation
   assert(kNumDoubleProbes > 0);
 
   // Determine how much to round off + align by so that x ^ i (that's xor) is
   // a valid u64 index if x is a valid u64 index and 0 <= i < kNumDoubleProbes.
-  unsigned block_bytes = /*bytes/u64*/ 8 *
+  uint32_t block_bytes = /*bytes/u64*/ 8 *
                          /*u64s*/ std::max(1U, roundUpToPow2(kNumDoubleProbes));
   kLen = (total_bits + (/*bits/byte*/ 8 * block_bytes - 1)) /
          /*bits/u64*/ 64;
   assert(kLen > 0);
 
   uint32_t sz = kLen * /*bytes/u64*/ 8;
+  // Padding to correct for allocation not originally aligned on block_bytes
+  // boundary
   sz += block_bytes - 1;
   assert(allocator);
 
@@ -50,8 +53,11 @@ DynamicBloom::DynamicBloom(Allocator* allocator, uint32_t total_bits,
   memset(raw, 0, sz);
   auto block_offset = reinterpret_cast<uintptr_t>(raw) % block_bytes;
   if (block_offset > 0) {
+    // Align on block_bytes boundary
     raw += block_bytes - block_offset;
   }
+  static_assert(sizeof(std::atomic<uint64_t>) == sizeof(uint64_t),
+                "Expecting zero-space-overhead atomic");
   data_ = reinterpret_cast<std::atomic<uint64_t>*>(raw);
 }
 

@@ -19,6 +19,8 @@ class Slice;
 class Allocator;
 class Logger;
 
+// A legacy Bloom filter implementation used by Plain Table db format, for
+// schema backward compatibility. Not for use in new filter applications.
 class PlainTableBloomV1 {
  public:
   // allocator: pass allocator to bloom filter, hence trace the usage of memory
