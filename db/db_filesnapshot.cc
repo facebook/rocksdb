@@ -163,6 +163,10 @@ Status DBImpl::GetSortedWalFiles(VectorLogPtr& files) {
   return wal_manager_.GetSortedWalFiles(files);
 }
 
+Status DBImpl::GetCurrentWalFile(LogFile** current_log_file) {
+  return wal_manager_.GetWalFile(logfile_number_, current_log_file);
+}
+
 }
 
 #endif  // ROCKSDB_LITE

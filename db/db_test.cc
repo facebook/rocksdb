@@ -2790,6 +2790,10 @@ class ModelDB : public DB {
     return Status::OK();
   }
 
+  Status GetCurrentWalFile(LogFile** /*current_log_file*/) override {
+    return Status::OK();
+  }
+
   Status DeleteFile(std::string /*name*/) override { return Status::OK(); }
 
   Status GetUpdatesSince(

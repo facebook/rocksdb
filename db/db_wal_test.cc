@@ -569,6 +569,58 @@ TEST_F(DBWALTest, GetSortedWalFiles) {
   } while (ChangeWalOptions());
 }
 
+TEST_F(DBWALTest, GetCurrentWalFile) {
+  do {
+    CreateAndReopenWithCF({"pikachu"}, CurrentOptions());
+
+    LogFile *log_file;
+    ASSERT_OK(dbfull()->GetCurrentWalFile(&log_file));
+
+    // nothing has been written to the log yet
+    ASSERT_EQ(log_file->StartSequence(), 0);
+    ASSERT_EQ(log_file->SizeFileBytes(), 0);
+    ASSERT_EQ(log_file->Type(), kAliveLogFile);
+    ASSERT_GT(log_file->LogNumber(), 0);
+
+    delete log_file;
+
+    // add some data and verify that the log actually moves
+    ASSERT_OK(Put(0, "foo", "v1"));
+    ASSERT_OK(Put(0, "foo2", "v2"));
+    ASSERT_OK(Put(0, "foo3", "v3"));
+
+    ASSERT_OK(dbfull()->GetCurrentWalFile(&log_file));
+
+    ASSERT_EQ(log_file->StartSequence(), 1);
+    ASSERT_GT(log_file->SizeFileBytes(), 0);
+    ASSERT_EQ(log_file->Type(), kAliveLogFile);
+    ASSERT_GT(log_file->LogNumber(), 0);
+
+    delete log_file;
+
+    // force log files to cycle and add some more data
+
+    ReopenWithColumnFamilies({"default", "pikachu"}, CurrentOptions());
+    for (int i = 0; i < 10; i++) {
+      ReopenWithColumnFamilies({"default", "pikachu"}, CurrentOptions());
+    }
+
+    ASSERT_OK(Put(0, "foo4", "v4"));
+    ASSERT_OK(Put(0, "foo5", "v5"));
+    ASSERT_OK(Put(0, "foo6", "v6"));
+
+    ASSERT_OK(dbfull()->GetCurrentWalFile(&log_file));
+
+    ASSERT_GT(log_file->StartSequence(), 1);
+    ASSERT_GT(log_file->SizeFileBytes(), 0);
+    ASSERT_EQ(log_file->Type(), kAliveLogFile);
+    ASSERT_GT(log_file->LogNumber(), 0);
+
+    delete log_file;
+
+  } while (ChangeWalOptions());
+}
+
 TEST_F(DBWALTest, RecoveryWithLogDataForSomeCFs) {
   // Test for regression of WAL cleanup missing files that don't contain data
   // for every column family.

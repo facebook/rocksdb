@@ -59,6 +59,8 @@ class WalManager {
 
   Status DeleteFile(const std::string& fname, uint64_t number);
 
+  Status GetWalFile(uint64_t number, LogFile** log_file);
+
   Status TEST_ReadFirstRecord(const WalFileType type, const uint64_t number,
                               SequenceNumber* sequence) {
     return ReadFirstRecord(type, number, sequence);
