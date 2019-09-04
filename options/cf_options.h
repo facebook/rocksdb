@@ -173,7 +173,7 @@ struct MutableCFOptions {
         max_write_buffer_number(0),
         arena_block_size(0),
         memtable_prefix_bloom_size_ratio(0),
-        memtable_whole_key_filtering(false),
+        memtable_whole_key_filtering(true),
         memtable_huge_page_size(0),
         max_successive_merges(0),
         inplace_update_num_locks(0),

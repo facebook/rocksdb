@@ -10,6 +10,7 @@
 * When user uses options.force_consistency_check in RocksDb, instead of crashing the process, we now pass the error back to the users without killing the process.
 ### Public API Change
 * Added max_write_buffer_size_to_maintain option to better control memory usage of immutable memtables.
+* The default value of memtable_whole_key_filtering is now set to true, which means whole key bloom filter for memtable is enabled by default.
 * Added a lightweight API GetCurrentWalFile() to get last live WAL filename and size. Meant to be used as a helper for backup/restore tooling in a larger ecosystem such as MySQL with a MyRocks storage engine.
 
 ## 6.4.0 (7/30/2019)
