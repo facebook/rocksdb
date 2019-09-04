@@ -5968,7 +5968,7 @@ TEST_P(TransactionTest, DuplicateKeys) {
 }
 
 // Test that the reseek optimization in iterators will not result in an infinite
-// loop if there are too many uncommitted entires before the snapshot.
+// loop if there are too many uncommitted entries before the snapshot.
 TEST_P(TransactionTest, ReseekOptimization) {
   WriteOptions write_options;
   write_options.sync = true;
