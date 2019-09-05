@@ -1,16 +1,16 @@
-// Copyright (c) 2011-present, Facebook, Inc. All rights reserved.
+//  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
 //  This source code is licensed under both the GPLv2 (found in the
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
-#include "dynamic_bloom.h"
+#include "table/plain/plain_table_bloom.h"
 
+#include <string>
 #include <algorithm>
+#include "util/dynamic_bloom.h"
 
 #include "memory/allocator.h"
-#include "port/port.h"
-#include "rocksdb/slice.h"
-#include "util/hash.h"
+
 
 namespace rocksdb {
 
@@ -30,10 +30,20 @@ uint32_t GetTotalBitsForLocality(uint32_t total_bits) {
 }
 }
 
-DynamicBloom::DynamicBloom(Allocator* allocator, uint32_t total_bits,
-                           uint32_t locality, uint32_t num_probes,
-                           size_t huge_page_tlb_size, Logger* logger)
-    : kNumProbes(num_probes) {
+PlainTableBloomV1::PlainTableBloomV1(uint32_t num_probes)
+    : kTotalBits(0), kNumBlocks(0), kNumProbes(num_probes), data_(nullptr) {}
+
+void PlainTableBloomV1::SetRawData(unsigned char* raw_data, uint32_t total_bits,
+                              uint32_t num_blocks) {
+  data_ = reinterpret_cast<uint8_t*>(raw_data);
+  kTotalBits = total_bits;
+  kNumBlocks = num_blocks;
+}
+
+void PlainTableBloomV1::SetTotalBits(Allocator* allocator,
+                                uint32_t total_bits, uint32_t locality,
+                                size_t huge_page_tlb_size,
+                                Logger* logger) {
   kTotalBits = (locality > 0) ? GetTotalBitsForLocality(total_bits)
                               : (total_bits + 7) / 8 * 8;
   kNumBlocks = (locality > 0) ? (kTotalBits / (CACHE_LINE_SIZE * 8)) : 0;
@@ -53,7 +63,16 @@ DynamicBloom::DynamicBloom(Allocator* allocator, uint32_t total_bits,
   if (kNumBlocks > 0 && cache_line_offset > 0) {
     raw += CACHE_LINE_SIZE - cache_line_offset;
   }
-  data_ = reinterpret_cast<std::atomic<uint8_t>*>(raw);
+  data_ = reinterpret_cast<uint8_t*>(raw);
 }
 
-}  // rocksdb
+void BloomBlockBuilder::AddKeysHashes(const std::vector<uint32_t>& keys_hashes) {
+  for (auto hash : keys_hashes) {
+    bloom_.AddHash(hash);
+  }
+}
+
+Slice BloomBlockBuilder::Finish() { return bloom_.GetRawData(); }
+
+const std::string BloomBlockBuilder::kBloomBlock = "kBloomBlock";
+}  // namespace rocksdb

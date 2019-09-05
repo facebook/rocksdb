@@ -1,10 +1,10 @@
-// Copyright (c) 2011-present, Facebook, Inc. All rights reserved.
+//  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
 //  This source code is licensed under both the GPLv2 (found in the
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
-
 #pragma once
 
+#include <vector>
 #include <string>
 
 #include "rocksdb/slice.h"
@@ -12,19 +12,14 @@
 #include "port/port.h"
 #include "util/hash.h"
 
-#include <atomic>
 #include <memory>
 
 namespace rocksdb {
-
 class Slice;
 class Allocator;
 class Logger;
 
-// A Bloom filter intended only to be used in memory, never serialized in a way
-// that could lead to schema incompatibility. Supports opt-in lock-free
-// concurrent access.
-class DynamicBloom {
+class PlainTableBloomV1 {
  public:
   // allocator: pass allocator to bloom filter, hence trace the usage of memory
   // total_bits: fixed total bits for the bloom
@@ -36,85 +31,48 @@ class DynamicBloom {
   //                      it to be allocated, like:
   //                         sysctl -w vm.nr_hugepages=20
   //                     See linux doc Documentation/vm/hugetlbpage.txt
-  explicit DynamicBloom(Allocator* allocator,
-                        uint32_t total_bits, uint32_t locality = 0,
-                        uint32_t num_probes = 6,
-                        size_t huge_page_tlb_size = 0,
-                        Logger* logger = nullptr);
+  explicit PlainTableBloomV1(uint32_t num_probes = 6);
+  void SetTotalBits(Allocator* allocator, uint32_t total_bits,
+                    uint32_t locality, size_t huge_page_tlb_size,
+                    Logger* logger);
 
-  ~DynamicBloom() {}
-
-  // Assuming single threaded access to this function.
-  void Add(const Slice& key);
-
-  // Like Add, but may be called concurrent with other functions.
-  void AddConcurrently(const Slice& key);
+  ~PlainTableBloomV1() {}
 
   // Assuming single threaded access to this function.
   void AddHash(uint32_t hash);
 
-  // Like AddHash, but may be called concurrent with other functions.
-  void AddHashConcurrently(uint32_t hash);
-
-  // Multithreaded access to this function is OK
-  bool MayContain(const Slice& key) const;
-
   // Multithreaded access to this function is OK
   bool MayContainHash(uint32_t hash) const;
 
-  void Prefetch(uint32_t h);
+  void Prefetch(uint32_t hash);
 
   uint32_t GetNumBlocks() const { return kNumBlocks; }
+
+  Slice GetRawData() const {
+    return Slice(reinterpret_cast<char*>(data_), GetTotalBits() / 8);
+  }
+
+  void SetRawData(unsigned char* raw_data, uint32_t total_bits,
+                  uint32_t num_blocks = 0);
+
+  uint32_t GetTotalBits() const { return kTotalBits; }
+
+  bool IsInitialized() const { return kNumBlocks > 0 || kTotalBits > 0; }
 
  private:
   uint32_t kTotalBits;
   uint32_t kNumBlocks;
   const uint32_t kNumProbes;
 
-  std::atomic<uint8_t>* data_;
-
-  // or_func(ptr, mask) should effect *ptr |= mask with the appropriate
-  // concurrency safety, working with bytes.
-  template <typename OrFunc>
-  void AddHash(uint32_t hash, const OrFunc& or_func);
+  uint8_t* data_;
 };
-
-inline void DynamicBloom::Add(const Slice& key) { AddHash(BloomHash(key)); }
-
-inline void DynamicBloom::AddConcurrently(const Slice& key) {
-  AddHashConcurrently(BloomHash(key));
-}
-
-inline void DynamicBloom::AddHash(uint32_t hash) {
-  AddHash(hash, [](std::atomic<uint8_t>* ptr, uint8_t mask) {
-    ptr->store(ptr->load(std::memory_order_relaxed) | mask,
-               std::memory_order_relaxed);
-  });
-}
-
-inline void DynamicBloom::AddHashConcurrently(uint32_t hash) {
-  AddHash(hash, [](std::atomic<uint8_t>* ptr, uint8_t mask) {
-    // Happens-before between AddHash and MaybeContains is handled by
-    // access to versions_->LastSequence(), so all we have to do here is
-    // avoid races (so we don't give the compiler a license to mess up
-    // our code) and not lose bits.  std::memory_order_relaxed is enough
-    // for that.
-    if ((mask & ptr->load(std::memory_order_relaxed)) != mask) {
-      ptr->fetch_or(mask, std::memory_order_relaxed);
-    }
-  });
-}
-
-inline bool DynamicBloom::MayContain(const Slice& key) const {
-  return (MayContainHash(BloomHash(key)));
-}
 
 #if defined(_MSC_VER)
 #pragma warning(push)
 // local variable is initialized but not referenced
 #pragma warning(disable : 4189)
 #endif
-inline void DynamicBloom::Prefetch(uint32_t h) {
+inline void PlainTableBloomV1::Prefetch(uint32_t h) {
   if (kNumBlocks != 0) {
     uint32_t b = ((h >> 11 | (h << 21)) % kNumBlocks) * (CACHE_LINE_SIZE * 8);
     PREFETCH(&(data_[b / 8]), 0, 3);
@@ -124,7 +82,8 @@ inline void DynamicBloom::Prefetch(uint32_t h) {
 #pragma warning(pop)
 #endif
 
-inline bool DynamicBloom::MayContainHash(uint32_t h) const {
+inline bool PlainTableBloomV1::MayContainHash(uint32_t h) const {
+  assert(IsInitialized());
   const uint32_t delta = (h >> 17) | (h << 15);  // Rotate right 17 bits
   if (kNumBlocks != 0) {
     uint32_t b = ((h >> 11 | (h << 21)) % kNumBlocks) * (CACHE_LINE_SIZE * 8);
@@ -132,8 +91,7 @@ inline bool DynamicBloom::MayContainHash(uint32_t h) const {
       // Since CACHE_LINE_SIZE is defined as 2^n, this line will be optimized
       //  to a simple and operation by compiler.
       const uint32_t bitpos = b + (h % (CACHE_LINE_SIZE * 8));
-      uint8_t byteval = data_[bitpos / 8].load(std::memory_order_relaxed);
-      if ((byteval & (1 << (bitpos % 8))) == 0) {
+      if ((data_[bitpos / 8] & (1 << (bitpos % 8))) == 0) {
         return false;
       }
       // Rotate h so that we don't reuse the same bytes.
@@ -144,8 +102,7 @@ inline bool DynamicBloom::MayContainHash(uint32_t h) const {
   } else {
     for (uint32_t i = 0; i < kNumProbes; ++i) {
       const uint32_t bitpos = h % kTotalBits;
-      uint8_t byteval = data_[bitpos / 8].load(std::memory_order_relaxed);
-      if ((byteval & (1 << (bitpos % 8))) == 0) {
+      if ((data_[bitpos / 8] & (1 << (bitpos % 8))) == 0) {
         return false;
       }
       h += delta;
@@ -154,8 +111,8 @@ inline bool DynamicBloom::MayContainHash(uint32_t h) const {
   return true;
 }
 
-template <typename OrFunc>
-inline void DynamicBloom::AddHash(uint32_t h, const OrFunc& or_func) {
+inline void PlainTableBloomV1::AddHash(uint32_t h) {
+  assert(IsInitialized());
   const uint32_t delta = (h >> 17) | (h << 15);  // Rotate right 17 bits
   if (kNumBlocks != 0) {
     uint32_t b = ((h >> 11 | (h << 21)) % kNumBlocks) * (CACHE_LINE_SIZE * 8);
@@ -163,7 +120,7 @@ inline void DynamicBloom::AddHash(uint32_t h, const OrFunc& or_func) {
       // Since CACHE_LINE_SIZE is defined as 2^n, this line will be optimized
       // to a simple and operation by compiler.
       const uint32_t bitpos = b + (h % (CACHE_LINE_SIZE * 8));
-      or_func(&data_[bitpos / 8], (1 << (bitpos % 8)));
+      data_[bitpos / 8] |= (1 << (bitpos % 8));
       // Rotate h so that we don't reuse the same bytes.
       h = h / (CACHE_LINE_SIZE * 8) +
           (h % (CACHE_LINE_SIZE * 8)) * (0x20000000U / CACHE_LINE_SIZE);
@@ -172,10 +129,33 @@ inline void DynamicBloom::AddHash(uint32_t h, const OrFunc& or_func) {
   } else {
     for (uint32_t i = 0; i < kNumProbes; ++i) {
       const uint32_t bitpos = h % kTotalBits;
-      or_func(&data_[bitpos / 8], (1 << (bitpos % 8)));
+      data_[bitpos / 8] |= (1 << (bitpos % 8));
       h += delta;
     }
   }
 }
 
-}  // rocksdb
+class BloomBlockBuilder {
+ public:
+  static const std::string kBloomBlock;
+
+  explicit BloomBlockBuilder(uint32_t num_probes = 6) : bloom_(num_probes) {}
+
+  void SetTotalBits(Allocator* allocator, uint32_t total_bits,
+                    uint32_t locality, size_t huge_page_tlb_size,
+                    Logger* logger) {
+    bloom_.SetTotalBits(allocator, total_bits, locality, huge_page_tlb_size,
+                        logger);
+  }
+
+  uint32_t GetNumBlocks() const { return bloom_.GetNumBlocks(); }
+
+  void AddKeysHashes(const std::vector<uint32_t>& keys_hashes);
+
+  Slice Finish();
+
+ private:
+  PlainTableBloomV1 bloom_;
+};
+
+};  // namespace rocksdb
