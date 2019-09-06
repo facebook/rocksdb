@@ -615,8 +615,9 @@ TEST_F(DBPropertiesTest, NumImmutableMemTable) {
     writeOpt.disableWAL = true;
     options.max_write_buffer_number = 4;
     options.min_write_buffer_number_to_merge = 3;
-    options.max_write_buffer_number_to_maintain = 4;
     options.write_buffer_size = 1000000;
+    options.max_write_buffer_size_to_maintain =
+        5 * static_cast<int64_t>(options.write_buffer_size);
     CreateAndReopenWithCF({"pikachu"}, options);
 
     std::string big_value(1000000 * 2, 'x');
@@ -747,7 +748,7 @@ TEST_F(DBPropertiesTest, DISABLED_GetProperty) {
   options.max_background_flushes = 1;
   options.max_write_buffer_number = 10;
   options.min_write_buffer_number_to_merge = 1;
-  options.max_write_buffer_number_to_maintain = 0;
+  options.max_write_buffer_size_to_maintain = 0;
   options.write_buffer_size = 1000000;
   Reopen(options);
 
@@ -997,7 +998,7 @@ TEST_F(DBPropertiesTest, EstimatePendingCompBytes) {
   options.max_background_flushes = 1;
   options.max_write_buffer_number = 10;
   options.min_write_buffer_number_to_merge = 1;
-  options.max_write_buffer_number_to_maintain = 0;
+  options.max_write_buffer_size_to_maintain = 0;
   options.write_buffer_size = 1000000;
   Reopen(options);
 

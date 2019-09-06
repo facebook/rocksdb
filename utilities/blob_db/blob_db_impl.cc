@@ -724,6 +724,7 @@ Status BlobDBImpl::PutBlobValue(const WriteOptions& /*options*/,
     }
     if (s.ok()) {
       if (expiration != kNoExpiration) {
+        WriteLock file_lock(&blob_file->mutex_);
         blob_file->ExtendExpirationRange(expiration);
       }
       s = CloseBlobFileIfNeeded(blob_file);
@@ -1146,9 +1147,11 @@ Status BlobDBImpl::GetImpl(const ReadOptions& read_options,
   PinnableSlice index_entry;
   Status s;
   bool is_blob_index = false;
-  s = db_impl_->GetImpl(ro, column_family, key, &index_entry,
-                        nullptr /*value_found*/, nullptr /*read_callback*/,
-                        &is_blob_index);
+  DBImpl::GetImplOptions get_impl_options;
+  get_impl_options.column_family = column_family;
+  get_impl_options.value = &index_entry;
+  get_impl_options.is_blob_index = &is_blob_index;
+  s = db_impl_->GetImpl(ro, key, get_impl_options);
   TEST_SYNC_POINT("BlobDBImpl::Get:AfterIndexEntryGet:1");
   TEST_SYNC_POINT("BlobDBImpl::Get:AfterIndexEntryGet:2");
   if (expiration != nullptr) {
@@ -1175,6 +1178,8 @@ std::pair<bool, int64_t> BlobDBImpl::SanityCheck(bool aborted) {
     return std::make_pair(false, -1);
   }
 
+  ReadLock rl(&mutex_);
+
   ROCKS_LOG_INFO(db_options_.info_log, "Starting Sanity Check");
   ROCKS_LOG_INFO(db_options_.info_log, "Number of files %" ROCKSDB_PRIszt,
                  blob_files_.size());
@@ -1196,7 +1201,13 @@ std::pair<bool, int64_t> BlobDBImpl::SanityCheck(bool aborted) {
                        blob_file->BlobFileNumber(), blob_file->GetFileSize(),
                        blob_file->BlobCount(), blob_file->Immutable());
     if (blob_file->HasTTL()) {
-      auto expiration_range = blob_file->GetExpirationRange();
+      ExpirationRange expiration_range;
+
+      {
+        ReadLock file_lock(&blob_file->mutex_);
+        expiration_range = blob_file->GetExpirationRange();
+      }
+
       pos += snprintf(buf + pos, sizeof(buf) - pos,
                       ", expiration range (%" PRIu64 ", %" PRIu64 ")",
                       expiration_range.first, expiration_range.second);
@@ -1420,7 +1431,7 @@ class BlobDBImpl::GarbageCollectionWriteCallback : public WriteCallback {
       : cfd_(cfd), key_(key), upper_bound_(upper_bound) {}
 
   Status Callback(DB* db) override {
-    auto* db_impl = reinterpret_cast<DBImpl*>(db);
+    auto* db_impl = static_cast_with_check<DBImpl, DB>(db);
     auto* sv = db_impl->GetAndRefSuperVersion(cfd_);
     SequenceNumber latest_seq = 0;
     bool found_record_for_key = false;
@@ -1499,7 +1510,14 @@ Status BlobDBImpl::GCFileAndUpdateLSM(const std::shared_ptr<BlobFile>& bfptr,
   // this reads the key but skips the blob
   Reader::ReadLevel shallow = Reader::kReadHeaderKey;
 
-  bool file_expired = has_ttl && now >= bfptr->GetExpirationRange().second;
+  ExpirationRange expiration_range;
+
+  {
+    ReadLock file_lock(&bfptr->mutex_);
+    expiration_range = bfptr->GetExpirationRange();
+  }
+
+  bool file_expired = has_ttl && now >= expiration_range.second;
 
   if (!file_expired) {
     // read the blob because you have to write it back to new file
@@ -1535,9 +1553,12 @@ Status BlobDBImpl::GCFileAndUpdateLSM(const std::shared_ptr<BlobFile>& bfptr,
     SequenceNumber latest_seq = GetLatestSequenceNumber();
     bool is_blob_index = false;
     PinnableSlice index_entry;
-    Status get_status = db_impl_->GetImpl(
-        ReadOptions(), cfh, record.key, &index_entry, nullptr /*value_found*/,
-        nullptr /*read_callback*/, &is_blob_index);
+    DBImpl::GetImplOptions get_impl_options;
+    get_impl_options.column_family = cfh;
+    get_impl_options.value = &index_entry;
+    get_impl_options.is_blob_index = &is_blob_index;
+    Status get_status =
+        db_impl_->GetImpl(ReadOptions(), record.key, get_impl_options);
     TEST_SYNC_POINT("BlobDBImpl::GCFileAndUpdateLSM:AfterGetFromBaseDB");
     if (!get_status.ok() && !get_status.IsNotFound()) {
       // error
@@ -1756,7 +1777,11 @@ std::pair<bool, int64_t> BlobDBImpl::DeleteObsoleteFiles(bool aborted) {
                    "Will delete file due to snapshot success %s",
                    bfile->PathName().c_str());
 
-    blob_files_.erase(bfile->BlobFileNumber());
+    {
+      WriteLock wl(&mutex_);
+      blob_files_.erase(bfile->BlobFileNumber());
+    }
+
     Status s = DeleteDBFile(&(db_impl_->immutable_db_options()),
                             bfile->PathName(), blob_dir_, true,
                             /*force_fg=*/false);
@@ -1789,6 +1814,7 @@ std::pair<bool, int64_t> BlobDBImpl::DeleteObsoleteFiles(bool aborted) {
   if (!tobsolete.empty()) {
     WriteLock wl(&mutex_);
     for (auto bfile : tobsolete) {
+      blob_files_.insert(std::make_pair(bfile->BlobFileNumber(), bfile));
       obsolete_files_.push_front(bfile);
     }
   }

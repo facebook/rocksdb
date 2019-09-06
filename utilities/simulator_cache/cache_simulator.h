@@ -5,6 +5,9 @@
 
 #pragma once
 
+#include <unordered_map>
+
+#include "cache/lru_cache.h"
 #include "trace_replay/block_cache_tracer.h"
 
 namespace rocksdb {
@@ -27,6 +30,53 @@ struct CacheConfiguration {
            (cache_name == o.cache_name && num_shard_bits == o.num_shard_bits &&
             ghost_cache_capacity < o.ghost_cache_capacity);
   }
+};
+
+class MissRatioStats {
+ public:
+  void reset_counter() {
+    num_misses_ = 0;
+    num_accesses_ = 0;
+    user_accesses_ = 0;
+    user_misses_ = 0;
+  }
+  double miss_ratio() const {
+    if (num_accesses_ == 0) {
+      return -1;
+    }
+    return static_cast<double>(num_misses_ * 100.0 / num_accesses_);
+  }
+  uint64_t total_accesses() const { return num_accesses_; }
+  uint64_t total_misses() const { return num_misses_; }
+
+  const std::map<uint64_t, uint64_t>& num_accesses_timeline() const {
+    return num_accesses_timeline_;
+  }
+
+  const std::map<uint64_t, uint64_t>& num_misses_timeline() const {
+    return num_misses_timeline_;
+  }
+
+  double user_miss_ratio() const {
+    if (user_accesses_ == 0) {
+      return -1;
+    }
+    return static_cast<double>(user_misses_ * 100.0 / user_accesses_);
+  }
+  uint64_t user_accesses() const { return user_accesses_; }
+  uint64_t user_misses() const { return user_misses_; }
+
+  void UpdateMetrics(uint64_t timestamp_in_ms, bool is_user_access,
+                     bool is_cache_miss);
+
+ private:
+  uint64_t num_accesses_ = 0;
+  uint64_t num_misses_ = 0;
+  uint64_t user_accesses_ = 0;
+  uint64_t user_misses_ = 0;
+
+  std::map<uint64_t, uint64_t> num_accesses_timeline_;
+  std::map<uint64_t, uint64_t> num_misses_timeline_;
 };
 
 // A ghost cache admits an entry on its second access.
@@ -61,37 +111,15 @@ class CacheSimulator {
   CacheSimulator& operator=(CacheSimulator&&) = delete;
 
   virtual void Access(const BlockCacheTraceRecord& access);
-  void reset_counter() {
-    num_misses_ = 0;
-    num_accesses_ = 0;
-    user_accesses_ = 0;
-    user_misses_ = 0;
-  }
-  double miss_ratio() const {
-    if (num_accesses_ == 0) {
-      return -1;
-    }
-    return static_cast<double>(num_misses_ * 100.0 / num_accesses_);
-  }
-  uint64_t total_accesses() const { return num_accesses_; }
 
-  double user_miss_ratio() const {
-    if (user_accesses_ == 0) {
-      return -1;
-    }
-    return static_cast<double>(user_misses_ * 100.0 / user_accesses_);
-  }
-  uint64_t user_accesses() const { return user_accesses_; }
+  void reset_counter() { miss_ratio_stats_.reset_counter(); }
+
+  const MissRatioStats& miss_ratio_stats() const { return miss_ratio_stats_; }
 
  protected:
-  void UpdateMetrics(bool is_user_access, bool is_cache_miss);
-
+  MissRatioStats miss_ratio_stats_;
   std::unique_ptr<GhostCache> ghost_cache_;
   std::shared_ptr<Cache> sim_cache_;
-  uint64_t num_accesses_ = 0;
-  uint64_t num_misses_ = 0;
-  uint64_t user_accesses_ = 0;
-  uint64_t user_misses_ = 0;
 };
 
 // A prioritized cache simulator that runs against a block cache trace.
@@ -107,7 +135,8 @@ class PrioritizedCacheSimulator : public CacheSimulator {
  protected:
   // Access the key-value pair and returns true upon a cache miss.
   void AccessKVPair(const Slice& key, uint64_t value_size,
-                    Cache::Priority priority, bool no_insert,
+                    Cache::Priority priority,
+                    const BlockCacheTraceRecord& access, bool no_insert,
                     bool is_user_access, bool* is_cache_miss, bool* admitted,
                     bool update_metrics);
 
@@ -135,28 +164,30 @@ class HybridRowBlockCacheSimulator : public PrioritizedCacheSimulator {
   void Access(const BlockCacheTraceRecord& access) override;
 
  private:
-  // Row key is a concatenation of the access's fd_number and the referenced
-  // user key.
-  // TODO(haoyu): the row key should contain sequence number.
-  std::string ComputeRowKey(const BlockCacheTraceRecord& access);
-
   enum InsertResult : char {
     INSERTED,
     ADMITTED,
     NO_INSERT,
   };
 
-  // A map stores get_id to a map of row keys. For each row key, it stores a
-  // boolean and an enum. The first bool is true when we observe a miss upon the
-  // first time we encounter the row key. The second arg is INSERTED when the
+  // We set is_complete to true when the referenced row-key of a get request
+  // hits the cache. If is_complete is true, we treat future accesses of this
+  // get request as hits.
+  //
+  // For each row key, it stores an enum. It is INSERTED when the
   // kv-pair has been inserted into the cache, ADMITTED if it should be inserted
   // but haven't been, NO_INSERT if it should not be inserted.
   //
   // A kv-pair is in ADMITTED state when we encounter this kv-pair but do not
   // know its size. This may happen if the first access on the referenced key is
   // an index/filter block.
-  std::map<uint64_t, std::map<std::string, std::pair<bool, InsertResult>>>
-      getid_getkeys_map_;
+  struct GetRequestStatus {
+    bool is_complete = false;
+    std::map<std::string, InsertResult> row_key_status;
+  };
+
+  // A map stores get_id to a map of row keys.
+  std::map<uint64_t, GetRequestStatus> getid_status_map_;
   bool insert_blocks_upon_row_kvpair_miss_;
 };
 

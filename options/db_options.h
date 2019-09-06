@@ -82,6 +82,8 @@ struct ImmutableDBOptions {
   bool atomic_flush;
   bool avoid_unnecessary_blocking_io;
   bool persist_stats_to_disk;
+  bool write_dbid_to_manifest;
+  size_t log_readahead_size;
 };
 
 struct MutableDBOptions {

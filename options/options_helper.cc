@@ -138,7 +138,7 @@ DBOptions BuildDBOptions(const ImmutableDBOptions& immutable_db_options,
   options.atomic_flush = immutable_db_options.atomic_flush;
   options.avoid_unnecessary_blocking_io =
       immutable_db_options.avoid_unnecessary_blocking_io;
-
+  options.log_readahead_size = immutable_db_options.log_readahead_size;
   return options;
 }
 
@@ -1045,21 +1045,21 @@ Status ParseColumnFamilyOption(const std::string& name,
     } else {
       if (name == kNameComparator) {
         // Try to get comparator from object registry first.
-        std::unique_ptr<const Comparator> comp_guard;
-        const Comparator* comp =
-            NewCustomObject<const Comparator>(value, &comp_guard);
         // Only support static comparator for now.
-        if (comp != nullptr && !comp_guard) {
-          new_options->comparator = comp;
+        Status status = ObjectRegistry::NewInstance()->NewStaticObject(
+            value, &new_options->comparator);
+        if (status.ok()) {
+          return status;
         }
       } else if (name == kNameMergeOperator) {
         // Try to get merge operator from object registry first.
-        std::unique_ptr<std::shared_ptr<MergeOperator>> mo_guard;
-        std::shared_ptr<MergeOperator>* mo =
-            NewCustomObject<std::shared_ptr<MergeOperator>>(value, &mo_guard);
+        std::shared_ptr<MergeOperator> mo;
+        Status status =
+            ObjectRegistry::NewInstance()->NewSharedObject<MergeOperator>(
+                value, &new_options->merge_operator);
         // Only support static comparator for now.
-        if (mo != nullptr) {
-          new_options->merge_operator = *mo;
+        if (status.ok()) {
+          return status;
         }
       }
 
@@ -1191,10 +1191,10 @@ Status ParseDBOption(const std::string& name,
           NewGenericRateLimiter(static_cast<int64_t>(ParseUint64(value))));
     } else if (name == kNameEnv) {
       // Currently `Env` can be deserialized from object registry only.
-      std::unique_ptr<Env> env_guard;
-      Env* env = NewCustomObject<Env>(value, &env_guard);
+      Env* env = new_options->env;
+      Status status = Env::LoadEnv(value, &env);
       // Only support static env for now.
-      if (env != nullptr && !env_guard) {
+      if (status.ok()) {
         new_options->env = env;
       }
     } else {
@@ -1664,6 +1664,12 @@ std::unordered_map<std::string, OptionTypeInfo>
          {offsetof(struct DBOptions, avoid_unnecessary_blocking_io),
           OptionType::kBoolean, OptionVerificationType::kNormal, false,
           offsetof(struct ImmutableDBOptions, avoid_unnecessary_blocking_io)}},
+        {"write_dbid_to_manifest",
+         {offsetof(struct DBOptions, write_dbid_to_manifest),
+          OptionType::kBoolean, OptionVerificationType::kNormal, false, 0}},
+        {"log_readahead_size",
+         {offsetof(struct DBOptions, log_readahead_size), OptionType::kSizeT,
+          OptionVerificationType::kNormal, false, 0}},
 };
 
 std::unordered_map<std::string, BlockBasedTableOptions::IndexType>
@@ -1870,6 +1876,9 @@ std::unordered_map<std::string, OptionTypeInfo>
         {"max_write_buffer_number_to_maintain",
          {offset_of(&ColumnFamilyOptions::max_write_buffer_number_to_maintain),
           OptionType::kInt, OptionVerificationType::kNormal, false, 0}},
+        {"max_write_buffer_size_to_maintain",
+         {offset_of(&ColumnFamilyOptions::max_write_buffer_size_to_maintain),
+          OptionType::kInt64T, OptionVerificationType::kNormal, false, 0}},
         {"min_write_buffer_number_to_merge",
          {offset_of(&ColumnFamilyOptions::min_write_buffer_number_to_merge),
           OptionType::kInt, OptionVerificationType::kNormal, false, 0}},

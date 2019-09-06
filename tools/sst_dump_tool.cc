@@ -143,15 +143,16 @@ Status SstFileDumper::NewTableReader(
 }
 
 Status SstFileDumper::VerifyChecksum() {
-  return table_reader_->VerifyChecksum(TableReaderCaller::kSSTDumpTool);
+  // We could pass specific readahead setting into read options if needed.
+  return table_reader_->VerifyChecksum(ReadOptions(),
+                                       TableReaderCaller::kSSTDumpTool);
 }
 
 Status SstFileDumper::DumpTable(const std::string& out_filename) {
   std::unique_ptr<WritableFile> out_file;
   Env* env = Env::Default();
   env->NewWritableFile(out_filename, &out_file, soptions_);
-  Status s = table_reader_->DumpTable(out_file.get(),
-                                      moptions_.prefix_extractor.get());
+  Status s = table_reader_->DumpTable(out_file.get());
   out_file->Close();
   return s;
 }

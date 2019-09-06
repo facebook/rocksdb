@@ -11,7 +11,7 @@
 
 namespace rocksdb {
 
-void FlushScheduler::ScheduleFlush(ColumnFamilyData* cfd) {
+void FlushScheduler::ScheduleWork(ColumnFamilyData* cfd) {
 #ifndef NDEBUG
   {
     std::lock_guard<std::mutex> lock(checking_mutex_);

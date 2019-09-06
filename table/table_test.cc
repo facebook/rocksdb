@@ -63,6 +63,8 @@ extern const uint64_t kPlainTableMagicNumber;
 
 namespace {
 
+const std::string kDummyValue(10000, 'o');
+
 // DummyPropertiesCollector used to test BlockBasedTableProperties
 class DummyPropertiesCollector : public TablePropertiesCollector {
  public:
@@ -312,7 +314,9 @@ class TableConstructor: public Constructor {
       : Constructor(cmp),
         largest_seqno_(largest_seqno),
         convert_to_internal_key_(convert_to_internal_key),
-        level_(level) {}
+        level_(level) {
+    env_ = rocksdb::Env::Default();
+  }
   ~TableConstructor() override { Reset(); }
 
   Status FinishImpl(const Options& options, const ImmutableCFOptions& ioptions,
@@ -371,7 +375,7 @@ class TableConstructor: public Constructor {
     return ioptions.table_factory->NewTableReader(
         TableReaderOptions(ioptions, moptions.prefix_extractor.get(), soptions,
                            internal_comparator, !kSkipFilters, !kImmortal,
-                           level_, largest_seqno_, nullptr),
+                           level_, largest_seqno_, &block_cache_tracer_),
         std::move(file_reader_), TEST_GetSink()->contents().size(),
         &table_reader_);
   }
@@ -425,6 +429,8 @@ class TableConstructor: public Constructor {
     return static_cast<test::StringSink*>(file_writer_->writable_file());
   }
 
+  BlockCacheTracer block_cache_tracer_;
+
  private:
   void Reset() {
     uniq_id_ = 0;
@@ -445,6 +451,7 @@ class TableConstructor: public Constructor {
 
   static uint64_t cur_uniq_id_;
   EnvOptions soptions;
+  Env* env_;
 };
 uint64_t TableConstructor::cur_uniq_id_ = 1;
 
@@ -1063,7 +1070,9 @@ class BlockBasedTableTest
     : public TableTest,
       virtual public ::testing::WithParamInterface<uint32_t> {
  public:
-  BlockBasedTableTest() : format_(GetParam()) {}
+  BlockBasedTableTest() : format_(GetParam()) {
+    env_ = rocksdb::Env::Default();
+  }
 
   BlockBasedTableOptions GetBlockBasedTableOptions() {
     BlockBasedTableOptions options;
@@ -1071,11 +1080,91 @@ class BlockBasedTableTest
     return options;
   }
 
+  void SetupTracingTest(TableConstructor* c) {
+    test_path_ = test::PerThreadDBPath("block_based_table_tracing_test");
+    EXPECT_OK(env_->CreateDir(test_path_));
+    trace_file_path_ = test_path_ + "/block_cache_trace_file";
+    TraceOptions trace_opt;
+    std::unique_ptr<TraceWriter> trace_writer;
+    EXPECT_OK(NewFileTraceWriter(env_, EnvOptions(), trace_file_path_,
+                                 &trace_writer));
+    c->block_cache_tracer_.StartTrace(env_, trace_opt, std::move(trace_writer));
+    {
+      std::string user_key = "k01";
+      InternalKey internal_key(user_key, 0, kTypeValue);
+      std::string encoded_key = internal_key.Encode().ToString();
+      c->Add(encoded_key, kDummyValue);
+    }
+    {
+      std::string user_key = "k02";
+      InternalKey internal_key(user_key, 0, kTypeValue);
+      std::string encoded_key = internal_key.Encode().ToString();
+      c->Add(encoded_key, kDummyValue);
+    }
+  }
+
+  void VerifyBlockAccessTrace(
+      TableConstructor* c,
+      const std::vector<BlockCacheTraceRecord>& expected_records) {
+    c->block_cache_tracer_.EndTrace();
+
+    std::unique_ptr<TraceReader> trace_reader;
+    Status s =
+        NewFileTraceReader(env_, EnvOptions(), trace_file_path_, &trace_reader);
+    EXPECT_OK(s);
+    BlockCacheTraceReader reader(std::move(trace_reader));
+    BlockCacheTraceHeader header;
+    EXPECT_OK(reader.ReadHeader(&header));
+    uint32_t index = 0;
+    while (s.ok()) {
+      BlockCacheTraceRecord access;
+      s = reader.ReadAccess(&access);
+      if (!s.ok()) {
+        break;
+      }
+      ASSERT_LT(index, expected_records.size());
+      EXPECT_NE("", access.block_key);
+      EXPECT_EQ(access.block_type, expected_records[index].block_type);
+      EXPECT_GT(access.block_size, 0);
+      EXPECT_EQ(access.caller, expected_records[index].caller);
+      EXPECT_EQ(access.no_insert, expected_records[index].no_insert);
+      EXPECT_EQ(access.is_cache_hit, expected_records[index].is_cache_hit);
+      // Get
+      if (access.caller == TableReaderCaller::kUserGet) {
+        EXPECT_EQ(access.referenced_key,
+                  expected_records[index].referenced_key);
+        EXPECT_EQ(access.get_id, expected_records[index].get_id);
+        EXPECT_EQ(access.get_from_user_specified_snapshot,
+                  expected_records[index].get_from_user_specified_snapshot);
+        if (access.block_type == TraceType::kBlockTraceDataBlock) {
+          EXPECT_GT(access.referenced_data_size, 0);
+          EXPECT_GT(access.num_keys_in_block, 0);
+          EXPECT_EQ(access.referenced_key_exist_in_block,
+                    expected_records[index].referenced_key_exist_in_block);
+        }
+      } else {
+        EXPECT_EQ(access.referenced_key, "");
+        EXPECT_EQ(access.get_id, 0);
+        EXPECT_TRUE(access.get_from_user_specified_snapshot == Boolean::kFalse);
+        EXPECT_EQ(access.referenced_data_size, 0);
+        EXPECT_EQ(access.num_keys_in_block, 0);
+        EXPECT_TRUE(access.referenced_key_exist_in_block == Boolean::kFalse);
+      }
+      index++;
+    }
+    EXPECT_EQ(index, expected_records.size());
+    EXPECT_OK(env_->DeleteFile(trace_file_path_));
+    EXPECT_OK(env_->DeleteDir(test_path_));
+  }
+
  protected:
   uint64_t IndexUncompressedHelper(bool indexCompress);
 
  private:
   uint32_t format_;
+  Env* env_;
+  std::string trace_file_path_;
+  std::string test_path_;
 };
 class PlainTableTest : public TableTest {};
 class TablePropertyTest : public testing::Test {};
@@ -2211,6 +2300,187 @@ TEST_P(BlockBasedTableTest, NumBlockStat) {
   c.ResetTableReader();
 }
 
+TEST_P(BlockBasedTableTest, TracingGetTest) {
+  TableConstructor c(BytewiseComparator());
+  Options options;
+  BlockBasedTableOptions table_options = GetBlockBasedTableOptions();
+  options.create_if_missing = true;
+  table_options.block_cache = NewLRUCache(1024 * 1024, 0);
+  table_options.cache_index_and_filter_blocks = true;
+  table_options.filter_policy.reset(NewBloomFilterPolicy(10, true));
+  options.table_factory.reset(new BlockBasedTableFactory(table_options));
+  SetupTracingTest(&c);
+  std::vector<std::string> keys;
+  stl_wrappers::KVMap kvmap;
+  ImmutableCFOptions ioptions(options);
+  MutableCFOptions moptions(options);
+  c.Finish(options, ioptions, moptions, table_options,
+           GetPlainInternalComparator(options.comparator), &keys, &kvmap);
+  std::string user_key = "k01";
+  InternalKey internal_key(user_key, 0, kTypeValue);
+  std::string encoded_key = internal_key.Encode().ToString();
+  for (uint32_t i = 1; i <= 2; i++) {
+    PinnableSlice value;
+    GetContext get_context(options.comparator, nullptr, nullptr, nullptr,
+                           GetContext::kNotFound, user_key, &value, nullptr,
+                           nullptr, true, nullptr, nullptr, nullptr, nullptr,
+                           nullptr, nullptr, /*tracing_get_id=*/i);
+    get_perf_context()->Reset();
+    ASSERT_OK(c.GetTableReader()->Get(ReadOptions(), encoded_key, &get_context,
+                                      moptions.prefix_extractor.get()));
+    ASSERT_EQ(get_context.State(), GetContext::kFound);
+    ASSERT_EQ(value.ToString(), kDummyValue);
+  }
+
+  // Verify traces.
+  std::vector<BlockCacheTraceRecord> expected_records;
+  // The first two records should be prefetching index and filter blocks.
+  BlockCacheTraceRecord record;
+  record.block_type = TraceType::kBlockTraceIndexBlock;
+  record.caller = TableReaderCaller::kPrefetch;
+  record.is_cache_hit = Boolean::kFalse;
+  record.no_insert = Boolean::kFalse;
+  expected_records.push_back(record);
+  record.block_type = TraceType::kBlockTraceFilterBlock;
+  expected_records.push_back(record);
+  // Then we should have three records for one index, one filter, and one data
+  // block access.
+  record.get_id = 1;
+  record.block_type = TraceType::kBlockTraceIndexBlock;
+  record.caller = TableReaderCaller::kUserGet;
+  record.get_from_user_specified_snapshot = Boolean::kFalse;
+  record.referenced_key = encoded_key;
+  record.referenced_key_exist_in_block = Boolean::kTrue;
+  record.is_cache_hit = Boolean::kTrue;
+  expected_records.push_back(record);
+  record.block_type = TraceType::kBlockTraceFilterBlock;
+  expected_records.push_back(record);
+  record.is_cache_hit = Boolean::kFalse;
+  record.block_type = TraceType::kBlockTraceDataBlock;
+  expected_records.push_back(record);
+  // The second get should all observe cache hits.
+  record.is_cache_hit = Boolean::kTrue;
+  record.get_id = 2;
+  record.block_type = TraceType::kBlockTraceIndexBlock;
+  record.caller = TableReaderCaller::kUserGet;
+  record.get_from_user_specified_snapshot = Boolean::kFalse;
+  record.referenced_key = encoded_key;
+  expected_records.push_back(record);
+  record.block_type = TraceType::kBlockTraceFilterBlock;
+  expected_records.push_back(record);
+  record.block_type = TraceType::kBlockTraceDataBlock;
+  expected_records.push_back(record);
+  VerifyBlockAccessTrace(&c, expected_records);
+  c.ResetTableReader();
+}
+
+TEST_P(BlockBasedTableTest, TracingApproximateOffsetOfTest) {
+  TableConstructor c(BytewiseComparator());
+  Options options;
+  BlockBasedTableOptions table_options = GetBlockBasedTableOptions();
+  options.create_if_missing = true;
+  table_options.block_cache = NewLRUCache(1024 * 1024, 0);
+  table_options.cache_index_and_filter_blocks = true;
+  table_options.filter_policy.reset(NewBloomFilterPolicy(10, true));
+  options.table_factory.reset(new BlockBasedTableFactory(table_options));
+  SetupTracingTest(&c);
+  std::vector<std::string> keys;
+  stl_wrappers::KVMap kvmap;
+  ImmutableCFOptions ioptions(options);
+  MutableCFOptions moptions(options);
+  c.Finish(options, ioptions, moptions, table_options,
+           GetPlainInternalComparator(options.comparator), &keys, &kvmap);
+  for (uint32_t i = 1; i <= 2; i++) {
+    std::string user_key = "k01";
+    InternalKey internal_key(user_key, 0, kTypeValue);
+    std::string encoded_key = internal_key.Encode().ToString();
+    c.GetTableReader()->ApproximateOffsetOf(
+        encoded_key, TableReaderCaller::kUserApproximateSize);
+  }
+  // Verify traces.
+  std::vector<BlockCacheTraceRecord> expected_records;
+  // The first two records should be prefetching index and filter blocks.
+  BlockCacheTraceRecord record;
+  record.block_type = TraceType::kBlockTraceIndexBlock;
+  record.caller = TableReaderCaller::kPrefetch;
+  record.is_cache_hit = Boolean::kFalse;
+  record.no_insert = Boolean::kFalse;
+  expected_records.push_back(record);
+  record.block_type = TraceType::kBlockTraceFilterBlock;
+  expected_records.push_back(record);
+  // Then we should have two records for only index blocks.
+  record.block_type = TraceType::kBlockTraceIndexBlock;
+  record.caller = TableReaderCaller::kUserApproximateSize;
+  record.is_cache_hit = Boolean::kTrue;
+  expected_records.push_back(record);
+  expected_records.push_back(record);
+  VerifyBlockAccessTrace(&c, expected_records);
+  c.ResetTableReader();
+}
+
+TEST_P(BlockBasedTableTest, TracingIterator) {
+  TableConstructor c(BytewiseComparator());
+  Options options;
+  BlockBasedTableOptions table_options = GetBlockBasedTableOptions();
+  options.create_if_missing = true;
+  table_options.block_cache = NewLRUCache(1024 * 1024, 0);
+  table_options.cache_index_and_filter_blocks = true;
+  table_options.filter_policy.reset(NewBloomFilterPolicy(10, true));
+  options.table_factory.reset(new BlockBasedTableFactory(table_options));
+  SetupTracingTest(&c);
+  std::vector<std::string> keys;
+  stl_wrappers::KVMap kvmap;
+  ImmutableCFOptions ioptions(options);
+  MutableCFOptions moptions(options);
+  c.Finish(options, ioptions, moptions, table_options,
+           GetPlainInternalComparator(options.comparator), &keys, &kvmap);
+
+  for (uint32_t i = 1; i <= 2; i++) {
+    std::unique_ptr<InternalIterator> iter(c.GetTableReader()->NewIterator(
+        ReadOptions(), moptions.prefix_extractor.get(), /*arena=*/nullptr,
+        /*skip_filters=*/false, TableReaderCaller::kUserIterator));
+    iter->SeekToFirst();
+    while (iter->Valid()) {
+      iter->key();
+      iter->value();
+      iter->Next();
+    }
+    ASSERT_OK(iter->status());
+    iter.reset();
+  }
+
+  // Verify traces.
+  std::vector<BlockCacheTraceRecord> expected_records;
+  // The first two records should be prefetching index and filter blocks.
+  BlockCacheTraceRecord record;
+  record.block_type = TraceType::kBlockTraceIndexBlock;
+  record.caller = TableReaderCaller::kPrefetch;
+  record.is_cache_hit = Boolean::kFalse;
+  record.no_insert = Boolean::kFalse;
+  expected_records.push_back(record);
+  record.block_type = TraceType::kBlockTraceFilterBlock;
+  expected_records.push_back(record);
+  // Then we should have three records for index and two data block access.
+  record.block_type = TraceType::kBlockTraceIndexBlock;
+  record.caller = TableReaderCaller::kUserIterator;
+  record.is_cache_hit = Boolean::kTrue;
+  expected_records.push_back(record);
+  record.block_type = TraceType::kBlockTraceDataBlock;
+  record.is_cache_hit = Boolean::kFalse;
+  expected_records.push_back(record);
+  expected_records.push_back(record);
+  // When we iterate this file for the second time, we should observe all cache
+  // hits.
+  record.block_type = TraceType::kBlockTraceIndexBlock;
+  record.is_cache_hit = Boolean::kTrue;
+  expected_records.push_back(record);
+  record.block_type = TraceType::kBlockTraceDataBlock;
+  expected_records.push_back(record);
+  expected_records.push_back(record);
+  VerifyBlockAccessTrace(&c, expected_records);
+  c.ResetTableReader();
+}
+
 // A simple tool that takes the snapshot of block cache statistics.
 class BlockCachePropertiesSnapshot {
  public:
@@ -2296,7 +2566,7 @@ TEST_P(BlockBasedTableTest, BlockCacheDisabledTest) {
 
   // preloading filter/index blocks is enabled.
   auto reader = dynamic_cast<BlockBasedTable*>(c.GetTableReader());
-  ASSERT_TRUE(reader->TEST_filter_block_preloaded());
+  ASSERT_FALSE(reader->TEST_FilterBlockInCache());
   ASSERT_FALSE(reader->TEST_IndexBlockInCache());
 
   {
@@ -2309,7 +2579,7 @@ TEST_P(BlockBasedTableTest, BlockCacheDisabledTest) {
   {
     GetContext get_context(options.comparator, nullptr, nullptr, nullptr,
                            GetContext::kNotFound, Slice(), nullptr, nullptr,
-                           nullptr, nullptr, nullptr);
+                           nullptr, true, nullptr, nullptr);
     // a hack that just to trigger BlockBasedTable::GetFilter.
     reader->Get(ReadOptions(), "non-exist-key", &get_context,
                 moptions.prefix_extractor.get());
@@ -2343,7 +2613,7 @@ TEST_P(BlockBasedTableTest, FilterBlockInBlockCache) {
            GetPlainInternalComparator(options.comparator), &keys, &kvmap);
   // preloading filter/index blocks is prohibited.
   auto* reader = dynamic_cast<BlockBasedTable*>(c.GetTableReader());
-  ASSERT_TRUE(!reader->TEST_filter_block_preloaded());
+  ASSERT_FALSE(reader->TEST_FilterBlockInCache());
   ASSERT_TRUE(reader->TEST_IndexBlockInCache());
 
   // -- PART 1: Open with regular block cache.
@@ -2476,11 +2746,11 @@ TEST_P(BlockBasedTableTest, FilterBlockInBlockCache) {
   MutableCFOptions moptions4(options);
   ASSERT_OK(c3.Reopen(ioptions4, moptions4));
   reader = dynamic_cast<BlockBasedTable*>(c3.GetTableReader());
-  ASSERT_TRUE(!reader->TEST_filter_block_preloaded());
+  ASSERT_FALSE(reader->TEST_FilterBlockInCache());
   PinnableSlice value;
   GetContext get_context(options.comparator, nullptr, nullptr, nullptr,
                          GetContext::kNotFound, user_key, &value, nullptr,
-                         nullptr, nullptr, nullptr);
+                         nullptr, true, nullptr, nullptr);
   ASSERT_OK(reader->Get(ReadOptions(), internal_key.Encode(), &get_context,
                         moptions4.prefix_extractor.get()));
   ASSERT_STREQ(value.data(), "hello");
@@ -2566,7 +2836,7 @@ TEST_P(BlockBasedTableTest, BlockReadCountTest) {
       {
         GetContext get_context(options.comparator, nullptr, nullptr, nullptr,
                                GetContext::kNotFound, user_key, &value, nullptr,
-                               nullptr, nullptr, nullptr);
+                               nullptr, true, nullptr, nullptr);
         get_perf_context()->Reset();
         ASSERT_OK(reader->Get(ReadOptions(), encoded_key, &get_context,
                               moptions.prefix_extractor.get()));
@@ -2592,7 +2862,7 @@ TEST_P(BlockBasedTableTest, BlockReadCountTest) {
       {
         GetContext get_context(options.comparator, nullptr, nullptr, nullptr,
                                GetContext::kNotFound, user_key, &value, nullptr,
-                               nullptr, nullptr, nullptr);
+                               nullptr, true, nullptr, nullptr);
         get_perf_context()->Reset();
         ASSERT_OK(reader->Get(ReadOptions(), encoded_key, &get_context,
                               moptions.prefix_extractor.get()));
@@ -2617,176 +2887,6 @@ TEST_P(BlockBasedTableTest, BlockReadCountTest) {
       }
     }
   }
-}
-
-// A wrapper around LRICache that also keeps track of data blocks (in contrast
-// with the objects) in the cache. The class is very simple and can be used only
-// for trivial tests.
-class MockCache : public LRUCache {
- public:
-  MockCache(size_t capacity, int num_shard_bits, bool strict_capacity_limit,
-            double high_pri_pool_ratio)
-      : LRUCache(capacity, num_shard_bits, strict_capacity_limit,
-                 high_pri_pool_ratio) {}
-  Status Insert(const Slice& key, void* value, size_t charge,
-                void (*deleter)(const Slice& key, void* value),
-                Handle** handle = nullptr,
-                Priority priority = Priority::LOW) override {
-    // Replace the deleter with our own so that we keep track of data blocks
-    // erased from the cache
-    deleters_[key.ToString()] = deleter;
-    return ShardedCache::Insert(key, value, charge, &MockDeleter, handle,
-                                priority);
-  }
-  // This is called by the application right after inserting a data block
-  void TEST_mark_as_data_block(const Slice& key, size_t charge) override {
-    marked_data_in_cache_[key.ToString()] = charge;
-    marked_size_ += charge;
-  }
-  using DeleterFunc = void (*)(const Slice& key, void* value);
-  static std::map<std::string, DeleterFunc> deleters_;
-  static std::map<std::string, size_t> marked_data_in_cache_;
-  static size_t marked_size_;
-  static void MockDeleter(const Slice& key, void* value) {
-    // If the item was marked for being data block, decrease its usage from  the
-    // total data block usage of the cache
-    if (marked_data_in_cache_.find(key.ToString()) !=
-        marked_data_in_cache_.end()) {
-      marked_size_ -= marked_data_in_cache_[key.ToString()];
-    }
-    // Then call the origianl deleter
-    assert(deleters_.find(key.ToString()) != deleters_.end());
-    auto deleter = deleters_[key.ToString()];
-    deleter(key, value);
-  }
-};
-
-size_t MockCache::marked_size_ = 0;
-std::map<std::string, MockCache::DeleterFunc> MockCache::deleters_;
-std::map<std::string, size_t> MockCache::marked_data_in_cache_;
-
-// Block cache can contain raw data blocks as well as general objects. If an
-// object depends on the table to be live, it then must be destructed before the
-// table is closed. This test makes sure that the only items remains in the
-// cache after the table is closed are raw data blocks.
-TEST_P(BlockBasedTableTest, NoObjectInCacheAfterTableClose) {
-  std::vector<CompressionType> compression_types{kNoCompression};
-
-  // The following are the compression library versions supporting compression
-  // dictionaries. See the test case CacheCompressionDict in the
-  // DBBlockCacheTest suite.
-#ifdef ZLIB
-  compression_types.push_back(kZlibCompression);
-#endif  // ZLIB
-#if LZ4_VERSION_NUMBER >= 10400
-  compression_types.push_back(kLZ4Compression);
-  compression_types.push_back(kLZ4HCCompression);
-#endif  // LZ4_VERSION_NUMBER >= 10400
-#if ZSTD_VERSION_NUMBER >= 500
-  compression_types.push_back(kZSTD);
-#endif  // ZSTD_VERSION_NUMBER >= 500
-
-  for (int level: {-1, 0, 1, 10}) {
-    for (auto index_type :
-        {BlockBasedTableOptions::IndexType::kBinarySearch,
-        BlockBasedTableOptions::IndexType::kTwoLevelIndexSearch}) {
-      for (bool block_based_filter : {true, false}) {
-        for (bool partition_filter : {true, false}) {
-          if (partition_filter &&
-              (block_based_filter ||
-               index_type !=
-               BlockBasedTableOptions::IndexType::kTwoLevelIndexSearch)) {
-            continue;
-          }
-          for (bool index_and_filter_in_cache : {true, false}) {
-            for (bool pin_l0 : {true, false}) {
-              for (bool pin_top_level : {true, false}) {
-                if (pin_l0 && !index_and_filter_in_cache) {
-                  continue;
-                }
-
-                for (auto compression_type : compression_types) {
-                  for (uint32_t max_dict_bytes : {0, 1 << 14}) {
-                    if (compression_type == kNoCompression && max_dict_bytes)
-                      continue;
-
-                    // Create a table
-                    Options opt;
-                    std::unique_ptr<InternalKeyComparator> ikc;
-                    ikc.reset(new test::PlainInternalKeyComparator(
-                      opt.comparator));
-                    opt.compression = compression_type;
-                    opt.compression_opts.max_dict_bytes = max_dict_bytes;
-                    BlockBasedTableOptions table_options =
-                      GetBlockBasedTableOptions();
-                    table_options.block_size = 1024;
-                    table_options.index_type = index_type;
-                    table_options.pin_l0_filter_and_index_blocks_in_cache =
-                      pin_l0;
-                    table_options.pin_top_level_index_and_filter =
-                      pin_top_level;
-                    table_options.partition_filters = partition_filter;
-                    table_options.cache_index_and_filter_blocks =
-                      index_and_filter_in_cache;
-                    // big enough so we don't ever lose cached values.
-                    table_options.block_cache = std::make_shared<MockCache>(
-                      16 * 1024 * 1024, 4, false, 0.0);
-                    table_options.filter_policy.reset(
-                      rocksdb::NewBloomFilterPolicy(10, block_based_filter));
-                    opt.table_factory.reset(NewBlockBasedTableFactory(
-                      table_options));
-
-                    bool convert_to_internal_key = false;
-                    TableConstructor c(BytewiseComparator(),
-                      convert_to_internal_key, level);
-                    std::string user_key = "k01";
-                    std::string key =
-                      InternalKey(user_key, 0, kTypeValue).Encode().ToString();
-                    c.Add(key, "hello");
-                    std::vector<std::string> keys;
-                    stl_wrappers::KVMap kvmap;
-                    const ImmutableCFOptions ioptions(opt);
-                    const MutableCFOptions moptions(opt);
-                    c.Finish(opt, ioptions, moptions, table_options, *ikc,
-                      &keys, &kvmap);
-
-                    // Doing a read to make index/filter loaded into the cache
-                    auto table_reader =
-                      dynamic_cast<BlockBasedTable*>(c.GetTableReader());
-                    PinnableSlice value;
-                    GetContext get_context(opt.comparator, nullptr, nullptr,
-                      nullptr, GetContext::kNotFound, user_key, &value,
-                      nullptr, nullptr, nullptr, nullptr);
-                    InternalKey ikey(user_key, 0, kTypeValue);
-                    auto s = table_reader->Get(ReadOptions(), key, &get_context,
-                      moptions.prefix_extractor.get());
-                    ASSERT_EQ(get_context.State(), GetContext::kFound);
-                    ASSERT_STREQ(value.data(), "hello");
-
-                    // Close the table
-                    c.ResetTableReader();
-
-                    auto usage = table_options.block_cache->GetUsage();
-                    auto pinned_usage =
-                      table_options.block_cache->GetPinnedUsage();
-                    // The only usage must be for marked data blocks
-                    ASSERT_EQ(usage, MockCache::marked_size_);
-                    // There must be some pinned data since PinnableSlice has
-                    // not released them yet
-                    ASSERT_GT(pinned_usage, 0);
-                    // Release pinnable slice reousrces
-                    value.Reset();
-                    pinned_usage = table_options.block_cache->GetPinnedUsage();
-                    ASSERT_EQ(pinned_usage, 0);
-                  }
-                }
-              }
-            }
-          }
-        }
-      }
-    }
-  } // level
 }
 
 TEST_P(BlockBasedTableTest, BlockCacheLeak) {
@@ -3200,7 +3300,8 @@ TEST_F(MemTableTest, Simple) {
   batch.DeleteRange(std::string("begin"), std::string("end"));
   ColumnFamilyMemTablesDefault cf_mems_default(memtable);
   ASSERT_TRUE(
-      WriteBatchInternal::InsertInto(&batch, &cf_mems_default, nullptr).ok());
+      WriteBatchInternal::InsertInto(&batch, &cf_mems_default, nullptr, nullptr)
+          .ok());
 
   for (int i = 0; i < 2; ++i) {
     Arena arena;
@@ -4130,7 +4231,7 @@ TEST_P(BlockBasedTableTest, DataBlockHashIndex) {
         std::string user_key = ExtractUserKey(kv.first).ToString();
         GetContext get_context(options.comparator, nullptr, nullptr, nullptr,
                                GetContext::kNotFound, user_key, &value, nullptr,
-                               nullptr, nullptr, nullptr);
+                               nullptr, true, nullptr, nullptr);
         ASSERT_OK(reader->Get(ro, kv.first, &get_context,
                               moptions.prefix_extractor.get()));
         ASSERT_EQ(get_context.State(), GetContext::kFound);
@@ -4156,7 +4257,7 @@ TEST_P(BlockBasedTableTest, DataBlockHashIndex) {
         PinnableSlice value;
         GetContext get_context(options.comparator, nullptr, nullptr, nullptr,
                                GetContext::kNotFound, user_key, &value, nullptr,
-                               nullptr, nullptr, nullptr);
+                               nullptr, true, nullptr, nullptr);
         ASSERT_OK(reader->Get(ro, encoded_key, &get_context,
                               moptions.prefix_extractor.get()));
         ASSERT_EQ(get_context.State(), GetContext::kNotFound);

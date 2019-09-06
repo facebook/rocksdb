@@ -22,7 +22,8 @@
 #include "rocksdb/options.h"
 #include "rocksdb/slice.h"
 #include "rocksdb/slice_transform.h"
-#include "table/block_based/filter_block.h"
+#include "table/block_based/filter_block_reader_common.h"
+#include "table/format.h"
 #include "util/hash.h"
 
 namespace rocksdb {
@@ -75,42 +76,42 @@ class BlockBasedFilterBlockBuilder : public FilterBlockBuilder {
 
 // A FilterBlockReader is used to parse filter from SST table.
 // KeyMayMatch and PrefixMayMatch would trigger filter checking
-class BlockBasedFilterBlockReader : public FilterBlockReader {
+class BlockBasedFilterBlockReader
+    : public FilterBlockReaderCommon<BlockContents> {
  public:
-  // REQUIRES: "contents" and *policy must stay live while *this is live.
-  BlockBasedFilterBlockReader(const SliceTransform* prefix_extractor,
-                              const BlockBasedTableOptions& table_opt,
-                              bool whole_key_filtering,
-                              BlockContents&& contents, Statistics* statistics);
+  BlockBasedFilterBlockReader(const BlockBasedTable* t,
+                              CachableEntry<BlockContents>&& filter_block);
+
+  static std::unique_ptr<FilterBlockReader> Create(
+      const BlockBasedTable* table, FilePrefetchBuffer* prefetch_buffer,
+      bool use_cache, bool prefetch, bool pin,
+      BlockCacheLookupContext* lookup_context);
+
   bool IsBlockBased() override { return true; }
 
   bool KeyMayMatch(const Slice& key, const SliceTransform* prefix_extractor,
                    uint64_t block_offset, const bool no_io,
-                   const Slice* const const_ikey_ptr,
-                   BlockCacheLookupContext* context) override;
+                   const Slice* const const_ikey_ptr, GetContext* get_context,
+                   BlockCacheLookupContext* lookup_context) override;
   bool PrefixMayMatch(const Slice& prefix,
                       const SliceTransform* prefix_extractor,
                       uint64_t block_offset, const bool no_io,
                       const Slice* const const_ikey_ptr,
-                      BlockCacheLookupContext* context) override;
+                      GetContext* get_context,
+                      BlockCacheLookupContext* lookup_context) override;
   size_t ApproximateMemoryUsage() const override;
 
   // convert this object to a human readable form
   std::string ToString() const override;
 
  private:
-  const FilterPolicy* policy_;
-  const SliceTransform* prefix_extractor_;
-  const char* data_;    // Pointer to filter data (at block-start)
-  const char* offset_;  // Pointer to beginning of offset array (at block-end)
-  size_t num_;          // Number of entries in offset array
-  size_t base_lg_;      // Encoding parameter (see kFilterBaseLg in .cc file)
-  BlockContents contents_;
+  static bool ParseFieldsFromBlock(const BlockContents& contents,
+                                   const char** data, const char** offset,
+                                   size_t* num, size_t* base_lg);
 
-  bool MayMatch(const Slice& entry, uint64_t block_offset);
-
-  // No copying allowed
-  BlockBasedFilterBlockReader(const BlockBasedFilterBlockReader&);
-  void operator=(const BlockBasedFilterBlockReader&);
+  bool MayMatch(const Slice& entry, uint64_t block_offset, bool no_io,
+                GetContext* get_context,
+                BlockCacheLookupContext* lookup_context) const;
 };
+
 }  // namespace rocksdb

@@ -2514,6 +2514,11 @@ void rocksdb_options_set_max_write_buffer_number_to_maintain(
   opt->rep.max_write_buffer_number_to_maintain = n;
 }
 
+void rocksdb_options_set_max_write_buffer_size_to_maintain(
+    rocksdb_options_t* opt, int64_t n) {
+  opt->rep.max_write_buffer_size_to_maintain = n;
+}
+
 void rocksdb_options_set_enable_pipelined_write(rocksdb_options_t* opt,
                                                 unsigned char v) {
   opt->rep.enable_pipelined_write = v;

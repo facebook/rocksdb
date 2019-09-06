@@ -47,6 +47,8 @@ enum FileType {
 // "dbname".
 extern std::string LogFileName(const std::string& dbname, uint64_t number);
 
+extern std::string LogFileName(uint64_t number);
+
 extern std::string BlobFileName(const std::string& bdirname, uint64_t number);
 
 extern std::string BlobFileName(const std::string& dbname,
@@ -62,6 +64,8 @@ extern std::string ArchivedLogFileName(const std::string& dbname,
                                        uint64_t num);
 
 extern std::string MakeTableFileName(const std::string& name, uint64_t number);
+
+extern std::string MakeTableFileName(uint64_t number);
 
 // Return the name of sstable with LevelDB suffix
 // created from RocksDB sstable suffixed name
@@ -163,7 +167,8 @@ extern Status SetCurrentFile(Env* env, const std::string& dbname,
                              Directory* directory_to_fsync);
 
 // Make the IDENTITY file for the db
-extern Status SetIdentityFile(Env* env, const std::string& dbname);
+extern Status SetIdentityFile(Env* env, const std::string& dbname,
+                              const std::string& db_id = {});
 
 // Sync manifest file `file`.
 extern Status SyncManifest(Env* env, const ImmutableDBOptions* db_options,
