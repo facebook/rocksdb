@@ -317,6 +317,8 @@ class DBImpl : public DB {
 
   virtual Status GetDbIdentity(std::string& identity) const override;
 
+  virtual Status GetDbIdentityFromIdentityFile(std::string* identity) const;
+
   ColumnFamilyHandle* DefaultColumnFamily() const override;
 
   ColumnFamilyHandle* PersistentStatsColumnFamily() const;
@@ -338,6 +340,7 @@ class DBImpl : public DB {
                               uint64_t* manifest_file_size,
                               bool flush_memtable = true) override;
   virtual Status GetSortedWalFiles(VectorLogPtr& files) override;
+  virtual Status GetCurrentWalFile(std::unique_ptr<LogFile>* current_log_file) override;
 
   virtual Status GetUpdatesSince(
       SequenceNumber seq_number, std::unique_ptr<TransactionLogIterator>* iter,
@@ -926,6 +929,7 @@ class DBImpl : public DB {
  protected:
   Env* const env_;
   const std::string dbname_;
+  std::string db_id_;
   std::unique_ptr<VersionSet> versions_;
   // Flag to check whether we allocated and own the info log file
   bool own_info_log_;

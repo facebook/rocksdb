@@ -144,6 +144,8 @@ class FragmentedRangeTombstoneIterator : public InternalIterator {
   void Invalidate() {
     pos_ = tombstones_->end();
     seq_pos_ = tombstones_->seq_end();
+    pinned_pos_ = tombstones_->end();
+    pinned_seq_pos_ = tombstones_->seq_end();
   }
 
   RangeTombstone Tombstone() const {

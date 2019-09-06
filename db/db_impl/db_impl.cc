@@ -3158,6 +3158,11 @@ Status DBImpl::CheckConsistency() {
 }
 
 Status DBImpl::GetDbIdentity(std::string& identity) const {
+  identity.assign(db_id_);
+  return Status::OK();
+}
+
+Status DBImpl::GetDbIdentityFromIdentityFile(std::string* identity) const {
   std::string idfilename = IdentityFileName(dbname_);
   const EnvOptions soptions;
   std::unique_ptr<SequentialFileReader> id_file_reader;
@@ -3184,10 +3189,10 @@ Status DBImpl::GetDbIdentity(std::string& identity) const {
   if (!s.ok()) {
     return s;
   }
-  identity.assign(id.ToString());
+  identity->assign(id.ToString());
   // If last character is '\n' remove it from identity
-  if (identity.size() > 0 && identity.back() == '\n') {
-    identity.pop_back();
+  if (identity->size() > 0 && identity->back() == '\n') {
+    identity->pop_back();
   }
   return s;
 }
@@ -3766,9 +3771,9 @@ Status DBImpl::IngestExternalFiles(
     exec_results.emplace_back(false, Status::OK());
   }
   // TODO(yanqin) maybe make jobs run in parallel
+  uint64_t start_file_number = next_file_number;
   for (size_t i = 1; i != num_cfs; ++i) {
-    uint64_t start_file_number =
-        next_file_number + args[i - 1].external_files.size();
+    start_file_number += args[i - 1].external_files.size();
     auto* cfd =
         static_cast<ColumnFamilyHandleImpl*>(args[i].column_family)->cfd();
     SuperVersion* super_version = cfd->GetReferencedSuperVersion(&mutex_);

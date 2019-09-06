@@ -597,7 +597,6 @@ set(SOURCES
         table/block_based/partitioned_filter_block.cc
         table/block_based/uncompression_dict_reader.cc
         table/block_fetcher.cc
-        table/bloom_block.cc
         table/cuckoo/cuckoo_table_builder.cc
         table/cuckoo/cuckoo_table_factory.cc
         table/cuckoo/cuckoo_table_reader.cc
@@ -607,6 +606,7 @@ set(SOURCES
         table/merging_iterator.cc
         table/meta_blocks.cc
         table/persistent_cache_helper.cc
+        table/plain/plain_table_bloom.cc
         table/plain/plain_table_builder.cc
         table/plain/plain_table_factory.cc
         table/plain/plain_table_index.cc

@@ -239,6 +239,16 @@ TEST_F(VersionEditTest, IgnorableField) {
   ASSERT_EQ(88, ve.next_file_number());
 }
 
+TEST_F(VersionEditTest, DbId) {
+  VersionEdit edit;
+  edit.SetDBId("ab34-cd12-435f-er00");
+  TestEncodeDecode(edit);
+
+  edit.Clear();
+  edit.SetDBId("34ba-cd12-435f-er01");
+  TestEncodeDecode(edit);
+}
+
 }  // namespace rocksdb
 
 int main(int argc, char** argv) {
