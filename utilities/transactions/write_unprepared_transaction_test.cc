@@ -36,6 +36,27 @@ INSTANTIATE_TEST_CASE_P(
     ::testing::Values(std::make_tuple(false, false, WRITE_UNPREPARED),
                       std::make_tuple(false, true, WRITE_UNPREPARED)));
 
+enum StressAction { NO_SNAPSHOT, RO_SNAPSHOT, REFRESH_SNAPSHOT };
+class WriteUnpreparedStressTest : public WriteUnpreparedTransactionTestBase,
+                                  virtual public ::testing::WithParamInterface<
+                                      std::tuple<bool, StressAction>> {
+ public:
+  WriteUnpreparedStressTest()
+      : WriteUnpreparedTransactionTestBase(false, std::get<0>(GetParam()),
+                                           WRITE_UNPREPARED),
+        action_(std::get<1>(GetParam())) {}
+  StressAction action_;
+};
+
+INSTANTIATE_TEST_CASE_P(
+    WriteUnpreparedStressTest, WriteUnpreparedStressTest,
+    ::testing::Values(std::make_tuple(false, NO_SNAPSHOT),
+                      std::make_tuple(false, RO_SNAPSHOT),
+                      std::make_tuple(false, REFRESH_SNAPSHOT),
+                      std::make_tuple(true, NO_SNAPSHOT),
+                      std::make_tuple(true, RO_SNAPSHOT),
+                      std::make_tuple(true, REFRESH_SNAPSHOT)));
+
 TEST_P(WriteUnpreparedTransactionTest, ReadYourOwnWrite) {
   // The following tests checks whether reading your own write for
   // a transaction works for write unprepared, when there are uncommitted
@@ -116,7 +137,7 @@ TEST_P(WriteUnpreparedTransactionTest, ReadYourOwnWrite) {
 }
 
 #ifndef ROCKSDB_VALGRIND_RUN
-TEST_P(WriteUnpreparedTransactionTest, ReadYourOwnWriteStress) {
+TEST_P(WriteUnpreparedStressTest, ReadYourOwnWriteStress) {
   // This is a stress test where different threads are writing random keys, and
   // then before committing or aborting the transaction, it validates to see
   // that it can read the keys it wrote, and the keys it did not write respect
@@ -129,12 +150,12 @@ TEST_P(WriteUnpreparedTransactionTest, ReadYourOwnWriteStress) {
   std::default_random_engine rand(static_cast<uint32_t>(
       std::hash<std::thread::id>()(std::this_thread::get_id())));
 
-  enum Action { NO_SNAPSHOT, RO_SNAPSHOT, REFRESH_SNAPSHOT };
   // Test with
   // 1. no snapshots set
   // 2. snapshot set on ReadOptions
   // 3. snapshot set, and refreshing after every write.
-  for (Action a : {NO_SNAPSHOT, RO_SNAPSHOT, REFRESH_SNAPSHOT}) {
+  {
+    StressAction a = action_;
     WriteOptions write_options;
     txn_db_options.transaction_lock_timeout = -1;
     options.disable_auto_compactions = true;
