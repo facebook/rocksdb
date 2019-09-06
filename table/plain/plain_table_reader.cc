@@ -377,8 +377,7 @@ Status PlainTableReader::PopulateIndex(TableProperties* props,
     }
     // cast away const qualifier, because bloom_ won't be changed
     bloom_.SetRawData(
-        const_cast<unsigned char*>(
-            reinterpret_cast<const unsigned char*>(bloom_block->data())),
+        const_cast<char*>(bloom_block->data()),
         static_cast<uint32_t>(bloom_block->size()) * 8, num_blocks);
   } else {
     // Index in file but no bloom in file. Disable bloom filter in this case.
