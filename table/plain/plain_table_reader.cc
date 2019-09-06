@@ -260,23 +260,19 @@ Status PlainTableReader::PopulateIndexRecordList(
   return s;
 }
 
-void PlainTableReader::AllocateAndFillBloom(
-    int bloom_bits_per_key, int num_prefixes, size_t huge_page_tlb_size,
-    std::vector<uint32_t>* prefix_hashes) {
-  if (!IsTotalOrderMode()) {
-    uint32_t bloom_total_bits = num_prefixes * bloom_bits_per_key;
-    if (bloom_total_bits > 0) {
-      enable_bloom_ = true;
-      bloom_.SetTotalBits(&arena_, bloom_total_bits, ioptions_.bloom_locality,
-                          huge_page_tlb_size, ioptions_.info_log);
-      FillBloom(prefix_hashes);
-    }
+void PlainTableReader::AllocateBloom(int bloom_bits_per_key, int num_keys,
+                                     size_t huge_page_tlb_size) {
+  uint32_t bloom_total_bits = num_keys * bloom_bits_per_key;
+  if (bloom_total_bits > 0) {
+    enable_bloom_ = true;
+    bloom_.SetTotalBits(&arena_, bloom_total_bits, ioptions_.bloom_locality,
+                        huge_page_tlb_size, ioptions_.info_log);
   }
 }
 
-void PlainTableReader::FillBloom(std::vector<uint32_t>* prefix_hashes) {
+void PlainTableReader::FillBloom(const std::vector<uint32_t>& prefix_hashes) {
   assert(bloom_.IsInitialized());
-  for (auto prefix_hash : *prefix_hashes) {
+  for (const auto prefix_hash : prefix_hashes) {
     bloom_.AddHash(prefix_hash);
   }
 }
@@ -354,14 +350,9 @@ Status PlainTableReader::PopulateIndex(TableProperties* props,
   if (!index_in_file) {
     // Allocate bloom filter here for total order mode.
     if (IsTotalOrderMode()) {
-      uint32_t num_bloom_bits =
-          static_cast<uint32_t>(table_properties_->num_entries) *
-          bloom_bits_per_key;
-      if (num_bloom_bits > 0) {
-        enable_bloom_ = true;
-        bloom_.SetTotalBits(&arena_, num_bloom_bits, ioptions_.bloom_locality,
-                            huge_page_tlb_size, ioptions_.info_log);
-      }
+      AllocateBloom(bloom_bits_per_key,
+                    static_cast<uint32_t>(table_properties_->num_entries),
+                    huge_page_tlb_size);
     }
   } else if (bloom_in_file) {
     enable_bloom_ = true;
@@ -391,6 +382,7 @@ Status PlainTableReader::PopulateIndex(TableProperties* props,
 
   std::vector<uint32_t> prefix_hashes;
   if (!index_in_file) {
+    // Populates _bloom if enabled (total order mode)
     s = PopulateIndexRecordList(&index_builder, &prefix_hashes);
     if (!s.ok()) {
       return s;
@@ -403,10 +395,15 @@ Status PlainTableReader::PopulateIndex(TableProperties* props,
   }
 
   if (!index_in_file) {
-    // Calculated bloom filter size and allocate memory for
-    // bloom filter based on the number of prefixes, then fill it.
-    AllocateAndFillBloom(bloom_bits_per_key, index_.GetNumPrefixes(),
-                         huge_page_tlb_size, &prefix_hashes);
+    if (!IsTotalOrderMode()) {
+      // Calculated bloom filter size and allocate memory for
+      // bloom filter based on the number of prefixes, then fill it.
+      AllocateBloom(bloom_bits_per_key, index_.GetNumPrefixes(),
+                    huge_page_tlb_size);
+      if (enable_bloom_) {
+        FillBloom(prefix_hashes);
+      }
+    }
   }
 
   // Fill two table properties.
