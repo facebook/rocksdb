@@ -21,11 +21,11 @@
 
 #include "table/block_based/block.h"
 #include "table/block_based/filter_block.h"
-#include "table/bloom_block.h"
 #include "table/format.h"
 #include "table/get_context.h"
 #include "table/internal_iterator.h"
 #include "table/meta_blocks.h"
+#include "table/plain/plain_table_bloom.h"
 #include "table/plain/plain_table_factory.h"
 #include "table/plain/plain_table_key_coding.h"
 #include "table/two_level_iterator.h"
@@ -617,6 +617,12 @@ Status PlainTableReader::Get(const ReadOptions& /*ro*/, const Slice& target,
 
 uint64_t PlainTableReader::ApproximateOffsetOf(const Slice& /*key*/,
                                                TableReaderCaller /*caller*/) {
+  return 0;
+}
+
+uint64_t PlainTableReader::ApproximateSize(const Slice& /*start*/,
+                                           const Slice& /*end*/,
+                                           TableReaderCaller /*caller*/) {
   return 0;
 }
 

@@ -227,8 +227,10 @@ TEST_P(TransactionTest, ValidateSnapshotTest) {
         db_impl->TEST_FlushMemTable(true);
         // Make sure the flushed memtable is not kept in memory
         int max_memtable_in_history =
-            std::max(options.max_write_buffer_number,
-                     options.max_write_buffer_number_to_maintain) +
+            std::max(
+                options.max_write_buffer_number,
+                static_cast<int>(options.max_write_buffer_size_to_maintain) /
+                    static_cast<int>(options.write_buffer_size)) +
             1;
         for (int i = 0; i < max_memtable_in_history; i++) {
           db->Put(write_options, Slice("key"), Slice("value"));
@@ -5488,6 +5490,7 @@ class ThreeBytewiseComparator : public Comparator {
   }
 };
 
+#ifndef ROCKSDB_VALGRIND_RUN
 TEST_P(TransactionTest, GetWithoutSnapshot) {
   WriteOptions write_options;
   std::atomic<bool> finish = {false};
@@ -5516,6 +5519,7 @@ TEST_P(TransactionTest, GetWithoutSnapshot) {
   commit_thread.join();
   read_thread.join();
 }
+#endif  // ROCKSDB_VALGRIND_RUN
 
 // Test that the transactional db can handle duplicate keys in the write batch
 TEST_P(TransactionTest, DuplicateKeys) {
@@ -5963,6 +5967,55 @@ TEST_P(TransactionTest, DuplicateKeys) {
     delete db;
     db = nullptr;
   }
+}
+
+// Test that the reseek optimization in iterators will not result in an infinite
+// loop if there are too many uncommitted entries before the snapshot.
+TEST_P(TransactionTest, ReseekOptimization) {
+  WriteOptions write_options;
+  write_options.sync = true;
+  write_options.disableWAL = false;
+  ColumnFamilyDescriptor cfd;
+  db->DefaultColumnFamily()->GetDescriptor(&cfd);
+  auto max_skip = cfd.options.max_sequential_skip_in_iterations;
+
+  ASSERT_OK(db->Put(write_options, Slice("foo0"), Slice("initv")));
+
+  TransactionOptions txn_options;
+  Transaction* txn0 = db->BeginTransaction(write_options, txn_options);
+  ASSERT_OK(txn0->SetName("xid"));
+  // Duplicate keys will result into separate sequence numbers in WritePrepared
+  // and WriteUnPrepared
+  for (size_t i = 0; i < 2 * max_skip; i++) {
+    ASSERT_OK(txn0->Put(Slice("foo1"), Slice("bar")));
+  }
+  ASSERT_OK(txn0->Prepare());
+  ASSERT_OK(db->Put(write_options, Slice("foo2"), Slice("initv")));
+
+  ReadOptions read_options;
+  // To avoid loops
+  read_options.max_skippable_internal_keys = 10 * max_skip;
+  Iterator* iter = db->NewIterator(read_options);
+  ASSERT_OK(iter->status());
+  size_t cnt = 0;
+  iter->SeekToFirst();
+  while (iter->Valid()) {
+    iter->Next();
+    ASSERT_OK(iter->status());
+    cnt++;
+  }
+  ASSERT_EQ(cnt, 2);
+  cnt = 0;
+  iter->SeekToLast();
+  while (iter->Valid()) {
+    iter->Prev();
+    ASSERT_OK(iter->status());
+    cnt++;
+  }
+  ASSERT_EQ(cnt, 2);
+  delete iter;
+  txn0->Rollback();
+  delete txn0;
 }
 
 }  // namespace rocksdb

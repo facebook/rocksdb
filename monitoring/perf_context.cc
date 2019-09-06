@@ -529,7 +529,10 @@ std::string PerfContext::ToString(bool exclude_zero_counters) const {
   PERF_CONTEXT_BY_LEVEL_OUTPUT_ONE_COUNTER(bloom_filter_full_true_positive);
   PERF_CONTEXT_BY_LEVEL_OUTPUT_ONE_COUNTER(block_cache_hit_count);
   PERF_CONTEXT_BY_LEVEL_OUTPUT_ONE_COUNTER(block_cache_miss_count);
-  return ss.str();
+
+  std::string str = ss.str();
+  str.erase(str.find_last_not_of(", ") + 1);
+  return str;
 #endif
 }
 

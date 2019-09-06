@@ -37,6 +37,7 @@
 #include "db/read_callback.h"
 #include "db/snapshot_checker.h"
 #include "db/snapshot_impl.h"
+#include "db/trim_history_scheduler.h"
 #include "db/version_edit.h"
 #include "db/wal_manager.h"
 #include "db/write_controller.h"
@@ -316,6 +317,8 @@ class DBImpl : public DB {
 
   virtual Status GetDbIdentity(std::string& identity) const override;
 
+  virtual Status GetDbIdentityFromIdentityFile(std::string* identity) const;
+
   ColumnFamilyHandle* DefaultColumnFamily() const override;
 
   ColumnFamilyHandle* PersistentStatsColumnFamily() const;
@@ -337,6 +340,7 @@ class DBImpl : public DB {
                               uint64_t* manifest_file_size,
                               bool flush_memtable = true) override;
   virtual Status GetSortedWalFiles(VectorLogPtr& files) override;
+  virtual Status GetCurrentWalFile(std::unique_ptr<LogFile>* current_log_file) override;
 
   virtual Status GetUpdatesSince(
       SequenceNumber seq_number, std::unique_ptr<TransactionLogIterator>* iter,
@@ -380,7 +384,8 @@ class DBImpl : public DB {
       const ExportImportFilesMetaData& metadata,
       ColumnFamilyHandle** handle) override;
 
-  virtual Status VerifyChecksum() override;
+  using DB::VerifyChecksum;
+  virtual Status VerifyChecksum(const ReadOptions& /*read_options*/) override;
 
   using DB::StartTrace;
   virtual Status StartTrace(
@@ -812,6 +817,13 @@ class DBImpl : public DB {
                        uint64_t* new_time,
                        std::map<std::string, uint64_t>* stats_map);
 
+  // Print information of all tombstones of all iterators to the std::string
+  // This is only used by ldb. The output might be capped. Tombstones
+  // printed out are not guaranteed to be in any order.
+  Status TablesRangeTombstoneSummary(ColumnFamilyHandle* column_family,
+                                     int max_entries_to_print,
+                                     std::string* out_str);
+
 #ifndef NDEBUG
   // Compact any files in the named level that overlap [*begin, *end]
   Status TEST_CompactRange(int level, const Slice* begin, const Slice* end,
@@ -912,12 +924,12 @@ class DBImpl : public DB {
   void TEST_WaitForPersistStatsRun(std::function<void()> callback) const;
   bool TEST_IsPersistentStatsEnabled() const;
   size_t TEST_EstimateInMemoryStatsHistorySize() const;
-
 #endif  // NDEBUG
 
  protected:
   Env* const env_;
   const std::string dbname_;
+  std::string db_id_;
   std::unique_ptr<VersionSet> versions_;
   // Flag to check whether we allocated and own the info log file
   bool own_info_log_;
@@ -1348,6 +1360,8 @@ class DBImpl : public DB {
 
   void MaybeFlushStatsCF(autovector<ColumnFamilyData*>* cfds);
 
+  Status TrimMemtableHistory(WriteContext* context);
+
   Status SwitchMemtable(ColumnFamilyData* cfd, WriteContext* context);
 
   void SelectColumnFamiliesForAtomicFlush(autovector<ColumnFamilyData*>* cfds);
@@ -1725,6 +1739,8 @@ class DBImpl : public DB {
   uint64_t last_batch_group_size_;
 
   FlushScheduler flush_scheduler_;
+
+  TrimHistoryScheduler trim_history_scheduler_;
 
   SnapshotList snapshots_;
 

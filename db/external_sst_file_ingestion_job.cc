@@ -64,13 +64,13 @@ Status ExternalSstFileIngestionJob::Prepare(
     std::sort(
         sorted_files.begin(), sorted_files.end(),
         [&ucmp](const IngestedFileInfo* info1, const IngestedFileInfo* info2) {
-          return ucmp->Compare(info1->smallest_user_key,
-                               info2->smallest_user_key) < 0;
+          return sstableKeyCompare(ucmp, info1->smallest_internal_key,
+                                   info2->smallest_internal_key) < 0;
         });
 
     for (size_t i = 0; i < num_files - 1; i++) {
-      if (ucmp->Compare(sorted_files[i]->largest_user_key,
-                        sorted_files[i + 1]->smallest_user_key) >= 0) {
+      if (sstableKeyCompare(ucmp, sorted_files[i]->largest_internal_key,
+                            sorted_files[i + 1]->smallest_internal_key) >= 0) {
         return Status::NotSupported("Files have overlapping ranges");
       }
     }
@@ -81,8 +81,8 @@ Status ExternalSstFileIngestionJob::Prepare(
       return Status::InvalidArgument("File contain no entries");
     }
 
-    if (!f.smallest_internal_key().Valid() ||
-        !f.largest_internal_key().Valid()) {
+    if (!f.smallest_internal_key.Valid() ||
+        !f.largest_internal_key.Valid()) {
       return Status::Corruption("Generated table have corrupted keys");
     }
   }
@@ -160,7 +160,7 @@ Status ExternalSstFileIngestionJob::Prepare(
     // We failed, remove all files that we copied into the db
     for (IngestedFileInfo& f : files_to_ingest_) {
       if (f.internal_file_path.empty()) {
-        break;
+        continue;
       }
       Status s = env_->DeleteFile(f.internal_file_path);
       if (!s.ok()) {
@@ -178,8 +178,8 @@ Status ExternalSstFileIngestionJob::NeedsFlush(bool* flush_needed,
                                                SuperVersion* super_version) {
   autovector<Range> ranges;
   for (const IngestedFileInfo& file_to_ingest : files_to_ingest_) {
-    ranges.emplace_back(file_to_ingest.smallest_user_key,
-                        file_to_ingest.largest_user_key);
+    ranges.emplace_back(file_to_ingest.smallest_internal_key.user_key(),
+                        file_to_ingest.largest_internal_key.user_key());
   }
   Status status =
       cfd_->RangesOverlapWithMemtables(ranges, super_version, flush_needed);
@@ -238,8 +238,8 @@ Status ExternalSstFileIngestionJob::Run() {
       return status;
     }
     edit_.AddFile(f.picked_level, f.fd.GetNumber(), f.fd.GetPathId(),
-                  f.fd.GetFileSize(), f.smallest_internal_key(),
-                  f.largest_internal_key(), f.assigned_seqno, f.assigned_seqno,
+                  f.fd.GetFileSize(), f.smallest_internal_key,
+                  f.largest_internal_key, f.assigned_seqno, f.assigned_seqno,
                   false);
   }
   return status;
@@ -291,6 +291,9 @@ void ExternalSstFileIngestionJob::Cleanup(const Status& status) {
     // We failed to add the files to the database
     // remove all the files we copied
     for (IngestedFileInfo& f : files_to_ingest_) {
+      if (f.internal_file_path.empty()) {
+        continue;
+      }
       Status s = env_->DeleteFile(f.internal_file_path);
       if (!s.ok()) {
         ROCKS_LOG_WARN(db_options_.info_log,
@@ -347,8 +350,13 @@ Status ExternalSstFileIngestionJob::GetIngestedFileInfo(
   }
 
   if (ingestion_options_.verify_checksums_before_ingest) {
-    status =
-        table_reader->VerifyChecksum(TableReaderCaller::kExternalSSTIngestion);
+    // If customized readahead size is needed, we can pass a user option
+    // all the way to here. Right now we just rely on the default readahead
+    // to keep things simple.
+    ReadOptions ro;
+    ro.readahead_size = ingestion_options_.verify_checksums_readahead_size;
+    status = table_reader->VerifyChecksum(
+        ro, TableReaderCaller::kExternalSSTIngestion);
   }
   if (!status.ok()) {
     return status;
@@ -414,6 +422,8 @@ Status ExternalSstFileIngestionJob::GetIngestedFileInfo(
       table_reader->NewRangeTombstoneIterator(ro));
 
   // Get first (smallest) and last (largest) key from file.
+  file_to_ingest->smallest_internal_key = InternalKey("", 0, ValueType::kTypeValue);
+  file_to_ingest->largest_internal_key = InternalKey("", 0, ValueType::kTypeValue);
   bool bounds_set = false;
   iter->SeekToFirst();
   if (iter->Valid()) {
@@ -423,7 +433,7 @@ Status ExternalSstFileIngestionJob::GetIngestedFileInfo(
     if (key.sequence != 0) {
       return Status::Corruption("external file have non zero sequence number");
     }
-    file_to_ingest->smallest_user_key = key.user_key.ToString();
+    file_to_ingest->smallest_internal_key.SetFrom(key);
 
     iter->SeekToLast();
     if (!ParseInternalKey(iter->key(), &key)) {
@@ -432,7 +442,7 @@ Status ExternalSstFileIngestionJob::GetIngestedFileInfo(
     if (key.sequence != 0) {
       return Status::Corruption("external file have non zero sequence number");
     }
-    file_to_ingest->largest_user_key = key.user_key.ToString();
+    file_to_ingest->largest_internal_key.SetFrom(key);
 
     bounds_set = true;
   }
@@ -448,13 +458,13 @@ Status ExternalSstFileIngestionJob::GetIngestedFileInfo(
       }
       RangeTombstone tombstone(key, range_del_iter->value());
 
-      if (!bounds_set || ucmp->Compare(tombstone.start_key_,
-                                       file_to_ingest->smallest_user_key) < 0) {
-        file_to_ingest->smallest_user_key = tombstone.start_key_.ToString();
+      InternalKey start_key = tombstone.SerializeKey();
+      if (!bounds_set || sstableKeyCompare(ucmp, start_key, file_to_ingest->smallest_internal_key) < 0) {
+        file_to_ingest->smallest_internal_key = start_key;
       }
-      if (!bounds_set || ucmp->Compare(tombstone.end_key_,
-                                       file_to_ingest->largest_user_key) > 0) {
-        file_to_ingest->largest_user_key = tombstone.end_key_.ToString();
+      InternalKey end_key = tombstone.SerializeEndKey();
+      if (!bounds_set || sstableKeyCompare(ucmp, end_key, file_to_ingest->largest_internal_key) > 0) {
+        file_to_ingest->largest_internal_key = end_key;
       }
       bounds_set = true;
     }
@@ -496,7 +506,7 @@ Status ExternalSstFileIngestionJob::AssignLevelAndSeqnoForIngestedFile(
     if (vstorage->NumLevelFiles(lvl) > 0) {
       bool overlap_with_level = false;
       status = sv->current->OverlapWithLevelIterator(ro, env_options_,
-          file_to_ingest->smallest_user_key, file_to_ingest->largest_user_key,
+          file_to_ingest->smallest_internal_key.user_key(), file_to_ingest->largest_internal_key.user_key(),
           lvl, &overlap_with_level);
       if (!status.ok()) {
         return status;
@@ -630,8 +640,8 @@ bool ExternalSstFileIngestionJob::IngestedFileFitInLevel(
   }
 
   auto* vstorage = cfd_->current()->storage_info();
-  Slice file_smallest_user_key(file_to_ingest->smallest_user_key);
-  Slice file_largest_user_key(file_to_ingest->largest_user_key);
+  Slice file_smallest_user_key(file_to_ingest->smallest_internal_key.user_key());
+  Slice file_largest_user_key(file_to_ingest->largest_internal_key.user_key());
 
   if (vstorage->OverlapInLevel(level, &file_smallest_user_key,
                                &file_largest_user_key)) {

@@ -62,6 +62,12 @@ class CuckooTableReader: public TableReader {
                                TableReaderCaller /*caller*/) override {
     return 0;
   }
+
+  uint64_t ApproximateSize(const Slice& /*start*/, const Slice& /*end*/,
+                           TableReaderCaller /*caller*/) override {
+    return 0;
+  }
+
   void SetupForCompaction() override {}
   // End of methods not implemented.
 

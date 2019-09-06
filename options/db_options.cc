@@ -86,6 +86,7 @@ ImmutableDBOptions::ImmutableDBOptions(const DBOptions& options)
       atomic_flush(options.atomic_flush),
       avoid_unnecessary_blocking_io(options.avoid_unnecessary_blocking_io),
       persist_stats_to_disk(options.persist_stats_to_disk),
+      write_dbid_to_manifest(options.write_dbid_to_manifest),
       log_readahead_size(options.log_readahead_size) {
 }
 
@@ -226,6 +227,8 @@ void ImmutableDBOptions::Dump(Logger* log) const {
                    avoid_unnecessary_blocking_io);
   ROCKS_LOG_HEADER(log, "                Options.persist_stats_to_disk: %u",
                    persist_stats_to_disk);
+  ROCKS_LOG_HEADER(log, "                Options.write_dbid_to_manifest: %d",
+                   write_dbid_to_manifest);
   ROCKS_LOG_HEADER(
       log, "                Options.log_readahead_size: %" ROCKSDB_PRIszt,
       log_readahead_size);

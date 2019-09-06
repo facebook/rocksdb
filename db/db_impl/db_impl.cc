@@ -33,9 +33,9 @@
 #include "db/error_handler.h"
 #include "db/event_helpers.h"
 #include "db/external_sst_file_ingestion_job.h"
-#include "db/import_column_family_job.h"
 #include "db/flush_job.h"
 #include "db/forward_iterator.h"
+#include "db/import_column_family_job.h"
 #include "db/job_context.h"
 #include "db/log_reader.h"
 #include "db/log_writer.h"
@@ -91,6 +91,7 @@
 #include "tools/sst_dump_tool_imp.h"
 #include "util/autovector.h"
 #include "util/build_version.h"
+#include "util/cast_util.h"
 #include "util/coding.h"
 #include "util/compression.h"
 #include "util/crc32c.h"
@@ -471,6 +472,7 @@ Status DBImpl::CloseHelper() {
                            &files_grabbed_for_purge_);
   EraseThreadStatusDbInfo();
   flush_scheduler_.Clear();
+  trim_history_scheduler_.Clear();
 
   while (!flush_queue_.empty()) {
     const FlushRequest& flush_req = PopFirstFromFlushQueue();
@@ -862,6 +864,24 @@ void DBImpl::DumpStats() {
 #endif  // !ROCKSDB_LITE
 
   PrintStatistics();
+}
+
+Status DBImpl::TablesRangeTombstoneSummary(ColumnFamilyHandle* column_family,
+                                           int max_entries_to_print,
+                                           std::string* out_str) {
+  auto* cfh =
+      static_cast_with_check<ColumnFamilyHandleImpl, ColumnFamilyHandle>(
+          column_family);
+  ColumnFamilyData* cfd = cfh->cfd();
+
+  SuperVersion* super_version = cfd->GetReferencedSuperVersion(&mutex_);
+  Version* version = super_version->current;
+
+  Status s =
+      version->TablesRangeTombstoneSummary(max_entries_to_print, out_str);
+
+  CleanupSuperVersion(super_version);
+  return s;
 }
 
 void DBImpl::ScheduleBgLogWriterClose(JobContext* job_context) {
@@ -3138,6 +3158,11 @@ Status DBImpl::CheckConsistency() {
 }
 
 Status DBImpl::GetDbIdentity(std::string& identity) const {
+  identity.assign(db_id_);
+  return Status::OK();
+}
+
+Status DBImpl::GetDbIdentityFromIdentityFile(std::string* identity) const {
   std::string idfilename = IdentityFileName(dbname_);
   const EnvOptions soptions;
   std::unique_ptr<SequentialFileReader> id_file_reader;
@@ -3164,10 +3189,10 @@ Status DBImpl::GetDbIdentity(std::string& identity) const {
   if (!s.ok()) {
     return s;
   }
-  identity.assign(id.ToString());
+  identity->assign(id.ToString());
   // If last character is '\n' remove it from identity
-  if (identity.size() > 0 && identity.back() == '\n') {
-    identity.pop_back();
+  if (identity->size() > 0 && identity->back() == '\n') {
+    identity->pop_back();
   }
   return s;
 }
@@ -3746,9 +3771,9 @@ Status DBImpl::IngestExternalFiles(
     exec_results.emplace_back(false, Status::OK());
   }
   // TODO(yanqin) maybe make jobs run in parallel
+  uint64_t start_file_number = next_file_number;
   for (size_t i = 1; i != num_cfs; ++i) {
-    uint64_t start_file_number =
-        next_file_number + args[i - 1].external_files.size();
+    start_file_number += args[i - 1].external_files.size();
     auto* cfd =
         static_cast<ColumnFamilyHandleImpl*>(args[i].column_family)->cfd();
     SuperVersion* super_version = cfd->GetReferencedSuperVersion(&mutex_);
@@ -4093,7 +4118,7 @@ Status DBImpl::CreateColumnFamilyWithImport(
   return status;
 }
 
-Status DBImpl::VerifyChecksum() {
+Status DBImpl::VerifyChecksum(const ReadOptions& read_options) {
   Status s;
   std::vector<ColumnFamilyData*> cfd_list;
   {
@@ -4124,7 +4149,8 @@ Status DBImpl::VerifyChecksum() {
         const auto& fd = vstorage->LevelFilesBrief(i).files[j].fd;
         std::string fname = TableFileName(cfd->ioptions()->cf_paths,
                                           fd.GetNumber(), fd.GetPathId());
-        s = rocksdb::VerifySstFileChecksum(opts, env_options_, fname);
+        s = rocksdb::VerifySstFileChecksum(opts, env_options_, read_options,
+                                           fname);
       }
     }
     if (!s.ok()) {
