@@ -646,7 +646,7 @@ void TransactionBaseImpl::TrackKey(TransactionKeyMap* key_map, uint32_t cfh_id,
 #else
   auto iter = cf_key_map.find(key);
   if (iter == cf_key_map.end()) {
-    auto result = cf_key_map.emplace(key, seq);
+    auto result = cf_key_map.emplace(key, TransactionKeyMapInfo(seq));
     iter = result.first;
   } else if (seq < iter->second.seq) {
     // Now tracking this key with an earlier sequence number
