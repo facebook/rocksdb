@@ -14,7 +14,9 @@
 #include <algorithm>
 #if defined(OS_LINUX)
 #include <linux/fs.h>
+#ifndef FALLOC_FL_KEEP_SIZE
 #include <linux/falloc.h>
+#endif
 #endif
 #include <stdio.h>
 #include <stdlib.h>
