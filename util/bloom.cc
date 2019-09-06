@@ -57,18 +57,6 @@ FullFilterBitsBuilder::FullFilterBitsBuilder(const size_t bits_per_key,
     return Slice(data, total_bits / 8 + 5);
   }
 
-uint32_t FullFilterBitsBuilder::GetTotalBitsForLocality(uint32_t total_bits) {
-  uint32_t num_lines =
-      (total_bits + CACHE_LINE_SIZE * 8 - 1) / (CACHE_LINE_SIZE * 8);
-
-  // Make num_lines an odd number to make sure more bits are involved
-  // when determining which block.
-  if (num_lines % 2 == 0) {
-    num_lines++;
-  }
-  return num_lines * (CACHE_LINE_SIZE * 8);
-}
-
 uint32_t FullFilterBitsBuilder::CalculateSpace(const int num_entry,
                                                uint32_t* total_bits,
                                                uint32_t* num_lines) {

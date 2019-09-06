@@ -56,9 +56,6 @@ class FullFilterBitsBuilder : public FilterBitsBuilder {
   size_t num_probes_;
   std::vector<uint32_t> hash_entries_;
 
-  // Get totalbits that optimized for cpu cache line
-  uint32_t GetTotalBitsForLocality(uint32_t total_bits);
-
   // Reserve space for new filter
   char* ReserveSpace(const int num_entry, uint32_t* total_bits,
                      uint32_t* num_lines);
@@ -70,5 +67,18 @@ class FullFilterBitsBuilder : public FilterBitsBuilder {
   FullFilterBitsBuilder(const FullFilterBitsBuilder&);
   void operator=(const FullFilterBitsBuilder&);
 };
+
+inline uint32_t GetTotalBitsForLocality(uint32_t total_bits) {
+  uint32_t num_blocks =
+      (total_bits + CACHE_LINE_SIZE * 8 - 1) / (CACHE_LINE_SIZE * 8);
+
+  // Make num_blocks an odd number to make sure more bits are involved
+  // when determining which block
+  if (num_blocks % 2 == 0) {
+    num_blocks++;
+  }
+
+  return num_blocks * (CACHE_LINE_SIZE * 8);
+}
 
 }  // namespace rocksdb

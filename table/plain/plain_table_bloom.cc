@@ -7,28 +7,13 @@
 
 #include <string>
 #include <algorithm>
+#include "table/full_filter_bits_builder.h"
 #include "util/dynamic_bloom.h"
 
 #include "memory/allocator.h"
 
 
 namespace rocksdb {
-
-namespace {
-
-uint32_t GetTotalBitsForLocality(uint32_t total_bits) {
-  uint32_t num_blocks =
-      (total_bits + CACHE_LINE_SIZE * 8 - 1) / (CACHE_LINE_SIZE * 8);
-
-  // Make num_blocks an odd number to make sure more bits are involved
-  // when determining which block.
-  if (num_blocks % 2 == 0) {
-    num_blocks++;
-  }
-
-  return num_blocks * (CACHE_LINE_SIZE * 8);
-}
-}
 
 PlainTableBloomV1::PlainTableBloomV1(uint32_t num_probes)
     : kTotalBits(0), kNumBlocks(0), kNumProbes(num_probes), data_(nullptr) {}
