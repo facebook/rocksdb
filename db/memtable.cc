@@ -116,7 +116,7 @@ MemTable::MemTable(const InternalKeyComparator& cmp,
       moptions_.memtable_prefix_bloom_bits > 0) {
     bloom_filter_.reset(
         new DynamicBloom(&arena_, moptions_.memtable_prefix_bloom_bits,
-                         ioptions.bloom_locality, 6 /* hard coded 6 probes */,
+                         6 /* hard coded 6 probes */,
                          moptions_.memtable_huge_page_size, ioptions.info_log));
   }
 }

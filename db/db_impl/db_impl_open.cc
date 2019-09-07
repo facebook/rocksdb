@@ -231,11 +231,18 @@ Status DBImpl::ValidateOptions(const DBOptions& db_options) {
 
 Status DBImpl::NewDB() {
   VersionEdit new_db;
+  Status s = SetIdentityFile(env_, dbname_);
+  if (!s.ok()) {
+    return s;
+  }
+  if (immutable_db_options_.write_dbid_to_manifest) {
+    std::string temp_db_id;
+    GetDbIdentityFromIdentityFile(&temp_db_id);
+    new_db.SetDBId(temp_db_id);
+  }
   new_db.SetLogNumber(0);
   new_db.SetNextFile(2);
   new_db.SetLastSequence(0);
-
-  Status s;
 
   ROCKS_LOG_INFO(immutable_db_options_.info_log, "Creating manifest 1 \n");
   const std::string manifest = DescriptorFileName(dbname_, 1);
@@ -339,6 +346,9 @@ Status DBImpl::Recover(
     s = env_->FileExists(CurrentFileName(dbname_));
     if (s.IsNotFound()) {
       if (immutable_db_options_.create_if_missing) {
+        // Has to be called only after Identity File creation is successful
+        // because DB ID is stored in Manifest if
+        // immutable_db_options_.write_dbid_to_manifest = true
         s = NewDB();
         is_new_db = true;
         if (!s.ok()) {
@@ -358,30 +368,19 @@ Status DBImpl::Recover(
       assert(s.IsIOError());
       return s;
     }
-    // Check for the IDENTITY file and create it if not there
-    s = env_->FileExists(IdentityFileName(dbname_));
-    if (s.IsNotFound()) {
-      s = SetIdentityFile(env_, dbname_);
-      if (!s.ok()) {
-        return s;
-      }
-    } else if (!s.ok()) {
-      assert(s.IsIOError());
-      return s;
-    }
     // Verify compatibility of env_options_ and filesystem
     {
       std::unique_ptr<RandomAccessFile> idfile;
       EnvOptions customized_env(env_options_);
       customized_env.use_direct_reads |=
           immutable_db_options_.use_direct_io_for_flush_and_compaction;
-      s = env_->NewRandomAccessFile(IdentityFileName(dbname_), &idfile,
+      s = env_->NewRandomAccessFile(CurrentFileName(dbname_), &idfile,
                                     customized_env);
       if (!s.ok()) {
         std::string error_str = s.ToString();
         // Check if unsupported Direct I/O is the root cause
         customized_env.use_direct_reads = false;
-        s = env_->NewRandomAccessFile(IdentityFileName(dbname_), &idfile,
+        s = env_->NewRandomAccessFile(CurrentFileName(dbname_), &idfile,
                                       customized_env);
         if (s.ok()) {
           return Status::InvalidArgument(
@@ -393,8 +392,42 @@ Status DBImpl::Recover(
       }
     }
   }
-
-  Status s = versions_->Recover(column_families, read_only);
+  assert(db_id_.empty());
+  Status s = versions_->Recover(column_families, read_only, &db_id_);
+  if (!s.ok()) {
+    return s;
+  }
+  // Happens when immutable_db_options_.write_dbid_to_manifest is set to true
+  // the very first time.
+  if (db_id_.empty()) {
+    // Check for the IDENTITY file and create it if not there.
+    s = env_->FileExists(IdentityFileName(dbname_));
+    // Typically Identity file is created in NewDB() and for some reason if
+    // it is no longer available then at this point DB ID is not in Identity
+    // file or Manifest.
+    if (s.IsNotFound()) {
+      s = SetIdentityFile(env_, dbname_);
+      if (!s.ok()) {
+        return s;
+      }
+    } else if (!s.ok()) {
+      assert(s.IsIOError());
+      return s;
+    }
+    GetDbIdentityFromIdentityFile(&db_id_);
+    if (immutable_db_options_.write_dbid_to_manifest) {
+      VersionEdit edit;
+      edit.SetDBId(db_id_);
+      Options options;
+      MutableCFOptions mutable_cf_options(options);
+      versions_->db_id_ = db_id_;
+      versions_->LogAndApply(versions_->GetColumnFamilySet()->GetDefault(),
+                             mutable_cf_options, &edit, &mutex_, nullptr,
+                             false);
+    }
+  } else {
+    SetIdentityFile(env_, dbname_, db_id_);
+  }
 
   if (immutable_db_options_.paranoid_checks && s.ok()) {
     s = CheckConsistency();

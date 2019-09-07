@@ -163,6 +163,16 @@ Status DBImpl::GetSortedWalFiles(VectorLogPtr& files) {
   return wal_manager_.GetSortedWalFiles(files);
 }
 
+Status DBImpl::GetCurrentWalFile(std::unique_ptr<LogFile>* current_log_file) {
+  uint64_t current_logfile_number;
+  {
+    InstrumentedMutexLock l(&mutex_);
+    current_logfile_number = logfile_number_;
+  }
+
+  return wal_manager_.GetLiveWalFile(current_logfile_number, current_log_file);
+}
+
 }
 
 #endif  // ROCKSDB_LITE
