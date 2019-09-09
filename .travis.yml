@@ -80,6 +80,8 @@ before_script:
   # Increase the maximum number of open file descriptors, since some tests use
   # more FDs than the default limit.
   - ulimit -n 8192
+  - echo "Present Directory: " $PWD
+  - git clone https://github.com/google/gtest-parallel
 
 script:
   - ${CXX} --version
