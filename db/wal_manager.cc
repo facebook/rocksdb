@@ -280,17 +280,6 @@ void WalManager::ArchiveWALFile(const std::string& fname, uint64_t number) {
                  s.ToString().c_str());
 }
 
-namespace {
-struct CompareLogByPointer {
-  bool operator()(const std::unique_ptr<LogFile>& a,
-                  const std::unique_ptr<LogFile>& b) {
-    LogFileImpl* a_impl = static_cast_with_check<LogFileImpl, LogFile>(a.get());
-    LogFileImpl* b_impl = static_cast_with_check<LogFileImpl, LogFile>(b.get());
-    return *a_impl < *b_impl;
-  }
-};
-}
-
 Status WalManager::GetSortedWalsOfType(const std::string& path,
                                        VectorLogPtr& log_files,
                                        WalFileType log_type) {
@@ -341,8 +330,15 @@ Status WalManager::GetSortedWalsOfType(const std::string& path,
           new LogFileImpl(number, log_type, sequence, size_bytes)));
     }
   }
-  CompareLogByPointer compare_log_files;
-  std::sort(log_files.begin(), log_files.end(), compare_log_files);
+  std::sort(
+      log_files.begin(), log_files.end(),
+      [](const std::unique_ptr<LogFile>& a, const std::unique_ptr<LogFile>& b) {
+        LogFileImpl* a_impl =
+            static_cast_with_check<LogFileImpl, LogFile>(a.get());
+        LogFileImpl* b_impl =
+            static_cast_with_check<LogFileImpl, LogFile>(b.get());
+        return *a_impl < *b_impl;
+      });
   return status;
 }
 
@@ -417,6 +413,34 @@ Status WalManager::ReadFirstRecord(const WalFileType type,
   }
   return s;
 }
+
+Status WalManager::GetLiveWalFile(uint64_t number, std::unique_ptr<LogFile>* log_file) {
+  if (!log_file) {
+    return Status::InvalidArgument("log_file not preallocated.");
+  }
+
+  if(!number) {
+    return Status::PathNotFound("log file not available");
+  }
+
+  Status s;
+
+  uint64_t size_bytes;
+  s = env_->GetFileSize(LogFileName(db_options_.wal_dir, number), &size_bytes);
+
+  if (!s.ok()) {
+    return s;
+  }
+
+  log_file->reset(new LogFileImpl(
+      number,
+      kAliveLogFile,
+      0,      // SequenceNumber
+      size_bytes));
+
+  return Status::OK();
+}
+
 
 // the function returns status.ok() and sequence == 0 if the file exists, but is
 // empty

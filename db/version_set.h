@@ -65,6 +65,14 @@ class MergeContext;
 class ColumnFamilySet;
 class MergeIteratorBuilder;
 
+// VersionEdit is always supposed to be valid and it is used to point at
+// entries in Manifest. Ideally it should not be used as a container to
+// carry around few of its fields as function params because it can cause
+// readers to think it's a valid entry from Manifest. To avoid that confusion
+// introducing VersionEditParams to simply carry around multiple VersionEdit
+// params. It need not point to a valid record in Manifest.
+using VersionEditParams = VersionEdit;
+
 // Return the smallest index i such that file_level.files[i]->largest >= key.
 // Return file_level.num_files if there is no such file.
 // REQUIRES: "file_level.files" contains a sorted list of
@@ -851,7 +859,7 @@ class VersionSet {
   // If read_only == true, Recover() will not complain if some column families
   // are not opened
   Status Recover(const std::vector<ColumnFamilyDescriptor>& column_families,
-                 bool read_only = false);
+                 bool read_only = false, std::string* db_id = nullptr);
 
   // Reads a manifest file and returns a list of column families in
   // column_families.
@@ -1054,7 +1062,7 @@ class VersionSet {
                            TableReaderCaller caller);
 
   // Save current contents to *log
-  Status WriteSnapshot(log::Writer* log);
+  Status WriteCurrentStateToManifest(log::Writer* log);
 
   void AppendVersion(ColumnFamilyData* column_family_data, Version* v);
 
@@ -1068,10 +1076,7 @@ class VersionSet {
       std::unordered_map<int, std::string>& column_families_not_found,
       std::unordered_map<
           uint32_t, std::unique_ptr<BaseReferencedVersionBuilder>>& builders,
-      bool* have_log_number, uint64_t* log_number, bool* have_prev_log_number,
-      uint64_t* previous_log_number, bool* have_next_file, uint64_t* next_file,
-      bool* have_last_sequence, SequenceNumber* last_sequence,
-      uint64_t* min_log_number_to_keep, uint32_t* max_column_family);
+      VersionEditParams* version_edit, std::string* db_id = nullptr);
 
   // REQUIRES db mutex
   Status ApplyOneVersionEditToBuilder(
@@ -1080,22 +1085,17 @@ class VersionSet {
       std::unordered_map<int, std::string>& column_families_not_found,
       std::unordered_map<
           uint32_t, std::unique_ptr<BaseReferencedVersionBuilder>>& builders,
-      bool* have_log_number, uint64_t* log_number, bool* have_prev_log_number,
-      uint64_t* previous_log_number, bool* have_next_file, uint64_t* next_file,
-      bool* have_last_sequence, SequenceNumber* last_sequence,
-      uint64_t* min_log_number_to_keep, uint32_t* max_column_family);
+      VersionEditParams* version_edit);
 
-  Status ExtractInfoFromVersionEdit(
-      ColumnFamilyData* cfd, const VersionEdit& edit, bool* have_log_number,
-      uint64_t* log_number, bool* have_prev_log_number,
-      uint64_t* previous_log_number, bool* have_next_file, uint64_t* next_file,
-      bool* have_last_sequence, SequenceNumber* last_sequence,
-      uint64_t* min_log_number_to_keep, uint32_t* max_column_family);
+  Status ExtractInfoFromVersionEdit(ColumnFamilyData* cfd,
+                                    const VersionEdit& from_edit,
+                                    VersionEditParams* version_edit_params);
 
   std::unique_ptr<ColumnFamilySet> column_family_set_;
 
   Env* const env_;
   const std::string dbname_;
+  std::string db_id_;
   const ImmutableDBOptions* const db_options_;
   std::atomic<uint64_t> next_file_number_;
   // Any log number equal or lower than this should be ignored during recovery,
@@ -1154,8 +1154,8 @@ class VersionSet {
                                const ColumnFamilyOptions* new_cf_options);
 
   void LogAndApplyCFHelper(VersionEdit* edit);
-  void LogAndApplyHelper(ColumnFamilyData* cfd, VersionBuilder* b,
-                         VersionEdit* edit, InstrumentedMutex* mu);
+  Status LogAndApplyHelper(ColumnFamilyData* cfd, VersionBuilder* b,
+                           VersionEdit* edit, InstrumentedMutex* mu);
 };
 
 // ReactiveVersionSet represents a collection of versions of the column
@@ -1195,10 +1195,7 @@ class ReactiveVersionSet : public VersionSet {
   // REQUIRES db mutex
   Status ApplyOneVersionEditToBuilder(
       VersionEdit& edit, std::unordered_set<ColumnFamilyData*>* cfds_changed,
-      bool* have_log_number, uint64_t* log_number, bool* have_prev_log_number,
-      uint64_t* previous_log_number, bool* have_next_file, uint64_t* next_file,
-      bool* have_last_sequence, SequenceNumber* last_sequence,
-      uint64_t* min_log_number_to_keep, uint32_t* max_column_family);
+      VersionEdit* version_edit);
 
   Status MaybeSwitchManifest(
       log::Reader::Reporter* reporter,

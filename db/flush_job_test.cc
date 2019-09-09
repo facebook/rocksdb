@@ -8,6 +8,7 @@
 #include <string>
 
 #include "db/column_family.h"
+#include "db/db_impl/db_impl.h"
 #include "db/flush_job.h"
 #include "db/version_set.h"
 #include "rocksdb/cache.h"
@@ -55,7 +56,14 @@ class FlushJobTest : public testing::Test {
   }
 
   void NewDB() {
+    SetIdentityFile(env_, dbname_);
     VersionEdit new_db;
+    if (db_options_.write_dbid_to_manifest) {
+      DBImpl* impl = new DBImpl(DBOptions(), dbname_);
+      std::string db_id;
+      impl->GetDbIdentityFromIdentityFile(&db_id);
+      new_db.SetDBId(db_id);
+    }
     new_db.SetLogNumber(0);
     new_db.SetNextFile(2);
     new_db.SetLastSequence(0);

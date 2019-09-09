@@ -633,6 +633,17 @@ void TransactionBaseImpl::TrackKey(TransactionKeyMap* key_map, uint32_t cfh_id,
                                    const std::string& key, SequenceNumber seq,
                                    bool read_only, bool exclusive) {
   auto& cf_key_map = (*key_map)[cfh_id];
+#ifdef __cpp_lib_unordered_map_try_emplace
+  // use c++17's try_emplace if available, to avoid rehashing the key
+  // in case it is not already in the map
+  auto result = cf_key_map.try_emplace(key, seq);
+  auto iter = result.first;
+  if (!result.second && 
+      seq < iter->second.seq) {
+    // Now tracking this key with an earlier sequence number
+    iter->second.seq = seq;
+  }
+#else
   auto iter = cf_key_map.find(key);
   if (iter == cf_key_map.end()) {
     auto result = cf_key_map.emplace(key, TransactionKeyMapInfo(seq));
@@ -641,10 +652,11 @@ void TransactionBaseImpl::TrackKey(TransactionKeyMap* key_map, uint32_t cfh_id,
     // Now tracking this key with an earlier sequence number
     iter->second.seq = seq;
   }
+#endif
   // else we do not update the seq. The smaller the tracked seq, the stronger it
   // the guarantee since it implies from the seq onward there has not been a
   // concurrent update to the key. So we update the seq if it implies stronger
-  // guarantees, i.e., if it is smaller than the existing trakced seq.
+  // guarantees, i.e., if it is smaller than the existing tracked seq.
 
   if (read_only) {
     iter->second.num_reads++;

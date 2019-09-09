@@ -277,6 +277,80 @@ Status TableCache::GetRangeTombstoneIterator(
   return s;
 }
 
+#ifndef ROCKSDB_LITE
+void TableCache::CreateRowCacheKeyPrefix(
+        const ReadOptions& options,
+        const FileDescriptor& fd, const Slice& internal_key,
+        GetContext* get_context, IterKey& row_cache_key) {
+  uint64_t fd_number = fd.GetNumber();
+  // We use the user key as cache key instead of the internal key,
+  // otherwise the whole cache would be invalidated every time the
+  // sequence key increases. However, to support caching snapshot
+  // reads, we append the sequence number (incremented by 1 to
+  // distinguish from 0) only in this case.
+  // If the snapshot is larger than the largest seqno in the file,
+  // all data should be exposed to the snapshot, so we treat it
+  // the same as there is no snapshot. The exception is that if
+  // a seq-checking callback is registered, some internal keys
+  // may still be filtered out.
+  uint64_t seq_no = 0;
+  // Maybe we can include the whole file ifsnapshot == fd.largest_seqno.
+  if (options.snapshot != nullptr &&
+      (get_context->has_callback() ||
+       static_cast_with_check<const SnapshotImpl, const Snapshot>(
+           options.snapshot)
+               ->GetSequenceNumber() <= fd.largest_seqno)) {
+    // We should consider to use options.snapshot->GetSequenceNumber()
+    // instead of GetInternalKeySeqno(k), which will make the code
+    // easier to understand.
+    seq_no = 1 + GetInternalKeySeqno(internal_key);
+  }
+
+  // Compute row cache key.
+  row_cache_key.TrimAppend(row_cache_key.Size(), row_cache_id_.data(),
+                           row_cache_id_.size());
+  AppendVarint64(&row_cache_key, fd_number);
+  AppendVarint64(&row_cache_key, seq_no);
+}
+
+bool TableCache::GetFromRowCache(
+          const Slice& user_key, IterKey& row_cache_key,
+          size_t prefix_size, GetContext* get_context) {
+  bool found = false;
+
+  row_cache_key.TrimAppend(prefix_size, user_key.data(),
+                           user_key.size());
+  if (auto row_handle =
+          ioptions_.row_cache->Lookup(row_cache_key.GetUserKey())) {
+    // Cleanable routine to release the cache entry
+    Cleanable value_pinner;
+    auto release_cache_entry_func = [](void* cache_to_clean,
+                                       void* cache_handle) {
+      ((Cache*)cache_to_clean)->Release((Cache::Handle*)cache_handle);
+    };
+    auto found_row_cache_entry = static_cast<const std::string*>(
+        ioptions_.row_cache->Value(row_handle));
+    // If it comes here value is located on the cache.
+    // found_row_cache_entry points to the value on cache,
+    // and value_pinner has cleanup procedure for the cached entry.
+    // After replayGetContextLog() returns, get_context.pinnable_slice_
+    // will point to cache entry buffer (or a copy based on that) and
+    // cleanup routine under value_pinner will be delegated to
+    // get_context.pinnable_slice_. Cache entry is released when
+    // get_context.pinnable_slice_ is reset.
+    value_pinner.RegisterCleanup(release_cache_entry_func,
+                                 ioptions_.row_cache.get(), row_handle);
+    replayGetContextLog(*found_row_cache_entry, user_key, get_context,
+                        &value_pinner);
+    RecordTick(ioptions_.statistics, ROW_CACHE_HIT);
+    found = true;
+  } else {
+    RecordTick(ioptions_.statistics, ROW_CACHE_MISS);
+  }
+  return found;
+}
+#endif  // ROCKSDB_LITE
+
 Status TableCache::Get(const ReadOptions& options,
                        const InternalKeyComparator& internal_comparator,
                        const FileMetaData& file_meta, const Slice& k,
@@ -294,66 +368,11 @@ Status TableCache::Get(const ReadOptions& options,
   // Check row cache if enabled. Since row cache does not currently store
   // sequence numbers, we cannot use it if we need to fetch the sequence.
   if (ioptions_.row_cache && !get_context->NeedToReadSequence()) {
-    uint64_t fd_number = fd.GetNumber();
     auto user_key = ExtractUserKey(k);
-    // We use the user key as cache key instead of the internal key,
-    // otherwise the whole cache would be invalidated every time the
-    // sequence key increases. However, to support caching snapshot
-    // reads, we append the sequence number (incremented by 1 to
-    // distinguish from 0) only in this case.
-    // If the snapshot is larger than the largest seqno in the file,
-    // all data should be exposed to the snapshot, so we treat it
-    // the same as there is no snapshot. The exception is that if
-    // a seq-checking callback is registered, some internal keys
-    // may still be filtered out.
-    uint64_t seq_no = 0;
-    // Maybe we can include the whole file ifsnapshot == fd.largest_seqno.
-    if (options.snapshot != nullptr &&
-        (get_context->has_callback() ||
-         static_cast_with_check<const SnapshotImpl, const Snapshot>(
-             options.snapshot)
-                 ->GetSequenceNumber() <= fd.largest_seqno)) {
-      // We should consider to use options.snapshot->GetSequenceNumber()
-      // instead of GetInternalKeySeqno(k), which will make the code
-      // easier to understand.
-      seq_no = 1 + GetInternalKeySeqno(k);
-    }
-
-    // Compute row cache key.
-    row_cache_key.TrimAppend(row_cache_key.Size(), row_cache_id_.data(),
-                             row_cache_id_.size());
-    AppendVarint64(&row_cache_key, fd_number);
-    AppendVarint64(&row_cache_key, seq_no);
-    row_cache_key.TrimAppend(row_cache_key.Size(), user_key.data(),
-                             user_key.size());
-
-    if (auto row_handle =
-            ioptions_.row_cache->Lookup(row_cache_key.GetUserKey())) {
-      // Cleanable routine to release the cache entry
-      Cleanable value_pinner;
-      auto release_cache_entry_func = [](void* cache_to_clean,
-                                         void* cache_handle) {
-        ((Cache*)cache_to_clean)->Release((Cache::Handle*)cache_handle);
-      };
-      auto found_row_cache_entry = static_cast<const std::string*>(
-          ioptions_.row_cache->Value(row_handle));
-      // If it comes here value is located on the cache.
-      // found_row_cache_entry points to the value on cache,
-      // and value_pinner has cleanup procedure for the cached entry.
-      // After replayGetContextLog() returns, get_context.pinnable_slice_
-      // will point to cache entry buffer (or a copy based on that) and
-      // cleanup routine under value_pinner will be delegated to
-      // get_context.pinnable_slice_. Cache entry is released when
-      // get_context.pinnable_slice_ is reset.
-      value_pinner.RegisterCleanup(release_cache_entry_func,
-                                   ioptions_.row_cache.get(), row_handle);
-      replayGetContextLog(*found_row_cache_entry, user_key, get_context,
-                          &value_pinner);
-      RecordTick(ioptions_.statistics, ROW_CACHE_HIT);
-      done = true;
-    } else {
-      // Not found, setting up the replay log.
-      RecordTick(ioptions_.statistics, ROW_CACHE_MISS);
+    CreateRowCacheKeyPrefix(options, fd, k, get_context, row_cache_key);
+    done = GetFromRowCache(user_key, row_cache_key, row_cache_key.Size(),
+                           get_context);
+    if (!done) {
       row_cache_entry = &row_cache_entry_buffer;
     }
   }
@@ -413,8 +432,6 @@ Status TableCache::Get(const ReadOptions& options,
 }
 
 // Batched version of TableCache::MultiGet.
-// TODO: Add support for row cache. As of now, this ignores the row cache
-// and directly looks up in the table files
 Status TableCache::MultiGet(const ReadOptions& options,
                             const InternalKeyComparator& internal_comparator,
                             const FileMetaData& file_meta,
@@ -426,7 +443,41 @@ Status TableCache::MultiGet(const ReadOptions& options,
   Status s;
   TableReader* t = fd.table_reader;
   Cache::Handle* handle = nullptr;
-  if (s.ok()) {
+  MultiGetRange table_range(*mget_range, mget_range->begin(), mget_range->end());
+#ifndef ROCKSDB_LITE
+  autovector<std::string, MultiGetContext::MAX_BATCH_SIZE> row_cache_entries;
+  IterKey row_cache_key;
+  size_t row_cache_key_prefix_size = 0;
+  KeyContext& first_key = *table_range.begin();
+  bool lookup_row_cache = ioptions_.row_cache &&
+          !first_key.get_context->NeedToReadSequence();
+
+  // Check row cache if enabled. Since row cache does not currently store
+  // sequence numbers, we cannot use it if we need to fetch the sequence.
+  if (lookup_row_cache) {
+    GetContext* first_context = first_key.get_context;
+    CreateRowCacheKeyPrefix(options, fd, first_key.ikey, first_context,
+                            row_cache_key);
+    row_cache_key_prefix_size = row_cache_key.Size();
+
+    for (auto miter = table_range.begin(); miter != table_range.end(); ++miter) {
+      const Slice& user_key = miter->ukey;;
+      GetContext* get_context = miter->get_context;
+
+      if (GetFromRowCache(user_key, row_cache_key, row_cache_key_prefix_size,
+                          get_context)) {
+        table_range.SkipKey(miter);
+      } else {
+        row_cache_entries.emplace_back();
+        get_context->SetReplayLog(&(row_cache_entries.back()));
+      }
+    }
+  }
+#endif  // ROCKSDB_LITE
+
+  // Check that table_range is not empty. Its possible all keys may have been
+  // found in the row cache and thus the range may now be empty
+  if (s.ok() && !table_range.empty()) {
     if (t == nullptr) {
       s = FindTable(
           env_options_, internal_comparator, fd, &handle, prefix_extractor,
@@ -441,21 +492,20 @@ Status TableCache::MultiGet(const ReadOptions& options,
       std::unique_ptr<FragmentedRangeTombstoneIterator> range_del_iter(
           t->NewRangeTombstoneIterator(options));
       if (range_del_iter != nullptr) {
-        for (auto iter = mget_range->begin(); iter != mget_range->end();
+        for (auto iter = table_range.begin(); iter != table_range.end();
              ++iter) {
-          const Slice& k = iter->ikey;
           SequenceNumber* max_covering_tombstone_seq =
               iter->get_context->max_covering_tombstone_seq();
-          *max_covering_tombstone_seq = std::max(
-              *max_covering_tombstone_seq,
-              range_del_iter->MaxCoveringTombstoneSeqnum(ExtractUserKey(k)));
+          *max_covering_tombstone_seq =
+              std::max(*max_covering_tombstone_seq,
+                       range_del_iter->MaxCoveringTombstoneSeqnum(iter->ukey));
         }
       }
     }
     if (s.ok()) {
-      t->MultiGet(options, mget_range, prefix_extractor, skip_filters);
+      t->MultiGet(options, &table_range, prefix_extractor, skip_filters);
     } else if (options.read_tier == kBlockCacheTier && s.IsIncomplete()) {
-      for (auto iter = mget_range->begin(); iter != mget_range->end(); ++iter) {
+      for (auto iter = table_range.begin(); iter != table_range.end(); ++iter) {
         Status* status = iter->s;
         if (status->IsIncomplete()) {
           // Couldn't find Table in cache but treat as kFound if no_io set
@@ -465,6 +515,31 @@ Status TableCache::MultiGet(const ReadOptions& options,
       }
     }
   }
+
+#ifndef ROCKSDB_LITE
+  if (lookup_row_cache) {
+    size_t row_idx = 0;
+
+    for (auto miter = table_range.begin(); miter != table_range.end(); ++miter) {
+      std::string& row_cache_entry = row_cache_entries[row_idx++];
+      const Slice& user_key = miter->ukey;;
+      GetContext* get_context = miter->get_context;
+
+      get_context->SetReplayLog(nullptr);
+      // Compute row cache key.
+      row_cache_key.TrimAppend(row_cache_key_prefix_size, user_key.data(),
+                               user_key.size());
+      // Put the replay log in row cache only if something was found.
+      if (s.ok() && !row_cache_entry.empty()) {
+        size_t charge =
+            row_cache_key.Size() + row_cache_entry.size() + sizeof(std::string);
+        void* row_ptr = new std::string(std::move(row_cache_entry));
+        ioptions_.row_cache->Insert(row_cache_key.GetUserKey(), row_ptr, charge,
+                                    &DeleteEntry<std::string>);
+      }
+    }
+  }
+#endif  // ROCKSDB_LITE
 
   if (handle != nullptr) {
     ReleaseHandle(handle);
