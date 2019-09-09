@@ -4,12 +4,8 @@
 //  (found in the LICENSE.Apache file in the root directory).
 #ifndef ROCKSDB_LITE
 
-#ifndef __STDC_FORMAT_MACROS
-#define __STDC_FORMAT_MACROS
-#endif
-
 #include "utilities/blob_db/blob_dump_tool.h"
-#include <inttypes.h>
+#include <cinttypes>
 #include <stdio.h>
 #include <iostream>
 #include <memory>

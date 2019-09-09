@@ -63,6 +63,21 @@ CLEANUP_ENV="
     'user':'root'
 }"
 
+UPLOAD_DB_DIR="
+{
+    'name':'Upload database directory',
+    'shell':'tar -cvzf rocksdb_db.tar.gz /dev/shm/rocksdb/',
+    'user':'root',
+    'cleanup':true,
+    'provide_artifacts': [
+    {
+      'name':'rocksdb_db_dir',
+      'paths': ['rocksdb_db.tar.gz'],
+      'bundle': false,
+    },
+    ],
+}"
+
 # We will eventually set the RATIO to 1, but we want do this
 # in steps. RATIO=$(nproc) will make it work as J=1
 if [ -z $RATIO ]; then
@@ -109,13 +124,6 @@ else
   TASK_CREATION_TOOL="false"
 fi
 
-ARTIFACTS=" 'artifacts': [
-    {
-        'name':'database',
-        'paths':[ '/dev/shm/rocksdb' ],
-    }
-]"
-
 #
 # A mechanism to disable tests temporarily
 #
@@ -140,6 +148,7 @@ UNIT_TEST_COMMANDS="[
     {
         'name':'Rocksdb Unit Test',
         'oncall':'$ONCALL',
+        'executeLocal': 'true',
         'steps': [
             $CLEANUP_ENV,
             {
@@ -160,6 +169,7 @@ UNIT_TEST_NON_SHM_COMMANDS="[
     {
         'name':'Rocksdb Unit Test',
         'oncall':'$ONCALL',
+        'executeLocal': 'true',
         'timeout': 86400,
         'steps': [
             $CLEANUP_ENV,
@@ -182,6 +192,7 @@ RELEASE_BUILD_COMMANDS="[
     {
         'name':'Rocksdb Release Build',
         'oncall':'$ONCALL',
+        'executeLocal': 'true',
         'steps': [
             $CLEANUP_ENV,
             {
@@ -202,6 +213,7 @@ UNIT_TEST_COMMANDS_481="[
     {
         'name':'Rocksdb Unit Test on GCC 4.8.1',
         'oncall':'$ONCALL',
+        'executeLocal': 'true',
         'steps': [
             $CLEANUP_ENV,
             {
@@ -222,6 +234,7 @@ RELEASE_BUILD_COMMANDS_481="[
     {
         'name':'Rocksdb Release on GCC 4.8.1',
         'oncall':'$ONCALL',
+        'executeLocal': 'true',
         'steps': [
             $CLEANUP_ENV,
             {
@@ -242,6 +255,7 @@ CLANG_UNIT_TEST_COMMANDS="[
     {
         'name':'Rocksdb Unit Test',
         'oncall':'$ONCALL',
+        'executeLocal': 'true',
         'steps': [
             $CLEANUP_ENV,
             {
@@ -262,6 +276,7 @@ CLANG_RELEASE_BUILD_COMMANDS="[
     {
         'name':'Rocksdb CLANG Release Build',
         'oncall':'$ONCALL',
+        'executeLocal': 'true',
         'steps': [
             $CLEANUP_ENV,
             {
@@ -282,6 +297,7 @@ CLANG_ANALYZE_COMMANDS="[
     {
         'name':'Rocksdb analyze',
         'oncall':'$ONCALL',
+        'executeLocal': 'true',
         'steps': [
             $CLEANUP_ENV,
             {
@@ -302,6 +318,7 @@ CODE_COV_COMMANDS="[
     {
         'name':'Rocksdb Unit Test Code Coverage',
         'oncall':'$ONCALL',
+        'executeLocal': 'true',
         'steps': [
             $CLEANUP_ENV,
             {
@@ -322,6 +339,7 @@ UNITY_COMMANDS="[
     {
         'name':'Rocksdb Unity',
         'oncall':'$ONCALL',
+        'executeLocal': 'true',
         'steps': [
             $CLEANUP_ENV,
             {
@@ -342,6 +360,7 @@ LITE_BUILD_COMMANDS="[
     {
         'name':'Rocksdb Lite build',
         'oncall':'$ONCALL',
+        'executeLocal': 'true',
         'steps': [
             $CLEANUP_ENV,
             {
@@ -361,6 +380,7 @@ REPORT_LITE_BINARY_SIZE_COMMANDS="[
     {
         'name':'Rocksdb Lite Binary Size',
         'oncall':'$ONCALL',
+        'executeLocal': 'true',
         'steps': [
             $CLEANUP_ENV,
             {
@@ -376,8 +396,9 @@ REPORT_LITE_BINARY_SIZE_COMMANDS="[
 #
 STRESS_CRASH_TEST_COMMANDS="[
     {
-        'name':'Rocksdb Stress/Crash Test',
+        'name':'Rocksdb Stress and Crash Test',
         'oncall':'$ONCALL',
+        'executeLocal': 'true',
         'timeout': 86400,
         'steps': [
             $CLEANUP_ENV,
@@ -395,7 +416,6 @@ STRESS_CRASH_TEST_COMMANDS="[
                 $PARSER
             }
         ],
-        $ARTIFACTS,
         $REPORT
     }
 ]"
@@ -405,8 +425,9 @@ STRESS_CRASH_TEST_COMMANDS="[
 #
 STRESS_CRASH_TEST_WITH_ATOMIC_FLUSH_COMMANDS="[
     {
-        'name':'Rocksdb Stress/Crash Test (atomic flush)',
+        'name':'Rocksdb Stress and Crash Test with atomic flush',
         'oncall':'$ONCALL',
+        'executeLocal': 'true',
         'timeout': 86400,
         'steps': [
             $CLEANUP_ENV,
@@ -422,9 +443,9 @@ STRESS_CRASH_TEST_WITH_ATOMIC_FLUSH_COMMANDS="[
                 'shell':'$SHM $DEBUG $NON_TSAN_CRASH make J=1 crash_test_with_atomic_flush || $CONTRUN_NAME=crash_test_with_atomic_flush $TASK_CREATION_TOOL',
                 'user':'root',
                 $PARSER
-            }
+            },
+            $UPLOAD_DB_DIR,
         ],
-        $ARTIFACTS,
         $REPORT
     }
 ]"
@@ -436,6 +457,7 @@ WRITE_STRESS_COMMANDS="[
     {
         'name':'Rocksdb Write Stress Test',
         'oncall':'$ONCALL',
+        'executeLocal': 'true',
         'steps': [
             $CLEANUP_ENV,
             {
@@ -458,6 +480,7 @@ ASAN_TEST_COMMANDS="[
     {
         'name':'Rocksdb Unit Test under ASAN',
         'oncall':'$ONCALL',
+        'executeLocal': 'true',
         'steps': [
             $CLEANUP_ENV,
             {
@@ -478,6 +501,7 @@ ASAN_CRASH_TEST_COMMANDS="[
     {
         'name':'Rocksdb crash test under ASAN',
         'oncall':'$ONCALL',
+        'executeLocal': 'true',
         'timeout': 86400,
         'steps': [
             $CLEANUP_ENV,
@@ -498,8 +522,9 @@ ASAN_CRASH_TEST_COMMANDS="[
 #
 ASAN_CRASH_TEST_WITH_ATOMIC_FLUSH_COMMANDS="[
     {
-        'name':'Rocksdb crash test (atomic flush) under ASAN',
+        'name':'Rocksdb crash test with atomic flush under ASAN',
         'oncall':'$ONCALL',
+        'executeLocal': 'true',
         'timeout': 86400,
         'steps': [
             $CLEANUP_ENV,
@@ -510,6 +535,7 @@ ASAN_CRASH_TEST_WITH_ATOMIC_FLUSH_COMMANDS="[
                 'user':'root',
                 $PARSER
             },
+            $UPLOAD_DB_DIR,
         ],
         $REPORT
     }
@@ -522,6 +548,7 @@ UBSAN_TEST_COMMANDS="[
     {
         'name':'Rocksdb Unit Test under UBSAN',
         'oncall':'$ONCALL',
+        'executeLocal': 'true',
         'steps': [
             $CLEANUP_ENV,
             {
@@ -542,6 +569,7 @@ UBSAN_CRASH_TEST_COMMANDS="[
     {
         'name':'Rocksdb crash test under UBSAN',
         'oncall':'$ONCALL',
+        'executeLocal': 'true',
         'timeout': 86400,
         'steps': [
             $CLEANUP_ENV,
@@ -562,8 +590,9 @@ UBSAN_CRASH_TEST_COMMANDS="[
 #
 UBSAN_CRASH_TEST_WITH_ATOMIC_FLUSH_COMMANDS="[
     {
-        'name':'Rocksdb crash test (atomic flush) under UBSAN',
+        'name':'Rocksdb crash test with atomic flush under UBSAN',
         'oncall':'$ONCALL',
+        'executeLocal': 'true',
         'timeout': 86400,
         'steps': [
             $CLEANUP_ENV,
@@ -574,6 +603,7 @@ UBSAN_CRASH_TEST_WITH_ATOMIC_FLUSH_COMMANDS="[
                 'user':'root',
                 $PARSER
             },
+            $UPLOAD_DB_DIR,
         ],
         $REPORT
     }
@@ -586,6 +616,7 @@ VALGRIND_TEST_COMMANDS="[
     {
         'name':'Rocksdb Unit Test under valgrind',
         'oncall':'$ONCALL',
+        'executeLocal': 'true',
         'timeout': 86400,
         'steps': [
             $CLEANUP_ENV,
@@ -608,6 +639,7 @@ TSAN_UNIT_TEST_COMMANDS="[
     {
         'name':'Rocksdb Unit Test under TSAN',
         'oncall':'$ONCALL',
+        'executeLocal': 'true',
         'timeout': 86400,
         'steps': [
             $CLEANUP_ENV,
@@ -630,6 +662,7 @@ TSAN_CRASH_TEST_COMMANDS="[
     {
         'name':'Rocksdb Crash Test under TSAN',
         'oncall':'$ONCALL',
+        'executeLocal': 'true',
         'timeout': 86400,
         'steps': [
             $CLEANUP_ENV,
@@ -652,6 +685,7 @@ TSAN_CRASH_TEST_WITH_ATOMIC_FLUSH_COMMANDS="[
     {
         'name':'Rocksdb Crash Test with atomic flush under TSAN',
         'oncall':'$ONCALL',
+        'executeLocal': 'true',
         'timeout': 86400,
         'steps': [
             $CLEANUP_ENV,
@@ -662,6 +696,7 @@ TSAN_CRASH_TEST_WITH_ATOMIC_FLUSH_COMMANDS="[
                 'user':'root',
                 $PARSER
             },
+            $UPLOAD_DB_DIR,
         ],
         $REPORT
     }
@@ -684,6 +719,7 @@ FORMAT_COMPATIBLE_COMMANDS="[
     {
         'name':'Rocksdb Format Compatible tests',
         'oncall':'$ONCALL',
+        'executeLocal': 'true',
         'steps': [
             $CLEANUP_ENV,
             {
@@ -717,6 +753,7 @@ NO_COMPRESSION_COMMANDS="[
     {
         'name':'Rocksdb No Compression tests',
         'oncall':'$ONCALL',
+        'executeLocal': 'true',
         'steps': [
             $CLEANUP_ENV,
             {
@@ -794,6 +831,7 @@ JAVA_BUILD_TEST_COMMANDS="[
     {
         'name':'Rocksdb Java Build',
         'oncall':'$ONCALL',
+        'executeLocal': 'true',
         'steps': [
             $CLEANUP_ENV,
             {

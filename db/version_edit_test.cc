@@ -8,9 +8,9 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
 #include "db/version_edit.h"
+#include "test_util/sync_point.h"
+#include "test_util/testharness.h"
 #include "util/coding.h"
-#include "util/sync_point.h"
-#include "util/testharness.h"
 
 namespace rocksdb {
 
@@ -237,6 +237,16 @@ TEST_F(VersionEditTest, IgnorableField) {
   ASSERT_TRUE(ve.has_next_file_number());
   ASSERT_EQ(66, ve.log_number());
   ASSERT_EQ(88, ve.next_file_number());
+}
+
+TEST_F(VersionEditTest, DbId) {
+  VersionEdit edit;
+  edit.SetDBId("ab34-cd12-435f-er00");
+  TestEncodeDecode(edit);
+
+  edit.Clear();
+  edit.SetDBId("34ba-cd12-435f-er01");
+  TestEncodeDecode(edit);
 }
 
 }  // namespace rocksdb

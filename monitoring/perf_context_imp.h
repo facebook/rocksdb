@@ -22,12 +22,15 @@ extern thread_local PerfContext perf_context;
 
 #if defined(NPERF_CONTEXT)
 
-#define PERF_TIMER_GUARD(metric)
-#define PERF_CONDITIONAL_TIMER_FOR_MUTEX_GUARD(metric, condition)
-#define PERF_TIMER_MEASURE(metric)
 #define PERF_TIMER_STOP(metric)
 #define PERF_TIMER_START(metric)
+#define PERF_TIMER_GUARD(metric)
+#define PERF_TIMER_GUARD_WITH_ENV(metric, env)
+#define PERF_CPU_TIMER_GUARD(metric, env)
+#define PERF_CONDITIONAL_TIMER_FOR_MUTEX_GUARD(metric, condition, stats, ticker_type)
+#define PERF_TIMER_MEASURE(metric)
 #define PERF_COUNTER_ADD(metric, value)
+#define PERF_COUNTER_BY_LEVEL_ADD(metric, value, level)
 
 #else
 

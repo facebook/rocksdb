@@ -35,11 +35,11 @@
 
 #pragma once
 
-#include <memory>
-#include <stdexcept>
+#include <rocksdb/slice.h>
 #include <stdint.h>
 #include <stdlib.h>
-#include <rocksdb/slice.h>
+#include <memory>
+#include <stdexcept>
 
 namespace rocksdb {
 
@@ -75,7 +75,7 @@ class MemTableRep {
     virtual int operator()(const char* prefix_len_key,
                            const Slice& key) const = 0;
 
-    virtual ~KeyComparator() { }
+    virtual ~KeyComparator() {}
   };
 
   explicit MemTableRep(Allocator* allocator) : allocator_(allocator) {}
@@ -142,7 +142,7 @@ class MemTableRep {
   // does nothing.  After MarkReadOnly() is called, this table rep will
   // not be written to (ie No more calls to Allocate(), Insert(),
   // or any writes done directly to entries accessed through the iterator.)
-  virtual void MarkReadOnly() { }
+  virtual void MarkReadOnly() {}
 
   // Notify this table rep that it has been flushed to stable storage.
   // By default, does nothing.
@@ -150,7 +150,7 @@ class MemTableRep {
   // Invariant: MarkReadOnly() is called, before MarkFlushed().
   // Note that this method if overridden, should not run for an extended period
   // of time. Otherwise, RocksDB may be blocked.
-  virtual void MarkFlushed() { }
+  virtual void MarkFlushed() {}
 
   // Look up key from the mem table, since the first key in the mem table whose
   // user_key matches the one given k, call the function callback_func(), with
@@ -176,7 +176,7 @@ class MemTableRep {
   // that was allocated through the allocator.  Safe to call from any thread.
   virtual size_t ApproximateMemoryUsage() = 0;
 
-  virtual ~MemTableRep() { }
+  virtual ~MemTableRep() {}
 
   // Iteration over the contents of a skip collection
   class Iterator {
@@ -317,16 +317,14 @@ class VectorRepFactory : public MemTableRepFactory {
   const size_t count_;
 
  public:
-  explicit VectorRepFactory(size_t count = 0) : count_(count) { }
+  explicit VectorRepFactory(size_t count = 0) : count_(count) {}
 
   using MemTableRepFactory::CreateMemTableRep;
   virtual MemTableRep* CreateMemTableRep(const MemTableRep::KeyComparator&,
                                          Allocator*, const SliceTransform*,
                                          Logger* logger) override;
 
-  virtual const char* Name() const override {
-    return "VectorRepFactory";
-  }
+  virtual const char* Name() const override { return "VectorRepFactory"; }
 };
 
 // This class contains a fixed array of buckets, each
@@ -337,8 +335,7 @@ class VectorRepFactory : public MemTableRepFactory {
 //                            link lists in the skiplist
 extern MemTableRepFactory* NewHashSkipListRepFactory(
     size_t bucket_count = 1000000, int32_t skiplist_height = 4,
-    int32_t skiplist_branching_factor = 4
-);
+    int32_t skiplist_branching_factor = 4);
 
 // The factory is to create memtables based on a hash table:
 // it contains a fixed array of buckets, each pointing to either a linked list

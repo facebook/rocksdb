@@ -7,10 +7,6 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
-#ifndef __STDC_FORMAT_MACROS
-#define __STDC_FORMAT_MACROS
-#endif
-
 #ifndef GFLAGS
 #include <cstdio>
 int main() {
@@ -28,6 +24,7 @@ int main() {
 
 #include "db/dbformat.h"
 #include "db/memtable.h"
+#include "memory/arena.h"
 #include "port/port.h"
 #include "port/stack_trace.h"
 #include "rocksdb/comparator.h"
@@ -35,11 +32,10 @@ int main() {
 #include "rocksdb/options.h"
 #include "rocksdb/slice_transform.h"
 #include "rocksdb/write_buffer_manager.h"
-#include "util/arena.h"
+#include "test_util/testutil.h"
 #include "util/gflags_compat.h"
 #include "util/mutexlock.h"
 #include "util/stop_watch.h"
-#include "util/testutil.h"
 
 using GFLAGS_NAMESPACE::ParseCommandLineFlags;
 using GFLAGS_NAMESPACE::RegisterFlagValidator;

@@ -525,8 +525,7 @@ public class RocksDBTest {
 
   @Test
   public void deleteRange() throws RocksDBException {
-    try (final RocksDB db = RocksDB.open(dbFolder.getRoot().getAbsolutePath());
-         final WriteOptions wOpt = new WriteOptions()) {
+    try (final RocksDB db = RocksDB.open(dbFolder.getRoot().getAbsolutePath())) {
       db.put("key1".getBytes(), "value".getBytes());
       db.put("key2".getBytes(), "12345678".getBytes());
       db.put("key3".getBytes(), "abcdefg".getBytes());

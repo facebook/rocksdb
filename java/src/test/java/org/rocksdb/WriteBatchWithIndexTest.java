@@ -104,7 +104,7 @@ public class WriteBatchWithIndexTest {
   }
 
   @Test
-  public void write_writeBatchWithIndex() throws RocksDBException {
+  public void writeBatchWithIndex() throws RocksDBException {
     try (final Options options = new Options().setCreateIfMissing(true);
          final RocksDB db = RocksDB.open(options,
              dbFolder.getRoot().getAbsolutePath())) {
@@ -114,11 +114,12 @@ public class WriteBatchWithIndexTest {
       final byte[] k2 = "key2".getBytes();
       final byte[] v2 = "value2".getBytes();
 
-      try (final WriteBatchWithIndex wbwi = new WriteBatchWithIndex()) {
+      try (final WriteBatchWithIndex wbwi = new WriteBatchWithIndex();
+           final WriteOptions wOpt = new WriteOptions()) {
         wbwi.put(k1, v1);
         wbwi.put(k2, v2);
 
-        db.write(new WriteOptions(), wbwi);
+        db.write(wOpt, wbwi);
       }
 
       assertThat(db.get(k1)).isEqualTo(v1);
@@ -512,6 +513,7 @@ public class WriteBatchWithIndexTest {
   @Test
   public void deleteRange() throws RocksDBException {
     try (final RocksDB db = RocksDB.open(dbFolder.getRoot().getAbsolutePath());
+         final WriteBatch batch = new WriteBatch();
          final WriteOptions wOpt = new WriteOptions()) {
       db.put("key1".getBytes(), "value".getBytes());
       db.put("key2".getBytes(), "12345678".getBytes());
@@ -522,9 +524,8 @@ public class WriteBatchWithIndexTest {
       assertThat(db.get("key3".getBytes())).isEqualTo("abcdefg".getBytes());
       assertThat(db.get("key4".getBytes())).isEqualTo("xyz".getBytes());
 
-      WriteBatch batch = new WriteBatch();
       batch.deleteRange("key2".getBytes(), "key4".getBytes());
-      db.write(new WriteOptions(), batch);
+      db.write(wOpt, batch);
 
       assertThat(db.get("key1".getBytes())).isEqualTo("value".getBytes());
       assertThat(db.get("key2".getBytes())).isNull();

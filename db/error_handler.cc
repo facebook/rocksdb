@@ -4,9 +4,9 @@
 //  (found in the LICENSE.Apache file in the root directory).
 //
 #include "db/error_handler.h"
-#include "db/db_impl.h"
+#include "db/db_impl/db_impl.h"
 #include "db/event_helpers.h"
-#include "util/sst_file_manager_impl.h"
+#include "file/sst_file_manager_impl.h"
 
 namespace rocksdb {
 

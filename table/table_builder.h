@@ -18,6 +18,7 @@
 #include "options/cf_options.h"
 #include "rocksdb/options.h"
 #include "rocksdb/table_properties.h"
+#include "trace_replay/block_cache_tracer.h"
 #include "util/file_reader_writer.h"
 
 namespace rocksdb {
@@ -32,10 +33,12 @@ struct TableReaderOptions {
                      const EnvOptions& _env_options,
                      const InternalKeyComparator& _internal_comparator,
                      bool _skip_filters = false, bool _immortal = false,
-                     int _level = -1)
+                     int _level = -1,
+                     BlockCacheTracer* const _block_cache_tracer = nullptr)
       : TableReaderOptions(_ioptions, _prefix_extractor, _env_options,
                            _internal_comparator, _skip_filters, _immortal,
-                           _level, 0 /* _largest_seqno */) {}
+                           _level, 0 /* _largest_seqno */,
+                           _block_cache_tracer) {}
 
   // @param skip_filters Disables loading/accessing the filter block
   TableReaderOptions(const ImmutableCFOptions& _ioptions,
@@ -43,7 +46,8 @@ struct TableReaderOptions {
                      const EnvOptions& _env_options,
                      const InternalKeyComparator& _internal_comparator,
                      bool _skip_filters, bool _immortal, int _level,
-                     SequenceNumber _largest_seqno)
+                     SequenceNumber _largest_seqno,
+                     BlockCacheTracer* const _block_cache_tracer)
       : ioptions(_ioptions),
         prefix_extractor(_prefix_extractor),
         env_options(_env_options),
@@ -51,7 +55,8 @@ struct TableReaderOptions {
         skip_filters(_skip_filters),
         immortal(_immortal),
         level(_level),
-        largest_seqno(_largest_seqno) {}
+        largest_seqno(_largest_seqno),
+        block_cache_tracer(_block_cache_tracer) {}
 
   const ImmutableCFOptions& ioptions;
   const SliceTransform* prefix_extractor;
@@ -65,6 +70,7 @@ struct TableReaderOptions {
   int level;
   // largest seqno in the table
   SequenceNumber largest_seqno;
+  BlockCacheTracer* const block_cache_tracer;
 };
 
 struct TableBuilderOptions {
@@ -73,29 +79,33 @@ struct TableBuilderOptions {
       const InternalKeyComparator& _internal_comparator,
       const std::vector<std::unique_ptr<IntTblPropCollectorFactory>>*
           _int_tbl_prop_collector_factories,
-      CompressionType _compression_type,
+      CompressionType _compression_type, uint64_t _sample_for_compression,
       const CompressionOptions& _compression_opts, bool _skip_filters,
       const std::string& _column_family_name, int _level,
       const uint64_t _creation_time = 0, const int64_t _oldest_key_time = 0,
-      const uint64_t _target_file_size = 0)
+      const uint64_t _target_file_size = 0,
+      const uint64_t _file_creation_time = 0)
       : ioptions(_ioptions),
         moptions(_moptions),
         internal_comparator(_internal_comparator),
         int_tbl_prop_collector_factories(_int_tbl_prop_collector_factories),
         compression_type(_compression_type),
+        sample_for_compression(_sample_for_compression),
         compression_opts(_compression_opts),
         skip_filters(_skip_filters),
         column_family_name(_column_family_name),
         level(_level),
         creation_time(_creation_time),
         oldest_key_time(_oldest_key_time),
-        target_file_size(_target_file_size) {}
+        target_file_size(_target_file_size),
+        file_creation_time(_file_creation_time) {}
   const ImmutableCFOptions& ioptions;
   const MutableCFOptions& moptions;
   const InternalKeyComparator& internal_comparator;
   const std::vector<std::unique_ptr<IntTblPropCollectorFactory>>*
       int_tbl_prop_collector_factories;
   CompressionType compression_type;
+  uint64_t sample_for_compression;
   const CompressionOptions& compression_opts;
   bool skip_filters;  // only used by BlockBasedTableBuilder
   const std::string& column_family_name;
@@ -103,6 +113,7 @@ struct TableBuilderOptions {
   const uint64_t creation_time;
   const int64_t oldest_key_time;
   const uint64_t target_file_size;
+  const uint64_t file_creation_time;
 };
 
 // TableBuilder provides the interface used to build a Table

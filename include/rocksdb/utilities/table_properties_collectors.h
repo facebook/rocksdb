@@ -40,20 +40,18 @@ class CompactOnDeletionCollectorFactory
 
  private:
   friend std::shared_ptr<CompactOnDeletionCollectorFactory>
-    NewCompactOnDeletionCollectorFactory(
-        size_t sliding_window_size,
-        size_t deletion_trigger);
+  NewCompactOnDeletionCollectorFactory(size_t sliding_window_size,
+                                       size_t deletion_trigger);
   // A factory of a table property collector that marks a SST
   // file as need-compaction when it observe at least "D" deletion
   // entries in any "N" consecutive entires.
   //
   // @param sliding_window_size "N"
   // @param deletion_trigger "D"
-  CompactOnDeletionCollectorFactory(
-      size_t sliding_window_size,
-      size_t deletion_trigger) :
-          sliding_window_size_(sliding_window_size),
-          deletion_trigger_(deletion_trigger) {}
+  CompactOnDeletionCollectorFactory(size_t sliding_window_size,
+                                    size_t deletion_trigger)
+      : sliding_window_size_(sliding_window_size),
+        deletion_trigger_(deletion_trigger) {}
 
   std::atomic<size_t> sliding_window_size_;
   std::atomic<size_t> deletion_trigger_;
@@ -69,9 +67,8 @@ class CompactOnDeletionCollectorFactory
 // @param deletion_trigger "D".  Note that even when "N" is changed,
 //     the specified number for "D" will not be changed.
 extern std::shared_ptr<CompactOnDeletionCollectorFactory>
-    NewCompactOnDeletionCollectorFactory(
-        size_t sliding_window_size,
-        size_t deletion_trigger);
+NewCompactOnDeletionCollectorFactory(size_t sliding_window_size,
+                                     size_t deletion_trigger);
 }  // namespace rocksdb
 
 #endif  // !ROCKSDB_LITE

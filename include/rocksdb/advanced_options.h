@@ -175,11 +175,26 @@ struct AdvancedColumnFamilyOptions {
   // individual write buffers.  Default: 1
   int min_write_buffer_number_to_merge = 1;
 
+  // DEPRECATED
   // The total maximum number of write buffers to maintain in memory including
   // copies of buffers that have already been flushed.  Unlike
   // max_write_buffer_number, this parameter does not affect flushing.
-  // This controls the minimum amount of write history that will be available
-  // in memory for conflict checking when Transactions are used.
+  // This parameter is being replaced by max_write_buffer_size_to_maintain.
+  // If both parameters are set to non-zero values, this parameter will be
+  // ignored.
+  int max_write_buffer_number_to_maintain = 0;
+
+  // The total maximum size(bytes) of write buffers to maintain in memory
+  // including copies of buffers that have already been flushed. This parameter
+  // only affects trimming of flushed buffers and does not affect flushing.
+  // This controls the maximum amount of write history that will be available
+  // in memory for conflict checking when Transactions are used. The actual
+  // size of write history (flushed Memtables) might be higher than this limit
+  // if further trimming will reduce write history total size below this
+  // limit. For example, if max_write_buffer_size_to_maintain is set to 64MB,
+  // and there are three flushed Memtables, with sizes of 32MB, 20MB, 20MB.
+  // Because trimming the next Memtable of size 20MB will reduce total memory
+  // usage to 52MB which is below the limit, RocksDB will stop trimming.
   //
   // When using an OptimisticTransactionDB:
   // If this value is too low, some transactions may fail at commit time due
@@ -192,14 +207,14 @@ struct AdvancedColumnFamilyOptions {
   // done for conflict detection.
   //
   // Setting this value to 0 will cause write buffers to be freed immediately
-  // after they are flushed.
-  // If this value is set to -1, 'max_write_buffer_number' will be used.
+  // after they are flushed. If this value is set to -1,
+  // 'max_write_buffer_number * write_buffer_size' will be used.
   //
   // Default:
   // If using a TransactionDB/OptimisticTransactionDB, the default value will
-  // be set to the value of 'max_write_buffer_number' if it is not explicitly
-  // set by the user.  Otherwise, the default is 0.
-  int max_write_buffer_number_to_maintain = 0;
+  // be set to the value of 'max_write_buffer_number * write_buffer_size'
+  // if it is not explicitly set by the user.  Otherwise, the default is 0.
+  int64_t max_write_buffer_size_to_maintain = 0;
 
   // Allows thread-safe inplace updates. If this is true, there is no way to
   // achieve point-in-time consistency using snapshot or iterator (assuming
@@ -643,6 +658,28 @@ struct AdvancedColumnFamilyOptions {
   //
   // Dynamically changeable through SetOptions() API
   uint64_t ttl = 0;
+
+  // Files older than this value will be picked up for compaction, and
+  // re-written to the same level as they were before.
+  //
+  // A file's age is computed by looking at file_creation_time or creation_time
+  // table properties in order, if they have valid non-zero values; if not, the
+  // age is based on the file's last modified time (given by the underlying
+  // Env).
+  //
+  // Only supported in Level compaction.
+  // Pre-req: max_open_file == -1.
+  // unit: seconds. Ex: 7 days = 7 * 24 * 60 * 60
+  // Default: 0 (disabled)
+  //
+  // Dynamically changeable through SetOptions() API
+  uint64_t periodic_compaction_seconds = 0;
+
+  // If this option is set then 1 in N blocks are compressed
+  // using a fast (lz4) and slow (zstd) compression algorithm.
+  // The compressibility is reported as stats and the stored
+  // data is left uncompressed (unless compression is also requested).
+  uint64_t sample_for_compression = 0;
 
   // Create ColumnFamilyOptions with default values for all fields
   AdvancedColumnFamilyOptions();

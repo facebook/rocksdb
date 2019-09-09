@@ -9,8 +9,12 @@
 
 #pragma once
 #include <stdio.h>
+#include <memory>
 #include <string>
 #include <utility>
+#include "db/lookup_key.h"
+#include "db/merge_context.h"
+#include "logging/logging.h"
 #include "monitoring/perf_context_imp.h"
 #include "rocksdb/comparator.h"
 #include "rocksdb/db.h"
@@ -20,9 +24,15 @@
 #include "rocksdb/table.h"
 #include "rocksdb/types.h"
 #include "util/coding.h"
-#include "util/logging.h"
+#include "util/user_comparator_wrapper.h"
 
 namespace rocksdb {
+
+// The file declares data structures and functions that deal with internal
+// keys.
+// Each internal key contains a user key, a sequence number (SequenceNumber)
+// and a type (ValueType), and they are usually encoded together.
+// There are some related helper classes here.
 
 class InternalKey;
 
@@ -80,11 +90,12 @@ inline bool IsExtendedValueType(ValueType t) {
 
 // We leave eight bits empty at the bottom so a type and sequence#
 // can be packed together into 64-bits.
-static const SequenceNumber kMaxSequenceNumber =
-    ((0x1ull << 56) - 1);
+static const SequenceNumber kMaxSequenceNumber = ((0x1ull << 56) - 1);
 
 static const SequenceNumber kDisableGlobalSequenceNumber = port::kMaxUint64;
 
+// The data structure that represents an internal key in the way that user_key,
+// sequence number and type are stored in separated forms.
 struct ParsedInternalKey {
   Slice user_key;
   SequenceNumber sequence;
@@ -92,9 +103,9 @@ struct ParsedInternalKey {
 
   ParsedInternalKey()
       : sequence(kMaxSequenceNumber)  // Make code analyzer happy
-        {} // Intentionally left uninitialized (for speed)
+  {}  // Intentionally left uninitialized (for speed)
   ParsedInternalKey(const Slice& u, const SequenceNumber& seq, ValueType t)
-      : user_key(u), sequence(seq), type(t) { }
+      : user_key(u), sequence(seq), type(t) {}
   std::string DebugString(bool hex = false) const;
 
   void clear() {
@@ -140,6 +151,17 @@ inline Slice ExtractUserKey(const Slice& internal_key) {
   return Slice(internal_key.data(), internal_key.size() - 8);
 }
 
+inline Slice ExtractUserKeyAndStripTimestamp(const Slice& internal_key,
+                                             size_t ts_sz) {
+  assert(internal_key.size() >= 8 + ts_sz);
+  return Slice(internal_key.data(), internal_key.size() - 8 - ts_sz);
+}
+
+inline Slice StripTimestampFromUserKey(const Slice& user_key, size_t ts_sz) {
+  assert(user_key.size() >= ts_sz);
+  return Slice(user_key.data(), user_key.size() - ts_sz);
+}
+
 inline uint64_t ExtractInternalKeyFooter(const Slice& internal_key) {
   assert(internal_key.size() >= 8);
   const size_t n = internal_key.size();
@@ -160,13 +182,14 @@ class InternalKeyComparator
 #endif
     : public Comparator {
  private:
-  const Comparator* user_comparator_;
+  UserComparatorWrapper user_comparator_;
   std::string name_;
+
  public:
-  explicit InternalKeyComparator(const Comparator* c) : user_comparator_(c),
-    name_("rocksdb.InternalKeyComparator:" +
-          std::string(user_comparator_->Name())) {
-  }
+  explicit InternalKeyComparator(const Comparator* c)
+      : user_comparator_(c),
+        name_("rocksdb.InternalKeyComparator:" +
+              std::string(user_comparator_.Name())) {}
   virtual ~InternalKeyComparator() {}
 
   virtual const char* Name() const override;
@@ -177,23 +200,24 @@ class InternalKeyComparator
                                      const Slice& limit) const override;
   virtual void FindShortSuccessor(std::string* key) const override;
 
-  const Comparator* user_comparator() const { return user_comparator_; }
+  const Comparator* user_comparator() const {
+    return user_comparator_.user_comparator();
+  }
 
   int Compare(const InternalKey& a, const InternalKey& b) const;
   int Compare(const ParsedInternalKey& a, const ParsedInternalKey& b) const;
   virtual const Comparator* GetRootComparator() const override {
-    return user_comparator_->GetRootComparator();
+    return user_comparator_.GetRootComparator();
   }
 };
 
-// Modules in this directory should keep internal keys wrapped inside
-// the following class instead of plain strings so that we do not
-// incorrectly use string comparisons instead of an InternalKeyComparator.
+// The class represent the internal key in encoded form.
 class InternalKey {
  private:
   std::string rep_;
+
  public:
-  InternalKey() { }   // Leave rep_ as empty to indicate it is invalid
+  InternalKey() {}  // Leave rep_ as empty to indicate it is invalid
   InternalKey(const Slice& _user_key, SequenceNumber s, ValueType t) {
     AppendInternalKey(&rep_, ParsedInternalKey(_user_key, s, t));
   }
@@ -250,8 +274,8 @@ class InternalKey {
   std::string DebugString(bool hex = false) const;
 };
 
-inline int InternalKeyComparator::Compare(
-    const InternalKey& a, const InternalKey& b) const {
+inline int InternalKeyComparator::Compare(const InternalKey& a,
+                                          const InternalKey& b) const {
   return Compare(a.Encode(), b.Encode());
 }
 
@@ -288,59 +312,19 @@ inline uint64_t GetInternalKeySeqno(const Slice& internal_key) {
   return num >> 8;
 }
 
-
-// A helper class useful for DBImpl::Get()
-class LookupKey {
- public:
-  // Initialize *this for looking up user_key at a snapshot with
-  // the specified sequence number.
-  LookupKey(const Slice& _user_key, SequenceNumber sequence);
-  // No copying allowed
-  LookupKey(const LookupKey&) = delete;
-  void operator=(const LookupKey&) = delete;
-
-  ~LookupKey();
-
-  // Return a key suitable for lookup in a MemTable.
-  Slice memtable_key() const {
-    return Slice(start_, static_cast<size_t>(end_ - start_));
-  }
-
-  // Return an internal key (suitable for passing to an internal iterator)
-  Slice internal_key() const {
-    return Slice(kstart_, static_cast<size_t>(end_ - kstart_));
-  }
-
-  // Return the user key
-  Slice user_key() const {
-    return Slice(kstart_, static_cast<size_t>(end_ - kstart_ - 8));
-  }
-
- private:
-  // We construct a char array of the form:
-  //    klength  varint32               <-- start_
-  //    userkey  char[klength]          <-- kstart_
-  //    tag      uint64
-  //                                    <-- end_
-  // The array is a suitable MemTable key.
-  // The suffix starting with "userkey" can be used as an InternalKey.
-  const char* start_;
-  const char* kstart_;
-  const char* end_;
-  char space_[200];      // Avoid allocation for short keys
-};
-
-inline LookupKey::~LookupKey() {
-  if (start_ != space_) delete[] start_;
-}
-
+// The class to store keys in an efficient way. It allows:
+// 1. Users can either copy the key into it, or have it point to an unowned
+//    address.
+// 2. For copied key, a short inline buffer is kept to reduce memory
+//    allocation for smaller keys.
+// 3. It tracks user key or internal key, and allow conversion between them.
 class IterKey {
  public:
   IterKey()
       : buf_(space_),
-        buf_size_(sizeof(space_)),
         key_(buf_),
         key_size_(0),
+        buf_size_(sizeof(space_)),
         is_user_key_(true) {}
   // No copying allowed
   IterKey(const IterKey&) = delete;
@@ -498,9 +482,9 @@ class IterKey {
 
  private:
   char* buf_;
-  size_t buf_size_;
   const char* key_;
   size_t key_size_;
+  size_t buf_size_;
   char space_[32];  // Avoid allocation for short keys
   bool is_user_key_;
 
@@ -544,6 +528,8 @@ class IterKey {
   void EnlargeBuffer(size_t key_size);
 };
 
+// Convert from a SliceTranform of user keys, to a SliceTransform of
+// user keys.
 class InternalKeySliceTransform : public SliceTransform {
  public:
   explicit InternalKeySliceTransform(const SliceTransform* transform)
@@ -631,14 +617,13 @@ struct RangeTombstone {
   }
 };
 
-inline
-int InternalKeyComparator::Compare(const Slice& akey, const Slice& bkey) const {
+inline int InternalKeyComparator::Compare(const Slice& akey,
+                                          const Slice& bkey) const {
   // Order by:
   //    increasing user key (according to user-supplied comparator)
   //    decreasing sequence number
   //    decreasing type (though sequence# should be enough to disambiguate)
-  int r = user_comparator_->Compare(ExtractUserKey(akey), ExtractUserKey(bkey));
-  PERF_COUNTER_ADD(user_key_comparison_count, 1);
+  int r = user_comparator_.Compare(ExtractUserKey(akey), ExtractUserKey(bkey));
   if (r == 0) {
     const uint64_t anum = DecodeFixed64(akey.data() + akey.size() - 8);
     const uint64_t bnum = DecodeFixed64(bkey.data() + bkey.size() - 8);
@@ -651,14 +636,12 @@ int InternalKeyComparator::Compare(const Slice& akey, const Slice& bkey) const {
   return r;
 }
 
-inline
-int InternalKeyComparator::CompareKeySeq(const Slice& akey,
-                                         const Slice& bkey) const {
+inline int InternalKeyComparator::CompareKeySeq(const Slice& akey,
+                                                const Slice& bkey) const {
   // Order by:
   //    increasing user key (according to user-supplied comparator)
   //    decreasing sequence number
-  int r = user_comparator_->Compare(ExtractUserKey(akey), ExtractUserKey(bkey));
-  PERF_COUNTER_ADD(user_key_comparison_count, 1);
+  int r = user_comparator_.Compare(ExtractUserKey(akey), ExtractUserKey(bkey));
   if (r == 0) {
     // Shift the number to exclude the last byte which contains the value type
     const uint64_t anum = DecodeFixed64(akey.data() + akey.size() - 8) >> 8;
@@ -672,6 +655,7 @@ int InternalKeyComparator::CompareKeySeq(const Slice& akey,
   return r;
 }
 
+// Wrap InternalKeyComparator as a comparator class for ParsedInternalKey.
 struct ParsedInternalKeyComparator {
   explicit ParsedInternalKeyComparator(const InternalKeyComparator* c)
       : cmp(c) {}

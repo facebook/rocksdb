@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Copyright (c) Facebook, Inc. and its affiliates. All Rights Reserved.
 # REQUIRE: benchmark.sh exists in the current directory
 # After execution of this script, log files are generated in $output_dir.
 # report.txt provides a high level statistics

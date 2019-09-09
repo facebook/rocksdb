@@ -135,7 +135,7 @@ class Transaction {
   // Status::Busy() may be returned if the transaction could not guarantee
   // that there are no write conflicts.  Status::TryAgain() may be returned
   // if the memtable history size is not large enough
-  //  (See max_write_buffer_number_to_maintain).
+  //  (See max_write_buffer_size_to_maintain).
   //
   // If this transaction was created by a TransactionDB(), Status::Expired()
   // may be returned if this transaction has lived for longer than
@@ -209,6 +209,19 @@ class Transaction {
                                        const std::vector<Slice>& keys,
                                        std::vector<std::string>* values) = 0;
 
+  // Batched version of MultiGet - see DBImpl::MultiGet(). Sub-classes are
+  // expected to override this with an implementation that calls
+  // DBImpl::MultiGet()
+  virtual void MultiGet(const ReadOptions& options,
+                        ColumnFamilyHandle* column_family,
+                        const size_t num_keys, const Slice* keys,
+                        PinnableSlice* values, Status* statuses,
+                        const bool /*sorted_input*/ = false) {
+    for (size_t i = 0; i < num_keys; ++i) {
+      statuses[i] = Get(options, column_family, keys[i], &values[i]);
+    }
+  }
+
   // Read this key and ensure that this transaction will only
   // be able to be committed if this key is not written outside this
   // transaction after it has first been read (or after the snapshot if a
@@ -234,7 +247,7 @@ class Transaction {
   // Status::Busy() if there is a write conflict,
   // Status::TimedOut() if a lock could not be acquired,
   // Status::TryAgain() if the memtable history size is not large enough
-  //  (See max_write_buffer_number_to_maintain)
+  //  (See max_write_buffer_size_to_maintain)
   // Status::MergeInProgress() if merge operations cannot be resolved.
   // or other errors if this key could not be read.
   virtual Status GetForUpdate(const ReadOptions& options,
@@ -297,8 +310,10 @@ class Transaction {
   // functions in WriteBatch, but will also do conflict checking on the
   // keys being written.
   //
-  // assume_tracked=true expects the key be already tracked. If valid then it
-  // skips ValidateSnapshot. Returns error otherwise.
+  // assume_tracked=true expects the key be already tracked. More
+  // specifically, it means the the key was previous tracked in the same
+  // savepoint, with the same exclusive flag, and at a lower sequence number.
+  // If valid then it skips ValidateSnapshot.  Returns error otherwise.
   //
   // If this Transaction was created on an OptimisticTransactionDB, these
   // functions should always return Status::OK().
@@ -309,7 +324,7 @@ class Transaction {
   // Status::Busy() if there is a write conflict,
   // Status::TimedOut() if a lock could not be acquired,
   // Status::TryAgain() if the memtable history size is not large enough
-  //  (See max_write_buffer_number_to_maintain)
+  //  (See max_write_buffer_size_to_maintain)
   // or other errors on unexpected failures.
   virtual Status Put(ColumnFamilyHandle* column_family, const Slice& key,
                      const Slice& value, const bool assume_tracked = false) = 0;
@@ -511,9 +526,13 @@ class Transaction {
     id_ = id;
   }
 
+  virtual uint64_t GetLastLogNumber() const { return log_number_; }
+
  private:
   friend class PessimisticTransactionDB;
   friend class WriteUnpreparedTxnDB;
+  friend class TransactionTest_TwoPhaseLogRollingTest_Test;
+  friend class TransactionTest_TwoPhaseLogRollingTest2_Test;
 };
 
 }  // namespace rocksdb

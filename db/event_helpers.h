@@ -10,9 +10,9 @@
 
 #include "db/column_family.h"
 #include "db/version_edit.h"
+#include "logging/event_logger.h"
 #include "rocksdb/listener.h"
 #include "rocksdb/table_properties.h"
-#include "util/event_logger.h"
 
 namespace rocksdb {
 

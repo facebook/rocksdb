@@ -13,11 +13,11 @@
 #include "rocksdb/sst_dump_tool.h"
 
 #include "rocksdb/filter_policy.h"
-#include "table/block_based_table_factory.h"
+#include "table/block_based/block_based_table_factory.h"
 #include "table/table_builder.h"
+#include "test_util/testharness.h"
+#include "test_util/testutil.h"
 #include "util/file_reader_writer.h"
-#include "util/testharness.h"
-#include "util/testutil.h"
 
 namespace rocksdb {
 
@@ -59,8 +59,9 @@ void createSST(const Options& opts, const std::string& file_name) {
   tb.reset(opts.table_factory->NewTableBuilder(
       TableBuilderOptions(
           imoptions, moptions, ikc, &int_tbl_prop_collector_factories,
-          CompressionType::kNoCompression, CompressionOptions(),
-          false /* skip_filters */, column_family_name, unknown_level),
+          CompressionType::kNoCompression, 0 /* sample_for_compression */,
+          CompressionOptions(), false /* skip_filters */, column_family_name,
+          unknown_level),
       TablePropertiesCollectorFactory::Context::kUnknownColumnFamily,
       file_writer.get()));
 

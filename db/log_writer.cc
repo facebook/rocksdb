@@ -18,7 +18,7 @@
 namespace rocksdb {
 namespace log {
 
-Writer::Writer(unique_ptr<WritableFileWriter>&& dest, uint64_t log_number,
+Writer::Writer(std::unique_ptr<WritableFileWriter>&& dest, uint64_t log_number,
                bool recycle_log_files, bool manual_flush)
     : dest_(std::move(dest)),
       block_offset_(0),
@@ -31,9 +31,22 @@ Writer::Writer(unique_ptr<WritableFileWriter>&& dest, uint64_t log_number,
   }
 }
 
-Writer::~Writer() { WriteBuffer(); }
+Writer::~Writer() {
+  if (dest_) {
+    WriteBuffer();
+  }
+}
 
 Status Writer::WriteBuffer() { return dest_->Flush(); }
+
+Status Writer::Close() {
+  Status s;
+  if (dest_) {
+    s = dest_->Close();
+    dest_.reset();
+  }
+  return s;
+}
 
 Status Writer::AddRecord(const Slice& slice) {
   const char* ptr = slice.data();
@@ -89,6 +102,13 @@ Status Writer::AddRecord(const Slice& slice) {
     left -= fragment_length;
     begin = false;
   } while (s.ok() && left > 0);
+
+  if (s.ok()) {
+    if (!manual_flush_) {
+      s = dest_->Flush();
+    }
+  }
+
   return s;
 }
 
@@ -133,11 +153,6 @@ Status Writer::EmitPhysicalRecord(RecordType t, const char* ptr, size_t n) {
   Status s = dest_->Append(Slice(buf, header_size));
   if (s.ok()) {
     s = dest_->Append(Slice(ptr, n));
-    if (s.ok()) {
-      if (!manual_flush_) {
-        s = dest_->Flush();
-      }
-    }
   }
   block_offset_ += header_size + n;
   return s;

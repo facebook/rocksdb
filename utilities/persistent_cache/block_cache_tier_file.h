@@ -265,11 +265,11 @@ class ThreadedWriter : public Writer {
     IO& operator=(const IO&) = default;
     size_t Size() const { return sizeof(IO); }
 
-    WritableFile* file_ = nullptr;           // File to write to
-    CacheWriteBuffer* const buf_ = nullptr;  // buffer to write
-    uint64_t file_off_ = 0;                  // file offset
-    bool signal_ = false;                    // signal to exit thread loop
-    std::function<void()> callback_;         // Callback on completion
+    WritableFile* file_ = nullptr;     // File to write to
+    CacheWriteBuffer* buf_ = nullptr;  // buffer to write
+    uint64_t file_off_ = 0;            // file offset
+    bool signal_ = false;              // signal to exit thread loop
+    std::function<void()> callback_;   // Callback on completion
   };
 
   explicit ThreadedWriter(PersistentCacheTier* const cache, const size_t qdepth,

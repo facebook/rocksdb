@@ -31,6 +31,14 @@ struct TransactionKeyMapInfo {
 
   explicit TransactionKeyMapInfo(SequenceNumber seq_no)
       : seq(seq_no), num_writes(0), num_reads(0), exclusive(false) {}
+
+  // Used in PopSavePoint to collapse two savepoints together.
+  void Merge(const TransactionKeyMapInfo& info) {
+    assert(seq <= info.seq);
+    num_reads += info.num_reads;
+    num_writes += info.num_writes;
+    exclusive |= info.exclusive;
+  }
 };
 
 using TransactionKeyMap =
@@ -49,6 +57,9 @@ class TransactionUtil {
   // If cache_only is true, then this function will not attempt to read any
   // SST files.  This will make it more likely this function will
   // return an error if it is unable to determine if there are any conflicts.
+  //
+  // See comment of CheckKey() for explanation of `snap_seq`, `snap_checker`
+  // and `min_uncommitted`.
   //
   // Returns OK on success, BUSY if there is a conflicting write, or other error
   // status for any unexpected errors.
@@ -72,6 +83,14 @@ class TransactionUtil {
                                       bool cache_only);
 
  private:
+  // If `snap_checker` == nullptr, writes are always commited in sequence number
+  // order. All sequence number <= `snap_seq` will not conflict with any
+  // write, and all keys > `snap_seq` of `key` will trigger conflict.
+  // If `snap_checker` != nullptr, writes may not commit in sequence number
+  // order. In this case `min_uncommitted` is a lower bound.
+  //  seq < `min_uncommitted`: no conflict
+  //  seq > `snap_seq`: applicable to conflict
+  //  `min_uncommitted` <= seq <= `snap_seq`: call `snap_checker` to determine.
   static Status CheckKey(DBImpl* db_impl, SuperVersion* sv,
                          SequenceNumber earliest_seq, SequenceNumber snap_seq,
                          const std::string& key, bool cache_only,

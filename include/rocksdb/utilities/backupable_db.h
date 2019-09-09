@@ -10,15 +10,11 @@
 #pragma once
 #ifndef ROCKSDB_LITE
 
-#ifndef __STDC_FORMAT_MACROS
-#define __STDC_FORMAT_MACROS
-#endif
-
-#include <inttypes.h>
-#include <string>
-#include <map>
-#include <vector>
+#include <cinttypes>
 #include <functional>
+#include <map>
+#include <string>
+#include <vector>
 
 #include "rocksdb/utilities/stackable_db.h"
 
@@ -257,12 +253,13 @@ class BackupEngine {
 
   // BackupableDBOptions have to be the same as the ones used in previous
   // BackupEngines for the same backup directory.
-  static Status Open(Env* db_env,
-                     const BackupableDBOptions& options,
+  static Status Open(Env* db_env, const BackupableDBOptions& options,
                      BackupEngine** backup_engine_ptr);
 
   // same as CreateNewBackup, but stores extra application metadata
   // Flush will always trigger if 2PC is enabled.
+  // If write-ahead logs are disabled, set flush_before_backup=true to
+  // avoid losing unflushed key/value pairs from the memtable.
   virtual Status CreateNewBackupWithMetadata(
       DB* db, const std::string& app_metadata, bool flush_before_backup = false,
       std::function<void()> progress_callback = []() {}) = 0;
@@ -270,6 +267,8 @@ class BackupEngine {
   // Captures the state of the database in the latest backup
   // NOT a thread safe call
   // Flush will always trigger if 2PC is enabled.
+  // If write-ahead logs are disabled, set flush_before_backup=true to
+  // avoid losing unflushed key/value pairs from the memtable.
   virtual Status CreateNewBackup(DB* db, bool flush_before_backup = false,
                                  std::function<void()> progress_callback =
                                      []() {}) {

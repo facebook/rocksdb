@@ -17,7 +17,7 @@ int main() {
 #include <iostream>
 #include <vector>
 
-#include "db/db_impl.h"
+#include "db/db_impl/db_impl.h"
 #include "monitoring/histogram.h"
 #include "rocksdb/comparator.h"
 #include "rocksdb/db.h"
@@ -26,12 +26,12 @@ int main() {
 #include "rocksdb/perf_context.h"
 #include "rocksdb/slice_transform.h"
 #include "rocksdb/table.h"
+#include "test_util/testharness.h"
 #include "util/coding.h"
 #include "util/gflags_compat.h"
 #include "util/random.h"
 #include "util/stop_watch.h"
 #include "util/string_util.h"
-#include "util/testharness.h"
 #include "utilities/merge_operators.h"
 
 using GFLAGS_NAMESPACE::ParseCommandLineFlags;
@@ -751,7 +751,7 @@ TEST_F(PrefixTest, PrefixSeekModePrev) {
       for (size_t k = 0; k < 9; k++) {
         if (rnd.OneIn(2) || it == whole_map.begin()) {
           iter->Next();
-          it++;
+          ++it;
           if (FLAGS_enable_print) {
             std::cout << "Next >> ";
           }
