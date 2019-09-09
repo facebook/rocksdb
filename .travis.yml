@@ -81,7 +81,7 @@ before_script:
   # more FDs than the default limit.
   - ulimit -n 8192
   # - echo "Present Directory: " $PWD
-  # - git clone https://github.com/google/gtest-parallel
+  - git clone https://github.com/google/gtest-parallel
 
 script:
   - ${CXX} --version
