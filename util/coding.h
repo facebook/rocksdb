@@ -50,8 +50,6 @@ extern void PutVarint32Varint32Varint64(std::string* dst, uint32_t value1,
 extern void PutLengthPrefixedSlice(std::string* dst, const Slice& value);
 extern void PutLengthPrefixedSliceParts(std::string* dst,
                                         const SliceParts& slice_parts);
-extern void PutLengthPrefixedSlicePartsWithPadding(
-    std::string* dst, const SliceParts& slice_parts, size_t pad_sz);
 
 // Standard Get... routines parse a value from the beginning of a Slice
 // and advance the slice past the parsed value.
@@ -60,7 +58,6 @@ extern bool GetFixed32(Slice* input, uint32_t* value);
 extern bool GetFixed16(Slice* input, uint16_t* value);
 extern bool GetVarint32(Slice* input, uint32_t* value);
 extern bool GetVarint64(Slice* input, uint64_t* value);
-extern bool GetVarsignedint64(Slice* input, int64_t* value);
 extern bool GetLengthPrefixedSlice(Slice* input, Slice* result);
 // This function assumes data is well-formed.
 extern Slice GetLengthPrefixedSlice(const char* data);
@@ -308,8 +305,9 @@ inline void PutLengthPrefixedSlice(std::string* dst, const Slice& value) {
   dst->append(value.data(), value.size());
 }
 
-inline void PutLengthPrefixedSliceParts(std::string* dst, size_t total_bytes,
+inline void PutLengthPrefixedSliceParts(std::string* dst,
                                         const SliceParts& slice_parts) {
+  size_t total_bytes = 0;
   for (int i = 0; i < slice_parts.num_parts; ++i) {
     total_bytes += slice_parts.parts[i].size();
   }
@@ -317,17 +315,6 @@ inline void PutLengthPrefixedSliceParts(std::string* dst, size_t total_bytes,
   for (int i = 0; i < slice_parts.num_parts; ++i) {
     dst->append(slice_parts.parts[i].data(), slice_parts.parts[i].size());
   }
-}
-
-inline void PutLengthPrefixedSliceParts(std::string* dst,
-                                        const SliceParts& slice_parts) {
-  PutLengthPrefixedSliceParts(dst, /*total_bytes=*/0, slice_parts);
-}
-
-inline void PutLengthPrefixedSlicePartsWithPadding(
-    std::string* dst, const SliceParts& slice_parts, size_t pad_sz) {
-  PutLengthPrefixedSliceParts(dst, /*total_bytes=*/pad_sz, slice_parts);
-  dst->append(pad_sz, '\0');
 }
 
 inline int VarintLength(uint64_t v) {
@@ -382,18 +369,6 @@ inline bool GetVarint64(Slice* input, uint64_t* value) {
   const char* p = input->data();
   const char* limit = p + input->size();
   const char* q = GetVarint64Ptr(p, limit, value);
-  if (q == nullptr) {
-    return false;
-  } else {
-    *input = Slice(q, static_cast<size_t>(limit - q));
-    return true;
-  }
-}
-
-inline bool GetVarsignedint64(Slice* input, int64_t* value) {
-  const char* p = input->data();
-  const char* limit = p + input->size();
-  const char* q = GetVarsignedint64Ptr(p, limit, value);
   if (q == nullptr) {
     return false;
   } else {

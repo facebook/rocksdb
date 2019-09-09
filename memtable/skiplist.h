@@ -32,10 +32,10 @@
 
 #pragma once
 #include <assert.h>
-#include <stdlib.h>
 #include <atomic>
-#include "memory/allocator.h"
+#include <stdlib.h>
 #include "port/port.h"
+#include "util/allocator.h"
 #include "util/random.h"
 
 namespace rocksdb {

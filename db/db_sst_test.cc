@@ -8,10 +8,10 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
 #include "db/db_test_util.h"
-#include "file/sst_file_manager_impl.h"
 #include "port/port.h"
 #include "port/stack_trace.h"
 #include "rocksdb/sst_file_manager.h"
+#include "util/sst_file_manager_impl.h"
 
 namespace rocksdb {
 
@@ -356,14 +356,6 @@ TEST_F(DBSSTTest, RateLimitedDelete) {
   env_->time_elapse_only_sleep_ = true;
   Options options = CurrentOptions();
   options.disable_auto_compactions = true;
-  // Need to disable stats dumping and persisting which also use
-  // RepeatableThread, one of whose member variables is of type
-  // InstrumentedCondVar. The callback for
-  // InstrumentedCondVar::TimedWaitInternal can be triggered by stats dumping
-  // and persisting threads and cause time_spent_deleting measurement to become
-  // incorrect.
-  options.stats_dump_period_sec = 0;
-  options.stats_persist_period_sec = 0;
   options.env = env_;
 
   int64_t rate_bytes_per_sec = 1024 * 10;  // 10 Kbs / Sec
@@ -375,16 +367,14 @@ TEST_F(DBSSTTest, RateLimitedDelete) {
   auto sfm = static_cast<SstFileManagerImpl*>(options.sst_file_manager.get());
   sfm->delete_scheduler()->SetMaxTrashDBRatio(1.1);
 
-  WriteOptions wo;
-  wo.disableWAL = true;
   ASSERT_OK(TryReopen(options));
   // Create 4 files in L0
   for (char v = 'a'; v <= 'd'; v++) {
-    ASSERT_OK(Put("Key2", DummyString(1024, v), wo));
-    ASSERT_OK(Put("Key3", DummyString(1024, v), wo));
-    ASSERT_OK(Put("Key4", DummyString(1024, v), wo));
-    ASSERT_OK(Put("Key1", DummyString(1024, v), wo));
-    ASSERT_OK(Put("Key4", DummyString(1024, v), wo));
+    ASSERT_OK(Put("Key2", DummyString(1024, v)));
+    ASSERT_OK(Put("Key3", DummyString(1024, v)));
+    ASSERT_OK(Put("Key4", DummyString(1024, v)));
+    ASSERT_OK(Put("Key1", DummyString(1024, v)));
+    ASSERT_OK(Put("Key4", DummyString(1024, v)));
     ASSERT_OK(Flush());
   }
   // We created 4 sst files in L0
@@ -417,163 +407,6 @@ TEST_F(DBSSTTest, RateLimitedDelete) {
 
   rocksdb::SyncPoint::GetInstance()->DisableProcessing();
 }
-
-TEST_F(DBSSTTest, RateLimitedWALDelete) {
-  Destroy(last_options_);
-
-  std::vector<uint64_t> penalties;
-  rocksdb::SyncPoint::GetInstance()->SetCallBack(
-      "DeleteScheduler::BackgroundEmptyTrash:Wait",
-      [&](void* arg) { penalties.push_back(*(static_cast<uint64_t*>(arg))); });
-
-  env_->no_slowdown_ = true;
-  env_->time_elapse_only_sleep_ = true;
-  Options options = CurrentOptions();
-  options.disable_auto_compactions = true;
-  options.compression = kNoCompression;
-  options.env = env_;
-
-  int64_t rate_bytes_per_sec = 1024 * 10;  // 10 Kbs / Sec
-  Status s;
-  options.sst_file_manager.reset(
-      NewSstFileManager(env_, nullptr, "", 0, false, &s, 0));
-  ASSERT_OK(s);
-  options.sst_file_manager->SetDeleteRateBytesPerSecond(rate_bytes_per_sec);
-  auto sfm = static_cast<SstFileManagerImpl*>(options.sst_file_manager.get());
-  sfm->delete_scheduler()->SetMaxTrashDBRatio(3.1);
-
-  ASSERT_OK(TryReopen(options));
-  rocksdb::SyncPoint::GetInstance()->EnableProcessing();
-
-  // Create 4 files in L0
-  for (char v = 'a'; v <= 'd'; v++) {
-    ASSERT_OK(Put("Key2", DummyString(1024, v)));
-    ASSERT_OK(Put("Key3", DummyString(1024, v)));
-    ASSERT_OK(Put("Key4", DummyString(1024, v)));
-    ASSERT_OK(Put("Key1", DummyString(1024, v)));
-    ASSERT_OK(Put("Key4", DummyString(1024, v)));
-    ASSERT_OK(Flush());
-  }
-  // We created 4 sst files in L0
-  ASSERT_EQ("4", FilesPerLevel(0));
-
-  // Compaction will move the 4 files in L0 to trash and create 1 L1 file
-  CompactRangeOptions cro;
-  cro.bottommost_level_compaction = BottommostLevelCompaction::kForce;
-  ASSERT_OK(db_->CompactRange(cro, nullptr, nullptr));
-  ASSERT_OK(dbfull()->TEST_WaitForCompact(true));
-  ASSERT_EQ("0,1", FilesPerLevel(0));
-
-  sfm->WaitForEmptyTrash();
-  ASSERT_EQ(penalties.size(), 8);
-
-  rocksdb::SyncPoint::GetInstance()->DisableProcessing();
-}
-
-class DBWALTestWithParam
-    : public DBSSTTest,
-      public testing::WithParamInterface<std::tuple<std::string, bool>> {
- public:
-  DBWALTestWithParam() {
-    wal_dir_ = std::get<0>(GetParam());
-    wal_dir_same_as_dbname_ = std::get<1>(GetParam());
-  }
-
-  std::string wal_dir_;
-  bool wal_dir_same_as_dbname_;
-};
-
-TEST_P(DBWALTestWithParam, WALTrashCleanupOnOpen) {
-  class MyEnv : public EnvWrapper {
-   public:
-    MyEnv(Env* t) : EnvWrapper(t), fake_log_delete(false) {}
-
-    Status DeleteFile(const std::string& fname) {
-      if (fname.find(".log.trash") != std::string::npos && fake_log_delete) {
-        return Status::OK();
-      }
-
-      return target()->DeleteFile(fname);
-    }
-
-    void set_fake_log_delete(bool fake) { fake_log_delete = fake; }
-
-   private:
-    bool fake_log_delete;
-  };
-
-  std::unique_ptr<MyEnv> env(new MyEnv(Env::Default()));
-  Destroy(last_options_);
-
-  env->set_fake_log_delete(true);
-
-  Options options = CurrentOptions();
-  options.disable_auto_compactions = true;
-  options.compression = kNoCompression;
-  options.env = env.get();
-  options.wal_dir = dbname_ + wal_dir_;
-
-  int64_t rate_bytes_per_sec = 1024 * 10;  // 10 Kbs / Sec
-  Status s;
-  options.sst_file_manager.reset(
-      NewSstFileManager(env_, nullptr, "", 0, false, &s, 0));
-  ASSERT_OK(s);
-  options.sst_file_manager->SetDeleteRateBytesPerSecond(rate_bytes_per_sec);
-  auto sfm = static_cast<SstFileManagerImpl*>(options.sst_file_manager.get());
-  sfm->delete_scheduler()->SetMaxTrashDBRatio(3.1);
-
-  ASSERT_OK(TryReopen(options));
-
-  // Create 4 files in L0
-  for (char v = 'a'; v <= 'd'; v++) {
-    ASSERT_OK(Put("Key2", DummyString(1024, v)));
-    ASSERT_OK(Put("Key3", DummyString(1024, v)));
-    ASSERT_OK(Put("Key4", DummyString(1024, v)));
-    ASSERT_OK(Put("Key1", DummyString(1024, v)));
-    ASSERT_OK(Put("Key4", DummyString(1024, v)));
-    ASSERT_OK(Flush());
-  }
-  // We created 4 sst files in L0
-  ASSERT_EQ("4", FilesPerLevel(0));
-
-  Close();
-
-  options.sst_file_manager.reset();
-  std::vector<std::string> filenames;
-  int trash_log_count = 0;
-  if (!wal_dir_same_as_dbname_) {
-    // Forcibly create some trash log files
-    std::unique_ptr<WritableFile> result;
-    env->NewWritableFile(options.wal_dir + "/1000.log.trash", &result,
-                         EnvOptions());
-    result.reset();
-  }
-  env->GetChildren(options.wal_dir, &filenames);
-  for (const std::string& fname : filenames) {
-    if (fname.find(".log.trash") != std::string::npos) {
-      trash_log_count++;
-    }
-  }
-  ASSERT_GE(trash_log_count, 1);
-
-  env->set_fake_log_delete(false);
-  ASSERT_OK(TryReopen(options));
-
-  filenames.clear();
-  trash_log_count = 0;
-  env->GetChildren(options.wal_dir, &filenames);
-  for (const std::string& fname : filenames) {
-    if (fname.find(".log.trash") != std::string::npos) {
-      trash_log_count++;
-    }
-  }
-  ASSERT_EQ(trash_log_count, 0);
-  Close();
-}
-
-INSTANTIATE_TEST_CASE_P(DBWALTestWithParam, DBWALTestWithParam,
-                        ::testing::Values(std::make_tuple("", true),
-                                          std::make_tuple("_wal_dir", false)));
 
 TEST_F(DBSSTTest, OpenDBWithExistingTrash) {
   Options options = CurrentOptions();
@@ -613,6 +446,7 @@ TEST_F(DBSSTTest, DeleteSchedulerMultipleDBPaths) {
   rocksdb::SyncPoint::GetInstance()->SetCallBack(
       "DeleteScheduler::DeleteFile",
       [&](void* /*arg*/) { bg_delete_file++; });
+  rocksdb::SyncPoint::GetInstance()->EnableProcessing();
 
   Options options = CurrentOptions();
   options.disable_auto_compactions = true;
@@ -630,14 +464,10 @@ TEST_F(DBSSTTest, DeleteSchedulerMultipleDBPaths) {
   auto sfm = static_cast<SstFileManagerImpl*>(options.sst_file_manager.get());
 
   DestroyAndReopen(options);
-  rocksdb::SyncPoint::GetInstance()->EnableProcessing();
-
-  WriteOptions wo;
-  wo.disableWAL = true;
 
   // Create 4 files in L0
   for (int i = 0; i < 4; i++) {
-    ASSERT_OK(Put("Key" + ToString(i), DummyString(1024, 'A'), wo));
+    ASSERT_OK(Put("Key" + ToString(i), DummyString(1024, 'A')));
     ASSERT_OK(Flush());
   }
   // We created 4 sst files in L0
@@ -653,7 +483,7 @@ TEST_F(DBSSTTest, DeleteSchedulerMultipleDBPaths) {
 
   // Create 4 files in L0
   for (int i = 4; i < 8; i++) {
-    ASSERT_OK(Put("Key" + ToString(i), DummyString(1024, 'B'), wo));
+    ASSERT_OK(Put("Key" + ToString(i), DummyString(1024, 'B')));
     ASSERT_OK(Flush());
   }
   ASSERT_EQ("4,1", FilesPerLevel(0));
@@ -671,7 +501,7 @@ TEST_F(DBSSTTest, DeleteSchedulerMultipleDBPaths) {
   // Compaction will delete both files and regenerate a file in L1 in second
   // db path. The deleted files should still be cleaned up via delete scheduler.
   compact_options.bottommost_level_compaction =
-      BottommostLevelCompaction::kForceOptimized;
+      BottommostLevelCompaction::kForce;
   ASSERT_OK(db_->CompactRange(compact_options, nullptr, nullptr));
   ASSERT_EQ("0,1", FilesPerLevel(0));
 
@@ -708,27 +538,14 @@ TEST_F(DBSSTTest, DestroyDBWithRateLimitedDelete) {
   // Close DB and destroy it using DeleteScheduler
   Close();
 
-  int num_sst_files = 0;
-  int num_wal_files = 0;
-  std::vector<std::string> db_files;
-  env_->GetChildren(dbname_, &db_files);
-  for (std::string f : db_files) {
-    if (f.substr(f.find_last_of(".") + 1) == "sst") {
-      num_sst_files++;
-    } else if (f.substr(f.find_last_of(".") + 1) == "log") {
-      num_wal_files++;
-    }
-  }
-  ASSERT_GT(num_sst_files, 0);
-  ASSERT_GT(num_wal_files, 0);
-
   auto sfm = static_cast<SstFileManagerImpl*>(options.sst_file_manager.get());
 
   sfm->SetDeleteRateBytesPerSecond(1024 * 1024);
   sfm->delete_scheduler()->SetMaxTrashDBRatio(1.1);
   ASSERT_OK(DestroyDB(dbname_, options));
   sfm->WaitForEmptyTrash();
-  ASSERT_EQ(bg_delete_file, num_sst_files + num_wal_files);
+  // We have deleted the 4 sst files in the delete_scheduler
+  ASSERT_EQ(bg_delete_file, 4);
 }
 
 TEST_F(DBSSTTest, DBWithMaxSpaceAllowed) {

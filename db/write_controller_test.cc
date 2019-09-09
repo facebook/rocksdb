@@ -8,7 +8,7 @@
 #include "db/write_controller.h"
 
 #include "rocksdb/env.h"
-#include "test_util/testharness.h"
+#include "util/testharness.h"
 
 namespace rocksdb {
 

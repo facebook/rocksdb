@@ -10,14 +10,11 @@
 
 #include "port/port.h"
 #include "rocksdb/env.h"
-#include "test_util/mock_time_env.h"
+#include "util/mock_time_env.h"
 #include "util/mutexlock.h"
 
 namespace rocksdb {
 
-// Simple wrapper around port::Thread that supports calling a callback every
-// X seconds. If you pass in 0, then it will call your callback repeatedly
-// without delay.
 class RepeatableThread {
  public:
   RepeatableThread(std::function<void()> function,
@@ -28,7 +25,6 @@ class RepeatableThread {
         env_(env),
         delay_us_(delay_us),
         initial_delay_us_(initial_delay_us),
-        mutex_(env),
         cond_var_(&mutex_),
         running_(true),
 #ifndef NDEBUG
@@ -40,7 +36,7 @@ class RepeatableThread {
 
   void cancel() {
     {
-      InstrumentedMutexLock l(&mutex_);
+      MutexLock l(&mutex_);
       if (!running_) {
         return;
       }
@@ -62,7 +58,7 @@ class RepeatableThread {
   //
   // Note: only support one caller of this method.
   void TEST_WaitForRun(std::function<void()> callback = nullptr) {
-    InstrumentedMutexLock l(&mutex_);
+    MutexLock l(&mutex_);
     while (!waiting_) {
       cond_var_.Wait();
     }
@@ -79,7 +75,7 @@ class RepeatableThread {
 
  private:
   bool wait(uint64_t delay) {
-    InstrumentedMutexLock l(&mutex_);
+    MutexLock l(&mutex_);
     if (running_ && delay > 0) {
       uint64_t wait_until = env_->NowMicros() + delay;
 #ifndef NDEBUG
@@ -87,7 +83,17 @@ class RepeatableThread {
       cond_var_.SignalAll();
 #endif
       while (running_) {
+#ifndef NDEBUG
+        if (dynamic_cast<MockTimeEnv*>(env_) != nullptr) {
+          // MockTimeEnv is used. Since it is not easy to mock TimedWait,
+          // we wait without timeout to wait for TEST_WaitForRun to wake us up.
+          cond_var_.Wait();
+        } else {
+          cond_var_.TimedWait(wait_until);
+        }
+#else
         cond_var_.TimedWait(wait_until);
+#endif
         if (env_->NowMicros() >= wait_until) {
           break;
         }
@@ -118,7 +124,7 @@ class RepeatableThread {
       function_();
 #ifndef NDEBUG
       {
-        InstrumentedMutexLock l(&mutex_);
+        MutexLock l(&mutex_);
         run_count_++;
         cond_var_.SignalAll();
       }
@@ -134,8 +140,8 @@ class RepeatableThread {
 
   // Mutex lock should be held when accessing running_, waiting_
   // and run_count_.
-  InstrumentedMutex mutex_;
-  InstrumentedCondVar cond_var_;
+  port::Mutex mutex_;
+  port::CondVar cond_var_;
   bool running_;
 #ifndef NDEBUG
   // RepeatableThread waiting for timeout.

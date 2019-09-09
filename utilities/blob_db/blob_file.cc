@@ -1,4 +1,3 @@
-
 //  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
 //  This source code is licensed under both the GPLv2 (found in the
 //  COPYING file in the root directory) and Apache 2.0 License
@@ -6,7 +5,11 @@
 #ifndef ROCKSDB_LITE
 #include "utilities/blob_db/blob_file.h"
 
-#include <cinttypes>
+#ifndef __STDC_FORMAT_MACROS
+#define __STDC_FORMAT_MACROS
+#endif
+
+#include <inttypes.h>
 #include <stdio.h>
 
 #include <algorithm>
@@ -14,10 +17,10 @@
 #include <memory>
 
 #include "db/column_family.h"
-#include "db/db_impl/db_impl.h"
+#include "db/db_impl.h"
 #include "db/dbformat.h"
-#include "file/filename.h"
-#include "logging/logging.h"
+#include "util/filename.h"
+#include "util/logging.h"
 #include "utilities/blob_db/blob_db_impl.h"
 
 namespace rocksdb {
@@ -241,14 +244,14 @@ Status BlobFile::ReadMetadata(Env* env, const EnvOptions& env_options) {
     file_size_ = file_size;
   } else {
     ROCKS_LOG_ERROR(info_log_,
-                    "Failed to get size of blob file %" PRIu64
+                    "Failed to get size of blob file %" ROCKSDB_PRIszt
                     ", status: %s",
                     file_number_, s.ToString().c_str());
     return s;
   }
   if (file_size < BlobLogHeader::kSize) {
     ROCKS_LOG_ERROR(info_log_,
-                    "Incomplete blob file blob file %" PRIu64
+                    "Incomplete blob file blob file %" ROCKSDB_PRIszt
                     ", size: %" PRIu64,
                     file_number_, file_size);
     return Status::Corruption("Incomplete blob file header.");
@@ -259,7 +262,7 @@ Status BlobFile::ReadMetadata(Env* env, const EnvOptions& env_options) {
   s = env->NewRandomAccessFile(PathName(), &file, env_options);
   if (!s.ok()) {
     ROCKS_LOG_ERROR(info_log_,
-                    "Failed to open blob file %" PRIu64 ", status: %s",
+                    "Failed to open blob file %" ROCKSDB_PRIszt ", status: %s",
                     file_number_, s.ToString().c_str());
     return s;
   }
@@ -272,7 +275,7 @@ Status BlobFile::ReadMetadata(Env* env, const EnvOptions& env_options) {
   s = file_reader->Read(0, BlobLogHeader::kSize, &header_slice, header_buf);
   if (!s.ok()) {
     ROCKS_LOG_ERROR(info_log_,
-                    "Failed to read header of blob file %" PRIu64
+                    "Failed to read header of blob file %" ROCKSDB_PRIszt
                     ", status: %s",
                     file_number_, s.ToString().c_str());
     return s;
@@ -281,7 +284,7 @@ Status BlobFile::ReadMetadata(Env* env, const EnvOptions& env_options) {
   s = header.DecodeFrom(header_slice);
   if (!s.ok()) {
     ROCKS_LOG_ERROR(info_log_,
-                    "Failed to decode header of blob file %" PRIu64
+                    "Failed to decode header of blob file %" ROCKSDB_PRIszt
                     ", status: %s",
                     file_number_, s.ToString().c_str());
     return s;
@@ -306,7 +309,7 @@ Status BlobFile::ReadMetadata(Env* env, const EnvOptions& env_options) {
                         &footer_slice, footer_buf);
   if (!s.ok()) {
     ROCKS_LOG_ERROR(info_log_,
-                    "Failed to read footer of blob file %" PRIu64
+                    "Failed to read footer of blob file %" ROCKSDB_PRIszt
                     ", status: %s",
                     file_number_, s.ToString().c_str());
     return s;

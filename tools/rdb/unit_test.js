@@ -1,4 +1,3 @@
-// Copyright (c) Facebook, Inc. and its affiliates. All Rights Reserved.
 assert = require('assert')
 RDB    = require('./build/Release/rdb').DBWrapper
 exec   = require('child_process').exec

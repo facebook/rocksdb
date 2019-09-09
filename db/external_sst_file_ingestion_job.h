@@ -20,15 +20,13 @@
 
 namespace rocksdb {
 
-class Directories;
-
 struct IngestedFileInfo {
   // External file path
   std::string external_file_path;
-  // Smallest internal key in external file
-  InternalKey smallest_internal_key;
-  // Largest internal key in external file
-  InternalKey largest_internal_key;
+  // Smallest user key in external file
+  std::string smallest_user_key;
+  // Largest user key in external file
+  std::string largest_user_key;
   // Sequence number for keys in external file
   SequenceNumber original_seqno;
   // Offset of the global sequence number field in the file, will
@@ -62,6 +60,15 @@ struct IngestedFileInfo {
   // ingestion_options.move_files is false by default, thus copy_file is true
   // by default.
   bool copy_file = true;
+
+  InternalKey smallest_internal_key() const {
+    return InternalKey(smallest_user_key, assigned_seqno,
+                       ValueType::kTypeValue);
+  }
+
+  InternalKey largest_internal_key() const {
+    return InternalKey(largest_user_key, assigned_seqno, ValueType::kTypeValue);
+  }
 };
 
 class ExternalSstFileIngestionJob {
@@ -70,8 +77,7 @@ class ExternalSstFileIngestionJob {
       Env* env, VersionSet* versions, ColumnFamilyData* cfd,
       const ImmutableDBOptions& db_options, const EnvOptions& env_options,
       SnapshotList* db_snapshots,
-      const IngestExternalFileOptions& ingestion_options,
-      Directories* directories)
+      const IngestExternalFileOptions& ingestion_options)
       : env_(env),
         versions_(versions),
         cfd_(cfd),
@@ -79,11 +85,8 @@ class ExternalSstFileIngestionJob {
         env_options_(env_options),
         db_snapshots_(db_snapshots),
         ingestion_options_(ingestion_options),
-        directories_(directories),
         job_start_time_(env_->NowMicros()),
-        consumed_seqno_(false) {
-    assert(directories != nullptr);
-  }
+        consumed_seqno_(false) {}
 
   // Prepare the job by copying external files into the DB.
   Status Prepare(const std::vector<std::string>& external_files_paths,
@@ -150,10 +153,6 @@ class ExternalSstFileIngestionJob {
   bool IngestedFileFitInLevel(const IngestedFileInfo* file_to_ingest,
                               int level);
 
-  // Helper method to sync given file.
-  template <typename TWritableFile>
-  Status SyncIngestedFile(TWritableFile* file);
-
   Env* env_;
   VersionSet* versions_;
   ColumnFamilyData* cfd_;
@@ -162,7 +161,6 @@ class ExternalSstFileIngestionJob {
   SnapshotList* db_snapshots_;
   autovector<IngestedFileInfo> files_to_ingest_;
   const IngestExternalFileOptions& ingestion_options_;
-  Directories* directories_;
   VersionEdit edit_;
   uint64_t job_start_time_;
   bool consumed_seqno_;

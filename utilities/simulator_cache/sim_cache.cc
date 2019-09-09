@@ -152,9 +152,10 @@ class SimCacheImpl : public SimCache {
  public:
   // capacity for real cache (ShardedLRUCache)
   // test_capacity for key only cache
-  SimCacheImpl(std::shared_ptr<Cache> sim_cache, std::shared_ptr<Cache> cache)
+  SimCacheImpl(std::shared_ptr<Cache> cache, size_t sim_capacity,
+               int num_shard_bits)
       : cache_(cache),
-        key_only_cache_(sim_cache),
+        key_only_cache_(NewLRUCache(sim_capacity, num_shard_bits)),
         miss_times_(0),
         hit_times_(0),
         stats_(nullptr) {}
@@ -184,9 +185,7 @@ class SimCacheImpl : public SimCache {
     }
 
     cache_activity_logger_.ReportAdd(key, charge);
-    if (!cache_) {
-      return Status::OK();
-    }
+
     return cache_->Insert(key, value, charge, deleter, handle, priority);
   }
 
@@ -202,9 +201,7 @@ class SimCacheImpl : public SimCache {
     }
 
     cache_activity_logger_.ReportLookup(key);
-    if (!cache_) {
-      return nullptr;
-    }
+
     return cache_->Lookup(key, stats);
   }
 
@@ -234,8 +231,6 @@ class SimCacheImpl : public SimCache {
   size_t GetUsage(Handle* handle) const override {
     return cache_->GetUsage(handle);
   }
-
-  size_t GetCharge(Handle* handle) const override { return cache_->GetCharge(handle); }
 
   size_t GetPinnedUsage() const override { return cache_->GetPinnedUsage(); }
 
@@ -331,17 +326,10 @@ class SimCacheImpl : public SimCache {
 // For instrumentation purpose, use NewSimCache instead
 std::shared_ptr<SimCache> NewSimCache(std::shared_ptr<Cache> cache,
                                       size_t sim_capacity, int num_shard_bits) {
-  return NewSimCache(NewLRUCache(sim_capacity, num_shard_bits), cache,
-                     num_shard_bits);
-}
-
-std::shared_ptr<SimCache> NewSimCache(std::shared_ptr<Cache> sim_cache,
-                                      std::shared_ptr<Cache> cache,
-                                      int num_shard_bits) {
   if (num_shard_bits >= 20) {
     return nullptr;  // the cache cannot be sharded into too many fine pieces
   }
-  return std::make_shared<SimCacheImpl>(sim_cache, cache);
+  return std::make_shared<SimCacheImpl>(cache, sim_capacity, num_shard_bits);
 }
 
 }  // end namespace rocksdb

@@ -12,7 +12,7 @@ package org.rocksdb;
  * and MutableCFOptions in util/cf_options.h
  */
 public interface AdvancedMutableColumnFamilyOptionsInterface
-    <T extends AdvancedMutableColumnFamilyOptionsInterface<T>> {
+    <T extends AdvancedMutableColumnFamilyOptionsInterface> {
 
   /**
    * The maximum number of write buffers that are built up in memory.

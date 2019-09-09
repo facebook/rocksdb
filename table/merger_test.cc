@@ -7,8 +7,8 @@
 #include <string>
 
 #include "table/merging_iterator.h"
-#include "test_util/testharness.h"
-#include "test_util/testutil.h"
+#include "util/testharness.h"
+#include "util/testutil.h"
 
 namespace rocksdb {
 

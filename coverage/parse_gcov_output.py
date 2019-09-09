@@ -1,5 +1,3 @@
-#!/usr/bin/env python2
-# Copyright (c) Facebook, Inc. and its affiliates. All Rights Reserved.
 import re
 import sys
 

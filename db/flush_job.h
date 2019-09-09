@@ -28,7 +28,6 @@
 #include "db/version_edit.h"
 #include "db/write_controller.h"
 #include "db/write_thread.h"
-#include "logging/event_logger.h"
 #include "monitoring/instrumented_mutex.h"
 #include "options/db_options.h"
 #include "port/port.h"
@@ -38,6 +37,7 @@
 #include "rocksdb/transaction_log.h"
 #include "table/scoped_arena_iterator.h"
 #include "util/autovector.h"
+#include "util/event_logger.h"
 #include "util/stop_watch.h"
 #include "util/thread_local.h"
 
@@ -68,8 +68,7 @@ class FlushJob {
            LogBuffer* log_buffer, Directory* db_directory,
            Directory* output_file_directory, CompressionType output_compression,
            Statistics* stats, EventLogger* event_logger, bool measure_io_stats,
-           const bool sync_output_directory, const bool write_manifest,
-           Env::Priority thread_pri);
+           const bool sync_output_directory, const bool write_manifest);
 
   ~FlushJob();
 
@@ -138,7 +137,6 @@ class FlushJob {
   VersionEdit* edit_;
   Version* base_;
   bool pick_memtable_called;
-  Env::Priority thread_pri_;
 };
 
 }  // namespace rocksdb

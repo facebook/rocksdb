@@ -1,5 +1,4 @@
 #!/usr/bin/env bash
-# Copyright (c) Facebook, Inc. and its affiliates. All Rights Reserved.
 # REQUIRE: db_bench binary exists in the current directory
 #
 # This should be used with the LevelDB fork listed here to use additional test options.

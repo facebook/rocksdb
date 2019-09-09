@@ -9,28 +9,30 @@
 
 #include "table/block_fetcher.h"
 
-#include <cinttypes>
 #include <string>
+#include <inttypes.h>
 
-#include "logging/logging.h"
-#include "memory/memory_allocator.h"
 #include "monitoring/perf_context_imp.h"
+#include "monitoring/statistics.h"
 #include "rocksdb/env.h"
-#include "table/block_based/block.h"
-#include "table/block_based/block_based_table_reader.h"
+#include "table/block.h"
+#include "table/block_based_table_reader.h"
 #include "table/format.h"
 #include "table/persistent_cache_helper.h"
 #include "util/coding.h"
 #include "util/compression.h"
 #include "util/crc32c.h"
 #include "util/file_reader_writer.h"
+#include "util/logging.h"
+#include "util/memory_allocator.h"
 #include "util/stop_watch.h"
 #include "util/string_util.h"
 #include "util/xxhash.h"
 
 namespace rocksdb {
 
-inline void BlockFetcher::CheckBlockChecksum() {
+inline
+void BlockFetcher::CheckBlockChecksum() {
   // Check the crc of the type and the block contents
   if (read_options_.verify_checksums) {
     const char* data = slice_.data();  // Pointer to where Read put the data
@@ -48,9 +50,10 @@ inline void BlockFetcher::CheckBlockChecksum() {
         actual = XXH32(data, static_cast<int>(block_size_) + 1, 0);
         break;
       case kxxHash64:
-        actual = static_cast<uint32_t>(
-            XXH64(data, static_cast<int>(block_size_) + 1, 0) &
-            uint64_t{0xffffffff});
+        actual =static_cast<uint32_t> (
+             XXH64(data, static_cast<int>(block_size_) + 1, 0) &
+              uint64_t{0xffffffff}
+          );
         break;
       default:
         status_ = Status::Corruption(
@@ -67,7 +70,8 @@ inline void BlockFetcher::CheckBlockChecksum() {
   }
 }
 
-inline bool BlockFetcher::TryGetUncompressBlockFromPersistentCache() {
+inline
+bool BlockFetcher::TryGetUncompressBlockFromPersistentCache() {
   if (cache_options_.persistent_cache &&
       !cache_options_.persistent_cache->IsCompressed()) {
     Status status = PersistentCacheHelper::LookupUncompressedPage(
@@ -88,12 +92,12 @@ inline bool BlockFetcher::TryGetUncompressBlockFromPersistentCache() {
   return false;
 }
 
-inline bool BlockFetcher::TryGetFromPrefetchBuffer() {
+inline
+bool BlockFetcher::TryGetFromPrefetchBuffer() {
   if (prefetch_buffer_ != nullptr &&
       prefetch_buffer_->TryReadFromCache(
           handle_.offset(),
-          static_cast<size_t>(handle_.size()) + kBlockTrailerSize, &slice_,
-          for_compaction_)) {
+          static_cast<size_t>(handle_.size()) + kBlockTrailerSize, &slice_)) {
     block_size_ = static_cast<size_t>(handle_.size());
     CheckBlockChecksum();
     if (!status_.ok()) {
@@ -105,7 +109,8 @@ inline bool BlockFetcher::TryGetFromPrefetchBuffer() {
   return got_from_prefetch_buffer_;
 }
 
-inline bool BlockFetcher::TryGetCompressedBlockFromPersistentCache() {
+inline
+bool BlockFetcher::TryGetCompressedBlockFromPersistentCache() {
   if (cache_options_.persistent_cache &&
       cache_options_.persistent_cache->IsCompressed()) {
     // lookup uncompressed cache mode p-cache
@@ -127,7 +132,8 @@ inline bool BlockFetcher::TryGetCompressedBlockFromPersistentCache() {
   return false;
 }
 
-inline void BlockFetcher::PrepareBufferForBlockFromFile() {
+inline
+void BlockFetcher::PrepareBufferForBlockFromFile() {
   // cache miss read from device
   if (do_uncompress_ &&
       block_size_ + kBlockTrailerSize < kDefaultStackBufferSize) {
@@ -145,7 +151,8 @@ inline void BlockFetcher::PrepareBufferForBlockFromFile() {
   }
 }
 
-inline void BlockFetcher::InsertCompressedBlockToPersistentCacheIfNeeded() {
+inline
+void BlockFetcher::InsertCompressedBlockToPersistentCacheIfNeeded() {
   if (status_.ok() && read_options_.fill_cache &&
       cache_options_.persistent_cache &&
       cache_options_.persistent_cache->IsCompressed()) {
@@ -155,7 +162,8 @@ inline void BlockFetcher::InsertCompressedBlockToPersistentCacheIfNeeded() {
   }
 }
 
-inline void BlockFetcher::InsertUncompressedBlockToPersistentCacheIfNeeded() {
+inline
+void BlockFetcher::InsertUncompressedBlockToPersistentCacheIfNeeded() {
   if (status_.ok() && !got_from_prefetch_buffer_ && read_options_.fill_cache &&
       cache_options_.persistent_cache &&
       !cache_options_.persistent_cache->IsCompressed()) {
@@ -171,7 +179,8 @@ inline void BlockFetcher::CopyBufferToHeap() {
   memcpy(heap_buf_.get(), used_buf_, block_size_ + kBlockTrailerSize);
 }
 
-inline void BlockFetcher::GetBlockContents() {
+inline
+void BlockFetcher::GetBlockContents() {
   if (slice_.data() != used_buf_) {
     // the slice content is not the buffer provided
     *contents_ = BlockContents(Slice(slice_.data(), block_size_));
@@ -217,29 +226,9 @@ Status BlockFetcher::ReadBlockContents() {
       PERF_TIMER_GUARD(block_read_time);
       // Actual file read
       status_ = file_->Read(handle_.offset(), block_size_ + kBlockTrailerSize,
-                            &slice_, used_buf_, for_compaction_);
+                            &slice_, used_buf_);
     }
     PERF_COUNTER_ADD(block_read_count, 1);
-
-    // TODO: introduce dedicated perf counter for range tombstones
-    switch (block_type_) {
-      case BlockType::kFilter:
-        PERF_COUNTER_ADD(filter_block_read_count, 1);
-        break;
-
-      case BlockType::kCompressionDictionary:
-        PERF_COUNTER_ADD(compression_dict_block_read_count, 1);
-        break;
-
-      case BlockType::kIndex:
-        PERF_COUNTER_ADD(index_block_read_count, 1);
-        break;
-
-      // Nothing to do here as we don't have counters for the other types.
-      default:
-        break;
-    }
-
     PERF_COUNTER_ADD(block_read_byte, block_size_ + kBlockTrailerSize);
     if (!status_.ok()) {
       return status_;

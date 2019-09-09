@@ -11,13 +11,11 @@
 
 namespace rocksdb {
 
-void FlushScheduler::ScheduleWork(ColumnFamilyData* cfd) {
+void FlushScheduler::ScheduleFlush(ColumnFamilyData* cfd) {
 #ifndef NDEBUG
-  {
-    std::lock_guard<std::mutex> lock(checking_mutex_);
-    assert(checking_set_.count(cfd) == 0);
-    checking_set_.insert(cfd);
-  }
+  std::lock_guard<std::mutex> lock(checking_mutex_);
+  assert(checking_set_.count(cfd) == 0);
+  checking_set_.insert(cfd);
 #endif  // NDEBUG
   cfd->Ref();
 // Suppress false positive clang analyzer warnings.
@@ -34,6 +32,9 @@ void FlushScheduler::ScheduleWork(ColumnFamilyData* cfd) {
 }
 
 ColumnFamilyData* FlushScheduler::TakeNextColumnFamily() {
+#ifndef NDEBUG
+  std::lock_guard<std::mutex> lock(checking_mutex_);
+#endif  // NDEBUG
   while (true) {
     if (head_.load(std::memory_order_relaxed) == nullptr) {
       return nullptr;
@@ -46,12 +47,9 @@ ColumnFamilyData* FlushScheduler::TakeNextColumnFamily() {
     delete node;
 
 #ifndef NDEBUG
-    {
-      std::lock_guard<std::mutex> lock(checking_mutex_);
-      auto iter = checking_set_.find(cfd);
-      assert(iter != checking_set_.end());
-      checking_set_.erase(iter);
-    }
+    auto iter = checking_set_.find(cfd);
+    assert(iter != checking_set_.end());
+    checking_set_.erase(iter);
 #endif  // NDEBUG
 
     if (!cfd->IsDropped()) {
@@ -67,12 +65,12 @@ ColumnFamilyData* FlushScheduler::TakeNextColumnFamily() {
 }
 
 bool FlushScheduler::Empty() {
-  auto rv = head_.load(std::memory_order_relaxed) == nullptr;
 #ifndef NDEBUG
   std::lock_guard<std::mutex> lock(checking_mutex_);
-  // Empty is allowed to be called concurrnetly with ScheduleFlush. It would
-  // only miss the recent schedules.
-  assert((rv == checking_set_.empty()) || rv);
+#endif  // NDEBUG
+  auto rv = head_.load(std::memory_order_relaxed) == nullptr;
+#ifndef NDEBUG
+  assert(rv == checking_set_.empty());
 #endif  // NDEBUG
   return rv;
 }

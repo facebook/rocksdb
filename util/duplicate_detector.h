@@ -5,7 +5,11 @@
 
 #pragma once
 
-#include <cinttypes>
+#ifndef __STDC_FORMAT_MACROS
+#define __STDC_FORMAT_MACROS
+#endif
+
+#include <inttypes.h>
 
 #include "util/set_comparator.h"
 
@@ -52,11 +56,11 @@ class DuplicateDetector {
           db_->immutable_db_options().info_log,
           "Recovering an entry from the dropped column family %" PRIu32
           ". WAL must must have been emptied before dropping the column "
-          "family", cf);
+          "family");
 #ifndef ROCKSDB_LITE
       throw std::runtime_error(
-          "Recovering an entry from a dropped column family. "
-          "WAL must must have been flushed before dropping the column "
+          "Recovering an entry from the dropped column family %" PRIu32
+          ". WAL must must have been flushed before dropping the column "
           "family");
 #endif
       return;

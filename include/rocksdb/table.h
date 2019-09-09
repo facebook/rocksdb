@@ -1,4 +1,3 @@
-// Copyright (c) Facebook, Inc. and its affiliates. All Rights Reserved.
 // Copyright (c) 2011 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
@@ -42,6 +41,8 @@ class WritableFileWriter;
 struct EnvOptions;
 struct Options;
 
+using std::unique_ptr;
+
 enum ChecksumType : char {
   kNoChecksum = 0x0,
   kCRC32c = 0x1,
@@ -74,7 +75,7 @@ struct BlockBasedTableOptions {
   // blocks with high priority. If set to true, depending on implementation of
   // block cache, index and filter blocks may be less likely to be evicted
   // than data blocks.
-  bool cache_index_and_filter_blocks_with_high_priority = true;
+  bool cache_index_and_filter_blocks_with_high_priority = false;
 
   // if cache_index_and_filter_blocks is true and the below is true, then
   // filter and index blocks are stored in the cache, but a reference is
@@ -93,32 +94,14 @@ struct BlockBasedTableOptions {
   enum IndexType : char {
     // A space efficient index block that is optimized for
     // binary-search-based index.
-    kBinarySearch = 0x00,
+    kBinarySearch,
 
     // The hash index, if enabled, will do the hash lookup when
     // `Options.prefix_extractor` is provided.
-    kHashSearch = 0x01,
+    kHashSearch,
 
     // A two-level index implementation. Both levels are binary search indexes.
-    kTwoLevelIndexSearch = 0x02,
-
-    // Like kBinarySearch, but index also contains first key of each block.
-    // This allows iterators to defer reading the block until it's actually
-    // needed. May significantly reduce read amplification of short range scans.
-    // Without it, iterator seek usually reads one block from each level-0 file
-    // and from each level, which may be expensive.
-    // Works best in combination with:
-    //  - IndexShorteningMode::kNoShortening,
-    //  - custom FlushBlockPolicy to cut blocks at some meaningful boundaries,
-    //    e.g. when prefix changes.
-    // Makes the index significantly bigger (2x or more), especially when keys
-    // are long.
-    //
-    // IO errors are not handled correctly in this mode right now: if an error
-    // happens when lazily reading a block in value(), value() returns empty
-    // slice, and you need to call Valid()/status() afterwards.
-    // TODO(kolmike): Fix it.
-    kBinarySearchWithFirstKey = 0x03,
+    kTwoLevelIndexSearch,
   };
 
   IndexType index_type = kBinarySearch;
@@ -278,41 +261,6 @@ struct BlockBasedTableOptions {
 
   // Align data blocks on lesser of page size and block size
   bool block_align = false;
-
-  // This enum allows trading off increased index size for improved iterator
-  // seek performance in some situations, particularly when block cache is
-  // disabled (ReadOptions::fill_cache = false) and direct IO is
-  // enabled (DBOptions::use_direct_reads = true).
-  // The default mode is the best tradeoff for most use cases.
-  // This option only affects newly written tables.
-  //
-  // The index contains a key separating each pair of consecutive blocks.
-  // Let A be the highest key in one block, B the lowest key in the next block,
-  // and I the index entry separating these two blocks:
-  // [ ... A] I [B ...]
-  // I is allowed to be anywhere in [A, B).
-  // If an iterator is seeked to a key in (A, I], we'll unnecessarily read the
-  // first block, then immediately fall through to the second block.
-  // However, if I=A, this can't happen, and we'll read only the second block.
-  // In kNoShortening mode, we use I=A. In other modes, we use the shortest
-  // key in [A, B), which usually significantly reduces index size.
-  //
-  // There's a similar story for the last index entry, which is an upper bound
-  // of the highest key in the file. If it's shortened and therefore
-  // overestimated, iterator is likely to unnecessarily read the last data block
-  // from each file on each seek.
-  enum class IndexShorteningMode : char {
-    // Use full keys.
-    kNoShortening,
-    // Shorten index keys between blocks, but use full key for the last index
-    // key, which is the upper bound of the whole file.
-    kShortenSeparators,
-    // Shorten both keys between blocks and key after last block.
-    kShortenSeparatorsAndSuccessor,
-  };
-
-  IndexShorteningMode index_shortening =
-      IndexShorteningMode::kShortenSeparators;
 };
 
 // Table Properties that are specific to block-based table properties.
@@ -410,13 +358,13 @@ struct PlainTableOptions {
 };
 
 // -- Plain Table with prefix-only seek
-// For this factory, you need to set Options.prefix_extractor properly to make
-// it work. Look-up will starts with prefix hash lookup for key prefix. Inside
-// the hash bucket found, a binary search is executed for hash conflicts.
-// Finally, a linear search is used.
+// For this factory, you need to set Options.prefix_extractor properly to make it
+// work. Look-up will starts with prefix hash lookup for key prefix. Inside the
+// hash bucket found, a binary search is executed for hash conflicts. Finally,
+// a linear search is used.
 
-extern TableFactory* NewPlainTableFactory(
-    const PlainTableOptions& options = PlainTableOptions());
+extern TableFactory* NewPlainTableFactory(const PlainTableOptions& options =
+                                              PlainTableOptions());
 
 struct CuckooTablePropertyNames {
   // The key that is used to fill empty buckets.
@@ -550,8 +498,9 @@ class TableFactory {
   //
   // If the function cannot find a way to sanitize the input DB Options,
   // a non-ok Status will be returned.
-  virtual Status SanitizeOptions(const DBOptions& db_opts,
-                                 const ColumnFamilyOptions& cf_opts) const = 0;
+  virtual Status SanitizeOptions(
+      const DBOptions& db_opts,
+      const ColumnFamilyOptions& cf_opts) const = 0;
 
   // Return a string that contains printable format of table configurations.
   // RocksDB prints configurations at DB Open().
@@ -591,8 +540,7 @@ class TableFactory {
 // @block_based_table_factory:  block based table factory to use. If NULL, use
 //                              a default one.
 // @plain_table_factory: plain table factory to use. If NULL, use a default one.
-// @cuckoo_table_factory: cuckoo table factory to use. If NULL, use a default
-// one.
+// @cuckoo_table_factory: cuckoo table factory to use. If NULL, use a default one.
 extern TableFactory* NewAdaptiveTableFactory(
     std::shared_ptr<TableFactory> table_factory_to_write = nullptr,
     std::shared_ptr<TableFactory> block_based_table_factory = nullptr,

@@ -73,6 +73,9 @@ struct BlobDBOptions {
   // blob files will be cleanup based on TTL.
   bool enable_garbage_collection = false;
 
+  // Time interval to trigger garbage collection, in seconds.
+  uint64_t garbage_collection_interval_secs = 60;
+
   // Disable all background job. Used for test only.
   bool disable_background_tasks = false;
 
@@ -165,16 +168,6 @@ class BlobDB : public StackableDB {
       }
     }
     return MultiGet(options, keys, values);
-  }
-  virtual void MultiGet(const ReadOptions& /*options*/,
-                        ColumnFamilyHandle* /*column_family*/,
-                        const size_t num_keys, const Slice* /*keys*/,
-                        PinnableSlice* /*values*/, Status* statuses,
-                        const bool /*sorted_input*/ = false) override {
-    for (size_t i = 0; i < num_keys; ++i) {
-      statuses[i] = Status::NotSupported(
-          "Blob DB doesn't support batched MultiGet");
-    }
   }
 
   using rocksdb::StackableDB::SingleDelete;

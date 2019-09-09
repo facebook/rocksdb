@@ -5,8 +5,6 @@
 
 #pragma once
 #include <string>
-#include "db/dbformat.h"
-#include "db/table_properties_collector.h"
 #include "rocksdb/types.h"
 #include "util/string_util.h"
 
@@ -33,14 +31,6 @@ class SstFileWriterPropertiesCollector : public IntTblPropCollector {
     // Intentionally left blank. Have no interest in collecting stats for
     // individual key/value pairs.
     return Status::OK();
-  }
-
-  virtual void BlockAdd(uint64_t /* blockRawBytes */,
-                        uint64_t /* blockCompressedBytesFast */,
-                        uint64_t /* blockCompressedBytesSlow */) override {
-    // Intentionally left blank. No interest in collecting stats for
-    // blocks.
-    return;
   }
 
   virtual Status Finish(UserCollectedProperties* properties) override {

@@ -5,9 +5,14 @@
 //
 #ifndef ROCKSDB_LITE
 
+#ifndef __STDC_FORMAT_MACROS
+#define __STDC_FORMAT_MACROS
+#endif
+
 #include "utilities/persistent_cache/persistent_cache_tier.h"
 
-#include <cinttypes>
+#include "inttypes.h"
+
 #include <string>
 #include <sstream>
 

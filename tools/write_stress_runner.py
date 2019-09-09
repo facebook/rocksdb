@@ -1,5 +1,4 @@
-#!/usr/bin/env python2
-# Copyright (c) Facebook, Inc. and its affiliates. All Rights Reserved.
+#! /usr/bin/env python
 import subprocess
 import argparse
 import random

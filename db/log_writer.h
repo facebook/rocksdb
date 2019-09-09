@@ -20,6 +20,8 @@ namespace rocksdb {
 
 class WritableFileWriter;
 
+using std::unique_ptr;
+
 namespace log {
 
 /**
@@ -70,9 +72,8 @@ class Writer {
   // Create a writer that will append data to "*dest".
   // "*dest" must be initially empty.
   // "*dest" must remain live while this Writer is in use.
-  explicit Writer(std::unique_ptr<WritableFileWriter>&& dest,
-                  uint64_t log_number, bool recycle_log_files,
-                  bool manual_flush = false);
+  explicit Writer(unique_ptr<WritableFileWriter>&& dest, uint64_t log_number,
+                  bool recycle_log_files, bool manual_flush = false);
   // No copying allowed
   Writer(const Writer&) = delete;
   void operator=(const Writer&) = delete;
@@ -87,8 +88,6 @@ class Writer {
   uint64_t get_log_number() const { return log_number_; }
 
   Status WriteBuffer();
-
-  Status Close();
 
   bool TEST_BufferIsEmpty();
 

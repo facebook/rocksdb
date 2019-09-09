@@ -1,8 +1,6 @@
 // Copyright (c) 2011 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
-//
-// Copyright (c) Facebook, Inc. and its affiliates. All Rights Reserved.
 
 #include <memory>
 #include <string>
@@ -11,7 +9,8 @@
 
 #include "env/mock_env.h"
 #include "rocksdb/env.h"
-#include "test_util/testharness.h"
+#include "rocksdb/utilities/object_registry.h"
+#include "util/testharness.h"
 
 namespace rocksdb {
 
@@ -103,12 +102,13 @@ namespace {
 // ValuesIn() will skip running tests when given an empty collection.
 std::vector<Env*> GetCustomEnvs() {
   static Env* custom_env;
+  static std::unique_ptr<Env> custom_env_guard;
   static bool init = false;
   if (!init) {
     init = true;
     const char* uri = getenv("TEST_ENV_URI");
     if (uri != nullptr) {
-      Env::LoadEnv(uri, &custom_env);
+      custom_env = NewCustomObject<Env>(uri, &custom_env_guard);
     }
   }
 

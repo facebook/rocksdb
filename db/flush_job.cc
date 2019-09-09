@@ -9,7 +9,11 @@
 
 #include "db/flush_job.h"
 
-#include <cinttypes>
+#ifndef __STDC_FORMAT_MACROS
+#define __STDC_FORMAT_MACROS
+#endif
+
+#include <inttypes.h>
 
 #include <algorithm>
 #include <vector>
@@ -25,11 +29,6 @@
 #include "db/merge_context.h"
 #include "db/range_tombstone_fragmenter.h"
 #include "db/version_set.h"
-#include "file/file_util.h"
-#include "file/filename.h"
-#include "logging/event_logger.h"
-#include "logging/log_buffer.h"
-#include "logging/logging.h"
 #include "monitoring/iostats_context_imp.h"
 #include "monitoring/perf_context_imp.h"
 #include "monitoring/thread_status_util.h"
@@ -39,15 +38,20 @@
 #include "rocksdb/statistics.h"
 #include "rocksdb/status.h"
 #include "rocksdb/table.h"
-#include "table/block_based/block.h"
-#include "table/block_based/block_based_table_factory.h"
+#include "table/block.h"
+#include "table/block_based_table_factory.h"
 #include "table/merging_iterator.h"
 #include "table/table_builder.h"
 #include "table/two_level_iterator.h"
-#include "test_util/sync_point.h"
 #include "util/coding.h"
+#include "util/event_logger.h"
+#include "util/file_util.h"
+#include "util/filename.h"
+#include "util/log_buffer.h"
+#include "util/logging.h"
 #include "util/mutexlock.h"
 #include "util/stop_watch.h"
+#include "util/sync_point.h"
 
 namespace rocksdb {
 
@@ -96,8 +100,7 @@ FlushJob::FlushJob(const std::string& dbname, ColumnFamilyData* cfd,
                    Directory* output_file_directory,
                    CompressionType output_compression, Statistics* stats,
                    EventLogger* event_logger, bool measure_io_stats,
-                   const bool sync_output_directory, const bool write_manifest,
-                   Env::Priority thread_pri)
+                   const bool sync_output_directory, const bool write_manifest)
     : dbname_(dbname),
       cfd_(cfd),
       db_options_(db_options),
@@ -122,8 +125,7 @@ FlushJob::FlushJob(const std::string& dbname, ColumnFamilyData* cfd,
       write_manifest_(write_manifest),
       edit_(nullptr),
       base_(nullptr),
-      pick_memtable_called(false),
-      thread_pri_(thread_pri) {
+      pick_memtable_called(false) {
   // Update the thread status to indicate flush.
   ReportStartedFlush();
   TEST_SYNC_POINT("FlushJob::FlushJob()");
@@ -225,12 +227,10 @@ Status FlushJob::Run(LogsWithPrepTracker* prep_tracker,
   // This will release and re-acquire the mutex.
   Status s = WriteLevel0Table();
 
-  if (s.ok() && cfd_->IsDropped()) {
-    s = Status::ColumnFamilyDropped("Column family dropped during compaction");
-  }
-  if ((s.ok() || s.IsColumnFamilyDropped()) &&
-      shutting_down_->load(std::memory_order_acquire)) {
-    s = Status::ShutdownInProgress("Database shutdown");
+  if (s.ok() &&
+      (shutting_down_->load(std::memory_order_acquire) || cfd_->IsDropped())) {
+    s = Status::ShutdownInProgress(
+        "Database shutdown or Column family drop during flush");
   }
 
   if (!s.ok()) {
@@ -372,12 +372,11 @@ Status FlushJob::WriteLevel0Table() {
           cfd_->int_tbl_prop_collector_factories(), cfd_->GetID(),
           cfd_->GetName(), existing_snapshots_,
           earliest_write_conflict_snapshot_, snapshot_checker_,
-          output_compression_, mutable_cf_options_.sample_for_compression,
-          cfd_->ioptions()->compression_opts,
+          output_compression_, cfd_->ioptions()->compression_opts,
           mutable_cf_options_.paranoid_file_checks, cfd_->internal_stats(),
           TableFileCreationReason::kFlush, event_logger_, job_context_->job_id,
           Env::IO_HIGH, &table_properties_, 0 /* level */, current_time,
-          oldest_key_time, write_hint, current_time);
+          oldest_key_time, write_hint);
       LogFlush(db_options_.info_log);
     }
     ROCKS_LOG_INFO(db_options_.info_log,
@@ -417,7 +416,7 @@ Status FlushJob::WriteLevel0Table() {
   stats.cpu_micros = db_options_.env->NowCPUNanos() / 1000 - start_cpu_micros;
   stats.bytes_written = meta_.fd.GetFileSize();
   RecordTimeToHistogram(stats_, FLUSH_TIME, stats.micros);
-  cfd_->internal_stats()->AddCompactionStats(0 /* level */, thread_pri_, stats);
+  cfd_->internal_stats()->AddCompactionStats(0 /* level */, stats);
   cfd_->internal_stats()->AddCFStats(InternalStats::BYTES_FLUSHED,
                                      meta_.fd.GetFileSize());
   RecordFlushIOStats();

@@ -197,8 +197,6 @@ class BlobDBImpl : public BlobDB {
   void TEST_DeleteObsoleteFiles();
 
   uint64_t TEST_live_sst_size();
-
-  const std::string& TEST_blob_dir() const { return blob_dir_; }
 #endif  //  !NDEBUG
 
  private:

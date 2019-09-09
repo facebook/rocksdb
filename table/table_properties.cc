@@ -4,11 +4,10 @@
 //  (found in the LICENSE.Apache file in the root directory).
 
 #include "rocksdb/table_properties.h"
-
 #include "port/port.h"
 #include "rocksdb/env.h"
 #include "rocksdb/iterator.h"
-#include "table/block_based/block.h"
+#include "table/block.h"
 #include "table/internal_iterator.h"
 #include "table/table_properties_internal.h"
 #include "util/string_util.h"
@@ -154,18 +153,10 @@ std::string TableProperties::ToString(
       compression_name.empty() ? std::string("N/A") : compression_name,
       prop_delim, kv_delim);
 
-  AppendProperty(
-      result, "SST file compression options",
-      compression_options.empty() ? std::string("N/A") : compression_options,
-      prop_delim, kv_delim);
-
   AppendProperty(result, "creation time", creation_time, prop_delim, kv_delim);
 
   AppendProperty(result, "time stamp of earliest key", oldest_key_time,
                  prop_delim, kv_delim);
-
-  AppendProperty(result, "file creation time", file_creation_time, prop_delim,
-                 kv_delim);
 
   return result;
 }
@@ -232,13 +223,9 @@ const std::string TablePropertiesNames::kPrefixExtractorName =
 const std::string TablePropertiesNames::kPropertyCollectors =
     "rocksdb.property.collectors";
 const std::string TablePropertiesNames::kCompression = "rocksdb.compression";
-const std::string TablePropertiesNames::kCompressionOptions =
-    "rocksdb.compression_options";
 const std::string TablePropertiesNames::kCreationTime = "rocksdb.creation.time";
 const std::string TablePropertiesNames::kOldestKeyTime =
     "rocksdb.oldest.key.time";
-const std::string TablePropertiesNames::kFileCreationTime =
-    "rocksdb.file.creation.time";
 
 extern const std::string kPropertiesBlock = "rocksdb.properties";
 // Old property block name for backward compatibility

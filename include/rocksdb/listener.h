@@ -1,8 +1,6 @@
 // Copyright (c) 2014 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
-//
-// Copyright (c) Facebook, Inc. and its affiliates. All Rights Reserved.
 
 #pragma once
 
@@ -91,8 +89,6 @@ enum class CompactionReason : int {
   kFlush,
   // Compaction caused by external sst file ingestion
   kExternalSstIngestion,
-  // Compaction due to SST file being too old
-  kPeriodicCompaction,
   // total number of compaction reasons, new reasons must be added above this.
   kNumOfReasons,
 };
@@ -196,8 +192,8 @@ struct FlushJobInfo {
 
 struct CompactionJobInfo {
   CompactionJobInfo() = default;
-  explicit CompactionJobInfo(const CompactionJobStats& _stats)
-      : stats(_stats) {}
+  explicit CompactionJobInfo(const CompactionJobStats& _stats) :
+      stats(_stats) {}
 
   // the id of the column family where the compaction happened.
   uint32_t cf_id;
@@ -248,6 +244,7 @@ struct MemTableInfo {
   uint64_t num_entries;
   // Total number of deletes in memtable
   uint64_t num_deletes;
+
 };
 
 struct ExternalFileIngestionInfo {
@@ -327,7 +324,8 @@ class EventListener {
   // Note that the this function must be implemented in a way such that
   // it should not run for an extended period of time before the function
   // returns.  Otherwise, RocksDB may be blocked.
-  virtual void OnCompactionBegin(DB* /*db*/, const CompactionJobInfo& /*ci*/) {}
+  virtual void OnCompactionBegin(DB* /*db*/,
+                                 const CompactionJobInfo& /*ci*/) {}
 
   // A callback function for RocksDB which will be called whenever
   // a registered RocksDB compacts a file. The default implementation
@@ -382,7 +380,8 @@ class EventListener {
   // Note that if applications would like to use the passed reference
   // outside this function call, they should make copies from these
   // returned value.
-  virtual void OnMemTableSealed(const MemTableInfo& /*info*/) {}
+  virtual void OnMemTableSealed(
+    const MemTableInfo& /*info*/) {}
 
   // A callback function for RocksDB which will be called before
   // a column family handle is deleted.
@@ -458,7 +457,8 @@ class EventListener {
 
 #else
 
-class EventListener {};
+class EventListener {
+};
 
 #endif  // ROCKSDB_LITE
 

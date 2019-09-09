@@ -10,14 +10,14 @@
 #include <algorithm>
 #include <atomic>
 #include "db/memtable.h"
-#include "memory/arena.h"
 #include "memtable/skiplist.h"
 #include "monitoring/histogram.h"
 #include "port/port.h"
 #include "rocksdb/memtablerep.h"
 #include "rocksdb/slice.h"
 #include "rocksdb/slice_transform.h"
-#include "util/hash.h"
+#include "util/arena.h"
+#include "util/murmurhash.h"
 
 namespace rocksdb {
 namespace {
@@ -218,7 +218,7 @@ class HashLinkListRep : public MemTableRep {
   }
 
   size_t GetHash(const Slice& slice) const {
-    return NPHash64(slice.data(), static_cast<int>(slice.size()), 0) %
+    return MurmurHash(slice.data(), static_cast<int>(slice.size()), 0) %
            bucket_size_;
   }
 

@@ -2,15 +2,17 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 //
-// Copyright (c) Facebook, Inc. and its affiliates. All Rights Reserved.
-//
 // Copyright (c) 2011 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
 #include "db/internal_stats.h"
 
-#include <cinttypes>
+#ifndef __STDC_FORMAT_MACROS
+#define __STDC_FORMAT_MACROS
+#endif
+
+#include <inttypes.h>
 #include <algorithm>
 #include <limits>
 #include <string>
@@ -18,8 +20,8 @@
 #include <vector>
 
 #include "db/column_family.h"
-#include "db/db_impl/db_impl.h"
-#include "table/block_based/block_based_table_factory.h"
+#include "db/db_impl.h"
+#include "table/block_based_table_factory.h"
 #include "util/string_util.h"
 
 namespace rocksdb {
@@ -56,8 +58,7 @@ const double kMB = 1048576.0;
 const double kGB = kMB * 1024;
 const double kMicrosInSec = 1000000.0;
 
-void PrintLevelStatsHeader(char* buf, size_t len, const std::string& cf_name,
-                           const std::string& group_by) {
+void PrintLevelStatsHeader(char* buf, size_t len, const std::string& cf_name) {
   int written_size =
       snprintf(buf, len, "\n** Compaction Stats [%s] **\n", cf_name.c_str());
   auto hdr = [](LevelStatType t) {
@@ -65,18 +66,17 @@ void PrintLevelStatsHeader(char* buf, size_t len, const std::string& cf_name,
   };
   int line_size = snprintf(
       buf + written_size, len - written_size,
-      "%s    %s   %s     %s %s  %s %s %s %s %s %s %s %s %s %s %s %s %s %s\n",
+      "Level    %s   %s     %s %s  %s %s %s %s %s %s %s %s %s %s %s %s %s %s\n",
       // Note that we skip COMPACTED_FILES and merge it with Files column
-      group_by.c_str(), hdr(LevelStatType::NUM_FILES),
-      hdr(LevelStatType::SIZE_BYTES), hdr(LevelStatType::SCORE),
-      hdr(LevelStatType::READ_GB), hdr(LevelStatType::RN_GB),
-      hdr(LevelStatType::RNP1_GB), hdr(LevelStatType::WRITE_GB),
-      hdr(LevelStatType::W_NEW_GB), hdr(LevelStatType::MOVED_GB),
-      hdr(LevelStatType::WRITE_AMP), hdr(LevelStatType::READ_MBPS),
-      hdr(LevelStatType::WRITE_MBPS), hdr(LevelStatType::COMP_SEC),
-      hdr(LevelStatType::COMP_CPU_SEC), hdr(LevelStatType::COMP_COUNT),
-      hdr(LevelStatType::AVG_SEC), hdr(LevelStatType::KEY_IN),
-      hdr(LevelStatType::KEY_DROP));
+      hdr(LevelStatType::NUM_FILES), hdr(LevelStatType::SIZE_BYTES),
+      hdr(LevelStatType::SCORE), hdr(LevelStatType::READ_GB),
+      hdr(LevelStatType::RN_GB), hdr(LevelStatType::RNP1_GB),
+      hdr(LevelStatType::WRITE_GB), hdr(LevelStatType::W_NEW_GB),
+      hdr(LevelStatType::MOVED_GB), hdr(LevelStatType::WRITE_AMP),
+      hdr(LevelStatType::READ_MBPS), hdr(LevelStatType::WRITE_MBPS),
+      hdr(LevelStatType::COMP_SEC), hdr(LevelStatType::COMP_CPU_SEC),
+      hdr(LevelStatType::COMP_COUNT), hdr(LevelStatType::AVG_SEC),
+      hdr(LevelStatType::KEY_IN), hdr(LevelStatType::KEY_DROP));
 
   written_size += line_size;
   snprintf(buf + written_size, len - written_size, "%s\n",
@@ -954,17 +954,14 @@ void InternalStats::DumpDBStats(std::string* value) {
            seconds_up, interval_seconds_up);
   value->append(buf);
   // Cumulative
-  uint64_t user_bytes_written =
-      GetDBStats(InternalStats::kIntStatsBytesWritten);
-  uint64_t num_keys_written =
-      GetDBStats(InternalStats::kIntStatsNumKeysWritten);
-  uint64_t write_other = GetDBStats(InternalStats::kIntStatsWriteDoneByOther);
-  uint64_t write_self = GetDBStats(InternalStats::kIntStatsWriteDoneBySelf);
-  uint64_t wal_bytes = GetDBStats(InternalStats::kIntStatsWalFileBytes);
-  uint64_t wal_synced = GetDBStats(InternalStats::kIntStatsWalFileSynced);
-  uint64_t write_with_wal = GetDBStats(InternalStats::kIntStatsWriteWithWal);
-  uint64_t write_stall_micros =
-      GetDBStats(InternalStats::kIntStatsWriteStallMicros);
+  uint64_t user_bytes_written = GetDBStats(InternalStats::BYTES_WRITTEN);
+  uint64_t num_keys_written = GetDBStats(InternalStats::NUMBER_KEYS_WRITTEN);
+  uint64_t write_other = GetDBStats(InternalStats::WRITE_DONE_BY_OTHER);
+  uint64_t write_self = GetDBStats(InternalStats::WRITE_DONE_BY_SELF);
+  uint64_t wal_bytes = GetDBStats(InternalStats::WAL_FILE_BYTES);
+  uint64_t wal_synced = GetDBStats(InternalStats::WAL_FILE_SYNCED);
+  uint64_t write_with_wal = GetDBStats(InternalStats::WRITE_WITH_WAL);
+  uint64_t write_stall_micros = GetDBStats(InternalStats::WRITE_STALL_MICROS);
 
   const int kHumanMicrosLen = 32;
   char human_micros[kHumanMicrosLen];
@@ -1155,20 +1152,6 @@ void InternalStats::DumpCFMapStats(
   (*levels_stats)[-1] = sum_stats;  //  -1 is for the Sum level
 }
 
-void InternalStats::DumpCFMapStatsByPriority(
-    std::map<int, std::map<LevelStatType, double>>* priorities_stats) {
-  for (size_t priority = 0; priority < comp_stats_by_pri_.size(); priority++) {
-    if (comp_stats_by_pri_[priority].micros > 0) {
-      std::map<LevelStatType, double> priority_stats;
-      PrepareLevelStats(&priority_stats, 0 /* num_files */,
-                        0 /* being_compacted */, 0 /* total_file_size */,
-                        0 /* compaction_score */, 0 /* w_amp */,
-                        comp_stats_by_pri_[priority]);
-      (*priorities_stats)[static_cast<int>(priority)] = priority_stats;
-    }
-  }
-}
-
 void InternalStats::DumpCFMapStatsIOStalls(
     std::map<std::string, std::string>* cf_stats) {
   (*cf_stats)["io_stalls.level0_slowdown"] =
@@ -1209,7 +1192,7 @@ void InternalStats::DumpCFStats(std::string* value) {
 void InternalStats::DumpCFStatsNoFileHistogram(std::string* value) {
   char buf[2000];
   // Per-ColumnFamily stats
-  PrintLevelStatsHeader(buf, sizeof(buf), cfd_->GetName(), "Level");
+  PrintLevelStatsHeader(buf, sizeof(buf), cfd_->GetName());
   value->append(buf);
 
   // Print stats for each level
@@ -1254,21 +1237,6 @@ void InternalStats::DumpCFStatsNoFileHistogram(std::string* value) {
       interval_stats.bytes_written / static_cast<double>(interval_ingest);
   PrintLevelStats(buf, sizeof(buf), "Int", 0, 0, 0, 0, w_amp, interval_stats);
   value->append(buf);
-
-  PrintLevelStatsHeader(buf, sizeof(buf), cfd_->GetName(), "Priority");
-  value->append(buf);
-  std::map<int, std::map<LevelStatType, double>> priorities_stats;
-  DumpCFMapStatsByPriority(&priorities_stats);
-  for (size_t priority = 0; priority < comp_stats_by_pri_.size(); ++priority) {
-    if (priorities_stats.find(static_cast<int>(priority)) !=
-        priorities_stats.end()) {
-      PrintLevelStats(
-          buf, sizeof(buf),
-          Env::PriorityToString(static_cast<Env::Priority>(priority)),
-          priorities_stats[static_cast<int>(priority)]);
-      value->append(buf);
-    }
-  }
 
   double seconds_up = (env_->NowMicros() - started_at_ + 1) / kMicrosInSec;
   double interval_seconds_up = seconds_up - cf_stats_snapshot_.seconds_up;

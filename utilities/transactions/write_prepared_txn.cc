@@ -7,12 +7,16 @@
 
 #include "utilities/transactions/write_prepared_txn.h"
 
-#include <cinttypes>
+#ifndef __STDC_FORMAT_MACROS
+#define __STDC_FORMAT_MACROS
+#endif
+
+#include <inttypes.h>
 #include <map>
 #include <set>
 
 #include "db/column_family.h"
-#include "db/db_impl/db_impl.h"
+#include "db/db_impl.h"
 #include "rocksdb/db.h"
 #include "rocksdb/status.h"
 #include "rocksdb/utilities/transaction_db.h"
@@ -40,46 +44,22 @@ void WritePreparedTxn::Initialize(const TransactionOptions& txn_options) {
   prepare_batch_cnt_ = 0;
 }
 
-void WritePreparedTxn::MultiGet(const ReadOptions& options,
-                                ColumnFamilyHandle* column_family,
-                                const size_t num_keys, const Slice* keys,
-                                PinnableSlice* values, Status* statuses,
-                                bool sorted_input) {
-  SequenceNumber min_uncommitted, snap_seq;
-  const SnapshotBackup backed_by_snapshot =
-      wpt_db_->AssignMinMaxSeqs(options.snapshot, &min_uncommitted, &snap_seq);
-  WritePreparedTxnReadCallback callback(wpt_db_, snap_seq, min_uncommitted,
-                                        backed_by_snapshot);
-  write_batch_.MultiGetFromBatchAndDB(db_, options, column_family, num_keys,
-                                      keys, values, statuses, sorted_input,
-                                      &callback);
-  if (UNLIKELY(!callback.valid() ||
-               !wpt_db_->ValidateSnapshot(snap_seq, backed_by_snapshot))) {
-    wpt_db_->WPRecordTick(TXN_GET_TRY_AGAIN);
-    for (size_t i = 0; i < num_keys; i++) {
-      statuses[i] = Status::TryAgain();
-    }
-  }
-}
-
-Status WritePreparedTxn::Get(const ReadOptions& options,
+Status WritePreparedTxn::Get(const ReadOptions& read_options,
                              ColumnFamilyHandle* column_family,
                              const Slice& key, PinnableSlice* pinnable_val) {
-  SequenceNumber min_uncommitted, snap_seq;
-  const SnapshotBackup backed_by_snapshot =
-      wpt_db_->AssignMinMaxSeqs(options.snapshot, &min_uncommitted, &snap_seq);
-  WritePreparedTxnReadCallback callback(wpt_db_, snap_seq, min_uncommitted,
-                                        backed_by_snapshot);
-  auto res = write_batch_.GetFromBatchAndDB(db_, options, column_family, key,
-                                            pinnable_val, &callback);
-  if (LIKELY(callback.valid() &&
-             wpt_db_->ValidateSnapshot(callback.max_visible_seq(),
-                                       backed_by_snapshot))) {
-    return res;
-  } else {
-    wpt_db_->WPRecordTick(TXN_GET_TRY_AGAIN);
-    return Status::TryAgain();
+  auto snapshot = read_options.snapshot;
+  auto snap_seq =
+      snapshot != nullptr ? snapshot->GetSequenceNumber() : kMaxSequenceNumber;
+  SequenceNumber min_uncommitted = 0;  // by default disable the optimization
+  if (snapshot != nullptr) {
+    min_uncommitted =
+        static_cast_with_check<const SnapshotImpl, const Snapshot>(snapshot)
+            ->min_uncommitted_;
   }
+
+  WritePreparedTxnReadCallback callback(wpt_db_, snap_seq, min_uncommitted);
+  return write_batch_.GetFromBatchAndDB(db_, read_options, column_family, key,
+                                        pinnable_val, &callback);
 }
 
 Iterator* WritePreparedTxn::GetIterator(const ReadOptions& options) {
@@ -103,17 +83,16 @@ Status WritePreparedTxn::PrepareInternal() {
   WriteOptions write_options = write_options_;
   write_options.disableWAL = false;
   const bool WRITE_AFTER_COMMIT = true;
-  const bool kFirstPrepareBatch = true;
   WriteBatchInternal::MarkEndPrepare(GetWriteBatch()->GetWriteBatch(), name_,
                                      !WRITE_AFTER_COMMIT);
   // For each duplicate key we account for a new sub-batch
   prepare_batch_cnt_ = GetWriteBatch()->SubBatchCnt();
   // Having AddPrepared in the PreReleaseCallback allows in-order addition of
-  // prepared entries to PreparedHeap and hence enables an optimization. Refer to
+  // prepared entries to PrepareHeap and hence enables an optimization. Refer to
   // SmallestUnCommittedSeq for more details.
   AddPreparedCallback add_prepared_callback(
-      wpt_db_, db_impl_, prepare_batch_cnt_,
-      db_impl_->immutable_db_options().two_write_queues, kFirstPrepareBatch);
+      wpt_db_, prepare_batch_cnt_,
+      db_impl_->immutable_db_options().two_write_queues);
   const bool DISABLE_MEMTABLE = true;
   uint64_t seq_used = kMaxSequenceNumber;
   Status s = db_impl_->WriteImpl(
@@ -172,10 +151,9 @@ Status WritePreparedTxn::CommitInternal() {
   WritePreparedCommitEntryPreReleaseCallback update_commit_map(
       wpt_db_, db_impl_, prepare_seq, prepare_batch_cnt_, commit_batch_cnt);
   // This is to call AddPrepared on CommitTimeWriteBatch
-  const bool kFirstPrepareBatch = true;
   AddPreparedCallback add_prepared_callback(
-      wpt_db_, db_impl_, commit_batch_cnt,
-      db_impl_->immutable_db_options().two_write_queues, !kFirstPrepareBatch);
+      wpt_db_, commit_batch_cnt,
+      db_impl_->immutable_db_options().two_write_queues);
   PreReleaseCallback* pre_release_callback;
   if (do_one_write) {
     pre_release_callback = &update_commit_map;
@@ -194,15 +172,12 @@ Status WritePreparedTxn::CommitInternal() {
   assert(!s.ok() || seq_used != kMaxSequenceNumber);
   const SequenceNumber commit_batch_seq = seq_used;
   if (LIKELY(do_one_write || !s.ok())) {
-    if (UNLIKELY(!db_impl_->immutable_db_options().two_write_queues &&
-                 s.ok())) {
-      // Note: RemovePrepared should be called after WriteImpl that publishsed
+    if (LIKELY(s.ok())) {
+      // Note RemovePrepared should be called after WriteImpl that publishsed
       // the seq. Otherwise SmallestUnCommittedSeq optimization breaks.
       wpt_db_->RemovePrepared(prepare_seq, prepare_batch_cnt_);
-    }  // else RemovePrepared is called from within PreReleaseCallback
+    }
     if (UNLIKELY(!do_one_write)) {
-      assert(!s.ok());
-      // Cleanup the prepared entry we added with add_prepared_callback
       wpt_db_->RemovePrepared(commit_batch_seq, commit_batch_cnt);
     }
     return s;
@@ -227,14 +202,10 @@ Status WritePreparedTxn::CommitInternal() {
                           NO_REF_LOG, DISABLE_MEMTABLE, &seq_used, ONE_BATCH,
                           &update_commit_map_with_aux_batch);
   assert(!s.ok() || seq_used != kMaxSequenceNumber);
-  if (UNLIKELY(!db_impl_->immutable_db_options().two_write_queues)) {
-    if (s.ok()) {
-      // Note: RemovePrepared should be called after WriteImpl that publishsed
-      // the seq. Otherwise SmallestUnCommittedSeq optimization breaks.
-      wpt_db_->RemovePrepared(prepare_seq, prepare_batch_cnt_);
-    }
-    wpt_db_->RemovePrepared(commit_batch_seq, commit_batch_cnt);
-  }  // else RemovePrepared is called from within PreReleaseCallback
+  // Note RemovePrepared should be called after WriteImpl that publishsed the
+  // seq. Otherwise SmallestUnCommittedSeq optimization breaks.
+  wpt_db_->RemovePrepared(prepare_seq, prepare_batch_cnt_);
+  wpt_db_->RemovePrepared(commit_batch_seq, commit_batch_cnt);
   return s;
 }
 
@@ -247,11 +218,9 @@ Status WritePreparedTxn::RollbackInternal() {
   auto cf_map_shared_ptr = wpt_db_->GetCFHandleMap();
   auto cf_comp_map_shared_ptr = wpt_db_->GetCFComparatorMap();
   auto read_at_seq = kMaxSequenceNumber;
-  ReadOptions roptions;
-  // to prevent callback's seq to be overrriden inside DBImpk::Get
-  roptions.snapshot = wpt_db_->GetMaxSnapshot();
   struct RollbackWriteBatchBuilder : public WriteBatch::Handler {
     DBImpl* db_;
+    ReadOptions roptions;
     WritePreparedTxnReadCallback callback;
     WriteBatch* rollback_batch_;
     std::map<uint32_t, const Comparator*>& comparators_;
@@ -259,20 +228,19 @@ Status WritePreparedTxn::RollbackInternal() {
     using CFKeys = std::set<Slice, SetComparator>;
     std::map<uint32_t, CFKeys> keys_;
     bool rollback_merge_operands_;
-    ReadOptions roptions_;
     RollbackWriteBatchBuilder(
         DBImpl* db, WritePreparedTxnDB* wpt_db, SequenceNumber snap_seq,
         WriteBatch* dst_batch,
         std::map<uint32_t, const Comparator*>& comparators,
         std::map<uint32_t, ColumnFamilyHandle*>& handles,
-        bool rollback_merge_operands, ReadOptions _roptions)
+        bool rollback_merge_operands)
         : db_(db),
-          callback(wpt_db, snap_seq),  // disable min_uncommitted optimization
+          callback(wpt_db, snap_seq,
+                   0),  // 0 disables min_uncommitted optimization
           rollback_batch_(dst_batch),
           comparators_(comparators),
           handles_(handles),
-          rollback_merge_operands_(rollback_merge_operands),
-          roptions_(_roptions) {}
+          rollback_merge_operands_(rollback_merge_operands) {}
 
     Status Rollback(uint32_t cf, const Slice& key) {
       Status s;
@@ -290,12 +258,8 @@ Status WritePreparedTxn::RollbackInternal() {
       PinnableSlice pinnable_val;
       bool not_used;
       auto cf_handle = handles_[cf];
-      DBImpl::GetImplOptions get_impl_options;
-      get_impl_options.column_family = cf_handle;
-      get_impl_options.value = &pinnable_val;
-      get_impl_options.value_found = &not_used;
-      get_impl_options.callback = &callback;
-      s = db_->GetImpl(roptions_, key, get_impl_options);
+      s = db_->GetImpl(roptions, cf_handle, key, &pinnable_val, &not_used,
+                       &callback);
       assert(s.ok() || s.IsNotFound());
       if (s.ok()) {
         s = rollback_batch_->Put(cf_handle, key, pinnable_val);
@@ -344,8 +308,7 @@ Status WritePreparedTxn::RollbackInternal() {
     bool WriteAfterCommit() const override { return false; }
   } rollback_handler(db_impl_, wpt_db_, read_at_seq, &rollback_batch,
                      *cf_comp_map_shared_ptr.get(), *cf_map_shared_ptr.get(),
-                     wpt_db_->txn_db_options_.rollback_merge_operands,
-                     roptions);
+                     wpt_db_->txn_db_options_.rollback_merge_operands);
   auto s = GetWriteBatch()->GetWriteBatch()->Iterate(&rollback_handler);
   assert(s.ok());
   if (!s.ok()) {
@@ -358,7 +321,6 @@ Status WritePreparedTxn::RollbackInternal() {
   const uint64_t NO_REF_LOG = 0;
   uint64_t seq_used = kMaxSequenceNumber;
   const size_t ONE_BATCH = 1;
-  const bool kFirstPrepareBatch = true;
   // We commit the rolled back prepared batches. Although this is
   // counter-intuitive, i) it is safe to do so, since the prepared batches are
   // already canceled out by the rollback batch, ii) adding the commit entry to
@@ -366,41 +328,31 @@ Status WritePreparedTxn::RollbackInternal() {
   // CommitCache that keeps an entry evicted due to max advance and yet overlaps
   // with a live snapshot around so that the live snapshot properly skips the
   // entry even if its prepare seq is lower than max_evicted_seq_.
-  AddPreparedCallback add_prepared_callback(
-      wpt_db_, db_impl_, ONE_BATCH,
-      db_impl_->immutable_db_options().two_write_queues, !kFirstPrepareBatch);
   WritePreparedCommitEntryPreReleaseCallback update_commit_map(
       wpt_db_, db_impl_, GetId(), prepare_batch_cnt_, ONE_BATCH);
-  PreReleaseCallback* pre_release_callback;
-  if (do_one_write) {
-    pre_release_callback = &update_commit_map;
-  } else {
-    pre_release_callback = &add_prepared_callback;
-  }
   // Note: the rollback batch does not need AddPrepared since it is written to
   // DB in one shot. min_uncommitted still works since it requires capturing
   // data that is written to DB but not yet committed, while
   // the rollback batch commits with PreReleaseCallback.
   s = db_impl_->WriteImpl(write_options_, &rollback_batch, nullptr, nullptr,
                           NO_REF_LOG, !DISABLE_MEMTABLE, &seq_used, ONE_BATCH,
-                          pre_release_callback);
+                          do_one_write ? &update_commit_map : nullptr);
   assert(!s.ok() || seq_used != kMaxSequenceNumber);
   if (!s.ok()) {
     return s;
   }
   if (do_one_write) {
-    assert(!db_impl_->immutable_db_options().two_write_queues);
     wpt_db_->RemovePrepared(GetId(), prepare_batch_cnt_);
     return s;
   }  // else do the 2nd write for commit
-  uint64_t rollback_seq = seq_used;
+  uint64_t& prepare_seq = seq_used;
   ROCKS_LOG_DETAILS(db_impl_->immutable_db_options().info_log,
-                    "RollbackInternal 2nd write rollback_seq: %" PRIu64,
-                    rollback_seq);
+                    "RollbackInternal 2nd write prepare_seq: %" PRIu64,
+                    prepare_seq);
   // Commit the batch by writing an empty batch to the queue that will release
   // the commit sequence number to readers.
   WritePreparedRollbackPreReleaseCallback update_commit_map_with_prepare(
-      wpt_db_, db_impl_, GetId(), rollback_seq, prepare_batch_cnt_);
+      wpt_db_, db_impl_, GetId(), prepare_seq, prepare_batch_cnt_);
   WriteBatch empty_batch;
   empty_batch.PutLogData(Slice());
   // In the absence of Prepare markers, use Noop as a batch separator
@@ -412,14 +364,9 @@ Status WritePreparedTxn::RollbackInternal() {
   ROCKS_LOG_DETAILS(db_impl_->immutable_db_options().info_log,
                     "RollbackInternal (status=%s) commit: %" PRIu64,
                     s.ToString().c_str(), GetId());
-  // TODO(lth): For WriteUnPrepared that rollback is called frequently,
-  // RemovePrepared could be moved to the callback to reduce lock contention.
   if (s.ok()) {
     wpt_db_->RemovePrepared(GetId(), prepare_batch_cnt_);
   }
-  // Note: RemovePrepared for prepared batch is called from within
-  // PreReleaseCallback
-  wpt_db_->RemovePrepared(rollback_seq, ONE_BATCH);
 
   return s;
 }
@@ -449,8 +396,7 @@ Status WritePreparedTxn::ValidateSnapshot(ColumnFamilyHandle* column_family,
   ColumnFamilyHandle* cfh =
       column_family ? column_family : db_impl_->DefaultColumnFamily();
 
-  WritePreparedTxnReadCallback snap_checker(wpt_db_, snap_seq, min_uncommitted,
-                                            kBackedByDBSnapshot);
+  WritePreparedTxnReadCallback snap_checker(wpt_db_, snap_seq, min_uncommitted);
   return TransactionUtil::CheckKeyForConflicts(db_impl_, cfh, key.ToString(),
                                                snap_seq, false /* cache_only */,
                                                &snap_checker, min_uncommitted);

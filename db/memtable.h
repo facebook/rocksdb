@@ -19,13 +19,13 @@
 #include "db/range_tombstone_fragmenter.h"
 #include "db/read_callback.h"
 #include "db/version_edit.h"
-#include "memory/allocator.h"
-#include "memory/concurrent_arena.h"
 #include "monitoring/instrumented_mutex.h"
 #include "options/cf_options.h"
 #include "rocksdb/db.h"
 #include "rocksdb/env.h"
 #include "rocksdb/memtablerep.h"
+#include "util/allocator.h"
+#include "util/concurrent_arena.h"
 #include "util/dynamic_bloom.h"
 #include "util/hash.h"
 
@@ -133,12 +133,6 @@ class MemTable {
   // operations on the same MemTable (unless this Memtable is immutable).
   size_t ApproximateMemoryUsage();
 
-  // As a cheap version of `ApproximateMemoryUsage()`, this function doens't
-  // require external synchronization. The value may be less accurate though
-  size_t ApproximateMemoryUsageFast() {
-    return approximate_memory_usage_.load(std::memory_order_relaxed);
-  }
-
   // This method heuristically determines if the memtable should continue to
   // host more data.
   bool ShouldScheduleFlush() const {
@@ -184,10 +178,6 @@ class MemTable {
            const Slice& value, bool allow_concurrent = false,
            MemTablePostProcessInfo* post_process_info = nullptr);
 
-  // Used to Get value associated with key or Get Merge Operands associated
-  // with key.
-  // If do_merge = true the default behavior which is Get value for key is
-  // executed. Expected behavior is described right below.
   // If memtable contains a value for key, store it in *value and return true.
   // If memtable contains a deletion for key, store a NotFound() error
   // in *status and return true.
@@ -201,23 +191,20 @@ class MemTable {
   // returned).  Otherwise, *seq will be set to kMaxSequenceNumber.
   // On success, *s may be set to OK, NotFound, or MergeInProgress.  Any other
   // status returned indicates a corruption or other unexpected error.
-  // If do_merge = false then any Merge Operands encountered for key are simply
-  // stored in merge_context.operands_list and never actually merged to get a
-  // final value. The raw Merge Operands are eventually returned to the user.
   bool Get(const LookupKey& key, std::string* value, Status* s,
            MergeContext* merge_context,
            SequenceNumber* max_covering_tombstone_seq, SequenceNumber* seq,
            const ReadOptions& read_opts, ReadCallback* callback = nullptr,
-           bool* is_blob_index = nullptr, bool do_merge = true);
+           bool* is_blob_index = nullptr);
 
   bool Get(const LookupKey& key, std::string* value, Status* s,
            MergeContext* merge_context,
            SequenceNumber* max_covering_tombstone_seq,
            const ReadOptions& read_opts, ReadCallback* callback = nullptr,
-           bool* is_blob_index = nullptr, bool do_merge = true) {
+           bool* is_blob_index = nullptr) {
     SequenceNumber seq;
     return Get(key, value, s, merge_context, max_covering_tombstone_seq, &seq,
-               read_opts, callback, is_blob_index, do_merge);
+               read_opts, callback, is_blob_index);
   }
 
   // Attempts to update the new_value inplace, else does normal Add
@@ -495,12 +482,8 @@ class MemTable {
   // writes with sequence number smaller than seq are flushed.
   SequenceNumber atomic_flush_seqno_;
 
-  // keep track of memory usage in table_, arena_, and range_del_table_.
-  // Gets refrshed inside `ApproximateMemoryUsage()` or `ShouldFlushNow`
-  std::atomic<uint64_t> approximate_memory_usage_;
-
   // Returns a heuristic flush decision
-  bool ShouldFlushNow();
+  bool ShouldFlushNow() const;
 
   // Updates flush_state_ using ShouldFlushNow()
   void UpdateFlushState();

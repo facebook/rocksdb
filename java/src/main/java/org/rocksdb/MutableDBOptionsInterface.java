@@ -1,7 +1,6 @@
-// Copyright (c) Facebook, Inc. and its affiliates. All Rights Reserved.
 package org.rocksdb;
 
-public interface MutableDBOptionsInterface<T extends MutableDBOptionsInterface<T>> {
+public interface MutableDBOptionsInterface<T extends MutableDBOptionsInterface> {
 
   /**
    * Specifies the maximum number of concurrent background jobs (both flushes

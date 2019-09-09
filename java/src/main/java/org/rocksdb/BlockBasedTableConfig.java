@@ -480,15 +480,6 @@ public class BlockBasedTableConfig extends TableFormatConfig {
   }
 
   /**
-   * Get the filter policy.
-   *
-   * @return the current filter policy.
-   */
-  public Filter filterPolicy() {
-    return filterPolicy;
-  }
-
-  /**
    * Use the specified filter policy to reduce disk reads.
    *
    * {@link org.rocksdb.Filter} should not be disposed before options instances
@@ -725,7 +716,7 @@ public class BlockBasedTableConfig extends TableFormatConfig {
 
   /**
    * Set the size of the cache in bytes that will be used by RocksDB.
-   * If cacheSize is negative, then cache will not be used.
+   * If cacheSize is non-positive, then cache will not be used.
    * DEFAULT: 8M
    *
    * @param blockCacheSize block cache size in bytes

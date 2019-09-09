@@ -1,4 +1,3 @@
-// Copyright (c) Facebook, Inc. and its affiliates. All Rights Reserved.
 package org.rocksdb;
 
 import static org.rocksdb.AbstractMutableOptions.INT_ARRAY_INT_SEPARATOR;

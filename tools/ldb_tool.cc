@@ -71,7 +71,6 @@ void LDBCommandRunner::PrintHelp(const LDBOptions& ldb_options,
   DBQuerierCommand::Help(ret);
   ApproxSizeCommand::Help(ret);
   CheckConsistencyCommand::Help(ret);
-  ListFileRangeDeletesCommand::Help(ret);
 
   ret.append("\n\n");
   ret.append("Admin Commands:\n");
@@ -83,8 +82,6 @@ void LDBCommandRunner::PrintHelp(const LDBOptions& ldb_options,
   DBLoaderCommand::Help(ret);
   ManifestDumpCommand::Help(ret);
   ListColumnFamiliesCommand::Help(ret);
-  CreateColumnFamilyCommand::Help(ret);
-  DropColumnFamilyCommand::Help(ret);
   DBFileDumperCommand::Help(ret);
   InternalDumpCommand::Help(ret);
   RepairCommand::Help(ret);
@@ -97,12 +94,12 @@ void LDBCommandRunner::PrintHelp(const LDBOptions& ldb_options,
   fprintf(stderr, "%s\n", ret.c_str());
 }
 
-int LDBCommandRunner::RunCommand(
+void LDBCommandRunner::RunCommand(
     int argc, char** argv, Options options, const LDBOptions& ldb_options,
     const std::vector<ColumnFamilyDescriptor>* column_families) {
   if (argc <= 2) {
     PrintHelp(ldb_options, argv[0]);
-    return 1;
+    exit(1);
   }
 
   LDBCommand* cmdObj = LDBCommand::InitFromCmdLineArgs(
@@ -110,11 +107,11 @@ int LDBCommandRunner::RunCommand(
   if (cmdObj == nullptr) {
     fprintf(stderr, "Unknown command\n");
     PrintHelp(ldb_options, argv[0]);
-    return 1;
+    exit(1);
   }
 
   if (!cmdObj->ValidateCmdLineOptions()) {
-    return 1;
+    exit(1);
   }
 
   cmdObj->Run();
@@ -122,15 +119,14 @@ int LDBCommandRunner::RunCommand(
   fprintf(stderr, "%s\n", ret.ToString().c_str());
   delete cmdObj;
 
-  return ret.IsFailed() ? 1 : 0;
+  exit(ret.IsFailed());
 }
 
 void LDBTool::Run(int argc, char** argv, Options options,
                   const LDBOptions& ldb_options,
                   const std::vector<ColumnFamilyDescriptor>* column_families) {
-  int error_code = LDBCommandRunner::RunCommand(argc, argv, options,
-                                                ldb_options, column_families);
-  exit(error_code);
+  LDBCommandRunner::RunCommand(argc, argv, options, ldb_options,
+                               column_families);
 }
 } // namespace rocksdb
 

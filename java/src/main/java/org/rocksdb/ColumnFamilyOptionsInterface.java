@@ -6,7 +6,7 @@
 package org.rocksdb;
 
 public interface ColumnFamilyOptionsInterface
-    <T extends ColumnFamilyOptionsInterface<T>>
+    <T extends ColumnFamilyOptionsInterface>
         extends AdvancedColumnFamilyOptionsInterface<T> {
 
   /**

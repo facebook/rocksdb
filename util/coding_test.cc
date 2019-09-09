@@ -9,7 +9,7 @@
 
 #include "util/coding.h"
 
-#include "test_util/testharness.h"
+#include "util/testharness.h"
 
 namespace rocksdb {
 

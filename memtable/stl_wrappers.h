@@ -11,6 +11,7 @@
 #include "rocksdb/memtablerep.h"
 #include "rocksdb/slice.h"
 #include "util/coding.h"
+#include "util/murmurhash.h"
 
 namespace rocksdb {
 namespace stl_wrappers {

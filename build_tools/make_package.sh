@@ -1,6 +1,5 @@
 # shellcheck disable=SC1113
 #/usr/bin/env bash
-# Copyright (c) Facebook, Inc. and its affiliates. All Rights Reserved.
 
 set -e
 

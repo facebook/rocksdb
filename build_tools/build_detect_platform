@@ -150,9 +150,6 @@ case "$TARGET_OS" in
             PLATFORM_LDFLAGS="$PLATFORM_LDFLAGS -latomic"
         fi
         PLATFORM_LDFLAGS="$PLATFORM_LDFLAGS -lpthread -lrt"
-        if test -z "$USE_FOLLY_DISTRIBUTED_MUTEX"; then
-          USE_FOLLY_DISTRIBUTED_MUTEX=1
-        fi
         # PORT_FILES=port/linux/linux_specific.cc
         ;;
     SunOS)
@@ -237,7 +234,7 @@ else
           #include <linux/falloc.h>
           int main() {
       int fd = open("/dev/null", 0);
-      fallocate(fd, FALLOC_FL_KEEP_SIZE, 0, 1024);
+      fallocate(fd, FALLOC_FL_KEEP_SIZE | FALLOC_FL_PUNCH_HOLE, 0, 1024);
           }
 EOF
         if [ "$?" = 0 ]; then
@@ -400,7 +397,6 @@ EOF
           #include <malloc.h>
           int main() {
             size_t res = malloc_usable_size(0);
-            (void)res;
             return 0;
           }
 EOF
@@ -415,7 +411,6 @@ EOF
           #include <pthread.h>
           int main() {
             int x = PTHREAD_MUTEX_ADAPTIVE_NP;
-            (void)x;
             return 0;
           }
 EOF
@@ -427,7 +422,7 @@ EOF
     if ! test $ROCKSDB_DISABLE_BACKTRACE; then
         # Test whether backtrace is available
         $CXX $CFLAGS -x c++ - -o /dev/null 2>/dev/null  <<EOF
-          #include <execinfo.h>
+          #include <execinfo.h>>
           int main() {
             void* frames[1];
             backtrace_symbols(frames, backtrace(frames, 1));
@@ -485,7 +480,6 @@ EOF
           #include <sched.h>
           int main() {
             int cpuid = sched_getcpu();
-            (void)cpuid;
           }
 EOF
         if [ "$?" = 0 ]; then
@@ -521,11 +515,11 @@ fi
 
 if test "$USE_HDFS"; then
   if test -z "$JAVA_HOME"; then
-    echo "JAVA_HOME has to be set for HDFS usage." >&2
+    echo "JAVA_HOME has to be set for HDFS usage."
     exit 1
   fi
-  HDFS_CCFLAGS="$HDFS_CCFLAGS -I$JAVA_HOME/include -I$JAVA_HOME/include/linux -DUSE_HDFS -I$HADOOP_HOME/include"
-  HDFS_LDFLAGS="$HDFS_LDFLAGS -lhdfs -L$JAVA_HOME/jre/lib/amd64 -L$HADOOP_HOME/lib/native"
+  HDFS_CCFLAGS="$HDFS_CCFLAGS -I$JAVA_HOME/include -I$JAVA_HOME/include/linux -DUSE_HDFS"
+  HDFS_LDFLAGS="$HDFS_LDFLAGS -lhdfs -L$JAVA_HOME/jre/lib/amd64"
   HDFS_LDFLAGS="$HDFS_LDFLAGS -L$JAVA_HOME/jre/lib/amd64/server -L$GLIBC_RUNTIME_PATH/lib"
   HDFS_LDFLAGS="$HDFS_LDFLAGS -ldl -lverify -ljava -ljvm"
   COMMON_FLAGS="$COMMON_FLAGS $HDFS_CCFLAGS"
@@ -540,10 +534,8 @@ if test -z "$PORTABLE"; then
     COMMON_FLAGS="$COMMON_FLAGS -mcpu=$POWER -mtune=$POWER "
   elif test -n "`echo $TARGET_ARCHITECTURE | grep ^s390x`"; then
     COMMON_FLAGS="$COMMON_FLAGS -march=z10 "
-  elif test -n "`echo $TARGET_ARCHITECTURE | grep -e^arm -e^aarch64`"; then
+  elif test -n "`echo $TARGET_ARCHITECTURE | grep ^arm`"; then
     # TODO: Handle this with approprite options.
-    COMMON_FLAGS="$COMMON_FLAGS"
-  elif test -n "`echo $TARGET_ARCHITECTURE | grep ^aarch64`"; then
     COMMON_FLAGS="$COMMON_FLAGS"
   elif [ "$TARGET_OS" == "IOS" ]; then
     COMMON_FLAGS="$COMMON_FLAGS"
@@ -561,13 +553,12 @@ $CXX $PLATFORM_CXXFLAGS $COMMON_FLAGS -x c++ - -o /dev/null 2>/dev/null <<EOF
   #include <nmmintrin.h>
   int main() {
     volatile uint32_t x = _mm_crc32_u32(0, 0);
-    (void)x;
   }
 EOF
 if [ "$?" = 0 ]; then
   COMMON_FLAGS="$COMMON_FLAGS -DHAVE_SSE42"
 elif test "$USE_SSE"; then
-  echo "warning: USE_SSE specified but compiler could not use SSE intrinsics, disabling" >&2
+  echo "warning: USE_SSE specified but compiler could not use SSE intrinsics, disabling"
   exit 1
 fi
 
@@ -579,13 +570,12 @@ $CXX $PLATFORM_CXXFLAGS $COMMON_FLAGS -x c++ - -o /dev/null 2>/dev/null <<EOF
     const auto b = _mm_set_epi64x(0, 0);
     const auto c = _mm_clmulepi64_si128(a, b, 0x00);
     auto d = _mm_cvtsi128_si64(c);
-    (void)d;
   }
 EOF
 if [ "$?" = 0 ]; then
   COMMON_FLAGS="$COMMON_FLAGS -DHAVE_PCLMUL"
 elif test "$USE_SSE"; then
-  echo "warning: USE_SSE specified but compiler could not use PCLMUL intrinsics, disabling" >&2
+  echo "warning: USE_SSE specified but compiler could not use PCLMUL intrinsics, disabling"
   exit 1
 fi
 
@@ -599,24 +589,10 @@ if [ "$PLATFORM" != IOS ]; then
   #endif
   int main() {
     static __thread int tls;
-    (void)tls;
   }
 EOF
   if [ "$?" = 0 ]; then
     COMMON_FLAGS="$COMMON_FLAGS -DROCKSDB_SUPPORT_THREAD_LOCAL"
-  fi
-fi
-
-if [ "$FBCODE_BUILD" != "true" -a "$PLATFORM" = OS_LINUX ]; then
-  $CXX $COMMON_FLAGS $PLATFORM_SHARED_CFLAGS -x c++ -c - -o test_dl.o 2>/dev/null <<EOF
-  void dummy_func() {}
-EOF
-  if [ "$?" = 0 ]; then
-    $CXX $COMMON_FLAGS $PLATFORM_SHARED_LDFLAGS test_dl.o -o /dev/null 2>/dev/null
-    if [ "$?" = 0 ]; then
-      EXEC_LDFLAGS+="-ldl"
-      rm -f test_dl.o
-    fi
   fi
 fi
 
@@ -664,6 +640,3 @@ if test -n "$WITH_JEMALLOC_FLAG"; then
   echo "WITH_JEMALLOC_FLAG=$WITH_JEMALLOC_FLAG" >> "$OUTPUT"
 fi
 echo "LUA_PATH=$LUA_PATH" >> "$OUTPUT"
-if test -n "$USE_FOLLY_DISTRIBUTED_MUTEX"; then
-  echo "USE_FOLLY_DISTRIBUTED_MUTEX=$USE_FOLLY_DISTRIBUTED_MUTEX" >> "$OUTPUT"
-fi

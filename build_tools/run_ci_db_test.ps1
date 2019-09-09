@@ -1,4 +1,3 @@
-# Copyright (c) Facebook, Inc. and its affiliates. All Rights Reserved.
 # This script enables you running RocksDB tests by running
 # All the tests concurrently and utilizing all the cores
 Param(

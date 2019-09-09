@@ -1,5 +1,4 @@
 #!/bin/sh
-# Copyright (c) Facebook, Inc. and its affiliates. All Rights Reserved.
 #
 # Set environment variables so that we can compile rocksdb using
 # fbcode settings.  It uses the latest g++ and clang compilers and also
@@ -158,7 +157,5 @@ if test -z $PIC_BUILD; then
 else
   LUA_LIB=" $LUA_PATH/lib/liblua_pic.a"
 fi
-
-USE_FOLLY_DISTRIBUTED_MUTEX=1
 
 export CC CXX AR CFLAGS CXXFLAGS EXEC_LDFLAGS EXEC_LDFLAGS_SHARED VALGRIND_VER JEMALLOC_LIB JEMALLOC_INCLUDE CLANG_ANALYZER CLANG_SCAN_BUILD LUA_PATH LUA_LIB

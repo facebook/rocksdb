@@ -43,7 +43,7 @@ We plan to use this port for our business purposes here at Bing and this provide
 
 * Certain headers that are not present and not necessary on Windows were simply `#ifndef OS_WIN` in a few places (`unistd.h`)
 * All posix specific headers were replaced to port/port.h which worked well
-* Replaced `dirent.h` for `port/port_dirent.h` (very few places) with the implementation of the relevant interfaces within `rocksdb::port` namespace
+* Replaced `dirent.h` for `port/dirent.h` (very few places) with the implementation of the relevant interfaces within `rocksdb::port` namespace
 * Replaced `sys/time.h` to `port/sys_time.h` (few places) implemented equivalents within `rocksdb::port`
 * `printf %z` specification is not supported on Windows. To imitate existing standards we came up with a string macro `ROCKSDB_PRIszt` which expands to `zu` on posix systems and to `Iu` on windows.
 * in class member initialization were moved to a __ctors in some cases

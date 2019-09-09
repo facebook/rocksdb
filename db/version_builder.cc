@@ -9,7 +9,11 @@
 
 #include "db/version_builder.h"
 
-#include <cinttypes>
+#ifndef __STDC_FORMAT_MACROS
+#define __STDC_FORMAT_MACROS
+#endif
+
+#include <inttypes.h>
 #include <algorithm>
 #include <atomic>
 #include <functional>
@@ -27,7 +31,6 @@
 #include "db/version_set.h"
 #include "port/port.h"
 #include "table/table_reader.h"
-#include "util/string_util.h"
 
 namespace rocksdb {
 
@@ -139,12 +142,12 @@ class VersionBuilder::Rep {
     }
   }
 
-  Status CheckConsistency(VersionStorageInfo* vstorage) {
+  void CheckConsistency(VersionStorageInfo* vstorage) {
 #ifdef NDEBUG
     if (!vstorage->force_consistency_checks()) {
       // Dont run consistency checks in release mode except if
       // explicitly asked to
-      return Status::OK();
+      return;
     }
 #endif
     // make sure the files are sorted correctly
@@ -153,14 +156,10 @@ class VersionBuilder::Rep {
       for (size_t i = 1; i < level_files.size(); i++) {
         auto f1 = level_files[i - 1];
         auto f2 = level_files[i];
-#ifndef NDEBUG
-        auto pair = std::make_pair(&f1, &f2);
-        TEST_SYNC_POINT_CALLBACK("VersionBuilder::CheckConsistency", &pair);
-#endif
         if (level == 0) {
           if (!level_zero_cmp_(f1, f2)) {
             fprintf(stderr, "L0 files are not sorted properly");
-            return Status::Corruption("L0 files are not sorted properly");
+            abort();
           }
 
           if (f2->fd.smallest_seqno == f2->fd.largest_seqno) {
@@ -173,14 +172,7 @@ class VersionBuilder::Rep {
                       " vs. file with global_seqno %" PRIu64 "\n",
                       f1->fd.smallest_seqno, f1->fd.largest_seqno,
                       external_file_seqno);
-              return Status::Corruption("L0 file with seqno " +
-                                        NumberToString(f1->fd.smallest_seqno) +
-                                        " " +
-                                        NumberToString(f1->fd.largest_seqno) +
-                                        " vs. file with global_seqno" +
-                                        NumberToString(external_file_seqno) +
-                                        " with fileNumber " +
-                                        NumberToString(f1->fd.GetNumber()));
+              abort();
             }
           } else if (f1->fd.smallest_seqno <= f2->fd.smallest_seqno) {
             fprintf(stderr,
@@ -188,19 +180,12 @@ class VersionBuilder::Rep {
                     " %" PRIu64 "\n",
                     f1->fd.smallest_seqno, f1->fd.largest_seqno,
                     f2->fd.smallest_seqno, f2->fd.largest_seqno);
-            return Status::Corruption(
-                "L0 files seqno " + NumberToString(f1->fd.smallest_seqno) +
-                " " + NumberToString(f1->fd.largest_seqno) + " " +
-                NumberToString(f1->fd.GetNumber()) + " vs. " +
-                NumberToString(f2->fd.smallest_seqno) + " " +
-                NumberToString(f2->fd.largest_seqno) + " " +
-                NumberToString(f2->fd.GetNumber()));
+            abort();
           }
         } else {
           if (!level_nonzero_cmp_(f1, f2)) {
             fprintf(stderr, "L%d files are not sorted properly", level);
-            return Status::Corruption("L" + NumberToString(level) +
-                                      " files are not sorted properly");
+            abort();
           }
 
           // Make sure there is no overlap in levels > 0
@@ -209,24 +194,20 @@ class VersionBuilder::Rep {
             fprintf(stderr, "L%d have overlapping ranges %s vs. %s\n", level,
                     (f1->largest).DebugString(true).c_str(),
                     (f2->smallest).DebugString(true).c_str());
-            return Status::Corruption(
-                "L" + NumberToString(level) + " have overlapping ranges " +
-                (f1->largest).DebugString(true) + " vs. " +
-                (f2->smallest).DebugString(true));
+            abort();
           }
         }
       }
     }
-    return Status::OK();
   }
 
-  Status CheckConsistencyForDeletes(VersionEdit* /*edit*/, uint64_t number,
-                                    int level) {
+  void CheckConsistencyForDeletes(VersionEdit* /*edit*/, uint64_t number,
+                                  int level) {
 #ifdef NDEBUG
     if (!base_vstorage_->force_consistency_checks()) {
       // Dont run consistency checks in release mode except if
       // explicitly asked to
-      return Status::OK();
+      return;
     }
 #endif
     // a file to be deleted better exist in the previous version
@@ -264,9 +245,8 @@ class VersionBuilder::Rep {
     }
     if (!found) {
       fprintf(stderr, "not found %" PRIu64 "\n", number);
-      return Status::Corruption("not found " + NumberToString(number));
+      abort();
     }
-    return Status::OK();
   }
 
   bool CheckConsistencyForNumLevels() {
@@ -283,11 +263,8 @@ class VersionBuilder::Rep {
   }
 
   // Apply all of the edits in *edit to the current state.
-  Status Apply(VersionEdit* edit) {
-    Status s = CheckConsistency(base_vstorage_);
-    if (!s.ok()) {
-      return s;
-    }
+  void Apply(VersionEdit* edit) {
+    CheckConsistency(base_vstorage_);
 
     // Delete files
     const VersionEdit::DeletedFileSet& del = edit->GetDeletedFiles();
@@ -335,20 +312,12 @@ class VersionBuilder::Rep {
         }
       }
     }
-    return s;
   }
 
   // Save the current state in *v.
-  Status SaveTo(VersionStorageInfo* vstorage) {
-    Status s = CheckConsistency(base_vstorage_);
-    if (!s.ok()) {
-      return s;
-    }
-
-    s = CheckConsistency(vstorage);
-    if (!s.ok()) {
-      return s;
-    }
+  void SaveTo(VersionStorageInfo* vstorage) {
+    CheckConsistency(base_vstorage_);
+    CheckConsistency(vstorage);
 
     for (int level = 0; level < num_levels_; level++) {
       const auto& cmp = (level == 0) ? level_zero_cmp_ : level_nonzero_cmp_;
@@ -392,14 +361,13 @@ class VersionBuilder::Rep {
       }
     }
 
-    s = CheckConsistency(vstorage);
-    return s;
+    CheckConsistency(vstorage);
   }
 
-  Status LoadTableHandlers(InternalStats* internal_stats, int max_threads,
-                           bool prefetch_index_and_filter_in_cache,
-                           bool is_initial_load,
-                           const SliceTransform* prefix_extractor) {
+  void LoadTableHandlers(InternalStats* internal_stats, int max_threads,
+                         bool prefetch_index_and_filter_in_cache,
+                         bool is_initial_load,
+                         const SliceTransform* prefix_extractor) {
     assert(table_cache_ != nullptr);
 
     size_t table_cache_capacity = table_cache_->get_cache()->GetCapacity();
@@ -426,8 +394,7 @@ class VersionBuilder::Rep {
 
       size_t table_cache_usage = table_cache_->get_cache()->GetUsage();
       if (table_cache_usage >= load_limit) {
-        // TODO (yanqin) find a suitable status code.
-        return Status::OK();
+        return;
       } else {
         max_load = load_limit - table_cache_usage;
       }
@@ -435,15 +402,11 @@ class VersionBuilder::Rep {
 
     // <file metadata, level>
     std::vector<std::pair<FileMetaData*, int>> files_meta;
-    std::vector<Status> statuses;
     for (int level = 0; level < num_levels_; level++) {
       for (auto& file_meta_pair : levels_[level].added_files) {
         auto* file_meta = file_meta_pair.second;
-        // If the file has been opened before, just skip it.
-        if (!file_meta->table_reader_handle) {
-          files_meta.emplace_back(file_meta, level);
-          statuses.emplace_back(Status::OK());
-        }
+        assert(!file_meta->table_reader_handle);
+        files_meta.emplace_back(file_meta, level);
         if (files_meta.size() >= max_load) {
           break;
         }
@@ -463,7 +426,7 @@ class VersionBuilder::Rep {
 
         auto* file_meta = files_meta[file_idx].first;
         int level = files_meta[file_idx].second;
-        statuses[file_idx] = table_cache_->FindTable(
+        table_cache_->FindTable(
             env_options_, *(base_vstorage_->InternalComparator()),
             file_meta->fd, &file_meta->table_reader_handle, prefix_extractor,
             false /*no_io */, true /* record_read_stats */,
@@ -485,12 +448,6 @@ class VersionBuilder::Rep {
     for (auto& t : threads) {
       t.join();
     }
-    for (const auto& s : statuses) {
-      if (!s.ok()) {
-        return s;
-      }
-    }
-    return Status::OK();
   }
 
   void MaybeAddFile(VersionStorageInfo* vstorage, int level, FileMetaData* f) {
@@ -511,32 +468,33 @@ VersionBuilder::VersionBuilder(const EnvOptions& env_options,
 
 VersionBuilder::~VersionBuilder() { delete rep_; }
 
-Status VersionBuilder::CheckConsistency(VersionStorageInfo* vstorage) {
-  return rep_->CheckConsistency(vstorage);
+void VersionBuilder::CheckConsistency(VersionStorageInfo* vstorage) {
+  rep_->CheckConsistency(vstorage);
 }
 
-Status VersionBuilder::CheckConsistencyForDeletes(VersionEdit* edit,
-                                                  uint64_t number, int level) {
-  return rep_->CheckConsistencyForDeletes(edit, number, level);
+void VersionBuilder::CheckConsistencyForDeletes(VersionEdit* edit,
+                                                uint64_t number, int level) {
+  rep_->CheckConsistencyForDeletes(edit, number, level);
 }
 
 bool VersionBuilder::CheckConsistencyForNumLevels() {
   return rep_->CheckConsistencyForNumLevels();
 }
 
-Status VersionBuilder::Apply(VersionEdit* edit) { return rep_->Apply(edit); }
+void VersionBuilder::Apply(VersionEdit* edit) { rep_->Apply(edit); }
 
-Status VersionBuilder::SaveTo(VersionStorageInfo* vstorage) {
-  return rep_->SaveTo(vstorage);
+void VersionBuilder::SaveTo(VersionStorageInfo* vstorage) {
+  rep_->SaveTo(vstorage);
 }
 
-Status VersionBuilder::LoadTableHandlers(
-    InternalStats* internal_stats, int max_threads,
-    bool prefetch_index_and_filter_in_cache, bool is_initial_load,
-    const SliceTransform* prefix_extractor) {
-  return rep_->LoadTableHandlers(internal_stats, max_threads,
-                                 prefetch_index_and_filter_in_cache,
-                                 is_initial_load, prefix_extractor);
+void VersionBuilder::LoadTableHandlers(InternalStats* internal_stats,
+                                       int max_threads,
+                                       bool prefetch_index_and_filter_in_cache,
+                                       bool is_initial_load,
+                                       const SliceTransform* prefix_extractor) {
+  rep_->LoadTableHandlers(internal_stats, max_threads,
+                          prefetch_index_and_filter_in_cache, is_initial_load,
+                          prefix_extractor);
 }
 
 void VersionBuilder::MaybeAddFile(VersionStorageInfo* vstorage, int level,

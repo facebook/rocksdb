@@ -11,10 +11,7 @@
 #include <memory>
 #include "db/range_tombstone_fragmenter.h"
 #include "rocksdb/slice_transform.h"
-#include "table/get_context.h"
 #include "table/internal_iterator.h"
-#include "table/multiget_context.h"
-#include "table/table_reader_caller.h"
 
 namespace rocksdb {
 
@@ -25,13 +22,10 @@ class Arena;
 struct ReadOptions;
 struct TableProperties;
 class GetContext;
-class MultiGetContext;
 
-// A Table (also referred to as SST) is a sorted map from strings to strings.
-// Tables are immutable and persistent.  A Table may be safely accessed from
-// multiple threads without external synchronization. Table readers are used
-// for reading various types of table formats supported by rocksdb including
-// BlockBasedTable, PlainTable and CuckooTable format.
+// A Table is a sorted map from strings to strings.  Tables are
+// immutable and persistent.  A Table may be safely accessed from
+// multiple threads without external synchronization.
 class TableReader {
  public:
   virtual ~TableReader() {}
@@ -45,11 +39,11 @@ class TableReader {
   //        all the states but those allocated in arena.
   // skip_filters: disables checking the bloom filters even if they exist. This
   //               option is effective only for block-based table format.
-  // compaction_readahead_size: its value will only be used if caller = kCompaction
   virtual InternalIterator* NewIterator(const ReadOptions&,
                                         const SliceTransform* prefix_extractor,
-                                        Arena* arena, bool skip_filters,
-                                        TableReaderCaller caller, size_t compaction_readahead_size = 0) = 0;
+                                        Arena* arena = nullptr,
+                                        bool skip_filters = false,
+                                        bool for_compaction = false) = 0;
 
   virtual FragmentedRangeTombstoneIterator* NewRangeTombstoneIterator(
       const ReadOptions& /*read_options*/) {
@@ -62,14 +56,7 @@ class TableReader {
   // bytes, and so includes effects like compression of the underlying data.
   // E.g., the approximate offset of the last key in the table will
   // be close to the file length.
-  virtual uint64_t ApproximateOffsetOf(const Slice& key,
-                                       TableReaderCaller caller) = 0;
-
-  // Given start and end keys, return the approximate data size in the file
-  // between the keys. The returned value is in terms of file bytes, and so
-  // includes effects like compression of the underlying data.
-  virtual uint64_t ApproximateSize(const Slice& start, const Slice& end,
-                                   TableReaderCaller caller) = 0;
+  virtual uint64_t ApproximateOffsetOf(const Slice& key) = 0;
 
   // Set up the table for Compaction. Might change some parameters with
   // posix_fadvise
@@ -99,16 +86,6 @@ class TableReader {
                      const SliceTransform* prefix_extractor,
                      bool skip_filters = false) = 0;
 
-  virtual void MultiGet(const ReadOptions& readOptions,
-                        const MultiGetContext::Range* mget_range,
-                        const SliceTransform* prefix_extractor,
-                        bool skip_filters = false) {
-    for (auto iter = mget_range->begin(); iter != mget_range->end(); ++iter) {
-      *iter->s = Get(readOptions, iter->ikey, iter->get_context,
-                     prefix_extractor, skip_filters);
-    }
-  }
-
   // Prefetch data corresponding to a give range of keys
   // Typically this functionality is required for table implementations that
   // persists the data on a non volatile storage medium like disk/SSD
@@ -122,15 +99,17 @@ class TableReader {
   }
 
   // convert db file to a human readable form
-  virtual Status DumpTable(WritableFile* /*out_file*/) {
+  virtual Status DumpTable(WritableFile* /*out_file*/,
+                           const SliceTransform* /*prefix_extractor*/) {
     return Status::NotSupported("DumpTable() not supported");
   }
 
   // check whether there is corruption in this db file
-  virtual Status VerifyChecksum(const ReadOptions& /*read_options*/,
-                                TableReaderCaller /*caller*/) {
+  virtual Status VerifyChecksum() {
     return Status::NotSupported("VerifyChecksum() not supported");
   }
+
+  virtual void Close() {}
 };
 
 }  // namespace rocksdb

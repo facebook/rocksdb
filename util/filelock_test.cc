@@ -6,10 +6,10 @@
 #include "rocksdb/status.h"
 #include "rocksdb/env.h"
 
-#include <fcntl.h>
 #include <vector>
-#include "test_util/testharness.h"
+#include <fcntl.h>
 #include "util/coding.h"
+#include "util/testharness.h"
 
 namespace rocksdb {
 

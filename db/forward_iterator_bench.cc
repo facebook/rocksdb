@@ -3,6 +3,10 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
+#ifndef __STDC_FORMAT_MACROS
+#define __STDC_FORMAT_MACROS
+#endif
+
 #if !defined(GFLAGS) || defined(ROCKSDB_LITE)
 #include <cstdio>
 int main() {
@@ -30,8 +34,8 @@ int main() { return 0; }
 #include "rocksdb/db.h"
 #include "rocksdb/status.h"
 #include "rocksdb/table.h"
-#include "test_util/testharness.h"
 #include "util/gflags_compat.h"
+#include "util/testharness.h"
 
 const int MAX_SHARDS = 100000;
 

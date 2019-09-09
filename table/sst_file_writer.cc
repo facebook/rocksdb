@@ -6,13 +6,12 @@
 #include "rocksdb/sst_file_writer.h"
 
 #include <vector>
-
 #include "db/dbformat.h"
 #include "rocksdb/table.h"
-#include "table/block_based/block_based_table_builder.h"
+#include "table/block_based_table_builder.h"
 #include "table/sst_file_writer_collectors.h"
-#include "test_util/sync_point.h"
 #include "util/file_reader_writer.h"
+#include "util/sync_point.h"
 
 namespace rocksdb {
 
@@ -203,8 +202,6 @@ Status SstFileWriter::Open(const std::string& file_path) {
     compression_type = r->mutable_cf_options.compression;
     compression_opts = r->ioptions.compression_opts;
   }
-  uint64_t sample_for_compression =
-      r->mutable_cf_options.sample_for_compression;
 
   std::vector<std::unique_ptr<IntTblPropCollectorFactory>>
       int_tbl_prop_collector_factories;
@@ -237,9 +234,8 @@ Status SstFileWriter::Open(const std::string& file_path) {
 
   TableBuilderOptions table_builder_options(
       r->ioptions, r->mutable_cf_options, r->internal_comparator,
-      &int_tbl_prop_collector_factories, compression_type,
-      sample_for_compression, compression_opts, r->skip_filters,
-      r->column_family_name, unknown_level);
+      &int_tbl_prop_collector_factories, compression_type, compression_opts,
+      r->skip_filters, r->column_family_name, unknown_level);
   r->file_writer.reset(new WritableFileWriter(
       std::move(sst_file), file_path, r->env_options, r->ioptions.env,
       nullptr /* stats */, r->ioptions.listeners));

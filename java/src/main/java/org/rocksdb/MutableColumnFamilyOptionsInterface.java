@@ -6,7 +6,7 @@
 package org.rocksdb;
 
 public interface MutableColumnFamilyOptionsInterface
-    <T extends MutableColumnFamilyOptionsInterface<T>>
+    <T extends MutableColumnFamilyOptionsInterface>
         extends AdvancedMutableColumnFamilyOptionsInterface<T> {
 
   /**
@@ -21,7 +21,7 @@ public interface MutableColumnFamilyOptionsInterface
    * Also, a larger write buffer will result in a longer recovery time
    * the next time the database is opened.
    *
-   * Default: 64MB
+   * Default: 4MB
    * @param writeBufferSize the size of write buffer.
    * @return the instance of the current object.
    * @throws java.lang.IllegalArgumentException thrown on 32-Bit platforms

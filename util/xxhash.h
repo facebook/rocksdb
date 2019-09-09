@@ -1,4 +1,3 @@
-// Copyright (c) Facebook, Inc. and its affiliates. All Rights Reserved.
 /*
    xxHash - Fast Hash algorithm
    Header File

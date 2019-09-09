@@ -13,9 +13,9 @@
 #include "rocksdb/db.h"
 #include "rocksdb/status.h"
 #include "rocksdb/write_buffer_manager.h"
-#include "test_util/testharness.h"
-#include "test_util/testutil.h"
 #include "util/string_util.h"
+#include "util/testharness.h"
+#include "util/testutil.h"
 
 namespace rocksdb {
 
@@ -100,7 +100,7 @@ class MemTableListTest : public testing::Test {
 
     VersionSet versions(dbname, &immutable_db_options, env_options,
                         table_cache.get(), &write_buffer_manager,
-                        &write_controller, /*block_cache_tracer=*/nullptr);
+                        &write_controller);
     std::vector<ColumnFamilyDescriptor> cf_descs;
     cf_descs.emplace_back(kDefaultColumnFamilyName, ColumnFamilyOptions());
     cf_descs.emplace_back("one", ColumnFamilyOptions());
@@ -144,7 +144,7 @@ class MemTableListTest : public testing::Test {
 
     VersionSet versions(dbname, &immutable_db_options, env_options,
                         table_cache.get(), &write_buffer_manager,
-                        &write_controller, /*block_cache_tracer=*/nullptr);
+                        &write_controller);
     std::vector<ColumnFamilyDescriptor> cf_descs;
     cf_descs.emplace_back(kDefaultColumnFamilyName, ColumnFamilyOptions());
     cf_descs.emplace_back("one", ColumnFamilyOptions());
@@ -183,7 +183,7 @@ class MemTableListTest : public testing::Test {
 
 TEST_F(MemTableListTest, Empty) {
   // Create an empty MemTableList and validate basic functions.
-  MemTableList list(1, 0, 0);
+  MemTableList list(1, 0);
 
   ASSERT_EQ(0, list.NumNotFlushed());
   ASSERT_FALSE(list.imm_flush_needed.load(std::memory_order_acquire));
@@ -202,10 +202,8 @@ TEST_F(MemTableListTest, GetTest) {
   // Create MemTableList
   int min_write_buffer_number_to_merge = 2;
   int max_write_buffer_number_to_maintain = 0;
-  int64_t max_write_buffer_size_to_maintain = 0;
   MemTableList list(min_write_buffer_number_to_merge,
-                    max_write_buffer_number_to_maintain,
-                    max_write_buffer_size_to_maintain);
+                    max_write_buffer_number_to_maintain);
 
   SequenceNumber seq = 1;
   std::string value;
@@ -314,10 +312,8 @@ TEST_F(MemTableListTest, GetFromHistoryTest) {
   // Create MemTableList
   int min_write_buffer_number_to_merge = 2;
   int max_write_buffer_number_to_maintain = 2;
-  int64_t max_write_buffer_size_to_maintain = 2000;
   MemTableList list(min_write_buffer_number_to_merge,
-                    max_write_buffer_number_to_maintain,
-                    max_write_buffer_size_to_maintain);
+                    max_write_buffer_number_to_maintain);
 
   SequenceNumber seq = 1;
   std::string value;
@@ -518,11 +514,8 @@ TEST_F(MemTableListTest, FlushPendingTest) {
   // Create MemTableList
   int min_write_buffer_number_to_merge = 3;
   int max_write_buffer_number_to_maintain = 7;
-  int64_t max_write_buffer_size_to_maintain =
-      7 * static_cast<int>(options.write_buffer_size);
   MemTableList list(min_write_buffer_number_to_merge,
-                    max_write_buffer_number_to_maintain,
-                    max_write_buffer_size_to_maintain);
+                    max_write_buffer_number_to_maintain);
 
   // Create some MemTables
   uint64_t memtable_id = 0;
@@ -677,9 +670,7 @@ TEST_F(MemTableListTest, FlushPendingTest) {
   // created. So TryInstallMemtableFlushResults will install the first 3 tables
   // in to_flush and stop when it encounters a table not yet flushed.
   ASSERT_EQ(2, list.NumNotFlushed());
-  int num_in_history =
-      std::min(3, static_cast<int>(max_write_buffer_size_to_maintain) /
-                      static_cast<int>(options.write_buffer_size));
+  int num_in_history = std::min(3, max_write_buffer_number_to_maintain);
   ASSERT_EQ(num_in_history, list.NumFlushed());
   ASSERT_EQ(5 - list.NumNotFlushed() - num_in_history, to_delete.size());
 
@@ -696,9 +687,7 @@ TEST_F(MemTableListTest, FlushPendingTest) {
   // This will actually install 2 tables.  The 1 we told it to flush, and also
   // tables[4] which has been waiting for tables[3] to commit.
   ASSERT_EQ(0, list.NumNotFlushed());
-  num_in_history =
-      std::min(5, static_cast<int>(max_write_buffer_size_to_maintain) /
-                      static_cast<int>(options.write_buffer_size));
+  num_in_history = std::min(5, max_write_buffer_number_to_maintain);
   ASSERT_EQ(num_in_history, list.NumFlushed());
   ASSERT_EQ(5 - list.NumNotFlushed() - num_in_history, to_delete.size());
 
@@ -741,8 +730,7 @@ TEST_F(MemTableListTest, FlushPendingTest) {
 
   list.current()->Unref(&to_delete);
   int to_delete_size =
-      std::min(num_tables, static_cast<int>(max_write_buffer_size_to_maintain) /
-                               static_cast<int>(options.write_buffer_size));
+      std::min(num_tables, max_write_buffer_number_to_maintain);
   ASSERT_EQ(to_delete_size, to_delete.size());
 
   for (const auto& m : to_delete) {
@@ -781,13 +769,10 @@ TEST_F(MemTableListTest, AtomicFlusTest) {
   // Create MemTableLists
   int min_write_buffer_number_to_merge = 3;
   int max_write_buffer_number_to_maintain = 7;
-  int64_t max_write_buffer_size_to_maintain =
-      7 * static_cast<int64_t>(options.write_buffer_size);
   autovector<MemTableList*> lists;
   for (int i = 0; i != num_cfs; ++i) {
     lists.emplace_back(new MemTableList(min_write_buffer_number_to_merge,
-                                        max_write_buffer_number_to_maintain,
-                                        max_write_buffer_size_to_maintain));
+                                        max_write_buffer_number_to_maintain));
   }
 
   autovector<uint32_t> cf_ids;

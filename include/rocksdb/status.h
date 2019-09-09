@@ -58,9 +58,7 @@ class Status {
     kBusy = 11,
     kExpired = 12,
     kTryAgain = 13,
-    kCompactionTooLarge = 14,
-    kColumnFamilyDropped = 15,
-    kMaxCode
+    kCompactionTooLarge = 14
   };
 
   Code code() const { return code_; }
@@ -75,8 +73,6 @@ class Status {
     kStaleFile = 6,
     kMemoryLimit = 7,
     kSpaceLimit = 8,
-    kPathNotFound = 9,
-    KMergeOperandsInsufficientCapacity = 10,
     kMaxSubCode
   };
 
@@ -187,15 +183,6 @@ class Status {
     return Status(kCompactionTooLarge, msg, msg2);
   }
 
-  static Status ColumnFamilyDropped(SubCode msg = kNone) {
-    return Status(kColumnFamilyDropped, msg);
-  }
-
-  static Status ColumnFamilyDropped(const Slice& msg,
-                                    const Slice& msg2 = Slice()) {
-    return Status(kColumnFamilyDropped, msg, msg2);
-  }
-
   static Status NoSpace() { return Status(kIOError, kNoSpace); }
   static Status NoSpace(const Slice& msg, const Slice& msg2 = Slice()) {
     return Status(kIOError, kNoSpace, msg, msg2);
@@ -209,11 +196,6 @@ class Status {
   static Status SpaceLimit() { return Status(kIOError, kSpaceLimit); }
   static Status SpaceLimit(const Slice& msg, const Slice& msg2 = Slice()) {
     return Status(kIOError, kSpaceLimit, msg, msg2);
-  }
-
-  static Status PathNotFound() { return Status(kIOError, kPathNotFound); }
-  static Status PathNotFound(const Slice& msg, const Slice& msg2 = Slice()) {
-    return Status(kIOError, kPathNotFound, msg, msg2);
   }
 
   // Returns true iff the status indicates success.
@@ -268,9 +250,6 @@ class Status {
   // Returns true iff the status indicates the proposed compaction is too large
   bool IsCompactionTooLarge() const { return code() == kCompactionTooLarge; }
 
-  // Returns true iff the status indicates Column Family Dropped
-  bool IsColumnFamilyDropped() const { return code() == kColumnFamilyDropped; }
-
   // Returns true iff the status indicates a NoSpace error
   // This is caused by an I/O error returning the specific "out of space"
   // error condition. Stricto sensu, an NoSpace error is an I/O error
@@ -285,14 +264,6 @@ class Status {
   // of a write batch) in order to avoid out of memory exceptions.
   bool IsMemoryLimit() const {
     return (code() == kAborted) && (subcode() == kMemoryLimit);
-  }
-
-  // Returns true iff the status indicates a PathNotFound error
-  // This is caused by an I/O error returning the specific "no such file or
-  // directory" error condition. A PathNotFound error is an I/O error with
-  // a specific subcode, enabling users to take appropriate action if necessary
-  bool IsPathNotFound() const {
-    return (code() == kIOError) && (subcode() == kPathNotFound);
   }
 
   // Return a string representation of this status suitable for printing.
@@ -320,12 +291,11 @@ class Status {
   static const char* CopyState(const char* s);
 };
 
-inline Status::Status(const Status& s)
-    : code_(s.code_), subcode_(s.subcode_), sev_(s.sev_) {
+inline Status::Status(const Status& s) : code_(s.code_), subcode_(s.subcode_), sev_(s.sev_) {
   state_ = (s.state_ == nullptr) ? nullptr : CopyState(s.state_);
 }
 inline Status::Status(const Status& s, Severity sev)
-    : code_(s.code_), subcode_(s.subcode_), sev_(sev) {
+  : code_(s.code_), subcode_(s.subcode_), sev_(sev) {
   state_ = (s.state_ == nullptr) ? nullptr : CopyState(s.state_);
 }
 inline Status& Status::operator=(const Status& s) {

@@ -27,9 +27,7 @@ std::string GetWindowsErrSz(DWORD err);
 inline Status IOErrorFromWindowsError(const std::string& context, DWORD err) {
   return ((err == ERROR_HANDLE_DISK_FULL) || (err == ERROR_DISK_FULL))
              ? Status::NoSpace(context, GetWindowsErrSz(err))
-             : ((err == ERROR_FILE_NOT_FOUND) || (err == ERROR_PATH_NOT_FOUND))
-                   ? Status::PathNotFound(context, GetWindowsErrSz(err))
-                   : Status::IOError(context, GetWindowsErrSz(err));
+             : Status::IOError(context, GetWindowsErrSz(err));
 }
 
 inline Status IOErrorFromLastWindowsError(const std::string& context) {
@@ -39,9 +37,7 @@ inline Status IOErrorFromLastWindowsError(const std::string& context) {
 inline Status IOError(const std::string& context, int err_number) {
   return (err_number == ENOSPC)
              ? Status::NoSpace(context, strerror(err_number))
-             : (err_number == ENOENT)
-                   ? Status::PathNotFound(context, strerror(err_number))
-                   : Status::IOError(context, strerror(err_number));
+             : Status::IOError(context, strerror(err_number));
 }
 
 class WinFileData;
@@ -430,7 +426,9 @@ public:
 class WinDirectory : public Directory {
   HANDLE handle_;
  public:
-  explicit WinDirectory(HANDLE h) noexcept : handle_(h) {
+  explicit
+  WinDirectory(HANDLE h) noexcept : 
+    handle_(h) {
     assert(handle_ != INVALID_HANDLE_VALUE);
   }
   ~WinDirectory() {

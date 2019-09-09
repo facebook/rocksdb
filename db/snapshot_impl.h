@@ -24,7 +24,7 @@ class SnapshotImpl : public Snapshot {
   // It indicates the smallest uncommitted data at the time the snapshot was
   // taken. This is currently used by WritePrepared transactions to limit the
   // scope of queries to IsInSnpashot.
-  SequenceNumber min_uncommitted_ = kMinUnCommittedSeq;
+  SequenceNumber min_uncommitted_ = 0;
 
   virtual SequenceNumber GetSequenceNumber() const override { return number_; }
 
@@ -91,23 +91,13 @@ class SnapshotList {
       SequenceNumber* oldest_write_conflict_snapshot = nullptr,
       const SequenceNumber& max_seq = kMaxSequenceNumber) const {
     std::vector<SequenceNumber> ret;
-    GetAll(&ret, oldest_write_conflict_snapshot, max_seq);
-    return ret;
-  }
-
-  void GetAll(std::vector<SequenceNumber>* snap_vector,
-              SequenceNumber* oldest_write_conflict_snapshot = nullptr,
-              const SequenceNumber& max_seq = kMaxSequenceNumber) const {
-    std::vector<SequenceNumber>& ret = *snap_vector;
-    // So far we have no use case that would pass a non-empty vector
-    assert(ret.size() == 0);
 
     if (oldest_write_conflict_snapshot != nullptr) {
       *oldest_write_conflict_snapshot = kMaxSequenceNumber;
     }
 
     if (empty()) {
-      return;
+      return ret;
     }
     const SnapshotImpl* s = &list_;
     while (s->next_ != &list_) {
@@ -129,7 +119,7 @@ class SnapshotList {
 
       s = s->next_;
     }
-    return;
+    return ret;
   }
 
   // get the sequence number of the most recent snapshot

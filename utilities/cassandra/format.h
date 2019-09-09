@@ -56,11 +56,11 @@
 
 #pragma once
 #include <chrono>
-#include <memory>
 #include <vector>
+#include <memory>
 #include "rocksdb/merge_operator.h"
 #include "rocksdb/slice.h"
-#include "test_util/testharness.h"
+#include "util/testharness.h"
 
 namespace rocksdb {
 namespace cassandra {

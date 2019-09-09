@@ -14,7 +14,6 @@
 
 #include <memory>
 #include <string>
-#include <vector>
 
 #include "rocksdb/comparator.h"
 #include "rocksdb/iterator.h"
@@ -100,8 +99,6 @@ class WriteBatchWithIndex : public WriteBatchBase {
       size_t max_bytes = 0);
 
   ~WriteBatchWithIndex() override;
-  WriteBatchWithIndex(WriteBatchWithIndex&&);
-  WriteBatchWithIndex& operator=(WriteBatchWithIndex&&);
 
   using WriteBatchBase::Put;
   Status Put(ColumnFamilyHandle* column_family, const Slice& key,
@@ -210,12 +207,6 @@ class WriteBatchWithIndex : public WriteBatchBase {
                            ColumnFamilyHandle* column_family, const Slice& key,
                            PinnableSlice* value);
 
-  void MultiGetFromBatchAndDB(DB* db, const ReadOptions& read_options,
-                              ColumnFamilyHandle* column_family,
-                              const size_t num_keys, const Slice* keys,
-                              PinnableSlice* values, Status* statuses,
-                              bool sorted_input);
-
   // Records the state of the batch for future calls to RollbackToSavePoint().
   // May be called multiple times to set multiple save points.
   void SetSavePoint() override;
@@ -255,11 +246,6 @@ class WriteBatchWithIndex : public WriteBatchBase {
   Status GetFromBatchAndDB(DB* db, const ReadOptions& read_options,
                            ColumnFamilyHandle* column_family, const Slice& key,
                            PinnableSlice* value, ReadCallback* callback);
-  void MultiGetFromBatchAndDB(DB* db, const ReadOptions& read_options,
-                              ColumnFamilyHandle* column_family,
-                              const size_t num_keys, const Slice* keys,
-                              PinnableSlice* values, Status* statuses,
-                              bool sorted_input, ReadCallback* callback);
   struct Rep;
   std::unique_ptr<Rep> rep;
 };

@@ -5,29 +5,32 @@
 
 #pragma once
 
-#include <cinttypes>
+#ifndef __STDC_FORMAT_MACROS
+#define __STDC_FORMAT_MACROS
+#endif
+
+#include <inttypes.h>
 #include <algorithm>
 #include <functional>
 #include <string>
 #include <thread>
 
-#include "db/db_impl/db_impl.h"
+#include "db/db_impl.h"
 #include "rocksdb/db.h"
 #include "rocksdb/options.h"
 #include "rocksdb/utilities/transaction.h"
 #include "rocksdb/utilities/transaction_db.h"
 #include "table/mock_table.h"
-#include "test_util/fault_injection_test_env.h"
-#include "test_util/sync_point.h"
-#include "test_util/testharness.h"
-#include "test_util/testutil.h"
-#include "test_util/transaction_test_util.h"
+#include "util/fault_injection_test_env.h"
 #include "util/random.h"
 #include "util/string_util.h"
+#include "util/sync_point.h"
+#include "util/testharness.h"
+#include "util/testutil.h"
+#include "util/transaction_test_util.h"
 #include "utilities/merge_operators.h"
 #include "utilities/merge_operators/string_append/stringappend.h"
 #include "utilities/transactions/pessimistic_transaction_db.h"
-#include "utilities/transactions/write_unprepared_txn_db.h"
 
 #include "port/port.h"
 
@@ -35,8 +38,6 @@ namespace rocksdb {
 
 // Return true if the ith bit is set in combination represented by comb
 bool IsInCombination(size_t i, size_t comb) { return comb & (size_t(1) << i); }
-
-enum WriteOrdering : bool { kOrderedWrite, kUnorderedWrite };
 
 class TransactionTestBase : public ::testing::Test {
  public:
@@ -49,13 +50,11 @@ class TransactionTestBase : public ::testing::Test {
   bool use_stackable_db_;
 
   TransactionTestBase(bool use_stackable_db, bool two_write_queue,
-                      TxnDBWritePolicy write_policy,
-                      WriteOrdering write_ordering)
+                      TxnDBWritePolicy write_policy)
       : db(nullptr), env(nullptr), use_stackable_db_(use_stackable_db) {
     options.create_if_missing = true;
     options.max_write_buffer_number = 2;
     options.write_buffer_size = 4 * 1024;
-    options.unordered_write = write_ordering == kUnorderedWrite;
     options.level0_file_num_compaction_trigger = 2;
     options.merge_operator = MergeOperators::CreateFromStringId("stringappend");
     env = new FaultInjectionTestEnv(Env::Default());
@@ -68,12 +67,6 @@ class TransactionTestBase : public ::testing::Test {
     txn_db_options.default_lock_timeout = 0;
     txn_db_options.write_policy = write_policy;
     txn_db_options.rollback_merge_operands = true;
-    // This will stress write unprepared, by forcing write batch flush on every
-    // write.
-    txn_db_options.default_write_batch_flush_threshold = 1;
-    // Write unprepared requires all transactions to be named. This setting
-    // autogenerates the name so that existing tests can pass.
-    txn_db_options.autogenerate_name = true;
     Status s;
     if (use_stackable_db == false) {
       s = TransactionDB::Open(options, txn_db_options, dbname, &db);
@@ -170,6 +163,8 @@ class TransactionTestBase : public ::testing::Test {
     }
     if (!s.ok()) {
       delete stackable_db;
+      // just in case it was not deleted (and not set to nullptr).
+      delete root_db;
     }
     return s;
   }
@@ -205,6 +200,8 @@ class TransactionTestBase : public ::testing::Test {
     delete handles[0];
     if (!s.ok()) {
       delete stackable_db;
+      // just in case it was not deleted (and not set to nullptr).
+      delete root_db;
     }
     return s;
   }
@@ -213,8 +210,6 @@ class TransactionTestBase : public ::testing::Test {
   std::atomic<size_t> exp_seq = {0};
   std::atomic<size_t> commit_writes = {0};
   std::atomic<size_t> expected_commits = {0};
-  // Without Prepare, the commit does not write to WAL
-  std::atomic<size_t> with_empty_commits = {0};
   std::function<void(size_t, Status)> txn_t0_with_status = [&](size_t index,
                                                                Status exp_s) {
     // Test DB's internal txn. It involves no prepare phase nor a commit marker.
@@ -232,7 +227,6 @@ class TransactionTestBase : public ::testing::Test {
         exp_seq++;
       }
     }
-    with_empty_commits++;
   };
   std::function<void(size_t)> txn_t0 = [&](size_t index) {
     return txn_t0_with_status(index, Status::OK());
@@ -259,7 +253,6 @@ class TransactionTestBase : public ::testing::Test {
       }
     }
     ASSERT_OK(s);
-    with_empty_commits++;
   };
   std::function<void(size_t)> txn_t2 = [&](size_t index) {
     // Commit without prepare. It should write to DB without a commit marker.
@@ -276,23 +269,15 @@ class TransactionTestBase : public ::testing::Test {
     if (txn_db_options.write_policy == TxnDBWritePolicy::WRITE_COMMITTED) {
       // Consume one seq per key
       exp_seq += 4;
-    } else if (txn_db_options.write_policy ==
-               TxnDBWritePolicy::WRITE_PREPARED) {
+    } else {
       // Consume one seq per batch
       exp_seq++;
       if (options.two_write_queues) {
         // Consume one seq for commit
         exp_seq++;
       }
-    } else {
-      // Flushed after each key, consume one seq per flushed batch
-      exp_seq += 4;
-      // WriteUnprepared implements CommitWithoutPrepareInternal by simply
-      // calling Prepare then Commit. Consume one seq for the prepare.
-      exp_seq++;
     }
     delete txn;
-    with_empty_commits++;
   };
   std::function<void(size_t)> txn_t3 = [&](size_t index) {
     // A full 2pc txn that also involves a commit marker.
@@ -313,15 +298,9 @@ class TransactionTestBase : public ::testing::Test {
     if (txn_db_options.write_policy == TxnDBWritePolicy::WRITE_COMMITTED) {
       // Consume one seq per key
       exp_seq += 5;
-    } else if (txn_db_options.write_policy ==
-               TxnDBWritePolicy::WRITE_PREPARED) {
+    } else {
       // Consume one seq per batch
       exp_seq++;
-      // Consume one seq per commit marker
-      exp_seq++;
-    } else {
-      // Flushed after each key, consume one seq per flushed batch
-      exp_seq += 5;
       // Consume one seq per commit marker
       exp_seq++;
     }
@@ -346,19 +325,9 @@ class TransactionTestBase : public ::testing::Test {
     if (txn_db_options.write_policy == TxnDBWritePolicy::WRITE_COMMITTED) {
       // No seq is consumed for deleting the txn buffer
       exp_seq += 0;
-    } else if (txn_db_options.write_policy ==
-               TxnDBWritePolicy::WRITE_PREPARED) {
+    } else {
       // Consume one seq per batch
       exp_seq++;
-      // Consume one seq per rollback batch
-      exp_seq++;
-      if (options.two_write_queues) {
-        // Consume one seq for rollback commit
-        exp_seq++;
-      }
-    } else {
-      // Flushed after each key, consume one seq per flushed batch
-      exp_seq += 5;
       // Consume one seq per rollback batch
       exp_seq++;
       if (options.two_write_queues) {
@@ -383,9 +352,6 @@ class TransactionTestBase : public ::testing::Test {
     Transaction* txn;
 
     txn_db_options.write_policy = from_policy;
-    if (txn_db_options.write_policy == WRITE_COMMITTED) {
-      options.unordered_write = false;
-    }
     ReOpen();
 
     for (int i = 0; i < 1024; i++) {
@@ -434,9 +400,6 @@ class TransactionTestBase : public ::testing::Test {
     }  // for i
 
     txn_db_options.write_policy = to_policy;
-    if (txn_db_options.write_policy == WRITE_COMMITTED) {
-      options.unordered_write = false;
-    }
     auto db_impl = reinterpret_cast<DBImpl*>(db->GetRootDB());
     // Before upgrade/downgrade the WAL must be emptied
     if (empty_wal) {
@@ -474,14 +437,13 @@ class TransactionTestBase : public ::testing::Test {
   }
 };
 
-class TransactionTest
-    : public TransactionTestBase,
-      virtual public ::testing::WithParamInterface<
-          std::tuple<bool, bool, TxnDBWritePolicy, WriteOrdering>> {
+class TransactionTest : public TransactionTestBase,
+                        virtual public ::testing::WithParamInterface<
+                            std::tuple<bool, bool, TxnDBWritePolicy>> {
  public:
   TransactionTest()
       : TransactionTestBase(std::get<0>(GetParam()), std::get<1>(GetParam()),
-                            std::get<2>(GetParam()), std::get<3>(GetParam())){};
+                            std::get<2>(GetParam())){};
 };
 
 class TransactionStressTest : public TransactionTest {};
@@ -489,12 +451,12 @@ class TransactionStressTest : public TransactionTest {};
 class MySQLStyleTransactionTest
     : public TransactionTestBase,
       virtual public ::testing::WithParamInterface<
-          std::tuple<bool, bool, TxnDBWritePolicy, WriteOrdering, bool>> {
+          std::tuple<bool, bool, TxnDBWritePolicy, bool>> {
  public:
   MySQLStyleTransactionTest()
       : TransactionTestBase(std::get<0>(GetParam()), std::get<1>(GetParam()),
-                            std::get<2>(GetParam()), std::get<3>(GetParam())),
-        with_slow_threads_(std::get<4>(GetParam())) {
+                            std::get<2>(GetParam())),
+        with_slow_threads_(std::get<3>(GetParam())) {
     if (with_slow_threads_ &&
         (txn_db_options.write_policy == WRITE_PREPARED ||
          txn_db_options.write_policy == WRITE_UNPREPARED)) {
@@ -504,7 +466,6 @@ class MySQLStyleTransactionTest
       // structures.
       txn_db_options.wp_snapshot_cache_bits = 1;
       txn_db_options.wp_commit_cache_bits = 10;
-      options.write_buffer_size = 1024;
       EXPECT_OK(ReOpen());
     }
   };

@@ -14,7 +14,7 @@
 #include "port/win/port_win.h"
 
 #include <io.h>
-#include "port/port_dirent.h"
+#include "port/dirent.h"
 #include "port/sys_time.h"
 
 #include <cstdlib>
@@ -33,12 +33,9 @@
 #include <codecvt>
 #endif
 
-#include "logging/logging.h"
+#include "util/logging.h"
 
 namespace rocksdb {
-
-extern const bool kDefaultToAdaptiveMutex = false;
-
 namespace port {
 
 #ifdef ROCKSDB_WINDOWS_UTF8_FILENAMES

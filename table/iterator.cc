@@ -8,9 +8,9 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
 #include "rocksdb/iterator.h"
-#include "memory/arena.h"
 #include "table/internal_iterator.h"
 #include "table/iterator_wrapper.h"
+#include "util/arena.h"
 
 namespace rocksdb {
 
@@ -157,7 +157,9 @@ class EmptyInternalIterator : public InternalIteratorBase<TValue> {
 };
 }  // namespace
 
-Iterator* NewEmptyIterator() { return new EmptyIterator(Status::OK()); }
+Iterator* NewEmptyIterator() {
+  return new EmptyIterator(Status::OK());
+}
 
 Iterator* NewErrorIterator(const Status& status) {
   return new EmptyIterator(status);
@@ -167,7 +169,7 @@ template <class TValue>
 InternalIteratorBase<TValue>* NewErrorInternalIterator(const Status& status) {
   return new EmptyInternalIterator<TValue>(status);
 }
-template InternalIteratorBase<IndexValue>* NewErrorInternalIterator(
+template InternalIteratorBase<BlockHandle>* NewErrorInternalIterator(
     const Status& status);
 template InternalIteratorBase<Slice>* NewErrorInternalIterator(
     const Status& status);
@@ -178,11 +180,11 @@ InternalIteratorBase<TValue>* NewErrorInternalIterator(const Status& status,
   if (arena == nullptr) {
     return NewErrorInternalIterator<TValue>(status);
   } else {
-    auto mem = arena->AllocateAligned(sizeof(EmptyInternalIterator<TValue>));
+    auto mem = arena->AllocateAligned(sizeof(EmptyIterator));
     return new (mem) EmptyInternalIterator<TValue>(status);
   }
 }
-template InternalIteratorBase<IndexValue>* NewErrorInternalIterator(
+template InternalIteratorBase<BlockHandle>* NewErrorInternalIterator(
     const Status& status, Arena* arena);
 template InternalIteratorBase<Slice>* NewErrorInternalIterator(
     const Status& status, Arena* arena);
@@ -191,7 +193,7 @@ template <class TValue>
 InternalIteratorBase<TValue>* NewEmptyInternalIterator() {
   return new EmptyInternalIterator<TValue>(Status::OK());
 }
-template InternalIteratorBase<IndexValue>* NewEmptyInternalIterator();
+template InternalIteratorBase<BlockHandle>* NewEmptyInternalIterator();
 template InternalIteratorBase<Slice>* NewEmptyInternalIterator();
 
 template <class TValue>
@@ -199,11 +201,11 @@ InternalIteratorBase<TValue>* NewEmptyInternalIterator(Arena* arena) {
   if (arena == nullptr) {
     return NewEmptyInternalIterator<TValue>();
   } else {
-    auto mem = arena->AllocateAligned(sizeof(EmptyInternalIterator<TValue>));
+    auto mem = arena->AllocateAligned(sizeof(EmptyIterator));
     return new (mem) EmptyInternalIterator<TValue>(Status::OK());
   }
 }
-template InternalIteratorBase<IndexValue>* NewEmptyInternalIterator(
+template InternalIteratorBase<BlockHandle>* NewEmptyInternalIterator(
     Arena* arena);
 template InternalIteratorBase<Slice>* NewEmptyInternalIterator(Arena* arena);
 

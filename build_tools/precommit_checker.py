@@ -1,5 +1,4 @@
 #!/usr/local/fbcode/gcc-4.9-glibc-2.20-fb/bin/python2.7
-# Copyright (c) Facebook, Inc. and its affiliates. All Rights Reserved.
 
 from __future__ import absolute_import
 from __future__ import division

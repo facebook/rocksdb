@@ -8,7 +8,7 @@
 
 #include "rocksdb/convenience.h"
 
-#include "db/db_impl/db_impl.h"
+#include "db/db_impl.h"
 #include "util/cast_util.h"
 
 namespace rocksdb {
@@ -35,12 +35,6 @@ Status DeleteFilesInRanges(DB* db, ColumnFamilyHandle* column_family,
 Status VerifySstFileChecksum(const Options& options,
                              const EnvOptions& env_options,
                              const std::string& file_path) {
-  return VerifySstFileChecksum(options, env_options, ReadOptions(), file_path);
-}
-Status VerifySstFileChecksum(const Options& options,
-                             const EnvOptions& env_options,
-                             const ReadOptions& read_options,
-                             const std::string& file_path) {
   std::unique_ptr<RandomAccessFile> file;
   uint64_t file_size;
   InternalKeyComparator internal_comparator(options.comparator);
@@ -65,8 +59,7 @@ Status VerifySstFileChecksum(const Options& options,
   if (!s.ok()) {
     return s;
   }
-  s = table_reader->VerifyChecksum(read_options,
-                                   TableReaderCaller::kUserVerifyChecksum);
+  s = table_reader->VerifyChecksum();
   return s;
 }
 

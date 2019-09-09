@@ -1,4 +1,3 @@
-// Copyright (c) Facebook, Inc. and its affiliates. All Rights Reserved.
 // Copyright (c) 2011 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
@@ -7,12 +6,12 @@
 #include "utilities/ttl/db_ttl_impl.h"
 
 #include "db/write_batch_internal.h"
-#include "file/filename.h"
 #include "rocksdb/convenience.h"
 #include "rocksdb/env.h"
 #include "rocksdb/iterator.h"
 #include "rocksdb/utilities/db_ttl.h"
 #include "util/coding.h"
+#include "util/filename.h"
 
 namespace rocksdb {
 
@@ -34,25 +33,12 @@ void DBWithTTLImpl::SanitizeOptions(int32_t ttl, ColumnFamilyOptions* options,
 }
 
 // Open the db inside DBWithTTLImpl because options needs pointer to its ttl
-DBWithTTLImpl::DBWithTTLImpl(DB* db) : DBWithTTL(db), closed_(false) {}
+DBWithTTLImpl::DBWithTTLImpl(DB* db) : DBWithTTL(db) {}
 
 DBWithTTLImpl::~DBWithTTLImpl() {
-  if (!closed_) {
-    Close();
-  }
-}
-
-Status DBWithTTLImpl::Close() {
-  Status ret = Status::OK();
-  if (!closed_) {
-    Options default_options = GetOptions();
-    // Need to stop background compaction before getting rid of the filter
-    CancelAllBackgroundWork(db_, /* wait = */ true);
-    ret = db_->Close();
-    delete default_options.compaction_filter;
-    closed_ = true;
-  }
-  return ret;
+  // Need to stop background compaction before getting rid of the filter
+  CancelAllBackgroundWork(db_, /* wait = */ true);
+  delete GetOptions().compaction_filter;
 }
 
 Status UtilityDB::OpenTtlDB(const Options& options, const std::string& dbname,
