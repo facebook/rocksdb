@@ -9,7 +9,8 @@
 #include "port/port.h"
 #include "port/stack_trace.h"
 #include "rocksdb/sst_file_writer.h"
-#include "util/testutil.h"
+#include "test_util/fault_injection_test_env.h"
+#include "test_util/testutil.h"
 
 namespace rocksdb {
 
@@ -20,6 +21,7 @@ class ExternalSSTFileBasicTest
  public:
   ExternalSSTFileBasicTest() : DBTestBase("/external_sst_file_basic_test") {
     sst_files_dir_ = dbname_ + "/sst_files/";
+    fault_injection_test_env_.reset(new FaultInjectionTestEnv(Env::Default()));
     DestroyAndRecreateExternalSSTFilesDir();
   }
 
@@ -140,6 +142,7 @@ class ExternalSSTFileBasicTest
 
  protected:
   std::string sst_files_dir_;
+  std::unique_ptr<FaultInjectionTestEnv> fault_injection_test_env_;
 };
 
 TEST_F(ExternalSSTFileBasicTest, Basic) {
@@ -689,6 +692,110 @@ TEST_F(ExternalSSTFileBasicTest, FadviseTrigger) {
   rocksdb::SyncPoint::GetInstance()->DisableProcessing();
 }
 
+TEST_F(ExternalSSTFileBasicTest, SyncFailure) {
+  Options options;
+  options.create_if_missing = true;
+  options.env = fault_injection_test_env_.get();
+
+  std::vector<std::pair<std::string, std::string>> test_cases = {
+      {"ExternalSstFileIngestionJob::BeforeSyncIngestedFile",
+       "ExternalSstFileIngestionJob::AfterSyncIngestedFile"},
+      {"ExternalSstFileIngestionJob::BeforeSyncDir",
+       "ExternalSstFileIngestionJob::AfterSyncDir"},
+      {"ExternalSstFileIngestionJob::BeforeSyncGlobalSeqno",
+       "ExternalSstFileIngestionJob::AfterSyncGlobalSeqno"}};
+
+  for (size_t i = 0; i < test_cases.size(); i++) {
+    SyncPoint::GetInstance()->SetCallBack(test_cases[i].first, [&](void*) {
+      fault_injection_test_env_->SetFilesystemActive(false);
+    });
+    SyncPoint::GetInstance()->SetCallBack(test_cases[i].second, [&](void*) {
+      fault_injection_test_env_->SetFilesystemActive(true);
+    });
+    SyncPoint::GetInstance()->EnableProcessing();
+
+    DestroyAndReopen(options);
+    if (i == 2) {
+      ASSERT_OK(Put("foo", "v1"));
+    }
+
+    Options sst_file_writer_options;
+    std::unique_ptr<SstFileWriter> sst_file_writer(
+        new SstFileWriter(EnvOptions(), sst_file_writer_options));
+    std::string file_name =
+        sst_files_dir_ + "sync_failure_test_" + ToString(i) + ".sst";
+    ASSERT_OK(sst_file_writer->Open(file_name));
+    ASSERT_OK(sst_file_writer->Put("bar", "v2"));
+    ASSERT_OK(sst_file_writer->Finish());
+
+    IngestExternalFileOptions ingest_opt;
+    if (i == 0) {
+      ingest_opt.move_files = true;
+    }
+    const Snapshot* snapshot = db_->GetSnapshot();
+    if (i == 2) {
+      ingest_opt.write_global_seqno = true;
+    }
+    ASSERT_FALSE(db_->IngestExternalFile({file_name}, ingest_opt).ok());
+    db_->ReleaseSnapshot(snapshot);
+
+    SyncPoint::GetInstance()->DisableProcessing();
+    SyncPoint::GetInstance()->ClearAllCallBacks();
+    Destroy(options);
+  }
+}
+
+TEST_F(ExternalSSTFileBasicTest, VerifyChecksumReadahead) {
+  Options options;
+  options.create_if_missing = true;
+  SpecialEnv senv(Env::Default());
+  options.env = &senv;
+  DestroyAndReopen(options);
+
+  Options sst_file_writer_options;
+  std::unique_ptr<SstFileWriter> sst_file_writer(
+      new SstFileWriter(EnvOptions(), sst_file_writer_options));
+  std::string file_name = sst_files_dir_ + "verify_checksum_readahead_test.sst";
+  ASSERT_OK(sst_file_writer->Open(file_name));
+  Random rnd(301);
+  std::string value = DBTestBase::RandomString(&rnd, 4000);
+  for (int i = 0; i < 5000; i++) {
+    ASSERT_OK(sst_file_writer->Put(DBTestBase::Key(i), value));
+  }
+  ASSERT_OK(sst_file_writer->Finish());
+
+  // Ingest it once without verifying checksums to see the baseline
+  // preads.
+  IngestExternalFileOptions ingest_opt;
+  ingest_opt.move_files = false;
+  senv.count_random_reads_ = true;
+  senv.random_read_bytes_counter_ = 0;
+  ASSERT_OK(db_->IngestExternalFile({file_name}, ingest_opt));
+
+  auto base_num_reads = senv.random_read_counter_.Read();
+  // Make sure the counter is enabled.
+  ASSERT_GT(base_num_reads, 0);
+
+  // Ingest again and observe the reads made for for readahead.
+  ingest_opt.move_files = false;
+  ingest_opt.verify_checksums_before_ingest = true;
+  ingest_opt.verify_checksums_readahead_size = size_t{2 * 1024 * 1024};
+
+  senv.count_random_reads_ = true;
+  senv.random_read_bytes_counter_ = 0;
+  ASSERT_OK(db_->IngestExternalFile({file_name}, ingest_opt));
+
+  // Make sure the counter is enabled.
+  ASSERT_GT(senv.random_read_counter_.Read() - base_num_reads, 0);
+
+  // The SST file is about 20MB. Readahead size is 2MB.
+  // Give a conservative 15 reads for metadata blocks, the number
+  // of random reads should be within 20 MB / 2MB + 15 = 25.
+  ASSERT_LE(senv.random_read_counter_.Read() - base_num_reads, 40);
+
+  Destroy(options);
+}
+
 TEST_P(ExternalSSTFileBasicTest, IngestionWithRangeDeletions) {
   int kNumLevels = 7;
   Options options = CurrentOptions();
@@ -777,6 +884,48 @@ TEST_P(ExternalSSTFileBasicTest, IngestionWithRangeDeletions) {
   ASSERT_EQ(4, NumTableFilesAtLevel(0));
   ASSERT_EQ(1, NumTableFilesAtLevel(kNumLevels - 2));
   ASSERT_EQ(2, NumTableFilesAtLevel(options.num_levels - 1));
+}
+
+TEST_F(ExternalSSTFileBasicTest, AdjacentRangeDeletionTombstones) {
+  Options options = CurrentOptions();
+  SstFileWriter sst_file_writer(EnvOptions(), options);
+
+  // file8.sst (delete 300 => 400)
+  std::string file8 = sst_files_dir_ + "file8.sst";
+  ASSERT_OK(sst_file_writer.Open(file8));
+  ASSERT_OK(sst_file_writer.DeleteRange(Key(300), Key(400)));
+  ExternalSstFileInfo file8_info;
+  Status s = sst_file_writer.Finish(&file8_info);
+  ASSERT_TRUE(s.ok()) << s.ToString();
+  ASSERT_EQ(file8_info.file_path, file8);
+  ASSERT_EQ(file8_info.num_entries, 0);
+  ASSERT_EQ(file8_info.smallest_key, "");
+  ASSERT_EQ(file8_info.largest_key, "");
+  ASSERT_EQ(file8_info.num_range_del_entries, 1);
+  ASSERT_EQ(file8_info.smallest_range_del_key, Key(300));
+  ASSERT_EQ(file8_info.largest_range_del_key, Key(400));
+
+  // file9.sst (delete 400 => 500)
+  std::string file9 = sst_files_dir_ + "file9.sst";
+  ASSERT_OK(sst_file_writer.Open(file9));
+  ASSERT_OK(sst_file_writer.DeleteRange(Key(400), Key(500)));
+  ExternalSstFileInfo file9_info;
+  s = sst_file_writer.Finish(&file9_info);
+  ASSERT_TRUE(s.ok()) << s.ToString();
+  ASSERT_EQ(file9_info.file_path, file9);
+  ASSERT_EQ(file9_info.num_entries, 0);
+  ASSERT_EQ(file9_info.smallest_key, "");
+  ASSERT_EQ(file9_info.largest_key, "");
+  ASSERT_EQ(file9_info.num_range_del_entries, 1);
+  ASSERT_EQ(file9_info.smallest_range_del_key, Key(400));
+  ASSERT_EQ(file9_info.largest_range_del_key, Key(500));
+
+  // Range deletion tombstones are exclusive on their end key, so these SSTs
+  // should not be considered as overlapping.
+  s = DeprecatedAddFile({file8, file9});
+  ASSERT_TRUE(s.ok()) << s.ToString();
+  ASSERT_EQ(db_->GetLatestSequenceNumber(), 0U);
+  DestroyAndRecreateExternalSSTFilesDir();
 }
 
 TEST_P(ExternalSSTFileBasicTest, IngestFileWithBadBlockChecksum) {

@@ -5,7 +5,7 @@
 
 #include "db/range_del_aggregator.h"
 
-#include "db/compaction_iteration_stats.h"
+#include "db/compaction/compaction_iteration_stats.h"
 #include "db/dbformat.h"
 #include "db/pinned_iterators_manager.h"
 #include "db/range_del_aggregator.h"
@@ -322,8 +322,8 @@ void ReadRangeDelAggregator::AddTombstones(
           std::move(input_iter), icmp_, smallest, largest)));
 }
 
-bool ReadRangeDelAggregator::ShouldDelete(const ParsedInternalKey& parsed,
-                                          RangeDelPositioningMode mode) {
+bool ReadRangeDelAggregator::ShouldDeleteImpl(const ParsedInternalKey& parsed,
+                                              RangeDelPositioningMode mode) {
   return rep_.ShouldDelete(parsed, mode);
 }
 

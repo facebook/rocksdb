@@ -9,8 +9,8 @@
 #include "port/stack_trace.h"
 #include "rocksdb/iostats_context.h"
 #include "rocksdb/perf_context.h"
-#include "util/testharness.h"
-#include "util/testutil.h"
+#include "test_util/testharness.h"
+#include "test_util/testutil.h"
 
 namespace rocksdb {
 

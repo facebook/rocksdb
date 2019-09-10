@@ -19,6 +19,7 @@
 #include "rocksdb/db.h"
 #include "rocksdb/options.h"
 #include "rocksdb/utilities/transaction_db.h"
+#include "util/cast_util.h"
 #include "utilities/transactions/pessimistic_transaction.h"
 #include "utilities/transactions/transaction_lock_mgr.h"
 #include "utilities/transactions/write_prepared_txn.h"
@@ -67,6 +68,26 @@ class PessimisticTransactionDB : public TransactionDB {
 
   using TransactionDB::Write;
   virtual Status Write(const WriteOptions& opts, WriteBatch* updates) override;
+  inline Status WriteWithConcurrencyControl(const WriteOptions& opts,
+                                            WriteBatch* updates) {
+    // Need to lock all keys in this batch to prevent write conflicts with
+    // concurrent transactions.
+    Transaction* txn = BeginInternalTransaction(opts);
+    txn->DisableIndexing();
+
+    auto txn_impl =
+        static_cast_with_check<PessimisticTransaction, Transaction>(txn);
+
+    // Since commitBatch sorts the keys before locking, concurrent Write()
+    // operations will not cause a deadlock.
+    // In order to avoid a deadlock with a concurrent Transaction, Transactions
+    // should use a lock timeout.
+    Status s = txn_impl->CommitBatch(updates);
+
+    delete txn;
+
+    return s;
+  }
 
   using StackableDB::CreateColumnFamily;
   virtual Status CreateColumnFamily(const ColumnFamilyOptions& options,
@@ -191,6 +212,7 @@ class WriteCommittedTxnDB : public PessimisticTransactionDB {
   virtual Status Write(const WriteOptions& opts,
                        const TransactionDBWriteOptimizations& optimizations,
                        WriteBatch* updates) override;
+  virtual Status Write(const WriteOptions& opts, WriteBatch* updates) override;
 };
 
 }  //  namespace rocksdb

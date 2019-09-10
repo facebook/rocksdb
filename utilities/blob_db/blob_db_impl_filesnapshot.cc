@@ -7,8 +7,8 @@
 
 #include "utilities/blob_db/blob_db_impl.h"
 
-#include "util/filename.h"
-#include "util/logging.h"
+#include "file/filename.h"
+#include "logging/logging.h"
 #include "util/mutexlock.h"
 
 // BlobDBImpl methods to get snapshot of files, e.g. for replication.

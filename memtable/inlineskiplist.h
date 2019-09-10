@@ -46,10 +46,10 @@
 #include <algorithm>
 #include <atomic>
 #include <type_traits>
+#include "memory/allocator.h"
 #include "port/likely.h"
 #include "port/port.h"
 #include "rocksdb/slice.h"
-#include "util/allocator.h"
 #include "util/coding.h"
 #include "util/random.h"
 

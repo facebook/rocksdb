@@ -10,24 +10,20 @@
 #ifndef ROCKSDB_LITE
 
 #include "rocksdb/utilities/backupable_db.h"
+#include "file/filename.h"
+#include "logging/logging.h"
 #include "port/port.h"
 #include "rocksdb/rate_limiter.h"
 #include "rocksdb/transaction_log.h"
+#include "test_util/sync_point.h"
 #include "util/channel.h"
 #include "util/coding.h"
 #include "util/crc32c.h"
 #include "util/file_reader_writer.h"
-#include "util/filename.h"
-#include "util/logging.h"
 #include "util/string_util.h"
-#include "util/sync_point.h"
 #include "utilities/checkpoint/checkpoint_impl.h"
 
-#ifndef __STDC_FORMAT_MACROS
-#define __STDC_FORMAT_MACROS
-#endif  // __STDC_FORMAT_MACROS
-
-#include <inttypes.h>
+#include <cinttypes>
 #include <stdlib.h>
 #include <algorithm>
 #include <atomic>

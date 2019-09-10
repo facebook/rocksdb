@@ -12,20 +12,22 @@
 #include <string>
 #include <thread>
 
-#include "db/db_impl.h"
+#include "db/db_impl/db_impl.h"
 #include "db/db_test_util.h"
 #include "memtable/hash_skiplist_rep.h"
 #include "options/options_parser.h"
 #include "port/port.h"
+#include "port/stack_trace.h"
 #include "rocksdb/db.h"
 #include "rocksdb/env.h"
 #include "rocksdb/iterator.h"
+#include "rocksdb/utilities/object_registry.h"
+#include "test_util/fault_injection_test_env.h"
+#include "test_util/sync_point.h"
+#include "test_util/testharness.h"
+#include "test_util/testutil.h"
 #include "util/coding.h"
-#include "util/fault_injection_test_env.h"
 #include "util/string_util.h"
-#include "util/sync_point.h"
-#include "util/testharness.h"
-#include "util/testutil.h"
 #include "utilities/merge_operators.h"
 
 namespace rocksdb {
@@ -60,8 +62,20 @@ class EnvCounter : public EnvWrapper {
 
 class ColumnFamilyTestBase : public testing::Test {
  public:
-  ColumnFamilyTestBase(uint32_t format) : rnd_(139), format_(format) {
-    env_ = new EnvCounter(Env::Default());
+  explicit ColumnFamilyTestBase(uint32_t format) : rnd_(139), format_(format) {
+    Env* base_env = Env::Default();
+#ifndef ROCKSDB_LITE
+    const char* test_env_uri = getenv("TEST_ENV_URI");
+    if (test_env_uri) {
+      Status s = ObjectRegistry::NewInstance()->NewSharedObject(test_env_uri,
+                                                                &env_guard_);
+      base_env = env_guard_.get();
+      EXPECT_OK(s);
+      EXPECT_NE(Env::Default(), base_env);
+    }
+#endif  // !ROCKSDB_LITE
+    EXPECT_NE(nullptr, base_env);
+    env_ = new EnvCounter(base_env);
     dbname_ = test::PerThreadDBPath("column_family_test");
     db_options_.create_if_missing = true;
     db_options_.fail_if_options_file_error = true;
@@ -532,6 +546,7 @@ class ColumnFamilyTestBase : public testing::Test {
   std::string dbname_;
   DB* db_ = nullptr;
   EnvCounter* env_;
+  std::shared_ptr<Env> env_guard_;
   Random rnd_;
   uint32_t format_;
 };
@@ -1117,22 +1132,25 @@ TEST_P(ColumnFamilyTest, DifferentWriteBufferSizes) {
   default_cf.arena_block_size = 4 * 4096;
   default_cf.max_write_buffer_number = 10;
   default_cf.min_write_buffer_number_to_merge = 1;
-  default_cf.max_write_buffer_number_to_maintain = 0;
+  default_cf.max_write_buffer_size_to_maintain = 0;
   one.write_buffer_size = 200000;
   one.arena_block_size = 4 * 4096;
   one.max_write_buffer_number = 10;
   one.min_write_buffer_number_to_merge = 2;
-  one.max_write_buffer_number_to_maintain = 1;
+  one.max_write_buffer_size_to_maintain =
+      static_cast<int>(one.write_buffer_size);
   two.write_buffer_size = 1000000;
   two.arena_block_size = 4 * 4096;
   two.max_write_buffer_number = 10;
   two.min_write_buffer_number_to_merge = 3;
-  two.max_write_buffer_number_to_maintain = 2;
+  two.max_write_buffer_size_to_maintain =
+      static_cast<int>(two.write_buffer_size);
   three.write_buffer_size = 4096 * 22;
   three.arena_block_size = 4096;
   three.max_write_buffer_number = 10;
   three.min_write_buffer_number_to_merge = 4;
-  three.max_write_buffer_number_to_maintain = -1;
+  three.max_write_buffer_size_to_maintain =
+      static_cast<int>(three.write_buffer_size);
 
   Reopen({default_cf, one, two, three});
 
@@ -3312,7 +3330,17 @@ TEST_P(ColumnFamilyTest, MultipleCFPathsTest) {
 
 }  // namespace rocksdb
 
+#ifdef ROCKSDB_UNITTESTS_WITH_CUSTOM_OBJECTS_FROM_STATIC_LIBS
+extern "C" {
+void RegisterCustomObjects(int argc, char** argv);
+}
+#else
+void RegisterCustomObjects(int /*argc*/, char** /*argv*/) {}
+#endif  // !ROCKSDB_UNITTESTS_WITH_CUSTOM_OBJECTS_FROM_STATIC_LIBS
+
 int main(int argc, char** argv) {
+  rocksdb::port::InstallStackTraceHandler();
   ::testing::InitGoogleTest(&argc, argv);
+  RegisterCustomObjects(argc, argv);
   return RUN_ALL_TESTS();
 }

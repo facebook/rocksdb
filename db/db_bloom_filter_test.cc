@@ -836,6 +836,25 @@ TEST_F(DBBloomFilterTest, MemtableWholeKeyBloomFilter) {
   ASSERT_EQ(1, get_perf_context()->bloom_memtable_hit_count);
 }
 
+TEST_F(DBBloomFilterTest, MemtablePrefixBloomOutOfDomain) {
+  constexpr size_t kPrefixSize = 8;
+  const std::string kKey = "key";
+  assert(kKey.size() < kPrefixSize);
+  Options options = CurrentOptions();
+  options.prefix_extractor.reset(NewFixedPrefixTransform(kPrefixSize));
+  options.memtable_prefix_bloom_size_ratio = 0.25;
+  Reopen(options);
+  ASSERT_OK(Put(kKey, "v"));
+  ASSERT_EQ("v", Get(kKey));
+  std::unique_ptr<Iterator> iter(dbfull()->NewIterator(ReadOptions()));
+  iter->Seek(kKey);
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_EQ(kKey, iter->key());
+  iter->SeekForPrev(kKey);
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_EQ(kKey, iter->key());
+}
+
 #ifndef ROCKSDB_LITE
 class BloomStatsTestWithParam
     : public DBBloomFilterTest,
@@ -985,13 +1004,16 @@ TEST_P(BloomStatsTestWithParam, BloomStatsTestWithIter) {
   ASSERT_OK(iter->status());
   ASSERT_TRUE(iter->Valid());
   ASSERT_EQ(value3, iter->value().ToString());
-  ASSERT_EQ(2, get_perf_context()->bloom_sst_hit_count);
+  // The seek doesn't check block-based bloom filter because last index key
+  // starts with the same prefix we're seeking to.
+  uint64_t expected_hits = use_block_based_builder_ ? 1 : 2;
+  ASSERT_EQ(expected_hits, get_perf_context()->bloom_sst_hit_count);
 
   iter->Seek(key2);
   ASSERT_OK(iter->status());
   ASSERT_TRUE(!iter->Valid());
   ASSERT_EQ(1, get_perf_context()->bloom_sst_miss_count);
-  ASSERT_EQ(2, get_perf_context()->bloom_sst_hit_count);
+  ASSERT_EQ(expected_hits, get_perf_context()->bloom_sst_hit_count);
 }
 
 INSTANTIATE_TEST_CASE_P(BloomStatsTestWithParam, BloomStatsTestWithParam,
@@ -1073,6 +1095,8 @@ TEST_F(DBBloomFilterTest, PrefixScan) {
     options.max_background_compactions = 2;
     options.create_if_missing = true;
     options.memtable_factory.reset(NewHashSkipListRepFactory(16));
+    assert(!options.unordered_write);
+    // It is incompatible with allow_concurrent_memtable_write=false
     options.allow_concurrent_memtable_write = false;
 
     BlockBasedTableOptions table_options;
@@ -1316,6 +1340,8 @@ TEST_F(DBBloomFilterTest, DynamicBloomFilterUpperBound) {
     table_options.cache_index_and_filter_blocks = true;
     table_options.filter_policy.reset(
         NewBloomFilterPolicy(10, use_block_based_builder));
+    table_options.index_shortening = BlockBasedTableOptions::
+        IndexShorteningMode::kShortenSeparatorsAndSuccessor;
     options.table_factory.reset(NewBlockBasedTableFactory(table_options));
     DestroyAndReopen(options);
 

@@ -81,6 +81,8 @@ enum Tickers : uint32_t {
   // exist.
   BLOOM_FILTER_FULL_TRUE_POSITIVE,
 
+  BLOOM_FILTER_MICROS,
+
   // # persistent cache hit
   PERSISTENT_CACHE_HIT,
   // # persistent cache miss
@@ -322,6 +324,8 @@ enum Tickers : uint32_t {
   TXN_DUPLICATE_KEY_OVERHEAD,
   // # of times snapshot_mutex_ is acquired in the fast path.
   TXN_SNAPSHOT_MUTEX_OVERHEAD,
+  // # of times ::Get returned TryAgain due to expired snapshot seq
+  TXN_GET_TRY_AGAIN,
 
   // Number of keys actually found in MultiGet calls (vs number requested by
   // caller)
@@ -424,6 +428,7 @@ enum Histograms : uint32_t {
   BLOB_DB_DECOMPRESSION_MICROS,
   // Time spent flushing memtable to disk
   FLUSH_TIME,
+  SST_BATCH_SIZE,
 
   HISTOGRAM_ENUM_MAX,
 };
@@ -444,6 +449,10 @@ struct HistogramData {
   double min = 0.0;
 };
 
+// StatsLevel can be used to reduce statistics overhead by skipping certain
+// types of stats in the stats collection process.
+// Usage:
+//   options.statistics->set_stats_level(StatsLevel::kExceptTimeForMutex);
 enum StatsLevel : uint8_t {
   // Disable timer stats, and skip histogram stats
   kExceptHistogramOrTimers,
@@ -461,11 +470,19 @@ enum StatsLevel : uint8_t {
   kAll,
 };
 
-// Analyze the performance of a db
+// Analyze the performance of a db by providing cumulative stats over time.
+// Usage:
+//  Options options;
+//  options.statistics = rocksdb::CreateDBStatistics();
+//  Status s = DB::Open(options, kDBPath, &db);
+//  ...
+//  options.statistics->getTickerCount(NUMBER_BLOCK_COMPRESSED);
+//  HistogramData hist;
+//  options.statistics->histogramData(FLUSH_TIME, &hist);
 class Statistics {
  public:
   virtual ~Statistics() {}
-
+  static const char* Type() { return "Statistics"; }
   virtual uint64_t getTickerCount(uint32_t tickerType) const = 0;
   virtual void histogramData(uint32_t type,
                              HistogramData* const data) const = 0;
@@ -495,9 +512,7 @@ class Statistics {
   }
 
   // Resets all ticker and histogram stats
-  virtual Status Reset() {
-    return Status::NotSupported("Not implemented");
-  }
+  virtual Status Reset() { return Status::NotSupported("Not implemented"); }
 
   // String representation of the statistic object.
   virtual std::string ToString() const {

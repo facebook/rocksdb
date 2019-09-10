@@ -46,6 +46,7 @@ class Logger;
 class MergeOperator {
  public:
   virtual ~MergeOperator() {}
+  static const char* Type() { return "MergeOperator"; }
 
   // Gives the client a way to express the read -> modify -> write semantics
   // key:      (IN)    The key that's associated with this merge operation.
@@ -239,12 +240,9 @@ class AssociativeMergeOperator : public MergeOperator {
   // returns false, it is because client specified bad data or there was
   // internal corruption. The client should assume that this will be treated
   // as an error by the library.
-  virtual bool Merge(const Slice& key,
-                     const Slice* existing_value,
-                     const Slice& value,
-                     std::string* new_value,
+  virtual bool Merge(const Slice& key, const Slice* existing_value,
+                     const Slice& value, std::string* new_value,
                      Logger* logger) const = 0;
-
 
  private:
   // Default implementations of the MergeOperator functions

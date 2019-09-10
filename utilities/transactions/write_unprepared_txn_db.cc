@@ -5,10 +5,6 @@
 
 #ifndef ROCKSDB_LITE
 
-#ifndef __STDC_FORMAT_MACROS
-#define __STDC_FORMAT_MACROS
-#endif
-
 #include "utilities/transactions/write_unprepared_txn_db.h"
 #include "rocksdb/utilities/transaction_db.h"
 #include "util/cast_util.h"
@@ -31,27 +27,22 @@ Status WriteUnpreparedTxnDB::RollbackRecoveredTransaction(
 
   class InvalidSnapshotReadCallback : public ReadCallback {
    public:
-    InvalidSnapshotReadCallback(WritePreparedTxnDB* db, SequenceNumber snapshot,
-                                SequenceNumber min_uncommitted)
-        : ReadCallback(snapshot, min_uncommitted), db_(db) {}
+    InvalidSnapshotReadCallback(SequenceNumber snapshot)
+        : ReadCallback(snapshot) {}
 
-    // Will be called to see if the seq number visible; if not it moves on to
-    // the next seq number.
-    inline bool IsVisibleFullCheck(SequenceNumber seq) override {
-      // Becomes true if it cannot tell by comparing seq with snapshot seq since
-      // the snapshot_ is not a real snapshot.
-      bool released = false;
-      auto ret = db_->IsInSnapshot(seq, snapshot_, min_uncommitted_, &released);
-      assert(!released || ret);
-      return ret;
+    inline bool IsVisibleFullCheck(SequenceNumber) override {
+      // The seq provided as snapshot is the seq right before we have locked and
+      // wrote to it, so whatever is there, it is committed.
+      return true;
     }
 
-   private:
-    WritePreparedTxnDB* db_;
+    // Ignore the refresh request since we are confident that our snapshot seq
+    // is not going to be affected by concurrent compactions (not enabled yet.)
+    void Refresh(SequenceNumber) override {}
   };
 
   // Iterate starting with largest sequence number.
-  for (auto it = rtxn->batches_.rbegin(); it != rtxn->batches_.rend(); it++) {
+  for (auto it = rtxn->batches_.rbegin(); it != rtxn->batches_.rend(); ++it) {
     auto last_visible_txn = it->first - 1;
     const auto& batch = it->second.batch_;
     WriteBatch rollback_batch;
@@ -67,14 +58,13 @@ Status WriteUnpreparedTxnDB::RollbackRecoveredTransaction(
       std::map<uint32_t, CFKeys> keys_;
       bool rollback_merge_operands_;
       RollbackWriteBatchBuilder(
-          DBImpl* db, WritePreparedTxnDB* wpt_db, SequenceNumber snap_seq,
-          WriteBatch* dst_batch,
+          DBImpl* db, SequenceNumber snap_seq, WriteBatch* dst_batch,
           std::map<uint32_t, const Comparator*>& comparators,
           std::map<uint32_t, ColumnFamilyHandle*>& handles,
           bool rollback_merge_operands)
           : db_(db),
-            callback(wpt_db, snap_seq,
-                     0),  // 0 disables min_uncommitted optimization
+            callback(snap_seq),
+            // disable min_uncommitted optimization
             rollback_batch_(dst_batch),
             comparators_(comparators),
             handles_(handles),
@@ -96,8 +86,12 @@ Status WriteUnpreparedTxnDB::RollbackRecoveredTransaction(
         PinnableSlice pinnable_val;
         bool not_used;
         auto cf_handle = handles_[cf];
-        s = db_->GetImpl(roptions, cf_handle, key, &pinnable_val, &not_used,
-                         &callback);
+        DBImpl::GetImplOptions get_impl_options;
+        get_impl_options.column_family = cf_handle;
+        get_impl_options.value = &pinnable_val;
+        get_impl_options.value_found = &not_used;
+        get_impl_options.callback = &callback;
+        s = db_->GetImpl(roptions, key, get_impl_options);
         assert(s.ok() || s.IsNotFound());
         if (s.ok()) {
           s = rollback_batch_->Put(cf_handle, key, pinnable_val);
@@ -149,7 +143,7 @@ Status WriteUnpreparedTxnDB::RollbackRecoveredTransaction(
       Status MarkRollback(const Slice&) override {
         return Status::InvalidArgument();
       }
-    } rollback_handler(db_impl_, this, last_visible_txn, &rollback_batch,
+    } rollback_handler(db_impl_, last_visible_txn, &rollback_batch,
                        *cf_comp_map_shared_ptr.get(), *cf_map_shared_ptr.get(),
                        txn_db_options_.rollback_merge_operands);
 
@@ -185,7 +179,7 @@ Status WriteUnpreparedTxnDB::Initialize(
     const std::vector<size_t>& compaction_enabled_cf_indices,
     const std::vector<ColumnFamilyHandle*>& handles) {
   // TODO(lth): Reduce code duplication in this function.
-  auto dbimpl = reinterpret_cast<DBImpl*>(GetRootDB());
+  auto dbimpl = static_cast_with_check<DBImpl, DB>(GetRootDB());
   assert(dbimpl != nullptr);
 
   db_impl_->SetSnapshotChecker(new WritePreparedSnapshotChecker(this));
@@ -194,10 +188,9 @@ Status WriteUnpreparedTxnDB::Initialize(
    public:
     explicit CommitSubBatchPreReleaseCallback(WritePreparedTxnDB* db)
         : db_(db) {}
-    Status Callback(SequenceNumber commit_seq, bool is_mem_disabled) override {
-#ifdef NDEBUG
-      (void)is_mem_disabled;
-#endif
+    Status Callback(SequenceNumber commit_seq,
+                    bool is_mem_disabled __attribute__((__unused__)), uint64_t,
+                    size_t /*index*/, size_t /*total*/) override {
       assert(!is_mem_disabled);
       db_->AddCommitted(commit_seq, commit_seq);
       return Status::OK();
@@ -234,13 +227,9 @@ Status WriteUnpreparedTxnDB::Initialize(
     compaction_enabled_cf_handles.push_back(handles[index]);
   }
 
-  Status s = EnableAutoCompaction(compaction_enabled_cf_handles);
-  if (!s.ok()) {
-    return s;
-  }
-
   // create 'real' transactions from recovered shell transactions
   auto rtxns = dbimpl->recovered_transactions();
+  std::map<SequenceNumber, SequenceNumber> ordered_seq_cnt;
   for (auto rtxn : rtxns) {
     auto recovered_trx = rtxn.second;
     assert(recovered_trx);
@@ -267,12 +256,13 @@ Status WriteUnpreparedTxnDB::Initialize(
     assert(real_trx);
     auto wupt =
         static_cast_with_check<WriteUnpreparedTxn, Transaction>(real_trx);
+    wupt->recovered_txn_ = true;
 
     real_trx->SetLogNumber(first_log_number);
     real_trx->SetId(first_seq);
-    s = real_trx->SetName(recovered_trx->name_);
+    Status s = real_trx->SetName(recovered_trx->name_);
     if (!s.ok()) {
-      break;
+      return s;
     }
     wupt->prepare_batch_cnt_ = last_prepare_batch_cnt;
 
@@ -282,33 +272,47 @@ Status WriteUnpreparedTxnDB::Initialize(
       auto cnt = batch_info.batch_cnt_ ? batch_info.batch_cnt_ : 1;
       assert(batch_info.log_number_);
 
-      for (size_t i = 0; i < cnt; i++) {
-        AddPrepared(seq + i);
-      }
+      ordered_seq_cnt[seq] = cnt;
       assert(wupt->unprep_seqs_.count(seq) == 0);
       wupt->unprep_seqs_[seq] = cnt;
-      KeySetBuilder keyset_handler(wupt,
-                                   txn_db_options_.rollback_merge_operands);
-      s = batch_info.batch_->Iterate(&keyset_handler);
+
+      s = wupt->RebuildFromWriteBatch(batch_info.batch_);
       assert(s.ok());
       if (!s.ok()) {
-        break;
+        return s;
       }
     }
 
-    wupt->write_batch_.Clear();
-    WriteBatchInternal::InsertNoop(wupt->write_batch_.GetWriteBatch());
+    const bool kClear = true;
+    wupt->InitWriteBatch(kClear);
 
     real_trx->SetState(Transaction::PREPARED);
     if (!s.ok()) {
-      break;
+      return s;
+    }
+  }
+  // AddPrepared must be called in order
+  for (auto seq_cnt: ordered_seq_cnt) {
+    auto seq = seq_cnt.first;
+    auto cnt = seq_cnt.second;
+    for (size_t i = 0; i < cnt; i++) {
+      AddPrepared(seq + i);
     }
   }
 
   SequenceNumber prev_max = max_evicted_seq_;
   SequenceNumber last_seq = db_impl_->GetLatestSequenceNumber();
   AdvanceMaxEvictedSeq(prev_max, last_seq);
+  // Create a gap between max and the next snapshot. This simplifies the logic
+  // in IsInSnapshot by not having to consider the special case of max ==
+  // snapshot after recovery. This is tested in IsInSnapshotEmptyMapTest.
+  if (last_seq) {
+    db_impl_->versions_->SetLastAllocatedSequence(last_seq + 1);
+    db_impl_->versions_->SetLastSequence(last_seq + 1);
+    db_impl_->versions_->SetLastPublishedSequence(last_seq + 1);
+  }
 
+  Status s;
   // Rollback unprepared transactions.
   for (auto rtxn : rtxns) {
     auto recovered_trx = rtxn.second;
@@ -323,6 +327,10 @@ Status WriteUnpreparedTxnDB::Initialize(
 
   if (s.ok()) {
     dbimpl->DeleteAllRecoveredTransactions();
+
+    // Compaction should start only after max_evicted_seq_ is set AND recovered
+    // transactions are either added to PrepareHeap or rolled back.
+    s = EnableAutoCompaction(compaction_enabled_cf_handles);
   }
 
   return s;
@@ -344,7 +352,10 @@ struct WriteUnpreparedTxnDB::IteratorState {
   IteratorState(WritePreparedTxnDB* txn_db, SequenceNumber sequence,
                 std::shared_ptr<ManagedSnapshot> s,
                 SequenceNumber min_uncommitted, WriteUnpreparedTxn* txn)
-      : callback(txn_db, sequence, min_uncommitted, txn), snapshot(s) {}
+      : callback(txn_db, sequence, min_uncommitted, txn->unprep_seqs_,
+                 kBackedByDBSnapshot),
+        snapshot(s) {}
+  SequenceNumber MaxVisibleSeq() { return callback.max_visible_seq(); }
 
   WriteUnpreparedTxnReadCallback callback;
   std::shared_ptr<ManagedSnapshot> snapshot;
@@ -363,57 +374,80 @@ Iterator* WriteUnpreparedTxnDB::NewIterator(const ReadOptions& options,
   constexpr bool ALLOW_BLOB = true;
   constexpr bool ALLOW_REFRESH = true;
   std::shared_ptr<ManagedSnapshot> own_snapshot = nullptr;
-  SequenceNumber snapshot_seq;
+  SequenceNumber snapshot_seq = kMaxSequenceNumber;
   SequenceNumber min_uncommitted = 0;
-  if (options.snapshot != nullptr) {
-    snapshot_seq = options.snapshot->GetSequenceNumber();
-    min_uncommitted =
-        static_cast_with_check<const SnapshotImpl, const Snapshot>(
-            options.snapshot)
-            ->min_uncommitted_;
-  } else {
-    auto* snapshot = GetSnapshot();
-    // We take a snapshot to make sure that the related data in the commit map
-    // are not deleted.
-    snapshot_seq = snapshot->GetSequenceNumber();
-    min_uncommitted =
-        static_cast_with_check<const SnapshotImpl, const Snapshot>(snapshot)
-            ->min_uncommitted_;
+
+  // Currently, the Prev() iterator logic does not work well without snapshot
+  // validation. The logic simply iterates through values of a key in
+  // ascending seqno order, stopping at the first non-visible value and
+  // returning the last visible value.
+  //
+  // For example, if snapshot sequence is 3, and we have the following keys:
+  // foo: v1 1
+  // foo: v2 2
+  // foo: v3 3
+  // foo: v4 4
+  // foo: v5 5
+  //
+  // Then 1, 2, 3 will be visible, but 4 will be non-visible, so we return v3,
+  // which is the last visible value.
+  //
+  // For unprepared transactions, if we have snap_seq = 3, but the current
+  // transaction has unprep_seq 5, then returning the first non-visible value
+  // would be incorrect, as we should return v5, and not v3. The problem is that
+  // there are committed values at snapshot_seq < commit_seq < unprep_seq.
+  //
+  // Snapshot validation can prevent this problem by ensuring that no committed
+  // values exist at snapshot_seq < commit_seq, and thus any value with a
+  // sequence number greater than snapshot_seq must be unprepared values. For
+  // example, if the transaction had a snapshot at 3, then snapshot validation
+  // would be performed during the Put(v5) call. It would find v4, and the Put
+  // would fail with snapshot validation failure.
+  //
+  // TODO(lth): Improve Prev() logic to continue iterating until
+  // max_visible_seq, and then return the last visible value, so that this
+  // restriction can be lifted.
+  const Snapshot* snapshot = nullptr;
+  if (options.snapshot == nullptr) {
+    snapshot = GetSnapshot();
     own_snapshot = std::make_shared<ManagedSnapshot>(db_impl_, snapshot);
+  } else {
+    snapshot = options.snapshot;
   }
+
+  snapshot_seq = snapshot->GetSequenceNumber();
   assert(snapshot_seq != kMaxSequenceNumber);
+  // Iteration is safe as long as largest_validated_seq <= snapshot_seq. We are
+  // guaranteed that for keys that were modified by this transaction (and thus
+  // might have unprepared values), no committed values exist at
+  // largest_validated_seq < commit_seq (or the contrapositive: any committed
+  // value must exist at commit_seq <= largest_validated_seq). This implies
+  // that commit_seq <= largest_validated_seq <= snapshot_seq or commit_seq <=
+  // snapshot_seq. As explained above, the problem with Prev() only happens when
+  // snapshot_seq < commit_seq.
+  //
+  // For keys that were not modified by this transaction, largest_validated_seq_
+  // is meaningless, and Prev() should just work with the existing visibility
+  // logic.
+  if (txn->largest_validated_seq_ > snapshot->GetSequenceNumber() &&
+      !txn->unprep_seqs_.empty()) {
+    ROCKS_LOG_ERROR(info_log_,
+                    "WriteUnprepared iterator creation failed since the "
+                    "transaction has performed unvalidated writes");
+    return nullptr;
+  }
+  min_uncommitted =
+      static_cast_with_check<const SnapshotImpl, const Snapshot>(snapshot)
+          ->min_uncommitted_;
+
   auto* cfd = reinterpret_cast<ColumnFamilyHandleImpl*>(column_family)->cfd();
   auto* state =
       new IteratorState(this, snapshot_seq, own_snapshot, min_uncommitted, txn);
   auto* db_iter =
-      db_impl_->NewIteratorImpl(options, cfd, snapshot_seq, &state->callback,
-                                !ALLOW_BLOB, !ALLOW_REFRESH);
+      db_impl_->NewIteratorImpl(options, cfd, state->MaxVisibleSeq(),
+                                &state->callback, !ALLOW_BLOB, !ALLOW_REFRESH);
   db_iter->RegisterCleanup(CleanupWriteUnpreparedTxnDBIterator, state, nullptr);
   return db_iter;
-}
-
-Status KeySetBuilder::PutCF(uint32_t cf, const Slice& key,
-                            const Slice& /*val*/) {
-  txn_->UpdateWriteKeySet(cf, key);
-  return Status::OK();
-}
-
-Status KeySetBuilder::DeleteCF(uint32_t cf, const Slice& key) {
-  txn_->UpdateWriteKeySet(cf, key);
-  return Status::OK();
-}
-
-Status KeySetBuilder::SingleDeleteCF(uint32_t cf, const Slice& key) {
-  txn_->UpdateWriteKeySet(cf, key);
-  return Status::OK();
-}
-
-Status KeySetBuilder::MergeCF(uint32_t cf, const Slice& key,
-                              const Slice& /*val*/) {
-  if (rollback_merge_operands_) {
-    txn_->UpdateWriteKeySet(cf, key);
-  }
-  return Status::OK();
 }
 
 }  //  namespace rocksdb

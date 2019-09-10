@@ -1,4 +1,5 @@
 #!/bin/bash
+# Copyright (c) Facebook, Inc. and its affiliates. All Rights Reserved.
 # Usage:
 # 1. Enable ROCKS_LOG_DETAILS in util/logging.h
 # 2. Run ./transaction_test --gtest_filter="MySQLStyleTransactionTest/MySQLStyleTransactionTest.TransactionStressTest/*" --gtest_break_on_failure

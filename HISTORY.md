@@ -1,10 +1,155 @@
 # Rocksdb Change Log
 ## Unreleased
+### Bug Fixes
+* Fixed a number of data races in BlobDB.
+* Fix a bug where the compaction snapshot refresh feature is not disabled as advertised when `snap_refresh_nanos` is set to 0..
+* Fix bloom filter lookups by the MultiGet batching API when BlockBasedTableOptions::whole_key_filtering is false, by checking that a key is in the perfix_extractor domain and extracting the prefix before looking up.
+* Fix a bug in file ingestion caused by incorrect file number allocation when the number of column families involved in the ingestion exceeds 2.
 ### New Features
-* Introduce two more stats levels, kExceptHistogramOrTimers and kExceptTimers.
+* VerifyChecksum() by default will issue readahead. Allow ReadOptions to be passed in to those functions to override the readhead size. For checksum verifying before external SST file ingestion, a new option IngestExternalFileOptions.verify_checksums_readahead_size, is added for this readahead setting.
+* When user uses options.force_consistency_check in RocksDb, instead of crashing the process, we now pass the error back to the users without killing the process.
+### Public API Change
+* Added max_write_buffer_size_to_maintain option to better control memory usage of immutable memtables.
+* Added a lightweight API GetCurrentWalFile() to get last live WAL filename and size. Meant to be used as a helper for backup/restore tooling in a larger ecosystem such as MySQL with a MyRocks storage engine.
+* The MemTable Bloom filter, when enabled, now always uses cache locality. Options::bloom_locality now only affects the PlainTable SST format.
+### Performance Improvements
+* Improve the speed of the MemTable Bloom filter, reducing the write overhead of enabling it by 1/3 to 1/2, with similar benefit to read performance.
+
+## 6.4.0 (7/30/2019)
+### Default Option Change
+* LRUCacheOptions.high_pri_pool_ratio is set to 0.5 (previously 0.0) by default, which means that by default midpoint insertion is enabled. The same change is made for the default value of high_pri_pool_ratio argument in NewLRUCache(). When block cache is not explictly created, the small block cache created by BlockBasedTable will still has this option to be 0.0.
+* Change BlockBasedTableOptions.cache_index_and_filter_blocks_with_high_priority's default value from false to true.
 
 ### Public API Change
+* Filter and compression dictionary blocks are now handled similarly to data blocks with regards to the block cache: instead of storing objects in the cache, only the blocks themselves are cached. In addition, filter and compression dictionary blocks (as well as filter partitions) no longer get evicted from the cache when a table is closed.
+* Due to the above refactoring, block cache eviction statistics for filter and compression dictionary blocks are temporarily broken. We plan to reintroduce them in a later phase.
+* The semantics of the per-block-type block read counts in the performance context now match those of the generic block_read_count.
+* Errors related to the retrieval of the compression dictionary are now propagated to the user.
+* db_bench adds a "benchmark" stats_history, which prints out the whole stats history.
+* Overload GetAllKeyVersions() to support non-default column family.
+* Added new APIs ExportColumnFamily() and CreateColumnFamilyWithImport() to support export and import of a Column Family. https://github.com/facebook/rocksdb/issues/3469
+* ldb sometimes uses a string-append merge operator if no merge operator is passed in. This is to allow users to print keys from a DB with a merge operator.
+* Replaces old Registra with ObjectRegistry to allow user to create custom object from string, also add LoadEnv() to Env.
+* Added new overload of GetApproximateSizes which gets SizeApproximationOptions object and returns a Status. The older overloads are redirecting their calls to this new method and no longer assert if the include_flags doesn't have either of INCLUDE_MEMTABLES or INCLUDE_FILES bits set. It's recommended to use the new method only, as it is more type safe and returns a meaningful status in case of errors.
+* LDBCommandRunner::RunCommand() to return the status code as an integer, rather than call exit() using the code.
+
+### New Features
+* Add argument `--secondary_path` to ldb to open the database as the secondary instance. This would keep the original DB intact.
+* Compression dictionary blocks are now prefetched and pinned in the cache (based on the customer's settings) the same way as index and filter blocks.
+* Added DBOptions::log_readahead_size which specifies the number of bytes to prefetch when reading the log. This is mostly useful for reading a remotely located log, as it can save the number of round-trips. If 0 (default), then the prefetching is disabled.
+* Added new option in SizeApproximationOptions used with DB::GetApproximateSizes. When approximating the files total size that is used to store a keys range, allow approximation with an error margin of up to total_files_size * files_size_error_margin. This allows to take some shortcuts in files size approximation, resulting in better performance, while guaranteeing the resulting error is within a reasonable margin.
+* Support loading custom objects in unit tests. In the affected unit tests, RocksDB will create custom Env objects based on environment variable TEST_ENV_URI. Users need to make sure custom object types are properly registered. For example, a static library should expose a `RegisterCustomObjects` function. By linking the unit test binary with the static library, the unit test can execute this function.
+
+### Performance Improvements
+* Reduce iterator key comparision for upper/lower bound check.
+* Improve performance of row_cache: make reads with newer snapshots than data in an SST file share the same cache key, except in some transaction cases.
+* The compression dictionary is no longer copied to a new object upon retrieval.
+
+### Bug Fixes
+* Fix ingested file and directory not being fsync.
+* Return TryAgain status in place of Corruption when new tail is not visible to TransactionLogIterator.
+* Fixed a regression where the fill_cache read option also affected index blocks.
+* Fixed an issue where using cache_index_and_filter_blocks==false affected partitions of partitioned indexes/filters as well.
+
+## 6.3.2 (8/15/2019)
+### Public API Change
+* The semantics of the per-block-type block read counts in the performance context now match those of the generic block_read_count.
+
+### Bug Fixes
+* Fixed a regression where the fill_cache read option also affected index blocks.
+* Fixed an issue where using cache_index_and_filter_blocks==false affected partitions of partitioned indexes as well.
+
+## 6.3.1 (7/24/2019)
+### Bug Fixes
+* Fix auto rolling bug introduced in 6.3.0, which causes segfault if log file creation fails.
+
+## 6.3.0 (6/18/2019)
+### Public API Change
+* Now DB::Close() will return Aborted() error when there is unreleased snapshot. Users can retry after all snapshots are released.
+* Index blocks are now handled similarly to data blocks with regards to the block cache: instead of storing objects in the cache, only the blocks themselves are cached. In addition, index blocks no longer get evicted from the cache when a table is closed, can now use the compressed block cache (if any), and can be shared among multiple table readers.
+* Partitions of partitioned indexes no longer affect the read amplification statistics.
+* Due to the above refactoring, block cache eviction statistics for indexes are temporarily broken. We plan to reintroduce them in a later phase.
+* options.keep_log_file_num will be enforced strictly all the time. File names of all log files will be tracked, which may take significantly amount of memory if options.keep_log_file_num is large and either of options.max_log_file_size or options.log_file_time_to_roll is set.
+* Add initial support for Get/Put with user timestamps. Users can specify timestamps via ReadOptions and WriteOptions when calling DB::Get and DB::Put.
+* Accessing a partition of a partitioned filter or index through a pinned reference is no longer considered a cache hit.
+* Add C bindings for secondary instance, i.e. DBImplSecondary.
+* Rate limited deletion of WALs is only enabled if DBOptions::wal_dir is not set, or explicitly set to db_name passed to DB::Open and DBOptions::db_paths is empty, or same as db_paths[0].path
+
+### New Features
+* Add an option `snap_refresh_nanos` (default to 0) to periodically refresh the snapshot list in compaction jobs. Assign to 0 to disable the feature.
+* Add an option `unordered_write` which trades snapshot guarantees with higher write throughput. When used with WRITE_PREPARED transactions with two_write_queues=true, it offers higher throughput with however no compromise on guarantees.
+* Allow DBImplSecondary to remove memtables with obsolete data after replaying MANIFEST and WAL.
+* Add an option `failed_move_fall_back_to_copy` (default is true) for external SST ingestion. When `move_files` is true and hard link fails, ingestion falls back to copy if `failed_move_fall_back_to_copy` is true. Otherwise, ingestion reports an error.
+* Add command `list_file_range_deletes` in ldb, which prints out tombstones in SST files.
+
+### Performance Improvements
+* Reduce binary search when iterator reseek into the same data block.
+* DBIter::Next() can skip user key checking if previous entry's seqnum is 0.
+* Merging iterator to avoid child iterator reseek for some cases
+* Log Writer will flush after finishing the whole record, rather than a fragment.
+* Lower MultiGet batching API latency by reading data blocks from disk in parallel
+
+### General Improvements
+* Added new status code kColumnFamilyDropped to distinguish between Column Family Dropped and DB Shutdown in progress.
+* Improve ColumnFamilyOptions validation when creating a new column family.
+
+### Bug Fixes
+* Fix a bug in WAL replay of secondary instance by skipping write batches with older sequence numbers than the current last sequence number.
+* Fix flush's/compaction's merge processing logic which allowed `Put`s covered by range tombstones to reappear. Note `Put`s may exist even if the user only ever called `Merge()` due to an internal conversion during compaction to the bottommost level.
+* Fix/improve memtable earliest sequence assignment and WAL replay so that WAL entries of unflushed column families will not be skipped after replaying the MANIFEST and increasing db sequence due to another flushed/compacted column family.
+* Fix a bug caused by secondary not skipping the beginning of new MANIFEST.
+* On DB open, delete WAL trash files left behind in wal_dir
+
+
+## 6.2.0 (4/30/2019)
+### New Features
+* Add an option `strict_bytes_per_sync` that causes a file-writing thread to block rather than exceed the limit on bytes pending writeback specified by `bytes_per_sync` or `wal_bytes_per_sync`.
+* Improve range scan performance by avoiding per-key upper bound check in BlockBasedTableIterator.
+* Introduce Periodic Compaction for Level style compaction. Files are re-compacted periodically and put in the same level.
+* Block-based table index now contains exact highest key in the file, rather than an upper bound. This may improve Get() and iterator Seek() performance in some situations, especially when direct IO is enabled and block cache is disabled. A setting BlockBasedTableOptions::index_shortening is introduced to control this behavior. Set it to kShortenSeparatorsAndSuccessor to get the old behavior.
+* When reading from option file/string/map, customized envs can be filled according to object registry.
+* Improve range scan performance when using explicit user readahead by not creating new table readers for every iterator.
+* Add index type BlockBasedTableOptions::IndexType::kBinarySearchWithFirstKey. It significantly reduces read amplification in some setups, especially for iterator seeks. It's not fully implemented yet: IO errors are not handled right.
+
+### Public API Change
+* Change the behavior of OptimizeForPointLookup(): move away from hash-based block-based-table index, and use whole key memtable filtering.
+* Change the behavior of OptimizeForSmallDb(): use a 16MB block cache, put index and filter blocks into it, and cost the memtable size to it. DBOptions.OptimizeForSmallDb() and ColumnFamilyOptions.OptimizeForSmallDb() start to take an optional cache object.
+* Added BottommostLevelCompaction::kForceOptimized to avoid double compacting newly compacted files in the bottommost level compaction of manual compaction. Note this option may prohibit the manual compaction to produce a single file in the bottommost level.
+
+### Bug Fixes
+* Adjust WriteBufferManager's dummy entry size to block cache from 1MB to 256KB.
+* Fix a race condition between WritePrepared::Get and ::Put with duplicate keys.
+* Fix crash when memtable prefix bloom is enabled and read/write a key out of domain of prefix extractor.
+* Close a WAL file before another thread deletes it.
+* Fix an assertion failure `IsFlushPending() == true` caused by one bg thread releasing the db mutex in ~ColumnFamilyData and another thread clearing `flush_requested_` flag.
+
+## 6.1.1 (4/9/2019)
+### New Features
+* When reading from option file/string/map, customized comparators and/or merge operators can be filled according to object registry.
+
+### Public API Change
+
+### Bug Fixes
+* Fix a bug in 2PC where a sequence of txn prepare, memtable flush, and crash could result in losing the prepared transaction.
+* Fix a bug in Encryption Env which could cause encrypted files to be read beyond file boundaries.
+
+## 6.1.0 (3/27/2019)
+### New Features
+* Introduce two more stats levels, kExceptHistogramOrTimers and kExceptTimers.
+* Added a feature to perform data-block sampling for compressibility, and report stats to user.
+* Add support for trace filtering.
+* Add DBOptions.avoid_unnecessary_blocking_io. If true, we avoid file deletion when destorying ColumnFamilyHandle and Iterator. Instead, a job is scheduled to delete the files in background.
+
+### Public API Change
+* Remove bundled fbson library.
 * statistics.stats_level_ becomes atomic. It is preferred to use statistics.set_stats_level() and statistics.get_stats_level() to access it.
+* Introduce a new IOError subcode, PathNotFound, to indicate trying to open a nonexistent file or directory for read.
+* Add initial support for multiple db instances sharing the same data in single-writer, multi-reader mode.
+* Removed some "using std::xxx" from public headers.
+
+### Bug Fixes
+* Fix JEMALLOC_CXX_THROW macro missing from older Jemalloc versions, causing build failures on some platforms.
+* Fix SstFileReader not able to open file ingested with write_glbal_seqno=true.
 
 ## 6.0.0 (2/19/2019)
 ### New Features

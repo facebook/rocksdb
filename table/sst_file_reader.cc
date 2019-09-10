@@ -8,6 +8,7 @@
 #include "rocksdb/sst_file_reader.h"
 
 #include "db/db_iter.h"
+#include "db/dbformat.h"
 #include "options/cf_options.h"
 #include "table/get_context.h"
 #include "table/table_builder.h"
@@ -49,10 +50,12 @@ Status SstFileReader::Open(const std::string& file_path) {
     file_reader.reset(new RandomAccessFileReader(std::move(file), file_path));
   }
   if (s.ok()) {
-    s = r->options.table_factory->NewTableReader(
-        TableReaderOptions(r->ioptions, r->moptions.prefix_extractor.get(),
-                           r->soptions, r->ioptions.internal_comparator),
-        std::move(file_reader), file_size, &r->table_reader);
+    TableReaderOptions t_opt(r->ioptions, r->moptions.prefix_extractor.get(),
+                             r->soptions, r->ioptions.internal_comparator);
+    // Allow open file with global sequence number for backward compatibility.
+    t_opt.largest_seqno = kMaxSequenceNumber;
+    s = r->options.table_factory->NewTableReader(t_opt, std::move(file_reader),
+                                                 file_size, &r->table_reader);
   }
   return s;
 }
@@ -62,8 +65,9 @@ Iterator* SstFileReader::NewIterator(const ReadOptions& options) {
   auto sequence = options.snapshot != nullptr
                       ? options.snapshot->GetSequenceNumber()
                       : kMaxSequenceNumber;
-  auto internal_iter =
-      r->table_reader->NewIterator(options, r->moptions.prefix_extractor.get());
+  auto internal_iter = r->table_reader->NewIterator(
+      options, r->moptions.prefix_extractor.get(), /*arena=*/nullptr,
+      /*skip_filters=*/false, TableReaderCaller::kSSTFileReader);
   return NewDBIterator(r->options.env, options, r->ioptions, r->moptions,
                        r->ioptions.user_comparator, internal_iter, sequence,
                        r->moptions.max_sequential_skip_in_iterations,
@@ -75,8 +79,9 @@ std::shared_ptr<const TableProperties> SstFileReader::GetTableProperties()
   return rep_->table_reader->GetTableProperties();
 }
 
-Status SstFileReader::VerifyChecksum() {
-  return rep_->table_reader->VerifyChecksum();
+Status SstFileReader::VerifyChecksum(const ReadOptions& read_options) {
+  return rep_->table_reader->VerifyChecksum(read_options,
+                                            TableReaderCaller::kSSTFileReader);
 }
 
 }  // namespace rocksdb

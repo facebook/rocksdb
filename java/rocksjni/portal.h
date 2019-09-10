@@ -467,6 +467,8 @@ class StatusJni : public RocksDBNativeClass<rocksdb::Status*, StatusJni> {
         return 0xC;
       case rocksdb::Status::Code::kTryAgain:
         return 0xD;
+      case rocksdb::Status::Code::kColumnFamilyDropped:
+        return 0xE;
       default:
         return 0x7F;  // undefined
     }
@@ -583,6 +585,12 @@ class StatusJni : public RocksDBNativeClass<rocksdb::Status*, StatusJni> {
         status = std::unique_ptr<rocksdb::Status>(
             new rocksdb::Status(rocksdb::Status::TryAgain(
               rocksdb::SubCodeJni::toCppSubCode(jsub_code_value))));
+        break;
+      case 0xE:
+        // ColumnFamilyDropped
+        status = std::unique_ptr<rocksdb::Status>(
+            new rocksdb::Status(rocksdb::Status::ColumnFamilyDropped(
+                rocksdb::SubCodeJni::toCppSubCode(jsub_code_value))));
         break;
       case 0x7F:
       default:
@@ -1360,9 +1368,9 @@ class JniUtil {
  public:
     /**
      * Detect if jlong overflows size_t
-     * 
+     *
      * @param jvalue the jlong value
-     * 
+     *
      * @return
      */
     inline static Status check_if_jlong_fits_size_t(const jlong& jvalue) {
@@ -1588,8 +1596,8 @@ class JniUtil {
      * @param bytes The bytes to copy
      *
      * @return the Java byte[], or nullptr if an exception occurs
-     * 
-     * @throws RocksDBException thrown 
+     *
+     * @throws RocksDBException thrown
      *   if memory size to copy exceeds general java specific array size limitation.
      */
     static jbyteArray copyBytes(JNIEnv* env, std::string bytes) {
@@ -1827,7 +1835,7 @@ class JniUtil {
 
       return env->NewStringUTF(string->c_str());
     }
-    
+
     /**
       * Copies bytes to a new jByteArray with the check of java array size limitation.
       *
@@ -1835,29 +1843,29 @@ class JniUtil {
       * @param size number of bytes to copy
       *
       * @return the Java byte[], or nullptr if an exception occurs
-      * 
-      * @throws RocksDBException thrown 
+      *
+      * @throws RocksDBException thrown
       *   if memory size to copy exceeds general java array size limitation to avoid overflow.
       */
     static jbyteArray createJavaByteArrayWithSizeCheck(JNIEnv* env, const char* bytes, const size_t size) {
       // Limitation for java array size is vm specific
       // In general it cannot exceed Integer.MAX_VALUE (2^31 - 1)
       // Current HotSpot VM limitation for array size is Integer.MAX_VALUE - 5 (2^31 - 1 - 5)
-      // It means that the next call to env->NewByteArray can still end with 
+      // It means that the next call to env->NewByteArray can still end with
       // OutOfMemoryError("Requested array size exceeds VM limit") coming from VM
       static const size_t MAX_JARRAY_SIZE = (static_cast<size_t>(1)) << 31;
       if(size > MAX_JARRAY_SIZE) {
         rocksdb::RocksDBExceptionJni::ThrowNew(env, "Requested array size exceeds VM limit");
         return nullptr;
       }
-      
+
       const jsize jlen = static_cast<jsize>(size);
       jbyteArray jbytes = env->NewByteArray(jlen);
       if(jbytes == nullptr) {
-        // exception thrown: OutOfMemoryError	
+        // exception thrown: OutOfMemoryError
         return nullptr;
       }
-      
+
       env->SetByteArrayRegion(jbytes, 0, jlen,
         const_cast<jbyte*>(reinterpret_cast<const jbyte*>(bytes)));
       if(env->ExceptionCheck()) {
@@ -1876,8 +1884,8 @@ class JniUtil {
      * @param bytes The bytes to copy
      *
      * @return the Java byte[] or nullptr if an exception occurs
-     * 
-     * @throws RocksDBException thrown 
+     *
+     * @throws RocksDBException thrown
      *   if memory size to copy exceeds general java specific array size limitation.
      */
     static jbyteArray copyBytes(JNIEnv* env, const Slice& bytes) {
@@ -2007,13 +2015,13 @@ class JniUtil {
     /**
      * Creates a vector<T*> of C++ pointers from
      *     a Java array of C++ pointer addresses.
-     * 
+     *
      * @param env (IN) A pointer to the java environment
      * @param pointers (IN) A Java array of C++ pointer addresses
      * @param has_exception (OUT) will be set to JNI_TRUE
      *     if an ArrayIndexOutOfBoundsException or OutOfMemoryError
      *     exception occurs.
-     * 
+     *
      * @return A vector of C++ pointers.
      */
     template<typename T> static std::vector<T*> fromJPointers(
@@ -2037,13 +2045,13 @@ class JniUtil {
     /**
      * Creates a Java array of C++ pointer addresses
      *     from a vector of C++ pointers.
-     * 
+     *
      * @param env (IN) A pointer to the java environment
      * @param pointers (IN) A vector of C++ pointers
      * @param has_exception (OUT) will be set to JNI_TRUE
      *     if an ArrayIndexOutOfBoundsException or OutOfMemoryError
      *     exception occurs
-     * 
+     *
      * @return Java array of C++ pointer addresses.
      */
     template<typename T> static jlongArray toJPointers(JNIEnv* env,
@@ -4084,6 +4092,8 @@ class BottommostLevelCompactionJni {
         return 0x1;
       case rocksdb::BottommostLevelCompaction::kForce:
         return 0x2;
+      case rocksdb::BottommostLevelCompaction::kForceOptimized:
+        return 0x3;
       default:
         return 0x7F;  // undefined
     }
@@ -4100,6 +4110,8 @@ class BottommostLevelCompactionJni {
         return rocksdb::BottommostLevelCompaction::kIfHaveCompactionFilter;
       case 0x2:
         return rocksdb::BottommostLevelCompaction::kForce;
+      case 0x3:
+        return rocksdb::BottommostLevelCompaction::kForceOptimized;
       default:
         // undefined/default
         return rocksdb::BottommostLevelCompaction::kIfHaveCompactionFilter;
@@ -4608,6 +4620,8 @@ class TickerTypeJni {
         return -0x0B;
       case rocksdb::Tickers::TXN_SNAPSHOT_MUTEX_OVERHEAD:
         return -0x0C;
+      case rocksdb::Tickers::TXN_GET_TRY_AGAIN:
+        return -0x0D;
       case rocksdb::Tickers::TICKER_ENUM_MAX:
         // 0x5F for backwards compatibility on current minor version.
         return 0x5F;
@@ -4900,6 +4914,8 @@ class TickerTypeJni {
         return rocksdb::Tickers::TXN_DUPLICATE_KEY_OVERHEAD;
       case -0x0C:
         return rocksdb::Tickers::TXN_SNAPSHOT_MUTEX_OVERHEAD;
+      case -0x0D:
+        return rocksdb::Tickers::TXN_GET_TRY_AGAIN;
       case 0x5F:
         // 0x5F for backwards compatibility on current minor version.
         return rocksdb::Tickers::TICKER_ENUM_MAX;
@@ -5670,7 +5686,7 @@ class TablePropertiesJni : public JavaClass {
       env->DeleteLocalRef(jmerge_operator_name);
       return nullptr;
     }
-  
+
     jstring jproperty_collectors_names = rocksdb::JniUtil::toJavaString(env, &table_properties.property_collectors_names, true);
     if (env->ExceptionCheck()) {
       // exception occurred creating java string
@@ -5890,8 +5906,10 @@ class IndexTypeJni {
        return 0x0;
      case rocksdb::BlockBasedTableOptions::IndexType::kHashSearch:
        return 0x1;
-    case rocksdb::BlockBasedTableOptions::IndexType::kTwoLevelIndexSearch:
+     case rocksdb::BlockBasedTableOptions::IndexType::kTwoLevelIndexSearch:
        return 0x2;
+     case rocksdb::BlockBasedTableOptions::IndexType::kBinarySearchWithFirstKey:
+       return 0x3;
      default:
        return 0x7F;  // undefined
    }
@@ -5908,6 +5926,9 @@ class IndexTypeJni {
        return rocksdb::BlockBasedTableOptions::IndexType::kHashSearch;
      case 0x2:
        return rocksdb::BlockBasedTableOptions::IndexType::kTwoLevelIndexSearch;
+     case 0x3:
+       return rocksdb::BlockBasedTableOptions::IndexType::
+           kBinarySearchWithFirstKey;
      default:
        // undefined/default
        return rocksdb::BlockBasedTableOptions::IndexType::kBinarySearch;

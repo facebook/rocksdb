@@ -27,10 +27,10 @@
 #include "utilities/persistent_cache/block_cache_tier_metadata.h"
 #include "utilities/persistent_cache/persistent_cache_util.h"
 
+#include "memory/arena.h"
 #include "memtable/skiplist.h"
 #include "monitoring/histogram.h"
 #include "port/port.h"
-#include "util/arena.h"
 #include "util/coding.h"
 #include "util/crc32c.h"
 #include "util/mutexlock.h"
@@ -47,7 +47,7 @@ class BlockCacheTier : public PersistentCacheTier {
         insert_ops_(static_cast<size_t>(opt_.max_write_pipeline_backlog_size)),
         buffer_allocator_(opt.write_buffer_size, opt.write_buffer_count()),
         writer_(this, opt_.writer_qdepth, static_cast<size_t>(opt_.writer_dispatch_size)) {
-    Info(opt_.log, "Initializing allocator. size=%d B count=%d",
+    Info(opt_.log, "Initializing allocator. size=%d B count=%" ROCKSDB_PRIszt,
          opt_.write_buffer_size, opt_.write_buffer_count());
   }
 
@@ -100,7 +100,7 @@ class BlockCacheTier : public PersistentCacheTier {
 
     std::string key_;
     std::string data_;
-    const bool signal_ = false;  // signal to request processing thread to exit
+    bool signal_ = false;  // signal to request processing thread to exit
   };
 
   // entry point for insert thread

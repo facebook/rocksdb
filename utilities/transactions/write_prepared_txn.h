@@ -56,9 +56,18 @@ class WritePreparedTxn : public PessimisticTransaction {
                      ColumnFamilyHandle* column_family, const Slice& key,
                      PinnableSlice* value) override;
 
-  // To make WAL commit markers visible, the snapshot will be based on the last
-  // seq in the WAL that is also published, LastPublishedSequence, as opposed to
-  // the last seq in the memtable.
+  using Transaction::MultiGet;
+  virtual void MultiGet(const ReadOptions& options,
+                        ColumnFamilyHandle* column_family,
+                        const size_t num_keys, const Slice* keys,
+                        PinnableSlice* values, Status* statuses,
+                        bool sorted_input = false) override;
+
+  // Note: The behavior is undefined in presence of interleaved writes to the
+  // same transaction.
+  // To make WAL commit markers visible, the snapshot will be
+  // based on the last seq in the WAL that is also published,
+  // LastPublishedSequence, as opposed to the last seq in the memtable.
   using Transaction::GetIterator;
   virtual Iterator* GetIterator(const ReadOptions& options) override;
   virtual Iterator* GetIterator(const ReadOptions& options,

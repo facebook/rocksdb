@@ -43,6 +43,8 @@ struct ImmutableCFOptions {
 
   int max_write_buffer_number_to_maintain;
 
+  int64_t max_write_buffer_size_to_maintain;
+
   bool inplace_update_support;
 
   UpdateStatus (*inplace_callback)(char* existing_value,
@@ -149,8 +151,10 @@ struct MutableCFOptions {
         target_file_size_base(options.target_file_size_base),
         target_file_size_multiplier(options.target_file_size_multiplier),
         max_bytes_for_level_base(options.max_bytes_for_level_base),
+        snap_refresh_nanos(options.snap_refresh_nanos),
         max_bytes_for_level_multiplier(options.max_bytes_for_level_multiplier),
         ttl(options.ttl),
+        periodic_compaction_seconds(options.periodic_compaction_seconds),
         max_bytes_for_level_multiplier_additional(
             options.max_bytes_for_level_multiplier_additional),
         compaction_options_fifo(options.compaction_options_fifo),
@@ -159,7 +163,8 @@ struct MutableCFOptions {
             options.max_sequential_skip_in_iterations),
         paranoid_file_checks(options.paranoid_file_checks),
         report_bg_io_stats(options.report_bg_io_stats),
-        compression(options.compression) {
+        compression(options.compression),
+        sample_for_compression(options.sample_for_compression) {
     RefreshDerivedOptions(options.num_levels, options.compaction_style);
   }
 
@@ -183,13 +188,16 @@ struct MutableCFOptions {
         target_file_size_base(0),
         target_file_size_multiplier(0),
         max_bytes_for_level_base(0),
+        snap_refresh_nanos(0),
         max_bytes_for_level_multiplier(0),
         ttl(0),
+        periodic_compaction_seconds(0),
         compaction_options_fifo(),
         max_sequential_skip_in_iterations(0),
         paranoid_file_checks(false),
         report_bg_io_stats(false),
-        compression(Snappy_Supported() ? kSnappyCompression : kNoCompression) {}
+        compression(Snappy_Supported() ? kSnappyCompression : kNoCompression),
+        sample_for_compression(0) {}
 
   explicit MutableCFOptions(const Options& options);
 
@@ -232,8 +240,10 @@ struct MutableCFOptions {
   uint64_t target_file_size_base;
   int target_file_size_multiplier;
   uint64_t max_bytes_for_level_base;
+  uint64_t snap_refresh_nanos;
   double max_bytes_for_level_multiplier;
   uint64_t ttl;
+  uint64_t periodic_compaction_seconds;
   std::vector<int> max_bytes_for_level_multiplier_additional;
   CompactionOptionsFIFO compaction_options_fifo;
   CompactionOptionsUniversal compaction_options_universal;
@@ -243,6 +253,7 @@ struct MutableCFOptions {
   bool paranoid_file_checks;
   bool report_bg_io_stats;
   CompressionType compression;
+  uint64_t sample_for_compression;
 
   // Derived options
   // Per-level target file size.

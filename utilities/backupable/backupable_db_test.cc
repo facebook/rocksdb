@@ -12,8 +12,9 @@
 #include <algorithm>
 #include <string>
 
-#include "db/db_impl.h"
+#include "db/db_impl/db_impl.h"
 #include "env/env_chroot.h"
+#include "file/filename.h"
 #include "port/port.h"
 #include "port/stack_trace.h"
 #include "rocksdb/rate_limiter.h"
@@ -21,21 +22,18 @@
 #include "rocksdb/types.h"
 #include "rocksdb/utilities/backupable_db.h"
 #include "rocksdb/utilities/options_util.h"
+#include "test_util/sync_point.h"
+#include "test_util/testharness.h"
+#include "test_util/testutil.h"
 #include "util/file_reader_writer.h"
-#include "util/filename.h"
 #include "util/mutexlock.h"
 #include "util/random.h"
 #include "util/stderr_logger.h"
 #include "util/string_util.h"
-#include "util/sync_point.h"
-#include "util/testharness.h"
-#include "util/testutil.h"
 
 namespace rocksdb {
 
 namespace {
-
-using std::unique_ptr;
 
 class DummyDB : public StackableDB {
  public:
@@ -206,7 +204,7 @@ class TestEnv : public EnvWrapper {
   }
 
   Status NewRandomAccessFile(const std::string& fname,
-                             unique_ptr<RandomAccessFile>* result,
+                             std::unique_ptr<RandomAccessFile>* result,
                              const EnvOptions& options) override {
     MutexLock l(&mutex_);
     Status s = EnvWrapper::NewRandomAccessFile(fname, result, options);

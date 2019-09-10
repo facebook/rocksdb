@@ -18,6 +18,8 @@
 #include "util/coding.h"
 #include "util/util.h"
 
+#include "util/crc32c_arm64.h"
+
 #ifdef __powerpc64__
 #include "util/crc32c_ppc.h"
 #include "util/crc32c_ppc_constants.h"
@@ -396,6 +398,8 @@ uint32_t ExtendImpl(uint32_t crc, const char* buf, size_t size) {
   return static_cast<uint32_t>(l ^ 0xffffffffu);
 }
 
+// Detect if ARM64 CRC or not.
+#ifndef HAVE_ARM64_CRC
 // Detect if SS42 or not.
 #ifndef HAVE_POWER8
 
@@ -434,6 +438,7 @@ static bool isPCLMULQDQ() {
 }
 
 #endif  // HAVE_POWER8
+#endif  // HAVE_ARM64_CRC
 
 typedef uint32_t (*Function)(uint32_t, const char*, size_t);
 
@@ -463,6 +468,11 @@ static bool isAltiVec() {
 }
 #endif
 
+#if defined(__linux__) && defined(HAVE_ARM64_CRC)
+uint32_t ExtendARMImpl(uint32_t crc, const char *buf, size_t size) {
+  return crc32c_arm64(crc, (const unsigned char *)buf, size);
+}
+#endif
 
 std::string IsFastCrc32Supported() {
   bool has_fast_crc = false;
@@ -478,6 +488,14 @@ std::string IsFastCrc32Supported() {
   has_fast_crc = false;
   arch = "PPC";
 #endif
+#elif defined(__linux__) && defined(HAVE_ARM64_CRC)
+  if (crc32c_runtime_check()) {
+    has_fast_crc = true;
+    arch = "Arm64";
+  } else {
+    has_fast_crc = false;
+    arch = "Arm64";
+  }
 #else
   has_fast_crc = isSSE42();
   arch = "x86";
@@ -1200,7 +1218,15 @@ uint32_t crc32c_3way(uint32_t crc, const char* buf, size_t len) {
 #endif //HAVE_SSE42 && HAVE_PCLMUL
 
 static inline Function Choose_Extend() {
-#ifndef HAVE_POWER8
+#ifdef HAVE_POWER8
+  return isAltiVec() ? ExtendPPCImpl : ExtendImpl<Slow_CRC32>;
+#elif defined(__linux__) && defined(HAVE_ARM64_CRC)
+  if(crc32c_runtime_check()) {
+    return ExtendARMImpl;
+  } else {
+    return ExtendImpl<Slow_CRC32>;
+  }
+#else
   if (isSSE42()) {
     if (isPCLMULQDQ()) {
 #if defined HAVE_SSE42  && defined HAVE_PCLMUL && !defined NO_THREEWAY_CRC32C
@@ -1216,8 +1242,6 @@ static inline Function Choose_Extend() {
   else {
     return ExtendImpl<Slow_CRC32>;
   }
-#else  //HAVE_POWER8
-  return isAltiVec() ? ExtendPPCImpl : ExtendImpl<Slow_CRC32>;
 #endif
 }
 

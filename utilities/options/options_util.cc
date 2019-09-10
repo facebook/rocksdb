@@ -7,28 +7,36 @@
 
 #include "rocksdb/utilities/options_util.h"
 
+#include "file/filename.h"
 #include "options/options_parser.h"
 #include "rocksdb/options.h"
-#include "util/filename.h"
 
 namespace rocksdb {
 Status LoadOptionsFromFile(const std::string& file_name, Env* env,
                            DBOptions* db_options,
                            std::vector<ColumnFamilyDescriptor>* cf_descs,
-                           bool ignore_unknown_options) {
+                           bool ignore_unknown_options,
+                           std::shared_ptr<Cache>* cache) {
   RocksDBOptionsParser parser;
   Status s = parser.Parse(file_name, env, ignore_unknown_options);
   if (!s.ok()) {
     return s;
   }
-
   *db_options = *parser.db_opt();
-
   const std::vector<std::string>& cf_names = *parser.cf_names();
   const std::vector<ColumnFamilyOptions>& cf_opts = *parser.cf_opts();
   cf_descs->clear();
   for (size_t i = 0; i < cf_opts.size(); ++i) {
     cf_descs->push_back({cf_names[i], cf_opts[i]});
+    if (cache != nullptr) {
+      TableFactory* tf = cf_opts[i].table_factory.get();
+      if (tf != nullptr && tf->GetOptions() != nullptr &&
+          tf->Name() == BlockBasedTableFactory().Name()) {
+        auto* loaded_bbt_opt =
+            reinterpret_cast<BlockBasedTableOptions*>(tf->GetOptions());
+        loaded_bbt_opt->block_cache = *cache;
+      }
+    }
   }
   return Status::OK();
 }
@@ -63,15 +71,15 @@ Status GetLatestOptionsFileName(const std::string& dbpath,
 Status LoadLatestOptions(const std::string& dbpath, Env* env,
                          DBOptions* db_options,
                          std::vector<ColumnFamilyDescriptor>* cf_descs,
-                         bool ignore_unknown_options) {
+                         bool ignore_unknown_options,
+                         std::shared_ptr<Cache>* cache) {
   std::string options_file_name;
   Status s = GetLatestOptionsFileName(dbpath, env, &options_file_name);
   if (!s.ok()) {
     return s;
   }
-
   return LoadOptionsFromFile(dbpath + "/" + options_file_name, env, db_options,
-                             cf_descs, ignore_unknown_options);
+                             cf_descs, ignore_unknown_options, cache);
 }
 
 Status CheckOptionsCompatibility(

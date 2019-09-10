@@ -6,9 +6,9 @@
 #include "util/file_reader_writer.h"
 #include <algorithm>
 #include <vector>
+#include "test_util/testharness.h"
+#include "test_util/testutil.h"
 #include "util/random.h"
-#include "util/testharness.h"
-#include "util/testutil.h"
 
 namespace rocksdb {
 
@@ -275,7 +275,7 @@ TEST_P(ReadaheadRandomAccessFileTest, SourceStrLenLessThanReadaheadSizeTest) {
 }
 
 TEST_P(ReadaheadRandomAccessFileTest,
-       SourceStrLenCanBeGreaterThanReadaheadSizeTest) {
+       SourceStrLenGreaterThanReadaheadSizeTest) {
   Random rng(42);
   for (int k = 0; k < 100; ++k) {
     size_t strLen = k * GetReadaheadSize() +
@@ -286,13 +286,13 @@ TEST_P(ReadaheadRandomAccessFileTest,
     for (int test = 1; test <= 100; ++test) {
       size_t offset = rng.Uniform(static_cast<int>(strLen));
       size_t n = rng.Uniform(static_cast<int>(GetReadaheadSize()));
-      ASSERT_EQ(str.substr(offset, std::min(n, str.size() - offset)),
+      ASSERT_EQ(str.substr(offset, std::min(n, strLen - offset)),
                 Read(offset, n));
     }
   }
 }
 
-TEST_P(ReadaheadRandomAccessFileTest, NExceedReadaheadTest) {
+TEST_P(ReadaheadRandomAccessFileTest, ReadExceedsReadaheadSizeTest) {
   Random rng(7);
   size_t strLen = 4 * GetReadaheadSize() +
                   rng.Uniform(static_cast<int>(GetReadaheadSize()));
@@ -303,7 +303,7 @@ TEST_P(ReadaheadRandomAccessFileTest, NExceedReadaheadTest) {
     size_t offset = rng.Uniform(static_cast<int>(strLen));
     size_t n =
         GetReadaheadSize() + rng.Uniform(static_cast<int>(GetReadaheadSize()));
-    ASSERT_EQ(str.substr(offset, std::min(n, str.size() - offset)),
+    ASSERT_EQ(str.substr(offset, std::min(n, strLen - offset)),
               Read(offset, n));
   }
 }
@@ -315,13 +315,118 @@ INSTANTIATE_TEST_CASE_P(
     SourceStrLenLessThanReadaheadSizeTest, ReadaheadRandomAccessFileTest,
     ::testing::ValuesIn(ReadaheadRandomAccessFileTest::GetReadaheadSizeList()));
 INSTANTIATE_TEST_CASE_P(
-    SourceStrLenCanBeGreaterThanReadaheadSizeTest,
-    ReadaheadRandomAccessFileTest,
+    SourceStrLenGreaterThanReadaheadSizeTest, ReadaheadRandomAccessFileTest,
     ::testing::ValuesIn(ReadaheadRandomAccessFileTest::GetReadaheadSizeList()));
 INSTANTIATE_TEST_CASE_P(
-    NExceedReadaheadTest, ReadaheadRandomAccessFileTest,
+    ReadExceedsReadaheadSizeTest, ReadaheadRandomAccessFileTest,
     ::testing::ValuesIn(ReadaheadRandomAccessFileTest::GetReadaheadSizeList()));
 
+class ReadaheadSequentialFileTest : public testing::Test,
+                                    public testing::WithParamInterface<size_t> {
+ public:
+  static std::vector<size_t> GetReadaheadSizeList() {
+    return {1lu << 8, 1lu << 12, 1lu << 16, 1lu << 18};
+  }
+  void SetUp() override {
+    readahead_size_ = GetParam();
+    scratch_.reset(new char[2 * readahead_size_]);
+    ResetSourceStr();
+  }
+  ReadaheadSequentialFileTest() {}
+  std::string Read(size_t n) {
+    Slice result;
+    test_read_holder_->Read(n, &result, scratch_.get());
+    return std::string(result.data(), result.size());
+  }
+  void Skip(size_t n) { test_read_holder_->Skip(n); }
+  void ResetSourceStr(const std::string& str = "") {
+    auto read_holder =
+        std::unique_ptr<SequentialFile>(new test::SeqStringSource(str));
+    test_read_holder_.reset(new SequentialFileReader(std::move(read_holder),
+                                                     "test", readahead_size_));
+  }
+  size_t GetReadaheadSize() const { return readahead_size_; }
+
+ private:
+  size_t readahead_size_;
+  std::unique_ptr<SequentialFileReader> test_read_holder_;
+  std::unique_ptr<char[]> scratch_;
+};
+
+TEST_P(ReadaheadSequentialFileTest, EmptySourceStrTest) {
+  ASSERT_EQ("", Read(0));
+  ASSERT_EQ("", Read(1));
+  ASSERT_EQ("", Read(13));
+}
+
+TEST_P(ReadaheadSequentialFileTest, SourceStrLenLessThanReadaheadSizeTest) {
+  std::string str = "abcdefghijklmnopqrs";
+  ResetSourceStr(str);
+  ASSERT_EQ(str.substr(0, 3), Read(3));
+  ASSERT_EQ(str.substr(3, 1), Read(1));
+  ASSERT_EQ(str.substr(4), Read(str.size()));
+  ASSERT_EQ("", Read(100));
+}
+
+TEST_P(ReadaheadSequentialFileTest, SourceStrLenGreaterThanReadaheadSizeTest) {
+  Random rng(42);
+  for (int s = 0; s < 1; ++s) {
+    for (int k = 0; k < 100; ++k) {
+      size_t strLen = k * GetReadaheadSize() +
+                      rng.Uniform(static_cast<int>(GetReadaheadSize()));
+      std::string str =
+          test::RandomHumanReadableString(&rng, static_cast<int>(strLen));
+      ResetSourceStr(str);
+      size_t offset = 0;
+      for (int test = 1; test <= 100; ++test) {
+        size_t n = rng.Uniform(static_cast<int>(GetReadaheadSize()));
+        if (s && test % 2) {
+          Skip(n);
+        } else {
+          ASSERT_EQ(str.substr(offset, std::min(n, strLen - offset)), Read(n));
+        }
+        offset = std::min(offset + n, strLen);
+      }
+    }
+  }
+}
+
+TEST_P(ReadaheadSequentialFileTest, ReadExceedsReadaheadSizeTest) {
+  Random rng(42);
+  for (int s = 0; s < 1; ++s) {
+    for (int k = 0; k < 100; ++k) {
+      size_t strLen = k * GetReadaheadSize() +
+                      rng.Uniform(static_cast<int>(GetReadaheadSize()));
+      std::string str =
+          test::RandomHumanReadableString(&rng, static_cast<int>(strLen));
+      ResetSourceStr(str);
+      size_t offset = 0;
+      for (int test = 1; test <= 100; ++test) {
+        size_t n = GetReadaheadSize() +
+                   rng.Uniform(static_cast<int>(GetReadaheadSize()));
+        if (s && test % 2) {
+          Skip(n);
+        } else {
+          ASSERT_EQ(str.substr(offset, std::min(n, strLen - offset)), Read(n));
+        }
+        offset = std::min(offset + n, strLen);
+      }
+    }
+  }
+}
+
+INSTANTIATE_TEST_CASE_P(
+    EmptySourceStrTest, ReadaheadSequentialFileTest,
+    ::testing::ValuesIn(ReadaheadSequentialFileTest::GetReadaheadSizeList()));
+INSTANTIATE_TEST_CASE_P(
+    SourceStrLenLessThanReadaheadSizeTest, ReadaheadSequentialFileTest,
+    ::testing::ValuesIn(ReadaheadSequentialFileTest::GetReadaheadSizeList()));
+INSTANTIATE_TEST_CASE_P(
+    SourceStrLenGreaterThanReadaheadSizeTest, ReadaheadSequentialFileTest,
+    ::testing::ValuesIn(ReadaheadSequentialFileTest::GetReadaheadSizeList()));
+INSTANTIATE_TEST_CASE_P(
+    ReadExceedsReadaheadSizeTest, ReadaheadSequentialFileTest,
+    ::testing::ValuesIn(ReadaheadSequentialFileTest::GetReadaheadSizeList()));
 }  // namespace rocksdb
 
 int main(int argc, char** argv) {

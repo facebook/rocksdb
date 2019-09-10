@@ -10,9 +10,9 @@
 #include "rocksdb/filter_policy.h"
 
 #include "rocksdb/slice.h"
-#include "table/block_based_filter_block.h"
+#include "table/block_based/block_based_filter_block.h"
+#include "table/block_based/full_filter_block.h"
 #include "table/full_filter_bits_builder.h"
-#include "table/full_filter_block.h"
 #include "util/coding.h"
 #include "util/hash.h"
 
@@ -104,7 +104,7 @@ int FullFilterBitsBuilder::CalculateNumEntry(const uint32_t space) {
   assert(bits_per_key_);
   assert(space > 0);
   uint32_t dont_care1, dont_care2;
-  int high = (int) (space * 8 / bits_per_key_ + 1);
+  int high = static_cast<int>(space * 8 / bits_per_key_ + 1);
   int low = 1;
   int n = high;
   for (; n >= low; n--) {
@@ -120,7 +120,7 @@ int FullFilterBitsBuilder::CalculateNumEntry(const uint32_t space) {
 inline void FullFilterBitsBuilder::AddHash(uint32_t h, char* data,
     uint32_t num_lines, uint32_t total_bits) {
 #ifdef NDEBUG
-  (void)total_bits;
+  static_cast<void>(total_bits);
 #endif
   assert(num_lines > 0 && total_bits > 0);
 
@@ -184,8 +184,37 @@ class FullFilterBitsReader : public FilterBitsReader {
     // Other Error params, including a broken filter, regarded as match
     if (num_probes_ == 0 || num_lines_ == 0) return true;
     uint32_t hash = BloomHash(entry);
-    return HashMayMatch(hash, Slice(data_, data_len_),
-                        num_probes_, num_lines_);
+    uint32_t bit_offset;
+    FilterPrepare(hash, Slice(data_, data_len_), num_lines_, &bit_offset);
+    return HashMayMatch(hash, Slice(data_, data_len_), num_probes_, bit_offset);
+  }
+
+  virtual void MayMatch(int num_keys, Slice** keys, bool* may_match) override {
+    if (data_len_ <= 5) {  // remain same with original filter
+      for (int i = 0; i < num_keys; ++i) {
+        may_match[i] = false;
+      }
+      return;
+    }
+    for (int i = 0; i < num_keys; ++i) {
+      may_match[i] = true;
+    }
+    // Other Error params, including a broken filter, regarded as match
+    if (num_probes_ == 0 || num_lines_ == 0) return;
+    uint32_t hashes[MultiGetContext::MAX_BATCH_SIZE];
+    uint32_t bit_offsets[MultiGetContext::MAX_BATCH_SIZE];
+    for (int i = 0; i < num_keys; ++i) {
+      hashes[i] = BloomHash(*keys[i]);
+      FilterPrepare(hashes[i], Slice(data_, data_len_), num_lines_,
+                    &bit_offsets[i]);
+    }
+
+    for (int i = 0; i < num_keys; ++i) {
+      if (!HashMayMatch(hashes[i], Slice(data_, data_len_), num_probes_,
+                        bit_offsets[i])) {
+        may_match[i] = false;
+      }
+    }
   }
 
  private:
@@ -214,7 +243,10 @@ class FullFilterBitsReader : public FilterBitsReader {
   // Before calling this function, need to ensure the input meta data
   // is valid.
   bool HashMayMatch(const uint32_t& hash, const Slice& filter,
-      const size_t& num_probes, const uint32_t& num_lines);
+                    const size_t& num_probes, const uint32_t& bit_offset);
+
+  void FilterPrepare(const uint32_t& hash, const Slice& filter,
+                     const uint32_t& num_lines, uint32_t* bit_offset);
 };
 
 void FullFilterBitsReader::GetFilterMeta(const Slice& filter,
@@ -231,29 +263,44 @@ void FullFilterBitsReader::GetFilterMeta(const Slice& filter,
   *num_lines = DecodeFixed32(filter.data() + len - 4);
 }
 
+void FullFilterBitsReader::FilterPrepare(const uint32_t& hash,
+                                         const Slice& filter,
+                                         const uint32_t& num_lines,
+                                         uint32_t* bit_offset) {
+  uint32_t len = static_cast<uint32_t>(filter.size());
+  if (len <= 5) return;  // remain the same with original filter
+
+  // It is ensured the params are valid before calling it
+  assert(num_lines != 0 && (len - 5) % num_lines == 0);
+
+  uint32_t h = hash;
+  // Left shift by an extra 3 to convert bytes to bits
+  uint32_t b = (h % num_lines) << (log2_cache_line_size_ + 3);
+  PREFETCH(&filter.data()[b / 8], 0 /* rw */, 1 /* locality */);
+  PREFETCH(&filter.data()[b / 8 + (1 << log2_cache_line_size_) - 1],
+      0 /* rw */, 1 /* locality */);
+  *bit_offset = b;
+}
+
 bool FullFilterBitsReader::HashMayMatch(const uint32_t& hash,
-    const Slice& filter, const size_t& num_probes,
-    const uint32_t& num_lines) {
+                                        const Slice& filter,
+                                        const size_t& num_probes,
+                                        const uint32_t& bit_offset) {
   uint32_t len = static_cast<uint32_t>(filter.size());
   if (len <= 5) return false;  // remain the same with original filter
 
   // It is ensured the params are valid before calling it
   assert(num_probes != 0);
-  assert(num_lines != 0 && (len - 5) % num_lines == 0);
   const char* data = filter.data();
 
   uint32_t h = hash;
   const uint32_t delta = (h >> 17) | (h << 15);  // Rotate right 17 bits
-  // Left shift by an extra 3 to convert bytes to bits
-  uint32_t b = (h % num_lines) << (log2_cache_line_size_ + 3);
-  PREFETCH(&data[b / 8], 0 /* rw */, 1 /* locality */);
-  PREFETCH(&data[b / 8 + (1 << log2_cache_line_size_) - 1], 0 /* rw */,
-           1 /* locality */);
 
   for (uint32_t i = 0; i < num_probes; ++i) {
     // Since CACHE_LINE_SIZE is defined as 2^n, this line will be optimized
     //  to a simple and operation by compiler.
-    const uint32_t bitpos = b + (h & ((1 << (log2_cache_line_size_ + 3)) - 1));
+    const uint32_t bitpos =
+        bit_offset + (h & ((1 << (log2_cache_line_size_ + 3)) - 1));
     if (((data[bitpos / 8]) & (1 << (bitpos % 8))) == 0) {
       return false;
     }
@@ -292,7 +339,7 @@ class BloomFilterPolicy : public FilterPolicy {
     dst->resize(init_size + bytes, 0);
     dst->push_back(static_cast<char>(num_probes_));  // Remember # of probes
     char* array = &(*dst)[init_size];
-    for (size_t i = 0; i < (size_t)n; i++) {
+    for (size_t i = 0; i < static_cast<size_t>(n); i++) {
       // Use double-hashing to generate a sequence of hash values.
       // See analysis in [Kirsch,Mitzenmacher 2006].
       uint32_t h = hash_func_(keys[i]);
