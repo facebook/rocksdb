@@ -39,11 +39,18 @@ DynamicBloom::DynamicBloom(Allocator* allocator, uint32_t total_bits,
   // a valid u64 index if x is a valid u64 index and 0 <= i < kNumDoubleProbes.
   uint32_t block_bytes = /*bytes/u64*/ 8 *
                          /*u64s*/ std::max(1U, roundUpToPow2(kNumDoubleProbes));
-  kLen = (total_bits + (/*bits/byte*/ 8 * block_bytes - 1)) /
-         /*bits/u64*/ 64;
+  uint32_t block_bits = block_bytes * 8;
+  uint32_t blocks = (total_bits + block_bits - 1) / block_bits;
+  uint32_t sz = blocks * block_bytes;
+  kLen = sz / /*bytes/u64*/8;
   assert(kLen > 0);
+#ifndef NDEBUG
+  for (uint32_t i = 0; i < kNumDoubleProbes; ++i) {
+    // Ensure probes starting at last word are in range
+    assert(((kLen - 1) ^ i) < kLen);
+  }
+#endif
 
-  uint32_t sz = kLen * /*bytes/u64*/ 8;
   // Padding to correct for allocation not originally aligned on block_bytes
   // boundary
   sz += block_bytes - 1;

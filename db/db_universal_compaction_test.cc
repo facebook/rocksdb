@@ -441,17 +441,17 @@ TEST_P(DBTestUniversalCompaction, DynamicUniversalCompactionSizeAmplification) {
   ASSERT_EQ(dbfull()
                 ->GetOptions(handles_[1])
                 .compaction_options_universal.max_size_amplification_percent,
-            200);
+            200U);
   ASSERT_OK(dbfull()->SetOptions(handles_[1],
                                  {{"compaction_options_universal",
                                    "{max_size_amplification_percent=110;}"}}));
   ASSERT_EQ(dbfull()
                 ->GetOptions(handles_[1])
                 .compaction_options_universal.max_size_amplification_percent,
-            110);
+            110u);
   ASSERT_OK(dbfull()->TEST_GetLatestMutableCFOptions(handles_[1],
                                                      &mutable_cf_options));
-  ASSERT_EQ(110, mutable_cf_options.compaction_options_universal
+  ASSERT_EQ(110u, mutable_cf_options.compaction_options_universal
                      .max_size_amplification_percent);
 
   dbfull()->TEST_WaitForCompact();
@@ -522,20 +522,20 @@ TEST_P(DBTestUniversalCompaction, DynamicUniversalCompactionReadAmplification) {
   ASSERT_EQ(dbfull()
                 ->GetOptions(handles_[1])
                 .compaction_options_universal.min_merge_width,
-            2);
+            2u);
   ASSERT_EQ(dbfull()
                 ->GetOptions(handles_[1])
                 .compaction_options_universal.max_merge_width,
-            2);
+            2u);
   ASSERT_EQ(
       dbfull()->GetOptions(handles_[1]).compaction_options_universal.size_ratio,
-      100);
+      100u);
 
   ASSERT_OK(dbfull()->TEST_GetLatestMutableCFOptions(handles_[1],
                                                      &mutable_cf_options));
-  ASSERT_EQ(mutable_cf_options.compaction_options_universal.size_ratio, 100);
-  ASSERT_EQ(mutable_cf_options.compaction_options_universal.min_merge_width, 2);
-  ASSERT_EQ(mutable_cf_options.compaction_options_universal.max_merge_width, 2);
+  ASSERT_EQ(mutable_cf_options.compaction_options_universal.size_ratio, 100u);
+  ASSERT_EQ(mutable_cf_options.compaction_options_universal.min_merge_width, 2u);
+  ASSERT_EQ(mutable_cf_options.compaction_options_universal.max_merge_width, 2u);
 
   dbfull()->TEST_WaitForCompact();
 

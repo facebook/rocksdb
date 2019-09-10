@@ -54,7 +54,7 @@ jbyteArray Java_org_rocksdb_WriteBatchTest_getContents(JNIEnv* env,
   rocksdb::ColumnFamilyMemTablesDefault cf_mems_default(mem);
   rocksdb::Status s = rocksdb::WriteBatchInternal::InsertInto(
       b, &cf_mems_default, nullptr, nullptr);
-  int count = 0;
+  unsigned int count = 0;
   rocksdb::Arena arena;
   rocksdb::ScopedArenaIterator iter(
       mem->NewIterator(rocksdb::ReadOptions(), &arena));

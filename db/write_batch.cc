@@ -334,7 +334,7 @@ void WriteBatch::Clear() {
   wal_term_point_.clear();
 }
 
-int WriteBatch::Count() const {
+uint32_t WriteBatch::Count() const {
   return WriteBatchInternal::Count(this);
 }
 
@@ -539,7 +539,7 @@ Status WriteBatchInternal::Iterate(const WriteBatch* wb,
   // batches. We do that by checking whether the accumulated batch is empty
   // before seeing the next Noop.
   bool empty_batch = true;
-  int found = 0;
+  uint32_t found = 0;
   Status s;
   char tag = 0;
   uint32_t column_family = 0;  // default
@@ -734,11 +734,11 @@ void WriteBatchInternal::SetAsLastestPersistentState(WriteBatch* b) {
   b->is_latest_persistent_state_ = true;
 }
 
-int WriteBatchInternal::Count(const WriteBatch* b) {
+uint32_t WriteBatchInternal::Count(const WriteBatch* b) {
   return DecodeFixed32(b->rep_.data() + 8);
 }
 
-void WriteBatchInternal::SetCount(WriteBatch* b, int n) {
+void WriteBatchInternal::SetCount(WriteBatch* b, uint32_t n) {
   EncodeFixed32(&b->rep_[8], n);
 }
 
@@ -1150,7 +1150,7 @@ Status WriteBatch::RollbackToSavePoint() {
   save_points_->stack.pop();
 
   assert(savepoint.size <= rep_.size());
-  assert(savepoint.count <= Count());
+  assert(static_cast<uint32_t>(savepoint.count) <= Count());
 
   if (savepoint.size == rep_.size()) {
     // No changes to rollback
