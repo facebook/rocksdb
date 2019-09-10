@@ -1,3 +1,5 @@
+#!/usr/bin/env python2
+# Copyright (c) Facebook, Inc. and its affiliates. All Rights Reserved.
 import os
 import glob
 import os.path
@@ -552,8 +554,10 @@ class LDBTestCase(unittest.TestCase):
                          "1")
         self.assertRunOK("get cf3_1 --column_family=three",
                          "3")
+        self.assertRunOK("drop_column_family three", "OK")
         # non-existing column family.
         self.assertRunFAIL("get cf3_1 --column_family=four")
+        self.assertRunFAIL("drop_column_family four")
 
     def testIngestExternalSst(self):
         print "Running testIngestExternalSst..."

@@ -1,3 +1,4 @@
+// Copyright (c) Facebook, Inc. and its affiliates. All Rights Reserved.
 // Copyright (c) 2015, Red Hat, Inc.  All rights reserved.
 //  This source code is licensed under both the GPLv2 (found in the
 //  COPYING file in the root directory) and Apache 2.0 License
@@ -97,7 +98,8 @@ class WritableFileMirror : public WritableFile {
  public:
   std::unique_ptr<WritableFile> a_, b_;
   std::string fname;
-  explicit WritableFileMirror(std::string f) : fname(f) {}
+  explicit WritableFileMirror(std::string f, const EnvOptions& options)
+      : WritableFile(options), fname(f) {}
 
   Status Append(const Slice& data) override {
     Status as = a_->Append(data);
@@ -228,7 +230,7 @@ Status EnvMirror::NewWritableFile(const std::string& f,
                                   std::unique_ptr<WritableFile>* r,
                                   const EnvOptions& options) {
   if (f.find("/proc/") == 0) return a_->NewWritableFile(f, r, options);
-  WritableFileMirror* mf = new WritableFileMirror(f);
+  WritableFileMirror* mf = new WritableFileMirror(f, options);
   Status as = a_->NewWritableFile(f, &mf->a_, options);
   Status bs = b_->NewWritableFile(f, &mf->b_, options);
   assert(as == bs);
@@ -245,7 +247,7 @@ Status EnvMirror::ReuseWritableFile(const std::string& fname,
                                     const EnvOptions& options) {
   if (fname.find("/proc/") == 0)
     return a_->ReuseWritableFile(fname, old_fname, r, options);
-  WritableFileMirror* mf = new WritableFileMirror(fname);
+  WritableFileMirror* mf = new WritableFileMirror(fname, options);
   Status as = a_->ReuseWritableFile(fname, old_fname, &mf->a_, options);
   Status bs = b_->ReuseWritableFile(fname, old_fname, &mf->b_, options);
   assert(as == bs);

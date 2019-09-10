@@ -38,6 +38,6 @@ class LDBTool {
       const std::vector<ColumnFamilyDescriptor>* column_families = nullptr);
 };
 
-} // namespace rocksdb
+}  // namespace rocksdb
 
 #endif  // ROCKSDB_LITE

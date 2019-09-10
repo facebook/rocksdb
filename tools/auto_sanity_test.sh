@@ -1,4 +1,5 @@
 # shellcheck disable=SC2148
+# Copyright (c) Facebook, Inc. and its affiliates. All Rights Reserved.
 TMP_DIR="${TMPDIR:-/tmp}/rocksdb-sanity-test"
 
 if [ "$#" -lt 2 ]; then

@@ -33,6 +33,13 @@ namespace rocksdb {
 // * merge_operator
 // * compaction_filter
 //
+// User can also choose to load customized comparator, env, and/or
+// merge_operator through object registry:
+// * comparator needs to be registered through Registrar<const Comparator>
+// * env needs to be registered through Registrar<Env>
+// * merge operator needs to be registered through
+//     Registrar<std::shared_ptr<MergeOperator>>.
+//
 // For table_factory, this function further supports deserializing
 // BlockBasedTableFactory and its BlockBasedTableOptions except the
 // pointer options of BlockBasedTableOptions (flush_block_policy_factory,
@@ -58,7 +65,8 @@ namespace rocksdb {
 Status LoadLatestOptions(const std::string& dbpath, Env* env,
                          DBOptions* db_options,
                          std::vector<ColumnFamilyDescriptor>* cf_descs,
-                         bool ignore_unknown_options = false);
+                         bool ignore_unknown_options = false,
+                         std::shared_ptr<Cache>* cache = {});
 
 // Similar to LoadLatestOptions, this function constructs the DBOptions
 // and ColumnFamilyDescriptors based on the specified RocksDB Options file.
@@ -67,7 +75,8 @@ Status LoadLatestOptions(const std::string& dbpath, Env* env,
 Status LoadOptionsFromFile(const std::string& options_file_name, Env* env,
                            DBOptions* db_options,
                            std::vector<ColumnFamilyDescriptor>* cf_descs,
-                           bool ignore_unknown_options = false);
+                           bool ignore_unknown_options = false,
+                           std::shared_ptr<Cache>* cache = {});
 
 // Returns the latest options file name under the specified db path.
 Status GetLatestOptionsFileName(const std::string& dbpath, Env* env,

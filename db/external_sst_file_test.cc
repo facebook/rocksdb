@@ -7,14 +7,62 @@
 
 #include <functional>
 #include "db/db_test_util.h"
+#include "file/filename.h"
 #include "port/port.h"
 #include "port/stack_trace.h"
 #include "rocksdb/sst_file_writer.h"
-#include "util/fault_injection_test_env.h"
-#include "util/filename.h"
-#include "util/testutil.h"
+#include "test_util/fault_injection_test_env.h"
+#include "test_util/testutil.h"
 
 namespace rocksdb {
+
+// A test environment that can be configured to fail the Link operation.
+class ExternalSSTTestEnv : public EnvWrapper {
+ public:
+  ExternalSSTTestEnv(Env* t, bool fail_link)
+      : EnvWrapper(t), fail_link_(fail_link) {}
+
+  Status LinkFile(const std::string& s, const std::string& t) override {
+    if (fail_link_) {
+      return Status::NotSupported("Link failed");
+    }
+    return target()->LinkFile(s, t);
+  }
+
+  void set_fail_link(bool fail_link) { fail_link_ = fail_link; }
+
+ private:
+  bool fail_link_;
+};
+
+class ExternSSTFileLinkFailFallbackTest
+    : public DBTestBase,
+      public ::testing::WithParamInterface<std::tuple<bool, bool>> {
+ public:
+  ExternSSTFileLinkFailFallbackTest()
+      : DBTestBase("/external_sst_file_test"),
+        test_env_(new ExternalSSTTestEnv(env_, true)) {
+    sst_files_dir_ = dbname_ + "/sst_files/";
+    test::DestroyDir(env_, sst_files_dir_);
+    env_->CreateDir(sst_files_dir_);
+    options_ = CurrentOptions();
+    options_.disable_auto_compactions = true;
+    options_.env = test_env_;
+  }
+
+  void TearDown() override {
+    delete db_;
+    db_ = nullptr;
+    ASSERT_OK(DestroyDB(dbname_, options_));
+    delete test_env_;
+    test_env_ = nullptr;
+  }
+
+ protected:
+  std::string sst_files_dir_;
+  Options options_;
+  ExternalSSTTestEnv* test_env_;
+};
 
 class ExternalSSTFileTest
     : public DBTestBase,
@@ -83,7 +131,8 @@ class ExternalSSTFileTest
       const Options options,
       std::vector<std::pair<std::string, std::string>> data, int file_id = -1,
       bool allow_global_seqno = false, bool write_global_seqno = false,
-      bool verify_checksums_before_ingest = true, bool sort_data = false,
+      bool verify_checksums_before_ingest = true, bool ingest_behind = false,
+      bool sort_data = false,
       std::map<std::string, std::string>* true_data = nullptr,
       ColumnFamilyHandle* cfh = nullptr) {
     // Generate a file id if not provided
@@ -128,66 +177,7 @@ class ExternalSSTFileTest
       ifo.allow_global_seqno = allow_global_seqno;
       ifo.write_global_seqno = allow_global_seqno ? write_global_seqno : false;
       ifo.verify_checksums_before_ingest = verify_checksums_before_ingest;
-      if (cfh) {
-        s = db_->IngestExternalFile(cfh, {file_path}, ifo);
-      } else {
-        s = db_->IngestExternalFile({file_path}, ifo);
-      }
-    }
-
-    if (s.ok() && true_data) {
-      for (auto& entry : data) {
-        (*true_data)[entry.first] = entry.second;
-      }
-    }
-
-    return s;
-  }
-
-  Status GenerateAndAddExternalFileIngestBehind(
-      const Options options, const IngestExternalFileOptions ifo,
-      std::vector<std::pair<std::string, std::string>> data, int file_id = -1,
-      bool sort_data = false,
-      std::map<std::string, std::string>* true_data = nullptr,
-      ColumnFamilyHandle* cfh = nullptr) {
-    // Generate a file id if not provided
-    if (file_id == -1) {
-      file_id = last_file_id_ + 1;
-      last_file_id_++;
-    }
-
-    // Sort data if asked to do so
-    if (sort_data) {
-      std::sort(data.begin(), data.end(),
-                [&](const std::pair<std::string, std::string>& e1,
-                    const std::pair<std::string, std::string>& e2) {
-                  return options.comparator->Compare(e1.first, e2.first) < 0;
-                });
-      auto uniq_iter = std::unique(
-          data.begin(), data.end(),
-          [&](const std::pair<std::string, std::string>& e1,
-              const std::pair<std::string, std::string>& e2) {
-            return options.comparator->Compare(e1.first, e2.first) == 0;
-          });
-      data.resize(uniq_iter - data.begin());
-    }
-    std::string file_path = sst_files_dir_ + ToString(file_id);
-    SstFileWriter sst_file_writer(EnvOptions(), options, cfh);
-
-    Status s = sst_file_writer.Open(file_path);
-    if (!s.ok()) {
-      return s;
-    }
-    for (auto& entry : data) {
-      s = sst_file_writer.Put(entry.first, entry.second);
-      if (!s.ok()) {
-        sst_file_writer.Finish();
-        return s;
-      }
-    }
-    s = sst_file_writer.Finish();
-
-    if (s.ok()) {
+      ifo.ingest_behind = ingest_behind;
       if (cfh) {
         s = db_->IngestExternalFile(cfh, {file_path}, ifo);
       } else {
@@ -243,31 +233,35 @@ class ExternalSSTFileTest
       const Options options, std::vector<std::pair<int, std::string>> data,
       int file_id = -1, bool allow_global_seqno = false,
       bool write_global_seqno = false,
-      bool verify_checksums_before_ingest = true, bool sort_data = false,
+      bool verify_checksums_before_ingest = true, bool ingest_behind = false,
+      bool sort_data = false,
       std::map<std::string, std::string>* true_data = nullptr,
       ColumnFamilyHandle* cfh = nullptr) {
     std::vector<std::pair<std::string, std::string>> file_data;
     for (auto& entry : data) {
       file_data.emplace_back(Key(entry.first), entry.second);
     }
-    return GenerateAndAddExternalFile(
-        options, file_data, file_id, allow_global_seqno, write_global_seqno,
-        verify_checksums_before_ingest, sort_data, true_data, cfh);
+    return GenerateAndAddExternalFile(options, file_data, file_id,
+                                      allow_global_seqno, write_global_seqno,
+                                      verify_checksums_before_ingest,
+                                      ingest_behind, sort_data, true_data, cfh);
   }
 
   Status GenerateAndAddExternalFile(
       const Options options, std::vector<int> keys, int file_id = -1,
       bool allow_global_seqno = false, bool write_global_seqno = false,
-      bool verify_checksums_before_ingest = true, bool sort_data = false,
+      bool verify_checksums_before_ingest = true, bool ingest_behind = false,
+      bool sort_data = false,
       std::map<std::string, std::string>* true_data = nullptr,
       ColumnFamilyHandle* cfh = nullptr) {
     std::vector<std::pair<std::string, std::string>> file_data;
     for (auto& k : keys) {
       file_data.emplace_back(Key(k), Key(k) + ToString(file_id));
     }
-    return GenerateAndAddExternalFile(
-        options, file_data, file_id, allow_global_seqno, write_global_seqno,
-        verify_checksums_before_ingest, sort_data, true_data, cfh);
+    return GenerateAndAddExternalFile(options, file_data, file_id,
+                                      allow_global_seqno, write_global_seqno,
+                                      verify_checksums_before_ingest,
+                                      ingest_behind, sort_data, true_data, cfh);
   }
 
   Status DeprecatedAddFile(const std::vector<std::string>& files,
@@ -702,10 +696,10 @@ TEST_F(ExternalSSTFileTest, AddList) {
     ASSERT_EQ(file6_info.smallest_range_del_key, Key(0));
     ASSERT_EQ(file6_info.largest_range_del_key, Key(100));
 
-    // file7.sst (delete 100 => 200)
+    // file7.sst (delete 99 => 201)
     std::string file7 = sst_files_dir_ + "file7.sst";
     ASSERT_OK(sst_file_writer.Open(file7));
-    ASSERT_OK(sst_file_writer.DeleteRange(Key(100), Key(200)));
+    ASSERT_OK(sst_file_writer.DeleteRange(Key(99), Key(201)));
     ExternalSstFileInfo file7_info;
     s = sst_file_writer.Finish(&file7_info);
     ASSERT_TRUE(s.ok()) << s.ToString();
@@ -714,8 +708,8 @@ TEST_F(ExternalSSTFileTest, AddList) {
     ASSERT_EQ(file7_info.smallest_key, "");
     ASSERT_EQ(file7_info.largest_key, "");
     ASSERT_EQ(file7_info.num_range_del_entries, 1);
-    ASSERT_EQ(file7_info.smallest_range_del_key, Key(100));
-    ASSERT_EQ(file7_info.largest_range_del_key, Key(200));
+    ASSERT_EQ(file7_info.smallest_range_del_key, Key(99));
+    ASSERT_EQ(file7_info.largest_range_del_key, Key(201));
 
     // list 1 has internal key range conflict
     std::vector<std::string> file_list0({file1, file2});
@@ -730,9 +724,7 @@ TEST_F(ExternalSSTFileTest, AddList) {
     // These lists of files have key ranges that overlap with each other
     s = DeprecatedAddFile(file_list1);
     ASSERT_FALSE(s.ok()) << s.ToString();
-    // Both of the following overlap on the end key of a range deletion
-    // tombstone. This is a limitation because these tombstones have exclusive
-    // end keys that should not count as overlapping with other keys.
+    // Both of the following overlap on the range deletion tombstone.
     s = DeprecatedAddFile(file_list4);
     ASSERT_FALSE(s.ok()) << s.ToString();
     s = DeprecatedAddFile(file_list5);
@@ -1246,12 +1238,12 @@ TEST_P(ExternalSSTFileTest, PickedLevel) {
 
   // File 0 will go to last level (L3)
   ASSERT_OK(GenerateAndAddExternalFile(options, {1, 10}, -1, false, false, true,
-                                       false, &true_data));
+                                       false, false, &true_data));
   EXPECT_EQ(FilesPerLevel(), "0,0,0,1");
 
   // File 1 will go to level L2 (since it overlap with file 0 in L3)
   ASSERT_OK(GenerateAndAddExternalFile(options, {2, 9}, -1, false, false, true,
-                                       false, &true_data));
+                                       false, false, &true_data));
   EXPECT_EQ(FilesPerLevel(), "0,0,1,1");
 
   rocksdb::SyncPoint::GetInstance()->LoadDependency({
@@ -1281,12 +1273,12 @@ TEST_P(ExternalSSTFileTest, PickedLevel) {
   // This file overlaps with file 0 (L3), file 1 (L2) and the
   // output of compaction going to L1
   ASSERT_OK(GenerateAndAddExternalFile(options, {4, 7}, -1, false, false, true,
-                                       false, &true_data));
+                                       false, false, &true_data));
   EXPECT_EQ(FilesPerLevel(), "5,0,1,1");
 
   // This file does not overlap with any file or with the running compaction
   ASSERT_OK(GenerateAndAddExternalFile(options, {9000, 9001}, -1, false, false,
-                                       true, false, &true_data));
+                                       false, false, false, &true_data));
   EXPECT_EQ(FilesPerLevel(), "5,0,1,2");
 
   // Hold compaction from finishing
@@ -1517,12 +1509,12 @@ TEST_F(ExternalSSTFileTest, PickedLevelDynamic) {
   // This file overlaps with the output of the compaction (going to L3)
   // so the file will be added to L0 since L3 is the base level
   ASSERT_OK(GenerateAndAddExternalFile(options, {31, 32, 33, 34}, -1, false,
-                                       false, true, false, &true_data));
+                                       false, true, false, false, &true_data));
   EXPECT_EQ(FilesPerLevel(), "5");
 
   // This file does not overlap with the current running compactiong
   ASSERT_OK(GenerateAndAddExternalFile(options, {9000, 9001}, -1, false, false,
-                                       true, false, &true_data));
+                                       true, false, false, &true_data));
   EXPECT_EQ(FilesPerLevel(), "5,0,0,1");
 
   // Hold compaction from finishing
@@ -1537,25 +1529,25 @@ TEST_F(ExternalSSTFileTest, PickedLevelDynamic) {
   Reopen(options);
 
   ASSERT_OK(GenerateAndAddExternalFile(options, {1, 15, 19}, -1, false, false,
-                                       true, false, &true_data));
+                                       true, false, false, &true_data));
   ASSERT_EQ(FilesPerLevel(), "1,0,0,3");
 
   ASSERT_OK(GenerateAndAddExternalFile(options, {1000, 1001, 1002}, -1, false,
-                                       false, true, false, &true_data));
+                                       false, true, false, false, &true_data));
   ASSERT_EQ(FilesPerLevel(), "1,0,0,4");
 
   ASSERT_OK(GenerateAndAddExternalFile(options, {500, 600, 700}, -1, false,
-                                       false, true, false, &true_data));
+                                       false, true, false, false, &true_data));
   ASSERT_EQ(FilesPerLevel(), "1,0,0,5");
 
   // File 5 overlaps with file 2 (L3 / base level)
   ASSERT_OK(GenerateAndAddExternalFile(options, {2, 10}, -1, false, false, true,
-                                       false, &true_data));
+                                       false, false, &true_data));
   ASSERT_EQ(FilesPerLevel(), "2,0,0,5");
 
   // File 6 overlaps with file 2 (L3 / base level) and file 5 (L0)
   ASSERT_OK(GenerateAndAddExternalFile(options, {3, 9}, -1, false, false, true,
-                                       false, &true_data));
+                                       false, false, &true_data));
   ASSERT_EQ(FilesPerLevel(), "3,0,0,5");
 
   // Verify data in files
@@ -1574,7 +1566,7 @@ TEST_F(ExternalSSTFileTest, PickedLevelDynamic) {
 
   // File 7 overlaps with file 4 (L3)
   ASSERT_OK(GenerateAndAddExternalFile(options, {650, 651, 652}, -1, false,
-                                       false, true, false, &true_data));
+                                       false, true, false, false, &true_data));
   ASSERT_EQ(FilesPerLevel(), "5,0,0,5");
 
   VerifyDBFromMap(true_data, &kcnt, false);
@@ -1741,7 +1733,7 @@ TEST_P(ExternalSSTFileTest, IngestFileWithGlobalSeqnoRandomized) {
       } else {
         ASSERT_OK(GenerateAndAddExternalFile(
             options, random_data, -1, true, write_global_seqno,
-            verify_checksums_before_ingest, true, &true_data));
+            verify_checksums_before_ingest, false, true, &true_data));
       }
     }
     size_t kcnt = 0;
@@ -1774,7 +1766,7 @@ TEST_P(ExternalSSTFileTest, IngestFileWithGlobalSeqnoAssignedLevel) {
   bool verify_checksums_before_ingest = std::get<1>(GetParam());
   ASSERT_OK(GenerateAndAddExternalFile(
       options, file_data, -1, true, write_global_seqno,
-      verify_checksums_before_ingest, false, &true_data));
+      verify_checksums_before_ingest, false, false, &true_data));
 
   // This file dont overlap with anything in the DB, will go to L4
   ASSERT_EQ("0,0,0,0,1", FilesPerLevel());
@@ -1786,7 +1778,7 @@ TEST_P(ExternalSSTFileTest, IngestFileWithGlobalSeqnoAssignedLevel) {
   }
   ASSERT_OK(GenerateAndAddExternalFile(
       options, file_data, -1, true, write_global_seqno,
-      verify_checksums_before_ingest, false, &true_data));
+      verify_checksums_before_ingest, false, false, &true_data));
 
   // This file overlap with the memtable, so it will flush it and add
   // it self to L0
@@ -1799,7 +1791,7 @@ TEST_P(ExternalSSTFileTest, IngestFileWithGlobalSeqnoAssignedLevel) {
   }
   ASSERT_OK(GenerateAndAddExternalFile(
       options, file_data, -1, true, write_global_seqno,
-      verify_checksums_before_ingest, false, &true_data));
+      verify_checksums_before_ingest, false, false, &true_data));
 
   // This file dont overlap with anything in the DB and fit in L4 as well
   ASSERT_EQ("2,0,0,0,2", FilesPerLevel());
@@ -1811,7 +1803,7 @@ TEST_P(ExternalSSTFileTest, IngestFileWithGlobalSeqnoAssignedLevel) {
   }
   ASSERT_OK(GenerateAndAddExternalFile(
       options, file_data, -1, true, write_global_seqno,
-      verify_checksums_before_ingest, false, &true_data));
+      verify_checksums_before_ingest, false, false, &true_data));
 
   // This file overlap with files in L4, we will ingest it in L3
   ASSERT_EQ("2,0,0,1,2", FilesPerLevel());
@@ -1839,7 +1831,7 @@ TEST_P(ExternalSSTFileTest, IngestFileWithGlobalSeqnoMemtableFlush) {
   // No need for flush
   ASSERT_OK(GenerateAndAddExternalFile(
       options, {90, 100, 110}, -1, true, write_global_seqno,
-      verify_checksums_before_ingest, false, &true_data));
+      verify_checksums_before_ingest, false, false, &true_data));
   db_->GetIntProperty(DB::Properties::kNumEntriesActiveMemTable,
                       &entries_in_memtable);
   ASSERT_GE(entries_in_memtable, 1);
@@ -1847,7 +1839,7 @@ TEST_P(ExternalSSTFileTest, IngestFileWithGlobalSeqnoMemtableFlush) {
   // This file will flush the memtable
   ASSERT_OK(GenerateAndAddExternalFile(
       options, {19, 20, 21}, -1, true, write_global_seqno,
-      verify_checksums_before_ingest, false, &true_data));
+      verify_checksums_before_ingest, false, false, &true_data));
   db_->GetIntProperty(DB::Properties::kNumEntriesActiveMemTable,
                       &entries_in_memtable);
   ASSERT_EQ(entries_in_memtable, 0);
@@ -1863,15 +1855,15 @@ TEST_P(ExternalSSTFileTest, IngestFileWithGlobalSeqnoMemtableFlush) {
   // No need for flush, this file keys fit between the memtable keys
   ASSERT_OK(GenerateAndAddExternalFile(
       options, {202, 203, 204}, -1, true, write_global_seqno,
-      verify_checksums_before_ingest, false, &true_data));
+      verify_checksums_before_ingest, false, false, &true_data));
   db_->GetIntProperty(DB::Properties::kNumEntriesActiveMemTable,
                       &entries_in_memtable);
   ASSERT_GE(entries_in_memtable, 1);
 
   // This file will flush the memtable
   ASSERT_OK(GenerateAndAddExternalFile(
-      options, {206, 207}, -1, true, false, write_global_seqno,
-      verify_checksums_before_ingest, &true_data));
+      options, {206, 207}, -1, true, write_global_seqno,
+      verify_checksums_before_ingest, false, false, &true_data));
   db_->GetIntProperty(DB::Properties::kNumEntriesActiveMemTable,
                       &entries_in_memtable);
   ASSERT_EQ(entries_in_memtable, 0);
@@ -1892,13 +1884,13 @@ TEST_P(ExternalSSTFileTest, L0SortingIssue) {
   bool write_global_seqno = std::get<0>(GetParam());
   bool verify_checksums_before_ingest = std::get<1>(GetParam());
   // No Flush needed, No global seqno needed, Ingest in L1
-  ASSERT_OK(GenerateAndAddExternalFile(options, {7, 8}, -1, true,
-                                       write_global_seqno,
-                                       verify_checksums_before_ingest, false));
+  ASSERT_OK(
+      GenerateAndAddExternalFile(options, {7, 8}, -1, true, write_global_seqno,
+                                 verify_checksums_before_ingest, false, false));
   // No Flush needed, but need a global seqno, Ingest in L0
-  ASSERT_OK(GenerateAndAddExternalFile(options, {7, 8}, -1, true,
-                                       write_global_seqno,
-                                       verify_checksums_before_ingest, false));
+  ASSERT_OK(
+      GenerateAndAddExternalFile(options, {7, 8}, -1, true, write_global_seqno,
+                                 verify_checksums_before_ingest, false, false));
   printf("%s\n", FilesPerLevel().c_str());
 
   // Overwrite what we added using external files
@@ -2068,17 +2060,23 @@ TEST_F(ExternalSSTFileTest, FileWithCFInfo) {
 }
 
 /*
- * Test and verify the functionality of ingestion_options.move_files.
+ * Test and verify the functionality of ingestion_options.move_files and
+ * ingestion_options.failed_move_fall_back_to_copy
  */
-TEST_F(ExternalSSTFileTest, LinkExternalSst) {
-  Options options = CurrentOptions();
-  options.disable_auto_compactions = true;
-  DestroyAndReopen(options);
+TEST_P(ExternSSTFileLinkFailFallbackTest, LinkFailFallBackExternalSst) {
+  const bool fail_link = std::get<0>(GetParam());
+  const bool failed_move_fall_back_to_copy = std::get<1>(GetParam());
+  test_env_->set_fail_link(fail_link);
+  const EnvOptions env_options;
+  DestroyAndReopen(options_);
   const int kNumKeys = 10000;
+  IngestExternalFileOptions ifo;
+  ifo.move_files = true;
+  ifo.failed_move_fall_back_to_copy = failed_move_fall_back_to_copy;
 
   std::string file_path = sst_files_dir_ + "file1.sst";
   // Create SstFileWriter for default column family
-  SstFileWriter sst_file_writer(EnvOptions(), options);
+  SstFileWriter sst_file_writer(env_options, options_);
   ASSERT_OK(sst_file_writer.Open(file_path));
   for (int i = 0; i < kNumKeys; i++) {
     ASSERT_OK(sst_file_writer.Put(Key(i), Key(i) + "_value"));
@@ -2087,9 +2085,13 @@ TEST_F(ExternalSSTFileTest, LinkExternalSst) {
   uint64_t file_size = 0;
   ASSERT_OK(env_->GetFileSize(file_path, &file_size));
 
-  IngestExternalFileOptions ifo;
-  ifo.move_files = true;
-  ASSERT_OK(db_->IngestExternalFile({file_path}, ifo));
+  bool copyfile = false;
+  rocksdb::SyncPoint::GetInstance()->SetCallBack(
+      "ExternalSstFileIngestionJob::Prepare:CopyFile",
+      [&](void* /* arg */) { copyfile = true; });
+  rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+
+  const Status s = db_->IngestExternalFile({file_path}, ifo);
 
   ColumnFamilyHandleImpl* cfh =
       static_cast<ColumnFamilyHandleImpl*>(dbfull()->DefaultColumnFamily());
@@ -2103,18 +2105,29 @@ TEST_F(ExternalSSTFileTest, LinkExternalSst) {
     bytes_copied += stats.bytes_written;
     bytes_moved += stats.bytes_moved;
   }
-  // If bytes_moved > 0, it means external sst resides on the same FS
-  // supporting hard link operation. Therefore,
-  // 0 bytes should be copied, and the bytes_moved == file_size.
-  // Otherwise, FS does not support hard link, or external sst file resides on
-  // a different file system, then the bytes_copied should be equal to
-  // file_size.
-  if (bytes_moved > 0) {
+
+  if (!fail_link) {
+    // Link operation succeeds. External SST should be moved.
+    ASSERT_OK(s);
     ASSERT_EQ(0, bytes_copied);
     ASSERT_EQ(file_size, bytes_moved);
+    ASSERT_FALSE(copyfile);
   } else {
-    ASSERT_EQ(file_size, bytes_copied);
+    // Link operation fails.
+    ASSERT_EQ(0, bytes_moved);
+    if (failed_move_fall_back_to_copy) {
+      ASSERT_OK(s);
+      // Copy file is true since a failed link falls back to copy file.
+      ASSERT_TRUE(copyfile);
+      ASSERT_EQ(file_size, bytes_copied);
+    } else {
+      ASSERT_TRUE(s.IsNotSupported());
+      // Copy file is false since a failed link does not fall back to copy file.
+      ASSERT_FALSE(copyfile);
+      ASSERT_EQ(0, bytes_copied);
+    }
   }
+  rocksdb::SyncPoint::GetInstance()->DisableProcessing();
 }
 
 class TestIngestExternalFileListener : public EventListener {
@@ -2139,7 +2152,7 @@ TEST_P(ExternalSSTFileTest, IngestionListener) {
   // Ingest into default cf
   ASSERT_OK(GenerateAndAddExternalFile(
       options, {1, 2}, -1, true, write_global_seqno,
-      verify_checksums_before_ingest, true, nullptr, handles_[0]));
+      verify_checksums_before_ingest, false, true, nullptr, handles_[0]));
   ASSERT_EQ(listener->ingested_files.size(), 1);
   ASSERT_EQ(listener->ingested_files.back().cf_name, "default");
   ASSERT_EQ(listener->ingested_files.back().global_seqno, 0);
@@ -2151,7 +2164,7 @@ TEST_P(ExternalSSTFileTest, IngestionListener) {
   // Ingest into cf1
   ASSERT_OK(GenerateAndAddExternalFile(
       options, {1, 2}, -1, true, write_global_seqno,
-      verify_checksums_before_ingest, true, nullptr, handles_[1]));
+      verify_checksums_before_ingest, false, true, nullptr, handles_[1]));
   ASSERT_EQ(listener->ingested_files.size(), 2);
   ASSERT_EQ(listener->ingested_files.back().cf_name, "koko");
   ASSERT_EQ(listener->ingested_files.back().global_seqno, 0);
@@ -2163,7 +2176,7 @@ TEST_P(ExternalSSTFileTest, IngestionListener) {
   // Ingest into cf2
   ASSERT_OK(GenerateAndAddExternalFile(
       options, {1, 2}, -1, true, write_global_seqno,
-      verify_checksums_before_ingest, true, nullptr, handles_[2]));
+      verify_checksums_before_ingest, false, true, nullptr, handles_[2]));
   ASSERT_EQ(listener->ingested_files.size(), 3);
   ASSERT_EQ(listener->ingested_files.back().cf_name, "toto");
   ASSERT_EQ(listener->ingested_files.back().global_seqno, 0);
@@ -2226,16 +2239,16 @@ TEST_P(ExternalSSTFileTest, IngestBehind) {
     file_data.emplace_back(Key(i), "ingest_behind");
   }
 
-  IngestExternalFileOptions ifo;
-  ifo.allow_global_seqno = true;
-  ifo.ingest_behind = true;
-  ifo.write_global_seqno = std::get<0>(GetParam());
-  ifo.verify_checksums_before_ingest = std::get<1>(GetParam());
+  bool allow_global_seqno = true;
+  bool ingest_behind = true;
+  bool write_global_seqno = std::get<0>(GetParam());
+  bool verify_checksums_before_ingest = std::get<1>(GetParam());
 
   // Can't ingest behind since allow_ingest_behind isn't set to true
-  ASSERT_NOK(GenerateAndAddExternalFileIngestBehind(options, ifo,
-                                                   file_data, -1, false,
-                                                   &true_data));
+  ASSERT_NOK(GenerateAndAddExternalFile(
+      options, file_data, -1, allow_global_seqno, write_global_seqno,
+      verify_checksums_before_ingest, ingest_behind, false /*sort_data*/,
+      &true_data));
 
   options.allow_ingest_behind = true;
   // check that we still can open the DB, as num_levels should be
@@ -2253,14 +2266,16 @@ TEST_P(ExternalSSTFileTest, IngestBehind) {
   db_->CompactRange(CompactRangeOptions(), nullptr, nullptr);
   // Universal picker should go at second from the bottom level
   ASSERT_EQ("0,1", FilesPerLevel());
-  ASSERT_OK(GenerateAndAddExternalFileIngestBehind(options, ifo,
-                                                   file_data, -1, false,
-                                                   &true_data));
+  ASSERT_OK(GenerateAndAddExternalFile(
+      options, file_data, -1, allow_global_seqno, write_global_seqno,
+      verify_checksums_before_ingest, true /*ingest_behind*/,
+      false /*sort_data*/, &true_data));
   ASSERT_EQ("0,1,1", FilesPerLevel());
   // this time ingest should fail as the file doesn't fit to the bottom level
-  ASSERT_NOK(GenerateAndAddExternalFileIngestBehind(options, ifo,
-                                                   file_data, -1, false,
-                                                   &true_data));
+  ASSERT_NOK(GenerateAndAddExternalFile(
+      options, file_data, -1, allow_global_seqno, write_global_seqno,
+      verify_checksums_before_ingest, true /*ingest_behind*/,
+      false /*sort_data*/, &true_data));
   ASSERT_EQ("0,1,1", FilesPerLevel());
   db_->CompactRange(CompactRangeOptions(), nullptr, nullptr);
   // bottom level should be empty
@@ -2352,10 +2367,11 @@ TEST_P(ExternalSSTFileTest, IngestFilesIntoMultipleColumnFamilies_Success) {
       new FaultInjectionTestEnv(env_));
   Options options = CurrentOptions();
   options.env = fault_injection_env.get();
-  CreateAndReopenWithCF({"pikachu"}, options);
+  CreateAndReopenWithCF({"pikachu", "eevee"}, options);
   std::vector<ColumnFamilyHandle*> column_families;
   column_families.push_back(handles_[0]);
   column_families.push_back(handles_[1]);
+  column_families.push_back(handles_[2]);
   std::vector<IngestExternalFileOptions> ifos(column_families.size());
   for (auto& ifo : ifos) {
     ifo.allow_global_seqno = true;  // Always allow global_seqno
@@ -2369,6 +2385,9 @@ TEST_P(ExternalSSTFileTest, IngestFilesIntoMultipleColumnFamilies_Success) {
       {std::make_pair("foo1", "fv1"), std::make_pair("foo2", "fv2")});
   data.push_back(
       {std::make_pair("bar1", "bv1"), std::make_pair("bar2", "bv2")});
+  data.push_back(
+      {std::make_pair("bar3", "bv3"), std::make_pair("bar4", "bv4")});
+
   // Resize the true_data vector upon construction to avoid re-alloc
   std::vector<std::map<std::string, std::string>> true_data(
       column_families.size());
@@ -2376,8 +2395,9 @@ TEST_P(ExternalSSTFileTest, IngestFilesIntoMultipleColumnFamilies_Success) {
                                          -1, true, true_data);
   ASSERT_OK(s);
   Close();
-  ReopenWithColumnFamilies({kDefaultColumnFamilyName, "pikachu"}, options);
-  ASSERT_EQ(2, handles_.size());
+  ReopenWithColumnFamilies({kDefaultColumnFamilyName, "pikachu", "eevee"},
+                           options);
+  ASSERT_EQ(3, handles_.size());
   int cf = 0;
   for (const auto& verify_map : true_data) {
     for (const auto& elem : verify_map) {
@@ -2409,10 +2429,11 @@ TEST_P(ExternalSSTFileTest,
 
   Options options = CurrentOptions();
   options.env = fault_injection_env.get();
-  CreateAndReopenWithCF({"pikachu"}, options);
+  CreateAndReopenWithCF({"pikachu", "eevee"}, options);
   const std::vector<std::map<std::string, std::string>> data_before_ingestion =
       {{{"foo1", "fv1_0"}, {"foo2", "fv2_0"}, {"foo3", "fv3_0"}},
-       {{"bar1", "bv1_0"}, {"bar2", "bv2_0"}, {"bar3", "bv3_0"}}};
+       {{"bar1", "bv1_0"}, {"bar2", "bv2_0"}, {"bar3", "bv3_0"}},
+       {{"bar4", "bv4_0"}, {"bar5", "bv5_0"}, {"bar6", "bv6_0"}}};
   for (size_t i = 0; i != handles_.size(); ++i) {
     int cf = static_cast<int>(i);
     const auto& orig_data = data_before_ingestion[i];
@@ -2425,6 +2446,7 @@ TEST_P(ExternalSSTFileTest,
   std::vector<ColumnFamilyHandle*> column_families;
   column_families.push_back(handles_[0]);
   column_families.push_back(handles_[1]);
+  column_families.push_back(handles_[2]);
   std::vector<IngestExternalFileOptions> ifos(column_families.size());
   for (auto& ifo : ifos) {
     ifo.allow_global_seqno = true;  // Always allow global_seqno
@@ -2438,6 +2460,8 @@ TEST_P(ExternalSSTFileTest,
       {std::make_pair("foo1", "fv1"), std::make_pair("foo2", "fv2")});
   data.push_back(
       {std::make_pair("bar1", "bv1"), std::make_pair("bar2", "bv2")});
+  data.push_back(
+      {std::make_pair("bar3", "bv3"), std::make_pair("bar4", "bv4")});
   // Resize the true_data vector upon construction to avoid re-alloc
   std::vector<std::map<std::string, std::string>> true_data(
       column_families.size());
@@ -2491,10 +2515,11 @@ TEST_P(ExternalSSTFileTest,
   dbfull()->ReleaseSnapshot(read_opts.snapshot);
 
   Close();
-  ReopenWithColumnFamilies({kDefaultColumnFamilyName, "pikachu"}, options);
+  ReopenWithColumnFamilies({kDefaultColumnFamilyName, "pikachu", "eevee"},
+                           options);
   // Should see consistent state after ingestion for all column families even
   // without snapshot.
-  ASSERT_EQ(2, handles_.size());
+  ASSERT_EQ(3, handles_.size());
   int cf = 0;
   for (const auto& verify_map : true_data) {
     for (const auto& elem : verify_map) {
@@ -2524,10 +2549,11 @@ TEST_P(ExternalSSTFileTest, IngestFilesIntoMultipleColumnFamilies_PrepareFail) {
        "DBImpl::IngestExternalFiles:BeforeLastJobPrepare:1"},
   });
   SyncPoint::GetInstance()->EnableProcessing();
-  CreateAndReopenWithCF({"pikachu"}, options);
+  CreateAndReopenWithCF({"pikachu", "eevee"}, options);
   std::vector<ColumnFamilyHandle*> column_families;
   column_families.push_back(handles_[0]);
   column_families.push_back(handles_[1]);
+  column_families.push_back(handles_[2]);
   std::vector<IngestExternalFileOptions> ifos(column_families.size());
   for (auto& ifo : ifos) {
     ifo.allow_global_seqno = true;  // Always allow global_seqno
@@ -2541,6 +2567,9 @@ TEST_P(ExternalSSTFileTest, IngestFilesIntoMultipleColumnFamilies_PrepareFail) {
       {std::make_pair("foo1", "fv1"), std::make_pair("foo2", "fv2")});
   data.push_back(
       {std::make_pair("bar1", "bv1"), std::make_pair("bar2", "bv2")});
+  data.push_back(
+      {std::make_pair("bar3", "bv3"), std::make_pair("bar4", "bv4")});
+
   // Resize the true_data vector upon construction to avoid re-alloc
   std::vector<std::map<std::string, std::string>> true_data(
       column_families.size());
@@ -2560,8 +2589,9 @@ TEST_P(ExternalSSTFileTest, IngestFilesIntoMultipleColumnFamilies_PrepareFail) {
 
   fault_injection_env->SetFilesystemActive(true);
   Close();
-  ReopenWithColumnFamilies({kDefaultColumnFamilyName, "pikachu"}, options);
-  ASSERT_EQ(2, handles_.size());
+  ReopenWithColumnFamilies({kDefaultColumnFamilyName, "pikachu", "eevee"},
+                           options);
+  ASSERT_EQ(3, handles_.size());
   int cf = 0;
   for (const auto& verify_map : true_data) {
     for (const auto& elem : verify_map) {
@@ -2590,10 +2620,11 @@ TEST_P(ExternalSSTFileTest, IngestFilesIntoMultipleColumnFamilies_CommitFail) {
        "DBImpl::IngestExternalFiles:BeforeJobsRun:1"},
   });
   SyncPoint::GetInstance()->EnableProcessing();
-  CreateAndReopenWithCF({"pikachu"}, options);
+  CreateAndReopenWithCF({"pikachu", "eevee"}, options);
   std::vector<ColumnFamilyHandle*> column_families;
   column_families.push_back(handles_[0]);
   column_families.push_back(handles_[1]);
+  column_families.push_back(handles_[2]);
   std::vector<IngestExternalFileOptions> ifos(column_families.size());
   for (auto& ifo : ifos) {
     ifo.allow_global_seqno = true;  // Always allow global_seqno
@@ -2607,6 +2638,8 @@ TEST_P(ExternalSSTFileTest, IngestFilesIntoMultipleColumnFamilies_CommitFail) {
       {std::make_pair("foo1", "fv1"), std::make_pair("foo2", "fv2")});
   data.push_back(
       {std::make_pair("bar1", "bv1"), std::make_pair("bar2", "bv2")});
+  data.push_back(
+      {std::make_pair("bar3", "bv3"), std::make_pair("bar4", "bv4")});
   // Resize the true_data vector upon construction to avoid re-alloc
   std::vector<std::map<std::string, std::string>> true_data(
       column_families.size());
@@ -2626,8 +2659,9 @@ TEST_P(ExternalSSTFileTest, IngestFilesIntoMultipleColumnFamilies_CommitFail) {
 
   fault_injection_env->SetFilesystemActive(true);
   Close();
-  ReopenWithColumnFamilies({kDefaultColumnFamilyName, "pikachu"}, options);
-  ASSERT_EQ(2, handles_.size());
+  ReopenWithColumnFamilies({kDefaultColumnFamilyName, "pikachu", "eevee"},
+                           options);
+  ASSERT_EQ(3, handles_.size());
   int cf = 0;
   for (const auto& verify_map : true_data) {
     for (const auto& elem : verify_map) {
@@ -2647,7 +2681,7 @@ TEST_P(ExternalSSTFileTest,
   Options options = CurrentOptions();
   options.env = fault_injection_env.get();
 
-  CreateAndReopenWithCF({"pikachu"}, options);
+  CreateAndReopenWithCF({"pikachu", "eevee"}, options);
 
   SyncPoint::GetInstance()->ClearTrace();
   SyncPoint::GetInstance()->DisableProcessing();
@@ -2665,6 +2699,7 @@ TEST_P(ExternalSSTFileTest,
   std::vector<ColumnFamilyHandle*> column_families;
   column_families.push_back(handles_[0]);
   column_families.push_back(handles_[1]);
+  column_families.push_back(handles_[2]);
   std::vector<IngestExternalFileOptions> ifos(column_families.size());
   for (auto& ifo : ifos) {
     ifo.allow_global_seqno = true;  // Always allow global_seqno
@@ -2678,6 +2713,8 @@ TEST_P(ExternalSSTFileTest,
       {std::make_pair("foo1", "fv1"), std::make_pair("foo2", "fv2")});
   data.push_back(
       {std::make_pair("bar1", "bv1"), std::make_pair("bar2", "bv2")});
+  data.push_back(
+      {std::make_pair("bar3", "bv3"), std::make_pair("bar4", "bv4")});
   // Resize the true_data vector upon construction to avoid re-alloc
   std::vector<std::map<std::string, std::string>> true_data(
       column_families.size());
@@ -2698,8 +2735,9 @@ TEST_P(ExternalSSTFileTest,
   fault_injection_env->DropUnsyncedFileData();
   fault_injection_env->SetFilesystemActive(true);
   Close();
-  ReopenWithColumnFamilies({kDefaultColumnFamilyName, "pikachu"}, options);
-  ASSERT_EQ(2, handles_.size());
+  ReopenWithColumnFamilies({kDefaultColumnFamilyName, "pikachu", "eevee"},
+                           options);
+  ASSERT_EQ(3, handles_.size());
   int cf = 0;
   for (const auto& verify_map : true_data) {
     for (const auto& elem : verify_map) {
@@ -2717,6 +2755,12 @@ INSTANTIATE_TEST_CASE_P(ExternalSSTFileTest, ExternalSSTFileTest,
                                         std::make_tuple(false, true),
                                         std::make_tuple(true, false),
                                         std::make_tuple(true, true)));
+
+INSTANTIATE_TEST_CASE_P(ExternSSTFileLinkFailFallbackTest,
+                        ExternSSTFileLinkFailFallbackTest,
+                        testing::Values(std::make_tuple(true, false),
+                                        std::make_tuple(true, true),
+                                        std::make_tuple(false, false)));
 
 }  // namespace rocksdb
 

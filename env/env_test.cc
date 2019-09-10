@@ -38,15 +38,15 @@
 #endif
 
 #include "env/env_chroot.h"
+#include "logging/log_buffer.h"
 #include "port/port.h"
 #include "rocksdb/env.h"
+#include "test_util/sync_point.h"
+#include "test_util/testharness.h"
+#include "test_util/testutil.h"
 #include "util/coding.h"
-#include "util/log_buffer.h"
 #include "util/mutexlock.h"
 #include "util/string_util.h"
-#include "util/sync_point.h"
-#include "util/testharness.h"
-#include "util/testutil.h"
 
 #ifdef OS_LINUX
 static const size_t kPageSize = sysconf(_SC_PAGESIZE);
@@ -246,6 +246,52 @@ TEST_F(EnvPosixTest, MemoryMappedFileBuffer) {
                           mmap_buffer->GetLen());
   ASSERT_EQ(expected_data, actual_data);
 }
+
+#ifndef ROCKSDB_NO_DYNAMIC_EXTENSION
+TEST_F(EnvPosixTest, LoadRocksDBLibrary) {
+  std::shared_ptr<DynamicLibrary> library;
+  std::function<void*(void*, const char*)> function;
+  Status status = env_->LoadLibrary("no-such-library", "", &library);
+  ASSERT_NOK(status);
+  ASSERT_EQ(nullptr, library.get());
+  status = env_->LoadLibrary("rocksdb", "", &library);
+  if (status.ok()) {  // If we have can find a rocksdb shared library
+    ASSERT_NE(nullptr, library.get());
+    ASSERT_OK(library->LoadFunction("rocksdb_create_default_env",
+                                    &function));  // from C definition
+    ASSERT_NE(nullptr, function);
+    ASSERT_NOK(library->LoadFunction("no-such-method", &function));
+    ASSERT_EQ(nullptr, function);
+    ASSERT_OK(env_->LoadLibrary(library->Name(), "", &library));
+  } else {
+    ASSERT_EQ(nullptr, library.get());
+  }
+}
+#endif  // !ROCKSDB_NO_DYNAMIC_EXTENSION
+
+#if !defined(OS_WIN) && !defined(ROCKSDB_NO_DYNAMIC_EXTENSION)
+TEST_F(EnvPosixTest, LoadRocksDBLibraryWithSearchPath) {
+  std::shared_ptr<DynamicLibrary> library;
+  std::function<void*(void*, const char*)> function;
+  ASSERT_NOK(env_->LoadLibrary("no-such-library", "/tmp", &library));
+  ASSERT_EQ(nullptr, library.get());
+  ASSERT_NOK(env_->LoadLibrary("dl", "/tmp", &library));
+  ASSERT_EQ(nullptr, library.get());
+  Status status = env_->LoadLibrary("rocksdb", "/tmp:./", &library);
+  if (status.ok()) {
+    ASSERT_NE(nullptr, library.get());
+    ASSERT_OK(env_->LoadLibrary(library->Name(), "", &library));
+  }
+  char buff[1024];
+  std::string cwd = getcwd(buff, sizeof(buff));
+
+  status = env_->LoadLibrary("rocksdb", "/tmp:" + cwd, &library);
+  if (status.ok()) {
+    ASSERT_NE(nullptr, library.get());
+    ASSERT_OK(env_->LoadLibrary(library->Name(), "", &library));
+  }
+}
+#endif  // !OS_WIN && !ROCKSDB_NO_DYNAMIC_EXTENSION
 
 TEST_P(EnvPosixTestWithParam, UnSchedule) {
   std::atomic<bool> called(false);
@@ -1056,6 +1102,59 @@ TEST_P(EnvPosixTestWithParam, RandomAccessUniqueIDDeletes) {
     }
 
     ASSERT_TRUE(!HasPrefix(ids));
+  }
+}
+
+TEST_P(EnvPosixTestWithParam, MultiRead) {
+  EnvOptions soptions;
+  soptions.use_direct_reads = soptions.use_direct_writes = direct_io_;
+  std::string fname = test::PerThreadDBPath(env_, "testfile");
+
+  const size_t kSectorSize = 4096;
+  const size_t kNumSectors = 8;
+
+  // Create file.
+  {
+    std::unique_ptr<WritableFile> wfile;
+#if !defined(OS_MACOSX) && !defined(OS_WIN) && !defined(OS_SOLARIS) && !defined(OS_AIX)
+    if (soptions.use_direct_writes) {
+      soptions.use_direct_writes = false;
+    }
+#endif
+    ASSERT_OK(env_->NewWritableFile(fname, &wfile, soptions));
+    for (size_t i = 0; i < kNumSectors; ++i) {
+      auto data = NewAligned(kSectorSize * 8, static_cast<char>(i + 1));
+      Slice slice(data.get(), kSectorSize);
+      ASSERT_OK(wfile->Append(slice));
+    }
+    ASSERT_OK(wfile->Close());
+  }
+
+  // Random Read
+  {
+    std::unique_ptr<RandomAccessFile> file;
+    std::vector<ReadRequest> reqs(3);
+    std::vector<std::unique_ptr<char, Deleter>> data;
+    uint64_t offset = 0;
+    for (size_t i = 0; i < reqs.size(); ++i) {
+      reqs[i].offset = offset;
+      offset += 2 * kSectorSize;
+      reqs[i].len = kSectorSize;
+      data.emplace_back(NewAligned(kSectorSize, 0));
+      reqs[i].scratch = data.back().get();
+    }
+#if !defined(OS_MACOSX) && !defined(OS_WIN) && !defined(OS_SOLARIS) && !defined(OS_AIX)
+    if (soptions.use_direct_reads) {
+      soptions.use_direct_reads = false;
+    }
+#endif
+    ASSERT_OK(env_->NewRandomAccessFile(fname, &file, soptions));
+    ASSERT_OK(file->MultiRead(reqs.data(), reqs.size()));
+    for (size_t i = 0; i < reqs.size(); ++i) {
+      auto buf = NewAligned(kSectorSize * 8, static_cast<char>(i*2 + 1));
+      ASSERT_OK(reqs[i].status);
+      ASSERT_EQ(memcmp(reqs[i].scratch, buf.get(), kSectorSize), 0);
+    }
   }
 }
 

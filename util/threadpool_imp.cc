@@ -25,6 +25,7 @@
 #include <algorithm>
 #include <atomic>
 #include <condition_variable>
+#include <deque>
 #include <mutex>
 #include <sstream>
 #include <thread>
@@ -98,7 +99,7 @@ struct ThreadPoolImpl::Impl {
 
 private:
 
-  static void* BGThreadWrapper(void* arg);
+  static void BGThreadWrapper(void* arg);
 
   bool low_io_priority_;
   bool low_cpu_priority_;
@@ -274,7 +275,7 @@ struct BGThreadMetadata {
       : thread_pool_(thread_pool), thread_id_(thread_id) {}
 };
 
-void* ThreadPoolImpl::Impl::BGThreadWrapper(void* arg) {
+void ThreadPoolImpl::Impl::BGThreadWrapper(void* arg) {
   BGThreadMetadata* meta = reinterpret_cast<BGThreadMetadata*>(arg);
   size_t thread_id = meta->thread_id_;
   ThreadPoolImpl::Impl* tp = meta->thread_pool_;
@@ -292,9 +293,12 @@ void* ThreadPoolImpl::Impl::BGThreadWrapper(void* arg) {
     case Env::Priority::BOTTOM:
       thread_type = ThreadStatus::BOTTOM_PRIORITY;
       break;
+    case Env::Priority::USER:
+      thread_type = ThreadStatus::USER;
+      break;
     case Env::Priority::TOTAL:
       assert(false);
-      return nullptr;
+      return;
   }
   assert(thread_type != ThreadStatus::NUM_THREAD_TYPES);
   ThreadStatusUtil::RegisterThread(tp->GetHostEnv(), thread_type);
@@ -304,7 +308,7 @@ void* ThreadPoolImpl::Impl::BGThreadWrapper(void* arg) {
 #ifdef ROCKSDB_USING_THREAD_STATUS
   ThreadStatusUtil::UnregisterThread();
 #endif
-  return nullptr;
+  return;
 }
 
 void ThreadPoolImpl::Impl::SetBackgroundThreadsInternal(int num,

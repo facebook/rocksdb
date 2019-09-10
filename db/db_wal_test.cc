@@ -11,8 +11,8 @@
 #include "options/options_helper.h"
 #include "port/port.h"
 #include "port/stack_trace.h"
-#include "util/fault_injection_test_env.h"
-#include "util/sync_point.h"
+#include "test_util/fault_injection_test_env.h"
+#include "test_util/sync_point.h"
 
 namespace rocksdb {
 class DBWALTest : public DBTestBase {
@@ -569,6 +569,56 @@ TEST_F(DBWALTest, GetSortedWalFiles) {
   } while (ChangeWalOptions());
 }
 
+TEST_F(DBWALTest, GetCurrentWalFile) {
+  do {
+    CreateAndReopenWithCF({"pikachu"}, CurrentOptions());
+
+    std::unique_ptr<LogFile>* bad_log_file = nullptr;
+    ASSERT_NOK(dbfull()->GetCurrentWalFile(bad_log_file));
+
+    std::unique_ptr<LogFile> log_file;
+    ASSERT_OK(dbfull()->GetCurrentWalFile(&log_file));
+
+    // nothing has been written to the log yet
+    ASSERT_EQ(log_file->StartSequence(), 0);
+    ASSERT_EQ(log_file->SizeFileBytes(), 0);
+    ASSERT_EQ(log_file->Type(), kAliveLogFile);
+    ASSERT_GT(log_file->LogNumber(), 0);
+
+    // add some data and verify that the file size actually moves foward
+    ASSERT_OK(Put(0, "foo", "v1"));
+    ASSERT_OK(Put(0, "foo2", "v2"));
+    ASSERT_OK(Put(0, "foo3", "v3"));
+
+    ASSERT_OK(dbfull()->GetCurrentWalFile(&log_file));
+
+    ASSERT_EQ(log_file->StartSequence(), 0);
+    ASSERT_GT(log_file->SizeFileBytes(), 0);
+    ASSERT_EQ(log_file->Type(), kAliveLogFile);
+    ASSERT_GT(log_file->LogNumber(), 0);
+
+    // force log files to cycle and add some more data, then check if
+    // log number moves forward
+
+    ReopenWithColumnFamilies({"default", "pikachu"}, CurrentOptions());
+    for (int i = 0; i < 10; i++) {
+      ReopenWithColumnFamilies({"default", "pikachu"}, CurrentOptions());
+    }
+
+    ASSERT_OK(Put(0, "foo4", "v4"));
+    ASSERT_OK(Put(0, "foo5", "v5"));
+    ASSERT_OK(Put(0, "foo6", "v6"));
+
+    ASSERT_OK(dbfull()->GetCurrentWalFile(&log_file));
+
+    ASSERT_EQ(log_file->StartSequence(), 0);
+    ASSERT_GT(log_file->SizeFileBytes(), 0);
+    ASSERT_EQ(log_file->Type(), kAliveLogFile);
+    ASSERT_GT(log_file->LogNumber(), 0);
+
+  } while (ChangeWalOptions());
+}
+
 TEST_F(DBWALTest, RecoveryWithLogDataForSomeCFs) {
   // Test for regression of WAL cleanup missing files that don't contain data
   // for every column family.
@@ -824,7 +874,9 @@ class RecoveryTestHelper {
   // Create WAL files with values filled in
   static void FillData(DBWALTest* test, const Options& options,
                        const size_t wal_count, size_t* count) {
-    const ImmutableDBOptions db_options(options);
+    // Calling internal functions requires sanitized options.
+    Options sanitized_options = SanitizeOptions(test->dbname_, options);
+    const ImmutableDBOptions db_options(sanitized_options);
 
     *count = 0;
 
@@ -838,7 +890,8 @@ class RecoveryTestHelper {
 
     versions.reset(new VersionSet(test->dbname_, &db_options, env_options,
                                   table_cache.get(), &write_buffer_manager,
-                                  &write_controller));
+                                  &write_controller,
+                                  /*block_cache_tracer=*/nullptr));
 
     wal_manager.reset(new WalManager(db_options, env_options));
 

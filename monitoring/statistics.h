@@ -53,6 +53,13 @@ class StatisticsImpl : public Statistics {
   virtual void setTickerCount(uint32_t ticker_type, uint64_t count) override;
   virtual uint64_t getAndResetTickerCount(uint32_t ticker_type) override;
   virtual void recordTick(uint32_t ticker_type, uint64_t count) override;
+  // The function is implemented for now for backward compatibility reason.
+  // In case a user explictly calls it, for example, they may have a wrapped
+  // Statistics object, passing the call to recordTick() into here, nothing
+  // will break.
+  void measureTime(uint32_t histogramType, uint64_t time) override {
+    recordInHistogram(histogramType, time);
+  }
   virtual void recordInHistogram(uint32_t histogram_type,
                                  uint64_t value) override;
 

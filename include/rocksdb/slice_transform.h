@@ -28,7 +28,7 @@ class Slice;
  */
 class SliceTransform {
  public:
-  virtual ~SliceTransform() {};
+  virtual ~SliceTransform(){};
 
   // Return the name of this transformation.
   virtual const char* Name() const = 0;
@@ -98,4 +98,4 @@ extern const SliceTransform* NewCappedPrefixTransform(size_t cap_len);
 
 extern const SliceTransform* NewNoopTransform();
 
-}
+}  // namespace rocksdb

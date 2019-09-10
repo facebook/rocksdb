@@ -16,10 +16,10 @@
 #include "options/options_helper.h"
 #include "rocksdb/convenience.h"
 #include "rocksdb/db.h"
+#include "test_util/sync_point.h"
 #include "util/cast_util.h"
 #include "util/file_reader_writer.h"
 #include "util/string_util.h"
-#include "util/sync_point.h"
 
 #include "port/port.h"
 
@@ -568,6 +568,12 @@ bool AreEqualOptions(
           *reinterpret_cast<const BlockBasedTableOptions::DataBlockIndexType*>(
               offset1) ==
           *reinterpret_cast<const BlockBasedTableOptions::DataBlockIndexType*>(
+              offset2));
+    case OptionType::kBlockBasedTableIndexShorteningMode:
+      return (
+          *reinterpret_cast<const BlockBasedTableOptions::IndexShorteningMode*>(
+              offset1) ==
+          *reinterpret_cast<const BlockBasedTableOptions::IndexShorteningMode*>(
               offset2));
     case OptionType::kWALRecoveryMode:
       return (*reinterpret_cast<const WALRecoveryMode*>(offset1) ==

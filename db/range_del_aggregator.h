@@ -13,7 +13,7 @@
 #include <string>
 #include <vector>
 
-#include "db/compaction_iteration_stats.h"
+#include "db/compaction/compaction_iteration_stats.h"
 #include "db/dbformat.h"
 #include "db/pinned_iterators_manager.h"
 #include "db/range_del_aggregator.h"
@@ -320,8 +320,10 @@ class RangeDelAggregator {
                       RangeDelPositioningMode mode);
 
     void Invalidate() {
-      InvalidateForwardIter();
-      InvalidateReverseIter();
+      if (!IsEmpty()) {
+        InvalidateForwardIter();
+        InvalidateReverseIter();
+      }
     }
 
     bool IsRangeOverlapped(const Slice& start, const Slice& end);
@@ -349,7 +351,7 @@ class RangeDelAggregator {
   std::set<uint64_t> files_seen_;
 };
 
-class ReadRangeDelAggregator : public RangeDelAggregator {
+class ReadRangeDelAggregator final : public RangeDelAggregator {
  public:
   ReadRangeDelAggregator(const InternalKeyComparator* icmp,
                          SequenceNumber upper_bound)
@@ -364,7 +366,12 @@ class ReadRangeDelAggregator : public RangeDelAggregator {
       const InternalKey* largest = nullptr) override;
 
   bool ShouldDelete(const ParsedInternalKey& parsed,
-                    RangeDelPositioningMode mode) override;
+                    RangeDelPositioningMode mode) final override {
+    if (rep_.IsEmpty()) {
+      return false;
+    }
+    return ShouldDeleteImpl(parsed, mode);
+  }
 
   bool IsRangeOverlapped(const Slice& start, const Slice& end);
 
@@ -374,6 +381,9 @@ class ReadRangeDelAggregator : public RangeDelAggregator {
 
  private:
   StripeRep rep_;
+
+  bool ShouldDeleteImpl(const ParsedInternalKey& parsed,
+                        RangeDelPositioningMode mode);
 };
 
 class CompactionRangeDelAggregator : public RangeDelAggregator {

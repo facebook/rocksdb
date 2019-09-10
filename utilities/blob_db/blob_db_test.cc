@@ -14,15 +14,16 @@
 #include <vector>
 
 #include "db/db_test_util.h"
+#include "file/file_util.h"
+#include "file/sst_file_manager_impl.h"
 #include "port/port.h"
 #include "rocksdb/utilities/debug.h"
+#include "test_util/fault_injection_test_env.h"
+#include "test_util/sync_point.h"
+#include "test_util/testharness.h"
 #include "util/cast_util.h"
-#include "util/fault_injection_test_env.h"
 #include "util/random.h"
-#include "util/sst_file_manager_impl.h"
 #include "util/string_util.h"
-#include "util/sync_point.h"
-#include "util/testharness.h"
 #include "utilities/blob_db/blob_db.h"
 #include "utilities/blob_db/blob_db_impl.h"
 #include "utilities/blob_db/blob_index.h"
@@ -810,10 +811,73 @@ TEST_F(BlobDBTest, SstFileManager) {
   ASSERT_EQ(0, files_deleted_directly);
   Destroy();
   // Make sure that DestroyBlobDB() also goes through delete scheduler.
-  ASSERT_GE(2, files_scheduled_to_delete);
-  ASSERT_EQ(0, files_deleted_directly);
+  ASSERT_GE(files_scheduled_to_delete, 2);
+  // Due to a timing issue, the WAL may or may not be deleted directly. The
+  // blob file is first scheduled, followed by WAL. If the background trash
+  // thread does not wake up on time, the WAL file will be directly
+  // deleted as the trash size will be > DB size
+  ASSERT_LE(files_deleted_directly, 1);
   SyncPoint::GetInstance()->DisableProcessing();
   sfm->WaitForEmptyTrash();
+}
+
+TEST_F(BlobDBTest, SstFileManagerRestart) {
+  int files_deleted_directly = 0;
+  int files_scheduled_to_delete = 0;
+  rocksdb::SyncPoint::GetInstance()->SetCallBack(
+      "SstFileManagerImpl::ScheduleFileDeletion",
+      [&](void * /*arg*/) { files_scheduled_to_delete++; });
+  rocksdb::SyncPoint::GetInstance()->SetCallBack(
+      "DeleteScheduler::DeleteFile",
+      [&](void * /*arg*/) { files_deleted_directly++; });
+
+  // run the same test for Get(), MultiGet() and Iterator each.
+  std::shared_ptr<SstFileManager> sst_file_manager(
+      NewSstFileManager(mock_env_.get()));
+  sst_file_manager->SetDeleteRateBytesPerSecond(1);
+  SstFileManagerImpl *sfm =
+      static_cast<SstFileManagerImpl *>(sst_file_manager.get());
+
+  BlobDBOptions bdb_options;
+  bdb_options.min_blob_size = 0;
+  Options db_options;
+
+  SyncPoint::GetInstance()->EnableProcessing();
+  db_options.sst_file_manager = sst_file_manager;
+
+  Open(bdb_options, db_options);
+  std::string blob_dir = blob_db_impl()->TEST_blob_dir();
+  blob_db_->Put(WriteOptions(), "foo", "bar");
+  Close();
+
+  // Create 3 dummy trash files under the blob_dir
+  CreateFile(db_options.env, blob_dir + "/000666.blob.trash", "", false);
+  CreateFile(db_options.env, blob_dir + "/000888.blob.trash", "", true);
+  CreateFile(db_options.env, blob_dir + "/something_not_match.trash", "",
+             false);
+
+  // Make sure that reopening the DB rescan the existing trash files
+  Open(bdb_options, db_options);
+  ASSERT_GE(files_scheduled_to_delete, 3);
+  // Depending on timing, the WAL file may or may not be directly deleted
+  ASSERT_LE(files_deleted_directly, 1);
+
+  sfm->WaitForEmptyTrash();
+
+  // There should be exact one file under the blob dir now.
+  std::vector<std::string> all_files;
+  ASSERT_OK(db_options.env->GetChildren(blob_dir, &all_files));
+  int nfiles = 0;
+  for (const auto &f : all_files) {
+    assert(!f.empty());
+    if (f[0] == '.') {
+      continue;
+    }
+    nfiles++;
+  }
+  ASSERT_EQ(nfiles, 1);
+
+  SyncPoint::GetInstance()->DisableProcessing();
 }
 
 TEST_F(BlobDBTest, SnapshotAndGarbageCollection) {

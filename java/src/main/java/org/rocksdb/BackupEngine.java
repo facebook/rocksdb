@@ -65,7 +65,10 @@ public class BackupEngine extends RocksObject implements AutoCloseable {
    *                          When false, the Backup Engine will not issue a
    *                          flush before starting the backup. In that case,
    *                          the backup will also include log files
-   *                          corresponding to live memtables. The backup will
+   *                          corresponding to live memtables. If writes have
+   *                          been performed with the write ahead log disabled,
+   *                          set flushBeforeBackup to true to prevent those
+   *                          writes from being lost. Otherwise, the backup will
    *                          always be consistent with the current state of the
    *                          database regardless of the flushBeforeBackup
    *                          parameter.
@@ -95,7 +98,10 @@ public class BackupEngine extends RocksObject implements AutoCloseable {
    *                          When false, the Backup Engine will not issue a
    *                          flush before starting the backup. In that case,
    *                          the backup will also include log files
-   *                          corresponding to live memtables. The backup will
+   *                          corresponding to live memtables. If writes have
+   *                          been performed with the write ahead log disabled,
+   *                          set flushBeforeBackup to true to prevent those
+   *                          writes from being lost. Otherwise, the backup will
    *                          always be consistent with the current state of the
    *                          database regardless of the flushBeforeBackup
    *                          parameter.

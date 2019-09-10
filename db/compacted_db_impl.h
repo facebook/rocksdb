@@ -5,9 +5,9 @@
 
 #pragma once
 #ifndef ROCKSDB_LITE
-#include "db/db_impl.h"
-#include <vector>
 #include <string>
+#include <vector>
+#include "db/db_impl/db_impl.h"
 
 namespace rocksdb {
 
@@ -83,6 +83,15 @@ class CompactedDBImpl : public DBImpl {
       ColumnFamilyHandle* /*column_family*/,
       const std::vector<std::string>& /*external_files*/,
       const IngestExternalFileOptions& /*ingestion_options*/) override {
+    return Status::NotSupported("Not supported in compacted db mode.");
+  }
+  using DB::CreateColumnFamilyWithImport;
+  virtual Status CreateColumnFamilyWithImport(
+      const ColumnFamilyOptions& /*options*/,
+      const std::string& /*column_family_name*/,
+      const ImportColumnFamilyOptions& /*import_options*/,
+      const ExportImportFilesMetaData& /*metadata*/,
+      ColumnFamilyHandle** /*handle*/) override {
     return Status::NotSupported("Not supported in compacted db mode.");
   }
 
