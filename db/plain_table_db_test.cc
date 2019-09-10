@@ -773,12 +773,12 @@ TEST_P(PlainTableDBTest, BloomSchema) {
       uint32_t pattern;
       if (!bloom_locality) {
         pattern = 1785868347UL;
-      } else if (CACHE_LINE_SIZE == 64) {
+      } else if (CACHE_LINE_SIZE == 64U) {
         pattern = 2421694657UL;
-      } else if (CACHE_LINE_SIZE == 128) {
+      } else if (CACHE_LINE_SIZE == 128U) {
         pattern = 788710956UL;
       } else {
-        ASSERT_EQ(CACHE_LINE_SIZE, 256);
+        ASSERT_EQ(CACHE_LINE_SIZE, 256U);
         pattern = 163905UL;
       }
       bool expect_fp = pattern & (1UL << i);
