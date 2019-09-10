@@ -231,22 +231,26 @@ void TransactionLogIteratorImpl::UpdateCurrentWriteBatch(const Slice& record) {
   SequenceNumber expected_seq = current_last_seq_ + 1;
   // If the iterator has started, then confirm that we get continuous batches
   if (started_ && !IsBatchExpected(batch.get(), expected_seq)) {
+    bool file_changed = false;
     // Seek to the batch having expected sequence number
     if (expected_seq < files_->at(current_file_index_)->StartSequence()) {
       // Expected batch must lie in the previous log file
       // Avoid underflow.
       if (current_file_index_ != 0) {
         current_file_index_--;
+        file_changed = true;
       }
     }
-    starting_sequence_number_ = expected_seq;
-    // currentStatus_ will be set to Ok if reseek succeeds
-    // Note: this is still ok in seq_pre_batch_ && two_write_queuesp_ mode
-    // that allows gaps in the WAL since it will still skip over the gap.
-    current_status_ = Status::NotFound("Gap in sequence numbers");
-    // In seq_per_batch_ mode, gaps in the seq are possible so the strict mode
-    // should be disabled
-    return SeekToStartSequence(current_file_index_, !seq_per_batch_);
+    if (file_changed) {
+      starting_sequence_number_ = expected_seq;
+      // currentStatus_ will be set to Ok if reseek succeeds
+      // Note: this is still ok in seq_pre_batch_ && two_write_queuesp_ mode
+      // that allows gaps in the WAL since it will still skip over the gap.
+      current_status_ = Status::NotFound("Gap in sequence numbers");
+      // In seq_per_batch_ mode, gaps in the seq are possible so the strict mode
+      // should be disabled
+      return SeekToStartSequence(current_file_index_, !seq_per_batch_);
+    }
   }
 
   struct BatchCounter : public WriteBatch::Handler {
