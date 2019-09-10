@@ -1830,8 +1830,8 @@ void BlockCacheTraceAnalyzer::PrintDataBlockAccessStats() const {
             hist_naccess_per_key.Add(caller_access.second);
           }
         }
-        uint64_t avg_accesses = hist_naccess_per_key.Average();
-        uint64_t stdev_accesses = hist_naccess_per_key.StandardDeviation();
+        uint64_t avg_accesses = static_cast<uint64_t>(hist_naccess_per_key.Average());
+        uint64_t stdev_accesses = static_cast<uint64_t>(hist_naccess_per_key.StandardDeviation());
         avg_naccesses_per_key_in_a_data_block.Add(avg_accesses);
         cf_avg_naccesses_per_key_in_a_data_block[cf_name].Add(avg_accesses);
         stdev_naccesses_per_key_in_a_data_block.Add(stdev_accesses);
