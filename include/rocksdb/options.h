@@ -953,15 +953,12 @@ struct DBOptions {
   // Default: true
   bool enable_write_thread_adaptive_yield = true;
 
-  // The lower limit of maximum number of bytes that are written in a single
-  // batch of WAL or memtable write.
-  // Default: 128 KB
-  uint64_t lower_limit_write_batch_group_size_bytes = 128 << 10;
-
-  // The upper limit of maximum number of bytes that are written in a single
-  // batch of WAL or memtable write.
+  // The maximum limit of number of bytes that are written in a single batch
+  // of WAL or memtable write. It is followed when the leader write size
+  // is larger than 1/8 of this limit.
+  //
   // Default: 1 MB
-  uint64_t upper_limit_write_batch_group_size_bytes = 1 << 20;
+  uint64_t max_write_batch_group_size_bytes = 1 << 20;
 
   // The maximum number of microseconds that a write operation will use
   // a yielding spin loop to coordinate with other write threads before
