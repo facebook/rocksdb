@@ -202,7 +202,7 @@ int SstFileDumper::ShowAllCompressionSizes(
   ReadOptions read_options;
   Options opts;
   opts.statistics = rocksdb::CreateDBStatistics();
-  opts.statistics->stats_level_ = StatsLevel::kAll;
+  opts.statistics->set_stats_level(StatsLevel::kAll);
   const ImmutableCFOptions imoptions(opts);
   const ColumnFamilyOptions cfo(opts);
   const MutableCFOptions moptions(cfo);
