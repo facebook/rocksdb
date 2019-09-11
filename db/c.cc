@@ -3224,9 +3224,9 @@ void rocksdb_writeoptions_set_low_pri(
   opt->rep.low_pri = v;
 }
 
-void rocksdb_writeoptions_set_hint_per_batch(rocksdb_writeoptions_t* opt,
-                                             unsigned char v) {
-  opt->rep.hint_per_batch = v;
+void rocksdb_writeoptions_set_memtable_insert_hint_per_batch(
+    rocksdb_writeoptions_t* opt, unsigned char v) {
+  opt->rep.memtable_insert_hint_per_batch = v;
 }
 
 rocksdb_compactoptions_t* rocksdb_compactoptions_create() {

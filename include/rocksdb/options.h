@@ -1356,7 +1356,7 @@ struct WriteOptions {
   // option will be ignored.
   //
   // Default: false
-  bool hint_per_batch;
+  bool memtable_insert_hint_per_batch;
 
   // Timestamp of write operation, e.g. Put. All timestamps of the same
   // database must share the same length and format. The user is also
@@ -1375,7 +1375,7 @@ struct WriteOptions {
         ignore_missing_column_families(false),
         no_slowdown(false),
         low_pri(false),
-        hint_per_batch(false),
+        memtable_insert_hint_per_batch(false),
         timestamp(nullptr) {}
 };
 
