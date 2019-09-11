@@ -22,10 +22,8 @@ WriteThread::WriteThread(const ImmutableDBOptions& db_options)
       allow_concurrent_memtable_write_(
           db_options.allow_concurrent_memtable_write),
       enable_pipelined_write_(db_options.enable_pipelined_write),
-      lower_limit_write_batch_group_size_bytes(
-          db_options.lower_limit_write_batch_group_size_bytes),
-      upper_limit_write_batch_group_size_bytes(
-          db_options.upper_limit_write_batch_group_size_bytes),
+      max_write_batch_group_size_bytes(
+          db_options.max_write_batch_group_size_bytes),
       newest_writer_(nullptr),
       newest_memtable_writer_(nullptr),
       last_sequence_(0),
@@ -410,9 +408,9 @@ size_t WriteThread::EnterAsBatchGroupLeader(Writer* leader,
   // Allow the group to grow up to a maximum size, but if the
   // original write is small, limit the growth so we do not slow
   // down the small write too much.
-  size_t max_size = upper_limit_write_batch_group_size_bytes;
-  if (size <= lower_limit_write_batch_group_size_bytes) {
-    max_size = size + lower_limit_write_batch_group_size_bytes;
+  size_t max_size = max_write_batch_group_size_bytes;
+  if (size <= 0.125 * max_write_batch_group_size_bytes) {
+    max_size = size + 0.125 * max_write_batch_group_size_bytes;
   }
 
   leader->write_group = write_group;
@@ -489,9 +487,9 @@ void WriteThread::EnterAsMemTableWriter(Writer* leader,
   // Allow the group to grow up to a maximum size, but if the
   // original write is small, limit the growth so we do not slow
   // down the small write too much.
-  size_t max_size = upper_limit_write_batch_group_size_bytes;
-  if (size <= lower_limit_write_batch_group_size_bytes) {
-    max_size = size + lower_limit_write_batch_group_size_bytes;
+  size_t max_size = max_write_batch_group_size_bytes;
+  if (size <= 0.125 * max_write_batch_group_size_bytes) {
+    max_size = size + 0.125 * max_write_batch_group_size_bytes;
   }
 
   leader->write_group = write_group;
