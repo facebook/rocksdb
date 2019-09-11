@@ -353,6 +353,14 @@ DEFINE_int32(bloom_bits, 10, "Bloom filter bits per key. "
 DEFINE_bool(use_block_based_filter, false, "use block based filter"
               "instead of full filter for block based table");
 
+DEFINE_bool(partition_filters, false, "use partitioned filters "
+    "for block-based table");
+
+DEFINE_int32(
+    index_type,
+    static_cast<int32_t>(rocksdb::BlockBasedTableOptions::kBinarySearch),
+    "Type of block-based table index (see `enum IndexType` in table.h)");
+
 DEFINE_string(db, "", "Use the db with the following name.");
 
 DEFINE_string(secondaries_base, "",
@@ -2777,6 +2785,9 @@ class StressTest {
       block_based_options.index_block_restart_interval =
           static_cast<int32_t>(FLAGS_index_block_restart_interval);
       block_based_options.filter_policy = filter_policy_;
+      block_based_options.partition_filters = FLAGS_partition_filters;
+      block_based_options.index_type =
+          static_cast<BlockBasedTableOptions::IndexType>(FLAGS_index_type);
       options_.table_factory.reset(
           NewBlockBasedTableFactory(block_based_options));
       options_.db_write_buffer_size = FLAGS_db_write_buffer_size;
