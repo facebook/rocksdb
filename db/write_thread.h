@@ -360,13 +360,10 @@ class WriteThread {
   // Enable pipelined write to WAL and memtable.
   const bool enable_pipelined_write_;
 
-  // The lower limit of maximum number of bytes that are written in a single
-  // batch of WAL or memtable write.
-  const uint64_t lower_limit_write_batch_group_size_bytes;
-
-  // The upper limit of maximum number of bytes that are written in a single
-  // batch of WAL or memtable write.
-  const uint64_t upper_limit_write_batch_group_size_bytes;
+  // The maximum limit of number of bytes that are written in a single batch
+  // of WAL or memtable write. It is followed when the leader write size
+  // is larger than 1/8 of this limit.
+  const uint64_t max_write_batch_group_size_bytes;
 
   // Points to the newest pending writer. Only leader can remove
   // elements, adding can be done lock-free by anybody.
