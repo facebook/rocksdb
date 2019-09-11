@@ -8,18 +8,12 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
 #include "memory/arena.h"
-#ifdef ROCKSDB_MALLOC_USABLE_SIZE
-#ifdef OS_FREEBSD
-#include <malloc_np.h>
-#else
-#include <malloc.h>
-#endif
-#endif
 #ifndef OS_WIN
 #include <sys/mman.h>
 #endif
 #include <algorithm>
 #include "logging/logging.h"
+#include "port/malloc.h"
 #include "port/port.h"
 #include "rocksdb/env.h"
 #include "test_util/sync_point.h"
