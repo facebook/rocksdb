@@ -275,7 +275,7 @@ class ColumnFamilyData {
   // Ref() can only be called from a context where the caller can guarantee
   // that ColumnFamilyData is alive (while holding a non-zero ref already,
   // holding a DB mutex, or as the leader in a write batch group).
-  void Ref() { refs_.fetch_add(1, std::memory_order_relaxed); }
+  void Ref() { refs_.fetch_add(1); }
 
   // Unref decreases the reference count, but does not handle deletion
   // when the count goes to 0.  If this method returns true then the
@@ -283,7 +283,7 @@ class ColumnFamilyData {
   // FreeDeadColumnFamilies().  Unref() can only be called while holding
   // a DB mutex, or during single-threaded recovery.
   bool Unref() {
-    int old_refs = refs_.fetch_sub(1, std::memory_order_relaxed);
+    int old_refs = refs_.fetch_sub(1);
     assert(old_refs > 0);
     return old_refs == 1;
   }

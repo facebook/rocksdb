@@ -14,6 +14,7 @@
 
 #include "db/column_family.h"
 #include "db/compaction/compaction_job.h"
+#include "db/db_impl/db_impl.h"
 #include "db/error_handler.h"
 #include "db/version_set.h"
 #include "rocksdb/cache.h"
@@ -204,8 +205,15 @@ class CompactionJobTest : public testing::Test {
                                    &write_controller_,
                                    /*block_cache_tracer=*/nullptr));
     compaction_job_stats_.Reset();
+    SetIdentityFile(env_, dbname_);
 
     VersionEdit new_db;
+    if (db_options_.write_dbid_to_manifest) {
+      DBImpl* impl = new DBImpl(DBOptions(), dbname_);
+      std::string db_id;
+      impl->GetDbIdentityFromIdentityFile(&db_id);
+      new_db.SetDBId(db_id);
+    }
     new_db.SetLogNumber(0);
     new_db.SetNextFile(2);
     new_db.SetLastSequence(0);
@@ -964,7 +972,7 @@ TEST_F(CompactionJobTest, SnapshotRefresh) {
    public:
     SnapshotListFetchCallbackTest(Env* env, Random64& rand,
                                   std::vector<SequenceNumber>* snapshots)
-        : SnapshotListFetchCallback(env, 0 /*no time delay*/,
+        : SnapshotListFetchCallback(env, 1 /*short time delay*/,
                                     1 /*fetch after each key*/),
           rand_(rand),
           snapshots_(snapshots) {}

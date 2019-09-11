@@ -71,6 +71,7 @@
 #include "utilities/blob_db/blob_db.h"
 #include "utilities/merge_operators.h"
 #include "utilities/merge_operators/bytesxor.h"
+#include "utilities/merge_operators/sortlist.h"
 #include "utilities/persistent_cache/block_cache_tier.h"
 
 #ifdef OS_WIN
@@ -102,6 +103,7 @@ DEFINE_string(
     "multireadrandom,"
     "mixgraph,"
     "readseq,"
+    "readtorowcache,"
     "readtocache,"
     "readreverse,"
     "readwhilewriting,"
@@ -120,7 +122,8 @@ DEFINE_string(
     "fillseekseq,"
     "randomtransaction,"
     "randomreplacekeys,"
-    "timeseries",
+    "timeseries,"
+    "getmergeoperands",
 
     "Comma-separated list of operations to run in the specified"
     " order. Available benchmarks:\n"
@@ -190,7 +193,13 @@ DEFINE_string(
     "\tlevelstats  -- Print the number of files and bytes per level\n"
     "\tsstables    -- Print sstable info\n"
     "\theapprofile -- Dump a heap profile (if supported by this port)\n"
-    "\treplay      -- replay the trace file specified with trace_file\n");
+    "\treplay      -- replay the trace file specified with trace_file\n"
+    "\tgetmergeoperands -- Insert lots of merge records which are a list of "
+    "sorted ints for a key and then compare performance of lookup for another "
+    "key "
+    "by doing a Get followed by binary searching in the large sorted list vs "
+    "doing a GetMergeOperands and binary searching in the operands which are"
+    "sorted sub-lists. The MergeOperator used is sortlist.h\n");
 
 DEFINE_int64(num, 1000000, "Number of key/values to place in database");
 
@@ -321,6 +330,20 @@ DEFINE_int32(min_write_buffer_number_to_merge,
 DEFINE_int32(max_write_buffer_number_to_maintain,
              rocksdb::Options().max_write_buffer_number_to_maintain,
              "The total maximum number of write buffers to maintain in memory "
+             "including copies of buffers that have already been flushed. "
+             "Unlike max_write_buffer_number, this parameter does not affect "
+             "flushing. This controls the minimum amount of write history "
+             "that will be available in memory for conflict checking when "
+             "Transactions are used. If this value is too low, some "
+             "transactions may fail at commit time due to not being able to "
+             "determine whether there were any write conflicts. Setting this "
+             "value to 0 will cause write buffers to be freed immediately "
+             "after they are flushed.  If this value is set to -1, "
+             "'max_write_buffer_number' will be used.");
+
+DEFINE_int64(max_write_buffer_size_to_maintain,
+             rocksdb::Options().max_write_buffer_size_to_maintain,
+             "The total maximum size of write buffers to maintain in memory "
              "including copies of buffers that have already been flushed. "
              "Unlike max_write_buffer_number, this parameter does not affect "
              "flushing. This controls the minimum amount of write history "
@@ -2749,6 +2772,14 @@ class Benchmark {
         method = &Benchmark::WriteRandom;
       } else if (name == "readseq") {
         method = &Benchmark::ReadSequential;
+      } else if (name == "readtorowcache") {
+        if (!FLAGS_use_existing_keys || !FLAGS_row_cache_size) {
+          fprintf(stderr,
+                  "Please set use_existing_keys to true and specify a "
+                  "row cache size in readtorowcache benchmark\n");
+          exit(1);
+        }
+        method = &Benchmark::ReadToRowCache;
       } else if (name == "readtocache") {
         method = &Benchmark::ReadSequential;
         num_threads = 1;
@@ -2880,6 +2911,8 @@ class Benchmark {
           exit(1);
         }
         method = &Benchmark::Replay;
+      } else if (name == "getmergeoperands") {
+        method = &Benchmark::GetMergeOperands;
       } else if (!name.empty()) {  // No error message for empty name
         fprintf(stderr, "unknown benchmark '%s'\n", name.c_str());
         exit(1);
@@ -3375,6 +3408,8 @@ class Benchmark {
       FLAGS_min_write_buffer_number_to_merge;
     options.max_write_buffer_number_to_maintain =
         FLAGS_max_write_buffer_number_to_maintain;
+    options.max_write_buffer_size_to_maintain =
+        FLAGS_max_write_buffer_size_to_maintain;
     options.max_background_jobs = FLAGS_max_background_jobs;
     options.max_background_compactions = FLAGS_max_background_compactions;
     options.max_subcompactions = static_cast<uint32_t>(FLAGS_subcompactions);
@@ -4589,6 +4624,65 @@ class Benchmark {
 
     delete iter;
     thread->stats.AddBytes(bytes);
+    if (FLAGS_perf_level > rocksdb::PerfLevel::kDisable) {
+      thread->stats.AddMessage(std::string("PERF_CONTEXT:\n") +
+                               get_perf_context()->ToString());
+    }
+  }
+
+  void ReadToRowCache(ThreadState* thread) {
+    int64_t read = 0;
+    int64_t found = 0;
+    int64_t bytes = 0;
+    int64_t key_rand = 0;
+    ReadOptions options(FLAGS_verify_checksum, true);
+    std::unique_ptr<const char[]> key_guard;
+    Slice key = AllocateKey(&key_guard);
+    PinnableSlice pinnable_val;
+
+    while (key_rand < FLAGS_num) {
+      DBWithColumnFamilies* db_with_cfh = SelectDBWithCfh(thread);
+      // We use same key_rand as seed for key and column family so that we can
+      // deterministically find the cfh corresponding to a particular key, as it
+      // is done in DoWrite method.
+      GenerateKeyFromInt(key_rand, FLAGS_num, &key);
+      key_rand++;
+      read++;
+      Status s;
+      if (FLAGS_num_column_families > 1) {
+        s = db_with_cfh->db->Get(options, db_with_cfh->GetCfh(key_rand), key,
+                                 &pinnable_val);
+      } else {
+        pinnable_val.Reset();
+        s = db_with_cfh->db->Get(options,
+                                 db_with_cfh->db->DefaultColumnFamily(), key,
+                                 &pinnable_val);
+      }
+
+      if (s.ok()) {
+        found++;
+        bytes += key.size() + pinnable_val.size();
+      } else if (!s.IsNotFound()) {
+        fprintf(stderr, "Get returned an error: %s\n", s.ToString().c_str());
+        abort();
+      }
+
+      if (thread->shared->read_rate_limiter.get() != nullptr &&
+          read % 256 == 255) {
+        thread->shared->read_rate_limiter->Request(
+            256, Env::IO_HIGH, nullptr /* stats */, RateLimiter::OpType::kRead);
+      }
+
+      thread->stats.FinishedOps(db_with_cfh, db_with_cfh->db, 1, kRead);
+    }
+
+    char msg[100];
+    snprintf(msg, sizeof(msg), "(%" PRIu64 " of %" PRIu64 " found)\n",
+             found, read);
+
+    thread->stats.AddBytes(bytes);
+    thread->stats.AddMessage(msg);
+
     if (FLAGS_perf_level > rocksdb::PerfLevel::kDisable) {
       thread->stats.AddMessage(std::string("PERF_CONTEXT:\n") +
                                get_perf_context()->ToString());
@@ -5918,6 +6012,97 @@ class Benchmark {
       iter->Seek(key);
       assert(iter->Valid() && iter->key() == key);
       thread->stats.FinishedOps(nullptr, db, 1, kSeek);
+    }
+  }
+
+  bool binary_search(std::vector<int>& data, int start, int end, int key) {
+    if (data.empty()) return false;
+    if (start > end) return false;
+    int mid = start + (end - start) / 2;
+    if (mid > static_cast<int>(data.size()) - 1) return false;
+    if (data[mid] == key) {
+      return true;
+    } else if (data[mid] > key) {
+      return binary_search(data, start, mid - 1, key);
+    } else {
+      return binary_search(data, mid + 1, end, key);
+    }
+  }
+
+  // Does a bunch of merge operations for a key(key1) where the merge operand
+  // is a sorted list. Next performance comparison is done between doing a Get
+  // for key1 followed by searching for another key(key2) in the large sorted
+  // list vs calling GetMergeOperands for key1 and then searching for the key2
+  // in all the sorted sub-lists. Later case is expected to be a lot faster.
+  void GetMergeOperands(ThreadState* thread) {
+    DB* db = SelectDB(thread);
+    const int kTotalValues = 100000;
+    const int kListSize = 100;
+    std::string key = "my_key";
+    std::string value;
+
+    for (int i = 1; i < kTotalValues; i++) {
+      if (i % kListSize == 0) {
+        // Remove trailing ','
+        value.pop_back();
+        db->Merge(WriteOptions(), key, value);
+        value.clear();
+      } else {
+        value.append(std::to_string(i)).append(",");
+      }
+    }
+
+    SortList s;
+    std::vector<int> data;
+    // This value can be experimented with and it will demonstrate the
+    // perf difference between doing a Get and searching for lookup_key in the
+    // resultant large sorted list vs doing GetMergeOperands and searching
+    // for lookup_key within this resultant sorted sub-lists.
+    int lookup_key = 1;
+
+    // Get API call
+    std::cout << "--- Get API call --- \n";
+    PinnableSlice p_slice;
+    uint64_t st = FLAGS_env->NowNanos();
+    db->Get(ReadOptions(), db->DefaultColumnFamily(), key, &p_slice);
+    s.MakeVector(data, p_slice);
+    bool found =
+        binary_search(data, 0, static_cast<int>(data.size() - 1), lookup_key);
+    std::cout << "Found key? " << std::to_string(found) << "\n";
+    uint64_t sp = FLAGS_env->NowNanos();
+    std::cout << "Get: " << (sp - st) / 1000000000.0 << " seconds\n";
+    std::string* dat_ = p_slice.GetSelf();
+    std::cout << "Sample data from Get API call: " << dat_->substr(0, 10)
+              << "\n";
+    data.clear();
+
+    // GetMergeOperands API call
+    std::cout << "--- GetMergeOperands API --- \n";
+    std::vector<PinnableSlice> a_slice((kTotalValues / kListSize) + 1);
+    st = FLAGS_env->NowNanos();
+    int number_of_operands = 0;
+    GetMergeOperandsOptions get_merge_operands_options;
+    get_merge_operands_options.expected_max_number_of_operands =
+        (kTotalValues / 100) + 1;
+    db->GetMergeOperands(ReadOptions(), db->DefaultColumnFamily(), key,
+                         a_slice.data(), &get_merge_operands_options,
+                         &number_of_operands);
+    for (PinnableSlice& psl : a_slice) {
+      s.MakeVector(data, psl);
+      found =
+          binary_search(data, 0, static_cast<int>(data.size() - 1), lookup_key);
+      data.clear();
+      if (found) break;
+    }
+    std::cout << "Found key? " << std::to_string(found) << "\n";
+    sp = FLAGS_env->NowNanos();
+    std::cout << "Get Merge operands: " << (sp - st) / 1000000000.0
+              << " seconds \n";
+    int to_print = 0;
+    std::cout << "Sample data from GetMergeOperands API call: ";
+    for (PinnableSlice& psl : a_slice) {
+      std::cout << "List: " << to_print << " : " << *psl.GetSelf() << "\n";
+      if (to_print++ > 2) break;
     }
   }
 

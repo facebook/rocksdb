@@ -46,13 +46,16 @@ void WritePreparedTxn::MultiGet(const ReadOptions& options,
                                 PinnableSlice* values, Status* statuses,
                                 bool sorted_input) {
   SequenceNumber min_uncommitted, snap_seq;
-  const bool backed_by_snapshot =
+  const SnapshotBackup backed_by_snapshot =
       wpt_db_->AssignMinMaxSeqs(options.snapshot, &min_uncommitted, &snap_seq);
-  WritePreparedTxnReadCallback callback(wpt_db_, snap_seq, min_uncommitted);
+  WritePreparedTxnReadCallback callback(wpt_db_, snap_seq, min_uncommitted,
+                                        backed_by_snapshot);
   write_batch_.MultiGetFromBatchAndDB(db_, options, column_family, num_keys,
                                       keys, values, statuses, sorted_input,
                                       &callback);
-  if (UNLIKELY(!wpt_db_->ValidateSnapshot(snap_seq, backed_by_snapshot))) {
+  if (UNLIKELY(!callback.valid() ||
+               !wpt_db_->ValidateSnapshot(snap_seq, backed_by_snapshot))) {
+    wpt_db_->WPRecordTick(TXN_GET_TRY_AGAIN);
     for (size_t i = 0; i < num_keys; i++) {
       statuses[i] = Status::TryAgain();
     }
@@ -63,15 +66,18 @@ Status WritePreparedTxn::Get(const ReadOptions& options,
                              ColumnFamilyHandle* column_family,
                              const Slice& key, PinnableSlice* pinnable_val) {
   SequenceNumber min_uncommitted, snap_seq;
-  const bool backed_by_snapshot =
+  const SnapshotBackup backed_by_snapshot =
       wpt_db_->AssignMinMaxSeqs(options.snapshot, &min_uncommitted, &snap_seq);
-  WritePreparedTxnReadCallback callback(wpt_db_, snap_seq, min_uncommitted);
+  WritePreparedTxnReadCallback callback(wpt_db_, snap_seq, min_uncommitted,
+                                        backed_by_snapshot);
   auto res = write_batch_.GetFromBatchAndDB(db_, options, column_family, key,
                                             pinnable_val, &callback);
-  if (LIKELY(wpt_db_->ValidateSnapshot(callback.max_visible_seq(),
+  if (LIKELY(callback.valid() &&
+             wpt_db_->ValidateSnapshot(callback.max_visible_seq(),
                                        backed_by_snapshot))) {
     return res;
   } else {
+    wpt_db_->WPRecordTick(TXN_GET_TRY_AGAIN);
     return Status::TryAgain();
   }
 }
@@ -241,9 +247,11 @@ Status WritePreparedTxn::RollbackInternal() {
   auto cf_map_shared_ptr = wpt_db_->GetCFHandleMap();
   auto cf_comp_map_shared_ptr = wpt_db_->GetCFComparatorMap();
   auto read_at_seq = kMaxSequenceNumber;
+  ReadOptions roptions;
+  // to prevent callback's seq to be overrriden inside DBImpk::Get
+  roptions.snapshot = wpt_db_->GetMaxSnapshot();
   struct RollbackWriteBatchBuilder : public WriteBatch::Handler {
     DBImpl* db_;
-    ReadOptions roptions;
     WritePreparedTxnReadCallback callback;
     WriteBatch* rollback_batch_;
     std::map<uint32_t, const Comparator*>& comparators_;
@@ -251,18 +259,20 @@ Status WritePreparedTxn::RollbackInternal() {
     using CFKeys = std::set<Slice, SetComparator>;
     std::map<uint32_t, CFKeys> keys_;
     bool rollback_merge_operands_;
+    ReadOptions roptions_;
     RollbackWriteBatchBuilder(
         DBImpl* db, WritePreparedTxnDB* wpt_db, SequenceNumber snap_seq,
         WriteBatch* dst_batch,
         std::map<uint32_t, const Comparator*>& comparators,
         std::map<uint32_t, ColumnFamilyHandle*>& handles,
-        bool rollback_merge_operands)
+        bool rollback_merge_operands, ReadOptions _roptions)
         : db_(db),
           callback(wpt_db, snap_seq),  // disable min_uncommitted optimization
           rollback_batch_(dst_batch),
           comparators_(comparators),
           handles_(handles),
-          rollback_merge_operands_(rollback_merge_operands) {}
+          rollback_merge_operands_(rollback_merge_operands),
+          roptions_(_roptions) {}
 
     Status Rollback(uint32_t cf, const Slice& key) {
       Status s;
@@ -280,8 +290,12 @@ Status WritePreparedTxn::RollbackInternal() {
       PinnableSlice pinnable_val;
       bool not_used;
       auto cf_handle = handles_[cf];
-      s = db_->GetImpl(roptions, cf_handle, key, &pinnable_val, &not_used,
-                       &callback);
+      DBImpl::GetImplOptions get_impl_options;
+      get_impl_options.column_family = cf_handle;
+      get_impl_options.value = &pinnable_val;
+      get_impl_options.value_found = &not_used;
+      get_impl_options.callback = &callback;
+      s = db_->GetImpl(roptions_, key, get_impl_options);
       assert(s.ok() || s.IsNotFound());
       if (s.ok()) {
         s = rollback_batch_->Put(cf_handle, key, pinnable_val);
@@ -330,7 +344,8 @@ Status WritePreparedTxn::RollbackInternal() {
     bool WriteAfterCommit() const override { return false; }
   } rollback_handler(db_impl_, wpt_db_, read_at_seq, &rollback_batch,
                      *cf_comp_map_shared_ptr.get(), *cf_map_shared_ptr.get(),
-                     wpt_db_->txn_db_options_.rollback_merge_operands);
+                     wpt_db_->txn_db_options_.rollback_merge_operands,
+                     roptions);
   auto s = GetWriteBatch()->GetWriteBatch()->Iterate(&rollback_handler);
   assert(s.ok());
   if (!s.ok()) {
@@ -434,7 +449,8 @@ Status WritePreparedTxn::ValidateSnapshot(ColumnFamilyHandle* column_family,
   ColumnFamilyHandle* cfh =
       column_family ? column_family : db_impl_->DefaultColumnFamily();
 
-  WritePreparedTxnReadCallback snap_checker(wpt_db_, snap_seq, min_uncommitted);
+  WritePreparedTxnReadCallback snap_checker(wpt_db_, snap_seq, min_uncommitted,
+                                            kBackedByDBSnapshot);
   return TransactionUtil::CheckKeyForConflicts(db_impl_, cfh, key.ToString(),
                                                snap_seq, false /* cache_only */,
                                                &snap_checker, min_uncommitted);

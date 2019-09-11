@@ -32,17 +32,18 @@
 # 3. cmake ..
 # 4. make -j
 
-cmake_minimum_required(VERSION 2.8.12)
-project(rocksdb)
-enable_language(CXX)
-enable_language(C)
-enable_language(ASM)
+cmake_minimum_required(VERSION 3.5.1)
+
+list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_LIST_DIR}/cmake/modules/")
+include(ReadVersion)
+get_rocksdb_version(rocksdb_VERSION)
+project(rocksdb
+  VERSION ${rocksdb_VERSION}
+  LANGUAGES CXX C ASM)
 
 if(POLICY CMP0042)
   cmake_policy(SET CMP0042 NEW)
 endif()
-
-list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_LIST_DIR}/cmake/modules/")
 
 find_program(CCACHE_FOUND ccache)
 if(CCACHE_FOUND)
@@ -59,6 +60,13 @@ option(WITH_WINDOWS_UTF8_FILENAMES "use UTF8 as characterset for opening files, 
 if (WITH_WINDOWS_UTF8_FILENAMES)
   add_definitions(-DROCKSDB_WINDOWS_UTF8_FILENAMES)
 endif()
+# third-party/folly is only validated to work on Linux and Windows for now.
+# So only turn it on there by default.
+if(CMAKE_SYSTEM_NAME MATCHES "Linux" OR CMAKE_SYSTEM_NAME MATCHES "Windows")
+  option(WITH_FOLLY_DISTRIBUTED_MUTEX "build with folly::DistributedMutex" ON)
+else()
+  option(WITH_FOLLY_DISTRIBUTED_MUTEX "build with folly::DistributedMutex" OFF)
+endif()
 if(MSVC)
   # Defaults currently different for GFLAGS.
   #  We will address find_package work a little later
@@ -74,8 +82,7 @@ else()
     if(WITH_JEMALLOC)
       find_package(JeMalloc REQUIRED)
       add_definitions(-DROCKSDB_JEMALLOC -DJEMALLOC_NO_DEMANGLE)
-      include_directories(${JEMALLOC_INCLUDE_DIR})
-      list(APPEND THIRDPARTY_LIBS ${JEMALLOC_LIBRARIES})
+      list(APPEND THIRDPARTY_LIBS JeMalloc::JeMalloc)
     endif()
   endif()
 
@@ -93,43 +100,38 @@ else()
   if(WITH_SNAPPY)
     find_package(snappy REQUIRED)
     add_definitions(-DSNAPPY)
-    include_directories(${SNAPPY_INCLUDE_DIR})
-    list(APPEND THIRDPARTY_LIBS ${SNAPPY_LIBRARIES})
+    list(APPEND THIRDPARTY_LIBS snappy::snappy)
   endif()
 
   if(WITH_ZLIB)
     find_package(ZLIB REQUIRED)
     add_definitions(-DZLIB)
-    if(ZLIB_INCLUDE_DIRS)
-      # CMake 3
-      include_directories(${ZLIB_INCLUDE_DIRS})
-    else()
-      # CMake 2
-      include_directories(${ZLIB_INCLUDE_DIR})
-    endif()
-    list(APPEND THIRDPARTY_LIBS ${ZLIB_LIBRARIES})
+    list(APPEND THIRDPARTY_LIBS ZLIB::ZLIB)
   endif()
 
   option(WITH_BZ2 "build with bzip2" OFF)
   if(WITH_BZ2)
-    find_package(bzip2 REQUIRED)
+    find_package(BZip2 REQUIRED)
     add_definitions(-DBZIP2)
-    include_directories(${BZIP2_INCLUDE_DIR})
+    if(BZIP2_INCLUDE_DIRS)
+      include_directories(${BZIP2_INCLUDE_DIRS})
+    else()
+      include_directories(${BZIP2_INCLUDE_DIR})
+    endif()
     list(APPEND THIRDPARTY_LIBS ${BZIP2_LIBRARIES})
   endif()
 
   if(WITH_LZ4)
     find_package(lz4 REQUIRED)
     add_definitions(-DLZ4)
-    include_directories(${LZ4_INCLUDE_DIR})
-    list(APPEND THIRDPARTY_LIBS ${LZ4_LIBRARIES})
+    list(APPEND THIRDPARTY_LIBS lz4::lz4)
   endif()
 
   if(WITH_ZSTD)
     find_package(zstd REQUIRED)
     add_definitions(-DZSTD)
     include_directories(${ZSTD_INCLUDE_DIR})
-    list(APPEND THIRDPARTY_LIBS ${ZSTD_LIBRARIES})
+    list(APPEND THIRDPARTY_LIBS zstd::zstd)
   endif()
 endif()
 
@@ -148,17 +150,6 @@ else()
 endif()
 
 string(REGEX REPLACE "[^0-9a-f]+" "" GIT_SHA "${GIT_SHA}")
-
-
-# Read rocksdb version from version.h header file.
-file(READ include/rocksdb/version.h version_header_file)
-string(REGEX MATCH "#define ROCKSDB_MAJOR ([0-9]+)" _ ${version_header_file})
-set(ROCKSDB_VERSION_MAJOR ${CMAKE_MATCH_1})
-string(REGEX MATCH "#define ROCKSDB_MINOR ([0-9]+)" _ ${version_header_file})
-set(ROCKSDB_VERSION_MINOR ${CMAKE_MATCH_1})
-string(REGEX MATCH "#define ROCKSDB_PATCH ([0-9]+)" _ ${version_header_file})
-set(ROCKSDB_VERSION_PATCH ${CMAKE_MATCH_1})
-set(ROCKSDB_VERSION ${ROCKSDB_VERSION_MAJOR}.${ROCKSDB_VERSION_MINOR}.${ROCKSDB_VERSION_PATCH})
 
 
 option(WITH_MD_LIBRARY "build with MD" ON)
@@ -209,11 +200,11 @@ if(CMAKE_SYSTEM_PROCESSOR MATCHES "ppc64le")
 endif(CMAKE_SYSTEM_PROCESSOR MATCHES "ppc64le")
 
 if(CMAKE_SYSTEM_PROCESSOR MATCHES "aarch64|AARCH64")
-        CHECK_C_COMPILER_FLAG("-march=armv8-a+crc" HAS_ARMV8_CRC)
+        CHECK_C_COMPILER_FLAG("-march=armv8-a+crc+crypto" HAS_ARMV8_CRC)
   if(HAS_ARMV8_CRC)
     message(STATUS " HAS_ARMV8_CRC yes")
-    set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -march=armv8-a+crc -Wno-unused-function")
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -march=armv8-a+crc -Wno-unused-function")
+    set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -march=armv8-a+crc+crypto -Wno-unused-function")
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -march=armv8-a+crc+crypto -Wno-unused-function")
   endif(HAS_ARMV8_CRC)
 endif(CMAKE_SYSTEM_PROCESSOR MATCHES "aarch64|AARCH64")
 
@@ -316,15 +307,14 @@ if(WITH_NUMA)
   find_package(NUMA REQUIRED)
   add_definitions(-DNUMA)
   include_directories(${NUMA_INCLUDE_DIR})
-  list(APPEND THIRDPARTY_LIBS ${NUMA_LIBRARIES})
+  list(APPEND THIRDPARTY_LIBS NUMA::NUMA)
 endif()
 
 option(WITH_TBB "build with Threading Building Blocks (TBB)" OFF)
 if(WITH_TBB)
   find_package(TBB REQUIRED)
   add_definitions(-DTBB)
-  include_directories(${TBB_INCLUDE_DIR})
-  list(APPEND THIRDPARTY_LIBS ${TBB_LIBRARIES})
+  list(APPEND THIRDPARTY_LIBS TBB::TBB)
 endif()
 
 # Stall notifications eat some performance from inserts
@@ -478,7 +468,10 @@ endif()
 
 include_directories(${PROJECT_SOURCE_DIR})
 include_directories(${PROJECT_SOURCE_DIR}/include)
-include_directories(SYSTEM ${PROJECT_SOURCE_DIR}/third-party/gtest-1.7.0/fused-src)
+include_directories(SYSTEM ${PROJECT_SOURCE_DIR}/third-party/gtest-1.8.1/fused-src)
+if(WITH_FOLLY_DISTRIBUTED_MUTEX)
+  include_directories(${PROJECT_SOURCE_DIR}/third-party/folly)
+endif()
 find_package(Threads REQUIRED)
 
 # Main library source code
@@ -537,6 +530,7 @@ set(SOURCES
         db/table_cache.cc
         db/table_properties_collector.cc
         db/transaction_log_impl.cc
+        db/trim_history_scheduler.cc
         db/version_builder.cc
         db/version_edit.cc
         db/version_set.cc
@@ -603,7 +597,6 @@ set(SOURCES
         table/block_based/partitioned_filter_block.cc
         table/block_based/uncompression_dict_reader.cc
         table/block_fetcher.cc
-        table/bloom_block.cc
         table/cuckoo/cuckoo_table_builder.cc
         table/cuckoo/cuckoo_table_factory.cc
         table/cuckoo/cuckoo_table_reader.cc
@@ -613,6 +606,7 @@ set(SOURCES
         table/merging_iterator.cc
         table/meta_blocks.cc
         table/persistent_cache_helper.cc
+        table/plain/plain_table_bloom.cc
         table/plain/plain_table_builder.cc
         table/plain/plain_table_factory.cc
         table/plain/plain_table_index.cc
@@ -678,6 +672,7 @@ set(SOURCES
         utilities/merge_operators/bytesxor.cc
         utilities/merge_operators/max.cc
         utilities/merge_operators/put.cc
+        utilities/merge_operators/sortlist.cc
         utilities/merge_operators/string_append/stringappend.cc
         utilities/merge_operators/string_append/stringappend2.cc
         utilities/merge_operators/uint64add.cc
@@ -754,6 +749,15 @@ else()
     env/io_posix.cc)
 endif()
 
+if(WITH_FOLLY_DISTRIBUTED_MUTEX)
+  list(APPEND SOURCES
+    third-party/folly/folly/detail/Futex.cpp
+    third-party/folly/folly/synchronization/AtomicNotification.cpp
+    third-party/folly/folly/synchronization/DistributedMutex.cpp
+    third-party/folly/folly/synchronization/ParkingLot.cpp
+    third-party/folly/folly/synchronization/WaitOptions.cpp)
+endif()
+
 set(ROCKSDB_STATIC_LIB rocksdb${ARTIFACT_SUFFIX})
 set(ROCKSDB_SHARED_LIB rocksdb-shared${ARTIFACT_SUFFIX})
 set(ROCKSDB_IMPORT_LIB ${ROCKSDB_SHARED_LIB})
@@ -777,8 +781,8 @@ else()
     ${THIRDPARTY_LIBS} ${SYSTEM_LIBS})
   set_target_properties(${ROCKSDB_SHARED_LIB} PROPERTIES
                         LINKER_LANGUAGE CXX
-                        VERSION ${ROCKSDB_VERSION}
-                        SOVERSION ${ROCKSDB_VERSION_MAJOR}
+                        VERSION ${rocksdb_VERSION}
+                        SOVERSION ${rocksdb_VERSION_MAJOR}
                         CXX_STANDARD 11
                         OUTPUT_NAME "rocksdb")
 endif()
@@ -833,7 +837,7 @@ if(NOT WIN32 OR ROCKSDB_INSTALL_ON_WINDOWS)
 
   write_basic_package_version_file(
     RocksDBConfigVersion.cmake
-    VERSION ${ROCKSDB_VERSION}
+    VERSION ${rocksdb_VERSION}
     COMPATIBILITY SameMajorVersion
   )
 
@@ -875,7 +879,7 @@ endif()
 
 option(WITH_TESTS "build with tests" ON)
 if(WITH_TESTS)
-  add_subdirectory(third-party/gtest-1.7.0/fused-src/gtest)
+  add_subdirectory(third-party/gtest-1.8.1/fused-src/gtest)
   set(TESTS
         cache/cache_test.cc
         cache/lru_cache_test.cc
@@ -904,6 +908,7 @@ if(WITH_TESTS)
         db/db_log_iter_test.cc
         db/db_memtable_test.cc
         db/db_merge_operator_test.cc
+        db/db_merge_operand_test.cc
         db/db_options_test.cc
         db/db_properties_test.cc
         db/db_range_del_test.cc
@@ -1022,6 +1027,10 @@ if(WITH_TESTS)
   )
   if(WITH_LIBRADOS)
     list(APPEND TESTS utilities/env_librados_test.cc)
+  endif()
+
+  if(WITH_FOLLY_DISTRIBUTED_MUTEX)
+    list(APPEND TESTS third-party/folly/folly/synchronization/test/DistributedMutexTest.cpp)
   endif()
 
   set(BENCHMARKS

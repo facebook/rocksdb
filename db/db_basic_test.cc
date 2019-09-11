@@ -70,6 +70,44 @@ TEST_F(DBBasicTest, ReadOnlyDB) {
   ASSERT_TRUE(db_->SyncWAL().IsNotSupported());
 }
 
+TEST_F(DBBasicTest, ReadOnlyDBWithWriteDBIdToManifestSet) {
+  ASSERT_OK(Put("foo", "v1"));
+  ASSERT_OK(Put("bar", "v2"));
+  ASSERT_OK(Put("foo", "v3"));
+  Close();
+
+  auto options = CurrentOptions();
+  options.write_dbid_to_manifest = true;
+  assert(options.env == env_);
+  ASSERT_OK(ReadOnlyReopen(options));
+  std::string db_id1;
+  db_->GetDbIdentity(db_id1);
+  ASSERT_EQ("v3", Get("foo"));
+  ASSERT_EQ("v2", Get("bar"));
+  Iterator* iter = db_->NewIterator(ReadOptions());
+  int count = 0;
+  for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
+    ASSERT_OK(iter->status());
+    ++count;
+  }
+  ASSERT_EQ(count, 2);
+  delete iter;
+  Close();
+
+  // Reopen and flush memtable.
+  Reopen(options);
+  Flush();
+  Close();
+  // Now check keys in read only mode.
+  ASSERT_OK(ReadOnlyReopen(options));
+  ASSERT_EQ("v3", Get("foo"));
+  ASSERT_EQ("v2", Get("bar"));
+  ASSERT_TRUE(db_->SyncWAL().IsNotSupported());
+  std::string db_id2;
+  db_->GetDbIdentity(db_id2);
+  ASSERT_EQ(db_id1, db_id2);
+}
+
 TEST_F(DBBasicTest, CompactedDB) {
   const uint64_t kFileSize = 1 << 20;
   Options options = CurrentOptions();
@@ -297,7 +335,7 @@ TEST_F(DBBasicTest, FlushMultipleMemtable) {
     writeOpt.disableWAL = true;
     options.max_write_buffer_number = 4;
     options.min_write_buffer_number_to_merge = 3;
-    options.max_write_buffer_number_to_maintain = -1;
+    options.max_write_buffer_size_to_maintain = -1;
     CreateAndReopenWithCF({"pikachu"}, options);
     ASSERT_OK(dbfull()->Put(writeOpt, handles_[1], "foo", "v1"));
     ASSERT_OK(Flush(1));
@@ -327,7 +365,8 @@ TEST_F(DBBasicTest, FlushEmptyColumnFamily) {
   writeOpt.disableWAL = true;
   options.max_write_buffer_number = 2;
   options.min_write_buffer_number_to_merge = 1;
-  options.max_write_buffer_number_to_maintain = 1;
+  options.max_write_buffer_size_to_maintain =
+      static_cast<int64_t>(options.write_buffer_size);
   CreateAndReopenWithCF({"pikachu"}, options);
 
   // Compaction can still go through even if no thread can flush the
@@ -423,7 +462,7 @@ TEST_F(DBBasicTest, ManifestRollOver) {
   } while (ChangeCompactOptions());
 }
 
-TEST_F(DBBasicTest, IdentityAcrossRestarts) {
+TEST_F(DBBasicTest, IdentityAcrossRestarts1) {
   do {
     std::string id1;
     ASSERT_OK(db_->GetDbIdentity(id1));
@@ -440,8 +479,35 @@ TEST_F(DBBasicTest, IdentityAcrossRestarts) {
     Reopen(options);
     std::string id3;
     ASSERT_OK(db_->GetDbIdentity(id3));
+    if (options.write_dbid_to_manifest) {
+      ASSERT_EQ(id1.compare(id3), 0);
+    } else {
+      // id1 should NOT match id3 because identity was regenerated
+      ASSERT_NE(id1.compare(id3), 0);
+    }
+  } while (ChangeCompactOptions());
+}
+
+TEST_F(DBBasicTest, IdentityAcrossRestarts2) {
+  do {
+    std::string id1;
+    ASSERT_OK(db_->GetDbIdentity(id1));
+
+    Options options = CurrentOptions();
+    options.write_dbid_to_manifest = true;
+    Reopen(options);
+    std::string id2;
+    ASSERT_OK(db_->GetDbIdentity(id2));
+    // id1 should match id2 because identity was not regenerated
+    ASSERT_EQ(id1.compare(id2), 0);
+
+    std::string idfilename = IdentityFileName(dbname_);
+    ASSERT_OK(env_->DeleteFile(idfilename));
+    Reopen(options);
+    std::string id3;
+    ASSERT_OK(db_->GetDbIdentity(id3));
     // id1 should NOT match id3 because identity was regenerated
-    ASSERT_NE(id1.compare(id3), 0);
+    ASSERT_EQ(id1, id3);
   } while (ChangeCompactOptions());
 }
 
@@ -1287,7 +1353,146 @@ TEST_F(DBBasicTest, MultiGetBatchedMultiLevel) {
   }
 }
 
+// Test class for batched MultiGet with prefix extractor
+// Param bool - If true, use partitioned filters
+//              If false, use full filter block
+class MultiGetPrefixExtractorTest
+    : public DBBasicTest,
+      public ::testing::WithParamInterface<bool> {};
+
+TEST_P(MultiGetPrefixExtractorTest, Batched) {
+  Options options = CurrentOptions();
+  options.prefix_extractor.reset(NewFixedPrefixTransform(2));
+  BlockBasedTableOptions bbto;
+  if (GetParam()) {
+    bbto.index_type = BlockBasedTableOptions::IndexType::kTwoLevelIndexSearch;
+    bbto.partition_filters = true;
+  }
+  bbto.filter_policy.reset(NewBloomFilterPolicy(10, false));
+  bbto.whole_key_filtering = false;
+  bbto.cache_index_and_filter_blocks = false;
+  options.table_factory.reset(NewBlockBasedTableFactory(bbto));
+  Reopen(options);
+
+  // First key is not in the prefix_extractor domain
+  ASSERT_OK(Put("k", "v0"));
+  ASSERT_OK(Put("kk1", "v1"));
+  ASSERT_OK(Put("kk2", "v2"));
+  ASSERT_OK(Put("kk3", "v3"));
+  ASSERT_OK(Put("kk4", "v4"));
+  ASSERT_OK(Flush());
+
+  std::vector<std::string> keys({"k", "kk1", "kk2", "kk3", "kk4"});
+  std::vector<std::string> values;
+  SetPerfLevel(kEnableCount);
+  get_perf_context()->Reset();
+  values = MultiGet(keys, nullptr);
+  ASSERT_EQ(values[0], "v0");
+  ASSERT_EQ(values[1], "v1");
+  ASSERT_EQ(values[2], "v2");
+  ASSERT_EQ(values[3], "v3");
+  ASSERT_EQ(values[4], "v4");
+  // Filter hits for 4 in-domain keys
+  ASSERT_EQ(get_perf_context()->bloom_sst_hit_count, 4);
+}
+
+INSTANTIATE_TEST_CASE_P(
+    MultiGetPrefix, MultiGetPrefixExtractorTest,
+    ::testing::Bool());
+
 #ifndef ROCKSDB_LITE
+class DBMultiGetRowCacheTest
+    : public DBBasicTest,
+      public ::testing::WithParamInterface<bool> {};
+
+TEST_P(DBMultiGetRowCacheTest, MultiGetBatched) {
+  do {
+    option_config_ = kRowCache;
+    Options options = CurrentOptions();
+    options.statistics = rocksdb::CreateDBStatistics();
+    CreateAndReopenWithCF({"pikachu"}, options);
+    SetPerfLevel(kEnableCount);
+    ASSERT_OK(Put(1, "k1", "v1"));
+    ASSERT_OK(Put(1, "k2", "v2"));
+    ASSERT_OK(Put(1, "k3", "v3"));
+    ASSERT_OK(Put(1, "k4", "v4"));
+    Flush(1);
+    ASSERT_OK(Put(1, "k5", "v5"));
+    const Snapshot* snap1 = dbfull()->GetSnapshot();
+    ASSERT_OK(Delete(1, "k4"));
+    Flush(1);
+    const Snapshot* snap2 = dbfull()->GetSnapshot();
+
+    get_perf_context()->Reset();
+
+    std::vector<Slice> keys({"no_key", "k5", "k4", "k3", "k1"});
+    std::vector<PinnableSlice> values(keys.size());
+    std::vector<ColumnFamilyHandle*> cfs(keys.size(), handles_[1]);
+    std::vector<Status> s(keys.size());
+
+    ReadOptions ro;
+    bool use_snapshots = GetParam();
+    if (use_snapshots) {
+      ro.snapshot = snap2;
+    }
+    db_->MultiGet(ro, handles_[1], keys.size(), keys.data(), values.data(),
+                  s.data(), false);
+
+    ASSERT_EQ(values.size(), keys.size());
+    ASSERT_EQ(std::string(values[4].data(), values[4].size()), "v1");
+    ASSERT_EQ(std::string(values[3].data(), values[3].size()), "v3");
+    ASSERT_EQ(std::string(values[1].data(), values[1].size()), "v5");
+    // four kv pairs * two bytes per value
+    ASSERT_EQ(6, (int)get_perf_context()->multiget_read_bytes);
+
+    ASSERT_TRUE(s[0].IsNotFound());
+    ASSERT_OK(s[1]);
+    ASSERT_TRUE(s[2].IsNotFound());
+    ASSERT_OK(s[3]);
+    ASSERT_OK(s[4]);
+
+    // Call MultiGet() again with some intersection with the previous set of
+    // keys. Those should already be in the row cache.
+    keys.assign({"no_key", "k5", "k3", "k2"});
+    for (size_t i = 0; i < keys.size(); ++i) {
+      values[i].Reset();
+      s[i] = Status::OK();
+    }
+    get_perf_context()->Reset();
+
+    if (use_snapshots) {
+      ro.snapshot = snap1;
+    }
+    db_->MultiGet(ReadOptions(), handles_[1], keys.size(), keys.data(),
+                  values.data(), s.data(), false);
+
+    ASSERT_EQ(std::string(values[3].data(), values[3].size()), "v2");
+    ASSERT_EQ(std::string(values[2].data(), values[2].size()), "v3");
+    ASSERT_EQ(std::string(values[1].data(), values[1].size()), "v5");
+    // four kv pairs * two bytes per value
+    ASSERT_EQ(6, (int)get_perf_context()->multiget_read_bytes);
+
+    ASSERT_TRUE(s[0].IsNotFound());
+    ASSERT_OK(s[1]);
+    ASSERT_OK(s[2]);
+    ASSERT_OK(s[3]);
+    if (use_snapshots) {
+      // Only reads from the first SST file would have been cached, since
+      // snapshot seq no is > fd.largest_seqno
+      ASSERT_EQ(1, TestGetTickerCount(options, ROW_CACHE_HIT));
+    } else {
+      ASSERT_EQ(2, TestGetTickerCount(options, ROW_CACHE_HIT));
+    }
+
+    SetPerfLevel(kDisable);
+    dbfull()->ReleaseSnapshot(snap1);
+    dbfull()->ReleaseSnapshot(snap2);
+  } while (ChangeCompactOptions());
+}
+
+INSTANTIATE_TEST_CASE_P(DBMultiGetRowCacheTest, DBMultiGetRowCacheTest,
+                        testing::Values(true, false));
+
 TEST_F(DBBasicTest, GetAllKeyVersions) {
   Options options = CurrentOptions();
   options.env = env_;
@@ -1776,8 +1981,17 @@ INSTANTIATE_TEST_CASE_P(Timestamp, DBBasicTestWithTimestampWithParam,
 
 }  // namespace rocksdb
 
+#ifdef ROCKSDB_UNITTESTS_WITH_CUSTOM_OBJECTS_FROM_STATIC_LIBS
+extern "C" {
+void RegisterCustomObjects(int argc, char** argv);
+}
+#else
+void RegisterCustomObjects(int /*argc*/, char** /*argv*/) {}
+#endif  // !ROCKSDB_UNITTESTS_WITH_CUSTOM_OBJECTS_FROM_STATIC_LIBS
+
 int main(int argc, char** argv) {
   rocksdb::port::InstallStackTraceHandler();
   ::testing::InitGoogleTest(&argc, argv);
+  RegisterCustomObjects(argc, argv);
   return RUN_ALL_TESTS();
 }

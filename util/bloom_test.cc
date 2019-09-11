@@ -23,6 +23,7 @@ int main() {
 #include "table/full_filter_bits_builder.h"
 #include "test_util/testharness.h"
 #include "test_util/testutil.h"
+#include "util/hash.h"
 #include "util/gflags_compat.h"
 
 using GFLAGS_NAMESPACE::ParseCommandLineFlags;
@@ -55,7 +56,7 @@ static int NextLength(int length) {
 
 class BloomTest : public testing::Test {
  private:
-  const FilterPolicy* policy_;
+  std::unique_ptr<const FilterPolicy> policy_;
   std::string filter_;
   std::vector<std::string> keys_;
 
@@ -63,11 +64,18 @@ class BloomTest : public testing::Test {
   BloomTest() : policy_(
       NewBloomFilterPolicy(FLAGS_bits_per_key)) {}
 
-  ~BloomTest() override { delete policy_; }
-
   void Reset() {
     keys_.clear();
     filter_.clear();
+  }
+
+  void ResetPolicy(const FilterPolicy* policy = nullptr) {
+    if (policy == nullptr) {
+      policy_.reset(NewBloomFilterPolicy(FLAGS_bits_per_key));
+    } else {
+      policy_.reset(policy);
+    }
+    Reset();
   }
 
   void Add(const Slice& s) {
@@ -88,6 +96,10 @@ class BloomTest : public testing::Test {
 
   size_t FilterSize() const {
     return filter_.size();
+  }
+
+  Slice FilterData() const {
+    return Slice(filter_);
   }
 
   void DumpFilter() {
@@ -173,11 +185,62 @@ TEST_F(BloomTest, VaryingLengths) {
   ASSERT_LE(mediocre_filters, good_filters/5);
 }
 
+// Ensure the implementation doesn't accidentally change in an
+// incompatible way
+TEST_F(BloomTest, Schema) {
+  char buffer[sizeof(int)];
+
+  ResetPolicy(NewBloomFilterPolicy(8)); // num_probes = 5
+  for (int key = 0; key < 87; key++) {
+    Add(Key(key, buffer));
+  }
+  Build();
+  ASSERT_EQ(BloomHash(FilterData()), 3589896109U);
+
+  ResetPolicy(NewBloomFilterPolicy(9)); // num_probes = 6
+  for (int key = 0; key < 87; key++) {
+    Add(Key(key, buffer));
+  }
+  Build();
+  ASSERT_EQ(BloomHash(FilterData()), 969445585);
+
+  ResetPolicy(NewBloomFilterPolicy(11)); // num_probes = 7
+  for (int key = 0; key < 87; key++) {
+    Add(Key(key, buffer));
+  }
+  Build();
+  ASSERT_EQ(BloomHash(FilterData()), 1694458207);
+
+  ResetPolicy(NewBloomFilterPolicy(10)); // num_probes = 6
+  for (int key = 0; key < 87; key++) {
+    Add(Key(key, buffer));
+  }
+  Build();
+  ASSERT_EQ(BloomHash(FilterData()), 2373646410U);
+
+  ResetPolicy(NewBloomFilterPolicy(10));
+  for (int key = 1; key < 87; key++) {
+    Add(Key(key, buffer));
+  }
+  Build();
+  ASSERT_EQ(BloomHash(FilterData()), 1908442116);
+
+  ResetPolicy(NewBloomFilterPolicy(10));
+  for (int key = 1; key < 88; key++) {
+    Add(Key(key, buffer));
+  }
+  Build();
+  ASSERT_EQ(BloomHash(FilterData()), 3057004015U);
+
+  ResetPolicy();
+}
+
+
 // Different bits-per-byte
 
 class FullBloomTest : public testing::Test {
  private:
-  const FilterPolicy* policy_;
+  std::unique_ptr<const FilterPolicy> policy_;
   std::unique_ptr<FilterBitsBuilder> bits_builder_;
   std::unique_ptr<FilterBitsReader> bits_reader_;
   std::unique_ptr<const char[]> buf_;
@@ -190,8 +253,6 @@ class FullBloomTest : public testing::Test {
     Reset();
   }
 
-  ~FullBloomTest() override { delete policy_; }
-
   FullFilterBitsBuilder* GetFullFilterBitsBuilder() {
     return dynamic_cast<FullFilterBitsBuilder*>(bits_builder_.get());
   }
@@ -201,6 +262,15 @@ class FullBloomTest : public testing::Test {
     bits_reader_.reset(nullptr);
     buf_.reset(nullptr);
     filter_size_ = 0;
+  }
+
+  void ResetPolicy(const FilterPolicy* policy = nullptr) {
+    if (policy == nullptr) {
+      policy_.reset(NewBloomFilterPolicy(FLAGS_bits_per_key, false));
+    } else {
+      policy_.reset(policy);
+    }
+    Reset();
   }
 
   void Add(const Slice& s) {
@@ -215,6 +285,10 @@ class FullBloomTest : public testing::Test {
 
   size_t FilterSize() const {
     return filter_size_;
+  }
+
+  Slice FilterData() {
+    return Slice(buf_.get(), filter_size_);
   }
 
   bool Matches(const Slice& s) {
@@ -278,7 +352,7 @@ TEST_F(FullBloomTest, FullVaryingLengths) {
     }
     Build();
 
-    ASSERT_LE(FilterSize(), (size_t)((length * 10 / 8) + 128 + 5)) << length;
+    ASSERT_LE(FilterSize(), (size_t)((length * 10 / 8) + CACHE_LINE_SIZE * 2 + 5)) << length;
 
     // All added keys must match
     for (int i = 0; i < length; i++) {
@@ -303,6 +377,84 @@ TEST_F(FullBloomTest, FullVaryingLengths) {
             good_filters, mediocre_filters);
   }
   ASSERT_LE(mediocre_filters, good_filters/5);
+}
+
+namespace {
+inline uint32_t SelectByCacheLineSize(uint32_t for64,
+                                  uint32_t for128,
+                                  uint32_t for256) {
+  (void)for64;
+  (void)for128;
+  (void)for256;
+#if CACHE_LINE_SIZE == 64
+  return for64;
+#elif CACHE_LINE_SIZE == 128
+  return for128;
+#elif CACHE_LINE_SIZE == 256
+  return for256;
+#else
+  #error "CACHE_LINE_SIZE unknown or unrecognized"
+#endif
+}
+} // namespace
+
+// Ensure the implementation doesn't accidentally change in an
+// incompatible way
+TEST_F(FullBloomTest, Schema) {
+  char buffer[sizeof(int)];
+
+  // Use enough keys so that changing bits / key by 1 is guaranteed to
+  // change number of allocated cache lines. So keys > max cache line bits.
+
+  ResetPolicy(NewBloomFilterPolicy(8)); // num_probes = 5
+  for (int key = 0; key < 2087; key++) {
+    Add(Key(key, buffer));
+  }
+  Build();
+  ASSERT_EQ(BloomHash(FilterData()),
+            SelectByCacheLineSize(1302145999, 2811644657U, 756553699));
+
+  ResetPolicy(NewBloomFilterPolicy(9)); // num_probes = 6
+  for (int key = 0; key < 2087; key++) {
+    Add(Key(key, buffer));
+  }
+  Build();
+  ASSERT_EQ(BloomHash(FilterData()),
+            SelectByCacheLineSize(2092755149, 661139132, 1182970461));
+
+  ResetPolicy(NewBloomFilterPolicy(11)); // num_probes = 7
+  for (int key = 0; key < 2087; key++) {
+    Add(Key(key, buffer));
+  }
+  Build();
+  ASSERT_EQ(BloomHash(FilterData()),
+            SelectByCacheLineSize(3755609649U, 1812694762, 1449142939));
+
+  ResetPolicy(NewBloomFilterPolicy(10)); // num_probes = 6
+  for (int key = 0; key < 2087; key++) {
+    Add(Key(key, buffer));
+  }
+  Build();
+  ASSERT_EQ(BloomHash(FilterData()),
+            SelectByCacheLineSize(1478976371, 2910591341U, 1182970461));
+
+  ResetPolicy(NewBloomFilterPolicy(10));
+  for (int key = 1; key < 2087; key++) {
+    Add(Key(key, buffer));
+  }
+  Build();
+  ASSERT_EQ(BloomHash(FilterData()),
+            SelectByCacheLineSize(4205696321U, 1132081253U, 2385981855U));
+
+  ResetPolicy(NewBloomFilterPolicy(10));
+  for (int key = 1; key < 2088; key++) {
+    Add(Key(key, buffer));
+  }
+  Build();
+  ASSERT_EQ(BloomHash(FilterData()),
+            SelectByCacheLineSize(2885052954U, 769447944, 4175124908U));
+
+  ResetPolicy();
 }
 
 }  // namespace rocksdb

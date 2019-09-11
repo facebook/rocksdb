@@ -78,9 +78,9 @@ TEST_F(VersionEditTest, EncodeDecodeNewFile4) {
   ASSERT_TRUE(new_files[0].second.marked_for_compaction);
   ASSERT_TRUE(!new_files[1].second.marked_for_compaction);
   ASSERT_TRUE(new_files[2].second.marked_for_compaction);
-  ASSERT_EQ(3, new_files[0].second.fd.GetPathId());
-  ASSERT_EQ(3, new_files[1].second.fd.GetPathId());
-  ASSERT_EQ(0, new_files[2].second.fd.GetPathId());
+  ASSERT_EQ(3u, new_files[0].second.fd.GetPathId());
+  ASSERT_EQ(3u, new_files[1].second.fd.GetPathId());
+  ASSERT_EQ(0u, new_files[2].second.fd.GetPathId());
 }
 
 TEST_F(VersionEditTest, ForwardCompatibleNewFile4) {
@@ -127,8 +127,8 @@ TEST_F(VersionEditTest, ForwardCompatibleNewFile4) {
   auto& new_files = parsed.GetNewFiles();
   ASSERT_TRUE(new_files[0].second.marked_for_compaction);
   ASSERT_TRUE(!new_files[1].second.marked_for_compaction);
-  ASSERT_EQ(3, new_files[0].second.fd.GetPathId());
-  ASSERT_EQ(3, new_files[1].second.fd.GetPathId());
+  ASSERT_EQ(3u, new_files[0].second.fd.GetPathId());
+  ASSERT_EQ(3u, new_files[1].second.fd.GetPathId());
   ASSERT_EQ(1u, parsed.GetDeletedFiles().size());
 }
 
@@ -237,6 +237,16 @@ TEST_F(VersionEditTest, IgnorableField) {
   ASSERT_TRUE(ve.has_next_file_number());
   ASSERT_EQ(66, ve.log_number());
   ASSERT_EQ(88, ve.next_file_number());
+}
+
+TEST_F(VersionEditTest, DbId) {
+  VersionEdit edit;
+  edit.SetDBId("ab34-cd12-435f-er00");
+  TestEncodeDecode(edit);
+
+  edit.Clear();
+  edit.SetDBId("34ba-cd12-435f-er01");
+  TestEncodeDecode(edit);
 }
 
 }  // namespace rocksdb

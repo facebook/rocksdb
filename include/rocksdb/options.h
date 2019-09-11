@@ -1090,6 +1090,17 @@ struct DBOptions {
   // ReadOptions::background_purge_on_iterator_cleanup.
   bool avoid_unnecessary_blocking_io = false;
 
+  // Historically DB ID has always been stored in Identity File in DB folder.
+  // If this flag is true, the DB ID is written to Manifest file in addition
+  // to the Identity file. By doing this 2 problems are solved
+  // 1. We don't checksum the Identity file where as Manifest file is.
+  // 2. Since the source of truth for DB is Manifest file DB ID will sit with
+  //    the source of truth. Previously the Identity file could be copied
+  //    independent of Manifest and that can result in wrong DB ID.
+  // We recommend setting this flag to true.
+  // Default: false
+  bool write_dbid_to_manifest = false;
+
   // The number of bytes to prefetch when reading the log. This is mostly useful
   // for reading a remotely located log, as it can save the number of
   // round-trips. If 0, then the prefetching is disabled.
@@ -1477,6 +1488,13 @@ struct IngestExternalFileOptions {
   // Warning: setting this to true causes slowdown in file ingestion because
   // the external SST file has to be read.
   bool verify_checksums_before_ingest = false;
+  // When verify_checksums_before_ingest = true, RocksDB uses default
+  // readahead setting to scan the file while verifying checksums before
+  // ingestion.
+  // Users can override the default value using this option.
+  // Using a large readahead size (> 2MB) can typically improve the performance
+  // of forward iteration on spinning disks.
+  size_t verify_checksums_readahead_size = 0;
 };
 
 enum TraceFilterType : uint64_t {

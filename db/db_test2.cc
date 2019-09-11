@@ -2797,8 +2797,12 @@ TEST_F(DBTest2, ReadCallbackTest) {
     ReadOptions roptions;
     TestReadCallback callback(seq);
     bool dont_care = true;
-    Status s = dbfull()->GetImpl(roptions, dbfull()->DefaultColumnFamily(), key,
-                                 &pinnable_val, &dont_care, &callback);
+    DBImpl::GetImplOptions get_impl_options;
+    get_impl_options.column_family = dbfull()->DefaultColumnFamily();
+    get_impl_options.value = &pinnable_val;
+    get_impl_options.value_found = &dont_care;
+    get_impl_options.callback = &callback;
+    Status s = dbfull()->GetImpl(roptions, key, get_impl_options);
     ASSERT_TRUE(s.ok());
     // Assuming that after each Put the DB increased seq by one, the value and
     // seq number must be equal since we also inc value by 1 after each Put.
@@ -3819,8 +3823,17 @@ TEST_F(DBTest2, RowCacheSnapshot) {
 #endif  // ROCKSDB_LITE
 }  // namespace rocksdb
 
+#ifdef ROCKSDB_UNITTESTS_WITH_CUSTOM_OBJECTS_FROM_STATIC_LIBS
+extern "C" {
+void RegisterCustomObjects(int argc, char** argv);
+}
+#else
+void RegisterCustomObjects(int /*argc*/, char** /*argv*/) {}
+#endif  // !ROCKSDB_UNITTESTS_WITH_CUSTOM_OBJECTS_FROM_STATIC_LIBS
+
 int main(int argc, char** argv) {
   rocksdb::port::InstallStackTraceHandler();
   ::testing::InitGoogleTest(&argc, argv);
+  RegisterCustomObjects(argc, argv);
   return RUN_ALL_TESTS();
 }

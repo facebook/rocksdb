@@ -88,6 +88,17 @@ class StackableDB : public DB {
     return db_->Get(options, column_family, key, value);
   }
 
+  using DB::GetMergeOperands;
+  virtual Status GetMergeOperands(
+      const ReadOptions& options, ColumnFamilyHandle* column_family,
+      const Slice& key, PinnableSlice* slice,
+      GetMergeOperandsOptions* get_merge_operands_options,
+      int* number_of_operands) override {
+    return db_->GetMergeOperands(options, column_family, key, slice,
+                                 get_merge_operands_options,
+                                 number_of_operands);
+  }
+
   using DB::MultiGet;
   virtual std::vector<Status> MultiGet(
       const ReadOptions& options,
@@ -131,6 +142,10 @@ class StackableDB : public DB {
   }
 
   virtual Status VerifyChecksum() override { return db_->VerifyChecksum(); }
+
+  virtual Status VerifyChecksum(const ReadOptions& options) override {
+    return db_->VerifyChecksum(options);
+  }
 
   using DB::KeyMayExist;
   virtual bool KeyMayExist(const ReadOptions& options,
@@ -354,6 +369,10 @@ class StackableDB : public DB {
 
   virtual Status GetSortedWalFiles(VectorLogPtr& files) override {
     return db_->GetSortedWalFiles(files);
+  }
+
+  virtual Status GetCurrentWalFile(std::unique_ptr<LogFile>* current_log_file) override {
+    return db_->GetCurrentWalFile(current_log_file);
   }
 
   virtual Status DeleteFile(std::string name) override {

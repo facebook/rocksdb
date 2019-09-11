@@ -324,6 +324,8 @@ enum Tickers : uint32_t {
   TXN_DUPLICATE_KEY_OVERHEAD,
   // # of times snapshot_mutex_ is acquired in the fast path.
   TXN_SNAPSHOT_MUTEX_OVERHEAD,
+  // # of times ::Get returned TryAgain due to expired snapshot seq
+  TXN_GET_TRY_AGAIN,
 
   // Number of keys actually found in MultiGet calls (vs number requested by
   // caller)

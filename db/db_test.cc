@@ -883,7 +883,7 @@ TEST_F(DBTest, FlushMultipleMemtable) {
     writeOpt.disableWAL = true;
     options.max_write_buffer_number = 4;
     options.min_write_buffer_number_to_merge = 3;
-    options.max_write_buffer_number_to_maintain = -1;
+    options.max_write_buffer_size_to_maintain = -1;
     CreateAndReopenWithCF({"pikachu"}, options);
     ASSERT_OK(dbfull()->Put(writeOpt, handles_[1], "foo", "v1"));
     ASSERT_OK(Flush(1));
@@ -901,7 +901,8 @@ TEST_F(DBTest, FlushSchedule) {
   options.level0_stop_writes_trigger = 1 << 10;
   options.level0_slowdown_writes_trigger = 1 << 10;
   options.min_write_buffer_number_to_merge = 1;
-  options.max_write_buffer_number_to_maintain = 1;
+  options.max_write_buffer_size_to_maintain =
+      static_cast<int64_t>(options.write_buffer_size);
   options.max_write_buffer_number = 2;
   options.write_buffer_size = 120 * 1024;
   CreateAndReopenWithCF({"pikachu"}, options);
@@ -2540,6 +2541,15 @@ class ModelDB : public DB {
     return Status::NotSupported(key);
   }
 
+  using DB::GetMergeOperands;
+  virtual Status GetMergeOperands(
+      const ReadOptions& /*options*/, ColumnFamilyHandle* /*column_family*/,
+      const Slice& key, PinnableSlice* /*slice*/,
+      GetMergeOperandsOptions* /*merge_operands_options*/,
+      int* /*number_of_operands*/) override {
+    return Status::NotSupported(key);
+  }
+
   using DB::MultiGet;
   std::vector<Status> MultiGet(
       const ReadOptions& /*options*/,
@@ -2576,7 +2586,8 @@ class ModelDB : public DB {
     return Status::NotSupported("Not implemented.");
   }
 
-  Status VerifyChecksum() override {
+  using DB::VerifyChecksum;
+  Status VerifyChecksum(const ReadOptions&) override {
     return Status::NotSupported("Not implemented.");
   }
 
@@ -2776,6 +2787,10 @@ class ModelDB : public DB {
   }
 
   Status GetSortedWalFiles(VectorLogPtr& /*files*/) override {
+    return Status::OK();
+  }
+
+  Status GetCurrentWalFile(std::unique_ptr<LogFile>* /*current_log_file*/) override {
     return Status::OK();
   }
 
@@ -4775,15 +4790,15 @@ TEST_F(DBTest, DynamicUniversalCompactionOptions) {
   DestroyAndReopen(options);
 
   // Initial defaults
-  ASSERT_EQ(dbfull()->GetOptions().compaction_options_universal.size_ratio, 1);
+  ASSERT_EQ(dbfull()->GetOptions().compaction_options_universal.size_ratio, 1U);
   ASSERT_EQ(dbfull()->GetOptions().compaction_options_universal.min_merge_width,
-            2);
+            2u);
   ASSERT_EQ(dbfull()->GetOptions().compaction_options_universal.max_merge_width,
             UINT_MAX);
   ASSERT_EQ(dbfull()
                 ->GetOptions()
                 .compaction_options_universal.max_size_amplification_percent,
-            200);
+            200u);
   ASSERT_EQ(dbfull()
                 ->GetOptions()
                 .compaction_options_universal.compression_size_percent,
@@ -4796,15 +4811,15 @@ TEST_F(DBTest, DynamicUniversalCompactionOptions) {
 
   ASSERT_OK(dbfull()->SetOptions(
       {{"compaction_options_universal", "{size_ratio=7;}"}}));
-  ASSERT_EQ(dbfull()->GetOptions().compaction_options_universal.size_ratio, 7);
+  ASSERT_EQ(dbfull()->GetOptions().compaction_options_universal.size_ratio, 7u);
   ASSERT_EQ(dbfull()->GetOptions().compaction_options_universal.min_merge_width,
-            2);
+            2u);
   ASSERT_EQ(dbfull()->GetOptions().compaction_options_universal.max_merge_width,
             UINT_MAX);
   ASSERT_EQ(dbfull()
                 ->GetOptions()
                 .compaction_options_universal.max_size_amplification_percent,
-            200);
+            200u);
   ASSERT_EQ(dbfull()
                 ->GetOptions()
                 .compaction_options_universal.compression_size_percent,
@@ -4817,15 +4832,15 @@ TEST_F(DBTest, DynamicUniversalCompactionOptions) {
 
   ASSERT_OK(dbfull()->SetOptions(
       {{"compaction_options_universal", "{min_merge_width=11;}"}}));
-  ASSERT_EQ(dbfull()->GetOptions().compaction_options_universal.size_ratio, 7);
+  ASSERT_EQ(dbfull()->GetOptions().compaction_options_universal.size_ratio, 7u);
   ASSERT_EQ(dbfull()->GetOptions().compaction_options_universal.min_merge_width,
-            11);
+            11u);
   ASSERT_EQ(dbfull()->GetOptions().compaction_options_universal.max_merge_width,
             UINT_MAX);
   ASSERT_EQ(dbfull()
                 ->GetOptions()
                 .compaction_options_universal.max_size_amplification_percent,
-            200);
+            200u);
   ASSERT_EQ(dbfull()
                 ->GetOptions()
                 .compaction_options_universal.compression_size_percent,
@@ -6254,8 +6269,17 @@ TEST_F(DBTest, LargeBlockSizeTest) {
 
 }  // namespace rocksdb
 
+#ifdef ROCKSDB_UNITTESTS_WITH_CUSTOM_OBJECTS_FROM_STATIC_LIBS
+extern "C" {
+void RegisterCustomObjects(int argc, char** argv);
+}
+#else
+void RegisterCustomObjects(int /*argc*/, char** /*argv*/) {}
+#endif  // !ROCKSDB_UNITTESTS_WITH_CUSTOM_OBJECTS_FROM_STATIC_LIBS
+
 int main(int argc, char** argv) {
   rocksdb::port::InstallStackTraceHandler();
   ::testing::InitGoogleTest(&argc, argv);
+  RegisterCustomObjects(argc, argv);
   return RUN_ALL_TESTS();
 }

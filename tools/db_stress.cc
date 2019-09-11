@@ -136,9 +136,10 @@ DEFINE_bool(test_batches_snapshots, false,
 DEFINE_bool(atomic_flush, false,
             "If set, enables atomic flush in the options.\n");
 
-DEFINE_bool(test_atomic_flush, false,
-            "If set, runs the stress test dedicated to verifying atomic flush "
-            "functionality. Setting this implies `atomic_flush=true`.\n");
+DEFINE_bool(test_cf_consistency, false,
+            "If set, runs the stress test dedicated to verifying writes to "
+            "multiple column families are consistent. Setting this implies "
+            "`atomic_flush=true` is set true if `disable_wal=false`.\n");
 
 DEFINE_int32(threads, 32, "Number of concurrent threads to run.");
 
@@ -192,6 +193,20 @@ DEFINE_int32(min_write_buffer_number_to_merge,
 DEFINE_int32(max_write_buffer_number_to_maintain,
              rocksdb::Options().max_write_buffer_number_to_maintain,
              "The total maximum number of write buffers to maintain in memory "
+             "including copies of buffers that have already been flushed. "
+             "Unlike max_write_buffer_number, this parameter does not affect "
+             "flushing. This controls the minimum amount of write history "
+             "that will be available in memory for conflict checking when "
+             "Transactions are used. If this value is too low, some "
+             "transactions may fail at commit time due to not being able to "
+             "determine whether there were any write conflicts. Setting this "
+             "value to 0 will cause write buffers to be freed immediately "
+             "after they are flushed.  If this value is set to -1, "
+             "'max_write_buffer_number' will be used.");
+
+DEFINE_int64(max_write_buffer_size_to_maintain,
+             rocksdb::Options().max_write_buffer_size_to_maintain,
+             "The total maximum size of write buffers to maintain in memory "
              "including copies of buffers that have already been flushed. "
              "Unlike max_write_buffer_number, this parameter does not affect "
              "flushing. This controls the minimum amount of write history "
@@ -304,6 +319,12 @@ DEFINE_bool(use_clock_cache, false,
 DEFINE_uint64(subcompactions, 1,
               "Maximum number of subcompactions to divide L0-L1 compactions "
               "into.");
+
+DEFINE_uint64(periodic_compaction_seconds, 1000,
+              "Files older than this value will be picked up for compaction.");
+
+DEFINE_uint64(compaction_ttl, 1000,
+              "Files older than TTL will be compacted to the next level.");
 
 DEFINE_bool(allow_concurrent_memtable_write, false,
             "Allow multi-writers to update mem tables in parallel.");
@@ -2730,6 +2751,10 @@ class StressTest {
     }
     fprintf(stdout, "Snapshot refresh nanos    : %" PRIu64 "\n",
             FLAGS_snap_refresh_nanos);
+    fprintf(stdout, "Periodic Compaction Secs  : %" PRIu64 "\n",
+            FLAGS_periodic_compaction_seconds);
+    fprintf(stdout, "Compaction TTL            : %" PRIu64 "\n",
+            FLAGS_compaction_ttl);
 
     fprintf(stdout, "------------------------------------------------\n");
   }
@@ -2761,6 +2786,8 @@ class StressTest {
           FLAGS_min_write_buffer_number_to_merge;
       options_.max_write_buffer_number_to_maintain =
           FLAGS_max_write_buffer_number_to_maintain;
+      options_.max_write_buffer_size_to_maintain =
+          FLAGS_max_write_buffer_size_to_maintain;
       options_.memtable_prefix_bloom_size_ratio =
           FLAGS_memtable_prefix_bloom_size_ratio;
       options_.memtable_whole_key_filtering =
@@ -2804,6 +2831,8 @@ class StressTest {
       options_.max_subcompactions = static_cast<uint32_t>(FLAGS_subcompactions);
       options_.allow_concurrent_memtable_write =
           FLAGS_allow_concurrent_memtable_write;
+      options_.periodic_compaction_seconds = FLAGS_periodic_compaction_seconds;
+      options_.ttl = FLAGS_compaction_ttl;
       options_.enable_pipelined_write = FLAGS_enable_pipelined_write;
       options_.enable_write_thread_adaptive_yield =
           FLAGS_enable_write_thread_adaptive_yield;
@@ -3950,11 +3979,11 @@ class BatchedOpsStressTest : public StressTest {
   virtual void VerifyDb(ThreadState* /* thread */) const {}
 };
 
-class AtomicFlushStressTest : public StressTest {
+class CfConsistencyStressTest : public StressTest {
  public:
-  AtomicFlushStressTest() : batch_id_(0) {}
+  CfConsistencyStressTest() : batch_id_(0) {}
 
-  virtual ~AtomicFlushStressTest() {}
+  virtual ~CfConsistencyStressTest() {}
 
   virtual Status TestPut(ThreadState* thread, WriteOptions& write_opts,
                          const ReadOptions& /* read_opts */,
@@ -4048,7 +4077,7 @@ class AtomicFlushStressTest : public StressTest {
       std::unique_ptr<MutexLock>& /* lock */) {
     assert(false);
     fprintf(stderr,
-            "AtomicFlushStressTest does not support TestIngestExternalFile "
+            "CfConsistencyStressTest does not support TestIngestExternalFile "
             "because it's not possible to verify the result\n");
     std::terminate();
   }
@@ -4461,9 +4490,10 @@ int main(int argc, char** argv) {
             "Error: clear_column_family_one_in must be 0 when using backup\n");
     exit(1);
   }
-  if (FLAGS_test_atomic_flush) {
+  if (FLAGS_test_cf_consistency && FLAGS_disable_wal) {
     FLAGS_atomic_flush = true;
   }
+
   if (FLAGS_read_only) {
     if (FLAGS_writepercent != 0 || FLAGS_delpercent != 0 ||
         FLAGS_delrangepercent != 0) {
@@ -4507,8 +4537,8 @@ int main(int argc, char** argv) {
   rocksdb_kill_prefix_blacklist = SplitString(FLAGS_kill_prefix_blacklist);
 
   std::unique_ptr<rocksdb::StressTest> stress;
-  if (FLAGS_test_atomic_flush) {
-    stress.reset(new rocksdb::AtomicFlushStressTest());
+  if (FLAGS_test_cf_consistency) {
+    stress.reset(new rocksdb::CfConsistencyStressTest());
   } else if (FLAGS_test_batches_snapshots) {
     stress.reset(new rocksdb::BatchedOpsStressTest());
   } else {

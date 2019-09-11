@@ -24,8 +24,8 @@
 #include "rocksdb/filter_policy.h"
 #include "rocksdb/slice_transform.h"
 #include "rocksdb/table.h"
-#include "table/bloom_block.h"
 #include "table/meta_blocks.h"
+#include "table/plain/plain_table_bloom.h"
 #include "table/plain/plain_table_factory.h"
 #include "table/plain/plain_table_key_coding.h"
 #include "table/plain/plain_table_reader.h"
@@ -726,6 +726,65 @@ TEST_P(PlainTableDBTest, Iterator) {
         delete iter;
       }
     }
+    }
+  }
+}
+
+namespace {
+std::string NthKey(size_t n, char filler) {
+  std::string rv(16, filler);
+  rv[0] = n % 10;
+  rv[1] = (n / 10) % 10;
+  rv[2] = (n / 100) % 10;
+  rv[3] = (n / 1000) % 10;
+  return rv;
+}
+}  // anonymous namespace
+
+TEST_P(PlainTableDBTest, BloomSchema) {
+  Options options = CurrentOptions();
+  options.create_if_missing = true;
+  for (int bloom_locality = 0; bloom_locality <= 1; bloom_locality++) {
+   options.bloom_locality = bloom_locality;
+    PlainTableOptions plain_table_options;
+    plain_table_options.user_key_len = 16;
+    plain_table_options.bloom_bits_per_key = 3; // high FP rate for test
+    plain_table_options.hash_table_ratio = 0.75;
+    plain_table_options.index_sparseness = 16;
+    plain_table_options.huge_page_tlb_size = 0;
+    plain_table_options.encoding_type = kPlain;
+
+
+    bool expect_bloom_not_match = false;
+    options.table_factory.reset(new TestPlainTableFactory(
+        &expect_bloom_not_match, plain_table_options,
+        0 /* column_family_id */, kDefaultColumnFamilyName));
+    DestroyAndReopen(&options);
+
+    for (unsigned i = 0; i < 2345; ++i) {
+      ASSERT_OK(Put(NthKey(i, 'y'), "added"));
+    }
+    dbfull()->TEST_FlushMemTable();
+    ASSERT_EQ("added", Get(NthKey(42, 'y')));
+
+    for (unsigned i = 0; i < 32; ++i) {
+      // Known pattern of Bloom filter false positives can detect schema change
+      // with high probability. Known FPs stuffed into bits:
+      uint32_t pattern;
+      if (!bloom_locality) {
+        pattern = 1785868347UL;
+      } else if (CACHE_LINE_SIZE == 64U) {
+        pattern = 2421694657UL;
+      } else if (CACHE_LINE_SIZE == 128U) {
+        pattern = 788710956UL;
+      } else {
+        ASSERT_EQ(CACHE_LINE_SIZE, 256U);
+        pattern = 163905UL;
+      }
+      bool expect_fp = pattern & (1UL << i);
+      //fprintf(stderr, "expect_fp@%u: %d\n", i, (int)expect_fp);
+      expect_bloom_not_match = !expect_fp;
+      ASSERT_EQ("NOT_FOUND", Get(NthKey(i, 'n')));
     }
   }
 }

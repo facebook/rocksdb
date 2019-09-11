@@ -8,6 +8,7 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
 #include "db/version_set.h"
+#include "db/db_impl/db_impl.h"
 #include "db/log_writer.h"
 #include "logging/logging.h"
 #include "table/mock_table.h"
@@ -637,6 +638,12 @@ class VersionSetTestBase {
     assert(last_seqno != nullptr);
     assert(log_writer != nullptr);
     VersionEdit new_db;
+    if (db_options_.write_dbid_to_manifest) {
+      DBImpl* impl = new DBImpl(DBOptions(), dbname_);
+      std::string db_id;
+      impl->GetDbIdentityFromIdentityFile(&db_id);
+      new_db.SetDBId(db_id);
+    }
     new_db.SetLogNumber(0);
     new_db.SetNextFile(2);
     new_db.SetLastSequence(0);
@@ -691,7 +698,7 @@ class VersionSetTestBase {
     std::vector<ColumnFamilyDescriptor> column_families;
     SequenceNumber last_seqno;
     std::unique_ptr<log::Writer> log_writer;
-
+    SetIdentityFile(env_, dbname_);
     PrepareManifest(&column_families, &last_seqno, &log_writer);
     log_writer.reset();
     // Make "CURRENT" file point to the new manifest file.
@@ -752,7 +759,7 @@ TEST_F(VersionSetTest, SameColumnFamilyGroupCommit) {
   SyncPoint::GetInstance()->SetCallBack(
       "VersionSet::ProcessManifestWrites:SameColumnFamily", [&](void* arg) {
         uint32_t* cf_id = reinterpret_cast<uint32_t*>(arg);
-        EXPECT_EQ(0, *cf_id);
+        EXPECT_EQ(0u, *cf_id);
         ++count;
       });
   SyncPoint::GetInstance()->EnableProcessing();

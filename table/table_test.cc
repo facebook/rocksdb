@@ -2323,8 +2323,8 @@ TEST_P(BlockBasedTableTest, TracingGetTest) {
     PinnableSlice value;
     GetContext get_context(options.comparator, nullptr, nullptr, nullptr,
                            GetContext::kNotFound, user_key, &value, nullptr,
-                           nullptr, nullptr, nullptr, nullptr, nullptr, nullptr,
-                           nullptr, /*get_id=*/i);
+                           nullptr, true, nullptr, nullptr, nullptr, nullptr,
+                           nullptr, nullptr, /*tracing_get_id=*/i);
     get_perf_context()->Reset();
     ASSERT_OK(c.GetTableReader()->Get(ReadOptions(), encoded_key, &get_context,
                                       moptions.prefix_extractor.get()));
@@ -2579,7 +2579,7 @@ TEST_P(BlockBasedTableTest, BlockCacheDisabledTest) {
   {
     GetContext get_context(options.comparator, nullptr, nullptr, nullptr,
                            GetContext::kNotFound, Slice(), nullptr, nullptr,
-                           nullptr, nullptr, nullptr);
+                           nullptr, true, nullptr, nullptr);
     // a hack that just to trigger BlockBasedTable::GetFilter.
     reader->Get(ReadOptions(), "non-exist-key", &get_context,
                 moptions.prefix_extractor.get());
@@ -2629,7 +2629,7 @@ TEST_P(BlockBasedTableTest, FilterBlockInBlockCache) {
                       0, 0, 0);
     ASSERT_EQ(props.GetCacheBytesRead(), 0);
     ASSERT_EQ(props.GetCacheBytesWrite(),
-              table_options.block_cache->GetUsage());
+              static_cast<int64_t>(table_options.block_cache->GetUsage()));
     last_cache_bytes_read = props.GetCacheBytesRead();
   }
 
@@ -2645,7 +2645,7 @@ TEST_P(BlockBasedTableTest, FilterBlockInBlockCache) {
     // Cache hit, bytes read from cache should increase
     ASSERT_GT(props.GetCacheBytesRead(), last_cache_bytes_read);
     ASSERT_EQ(props.GetCacheBytesWrite(),
-              table_options.block_cache->GetUsage());
+              static_cast<int64_t>(table_options.block_cache->GetUsage()));
     last_cache_bytes_read = props.GetCacheBytesRead();
   }
 
@@ -2658,7 +2658,7 @@ TEST_P(BlockBasedTableTest, FilterBlockInBlockCache) {
     // Cache miss, Bytes read from cache should not change
     ASSERT_EQ(props.GetCacheBytesRead(), last_cache_bytes_read);
     ASSERT_EQ(props.GetCacheBytesWrite(),
-              table_options.block_cache->GetUsage());
+              static_cast<int64_t>(table_options.block_cache->GetUsage()));
     last_cache_bytes_read = props.GetCacheBytesRead();
   }
 
@@ -2672,7 +2672,7 @@ TEST_P(BlockBasedTableTest, FilterBlockInBlockCache) {
     // Cache hit, bytes read from cache should increase
     ASSERT_GT(props.GetCacheBytesRead(), last_cache_bytes_read);
     ASSERT_EQ(props.GetCacheBytesWrite(),
-              table_options.block_cache->GetUsage());
+              static_cast<int64_t>(table_options.block_cache->GetUsage()));
   }
   // release the iterator so that the block cache can reset correctly.
   iter.reset();
@@ -2750,7 +2750,7 @@ TEST_P(BlockBasedTableTest, FilterBlockInBlockCache) {
   PinnableSlice value;
   GetContext get_context(options.comparator, nullptr, nullptr, nullptr,
                          GetContext::kNotFound, user_key, &value, nullptr,
-                         nullptr, nullptr, nullptr);
+                         nullptr, true, nullptr, nullptr);
   ASSERT_OK(reader->Get(ReadOptions(), internal_key.Encode(), &get_context,
                         moptions4.prefix_extractor.get()));
   ASSERT_STREQ(value.data(), "hello");
@@ -2836,7 +2836,7 @@ TEST_P(BlockBasedTableTest, BlockReadCountTest) {
       {
         GetContext get_context(options.comparator, nullptr, nullptr, nullptr,
                                GetContext::kNotFound, user_key, &value, nullptr,
-                               nullptr, nullptr, nullptr);
+                               nullptr, true, nullptr, nullptr);
         get_perf_context()->Reset();
         ASSERT_OK(reader->Get(ReadOptions(), encoded_key, &get_context,
                               moptions.prefix_extractor.get()));
@@ -2862,7 +2862,7 @@ TEST_P(BlockBasedTableTest, BlockReadCountTest) {
       {
         GetContext get_context(options.comparator, nullptr, nullptr, nullptr,
                                GetContext::kNotFound, user_key, &value, nullptr,
-                               nullptr, nullptr, nullptr);
+                               nullptr, true, nullptr, nullptr);
         get_perf_context()->Reset();
         ASSERT_OK(reader->Get(ReadOptions(), encoded_key, &get_context,
                               moptions.prefix_extractor.get()));
@@ -3300,7 +3300,8 @@ TEST_F(MemTableTest, Simple) {
   batch.DeleteRange(std::string("begin"), std::string("end"));
   ColumnFamilyMemTablesDefault cf_mems_default(memtable);
   ASSERT_TRUE(
-      WriteBatchInternal::InsertInto(&batch, &cf_mems_default, nullptr).ok());
+      WriteBatchInternal::InsertInto(&batch, &cf_mems_default, nullptr, nullptr)
+          .ok());
 
   for (int i = 0; i < 2; ++i) {
     Arena arena;
@@ -3744,8 +3745,8 @@ TEST_P(BlockBasedTableTest, DISABLED_TableWithGlobalSeqno) {
   };
 
   GetVersionAndGlobalSeqno();
-  ASSERT_EQ(2, version);
-  ASSERT_EQ(0, global_seqno);
+  ASSERT_EQ(2u, version);
+  ASSERT_EQ(0u, global_seqno);
 
   InternalIterator* iter = GetTableInternalIter();
   char current_c = 'a';
@@ -3765,8 +3766,8 @@ TEST_P(BlockBasedTableTest, DISABLED_TableWithGlobalSeqno) {
   // Update global sequence number to 10
   SetGlobalSeqno(10);
   GetVersionAndGlobalSeqno();
-  ASSERT_EQ(2, version);
-  ASSERT_EQ(10, global_seqno);
+  ASSERT_EQ(2u, version);
+  ASSERT_EQ(10u, global_seqno);
 
   iter = GetTableInternalIter();
   current_c = 'a';
@@ -3802,8 +3803,8 @@ TEST_P(BlockBasedTableTest, DISABLED_TableWithGlobalSeqno) {
   // Update global sequence number to 3
   SetGlobalSeqno(3);
   GetVersionAndGlobalSeqno();
-  ASSERT_EQ(2, version);
-  ASSERT_EQ(3, global_seqno);
+  ASSERT_EQ(2u, version);
+  ASSERT_EQ(3u, global_seqno);
 
   iter = GetTableInternalIter();
   current_c = 'a';
@@ -4022,7 +4023,7 @@ TEST_P(BlockBasedTableTest, PropertiesBlockRestartPointTest) {
     Block properties_block(std::move(properties_contents),
                            kDisableGlobalSequenceNumber);
 
-    ASSERT_EQ(properties_block.NumRestarts(), 1);
+    ASSERT_EQ(properties_block.NumRestarts(), 1u);
   }
 }
 
@@ -4230,7 +4231,7 @@ TEST_P(BlockBasedTableTest, DataBlockHashIndex) {
         std::string user_key = ExtractUserKey(kv.first).ToString();
         GetContext get_context(options.comparator, nullptr, nullptr, nullptr,
                                GetContext::kNotFound, user_key, &value, nullptr,
-                               nullptr, nullptr, nullptr);
+                               nullptr, true, nullptr, nullptr);
         ASSERT_OK(reader->Get(ro, kv.first, &get_context,
                               moptions.prefix_extractor.get()));
         ASSERT_EQ(get_context.State(), GetContext::kFound);
@@ -4256,7 +4257,7 @@ TEST_P(BlockBasedTableTest, DataBlockHashIndex) {
         PinnableSlice value;
         GetContext get_context(options.comparator, nullptr, nullptr, nullptr,
                                GetContext::kNotFound, user_key, &value, nullptr,
-                               nullptr, nullptr, nullptr);
+                               nullptr, true, nullptr, nullptr);
         ASSERT_OK(reader->Get(ro, encoded_key, &get_context,
                               moptions.prefix_extractor.get()));
         ASSERT_EQ(get_context.State(), GetContext::kNotFound);

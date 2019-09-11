@@ -4620,6 +4620,8 @@ class TickerTypeJni {
         return -0x0B;
       case rocksdb::Tickers::TXN_SNAPSHOT_MUTEX_OVERHEAD:
         return -0x0C;
+      case rocksdb::Tickers::TXN_GET_TRY_AGAIN:
+        return -0x0D;
       case rocksdb::Tickers::TICKER_ENUM_MAX:
         // 0x5F for backwards compatibility on current minor version.
         return 0x5F;
@@ -4912,6 +4914,8 @@ class TickerTypeJni {
         return rocksdb::Tickers::TXN_DUPLICATE_KEY_OVERHEAD;
       case -0x0C:
         return rocksdb::Tickers::TXN_SNAPSHOT_MUTEX_OVERHEAD;
+      case -0x0D:
+        return rocksdb::Tickers::TXN_GET_TRY_AGAIN;
       case 0x5F:
         // 0x5F for backwards compatibility on current minor version.
         return rocksdb::Tickers::TICKER_ENUM_MAX;

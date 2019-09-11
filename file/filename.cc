@@ -60,8 +60,7 @@ static size_t GetInfoLogPrefix(const std::string& path, char* dest, int len) {
 static std::string MakeFileName(uint64_t number, const char* suffix) {
   char buf[100];
   snprintf(buf, sizeof(buf), "%06llu.%s",
-           static_cast<unsigned long long>(number),
-           suffix);
+           static_cast<unsigned long long>(number), suffix);
   return buf;
 }
 
@@ -394,8 +393,14 @@ Status SetCurrentFile(Env* env, const std::string& dbname,
   return s;
 }
 
-Status SetIdentityFile(Env* env, const std::string& dbname) {
-  std::string id = env->GenerateUniqueId();
+Status SetIdentityFile(Env* env, const std::string& dbname,
+                       const std::string& db_id) {
+  std::string id;
+  if (db_id.empty()) {
+    id = env->GenerateUniqueId();
+  } else {
+    id = db_id;
+  }
   assert(!id.empty());
   // Reserve the filename dbname/000000.dbtmp for the temporary identity file
   std::string tmp = TempFileName(dbname, 0);

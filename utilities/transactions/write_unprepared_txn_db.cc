@@ -86,8 +86,12 @@ Status WriteUnpreparedTxnDB::RollbackRecoveredTransaction(
         PinnableSlice pinnable_val;
         bool not_used;
         auto cf_handle = handles_[cf];
-        s = db_->GetImpl(roptions, cf_handle, key, &pinnable_val, &not_used,
-                         &callback);
+        DBImpl::GetImplOptions get_impl_options;
+        get_impl_options.column_family = cf_handle;
+        get_impl_options.value = &pinnable_val;
+        get_impl_options.value_found = &not_used;
+        get_impl_options.callback = &callback;
+        s = db_->GetImpl(roptions, key, get_impl_options);
         assert(s.ok() || s.IsNotFound());
         if (s.ok()) {
           s = rollback_batch_->Put(cf_handle, key, pinnable_val);
@@ -175,7 +179,7 @@ Status WriteUnpreparedTxnDB::Initialize(
     const std::vector<size_t>& compaction_enabled_cf_indices,
     const std::vector<ColumnFamilyHandle*>& handles) {
   // TODO(lth): Reduce code duplication in this function.
-  auto dbimpl = reinterpret_cast<DBImpl*>(GetRootDB());
+  auto dbimpl = static_cast_with_check<DBImpl, DB>(GetRootDB());
   assert(dbimpl != nullptr);
 
   db_impl_->SetSnapshotChecker(new WritePreparedSnapshotChecker(this));
@@ -348,7 +352,8 @@ struct WriteUnpreparedTxnDB::IteratorState {
   IteratorState(WritePreparedTxnDB* txn_db, SequenceNumber sequence,
                 std::shared_ptr<ManagedSnapshot> s,
                 SequenceNumber min_uncommitted, WriteUnpreparedTxn* txn)
-      : callback(txn_db, sequence, min_uncommitted, txn->unprep_seqs_),
+      : callback(txn_db, sequence, min_uncommitted, txn->unprep_seqs_,
+                 kBackedByDBSnapshot),
         snapshot(s) {}
   SequenceNumber MaxVisibleSeq() { return callback.max_visible_seq(); }
 

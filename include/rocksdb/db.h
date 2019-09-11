@@ -116,6 +116,10 @@ struct IngestExternalFileArg {
   IngestExternalFileOptions options;
 };
 
+struct GetMergeOperandsOptions {
+  int expected_max_number_of_operands = 0;
+};
+
 // A collections of table properties objects, where
 //  key: is the table's file name.
 //  value: the table properties object of the given table.
@@ -402,6 +406,22 @@ class DB {
                      std::string* value) {
     return Get(options, DefaultColumnFamily(), key, value);
   }
+
+  // Returns all the merge operands corresponding to the key. If the
+  // number of merge operands in DB is greater than
+  // merge_operands_options.expected_max_number_of_operands
+  // no merge operands are returned and status is Incomplete. Merge operands
+  // returned are in the order of insertion.
+  // merge_operands- Points to an array of at-least
+  //             merge_operands_options.expected_max_number_of_operands and the
+  //             caller is responsible for allocating it. If the status
+  //             returned is Incomplete then number_of_operands will contain
+  //             the total number of merge operands found in DB for key.
+  virtual Status GetMergeOperands(
+      const ReadOptions& options, ColumnFamilyHandle* column_family,
+      const Slice& key, PinnableSlice* merge_operands,
+      GetMergeOperandsOptions* get_merge_operands_options,
+      int* number_of_operands) = 0;
 
   // If keys[i] does not exist in the database, then the i'th returned
   // status will be one for which Status::IsNotFound() is true, and
@@ -1103,6 +1123,15 @@ class DB {
   // Retrieve the sorted list of all wal files with earliest file first
   virtual Status GetSortedWalFiles(VectorLogPtr& files) = 0;
 
+  // Retrieve information about the current wal file
+  //
+  // Note that the log might have rolled after this call in which case
+  // the current_log_file would not point to the current log file.
+  //
+  // Additionally, for the sake of optimization current_log_file->StartSequence
+  // would always be set to 0
+  virtual Status GetCurrentWalFile(std::unique_ptr<LogFile>* current_log_file) = 0;
+
   // Note: this API is not yet consistent with WritePrepared transactions.
   // Sets iter to an iterator that is positioned at a write-batch containing
   // seq_number. If the sequence number is non existent, it returns an iterator
@@ -1205,7 +1234,9 @@ class DB {
       const ExportImportFilesMetaData& metadata,
       ColumnFamilyHandle** handle) = 0;
 
-  virtual Status VerifyChecksum() = 0;
+  virtual Status VerifyChecksum(const ReadOptions& read_options) = 0;
+
+  virtual Status VerifyChecksum() { return VerifyChecksum(ReadOptions()); }
 
   // AddFile() is deprecated, please use IngestExternalFile()
   ROCKSDB_DEPRECATED_FUNC virtual Status AddFile(

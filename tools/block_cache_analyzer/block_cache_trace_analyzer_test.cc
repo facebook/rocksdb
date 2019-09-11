@@ -181,7 +181,9 @@ class BlockCacheTracerTest : public testing::Test {
             analyze_get_spatial_locality_labels_,
         "-analyze_get_spatial_locality_buckets=" +
             analyze_get_spatial_locality_buckets_,
-        "-analyze_correlation_coefficients_labels=all"};
+        "-analyze_correlation_coefficients_labels=all",
+        "-skew_labels=all",
+        "-skew_buckets=10,50,100"};
     char arg_buffer[kArgBufferSize];
     char* argv[kMaxArgCount];
     int argc = 0;
@@ -330,6 +332,33 @@ TEST_F(BlockCacheTracerTest, BlockCacheAnalyzer) {
         ASSERT_OK(env_->DeleteFile(miss_timeline_path));
       }
     }
+  }
+  {
+    // Validate the skewness csv file.
+    const std::string skewness_file_path = test_path_ + "/all_skewness";
+    std::ifstream skew_file(skewness_file_path);
+    // Read header.
+    std::string line;
+    ASSERT_TRUE(getline(skew_file, line));
+    std::stringstream ss(line);
+    double sum_percent = 0;
+    while (getline(skew_file, line)) {
+      std::stringstream ss_naccess(line);
+      std::string substr;
+      bool read_label = false;
+      while (ss_naccess.good()) {
+        ASSERT_TRUE(getline(ss_naccess, substr, ','));
+        if (!read_label) {
+          read_label = true;
+          continue;
+        }
+        sum_percent += ParseDouble(substr);
+      }
+    }
+    ASSERT_EQ(100.0, sum_percent);
+    ASSERT_FALSE(getline(skew_file, line));
+    skew_file.close();
+    ASSERT_OK(env_->DeleteFile(skewness_file_path));
   }
   {
     // Validate the timeline csv files.
@@ -605,12 +634,14 @@ TEST_F(BlockCacheTracerTest, MixedBlocks) {
     ASSERT_EQ(kMajorVersion, header.rocksdb_major_version);
     ASSERT_EQ(kMinorVersion, header.rocksdb_minor_version);
     // Read blocks.
-    BlockCacheTraceAnalyzer analyzer(trace_file_path_,
-                                     /*output_miss_ratio_curve_path=*/"",
-                                     /*human_readable_trace_file_path=*/"",
-                                     /*compute_reuse_distance=*/true,
-                                     /*mrc_only=*/false,
-                                     /*simulator=*/nullptr);
+    BlockCacheTraceAnalyzer analyzer(
+        trace_file_path_,
+        /*output_miss_ratio_curve_path=*/"",
+        /*human_readable_trace_file_path=*/"",
+        /*compute_reuse_distance=*/true,
+        /*mrc_only=*/false,
+        /*is_block_cache_human_readable_trace=*/false,
+        /*simulator=*/nullptr);
     // The analyzer ends when it detects an incomplete access record.
     ASSERT_EQ(Status::Incomplete(""), analyzer.Analyze());
     const uint64_t expected_num_cfs = 1;

@@ -19,10 +19,10 @@
 #include "rocksdb/slice_transform.h"
 #include "rocksdb/table.h"
 #include "rocksdb/table_properties.h"
+#include "table/plain/plain_table_bloom.h"
 #include "table/plain/plain_table_factory.h"
 #include "table/plain/plain_table_index.h"
 #include "table/table_reader.h"
-#include "util/dynamic_bloom.h"
 #include "util/file_reader_writer.h"
 
 namespace rocksdb {
@@ -94,6 +94,9 @@ class PlainTableReader: public TableReader {
   uint64_t ApproximateOffsetOf(const Slice& key,
                                TableReaderCaller caller) override;
 
+  uint64_t ApproximateSize(const Slice& start, const Slice& end,
+                           TableReaderCaller caller) override;
+
   uint32_t GetIndexSize() const { return index_.GetIndexSize(); }
   void SetupForCompaction() override;
 
@@ -152,7 +155,7 @@ class PlainTableReader: public TableReader {
 
   // Bloom filter is used to rule out non-existent key
   bool enable_bloom_;
-  DynamicBloom bloom_;
+  PlainTableBloomV1 bloom_;
   PlainTableReaderFileInfo file_info_;
   Arena arena_;
   CacheAllocationPtr index_block_alloc_;
