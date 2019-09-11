@@ -353,6 +353,9 @@ class DBIter final: public Iterator {
   ROCKSDB_FIELD_UNUSED
 #endif
   DBImpl* db_impl_;
+#ifdef ROCKSDB_LITE
+  ROCKSDB_FIELD_UNUSED
+#endif
   ColumnFamilyData* cfd_;
   // for diff snapshots we want the lower bound on the seqnum;
   // if this value > 0 iterator will return internal keys
