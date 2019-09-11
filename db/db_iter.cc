@@ -349,10 +349,11 @@ class DBIter final: public Iterator {
   ReadRangeDelAggregator range_del_agg_;
   LocalStatistics local_stats_;
   PinnedIteratorsManager pinned_iters_mgr_;
-#ifndef ROCKSDB_LITE
+#ifdef ROCKSDB_LITE
+  ROCKSDB_FIELD_UNUSED
+#endif
   DBImpl* db_impl_;
   ColumnFamilyData* cfd_;
-#endif
   // for diff snapshots we want the lower bound on the seqnum;
   // if this value > 0 iterator will return internal keys
   SequenceNumber start_seqnum_;
