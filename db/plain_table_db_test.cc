@@ -770,8 +770,19 @@ TEST_P(PlainTableDBTest, BloomSchema) {
     for (unsigned i = 0; i < 32; ++i) {
       // Known pattern of Bloom filter false positives can detect schema change
       // with high probability. Known FPs stuffed into bits:
-      bool expect_fp = (bloom_locality ? 2421694657UL : 1785868347UL)
-                       & (1UL << i);
+      uint32_t pattern;
+      if (!bloom_locality) {
+        pattern = 1785868347UL;
+      } else if (CACHE_LINE_SIZE == 64U) {
+        pattern = 2421694657UL;
+      } else if (CACHE_LINE_SIZE == 128U) {
+        pattern = 788710956UL;
+      } else {
+        ASSERT_EQ(CACHE_LINE_SIZE, 256U);
+        pattern = 163905UL;
+      }
+      bool expect_fp = pattern & (1UL << i);
+      //fprintf(stderr, "expect_fp@%u: %d\n", i, (int)expect_fp);
       expect_bloom_not_match = !expect_fp;
       ASSERT_EQ("NOT_FOUND", Get(NthKey(i, 'n')));
     }

@@ -4790,15 +4790,15 @@ TEST_F(DBTest, DynamicUniversalCompactionOptions) {
   DestroyAndReopen(options);
 
   // Initial defaults
-  ASSERT_EQ(dbfull()->GetOptions().compaction_options_universal.size_ratio, 1);
+  ASSERT_EQ(dbfull()->GetOptions().compaction_options_universal.size_ratio, 1U);
   ASSERT_EQ(dbfull()->GetOptions().compaction_options_universal.min_merge_width,
-            2);
+            2u);
   ASSERT_EQ(dbfull()->GetOptions().compaction_options_universal.max_merge_width,
             UINT_MAX);
   ASSERT_EQ(dbfull()
                 ->GetOptions()
                 .compaction_options_universal.max_size_amplification_percent,
-            200);
+            200u);
   ASSERT_EQ(dbfull()
                 ->GetOptions()
                 .compaction_options_universal.compression_size_percent,
@@ -4811,15 +4811,15 @@ TEST_F(DBTest, DynamicUniversalCompactionOptions) {
 
   ASSERT_OK(dbfull()->SetOptions(
       {{"compaction_options_universal", "{size_ratio=7;}"}}));
-  ASSERT_EQ(dbfull()->GetOptions().compaction_options_universal.size_ratio, 7);
+  ASSERT_EQ(dbfull()->GetOptions().compaction_options_universal.size_ratio, 7u);
   ASSERT_EQ(dbfull()->GetOptions().compaction_options_universal.min_merge_width,
-            2);
+            2u);
   ASSERT_EQ(dbfull()->GetOptions().compaction_options_universal.max_merge_width,
             UINT_MAX);
   ASSERT_EQ(dbfull()
                 ->GetOptions()
                 .compaction_options_universal.max_size_amplification_percent,
-            200);
+            200u);
   ASSERT_EQ(dbfull()
                 ->GetOptions()
                 .compaction_options_universal.compression_size_percent,
@@ -4832,15 +4832,15 @@ TEST_F(DBTest, DynamicUniversalCompactionOptions) {
 
   ASSERT_OK(dbfull()->SetOptions(
       {{"compaction_options_universal", "{min_merge_width=11;}"}}));
-  ASSERT_EQ(dbfull()->GetOptions().compaction_options_universal.size_ratio, 7);
+  ASSERT_EQ(dbfull()->GetOptions().compaction_options_universal.size_ratio, 7u);
   ASSERT_EQ(dbfull()->GetOptions().compaction_options_universal.min_merge_width,
-            11);
+            11u);
   ASSERT_EQ(dbfull()->GetOptions().compaction_options_universal.max_merge_width,
             UINT_MAX);
   ASSERT_EQ(dbfull()
                 ->GetOptions()
                 .compaction_options_universal.max_size_amplification_percent,
-            200);
+            200u);
   ASSERT_EQ(dbfull()
                 ->GetOptions()
                 .compaction_options_universal.compression_size_percent,

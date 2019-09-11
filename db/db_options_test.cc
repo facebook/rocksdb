@@ -505,10 +505,10 @@ TEST_F(DBOptionsTest, SetStatsDumpPeriodSec) {
   options.stats_dump_period_sec = 5;
   options.env = env_;
   Reopen(options);
-  ASSERT_EQ(5, dbfull()->GetDBOptions().stats_dump_period_sec);
+  ASSERT_EQ(5u, dbfull()->GetDBOptions().stats_dump_period_sec);
 
   for (int i = 0; i < 20; i++) {
-    int num = rand() % 5000 + 1;
+    unsigned int num = rand() % 5000 + 1;
     ASSERT_OK(
         dbfull()->SetDBOptions({{"stats_dump_period_sec", ToString(num)}}));
     ASSERT_EQ(num, dbfull()->GetDBOptions().stats_dump_period_sec);
@@ -522,12 +522,12 @@ TEST_F(DBOptionsTest, SetOptionsStatsPersistPeriodSec) {
   options.stats_persist_period_sec = 5;
   options.env = env_;
   Reopen(options);
-  ASSERT_EQ(5, dbfull()->GetDBOptions().stats_persist_period_sec);
+  ASSERT_EQ(5u, dbfull()->GetDBOptions().stats_persist_period_sec);
 
   ASSERT_OK(dbfull()->SetDBOptions({{"stats_persist_period_sec", "12345"}}));
-  ASSERT_EQ(12345, dbfull()->GetDBOptions().stats_persist_period_sec);
+  ASSERT_EQ(12345u, dbfull()->GetDBOptions().stats_persist_period_sec);
   ASSERT_NOK(dbfull()->SetDBOptions({{"stats_persist_period_sec", "abcde"}}));
-  ASSERT_EQ(12345, dbfull()->GetDBOptions().stats_persist_period_sec);
+  ASSERT_EQ(12345u, dbfull()->GetDBOptions().stats_persist_period_sec);
 }
 
 static void assert_candidate_files_empty(DBImpl* dbfull, const bool empty) {
