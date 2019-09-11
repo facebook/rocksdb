@@ -110,10 +110,8 @@ DBOptions BuildDBOptions(const ImmutableDBOptions& immutable_db_options,
       immutable_db_options.allow_concurrent_memtable_write;
   options.enable_write_thread_adaptive_yield =
       immutable_db_options.enable_write_thread_adaptive_yield;
-  options.lower_limit_write_batch_group_size_bytes =
-      immutable_db_options.lower_limit_write_batch_group_size_bytes;
-  options.upper_limit_write_batch_group_size_bytes =
-      immutable_db_options.upper_limit_write_batch_group_size_bytes;
+  options.max_write_batch_group_size_bytes =
+      immutable_db_options.max_write_batch_group_size_bytes;
   options.write_thread_max_yield_usec =
       immutable_db_options.write_thread_max_yield_usec;
   options.write_thread_slow_yield_usec =
