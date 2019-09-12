@@ -627,6 +627,10 @@ ifdef ROCKSDBTESTS_END
         SUBSET := $(shell echo $(SUBSET) | sed 's/$(ROCKSDBTESTS_END).*//')
 endif
 
+ifdef USE_GTEST_PARALLEL
+        GTEST_PARALLEL := true
+endif
+
 TOOLS = \
 	sst_dump \
 	db_sanity_test \
@@ -936,8 +940,12 @@ endif
 # TODO add ldb_tests
 check_some: $(SUBSET)
 	echo "Present Directory: " $(PWD) 
+	echo "GTEST: " $(GTEST_PARALLEL)
+ifeq ($(GTEST_PARALLEL), true)
 	for t in $(SUBSET); do echo "===== Running $$t"; ./gtest-parallel/gtest-parallel ./$$t || exit 1; done
-
+else 
+	for t in $(SUBSET); do echo "===== Running $$t"; ./$$t || exit 1; done	
+endif 
 .PHONY: ldb_tests
 ldb_tests: ldb
 	python tools/ldb_test.py
