@@ -90,10 +90,17 @@ class CacheTest : public testing::TestWithParam<std::string> {
                                   bool strict_capacity_limit) {
     auto type = GetParam();
     if (type == kLRU) {
-      return NewLRUCache(capacity, num_shard_bits, strict_capacity_limit, 0.0);
+      LRUCacheOptions co;
+      co.capacity = capacity;
+      co.num_shard_bits = num_shard_bits;
+      co.strict_capacity_limit = strict_capacity_limit;
+      co.high_pri_pool_ratio = 0;
+      co.metadata_charge_policy = kDontChargeCacheMetadata;
+      return NewLRUCache(co);
     }
     if (type == kClock) {
-      return NewClockCache(capacity, num_shard_bits, strict_capacity_limit);
+      return NewClockCache(capacity, num_shard_bits, strict_capacity_limit,
+                           kDontChargeCacheMetadata);
     }
     return nullptr;
   }
@@ -142,6 +149,8 @@ class CacheTest : public testing::TestWithParam<std::string> {
   }
 };
 CacheTest* CacheTest::current_;
+
+class LRUCacheTest : public CacheTest {};
 
 TEST_P(CacheTest, UsageTest) {
   // cache is std::shared_ptr and will be automatically cleaned up.
@@ -550,10 +559,10 @@ TEST_P(CacheTest, SetCapacity) {
   }
 }
 
-TEST_P(CacheTest, SetStrictCapacityLimit) {
+TEST_P(LRUCacheTest, SetStrictCapacityLimit) {
   // test1: set the flag to false. Insert more keys than capacity. See if they
   // all go through.
-  std::shared_ptr<Cache> cache = NewLRUCache(5, 0, false);
+  std::shared_ptr<Cache> cache = NewCache(5, 0, false);
   std::vector<Cache::Handle*> handles(10);
   Status s;
   for (size_t i = 0; i < 10; i++) {
@@ -579,7 +588,7 @@ TEST_P(CacheTest, SetStrictCapacityLimit) {
   }
 
   // test3: init with flag being true.
-  std::shared_ptr<Cache> cache2 = NewLRUCache(5, 0, true);
+  std::shared_ptr<Cache> cache2 = NewCache(5, 0, true);
   for (size_t i = 0; i < 5; i++) {
     std::string key = ToString(i + 1);
     s = cache2->Insert(key, new Value(i + 1), 1, &deleter, &handles[i]);
@@ -704,6 +713,7 @@ INSTANTIATE_TEST_CASE_P(CacheTestInstance, CacheTest,
 #else
 INSTANTIATE_TEST_CASE_P(CacheTestInstance, CacheTest, testing::Values(kLRU));
 #endif  // SUPPORT_CLOCK_CACHE
+INSTANTIATE_TEST_CASE_P(CacheTestInstance, LRUCacheTest, testing::Values(kLRU));
 
 }  // namespace rocksdb
 

@@ -240,8 +240,11 @@ DBImpl::DBImpl(const DBOptions& options, const std::string& dbname,
   const int table_cache_size = (mutable_db_options_.max_open_files == -1)
                                    ? TableCache::kInfiniteCapacity
                                    : mutable_db_options_.max_open_files - 10;
-  table_cache_ = NewLRUCache(table_cache_size,
-                             immutable_db_options_.table_cache_numshardbits);
+  LRUCacheOptions co;
+  co.capacity = table_cache_size;
+  co.num_shard_bits = immutable_db_options_.table_cache_numshardbits;
+  co.metadata_charge_policy = kDontChargeCacheMetadata;
+  table_cache_ = NewLRUCache(co);
 
   versions_.reset(new VersionSet(dbname_, &immutable_db_options_, env_options_,
                                  table_cache_.get(), write_buffer_manager_,

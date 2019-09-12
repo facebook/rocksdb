@@ -313,10 +313,13 @@ TEST_F(CacheSimulatorTest, HybridRowBlockCacheSimulatorGetTest) {
   get.sst_fd_number = 0;
   get.get_from_user_specified_snapshot = Boolean::kFalse;
 
-  std::shared_ptr<Cache> sim_cache =
-      NewLRUCache(/*capacity=*/16, /*num_shard_bits=*/1,
-                  /*strict_capacity_limit=*/false,
-                  /*high_pri_pool_ratio=*/0);
+  LRUCacheOptions co;
+  co.capacity = 16;
+  co.num_shard_bits = 1;
+  co.strict_capacity_limit = false;
+  co.high_pri_pool_ratio = 0;
+  co.metadata_charge_policy = kDontChargeCacheMetadata;
+  std::shared_ptr<Cache> sim_cache = NewLRUCache(co);
   std::unique_ptr<HybridRowBlockCacheSimulator> cache_simulator(
       new HybridRowBlockCacheSimulator(
           nullptr, sim_cache, /*insert_blocks_row_kvpair_misses=*/true));

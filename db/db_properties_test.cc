@@ -1633,7 +1633,11 @@ TEST_F(DBPropertiesTest, BlockCacheProperties) {
 
   // Test with empty block cache.
   constexpr size_t kCapacity = 100;
-  auto block_cache = NewLRUCache(kCapacity, 0 /*num_shard_bits*/);
+  LRUCacheOptions co;
+  co.capacity = kCapacity;
+  co.num_shard_bits = 0;
+  co.metadata_charge_policy = kDontChargeCacheMetadata;
+  auto block_cache = NewLRUCache(co);
   table_options.block_cache = block_cache;
   table_options.no_block_cache = false;
   options.table_factory.reset(NewBlockBasedTableFactory(table_options));
