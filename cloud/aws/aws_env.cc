@@ -12,8 +12,8 @@
 #include "util/string_util.h"
 
 #ifdef USE_AWS
-
 #include <aws/core/utils/threading/Executor.h>
+#endif
 
 #include "cloud/aws/aws_file.h"
 #include "cloud/aws/aws_kafka.h"
@@ -26,6 +26,149 @@ namespace rocksdb {
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wunused-parameter"
 
+static const std::unordered_map<std::string, AwsAccessType> AwsAccessTypeMap = {
+    {"undefined", AwsAccessType::kUndefined},
+    {"simple", AwsAccessType::kSimple},
+    {"instance", AwsAccessType::kInstance},
+    {"EC2", AwsAccessType::kInstance},
+    {"environment", AwsAccessType::kEnvironment},
+    {"config", AwsAccessType::kConfig},
+    {"anonymous", AwsAccessType::kAnonymous},
+};
+
+template <typename T>
+bool ParseEnum(const std::unordered_map<std::string, T>& type_map,
+               const std::string& type, T* value) {
+  auto iter = type_map.find(type);
+  if (iter != type_map.end()) {
+    *value = iter->second;
+    return true;
+  }
+  return false;
+}
+
+AwsCloudAccessCredentials::AwsCloudAccessCredentials() {
+#ifdef USE_AWS
+  type = AwsAccessType::kUndefined;
+#else
+  type = AwsAccessType::kSimple;
+#endif
+}
+
+AwsAccessType AwsCloudAccessCredentials::GetAccessType() const {
+  if (type != AwsAccessType::kUndefined) {
+    return type;
+  } else if (!config_file.empty()) {
+    return AwsAccessType::kConfig;
+  } else if (!access_key_id.empty() || !secret_key.empty()) {
+    return AwsAccessType::kSimple;
+  }
+  if (getenv("AWS_ACCESS_KEY_ID") || getenv("AWS_SECRET_ACCESS_KEY") ||
+      getenv("AWS_SESSION_TOKEN") || getenv("AWS_DEFAULT_PROFILE") ||
+      getenv("AWS_SHARED_CREDENTIALS_FILE") || getenv("AWS_CONFIG_FILE")) {
+    return AwsAccessType::kEnvironment;
+  }
+
+  return AwsAccessType::kUndefined;
+}
+
+Status AwsCloudAccessCredentials::TEST_Initialize() {
+  std::string type_str;
+  if (CloudEnvOptions::GetNameFromEnvironment(
+          "ROCKSDB_AWS_ACCESS_TYPE", "rocksdb_aws_access_type", &type_str)) {
+    ParseEnum<AwsAccessType>(AwsAccessTypeMap, type_str, &type);
+  }
+  return HasValid();
+}
+
+Status AwsCloudAccessCredentials::CheckCredentials(
+    const AwsAccessType& aws_type) const {
+#ifndef USE_AWS
+  return Status::NotSupported("AWS not supported");
+#else
+  if (aws_type == AwsAccessType::kSimple) {
+    if ((access_key_id.empty() && getenv("AWS_ACCESS_KEY_ID") == nullptr) ||
+        (secret_key.empty() && getenv("AWS_SECRET_ACCESS_KEY") == nullptr)) {
+      return Status::InvalidArgument(
+          "AWS Credentials require both access ID and secret keys");
+    }
+  } else if (aws_type == AwsAccessType::kTaskRole) {
+    return Status::InvalidArgument(
+        "AWS access type: Task Role access is not supported.");
+  } else if (aws_type == AwsAccessType::kUndefined) {
+    return Status::InvalidArgument("Invalid AWS Credentials configuration");
+  }
+  return Status::OK();
+#endif
+}
+
+void AwsCloudAccessCredentials::InitializeSimple(
+    const std::string& aws_access_key_id, const std::string& aws_secret_key) {
+  type = AwsAccessType::kSimple;
+  access_key_id = aws_access_key_id;
+  secret_key = aws_secret_key;
+}
+
+void AwsCloudAccessCredentials::InitializeConfig(
+    const std::string& aws_config_file) {
+  type = AwsAccessType::kConfig;
+  config_file = aws_config_file;
+}
+
+Status AwsCloudAccessCredentials::HasValid() const {
+  AwsAccessType aws_type = GetAccessType();
+  Status status = CheckCredentials(aws_type);
+  return status;
+}
+
+Status AwsCloudAccessCredentials::GetCredentialsProvider(
+    std::shared_ptr<Aws::Auth::AWSCredentialsProvider>* result) const {
+  result->reset();
+
+  AwsAccessType aws_type = GetAccessType();
+  Status status = CheckCredentials(aws_type);
+  if (status.ok()) {
+    switch (aws_type) {
+#ifdef USE_AWS
+      case AwsAccessType::kSimple: {
+        const char* access_key =
+            (access_key_id.empty() ? getenv("AWS_ACCESS_KEY_ID")
+                                   : access_key_id.c_str());
+        const char* secret =
+            (secret_key.empty() ? getenv("AWS_SECRET_ACCESS_KEY")
+                                : secret_key.c_str());
+        result->reset(
+            new Aws::Auth::SimpleAWSCredentialsProvider(access_key, secret));
+        break;
+      }
+      case AwsAccessType::kConfig:
+        if (!config_file.empty()) {
+          result->reset(new Aws::Auth::ProfileConfigFileAWSCredentialsProvider(
+              config_file.c_str()));
+        } else {
+          result->reset(
+              new Aws::Auth::ProfileConfigFileAWSCredentialsProvider());
+        }
+        break;
+      case AwsAccessType::kInstance:
+        result->reset(new Aws::Auth::InstanceProfileCredentialsProvider());
+        break;
+      case AwsAccessType::kAnonymous:
+        result->reset(new Aws::Auth::AnonymousAWSCredentialsProvider());
+        break;
+      case AwsAccessType::kEnvironment:
+        result->reset(new Aws::Auth::EnvironmentAWSCredentialsProvider());
+        break;
+#endif
+      default:
+        status = Status::NotSupported("AWS credentials type not supported");
+        break;  // not supported
+    }
+  }
+  return status;
+}
+
+#ifdef USE_AWS
 namespace detail {
 
 using ScheduledJob =
@@ -202,7 +345,7 @@ Aws::S3::Model::CreateBucketOutcome AwsS3ClientWrapper::CreateBucket(
 Aws::S3::Model::HeadBucketOutcome AwsS3ClientWrapper::HeadBucket(
     const Aws::S3::Model::HeadBucketRequest& request) {
   CloudRequestCallbackGuard t(cloud_request_callback_.get(),
-			      CloudRequestOpType::kInfoOp);
+                              CloudRequestOpType::kInfoOp);
   return client_->HeadBucket(request);
 }
 
@@ -278,12 +421,12 @@ AwsEnv::AwsEnv(Env* underlying_env, const CloudEnvOptions& _cloud_env_options,
     }
   }
 
-  unique_ptr<Aws::Auth::AWSCredentials> creds;
-  if (!cloud_env_options.credentials.access_key_id.empty() &&
-      !cloud_env_options.credentials.secret_key.empty()) {
-    creds.reset(new Aws::Auth::AWSCredentials(
-        ToAwsString(cloud_env_options.credentials.access_key_id),
-        ToAwsString(cloud_env_options.credentials.secret_key)));
+  shared_ptr<Aws::Auth::AWSCredentialsProvider> creds;
+  create_bucket_status_ =
+      cloud_env_options.credentials.GetCredentialsProvider(&creds);
+  if (!create_bucket_status_.ok()) {
+    Log(InfoLogLevel::INFO_LEVEL, info_log,
+        "[aws] NewAwsEnv - Bad AWS credentials");
   }
 
   Header(info_log_, "      AwsEnv.src_bucket_name: %s",
@@ -324,8 +467,8 @@ AwsEnv::AwsEnv(Env* underlying_env, const CloudEnvOptions& _cloud_env_options,
       Log(InfoLogLevel::ERROR_LEVEL, info_log,
           "[aws] NewAwsEnv Buckets %s, %s in two different regions %s, %s "
           "is not supported",
-	  cloud_env_options.src_bucket.GetBucketName().c_str(),
-	  cloud_env_options.dest_bucket.GetBucketName().c_str(),
+          cloud_env_options.src_bucket.GetBucketName().c_str(),
+          cloud_env_options.dest_bucket.GetBucketName().c_str(),
           cloud_env_options.src_bucket.GetRegion().c_str(),
           cloud_env_options.dest_bucket.GetRegion().c_str());
       return;
@@ -340,10 +483,10 @@ AwsEnv::AwsEnv(Env* underlying_env, const CloudEnvOptions& _cloud_env_options,
       GetBucketLocationConstraintForName(config.region);
 
   {
-    auto s3client = creds ? std::make_shared<Aws::S3::S3Client>(*creds, config)
+    auto s3client = creds ? std::make_shared<Aws::S3::S3Client>(creds, config)
                           : std::make_shared<Aws::S3::S3Client>(config);
 
-      s3client_ = std::make_shared<AwsS3ClientWrapper>(
+    s3client_ = std::make_shared<AwsS3ClientWrapper>(
         std::move(s3client), cloud_env_options.cloud_request_callback);
   }
 
@@ -390,7 +533,7 @@ AwsEnv::AwsEnv(Env* underlying_env, const CloudEnvOptions& _cloud_env_options,
     if (cloud_env_options.log_type == kLogKinesis) {
       std::unique_ptr<Aws::Kinesis::KinesisClient> kinesis_client;
       kinesis_client.reset(creds
-                               ? new Aws::Kinesis::KinesisClient(*creds, config)
+                               ? new Aws::Kinesis::KinesisClient(creds, config)
                                : new Aws::Kinesis::KinesisClient(config));
 
       if (!kinesis_client) {
@@ -1895,47 +2038,6 @@ Status AwsEnv::NewAwsEnv(Env* base_env,
   return status;
 }
 
-//
-// Retrieves the AWS credentials from two environment variables
-// called "aws_access_key_id" and "aws_secret_access_key".
-//
-Status AwsEnv::GetTestCredentials(std::string* aws_access_key_id,
-                                  std::string* aws_secret_access_key,
-                                  std::string* region) {
-  Status st;
-  char* id = getenv("AWS_ACCESS_KEY_ID");
-  if (id == nullptr) {
-    id = getenv("aws_access_key_id");
-  }
-  char* secret = getenv("AWS_SECRET_ACCESS_KEY");
-  if (secret == nullptr) {
-    secret = getenv("aws_secret_access_key");
-  }
-
-  if (id == nullptr || secret == nullptr) {
-    std::string msg =
-        "Skipping AWS tests. "
-        "AWS credentials should be set "
-        "using environment varaibles AWS_ACCESS_KEY_ID and "
-        "AWS_SECRET_ACCESS_KEY";
-    return Status::IOError(msg);
-  }
-  aws_access_key_id->assign(id);
-  aws_secret_access_key->assign(secret);
-
-  char* reg = getenv("AWS_DEFAULT_REGION");
-  if (reg == nullptr) {
-    reg = getenv("aws_default_region");
-  }
-
-  if (reg != nullptr) {
-    region->assign(reg);
-  } else {
-    region->assign("us-west-2");
-  }
-  return st;
-}
-
 std::string AwsEnv::GetWALCacheDir() {
   return cloud_log_controller_->GetCacheDir();
 }
@@ -1967,6 +2069,6 @@ Status CloudLogController::Retry(Env* env, RetryType func) {
 }
 
 #pragma GCC diagnostic pop
+#endif  // USE_AWS
 }  // namespace rocksdb
 
-#endif

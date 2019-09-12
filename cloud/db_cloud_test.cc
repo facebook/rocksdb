@@ -51,16 +51,14 @@ class CloudTest : public testing::Test {
                          &options_.info_log);
     options_.info_log->SetInfoLogLevel(InfoLogLevel::DEBUG_LEVEL);
 
-    // Get cloud credentials
-    std::string dummy;
-    AwsEnv::GetTestCredentials(&cloud_env_options_.credentials.access_key_id,
-                               &cloud_env_options_.credentials.secret_key,
-                               &dummy);
     Cleanup();
   }
 
   void Cleanup() {
     ASSERT_TRUE(!aenv_);
+
+    // check cloud credentials
+    ASSERT_TRUE(cloud_env_options_.credentials.HasValid().ok());
 
     CloudEnv* aenv;
     // create a dummy aws env
@@ -114,8 +112,7 @@ class CloudTest : public testing::Test {
 
   // Open database via the cloud interface
   void OpenDB() {
-    ASSERT_NE(cloud_env_options_.credentials.access_key_id.size(), 0);
-    ASSERT_NE(cloud_env_options_.credentials.secret_key.size(), 0);
+    ASSERT_TRUE(cloud_env_options_.credentials.HasValid().ok());
 
     // Create new AWS env
     CreateAwsEnv();
@@ -1346,7 +1343,7 @@ int main(int argc, char** argv) {
 
 #include <stdio.h>
 
-int main(int argc, char** argv) {
+int main(int, char**) {
   fprintf(stderr,
           "SKIPPED as DBCloud is supported only when USE_AWS is defined.\n");
   return 0;
