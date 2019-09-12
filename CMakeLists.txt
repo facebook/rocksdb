@@ -135,7 +135,8 @@ else()
   endif()
 endif()
 
-string(TIMESTAMP GIT_DATE_TIME "%Y/%m/%d %H:%M:%S" UTC)
+string(TIMESTAMP TS "%Y/%m/%d %H:%M:%S" UTC)
+set(GIT_DATE_TIME "${TS}" CACHE STRING "the time we first built rocksdb")
 
 find_package(Git)
 
