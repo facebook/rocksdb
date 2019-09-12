@@ -1356,6 +1356,15 @@ struct WriteOptions {
   // Default: false
   bool low_pri;
 
+  // If true, this writebatch will maintain the last insert positions of each
+  // memtable as hints in concurrent write. It can improve write performance
+  // in concurrent writes if keys in one writebatch are sequential. In
+  // non-concurrent writes (when concurrent_memtable_writes is false) this
+  // option will be ignored.
+  //
+  // Default: false
+  bool memtable_insert_hint_per_batch;
+
   // Timestamp of write operation, e.g. Put. All timestamps of the same
   // database must share the same length and format. The user is also
   // responsible for providing a customized compare function via Comparator to
@@ -1373,6 +1382,7 @@ struct WriteOptions {
         ignore_missing_column_families(false),
         no_slowdown(false),
         low_pri(false),
+        memtable_insert_hint_per_batch(false),
         timestamp(nullptr) {}
 };
 

@@ -86,6 +86,9 @@ class InlineSkipList {
   // Allocate a splice using allocator.
   Splice* AllocateSplice();
 
+  // Allocate a splice on heap.
+  Splice* AllocateSpliceOnHeap();
+
   // Inserts a key allocated by AllocateKey, after the actual key value
   // has been filled in.
   //
@@ -104,6 +107,12 @@ class InlineSkipList {
   // REQUIRES: nothing that compares equal to key is currently in the list.
   // REQUIRES: no concurrent calls to any of inserts.
   bool InsertWithHint(const char* key, void** hint);
+
+  // Like InsertConcurrently, but with a hint
+  //
+  // REQUIRES: nothing that compares equal to key is currently in the list.
+  // REQUIRES: no concurrent calls that use same hint
+  bool InsertWithHintConcurrently(const char* key, void** hint);
 
   // Like Insert, but external synchronization is not required.
   bool InsertConcurrently(const char* key);
@@ -643,6 +652,18 @@ InlineSkipList<Comparator>::AllocateSplice() {
 }
 
 template <class Comparator>
+typename InlineSkipList<Comparator>::Splice*
+InlineSkipList<Comparator>::AllocateSpliceOnHeap() {
+  size_t array_size = sizeof(Node*) * (kMaxHeight_ + 1);
+  char* raw = new char[sizeof(Splice) + array_size * 2];
+  Splice* splice = reinterpret_cast<Splice*>(raw);
+  splice->height_ = 0;
+  splice->prev_ = reinterpret_cast<Node**>(raw + sizeof(Splice));
+  splice->next_ = reinterpret_cast<Node**>(raw + sizeof(Splice) + array_size);
+  return splice;
+}
+
+template <class Comparator>
 bool InlineSkipList<Comparator>::Insert(const char* key) {
   return Insert<false>(key, seq_splice_, false);
 }
@@ -666,6 +687,18 @@ bool InlineSkipList<Comparator>::InsertWithHint(const char* key, void** hint) {
     *hint = reinterpret_cast<void*>(splice);
   }
   return Insert<false>(key, splice, true);
+}
+
+template <class Comparator>
+bool InlineSkipList<Comparator>::InsertWithHintConcurrently(const char* key,
+                                                            void** hint) {
+  assert(hint != nullptr);
+  Splice* splice = reinterpret_cast<Splice*>(*hint);
+  if (splice == nullptr) {
+    splice = AllocateSpliceOnHeap();
+    *hint = reinterpret_cast<void*>(splice);
+  }
+  return Insert<true>(key, splice, true);
 }
 
 template <class Comparator>
