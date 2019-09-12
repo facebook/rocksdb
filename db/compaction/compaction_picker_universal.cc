@@ -745,6 +745,7 @@ Compaction* UniversalCompactionBuilder::PickCompactionToReduceSizeAmp() {
   size_t start_index = 0;
   const SortedRun* sr = nullptr;
 
+  assert(!sorted_runs_.empty());
   if (sorted_runs_.back().being_compacted) {
     return nullptr;
   }
