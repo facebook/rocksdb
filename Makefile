@@ -935,7 +935,7 @@ endif
 
 # TODO add ldb_tests
 check_some: $(SUBSET)
-	echo "Present Directory: " $PWD 
+	echo "Present Directory: " $(PWD) 
 	for t in $(SUBSET); do echo "===== Running $$t"; ~/gtest-parallel/gtest-parallel ./$$t || exit 1; done
 
 .PHONY: ldb_tests
