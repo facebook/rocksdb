@@ -240,11 +240,11 @@ int SstFileDumper::ShowAllCompressionSizes(
       const uint64_t ratio_not_compressed_blocks =
         (num_data_blocks - compressed_blocks) - not_compressed_blocks;
       const double compressed_pcnt = ( 0 == num_data_blocks ) ? 0.0 :
-        ( ( (double)compressed_blocks / (double)num_data_blocks ) * 100.0 ) ;
+        ( ( static_cast<double>(compressed_blocks) / static_cast<double>(num_data_blocks) ) * 100.0 ) ;
       const double ratio_not_compressed_pcnt = ( 0 == num_data_blocks ) ? 0.0 :
-        ( ( (double)ratio_not_compressed_blocks / (double)num_data_blocks ) * 100.0 ) ;
+        ( ( static_cast<double>(ratio_not_compressed_blocks) / static_cast<double>(num_data_blocks) ) * 100.0 ) ;
       const double not_compressed_pcnt = ( 0 == num_data_blocks ) ? 0.0 :
-        ( ( (double)not_compressed_blocks / (double)num_data_blocks ) * 100.0 ) ;
+        ( ( static_cast<double>(not_compressed_blocks) / static_cast<double>(num_data_blocks) ) * 100.0 ) ;      
       fprintf(stdout, " Compressed: %6"             PRIu64 " (%5.1f%%)",
               compressed_blocks, compressed_pcnt);
       fprintf(stdout, " Not compressed (ratio): %6" PRIu64 " (%5.1f%%)",
