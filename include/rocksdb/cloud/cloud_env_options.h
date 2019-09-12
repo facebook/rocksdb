@@ -38,7 +38,7 @@ enum LogType : unsigned char {
 
 // Type of AWS access credentials
 enum class AwsAccessType {
-  kUndefined,
+  kUndefined, // Use AWS SDK's default credential chain
   kSimple,
   kInstance,
   kTaskRole,
@@ -49,9 +49,6 @@ enum class AwsAccessType {
 
 // Credentials needed to access AWS cloud service
 class AwsCloudAccessCredentials {
- public:
-  AwsCloudAccessCredentials();
-
  public:
   // functions to support AWS credentials
   //
@@ -78,7 +75,7 @@ class AwsCloudAccessCredentials {
   std::string access_key_id;
   std::string secret_key;
   std::string config_file;
-  AwsAccessType type;
+  AwsAccessType type{AwsAccessType::kUndefined};
 };
 
 // Defines parameters required to connect to Kafka

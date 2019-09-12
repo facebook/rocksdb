@@ -47,14 +47,6 @@ bool ParseEnum(const std::unordered_map<std::string, T>& type_map,
   return false;
 }
 
-AwsCloudAccessCredentials::AwsCloudAccessCredentials() {
-#ifdef USE_AWS
-  type = AwsAccessType::kUndefined;
-#else
-  type = AwsAccessType::kSimple;
-#endif
-}
-
 AwsAccessType AwsCloudAccessCredentials::GetAccessType() const {
   if (type != AwsAccessType::kUndefined) {
     return type;
@@ -63,12 +55,6 @@ AwsAccessType AwsCloudAccessCredentials::GetAccessType() const {
   } else if (!access_key_id.empty() || !secret_key.empty()) {
     return AwsAccessType::kSimple;
   }
-  if (getenv("AWS_ACCESS_KEY_ID") || getenv("AWS_SECRET_ACCESS_KEY") ||
-      getenv("AWS_SESSION_TOKEN") || getenv("AWS_DEFAULT_PROFILE") ||
-      getenv("AWS_SHARED_CREDENTIALS_FILE") || getenv("AWS_CONFIG_FILE")) {
-    return AwsAccessType::kEnvironment;
-  }
-
   return AwsAccessType::kUndefined;
 }
 
@@ -95,8 +81,6 @@ Status AwsCloudAccessCredentials::CheckCredentials(
   } else if (aws_type == AwsAccessType::kTaskRole) {
     return Status::InvalidArgument(
         "AWS access type: Task Role access is not supported.");
-  } else if (aws_type == AwsAccessType::kUndefined) {
-    return Status::InvalidArgument("Invalid AWS Credentials configuration");
   }
   return Status::OK();
 #endif
@@ -158,6 +142,10 @@ Status AwsCloudAccessCredentials::GetCredentialsProvider(
         break;
       case AwsAccessType::kEnvironment:
         result->reset(new Aws::Auth::EnvironmentAWSCredentialsProvider());
+        break;
+      case AwsAccessType::kUndefined:
+        // Use AWS SDK's default credential chain
+        result->reset();
         break;
 #endif
       default:
