@@ -1263,6 +1263,9 @@ extern ROCKSDB_LIBRARY_API void rocksdb_writeoptions_set_no_slowdown(
     rocksdb_writeoptions_t*, unsigned char);
 extern ROCKSDB_LIBRARY_API void rocksdb_writeoptions_set_low_pri(
     rocksdb_writeoptions_t*, unsigned char);
+extern ROCKSDB_LIBRARY_API void
+rocksdb_writeoptions_set_memtable_insert_hint_per_batch(rocksdb_writeoptions_t*,
+                                                        unsigned char);
 
 /* Compact range options */
 

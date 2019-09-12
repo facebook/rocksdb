@@ -4677,8 +4677,8 @@ class Benchmark {
     }
 
     char msg[100];
-    snprintf(msg, sizeof(msg), "(%" PRIu64 " of %" PRIu64 " found)\n",
-             found, read);
+    snprintf(msg, sizeof(msg), "(%" PRIu64 " of %" PRIu64 " found)\n", found,
+             read);
 
     thread->stats.AddBytes(bytes);
     thread->stats.AddMessage(msg);

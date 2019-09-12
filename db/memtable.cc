@@ -469,7 +469,7 @@ MemTable::MemTableStats MemTable::ApproximateStats(const Slice& start_ikey,
 bool MemTable::Add(SequenceNumber s, ValueType type,
                    const Slice& key, /* user key */
                    const Slice& value, bool allow_concurrent,
-                   MemTablePostProcessInfo* post_process_info) {
+                   MemTablePostProcessInfo* post_process_info, void** hint) {
   // Format of an entry is concatenation of:
   //  key_size     : varint32 of internal_key.size()
   //  key bytes    : char[internal_key.size()]
@@ -547,7 +547,9 @@ bool MemTable::Add(SequenceNumber s, ValueType type,
     assert(post_process_info == nullptr);
     UpdateFlushState();
   } else {
-    bool res = table->InsertKeyConcurrently(handle);
+    bool res = (hint == nullptr)
+                   ? table->InsertKeyConcurrently(handle)
+                   : table->InsertKeyWithHintConcurrently(handle, hint);
     if (UNLIKELY(!res)) {
       return res;
     }

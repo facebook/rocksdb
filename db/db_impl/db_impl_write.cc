@@ -174,7 +174,7 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
           &trim_history_scheduler_,
           write_options.ignore_missing_column_families, 0 /*log_number*/, this,
           true /*concurrent_memtable_writes*/, seq_per_batch_, w.batch_cnt,
-          batch_per_txn_);
+          batch_per_txn_, write_options.memtable_insert_hint_per_batch);
 
       PERF_TIMER_START(write_pre_and_post_process_time);
     }
@@ -397,7 +397,8 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
               &trim_history_scheduler_,
               write_options.ignore_missing_column_families, 0 /*log_number*/,
               this, true /*concurrent_memtable_writes*/, seq_per_batch_,
-              w.batch_cnt, batch_per_txn_);
+              w.batch_cnt, batch_per_txn_,
+              write_options.memtable_insert_hint_per_batch);
         }
       }
       if (seq_used != nullptr) {
@@ -564,7 +565,9 @@ Status DBImpl::PipelinedWriteImpl(const WriteOptions& write_options,
     w.status = WriteBatchInternal::InsertInto(
         &w, w.sequence, &column_family_memtables, &flush_scheduler_,
         &trim_history_scheduler_, write_options.ignore_missing_column_families,
-        0 /*log_number*/, this, true /*concurrent_memtable_writes*/);
+        0 /*log_number*/, this, true /*concurrent_memtable_writes*/,
+        false /*seq_per_batch*/, 0 /*batch_cnt*/, true /*batch_per_txn*/,
+        write_options.memtable_insert_hint_per_batch);
     if (write_thread_.CompleteParallelMemTableWriter(&w)) {
       MemTableInsertStatusCheck(w.status);
       versions_->SetLastSequence(w.write_group->last_sequence);
@@ -603,7 +606,8 @@ Status DBImpl::UnorderedWriteMemtable(const WriteOptions& write_options,
         &w, w.sequence, &column_family_memtables, &flush_scheduler_,
         &trim_history_scheduler_, write_options.ignore_missing_column_families,
         0 /*log_number*/, this, true /*concurrent_memtable_writes*/,
-        seq_per_batch_, sub_batch_cnt);
+        seq_per_batch_, sub_batch_cnt, true /*batch_per_txn*/,
+        write_options.memtable_insert_hint_per_batch);
 
     WriteStatusCheck(w.status);
     if (write_options.disableWAL) {
