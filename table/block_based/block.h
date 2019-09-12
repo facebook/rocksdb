@@ -147,6 +147,9 @@ class Block {
   explicit Block(BlockContents&& contents, SequenceNumber _global_seqno,
                  size_t read_amp_bytes_per_bit = 0,
                  Statistics* statistics = nullptr);
+  // No copying allowed
+  Block(const Block&) = delete;
+  void operator=(const Block&) = delete;
 
   ~Block();
 
@@ -222,10 +225,6 @@ class Block {
   const SequenceNumber global_seqno_;
 
   DataBlockHashIndex data_block_hash_index_;
-
-  // No copying allowed
-  Block(const Block&) = delete;
-  void operator=(const Block&) = delete;
 };
 
 template <class TValue>

@@ -301,11 +301,9 @@ class TransactionDB : public StackableDB {
   // To Create an TransactionDB, call Open()
   // The ownership of db is transferred to the base StackableDB
   explicit TransactionDB(DB* db) : StackableDB(db) {}
-
- private:
   // No copying allowed
-  TransactionDB(const TransactionDB&);
-  void operator=(const TransactionDB&);
+  TransactionDB(const TransactionDB&) = delete;
+  void operator=(const TransactionDB&) = delete;
 };
 
 }  // namespace rocksdb

@@ -109,6 +109,9 @@ class VersionStorageInfo {
                      CompactionStyle compaction_style,
                      VersionStorageInfo* src_vstorage,
                      bool _force_consistency_checks);
+  // No copying allowed
+  VersionStorageInfo(const VersionStorageInfo&) = delete;
+  void operator=(const VersionStorageInfo&) = delete;
   ~VersionStorageInfo();
 
   void Reserve(int level, size_t size) { files_[level].reserve(size); }
@@ -542,9 +545,6 @@ class VersionStorageInfo {
 
   friend class Version;
   friend class VersionSet;
-  // No copying allowed
-  VersionStorageInfo(const VersionStorageInfo&) = delete;
-  void operator=(const VersionStorageInfo&) = delete;
 };
 
 using MultiGetRange = MultiGetContext::Range;
@@ -734,8 +734,8 @@ class Version {
   ~Version();
 
   // No copying allowed
-  Version(const Version&);
-  void operator=(const Version&);
+  Version(const Version&) = delete;
+  void operator=(const Version&) = delete;
 };
 
 struct ObsoleteFileInfo {
@@ -797,6 +797,10 @@ class VersionSet {
              WriteBufferManager* write_buffer_manager,
              WriteController* write_controller,
              BlockCacheTracer* const block_cache_tracer);
+  // No copying allowed
+  VersionSet(const VersionSet&) = delete;
+  void operator=(const VersionSet&) = delete;
+
   virtual ~VersionSet();
 
   // Apply *edit to the current version to form a new descriptor that
@@ -1143,10 +1147,6 @@ class VersionSet {
   BlockCacheTracer* const block_cache_tracer_;
 
  private:
-  // No copying allowed
-  VersionSet(const VersionSet&);
-  void operator=(const VersionSet&);
-
   // REQUIRES db mutex at beginning. may release and re-acquire db mutex
   Status ProcessManifestWrites(std::deque<ManifestWriter>& writers,
                                InstrumentedMutex* mu, Directory* db_directory,

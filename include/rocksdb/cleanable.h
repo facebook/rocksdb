@@ -23,11 +23,11 @@ namespace rocksdb {
 class Cleanable {
  public:
   Cleanable();
-  ~Cleanable();
-
   // No copy constructor and copy assignment allowed.
   Cleanable(Cleanable&) = delete;
   Cleanable& operator=(Cleanable&) = delete;
+
+  ~Cleanable();
 
   // Move constructor and move assignment is allowed.
   Cleanable(Cleanable&&);

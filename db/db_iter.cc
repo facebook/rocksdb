@@ -155,6 +155,10 @@ class DBIter final: public Iterator {
       iter_.iter()->SetPinnedItersMgr(&pinned_iters_mgr_);
     }
   }
+  // No copying allowed
+  DBIter(const DBIter&) = delete;
+  void operator=(const DBIter&) = delete;
+
   ~DBIter() override {
     // Release pinned data if any
     if (pinned_iters_mgr_.PinningEnabled()) {
@@ -345,15 +349,17 @@ class DBIter final: public Iterator {
   ReadRangeDelAggregator range_del_agg_;
   LocalStatistics local_stats_;
   PinnedIteratorsManager pinned_iters_mgr_;
+#ifdef ROCKSDB_LITE
+  ROCKSDB_FIELD_UNUSED
+#endif
   DBImpl* db_impl_;
+#ifdef ROCKSDB_LITE
+  ROCKSDB_FIELD_UNUSED
+#endif
   ColumnFamilyData* cfd_;
   // for diff snapshots we want the lower bound on the seqnum;
   // if this value > 0 iterator will return internal keys
   SequenceNumber start_seqnum_;
-
-  // No copying allowed
-  DBIter(const DBIter&);
-  void operator=(const DBIter&);
 };
 
 inline bool DBIter::ParseKey(ParsedInternalKey* ikey) {
