@@ -11,8 +11,8 @@
 #include "monitoring/statistics.h"
 #include "port/port.h"
 #include "rocksdb/env.h"
+#include "test_util/sync_point.h"
 #include "util/aligned_buffer.h"
-#include "util/sync_point.h"
 
 namespace rocksdb {
 

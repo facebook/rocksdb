@@ -102,6 +102,13 @@ Status Writer::AddRecord(const Slice& slice) {
     left -= fragment_length;
     begin = false;
   } while (s.ok() && left > 0);
+
+  if (s.ok()) {
+    if (!manual_flush_) {
+      s = dest_->Flush();
+    }
+  }
+
   return s;
 }
 
@@ -146,11 +153,6 @@ Status Writer::EmitPhysicalRecord(RecordType t, const char* ptr, size_t n) {
   Status s = dest_->Append(Slice(buf, header_size));
   if (s.ok()) {
     s = dest_->Append(Slice(ptr, n));
-    if (s.ok()) {
-      if (!manual_flush_) {
-        s = dest_->Flush();
-      }
-    }
   }
   block_offset_ += header_size + n;
   return s;

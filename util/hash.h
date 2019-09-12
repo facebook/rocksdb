@@ -49,4 +49,12 @@ struct SliceHasher {
   uint32_t operator()(const Slice& s) const { return GetSliceHash(s); }
 };
 
+// An alternative to % for mapping a hash value to an arbitrary range. See
+// https://github.com/lemire/fastrange and
+// https://github.com/pdillinger/wormhashing/blob/2c4035a4462194bf15f3e9fc180c27c513335225/bloom_simulation_tests/foo.cc#L57
+inline uint32_t fastrange32(uint32_t a, uint32_t h) {
+  uint64_t product = static_cast<uint64_t>(a) * h;
+  return static_cast<uint32_t>(product >> 32);
+}
+
 }  // namespace rocksdb

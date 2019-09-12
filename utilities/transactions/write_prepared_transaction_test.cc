@@ -5,20 +5,16 @@
 
 #ifndef ROCKSDB_LITE
 
-#ifndef __STDC_FORMAT_MACROS
-#define __STDC_FORMAT_MACROS
-#endif
-
 #include "utilities/transactions/transaction_test.h"
 
-#include <inttypes.h>
 #include <algorithm>
 #include <atomic>
+#include <cinttypes>
 #include <functional>
 #include <string>
 #include <thread>
 
-#include "db/db_impl.h"
+#include "db/db_impl/db_impl.h"
 #include "db/dbformat.h"
 #include "rocksdb/db.h"
 #include "rocksdb/options.h"
@@ -27,14 +23,14 @@
 #include "rocksdb/utilities/transaction.h"
 #include "rocksdb/utilities/transaction_db.h"
 #include "table/mock_table.h"
-#include "util/fault_injection_test_env.h"
+#include "test_util/fault_injection_test_env.h"
+#include "test_util/sync_point.h"
+#include "test_util/testharness.h"
+#include "test_util/testutil.h"
+#include "test_util/transaction_test_util.h"
 #include "util/mutexlock.h"
 #include "util/random.h"
 #include "util/string_util.h"
-#include "util/sync_point.h"
-#include "util/testharness.h"
-#include "util/testutil.h"
-#include "util/transaction_test_util.h"
 #include "utilities/merge_operators.h"
 #include "utilities/merge_operators/string_append/stringappend.h"
 #include "utilities/transactions/pessimistic_transaction_db.h"
@@ -52,32 +48,27 @@ using CommitEntry64bFormat = WritePreparedTxnDB::CommitEntry64bFormat;
 
 TEST(PreparedHeap, BasicsTest) {
   WritePreparedTxnDB::PreparedHeap heap;
-  heap.push(14l);
-  // Test with one element
-  ASSERT_EQ(14l, heap.top());
-  heap.push(24l);
-  heap.push(34l);
+  {
+    MutexLock ml(heap.push_pop_mutex());
+    heap.push(14l);
+    // Test with one element
+    ASSERT_EQ(14l, heap.top());
+    heap.push(24l);
+    heap.push(34l);
+    // Test that old min is still on top
+    ASSERT_EQ(14l, heap.top());
+    heap.push(44l);
+    heap.push(54l);
+    heap.push(64l);
+    heap.push(74l);
+    heap.push(84l);
+  }
   // Test that old min is still on top
   ASSERT_EQ(14l, heap.top());
-  heap.push(13l);
-  // Test that the new min will be on top
-  ASSERT_EQ(13l, heap.top());
-  // Test that it is persistent
-  ASSERT_EQ(13l, heap.top());
-  heap.push(44l);
-  heap.push(54l);
-  heap.push(64l);
-  heap.push(74l);
-  heap.push(84l);
-  // Test that old min is still on top
-  ASSERT_EQ(13l, heap.top());
   heap.erase(24l);
   // Test that old min is still on top
-  ASSERT_EQ(13l, heap.top());
+  ASSERT_EQ(14l, heap.top());
   heap.erase(14l);
-  // Test that old min is still on top
-  ASSERT_EQ(13l, heap.top());
-  heap.erase(13l);
   // Test that the new comes to the top after multiple erase
   ASSERT_EQ(34l, heap.top());
   heap.erase(34l);
@@ -93,11 +84,14 @@ TEST(PreparedHeap, BasicsTest) {
   ASSERT_EQ(64l, heap.top());
   heap.erase(84l);
   ASSERT_EQ(64l, heap.top());
-  heap.push(85l);
-  heap.push(86l);
-  heap.push(87l);
-  heap.push(88l);
-  heap.push(89l);
+  {
+    MutexLock ml(heap.push_pop_mutex());
+    heap.push(85l);
+    heap.push(86l);
+    heap.push(87l);
+    heap.push(88l);
+    heap.push(89l);
+  }
   heap.erase(87l);
   heap.erase(85l);
   heap.erase(89l);
@@ -118,13 +112,19 @@ TEST(PreparedHeap, BasicsTest) {
 // not resurface again.
 TEST(PreparedHeap, EmptyAtTheEnd) {
   WritePreparedTxnDB::PreparedHeap heap;
-  heap.push(40l);
+  {
+    MutexLock ml(heap.push_pop_mutex());
+    heap.push(40l);
+  }
   ASSERT_EQ(40l, heap.top());
   // Although not a recommended scenario, we must be resilient against erase
   // without a prior push.
   heap.erase(50l);
   ASSERT_EQ(40l, heap.top());
-  heap.push(60l);
+  {
+    MutexLock ml(heap.push_pop_mutex());
+    heap.push(60l);
+  }
   ASSERT_EQ(40l, heap.top());
 
   heap.erase(60l);
@@ -132,11 +132,17 @@ TEST(PreparedHeap, EmptyAtTheEnd) {
   heap.erase(40l);
   ASSERT_TRUE(heap.empty());
 
-  heap.push(40l);
+  {
+    MutexLock ml(heap.push_pop_mutex());
+    heap.push(40l);
+  }
   ASSERT_EQ(40l, heap.top());
   heap.erase(50l);
   ASSERT_EQ(40l, heap.top());
-  heap.push(60l);
+  {
+    MutexLock ml(heap.push_pop_mutex());
+    heap.push(60l);
+  }
   ASSERT_EQ(40l, heap.top());
 
   heap.erase(40l);
@@ -151,30 +157,37 @@ TEST(PreparedHeap, EmptyAtTheEnd) {
 // successfully emptied at the end.
 TEST(PreparedHeap, Concurrent) {
   const size_t t_cnt = 10;
-  rocksdb::port::Thread t[t_cnt];
-  Random rnd(1103);
+  rocksdb::port::Thread t[t_cnt + 1];
   WritePreparedTxnDB::PreparedHeap heap;
   port::RWMutex prepared_mutex;
+  std::atomic<size_t> last;
 
   for (size_t n = 0; n < 100; n++) {
-    for (size_t i = 0; i < t_cnt; i++) {
-      // This is not recommended usage but we should be resilient against it.
-      bool skip_push = rnd.OneIn(5);
-      t[i] = rocksdb::port::Thread([&heap, &prepared_mutex, skip_push, i]() {
-        auto seq = i;
-        std::this_thread::yield();
+    last = 0;
+    t[0] = rocksdb::port::Thread([&]() {
+      Random rnd(1103);
+      for (size_t seq = 1; seq <= t_cnt; seq++) {
+        // This is not recommended usage but we should be resilient against it.
+        bool skip_push = rnd.OneIn(5);
         if (!skip_push) {
-          WriteLock wl(&prepared_mutex);
+          MutexLock ml(heap.push_pop_mutex());
+          std::this_thread::yield();
           heap.push(seq);
+          last.store(seq);
         }
-        std::this_thread::yield();
-        {
-          WriteLock wl(&prepared_mutex);
-          heap.erase(seq);
-        }
+      }
+    });
+    for (size_t i = 1; i <= t_cnt; i++) {
+      t[i] = rocksdb::port::Thread([&heap, &prepared_mutex, &last, i]() {
+        auto seq = i;
+        do {
+          std::this_thread::yield();
+        } while (last.load() < seq);
+        WriteLock wl(&prepared_mutex);
+        heap.erase(seq);
       });
     }
-    for (size_t i = 0; i < t_cnt; i++) {
+    for (size_t i = 0; i <= t_cnt; i++) {
       t[i].join();
     }
     ASSERT_TRUE(heap.empty());
@@ -342,8 +355,10 @@ class WritePreparedTxnDBMock : public WritePreparedTxnDB {
 class WritePreparedTransactionTestBase : public TransactionTestBase {
  public:
   WritePreparedTransactionTestBase(bool use_stackable_db, bool two_write_queue,
-                                   TxnDBWritePolicy write_policy)
-      : TransactionTestBase(use_stackable_db, two_write_queue, write_policy){};
+                                   TxnDBWritePolicy write_policy,
+                                   WriteOrdering write_ordering)
+      : TransactionTestBase(use_stackable_db, two_write_queue, write_policy,
+                            write_ordering){};
 
  protected:
   void UpdateTransactionDBOptions(size_t snapshot_cache_bits,
@@ -518,26 +533,26 @@ class WritePreparedTransactionTestBase : public TransactionTestBase {
 class WritePreparedTransactionTest
     : public WritePreparedTransactionTestBase,
       virtual public ::testing::WithParamInterface<
-          std::tuple<bool, bool, TxnDBWritePolicy>> {
+          std::tuple<bool, bool, TxnDBWritePolicy, WriteOrdering>> {
  public:
   WritePreparedTransactionTest()
-      : WritePreparedTransactionTestBase(std::get<0>(GetParam()),
-                                         std::get<1>(GetParam()),
-                                         std::get<2>(GetParam())){};
+      : WritePreparedTransactionTestBase(
+            std::get<0>(GetParam()), std::get<1>(GetParam()),
+            std::get<2>(GetParam()), std::get<3>(GetParam())){};
 };
 
 #ifndef ROCKSDB_VALGRIND_RUN
 class SnapshotConcurrentAccessTest
     : public WritePreparedTransactionTestBase,
-      virtual public ::testing::WithParamInterface<
-          std::tuple<bool, bool, TxnDBWritePolicy, size_t, size_t>> {
+      virtual public ::testing::WithParamInterface<std::tuple<
+          bool, bool, TxnDBWritePolicy, WriteOrdering, size_t, size_t>> {
  public:
   SnapshotConcurrentAccessTest()
-      : WritePreparedTransactionTestBase(std::get<0>(GetParam()),
-                                         std::get<1>(GetParam()),
-                                         std::get<2>(GetParam())),
-        split_id_(std::get<3>(GetParam())),
-        split_cnt_(std::get<4>(GetParam())){};
+      : WritePreparedTransactionTestBase(
+            std::get<0>(GetParam()), std::get<1>(GetParam()),
+            std::get<2>(GetParam()), std::get<3>(GetParam())),
+        split_id_(std::get<4>(GetParam())),
+        split_cnt_(std::get<5>(GetParam())){};
 
  protected:
   // A test is split into split_cnt_ tests, each identified with split_id_ where
@@ -549,15 +564,15 @@ class SnapshotConcurrentAccessTest
 
 class SeqAdvanceConcurrentTest
     : public WritePreparedTransactionTestBase,
-      virtual public ::testing::WithParamInterface<
-          std::tuple<bool, bool, TxnDBWritePolicy, size_t, size_t>> {
+      virtual public ::testing::WithParamInterface<std::tuple<
+          bool, bool, TxnDBWritePolicy, WriteOrdering, size_t, size_t>> {
  public:
   SeqAdvanceConcurrentTest()
-      : WritePreparedTransactionTestBase(std::get<0>(GetParam()),
-                                         std::get<1>(GetParam()),
-                                         std::get<2>(GetParam())),
-        split_id_(std::get<3>(GetParam())),
-        split_cnt_(std::get<4>(GetParam())){};
+      : WritePreparedTransactionTestBase(
+            std::get<0>(GetParam()), std::get<1>(GetParam()),
+            std::get<2>(GetParam()), std::get<3>(GetParam())),
+        split_id_(std::get<4>(GetParam())),
+        split_cnt_(std::get<5>(GetParam())){};
 
  protected:
   // A test is split into split_cnt_ tests, each identified with split_id_ where
@@ -568,81 +583,118 @@ class SeqAdvanceConcurrentTest
 
 INSTANTIATE_TEST_CASE_P(
     WritePreparedTransactionTest, WritePreparedTransactionTest,
-    ::testing::Values(std::make_tuple(false, false, WRITE_PREPARED),
-                      std::make_tuple(false, true, WRITE_PREPARED)));
+    ::testing::Values(
+        std::make_tuple(false, false, WRITE_PREPARED, kOrderedWrite),
+        std::make_tuple(false, true, WRITE_PREPARED, kOrderedWrite),
+        std::make_tuple(false, true, WRITE_PREPARED, kUnorderedWrite)));
 
 #ifndef ROCKSDB_VALGRIND_RUN
 INSTANTIATE_TEST_CASE_P(
     TwoWriteQueues, SnapshotConcurrentAccessTest,
-    ::testing::Values(std::make_tuple(false, true, WRITE_PREPARED, 0, 20),
-                      std::make_tuple(false, true, WRITE_PREPARED, 1, 20),
-                      std::make_tuple(false, true, WRITE_PREPARED, 2, 20),
-                      std::make_tuple(false, true, WRITE_PREPARED, 3, 20),
-                      std::make_tuple(false, true, WRITE_PREPARED, 4, 20),
-                      std::make_tuple(false, true, WRITE_PREPARED, 5, 20),
-                      std::make_tuple(false, true, WRITE_PREPARED, 6, 20),
-                      std::make_tuple(false, true, WRITE_PREPARED, 7, 20),
-                      std::make_tuple(false, true, WRITE_PREPARED, 8, 20),
-                      std::make_tuple(false, true, WRITE_PREPARED, 9, 20),
-                      std::make_tuple(false, true, WRITE_PREPARED, 10, 20),
-                      std::make_tuple(false, true, WRITE_PREPARED, 11, 20),
-                      std::make_tuple(false, true, WRITE_PREPARED, 12, 20),
-                      std::make_tuple(false, true, WRITE_PREPARED, 13, 20),
-                      std::make_tuple(false, true, WRITE_PREPARED, 14, 20),
-                      std::make_tuple(false, true, WRITE_PREPARED, 15, 20),
-                      std::make_tuple(false, true, WRITE_PREPARED, 16, 20),
-                      std::make_tuple(false, true, WRITE_PREPARED, 17, 20),
-                      std::make_tuple(false, true, WRITE_PREPARED, 18, 20),
-                      std::make_tuple(false, true, WRITE_PREPARED, 19, 20)));
+    ::testing::Values(
+        std::make_tuple(false, true, WRITE_PREPARED, kOrderedWrite, 0, 20),
+        std::make_tuple(false, true, WRITE_PREPARED, kOrderedWrite, 1, 20),
+        std::make_tuple(false, true, WRITE_PREPARED, kOrderedWrite, 2, 20),
+        std::make_tuple(false, true, WRITE_PREPARED, kOrderedWrite, 3, 20),
+        std::make_tuple(false, true, WRITE_PREPARED, kOrderedWrite, 4, 20),
+        std::make_tuple(false, true, WRITE_PREPARED, kOrderedWrite, 5, 20),
+        std::make_tuple(false, true, WRITE_PREPARED, kOrderedWrite, 6, 20),
+        std::make_tuple(false, true, WRITE_PREPARED, kOrderedWrite, 7, 20),
+        std::make_tuple(false, true, WRITE_PREPARED, kOrderedWrite, 8, 20),
+        std::make_tuple(false, true, WRITE_PREPARED, kOrderedWrite, 9, 20),
+        std::make_tuple(false, true, WRITE_PREPARED, kOrderedWrite, 10, 20),
+        std::make_tuple(false, true, WRITE_PREPARED, kOrderedWrite, 11, 20),
+        std::make_tuple(false, true, WRITE_PREPARED, kOrderedWrite, 12, 20),
+        std::make_tuple(false, true, WRITE_PREPARED, kOrderedWrite, 13, 20),
+        std::make_tuple(false, true, WRITE_PREPARED, kOrderedWrite, 14, 20),
+        std::make_tuple(false, true, WRITE_PREPARED, kOrderedWrite, 15, 20),
+        std::make_tuple(false, true, WRITE_PREPARED, kOrderedWrite, 16, 20),
+        std::make_tuple(false, true, WRITE_PREPARED, kOrderedWrite, 17, 20),
+        std::make_tuple(false, true, WRITE_PREPARED, kOrderedWrite, 18, 20),
+        std::make_tuple(false, true, WRITE_PREPARED, kOrderedWrite, 19, 20),
+
+        std::make_tuple(false, true, WRITE_PREPARED, kUnorderedWrite, 0, 20),
+        std::make_tuple(false, true, WRITE_PREPARED, kUnorderedWrite, 1, 20),
+        std::make_tuple(false, true, WRITE_PREPARED, kUnorderedWrite, 2, 20),
+        std::make_tuple(false, true, WRITE_PREPARED, kUnorderedWrite, 3, 20),
+        std::make_tuple(false, true, WRITE_PREPARED, kUnorderedWrite, 4, 20),
+        std::make_tuple(false, true, WRITE_PREPARED, kUnorderedWrite, 5, 20),
+        std::make_tuple(false, true, WRITE_PREPARED, kUnorderedWrite, 6, 20),
+        std::make_tuple(false, true, WRITE_PREPARED, kUnorderedWrite, 7, 20),
+        std::make_tuple(false, true, WRITE_PREPARED, kUnorderedWrite, 8, 20),
+        std::make_tuple(false, true, WRITE_PREPARED, kUnorderedWrite, 9, 20),
+        std::make_tuple(false, true, WRITE_PREPARED, kUnorderedWrite, 10, 20),
+        std::make_tuple(false, true, WRITE_PREPARED, kUnorderedWrite, 11, 20),
+        std::make_tuple(false, true, WRITE_PREPARED, kUnorderedWrite, 12, 20),
+        std::make_tuple(false, true, WRITE_PREPARED, kUnorderedWrite, 13, 20),
+        std::make_tuple(false, true, WRITE_PREPARED, kUnorderedWrite, 14, 20),
+        std::make_tuple(false, true, WRITE_PREPARED, kUnorderedWrite, 15, 20),
+        std::make_tuple(false, true, WRITE_PREPARED, kUnorderedWrite, 16, 20),
+        std::make_tuple(false, true, WRITE_PREPARED, kUnorderedWrite, 17, 20),
+        std::make_tuple(false, true, WRITE_PREPARED, kUnorderedWrite, 18, 20),
+        std::make_tuple(false, true, WRITE_PREPARED, kUnorderedWrite, 19, 20)));
 
 INSTANTIATE_TEST_CASE_P(
     OneWriteQueue, SnapshotConcurrentAccessTest,
-    ::testing::Values(std::make_tuple(false, false, WRITE_PREPARED, 0, 20),
-                      std::make_tuple(false, false, WRITE_PREPARED, 1, 20),
-                      std::make_tuple(false, false, WRITE_PREPARED, 2, 20),
-                      std::make_tuple(false, false, WRITE_PREPARED, 3, 20),
-                      std::make_tuple(false, false, WRITE_PREPARED, 4, 20),
-                      std::make_tuple(false, false, WRITE_PREPARED, 5, 20),
-                      std::make_tuple(false, false, WRITE_PREPARED, 6, 20),
-                      std::make_tuple(false, false, WRITE_PREPARED, 7, 20),
-                      std::make_tuple(false, false, WRITE_PREPARED, 8, 20),
-                      std::make_tuple(false, false, WRITE_PREPARED, 9, 20),
-                      std::make_tuple(false, false, WRITE_PREPARED, 10, 20),
-                      std::make_tuple(false, false, WRITE_PREPARED, 11, 20),
-                      std::make_tuple(false, false, WRITE_PREPARED, 12, 20),
-                      std::make_tuple(false, false, WRITE_PREPARED, 13, 20),
-                      std::make_tuple(false, false, WRITE_PREPARED, 14, 20),
-                      std::make_tuple(false, false, WRITE_PREPARED, 15, 20),
-                      std::make_tuple(false, false, WRITE_PREPARED, 16, 20),
-                      std::make_tuple(false, false, WRITE_PREPARED, 17, 20),
-                      std::make_tuple(false, false, WRITE_PREPARED, 18, 20),
-                      std::make_tuple(false, false, WRITE_PREPARED, 19, 20)));
+    ::testing::Values(
+        std::make_tuple(false, false, WRITE_PREPARED, kOrderedWrite, 0, 20),
+        std::make_tuple(false, false, WRITE_PREPARED, kOrderedWrite, 1, 20),
+        std::make_tuple(false, false, WRITE_PREPARED, kOrderedWrite, 2, 20),
+        std::make_tuple(false, false, WRITE_PREPARED, kOrderedWrite, 3, 20),
+        std::make_tuple(false, false, WRITE_PREPARED, kOrderedWrite, 4, 20),
+        std::make_tuple(false, false, WRITE_PREPARED, kOrderedWrite, 5, 20),
+        std::make_tuple(false, false, WRITE_PREPARED, kOrderedWrite, 6, 20),
+        std::make_tuple(false, false, WRITE_PREPARED, kOrderedWrite, 7, 20),
+        std::make_tuple(false, false, WRITE_PREPARED, kOrderedWrite, 8, 20),
+        std::make_tuple(false, false, WRITE_PREPARED, kOrderedWrite, 9, 20),
+        std::make_tuple(false, false, WRITE_PREPARED, kOrderedWrite, 10, 20),
+        std::make_tuple(false, false, WRITE_PREPARED, kOrderedWrite, 11, 20),
+        std::make_tuple(false, false, WRITE_PREPARED, kOrderedWrite, 12, 20),
+        std::make_tuple(false, false, WRITE_PREPARED, kOrderedWrite, 13, 20),
+        std::make_tuple(false, false, WRITE_PREPARED, kOrderedWrite, 14, 20),
+        std::make_tuple(false, false, WRITE_PREPARED, kOrderedWrite, 15, 20),
+        std::make_tuple(false, false, WRITE_PREPARED, kOrderedWrite, 16, 20),
+        std::make_tuple(false, false, WRITE_PREPARED, kOrderedWrite, 17, 20),
+        std::make_tuple(false, false, WRITE_PREPARED, kOrderedWrite, 18, 20),
+        std::make_tuple(false, false, WRITE_PREPARED, kOrderedWrite, 19, 20)));
 
 INSTANTIATE_TEST_CASE_P(
     TwoWriteQueues, SeqAdvanceConcurrentTest,
-    ::testing::Values(std::make_tuple(false, true, WRITE_PREPARED, 0, 10),
-                      std::make_tuple(false, true, WRITE_PREPARED, 1, 10),
-                      std::make_tuple(false, true, WRITE_PREPARED, 2, 10),
-                      std::make_tuple(false, true, WRITE_PREPARED, 3, 10),
-                      std::make_tuple(false, true, WRITE_PREPARED, 4, 10),
-                      std::make_tuple(false, true, WRITE_PREPARED, 5, 10),
-                      std::make_tuple(false, true, WRITE_PREPARED, 6, 10),
-                      std::make_tuple(false, true, WRITE_PREPARED, 7, 10),
-                      std::make_tuple(false, true, WRITE_PREPARED, 8, 10),
-                      std::make_tuple(false, true, WRITE_PREPARED, 9, 10)));
+    ::testing::Values(
+        std::make_tuple(false, true, WRITE_PREPARED, kOrderedWrite, 0, 10),
+        std::make_tuple(false, true, WRITE_PREPARED, kOrderedWrite, 1, 10),
+        std::make_tuple(false, true, WRITE_PREPARED, kOrderedWrite, 2, 10),
+        std::make_tuple(false, true, WRITE_PREPARED, kOrderedWrite, 3, 10),
+        std::make_tuple(false, true, WRITE_PREPARED, kOrderedWrite, 4, 10),
+        std::make_tuple(false, true, WRITE_PREPARED, kOrderedWrite, 5, 10),
+        std::make_tuple(false, true, WRITE_PREPARED, kOrderedWrite, 6, 10),
+        std::make_tuple(false, true, WRITE_PREPARED, kOrderedWrite, 7, 10),
+        std::make_tuple(false, true, WRITE_PREPARED, kOrderedWrite, 8, 10),
+        std::make_tuple(false, true, WRITE_PREPARED, kOrderedWrite, 9, 10),
+        std::make_tuple(false, true, WRITE_PREPARED, kUnorderedWrite, 0, 10),
+        std::make_tuple(false, true, WRITE_PREPARED, kUnorderedWrite, 1, 10),
+        std::make_tuple(false, true, WRITE_PREPARED, kUnorderedWrite, 2, 10),
+        std::make_tuple(false, true, WRITE_PREPARED, kUnorderedWrite, 3, 10),
+        std::make_tuple(false, true, WRITE_PREPARED, kUnorderedWrite, 4, 10),
+        std::make_tuple(false, true, WRITE_PREPARED, kUnorderedWrite, 5, 10),
+        std::make_tuple(false, true, WRITE_PREPARED, kUnorderedWrite, 6, 10),
+        std::make_tuple(false, true, WRITE_PREPARED, kUnorderedWrite, 7, 10),
+        std::make_tuple(false, true, WRITE_PREPARED, kUnorderedWrite, 8, 10),
+        std::make_tuple(false, true, WRITE_PREPARED, kUnorderedWrite, 9, 10)));
 
 INSTANTIATE_TEST_CASE_P(
     OneWriteQueue, SeqAdvanceConcurrentTest,
-    ::testing::Values(std::make_tuple(false, false, WRITE_PREPARED, 0, 10),
-                      std::make_tuple(false, false, WRITE_PREPARED, 1, 10),
-                      std::make_tuple(false, false, WRITE_PREPARED, 2, 10),
-                      std::make_tuple(false, false, WRITE_PREPARED, 3, 10),
-                      std::make_tuple(false, false, WRITE_PREPARED, 4, 10),
-                      std::make_tuple(false, false, WRITE_PREPARED, 5, 10),
-                      std::make_tuple(false, false, WRITE_PREPARED, 6, 10),
-                      std::make_tuple(false, false, WRITE_PREPARED, 7, 10),
-                      std::make_tuple(false, false, WRITE_PREPARED, 8, 10),
-                      std::make_tuple(false, false, WRITE_PREPARED, 9, 10)));
+    ::testing::Values(
+        std::make_tuple(false, false, WRITE_PREPARED, kOrderedWrite, 0, 10),
+        std::make_tuple(false, false, WRITE_PREPARED, kOrderedWrite, 1, 10),
+        std::make_tuple(false, false, WRITE_PREPARED, kOrderedWrite, 2, 10),
+        std::make_tuple(false, false, WRITE_PREPARED, kOrderedWrite, 3, 10),
+        std::make_tuple(false, false, WRITE_PREPARED, kOrderedWrite, 4, 10),
+        std::make_tuple(false, false, WRITE_PREPARED, kOrderedWrite, 5, 10),
+        std::make_tuple(false, false, WRITE_PREPARED, kOrderedWrite, 6, 10),
+        std::make_tuple(false, false, WRITE_PREPARED, kOrderedWrite, 7, 10),
+        std::make_tuple(false, false, WRITE_PREPARED, kOrderedWrite, 8, 10),
+        std::make_tuple(false, false, WRITE_PREPARED, kOrderedWrite, 9, 10)));
 #endif  // ROCKSDB_VALGRIND_RUN
 
 TEST_P(WritePreparedTransactionTest, CommitMapTest) {
@@ -732,6 +784,147 @@ TEST_P(WritePreparedTransactionTest, MaybeUpdateOldCommitMap) {
   MaybeUpdateOldCommitMapTestWithNext(p, c, s, ns, false);
   p = 21l, c = 25l, s = 20l, ns = 19l;
   MaybeUpdateOldCommitMapTestWithNext(p, c, s, ns, false);
+}
+
+// Trigger the condition where some old memtables are skipped when doing
+// TransactionUtil::CheckKey(), and make sure the result is still correct.
+TEST_P(WritePreparedTransactionTest, CheckKeySkipOldMemtable) {
+  const int kAttemptHistoryMemtable = 0;
+  const int kAttemptImmMemTable = 1;
+  for (int attempt = kAttemptHistoryMemtable; attempt <= kAttemptImmMemTable;
+       attempt++) {
+    options.max_write_buffer_number_to_maintain = 3;
+    ReOpen();
+
+    WriteOptions write_options;
+    ReadOptions read_options;
+    TransactionOptions txn_options;
+    txn_options.set_snapshot = true;
+    string value;
+    Status s;
+
+    ASSERT_OK(db->Put(write_options, Slice("foo"), Slice("bar")));
+    ASSERT_OK(db->Put(write_options, Slice("foo2"), Slice("bar")));
+
+    Transaction* txn = db->BeginTransaction(write_options, txn_options);
+    ASSERT_TRUE(txn != nullptr);
+    ASSERT_OK(txn->SetName("txn"));
+
+    Transaction* txn2 = db->BeginTransaction(write_options, txn_options);
+    ASSERT_TRUE(txn2 != nullptr);
+    ASSERT_OK(txn2->SetName("txn2"));
+
+    // This transaction is created to cause potential conflict.
+    Transaction* txn_x = db->BeginTransaction(write_options);
+    ASSERT_OK(txn_x->SetName("txn_x"));
+    ASSERT_OK(txn_x->Put(Slice("foo"), Slice("bar3")));
+    ASSERT_OK(txn_x->Prepare());
+
+    // Create snapshots after the prepare, but there should still
+    // be a conflict when trying to read "foo".
+
+    if (attempt == kAttemptImmMemTable) {
+      // For the second attempt, hold flush from beginning. The memtable
+      // will be switched to immutable after calling TEST_SwitchMemtable()
+      // while CheckKey() is called.
+      rocksdb::SyncPoint::GetInstance()->LoadDependency(
+          {{"WritePreparedTransactionTest.CheckKeySkipOldMemtable",
+            "FlushJob::Start"}});
+      rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+    }
+
+    // force a memtable flush. The memtable should still be kept
+    FlushOptions flush_ops;
+    if (attempt == kAttemptHistoryMemtable) {
+      ASSERT_OK(db->Flush(flush_ops));
+    } else {
+      assert(attempt == kAttemptImmMemTable);
+      DBImpl* db_impl = static_cast<DBImpl*>(db->GetRootDB());
+      db_impl->TEST_SwitchMemtable();
+    }
+    uint64_t num_imm_mems;
+    ASSERT_TRUE(db->GetIntProperty(DB::Properties::kNumImmutableMemTable,
+                                   &num_imm_mems));
+    if (attempt == kAttemptHistoryMemtable) {
+      ASSERT_EQ(0, num_imm_mems);
+    } else {
+      assert(attempt == kAttemptImmMemTable);
+      ASSERT_EQ(1, num_imm_mems);
+    }
+
+    // Put something in active memtable
+    ASSERT_OK(db->Put(write_options, Slice("foo3"), Slice("bar")));
+
+    // Create txn3 after flushing, but this transaction also needs to
+    // check all memtables because of they contains uncommitted data.
+    Transaction* txn3 = db->BeginTransaction(write_options, txn_options);
+    ASSERT_TRUE(txn3 != nullptr);
+    ASSERT_OK(txn3->SetName("txn3"));
+
+    // Commit the pending write
+    ASSERT_OK(txn_x->Commit());
+
+    // Commit txn, txn2 and tx3. txn and tx3 will conflict but txn2 will
+    // pass. In all cases, both memtables are queried.
+    SetPerfLevel(PerfLevel::kEnableCount);
+    get_perf_context()->Reset();
+    ASSERT_TRUE(txn3->GetForUpdate(read_options, "foo", &value).IsBusy());
+    // We should have checked two memtables, active and either immutable
+    // or history memtable, depending on the test case.
+    ASSERT_EQ(2, get_perf_context()->get_from_memtable_count);
+
+    get_perf_context()->Reset();
+    ASSERT_TRUE(txn->GetForUpdate(read_options, "foo", &value).IsBusy());
+    // We should have checked two memtables, active and either immutable
+    // or history memtable, depending on the test case.
+    ASSERT_EQ(2, get_perf_context()->get_from_memtable_count);
+
+    get_perf_context()->Reset();
+    ASSERT_OK(txn2->GetForUpdate(read_options, "foo2", &value));
+    ASSERT_EQ(value, "bar");
+    // We should have checked two memtables, and since there is no
+    // conflict, another Get() will be made and fetch the data from
+    // DB. If it is in immutable memtable, two extra memtable reads
+    // will be issued. If it is not (in history), only one will
+    // be made, which is to the active memtable.
+    if (attempt == kAttemptHistoryMemtable) {
+      ASSERT_EQ(3, get_perf_context()->get_from_memtable_count);
+    } else {
+      assert(attempt == kAttemptImmMemTable);
+      ASSERT_EQ(4, get_perf_context()->get_from_memtable_count);
+    }
+
+    Transaction* txn4 = db->BeginTransaction(write_options, txn_options);
+    ASSERT_TRUE(txn4 != nullptr);
+    ASSERT_OK(txn4->SetName("txn4"));
+    get_perf_context()->Reset();
+    ASSERT_OK(txn4->GetForUpdate(read_options, "foo", &value));
+    if (attempt == kAttemptHistoryMemtable) {
+      // Active memtable will be checked in snapshot validation and when
+      // getting the value.
+      ASSERT_EQ(2, get_perf_context()->get_from_memtable_count);
+    } else {
+      // Only active memtable will be checked in snapshot validation but
+      // both of active and immutable snapshot will be queried when
+      // getting the value.
+      assert(attempt == kAttemptImmMemTable);
+      ASSERT_EQ(3, get_perf_context()->get_from_memtable_count);
+    }
+
+    ASSERT_OK(txn2->Commit());
+    ASSERT_OK(txn4->Commit());
+
+    TEST_SYNC_POINT("WritePreparedTransactionTest.CheckKeySkipOldMemtable");
+    rocksdb::SyncPoint::GetInstance()->DisableProcessing();
+
+    SetPerfLevel(PerfLevel::kDisable);
+
+    delete txn;
+    delete txn2;
+    delete txn3;
+    delete txn4;
+    delete txn_x;
+  }
 }
 
 // Reproduce the bug with two snapshots with the same seuqence number and test
@@ -1026,7 +1219,7 @@ TEST_P(SnapshotConcurrentAccessTest, SnapshotConcurrentAccessTest) {
           new_snapshots.push_back(snapshots[old_snapshots.size() + i]);
         }
         for (auto it = common_snapshots.begin(); it != common_snapshots.end();
-             it++) {
+             ++it) {
           auto snapshot = *it;
           // Create a commit entry that is around the snapshot and thus should
           // be not be discarded
@@ -1093,12 +1286,12 @@ TEST_P(WritePreparedTransactionTest, AdvanceMaxEvictedSeqBasicTest) {
   // b. delayed prepared should contain every txn <= max and prepared should
   // only contain txns > max
   auto it = initial_prepared.begin();
-  for (; it != initial_prepared.end() && *it <= new_max; it++) {
+  for (; it != initial_prepared.end() && *it <= new_max; ++it) {
     ASSERT_EQ(1, wp_db->delayed_prepared_.erase(*it));
   }
   ASSERT_TRUE(wp_db->delayed_prepared_.empty());
   for (; it != initial_prepared.end() && !wp_db->prepared_txns_.empty();
-       it++, wp_db->prepared_txns_.pop()) {
+       ++it, wp_db->prepared_txns_.pop()) {
     ASSERT_EQ(*it, wp_db->prepared_txns_.top());
   }
   ASSERT_TRUE(it == initial_prepared.end());
@@ -1179,7 +1372,7 @@ TEST_P(WritePreparedTransactionTest, MaxCatchupWithNewSnapshot) {
     for (int i = 0; i < writes; i++) {
       WriteBatch batch;
       // For duplicate keys cause 4 commit entries, each evicting an entry that
-      // is not published yet, thus causing max ecited seq go higher than last
+      // is not published yet, thus causing max evicted seq go higher than last
       // published.
       for (int b = 0; b < batch_cnt; b++) {
         batch.Put("foo", "foo");
@@ -1208,6 +1401,64 @@ TEST_P(WritePreparedTransactionTest, MaxCatchupWithNewSnapshot) {
   // thought
   auto snap = db->GetSnapshot();
   ASSERT_GT(snap->GetSequenceNumber(), batch_cnt * writes - 1);
+  db->ReleaseSnapshot(snap);
+}
+
+// Test that reads without snapshots would not hit an undefined state
+TEST_P(WritePreparedTransactionTest, MaxCatchupWithUnbackedSnapshot) {
+  const size_t snapshot_cache_bits = 7;  // same as default
+  const size_t commit_cache_bits = 0;    // only 1 entry => frequent eviction
+  UpdateTransactionDBOptions(snapshot_cache_bits, commit_cache_bits);
+  ReOpen();
+  WriteOptions woptions;
+  WritePreparedTxnDB* wp_db = dynamic_cast<WritePreparedTxnDB*>(db);
+
+  const int writes = 50;
+  rocksdb::port::Thread t1([&]() {
+    for (int i = 0; i < writes; i++) {
+      WriteBatch batch;
+      batch.Put("key", "foo");
+      db->Write(woptions, &batch);
+    }
+  });
+
+  rocksdb::port::Thread t2([&]() {
+    while (wp_db->max_evicted_seq_ == 0) {  // wait for insert thread
+      std::this_thread::yield();
+    }
+    ReadOptions ropt;
+    PinnableSlice pinnable_val;
+    TransactionOptions txn_options;
+    for (int i = 0; i < 10; i++) {
+      auto s = db->Get(ropt, db->DefaultColumnFamily(), "key", &pinnable_val);
+      ASSERT_TRUE(s.ok() || s.IsTryAgain());
+      pinnable_val.Reset();
+      Transaction* txn = db->BeginTransaction(woptions, txn_options);
+      s = txn->Get(ropt, db->DefaultColumnFamily(), "key", &pinnable_val);
+      ASSERT_TRUE(s.ok() || s.IsTryAgain());
+      pinnable_val.Reset();
+      std::vector<std::string> values;
+      auto s_vec =
+          txn->MultiGet(ropt, {db->DefaultColumnFamily()}, {"key"}, &values);
+      ASSERT_EQ(1, values.size());
+      ASSERT_EQ(1, s_vec.size());
+      s = s_vec[0];
+      ASSERT_TRUE(s.ok() || s.IsTryAgain());
+      Slice key("key");
+      txn->MultiGet(ropt, db->DefaultColumnFamily(), 1, &key, &pinnable_val,
+                    &s, true);
+      ASSERT_TRUE(s.ok() || s.IsTryAgain());
+      delete txn;
+    }
+  });
+
+  t1.join();
+  t2.join();
+
+  // Make sure that the test has worked and seq number has advanced as we
+  // thought
+  auto snap = db->GetSnapshot();
+  ASSERT_GT(snap->GetSequenceNumber(), writes - 1);
   db->ReleaseSnapshot(snap);
 }
 
@@ -1324,6 +1575,68 @@ TEST_P(WritePreparedTransactionTest, AdvanceMaxEvictedSeqWithDuplicatesTest) {
   delete txn0;
 }
 
+// Stress SmallestUnCommittedSeq, which reads from both prepared_txns_ and
+// delayed_prepared_, when is run concurrently with advancing max_evicted_seq,
+// which moves prepared txns from prepared_txns_ to delayed_prepared_.
+TEST_P(WritePreparedTransactionTest, SmallestUnCommittedSeq) {
+  const size_t snapshot_cache_bits = 7;  // same as default
+  const size_t commit_cache_bits = 1;    // disable commit cache
+  UpdateTransactionDBOptions(snapshot_cache_bits, commit_cache_bits);
+  ReOpen();
+  WritePreparedTxnDB* wp_db = dynamic_cast<WritePreparedTxnDB*>(db);
+  ReadOptions ropt;
+  PinnableSlice pinnable_val;
+  WriteOptions write_options;
+  TransactionOptions txn_options;
+  std::vector<Transaction*> txns, committed_txns;
+
+  const int cnt = 100;
+  for (int i = 0; i < cnt; i++) {
+    Transaction* txn = db->BeginTransaction(write_options, txn_options);
+    ASSERT_OK(txn->SetName("xid" + ToString(i)));
+    auto key = "key1" + ToString(i);
+    auto value = "value1" + ToString(i);
+    ASSERT_OK(txn->Put(Slice(key), Slice(value)));
+    ASSERT_OK(txn->Prepare());
+    txns.push_back(txn);
+  }
+
+  port::Mutex mutex;
+  Random rnd(1103);
+  rocksdb::port::Thread commit_thread([&]() {
+    for (int i = 0; i < cnt; i++) {
+      uint32_t index = rnd.Uniform(cnt - i);
+      Transaction* txn;
+      {
+        MutexLock l(&mutex);
+        txn = txns[index];
+        txns.erase(txns.begin() + index);
+      }
+      // Since commit cache is practically disabled, commit results in immediate
+      // advance in max_evicted_seq_ and subsequently moving some prepared txns
+      // to delayed_prepared_.
+      txn->Commit();
+      committed_txns.push_back(txn);
+    }
+  });
+  rocksdb::port::Thread read_thread([&]() {
+    while (1) {
+      MutexLock l(&mutex);
+      if (txns.empty()) {
+        break;
+      }
+      auto min_uncommitted = wp_db->SmallestUnCommittedSeq();
+      ASSERT_LE(min_uncommitted, (*txns.begin())->GetId());
+    }
+  });
+
+  commit_thread.join();
+  read_thread.join();
+  for (auto txn : committed_txns) {
+    delete txn;
+  }
+}
+
 TEST_P(SeqAdvanceConcurrentTest, SeqAdvanceConcurrentTest) {
   // Given the sequential run of txns, with this timeout we should never see a
   // deadlock nor a timeout unless we have a key conflict, which should be
@@ -1357,6 +1670,7 @@ TEST_P(SeqAdvanceConcurrentTest, SeqAdvanceConcurrentTest) {
     }
     DBImpl* db_impl = reinterpret_cast<DBImpl*>(db->GetRootDB());
     auto seq = db_impl->TEST_GetLastVisibleSequence();
+    with_empty_commits = 0;
     exp_seq = seq;
     // This is increased before writing the batch for commit
     commit_writes = 0;
@@ -1448,12 +1762,12 @@ TEST_P(SeqAdvanceConcurrentTest, SeqAdvanceConcurrentTest) {
     assert(db != nullptr);
     db_impl = reinterpret_cast<DBImpl*>(db->GetRootDB());
     seq = db_impl->TEST_GetLastVisibleSequence();
-    ASSERT_LE(exp_seq, seq);
+    ASSERT_LE(exp_seq, seq + with_empty_commits);
 
     // Check if flush preserves the last sequence number
     db_impl->Flush(fopt);
     seq = db_impl->GetLatestSequenceNumber();
-    ASSERT_LE(exp_seq, seq);
+    ASSERT_LE(exp_seq, seq + with_empty_commits);
 
     // Check if recovery after flush preserves the last sequence number
     db_impl->FlushWAL(true);
@@ -1461,7 +1775,7 @@ TEST_P(SeqAdvanceConcurrentTest, SeqAdvanceConcurrentTest) {
     assert(db != nullptr);
     db_impl = reinterpret_cast<DBImpl*>(db->GetRootDB());
     seq = db_impl->GetLatestSequenceNumber();
-    ASSERT_LE(exp_seq, seq);
+    ASSERT_LE(exp_seq, seq + with_empty_commits);
   }
 }
 
@@ -2965,13 +3279,16 @@ TEST_P(WritePreparedTransactionTest, AddPreparedBeforeMax) {
   ASSERT_OK(txn->Put(Slice("key0"), uncommitted_value));
   port::Mutex txn_mutex_;
 
-  // t1) Insert prepared entry, t2) commit other entires to advance max
-  // evicted sec and finish checking the existing prepared entires, t1)
+  // t1) Insert prepared entry, t2) commit other entries to advance max
+  // evicted sec and finish checking the existing prepared entries, t1)
   // AddPrepared, t2) update max_evicted_seq_
   rocksdb::SyncPoint::GetInstance()->LoadDependency({
-      {"AddPrepared::begin:pause", "AddPreparedBeforeMax::read_thread:start"},
-      {"AdvanceMaxEvictedSeq::update_max:pause", "AddPrepared::begin:resume"},
-      {"AddPrepared::end", "AdvanceMaxEvictedSeq::update_max:resume"},
+      {"AddPreparedCallback::AddPrepared::begin:pause",
+       "AddPreparedBeforeMax::read_thread:start"},
+      {"AdvanceMaxEvictedSeq::update_max:pause",
+       "AddPreparedCallback::AddPrepared::begin:resume"},
+      {"AddPreparedCallback::AddPrepared::end",
+       "AdvanceMaxEvictedSeq::update_max:resume"},
   });
   SyncPoint::GetInstance()->EnableProcessing();
 
@@ -3025,20 +3342,34 @@ TEST_P(WritePreparedTransactionTest, CommitOfDelayedPrepared) {
       ReOpen();
       std::atomic<const Snapshot*> snap = {nullptr};
       std::atomic<SequenceNumber> exp_prepare = {0};
+      rocksdb::port::Thread callback_thread;
       // Value is synchronized via snap
       PinnableSlice value;
       // Take a snapshot after publish and before RemovePrepared:Start
+      auto snap_callback = [&]() {
+        ASSERT_EQ(nullptr, snap.load());
+        snap.store(db->GetSnapshot());
+        ReadOptions roptions;
+        roptions.snapshot = snap.load();
+        auto s = db->Get(roptions, db->DefaultColumnFamily(), "key", &value);
+        ASSERT_OK(s);
+      };
       auto callback = [&](void* param) {
         SequenceNumber prep_seq = *((SequenceNumber*)param);
         if (prep_seq == exp_prepare.load()) {  // only for write_thread
-          ASSERT_EQ(nullptr, snap.load());
-          snap.store(db->GetSnapshot());
-          ReadOptions roptions;
-          roptions.snapshot = snap.load();
-          auto s = db->Get(roptions, db->DefaultColumnFamily(), "key", &value);
-          ASSERT_OK(s);
+          // We need to spawn a thread to avoid deadlock since getting a
+          // snpashot might end up calling AdvanceSeqByOne which needs joining
+          // the write queue.
+          callback_thread = rocksdb::port::Thread(snap_callback);
+          TEST_SYNC_POINT("callback:end");
         }
       };
+      // Wait for the first snapshot be taken in GetSnapshotInternal. Although
+      // it might be updated before GetSnapshotInternal finishes but this should
+      // cover most of the cases.
+      rocksdb::SyncPoint::GetInstance()->LoadDependency({
+          {"WritePreparedTxnDB::GetSnapshotInternal:first", "callback:end"},
+      });
       SyncPoint::GetInstance()->SetCallBack("RemovePrepared:Start", callback);
       SyncPoint::GetInstance()->EnableProcessing();
       // Thread to cause frequent evictions
@@ -3065,6 +3396,9 @@ TEST_P(WritePreparedTransactionTest, CommitOfDelayedPrepared) {
           exp_prepare.store(txn->GetId());
           ASSERT_OK(txn->Commit());
           delete txn;
+          // Wait for the snapshot taking that is triggered by
+          // RemovePrepared:Start callback
+          callback_thread.join();
 
           // Read with the snapshot taken before delayed_prepared_ cleanup
           ReadOptions roptions;
@@ -3084,9 +3418,9 @@ TEST_P(WritePreparedTransactionTest, CommitOfDelayedPrepared) {
       });
       write_thread.join();
       eviction_thread.join();
+      rocksdb::SyncPoint::GetInstance()->DisableProcessing();
+      rocksdb::SyncPoint::GetInstance()->ClearAllCallBacks();
     }
-    rocksdb::SyncPoint::GetInstance()->DisableProcessing();
-    rocksdb::SyncPoint::GetInstance()->ClearAllCallBacks();
   }
 }
 

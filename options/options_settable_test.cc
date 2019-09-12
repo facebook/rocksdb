@@ -7,15 +7,11 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
-#ifndef __STDC_FORMAT_MACROS
-#define __STDC_FORMAT_MACROS
-#endif
-
 #include <cstring>
 
 #include "options/options_helper.h"
 #include "rocksdb/convenience.h"
-#include "util/testharness.h"
+#include "test_util/testharness.h"
 
 #ifndef GFLAGS
 bool FLAGS_enable_print = false;
@@ -233,6 +229,7 @@ TEST_F(OptionsSettableTest, DBOptionsAllFieldsSettable) {
                              "delete_obsolete_files_period_micros=4294967758;"
                              "WAL_ttl_seconds=4295008036;"
                              "WAL_size_limit_MB=4295036161;"
+                             "max_write_batch_group_size_bytes=1048576;"
                              "wal_dir=path/to/wal_dir;"
                              "db_write_buffer_size=2587;"
                              "max_subcompactions=64330;"
@@ -269,6 +266,7 @@ TEST_F(OptionsSettableTest, DBOptionsAllFieldsSettable) {
                              "allow_mmap_writes=false;"
                              "stats_dump_period_sec=70127;"
                              "stats_persist_period_sec=54321;"
+                             "persist_stats_to_disk=true;"
                              "stats_history_buffer_size=14159;"
                              "allow_fallocate=true;"
                              "allow_mmap_reads=false;"
@@ -279,6 +277,7 @@ TEST_F(OptionsSettableTest, DBOptionsAllFieldsSettable) {
                              "advise_random_on_open=true;"
                              "fail_if_options_file_error=false;"
                              "enable_pipelined_write=false;"
+                             "unordered_write=false;"
                              "allow_concurrent_memtable_write=true;"
                              "wal_recovery_mode=kPointInTimeRecovery;"
                              "enable_write_thread_adaptive_yield=true;"
@@ -297,7 +296,9 @@ TEST_F(OptionsSettableTest, DBOptionsAllFieldsSettable) {
                              "manual_wal_flush=false;"
                              "seq_per_batch=false;"
                              "atomic_flush=false;"
-                             "avoid_unnecessary_blocking_io=false",
+                             "avoid_unnecessary_blocking_io=false;"
+                             "log_readahead_size=0;"
+                             "write_dbid_to_manifest=false",
                              new_options));
 
   ASSERT_EQ(unset_bytes_base, NumUnsetBytes(new_options_ptr, sizeof(DBOptions),
@@ -439,6 +440,7 @@ TEST_F(OptionsSettableTest, ColumnFamilyOptionsAllFieldsSettable) {
       "soft_rate_limit=530.615385;"
       "soft_pending_compaction_bytes_limit=0;"
       "max_write_buffer_number_to_maintain=84;"
+      "max_write_buffer_size_to_maintain=2147483648;"
       "merge_operator=aabcxehazrMergeOperator;"
       "memtable_prefix_bloom_size_ratio=0.4642;"
       "memtable_whole_key_filtering=true;"

@@ -8,12 +8,9 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
 #pragma once
-#ifndef __STDC_FORMAT_MACROS
-#define __STDC_FORMAT_MACROS
-#endif
 
 #include <fcntl.h>
-#include <inttypes.h>
+#include <cinttypes>
 
 #include <algorithm>
 #include <map>
@@ -24,9 +21,10 @@
 #include <utility>
 #include <vector>
 
-#include "db/db_impl.h"
+#include "db/db_impl/db_impl.h"
 #include "db/dbformat.h"
 #include "env/mock_env.h"
+#include "file/filename.h"
 #include "memtable/hash_linklist_rep.h"
 #include "rocksdb/cache.h"
 #include "rocksdb/compaction_filter.h"
@@ -40,19 +38,18 @@
 #include "rocksdb/statistics.h"
 #include "rocksdb/table.h"
 #include "rocksdb/utilities/checkpoint.h"
-#include "table/block_based_table_factory.h"
+#include "table/block_based/block_based_table_factory.h"
 #include "table/mock_table.h"
-#include "table/plain_table_factory.h"
+#include "table/plain/plain_table_factory.h"
 #include "table/scoped_arena_iterator.h"
+#include "test_util/mock_time_env.h"
 #include "util/compression.h"
-#include "util/filename.h"
-#include "util/mock_time_env.h"
 #include "util/mutexlock.h"
 
+#include "test_util/sync_point.h"
+#include "test_util/testharness.h"
+#include "test_util/testutil.h"
 #include "util/string_util.h"
-#include "util/sync_point.h"
-#include "util/testharness.h"
-#include "util/testutil.h"
 #include "utilities/merge_operators.h"
 
 namespace rocksdb {
@@ -136,6 +133,11 @@ class SpecialMemTableRep : public MemTableRep {
   // Insert key into the list.
   // REQUIRES: nothing that compares equal to key is currently in the list.
   virtual void Insert(KeyHandle handle) override {
+    num_entries_++;
+    memtable_->Insert(handle);
+  }
+
+  void InsertConcurrently(KeyHandle handle) override {
     num_entries_++;
     memtable_->Insert(handle);
   }
@@ -688,6 +690,7 @@ class DBTestBase : public testing::Test {
     kPartitionedFilterWithNewTableReaderForCompactions,
     kUniversalSubcompactions,
     kxxHash64Checksum,
+    kUnorderedWrite,
     // This must be the last line
     kEnd,
   };
@@ -699,6 +702,7 @@ class DBTestBase : public testing::Test {
   MockEnv* mem_env_;
   Env* encrypted_env_;
   SpecialEnv* env_;
+  std::shared_ptr<Env> env_guard_;
   DB* db_;
   std::vector<ColumnFamilyHandle*> handles_;
 

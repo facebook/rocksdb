@@ -10,14 +10,14 @@
 #include <memory>
 
 #include "db/column_family.h"
-#include "db/db_impl.h"
+#include "db/db_impl/db_impl.h"
 #include "db/merge_context.h"
 #include "db/merge_helper.h"
+#include "memory/arena.h"
 #include "memtable/skiplist.h"
 #include "options/db_options.h"
 #include "rocksdb/comparator.h"
 #include "rocksdb/iterator.h"
-#include "util/arena.h"
 #include "util/cast_util.h"
 #include "util/string_util.h"
 #include "utilities/write_batch_with_index/write_batch_with_index_internal.h"
@@ -568,7 +568,7 @@ Status WriteBatchWithIndex::Rep::ReBuildIndex() {
   input.remove_prefix(offset);
 
   // Loop through all entries in Rep and add each one to the index
-  int found = 0;
+  uint32_t found = 0;
   while (s.ok() && !input.empty()) {
     Slice key, value, blob, xid;
     uint32_t column_family_id = 0;  // default
@@ -626,6 +626,11 @@ WriteBatchWithIndex::WriteBatchWithIndex(
                   overwrite_key)) {}
 
 WriteBatchWithIndex::~WriteBatchWithIndex() {}
+
+WriteBatchWithIndex::WriteBatchWithIndex(WriteBatchWithIndex&&) = default;
+
+WriteBatchWithIndex& WriteBatchWithIndex::operator=(WriteBatchWithIndex&&) =
+    default;
 
 WriteBatch* WriteBatchWithIndex::GetWriteBatch() { return &rep->write_batch; }
 
@@ -886,9 +891,12 @@ Status WriteBatchWithIndex::GetFromBatchAndDB(
   if (!callback) {
     s = db->Get(read_options, column_family, key, pinnable_val);
   } else {
+    DBImpl::GetImplOptions get_impl_options;
+    get_impl_options.column_family = column_family;
+    get_impl_options.value = pinnable_val;
+    get_impl_options.callback = callback;
     s = static_cast_with_check<DBImpl, DB>(db->GetRootDB())
-            ->GetImpl(read_options, column_family, key, pinnable_val, nullptr,
-                      callback);
+            ->GetImpl(read_options, key, get_impl_options);
   }
 
   if (s.ok() || s.IsNotFound()) {  // DB Get Succeeded
@@ -909,9 +917,12 @@ Status WriteBatchWithIndex::GetFromBatchAndDB(
       }
 
       if (merge_operator) {
+        std::string merge_result;
         s = MergeHelper::TimedFullMerge(
             merge_operator, key, merge_data, merge_context.GetOperands(),
-            pinnable_val->GetSelf(), logger, statistics, env);
+            &merge_result, logger, statistics, env);
+        pinnable_val->Reset();
+        *pinnable_val->GetSelf() = std::move(merge_result);
         pinnable_val->PinSelf();
       } else {
         s = Status::InvalidArgument("Options::merge_operator must be set");

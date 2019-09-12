@@ -13,7 +13,7 @@
 #include <deque>
 #include <vector>
 
-#include "db/compaction_iterator.h"
+#include "db/compaction/compaction_iterator.h"
 #include "db/dbformat.h"
 #include "db/event_helpers.h"
 #include "db/internal_stats.h"
@@ -21,6 +21,7 @@
 #include "db/range_del_aggregator.h"
 #include "db/table_cache.h"
 #include "db/version_edit.h"
+#include "file/filename.h"
 #include "monitoring/iostats_context_imp.h"
 #include "monitoring/thread_status_util.h"
 #include "rocksdb/db.h"
@@ -28,13 +29,12 @@
 #include "rocksdb/iterator.h"
 #include "rocksdb/options.h"
 #include "rocksdb/table.h"
-#include "table/block_based_table_builder.h"
+#include "table/block_based/block_based_table_builder.h"
 #include "table/format.h"
 #include "table/internal_iterator.h"
+#include "test_util/sync_point.h"
 #include "util/file_reader_writer.h"
-#include "util/filename.h"
 #include "util/stop_watch.h"
-#include "util/sync_point.h"
 
 namespace rocksdb {
 
@@ -221,8 +221,9 @@ Status BuildTable(
           mutable_cf_options.prefix_extractor.get(), nullptr,
           (internal_stats == nullptr) ? nullptr
                                       : internal_stats->GetFileReadHist(0),
-          false /* for_compaction */, nullptr /* arena */,
-          false /* skip_filter */, level));
+          TableReaderCaller::kFlush, /*arena=*/nullptr,
+          /*skip_filter=*/false, level, /*smallest_compaction_key=*/nullptr,
+          /*largest_compaction_key*/ nullptr));
       s = it->status();
       if (s.ok() && paranoid_file_checks) {
         for (it->SeekToFirst(); it->Valid(); it->Next()) {

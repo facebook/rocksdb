@@ -5,11 +5,7 @@
 
 #include "options/cf_options.h"
 
-#ifndef __STDC_FORMAT_MACROS
-#define __STDC_FORMAT_MACROS
-#endif
-
-#include <inttypes.h>
+#include <cinttypes>
 #include <cassert>
 #include <limits>
 #include <string>
@@ -37,6 +33,8 @@ ImmutableCFOptions::ImmutableCFOptions(const ImmutableDBOptions& db_options,
           cf_options.min_write_buffer_number_to_merge),
       max_write_buffer_number_to_maintain(
           cf_options.max_write_buffer_number_to_maintain),
+      max_write_buffer_size_to_maintain(
+          cf_options.max_write_buffer_size_to_maintain),
       inplace_update_support(cf_options.inplace_update_support),
       inplace_callback(cf_options.inplace_callback),
       info_log(db_options.info_log.get()),

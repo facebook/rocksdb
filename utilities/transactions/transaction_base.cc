@@ -7,17 +7,14 @@
 
 #include "utilities/transactions/transaction_base.h"
 
-#ifndef __STDC_FORMAT_MACROS
-#define __STDC_FORMAT_MACROS
-#endif
+#include <cinttypes>
 
-#include <inttypes.h>
-
-#include "db/db_impl.h"
 #include "db/column_family.h"
+#include "db/db_impl/db_impl.h"
 #include "rocksdb/comparator.h"
 #include "rocksdb/db.h"
 #include "rocksdb/status.h"
+#include "util/cast_util.h"
 #include "util/string_util.h"
 
 namespace rocksdb {
@@ -25,7 +22,7 @@ namespace rocksdb {
 TransactionBaseImpl::TransactionBaseImpl(DB* db,
                                          const WriteOptions& write_options)
     : db_(db),
-      dbimpl_(reinterpret_cast<DBImpl*>(db)),
+      dbimpl_(static_cast_with_check<DBImpl, DB>(db)),
       write_options_(write_options),
       cmp_(GetColumnFamilyUserComparator(db->DefaultColumnFamily())),
       start_time_(db_->GetEnv()->NowMicros()),
@@ -34,7 +31,7 @@ TransactionBaseImpl::TransactionBaseImpl(DB* db,
   assert(dynamic_cast<DBImpl*>(db_) != nullptr);
   log_number_ = 0;
   if (dbimpl_->allow_2pc()) {
-    WriteBatchInternal::InsertNoop(write_batch_.GetWriteBatch());
+    InitWriteBatch();
   }
 }
 
@@ -53,7 +50,7 @@ void TransactionBaseImpl::Clear() {
   num_merges_ = 0;
 
   if (dbimpl_->allow_2pc()) {
-    WriteBatchInternal::InsertNoop(write_batch_.GetWriteBatch());
+    InitWriteBatch();
   }
 }
 
@@ -196,7 +193,48 @@ Status TransactionBaseImpl::PopSavePoint() {
   }
 
   assert(!save_points_->empty());
-  save_points_->pop();
+  // If there is another savepoint A below the current savepoint B, then A needs
+  // to inherit tracked_keys in B so that if we rollback to savepoint A, we
+  // remember to unlock keys in B. If there is no other savepoint below, then we
+  // can safely discard savepoint info.
+  if (save_points_->size() == 1) {
+    save_points_->pop();
+  } else {
+    TransactionBaseImpl::SavePoint top;
+    std::swap(top, save_points_->top());
+    save_points_->pop();
+
+    const TransactionKeyMap& curr_cf_key_map = top.new_keys_;
+    TransactionKeyMap& prev_cf_key_map = save_points_->top().new_keys_;
+
+    for (const auto& curr_cf_key_iter : curr_cf_key_map) {
+      uint32_t column_family_id = curr_cf_key_iter.first;
+      const std::unordered_map<std::string, TransactionKeyMapInfo>& curr_keys =
+          curr_cf_key_iter.second;
+
+      // If cfid was not previously tracked, just copy everything over.
+      auto prev_keys_iter = prev_cf_key_map.find(column_family_id);
+      if (prev_keys_iter == prev_cf_key_map.end()) {
+        prev_cf_key_map.emplace(curr_cf_key_iter);
+      } else {
+        std::unordered_map<std::string, TransactionKeyMapInfo>& prev_keys =
+            prev_keys_iter->second;
+        for (const auto& key_iter : curr_keys) {
+          const std::string& key = key_iter.first;
+          const TransactionKeyMapInfo& info = key_iter.second;
+          // If key was not previously tracked, just copy the whole struct over.
+          // Otherwise, some merging needs to occur.
+          auto prev_info = prev_keys.find(key);
+          if (prev_info == prev_keys.end()) {
+            prev_keys.emplace(key_iter);
+          } else {
+            prev_info->second.Merge(info);
+          }
+        }
+      }
+    }
+  }
+
   return write_batch_.PopSavePoint();
 }
 
@@ -595,6 +633,17 @@ void TransactionBaseImpl::TrackKey(TransactionKeyMap* key_map, uint32_t cfh_id,
                                    const std::string& key, SequenceNumber seq,
                                    bool read_only, bool exclusive) {
   auto& cf_key_map = (*key_map)[cfh_id];
+#ifdef __cpp_lib_unordered_map_try_emplace
+  // use c++17's try_emplace if available, to avoid rehashing the key
+  // in case it is not already in the map
+  auto result = cf_key_map.try_emplace(key, seq);
+  auto iter = result.first;
+  if (!result.second && 
+      seq < iter->second.seq) {
+    // Now tracking this key with an earlier sequence number
+    iter->second.seq = seq;
+  }
+#else
   auto iter = cf_key_map.find(key);
   if (iter == cf_key_map.end()) {
     auto result = cf_key_map.emplace(key, TransactionKeyMapInfo(seq));
@@ -603,10 +652,11 @@ void TransactionBaseImpl::TrackKey(TransactionKeyMap* key_map, uint32_t cfh_id,
     // Now tracking this key with an earlier sequence number
     iter->second.seq = seq;
   }
+#endif
   // else we do not update the seq. The smaller the tracked seq, the stronger it
   // the guarantee since it implies from the seq onward there has not been a
   // concurrent update to the key. So we update the seq if it implies stronger
-  // guarantees, i.e., if it is smaller than the existing trakced seq.
+  // guarantees, i.e., if it is smaller than the existing tracked seq.
 
   if (read_only) {
     iter->second.num_reads++;

@@ -40,6 +40,10 @@ Status GetAllKeyVersions(DB* db, Slice begin_key, Slice end_key,
                          size_t max_num_ikeys,
                          std::vector<KeyVersion>* key_versions);
 
+Status GetAllKeyVersions(DB* db, ColumnFamilyHandle* cfh, Slice begin_key,
+                         Slice end_key, size_t max_num_ikeys,
+                         std::vector<KeyVersion>* key_versions);
+
 }  // namespace rocksdb
 
 #endif  // ROCKSDB_LITE

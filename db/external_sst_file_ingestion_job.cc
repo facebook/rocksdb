@@ -7,24 +7,22 @@
 
 #include "db/external_sst_file_ingestion_job.h"
 
-#ifndef __STDC_FORMAT_MACROS
-#define __STDC_FORMAT_MACROS
-#endif
-
-#include <inttypes.h>
 #include <algorithm>
+#include <cinttypes>
 #include <string>
+#include <unordered_set>
 #include <vector>
 
+#include "db/db_impl/db_impl.h"
 #include "db/version_edit.h"
+#include "file/file_util.h"
 #include "table/merging_iterator.h"
 #include "table/scoped_arena_iterator.h"
 #include "table/sst_file_writer_collectors.h"
 #include "table/table_builder.h"
+#include "test_util/sync_point.h"
 #include "util/file_reader_writer.h"
-#include "util/file_util.h"
 #include "util/stop_watch.h"
-#include "util/sync_point.h"
 
 namespace rocksdb {
 
@@ -66,13 +64,13 @@ Status ExternalSstFileIngestionJob::Prepare(
     std::sort(
         sorted_files.begin(), sorted_files.end(),
         [&ucmp](const IngestedFileInfo* info1, const IngestedFileInfo* info2) {
-          return ucmp->Compare(info1->smallest_user_key,
-                               info2->smallest_user_key) < 0;
+          return sstableKeyCompare(ucmp, info1->smallest_internal_key,
+                                   info2->smallest_internal_key) < 0;
         });
 
     for (size_t i = 0; i < num_files - 1; i++) {
-      if (ucmp->Compare(sorted_files[i]->largest_user_key,
-                        sorted_files[i + 1]->smallest_user_key) >= 0) {
+      if (sstableKeyCompare(ucmp, sorted_files[i]->largest_internal_key,
+                            sorted_files[i + 1]->smallest_internal_key) >= 0) {
         return Status::NotSupported("Files have overlapping ranges");
       }
     }
@@ -83,48 +81,86 @@ Status ExternalSstFileIngestionJob::Prepare(
       return Status::InvalidArgument("File contain no entries");
     }
 
-    if (!f.smallest_internal_key().Valid() ||
-        !f.largest_internal_key().Valid()) {
+    if (!f.smallest_internal_key.Valid() ||
+        !f.largest_internal_key.Valid()) {
       return Status::Corruption("Generated table have corrupted keys");
     }
   }
 
   // Copy/Move external files into DB
+  std::unordered_set<size_t> ingestion_path_ids;
   for (IngestedFileInfo& f : files_to_ingest_) {
     f.fd = FileDescriptor(next_file_number++, 0, f.file_size);
-
+    f.copy_file = false;
     const std::string path_outside_db = f.external_file_path;
     const std::string path_inside_db =
         TableFileName(cfd_->ioptions()->cf_paths, f.fd.GetNumber(),
                       f.fd.GetPathId());
-
     if (ingestion_options_.move_files) {
       status = env_->LinkFile(path_outside_db, path_inside_db);
-      if (status.IsNotSupported()) {
-        // Original file is on a different FS, use copy instead of hard linking
-        status = CopyFile(env_, path_outside_db, path_inside_db, 0,
-                          db_options_.use_fsync);
+      if (status.ok()) {
+        // It is unsafe to assume application had sync the file and file
+        // directory before ingest the file. For integrity of RocksDB we need
+        // to sync the file.
+        std::unique_ptr<WritableFile> file_to_sync;
+        status = env_->ReopenWritableFile(path_inside_db, &file_to_sync,
+                                          env_options_);
+        if (status.ok()) {
+          TEST_SYNC_POINT(
+              "ExternalSstFileIngestionJob::BeforeSyncIngestedFile");
+          status = SyncIngestedFile(file_to_sync.get());
+          TEST_SYNC_POINT("ExternalSstFileIngestionJob::AfterSyncIngestedFile");
+          if (!status.ok()) {
+            ROCKS_LOG_WARN(db_options_.info_log,
+                           "Failed to sync ingested file %s: %s",
+                           path_inside_db.c_str(), status.ToString().c_str());
+          }
+        }
+      } else if (status.IsNotSupported() &&
+                 ingestion_options_.failed_move_fall_back_to_copy) {
+        // Original file is on a different FS, use copy instead of hard linking.
         f.copy_file = true;
-      } else {
-        f.copy_file = false;
       }
     } else {
+      f.copy_file = true;
+    }
+
+    if (f.copy_file) {
+      TEST_SYNC_POINT_CALLBACK("ExternalSstFileIngestionJob::Prepare:CopyFile",
+                               nullptr);
+      // CopyFile also sync the new file.
       status = CopyFile(env_, path_outside_db, path_inside_db, 0,
                         db_options_.use_fsync);
-      f.copy_file = true;
     }
     TEST_SYNC_POINT("ExternalSstFileIngestionJob::Prepare:FileAdded");
     if (!status.ok()) {
       break;
     }
     f.internal_file_path = path_inside_db;
+    ingestion_path_ids.insert(f.fd.GetPathId());
   }
 
+  TEST_SYNC_POINT("ExternalSstFileIngestionJob::BeforeSyncDir");
+  if (status.ok()) {
+    for (auto path_id : ingestion_path_ids) {
+      status = directories_->GetDataDir(path_id)->Fsync();
+      if (!status.ok()) {
+        ROCKS_LOG_WARN(db_options_.info_log,
+                       "Failed to sync directory %" ROCKSDB_PRIszt
+                       " while ingest file: %s",
+                       path_id, status.ToString().c_str());
+        break;
+      }
+    }
+  }
+  TEST_SYNC_POINT("ExternalSstFileIngestionJob::AfterSyncDir");
+
+  // TODO: The following is duplicated with Cleanup().
   if (!status.ok()) {
     // We failed, remove all files that we copied into the db
     for (IngestedFileInfo& f : files_to_ingest_) {
       if (f.internal_file_path.empty()) {
-        break;
+        continue;
       }
       Status s = env_->DeleteFile(f.internal_file_path);
       if (!s.ok()) {
@@ -142,8 +178,8 @@ Status ExternalSstFileIngestionJob::NeedsFlush(bool* flush_needed,
                                                SuperVersion* super_version) {
   autovector<Range> ranges;
   for (const IngestedFileInfo& file_to_ingest : files_to_ingest_) {
-    ranges.emplace_back(file_to_ingest.smallest_user_key,
-                        file_to_ingest.largest_user_key);
+    ranges.emplace_back(file_to_ingest.smallest_internal_key.user_key(),
+                        file_to_ingest.largest_internal_key.user_key());
   }
   Status status =
       cfd_->RangesOverlapWithMemtables(ranges, super_version, flush_needed);
@@ -202,8 +238,8 @@ Status ExternalSstFileIngestionJob::Run() {
       return status;
     }
     edit_.AddFile(f.picked_level, f.fd.GetNumber(), f.fd.GetPathId(),
-                  f.fd.GetFileSize(), f.smallest_internal_key(),
-                  f.largest_internal_key(), f.assigned_seqno, f.assigned_seqno,
+                  f.fd.GetFileSize(), f.smallest_internal_key,
+                  f.largest_internal_key, f.assigned_seqno, f.assigned_seqno,
                   false);
   }
   return status;
@@ -255,6 +291,9 @@ void ExternalSstFileIngestionJob::Cleanup(const Status& status) {
     // We failed to add the files to the database
     // remove all the files we copied
     for (IngestedFileInfo& f : files_to_ingest_) {
+      if (f.internal_file_path.empty()) {
+        continue;
+      }
       Status s = env_->DeleteFile(f.internal_file_path);
       if (!s.ok()) {
         ROCKS_LOG_WARN(db_options_.info_log,
@@ -311,7 +350,13 @@ Status ExternalSstFileIngestionJob::GetIngestedFileInfo(
   }
 
   if (ingestion_options_.verify_checksums_before_ingest) {
-    status = table_reader->VerifyChecksum();
+    // If customized readahead size is needed, we can pass a user option
+    // all the way to here. Right now we just rely on the default readahead
+    // to keep things simple.
+    ReadOptions ro;
+    ro.readahead_size = ingestion_options_.verify_checksums_readahead_size;
+    status = table_reader->VerifyChecksum(
+        ro, TableReaderCaller::kExternalSSTIngestion);
   }
   if (!status.ok()) {
     return status;
@@ -371,11 +416,14 @@ Status ExternalSstFileIngestionJob::GetIngestedFileInfo(
   // updating the block cache.
   ro.fill_cache = false;
   std::unique_ptr<InternalIterator> iter(table_reader->NewIterator(
-      ro, sv->mutable_cf_options.prefix_extractor.get()));
+      ro, sv->mutable_cf_options.prefix_extractor.get(), /*arena=*/nullptr,
+      /*skip_filters=*/false, TableReaderCaller::kExternalSSTIngestion));
   std::unique_ptr<InternalIterator> range_del_iter(
       table_reader->NewRangeTombstoneIterator(ro));
 
   // Get first (smallest) and last (largest) key from file.
+  file_to_ingest->smallest_internal_key = InternalKey("", 0, ValueType::kTypeValue);
+  file_to_ingest->largest_internal_key = InternalKey("", 0, ValueType::kTypeValue);
   bool bounds_set = false;
   iter->SeekToFirst();
   if (iter->Valid()) {
@@ -385,7 +433,7 @@ Status ExternalSstFileIngestionJob::GetIngestedFileInfo(
     if (key.sequence != 0) {
       return Status::Corruption("external file have non zero sequence number");
     }
-    file_to_ingest->smallest_user_key = key.user_key.ToString();
+    file_to_ingest->smallest_internal_key.SetFrom(key);
 
     iter->SeekToLast();
     if (!ParseInternalKey(iter->key(), &key)) {
@@ -394,7 +442,7 @@ Status ExternalSstFileIngestionJob::GetIngestedFileInfo(
     if (key.sequence != 0) {
       return Status::Corruption("external file have non zero sequence number");
     }
-    file_to_ingest->largest_user_key = key.user_key.ToString();
+    file_to_ingest->largest_internal_key.SetFrom(key);
 
     bounds_set = true;
   }
@@ -410,13 +458,13 @@ Status ExternalSstFileIngestionJob::GetIngestedFileInfo(
       }
       RangeTombstone tombstone(key, range_del_iter->value());
 
-      if (!bounds_set || ucmp->Compare(tombstone.start_key_,
-                                       file_to_ingest->smallest_user_key) < 0) {
-        file_to_ingest->smallest_user_key = tombstone.start_key_.ToString();
+      InternalKey start_key = tombstone.SerializeKey();
+      if (!bounds_set || sstableKeyCompare(ucmp, start_key, file_to_ingest->smallest_internal_key) < 0) {
+        file_to_ingest->smallest_internal_key = start_key;
       }
-      if (!bounds_set || ucmp->Compare(tombstone.end_key_,
-                                       file_to_ingest->largest_user_key) > 0) {
-        file_to_ingest->largest_user_key = tombstone.end_key_.ToString();
+      InternalKey end_key = tombstone.SerializeEndKey();
+      if (!bounds_set || sstableKeyCompare(ucmp, end_key, file_to_ingest->largest_internal_key) > 0) {
+        file_to_ingest->largest_internal_key = end_key;
       }
       bounds_set = true;
     }
@@ -458,7 +506,7 @@ Status ExternalSstFileIngestionJob::AssignLevelAndSeqnoForIngestedFile(
     if (vstorage->NumLevelFiles(lvl) > 0) {
       bool overlap_with_level = false;
       status = sv->current->OverlapWithLevelIterator(ro, env_options_,
-          file_to_ingest->smallest_user_key, file_to_ingest->largest_user_key,
+          file_to_ingest->smallest_internal_key.user_key(), file_to_ingest->largest_internal_key.user_key(),
           lvl, &overlap_with_level);
       if (!status.ok()) {
         return status;
@@ -560,6 +608,18 @@ Status ExternalSstFileIngestionJob::AssignGlobalSeqnoForIngestedFile(
       std::string seqno_val;
       PutFixed64(&seqno_val, seqno);
       status = rwfile->Write(file_to_ingest->global_seqno_offset, seqno_val);
+      if (status.ok()) {
+        TEST_SYNC_POINT("ExternalSstFileIngestionJob::BeforeSyncGlobalSeqno");
+        status = SyncIngestedFile(rwfile.get());
+        TEST_SYNC_POINT("ExternalSstFileIngestionJob::AfterSyncGlobalSeqno");
+        if (!status.ok()) {
+          ROCKS_LOG_WARN(db_options_.info_log,
+                         "Failed to sync ingested file %s after writing global "
+                         "sequence number: %s",
+                         file_to_ingest->internal_file_path.c_str(),
+                         status.ToString().c_str());
+        }
+      }
       if (!status.ok()) {
         return status;
       }
@@ -580,8 +640,8 @@ bool ExternalSstFileIngestionJob::IngestedFileFitInLevel(
   }
 
   auto* vstorage = cfd_->current()->storage_info();
-  Slice file_smallest_user_key(file_to_ingest->smallest_user_key);
-  Slice file_largest_user_key(file_to_ingest->largest_user_key);
+  Slice file_smallest_user_key(file_to_ingest->smallest_internal_key.user_key());
+  Slice file_largest_user_key(file_to_ingest->largest_internal_key.user_key());
 
   if (vstorage->OverlapInLevel(level, &file_smallest_user_key,
                                &file_largest_user_key)) {
@@ -598,6 +658,16 @@ bool ExternalSstFileIngestionJob::IngestedFileFitInLevel(
 
   // File did not overlap with level files, our compaction output
   return true;
+}
+
+template <typename TWritableFile>
+Status ExternalSstFileIngestionJob::SyncIngestedFile(TWritableFile* file) {
+  assert(file != nullptr);
+  if (db_options_.use_fsync) {
+    return file->Fsync();
+  } else {
+    return file->Sync();
+  }
 }
 
 }  // namespace rocksdb

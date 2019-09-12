@@ -467,6 +467,8 @@ class StatusJni : public RocksDBNativeClass<rocksdb::Status*, StatusJni> {
         return 0xC;
       case rocksdb::Status::Code::kTryAgain:
         return 0xD;
+      case rocksdb::Status::Code::kColumnFamilyDropped:
+        return 0xE;
       default:
         return 0x7F;  // undefined
     }
@@ -583,6 +585,12 @@ class StatusJni : public RocksDBNativeClass<rocksdb::Status*, StatusJni> {
         status = std::unique_ptr<rocksdb::Status>(
             new rocksdb::Status(rocksdb::Status::TryAgain(
               rocksdb::SubCodeJni::toCppSubCode(jsub_code_value))));
+        break;
+      case 0xE:
+        // ColumnFamilyDropped
+        status = std::unique_ptr<rocksdb::Status>(
+            new rocksdb::Status(rocksdb::Status::ColumnFamilyDropped(
+                rocksdb::SubCodeJni::toCppSubCode(jsub_code_value))));
         break;
       case 0x7F:
       default:
@@ -4612,6 +4620,8 @@ class TickerTypeJni {
         return -0x0B;
       case rocksdb::Tickers::TXN_SNAPSHOT_MUTEX_OVERHEAD:
         return -0x0C;
+      case rocksdb::Tickers::TXN_GET_TRY_AGAIN:
+        return -0x0D;
       case rocksdb::Tickers::TICKER_ENUM_MAX:
         // 0x5F for backwards compatibility on current minor version.
         return 0x5F;
@@ -4904,6 +4914,8 @@ class TickerTypeJni {
         return rocksdb::Tickers::TXN_DUPLICATE_KEY_OVERHEAD;
       case -0x0C:
         return rocksdb::Tickers::TXN_SNAPSHOT_MUTEX_OVERHEAD;
+      case -0x0D:
+        return rocksdb::Tickers::TXN_GET_TRY_AGAIN;
       case 0x5F:
         // 0x5F for backwards compatibility on current minor version.
         return rocksdb::Tickers::TICKER_ENUM_MAX;
@@ -5894,8 +5906,10 @@ class IndexTypeJni {
        return 0x0;
      case rocksdb::BlockBasedTableOptions::IndexType::kHashSearch:
        return 0x1;
-    case rocksdb::BlockBasedTableOptions::IndexType::kTwoLevelIndexSearch:
+     case rocksdb::BlockBasedTableOptions::IndexType::kTwoLevelIndexSearch:
        return 0x2;
+     case rocksdb::BlockBasedTableOptions::IndexType::kBinarySearchWithFirstKey:
+       return 0x3;
      default:
        return 0x7F;  // undefined
    }
@@ -5912,6 +5926,9 @@ class IndexTypeJni {
        return rocksdb::BlockBasedTableOptions::IndexType::kHashSearch;
      case 0x2:
        return rocksdb::BlockBasedTableOptions::IndexType::kTwoLevelIndexSearch;
+     case 0x3:
+       return rocksdb::BlockBasedTableOptions::IndexType::
+           kBinarySearchWithFirstKey;
      default:
        // undefined/default
        return rocksdb::BlockBasedTableOptions::IndexType::kBinarySearch;

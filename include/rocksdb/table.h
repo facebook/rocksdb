@@ -74,7 +74,7 @@ struct BlockBasedTableOptions {
   // blocks with high priority. If set to true, depending on implementation of
   // block cache, index and filter blocks may be less likely to be evicted
   // than data blocks.
-  bool cache_index_and_filter_blocks_with_high_priority = false;
+  bool cache_index_and_filter_blocks_with_high_priority = true;
 
   // if cache_index_and_filter_blocks is true and the below is true, then
   // filter and index blocks are stored in the cache, but a reference is
@@ -93,14 +93,32 @@ struct BlockBasedTableOptions {
   enum IndexType : char {
     // A space efficient index block that is optimized for
     // binary-search-based index.
-    kBinarySearch,
+    kBinarySearch = 0x00,
 
     // The hash index, if enabled, will do the hash lookup when
     // `Options.prefix_extractor` is provided.
-    kHashSearch,
+    kHashSearch = 0x01,
 
     // A two-level index implementation. Both levels are binary search indexes.
-    kTwoLevelIndexSearch,
+    kTwoLevelIndexSearch = 0x02,
+
+    // Like kBinarySearch, but index also contains first key of each block.
+    // This allows iterators to defer reading the block until it's actually
+    // needed. May significantly reduce read amplification of short range scans.
+    // Without it, iterator seek usually reads one block from each level-0 file
+    // and from each level, which may be expensive.
+    // Works best in combination with:
+    //  - IndexShorteningMode::kNoShortening,
+    //  - custom FlushBlockPolicy to cut blocks at some meaningful boundaries,
+    //    e.g. when prefix changes.
+    // Makes the index significantly bigger (2x or more), especially when keys
+    // are long.
+    //
+    // IO errors are not handled correctly in this mode right now: if an error
+    // happens when lazily reading a block in value(), value() returns empty
+    // slice, and you need to call Valid()/status() afterwards.
+    // TODO(kolmike): Fix it.
+    kBinarySearchWithFirstKey = 0x03,
   };
 
   IndexType index_type = kBinarySearch;

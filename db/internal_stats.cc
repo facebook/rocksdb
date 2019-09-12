@@ -10,11 +10,7 @@
 
 #include "db/internal_stats.h"
 
-#ifndef __STDC_FORMAT_MACROS
-#define __STDC_FORMAT_MACROS
-#endif
-
-#include <inttypes.h>
+#include <cinttypes>
 #include <algorithm>
 #include <limits>
 #include <string>
@@ -22,8 +18,8 @@
 #include <vector>
 
 #include "db/column_family.h"
-#include "db/db_impl.h"
-#include "table/block_based_table_factory.h"
+#include "db/db_impl/db_impl.h"
+#include "table/block_based/block_based_table_factory.h"
 #include "util/string_util.h"
 
 namespace rocksdb {
@@ -958,14 +954,17 @@ void InternalStats::DumpDBStats(std::string* value) {
            seconds_up, interval_seconds_up);
   value->append(buf);
   // Cumulative
-  uint64_t user_bytes_written = GetDBStats(InternalStats::BYTES_WRITTEN);
-  uint64_t num_keys_written = GetDBStats(InternalStats::NUMBER_KEYS_WRITTEN);
-  uint64_t write_other = GetDBStats(InternalStats::WRITE_DONE_BY_OTHER);
-  uint64_t write_self = GetDBStats(InternalStats::WRITE_DONE_BY_SELF);
-  uint64_t wal_bytes = GetDBStats(InternalStats::WAL_FILE_BYTES);
-  uint64_t wal_synced = GetDBStats(InternalStats::WAL_FILE_SYNCED);
-  uint64_t write_with_wal = GetDBStats(InternalStats::WRITE_WITH_WAL);
-  uint64_t write_stall_micros = GetDBStats(InternalStats::WRITE_STALL_MICROS);
+  uint64_t user_bytes_written =
+      GetDBStats(InternalStats::kIntStatsBytesWritten);
+  uint64_t num_keys_written =
+      GetDBStats(InternalStats::kIntStatsNumKeysWritten);
+  uint64_t write_other = GetDBStats(InternalStats::kIntStatsWriteDoneByOther);
+  uint64_t write_self = GetDBStats(InternalStats::kIntStatsWriteDoneBySelf);
+  uint64_t wal_bytes = GetDBStats(InternalStats::kIntStatsWalFileBytes);
+  uint64_t wal_synced = GetDBStats(InternalStats::kIntStatsWalFileSynced);
+  uint64_t write_with_wal = GetDBStats(InternalStats::kIntStatsWriteWithWal);
+  uint64_t write_stall_micros =
+      GetDBStats(InternalStats::kIntStatsWriteStallMicros);
 
   const int kHumanMicrosLen = 32;
   char human_micros[kHumanMicrosLen];

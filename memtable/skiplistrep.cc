@@ -3,10 +3,10 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 //
-#include "memtable/inlineskiplist.h"
 #include "db/memtable.h"
+#include "memory/arena.h"
+#include "memtable/inlineskiplist.h"
 #include "rocksdb/memtablerep.h"
-#include "util/arena.h"
 
 namespace rocksdb {
 namespace {

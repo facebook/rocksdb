@@ -9,11 +9,7 @@
 
 #include "rocksdb/options.h"
 
-#ifndef __STDC_FORMAT_MACROS
-#define __STDC_FORMAT_MACROS
-#endif
-
-#include <inttypes.h>
+#include <cinttypes>
 #include <limits>
 
 #include "monitoring/statistics.h"
@@ -31,7 +27,7 @@
 #include "rocksdb/table.h"
 #include "rocksdb/table_properties.h"
 #include "rocksdb/wal_filter.h"
-#include "table/block_based_table_factory.h"
+#include "table/block_based/block_based_table_factory.h"
 #include "util/compression.h"
 
 namespace rocksdb {
@@ -46,6 +42,8 @@ AdvancedColumnFamilyOptions::AdvancedColumnFamilyOptions(const Options& options)
           options.min_write_buffer_number_to_merge),
       max_write_buffer_number_to_maintain(
           options.max_write_buffer_number_to_maintain),
+      max_write_buffer_size_to_maintain(
+          options.max_write_buffer_size_to_maintain),
       inplace_update_support(options.inplace_update_support),
       inplace_update_num_locks(options.inplace_update_num_locks),
       inplace_callback(options.inplace_callback),
@@ -162,6 +160,9 @@ void ColumnFamilyOptions::Dump(Logger* log) const {
                      min_write_buffer_number_to_merge);
     ROCKS_LOG_HEADER(log, "    Options.max_write_buffer_number_to_maintain: %d",
                      max_write_buffer_number_to_maintain);
+    ROCKS_LOG_HEADER(log,
+                     "    Options.max_write_buffer_size_to_maintain: %" PRIu64,
+                     max_write_buffer_size_to_maintain);
     ROCKS_LOG_HEADER(
         log, "           Options.bottommost_compression_opts.window_bits: %d",
         bottommost_compression_opts.window_bits);
@@ -506,7 +507,6 @@ ColumnFamilyOptions* ColumnFamilyOptions::OptimizeForSmallDb(
       BlockBasedTableOptions::IndexType::kTwoLevelIndexSearch;
   table_factory.reset(new BlockBasedTableFactory(table_options));
 
-
   return this;
 }
 
@@ -600,7 +600,8 @@ ReadOptions::ReadOptions()
       pin_data(false),
       background_purge_on_iterator_cleanup(false),
       ignore_range_deletions(false),
-      iter_start_seqnum(0) {}
+      iter_start_seqnum(0),
+      timestamp(nullptr) {}
 
 ReadOptions::ReadOptions(bool cksum, bool cache)
     : snapshot(nullptr),
@@ -618,6 +619,7 @@ ReadOptions::ReadOptions(bool cksum, bool cache)
       pin_data(false),
       background_purge_on_iterator_cleanup(false),
       ignore_range_deletions(false),
-      iter_start_seqnum(0) {}
+      iter_start_seqnum(0),
+      timestamp(nullptr) {}
 
 }  // namespace rocksdb

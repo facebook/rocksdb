@@ -24,13 +24,14 @@
 #endif
 
 #include "cache/lru_cache.h"
-#include "db/db_impl.h"
+#include "db/db_impl/db_impl.h"
 #include "db/db_test_util.h"
 #include "db/dbformat.h"
 #include "db/job_context.h"
 #include "db/version_set.h"
 #include "db/write_batch_internal.h"
 #include "env/mock_env.h"
+#include "file/filename.h"
 #include "memtable/hash_linklist_rep.h"
 #include "monitoring/thread_status_util.h"
 #include "port/port.h"
@@ -53,19 +54,18 @@
 #include "rocksdb/utilities/checkpoint.h"
 #include "rocksdb/utilities/optimistic_transaction_db.h"
 #include "rocksdb/utilities/write_batch_with_index.h"
-#include "table/block_based_table_factory.h"
+#include "table/block_based/block_based_table_factory.h"
 #include "table/mock_table.h"
-#include "table/plain_table_factory.h"
+#include "table/plain/plain_table_factory.h"
 #include "table/scoped_arena_iterator.h"
+#include "test_util/sync_point.h"
+#include "test_util/testharness.h"
+#include "test_util/testutil.h"
 #include "util/compression.h"
 #include "util/file_reader_writer.h"
-#include "util/filename.h"
 #include "util/mutexlock.h"
 #include "util/rate_limiter.h"
 #include "util/string_util.h"
-#include "util/sync_point.h"
-#include "util/testharness.h"
-#include "util/testutil.h"
 #include "utilities/merge_operators.h"
 
 namespace rocksdb {
@@ -883,7 +883,7 @@ TEST_F(DBTest, FlushMultipleMemtable) {
     writeOpt.disableWAL = true;
     options.max_write_buffer_number = 4;
     options.min_write_buffer_number_to_merge = 3;
-    options.max_write_buffer_number_to_maintain = -1;
+    options.max_write_buffer_size_to_maintain = -1;
     CreateAndReopenWithCF({"pikachu"}, options);
     ASSERT_OK(dbfull()->Put(writeOpt, handles_[1], "foo", "v1"));
     ASSERT_OK(Flush(1));
@@ -901,7 +901,8 @@ TEST_F(DBTest, FlushSchedule) {
   options.level0_stop_writes_trigger = 1 << 10;
   options.level0_slowdown_writes_trigger = 1 << 10;
   options.min_write_buffer_number_to_merge = 1;
-  options.max_write_buffer_number_to_maintain = 1;
+  options.max_write_buffer_size_to_maintain =
+      static_cast<int64_t>(options.write_buffer_size);
   options.max_write_buffer_number = 2;
   options.write_buffer_size = 120 * 1024;
   CreateAndReopenWithCF({"pikachu"}, options);
@@ -1257,6 +1258,7 @@ TEST_F(DBTest, ApproximateSizesMemTable) {
   options.compression = kNoCompression;
   options.create_if_missing = true;
   DestroyAndReopen(options);
+  auto default_cf = db_->DefaultColumnFamily();
 
   const int N = 128;
   Random rnd(301);
@@ -1268,9 +1270,10 @@ TEST_F(DBTest, ApproximateSizesMemTable) {
   std::string start = Key(50);
   std::string end = Key(60);
   Range r(start, end);
-  uint8_t include_both = DB::SizeApproximationFlags::INCLUDE_FILES |
-                         DB::SizeApproximationFlags::INCLUDE_MEMTABLES;
-  db_->GetApproximateSizes(&r, 1, &size, include_both);
+  SizeApproximationOptions size_approx_options;
+  size_approx_options.include_memtabtles = true;
+  size_approx_options.include_files = true;
+  db_->GetApproximateSizes(size_approx_options, default_cf, &r, 1, &size);
   ASSERT_GT(size, 6000);
   ASSERT_LT(size, 204800);
   // Zero if not including mem table
@@ -1280,7 +1283,7 @@ TEST_F(DBTest, ApproximateSizesMemTable) {
   start = Key(500);
   end = Key(600);
   r = Range(start, end);
-  db_->GetApproximateSizes(&r, 1, &size, include_both);
+  db_->GetApproximateSizes(size_approx_options, default_cf, &r, 1, &size);
   ASSERT_EQ(size, 0);
 
   for (int i = 0; i < N; i++) {
@@ -1290,19 +1293,20 @@ TEST_F(DBTest, ApproximateSizesMemTable) {
   start = Key(500);
   end = Key(600);
   r = Range(start, end);
-  db_->GetApproximateSizes(&r, 1, &size, include_both);
+  db_->GetApproximateSizes(size_approx_options, default_cf, &r, 1, &size);
   ASSERT_EQ(size, 0);
 
   start = Key(100);
   end = Key(1020);
   r = Range(start, end);
-  db_->GetApproximateSizes(&r, 1, &size, include_both);
+  db_->GetApproximateSizes(size_approx_options, default_cf, &r, 1, &size);
   ASSERT_GT(size, 6000);
 
   options.max_write_buffer_number = 8;
   options.min_write_buffer_number_to_merge = 5;
   options.write_buffer_size = 1024 * N;  // Not very large
   DestroyAndReopen(options);
+  default_cf = db_->DefaultColumnFamily();
 
   int keys[N * 3];
   for (int i = 0; i < N; i++) {
@@ -1319,26 +1323,27 @@ TEST_F(DBTest, ApproximateSizesMemTable) {
   start = Key(100);
   end = Key(300);
   r = Range(start, end);
-  db_->GetApproximateSizes(&r, 1, &size, include_both);
+  db_->GetApproximateSizes(size_approx_options, default_cf, &r, 1, &size);
   ASSERT_EQ(size, 0);
 
   start = Key(1050);
   end = Key(1080);
   r = Range(start, end);
-  db_->GetApproximateSizes(&r, 1, &size, include_both);
+  db_->GetApproximateSizes(size_approx_options, default_cf, &r, 1, &size);
   ASSERT_GT(size, 6000);
 
   start = Key(2100);
   end = Key(2300);
   r = Range(start, end);
-  db_->GetApproximateSizes(&r, 1, &size, include_both);
+  db_->GetApproximateSizes(size_approx_options, default_cf, &r, 1, &size);
   ASSERT_EQ(size, 0);
 
   start = Key(1050);
   end = Key(1080);
   r = Range(start, end);
   uint64_t size_with_mt, size_without_mt;
-  db_->GetApproximateSizes(&r, 1, &size_with_mt, include_both);
+  db_->GetApproximateSizes(size_approx_options, default_cf, &r, 1,
+                           &size_with_mt);
   ASSERT_GT(size_with_mt, 6000);
   db_->GetApproximateSizes(&r, 1, &size_without_mt);
   ASSERT_EQ(size_without_mt, 0);
@@ -1352,10 +1357,80 @@ TEST_F(DBTest, ApproximateSizesMemTable) {
   start = Key(1050);
   end = Key(1080);
   r = Range(start, end);
-  db_->GetApproximateSizes(&r, 1, &size_with_mt, include_both);
+  db_->GetApproximateSizes(size_approx_options, default_cf, &r, 1,
+                           &size_with_mt);
   db_->GetApproximateSizes(&r, 1, &size_without_mt);
   ASSERT_GT(size_with_mt, size_without_mt);
   ASSERT_GT(size_without_mt, 6000);
+
+  // Check that include_memtabtles flag works as expected
+  size_approx_options.include_memtabtles = false;
+  db_->GetApproximateSizes(size_approx_options, default_cf, &r, 1, &size);
+  ASSERT_EQ(size, size_without_mt);
+
+  // Check that files_size_error_margin works as expected, when the heuristic
+  // conditions are not met
+  start = Key(1);
+  end = Key(1000 + N - 2);
+  r = Range(start, end);
+  size_approx_options.files_size_error_margin = -1.0;  // disabled
+  db_->GetApproximateSizes(size_approx_options, default_cf, &r, 1, &size);
+  uint64_t size2;
+  size_approx_options.files_size_error_margin = 0.5;  // enabled, but not used
+  db_->GetApproximateSizes(size_approx_options, default_cf, &r, 1, &size2);
+  ASSERT_EQ(size, size2);
+}
+
+TEST_F(DBTest, ApproximateSizesFilesWithErrorMargin) {
+  Options options = CurrentOptions();
+  options.write_buffer_size = 1024 * 1024;
+  options.compression = kNoCompression;
+  options.create_if_missing = true;
+  options.target_file_size_base = 1024 * 1024;
+  DestroyAndReopen(options);
+  const auto default_cf = db_->DefaultColumnFamily();
+
+  const int N = 64000;
+  Random rnd(301);
+  for (int i = 0; i < N; i++) {
+    ASSERT_OK(Put(Key(i), RandomString(&rnd, 1024)));
+  }
+  // Flush everything to files
+  Flush();
+  // Compact the entire key space into the next level
+  db_->CompactRange(CompactRangeOptions(), default_cf, nullptr, nullptr);
+
+  // Write more keys
+  for (int i = N; i < (N + N / 4); i++) {
+    ASSERT_OK(Put(Key(i), RandomString(&rnd, 1024)));
+  }
+  // Flush everything to files again
+  Flush();
+
+  // Wait for compaction to finish
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
+
+  const std::string start = Key(0);
+  const std::string end = Key(2 * N);
+  const Range r(start, end);
+
+  SizeApproximationOptions size_approx_options;
+  size_approx_options.include_memtabtles = false;
+  size_approx_options.include_files = true;
+  size_approx_options.files_size_error_margin = -1.0;  // disabled
+
+  // Get the precise size without any approximation heuristic
+  uint64_t size;
+  db_->GetApproximateSizes(size_approx_options, default_cf, &r, 1, &size);
+  ASSERT_NE(size, 0);
+
+  // Get the size with an approximation heuristic
+  uint64_t size2;
+  const double error_margin = 0.2;
+  size_approx_options.files_size_error_margin = error_margin;
+  db_->GetApproximateSizes(size_approx_options, default_cf, &r, 1, &size2);
+  ASSERT_LT(size2, size * (1 + error_margin));
+  ASSERT_GT(size2, size * (1 - error_margin));
 }
 
 TEST_F(DBTest, GetApproximateMemTableStats) {
@@ -2285,6 +2360,7 @@ class MultiThreadedDBTest
 };
 
 TEST_P(MultiThreadedDBTest, MultiThreaded) {
+  if (option_config_ == kPipelinedWrite) return;
   anon::OptionsOverride options_override;
   options_override.skip_policy = kSkipNoSnapshot;
   Options options = CurrentOptions(options_override);
@@ -2465,6 +2541,15 @@ class ModelDB : public DB {
     return Status::NotSupported(key);
   }
 
+  using DB::GetMergeOperands;
+  virtual Status GetMergeOperands(
+      const ReadOptions& /*options*/, ColumnFamilyHandle* /*column_family*/,
+      const Slice& key, PinnableSlice* /*slice*/,
+      GetMergeOperandsOptions* /*merge_operands_options*/,
+      int* /*number_of_operands*/) override {
+    return Status::NotSupported(key);
+  }
+
   using DB::MultiGet;
   std::vector<Status> MultiGet(
       const ReadOptions& /*options*/,
@@ -2491,7 +2576,18 @@ class ModelDB : public DB {
     return Status::NotSupported("Not implemented");
   }
 
-  Status VerifyChecksum() override {
+  using DB::CreateColumnFamilyWithImport;
+  virtual Status CreateColumnFamilyWithImport(
+      const ColumnFamilyOptions& /*options*/,
+      const std::string& /*column_family_name*/,
+      const ImportColumnFamilyOptions& /*import_options*/,
+      const ExportImportFilesMetaData& /*metadata*/,
+      ColumnFamilyHandle** /*handle*/) override {
+    return Status::NotSupported("Not implemented.");
+  }
+
+  using DB::VerifyChecksum;
+  Status VerifyChecksum(const ReadOptions&) override {
     return Status::NotSupported("Not implemented.");
   }
 
@@ -2587,13 +2683,14 @@ class ModelDB : public DB {
     return false;
   }
   using DB::GetApproximateSizes;
-  void GetApproximateSizes(ColumnFamilyHandle* /*column_family*/,
-                           const Range* /*range*/, int n, uint64_t* sizes,
-                           uint8_t /*include_flags*/
-                           = INCLUDE_FILES) override {
+  Status GetApproximateSizes(const SizeApproximationOptions& /*options*/,
+                             ColumnFamilyHandle* /*column_family*/,
+                             const Range* /*range*/, int n,
+                             uint64_t* sizes) override {
     for (int i = 0; i < n; i++) {
       sizes[i] = 0;
     }
+    return Status::OK();
   }
   using DB::GetApproximateMemTableStats;
   void GetApproximateMemTableStats(ColumnFamilyHandle* /*column_family*/,
@@ -2690,6 +2787,10 @@ class ModelDB : public DB {
   }
 
   Status GetSortedWalFiles(VectorLogPtr& /*files*/) override {
+    return Status::OK();
+  }
+
+  Status GetCurrentWalFile(std::unique_ptr<LogFile>* /*current_log_file*/) override {
     return Status::OK();
   }
 
@@ -4689,15 +4790,15 @@ TEST_F(DBTest, DynamicUniversalCompactionOptions) {
   DestroyAndReopen(options);
 
   // Initial defaults
-  ASSERT_EQ(dbfull()->GetOptions().compaction_options_universal.size_ratio, 1);
+  ASSERT_EQ(dbfull()->GetOptions().compaction_options_universal.size_ratio, 1U);
   ASSERT_EQ(dbfull()->GetOptions().compaction_options_universal.min_merge_width,
-            2);
+            2u);
   ASSERT_EQ(dbfull()->GetOptions().compaction_options_universal.max_merge_width,
             UINT_MAX);
   ASSERT_EQ(dbfull()
                 ->GetOptions()
                 .compaction_options_universal.max_size_amplification_percent,
-            200);
+            200u);
   ASSERT_EQ(dbfull()
                 ->GetOptions()
                 .compaction_options_universal.compression_size_percent,
@@ -4710,15 +4811,15 @@ TEST_F(DBTest, DynamicUniversalCompactionOptions) {
 
   ASSERT_OK(dbfull()->SetOptions(
       {{"compaction_options_universal", "{size_ratio=7;}"}}));
-  ASSERT_EQ(dbfull()->GetOptions().compaction_options_universal.size_ratio, 7);
+  ASSERT_EQ(dbfull()->GetOptions().compaction_options_universal.size_ratio, 7u);
   ASSERT_EQ(dbfull()->GetOptions().compaction_options_universal.min_merge_width,
-            2);
+            2u);
   ASSERT_EQ(dbfull()->GetOptions().compaction_options_universal.max_merge_width,
             UINT_MAX);
   ASSERT_EQ(dbfull()
                 ->GetOptions()
                 .compaction_options_universal.max_size_amplification_percent,
-            200);
+            200u);
   ASSERT_EQ(dbfull()
                 ->GetOptions()
                 .compaction_options_universal.compression_size_percent,
@@ -4731,15 +4832,15 @@ TEST_F(DBTest, DynamicUniversalCompactionOptions) {
 
   ASSERT_OK(dbfull()->SetOptions(
       {{"compaction_options_universal", "{min_merge_width=11;}"}}));
-  ASSERT_EQ(dbfull()->GetOptions().compaction_options_universal.size_ratio, 7);
+  ASSERT_EQ(dbfull()->GetOptions().compaction_options_universal.size_ratio, 7u);
   ASSERT_EQ(dbfull()->GetOptions().compaction_options_universal.min_merge_width,
-            11);
+            11u);
   ASSERT_EQ(dbfull()->GetOptions().compaction_options_universal.max_merge_width,
             UINT_MAX);
   ASSERT_EQ(dbfull()
                 ->GetOptions()
                 .compaction_options_universal.max_size_amplification_percent,
-            200);
+            200u);
   ASSERT_EQ(dbfull()
                 ->GetOptions()
                 .compaction_options_universal.compression_size_percent,
@@ -4884,11 +4985,15 @@ TEST_F(DBTest, DynamicMiscOptions) {
   ASSERT_OK(dbfull()->TEST_GetLatestMutableCFOptions(handles_[0],
                                                      &mutable_cf_options));
   ASSERT_EQ(CompressionType::kNoCompression, mutable_cf_options.compression);
-  ASSERT_OK(dbfull()->SetOptions({{"compression", "kSnappyCompression"}}));
-  ASSERT_OK(dbfull()->TEST_GetLatestMutableCFOptions(handles_[0],
-                                                     &mutable_cf_options));
-  ASSERT_EQ(CompressionType::kSnappyCompression,
-            mutable_cf_options.compression);
+
+  if (Snappy_Supported()) {
+    ASSERT_OK(dbfull()->SetOptions({{"compression", "kSnappyCompression"}}));
+    ASSERT_OK(dbfull()->TEST_GetLatestMutableCFOptions(handles_[0],
+                                                       &mutable_cf_options));
+    ASSERT_EQ(CompressionType::kSnappyCompression,
+              mutable_cf_options.compression);
+  }
+
   // Test paranoid_file_checks already done in db_block_cache_test
   ASSERT_OK(
       dbfull()->SetOptions(handles_[1], {{"paranoid_file_checks", "true"}}));
@@ -5973,6 +6078,19 @@ TEST_F(DBTest, FailWhenCompressionNotSupportedTest) {
   }
 }
 
+TEST_F(DBTest, CreateColumnFamilyShouldFailOnIncompatibleOptions) {
+  Options options = CurrentOptions();
+  options.max_open_files = 100;
+  Reopen(options);
+
+  ColumnFamilyOptions cf_options(options);
+  // ttl is only supported when max_open_files is -1.
+  cf_options.ttl = 3600;
+  ColumnFamilyHandle* handle;
+  ASSERT_NOK(db_->CreateColumnFamily(cf_options, "pikachu", &handle));
+  delete handle;
+}
+
 #ifndef ROCKSDB_LITE
 TEST_F(DBTest, RowCache) {
   Options options = CurrentOptions();
@@ -6138,10 +6256,30 @@ TEST_F(DBTest, ThreadLocalPtrDeadlock) {
   fprintf(stderr, "Done. Flushed %d times, destroyed %d threads\n",
           flushes_done.load(), threads_destroyed.load());
 }
+
+TEST_F(DBTest, LargeBlockSizeTest) {
+  Options options = CurrentOptions();
+  CreateAndReopenWithCF({"pikachu"}, options);
+  ASSERT_OK(Put(0, "foo", "bar"));
+  BlockBasedTableOptions table_options;
+  table_options.block_size = 8LL*1024*1024*1024LL;
+  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+  ASSERT_NOK(TryReopenWithColumnFamilies({"default", "pikachu"}, options));
+}
+
 }  // namespace rocksdb
+
+#ifdef ROCKSDB_UNITTESTS_WITH_CUSTOM_OBJECTS_FROM_STATIC_LIBS
+extern "C" {
+void RegisterCustomObjects(int argc, char** argv);
+}
+#else
+void RegisterCustomObjects(int /*argc*/, char** /*argv*/) {}
+#endif  // !ROCKSDB_UNITTESTS_WITH_CUSTOM_OBJECTS_FROM_STATIC_LIBS
 
 int main(int argc, char** argv) {
   rocksdb::port::InstallStackTraceHandler();
   ::testing::InitGoogleTest(&argc, argv);
+  RegisterCustomObjects(argc, argv);
   return RUN_ALL_TESTS();
 }

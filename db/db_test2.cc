@@ -1036,8 +1036,7 @@ TEST_F(DBTest2, WalFilterTestWithColumnFamilies) {
   ASSERT_TRUE(index == keys_cf.size());
 }
 
-// Temporarily disable it because the test is flaky.
-TEST_F(DBTest2, DISABLED_PresetCompressionDict) {
+TEST_F(DBTest2, PresetCompressionDict) {
   // Verifies that compression ratio improves when dictionary is enabled, and
   // improves even further when the dictionary is trained by ZSTD.
   const size_t kBlockSizeBytes = 4 << 10;
@@ -1046,7 +1045,8 @@ TEST_F(DBTest2, DISABLED_PresetCompressionDict) {
   const int kNumL0Files = 5;
 
   Options options;
-  options.env = CurrentOptions().env; // Make sure to use any custom env that the test is configured with.
+  // Make sure to use any custom env that the test is configured with.
+  options.env = CurrentOptions().env;
   options.allow_concurrent_memtable_write = false;
   options.arena_block_size = kBlockSizeBytes;
   options.create_if_missing = true;
@@ -1072,10 +1072,19 @@ TEST_F(DBTest2, DISABLED_PresetCompressionDict) {
     compression_types.push_back(kZSTD);
   }
 
+  enum DictionaryTypes : int {
+    kWithoutDict,
+    kWithDict,
+    kWithZSTDTrainedDict,
+    kDictEnd,
+  };
+
   for (auto compression_type : compression_types) {
     options.compression = compression_type;
-    size_t prev_out_bytes;
-    for (int i = 0; i < 3; ++i) {
+    size_t bytes_without_dict = 0;
+    size_t bytes_with_dict = 0;
+    size_t bytes_with_zstd_trained_dict = 0;
+    for (int i = kWithoutDict; i < kDictEnd; i++) {
       // First iteration: compress without preset dictionary
       // Second iteration: compress with preset dictionary
       // Third iteration (zstd only): compress with zstd-trained dictionary
@@ -1085,19 +1094,19 @@ TEST_F(DBTest2, DISABLED_PresetCompressionDict) {
       // the non-first iterations, verify the data we get out is the same data
       // we put in.
       switch (i) {
-        case 0:
+        case kWithoutDict:
           options.compression_opts.max_dict_bytes = 0;
           options.compression_opts.zstd_max_train_bytes = 0;
           break;
-        case 1:
-          options.compression_opts.max_dict_bytes = 4 * kBlockSizeBytes;
+        case kWithDict:
+          options.compression_opts.max_dict_bytes = kBlockSizeBytes;
           options.compression_opts.zstd_max_train_bytes = 0;
           break;
-        case 2:
+        case kWithZSTDTrainedDict:
           if (compression_type != kZSTD) {
             continue;
           }
-          options.compression_opts.max_dict_bytes = 4 * kBlockSizeBytes;
+          options.compression_opts.max_dict_bytes = kBlockSizeBytes;
           options.compression_opts.zstd_max_train_bytes = kL0FileBytes;
           break;
         default:
@@ -1129,23 +1138,32 @@ TEST_F(DBTest2, DISABLED_PresetCompressionDict) {
       ASSERT_EQ(0, NumTableFilesAtLevel(0, 1));
       ASSERT_GT(NumTableFilesAtLevel(1, 1), 0);
 
-      size_t out_bytes = 0;
-      std::vector<std::string> files;
-      GetSstFiles(env_, dbname_, &files);
-      for (const auto& file : files) {
-        uint64_t curr_bytes;
-        env_->GetFileSize(dbname_ + "/" + file, &curr_bytes);
-        out_bytes += static_cast<size_t>(curr_bytes);
+      // Get the live sst files size
+      size_t total_sst_bytes = TotalSize(1);
+      if (i == kWithoutDict) {
+        bytes_without_dict = total_sst_bytes;
+      } else if (i == kWithDict) {
+        bytes_with_dict = total_sst_bytes;
+      } else if (i == kWithZSTDTrainedDict) {
+        bytes_with_zstd_trained_dict = total_sst_bytes;
       }
 
       for (size_t j = 0; j < kNumL0Files * (kL0FileBytes / kBlockSizeBytes);
            j++) {
         ASSERT_EQ(seq_datas[(j / 10) % 10], Get(1, Key(static_cast<int>(j))));
       }
-      if (i) {
-        ASSERT_GT(prev_out_bytes, out_bytes);
+      if (i == kWithDict) {
+        ASSERT_GT(bytes_without_dict, bytes_with_dict);
+      } else if (i == kWithZSTDTrainedDict) {
+        // In zstd compression, it is sometimes possible that using a trained
+        // dictionary does not get as good a compression ratio as without
+        // training.
+        // But using a dictionary (with or without training) should always get
+        // better compression ratio than not using one.
+        ASSERT_TRUE(bytes_with_dict > bytes_with_zstd_trained_dict ||
+                    bytes_without_dict > bytes_with_zstd_trained_dict);
       }
-      prev_out_bytes = out_bytes;
+
       DestroyAndReopen(options);
     }
   }
@@ -2779,8 +2797,12 @@ TEST_F(DBTest2, ReadCallbackTest) {
     ReadOptions roptions;
     TestReadCallback callback(seq);
     bool dont_care = true;
-    Status s = dbfull()->GetImpl(roptions, dbfull()->DefaultColumnFamily(), key,
-                                 &pinnable_val, &dont_care, &callback);
+    DBImpl::GetImplOptions get_impl_options;
+    get_impl_options.column_family = dbfull()->DefaultColumnFamily();
+    get_impl_options.value = &pinnable_val;
+    get_impl_options.value_found = &dont_care;
+    get_impl_options.callback = &callback;
+    Status s = dbfull()->GetImpl(roptions, key, get_impl_options);
     ASSERT_TRUE(s.ok());
     // Assuming that after each Put the DB increased seq by one, the value and
     // seq number must be equal since we also inc value by 1 after each Put.
@@ -3753,10 +3775,65 @@ TEST_F(DBTest2, CloseWithUnreleasedSnapshot) {
   delete db_;
   db_ = nullptr;
 }
+
+#ifndef ROCKSDB_LITE
+TEST_F(DBTest2, RowCacheSnapshot) {
+  Options options = CurrentOptions();
+  options.statistics = rocksdb::CreateDBStatistics();
+  options.row_cache = NewLRUCache(8192);
+  DestroyAndReopen(options);
+
+  ASSERT_OK(Put("foo", "bar1"));
+
+  const Snapshot* s1 = db_->GetSnapshot();
+
+  ASSERT_OK(Put("foo", "bar2"));
+  ASSERT_OK(Flush());
+
+  ASSERT_OK(Put("foo2", "bar"));
+  const Snapshot* s2 = db_->GetSnapshot();
+  ASSERT_OK(Put("foo3", "bar"));
+  const Snapshot* s3 = db_->GetSnapshot();
+
+  ASSERT_EQ(TestGetTickerCount(options, ROW_CACHE_HIT), 0);
+  ASSERT_EQ(TestGetTickerCount(options, ROW_CACHE_MISS), 0);
+  ASSERT_EQ(Get("foo"), "bar2");
+  ASSERT_EQ(TestGetTickerCount(options, ROW_CACHE_HIT), 0);
+  ASSERT_EQ(TestGetTickerCount(options, ROW_CACHE_MISS), 1);
+  ASSERT_EQ(Get("foo"), "bar2");
+  ASSERT_EQ(TestGetTickerCount(options, ROW_CACHE_HIT), 1);
+  ASSERT_EQ(TestGetTickerCount(options, ROW_CACHE_MISS), 1);
+  ASSERT_EQ(Get("foo", s1), "bar1");
+  ASSERT_EQ(TestGetTickerCount(options, ROW_CACHE_HIT), 1);
+  ASSERT_EQ(TestGetTickerCount(options, ROW_CACHE_MISS), 2);
+  ASSERT_EQ(Get("foo", s2), "bar2");
+  ASSERT_EQ(TestGetTickerCount(options, ROW_CACHE_HIT), 2);
+  ASSERT_EQ(TestGetTickerCount(options, ROW_CACHE_MISS), 2);
+  ASSERT_EQ(Get("foo", s1), "bar1");
+  ASSERT_EQ(TestGetTickerCount(options, ROW_CACHE_HIT), 3);
+  ASSERT_EQ(TestGetTickerCount(options, ROW_CACHE_MISS), 2);
+  ASSERT_EQ(Get("foo", s3), "bar2");
+  ASSERT_EQ(TestGetTickerCount(options, ROW_CACHE_HIT), 4);
+  ASSERT_EQ(TestGetTickerCount(options, ROW_CACHE_MISS), 2);
+
+  db_->ReleaseSnapshot(s1);
+  db_->ReleaseSnapshot(s2);
+  db_->ReleaseSnapshot(s3);
+}
+#endif  // ROCKSDB_LITE
 }  // namespace rocksdb
+
+#ifdef ROCKSDB_UNITTESTS_WITH_CUSTOM_OBJECTS_FROM_STATIC_LIBS
+extern "C" {
+void RegisterCustomObjects(int argc, char** argv);
+}
+#else
+void RegisterCustomObjects(int /*argc*/, char** /*argv*/) {}
+#endif  // !ROCKSDB_UNITTESTS_WITH_CUSTOM_OBJECTS_FROM_STATIC_LIBS
 
 int main(int argc, char** argv) {
   rocksdb::port::InstallStackTraceHandler();
   ::testing::InitGoogleTest(&argc, argv);
+  RegisterCustomObjects(argc, argv);
   return RUN_ALL_TESTS();
 }

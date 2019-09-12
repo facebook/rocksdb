@@ -13,9 +13,9 @@
 #include <memory>
 #include <vector>
 
+#include "logging/logging.h"
 #include "port/port.h"
 #include "util/crc32c.h"
-#include "util/logging.h"
 
 namespace rocksdb {
 

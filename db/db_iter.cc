@@ -16,6 +16,9 @@
 #include "db/merge_context.h"
 #include "db/merge_helper.h"
 #include "db/pinned_iterators_manager.h"
+#include "file/filename.h"
+#include "logging/logging.h"
+#include "memory/arena.h"
 #include "monitoring/perf_context_imp.h"
 #include "rocksdb/env.h"
 #include "rocksdb/iterator.h"
@@ -23,12 +26,9 @@
 #include "rocksdb/options.h"
 #include "table/internal_iterator.h"
 #include "table/iterator_wrapper.h"
-#include "util/arena.h"
-#include "util/filename.h"
-#include "util/logging.h"
+#include "trace_replay/trace_replay.h"
 #include "util/mutexlock.h"
 #include "util/string_util.h"
-#include "util/trace_replay.h"
 #include "util/user_comparator_wrapper.h"
 
 namespace rocksdb {
@@ -133,6 +133,7 @@ class DBIter final: public Iterator {
         direction_(kForward),
         valid_(false),
         current_entry_is_merged_(false),
+        is_key_seqnum_zero_(false),
         prefix_same_as_start_(read_options.prefix_same_as_start),
         pin_thru_lifetime_(read_options.pin_data),
         total_order_seek_(read_options.total_order_seek),
@@ -154,6 +155,10 @@ class DBIter final: public Iterator {
       iter_.iter()->SetPinnedItersMgr(&pinned_iters_mgr_);
     }
   }
+  // No copying allowed
+  DBIter(const DBIter&) = delete;
+  void operator=(const DBIter&) = delete;
+
   ~DBIter() override {
     // Release pinned data if any
     if (pinned_iters_mgr_.PinningEnabled()) {
@@ -262,12 +267,6 @@ class DBIter final: public Iterator {
   bool TooManyInternalKeysSkipped(bool increment = true);
   inline bool IsVisible(SequenceNumber sequence);
 
-  // CanReseekToSkip() returns whether the iterator can use the optimization
-  // where it reseek by sequence number to get the next key when there are too
-  // many versions. This is disabled for write unprepared because seeking to
-  // sequence number does not guarantee that it is visible.
-  inline bool CanReseekToSkip();
-
   // Temporarily pin the blocks that we encounter until ReleaseTempPinnedData()
   // is called
   void TempPinData() {
@@ -333,6 +332,10 @@ class DBIter final: public Iterator {
   Direction direction_;
   bool valid_;
   bool current_entry_is_merged_;
+  // True if we know that the current entry's seqnum is 0.
+  // This information is used as that the next entry will be for another
+  // user key.
+  bool is_key_seqnum_zero_;
   const bool prefix_same_as_start_;
   // Means that we will pin all data blocks we read as long the Iterator
   // is not deleted, will be true if ReadOptions::pin_data is true
@@ -346,15 +349,17 @@ class DBIter final: public Iterator {
   ReadRangeDelAggregator range_del_agg_;
   LocalStatistics local_stats_;
   PinnedIteratorsManager pinned_iters_mgr_;
+#ifdef ROCKSDB_LITE
+  ROCKSDB_FIELD_UNUSED
+#endif
   DBImpl* db_impl_;
+#ifdef ROCKSDB_LITE
+  ROCKSDB_FIELD_UNUSED
+#endif
   ColumnFamilyData* cfd_;
   // for diff snapshots we want the lower bound on the seqnum;
   // if this value > 0 iterator will return internal keys
   SequenceNumber start_seqnum_;
-
-  // No copying allowed
-  DBIter(const DBIter&);
-  void operator=(const DBIter&);
 };
 
 inline bool DBIter::ParseKey(ParsedInternalKey* ikey) {
@@ -381,6 +386,7 @@ void DBIter::Next() {
   num_internal_keys_skipped_ = 0;
   bool ok = true;
   if (direction_ == kReverse) {
+    is_key_seqnum_zero_ = false;
     if (!ReverseToForward()) {
       ok = false;
     }
@@ -400,6 +406,7 @@ void DBIter::Next() {
     FindNextUserEntry(true /* skipping the current user key */,
                       prefix_same_as_start_);
   } else {
+    is_key_seqnum_zero_ = false;
     valid_ = false;
   }
   if (statistics_ != nullptr && valid_) {
@@ -446,15 +453,28 @@ inline bool DBIter::FindNextUserEntryInternal(bool skipping, bool prefix_check) 
   //                         greater than that,
   //  - none of the above  : saved_key_ can contain anything, it doesn't matter.
   uint64_t num_skipped = 0;
+  // For write unprepared, the target sequence number in reseek could be larger
+  // than the snapshot, and thus needs to be skipped again. This could result in
+  // an infinite loop of reseeks. To avoid that, we limit the number of reseeks
+  // to one.
+  bool reseek_done = false;
 
   is_blob_ = false;
 
   do {
+    // Will update is_key_seqnum_zero_ as soon as we parsed the current key
+    // but we need to save the previous value to be used in the loop.
+    bool is_prev_key_seqnum_zero = is_key_seqnum_zero_;
     if (!ParseKey(&ikey_)) {
+      is_key_seqnum_zero_ = false;
       return false;
     }
 
-    if (iterate_upper_bound_ != nullptr &&
+    is_key_seqnum_zero_ = (ikey_.sequence == 0);
+
+    assert(iterate_upper_bound_ == nullptr || iter_.MayBeOutOfUpperBound() ||
+           user_comparator_.Compare(ikey_.user_key, *iterate_upper_bound_) < 0);
+    if (iterate_upper_bound_ != nullptr && iter_.MayBeOutOfUpperBound() &&
         user_comparator_.Compare(ikey_.user_key, *iterate_upper_bound_) >= 0) {
       break;
     }
@@ -470,12 +490,20 @@ inline bool DBIter::FindNextUserEntryInternal(bool skipping, bool prefix_check) 
     }
 
     if (IsVisible(ikey_.sequence)) {
-      if (skipping && user_comparator_.Compare(ikey_.user_key,
-                                               saved_key_.GetUserKey()) <= 0) {
+      // If the previous entry is of seqnum 0, the current entry will not
+      // possibly be skipped. This condition can potentially be relaxed to
+      // prev_key.seq <= ikey_.sequence. We are cautious because it will be more
+      // prone to bugs causing the same user key with the same sequence number.
+      if (!is_prev_key_seqnum_zero && skipping &&
+          user_comparator_.Compare(ikey_.user_key, saved_key_.GetUserKey()) <=
+              0) {
         num_skipped++;  // skip this entry
         PERF_COUNTER_ADD(internal_key_skipped_count, 1);
       } else {
+        assert(!skipping || user_comparator_.Compare(
+                                ikey_.user_key, saved_key_.GetUserKey()) > 0);
         num_skipped = 0;
+        reseek_done = false;
         switch (ikey_.type) {
           case kTypeDeletion:
           case kTypeSingleDeletion:
@@ -529,6 +557,7 @@ inline bool DBIter::FindNextUserEntryInternal(bool skipping, bool prefix_check) 
                 // they are hidden by this deletion.
                 skipping = true;
                 num_skipped = 0;
+                reseek_done = false;
                 PERF_COUNTER_ADD(internal_delete_skipped_count, 1);
               } else if (ikey_.type == kTypeBlobIndex) {
                 if (!allow_blob_) {
@@ -559,6 +588,7 @@ inline bool DBIter::FindNextUserEntryInternal(bool skipping, bool prefix_check) 
               // they are hidden by this deletion.
               skipping = true;
               num_skipped = 0;
+              reseek_done = false;
               PERF_COUNTER_ADD(internal_delete_skipped_count, 1);
             } else {
               // By now, we are sure the current ikey is going to yield a
@@ -589,13 +619,23 @@ inline bool DBIter::FindNextUserEntryInternal(bool skipping, bool prefix_check) 
             !iter_.iter()->IsKeyPinned() || !pin_thru_lifetime_ /* copy */);
         skipping = false;
         num_skipped = 0;
+        reseek_done = false;
       }
     }
 
     // If we have sequentially iterated via numerous equal keys, then it's
     // better to seek so that we can avoid too many key comparisons.
-    if (num_skipped > max_skip_ && CanReseekToSkip()) {
+    //
+    // To avoid infinite loops, do not reseek if we have already attempted to
+    // reseek previously.
+    //
+    // TODO(lth): If we reseek to sequence number greater than ikey_.sequence,
+    // than it does not make sense to reseek as we would actually land further
+    // away from the desired key. There is opportunity for optimization here.
+    if (num_skipped > max_skip_ && !reseek_done) {
+      is_key_seqnum_zero_ = false;
       num_skipped = 0;
+      reseek_done = true;
       std::string last_key;
       if (skipping) {
         // We're looking for the next user-key but all we see are the same
@@ -838,7 +878,10 @@ void DBIter::PrevInternal() {
       return;
     }
 
-    if (iterate_lower_bound_ != nullptr &&
+    assert(iterate_lower_bound_ == nullptr || iter_.MayBeOutOfLowerBound() ||
+           user_comparator_.Compare(saved_key_.GetUserKey(),
+                                    *iterate_lower_bound_) >= 0);
+    if (iterate_lower_bound_ != nullptr && iter_.MayBeOutOfLowerBound() &&
         user_comparator_.Compare(saved_key_.GetUserKey(),
                                  *iterate_lower_bound_) < 0) {
       // We've iterated earlier than the user-specified lower bound.
@@ -911,7 +954,7 @@ bool DBIter::FindValueForCurrentKey() {
     // This user key has lots of entries.
     // We're going from old to new, and it's taking too long. Let's do a Seek()
     // and go from new to old. This helps when a key was overwritten many times.
-    if (num_skipped >= max_skip_ && CanReseekToSkip()) {
+    if (num_skipped >= max_skip_) {
       return FindValueForCurrentKeyUsingSeek();
     }
 
@@ -1208,7 +1251,7 @@ bool DBIter::FindUserKeyBeforeSavedKey() {
       PERF_COUNTER_ADD(internal_key_skipped_count, 1);
     }
 
-    if (num_skipped >= max_skip_ && CanReseekToSkip()) {
+    if (num_skipped >= max_skip_) {
       num_skipped = 0;
       IterKey last_key;
       last_key.SetInternalKey(ParsedInternalKey(
@@ -1255,16 +1298,13 @@ bool DBIter::IsVisible(SequenceNumber sequence) {
   }
 }
 
-bool DBIter::CanReseekToSkip() {
-  return read_callback_ == nullptr || read_callback_->CanReseekToSkip();
-}
-
 void DBIter::Seek(const Slice& target) {
   PERF_CPU_TIMER_GUARD(iter_seek_cpu_nanos, env_);
   StopWatch sw(env_, statistics_, DB_SEEK);
   status_ = Status::OK();
   ReleaseTempPinnedData();
   ResetInternalKeysSkippedCounter();
+  is_key_seqnum_zero_ = false;
 
   SequenceNumber seq = sequence_;
   saved_key_.Clear();
@@ -1323,6 +1363,7 @@ void DBIter::SeekForPrev(const Slice& target) {
   status_ = Status::OK();
   ReleaseTempPinnedData();
   ResetInternalKeysSkippedCounter();
+  is_key_seqnum_zero_ = false;
   saved_key_.Clear();
   // now saved_key is used to store internal key.
   saved_key_.SetInternalKey(target, 0 /* sequence_number */,
@@ -1390,6 +1431,7 @@ void DBIter::SeekToFirst() {
   ReleaseTempPinnedData();
   ResetInternalKeysSkippedCounter();
   ClearSavedValue();
+  is_key_seqnum_zero_ = false;
 
   {
     PERF_TIMER_GUARD(seek_internal_seek_time);
@@ -1442,6 +1484,7 @@ void DBIter::SeekToLast() {
   ReleaseTempPinnedData();
   ResetInternalKeysSkippedCounter();
   ClearSavedValue();
+  is_key_seqnum_zero_ = false;
 
   {
     PERF_TIMER_GUARD(seek_internal_seek_time);

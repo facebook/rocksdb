@@ -13,17 +13,17 @@
 #include <map>
 #include <string>
 #include <vector>
-#include "db/db_impl.h"
+#include "db/db_impl/db_impl.h"
 #include "db/version_set.h"
 #include "db/write_batch_internal.h"
+#include "file/filename.h"
 #include "rocksdb/db.h"
 #include "rocksdb/env.h"
 #include "rocksdb/transaction_log.h"
-#include "util/filename.h"
+#include "test_util/sync_point.h"
+#include "test_util/testharness.h"
+#include "test_util/testutil.h"
 #include "util/string_util.h"
-#include "util/sync_point.h"
-#include "util/testharness.h"
-#include "util/testutil.h"
 
 namespace rocksdb {
 
@@ -284,6 +284,8 @@ TEST_F(DeleteFileTest, BackgroundPurgeIteratorTest) {
 TEST_F(DeleteFileTest, BackgroundPurgeCFDropTest) {
   auto do_test = [&](bool bg_purge) {
     ColumnFamilyOptions co;
+    co.max_write_buffer_size_to_maintain =
+        static_cast<int64_t>(co.write_buffer_size);
     WriteOptions wo;
     FlushOptions fo;
     ColumnFamilyHandle* cfh = nullptr;
@@ -305,6 +307,7 @@ TEST_F(DeleteFileTest, BackgroundPurgeCFDropTest) {
                    &sleeping_task_after, Env::Priority::HIGH);
     // If background purge is enabled, the file should still be there.
     CheckFileTypeCounts(dbname_, 0, bg_purge ? 1 : 0, 1);
+    TEST_SYNC_POINT("DeleteFileTest::BackgroundPurgeCFDropTest:1");
 
     // Execute background purges.
     sleeping_task_after.WakeUp();
@@ -318,6 +321,13 @@ TEST_F(DeleteFileTest, BackgroundPurgeCFDropTest) {
     do_test(false);
   }
 
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+  SyncPoint::GetInstance()->LoadDependency(
+      {{"DeleteFileTest::BackgroundPurgeCFDropTest:1",
+        "DBImpl::BGWorkPurge:start"}});
+  SyncPoint::GetInstance()->EnableProcessing();
+
   options_.avoid_unnecessary_blocking_io = true;
   ASSERT_OK(ReopenDB(false));
   {
@@ -326,6 +336,7 @@ TEST_F(DeleteFileTest, BackgroundPurgeCFDropTest) {
   }
 
   CloseDB();
+  SyncPoint::GetInstance()->DisableProcessing();
 }
 
 // This test is to reproduce a bug that read invalid ReadOption in iterator

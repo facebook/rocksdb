@@ -9,6 +9,7 @@
 #include <cstdlib>
 #include <unordered_set>
 #include <vector>
+
 #include "rocksdb/cache.h"
 #include "rocksdb/compaction_filter.h"
 #include "rocksdb/convenience.h"
@@ -20,8 +21,8 @@
 #include "rocksdb/slice_transform.h"
 #include "rocksdb/table.h"
 #include "rocksdb/utilities/object_registry.h"
-#include "table/block_based_table_factory.h"
-#include "table/plain_table_factory.h"
+#include "table/block_based/block_based_table_factory.h"
+#include "table/plain/plain_table_factory.h"
 #include "util/cast_util.h"
 #include "util/string_util.h"
 
@@ -83,6 +84,7 @@ DBOptions BuildDBOptions(const ImmutableDBOptions& immutable_db_options,
   options.stats_dump_period_sec = mutable_db_options.stats_dump_period_sec;
   options.stats_persist_period_sec =
       mutable_db_options.stats_persist_period_sec;
+  options.persist_stats_to_disk = immutable_db_options.persist_stats_to_disk;
   options.stats_history_buffer_size =
       mutable_db_options.stats_history_buffer_size;
   options.advise_random_on_open = immutable_db_options.advise_random_on_open;
@@ -103,10 +105,13 @@ DBOptions BuildDBOptions(const ImmutableDBOptions& immutable_db_options,
   options.enable_thread_tracking = immutable_db_options.enable_thread_tracking;
   options.delayed_write_rate = mutable_db_options.delayed_write_rate;
   options.enable_pipelined_write = immutable_db_options.enable_pipelined_write;
+  options.unordered_write = immutable_db_options.unordered_write;
   options.allow_concurrent_memtable_write =
       immutable_db_options.allow_concurrent_memtable_write;
   options.enable_write_thread_adaptive_yield =
       immutable_db_options.enable_write_thread_adaptive_yield;
+  options.max_write_batch_group_size_bytes =
+      immutable_db_options.max_write_batch_group_size_bytes;
   options.write_thread_max_yield_usec =
       immutable_db_options.write_thread_max_yield_usec;
   options.write_thread_slow_yield_usec =
@@ -135,7 +140,7 @@ DBOptions BuildDBOptions(const ImmutableDBOptions& immutable_db_options,
   options.atomic_flush = immutable_db_options.atomic_flush;
   options.avoid_unnecessary_blocking_io =
       immutable_db_options.avoid_unnecessary_blocking_io;
-
+  options.log_readahead_size = immutable_db_options.log_readahead_size;
   return options;
 }
 
@@ -254,7 +259,7 @@ const std::string kNameMergeOperator = "merge_operator";
 template <typename T>
 Status GetStringFromStruct(
     std::string* opt_string, const T& options,
-    const std::unordered_map<std::string, OptionTypeInfo> type_info,
+    const std::unordered_map<std::string, OptionTypeInfo>& type_info,
     const std::string& delimiter);
 
 namespace {
@@ -349,7 +354,7 @@ bool FIFOCompactionOptionsSpecialCase(const std::string& opt_str,
 template <typename T>
 bool SerializeStruct(
     const T& options, std::string* value,
-    std::unordered_map<std::string, OptionTypeInfo> type_info_map) {
+    const std::unordered_map<std::string, OptionTypeInfo>& type_info_map) {
   std::string opt_str;
   Status s = GetStringFromStruct(&opt_str, options, type_info_map, ";");
   if (!s.ok()) {
@@ -362,7 +367,7 @@ bool SerializeStruct(
 template <typename T>
 bool ParseSingleStructOption(
     const std::string& opt_val_str, T* options,
-    std::unordered_map<std::string, OptionTypeInfo> type_info_map) {
+    const std::unordered_map<std::string, OptionTypeInfo>& type_info_map) {
   size_t end = opt_val_str.find('=');
   std::string key = opt_val_str.substr(0, end);
   std::string value = opt_val_str.substr(end + 1);
@@ -371,6 +376,11 @@ bool ParseSingleStructOption(
     return false;
   }
   const auto& opt_info = iter->second;
+  if (opt_info.verification == OptionVerificationType::kDeprecated) {
+    // Should also skip deprecated sub-options such as
+    // fifo_compaction_options_type_info.ttl
+    return true;
+  }
   return ParseOptionHelper(
       reinterpret_cast<char*>(options) + opt_info.mutable_offset, opt_info.type,
       value);
@@ -379,7 +389,7 @@ bool ParseSingleStructOption(
 template <typename T>
 bool ParseStructOptions(
     const std::string& opt_str, T* options,
-    std::unordered_map<std::string, OptionTypeInfo> type_info_map) {
+    const std::unordered_map<std::string, OptionTypeInfo>& type_info_map) {
   assert(!opt_str.empty());
 
   size_t start = 0;
@@ -1037,21 +1047,21 @@ Status ParseColumnFamilyOption(const std::string& name,
     } else {
       if (name == kNameComparator) {
         // Try to get comparator from object registry first.
-        std::unique_ptr<const Comparator> comp_guard;
-        const Comparator* comp =
-            NewCustomObject<const Comparator>(value, &comp_guard);
         // Only support static comparator for now.
-        if (comp != nullptr && !comp_guard) {
-          new_options->comparator = comp;
+        Status status = ObjectRegistry::NewInstance()->NewStaticObject(
+            value, &new_options->comparator);
+        if (status.ok()) {
+          return status;
         }
       } else if (name == kNameMergeOperator) {
         // Try to get merge operator from object registry first.
-        std::unique_ptr<std::shared_ptr<MergeOperator>> mo_guard;
-        std::shared_ptr<MergeOperator>* mo =
-            NewCustomObject<std::shared_ptr<MergeOperator>>(value, &mo_guard);
+        std::shared_ptr<MergeOperator> mo;
+        Status status =
+            ObjectRegistry::NewInstance()->NewSharedObject<MergeOperator>(
+                value, &new_options->merge_operator);
         // Only support static comparator for now.
-        if (mo != nullptr) {
-          new_options->merge_operator = *mo;
+        if (status.ok()) {
+          return status;
         }
       }
 
@@ -1091,7 +1101,7 @@ Status ParseColumnFamilyOption(const std::string& name,
 template <typename T>
 bool SerializeSingleStructOption(
     std::string* opt_string, const T& options,
-    const std::unordered_map<std::string, OptionTypeInfo> type_info,
+    const std::unordered_map<std::string, OptionTypeInfo>& type_info,
     const std::string& name, const std::string& delimiter) {
   auto iter = type_info.find(name);
   if (iter == type_info.end()) {
@@ -1111,7 +1121,7 @@ bool SerializeSingleStructOption(
 template <typename T>
 Status GetStringFromStruct(
     std::string* opt_string, const T& options,
-    const std::unordered_map<std::string, OptionTypeInfo> type_info,
+    const std::unordered_map<std::string, OptionTypeInfo>& type_info,
     const std::string& delimiter) {
   assert(opt_string);
   opt_string->clear();
@@ -1183,10 +1193,10 @@ Status ParseDBOption(const std::string& name,
           NewGenericRateLimiter(static_cast<int64_t>(ParseUint64(value))));
     } else if (name == kNameEnv) {
       // Currently `Env` can be deserialized from object registry only.
-      std::unique_ptr<Env> env_guard;
-      Env* env = NewCustomObject<Env>(value, &env_guard);
+      Env* env = new_options->env;
+      Status status = Env::LoadEnv(value, &env);
       // Only support static env for now.
-      if (env != nullptr && !env_guard) {
+      if (status.ok()) {
         new_options->env = env;
       }
     } else {
@@ -1573,6 +1583,10 @@ std::unordered_map<std::string, OptionTypeInfo>
          {offsetof(struct DBOptions, stats_persist_period_sec),
           OptionType::kUInt, OptionVerificationType::kNormal, true,
           offsetof(struct MutableDBOptions, stats_persist_period_sec)}},
+        {"persist_stats_to_disk",
+         {offsetof(struct DBOptions, persist_stats_to_disk),
+          OptionType::kBoolean, OptionVerificationType::kNormal, false,
+          offsetof(struct ImmutableDBOptions, persist_stats_to_disk)}},
         {"stats_history_buffer_size",
          {offsetof(struct DBOptions, stats_history_buffer_size),
           OptionType::kSizeT, OptionVerificationType::kNormal, true,
@@ -1583,6 +1597,9 @@ std::unordered_map<std::string, OptionTypeInfo>
         {"enable_pipelined_write",
          {offsetof(struct DBOptions, enable_pipelined_write),
           OptionType::kBoolean, OptionVerificationType::kNormal, false, 0}},
+        {"unordered_write",
+         {offsetof(struct DBOptions, unordered_write), OptionType::kBoolean,
+          OptionVerificationType::kNormal, false, 0}},
         {"allow_concurrent_memtable_write",
          {offsetof(struct DBOptions, allow_concurrent_memtable_write),
           OptionType::kBoolean, OptionVerificationType::kNormal, false, 0}},
@@ -1595,6 +1612,9 @@ std::unordered_map<std::string, OptionTypeInfo>
           OptionType::kBoolean, OptionVerificationType::kNormal, false, 0}},
         {"write_thread_slow_yield_usec",
          {offsetof(struct DBOptions, write_thread_slow_yield_usec),
+          OptionType::kUInt64T, OptionVerificationType::kNormal, false, 0}},
+        {"max_write_batch_group_size_bytes",
+         {offsetof(struct DBOptions, max_write_batch_group_size_bytes),
           OptionType::kUInt64T, OptionVerificationType::kNormal, false, 0}},
         {"write_thread_max_yield_usec",
          {offsetof(struct DBOptions, write_thread_max_yield_usec),
@@ -1649,6 +1669,12 @@ std::unordered_map<std::string, OptionTypeInfo>
          {offsetof(struct DBOptions, avoid_unnecessary_blocking_io),
           OptionType::kBoolean, OptionVerificationType::kNormal, false,
           offsetof(struct ImmutableDBOptions, avoid_unnecessary_blocking_io)}},
+        {"write_dbid_to_manifest",
+         {offsetof(struct DBOptions, write_dbid_to_manifest),
+          OptionType::kBoolean, OptionVerificationType::kNormal, false, 0}},
+        {"log_readahead_size",
+         {offsetof(struct DBOptions, log_readahead_size), OptionType::kSizeT,
+          OptionVerificationType::kNormal, false, 0}},
 };
 
 std::unordered_map<std::string, BlockBasedTableOptions::IndexType>
@@ -1656,7 +1682,9 @@ std::unordered_map<std::string, BlockBasedTableOptions::IndexType>
         {"kBinarySearch", BlockBasedTableOptions::IndexType::kBinarySearch},
         {"kHashSearch", BlockBasedTableOptions::IndexType::kHashSearch},
         {"kTwoLevelIndexSearch",
-         BlockBasedTableOptions::IndexType::kTwoLevelIndexSearch}};
+         BlockBasedTableOptions::IndexType::kTwoLevelIndexSearch},
+        {"kBinarySearchWithFirstKey",
+         BlockBasedTableOptions::IndexType::kBinarySearchWithFirstKey}};
 
 std::unordered_map<std::string, BlockBasedTableOptions::DataBlockIndexType>
     OptionsHelper::block_base_table_data_block_index_type_string_map = {
@@ -1853,6 +1881,9 @@ std::unordered_map<std::string, OptionTypeInfo>
         {"max_write_buffer_number_to_maintain",
          {offset_of(&ColumnFamilyOptions::max_write_buffer_number_to_maintain),
           OptionType::kInt, OptionVerificationType::kNormal, false, 0}},
+        {"max_write_buffer_size_to_maintain",
+         {offset_of(&ColumnFamilyOptions::max_write_buffer_size_to_maintain),
+          OptionType::kInt64T, OptionVerificationType::kNormal, false, 0}},
         {"min_write_buffer_number_to_merge",
          {offset_of(&ColumnFamilyOptions::min_write_buffer_number_to_merge),
           OptionType::kInt, OptionVerificationType::kNormal, false, 0}},

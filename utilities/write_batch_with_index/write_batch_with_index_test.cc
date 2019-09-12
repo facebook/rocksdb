@@ -9,14 +9,14 @@
 
 #ifndef ROCKSDB_LITE
 
-#include <memory>
+#include "rocksdb/utilities/write_batch_with_index.h"
 #include <map>
+#include <memory>
 #include "db/column_family.h"
 #include "port/stack_trace.h"
-#include "rocksdb/utilities/write_batch_with_index.h"
+#include "test_util/testharness.h"
 #include "util/random.h"
 #include "util/string_util.h"
-#include "util/testharness.h"
 #include "utilities/merge_operators.h"
 #include "utilities/merge_operators/string_append/stringappend.h"
 
@@ -1303,6 +1303,38 @@ TEST_F(WriteBatchWithIndexTest, TestGetFromBatchAndDBMerge2) {
 
   s = batch.GetFromBatchAndDB(db, read_options, "A", &value);
   ASSERT_TRUE(s.IsNotFound());
+
+  delete db;
+  DestroyDB(dbname, options);
+}
+
+
+TEST_F(WriteBatchWithIndexTest, TestGetFromBatchAndDBMerge3) {
+  DB* db;
+  Options options;
+
+  options.create_if_missing = true;
+  std::string dbname = test::PerThreadDBPath("write_batch_with_index_test");
+
+  options.merge_operator = MergeOperators::CreateFromStringId("stringappend");
+
+  DestroyDB(dbname, options);
+  Status s = DB::Open(options, dbname, &db);
+  assert(s.ok());
+
+  ReadOptions read_options;
+  WriteOptions write_options;
+  FlushOptions flush_options;
+  std::string value;
+
+  WriteBatchWithIndex batch;
+
+  ASSERT_OK(db->Put(write_options, "A", "1"));
+  ASSERT_OK(db->Flush(flush_options, db->DefaultColumnFamily()));
+  ASSERT_OK(batch.Merge("A", "2"));
+
+  ASSERT_OK(batch.GetFromBatchAndDB(db, read_options, "A", &value));
+  ASSERT_EQ(value, "1,2");
 
   delete db;
   DestroyDB(dbname, options);

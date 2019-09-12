@@ -8,15 +8,16 @@
 #include <string>
 
 #include "db/column_family.h"
+#include "db/db_impl/db_impl.h"
 #include "db/flush_job.h"
 #include "db/version_set.h"
 #include "rocksdb/cache.h"
 #include "rocksdb/write_buffer_manager.h"
 #include "table/mock_table.h"
+#include "test_util/testharness.h"
+#include "test_util/testutil.h"
 #include "util/file_reader_writer.h"
 #include "util/string_util.h"
-#include "util/testharness.h"
-#include "util/testutil.h"
 
 namespace rocksdb {
 
@@ -35,7 +36,8 @@ class FlushJobTest : public testing::Test {
         write_buffer_manager_(db_options_.db_write_buffer_size),
         versions_(new VersionSet(dbname_, &db_options_, env_options_,
                                  table_cache_.get(), &write_buffer_manager_,
-                                 &write_controller_)),
+                                 &write_controller_,
+                                 /*block_cache_tracer=*/nullptr)),
         shutting_down_(false),
         mock_table_factory_(new mock::MockTableFactory()) {
     EXPECT_OK(env_->CreateDirIfMissing(dbname_));
@@ -54,7 +56,14 @@ class FlushJobTest : public testing::Test {
   }
 
   void NewDB() {
+    SetIdentityFile(env_, dbname_);
     VersionEdit new_db;
+    if (db_options_.write_dbid_to_manifest) {
+      DBImpl* impl = new DBImpl(DBOptions(), dbname_);
+      std::string db_id;
+      impl->GetDbIdentityFromIdentityFile(&db_id);
+      new_db.SetDBId(db_id);
+    }
     new_db.SetLogNumber(0);
     new_db.SetNextFile(2);
     new_db.SetLastSequence(0);

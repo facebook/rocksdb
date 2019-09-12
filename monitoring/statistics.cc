@@ -5,11 +5,7 @@
 //
 #include "monitoring/statistics.h"
 
-#ifndef __STDC_FORMAT_MACROS
-#define __STDC_FORMAT_MACROS
-#endif
-
-#include <inttypes.h>
+#include <cinttypes>
 #include "rocksdb/statistics.h"
 #include "port/likely.h"
 #include <algorithm>
@@ -166,6 +162,7 @@ const std::vector<std::pair<Tickers, std::string>> TickersNameMap = {
      "rocksdb.txn.overhead.mutex.old.commit.map"},
     {TXN_DUPLICATE_KEY_OVERHEAD, "rocksdb.txn.overhead.duplicate.key"},
     {TXN_SNAPSHOT_MUTEX_OVERHEAD, "rocksdb.txn.overhead.mutex.snapshot"},
+    {TXN_GET_TRY_AGAIN, "rocksdb.txn.get.tryagain"},
     {NUMBER_MULTIGET_KEYS_FOUND, "rocksdb.number.multiget.keys.found"},
     {NO_ITERATOR_CREATED, "rocksdb.num.iterator.created"},
     {NO_ITERATOR_DELETED, "rocksdb.num.iterator.deleted"},

@@ -9,11 +9,7 @@
 
 #include "db/flush_job.h"
 
-#ifndef __STDC_FORMAT_MACROS
-#define __STDC_FORMAT_MACROS
-#endif
-
-#include <inttypes.h>
+#include <cinttypes>
 
 #include <algorithm>
 #include <vector>
@@ -29,6 +25,11 @@
 #include "db/merge_context.h"
 #include "db/range_tombstone_fragmenter.h"
 #include "db/version_set.h"
+#include "file/file_util.h"
+#include "file/filename.h"
+#include "logging/event_logger.h"
+#include "logging/log_buffer.h"
+#include "logging/logging.h"
 #include "monitoring/iostats_context_imp.h"
 #include "monitoring/perf_context_imp.h"
 #include "monitoring/thread_status_util.h"
@@ -38,20 +39,15 @@
 #include "rocksdb/statistics.h"
 #include "rocksdb/status.h"
 #include "rocksdb/table.h"
-#include "table/block.h"
-#include "table/block_based_table_factory.h"
+#include "table/block_based/block.h"
+#include "table/block_based/block_based_table_factory.h"
 #include "table/merging_iterator.h"
 #include "table/table_builder.h"
 #include "table/two_level_iterator.h"
+#include "test_util/sync_point.h"
 #include "util/coding.h"
-#include "util/event_logger.h"
-#include "util/file_util.h"
-#include "util/filename.h"
-#include "util/log_buffer.h"
-#include "util/logging.h"
 #include "util/mutexlock.h"
 #include "util/stop_watch.h"
-#include "util/sync_point.h"
 
 namespace rocksdb {
 
@@ -229,10 +225,12 @@ Status FlushJob::Run(LogsWithPrepTracker* prep_tracker,
   // This will release and re-acquire the mutex.
   Status s = WriteLevel0Table();
 
-  if (s.ok() &&
-      (shutting_down_->load(std::memory_order_acquire) || cfd_->IsDropped())) {
-    s = Status::ShutdownInProgress(
-        "Database shutdown or Column family drop during flush");
+  if (s.ok() && cfd_->IsDropped()) {
+    s = Status::ColumnFamilyDropped("Column family dropped during compaction");
+  }
+  if ((s.ok() || s.IsColumnFamilyDropped()) &&
+      shutting_down_->load(std::memory_order_acquire)) {
+    s = Status::ShutdownInProgress("Database shutdown");
   }
 
   if (!s.ok()) {

@@ -398,6 +398,8 @@ uint32_t ExtendImpl(uint32_t crc, const char* buf, size_t size) {
   return static_cast<uint32_t>(l ^ 0xffffffffu);
 }
 
+// Detect if ARM64 CRC or not.
+#ifndef HAVE_ARM64_CRC
 // Detect if SS42 or not.
 #ifndef HAVE_POWER8
 
@@ -436,6 +438,7 @@ static bool isPCLMULQDQ() {
 }
 
 #endif  // HAVE_POWER8
+#endif  // HAVE_ARM64_CRC
 
 typedef uint32_t (*Function)(uint32_t, const char*, size_t);
 

@@ -6,7 +6,8 @@
 #ifndef ROCKSDB_LITE
 
 #include "rocksdb/utilities/ldb_cmd.h"
-#include "util/testharness.h"
+#include "test_util/sync_point.h"
+#include "test_util/testharness.h"
 
 using std::string;
 using std::vector;
@@ -77,8 +78,8 @@ TEST_F(LdbCmdTest, MemEnv) {
   char arg3[] = "dump_live_files";
   char* argv[] = {arg1, arg2, arg3};
 
-  rocksdb::LDBTool tool;
-  tool.Run(3, argv, opts);
+  ASSERT_EQ(0,
+            LDBCommandRunner::RunCommand(3, argv, opts, LDBOptions(), nullptr));
 }
 
 TEST_F(LdbCmdTest, OptionParsing) {
@@ -118,6 +119,94 @@ TEST_F(LdbCmdTest, OptionParsing) {
   }
 }
 
+TEST_F(LdbCmdTest, ListFileTombstone) {
+  std::unique_ptr<Env> env(NewMemEnv(Env::Default()));
+  Options opts;
+  opts.env = env.get();
+  opts.create_if_missing = true;
+
+  DB* db = nullptr;
+  std::string dbname = test::TmpDir();
+  ASSERT_OK(DB::Open(opts, dbname, &db));
+
+  WriteOptions wopts;
+  ASSERT_OK(db->Put(wopts, "foo", "1"));
+  ASSERT_OK(db->Put(wopts, "bar", "2"));
+
+  FlushOptions fopts;
+  fopts.wait = true;
+  ASSERT_OK(db->Flush(fopts));
+
+  ASSERT_OK(db->DeleteRange(wopts, db->DefaultColumnFamily(), "foo", "foo2"));
+  ASSERT_OK(db->DeleteRange(wopts, db->DefaultColumnFamily(), "bar", "foo2"));
+  ASSERT_OK(db->Flush(fopts));
+
+  delete db;
+
+  {
+    char arg1[] = "./ldb";
+    char arg2[1024];
+    snprintf(arg2, sizeof(arg2), "--db=%s", dbname.c_str());
+    char arg3[] = "list_file_range_deletes";
+    char* argv[] = {arg1, arg2, arg3};
+
+    rocksdb::SyncPoint::GetInstance()->SetCallBack(
+        "ListFileRangeDeletesCommand::DoCommand:BeforePrint", [&](void* arg) {
+          std::string* out_str = reinterpret_cast<std::string*>(arg);
+
+          // Count number of tombstones printed
+          int num_tb = 0;
+          const std::string kFingerprintStr = "start: ";
+          auto offset = out_str->find(kFingerprintStr);
+          while (offset != std::string::npos) {
+            num_tb++;
+            offset =
+                out_str->find(kFingerprintStr, offset + kFingerprintStr.size());
+          }
+          EXPECT_EQ(2, num_tb);
+        });
+    rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+
+    ASSERT_EQ(
+        0, LDBCommandRunner::RunCommand(3, argv, opts, LDBOptions(), nullptr));
+
+    rocksdb::SyncPoint::GetInstance()->ClearAllCallBacks();
+    rocksdb::SyncPoint::GetInstance()->DisableProcessing();
+  }
+
+  // Test the case of limiting tombstones
+  {
+    char arg1[] = "./ldb";
+    char arg2[1024];
+    snprintf(arg2, sizeof(arg2), "--db=%s", dbname.c_str());
+    char arg3[] = "list_file_range_deletes";
+    char arg4[] = "--max_keys=1";
+    char* argv[] = {arg1, arg2, arg3, arg4};
+
+    rocksdb::SyncPoint::GetInstance()->SetCallBack(
+        "ListFileRangeDeletesCommand::DoCommand:BeforePrint", [&](void* arg) {
+          std::string* out_str = reinterpret_cast<std::string*>(arg);
+
+          // Count number of tombstones printed
+          int num_tb = 0;
+          const std::string kFingerprintStr = "start: ";
+          auto offset = out_str->find(kFingerprintStr);
+          while (offset != std::string::npos) {
+            num_tb++;
+            offset =
+                out_str->find(kFingerprintStr, offset + kFingerprintStr.size());
+          }
+          EXPECT_EQ(1, num_tb);
+        });
+    rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+
+    ASSERT_EQ(
+        0, LDBCommandRunner::RunCommand(4, argv, opts, LDBOptions(), nullptr));
+
+    rocksdb::SyncPoint::GetInstance()->ClearAllCallBacks();
+    rocksdb::SyncPoint::GetInstance()->DisableProcessing();
+  }
+}
 } // namespace rocksdb
 
 int main(int argc, char** argv) {

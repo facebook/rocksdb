@@ -9,22 +9,21 @@
 
 #include "table/block_fetcher.h"
 
-#include <inttypes.h>
+#include <cinttypes>
 #include <string>
 
+#include "logging/logging.h"
+#include "memory/memory_allocator.h"
 #include "monitoring/perf_context_imp.h"
-#include "monitoring/statistics.h"
 #include "rocksdb/env.h"
-#include "table/block.h"
-#include "table/block_based_table_reader.h"
+#include "table/block_based/block.h"
+#include "table/block_based/block_based_table_reader.h"
 #include "table/format.h"
 #include "table/persistent_cache_helper.h"
 #include "util/coding.h"
 #include "util/compression.h"
 #include "util/crc32c.h"
 #include "util/file_reader_writer.h"
-#include "util/logging.h"
-#include "util/memory_allocator.h"
 #include "util/stop_watch.h"
 #include "util/string_util.h"
 #include "util/xxhash.h"
@@ -93,7 +92,8 @@ inline bool BlockFetcher::TryGetFromPrefetchBuffer() {
   if (prefetch_buffer_ != nullptr &&
       prefetch_buffer_->TryReadFromCache(
           handle_.offset(),
-          static_cast<size_t>(handle_.size()) + kBlockTrailerSize, &slice_)) {
+          static_cast<size_t>(handle_.size()) + kBlockTrailerSize, &slice_,
+          for_compaction_)) {
     block_size_ = static_cast<size_t>(handle_.size());
     CheckBlockChecksum();
     if (!status_.ok()) {
@@ -217,9 +217,29 @@ Status BlockFetcher::ReadBlockContents() {
       PERF_TIMER_GUARD(block_read_time);
       // Actual file read
       status_ = file_->Read(handle_.offset(), block_size_ + kBlockTrailerSize,
-                            &slice_, used_buf_);
+                            &slice_, used_buf_, for_compaction_);
     }
     PERF_COUNTER_ADD(block_read_count, 1);
+
+    // TODO: introduce dedicated perf counter for range tombstones
+    switch (block_type_) {
+      case BlockType::kFilter:
+        PERF_COUNTER_ADD(filter_block_read_count, 1);
+        break;
+
+      case BlockType::kCompressionDictionary:
+        PERF_COUNTER_ADD(compression_dict_block_read_count, 1);
+        break;
+
+      case BlockType::kIndex:
+        PERF_COUNTER_ADD(index_block_read_count, 1);
+        break;
+
+      // Nothing to do here as we don't have counters for the other types.
+      default:
+        break;
+    }
+
     PERF_COUNTER_ADD(block_read_byte, block_size_ + kBlockTrailerSize);
     if (!status_.ok()) {
       return status_;

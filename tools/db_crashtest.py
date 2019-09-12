@@ -1,4 +1,4 @@
-#! /usr/bin/env python
+#!/usr/bin/env python2
 # Copyright (c) Facebook, Inc. and its affiliates. All Rights Reserved.
 import os
 import sys
@@ -16,9 +16,9 @@ import argparse
 #       default_params < {blackbox,whitebox}_default_params <
 #       simple_default_params <
 #       {blackbox,whitebox}_simple_default_params < args
-#   for enable_atomic_flush:
+#   for cf_consistency:
 #       default_params < {blackbox,whitebox}_default_params <
-#       atomic_flush_params < args
+#       cf_consistency_params < args
 
 expected_values_file = tempfile.NamedTemporaryFile()
 
@@ -37,16 +37,20 @@ default_params = {
     "delpercent": 4,
     "delrangepercent": 1,
     "destroy_db_initially": 0,
-    "enable_pipelined_write": lambda: random.randint(0, 1),
+    # Temporarily disable it until its concurrency issue are fixed
+    "enable_pipelined_write": 0,
     "expected_values_path": expected_values_file.name,
     "flush_one_in": 1000000,
+    # Temporarily disable hash index
+    "index_type": lambda: random.choice([0, 2]),
     "max_background_compactions": 20,
     "max_bytes_for_level_base": 10485760,
     "max_key": 100000000,
     "max_write_buffer_number": 3,
     "mmap_read": lambda: random.randint(0, 1),
     "nooverwritepercent": 1,
-    "open_files": 500000,
+    "open_files": lambda : random.choice([-1, 500000]),
+    "partition_filters": lambda: random.randint(0, 1),
     "prefixpercent": 5,
     "progress_reports": 0,
     "readpercent": 45,
@@ -65,7 +69,10 @@ default_params = {
     "writepercent": 35,
     "format_version": lambda: random.randint(2, 4),
     "index_block_restart_interval": lambda: random.choice(range(1, 16)),
-    "use_multiget" : 0,
+    "use_multiget" : lambda: random.randint(0, 1),
+    "periodic_compaction_seconds" :
+        lambda: random.choice([0, 0, 1, 2, 10, 100, 1000]),
+    "compaction_ttl" : lambda: random.choice([0, 0, 1, 2, 10, 100, 1000]),
 }
 
 _TEST_DIR_ENV_VAR = 'TEST_TMPDIR'
@@ -131,15 +138,16 @@ blackbox_simple_default_params = {
 
 whitebox_simple_default_params = {}
 
-atomic_flush_params = {
-    "disable_wal": 1,
+cf_consistency_params = {
+    "disable_wal": lambda: random.randint(0, 1),
     "reopen": 0,
-    "test_atomic_flush": 1,
+    "test_cf_consistency": 1,
     # use small value for write_buffer_size so that RocksDB triggers flush
     # more frequently
     "write_buffer_size": 1024 * 1024,
     # disable pipelined write when test_atomic_flush is true
     "enable_pipelined_write": 0,
+    "snap_refresh_nanos": 0,
 }
 
 
@@ -158,6 +166,20 @@ def finalize_and_sanitize(src_params):
     if dest_params.get("test_batches_snapshots") == 1:
         dest_params["delpercent"] += dest_params["delrangepercent"]
         dest_params["delrangepercent"] = 0
+    if dest_params.get("disable_wal", 0) == 1:
+        dest_params["atomic_flush"] = 1
+    if dest_params.get("open_files", 1) != -1:
+        # Compaction TTL and periodic compactions are only compatible
+        # with open_files = -1
+        dest_params["compaction_ttl"] = 0
+        dest_params["periodic_compaction_seconds"] = 0
+    if dest_params.get("compaction_style", 0) == 2:
+        # Disable compaction TTL in FIFO compaction, because right
+        # now assertion failures are triggered.
+        dest_params["compaction_ttl"] = 0
+    if dest_params["partition_filters"] == 1:
+        dest_params["index_type"] = 2
+        dest_params["use_block_based_filter"] = 0
     return dest_params
 
 
@@ -175,8 +197,8 @@ def gen_cmd_params(args):
             params.update(blackbox_simple_default_params)
         if args.test_type == 'whitebox':
             params.update(whitebox_simple_default_params)
-    if args.enable_atomic_flush:
-        params.update(atomic_flush_params)
+    if args.cf_consistency:
+        params.update(cf_consistency_params)
 
     for k, v in vars(args).items():
         if v is not None:
@@ -189,7 +211,7 @@ def gen_cmd(params, unknown_params):
         '--{0}={1}'.format(k, v)
         for k, v in finalize_and_sanitize(params).items()
         if k not in set(['test_type', 'simple', 'duration', 'interval',
-                         'random_kill_odd', 'enable_atomic_flush'])
+                         'random_kill_odd', 'cf_consistency'])
         and v is not None] + unknown_params
     return cmd
 
@@ -286,8 +308,12 @@ def whitebox_crash_main(args, unknown_args):
                     "kill_random_test": kill_random_test,
                 })
             elif kill_mode == 1:
+                if cmd_params.get('disable_wal', 0) == 1:
+                    my_kill_odd = kill_random_test / 50 + 1
+                else:
+                    my_kill_odd = kill_random_test / 10 + 1
                 additional_opts.update({
-                    "kill_random_test": (kill_random_test / 10 + 1),
+                    "kill_random_test": my_kill_odd,
                     "kill_prefix_blacklist": "WritableFileWriter::Append,"
                     + "WritableFileWriter::WriteBuffered",
                 })
@@ -382,7 +408,7 @@ def main():
         db_stress multiple times")
     parser.add_argument("test_type", choices=["blackbox", "whitebox"])
     parser.add_argument("--simple", action="store_true")
-    parser.add_argument("--enable_atomic_flush", action='store_true')
+    parser.add_argument("--cf_consistency", action='store_true')
 
     all_params = dict(default_params.items()
                       + blackbox_default_params.items()

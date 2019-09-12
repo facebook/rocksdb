@@ -13,7 +13,7 @@
 #include <string>
 #include <vector>
 
-#include "db/compaction_iteration_stats.h"
+#include "db/compaction/compaction_iteration_stats.h"
 #include "db/dbformat.h"
 #include "db/pinned_iterators_manager.h"
 #include "db/range_del_aggregator.h"
@@ -320,8 +320,10 @@ class RangeDelAggregator {
                       RangeDelPositioningMode mode);
 
     void Invalidate() {
-      InvalidateForwardIter();
-      InvalidateReverseIter();
+      if (!IsEmpty()) {
+        InvalidateForwardIter();
+        InvalidateReverseIter();
+      }
     }
 
     bool IsRangeOverlapped(const Slice& start, const Slice& end);

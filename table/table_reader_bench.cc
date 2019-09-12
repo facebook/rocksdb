@@ -11,21 +11,21 @@ int main() {
 }
 #else
 
-#include "db/db_impl.h"
+#include "db/db_impl/db_impl.h"
 #include "db/dbformat.h"
 #include "monitoring/histogram.h"
 #include "rocksdb/db.h"
 #include "rocksdb/slice_transform.h"
 #include "rocksdb/table.h"
-#include "table/block_based_table_factory.h"
+#include "table/block_based/block_based_table_factory.h"
 #include "table/get_context.h"
 #include "table/internal_iterator.h"
-#include "table/plain_table_factory.h"
+#include "table/plain/plain_table_factory.h"
 #include "table/table_builder.h"
+#include "test_util/testharness.h"
+#include "test_util/testutil.h"
 #include "util/file_reader_writer.h"
 #include "util/gflags_compat.h"
-#include "util/testharness.h"
-#include "util/testutil.h"
 
 using GFLAGS_NAMESPACE::ParseCommandLineFlags;
 using GFLAGS_NAMESPACE::SetUsageMessage;
@@ -175,7 +175,7 @@ void TableReaderBenchmark(Options& opts, EnvOptions& env_options,
                                    ioptions.merge_operator, ioptions.info_log,
                                    ioptions.statistics, GetContext::kNotFound,
                                    Slice(key), &value, nullptr, &merge_context,
-                                   &max_covering_tombstone_seq, env);
+                                   true, &max_covering_tombstone_seq, env);
             s = table_reader->Get(read_options, key, &get_context, nullptr);
           } else {
             s = db->Get(read_options, key, &result);
@@ -198,7 +198,9 @@ void TableReaderBenchmark(Options& opts, EnvOptions& env_options,
           Iterator* iter = nullptr;
           InternalIterator* iiter = nullptr;
           if (!through_db) {
-            iiter = table_reader->NewIterator(read_options, nullptr);
+            iiter = table_reader->NewIterator(
+                read_options, /*prefix_extractor=*/nullptr, /*arena=*/nullptr,
+                /*skip_filters=*/false, TableReaderCaller::kUncategorized);
           } else {
             iter = db->NewIterator(read_options);
           }

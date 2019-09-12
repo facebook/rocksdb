@@ -28,24 +28,22 @@ int main() {
 }
 #else
 
-#ifndef __STDC_FORMAT_MACROS
-#define __STDC_FORMAT_MACROS
-#endif  // __STDC_FORMAT_MACROS
-
 #include <fcntl.h>
-#include <inttypes.h>
+#include <cinttypes>
 #include <stdio.h>
 #include <stdlib.h>
 #include <sys/types.h>
 #include <algorithm>
+#include <array>
 #include <chrono>
 #include <exception>
 #include <queue>
 #include <thread>
 
-#include "db/db_impl.h"
+#include "db/db_impl/db_impl.h"
 #include "db/version_set.h"
 #include "hdfs/env_hdfs.h"
+#include "logging/logging.h"
 #include "monitoring/histogram.h"
 #include "options/options_helper.h"
 #include "port/port.h"
@@ -57,6 +55,7 @@ int main() {
 #include "rocksdb/utilities/backupable_db.h"
 #include "rocksdb/utilities/checkpoint.h"
 #include "rocksdb/utilities/db_ttl.h"
+#include "rocksdb/utilities/debug.h"
 #include "rocksdb/utilities/options_util.h"
 #include "rocksdb/utilities/transaction.h"
 #include "rocksdb/utilities/transaction_db.h"
@@ -65,15 +64,14 @@ int main() {
 #include "util/compression.h"
 #include "util/crc32c.h"
 #include "util/gflags_compat.h"
-#include "util/logging.h"
 #include "util/mutexlock.h"
 #include "util/random.h"
 #include "util/string_util.h"
 // SyncPoint is not supported in Released Windows Mode.
 #if !(defined NDEBUG) || !defined(OS_WIN)
-#include "util/sync_point.h"
+#include "test_util/sync_point.h"
 #endif  // !(defined NDEBUG) || !defined(OS_WIN)
-#include "util/testutil.h"
+#include "test_util/testutil.h"
 
 #include "utilities/merge_operators.h"
 
@@ -138,9 +136,10 @@ DEFINE_bool(test_batches_snapshots, false,
 DEFINE_bool(atomic_flush, false,
             "If set, enables atomic flush in the options.\n");
 
-DEFINE_bool(test_atomic_flush, false,
-            "If set, runs the stress test dedicated to verifying atomic flush "
-            "functionality. Setting this implies `atomic_flush=true`.\n");
+DEFINE_bool(test_cf_consistency, false,
+            "If set, runs the stress test dedicated to verifying writes to "
+            "multiple column families are consistent. Setting this implies "
+            "`atomic_flush=true` is set true if `disable_wal=false`.\n");
 
 DEFINE_int32(threads, 32, "Number of concurrent threads to run.");
 
@@ -194,6 +193,20 @@ DEFINE_int32(min_write_buffer_number_to_merge,
 DEFINE_int32(max_write_buffer_number_to_maintain,
              rocksdb::Options().max_write_buffer_number_to_maintain,
              "The total maximum number of write buffers to maintain in memory "
+             "including copies of buffers that have already been flushed. "
+             "Unlike max_write_buffer_number, this parameter does not affect "
+             "flushing. This controls the minimum amount of write history "
+             "that will be available in memory for conflict checking when "
+             "Transactions are used. If this value is too low, some "
+             "transactions may fail at commit time due to not being able to "
+             "determine whether there were any write conflicts. Setting this "
+             "value to 0 will cause write buffers to be freed immediately "
+             "after they are flushed.  If this value is set to -1, "
+             "'max_write_buffer_number' will be used.");
+
+DEFINE_int64(max_write_buffer_size_to_maintain,
+             rocksdb::Options().max_write_buffer_size_to_maintain,
+             "The total maximum size of write buffers to maintain in memory "
              "including copies of buffers that have already been flushed. "
              "Unlike max_write_buffer_number, this parameter does not affect "
              "flushing. This controls the minimum amount of write history "
@@ -307,6 +320,12 @@ DEFINE_uint64(subcompactions, 1,
               "Maximum number of subcompactions to divide L0-L1 compactions "
               "into.");
 
+DEFINE_uint64(periodic_compaction_seconds, 1000,
+              "Files older than this value will be picked up for compaction.");
+
+DEFINE_uint64(compaction_ttl, 1000,
+              "Files older than TTL will be compacted to the next level.");
+
 DEFINE_bool(allow_concurrent_memtable_write, false,
             "Allow multi-writers to update mem tables in parallel.");
 
@@ -334,7 +353,20 @@ DEFINE_int32(bloom_bits, 10, "Bloom filter bits per key. "
 DEFINE_bool(use_block_based_filter, false, "use block based filter"
               "instead of full filter for block based table");
 
+DEFINE_bool(partition_filters, false, "use partitioned filters "
+    "for block-based table");
+
+DEFINE_int32(
+    index_type,
+    static_cast<int32_t>(rocksdb::BlockBasedTableOptions::kBinarySearch),
+    "Type of block-based table index (see `enum IndexType` in table.h)");
+
 DEFINE_string(db, "", "Use the db with the following name.");
+
+DEFINE_string(secondaries_base, "",
+              "Use this path as the base path for secondary instances.");
+
+DEFINE_bool(enable_secondary, false, "Enable secondary instance.");
 
 DEFINE_string(
     expected_values_path, "",
@@ -509,6 +541,10 @@ DEFINE_uint64(num_iterations, 10, "Number of iterations per MultiIterate run");
 static const bool FLAGS_num_iterations_dummy __attribute__((__unused__)) =
     RegisterFlagValidator(&FLAGS_num_iterations, &ValidateUint32Range);
 
+DEFINE_uint64(
+    snap_refresh_nanos, 100 * 1000 * 1000,
+    "If non-zero, compactions will periodically refresh snapshot list.");
+
 namespace {
 enum rocksdb::CompressionType StringToCompressionType(const char* ctype) {
   assert(ctype);
@@ -601,6 +637,13 @@ static const bool FLAGS_log2_keys_per_lock_dummy __attribute__((__unused__)) =
 DEFINE_uint64(max_manifest_file_size, 16384, "Maximum size of a MANIFEST file");
 
 DEFINE_bool(in_place_update, false, "On true, does inplace update in memtable");
+
+DEFINE_int32(secondary_catch_up_one_in, 0,
+             "If non-zero, the secondaries attemp to catch up with the primary "
+             "once for every N operations on average. 0 indicates the "
+             "secondaries do not try to catch up after open.");
+
+static std::shared_ptr<rocksdb::Statistics> dbstats_secondaries;
 
 enum RepFactory {
   kSkipList,
@@ -913,7 +956,8 @@ class SharedState {
         stress_test_(stress_test),
         verification_failure_(false),
         no_overwrite_ids_(FLAGS_column_families),
-        values_(nullptr) {
+        values_(nullptr),
+        printing_verification_results_(false) {
     // Pick random keys in each column family that will not experience
     // overwrite
 
@@ -1194,6 +1238,16 @@ class SharedState {
     return expected_mmap_buffer_.get() != nullptr;
   }
 
+  bool PrintingVerificationResults() {
+    bool tmp = false;
+    return !printing_verification_results_.compare_exchange_strong(
+        tmp, true, std::memory_order_relaxed);
+  }
+
+  void FinishPrintingVerificationResults() {
+    printing_verification_results_.store(false, std::memory_order_relaxed);
+  }
+
  private:
   port::Mutex mu_;
   port::CondVar cv_;
@@ -1221,6 +1275,7 @@ class SharedState {
   // and storing it in the container may require copying depending on the impl.
   std::vector<std::vector<std::unique_ptr<port::Mutex> > > key_locks_;
   std::unique_ptr<MemoryMappedFileBuffer> expected_mmap_buffer_;
+  std::atomic<bool> printing_verification_results_;
 };
 
 const uint32_t SharedState::UNKNOWN_SENTINEL = 0xfffffffe;
@@ -1426,6 +1481,17 @@ class StressTest {
     }
     column_families_.clear();
     delete db_;
+
+    assert(secondaries_.size() == secondary_cfh_lists_.size());
+    size_t n = secondaries_.size();
+    for (size_t i = 0; i != n; ++i) {
+      for (auto* cf : secondary_cfh_lists_[i]) {
+        delete cf;
+      }
+      secondary_cfh_lists_[i].clear();
+      delete secondaries_[i];
+    }
+    secondaries_.clear();
   }
 
   std::shared_ptr<Cache> NewCache(size_t capacity) {
@@ -1622,6 +1688,60 @@ class StressTest {
         shared.GetCondVar()->Wait();
       }
     }
+
+#ifndef ROCKSDB_LITE
+    if (FLAGS_enable_secondary) {
+      now = FLAGS_env->NowMicros();
+      fprintf(stdout, "%s Start to verify secondaries against primary\n",
+              FLAGS_env->TimeToString(static_cast<uint64_t>(now) / 1000000)
+                  .c_str());
+    }
+    for (size_t k = 0; k != secondaries_.size(); ++k) {
+      Status s = secondaries_[k]->TryCatchUpWithPrimary();
+      if (!s.ok()) {
+        fprintf(stderr, "Secondary failed to catch up with primary\n");
+        return false;
+      }
+      ReadOptions ropts;
+      ropts.total_order_seek = true;
+      // Verify only the default column family since the primary may have
+      // dropped other column families after most recent reopen.
+      std::unique_ptr<Iterator> iter1(db_->NewIterator(ropts));
+      std::unique_ptr<Iterator> iter2(secondaries_[k]->NewIterator(ropts));
+      for (iter1->SeekToFirst(), iter2->SeekToFirst();
+           iter1->Valid() && iter2->Valid(); iter1->Next(), iter2->Next()) {
+        if (iter1->key().compare(iter2->key()) != 0 ||
+            iter1->value().compare(iter2->value())) {
+          fprintf(stderr,
+                  "Secondary %d contains different data from "
+                  "primary.\nPrimary: %s : %s\nSecondary: %s : %s\n",
+                  static_cast<int>(k),
+                  iter1->key().ToString(/*hex=*/true).c_str(),
+                  iter1->value().ToString(/*hex=*/true).c_str(),
+                  iter2->key().ToString(/*hex=*/true).c_str(),
+                  iter2->value().ToString(/*hex=*/true).c_str());
+          return false;
+        }
+      }
+      if (iter1->Valid() && !iter2->Valid()) {
+        fprintf(stderr,
+                "Secondary %d record count is smaller than that of primary\n",
+                static_cast<int>(k));
+        return false;
+      } else if (!iter1->Valid() && iter2->Valid()) {
+        fprintf(stderr,
+                "Secondary %d record count is larger than that of primary\n",
+                static_cast<int>(k));
+        return false;
+      }
+    }
+    if (FLAGS_enable_secondary) {
+      now = FLAGS_env->NowMicros();
+      fprintf(stdout, "%s Verification of secondaries succeeded\n",
+              FLAGS_env->TimeToString(static_cast<uint64_t>(now) / 1000000)
+                  .c_str());
+    }
+#endif  // ROCKSDB_LITE
 
     if (shared.HasVerificationFailedYet()) {
       printf("Verification failed :(\n");
@@ -1966,13 +2086,19 @@ class StressTest {
     const int writeBound = prefixBound + (int)FLAGS_writepercent;
     const int delBound = writeBound + (int)FLAGS_delpercent;
     const int delRangeBound = delBound + (int)FLAGS_delrangepercent;
+    const uint64_t ops_per_open = FLAGS_ops_per_thread / (FLAGS_reopen + 1);
+    int multiget_batch_size = 0;
 
     thread->stats.Start();
     for (uint64_t i = 0; i < FLAGS_ops_per_thread; i++) {
       if (thread->shared->HasVerificationFailedYet()) {
         break;
       }
-      if (i != 0 && (i % (FLAGS_ops_per_thread / (FLAGS_reopen + 1))) == 0) {
+      // Check if the multiget batch crossed the ops_per_open boundary. If it
+      // did, then we should vote to reopen
+      if (i != 0 &&
+          (i % ops_per_open == 0 ||
+           i % ops_per_open < (i - multiget_batch_size) % ops_per_open)) {
         {
           thread->stats.FinishedSingleOp();
           MutexLock l(thread->shared->GetMutex());
@@ -2167,7 +2293,7 @@ class StressTest {
             snap_state);
       }
       while (!thread->snapshot_queue.empty() &&
-          i == thread->snapshot_queue.front().first) {
+             i >= thread->snapshot_queue.front().first) {
         auto snap_state = thread->snapshot_queue.front().second;
         assert(snap_state.snapshot);
         // Note: this is unsafe as the cf might be dropped concurrently. But it
@@ -2184,13 +2310,24 @@ class StressTest {
       }
 
       int prob_op = thread->rand.Uniform(100);
+      // Reset this in case we pick something other than a read op. We don't
+      // want to use a stale value when deciding at the beginning of the loop
+      // whether to vote to reopen
+      multiget_batch_size = 0;
       if (prob_op >= 0 && prob_op < (int)FLAGS_readpercent) {
         // OPERATION read
         if (FLAGS_use_multiget) {
-          int num_keys = thread->rand.Uniform(64);
-          rand_keys = GenerateNKeys(thread, num_keys, i);
+          // Leave room for one more iteration of the loop with a single key
+          // batch. This is to ensure that each thread does exactly the same
+          // number of ops
+          multiget_batch_size = static_cast<int>(
+              std::min(static_cast<uint64_t>(thread->rand.Uniform(64)),
+                       FLAGS_ops_per_thread - i - 1));
+          // If its the last iteration, ensure that multiget_batch_size is 1
+          multiget_batch_size = std::max(multiget_batch_size, 1);
+          rand_keys = GenerateNKeys(thread, multiget_batch_size, i);
           TestMultiGet(thread, read_opts, rand_column_families, rand_keys);
-          i += num_keys - 1;
+          i += multiget_batch_size - 1;
         } else {
           TestGet(thread, read_opts, rand_column_families, rand_keys);
         }
@@ -2217,6 +2354,19 @@ class StressTest {
         TestIterate(thread, read_opts, rand_column_families, rand_keys);
       }
       thread->stats.FinishedSingleOp();
+#ifndef ROCKSDB_LITE
+      uint32_t tid = thread->tid;
+      assert(secondaries_.empty() ||
+             static_cast<size_t>(tid) < secondaries_.size());
+      if (FLAGS_secondary_catch_up_one_in > 0 &&
+          thread->rand.Uniform(FLAGS_secondary_catch_up_one_in) == 0) {
+        Status s = secondaries_[tid]->TryCatchUpWithPrimary();
+        if (!s.ok()) {
+          VerificationAbort(shared, "Secondary instance failed to catch up", s);
+          break;
+        }
+      }
+#endif
     }
 
     thread->stats.Stop();
@@ -2607,6 +2757,12 @@ class StressTest {
         fprintf(stdout, "  %s\n", p.c_str());
       }
     }
+    fprintf(stdout, "Snapshot refresh nanos    : %" PRIu64 "\n",
+            FLAGS_snap_refresh_nanos);
+    fprintf(stdout, "Periodic Compaction Secs  : %" PRIu64 "\n",
+            FLAGS_periodic_compaction_seconds);
+    fprintf(stdout, "Compaction TTL            : %" PRIu64 "\n",
+            FLAGS_compaction_ttl);
 
     fprintf(stdout, "------------------------------------------------\n");
   }
@@ -2629,6 +2785,9 @@ class StressTest {
       block_based_options.index_block_restart_interval =
           static_cast<int32_t>(FLAGS_index_block_restart_interval);
       block_based_options.filter_policy = filter_policy_;
+      block_based_options.partition_filters = FLAGS_partition_filters;
+      block_based_options.index_type =
+          static_cast<BlockBasedTableOptions::IndexType>(FLAGS_index_type);
       options_.table_factory.reset(
           NewBlockBasedTableFactory(block_based_options));
       options_.db_write_buffer_size = FLAGS_db_write_buffer_size;
@@ -2638,6 +2797,8 @@ class StressTest {
           FLAGS_min_write_buffer_number_to_merge;
       options_.max_write_buffer_number_to_maintain =
           FLAGS_max_write_buffer_number_to_maintain;
+      options_.max_write_buffer_size_to_maintain =
+          FLAGS_max_write_buffer_size_to_maintain;
       options_.memtable_prefix_bloom_size_ratio =
           FLAGS_memtable_prefix_bloom_size_ratio;
       options_.memtable_whole_key_filtering =
@@ -2681,6 +2842,8 @@ class StressTest {
       options_.max_subcompactions = static_cast<uint32_t>(FLAGS_subcompactions);
       options_.allow_concurrent_memtable_write =
           FLAGS_allow_concurrent_memtable_write;
+      options_.periodic_compaction_seconds = FLAGS_periodic_compaction_seconds;
+      options_.ttl = FLAGS_compaction_ttl;
       options_.enable_pipelined_write = FLAGS_enable_pipelined_write;
       options_.enable_write_thread_adaptive_yield =
           FLAGS_enable_write_thread_adaptive_yield;
@@ -2756,6 +2919,7 @@ class StressTest {
     } else {
       options_.merge_operator = MergeOperators::CreatePutOperator();
     }
+    options_.snap_refresh_nanos = FLAGS_snap_refresh_nanos;
 
     fprintf(stdout, "DB path: [%s]\n", FLAGS_db.c_str());
 
@@ -2850,11 +3014,52 @@ class StressTest {
       }
       assert(!s.ok() || column_families_.size() ==
                             static_cast<size_t>(FLAGS_column_families));
+
+      if (FLAGS_enable_secondary) {
+#ifndef ROCKSDB_LITE
+        secondaries_.resize(FLAGS_threads);
+        std::fill(secondaries_.begin(), secondaries_.end(), nullptr);
+        secondary_cfh_lists_.clear();
+        secondary_cfh_lists_.resize(FLAGS_threads);
+        Options tmp_opts;
+        tmp_opts.max_open_files = FLAGS_open_files;
+        tmp_opts.statistics = dbstats_secondaries;
+        tmp_opts.env = FLAGS_env;
+        for (size_t i = 0; i != static_cast<size_t>(FLAGS_threads); ++i) {
+          const std::string secondary_path =
+              FLAGS_secondaries_base + "/" + std::to_string(i);
+          s = DB::OpenAsSecondary(tmp_opts, FLAGS_db, secondary_path,
+                                  cf_descriptors, &secondary_cfh_lists_[i],
+                                  &secondaries_[i]);
+          if (!s.ok()) {
+            break;
+          }
+        }
+#else
+        fprintf(stderr, "Secondary is not supported in RocksDBLite\n");
+        exit(1);
+#endif
+      }
     } else {
 #ifndef ROCKSDB_LITE
       DBWithTTL* db_with_ttl;
       s = DBWithTTL::Open(options_, FLAGS_db, &db_with_ttl, FLAGS_ttl);
       db_ = db_with_ttl;
+      if (FLAGS_enable_secondary) {
+        secondaries_.resize(FLAGS_threads);
+        std::fill(secondaries_.begin(), secondaries_.end(), nullptr);
+        Options tmp_opts;
+        tmp_opts.max_open_files = FLAGS_open_files;
+        for (size_t i = 0; i != static_cast<size_t>(FLAGS_threads); ++i) {
+          const std::string secondary_path =
+              FLAGS_secondaries_base + "/" + std::to_string(i);
+          s = DB::OpenAsSecondary(tmp_opts, FLAGS_db, secondary_path,
+                                  &secondaries_[i]);
+          if (!s.ok()) {
+            break;
+          }
+        }
+      }
 #else
       fprintf(stderr, "TTL is not supported in RocksDBLite\n");
       exit(1);
@@ -2877,6 +3082,17 @@ class StressTest {
     txn_db_ = nullptr;
 #endif
 
+    assert(secondaries_.size() == secondary_cfh_lists_.size());
+    size_t n = secondaries_.size();
+    for (size_t i = 0; i != n; ++i) {
+      for (auto* cf : secondary_cfh_lists_[i]) {
+        delete cf;
+      }
+      secondary_cfh_lists_[i].clear();
+      delete secondaries_[i];
+    }
+    secondaries_.clear();
+
     num_times_reopened_++;
     auto now = FLAGS_env->NowMicros();
     fprintf(stdout, "%s Reopening database for the %dth time\n",
@@ -2888,6 +3104,10 @@ class StressTest {
   void PrintStatistics() {
     if (dbstats) {
       fprintf(stdout, "STATISTICS:\n%s\n", dbstats->ToString().c_str());
+    }
+    if (dbstats_secondaries) {
+      fprintf(stdout, "Secondary instances STATISTICS:\n%s\n",
+              dbstats_secondaries->ToString().c_str());
     }
   }
 
@@ -2906,6 +3126,10 @@ class StressTest {
   std::unordered_map<std::string, std::vector<std::string>> options_table_;
   std::vector<std::string> options_index_;
   std::atomic<bool> db_preload_finished_;
+
+  // Fields used for stress-testing secondary instance in the same process
+  std::vector<DB*> secondaries_;
+  std::vector<std::vector<ColumnFamilyHandle*> > secondary_cfh_lists_;
 };
 
 class NonBatchedOpsStressTest : public StressTest {
@@ -3609,36 +3833,40 @@ class BatchedOpsStressTest : public StressTest {
       const std::vector<int>& rand_column_families,
       const std::vector<int64_t>& rand_keys) {
     size_t num_keys = rand_keys.size();
-    std::vector<Status> statuses(num_keys);
-    std::string keys[10] = {"0", "1", "2", "3", "4", "5", "6", "7", "8", "9"};
-    for (int key = 0; key < 10; ++key) {
+    std::vector<Status> ret_status(num_keys);
+    std::array<std::string, 10> keys = {"0", "1", "2", "3", "4", "5", "6", "7", "8", "9"};
+    size_t num_prefixes = keys.size();
+    for (size_t rand_key = 0; rand_key < num_keys; ++rand_key) {
       std::vector<Slice> key_slices;
-      std::vector<PinnableSlice> values(num_keys);
+      std::vector<PinnableSlice> values(num_prefixes);
+      std::vector<Status> statuses(num_prefixes);
       ReadOptions readoptionscopy = readoptions;
       readoptionscopy.snapshot = db_->GetSnapshot();
       std::vector<std::string> key_str;
-      key_str.reserve(num_keys);
-      key_slices.reserve(num_keys);
+      key_str.reserve(num_prefixes);
+      key_slices.reserve(num_prefixes);
       std::string from_db;
       ColumnFamilyHandle* cfh = column_families_[rand_column_families[0]];
 
-      for (size_t rand_key = 0; rand_key < num_keys; ++rand_key) {
+      for (size_t key = 0; key < num_prefixes; ++key) {
         key_str.emplace_back(keys[key] + Key(rand_keys[rand_key]));
         key_slices.emplace_back(key_str.back());
       }
-      db_->MultiGet(readoptionscopy, cfh, num_keys, key_slices.data(),
+      db_->MultiGet(readoptionscopy, cfh, num_prefixes, key_slices.data(),
           values.data(), statuses.data());
-      for (size_t i = 0; i < num_keys; i++) {
+      for (size_t i = 0; i < num_prefixes; i++) {
         Status s = statuses[i];
         if (!s.ok() && !s.IsNotFound()) {
           fprintf(stderr, "get error: %s\n", s.ToString().c_str());
           thread->stats.AddErrors(1);
+          ret_status[rand_key] = s;
           // we continue after error rather than exiting so that we can
           // find more errors if any
         } else if (s.IsNotFound()) {
           thread->stats.AddGets(1, 0);
+          ret_status[rand_key] = s;
         } else {
-          char expected_prefix = (keys[key])[0];
+          char expected_prefix = (keys[i])[0];
           char actual_prefix = (values[i])[0];
           if (actual_prefix != expected_prefix) {
             fprintf(stderr, "error expected prefix = %c actual = %c\n",
@@ -3655,7 +3883,7 @@ class BatchedOpsStressTest : public StressTest {
       db_->ReleaseSnapshot(readoptionscopy.snapshot);
 
       // Now that we retrieved all values, check that they all match
-      for (size_t i = 1; i < num_keys; i++) {
+      for (size_t i = 1; i < num_prefixes; i++) {
         if (values[i] != values[0]) {
           fprintf(stderr, "error : inconsistent values for key %s: %s, %s\n",
                   key_str[i].c_str(),
@@ -3667,7 +3895,7 @@ class BatchedOpsStressTest : public StressTest {
       }
     }
 
-    return statuses;
+    return ret_status;
   }
 
   // Given a key, this does prefix scans for "0"+P, "1"+P,..."9"+P
@@ -3762,11 +3990,11 @@ class BatchedOpsStressTest : public StressTest {
   virtual void VerifyDb(ThreadState* /* thread */) const {}
 };
 
-class AtomicFlushStressTest : public StressTest {
+class CfConsistencyStressTest : public StressTest {
  public:
-  AtomicFlushStressTest() : batch_id_(0) {}
+  CfConsistencyStressTest() : batch_id_(0) {}
 
-  virtual ~AtomicFlushStressTest() {}
+  virtual ~CfConsistencyStressTest() {}
 
   virtual Status TestPut(ThreadState* thread, WriteOptions& write_opts,
                          const ReadOptions& /* read_opts */,
@@ -3860,7 +4088,7 @@ class AtomicFlushStressTest : public StressTest {
       std::unique_ptr<MutexLock>& /* lock */) {
     assert(false);
     fprintf(stderr,
-            "AtomicFlushStressTest does not support TestIngestExternalFile "
+            "CfConsistencyStressTest does not support TestIngestExternalFile "
             "because it's not possible to verify the result\n");
     std::terminate();
   }
@@ -4036,6 +4264,9 @@ class AtomicFlushStressTest : public StressTest {
     assert(num == iters.size());
     std::vector<Status> statuses(num, Status::OK());
     do {
+      if (shared->HasVerificationFailedYet()) {
+        break;
+      }
       size_t valid_cnt = 0;
       size_t idx = 0;
       for (auto& iter : iters) {
@@ -4063,6 +4294,7 @@ class AtomicFlushStressTest : public StressTest {
         }
         break;
       } else if (valid_cnt != iters.size()) {
+        shared->SetVerificationFailure();
         for (size_t i = 0; i != num; ++i) {
           if (!iters[i]->Valid()) {
             if (statuses[i].ok()) {
@@ -4078,32 +4310,82 @@ class AtomicFlushStressTest : public StressTest {
                     column_families_[i]->GetName().c_str());
           }
         }
-        shared->SetVerificationFailure();
+        break;
+      }
+      if (shared->HasVerificationFailedYet()) {
         break;
       }
       // If the program reaches here, then all column families' iterators are
       // still valid.
+      if (shared->PrintingVerificationResults()) {
+        continue;
+      }
       Slice key;
       Slice value;
+      int num_mismatched_cfs = 0;
       for (size_t i = 0; i != num; ++i) {
         if (i == 0) {
           key = iters[i]->key();
           value = iters[i]->value();
         } else {
-          if (key.compare(iters[i]->key()) != 0) {
-            fprintf(stderr, "Verification failed\n");
-            fprintf(stderr, "cf%s: %s => %s\n",
-                    column_families_[0]->GetName().c_str(),
-                    key.ToString(true /* hex */).c_str(),
-                    value.ToString(/* hex */).c_str());
-            fprintf(stderr, "cf%s: %s => %s\n",
+          int cmp = key.compare(iters[i]->key());
+          if (cmp != 0) {
+            ++num_mismatched_cfs;
+            if (1 == num_mismatched_cfs) {
+              fprintf(stderr, "Verification failed\n");
+              fprintf(stderr, "Latest Sequence Number: %" PRIu64 "\n",
+                      db_->GetLatestSequenceNumber());
+              fprintf(stderr, "[%s] %s => %s\n",
+                      column_families_[0]->GetName().c_str(),
+                      key.ToString(true /* hex */).c_str(),
+                      value.ToString(true /* hex */).c_str());
+            }
+            fprintf(stderr, "[%s] %s => %s\n",
                     column_families_[i]->GetName().c_str(),
                     iters[i]->key().ToString(true /* hex */).c_str(),
                     iters[i]->value().ToString(true /* hex */).c_str());
+#ifndef ROCKSDB_LITE
+            Slice begin_key;
+            Slice end_key;
+            if (cmp < 0) {
+              begin_key = key;
+              end_key = iters[i]->key();
+            } else {
+              begin_key = iters[i]->key();
+              end_key = key;
+            }
+            std::vector<KeyVersion> versions;
+            const size_t kMaxNumIKeys = 8;
+            const auto print_key_versions = [&](ColumnFamilyHandle* cfh) {
+              Status s = GetAllKeyVersions(db_, cfh, begin_key, end_key,
+                                           kMaxNumIKeys, &versions);
+              if (!s.ok()) {
+                fprintf(stderr, "%s\n", s.ToString().c_str());
+                return;
+              }
+              assert(nullptr != cfh);
+              fprintf(stderr,
+                      "Internal keys in CF '%s', [%s, %s] (max %" ROCKSDB_PRIszt
+                      ")\n",
+                      cfh->GetName().c_str(),
+                      begin_key.ToString(true /* hex */).c_str(),
+                      end_key.ToString(true /* hex */).c_str(), kMaxNumIKeys);
+              for (const KeyVersion& kv : versions) {
+                fprintf(stderr, "  key %s seq %" PRIu64 " type %d\n",
+                        Slice(kv.user_key).ToString(true).c_str(), kv.sequence,
+                        kv.type);
+              }
+            };
+            if (1 == num_mismatched_cfs) {
+              print_key_versions(column_families_[0]);
+            }
+            print_key_versions(column_families_[i]);
+#endif  // ROCKSDB_LITE
             shared->SetVerificationFailure();
           }
         }
       }
+      shared->FinishPrintingVerificationResults();
       for (auto& iter : iters) {
         iter->Next();
       }
@@ -4132,6 +4414,9 @@ int main(int argc, char** argv) {
 
   if (FLAGS_statistics) {
     dbstats = rocksdb::CreateDBStatistics();
+    if (FLAGS_enable_secondary) {
+      dbstats_secondaries = rocksdb::CreateDBStatistics();
+    }
   }
   FLAGS_compression_type_e =
     StringToCompressionType(FLAGS_compression_type.c_str());
@@ -4216,9 +4501,10 @@ int main(int argc, char** argv) {
             "Error: clear_column_family_one_in must be 0 when using backup\n");
     exit(1);
   }
-  if (FLAGS_test_atomic_flush) {
+  if (FLAGS_test_cf_consistency && FLAGS_disable_wal) {
     FLAGS_atomic_flush = true;
   }
+
   if (FLAGS_read_only) {
     if (FLAGS_writepercent != 0 || FLAGS_delpercent != 0 ||
         FLAGS_delrangepercent != 0) {
@@ -4240,12 +4526,30 @@ int main(int argc, char** argv) {
       FLAGS_db = default_db_path;
   }
 
+  if (FLAGS_enable_secondary && FLAGS_secondaries_base.empty()) {
+    std::string default_secondaries_path;
+    FLAGS_env->GetTestDirectory(&default_secondaries_path);
+    default_secondaries_path += "/dbstress_secondaries";
+    rocksdb::Status s = FLAGS_env->CreateDirIfMissing(default_secondaries_path);
+    if (!s.ok()) {
+      fprintf(stderr, "Failed to create directory %s: %s\n",
+              default_secondaries_path.c_str(), s.ToString().c_str());
+      exit(1);
+    }
+    FLAGS_secondaries_base = default_secondaries_path;
+  }
+
+  if (!FLAGS_enable_secondary && FLAGS_secondary_catch_up_one_in > 0) {
+    fprintf(stderr, "Secondary instance is disabled.\n");
+    exit(1);
+  }
+
   rocksdb_kill_odds = FLAGS_kill_random_test;
   rocksdb_kill_prefix_blacklist = SplitString(FLAGS_kill_prefix_blacklist);
 
   std::unique_ptr<rocksdb::StressTest> stress;
-  if (FLAGS_test_atomic_flush) {
-    stress.reset(new rocksdb::AtomicFlushStressTest());
+  if (FLAGS_test_cf_consistency) {
+    stress.reset(new rocksdb::CfConsistencyStressTest());
   } else if (FLAGS_test_batches_snapshots) {
     stress.reset(new rocksdb::BatchedOpsStressTest());
   } else {

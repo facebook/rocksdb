@@ -13,15 +13,15 @@
 #include <vector>
 
 #include "db/column_family.h"
-#include "db/db_impl.h"
+#include "db/db_impl/db_impl.h"
 #include "rocksdb/comparator.h"
 #include "rocksdb/db.h"
 #include "rocksdb/snapshot.h"
 #include "rocksdb/status.h"
 #include "rocksdb/utilities/transaction_db.h"
+#include "test_util/sync_point.h"
 #include "util/cast_util.h"
 #include "util/string_util.h"
-#include "util/sync_point.h"
 #include "utilities/transactions/pessimistic_transaction_db.h"
 #include "utilities/transactions/transaction_util.h"
 
@@ -231,7 +231,8 @@ Status WriteCommittedTxn::PrepareInternal() {
       (void)two_write_queues_;  // to silence unused private field warning
     }
     virtual Status Callback(SequenceNumber, bool is_mem_disabled,
-                            uint64_t log_number) override {
+                            uint64_t log_number, size_t /*index*/,
+                            size_t /*total*/) override {
 #ifdef NDEBUG
       (void)is_mem_disabled;
 #endif

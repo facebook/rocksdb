@@ -9,11 +9,7 @@
 
 #include "db/wal_manager.h"
 
-#ifndef __STDC_FORMAT_MACROS
-#define __STDC_FORMAT_MACROS
-#endif
-
-#include <inttypes.h>
+#include <cinttypes>
 #include <algorithm>
 #include <vector>
 #include <memory>
@@ -22,19 +18,19 @@
 #include "db/log_writer.h"
 #include "db/transaction_log_impl.h"
 #include "db/write_batch_internal.h"
+#include "file/file_util.h"
+#include "file/filename.h"
+#include "logging/logging.h"
 #include "port/port.h"
 #include "rocksdb/env.h"
 #include "rocksdb/options.h"
 #include "rocksdb/write_batch.h"
+#include "test_util/sync_point.h"
 #include "util/cast_util.h"
 #include "util/coding.h"
 #include "util/file_reader_writer.h"
-#include "util/file_util.h"
-#include "util/filename.h"
-#include "util/logging.h"
 #include "util/mutexlock.h"
 #include "util/string_util.h"
-#include "util/sync_point.h"
 
 namespace rocksdb {
 
@@ -191,7 +187,8 @@ void WalManager::PurgeObsoleteWALFiles() {
           continue;
         }
         if (now_seconds - file_m_time > db_options_.wal_ttl_seconds) {
-          s = DeleteDBFile(&db_options_, file_path, archival_dir, false);
+          s = DeleteDBFile(&db_options_, file_path, archival_dir, false,
+                           /*force_fg=*/!wal_in_db_path_);
           if (!s.ok()) {
             ROCKS_LOG_WARN(db_options_.info_log, "Can't delete file: %s: %s",
                            file_path.c_str(), s.ToString().c_str());
@@ -217,7 +214,8 @@ void WalManager::PurgeObsoleteWALFiles() {
             log_file_size = std::max(log_file_size, file_size);
             ++log_files_num;
           } else {
-            s = DeleteDBFile(&db_options_, file_path, archival_dir, false);
+            s = DeleteDBFile(&db_options_, file_path, archival_dir, false,
+                             /*force_fg=*/!wal_in_db_path_);
             if (!s.ok()) {
               ROCKS_LOG_WARN(db_options_.info_log,
                              "Unable to delete file: %s: %s", file_path.c_str(),
@@ -257,7 +255,8 @@ void WalManager::PurgeObsoleteWALFiles() {
   for (size_t i = 0; i < files_del_num; ++i) {
     std::string const file_path = archived_logs[i]->PathName();
     s = DeleteDBFile(&db_options_, db_options_.wal_dir + "/" + file_path,
-                     db_options_.wal_dir, false);
+                     db_options_.wal_dir, false,
+                     /*force_fg=*/!wal_in_db_path_);
     if (!s.ok()) {
       ROCKS_LOG_WARN(db_options_.info_log, "Unable to delete file: %s: %s",
                      file_path.c_str(), s.ToString().c_str());
@@ -279,17 +278,6 @@ void WalManager::ArchiveWALFile(const std::string& fname, uint64_t number) {
   ROCKS_LOG_INFO(db_options_.info_log, "Move log file %s to %s -- %s\n",
                  fname.c_str(), archived_log_name.c_str(),
                  s.ToString().c_str());
-}
-
-namespace {
-struct CompareLogByPointer {
-  bool operator()(const std::unique_ptr<LogFile>& a,
-                  const std::unique_ptr<LogFile>& b) {
-    LogFileImpl* a_impl = static_cast_with_check<LogFileImpl, LogFile>(a.get());
-    LogFileImpl* b_impl = static_cast_with_check<LogFileImpl, LogFile>(b.get());
-    return *a_impl < *b_impl;
-  }
-};
 }
 
 Status WalManager::GetSortedWalsOfType(const std::string& path,
@@ -324,14 +312,15 @@ Status WalManager::GetSortedWalsOfType(const std::string& path,
       uint64_t size_bytes;
       s = env_->GetFileSize(LogFileName(path, number), &size_bytes);
       // re-try in case the alive log file has been moved to archive.
-      std::string archived_file = ArchivedLogFileName(path, number);
-      if (!s.ok() && log_type == kAliveLogFile &&
-          env_->FileExists(archived_file).ok()) {
-        s = env_->GetFileSize(archived_file, &size_bytes);
-        if (!s.ok() && env_->FileExists(archived_file).IsNotFound()) {
-          // oops, the file just got deleted from archived dir! move on
-          s = Status::OK();
-          continue;
+      if (!s.ok() && log_type == kAliveLogFile) {
+        std::string archived_file = ArchivedLogFileName(path, number);
+        if (env_->FileExists(archived_file).ok()) {
+          s = env_->GetFileSize(archived_file, &size_bytes);
+          if (!s.ok() && env_->FileExists(archived_file).IsNotFound()) {
+            // oops, the file just got deleted from archived dir! move on
+            s = Status::OK();
+            continue;
+          }
         }
       }
       if (!s.ok()) {
@@ -342,8 +331,15 @@ Status WalManager::GetSortedWalsOfType(const std::string& path,
           new LogFileImpl(number, log_type, sequence, size_bytes)));
     }
   }
-  CompareLogByPointer compare_log_files;
-  std::sort(log_files.begin(), log_files.end(), compare_log_files);
+  std::sort(
+      log_files.begin(), log_files.end(),
+      [](const std::unique_ptr<LogFile>& a, const std::unique_ptr<LogFile>& b) {
+        LogFileImpl* a_impl =
+            static_cast_with_check<LogFileImpl, LogFile>(a.get());
+        LogFileImpl* b_impl =
+            static_cast_with_check<LogFileImpl, LogFile>(b.get());
+        return *a_impl < *b_impl;
+      });
   return status;
 }
 
@@ -393,7 +389,7 @@ Status WalManager::ReadFirstRecord(const WalFileType type,
   if (type == kAliveLogFile) {
     std::string fname = LogFileName(db_options_.wal_dir, number);
     s = ReadFirstLine(fname, number, sequence);
-    if (env_->FileExists(fname).ok() && !s.ok()) {
+    if (!s.ok() && env_->FileExists(fname).ok()) {
       // return any error that is not caused by non-existing file
       return s;
     }
@@ -418,6 +414,34 @@ Status WalManager::ReadFirstRecord(const WalFileType type,
   }
   return s;
 }
+
+Status WalManager::GetLiveWalFile(uint64_t number, std::unique_ptr<LogFile>* log_file) {
+  if (!log_file) {
+    return Status::InvalidArgument("log_file not preallocated.");
+  }
+
+  if(!number) {
+    return Status::PathNotFound("log file not available");
+  }
+
+  Status s;
+
+  uint64_t size_bytes;
+  s = env_->GetFileSize(LogFileName(db_options_.wal_dir, number), &size_bytes);
+
+  if (!s.ok()) {
+    return s;
+  }
+
+  log_file->reset(new LogFileImpl(
+      number,
+      kAliveLogFile,
+      0,      // SequenceNumber
+      size_bytes));
+
+  return Status::OK();
+}
+
 
 // the function returns status.ok() and sequence == 0 if the file exists, but is
 // empty

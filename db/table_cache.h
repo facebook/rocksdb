@@ -23,6 +23,7 @@
 #include "rocksdb/options.h"
 #include "rocksdb/table.h"
 #include "table/table_reader.h"
+#include "trace_replay/block_cache_tracer.h"
 
 namespace rocksdb {
 
@@ -32,40 +33,56 @@ struct FileDescriptor;
 class GetContext;
 class HistogramImpl;
 
+// Manages caching for TableReader objects for a column family. The actual
+// cache is allocated separately and passed to the constructor. TableCache
+// wraps around the underlying SST file readers by providing Get(),
+// MultiGet() and NewIterator() methods that hide the instantiation,
+// caching and access to the TableReader. The main purpose of this is
+// performance - by caching the TableReader, it avoids unnecessary file opens
+// and object allocation and instantiation. One exception is compaction, where
+// a new TableReader may be instantiated - see NewIterator() comments
+//
+// Another service provided by TableCache is managing the row cache - if the
+// DB is configured with a row cache, and the lookup key is present in the row
+// cache, lookup is very fast. The row cache is obtained from
+// ioptions.row_cache
 class TableCache {
  public:
   TableCache(const ImmutableCFOptions& ioptions,
-             const EnvOptions& storage_options, Cache* cache);
+             const EnvOptions& storage_options, Cache* cache,
+             BlockCacheTracer* const block_cache_tracer);
   ~TableCache();
 
   // Return an iterator for the specified file number (the corresponding
-  // file length must be exactly "file_size" bytes).  If "tableptr" is
-  // non-nullptr, also sets "*tableptr" to point to the Table object
+  // file length must be exactly "file_size" bytes).  If "table_reader_ptr"
+  // is non-nullptr, also sets "*table_reader_ptr" to point to the Table object
   // underlying the returned iterator, or nullptr if no Table object underlies
-  // the returned iterator.  The returned "*tableptr" object is owned by
-  // the cache and should not be deleted, and is valid for as long as the
+  // the returned iterator.  The returned "*table_reader_ptr" object is owned
+  // by the cache and should not be deleted, and is valid for as long as the
   // returned iterator is live.
   // @param range_del_agg If non-nullptr, adds range deletions to the
   //    aggregator. If an error occurs, returns it in a NewErrorInternalIterator
+  // @param for_compaction If true, a new TableReader may be allocated (but
+  //                       not cached), depending on the CF options
   // @param skip_filters Disables loading/accessing the filter block
   // @param level The level this table is at, -1 for "not set / don't know"
   InternalIterator* NewIterator(
       const ReadOptions& options, const EnvOptions& toptions,
       const InternalKeyComparator& internal_comparator,
       const FileMetaData& file_meta, RangeDelAggregator* range_del_agg,
-      const SliceTransform* prefix_extractor = nullptr,
-      TableReader** table_reader_ptr = nullptr,
-      HistogramImpl* file_read_hist = nullptr, bool for_compaction = false,
-      Arena* arena = nullptr, bool skip_filters = false, int level = -1,
-      const InternalKey* smallest_compaction_key = nullptr,
-      const InternalKey* largest_compaction_key = nullptr);
+      const SliceTransform* prefix_extractor, TableReader** table_reader_ptr,
+      HistogramImpl* file_read_hist, TableReaderCaller caller, Arena* arena,
+      bool skip_filters, int level, const InternalKey* smallest_compaction_key,
+      const InternalKey* largest_compaction_key);
 
   // If a seek to internal key "k" in specified file finds an entry,
-  // call (*handle_result)(arg, found_key, found_value) repeatedly until
-  // it returns false.
-  // @param get_context State for get operation. If its range_del_agg() returns
-  //    non-nullptr, adds range deletions to the aggregator. If an error occurs,
-  //    returns non-ok status.
+  // call get_context->SaveValue() repeatedly until
+  // it returns false. As a side effect, it will insert the TableReader
+  // into the cache and potentially evict another entry
+  // @param get_context Context for get operation. The result of the lookup
+  //                    can be retrieved by calling get_context->State()
+  // @param file_read_hist If non-nullptr, the file reader statistics are
+  //                       recorded
   // @param skip_filters Disables loading/accessing the filter block
   // @param level The level this table is at, -1 for "not set / don't know"
   Status Get(const ReadOptions& options,
@@ -76,6 +93,23 @@ class TableCache {
              HistogramImpl* file_read_hist = nullptr, bool skip_filters = false,
              int level = -1);
 
+  // Return the range delete tombstone iterator of the file specified by
+  // `file_meta`.
+  Status GetRangeTombstoneIterator(
+      const ReadOptions& options,
+      const InternalKeyComparator& internal_comparator,
+      const FileMetaData& file_meta,
+      std::unique_ptr<FragmentedRangeTombstoneIterator>* out_iter);
+
+  // If a seek to internal key "k" in specified file finds an entry,
+  // call get_context->SaveValue() repeatedly until
+  // it returns false. As a side effect, it will insert the TableReader
+  // into the cache and potentially evict another entry
+  // @param mget_range Pointer to the structure describing a batch of keys to
+  //                   be looked up in this table file. The result is stored
+  //                   in the embedded GetContext
+  // @param skip_filters Disables loading/accessing the filter block
+  // @param level The level this table is at, -1 for "not set / don't know"
   Status MultiGet(const ReadOptions& options,
                   const InternalKeyComparator& internal_comparator,
                   const FileMetaData& file_meta,
@@ -127,6 +161,19 @@ class TableCache {
       const FileDescriptor& fd,
       const SliceTransform* prefix_extractor = nullptr);
 
+  // Returns approximated offset of a key in a file represented by fd.
+  uint64_t ApproximateOffsetOf(
+      const Slice& key, const FileDescriptor& fd, TableReaderCaller caller,
+      const InternalKeyComparator& internal_comparator,
+      const SliceTransform* prefix_extractor = nullptr);
+
+  // Returns approximated data size between start and end keys in a file
+  // represented by fd (the start key must not be greater than the end key).
+  uint64_t ApproximateSize(const Slice& start, const Slice& end,
+                           const FileDescriptor& fd, TableReaderCaller caller,
+                           const InternalKeyComparator& internal_comparator,
+                           const SliceTransform* prefix_extractor = nullptr);
+
   // Release the handle from a cache
   void ReleaseHandle(Cache::Handle* handle);
 
@@ -149,19 +196,32 @@ class TableCache {
   Status GetTableReader(const EnvOptions& env_options,
                         const InternalKeyComparator& internal_comparator,
                         const FileDescriptor& fd, bool sequential_mode,
-                        size_t readahead, bool record_read_stats,
-                        HistogramImpl* file_read_hist,
+                        bool record_read_stats, HistogramImpl* file_read_hist,
                         std::unique_ptr<TableReader>* table_reader,
                         const SliceTransform* prefix_extractor = nullptr,
                         bool skip_filters = false, int level = -1,
-                        bool prefetch_index_and_filter_in_cache = true,
-                        bool for_compaction = false);
+                        bool prefetch_index_and_filter_in_cache = true);
+
+  // Create a key prefix for looking up the row cache. The prefix is of the
+  // format row_cache_id + fd_number + seq_no. Later, the user key can be
+  // appended to form the full key
+  void CreateRowCacheKeyPrefix(const ReadOptions& options,
+                               const FileDescriptor& fd,
+                               const Slice& internal_key,
+                               GetContext* get_context,
+                               IterKey& row_cache_key);
+
+  // Helper function to lookup the row cache for a key. It appends the
+  // user key to row_cache_key at offset prefix_size
+  bool GetFromRowCache(const Slice& user_key, IterKey& row_cache_key,
+                       size_t prefix_size, GetContext* get_context);
 
   const ImmutableCFOptions& ioptions_;
   const EnvOptions& env_options_;
   Cache* const cache_;
   std::string row_cache_id_;
   bool immortal_tables_;
+  BlockCacheTracer* const block_cache_tracer_;
 };
 
 }  // namespace rocksdb

@@ -25,7 +25,6 @@ struct KeyContext {
   MergeContext merge_context;
   SequenceNumber max_covering_tombstone_seq;
   bool key_exists;
-  SequenceNumber seq;
   void* cb_arg;
   PinnableSlice* value;
   GetContext* get_context;
@@ -36,7 +35,6 @@ struct KeyContext {
         s(stat),
         max_covering_tombstone_seq(0),
         key_exists(false),
-        seq(0),
         cb_arg(nullptr),
         value(val),
         get_context(nullptr) {}

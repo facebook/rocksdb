@@ -10,16 +10,37 @@
 #include "rocksdb/env.h"
 
 #include <thread>
+#include "logging/env_logger.h"
+#include "memory/arena.h"
 #include "options/db_options.h"
 #include "port/port.h"
 #include "port/sys_time.h"
 #include "rocksdb/options.h"
-#include "util/arena.h"
+#include "rocksdb/utilities/object_registry.h"
 #include "util/autovector.h"
 
 namespace rocksdb {
 
 Env::~Env() {
+}
+
+Status Env::NewLogger(const std::string& fname,
+                      std::shared_ptr<Logger>* result) {
+  return NewEnvLogger(fname, this, result);
+}
+
+Status Env::LoadEnv(const std::string& value, Env** result) {
+  Env* env = *result;
+  Status s;
+#ifndef ROCKSDB_LITE
+  s = ObjectRegistry::NewInstance()->NewStaticObject<Env>(value, &env);
+#else
+  s = Status::NotSupported("Cannot load environment in LITE mode: ", value);
+#endif
+  if (s.ok()) {
+    *result = env;
+  }
+  return s;
 }
 
 std::string Env::PriorityToString(Env::Priority priority) {
@@ -422,5 +443,20 @@ EnvOptions::EnvOptions() {
   AssignEnvOptions(this, options);
 }
 
+Status NewEnvLogger(const std::string& fname, Env* env,
+                    std::shared_ptr<Logger>* result) {
+  EnvOptions options;
+  // TODO: Tune the buffer size.
+  options.writable_file_max_buffer_size = 1024 * 1024;
+  std::unique_ptr<WritableFile> writable_file;
+  const auto status = env->NewWritableFile(fname, &writable_file, options);
+  if (!status.ok()) {
+    return status;
+  }
+
+  *result = std::make_shared<EnvLogger>(std::move(writable_file), fname,
+                                        options, env);
+  return Status::OK();
+}
 
 }  // namespace rocksdb

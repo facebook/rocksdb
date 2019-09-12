@@ -18,8 +18,8 @@
 #include "rocksdb/utilities/write_batch_with_index.h"
 #include "rocksdb/write_buffer_manager.h"
 #include "table/scoped_arena_iterator.h"
+#include "test_util/testharness.h"
 #include "util/string_util.h"
-#include "util/testharness.h"
 
 namespace rocksdb {
 
@@ -35,8 +35,9 @@ static std::string PrintContents(WriteBatch* b) {
   mem->Ref();
   std::string state;
   ColumnFamilyMemTablesDefault cf_mems_default(mem);
-  Status s = WriteBatchInternal::InsertInto(b, &cf_mems_default, nullptr);
-  int count = 0;
+  Status s =
+      WriteBatchInternal::InsertInto(b, &cf_mems_default, nullptr, nullptr);
+  uint32_t count = 0;
   int put_count = 0;
   int delete_count = 0;
   int single_delete_count = 0;
@@ -131,8 +132,8 @@ class WriteBatchTest : public testing::Test {};
 TEST_F(WriteBatchTest, Empty) {
   WriteBatch batch;
   ASSERT_EQ("", PrintContents(&batch));
-  ASSERT_EQ(0, WriteBatchInternal::Count(&batch));
-  ASSERT_EQ(0, batch.Count());
+  ASSERT_EQ(0u, WriteBatchInternal::Count(&batch));
+  ASSERT_EQ(0u, batch.Count());
 }
 
 TEST_F(WriteBatchTest, Multiple) {
@@ -143,14 +144,14 @@ TEST_F(WriteBatchTest, Multiple) {
   batch.Put(Slice("baz"), Slice("boo"));
   WriteBatchInternal::SetSequence(&batch, 100);
   ASSERT_EQ(100U, WriteBatchInternal::Sequence(&batch));
-  ASSERT_EQ(4, WriteBatchInternal::Count(&batch));
+  ASSERT_EQ(4u, WriteBatchInternal::Count(&batch));
   ASSERT_EQ(
       "Put(baz, boo)@103"
       "Delete(box)@101"
       "Put(foo, bar)@100"
       "DeleteRange(bar, foo)@102",
       PrintContents(&batch));
-  ASSERT_EQ(4, batch.Count());
+  ASSERT_EQ(4u, batch.Count());
 }
 
 TEST_F(WriteBatchTest, Corruption) {
@@ -173,19 +174,19 @@ TEST_F(WriteBatchTest, Append) {
   WriteBatchInternal::Append(&b1, &b2);
   ASSERT_EQ("",
             PrintContents(&b1));
-  ASSERT_EQ(0, b1.Count());
+  ASSERT_EQ(0u, b1.Count());
   b2.Put("a", "va");
   WriteBatchInternal::Append(&b1, &b2);
   ASSERT_EQ("Put(a, va)@200",
             PrintContents(&b1));
-  ASSERT_EQ(1, b1.Count());
+  ASSERT_EQ(1u, b1.Count());
   b2.Clear();
   b2.Put("b", "vb");
   WriteBatchInternal::Append(&b1, &b2);
   ASSERT_EQ("Put(a, va)@200"
             "Put(b, vb)@201",
             PrintContents(&b1));
-  ASSERT_EQ(2, b1.Count());
+  ASSERT_EQ(2u, b1.Count());
   b2.Delete("foo");
   WriteBatchInternal::Append(&b1, &b2);
   ASSERT_EQ("Put(a, va)@200"
@@ -193,7 +194,7 @@ TEST_F(WriteBatchTest, Append) {
             "Put(b, vb)@201"
             "Delete(foo)@203",
             PrintContents(&b1));
-  ASSERT_EQ(4, b1.Count());
+  ASSERT_EQ(4u, b1.Count());
   b2.Clear();
   b2.Put("c", "cc");
   b2.Put("d", "dd");
@@ -208,29 +209,29 @@ TEST_F(WriteBatchTest, Append) {
       "Put(d, dd)@205"
       "Delete(foo)@203",
       PrintContents(&b1));
-  ASSERT_EQ(6, b1.Count());
+  ASSERT_EQ(6u, b1.Count());
   ASSERT_EQ(
       "Put(c, cc)@0"
       "Put(d, dd)@1"
       "Put(e, ee)@2",
       PrintContents(&b2));
-  ASSERT_EQ(3, b2.Count());
+  ASSERT_EQ(3u, b2.Count());
 }
 
 TEST_F(WriteBatchTest, SingleDeletion) {
   WriteBatch batch;
   WriteBatchInternal::SetSequence(&batch, 100);
   ASSERT_EQ("", PrintContents(&batch));
-  ASSERT_EQ(0, batch.Count());
+  ASSERT_EQ(0u, batch.Count());
   batch.Put("a", "va");
   ASSERT_EQ("Put(a, va)@100", PrintContents(&batch));
-  ASSERT_EQ(1, batch.Count());
+  ASSERT_EQ(1u, batch.Count());
   batch.SingleDelete("a");
   ASSERT_EQ(
       "SingleDelete(a)@101"
       "Put(a, va)@100",
       PrintContents(&batch));
-  ASSERT_EQ(2, batch.Count());
+  ASSERT_EQ(2u, batch.Count());
 }
 
 namespace {
@@ -316,7 +317,7 @@ namespace {
 TEST_F(WriteBatchTest, PutNotImplemented) {
   WriteBatch batch;
   batch.Put(Slice("k1"), Slice("v1"));
-  ASSERT_EQ(1, batch.Count());
+  ASSERT_EQ(1u, batch.Count());
   ASSERT_EQ("Put(k1, v1)@0", PrintContents(&batch));
 
   WriteBatch::Handler handler;
@@ -326,7 +327,7 @@ TEST_F(WriteBatchTest, PutNotImplemented) {
 TEST_F(WriteBatchTest, DeleteNotImplemented) {
   WriteBatch batch;
   batch.Delete(Slice("k2"));
-  ASSERT_EQ(1, batch.Count());
+  ASSERT_EQ(1u, batch.Count());
   ASSERT_EQ("Delete(k2)@0", PrintContents(&batch));
 
   WriteBatch::Handler handler;
@@ -336,7 +337,7 @@ TEST_F(WriteBatchTest, DeleteNotImplemented) {
 TEST_F(WriteBatchTest, SingleDeleteNotImplemented) {
   WriteBatch batch;
   batch.SingleDelete(Slice("k2"));
-  ASSERT_EQ(1, batch.Count());
+  ASSERT_EQ(1u, batch.Count());
   ASSERT_EQ("SingleDelete(k2)@0", PrintContents(&batch));
 
   WriteBatch::Handler handler;
@@ -346,7 +347,7 @@ TEST_F(WriteBatchTest, SingleDeleteNotImplemented) {
 TEST_F(WriteBatchTest, MergeNotImplemented) {
   WriteBatch batch;
   batch.Merge(Slice("foo"), Slice("bar"));
-  ASSERT_EQ(1, batch.Count());
+  ASSERT_EQ(1u, batch.Count());
   ASSERT_EQ("Merge(foo, bar)@0", PrintContents(&batch));
 
   WriteBatch::Handler handler;
@@ -363,7 +364,7 @@ TEST_F(WriteBatchTest, Blob) {
   batch.SingleDelete(Slice("k3"));
   batch.PutLogData(Slice("blob2"));
   batch.Merge(Slice("foo"), Slice("bar"));
-  ASSERT_EQ(6, batch.Count());
+  ASSERT_EQ(6u, batch.Count());
   ASSERT_EQ(
       "Merge(foo, bar)@5"
       "Put(k1, v1)@0"
@@ -398,7 +399,7 @@ TEST_F(WriteBatchTest, PrepareCommit) {
   ASSERT_EQ(s, Status::NotFound());
   WriteBatchInternal::MarkCommit(&batch, Slice("xid1"));
   WriteBatchInternal::MarkRollback(&batch, Slice("xid1"));
-  ASSERT_EQ(2, batch.Count());
+  ASSERT_EQ(2u, batch.Count());
 
   TestHandler handler;
   batch.Iterate(&handler);
@@ -488,7 +489,7 @@ TEST_F(WriteBatchTest, DISABLED_LargeKeyValue) {
     batch.Put(raw, raw);
   }
 
-  ASSERT_EQ(2, batch.Count());
+  ASSERT_EQ(2u, batch.Count());
 
   struct NoopHandler : public WriteBatch::Handler {
     int num_seen = 0;
@@ -599,7 +600,7 @@ TEST_F(WriteBatchTest, PutGatherSlices) {
             "Put(foo, bar)@100"
             "Put(keypart2part3, value)@102",
             PrintContents(&batch));
-  ASSERT_EQ(3, batch.Count());
+  ASSERT_EQ(3u, batch.Count());
 }
 
 namespace {

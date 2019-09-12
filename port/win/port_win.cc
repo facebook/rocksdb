@@ -33,7 +33,7 @@
 #include <codecvt>
 #endif
 
-#include "util/logging.h"
+#include "logging/logging.h"
 
 namespace rocksdb {
 

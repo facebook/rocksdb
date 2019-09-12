@@ -1,5 +1,4 @@
-sudo: false
-dist: trusty
+dist: xenial
 language: cpp
 os:
   - linux
@@ -9,7 +8,7 @@ compiler:
   - gcc
 osx_image: xcode8.3
 jdk:
-  - oraclejdk7
+  - openjdk7
 cache:
   - ccache
   - apt
@@ -71,7 +70,10 @@ install:
       CC=gcc-8 && CXX=g++-8;
     fi
   - if [[ "${JOB_NAME}" == cmake* ]] && [ "${TRAVIS_OS_NAME}" == linux ]; then
-      mkdir cmake-dist && curl -sfSL https://cmake.org/files/v3.8/cmake-3.8.1-Linux-x86_64.tar.gz | tar --strip-components=1 -C cmake-dist -xz && export PATH=$PWD/cmake-dist/bin:$PATH;
+      mkdir cmake-dist && curl -sfSL https://github.com/Kitware/CMake/releases/download/v3.14.5/cmake-3.14.5-Linux-x86_64.tar.gz | tar --strip-components=1 -C cmake-dist -xz && export PATH=$PWD/cmake-dist/bin:$PATH;
+    fi
+  - if [[ "${JOB_NAME}" == java_test ]]; then
+      java -version && echo "JAVA_HOME=${JAVA_HOME}";
     fi
 
 before_script:
@@ -101,7 +103,7 @@ script:
     esac
   - case $JOB_NAME in
     java_test)
-      OPT=-DTRAVIS V=1 make clean jclean && make rocksdbjava jtest
+      OPT=-DTRAVIS V=1 make rocksdbjava jtest
       ;;
     lite_build)
       OPT='-DTRAVIS -DROCKSDB_LITE' V=1 make -j4 static_lib tools
@@ -110,6 +112,7 @@ script:
       OPT=-DTRAVIS V=1 make -j4 static_lib && cd examples && make -j4
       ;;
     cmake-mingw)
+      sudo update-alternatives --set x86_64-w64-mingw32-g++ /usr/bin/x86_64-w64-mingw32-g++-posix;
       mkdir build && cd build && cmake -DJNI=1 .. -DCMAKE_C_COMPILER=x86_64-w64-mingw32-gcc -DCMAKE_CXX_COMPILER=x86_64-w64-mingw32-g++ -DCMAKE_SYSTEM_NAME=Windows && make -j4 rocksdb rocksdbjni
       ;;
     cmake*)

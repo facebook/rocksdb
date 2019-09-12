@@ -9,22 +9,22 @@
 
 #include "table/format.h"
 
-#include <inttypes.h>
+#include <cinttypes>
 #include <string>
 
+#include "block_fetcher.h"
+#include "logging/logging.h"
+#include "memory/memory_allocator.h"
 #include "monitoring/perf_context_imp.h"
 #include "monitoring/statistics.h"
 #include "rocksdb/env.h"
-#include "table/block.h"
-#include "table/block_based_table_reader.h"
-#include "table/block_fetcher.h"
+#include "table/block_based/block.h"
+#include "table/block_based/block_based_table_reader.h"
 #include "table/persistent_cache_helper.h"
 #include "util/coding.h"
 #include "util/compression.h"
 #include "util/crc32c.h"
 #include "util/file_reader_writer.h"
-#include "util/logging.h"
-#include "util/memory_allocator.h"
 #include "util/stop_watch.h"
 #include "util/string_util.h"
 #include "util/xxhash.h"
@@ -90,6 +90,58 @@ std::string BlockHandle::ToString(bool hex) const {
 }
 
 const BlockHandle BlockHandle::kNullBlockHandle(0, 0);
+
+void IndexValue::EncodeTo(std::string* dst, bool have_first_key,
+                          const BlockHandle* previous_handle) const {
+  if (previous_handle) {
+    assert(handle.offset() == previous_handle->offset() +
+                                  previous_handle->size() + kBlockTrailerSize);
+    PutVarsignedint64(dst, handle.size() - previous_handle->size());
+  } else {
+    handle.EncodeTo(dst);
+  }
+  assert(dst->size() != 0);
+
+  if (have_first_key) {
+    PutLengthPrefixedSlice(dst, first_internal_key);
+  }
+}
+
+Status IndexValue::DecodeFrom(Slice* input, bool have_first_key,
+                              const BlockHandle* previous_handle) {
+  if (previous_handle) {
+    int64_t delta;
+    if (!GetVarsignedint64(input, &delta)) {
+      return Status::Corruption("bad delta-encoded index value");
+    }
+    handle = BlockHandle(
+        previous_handle->offset() + previous_handle->size() + kBlockTrailerSize,
+        previous_handle->size() + delta);
+  } else {
+    Status s = handle.DecodeFrom(input);
+    if (!s.ok()) {
+      return s;
+    }
+  }
+
+  if (!have_first_key) {
+    first_internal_key = Slice();
+  } else if (!GetLengthPrefixedSlice(input, &first_internal_key)) {
+    return Status::Corruption("bad first key in block info");
+  }
+
+  return Status::OK();
+}
+
+std::string IndexValue::ToString(bool hex, bool have_first_key) const {
+  std::string s;
+  EncodeTo(&s, have_first_key, nullptr);
+  if (hex) {
+    return Slice(s).ToString(true);
+  } else {
+    return s;
+  }
+}
 
 namespace {
 inline bool IsLegacyFooterFormat(uint64_t magic_number) {
