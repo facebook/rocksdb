@@ -42,12 +42,11 @@ class Reader {
   // "*file" must remain live while this Reader is in use.
   Reader(std::unique_ptr<RandomAccessFileReader>&& file_reader, Env* env,
          Statistics* statistics);
-
-  ~Reader() = default;
-
   // No copying allowed
   Reader(const Reader&) = delete;
   Reader& operator=(const Reader&) = delete;
+
+  ~Reader() = default;
 
   Status ReadHeader(BlobLogHeader* header);
 

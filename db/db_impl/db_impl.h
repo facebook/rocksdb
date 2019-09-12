@@ -128,6 +128,10 @@ class DBImpl : public DB {
  public:
   DBImpl(const DBOptions& options, const std::string& dbname,
          const bool seq_per_batch = false, const bool batch_per_txn = true);
+  // No copying allowed
+  DBImpl(const DBImpl&) = delete;
+  void operator=(const DBImpl&) = delete;
+
   virtual ~DBImpl();
 
   // ---- Implementations of the DB interface ----
@@ -1562,10 +1566,6 @@ class DBImpl : public DB {
   Status CloseHelper();
 
   void WaitForBackgroundWork();
-
-  // No copying allowed
-  DBImpl(const DBImpl&);
-  void operator=(const DBImpl&);
 
   // Background threads call this function, which is just a wrapper around
   // the InstallSuperVersion() function. Background threads carry

@@ -171,6 +171,9 @@ class FullFilterBitsReader : public FilterBitsReader {
       }
     }
   }
+  // No Copy allowed
+  FullFilterBitsReader(const FullFilterBitsReader&) = delete;
+  void operator=(const FullFilterBitsReader&) = delete;
 
   ~FullFilterBitsReader() override {}
 
@@ -244,10 +247,6 @@ class FullFilterBitsReader : public FilterBitsReader {
 
   void FilterPrepare(const uint32_t& hash, const Slice& filter,
                      const uint32_t& num_lines, uint32_t* bit_offset);
-
-  // No Copy allowed
-  FullFilterBitsReader(const FullFilterBitsReader&);
-  void operator=(const FullFilterBitsReader&);
 };
 
 void FullFilterBitsReader::GetFilterMeta(const Slice& filter,
