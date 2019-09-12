@@ -732,7 +732,7 @@ TEST_F(DBCompactionTest, BGCompactionsAllowed) {
 
   // Now all column families qualify compaction but only one should be
   // scheduled, because no column family hits speed up condition.
-  ASSERT_EQ(1, env_->GetThreadPoolQueueLen(Env::Priority::LOW));
+  ASSERT_EQ(1u, env_->GetThreadPoolQueueLen(Env::Priority::LOW));
 
   // Create two more files for one column family, which triggers speed up
   // condition, three compactions will be scheduled.
@@ -746,7 +746,7 @@ TEST_F(DBCompactionTest, BGCompactionsAllowed) {
     ASSERT_EQ(options.level0_file_num_compaction_trigger + num + 1,
               NumTableFilesAtLevel(0, 2));
   }
-  ASSERT_EQ(3, env_->GetThreadPoolQueueLen(Env::Priority::LOW));
+  ASSERT_EQ(3U, env_->GetThreadPoolQueueLen(Env::Priority::LOW));
 
   // Unblock all threads to unblock all compactions.
   for (size_t i = 0; i < kTotalTasks; i++) {
@@ -777,7 +777,7 @@ TEST_F(DBCompactionTest, BGCompactionsAllowed) {
 
   // Now all column families qualify compaction but only one should be
   // scheduled, because no column family hits speed up condition.
-  ASSERT_EQ(1, env_->GetThreadPoolQueueLen(Env::Priority::LOW));
+  ASSERT_EQ(1U, env_->GetThreadPoolQueueLen(Env::Priority::LOW));
 
   for (size_t i = 0; i < kTotalTasks; i++) {
     sleeping_tasks[i].WakeUp();
@@ -4165,7 +4165,7 @@ TEST_F(DBCompactionTest, CompactionLimiter) {
 
   const char* cf_names[] = {"default", "0", "1", "2", "3", "4", "5",
     "6", "7", "8", "9", "a", "b", "c", "d", "e", "f" };
-  const int cf_count = sizeof cf_names / sizeof cf_names[0];
+  const unsigned int cf_count = sizeof cf_names / sizeof cf_names[0];
 
   std::unordered_map<std::string, CompactionLimiter*> cf_to_limiter;
 
@@ -4184,7 +4184,7 @@ TEST_F(DBCompactionTest, CompactionLimiter) {
   std::vector<Options> option_vector;
   option_vector.reserve(cf_count);
 
-  for (int cf = 0; cf < cf_count; cf++) {
+  for (unsigned int cf = 0; cf < cf_count; cf++) {
     ColumnFamilyOptions cf_opt(options);
     if (cf == 0) {
       // "Default" CF does't use compaction limiter
@@ -4202,7 +4202,7 @@ TEST_F(DBCompactionTest, CompactionLimiter) {
     option_vector.emplace_back(DBOptions(options), cf_opt);
   }
 
-  for (int cf = 1; cf < cf_count; cf++) {
+  for (unsigned int cf = 1; cf < cf_count; cf++) {
     CreateColumnFamilies({cf_names[cf]}, option_vector[cf]);
   }
 
@@ -4254,7 +4254,7 @@ TEST_F(DBCompactionTest, CompactionLimiter) {
   int keyIndex = 0;
 
   for (int n = 0; n < options.level0_file_num_compaction_trigger; n++) {
-    for (int cf = 0; cf < cf_count; cf++) {
+    for (unsigned int cf = 0; cf < cf_count; cf++) {
       for (int i = 0; i < kNumKeysPerFile; i++) {
         ASSERT_OK(Put(cf, Key(keyIndex++), ""));
       }
@@ -4262,13 +4262,13 @@ TEST_F(DBCompactionTest, CompactionLimiter) {
       ASSERT_OK(Put(cf, "", ""));
     }
 
-    for (int cf = 0; cf < cf_count; cf++) {
+    for (unsigned int cf = 0; cf < cf_count; cf++) {
       dbfull()->TEST_WaitForFlushMemTable(handles_[cf]);
     }
   }
 
   // Enough L0 files to trigger compaction
-  for (int cf = 0; cf < cf_count; cf++) {
+  for (unsigned int cf = 0; cf < cf_count; cf++) {
     ASSERT_EQ(NumTableFilesAtLevel(0, cf),
       options.level0_file_num_compaction_trigger);
   }
@@ -4295,7 +4295,7 @@ TEST_F(DBCompactionTest, CompactionLimiter) {
     sleeping_compact_tasks[i].WaitUntilDone();
   }
 
-  for (int cf = 0; cf < cf_count; cf++) {
+  for (unsigned int cf = 0; cf < cf_count; cf++) {
     dbfull()->TEST_WaitForFlushMemTable(handles_[cf]);
   }
 

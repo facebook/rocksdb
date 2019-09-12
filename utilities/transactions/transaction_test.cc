@@ -290,7 +290,7 @@ TEST_P(TransactionTest, WaitingTxn) {
         ASSERT_EQ(key, "foo");
         ASSERT_EQ(wait.size(), 1);
         ASSERT_EQ(wait[0], id1);
-        ASSERT_EQ(cf_id, 0);
+        ASSERT_EQ(cf_id, 0U);
       });
 
   get_perf_context()->Reset();
@@ -568,7 +568,7 @@ TEST_P(TransactionTest, DeadlockCycleShared) {
     for (auto it = dlock_entry.rbegin(); it != dlock_entry.rend(); ++it) {
       auto dl_node = *it;
       ASSERT_EQ(dl_node.m_txn_id, offset_root + leaf_id);
-      ASSERT_EQ(dl_node.m_cf_id, 0);
+      ASSERT_EQ(dl_node.m_cf_id, 0U);
       ASSERT_EQ(dl_node.m_waiting_key, ToString(curr_waiting_key));
       ASSERT_EQ(dl_node.m_exclusive, true);
 
@@ -775,7 +775,7 @@ TEST_P(TransactionStressTest, DeadlockCycle) {
     for (auto it = dlock_entry.rbegin(); it != dlock_entry.rend(); ++it) {
       auto dl_node = *it;
       ASSERT_EQ(dl_node.m_txn_id, len + curr_txn_id - 1);
-      ASSERT_EQ(dl_node.m_cf_id, 0);
+      ASSERT_EQ(dl_node.m_cf_id, 0u);
       ASSERT_EQ(dl_node.m_waiting_key, ToString(curr_waiting_key));
       ASSERT_EQ(dl_node.m_exclusive, true);
 

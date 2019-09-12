@@ -1504,7 +1504,7 @@ TEST_F(CompactionPickerTest, IntraL0MaxCompactionBytesNotHit) {
   ASSERT_EQ(5U, compaction->num_input_files(0));
   ASSERT_EQ(CompactionReason::kLevelL0FilesNum,
             compaction->compaction_reason());
-  ASSERT_EQ(0U, compaction->output_level());
+  ASSERT_EQ(0, compaction->output_level());
 }
 
 TEST_F(CompactionPickerTest, IntraL0MaxCompactionBytesHit) {
@@ -1534,7 +1534,7 @@ TEST_F(CompactionPickerTest, IntraL0MaxCompactionBytesHit) {
   ASSERT_EQ(4U, compaction->num_input_files(0));
   ASSERT_EQ(CompactionReason::kLevelL0FilesNum,
             compaction->compaction_reason());
-  ASSERT_EQ(0U, compaction->output_level());
+  ASSERT_EQ(0, compaction->output_level());
 }
 
 }  // namespace rocksdb

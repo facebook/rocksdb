@@ -326,6 +326,9 @@ class IterKey {
         key_size_(0),
         buf_size_(sizeof(space_)),
         is_user_key_(true) {}
+  // No copying allowed
+  IterKey(const IterKey&) = delete;
+  void operator=(const IterKey&) = delete;
 
   ~IterKey() { ResetBuffer(); }
 
@@ -523,10 +526,6 @@ class IterKey {
   }
 
   void EnlargeBuffer(size_t key_size);
-
-  // No copying allowed
-  IterKey(const IterKey&) = delete;
-  void operator=(const IterKey&) = delete;
 };
 
 // Convert from a SliceTranform of user keys, to a SliceTransform of

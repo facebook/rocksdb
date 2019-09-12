@@ -295,6 +295,9 @@ class MemTableIterator : public InternalIterator {
       iter_ = mem.table_->GetIterator(arena);
     }
   }
+  // No copying allowed
+  MemTableIterator(const MemTableIterator&) = delete;
+  void operator=(const MemTableIterator&) = delete;
 
   ~MemTableIterator() override {
 #ifndef NDEBUG
@@ -408,10 +411,6 @@ class MemTableIterator : public InternalIterator {
   bool valid_;
   bool arena_mode_;
   bool value_pinned_;
-
-  // No copying allowed
-  MemTableIterator(const MemTableIterator&);
-  void operator=(const MemTableIterator&);
 };
 
 InternalIterator* MemTable::NewIterator(const ReadOptions& read_options,

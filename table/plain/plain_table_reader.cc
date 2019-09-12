@@ -55,6 +55,10 @@ inline uint32_t GetFixed32Element(const char* base, size_t offset) {
 class PlainTableIterator : public InternalIterator {
  public:
   explicit PlainTableIterator(PlainTableReader* table, bool use_prefix_seek);
+  // No copying allowed
+  PlainTableIterator(const PlainTableIterator&) = delete;
+  void operator=(const Iterator&) = delete;
+
   ~PlainTableIterator() override;
 
   bool Valid() const override;
@@ -86,9 +90,6 @@ class PlainTableIterator : public InternalIterator {
   Slice key_;
   Slice value_;
   Status status_;
-  // No copying allowed
-  PlainTableIterator(const PlainTableIterator&) = delete;
-  void operator=(const Iterator&) = delete;
 };
 
 extern const uint64_t kPlainTableMagicNumber;

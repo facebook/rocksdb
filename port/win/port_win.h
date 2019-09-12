@@ -180,6 +180,9 @@ class Mutex {
 class RWMutex {
  public:
   RWMutex() { InitializeSRWLock(&srwLock_); }
+  // No copying allowed
+  RWMutex(const RWMutex&) = delete;
+  void operator=(const RWMutex&) = delete;
 
   void ReadLock() { AcquireSRWLockShared(&srwLock_); }
 
@@ -194,9 +197,6 @@ class RWMutex {
 
  private:
   SRWLOCK srwLock_;
-  // No copying allowed
-  RWMutex(const RWMutex&);
-  void operator=(const RWMutex&);
 };
 
 class CondVar {

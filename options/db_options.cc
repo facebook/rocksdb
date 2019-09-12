@@ -44,6 +44,8 @@ ImmutableDBOptions::ImmutableDBOptions(const DBOptions& options)
       table_cache_numshardbits(options.table_cache_numshardbits),
       wal_ttl_seconds(options.WAL_ttl_seconds),
       wal_size_limit_mb(options.WAL_size_limit_MB),
+      max_write_batch_group_size_bytes(
+          options.max_write_batch_group_size_bytes),
       manifest_preallocation_size(options.manifest_preallocation_size),
       allow_mmap_reads(options.allow_mmap_reads),
       allow_mmap_writes(options.allow_mmap_writes),
@@ -153,6 +155,10 @@ void ImmutableDBOptions::Dump(Logger* log) const {
   ROCKS_LOG_HEADER(log,
                    "                      Options.WAL_size_limit_MB: %" PRIu64,
                    wal_size_limit_mb);
+  ROCKS_LOG_HEADER(log,
+                   "                       "
+                   "Options.max_write_batch_group_size_bytes: %" PRIu64,
+                   max_write_batch_group_size_bytes);
   ROCKS_LOG_HEADER(
       log, "            Options.manifest_preallocation_size: %" ROCKSDB_PRIszt,
       manifest_preallocation_size);

@@ -22,6 +22,10 @@ class ConcurrentTaskLimiterImpl : public ConcurrentTaskLimiter {
  public:
   explicit ConcurrentTaskLimiterImpl(const std::string& name,
                                      int32_t max_outstanding_task);
+  // No copying allowed
+  ConcurrentTaskLimiterImpl(const ConcurrentTaskLimiterImpl&) = delete;
+  ConcurrentTaskLimiterImpl& operator=(
+      const ConcurrentTaskLimiterImpl&) = delete;
 
   virtual ~ConcurrentTaskLimiterImpl();
 
@@ -44,11 +48,6 @@ class ConcurrentTaskLimiterImpl : public ConcurrentTaskLimiter {
   std::string name_;
   std::atomic<int32_t> max_outstanding_tasks_;
   std::atomic<int32_t> outstanding_tasks_;
-
-  // No copying allowed
-  ConcurrentTaskLimiterImpl(const ConcurrentTaskLimiterImpl&) = delete;
-  ConcurrentTaskLimiterImpl& operator=(
-      const ConcurrentTaskLimiterImpl&) = delete;
 };
 
 class TaskLimiterToken {

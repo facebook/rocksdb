@@ -122,6 +122,9 @@ class Cache {
 
   Cache(std::shared_ptr<MemoryAllocator> allocator = nullptr)
       : memory_allocator_(std::move(allocator)) {}
+  // No copying allowed
+  Cache(const Cache&) = delete;
+  Cache& operator=(const Cache&) = delete;
 
   // Destroys all existing entries by calling the "deleter"
   // function that was passed via the Insert() function.
@@ -253,10 +256,6 @@ class Cache {
   MemoryAllocator* memory_allocator() const { return memory_allocator_.get(); }
 
  private:
-  // No copying allowed
-  Cache(const Cache&);
-  Cache& operator=(const Cache&);
-
   std::shared_ptr<MemoryAllocator> memory_allocator_;
 };
 
