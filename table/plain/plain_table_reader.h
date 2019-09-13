@@ -13,6 +13,7 @@
 #include <stdint.h>
 
 #include "db/dbformat.h"
+#include "file/random_access_file_reader.h"
 #include "memory/arena.h"
 #include "rocksdb/env.h"
 #include "rocksdb/iterator.h"
@@ -23,7 +24,6 @@
 #include "table/plain/plain_table_factory.h"
 #include "table/plain/plain_table_index.h"
 #include "table/table_reader.h"
-#include "util/file_reader_writer.h"
 
 namespace rocksdb {
 

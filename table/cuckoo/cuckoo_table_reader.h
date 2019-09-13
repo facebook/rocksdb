@@ -15,11 +15,11 @@
 #include <vector>
 
 #include "db/dbformat.h"
+#include "file/random_access_file_reader.h"
 #include "options/cf_options.h"
 #include "rocksdb/env.h"
 #include "rocksdb/options.h"
 #include "table/table_reader.h"
-#include "util/file_reader_writer.h"
 
 namespace rocksdb {
 

@@ -11,6 +11,8 @@
 
 #include "rocksdb/utilities/backupable_db.h"
 #include "file/filename.h"
+#include "file/sequence_file_reader.h"
+#include "file/writable_file_writer.h"
 #include "logging/logging.h"
 #include "port/port.h"
 #include "rocksdb/rate_limiter.h"
@@ -19,7 +21,6 @@
 #include "util/channel.h"
 #include "util/coding.h"
 #include "util/crc32c.h"
-#include "util/file_reader_writer.h"
 #include "util/string_util.h"
 #include "utilities/checkpoint/checkpoint_impl.h"
 

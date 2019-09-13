@@ -5,10 +5,10 @@
 
 #include "rocksdb/utilities/sim_cache.h"
 #include <atomic>
+#include "file/writable_file_writer.h"
 #include "monitoring/statistics.h"
 #include "port/port.h"
 #include "rocksdb/env.h"
-#include "util/file_reader_writer.h"
 #include "util/mutexlock.h"
 #include "util/string_util.h"
 

@@ -9,11 +9,11 @@
 
 #include "db/db_iter.h"
 #include "db/dbformat.h"
+#include "file/random_access_file_reader.h"
 #include "options/cf_options.h"
 #include "table/get_context.h"
 #include "table/table_builder.h"
 #include "table/table_reader.h"
-#include "util/file_reader_writer.h"
 
 namespace rocksdb {
 
