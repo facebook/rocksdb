@@ -327,6 +327,7 @@ void ExternalSstFileIngestionJob::Cleanup(const Status& status) {
       }
     }
     consumed_seqno_count_ = 0;
+    files_overlap_ = false;
   } else if (status.ok() && ingestion_options_.move_files) {
     // The files were moved and added successfully, remove original file links
     for (IngestedFileInfo& f : files_to_ingest_) {
