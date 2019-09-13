@@ -5,6 +5,7 @@
 
 #ifndef ROCKSDB_LITE
 
+#include "db/arena_wrapped_db_iter.h"
 #include "utilities/transactions/write_unprepared_txn_db.h"
 #include "rocksdb/utilities/transaction_db.h"
 #include "util/cast_util.h"
