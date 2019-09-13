@@ -240,11 +240,14 @@ int SstFileDumper::ShowAllCompressionSizes(
       const uint64_t ratio_not_compressed_blocks =
         (num_data_blocks - compressed_blocks) - not_compressed_blocks;
       const double compressed_pcnt = ( 0 == num_data_blocks ) ? 0.0 :
-        ( ( static_cast<double>(compressed_blocks) / static_cast<double>(num_data_blocks) ) * 100.0 ) ;
+        ( ( static_cast<double>(compressed_blocks) /
+		    static_cast<double>(num_data_blocks) ) * 100.0 );
       const double ratio_not_compressed_pcnt = ( 0 == num_data_blocks ) ? 0.0 :
-        ( ( static_cast<double>(ratio_not_compressed_blocks) / static_cast<double>(num_data_blocks) ) * 100.0 ) ;
+        ( ( static_cast<double>(ratio_not_compressed_blocks) /
+		    static_cast<double>(num_data_blocks) ) * 100.0 );
       const double not_compressed_pcnt = ( 0 == num_data_blocks ) ? 0.0 :
-        ( ( static_cast<double>(not_compressed_blocks) / static_cast<double>(num_data_blocks) ) * 100.0 ) ;      
+        ( ( static_cast<double>(not_compressed_blocks) /
+		    static_cast<double>(num_data_blocks) ) * 100.0 );
       fprintf(stdout, " Compressed: %6"             PRIu64 " (%5.1f%%)",
               compressed_blocks, compressed_pcnt);
       fprintf(stdout, " Not compressed (ratio): %6" PRIu64 " (%5.1f%%)",
@@ -257,7 +260,6 @@ int SstFileDumper::ShowAllCompressionSizes(
   }
   return 0;
 }
-
 Status SstFileDumper::ReadTableProperties(uint64_t table_magic_number,
                                           RandomAccessFileReader* file,
                                           uint64_t file_size) {
@@ -401,10 +403,10 @@ void print_help() {
       Path to SST file or directory containing SST files
 
     --command=check|scan|raw|verify
-        check: Iterate over entries in files but dont print anything except if an error is encounterd (default command)
+        check: Iterate over entries in files but don't print anything except if an error is encountered (default command)
         scan: Iterate over entries in files and print them to screen
         raw: Dump all the table contents to <file_name>_dump.txt
-        verify: Iterate all the blocks in files verifying checksum to detect possible coruption but dont print anything except if a corruption is encountered
+        verify: Iterate all the blocks in files verifying checksum to detect possible corruption but don't print anything except if a corruption is encountered
         recompress: reports the SST file size if recompressed with different
                     compression types
 
