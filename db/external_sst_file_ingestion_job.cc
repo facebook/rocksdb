@@ -228,7 +228,7 @@ Status ExternalSstFileIngestionJob::Run() {
     } else {
       status = AssignLevelAndSeqnoForIngestedFile(
           super_version, force_global_seqno, cfd_->ioptions()->compaction_style,
-          &f, last_seqno, &assigned_seqno);
+          last_seqno, &f, &assigned_seqno);
     }
     if (!status.ok()) {
       return status;
@@ -239,7 +239,7 @@ Status ExternalSstFileIngestionJob::Run() {
     if (assigned_seqno > last_seqno) {
       assert(assigned_seqno == last_seqno + 1);
       last_seqno = assigned_seqno;
-      consumed_seqno_count_ += 1;
+      ++consumed_seqno_count_;
     }
     if (!status.ok()) {
       return status;
@@ -504,7 +504,7 @@ Status ExternalSstFileIngestionJob::GetIngestedFileInfo(
 
 Status ExternalSstFileIngestionJob::AssignLevelAndSeqnoForIngestedFile(
     SuperVersion* sv, bool force_global_seqno, CompactionStyle compaction_style,
-    IngestedFileInfo* file_to_ingest, SequenceNumber last_seqno,
+    SequenceNumber last_seqno, IngestedFileInfo* file_to_ingest,
     SequenceNumber* assigned_seqno) {
   Status status;
   *assigned_seqno = 0;

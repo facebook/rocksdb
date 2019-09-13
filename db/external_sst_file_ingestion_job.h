@@ -134,8 +134,8 @@ class ExternalSstFileIngestionJob {
   Status AssignLevelAndSeqnoForIngestedFile(SuperVersion* sv,
                                             bool force_global_seqno,
                                             CompactionStyle compaction_style,
-                                            IngestedFileInfo* file_to_ingest,
                                             SequenceNumber last_seqno,
+                                            IngestedFileInfo* file_to_ingest,
                                             SequenceNumber* assigned_seqno);
 
   // File that we want to ingest behind always goes to the lowest level;
