@@ -6,6 +6,7 @@
 #pragma once
 #ifndef ROCKSDB_LITE
 
+#include "db/arena_wrapped_db_iter.h"
 #include "monitoring/statistics.h"
 #include "rocksdb/iterator.h"
 #include "util/stop_watch.h"

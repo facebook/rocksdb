@@ -7,7 +7,7 @@
 
 #include <cinttypes>
 
-#include "db/db_iter.h"
+#include "db/arena_wrapped_db_iter.h"
 #include "db/merge_context.h"
 #include "logging/auto_roll_logger.h"
 #include "monitoring/perf_context_imp.h"

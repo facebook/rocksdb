@@ -25,6 +25,7 @@
 #include <utility>
 #include <vector>
 
+#include "db/arena_wrapped_db_iter.h"
 #include "db/builder.h"
 #include "db/compaction/compaction_job.h"
 #include "db/db_info_dumper.h"
