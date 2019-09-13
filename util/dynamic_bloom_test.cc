@@ -259,11 +259,12 @@ TEST_F(DynamicBloomTest, concurrent_with_perf) {
 
     elapsed = 0;
     std::function<void(size_t)> hitter([&](size_t t) {
+      KeyMaker km;
       StopWatchNano timer(Env::Default());
       timer.Start();
       for (uint64_t i = 1 + t; i <= num_keys; i += num_threads) {
         bool f =
-            std_bloom.MayContain(Slice(reinterpret_cast<const char*>(&i), 8));
+            std_bloom.MayContain(km.Seq(i));
         ASSERT_TRUE(f);
       }
       elapsed += timer.ElapsedNanos();
@@ -283,12 +284,13 @@ TEST_F(DynamicBloomTest, concurrent_with_perf) {
     elapsed = 0;
     std::atomic<uint32_t> false_positives(0);
     std::function<void(size_t)> misser([&](size_t t) {
+      KeyMaker km;
       StopWatchNano timer(Env::Default());
       timer.Start();
       for (uint64_t i = num_keys + 1 + t; i <= 2 * num_keys;
            i += num_threads) {
         bool f =
-            std_bloom.MayContain(Slice(reinterpret_cast<const char*>(&i), 8));
+            std_bloom.MayContain(km.Seq(i));
         if (f) {
           ++false_positives;
         }
