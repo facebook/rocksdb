@@ -43,6 +43,8 @@ static const char* msgs[static_cast<int>(Status::kMaxSubCode)] = {
     "Memory limit reached",                               // kMemoryLimit
     "Space limit reached",                                // kSpaceLimit
     "No such file or directory",                          // kPathNotFound
+    "",                                                   // KMergeOperandsInsufficientCapacity
+    "Manual compaction paused",                           // kManualCompactionPaused
 };
 
 Status::Status(Code _code, SubCode _subcode, const Slice& msg,

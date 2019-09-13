@@ -26,14 +26,12 @@ MergeHelper::MergeHelper(Env* env, const Comparator* user_comparator,
                          SequenceNumber latest_snapshot,
                          const SnapshotChecker* snapshot_checker, int level,
                          Statistics* stats,
-                         const std::atomic<bool>* shutting_down,
-                         const std::atomic<bool>* stopping_manual_compaction)
+                         const std::atomic<bool>* shutting_down)
     : env_(env),
       user_comparator_(user_comparator),
       user_merge_operator_(user_merge_operator),
       compaction_filter_(compaction_filter),
       shutting_down_(shutting_down),
-      stopping_manual_compaction_(stopping_manual_compaction),
       logger_(logger),
       assert_valid_internal_key_(assert_valid_internal_key),
       allow_single_operand_(false),
@@ -149,9 +147,6 @@ Status MergeHelper::MergeUntil(InternalIterator* iter,
   Status s;
   bool hit_the_next_user_key = false;
   for (; iter->Valid(); iter->Next(), original_key_is_iter = false) {
-    if (IsStoppingManualCompaction()) {
-      return Status::ManualCompactionDisabled();
-    }
     if (IsShuttingDown()) {
       return Status::ShutdownInProgress();
     }

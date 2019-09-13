@@ -34,8 +34,7 @@ class MergeHelper {
               bool assert_valid_internal_key, SequenceNumber latest_snapshot,
               const SnapshotChecker* snapshot_checker = nullptr, int level = 0,
               Statistics* stats = nullptr,
-              const std::atomic<bool>* shutting_down = nullptr,
-              const std::atomic<bool>* stopping_manual_compaction = nullptr);
+              const std::atomic<bool>* shutting_down = nullptr);
 
   // Wrapper around MergeOperator::FullMergeV2() that records perf statistics.
   // Result of merge will be written to result if status returned is OK.
@@ -142,7 +141,6 @@ class MergeHelper {
   const MergeOperator* user_merge_operator_;
   const CompactionFilter* compaction_filter_;
   const std::atomic<bool>* shutting_down_;
-  const std::atomic<bool>* stopping_manual_compaction_;
   Logger* logger_;
   bool assert_valid_internal_key_; // enforce no internal key corruption?
   bool allow_single_operand_;
@@ -169,11 +167,6 @@ class MergeHelper {
   bool IsShuttingDown() {
     // This is a best-effort facility, so memory_order_relaxed is sufficient.
     return shutting_down_ && shutting_down_->load(std::memory_order_relaxed);
-  }
-
-  bool IsStoppingManualCompaction() {
-    return stopping_manual_compaction_ &&
-      stopping_manual_compaction_->load(std::memory_order_relaxed);
   }
 };
 

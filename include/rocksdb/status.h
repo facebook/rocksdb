@@ -60,7 +60,6 @@ class Status {
     kTryAgain = 13,
     kCompactionTooLarge = 14,
     kColumnFamilyDropped = 15,
-    kManualCompactionDisabled = 16,
     kMaxCode
   };
 
@@ -78,6 +77,7 @@ class Status {
     kSpaceLimit = 8,
     kPathNotFound = 9,
     KMergeOperandsInsufficientCapacity = 10,
+    kManualCompactionPaused = 11,
     kMaxSubCode
   };
 
@@ -217,14 +217,6 @@ class Status {
     return Status(kIOError, kPathNotFound, msg, msg2);
   }
 
-  static Status ManualCompactionDisabled(SubCode msg = kNone) {
-    return Status(kManualCompactionDisabled, msg);
-  }
-  static Status ManualCompactionDisabled(const Slice& msg,
-                                         const Slice& msg2 = Slice()) {
-    return Status(kManualCompactionDisabled, msg, msg2);
-  }
-
   // Returns true iff the status indicates success.
   bool ok() const { return code() == kOk; }
 
@@ -302,9 +294,12 @@ class Status {
   // a specific subcode, enabling users to take appropriate action if necessary
   bool IsPathNotFound() const {
     return (code() == kIOError) && (subcode() == kPathNotFound);
+  }
 
-  bool IsManualCompactionDisabled() const {
-    return code() == kManualCompactionDisabled;
+  // Returns true iff the status indicates manual compaction paused. This
+  // is caused by a call to PauseManualCompaction
+  bool IsManualCompactionPaused() const {
+    return (code() == kIncomplete) && (subcode() == kManualCompactionPaused);
   }
 
   // Return a string representation of this status suitable for printing.
