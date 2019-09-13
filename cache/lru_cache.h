@@ -12,6 +12,7 @@
 
 #include "cache/sharded_cache.h"
 
+#include "port/malloc.h"
 #include "port/port.h"
 #include "util/autovector.h"
 
@@ -128,6 +129,21 @@ struct LRUHandle {
     }
     delete[] reinterpret_cast<char*>(this);
   }
+
+  // Caclculate the memory usage by metadata
+  inline size_t CalcMetadataCharge(CacheMetadataCharge metadata_charge_policy) {
+    assert(key_length);
+    size_t meta_charge = 0;
+    if (metadata_charge_policy == kFullChargeCacheMetadata) {
+#ifdef ROCKSDB_MALLOC_USABLE_SIZE
+      meta_charge += malloc_usable_size(static_cast<void*>(this));
+#else
+      // This is the size that is used when a new handle is created
+      meta_charge += sizeof(LRUHandle) - 1 + key_length;
+#endif
+    }
+    return meta_charge;
+  }
 };
 
 // We provide our own simple hash table since it removes a whole bunch
@@ -225,9 +241,6 @@ class ALIGN_AS(CACHE_LINE_SIZE) LRUCacheShard final : public CacheShard {
 
   //  Retrives high pri pool ratio
   double GetHighPriPoolRatio();
-
-  // Caclculate the memory usage by metadata
-  inline size_t CalcMetadataCharge(LRUHandle* h);
 
  private:
   void LRU_Remove(LRUHandle* e);

@@ -14,7 +14,6 @@
 #include <stdlib.h>
 #include <string>
 
-#include "port/malloc.h"
 #include "util/mutexlock.h"
 
 namespace rocksdb {
@@ -127,7 +126,8 @@ void LRUCacheShard::EraseUnRefEntries() {
       LRU_Remove(old);
       table_.Remove(old->key(), old->hash);
       old->SetInCache(false);
-      size_t total_charge = old->charge + CalcMetadataCharge(old);
+      size_t total_charge =
+          old->charge + old->CalcMetadataCharge(metadata_charge_policy_);
       assert(usage_ >= total_charge);
       usage_ -= total_charge;
       last_reference_list.push_back(old);
@@ -176,19 +176,6 @@ double LRUCacheShard::GetHighPriPoolRatio() {
   return high_pri_pool_ratio_;
 }
 
-size_t LRUCacheShard::CalcMetadataCharge(LRUHandle* e) {
-  size_t meta_charge = 0;
-  if (metadata_charge_policy_ == kFullChargeCacheMetadata) {
-#ifdef ROCKSDB_MALLOC_USABLE_SIZE
-    meta_charge += malloc_usable_size(static_cast<void*>(e));
-#else
-    // This is the size that is used when a new handle is created
-    meta_charge += sizeof(LRUHandle) - 1 + e->key_length;
-#endif
-  }
-  return meta_charge;
-}
-
 void LRUCacheShard::LRU_Remove(LRUHandle* e) {
   assert(e->next != nullptr);
   assert(e->prev != nullptr);
@@ -198,7 +185,8 @@ void LRUCacheShard::LRU_Remove(LRUHandle* e) {
   e->next->prev = e->prev;
   e->prev->next = e->next;
   e->prev = e->next = nullptr;
-  size_t total_charge = e->charge + CalcMetadataCharge(e);
+  size_t total_charge =
+      e->charge + e->CalcMetadataCharge(metadata_charge_policy_);
   assert(lru_usage_ >= total_charge);
   lru_usage_ -= total_charge;
   if (e->InHighPriPool()) {
@@ -210,7 +198,8 @@ void LRUCacheShard::LRU_Remove(LRUHandle* e) {
 void LRUCacheShard::LRU_Insert(LRUHandle* e) {
   assert(e->next == nullptr);
   assert(e->prev == nullptr);
-  size_t total_charge = e->charge + CalcMetadataCharge(e);
+  size_t total_charge =
+      e->charge + e->CalcMetadataCharge(metadata_charge_policy_);
   if (high_pri_pool_ratio_ > 0 && (e->IsHighPri() || e->HasHit())) {
     // Inset "e" to head of LRU list.
     e->next = &lru_;
@@ -253,7 +242,8 @@ void LRUCacheShard::EvictFromLRU(size_t charge,
     LRU_Remove(old);
     table_.Remove(old->key(), old->hash);
     old->SetInCache(false);
-    size_t old_total_charge = old->charge + CalcMetadataCharge(old);
+    size_t old_total_charge =
+        old->charge + old->CalcMetadataCharge(metadata_charge_policy_);
     assert(usage_ >= old_total_charge);
     usage_ -= old_total_charge;
     deleted->push_back(old);
@@ -335,7 +325,8 @@ bool LRUCacheShard::Release(Cache::Handle* handle, bool force_erase) {
       }
     }
     if (last_reference) {
-      size_t total_charge = e->charge + CalcMetadataCharge(e);
+      size_t total_charge =
+          e->charge + e->CalcMetadataCharge(metadata_charge_policy_);
       assert(usage_ >= total_charge);
       usage_ -= total_charge;
     }
@@ -371,7 +362,7 @@ Status LRUCacheShard::Insert(const Slice& key, uint32_t hash, void* value,
   e->SetInCache(true);
   e->SetPriority(priority);
   memcpy(e->key_data, key.data(), key.size());
-  size_t total_charge = charge + CalcMetadataCharge(e);
+  size_t total_charge = charge + e->CalcMetadataCharge(metadata_charge_policy_);
 
   {
     MutexLock l(&mutex_);
@@ -403,7 +394,8 @@ Status LRUCacheShard::Insert(const Slice& key, uint32_t hash, void* value,
         if (!old->HasRefs()) {
           // old is on LRU because it's in cache and its reference count is 0
           LRU_Remove(old);
-          size_t old_total_charge = old->charge + CalcMetadataCharge(old);
+          size_t old_total_charge =
+              old->charge + old->CalcMetadataCharge(metadata_charge_policy_);
           assert(usage_ >= old_total_charge);
           usage_ -= old_total_charge;
           last_reference_list.push_back(old);
@@ -438,7 +430,8 @@ void LRUCacheShard::Erase(const Slice& key, uint32_t hash) {
       if (!e->HasRefs()) {
         // The entry is in LRU since it's in hash and has no external references
         LRU_Remove(e);
-        size_t total_charge = e->charge + CalcMetadataCharge(e);
+        size_t total_charge =
+            e->charge + e->CalcMetadataCharge(metadata_charge_policy_);
         assert(usage_ >= total_charge);
         usage_ -= total_charge;
         last_reference = true;

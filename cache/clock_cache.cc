@@ -204,6 +204,21 @@ struct CacheHandle {
     deleter = a.deleter;
     return *this;
   }
+
+  inline static size_t CalcMetadataCharge(
+      Slice key, CacheMetadataCharge metadata_charge_policy) {
+    size_t meta_charge = 0;
+    if (metadata_charge_policy == kFullChargeCacheMetadata) {
+      meta_charge += sizeof(CacheHandle);
+#ifdef ROCKSDB_MALLOC_USABLE_SIZE
+      meta_charge +=
+          malloc_usable_size(static_cast<void*>(const_cast<char*>(key.data())));
+#else
+      meta_charge += key.size();
+#endif
+    }
+    return meta_charge;
+  }
 };
 
 // Key of hash map. We store hash value with the key for convenience.
@@ -265,7 +280,6 @@ class ClockCacheShard final : public CacheShard {
   void EraseUnRefEntries() override;
   void ApplyToAllCacheEntries(void (*callback)(void*, size_t),
                               bool thread_safe) override;
-  inline size_t CalcMetadataCharge(Slice key);
 
  private:
   static const uint32_t kInCacheBit = 1;
@@ -401,27 +415,15 @@ void ClockCacheShard::ApplyToAllCacheEntries(void (*callback)(void*, size_t),
   }
 }
 
-size_t ClockCacheShard::CalcMetadataCharge(Slice key) {
-  size_t meta_charge = 0;
-  if (metadata_charge_policy_ == kFullChargeCacheMetadata) {
-    meta_charge += sizeof(CacheHandle);
-#ifdef ROCKSDB_MALLOC_USABLE_SIZE
-    meta_charge +=
-        malloc_usable_size(static_cast<void*>(const_cast<char*>(key.data())));
-#else
-    meta_charge += key.size();
-#endif
-  }
-  return meta_charge;
-}
-
 void ClockCacheShard::RecycleHandle(CacheHandle* handle,
                                     CleanupContext* context) {
   mutex_.AssertHeld();
   assert(!InCache(handle->flags) && CountRefs(handle->flags) == 0);
   context->to_delete_key.push_back(handle->key.data());
   context->to_delete_value.emplace_back(*handle);
-  size_t total_charge = handle->charge + CalcMetadataCharge(handle->key);
+  size_t total_charge =
+      handle->charge +
+      CacheHandle::CalcMetadataCharge(handle->key, metadata_charge_policy_);
   handle->key.clear();
   handle->value = nullptr;
   handle->deleter = nullptr;
@@ -452,7 +454,9 @@ bool ClockCacheShard::Ref(Cache::Handle* h) {
                                             std::memory_order_relaxed)) {
       if (CountRefs(flags) == 0) {
         // No reference count before the operation.
-        size_t total_charge = handle->charge + CalcMetadataCharge(handle->key);
+        size_t total_charge =
+            handle->charge + CacheHandle::CalcMetadataCharge(
+                                 handle->key, metadata_charge_policy_);
         pinned_usage_.fetch_add(total_charge, std::memory_order_relaxed);
       }
       return true;
@@ -473,7 +477,9 @@ bool ClockCacheShard::Unref(CacheHandle* handle, bool set_usage,
   assert(CountRefs(flags) > 0);
   if (CountRefs(flags) == 1) {
     // this is the last reference.
-    size_t total_charge = handle->charge + CalcMetadataCharge(handle->key);
+    size_t total_charge =
+        handle->charge +
+        CacheHandle::CalcMetadataCharge(handle->key, metadata_charge_policy_);
     pinned_usage_.fetch_sub(total_charge, std::memory_order_relaxed);
     // Cleanup if it is the last reference.
     if (!InCache(flags)) {
@@ -559,7 +565,8 @@ CacheHandle* ClockCacheShard::Insert(
     const Slice& key, uint32_t hash, void* value, size_t charge,
     void (*deleter)(const Slice& key, void* value), bool hold_reference,
     CleanupContext* context) {
-  size_t total_charge = charge + CalcMetadataCharge(key);
+  size_t total_charge =
+      charge + CacheHandle::CalcMetadataCharge(key, metadata_charge_policy_);
   MutexLock l(&mutex_);
   bool success = EvictFromCache(total_charge, context);
   bool strict = strict_capacity_limit_.load(std::memory_order_relaxed);
