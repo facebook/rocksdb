@@ -3,6 +3,7 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
+#include "db/arena_wrapped_db_iter.h"
 #include "db/db_impl/db_impl_readonly.h"
 
 #include "db/compacted_db_impl.h"
