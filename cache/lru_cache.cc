@@ -128,6 +128,7 @@ void LRUCacheShard::EraseUnRefEntries() {
       table_.Remove(old->key(), old->hash);
       old->SetInCache(false);
       size_t total_charge = old->charge + CalcMetadataCharge(old);
+      assert(usage_ >= total_charge);
       usage_ -= total_charge;
       last_reference_list.push_back(old);
     }
@@ -198,6 +199,7 @@ void LRUCacheShard::LRU_Remove(LRUHandle* e) {
   e->prev->next = e->next;
   e->prev = e->next = nullptr;
   size_t total_charge = e->charge + CalcMetadataCharge(e);
+  assert(lru_usage_ >= total_charge);
   lru_usage_ -= total_charge;
   if (e->InHighPriPool()) {
     assert(high_pri_pool_usage_ >= total_charge);
@@ -237,6 +239,7 @@ void LRUCacheShard::MaintainPoolSize() {
     lru_low_pri_ = lru_low_pri_->next;
     assert(lru_low_pri_ != &lru_);
     lru_low_pri_->SetInHighPriPool(false);
+    assert(high_pri_pool_usage_ >= lru_low_pri_->charge);
     high_pri_pool_usage_ -= lru_low_pri_->charge;
   }
 }
@@ -251,6 +254,7 @@ void LRUCacheShard::EvictFromLRU(size_t charge,
     table_.Remove(old->key(), old->hash);
     old->SetInCache(false);
     size_t old_total_charge = old->charge + CalcMetadataCharge(old);
+    assert(usage_ >= old_total_charge);
     usage_ -= old_total_charge;
     deleted->push_back(old);
   }
@@ -332,6 +336,7 @@ bool LRUCacheShard::Release(Cache::Handle* handle, bool force_erase) {
     }
     if (last_reference) {
       size_t total_charge = e->charge + CalcMetadataCharge(e);
+      assert(usage_ >= total_charge);
       usage_ -= total_charge;
     }
   }
@@ -399,6 +404,7 @@ Status LRUCacheShard::Insert(const Slice& key, uint32_t hash, void* value,
           // old is on LRU because it's in cache and its reference count is 0
           LRU_Remove(old);
           size_t old_total_charge = old->charge + CalcMetadataCharge(old);
+          assert(usage_ >= old_total_charge);
           usage_ -= old_total_charge;
           last_reference_list.push_back(old);
         }
@@ -433,6 +439,7 @@ void LRUCacheShard::Erase(const Slice& key, uint32_t hash) {
         // The entry is in LRU since it's in hash and has no external references
         LRU_Remove(e);
         size_t total_charge = e->charge + CalcMetadataCharge(e);
+        assert(usage_ >= total_charge);
         usage_ -= total_charge;
         last_reference = true;
       }
