@@ -223,33 +223,41 @@ int SstFileDumper::ShowAllCompressionSizes(
           0 /* sample_for_compression */, compress_opt,
           false /* skip_filters */, column_family_name, unknown_level);
       uint64_t num_data_blocks = 0;
-      uint64_t file_size = CalculateCompressedTableSize(tb_opts, block_size,
-                                                        &num_data_blocks);
+      uint64_t file_size =
+          CalculateCompressedTableSize(tb_opts, block_size, &num_data_blocks);
       fprintf(stdout, "Compression: %-24s", i.second);
       fprintf(stdout, " Size: %10" PRIu64, file_size);
       fprintf(stdout, " Blocks: %6" PRIu64, num_data_blocks);
       const uint64_t compressed_blocks =
-        opts.statistics->getAndResetTickerCount(NUMBER_BLOCK_COMPRESSED);
+          opts.statistics->getAndResetTickerCount(NUMBER_BLOCK_COMPRESSED);
       const uint64_t not_compressed_blocks =
-        opts.statistics->getAndResetTickerCount(NUMBER_BLOCK_NOT_COMPRESSED);
+          opts.statistics->getAndResetTickerCount(NUMBER_BLOCK_NOT_COMPRESSED);
       // When the option enable_index_compression is true,
       // NUMBER_BLOCK_COMPRESSED is incremented for index block(s).
-      if( (compressed_blocks + not_compressed_blocks) > num_data_blocks ){
+      if ((compressed_blocks + not_compressed_blocks) > num_data_blocks) {
         num_data_blocks = compressed_blocks + not_compressed_blocks;
       }
       const uint64_t ratio_not_compressed_blocks =
-        (num_data_blocks - compressed_blocks) - not_compressed_blocks;
-      const double compressed_pcnt = ( 0 == num_data_blocks ) ? 0.0 :
-        ( ( static_cast<double>(compressed_blocks) /
-		    static_cast<double>(num_data_blocks) ) * 100.0 );
-      const double ratio_not_compressed_pcnt = ( 0 == num_data_blocks ) ? 0.0 :
-        ( ( static_cast<double>(ratio_not_compressed_blocks) /
-		    static_cast<double>(num_data_blocks) ) * 100.0 );
-      const double not_compressed_pcnt = ( 0 == num_data_blocks ) ? 0.0 :
-        ( ( static_cast<double>(not_compressed_blocks) /
-		    static_cast<double>(num_data_blocks) ) * 100.0 );
-      fprintf(stdout, " Compressed: %6"             PRIu64 " (%5.1f%%)",
-              compressed_blocks, compressed_pcnt);
+          (num_data_blocks - compressed_blocks) - not_compressed_blocks;
+      const double compressed_pcnt =
+          (0 == num_data_blocks) ? 0.0
+                                 : ((static_cast<double>(compressed_blocks) /
+                                     static_cast<double>(num_data_blocks)) *
+                                    100.0);
+      const double ratio_not_compressed_pcnt =
+          (0 == num_data_blocks)
+              ? 0.0
+              : ((static_cast<double>(ratio_not_compressed_blocks) /
+                  static_cast<double>(num_data_blocks)) *
+                 100.0);
+      const double not_compressed_pcnt =
+          (0 == num_data_blocks)
+              ? 0.0
+              : ((static_cast<double>(not_compressed_blocks) /
+                  static_cast<double>(num_data_blocks)) *
+                 100.0);
+      fprintf(stdout, " Compressed: %6" PRIu64 " (%5.1f%%)", compressed_blocks,
+              compressed_pcnt);
       fprintf(stdout, " Not compressed (ratio): %6" PRIu64 " (%5.1f%%)",
               ratio_not_compressed_blocks, ratio_not_compressed_pcnt);
       fprintf(stdout, " Not compressed (abort): %6" PRIu64 " (%5.1f%%)\n",
