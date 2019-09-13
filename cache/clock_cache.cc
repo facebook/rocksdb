@@ -15,7 +15,7 @@ namespace rocksdb {
 
 std::shared_ptr<Cache> NewClockCache(
     size_t /*capacity*/, int /*num_shard_bits*/, bool /*strict_capacity_limit*/,
-    CacheMetadataCharge /*metadata_charge_policy*/) {
+    CacheMetadataChargePolicy /*metadata_charge_policy*/) {
   // Clock cache not supported.
   return nullptr;
 }
@@ -205,8 +205,9 @@ struct CacheHandle {
     return *this;
   }
 
-  inline static size_t CalcMetadataCharge(
-      Slice key, CacheMetadataCharge metadata_charge_policy) {
+  inline static size_t CalcTotalCharge(
+      Slice key, size_t charge,
+      CacheMetadataChargePolicy metadata_charge_policy) {
     size_t meta_charge = 0;
     if (metadata_charge_policy == kFullChargeCacheMetadata) {
       meta_charge += sizeof(CacheHandle);
@@ -217,7 +218,12 @@ struct CacheHandle {
       meta_charge += key.size();
 #endif
     }
-    return meta_charge;
+    return charge + meta_charge;
+  }
+
+  inline size_t CalcTotalCharge(
+      CacheMetadataChargePolicy metadata_charge_policy) {
+    return CalcTotalCharge(key, charge, metadata_charge_policy);
   }
 };
 
@@ -421,9 +427,7 @@ void ClockCacheShard::RecycleHandle(CacheHandle* handle,
   assert(!InCache(handle->flags) && CountRefs(handle->flags) == 0);
   context->to_delete_key.push_back(handle->key.data());
   context->to_delete_value.emplace_back(*handle);
-  size_t total_charge =
-      handle->charge +
-      CacheHandle::CalcMetadataCharge(handle->key, metadata_charge_policy_);
+  size_t total_charge = handle->CalcTotalCharge(metadata_charge_policy_);
   handle->key.clear();
   handle->value = nullptr;
   handle->deleter = nullptr;
@@ -454,9 +458,7 @@ bool ClockCacheShard::Ref(Cache::Handle* h) {
                                             std::memory_order_relaxed)) {
       if (CountRefs(flags) == 0) {
         // No reference count before the operation.
-        size_t total_charge =
-            handle->charge + CacheHandle::CalcMetadataCharge(
-                                 handle->key, metadata_charge_policy_);
+        size_t total_charge = handle->CalcTotalCharge(metadata_charge_policy_);
         pinned_usage_.fetch_add(total_charge, std::memory_order_relaxed);
       }
       return true;
@@ -477,9 +479,7 @@ bool ClockCacheShard::Unref(CacheHandle* handle, bool set_usage,
   assert(CountRefs(flags) > 0);
   if (CountRefs(flags) == 1) {
     // this is the last reference.
-    size_t total_charge =
-        handle->charge +
-        CacheHandle::CalcMetadataCharge(handle->key, metadata_charge_policy_);
+    size_t total_charge = handle->CalcTotalCharge(metadata_charge_policy_);
     pinned_usage_.fetch_sub(total_charge, std::memory_order_relaxed);
     // Cleanup if it is the last reference.
     if (!InCache(flags)) {
@@ -566,7 +566,7 @@ CacheHandle* ClockCacheShard::Insert(
     void (*deleter)(const Slice& key, void* value), bool hold_reference,
     CleanupContext* context) {
   size_t total_charge =
-      charge + CacheHandle::CalcMetadataCharge(key, metadata_charge_policy_);
+      CacheHandle::CalcTotalCharge(key, charge, metadata_charge_policy_);
   MutexLock l(&mutex_);
   bool success = EvictFromCache(total_charge, context);
   bool strict = strict_capacity_limit_.load(std::memory_order_relaxed);
@@ -703,7 +703,7 @@ void ClockCacheShard::EraseUnRefEntries() {
 class ClockCache final : public ShardedCache {
  public:
   ClockCache(size_t capacity, int num_shard_bits, bool strict_capacity_limit,
-             CacheMetadataCharge metadata_charge_policy)
+             CacheMetadataChargePolicy metadata_charge_policy)
       : ShardedCache(capacity, num_shard_bits, strict_capacity_limit) {
     int num_shards = 1 << num_shard_bits;
     shards_ = new ClockCacheShard[num_shards];
@@ -748,7 +748,7 @@ class ClockCache final : public ShardedCache {
 
 std::shared_ptr<Cache> NewClockCache(
     size_t capacity, int num_shard_bits, bool strict_capacity_limit,
-    CacheMetadataCharge metadata_charge_policy) {
+    CacheMetadataChargePolicy metadata_charge_policy) {
   if (num_shard_bits < 0) {
     num_shard_bits = GetDefaultCacheShardBits(capacity);
   }

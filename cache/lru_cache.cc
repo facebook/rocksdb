@@ -98,7 +98,7 @@ void LRUHandleTable::Resize() {
 LRUCacheShard::LRUCacheShard(size_t capacity, bool strict_capacity_limit,
                              double high_pri_pool_ratio,
                              bool use_adaptive_mutex,
-                             CacheMetadataCharge metadata_charge_policy)
+                             CacheMetadataChargePolicy metadata_charge_policy)
     : capacity_(0),
       high_pri_pool_usage_(0),
       strict_capacity_limit_(strict_capacity_limit),
@@ -472,7 +472,7 @@ LRUCache::LRUCache(size_t capacity, int num_shard_bits,
                    bool strict_capacity_limit, double high_pri_pool_ratio,
                    std::shared_ptr<MemoryAllocator> allocator,
                    bool use_adaptive_mutex,
-                   CacheMetadataCharge metadata_charge_policy)
+                   CacheMetadataChargePolicy metadata_charge_policy)
     : ShardedCache(capacity, num_shard_bits, strict_capacity_limit,
                    std::move(allocator)) {
   num_shards_ = 1 << num_shard_bits;
@@ -559,7 +559,7 @@ std::shared_ptr<Cache> NewLRUCache(
     size_t capacity, int num_shard_bits, bool strict_capacity_limit,
     double high_pri_pool_ratio,
     std::shared_ptr<MemoryAllocator> memory_allocator, bool use_adaptive_mutex,
-    CacheMetadataCharge metadata_charge_policy) {
+    CacheMetadataChargePolicy metadata_charge_policy) {
   if (num_shard_bits >= 20) {
     return nullptr;  // the cache cannot be sharded into too many fine pieces
   }

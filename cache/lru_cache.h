@@ -131,7 +131,8 @@ struct LRUHandle {
   }
 
   // Caclculate the memory usage by metadata
-  inline size_t CalcMetadataCharge(CacheMetadataCharge metadata_charge_policy) {
+  inline size_t CalcMetadataCharge(
+      CacheMetadataChargePolicy metadata_charge_policy) {
     assert(key_length);
     size_t meta_charge = 0;
     if (metadata_charge_policy == kFullChargeCacheMetadata) {
@@ -193,7 +194,7 @@ class ALIGN_AS(CACHE_LINE_SIZE) LRUCacheShard final : public CacheShard {
  public:
   LRUCacheShard(size_t capacity, bool strict_capacity_limit,
                 double high_pri_pool_ratio, bool use_adaptive_mutex,
-                CacheMetadataCharge metadata_charge_policy);
+                CacheMetadataChargePolicy metadata_charge_policy);
   virtual ~LRUCacheShard() override = default;
 
   // Separate from constructor so caller can easily make an array of LRUCache
@@ -311,12 +312,12 @@ class LRUCache
 #endif
     : public ShardedCache {
  public:
-  LRUCache(
-      size_t capacity, int num_shard_bits, bool strict_capacity_limit,
-      double high_pri_pool_ratio,
-      std::shared_ptr<MemoryAllocator> memory_allocator = nullptr,
-      bool use_adaptive_mutex = kDefaultToAdaptiveMutex,
-      CacheMetadataCharge metadata_charge_policy = kDontChargeCacheMetadata);
+  LRUCache(size_t capacity, int num_shard_bits, bool strict_capacity_limit,
+           double high_pri_pool_ratio,
+           std::shared_ptr<MemoryAllocator> memory_allocator = nullptr,
+           bool use_adaptive_mutex = kDefaultToAdaptiveMutex,
+           CacheMetadataChargePolicy metadata_charge_policy =
+               kDontChargeCacheMetadata);
   virtual ~LRUCache();
   virtual const char* Name() const override { return "LRUCache"; }
   virtual CacheShard* GetShard(int shard) override;

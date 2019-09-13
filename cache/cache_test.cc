@@ -707,7 +707,7 @@ TEST_P(CacheTest, GetCharge) {
 
 #ifdef SUPPORT_CLOCK_CACHE
 std::shared_ptr<Cache> (*new_clock_cache_func)(
-    size_t, int, bool, CacheMetadataCharge) = NewClockCache;
+    size_t, int, bool, CacheMetadataChargePolicy) = NewClockCache;
 INSTANTIATE_TEST_CASE_P(CacheTestInstance, CacheTest,
                         testing::Values(kLRU, kClock));
 #else
