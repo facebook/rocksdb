@@ -871,10 +871,9 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
       db_options_.statistics.get());
 
   TEST_SYNC_POINT("CompactionJob::Run():Inprogress");
-  std::atomic<bool>* sync_arg =
-    const_cast<std::atomic<bool> *>(manual_compaction_paused_);
   TEST_SYNC_POINT_CALLBACK("CompactionJob::Run():PausingManualCompaction:1",
-      reinterpret_cast<void *>(sync_arg));
+      reinterpret_cast<void *>(
+        const_cast<std::atomic<bool> *>(manual_compaction_paused_)));
 
   Slice* start = sub_compact->start;
   Slice* end = sub_compact->end;
@@ -960,7 +959,8 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
       output_file_ended = true;
     }
     TEST_SYNC_POINT_CALLBACK("CompactionJob::Run():PausingManualCompaction:2",
-        reinterpret_cast<void *>(sync_arg));
+        reinterpret_cast<void *>(
+          const_cast<std::atomic<bool> *>(manual_compaction_paused_)));
     c_iter->Next();
     if (c_iter->status().IsManualCompactionPaused()) {
       break;
