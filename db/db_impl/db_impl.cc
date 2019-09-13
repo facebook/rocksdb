@@ -3894,7 +3894,7 @@ Status DBImpl::IngestExternalFiles(
       }
     }
     if (status.ok()) {
-        int consumed_seqno_count =
+      int consumed_seqno_count =
           ingestion_jobs[0].ConsumedSequenceNumbersCount();
 #ifndef NDEBUG
       for (size_t i = 1; i != num_cfs; ++i) {
