@@ -357,7 +357,6 @@ Status LRUCacheShard::Insert(const Slice& key, uint32_t hash, void* value,
   // It shouldn't happen very often though.
   LRUHandle* e = reinterpret_cast<LRUHandle*>(
       new char[sizeof(LRUHandle) - 1 + key.size()]);
-  size_t total_charge = charge + CalcMetadataCharge(e);
   Status s = Status::OK();
   autovector<LRUHandle*> last_reference_list;
 
@@ -372,6 +371,7 @@ Status LRUCacheShard::Insert(const Slice& key, uint32_t hash, void* value,
   e->SetInCache(true);
   e->SetPriority(priority);
   memcpy(e->key_data, key.data(), key.size());
+  size_t total_charge = charge + CalcMetadataCharge(e);
 
   {
     MutexLock l(&mutex_);
