@@ -70,7 +70,9 @@ class MergingIterator : public InternalIterator {
     }
     auto new_wrapper = children_.back();
     AddToMinHeapOrCheckStatus(&new_wrapper);
-    current_ = CurrentForward();
+    if (new_wrapper.Valid()) {
+      current_ = CurrentForward();
+    }
   }
 
   ~MergingIterator() override {
