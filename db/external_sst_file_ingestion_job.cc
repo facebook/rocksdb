@@ -71,9 +71,14 @@ Status ExternalSstFileIngestionJob::Prepare(
     for (size_t i = 0; i < num_files - 1; i++) {
       if (sstableKeyCompare(ucmp, sorted_files[i]->largest_internal_key,
                             sorted_files[i + 1]->smallest_internal_key) >= 0) {
-        return Status::NotSupported("Files have overlapping ranges");
+        files_overlap_ = true;
+        break;
       }
     }
+  }
+
+  if (ingestion_options_.ingest_behind && files_overlap_) {
+    return Status::NotSupported("Files have overlapping ranges");
   }
 
   for (IngestedFileInfo& f : files_to_ingest_) {
@@ -212,7 +217,7 @@ Status ExternalSstFileIngestionJob::Run() {
   }
   // It is safe to use this instead of LastAllocatedSequence since we are
   // the only active writer, and hence they are equal
-  const SequenceNumber last_seqno = versions_->LastSequence();
+  SequenceNumber last_seqno = versions_->LastSequence();
   edit_.SetColumnFamily(cfd_->GetID());
   // The levels that the files will be ingested into
 
@@ -222,8 +227,8 @@ Status ExternalSstFileIngestionJob::Run() {
       status = CheckLevelForIngestedBehindFile(&f);
     } else {
       status = AssignLevelAndSeqnoForIngestedFile(
-         super_version, force_global_seqno, cfd_->ioptions()->compaction_style,
-         &f, &assigned_seqno);
+          super_version, force_global_seqno, cfd_->ioptions()->compaction_style,
+          last_seqno, &f, &assigned_seqno);
     }
     if (!status.ok()) {
       return status;
@@ -231,8 +236,10 @@ Status ExternalSstFileIngestionJob::Run() {
     status = AssignGlobalSeqnoForIngestedFile(&f, assigned_seqno);
     TEST_SYNC_POINT_CALLBACK("ExternalSstFileIngestionJob::Run",
                              &assigned_seqno);
-    if (assigned_seqno == last_seqno + 1) {
-      consumed_seqno_ = true;
+    if (assigned_seqno > last_seqno) {
+      assert(assigned_seqno == last_seqno + 1);
+      last_seqno = assigned_seqno;
+      ++consumed_seqno_count_;
     }
     if (!status.ok()) {
       return status;
@@ -250,6 +257,13 @@ void ExternalSstFileIngestionJob::UpdateStats() {
   uint64_t total_keys = 0;
   uint64_t total_l0_files = 0;
   uint64_t total_time = env_->NowMicros() - job_start_time_;
+
+  EventLoggerStream stream = event_logger_->Log();
+  stream << "event"
+         << "ingest_finished";
+  stream << "files_ingested";
+  stream.StartArray();
+
   for (IngestedFileInfo& f : files_to_ingest_) {
     InternalStats::CompactionStats stats(CompactionReason::kExternalSstIngestion, 1);
     stats.micros = total_time;
@@ -277,7 +291,18 @@ void ExternalSstFileIngestionJob::UpdateStats() {
         "(global_seqno=%" PRIu64 ")\n",
         f.external_file_path.c_str(), f.picked_level,
         f.internal_file_path.c_str(), f.assigned_seqno);
+    stream << "file" << f.internal_file_path << "level" << f.picked_level;
   }
+  stream.EndArray();
+
+  stream << "lsm_state";
+  stream.StartArray();
+  auto vstorage = cfd_->current()->storage_info();
+  for (int level = 0; level < vstorage->num_levels(); ++level) {
+    stream << vstorage->NumLevelFiles(level);
+  }
+  stream.EndArray();
+
   cfd_->internal_stats()->AddCFStats(InternalStats::INGESTED_NUM_KEYS_TOTAL,
                                      total_keys);
   cfd_->internal_stats()->AddCFStats(InternalStats::INGESTED_NUM_FILES_TOTAL,
@@ -301,7 +326,8 @@ void ExternalSstFileIngestionJob::Cleanup(const Status& status) {
                        f.internal_file_path.c_str(), s.ToString().c_str());
       }
     }
-    consumed_seqno_ = false;
+    consumed_seqno_count_ = 0;
+    files_overlap_ = false;
   } else if (status.ok() && ingestion_options_.move_files) {
     // The files were moved and added successfully, remove original file links
     for (IngestedFileInfo& f : files_to_ingest_) {
@@ -479,13 +505,13 @@ Status ExternalSstFileIngestionJob::GetIngestedFileInfo(
 
 Status ExternalSstFileIngestionJob::AssignLevelAndSeqnoForIngestedFile(
     SuperVersion* sv, bool force_global_seqno, CompactionStyle compaction_style,
-    IngestedFileInfo* file_to_ingest, SequenceNumber* assigned_seqno) {
+    SequenceNumber last_seqno, IngestedFileInfo* file_to_ingest,
+    SequenceNumber* assigned_seqno) {
   Status status;
   *assigned_seqno = 0;
-  const SequenceNumber last_seqno = versions_->LastSequence();
   if (force_global_seqno) {
     *assigned_seqno = last_seqno + 1;
-    if (compaction_style == kCompactionStyleUniversal) {
+    if (compaction_style == kCompactionStyleUniversal || files_overlap_) {
       file_to_ingest->picked_level = 0;
       return status;
     }
@@ -546,6 +572,12 @@ Status ExternalSstFileIngestionJob::AssignLevelAndSeqnoForIngestedFile(
     if (IngestedFileFitInLevel(file_to_ingest, lvl)) {
       target_level = lvl;
     }
+  }
+  // If files overlap, we have to ingest them at level 0 and assign the newest
+  // sequence number
+  if (files_overlap_) {
+    target_level = 0;
+    *assigned_seqno = last_seqno + 1;
   }
  TEST_SYNC_POINT_CALLBACK(
       "ExternalSstFileIngestionJob::AssignLevelAndSeqnoForIngestedFile",
