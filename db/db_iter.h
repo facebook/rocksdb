@@ -203,15 +203,28 @@ class DBIter final: public Iterator {
   // in this case callers would usually stop what they were doing and return.
   bool ReverseToForward();
   bool ReverseToBackward();
+  // Set saved_key_ to the seek key to target, with proper sequence number set.
+  // It might get adjusted if the seek key is smaller than iterator lower bound.
+  void SetSavedKeyToSeekTarget(const Slice& /*target*/);
+  // Set saved_key_ to the seek key to target, with proper sequence number set.
+  // It might get adjusted if the seek key is larger than iterator upper bound.
+  void SetSavedKeyToSeekForPrevTarget(const Slice& /*target*/);
   bool FindValueForCurrentKey();
   bool FindValueForCurrentKeyUsingSeek();
   bool FindUserKeyBeforeSavedKey();
-  bool FindNextUserEntry(bool skipping, bool prefix_check);
-  bool FindNextUserEntryInternal(bool skipping, bool prefix_check);
+  // If `skipping_saved_key` is true, the function will keep iterating until it
+  // finds a user key that is larger than `saved_key_`.
+  // If `prefix` is not null, the iterator needs to stop when all keys for the
+  // prefix are exhausted and the interator is set to invalid.
+  bool FindNextUserEntry(bool skipping_saved_key, const Slice* prefix);
+  // Internal implementation of FindNextUserEntry().
+  bool FindNextUserEntryInternal(bool skipping_saved_key, const Slice* prefix);
   bool ParseKey(ParsedInternalKey* key);
   bool MergeValuesNewToOld();
 
-  void PrevInternal();
+  // If prefix is not null, we need to set the iterator to invalid if no more
+  // entry can be found within the prefix.
+  void PrevInternal(const Slice* /*prefix*/);
   bool TooManyInternalKeysSkipped(bool increment = true);
   bool IsVisible(SequenceNumber sequence);
 
@@ -273,10 +286,14 @@ class DBIter final: public Iterator {
   const Slice* iterate_lower_bound_;
   const Slice* iterate_upper_bound_;
 
-  IterKey prefix_start_buf_;
+  // The prefix of the seek key. It is only used when prefix_same_as_start_
+  // is true and prefix extractor is not null. In Next() or Prev(), current keys
+  // will be checked against this prefix, so that the iterator can be
+  // invalidated if the keys in this prefix has been exhausted. Set it using
+  // SetUserKey() and use it using GetUserKey().
+  IterKey prefix_;
 
   Status status_;
-  Slice prefix_start_key_;
   Direction direction_;
   bool valid_;
   bool current_entry_is_merged_;

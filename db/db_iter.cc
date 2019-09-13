@@ -152,8 +152,12 @@ void DBIter::Next() {
 
   local_stats_.next_count_++;
   if (ok && iter_.Valid()) {
-    FindNextUserEntry(true /* skipping the current user key */,
-                      prefix_same_as_start_);
+    if (prefix_same_as_start_ && prefix_extractor_ != nullptr) {
+      Slice prefix = prefix_.GetUserKey();
+      FindNextUserEntry(true /* skipping the current user key */, &prefix);
+    } else {
+      FindNextUserEntry(true /* skipping the current user key */, nullptr);
+    }
   } else {
     is_key_seqnum_zero_ = false;
     valid_ = false;
@@ -164,7 +168,7 @@ void DBIter::Next() {
   }
 }
 
-// PRE: saved_key_ has the current user key if skipping
+// PRE: saved_key_ has the current user key if skipping_saved_key
 // POST: saved_key_ should have the next user key if valid_,
 //       if the current entry is a result of merge
 //           current_entry_is_merged_ => true
@@ -174,17 +178,17 @@ void DBIter::Next() {
 //       a delete marker or a sequence number higher than sequence_
 //       saved_key_ MUST have a proper user_key before calling this function
 //
-// The prefix_check parameter controls whether we check the iterated
-// keys against the prefix of the seeked key. Set to false when
-// performing a seek without a key (e.g. SeekToFirst). Set to
-// prefix_same_as_start_ for other iterations.
-bool DBIter::FindNextUserEntry(bool skipping, bool prefix_check) {
+// The prefix parameter, if not null, indicates that we need to iterator
+// within the prefix, and the iterator needs to be made invalid, if no
+// more entry for the prefix can be found.
+bool DBIter::FindNextUserEntry(bool skipping_saved_key, const Slice* prefix) {
   PERF_TIMER_GUARD(find_next_user_entry_time);
-  return FindNextUserEntryInternal(skipping, prefix_check);
+  return FindNextUserEntryInternal(skipping_saved_key, prefix);
 }
 
 // Actual implementation of DBIter::FindNextUserEntry()
-bool DBIter::FindNextUserEntryInternal(bool skipping, bool prefix_check) {
+bool DBIter::FindNextUserEntryInternal(bool skipping_saved_key,
+                                       const Slice* prefix) {
   // Loop until we hit an acceptable entry to yield
   assert(iter_.Valid());
   assert(status_.ok());
@@ -193,9 +197,10 @@ bool DBIter::FindNextUserEntryInternal(bool skipping, bool prefix_check) {
 
   // How many times in a row we have skipped an entry with user key less than
   // or equal to saved_key_. We could skip these entries either because
-  // sequence numbers were too high or because skipping = true.
+  // sequence numbers were too high or because skipping_saved_key = true.
   // What saved_key_ contains throughout this method:
-  //  - if skipping        : saved_key_ contains the key that we need to skip,
+  //  - if skipping_saved_key        : saved_key_ contains the key that we need
+  //  to skip,
   //                         and we haven't seen any keys greater than that,
   //  - if num_skipped > 0 : saved_key_ contains the key that we have skipped
   //                         num_skipped times, and we haven't seen any keys
@@ -228,9 +233,10 @@ bool DBIter::FindNextUserEntryInternal(bool skipping, bool prefix_check) {
       break;
     }
 
-    if (prefix_extractor_ && prefix_check &&
-        prefix_extractor_->Transform(ikey_.user_key)
-                .compare(prefix_start_key_) != 0) {
+    assert(prefix == nullptr || prefix_extractor_ != nullptr);
+    if (prefix != nullptr &&
+        prefix_extractor_->Transform(ikey_.user_key).compare(*prefix) != 0) {
+      assert(prefix_same_as_start_);
       break;
     }
 
@@ -243,14 +249,15 @@ bool DBIter::FindNextUserEntryInternal(bool skipping, bool prefix_check) {
       // possibly be skipped. This condition can potentially be relaxed to
       // prev_key.seq <= ikey_.sequence. We are cautious because it will be more
       // prone to bugs causing the same user key with the same sequence number.
-      if (!is_prev_key_seqnum_zero && skipping &&
+      if (!is_prev_key_seqnum_zero && skipping_saved_key &&
           user_comparator_.Compare(ikey_.user_key, saved_key_.GetUserKey()) <=
               0) {
         num_skipped++;  // skip this entry
         PERF_COUNTER_ADD(internal_key_skipped_count, 1);
       } else {
-        assert(!skipping || user_comparator_.Compare(
-                                ikey_.user_key, saved_key_.GetUserKey()) > 0);
+        assert(!skipping_saved_key ||
+               user_comparator_.Compare(ikey_.user_key,
+                                        saved_key_.GetUserKey()) > 0);
         num_skipped = 0;
         reseek_done = false;
         switch (ikey_.type) {
@@ -271,7 +278,7 @@ bool DBIter::FindNextUserEntryInternal(bool skipping, bool prefix_check) {
               saved_key_.SetUserKey(
                   ikey_.user_key, !pin_thru_lifetime_ ||
                                       !iter_.iter()->IsKeyPinned() /* copy */);
-              skipping = true;
+              skipping_saved_key = true;
               PERF_COUNTER_ADD(internal_delete_skipped_count, 1);
             }
             break;
@@ -289,12 +296,12 @@ bool DBIter::FindNextUserEntryInternal(bool skipping, bool prefix_check) {
                 return true;
               } else {
                 // this key and all previous versions shouldn't be included,
-                // skipping
+                // skipping_saved_key
                 saved_key_.SetUserKey(
                     ikey_.user_key,
                     !pin_thru_lifetime_ ||
                         !iter_.iter()->IsKeyPinned() /* copy */);
-                skipping = true;
+                skipping_saved_key = true;
               }
             } else {
               saved_key_.SetUserKey(
@@ -304,7 +311,7 @@ bool DBIter::FindNextUserEntryInternal(bool skipping, bool prefix_check) {
                       ikey_, RangeDelPositioningMode::kForwardTraversal)) {
                 // Arrange to skip all upcoming entries for this key since
                 // they are hidden by this deletion.
-                skipping = true;
+                skipping_saved_key = true;
                 num_skipped = 0;
                 reseek_done = false;
                 PERF_COUNTER_ADD(internal_delete_skipped_count, 1);
@@ -335,7 +342,7 @@ bool DBIter::FindNextUserEntryInternal(bool skipping, bool prefix_check) {
                     ikey_, RangeDelPositioningMode::kForwardTraversal)) {
               // Arrange to skip all upcoming entries for this key since
               // they are hidden by this deletion.
-              skipping = true;
+              skipping_saved_key = true;
               num_skipped = 0;
               reseek_done = false;
               PERF_COUNTER_ADD(internal_delete_skipped_count, 1);
@@ -360,13 +367,13 @@ bool DBIter::FindNextUserEntryInternal(bool skipping, bool prefix_check) {
       // to seek to the target sequence number.
       int cmp =
           user_comparator_.Compare(ikey_.user_key, saved_key_.GetUserKey());
-      if (cmp == 0 || (skipping && cmp <= 0)) {
+      if (cmp == 0 || (skipping_saved_key && cmp <= 0)) {
         num_skipped++;
       } else {
         saved_key_.SetUserKey(
             ikey_.user_key,
             !iter_.iter()->IsKeyPinned() || !pin_thru_lifetime_ /* copy */);
-        skipping = false;
+        skipping_saved_key = false;
         num_skipped = 0;
         reseek_done = false;
       }
@@ -386,14 +393,14 @@ bool DBIter::FindNextUserEntryInternal(bool skipping, bool prefix_check) {
       num_skipped = 0;
       reseek_done = true;
       std::string last_key;
-      if (skipping) {
+      if (skipping_saved_key) {
         // We're looking for the next user-key but all we see are the same
         // user-key with decreasing sequence numbers. Fast forward to
         // sequence number 0 and type deletion (the smallest type).
         AppendInternalKey(&last_key, ParsedInternalKey(saved_key_.GetUserKey(),
                                                        0, kTypeDeletion));
-        // Don't set skipping = false because we may still see more user-keys
-        // equal to saved_key_.
+        // Don't set skipping_saved_key = false because we may still see more
+        // user-keys equal to saved_key_.
       } else {
         // We saw multiple entries with this user key and sequence numbers
         // higher than sequence_. Fast forward to sequence_.
@@ -534,8 +541,14 @@ void DBIter::Prev() {
     }
   }
   if (ok) {
-    PrevInternal();
+    if (prefix_same_as_start_ && prefix_extractor_ != nullptr) {
+      Slice prefix = prefix_.GetUserKey();
+      PrevInternal(&prefix);
+    } else {
+      PrevInternal(nullptr);
+    }
   }
+
   if (statistics_ != nullptr) {
     local_stats_.prev_count_++;
     if (valid_) {
@@ -613,15 +626,17 @@ bool DBIter::ReverseToBackward() {
   return FindUserKeyBeforeSavedKey();
 }
 
-void DBIter::PrevInternal() {
+void DBIter::PrevInternal(const Slice* prefix) {
   while (iter_.Valid()) {
     saved_key_.SetUserKey(
         ExtractUserKey(iter_.key()),
         !iter_.iter()->IsKeyPinned() || !pin_thru_lifetime_ /* copy */);
 
-    if (prefix_extractor_ && prefix_same_as_start_ &&
+    assert(prefix == nullptr || prefix_extractor_ != nullptr);
+    if (prefix != nullptr &&
         prefix_extractor_->Transform(saved_key_.GetUserKey())
-                .compare(prefix_start_key_) != 0) {
+                .compare(*prefix) != 0) {
+      assert(prefix_same_as_start_);
       // Current key does not have the same prefix as start
       valid_ = false;
       return;
@@ -1047,71 +1062,22 @@ bool DBIter::IsVisible(SequenceNumber sequence) {
   }
 }
 
-void DBIter::Seek(const Slice& target) {
-  PERF_CPU_TIMER_GUARD(iter_seek_cpu_nanos, env_);
-  StopWatch sw(env_, statistics_, DB_SEEK);
-  status_ = Status::OK();
-  ReleaseTempPinnedData();
-  ResetInternalKeysSkippedCounter();
+void DBIter::SetSavedKeyToSeekTarget(const Slice& target) {
   is_key_seqnum_zero_ = false;
-
   SequenceNumber seq = sequence_;
   saved_key_.Clear();
   saved_key_.SetInternalKey(target, seq);
 
-#ifndef ROCKSDB_LITE
-  if (db_impl_ != nullptr && cfd_ != nullptr) {
-    db_impl_->TraceIteratorSeek(cfd_->GetID(), target);
-  }
-#endif  // ROCKSDB_LITE
-
   if (iterate_lower_bound_ != nullptr &&
       user_comparator_.Compare(saved_key_.GetUserKey(), *iterate_lower_bound_) <
           0) {
+    // Seek key is smaller than the lower bound.
     saved_key_.Clear();
     saved_key_.SetInternalKey(*iterate_lower_bound_, seq);
   }
-
-  {
-    PERF_TIMER_GUARD(seek_internal_seek_time);
-    iter_.Seek(saved_key_.GetInternalKey());
-    range_del_agg_.InvalidateRangeDelMapPositions();
-  }
-  RecordTick(statistics_, NUMBER_DB_SEEK);
-  if (iter_.Valid()) {
-    if (prefix_extractor_ && prefix_same_as_start_) {
-      prefix_start_key_ = prefix_extractor_->Transform(target);
-    }
-    direction_ = kForward;
-    ClearSavedValue();
-    FindNextUserEntry(false /* not skipping */, prefix_same_as_start_);
-    if (!valid_) {
-      prefix_start_key_.clear();
-    }
-    if (statistics_ != nullptr) {
-      if (valid_) {
-        // Decrement since we don't want to count this key as skipped
-        RecordTick(statistics_, NUMBER_DB_SEEK_FOUND);
-        RecordTick(statistics_, ITER_BYTES_READ, key().size() + value().size());
-        PERF_COUNTER_ADD(iter_read_bytes, key().size() + value().size());
-      }
-    }
-  } else {
-    valid_ = false;
-  }
-
-  if (valid_ && prefix_extractor_ && prefix_same_as_start_) {
-    prefix_start_buf_.SetUserKey(prefix_start_key_);
-    prefix_start_key_ = prefix_start_buf_.GetUserKey();
-  }
 }
 
-void DBIter::SeekForPrev(const Slice& target) {
-  PERF_CPU_TIMER_GUARD(iter_seek_cpu_nanos, env_);
-  StopWatch sw(env_, statistics_, DB_SEEK);
-  status_ = Status::OK();
-  ReleaseTempPinnedData();
-  ResetInternalKeysSkippedCounter();
+void DBIter::SetSavedKeyToSeekForPrevTarget(const Slice& target) {
   is_key_seqnum_zero_ = false;
   saved_key_.Clear();
   // now saved_key is used to store internal key.
@@ -1124,12 +1090,75 @@ void DBIter::SeekForPrev(const Slice& target) {
     saved_key_.Clear();
     saved_key_.SetInternalKey(*iterate_upper_bound_, kMaxSequenceNumber);
   }
+}
 
+void DBIter::Seek(const Slice& target) {
+  PERF_CPU_TIMER_GUARD(iter_seek_cpu_nanos, env_);
+  StopWatch sw(env_, statistics_, DB_SEEK);
+
+#ifndef ROCKSDB_LITE
+  if (db_impl_ != nullptr && cfd_ != nullptr) {
+    db_impl_->TraceIteratorSeek(cfd_->GetID(), target);
+  }
+#endif  // ROCKSDB_LITE
+
+  status_ = Status::OK();
+  ReleaseTempPinnedData();
+  ResetInternalKeysSkippedCounter();
+
+  // Seek the inner iterator based on the target key.
+  //
   {
     PERF_TIMER_GUARD(seek_internal_seek_time);
-    iter_.SeekForPrev(saved_key_.GetInternalKey());
+
+    SetSavedKeyToSeekTarget(target);
+    iter_.Seek(saved_key_.GetInternalKey());
+
     range_del_agg_.InvalidateRangeDelMapPositions();
+    RecordTick(statistics_, NUMBER_DB_SEEK);
   }
+  if (!iter_.Valid()) {
+    valid_ = false;
+    return;
+  }
+  direction_ = kForward;
+
+  // Now the inner iterator is placed to the target position. From there,
+  // we need to find out the next key that is visible to the user.
+  //
+  ClearSavedValue();
+  if (prefix_extractor_ && prefix_same_as_start_) {
+    // The case where the iterator needs to be invalidated if it has exausted
+    // keys within the same prefix of the seek key.
+    Slice target_prefix;
+    target_prefix = prefix_extractor_->Transform(target);
+    FindNextUserEntry(false /* not skipping saved_key */,
+                      &target_prefix /* prefix */);
+    if (valid_) {
+      // Remember the prefix of the seek key for the future Prev() call to
+      // check.
+      prefix_.SetUserKey(target_prefix);
+    }
+  } else {
+    FindNextUserEntry(false /* not skipping saved_key */, nullptr);
+  }
+  if (!valid_) {
+    return;
+  }
+
+  // Updating stats and perf context counters.
+  //
+  if (statistics_ != nullptr) {
+    // Decrement since we don't want to count this key as skipped
+    RecordTick(statistics_, NUMBER_DB_SEEK_FOUND);
+    RecordTick(statistics_, ITER_BYTES_READ, key().size() + value().size());
+  }
+  PERF_COUNTER_ADD(iter_read_bytes, key().size() + value().size());
+}
+
+void DBIter::SeekForPrev(const Slice& target) {
+  PERF_CPU_TIMER_GUARD(iter_seek_cpu_nanos, env_);
+  StopWatch sw(env_, statistics_, DB_SEEK);
 
 #ifndef ROCKSDB_LITE
   if (db_impl_ != nullptr && cfd_ != nullptr) {
@@ -1137,30 +1166,50 @@ void DBIter::SeekForPrev(const Slice& target) {
   }
 #endif  // ROCKSDB_LITE
 
-  RecordTick(statistics_, NUMBER_DB_SEEK);
-  if (iter_.Valid()) {
-    if (prefix_extractor_ && prefix_same_as_start_) {
-      prefix_start_key_ = prefix_extractor_->Transform(target);
-    }
-    direction_ = kReverse;
-    ClearSavedValue();
-    PrevInternal();
-    if (!valid_) {
-      prefix_start_key_.clear();
-    }
-    if (statistics_ != nullptr) {
-      if (valid_) {
-        RecordTick(statistics_, NUMBER_DB_SEEK_FOUND);
-        RecordTick(statistics_, ITER_BYTES_READ, key().size() + value().size());
-        PERF_COUNTER_ADD(iter_read_bytes, key().size() + value().size());
-      }
+  status_ = Status::OK();
+  ReleaseTempPinnedData();
+  ResetInternalKeysSkippedCounter();
+
+  // Seek the inner iterator based on the target key.
+  //
+  {
+    PERF_TIMER_GUARD(seek_internal_seek_time);
+    SetSavedKeyToSeekForPrevTarget(target);
+    iter_.SeekForPrev(saved_key_.GetInternalKey());
+    range_del_agg_.InvalidateRangeDelMapPositions();
+    RecordTick(statistics_, NUMBER_DB_SEEK);
+  }
+  if (!iter_.Valid()) {
+    valid_ = false;
+    return;
+  }
+  direction_ = kReverse;
+
+  // Now the inner iterator is placed to the target position. From there,
+  // we need to find out the first key that is visible to the user in the
+  // backward direction.
+  //
+  ClearSavedValue();
+  if (prefix_extractor_ && prefix_same_as_start_) {
+    // The case where the iterator needs to be invalidated if it has exausted
+    // keys within the same prefix of the seek key.
+    Slice target_prefix;
+    target_prefix = prefix_extractor_->Transform(target);
+    PrevInternal(&target_prefix);
+    if (valid_) {
+      // Remember the prefix of the seek key for the future Prev() call to
+      // check.
+      prefix_.SetUserKey(target_prefix);
     }
   } else {
-    valid_ = false;
+    PrevInternal(nullptr);
   }
-  if (valid_ && prefix_extractor_ && prefix_same_as_start_) {
-    prefix_start_buf_.SetUserKey(prefix_start_key_);
-    prefix_start_key_ = prefix_start_buf_.GetUserKey();
+
+  // Report stats and perf context.
+  if (statistics_ != nullptr && valid_) {
+    RecordTick(statistics_, NUMBER_DB_SEEK_FOUND);
+    RecordTick(statistics_, ITER_BYTES_READ, key().size() + value().size());
+    PERF_COUNTER_ADD(iter_read_bytes, key().size() + value().size());
   }
 }
 
@@ -1193,7 +1242,8 @@ void DBIter::SeekToFirst() {
     saved_key_.SetUserKey(
         ExtractUserKey(iter_.key()),
         !iter_.iter()->IsKeyPinned() || !pin_thru_lifetime_ /* copy */);
-    FindNextUserEntry(false /* not skipping */, false /* no prefix check */);
+    FindNextUserEntry(false /* not skipping saved_key */,
+                      nullptr /* no prefix check */);
     if (statistics_ != nullptr) {
       if (valid_) {
         RecordTick(statistics_, NUMBER_DB_SEEK_FOUND);
@@ -1205,9 +1255,7 @@ void DBIter::SeekToFirst() {
     valid_ = false;
   }
   if (valid_ && prefix_extractor_ && prefix_same_as_start_) {
-    prefix_start_buf_.SetUserKey(
-        prefix_extractor_->Transform(saved_key_.GetUserKey()));
-    prefix_start_key_ = prefix_start_buf_.GetUserKey();
+    prefix_.SetUserKey(prefix_extractor_->Transform(saved_key_.GetUserKey()));
   }
 }
 
@@ -1217,7 +1265,7 @@ void DBIter::SeekToLast() {
     SeekForPrev(*iterate_upper_bound_);
     if (Valid() && user_comparator_.Equal(*iterate_upper_bound_, key())) {
       ReleaseTempPinnedData();
-      PrevInternal();
+      PrevInternal(nullptr);
     }
     return;
   }
@@ -1240,7 +1288,7 @@ void DBIter::SeekToLast() {
     iter_.SeekToLast();
     range_del_agg_.InvalidateRangeDelMapPositions();
   }
-  PrevInternal();
+  PrevInternal(nullptr);
   if (statistics_ != nullptr) {
     RecordTick(statistics_, NUMBER_DB_SEEK);
     if (valid_) {
@@ -1250,9 +1298,7 @@ void DBIter::SeekToLast() {
     }
   }
   if (valid_ && prefix_extractor_ && prefix_same_as_start_) {
-    prefix_start_buf_.SetUserKey(
-        prefix_extractor_->Transform(saved_key_.GetUserKey()));
-    prefix_start_key_ = prefix_start_buf_.GetUserKey();
+    prefix_.SetUserKey(prefix_extractor_->Transform(saved_key_.GetUserKey()));
   }
 }
 
