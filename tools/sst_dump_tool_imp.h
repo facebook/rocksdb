@@ -46,7 +46,8 @@ class SstFileDumper {
                              RandomAccessFileReader* file, uint64_t file_size);
 
   uint64_t CalculateCompressedTableSize(const TableBuilderOptions& tb_options,
-                                        size_t block_size);
+                                        size_t block_size,
+                                        uint64_t* num_data_blocks);
 
   Status SetTableOptionsByMagicNumber(uint64_t table_magic_number);
   Status SetOldTableOptions();

@@ -158,7 +158,8 @@ Status SstFileDumper::DumpTable(const std::string& out_filename) {
 }
 
 uint64_t SstFileDumper::CalculateCompressedTableSize(
-    const TableBuilderOptions& tb_options, size_t block_size) {
+    const TableBuilderOptions& tb_options, size_t block_size,
+    uint64_t* num_data_blocks) {
   std::unique_ptr<WritableFile> out_file;
   std::unique_ptr<Env> env(NewMemEnv(Env::Default()));
   env->NewWritableFile(testFileName, &out_file, soptions_);
@@ -189,6 +190,8 @@ uint64_t SstFileDumper::CalculateCompressedTableSize(
     exit(1);
   }
   uint64_t size = table_builder->FileSize();
+  assert(num_data_blocks != nullptr);
+  *num_data_blocks = table_builder->GetTableProperties().num_data_blocks;
   env->DeleteFile(testFileName);
   return size;
 }
@@ -199,6 +202,8 @@ int SstFileDumper::ShowAllCompressionSizes(
         compression_types) {
   ReadOptions read_options;
   Options opts;
+  opts.statistics = rocksdb::CreateDBStatistics();
+  opts.statistics->set_stats_level(StatsLevel::kAll);
   const ImmutableCFOptions imoptions(opts);
   const ColumnFamilyOptions cfo(opts);
   const MutableCFOptions moptions(cfo);
@@ -217,16 +222,52 @@ int SstFileDumper::ShowAllCompressionSizes(
           imoptions, moptions, ikc, &block_based_table_factories, i.first,
           0 /* sample_for_compression */, compress_opt,
           false /* skip_filters */, column_family_name, unknown_level);
-      uint64_t file_size = CalculateCompressedTableSize(tb_opts, block_size);
-      fprintf(stdout, "Compression: %s", i.second);
-      fprintf(stdout, " Size: %" PRIu64 "\n", file_size);
+      uint64_t num_data_blocks = 0;
+      uint64_t file_size =
+          CalculateCompressedTableSize(tb_opts, block_size, &num_data_blocks);
+      fprintf(stdout, "Compression: %-24s", i.second);
+      fprintf(stdout, " Size: %10" PRIu64, file_size);
+      fprintf(stdout, " Blocks: %6" PRIu64, num_data_blocks);
+      const uint64_t compressed_blocks =
+          opts.statistics->getAndResetTickerCount(NUMBER_BLOCK_COMPRESSED);
+      const uint64_t not_compressed_blocks =
+          opts.statistics->getAndResetTickerCount(NUMBER_BLOCK_NOT_COMPRESSED);
+      // When the option enable_index_compression is true,
+      // NUMBER_BLOCK_COMPRESSED is incremented for index block(s).
+      if ((compressed_blocks + not_compressed_blocks) > num_data_blocks) {
+        num_data_blocks = compressed_blocks + not_compressed_blocks;
+      }
+      const uint64_t ratio_not_compressed_blocks =
+          (num_data_blocks - compressed_blocks) - not_compressed_blocks;
+      const double compressed_pcnt =
+          (0 == num_data_blocks) ? 0.0
+                                 : ((static_cast<double>(compressed_blocks) /
+                                     static_cast<double>(num_data_blocks)) *
+                                    100.0);
+      const double ratio_not_compressed_pcnt =
+          (0 == num_data_blocks)
+              ? 0.0
+              : ((static_cast<double>(ratio_not_compressed_blocks) /
+                  static_cast<double>(num_data_blocks)) *
+                 100.0);
+      const double not_compressed_pcnt =
+          (0 == num_data_blocks)
+              ? 0.0
+              : ((static_cast<double>(not_compressed_blocks) /
+                  static_cast<double>(num_data_blocks)) *
+                 100.0);
+      fprintf(stdout, " Compressed: %6" PRIu64 " (%5.1f%%)", compressed_blocks,
+              compressed_pcnt);
+      fprintf(stdout, " Not compressed (ratio): %6" PRIu64 " (%5.1f%%)",
+              ratio_not_compressed_blocks, ratio_not_compressed_pcnt);
+      fprintf(stdout, " Not compressed (abort): %6" PRIu64 " (%5.1f%%)\n",
+              not_compressed_blocks, not_compressed_pcnt);
     } else {
       fprintf(stdout, "Unsupported compression type: %s.\n", i.second);
     }
   }
   return 0;
 }
-
 Status SstFileDumper::ReadTableProperties(uint64_t table_magic_number,
                                           RandomAccessFileReader* file,
                                           uint64_t file_size) {
@@ -365,15 +406,15 @@ namespace {
 
 void print_help() {
   fprintf(stderr,
-          R"(sst_dump --file=<data_dir_OR_sst_file> [--command=check|scan|raw]
+          R"(sst_dump --file=<data_dir_OR_sst_file> [--command=check|scan|raw|recompress]
     --file=<data_dir_OR_sst_file>
       Path to SST file or directory containing SST files
 
     --command=check|scan|raw|verify
-        check: Iterate over entries in files but dont print anything except if an error is encounterd (default command)
+        check: Iterate over entries in files but don't print anything except if an error is encountered (default command)
         scan: Iterate over entries in files and print them to screen
         raw: Dump all the table contents to <file_name>_dump.txt
-        verify: Iterate all the blocks in files verifying checksum to detect possible coruption but dont print anything except if a corruption is encountered
+        verify: Iterate all the blocks in files verifying checksum to detect possible corruption but don't print anything except if a corruption is encountered
         recompress: reports the SST file size if recompressed with different
                     compression types
 
