@@ -199,11 +199,15 @@ class DBImpl : public DB {
                         PinnableSlice* values, Status* statuses,
                         const bool sorted_input = false) override;
 
-  void MultiGetImpl(
+  virtual void MultiGet(const ReadOptions& options, const size_t num_keys,
+                        ColumnFamilyHandle** column_families, const Slice* keys,
+                        PinnableSlice* values, Status* statuses,
+                        const bool sorted_input = false) override;
+
+  virtual void MultiGetWithCallback(
       const ReadOptions& options, ColumnFamilyHandle* column_family,
-      autovector<KeyContext, MultiGetContext::MAX_BATCH_SIZE>& key_context,
-      bool sorted_input, ReadCallback* callback = nullptr,
-      bool* is_blob_index = nullptr);
+      ReadCallback* callback,
+      autovector<KeyContext*, MultiGetContext::MAX_BATCH_SIZE>* sorted_keys);
 
   virtual Status CreateColumnFamily(const ColumnFamilyOptions& cf_options,
                                     const std::string& column_family,
@@ -1639,6 +1643,20 @@ class DBImpl : public DB {
   static Status ValidateOptions(
       const DBOptions& db_options,
       const std::vector<ColumnFamilyDescriptor>& column_families);
+
+  void PrepareMultiGetKeys(
+      const size_t num_keys, bool sorted,
+      autovector<KeyContext*, MultiGetContext::MAX_BATCH_SIZE>* sorted_keys);
+
+  template <class T, typename NodeFunc>
+  bool MultiCFSnapshot(const ReadOptions& read_options, ReadCallback* callback,
+                       T* cf_list, SequenceNumber* snapshot);
+
+  void MultiGetImpl(
+      const ReadOptions& read_options, size_t start_key, size_t num_keys,
+      autovector<KeyContext*, MultiGetContext::MAX_BATCH_SIZE>* sorted_keys,
+      SuperVersion* sv, SequenceNumber snap_seqnum, ReadCallback* callback,
+      bool* is_blob_index);
 
   // table_cache_ provides its own synchronization
   std::shared_ptr<Cache> table_cache_;

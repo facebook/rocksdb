@@ -1063,7 +1063,7 @@ TEST_F(DBBasicTest, MultiGetMultiCF) {
     keys.push_back("cf" + std::to_string(i) + "_key");
   }
 
-  values = MultiGet(cfs, keys, nullptr);
+  values = MultiGet(cfs, keys, nullptr, true);
   ASSERT_EQ(values.size(), 8);
   for (unsigned int j = 0; j < values.size(); ++j) {
     ASSERT_EQ(values[j], "cf" + std::to_string(j) + "_val2");
@@ -1123,7 +1123,7 @@ TEST_F(DBBasicTest, MultiGetMultiCFMutex) {
     keys.push_back("cf" + std::to_string(i) + "_key");
   }
 
-  values = MultiGet(cfs, keys, nullptr);
+  values = MultiGet(cfs, keys, nullptr, true);
   ASSERT_TRUE(last_try);
   ASSERT_EQ(values.size(), 8);
   for (unsigned int j = 0; j < values.size(); ++j) {
@@ -1183,7 +1183,7 @@ TEST_F(DBBasicTest, MultiGetMultiCFSnapshot) {
   }
 
   const Snapshot* snapshot = db_->GetSnapshot();
-  values = MultiGet(cfs, keys, snapshot);
+  values = MultiGet(cfs, keys, snapshot, true);
   db_->ReleaseSnapshot(snapshot);
   ASSERT_EQ(values.size(), 8);
   for (unsigned int j = 0; j < values.size(); ++j) {
