@@ -212,7 +212,8 @@ void VerifySimilar(uint64_t a, uint64_t b, double bias) {
 
 void VerifyTableProperties(const TableProperties& base_tp,
                            const TableProperties& new_tp,
-                           double filter_size_bias = 0.1,
+                           double filter_size_bias =
+                               CACHE_LINE_SIZE >= 256 ? 0.15 : 0.1,
                            double index_size_bias = 0.1,
                            double data_size_bias = 0.1,
                            double num_data_blocks_bias = 0.05) {
@@ -266,7 +267,8 @@ void GetExpectedTableProperties(
        // discount 1 byte as value size is not encoded in value delta encoding
        (value_delta_encoding ? 1 : 0));
   expected_tp->filter_size =
-      kTableCount * (kKeysPerTable * kBloomBitsPerKey / 8);
+      kTableCount * ((kKeysPerTable * kBloomBitsPerKey + 7) / 8 +
+                     /*average-ish overhead*/ CACHE_LINE_SIZE / 2);
 }
 }  // anonymous namespace
 

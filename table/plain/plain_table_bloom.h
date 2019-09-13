@@ -10,7 +10,10 @@
 #include "rocksdb/slice.h"
 
 #include "port/port.h"
+#include "util/bloom_impl.h"
 #include "util/hash.h"
+
+#include "third-party/folly/folly/ConstexprMath.h"
 
 #include <memory>
 
@@ -51,10 +54,10 @@ class PlainTableBloomV1 {
   uint32_t GetNumBlocks() const { return kNumBlocks; }
 
   Slice GetRawData() const {
-    return Slice(reinterpret_cast<char*>(data_), GetTotalBits() / 8);
+    return Slice(data_, GetTotalBits() / 8);
   }
 
-  void SetRawData(unsigned char* raw_data, uint32_t total_bits,
+  void SetRawData(char* raw_data, uint32_t total_bits,
                   uint32_t num_blocks = 0);
 
   uint32_t GetTotalBits() const { return kTotalBits; }
@@ -66,7 +69,10 @@ class PlainTableBloomV1 {
   uint32_t kNumBlocks;
   const uint32_t kNumProbes;
 
-  uint8_t* data_;
+  char* data_;
+
+  static constexpr int LOG2_CACHE_LINE_SIZE =
+      folly::constexpr_log2(CACHE_LINE_SIZE);
 };
 
 #if defined(_MSC_VER)
@@ -76,8 +82,9 @@ class PlainTableBloomV1 {
 #endif
 inline void PlainTableBloomV1::Prefetch(uint32_t h) {
   if (kNumBlocks != 0) {
-    uint32_t b = ((h >> 11 | (h << 21)) % kNumBlocks) * (CACHE_LINE_SIZE * 8);
-    PREFETCH(&(data_[b / 8]), 0, 3);
+    uint32_t ignored;
+    LegacyLocalityBloomImpl</*ExtraRotates*/true>::PrepareHashMayMatch(
+      h, kNumBlocks, data_, &ignored, LOG2_CACHE_LINE_SIZE);
   }
 }
 #if defined(_MSC_VER)
@@ -86,54 +93,22 @@ inline void PlainTableBloomV1::Prefetch(uint32_t h) {
 
 inline bool PlainTableBloomV1::MayContainHash(uint32_t h) const {
   assert(IsInitialized());
-  const uint32_t delta = (h >> 17) | (h << 15);  // Rotate right 17 bits
   if (kNumBlocks != 0) {
-    uint32_t b = ((h >> 11 | (h << 21)) % kNumBlocks) * (CACHE_LINE_SIZE * 8);
-    for (uint32_t i = 0; i < kNumProbes; ++i) {
-      // Since CACHE_LINE_SIZE is defined as 2^n, this line will be optimized
-      //  to a simple and operation by compiler.
-      const uint32_t bitpos = b + (h % (CACHE_LINE_SIZE * 8));
-      if ((data_[bitpos / 8] & (1 << (bitpos % 8))) == 0) {
-        return false;
-      }
-      // Rotate h so that we don't reuse the same bytes.
-      h = h / (CACHE_LINE_SIZE * 8) +
-          (h % (CACHE_LINE_SIZE * 8)) * (0x20000000U / CACHE_LINE_SIZE);
-      h += delta;
-    }
+    return LegacyLocalityBloomImpl<true>::HashMayMatch(
+               h, kNumBlocks, kNumProbes, data_, LOG2_CACHE_LINE_SIZE);
   } else {
-    for (uint32_t i = 0; i < kNumProbes; ++i) {
-      const uint32_t bitpos = h % kTotalBits;
-      if ((data_[bitpos / 8] & (1 << (bitpos % 8))) == 0) {
-        return false;
-      }
-      h += delta;
-    }
+    return LegacyNoLocalityBloomImpl::HashMayMatch(
+               h, kTotalBits, kNumProbes, data_);
   }
-  return true;
 }
 
 inline void PlainTableBloomV1::AddHash(uint32_t h) {
   assert(IsInitialized());
-  const uint32_t delta = (h >> 17) | (h << 15);  // Rotate right 17 bits
   if (kNumBlocks != 0) {
-    uint32_t b = ((h >> 11 | (h << 21)) % kNumBlocks) * (CACHE_LINE_SIZE * 8);
-    for (uint32_t i = 0; i < kNumProbes; ++i) {
-      // Since CACHE_LINE_SIZE is defined as 2^n, this line will be optimized
-      // to a simple and operation by compiler.
-      const uint32_t bitpos = b + (h % (CACHE_LINE_SIZE * 8));
-      data_[bitpos / 8] |= (1 << (bitpos % 8));
-      // Rotate h so that we don't reuse the same bytes.
-      h = h / (CACHE_LINE_SIZE * 8) +
-          (h % (CACHE_LINE_SIZE * 8)) * (0x20000000U / CACHE_LINE_SIZE);
-      h += delta;
-    }
+    LegacyLocalityBloomImpl<true>::AddHash(
+        h, kNumBlocks, kNumProbes, data_, LOG2_CACHE_LINE_SIZE);
   } else {
-    for (uint32_t i = 0; i < kNumProbes; ++i) {
-      const uint32_t bitpos = h % kTotalBits;
-      data_[bitpos / 8] |= (1 << (bitpos % 8));
-      h += delta;
-    }
+    LegacyNoLocalityBloomImpl::AddHash(h, kTotalBits, kNumProbes, data_);
   }
 }
 
