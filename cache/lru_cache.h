@@ -131,7 +131,7 @@ struct LRUHandle {
   }
 
   // Caclculate the memory usage by metadata
-  inline size_t CalcMetadataCharge(
+  inline size_t CalcTotalCharge(
       CacheMetadataChargePolicy metadata_charge_policy) {
     assert(key_length);
     size_t meta_charge = 0;
@@ -143,7 +143,7 @@ struct LRUHandle {
       meta_charge += sizeof(LRUHandle) - 1 + key_length;
 #endif
     }
-    return meta_charge;
+    return charge + meta_charge;
   }
 };
 
