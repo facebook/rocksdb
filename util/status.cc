@@ -43,7 +43,8 @@ static const char* msgs[static_cast<int>(Status::kMaxSubCode)] = {
     "Memory limit reached",                               // kMemoryLimit
     "Space limit reached",                                // kSpaceLimit
     "No such file or directory",                          // kPathNotFound
-    "",                                                   // KMergeOperandsInsufficientCapacity
+    // KMergeOperandsInsufficientCapacity
+    "Insufficient capacity for merge operands",
     "Manual compaction paused",                           // kManualCompactionPaused
 };
 
