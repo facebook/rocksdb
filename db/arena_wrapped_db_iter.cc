@@ -7,28 +7,13 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
-#include <string>
-#include <iostream>
-#include <limits>
-
 #include "db/arena_wrapped_db_iter.h"
-#include "db/dbformat.h"
-#include "db/merge_context.h"
-#include "db/merge_helper.h"
-#include "db/pinned_iterators_manager.h"
-#include "file/filename.h"
-#include "logging/logging.h"
 #include "memory/arena.h"
-#include "monitoring/perf_context_imp.h"
 #include "rocksdb/env.h"
 #include "rocksdb/iterator.h"
-#include "rocksdb/merge_operator.h"
 #include "rocksdb/options.h"
 #include "table/internal_iterator.h"
 #include "table/iterator_wrapper.h"
-#include "trace_replay/trace_replay.h"
-#include "util/mutexlock.h"
-#include "util/string_util.h"
 #include "util/user_comparator_wrapper.h"
 
 namespace rocksdb {
