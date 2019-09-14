@@ -157,7 +157,7 @@ TEST_P(CacheTest, UsageTest) {
   // cache is std::shared_ptr and will be automatically cleaned up.
   const uint64_t kCapacity = 100000;
   auto cache = NewCache(kCapacity, 8, false, kDontChargeCacheMetadata);
-  auto precise_cache = NewCache(kCapacity, 8, false, kFullChargeCacheMetadata);
+  auto precise_cache = NewCache(kCapacity, 0, false, kFullChargeCacheMetadata);
   ASSERT_EQ(0, cache->GetUsage());
   ASSERT_EQ(0, precise_cache->GetUsage());
 
@@ -193,9 +193,7 @@ TEST_P(CacheTest, UsageTest) {
   ASSERT_GT(kCapacity, cache->GetUsage());
   ASSERT_GT(kCapacity, precise_cache->GetUsage());
   ASSERT_LT(kCapacity * 0.95, cache->GetUsage());
-  // Given 64 shards, and ~80 extra charge per entry, around 80*64 bytes coule
-  // be unused before cache is considered full.
-  ASSERT_LT(kCapacity * 0.90, precise_cache->GetUsage());
+  ASSERT_LT(kCapacity * 0.95, precise_cache->GetUsage());
 }
 
 TEST_P(CacheTest, PinnedUsageTest) {
