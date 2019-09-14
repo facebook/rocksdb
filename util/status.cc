@@ -45,7 +45,8 @@ static const char* msgs[static_cast<int>(Status::kMaxSubCode)] = {
     "No such file or directory",                          // kPathNotFound
     // KMergeOperandsInsufficientCapacity
     "Insufficient capacity for merge operands",
-    "Manual compaction paused",                           // kManualCompactionPaused
+    // kManualCompactionPaused
+    "Manual compaction paused",
 };
 
 Status::Status(Code _code, SubCode _subcode, const Slice& msg,

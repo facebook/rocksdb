@@ -2458,7 +2458,8 @@ TEST_F(DBTest2, PausingManualCompaction1) {
 
   manual_compactions_paused = 0;
   // Now make sure CompactFiles also not run
-  dbfull()->CompactFiles(rocksdb::CompactionOptions(), files_before_compact, 0);
+  dbfull()->CompactFiles(rocksdb::CompactionOptions(),
+                         files_before_compact, 0);
   // Wait for manual compaction to get scheduled and finish
   dbfull()->TEST_WaitForCompact(true);
 
@@ -2543,8 +2544,6 @@ TEST_F(DBTest2, PausingManualCompaction3) {
   ASSERT_EQ("2,3,4,5,6,7,8", FilesPerLevel());
 #endif  // !ROCKSDB_LITE
 
-  // rebuild the database, run manual compaction, during
-  // the process, invoke stop manual compaction
   rocksdb::SyncPoint::GetInstance()->ClearCallBack(
       "CompactionJob::Run():PausingManualCompaction:1");
   dbfull()->EnableManualCompaction();
