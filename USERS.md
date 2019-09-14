@@ -99,3 +99,6 @@ LzLabs is using RocksDB as a storage engine in their multi-database distributed 
  
 ## Crux
 [Crux](https://github.com/juxt/crux) is a document database that uses RocksDB for local [EAV](https://en.wikipedia.org/wiki/Entity%E2%80%93attribute%E2%80%93value_model) index storage to enable point-in-time bitemporal Datalog queries. The "unbundled" architecture uses Kafka to provide horizontal scalability.
+
+## ChessDBCN
+[ChessDBCN](https://www.chessdb.cn/queryc_en/) uses RocksDB(https://github.com/noobpwnftw/ssdb) to store billions of chess position analysis as KV pairs. Universal compactions and merge operators are the keys to provide extrodinary random-write performance.
