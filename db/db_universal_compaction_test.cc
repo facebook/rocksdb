@@ -397,7 +397,7 @@ TEST_P(DBTestUniversalCompaction, DynamicUniversalCompactionSizeAmplification) {
   int total_picked_compactions = 0;
   int total_size_amp_compactions = 0;
   rocksdb::SyncPoint::GetInstance()->SetCallBack(
-      "UniversalCompactionPicker::PickCompaction:Return", [&](void* arg) {
+      "UniversalCompactionBuilder::PickCompaction:Return", [&](void* arg) {
         if (arg) {
           total_picked_compactions++;
           Compaction* c = static_cast<Compaction*>(arg);
@@ -478,7 +478,7 @@ TEST_P(DBTestUniversalCompaction, DynamicUniversalCompactionReadAmplification) {
   int total_picked_compactions = 0;
   int total_size_ratio_compactions = 0;
   rocksdb::SyncPoint::GetInstance()->SetCallBack(
-      "UniversalCompactionPicker::PickCompaction:Return", [&](void* arg) {
+      "UniversalCompactionBuilder::PickCompaction:Return", [&](void* arg) {
         if (arg) {
           total_picked_compactions++;
           Compaction* c = static_cast<Compaction*>(arg);
@@ -837,14 +837,14 @@ TEST_P(DBTestUniversalCompactionParallel, PickByFileNumberBug) {
   rocksdb::SyncPoint::GetInstance()->LoadDependency(
       {{"DBTestUniversalCompactionParallel::PickByFileNumberBug:0",
         "BackgroundCallCompaction:0"},
-       {"UniversalCompactionPicker::PickCompaction:Return",
+       {"UniversalCompactionBuilder::PickCompaction:Return",
         "DBTestUniversalCompactionParallel::PickByFileNumberBug:1"},
        {"DBTestUniversalCompactionParallel::PickByFileNumberBug:2",
         "CompactionJob::Run():Start"}});
 
   int total_picked_compactions = 0;
   rocksdb::SyncPoint::GetInstance()->SetCallBack(
-      "UniversalCompactionPicker::PickCompaction:Return", [&](void* arg) {
+      "UniversalCompactionBuilder::PickCompaction:Return", [&](void* arg) {
         if (arg) {
           total_picked_compactions++;
         }
