@@ -17,6 +17,7 @@
 #include "db/db_impl/db_impl.h"
 #include "db/error_handler.h"
 #include "db/version_set.h"
+#include "file/writable_file_writer.h"
 #include "rocksdb/cache.h"
 #include "rocksdb/db.h"
 #include "rocksdb/options.h"
@@ -24,7 +25,6 @@
 #include "table/mock_table.h"
 #include "test_util/testharness.h"
 #include "test_util/testutil.h"
-#include "util/file_reader_writer.h"
 #include "util/string_util.h"
 #include "utilities/merge_operators.h"
 

@@ -13,6 +13,7 @@ int main() {
 
 #include "db/db_impl/db_impl.h"
 #include "db/dbformat.h"
+#include "file/random_access_file_reader.h"
 #include "monitoring/histogram.h"
 #include "rocksdb/db.h"
 #include "rocksdb/slice_transform.h"
@@ -24,7 +25,6 @@ int main() {
 #include "table/table_builder.h"
 #include "test_util/testharness.h"
 #include "test_util/testutil.h"
-#include "util/file_reader_writer.h"
 #include "util/gflags_compat.h"
 
 using GFLAGS_NAMESPACE::ParseCommandLineFlags;

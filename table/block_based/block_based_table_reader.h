@@ -18,6 +18,7 @@
 
 #include "db/range_tombstone_fragmenter.h"
 #include "file/filename.h"
+#include "file/random_access_file_reader.h"
 #include "options/cf_options.h"
 #include "rocksdb/options.h"
 #include "rocksdb/persistent_cache.h"
@@ -39,7 +40,6 @@
 #include "table/two_level_iterator.h"
 #include "trace_replay/block_cache_tracer.h"
 #include "util/coding.h"
-#include "util/file_reader_writer.h"
 #include "util/user_comparator_wrapper.h"
 
 namespace rocksdb {

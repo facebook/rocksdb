@@ -14,7 +14,7 @@
 #include "db/snapshot_impl.h"
 #include "db/version_edit.h"
 #include "file/filename.h"
-
+#include "file/random_access_file_reader.h"
 #include "monitoring/perf_context_imp.h"
 #include "rocksdb/statistics.h"
 #include "table/block_based/block_based_table_reader.h"
@@ -27,7 +27,6 @@
 #include "test_util/sync_point.h"
 #include "util/cast_util.h"
 #include "util/coding.h"
-#include "util/file_reader_writer.h"
 #include "util/stop_watch.h"
 
 namespace rocksdb {

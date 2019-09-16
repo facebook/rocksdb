@@ -547,9 +547,15 @@ set(SOURCES
         env/env_hdfs.cc
         env/mock_env.cc
         file/delete_scheduler.cc
+        file/file_prefetch_buffer.cc
         file/file_util.cc
         file/filename.cc
+        file/random_access_file_reader.cc
+        file/read_write_util.cc
+        file/readahead_raf.cc
+        file/sequence_file_reader.cc
         file/sst_file_manager_impl.cc
+        file/writable_file_writer.cc
         logging/auto_roll_logger.cc
         logging/event_logger.cc
         logging/log_buffer.cc
@@ -639,7 +645,6 @@ set(SOURCES
         util/concurrent_task_limiter_impl.cc
         util/crc32c.cc
         util/dynamic_bloom.cc
-        util/file_reader_writer.cc
         util/filter_policy.cc
         util/hash.cc
         util/murmurhash.cc

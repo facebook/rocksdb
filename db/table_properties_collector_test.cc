@@ -9,10 +9,11 @@
 #include <utility>
 #include <vector>
 
+#include "db/db_impl/db_impl.h"
 #include "db/dbformat.h"
 #include "db/table_properties_collector.h"
-
-#include "db/db_impl/db_impl.h"
+#include "file/sequence_file_reader.h"
+#include "file/writable_file_writer.h"
 #include "options/cf_options.h"
 #include "rocksdb/table.h"
 #include "table/block_based/block_based_table_factory.h"
@@ -22,7 +23,6 @@
 #include "test_util/testharness.h"
 #include "test_util/testutil.h"
 #include "util/coding.h"
-#include "util/file_reader_writer.h"
 
 namespace rocksdb {
 
