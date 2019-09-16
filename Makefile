@@ -332,6 +332,11 @@ ifeq ($(USE_FOLLY_DISTRIBUTED_MUTEX),1)
 	endif
 endif
 
+ifdef TEST_CACHE_LINE_SIZE
+  PLATFORM_CCFLAGS += -DTEST_CACHE_LINE_SIZE=$(TEST_CACHE_LINE_SIZE)
+  PLATFORM_CXXFLAGS += -DTEST_CACHE_LINE_SIZE=$(TEST_CACHE_LINE_SIZE)
+endif
+
 # This (the first rule) must depend on "all".
 default: all
 
