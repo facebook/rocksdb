@@ -112,7 +112,8 @@ class InlineSkipList {
   //
   // REQUIRES: nothing that compares equal to key is currently in the list.
   // REQUIRES: no concurrent calls that use same hint
-  bool InsertWithHintConcurrently(const char* key, void** hint);
+  bool InsertWithHintConcurrently(const char* key,
+                                  std::unique_ptr<char[]>* hint);
 
   // Like Insert, but external synchronization is not required.
   bool InsertConcurrently(const char* key);
@@ -690,14 +691,13 @@ bool InlineSkipList<Comparator>::InsertWithHint(const char* key, void** hint) {
 }
 
 template <class Comparator>
-bool InlineSkipList<Comparator>::InsertWithHintConcurrently(const char* key,
-                                                            void** hint) {
+bool InlineSkipList<Comparator>::InsertWithHintConcurrently(
+    const char* key, std::unique_ptr<char[]>* hint) {
   assert(hint != nullptr);
-  Splice* splice = reinterpret_cast<Splice*>(*hint);
-  if (splice == nullptr) {
-    splice = AllocateSpliceOnHeap();
-    *hint = reinterpret_cast<void*>(splice);
+  if (*hint == nullptr) {
+    hint->reset(reinterpret_cast<char*>(AllocateSpliceOnHeap()));
   }
+  Splice* splice = reinterpret_cast<Splice*>(hint->get());
   return Insert<true>(key, splice, true);
 }
 

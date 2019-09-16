@@ -1229,7 +1229,7 @@ class MemTableInserter : public WriteBatch::Handler {
   bool hint_per_batch_;
   bool hint_created_;
   // Hints for this batch
-  using HintMap = std::unordered_map<MemTable*, void*>;
+  using HintMap = std::unordered_map<MemTable*, std::unique_ptr<char[]>>;
   using HintMapType = std::aligned_storage<sizeof(HintMap)>::type;
   HintMapType hint_;
 
@@ -1315,9 +1315,6 @@ class MemTableInserter : public WriteBatch::Handler {
         (&mem_post_info_map_)->~MemPostInfoMap();
     }
     if (hint_created_) {
-      for (auto iter : GetHintMap()) {
-        delete[] reinterpret_cast<char*>(iter.second);
-      }
       reinterpret_cast<HintMap*>(&hint_)->~HintMap();
     }
     delete rebuilding_trx_;

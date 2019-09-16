@@ -50,11 +50,13 @@ public:
    return skip_list_.InsertWithHint(static_cast<char*>(handle), hint);
  }
 
- void InsertWithHintConcurrently(KeyHandle handle, void** hint) override {
+ void InsertWithHintConcurrently(KeyHandle handle,
+                                 std::unique_ptr<char[]>* hint) override {
    skip_list_.InsertWithHintConcurrently(static_cast<char*>(handle), hint);
  }
 
- bool InsertKeyWithHintConcurrently(KeyHandle handle, void** hint) override {
+ bool InsertKeyWithHintConcurrently(KeyHandle handle,
+                                    std::unique_ptr<char[]>* hint) override {
    return skip_list_.InsertWithHintConcurrently(static_cast<char*>(handle),
                                                 hint);
  }
