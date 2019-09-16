@@ -1110,7 +1110,6 @@ void DBIter::Seek(const Slice& target) {
   ResetInternalKeysSkippedCounter();
 
   // Seek the inner iterator based on the target key.
-  //
   {
     PERF_TIMER_GUARD(seek_internal_seek_time);
 
@@ -1151,7 +1150,6 @@ void DBIter::Seek(const Slice& target) {
   }
 
   // Updating stats and perf context counters.
-  //
   if (statistics_ != nullptr) {
     // Decrement since we don't want to count this key as skipped
     RecordTick(statistics_, NUMBER_DB_SEEK_FOUND);
@@ -1175,7 +1173,6 @@ void DBIter::SeekForPrev(const Slice& target) {
   ResetInternalKeysSkippedCounter();
 
   // Seek the inner iterator based on the target key.
-  //
   {
     PERF_TIMER_GUARD(seek_internal_seek_time);
     SetSavedKeyToSeekForPrevTarget(target);
@@ -1192,7 +1189,6 @@ void DBIter::SeekForPrev(const Slice& target) {
   // Now the inner iterator is placed to the target position. From there,
   // we need to find out the first key that is visible to the user in the
   // backward direction.
-  //
   ClearSavedValue();
   if (prefix_same_as_start_) {
     // The case where the iterator needs to be invalidated if it has exausted
