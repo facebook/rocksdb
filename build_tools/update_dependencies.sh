@@ -73,7 +73,7 @@ echo "Writing dependencies to $OUTPUT"
 
 # Compilers locations
 GCC_BASE=`readlink -f $TP2_LATEST/gcc/7.x/centos7-native/*/`
-CLANG_BASE=`readlink -f $TP2_LATEST/llvm-fb/9.0.0/centos7-native/*/`
+CLANG_BASE=`readlink -f $TP2_LATEST/llvm-fb/stable/centos7-native/*/`
 
 log_header
 log_variable GCC_BASE
@@ -113,7 +113,7 @@ echo "Writing dependencies to $OUTPUT"
 
 # Compilers locations
 GCC_BASE=`readlink -f $TP2_LATEST/gcc/5.x/centos7-native/*/`
-CLANG_BASE=`readlink -f $TP2_LATEST/llvm-fb/9.0.0/centos7-native/*/`
+CLANG_BASE=`readlink -f $TP2_LATEST/llvm-fb/stable/centos7-native/*/`
 
 log_header
 log_variable GCC_BASE
