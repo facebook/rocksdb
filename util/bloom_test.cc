@@ -352,8 +352,7 @@ TEST_F(FullBloomTest, FullVaryingLengths) {
     }
     Build();
 
-    ASSERT_LE(FilterSize(),
-              (size_t)((length * 10 / 8) + CACHE_LINE_SIZE * 2 + 5));
+    ASSERT_LE(FilterSize(), (size_t)((length * 10 / 8) + CACHE_LINE_SIZE * 2 + 5)) << length;
 
     // All added keys must match
     for (int i = 0; i < length; i++) {
