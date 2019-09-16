@@ -41,8 +41,8 @@ default_params = {
     "enable_pipelined_write": 0,
     "expected_values_path": expected_values_file.name,
     "flush_one_in": 1000000,
-    # Temporarily disable hash index
-    "index_type": lambda: random.choice([0, 2]),
+    # Temporarily disable hash and partitioned index
+    "index_type": 0,
     "max_background_compactions": 20,
     "max_bytes_for_level_base": 10485760,
     "max_key": 100000000,
@@ -50,7 +50,8 @@ default_params = {
     "mmap_read": lambda: random.randint(0, 1),
     "nooverwritepercent": 1,
     "open_files": lambda : random.choice([-1, 500000]),
-    "partition_filters": lambda: random.randint(0, 1),
+    # Temporarily disable partitioned filter
+    "partition_filters": 0,
     "prefixpercent": 5,
     "progress_reports": 0,
     "readpercent": 45,
