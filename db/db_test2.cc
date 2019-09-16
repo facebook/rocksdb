@@ -3780,7 +3780,7 @@ TEST_F(DBTest2, CloseWithUnreleasedSnapshot) {
 TEST_F(DBTest2, RowCacheSnapshot) {
   Options options = CurrentOptions();
   options.statistics = rocksdb::CreateDBStatistics();
-  options.row_cache = NewLRUCache(8192);
+  options.row_cache = NewLRUCache(8 * 8192);
   DestroyAndReopen(options);
 
   ASSERT_OK(Put("foo", "bar1"));

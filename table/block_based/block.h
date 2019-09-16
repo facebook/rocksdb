@@ -12,16 +12,10 @@
 #include <stdint.h>
 #include <string>
 #include <vector>
-#ifdef ROCKSDB_MALLOC_USABLE_SIZE
-#ifdef OS_FREEBSD
-#include <malloc_np.h>
-#else
-#include <malloc.h>
-#endif
-#endif
 
 #include "db/dbformat.h"
 #include "db/pinned_iterators_manager.h"
+#include "port/malloc.h"
 #include "rocksdb/iterator.h"
 #include "rocksdb/options.h"
 #include "rocksdb/statistics.h"
