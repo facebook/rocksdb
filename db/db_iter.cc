@@ -47,13 +47,14 @@ static void DumpInternalIter(Iterator* iter) {
 #endif
 
 DBIter::DBIter(Env* _env, const ReadOptions& read_options,
-       const ImmutableCFOptions& cf_options,
-       const MutableCFOptions& mutable_cf_options, const Comparator* cmp,
-       InternalIterator* iter, SequenceNumber s, bool arena_mode,
-       uint64_t max_sequential_skip_in_iterations,
-       ReadCallback* read_callback, DBImpl* db_impl, ColumnFamilyData* cfd,
-       bool allow_blob)
-    : env_(_env),
+               const ImmutableCFOptions& cf_options,
+               const MutableCFOptions& mutable_cf_options,
+               const Comparator* cmp, InternalIterator* iter, SequenceNumber s,
+               bool arena_mode, uint64_t max_sequential_skip_in_iterations,
+               ReadCallback* read_callback, DBImpl* db_impl,
+               ColumnFamilyData* cfd, bool allow_blob)
+    : prefix_extractor_(mutable_cf_options.prefix_extractor.get()),
+      env_(_env),
       logger_(cf_options.info_log),
       user_comparator_(cmp),
       merge_operator_(cf_options.merge_operator),
@@ -68,7 +69,9 @@ DBIter::DBIter(Env* _env, const ReadOptions& read_options,
       valid_(false),
       current_entry_is_merged_(false),
       is_key_seqnum_zero_(false),
-      prefix_same_as_start_(read_options.prefix_same_as_start),
+      prefix_same_as_start_(mutable_cf_options.prefix_extractor
+                                ? read_options.prefix_same_as_start
+                                : false),
       pin_thru_lifetime_(read_options.pin_data),
       total_order_seek_(read_options.total_order_seek),
       allow_blob_(allow_blob),
@@ -79,7 +82,6 @@ DBIter::DBIter(Env* _env, const ReadOptions& read_options,
       cfd_(cfd),
       start_seqnum_(read_options.iter_start_seqnum) {
   RecordTick(statistics_, NO_ITERATOR_CREATED);
-  prefix_extractor_ = mutable_cf_options.prefix_extractor.get();
   max_skip_ = max_sequential_skip_in_iterations;
   max_skippable_internal_keys_ = read_options.max_skippable_internal_keys;
   if (pin_thru_lifetime_) {
@@ -152,12 +154,13 @@ void DBIter::Next() {
 
   local_stats_.next_count_++;
   if (ok && iter_.Valid()) {
-    if (prefix_same_as_start_ && prefix_extractor_ != nullptr) {
-      Slice prefix = prefix_.GetUserKey();
-      FindNextUserEntry(true /* skipping the current user key */, &prefix);
-    } else {
-      FindNextUserEntry(true /* skipping the current user key */, nullptr);
+    Slice prefix;
+    if (prefix_same_as_start_) {
+      assert(prefix_extractor_ != nullptr);
+      prefix = prefix_.GetUserKey();
     }
+    FindNextUserEntry(true /* skipping the current user key */,
+                      prefix_same_as_start_ ? &prefix : nullptr);
   } else {
     is_key_seqnum_zero_ = false;
     valid_ = false;
@@ -541,12 +544,12 @@ void DBIter::Prev() {
     }
   }
   if (ok) {
-    if (prefix_same_as_start_ && prefix_extractor_ != nullptr) {
-      Slice prefix = prefix_.GetUserKey();
-      PrevInternal(&prefix);
-    } else {
-      PrevInternal(nullptr);
+    Slice prefix;
+    if (prefix_same_as_start_) {
+      assert(prefix_extractor_ != nullptr);
+      prefix = prefix_.GetUserKey();
     }
+    PrevInternal(prefix_same_as_start_ ? &prefix : nullptr);
   }
 
   if (statistics_ != nullptr) {
@@ -1127,9 +1130,10 @@ void DBIter::Seek(const Slice& target) {
   // we need to find out the next key that is visible to the user.
   //
   ClearSavedValue();
-  if (prefix_extractor_ && prefix_same_as_start_) {
+  if (prefix_same_as_start_) {
     // The case where the iterator needs to be invalidated if it has exausted
     // keys within the same prefix of the seek key.
+    assert(prefix_extractor_ != nullptr);
     Slice target_prefix;
     target_prefix = prefix_extractor_->Transform(target);
     FindNextUserEntry(false /* not skipping saved_key */,
@@ -1190,9 +1194,10 @@ void DBIter::SeekForPrev(const Slice& target) {
   // backward direction.
   //
   ClearSavedValue();
-  if (prefix_extractor_ && prefix_same_as_start_) {
+  if (prefix_same_as_start_) {
     // The case where the iterator needs to be invalidated if it has exausted
     // keys within the same prefix of the seek key.
+    assert(prefix_extractor_ != nullptr);
     Slice target_prefix;
     target_prefix = prefix_extractor_->Transform(target);
     PrevInternal(&target_prefix);
@@ -1254,7 +1259,8 @@ void DBIter::SeekToFirst() {
   } else {
     valid_ = false;
   }
-  if (valid_ && prefix_extractor_ && prefix_same_as_start_) {
+  if (valid_ && prefix_same_as_start_) {
+    assert(prefix_extractor_ != nullptr);
     prefix_.SetUserKey(prefix_extractor_->Transform(saved_key_.GetUserKey()));
   }
 }
@@ -1297,7 +1303,8 @@ void DBIter::SeekToLast() {
       PERF_COUNTER_ADD(iter_read_bytes, key().size() + value().size());
     }
   }
-  if (valid_ && prefix_extractor_ && prefix_same_as_start_) {
+  if (valid_ && prefix_same_as_start_) {
+    assert(prefix_extractor_ != nullptr);
     prefix_.SetUserKey(prefix_extractor_->Transform(saved_key_.GetUserKey()));
   }
 }
