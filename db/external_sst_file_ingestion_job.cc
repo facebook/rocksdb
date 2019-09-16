@@ -16,12 +16,12 @@
 #include "db/db_impl/db_impl.h"
 #include "db/version_edit.h"
 #include "file/file_util.h"
+#include "file/random_access_file_reader.h"
 #include "table/merging_iterator.h"
 #include "table/scoped_arena_iterator.h"
 #include "table/sst_file_writer_collectors.h"
 #include "table/table_builder.h"
 #include "test_util/sync_point.h"
-#include "util/file_reader_writer.h"
 #include "util/stop_watch.h"
 
 namespace rocksdb {
