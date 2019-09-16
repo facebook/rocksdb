@@ -15,15 +15,6 @@
 #include "util/rate_limiter.h"
 
 namespace rocksdb {
-
-#ifndef NDEBUG
-namespace {
-bool IsFileSectorAligned(const size_t off, size_t sector_size) {
-  return off % sector_size == 0;
-}
-}  // namespace
-#endif
-
 namespace {
 class ReadaheadRandomAccessFile : public RandomAccessFile {
  public:

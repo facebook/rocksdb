@@ -26,4 +26,9 @@ extern Status NewWritableFile(Env* env, const std::string& fname,
 bool ReadOneLine(std::istringstream* iss, SequentialFile* seq_file,
                  std::string* output, bool* has_data, Status* result);
 
+#ifndef NDEBUG
+bool IsFileSectorAligned(const size_t off, size_t sector_size) {
+  return off % sector_size == 0;
+}
+#endif  // NDEBUG
 }  // namespace rocksdb
