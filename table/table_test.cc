@@ -2599,7 +2599,11 @@ TEST_P(BlockBasedTableTest, FilterBlockInBlockCache) {
 
   // Enable the cache for index/filter blocks
   BlockBasedTableOptions table_options = GetBlockBasedTableOptions();
-  table_options.block_cache = NewLRUCache(2048, 2);
+  LRUCacheOptions co;
+  co.capacity = 2048;
+  co.num_shard_bits = 2;
+  co.metadata_charge_policy = kDontChargeCacheMetadata;
+  table_options.block_cache = NewLRUCache(co);
   table_options.cache_index_and_filter_blocks = true;
   options.table_factory.reset(new BlockBasedTableFactory(table_options));
   std::vector<std::string> keys;

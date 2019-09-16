@@ -10,13 +10,6 @@
 #pragma once
 #include <stdint.h>
 #include <string>
-#ifdef ROCKSDB_MALLOC_USABLE_SIZE
-#ifdef OS_FREEBSD
-#include <malloc_np.h>
-#else
-#include <malloc.h>
-#endif
-#endif
 #include "file/file_prefetch_buffer.h"
 #include "file/random_access_file_reader.h"
 
@@ -27,6 +20,7 @@
 
 #include "memory/memory_allocator.h"
 #include "options/cf_options.h"
+#include "port/malloc.h"
 #include "port/port.h"  // noexcept
 #include "table/persistent_cache_options.h"
 #include "util/crc32c.h"
