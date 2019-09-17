@@ -418,9 +418,8 @@ class ConcurrentTest {
     char* buf = list_.AllocateKey(sizeof(Key));
     memcpy(buf, &new_key, sizeof(Key));
     if (use_hint) {
-      void* hint = nullptr;
+      std::unique_ptr<char[]> hint = nullptr;
       list_.InsertWithHintConcurrently(buf, &hint);
-      delete[] reinterpret_cast<char*>(hint);
     } else {
       list_.InsertConcurrently(buf);
     }
