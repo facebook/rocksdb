@@ -18,7 +18,8 @@ namespace ROCKSDB_NAMESPACE {
 class SstFileDumper {
  public:
   explicit SstFileDumper(const Options& options, const std::string& file_name,
-                         bool verify_checksum, bool output_hex,
+                         bool verify_checksum,
+                         bool output_hex, bool output_escape,
                          bool decode_blob_index);
 
   Status ReadSequential(bool print_kv, uint64_t read_num, bool has_from,
@@ -66,6 +67,7 @@ class SstFileDumper {
   bool verify_checksum_;
   bool output_hex_;
   bool decode_blob_index_;
+  bool output_escape_;
   EnvOptions soptions_;
 
   // options_ and internal_comparator_ will also be used in

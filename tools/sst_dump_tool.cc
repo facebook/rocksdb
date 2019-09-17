@@ -42,6 +42,21 @@
 
 namespace {
 
+void Escape(std::string &str)
+{
+  size_t pos = 0;
+  while ((pos = str.find_first_of("\n\t\r\0", pos, 4)) != std::string::npos) {
+    switch (str[pos]) {
+      // TODO: on expansion, can be replaced with lookup table
+      case '\n': str[pos] = 'n'; break;
+      case '\t': str[pos] = 't'; break;
+      case '\r': str[pos] = 'r'; break;
+      case '\0': str[pos] = '0'; break;
+    }
+    str.insert(pos, "\\");
+    pos += 2;
+  }
+}
 void Print(const std::string &key, const std::string &val, FILE *out)
 {
   fwrite(key.c_str(), key.size(), 1, out);
@@ -56,12 +71,14 @@ namespace ROCKSDB_NAMESPACE {
 
 SstFileDumper::SstFileDumper(const Options& options,
                              const std::string& file_path, bool verify_checksum,
-                             bool output_hex, bool decode_blob_index)
+                             bool output_hex, bool output_escape,
+                             bool decode_blob_index)
     : file_name_(file_path),
       read_num_(0),
       verify_checksum_(verify_checksum),
       output_hex_(output_hex),
       decode_blob_index_(decode_blob_index),
+      output_escape_(output_escape),
       options_(options),
       ioptions_(options_),
       moptions_(ColumnFamilyOptions(options_)),
@@ -400,9 +417,16 @@ Status SstFileDumper::ReadSequential(bool print_kv, uint64_t read_num,
 
     if (print_kv) {
       std::string key_str = ikey.DebugString(output_hex_);
+      if (output_escape_) {
+        Escape(key_str);
+      }
 
       if (!decode_blob_index_ || ikey.type != kTypeBlobIndex) {
-        Print(key_str, value.ToString(output_hex_), stdout);
+        std::string val_str = value.ToString(output_hex_);
+        if (output_escape_) {
+          Escape(val_str);
+        }
+        Print(key_str, val_str, stdout);
       } else {
         BlobIndex blob_index;
 
@@ -413,7 +437,11 @@ Status SstFileDumper::ReadSequential(bool print_kv, uint64_t read_num,
           continue;
         }
 
-        Print(key_str, blob_index.DebugString(output_hex_), stdout);
+        std::string val_str = blob_index.DebugString(output_hex_);
+        if (output_escape_) {
+          Escape(val_str);
+        }
+        Print(key_str, val_str, stdout);
       }
     }
   }
@@ -457,6 +485,9 @@ void print_help() {
 
     --output_hex
       Can be combined with scan command to print the keys and values in Hex
+
+    --output_escape
+      Escape some chars (LF -> \n, CR -> \r, ...) to make output greppable
 
     --decode_blob_index
       Decode blob indexes and print them in a human-readable format during scans.
@@ -512,6 +543,7 @@ int SSTDumpTool::Run(int argc, char** argv, Options options) {
   bool verify_checksum = false;
   bool output_hex = false;
   bool decode_blob_index = false;
+  bool output_escape = false;
   bool input_key_hex = false;
   bool has_from = false;
   bool has_to = false;
@@ -538,6 +570,8 @@ int SSTDumpTool::Run(int argc, char** argv, Options options) {
       output_hex = true;
     } else if (strcmp(argv[i], "--decode_blob_index") == 0) {
       decode_blob_index = true;
+    } else if (strcmp(argv[i], "--output_escape") == 0) {
+      output_escape = true;
     } else if (strcmp(argv[i], "--input_key_hex") == 0) {
       input_key_hex = true;
     } else if (sscanf(argv[i], "--read_num=%lu%c", (unsigned long*)&n, &junk) ==
@@ -677,7 +711,8 @@ int SSTDumpTool::Run(int argc, char** argv, Options options) {
     }
 
     ROCKSDB_NAMESPACE::SstFileDumper dumper(options, filename, verify_checksum,
-                                            output_hex, decode_blob_index);
+                                            output_hex, output_escape,
+                                            decode_blob_index);
     if (!dumper.getStatus().ok()) {
       fprintf(stderr, "%s: %s\n", filename.c_str(),
               dumper.getStatus().ToString().c_str());
