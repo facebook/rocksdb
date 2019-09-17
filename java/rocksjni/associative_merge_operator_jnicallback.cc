@@ -53,7 +53,7 @@ namespace rocksdb {
                                                   const Slice *existing_value,
                                                   const Slice &value,
                                                   std::string *new_value,
-                                                  Logger */*logger*/) const {
+                                                  Logger* /*logger*/) const {
     jboolean attached_thread = JNI_FALSE;
     JNIEnv *env = getJniEnv(&attached_thread);
     if (env == NULL)
