@@ -1959,41 +1959,58 @@ void DBImpl::MultiGetImpl(
     bool lookup_current = false;
 
     keys_left -= batch_size;
+//    for (auto mget_iter = range.begin(); mget_iter != range.end();
+//         ++mget_iter) {
+//      MergeContext& merge_context = mget_iter->merge_context;
+//      merge_context.Clear();
+//      Status& s = *mget_iter->s;
+//      PinnableSlice* value = mget_iter->value;
+//      s = Status::OK();
+//
+//      bool skip_memtable =
+//          (read_options.read_tier == kPersistedTier &&
+//           has_unpersisted_data_.load(std::memory_order_relaxed));
+//      bool done = false;
+//      if (!skip_memtable) {
+//        if (super_version->mem->Get(*(mget_iter->lkey), value->GetSelf(), &s,
+//                                    &merge_context,
+//                                    &mget_iter->max_covering_tombstone_seq,
+//                                    read_options, callback, is_blob_index)) {
+//          done = true;
+//          value->PinSelf();
+//          RecordTick(stats_, MEMTABLE_HIT);
+//        } else if (super_version->imm->Get(
+//                       *(mget_iter->lkey), value->GetSelf(), &s, &merge_context,
+//                       &mget_iter->max_covering_tombstone_seq, read_options,
+//                       callback, is_blob_index)) {
+//          done = true;
+//          value->PinSelf();
+//          RecordTick(stats_, MEMTABLE_HIT);
+//        }
+//      }
+//      if (done) {
+//        range.MarkKeyDone(mget_iter);
+//      } else {
+//        RecordTick(stats_, MEMTABLE_MISS);
+//        lookup_current = true;
+//      }
+//    }
+
     for (auto mget_iter = range.begin(); mget_iter != range.end();
          ++mget_iter) {
-      MergeContext& merge_context = mget_iter->merge_context;
-      merge_context.Clear();
-      Status& s = *mget_iter->s;
-      PinnableSlice* value = mget_iter->value;
-      s = Status::OK();
+      mget_iter->merge_context.Clear();
+      *mget_iter->s = Status::OK();
+    }
 
-      bool skip_memtable =
-          (read_options.read_tier == kPersistedTier &&
-           has_unpersisted_data_.load(std::memory_order_relaxed));
-      bool done = false;
-      if (!skip_memtable) {
-        if (super_version->mem->Get(*(mget_iter->lkey), value->GetSelf(), &s,
-                                    &merge_context,
-                                    &mget_iter->max_covering_tombstone_seq,
-                                    read_options, callback, is_blob_index)) {
-          done = true;
-          value->PinSelf();
-          RecordTick(stats_, MEMTABLE_HIT);
-        } else if (super_version->imm->Get(
-                       *(mget_iter->lkey), value->GetSelf(), &s, &merge_context,
-                       &mget_iter->max_covering_tombstone_seq, read_options,
-                       callback, is_blob_index)) {
-          done = true;
-          value->PinSelf();
-          RecordTick(stats_, MEMTABLE_HIT);
+    bool skip_memtable = (read_options.read_tier == kPersistedTier && has_unpersisted_data_.load(std::memory_order_relaxed));
+    if (!skip_memtable) {
+        bool found_all_keys = super_version->mem->MultiGet(read_options, &range, callback, is_blob_index);
+        if (!found_all_keys) {
+            found_all_keys = super_version->imm->MultiGet(read_options, &range, callback, is_blob_index);
+            if (!found_all_keys) {
+                lookup_current = true;
+            }
         }
-      }
-      if (done) {
-        range.MarkKeyDone(mget_iter);
-      } else {
-        RecordTick(stats_, MEMTABLE_MISS);
-        lookup_current = true;
-      }
     }
 
     if (lookup_current) {
