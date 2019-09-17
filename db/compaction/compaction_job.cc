@@ -311,7 +311,8 @@ CompactionJob::CompactionJob(
     const SnapshotChecker* snapshot_checker, std::shared_ptr<Cache> table_cache,
     EventLogger* event_logger, bool paranoid_file_checks, bool measure_io_stats,
     const std::string& dbname, CompactionJobStats* compaction_job_stats,
-    Env::Priority thread_pri, SnapshotListFetchCallback* snap_list_callback)
+    Env::Priority thread_pri, SnapshotListFetchCallback* snap_list_callback,
+    const std::atomic<bool>* manual_compaction_paused)
     : job_id_(job_id),
       compact_(new CompactionState(compaction)),
       compaction_job_stats_(compaction_job_stats),
@@ -324,6 +325,7 @@ CompactionJob::CompactionJob(
           env_->OptimizeForCompactionTableRead(env_options, db_options_)),
       versions_(versions),
       shutting_down_(shutting_down),
+      manual_compaction_paused_(manual_compaction_paused),
       preserve_deletes_seqnum_(preserve_deletes_seqnum),
       log_buffer_(log_buffer),
       db_directory_(db_directory),
@@ -867,9 +869,12 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
       false /* internal key corruption is expected */,
       existing_snapshots_.empty() ? 0 : existing_snapshots_.back(),
       snapshot_checker_, compact_->compaction->level(),
-      db_options_.statistics.get(), shutting_down_);
+      db_options_.statistics.get());
 
   TEST_SYNC_POINT("CompactionJob::Run():Inprogress");
+  TEST_SYNC_POINT_CALLBACK("CompactionJob::Run():PausingManualCompaction:1",
+      reinterpret_cast<void *>(
+        const_cast<std::atomic<bool> *>(manual_compaction_paused_)));
 
   Slice* start = sub_compact->start;
   Slice* end = sub_compact->end;
@@ -889,7 +894,8 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
       &range_del_agg, sub_compact->compaction, compaction_filter,
       shutting_down_, preserve_deletes_seqnum_,
       // Currently range_del_agg is incompatible with snapshot refresh feature.
-      range_del_agg.IsEmpty() ? snap_list_callback_ : nullptr));
+      range_del_agg.IsEmpty() ? snap_list_callback_ : nullptr,
+      manual_compaction_paused_));
   auto c_iter = sub_compact->c_iter.get();
   c_iter->SeekToFirst();
   if (c_iter->Valid() && sub_compact->compaction->output_level() != 0) {
@@ -953,7 +959,13 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
       input_status = input->status();
       output_file_ended = true;
     }
+    TEST_SYNC_POINT_CALLBACK("CompactionJob::Run():PausingManualCompaction:2",
+        reinterpret_cast<void *>(
+          const_cast<std::atomic<bool> *>(manual_compaction_paused_)));
     c_iter->Next();
+    if (c_iter->status().IsManualCompactionPaused()) {
+      break;
+    }
     if (!output_file_ended && c_iter->Valid() &&
         sub_compact->compaction->output_level() != 0 &&
         sub_compact->ShouldStopBefore(c_iter->key(),
@@ -1005,6 +1017,11 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
   if ((status.ok() || status.IsColumnFamilyDropped()) &&
       shutting_down_->load(std::memory_order_relaxed)) {
     status = Status::ShutdownInProgress("Database shutdown");
+  }
+  if ((status.ok() || status.IsColumnFamilyDropped()) &&
+      (manual_compaction_paused_ &&
+       manual_compaction_paused_->load(std::memory_order_relaxed))) {
+    status = Status::Incomplete(Status::SubCode::kManualCompactionPaused);
   }
   if (status.ok()) {
     status = input->status();

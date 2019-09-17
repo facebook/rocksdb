@@ -917,6 +917,9 @@ Status DBImpl::CompactFilesImpl(
   if (shutting_down_.load(std::memory_order_acquire)) {
     return Status::ShutdownInProgress();
   }
+  if (manual_compaction_paused_.load(std::memory_order_acquire)) {
+    return Status::Incomplete(Status::SubCode::kManualCompactionPaused);
+  }
 
   std::unordered_set<uint64_t> input_set;
   for (const auto& file_name : input_file_names) {
@@ -1012,7 +1015,8 @@ Status DBImpl::CompactFilesImpl(
       immutable_db_options_.max_subcompactions <= 1 &&
               c->mutable_cf_options()->snap_refresh_nanos > 0
           ? &fetch_callback
-          : nullptr);
+          : nullptr,
+      &manual_compaction_paused_);
 
   // Creating a compaction influences the compaction score because the score
   // takes running compactions into account (by skipping files that are already
@@ -1058,6 +1062,12 @@ Status DBImpl::CompactFilesImpl(
     // Done
   } else if (status.IsColumnFamilyDropped() || status.IsShutdownInProgress()) {
     // Ignore compaction errors found during shutting down
+  } else if (status.IsManualCompactionPaused()) {
+    // Don't report stopping manual compaction as error
+    ROCKS_LOG_INFO(immutable_db_options_.info_log,
+                   "[%s] [JOB %d] Stopping manual compaction",
+                   c->column_family_data()->GetName().c_str(),
+                   job_context->job_id);
   } else {
     ROCKS_LOG_WARN(immutable_db_options_.info_log,
                    "[%s] [JOB %d] Compaction error: %s",
@@ -1128,6 +1138,10 @@ void DBImpl::NotifyOnCompactionBegin(ColumnFamilyData* cfd, Compaction* c,
   if (shutting_down_.load(std::memory_order_acquire)) {
     return;
   }
+  if (c->is_manual_compaction() &&
+      manual_compaction_paused_.load(std::memory_order_acquire)) {
+    return;
+  }
   Version* current = cfd->current();
   current->Ref();
   // release lock while notifying events
@@ -1188,6 +1202,10 @@ void DBImpl::NotifyOnCompactionCompleted(
   }
   mutex_.AssertHeld();
   if (shutting_down_.load(std::memory_order_acquire)) {
+    return;
+  }
+  if (c->is_manual_compaction() &&
+      manual_compaction_paused_.load(std::memory_order_acquire)) {
     return;
   }
   Version* current = cfd->current();
@@ -1879,6 +1897,14 @@ Status DBImpl::EnableAutoCompaction(
   return s;
 }
 
+void DBImpl::DisableManualCompaction() {
+  manual_compaction_paused_.store(true, std::memory_order_release);
+}
+
+void DBImpl::EnableManualCompaction() {
+  manual_compaction_paused_.store(false, std::memory_order_release);
+}
+
 void DBImpl::MaybeScheduleFlushOrCompaction() {
   mutex_.AssertHeld();
   if (!opened_successfully_) {
@@ -2319,6 +2345,7 @@ void DBImpl::BackgroundCallCompaction(PrepickedCompaction* prepicked_compaction,
       env_->SleepForMicroseconds(10000);  // prevent hot loop
       mutex_.Lock();
     } else if (!s.ok() && !s.IsShutdownInProgress() &&
+               !s.IsManualCompactionPaused() &&
                !s.IsColumnFamilyDropped()) {
       // Wait a little bit before retrying background compaction in
       // case this is an environmental problem and we do not want to
@@ -2336,6 +2363,12 @@ void DBImpl::BackgroundCallCompaction(PrepickedCompaction* prepicked_compaction,
       LogFlush(immutable_db_options_.info_log);
       env_->SleepForMicroseconds(1000000);
       mutex_.Lock();
+    } else if (s.IsManualCompactionPaused()) {
+      ManualCompactionState *m = prepicked_compaction->manual_compaction_state;
+      assert(m);
+      ROCKS_LOG_BUFFER(&log_buffer, "[%s] [JOB %d] Manual compaction paused",
+                       m->cfd->GetName().c_str(),
+                       job_context.job_id);
     }
 
     ReleaseFileNumberFromPendingOutputs(pending_outputs_inserted_elem);
@@ -2344,7 +2377,8 @@ void DBImpl::BackgroundCallCompaction(PrepickedCompaction* prepicked_compaction,
     // have created (they might not be all recorded in job_context in case of a
     // failure). Thus, we force full scan in FindObsoleteFiles()
     FindObsoleteFiles(&job_context, !s.ok() && !s.IsShutdownInProgress() &&
-                                        !s.IsColumnFamilyDropped());
+                      !s.IsManualCompactionPaused() &&
+                      !s.IsColumnFamilyDropped());
     TEST_SYNC_POINT("DBImpl::BackgroundCallCompaction:FoundObsoleteFiles");
 
     // delete unnecessary files if any, this is done outside the mutex
@@ -2427,6 +2461,9 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
   if (!error_handler_.IsBGWorkStopped()) {
     if (shutting_down_.load(std::memory_order_acquire)) {
       status = Status::ShutdownInProgress();
+    } else if (is_manual &&
+        manual_compaction_paused_.load(std::memory_order_acquire)) {
+      status = Status::Incomplete(Status::SubCode::kManualCompactionPaused);
     }
   } else {
     status = error_handler_.GetBGError();
@@ -2744,7 +2781,7 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
         immutable_db_options_.max_subcompactions <= 1 &&
                 c->mutable_cf_options()->snap_refresh_nanos > 0
             ? &fetch_callback
-            : nullptr);
+            : nullptr, is_manual ? &manual_compaction_paused_ : nullptr);
     compaction_job.Prepare();
 
     NotifyOnCompactionBegin(c->column_family_data(), c.get(), status,
@@ -2784,7 +2821,8 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
                                 compaction_job_stats, job_context->job_id);
   }
 
-  if (status.ok() || status.IsCompactionTooLarge()) {
+  if (status.ok() || status.IsCompactionTooLarge() ||
+      status.IsManualCompactionPaused()) {
     // Done
   } else if (status.IsColumnFamilyDropped() || status.IsShutdownInProgress()) {
     // Ignore compaction errors found during shutting down
