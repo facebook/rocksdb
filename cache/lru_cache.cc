@@ -225,8 +225,10 @@ void LRUCacheShard::MaintainPoolSize() {
     lru_low_pri_ = lru_low_pri_->next;
     assert(lru_low_pri_ != &lru_);
     lru_low_pri_->SetInHighPriPool(false);
-    assert(high_pri_pool_usage_ >= lru_low_pri_->charge);
-    high_pri_pool_usage_ -= lru_low_pri_->charge;
+    size_t total_charge =
+        lru_low_pri_->CalcTotalCharge(metadata_charge_policy_);
+    assert(high_pri_pool_usage_ >= total_charge);
+    high_pri_pool_usage_ -= total_charge;
   }
 }
 
