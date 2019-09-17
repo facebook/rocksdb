@@ -171,8 +171,8 @@ TEST_F(ObsoleteFilesTest, RaceForObsoleteFileDeletion) {
       });
   SyncPoint::GetInstance()->SetCallBack(
       "DBImpl::CloseHelper:PendingPurgeFinished", [&](void* arg) {
-        std::vector<uint64_t>* files_grabbed_for_purge_ptr =
-            reinterpret_cast<std::vector<uint64_t>*>(arg);
+        std::unordered_set<uint64_t>* files_grabbed_for_purge_ptr =
+            reinterpret_cast<std::unordered_set<uint64_t>*>(arg);
         ASSERT_TRUE(files_grabbed_for_purge_ptr->empty());
       });
   SyncPoint::GetInstance()->EnableProcessing();
