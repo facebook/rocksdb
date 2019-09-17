@@ -62,7 +62,7 @@ namespace rocksdb {
                                               const Slice &lop,
                                               const Slice &rop,
                                               std::string *new_value,
-                                              Logger */*logger*/) const
+                                              Logger* /*logger*/) const
   {
     jboolean attached_thread = JNI_FALSE;
     JNIEnv *env = getJniEnv(&attached_thread);
@@ -123,7 +123,7 @@ namespace rocksdb {
   bool MergeOperatorJniCallback::PartialMergeMulti(const Slice &key,
                                                    const std::deque <Slice> &operands,
                                                    std::string *new_value,
-                                                   Logger */*logger*/) const
+                                                   Logger* /*logger*/) const
   {
     if (!allowPartialMultiMerge) return false;
 
