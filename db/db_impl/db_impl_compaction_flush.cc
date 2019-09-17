@@ -2063,7 +2063,7 @@ void DBImpl::SchedulePendingPurge(std::string fname, std::string dir_to_sync,
                                   FileType type, uint64_t number, int job_id) {
   mutex_.AssertHeld();
   PurgeFileInfo file_info(fname, dir_to_sync, type, number, job_id);
-  purge_queue_.push_back(std::move(file_info));
+  purge_files_.insert({{number, std::move(file_info)}});
 }
 
 void DBImpl::BGWorkFlush(void* arg) {
@@ -3037,34 +3037,20 @@ void DBImpl::InstallSuperVersionAndScheduleWork(
 }
 
 // ShouldPurge is called by FindObsoleteFiles when doing a full scan,
-// and db mutex (mutex_) should already be held. This function performs a
-// linear scan of an vector (files_grabbed_for_purge_) in search of a
-// certain element. We expect FindObsoleteFiles with full scan to occur once
-// every 10 hours by default, and the size of the vector is small.
-// Therefore, the cost is affordable even if the mutex is held.
+// and db mutex (mutex_) should already be held.
 // Actually, the current implementation of FindObsoleteFiles with
 // full_scan=true can issue I/O requests to obtain list of files in
 // directories, e.g. env_->getChildren while holding db mutex.
-// In the future, if we want to reduce the cost of search, we may try to keep
-// the vector sorted.
 bool DBImpl::ShouldPurge(uint64_t file_number) const {
-  for (auto fn : files_grabbed_for_purge_) {
-    if (file_number == fn) {
-      return false;
-    }
-  }
-  for (const auto& purge_file_info : purge_queue_) {
-    if (purge_file_info.number == file_number) {
-      return false;
-    }
-  }
-  return true;
+  return files_grabbed_for_purge_.find(file_number) ==
+             files_grabbed_for_purge_.end() &&
+         purge_files_.find(file_number) == purge_files_.end();
 }
 
 // MarkAsGrabbedForPurge is called by FindObsoleteFiles, and db mutex
 // (mutex_) should already be held.
 void DBImpl::MarkAsGrabbedForPurge(uint64_t file_number) {
-  files_grabbed_for_purge_.emplace_back(file_number);
+  files_grabbed_for_purge_.insert(file_number);
 }
 
 void DBImpl::SetSnapshotChecker(SnapshotChecker* snapshot_checker) {
