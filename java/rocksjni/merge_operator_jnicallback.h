@@ -14,7 +14,7 @@
 #include "rocksdb/merge_operator.h"
 #include "rocksdb/slice.h"
 #include "rocksjni/jnicallback.h"
-#include "util/logging.h"
+#include "logging/logging.h"
 
 namespace rocksdb {
   class MergeOperatorJniCallback : public JniCallback, public MergeOperator {

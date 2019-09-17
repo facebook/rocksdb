@@ -82,9 +82,6 @@ set(JNI_NATIVE_SOURCES
 )
 
 set(JAVA_MAIN_CLASSES
-        org.rocksdb.AbstractAssociativeMergeOperator
-        org.rocksdb.AbstractMergeOperator
-        org.rocksdb.ReturnType
   src/main/java/org/rocksdb/AbstractAssociativeMergeOperator.java
   src/main/java/org/rocksdb/AbstractCompactionFilter.java
   src/main/java/org/rocksdb/AbstractCompactionFilterFactory.java
@@ -379,10 +376,12 @@ if(${CMAKE_VERSION} VERSION_LESS "3.11.4" OR (${Java_VERSION_MINOR} STREQUAL "7"
   # Old CMake or Java 1.7 ONLY generate JNI headers, Java 1.8+ JNI is handled in add_jar step above
   message("Preparing JNI headers for Java 7")
   set(NATIVE_JAVA_CLASSES
+          org.rocksdb.AbstractAssociativeMergeOperator
           org.rocksdb.AbstractCompactionFilter
           org.rocksdb.AbstractCompactionFilterFactory
           org.rocksdb.AbstractComparator
           org.rocksdb.AbstractImmutableNativeReference
+          org.rocksdb.AbstractMergeOperator        
           org.rocksdb.AbstractNativeReference
           org.rocksdb.AbstractRocksIterator
           org.rocksdb.AbstractSlice
@@ -436,6 +435,7 @@ if(${CMAKE_VERSION} VERSION_LESS "3.11.4" OR (${Java_VERSION_MINOR} STREQUAL "7"
           org.rocksdb.ReadOptions
           org.rocksdb.RemoveEmptyValueCompactionFilter
           org.rocksdb.RestoreOptions
+          org.rocksdb.ReturnType          
           org.rocksdb.RocksCallbackObject
           org.rocksdb.RocksDB
           org.rocksdb.RocksEnv
