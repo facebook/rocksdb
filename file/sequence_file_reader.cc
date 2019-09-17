@@ -12,6 +12,7 @@
 #include <algorithm>
 #include <mutex>
 
+#include "file/read_write_util.h"
 #include "monitoring/histogram.h"
 #include "monitoring/iostats_context_imp.h"
 #include "port/port.h"
@@ -21,15 +22,6 @@
 #include "util/rate_limiter.h"
 
 namespace rocksdb {
-
-#ifndef NDEBUG
-namespace {
-bool IsFileSectorAligned(const size_t off, size_t sector_size) {
-  return off % sector_size == 0;
-}
-}  // namespace
-#endif
-
 Status SequentialFileReader::Read(size_t n, Slice* result, char* scratch) {
   Status s;
   if (use_direct_io()) {

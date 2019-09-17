@@ -58,4 +58,9 @@ bool ReadOneLine(std::istringstream* iss, SequentialFile* seq_file,
   return *has_data || has_complete_line;
 }
 
+#ifndef NDEBUG
+bool IsFileSectorAligned(const size_t off, size_t sector_size) {
+  return off % sector_size == 0;
+}
+#endif  // NDEBUG
 }  // namespace rocksdb
