@@ -15,6 +15,7 @@
 #include "db/memtable_list.h"
 #include "file/file_util.h"
 #include "file/sst_file_manager_impl.h"
+#include "util/autovector.h"
 
 namespace rocksdb {
 
@@ -495,7 +496,7 @@ void DBImpl::PurgeObsoleteFiles(JobContext& state, bool schedule_only) {
     // After purging obsolete files, remove them from files_grabbed_for_purge_.
     // Use a temporary vector to perform bulk deletion via swap.
     InstrumentedMutexLock guard_lock(&mutex_);
-    std::vector<uint64_t> to_be_removed;
+    autovector<uint64_t> to_be_removed;
     for (auto fn : files_grabbed_for_purge_) {
       if (files_to_del.count(fn) != 0) {
         to_be_removed.emplace_back(fn);

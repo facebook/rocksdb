@@ -3044,14 +3044,9 @@ void DBImpl::InstallSuperVersionAndScheduleWork(
 // full_scan=true can issue I/O requests to obtain list of files in
 // directories, e.g. env_->getChildren while holding db mutex.
 bool DBImpl::ShouldPurge(uint64_t file_number) const {
-  if (files_grabbed_for_purge_.find(file_number) !=
-      files_grabbed_for_purge_.end()) {
-    return false;
-  }
-  if (purge_files_.find(file_number) != purge_files_.end()) {
-    return false;
-  }
-  return true;
+  return files_grabbed_for_purge_.find(file_number) ==
+             files_grabbed_for_purge_.end() &&
+         purge_files_.find(file_number) == purge_files_.end();
 }
 
 // MarkAsGrabbedForPurge is called by FindObsoleteFiles, and db mutex

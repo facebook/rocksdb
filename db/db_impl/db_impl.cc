@@ -1317,13 +1317,13 @@ void DBImpl::BackgroundCallPurge() {
     delete log_writer;
     mutex_.Lock();
   }
-  for (auto file : purge_files_) {
-    auto purge_file = file.second;
-    auto fname = purge_file.fname;
-    auto dir_to_sync = purge_file.dir_to_sync;
-    auto type = purge_file.type;
-    auto number = purge_file.number;
-    auto job_id = purge_file.job_id;
+  for (const auto& file : purge_files_) {
+    const PurgeFileInfo& purge_file = file.second;
+    const std::string& fname = purge_file.fname;
+    const std::string& dir_to_sync = purge_file.dir_to_sync;
+    FileType type = purge_file.type;
+    uint64_t number = purge_file.number;
+    int job_id = purge_file.job_id;
 
     mutex_.Unlock();
     DeleteObsoleteFileImpl(job_id, fname, dir_to_sync, type, number);
