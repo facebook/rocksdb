@@ -212,19 +212,21 @@ class MemTable {
            MergeContext* merge_context,
            SequenceNumber* max_covering_tombstone_seq, SequenceNumber* seq,
            const ReadOptions& read_opts, ReadCallback* callback = nullptr,
-           bool* is_blob_index = nullptr, bool do_merge = true);
+           bool* is_blob_index = nullptr, bool do_merge = true,
+           bool skip_filter_check = false);
 
   bool Get(const LookupKey& key, std::string* value, Status* s,
            MergeContext* merge_context,
            SequenceNumber* max_covering_tombstone_seq,
            const ReadOptions& read_opts, ReadCallback* callback = nullptr,
-           bool* is_blob_index = nullptr, bool do_merge = true) {
+           bool* is_blob_index = nullptr, bool do_merge = true,
+           bool skip_filter_check = false) {
     SequenceNumber seq;
     return Get(key, value, s, merge_context, max_covering_tombstone_seq, &seq,
-               read_opts, callback, is_blob_index, do_merge);
+               read_opts, callback, is_blob_index, do_merge, skip_filter_check);
   }
 
-  void MultiGet(const ReadOptions& read_options, MultiGetRange* range,
+  bool MultiGet(const ReadOptions& read_options, MultiGetRange* range,
                 ReadCallback* callback, bool* is_blob);
 
   // Attempts to update the new_value inplace, else does normal Add
