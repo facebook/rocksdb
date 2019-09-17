@@ -1664,7 +1664,7 @@ std::vector<Status> DBImpl::MultiGet(
     }
   }
 
-  struct DerefIterFunc {
+  struct IterDerefFunc {
     inline MultiGetColumnFamilyData* operator()(
         std::unordered_map<uint32_t, MultiGetColumnFamilyData>::iterator&
             cf_iter) {
@@ -1674,7 +1674,7 @@ std::vector<Status> DBImpl::MultiGet(
 
   bool unref_only =
       MultiCFSnapshot<std::unordered_map<uint32_t, MultiGetColumnFamilyData>,
-                      DerefIterFunc>(read_options, nullptr, &multiget_cf_data,
+                      IterDerefFunc>(read_options, nullptr, &multiget_cf_data,
                                      &snapshot);
 
   // Contain a list of merge operations if merge occurs.
@@ -1760,7 +1760,7 @@ std::vector<Status> DBImpl::MultiGet(
   return stat_list;
 }
 
-template <class T, typename DerefIterFunc>
+template <class T, typename IterDerefFunc>
 bool DBImpl::MultiCFSnapshot(const ReadOptions& read_options,
                              ReadCallback* callback, T* cf_list,
                              SequenceNumber* snapshot) {
@@ -1770,7 +1770,7 @@ bool DBImpl::MultiCFSnapshot(const ReadOptions& read_options,
   if (cf_list->size() == 1) {
     // Acquire SuperVersion
     auto cf_iter = cf_list->begin();
-    auto node = DerefIterFunc()(cf_iter);
+    auto node = IterDerefFunc()(cf_iter);
     node->super_version = GetAndRefSuperVersion(node->cfd);
     if (read_options.snapshot != nullptr) {
       // Note: In WritePrepared txns this is not necessary but not harmful
@@ -1814,7 +1814,7 @@ bool DBImpl::MultiCFSnapshot(const ReadOptions& read_options,
       if (i > 0) {
         for (auto cf_iter = cf_list->begin(); cf_iter != cf_list->end();
              ++cf_iter) {
-          auto node = DerefIterFunc()(cf_iter);
+          auto node = IterDerefFunc()(cf_iter);
           SuperVersion* super_version = node->super_version;
           ColumnFamilyData* cfd = node->cfd;
           if (super_version != nullptr) {
@@ -1839,7 +1839,7 @@ bool DBImpl::MultiCFSnapshot(const ReadOptions& read_options,
       }
       for (auto cf_iter = cf_list->begin(); cf_iter != cf_list->end();
            ++cf_iter) {
-        auto node = DerefIterFunc()(cf_iter);
+        auto node = IterDerefFunc()(cf_iter);
         if (!last_try) {
           node->super_version = GetAndRefSuperVersion(node->cfd);
         } else {
@@ -1891,7 +1891,9 @@ void DBImpl::MultiGet(const ReadOptions& read_options, const size_t num_keys,
   for (size_t i = 0; i < num_keys; ++i) {
     key_context.emplace_back(column_families[i], keys[i], &values[i],
                              &statuses[i]);
-    sorted_keys[i] = &key_context.back();
+  }
+  for (size_t i = 0; i < num_keys; ++i) {
+    sorted_keys[i] = &key_context[i];
   }
   PrepareMultiGetKeys(num_keys, sorted_input, &sorted_keys);
 
@@ -1927,7 +1929,7 @@ void DBImpl::MultiGet(const ReadOptions& read_options, const size_t num_keys,
     multiget_cf_data.emplace_back(
         MultiGetColumnFamilyData(cf, cf_start, num_keys - cf_start, nullptr));
   }
-  struct DerefIterFunc {
+  struct IterDerefFunc {
     inline MultiGetColumnFamilyData* operator()(
         autovector<MultiGetColumnFamilyData,
                    MultiGetContext::MAX_BATCH_SIZE>::iterator& cf_iter) {
@@ -1938,7 +1940,7 @@ void DBImpl::MultiGet(const ReadOptions& read_options, const size_t num_keys,
   SequenceNumber snapshot;
   bool unref_only = MultiCFSnapshot<
       autovector<MultiGetColumnFamilyData, MultiGetContext::MAX_BATCH_SIZE>,
-      DerefIterFunc>(read_options, nullptr, &multiget_cf_data, &snapshot);
+      IterDerefFunc>(read_options, nullptr, &multiget_cf_data, &snapshot);
 
   for (auto cf_iter = multiget_cf_data.begin();
        cf_iter != multiget_cf_data.end(); ++cf_iter) {
@@ -1980,21 +1982,31 @@ struct CompareKeyContext {
 void DBImpl::PrepareMultiGetKeys(
     size_t num_keys, bool sorted_input,
     autovector<KeyContext*, MultiGetContext::MAX_BATCH_SIZE>* sorted_keys) {
-#if 0
 #ifndef NDEBUG
-    size_t index = 0;
-    for (KeyContext& key : *key_context) {
-TODO: Update to check for CF IDs
-      if (index > 0 && sorted_input) {
-        KeyContext* lhs = &key_context[index-1];
-        KeyContext* rhs = &key_context[index];
-        const Comparator* comparator = cfd->user_comparator();
+  if (sorted_input) {
+    for (size_t index = 0; index < sorted_keys->size(); ++index) {
+      if (index > 0) {
+        KeyContext* lhs = (*sorted_keys)[index - 1];
+        KeyContext* rhs = (*sorted_keys)[index];
+        ColumnFamilyHandleImpl* cfh =
+            reinterpret_cast<ColumnFamilyHandleImpl*>(lhs->column_family);
+        uint32_t cfd_id1 = cfh->cfd()->GetID();
+        const Comparator* comparator = cfh->cfd()->user_comparator();
+        cfh = reinterpret_cast<ColumnFamilyHandleImpl*>(lhs->column_family);
+        uint32_t cfd_id2 = cfh->cfd()->GetID();
+
+        assert(cfd_id1 <= cfd_id2);
+        if (cfd_id1 < cfd_id2) {
+          continue;
+        }
+
+        // Both keys are from the same column family
         int cmp = comparator->Compare(*(lhs->key), *(rhs->key));
         assert(cmp <= 0);
       }
       index++;
     }
-#endif
+  }
 #endif
   if (!sorted_input) {
     CompareKeyContext sort_comparator;
@@ -2012,7 +2024,9 @@ void DBImpl::MultiGet(const ReadOptions& read_options,
   sorted_keys.resize(num_keys);
   for (size_t i = 0; i < num_keys; ++i) {
     key_context.emplace_back(column_family, keys[i], &values[i], &statuses[i]);
-    sorted_keys[i] = &key_context.back();
+  }
+  for (size_t i = 0; i < num_keys; ++i) {
+    sorted_keys[i] = &key_context[i];
   }
   PrepareMultiGetKeys(num_keys, sorted_input, &sorted_keys);
   MultiGetWithCallback(read_options, column_family, nullptr, &sorted_keys);
@@ -2037,7 +2051,7 @@ void DBImpl::MultiGetWithCallback(
   };
   std::array<MultiGetColumnFamilyData, 1> multiget_cf_data;
   multiget_cf_data[0] = MultiGetColumnFamilyData(column_family, nullptr);
-  struct DerefIterFunc {
+  struct IterDerefFunc {
     inline MultiGetColumnFamilyData* operator()(
         std::array<MultiGetColumnFamilyData, 1>::iterator& cf_iter) {
       return &(*cf_iter);
@@ -2047,7 +2061,7 @@ void DBImpl::MultiGetWithCallback(
   size_t num_keys = sorted_keys->size();
   SequenceNumber snapshot;
   bool unref_only =
-      MultiCFSnapshot<std::array<MultiGetColumnFamilyData, 1>, DerefIterFunc>(
+      MultiCFSnapshot<std::array<MultiGetColumnFamilyData, 1>, IterDerefFunc>(
           read_options, callback, &multiget_cf_data, &snapshot);
   assert(!unref_only);
 
