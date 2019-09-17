@@ -40,6 +40,18 @@
 
 #include "port/port.h"
 
+namespace {
+
+void Print(const std::string &key, const std::string &val, FILE *out)
+{
+  fwrite(key.c_str(), key.size(), 1, out);
+  fputs(" => ", out);
+  fwrite(val.c_str(), val.size(), 1, out);
+  fputc('\n', out);
+}
+
+}
+
 namespace ROCKSDB_NAMESPACE {
 
 SstFileDumper::SstFileDumper(const Options& options,
@@ -387,21 +399,21 @@ Status SstFileDumper::ReadSequential(bool print_kv, uint64_t read_num,
     }
 
     if (print_kv) {
+      std::string key_str = ikey.DebugString(output_hex_);
+
       if (!decode_blob_index_ || ikey.type != kTypeBlobIndex) {
-        fprintf(stdout, "%s => %s\n", ikey.DebugString(output_hex_).c_str(),
-                value.ToString(output_hex_).c_str());
+        Print(key_str, value.ToString(output_hex_), stdout);
       } else {
         BlobIndex blob_index;
 
         const Status s = blob_index.DecodeFrom(value);
         if (!s.ok()) {
-          fprintf(stderr, "%s => error decoding blob index\n",
-                  ikey.DebugString(output_hex_).c_str());
+          fwrite(key_str.c_str(), key_str.size(), 1, stderr);
+          fputs(" => error decoding blob index\n", stderr);
           continue;
         }
 
-        fprintf(stdout, "%s => %s\n", ikey.DebugString(output_hex_).c_str(),
-                blob_index.DebugString(output_hex_).c_str());
+        Print(key_str, blob_index.DebugString(output_hex_), stdout);
       }
     }
   }
