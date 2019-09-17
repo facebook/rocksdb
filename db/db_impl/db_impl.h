@@ -1644,14 +1644,34 @@ class DBImpl : public DB {
       const DBOptions& db_options,
       const std::vector<ColumnFamilyDescriptor>& column_families);
 
+  // Utility function to do some debug validation and sort the given vector
+  // of MultiGet keys
   void PrepareMultiGetKeys(
       const size_t num_keys, bool sorted,
-      autovector<KeyContext*, MultiGetContext::MAX_BATCH_SIZE>* sorted_keys);
+      autovector<KeyContext*, MultiGetContext::MAX_BATCH_SIZE>* key_ptrs);
 
+  // A common function to obtain a consistent snapshot, which can be implicit
+  // if the user doesn't specify a snapshot in read_options, across
+  // multiple column families for MultiGet. It will attempt to get an implicit
+  // snapshot without acquiring the db_mutes, but will give up after a few
+  // tries and acquire the mutex if a memtable flush happens. The template
+  // allows both the batched and non-batched MultiGet to call this with
+  // either an std::unordered_map or autovector of column families.
+  //
+  // If callback is non-null, the callback is refreshed with the snapshot
+  // sequence number
+  //
+  // A return value of true indicates that the SuperVersions were obtained
+  // from the ColumnFamilyData, whereas false indicates they are thread
+  // local
   template <class T, typename NodeFunc>
   bool MultiCFSnapshot(const ReadOptions& read_options, ReadCallback* callback,
                        T* cf_list, SequenceNumber* snapshot);
 
+  // The actual implementation of the batching MultiGet. The caller is expected
+  // to have acquired the SuperVersion and pass in a snapshot sequence number
+  // in order to construct the LookupKeys. The start_key and num_keys specify
+  // the range of keys in the sorted_keys vector for a single column family.
   void MultiGetImpl(
       const ReadOptions& read_options, size_t start_key, size_t num_keys,
       autovector<KeyContext*, MultiGetContext::MAX_BATCH_SIZE>* sorted_keys,

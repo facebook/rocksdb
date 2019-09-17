@@ -1768,7 +1768,8 @@ bool DBImpl::MultiCFSnapshot(const ReadOptions& read_options,
 
   bool last_try = false;
   if (cf_list->size() == 1) {
-    // Acquire SuperVersion
+    // Fast path for a single column family. We can simply get the thread loca
+    // super version
     auto cf_iter = cf_list->begin();
     auto node = IterDerefFunc()(cf_iter);
     node->super_version = GetAndRefSuperVersion(node->cfd);
