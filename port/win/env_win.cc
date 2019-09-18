@@ -731,8 +731,12 @@ Status WinEnvIO::LinkFile(const std::string& src,
 
   if (!RX_CreateHardLink(RX_FN(target).c_str(), RX_FN(src).c_str(),  NULL)) {
     DWORD lastError = GetLastError();
-    if (lastError == ERROR_NOT_SAME_DEVICE) {
-      return Status::NotSupported("No cross FS links allowed");
+    switch (lastError) {
+      case ERROR_NOT_SAME_DEVICE:
+        return Status::NotSupported("No cross FS links allowed");
+      case ERROR_INVALID_FUNCTION: // FS (ex FAT32) doesn't support hard linking.
+      case ERROR_INVALID_PARAMETER: // Network drive doesn't support hard linking.
+        return Status::NotSupported("FS does not support hard links");
     }
 
     std::string text("Failed to link: ");
