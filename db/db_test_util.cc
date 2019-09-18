@@ -586,7 +586,8 @@ void DBTestBase::CreateColumnFamilies(const std::vector<std::string>& cfs,
   size_t cfi = handles_.size();
   handles_.resize(cfi + cfs.size());
   for (auto cf : cfs) {
-    ASSERT_OK(db_->CreateColumnFamily(cf_opts, cf, &handles_[cfi++]));
+    Status s = db_->CreateColumnFamily(cf_opts, cf, &handles_[cfi++]);
+    ASSERT_OK(s);
   }
 }
 
