@@ -1281,6 +1281,8 @@ TEST_F(DBBasicTest, MultiGetBatchedSimpleSorted) {
 TEST_F(DBBasicTest, MultiGetBatchedMultiLevel) {
   Options options = CurrentOptions();
   options.disable_auto_compactions = true;
+  options.memtable_whole_key_filtering = true;
+  options.memtable_prefix_bloom_size_ratio = 10;
   Reopen(options);
   int num_keys = 0;
 
