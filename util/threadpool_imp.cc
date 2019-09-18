@@ -313,9 +313,8 @@ void ThreadPoolImpl::Impl::BGThreadWrapper(void* arg) {
 
 void ThreadPoolImpl::Impl::SetBackgroundThreadsInternal(int num,
   bool allow_reduce) {
-  std::unique_lock<std::mutex> lock(mu_);
+  std::lock_guard<std::mutex> lock(mu_);
   if (exit_all_threads_) {
-    lock.unlock();
     return;
   }
   if (num > total_threads_limit_ ||
