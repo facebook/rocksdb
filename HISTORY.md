@@ -1,5 +1,5 @@
 # Rocksdb Change Log
-## 6.4.3 (9/17/2019)
+## 6.4.4 (9/17/2019)
 * Fix a bug introduced 6.3 which could cause wrong results in a corner case when prefix bloom filter is used and the iterator is reseeked.
 
 ## 6.4.2 (9/3/2019)
