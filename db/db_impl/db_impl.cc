@@ -2041,9 +2041,9 @@ void DBImpl::MultiGetWithCallback(
     ColumnFamilyHandle* cf;
     ColumnFamilyData* cfd;
     SuperVersion* super_version;
-    MultiGetColumnFamilyData(ColumnFamilyHandle* column_family,
+    MultiGetColumnFamilyData(ColumnFamilyHandle* col_family,
                              SuperVersion* sv)
-        : cf(column_family), super_version(sv) {
+        : cf(col_family), super_version(sv) {
       ColumnFamilyHandleImpl* cfh =
           reinterpret_cast<ColumnFamilyHandleImpl*>(cf);
       cfd = cfh->cfd();
@@ -2064,7 +2064,12 @@ void DBImpl::MultiGetWithCallback(
   bool unref_only =
       MultiCFSnapshot<std::array<MultiGetColumnFamilyData, 1>, IterDerefFunc>(
           read_options, callback, &multiget_cf_data, &snapshot);
+#ifndef NDEBUG
   assert(!unref_only);
+#else
+  // Silence unused variable warning
+  (void)unref_only;
+#endif // NDEBUG
 
   if (callback && read_options.snapshot == nullptr) {
     // The unprep_seqs are not published for write unprepared, so it could be
