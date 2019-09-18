@@ -48,7 +48,7 @@ namespace rocksdb {
     shouldMergeMethodId = MergeOperatorJni::getShouldMergeMethodId(env);
 
     jclass cls = MergeOperatorJni::getJClass(env);
-    jclass a = env->FindClass("[B");
+    jclass a = ByteJni::getArrayJClass(env);
     if (a == 0) {
       cls = env->FindClass("java/lang/Error");
       env->ThrowNew(cls, "unable to find object []");
