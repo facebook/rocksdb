@@ -129,7 +129,7 @@ class MergingIterator : public InternalIterator {
   void Seek(const Slice& target) override {
     bool is_increasing_reseek = false;
     if (current_ != nullptr && direction_ == kForward && status_.ok() &&
-        comparator_->Compare(target, key()) >= 0) {
+        !prefix_seek_mode_ && comparator_->Compare(target, key()) >= 0) {
       is_increasing_reseek = true;
     }
     ClearHeaps();
