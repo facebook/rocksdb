@@ -3834,6 +3834,32 @@ public class RocksDB extends RocksObject {
     endTrace(nativeHandle_);
   }
 
+  /*
+   * Delete files in multiple ranges at once
+   * Delete files in a lot of ranges one at a time can be slow, use this API for
+   * better performance in that case.
+   * @param columnFamily - The column family for operation (null for default)
+   * @param includeEnd - Whether ranges should include end
+   * @param ranges - pairs of ranges (from1, to1, from2, to2, ...)
+   * @throws RocksDBException thrown if error happens in underlying
+   *     native library.
+   */
+  public void deleteFilesInRanges(final ColumnFamilyHandle columnFamily, final List<byte[]> ranges,
+      final boolean includeEnd) throws RocksDBException {
+    if (ranges.size() == 0) {
+      return;
+    }
+    if ((ranges.size() % 2) != 0) {
+      throw new IllegalArgumentException("Ranges size needs to be multiple of 2 "
+          + "(from1, to1, from2, to2, ...), but is " + ranges.size());
+    }
+
+    final byte[][] rangesArray = ranges.toArray(new byte[ranges.size()][]);
+
+    deleteFilesInRanges(nativeHandle_, columnFamily == null ? 0 : columnFamily.nativeHandle_,
+        rangesArray, includeEnd);
+  }
+
   /**
    * Static method to destroy the contents of the specified database.
    * Be very careful using this method.
@@ -4171,7 +4197,8 @@ public class RocksDB extends RocksObject {
   private native void startTrace(final long handle, final long maxTraceFileSize,
       final long traceWriterHandle) throws RocksDBException;
   private native void endTrace(final long handle) throws RocksDBException;
-
+  private native void deleteFilesInRanges(long handle, long cfHandle, final byte[][] ranges,
+      boolean include_end) throws RocksDBException;
 
   private native static void destroyDB(final String path,
       final long optionsHandle) throws RocksDBException;

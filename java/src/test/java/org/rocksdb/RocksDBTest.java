@@ -870,6 +870,62 @@ public class RocksDBTest {
   }
 
   @Test
+  public void deleteFilesInRange() throws RocksDBException, InterruptedException {
+    final int KEY_SIZE = 20;
+    final int VALUE_SIZE = 1000;
+    final int FILE_SIZE = 64000;
+    final int NUM_FILES = 10;
+
+    final int KEY_INTERVAL = 10000;
+    /*
+     * Intention of these options is to end up reliably with 10 files
+     * we will be deleting using deleteFilesInRange.
+     * It is writing roughly number of keys that will fit in 10 files (target size)
+     * It is writing interleaved so that files from memory on L0 will overlap
+     * Then compaction cleans everything and we should end up with 10 files
+     */
+    try (final Options opt = new Options()
+                                 .setCreateIfMissing(true)
+                                 .setCompressionType(CompressionType.NO_COMPRESSION)
+                                 .setTargetFileSizeBase(FILE_SIZE)
+                                 .setWriteBufferSize(FILE_SIZE / 2)
+                                 .setDisableAutoCompactions(true);
+         final RocksDB db = RocksDB.open(opt, dbFolder.getRoot().getAbsolutePath())) {
+      int records = FILE_SIZE / (KEY_SIZE + VALUE_SIZE);
+
+      // fill database with key/value pairs
+      byte[] value = new byte[VALUE_SIZE];
+      int key_init = 0;
+      for (int o = 0; o < NUM_FILES; ++o) {
+        int int_key = key_init++;
+        for (int i = 0; i < records; ++i) {
+          int_key += KEY_INTERVAL;
+          rand.nextBytes(value);
+
+          db.put(String.format("%020d", int_key).getBytes(), value);
+        }
+      }
+      db.flush(new FlushOptions().setWaitForFlush(true));
+      db.compactRange();
+      // Make sure we do create one more L0 files.
+      assertThat(db.getProperty("rocksdb.num-files-at-level0")).isEqualTo("0");
+
+      // Should be 10, but we are OK with asserting +- 2
+      int files = Integer.parseInt(db.getProperty("rocksdb.num-files-at-level1"));
+      assertThat(files).isBetween(8, 12);
+
+      // Delete lower 60% (roughly). Result should be 5, but we are OK with asserting +- 2
+      // Important is that we know something was deleted (JNI call did something)
+      // Exact assertions are done in C++ unit tests
+      db.deleteFilesInRanges(null,
+          Arrays.asList(null, String.format("%020d", records * KEY_INTERVAL * 6 / 10).getBytes()),
+          false);
+      files = Integer.parseInt(db.getProperty("rocksdb.num-files-at-level1"));
+      assertThat(files).isBetween(3, 7);
+    }
+  }
+
+  @Test
   public void compactRangeToLevelColumnFamily()
       throws RocksDBException {
     final int NUM_KEYS_PER_L0_FILE = 100;
