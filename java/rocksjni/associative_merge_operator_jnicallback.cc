@@ -14,7 +14,7 @@ namespace rocksdb {
     // Note: The name of a MergeOperator will not change during it's lifetime,
     // so we cache it in a global var
     jmethodID jNameMethodId = AssociativeMergeOperatorJni::getNameMethodId(env);
-    if(jNameMethodId == nullptr) {
+    if (jNameMethodId == nullptr) {
       // exception thrown: NoSuchMethodException or OutOfMemoryError
       return;
     }
