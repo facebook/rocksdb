@@ -58,11 +58,5 @@ void JniCallback::catchAndLog(JNIEnv* env) const {
   }
 }
 
-void JniCallback::throwJavaLangError(JNIEnv * env, const char * message) const {
-  jclass cls = env->FindClass("java/lang/Error");
-  if (cls != nullptr)
-    env->ThrowNew(cls, message);
-}
-
 // @lint-ignore TXT4 T25377293 Grandfathered in
 }  // namespace rocksdb

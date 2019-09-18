@@ -35,17 +35,18 @@ namespace rocksdb {
 
     jclass returnTypeClassTmp = env->FindClass("org/rocksdb/ReturnType");
     if (returnTypeClassTmp == 0)
-      throwJavaLangError(env, "unable to find object org.rocksdb.ReturnType");
+      rocksdb::RocksDBExceptionJni::ThrowNew(env, "unable to find object org.rocksdb.ReturnType");
     else
       returnTypeClass = reinterpret_cast<jclass>(env->NewGlobalRef(returnTypeClassTmp));
 
     returnTypeInitMethodId = env->GetMethodID(returnTypeClass, "<init>", "()V");
     if (returnTypeInitMethodId == 0)
-      throwJavaLangError(env, "unable to find field ReturnType.<init>");
+      rocksdb::RocksDBExceptionJni::ThrowNew(env, "unable to find field ReturnType.<init>");
 
     returnTypeFieldId = env->GetFieldID(returnTypeClass, "isArgumentReference", "Z");
     if (returnTypeFieldId == 0)
-      throwJavaLangError(env, "unable to find field ReturnType.isArgumentReference");
+      rocksdb::RocksDBExceptionJni::ThrowNew(env, "unable to find field ReturnType.isArgumentReference");
+
     catchAndLog(env);
   }
 

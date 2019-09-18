@@ -24,7 +24,6 @@ namespace rocksdb {
     void releaseJniEnv(jboolean& attached) const;
 
     void catchAndLog(JNIEnv* env) const;
-    void throwJavaLangError(JNIEnv * env, const char * message) const;
   };
 }
 
