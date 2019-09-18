@@ -379,6 +379,12 @@ void DBImpl::PurgeObsoleteFiles(JobContext& state, bool schedule_only) {
     }
   }
 
+  // Close WALs before trying to delete them.
+  for (const auto w : state.logs_to_free) {
+    // TODO: maybe check the return value of Close.
+    w->Close();
+  }
+
   std::unordered_set<uint64_t> files_to_del;
   for (const auto& candidate_file : candidate_files) {
     const std::string& to_delete = candidate_file.file_name;
@@ -477,11 +483,6 @@ void DBImpl::PurgeObsoleteFiles(JobContext& state, bool schedule_only) {
       continue;
     }
 #endif  // !ROCKSDB_LITE
-
-    for (const auto w : state.logs_to_free) {
-      // TODO: maybe check the return value of Close.
-      w->Close();
-    }
 
     Status file_deletion_status;
     if (schedule_only) {
