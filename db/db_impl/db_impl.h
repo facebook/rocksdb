@@ -933,6 +933,7 @@ class DBImpl : public DB {
   bool TEST_IsPersistentStatsEnabled() const;
   size_t TEST_EstimateInMemoryStatsHistorySize() const;
 #endif  // NDEBUG
+  enum { kArchiveDirIndex = 0, kWalDirIndex, kDbDirIndex};
 
  protected:
   Env* const env_;
@@ -941,6 +942,11 @@ class DBImpl : public DB {
   std::unique_ptr<VersionSet> versions_;
   // Flag to check whether we allocated and own the info log file
   bool own_info_log_;
+  // Keep track of directories created during Open(). These will be deleted
+  // if Open() fails.
+  std::vector<std::string> created_files_;
+  // All the created sst directory names are at the end of the vector	
+  std::vector<std::string> created_dirs_;
   const DBOptions initial_db_options_;
   const ImmutableDBOptions immutable_db_options_;
   MutableDBOptions mutable_db_options_;
@@ -1277,6 +1283,11 @@ class DBImpl : public DB {
   // Required: DB mutex held
   Status PersistentStatsProcessFormatVersion();
 
+  // If Open() fails due to non-existent Current file in database directory
+  // and create_if_missing is false, clean up all the files and directories
+  // created as part of the failed Open().	
+  void  CleanupFailedOpen();
+	
   Status ResumeImpl();
 
   void MaybeIgnoreError(Status* s) const;
@@ -1965,7 +1976,9 @@ class DBImpl : public DB {
 
 extern Options SanitizeOptions(const std::string& db, const Options& src);
 
-extern DBOptions SanitizeOptions(const std::string& db, const DBOptions& src);
+extern DBOptions SanitizeOptions(const std::string& db, const DBOptions& src,
+								 std::vector<std::string>* created_dirs = nullptr,
+								 std::vector<std::string>* created_files = nullptr);
 
 extern CompressionType GetCompressionFlush(
     const ImmutableCFOptions& ioptions,
