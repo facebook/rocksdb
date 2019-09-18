@@ -19,6 +19,7 @@
 #include <map>
 #include <set>
 #include <stdexcept>
+#include <iostream>
 #include <string>
 #include <unordered_map>
 #include <unordered_set>
@@ -1959,6 +1960,7 @@ void DBImpl::MultiGetImpl(
     bool lookup_current = false;
 
     keys_left -= batch_size;
+//    uint64_t start = env_->NowMicros();
 //    for (auto mget_iter = range.begin(); mget_iter != range.end();
 //         ++mget_iter) {
 //      MergeContext& merge_context = mget_iter->merge_context;
@@ -1995,7 +1997,10 @@ void DBImpl::MultiGetImpl(
 //        lookup_current = true;
 //      }
 //    }
+//    uint64_t end = env_->NowMicros();
+//    std::cout << "Total time: " << (end-start);
 
+    uint64_t start = env_->NowMicros();
     for (auto mget_iter = range.begin(); mget_iter != range.end();
          ++mget_iter) {
       mget_iter->merge_context.Clear();
@@ -2012,7 +2017,8 @@ void DBImpl::MultiGetImpl(
             }
         }
     }
-
+    uint64_t end = env_->NowMicros();
+    std::cout << "Total time: " << (end-start);
     if (lookup_current) {
       PERF_TIMER_GUARD(get_from_output_files_time);
       super_version->current->MultiGet(read_options, &range, callback,

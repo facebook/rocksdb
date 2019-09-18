@@ -806,17 +806,17 @@ bool MemTable::Get(const LookupKey& key, std::string* value, Status* s,
             !prefix_extractor_->InDomain(user_key) ||
             bloom_filter_->MayContain(prefix_extractor_->Transform(user_key));
       }
-
-      if (!may_contain) {
-        // iter is null if prefix bloom says the key does not exist
-        PERF_COUNTER_ADD(bloom_memtable_miss_count, 1);
-        *seq = kMaxSequenceNumber;
-      } else {
-        PERF_COUNTER_ADD(bloom_memtable_hit_count, 1);
-      }
     }
   }
 
+  if (bloom_filter_ && !may_contain) {
+    // iter is null if prefix bloom says the key does not exist
+    PERF_COUNTER_ADD(bloom_memtable_miss_count, 1);
+    *seq = kMaxSequenceNumber;
+  } else {
+      if (bloom_filter_) {
+          PERF_COUNTER_ADD(bloom_memtable_hit_count, 1);
+      }
     Saver saver;
     saver.status = s;
     saver.found_final_value = &found_final_value;
@@ -837,6 +837,7 @@ bool MemTable::Get(const LookupKey& key, std::string* value, Status* s,
     saver.do_merge = do_merge;
     table_->Get(key, &saver, SaveValue);
     *seq = saver.seq;
+  }
 
   // No change to value, since we have not yet found a Put/Delete
   if (!found_final_value && merge_in_progress) {
@@ -888,17 +889,18 @@ bool MemTable::MultiGet(const ReadOptions& read_options, MultiGetRange* range,
       // iter is null if prefix bloom says the key does not exist
       PERF_COUNTER_ADD(bloom_memtable_miss_count, 1);
       seq = kMaxSequenceNumber;
+      found_all_keys = false;
     } else {
       PERF_COUNTER_ADD(bloom_memtable_hit_count, 1);
-    }
-    bool found_final_value = Get(*(iter->lkey), iter->value->GetSelf(), iter->s, &(iter->merge_context),
-            &iter->max_covering_tombstone_seq, &seq, read_options, callback,
-            is_blob, true, true);
-    if (found_final_value) {
-        iter->value->PinSelf();
-        range->MarkKeyDone(iter);
-    } else {
-        found_all_keys = false;
+      bool found_final_value = Get(*(iter->lkey), iter->value->GetSelf(), iter->s, &(iter->merge_context),
+              &iter->max_covering_tombstone_seq, &seq, read_options, callback,
+              is_blob, true, true);
+      if (found_final_value) {
+          iter->value->PinSelf();
+          range->MarkKeyDone(iter);
+      } else {
+          found_all_keys = false;
+      }
     }
     idx++;
   }
