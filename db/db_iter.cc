@@ -133,7 +133,6 @@ class DBIter final: public Iterator {
         direction_(kForward),
         valid_(false),
         current_entry_is_merged_(false),
-        is_key_seqnum_zero_(false),
         prefix_same_as_start_(read_options.prefix_same_as_start),
         pin_thru_lifetime_(read_options.pin_data),
         total_order_seek_(read_options.total_order_seek),
@@ -334,10 +333,6 @@ class DBIter final: public Iterator {
   Direction direction_;
   bool valid_;
   bool current_entry_is_merged_;
-  // True if we know that the current entry's seqnum is 0.
-  // This information is used as that the next entry will be for another
-  // user key.
-  bool is_key_seqnum_zero_;
   const bool prefix_same_as_start_;
   // Means that we will pin all data blocks we read as long the Iterator
   // is not deleted, will be true if ReadOptions::pin_data is true
@@ -386,7 +381,6 @@ void DBIter::Next() {
   num_internal_keys_skipped_ = 0;
   bool ok = true;
   if (direction_ == kReverse) {
-    is_key_seqnum_zero_ = false;
     if (!ReverseToForward()) {
       ok = false;
     }
@@ -406,7 +400,6 @@ void DBIter::Next() {
     FindNextUserEntry(true /* skipping the current user key */,
                       prefix_same_as_start_);
   } else {
-    is_key_seqnum_zero_ = false;
     valid_ = false;
   }
   if (statistics_ != nullptr && valid_) {
@@ -457,15 +450,9 @@ inline bool DBIter::FindNextUserEntryInternal(bool skipping, bool prefix_check) 
   is_blob_ = false;
 
   do {
-    // Will update is_key_seqnum_zero_ as soon as we parsed the current key
-    // but we need to save the previous value to be used in the loop.
-    bool is_prev_key_seqnum_zero = is_key_seqnum_zero_;
     if (!ParseKey(&ikey_)) {
-      is_key_seqnum_zero_ = false;
       return false;
     }
-
-    is_key_seqnum_zero_ = (ikey_.sequence == 0);
 
     assert(iterate_upper_bound_ == nullptr || iter_.MayBeOutOfUpperBound() ||
            user_comparator_.Compare(ikey_.user_key, *iterate_upper_bound_) < 0);
@@ -485,18 +472,11 @@ inline bool DBIter::FindNextUserEntryInternal(bool skipping, bool prefix_check) 
     }
 
     if (IsVisible(ikey_.sequence)) {
-      // If the previous entry is of seqnum 0, the current entry will not
-      // possibly be skipped. This condition can potentially be relaxed to
-      // prev_key.seq <= ikey_.sequence. We are cautious because it will be more
-      // prone to bugs causing the same user key with the same sequence number.
-      if (!is_prev_key_seqnum_zero && skipping &&
-          user_comparator_.Compare(ikey_.user_key, saved_key_.GetUserKey()) <=
-              0) {
+      if (skipping && user_comparator_.Compare(ikey_.user_key,
+                                               saved_key_.GetUserKey()) <= 0) {
         num_skipped++;  // skip this entry
         PERF_COUNTER_ADD(internal_key_skipped_count, 1);
       } else {
-        assert(!skipping || user_comparator_.Compare(
-                                ikey_.user_key, saved_key_.GetUserKey()) > 0);
         num_skipped = 0;
         switch (ikey_.type) {
           case kTypeDeletion:
@@ -617,7 +597,6 @@ inline bool DBIter::FindNextUserEntryInternal(bool skipping, bool prefix_check) 
     // If we have sequentially iterated via numerous equal keys, then it's
     // better to seek so that we can avoid too many key comparisons.
     if (num_skipped > max_skip_ && CanReseekToSkip()) {
-      is_key_seqnum_zero_ = false;
       num_skipped = 0;
       std::string last_key;
       if (skipping) {
@@ -1291,7 +1270,6 @@ void DBIter::Seek(const Slice& target) {
   status_ = Status::OK();
   ReleaseTempPinnedData();
   ResetInternalKeysSkippedCounter();
-  is_key_seqnum_zero_ = false;
 
   SequenceNumber seq = sequence_;
   saved_key_.Clear();
@@ -1350,7 +1328,6 @@ void DBIter::SeekForPrev(const Slice& target) {
   status_ = Status::OK();
   ReleaseTempPinnedData();
   ResetInternalKeysSkippedCounter();
-  is_key_seqnum_zero_ = false;
   saved_key_.Clear();
   // now saved_key is used to store internal key.
   saved_key_.SetInternalKey(target, 0 /* sequence_number */,
@@ -1418,7 +1395,6 @@ void DBIter::SeekToFirst() {
   ReleaseTempPinnedData();
   ResetInternalKeysSkippedCounter();
   ClearSavedValue();
-  is_key_seqnum_zero_ = false;
 
   {
     PERF_TIMER_GUARD(seek_internal_seek_time);
@@ -1471,7 +1447,6 @@ void DBIter::SeekToLast() {
   ReleaseTempPinnedData();
   ResetInternalKeysSkippedCounter();
   ClearSavedValue();
-  is_key_seqnum_zero_ = false;
 
   {
     PERF_TIMER_GUARD(seek_internal_seek_time);
