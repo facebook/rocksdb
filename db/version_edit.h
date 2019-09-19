@@ -191,6 +191,11 @@ struct LevelFilesBrief {
   }
 };
 
+// A certain state of RocksDB at any given time is referred to as a version (aka
+// snapshot). Any modification to the version is considered a version edit. A
+// version (or RocksDB state snapshot) is constructed by joining a sequence of
+// version-edits. Essentially, a manifest log file is a sequence of version
+// edits.
 class VersionEdit {
  public:
   VersionEdit() { Clear(); }
