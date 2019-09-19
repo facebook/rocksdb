@@ -983,8 +983,7 @@ Status DBImpl::CompactFilesImpl(
       snapshot_checker, table_cache_, &event_logger_,
       c->mutable_cf_options()->paranoid_file_checks,
       c->mutable_cf_options()->report_bg_io_stats, dbname_,
-      &compaction_job_stats, Env::Priority::USER,
-      &manual_compaction_paused_);
+      &compaction_job_stats, Env::Priority::USER, &manual_compaction_paused_);
 
   // Creating a compaction influences the compaction score because the score
   // takes running compactions into account (by skipping files that are already
@@ -2313,8 +2312,7 @@ void DBImpl::BackgroundCallCompaction(PrepickedCompaction* prepicked_compaction,
       env_->SleepForMicroseconds(10000);  // prevent hot loop
       mutex_.Lock();
     } else if (!s.ok() && !s.IsShutdownInProgress() &&
-               !s.IsManualCompactionPaused() &&
-               !s.IsColumnFamilyDropped()) {
+               !s.IsManualCompactionPaused() && !s.IsColumnFamilyDropped()) {
       // Wait a little bit before retrying background compaction in
       // case this is an environmental problem and we do not want to
       // chew up resources for failed compactions for the duration of
@@ -2332,11 +2330,10 @@ void DBImpl::BackgroundCallCompaction(PrepickedCompaction* prepicked_compaction,
       env_->SleepForMicroseconds(1000000);
       mutex_.Lock();
     } else if (s.IsManualCompactionPaused()) {
-      ManualCompactionState *m = prepicked_compaction->manual_compaction_state;
+      ManualCompactionState* m = prepicked_compaction->manual_compaction_state;
       assert(m);
       ROCKS_LOG_BUFFER(&log_buffer, "[%s] [JOB %d] Manual compaction paused",
-                       m->cfd->GetName().c_str(),
-                       job_context.job_id);
+                       m->cfd->GetName().c_str(), job_context.job_id);
     }
 
     ReleaseFileNumberFromPendingOutputs(pending_outputs_inserted_elem);
@@ -2345,8 +2342,8 @@ void DBImpl::BackgroundCallCompaction(PrepickedCompaction* prepicked_compaction,
     // have created (they might not be all recorded in job_context in case of a
     // failure). Thus, we force full scan in FindObsoleteFiles()
     FindObsoleteFiles(&job_context, !s.ok() && !s.IsShutdownInProgress() &&
-                      !s.IsManualCompactionPaused() &&
-                      !s.IsColumnFamilyDropped());
+                                        !s.IsManualCompactionPaused() &&
+                                        !s.IsColumnFamilyDropped());
     TEST_SYNC_POINT("DBImpl::BackgroundCallCompaction:FoundObsoleteFiles");
 
     // delete unnecessary files if any, this is done outside the mutex
@@ -2430,7 +2427,7 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
     if (shutting_down_.load(std::memory_order_acquire)) {
       status = Status::ShutdownInProgress();
     } else if (is_manual &&
-        manual_compaction_paused_.load(std::memory_order_acquire)) {
+               manual_compaction_paused_.load(std::memory_order_acquire)) {
       status = Status::Incomplete(Status::SubCode::kManualCompactionPaused);
     }
   } else {

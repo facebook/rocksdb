@@ -26,13 +26,13 @@ namespace rocksdb {
 // See e.g. RocksDB DynamicBloom.
 //
 class LegacyNoLocalityBloomImpl {
-public:
-  static inline void AddHash(uint32_t h, uint32_t total_bits,
-                             int num_probes, char *data) {
+ public:
+  static inline void AddHash(uint32_t h, uint32_t total_bits, int num_probes,
+                             char *data) {
     const uint32_t delta = (h >> 17) | (h << 15);  // Rotate right 17 bits
     for (int i = 0; i < num_probes; i++) {
       const uint32_t bitpos = h % total_bits;
-      data[bitpos/8] |= (1 << (bitpos % 8));
+      data[bitpos / 8] |= (1 << (bitpos % 8));
       h += delta;
     }
   }
@@ -42,7 +42,7 @@ public:
     const uint32_t delta = (h >> 17) | (h << 15);  // Rotate right 17 bits
     for (int i = 0; i < num_probes; i++) {
       const uint32_t bitpos = h % total_bits;
-      if ((data[bitpos/8] & (1 << (bitpos % 8))) == 0) {
+      if ((data[bitpos / 8] & (1 << (bitpos % 8))) == 0) {
         return false;
       }
       h += delta;
@@ -50,7 +50,6 @@ public:
     return true;
   }
 };
-
 
 // A legacy Bloom filter implementation with probes local to a single
 // cache line (fast). Because SST files might be transported between
@@ -72,15 +71,15 @@ public:
 //
 template <bool ExtraRotates>
 class LegacyLocalityBloomImpl {
-private:
+ private:
   static inline uint32_t GetLine(uint32_t h, uint32_t num_lines) {
     uint32_t offset_h = ExtraRotates ? (h >> 11) | (h << 21) : h;
     return offset_h % num_lines;
   }
-public:
-  static inline void AddHash(uint32_t h, uint32_t num_lines,
-                             int num_probes, char *data,
-                             int log2_cache_line_bytes) {
+
+ public:
+  static inline void AddHash(uint32_t h, uint32_t num_lines, int num_probes,
+                             char *data, int log2_cache_line_bytes) {
     const int log2_cache_line_bits = log2_cache_line_bytes + 3;
 
     char *data_at_offset =
@@ -99,12 +98,12 @@ public:
 
   static inline void PrepareHashMayMatch(uint32_t h, uint32_t num_lines,
                                          const char *data,
-                                         uint32_t /*out*/*byte_offset,
+                                         uint32_t /*out*/ *byte_offset,
                                          int log2_cache_line_bytes) {
     uint32_t b = GetLine(h, num_lines) << log2_cache_line_bytes;
     PREFETCH(data + b, 0 /* rw */, 1 /* locality */);
-    PREFETCH(data + b + ((1 << log2_cache_line_bytes) - 1),
-             0 /* rw */, 1 /* locality */);
+    PREFETCH(data + b + ((1 << log2_cache_line_bytes) - 1), 0 /* rw */,
+             1 /* locality */);
     *byte_offset = b;
   }
 
@@ -112,8 +111,7 @@ public:
                                   int num_probes, const char *data,
                                   int log2_cache_line_bytes) {
     uint32_t b = GetLine(h, num_lines) << log2_cache_line_bytes;
-    return HashMayMatchPrepared(h, num_probes,
-                                data + b, log2_cache_line_bytes);
+    return HashMayMatchPrepared(h, num_probes, data + b, log2_cache_line_bytes);
   }
 
   static inline bool HashMayMatchPrepared(uint32_t h, int num_probes,

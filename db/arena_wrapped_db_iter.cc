@@ -19,7 +19,7 @@
 namespace rocksdb {
 
 Status ArenaWrappedDBIter::GetProperty(std::string prop_name,
-                                              std::string* prop) {
+                                       std::string* prop) {
   if (prop_name == "rocksdb.iterator.super-version-number") {
     // First try to pass the value returned from inner iterator.
     if (!db_iter_->GetProperty(prop_name, prop).ok()) {
