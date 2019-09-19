@@ -353,6 +353,7 @@ TEST_F(OptionsSettableTest, ColumnFamilyOptionsAllFieldsSettable) {
        sizeof(std::shared_ptr<CompactionFilterFactory>)},
       {offset_of(&ColumnFamilyOptions::prefix_extractor),
        sizeof(std::shared_ptr<const SliceTransform>)},
+      {offset_of(&ColumnFamilyOptions::snap_refresh_nanos), sizeof(uint64_t)},
       {offset_of(&ColumnFamilyOptions::table_factory),
        sizeof(std::shared_ptr<TableFactory>)},
       {offset_of(&ColumnFamilyOptions::cf_paths),
@@ -416,7 +417,6 @@ TEST_F(OptionsSettableTest, ColumnFamilyOptionsAllFieldsSettable) {
       "kBZip2Compression:kNoCompression:kZlibCompression:kBZip2Compression:"
       "kSnappyCompression;"
       "max_bytes_for_level_base=986;"
-      "snap_refresh_nanos=1000000000;"
       "bloom_locality=8016;"
       "target_file_size_base=4294976376;"
       "memtable_huge_page_size=2557;"
