@@ -33,7 +33,7 @@ public class SstFileReaderIterator extends AbstractRocksIterator<SstFileReader> 
    * @return key for the current entry.
    */
   public byte[] key() {
-    assert(isOwningHandle());
+    assert (isOwningHandle());
     return key0(nativeHandle_);
   }
 
@@ -46,7 +46,7 @@ public class SstFileReaderIterator extends AbstractRocksIterator<SstFileReader> 
    * @return value for the current entry.
    */
   public byte[] value() {
-    assert(isOwningHandle());
+    assert (isOwningHandle());
     return value0(nativeHandle_);
   }
 

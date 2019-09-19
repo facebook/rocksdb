@@ -53,7 +53,7 @@ namespace rocksdb {
 // combines multiple entries for the same userkey found in the DB
 // representation into a single entry while accounting for sequence
 // numbers, deletion markers, overwrites, etc.
-class DBIter final: public Iterator {
+class DBIter final : public Iterator {
  public:
   // The following is grossly complicated. TODO: clean it up
   // Which direction is the iterator currently moving?
@@ -66,10 +66,7 @@ class DBIter final: public Iterator {
   //        this->key().
   // (2) When moving backwards, the internal iterator is positioned
   //     just before all entries whose user key == this->key().
-  enum Direction {
-    kForward,
-    kReverse
-  };
+  enum Direction { kForward, kReverse };
 
   // LocalStatistics contain Statistics counters that will be aggregated per
   // each iterator instance and then will be sent to the global statistics when
@@ -148,7 +145,7 @@ class DBIter final: public Iterator {
   bool Valid() const override { return valid_; }
   Slice key() const override {
     assert(valid_);
-    if(start_seqnum_ > 0) {
+    if (start_seqnum_ > 0) {
       return saved_key_.GetInternalKey();
     } else {
       return saved_key_.GetUserKey();
