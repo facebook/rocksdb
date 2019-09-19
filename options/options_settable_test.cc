@@ -356,8 +356,7 @@ TEST_F(OptionsSettableTest, ColumnFamilyOptionsAllFieldsSettable) {
       {offset_of(&ColumnFamilyOptions::snap_refresh_nanos), sizeof(uint64_t)},
       {offset_of(&ColumnFamilyOptions::table_factory),
        sizeof(std::shared_ptr<TableFactory>)},
-      {offset_of(&ColumnFamilyOptions::cf_paths),
-       sizeof(std::vector<DbPath>)},
+      {offset_of(&ColumnFamilyOptions::cf_paths), sizeof(std::vector<DbPath>)},
       {offset_of(&ColumnFamilyOptions::compaction_thread_limiter),
        sizeof(std::shared_ptr<ConcurrentTaskLimiter>)},
   };

@@ -405,8 +405,9 @@ Status SstFileDumper::ReadTableProperties(
 namespace {
 
 void print_help() {
-  fprintf(stderr,
-          R"(sst_dump --file=<data_dir_OR_sst_file> [--command=check|scan|raw|recompress]
+  fprintf(
+      stderr,
+      R"(sst_dump --file=<data_dir_OR_sst_file> [--command=check|scan|raw|recompress]
     --file=<data_dir_OR_sst_file>
       Path to SST file or directory containing SST files
 

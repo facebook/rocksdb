@@ -31,19 +31,18 @@ public class SstFileReader extends RocksObject {
    * @return instance of iterator object.
    */
   public SstFileReaderIterator newIterator(final ReadOptions readOptions) {
-    assert(isOwningHandle());
-    long iter = newIterator(nativeHandle_,
-        readOptions.nativeHandle_);
+    assert (isOwningHandle());
+    long iter = newIterator(nativeHandle_, readOptions.nativeHandle_);
     return new SstFileReaderIterator(this, iter);
   }
 
   /**
-     * Prepare SstFileReader to read a file.
-     *
-     * @param filePath the location of file
-     *
-     * @throws RocksDBException thrown if error happens in underlying
-     *    native library.
+   * Prepare SstFileReader to read a file.
+   *
+   * @param filePath the location of file
+   *
+   * @throws RocksDBException thrown if error happens in underlying
+   *    native library.
    */
   public void open(final String filePath) throws RocksDBException {
     open(nativeHandle_, filePath);
@@ -68,14 +67,10 @@ public class SstFileReader extends RocksObject {
     return getTableProperties(nativeHandle_);
   }
 
-
-
   @Override protected final native void disposeInternal(final long handle);
-  private native long newIterator(final long handle,
-                                  final long readOptionsHandle);
+  private native long newIterator(final long handle, final long readOptionsHandle);
 
-  private native void open(final long handle, final String filePath)
-        throws RocksDBException;
+  private native void open(final long handle, final String filePath) throws RocksDBException;
 
   private native static long newSstFileReader(final long optionsHandle);
   private native void verifyChecksum(final long handle) throws RocksDBException;

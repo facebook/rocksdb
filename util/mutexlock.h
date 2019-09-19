@@ -32,8 +32,8 @@ class MutexLock {
     this->mu_->Lock();
   }
   // No copying allowed
-  MutexLock(const MutexLock&) = delete;
-  void operator=(const MutexLock&) = delete;
+  MutexLock(const MutexLock &) = delete;
+  void operator=(const MutexLock &) = delete;
 
   ~MutexLock() { this->mu_->Unlock(); }
 
@@ -52,8 +52,8 @@ class ReadLock {
     this->mu_->ReadLock();
   }
   // No copying allowed
-  ReadLock(const ReadLock&) = delete;
-  void operator=(const ReadLock&) = delete;
+  ReadLock(const ReadLock &) = delete;
+  void operator=(const ReadLock &) = delete;
 
   ~ReadLock() { this->mu_->ReadUnlock(); }
 
@@ -88,8 +88,8 @@ class WriteLock {
     this->mu_->WriteLock();
   }
   // No copying allowed
-  WriteLock(const WriteLock&) = delete;
-  void operator=(const WriteLock&) = delete;
+  WriteLock(const WriteLock &) = delete;
+  void operator=(const WriteLock &) = delete;
 
   ~WriteLock() { this->mu_->WriteUnlock(); }
 

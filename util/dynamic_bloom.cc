@@ -42,7 +42,7 @@ DynamicBloom::DynamicBloom(Allocator* allocator, uint32_t total_bits,
   uint32_t block_bits = block_bytes * 8;
   uint32_t blocks = (total_bits + block_bits - 1) / block_bits;
   uint32_t sz = blocks * block_bytes;
-  kLen = sz / /*bytes/u64*/8;
+  kLen = sz / /*bytes/u64*/ 8;
   assert(kLen > 0);
 #ifndef NDEBUG
   for (uint32_t i = 0; i < kNumDoubleProbes; ++i) {

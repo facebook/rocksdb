@@ -353,8 +353,9 @@ DEFINE_int32(bloom_bits, 10, "Bloom filter bits per key. "
 DEFINE_bool(use_block_based_filter, false, "use block based filter"
               "instead of full filter for block based table");
 
-DEFINE_bool(partition_filters, false, "use partitioned filters "
-    "for block-based table");
+DEFINE_bool(partition_filters, false,
+            "use partitioned filters "
+            "for block-based table");
 
 DEFINE_int32(
     index_type,

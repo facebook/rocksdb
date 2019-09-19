@@ -59,32 +59,32 @@ class CompactionIterator {
     const Compaction* compaction_;
   };
 
-  CompactionIterator(InternalIterator* input, const Comparator* cmp,
-                     MergeHelper* merge_helper, SequenceNumber last_sequence,
-                     std::vector<SequenceNumber>* snapshots,
-                     SequenceNumber earliest_write_conflict_snapshot,
-                     const SnapshotChecker* snapshot_checker, Env* env,
-                     bool report_detailed_time, bool expect_valid_internal_key,
-                     CompactionRangeDelAggregator* range_del_agg,
-                     const Compaction* compaction = nullptr,
-                     const CompactionFilter* compaction_filter = nullptr,
-                     const std::atomic<bool>* shutting_down = nullptr,
-                     const SequenceNumber preserve_deletes_seqnum = 0,
-                     const std::atomic<bool>* manual_compaction_paused = nullptr);
+  CompactionIterator(
+      InternalIterator* input, const Comparator* cmp, MergeHelper* merge_helper,
+      SequenceNumber last_sequence, std::vector<SequenceNumber>* snapshots,
+      SequenceNumber earliest_write_conflict_snapshot,
+      const SnapshotChecker* snapshot_checker, Env* env,
+      bool report_detailed_time, bool expect_valid_internal_key,
+      CompactionRangeDelAggregator* range_del_agg,
+      const Compaction* compaction = nullptr,
+      const CompactionFilter* compaction_filter = nullptr,
+      const std::atomic<bool>* shutting_down = nullptr,
+      const SequenceNumber preserve_deletes_seqnum = 0,
+      const std::atomic<bool>* manual_compaction_paused = nullptr);
 
   // Constructor with custom CompactionProxy, used for tests.
-  CompactionIterator(InternalIterator* input, const Comparator* cmp,
-                     MergeHelper* merge_helper, SequenceNumber last_sequence,
-                     std::vector<SequenceNumber>* snapshots,
-                     SequenceNumber earliest_write_conflict_snapshot,
-                     const SnapshotChecker* snapshot_checker, Env* env,
-                     bool report_detailed_time, bool expect_valid_internal_key,
-                     CompactionRangeDelAggregator* range_del_agg,
-                     std::unique_ptr<CompactionProxy> compaction,
-                     const CompactionFilter* compaction_filter = nullptr,
-                     const std::atomic<bool>* shutting_down = nullptr,
-                     const SequenceNumber preserve_deletes_seqnum = 0,
-                     const std::atomic<bool>* manual_compaction_paused = nullptr);
+  CompactionIterator(
+      InternalIterator* input, const Comparator* cmp, MergeHelper* merge_helper,
+      SequenceNumber last_sequence, std::vector<SequenceNumber>* snapshots,
+      SequenceNumber earliest_write_conflict_snapshot,
+      const SnapshotChecker* snapshot_checker, Env* env,
+      bool report_detailed_time, bool expect_valid_internal_key,
+      CompactionRangeDelAggregator* range_del_agg,
+      std::unique_ptr<CompactionProxy> compaction,
+      const CompactionFilter* compaction_filter = nullptr,
+      const std::atomic<bool>* shutting_down = nullptr,
+      const SequenceNumber preserve_deletes_seqnum = 0,
+      const std::atomic<bool>* manual_compaction_paused = nullptr);
 
   ~CompactionIterator();
 
@@ -231,7 +231,7 @@ class CompactionIterator {
   bool IsPausingManualCompaction() {
     // This is a best-effort facility, so memory_order_relaxed is sufficient.
     return manual_compaction_paused_ &&
-      manual_compaction_paused_->load(std::memory_order_relaxed);
+           manual_compaction_paused_->load(std::memory_order_relaxed);
   }
 };
 }  // namespace rocksdb
