@@ -745,20 +745,19 @@ TEST_P(PlainTableDBTest, BloomSchema) {
   Options options = CurrentOptions();
   options.create_if_missing = true;
   for (int bloom_locality = 0; bloom_locality <= 1; bloom_locality++) {
-   options.bloom_locality = bloom_locality;
+    options.bloom_locality = bloom_locality;
     PlainTableOptions plain_table_options;
     plain_table_options.user_key_len = 16;
-    plain_table_options.bloom_bits_per_key = 3; // high FP rate for test
+    plain_table_options.bloom_bits_per_key = 3;  // high FP rate for test
     plain_table_options.hash_table_ratio = 0.75;
     plain_table_options.index_sparseness = 16;
     plain_table_options.huge_page_tlb_size = 0;
     plain_table_options.encoding_type = kPlain;
 
-
     bool expect_bloom_not_match = false;
     options.table_factory.reset(new TestPlainTableFactory(
-        &expect_bloom_not_match, plain_table_options,
-        0 /* column_family_id */, kDefaultColumnFamilyName));
+        &expect_bloom_not_match, plain_table_options, 0 /* column_family_id */,
+        kDefaultColumnFamilyName));
     DestroyAndReopen(&options);
 
     for (unsigned i = 0; i < 2345; ++i) {
@@ -782,7 +781,7 @@ TEST_P(PlainTableDBTest, BloomSchema) {
         pattern = 163905UL;
       }
       bool expect_fp = pattern & (1UL << i);
-      //fprintf(stderr, "expect_fp@%u: %d\n", i, (int)expect_fp);
+      // fprintf(stderr, "expect_fp@%u: %d\n", i, (int)expect_fp);
       expect_bloom_not_match = !expect_fp;
       ASSERT_EQ("NOT_FOUND", Get(NthKey(i, 'n')));
     }

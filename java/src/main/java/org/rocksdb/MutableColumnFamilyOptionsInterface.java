@@ -5,10 +5,9 @@
 
 package org.rocksdb;
 
-public interface MutableColumnFamilyOptionsInterface
-    <T extends MutableColumnFamilyOptionsInterface<T>>
-        extends AdvancedMutableColumnFamilyOptionsInterface<T> {
-
+public interface MutableColumnFamilyOptionsInterface<
+    T extends MutableColumnFamilyOptionsInterface<T>>
+    extends AdvancedMutableColumnFamilyOptionsInterface<T> {
   /**
    * Amount of data to build up in memory (backed by an unsorted log
    * on disk) before converting to a sorted on-disk file.

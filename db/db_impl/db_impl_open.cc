@@ -135,9 +135,9 @@ DBOptions SanitizeOptions(const std::string& dbname, const DBOptions& src) {
     std::vector<std::string> filenames;
     result.env->GetChildren(result.wal_dir, &filenames);
     for (std::string& filename : filenames) {
-      if (filename.find(".log.trash",
-                  filename.length() - std::string(".log.trash").length()) !=
-                  std::string::npos) {
+      if (filename.find(".log.trash", filename.length() -
+                                          std::string(".log.trash").length()) !=
+          std::string::npos) {
         std::string trash_file = result.wal_dir + "/" + filename;
         result.env->DeleteFile(trash_file);
       }
@@ -1352,8 +1352,7 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
     return s;
   }
 
-  impl->wal_in_db_path_ =
-      IsWalDirSameAsDBPath(&impl->immutable_db_options_);
+  impl->wal_in_db_path_ = IsWalDirSameAsDBPath(&impl->immutable_db_options_);
 
   impl->mutex_.Lock();
   // Handles create_if_missing, error_if_exists

@@ -9,9 +9,9 @@
 
 #include "db/version_builder.h"
 
-#include <cinttypes>
 #include <algorithm>
 #include <atomic>
+#include <cinttypes>
 #include <functional>
 #include <map>
 #include <set>
@@ -173,14 +173,13 @@ class VersionBuilder::Rep {
                       " vs. file with global_seqno %" PRIu64 "\n",
                       f1->fd.smallest_seqno, f1->fd.largest_seqno,
                       external_file_seqno);
-              return Status::Corruption("L0 file with seqno " +
-                                        NumberToString(f1->fd.smallest_seqno) +
-                                        " " +
-                                        NumberToString(f1->fd.largest_seqno) +
-                                        " vs. file with global_seqno" +
-                                        NumberToString(external_file_seqno) +
-                                        " with fileNumber " +
-                                        NumberToString(f1->fd.GetNumber()));
+              return Status::Corruption(
+                  "L0 file with seqno " +
+                  NumberToString(f1->fd.smallest_seqno) + " " +
+                  NumberToString(f1->fd.largest_seqno) +
+                  " vs. file with global_seqno" +
+                  NumberToString(external_file_seqno) + " with fileNumber " +
+                  NumberToString(f1->fd.GetNumber()));
             }
           } else if (f1->fd.smallest_seqno <= f2->fd.smallest_seqno) {
             fprintf(stderr,

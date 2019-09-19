@@ -226,8 +226,8 @@ LDBCommand* LDBCommand::SelectCommand(const ParsedParams& parsed_params) {
                                          parsed_params.flags);
   } else if (parsed_params.cmd == DropColumnFamilyCommand::Name()) {
     return new DropColumnFamilyCommand(parsed_params.cmd_params,
-                                         parsed_params.option_map,
-                                         parsed_params.flags);
+                                       parsed_params.option_map,
+                                       parsed_params.flags);
   } else if (parsed_params.cmd == DBFileDumperCommand::Name()) {
     return new DBFileDumperCommand(parsed_params.cmd_params,
                                    parsed_params.option_map,
@@ -1176,7 +1176,7 @@ DropColumnFamilyCommand::DropColumnFamilyCommand(
     const std::vector<std::string>& params,
     const std::map<std::string, std::string>& options,
     const std::vector<std::string>& flags)
-  : LDBCommand(options, flags, true, {ARG_DB}) {
+    : LDBCommand(options, flags, true, {ARG_DB}) {
   if (params.size() != 1) {
     exec_state_ = LDBCommandExecuteResult::Failed(
         "The name of column family to drop must be specified");

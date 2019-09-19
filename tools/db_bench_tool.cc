@@ -16,12 +16,12 @@
 #include <unistd.h>
 #endif
 #include <fcntl.h>
-#include <cinttypes>
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <sys/types.h>
 #include <atomic>
+#include <cinttypes>
 #include <condition_variable>
 #include <cstddef>
 #include <memory>

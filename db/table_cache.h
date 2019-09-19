@@ -208,8 +208,7 @@ class TableCache {
   void CreateRowCacheKeyPrefix(const ReadOptions& options,
                                const FileDescriptor& fd,
                                const Slice& internal_key,
-                               GetContext* get_context,
-                               IterKey& row_cache_key);
+                               GetContext* get_context, IterKey& row_cache_key);
 
   // Helper function to lookup the row cache for a key. It appends the
   // user key to row_cache_key at offset prefix_size

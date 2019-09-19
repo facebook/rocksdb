@@ -5,9 +5,9 @@
 
 #ifndef ROCKSDB_LITE
 
-#include <cinttypes>
 #include <algorithm>
 #include <array>
+#include <cinttypes>
 #include <map>
 #include <string>
 #include <tuple>

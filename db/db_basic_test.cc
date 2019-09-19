@@ -1356,9 +1356,9 @@ TEST_F(DBBasicTest, MultiGetBatchedMultiLevel) {
 // Test class for batched MultiGet with prefix extractor
 // Param bool - If true, use partitioned filters
 //              If false, use full filter block
-class MultiGetPrefixExtractorTest
-    : public DBBasicTest,
-      public ::testing::WithParamInterface<bool> {};
+class MultiGetPrefixExtractorTest : public DBBasicTest,
+                                    public ::testing::WithParamInterface<bool> {
+};
 
 TEST_P(MultiGetPrefixExtractorTest, Batched) {
   Options options = CurrentOptions();
@@ -1396,14 +1396,12 @@ TEST_P(MultiGetPrefixExtractorTest, Batched) {
   ASSERT_EQ(get_perf_context()->bloom_sst_hit_count, 4);
 }
 
-INSTANTIATE_TEST_CASE_P(
-    MultiGetPrefix, MultiGetPrefixExtractorTest,
-    ::testing::Bool());
+INSTANTIATE_TEST_CASE_P(MultiGetPrefix, MultiGetPrefixExtractorTest,
+                        ::testing::Bool());
 
 #ifndef ROCKSDB_LITE
-class DBMultiGetRowCacheTest
-    : public DBBasicTest,
-      public ::testing::WithParamInterface<bool> {};
+class DBMultiGetRowCacheTest : public DBBasicTest,
+                               public ::testing::WithParamInterface<bool> {};
 
 TEST_P(DBMultiGetRowCacheTest, MultiGetBatched) {
   do {
@@ -1543,10 +1541,9 @@ TEST_F(DBBasicTest, GetAllKeyVersions) {
 
 class DBBasicTestWithParallelIO
     : public DBTestBase,
-      public testing::WithParamInterface<std::tuple<bool,bool,bool,bool>> {
+      public testing::WithParamInterface<std::tuple<bool, bool, bool, bool>> {
  public:
-  DBBasicTestWithParallelIO()
-      : DBTestBase("/db_basic_test_with_parallel_io") {
+  DBBasicTestWithParallelIO() : DBTestBase("/db_basic_test_with_parallel_io") {
     bool compressed_cache = std::get<0>(GetParam());
     bool uncompressed_cache = std::get<1>(GetParam());
     compression_enabled_ = std::get<2>(GetParam());
@@ -1570,7 +1567,7 @@ class DBBasicTestWithParallelIO
     table_options.block_cache = uncompressed_cache_;
     table_options.block_cache_compressed = compressed_cache_;
     table_options.flush_block_policy_factory.reset(
-                      new MyFlushBlockPolicyFactory());
+        new MyFlushBlockPolicyFactory());
     options.table_factory.reset(new BlockBasedTableFactory(table_options));
     if (!compression_enabled_) {
       options.compression = kNoCompression;
@@ -1598,15 +1595,9 @@ class DBBasicTestWithParallelIO
   int num_found() { return uncompressed_cache_->num_found(); }
   int num_inserts() { return uncompressed_cache_->num_inserts(); }
 
-  int num_lookups_compressed() {
-    return compressed_cache_->num_lookups();
-  }
-  int num_found_compressed() {
-    return compressed_cache_->num_found();
-  }
-  int num_inserts_compressed() {
-    return compressed_cache_->num_inserts();
-  }
+  int num_lookups_compressed() { return compressed_cache_->num_lookups(); }
+  int num_found_compressed() { return compressed_cache_->num_found(); }
+  int num_inserts_compressed() { return compressed_cache_->num_inserts(); }
 
   bool fill_cache() { return fill_cache_; }
 
@@ -1614,8 +1605,7 @@ class DBBasicTestWithParallelIO
   static void TearDownTestCase() {}
 
  private:
-  class MyFlushBlockPolicyFactory
-    : public FlushBlockPolicyFactory {
+  class MyFlushBlockPolicyFactory : public FlushBlockPolicyFactory {
    public:
     MyFlushBlockPolicyFactory() {}
 
@@ -1630,11 +1620,10 @@ class DBBasicTestWithParallelIO
     }
   };
 
-  class MyFlushBlockPolicy
-    : public FlushBlockPolicy {
+  class MyFlushBlockPolicy : public FlushBlockPolicy {
    public:
     explicit MyFlushBlockPolicy(const BlockBuilder& data_block_builder)
-      : num_keys_(0), data_block_builder_(data_block_builder) {}
+        : num_keys_(0), data_block_builder_(data_block_builder) {}
 
     bool Update(const Slice& /*key*/, const Slice& /*value*/) override {
       if (data_block_builder_.empty()) {
@@ -1656,11 +1645,10 @@ class DBBasicTestWithParallelIO
     const BlockBuilder& data_block_builder_;
   };
 
-  class MyBlockCache
-    : public Cache {
+  class MyBlockCache : public Cache {
    public:
     explicit MyBlockCache(std::shared_ptr<Cache>& target)
-      : target_(target), num_lookups_(0), num_found_(0), num_inserts_(0) {}
+        : target_(target), num_lookups_(0), num_found_(0), num_inserts_(0) {}
 
     virtual const char* Name() const override { return "MyBlockCache"; }
 
@@ -1682,9 +1670,7 @@ class DBBasicTestWithParallelIO
       return handle;
     }
 
-    virtual bool Ref(Handle* handle) override {
-      return target_->Ref(handle);
-    }
+    virtual bool Ref(Handle* handle) override { return target_->Ref(handle); }
 
     virtual bool Release(Handle* handle, bool force_erase = false) override {
       return target_->Release(handle, force_erase);
@@ -1694,12 +1680,8 @@ class DBBasicTestWithParallelIO
       return target_->Value(handle);
     }
 
-    virtual void Erase(const Slice& key) override {
-      target_->Erase(key);
-    }
-    virtual uint64_t NewId() override {
-      return target_->NewId();
-    }
+    virtual void Erase(const Slice& key) override { target_->Erase(key); }
+    virtual uint64_t NewId() override { return target_->NewId(); }
 
     virtual void SetCapacity(size_t capacity) override {
       target_->SetCapacity(capacity);
@@ -1717,9 +1699,7 @@ class DBBasicTestWithParallelIO
       return target_->GetCapacity();
     }
 
-    virtual size_t GetUsage() const override {
-      return target_->GetUsage();
-    }
+    virtual size_t GetUsage() const override { return target_->GetUsage(); }
 
     virtual size_t GetUsage(Handle* handle) const override {
       return target_->GetUsage(handle);
@@ -1745,6 +1725,7 @@ class DBBasicTestWithParallelIO
     int num_found() { return num_found_; }
 
     int num_inserts() { return num_inserts_; }
+
    private:
     std::shared_ptr<Cache> target_;
     int num_lookups_;
@@ -1777,7 +1758,7 @@ TEST_P(DBBasicTestWithParallelIO, MultiGet) {
   statuses.resize(keys.size());
 
   dbfull()->MultiGet(ro, dbfull()->DefaultColumnFamily(), keys.size(),
-           keys.data(), values.data(), statuses.data(), true);
+                     keys.data(), values.data(), statuses.data(), true);
   ASSERT_TRUE(CheckValue(0, values[0].ToString()));
   ASSERT_TRUE(CheckValue(50, values[1].ToString()));
 
@@ -1789,7 +1770,7 @@ TEST_P(DBBasicTestWithParallelIO, MultiGet) {
   values[0].Reset();
   values[1].Reset();
   dbfull()->MultiGet(ro, dbfull()->DefaultColumnFamily(), keys.size(),
-           keys.data(), values.data(), statuses.data(), true);
+                     keys.data(), values.data(), statuses.data(), true);
   ASSERT_TRUE(CheckValue(1, values[0].ToString()));
   ASSERT_TRUE(CheckValue(51, values[1].ToString()));
 
@@ -1798,7 +1779,7 @@ TEST_P(DBBasicTestWithParallelIO, MultiGet) {
 
   keys.resize(10);
   statuses.resize(10);
-  std::vector<int> key_ints{1,2,15,16,55,81,82,83,84,85};
+  std::vector<int> key_ints{1, 2, 15, 16, 55, 81, 82, 83, 84, 85};
   for (size_t i = 0; i < key_ints.size(); ++i) {
     key_data[i] = Key(key_ints[i]);
     keys[i] = Slice(key_data[i]);
@@ -1806,7 +1787,7 @@ TEST_P(DBBasicTestWithParallelIO, MultiGet) {
     values[i].Reset();
   }
   dbfull()->MultiGet(ro, dbfull()->DefaultColumnFamily(), keys.size(),
-           keys.data(), values.data(), statuses.data(), true);
+                     keys.data(), values.data(), statuses.data(), true);
   for (size_t i = 0; i < key_ints.size(); ++i) {
     ASSERT_OK(statuses[i]);
     ASSERT_TRUE(CheckValue(key_ints[i], values[i].ToString()));

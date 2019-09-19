@@ -1445,8 +1445,8 @@ TEST_P(WritePreparedTransactionTest, MaxCatchupWithUnbackedSnapshot) {
       s = s_vec[0];
       ASSERT_TRUE(s.ok() || s.IsTryAgain());
       Slice key("key");
-      txn->MultiGet(ropt, db->DefaultColumnFamily(), 1, &key, &pinnable_val,
-                    &s, true);
+      txn->MultiGet(ropt, db->DefaultColumnFamily(), 1, &key, &pinnable_val, &s,
+                    true);
       ASSERT_TRUE(s.ok() || s.IsTryAgain());
       delete txn;
     }

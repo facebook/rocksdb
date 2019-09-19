@@ -9,11 +9,11 @@
 
 #include "db/column_family.h"
 
-#include <cinttypes>
-#include <vector>
-#include <string>
 #include <algorithm>
+#include <cinttypes>
 #include <limits>
+#include <string>
+#include <vector>
 
 #include "db/compaction/compaction_picker.h"
 #include "db/compaction/compaction_picker_fifo.h"
