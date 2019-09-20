@@ -18,6 +18,7 @@
 
 #include "db/range_tombstone_fragmenter.h"
 #include "file/filename.h"
+#include "file/random_access_file_reader.h"
 #include "options/cf_options.h"
 #include "rocksdb/options.h"
 #include "rocksdb/persistent_cache.h"
@@ -39,7 +40,6 @@
 #include "table/two_level_iterator.h"
 #include "trace_replay/block_cache_tracer.h"
 #include "util/coding.h"
-#include "util/file_reader_writer.h"
 #include "util/user_comparator_wrapper.h"
 
 namespace rocksdb {
@@ -265,6 +265,9 @@ class BlockBasedTable : public TableReader {
   Rep* rep_;
   explicit BlockBasedTable(Rep* rep, BlockCacheTracer* const block_cache_tracer)
       : rep_(rep), block_cache_tracer_(block_cache_tracer) {}
+  // No copying allowed
+  explicit BlockBasedTable(const TableReader&) = delete;
+  void operator=(const TableReader&) = delete;
 
  private:
   friend class MockedBlockBasedTable;
@@ -457,10 +460,6 @@ class BlockBasedTable : public TableReader {
   Status DumpDataBlocks(WritableFile* out_file);
   void DumpKeyValue(const Slice& key, const Slice& value,
                     WritableFile* out_file);
-
-  // No copying allowed
-  explicit BlockBasedTable(const TableReader&) = delete;
-  void operator=(const TableReader&) = delete;
 
   friend class PartitionedFilterBlockReader;
   friend class PartitionedFilterBlockTest;

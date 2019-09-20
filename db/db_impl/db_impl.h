@@ -128,6 +128,10 @@ class DBImpl : public DB {
  public:
   DBImpl(const DBOptions& options, const std::string& dbname,
          const bool seq_per_batch = false, const bool batch_per_txn = true);
+  // No copying allowed
+  DBImpl(const DBImpl&) = delete;
+  void operator=(const DBImpl&) = delete;
+
   virtual ~DBImpl();
 
   // ---- Implementations of the DB interface ----
@@ -278,6 +282,9 @@ class DBImpl : public DB {
   virtual Status EnableAutoCompaction(
       const std::vector<ColumnFamilyHandle*>& column_family_handles) override;
 
+  virtual void EnableManualCompaction() override;
+  virtual void DisableManualCompaction() override;
+
   using DB::SetOptions;
   Status SetOptions(
       ColumnFamilyHandle* column_family,
@@ -340,7 +347,8 @@ class DBImpl : public DB {
                               uint64_t* manifest_file_size,
                               bool flush_memtable = true) override;
   virtual Status GetSortedWalFiles(VectorLogPtr& files) override;
-  virtual Status GetCurrentWalFile(std::unique_ptr<LogFile>* current_log_file) override;
+  virtual Status GetCurrentWalFile(
+      std::unique_ptr<LogFile>* current_log_file) override;
 
   virtual Status GetUpdatesSince(
       SequenceNumber seq_number, std::unique_ptr<TransactionLogIterator>* iter,
@@ -1563,10 +1571,6 @@ class DBImpl : public DB {
 
   void WaitForBackgroundWork();
 
-  // No copying allowed
-  DBImpl(const DBImpl&);
-  void operator=(const DBImpl&);
-
   // Background threads call this function, which is just a wrapper around
   // the InstallSuperVersion() function. Background threads carry
   // sv_context which can have new_superversion already
@@ -1638,6 +1642,7 @@ class DBImpl : public DB {
   InstrumentedMutex log_write_mutex_;
 
   std::atomic<bool> shutting_down_;
+  std::atomic<bool> manual_compaction_paused_;
   // This condition variable is signaled on these conditions:
   // * whenever bg_compaction_scheduled_ goes down to 0
   // * if AnyManualCompaction, whenever a compaction finishes, even if it hasn't
@@ -1780,12 +1785,12 @@ class DBImpl : public DB {
   // ColumnFamilyData::pending_compaction_ == true)
   std::deque<ColumnFamilyData*> compaction_queue_;
 
-  // A queue to store filenames of the files to be purged
-  std::deque<PurgeFileInfo> purge_queue_;
+  // A map to store file numbers and filenames of the files to be purged
+  std::unordered_map<uint64_t, PurgeFileInfo> purge_files_;
 
   // A vector to store the file numbers that have been assigned to certain
   // JobContext. Current implementation tracks ssts only.
-  std::vector<uint64_t> files_grabbed_for_purge_;
+  std::unordered_set<uint64_t> files_grabbed_for_purge_;
 
   // A queue to store log writers to close
   std::deque<log::Writer*> logs_to_free_queue_;

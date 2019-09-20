@@ -5,10 +5,10 @@
 
 #include "rocksdb/utilities/sim_cache.h"
 #include <atomic>
+#include "file/writable_file_writer.h"
 #include "monitoring/statistics.h"
 #include "port/port.h"
 #include "rocksdb/env.h"
-#include "util/file_reader_writer.h"
 #include "util/mutexlock.h"
 #include "util/string_util.h"
 
@@ -331,8 +331,11 @@ class SimCacheImpl : public SimCache {
 // For instrumentation purpose, use NewSimCache instead
 std::shared_ptr<SimCache> NewSimCache(std::shared_ptr<Cache> cache,
                                       size_t sim_capacity, int num_shard_bits) {
-  return NewSimCache(NewLRUCache(sim_capacity, num_shard_bits), cache,
-                     num_shard_bits);
+  LRUCacheOptions co;
+  co.capacity = sim_capacity;
+  co.num_shard_bits = num_shard_bits;
+  co.metadata_charge_policy = kDontChargeCacheMetadata;
+  return NewSimCache(NewLRUCache(co), cache, num_shard_bits);
 }
 
 std::shared_ptr<SimCache> NewSimCache(std::shared_ptr<Cache> sim_cache,

@@ -97,7 +97,8 @@ void LRUHandleTable::Resize() {
 
 LRUCacheShard::LRUCacheShard(size_t capacity, bool strict_capacity_limit,
                              double high_pri_pool_ratio,
-                             bool use_adaptive_mutex)
+                             bool use_adaptive_mutex,
+                             CacheMetadataChargePolicy metadata_charge_policy)
     : capacity_(0),
       high_pri_pool_usage_(0),
       strict_capacity_limit_(strict_capacity_limit),
@@ -106,6 +107,7 @@ LRUCacheShard::LRUCacheShard(size_t capacity, bool strict_capacity_limit,
       usage_(0),
       lru_usage_(0),
       mutex_(use_adaptive_mutex) {
+  set_metadata_charge_policy(metadata_charge_policy);
   // Make empty circular linked list
   lru_.next = &lru_;
   lru_.prev = &lru_;
@@ -124,7 +126,9 @@ void LRUCacheShard::EraseUnRefEntries() {
       LRU_Remove(old);
       table_.Remove(old->key(), old->hash);
       old->SetInCache(false);
-      usage_ -= old->charge;
+      size_t total_charge = old->CalcTotalCharge(metadata_charge_policy_);
+      assert(usage_ >= total_charge);
+      usage_ -= total_charge;
       last_reference_list.push_back(old);
     }
   }
@@ -180,16 +184,19 @@ void LRUCacheShard::LRU_Remove(LRUHandle* e) {
   e->next->prev = e->prev;
   e->prev->next = e->next;
   e->prev = e->next = nullptr;
-  lru_usage_ -= e->charge;
+  size_t total_charge = e->CalcTotalCharge(metadata_charge_policy_);
+  assert(lru_usage_ >= total_charge);
+  lru_usage_ -= total_charge;
   if (e->InHighPriPool()) {
-    assert(high_pri_pool_usage_ >= e->charge);
-    high_pri_pool_usage_ -= e->charge;
+    assert(high_pri_pool_usage_ >= total_charge);
+    high_pri_pool_usage_ -= total_charge;
   }
 }
 
 void LRUCacheShard::LRU_Insert(LRUHandle* e) {
   assert(e->next == nullptr);
   assert(e->prev == nullptr);
+  size_t total_charge = e->CalcTotalCharge(metadata_charge_policy_);
   if (high_pri_pool_ratio_ > 0 && (e->IsHighPri() || e->HasHit())) {
     // Inset "e" to head of LRU list.
     e->next = &lru_;
@@ -197,7 +204,7 @@ void LRUCacheShard::LRU_Insert(LRUHandle* e) {
     e->prev->next = e;
     e->next->prev = e;
     e->SetInHighPriPool(true);
-    high_pri_pool_usage_ += e->charge;
+    high_pri_pool_usage_ += total_charge;
     MaintainPoolSize();
   } else {
     // Insert "e" to the head of low-pri pool. Note that when
@@ -209,7 +216,7 @@ void LRUCacheShard::LRU_Insert(LRUHandle* e) {
     e->SetInHighPriPool(false);
     lru_low_pri_ = e;
   }
-  lru_usage_ += e->charge;
+  lru_usage_ += total_charge;
 }
 
 void LRUCacheShard::MaintainPoolSize() {
@@ -218,7 +225,10 @@ void LRUCacheShard::MaintainPoolSize() {
     lru_low_pri_ = lru_low_pri_->next;
     assert(lru_low_pri_ != &lru_);
     lru_low_pri_->SetInHighPriPool(false);
-    high_pri_pool_usage_ -= lru_low_pri_->charge;
+    size_t total_charge =
+        lru_low_pri_->CalcTotalCharge(metadata_charge_policy_);
+    assert(high_pri_pool_usage_ >= total_charge);
+    high_pri_pool_usage_ -= total_charge;
   }
 }
 
@@ -231,7 +241,9 @@ void LRUCacheShard::EvictFromLRU(size_t charge,
     LRU_Remove(old);
     table_.Remove(old->key(), old->hash);
     old->SetInCache(false);
-    usage_ -= old->charge;
+    size_t old_total_charge = old->CalcTotalCharge(metadata_charge_policy_);
+    assert(usage_ >= old_total_charge);
+    usage_ -= old_total_charge;
     deleted->push_back(old);
   }
 }
@@ -311,7 +323,9 @@ bool LRUCacheShard::Release(Cache::Handle* handle, bool force_erase) {
       }
     }
     if (last_reference) {
-      usage_ -= e->charge;
+      size_t total_charge = e->CalcTotalCharge(metadata_charge_policy_);
+      assert(usage_ >= total_charge);
+      usage_ -= total_charge;
     }
   }
 
@@ -345,15 +359,16 @@ Status LRUCacheShard::Insert(const Slice& key, uint32_t hash, void* value,
   e->SetInCache(true);
   e->SetPriority(priority);
   memcpy(e->key_data, key.data(), key.size());
+  size_t total_charge = e->CalcTotalCharge(metadata_charge_policy_);
 
   {
     MutexLock l(&mutex_);
 
     // Free the space following strict LRU policy until enough space
     // is freed or the lru list is empty
-    EvictFromLRU(charge, &last_reference_list);
+    EvictFromLRU(total_charge, &last_reference_list);
 
-    if ((usage_ + charge) > capacity_ &&
+    if ((usage_ + total_charge) > capacity_ &&
         (strict_capacity_limit_ || handle == nullptr)) {
       if (handle == nullptr) {
         // Don't insert the entry but still return ok, as if the entry inserted
@@ -369,14 +384,17 @@ Status LRUCacheShard::Insert(const Slice& key, uint32_t hash, void* value,
       // Insert into the cache. Note that the cache might get larger than its
       // capacity if not enough space was freed up.
       LRUHandle* old = table_.Insert(e);
-      usage_ += e->charge;
+      usage_ += total_charge;
       if (old != nullptr) {
         assert(old->InCache());
         old->SetInCache(false);
         if (!old->HasRefs()) {
           // old is on LRU because it's in cache and its reference count is 0
           LRU_Remove(old);
-          usage_ -= old->charge;
+          size_t old_total_charge =
+              old->CalcTotalCharge(metadata_charge_policy_);
+          assert(usage_ >= old_total_charge);
+          usage_ -= old_total_charge;
           last_reference_list.push_back(old);
         }
       }
@@ -409,7 +427,9 @@ void LRUCacheShard::Erase(const Slice& key, uint32_t hash) {
       if (!e->HasRefs()) {
         // The entry is in LRU since it's in hash and has no external references
         LRU_Remove(e);
-        usage_ -= e->charge;
+        size_t total_charge = e->CalcTotalCharge(metadata_charge_policy_);
+        assert(usage_ >= total_charge);
+        usage_ -= total_charge;
         last_reference = true;
       }
     }
@@ -447,7 +467,8 @@ std::string LRUCacheShard::GetPrintableOptions() const {
 LRUCache::LRUCache(size_t capacity, int num_shard_bits,
                    bool strict_capacity_limit, double high_pri_pool_ratio,
                    std::shared_ptr<MemoryAllocator> allocator,
-                   bool use_adaptive_mutex)
+                   bool use_adaptive_mutex,
+                   CacheMetadataChargePolicy metadata_charge_policy)
     : ShardedCache(capacity, num_shard_bits, strict_capacity_limit,
                    std::move(allocator)) {
   num_shards_ = 1 << num_shard_bits;
@@ -457,7 +478,7 @@ LRUCache::LRUCache(size_t capacity, int num_shard_bits,
   for (int i = 0; i < num_shards_; i++) {
     new (&shards_[i])
         LRUCacheShard(per_shard, strict_capacity_limit, high_pri_pool_ratio,
-            use_adaptive_mutex);
+                      use_adaptive_mutex, metadata_charge_policy);
   }
 }
 
@@ -526,15 +547,15 @@ std::shared_ptr<Cache> NewLRUCache(const LRUCacheOptions& cache_opts) {
   return NewLRUCache(cache_opts.capacity, cache_opts.num_shard_bits,
                      cache_opts.strict_capacity_limit,
                      cache_opts.high_pri_pool_ratio,
-                     cache_opts.memory_allocator,
-                     cache_opts.use_adaptive_mutex);
+                     cache_opts.memory_allocator, cache_opts.use_adaptive_mutex,
+                     cache_opts.metadata_charge_policy);
 }
 
 std::shared_ptr<Cache> NewLRUCache(
     size_t capacity, int num_shard_bits, bool strict_capacity_limit,
     double high_pri_pool_ratio,
-    std::shared_ptr<MemoryAllocator> memory_allocator,
-    bool use_adaptive_mutex) {
+    std::shared_ptr<MemoryAllocator> memory_allocator, bool use_adaptive_mutex,
+    CacheMetadataChargePolicy metadata_charge_policy) {
   if (num_shard_bits >= 20) {
     return nullptr;  // the cache cannot be sharded into too many fine pieces
   }
@@ -545,10 +566,9 @@ std::shared_ptr<Cache> NewLRUCache(
   if (num_shard_bits < 0) {
     num_shard_bits = GetDefaultCacheShardBits(capacity);
   }
-  return std::make_shared<LRUCache>(capacity, num_shard_bits,
-                                    strict_capacity_limit, high_pri_pool_ratio,
-                                    std::move(memory_allocator),
-                                    use_adaptive_mutex);
+  return std::make_shared<LRUCache>(
+      capacity, num_shard_bits, strict_capacity_limit, high_pri_pool_ratio,
+      std::move(memory_allocator), use_adaptive_mutex, metadata_charge_policy);
 }
 
 }  // namespace rocksdb

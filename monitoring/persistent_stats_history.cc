@@ -69,7 +69,6 @@ void OptimizeForPersistentStats(ColumnFamilyOptions* cfo) {
   cfo->write_buffer_size = 2 << 20;
   cfo->target_file_size_base = 2 * 1048576;
   cfo->max_bytes_for_level_base = 10 * 1048576;
-  cfo->snap_refresh_nanos = 0;
   cfo->soft_pending_compaction_bytes_limit = 256 * 1048576;
   cfo->hard_pending_compaction_bytes_limit = 1073741824ul;
   cfo->compression = kNoCompression;

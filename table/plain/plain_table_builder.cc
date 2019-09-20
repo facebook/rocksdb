@@ -13,6 +13,7 @@
 #include <map>
 
 #include "db/dbformat.h"
+#include "file/writable_file_writer.h"
 #include "rocksdb/comparator.h"
 #include "rocksdb/env.h"
 #include "rocksdb/filter_policy.h"
@@ -26,7 +27,6 @@
 #include "table/plain/plain_table_index.h"
 #include "util/coding.h"
 #include "util/crc32c.h"
-#include "util/file_reader_writer.h"
 #include "util/stop_watch.h"
 
 namespace rocksdb {

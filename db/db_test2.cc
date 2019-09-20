@@ -2402,6 +2402,215 @@ TEST_F(DBTest2, ManualCompactionOverlapManualCompaction) {
   rocksdb::SyncPoint::GetInstance()->DisableProcessing();
 }
 
+TEST_F(DBTest2, PausingManualCompaction1) {
+  Options options = CurrentOptions();
+  options.disable_auto_compactions = true;
+  options.num_levels = 7;
+
+  DestroyAndReopen(options);
+  Random rnd(301);
+  // Generate a file containing 10 keys.
+  for (int i = 0; i < 10; i++) {
+    ASSERT_OK(Put(Key(i), RandomString(&rnd, 50)));
+  }
+  ASSERT_OK(Flush());
+
+  // Generate another file containing same keys
+  for (int i = 0; i < 10; i++) {
+    ASSERT_OK(Put(Key(i), RandomString(&rnd, 50)));
+  }
+  ASSERT_OK(Flush());
+
+  int manual_compactions_paused = 0;
+  rocksdb::SyncPoint::GetInstance()->SetCallBack(
+      "CompactionJob::Run():PausingManualCompaction:1", [&](void* arg) {
+        auto paused = reinterpret_cast<std::atomic<bool>*>(arg);
+        ASSERT_FALSE(paused->load(std::memory_order_acquire));
+        paused->store(true, std::memory_order_release);
+        manual_compactions_paused += 1;
+      });
+  rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+
+  std::vector<std::string> files_before_compact, files_after_compact;
+  // Remember file name before compaction is triggered
+  std::vector<LiveFileMetaData> files_meta;
+  dbfull()->GetLiveFilesMetaData(&files_meta);
+  for (auto file : files_meta) {
+    files_before_compact.push_back(file.name);
+  }
+
+  // OK, now trigger a manual compaction
+  dbfull()->CompactRange(CompactRangeOptions(), nullptr, nullptr);
+
+  // Wait for compactions to get scheduled and stopped
+  dbfull()->TEST_WaitForCompact(true);
+
+  // Get file names after compaction is stopped
+  files_meta.clear();
+  dbfull()->GetLiveFilesMetaData(&files_meta);
+  for (auto file : files_meta) {
+    files_after_compact.push_back(file.name);
+  }
+
+  // Like nothing happened
+  ASSERT_EQ(files_before_compact, files_after_compact);
+  ASSERT_EQ(manual_compactions_paused, 1);
+
+  manual_compactions_paused = 0;
+  // Now make sure CompactFiles also not run
+  dbfull()->CompactFiles(rocksdb::CompactionOptions(), files_before_compact, 0);
+  // Wait for manual compaction to get scheduled and finish
+  dbfull()->TEST_WaitForCompact(true);
+
+  files_meta.clear();
+  files_after_compact.clear();
+  dbfull()->GetLiveFilesMetaData(&files_meta);
+  for (auto file : files_meta) {
+    files_after_compact.push_back(file.name);
+  }
+
+  ASSERT_EQ(files_before_compact, files_after_compact);
+  // CompactFiles returns at entry point
+  ASSERT_EQ(manual_compactions_paused, 0);
+
+  rocksdb::SyncPoint::GetInstance()->DisableProcessing();
+}
+
+// PausingManualCompaction does not affect auto compaction
+TEST_F(DBTest2, PausingManualCompaction2) {
+  Options options = CurrentOptions();
+  options.level0_file_num_compaction_trigger = 2;
+  options.disable_auto_compactions = false;
+
+  DestroyAndReopen(options);
+  dbfull()->DisableManualCompaction();
+
+  Random rnd(301);
+  for (int i = 0; i < 2; i++) {
+    // Generate a file containing 10 keys.
+    for (int j = 0; j < 100; j++) {
+      ASSERT_OK(Put(Key(j), RandomString(&rnd, 50)));
+    }
+    ASSERT_OK(Flush());
+  }
+  ASSERT_OK(dbfull()->TEST_WaitForCompact(true));
+
+  std::vector<LiveFileMetaData> files_meta;
+  dbfull()->GetLiveFilesMetaData(&files_meta);
+  ASSERT_EQ(files_meta.size(), 1);
+}
+
+TEST_F(DBTest2, PausingManualCompaction3) {
+  CompactRangeOptions compact_options;
+  Options options = CurrentOptions();
+  options.disable_auto_compactions = true;
+  options.num_levels = 7;
+
+  Random rnd(301);
+  auto generate_files = [&]() {
+    for (int i = 0; i < options.num_levels; i++) {
+      for (int j = 0; j < options.num_levels - i + 1; j++) {
+        for (int k = 0; k < 1000; k++) {
+          ASSERT_OK(Put(Key(k + j * 1000), RandomString(&rnd, 50)));
+        }
+        Flush();
+      }
+
+      for (int l = 1; l < options.num_levels - i; l++) {
+        MoveFilesToLevel(l);
+      }
+    }
+  };
+
+  DestroyAndReopen(options);
+  generate_files();
+#ifndef ROCKSDB_LITE
+  ASSERT_EQ("2,3,4,5,6,7,8", FilesPerLevel());
+#endif  // !ROCKSDB_LITE
+  int run_manual_compactions = 0;
+  rocksdb::SyncPoint::GetInstance()->SetCallBack(
+      "CompactionJob::Run():PausingManualCompaction:1",
+      [&](void* /*arg*/) { run_manual_compactions++; });
+  rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+
+  dbfull()->DisableManualCompaction();
+  dbfull()->CompactRange(compact_options, nullptr, nullptr);
+  dbfull()->TEST_WaitForCompact(true);
+  // As manual compaction disabled, not even reach sync point
+  ASSERT_EQ(run_manual_compactions, 0);
+#ifndef ROCKSDB_LITE
+  ASSERT_EQ("2,3,4,5,6,7,8", FilesPerLevel());
+#endif  // !ROCKSDB_LITE
+
+  rocksdb::SyncPoint::GetInstance()->ClearCallBack(
+      "CompactionJob::Run():PausingManualCompaction:1");
+  dbfull()->EnableManualCompaction();
+  dbfull()->CompactRange(compact_options, nullptr, nullptr);
+  dbfull()->TEST_WaitForCompact(true);
+#ifndef ROCKSDB_LITE
+  ASSERT_EQ("0,0,0,0,0,0,2", FilesPerLevel());
+#endif  // !ROCKSDB_LITE
+
+  rocksdb::SyncPoint::GetInstance()->DisableProcessing();
+}
+
+TEST_F(DBTest2, PausingManualCompaction4) {
+  CompactRangeOptions compact_options;
+  Options options = CurrentOptions();
+  options.disable_auto_compactions = true;
+  options.num_levels = 7;
+
+  Random rnd(301);
+  auto generate_files = [&]() {
+    for (int i = 0; i < options.num_levels; i++) {
+      for (int j = 0; j < options.num_levels - i + 1; j++) {
+        for (int k = 0; k < 1000; k++) {
+          ASSERT_OK(Put(Key(k + j * 1000), RandomString(&rnd, 50)));
+        }
+        Flush();
+      }
+
+      for (int l = 1; l < options.num_levels - i; l++) {
+        MoveFilesToLevel(l);
+      }
+    }
+  };
+
+  DestroyAndReopen(options);
+  generate_files();
+#ifndef ROCKSDB_LITE
+  ASSERT_EQ("2,3,4,5,6,7,8", FilesPerLevel());
+#endif  // !ROCKSDB_LITE
+  int run_manual_compactions = 0;
+  rocksdb::SyncPoint::GetInstance()->SetCallBack(
+      "CompactionJob::Run():PausingManualCompaction:2", [&](void* arg) {
+        auto paused = reinterpret_cast<std::atomic<bool>*>(arg);
+        ASSERT_FALSE(paused->load(std::memory_order_acquire));
+        paused->store(true, std::memory_order_release);
+        run_manual_compactions++;
+      });
+  rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+
+  dbfull()->EnableManualCompaction();
+  dbfull()->CompactRange(compact_options, nullptr, nullptr);
+  dbfull()->TEST_WaitForCompact(true);
+  ASSERT_EQ(run_manual_compactions, 1);
+#ifndef ROCKSDB_LITE
+  ASSERT_EQ("2,3,4,5,6,7,8", FilesPerLevel());
+#endif  // !ROCKSDB_LITE
+
+  rocksdb::SyncPoint::GetInstance()->ClearCallBack(
+      "CompactionJob::Run():PausingManualCompaction:2");
+  dbfull()->EnableManualCompaction();
+  dbfull()->CompactRange(compact_options, nullptr, nullptr);
+  dbfull()->TEST_WaitForCompact(true);
+#ifndef ROCKSDB_LITE
+  ASSERT_EQ("0,0,0,0,0,0,2", FilesPerLevel());
+#endif  // !ROCKSDB_LITE
+
+  rocksdb::SyncPoint::GetInstance()->DisableProcessing();
+}
+
 TEST_F(DBTest2, OptimizeForPointLookup) {
   Options options = CurrentOptions();
   Close();
@@ -3776,11 +3985,51 @@ TEST_F(DBTest2, CloseWithUnreleasedSnapshot) {
   db_ = nullptr;
 }
 
+TEST_F(DBTest2, PrefixBloomReseek) {
+  Options options = CurrentOptions();
+  options.create_if_missing = true;
+  options.prefix_extractor.reset(NewCappedPrefixTransform(3));
+  BlockBasedTableOptions bbto;
+  bbto.filter_policy.reset(NewBloomFilterPolicy(10, false));
+  bbto.whole_key_filtering = false;
+  options.table_factory.reset(NewBlockBasedTableFactory(bbto));
+  DestroyAndReopen(options);
+
+  // Construct two L1 files with keys:
+  // f1:[aaa1 ccc1] f2:[ddd0]
+  ASSERT_OK(Put("aaa1", ""));
+  ASSERT_OK(Put("ccc1", ""));
+  ASSERT_OK(Flush());
+  ASSERT_OK(Put("ddd0", ""));
+  ASSERT_OK(Flush());
+  CompactRangeOptions cro;
+  cro.bottommost_level_compaction = BottommostLevelCompaction::kSkip;
+  ASSERT_OK(db_->CompactRange(cro, nullptr, nullptr));
+
+  ASSERT_OK(Put("bbb1", ""));
+
+  Iterator* iter = db_->NewIterator(ReadOptions());
+
+  // Seeking into f1, the iterator will check bloom filter which returns the
+  // file iterator ot be invalidate, and the cursor will put into f2, with
+  // the next key to be "ddd0".
+  iter->Seek("bbb1");
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_EQ("bbb1", iter->key().ToString());
+
+  // Reseek ccc1, the L1 iterator needs to go back to f1 and reseek.
+  iter->Seek("ccc1");
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_EQ("ccc1", iter->key().ToString());
+
+  delete iter;
+}
+
 #ifndef ROCKSDB_LITE
 TEST_F(DBTest2, RowCacheSnapshot) {
   Options options = CurrentOptions();
   options.statistics = rocksdb::CreateDBStatistics();
-  options.row_cache = NewLRUCache(8192);
+  options.row_cache = NewLRUCache(8 * 8192);
   DestroyAndReopen(options);
 
   ASSERT_OK(Put("foo", "bar1"));

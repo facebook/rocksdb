@@ -332,6 +332,11 @@ ifeq ($(USE_FOLLY_DISTRIBUTED_MUTEX),1)
 	endif
 endif
 
+ifdef TEST_CACHE_LINE_SIZE
+  PLATFORM_CCFLAGS += -DTEST_CACHE_LINE_SIZE=$(TEST_CACHE_LINE_SIZE)
+  PLATFORM_CXXFLAGS += -DTEST_CACHE_LINE_SIZE=$(TEST_CACHE_LINE_SIZE)
+endif
+
 # This (the first rule) must depend on "all".
 default: all
 
@@ -1504,10 +1509,10 @@ util_merge_operators_test: utilities/util_merge_operators_test.o $(LIBOBJECTS) $
 options_file_test: db/options_file_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
-deletefile_test: db/deletefile_test.o $(LIBOBJECTS) $(TESTHARNESS)
+deletefile_test: db/deletefile_test.o db/db_test_util.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
-obsolete_files_test: db/obsolete_files_test.o $(LIBOBJECTS) $(TESTHARNESS)
+obsolete_files_test: db/obsolete_files_test.o db/db_test_util.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
 rocksdb_dump: tools/dump/rocksdb_dump.o $(LIBOBJECTS)

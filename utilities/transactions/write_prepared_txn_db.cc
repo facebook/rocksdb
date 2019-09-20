@@ -13,6 +13,7 @@
 #include <unordered_set>
 #include <vector>
 
+#include "db/arena_wrapped_db_iter.h"
 #include "db/db_impl/db_impl.h"
 #include "rocksdb/db.h"
 #include "rocksdb/options.h"

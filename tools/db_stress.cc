@@ -353,6 +353,15 @@ DEFINE_int32(bloom_bits, 10, "Bloom filter bits per key. "
 DEFINE_bool(use_block_based_filter, false, "use block based filter"
               "instead of full filter for block based table");
 
+DEFINE_bool(partition_filters, false,
+            "use partitioned filters "
+            "for block-based table");
+
+DEFINE_int32(
+    index_type,
+    static_cast<int32_t>(rocksdb::BlockBasedTableOptions::kBinarySearch),
+    "Type of block-based table index (see `enum IndexType` in table.h)");
+
 DEFINE_string(db, "", "Use the db with the following name.");
 
 DEFINE_string(secondaries_base, "",
@@ -532,10 +541,6 @@ static const bool FLAGS_iterpercent_dummy __attribute__((__unused__)) =
 DEFINE_uint64(num_iterations, 10, "Number of iterations per MultiIterate run");
 static const bool FLAGS_num_iterations_dummy __attribute__((__unused__)) =
     RegisterFlagValidator(&FLAGS_num_iterations, &ValidateUint32Range);
-
-DEFINE_uint64(
-    snap_refresh_nanos, 100 * 1000 * 1000,
-    "If non-zero, compactions will periodically refresh snapshot list.");
 
 namespace {
 enum rocksdb::CompressionType StringToCompressionType(const char* ctype) {
@@ -2749,8 +2754,6 @@ class StressTest {
         fprintf(stdout, "  %s\n", p.c_str());
       }
     }
-    fprintf(stdout, "Snapshot refresh nanos    : %" PRIu64 "\n",
-            FLAGS_snap_refresh_nanos);
     fprintf(stdout, "Periodic Compaction Secs  : %" PRIu64 "\n",
             FLAGS_periodic_compaction_seconds);
     fprintf(stdout, "Compaction TTL            : %" PRIu64 "\n",
@@ -2777,6 +2780,9 @@ class StressTest {
       block_based_options.index_block_restart_interval =
           static_cast<int32_t>(FLAGS_index_block_restart_interval);
       block_based_options.filter_policy = filter_policy_;
+      block_based_options.partition_filters = FLAGS_partition_filters;
+      block_based_options.index_type =
+          static_cast<BlockBasedTableOptions::IndexType>(FLAGS_index_type);
       options_.table_factory.reset(
           NewBlockBasedTableFactory(block_based_options));
       options_.db_write_buffer_size = FLAGS_db_write_buffer_size;
@@ -2908,7 +2914,6 @@ class StressTest {
     } else {
       options_.merge_operator = MergeOperators::CreatePutOperator();
     }
-    options_.snap_refresh_nanos = FLAGS_snap_refresh_nanos;
 
     fprintf(stdout, "DB path: [%s]\n", FLAGS_db.c_str());
 

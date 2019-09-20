@@ -101,6 +101,9 @@ class MemTable {
                     const MutableCFOptions& mutable_cf_options,
                     WriteBufferManager* write_buffer_manager,
                     SequenceNumber earliest_seq, uint32_t column_family_id);
+  // No copying allowed
+  MemTable(const MemTable&) = delete;
+  MemTable& operator=(const MemTable&) = delete;
 
   // Do not delete this MemTable unless Unref() indicates it not in use.
   ~MemTable();
@@ -179,7 +182,8 @@ class MemTable {
   // the <key, seq> already exists.
   bool Add(SequenceNumber seq, ValueType type, const Slice& key,
            const Slice& value, bool allow_concurrent = false,
-           MemTablePostProcessInfo* post_process_info = nullptr);
+           MemTablePostProcessInfo* post_process_info = nullptr,
+           void** hint = nullptr);
 
   // Used to Get value associated with key or Get Merge Operands associated
   // with key.
@@ -503,10 +507,6 @@ class MemTable {
   void UpdateFlushState();
 
   void UpdateOldestKeyTime();
-
-  // No copying allowed
-  MemTable(const MemTable&);
-  MemTable& operator=(const MemTable&);
 };
 
 extern const char* EncodeKey(std::string* scratch, const Slice& target);

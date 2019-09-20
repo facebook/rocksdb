@@ -38,7 +38,7 @@ CompactionIterator::CompactionIterator(
     const CompactionFilter* compaction_filter,
     const std::atomic<bool>* shutting_down,
     const SequenceNumber preserve_deletes_seqnum,
-    SnapshotListFetchCallback* snap_list_callback)
+    const std::atomic<bool>* manual_compaction_paused)
     : CompactionIterator(
           input, cmp, merge_helper, last_sequence, snapshots,
           earliest_write_conflict_snapshot, snapshot_checker, env,
@@ -46,7 +46,7 @@ CompactionIterator::CompactionIterator(
           std::unique_ptr<CompactionProxy>(
               compaction ? new CompactionProxy(compaction) : nullptr),
           compaction_filter, shutting_down, preserve_deletes_seqnum,
-          snap_list_callback) {}
+          manual_compaction_paused) {}
 
 CompactionIterator::CompactionIterator(
     InternalIterator* input, const Comparator* cmp, MergeHelper* merge_helper,
@@ -59,7 +59,7 @@ CompactionIterator::CompactionIterator(
     const CompactionFilter* compaction_filter,
     const std::atomic<bool>* shutting_down,
     const SequenceNumber preserve_deletes_seqnum,
-    SnapshotListFetchCallback* snap_list_callback)
+    const std::atomic<bool>* manual_compaction_paused)
     : input_(input),
       cmp_(cmp),
       merge_helper_(merge_helper),
@@ -73,12 +73,12 @@ CompactionIterator::CompactionIterator(
       compaction_(std::move(compaction)),
       compaction_filter_(compaction_filter),
       shutting_down_(shutting_down),
+      manual_compaction_paused_(manual_compaction_paused),
       preserve_deletes_seqnum_(preserve_deletes_seqnum),
       current_user_key_sequence_(0),
       current_user_key_snapshot_(0),
       merge_out_iter_(merge_helper_),
-      current_key_committed_(false),
-      snap_list_callback_(snap_list_callback) {
+      current_key_committed_(false) {
   assert(compaction_filter_ == nullptr || compaction_ != nullptr);
   assert(snapshots_ != nullptr);
   bottommost_level_ =
@@ -86,7 +86,24 @@ CompactionIterator::CompactionIterator(
   if (compaction_ != nullptr) {
     level_ptrs_ = std::vector<size_t>(compaction_->number_levels(), 0);
   }
-  ProcessSnapshotList();
+  if (snapshots_->size() == 0) {
+    // optimize for fast path if there are no snapshots
+    visible_at_tip_ = true;
+    earliest_snapshot_iter_ = snapshots_->end();
+    earliest_snapshot_ = kMaxSequenceNumber;
+    latest_snapshot_ = 0;
+  } else {
+    visible_at_tip_ = false;
+    earliest_snapshot_iter_ = snapshots_->begin();
+    earliest_snapshot_ = snapshots_->at(0);
+    latest_snapshot_ = snapshots_->back();
+  }
+#ifndef NDEBUG
+  // findEarliestVisibleSnapshot assumes this ordering.
+  for (size_t i = 1; i < snapshots_->size(); ++i) {
+    assert(snapshots_->at(i - 1) < snapshots_->at(i));
+  }
+#endif
   input_->SetPinnedItersMgr(&pinned_iters_mgr_);
   TEST_SYNC_POINT_CALLBACK("CompactionIterator:AfterInit", compaction_.get());
 }
@@ -208,33 +225,12 @@ void CompactionIterator::InvokeFilterIfNeeded(bool* need_skip,
   }
 }
 
-void CompactionIterator::ProcessSnapshotList() {
-#ifndef NDEBUG
-  // findEarliestVisibleSnapshot assumes this ordering.
-  for (size_t i = 1; i < snapshots_->size(); ++i) {
-    assert(snapshots_->at(i - 1) < snapshots_->at(i));
-  }
-#endif
-  if (snapshots_->size() == 0) {
-    // optimize for fast path if there are no snapshots
-    visible_at_tip_ = true;
-    earliest_snapshot_iter_ = snapshots_->end();
-    earliest_snapshot_ = kMaxSequenceNumber;
-    latest_snapshot_ = 0;
-  } else {
-    visible_at_tip_ = false;
-    earliest_snapshot_iter_ = snapshots_->begin();
-    earliest_snapshot_ = snapshots_->at(0);
-    latest_snapshot_ = snapshots_->back();
-  }
-  released_snapshots_.clear();
-}
-
 void CompactionIterator::NextFromInput() {
   at_next_ = false;
   valid_ = false;
 
-  while (!valid_ && input_->Valid() && !IsShuttingDown()) {
+  while (!valid_ && input_->Valid() && !IsPausingManualCompaction() &&
+         !IsShuttingDown()) {
     key_ = input_->key();
     value_ = input_->value();
     iter_stats_.num_input_records++;
@@ -277,13 +273,6 @@ void CompactionIterator::NextFromInput() {
     // compaction filter). ikey_.user_key is pointing to the copy.
     if (!has_current_user_key_ ||
         !cmp_->Equal(ikey_.user_key, current_user_key_)) {
-      num_keys_++;
-      // Use num_keys_ to reduce the overhead of reading current time
-      if (snap_list_callback_ && snapshots_->size() &&
-          snap_list_callback_->TimeToRefresh(num_keys_)) {
-        snap_list_callback_->Refresh(snapshots_, latest_snapshot_);
-        ProcessSnapshotList();
-      }
       // First occurrence of this user key
       // Copy key for output
       key_ = current_key_.SetInternalKey(key_, &ikey_);
@@ -611,6 +600,10 @@ void CompactionIterator::NextFromInput() {
 
   if (!valid_ && IsShuttingDown()) {
     status_ = Status::ShutdownInProgress();
+  }
+
+  if (IsPausingManualCompaction()) {
+    status_ = Status::Incomplete(Status::SubCode::kManualCompactionPaused);
   }
 }
 

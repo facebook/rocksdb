@@ -18,6 +18,9 @@
 #include "db/dbformat.h"
 #include "db/pinned_iterators_manager.h"
 
+#include "file/file_prefetch_buffer.h"
+#include "file/random_access_file_reader.h"
+
 #include "rocksdb/cache.h"
 #include "rocksdb/comparator.h"
 #include "rocksdb/env.h"
@@ -49,7 +52,6 @@
 #include "test_util/sync_point.h"
 #include "util/coding.h"
 #include "util/crc32c.h"
-#include "util/file_reader_writer.h"
 #include "util/stop_watch.h"
 #include "util/string_util.h"
 #include "util/xxhash.h"

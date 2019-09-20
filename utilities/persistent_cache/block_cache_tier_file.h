@@ -11,6 +11,8 @@
 #include <string>
 #include <vector>
 
+#include "file/random_access_file_reader.h"
+
 #include "rocksdb/comparator.h"
 #include "rocksdb/env.h"
 
@@ -21,7 +23,6 @@
 
 #include "port/port.h"
 #include "util/crc32c.h"
-#include "util/file_reader_writer.h"
 #include "util/mutexlock.h"
 
 // The io code path of persistent cache uses pipelined architecture

@@ -11,13 +11,6 @@
 #include <sys/ioctl.h>
 #endif
 
-#ifdef ROCKSDB_MALLOC_USABLE_SIZE
-#ifdef OS_FREEBSD
-#include <malloc_np.h>
-#else
-#include <malloc.h>
-#endif
-#endif
 #include <sys/types.h>
 
 #include <iostream>
@@ -39,6 +32,7 @@
 
 #include "env/env_chroot.h"
 #include "logging/log_buffer.h"
+#include "port/malloc.h"
 #include "port/port.h"
 #include "rocksdb/env.h"
 #include "test_util/sync_point.h"

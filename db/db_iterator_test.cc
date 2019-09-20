@@ -9,6 +9,7 @@
 
 #include <functional>
 
+#include "db/arena_wrapped_db_iter.h"
 #include "db/db_iter.h"
 #include "db/db_test_util.h"
 #include "port/port.h"
@@ -1069,7 +1070,8 @@ TEST_P(DBIteratorTest, IndexWithFirstKey) {
         BlockBasedTableOptions::IndexShorteningMode::kNoShortening;
     table_options.flush_block_policy_factory =
         std::make_shared<FlushBlockEveryKeyPolicyFactory>();
-    table_options.block_cache = NewLRUCache(1000);  // fits all blocks
+    table_options.block_cache =
+        NewLRUCache(8000);  // fits all blocks and their cache metadata overhead
     options.table_factory.reset(NewBlockBasedTableFactory(table_options));
 
     DestroyAndReopen(options);

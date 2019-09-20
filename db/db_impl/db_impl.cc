@@ -25,6 +25,7 @@
 #include <utility>
 #include <vector>
 
+#include "db/arena_wrapped_db_iter.h"
 #include "db/builder.h"
 #include "db/compaction/compaction_job.h"
 #include "db/db_info_dumper.h"
@@ -53,6 +54,7 @@
 #include "db/write_callback.h"
 #include "file/file_util.h"
 #include "file/filename.h"
+#include "file/random_access_file_reader.h"
 #include "file/sst_file_manager_impl.h"
 #include "logging/auto_roll_logger.h"
 #include "logging/log_buffer.h"
@@ -95,7 +97,6 @@
 #include "util/coding.h"
 #include "util/compression.h"
 #include "util/crc32c.h"
-#include "util/file_reader_writer.h"
 #include "util/mutexlock.h"
 #include "util/stop_watch.h"
 #include "util/string_util.h"
@@ -164,6 +165,7 @@ DBImpl::DBImpl(const DBOptions& options, const std::string& dbname,
       batch_per_txn_(batch_per_txn),
       db_lock_(nullptr),
       shutting_down_(false),
+      manual_compaction_paused_(false),
       bg_cv_(&mutex_),
       logfile_number_(0),
       log_dir_synced_(false),
@@ -239,8 +241,11 @@ DBImpl::DBImpl(const DBOptions& options, const std::string& dbname,
   const int table_cache_size = (mutable_db_options_.max_open_files == -1)
                                    ? TableCache::kInfiniteCapacity
                                    : mutable_db_options_.max_open_files - 10;
-  table_cache_ = NewLRUCache(table_cache_size,
-                             immutable_db_options_.table_cache_numshardbits);
+  LRUCacheOptions co;
+  co.capacity = table_cache_size;
+  co.num_shard_bits = immutable_db_options_.table_cache_numshardbits;
+  co.metadata_charge_policy = kDontChargeCacheMetadata;
+  table_cache_ = NewLRUCache(co);
 
   versions_.reset(new VersionSet(dbname_, &immutable_db_options_, env_options_,
                                  table_cache_.get(), write_buffer_manager_,
@@ -1309,32 +1314,28 @@ void DBImpl::SchedulePurge() {
 void DBImpl::BackgroundCallPurge() {
   mutex_.Lock();
 
-  // We use one single loop to clear both queues so that after existing the loop
-  // both queues are empty. This is stricter than what is needed, but can make
-  // it easier for us to reason the correctness.
-  while (!purge_queue_.empty() || !logs_to_free_queue_.empty()) {
-    // Check logs_to_free_queue_ first and close log writers.
-    if (!logs_to_free_queue_.empty()) {
-      assert(!logs_to_free_queue_.empty());
-      log::Writer* log_writer = *(logs_to_free_queue_.begin());
-      logs_to_free_queue_.pop_front();
-      mutex_.Unlock();
-      delete log_writer;
-      mutex_.Lock();
-    } else {
-      auto purge_file = purge_queue_.begin();
-      auto fname = purge_file->fname;
-      auto dir_to_sync = purge_file->dir_to_sync;
-      auto type = purge_file->type;
-      auto number = purge_file->number;
-      auto job_id = purge_file->job_id;
-      purge_queue_.pop_front();
-
-      mutex_.Unlock();
-      DeleteObsoleteFileImpl(job_id, fname, dir_to_sync, type, number);
-      mutex_.Lock();
-    }
+  while (!logs_to_free_queue_.empty()) {
+    assert(!logs_to_free_queue_.empty());
+    log::Writer* log_writer = *(logs_to_free_queue_.begin());
+    logs_to_free_queue_.pop_front();
+    mutex_.Unlock();
+    delete log_writer;
+    mutex_.Lock();
   }
+  for (const auto& file : purge_files_) {
+    const PurgeFileInfo& purge_file = file.second;
+    const std::string& fname = purge_file.fname;
+    const std::string& dir_to_sync = purge_file.dir_to_sync;
+    FileType type = purge_file.type;
+    uint64_t number = purge_file.number;
+    int job_id = purge_file.job_id;
+
+    mutex_.Unlock();
+    DeleteObsoleteFileImpl(job_id, fname, dir_to_sync, type, number);
+    mutex_.Lock();
+  }
+  purge_files_.clear();
+
   bg_purge_scheduled_--;
 
   bg_cv_.SignalAll();
@@ -3762,9 +3763,9 @@ Status DBImpl::IngestExternalFiles(
   std::vector<ExternalSstFileIngestionJob> ingestion_jobs;
   for (const auto& arg : args) {
     auto* cfd = static_cast<ColumnFamilyHandleImpl*>(arg.column_family)->cfd();
-    ingestion_jobs.emplace_back(env_, versions_.get(), cfd,
-                                immutable_db_options_, env_options_,
-                                &snapshots_, arg.options, &directories_);
+    ingestion_jobs.emplace_back(
+        env_, versions_.get(), cfd, immutable_db_options_, env_options_,
+        &snapshots_, arg.options, &directories_, &event_logger_);
   }
   std::vector<std::pair<bool, Status>> exec_results;
   for (size_t i = 0; i != num_cfs; ++i) {
@@ -3894,19 +3895,21 @@ Status DBImpl::IngestExternalFiles(
       }
     }
     if (status.ok()) {
-      bool should_increment_last_seqno =
-          ingestion_jobs[0].ShouldIncrementLastSequence();
+      int consumed_seqno_count =
+          ingestion_jobs[0].ConsumedSequenceNumbersCount();
 #ifndef NDEBUG
       for (size_t i = 1; i != num_cfs; ++i) {
-        assert(should_increment_last_seqno ==
-               ingestion_jobs[i].ShouldIncrementLastSequence());
+        assert(!!consumed_seqno_count ==
+               !!ingestion_jobs[i].ConsumedSequenceNumbersCount());
+        consumed_seqno_count +=
+            ingestion_jobs[i].ConsumedSequenceNumbersCount();
       }
 #endif
-      if (should_increment_last_seqno) {
+      if (consumed_seqno_count > 0) {
         const SequenceNumber last_seqno = versions_->LastSequence();
-        versions_->SetLastAllocatedSequence(last_seqno + 1);
-        versions_->SetLastPublishedSequence(last_seqno + 1);
-        versions_->SetLastSequence(last_seqno + 1);
+        versions_->SetLastAllocatedSequence(last_seqno + consumed_seqno_count);
+        versions_->SetLastPublishedSequence(last_seqno + consumed_seqno_count);
+        versions_->SetLastSequence(last_seqno + consumed_seqno_count);
       }
       autovector<ColumnFamilyData*> cfds_to_commit;
       autovector<const MutableCFOptions*> mutable_cf_options_list;

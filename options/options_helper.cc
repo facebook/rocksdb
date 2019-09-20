@@ -110,6 +110,8 @@ DBOptions BuildDBOptions(const ImmutableDBOptions& immutable_db_options,
       immutable_db_options.allow_concurrent_memtable_write;
   options.enable_write_thread_adaptive_yield =
       immutable_db_options.enable_write_thread_adaptive_yield;
+  options.max_write_batch_group_size_bytes =
+      immutable_db_options.max_write_batch_group_size_bytes;
   options.write_thread_max_yield_usec =
       immutable_db_options.write_thread_max_yield_usec;
   options.write_thread_slow_yield_usec =
@@ -180,7 +182,6 @@ ColumnFamilyOptions BuildColumnFamilyOptions(
       mutable_cf_options.target_file_size_multiplier;
   cf_opts.max_bytes_for_level_base =
       mutable_cf_options.max_bytes_for_level_base;
-  cf_opts.snap_refresh_nanos = mutable_cf_options.snap_refresh_nanos;
   cf_opts.max_bytes_for_level_multiplier =
       mutable_cf_options.max_bytes_for_level_multiplier;
   cf_opts.ttl = mutable_cf_options.ttl;
@@ -1611,6 +1612,9 @@ std::unordered_map<std::string, OptionTypeInfo>
         {"write_thread_slow_yield_usec",
          {offsetof(struct DBOptions, write_thread_slow_yield_usec),
           OptionType::kUInt64T, OptionVerificationType::kNormal, false, 0}},
+        {"max_write_batch_group_size_bytes",
+         {offsetof(struct DBOptions, max_write_batch_group_size_bytes),
+          OptionType::kUInt64T, OptionVerificationType::kNormal, false, 0}},
         {"write_thread_max_yield_usec",
          {offsetof(struct DBOptions, write_thread_max_yield_usec),
           OptionType::kUInt64T, OptionVerificationType::kNormal, false, 0}},
@@ -1938,9 +1942,8 @@ std::unordered_map<std::string, OptionTypeInfo>
           OptionType::kUInt64T, OptionVerificationType::kNormal, true,
           offsetof(struct MutableCFOptions, max_bytes_for_level_base)}},
         {"snap_refresh_nanos",
-         {offset_of(&ColumnFamilyOptions::snap_refresh_nanos),
-          OptionType::kUInt64T, OptionVerificationType::kNormal, true,
-          offsetof(struct MutableCFOptions, snap_refresh_nanos)}},
+         {0, OptionType::kUInt64T, OptionVerificationType::kDeprecated, true,
+          0}},
         {"max_bytes_for_level_multiplier",
          {offset_of(&ColumnFamilyOptions::max_bytes_for_level_multiplier),
           OptionType::kDouble, OptionVerificationType::kNormal, true,

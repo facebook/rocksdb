@@ -13,6 +13,7 @@
 #include <stdint.h>
 
 #include "db/dbformat.h"
+#include "file/random_access_file_reader.h"
 #include "memory/arena.h"
 #include "rocksdb/env.h"
 #include "rocksdb/iterator.h"
@@ -23,7 +24,6 @@
 #include "table/plain/plain_table_factory.h"
 #include "table/plain/plain_table_index.h"
 #include "table/table_reader.h"
-#include "util/file_reader_writer.h"
 
 namespace rocksdb {
 
@@ -209,12 +209,11 @@ class PlainTableReader: public TableReader {
   Status PopulateIndexRecordList(PlainTableIndexBuilder* index_builder,
                                  std::vector<uint32_t>* prefix_hashes);
 
-  // Internal helper function to allocate memory for bloom filter and fill it
-  void AllocateAndFillBloom(int bloom_bits_per_key, int num_prefixes,
-                            size_t huge_page_tlb_size,
-                            std::vector<uint32_t>* prefix_hashes);
+  // Internal helper function to allocate memory for bloom filter
+  void AllocateBloom(int bloom_bits_per_key, int num_prefixes,
+                     size_t huge_page_tlb_size);
 
-  void FillBloom(std::vector<uint32_t>* prefix_hashes);
+  void FillBloom(const std::vector<uint32_t>& prefix_hashes);
 
   // Read the key and value at `offset` to parameters for keys, the and
   // `seekable`.

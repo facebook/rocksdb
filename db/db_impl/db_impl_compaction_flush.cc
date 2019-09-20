@@ -800,31 +800,6 @@ Status DBImpl::CompactRange(const CompactRangeOptions& options,
   return s;
 }
 
-namespace {
-class SnapshotListFetchCallbackImpl : public SnapshotListFetchCallback {
- public:
-  SnapshotListFetchCallbackImpl(DBImpl* db_impl, Env* env,
-                                uint64_t snap_refresh_nanos, Logger* info_log)
-      : SnapshotListFetchCallback(env, snap_refresh_nanos),
-        db_impl_(db_impl),
-        info_log_(info_log) {}
-  virtual void Refresh(std::vector<SequenceNumber>* snapshots,
-                       SequenceNumber max) override {
-    size_t prev = snapshots->size();
-    snapshots->clear();
-    db_impl_->LoadSnapshots(snapshots, nullptr, max);
-    size_t now = snapshots->size();
-    ROCKS_LOG_DEBUG(info_log_,
-                    "Compaction snapshot count refreshed from %zu to %zu", prev,
-                    now);
-  }
-
- private:
-  DBImpl* db_impl_;
-  Logger* info_log_;
-};
-}  // namespace
-
 Status DBImpl::CompactFiles(const CompactionOptions& compact_options,
                             ColumnFamilyHandle* column_family,
                             const std::vector<std::string>& input_file_names,
@@ -917,6 +892,9 @@ Status DBImpl::CompactFilesImpl(
   if (shutting_down_.load(std::memory_order_acquire)) {
     return Status::ShutdownInProgress();
   }
+  if (manual_compaction_paused_.load(std::memory_order_acquire)) {
+    return Status::Incomplete(Status::SubCode::kManualCompactionPaused);
+  }
 
   std::unordered_set<uint64_t> input_set;
   for (const auto& file_name : input_file_names) {
@@ -996,9 +974,6 @@ Status DBImpl::CompactFilesImpl(
 
   assert(is_snapshot_supported_ || snapshots_.empty());
   CompactionJobStats compaction_job_stats;
-  SnapshotListFetchCallbackImpl fetch_callback(
-      this, env_, c->mutable_cf_options()->snap_refresh_nanos,
-      immutable_db_options_.info_log.get());
   CompactionJob compaction_job(
       job_context->job_id, c.get(), immutable_db_options_,
       env_options_for_compaction_, versions_.get(), &shutting_down_,
@@ -1008,11 +983,7 @@ Status DBImpl::CompactFilesImpl(
       snapshot_checker, table_cache_, &event_logger_,
       c->mutable_cf_options()->paranoid_file_checks,
       c->mutable_cf_options()->report_bg_io_stats, dbname_,
-      &compaction_job_stats, Env::Priority::USER,
-      immutable_db_options_.max_subcompactions <= 1 &&
-              c->mutable_cf_options()->snap_refresh_nanos > 0
-          ? &fetch_callback
-          : nullptr);
+      &compaction_job_stats, Env::Priority::USER, &manual_compaction_paused_);
 
   // Creating a compaction influences the compaction score because the score
   // takes running compactions into account (by skipping files that are already
@@ -1058,6 +1029,12 @@ Status DBImpl::CompactFilesImpl(
     // Done
   } else if (status.IsColumnFamilyDropped() || status.IsShutdownInProgress()) {
     // Ignore compaction errors found during shutting down
+  } else if (status.IsManualCompactionPaused()) {
+    // Don't report stopping manual compaction as error
+    ROCKS_LOG_INFO(immutable_db_options_.info_log,
+                   "[%s] [JOB %d] Stopping manual compaction",
+                   c->column_family_data()->GetName().c_str(),
+                   job_context->job_id);
   } else {
     ROCKS_LOG_WARN(immutable_db_options_.info_log,
                    "[%s] [JOB %d] Compaction error: %s",
@@ -1128,6 +1105,10 @@ void DBImpl::NotifyOnCompactionBegin(ColumnFamilyData* cfd, Compaction* c,
   if (shutting_down_.load(std::memory_order_acquire)) {
     return;
   }
+  if (c->is_manual_compaction() &&
+      manual_compaction_paused_.load(std::memory_order_acquire)) {
+    return;
+  }
   Version* current = cfd->current();
   current->Ref();
   // release lock while notifying events
@@ -1188,6 +1169,10 @@ void DBImpl::NotifyOnCompactionCompleted(
   }
   mutex_.AssertHeld();
   if (shutting_down_.load(std::memory_order_acquire)) {
+    return;
+  }
+  if (c->is_manual_compaction() &&
+      manual_compaction_paused_.load(std::memory_order_acquire)) {
     return;
   }
   Version* current = cfd->current();
@@ -1879,6 +1864,14 @@ Status DBImpl::EnableAutoCompaction(
   return s;
 }
 
+void DBImpl::DisableManualCompaction() {
+  manual_compaction_paused_.store(true, std::memory_order_release);
+}
+
+void DBImpl::EnableManualCompaction() {
+  manual_compaction_paused_.store(false, std::memory_order_release);
+}
+
 void DBImpl::MaybeScheduleFlushOrCompaction() {
   mutex_.AssertHeld();
   if (!opened_successfully_) {
@@ -2064,7 +2057,7 @@ void DBImpl::SchedulePendingPurge(std::string fname, std::string dir_to_sync,
                                   FileType type, uint64_t number, int job_id) {
   mutex_.AssertHeld();
   PurgeFileInfo file_info(fname, dir_to_sync, type, number, job_id);
-  purge_queue_.push_back(std::move(file_info));
+  purge_files_.insert({{number, std::move(file_info)}});
 }
 
 void DBImpl::BGWorkFlush(void* arg) {
@@ -2319,7 +2312,7 @@ void DBImpl::BackgroundCallCompaction(PrepickedCompaction* prepicked_compaction,
       env_->SleepForMicroseconds(10000);  // prevent hot loop
       mutex_.Lock();
     } else if (!s.ok() && !s.IsShutdownInProgress() &&
-               !s.IsColumnFamilyDropped()) {
+               !s.IsManualCompactionPaused() && !s.IsColumnFamilyDropped()) {
       // Wait a little bit before retrying background compaction in
       // case this is an environmental problem and we do not want to
       // chew up resources for failed compactions for the duration of
@@ -2336,6 +2329,11 @@ void DBImpl::BackgroundCallCompaction(PrepickedCompaction* prepicked_compaction,
       LogFlush(immutable_db_options_.info_log);
       env_->SleepForMicroseconds(1000000);
       mutex_.Lock();
+    } else if (s.IsManualCompactionPaused()) {
+      ManualCompactionState* m = prepicked_compaction->manual_compaction_state;
+      assert(m);
+      ROCKS_LOG_BUFFER(&log_buffer, "[%s] [JOB %d] Manual compaction paused",
+                       m->cfd->GetName().c_str(), job_context.job_id);
     }
 
     ReleaseFileNumberFromPendingOutputs(pending_outputs_inserted_elem);
@@ -2344,6 +2342,7 @@ void DBImpl::BackgroundCallCompaction(PrepickedCompaction* prepicked_compaction,
     // have created (they might not be all recorded in job_context in case of a
     // failure). Thus, we force full scan in FindObsoleteFiles()
     FindObsoleteFiles(&job_context, !s.ok() && !s.IsShutdownInProgress() &&
+                                        !s.IsManualCompactionPaused() &&
                                         !s.IsColumnFamilyDropped());
     TEST_SYNC_POINT("DBImpl::BackgroundCallCompaction:FoundObsoleteFiles");
 
@@ -2427,6 +2426,9 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
   if (!error_handler_.IsBGWorkStopped()) {
     if (shutting_down_.load(std::memory_order_acquire)) {
       status = Status::ShutdownInProgress();
+    } else if (is_manual &&
+               manual_compaction_paused_.load(std::memory_order_acquire)) {
+      status = Status::Incomplete(Status::SubCode::kManualCompactionPaused);
     }
   } else {
     status = error_handler_.GetBGError();
@@ -2728,9 +2730,6 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
     GetSnapshotContext(job_context, &snapshot_seqs,
                        &earliest_write_conflict_snapshot, &snapshot_checker);
     assert(is_snapshot_supported_ || snapshots_.empty());
-    SnapshotListFetchCallbackImpl fetch_callback(
-        this, env_, c->mutable_cf_options()->snap_refresh_nanos,
-        immutable_db_options_.info_log.get());
     CompactionJob compaction_job(
         job_context->job_id, c.get(), immutable_db_options_,
         env_options_for_compaction_, versions_.get(), &shutting_down_,
@@ -2741,10 +2740,7 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
         &event_logger_, c->mutable_cf_options()->paranoid_file_checks,
         c->mutable_cf_options()->report_bg_io_stats, dbname_,
         &compaction_job_stats, thread_pri,
-        immutable_db_options_.max_subcompactions <= 1 &&
-                c->mutable_cf_options()->snap_refresh_nanos > 0
-            ? &fetch_callback
-            : nullptr);
+        is_manual ? &manual_compaction_paused_ : nullptr);
     compaction_job.Prepare();
 
     NotifyOnCompactionBegin(c->column_family_data(), c.get(), status,
@@ -2784,7 +2780,8 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
                                 compaction_job_stats, job_context->job_id);
   }
 
-  if (status.ok() || status.IsCompactionTooLarge()) {
+  if (status.ok() || status.IsCompactionTooLarge() ||
+      status.IsManualCompactionPaused()) {
     // Done
   } else if (status.IsColumnFamilyDropped() || status.IsShutdownInProgress()) {
     // Ignore compaction errors found during shutting down
@@ -3039,34 +3036,20 @@ void DBImpl::InstallSuperVersionAndScheduleWork(
 }
 
 // ShouldPurge is called by FindObsoleteFiles when doing a full scan,
-// and db mutex (mutex_) should already be held. This function performs a
-// linear scan of an vector (files_grabbed_for_purge_) in search of a
-// certain element. We expect FindObsoleteFiles with full scan to occur once
-// every 10 hours by default, and the size of the vector is small.
-// Therefore, the cost is affordable even if the mutex is held.
+// and db mutex (mutex_) should already be held.
 // Actually, the current implementation of FindObsoleteFiles with
 // full_scan=true can issue I/O requests to obtain list of files in
 // directories, e.g. env_->getChildren while holding db mutex.
-// In the future, if we want to reduce the cost of search, we may try to keep
-// the vector sorted.
 bool DBImpl::ShouldPurge(uint64_t file_number) const {
-  for (auto fn : files_grabbed_for_purge_) {
-    if (file_number == fn) {
-      return false;
-    }
-  }
-  for (const auto& purge_file_info : purge_queue_) {
-    if (purge_file_info.number == file_number) {
-      return false;
-    }
-  }
-  return true;
+  return files_grabbed_for_purge_.find(file_number) ==
+             files_grabbed_for_purge_.end() &&
+         purge_files_.find(file_number) == purge_files_.end();
 }
 
 // MarkAsGrabbedForPurge is called by FindObsoleteFiles, and db mutex
 // (mutex_) should already be held.
 void DBImpl::MarkAsGrabbedForPurge(uint64_t file_number) {
-  files_grabbed_for_purge_.emplace_back(file_number);
+  files_grabbed_for_purge_.insert(file_number);
 }
 
 void DBImpl::SetSnapshotChecker(SnapshotChecker* snapshot_checker) {

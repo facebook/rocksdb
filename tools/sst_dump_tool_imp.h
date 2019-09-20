@@ -10,8 +10,8 @@
 #include <memory>
 #include <string>
 #include "db/dbformat.h"
+#include "file/writable_file_writer.h"
 #include "options/cf_options.h"
-#include "util/file_reader_writer.h"
 
 namespace rocksdb {
 
@@ -46,7 +46,8 @@ class SstFileDumper {
                              RandomAccessFileReader* file, uint64_t file_size);
 
   uint64_t CalculateCompressedTableSize(const TableBuilderOptions& tb_options,
-                                        size_t block_size);
+                                        size_t block_size,
+                                        uint64_t* num_data_blocks);
 
   Status SetTableOptionsByMagicNumber(uint64_t table_magic_number);
   Status SetOldTableOptions();

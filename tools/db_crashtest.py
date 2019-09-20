@@ -41,6 +41,8 @@ default_params = {
     "enable_pipelined_write": 0,
     "expected_values_path": expected_values_file.name,
     "flush_one_in": 1000000,
+    # Temporarily disable hash and partitioned index
+    "index_type": 0,
     "max_background_compactions": 20,
     "max_bytes_for_level_base": 10485760,
     "max_key": 100000000,
@@ -48,6 +50,8 @@ default_params = {
     "mmap_read": lambda: random.randint(0, 1),
     "nooverwritepercent": 1,
     "open_files": lambda : random.choice([-1, 500000]),
+    # Temporarily disable partitioned filter
+    "partition_filters": 0,
     "prefixpercent": 5,
     "progress_reports": 0,
     "readpercent": 45,
@@ -144,7 +148,6 @@ cf_consistency_params = {
     "write_buffer_size": 1024 * 1024,
     # disable pipelined write when test_atomic_flush is true
     "enable_pipelined_write": 0,
-    "snap_refresh_nanos": 0,
 }
 
 
@@ -174,6 +177,9 @@ def finalize_and_sanitize(src_params):
         # Disable compaction TTL in FIFO compaction, because right
         # now assertion failures are triggered.
         dest_params["compaction_ttl"] = 0
+    if dest_params["partition_filters"] == 1:
+        dest_params["index_type"] = 2
+        dest_params["use_block_based_filter"] = 0
     return dest_params
 
 

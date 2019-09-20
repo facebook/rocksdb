@@ -64,7 +64,10 @@ uint32_t crc32c_arm64(uint32_t crc, unsigned char const *data,
      */
     uint32_t k0 = 0xe417f38a, k1 = 0x8f158014;
 
-    /* First 8 bytei for better pipelining */
+    /* Prefetch data for following block to avoid cache miss */
+    PREF1KL1((uint8_t *)buf64, 1024);
+
+    /* First 8 byte for better pipelining */
     crc0 = crc32c_u64(crc, *buf64++);
 
     /* 3 blocks crc32c parallel computation

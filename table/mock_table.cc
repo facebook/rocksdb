@@ -6,11 +6,11 @@
 #include "table/mock_table.h"
 
 #include "db/dbformat.h"
+#include "file/random_access_file_reader.h"
 #include "port/port.h"
 #include "rocksdb/table_properties.h"
 #include "table/get_context.h"
 #include "util/coding.h"
-#include "util/file_reader_writer.h"
 
 namespace rocksdb {
 namespace mock {
@@ -20,12 +20,6 @@ namespace {
 const InternalKeyComparator icmp_(BytewiseComparator());
 
 }  // namespace
-
-stl_wrappers::KVMap MakeMockFile(
-    std::vector<std::pair<const std::string, std::string>> l) {
-  return stl_wrappers::KVMap(l.begin(), l.end(),
-                             stl_wrappers::LessOfComparator(&icmp_));
-}
 
 stl_wrappers::KVMap MakeMockFile(
     std::initializer_list<std::pair<const std::string, std::string>> l) {
@@ -137,14 +131,6 @@ void MockTableFactory::AssertLatestFile(
   if (file_contents != latest->second) {
     std::cout << "Wrong content! Content of latest file:" << std::endl;
     for (const auto& kv : latest->second) {
-      ParsedInternalKey ikey;
-      std::string key, value;
-      std::tie(key, value) = kv;
-      ParseInternalKey(Slice(key), &ikey);
-      std::cout << ikey.DebugString(false) << " -> " << value << std::endl;
-    }
-    std::cout << "Expected:" << std::endl;
-    for (const auto& kv : file_contents) {
       ParsedInternalKey ikey;
       std::string key, value;
       std::tie(key, value) = kv;

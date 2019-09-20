@@ -8,9 +8,11 @@
 #include <string>
 #include <algorithm>
 
+#include "file/random_access_file_reader.h"
+#include "file/sequence_file_reader.h"
 #include "file/sst_file_manager_impl.h"
+#include "file/writable_file_writer.h"
 #include "rocksdb/env.h"
-#include "util/file_reader_writer.h"
 
 namespace rocksdb {
 

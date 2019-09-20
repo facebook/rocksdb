@@ -13,8 +13,9 @@
 
 namespace rocksdb {
 
-std::shared_ptr<Cache> NewClockCache(size_t /*capacity*/, int /*num_shard_bits*/,
-                                     bool /*strict_capacity_limit*/) {
+std::shared_ptr<Cache> NewClockCache(
+    size_t /*capacity*/, int /*num_shard_bits*/, bool /*strict_capacity_limit*/,
+    CacheMetadataChargePolicy /*metadata_charge_policy*/) {
   // Clock cache not supported.
   return nullptr;
 }
@@ -35,6 +36,7 @@ std::shared_ptr<Cache> NewClockCache(size_t /*capacity*/, int /*num_shard_bits*/
 #include "tbb/concurrent_hash_map.h"
 
 #include "cache/sharded_cache.h"
+#include "port/malloc.h"
 #include "port/port.h"
 #include "util/autovector.h"
 #include "util/mutexlock.h"
@@ -201,6 +203,27 @@ struct CacheHandle {
     value = a.value;
     deleter = a.deleter;
     return *this;
+  }
+
+  inline static size_t CalcTotalCharge(
+      Slice key, size_t charge,
+      CacheMetadataChargePolicy metadata_charge_policy) {
+    size_t meta_charge = 0;
+    if (metadata_charge_policy == kFullChargeCacheMetadata) {
+      meta_charge += sizeof(CacheHandle);
+#ifdef ROCKSDB_MALLOC_USABLE_SIZE
+      meta_charge +=
+          malloc_usable_size(static_cast<void*>(const_cast<char*>(key.data())));
+#else
+      meta_charge += key.size();
+#endif
+    }
+    return charge + meta_charge;
+  }
+
+  inline size_t CalcTotalCharge(
+      CacheMetadataChargePolicy metadata_charge_policy) {
+    return CalcTotalCharge(key, charge, metadata_charge_policy);
   }
 };
 
@@ -404,11 +427,12 @@ void ClockCacheShard::RecycleHandle(CacheHandle* handle,
   assert(!InCache(handle->flags) && CountRefs(handle->flags) == 0);
   context->to_delete_key.push_back(handle->key.data());
   context->to_delete_value.emplace_back(*handle);
+  size_t total_charge = handle->CalcTotalCharge(metadata_charge_policy_);
   handle->key.clear();
   handle->value = nullptr;
   handle->deleter = nullptr;
   recycle_.push_back(handle);
-  usage_.fetch_sub(handle->charge, std::memory_order_relaxed);
+  usage_.fetch_sub(total_charge, std::memory_order_relaxed);
 }
 
 void ClockCacheShard::Cleanup(const CleanupContext& context) {
@@ -434,7 +458,8 @@ bool ClockCacheShard::Ref(Cache::Handle* h) {
                                             std::memory_order_relaxed)) {
       if (CountRefs(flags) == 0) {
         // No reference count before the operation.
-        pinned_usage_.fetch_add(handle->charge, std::memory_order_relaxed);
+        size_t total_charge = handle->CalcTotalCharge(metadata_charge_policy_);
+        pinned_usage_.fetch_add(total_charge, std::memory_order_relaxed);
       }
       return true;
     }
@@ -454,7 +479,8 @@ bool ClockCacheShard::Unref(CacheHandle* handle, bool set_usage,
   assert(CountRefs(flags) > 0);
   if (CountRefs(flags) == 1) {
     // this is the last reference.
-    pinned_usage_.fetch_sub(handle->charge, std::memory_order_relaxed);
+    size_t total_charge = handle->CalcTotalCharge(metadata_charge_policy_);
+    pinned_usage_.fetch_sub(total_charge, std::memory_order_relaxed);
     // Cleanup if it is the last reference.
     if (!InCache(flags)) {
       MutexLock l(&mutex_);
@@ -539,8 +565,10 @@ CacheHandle* ClockCacheShard::Insert(
     const Slice& key, uint32_t hash, void* value, size_t charge,
     void (*deleter)(const Slice& key, void* value), bool hold_reference,
     CleanupContext* context) {
+  size_t total_charge =
+      CacheHandle::CalcTotalCharge(key, charge, metadata_charge_policy_);
   MutexLock l(&mutex_);
-  bool success = EvictFromCache(charge, context);
+  bool success = EvictFromCache(total_charge, context);
   bool strict = strict_capacity_limit_.load(std::memory_order_relaxed);
   if (!success && (strict || !hold_reference)) {
     context->to_delete_key.push_back(key.data());
@@ -575,9 +603,9 @@ CacheHandle* ClockCacheShard::Insert(
   }
   table_.insert(HashTable::value_type(CacheKey(key, hash), handle));
   if (hold_reference) {
-    pinned_usage_.fetch_add(charge, std::memory_order_relaxed);
+    pinned_usage_.fetch_add(total_charge, std::memory_order_relaxed);
   }
-  usage_.fetch_add(charge, std::memory_order_relaxed);
+  usage_.fetch_add(total_charge, std::memory_order_relaxed);
   return handle;
 }
 
@@ -674,10 +702,14 @@ void ClockCacheShard::EraseUnRefEntries() {
 
 class ClockCache final : public ShardedCache {
  public:
-  ClockCache(size_t capacity, int num_shard_bits, bool strict_capacity_limit)
+  ClockCache(size_t capacity, int num_shard_bits, bool strict_capacity_limit,
+             CacheMetadataChargePolicy metadata_charge_policy)
       : ShardedCache(capacity, num_shard_bits, strict_capacity_limit) {
     int num_shards = 1 << num_shard_bits;
     shards_ = new ClockCacheShard[num_shards];
+    for (int i = 0; i < num_shards; i++) {
+      shards_[i].set_metadata_charge_policy(metadata_charge_policy);
+    }
     SetCapacity(capacity);
     SetStrictCapacityLimit(strict_capacity_limit);
   }
@@ -714,13 +746,14 @@ class ClockCache final : public ShardedCache {
 
 }  // end anonymous namespace
 
-std::shared_ptr<Cache> NewClockCache(size_t capacity, int num_shard_bits,
-                                     bool strict_capacity_limit) {
+std::shared_ptr<Cache> NewClockCache(
+    size_t capacity, int num_shard_bits, bool strict_capacity_limit,
+    CacheMetadataChargePolicy metadata_charge_policy) {
   if (num_shard_bits < 0) {
     num_shard_bits = GetDefaultCacheShardBits(capacity);
   }
-  return std::make_shared<ClockCache>(capacity, num_shard_bits,
-                                      strict_capacity_limit);
+  return std::make_shared<ClockCache>(
+      capacity, num_shard_bits, strict_capacity_limit, metadata_charge_policy);
 }
 
 }  // namespace rocksdb

@@ -12,16 +12,10 @@
 #include <stdint.h>
 #include <string>
 #include <vector>
-#ifdef ROCKSDB_MALLOC_USABLE_SIZE
-#ifdef OS_FREEBSD
-#include <malloc_np.h>
-#else
-#include <malloc.h>
-#endif
-#endif
 
 #include "db/dbformat.h"
 #include "db/pinned_iterators_manager.h"
+#include "port/malloc.h"
 #include "rocksdb/iterator.h"
 #include "rocksdb/options.h"
 #include "rocksdb/statistics.h"
@@ -147,6 +141,9 @@ class Block {
   explicit Block(BlockContents&& contents, SequenceNumber _global_seqno,
                  size_t read_amp_bytes_per_bit = 0,
                  Statistics* statistics = nullptr);
+  // No copying allowed
+  Block(const Block&) = delete;
+  void operator=(const Block&) = delete;
 
   ~Block();
 
@@ -222,10 +219,6 @@ class Block {
   const SequenceNumber global_seqno_;
 
   DataBlockHashIndex data_block_hash_index_;
-
-  // No copying allowed
-  Block(const Block&) = delete;
-  void operator=(const Block&) = delete;
 };
 
 template <class TValue>

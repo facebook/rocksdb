@@ -48,9 +48,10 @@ public class SstFileReaderTest {
 
   @Rule public TemporaryFolder parentFolder = new TemporaryFolder();
 
-  enum OpType { PUT, PUT_BYTES, MERGE, MERGE_BYTES, DELETE, DELETE_BYTES}
+  enum OpType { PUT, PUT_BYTES, MERGE, MERGE_BYTES, DELETE, DELETE_BYTES }
 
-  private File newSstFile(final List<KeyValueWithOp> keyValues) throws IOException, RocksDBException {
+  private File newSstFile(final List<KeyValueWithOp> keyValues)
+      throws IOException, RocksDBException {
     final EnvOptions envOptions = new EnvOptions();
     final StringAppendOperator stringAppendOperator = new StringAppendOperator();
     final Options options = new Options().setMergeOperator(stringAppendOperator);
@@ -105,15 +106,11 @@ public class SstFileReaderTest {
     final List<KeyValueWithOp> keyValues = new ArrayList<>();
     keyValues.add(new KeyValueWithOp("key1", "value1", OpType.PUT));
 
-
     final File sstFile = newSstFile(keyValues);
-    try(final StringAppendOperator stringAppendOperator =
-            new StringAppendOperator();
-        final Options options = new Options()
-            .setCreateIfMissing(true)
-            .setMergeOperator(stringAppendOperator);
-        final SstFileReader reader = new SstFileReader(options)
-    ) {
+    try (final StringAppendOperator stringAppendOperator = new StringAppendOperator();
+         final Options options =
+             new Options().setCreateIfMissing(true).setMergeOperator(stringAppendOperator);
+         final SstFileReader reader = new SstFileReader(options)) {
       // Open the sst file and iterator
       reader.open(sstFile.getAbsolutePath());
       final ReadOptions readOptions = new ReadOptions();
@@ -133,5 +130,4 @@ public class SstFileReaderTest {
       assertThat(iterator.value()).isEqualTo("value1".getBytes());
     }
   }
-
 }
