@@ -368,7 +368,11 @@ struct PlainTableOptions {
   //                      You may disable it by passing a zero.
   int bloom_bits_per_key = 10;
 
-  // @hash_table_ratio: the desired utilization of the hash table used for
+  // @num_probes: the number of hash probes for a single key
+  //
+  int num_probes = 6;
+
+    // @hash_table_ratio: the desired utilization of the hash table used for
   //                    prefix hashing.
   //                    hash_table_ratio = number of prefixes / #buckets in the
   //                    hash table

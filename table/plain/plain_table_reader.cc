@@ -97,7 +97,7 @@ PlainTableReader::PlainTableReader(
     const ImmutableCFOptions& ioptions,
     std::unique_ptr<RandomAccessFileReader>&& file,
     const EnvOptions& storage_options, const InternalKeyComparator& icomparator,
-    EncodingType encoding_type, uint64_t file_size,
+    EncodingType encoding_type, uint64_t file_size, uint32_t num_probes,
     const TableProperties* table_properties,
     const SliceTransform* prefix_extractor)
     : internal_comparator_(icomparator),
@@ -106,7 +106,7 @@ PlainTableReader::PlainTableReader(
       user_key_len_(static_cast<uint32_t>(table_properties->fixed_key_len)),
       prefix_extractor_(prefix_extractor),
       enable_bloom_(false),
-      bloom_(6),
+      bloom_(num_probes),
       file_info_(std::move(file), storage_options,
                  static_cast<uint32_t>(table_properties->data_size)),
       ioptions_(ioptions),
@@ -119,7 +119,7 @@ PlainTableReader::~PlainTableReader() {
 Status PlainTableReader::Open(
     const ImmutableCFOptions& ioptions, const EnvOptions& env_options,
     const InternalKeyComparator& internal_comparator,
-    std::unique_ptr<RandomAccessFileReader>&& file, uint64_t file_size,
+    std::unique_ptr<RandomAccessFileReader>&& file, uint64_t file_size, uint32_t num_probes,
     std::unique_ptr<TableReader>* table_reader, const int bloom_bits_per_key,
     double hash_table_ratio, size_t index_sparseness, size_t huge_page_tlb_size,
     bool full_scan_mode, const bool immortal_table,
@@ -165,7 +165,7 @@ Status PlainTableReader::Open(
 
   std::unique_ptr<PlainTableReader> new_reader(new PlainTableReader(
       ioptions, std::move(file), env_options, internal_comparator,
-      encoding_type, file_size, props, prefix_extractor));
+      encoding_type, file_size, num_probes, props, prefix_extractor));
 
   s = new_reader->MmapDataIfNeeded();
   if (!s.ok()) {

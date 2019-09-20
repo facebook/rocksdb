@@ -71,7 +71,7 @@ class PlainTableReader: public TableReader {
                      const EnvOptions& env_options,
                      const InternalKeyComparator& internal_comparator,
                      std::unique_ptr<RandomAccessFileReader>&& file,
-                     uint64_t file_size, std::unique_ptr<TableReader>* table,
+                     uint64_t file_size, uint32_t num_probes, std::unique_ptr<TableReader>* table,
                      const int bloom_bits_per_key, double hash_table_ratio,
                      size_t index_sparseness, size_t huge_page_tlb_size,
                      bool full_scan_mode, const bool immortal_table = false,
@@ -112,7 +112,7 @@ class PlainTableReader: public TableReader {
                    std::unique_ptr<RandomAccessFileReader>&& file,
                    const EnvOptions& env_options,
                    const InternalKeyComparator& internal_comparator,
-                   EncodingType encoding_type, uint64_t file_size,
+                   EncodingType encoding_type, uint64_t file_size, uint32_t num_probes,
                    const TableProperties* table_properties,
                    const SliceTransform* prefix_extractor);
   virtual ~PlainTableReader();
