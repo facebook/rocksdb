@@ -589,14 +589,11 @@ TEST_F(FullBloomTest, CorruptFilters) {
     ASSERT_TRUE(Matches("hello"));
     ASSERT_TRUE(Matches("world"));
 
-    // Bad filter bits
+    // Bad filter bits - returns true for safety
     // 65 bytes is not a power of two, so not a legal cache line size
     OpenRaw(cft.Reset(65 * 3, 3, 6, fill));
-    // ASSERT_TRUE(Matches("hello"));
-    // ASSERT_TRUE(Matches("world"));
-    // NB: NOT PROPERLY CHECKED in implementation
-    ASSERT_EQ(fill, Matches("hello"));
-    ASSERT_EQ(fill, Matches("world"));
+    ASSERT_TRUE(Matches("hello"));
+    ASSERT_TRUE(Matches("world"));
 
     // Bad filter bits - returns false as if built from zero keys
     // < 5 bytes overall means missing even metadata
