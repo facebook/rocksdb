@@ -110,11 +110,8 @@ class UniversalCompactionBuilder {
       const VersionStorageInfo& vstorage, const ImmutableCFOptions& ioptions,
       const MutableCFOptions& mutable_cf_options);
 
-  // Pick a path ID to place a newly generated file, with its estimated file
-  // size.
-  static uint32_t GetPathId(const ImmutableCFOptions& ioptions,
-                            const MutableCFOptions& mutable_cf_options,
-                            uint64_t file_size);
+  std::unique_ptr<DbPathSupplier> GetDbPathSupplier(const rocksdb::MutableCFOptions &moptions,
+                                    uint64_t estimated_file_size);
 };
 
 // Used in universal compaction when trivial move is enabled.
@@ -635,7 +632,7 @@ Compaction* UniversalCompactionBuilder::PickCompactionToReduceSortedRuns(
   for (unsigned int i = 0; i < first_index_after; i++) {
     estimated_total_size += sorted_runs_[i].size;
   }
-  int start_level = sorted_runs[start_index].level;
+  int start_level = sorted_runs_[start_index].level;
   int output_level;
   if (first_index_after == sorted_runs_.size()) {
     output_level = vstorage_->num_levels() - 1;
@@ -938,27 +935,31 @@ Compaction* UniversalCompactionBuilder::PickDeleteTriggeredCompaction() {
   for (FileMetaData* f : vstorage_->LevelFiles(output_level)) {
     estimated_total_size += f->fd.GetFileSize();
   }
+
   return new Compaction(
       vstorage_, ioptions_, mutable_cf_options_, std::move(inputs),
       output_level,
       MaxFileSizeForLevel(mutable_cf_options_, output_level,
                           kCompactionStyleUniversal),
-      /* max_grandparent_overlap_bytes */ LLONG_MAX, path_id,
+      /* max_grandparent_overlap_bytes */ LLONG_MAX,
       GetCompressionType(ioptions_, vstorage_, mutable_cf_options_, output_level,
                          1),
       GetCompressionOptions(ioptions_, vstorage_, output_level),
-      /* max_subcompactions */ 0, /* grandparents */ {}, /* is manual */ true,
+      /* max_subcompactions */ 0, /* grandparents */ {},
+      GetDbPathSupplier(mutable_cf_options_, estimated_total_size),
+      /* is manual */ true,
       score_, false /* deletion_compaction */,
       CompactionReason::kFilesMarkedForCompaction);
 }
 
-DbPathSupplier* UniversalCompactionPicker::GetDbPathSupplier(
+std::unique_ptr<DbPathSupplier> UniversalCompactionBuilder::GetDbPathSupplier(
     const rocksdb::MutableCFOptions &moptions, uint64_t estimated_file_size) {
   if (ioptions_.db_path_placement_strategy == kRandomlyChoosePath) {
-    return new RandomDbPathSupplier(ioptions_);
+    return std::unique_ptr<DbPathSupplier>(new RandomDbPathSupplier(ioptions_));
   }
 
-  return new UniversalTargetSizeDbPathSupplier(ioptions_, moptions, estimated_file_size);
+  return std::unique_ptr<DbPathSupplier>(
+      new UniversalTargetSizeDbPathSupplier(ioptions_, moptions, estimated_file_size));
 }
 
 }  // namespace rocksdb

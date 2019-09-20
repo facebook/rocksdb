@@ -40,7 +40,7 @@ class FIFOCompactionPicker : public CompactionPicker {
 
 
  private:
-  DbPathSupplier* GetDbPathSupplier();
+  std::unique_ptr<DbPathSupplier> GetDbPathSupplier();
 
   Compaction* PickTTLCompaction(const std::string& cf_name,
                                 const MutableCFOptions& mutable_cf_options,

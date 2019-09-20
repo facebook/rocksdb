@@ -571,19 +571,16 @@ Status CompactionJob::FsyncOutputPaths() {
   std::unordered_set<uint32_t> path_ids;
 
   // iterate all output files and collect their path ids into a set
-  auto sub_compact_itr = compact_->sub_compact_states.begin();
-  for (; sub_compact_itr != compact_->sub_compact_states.end(); sub_compact_itr++) {
-    auto output_itr = sub_compact_itr->outputs.begin();
-    for (; output_itr != sub_compact_itr->outputs.end(); output_itr++) {
-      path_ids.insert(output_itr->meta.fd.GetPathId());
+  for (auto& sub_compact : compact_->sub_compact_states) {
+    for (auto& output : sub_compact.outputs) {
+      path_ids.insert(output.meta.fd.GetPathId());
     }
   }
 
   // fsync all output file path ids
   Status ret = Status::OK();
-  auto path_id_itr = path_ids.begin();
-  for (; path_id_itr != path_ids.end(); path_id_itr++) {
-    Status s = compact_->compaction->GetDbPathSupplier()->FsyncDbPath(*path_id_itr);
+  for (uint32_t path_id : path_ids) {
+    Status s = compact_->compaction->GetDbPathSupplier()->FsyncDbPath(path_id);
     if (!s.ok()) {
       ret = s;
     }

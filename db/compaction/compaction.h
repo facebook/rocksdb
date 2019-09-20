@@ -77,7 +77,7 @@ class Compaction {
              CompressionType compression,
              CompressionOptions compression_opts, uint32_t max_subcompactions,
              std::vector<FileMetaData*> grandparents,
-             DbPathSupplier* db_path_supplier,
+             std::unique_ptr<DbPathSupplier>&& db_path_supplier,
              bool manual_compaction = false, double score = -1,
              bool deletion_compaction = false,
              CompactionReason compaction_reason = CompactionReason::kUnknown);

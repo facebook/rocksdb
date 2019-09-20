@@ -11,8 +11,6 @@
 #include "db/column_family.h"
 #include "rocksdb/status.h"
 
-#define UNUSED(expr) do { (void)(expr); } while (0)
-
 namespace rocksdb {
 
 // An object vendored by column family to dynamically supply db path to
@@ -22,16 +20,13 @@ namespace rocksdb {
 class DbPathSupplier {
  public:
   explicit DbPathSupplier(const ImmutableCFOptions& ioptions):
-    ioptions_(ioptions) {}
+    cf_paths_(ioptions.cf_paths) {}
 
   virtual ~DbPathSupplier() = default;
 
   Status FsyncDbPath(uint32_t path_id) const;
 
-  virtual uint32_t GetPathId(int level) const {
-    UNUSED(level);
-    return 0;
-  }
+  virtual uint32_t GetPathId(int level) const = 0;
 
   // Is the given path_id an acceptable path_id
   // for this supplier?
@@ -48,14 +43,11 @@ class DbPathSupplier {
   // path_id really needs to match the fixed
   // path_id in order for us to say it's trivial.
   virtual bool AcceptPathId(
-      uint32_t path_id, int output_level) const {
-    UNUSED(path_id);
-    UNUSED(output_level);
-    return false;
-  }
+      uint32_t path_id, int output_level) const = 0;
 
  protected:
-  const ImmutableCFOptions ioptions_;
+  Env* env;
+  std::vector<DbPath> cf_paths_;
 };
 
 class FixedDbPathSupplier: public DbPathSupplier {
@@ -63,14 +55,12 @@ class FixedDbPathSupplier: public DbPathSupplier {
   FixedDbPathSupplier(const ImmutableCFOptions& ioptions, uint32_t path_id)
     : DbPathSupplier(ioptions), path_id_(path_id) {}
 
-  uint32_t GetPathId(int level) const override {
-    UNUSED(level);
+  uint32_t GetPathId(int /* level */) const override {
     return path_id_;
   }
 
   bool AcceptPathId(
-      uint32_t path_id, int output_level) const override {
-    UNUSED(output_level);
+      uint32_t path_id, int /* output_level */) const override {
     return path_id == path_id_;
   }
 
@@ -93,8 +83,7 @@ class LeveledTargetSizeDbPathSupplier: public DbPathSupplier {
  public:
   LeveledTargetSizeDbPathSupplier(
       const ImmutableCFOptions& ioptions,
-      const MutableCFOptions& moptions)
-    : DbPathSupplier(ioptions), moptions_(moptions) {}
+      const MutableCFOptions& moptions);
 
   uint32_t GetPathId(int level) const override;
 
@@ -102,7 +91,10 @@ class LeveledTargetSizeDbPathSupplier: public DbPathSupplier {
       uint32_t path_id, int output_level) const override;
 
 private:
-  const MutableCFOptions moptions_;
+  const bool level_compaction_dynamic_level_bytes;
+  const double max_bytes_for_level_multiplier;
+  const uint64_t max_bytes_for_level_base;
+  const std::vector<int> max_bytes_for_level_multiplier_additional;
 };
 
 class UniversalTargetSizeDbPathSupplier: public DbPathSupplier {
@@ -110,9 +102,7 @@ class UniversalTargetSizeDbPathSupplier: public DbPathSupplier {
   UniversalTargetSizeDbPathSupplier(
       const ImmutableCFOptions& ioptions,
       const MutableCFOptions& moptions,
-      uint64_t file_size)
-    : DbPathSupplier(ioptions), file_size_(file_size),
-      moptions_(moptions) {}
+      uint64_t file_size);
 
   uint32_t GetPathId(int level) const override;
 
@@ -120,8 +110,8 @@ class UniversalTargetSizeDbPathSupplier: public DbPathSupplier {
       uint32_t path_id, int output_level) const override;
 
  private:
-  uint64_t file_size_;
-  const MutableCFOptions moptions_;
+  const uint64_t file_size_;
+  const unsigned int size_ratio;
 };
 
 }

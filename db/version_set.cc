@@ -3156,7 +3156,8 @@ void VersionStorageInfo::CalculateBaseBytes(const ImmutableCFOptions& ioptions,
         level_max_bytes_[i] = MultiplyCheckOverflow(
             MultiplyCheckOverflow(level_max_bytes_[i - 1],
                                   options.max_bytes_for_level_multiplier),
-            options.MaxBytesMultiplerAdditional(i - 1));
+            MutableCFOptions::MaxBytesMultiplerAdditional(
+                options.max_bytes_for_level_multiplier_additional, i - 1));
       } else {
         level_max_bytes_[i] = options.max_bytes_for_level_base;
       }

@@ -13,7 +13,7 @@ using namespace std::chrono;
 namespace rocksdb {
 
 Status DbPathSupplier::FsyncDbPath(uint32_t path_id) const {
-  auto size_u32 = static_cast<uint32_t>(ioptions_.cf_paths.size());
+  auto size_u32 = static_cast<uint32_t>(cf_paths_.size());
 
   if (path_id >= size_u32) {
     return Status::InvalidArgument("path_id "
@@ -22,10 +22,10 @@ Status DbPathSupplier::FsyncDbPath(uint32_t path_id) const {
                                    + std::to_string(size_u32));
   }
 
-  const std::string path_name = ioptions_.cf_paths[path_id].path;
+  const std::string path_name = cf_paths_[path_id].path;
 
   std::unique_ptr<Directory> dir;
-  Status s = ioptions_.env->NewDirectory(path_name, &dir);
+  Status s = env->NewDirectory(path_name, &dir);
 
   if (!s.ok()) {
     return s;
@@ -46,17 +46,15 @@ Random init_random() {
   return Random(seed);
 }
 
-uint32_t RandomDbPathSupplier::GetPathId(int level) const {
-  UNUSED(level);
+uint32_t RandomDbPathSupplier::GetPathId(int /* level */) const {
   thread_local Random rand = init_random();
-  size_t paths_size = ioptions_.cf_paths.size();
+  size_t paths_size = cf_paths_.size();
   auto size_u32 = static_cast<uint32_t >(paths_size);
   return rand.Next() % size_u32;
 }
 
-bool RandomDbPathSupplier::AcceptPathId(uint32_t path_id, int output_level) const {
-  UNUSED(output_level);
-  size_t paths_size = ioptions_.cf_paths.size();
+bool RandomDbPathSupplier::AcceptPathId(uint32_t path_id, int /* output_level */) const {
+  size_t paths_size = cf_paths_.size();
 
   if (paths_size == 0) {
     return path_id == 0;
@@ -66,22 +64,31 @@ bool RandomDbPathSupplier::AcceptPathId(uint32_t path_id, int output_level) cons
   return path_id < size_u32;
 }
 
+LeveledTargetSizeDbPathSupplier::LeveledTargetSizeDbPathSupplier(
+    const rocksdb::ImmutableCFOptions &ioptions, const rocksdb::MutableCFOptions &moptions):
+    DbPathSupplier(ioptions),
+    level_compaction_dynamic_level_bytes(ioptions.level_compaction_dynamic_level_bytes),
+    max_bytes_for_level_multiplier(moptions.max_bytes_for_level_multiplier),
+    max_bytes_for_level_base(moptions.max_bytes_for_level_base),
+    max_bytes_for_level_multiplier_additional(moptions.max_bytes_for_level_multiplier_additional)
+    {}
+
 uint32_t LeveledTargetSizeDbPathSupplier::GetPathId(int level) const {
   uint32_t p = 0;
-  assert(!ioptions_.cf_paths.empty());
+  assert(!cf_paths_.empty());
 
   // size remaining in the most recent path
-  uint64_t current_path_size = ioptions_.cf_paths[0].target_size;
+  uint64_t current_path_size = cf_paths_[0].target_size;
 
   uint64_t level_size;
   int cur_level = 0;
 
   // max_bytes_for_level_base denotes L1 size.
   // We estimate L0 size to be the same as L1.
-  level_size = moptions_.max_bytes_for_level_base;
+  level_size = max_bytes_for_level_base;
 
   // Last path is the fallback
-  while (p < ioptions_.cf_paths.size() - 1) {
+  while (p < cf_paths_.size() - 1) {
     if (level_size <= current_path_size) {
       if (cur_level == level) {
         // Does desired level fit in this path?
@@ -89,18 +96,19 @@ uint32_t LeveledTargetSizeDbPathSupplier::GetPathId(int level) const {
       } else {
         current_path_size -= level_size;
         if (cur_level > 0) {
-          if (ioptions_.level_compaction_dynamic_level_bytes) {
+          if (level_compaction_dynamic_level_bytes) {
             // Currently, level_compaction_dynamic_level_bytes is ignored when
             // multiple db paths are specified. https://github.com/facebook/
             // rocksdb/blob/master/db/column_family.cc.
             // Still, adding this check to avoid accidentally using
             // max_bytes_for_level_multiplier_additional
             level_size = static_cast<uint64_t>(
-                level_size * moptions_.max_bytes_for_level_multiplier);
+                level_size * max_bytes_for_level_multiplier);
           } else {
             level_size = static_cast<uint64_t>(
-                level_size * moptions_.max_bytes_for_level_multiplier *
-                moptions_.MaxBytesMultiplerAdditional(cur_level));
+                level_size * max_bytes_for_level_multiplier *
+                MutableCFOptions::MaxBytesMultiplerAdditional(
+                    max_bytes_for_level_multiplier_additional, cur_level));
           }
         }
         cur_level++;
@@ -108,7 +116,7 @@ uint32_t LeveledTargetSizeDbPathSupplier::GetPathId(int level) const {
       }
     }
     p++;
-    current_path_size = ioptions_.cf_paths[p].target_size;
+    current_path_size = cf_paths_[p].target_size;
   }
   return p;
 }
@@ -118,9 +126,14 @@ bool LeveledTargetSizeDbPathSupplier::AcceptPathId(
   return path_id == GetPathId(output_level);
 }
 
-uint32_t UniversalTargetSizeDbPathSupplier::GetPathId(int level) const {
-  UNUSED(level);
+UniversalTargetSizeDbPathSupplier::UniversalTargetSizeDbPathSupplier(
+    const rocksdb::ImmutableCFOptions &ioptions, const rocksdb::MutableCFOptions &moptions,
+    uint64_t file_size):
+    DbPathSupplier(ioptions),
+    file_size_(file_size),
+    size_ratio(moptions.compaction_options_universal.size_ratio) {}
 
+uint32_t UniversalTargetSizeDbPathSupplier::GetPathId(int /* level */) const {
   // Two conditions need to be satisfied:
   // (1) the target path needs to be able to hold the file's size
   // (2) Total size left in this and previous paths need to be not
@@ -136,13 +149,11 @@ uint32_t UniversalTargetSizeDbPathSupplier::GetPathId(int level) const {
   // considered in this algorithm. So the target size can be violated in
   // that case. We need to improve it.
   uint64_t accumulated_size = 0;
-  uint64_t future_size =
-      file_size_ *
-      (100 - moptions_.compaction_options_universal.size_ratio) / 100;
+  uint64_t future_size = file_size_ * (100 - size_ratio) / 100;
   uint32_t p = 0;
-  assert(!ioptions_.cf_paths.empty());
-  for (; p < ioptions_.cf_paths.size() - 1; p++) {
-    uint64_t target_size = ioptions_.cf_paths[p].target_size;
+  assert(!cf_paths_.empty());
+  for (; p < cf_paths_.size() - 1; p++) {
+    uint64_t target_size = cf_paths_[p].target_size;
     if (target_size > file_size_ &&
         accumulated_size + (target_size - file_size_) > future_size) {
       return p;

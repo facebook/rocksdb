@@ -65,6 +65,11 @@ enum CustomTag : uint32_t {
 // we don't know this field.
 uint32_t kCustomTagNonSafeIgnoreMask = 1 << 6;
 
+uint64_t PackFileNumberAndPathId(uint64_t number, uint64_t path_id) {
+  assert(number <= kFileNumberMask);
+  return number | (path_id * (kFileNumberMask + 1));
+}
+
 void VersionEdit::Clear() {
   db_id_.clear();
   comparator_.clear();
@@ -279,7 +284,7 @@ const char* VersionEdit::DecodeNewFile4From(Slice* input) {
             return "path_id field wrong size";
           }
           path_id = field[0];
-          if (path_id > 255) {
+          if (path_id > 15) {
             return "path_id wrong value";
           }
           break;

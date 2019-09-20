@@ -212,7 +212,7 @@ Compaction::Compaction(VersionStorageInfo* vstorage,
                        CompressionOptions _compression_opts,
                        uint32_t _max_subcompactions,
                        std::vector<FileMetaData*> _grandparents,
-                       DbPathSupplier* db_path_supplier,
+                       std::unique_ptr<DbPathSupplier>&& db_path_supplier,
                        bool _manual_compaction, double _score,
                        bool _deletion_compaction,
                        CompactionReason _compaction_reason)
@@ -238,7 +238,7 @@ Compaction::Compaction(VersionStorageInfo* vstorage,
       is_manual_compaction_(_manual_compaction),
       is_trivial_move_(false),
       compaction_reason_(_compaction_reason),
-      db_path_supplier_(db_path_supplier) {
+      db_path_supplier_(std::move(db_path_supplier)) {
   MarkFilesBeingCompacted(true);
   if (is_manual_compaction_) {
     compaction_reason_ = CompactionReason::kManualCompaction;

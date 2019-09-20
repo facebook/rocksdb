@@ -69,7 +69,8 @@ class FlushJob {
            CompressionType output_compression,
            Statistics* stats, EventLogger* event_logger, bool measure_io_stats,
            const bool sync_output_directory, const bool write_manifest,
-           Env::Priority thread_pri, DbPathSupplier* db_path_supplier);
+           Env::Priority thread_pri,
+           std::unique_ptr<DbPathSupplier>&& db_path_supplier);
 
   ~FlushJob();
 
@@ -81,7 +82,7 @@ class FlushJob {
   void Cancel();
   TableProperties GetTableProperties() const { return table_properties_; }
   const autovector<MemTable*>& GetMemTables() const { return mems_; }
-  const FileMetaData GetOutputFileMd() { return meta_; };
+  uint32_t GetOutputPathId() const { return meta_.fd.GetPathId(); };
 
  private:
   void ReportStartedFlush();

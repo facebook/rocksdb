@@ -146,11 +146,11 @@ Status DBImpl::FlushMemTableToOutputFile(
   assert(cfd->imm()->NumNotFlushed() != 0);
   assert(cfd->imm()->IsFlushPending());
 
-  DbPathSupplier* db_path_supplier;
+  std::unique_ptr<DbPathSupplier> db_path_supplier;
   if (cfd->ioptions()->db_path_placement_strategy == kRandomlyChoosePath) {
-    db_path_supplier = new RandomDbPathSupplier(*(cfd->ioptions()));
+    db_path_supplier.reset(new RandomDbPathSupplier(*(cfd->ioptions())));
   } else {
-    db_path_supplier = new FixedDbPathSupplier(*(cfd->ioptions()), 0);
+    db_path_supplier.reset(new FixedDbPathSupplier(*(cfd->ioptions()), 0));
   }
 
   FlushJob flush_job(
@@ -161,7 +161,7 @@ Status DBImpl::FlushMemTableToOutputFile(
       GetCompressionFlush(*cfd->ioptions(), mutable_cf_options), stats_,
       &event_logger_, mutable_cf_options.report_bg_io_stats,
       true /* sync_output_directory */, true /* write_manifest */, thread_pri,
-      db_path_supplier);
+      std::move(db_path_supplier));
 
   FileMetaData file_meta;
 
@@ -317,11 +317,11 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
   for (int i = 0; i < num_cfs; ++i) {
     auto cfd = cfds[i];
 
-    DbPathSupplier* db_path_supplier;
+    std::unique_ptr<DbPathSupplier> db_path_supplier;
     if (cfd->ioptions()->db_path_placement_strategy == kRandomlyChoosePath) {
-      db_path_supplier = new RandomDbPathSupplier(*(cfd->ioptions()));
+      db_path_supplier.reset(new RandomDbPathSupplier(*(cfd->ioptions())));
     } else {
-      db_path_supplier = new FixedDbPathSupplier(*(cfd->ioptions()), 0);
+      db_path_supplier.reset(new FixedDbPathSupplier(*(cfd->ioptions()), 0));
     }
 
     all_mutable_cf_options.emplace_back(*cfd->GetLatestMutableCFOptions());
@@ -335,10 +335,10 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
         GetCompressionFlush(*cfd->ioptions(), mutable_cf_options),
         stats_, &event_logger_, mutable_cf_options.report_bg_io_stats,
         false /* sync_output_directory */, false /* write_manifest */,
-        thread_pri, db_path_supplier);
+        thread_pri, std::move(db_path_supplier));
     flush_job->PickMemTable();
 
-    uint32_t chosen_path_id = flush_job->GetOutputFileMd().fd.GetPathId();
+    uint32_t chosen_path_id = flush_job->GetOutputPathId();
     Directory* data_dir = cfd->GetDataDir(chosen_path_id);
     const std::string& curr_path = cfd->ioptions()->cf_paths[chosen_path_id].path;
 
@@ -925,14 +925,14 @@ Status DBImpl::CompactFilesImpl(
   version->GetColumnFamilyMetaData(&cf_meta);
 
   const ImmutableCFOptions* ioptions = cfd->ioptions();
-  DbPathSupplier* db_path_supplier;
+  std::unique_ptr<DbPathSupplier> db_path_supplier;
   if (output_path_id < 0) {
     if (ioptions->db_path_placement_strategy
           == kRandomlyChoosePath) {
-      db_path_supplier = new RandomDbPathSupplier(*ioptions);
+      db_path_supplier.reset(new RandomDbPathSupplier(*ioptions));
     } else {
       if (ioptions->cf_paths.size() == 1U) {
-        db_path_supplier = new FixedDbPathSupplier(*ioptions, 0);
+        db_path_supplier.reset(new FixedDbPathSupplier(*ioptions, 0));
       } else {
         return Status::NotSupported(
             "Automatic output path selection is not "
@@ -943,7 +943,7 @@ Status DBImpl::CompactFilesImpl(
     }
   } else {
     auto output_path_id_u32 = static_cast<uint32_t>(output_path_id);
-    db_path_supplier = new FixedDbPathSupplier(*ioptions, output_path_id_u32);
+    db_path_supplier.reset(new FixedDbPathSupplier(*ioptions, output_path_id_u32));
   }
 
   Status s = cfd->compaction_picker()->SanitizeCompactionInputFiles(
@@ -984,7 +984,7 @@ Status DBImpl::CompactFilesImpl(
   assert(cfd->compaction_picker());
   c.reset(cfd->compaction_picker()->CompactFiles(
       compact_options, input_files, output_level, version->storage_info(),
-      *cfd->GetLatestMutableCFOptions(), db_path_supplier));
+      *cfd->GetLatestMutableCFOptions(), std::move(db_path_supplier)));
   // we already sanitized the set of input files and checked for conflicts
   // without releasing the lock, so we're guaranteed a compaction can be formed.
   assert(c != nullptr);

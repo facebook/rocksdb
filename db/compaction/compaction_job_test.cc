@@ -270,7 +270,9 @@ class CompactionJobTest : public testing::Test {
                           compaction_input_files, output_level, 1024 * 1024,
                           10 * 1024 * 1024, kNoCompression,
                           cfd->ioptions()->compression_opts, 0, {},
-                          new FixedDbPathSupplier(*cfd->ioptions(), 0), true);
+                          std::unique_ptr<DbPathSupplier>(
+                              new FixedDbPathSupplier(*cfd->ioptions(), 0)),
+                          true);
     compaction.SetInputVersion(cfd->current());
 
     LogBuffer log_buffer(InfoLogLevel::INFO_LEVEL, db_options_.info_log.get());

@@ -97,7 +97,7 @@ FlushJob::FlushJob(const std::string& dbname, ColumnFamilyData* cfd,
                    EventLogger* event_logger, bool measure_io_stats,
                    const bool sync_output_directory, const bool write_manifest,
                    Env::Priority thread_pri,
-                   DbPathSupplier* db_path_supplier)
+                   std::unique_ptr<DbPathSupplier>&& db_path_supplier)
     : dbname_(dbname),
       cfd_(cfd),
       db_options_(db_options),
@@ -123,7 +123,7 @@ FlushJob::FlushJob(const std::string& dbname, ColumnFamilyData* cfd,
       base_(nullptr),
       pick_memtable_called(false),
       thread_pri_(thread_pri),
-      db_path_supplier_(db_path_supplier) {
+      db_path_supplier_(std::move(db_path_supplier)) {
   // Update the thread status to indicate flush.
   ReportStartedFlush();
   TEST_SYNC_POINT("FlushJob::FlushJob()");

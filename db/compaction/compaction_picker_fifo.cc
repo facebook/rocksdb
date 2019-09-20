@@ -240,12 +240,12 @@ Compaction* FIFOCompactionPicker::CompactRange(
   return c;
 }
 
-DbPathSupplier* FIFOCompactionPicker::GetDbPathSupplier() {
+std::unique_ptr<DbPathSupplier> FIFOCompactionPicker::GetDbPathSupplier() {
   if (ioptions_.db_path_placement_strategy == kRandomlyChoosePath) {
-    return new RandomDbPathSupplier(ioptions_);
+    return std::unique_ptr<DbPathSupplier>(new RandomDbPathSupplier(ioptions_));
   }
 
-  return new FixedDbPathSupplier(ioptions_, 0);
+  return std::unique_ptr<DbPathSupplier>(new FixedDbPathSupplier(ioptions_, 0));
 }
 
 }  // namespace rocksdb

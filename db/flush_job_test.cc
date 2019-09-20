@@ -106,9 +106,9 @@ class FlushJobTest : public testing::Test {
     s = SetCurrentFile(env_, dbname_, 1, nullptr);
   }
 
-  DbPathSupplier* GetDbPathSupplier() {
-    return new FixedDbPathSupplier(
-        *versions_->GetColumnFamilySet()->GetDefault()->ioptions(), 0);
+  std::unique_ptr<DbPathSupplier> GetDbPathSupplier() {
+    return std::unique_ptr<DbPathSupplier>(new FixedDbPathSupplier(
+        *versions_->GetColumnFamilySet()->GetDefault()->ioptions(), 0));
   }
 
   Env* env_;

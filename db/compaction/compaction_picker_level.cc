@@ -95,7 +95,7 @@ class LevelCompactionBuilder {
 
   void PickFilesMarkedForPeriodicCompaction();
 
-  DbPathSupplier* GetDbPathSupplier();
+  std::unique_ptr<DbPathSupplier> GetDbPathSupplier();
 
   const std::string& cf_name_;
   VersionStorageInfo* vstorage_;
@@ -495,11 +495,12 @@ Compaction* LevelCompactionPicker::PickCompaction(
   return builder.PickCompaction();
 }
 
-DbPathSupplier* LevelCompactionBuilder::GetDbPathSupplier() {
+std::unique_ptr<DbPathSupplier> LevelCompactionBuilder::GetDbPathSupplier() {
   if (ioptions_.db_path_placement_strategy == kRandomlyChoosePath) {
-    return new RandomDbPathSupplier(ioptions_);
+    return std::unique_ptr<DbPathSupplier>(new RandomDbPathSupplier(ioptions_));
   }
 
-  return new LeveledTargetSizeDbPathSupplier(ioptions_, mutable_cf_options_);
+  return std::unique_ptr<DbPathSupplier>(
+      new LeveledTargetSizeDbPathSupplier(ioptions_, mutable_cf_options_));
 }
 }  // namespace rocksdb
