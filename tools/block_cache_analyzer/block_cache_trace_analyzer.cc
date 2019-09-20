@@ -650,7 +650,8 @@ void BlockCacheTraceAnalyzer::WriteCorrelationFeaturesToFile(
     const std::map<std::string, Features>& label_features,
     const std::map<std::string, Predictions>& label_predictions,
     uint32_t max_number_of_values) const {
-  std::default_random_engine rand_engine(env_->NowMicros());
+  std::default_random_engine rand_engine(
+      static_cast<unsigned int>(env_->NowMicros()));
   for (auto const& label_feature_vectors : label_features) {
     const Features& past = label_feature_vectors.second;
     auto it = label_predictions.find(label_feature_vectors.first);
@@ -1209,11 +1210,14 @@ void BlockCacheTraceAnalyzer::WriteBlockReuseTimeline(
   TraverseBlocks(block_callback);
 
   // A cell is the number of blocks accessed in a reuse window.
-  uint64_t reuse_table[reuse_vector_size][reuse_vector_size];
+  const auto reuse_table =
+      std::make_unique<uint64_t[]>(reuse_vector_size * reuse_vector_size);
+
   for (uint64_t start_time = 0; start_time < reuse_vector_size; start_time++) {
     // Initialize the reuse_table.
+    const auto offset = start_time * reuse_vector_size;
     for (uint64_t i = 0; i < reuse_vector_size; i++) {
-      reuse_table[start_time][i] = 0;
+      reuse_table[offset + i] = 0;
     }
     // Examine all blocks.
     for (auto const& block : block_accessed) {
@@ -1222,7 +1226,7 @@ void BlockCacheTraceAnalyzer::WriteBlockReuseTimeline(
           // This block is accessed at start time and at the current time. We
           // increment reuse_table[start_time][i] since it is reused at the ith
           // window.
-          reuse_table[start_time][i]++;
+          reuse_table[offset + i]++;
         }
       }
     }
@@ -1245,13 +1249,15 @@ void BlockCacheTraceAnalyzer::WriteBlockReuseTimeline(
   out << header << std::endl;
   for (uint64_t start_time = 0; start_time < reuse_vector_size; start_time++) {
     std::string row(std::to_string(start_time * reuse_window));
+    const auto offset = start_time * reuse_vector_size;
     for (uint64_t j = 0; j < reuse_vector_size; j++) {
       row += ",";
       if (j < start_time) {
         row += "100.0";
       } else {
-        row += std::to_string(percent(reuse_table[start_time][j],
-                                      reuse_table[start_time][start_time]));
+        row += std::to_string(percent(
+            reuse_table[offset + j],
+            reuse_table[offset + start_time]));
       }
     }
     out << row << std::endl;
@@ -1680,7 +1686,8 @@ void BlockCacheTraceAnalyzer::PrintAccessCountStats(bool user_access_only,
       for (auto const& caller_access : block->caller_num_access_map) {
         if (!user_access_only ||
             (user_access_only && is_user_access(caller_access.first))) {
-          caller_naccesses[caller_access.first] += caller_access.second;
+          caller_naccesses[caller_access.first] +=
+              static_cast<uint32_t>(caller_access.second);
           naccesses += caller_access.second;
         }
       }
