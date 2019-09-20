@@ -191,6 +191,10 @@ struct LevelFilesBrief {
   }
 };
 
+// The state of a DB at any given time is referred to as a Version.
+// Any modification to the Version is considered a Version Edit. A Version is
+// constructed by joining a sequence of Version Edits. Version Edits are written
+// to the MANIFEST file.
 class VersionEdit {
  public:
   VersionEdit() { Clear(); }
