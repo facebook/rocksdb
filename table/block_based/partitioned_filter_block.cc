@@ -52,9 +52,13 @@ void PartitionedFilterBlockBuilder::MaybeCutAFilterBlock(const Slice* next_key) 
   }
   filter_gc.push_back(std::unique_ptr<const char[]>(nullptr));
 
-  const bool add_prefix = next_key && prefix_extractor_ && prefix_extractor_->InDomain(*next_key);
+  // Add the prefix of the next key before finishing the partition. This hack,
+  // fixes a bug with format_verison=3 where seeking for the prefix would lead
+  // us to the previous partition.
+  const bool add_prefix =
+      next_key && prefix_extractor_ && prefix_extractor_->InDomain(*next_key);
   if (add_prefix) {
-  FullFilterBlockBuilder::AddPrefix(*next_key);
+    FullFilterBlockBuilder::AddPrefix(*next_key);
   }
 
   Slice filter = filter_bits_builder_->Finish(&filter_gc.back());
