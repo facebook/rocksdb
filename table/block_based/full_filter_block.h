@@ -60,11 +60,12 @@ class FullFilterBlockBuilder : public FilterBlockBuilder {
   std::unique_ptr<FilterBitsBuilder> filter_bits_builder_;
   virtual void Reset();
 
+  const SliceTransform* prefix_extractor_;
+  void AddPrefix(const Slice& key);
  private:
   // important: all of these might point to invalid addresses
   // at the time of destruction of this filter block. destructor
   // should NOT dereference them.
-  const SliceTransform* prefix_extractor_;
   bool whole_key_filtering_;
   bool last_whole_key_recorded_;
   std::string last_whole_key_str_;
@@ -74,7 +75,6 @@ class FullFilterBlockBuilder : public FilterBlockBuilder {
   uint32_t num_added_;
   std::unique_ptr<const char[]> filter_data_;
 
-  void AddPrefix(const Slice& key);
 };
 
 // A FilterBlockReader is used to parse filter from SST table.

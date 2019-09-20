@@ -40,7 +40,7 @@ PartitionedFilterBlockBuilder::PartitionedFilterBlockBuilder(
 
 PartitionedFilterBlockBuilder::~PartitionedFilterBlockBuilder() {}
 
-void PartitionedFilterBlockBuilder::MaybeCutAFilterBlock() {
+void PartitionedFilterBlockBuilder::MaybeCutAFilterBlock(const Slice* next_key) {
   // Use == to send the request only once
   if (filters_in_partition_ == filters_per_partition_) {
     // Currently only index builder is in charge of cutting a partition. We keep
@@ -51,6 +51,12 @@ void PartitionedFilterBlockBuilder::MaybeCutAFilterBlock() {
     return;
   }
   filter_gc.push_back(std::unique_ptr<const char[]>(nullptr));
+
+  const bool add_prefix = next_key && prefix_extractor_ && prefix_extractor_->InDomain(*next_key);
+  if (add_prefix) {
+  FullFilterBlockBuilder::AddPrefix(*next_key);
+  }
+
   Slice filter = filter_bits_builder_->Finish(&filter_gc.back());
   std::string& index_key = p_index_builder_->GetPartitionKey();
   filters.push_back({index_key, filter});
@@ -58,8 +64,12 @@ void PartitionedFilterBlockBuilder::MaybeCutAFilterBlock() {
   Reset();
 }
 
+void PartitionedFilterBlockBuilder::Add(const Slice& key) {
+  MaybeCutAFilterBlock(&key);
+  FullFilterBlockBuilder::Add(key);
+}
+
 void PartitionedFilterBlockBuilder::AddKey(const Slice& key) {
-  MaybeCutAFilterBlock();
   filter_bits_builder_->AddKey(key);
   filters_in_partition_++;
   num_added_++;
@@ -87,7 +97,7 @@ Slice PartitionedFilterBlockBuilder::Finish(
     }
     filters.pop_front();
   } else {
-    MaybeCutAFilterBlock();
+    MaybeCutAFilterBlock(nullptr);
   }
   // If there is no filter partition left, then return the index on filter
   // partitions
