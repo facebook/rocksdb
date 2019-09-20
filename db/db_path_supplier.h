@@ -20,7 +20,7 @@ namespace rocksdb {
 class DbPathSupplier {
  public:
   explicit DbPathSupplier(const ImmutableCFOptions& ioptions):
-    cf_paths_(ioptions.cf_paths) {}
+    env(ioptions.env), cf_paths_(ioptions.cf_paths) {}
 
   virtual ~DbPathSupplier() = default;
 
