@@ -87,14 +87,10 @@ class TtlTest : public testing::Test {
   }
 
   // Call db_ttl_->Close() before delete db_ttl_
-  void CloseTtl() {
-    CloseTtlHelper(true);
-  }
+  void CloseTtl() { CloseTtlHelper(true); }
 
   // No db_ttl_->Close() before delete db_ttl_
-  void CloseTtlNoDBClose() {
-    CloseTtlHelper(false);
-  }
+  void CloseTtlNoDBClose() { CloseTtlHelper(false); }
 
   void CloseTtlHelper(bool close_db) {
     if (db_ttl_ != nullptr) {
@@ -416,7 +412,6 @@ TEST_F(TtlTest, NoEffect) {
   CloseTtl();
 }
 
-
 // Rerun the NoEffect test with a different version of CloseTtl
 // function, where db is directly deleted without close.
 TEST_F(TtlTest, DestructWithoutClose) {
@@ -425,18 +420,18 @@ TEST_F(TtlTest, DestructWithoutClose) {
   int64_t boundary2 = 2 * boundary1;
 
   OpenTtl();
-  PutValues(0, boundary1);                       //T=0: Set1 never deleted
-  SleepCompactCheck(1, 0, boundary1);            //T=1: Set1 still there
+  PutValues(0, boundary1);             // T=0: Set1 never deleted
+  SleepCompactCheck(1, 0, boundary1);  // T=1: Set1 still there
   CloseTtlNoDBClose();
 
   OpenTtl(0);
-  PutValues(boundary1, boundary2 - boundary1);   //T=1: Set2 never deleted
-  SleepCompactCheck(1, 0, boundary2);            //T=2: Sets1 & 2 still there
+  PutValues(boundary1, boundary2 - boundary1);  // T=1: Set2 never deleted
+  SleepCompactCheck(1, 0, boundary2);           // T=2: Sets1 & 2 still there
   CloseTtlNoDBClose();
 
   OpenTtl(-1);
-  PutValues(boundary2, kSampleSize_ - boundary2); //T=3: Set3 never deleted
-  SleepCompactCheck(1, 0, kSampleSize_, true);    //T=4: Sets 1,2,3 still there
+  PutValues(boundary2, kSampleSize_ - boundary2);  // T=3: Set3 never deleted
+  SleepCompactCheck(1, 0, kSampleSize_, true);  // T=4: Sets 1,2,3 still there
   CloseTtlNoDBClose();
 }
 

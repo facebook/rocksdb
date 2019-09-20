@@ -29,13 +29,13 @@ int main() {
 #else
 
 #include <fcntl.h>
-#include <cinttypes>
 #include <stdio.h>
 #include <stdlib.h>
 #include <sys/types.h>
 #include <algorithm>
 #include <array>
 #include <chrono>
+#include <cinttypes>
 #include <exception>
 #include <queue>
 #include <thread>

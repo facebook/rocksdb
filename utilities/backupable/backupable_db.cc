@@ -24,10 +24,10 @@
 #include "util/string_util.h"
 #include "utilities/checkpoint/checkpoint_impl.h"
 
-#include <cinttypes>
 #include <stdlib.h>
 #include <algorithm>
 #include <atomic>
+#include <cinttypes>
 #include <functional>
 #include <future>
 #include <limits>

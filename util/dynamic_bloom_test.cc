@@ -11,9 +11,9 @@ int main() {
 }
 #else
 
-#include <cinttypes>
 #include <algorithm>
 #include <atomic>
+#include <cinttypes>
 #include <functional>
 #include <memory>
 #include <thread>
@@ -253,8 +253,9 @@ TEST_F(DynamicBloomTest, concurrent_with_perf) {
       threads.pop_back();
     }
 
-    fprintf(stderr, "dynamic bloom, avg parallel add latency %3g"
-                    " nanos/key\n",
+    fprintf(stderr,
+            "dynamic bloom, avg parallel add latency %3g"
+            " nanos/key\n",
             static_cast<double>(elapsed) / num_threads / num_keys);
 
     elapsed = 0;
@@ -276,8 +277,9 @@ TEST_F(DynamicBloomTest, concurrent_with_perf) {
       threads.pop_back();
     }
 
-    fprintf(stderr, "dynamic bloom, avg parallel hit latency %3g"
-                    " nanos/key\n",
+    fprintf(stderr,
+            "dynamic bloom, avg parallel hit latency %3g"
+            " nanos/key\n",
             static_cast<double>(elapsed) / num_threads / num_keys);
 
     elapsed = 0;
@@ -286,8 +288,7 @@ TEST_F(DynamicBloomTest, concurrent_with_perf) {
       KeyMaker km;
       StopWatchNano timer(Env::Default());
       timer.Start();
-      for (uint64_t i = num_keys + 1 + t; i <= 2 * num_keys;
-           i += num_threads) {
+      for (uint64_t i = num_keys + 1 + t; i <= 2 * num_keys; i += num_threads) {
         bool f = std_bloom.MayContain(km.Seq(i));
         if (f) {
           ++false_positives;
@@ -303,8 +304,9 @@ TEST_F(DynamicBloomTest, concurrent_with_perf) {
       threads.pop_back();
     }
 
-    fprintf(stderr, "dynamic bloom, avg parallel miss latency %3g"
-                    " nanos/key, %f%% false positive rate\n",
+    fprintf(stderr,
+            "dynamic bloom, avg parallel miss latency %3g"
+            " nanos/key, %f%% false positive rate\n",
             static_cast<double>(elapsed) / num_threads / num_keys,
             false_positives.load() * 100.0 / num_keys);
   }

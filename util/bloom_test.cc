@@ -23,8 +23,8 @@ int main() {
 #include "table/full_filter_bits_builder.h"
 #include "test_util/testharness.h"
 #include "test_util/testutil.h"
-#include "util/hash.h"
 #include "util/gflags_compat.h"
+#include "util/hash.h"
 
 using GFLAGS_NAMESPACE::ParseCommandLineFlags;
 
@@ -98,9 +98,7 @@ class BloomTest : public testing::Test {
     return filter_.size();
   }
 
-  Slice FilterData() const {
-    return Slice(filter_);
-  }
+  Slice FilterData() const { return Slice(filter_); }
 
   void DumpFilter() {
     fprintf(stderr, "F(");
@@ -190,28 +188,28 @@ TEST_F(BloomTest, VaryingLengths) {
 TEST_F(BloomTest, Schema) {
   char buffer[sizeof(int)];
 
-  ResetPolicy(NewBloomFilterPolicy(8)); // num_probes = 5
+  ResetPolicy(NewBloomFilterPolicy(8));  // num_probes = 5
   for (int key = 0; key < 87; key++) {
     Add(Key(key, buffer));
   }
   Build();
   ASSERT_EQ(BloomHash(FilterData()), 3589896109U);
 
-  ResetPolicy(NewBloomFilterPolicy(9)); // num_probes = 6
+  ResetPolicy(NewBloomFilterPolicy(9));  // num_probes = 6
   for (int key = 0; key < 87; key++) {
     Add(Key(key, buffer));
   }
   Build();
   ASSERT_EQ(BloomHash(FilterData()), 969445585);
 
-  ResetPolicy(NewBloomFilterPolicy(11)); // num_probes = 7
+  ResetPolicy(NewBloomFilterPolicy(11));  // num_probes = 7
   for (int key = 0; key < 87; key++) {
     Add(Key(key, buffer));
   }
   Build();
   ASSERT_EQ(BloomHash(FilterData()), 1694458207);
 
-  ResetPolicy(NewBloomFilterPolicy(10)); // num_probes = 6
+  ResetPolicy(NewBloomFilterPolicy(10));  // num_probes = 6
   for (int key = 0; key < 87; key++) {
     Add(Key(key, buffer));
   }
@@ -234,7 +232,6 @@ TEST_F(BloomTest, Schema) {
 
   ResetPolicy();
 }
-
 
 // Different bits-per-byte
 
@@ -287,9 +284,7 @@ class FullBloomTest : public testing::Test {
     return filter_size_;
   }
 
-  Slice FilterData() {
-    return Slice(buf_.get(), filter_size_);
-  }
+  Slice FilterData() { return Slice(buf_.get(), filter_size_); }
 
   bool Matches(const Slice& s) {
     if (bits_reader_ == nullptr) {
@@ -381,9 +376,8 @@ TEST_F(FullBloomTest, FullVaryingLengths) {
 }
 
 namespace {
-inline uint32_t SelectByCacheLineSize(uint32_t for64,
-                                  uint32_t for128,
-                                  uint32_t for256) {
+inline uint32_t SelectByCacheLineSize(uint32_t for64, uint32_t for128,
+                                      uint32_t for256) {
   (void)for64;
   (void)for128;
   (void)for256;
@@ -394,10 +388,10 @@ inline uint32_t SelectByCacheLineSize(uint32_t for64,
 #elif CACHE_LINE_SIZE == 256
   return for256;
 #else
-  #error "CACHE_LINE_SIZE unknown or unrecognized"
+#error "CACHE_LINE_SIZE unknown or unrecognized"
 #endif
 }
-} // namespace
+}  // namespace
 
 // Ensure the implementation doesn't accidentally change in an
 // incompatible way
@@ -407,7 +401,7 @@ TEST_F(FullBloomTest, Schema) {
   // Use enough keys so that changing bits / key by 1 is guaranteed to
   // change number of allocated cache lines. So keys > max cache line bits.
 
-  ResetPolicy(NewBloomFilterPolicy(8)); // num_probes = 5
+  ResetPolicy(NewBloomFilterPolicy(8));  // num_probes = 5
   for (int key = 0; key < 2087; key++) {
     Add(Key(key, buffer));
   }
@@ -415,7 +409,7 @@ TEST_F(FullBloomTest, Schema) {
   ASSERT_EQ(BloomHash(FilterData()),
             SelectByCacheLineSize(1302145999, 2811644657U, 756553699));
 
-  ResetPolicy(NewBloomFilterPolicy(9)); // num_probes = 6
+  ResetPolicy(NewBloomFilterPolicy(9));  // num_probes = 6
   for (int key = 0; key < 2087; key++) {
     Add(Key(key, buffer));
   }
@@ -423,7 +417,7 @@ TEST_F(FullBloomTest, Schema) {
   ASSERT_EQ(BloomHash(FilterData()),
             SelectByCacheLineSize(2092755149, 661139132, 1182970461));
 
-  ResetPolicy(NewBloomFilterPolicy(11)); // num_probes = 7
+  ResetPolicy(NewBloomFilterPolicy(11));  // num_probes = 7
   for (int key = 0; key < 2087; key++) {
     Add(Key(key, buffer));
   }
@@ -431,7 +425,7 @@ TEST_F(FullBloomTest, Schema) {
   ASSERT_EQ(BloomHash(FilterData()),
             SelectByCacheLineSize(3755609649U, 1812694762, 1449142939));
 
-  ResetPolicy(NewBloomFilterPolicy(10)); // num_probes = 6
+  ResetPolicy(NewBloomFilterPolicy(10));  // num_probes = 6
   for (int key = 0; key < 2087; key++) {
     Add(Key(key, buffer));
   }

@@ -334,9 +334,7 @@ void WriteBatch::Clear() {
   wal_term_point_.clear();
 }
 
-uint32_t WriteBatch::Count() const {
-  return WriteBatchInternal::Count(this);
-}
+uint32_t WriteBatch::Count() const { return WriteBatchInternal::Count(this); }
 
 uint32_t WriteBatch::ComputeContentFlags() const {
   auto rv = content_flags_.load(std::memory_order_relaxed);

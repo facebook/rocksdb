@@ -452,7 +452,7 @@ TEST_P(DBTestUniversalCompaction, DynamicUniversalCompactionSizeAmplification) {
   ASSERT_OK(dbfull()->TEST_GetLatestMutableCFOptions(handles_[1],
                                                      &mutable_cf_options));
   ASSERT_EQ(110u, mutable_cf_options.compaction_options_universal
-                     .max_size_amplification_percent);
+                      .max_size_amplification_percent);
 
   dbfull()->TEST_WaitForCompact();
   // Verify that size amplification did happen
@@ -534,8 +534,10 @@ TEST_P(DBTestUniversalCompaction, DynamicUniversalCompactionReadAmplification) {
   ASSERT_OK(dbfull()->TEST_GetLatestMutableCFOptions(handles_[1],
                                                      &mutable_cf_options));
   ASSERT_EQ(mutable_cf_options.compaction_options_universal.size_ratio, 100u);
-  ASSERT_EQ(mutable_cf_options.compaction_options_universal.min_merge_width, 2u);
-  ASSERT_EQ(mutable_cf_options.compaction_options_universal.max_merge_width, 2u);
+  ASSERT_EQ(mutable_cf_options.compaction_options_universal.min_merge_width,
+            2u);
+  ASSERT_EQ(mutable_cf_options.compaction_options_universal.max_merge_width,
+            2u);
 
   dbfull()->TEST_WaitForCompact();
 
