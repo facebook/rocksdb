@@ -411,9 +411,8 @@ Status WriteUnpreparedTxn::FlushWriteBatchWithSavePointToDB() {
     bool trailing_batch = i == unflushed_save_points_->size();
     SavePointBatchHandler sp_handler(&write_batch_,
                                      *wupt_db_->GetCFHandleMap().get());
-    size_t curr_boundary = trailing_batch
-                               ? wb.GetWriteBatch()->GetDataSize()
-                               : (*unflushed_save_points_)[i];
+    size_t curr_boundary = trailing_batch ? wb.GetWriteBatch()->GetDataSize()
+                                          : (*unflushed_save_points_)[i];
 
     // Construct the partial write batch up to the savepoint.
     //

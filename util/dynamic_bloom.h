@@ -44,10 +44,8 @@ class DynamicBloom {
   //                      it to be allocated, like:
   //                         sysctl -w vm.nr_hugepages=20
   //                     See linux doc Documentation/vm/hugetlbpage.txt
-  explicit DynamicBloom(Allocator* allocator,
-                        uint32_t total_bits,
-                        uint32_t num_probes = 6,
-                        size_t huge_page_tlb_size = 0,
+  explicit DynamicBloom(Allocator* allocator, uint32_t total_bits,
+                        uint32_t num_probes = 6, size_t huge_page_tlb_size = 0,
                         Logger* logger = nullptr);
 
   ~DynamicBloom() {}
@@ -159,8 +157,8 @@ inline bool DynamicBloom::MayContainHash(uint32_t h32) const {
   uint64_t h = 0x9e3779b97f4a7c13ULL * h32;
   for (unsigned i = 0;; ++i) {
     // Two bit probes per uint64_t probe
-    uint64_t mask = ((uint64_t)1 << (h & 63))
-                  | ((uint64_t)1 << ((h >> 6) & 63));
+    uint64_t mask =
+        ((uint64_t)1 << (h & 63)) | ((uint64_t)1 << ((h >> 6) & 63));
     uint64_t val = data_[a ^ i].load(std::memory_order_relaxed);
     if (i + 1 >= kNumDoubleProbes) {
       return (val & mask) == mask;
@@ -179,8 +177,8 @@ inline void DynamicBloom::AddHash(uint32_t h32, const OrFunc& or_func) {
   uint64_t h = 0x9e3779b97f4a7c13ULL * h32;
   for (unsigned i = 0;; ++i) {
     // Two bit probes per uint64_t probe
-    uint64_t mask = ((uint64_t)1 << (h & 63))
-                  | ((uint64_t)1 << ((h >> 6) & 63));
+    uint64_t mask =
+        ((uint64_t)1 << (h & 63)) | ((uint64_t)1 << ((h >> 6) & 63));
     or_func(&data_[a ^ i], mask);
     if (i + 1 >= kNumDoubleProbes) {
       return;

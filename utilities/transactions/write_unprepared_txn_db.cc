@@ -293,7 +293,7 @@ Status WriteUnpreparedTxnDB::Initialize(
     }
   }
   // AddPrepared must be called in order
-  for (auto seq_cnt: ordered_seq_cnt) {
+  for (auto seq_cnt : ordered_seq_cnt) {
     auto seq = seq_cnt.first;
     auto cnt = seq_cnt.second;
     for (size_t i = 0; i < cnt; i++) {

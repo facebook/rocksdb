@@ -4664,7 +4664,7 @@ TEST_F(DBCompactionTest, ConsistencyFailTest) {
 
   rocksdb::SyncPoint::GetInstance()->SetCallBack(
       "VersionBuilder::CheckConsistency", [&](void* arg) {
-      auto p =
+        auto p =
             reinterpret_cast<std::pair<FileMetaData**, FileMetaData**>*>(arg);
         // just swap the two FileMetaData so that we hit error
         // in CheckConsistency funcion

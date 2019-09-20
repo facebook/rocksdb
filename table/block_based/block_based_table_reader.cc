@@ -2019,9 +2019,10 @@ IndexBlockIter* BlockBasedTable::InitBlockIterator<IndexBlockIter>(
 // If input_iter is null, new a iterator
 // If input_iter is not null, update this iter and return it
 template <typename TBlockIter>
-TBlockIter* BlockBasedTable::NewDataBlockIterator(
-    const ReadOptions& ro, CachableEntry<Block>& block, TBlockIter* input_iter,
-    Status s) const {
+TBlockIter* BlockBasedTable::NewDataBlockIterator(const ReadOptions& ro,
+                                                  CachableEntry<Block>& block,
+                                                  TBlockIter* input_iter,
+                                                  Status s) const {
   PERF_TIMER_GUARD(new_table_block_iter_nanos);
 
   TBlockIter* iter = input_iter != nullptr ? input_iter : new TBlockIter;
@@ -2167,11 +2168,10 @@ Status BlockBasedTable::MaybeReadBlockAndLoadToCache(
         SequenceNumber seq_no = rep_->get_global_seqno(block_type);
         // If filling cache is allowed and a cache is configured, try to put the
         // block to the cache.
-        s = PutDataBlockToCache(key, ckey, block_cache, block_cache_compressed,
-                                block_entry, contents,
-                                raw_block_comp_type, uncompression_dict, seq_no,
-                                GetMemoryAllocator(rep_->table_options),
-                                block_type, get_context);
+        s = PutDataBlockToCache(
+            key, ckey, block_cache, block_cache_compressed, block_entry,
+            contents, raw_block_comp_type, uncompression_dict, seq_no,
+            GetMemoryAllocator(rep_->table_options), block_type, get_context);
       }
     }
   }
@@ -2344,12 +2344,10 @@ void BlockBasedTable::RetrieveMultipleBlocks(
         // BlockContents so it can free the memory
         assert(req.result.data() == req.scratch);
         std::unique_ptr<char[]> raw_block(req.scratch);
-        raw_block_contents = BlockContents(std::move(raw_block),
-                                 handle.size());
+        raw_block_contents = BlockContents(std::move(raw_block), handle.size());
       } else {
         // We used the scratch buffer, so no need to free anything
-        raw_block_contents = BlockContents(Slice(req.scratch,
-                                 handle.size()));
+        raw_block_contents = BlockContents(Slice(req.scratch, handle.size()));
       }
 #ifndef NDEBUG
       raw_block_contents.is_raw_block = true;
@@ -2370,35 +2368,36 @@ void BlockBasedTable::RetrieveMultipleBlocks(
         // MaybeReadBlockAndLoadToCache will insert into the block caches if
         // necessary. Since we're passing the raw block contents, it will
         // avoid looking up the block cache
-        s = MaybeReadBlockAndLoadToCache(nullptr, options, handle,
-              uncompression_dict, block_entry, BlockType::kData,
-              mget_iter->get_context, &lookup_data_block_context,
-              &raw_block_contents);
+        s = MaybeReadBlockAndLoadToCache(
+            nullptr, options, handle, uncompression_dict, block_entry,
+            BlockType::kData, mget_iter->get_context,
+            &lookup_data_block_context, &raw_block_contents);
       } else {
         CompressionType compression_type =
-                raw_block_contents.get_compression_type();
+            raw_block_contents.get_compression_type();
         BlockContents contents;
         if (compression_type != kNoCompression) {
           UncompressionContext context(compression_type);
           UncompressionInfo info(context, uncompression_dict, compression_type);
           s = UncompressBlockContents(info, req.result.data(), handle.size(),
-                    &contents, footer.version(), rep_->ioptions,
-                    memory_allocator);
+                                      &contents, footer.version(),
+                                      rep_->ioptions, memory_allocator);
         } else {
           if (scratch != nullptr) {
             // If we used the scratch buffer, then the contents need to be
             // copied to heap
             Slice raw = Slice(req.result.data(), handle.size());
-            contents = BlockContents(CopyBufferToHeap(
-                  GetMemoryAllocator(rep_->table_options), raw),
-                  handle.size());
+            contents = BlockContents(
+                CopyBufferToHeap(GetMemoryAllocator(rep_->table_options), raw),
+                handle.size());
           } else {
             contents = std::move(raw_block_contents);
           }
         }
         if (s.ok()) {
-          (*results)[idx_in_batch].SetOwnedValue(new Block(std::move(contents),
-                global_seqno, read_amp_bytes_per_bit, ioptions.statistics));
+          (*results)[idx_in_batch].SetOwnedValue(
+              new Block(std::move(contents), global_seqno,
+                        read_amp_bytes_per_bit, ioptions.statistics));
         }
       }
     }
@@ -3036,7 +3035,8 @@ void BlockBasedTableIterator<TBlockIter, TValue>::CheckOutOfBound() {
 }
 
 template <class TBlockIter, typename TValue>
-void BlockBasedTableIterator<TBlockIter, TValue>::CheckDataBlockWithinUpperBound() {
+void BlockBasedTableIterator<TBlockIter,
+                             TValue>::CheckDataBlockWithinUpperBound() {
   if (read_options_.iterate_upper_bound != nullptr &&
       block_iter_points_to_real_block_) {
     data_block_within_upper_bound_ =
@@ -3047,7 +3047,8 @@ void BlockBasedTableIterator<TBlockIter, TValue>::CheckDataBlockWithinUpperBound
 
 InternalIterator* BlockBasedTable::NewIterator(
     const ReadOptions& read_options, const SliceTransform* prefix_extractor,
-    Arena* arena, bool skip_filters, TableReaderCaller caller, size_t compaction_readahead_size) {
+    Arena* arena, bool skip_filters, TableReaderCaller caller,
+    size_t compaction_readahead_size) {
   BlockCacheLookupContext lookup_context{caller};
   bool need_upper_bound_check =
       PrefixExtractorChanged(rep_->table_properties.get(), prefix_extractor);
@@ -3068,10 +3069,11 @@ InternalIterator* BlockBasedTable::NewIterator(
         arena->AllocateAligned(sizeof(BlockBasedTableIterator<DataBlockIter>));
     return new (mem) BlockBasedTableIterator<DataBlockIter>(
         this, read_options, rep_->internal_comparator,
-        NewIndexIterator(read_options, need_upper_bound_check &&
-                         rep_->index_type == BlockBasedTableOptions::kHashSearch,
-                         /*input_iter=*/nullptr, /*get_context=*/nullptr,
-                         &lookup_context),
+        NewIndexIterator(
+            read_options,
+            need_upper_bound_check &&
+                rep_->index_type == BlockBasedTableOptions::kHashSearch,
+            /*input_iter=*/nullptr, /*get_context=*/nullptr, &lookup_context),
         !skip_filters && !read_options.total_order_seek &&
             prefix_extractor != nullptr,
         need_upper_bound_check, prefix_extractor, BlockType::kData, caller,
@@ -3395,7 +3397,7 @@ void BlockBasedTable::MultiGet(const ReadOptions& read_options,
       ro.read_tier = kBlockCacheTier;
 
       for (auto miter = data_block_range.begin();
-            miter != data_block_range.end(); ++miter) {
+           miter != data_block_range.end(); ++miter) {
         const Slice& key = miter->ikey;
         iiter->Seek(miter->ikey);
 
@@ -3405,9 +3407,9 @@ void BlockBasedTable::MultiGet(const ReadOptions& read_options,
         }
         if (!iiter->Valid() ||
             (!v.first_internal_key.empty() && !skip_filters &&
-            UserComparatorWrapper(rep_->internal_comparator.user_comparator())
-                    .Compare(ExtractUserKey(key),
-                             ExtractUserKey(v.first_internal_key)) < 0)) {
+             UserComparatorWrapper(rep_->internal_comparator.user_comparator())
+                     .Compare(ExtractUserKey(key),
+                              ExtractUserKey(v.first_internal_key)) < 0)) {
           // The requested key falls between highest key in previous block and
           // lowest key in current block.
           *(miter->s) = iiter->status();

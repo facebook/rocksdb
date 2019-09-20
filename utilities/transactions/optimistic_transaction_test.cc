@@ -9,7 +9,6 @@
 #include <string>
 #include <thread>
 
-
 #include "db/db_impl/db_impl.h"
 #include "logging/logging.h"
 #include "port/port.h"

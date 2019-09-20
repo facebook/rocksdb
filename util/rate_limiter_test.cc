@@ -9,8 +9,8 @@
 
 #include "util/rate_limiter.h"
 
-#include <cinttypes>
 #include <chrono>
+#include <cinttypes>
 #include <limits>
 
 #include "db/db_test_util.h"

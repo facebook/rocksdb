@@ -2,8 +2,8 @@
 
 #include "db/import_column_family_job.h"
 
-#include <cinttypes>
 #include <algorithm>
+#include <cinttypes>
 #include <string>
 #include <vector>
 
@@ -64,7 +64,8 @@ Status ImportColumnFamilyJob::Prepare(uint64_t next_file_number,
 
       for (size_t i = 0; i < sorted_files.size() - 1; i++) {
         if (sstableKeyCompare(ucmp, sorted_files[i]->largest_internal_key,
-                              sorted_files[i + 1]->smallest_internal_key) >= 0) {
+                              sorted_files[i + 1]->smallest_internal_key) >=
+            0) {
           return Status::InvalidArgument("Files have overlapping ranges");
         }
       }
@@ -76,8 +77,7 @@ Status ImportColumnFamilyJob::Prepare(uint64_t next_file_number,
       return Status::InvalidArgument("File contain no entries");
     }
 
-    if (!f.smallest_internal_key.Valid() ||
-        !f.largest_internal_key.Valid()) {
+    if (!f.smallest_internal_key.Valid() || !f.largest_internal_key.Valid()) {
       return Status::Corruption("File has corrupted keys");
     }
   }
@@ -198,8 +198,8 @@ Status ImportColumnFamilyJob::GetIngestedFileInfo(
   if (!status.ok()) {
     return status;
   }
-  sst_file_reader.reset(new RandomAccessFileReader(std::move(sst_file),
-                                                   external_file));
+  sst_file_reader.reset(
+      new RandomAccessFileReader(std::move(sst_file), external_file));
 
   status = cfd_->ioptions()->table_factory->NewTableReader(
       TableReaderOptions(*cfd_->ioptions(),

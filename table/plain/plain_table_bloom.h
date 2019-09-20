@@ -4,8 +4,8 @@
 //  (found in the LICENSE.Apache file in the root directory).
 #pragma once
 
-#include <vector>
 #include <string>
+#include <vector>
 
 #include "rocksdb/slice.h"
 

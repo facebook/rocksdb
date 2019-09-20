@@ -14,9 +14,9 @@ int main() {
 #else
 
 #include <cinttypes>
-#include <vector>
-#include <string>
 #include <map>
+#include <string>
+#include <vector>
 
 #include "memory/arena.h"
 #include "table/cuckoo/cuckoo_table_builder.h"

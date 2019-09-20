@@ -103,8 +103,8 @@ class DBWithTTLImpl : public DBWithTTL {
   void SetTtl(ColumnFamilyHandle *h, int32_t ttl) override;
 
  private:
-   // remember whether the Close completes or not
-   bool closed_;
+  // remember whether the Close completes or not
+  bool closed_;
 };
 
 class TtlIterator : public Iterator {

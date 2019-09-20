@@ -2793,7 +2793,8 @@ class ModelDB : public DB {
     return Status::OK();
   }
 
-  Status GetCurrentWalFile(std::unique_ptr<LogFile>* /*current_log_file*/) override {
+  Status GetCurrentWalFile(
+      std::unique_ptr<LogFile>* /*current_log_file*/) override {
     return Status::OK();
   }
 
@@ -6265,7 +6266,7 @@ TEST_F(DBTest, LargeBlockSizeTest) {
   CreateAndReopenWithCF({"pikachu"}, options);
   ASSERT_OK(Put(0, "foo", "bar"));
   BlockBasedTableOptions table_options;
-  table_options.block_size = 8LL*1024*1024*1024LL;
+  table_options.block_size = 8LL * 1024 * 1024 * 1024LL;
   options.table_factory.reset(NewBlockBasedTableFactory(table_options));
   ASSERT_NOK(TryReopenWithColumnFamilies({"default", "pikachu"}, options));
 }

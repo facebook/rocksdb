@@ -9,7 +9,6 @@ import java.util.Collection;
 import java.util.List;
 
 public interface DBOptionsInterface<T extends DBOptionsInterface<T>> {
-
   /**
    * Use this if your DB is very small (like under 1GB) and you don't want to
    * spend lots of memory for memtables.
