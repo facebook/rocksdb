@@ -266,7 +266,7 @@ class TestPlainTableReader : public PlainTableReader {
  public:
   TestPlainTableReader(const EnvOptions& env_options,
                        const InternalKeyComparator& icomparator,
-                       EncodingType encoding_type, uint64_t file_size,
+                       EncodingType encoding_type, uint64_t file_size, uint32_t num_probes,
                        int bloom_bits_per_key, double hash_table_ratio,
                        size_t index_sparseness,
                        const TableProperties* table_properties,
@@ -277,7 +277,7 @@ class TestPlainTableReader : public PlainTableReader {
                        uint32_t column_family_id,
                        const std::string& column_family_name)
       : PlainTableReader(ioptions, std::move(file), env_options, icomparator,
-                         encoding_type, file_size, table_properties,
+                         encoding_type, file_size, num_probes, table_properties,
                          prefix_extractor),
         expect_bloom_not_match_(expect_bloom_not_match) {
     Status s = MmapDataIfNeeded();
@@ -333,7 +333,8 @@ class TestPlainTableFactory : public PlainTableFactory {
         store_index_in_file_(options.store_index_in_file),
         expect_bloom_not_match_(expect_bloom_not_match),
         column_family_id_(column_family_id),
-        column_family_name_(std::move(column_family_name)) {}
+        column_family_name_(std::move(column_family_name)),
+        num_probes(options.num_probes) {}
 
   Status NewTableReader(
       const TableReaderOptions& table_reader_options,
@@ -372,7 +373,7 @@ class TestPlainTableFactory : public PlainTableFactory {
 
     std::unique_ptr<PlainTableReader> new_reader(new TestPlainTableReader(
         table_reader_options.env_options,
-        table_reader_options.internal_comparator, encoding_type, file_size,
+        table_reader_options.internal_comparator, encoding_type, file_size, num_probes,
         bloom_bits_per_key_, hash_table_ratio_, index_sparseness_, props,
         std::move(file), table_reader_options.ioptions,
         table_reader_options.prefix_extractor, expect_bloom_not_match_,
@@ -390,6 +391,7 @@ class TestPlainTableFactory : public PlainTableFactory {
   bool* expect_bloom_not_match_;
   const uint32_t column_family_id_;
   const std::string column_family_name_;
+  uint32_t num_probes;
 };
 
 TEST_P(PlainTableDBTest, Flush) {
