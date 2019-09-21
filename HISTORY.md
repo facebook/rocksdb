@@ -17,6 +17,7 @@
 * Added a lightweight API GetCurrentWalFile() to get last live WAL filename and size. Meant to be used as a helper for backup/restore tooling in a larger ecosystem such as MySQL with a MyRocks storage engine.
 * The MemTable Bloom filter, when enabled, now always uses cache locality. Options::bloom_locality now only affects the PlainTable SST format.
 * Deprecate `snap_refresh_nanos` option.
+* Added DisableManualCompaction/EnableManualCompaction to stop and resume manual compaction.
 ### Performance Improvements
 * Improve the speed of the MemTable Bloom filter, reducing the write overhead of enabling it by 1/3 to 1/2, with similar benefit to read performance.
 
