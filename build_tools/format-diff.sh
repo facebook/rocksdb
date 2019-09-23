@@ -56,16 +56,22 @@ set -e
 uncommitted_code=`git diff HEAD`
 
 # If there's no uncommitted changes, we assume user are doing post-commit
-# format check, in which case we'll check the modified lines since last commit
-# already in FORMAT_UPSTREAM (default: master branch of github facebook
-# remote). Otherwise, we'll check format of the uncommitted code only.
+# format check, in which case we'll try to check the modified lines vs. the
+# facebook/rocksdb.git master branch. Otherwise, we'll check format of the
+# uncommitted code only.
 if [ -z "$uncommitted_code" ]
 then
+  # Attempt to get name of facebook/rocksdb.git remote.
   [ "$FORMAT_REMOTE" ] || FORMAT_REMOTE="$(git remote -v | grep 'facebook/rocksdb.git' | head -n 1 | cut -f 1)"
+  # Fall back on 'origin' if that fails
   [ "$FORMAT_REMOTE" ] || FORMAT_REMOTE=origin
+  # Use master branch from that remote
   [ "$FORMAT_UPSTREAM" ] || FORMAT_UPSTREAM="$FORMAT_REMOTE/master"
+  # Get the common ancestor with that remote branch. Everything after that
+  # common ancestor would be considered the contents of a pull request, so
+  # should be relevant for formatting fixes.
   FORMAT_UPSTREAM_MERGE_BASE="$(git merge-base "$FORMAT_UPSTREAM" HEAD)"
-  # Check the format of everything we've done that's not in origin/master
+  # Get the differences
   diffs=$(git diff -U0 "$FORMAT_UPSTREAM_MERGE_BASE" | $CLANG_FORMAT_DIFF -p 1)
 else
   # Check the format of uncommitted lines,
