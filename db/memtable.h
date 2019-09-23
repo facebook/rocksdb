@@ -211,8 +211,7 @@ class MemTable {
            MergeContext* merge_context,
            SequenceNumber* max_covering_tombstone_seq, SequenceNumber* seq,
            const ReadOptions& read_opts, ReadCallback* callback = nullptr,
-           bool* is_blob_index = nullptr, bool do_merge = true,
-           bool skip_filter_check = false);
+           bool* is_blob_index = nullptr, bool do_merge = true);
 
   bool Get(const LookupKey& key, std::string* value, Status* s,
            MergeContext* merge_context,
@@ -225,7 +224,7 @@ class MemTable {
                read_opts, callback, is_blob_index, do_merge, skip_filter_check);
   }
 
-  bool MultiGet(const ReadOptions& read_options, MultiGetRange* range,
+  void MultiGet(const ReadOptions& read_options, MultiGetRange* range,
                 ReadCallback* callback, bool* is_blob);
 
   // Attempts to update the new_value inplace, else does normal Add
@@ -514,6 +513,13 @@ class MemTable {
   void UpdateFlushState();
 
   void UpdateOldestKeyTime();
+
+  void GetFromTable(const LookupKey& key, std::string* value, Status* s,
+          MergeContext* merge_context,
+          SequenceNumber* max_covering_tombstone_seq,
+          SequenceNumber* seq, const ReadOptions& read_opts,
+          ReadCallback* callback, bool* is_blob_index, bool do_merge,
+          bool* found_final_value, bool* merge_in_progress);
 };
 
 extern const char* EncodeKey(std::string* scratch, const Slice& target);
