@@ -183,9 +183,6 @@ class ListColumnFamiliesCommand : public LDBCommand {
   virtual void DoCommand() override;
 
   virtual bool NoDBOpen() override { return true; }
-
- private:
-  std::string dbname_;
 };
 
 class CreateColumnFamilyCommand : public LDBCommand {

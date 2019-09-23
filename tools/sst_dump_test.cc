@@ -86,6 +86,7 @@ void cleanup(const Options& opts, const std::string& file_name) {
 // Test for sst dump tool "raw" mode
 class SSTDumpToolTest : public testing::Test {
   std::string testDir_;
+  std::shared_ptr<Env> env_guard_;
 
  public:
   SSTDumpToolTest() { testDir_ = test::TmpDir(); }
@@ -108,10 +109,20 @@ class SSTDumpToolTest : public testing::Test {
     snprintf(usage[1], optLength, "%s", command);
     snprintf(usage[2], optLength, "--file=%s", file_path.c_str());
   }
+
+  Env* TryLoadCustomOrDefaultEnv() {
+    const char* test_env_uri = getenv("TEST_ENV_URI");
+    Env* env = Env::Default();
+    if (test_env_uri) {
+      Env::LoadEnv(test_env_uri, &env, &env_guard_);
+    }
+    return env;
+  }
 };
 
 TEST_F(SSTDumpToolTest, EmptyFilter) {
   Options opts;
+  opts.env = TryLoadCustomOrDefaultEnv();
   std::string file_path = MakeFilePath("rocksdb_sst_test.sst");
   createSST(opts, file_path);
 
@@ -129,6 +140,7 @@ TEST_F(SSTDumpToolTest, EmptyFilter) {
 
 TEST_F(SSTDumpToolTest, FilterBlock) {
   Options opts;
+  opts.env = TryLoadCustomOrDefaultEnv();
   BlockBasedTableOptions table_opts;
   table_opts.filter_policy.reset(rocksdb::NewBloomFilterPolicy(10, true));
   opts.table_factory.reset(new BlockBasedTableFactory(table_opts));
@@ -149,6 +161,7 @@ TEST_F(SSTDumpToolTest, FilterBlock) {
 
 TEST_F(SSTDumpToolTest, FullFilterBlock) {
   Options opts;
+  opts.env = TryLoadCustomOrDefaultEnv();
   BlockBasedTableOptions table_opts;
   table_opts.filter_policy.reset(rocksdb::NewBloomFilterPolicy(10, false));
   opts.table_factory.reset(new BlockBasedTableFactory(table_opts));
@@ -169,6 +182,7 @@ TEST_F(SSTDumpToolTest, FullFilterBlock) {
 
 TEST_F(SSTDumpToolTest, GetProperties) {
   Options opts;
+  opts.env = TryLoadCustomOrDefaultEnv();
   BlockBasedTableOptions table_opts;
   table_opts.filter_policy.reset(rocksdb::NewBloomFilterPolicy(10, false));
   opts.table_factory.reset(new BlockBasedTableFactory(table_opts));
@@ -189,6 +203,7 @@ TEST_F(SSTDumpToolTest, GetProperties) {
 
 TEST_F(SSTDumpToolTest, CompressedSizes) {
   Options opts;
+  opts.env = TryLoadCustomOrDefaultEnv();
   BlockBasedTableOptions table_opts;
   table_opts.filter_policy.reset(rocksdb::NewBloomFilterPolicy(10, false));
   opts.table_factory.reset(new BlockBasedTableFactory(table_opts));
@@ -208,7 +223,8 @@ TEST_F(SSTDumpToolTest, CompressedSizes) {
 }
 
 TEST_F(SSTDumpToolTest, MemEnv) {
-  std::unique_ptr<Env> env(NewMemEnv(Env::Default()));
+  Env* base_env = TryLoadCustomOrDefaultEnv();
+  std::unique_ptr<Env> env(NewMemEnv(base_env));
   Options opts;
   opts.env = env.get();
   std::string file_path = MakeFilePath("rocksdb_sst_test.sst");
@@ -228,8 +244,17 @@ TEST_F(SSTDumpToolTest, MemEnv) {
 
 }  // namespace rocksdb
 
+#ifdef ROCKSDB_UNITTESTS_WITH_CUSTOM_OBJECTS_FROM_STATIC_LIBS
+extern "C" {
+void RegisterCustomObjects(int argc, char** argv);
+}
+#else
+void RegisterCustomObjects(int /*argc*/, char** /*argv*/) {}
+#endif  // !ROCKSDB_UNITTESTS_WITH_CUSTOM_OBJECTS_FROM_STATIC_LIBS
+
 int main(int argc, char** argv) {
   ::testing::InitGoogleTest(&argc, argv);
+  RegisterCustomObjects(argc, argv);
   return RUN_ALL_TESTS();
 }
 
