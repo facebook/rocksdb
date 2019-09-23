@@ -693,14 +693,15 @@ static enum RepFactory FLAGS_rep_factory;
 DEFINE_string(memtablerep, "prefix_hash", "");
 
 static bool ValidatePrefixSize(const char* flagname, int32_t value) {
-  if (value < 0 || value > 8) {
-    fprintf(stderr, "Invalid value for --%s: %d. 0 <= PrefixSize <= 8\n",
+  if (value < -1 || value > 8) {
+    fprintf(stderr, "Invalid value for --%s: %d. -1 <= PrefixSize <= 8\n",
             flagname, value);
     return false;
   }
   return true;
 }
-DEFINE_int32(prefix_size, 7, "Control the prefix size for HashSkipListRep");
+DEFINE_int32(prefix_size, 7, "Control the prefix size for HashSkipListRep. "
+                             "-1 is disabled.");
 static const bool FLAGS_prefix_size_dummy __attribute__((__unused__)) =
     RegisterFlagValidator(&FLAGS_prefix_size, &ValidatePrefixSize);
 
@@ -2348,6 +2349,12 @@ class StressTest {
                         lock);
       } else {
         // OPERATION iterate
+        int num_seeks = static_cast<int>(
+            std::min(static_cast<uint64_t>(thread->rand.Uniform(4)),
+                     FLAGS_ops_per_thread - i - 1));
+        rand_keys = GenerateNKeys(thread, num_seeks, i);
+        TestMultiGet(thread, read_opts, rand_column_families, rand_keys);
+        i += num_seeks - 1;
         TestIterate(thread, read_opts, rand_column_families, rand_keys);
       }
       thread->stats.FinishedSingleOp();
@@ -2445,7 +2452,7 @@ class StressTest {
     std::string lower_bound_str;
     Slice lower_bound;
     if (thread->rand.OneIn(16)) {
-      // in 1/16 chance, set a iterator lower bound
+      // in 1/16 chance, enable iterator lower bound
       int64_t rand_lower_key = GenerateOneKey(thread, FLAGS_ops_per_thread);
       lower_bound_str = Key(rand_lower_key);
       lower_bound = Slice(lower_bound_str);
@@ -2457,26 +2464,126 @@ class StressTest {
     auto cfh = column_families_[rand_column_families[0]];
     std::unique_ptr<Iterator> iter(db_->NewIterator(readoptionscopy, cfh));
 
-    std::string key_str = Key(rand_keys[0]);
-    Slice key = key_str;
-    iter->Seek(key);
-    for (uint64_t i = 0; i < FLAGS_num_iterations && iter->Valid(); i++) {
-      if (thread->rand.OneIn(2)) {
-        iter->Next();
-      } else {
-        iter->Prev();
-      }
-    }
+    for (int64_t rkey : rand_keys) {
+      std::string key_str = Key(rkey);
+      Slice key = key_str;
 
-    if (s.ok()) {
-      thread->stats.AddIterations(1);
-    } else {
-      thread->stats.AddErrors(1);
+      if (readoptionscopy.iterate_upper_bound != nullptr &&
+          thread->rand.OneIn(2)) {
+        // 1/2 chance, change the upper bound.
+        // It is possible that it is changed without first use, but there is no
+        // problem with that.
+        int64_t rand_upper_key = GenerateOneKey(thread, FLAGS_ops_per_thread);
+        upper_bound_str = Key(rand_upper_key);
+        upper_bound = Slice(upper_bound_str);
+      }
+
+      // Set up an iterator and does the same without bounds and with total
+      // order seek and compare the results. This is to identify bugs related
+      // to bounds, prefix extractor or reseeking. Sometimes we are comparing
+      // iterators with the same set-up, and it doesn't hurt to check them
+      // to be equal.
+      ReadOptions cmp_ro;
+      cmp_ro.snapshot = snapshot;
+      cmp_ro.total_order_seek = true;
+      std::unique_ptr<Iterator> cmp_iter(
+          db_->NewIterator(readoptionscopy, cfh));
+      bool diverged = false;
+
+      iter->Seek(key);
+      cmp_iter->Seek(key);
+      VerifyIterator(thread, readoptionscopy, iter.get(), cmp_iter.get(), key,
+                     &diverged);
+
+      for (uint64_t i = 0; i < FLAGS_num_iterations && iter->Valid(); i++) {
+        if (thread->rand.OneIn(2)) {
+          iter->Next();
+          if (cmp_iter->Valid()) {
+            cmp_iter->Next();
+          }
+        } else {
+          iter->Prev();
+          if (cmp_iter->Valid()) {
+            cmp_iter->Prev();
+          }
+        }
+        VerifyIterator(thread, readoptionscopy, iter.get(), cmp_iter.get(), key,
+                       &diverged);
+      }
+
+      if (s.ok()) {
+        thread->stats.AddIterations(1);
+      } else {
+        thread->stats.AddErrors(1);
+        break;
+      }
     }
 
     db_->ReleaseSnapshot(snapshot);
 
     return s;
+  }
+
+  // Compare the two iterator, iter and cmp_iter are in the same position,
+  // unless iter might be made invalidate or undefined because of
+  // upper or lower bounds, or prefix extractor.
+  // Will flag failure if the verification fails.
+  // diverged = true if the two iterator is already diverged.
+  // True if verification passed, false if not.
+  void VerifyIterator(ThreadState* thread, const ReadOptions& ro,
+                      Iterator* iter, Iterator* cmp_iter, const Slice& seek_key,
+                      bool* diverged) {
+    if (*diverged) {
+      return;
+    }
+    if (iter->Valid() && !cmp_iter->Valid()) {
+      fprintf(stderr, "Iterator is valid but controlled one is empty\n");
+      *diverged = true;
+    } else if (cmp_iter->Valid() &&
+               (!iter->Valid() || iter->key() != cmp_iter->key())) {
+      // Iterator is not valid. It can be legimate if it has already been
+      // out of upper or lower bound, or filtered out by prefix iterator.
+      const Slice& total_order_key = cmp_iter->key();
+      const SliceTransform* pe = options_.prefix_extractor.get();
+      const Comparator* cmp = options_.comparator;
+
+      if ((ro.iterate_upper_bound == nullptr ||
+           cmp->Compare(total_order_key, *ro.iterate_upper_bound) < 0) &&
+          (ro.iterate_lower_bound == nullptr ||
+           cmp->Compare(total_order_key, *ro.iterate_lower_bound) > 0) &&
+          (pe == nullptr || !pe->InDomain(total_order_key) ||
+           !pe->InDomain(seek_key) ||
+           pe->Transform(seek_key) == pe->Transform(total_order_key))) {
+        fprintf(stderr,
+                "Iterator diverged from control iterator which"
+                " has value %s seek key %s\n",
+                total_order_key.ToString(true).c_str(),
+                seek_key.ToString(true).c_str());
+        if (iter->Valid()) {
+          fprintf(stderr, "iterator has value %s\n",
+                  iter->key().ToString(true).c_str());
+        } else {
+          fprintf(stderr, "iterator is not valid\n");
+        }
+        if (ro.iterate_upper_bound != nullptr) {
+          fprintf(stderr, "upper bound %s\n",
+                  ro.iterate_upper_bound->ToString(true).c_str());
+        }
+        if (ro.iterate_lower_bound != nullptr) {
+          fprintf(stderr, "lower bound %s\n",
+                  ro.iterate_lower_bound->ToString(true).c_str());
+        }
+        if (pe != nullptr) {
+          fprintf(stderr, "prefix extractor: %s\n", pe->Name());
+        }
+        *diverged = true;
+      }
+    }
+    if (*diverged) {
+      thread->stats.AddErrors(1);
+      // Fail fast to preserve the DB state.
+      thread->shared->SetVerificationFailure();
+    }
   }
 
 #ifdef ROCKSDB_LITE
@@ -2802,8 +2909,10 @@ class StressTest {
       options_.max_background_flushes = FLAGS_max_background_flushes;
       options_.compaction_style =
           static_cast<rocksdb::CompactionStyle>(FLAGS_compaction_style);
-      options_.prefix_extractor.reset(
-          NewFixedPrefixTransform(FLAGS_prefix_size));
+      if (FLAGS_prefix_size >= 0) {
+        options_.prefix_extractor.reset(
+            NewFixedPrefixTransform(FLAGS_prefix_size));
+      }
       options_.max_open_files = FLAGS_open_files;
       options_.statistics = dbstats;
       options_.env = FLAGS_env;
