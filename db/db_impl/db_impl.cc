@@ -2000,7 +2000,7 @@ void DBImpl::MultiGetImpl(
 //    uint64_t end = env_->NowMicros();
 //    std::cout << "Total time: " << (end-start);
 
-    uint64_t start = env_->NowMicros();
+//    uint64_t start = env_->NowMicros();
     for (auto mget_iter = range.begin(); mget_iter != range.end();
          ++mget_iter) {
       mget_iter->merge_context.Clear();
@@ -2009,16 +2009,16 @@ void DBImpl::MultiGetImpl(
 
     bool skip_memtable = (read_options.read_tier == kPersistedTier && has_unpersisted_data_.load(std::memory_order_relaxed));
     if (!skip_memtable) {
-        bool found_all_keys = super_version->mem->MultiGet(read_options, &range, callback, is_blob_index);
-        if (!found_all_keys) {
-            found_all_keys = super_version->imm->MultiGet(read_options, &range, callback, is_blob_index);
-            if (!found_all_keys) {
-                lookup_current = true;
-            }
+        super_version->mem->MultiGet(read_options, &range, callback, is_blob_index);
+        if (!range.empty()) {
+            super_version->imm->MultiGet(read_options, &range, callback, is_blob_index);
+        }
+        if (!range.empty()) {
+            lookup_current = true;
         }
     }
-    uint64_t end = env_->NowMicros();
-    std::cout << "Total time: " << (end-start);
+//    uint64_t end = env_->NowMicros();
+//    std::cout << "Total time: " << (end-start);
     if (lookup_current) {
       PERF_TIMER_GUARD(get_from_output_files_time);
       super_version->current->MultiGet(read_options, &range, callback,

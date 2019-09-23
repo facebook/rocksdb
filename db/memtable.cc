@@ -769,8 +769,7 @@ bool MemTable::Get(const LookupKey& key, std::string* value, Status* s,
                    MergeContext* merge_context,
                    SequenceNumber* max_covering_tombstone_seq,
                    SequenceNumber* seq, const ReadOptions& read_opts,
-                   ReadCallback* callback, bool* is_blob_index, bool do_merge,
-                   bool skip_filter_check) {
+                   ReadCallback* callback, bool* is_blob_index, bool do_merge) {
   // The sequence number is updated synchronously in version_set.h
   if (IsEmpty()) {
     // Avoiding recording stats for speed.
@@ -778,33 +777,22 @@ bool MemTable::Get(const LookupKey& key, std::string* value, Status* s,
   }
   PERF_TIMER_GUARD(get_from_memtable_time);
 
-  std::unique_ptr<FragmentedRangeTombstoneIterator> range_del_iter(
-      NewRangeTombstoneIterator(read_opts,
-                                GetInternalKeySeqno(key.internal_key())));
-  if (range_del_iter != nullptr) {
-    *max_covering_tombstone_seq =
-        std::max(*max_covering_tombstone_seq,
-                 range_del_iter->MaxCoveringTombstoneSeqnum(key.user_key()));
-  }
-
   Slice user_key = key.user_key();
   bool found_final_value = false;
   bool merge_in_progress = s->IsMergeInProgress();
   bool may_contain = true;
   size_t ts_sz = GetInternalKeyComparator().user_comparator()->timestamp_size();
-  if (!skip_filter_check) {
-    if (bloom_filter_) {
-      // when both memtable_whole_key_filtering and prefix_extractor_ are set,
-      // only do whole key filtering for Get() to save CPU
-      if (moptions_.memtable_whole_key_filtering) {
-        may_contain = bloom_filter_->MayContain(
-            StripTimestampFromUserKey(user_key, ts_sz));
-      } else {
-        assert(prefix_extractor_);
-        may_contain =
-            !prefix_extractor_->InDomain(user_key) ||
-            bloom_filter_->MayContain(prefix_extractor_->Transform(user_key));
-      }
+  if (bloom_filter_) {
+    // when both memtable_whole_key_filtering and prefix_extractor_ are set,
+    // only do whole key filtering for Get() to save CPU
+    if (moptions_.memtable_whole_key_filtering) {
+      may_contain = bloom_filter_->MayContain(
+          StripTimestampFromUserKey(user_key, ts_sz));
+    } else {
+      assert(prefix_extractor_);
+      may_contain =
+          !prefix_extractor_->InDomain(user_key) ||
+          bloom_filter_->MayContain(prefix_extractor_->Transform(user_key));
     }
   }
 
@@ -816,10 +804,39 @@ bool MemTable::Get(const LookupKey& key, std::string* value, Status* s,
       if (bloom_filter_) {
           PERF_COUNTER_ADD(bloom_memtable_hit_count, 1);
       }
+      GetFromTable(key, value, s, merge_context, max_covering_tombstone_seq,
+              seq, read_opts, callback, is_blob_index, do_merge,
+              &found_final_value, &merge_in_progress);
+  }
+
+  // No change to value, since we have not yet found a Put/Delete
+  if (!found_final_value && merge_in_progress) {
+    *s = Status::MergeInProgress();
+  }
+  PERF_COUNTER_ADD(get_from_memtable_count, 1);
+  return found_final_value;
+}
+
+void MemTable::GetFromTable(const LookupKey& key, std::string* value, Status* s,
+        MergeContext* merge_context,
+        SequenceNumber* max_covering_tombstone_seq,
+        SequenceNumber* seq, const ReadOptions& read_opts,
+        ReadCallback* callback, bool* is_blob_index, bool do_merge,
+        bool* found_final_value, bool* merge_in_progress) {
+
+    std::unique_ptr<FragmentedRangeTombstoneIterator> range_del_iter(
+        NewRangeTombstoneIterator(read_opts,
+                                  GetInternalKeySeqno(key.internal_key())));
+    if (range_del_iter != nullptr) {
+      *max_covering_tombstone_seq =
+          std::max(*max_covering_tombstone_seq,
+                   range_del_iter->MaxCoveringTombstoneSeqnum(key.user_key()));
+    }
+
     Saver saver;
     saver.status = s;
-    saver.found_final_value = &found_final_value;
-    saver.merge_in_progress = &merge_in_progress;
+    saver.found_final_value = found_final_value;
+    saver.merge_in_progress = merge_in_progress;
     saver.key = &key;
     saver.value = value;
     saver.seq = kMaxSequenceNumber;
@@ -836,75 +853,60 @@ bool MemTable::Get(const LookupKey& key, std::string* value, Status* s,
     saver.do_merge = do_merge;
     table_->Get(key, &saver, SaveValue);
     *seq = saver.seq;
-  }
 
-  // No change to value, since we have not yet found a Put/Delete
-  if (!found_final_value && merge_in_progress) {
-    *s = Status::MergeInProgress();
-  }
-  PERF_COUNTER_ADD(get_from_memtable_count, 1);
-  return found_final_value;
 }
 
-bool MemTable::MultiGet(const ReadOptions& read_options, MultiGetRange* range,
+void MemTable::MultiGet(const ReadOptions& read_options, MultiGetRange* range,
                         ReadCallback* callback, bool* is_blob) {
   // The sequence number is updated synchronously in version_set.h
   if (IsEmpty()) {
     // Avoiding recording stats for speed.
-    return false;
+      return;
   }
-  std::bitset<MultiGetContext::MAX_BATCH_SIZE> keys;
-  int idx = 0;
-  for (auto iter = range->begin(); iter != range->end(); ++iter) {
-    Slice user_key = iter->lkey->user_key();
-    size_t ts_sz =
-        GetInternalKeyComparator().user_comparator()->timestamp_size();
-    bool may_contain = true;
-    if (bloom_filter_) {
-      // when both memtable_whole_key_filtering and prefix_extractor_ are set,
-      // only do whole key filtering for Get() to save CPU
-      if (moptions_.memtable_whole_key_filtering) {
-        may_contain = bloom_filter_->MayContain(
-            StripTimestampFromUserKey(user_key, ts_sz));
-      } else {
-        assert(prefix_extractor_);
-        may_contain =
-            !prefix_extractor_->InDomain(user_key) ||
-            bloom_filter_->MayContain(prefix_extractor_->Transform(user_key));
-      }
+  PERF_TIMER_GUARD(get_from_memtable_time);
 
-      if (may_contain) {
-        keys.set(idx);
+  MultiGetRange temp_range(*range, range->begin(), range->end());
+  if (bloom_filter_) {
+      std::array<Slice*, MultiGetContext::MAX_BATCH_SIZE> keys;
+      std::array<bool, MultiGetContext::MAX_BATCH_SIZE> may_match = {{true}};
+      autovector<Slice, MultiGetContext::MAX_BATCH_SIZE> prefixes;
+      int num_keys = 0;
+      for (auto iter = temp_range.begin(); iter != temp_range.end();
+              ++iter) {
+        if (!prefix_extractor_) {
+          keys[num_keys++] = &iter->ukey;
+        } else if (prefix_extractor_->InDomain(iter->ukey)) {
+          prefixes.emplace_back(prefix_extractor_->Transform(iter->ukey));
+          keys[num_keys++] = &prefixes.back();
+        } else {
+            temp_range.SkipKey(iter);
+        }
       }
-      idx++;
-    }
+      bloom_filter_->MayContain(num_keys, &keys[0], &may_match[0]);
+      int idx = 0;
+      for (auto iter = temp_range.begin(); iter != temp_range.end(); ++iter) {
+          if (!may_match[idx]) {
+              temp_range.SkipKey(iter);
+              PERF_COUNTER_ADD(bloom_memtable_miss_count, 1);
+          } else {
+              PERF_COUNTER_ADD(bloom_memtable_hit_count, 1);
+          }
+          idx++;
+      }
   }
-
-  idx = 0;
-  bool found_all_keys = true;
-  for (auto iter = range->begin(); iter != range->end(); ++iter) {
-    SequenceNumber seq;
-    if (!keys.test(idx)) {
-      // iter is null if prefix bloom says the key does not exist
-      PERF_COUNTER_ADD(bloom_memtable_miss_count, 1);
-      seq = kMaxSequenceNumber;
-      found_all_keys = false;
-    } else {
-      PERF_COUNTER_ADD(bloom_memtable_hit_count, 1);
-      bool found_final_value = Get(*(iter->lkey), iter->value->GetSelf(), iter->s, &(iter->merge_context),
+  for (auto iter = temp_range.begin(); iter != temp_range.end(); ++iter) {
+      SequenceNumber seq = kMaxSequenceNumber;
+      bool found_final_value{false};
+      bool merge_in_progress = iter->s->IsMergeInProgress();
+     GetFromTable(*(iter->lkey), iter->value->GetSelf(), iter->s, &(iter->merge_context),
               &iter->max_covering_tombstone_seq, &seq, read_options, callback,
-              is_blob, true, true);
+              is_blob, true, &found_final_value, &merge_in_progress);
       if (found_final_value) {
           iter->value->PinSelf();
           range->MarkKeyDone(iter);
-      } else {
-          found_all_keys = false;
       }
-    }
-    idx++;
   }
-
-  return found_all_keys;
+  PERF_COUNTER_ADD(get_from_memtable_count, 1);
 }
 
 void MemTable::Update(SequenceNumber seq,
