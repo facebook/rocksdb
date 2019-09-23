@@ -74,7 +74,7 @@ class MemTableListVersion {
                read_opts, callback, is_blob_index);
   }
 
-  bool MultiGet(const ReadOptions& read_options, MultiGetRange* range,
+  void MultiGet(const ReadOptions& read_options, MultiGetRange* range,
                 ReadCallback* callback, bool* is_blob);
 
   // Returns all the merge operands corresponding to the key by searching all
