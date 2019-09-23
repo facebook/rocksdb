@@ -254,17 +254,17 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
     // We're optimistic, updating the stats before we successfully
     // commit.  That lets us release our leader status early.
     auto stats = default_cf_internal_stats_;
-    stats->AddDBStats(InternalStats::NUMBER_KEYS_WRITTEN, total_count,
+    stats->AddDBStats(InternalDBStatsType::NUMBER_KEYS_WRITTEN, total_count,
                       concurrent_update);
     RecordTick(stats_, NUMBER_KEYS_WRITTEN, total_count);
-    stats->AddDBStats(InternalStats::BYTES_WRITTEN, total_byte_size,
+    stats->AddDBStats(InternalDBStatsType::BYTES_WRITTEN, total_byte_size,
                       concurrent_update);
     RecordTick(stats_, BYTES_WRITTEN, total_byte_size);
-    stats->AddDBStats(InternalStats::WRITE_DONE_BY_SELF, 1, concurrent_update);
+    stats->AddDBStats(InternalDBStatsType::WRITE_DONE_BY_SELF, 1, concurrent_update);
     RecordTick(stats_, WRITE_DONE_BY_SELF);
     auto write_done_by_other = write_group.size - 1;
     if (write_done_by_other > 0) {
-      stats->AddDBStats(InternalStats::WRITE_DONE_BY_OTHER, write_done_by_other,
+      stats->AddDBStats(InternalDBStatsType::WRITE_DONE_BY_OTHER, write_done_by_other,
                         concurrent_update);
       RecordTick(stats_, WRITE_DONE_BY_OTHER, write_done_by_other);
     }
@@ -459,9 +459,9 @@ Status DBImpl::PipelinedWriteImpl(const WriteOptions& write_options,
     }
 
     auto stats = default_cf_internal_stats_;
-    stats->AddDBStats(InternalStats::NUMBER_KEYS_WRITTEN, total_count);
+    stats->AddDBStats(InternalDBStatsType::NUMBER_KEYS_WRITTEN, total_count);
     RecordTick(stats_, NUMBER_KEYS_WRITTEN, total_count);
-    stats->AddDBStats(InternalStats::BYTES_WRITTEN, total_byte_size);
+    stats->AddDBStats(InternalDBStatsType::BYTES_WRITTEN, total_byte_size);
     RecordTick(stats_, BYTES_WRITTEN, total_byte_size);
     RecordInHistogram(stats_, BYTES_PER_WRITE, total_byte_size);
 
@@ -469,10 +469,10 @@ Status DBImpl::PipelinedWriteImpl(const WriteOptions& write_options,
 
     if (w.status.ok() && !write_options.disableWAL) {
       PERF_TIMER_GUARD(write_wal_time);
-      stats->AddDBStats(InternalStats::WRITE_DONE_BY_SELF, 1);
+      stats->AddDBStats(InternalDBStatsType::WRITE_DONE_BY_SELF, 1);
       RecordTick(stats_, WRITE_DONE_BY_SELF, 1);
       if (wal_write_group.size > 1) {
-        stats->AddDBStats(InternalStats::WRITE_DONE_BY_OTHER,
+        stats->AddDBStats(InternalDBStatsType::WRITE_DONE_BY_OTHER,
                           wal_write_group.size - 1);
         RecordTick(stats_, WRITE_DONE_BY_OTHER, wal_write_group.size - 1);
       }
@@ -583,14 +583,14 @@ Status DBImpl::WriteImplWALOnly(const WriteOptions& write_options,
   // We're optimistic, updating the stats before we successfully
   // commit.  That lets us release our leader status early.
   auto stats = default_cf_internal_stats_;
-  stats->AddDBStats(InternalStats::BYTES_WRITTEN, total_byte_size,
+  stats->AddDBStats(InternalDBStatsType::BYTES_WRITTEN, total_byte_size,
                     concurrent_update);
   RecordTick(stats_, BYTES_WRITTEN, total_byte_size);
-  stats->AddDBStats(InternalStats::WRITE_DONE_BY_SELF, 1, concurrent_update);
+  stats->AddDBStats(InternalDBStatsType::WRITE_DONE_BY_SELF, 1, concurrent_update);
   RecordTick(stats_, WRITE_DONE_BY_SELF);
   auto write_done_by_other = write_group.size - 1;
   if (write_done_by_other > 0) {
-    stats->AddDBStats(InternalStats::WRITE_DONE_BY_OTHER, write_done_by_other,
+    stats->AddDBStats(InternalDBStatsType::WRITE_DONE_BY_OTHER, write_done_by_other,
                       concurrent_update);
     RecordTick(stats_, WRITE_DONE_BY_OTHER, write_done_by_other);
   }
@@ -900,12 +900,12 @@ Status DBImpl::WriteToWAL(const WriteThread::WriteGroup& write_group,
   if (status.ok()) {
     auto stats = default_cf_internal_stats_;
     if (need_log_sync) {
-      stats->AddDBStats(InternalStats::WAL_FILE_SYNCED, 1);
+      stats->AddDBStats(InternalDBStatsType::WAL_FILE_SYNCED, 1);
       RecordTick(stats_, WAL_FILE_SYNCED);
     }
-    stats->AddDBStats(InternalStats::WAL_FILE_BYTES, log_size);
+    stats->AddDBStats(InternalDBStatsType::WAL_FILE_BYTES, log_size);
     RecordTick(stats_, WAL_FILE_BYTES, log_size);
-    stats->AddDBStats(InternalStats::WRITE_WITH_WAL, write_with_wal);
+    stats->AddDBStats(InternalDBStatsType::WRITE_WITH_WAL, write_with_wal);
     RecordTick(stats_, WRITE_WITH_WAL, write_with_wal);
   }
   return status;
@@ -951,9 +951,9 @@ Status DBImpl::ConcurrentWriteToWAL(const WriteThread::WriteGroup& write_group,
   if (status.ok()) {
     const bool concurrent = true;
     auto stats = default_cf_internal_stats_;
-    stats->AddDBStats(InternalStats::WAL_FILE_BYTES, log_size, concurrent);
+    stats->AddDBStats(InternalDBStatsType::WAL_FILE_BYTES, log_size, concurrent);
     RecordTick(stats_, WAL_FILE_BYTES, log_size);
-    stats->AddDBStats(InternalStats::WRITE_WITH_WAL, write_with_wal,
+    stats->AddDBStats(InternalDBStatsType::WRITE_WITH_WAL, write_with_wal,
                       concurrent);
     RecordTick(stats_, WRITE_WITH_WAL, write_with_wal);
   }
@@ -1249,7 +1249,7 @@ Status DBImpl::DelayWrite(uint64_t num_bytes,
   }
   assert(!delayed || !write_options.no_slowdown);
   if (delayed) {
-    default_cf_internal_stats_->AddDBStats(InternalStats::WRITE_STALL_MICROS,
+    default_cf_internal_stats_->AddDBStats(InternalDBStatsType::WRITE_STALL_MICROS,
                                            time_delayed);
     RecordTick(stats_, STALL_MICROS, time_delayed);
   }

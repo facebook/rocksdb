@@ -958,14 +958,14 @@ void InternalStats::DumpDBStats(std::string* value) {
            seconds_up, interval_seconds_up);
   value->append(buf);
   // Cumulative
-  uint64_t user_bytes_written = GetDBStats(InternalStats::BYTES_WRITTEN);
-  uint64_t num_keys_written = GetDBStats(InternalStats::NUMBER_KEYS_WRITTEN);
-  uint64_t write_other = GetDBStats(InternalStats::WRITE_DONE_BY_OTHER);
-  uint64_t write_self = GetDBStats(InternalStats::WRITE_DONE_BY_SELF);
-  uint64_t wal_bytes = GetDBStats(InternalStats::WAL_FILE_BYTES);
-  uint64_t wal_synced = GetDBStats(InternalStats::WAL_FILE_SYNCED);
-  uint64_t write_with_wal = GetDBStats(InternalStats::WRITE_WITH_WAL);
-  uint64_t write_stall_micros = GetDBStats(InternalStats::WRITE_STALL_MICROS);
+  uint64_t user_bytes_written = GetDBStats(InternalDBStatsType::BYTES_WRITTEN);
+  uint64_t num_keys_written = GetDBStats(InternalDBStatsType::NUMBER_KEYS_WRITTEN);
+  uint64_t write_other = GetDBStats(InternalDBStatsType::WRITE_DONE_BY_OTHER);
+  uint64_t write_self = GetDBStats(InternalDBStatsType::WRITE_DONE_BY_SELF);
+  uint64_t wal_bytes = GetDBStats(InternalDBStatsType::WAL_FILE_BYTES);
+  uint64_t wal_synced = GetDBStats(InternalDBStatsType::WAL_FILE_SYNCED);
+  uint64_t write_with_wal = GetDBStats(InternalDBStatsType::WRITE_WITH_WAL);
+  uint64_t write_stall_micros = GetDBStats(InternalDBStatsType::WRITE_STALL_MICROS);
 
   const int kHumanMicrosLen = 32;
   char human_micros[kHumanMicrosLen];
@@ -1118,8 +1118,8 @@ void InternalStats::DumpCFMapStats(
   int total_files = 0;
   int total_files_being_compacted = 0;
   double total_file_size = 0;
-  uint64_t flush_ingest = cf_stats_value_[BYTES_FLUSHED];
-  uint64_t add_file_ingest = cf_stats_value_[BYTES_INGESTED_ADD_FILE];
+  uint64_t flush_ingest = GetCFValueStats(InternalCFStatsType::BYTES_FLUSHED);
+  uint64_t add_file_ingest = GetCFValueStats(InternalCFStatsType::BYTES_INGESTED_ADD_FILE);
   uint64_t curr_ingest = flush_ingest + add_file_ingest;
   for (int level = 0; level < number_levels_; level++) {
     int files = vstorage->NumLevelFiles(level);
@@ -1173,30 +1173,30 @@ void InternalStats::DumpCFMapStatsByPriority(
 void InternalStats::DumpCFMapStatsIOStalls(
     std::map<std::string, std::string>* cf_stats) {
   (*cf_stats)["io_stalls.level0_slowdown"] =
-      std::to_string(cf_stats_count_[L0_FILE_COUNT_LIMIT_SLOWDOWNS]);
+      std::to_string(GetCFCountStats(InternalCFStatsType::L0_FILE_COUNT_LIMIT_SLOWDOWNS));
   (*cf_stats)["io_stalls.level0_slowdown_with_compaction"] =
-      std::to_string(cf_stats_count_[LOCKED_L0_FILE_COUNT_LIMIT_SLOWDOWNS]);
+      std::to_string(GetCFCountStats(InternalCFStatsType::LOCKED_L0_FILE_COUNT_LIMIT_SLOWDOWNS));
   (*cf_stats)["io_stalls.level0_numfiles"] =
-      std::to_string(cf_stats_count_[L0_FILE_COUNT_LIMIT_STOPS]);
+      std::to_string(GetCFCountStats(InternalCFStatsType::L0_FILE_COUNT_LIMIT_STOPS));
   (*cf_stats)["io_stalls.level0_numfiles_with_compaction"] =
-      std::to_string(cf_stats_count_[LOCKED_L0_FILE_COUNT_LIMIT_STOPS]);
+      std::to_string(GetCFCountStats(InternalCFStatsType::LOCKED_L0_FILE_COUNT_LIMIT_STOPS));
   (*cf_stats)["io_stalls.stop_for_pending_compaction_bytes"] =
-      std::to_string(cf_stats_count_[PENDING_COMPACTION_BYTES_LIMIT_STOPS]);
+      std::to_string(GetCFCountStats(InternalCFStatsType::PENDING_COMPACTION_BYTES_LIMIT_STOPS));
   (*cf_stats)["io_stalls.slowdown_for_pending_compaction_bytes"] =
-      std::to_string(cf_stats_count_[PENDING_COMPACTION_BYTES_LIMIT_SLOWDOWNS]);
+      std::to_string(GetCFCountStats(InternalCFStatsType::PENDING_COMPACTION_BYTES_LIMIT_SLOWDOWNS));
   (*cf_stats)["io_stalls.memtable_compaction"] =
-      std::to_string(cf_stats_count_[MEMTABLE_LIMIT_STOPS]);
+      std::to_string(GetCFCountStats(InternalCFStatsType::MEMTABLE_LIMIT_STOPS));
   (*cf_stats)["io_stalls.memtable_slowdown"] =
-      std::to_string(cf_stats_count_[MEMTABLE_LIMIT_SLOWDOWNS]);
+      std::to_string(GetCFCountStats(InternalCFStatsType::MEMTABLE_LIMIT_SLOWDOWNS));
 
-  uint64_t total_stop = cf_stats_count_[L0_FILE_COUNT_LIMIT_STOPS] +
-                        cf_stats_count_[PENDING_COMPACTION_BYTES_LIMIT_STOPS] +
-                        cf_stats_count_[MEMTABLE_LIMIT_STOPS];
+  uint64_t total_stop = GetCFCountStats(InternalCFStatsType::L0_FILE_COUNT_LIMIT_STOPS) +
+                        GetCFCountStats(InternalCFStatsType::PENDING_COMPACTION_BYTES_LIMIT_STOPS) +
+                        GetCFCountStats(InternalCFStatsType::MEMTABLE_LIMIT_STOPS);
 
   uint64_t total_slowdown =
-      cf_stats_count_[L0_FILE_COUNT_LIMIT_SLOWDOWNS] +
-      cf_stats_count_[PENDING_COMPACTION_BYTES_LIMIT_SLOWDOWNS] +
-      cf_stats_count_[MEMTABLE_LIMIT_SLOWDOWNS];
+      GetCFCountStats(InternalCFStatsType::L0_FILE_COUNT_LIMIT_SLOWDOWNS) +
+      GetCFCountStats(InternalCFStatsType::PENDING_COMPACTION_BYTES_LIMIT_SLOWDOWNS) +
+      GetCFCountStats(InternalCFStatsType::MEMTABLE_LIMIT_SLOWDOWNS);
 
   (*cf_stats)["io_stalls.total_stop"] = std::to_string(total_stop);
   (*cf_stats)["io_stalls.total_slowdown"] = std::to_string(total_slowdown);
@@ -1228,20 +1228,20 @@ void InternalStats::DumpCFStatsNoFileHistogram(std::string* value) {
   PrintLevelStats(buf, sizeof(buf), "Sum", levels_stats[-1]);
   value->append(buf);
 
-  uint64_t flush_ingest = cf_stats_value_[BYTES_FLUSHED];
-  uint64_t add_file_ingest = cf_stats_value_[BYTES_INGESTED_ADD_FILE];
-  uint64_t ingest_files_addfile = cf_stats_value_[INGESTED_NUM_FILES_TOTAL];
+  uint64_t flush_ingest = GetCFValueStats(InternalCFStatsType::BYTES_FLUSHED);
+  uint64_t add_file_ingest = GetCFValueStats(InternalCFStatsType::BYTES_INGESTED_ADD_FILE);
+  uint64_t ingest_files_addfile = GetCFValueStats(InternalCFStatsType::INGESTED_NUM_FILES_TOTAL);
   uint64_t ingest_l0_files_addfile =
-      cf_stats_value_[INGESTED_LEVEL0_NUM_FILES_TOTAL];
-  uint64_t ingest_keys_addfile = cf_stats_value_[INGESTED_NUM_KEYS_TOTAL];
+      GetCFValueStats(InternalCFStatsType::INGESTED_LEVEL0_NUM_FILES_TOTAL);
+  uint64_t ingest_keys_addfile = GetCFValueStats(InternalCFStatsType::INGESTED_NUM_KEYS_TOTAL);
   // Cumulative summary
   uint64_t total_stall_count =
-      cf_stats_count_[L0_FILE_COUNT_LIMIT_SLOWDOWNS] +
-      cf_stats_count_[L0_FILE_COUNT_LIMIT_STOPS] +
-      cf_stats_count_[PENDING_COMPACTION_BYTES_LIMIT_SLOWDOWNS] +
-      cf_stats_count_[PENDING_COMPACTION_BYTES_LIMIT_STOPS] +
-      cf_stats_count_[MEMTABLE_LIMIT_STOPS] +
-      cf_stats_count_[MEMTABLE_LIMIT_SLOWDOWNS];
+      GetCFCountStats(InternalCFStatsType::L0_FILE_COUNT_LIMIT_SLOWDOWNS) +
+      GetCFCountStats(InternalCFStatsType::L0_FILE_COUNT_LIMIT_STOPS) +
+      GetCFCountStats(InternalCFStatsType::PENDING_COMPACTION_BYTES_LIMIT_SLOWDOWNS) +
+      GetCFCountStats(InternalCFStatsType::PENDING_COMPACTION_BYTES_LIMIT_STOPS) +
+      GetCFCountStats(InternalCFStatsType::MEMTABLE_LIMIT_STOPS) +
+      GetCFCountStats(InternalCFStatsType::MEMTABLE_LIMIT_SLOWDOWNS);
   // Interval summary
   uint64_t interval_flush_ingest =
       flush_ingest - cf_stats_snapshot_.ingest_bytes_flush;
@@ -1364,14 +1364,14 @@ void InternalStats::DumpCFStatsNoFileHistogram(std::string* value) {
            "%" PRIu64
            " memtable_slowdown, "
            "interval %" PRIu64 " total count\n",
-           cf_stats_count_[L0_FILE_COUNT_LIMIT_SLOWDOWNS],
-           cf_stats_count_[LOCKED_L0_FILE_COUNT_LIMIT_SLOWDOWNS],
-           cf_stats_count_[L0_FILE_COUNT_LIMIT_STOPS],
-           cf_stats_count_[LOCKED_L0_FILE_COUNT_LIMIT_STOPS],
-           cf_stats_count_[PENDING_COMPACTION_BYTES_LIMIT_STOPS],
-           cf_stats_count_[PENDING_COMPACTION_BYTES_LIMIT_SLOWDOWNS],
-           cf_stats_count_[MEMTABLE_LIMIT_STOPS],
-           cf_stats_count_[MEMTABLE_LIMIT_SLOWDOWNS],
+           GetCFCountStats(InternalCFStatsType::L0_FILE_COUNT_LIMIT_SLOWDOWNS),
+           GetCFCountStats(InternalCFStatsType::LOCKED_L0_FILE_COUNT_LIMIT_SLOWDOWNS),
+           GetCFCountStats(InternalCFStatsType::L0_FILE_COUNT_LIMIT_STOPS),
+           GetCFCountStats(InternalCFStatsType::LOCKED_L0_FILE_COUNT_LIMIT_STOPS),
+           GetCFCountStats(InternalCFStatsType::PENDING_COMPACTION_BYTES_LIMIT_STOPS),
+           GetCFCountStats(InternalCFStatsType::PENDING_COMPACTION_BYTES_LIMIT_SLOWDOWNS),
+           GetCFCountStats(InternalCFStatsType::MEMTABLE_LIMIT_STOPS),
+           GetCFCountStats(InternalCFStatsType::MEMTABLE_LIMIT_SLOWDOWNS),
            total_stall_count - cf_stats_snapshot_.stall_count);
   value->append(buf);
 
