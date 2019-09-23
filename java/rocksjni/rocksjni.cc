@@ -18,6 +18,7 @@
 
 #include "include/org_rocksdb_RocksDB.h"
 #include "rocksdb/cache.h"
+#include "rocksdb/convenience.h"
 #include "rocksdb/db.h"
 #include "rocksdb/options.h"
 #include "rocksdb/types.h"
@@ -3039,6 +3040,76 @@ void Java_org_rocksdb_RocksDB_destroyDB(
 
   rocksdb::Status s = rocksdb::DestroyDB(db_path, *options);
   env->ReleaseStringUTFChars(jdb_path, db_path);
+
+  if (!s.ok()) {
+    rocksdb::RocksDBExceptionJni::ThrowNew(env, s);
+  }
+}
+
+bool get_slice_helper(JNIEnv* env, jobjectArray ranges, jsize index,
+                      std::unique_ptr<rocksdb::Slice>& slice,
+                      std::vector<std::unique_ptr<jbyte[]>>& ranges_to_free) {
+  jobject jArray = env->GetObjectArrayElement(ranges, index);
+  if (env->ExceptionCheck()) {
+    // exception thrown: ArrayIndexOutOfBoundsException
+    return false;
+  }
+
+  if (jArray == nullptr) {
+    return true;
+  }
+
+  jbyteArray jba = reinterpret_cast<jbyteArray>(jArray);
+  jsize len_ba = env->GetArrayLength(jba);
+  ranges_to_free.push_back(std::unique_ptr<jbyte[]>(new jbyte[len_ba]));
+  env->GetByteArrayRegion(jba, 0, len_ba, ranges_to_free.back().get());
+  if (env->ExceptionCheck()) {
+    // exception thrown: ArrayIndexOutOfBoundsException
+    env->DeleteLocalRef(jArray);
+    return false;
+  }
+  env->DeleteLocalRef(jArray);
+  slice.reset(new rocksdb::Slice(
+      reinterpret_cast<char*>(ranges_to_free.back().get()), len_ba));
+  return true;
+}
+/*
+ * Class:     org_rocksdb_RocksDB
+ * Method:    deleteFilesInRanges
+ * Signature: (JJLjava/util/List;Z)V
+ */
+JNIEXPORT void JNICALL Java_org_rocksdb_RocksDB_deleteFilesInRanges(
+    JNIEnv* env, jobject /*jdb*/, jlong jdb_handle, jlong jcf_handle,
+    jobjectArray ranges, jboolean include_end) {
+  jsize length = env->GetArrayLength(ranges);
+
+  std::vector<rocksdb::RangePtr> rangesVector;
+  std::vector<std::unique_ptr<rocksdb::Slice>> slices;
+  std::vector<std::unique_ptr<jbyte[]>> ranges_to_free;
+  for (jsize i = 0; (i + 1) < length; i += 2) {
+    slices.push_back(std::unique_ptr<rocksdb::Slice>());
+    if (!get_slice_helper(env, ranges, i, slices.back(), ranges_to_free)) {
+      // exception thrown
+      return;
+    }
+
+    slices.push_back(std::unique_ptr<rocksdb::Slice>());
+    if (!get_slice_helper(env, ranges, i + 1, slices.back(), ranges_to_free)) {
+      // exception thrown
+      return;
+    }
+
+    rangesVector.push_back(rocksdb::RangePtr(slices[slices.size() - 2].get(),
+                                             slices[slices.size() - 1].get()));
+  }
+
+  auto* db = reinterpret_cast<rocksdb::DB*>(jdb_handle);
+  auto* column_family =
+      reinterpret_cast<rocksdb::ColumnFamilyHandle*>(jcf_handle);
+
+  rocksdb::Status s = rocksdb::DeleteFilesInRanges(
+      db, column_family == nullptr ? db->DefaultColumnFamily() : column_family,
+      rangesVector.data(), rangesVector.size(), include_end);
 
   if (!s.ok()) {
     rocksdb::RocksDBExceptionJni::ThrowNew(env, s);

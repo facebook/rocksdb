@@ -293,7 +293,7 @@ TEST_F(WalManagerTest, TransactionLogIteratorJustEmptyFile) {
   // Check that an empty iterator is returned
   ASSERT_TRUE(!iter->Valid());
 }
-  
+
 TEST_F(WalManagerTest, TransactionLogIteratorNewFileWhileScanning) {
   Init();
   CreateArchiveLogs(2, 100);
@@ -307,7 +307,7 @@ TEST_F(WalManagerTest, TransactionLogIteratorNewFileWhileScanning) {
   // A new log file was added after the iterator was created.
   // TryAgain indicates a new iterator is needed to fetch the new data
   ASSERT_TRUE(iter->status().IsTryAgain());
-  
+
   iter = OpenTransactionLogIter(0);
   i = 0;
   for (; iter->Valid(); iter->Next()) {

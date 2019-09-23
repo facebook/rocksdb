@@ -11,9 +11,8 @@ package org.rocksdb;
  * Taken from include/rocksdb/advanced_options.h
  * and MutableCFOptions in util/cf_options.h
  */
-public interface AdvancedMutableColumnFamilyOptionsInterface
-    <T extends AdvancedMutableColumnFamilyOptionsInterface<T>> {
-
+public interface AdvancedMutableColumnFamilyOptionsInterface<
+    T extends AdvancedMutableColumnFamilyOptionsInterface<T>> {
   /**
    * The maximum number of write buffers that are built up in memory.
    * The default is 2, so that when 1 write buffer is being flushed to

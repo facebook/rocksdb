@@ -23,16 +23,15 @@ uint32_t roundUpToPow2(uint32_t x) {
   }
   return rv;
 }
-
 }
 
 DynamicBloom::DynamicBloom(Allocator* allocator, uint32_t total_bits,
-                           uint32_t num_probes,
-                           size_t huge_page_tlb_size, Logger* logger)
+                           uint32_t num_probes, size_t huge_page_tlb_size,
+                           Logger* logger)
     // Round down, except round up with 1
     : kNumDoubleProbes((num_probes + (num_probes == 1)) / 2) {
-  assert(num_probes % 2 == 0); // limitation of current implementation
-  assert(num_probes <= 10); // limitation of current implementation
+  assert(num_probes % 2 == 0);  // limitation of current implementation
+  assert(num_probes <= 10);     // limitation of current implementation
   assert(kNumDoubleProbes > 0);
 
   // Determine how much to round off + align by so that x ^ i (that's xor) is
@@ -42,7 +41,7 @@ DynamicBloom::DynamicBloom(Allocator* allocator, uint32_t total_bits,
   uint32_t block_bits = block_bytes * 8;
   uint32_t blocks = (total_bits + block_bits - 1) / block_bits;
   uint32_t sz = blocks * block_bytes;
-  kLen = sz / /*bytes/u64*/8;
+  kLen = sz / /*bytes/u64*/ 8;
   assert(kLen > 0);
 #ifndef NDEBUG
   for (uint32_t i = 0; i < kNumDoubleProbes; ++i) {

@@ -1148,7 +1148,8 @@ class DB {
   //
   // Additionally, for the sake of optimization current_log_file->StartSequence
   // would always be set to 0
-  virtual Status GetCurrentWalFile(std::unique_ptr<LogFile>* current_log_file) = 0;
+  virtual Status GetCurrentWalFile(
+      std::unique_ptr<LogFile>* current_log_file) = 0;
 
   // Note: this API is not yet consistent with WritePrepared transactions.
   // Sets iter to an iterator that is positioned at a write-batch containing

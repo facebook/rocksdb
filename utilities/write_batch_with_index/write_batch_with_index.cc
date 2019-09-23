@@ -918,9 +918,9 @@ Status WriteBatchWithIndex::GetFromBatchAndDB(
 
       if (merge_operator) {
         std::string merge_result;
-        s = MergeHelper::TimedFullMerge(
-            merge_operator, key, merge_data, merge_context.GetOperands(),
-            &merge_result, logger, statistics, env);
+        s = MergeHelper::TimedFullMerge(merge_operator, key, merge_data,
+                                        merge_context.GetOperands(),
+                                        &merge_result, logger, statistics, env);
         pinnable_val->Reset();
         *pinnable_val->GetSelf() = std::move(merge_result);
         pinnable_val->PinSelf();

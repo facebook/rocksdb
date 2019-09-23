@@ -5,8 +5,8 @@
 
 #include "logging/event_logger.h"
 
-#include <cinttypes>
 #include <cassert>
+#include <cinttypes>
 #include <sstream>
 #include <string>
 

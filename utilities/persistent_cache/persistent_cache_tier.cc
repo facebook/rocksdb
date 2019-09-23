@@ -8,8 +8,8 @@
 #include "utilities/persistent_cache/persistent_cache_tier.h"
 
 #include <cinttypes>
-#include <string>
 #include <sstream>
+#include <string>
 
 namespace rocksdb {
 

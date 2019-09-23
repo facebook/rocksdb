@@ -48,9 +48,7 @@ ROT13BlockCipher rot13Cipher_(16);
 #endif  // ROCKSDB_LITE
 
 DBTestBase::DBTestBase(const std::string path)
-    : mem_env_(nullptr),
-      encrypted_env_(nullptr),
-      option_config_(kDefault) {
+    : mem_env_(nullptr), encrypted_env_(nullptr), option_config_(kDefault) {
   Env* base_env = Env::Default();
 #ifndef ROCKSDB_LITE
   const char* test_env_uri = getenv("TEST_ENV_URI");
@@ -591,7 +589,8 @@ void DBTestBase::CreateColumnFamilies(const std::vector<std::string>& cfs,
   size_t cfi = handles_.size();
   handles_.resize(cfi + cfs.size());
   for (auto cf : cfs) {
-    ASSERT_OK(db_->CreateColumnFamily(cf_opts, cf, &handles_[cfi++]));
+    Status s = db_->CreateColumnFamily(cf_opts, cf, &handles_[cfi++]);
+    ASSERT_OK(s);
   }
 }
 

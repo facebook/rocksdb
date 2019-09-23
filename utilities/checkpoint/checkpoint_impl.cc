@@ -11,8 +11,8 @@
 
 #include "utilities/checkpoint/checkpoint_impl.h"
 
-#include <cinttypes>
 #include <algorithm>
+#include <cinttypes>
 #include <string>
 #include <vector>
 

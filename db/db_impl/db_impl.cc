@@ -3294,9 +3294,8 @@ Status DestroyDB(const std::string& dbname, const Options& options,
         if (type == kMetaDatabase) {
           del = DestroyDB(path_to_delete, options);
         } else if (type == kTableFile || type == kLogFile) {
-          del =
-              DeleteDBFile(&soptions, path_to_delete, dbname,
-                           /*force_bg=*/false, /*force_fg=*/!wal_in_db_path);
+          del = DeleteDBFile(&soptions, path_to_delete, dbname,
+                             /*force_bg=*/false, /*force_fg=*/!wal_in_db_path);
         } else {
           del = env->DeleteFile(path_to_delete);
         }
@@ -4011,8 +4010,7 @@ Status DBImpl::IngestExternalFiles(
 Status DBImpl::CreateColumnFamilyWithImport(
     const ColumnFamilyOptions& options, const std::string& column_family_name,
     const ImportColumnFamilyOptions& import_options,
-    const ExportImportFilesMetaData& metadata,
-    ColumnFamilyHandle** handle) {
+    const ExportImportFilesMetaData& metadata, ColumnFamilyHandle** handle) {
   assert(handle != nullptr);
   assert(*handle == nullptr);
   std::string cf_comparator_name = options.comparator->Name();
@@ -4053,8 +4051,7 @@ Status DBImpl::CreateColumnFamilyWithImport(
       // reuse the file number that has already assigned to the internal file,
       // and this will overwrite the external file. To protect the external
       // file, we have to make sure the file number will never being reused.
-      next_file_number =
-          versions_->FetchAddFileNumber(metadata.files.size());
+      next_file_number = versions_->FetchAddFileNumber(metadata.files.size());
       auto cf_options = cfd->GetLatestMutableCFOptions();
       status = versions_->LogAndApply(cfd, *cf_options, &dummy_edit, &mutex_,
                                       directories_.GetDbDir());

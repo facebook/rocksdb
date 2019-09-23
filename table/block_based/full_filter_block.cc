@@ -3,8 +3,8 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
-#include <array>
 #include "table/block_based/full_filter_block.h"
+#include <array>
 
 #include "monitoring/perf_context_imp.h"
 #include "port/malloc.h"
@@ -218,8 +218,7 @@ void FullFilterBlockReader::PrefixesMayMatch(
 }
 
 void FullFilterBlockReader::MayMatch(
-    MultiGetRange* range, bool no_io,
-    const SliceTransform* prefix_extractor,
+    MultiGetRange* range, bool no_io, const SliceTransform* prefix_extractor,
     BlockCacheLookupContext* lookup_context) const {
   CachableEntry<BlockContents> filter_block;
 
@@ -252,8 +251,7 @@ void FullFilterBlockReader::MayMatch(
   autovector<Slice, MultiGetContext::MAX_BATCH_SIZE> prefixes;
   int num_keys = 0;
   MultiGetRange filter_range(*range, range->begin(), range->end());
-  for (auto iter = filter_range.begin();
-       iter != filter_range.end(); ++iter) {
+  for (auto iter = filter_range.begin(); iter != filter_range.end(); ++iter) {
     if (!prefix_extractor) {
       keys[num_keys++] = &iter->ukey;
     } else if (prefix_extractor->InDomain(iter->ukey)) {
@@ -266,15 +264,14 @@ void FullFilterBlockReader::MayMatch(
   filter_bits_reader->MayMatch(num_keys, &keys[0], &may_match[0]);
 
   int i = 0;
-  for (auto iter = filter_range.begin();
-       iter != filter_range.end(); ++iter) {
+  for (auto iter = filter_range.begin(); iter != filter_range.end(); ++iter) {
     if (!may_match[i]) {
       // Update original MultiGet range to skip this key. The filter_range
       // was temporarily used just to skip keys not in prefix_extractor domain
       range->SkipKey(iter);
       PERF_COUNTER_ADD(bloom_sst_miss_count, 1);
     } else {
-      //PERF_COUNTER_ADD(bloom_sst_hit_count, 1);
+      // PERF_COUNTER_ADD(bloom_sst_hit_count, 1);
       PerfContext* perf_ctx = get_perf_context();
       perf_ctx->bloom_sst_hit_count++;
     }

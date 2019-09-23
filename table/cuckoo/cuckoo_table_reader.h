@@ -51,7 +51,8 @@ class CuckooTableReader: public TableReader {
   InternalIterator* NewIterator(const ReadOptions&,
                                 const SliceTransform* prefix_extractor,
                                 Arena* arena, bool skip_filters,
-                                TableReaderCaller caller, size_t compaction_readahead_size = 0) override;
+                                TableReaderCaller caller,
+                                size_t compaction_readahead_size = 0) override;
   void Prepare(const Slice& target) override;
 
   // Report an approximation of how much memory has been used.

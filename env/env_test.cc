@@ -1110,7 +1110,8 @@ TEST_P(EnvPosixTestWithParam, MultiRead) {
   // Create file.
   {
     std::unique_ptr<WritableFile> wfile;
-#if !defined(OS_MACOSX) && !defined(OS_WIN) && !defined(OS_SOLARIS) && !defined(OS_AIX)
+#if !defined(OS_MACOSX) && !defined(OS_WIN) && !defined(OS_SOLARIS) && \
+    !defined(OS_AIX)
     if (soptions.use_direct_writes) {
       soptions.use_direct_writes = false;
     }
@@ -1137,7 +1138,8 @@ TEST_P(EnvPosixTestWithParam, MultiRead) {
       data.emplace_back(NewAligned(kSectorSize, 0));
       reqs[i].scratch = data.back().get();
     }
-#if !defined(OS_MACOSX) && !defined(OS_WIN) && !defined(OS_SOLARIS) && !defined(OS_AIX)
+#if !defined(OS_MACOSX) && !defined(OS_WIN) && !defined(OS_SOLARIS) && \
+    !defined(OS_AIX)
     if (soptions.use_direct_reads) {
       soptions.use_direct_reads = false;
     }
@@ -1145,7 +1147,7 @@ TEST_P(EnvPosixTestWithParam, MultiRead) {
     ASSERT_OK(env_->NewRandomAccessFile(fname, &file, soptions));
     ASSERT_OK(file->MultiRead(reqs.data(), reqs.size()));
     for (size_t i = 0; i < reqs.size(); ++i) {
-      auto buf = NewAligned(kSectorSize * 8, static_cast<char>(i*2 + 1));
+      auto buf = NewAligned(kSectorSize * 8, static_cast<char>(i * 2 + 1));
       ASSERT_OK(reqs[i].status);
       ASSERT_EQ(memcmp(reqs[i].scratch, buf.get(), kSectorSize), 0);
     }

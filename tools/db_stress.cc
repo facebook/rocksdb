@@ -29,13 +29,13 @@ int main() {
 #else
 
 #include <fcntl.h>
-#include <cinttypes>
 #include <stdio.h>
 #include <stdlib.h>
 #include <sys/types.h>
 #include <algorithm>
 #include <array>
 #include <chrono>
+#include <cinttypes>
 #include <exception>
 #include <queue>
 #include <thread>
@@ -353,8 +353,9 @@ DEFINE_int32(bloom_bits, 10, "Bloom filter bits per key. "
 DEFINE_bool(use_block_based_filter, false, "use block based filter"
               "instead of full filter for block based table");
 
-DEFINE_bool(partition_filters, false, "use partitioned filters "
-    "for block-based table");
+DEFINE_bool(partition_filters, false,
+            "use partitioned filters "
+            "for block-based table");
 
 DEFINE_int32(
     index_type,
@@ -540,10 +541,6 @@ static const bool FLAGS_iterpercent_dummy __attribute__((__unused__)) =
 DEFINE_uint64(num_iterations, 10, "Number of iterations per MultiIterate run");
 static const bool FLAGS_num_iterations_dummy __attribute__((__unused__)) =
     RegisterFlagValidator(&FLAGS_num_iterations, &ValidateUint32Range);
-
-DEFINE_uint64(
-    snap_refresh_nanos, 100 * 1000 * 1000,
-    "If non-zero, compactions will periodically refresh snapshot list.");
 
 namespace {
 enum rocksdb::CompressionType StringToCompressionType(const char* ctype) {
@@ -2757,8 +2754,6 @@ class StressTest {
         fprintf(stdout, "  %s\n", p.c_str());
       }
     }
-    fprintf(stdout, "Snapshot refresh nanos    : %" PRIu64 "\n",
-            FLAGS_snap_refresh_nanos);
     fprintf(stdout, "Periodic Compaction Secs  : %" PRIu64 "\n",
             FLAGS_periodic_compaction_seconds);
     fprintf(stdout, "Compaction TTL            : %" PRIu64 "\n",
@@ -2919,7 +2914,6 @@ class StressTest {
     } else {
       options_.merge_operator = MergeOperators::CreatePutOperator();
     }
-    options_.snap_refresh_nanos = FLAGS_snap_refresh_nanos;
 
     fprintf(stdout, "DB path: [%s]\n", FLAGS_db.c_str());
 
