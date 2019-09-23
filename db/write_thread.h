@@ -301,7 +301,6 @@ class WriteThread {
   //
   // Writer* w:        Writer to be executed as part of a batch group
   void JoinBatchGroup(Writer* w);
-  void AwaitWriterState(Writer* w);
 
   // Constructs a write batch group led by leader, which should be a
   // Writer passed to JoinBatchGroup on the current thread.

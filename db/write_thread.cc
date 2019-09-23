@@ -430,11 +430,6 @@ void WriteThread::JoinBatchGroup(Writer* w) {
 }
 
 
-void WriteThread::AwaitWriterState(Writer* w) {
-  AwaitState(w, STATE_GROUP_LEADER | STATE_COMPLETED | STATE_MEMTABLE_WRITER_LEADER,
-               &jbg_ctx);
-}
-
 size_t WriteThread::EnterAsBatchGroupLeader(Writer* leader,
                                             WriteGroup* write_group) {
   assert(leader->link_older == nullptr);
