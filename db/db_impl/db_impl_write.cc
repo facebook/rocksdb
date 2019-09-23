@@ -61,13 +61,16 @@ Status DBImpl::WriteWithCallback(const WriteOptions& write_options,
 #endif  // ROCKSDB_LITE
 
 
-Status DBImpl::MultiThreadWrite(const WriteOptions& options, const std::vector<WriteBatch*> &updates) {
-  if (immutable_db_options_.enable_multi_thread_write && !updates.empty()) {
+Status DBImpl::MultiBatchWrite(const WriteOptions& options, const std::vector<WriteBatch*> &updates) {
+
+  if (immutable_db_options_.allow_concurrent_memtable_write &&
+      immutable_db_options_.enable_pipelined_write &&
+      immutable_db_options_.enable_multi_thread_write && !updates.empty()) {
     autovector<WriteBatch*> batches;
     for (auto w: updates) {
       batches.push_back(w);
     }
-    return MultiThreadWriteImpl(options, batches, nullptr, nullptr);
+    return MultiBatchWriteImpl(options, batches, nullptr, nullptr);
   } else {
     Status status;
     for (auto b: updates) {
@@ -80,12 +83,12 @@ Status DBImpl::MultiThreadWrite(const WriteOptions& options, const std::vector<W
   }
 }
 
-Status DBImpl::MultiThreadWriteImpl(const WriteOptions& write_options,
-                         const autovector<WriteBatch*>& updates, WriteCallback* callback,
-                         uint64_t* log_used, uint64_t log_ref,
-                         uint64_t* seq_used) {
+Status DBImpl::MultiBatchWriteImpl(const WriteOptions &write_options,
+                                   const autovector<WriteBatch *> &my_batch, WriteCallback *callback,
+                                   uint64_t *log_used, uint64_t log_ref,
+                                   uint64_t *seq_used) {
   StopWatch write_sw(env_, immutable_db_options_.statistics.get(), DB_WRITE);
-  WriteThread::Writer writer(write_options, updates, callback, log_ref);
+  WriteThread::Writer writer(write_options, my_batch, callback, log_ref);
   write_thread_.JoinBatchGroup(&writer);
 
   WriteContext write_context;
@@ -231,10 +234,12 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
         "multi_thread_writes is not compatible with unordered_write");
   }
 
-  if (immutable_db_options_.enable_multi_thread_write) {
+  if (immutable_db_options_.allow_concurrent_memtable_write &&
+      immutable_db_options_.enable_pipelined_write &&
+      immutable_db_options_.enable_multi_thread_write) {
     autovector<WriteBatch*> updates;
     updates.push_back(my_batch);
-    return MultiThreadWriteImpl(write_options, updates, callback, log_used, log_ref, seq_used);
+    return MultiBatchWriteImpl(write_options, updates, callback, log_used, log_ref, seq_used);
   }
 
   // Otherwise IsLatestPersistentState optimization does not make sense

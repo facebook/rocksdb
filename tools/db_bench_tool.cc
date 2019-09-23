@@ -4327,7 +4327,7 @@ class Benchmark {
         }
       }
       if (use_multi_write_) {
-        s = db_with_cfh->db->MultiThreadWrite(write_options_, batches.GetWriteBatch());
+        s = db_with_cfh->db->MultiBatchWrite(write_options_, batches.GetWriteBatch());
       } else if (!use_blob_db_) {
         s = db_with_cfh->db->Write(write_options_, &batch);
       }
