@@ -1211,8 +1211,8 @@ void BlockCacheTraceAnalyzer::WriteBlockReuseTimeline(
   TraverseBlocks(block_callback);
 
   // A cell is the number of blocks accessed in a reuse window.
-  const auto reuse_table =
-      std::make_unique<uint64_t[]>(reuse_vector_size * reuse_vector_size);
+  const std::unique_ptr<uint64_t[]> reuse_table(
+      new uint64_t[reuse_vector_size * reuse_vector_size]);
 
   for (uint64_t start_time = 0; start_time < reuse_vector_size; start_time++) {
     // Initialize the reuse_table.
