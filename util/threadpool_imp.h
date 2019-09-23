@@ -72,6 +72,7 @@ class ThreadPoolImpl : public ThreadPool {
   void Schedule(void (*function)(void* arg1), void* arg, void* tag,
                 void (*unschedFunction)(void* arg));
 
+  bool StealOneJobAndRun() override;
   // Filter jobs that are still in a queue and match
   // the given tag. Remove them from a queue if any
   // and for each such job execute an unschedule function

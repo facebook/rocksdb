@@ -123,6 +123,11 @@ DBOptions SanitizeOptions(const std::string& dbname, const DBOptions& src) {
     result.avoid_flush_during_recovery = false;
   }
 
+  // multi thread write do not support two-write-que or write in pipeline
+  if (result.two_write_queues) {
+    result.enable_multi_thread_write = false;
+  }
+
 #ifndef ROCKSDB_LITE
   ImmutableDBOptions immutable_db_options(result);
   if (!IsWalDirSameAsDBPath(&immutable_db_options)) {

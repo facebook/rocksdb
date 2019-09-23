@@ -384,6 +384,17 @@ class DB {
   // Note: consider setting options.sync = true.
   virtual Status Write(const WriteOptions& options, WriteBatch* updates) = 0;
 
+  virtual Status MultiThreadWrite(const WriteOptions& options, const std::vector<WriteBatch*> &updates) {
+    Status s;
+    for (auto w: updates) {
+      s = Write(options, w);
+      if (!s.ok()) {
+        break;
+      }
+    }
+    return s;
+  }
+
   // If the database contains an entry for "key" store the
   // corresponding value in *value and return OK.
   //

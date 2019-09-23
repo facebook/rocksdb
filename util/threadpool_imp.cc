@@ -69,6 +69,9 @@ struct ThreadPoolImpl::Impl {
   void Submit(std::function<void()>&& schedule,
     std::function<void()>&& unschedule, void* tag);
 
+
+  bool StealOneJobAndRun();
+
   int UnSchedule(void* arg);
 
   void SetHostEnv(Env* env) { env_ = env; }
@@ -388,6 +391,25 @@ void ThreadPoolImpl::Impl::Submit(std::function<void()>&& schedule,
   }
 }
 
+bool ThreadPoolImpl::Impl::StealOneJobAndRun() {
+  if (queue_len_.load(std::memory_order_relaxed) == 0) {
+    return false;
+  }
+  std::function<void()> func;
+  {
+    std::lock_guard<std::mutex> lock(mu_);
+    if (queue_.empty()) {
+      return false;
+    }
+    func = std::move(queue_.front().function);
+    queue_.pop_front();
+    queue_len_.store(static_cast<unsigned int>(queue_.size()),
+                     std::memory_order_relaxed);
+  }
+  func();
+  return true;
+}
+
 int ThreadPoolImpl::Impl::UnSchedule(void* arg) {
   int count = 0;
 
@@ -469,6 +491,10 @@ void ThreadPoolImpl::SubmitJob(const std::function<void()>& job) {
 
 void ThreadPoolImpl::SubmitJob(std::function<void()>&& job) {
   impl_->Submit(std::move(job), std::function<void()>(), nullptr);
+}
+
+bool ThreadPoolImpl::StealOneJobAndRun() {
+  return impl_->StealOneJobAndRun();
 }
 
 void ThreadPoolImpl::Schedule(void(*function)(void* arg1), void* arg,

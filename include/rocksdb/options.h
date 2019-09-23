@@ -935,6 +935,25 @@ struct DBOptions {
   // Default: false
   bool unordered_write = false;
 
+  // By default, a single write thread queue is maintained. The thread gets
+  // to the head of the queue becomes write batch group leader and responsible
+  // for writing to WAL.
+  //
+  // If enable_multi_thread_write is true, there would be one thread pool
+  // sharing task with write thread. Every task would write one WriteBatch into
+  // memtable. And write thread could take tasks from write pool, when it is waiting
+  // to be waked. Enabling the feature may improve write throughput when you need not
+  // sync WAL, and spend too much time on inserting into memtable. You should use
+  // the interface MultiThreadWrite, and break your batch into smaller one.
+  //
+  // Default: false
+  bool enable_multi_thread_write = false;
+
+  // The size of write pool for multi-thread-write.
+  //
+  // Default: 4
+  int write_thread_pool_size = 4;
+
   // If true, allow multi-writers to update mem tables in parallel.
   // Only some memtable_factory-s support concurrent writes; currently it
   // is implemented only for SkipListFactory.  Concurrent memtable writes

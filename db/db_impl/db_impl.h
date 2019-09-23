@@ -159,6 +159,9 @@ class DBImpl : public DB {
   virtual Status Write(const WriteOptions& options,
                        WriteBatch* updates) override;
 
+  using DB::MultiThreadWrite;
+  virtual Status MultiThreadWrite(const WriteOptions& options, const std::vector<WriteBatch*> &updates) override;
+
   using DB::Get;
   virtual Status Get(const ReadOptions& options,
                      ColumnFamilyHandle* column_family, const Slice& key,
@@ -1055,6 +1058,11 @@ class DBImpl : public DB {
                    size_t batch_cnt = 0,
                    PreReleaseCallback* pre_release_callback = nullptr);
 
+  Status MultiThreadWriteImpl(const WriteOptions& write_options,
+                         const autovector<WriteBatch*>& my_batch, WriteCallback* callback,
+                         uint64_t* log_used = nullptr, uint64_t log_ref = 0,
+                         uint64_t* seq_used = nullptr);
+
   Status PipelinedWriteImpl(const WriteOptions& options, WriteBatch* updates,
                             WriteCallback* callback = nullptr,
                             uint64_t* log_used = nullptr, uint64_t log_ref = 0,
@@ -1617,6 +1625,8 @@ class DBImpl : public DB {
 
   Status CreateWAL(uint64_t log_file_num, uint64_t recycle_log_number,
                    size_t preallocate_block_size, log::Writer** new_log);
+  void LeaderWrite(const WriteOptions &write_options, WriteThread::Writer *writer,
+                   uint64_t *log_used);
 
   // Validate self-consistency of DB options
   static Status ValidateOptions(const DBOptions& db_options);
@@ -1727,6 +1737,7 @@ class DBImpl : public DB {
 
   WriteBufferManager* write_buffer_manager_;
 
+  std::shared_ptr<ThreadPool> write_pool_;
   WriteThread write_thread_;
   WriteBatch tmp_batch_;
   // The write thread when the writers have no memtable write. This will be used

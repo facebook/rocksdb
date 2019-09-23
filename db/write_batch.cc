@@ -738,6 +738,14 @@ uint32_t WriteBatchInternal::Count(const WriteBatch* b) {
   return DecodeFixed32(b->rep_.data() + 8);
 }
 
+uint32_t WriteBatchInternal::Count(const autovector<WriteBatch*> b) {
+  uint32_t count = 0;
+  for (auto w: b) {
+    count += DecodeFixed32(w->rep_.data() + 8);
+  }
+  return count;
+}
+
 void WriteBatchInternal::SetCount(WriteBatch* b, uint32_t n) {
   EncodeFixed32(&b->rep_[8], n);
 }
@@ -2008,6 +2016,31 @@ Status WriteBatchInternal::InsertInto(
     inserter.PostProcess();
   }
   return s;
+}
+
+void WriteBatchInternal::AsyncInsertInto(WriteThread::Writer* writer, SequenceNumber sequence,
+        ColumnFamilySet* version_set, FlushScheduler* flush_scheduler, TrimHistoryScheduler* trim_history_scheduler,
+        bool ignore_missing_column_families, DB* db, bool hint_per_batch, ThreadPool* pool) {
+  auto write_group = writer->write_group;
+  write_group->running.fetch_add(writer->batches.size(), std::memory_order_acquire);
+  for (auto w : writer->batches) {
+    pool->SubmitJob([=]() {
+        ColumnFamilyMemTablesImpl memtables(version_set);
+        MemTableInserter inserter(
+                sequence, &memtables, flush_scheduler, trim_history_scheduler, ignore_missing_column_families,
+                0, db, true, nullptr /*has_valid_writes*/, false, true, hint_per_batch);
+        inserter.set_log_number_ref(writer->log_ref);
+        SetSequence(w, sequence);
+        Status s = w->Iterate(&inserter);
+        if (!s.ok()) {
+          std::lock_guard<std::mutex> guard(write_group->leader->StateMutex());
+          write_group->status = s;
+        }
+        inserter.PostProcess();
+        write_group->running.fetch_sub(1, std::memory_order_release);
+    });
+    sequence += WriteBatchInternal::Count(w);
+  }
 }
 
 Status WriteBatchInternal::InsertInto(

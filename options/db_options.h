@@ -62,6 +62,7 @@ struct ImmutableDBOptions {
   bool enable_thread_tracking;
   bool enable_pipelined_write;
   bool unordered_write;
+  bool enable_multi_thread_write;
   bool allow_concurrent_memtable_write;
   bool enable_write_thread_adaptive_yield;
   uint64_t write_thread_max_yield_usec;
@@ -110,6 +111,7 @@ struct MutableDBOptions {
   uint64_t wal_bytes_per_sync;
   bool strict_bytes_per_sync;
   size_t compaction_readahead_size;
+  int write_thread_pool_size;
 };
 
 }  // namespace rocksdb

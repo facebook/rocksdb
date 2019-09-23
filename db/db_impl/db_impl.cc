@@ -250,6 +250,10 @@ DBImpl::DBImpl(const DBOptions& options, const std::string& dbname,
   versions_.reset(new VersionSet(dbname_, &immutable_db_options_, env_options_,
                                  table_cache_.get(), write_buffer_manager_,
                                  &write_controller_, &block_cache_tracer_));
+  if (immutable_db_options_.enable_multi_thread_write) {
+    write_pool_.reset(NewThreadPool(mutable_db_options_.write_thread_pool_size));
+    write_thread_.SetWritePool(write_pool_);
+  }
   column_family_memtables_.reset(
       new ColumnFamilyMemTablesImpl(versions_->GetColumnFamilySet()));
 
@@ -446,6 +450,10 @@ Status DBImpl::CloseHelper() {
   mutex_.Lock();
   shutdown_initiated_ = true;
   error_handler_.CancelErrorRecovery();
+  if (write_pool_) {
+    write_pool_->WaitForJobsAndJoinAllThreads();
+    write_pool_.reset();
+  }
   while (error_handler_.IsRecoveryInProgress()) {
     bg_cv_.Wait();
   }
