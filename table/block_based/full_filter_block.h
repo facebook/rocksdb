@@ -59,13 +59,14 @@ class FullFilterBlockBuilder : public FilterBlockBuilder {
   virtual void AddKey(const Slice& key);
   std::unique_ptr<FilterBitsBuilder> filter_bits_builder_;
   virtual void Reset();
-  const SliceTransform* prefix_extractor_;
   void AddPrefix(const Slice& key);
+  const SliceTransform* prefix_extractor() { return prefix_extractor_; }
 
  private:
   // important: all of these might point to invalid addresses
   // at the time of destruction of this filter block. destructor
   // should NOT dereference them.
+  const SliceTransform* prefix_extractor_;
   bool whole_key_filtering_;
   bool last_whole_key_recorded_;
   std::string last_whole_key_str_;

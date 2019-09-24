@@ -57,7 +57,7 @@ void PartitionedFilterBlockBuilder::MaybeCutAFilterBlock(
   // fixes a bug with format_verison=3 where seeking for the prefix would lead
   // us to the previous partition.
   const bool add_prefix =
-      next_key && prefix_extractor_ && prefix_extractor_->InDomain(*next_key);
+      next_key && prefix_extractor() && prefix_extractor()->InDomain(*next_key);
   if (add_prefix) {
     FullFilterBlockBuilder::AddPrefix(*next_key);
   }
