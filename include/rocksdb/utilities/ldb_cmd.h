@@ -255,6 +255,8 @@ class LDBCommand {
    * Otherwise an exception is thrown.
    */
   bool StringToBool(std::string val);
+
+  std::shared_ptr<Env> env_guard_;
 };
 
 class LDBCommandRunner {

@@ -20,6 +20,7 @@
 #include "rocksdb/utilities/backupable_db.h"
 #include "rocksdb/utilities/checkpoint.h"
 #include "rocksdb/utilities/debug.h"
+#include "rocksdb/utilities/object_registry.h"
 #include "rocksdb/utilities/options_util.h"
 #include "rocksdb/write_batch.h"
 #include "rocksdb/write_buffer_manager.h"
@@ -340,8 +341,20 @@ LDBCommand::LDBCommand(const std::map<std::string, std::string>& options,
 }
 
 void LDBCommand::OpenDB() {
+  if (!options_.env || options_.env == Env::Default()) {
+    Status status =
+        ObjectRegistry::NewInstance()->NewSharedObject(db_path_, &env_guard_);
+    if (!status.ok() && !status.IsNotFound()) {
+      fprintf(stderr, "Failed to create custom env\n");
+      return;
+    } else if (status.IsNotFound()) {
+      options_.env = Env::Default();
+    } else {
+      options_.env = env_guard_.get();
+    }
+  }
   if (!create_if_missing_ && try_load_options_) {
-    Status s = LoadLatestOptions(db_path_, Env::Default(), &options_,
+    Status s = LoadLatestOptions(db_path_, options_.env, &options_,
                                  &column_families_, ignore_unknown_options_);
     if (!s.ok() && !s.IsNotFound()) {
       // Option file exists but load option file error.
@@ -2863,7 +2876,7 @@ void BackupCommand::DoCommand() {
       BackupableDBOptions(backup_dir_, custom_env);
   backup_options.info_log = logger_.get();
   backup_options.max_background_operations = num_threads_;
-  status = BackupEngine::Open(Env::Default(), backup_options, &backup_engine);
+  status = BackupEngine::Open(options_.env, backup_options, &backup_engine);
   if (status.ok()) {
     printf("open backup engine OK\n");
   } else {
@@ -2902,8 +2915,8 @@ void RestoreCommand::DoCommand() {
     opts.info_log = logger_.get();
     opts.max_background_operations = num_threads_;
     BackupEngineReadOnly* raw_restore_engine_ptr;
-    status = BackupEngineReadOnly::Open(Env::Default(), opts,
-                                        &raw_restore_engine_ptr);
+    status =
+        BackupEngineReadOnly::Open(options_.env, opts, &raw_restore_engine_ptr);
     if (status.ok()) {
       restore_engine.reset(raw_restore_engine_ptr);
     }
