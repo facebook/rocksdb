@@ -2612,9 +2612,8 @@ class StressTest {
     }
     if (*diverged) {
       thread->stats.AddErrors(1);
-      thread->shared->SetVerificationFailure();
       // Fail fast to preserve the DB state.
-      exit(1);
+      thread->shared->SetVerificationFailure();
     }
   }
 
@@ -4566,7 +4565,7 @@ int main(int argc, char** argv) {
   FLAGS_env->SetBackgroundThreads(FLAGS_max_background_compactions);
   FLAGS_env->SetBackgroundThreads(FLAGS_num_bottom_pri_threads,
                                   rocksdb::Env::Priority::BOTTOM);
-  if (FLAGS_prefixpercent > 0 && FLAGS_prefix_size <= 0) {
+  if (FLAGS_prefixpercent > 0 && FLAGS_prefix_size < 0) {
     fprintf(stderr,
             "Error: prefixpercent is non-zero while prefix_size is "
             "not positive!\n");
@@ -4578,7 +4577,7 @@ int main(int argc, char** argv) {
             "test_batches_snapshots test!\n");
     exit(1);
   }
-  if (FLAGS_memtable_prefix_bloom_size_ratio > 0.0 && FLAGS_prefix_size <= 0) {
+  if (FLAGS_memtable_prefix_bloom_size_ratio > 0.0 && FLAGS_prefix_size < 0) {
     fprintf(stderr,
             "Error: please specify positive prefix_size in order to use "
             "memtable_prefix_bloom_size_ratio\n");
