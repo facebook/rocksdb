@@ -218,11 +218,10 @@ class MemTable {
            MergeContext* merge_context,
            SequenceNumber* max_covering_tombstone_seq,
            const ReadOptions& read_opts, ReadCallback* callback = nullptr,
-           bool* is_blob_index = nullptr, bool do_merge = true,
-           bool skip_filter_check = false) {
+           bool* is_blob_index = nullptr, bool do_merge = true) {
     SequenceNumber seq;
     return Get(key, value, s, merge_context, max_covering_tombstone_seq, &seq,
-               read_opts, callback, is_blob_index, do_merge, skip_filter_check);
+               read_opts, callback, is_blob_index, do_merge);
   }
 
   void MultiGet(const ReadOptions& read_options, MultiGetRange* range,
@@ -531,11 +530,11 @@ class MemTable {
   void UpdateOldestKeyTime();
 
   void GetFromTable(const LookupKey& key, std::string* value, Status* s,
-          MergeContext* merge_context,
-          SequenceNumber* max_covering_tombstone_seq,
-          SequenceNumber* seq, const ReadOptions& read_opts,
-          ReadCallback* callback, bool* is_blob_index, bool do_merge,
-          bool* found_final_value, bool* merge_in_progress);
+                    MergeContext* merge_context,
+                    SequenceNumber* max_covering_tombstone_seq,
+                    SequenceNumber* seq, ReadCallback* callback,
+                    bool* is_blob_index, bool do_merge, bool* found_final_value,
+                    bool* merge_in_progress);
 };
 
 extern const char* EncodeKey(std::string* scratch, const Slice& target);
