@@ -2537,6 +2537,7 @@ class StressTest {
     if (*diverged) {
       return;
     }
+
     if (iter->Valid() && !cmp_iter->Valid()) {
       fprintf(stderr,
               "Control interator is invalid but iterator has value %s seek key "
@@ -2545,50 +2546,75 @@ class StressTest {
               seek_key.ToString(true).c_str());
 
       *diverged = true;
-    } else if (cmp_iter->Valid() &&
-               (!iter->Valid() || iter->key() != cmp_iter->key())) {
+    } else if (cmp_iter->Valid()) {
       // Iterator is not valid. It can be legimate if it has already been
       // out of upper or lower bound, or filtered out by prefix iterator.
       const Slice& total_order_key = cmp_iter->key();
       const SliceTransform* pe = options_.prefix_extractor.get();
       const Comparator* cmp = options_.comparator;
 
-      if ((ro.iterate_upper_bound == nullptr ||
-           cmp->Compare(total_order_key, *ro.iterate_upper_bound) < 0) &&
-          (ro.iterate_lower_bound == nullptr ||
-           cmp->Compare(total_order_key, *ro.iterate_lower_bound) > 0) &&
-          (pe == nullptr || !pe->InDomain(total_order_key) ||
-           !pe->InDomain(seek_key) ||
-           pe->Transform(seek_key) == pe->Transform(total_order_key))) {
-        fprintf(stderr,
-                "Iterator diverged from control iterator which"
-                " has value %s seek key %s\n",
-                total_order_key.ToString(true).c_str(),
-                seek_key.ToString(true).c_str());
-        if (iter->Valid()) {
-          fprintf(stderr, "iterator has value %s\n",
-                  iter->key().ToString(true).c_str());
-        } else {
-          fprintf(stderr, "iterator is not valid\n");
+      if (pe != nullptr) {
+        if (!pe->InDomain(seek_key)) {
+          // Prefix seek a non-in-domain key is undefined. Skip checking for
+          // this scenario.
+          *diverged = true;
+          return;
         }
-        if (ro.iterate_upper_bound != nullptr) {
-          fprintf(stderr, "upper bound %s\n",
-                  ro.iterate_upper_bound->ToString(true).c_str());
+
+        if (!pe->InDomain(total_order_key) ||
+            pe->Transform(total_order_key) != pe->Transform(seek_key)) {
+          // If the prefix is exhausted, the only thing needs to check
+          // is the iterator isn't return a position in prefix.
+          // Either way, checking can stop from here.
+          *diverged = true;
+          if (!iter->Valid() || !pe->InDomain(iter->key()) ||
+              pe->Transform(iter->key()) != pe->Transform(seek_key)) {
+            return;
+          }
+          fprintf(stderr,
+                  "Iterator stays in prefix bug contol doesn't"
+                  " seek key %s iterator key %s control iterator key %s\n",
+                  seek_key.ToString(true).c_str(),
+                  iter->key().ToString(true).c_str(),
+                  cmp_iter->key().ToString(true).c_str());
         }
-        if (ro.iterate_lower_bound != nullptr) {
-          fprintf(stderr, "lower bound %s\n",
-                  ro.iterate_lower_bound->ToString(true).c_str());
+      }
+      // Check upper or lower bounds.
+      if (!*diverged) {
+        if (!iter->Valid() ||
+            (iter->key() != cmp_iter->key() &&
+             (ro.iterate_upper_bound == nullptr ||
+              cmp->Compare(total_order_key, *ro.iterate_upper_bound) < 0) &&
+             (ro.iterate_lower_bound == nullptr ||
+              cmp->Compare(total_order_key, *ro.iterate_lower_bound) > 0))) {
+          fprintf(stderr,
+                  "Iterator diverged from control iterator which"
+                  " has value %s seek key %s\n",
+                  total_order_key.ToString(true).c_str(),
+                  seek_key.ToString(true).c_str());
+          if (iter->Valid()) {
+            fprintf(stderr, "iterator has value %s\n",
+                    iter->key().ToString(true).c_str());
+          } else {
+            fprintf(stderr, "iterator is not valid\n");
+          }
+          if (ro.iterate_upper_bound != nullptr) {
+            fprintf(stderr, "upper bound %s\n",
+                    ro.iterate_upper_bound->ToString(true).c_str());
+          }
+          if (ro.iterate_lower_bound != nullptr) {
+            fprintf(stderr, "lower bound %s\n",
+                    ro.iterate_lower_bound->ToString(true).c_str());
+          }
+          *diverged = true;
         }
-        if (pe != nullptr) {
-          fprintf(stderr, "prefix extractor: %s\n", pe->Name());
-        }
-        *diverged = true;
       }
     }
     if (*diverged) {
       thread->stats.AddErrors(1);
-      // Fail fast to preserve the DB state.
       thread->shared->SetVerificationFailure();
+      // Fail fast to preserve the DB state.
+      exit(1);
     }
   }
 
@@ -3929,8 +3955,8 @@ class BatchedOpsStressTest : public StressTest {
         fprintf(stderr, "error : inconsistent values for key %s: %s, %s\n",
                 key.ToString(true).c_str(), StringToHex(values[0]).c_str(),
                 StringToHex(values[i]).c_str());
-      // we continue after error rather than exiting so that we can
-      // find more errors if any
+        // we continue after error rather than OAexiting so that we can
+        // find more errors if any
       }
     }
 
