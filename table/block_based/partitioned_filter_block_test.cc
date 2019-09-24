@@ -351,15 +351,16 @@ TEST_P(PartitionedFilterBlockTest, SamePrefixInMultipleBlocks) {
 TEST_P(PartitionedFilterBlockTest, PrefixInWrongPartitionBug) {
   // some small number to cause partition cuts
   table_options_.metadata_block_size = 1;
-  std::unique_ptr<const SliceTransform> prefix_extractor
-      (rocksdb::NewFixedPrefixTransform(2));
+  std::unique_ptr<const SliceTransform> prefix_extractor(
+      rocksdb::NewFixedPrefixTransform(2));
   std::unique_ptr<PartitionedIndexBuilder> pib(NewIndexBuilder());
   std::unique_ptr<PartitionedFilterBlockBuilder> builder(
       NewBuilder(pib.get(), prefix_extractor.get()));
   // In the bug, searching for prefix "p3" on an index with format version 3,
   // will give the key "p3" and the partition of the keys that are <= p3, i.e.,
   // p2-keys, where the filter for prefix "p3" does not exist.
-  const std::string pkeys[] = {"p1-key1", "p2-key2", "p3-key3", "p4-key3", "p5-key3"};
+  const std::string pkeys[] = {"p1-key1", "p2-key2", "p3-key3", "p4-key3",
+                               "p5-key3"};
   builder->Add(pkeys[0]);
   CutABlock(pib.get(), pkeys[0], pkeys[1]);
   builder->Add(pkeys[1]);
@@ -373,7 +374,7 @@ TEST_P(PartitionedFilterBlockTest, PrefixInWrongPartitionBug) {
   std::unique_ptr<PartitionedFilterBlockReader> reader(
       NewReader(builder.get(), pib.get()));
   for (auto key : pkeys) {
-    auto prefix =prefix_extractor->Transform(key) ;
+    auto prefix = prefix_extractor->Transform(key);
     auto ikey = InternalKey(prefix, 0, ValueType::kTypeValue);
     const Slice ikey_slice = Slice(*ikey.rep());
     ASSERT_TRUE(reader->PrefixMayMatch(

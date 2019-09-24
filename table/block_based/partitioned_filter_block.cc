@@ -40,7 +40,8 @@ PartitionedFilterBlockBuilder::PartitionedFilterBlockBuilder(
 
 PartitionedFilterBlockBuilder::~PartitionedFilterBlockBuilder() {}
 
-void PartitionedFilterBlockBuilder::MaybeCutAFilterBlock(const Slice* next_key) {
+void PartitionedFilterBlockBuilder::MaybeCutAFilterBlock(
+    const Slice* next_key) {
   // Use == to send the request only once
   if (filters_in_partition_ == filters_per_partition_) {
     // Currently only index builder is in charge of cutting a partition. We keep
