@@ -641,12 +641,6 @@ static bool SaveValue(void* arg, const char* entry) {
   uint32_t key_length;
   const char* key_ptr = GetVarint32Ptr(entry, entry + 5, &key_length);
   Slice user_key_slice = Slice(key_ptr, key_length - 8);
-  //  std::cout << user_key_slice.ToString(false) <<"=="<<
-  //  s->key->user_key().ToString(false) << "\n"; std::cout <<
-  //  s->mem->GetInternalKeyComparator()
-  //                  .user_comparator()
-  //                  ->CompareWithoutTimestamp(user_key_slice,
-  //                  s->key->user_key()) << "\n";
   if (s->mem->GetInternalKeyComparator()
           .user_comparator()
           ->CompareWithoutTimestamp(user_key_slice, s->key->user_key()) == 0) {
