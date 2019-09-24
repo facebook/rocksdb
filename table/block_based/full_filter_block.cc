@@ -57,7 +57,7 @@ inline void FullFilterBlockBuilder::AddKey(const Slice& key) {
 }
 
 // Add prefix to filter if needed
-inline void FullFilterBlockBuilder::AddPrefix(const Slice& key) {
+void FullFilterBlockBuilder::AddPrefix(const Slice& key) {
   Slice prefix = prefix_extractor_->Transform(key);
   if (whole_key_filtering_) {
     // if both whole_key and prefix are added to bloom then we will have whole
