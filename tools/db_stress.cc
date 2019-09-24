@@ -700,8 +700,9 @@ static bool ValidatePrefixSize(const char* flagname, int32_t value) {
   }
   return true;
 }
-DEFINE_int32(prefix_size, 7, "Control the prefix size for HashSkipListRep. "
-                             "-1 is disabled.");
+DEFINE_int32(prefix_size, 7,
+             "Control the prefix size for HashSkipListRep. "
+             "-1 is disabled.");
 static const bool FLAGS_prefix_size_dummy __attribute__((__unused__)) =
     RegisterFlagValidator(&FLAGS_prefix_size, &ValidatePrefixSize);
 
@@ -2537,7 +2538,12 @@ class StressTest {
       return;
     }
     if (iter->Valid() && !cmp_iter->Valid()) {
-      fprintf(stderr, "Iterator is valid but controlled one is empty\n");
+      fprintf(stderr,
+              "Control interator is invalid but iterator has value %s seek key "
+              "%s\n",
+              iter->key().ToString(true).c_str(),
+              seek_key.ToString(true).c_str());
+
       *diverged = true;
     } else if (cmp_iter->Valid() &&
                (!iter->Valid() || iter->key() != cmp_iter->key())) {
