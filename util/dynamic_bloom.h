@@ -7,9 +7,9 @@
 
 #include <string>
 
+#include "port/port.h"
 #include "rocksdb/slice.h"
 #include "table/multiget_context.h"
-#include "port/port.h"
 #include "util/hash.h"
 
 #include <atomic>
@@ -120,19 +120,20 @@ inline bool DynamicBloom::MayContain(const Slice& key) const {
   return (MayContainHash(BloomHash(key)));
 }
 
-inline void DynamicBloom::MayContain(int num_keys, Slice** keys, bool* may_match) const {
-    uint32_t hashes[MultiGetContext::MAX_BATCH_SIZE];
-    size_t byte_offsets[MultiGetContext::MAX_BATCH_SIZE];
-    for (int i = 0; i < num_keys; ++i) {
-      hashes[i] = BloomHash(*keys[i]);
-      size_t a = fastrange32(kLen, hashes[i]);
-      PREFETCH(data_ + a, 0, 3);
-      byte_offsets[i] = a;
-    }
+inline void DynamicBloom::MayContain(int num_keys, Slice** keys,
+                                     bool* may_match) const {
+  uint32_t hashes[MultiGetContext::MAX_BATCH_SIZE];
+  size_t byte_offsets[MultiGetContext::MAX_BATCH_SIZE];
+  for (int i = 0; i < num_keys; ++i) {
+    hashes[i] = BloomHash(*keys[i]);
+    size_t a = fastrange32(kLen, hashes[i]);
+    PREFETCH(data_ + a, 0, 3);
+    byte_offsets[i] = a;
+  }
 
-    for (int i = 0; i < num_keys; i++){
-        may_match[i] = DoubleProbe(hashes[i], byte_offsets[i]);
-    }
+  for (int i = 0; i < num_keys; i++) {
+    may_match[i] = DoubleProbe(hashes[i], byte_offsets[i]);
+  }
 }
 
 #if defined(_MSC_VER)
@@ -172,38 +173,24 @@ inline void DynamicBloom::Prefetch(uint32_t h32) {
 inline bool DynamicBloom::MayContainHash(uint32_t h32) const {
   size_t a = fastrange32(kLen, h32);
   PREFETCH(data_ + a, 0, 3);
+  return DoubleProbe(h32, a);
+}
+
+inline bool DynamicBloom::DoubleProbe(uint32_t h32, size_t byte_offset) const {
   // Expand/remix with 64-bit golden ratio
-<<<<<<< HEAD
   uint64_t h = 0x9e3779b97f4a7c13ULL * h32;
   for (unsigned i = 0;; ++i) {
     // Two bit probes per uint64_t probe
     uint64_t mask =
         ((uint64_t)1 << (h & 63)) | ((uint64_t)1 << ((h >> 6) & 63));
-    uint64_t val = data_[a ^ i].load(std::memory_order_relaxed);
+    uint64_t val = data_[byte_offset ^ i].load(std::memory_order_relaxed);
     if (i + 1 >= kNumDoubleProbes) {
       return (val & mask) == mask;
     } else if ((val & mask) != mask) {
       return false;
-=======
-  return DoubleProbe(h32, a);
-}
-
-inline bool DynamicBloom::DoubleProbe(uint32_t h32, size_t byte_offset) const {
-    // Expand/remix with 64-bit golden ratio
-    uint64_t h = 0x9e3779b97f4a7c13ULL * h32;
-    for (unsigned i = 0;; ++i) {
-      // Two bit probes per uint64_t probe
-      uint64_t mask = ((uint64_t)1 << (h & 63))
-                    | ((uint64_t)1 << ((h >> 6) & 63));
-      uint64_t val = data_[byte_offset ^ i].load(std::memory_order_relaxed);
-      if (i + 1 >= kNumDoubleProbes) {
-        return (val & mask) == mask;
-      } else if ((val & mask) != mask) {
-        return false;
-      }
-      h = (h >> 12) | (h << 52);
->>>>>>> prefetch in loop and pushdown all keys for bloom-filter lookup
     }
+    h = (h >> 12) | (h << 52);
+  }
 }
 
 template <typename OrFunc>
