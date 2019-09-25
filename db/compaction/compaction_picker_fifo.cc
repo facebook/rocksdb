@@ -104,11 +104,11 @@ Compaction* FIFOCompactionPicker::PickTTLCompaction(
   }
 
   const struct DbPathSupplierContext db_path_supplier_ctx {
-      .call_site                           = kDbPathSupplierFactoryCallSiteFromAutoCompaction,
-      .ioptions                            = ioptions_,
-      .moptions                            = mutable_cf_options,
-      .estimated_file_size                 = 0,
-      .manual_compaction_specified_path_id = 0
+      kDbPathSupplierFactoryCallSiteFromAutoCompaction, // call_site
+      ioptions_, // ioptions
+      mutable_cf_options, // moptions
+      0, // estimated_file_size
+      0 // manual_compaction_specified_path_id
   };
 
   Compaction* c = new Compaction(
@@ -154,11 +154,11 @@ Compaction* FIFOCompactionPicker::PickSizeCompaction(
               mutable_cf_options.max_compaction_bytes, &comp_inputs)) {
 
         const struct DbPathSupplierContext db_path_supplier_ctx {
-            .call_site                           = kDbPathSupplierFactoryCallSiteFromAutoCompaction,
-            .ioptions                            = ioptions_,
-            .moptions                            = mutable_cf_options,
-            .estimated_file_size                 = 0,
-            .manual_compaction_specified_path_id = 0
+            kDbPathSupplierFactoryCallSiteFromAutoCompaction, // call_site
+            ioptions_, // ioptions
+            mutable_cf_options, // moptions
+            0, // estimated_file_size
+            0 // manual_compaction_specified_path_id
         };
 
         Compaction* c = new Compaction(
@@ -215,11 +215,11 @@ Compaction* FIFOCompactionPicker::PickSizeCompaction(
   }
 
   const struct DbPathSupplierContext db_path_supplier_ctx {
-      .call_site                           = kDbPathSupplierFactoryCallSiteFromAutoCompaction,
-      .ioptions                            = ioptions_,
-      .moptions                            = mutable_cf_options,
-      .estimated_file_size                 = 0,
-      .manual_compaction_specified_path_id = 0
+      kDbPathSupplierFactoryCallSiteFromAutoCompaction, // call_site
+      ioptions_, // ioptions
+      mutable_cf_options, // moptions
+      0, // estimated_file_size
+      0 // manual_compaction_specified_path_id
   };
 
   Compaction* c = new Compaction(

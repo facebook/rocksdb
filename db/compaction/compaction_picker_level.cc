@@ -368,11 +368,11 @@ Compaction* LevelCompactionBuilder::PickCompaction() {
 
 Compaction* LevelCompactionBuilder::GetCompaction() {
   const struct DbPathSupplierContext db_path_supplier_ctx {
-    .call_site                           = kDbPathSupplierFactoryCallSiteFromAutoCompaction,
-    .ioptions                            = ioptions_,
-    .moptions                            = mutable_cf_options_,
-    .estimated_file_size                 = 0,
-    .manual_compaction_specified_path_id = 0
+    kDbPathSupplierFactoryCallSiteFromAutoCompaction, // call_site
+    ioptions_, // ioptions
+    mutable_cf_options_, // moptions
+    0, // estimated_file_size
+    0 // manual_compaction_specified_path_id
   };
 
   auto c = new Compaction(

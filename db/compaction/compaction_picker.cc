@@ -608,12 +608,11 @@ Compaction* CompactionPicker::CompactRange(
     }
 
     const struct DbPathSupplierContext dps_ctx {
-      .call_site                           =
-                              kDbPathSupplierFactoryCallSiteFromManualCompaction,
-      .ioptions                            = ioptions_,
-      .moptions                            = mutable_cf_options,
-      .estimated_file_size                 = 0,
-      .manual_compaction_specified_path_id = compact_range_options.target_path_id
+      kDbPathSupplierFactoryCallSiteFromManualCompaction, // call_site
+      ioptions_, // ioptions
+      mutable_cf_options, // moptions
+      0, // estimated_file_size
+      compact_range_options.target_path_id // manual_compaction_specified_path_id
     };
 
     Compaction* c = new Compaction(
@@ -771,12 +770,11 @@ Compaction* CompactionPicker::CompactRange(
   GetGrandparents(vstorage, inputs, output_level_inputs, &grandparents);
 
   const struct DbPathSupplierContext dps_ctx {
-      .call_site                           =
-      kDbPathSupplierFactoryCallSiteFromManualCompaction,
-      .ioptions                            = ioptions_,
-      .moptions                            = mutable_cf_options,
-      .estimated_file_size                 = 0,
-      .manual_compaction_specified_path_id = compact_range_options.target_path_id
+      kDbPathSupplierFactoryCallSiteFromManualCompaction, // call_site
+      ioptions_, // ioptions
+      mutable_cf_options, // moptions
+      0, // estimated_file_size
+      compact_range_options.target_path_id // manual_compaction_specified_path_id
   };
 
   Compaction* compaction = new Compaction(

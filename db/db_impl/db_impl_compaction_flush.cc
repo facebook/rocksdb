@@ -149,12 +149,11 @@ Status DBImpl::FlushMemTableToOutputFile(
   const ImmutableCFOptions& ioptions = *cfd->ioptions();
 
   const struct DbPathSupplierContext db_path_supplier_ctx {
-      .call_site                           =
-          kDbPathSupplierFactoryCallSiteFromFlush,
-      .ioptions                            = ioptions,
-      .moptions                            = mutable_cf_options,
-      .estimated_file_size                 = 0,
-      .manual_compaction_specified_path_id = 0
+      kDbPathSupplierFactoryCallSiteFromFlush, // call_site
+      ioptions, // ioptions
+      mutable_cf_options, // moptions
+      0, // estimated_file_size
+      0 // manual_compaction_specified_path_id
   };
 
   FlushJob flush_job(
