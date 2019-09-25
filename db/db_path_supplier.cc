@@ -175,8 +175,9 @@ std::unique_ptr<DbPathSupplier> DbPathSupplierFactory::CreateDbPathSupplier(
     return std::unique_ptr<DbPathSupplier>(new FixedDbPathSupplier(ctx.ioptions, 0));
 }
 
-Status DbPathSupplierFactory::CfPathsSanityCheck(const rocksdb::ColumnFamilyOptions& cf_options,
-                                                 const rocksdb::DBOptions& db_options) {
+Status DbPathSupplierFactory::CfPathsSanityCheck(
+    const rocksdb::ColumnFamilyOptions& /* cf_options */,
+    const rocksdb::DBOptions& /* db_options */) {
   return Status::OK();
 }
 
@@ -267,8 +268,9 @@ std::unique_ptr<DbPathSupplier> RandomDbPathSupplierFactory::CreateDbPathSupplie
   return ret;
 }
 
-Status RandomDbPathSupplierFactory::CfPathsSanityCheck(const rocksdb::ColumnFamilyOptions &cf_options,
-                                                       const rocksdb::DBOptions &db_options) {
+Status RandomDbPathSupplierFactory::CfPathsSanityCheck(
+    const rocksdb::ColumnFamilyOptions& /* cf_options */,
+    const rocksdb::DBOptions& /* db_options */) {
   return Status::OK();
 }
 
