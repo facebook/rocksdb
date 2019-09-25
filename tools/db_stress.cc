@@ -2354,7 +2354,6 @@ class StressTest {
             std::min(static_cast<uint64_t>(thread->rand.Uniform(4)),
                      FLAGS_ops_per_thread - i - 1));
         rand_keys = GenerateNKeys(thread, num_seeks, i);
-        TestMultiGet(thread, read_opts, rand_column_families, rand_keys);
         i += num_seeks - 1;
         TestIterate(thread, read_opts, rand_column_families, rand_keys);
       }
