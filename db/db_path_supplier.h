@@ -171,7 +171,13 @@ class GradualMoveOldDataDbPathSupplierFactory: public DbPathSupplierFactory {
 
   Status CfPathsSanityCheck(
       const ColumnFamilyOptions& cf_options,
-      const DBOptions& db_options) override;
+      const DBOptions& db_options) override {
+    return CfPathsSanityCheckStatic(cf_options, db_options);
+  }
+
+  static Status CfPathsSanityCheckStatic(
+      const ColumnFamilyOptions& cf_options,
+      const DBOptions& db_options);
 
   const char* Name() override {
     return "GradualMoveOldDataDbPathSupplierFactory";

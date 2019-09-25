@@ -607,6 +607,15 @@ Compaction* CompactionPicker::CompactRange(
       return nullptr;
     }
 
+    const struct DbPathSupplierContext dps_ctx {
+      .call_site                           =
+                              kDbPathSupplierFactoryCallSiteFromManualCompaction,
+      .ioptions                            = ioptions_,
+      .moptions                            = mutable_cf_options,
+      .estimated_file_size                 = 0,
+      .manual_compaction_specified_path_id = compact_range_options.target_path_id
+    };
+
     Compaction* c = new Compaction(
         vstorage, ioptions_, mutable_cf_options, std::move(inputs),
         output_level,
@@ -618,8 +627,7 @@ Compaction* CompactionPicker::CompactRange(
         GetCompressionOptions(ioptions_, vstorage, output_level),
         compact_range_options.max_subcompactions,
         /* grandparents */ {},
-        std::unique_ptr<DbPathSupplier>(
-          new FixedDbPathSupplier(ioptions_, compact_range_options.target_path_id)),
+        ioptions_.db_path_supplier_factory->CreateDbPathSupplier(dps_ctx),
         /* is manual */ true);
     RegisterCompaction(c);
     return c;
@@ -761,6 +769,16 @@ Compaction* CompactionPicker::CompactRange(
 
   std::vector<FileMetaData*> grandparents;
   GetGrandparents(vstorage, inputs, output_level_inputs, &grandparents);
+
+  const struct DbPathSupplierContext dps_ctx {
+      .call_site                           =
+      kDbPathSupplierFactoryCallSiteFromManualCompaction,
+      .ioptions                            = ioptions_,
+      .moptions                            = mutable_cf_options,
+      .estimated_file_size                 = 0,
+      .manual_compaction_specified_path_id = compact_range_options.target_path_id
+  };
+
   Compaction* compaction = new Compaction(
       vstorage, ioptions_, mutable_cf_options, std::move(compaction_inputs),
       output_level,
@@ -772,8 +790,7 @@ Compaction* CompactionPicker::CompactRange(
                          vstorage->base_level()),
       GetCompressionOptions(ioptions_, vstorage, output_level),
       compact_range_options.max_subcompactions, std::move(grandparents),
-      std::unique_ptr<DbPathSupplier>(
-        new FixedDbPathSupplier(ioptions_, compact_range_options.target_path_id)),
+      ioptions_.db_path_supplier_factory->CreateDbPathSupplier(dps_ctx),
       /* is manual compaction */ true);
 
   TEST_SYNC_POINT_CALLBACK("CompactionPicker::CompactRange:Return", compaction);

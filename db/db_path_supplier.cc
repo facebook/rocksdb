@@ -224,8 +224,8 @@ std::unique_ptr<DbPathSupplier> GradualMoveOldDataDbPathSupplierFactory::CreateD
   return ret;
 }
 
-Status GradualMoveOldDataDbPathSupplierFactory::CfPathsSanityCheck(const rocksdb::ColumnFamilyOptions& cf_options,
-                                                                   const rocksdb::DBOptions& db_options) {
+Status GradualMoveOldDataDbPathSupplierFactory::CfPathsSanityCheckStatic(
+    const rocksdb::ColumnFamilyOptions& cf_options, const rocksdb::DBOptions& db_options) {
   // More than one cf_paths are supported only in universal
   // and level compaction styles. This function also checks the case
   // in which cf_paths is not specified, which results in db_paths

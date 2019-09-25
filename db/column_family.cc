@@ -167,6 +167,16 @@ Status CheckConcurrentWritesSupported(const ColumnFamilyOptions& cf_options) {
 
 Status CheckCFPathsSupported(const DBOptions& db_options,
                              const ColumnFamilyOptions& cf_options) {
+  if (db_options.db_path_supplier_factory.get() == nullptr) {
+    // If the db_path_supplier_factory is null, it means that the user did not specify
+    // a factory and we should fall back to the default factory behavior. However, at
+    // this point, it's possible that the default value for db_path_supplier_factory is
+    // not set yet (the default value is currently set in SanitizeOptions). In this case,
+    // we'll just use the default DbPathFactory to do the check.
+    return GradualMoveOldDataDbPathSupplierFactory::CfPathsSanityCheckStatic(
+        cf_options, db_options);
+  }
+
   return db_options.db_path_supplier_factory->CfPathsSanityCheck(cf_options, db_options);
 }
 

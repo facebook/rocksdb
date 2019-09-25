@@ -675,7 +675,8 @@ Compaction* UniversalCompactionBuilder::PickCompactionToReduceSortedRuns(
   }
 
   const struct DbPathSupplierContext db_path_supplier_ctx {
-      .call_site                           = kDbPathSupplierFactoryCallSiteFromAutoCompaction,
+      .call_site                           =
+          kDbPathSupplierFactoryCallSiteFromAutoCompaction,
       .ioptions                            = ioptions_,
       .moptions                            = mutable_cf_options_,
       .estimated_file_size                 = estimated_total_size,
@@ -824,7 +825,8 @@ Compaction* UniversalCompactionBuilder::PickCompactionToReduceSizeAmp() {
   }
 
   const struct DbPathSupplierContext db_path_supplier_ctx {
-      .call_site                           = kDbPathSupplierFactoryCallSiteFromAutoCompaction,
+      .call_site                           =
+          kDbPathSupplierFactoryCallSiteFromAutoCompaction,
       .ioptions                            = ioptions_,
       .moptions                            = mutable_cf_options_,
       .estimated_file_size                 = estimated_total_size,
@@ -951,7 +953,8 @@ Compaction* UniversalCompactionBuilder::PickDeleteTriggeredCompaction() {
   }
 
   const struct DbPathSupplierContext db_path_supplier_ctx {
-      .call_site                           = kDbPathSupplierFactoryCallSiteFromAutoCompaction,
+      .call_site                           =
+          kDbPathSupplierFactoryCallSiteFromAutoCompaction,
       .ioptions                            = ioptions_,
       .moptions                            = mutable_cf_options_,
       .estimated_file_size                 = estimated_total_size,

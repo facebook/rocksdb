@@ -149,7 +149,8 @@ Status DBImpl::FlushMemTableToOutputFile(
   const ImmutableCFOptions& ioptions = *cfd->ioptions();
 
   const struct DbPathSupplierContext db_path_supplier_ctx {
-      .call_site                           = kDbPathSupplierFactoryCallSiteFromFlush,
+      .call_site                           =
+          kDbPathSupplierFactoryCallSiteFromFlush,
       .ioptions                            = ioptions,
       .moptions                            = mutable_cf_options,
       .estimated_file_size                 = 0,
