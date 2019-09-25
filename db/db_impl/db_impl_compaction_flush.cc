@@ -326,11 +326,11 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
     const ImmutableCFOptions& ioptions = *cfd->ioptions();
 
     const struct DbPathSupplierContext db_path_supplier_ctx {
-        .call_site                           = kDbPathSupplierFactoryCallSiteFromFlush,
-        .ioptions                            = ioptions,
-        .moptions                            = mutable_cf_options,
-        .estimated_file_size                 = 0,
-        .manual_compaction_specified_path_id = 0
+        kDbPathSupplierFactoryCallSiteFromFlush, // call_site
+        ioptions, // ioptions
+        mutable_cf_options, // moptions
+        0, // estimated_file_size
+        0 // manual_compaction_specified_path_id
     };
 
     FlushJob* flush_job = new FlushJob(
@@ -975,12 +975,11 @@ Status DBImpl::CompactFilesImpl(
   }
 
   const struct DbPathSupplierContext db_path_supplier_ctx {
-      .call_site                           =
-      kDbPathSupplierFactoryCallSiteFromManualCompaction,
-      .ioptions                            = *ioptions,
-      .moptions                            = *cfd->GetCurrentMutableCFOptions(),
-      .estimated_file_size                 = 0,
-      .manual_compaction_specified_path_id = output_path_id_u32
+      kDbPathSupplierFactoryCallSiteFromManualCompaction, // call_site
+      *ioptions, // ioptions
+      *cfd->GetCurrentMutableCFOptions(), // moptions
+      0, // estimated_file_size
+      output_path_id_u32 // manual_compaction_specified_path_id
   };
 
   c.reset(cfd->compaction_picker()->CompactFiles(
