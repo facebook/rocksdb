@@ -21,6 +21,10 @@ package org.rocksdb;
  * strategy is chosen.
  */
 public class RandomDbPathSupplierFactory extends DbPathSupplierFactory {
+    static {
+        RocksDB.loadLibrary();
+    }
+
     public RandomDbPathSupplierFactory() {
         super(newFactoryObject());
     }

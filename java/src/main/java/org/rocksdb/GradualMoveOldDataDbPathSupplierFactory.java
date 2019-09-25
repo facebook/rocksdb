@@ -24,6 +24,10 @@ package org.rocksdb;
  * expect user files to be placed in higher levels in some extreme cases.
  */
 public class GradualMoveOldDataDbPathSupplierFactory extends DbPathSupplierFactory {
+    static {
+        RocksDB.loadLibrary();
+    }
+
     public GradualMoveOldDataDbPathSupplierFactory() {
         super(newFactoryObject());
     }
