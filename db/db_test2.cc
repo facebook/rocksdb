@@ -4079,7 +4079,7 @@ TEST_F(DBTest2, RowCacheSnapshot) {
 // flushed will pass the latest log file, and now we require it not
 // to be corrupted, and triggering a corruption report.
 // We need to fix the bug and enable the test.
-TEST_F(DISABLED_DBTest2, CrashInRecoveryMultipleCF) {
+TEST_F(DBTest2, DISABLED_CrashInRecoveryMultipleCF) {
   Options options = CurrentOptions();
   options.create_if_missing = true;
   options.wal_recovery_mode = WALRecoveryMode::kPointInTimeRecovery;
@@ -4101,7 +4101,9 @@ TEST_F(DISABLED_DBTest2, CrashInRecoveryMultipleCF) {
   std::vector<std::string> filenames;
   ASSERT_OK(env_->GetChildren(dbname_, &filenames));
   for (const auto& f : filenames) {
-    if (f.find(".log") != std::string::npos) {
+    uint64_t number;
+    FileType type;
+    if (ParseFileName(f, &number, &type) && type == FileType::kLogFile) {
       std::string fname = dbname_ + "/" + f;
       std::string file_content;
       ASSERT_OK(ReadFileToString(env_, fname, &file_content));
@@ -4116,7 +4118,7 @@ TEST_F(DISABLED_DBTest2, CrashInRecoveryMultipleCF) {
   FaultInjectionTestEnv fit_env(options.env);
   options.env = &fit_env;
   rocksdb::SyncPoint::GetInstance()->SetCallBack(
-      "DBImpl::Recover:AfterLogAndApply",
+      "DBImpl::RecoverLogFiles:AfterLogAndApply",
       [&](void* /*arg*/) { fit_env.SetFilesystemActive(false); });
   rocksdb::SyncPoint::GetInstance()->EnableProcessing();
   ASSERT_NOK(TryReopenWithColumnFamilies({"default", "pikachu"}, options));
