@@ -22,11 +22,11 @@ package org.rocksdb;
  */
 public class RandomDbPathSupplierFactory extends DbPathSupplierFactory {
     public RandomDbPathSupplierFactory() {
-        super(initializeCppObject());
+        super(newFactoryObject());
     }
 
     @Override
     protected native void disposeInternal(long handle);
 
-    private static native long initializeCppObject();
+    private static native long newFactoryObject();
 }

@@ -189,6 +189,8 @@ TEST_F(OptionsSettableTest, DBOptionsAllFieldsSettable) {
       {offsetof(struct DBOptions, statistics),
        sizeof(std::shared_ptr<Statistics>)},
       {offsetof(struct DBOptions, db_paths), sizeof(std::vector<DbPath>)},
+      {offsetof(struct DBOptions, db_path_supplier_factory),
+       sizeof(std::shared_ptr<DbPathSupplierFactory>)},
       {offsetof(struct DBOptions, db_log_dir), sizeof(std::string)},
       {offsetof(struct DBOptions, wal_dir), sizeof(std::string)},
       {offsetof(struct DBOptions, write_buffer_manager),
@@ -197,8 +199,6 @@ TEST_F(OptionsSettableTest, DBOptionsAllFieldsSettable) {
        sizeof(std::vector<std::shared_ptr<EventListener>>)},
       {offsetof(struct DBOptions, row_cache), sizeof(std::shared_ptr<Cache>)},
       {offsetof(struct DBOptions, wal_filter), sizeof(const WalFilter*)},
-      {offsetof(struct DBOptions, db_path_supplier_factory),
-       sizeof(std::shared_ptr<DbPathSupplierFactory>)},
   };
 
   char* options_ptr = new char[sizeof(DBOptions)];

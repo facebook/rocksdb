@@ -6,7 +6,8 @@
 // This file implements the "bridge" between Java and C++ for
 // rocksdb::DbPathSupplierFactory.
 
-#include <jni.h>
+#include "include/org_rocksdb_GradualMoveOldDataDbPathSupplierFactory.h"
+#include "include/org_rocksdb_RandomDbPathSupplierFactory.h"
 
 #include "db/db_path_supplier.h"
 
@@ -22,7 +23,7 @@
  * Signature: ()J
  */
 jlong Java_org_rocksdb_GradualMoveOldDataDbPathSupplierFactory_newFactoryObject(
-    JNIEnv*, jclass) {
+    JNIEnv* /* env */, jclass /* jclazz */) {
   auto* factory = rocksdb::NewGradualMoveOldDataDbPathSupplierFactory();
   return reinterpret_cast<jlong>(factory);
 }
@@ -33,7 +34,7 @@ jlong Java_org_rocksdb_GradualMoveOldDataDbPathSupplierFactory_newFactoryObject(
  * Signature: (J)V
  */
 void Java_org_rocksdb_GradualMoveOldDataDbPathSupplierFactory_disposeInternal(
-    JNIEnv *, jobject, jlong jhandle) {
+    JNIEnv* /* env */, jobject /* jobject */, jlong jhandle) {
   auto* factory =
       reinterpret_cast<rocksdb::GradualMoveOldDataDbPathSupplierFactory*>(jhandle);
   delete factory;
@@ -51,7 +52,7 @@ void Java_org_rocksdb_GradualMoveOldDataDbPathSupplierFactory_disposeInternal(
  * Signature: ()J
  */
 jlong Java_org_rocksdb_RandomDbPathSupplierFactory_newFactoryObject(
-    JNIEnv*, jclass) {
+    JNIEnv* /* env */, jclass /* jclazz */) {
   auto* factory = rocksdb::NewRandomDbPathSupplierFactory();
   return reinterpret_cast<jlong>(factory);
 }
@@ -62,7 +63,7 @@ jlong Java_org_rocksdb_RandomDbPathSupplierFactory_newFactoryObject(
  * Signature: (J)V
  */
 void Java_org_rocksdb_RandomDbPathSupplierFactory_disposeInternal(
-    JNIEnv *, jobject, jlong jhandle) {
+    JNIEnv* /* env */, jobject /* jobject */, jlong jhandle) {
   auto* factory =
       reinterpret_cast<rocksdb::RandomDbPathSupplierFactory*>(jhandle);
   delete factory;
