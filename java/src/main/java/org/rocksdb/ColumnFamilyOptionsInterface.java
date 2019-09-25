@@ -452,7 +452,7 @@ public interface ColumnFamilyOptionsInterface<T extends ColumnFamilyOptionsInter
 
   /**
    * A list of paths where SST files can be put into. These path will be used
-   * differently according to the {@link DbPathPlacementStrategy} set in the option.
+   * differently according to the {@link DbPathSupplierFactory} set in the option.
    *
    * If left empty, then the database will use the dbPaths specified through
    * {@link DBOptions}.
@@ -467,7 +467,7 @@ public interface ColumnFamilyOptionsInterface<T extends ColumnFamilyOptionsInter
 
   /**
    * A list of paths where SST files can be put into. These path will be used
-   * differently according to the {@link DbPathPlacementStrategy} set in the option.
+   * differently according to the {@link DbPathSupplierFactory} set in the option.
    *
    * If left empty, then the database will use the dbPaths specified through
    * {@link DBOptions}.
