@@ -1270,20 +1270,6 @@ public class OptionsTest {
   }
 
   @Test
-  public void dbPathPlacementStrategy() {
-    final DbPathPlacementStrategy strategy = DbPathPlacementStrategy.RANDOMLY_CHOOSE_PATH;
-
-    try (final Options opt = new Options()) {
-      assertThat(opt.dbPathPlacementStrategy()).isEqualTo(
-        DbPathPlacementStrategy.GRADUAL_MOVE_OLD_DATA_TOWARDS_END);
-
-      opt.setDbPathPlacementStrategy(strategy);
-
-      assertThat(opt.dbPathPlacementStrategy()).isEqualTo(strategy);
-    }
-  }
-
-  @Test
   public void cfPaths() {
     final List<DbPath> cfPaths = new ArrayList<>();
     cfPaths.add(new DbPath(Paths.get("/a"), 10));
@@ -1296,6 +1282,22 @@ public class OptionsTest {
       opt.setCFPaths(cfPaths);
 
       assertThat(opt.cfPaths()).isEqualTo(cfPaths);
+    }
+  }
+
+  @Test
+  public void setGradualMoveOldDataDbPathSupplierFactory() {
+    try (final Options options = new Options()) {
+      final DbPathSupplierFactory factory = new GradualMoveOldDataDbPathSupplierFactory();
+      options.setDbPathSupplierFactory(factory);
+    }
+  }
+
+  @Test
+  public void setRandomDbPathSupplierFactory() {
+    try (final Options options = new Options()) {
+      final DbPathSupplierFactory factory = new RandomDbPathSupplierFactory();
+      options.setDbPathSupplierFactory(factory);
     }
   }
 }

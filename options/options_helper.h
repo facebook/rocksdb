@@ -82,7 +82,6 @@ enum class OptionType {
   kInfoLogLevel,
   kLRUCacheOptions,
   kEnv,
-  kDbPathPlacementStrategy,
   kUnknown,
 };
 
@@ -153,8 +152,6 @@ struct OptionsHelper {
   static std::map<CompactionPri, std::string> compaction_pri_to_string;
   static std::map<CompactionStopStyle, std::string>
       compaction_stop_style_to_string;
-//  static std::map<DbPathPlacementStrategy, std::string>
-//      db_path_placement_strategy_to_string;
   static std::unordered_map<std::string, ChecksumType> checksum_type_string_map;
   static std::unordered_map<std::string, CompressionType>
       compression_type_string_map;
@@ -188,8 +185,6 @@ struct OptionsHelper {
       access_hint_string_map;
   static std::unordered_map<std::string, InfoLogLevel>
       info_log_level_string_map;
-  static std::unordered_map<std::string, DbPathPlacementStrategy>
-      db_path_placement_strategy_string_map;
   static ColumnFamilyOptions dummy_cf_options;
   static CompactionOptionsFIFO dummy_comp_options;
   static LRUCacheOptions dummy_lru_cache_options;
@@ -233,8 +228,6 @@ static auto& wal_recovery_mode_string_map =
 static auto& access_hint_string_map = OptionsHelper::access_hint_string_map;
 static auto& info_log_level_string_map =
     OptionsHelper::info_log_level_string_map;
-static auto& db_path_placement_strategy_string_map =
-    OptionsHelper::db_path_placement_strategy_string_map;
 #endif  // !ROCKSDB_LITE
 
 }  // namespace rocksdb

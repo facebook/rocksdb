@@ -578,23 +578,15 @@ void Java_org_rocksdb_Options_dbPaths(
 
 /*
  * Class:     org_rocksdb_Options
- * Method:    setDbPathPlacementStrategy
+ * Method:    setDbPathSupplierFactory
  * Signature: (JB)V
  */
-void Java_org_rocksdb_Options_setDbPathPlacementStrategy(
-    JNIEnv* /*env*/, jobject /*jobj*/, jlong jhandle, jbyte strategy) {
-reinterpret_cast<rocksdb::Options*>(jhandle)->db_path_placement_strategy =
-static_cast<rocksdb::DbPathPlacementStrategy>(strategy);
-}
-
-/*
- * Class:     org_rocksdb_Options
- * Method:    dbPathPlacementStrategy
- * Signature: (J)B
- */
-jbyte Java_org_rocksdb_Options_dbPathPlacementStrategy(
-    JNIEnv* /*env*/, jobject /*jobj*/, jlong jhandle) {
-return reinterpret_cast<rocksdb::Options*>(jhandle)->db_path_placement_strategy;
+void Java_org_rocksdb_Options_setDbPathSupplierFactory(
+    JNIEnv* /*env*/, jobject /*jobj*/, jlong jhandle, jlong jfactory_handle) {
+  std::shared_ptr<rocksdb::DbPathSupplierFactory>* factory =
+      reinterpret_cast<std::shared_ptr<rocksdb::DbPathSupplierFactory>*>(
+          jfactory_handle);
+  reinterpret_cast<rocksdb::Options*>(jhandle)->db_path_supplier_factory = *factory;
 }
 
 /*
@@ -5100,23 +5092,15 @@ void Java_org_rocksdb_DBOptions_dbPaths(
 
 /*
  * Class:     org_rocksdb_DBOptions
- * Method:    setDbPathPlacementStrategy
+ * Method:    setDbPathSupplierFactory
  * Signature: (JB)V
  */
-void Java_org_rocksdb_DBOptions_setDbPathPlacementStrategy(
-    JNIEnv* /*env*/, jobject /*jobj*/, jlong jhandle, jbyte strategy) {
-  reinterpret_cast<rocksdb::DBOptions*>(jhandle)->db_path_placement_strategy =
-  static_cast<rocksdb::DbPathPlacementStrategy>(strategy);
-}
-
-/*
- * Class:     org_rocksdb_DBOptions
- * Method:    dbPathPlacementStrategy
- * Signature: (J)B
- */
-jbyte Java_org_rocksdb_DBOptions_dbPathPlacementStrategy(
-    JNIEnv* /*env*/, jobject /*jobj*/, jlong jhandle) {
-  return reinterpret_cast<rocksdb::DBOptions*>(jhandle)->db_path_placement_strategy;
+void Java_org_rocksdb_DBOptions_setDbPathSupplierFactory(
+    JNIEnv* /*env*/, jobject /*jobj*/, jlong jhandle, jlong jfactory_handle) {
+  std::shared_ptr<rocksdb::DbPathSupplierFactory>* factory =
+      reinterpret_cast<std::shared_ptr<rocksdb::DbPathSupplierFactory>*>(
+          jfactory_handle);
+  reinterpret_cast<rocksdb::DBOptions*>(jhandle)->db_path_supplier_factory = *factory;
 }
 
 /*

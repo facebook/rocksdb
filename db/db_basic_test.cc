@@ -454,7 +454,8 @@ TEST_F(DBBasicTest, FlushRandomCFPathSelection) {
     options.arena_block_size = 1 << 9;
     options.level0_file_num_compaction_trigger = 99999; // don't trigger auto compaction
     options.num_levels = 1;
-    options.db_path_placement_strategy = kRandomlyChoosePath;
+    options.db_path_supplier_factory =
+        std::shared_ptr<DbPathSupplierFactory>(NewRandomDbPathSupplierFactory());
 
     Reopen(options);
 
@@ -492,7 +493,8 @@ TEST_F(DBBasicTest, FlushRandomDbPathSelection) {
     options.arena_block_size = 1 << 9;
     options.level0_file_num_compaction_trigger = 99999; // don't trigger auto compaction
     options.num_levels = 1;
-    options.db_path_placement_strategy = kRandomlyChoosePath;
+    options.db_path_supplier_factory =
+        std::shared_ptr<DbPathSupplierFactory>(NewRandomDbPathSupplierFactory());
 
     Reopen(options);
 

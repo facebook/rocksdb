@@ -330,14 +330,9 @@ public class DBOptions extends RocksObject
   }
 
   @Override
-  public DBOptions setDbPathPlacementStrategy(DbPathPlacementStrategy strategy) {
-    setDbPathPlacementStrategy(nativeHandle_, strategy.getValue());
+  public DBOptions setDbPathSupplierFactory(DbPathSupplierFactory factory) {
+    setDbPathSupplierFactory(nativeHandle_, factory.nativeHandle_);
     return this;
-  }
-
-  @Override
-  public DbPathPlacementStrategy dbPathPlacementStrategy() {
-    return DbPathPlacementStrategy.fromValue(dbPathPlacementStrategy(nativeHandle_));
   }
 
   @Override
@@ -1174,8 +1169,8 @@ public class DBOptions extends RocksObject
   private native long dbPathsLen(final long handle);
   private native void dbPaths(final long handle, final String[] paths,
                                  final long[] targetSizes);
-  private native void setDbPathPlacementStrategy(long handle, byte strategy);
-  private native byte dbPathPlacementStrategy(long handle);
+  private native void setDbPathSupplierFactory(final long handle,
+      final long factoryHandle);
   private native void setDbLogDir(long handle, String dbLogDir);
   private native String dbLogDir(long handle);
   private native void setWalDir(long handle, String walDir);

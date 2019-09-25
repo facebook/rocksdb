@@ -773,16 +773,18 @@ public class DBOptionsTest {
   }
 
   @Test
-  public void dbPathPlacementStrategy() {
-    final DbPathPlacementStrategy strategy = DbPathPlacementStrategy.RANDOMLY_CHOOSE_PATH;
+  public void setGradualMoveOldDataDbPathSupplierFactory() {
+    try (final DBOptions options = new DBOptions()) {
+      final DbPathSupplierFactory factory = new GradualMoveOldDataDbPathSupplierFactory();
+      options.setDbPathSupplierFactory(factory);
+    }
+  }
 
-    try (final DBOptions opt = new DBOptions()) {
-      assertThat(opt.dbPathPlacementStrategy()).isEqualTo(
-        DbPathPlacementStrategy.GRADUAL_MOVE_OLD_DATA_TOWARDS_END);
-
-      opt.setDbPathPlacementStrategy(strategy);
-
-      assertThat(opt.dbPathPlacementStrategy()).isEqualTo(strategy);
+  @Test
+  public void setRandomDbPathSupplierFactory() {
+    try (final DBOptions options = new DBOptions()) {
+      final DbPathSupplierFactory factory = new RandomDbPathSupplierFactory();
+      options.setDbPathSupplierFactory(factory);
     }
   }
 }

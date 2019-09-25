@@ -109,9 +109,6 @@ class UniversalCompactionBuilder {
   static std::vector<SortedRun> CalculateSortedRuns(
       const VersionStorageInfo& vstorage, const ImmutableCFOptions& ioptions,
       const MutableCFOptions& mutable_cf_options);
-
-  std::unique_ptr<DbPathSupplier> GetDbPathSupplier(const rocksdb::MutableCFOptions &moptions,
-                                    uint64_t estimated_file_size);
 };
 
 // Used in universal compaction when trivial move is enabled.
@@ -676,6 +673,15 @@ Compaction* UniversalCompactionBuilder::PickCompactionToReduceSortedRuns(
   } else {
     compaction_reason = CompactionReason::kUniversalSortedRunNum;
   }
+
+  const struct DbPathSupplierContext db_path_supplier_ctx {
+      .call_site                           = kDbPathSupplierFactoryCallSiteFromAutoCompaction,
+      .ioptions                            = ioptions_,
+      .moptions                            = mutable_cf_options_,
+      .estimated_file_size                 = estimated_total_size,
+      .manual_compaction_specified_path_id = 0
+  };
+
   return new Compaction(
       vstorage_, ioptions_, mutable_cf_options_, std::move(inputs),
       output_level,
@@ -687,7 +693,7 @@ Compaction* UniversalCompactionBuilder::PickCompactionToReduceSortedRuns(
       GetCompressionOptions(ioptions_, vstorage_, start_level,
                             enable_compression),
       /* max_subcompactions */ 0, /* grandparents */ {},
-      GetDbPathSupplier(mutable_cf_options_, estimated_total_size),
+      ioptions_.db_path_supplier_factory->CreateDbPathSupplier(db_path_supplier_ctx),
       /* is manual */ false,
       score_, false /* deletion_compaction */, compaction_reason);
 }
@@ -817,6 +823,14 @@ Compaction* UniversalCompactionBuilder::PickCompactionToReduceSizeAmp() {
     output_level--;
   }
 
+  const struct DbPathSupplierContext db_path_supplier_ctx {
+      .call_site                           = kDbPathSupplierFactoryCallSiteFromAutoCompaction,
+      .ioptions                            = ioptions_,
+      .moptions                            = mutable_cf_options_,
+      .estimated_file_size                 = estimated_total_size,
+      .manual_compaction_specified_path_id = 0
+  };
+
   return new Compaction(
       vstorage_, ioptions_, mutable_cf_options_, std::move(inputs),
       output_level,
@@ -827,7 +841,7 @@ Compaction* UniversalCompactionBuilder::PickCompactionToReduceSizeAmp() {
                          1),
       GetCompressionOptions(ioptions_, vstorage_, output_level),
       /* max_subcompactions */ 0, /* grandparents */ {},
-      GetDbPathSupplier(mutable_cf_options_, estimated_total_size),
+      ioptions_.db_path_supplier_factory->CreateDbPathSupplier(db_path_supplier_ctx),
       /* is manual */ false,
       score_, false /* deletion_compaction */,
       CompactionReason::kUniversalSizeAmplification);
@@ -936,6 +950,14 @@ Compaction* UniversalCompactionBuilder::PickDeleteTriggeredCompaction() {
     estimated_total_size += f->fd.GetFileSize();
   }
 
+  const struct DbPathSupplierContext db_path_supplier_ctx {
+      .call_site                           = kDbPathSupplierFactoryCallSiteFromAutoCompaction,
+      .ioptions                            = ioptions_,
+      .moptions                            = mutable_cf_options_,
+      .estimated_file_size                 = estimated_total_size,
+      .manual_compaction_specified_path_id = 0
+  };
+
   return new Compaction(
       vstorage_, ioptions_, mutable_cf_options_, std::move(inputs),
       output_level,
@@ -946,20 +968,10 @@ Compaction* UniversalCompactionBuilder::PickDeleteTriggeredCompaction() {
                          1),
       GetCompressionOptions(ioptions_, vstorage_, output_level),
       /* max_subcompactions */ 0, /* grandparents */ {},
-      GetDbPathSupplier(mutable_cf_options_, estimated_total_size),
+      ioptions_.db_path_supplier_factory->CreateDbPathSupplier(db_path_supplier_ctx),
       /* is manual */ true,
       score_, false /* deletion_compaction */,
       CompactionReason::kFilesMarkedForCompaction);
-}
-
-std::unique_ptr<DbPathSupplier> UniversalCompactionBuilder::GetDbPathSupplier(
-    const rocksdb::MutableCFOptions &moptions, uint64_t estimated_file_size) {
-  if (ioptions_.db_path_placement_strategy == kRandomlyChoosePath) {
-    return std::unique_ptr<DbPathSupplier>(new RandomDbPathSupplier(ioptions_));
-  }
-
-  return std::unique_ptr<DbPathSupplier>(
-      new UniversalTargetSizeDbPathSupplier(ioptions_, moptions, estimated_file_size));
 }
 
 }  // namespace rocksdb

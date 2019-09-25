@@ -13,10 +13,8 @@
 
 namespace rocksdb {
 
-// An object vendored by column family to dynamically supply db path to
-// functions that need to decide which db_path to flush an sst file to. The
-// supplier object is mutable (because you can add file size to it) and
-// can update global file counters, so usage should be inside proper locking.
+// An object that allows for dynamical db path selection for
+// functions that need to decide which db_path to flush an sst file to.
 class DbPathSupplier {
  public:
   explicit DbPathSupplier(const ImmutableCFOptions& ioptions):
@@ -90,7 +88,7 @@ class LeveledTargetSizeDbPathSupplier: public DbPathSupplier {
   bool AcceptPathId(
       uint32_t path_id, int output_level) const override;
 
-private:
+ private:
   const bool level_compaction_dynamic_level_bytes;
   const double max_bytes_for_level_multiplier;
   const uint64_t max_bytes_for_level_base;
@@ -113,5 +111,107 @@ class UniversalTargetSizeDbPathSupplier: public DbPathSupplier {
   const uint64_t file_size_;
   const unsigned int size_ratio;
 };
+
+enum DbPathSupplierCallSite {
+  kDbPathSupplierFactoryCallSiteFromFlush,
+  kDbPathSupplierFactoryCallSiteFromAutoCompaction,
+  kDbPathSupplierFactoryCallSiteFromManualCompaction,
+};
+
+struct DbPathSupplierContext {
+  DbPathSupplierCallSite call_site;
+  const ImmutableCFOptions& ioptions;
+  const MutableCFOptions& moptions;
+  uint64_t estimated_file_size;
+  uint32_t manual_compaction_specified_path_id;
+};
+
+class DbPathSupplierFactory {
+ public:
+  DbPathSupplierFactory() = default;
+  virtual ~DbPathSupplierFactory() = default;
+
+  virtual std::unique_ptr<DbPathSupplier> CreateDbPathSupplier(
+      const DbPathSupplierContext& ctx);
+
+  virtual Status CfPathsSanityCheck(
+      const ColumnFamilyOptions& cf_options,
+      const DBOptions& db_options);
+
+  virtual const char* Name() = 0;
+};
+
+// Fill DbPaths according to the target size set with the db path.
+//
+// Newer data is placed into paths specified earlier in the vector while
+// older data gradually moves to paths specified later in the vector.
+//
+// For example, you have a flash device with 10GB allocated for the DB,
+// as well as a hard drive of 2TB, you should config it to be:
+//   [{"/flash_path", 10GB}, {"/hard_drive", 2TB}]
+//
+// The system will try to guarantee data under each path is close to but
+// not larger than the target size. But current and future file sizes used
+// by determining where to place a file are based on best-effort estimation,
+// which means there is a chance that the actual size under the directory
+// is slightly more than target size under some workloads. User should give
+// some buffer room for those cases.
+//
+// If none of the paths has sufficient room to place a file, the file will
+// be placed to the last path anyway, despite to the target size.
+//
+// Placing newer data to earlier paths is also best-efforts. User should
+// expect user files to be placed in higher levels in some extreme cases.
+class GradualMoveOldDataDbPathSupplierFactory: public DbPathSupplierFactory {
+ public:
+  GradualMoveOldDataDbPathSupplierFactory() = default;
+
+  std::unique_ptr<DbPathSupplier> CreateDbPathSupplier(
+      const DbPathSupplierContext& ctx) override;
+
+  Status CfPathsSanityCheck(
+      const ColumnFamilyOptions& cf_options,
+      const DBOptions& db_options) override;
+
+  const char* Name() override {
+    return "GradualMoveOldDataDbPathSupplierFactory";
+  }
+};
+
+// Randomly distribute files into the list of db paths.
+//
+// For example, you have a few data drives on your host that are mounted
+// as [/sdb1, /sdc1, /sdd1, /sde1]. Say that the database will create 6
+// table files -- 0[0-5].sst, then they will end up on in these places:
+//
+// /sdb1/02.sst
+// /sdb1/04.sst
+// /sdc1/05.sst
+// /sdc1/03.sst
+// /sdd1/00.sst
+// /sde1/01.sst
+//
+// This is useful if you want the database to evenly use a set of disks
+// mounted on your host.
+//
+// Note that the target_size attr in DbPath will not be useful if this
+// strategy is chosen.
+class RandomDbPathSupplierFactory: public DbPathSupplierFactory {
+ public:
+  RandomDbPathSupplierFactory() = default;
+
+  std::unique_ptr<DbPathSupplier> CreateDbPathSupplier(
+      const DbPathSupplierContext& ctx) override;
+
+  Status CfPathsSanityCheck(
+      const ColumnFamilyOptions& cf_options,
+      const DBOptions& db_options) override;
+
+  const char* Name() override { return "RandomDbPathSupplierFactory"; }
+};
+
+extern DbPathSupplierFactory* NewGradualMoveOldDataDbPathSupplierFactory();
+
+extern DbPathSupplierFactory* NewRandomDbPathSupplierFactory();
 
 }

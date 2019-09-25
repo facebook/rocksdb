@@ -24,6 +24,7 @@ set(JNI_NATIVE_SOURCES
         rocksjni/comparator.cc
         rocksjni/comparatorjnicallback.cc
         rocksjni/compression_options.cc
+        rocksjni/db_path_supplier_factory.cc
         rocksjni/env.cc
         rocksjni/env_options.cc
         rocksjni/filter.cc
@@ -131,7 +132,7 @@ set(JAVA_MAIN_CLASSES
   src/main/java/org/rocksdb/DBOptionsInterface.java
   src/main/java/org/rocksdb/DBOptions.java
   src/main/java/org/rocksdb/DbPath.java
-  src/main/java/org/rocksdb/DbPathPlacementStrategy.java
+  src/main/java/org/rocksdb/DbPathSupplierFactory.java
   src/main/java/org/rocksdb/DirectComparator.java
   src/main/java/org/rocksdb/DirectSlice.java
   src/main/java/org/rocksdb/EncodingType.java
@@ -140,6 +141,7 @@ set(JAVA_MAIN_CLASSES
   src/main/java/org/rocksdb/Experimental.java
   src/main/java/org/rocksdb/Filter.java
   src/main/java/org/rocksdb/FlushOptions.java
+  src/main/java/org/rocksdb/GradualMoveOldDataDbPathSupplierFactory.java
   src/main/java/org/rocksdb/HashLinkedListMemTableConfig.java
   src/main/java/org/rocksdb/HashSkipListMemTableConfig.java
   src/main/java/org/rocksdb/HdfsEnv.java
@@ -179,6 +181,7 @@ set(JAVA_MAIN_CLASSES
   src/main/java/org/rocksdb/RateLimiterMode.java
   src/main/java/org/rocksdb/ReadOptions.java
   src/main/java/org/rocksdb/ReadTier.java
+  src/main/java/org/rocksdb/RandomDbPathSupplierFactory.java
   src/main/java/org/rocksdb/RemoveEmptyValueCompactionFilter.java
   src/main/java/org/rocksdb/RestoreOptions.java
   src/main/java/org/rocksdb/RocksCallbackObject.java
@@ -402,13 +405,14 @@ if(${CMAKE_VERSION} VERSION_LESS "3.11.4" OR (${Java_VERSION_MINOR} STREQUAL "7"
           org.rocksdb.ComparatorOptions
           org.rocksdb.CompressionOptions
           org.rocksdb.DBOptions
-          org.rocksdb.DbPathPlacementStrategy
+          org.rocksdb.DbPathSupplierFactory
           org.rocksdb.DirectComparator
           org.rocksdb.DirectSlice
           org.rocksdb.Env
           org.rocksdb.EnvOptions
           org.rocksdb.Filter
           org.rocksdb.FlushOptions
+          org.rocksdb.GradualMoveOldDataDbPathSupplierFactory
           org.rocksdb.HashLinkedListMemTableConfig
           org.rocksdb.HashSkipListMemTableConfig
           org.rocksdb.HdfsEnv
@@ -427,6 +431,7 @@ if(${CMAKE_VERSION} VERSION_LESS "3.11.4" OR (${Java_VERSION_MINOR} STREQUAL "7"
           org.rocksdb.PlainTableConfig
           org.rocksdb.RateLimiter
           org.rocksdb.ReadOptions
+          org.rocksdb.RandomDbPathSupplierFactory
           org.rocksdb.RemoveEmptyValueCompactionFilter
           org.rocksdb.RestoreOptions
           org.rocksdb.RocksCallbackObject

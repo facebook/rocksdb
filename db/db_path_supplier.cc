@@ -168,4 +168,116 @@ bool UniversalTargetSizeDbPathSupplier::AcceptPathId(
   return path_id == GetPathId(output_level);
 }
 
+// The default impl of the factory method. Always returns FixedDbPathSupplier
+// that gives path_id as 0.
+std::unique_ptr<DbPathSupplier> DbPathSupplierFactory::CreateDbPathSupplier(
+    const rocksdb::DbPathSupplierContext &ctx) {
+    return std::unique_ptr<DbPathSupplier>(new FixedDbPathSupplier(ctx.ioptions, 0));
+}
+
+Status DbPathSupplierFactory::CfPathsSanityCheck(const rocksdb::ColumnFamilyOptions& cf_options,
+                                                 const rocksdb::DBOptions& db_options) {
+  return Status::OK();
+}
+
+std::unique_ptr<DbPathSupplier> GradualMoveOldDataDbPathSupplierFactory::CreateDbPathSupplier(
+    const rocksdb::DbPathSupplierContext &ctx) {
+  std::unique_ptr<DbPathSupplier> ret;
+
+  switch (ctx.call_site) {
+    case kDbPathSupplierFactoryCallSiteFromFlush:
+      ret.reset(new FixedDbPathSupplier(ctx.ioptions, 0));
+      break;
+
+    case kDbPathSupplierFactoryCallSiteFromAutoCompaction:
+      switch (ctx.ioptions.compaction_style) {
+        case kCompactionStyleLevel:
+          ret.reset(new LeveledTargetSizeDbPathSupplier(ctx.ioptions, ctx.moptions));
+          break;
+
+        case kCompactionStyleUniversal:
+          ret.reset(new UniversalTargetSizeDbPathSupplier(ctx.ioptions, ctx.moptions,
+              ctx.estimated_file_size));
+          break;
+
+        case kCompactionStyleFIFO:
+        default:
+          ret.reset(new FixedDbPathSupplier(ctx.ioptions, 0));
+      }
+      break;
+
+    case kDbPathSupplierFactoryCallSiteFromManualCompaction:
+      // an illegal argument from the manual compaction: the provided path id is
+      // greater than the cf_paths array. we're just silently giving path 0 here.
+      if (ctx.manual_compaction_specified_path_id >= ctx.ioptions.cf_paths.size()) {
+        ret.reset(new FixedDbPathSupplier(ctx.ioptions, 0));
+      }
+
+      ret.reset(new FixedDbPathSupplier(ctx.ioptions, ctx.manual_compaction_specified_path_id));
+      break;
+
+    default:
+      ret.reset(new FixedDbPathSupplier(ctx.ioptions, ctx.manual_compaction_specified_path_id));
+  }
+
+  return ret;
+}
+
+Status GradualMoveOldDataDbPathSupplierFactory::CfPathsSanityCheck(const rocksdb::ColumnFamilyOptions& cf_options,
+                                                                   const rocksdb::DBOptions& db_options) {
+  // More than one cf_paths are supported only in universal
+  // and level compaction styles. This function also checks the case
+  // in which cf_paths is not specified, which results in db_paths
+  // being used.
+  if ((cf_options.compaction_style != kCompactionStyleUniversal) &&
+      (cf_options.compaction_style != kCompactionStyleLevel)) {
+    if (cf_options.cf_paths.size() > 1) {
+      return Status::NotSupported(
+          "More than one CF paths are only supported in "
+          "universal and level compaction styles");
+    } else if (cf_options.cf_paths.empty() &&
+               db_options.db_paths.size() > 1) {
+      return Status::NotSupported(
+          "More than one DB paths are only supported in "
+          "universal and level compaction styles");
+    }
+  }
+  return Status::OK();
+}
+
+std::unique_ptr<DbPathSupplier> RandomDbPathSupplierFactory::CreateDbPathSupplier(
+    const rocksdb::DbPathSupplierContext &ctx) {
+  std::unique_ptr<DbPathSupplier> ret;
+
+  switch (ctx.call_site) {
+    case kDbPathSupplierFactoryCallSiteFromManualCompaction:
+      // an illegal argument from the manual compaction: the provided path id is
+      // greater than the cf_paths array. we're just silently giving path 0 here.
+      if (ctx.manual_compaction_specified_path_id >= ctx.ioptions.cf_paths.size()) {
+        ret.reset(new FixedDbPathSupplier(ctx.ioptions, 0));
+      }
+
+      ret.reset(new FixedDbPathSupplier(ctx.ioptions, ctx.manual_compaction_specified_path_id));
+      break;
+
+    default:
+      ret.reset(new RandomDbPathSupplier(ctx.ioptions));
+  }
+
+  return ret;
+}
+
+Status RandomDbPathSupplierFactory::CfPathsSanityCheck(const rocksdb::ColumnFamilyOptions &cf_options,
+                                                       const rocksdb::DBOptions &db_options) {
+  return Status::OK();
+}
+
+DbPathSupplierFactory* NewGradualMoveOldDataDbPathSupplierFactory() {
+  return new GradualMoveOldDataDbPathSupplierFactory();
+}
+
+DbPathSupplierFactory* NewRandomDbPathSupplierFactory() {
+  return new RandomDbPathSupplierFactory();
+}
+
 }

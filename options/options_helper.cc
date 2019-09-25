@@ -49,8 +49,8 @@ DBOptions BuildDBOptions(const ImmutableDBOptions& immutable_db_options,
   options.statistics = immutable_db_options.statistics;
   options.use_fsync = immutable_db_options.use_fsync;
   options.db_paths = immutable_db_options.db_paths;
-  options.db_path_placement_strategy =
-      immutable_db_options.db_path_placement_strategy;
+  options.db_path_supplier_factory =
+      immutable_db_options.db_path_supplier_factory;
   options.db_log_dir = immutable_db_options.db_log_dir;
   options.wal_dir = immutable_db_options.wal_dir;
   options.delete_obsolete_files_period_micros =
@@ -228,12 +228,6 @@ std::map<CompactionPri, std::string> OptionsHelper::compaction_pri_to_string = {
     {kOldestLargestSeqFirst, "kOldestLargestSeqFirst"},
     {kOldestSmallestSeqFirst, "kOldestSmallestSeqFirst"},
     {kMinOverlappingRatio, "kMinOverlappingRatio"}};
-//
-//std::map<DbPathPlacementStrategy, std::string>
-//    OptionsHelper::db_path_placement_strategy_to_string = {
-//    {kGradualMoveOldDataTowardsEnd, "kGradualMoveOldDataTowardsEnd"},
-//    {kRandomlyChoosePath, "kRandomlyChoosePath"},
-//};
 
 std::map<CompactionStopStyle, std::string>
     OptionsHelper::compaction_stop_style_to_string = {
@@ -587,10 +581,6 @@ bool ParseOptionHelper(char* opt_address, const OptionType& opt_type,
       return ParseEnum<CompactionStopStyle>(
           compaction_stop_style_string_map, value,
           reinterpret_cast<CompactionStopStyle*>(opt_address));
-    case OptionType::kDbPathPlacementStrategy:
-      return ParseEnum<DbPathPlacementStrategy>(
-          OptionsHelper::db_path_placement_strategy_string_map, value,
-          reinterpret_cast<DbPathPlacementStrategy *>(opt_address));
     default:
       return false;
   }
@@ -789,10 +779,6 @@ bool SerializeSingleOptionHelper(const char* opt_address,
       return SerializeEnum<CompactionStopStyle>(
           compaction_stop_style_string_map,
           *reinterpret_cast<const CompactionStopStyle*>(opt_address), value);
-    case OptionType::kDbPathPlacementStrategy:
-      return SerializeEnum<DbPathPlacementStrategy>(
-          db_path_placement_strategy_string_map,
-          *reinterpret_cast<const DbPathPlacementStrategy*>(opt_address), value);
     default:
       return false;
   }
@@ -1692,10 +1678,6 @@ std::unordered_map<std::string, OptionTypeInfo>
         {"log_readahead_size",
          {offsetof(struct DBOptions, log_readahead_size), OptionType::kSizeT,
           OptionVerificationType::kNormal, false, 0}},
-        {"db_path_placement_strategy",
-         {offsetof(struct DBOptions, db_path_placement_strategy),
-          OptionType::kDbPathPlacementStrategy,
-          OptionVerificationType::kNormal, false, 0}},
 };
 
 std::unordered_map<std::string, BlockBasedTableOptions::IndexType>
@@ -1766,12 +1748,6 @@ std::unordered_map<std::string, InfoLogLevel>
         {"ERROR_LEVEL", InfoLogLevel::ERROR_LEVEL},
         {"FATAL_LEVEL", InfoLogLevel::FATAL_LEVEL},
         {"HEADER_LEVEL", InfoLogLevel::HEADER_LEVEL}};
-
-std::unordered_map<std::string, DbPathPlacementStrategy>
-    OptionsHelper::db_path_placement_strategy_string_map = {
-    {"kGradualMoveOldDataTowardsEnd", kGradualMoveOldDataTowardsEnd},
-    {"kRandomlyChoosePath", kRandomlyChoosePath},
-};
 
 ColumnFamilyOptions OptionsHelper::dummy_cf_options;
 CompactionOptionsFIFO OptionsHelper::dummy_comp_options;

@@ -276,7 +276,8 @@ public interface DBOptionsInterface<T extends DBOptionsInterface<T>> {
 
   /**
    * A list of paths where SST files can be put into. These paths will be
-   * used differently according to the {@link DbPathPlacementStrategy} option.
+   * used differently according to the {@link DbPathSupplierFactory} set to
+   * the option.
    *
    * If left empty, only one path will be used, which is db_name passed when
    * opening the DB.
@@ -291,7 +292,8 @@ public interface DBOptionsInterface<T extends DBOptionsInterface<T>> {
 
   /**
    * A list of paths where SST files can be put into. These paths will be
-   * used differently according to the {@link DbPathPlacementStrategy} option.
+   * used differently according to the {@link DbPathSupplierFactory} set to
+   * the option.
    *
    * If left empty, only one path will be used, which is db_name passed when
    * opening the DB.
@@ -303,26 +305,16 @@ public interface DBOptionsInterface<T extends DBOptionsInterface<T>> {
   List<DbPath> dbPaths();
 
   /**
-   * The way how rocksdb will use the supplied dbPaths. Refer to the doc
-   * in {@link DbPathPlacementStrategy} to understand each strategy.
+   * The {@link DbPathSupplierFactory} decides how Rocksdb will use the multiple
+   * db_paths/cf_paths.
    *
-   * Default: GRADUAL_MOVE_OLD_DATA_TOWARDS_END
+   * Default: empty
    *
-   * @param strategy the strategy that you choose
+   * @param factory the factory to be set
    *
    * @return the reference to the current options
    */
-  T setDbPathPlacementStrategy(DbPathPlacementStrategy strategy);
-
-  /**
-   * The way how rocksdb will use the supplied dbPaths. Refer to the doc
-   * in {@link DbPathPlacementStrategy} to understand each strategy.
-   *
-   * Default: GRADUAL_MOVE_OLD_DATA_TOWARDS_END
-   *
-   * @return the strategy used by this database
-   */
-  DbPathPlacementStrategy dbPathPlacementStrategy();
+  T setDbPathSupplierFactory(DbPathSupplierFactory factory);
 
   /**
    * This specifies the info LOG dir.

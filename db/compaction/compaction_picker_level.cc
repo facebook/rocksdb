@@ -95,8 +95,6 @@ class LevelCompactionBuilder {
 
   void PickFilesMarkedForPeriodicCompaction();
 
-  std::unique_ptr<DbPathSupplier> GetDbPathSupplier();
-
   const std::string& cf_name_;
   VersionStorageInfo* vstorage_;
   CompactionPicker* compaction_picker_;
@@ -369,6 +367,14 @@ Compaction* LevelCompactionBuilder::PickCompaction() {
 }
 
 Compaction* LevelCompactionBuilder::GetCompaction() {
+  const struct DbPathSupplierContext db_path_supplier_ctx {
+    .call_site                           = kDbPathSupplierFactoryCallSiteFromAutoCompaction,
+    .ioptions                            = ioptions_,
+    .moptions                            = mutable_cf_options_,
+    .estimated_file_size                 = 0,
+    .manual_compaction_specified_path_id = 0
+  };
+
   auto c = new Compaction(
       vstorage_, ioptions_, mutable_cf_options_, std::move(compaction_inputs_),
       output_level_,
@@ -380,8 +386,8 @@ Compaction* LevelCompactionBuilder::GetCompaction() {
                          output_level_, vstorage_->base_level()),
       GetCompressionOptions(ioptions_, vstorage_, output_level_),
       /* max_subcompactions */ 0, std::move(grandparents_),
-      GetDbPathSupplier(), is_manual_,
-      start_level_score_, false /* deletion_compaction */, compaction_reason_);
+      ioptions_.db_path_supplier_factory->CreateDbPathSupplier(db_path_supplier_ctx),
+      is_manual_, start_level_score_, false /* deletion_compaction */, compaction_reason_);
 
   // If it's level 0 compaction, make sure we don't execute any other level 0
   // compactions in parallel
@@ -493,14 +499,5 @@ Compaction* LevelCompactionPicker::PickCompaction(
   LevelCompactionBuilder builder(cf_name, vstorage, this, log_buffer,
                                  mutable_cf_options, ioptions_);
   return builder.PickCompaction();
-}
-
-std::unique_ptr<DbPathSupplier> LevelCompactionBuilder::GetDbPathSupplier() {
-  if (ioptions_.db_path_placement_strategy == kRandomlyChoosePath) {
-    return std::unique_ptr<DbPathSupplier>(new RandomDbPathSupplier(ioptions_));
-  }
-
-  return std::unique_ptr<DbPathSupplier>(
-      new LeveledTargetSizeDbPathSupplier(ioptions_, mutable_cf_options_));
 }
 }  // namespace rocksdb
