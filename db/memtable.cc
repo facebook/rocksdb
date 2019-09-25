@@ -11,7 +11,6 @@
 
 #include <algorithm>
 #include <array>
-#include <iostream>
 #include <limits>
 #include <memory>
 #include "db/dbformat.h"
@@ -878,6 +877,7 @@ void MemTable::MultiGet(const ReadOptions& read_options, MultiGetRange* range,
         keys[num_keys++] = &prefixes.back();
       } else {
         temp_range.SkipKey(iter);
+        RecordTick(moptions_.statistics, MEMTABLE_MISS);
       }
     }
     bloom_filter_->MayContain(num_keys, &keys[0], &may_match[0]);
@@ -886,6 +886,7 @@ void MemTable::MultiGet(const ReadOptions& read_options, MultiGetRange* range,
       if (!may_match[idx]) {
         temp_range.SkipKey(iter);
         PERF_COUNTER_ADD(bloom_memtable_miss_count, 1);
+        RecordTick(moptions_.statistics, MEMTABLE_MISS);
       } else {
         PERF_COUNTER_ADD(bloom_memtable_hit_count, 1);
       }
@@ -916,6 +917,9 @@ void MemTable::MultiGet(const ReadOptions& read_options, MultiGetRange* range,
     if (found_final_value) {
       iter->value->PinSelf();
       range->MarkKeyDone(iter);
+      RecordTick(moptions_.statistics, MEMTABLE_HIT);
+    } else {
+        RecordTick(moptions_.statistics, MEMTABLE_MISS);
     }
   }
   PERF_COUNTER_ADD(get_from_memtable_count, 1);
