@@ -20,11 +20,11 @@ namespace rocksdb {
 // to ExternalSstFileIngestionJob.
 class ImportColumnFamilyJob {
  public:
-  ImportColumnFamilyJob(
-      Env* env, VersionSet* versions, ColumnFamilyData* cfd,
-      const ImmutableDBOptions& db_options, const EnvOptions& env_options,
-      const ImportColumnFamilyOptions& import_options,
-      const std::vector<LiveFileMetaData>& metadata)
+  ImportColumnFamilyJob(Env* env, VersionSet* versions, ColumnFamilyData* cfd,
+                        const ImmutableDBOptions& db_options,
+                        const EnvOptions& env_options,
+                        const ImportColumnFamilyOptions& import_options,
+                        const std::vector<LiveFileMetaData>& metadata)
       : env_(env),
         versions_(versions),
         cfd_(cfd),

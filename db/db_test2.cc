@@ -2458,8 +2458,7 @@ TEST_F(DBTest2, PausingManualCompaction1) {
 
   manual_compactions_paused = 0;
   // Now make sure CompactFiles also not run
-  dbfull()->CompactFiles(rocksdb::CompactionOptions(),
-                         files_before_compact, 0);
+  dbfull()->CompactFiles(rocksdb::CompactionOptions(), files_before_compact, 0);
   // Wait for manual compaction to get scheduled and finish
   dbfull()->TEST_WaitForCompact(true);
 
@@ -2510,14 +2509,14 @@ TEST_F(DBTest2, PausingManualCompaction3) {
   Random rnd(301);
   auto generate_files = [&]() {
     for (int i = 0; i < options.num_levels; i++) {
-      for (int j = 0; j < options.num_levels-i+1; j++) {
+      for (int j = 0; j < options.num_levels - i + 1; j++) {
         for (int k = 0; k < 1000; k++) {
           ASSERT_OK(Put(Key(k + j * 1000), RandomString(&rnd, 50)));
         }
         Flush();
       }
 
-      for (int l = 1; l < options.num_levels-i; l++) {
+      for (int l = 1; l < options.num_levels - i; l++) {
         MoveFilesToLevel(l);
       }
     }
@@ -2530,9 +2529,8 @@ TEST_F(DBTest2, PausingManualCompaction3) {
 #endif  // !ROCKSDB_LITE
   int run_manual_compactions = 0;
   rocksdb::SyncPoint::GetInstance()->SetCallBack(
-      "CompactionJob::Run():PausingManualCompaction:1", [&](void* /*arg*/) {
-        run_manual_compactions++;
-      });
+      "CompactionJob::Run():PausingManualCompaction:1",
+      [&](void* /*arg*/) { run_manual_compactions++; });
   rocksdb::SyncPoint::GetInstance()->EnableProcessing();
 
   dbfull()->DisableManualCompaction();
@@ -2565,14 +2563,14 @@ TEST_F(DBTest2, PausingManualCompaction4) {
   Random rnd(301);
   auto generate_files = [&]() {
     for (int i = 0; i < options.num_levels; i++) {
-      for (int j = 0; j < options.num_levels-i+1; j++) {
+      for (int j = 0; j < options.num_levels - i + 1; j++) {
         for (int k = 0; k < 1000; k++) {
           ASSERT_OK(Put(Key(k + j * 1000), RandomString(&rnd, 50)));
         }
         Flush();
       }
 
-      for (int l = 1; l < options.num_levels-i; l++) {
+      for (int l = 1; l < options.num_levels - i; l++) {
         MoveFilesToLevel(l);
       }
     }

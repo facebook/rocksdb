@@ -2,7 +2,6 @@
 package org.rocksdb;
 
 public interface MutableDBOptionsInterface<T extends MutableDBOptionsInterface<T>> {
-
   /**
    * Specifies the maximum number of concurrent background jobs (both flushes
    * and compactions combined).

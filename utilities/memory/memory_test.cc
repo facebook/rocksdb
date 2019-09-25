@@ -57,6 +57,8 @@ class MemoryTest : public testing::Test {
     cache_set->clear();
 
     for (auto* db : dbs) {
+      assert(db);
+
       // Cache from DBImpl
       StackableDB* sdb = dynamic_cast<StackableDB*>(db);
       DBImpl* db_impl = dynamic_cast<DBImpl*>(sdb ? sdb->GetBaseDB() : db);

@@ -52,7 +52,7 @@ struct FileDescriptor {
         smallest_seqno(_smallest_seqno),
         largest_seqno(_largest_seqno) {}
 
-  FileDescriptor(const FileDescriptor& fd) { *this=fd; }
+  FileDescriptor(const FileDescriptor& fd) { *this = fd; }
 
   FileDescriptor& operator=(const FileDescriptor& fd) {
     table_reader = fd.table_reader;
@@ -191,6 +191,10 @@ struct LevelFilesBrief {
   }
 };
 
+// The state of a DB at any given time is referred to as a Version.
+// Any modification to the Version is considered a Version Edit. A Version is
+// constructed by joining a sequence of Version Edits. Version Edits are written
+// to the MANIFEST file.
 class VersionEdit {
  public:
   VersionEdit() { Clear(); }

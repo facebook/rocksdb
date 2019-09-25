@@ -8,9 +8,9 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
 #include <cctype>
+#include <cinttypes>
 #include <cstring>
 #include <unordered_map>
-#include <cinttypes>
 
 #include "cache/lru_cache.h"
 #include "cache/sharded_cache.h"
@@ -71,7 +71,6 @@ TEST_F(OptionsTest, GetOptionsFromMapTest) {
       {"target_file_size_base", "12"},
       {"target_file_size_multiplier", "13"},
       {"max_bytes_for_level_base", "14"},
-      {"snap_refresh_nanos", "1000000000"},
       {"level_compaction_dynamic_level_bytes", "true"},
       {"max_bytes_for_level_multiplier", "15.0"},
       {"max_bytes_for_level_multiplier_additional", "16:17:18"},
@@ -183,7 +182,6 @@ TEST_F(OptionsTest, GetOptionsFromMapTest) {
   ASSERT_EQ(new_cf_opt.target_file_size_base, static_cast<uint64_t>(12));
   ASSERT_EQ(new_cf_opt.target_file_size_multiplier, 13);
   ASSERT_EQ(new_cf_opt.max_bytes_for_level_base, 14U);
-  ASSERT_EQ(new_cf_opt.snap_refresh_nanos, 1000000000U);
   ASSERT_EQ(new_cf_opt.level_compaction_dynamic_level_bytes, true);
   ASSERT_EQ(new_cf_opt.max_bytes_for_level_multiplier, 15.0);
   ASSERT_EQ(new_cf_opt.max_bytes_for_level_multiplier_additional.size(), 3U);

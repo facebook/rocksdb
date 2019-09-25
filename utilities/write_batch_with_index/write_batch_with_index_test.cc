@@ -1308,7 +1308,6 @@ TEST_F(WriteBatchWithIndexTest, TestGetFromBatchAndDBMerge2) {
   DestroyDB(dbname, options);
 }
 
-
 TEST_F(WriteBatchWithIndexTest, TestGetFromBatchAndDBMerge3) {
   DB* db;
   Options options;

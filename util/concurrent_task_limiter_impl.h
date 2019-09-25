@@ -24,8 +24,8 @@ class ConcurrentTaskLimiterImpl : public ConcurrentTaskLimiter {
                                      int32_t max_outstanding_task);
   // No copying allowed
   ConcurrentTaskLimiterImpl(const ConcurrentTaskLimiterImpl&) = delete;
-  ConcurrentTaskLimiterImpl& operator=(
-      const ConcurrentTaskLimiterImpl&) = delete;
+  ConcurrentTaskLimiterImpl& operator=(const ConcurrentTaskLimiterImpl&) =
+      delete;
 
   virtual ~ConcurrentTaskLimiterImpl();
 
