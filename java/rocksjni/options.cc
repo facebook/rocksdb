@@ -35,6 +35,7 @@
 #include "rocksdb/statistics.h"
 #include "rocksdb/table.h"
 #include "utilities/merge_operators.h"
+#include "db/db_path_supplier.h"
 
 /*
  * Class:     org_rocksdb_Options
