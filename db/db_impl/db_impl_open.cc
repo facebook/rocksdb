@@ -1053,6 +1053,8 @@ Status DBImpl::RecoverLogFiles(const std::vector<uint64_t>& log_numbers,
       versions_->MarkFileNumberUsed(max_log_number + 1);
       status = versions_->LogAndApply(cfd, *cfd->GetLatestMutableCFOptions(),
                                       edit, &mutex_);
+      TEST_SYNC_POINT_CALLBACK("DBImpl::RecoverLogFiles:AfterLogAndApply",
+                               nullptr);
       if (!status.ok()) {
         // Recovery failed
         break;
