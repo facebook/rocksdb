@@ -134,6 +134,10 @@ class DbPathSupplierFactory {
   virtual std::unique_ptr<DbPathSupplier> CreateDbPathSupplier(
       const DbPathSupplierContext& ctx);
 
+  // Sanity check for cf_paths and db_paths
+  // in options passed by the user. Different
+  // factories may have different requirements
+  // for the paths.
   virtual Status CfPathsSanityCheck(
       const ColumnFamilyOptions& cf_options,
       const DBOptions& db_options);
@@ -175,6 +179,11 @@ class GradualMoveOldDataDbPathSupplierFactory: public DbPathSupplierFactory {
     return CfPathsSanityCheckStatic(cf_options, db_options);
   }
 
+  // We need the sanity check function to be static here because
+  // there's a place where the sanity check is called before a
+  // factory instance is set in the options. Since this class
+  // is the default factory, we'll fall back to this static check
+  // when the factory is not set yet.
   static Status CfPathsSanityCheckStatic(
       const ColumnFamilyOptions& cf_options,
       const DBOptions& db_options);
@@ -216,8 +225,8 @@ class RandomDbPathSupplierFactory: public DbPathSupplierFactory {
   const char* Name() override { return "RandomDbPathSupplierFactory"; }
 };
 
+// Static factory methods
 extern DbPathSupplierFactory* NewGradualMoveOldDataDbPathSupplierFactory();
-
 extern DbPathSupplierFactory* NewRandomDbPathSupplierFactory();
 
 }
