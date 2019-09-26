@@ -584,8 +584,10 @@ void Java_org_rocksdb_Options_dbPaths(
  */
 void Java_org_rocksdb_Options_setDbPathSupplierFactory(
     JNIEnv* /*env*/, jobject /*jobj*/, jlong jhandle, jlong jfactory_handle) {
-  auto* factory = reinterpret_cast<rocksdb::DbPathSupplierFactory*>(jfactory_handle);
-  reinterpret_cast<rocksdb::Options*>(jhandle)->db_path_supplier_factory.reset(factory);
+  auto* factory_shared_ptr =
+    reinterpret_cast<std::shared_ptr<rocksdb::DbPathSupplierFactory>*>(jfactory_handle);
+  auto* option = reinterpret_cast<rocksdb::Options*>(jhandle);
+  option->db_path_supplier_factory = *factory_shared_ptr;
 }
 
 /*
@@ -5096,8 +5098,10 @@ void Java_org_rocksdb_DBOptions_dbPaths(
  */
 void Java_org_rocksdb_DBOptions_setDbPathSupplierFactory(
     JNIEnv* /*env*/, jobject /*jobj*/, jlong jhandle, jlong jfactory_handle) {
-  auto* factory = reinterpret_cast<rocksdb::DbPathSupplierFactory*>(jfactory_handle);
-  reinterpret_cast<rocksdb::DBOptions*>(jhandle)->db_path_supplier_factory.reset(factory);
+  auto* factory_shared_ptr =
+    reinterpret_cast<std::shared_ptr<rocksdb::DbPathSupplierFactory>*>(jfactory_handle);
+  auto* option = reinterpret_cast<rocksdb::DBOptions*>(jhandle);
+  option->db_path_supplier_factory = *factory_shared_ptr;
 }
 
 /*

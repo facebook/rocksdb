@@ -25,7 +25,9 @@
 jlong Java_org_rocksdb_GradualMoveOldDataDbPathSupplierFactory_newFactoryObject(
     JNIEnv* /* env */, jclass /* jclazz */) {
   auto* factory = rocksdb::NewGradualMoveOldDataDbPathSupplierFactory();
-  return reinterpret_cast<jlong>(factory);
+  auto* factory_shared_ptr =
+    new std::shared_ptr<rocksdb::GradualMoveOldDataDbPathSupplierFactory>(factory);
+  return reinterpret_cast<jlong>(factory_shared_ptr);
 }
 
 /*
@@ -35,9 +37,9 @@ jlong Java_org_rocksdb_GradualMoveOldDataDbPathSupplierFactory_newFactoryObject(
  */
 void Java_org_rocksdb_GradualMoveOldDataDbPathSupplierFactory_disposeInternal(
     JNIEnv* /* env */, jobject /* jobject */, jlong jhandle) {
-  auto* factory =
-      reinterpret_cast<rocksdb::GradualMoveOldDataDbPathSupplierFactory*>(jhandle);
-  delete factory;
+  auto* factory_shared_ptr =
+      reinterpret_cast<std::shared_ptr<rocksdb::GradualMoveOldDataDbPathSupplierFactory>*>(jhandle);
+  delete factory_shared_ptr;
 }
 
 /************************************************************
@@ -54,7 +56,9 @@ void Java_org_rocksdb_GradualMoveOldDataDbPathSupplierFactory_disposeInternal(
 jlong Java_org_rocksdb_RandomDbPathSupplierFactory_newFactoryObject(
     JNIEnv* /* env */, jclass /* jclazz */) {
   auto* factory = rocksdb::NewRandomDbPathSupplierFactory();
-  return reinterpret_cast<jlong>(factory);
+  auto* factory_shared_ptr =
+    new std::shared_ptr<rocksdb::RandomDbPathSupplierFactory>(factory);
+  return reinterpret_cast<jlong>(factory_shared_ptr);
 }
 
 /*
@@ -64,7 +68,7 @@ jlong Java_org_rocksdb_RandomDbPathSupplierFactory_newFactoryObject(
  */
 void Java_org_rocksdb_RandomDbPathSupplierFactory_disposeInternal(
     JNIEnv* /* env */, jobject /* jobject */, jlong jhandle) {
-  auto* factory =
-      reinterpret_cast<rocksdb::RandomDbPathSupplierFactory*>(jhandle);
-  delete factory;
+  auto* factory_shared_ptr =
+      reinterpret_cast<std::shared_ptr<rocksdb::RandomDbPathSupplierFactory>*>(jhandle);
+  delete factory_shared_ptr;
 }
