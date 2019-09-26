@@ -212,9 +212,9 @@ std::unique_ptr<DbPathSupplier> GradualMoveOldDataDbPathSupplierFactory::CreateD
       // greater than the cf_paths array. we're just silently giving path 0 here.
       if (ctx.manual_compaction_specified_path_id >= ctx.ioptions.cf_paths.size()) {
         ret.reset(new FixedDbPathSupplier(ctx.ioptions, 0));
+      } else {
+        ret.reset(new FixedDbPathSupplier(ctx.ioptions, ctx.manual_compaction_specified_path_id));
       }
-
-      ret.reset(new FixedDbPathSupplier(ctx.ioptions, ctx.manual_compaction_specified_path_id));
       break;
 
     default:
