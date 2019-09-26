@@ -16,6 +16,7 @@
 #include "port/stack_trace.h"
 #include "rocksdb/persistent_cache.h"
 #include "rocksdb/wal_filter.h"
+#include "test_util/fault_injection_test_env.h"
 
 namespace rocksdb {
 
@@ -4070,6 +4071,65 @@ TEST_F(DBTest2, RowCacheSnapshot) {
   db_->ReleaseSnapshot(s3);
 }
 #endif  // ROCKSDB_LITE
+
+// Disabled but the test is failing.
+// When DB is reopened with multiple column families, the manifest file
+// is written after the first CF is flushed, and it is written again
+// after each flush. If DB crashes between the flushes, the flushed CF
+// flushed will pass the latest log file, and now we require it not
+// to be corrupted, and triggering a corruption report.
+// We need to fix the bug and enable the test.
+TEST_F(DBTest2, DISABLED_CrashInRecoveryMultipleCF) {
+  Options options = CurrentOptions();
+  options.create_if_missing = true;
+  options.wal_recovery_mode = WALRecoveryMode::kPointInTimeRecovery;
+  CreateAndReopenWithCF({"pikachu"}, options);
+  ASSERT_OK(Put("foo", "bar"));
+  ASSERT_OK(Flush());
+  ASSERT_OK(Put(1, "foo", "bar"));
+  ASSERT_OK(Flush(1));
+  ASSERT_OK(Put("foo", "bar"));
+  ASSERT_OK(Put(1, "foo", "bar"));
+  // The value is large enough to be divided to two blocks.
+  std::string large_value(400, ' ');
+  ASSERT_OK(Put("foo1", large_value));
+  ASSERT_OK(Put("foo2", large_value));
+  Close();
+
+  // Corrupt the log file in the middle, so that it is not corrupted
+  // in the tail.
+  std::vector<std::string> filenames;
+  ASSERT_OK(env_->GetChildren(dbname_, &filenames));
+  for (const auto& f : filenames) {
+    uint64_t number;
+    FileType type;
+    if (ParseFileName(f, &number, &type) && type == FileType::kLogFile) {
+      std::string fname = dbname_ + "/" + f;
+      std::string file_content;
+      ASSERT_OK(ReadFileToString(env_, fname, &file_content));
+      file_content[400] = 'h';
+      file_content[401] = 'a';
+      ASSERT_OK(WriteStringToFile(env_, file_content, fname));
+      break;
+    }
+  }
+
+  // Reopen and freeze the file system after the first manifest write.
+  FaultInjectionTestEnv fit_env(options.env);
+  options.env = &fit_env;
+  rocksdb::SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::RecoverLogFiles:AfterLogAndApply",
+      [&](void* /*arg*/) { fit_env.SetFilesystemActive(false); });
+  rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+  ASSERT_NOK(TryReopenWithColumnFamilies({"default", "pikachu"}, options));
+  rocksdb::SyncPoint::GetInstance()->DisableProcessing();
+
+  fit_env.SetFilesystemActive(true);
+  // If we continue using failure ingestion Env, it will conplain something
+  // when renaming current file, which is not expected. Need to investigate why.
+  options.env = env_;
+  ASSERT_OK(TryReopenWithColumnFamilies({"default", "pikachu"}, options));
+}
 }  // namespace rocksdb
 
 #ifdef ROCKSDB_UNITTESTS_WITH_CUSTOM_OBJECTS_FROM_STATIC_LIBS
