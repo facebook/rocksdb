@@ -442,6 +442,12 @@ class StackableDB : public DB {
     return db_->DefaultColumnFamily();
   }
 
+#ifndef ROCKSDB_LITE
+  Status TryCatchUpWithPrimary() override {
+    return db_->TryCatchUpWithPrimary();
+  }
+#endif  // ROCKSDB_LITE
+
  protected:
   DB* db_;
   std::shared_ptr<DB> shared_db_ptr_;
