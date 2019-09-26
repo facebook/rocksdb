@@ -2498,12 +2498,14 @@ class StressTest {
       for (uint64_t i = 0; i < FLAGS_num_iterations && iter->Valid(); i++) {
         if (thread->rand.OneIn(2)) {
           iter->Next();
-          if (cmp_iter->Valid()) {
+          if (!diverged) {
+            assert(cmp_iter->Valid());
             cmp_iter->Next();
           }
         } else {
           iter->Prev();
-          if (cmp_iter->Valid()) {
+          if (!diverged) {
+            assert(cmp_iter->Valid());
             cmp_iter->Prev();
           }
         }
@@ -3953,7 +3955,7 @@ class BatchedOpsStressTest : public StressTest {
         fprintf(stderr, "error : inconsistent values for key %s: %s, %s\n",
                 key.ToString(true).c_str(), StringToHex(values[0]).c_str(),
                 StringToHex(values[i]).c_str());
-        // we continue after error rather than OAexiting so that we can
+        // we continue after error rather than exiting so that we can
         // find more errors if any
       }
     }
