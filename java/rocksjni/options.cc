@@ -584,7 +584,7 @@ void Java_org_rocksdb_Options_dbPaths(
  */
 void Java_org_rocksdb_Options_setDbPathSupplierFactory(
     JNIEnv* /*env*/, jobject /*jobj*/, jlong jhandle, jlong jfactory_handle) {
-  auto* factory = reinterpret_cast<rocksdb::DbPathSupplierFactory*>(jhandle);
+  auto* factory = reinterpret_cast<rocksdb::DbPathSupplierFactory*>(jfactory_handle);
   reinterpret_cast<rocksdb::Options*>(jhandle)->db_path_supplier_factory.reset(factory);
 }
 
