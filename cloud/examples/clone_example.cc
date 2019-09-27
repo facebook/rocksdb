@@ -64,8 +64,9 @@ Status CloneDB(const std::string& clone_name, const std::string& src_bucket,
   // No persistent cache
   std::string persistent_cache = "";
 
+  const std::string bucketPrefix = "rockset.";
   // create a bucket name for debugging purposes
-  const std::string bucketName = "rockset." + kBucketSuffix;
+  const std::string bucketName = bucketPrefix + kBucketSuffix;
 
   // open clone
   DBCloud* db;
@@ -102,9 +103,14 @@ int main() {
   char* user = getenv("USER");
   kBucketSuffix.append(user);
 
+  const std::string bucketPrefix = "rockset.";
   // create a bucket name for debugging purposes
-  const std::string bucketName = "rockset." + kBucketSuffix;
+  const std::string bucketName = bucketPrefix + kBucketSuffix;
 
+  // Needed if using bucket prefix other than the default "rockset."
+  cloud_env_options.src_bucket.SetBucketName(kBucketSuffix,bucketPrefix);
+  cloud_env_options.dest_bucket.SetBucketName(kBucketSuffix,bucketPrefix);
+  
   // Create a new AWS cloud env Status
   CloudEnv* cenv;
   Status s =
