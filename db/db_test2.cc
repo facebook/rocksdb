@@ -4154,7 +4154,7 @@ TEST_F(DBTest2, CrashInRecoveryMultipleCF) {
   FaultInjectionTestEnv fit_env(options.env);
   options.env = &fit_env;
   rocksdb::SyncPoint::GetInstance()->SetCallBack(
-      "DBImpl::RecoverLogFiles:AfterLogAndApply",
+      "VersionSet::ProcessManifestWrites:BeforeWriteLastVersionEdit:0",
       [&](void* /*arg*/) { fit_env.SetFilesystemActive(false); });
   rocksdb::SyncPoint::GetInstance()->EnableProcessing();
   ASSERT_NOK(TryReopenWithColumnFamilies({"default", "pikachu"}, options));
