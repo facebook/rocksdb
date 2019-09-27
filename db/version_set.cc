@@ -935,7 +935,8 @@ class LevelIterator final : public InternalIterator {
   }
 
  private:
-  void SkipEmptyFileForward();
+  // Return true if at least one invalid file is seen and skipped.
+  bool SkipEmptyFileForward();
   void SkipEmptyFileBackward();
   void SetFileIterator(InternalIterator* iter);
   void InitFileIterator(size_t new_file_index);
@@ -1043,7 +1044,26 @@ void LevelIterator::Seek(const Slice& target) {
   if (file_iter_.iter() != nullptr) {
     file_iter_.Seek(target);
   }
-  SkipEmptyFileForward();
+  if (SkipEmptyFileForward() && prefix_extractor_ != nullptr &&
+      file_iter_.iter() != nullptr && file_iter_.Valid()) {
+    // We've skipped the file we initially positioned to. In the prefix
+    // seek case, it is likely that the file is skipped because of
+    // prefix bloom or hash, where more keys are skipped. We then check
+    // the current key and invalidate the iterator if the prefix is
+    // already passed. This avoids LevelIterator to skip keys. A side
+    // benefit will be that it invalidate the iterator earlier so that
+    // the upper level merging iterator needs to merge fewer child
+    // iterators.
+    Slice target_user_key = ExtractUserKey(target);
+    Slice file_user_key = ExtractUserKey(file_iter_.key());
+    if (prefix_extractor_->InDomain(target_user_key) &&
+        (!prefix_extractor_->InDomain(file_user_key) ||
+         user_comparator_.Compare(
+             prefix_extractor_->Transform(target_user_key),
+             prefix_extractor_->Transform(file_user_key)) != 0)) {
+      SetFileIterator(nullptr);
+    }
+  }
   CheckMayBeOutOfLowerBound();
 }
 
@@ -1097,25 +1117,28 @@ void LevelIterator::Prev() {
   SkipEmptyFileBackward();
 }
 
-void LevelIterator::SkipEmptyFileForward() {
+bool LevelIterator::SkipEmptyFileForward() {
+  bool seen_empty_file = false;
   while (file_iter_.iter() == nullptr ||
          (!file_iter_.Valid() && file_iter_.status().ok() &&
           !file_iter_.iter()->IsOutOfBound())) {
+    seen_empty_file = true;
     // Move to next file
     if (file_index_ >= flevel_->num_files - 1) {
       // Already at the last file
       SetFileIterator(nullptr);
-      return;
+      break;
     }
     if (KeyReachedUpperBound(file_smallest_key(file_index_ + 1))) {
       SetFileIterator(nullptr);
-      return;
+      break;
     }
     InitFileIterator(file_index_ + 1);
     if (file_iter_.iter() != nullptr) {
       file_iter_.SeekToFirst();
     }
   }
+  return seen_empty_file;
 }
 
 void LevelIterator::SkipEmptyFileBackward() {

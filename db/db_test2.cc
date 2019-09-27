@@ -4025,6 +4025,40 @@ TEST_F(DBTest2, PrefixBloomReseek) {
   delete iter;
 }
 
+TEST_F(DBTest2, PrefixBloomFilteredOut) {
+  Options options = CurrentOptions();
+  options.create_if_missing = true;
+  options.prefix_extractor.reset(NewCappedPrefixTransform(3));
+  BlockBasedTableOptions bbto;
+  bbto.filter_policy.reset(NewBloomFilterPolicy(10, false));
+  bbto.whole_key_filtering = false;
+  options.table_factory.reset(NewBlockBasedTableFactory(bbto));
+  DestroyAndReopen(options);
+
+  // Construct two L1 files with keys:
+  // f1:[aaa1 ccc1] f2:[ddd0]
+  ASSERT_OK(Put("aaa1", ""));
+  ASSERT_OK(Put("ccc1", ""));
+  ASSERT_OK(Flush());
+  ASSERT_OK(Put("ddd0", ""));
+  ASSERT_OK(Flush());
+  CompactRangeOptions cro;
+  cro.bottommost_level_compaction = BottommostLevelCompaction::kSkip;
+  ASSERT_OK(db_->CompactRange(cro, nullptr, nullptr));
+
+  Iterator* iter = db_->NewIterator(ReadOptions());
+
+  // Bloom filter is filterd out by f1.
+  // This is just one of several valid position following the contract.
+  // Postioning to ccc1 or ddd0 is also valid. This is just to validate
+  // the behavior of the current implementation. If underlying implementation
+  // changes, the test might fail here.
+  iter->Seek("bbb1");
+  ASSERT_FALSE(iter->Valid());
+
+  delete iter;
+}
+
 #ifndef ROCKSDB_LITE
 TEST_F(DBTest2, RowCacheSnapshot) {
   Options options = CurrentOptions();
