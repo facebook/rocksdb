@@ -1051,19 +1051,29 @@ Status DBImpl::RecoverLogFiles(const std::vector<uint64_t>& log_numbers,
       if (flushed || cfd->mem()->GetFirstSequenceNumber() == 0) {
         edit->SetLogNumber(max_log_number + 1);
       }
+      TEST_SYNC_POINT_CALLBACK("DBImpl::RecoverLogFiles:AfterLogAndApply",
+                               nullptr);
+    }
+    if (status.ok()) {
       // we must mark the next log number as used, even though it's
       // not actually used. that is because VersionSet assumes
       // VersionSet::next_file_number_ always to be strictly greater than any
       // log number
       versions_->MarkFileNumberUsed(max_log_number + 1);
-      status = versions_->LogAndApply(cfd, *cfd->GetLatestMutableCFOptions(),
-                                      edit, &mutex_);
-      TEST_SYNC_POINT_CALLBACK("DBImpl::RecoverLogFiles:AfterLogAndApply",
-                               nullptr);
-      if (!status.ok()) {
-        // Recovery failed
-        break;
+
+      autovector<ColumnFamilyData*> cfds;
+      autovector<const MutableCFOptions*> cf_opts;
+      autovector<autovector<VersionEdit*>> edit_lists;
+      for (auto* cfd : *versions_->GetColumnFamilySet()) {
+        cfds.push_back(cfd);
+        cf_opts.push_back(cfd->GetLatestMutableCFOptions());
+        auto iter = version_edits.find(cfd->GetID());
+        assert(iter != version_edits.end());
+        edit_lists.push_back({&iter->second});
       }
+      status = versions_->LogAndApply(cfds, cf_opts, edit_lists, &mutex_,
+                                      directories_.GetDbDir(),
+                                      /*new_descriptor_log=*/true);
     }
   }
 

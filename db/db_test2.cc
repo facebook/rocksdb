@@ -4109,14 +4109,13 @@ TEST_F(DBTest2, RowCacheSnapshot) {
 }
 #endif  // ROCKSDB_LITE
 
-// Disabled but the test is failing.
 // When DB is reopened with multiple column families, the manifest file
 // is written after the first CF is flushed, and it is written again
 // after each flush. If DB crashes between the flushes, the flushed CF
 // flushed will pass the latest log file, and now we require it not
 // to be corrupted, and triggering a corruption report.
 // We need to fix the bug and enable the test.
-TEST_F(DBTest2, DISABLED_CrashInRecoveryMultipleCF) {
+TEST_F(DBTest2, CrashInRecoveryMultipleCF) {
   Options options = CurrentOptions();
   options.create_if_missing = true;
   options.wal_recovery_mode = WALRecoveryMode::kPointInTimeRecovery;
