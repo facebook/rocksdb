@@ -1051,8 +1051,6 @@ Status DBImpl::RecoverLogFiles(const std::vector<uint64_t>& log_numbers,
       if (flushed || cfd->mem()->GetFirstSequenceNumber() == 0) {
         edit->SetLogNumber(max_log_number + 1);
       }
-      TEST_SYNC_POINT_CALLBACK("DBImpl::RecoverLogFiles:AfterLogAndApply",
-                               nullptr);
     }
     if (status.ok()) {
       // we must mark the next log number as used, even though it's
