@@ -4285,9 +4285,12 @@ class CfConsistencyStressTest : public StressTest {
                                 const ReadOptions& readoptions,
                                 const std::vector<int>& rand_column_families,
                                 const std::vector<int64_t>& rand_keys) {
+    size_t prefix_to_use =
+        (FLAGS_prefix_size < 0) ? 7 : static_cast<size_t>(FLAGS_prefix_size);
+
     std::string key_str = Key(rand_keys[0]);
     Slice key = key_str;
-    Slice prefix = Slice(key.data(), FLAGS_prefix_size);
+    Slice prefix = Slice(key.data(), prefix_to_use);
 
     std::string upper_bound;
     Slice ub_slice;
@@ -4305,7 +4308,7 @@ class CfConsistencyStressTest : public StressTest {
          iter->Next()) {
       ++count;
     }
-    assert(count <= (static_cast<long>(1) << ((8 - FLAGS_prefix_size) * 8)));
+    assert(count <= (static_cast<long>(1) << ((8 - prefix_to_use) * 8)));
     Status s = iter->status();
     if (s.ok()) {
       thread->stats.AddPrefixes(1, count);
