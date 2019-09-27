@@ -122,8 +122,8 @@ inline bool DynamicBloom::MayContain(const Slice& key) const {
 
 inline void DynamicBloom::MayContain(int num_keys, Slice** keys,
                                      bool* may_match) const {
-  std::array<int, MultiGetContext::MAX_BATCH_SIZE> hashes;
-  std::array<int, MultiGetContext::MAX_BATCH_SIZE> byte_offsets;
+  std::array<uint32_t, MultiGetContext::MAX_BATCH_SIZE> hashes;
+  std::array<uint32_t, MultiGetContext::MAX_BATCH_SIZE> byte_offsets;
   for (int i = 0; i < num_keys; ++i) {
     hashes[i] = BloomHash(*keys[i]);
     size_t a = fastrange32(kLen, hashes[i]);
