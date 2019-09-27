@@ -6,7 +6,7 @@
 #pragma once
 
 #include <string>
-
+#include <array>
 #include "port/port.h"
 #include "rocksdb/slice.h"
 #include "table/multiget_context.h"
@@ -122,8 +122,8 @@ inline bool DynamicBloom::MayContain(const Slice& key) const {
 
 inline void DynamicBloom::MayContain(int num_keys, Slice** keys,
                                      bool* may_match) const {
-  uint32_t hashes[MultiGetContext::MAX_BATCH_SIZE];
-  size_t byte_offsets[MultiGetContext::MAX_BATCH_SIZE];
+  std::array<int, MultiGetContext::MAX_BATCH_SIZE> hashes;
+  std::array<int, MultiGetContext::MAX_BATCH_SIZE> byte_offsets;
   for (int i = 0; i < num_keys; ++i) {
     hashes[i] = BloomHash(*keys[i]);
     size_t a = fastrange32(kLen, hashes[i]);
