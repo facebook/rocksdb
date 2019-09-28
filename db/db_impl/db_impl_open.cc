@@ -228,6 +228,11 @@ Status DBImpl::ValidateOptions(const DBOptions& db_options) {
         "unordered_write is incompatible with enable_pipelined_write");
   }
 
+  if (db_options.atomic_flush && db_options.enable_pipelined_write) {
+    return Status::InvalidArgument(
+        "atomic_flush is incompatible with enable_pipelined_write");
+  }
+
   return Status::OK();
 }
 
