@@ -342,6 +342,13 @@ ColumnFamilyOptions SanitizeOptions(const ImmutableDBOptions& db_options,
     result.max_compaction_bytes = result.target_file_size_base * 25;
   }
 
+  if (result.compaction_style == kCompactionStyleLevel &&
+      (result.compaction_filter != nullptr ||
+       result.compaction_filter_factory != nullptr) &&
+      result.periodic_compaction_seconds == 0) {
+    result.periodic_compaction_seconds = 30 * 24 * 60 * 60;
+  }
+
   return result;
 }
 
@@ -1181,11 +1188,6 @@ Status ColumnFamilyData::ValidateOptions(
   }
 
   if (cf_options.periodic_compaction_seconds > 0) {
-    if (db_options.max_open_files != -1) {
-      return Status::NotSupported(
-          "Periodic Compaction is only supported when files are always "
-          "kept open (set max_open_files = -1). ");
-    }
     if (cf_options.table_factory->Name() != BlockBasedTableFactory().Name()) {
       return Status::NotSupported(
           "Periodic Compaction is only supported in "
