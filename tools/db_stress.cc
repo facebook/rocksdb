@@ -2491,8 +2491,7 @@ class StressTest {
       ReadOptions cmp_ro;
       cmp_ro.snapshot = snapshot;
       cmp_ro.total_order_seek = true;
-      std::unique_ptr<Iterator> cmp_iter(
-          db_->NewIterator(readoptionscopy, cfh));
+      std::unique_ptr<Iterator> cmp_iter(db_->NewIterator(cmp_ro, cfh));
       bool diverged = false;
 
       iter->Seek(key);
