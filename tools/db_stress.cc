@@ -3286,7 +3286,7 @@ class NonBatchedOpsStressTest : public StressTest {
     int64_t start = keys_per_thread * thread->tid;
     int64_t end = start + keys_per_thread;
     uint64_t prefix_to_use =
-        (FLAGS_prefix_size < 0) ? 0 : static_cast<size_t>(FLAGS_prefix_size);
+        (FLAGS_prefix_size < 0) ? 1 : static_cast<size_t>(FLAGS_prefix_size);
     if (thread->tid == shared->GetNumThreads() - 1) {
       end = max_key;
     }
