@@ -2513,9 +2513,13 @@ class StressTest {
       return;
     }
 
-    if (ro.iterate_lower_bound != nullptr) {
-      // Lower bound would create a lot of discrepency for now so disabling
-      // the verification for now.
+    if (ro.iterate_lower_bound != nullptr &&
+        (options_.comparator->Compare(*ro.iterate_lower_bound, seek_key) >= 0 ||
+         (ro.iterate_upper_bound != nullptr &&
+          options_.comparator->Compare(*ro.iterate_lower_bound,
+                                       *ro.iterate_upper_bound) >= 0))) {
+      // Lower bound behavior is not well defined if it is larger than
+      // seek key or upper bound. Disable the check for now.
       *diverged = true;
       return;
     }
