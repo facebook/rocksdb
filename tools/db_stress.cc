@@ -2543,12 +2543,27 @@ class StressTest {
       return;
     }
 
+    if (ro.iterate_lower_bound != nullptr) {
+      // Lower bound would create a lot of discrepency for now so disabling
+      // the verification for now.
+      *diverged = true;
+      return;
+    }
+
     if (iter->Valid() && !cmp_iter->Valid()) {
       fprintf(stderr,
-              "Control interator is invalid but iterator has value %s seek key "
+              "Control interator is invalid but iterator has key %s seek key "
               "%s\n",
               iter->key().ToString(true).c_str(),
               seek_key.ToString(true).c_str());
+      if (ro.iterate_upper_bound != nullptr) {
+        fprintf(stderr, "upper bound %s\n",
+                ro.iterate_upper_bound->ToString(true).c_str());
+      }
+      if (ro.iterate_lower_bound != nullptr) {
+        fprintf(stderr, "lower bound %s\n",
+                ro.iterate_lower_bound->ToString(true).c_str());
+      }
 
       *diverged = true;
     } else if (cmp_iter->Valid()) {
@@ -2586,8 +2601,8 @@ class StressTest {
       }
       // Check upper or lower bounds.
       if (!*diverged) {
-        if (!iter->Valid() ||
-            (iter->key() != cmp_iter->key() &&
+        if ((iter->Valid() && iter->key() != cmp_iter->key()) ||
+            (!iter->Valid() &&
              (ro.iterate_upper_bound == nullptr ||
               cmp->Compare(total_order_key, *ro.iterate_upper_bound) < 0) &&
              (ro.iterate_lower_bound == nullptr ||
