@@ -2372,6 +2372,11 @@ class StressTest {
       }
 #endif
     }
+    while (!thread->snapshot_queue.empty()) {
+      db_->ReleaseSnapshot(thread->snapshot_queue.front().second.snapshot);
+      delete thread->snapshot_queue.front().second.key_vec;
+      thread->snapshot_queue.pop();
+    }
 
     thread->stats.Stop();
   }
@@ -3280,6 +3285,8 @@ class NonBatchedOpsStressTest : public StressTest {
     const int64_t keys_per_thread = max_key / shared->GetNumThreads();
     int64_t start = keys_per_thread * thread->tid;
     int64_t end = start + keys_per_thread;
+    uint64_t prefix_to_use =
+        (FLAGS_prefix_size < 0) ? 0 : static_cast<size_t>(FLAGS_prefix_size);
     if (thread->tid == shared->GetNumThreads() - 1) {
       end = max_key;
     }
@@ -3298,8 +3305,7 @@ class NonBatchedOpsStressTest : public StressTest {
           }
           // TODO(ljin): update "long" to uint64_t
           // Reseek when the prefix changes
-          if (i % (static_cast<int64_t>(1) << 8 * (8 - FLAGS_prefix_size)) ==
-              0) {
+          if (i % (static_cast<int64_t>(1) << 8 * (8 - prefix_to_use)) == 0) {
             iter->Seek(Key(i));
           }
           std::string from_db;
@@ -4042,6 +4048,8 @@ class BatchedOpsStressTest : public StressTest {
   virtual Status TestPrefixScan(ThreadState* thread, const ReadOptions& readoptions,
       const std::vector<int>& rand_column_families,
       const std::vector<int64_t>& rand_keys) {
+    size_t prefix_to_use =
+        (FLAGS_prefix_size < 0) ? 7 : static_cast<size_t>(FLAGS_prefix_size);
     std::string key_str = Key(rand_keys[0]);
     Slice key = key_str;
     auto cfh = column_families_[rand_column_families[0]];
@@ -4056,7 +4064,7 @@ class BatchedOpsStressTest : public StressTest {
     Status s = Status::OK();
     for (int i = 0; i < 10; i++) {
       prefixes[i] += key.ToString();
-      prefixes[i].resize(FLAGS_prefix_size);
+      prefixes[i].resize(prefix_to_use);
       prefix_slices[i] = Slice(prefixes[i]);
       readoptionscopy[i] = readoptions;
       readoptionscopy[i].snapshot = snapshot;
