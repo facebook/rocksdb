@@ -3749,6 +3749,17 @@ TEST_F(DBCompactionTest, LevelPeriodicAndTtlCompaction) {
 }
 
 TEST_F(DBCompactionTest, LevelPeriodicCompactionWithCompactionFilters) {
+  class TestCompactionFilter : public CompactionFilter {
+    const char* Name() const override { return "TestCompactionFilter"; }
+  };
+  class TestCompactionFilterFactory : public CompactionFilterFactory {
+    const char* Name() const override { return "TestCompactionFilterFactory"; }
+    std::unique_ptr<CompactionFilter> CreateCompactionFilter(
+        const CompactionFilter::Context& /*context*/) override {
+      return std::unique_ptr<CompactionFilter>(new TestCompactionFilter());
+    }
+  };
+
   const int kNumKeysPerFile = 32;
   const int kNumLevelFiles = 2;
   const int kValueSize = 100;
@@ -3756,20 +3767,28 @@ TEST_F(DBCompactionTest, LevelPeriodicCompactionWithCompactionFilters) {
   Random rnd(301);
 
   Options options = CurrentOptions();
-  options.compaction_filter = test::RandomCompactionFilter(&rnd);
+  TestCompactionFilter test_compaction_filter;
   env_->time_elapse_only_sleep_ = false;
   options.env = env_;
   env_->addon_time_.store(0);
 
-  for (int comp_filter_type = 0; comp_filter_type < 2; comp_filter_type++) {
+  enum COMPACTION_FILTER_TYPE {
+    USE_COMPACTION_FILTER,
+    USE_COMPCTION_FILTER_FACTORY
+  };
+
+  for (COMPACTION_FILTER_TYPE comp_filter_type :
+       {USE_COMPACTION_FILTER, USE_COMPCTION_FILTER_FACTORY}) {
     // Assert that periodic compactions are not enabled.
     ASSERT_EQ(0, options.periodic_compaction_seconds);
 
-    if (comp_filter_type == 0) {
-      options.compaction_filter = test::RandomCompactionFilter(&rnd);
-    } else if (comp_filter_type == 1) {
+    if (comp_filter_type == USE_COMPACTION_FILTER) {
+      options.compaction_filter = &test_compaction_filter;
+      options.compaction_filter_factory.reset();
+    } else if (comp_filter_type == USE_COMPCTION_FILTER_FACTORY) {
+      options.compaction_filter = nullptr;
       options.compaction_filter_factory.reset(
-          test::RandomCompactionFilterFactory(&rnd));
+          new TestCompactionFilterFactory());
     }
     DestroyAndReopen(options);
 
