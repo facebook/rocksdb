@@ -64,9 +64,8 @@ Status CloneDB(const std::string& clone_name, const std::string& src_bucket,
   // No persistent cache
   std::string persistent_cache = "";
 
-  const std::string bucketPrefix = "rockset.";
   // create a bucket name for debugging purposes
-  const std::string bucketName = bucketPrefix + kBucketSuffix;
+  const std::string bucketName = cloud_env->get()->GetSrcBucketName();
 
   // open clone
   DBCloud* db;
