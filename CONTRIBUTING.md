@@ -16,8 +16,3 @@ Please download the CLA from https://goo.gl/qZpjvu, print it on
 paper, sign it and scan it into a pdf file. Then create a new issue at
 https://github.com/rockset/rocksdb-cloud/issues/new and attach your
 scanned pdf file to that issue.
-
-## License
-
-By contributing to RocksDB-Cloud, you agree that your contributions will be
-licensed under the [BSD License](LICENSE).
