@@ -3792,7 +3792,7 @@ TEST_F(DBCompactionTest, LevelPeriodicCompactionWithCompactionFilters) {
     }
     DestroyAndReopen(options);
 
-    // periodic_compaction_seconds should be set to the sanitized value since
+    // periodic_compaction_seconds should be set to the sanitized value when
     // a compaction filter or a compaction filter factory is used.
     ASSERT_EQ(30 * 24 * 60 * 60,
               dbfull()->GetOptions().periodic_compaction_seconds);
@@ -3820,7 +3820,7 @@ TEST_F(DBCompactionTest, LevelPeriodicCompactionWithCompactionFilters) {
     ASSERT_EQ("2", FilesPerLevel());
     ASSERT_EQ(0, periodic_compactions);
 
-    // Add 50 hours and do a write
+    // Add 31 days and do a write
     env_->addon_time_.fetch_add(31 * 24 * 60 * 60);
     ASSERT_OK(Put("a", "1"));
     Flush();
