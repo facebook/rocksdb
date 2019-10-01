@@ -1977,8 +1977,8 @@ void DBImpl::MultiGetImpl(
       }
       if (!range.empty()) {
         lookup_current = true;
-//        uint64_t left = range.KeysLeft();
-//        RecordTick(stats_, MEMTABLE_MISS, left);
+        uint64_t left = range.KeysLeft();
+        RecordTick(stats_, MEMTABLE_MISS, left);
       }
     }
     if (lookup_current) {
