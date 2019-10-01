@@ -127,29 +127,12 @@ class MergingIterator : public InternalIterator {
   }
 
   void Seek(const Slice& target) override {
-    bool is_increasing_reseek = false;
-    if (current_ != nullptr && direction_ == kForward && status_.ok() &&
-        !prefix_seek_mode_ && comparator_->Compare(target, key()) >= 0) {
-      is_increasing_reseek = true;
-    }
     ClearHeaps();
     status_ = Status::OK();
     for (auto& child : children_) {
-      // If upper bound never changes, we can skip Seek() for
-      // the !Valid() case too, but people do hack the code to change
-      // upper bound between Seek(), so it's not a good idea to break
-      // the API.
-      // If DBIter is used on top of merging iterator, we probably
-      // can skip mutable child iterators if they are invalid too,
-      // but it's a less clean API. We can optimize for it later if
-      // needed.
-      if (!is_increasing_reseek || !child.Valid() ||
-          comparator_->Compare(target, child.key()) > 0 ||
-          child.iter()->is_mutable()) {
-        PERF_TIMER_GUARD(seek_child_seek_time);
-        child.Seek(target);
-        PERF_COUNTER_ADD(seek_child_seek_count, 1);
-      }
+      PERF_TIMER_GUARD(seek_child_seek_time);
+      child.Seek(target);
+      PERF_COUNTER_ADD(seek_child_seek_count, 1);
 
       if (child.Valid()) {
         assert(child.status().ok());
