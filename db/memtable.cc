@@ -813,9 +813,9 @@ bool MemTable::Get(const LookupKey& key, std::string* value, Status* s,
     if (bloom_filter_) {
       PERF_COUNTER_ADD(bloom_memtable_hit_count, 1);
     }
-    GetFromTable(key, value, s, merge_context, max_covering_tombstone_seq, seq,
-                 callback, is_blob_index, do_merge, &found_final_value,
-                 &merge_in_progress);
+    GetFromTable(key, *max_covering_tombstone_seq, do_merge, callback,
+                 is_blob_index, value, s, merge_context, seq,
+                 &found_final_value, &merge_in_progress);
   }
 
   // No change to value, since we have not yet found a Put/Delete
@@ -826,11 +826,11 @@ bool MemTable::Get(const LookupKey& key, std::string* value, Status* s,
   return found_final_value;
 }
 
-void MemTable::GetFromTable(const LookupKey& key, std::string* value, Status* s,
-                            MergeContext* merge_context,
-                            SequenceNumber* max_covering_tombstone_seq,
-                            SequenceNumber* seq, ReadCallback* callback,
-                            bool* is_blob_index, bool do_merge,
+void MemTable::GetFromTable(const LookupKey& key,
+                            SequenceNumber max_covering_tombstone_seq,
+                            bool do_merge, ReadCallback* callback,
+                            bool* is_blob_index, std::string* value, Status* s,
+                            MergeContext* merge_context, SequenceNumber* seq,
                             bool* found_final_value, bool* merge_in_progress) {
   Saver saver;
   saver.status = s;
@@ -841,7 +841,7 @@ void MemTable::GetFromTable(const LookupKey& key, std::string* value, Status* s,
   saver.seq = kMaxSequenceNumber;
   saver.mem = this;
   saver.merge_context = merge_context;
-  saver.max_covering_tombstone_seq = *max_covering_tombstone_seq;
+  saver.max_covering_tombstone_seq = max_covering_tombstone_seq;
   saver.merge_operator = moptions_.merge_operator;
   saver.logger = moptions_.info_log;
   saver.inplace_update_support = moptions_.inplace_update_support;
@@ -875,18 +875,17 @@ void MemTable::MultiGet(const ReadOptions& read_options, MultiGetRange* range,
       } else if (prefix_extractor_->InDomain(iter->ukey)) {
         prefixes.emplace_back(prefix_extractor_->Transform(iter->ukey));
         keys[num_keys++] = &prefixes.back();
-      } else {
-        temp_range.SkipKey(iter);
-        RecordTick(moptions_.statistics, MEMTABLE_MISS);
       }
     }
     bloom_filter_->MayContain(num_keys, &keys[0], &may_match[0]);
     int idx = 0;
     for (auto iter = temp_range.begin(); iter != temp_range.end(); ++iter) {
+      if (prefix_extractor_ && !prefix_extractor_->InDomain(iter->ukey)) {
+        continue;
+      }
       if (!may_match[idx]) {
         temp_range.SkipKey(iter);
         PERF_COUNTER_ADD(bloom_memtable_miss_count, 1);
-        RecordTick(moptions_.statistics, MEMTABLE_MISS);
       } else {
         PERF_COUNTER_ADD(bloom_memtable_hit_count, 1);
       }
@@ -905,9 +904,9 @@ void MemTable::MultiGet(const ReadOptions& read_options, MultiGetRange* range,
           iter->max_covering_tombstone_seq,
           range_del_iter->MaxCoveringTombstoneSeqnum(iter->lkey->user_key()));
     }
-    GetFromTable(*(iter->lkey), iter->value->GetSelf(), iter->s,
-                 &(iter->merge_context), &iter->max_covering_tombstone_seq,
-                 &seq, callback, is_blob, true, &found_final_value,
+    GetFromTable(*(iter->lkey), iter->max_covering_tombstone_seq, true,
+                 callback, is_blob, iter->value->GetSelf(), iter->s,
+                 &(iter->merge_context), &seq, &found_final_value,
                  &merge_in_progress);
 
     if (!found_final_value && merge_in_progress) {
@@ -918,8 +917,6 @@ void MemTable::MultiGet(const ReadOptions& read_options, MultiGetRange* range,
       iter->value->PinSelf();
       range->MarkKeyDone(iter);
       RecordTick(moptions_.statistics, MEMTABLE_HIT);
-    } else {
-        RecordTick(moptions_.statistics, MEMTABLE_MISS);
     }
   }
   PERF_COUNTER_ADD(get_from_memtable_count, 1);

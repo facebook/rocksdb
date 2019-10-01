@@ -513,11 +513,11 @@ class MemTable {
 
   void UpdateOldestKeyTime();
 
-  void GetFromTable(const LookupKey& key, std::string* value, Status* s,
-                    MergeContext* merge_context,
-                    SequenceNumber* max_covering_tombstone_seq,
-                    SequenceNumber* seq, ReadCallback* callback,
-                    bool* is_blob_index, bool do_merge, bool* found_final_value,
+  void GetFromTable(const LookupKey& key,
+                    SequenceNumber max_covering_tombstone_seq, bool do_merge,
+                    ReadCallback* callback, bool* is_blob_index,
+                    std::string* value, Status* s, MergeContext* merge_context,
+                    SequenceNumber* seq, bool* found_final_value,
                     bool* merge_in_progress);
 };
 
