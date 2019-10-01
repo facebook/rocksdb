@@ -628,8 +628,7 @@ class BlockBasedTableIterator : public InternalIteratorBase<TValue> {
                           BlockType block_type, bool key_includes_seq = true,
                           bool index_key_is_full = true,
                           bool for_compaction = false)
-      : InternalIteratorBase<TValue>(false),
-        table_(table),
+      : table_(table),
         read_options_(read_options),
         icomp_(icomp),
         user_comparator_(icomp.user_comparator()),
