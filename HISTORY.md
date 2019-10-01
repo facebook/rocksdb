@@ -1,8 +1,10 @@
 # Rocksdb Change Log
 ## Unreleased
+
 ### Bug Fixes
 * Fix a bug where the compaction snapshot refresh feature is not disabled as advertised when `snap_refresh_nanos` is set to 0..
 * Revert "DBIter::Next() can skip user key checking if previous entry's seqnum is 0", which is not a bug, but can make the previous bug's sympthom more severe.
+* Revert the feature "Merging iterator to avoid child iterator reseek for some cases (#5286)" since it might cause strong results when reseek happens with a different iterator upper bound.
 
 ### Default Option Change
 * LRUCacheOptions.high_pri_pool_ratio is set to 0.5 (previously 0.0) by default, which means that by default midpoint insertion is enabled. The same change is made for the default value of high_pri_pool_ratio argument in NewLRUCache(). When block cache is not explictly created, the small block cache created by BlockBasedTable will still has this option to be 0.0.

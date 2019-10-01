@@ -859,8 +859,7 @@ class LevelIterator final : public InternalIterator {
                 bool skip_filters, int level, RangeDelAggregator* range_del_agg,
                 const std::vector<AtomicCompactionUnitBoundary>*
                     compaction_boundaries = nullptr)
-      : InternalIterator(false),
-        table_cache_(table_cache),
+      : table_cache_(table_cache),
         read_options_(read_options),
         env_options_(env_options),
         icomparator_(icomparator),
