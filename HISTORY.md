@@ -5,6 +5,8 @@
 
 ### Bug Fixes
 * Fix OnFlushCompleted fired before flush result persisted in MANIFEST when there's concurrent flush job. The bug exists since OnFlushCompleted was introduced in rocksdb 3.8.
+
+## 6.4.5 (10/1/2019)
 * Revert the feature "Merging iterator to avoid child iterator reseek for some cases (#5286)" since it might cause strong results when reseek happens with a different iterator upper bound.
 
 ## 6.4.4 (9/17/2019)
