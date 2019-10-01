@@ -16,9 +16,9 @@
 namespace rocksdb {
 
 FullFilterBlockBuilder::FullFilterBlockBuilder(
-    const SliceTransform* prefix_extractor, bool whole_key_filtering,
+    const SliceTransform* _prefix_extractor, bool whole_key_filtering,
     FilterBitsBuilder* filter_bits_builder)
-    : prefix_extractor_(prefix_extractor),
+    : prefix_extractor_(_prefix_extractor),
       whole_key_filtering_(whole_key_filtering),
       last_whole_key_recorded_(false),
       last_prefix_recorded_(false),
