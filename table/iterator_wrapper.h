@@ -73,7 +73,6 @@ class IteratorWrapperBase {
   }
   void Prev()               { assert(iter_); iter_->Prev();        Update(); }
   void Seek(const Slice& k) {
-    TEST_SYNC_POINT("IteratorWrapper::Seek:0");
     assert(iter_);
     iter_->Seek(k);
     Update();

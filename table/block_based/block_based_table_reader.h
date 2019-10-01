@@ -602,8 +602,7 @@ class BlockBasedTableIterator : public InternalIteratorBase<TValue> {
                           const SliceTransform* prefix_extractor,
                           BlockType block_type, TableReaderCaller caller,
                           size_t compaction_readahead_size = 0)
-      : InternalIteratorBase<TValue>(false),
-        table_(table),
+      : table_(table),
         read_options_(read_options),
         icomp_(icomp),
         user_comparator_(icomp.user_comparator()),
