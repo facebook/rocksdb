@@ -18,12 +18,12 @@
 namespace rocksdb {
 
 PartitionedFilterBlockBuilder::PartitionedFilterBlockBuilder(
-    const SliceTransform* prefix_extractor, bool whole_key_filtering,
+    const SliceTransform* _prefix_extractor, bool whole_key_filtering,
     FilterBitsBuilder* filter_bits_builder, int index_block_restart_interval,
     const bool use_value_delta_encoding,
     PartitionedIndexBuilder* const p_index_builder,
     const uint32_t partition_size)
-    : FullFilterBlockBuilder(prefix_extractor, whole_key_filtering,
+    : FullFilterBlockBuilder(_prefix_extractor, whole_key_filtering,
                              filter_bits_builder),
       index_on_filter_block_builder_(index_block_restart_interval,
                                      true /*use_delta_encoding*/,
