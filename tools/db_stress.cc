@@ -3319,7 +3319,8 @@ class NonBatchedOpsStressTest : public StressTest {
           }
           // TODO(ljin): update "long" to uint64_t
           // Reseek when the prefix changes
-          if (i % (static_cast<int64_t>(1) << 8 * (8 - prefix_to_use)) == 0) {
+          if (prefix_to_use > 0 &&
+              i % (static_cast<int64_t>(1) << 8 * (8 - prefix_to_use)) == 0) {
             iter->Seek(Key(i));
           }
           std::string from_db;
@@ -4330,7 +4331,8 @@ class CfConsistencyStressTest : public StressTest {
          iter->Next()) {
       ++count;
     }
-    assert(count <= (static_cast<long>(1) << ((8 - prefix_to_use) * 8)));
+    assert(prefix_to_use == 0 ||
+           count <= (static_cast<long>(1) << ((8 - prefix_to_use) * 8)));
     Status s = iter->status();
     if (s.ok()) {
       thread->stats.AddPrefixes(1, count);
