@@ -130,8 +130,10 @@ class MergingIterator : public InternalIterator {
     ClearHeaps();
     status_ = Status::OK();
     for (auto& child : children_) {
-      PERF_TIMER_GUARD(seek_child_seek_time);
-      child.Seek(target);
+      {
+        PERF_TIMER_GUARD(seek_child_seek_time);
+        child.Seek(target);
+      }
       PERF_COUNTER_ADD(seek_child_seek_count, 1);
 
       if (child.Valid()) {
