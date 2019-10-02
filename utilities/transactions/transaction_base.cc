@@ -170,7 +170,7 @@ Status TransactionBaseImpl::RollbackToSavePoint() {
         }
         if (tracked_keys_iter->second.num_reads == 0 &&
             tracked_keys_iter->second.num_writes == 0) {
-          tracked_keys_[column_family_id].erase(tracked_keys_iter);
+          cf_tracked_keys.erase(tracked_keys_iter);
         }
       }
     }
