@@ -152,16 +152,16 @@ const char *TestModeToString(TestMode tm) {
 }
 
 struct FilterBench : public MockBlockBasedTableTester {
-  std::vector<KeyMaker> kms;
-  std::vector<FilterInfo> infos;
-  std::mt19937 random;
+  std::vector<KeyMaker> kms_;
+  std::vector<FilterInfo> infos_;
+  std::mt19937 random_;
 
   FilterBench()
       : MockBlockBasedTableTester(
             rocksdb::NewBloomFilterPolicy(FLAGS_bits_per_key)),
-        random(FLAGS_seed) {
+        random_(FLAGS_seed) {
     for (uint32_t i = 0; i < FLAGS_batch_size; ++i) {
-      kms.emplace_back(FLAGS_key_size < 8 ? 8 : FLAGS_key_size);
+      kms_.emplace_back(FLAGS_key_size < 8 ? 8 : FLAGS_key_size);
     }
   }
 
@@ -193,14 +193,14 @@ void FilterBench::Go() {
   rocksdb::StopWatchNano timer(rocksdb::Env::Default(), true);
 
   while (totalMemoryUsed < 1024 * 1024 * FLAGS_working_mem_size_mb) {
-    uint32_t filterId = random();
+    uint32_t filterId = random_();
     uint32_t keysToAdd = FLAGS_average_keys_per_filter +
-                         (random() & varianceMask) - (varianceMask / 2);
+                         (random_() & varianceMask) - (varianceMask / 2);
     for (uint32_t i = 0; i < keysToAdd; ++i) {
-      builder->AddKey(kms[0].Get(filterId, i));
+      builder->AddKey(kms_[0].Get(filterId, i));
     }
-    infos.emplace_back();
-    FilterInfo &info = infos.back();
+    infos_.emplace_back();
+    FilterInfo &info = infos_.back();
     info.filter_id_ = filterId;
     info.filter_ = builder->Finish(&info.owner_);
     info.keys_added_ = keysToAdd;
@@ -218,7 +218,7 @@ void FilterBench::Go() {
   uint64_t elapsedNanos = timer.ElapsedNanos();
   double ns = (double)elapsedNanos / totalKeysAdded;
   std::cout << "Build avg ns/key: " << ns << std::endl;
-  std::cout << "Number of filters: " << infos.size() << std::endl;
+  std::cout << "Number of filters: " << infos_.size() << std::endl;
   std::cout << "Total memory (MB): " << totalMemoryUsed / 1024.0 / 1024.0
             << std::endl;
 
@@ -233,20 +233,20 @@ void FilterBench::Go() {
     std::cout << "----------------------------" << std::endl;
     std::cout << "Verifying..." << std::endl;
 
-    uint32_t outside_q_per_f = 1000000 / infos.size();
+    uint32_t outside_q_per_f = 1000000 / infos_.size();
     uint64_t fps = 0;
-    for (uint32_t i = 0; i < infos.size(); ++i) {
-      FilterInfo &info = infos[i];
+    for (uint32_t i = 0; i < infos_.size(); ++i) {
+      FilterInfo &info = infos_[i];
       for (uint32_t j = 0; j < info.keys_added_; ++j) {
-        always_assert(info.reader_->MayMatch(kms[0].Get(info.filter_id_, j)));
+        always_assert(info.reader_->MayMatch(kms_[0].Get(info.filter_id_, j)));
       }
       for (uint32_t j = 0; j < outside_q_per_f; ++j) {
-        fps +=
-            info.reader_->MayMatch(kms[0].Get(info.filter_id_, j | 0x80000000));
+        fps += info.reader_->MayMatch(
+            kms_[0].Get(info.filter_id_, j | 0x80000000));
       }
     }
     std::cout << " No FNs :)" << std::endl;
-    double prelimRate = (double)fps / outside_q_per_f / infos.size();
+    double prelimRate = (double)fps / outside_q_per_f / infos_.size();
     std::cout << " Prelim FP rate %: " << (100.0 * prelimRate) << std::endl;
 
     if (!FLAGS_allow_bad_fp_rate) {
@@ -256,19 +256,19 @@ void FilterBench::Go() {
 
   std::cout << "----------------------------" << std::endl;
   std::cout << "Inside queries..." << std::endl;
-  random.seed(FLAGS_seed + 1);
+  random_.seed(FLAGS_seed + 1);
   RandomQueryTest(/*inside*/ true, /*dry_run*/ true, TM_RandomFilter);
   for (TestMode tm : testModes) {
-    random.seed(FLAGS_seed + 1);
+    random_.seed(FLAGS_seed + 1);
     RandomQueryTest(/*inside*/ true, /*dry_run*/ false, tm);
   }
 
   std::cout << "----------------------------" << std::endl;
   std::cout << "Outside queries..." << std::endl;
-  random.seed(FLAGS_seed + 2);
+  random_.seed(FLAGS_seed + 2);
   RandomQueryTest(/*inside*/ false, /*dry_run*/ true, TM_RandomFilter);
   for (TestMode tm : testModes) {
-    random.seed(FLAGS_seed + 2);
+    random_.seed(FLAGS_seed + 2);
     RandomQueryTest(/*inside*/ false, /*dry_run*/ false, tm);
   }
 
@@ -277,14 +277,14 @@ void FilterBench::Go() {
 }
 
 void FilterBench::RandomQueryTest(bool inside, bool dry_run, TestMode mode) {
-  for (auto &info : infos) {
+  for (auto &info : infos_) {
     info.outside_queries_ = 0;
     info.false_positives_ = 0;
   }
 
   uint32_t dryRunHash = 0;
   uint64_t maxQueries = static_cast<uint64_t>(FLAGS_m_queries) * 1000000;
-  size_t numPrimaryFilters = infos.size();
+  size_t numPrimaryFilters = infos_.size();
   uint32_t primaryFilterThreshold = 0xffffffff;
   if (mode == TM_SingleFilter) {
     // 100% of queries to 1 filter
@@ -304,11 +304,11 @@ void FilterBench::RandomQueryTest(bool inside, bool dry_run, TestMode mode) {
   std::unique_ptr<Slice *[]> batchSlices;
   std::unique_ptr<bool[]> batchResults;
   if (mode == TM_BatchPrepared || mode == TM_BatchUnprepared) {
-    batchSize = kms.size();
+    batchSize = kms_.size();
     batchSlices.reset(new Slice *[batchSize]);
     batchResults.reset(new bool[batchSize]);
     for (size_t i = 0; i < batchSize; ++i) {
-      batchSlices[i] = &kms[i].slice_;
+      batchSlices[i] = &kms_[i].slice_;
       batchResults[i] = false;
     }
   }
@@ -317,19 +317,19 @@ void FilterBench::RandomQueryTest(bool inside, bool dry_run, TestMode mode) {
 
   for (uint64_t q = 0; q < maxQueries; q += batchSize) {
     uint32_t filterIndex;
-    if (random() <= primaryFilterThreshold) {
-      filterIndex = fastrange32(numPrimaryFilters, random());
+    if (random_() <= primaryFilterThreshold) {
+      filterIndex = fastrange32(numPrimaryFilters, random_());
     } else {
       // secondary
       filterIndex = numPrimaryFilters +
-                    fastrange32(infos.size() - numPrimaryFilters, random());
+                    fastrange32(infos_.size() - numPrimaryFilters, random_());
     }
-    FilterInfo &info = infos[filterIndex];
+    FilterInfo &info = infos_[filterIndex];
     for (size_t i = 0; i < batchSize; ++i) {
       if (inside) {
-        kms[i].Get(info.filter_id_, fastrange32(info.keys_added_, random()));
+        kms_[i].Get(info.filter_id_, fastrange32(info.keys_added_, random_()));
       } else {
-        kms[i].Get(info.filter_id_, random() | 0x80000000);
+        kms_[i].Get(info.filter_id_, random_() | 0x80000000);
         info.outside_queries_++;
       }
     }
@@ -349,19 +349,19 @@ void FilterBench::RandomQueryTest(bool inside, bool dry_run, TestMode mode) {
     } else {
       for (size_t i = 0; i < batchSize; ++i) {
         if (dry_run) {
-          dryRunHash ^= rocksdb::BloomHash(kms[i].slice_);
+          dryRunHash ^= rocksdb::BloomHash(kms_[i].slice_);
         } else {
           bool may_match;
           if (FLAGS_use_full_block_reader) {
             may_match = info.full_block_reader_->KeyMayMatch(
-                kms[i].slice_,
+                kms_[i].slice_,
                 /*prefix_extractor=*/nullptr,
                 /*block_offset=*/rocksdb::kNotValid,
                 /*no_io=*/false, /*const_ikey_ptr=*/nullptr,
                 /*get_context=*/nullptr,
                 /*lookup_context=*/nullptr);
           } else {
-            may_match = info.reader_->MayMatch(kms[i].slice_);
+            may_match = info.reader_->MayMatch(kms_[i].slice_);
           }
           if (inside) {
             always_assert(may_match);
@@ -391,7 +391,7 @@ void FilterBench::RandomQueryTest(bool inside, bool dry_run, TestMode mode) {
     uint64_t fp = 0;
     double worst_fp_rate = 0.0;
     double best_fp_rate = 1.0;
-    for (auto &info : infos) {
+    for (auto &info : infos_) {
       q += info.outside_queries_;
       fp += info.false_positives_;
       if (info.outside_queries_ > 0) {
