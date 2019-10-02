@@ -112,15 +112,18 @@ class MergingIterator : public InternalIterator {
     ClearHeaps();
     status_ = Status::OK();
     for (auto& child : children_) {
-      PERF_TIMER_GUARD(seek_child_seek_time);
-
-      child.Seek(target);
+      {
+        PERF_TIMER_GUARD(seek_child_seek_time);
+        child.Seek(target);
+      }
 
       PERF_COUNTER_ADD(seek_child_seek_count, 1);
-      // Strictly, we timed slightly more than min heap operation,
-      // but these operations are very cheap.
-      PERF_TIMER_GUARD(seek_min_heap_time);
-      AddToMinHeapOrCheckStatus(&child);
+      {
+        // Strictly, we timed slightly more than min heap operation,
+        // but these operations are very cheap.
+        PERF_TIMER_GUARD(seek_min_heap_time);
+        AddToMinHeapOrCheckStatus(&child);
+      }
     }
     direction_ = kForward;
     {
