@@ -124,7 +124,7 @@ Status BuildTable(
       if (!s.ok()) {
         EventHelpers::LogAndNotifyTableFileCreationFinished(
             event_logger, ioptions.listeners, dbname, column_family_name, fname,
-            job_id, meta->fd, tp, reason, s);
+            job_id, meta->fd, kInvalidBlobFileNumber, tp, reason, s);
         return s;
       }
       file->SetIOPriority(io_priority);
@@ -157,8 +157,9 @@ Status BuildTable(
     for (; c_iter.Valid(); c_iter.Next()) {
       const Slice& key = c_iter.key();
       const Slice& value = c_iter.value();
+      const ParsedInternalKey& ikey = c_iter.ikey();
       builder->Add(key, value);
-      meta->UpdateBoundaries(key, c_iter.ikey().sequence);
+      meta->UpdateBoundaries(key, value, ikey.sequence, ikey.type);
 
       // TODO(noetzli): Update stats after flush, too.
       if (io_priority == Env::IO_HIGH &&
@@ -249,7 +250,7 @@ Status BuildTable(
   // Output to event logger and fire events.
   EventHelpers::LogAndNotifyTableFileCreationFinished(
       event_logger, ioptions.listeners, dbname, column_family_name, fname,
-      job_id, meta->fd, tp, reason, s);
+      job_id, meta->fd, meta->oldest_blob_file_number, tp, reason, s);
 
   return s;
 }
