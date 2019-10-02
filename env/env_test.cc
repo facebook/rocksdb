@@ -883,7 +883,9 @@ TEST_F(EnvPosixTest, PositionedAppend) {
 }
 #endif  // !ROCKSDB_LITE
 
-// Only works in linux platforms
+// `GetUniqueId()` temporarily returns zero on Windows. `BlockBasedTable` can
+// handle a return value of zero but this test case cannot.
+#ifndef OS_WIN
 TEST_P(EnvPosixTestWithParam, RandomAccessUniqueID) {
   // Create file.
   if (env_ == Env::Default()) {
@@ -926,6 +928,7 @@ TEST_P(EnvPosixTestWithParam, RandomAccessUniqueID) {
     env_->DeleteFile(fname);
   }
 }
+#endif  // !defined(OS_WIN)
 
 // only works in linux platforms
 #ifdef ROCKSDB_FALLOCATE_PRESENT
@@ -1016,7 +1019,9 @@ bool HasPrefix(const std::unordered_set<std::string>& ss) {
   return false;
 }
 
-// Only works in linux and WIN platforms
+// `GetUniqueId()` temporarily returns zero on Windows. `BlockBasedTable` can
+// handle a return value of zero but this test case cannot.
+#ifndef OS_WIN
 TEST_P(EnvPosixTestWithParam, RandomAccessUniqueIDConcurrent) {
   if (env_ == Env::Default()) {
     // Check whether a bunch of concurrently existing files have unique IDs.
@@ -1058,7 +1063,6 @@ TEST_P(EnvPosixTestWithParam, RandomAccessUniqueIDConcurrent) {
   }
 }
 
-// Only works in linux and WIN platforms
 TEST_P(EnvPosixTestWithParam, RandomAccessUniqueIDDeletes) {
   if (env_ == Env::Default()) {
     EnvOptions soptions;
@@ -1098,6 +1102,7 @@ TEST_P(EnvPosixTestWithParam, RandomAccessUniqueIDDeletes) {
     ASSERT_TRUE(!HasPrefix(ids));
   }
 }
+#endif  // !defined(OS_WIN)
 
 TEST_P(EnvPosixTestWithParam, MultiRead) {
   EnvOptions soptions;
