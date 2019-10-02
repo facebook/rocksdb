@@ -23,6 +23,8 @@ int main() {
 #include "port/port.h"
 #include "port/stack_trace.h"
 #include "rocksdb/filter_policy.h"
+#include "table/block_based/full_filter_block.h"
+#include "table/block_based/mock_block_based_table.h"
 #include "util/gflags_compat.h"
 #include "util/hash.h"
 #include "util/stop_watch.h"
@@ -47,8 +49,8 @@ DEFINE_uint32(bits_per_key, 10, "Bits per key setting for filters");
 
 DEFINE_uint32(m_queries, 200, "Millions of queries for each test mode");
 
-DEFINE_uint32(new_reader_every, 0,
-              "Create new reader ~1/n queries (0 = never re-create)");
+DEFINE_bool(use_full_block_reader, false,
+            "Use FullFilterBlockReader interface rather than FilterBitsReader");
 
 DEFINE_bool(quick, false, "Run more limited set of tests, fewer queries");
 
@@ -62,8 +64,14 @@ void _always_assert_fail(int line, const char *file, const char *expr) {
 #define always_assert(cond) \
   ((cond) ? (void)0 : ::_always_assert_fail(__LINE__, __FILE__, #cond))
 
+using rocksdb::BlockContents;
+using rocksdb::CachableEntry;
 using rocksdb::fastrange32;
+using rocksdb::FilterBitsBuilder;
+using rocksdb::FilterBitsReader;
+using rocksdb::FullFilterBlockReader;
 using rocksdb::Slice;
+using rocksdb::mock::MockBlockBasedTableTester;
 
 struct KeyMaker {
   KeyMaker(size_t size)
@@ -100,7 +108,8 @@ struct FilterInfo {
   std::unique_ptr<const char[]> owner_;
   Slice filter_;
   uint32_t keys_added_ = 0;
-  std::unique_ptr<rocksdb::FilterBitsReader> reader_;
+  std::unique_ptr<FilterBitsReader> reader_;
+  std::unique_ptr<FullFilterBlockReader> full_block_reader_;
   uint64_t outside_queries_ = 0;
   uint64_t false_positives_ = 0;
 };
@@ -142,14 +151,14 @@ const char *TestModeToString(TestMode tm) {
   return "Bad TestMode";
 }
 
-struct FilterBench {
+struct FilterBench : public MockBlockBasedTableTester {
   std::vector<KeyMaker> kms;
-  std::unique_ptr<const rocksdb::FilterPolicy> policy;
   std::vector<FilterInfo> infos;
   std::mt19937 random;
 
   FilterBench()
-      : policy(rocksdb::NewBloomFilterPolicy(FLAGS_bits_per_key)),
+      : MockBlockBasedTableTester(
+            rocksdb::NewBloomFilterPolicy(FLAGS_bits_per_key)),
         random(FLAGS_seed) {
     for (uint32_t i = 0; i < FLAGS_batch_size; ++i) {
       kms.emplace_back(FLAGS_key_size < 8 ? 8 : FLAGS_key_size);
@@ -162,8 +171,8 @@ struct FilterBench {
 };
 
 void FilterBench::Go() {
-  std::unique_ptr<rocksdb::FilterBitsBuilder> builder(
-      policy->GetFilterBitsBuilder());
+  std::unique_ptr<FilterBitsBuilder> builder(
+      table_options_.filter_policy->GetFilterBitsBuilder());
 
   uint32_t varianceMask = 1;
   while (varianceMask * varianceMask * 4 < FLAGS_average_keys_per_filter) {
@@ -195,7 +204,13 @@ void FilterBench::Go() {
     info.filter_id_ = filterId;
     info.filter_ = builder->Finish(&info.owner_);
     info.keys_added_ = keysToAdd;
-    info.reader_.reset(policy->GetFilterBitsReader(info.filter_));
+    info.reader_.reset(
+        table_options_.filter_policy->GetFilterBitsReader(info.filter_));
+    CachableEntry<BlockContents> block(
+        new BlockContents(info.filter_), nullptr /* cache */,
+        nullptr /* cache_handle */, true /* own_value */);
+    info.full_block_reader_.reset(
+        new FullFilterBlockReader(table_.get(), std::move(block)));
     totalMemoryUsed += info.filter_.size();
     totalKeysAdded += keysToAdd;
   }
@@ -310,10 +325,6 @@ void FilterBench::RandomQueryTest(bool inside, bool dry_run, TestMode mode) {
                     fastrange32(infos.size() - numPrimaryFilters, random());
     }
     FilterInfo &info = infos[filterIndex];
-    if (FLAGS_new_reader_every > 0 &&
-        fastrange32(FLAGS_new_reader_every, random()) < batchSize) {
-      info.reader_.reset(policy->GetFilterBitsReader(info.filter_));
-    }
     for (size_t i = 0; i < batchSize; ++i) {
       if (inside) {
         kms[i].Get(info.filter_id_, fastrange32(info.keys_added_, random()));
@@ -322,7 +333,8 @@ void FilterBench::RandomQueryTest(bool inside, bool dry_run, TestMode mode) {
         info.outside_queries_++;
       }
     }
-    if (mode == TM_BatchPrepared && !dry_run) {
+    // TODO: implement batched interface to full block reader
+    if (mode == TM_BatchPrepared && !dry_run && !FLAGS_use_full_block_reader) {
       for (size_t i = 0; i < batchSize; ++i) {
         batchResults[i] = false;
       }
@@ -338,10 +350,24 @@ void FilterBench::RandomQueryTest(bool inside, bool dry_run, TestMode mode) {
       for (size_t i = 0; i < batchSize; ++i) {
         if (dry_run) {
           dryRunHash ^= rocksdb::BloomHash(kms[i].slice_);
-        } else if (inside) {
-          always_assert(info.reader_->MayMatch(kms[i].slice_));
         } else {
-          info.false_positives_ += info.reader_->MayMatch(kms[i].slice_);
+          bool may_match;
+          if (FLAGS_use_full_block_reader) {
+            may_match = info.full_block_reader_->KeyMayMatch(
+                kms[i].slice_,
+                /*prefix_extractor=*/nullptr,
+                /*block_offset=*/rocksdb::kNotValid,
+                /*no_io=*/false, /*const_ikey_ptr=*/nullptr,
+                /*get_context=*/nullptr,
+                /*lookup_context=*/nullptr);
+          } else {
+            may_match = info.reader_->MayMatch(kms[i].slice_);
+          }
+          if (inside) {
+            always_assert(may_match);
+          } else {
+            info.false_positives_ += may_match;
+          }
         }
       }
     }
