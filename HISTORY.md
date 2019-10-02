@@ -1,5 +1,5 @@
 # Rocksdb Change Log
-## Unreleased
+## 6.3.6 (10/1/2019)
 * Revert the feature "Merging iterator to avoid child iterator reseek for some cases (#5286)" since it might cause strong results when reseek happens with a different iterator upper bound.
 
 ## 6.3.5 (9/17/2019)
