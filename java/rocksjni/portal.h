@@ -64,7 +64,7 @@ class JavaClass {
    */
   static jclass getJClass(JNIEnv* env, const char* jclazz_name) {
     jclass jclazz = env->FindClass(jclazz_name);
-    assert(jclazz != nullptr);
+    assert(env->ExceptionCheck() == false);
     return jclazz;
   }
 };
@@ -7141,7 +7141,7 @@ public:
    */
   static jmethodID getNameMethodId(JNIEnv* env) {
     jclass jclazz = getJClass(env);
-    if(jclazz == nullptr) {
+    if (jclazz == nullptr) {
       // exception occurred accessing class
       return nullptr;
     }
@@ -7162,7 +7162,7 @@ public:
    */
   static jmethodID getMergeMethodId(JNIEnv* env) {
     jclass jclazz = getJClass(env);
-    if(jclazz == nullptr) {
+    if (jclazz == nullptr) {
       // exception occurred accessing class
       return nullptr;
     }
@@ -7201,7 +7201,7 @@ public:
    */
   static jmethodID getNameMethodId(JNIEnv* env) {
     jclass jclazz = getJClass(env);
-    if(jclazz == nullptr) {
+    if (env->ExceptionCheck()) {
       // exception occurred accessing class
       return nullptr;
     }
@@ -7214,14 +7214,15 @@ public:
 
   static jmethodID getMethodId(JNIEnv* env, const char* methodName, const char* methodSignature) {
     jclass jclazz = getJClass(env);
-    if(jclazz == nullptr) {
+    if (env->ExceptionCheck()) {
       // exception occurred accessing class
       return nullptr;
     }
 
-    static jmethodID mid =
-        env->GetMethodID(jclazz, methodName, methodSignature);
+    jmethodID mid = env->GetMethodID(jclazz, methodName, methodSignature);
     assert(mid != nullptr);
+    if (env->ExceptionCheck())
+      return nullptr;
     return mid;
   }
 

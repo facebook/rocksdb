@@ -446,29 +446,31 @@ public class MergeTest {
 
     @Override
     public String name() {
-      return "StringAppendNotAssociativeMergeOperatorTest";
+      return "StringAppendMergeOperatorTest";
     }
 
-    private byte[] collect(byte[][] operands) {
+    private String collect(byte[][] operands) {
       StringBuffer sb = new StringBuffer();
-      for(int i = 0; i < operands.length; i++) {
+      for (int i = 0; i < operands.length; i++) {
         if (i > 0)
           sb.append(',');
         sb.append(new String(operands[i]));
       }
-      return sb.toString().getBytes();
+      return sb.toString();
     }
 
     @Override
     public byte[] fullMerge(byte[] key, byte[] oldvalue, byte[][] operands, ReturnType rt) throws RocksDBException {
-      if (oldvalue == null)
-        return collect(operands);
-      return (new String(oldvalue) + ',' + new String(collect(operands))).getBytes();
+      String collected = collect(operands);
+      if (oldvalue == null) {
+        return collected.getBytes();
+      }
+      return (new String(oldvalue) + ',' + collected).getBytes();
     }
 
     @Override
     public byte[] partialMultiMerge(byte[] key,  byte[][] operands, ReturnType rt) {
-      return (new String(collect(operands))).getBytes();
+      return collect(operands).getBytes();
     }
 
     @Override

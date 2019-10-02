@@ -13,10 +13,10 @@ public abstract class AbstractAssociativeMergeOperator extends MergeOperator
    * Merge values of a given key
    *
    * @param key the key to merge
-   * @param oldvalues current value of the key
+   * @param oldvalue current value of the key
    * @param newvalue new value of the key
    * @param rt indicate if returned value is a reference or not
-   *
+   * @throws RocksDBException
    * @return merged value of the key
    */
   abstract public byte[] merge(byte[] key, byte[] oldvalue, byte[] newvalue, ReturnType rt) throws RocksDBException;

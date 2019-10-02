@@ -19,10 +19,10 @@ public abstract class AbstractMergeOperator extends MergeOperator
    * Full merge of a given key's values
    *
    * @param key The key that's associated with this merge operation.
-   * @param oldvalues null indicates that the key does not exist before this op
+   * @param oldvalue null indicates that the key does not exist before this op
    * @param operands the sequence of merge operations to apply, front() first
    * @param rt indicate if returned value is a reference or not
-   *
+   * @throws RocksDBException
    * @return merged value of the key
    */
   abstract public byte[] fullMerge(byte[] key, byte[] oldvalue, byte[][] operands, ReturnType rt) throws RocksDBException;
@@ -33,6 +33,7 @@ public abstract class AbstractMergeOperator extends MergeOperator
    * @param key The key that's associated with this merge operation.
    * @param operands list of merge operators to apply
    * @param rt indicate if returned value is a reference or not
+   * @throws RocksDBException
    *
    * @return merged value of the key
    */
@@ -43,13 +44,23 @@ public abstract class AbstractMergeOperator extends MergeOperator
    *
    * @param key The key that's associated with this merge operation.
    * @param left left merge operator
-   * @param left right merge operator
+   * @param right right merge operator
    * @param rt indicate if returned value is a reference or not
+   * @throws RocksDBException
    *
    * @return merged value of the key
    */
   abstract public byte[] partialMerge(byte[] key, byte[] left, byte[] right, ReturnType rt) throws RocksDBException;
-  abstract public boolean shouldMerge(byte[][] operands)throws RocksDBException;
+
+  /**
+   * This function performs merge with multiple operators
+   *
+   * @param operands list of merge operators to apply
+   * @throws RocksDBException
+   *
+   * @return boolean value
+   */
+  abstract public boolean shouldMerge(byte[][] operands) throws RocksDBException;
 
   /**
     * The name of the MergeOperator. Used to check for MergeOperator

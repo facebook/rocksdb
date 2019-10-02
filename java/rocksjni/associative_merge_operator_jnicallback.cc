@@ -32,6 +32,8 @@ namespace rocksdb {
     }
 
     mergeMethodId = AssociativeMergeOperatorJni::getMergeMethodId(env);
+    if (mergeMethodId == nullptr)
+      rocksdb::RocksDBExceptionJni::ThrowNew(env, "unable to find merge method id");
 
     jclass returnTypeClassTmp = env->FindClass("org/rocksdb/ReturnType");
     if (returnTypeClassTmp == 0)
@@ -50,6 +52,33 @@ namespace rocksdb {
     catchAndLog(env);
   }
 
+  AssociativeMergeOperatorJniCallback::~AssociativeMergeOperatorJniCallback() {
+    jboolean attached_thread = JNI_FALSE;
+    JNIEnv *env = getJniEnv(&attached_thread);
+    if (env == nullptr)
+      return;
+    env->DeleteGlobalRef(returnTypeClass);
+  }
+
+  bool AssociativeMergeOperatorJniCallback::GetByteArray(JNIEnv *env, int size, const char* value, jbyteArray& jb) const {
+    size_t _size = size * sizeof(char);
+    const jsize size_ = static_cast<jsize>(_size);
+    jbyte *buf = (jbyte *)value;
+    jb = env->NewByteArray(size_);
+    if (jb == nullptr) {
+      // exception thrown: OutOfMemoryError
+      return false;
+    }
+    env->SetByteArrayRegion(jb, 0, size_, buf);
+    if (env->ExceptionCheck()) {
+      catchAndLog(env);
+      // exception thrown: ArrayIndexOutOfBoundsException
+      env->DeleteLocalRef(jb);
+      return false;
+    }
+    return true;
+  }
+
   bool AssociativeMergeOperatorJniCallback::Merge(const Slice &key,
                                                   const Slice *existing_value,
                                                   const Slice &value,
@@ -57,49 +86,48 @@ namespace rocksdb {
                                                   Logger* /*logger*/) const {
     jboolean attached_thread = JNI_FALSE;
     JNIEnv *env = getJniEnv(&attached_thread);
-    if (env == NULL)
+    if (env == nullptr)
       return false;
 
     jbyteArray jb0, jb1, jb2;
-    jbyte *buf0;
-    jbyte *buf1;
-    jbyte *buf2;
 
-    size_t _s0 = key.size() * sizeof(char);
-    const jsize s0 = static_cast<jsize>(_s0);
-    buf0 = (jbyte *) key.data();
-    jb0 = env->NewByteArray(s0);
-    env->SetByteArrayRegion(jb0, 0, s0, buf0);
+    if (GetByteArray(env, key.size(), key.data(), jb0) == false)
+      return false;
 
-    if (existing_value != NULL) {
-      size_t _s1 = existing_value->size() * sizeof(char);
-      const jsize s1 = static_cast<jsize>(_s1);
-      buf1 = (jbyte *) existing_value->data();
-      jb1 = env->NewByteArray(s1);
-      env->SetByteArrayRegion(jb1, 0, s1, buf1);
+    if (existing_value != nullptr) {
+      if (GetByteArray(env, existing_value->size(), existing_value->data(), jb1) == false) {
+        env->DeleteLocalRef(jb0);
+        return false;
+      }
     } else {
-      buf1 = NULL;
-      jb1 = NULL;
+      jb1 = nullptr;
     }
 
-    size_t _s2 = value.size() * sizeof(char);
-    const jsize s2 = static_cast<jsize>(_s2);
-    buf2 = (jbyte *) value.data();
-    jb2 = env->NewByteArray(s2);
-    env->SetByteArrayRegion(jb2, 0, s2, buf2);
+    if (GetByteArray(env, value.size(), value.data(), jb2) == false) {
+      env->DeleteLocalRef(jb0);
+      if (jb1 != nullptr)
+        env->DeleteLocalRef(jb1);
+      return false;
+    }
 
     jobject rtobject = env->NewObject(returnTypeClass, returnTypeInitMethodId);
-    jbyteArray jresult = (jbyteArray) env->CallObjectMethod(m_jcallback_obj,
-                                                            mergeMethodId,
-                                                            jb0, jb1, jb2, rtobject);
+    jbyteArray jresult = nullptr;
+    if (rtobject != nullptr)
+      jresult = (jbyteArray) env->CallObjectMethod(m_jcallback_obj,
+                                                   mergeMethodId,
+                                                   jb0, jb1, jb2, rtobject);
+
     jthrowable ex = env->ExceptionOccurred();
     catchAndLog(env);
     env->DeleteLocalRef(jb0);
-    catchAndLog(env);
-    if (jb1 != NULL)
+    if (jb1 != nullptr)
       env->DeleteLocalRef(jb1);
     env->DeleteLocalRef(jb2);
     catchAndLog(env);
+
+    if (jresult == nullptr)
+      return false;
+
     jboolean rtr = env->GetBooleanField(rtobject, returnTypeFieldId);
     env->DeleteLocalRef(rtobject);
 
@@ -112,7 +140,11 @@ namespace rocksdb {
       return false;
     } else {
       int len = env->GetArrayLength(jresult) / sizeof(char);
-      char *result = (char *) env->GetByteArrayElements(jresult, 0);
+      if (len == 0)
+        return false;
+      char *result = (char *)env->GetByteArrayElements(jresult, 0);
+      if (result == nullptr)
+        return false;
       new_value->clear();
       new_value->assign(result, len);
       env->ReleaseByteArrayElements(jresult, (jbyte *) result, rtr ? JNI_COMMIT : JNI_ABORT);
