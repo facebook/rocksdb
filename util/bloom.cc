@@ -153,7 +153,7 @@ class FullFilterBitsReader : public FilterBitsReader {
         if (num_lines_at_curr_cache_size == 0) {
           // The cache line size seems not a power of two. It's not supported
           // and indicates a corruption so disable using this filter.
-          assert(false);
+          // Removed for unit testing corruption: assert(false);
           num_lines_ = 0;
           num_probes_ = 0;
           break;
