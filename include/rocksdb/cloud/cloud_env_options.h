@@ -307,11 +307,19 @@ typedef std::map<std::string, std::string> DbidList;
 class CloudEnv : public Env {
  protected:
   CloudEnvOptions cloud_env_options;
-  CloudEnv(const CloudEnvOptions& options) : cloud_env_options(options) { }
- public:
-  // Returns the underlying env
-  virtual Env* GetBaseEnv() = 0;
+  Env* base_env_; // The underlying env
+  CloudEnv(const CloudEnvOptions& options, Env *base, const std::shared_ptr<Logger>& logger)
+    : cloud_env_options(options),
+      base_env_(base),
+      info_log_(logger) {
+  }
+public:
+  std::shared_ptr<Logger> info_log_;  // informational messages
   virtual ~CloudEnv();
+  // Returns the underlying env
+  Env* GetBaseEnv() {
+    return base_env_;
+  }
   virtual Status PreloadCloudManifest(const std::string& local_dbname) = 0;
 
   // Empties all contents of the associated cloud storage bucket.

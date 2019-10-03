@@ -391,8 +391,7 @@ Aws::S3::Model::HeadObjectOutcome AwsS3ClientWrapper::HeadObject(
 //
 AwsEnv::AwsEnv(Env* underlying_env, const CloudEnvOptions& _cloud_env_options,
                const std::shared_ptr<Logger>& info_log)
-    : CloudEnvImpl(_cloud_env_options, underlying_env),
-      info_log_(info_log),
+  : CloudEnvImpl(_cloud_env_options, underlying_env, info_log),
       running_(true) {
   Aws::InitAPI(Aws::SDKOptions());
   if (cloud_env_options.src_bucket.GetRegion().empty() ||
@@ -887,7 +886,7 @@ class S3Directory : public Directory {
  public:
   explicit S3Directory(AwsEnv* env, const std::string name)
       : env_(env), name_(name) {
-    status_ = env_->GetPosixEnv()->NewDirectory(name, &posixDir);
+    status_ = env_->GetBaseEnv()->NewDirectory(name, &posixDir);
   }
 
   ~S3Directory() {}
