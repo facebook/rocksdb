@@ -505,7 +505,7 @@ Status PosixRandomAccessFile::MultiRead(ReadRequest* reqs, size_t num_reqs) {
   struct WrappedReadRequest {
     ReadRequest* req;
     struct iovec iov;
-    WrappedReadRequest(ReadRequest* r) : req(r) {}
+    explicit WrappedReadRequest(ReadRequest* r) : req(r) {}
   };
 
   autovector<WrappedReadRequest, 32> req_wraps;

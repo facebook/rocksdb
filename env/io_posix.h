@@ -86,7 +86,7 @@ class PosixSequentialFile : public SequentialFile {
 
 #if defined(ROCKSDB_IOURING_PRESENT)
 // io_uring instance queue depth
-static const unsigned int kIoUringDepth = 256;
+const unsigned int kIoUringDepth = 256;
 
 inline void DeleteIOUring(void* p) {
   struct io_uring* iu = static_cast<struct io_uring*>(p);
