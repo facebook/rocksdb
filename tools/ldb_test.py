@@ -516,7 +516,6 @@ class LDBTestCase(unittest.TestCase):
 
     def testListColumnFamilies(self):
         print "Running testListColumnFamilies..."
-        dbPath = os.path.join(self.TMP_DIR, self.DB_NAME)
         self.assertRunOK("put x1 y1 --create_if_missing", "OK")
         cmd = "list_column_families | grep -v \"Column families\""
         # Test on valid dbPath.
