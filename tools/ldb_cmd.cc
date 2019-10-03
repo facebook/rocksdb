@@ -275,6 +275,17 @@ void LDBCommand::Run() {
     return;
   }
 
+  if (!options_.env || options_.env == Env::Default()) {
+    Env* env = Env::Default();
+    Status s = Env::LoadEnv(env_uri_, &env, &env_guard_);
+    if (!s.ok() && !s.IsNotFound()) {
+      fprintf(stderr, "LoadEnv: %s\n", s.ToString().c_str());
+      exec_state_ = LDBCommandExecuteResult::Failed(s.ToString());
+      return;
+    }
+    options_.env = env;
+  }
+
   if (db_ == nullptr && !NoDBOpen()) {
     OpenDB();
     if (exec_state_.IsFailed() && try_load_options_) {
@@ -346,16 +357,6 @@ LDBCommand::LDBCommand(const std::map<std::string, std::string>& options,
 }
 
 void LDBCommand::OpenDB() {
-  if (!options_.env || options_.env == Env::Default()) {
-    Env* env = Env::Default();
-    Status s = Env::LoadEnv(env_uri_, &env, &env_guard_);
-    if (!s.ok() && !s.IsNotFound()) {
-      fprintf(stderr, "LoadEnv: %s\n", s.ToString().c_str());
-      exec_state_ = LDBCommandExecuteResult::Failed(s.ToString());
-      return;
-    }
-    options_.env = env;
-  }
   if (!create_if_missing_ && try_load_options_) {
     Status s = LoadLatestOptions(db_path_, options_.env, &options_,
                                  &column_families_, ignore_unknown_options_);
