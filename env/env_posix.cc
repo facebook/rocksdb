@@ -295,9 +295,9 @@ class PosixEnv : public Env {
       result->reset(new PosixRandomAccessFile(fname, fd, options
 #if defined(ROCKSDB_IOURING_PRESENT)
                                               ,
-                                              io_uring_
+                                              thread_local_io_urings_.get()
 #endif
-                                              ));
+                                                  ));
     }
     return s;
   }
@@ -1118,7 +1118,7 @@ class PosixEnv : public Env {
 
 #if defined(ROCKSDB_IOURING_PRESENT)
   // io_uring instance
-  struct io_uring* io_uring_ = nullptr;
+  std::unique_ptr<ThreadLocalPtr> thread_local_io_urings_;
 #endif
 
   size_t page_size_;
@@ -1147,11 +1147,12 @@ PosixEnv::PosixEnv()
   thread_status_updater_ = CreateThreadStatusUpdater();
 
 #if defined(ROCKSDB_IOURING_PRESENT)
-  io_uring_ = new struct io_uring;
-  int ret = io_uring_queue_init(kIoUringDepth, io_uring_, 0);
-  if (ret) {
-    delete io_uring_;
-    io_uring_ = nullptr;
+  // Test whether IOUring is supported, and create a thread pool for it
+  // if it does.
+  struct io_uring* new_io_uring = CreateIOUring();
+  if (new_io_uring != nullptr) {
+    thread_local_io_urings_.reset(new ThreadLocalPtr(DeleteIOUring));
+    delete new_io_uring;
   }
 #endif
 }

@@ -16,6 +16,7 @@
 #include <atomic>
 #include <string>
 #include "rocksdb/env.h"
+#include "util/thread_local.h"
 
 // For non linux platform, the following macros are used only as place
 // holder.
@@ -86,6 +87,21 @@ class PosixSequentialFile : public SequentialFile {
 // io_uring instance queue depth
 static const unsigned int kIoUringDepth = 256;
 
+inline void DeleteIOUring(void* p) {
+  struct io_uring* iu = static_cast<struct io_uring*>(p);
+  delete iu;
+}
+
+inline struct io_uring* CreateIOUring() {
+  struct io_uring* new_io_uring = new struct io_uring;
+  int ret = io_uring_queue_init(kIoUringDepth, new_io_uring, 0);
+  if (ret) {
+    delete new_io_uring;
+    new_io_uring = nullptr;
+  }
+  return new_io_uring;
+}
+
 class PosixRandomAccessFile : public RandomAccessFile {
  protected:
   std::string filename_;
@@ -93,7 +109,7 @@ class PosixRandomAccessFile : public RandomAccessFile {
   bool use_direct_io_;
   size_t logical_sector_size_;
 #if defined(ROCKSDB_IOURING_PRESENT)
-  struct io_uring* io_uring_ = nullptr;
+  ThreadLocalPtr* thread_local_io_urings_;
 #endif
 
  private:
@@ -104,7 +120,7 @@ class PosixRandomAccessFile : public RandomAccessFile {
                         const EnvOptions& options
 #if defined(ROCKSDB_IOURING_PRESENT)
                         ,
-                        struct io_uring* io_uring
+                        ThreadLocalPtr* thread_local_io_urings
 #endif
   );
   virtual ~PosixRandomAccessFile();

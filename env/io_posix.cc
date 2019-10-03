@@ -410,20 +410,20 @@ size_t PosixHelper::GetUniqueIdFromFile(int fd, char* id, size_t max_size) {
  *
  * pread() based random-access
  */
-PosixRandomAccessFile::PosixRandomAccessFile(const std::string& fname, int fd,
-                                             const EnvOptions& options
+PosixRandomAccessFile::PosixRandomAccessFile(
+    const std::string& fname, int fd, const EnvOptions& options
 #if defined(ROCKSDB_IOURING_PRESENT)
-                                             ,
-                                             struct io_uring* io_uring
+    ,
+    ThreadLocalPtr* thread_local_io_urings
 #endif
-                                             )
+    )
     : filename_(fname),
       fd_(fd),
       use_direct_io_(options.use_direct_reads),
       logical_sector_size_(GetLogicalBufferSize(fd_))
 #if defined(ROCKSDB_IOURING_PRESENT)
       ,
-      io_uring_(io_uring)
+      thread_local_io_urings_(thread_local_io_urings)
 #endif
 {
   assert(!options.use_direct_reads || !options.use_mmap_reads);
@@ -485,9 +485,22 @@ Status PosixRandomAccessFile::MultiRead(ReadRequest* reqs, size_t num_reqs) {
   size_t reqs_off;
   ssize_t ret __attribute__((__unused__));
 
+  struct io_uring* iu = nullptr;
+  if (thread_local_io_urings_) {
+    iu = static_cast<struct io_uring*>(thread_local_io_urings_->Get());
+    if (iu == nullptr) {
+      iu = CreateIOUring();
+      if (iu != nullptr) {
+        thread_local_io_urings_->Reset(iu);
+      }
+    }
+  }
+
   // Init failed, platform doesn't support io_uring. Fall back to
-  // serialized reads.
-  if (!io_uring_) return SerializeMultiRead(reqs, num_reqs);
+  // serialized reads
+  if (iu == nullptr) {
+    return SerializeMultiRead(reqs, num_reqs);
+  }
 
   struct WrappedReadRequest {
     ReadRequest* req;
@@ -512,7 +525,7 @@ Status PosixRandomAccessFile::MultiRead(ReadRequest* reqs, size_t num_reqs) {
       size_t index = i + reqs_off;
       struct io_uring_sqe* sqe;
 
-      sqe = io_uring_get_sqe(io_uring_);
+      sqe = io_uring_get_sqe(iu);
       req_wraps[index].iov.iov_base = reqs[index].scratch;
       req_wraps[index].iov.iov_len = reqs[index].len;
       reqs[index].result = reqs[index].scratch;
@@ -521,8 +534,10 @@ Status PosixRandomAccessFile::MultiRead(ReadRequest* reqs, size_t num_reqs) {
       io_uring_sqe_set_data(sqe, &req_wraps[index]);
     }
 
-    ret = io_uring_submit_and_wait(io_uring_,
-                                   static_cast<unsigned int>(this_reqs));
+    ret = io_uring_submit_and_wait(iu, static_cast<unsigned int>(this_reqs));
+    if (static_cast<size_t>(ret) != this_reqs) {
+      fprintf(stderr, "ret = %ld this_reqs: %ld\n", (long)ret, (long)this_reqs);
+    }
     assert(static_cast<size_t>(ret) == this_reqs);
 
     for (size_t i = 0; i < this_reqs; i++) {
@@ -531,7 +546,7 @@ Status PosixRandomAccessFile::MultiRead(ReadRequest* reqs, size_t num_reqs) {
 
       // We could use the peek variant here, but this seems safer in terms
       // of our initial wait not reaping all completions
-      ret = io_uring_wait_cqe(io_uring_, &cqe);
+      ret = io_uring_wait_cqe(iu, &cqe);
       assert(!ret);
       req_wrap = static_cast<WrappedReadRequest*>(io_uring_cqe_get_data(cqe));
       ReadRequest* req = req_wrap->req;
@@ -544,7 +559,7 @@ Status PosixRandomAccessFile::MultiRead(ReadRequest* reqs, size_t num_reqs) {
         req->result = Slice(req->scratch, 0);
         req->status = IOError("Req failed", filename_, cqe->res);
       }
-      io_uring_cqe_seen(io_uring_, cqe);
+      io_uring_cqe_seen(iu, cqe);
     }
     num_reqs -= this_reqs;
     reqs_off += this_reqs;
