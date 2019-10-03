@@ -19,7 +19,8 @@ namespace rocksdb {
 class CloudEnvWrapper : public CloudEnvImpl {
  public:
   // Initialize an EnvWrapper that delegates all calls to *t
-  explicit CloudEnvWrapper(const CloudEnvOptions& options, Env* t) : CloudEnvImpl(options, t) {
+  explicit CloudEnvWrapper(const CloudEnvOptions& options, Env* t, const std::shared_ptr<Logger>& l) :
+    CloudEnvImpl(options, t, l) {
     cloud_env_options.log_type = LogType::kLogNone;
     cloud_env_options.cloud_type = CloudType::kCloudNone;
     notsup_ = Status::NotSupported();

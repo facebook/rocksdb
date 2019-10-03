@@ -234,14 +234,9 @@ class AwsEnv : public CloudEnvImpl {
   virtual Status EmptyBucket(const std::string& bucket,
                              const std::string& path) override;
 
-  // get the posix env
-  Env* GetPosixEnv() const { return base_env_; }
-
   bool IsRunning() const { return running_; }
 
   std::string GetWALCacheDir();
-
-  std::shared_ptr<Logger> info_log_;  // informational messages
 
   // The S3 client
   std::shared_ptr<AwsS3ClientWrapper> s3client_;

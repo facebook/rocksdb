@@ -303,7 +303,7 @@ Status S3WritableFile::Close() {
 
   // delete local file
   if (!env_->GetCloudEnvOptions().keep_local_sst_files) {
-    status_ = env_->GetPosixEnv()->DeleteFile(fname_);
+    status_ = env_->GetBaseEnv()->DeleteFile(fname_);
     if (!status_.ok()) {
       Log(InfoLogLevel::ERROR_LEVEL, env_->info_log_,
           "[s3] S3WritableFile closing delete failed on local file %s",

@@ -71,6 +71,9 @@ Status DBCloud::Open(const Options& opt, const std::string& local_dbname,
   }
 
   CloudEnvImpl* cenv = static_cast<CloudEnvImpl*>(options.env);
+  if (!cenv->info_log_) {
+    cenv->info_log_ = options.info_log;
+  }
   Env* local_env = cenv->GetBaseEnv();
   if (!read_only) {
     local_env->CreateDirIfMissing(

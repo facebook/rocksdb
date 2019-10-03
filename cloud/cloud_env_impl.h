@@ -20,14 +20,11 @@ class CloudEnvImpl : public CloudEnv {
 
  public:
   // Constructor
-  CloudEnvImpl(const CloudEnvOptions & options, Env* base_env);
+  CloudEnvImpl(const CloudEnvOptions & options, Env* base_env, const std::shared_ptr<Logger>& logger);
 
   virtual ~CloudEnvImpl();
 
   const CloudType& GetCloudType() const { return cloud_env_options.cloud_type; }
-
-  // Returns the underlying env
-  Env* GetBaseEnv() override { return base_env_; }
 
   Status SanitizeDirectory(const DBOptions& options,
                            const std::string& clone_name, bool read_only);
@@ -121,11 +118,6 @@ class CloudEnvImpl : public CloudEnv {
 
   // The pathname of the source database that is cloned
   std::string src_dbdir_;
-
-  // The underlying env
-  Env* base_env_;
-
-  std::shared_ptr<Logger> info_log_;  // informational messages
 
   // Protects purger_cv_
   std::mutex purger_lock_;

@@ -32,19 +32,19 @@ CloudLogController::CloudLogController(
   : env_(env), info_log_(info_log) {
 
   // Create a random number for the cache directory.
-  const std::string uid = trim(env_->GetPosixEnv()->GenerateUniqueId());
+  const std::string uid = trim(env_->GetBaseEnv()->GenerateUniqueId());
 
   // Temporary directory for cache.
   const std::string bucket_dir = kCacheDir + pathsep + env_->GetSrcBucketName();
   cache_dir_ = bucket_dir + pathsep + uid;
 
   // Create temporary directories.
-  status_ = env_->GetPosixEnv()->CreateDirIfMissing(kCacheDir);
+  status_ = env_->GetBaseEnv()->CreateDirIfMissing(kCacheDir);
   if (status_.ok()) {
-    status_ = env_->GetPosixEnv()->CreateDirIfMissing(bucket_dir);
+    status_ = env_->GetBaseEnv()->CreateDirIfMissing(bucket_dir);
   }
   if (status_.ok()) {
-    status_ = env_->GetPosixEnv()->CreateDirIfMissing(cache_dir_);
+    status_ = env_->GetBaseEnv()->CreateDirIfMissing(cache_dir_);
   }
 }
 
@@ -86,17 +86,17 @@ Status CloudLogController::Apply(const Slice& in) {
     // If this file is not yet open, open it and store it in cache.
     if (iter == cache_fds_.end()) {
       unique_ptr<RandomRWFile> result;
-      st = env_->GetPosixEnv()->NewRandomRWFile(
+      st = env_->GetBaseEnv()->NewRandomRWFile(
           pathname, &result, EnvOptions());
 
       if (!st.ok()) {
           // create the file
           unique_ptr<WritableFile> tmp_writable_file;
-          env_->GetPosixEnv()->NewWritableFile(pathname, &tmp_writable_file,
+          env_->GetBaseEnv()->NewWritableFile(pathname, &tmp_writable_file,
                                                EnvOptions());
           tmp_writable_file.reset();
           // Try again.
-          st = env_->GetPosixEnv()->NewRandomRWFile(
+          st = env_->GetBaseEnv()->NewRandomRWFile(
                   pathname, &result, EnvOptions());
       }
 
@@ -129,7 +129,7 @@ Status CloudLogController::Apply(const Slice& in) {
       cache_fds_.erase(iter);
     }
 
-    st = env_->GetPosixEnv()->DeleteFile(pathname);
+    st = env_->GetBaseEnv()->DeleteFile(pathname);
     Log(InfoLogLevel::DEBUG_LEVEL, env_->info_log_,
         "[%s] Tailer: Deleted file: %s %s",
         GetTypeName().c_str(), pathname.c_str(), st.ToString().c_str());
