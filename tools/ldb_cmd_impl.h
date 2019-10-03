@@ -507,6 +507,7 @@ class BackupableCommand : public LDBCommand {
   std::string backup_dir_;
   int num_threads_;
   std::unique_ptr<Logger> logger_;
+  std::shared_ptr<Env> backup_env_guard_;
 
  private:
   static const std::string ARG_BACKUP_DIR;

@@ -2866,14 +2866,14 @@ void BackupCommand::DoCommand() {
   }
   printf("open db OK\n");
   Env* custom_env = nullptr;
-  Env::LoadEnv(backup_env_uri_, &custom_env, &env_guard_);
+  Env::LoadEnv(backup_env_uri_, &custom_env, &backup_env_guard_);
   assert(custom_env != nullptr);
 
   BackupableDBOptions backup_options =
       BackupableDBOptions(backup_dir_, custom_env);
   backup_options.info_log = logger_.get();
   backup_options.max_background_operations = num_threads_;
-  status = BackupEngine::Open(options_.env, backup_options, &backup_engine);
+  status = BackupEngine::Open(custom_env, backup_options, &backup_engine);
   if (status.ok()) {
     printf("open backup engine OK\n");
   } else {
@@ -2903,7 +2903,7 @@ void RestoreCommand::Help(std::string& ret) {
 
 void RestoreCommand::DoCommand() {
   Env* custom_env = nullptr;
-  Env::LoadEnv(backup_env_uri_, &custom_env, &env_guard_);
+  Env::LoadEnv(backup_env_uri_, &custom_env, &backup_env_guard_);
   assert(custom_env != nullptr);
 
   std::unique_ptr<BackupEngineReadOnly> restore_engine;
@@ -2914,7 +2914,7 @@ void RestoreCommand::DoCommand() {
     opts.max_background_operations = num_threads_;
     BackupEngineReadOnly* raw_restore_engine_ptr;
     status =
-        BackupEngineReadOnly::Open(options_.env, opts, &raw_restore_engine_ptr);
+        BackupEngineReadOnly::Open(custom_env, opts, &raw_restore_engine_ptr);
     if (status.ok()) {
       restore_engine.reset(raw_restore_engine_ptr);
     }
