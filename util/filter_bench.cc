@@ -2,10 +2,6 @@
 //  This source code is licensed under both the GPLv2 (found in the
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
-//
-// Copyright (c) 2011 The LevelDB Authors. All rights reserved.
-// Use of this source code is governed by a BSD-style license that can be
-// found in the LICENSE file. See the AUTHORS file for names of contributors.
 
 #ifndef GFLAGS
 #include <cstdio>
@@ -56,12 +52,16 @@ DEFINE_bool(quick, false, "Run more limited set of tests, fewer queries");
 
 DEFINE_bool(allow_bad_fp_rate, false, "Continue even if FP rate is bad");
 
+DEFINE_bool(legend, false,
+            "Print more information about interpreting results instead of "
+            "running tests");
+
 void _always_assert_fail(int line, const char *file, const char *expr) {
   fprintf(stderr, "%s: %d: Assertion %s failed\n", file, line, expr);
   abort();
 }
 
-#define always_assert(cond) \
+#define ALWAYS_ASSERT(cond) \
   ((cond) ? (void)0 : ::_always_assert_fail(__LINE__, __FILE__, #cond))
 
 using rocksdb::BlockContents;
@@ -85,7 +85,7 @@ struct KeyMaker {
   Slice slice_;
   uint32_t *vals_;
 
-  Slice &Get(uint32_t filter_num, uint32_t val_num) {
+  Slice Get(uint32_t filter_num, uint32_t val_num) {
     vals_[0] = filter_num + val_num;
     vals_[1] = val_num;
     return slice_;
@@ -115,37 +115,37 @@ struct FilterInfo {
 };
 
 enum TestMode {
-  TM_SingleFilter,
-  TM_BatchPrepared,
-  TM_BatchUnprepared,
-  TM_FiftyOneFilter,
-  TM_EightyTwentyFilter,
-  TM_RandomFilter,
+  kSingleFilter,
+  kBatchPrepared,
+  kBatchUnprepared,
+  kFiftyOneFilter,
+  kEightyTwentyFilter,
+  kRandomFilter,
 };
 
 static const std::vector<TestMode> allTestModes = {
-    TM_SingleFilter,   TM_BatchPrepared,      TM_BatchUnprepared,
-    TM_FiftyOneFilter, TM_EightyTwentyFilter, TM_RandomFilter,
+    kSingleFilter,   kBatchPrepared,      kBatchUnprepared,
+    kFiftyOneFilter, kEightyTwentyFilter, kRandomFilter,
 };
 
 static const std::vector<TestMode> quickTestModes = {
-    TM_SingleFilter,
-    TM_RandomFilter,
+    kSingleFilter,
+    kRandomFilter,
 };
 
 const char *TestModeToString(TestMode tm) {
   switch (tm) {
-    case TM_SingleFilter:
+    case kSingleFilter:
       return "Single filter";
-    case TM_BatchPrepared:
+    case kBatchPrepared:
       return "Batched, prepared";
-    case TM_BatchUnprepared:
+    case kBatchUnprepared:
       return "Batched, unprepared";
-    case TM_FiftyOneFilter:
+    case kFiftyOneFilter:
       return "Skewed 50% in 1%";
-    case TM_EightyTwentyFilter:
+    case kEightyTwentyFilter:
       return "Skewed 80% in 20%";
-    case TM_RandomFilter:
+    case kRandomFilter:
       return "Random filter";
   }
   return "Bad TestMode";
@@ -174,9 +174,9 @@ void FilterBench::Go() {
   std::unique_ptr<FilterBitsBuilder> builder(
       table_options_.filter_policy->GetFilterBitsBuilder());
 
-  uint32_t varianceMask = 1;
-  while (varianceMask * varianceMask * 4 < FLAGS_average_keys_per_filter) {
-    varianceMask = varianceMask * 2 + 1;
+  uint32_t variance_mask = 1;
+  while (variance_mask * variance_mask * 4 < FLAGS_average_keys_per_filter) {
+    variance_mask = variance_mask * 2 + 1;
   }
 
   const std::vector<TestMode> &testModes =
@@ -195,7 +195,7 @@ void FilterBench::Go() {
   while (totalMemoryUsed < 1024 * 1024 * FLAGS_working_mem_size_mb) {
     uint32_t filterId = random_();
     uint32_t keysToAdd = FLAGS_average_keys_per_filter +
-                         (random_() & varianceMask) - (varianceMask / 2);
+                         (random_() & variance_mask) - (variance_mask / 2);
     for (uint32_t i = 0; i < keysToAdd; ++i) {
       builder->AddKey(kms_[0].Get(filterId, i));
     }
@@ -216,7 +216,7 @@ void FilterBench::Go() {
   }
 
   uint64_t elapsedNanos = timer.ElapsedNanos();
-  double ns = (double)elapsedNanos / totalKeysAdded;
+  double ns = double(elapsedNanos) / totalKeysAdded;
   std::cout << "Build avg ns/key: " << ns << std::endl;
   std::cout << "Number of filters: " << infos_.size() << std::endl;
   std::cout << "Total memory (MB): " << totalMemoryUsed / 1024.0 / 1024.0
@@ -238,7 +238,7 @@ void FilterBench::Go() {
     for (uint32_t i = 0; i < infos_.size(); ++i) {
       FilterInfo &info = infos_[i];
       for (uint32_t j = 0; j < info.keys_added_; ++j) {
-        always_assert(info.reader_->MayMatch(kms_[0].Get(info.filter_id_, j)));
+        ALWAYS_ASSERT(info.reader_->MayMatch(kms_[0].Get(info.filter_id_, j)));
       }
       for (uint32_t j = 0; j < outside_q_per_f; ++j) {
         fps += info.reader_->MayMatch(
@@ -246,18 +246,18 @@ void FilterBench::Go() {
       }
     }
     std::cout << " No FNs :)" << std::endl;
-    double prelimRate = (double)fps / outside_q_per_f / infos_.size();
+    double prelimRate = double(fps) / outside_q_per_f / infos_.size();
     std::cout << " Prelim FP rate %: " << (100.0 * prelimRate) << std::endl;
 
     if (!FLAGS_allow_bad_fp_rate) {
-      always_assert(prelimRate < tolerableRate);
+      ALWAYS_ASSERT(prelimRate < tolerableRate);
     }
   }
 
   std::cout << "----------------------------" << std::endl;
   std::cout << "Inside queries..." << std::endl;
   random_.seed(FLAGS_seed + 1);
-  RandomQueryTest(/*inside*/ true, /*dry_run*/ true, TM_RandomFilter);
+  RandomQueryTest(/*inside*/ true, /*dry_run*/ true, kRandomFilter);
   for (TestMode tm : testModes) {
     random_.seed(FLAGS_seed + 1);
     RandomQueryTest(/*inside*/ true, /*dry_run*/ false, tm);
@@ -266,14 +266,14 @@ void FilterBench::Go() {
   std::cout << "----------------------------" << std::endl;
   std::cout << "Outside queries..." << std::endl;
   random_.seed(FLAGS_seed + 2);
-  RandomQueryTest(/*inside*/ false, /*dry_run*/ true, TM_RandomFilter);
+  RandomQueryTest(/*inside*/ false, /*dry_run*/ true, kRandomFilter);
   for (TestMode tm : testModes) {
     random_.seed(FLAGS_seed + 2);
     RandomQueryTest(/*inside*/ false, /*dry_run*/ false, tm);
   }
 
   std::cout << "----------------------------" << std::endl;
-  std::cout << "Done." << std::endl;
+  std::cout << "Done. (For more info, run with -legend or -help.)" << std::endl;
 }
 
 void FilterBench::RandomQueryTest(bool inside, bool dry_run, TestMode mode) {
@@ -284,17 +284,23 @@ void FilterBench::RandomQueryTest(bool inside, bool dry_run, TestMode mode) {
 
   uint32_t dryRunHash = 0;
   uint64_t maxQueries = static_cast<uint64_t>(FLAGS_m_queries) * 1000000;
+  // Some filters may be considered secondary in order to implement skewed
+  // queries. numPrimaryFilters is the number that are to be treated as
+  // equal, and any remainder will be treated as secondary.
   size_t numPrimaryFilters = infos_.size();
+  // The proportion (when divided by 2^32 - 1) of filter queries going to
+  // the primary filters (default = all). The remainder of queries are
+  // against secondary filters.
   uint32_t primaryFilterThreshold = 0xffffffff;
-  if (mode == TM_SingleFilter) {
+  if (mode == kSingleFilter) {
     // 100% of queries to 1 filter
     numPrimaryFilters = 1;
-  } else if (mode == TM_FiftyOneFilter) {
+  } else if (mode == kFiftyOneFilter) {
     // 50% of queries
     primaryFilterThreshold /= 2;
     // to 1% of filters
     numPrimaryFilters = (numPrimaryFilters + 99) / 100;
-  } else if (mode == TM_EightyTwentyFilter) {
+  } else if (mode == kEightyTwentyFilter) {
     // 80% of queries
     primaryFilterThreshold = primaryFilterThreshold / 5 * 4;
     // to 20% of filters
@@ -303,7 +309,7 @@ void FilterBench::RandomQueryTest(bool inside, bool dry_run, TestMode mode) {
   size_t batchSize = 1;
   std::unique_ptr<Slice *[]> batchSlices;
   std::unique_ptr<bool[]> batchResults;
-  if (mode == TM_BatchPrepared || mode == TM_BatchUnprepared) {
+  if (mode == kBatchPrepared || mode == kBatchUnprepared) {
     batchSize = kms_.size();
     batchSlices.reset(new Slice *[batchSize]);
     batchResults.reset(new bool[batchSize]);
@@ -334,14 +340,14 @@ void FilterBench::RandomQueryTest(bool inside, bool dry_run, TestMode mode) {
       }
     }
     // TODO: implement batched interface to full block reader
-    if (mode == TM_BatchPrepared && !dry_run && !FLAGS_use_full_block_reader) {
+    if (mode == kBatchPrepared && !dry_run && !FLAGS_use_full_block_reader) {
       for (size_t i = 0; i < batchSize; ++i) {
         batchResults[i] = false;
       }
       info.reader_->MayMatch(batchSize, batchSlices.get(), batchResults.get());
       for (size_t i = 0; i < batchSize; ++i) {
         if (inside) {
-          always_assert(batchResults[i]);
+          ALWAYS_ASSERT(batchResults[i]);
         } else {
           info.false_positives_ += batchResults[i];
         }
@@ -364,7 +370,7 @@ void FilterBench::RandomQueryTest(bool inside, bool dry_run, TestMode mode) {
             may_match = info.reader_->MayMatch(kms_[i].slice_);
           }
           if (inside) {
-            always_assert(may_match);
+            ALWAYS_ASSERT(may_match);
           } else {
             info.false_positives_ += may_match;
           }
@@ -374,7 +380,7 @@ void FilterBench::RandomQueryTest(bool inside, bool dry_run, TestMode mode) {
   }
 
   uint64_t elapsedNanos = timer.ElapsedNanos();
-  double ns = (double)elapsedNanos / maxQueries;
+  double ns = double(elapsedNanos) / maxQueries;
 
   if (dry_run) {
     // Printing part of hash prevents dry run components from being optimized
@@ -386,7 +392,7 @@ void FilterBench::RandomQueryTest(bool inside, bool dry_run, TestMode mode) {
   }
   std::cout << "ns/op: " << ns << std::endl;
 
-  if (!inside && !dry_run && mode == TM_RandomFilter) {
+  if (!inside && !dry_run && mode == kRandomFilter) {
     uint64_t q = 0;
     uint64_t fp = 0;
     double worst_fp_rate = 0.0;
@@ -395,7 +401,7 @@ void FilterBench::RandomQueryTest(bool inside, bool dry_run, TestMode mode) {
       q += info.outside_queries_;
       fp += info.false_positives_;
       if (info.outside_queries_ > 0) {
-        double fp_rate = (double)info.false_positives_ / info.outside_queries_;
+        double fp_rate = double(info.false_positives_) / info.outside_queries_;
         worst_fp_rate = std::max(worst_fp_rate, fp_rate);
         best_fp_rate = std::min(best_fp_rate, fp_rate);
       }
@@ -407,7 +413,7 @@ void FilterBench::RandomQueryTest(bool inside, bool dry_run, TestMode mode) {
       std::cout << "    Best    FP rate %: " << 100.0 * best_fp_rate
                 << std::endl;
       std::cout << "    Best possible bits/key: "
-                << -std::log((double)fp / q) / std::log(2.0) << std::endl;
+                << -std::log(double(fp) / q) / std::log(2.0) << std::endl;
     }
   }
 }
@@ -415,13 +421,36 @@ void FilterBench::RandomQueryTest(bool inside, bool dry_run, TestMode mode) {
 int main(int argc, char **argv) {
   rocksdb::port::InstallStackTraceHandler();
   SetUsageMessage(std::string("\nUSAGE:\n") + std::string(argv[0]) +
-                  " [OPTIONS]...");
+                  " [-quick] [OTHER OPTIONS]...");
   ParseCommandLineFlags(&argc, &argv, true);
 
   PrintWarnings();
 
-  FilterBench b;
-  b.Go();
+  if (FLAGS_legend) {
+    std::cout
+        << "Legend:" << std::endl
+        << "  \"Inside\" - key that was added to filter" << std::endl
+        << "  \"Outside\" - key that was not added to filter" << std::endl
+        << "  \"FN\" - false negative query (must not happen)" << std::endl
+        << "  \"FP\" - false positive query (OK at low rate)" << std::endl
+        << "  \"Dry run\" - cost of testing and hashing overhead. Consider"
+        << "\n     subtracting this cost from the others." << std::endl
+        << "  \"Single filter\" - essentially minimum cost, assuming filter"
+        << "\n     fits easily in L1 CPU cache." << std::endl
+        << "  \"Batched, prepared\" - several queries at once against a"
+        << "\n     randomly chosen filter, using multi-query interface."
+        << std::endl
+        << "  \"Batched, unprepared\" - similar, but using serial calls"
+        << "\n     to single query interface." << std::endl
+        << "  \"Random filter\" - a filter is chosen at random as target"
+        << "\n     of each query." << std::endl
+        << "  \"Skewed X% in Y%\" - like \"Random filter\" except Y% of"
+        << "\n      the filters are designated as \"hot\" and receive X%"
+        << "\n      of queries." << std::endl;
+  } else {
+    FilterBench b;
+    b.Go();
+  }
 
   return 0;
 }
