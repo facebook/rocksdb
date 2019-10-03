@@ -43,7 +43,7 @@ DEFINE_uint32(batch_size, 8, "Number of keys to group in each batch");
 
 DEFINE_uint32(bits_per_key, 10, "Bits per key setting for filters");
 
-DEFINE_uint32(m_queries, 200, "Millions of queries for each test mode");
+DEFINE_double(m_queries, 200, "Millions of queries for each test mode");
 
 DEFINE_bool(use_full_block_reader, false,
             "Use FullFilterBlockReader interface rather than FilterBitsReader");
@@ -182,7 +182,7 @@ void FilterBench::Go() {
   const std::vector<TestMode> &testModes =
       FLAGS_quick ? quickTestModes : allTestModes;
   if (FLAGS_quick) {
-    FLAGS_m_queries /= 10;
+    FLAGS_m_queries /= 10.0;
   }
 
   std::cout << "Building..." << std::endl;
@@ -283,7 +283,8 @@ void FilterBench::RandomQueryTest(bool inside, bool dry_run, TestMode mode) {
   }
 
   uint32_t dry_run_hash = 0;
-  uint64_t max_queries = static_cast<uint64_t>(FLAGS_m_queries) * 1000000;
+  uint64_t max_queries =
+      static_cast<uint64_t>(FLAGS_m_queries * 1000000 + 0.50);
   // Some filters may be considered secondary in order to implement skewed
   // queries. num_primary_filters is the number that are to be treated as
   // equal, and any remainder will be treated as secondary.
