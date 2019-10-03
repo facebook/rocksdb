@@ -44,7 +44,7 @@ namespace rocksdb {
     const char *Name() const override;
 
   private:
-    bool GetByteArray(JNIEnv *env, int size, const char* data, jbyteArray& jb) const;
+    bool GetByteArray(JNIEnv *env, size_t size, const char* data, jbyteArray& jb) const;
 
     bool GetNewValue(JNIEnv *env, jbyteArray &jresult, std::string *new_value) const;
 

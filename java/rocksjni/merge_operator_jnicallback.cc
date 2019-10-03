@@ -74,9 +74,9 @@ namespace rocksdb {
     catchAndLog(env);
   }
 
-  bool MergeOperatorJniCallback::GetByteArray(JNIEnv *env, int size, const char* data, jbyteArray& jb) const {
-    size_t _size = size * sizeof(char);
-    const jsize s = static_cast<jsize>(_size);
+  bool MergeOperatorJniCallback::GetByteArray(JNIEnv *env, size_t size, const char* data, jbyteArray& jb) const {
+    //size_t _size = size * sizeof(char);
+    const jsize s = static_cast<jsize>(size);
     jbyte *buf = (jbyte *)data;
     jb = env->NewByteArray(s);
     if (jb == nullptr) {
