@@ -523,7 +523,7 @@ Status PosixRandomAccessFile::MultiRead(ReadRequest* reqs, size_t num_reqs) {
 
     ret = io_uring_submit_and_wait(io_uring_,
                                    static_cast<unsigned int>(this_reqs));
-    assert((size_t)ret == this_reqs);
+    assert(static_cast<size_t>(ret) == this_reqs);
 
     for (size_t i = 0; i < this_reqs; i++) {
       struct io_uring_cqe* cqe;
@@ -535,10 +535,10 @@ Status PosixRandomAccessFile::MultiRead(ReadRequest* reqs, size_t num_reqs) {
       assert(!ret);
       req_wrap = static_cast<WrappedReadRequest*>(io_uring_cqe_get_data(cqe));
       ReadRequest* req = req_wrap->req;
-      if ((size_t)cqe->res == req_wrap->iov.iov_len) {
+      if (static_cast<size_t>(cqe->res) == req_wrap->iov.iov_len) {
         req->result = Slice(req->scratch, cqe->res);
         req->status = Status::OK();
-      } else if ((size_t)cqe->res >= 0) {
+      } else if (cqe->res >= 0) {
         req->result = Slice(req->scratch, req_wrap->iov.iov_len - cqe->res);
       } else {
         req->result = Slice(req->scratch, 0);
