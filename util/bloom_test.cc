@@ -302,7 +302,7 @@ class FullBloomTest : public testing::Test {
     uint64_t result = 0;
     for (int i = 0; i < 64; i++) {
       if (Matches(Key(i + 12345, buffer))) {
-        result |= 1 << i;
+        result |= uint64_t{1} << i;
       }
     }
     return result;
@@ -507,15 +507,15 @@ TEST_F(FullBloomTest, RawSchema) {
   // Two probes, about 3/4 bits set: ~50% "FP" rate
   // One 256-byte cache line.
   OpenRaw(cft.ResetWeirdFill(256, 1, 2));
-  ASSERT_EQ(18446744073675927543ULL, PackedMatches());
+  ASSERT_EQ(uint64_t{11384799501900898790U}, PackedMatches());
 
   // Two 128-byte cache lines.
   OpenRaw(cft.ResetWeirdFill(256, 2, 2));
-  ASSERT_EQ(18446744073407559151ULL, PackedMatches());
+  ASSERT_EQ(uint64_t{10157853359773492589U}, PackedMatches());
 
   // Four 64-byte cache lines.
   OpenRaw(cft.ResetWeirdFill(256, 4, 2));
-  ASSERT_EQ(18446744073441107966ULL, PackedMatches());
+  ASSERT_EQ(uint64_t{7123594913907464682U}, PackedMatches());
 }
 
 TEST_F(FullBloomTest, CorruptFilters) {
