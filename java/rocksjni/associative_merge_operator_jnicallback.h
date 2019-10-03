@@ -21,7 +21,7 @@ namespace rocksdb {
   public:
     AssociativeMergeOperatorJniCallback(JNIEnv* env, jobject jMergeOperator);
     ~AssociativeMergeOperatorJniCallback();
-    bool GetByteArray(JNIEnv *env, int size, const char* value, jbyteArray& jb) const;
+    bool GetByteArray(JNIEnv *env, size_t size, const char* value, jbyteArray& jb) const;
 
     virtual bool Merge(const Slice &key,
                        const Slice *existing_value,

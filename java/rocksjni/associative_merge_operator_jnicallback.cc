@@ -60,9 +60,8 @@ namespace rocksdb {
     env->DeleteGlobalRef(returnTypeClass);
   }
 
-  bool AssociativeMergeOperatorJniCallback::GetByteArray(JNIEnv *env, int size, const char* value, jbyteArray& jb) const {
-    size_t _size = size * sizeof(char);
-    const jsize size_ = static_cast<jsize>(_size);
+  bool AssociativeMergeOperatorJniCallback::GetByteArray(JNIEnv *env, size_t size, const char* value, jbyteArray& jb) const {
+    const jsize size_ = static_cast<jsize>(size);
     jbyte *buf = (jbyte *)value;
     jb = env->NewByteArray(size_);
     if (jb == nullptr) {
