@@ -84,6 +84,7 @@ class PosixSequentialFile : public SequentialFile {
   }
 };
 
+#if defined(ROCKSDB_IOURING_PRESENT)
 // io_uring instance queue depth
 static const unsigned int kIoUringDepth = 256;
 
@@ -101,6 +102,7 @@ inline struct io_uring* CreateIOUring() {
   }
   return new_io_uring;
 }
+#endif // defined(ROCKSDB_IOURING_PRESENT)
 
 class PosixRandomAccessFile : public RandomAccessFile {
  protected:
