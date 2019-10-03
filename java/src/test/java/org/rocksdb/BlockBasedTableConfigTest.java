@@ -59,7 +59,7 @@ public class BlockBasedTableConfigTest {
   @Test
   public void indexType() {
     final BlockBasedTableConfig blockBasedTableConfig = new BlockBasedTableConfig();
-    assertThat(IndexType.values().length).isEqualTo(3);
+    assertThat(IndexType.values().length).isEqualTo(4);
     blockBasedTableConfig.setIndexType(IndexType.kHashSearch);
     assertThat(blockBasedTableConfig.indexType().equals(
         IndexType.kHashSearch));
@@ -78,6 +78,29 @@ public class BlockBasedTableConfigTest {
     blockBasedTableConfig.setDataBlockIndexType(DataBlockIndexType.kDataBlockBinarySearch);
     assertThat(blockBasedTableConfig.dataBlockIndexType().equals(
         DataBlockIndexType.kDataBlockBinarySearch));
+  }
+
+  @Test
+  public void indexShorteningMode() {
+    final BlockBasedTableConfig blockBasedTableConfig = new BlockBasedTableConfig();
+
+    // Check default value
+    assertThat(blockBasedTableConfig.indexShorteningMode().equals(
+        IndexShorteningMode.kShortenSeparators));
+
+    // Change value
+    assertThat(IndexShorteningMode.valueOf("kNoShortening")).isNotNull();
+    blockBasedTableConfig.setIndexShorteningMode(IndexShorteningMode.kNoShortening);
+    assertThat(blockBasedTableConfig.indexShorteningMode().equals(
+        IndexShorteningMode.kNoShortening));
+    assertThat(IndexShorteningMode.valueOf("kShortenSeparators")).isNotNull();
+    blockBasedTableConfig.setIndexShorteningMode(IndexShorteningMode.kShortenSeparators);
+    assertThat(blockBasedTableConfig.indexShorteningMode().equals(
+        IndexShorteningMode.kShortenSeparators));
+    assertThat(IndexShorteningMode.valueOf("kShortenSeparatorsAndSuccessor")).isNotNull();
+    blockBasedTableConfig.setIndexShorteningMode(IndexShorteningMode.kShortenSeparatorsAndSuccessor);
+    assertThat(blockBasedTableConfig.indexShorteningMode().equals(
+        IndexShorteningMode.kShortenSeparatorsAndSuccessor));
   }
 
   @Test

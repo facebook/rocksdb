@@ -5969,6 +5969,25 @@ class DataBlockIndexTypeJni {
  }
 };
 
+class IndexShorteningMode {
+  public:
+  // Returns the equivalent C++ rocksdb::IndexShorteningMode enum for the
+  // provided Java org.rocksdb.IndexShorteningMode
+  static rocksdb::BlockBasedTableOptions::IndexShorteningMode toCppIndexShorteningMode(
+      jbyte jindex_shortening) {
+    switch(jindex_shortening) {
+      case 0x0:
+        return rocksdb::BlockBasedTableOptions::IndexShorteningMode::kNoShortening;
+      case 0x1:
+        return rocksdb::BlockBasedTableOptions::IndexShorteningMode::kShortenSeparators;
+      case 0x2:
+        return rocksdb::BlockBasedTableOptions::IndexShorteningMode::kShortenSeparatorsAndSuccessor;
+      default:
+        return rocksdb::BlockBasedTableOptions::IndexShorteningMode::kShortenSeparators;
+    }
+  }
+};
+
 // The portal class for org.rocksdb.ChecksumType
 class ChecksumTypeJni {
  public:

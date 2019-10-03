@@ -20,6 +20,7 @@ public class BlockBasedTableConfig extends TableFormatConfig {
     pinTopLevelIndexAndFilter = true;
     indexType = IndexType.kBinarySearch;
     dataBlockIndexType = DataBlockIndexType.kDataBlockBinarySearch;
+    indexShorteningMode = IndexShorteningMode.kShortenSeparators;
     dataBlockHashTableUtilRatio = 0.75;
     checksumType = ChecksumType.kCRC32c;
     noBlockCache = false;
@@ -188,6 +189,21 @@ public class BlockBasedTableConfig extends TableFormatConfig {
     this.dataBlockIndexType = dataBlockIndexType;
     return this;
   }
+
+  /**
+   * Get the Index Shortening Mode.
+   *
+   * @return the current index shortening mode
+   */
+  public IndexShorteningMode indexShorteningMode() {
+    return indexShorteningMode;
+  }
+
+  public BlockBasedTableConfig setIndexShorteningMode(final IndexShorteningMode indexShorteningMode) {
+    this.indexShorteningMode = indexShorteningMode;
+    return this;
+  }
+
 
   /**
    * Get the #entries/#buckets. It is valid only when {@link #dataBlockIndexType()} is
@@ -897,7 +913,7 @@ public class BlockBasedTableConfig extends TableFormatConfig {
     return newTableFactoryHandle(cacheIndexAndFilterBlocks,
         cacheIndexAndFilterBlocksWithHighPriority,
         pinL0FilterAndIndexBlocksInCache, pinTopLevelIndexAndFilter,
-        indexType.getValue(), dataBlockIndexType.getValue(),
+        indexType.getValue(), dataBlockIndexType.getValue(), indexShorteningMode.getValue(),
         dataBlockHashTableUtilRatio, checksumType.getValue(), noBlockCache,
         blockCacheHandle, persistentCacheHandle, blockCacheCompressedHandle,
         blockSize, blockSizeDeviation, blockRestartInterval,
@@ -916,6 +932,7 @@ public class BlockBasedTableConfig extends TableFormatConfig {
       final boolean pinTopLevelIndexAndFilter,
       final byte indexTypeValue,
       final byte dataBlockIndexTypeValue,
+      final byte indexShorteningModeValue,
       final double dataBlockHashTableUtilRatio,
       final byte checksumTypeValue,
       final boolean noBlockCache,
@@ -951,6 +968,7 @@ public class BlockBasedTableConfig extends TableFormatConfig {
   private boolean pinTopLevelIndexAndFilter;
   private IndexType indexType;
   private DataBlockIndexType dataBlockIndexType;
+  private IndexShorteningMode indexShorteningMode;
   private double dataBlockHashTableUtilRatio;
   private ChecksumType checksumType;
   private boolean noBlockCache;

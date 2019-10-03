@@ -38,14 +38,14 @@ jlong Java_org_rocksdb_PlainTableConfig_newTableFactoryHandle(
 /*
  * Class:     org_rocksdb_BlockBasedTableConfig
  * Method:    newTableFactoryHandle
- * Signature: (ZZZZBBDBZJJJJIIIJZZJZZIIZZJIJI)J
+ * Signature: (ZZZZBBBDBZJJJJIIIJZZJZZIIZZJIJI)J
  */
 jlong Java_org_rocksdb_BlockBasedTableConfig_newTableFactoryHandle(
     JNIEnv*, jobject, jboolean jcache_index_and_filter_blocks,
     jboolean jcache_index_and_filter_blocks_with_high_priority,
     jboolean jpin_l0_filter_and_index_blocks_in_cache,
     jboolean jpin_top_level_index_and_filter, jbyte jindex_type_value,
-    jbyte jdata_block_index_type_value,
+    jbyte jdata_block_index_type_value, jbyte jindex_shortening_mode_value,
     jdouble jdata_block_hash_table_util_ratio, jbyte jchecksum_type_value,
     jboolean jno_block_cache, jlong jblock_cache_handle,
     jlong jpersistent_cache_handle,
@@ -73,6 +73,9 @@ jlong Java_org_rocksdb_BlockBasedTableConfig_newTableFactoryHandle(
   options.data_block_index_type =
       rocksdb::DataBlockIndexTypeJni::toCppDataBlockIndexType(
           jdata_block_index_type_value);
+  options.index_shortening =
+      rocksdb::IndexShorteningMode::toCppIndexShorteningMode(
+          jindex_shortening_mode_value);
   options.data_block_hash_table_util_ratio =
       static_cast<double>(jdata_block_hash_table_util_ratio);
   options.checksum =
