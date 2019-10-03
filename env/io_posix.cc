@@ -34,6 +34,7 @@
 #include "port/port.h"
 #include "rocksdb/slice.h"
 #include "test_util/sync_point.h"
+#include "util/autovector.h"
 #include "util/coding.h"
 #include "util/string_util.h"
 
@@ -410,11 +411,21 @@ size_t PosixHelper::GetUniqueIdFromFile(int fd, char* id, size_t max_size) {
  * pread() based random-access
  */
 PosixRandomAccessFile::PosixRandomAccessFile(const std::string& fname, int fd,
-                                             const EnvOptions& options)
+                                             const EnvOptions& options
+#if defined(ROCKSDB_IOURING_PRESENT)
+                                             ,
+                                             struct io_uring* io_uring
+#endif
+                                             )
     : filename_(fname),
       fd_(fd),
       use_direct_io_(options.use_direct_reads),
-      logical_sector_size_(GetLogicalBufferSize(fd_)) {
+      logical_sector_size_(GetLogicalBufferSize(fd_))
+#if defined(ROCKSDB_IOURING_PRESENT)
+      ,
+      io_uring_(io_uring)
+#endif
+{
   assert(!options.use_direct_reads || !options.use_mmap_reads);
   assert(!options.use_mmap_reads || sizeof(void*) < 8);
 }
@@ -458,6 +469,90 @@ Status PosixRandomAccessFile::Read(uint64_t offset, size_t n, Slice* result,
   }
   *result = Slice(scratch, (r < 0) ? 0 : n - left);
   return s;
+}
+
+Status PosixRandomAccessFile::SerializeMultiRead(ReadRequest* reqs,
+                                                 size_t num_reqs) {
+  for (size_t i = 0; i < num_reqs; ++i) {
+    ReadRequest& req = reqs[i];
+    req.status = Read(req.offset, req.len, &req.result, req.scratch);
+  }
+  return Status::OK();
+}
+
+Status PosixRandomAccessFile::MultiRead(ReadRequest* reqs, size_t num_reqs) {
+#if defined(ROCKSDB_IOURING_PRESENT)
+  size_t reqs_off;
+  ssize_t ret __attribute__((__unused__));
+
+  // Init failed, platform doesn't support io_uring. Fall back to
+  // serialized reads.
+  if (!io_uring_) return SerializeMultiRead(reqs, num_reqs);
+
+  struct WrappedReadRequest {
+    ReadRequest* req;
+    struct iovec iov;
+    WrappedReadRequest(ReadRequest* r) : req(r) {}
+  };
+
+  autovector<WrappedReadRequest, 32> req_wraps;
+
+  for (size_t i = 0; i < num_reqs; i++) {
+    req_wraps.emplace_back(&reqs[i]);
+  }
+
+  reqs_off = 0;
+  while (num_reqs) {
+    size_t this_reqs = num_reqs;
+
+    // If requests exceed depth, split it into batches
+    if (this_reqs > kIoUringDepth) this_reqs = kIoUringDepth;
+
+    for (size_t i = 0; i < this_reqs; i++) {
+      size_t index = i + reqs_off;
+      struct io_uring_sqe* sqe;
+
+      sqe = io_uring_get_sqe(io_uring_);
+      req_wraps[index].iov.iov_base = reqs[index].scratch;
+      req_wraps[index].iov.iov_len = reqs[index].len;
+      reqs[index].result = reqs[index].scratch;
+      io_uring_prep_readv(sqe, fd_, &req_wraps[index].iov, 1,
+                          reqs[index].offset);
+      io_uring_sqe_set_data(sqe, &req_wraps[index]);
+    }
+
+    ret = io_uring_submit_and_wait(io_uring_,
+                                   static_cast<unsigned int>(this_reqs));
+    assert((size_t)ret == this_reqs);
+
+    for (size_t i = 0; i < this_reqs; i++) {
+      struct io_uring_cqe* cqe;
+      WrappedReadRequest* req_wrap;
+
+      // We could use the peek variant here, but this seems safer in terms
+      // of our initial wait not reaping all completions
+      ret = io_uring_wait_cqe(io_uring_, &cqe);
+      assert(!ret);
+      req_wrap = static_cast<WrappedReadRequest*>(io_uring_cqe_get_data(cqe));
+      ReadRequest* req = req_wrap->req;
+      if ((size_t)cqe->res == req_wrap->iov.iov_len) {
+        req->result = Slice(req->scratch, cqe->res);
+        req->status = Status::OK();
+      } else if ((size_t)cqe->res >= 0) {
+        req->result = Slice(req->scratch, req_wrap->iov.iov_len - cqe->res);
+      } else {
+        req->result = Slice(req->scratch, 0);
+        req->status = IOError("Req failed", filename_, cqe->res);
+      }
+      io_uring_cqe_seen(io_uring_, cqe);
+    }
+    num_reqs -= this_reqs;
+    reqs_off += this_reqs;
+  }
+  return Status::OK();
+#else
+  return SerializeMultiRead(reqs, num_reqs);
+#endif
 }
 
 Status PosixRandomAccessFile::Prefetch(uint64_t offset, size_t n) {

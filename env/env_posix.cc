@@ -16,6 +16,9 @@
 #if defined(OS_LINUX)
 #include <linux/fs.h>
 #endif
+#if defined(ROCKSDB_IOURING_PRESENT)
+#include <liburing.h>
+#endif
 #include <pthread.h>
 #include <signal.h>
 #include <stdio.h>
@@ -32,6 +35,9 @@
 #include <sys/statvfs.h>
 #include <sys/time.h>
 #include <sys/types.h>
+#if defined(ROCKSDB_IOURING_PRESENT)
+#include <sys/uio.h>
+#endif
 #include <time.h>
 #include <algorithm>
 // Get nano time includes
@@ -286,7 +292,12 @@ class PosixEnv : public Env {
         }
 #endif
       }
-      result->reset(new PosixRandomAccessFile(fname, fd, options));
+      result->reset(new PosixRandomAccessFile(fname, fd, options
+#if defined(ROCKSDB_IOURING_PRESENT)
+                                              ,
+                                              io_uring_
+#endif
+                                              ));
     }
     return s;
   }
@@ -1105,6 +1116,11 @@ class PosixEnv : public Env {
 #endif
   }
 
+#if defined(ROCKSDB_IOURING_PRESENT)
+  // io_uring instance
+  struct io_uring* io_uring_ = nullptr;
+#endif
+
   size_t page_size_;
 
   std::vector<ThreadPoolImpl> thread_pools_;
@@ -1129,6 +1145,15 @@ PosixEnv::PosixEnv()
     thread_pools_[pool_id].SetHostEnv(this);
   }
   thread_status_updater_ = CreateThreadStatusUpdater();
+
+#if defined(ROCKSDB_IOURING_PRESENT)
+  io_uring_ = new struct io_uring;
+  int ret = io_uring_queue_init(kIoUringDepth, io_uring_, 0);
+  if (ret) {
+    delete io_uring_;
+    io_uring_ = nullptr;
+  }
+#endif
 }
 
 void PosixEnv::Schedule(void (*function)(void* arg1), void* arg, Priority pri,

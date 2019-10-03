@@ -8,6 +8,10 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 #pragma once
 #include <errno.h>
+#if defined(ROCKSDB_IOURING_PRESENT)
+#include <liburing.h>
+#include <sys/uio.h>
+#endif
 #include <unistd.h>
 #include <atomic>
 #include <string>
@@ -79,20 +83,36 @@ class PosixSequentialFile : public SequentialFile {
   }
 };
 
+// io_uring instance queue depth
+static const unsigned int kIoUringDepth = 256;
+
 class PosixRandomAccessFile : public RandomAccessFile {
  protected:
   std::string filename_;
   int fd_;
   bool use_direct_io_;
   size_t logical_sector_size_;
+#if defined(ROCKSDB_IOURING_PRESENT)
+  struct io_uring* io_uring_ = nullptr;
+#endif
+
+ private:
+  Status SerializeMultiRead(ReadRequest* reqs, size_t num_reqs);
 
  public:
   PosixRandomAccessFile(const std::string& fname, int fd,
-                        const EnvOptions& options);
+                        const EnvOptions& options
+#if defined(ROCKSDB_IOURING_PRESENT)
+                        ,
+                        struct io_uring* io_uring
+#endif
+  );
   virtual ~PosixRandomAccessFile();
 
   virtual Status Read(uint64_t offset, size_t n, Slice* result,
                       char* scratch) const override;
+
+  virtual Status MultiRead(ReadRequest* reqs, size_t num_reqs) override;
 
   virtual Status Prefetch(uint64_t offset, size_t n) override;
 
