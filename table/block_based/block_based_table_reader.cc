@@ -2723,11 +2723,21 @@ void BlockBasedTableIterator<TBlockIter, TValue>::SeekImpl(
     // Index contains the first key of the block, and it's >= target.
     // We can defer reading the block.
     is_at_first_key_from_index_ = true;
+    // ResetDataIter() will invalidate block_iter_. Thus, there is no need to
+    // call CheckDataBlockWithinUpperBound() to check for iterate_upper_bound
+    // as that will be done later when the data block is actually read.
     ResetDataIter();
   } else {
     // Need to use the data block.
     if (!same_block) {
       InitDataBlock();
+    } else {
+      // When the user does a reseek, the iterate_upper_bound might have
+      // changed. CheckDataBlockWithinUpperBound() needs to be called
+      // explicitly if the reseek ends up in the same data block.
+      // If the reseek ends up in a different block, InitDataBlock() will do
+      // the iterator upper bound check.
+      CheckDataBlockWithinUpperBound();
     }
 
     if (target) {
@@ -2738,7 +2748,6 @@ void BlockBasedTableIterator<TBlockIter, TValue>::SeekImpl(
     FindKeyForward();
   }
 
-  CheckDataBlockWithinUpperBound();
   CheckOutOfBound();
 
   if (target) {
