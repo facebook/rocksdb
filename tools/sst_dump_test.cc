@@ -13,6 +13,7 @@
 #include "rocksdb/sst_dump_tool.h"
 
 #include "file/random_access_file_reader.h"
+#include "port/stack_trace.h"
 #include "rocksdb/filter_policy.h"
 #include "table/block_based/block_based_table_factory.h"
 #include "table/table_builder.h"
@@ -260,6 +261,7 @@ void RegisterCustomObjects(int /*argc*/, char** /*argv*/) {}
 #endif  // !ROCKSDB_UNITTESTS_WITH_CUSTOM_OBJECTS_FROM_STATIC_LIBS
 
 int main(int argc, char** argv) {
+  rocksdb::port::InstallStackTraceHandler();
   ::testing::InitGoogleTest(&argc, argv);
   RegisterCustomObjects(argc, argv);
   return RUN_ALL_TESTS();
