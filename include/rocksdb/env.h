@@ -524,6 +524,8 @@ class Env {
     return Status::NotSupported();
   }
 
+  virtual void SanitizeEnvOptions(EnvOptions* /*env_opts*/) const {}
+
   // If you're adding methods here, remember to add them to EnvWrapper too.
 
  protected:
@@ -1358,6 +1360,9 @@ class EnvWrapper : public Env {
   }
   Status GetFreeSpace(const std::string& path, uint64_t* diskfree) override {
     return target_->GetFreeSpace(path, diskfree);
+  }
+  void SanitizeEnvOptions(EnvOptions* env_opts) const override {
+    target_->SanitizeEnvOptions(env_opts);
   }
 
  private:
