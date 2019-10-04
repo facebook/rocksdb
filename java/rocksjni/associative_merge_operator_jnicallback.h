@@ -27,7 +27,7 @@ namespace rocksdb {
                        const Slice *existing_value,
                        const Slice &value,
                        std::string *new_value,
-                       Logger */*logger*/) const override;
+                       Logger* /*logger*/) const override;
 
     virtual const char *Name() const override;
 
