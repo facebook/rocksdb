@@ -182,6 +182,33 @@ TEST_P(DBIteratorTest, IterSeekBeforePrev) {
   delete iter;
 }
 
+TEST_P(DBIteratorTest, IterReseekNewUpperBound) {
+  Random rnd(301);
+  Options options = CurrentOptions();
+  BlockBasedTableOptions table_options;
+  table_options.block_size = 1024;
+  table_options.block_size_deviation = 50;
+  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+  options.compression = kNoCompression;
+  Reopen(options);
+
+  ASSERT_OK(Put("a", RandomString(&rnd, 400)));
+  ASSERT_OK(Put("aabb", RandomString(&rnd, 400)));
+  ASSERT_OK(Put("aaef", RandomString(&rnd, 400)));
+  ASSERT_OK(Put("b", RandomString(&rnd, 400)));
+  dbfull()->Flush(FlushOptions());
+  ReadOptions opts;
+  Slice ub = Slice("aa");
+  opts.iterate_upper_bound = &ub;
+  auto iter = NewIterator(opts);
+  iter->Seek(Slice("a"));
+  ub = Slice("b");
+  iter->Seek(Slice("aabc"));
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_EQ(iter->key().ToString(), "aaef");
+  delete iter;
+}
+
 TEST_P(DBIteratorTest, IterSeekForPrevBeforeNext) {
   ASSERT_OK(Put("a", "b"));
   ASSERT_OK(Put("c", "d"));
