@@ -29,12 +29,12 @@ namespace rocksdb {
                               const Slice &lop,
                               const Slice &rop,
                               std::string *new_value,
-                              Logger */*logger*/) const override;
+                              Logger* /*logger*/) const override;
 
     virtual bool PartialMergeMulti(const Slice &key,
                                    const std::deque <Slice> &operands,
                                    std::string *new_value,
-                                   Logger */*logger*/) const override;
+                                   Logger* /*logger*/) const override;
 
     virtual bool ShouldMerge(const std::vector <Slice> &operands) const override;
 
