@@ -1,7 +1,8 @@
 # Rocksdb Change Log
 ## Unreleased
 ### Bug Fixes
-* Revert the feature "Merging iterator to avoid child iterator reseek for some cases (#5286)" since it might cause strong results when reseek happens with a different iterator upper bound.
+* Revert the feature "Merging iterator to avoid child iterator reseek for some cases (#5286)" since it might cause strange results when reseek happens with a different iterator upper bound.
+* Fix a bug in BlockBasedTableIterator that might return incorrect results when reseek happens with a different iterator upper bound.
 
 ## 6.5.0 (9/13/2019)
 ### Bug Fixes
