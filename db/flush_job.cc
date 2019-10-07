@@ -392,7 +392,7 @@ Status FlushJob::WriteLevel0Table() {
     if (s.ok() && output_file_directory_ != nullptr && sync_output_directory_) {
       s = output_file_directory_->Fsync();
     }
-    TEST_SYNC_POINT("FlushJob::WriteLevel0Table");
+    TEST_SYNC_POINT_CALLBACK("FlushJob::WriteLevel0Table", &mems_);
     db_mutex_->Lock();
   }
   base_->Unref();

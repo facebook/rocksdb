@@ -232,6 +232,7 @@ Status DBImpl::FlushMemTableToOutputFile(
     }
 #endif  // ROCKSDB_LITE
   }
+  TEST_SYNC_POINT("DBImpl::FlushMemTableToOutputFile:Finish");
   return s;
 }
 
