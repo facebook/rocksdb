@@ -918,13 +918,13 @@ class TestEnv : public EnvWrapper {
    class TestLogger : public Logger {
     public:
      using Logger::Logv;
-     TestLogger(TestEnv* env_ptr) : Logger() { env = env_ptr; }
+     explicit TestLogger(TestEnv* env_ptr) : Logger() { env = env_ptr; }
      ~TestLogger() override {
        if (!closed_) {
          CloseHelper();
        }
      }
-     void Logv(const char* /*format*/, va_list /*ap*/) override{};
+     void Logv(const char* /*format*/, va_list /*ap*/) override {}
 
     protected:
      Status CloseImpl() override { return CloseHelper(); }
@@ -936,7 +936,7 @@ class TestEnv : public EnvWrapper {
        return Status::IOError();
      }
      TestEnv* env;
-    };
+   };
 
     void CloseCountInc() { close_count++; }
 
