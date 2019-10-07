@@ -303,10 +303,7 @@ class VersionBuilder::Rep {
           levels_[level].added_files.erase(exising);
         }
       } else {
-        auto exising = invalid_levels_[level].find(number);
-        if (exising != invalid_levels_[level].end()) {
-          invalid_levels_[level].erase(exising);
-        } else {
+        if (invalid_levels_[level].erase(number) == 0) {
           // Deleting an non-existing file on invalid level.
           has_invalid_levels_ = true;
         }
@@ -326,8 +323,9 @@ class VersionBuilder::Rep {
         levels_[level].added_files[f->fd.GetNumber()] = f;
       } else {
         uint64_t number = new_file.second.fd.GetNumber();
-        if (invalid_levels_[level].count(number) == 0) {
-          invalid_levels_[level].insert(number);
+        auto& lvls = invalid_levels_[level];
+        if (lvls.count(number) == 0) {
+          lvls.insert(number);
         } else {
           // Creating an already existing file on invalid level.
           has_invalid_levels_ = true;
