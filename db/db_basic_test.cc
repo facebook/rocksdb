@@ -913,30 +913,30 @@ TEST_F(DBBasicTest, MmapAndBufferOptions) {
 
 class TestEnv : public EnvWrapper {
   public:
-    explicit TestEnv() : EnvWrapper(Env::Default()),
-                close_count(0) { }
+   explicit TestEnv(Env* base_env) : EnvWrapper(base_env), close_count(0) {}
 
-    class TestLogger : public Logger {
-      public:
-        using Logger::Logv;
-        TestLogger(TestEnv *env_ptr) : Logger() { env = env_ptr; }
-        ~TestLogger() override {
-          if (!closed_) {
-            CloseHelper();
-          }
-        }
-        void Logv(const char* /*format*/, va_list /*ap*/) override{};
+   class TestLogger : public Logger {
+    public:
+     using Logger::Logv;
+     explicit TestLogger(TestEnv* env_ptr) : Logger() { env = env_ptr; }
+     ~TestLogger() override {
+       if (!closed_) {
+         CloseHelper();
+       }
+     }
+     void Logv(const char* /*format*/, va_list /*ap*/) override {}
 
-       protected:
-        Status CloseImpl() override { return CloseHelper(); }
+    protected:
+     Status CloseImpl() override { return CloseHelper(); }
 
-       private:
-        Status CloseHelper() {
-          env->CloseCountInc();;
-          return Status::IOError();
-        }
-        TestEnv *env;
-    };
+    private:
+     Status CloseHelper() {
+       env->CloseCountInc();
+       ;
+       return Status::IOError();
+     }
+     TestEnv* env;
+   };
 
     void CloseCountInc() { close_count++; }
 
@@ -958,7 +958,8 @@ TEST_F(DBBasicTest, DBClose) {
   ASSERT_OK(DestroyDB(dbname, options));
 
   DB* db = nullptr;
-  TestEnv* env = new TestEnv();
+  TestEnv* env = new TestEnv(env_);
+  std::unique_ptr<TestEnv> local_env_guard(env);
   options.create_if_missing = true;
   options.env = env;
   Status s = DB::Open(options, dbname, &db);
@@ -992,13 +993,11 @@ TEST_F(DBBasicTest, DBClose) {
   ASSERT_EQ(env->GetCloseCount(), 2);
   options.info_log.reset();
   ASSERT_EQ(env->GetCloseCount(), 3);
-
-  delete options.env;
 }
 
 TEST_F(DBBasicTest, DBCloseFlushError) {
   std::unique_ptr<FaultInjectionTestEnv> fault_injection_env(
-      new FaultInjectionTestEnv(Env::Default()));
+      new FaultInjectionTestEnv(env_));
   Options options = GetDefaultOptions();
   options.create_if_missing = true;
   options.manual_wal_flush = true;
