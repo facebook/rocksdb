@@ -1136,8 +1136,9 @@ Status DBImpl::WriteLevel0TableForRecovery(int job_id, ColumnFamilyData* cfd,
   mutex_.AssertHeld();
   const uint64_t start_micros = env_->NowMicros();
   FileMetaData meta;
-  auto pending_outputs_inserted_elem =
-      CaptureCurrentFileNumberInPendingOutputs();
+  std::unique_ptr<std::list<uint64_t>::iterator> pending_outputs_inserted_elem(
+      new std::list<uint64_t>::iterator(
+          CaptureCurrentFileNumberInPendingOutputs()));
   meta.fd = FileDescriptor(versions_->NewFileNumber(), 0, 0);
   ReadOptions ro;
   ro.total_order_seek = true;

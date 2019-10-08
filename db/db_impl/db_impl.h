@@ -1313,7 +1313,8 @@ class DBImpl : public DB {
   // created between the calls CaptureCurrentFileNumberInPendingOutputs() and
   // ReleaseFileNumberFromPendingOutputs() can now be deleted (if it's not live
   // and blocked by any other pending_outputs_ calls)
-  void ReleaseFileNumberFromPendingOutputs(std::list<uint64_t>::iterator v);
+  void ReleaseFileNumberFromPendingOutputs(
+      std::unique_ptr<std::list<uint64_t>::iterator>& v);
 
   Status SyncClosedLogs(JobContext* job_context);
 
@@ -1605,7 +1606,7 @@ class DBImpl : public DB {
   // Write a version edit to the MANIFEST.
   Status ReserveFileNumbersBeforeIngestion(
       ColumnFamilyData* cfd, uint64_t num,
-      std::list<uint64_t>::iterator* pending_output_elem,
+      std::unique_ptr<std::list<uint64_t>::iterator>& pending_output_elem,
       uint64_t* next_file_number);
 #endif  //! ROCKSDB_LITE
 
