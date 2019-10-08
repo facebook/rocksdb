@@ -2111,7 +2111,6 @@ class StressTest {
           // Commenting this out as we don't want to reset stats on each open.
           // thread->stats.Start();
       }
-      prev_i = i;
 
       for (uint64_t i = 0; i < ops_per_open; i++) {
         if (thread->shared->HasVerificationFailedYet()) {
