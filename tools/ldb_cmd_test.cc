@@ -6,6 +6,7 @@
 #ifndef ROCKSDB_LITE
 
 #include "rocksdb/utilities/ldb_cmd.h"
+#include "port/stack_trace.h"
 #include "test_util/sync_point.h"
 #include "test_util/testharness.h"
 
@@ -15,7 +16,23 @@ using std::map;
 
 namespace rocksdb {
 
-class LdbCmdTest : public testing::Test {};
+class LdbCmdTest : public testing::Test {
+ public:
+  LdbCmdTest() : testing::Test() {}
+
+  Env* TryLoadCustomOrDefaultEnv() {
+    const char* test_env_uri = getenv("TEST_ENV_URI");
+    if (!test_env_uri) {
+      return Env::Default();
+    }
+    Env* env = Env::Default();
+    Env::LoadEnv(test_env_uri, &env, &env_guard_);
+    return env;
+  }
+
+ private:
+  std::shared_ptr<Env> env_guard_;
+};
 
 TEST_F(LdbCmdTest, HexToString) {
   // map input to expected outputs.
@@ -51,7 +68,8 @@ TEST_F(LdbCmdTest, HexToStringBadInputs) {
 }
 
 TEST_F(LdbCmdTest, MemEnv) {
-  std::unique_ptr<Env> env(NewMemEnv(Env::Default()));
+  Env* base_env = TryLoadCustomOrDefaultEnv();
+  std::unique_ptr<Env> env(NewMemEnv(base_env));
   Options opts;
   opts.env = env.get();
   opts.create_if_missing = true;
@@ -84,13 +102,15 @@ TEST_F(LdbCmdTest, MemEnv) {
 
 TEST_F(LdbCmdTest, OptionParsing) {
   // test parsing flags
+  Options opts;
+  opts.env = TryLoadCustomOrDefaultEnv();
   {
     std::vector<std::string> args;
     args.push_back("scan");
     args.push_back("--ttl");
     args.push_back("--timestamp");
     LDBCommand* command = rocksdb::LDBCommand::InitFromCmdLineArgs(
-        args, Options(), LDBOptions(), nullptr);
+        args, opts, LDBOptions(), nullptr);
     const std::vector<std::string> flags = command->TEST_GetFlags();
     EXPECT_EQ(flags.size(), 2);
     EXPECT_EQ(flags[0], "ttl");
@@ -107,7 +127,7 @@ TEST_F(LdbCmdTest, OptionParsing) {
         "opq:__rst.uvw.xyz?a=3+4+bcd+efghi&jk=lm_no&pq=rst-0&uv=wx-8&yz=a&bcd_"
         "ef=gh.ijk'");
     LDBCommand* command = rocksdb::LDBCommand::InitFromCmdLineArgs(
-        args, Options(), LDBOptions(), nullptr);
+        args, opts, LDBOptions(), nullptr);
     const std::map<std::string, std::string> option_map =
         command->TEST_GetOptionMap();
     EXPECT_EQ(option_map.at("db"), "/dev/shm/ldbtest/");
@@ -120,7 +140,8 @@ TEST_F(LdbCmdTest, OptionParsing) {
 }
 
 TEST_F(LdbCmdTest, ListFileTombstone) {
-  std::unique_ptr<Env> env(NewMemEnv(Env::Default()));
+  Env* base_env = TryLoadCustomOrDefaultEnv();
+  std::unique_ptr<Env> env(NewMemEnv(base_env));
   Options opts;
   opts.env = env.get();
   opts.create_if_missing = true;
@@ -209,8 +230,18 @@ TEST_F(LdbCmdTest, ListFileTombstone) {
 }
 } // namespace rocksdb
 
+#ifdef ROCKSDB_UNITTESTS_WITH_CUSTOM_OBJECTS_FROM_STATIC_LIBS
+extern "C" {
+void RegisterCustomObjects(int argc, char** argv);
+}
+#else
+void RegisterCustomObjects(int /*argc*/, char** /*argv*/) {}
+#endif  // !ROCKSDB_UNITTESTS_WITH_CUSTOM_OBJECTS_FROM_STATIC_LIBS
+
 int main(int argc, char** argv) {
+  rocksdb::port::InstallStackTraceHandler();
   ::testing::InitGoogleTest(&argc, argv);
+  RegisterCustomObjects(argc, argv);
   return RUN_ALL_TESTS();
 }
 #else
