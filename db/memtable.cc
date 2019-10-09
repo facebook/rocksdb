@@ -881,6 +881,7 @@ void MemTable::MultiGet(const ReadOptions& read_options, MultiGetRange* range,
     int idx = 0;
     for (auto iter = temp_range.begin(); iter != temp_range.end(); ++iter) {
       if (prefix_extractor_ && !prefix_extractor_->InDomain(iter->ukey)) {
+        PERF_COUNTER_ADD(bloom_memtable_hit_count, 1);
         continue;
       }
       if (!may_match[idx]) {
