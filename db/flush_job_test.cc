@@ -173,6 +173,7 @@ TEST_F(FlushJobTest, NonEmpty) {
     inserted_keys.insert({internal_key.Encode().ToString(), "9999a"});
   }
 
+#ifndef ROCKSDB_LITE
   constexpr std::array<uint64_t, 5> blob_file_numbers{103, 1000, 17, 102, 101};
   for (size_t i = 0; i < blob_file_numbers.size(); ++i) {
     std::string key(ToString(i + 10001));
@@ -187,6 +188,7 @@ TEST_F(FlushJobTest, NonEmpty) {
     inserted_keys.emplace_hint(inserted_keys.end(),
                                internal_key.Encode().ToString(), blob_index);
   }
+#endif
 
   autovector<MemTable*> to_delete;
   cfd->imm()->Add(new_mem, &to_delete);
@@ -217,8 +219,12 @@ TEST_F(FlushJobTest, NonEmpty) {
   ASSERT_EQ(ToString(0), file_meta.smallest.user_key().ToString());
   ASSERT_EQ("9999a", file_meta.largest.user_key().ToString());
   ASSERT_EQ(1, file_meta.fd.smallest_seqno);
+#ifndef ROCKSDB_LITE
   ASSERT_EQ(10005, file_meta.fd.largest_seqno);
   ASSERT_EQ(17, file_meta.oldest_blob_file_number);
+#else
+  ASSERT_EQ(10000, file_meta.fd.largest_seqno);
+#endif
   mock_table_factory_->AssertSingleFile(inserted_keys);
   job_context.Clean();
 }
