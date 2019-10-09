@@ -8,6 +8,7 @@
 #include <array>
 #include <string>
 #include <array>
+#include <string>
 #include "port/port.h"
 #include "rocksdb/slice.h"
 #include "table/multiget_context.h"
