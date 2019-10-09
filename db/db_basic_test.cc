@@ -1384,29 +1384,27 @@ TEST_P(MultiGetPrefixExtractorTest, Batched) {
   ASSERT_OK(Put("kk2", "v2"));
   ASSERT_OK(Put("kk3", "v3"));
   ASSERT_OK(Put("kk4", "v4"));
-<<<<<<< HEAD
   std::vector<std::string> mem_keys(
       {"k", "kk1", "kk2", "kk3", "kk4", "rofl", "lmho"});
   std::vector<std::string> inmem_values;
   inmem_values = MultiGet(mem_keys, nullptr);
-=======
   std::vector<std::string> keys({"k", "kk1", "kk2", "kk3", "kk4"});
   std::vector<std::string> inmem_values;
   inmem_values = MultiGet(keys, nullptr);
->>>>>>> addressed comments
+  std::vector<std::string> mem_keys(
+      {"k", "kk1", "kk2", "kk3", "kk4", "rofl", "lmho"});
+  std::vector<std::string> inmem_values;
+  inmem_values = MultiGet(mem_keys, nullptr);
   ASSERT_EQ(inmem_values[0], "v0");
   ASSERT_EQ(inmem_values[1], "v1");
   ASSERT_EQ(inmem_values[2], "v2");
   ASSERT_EQ(inmem_values[3], "v3");
   ASSERT_EQ(inmem_values[4], "v4");
-<<<<<<< HEAD
   ASSERT_EQ(get_perf_context()->bloom_memtable_miss_count, 2);
   ASSERT_EQ(get_perf_context()->bloom_memtable_hit_count, 5);
-=======
-
->>>>>>> addressed comments
   ASSERT_OK(Flush());
 
+  std::vector<std::string> keys({"k", "kk1", "kk2", "kk3", "kk4"});
   std::vector<std::string> values;
   get_perf_context()->Reset();
   values = MultiGet(keys, nullptr);
