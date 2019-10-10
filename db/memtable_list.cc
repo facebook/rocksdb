@@ -113,6 +113,17 @@ bool MemTableListVersion::Get(const LookupKey& key, std::string* value,
                      is_blob_index);
 }
 
+void MemTableListVersion::MultiGet(const ReadOptions& read_options,
+                                   MultiGetRange* range, ReadCallback* callback,
+                                   bool* is_blob) {
+  for (auto memtable : memlist_) {
+    memtable->MultiGet(read_options, range, callback, is_blob);
+    if (range->empty()) {
+      return;
+    }
+  }
+}
+
 bool MemTableListVersion::GetMergeOperands(
     const LookupKey& key, Status* s, MergeContext* merge_context,
     SequenceNumber* max_covering_tombstone_seq, const ReadOptions& read_opts) {

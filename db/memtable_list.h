@@ -72,6 +72,9 @@ class MemTableListVersion {
                read_opts, callback, is_blob_index);
   }
 
+  void MultiGet(const ReadOptions& read_options, MultiGetRange* range,
+                ReadCallback* callback, bool* is_blob);
+
   // Returns all the merge operands corresponding to the key by searching all
   // memtables starting from the most recent one.
   bool GetMergeOperands(const LookupKey& key, Status* s,
