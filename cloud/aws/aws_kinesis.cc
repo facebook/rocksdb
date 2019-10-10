@@ -3,42 +3,74 @@
 // This file defines an AWS-Kinesis environment for rocksdb.
 // A log file maps to a stream in Kinesis.
 //
-#ifdef USE_AWS
 
 #include <fstream>
 #include <iostream>
 
-#include "cloud/aws/aws_env.h"
-#include "cloud/aws/aws_file.h"
-#include "cloud/aws/aws_kinesis.h"
+#include "cloud/cloud_log_controller.h"
+#include "rocksdb/cloud/cloud_env_options.h"
 #include "rocksdb/status.h"
 #include "util/coding.h"
 #include "util/stderr_logger.h"
 #include "util/string_util.h"
 
+#ifdef USE_AWS
+#include <aws/core/utils/Outcome.h>
+#include <aws/kinesis/KinesisClient.h>
+#include <aws/kinesis/KinesisErrors.h>
+#include <aws/kinesis/model/CreateStreamRequest.h>
+#include <aws/kinesis/model/DescribeStreamRequest.h>
+#include <aws/kinesis/model/DescribeStreamResult.h>
+#include <aws/kinesis/model/GetRecordsRequest.h>
+#include <aws/kinesis/model/GetRecordsResult.h>
+#include <aws/kinesis/model/GetShardIteratorRequest.h>
+#include <aws/kinesis/model/GetShardIteratorResult.h>
+#include <aws/kinesis/model/PutRecordRequest.h>
+#include <aws/kinesis/model/PutRecordResult.h>
+#include <aws/kinesis/model/PutRecordsRequest.h>
+#include <aws/kinesis/model/PutRecordsRequestEntry.h>
+#include <aws/kinesis/model/Record.h>
+#include <aws/kinesis/model/ShardIteratorType.h>
+#include <aws/kinesis/model/StreamDescription.h>
 namespace rocksdb {
+namespace cloud {
+namespace kinesis {
+  
+/***************************************************/
+/*              KinesisWritableFile                */
+/***************************************************/
+class KinesisWritableFile : public CloudLogWritableFile {
+ public:
+  KinesisWritableFile(CloudEnv* env, const std::string& fname,
+                      const EnvOptions& options,
+                      const std::shared_ptr<Aws::Kinesis::KinesisClient> & kinesis_client) 
+    : CloudLogWritableFile(env, fname, options),
+      kinesis_client_(kinesis_client), current_offset_(0) {
+    
+    Log(InfoLogLevel::DEBUG_LEVEL, env_->info_log_,
+        "[kinesis] WritableFile opened file %s", fname_.c_str());
+    std::string bucket = env_->GetSrcBucketName();
+    topic_ = Aws::String(bucket.c_str(), bucket.size());
+  }
+  virtual ~KinesisWritableFile() {}
 
-KinesisWritableFile::KinesisWritableFile(
-    AwsEnv* env, const std::string& fname, const EnvOptions& options,
-    std::shared_ptr<KinesisClient> kinesis_client)
-  : CloudLogWritableFile(env, fname, options),
-    kinesis_client_(kinesis_client), current_offset_(0) {
+  virtual Status Append(const Slice& data) override;
+  virtual Status Close() override;
+  virtual Status LogDelete() override;
 
-  Log(InfoLogLevel::DEBUG_LEVEL, env_->info_log_,
-      "[kinesis] WritableFile opened file %s", fname_.c_str());
-  std::string bucket = env_->GetSrcBucketName();
-  topic_ = ToAwsString(bucket);
-}
-
-KinesisWritableFile::~KinesisWritableFile() {}
+ private:
+  std::shared_ptr<Aws::Kinesis::KinesisClient> kinesis_client_;
+  Aws::String topic_;
+  uint64_t current_offset_;
+};
 
 Status KinesisWritableFile::Append(const Slice& data) {
   assert(status_.ok());
 
   // create write request
-  PutRecordRequest request;
+  Aws::Kinesis::Model::PutRecordRequest request;
   request.SetStreamName(topic_);
-  request.SetPartitionKey(ToAwsString(fname_));
+  request.SetPartitionKey(Aws::String(fname_.c_str(), fname_.size()));
 
   // serialize write record
   std::string buffer;
@@ -48,11 +80,11 @@ Status KinesisWritableFile::Append(const Slice& data) {
                                          buffer.size()));
 
   // write to stream
-  const PutRecordOutcome& outcome = kinesis_client_->PutRecord(request);
+  const auto & outcome = kinesis_client_->PutRecord(request);
   bool isSuccess = outcome.IsSuccess();
 
   if (!isSuccess) {
-    const Aws::Client::AWSError<KinesisErrors>& error = outcome.GetError();
+    const Aws::Client::AWSError<Aws::Kinesis::KinesisErrors>& error = outcome.GetError();
     Log(InfoLogLevel::DEBUG_LEVEL, env_->info_log_,
         "[kinesis] NewWritableFile src %s Append error %s", fname_.c_str(),
         error.GetMessage().c_str());
@@ -71,9 +103,9 @@ Status KinesisWritableFile::Close() {
   assert(status_.ok());
 
   // create write request
-  PutRecordRequest request;
+  Aws::Kinesis::Model::PutRecordRequest request;
   request.SetStreamName(topic_);
-  request.SetPartitionKey(ToAwsString(fname_));
+  request.SetPartitionKey(Aws::String(fname_.c_str(), fname_.size()));
 
   // serialize write record
   std::string buffer;
@@ -82,11 +114,11 @@ Status KinesisWritableFile::Close() {
                                          buffer.size()));
 
   // write to stream
-  const PutRecordOutcome& outcome = kinesis_client_->PutRecord(request);
+  const auto & outcome = kinesis_client_->PutRecord(request);
   bool isSuccess = outcome.IsSuccess();
 
   if (!isSuccess) {
-    const Aws::Client::AWSError<KinesisErrors>& error = outcome.GetError();
+    const Aws::Client::AWSError<Aws::Kinesis::KinesisErrors>& error = outcome.GetError();
     Log(InfoLogLevel::DEBUG_LEVEL, env_->info_log_,
         "[kinesis] NewWritableFile src %s Close error %s", fname_.c_str(),
         error.GetMessage().c_str());
@@ -108,9 +140,9 @@ Status KinesisWritableFile::LogDelete() {
   assert(status_.ok());
 
   // create write request
-  PutRecordRequest request;
+  Aws::Kinesis::Model::PutRecordRequest request;
   request.SetStreamName(topic_);
-  request.SetPartitionKey(ToAwsString(fname_));
+  request.SetPartitionKey(Aws::String(fname_.c_str(), fname_.size()));
 
   // serialize write record
   std::string buffer;
@@ -119,11 +151,11 @@ Status KinesisWritableFile::LogDelete() {
                                          buffer.size()));
 
   // write to stream
-  const PutRecordOutcome& outcome = kinesis_client_->PutRecord(request);
+  const Aws::Kinesis::Model::PutRecordOutcome& outcome = kinesis_client_->PutRecord(request);
   bool isSuccess = outcome.IsSuccess();
 
   if (!isSuccess) {
-    const Aws::Client::AWSError<KinesisErrors>& error = outcome.GetError();
+    const Aws::Client::AWSError<Aws::Kinesis::KinesisErrors>& error = outcome.GetError();
     Log(InfoLogLevel::DEBUG_LEVEL, env_->info_log_,
         "[kinesis] LogDelete src %s error %s", fname_.c_str(),
         error.GetMessage().c_str());
@@ -134,36 +166,71 @@ Status KinesisWritableFile::LogDelete() {
   return Status::OK();
 }
 
-KinesisController::KinesisController(
-    AwsEnv* env, std::shared_ptr<Logger> info_log,
-    std::unique_ptr<Aws::Kinesis::KinesisClient> kinesis_client)
-  : CloudLogController(env, info_log),
-    kinesis_client_(std::move(kinesis_client)) {
+/***************************************************/
+/*               KinesisController                 */
+/***************************************************/
+  
+//
+// Intricacies of reading a Kinesis stream
+//
+class KinesisController : public CloudLogController {
+ public:
+  KinesisController(CloudEnv* env,
+                    const std::shared_ptr<Aws::Auth::AWSCredentialsProvider> & provider,
+                    const Aws::Client::ClientConfiguration & config)
+    : CloudLogController(env) {
+    kinesis_client_.reset(provider
+                          ? new Aws::Kinesis::KinesisClient(provider, config)
+                          : new Aws::Kinesis::KinesisClient(config));
+    // Initialize stream name.
+    std::string bucket = env_->GetSrcBucketName();
+    topic_ = Aws::String(bucket.c_str(), bucket.size());
+    
+    Log(InfoLogLevel::DEBUG_LEVEL, env_->info_log_,
+        "[%s] KinesisController opening stream %s using cachedir '%s'",
+        Name(), topic_.c_str(), cache_dir_.c_str());
+  }
 
-  // Initialize stream name.
-  std::string bucket = env_->GetSrcBucketName();
-  topic_ = ToAwsString(bucket);
+  virtual ~KinesisController() {
+      Log(InfoLogLevel::DEBUG_LEVEL, env_->info_log_,
+      "[%s] KinesisController closed", Name());
+  }
 
-  Log(InfoLogLevel::DEBUG_LEVEL, env_->info_log_,
-      "[%s] KinesisController opening stream %s using cachedir '%s'",
-      GetTypeName().c_str(), topic_.c_str(), cache_dir_.c_str());
-}
+  const char *Name() const override { return "kinesis"; }
 
-KinesisController::~KinesisController() {
-  Log(InfoLogLevel::DEBUG_LEVEL, env_->info_log_,
-      "[%s] KinesisController closed", GetTypeName().c_str());
-}
+  Status CreateStream(const std::string& bucket) override;
+  Status WaitForStreamReady(const std::string& bucket) override;
+  Status TailStream() override;
+
+  CloudLogWritableFile* CreateWritableFile(const std::string& fname,
+                                           const EnvOptions& options) override;
+ private:
+  std::shared_ptr<Aws::Kinesis::KinesisClient> kinesis_client_;
+  
+  Aws::String topic_;
+
+  // list of shards and their positions
+  Aws::Vector<Aws::Kinesis::Model::Shard> shards_;
+  Aws::Vector<Aws::String> shards_iterator_;
+  std::vector<Aws::String> shards_position_;
+
+  Status InitializeShards();
+
+  // Set shard iterator for every shard to position specified by
+  // shards_position_.
+  void SeekShards();
+};
 
 Status KinesisController::TailStream() {
   status_ = InitializeShards();
 
   Log(InfoLogLevel::DEBUG_LEVEL, env_->info_log_,
       "[%s] TailStream topic %s %s",
-      GetTypeName().c_str(), topic_.c_str(), status_.ToString().c_str());
+      Name(), topic_.c_str(), status_.ToString().c_str());
 
   Status lastErrorStatus;
   int retryAttempt = 0;
-  while (env_->IsRunning()) {
+  while (IsRunning()) {
     if (retryAttempt > 10) {
       status_ = lastErrorStatus;
       break;
@@ -173,23 +240,23 @@ Status KinesisController::TailStream() {
     size_t num_read = 0;
 
     // Issue a read from Kinesis stream
-    GetRecordsRequest request;
+    Aws::Kinesis::Model::GetRecordsRequest request;
     request.SetShardIterator(shards_iterator_[0]);
-    GetRecordsOutcome outcome = kinesis_client_->GetRecords(request);
+    Aws::Kinesis::Model::GetRecordsOutcome outcome = kinesis_client_->GetRecords(request);
     bool isSuccess = outcome.IsSuccess();
     if (!isSuccess) {
-      const Aws::Client::AWSError<KinesisErrors>& error = outcome.GetError();
+      const Aws::Client::AWSError<Aws::Kinesis::KinesisErrors>& error = outcome.GetError();
       Aws::Kinesis::KinesisErrors err = error.GetErrorType();
       if (err == Aws::Kinesis::KinesisErrors::EXPIRED_ITERATOR) {
         Log(InfoLogLevel::DEBUG_LEVEL, env_->info_log_,
             "[%s] expired shard iterator for %s. Reseeking...",
-            GetTypeName().c_str(), topic_.c_str(), error.GetMessage().c_str());
+            Name(), topic_.c_str(), error.GetMessage().c_str());
         shards_iterator_[0] = "";
         SeekShards();  // read position at last seqno
       } else {
         Log(InfoLogLevel::DEBUG_LEVEL, env_->info_log_,
             "[%s] error reading %s %s",
-            GetTypeName().c_str(), topic_.c_str(), error.GetMessage().c_str());
+            Name(), topic_.c_str(), error.GetMessage().c_str());
         lastErrorStatus =
             Status::IOError(topic_.c_str(), error.GetMessage().c_str());
         ++retryAttempt;
@@ -198,8 +265,8 @@ Status KinesisController::TailStream() {
       continue;
     }
     retryAttempt = 0;
-    GetRecordsResult& res = outcome.GetResult();
-    const Aws::Vector<Record>& records = res.GetRecords();
+    Aws::Kinesis::Model::GetRecordsResult& res = outcome.GetResult();
+    const Aws::Vector<Aws::Kinesis::Model::Record>& records = res.GetRecords();
 
     // skip to the next position in the shard iterator
     const Aws::String& next = res.GetNextShardIterator();
@@ -218,12 +285,12 @@ Status KinesisController::TailStream() {
       if (!status_.ok()) {
         Log(InfoLogLevel::DEBUG_LEVEL, env_->info_log_,
             "[%s] error processing message size %ld "
-            "extracted from stream %s %s", GetTypeName().c_str(),
+            "extracted from stream %s %s", Name(),
             b.GetLength(), topic_.c_str(), status_.ToString().c_str());
       } else {
         Log(InfoLogLevel::DEBUG_LEVEL, env_->info_log_,
             "[%s] successfully processed message size %ld "
-            "extracted from stream %s %s", GetTypeName().c_str(),
+            "extracted from stream %s %s", Name(),
             b.GetLength(), topic_.c_str(), status_.ToString().c_str());
       }
 
@@ -239,17 +306,17 @@ Status KinesisController::TailStream() {
 }
 
 Status KinesisController::CreateStream(const std::string& bucket) {
-  Aws::String topic = ToAwsString(bucket);
+  Aws::String topic = Aws::String(bucket.c_str(), bucket.size());
 
   // create stream
-  CreateStreamRequest create_request;
+  Aws::Kinesis::Model::CreateStreamRequest create_request;
   create_request.SetStreamName(topic);
   create_request.SetShardCount(1);
-  CreateStreamOutcome outcome = kinesis_client_->CreateStream(create_request);
+  Aws::Kinesis::Model::CreateStreamOutcome outcome = kinesis_client_->CreateStream(create_request);
   bool isSuccess = outcome.IsSuccess();
   Status st;
   if (!isSuccess) {
-    const Aws::Client::AWSError<KinesisErrors>& error = outcome.GetError();
+    const Aws::Client::AWSError<Aws::Kinesis::KinesisErrors>& error = outcome.GetError();
     std::string errmsg(error.GetMessage().c_str());
     if (errmsg.find("already exists") == std::string::npos) {
       st = Status::IOError(topic.c_str(), errmsg);
@@ -262,7 +329,7 @@ Status KinesisController::CreateStream(const std::string& bucket) {
 }
 
 Status KinesisController::WaitForStreamReady(const std::string& bucket) {
-  Aws::String topic = ToAwsString(bucket);
+  Aws::String topic = Aws::String(bucket.c_str(), bucket.size());
 
   // Keep looping if the stream is being initialized
   const std::chrono::microseconds start(env_->NowMicros());
@@ -272,18 +339,18 @@ Status KinesisController::WaitForStreamReady(const std::string& bucket) {
   while (!isSuccess) {
     // Find the number of shards for this stream. It should be 1 shard.
     st = Status::OK();
-    DescribeStreamRequest request;
+    Aws::Kinesis::Model::DescribeStreamRequest request;
     request.SetStreamName(topic);
-    DescribeStreamOutcome outcome = kinesis_client_->DescribeStream(request);
+    Aws::Kinesis::Model::DescribeStreamOutcome outcome = kinesis_client_->DescribeStream(request);
     isSuccess = outcome.IsSuccess();
     if (!isSuccess) {
-      const Aws::Client::AWSError<KinesisErrors>& error = outcome.GetError();
+      const Aws::Client::AWSError<Aws::Kinesis::KinesisErrors>& error = outcome.GetError();
       st = Status::IOError(topic.c_str(), error.GetMessage().c_str());
-      Log(InfoLogLevel::DEBUG_LEVEL, info_log_, " Waiting for stream ready %s",
+      Log(InfoLogLevel::DEBUG_LEVEL, env_->info_log_, " Waiting for stream ready %s",
           st.ToString().c_str());
     } else {
-      const DescribeStreamResult& result = outcome.GetResult();
-      const StreamDescription& description = result.GetStreamDescription();
+      const Aws::Kinesis::Model::DescribeStreamResult& result = outcome.GetResult();
+      const Aws::Kinesis::Model::StreamDescription& description = result.GetStreamDescription();
       auto& shards = description.GetShards();
       if (shards.size() != 1) {
         isSuccess = false;
@@ -311,19 +378,19 @@ Status KinesisController::InitializeShards() {
   }
 
   // Find the number of shards for this stream. It should be 1 shard.
-  DescribeStreamRequest request;
+  Aws::Kinesis::Model::DescribeStreamRequest request;
   request.SetStreamName(topic_);
-  DescribeStreamOutcome outcome = kinesis_client_->DescribeStream(request);
+  auto outcome = kinesis_client_->DescribeStream(request);
   bool isSuccess = outcome.IsSuccess();
   if (!isSuccess) {
-    const Aws::Client::AWSError<KinesisErrors>& error = outcome.GetError();
+    const Aws::Client::AWSError<Aws::Kinesis::KinesisErrors>& error = outcome.GetError();
     st = Status::IOError(topic_.c_str(), error.GetMessage().c_str()),
     Log(InfoLogLevel::DEBUG_LEVEL, env_->info_log_,
         "[%s] S3ReadableFile file %s Unable to find shards %s",
-        GetTypeName().c_str(), topic_.c_str(), st.ToString().c_str());
+        Name(), topic_.c_str(), st.ToString().c_str());
   } else {
-    const DescribeStreamResult& result = outcome.GetResult();
-    const StreamDescription& description = result.GetStreamDescription();
+    const Aws::Kinesis::Model::DescribeStreamResult& result = outcome.GetResult();
+    const Aws::Kinesis::Model::StreamDescription& description = result.GetStreamDescription();
 
     // append all shards to global list
     auto& shards = description.GetShards();
@@ -347,26 +414,26 @@ void KinesisController::SeekShards() {
       continue;  // iterator is still valid, nothing to do
     }
     // create new shard iterator at specified seqno
-    GetShardIteratorRequest request;
+    Aws::Kinesis::Model::GetShardIteratorRequest request;
     request.SetStreamName(topic_);
     request.SetShardId(shards_[i].GetShardId());
     if (shards_position_[i].size() == 0) {
-      request.SetShardIteratorType(ShardIteratorType::TRIM_HORIZON);
+      request.SetShardIteratorType(Aws::Kinesis::Model::ShardIteratorType::TRIM_HORIZON);
     } else {
-      request.SetShardIteratorType(ShardIteratorType::AFTER_SEQUENCE_NUMBER);
+      request.SetShardIteratorType(Aws::Kinesis::Model::ShardIteratorType::AFTER_SEQUENCE_NUMBER);
       request.SetStartingSequenceNumber(shards_position_[i]);
     }
-    GetShardIteratorOutcome outcome =
+    Aws::Kinesis::Model::GetShardIteratorOutcome outcome =
       kinesis_client_->GetShardIterator(request);
     bool isSuccess = outcome.IsSuccess();
     if (!isSuccess) {
-      const Aws::Client::AWSError<KinesisErrors>& error = outcome.GetError();
+      const Aws::Client::AWSError<Aws::Kinesis::KinesisErrors>& error = outcome.GetError();
       status_ = Status::IOError(topic_.c_str(), error.GetMessage().c_str());
       Log(InfoLogLevel::DEBUG_LEVEL, env_->info_log_,
           "[%s] S3ReadableFile file %s Unable to find shards %s",
-          GetTypeName().c_str(), topic_.c_str(), status_.ToString().c_str());
+          Name(), topic_.c_str(), status_.ToString().c_str());
     } else {
-      const GetShardIteratorResult& result = outcome.GetResult();
+      const Aws::Kinesis::Model::GetShardIteratorResult& result = outcome.GetResult();
       shards_iterator_[i] = result.GetShardIterator();
     }
   }
@@ -378,6 +445,33 @@ CloudLogWritableFile* KinesisController::CreateWritableFile(
       new KinesisWritableFile(env_, fname, options, kinesis_client_));
 }
 
-}  // namespace
-
+}  // namespace aws
+}  // namespace cloud
+}  // namespace rocksdb
 #endif /* USE_AWS */
+
+namespace rocksdb {
+#ifndef USE_AWS
+Status CreateKinesisController(CloudEnv *,
+                               std::unique_ptr<CloudLogController> *) {
+  return Status::NotSupported("In order to use Kinesis, make sure you're compiling with "
+                              "USE_AWS=1");
+}
+#else
+Status CreateKinesisController(CloudEnv *env,
+                               std::unique_ptr<CloudLogController> *output) {
+  Aws::Client::ClientConfiguration config;
+  const auto & options = env->GetCloudEnvOptions();
+  std::shared_ptr<Aws::Auth::AWSCredentialsProvider> provider;
+  Status st = options.credentials.GetCredentialsProvider(&provider);
+  if (st.ok()) {
+    st = AwsCloudOptions::GetClientConfiguration(env,
+                                                 options.src_bucket.GetRegion(), &config);
+  }
+  if (st.ok()) {
+    output->reset(new rocksdb::cloud::kinesis::KinesisController(env, provider, config));
+  }
+  return st;
+}
+#endif /* USE_AWS */
+} // namespace rocksdb

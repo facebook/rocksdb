@@ -6,6 +6,7 @@
 #include "cloud/aws/aws_env.h"
 #include "cloud/cloud_env_impl.h"
 #include "cloud/cloud_env_wrapper.h"
+#include "cloud/cloud_log_controller.h"
 #include "cloud/db_cloud_impl.h"
 #include "cloud/filename.h"
 #include "port/likely.h"
@@ -87,6 +88,12 @@ void BucketOptions::TEST_Initialize(const std::string& bucket,
   }
 }
 
+CloudEnv::CloudEnv(const CloudEnvOptions& options, Env *base, const std::shared_ptr<Logger>& logger)
+  : cloud_env_options(options),
+    base_env_(base),
+    info_log_(logger) {
+}
+  
 CloudEnv::~CloudEnv() {}
 
 CloudEnvWrapper::~CloudEnvWrapper() {}
