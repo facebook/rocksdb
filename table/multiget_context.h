@@ -229,6 +229,16 @@ class MultiGetContext {
       return ctx_->value_mask_ & (1ull << iter.index_);
     }
 
+    uint64_t KeysLeft() {
+      uint64_t new_val = skip_mask_ | ctx_->value_mask_;
+      uint64_t count = 0;
+      while (new_val) {
+        new_val = new_val & (new_val - 1);
+        count++;
+      }
+      return end_ - count;
+    }
+
    private:
     friend MultiGetContext;
     MultiGetContext* ctx_;
