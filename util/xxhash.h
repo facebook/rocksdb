@@ -575,7 +575,7 @@ XXH_PUBLIC_API XXH128_hash_t XXH128_hashFromCanonical(const XXH128_canonical_t* 
 *  XXH_INLINE_ALL
 ************************************************************************/
 #if defined(XXH_INLINE_ALL) || defined(XXH_PRIVATE_API)
-#  include "xxhash.c"   /* include xxhash function bodies as `static`, for inlining */
+#  include "xxhash.cc"   /* include xxhash function bodies as `static`, for inlining */
 #endif
 
 
