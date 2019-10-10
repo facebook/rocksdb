@@ -174,12 +174,23 @@ TEST_F(FlushJobTest, NonEmpty) {
   }
 
 #ifndef ROCKSDB_LITE
-  constexpr std::array<uint64_t, 5> blob_file_numbers{103, 1000, 17, 102, 101};
+  constexpr std::array<uint64_t, 6> blob_file_numbers{
+      kInvalidBlobFileNumber, 5, 103, 17, 102, 101};
   for (size_t i = 0; i < blob_file_numbers.size(); ++i) {
     std::string key(ToString(i + 10001));
     std::string blob_index;
-    BlobIndex::EncodeBlob(&blob_index, blob_file_numbers[i], i << 10, i << 20,
-                          kNoCompression);
+    if (i == 0) {
+      BlobIndex::EncodeInlinedTTL(&blob_index, /* expiration */ 1234567890ULL,
+                                  "foo");
+    } else if (i == 1) {
+      BlobIndex::EncodeBlobTTL(&blob_index, /* expiration */ 1234567890ULL,
+                               blob_file_numbers[i], /* offset */ i << 10,
+                               /* size */ i << 20, kNoCompression);
+    } else {
+      BlobIndex::EncodeBlob(&blob_index, blob_file_numbers[i],
+                            /* offset */ i << 10, /* size */ i << 20,
+                            kNoCompression);
+    }
 
     const SequenceNumber seq(i + 10001);
     new_mem->Add(seq, kTypeBlobIndex, key, blob_index);
@@ -220,7 +231,7 @@ TEST_F(FlushJobTest, NonEmpty) {
   ASSERT_EQ("9999a", file_meta.largest.user_key().ToString());
   ASSERT_EQ(1, file_meta.fd.smallest_seqno);
 #ifndef ROCKSDB_LITE
-  ASSERT_EQ(10005, file_meta.fd.largest_seqno);
+  ASSERT_EQ(10006, file_meta.fd.largest_seqno);
   ASSERT_EQ(17, file_meta.oldest_blob_file_number);
 #else
   ASSERT_EQ(10000, file_meta.fd.largest_seqno);

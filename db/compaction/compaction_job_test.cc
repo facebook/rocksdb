@@ -111,6 +111,21 @@ class CompactionJobTest : public testing::Test {
     return blob_index;
   }
 
+  static std::string BlobStrTTL(uint64_t blob_file_number, uint64_t offset,
+                                uint64_t size, uint64_t expiration) {
+    std::string blob_index;
+    BlobIndex::EncodeBlobTTL(&blob_index, expiration, blob_file_number, offset,
+                             size, kNoCompression);
+    return blob_index;
+  }
+
+  static std::string BlobStrInlinedTTL(const Slice& value,
+                                       uint64_t expiration) {
+    std::string blob_index;
+    BlobIndex::EncodeInlinedTTL(&blob_index, expiration, value);
+    return blob_index;
+  }
+
   void AddMockFile(const stl_wrappers::KVMap& contents, int level = 0) {
     assert(contents.size() > 0);
 
@@ -150,7 +165,7 @@ class CompactionJobTest : public testing::Test {
           continue;
         }
 
-        if (blob_index.IsInlined() ||
+        if (blob_index.IsInlined() || blob_index.HasTTL() ||
             blob_index.file_number() == kInvalidBlobFileNumber) {
           continue;
         }
@@ -997,8 +1012,8 @@ TEST_F(CompactionJobTest, CorruptionAfterDeletion) {
 TEST_F(CompactionJobTest, OldestBlobFileNumber) {
   NewDB();
 
-  const stl_wrappers::KVMap::value_type blob1(KeyStr("a", 1U, kTypeBlobIndex),
-                                              BlobStr(100, 1 << 10, 1 << 10));
+  const stl_wrappers::KVMap::value_type blob1(
+      KeyStr("a", 1U, kTypeBlobIndex), BlobStrInlinedTTL("foo", 1234567890ULL));
   const stl_wrappers::KVMap::value_type blob2(KeyStr("b", 2U, kTypeBlobIndex),
                                               BlobStr(59, 123456, 999));
   const stl_wrappers::KVMap::value_type blob3(KeyStr("c", 3U, kTypeBlobIndex),
@@ -1010,8 +1025,9 @@ TEST_F(CompactionJobTest, OldestBlobFileNumber) {
                                               BlobStr(199, 3 << 10, 1 << 20));
   const stl_wrappers::KVMap::value_type blob5(KeyStr("e", 5U, kTypeBlobIndex),
                                               BlobStr(19, 6789, 333));
-  const stl_wrappers::KVMap::value_type blob6(KeyStr("f", 6U, kTypeBlobIndex),
-                                              BlobStr(255, 2048, 1 << 7));
+  const stl_wrappers::KVMap::value_type blob6(
+      KeyStr("f", 6U, kTypeBlobIndex),
+      BlobStrTTL(5, 2048, 1 << 7, 1234567890ULL));
   auto file2 = mock::MakeMockFile({blob4, blob5, blob6});
   AddMockFile(file2);
 

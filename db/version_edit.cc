@@ -94,6 +94,10 @@ void FileMetaData::UpdateBoundaries(const Slice& key, const Slice& value,
       return;
     }
 
+    if (blob_index.HasTTL()) {
+      return;
+    }
+
     if (blob_index.file_number() == kInvalidBlobFileNumber) {
       return;
     }
