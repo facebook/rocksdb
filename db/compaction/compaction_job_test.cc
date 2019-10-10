@@ -1012,6 +1012,9 @@ TEST_F(CompactionJobTest, CorruptionAfterDeletion) {
 TEST_F(CompactionJobTest, OldestBlobFileNumber) {
   NewDB();
 
+  // Note: blob1 is inlined TTL, so it will not be considered for the purposes
+  // of identifying the oldest referenced blob file. Similarly, blob6 will be
+  // ignored because it has TTL and hence refers to a TTL blob file.
   const stl_wrappers::KVMap::value_type blob1(
       KeyStr("a", 1U, kTypeBlobIndex), BlobStrInlinedTTL("foo", 1234567890ULL));
   const stl_wrappers::KVMap::value_type blob2(KeyStr("b", 2U, kTypeBlobIndex),

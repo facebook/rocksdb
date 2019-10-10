@@ -156,7 +156,7 @@ TEST_F(FlushJobTest, NonEmpty) {
   //   seqno [    1,    2 ... 8998, 8999, 9000, 9001, 9002 ... 9999 ]
   //   key   [ 1001, 1002 ... 9998, 9999,    0,    1,    2 ...  999 ]
   //   range-delete "9995" -> "9999" at seqno 10000
-  //   blob references with seqnos 10001..10005
+  //   blob references with seqnos 10001..10006
   for (int i = 1; i < 10000; ++i) {
     std::string key(ToString((i + 1000) % 10000));
     std::string value("value" + key);
@@ -174,6 +174,9 @@ TEST_F(FlushJobTest, NonEmpty) {
   }
 
 #ifndef ROCKSDB_LITE
+  // Note: the first two blob references will not be considered when resolving
+  // the oldest blob file referenced (the first one is inlined TTL, while the
+  // second one is TTL and thus points to a TTL blob file).
   constexpr std::array<uint64_t, 6> blob_file_numbers{
       kInvalidBlobFileNumber, 5, 103, 17, 102, 101};
   for (size_t i = 0; i < blob_file_numbers.size(); ++i) {
