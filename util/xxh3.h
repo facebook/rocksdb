@@ -1,3 +1,4 @@
+// Copyright (c) Facebook, Inc. and its affiliates. All Rights Reserved.
 /*
    xxHash - Extremely Fast Hash algorithm
    Development source file for `xxh3`
