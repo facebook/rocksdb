@@ -1383,6 +1383,7 @@ class DBImpl : public DB {
   Status ThrottleLowPriWritesIfNeeded(const WriteOptions& write_options,
                                       WriteBatch* my_batch);
 
+  // REQUIRES: mutex locked and in write thread.
   Status ScheduleFlushes(WriteContext* context);
 
   void MaybeFlushStatsCF(autovector<ColumnFamilyData*>* cfds);
@@ -1454,10 +1455,10 @@ class DBImpl : public DB {
   // REQUIRES: mutex locked and in write thread.
   void AssignAtomicFlushSeq(const autovector<ColumnFamilyData*>& cfds);
 
-  // REQUIRES: mutex locked
+  // REQUIRES: mutex locked and in write thread.
   Status SwitchWAL(WriteContext* write_context);
 
-  // REQUIRES: mutex locked
+  // REQUIRES: mutex locked and in write thread.
   Status HandleWriteBufferFull(WriteContext* write_context);
 
   // REQUIRES: mutex locked
