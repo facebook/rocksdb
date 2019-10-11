@@ -374,7 +374,8 @@ Status MemTableList::TryInstallMemtableFlushResults(
     const autovector<MemTable*>& mems, LogsWithPrepTracker* prep_tracker,
     VersionSet* vset, InstrumentedMutex* mu, uint64_t file_number,
     autovector<MemTable*>* to_delete, Directory* db_directory,
-    LogBuffer* log_buffer) {
+    LogBuffer* log_buffer,
+    autovector<FlushJobInfo*>* committed_flush_jobs_info) {
   AutoThreadOperationStageUpdater stage_updater(
       ThreadStatus::STAGE_MEMTABLE_INSTALL_FLUSH_RESULTS);
   mu->AssertHeld();
@@ -431,6 +432,10 @@ Status MemTableList::TryInstallMemtableFlushResults(
                          "[%s] Level-0 commit table #%" PRIu64 " started",
                          cfd->GetName().c_str(), m->file_number_);
         edit_list.push_back(&m->edit_);
+        FlushJobInfo* info = m->ReleaseFlushJobInfo();
+        if (info != nullptr) {
+          committed_flush_jobs_info->push_back(info);
+        }
         memtables_to_flush.push_back(m);
       }
       batch_count++;

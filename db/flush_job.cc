@@ -241,7 +241,7 @@ Status FlushJob::Run(LogsWithPrepTracker* prep_tracker,
     s = cfd_->imm()->TryInstallMemtableFlushResults(
         cfd_, mutable_cf_options_, mems_, prep_tracker, versions_, db_mutex_,
         meta_.fd.GetNumber(), &job_context_->memtables_to_free, db_directory_,
-        log_buffer_);
+        log_buffer_, &committed_flush_jobs_info_);
   }
 
   if (s.ok() && file_meta != nullptr) {
@@ -410,6 +410,8 @@ Status FlushJob::WriteLevel0Table() {
                    meta_.fd.smallest_seqno, meta_.fd.largest_seqno,
                    meta_.marked_for_compaction);
   }
+  // Piggyback FlushJobInfo on the first first flushed memtable.
+  mems_[0]->SetFlushJobInfo(GetFlushJobInfo());
 
   // Note that here we treat flush as level 0 compaction in internal stats
   InternalStats::CompactionStats stats(CompactionReason::kFlush, 1);
@@ -422,6 +424,22 @@ Status FlushJob::WriteLevel0Table() {
                                      meta_.fd.GetFileSize());
   RecordFlushIOStats();
   return s;
+}
+
+std::unique_ptr<FlushJobInfo> FlushJob::GetFlushJobInfo() const {
+  db_mutex_->AssertHeld();
+  std::unique_ptr<FlushJobInfo> info(new FlushJobInfo);
+  info->cf_id = cfd_->GetID();
+  info->cf_name = cfd_->GetName();
+  info->file_path = MakeTableFileName(cfd_->ioptions()->cf_paths[0].path,
+                                      meta_.fd.GetNumber());
+  info->thread_id = db_options_.env->GetThreadID();
+  info->job_id = job_context_->job_id;
+  info->smallest_seqno = meta_.fd.smallest_seqno;
+  info->largest_seqno = meta_.fd.largest_seqno;
+  info->table_properties = table_properties_;
+  info->flush_reason = cfd_->GetFlushReason();
+  return info;
 }
 
 }  // namespace rocksdb

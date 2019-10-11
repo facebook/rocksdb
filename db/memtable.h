@@ -31,6 +31,7 @@
 
 namespace rocksdb {
 
+struct FlushJobInfo;
 class Mutex;
 class MemTableIterator;
 class MergeContext;
@@ -418,6 +419,12 @@ class MemTable {
     flush_in_progress_ = in_progress;
   }
 
+  void SetFlushJobInfo(std::unique_ptr<FlushJobInfo>&& info) {
+    flush_job_info_ = std::move(info);
+  }
+
+  FlushJobInfo* ReleaseFlushJobInfo() { return flush_job_info_.release(); }
+
  private:
   enum FlushStateEnum { FLUSH_NOT_REQUESTED, FLUSH_REQUESTED, FLUSH_SCHEDULED };
 
@@ -499,6 +506,9 @@ class MemTable {
   // keep track of memory usage in table_, arena_, and range_del_table_.
   // Gets refrshed inside `ApproximateMemoryUsage()` or `ShouldFlushNow`
   std::atomic<uint64_t> approximate_memory_usage_;
+
+  // Flush job info of the current memtable.
+  std::unique_ptr<FlushJobInfo> flush_job_info_;
 
   // Returns a heuristic flush decision
   bool ShouldFlushNow();

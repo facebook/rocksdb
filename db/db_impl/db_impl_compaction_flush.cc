@@ -164,8 +164,7 @@ Status DBImpl::FlushMemTableToOutputFile(
 
 #ifndef ROCKSDB_LITE
   // may temporarily unlock and lock the mutex.
-  NotifyOnFlushBegin(cfd, &file_meta, mutable_cf_options, job_context->job_id,
-                     flush_job.GetTableProperties());
+  NotifyOnFlushBegin(cfd, &file_meta, mutable_cf_options, job_context->job_id);
 #endif  // ROCKSDB_LITE
 
   Status s;
@@ -213,8 +212,8 @@ Status DBImpl::FlushMemTableToOutputFile(
   if (s.ok()) {
 #ifndef ROCKSDB_LITE
     // may temporarily unlock and lock the mutex.
-    NotifyOnFlushCompleted(cfd, &file_meta, mutable_cf_options,
-                           job_context->job_id, flush_job.GetTableProperties());
+    NotifyOnFlushCompleted(cfd, mutable_cf_options,
+                           flush_job.GetCommittedFlushJobsInfo());
     auto sfm = static_cast<SstFileManagerImpl*>(
         immutable_db_options_.sst_file_manager.get());
     if (sfm) {
@@ -351,7 +350,7 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
     const MutableCFOptions& mutable_cf_options = all_mutable_cf_options.at(i);
     // may temporarily unlock and lock the mutex.
     NotifyOnFlushBegin(cfds[i], &file_meta[i], mutable_cf_options,
-                       job_context->job_id, jobs[i].GetTableProperties());
+                       job_context->job_id);
   }
 #endif /* !ROCKSDB_LITE */
 
@@ -505,8 +504,8 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
       if (cfds[i]->IsDropped()) {
         continue;
       }
-      NotifyOnFlushCompleted(cfds[i], &file_meta[i], all_mutable_cf_options[i],
-                             job_context->job_id, jobs[i].GetTableProperties());
+      NotifyOnFlushCompleted(cfds[i], all_mutable_cf_options[i],
+                             jobs[i].GetCommittedFlushJobsInfo());
       if (sfm) {
         std::string file_path = MakeTableFileName(
             cfds[i]->ioptions()->cf_paths[0].path, file_meta[i].fd.GetNumber());
@@ -549,7 +548,7 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
 
 void DBImpl::NotifyOnFlushBegin(ColumnFamilyData* cfd, FileMetaData* file_meta,
                                 const MutableCFOptions& mutable_cf_options,
-                                int job_id, TableProperties prop) {
+                                int job_id) {
 #ifndef ROCKSDB_LITE
   if (immutable_db_options_.listeners.size() == 0U) {
     return;
@@ -580,7 +579,6 @@ void DBImpl::NotifyOnFlushBegin(ColumnFamilyData* cfd, FileMetaData* file_meta,
     info.triggered_writes_stop = triggered_writes_stop;
     info.smallest_seqno = file_meta->fd.smallest_seqno;
     info.largest_seqno = file_meta->fd.largest_seqno;
-    info.table_properties = prop;
     info.flush_reason = cfd->GetFlushReason();
     for (auto listener : immutable_db_options_.listeners) {
       listener->OnFlushBegin(this, info);
@@ -598,11 +596,11 @@ void DBImpl::NotifyOnFlushBegin(ColumnFamilyData* cfd, FileMetaData* file_meta,
 #endif  // ROCKSDB_LITE
 }
 
-void DBImpl::NotifyOnFlushCompleted(ColumnFamilyData* cfd,
-                                    FileMetaData* file_meta,
-                                    const MutableCFOptions& mutable_cf_options,
-                                    int job_id, TableProperties prop) {
+void DBImpl::NotifyOnFlushCompleted(
+    ColumnFamilyData* cfd, const MutableCFOptions& mutable_cf_options,
+    autovector<FlushJobInfo*>* flush_jobs_info) {
 #ifndef ROCKSDB_LITE
+  assert(flush_jobs_info != nullptr);
   if (immutable_db_options_.listeners.size() == 0U) {
     return;
   }
@@ -619,34 +617,23 @@ void DBImpl::NotifyOnFlushCompleted(ColumnFamilyData* cfd,
   // release lock while notifying events
   mutex_.Unlock();
   {
-    FlushJobInfo info;
-    info.cf_id = cfd->GetID();
-    info.cf_name = cfd->GetName();
-    // TODO(yhchiang): make db_paths dynamic in case flush does not
-    //                 go to L0 in the future.
-    info.file_path = MakeTableFileName(cfd->ioptions()->cf_paths[0].path,
-                                       file_meta->fd.GetNumber());
-    info.thread_id = env_->GetThreadID();
-    info.job_id = job_id;
-    info.triggered_writes_slowdown = triggered_writes_slowdown;
-    info.triggered_writes_stop = triggered_writes_stop;
-    info.smallest_seqno = file_meta->fd.smallest_seqno;
-    info.largest_seqno = file_meta->fd.largest_seqno;
-    info.table_properties = prop;
-    info.flush_reason = cfd->GetFlushReason();
-    for (auto listener : immutable_db_options_.listeners) {
-      listener->OnFlushCompleted(this, info);
+    for (auto* info : *flush_jobs_info) {
+      info->triggered_writes_slowdown = triggered_writes_slowdown;
+      info->triggered_writes_stop = triggered_writes_stop;
+      for (auto listener : immutable_db_options_.listeners) {
+        listener->OnFlushCompleted(this, *info);
+      }
+      delete info;
     }
+    flush_jobs_info->clear();
   }
   mutex_.Lock();
   // no need to signal bg_cv_ as it will be signaled at the end of the
   // flush process.
 #else
   (void)cfd;
-  (void)file_meta;
   (void)mutable_cf_options;
-  (void)job_id;
-  (void)prop;
+  (void)flush_jobs_info;
 #endif  // ROCKSDB_LITE
 }
 
