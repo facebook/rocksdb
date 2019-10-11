@@ -1247,9 +1247,7 @@ Status DBImpl::SwitchWAL(WriteContext* write_context) {
     MaybeFlushStatsCF(&cfds);
   }
   for (const auto cfd : cfds) {
-    cfd->Ref();
     status = SwitchMemtable(cfd, write_context);
-    cfd->Unref();
     if (!status.ok()) {
       break;
     }
@@ -1318,9 +1316,7 @@ Status DBImpl::HandleWriteBufferFull(WriteContext* write_context) {
     if (cfd->mem()->IsEmpty()) {
       continue;
     }
-    cfd->Ref();
     status = SwitchMemtable(cfd, write_context);
-    cfd->Unref();
     if (!status.ok()) {
       break;
     }

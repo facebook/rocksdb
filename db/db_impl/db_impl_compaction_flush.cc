@@ -1668,9 +1668,7 @@ Status DBImpl::AtomicFlushMemTables(
       if (cfd->mem()->IsEmpty() && cached_recoverable_state_empty_.load()) {
         continue;
       }
-      cfd->Ref();
       s = SwitchMemtable(cfd, &context);
-      cfd->Unref();
       if (!s.ok()) {
         break;
       }
