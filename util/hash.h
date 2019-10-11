@@ -16,6 +16,10 @@
 #include "rocksdb/slice.h"
 #include "util/murmurhash.h"
 
+#if defined(HAVE_PCLMUL) && !defined(HAVE_UINT128_EXTENSION)
+#include <immintrin.h>
+#endif
+
 namespace rocksdb {
 
 // Non-persistent hash. Only used for in-memory data structure
@@ -52,9 +56,48 @@ struct SliceHasher {
 // An alternative to % for mapping a hash value to an arbitrary range. See
 // https://github.com/lemire/fastrange and
 // https://github.com/pdillinger/wormhashing/blob/2c4035a4462194bf15f3e9fc180c27c513335225/bloom_simulation_tests/foo.cc#L57
-inline uint32_t fastrange32(uint32_t a, uint32_t h) {
-  uint64_t product = static_cast<uint64_t>(a) * h;
+inline uint32_t fastrange32(uint32_t hash, uint32_t range) {
+  uint64_t product = uint64_t(range) * hash;
   return static_cast<uint32_t>(product >> 32);
+}
+
+// An alternative to % for mapping a 64-bit hash value to an arbitrary range
+// that fits in size_t. See https://github.com/lemire/fastrange and
+// https://github.com/pdillinger/wormhashing/blob/2c4035a4462194bf15f3e9fc180c27c513335225/bloom_simulation_tests/foo.cc#L57
+inline size_t fastrange64(uint64_t hash, size_t range) {
+#if defined(HAVE_UINT128_EXTENSION)
+  // Can use compiler's 128-bit type. Trust it to do the right thing.
+  __uint128_t wide = __uint128_t(range) * hash;
+  return static_cast<size_t>(wide >> 64);
+#elif defined(HAVE_PCLMUL)
+  auto mm = _mm_clmulepi64_si128(_mm_set_epi64x(0, hash), _mm_set_epi64x(0, range), 0);
+ #ifdef HAVE_SSE42
+  // Technically SSE4.1
+  return static_cast<size_t>(_mm_extract_epi64(mm, 1));
+ #else
+  return static_cast<size_t>(_mm_cvtsi128_si64(_mm_srli_si128(mm, 64)));
+ #endif
+#elif SIZE_MAX == UINT64_MAX
+  // Fall back for 64-bit size_t: full decomposition
+  uint64_t tmp = uint64_t(range & 0xffffFFFF) * uint64_t(hash & 0xffffFFFF);
+  tmp >>= 32;
+  tmp += uint64_t(range & 0xffffFFFF) * uint64_t(hash >> 32);
+  // Avoid overflow: first add lower 32 of tmp2, and later upper 32
+  uint64_t tmp2 = uint64_t(range >> 32) * uint64_t(hash & 0xffffFFFF);
+  tmp += static_cast<uint32_t>(tmp2);
+  tmp >>= 32;
+  tmp += (tmp2 >> 32);
+  tmp += uint64_t(range >> 32) * uint64_t(hash >> 32);
+  return size_t(tmp);
+#else
+  static_assert(SIZE_MAX == UINT32_MAX, "Expecting 32-bit size_t if not 64-bit");
+  // Fall back for 32-bit size_t: a simpler decomposition (range >> 32 is 0)
+  uint64_t tmp = uint64_t(range & 0xffffFFFF) * uint64_t(hash & 0xffffFFFF);
+  tmp >>= 32;
+  tmp += uint64_t(range & 0xffffFFFF) * uint64_t(hash >> 32);
+  tmp >>= 32;
+  return static_cast<size_t>(tmp);
+#endif
 }
 
 }  // namespace rocksdb
