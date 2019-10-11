@@ -22,9 +22,10 @@
 
 namespace rocksdb {
 
-// Non-persistent hash. Only used for in-memory data structure
-// The hash results are applicable to change.
-inline uint64_t NPHash64(const char* data, size_t n, uint32_t seed) {
+// Non-persistent hash. Must only used for in-memory data structure.
+// The hash results are thus applicable to change. (Thus, it rarely makes
+// sense to specify a seed for this function.)
+inline uint64_t NPHash64(const char* data, size_t n, uint32_t seed = 0) {
   // XXH3 currently experimental, but generally faster than other quality
   // 64-bit hash functions.
   return XXH3_64bits_withSeed(data, n, seed);
@@ -37,7 +38,7 @@ inline uint32_t BloomHash(const Slice& key) {
 }
 
 inline uint64_t GetSliceNPHash64(const Slice& s) {
-  return NPHash64(s.data(), s.size(), 0);
+  return NPHash64(s.data(), s.size());
 }
 
 inline uint32_t GetSliceHash(const Slice& s) {
