@@ -7,14 +7,14 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 //
-// Simple hash function used for internal data structures
+// Common hash functions with convenient interfaces.
 
 #pragma once
 #include <stddef.h>
 #include <stdint.h>
 
 #include "rocksdb/slice.h"
-#include "util/murmurhash.h"
+#include "util/xxhash.h"
 
 #if defined(HAVE_PCLMUL) && !defined(HAVE_UINT128_EXTENSION)
 #include <immintrin.h>
@@ -24,7 +24,11 @@ namespace rocksdb {
 
 // Non-persistent hash. Only used for in-memory data structure
 // The hash results are applicable to change.
-extern uint64_t NPHash64(const char* data, size_t n, uint32_t seed);
+inline uint64_t NPHash64(const char* data, size_t n, uint32_t seed) {
+  // XXH3 currently experimental, but generally faster than other quality
+  // 64-bit hash functions.
+  return XXH3_64bits_withSeed(data, n, seed);
+}
 
 extern uint32_t Hash(const char* data, size_t n, uint32_t seed);
 
@@ -38,14 +42,6 @@ inline uint64_t GetSliceNPHash64(const Slice& s) {
 
 inline uint32_t GetSliceHash(const Slice& s) {
   return Hash(s.data(), s.size(), 397);
-}
-
-inline uint64_t NPHash64(const char* data, size_t n, uint32_t seed) {
-  // Right now murmurhash2B is used. It should able to be freely
-  // changed to a better hash, without worrying about backward
-  // compatibility issue.
-  return MURMUR_HASH(data, static_cast<int>(n),
-                     static_cast<unsigned int>(seed));
 }
 
 // std::hash compatible interface.
