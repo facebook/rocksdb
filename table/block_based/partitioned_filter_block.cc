@@ -201,7 +201,7 @@ BlockHandle PartitionedFilterBlockReader::GetFilterPartitionHandle(
       index_key_includes_seq(), index_value_is_full());
   iter.Seek(entry);
   if (UNLIKELY(!iter.Valid())) {
-    return BlockHandle(0, 0);
+    iter.SeekToLast();
   }
   assert(iter.Valid());
   BlockHandle fltr_blk_handle = iter.value().handle;
