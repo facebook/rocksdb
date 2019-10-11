@@ -442,7 +442,7 @@ FragmentedRangeTombstoneIterator* MemTable::NewRangeTombstoneIterator(
 }
 
 port::RWMutex* MemTable::GetLock(const Slice& key) {
-  return &locks_[static_cast<size_t>(GetSliceNPHash64(key)) % locks_.size()];
+  return &locks_[fastrange64(GetSliceNPHash64(key), locks_.size())];
 }
 
 MemTable::MemTableStats MemTable::ApproximateStats(const Slice& start_ikey,
