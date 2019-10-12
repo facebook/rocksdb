@@ -9,7 +9,8 @@ At Facebook, we use RocksDB as storage engines in multiple data management servi
 4. Laser -- Laser is a high query throughput, low (millisecond) latency, key-value storage service built on top of RocksDB.[1]
 4. Dragon -- a distributed graph query engine. https://code.facebook.com/posts/1737605303120405/dragon-a-distributed-graph-query-engine/
 5. Stylus -- a low-level stream processing framework writtenin C++.[1]
-6. LogDevice -- a distributed data store for logs [2]
+https://en.wikipedia.org/wiki/Stylus_(computing)
+6. LogDevice -- a distributed data store for logs [2]. https://github.com/facebookincubator/LogDevice
 
 [1] https://research.facebook.com/publications/realtime-data-processing-at-facebook/
 
@@ -19,7 +20,7 @@ At Facebook, we use RocksDB as storage engines in multiple data management servi
 Two different use cases at Linkedin are using RocksDB as a storage engine:
 
 1. LinkedIn's follow feed for storing user's activities. Check out the blog post: https://engineering.linkedin.com/blog/2016/03/followfeed--linkedin-s-feed-made-faster-and-smarter
-2. Apache Samza, open source framework for stream processing
+2. Apache [Samza](http://samza.apache.org/), open source framework for stream processing
 
 Learn more about those use cases in a Tech Talk by Ankit Gupta and Naveen Somasundaram: http://www.youtube.com/watch?v=plqVp_OnSzg
 
@@ -38,7 +39,7 @@ Iron.io is using RocksDB as a storage engine for their distributed queueing syst
 Learn more from Tech Talk by Reed Allman: http://www.youtube.com/watch?v=HTjt6oj-RL4
 
 ## Tango Me
-Tango is using RocksDB as a graph storage to store all users' connection data and other social activity data.
+[Tango](https://www.tango.me) is using RocksDB as a graph storage to store all users' connection data and other social activity data.
 
 ## Turn
 Turn is using RocksDB as a storage layer for their key/value store, serving at peak 2.4MM QPS out of different datacenters.
@@ -48,14 +49,14 @@ Check out our RocksDB Protobuf merge operator at: https://github.com/vladb38/roc
 Check out their blog post: http://blog.cloudera.com/blog/2015/08/inside-santanders-near-real-time-data-ingest-architecture/
 
 ## Airbnb
-Airbnb is using RocksDB as a storage engine for their personalized search service. You can learn more about it here: https://www.youtube.com/watch?v=ASQ6XMtogMs
+[Airbnb](https://www.airbnb.co.in) is using RocksDB as a storage engine for their personalized search service. You can learn more about it here: https://www.youtube.com/watch?v=ASQ6XMtogMs
 
 ## Alluxio
 [Alluxio](https://www.alluxio.io) uses RocksDB to serve and scale file system metadata to beyond 1 Billion files. The detailed design and implementation is described in this engineering blog:
 https://www.alluxio.io/blog/scalable-metadata-service-in-alluxio-storing-billions-of-files/
 
 ## Pinterest
-Pinterest's Object Retrieval System uses RocksDB for storage: https://www.youtube.com/watch?v=MtFEVEs_2Vo
+[Pinterest's](https://www.pinterest.com) Object Retrieval System uses RocksDB for storage: https://www.youtube.com/watch?v=MtFEVEs_2Vo
 
 ## Smyte
 [Smyte](https://www.smyte.com/) uses RocksDB as the storage layer for their core key-value storage, high-performance counters and time-windowed HyperLogLog services.
@@ -89,7 +90,7 @@ quasardb uses a heavily tuned RocksDB as its persistence layer.
 [360](http://www.360.cn/) [Pika](https://github.com/Qihoo360/pika) is a nosql compatible with redis. With the huge amount of data stored, redis may suffer for a capacity bottleneck, and pika was born for solving it. It has widely been widely used in many company
 
 ## LzLabs
-LzLabs is using RocksDB as a storage engine in their multi-database distributed framework to store application configuration and user data.
+[LzLabs](https://www.lzlabs.com) is using RocksDB as a storage engine in their multi-database distributed framework to store application configuration and user data.
 
 ## ProfaneDB
 [ProfaneDB](https://profanedb.gitlab.io/) is a database for Protocol Buffers, and uses RocksDB for storage. It is accessible via gRPC, and the schema is defined using directly `.proto` files.
