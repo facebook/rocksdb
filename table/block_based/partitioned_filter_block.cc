@@ -192,7 +192,12 @@ BlockHandle PartitionedFilterBlockReader::GetFilterPartitionHandle(
       index_key_includes_seq(), index_value_is_full());
   iter.Seek(entry);
   if (UNLIKELY(!iter.Valid())) {
-    return BlockHandle(0, 0);
+    // entry is larger than all the keys. However its prefix might still be
+    // present in the last partition. If this is called by PrefixMayMatch this
+    // is necessary for correct behavior. Otherwise it is unnecessary but safe.
+    // Assuming this is an unlikely case for full key search, the performance
+    // overhead should be negligible.
+    iter.SeekToLast();
   }
   assert(iter.Valid());
   BlockHandle fltr_blk_handle = iter.value().handle;
