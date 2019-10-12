@@ -23,7 +23,7 @@
 * Added DisableManualCompaction/EnableManualCompaction to stop and resume manual compaction.
 * Add TryCatchUpWithPrimary() to StackableDB in non-LITE mode.
 * Add a new Env::LoadEnv() overloaded function to return a shared_ptr to Env.
-* Flush sets file name to "(nil)" for OnTableFileCreationCompleted() if the flush-generated file is empty.
+* Flush sets file name to "(nil)" for OnTableFileCreationCompleted() if the flush does not produce any L0. This can happen if the file is empty thus delete by RocksDB.
 ### Performance Improvements
 * Improve the speed of the MemTable Bloom filter, reducing the write overhead of enabling it by 1/3 to 1/2, with similar benefit to read performance.
 
