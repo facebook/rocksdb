@@ -981,7 +981,7 @@ void BlockBasedTable::GenerateCachePrefix(Cache* cc, RandomAccessFile* file,
 
   // If the prefix wasn't generated or was too long,
   // create one from the cache.
-  if (cc && *size == 0) {
+  if (cc != nullptr && *size == 0) {
     char* end = EncodeVarint64(buffer, cc->NewId());
     *size = static_cast<size_t>(end - buffer);
   }
@@ -994,7 +994,7 @@ void BlockBasedTable::GenerateCachePrefix(Cache* cc, WritableFile* file,
 
   // If the prefix wasn't generated or was too long,
   // create one from the cache.
-  if (*size == 0) {
+  if (cc != nullptr && *size == 0) {
     char* end = EncodeVarint64(buffer, cc->NewId());
     *size = static_cast<size_t>(end - buffer);
   }

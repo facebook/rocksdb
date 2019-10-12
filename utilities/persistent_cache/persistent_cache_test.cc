@@ -6,7 +6,10 @@
 // Copyright (c) 2011 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
-#ifndef ROCKSDB_LITE
+
+// GetUniqueIdFromFile is not implemented on Windows. Persistent cache
+// breaks when that function is not implemented
+#if !defined(ROCKSDB_LITE) && !defined(OS_WIN)
 
 #include "utilities/persistent_cache/persistent_cache_test.h"
 
@@ -466,6 +469,6 @@ int main(int argc, char** argv) {
   ::testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();
 }
-#else
+#else   // !defined(ROCKSDB_LITE) && !defined(OS_WIN)
 int main() { return 0; }
-#endif
+#endif  // !defined(ROCKSDB_LITE) && !defined(OS_WIN)
