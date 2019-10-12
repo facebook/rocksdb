@@ -327,7 +327,7 @@ TEST_P(PartitionedFilterBlockTest, SamePrefixInMultipleBlocks) {
   std::unique_ptr<PartitionedIndexBuilder> pib(NewIndexBuilder());
   std::unique_ptr<PartitionedFilterBlockBuilder> builder(
       NewBuilder(pib.get(), prefix_extractor.get()));
-  const std::string pkeys[3] = {"p-key1", "p-key2", "p-key3"};
+  const std::string pkeys[3] = {"p-key10", "p-key20", "p-key30"};
   builder->Add(pkeys[0]);
   CutABlock(pib.get(), pkeys[0], pkeys[1]);
   builder->Add(pkeys[1]);
@@ -337,6 +337,16 @@ TEST_P(PartitionedFilterBlockTest, SamePrefixInMultipleBlocks) {
   std::unique_ptr<PartitionedFilterBlockReader> reader(
       NewReader(builder.get(), pib.get()));
   for (auto key : pkeys) {
+    auto ikey = InternalKey(key, 0, ValueType::kTypeValue);
+    const Slice ikey_slice = Slice(*ikey.rep());
+    ASSERT_TRUE(reader->PrefixMayMatch(
+        prefix_extractor->Transform(key), prefix_extractor.get(), kNotValid,
+        /*no_io=*/false, &ikey_slice, /*get_context=*/nullptr,
+        /*lookup_context=*/nullptr));
+  }
+  // Non-existent keys but with the same prefix
+  const std::string pnonkeys[4] = {"p-key9", "p-key11", "p-key21", "p-key31"};
+  for (auto key : pnonkeys) {
     auto ikey = InternalKey(key, 0, ValueType::kTypeValue);
     const Slice ikey_slice = Slice(*ikey.rep());
     ASSERT_TRUE(reader->PrefixMayMatch(
