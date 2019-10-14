@@ -98,6 +98,8 @@ void FileMetaData::UpdateBoundaries(const Slice& key, const Slice& value,
       return;
     }
 
+    // Paranoid check: this should not happen because BlobDB numbers the blob
+    // files starting from 1.
     if (blob_index.file_number() == kInvalidBlobFileNumber) {
       return;
     }
