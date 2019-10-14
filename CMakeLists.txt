@@ -1081,8 +1081,7 @@ if(WITH_TESTS)
         EXCLUDE_FROM_DEFAULT_BUILD_RELWITHDEBINFO 1
         )
 
-  set(TEST_EXES ${TESTS})
-  foreach(sourcefile ${TEST_EXES})
+  foreach(sourcefile ${TESTS})
       get_filename_component(exename ${sourcefile} NAME_WE)
       add_executable(${CMAKE_PROJECT_NAME}_${exename}${ARTIFACT_SUFFIX} ${sourcefile})
       set_target_properties(${CMAKE_PROJECT_NAME}_${exename}${ARTIFACT_SUFFIX}
@@ -1096,7 +1095,7 @@ if(WITH_TESTS)
         add_test(NAME ${exename} COMMAND ${exename}${ARTIFACT_SUFFIX})
         add_dependencies(check ${CMAKE_PROJECT_NAME}_${exename}${ARTIFACT_SUFFIX})
       endif()
-  endforeach(sourcefile ${TEST_EXES})
+  endforeach(sourcefile ${TESTS})
 
   if(WIN32)
     # C executables must link to a shared object
@@ -1111,9 +1110,8 @@ if(WITH_TESTS)
 
   if(ROCKSDB_LIB_FOR_C)
     set(C_TESTS db/c_test.c)
-    set(C_TEST_EXES ${C_TESTS})
 
-    foreach(sourcefile ${C_TEST_EXES})
+    foreach(sourcefile ${C_TESTS})
         string(REPLACE ".c" "" exename ${sourcefile})
         string(REGEX REPLACE "^((.+)/)+" "" exename ${exename})
         add_executable(${exename}${ARTIFACT_SUFFIX} ${sourcefile})
@@ -1125,7 +1123,7 @@ if(WITH_TESTS)
         target_link_libraries(${exename}${ARTIFACT_SUFFIX} ${ROCKSDB_LIB_FOR_C} testutillib${ARTIFACT_SUFFIX})
         add_test(NAME ${exename} COMMAND ${exename}${ARTIFACT_SUFFIX})
         add_dependencies(check ${exename}${ARTIFACT_SUFFIX})
-    endforeach(sourcefile ${C_TEST_EXES})
+    endforeach(sourcefile ${C_TESTS})
   endif()
 endif()
 
