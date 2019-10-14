@@ -1050,8 +1050,15 @@ void LevelIterator::Seek(const Slice& target) {
     // seek case, it is likely that the file is skipped because of
     // prefix bloom or hash, where more keys are skipped. We then check
     // the current key and invalidate the iterator if the prefix is
-    // already passed. This avoids LevelIterator to skip keys. A side
-    // benefit will be that it invalidate the iterator earlier so that
+    // already passed.
+    // When doing prefix iterator seek, when keys for one prefix have
+    // been exhausted, it can jump any key that is larger. Here we are
+    // enforcing a stricter contract than that, in order to make it easier for
+    // higher layers (merging and DB iterator) to reason the correctness:
+    // 1. Within the prefix, the result should very accurate.
+    // 2. If keys for the prefix is exhausted, it is either positioned to the
+    //    next key after the prefix, or make the iterator invalid.
+    // A side benefit will be that it invalidate the iterator earlier so that
     // the upper level merging iterator needs to merge fewer child
     // iterators.
     Slice target_user_key = ExtractUserKey(target);
