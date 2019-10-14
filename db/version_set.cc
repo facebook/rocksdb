@@ -3379,6 +3379,10 @@ std::string Version::DebugString(bool hex, bool print_stats) const {
       r.append(" .. ");
       r.append(files[i]->largest.DebugString(hex));
       r.append("]");
+      if (files[i]->oldest_blob_file_number != kInvalidBlobFileNumber) {
+        r.append(" blob_file:");
+        AppendNumberTo(&r, files[i]->oldest_blob_file_number);
+      }
       if (print_stats) {
         r.append("(");
         r.append(ToString(
@@ -4923,7 +4927,7 @@ Status VersionSet::WriteCurrentStateToManifest(log::Writer* log) {
           edit.AddFile(level, f->fd.GetNumber(), f->fd.GetPathId(),
                        f->fd.GetFileSize(), f->smallest, f->largest,
                        f->fd.smallest_seqno, f->fd.largest_seqno,
-                       f->marked_for_compaction);
+                       f->marked_for_compaction, f->oldest_blob_file_number);
         }
       }
       edit.SetLogNumber(cfd->GetLogNumber());

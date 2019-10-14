@@ -10,7 +10,6 @@
 #include "util/string_util.h"
 
 namespace rocksdb {
-namespace blob_db {
 
 // BlobIndex is a pointer to the blob and metadata of the blob. The index is
 // stored in base DB as ValueType::kTypeBlobIndex.
@@ -156,6 +155,5 @@ class BlobIndex {
   CompressionType compression_ = kNoCompression;
 };
 
-}  // namespace blob_db
 }  // namespace rocksdb
 #endif  // ROCKSDB_LITE
