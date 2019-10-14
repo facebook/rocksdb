@@ -104,8 +104,8 @@ TEST(Fastrange32Test, Values) {
   EXPECT_EQ(fastrange32(2, 0x80000000), 1);
   EXPECT_EQ(fastrange32(4, 0x7fffffff), 1);
   EXPECT_EQ(fastrange32(4, 0x80000000), 2);
-  EXPECT_EQ(fastrange32(0xffffffff, 0x7fffffff), 0x7ffffffe);
-  EXPECT_EQ(fastrange32(0xffffffff, 0x80000000), 0x7fffffff);
+  EXPECT_EQ(fastrange32(0xffffffff, 0x7fffffff), 0x7ffffffeU);
+  EXPECT_EQ(fastrange32(0xffffffff, 0x80000000), 0x7fffffffU);
 }
 
 TEST(Fastrange64Test, Values) {
@@ -147,20 +147,20 @@ TEST(Fastrange64Test, Values) {
   EXPECT_EQ(fastrange64(0x200000000, 0x80000000), 1);
   EXPECT_EQ(fastrange64(0x400000000, 0x7fffFFFF), 1);
   EXPECT_EQ(fastrange64(0x400000000, 0x80000000), 2);
-  EXPECT_EQ(fastrange64(0xffffFFFFffffFFFF, 0x7fffFFFF), 0x7fffFFFE);
-  EXPECT_EQ(fastrange64(0xffffFFFFffffFFFF, 0x80000000), 0x7fffFFFF);
+  EXPECT_EQ(fastrange64(0xffffFFFFffffFFFF, 0x7fffFFFF), 0x7fffFFFEU);
+  EXPECT_EQ(fastrange64(0xffffFFFFffffFFFF, 0x80000000), 0x7fffFFFFU);
 
   // Big, > 32-bit range
 #if SIZE_MAX == UINT64_MAX
-  EXPECT_EQ(fastrange64(0x7fffFFFFffffFFFF, 0x4200000002), 0x2100000000);
-  EXPECT_EQ(fastrange64(0x8000000000000000, 0x4200000002), 0x2100000001);
+  EXPECT_EQ(fastrange64(0x7fffFFFFffffFFFF, 0x4200000002), 0x2100000000U);
+  EXPECT_EQ(fastrange64(0x8000000000000000, 0x4200000002), 0x2100000001U);
 
   EXPECT_EQ(fastrange64(0x0000000000000000, 420000000002), 0);
-  EXPECT_EQ(fastrange64(0x7fffFFFFffffFFFF, 420000000002), 210000000000);
-  EXPECT_EQ(fastrange64(0x8000000000000000, 420000000002), 210000000001);
-  EXPECT_EQ(fastrange64(0xffffFFFFffffFFFF, 420000000002), 420000000001);
+  EXPECT_EQ(fastrange64(0x7fffFFFFffffFFFF, 420000000002), 210000000000U);
+  EXPECT_EQ(fastrange64(0x8000000000000000, 420000000002), 210000000001U);
+  EXPECT_EQ(fastrange64(0xffffFFFFffffFFFF, 420000000002), 420000000001U);
 
-  EXPECT_EQ(fastrange64(0xffffFFFFffffFFFF, 0xffffFFFFffffFFFF), 0xffffFFFFffffFFFE);
+  EXPECT_EQ(fastrange64(0xffffFFFFffffFFFF, 0xffffFFFFffffFFFF), 0xffffFFFFffffFFFEU);
 #endif
 }
 
