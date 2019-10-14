@@ -242,14 +242,14 @@ Status CloudLogController::StartTailingStream(const std::string & topic) {
     return Status::Busy("Tailer already started");
   }
 
-  Status status = CreateStream(topic);
-  if (status.ok()) {
+  Status st = CreateStream(topic);
+  if (st.ok()) {
     running_ = true;
     // create tailer thread
     auto lambda = [this]() { TailStream(); };
     tid_.reset(new std::thread(lambda));
   }
-  return Status::OK();
+  return st;
 }
 
 void CloudLogController::StopTailingStream() {
