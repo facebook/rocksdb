@@ -895,10 +895,11 @@ if(NOT WIN32 OR ROCKSDB_INSTALL_ON_WINDOWS)
   )
 endif()
 
-option(WITH_TESTS "build with tests" ON)
-# For test libraries, utilities, and exes that are build iff WITH_TESTS=ON and
-# in Debug mode. Add test only code that is not #ifdefed for Release here.
-if(WITH_TESTS AND CMAKE_BUILD_TYPE STREQUAL "Debug")
+# Tests are excluded from Release builds
+include(CMakeDependentOption)
+CMAKE_DEPENDENT_OPTION(WITH_TESTS "build with tests" ON
+  "CMAKE_BUILD_TYPE STREQUAL Debug" OFF)
+if(WITH_TESTS)
   add_subdirectory(third-party/gtest-1.8.1/fused-src/gtest)
   set(TESTS
         cache/cache_test.cc
