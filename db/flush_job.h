@@ -81,16 +81,21 @@ class FlushJob {
              FileMetaData* file_meta = nullptr);
   void Cancel();
   const autovector<MemTable*>& GetMemTables() const { return mems_; }
+
+#ifndef ROCKSDB_LITE
   autovector<FlushJobInfo*>* GetCommittedFlushJobsInfo() {
     return &committed_flush_jobs_info_;
   }
+#endif  // !ROCKSDB_LITE
 
  private:
   void ReportStartedFlush();
   void ReportFlushInputSize(const autovector<MemTable*>& mems);
   void RecordFlushIOStats();
   Status WriteLevel0Table();
+#ifndef ROCKSDB_LITE
   std::unique_ptr<FlushJobInfo> GetFlushJobInfo() const;
+#endif  // !ROCKSDB_LITE
 
   const std::string& dbname_;
   ColumnFamilyData* cfd_;

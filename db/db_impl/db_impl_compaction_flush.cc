@@ -593,7 +593,6 @@ void DBImpl::NotifyOnFlushBegin(ColumnFamilyData* cfd, FileMetaData* file_meta,
   (void)file_meta;
   (void)mutable_cf_options;
   (void)job_id;
-  (void)prop;
 #endif  // ROCKSDB_LITE
 }
 

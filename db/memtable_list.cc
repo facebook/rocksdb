@@ -433,10 +433,14 @@ Status MemTableList::TryInstallMemtableFlushResults(
                          cfd->GetName().c_str(), m->file_number_);
         edit_list.push_back(&m->edit_);
         memtables_to_flush.push_back(m);
+#ifndef ROCKSDB_LITE
         FlushJobInfo* info = m->ReleaseFlushJobInfo();
         if (info != nullptr) {
           committed_flush_jobs_info->push_back(info);
         }
+#else
+        (void)committed_flush_jobs_info;
+#endif  // !ROCKSDB_LITE
       }
       batch_count++;
     }
