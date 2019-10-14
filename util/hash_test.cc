@@ -73,37 +73,37 @@ TEST(HashTest, Values) {
 TEST(Fastrange32Test, Values) {
   using rocksdb::fastrange32;
   // Zero range
-  EXPECT_EQ(fastrange32(0, 0), 0);
-  EXPECT_EQ(fastrange32(123, 0), 0);
-  EXPECT_EQ(fastrange32(0xffffffff, 0), 0);
+  EXPECT_EQ(fastrange32(0, 0), 0U);
+  EXPECT_EQ(fastrange32(123, 0), 0U);
+  EXPECT_EQ(fastrange32(0xffffffff, 0), 0U);
 
   // One range
-  EXPECT_EQ(fastrange32(0, 1), 0);
-  EXPECT_EQ(fastrange32(123, 1), 0);
-  EXPECT_EQ(fastrange32(0xffffffff, 1), 0);
+  EXPECT_EQ(fastrange32(0, 1), 0U);
+  EXPECT_EQ(fastrange32(123, 1), 0U);
+  EXPECT_EQ(fastrange32(0xffffffff, 1), 0U);
 
   // Two range
-  EXPECT_EQ(fastrange32(0, 2), 0);
-  EXPECT_EQ(fastrange32(123, 2), 0);
-  EXPECT_EQ(fastrange32(0x7fffffff, 2), 0);
-  EXPECT_EQ(fastrange32(0x80000000, 2), 1);
-  EXPECT_EQ(fastrange32(0xffffffff, 2), 1);
+  EXPECT_EQ(fastrange32(0, 2), 0U);
+  EXPECT_EQ(fastrange32(123, 2), 0U);
+  EXPECT_EQ(fastrange32(0x7fffffff, 2), 0U);
+  EXPECT_EQ(fastrange32(0x80000000, 2), 1U);
+  EXPECT_EQ(fastrange32(0xffffffff, 2), 1U);
 
   // Seven range
-  EXPECT_EQ(fastrange32(0, 7), 0);
-  EXPECT_EQ(fastrange32(123, 7), 0);
-  EXPECT_EQ(fastrange32(613566756, 7), 0);
-  EXPECT_EQ(fastrange32(613566757, 7), 1);
-  EXPECT_EQ(fastrange32(1227133513, 7), 1);
-  EXPECT_EQ(fastrange32(1227133514, 7), 2);
+  EXPECT_EQ(fastrange32(0, 7), 0U);
+  EXPECT_EQ(fastrange32(123, 7), 0U);
+  EXPECT_EQ(fastrange32(613566756, 7), 0U);
+  EXPECT_EQ(fastrange32(613566757, 7), 1U);
+  EXPECT_EQ(fastrange32(1227133513, 7), 1U);
+  EXPECT_EQ(fastrange32(1227133514, 7), 2U);
   // etc.
-  EXPECT_EQ(fastrange32(0xffffffff, 7), 6);
+  EXPECT_EQ(fastrange32(0xffffffff, 7), 6U);
 
   // Big
-  EXPECT_EQ(fastrange32(1, 0x80000000), 0);
-  EXPECT_EQ(fastrange32(2, 0x80000000), 1);
-  EXPECT_EQ(fastrange32(4, 0x7fffffff), 1);
-  EXPECT_EQ(fastrange32(4, 0x80000000), 2);
+  EXPECT_EQ(fastrange32(1, 0x80000000), 0U);
+  EXPECT_EQ(fastrange32(2, 0x80000000), 1U);
+  EXPECT_EQ(fastrange32(4, 0x7fffffff), 1U);
+  EXPECT_EQ(fastrange32(4, 0x80000000), 2U);
   EXPECT_EQ(fastrange32(0xffffffff, 0x7fffffff), 0x7ffffffeU);
   EXPECT_EQ(fastrange32(0xffffffff, 0x80000000), 0x7fffffffU);
 }
@@ -111,42 +111,42 @@ TEST(Fastrange32Test, Values) {
 TEST(Fastrange64Test, Values) {
   using rocksdb::fastrange64;
   // Zero range
-  EXPECT_EQ(fastrange64(0, 0), 0);
-  EXPECT_EQ(fastrange64(123, 0), 0);
-  EXPECT_EQ(fastrange64(0xffffFFFF, 0), 0);
-  EXPECT_EQ(fastrange64(0xffffFFFFffffFFFF, 0), 0);
+  EXPECT_EQ(fastrange64(0, 0), 0U);
+  EXPECT_EQ(fastrange64(123, 0), 0U);
+  EXPECT_EQ(fastrange64(0xffffFFFF, 0), 0U);
+  EXPECT_EQ(fastrange64(0xffffFFFFffffFFFF, 0), 0U);
 
   // One range
-  EXPECT_EQ(fastrange64(0, 1), 0);
-  EXPECT_EQ(fastrange64(123, 1), 0);
-  EXPECT_EQ(fastrange64(0xffffFFFF, 1), 0);
-  EXPECT_EQ(fastrange64(0xffffFFFFffffFFFF, 1), 0);
+  EXPECT_EQ(fastrange64(0, 1), 0U);
+  EXPECT_EQ(fastrange64(123, 1), 0U);
+  EXPECT_EQ(fastrange64(0xffffFFFF, 1), 0U);
+  EXPECT_EQ(fastrange64(0xffffFFFFffffFFFF, 1), 0U);
 
   // Two range
-  EXPECT_EQ(fastrange64(0, 2), 0);
-  EXPECT_EQ(fastrange64(123, 2), 0);
-  EXPECT_EQ(fastrange64(0xffffFFFF, 2), 0);
-  EXPECT_EQ(fastrange64(0x7fffFFFFffffFFFF, 2), 0);
-  EXPECT_EQ(fastrange64(0x8000000000000000, 2), 1);
-  EXPECT_EQ(fastrange64(0xffffFFFFffffFFFF, 2), 1);
+  EXPECT_EQ(fastrange64(0, 2), 0U);
+  EXPECT_EQ(fastrange64(123, 2), 0U);
+  EXPECT_EQ(fastrange64(0xffffFFFF, 2), 0U);
+  EXPECT_EQ(fastrange64(0x7fffFFFFffffFFFF, 2), 0U);
+  EXPECT_EQ(fastrange64(0x8000000000000000, 2), 1U);
+  EXPECT_EQ(fastrange64(0xffffFFFFffffFFFF, 2), 1U);
 
   // Seven range
-  EXPECT_EQ(fastrange64(0, 7), 0);
-  EXPECT_EQ(fastrange64(123, 7), 0);
-  EXPECT_EQ(fastrange64(0xffffFFFF, 7), 0);
-  EXPECT_EQ(fastrange64(2635249153387078802, 7), 0);
-  EXPECT_EQ(fastrange64(2635249153387078803, 7), 1);
-  EXPECT_EQ(fastrange64(5270498306774157604, 7), 1);
-  EXPECT_EQ(fastrange64(5270498306774157605, 7), 2);
-  EXPECT_EQ(fastrange64(0x7fffFFFFffffFFFF, 7), 3);
-  EXPECT_EQ(fastrange64(0x8000000000000000, 7), 3);
-  EXPECT_EQ(fastrange64(0xffffFFFFffffFFFF, 7), 6);
+  EXPECT_EQ(fastrange64(0, 7), 0U);
+  EXPECT_EQ(fastrange64(123, 7), 0U);
+  EXPECT_EQ(fastrange64(0xffffFFFF, 7), 0U);
+  EXPECT_EQ(fastrange64(2635249153387078802, 7), 0U);
+  EXPECT_EQ(fastrange64(2635249153387078803, 7), 1U);
+  EXPECT_EQ(fastrange64(5270498306774157604, 7), 1U);
+  EXPECT_EQ(fastrange64(5270498306774157605, 7), 2U);
+  EXPECT_EQ(fastrange64(0x7fffFFFFffffFFFF, 7), 3U);
+  EXPECT_EQ(fastrange64(0x8000000000000000, 7), 3U);
+  EXPECT_EQ(fastrange64(0xffffFFFFffffFFFF, 7), 6U);
 
   // Big but 32-bit range
-  EXPECT_EQ(fastrange64(0x100000000, 0x80000000), 0);
-  EXPECT_EQ(fastrange64(0x200000000, 0x80000000), 1);
-  EXPECT_EQ(fastrange64(0x400000000, 0x7fffFFFF), 1);
-  EXPECT_EQ(fastrange64(0x400000000, 0x80000000), 2);
+  EXPECT_EQ(fastrange64(0x100000000, 0x80000000), 0U);
+  EXPECT_EQ(fastrange64(0x200000000, 0x80000000), 1U);
+  EXPECT_EQ(fastrange64(0x400000000, 0x7fffFFFF), 1U);
+  EXPECT_EQ(fastrange64(0x400000000, 0x80000000), 2U);
   EXPECT_EQ(fastrange64(0xffffFFFFffffFFFF, 0x7fffFFFF), 0x7fffFFFEU);
   EXPECT_EQ(fastrange64(0xffffFFFFffffFFFF, 0x80000000), 0x7fffFFFFU);
 
@@ -155,7 +155,7 @@ TEST(Fastrange64Test, Values) {
   EXPECT_EQ(fastrange64(0x7fffFFFFffffFFFF, 0x4200000002), 0x2100000000U);
   EXPECT_EQ(fastrange64(0x8000000000000000, 0x4200000002), 0x2100000001U);
 
-  EXPECT_EQ(fastrange64(0x0000000000000000, 420000000002), 0);
+  EXPECT_EQ(fastrange64(0x0000000000000000, 420000000002), 0U);
   EXPECT_EQ(fastrange64(0x7fffFFFFffffFFFF, 420000000002), 210000000000U);
   EXPECT_EQ(fastrange64(0x8000000000000000, 420000000002), 210000000001U);
   EXPECT_EQ(fastrange64(0xffffFFFFffffFFFF, 420000000002), 420000000001U);
