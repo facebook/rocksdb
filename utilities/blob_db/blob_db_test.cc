@@ -13,6 +13,7 @@
 #include <string>
 #include <vector>
 
+#include "db/blob_index.h"
 #include "db/db_test_util.h"
 #include "file/file_util.h"
 #include "file/sst_file_manager_impl.h"
@@ -26,7 +27,6 @@
 #include "util/string_util.h"
 #include "utilities/blob_db/blob_db.h"
 #include "utilities/blob_db/blob_db_impl.h"
-#include "utilities/blob_db/blob_index.h"
 
 namespace rocksdb {
 namespace blob_db {
