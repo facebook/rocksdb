@@ -117,13 +117,10 @@ class MemTableListTest : public testing::Test {
     // Create dummy mutex.
     InstrumentedMutex mutex;
     InstrumentedMutexLock l(&mutex);
-    autovector<FlushJobInfo*> flush_jobs_info;
+    std::list<std::unique_ptr<FlushJobInfo>> flush_jobs_info;
     Status s = list->TryInstallMemtableFlushResults(
         cfd, mutable_cf_options, m, &dummy_prep_tracker, &versions, &mutex,
         file_num, to_delete, nullptr, &log_buffer, &flush_jobs_info);
-    for (auto* info : flush_jobs_info) {
-      delete info;
-    }
     return s;
   }
 

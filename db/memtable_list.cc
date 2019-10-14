@@ -386,7 +386,7 @@ Status MemTableList::TryInstallMemtableFlushResults(
     VersionSet* vset, InstrumentedMutex* mu, uint64_t file_number,
     autovector<MemTable*>* to_delete, Directory* db_directory,
     LogBuffer* log_buffer,
-    autovector<FlushJobInfo*>* committed_flush_jobs_info) {
+    std::list<std::unique_ptr<FlushJobInfo>>* committed_flush_jobs_info) {
   AutoThreadOperationStageUpdater stage_updater(
       ThreadStatus::STAGE_MEMTABLE_INSTALL_FLUSH_RESULTS);
   mu->AssertHeld();
@@ -445,9 +445,9 @@ Status MemTableList::TryInstallMemtableFlushResults(
         edit_list.push_back(&m->edit_);
         memtables_to_flush.push_back(m);
 #ifndef ROCKSDB_LITE
-        FlushJobInfo* info = m->ReleaseFlushJobInfo();
+        std::unique_ptr<FlushJobInfo> info = m->ReleaseFlushJobInfo();
         if (info != nullptr) {
-          committed_flush_jobs_info->push_back(info);
+          committed_flush_jobs_info->push_back(std::move(info));
         }
 #else
         (void)committed_flush_jobs_info;

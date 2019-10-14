@@ -303,7 +303,7 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
 
   autovector<Directory*> distinct_output_dirs;
   autovector<std::string> distinct_output_dir_paths;
-  std::vector<FlushJob> jobs;
+  std::vector<std::unique_ptr<FlushJob>> jobs;
   std::vector<MutableCFOptions> all_mutable_cf_options;
   int num_cfs = static_cast<int>(cfds.size());
   all_mutable_cf_options.reserve(num_cfs);
@@ -330,7 +330,7 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
     all_mutable_cf_options.emplace_back(*cfd->GetLatestMutableCFOptions());
     const MutableCFOptions& mutable_cf_options = all_mutable_cf_options.back();
     const uint64_t* max_memtable_id = &(bg_flush_args[i].max_memtable_id_);
-    jobs.emplace_back(
+    jobs.emplace_back(new FlushJob(
         dbname_, cfd, immutable_db_options_, mutable_cf_options,
         max_memtable_id, env_options_for_compaction_, versions_.get(), &mutex_,
         &shutting_down_, snapshot_seqs, earliest_write_conflict_snapshot,
@@ -338,8 +338,8 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
         data_dir, GetCompressionFlush(*cfd->ioptions(), mutable_cf_options),
         stats_, &event_logger_, mutable_cf_options.report_bg_io_stats,
         false /* sync_output_directory */, false /* write_manifest */,
-        thread_pri);
-    jobs.back().PickMemTable();
+        thread_pri));
+    jobs.back()->PickMemTable();
   }
 
   std::vector<FileMetaData> file_meta(num_cfs);
@@ -373,7 +373,7 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
     // TODO (yanqin): parallelize jobs with threads.
     for (int i = 1; i != num_cfs; ++i) {
       exec_status[i].second =
-          jobs[i].Run(&logs_with_prep_tracker_, &file_meta[i]);
+          jobs[i]->Run(&logs_with_prep_tracker_, &file_meta[i]);
       exec_status[i].first = true;
     }
     if (num_cfs > 1) {
@@ -383,7 +383,7 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
           "DBImpl::AtomicFlushMemTablesToOutputFiles:SomeFlushJobsComplete:2");
     }
     exec_status[0].second =
-        jobs[0].Run(&logs_with_prep_tracker_, &file_meta[0]);
+        jobs[0]->Run(&logs_with_prep_tracker_, &file_meta[0]);
     exec_status[0].first = true;
 
     Status error_status;
@@ -424,7 +424,7 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
     auto wait_to_install_func = [&]() {
       bool ready = true;
       for (size_t i = 0; i != cfds.size(); ++i) {
-        const auto& mems = jobs[i].GetMemTables();
+        const auto& mems = jobs[i]->GetMemTables();
         if (cfds[i]->IsDropped()) {
           // If the column family is dropped, then do not wait.
           continue;
@@ -465,7 +465,7 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
     autovector<const MutableCFOptions*> mutable_cf_options_list;
     autovector<FileMetaData*> tmp_file_meta;
     for (int i = 0; i != num_cfs; ++i) {
-      const auto& mems = jobs[i].GetMemTables();
+      const auto& mems = jobs[i]->GetMemTables();
       if (!cfds[i]->IsDropped() && !mems.empty()) {
         tmp_cfds.emplace_back(cfds[i]);
         mems_list.emplace_back(&mems);
@@ -506,7 +506,7 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
         continue;
       }
       NotifyOnFlushCompleted(cfds[i], all_mutable_cf_options[i],
-                             jobs[i].GetCommittedFlushJobsInfo());
+                             jobs[i]->GetCommittedFlushJobsInfo());
       if (sfm) {
         std::string file_path = MakeTableFileName(
             cfds[i]->ioptions()->cf_paths[0].path, file_meta[i].fd.GetNumber());
@@ -530,12 +530,12 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
     // unref the versions.
     for (int i = 0; i != num_cfs; ++i) {
       if (!exec_status[i].first) {
-        jobs[i].Cancel();
+        jobs[i]->Cancel();
       }
     }
     for (int i = 0; i != num_cfs; ++i) {
       if (exec_status[i].first && exec_status[i].second.ok()) {
-        auto& mems = jobs[i].GetMemTables();
+        auto& mems = jobs[i]->GetMemTables();
         cfds[i]->imm()->RollbackMemtableFlush(mems,
                                               file_meta[i].fd.GetNumber());
       }
@@ -598,7 +598,7 @@ void DBImpl::NotifyOnFlushBegin(ColumnFamilyData* cfd, FileMetaData* file_meta,
 
 void DBImpl::NotifyOnFlushCompleted(
     ColumnFamilyData* cfd, const MutableCFOptions& mutable_cf_options,
-    autovector<FlushJobInfo*>* flush_jobs_info) {
+    std::list<std::unique_ptr<FlushJobInfo>>* flush_jobs_info) {
 #ifndef ROCKSDB_LITE
   assert(flush_jobs_info != nullptr);
   if (immutable_db_options_.listeners.size() == 0U) {
@@ -617,13 +617,12 @@ void DBImpl::NotifyOnFlushCompleted(
   // release lock while notifying events
   mutex_.Unlock();
   {
-    for (auto* info : *flush_jobs_info) {
+    for (auto& info : *flush_jobs_info) {
       info->triggered_writes_slowdown = triggered_writes_slowdown;
       info->triggered_writes_stop = triggered_writes_stop;
       for (auto listener : immutable_db_options_.listeners) {
         listener->OnFlushCompleted(this, *info);
       }
-      delete info;
     }
     flush_jobs_info->clear();
   }

@@ -11,6 +11,7 @@
 #include <atomic>
 #include <deque>
 #include <limits>
+#include <list>
 #include <set>
 #include <string>
 #include <utility>
@@ -83,7 +84,7 @@ class FlushJob {
   const autovector<MemTable*>& GetMemTables() const { return mems_; }
 
 #ifndef ROCKSDB_LITE
-  autovector<FlushJobInfo*>* GetCommittedFlushJobsInfo() {
+  std::list<std::unique_ptr<FlushJobInfo>>* GetCommittedFlushJobsInfo() {
     return &committed_flush_jobs_info_;
   }
 #endif  // !ROCKSDB_LITE
@@ -143,7 +144,7 @@ class FlushJob {
   // The current flush job can commit flush result of a concurrent flush job.
   // We collect FlushJobInfo of all jobs committed by current job and fire
   // OnFlushCompleted for them.
-  autovector<FlushJobInfo*> committed_flush_jobs_info_;
+  std::list<std::unique_ptr<FlushJobInfo>> committed_flush_jobs_info_;
 
   // Variables below are set by PickMemTable():
   FileMetaData meta_;

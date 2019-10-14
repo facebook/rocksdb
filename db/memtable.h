@@ -429,7 +429,9 @@ class MemTable {
     flush_job_info_ = std::move(info);
   }
 
-  FlushJobInfo* ReleaseFlushJobInfo() { return flush_job_info_.release(); }
+  std::unique_ptr<FlushJobInfo> ReleaseFlushJobInfo() {
+    return std::move(flush_job_info_);
+  }
 #endif  // !ROCKSDB_LITE
 
  private:

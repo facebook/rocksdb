@@ -2093,23 +2093,22 @@ class StressTest {
         break;
       }
       if (open_cnt != 0) {
-          thread->stats.FinishedSingleOp();
-          MutexLock l(thread->shared->GetMutex());
-          while (!thread->snapshot_queue.empty()) {
-            db_->ReleaseSnapshot(
-                thread->snapshot_queue.front().second.snapshot);
-            delete thread->snapshot_queue.front().second.key_vec;
-            thread->snapshot_queue.pop();
-          }
-          thread->shared->IncVotedReopen();
-          if (thread->shared->AllVotedReopen()) {
-            thread->shared->GetStressTest()->Reopen();
-            thread->shared->GetCondVar()->SignalAll();
-          } else {
-            thread->shared->GetCondVar()->Wait();
-          }
-          // Commenting this out as we don't want to reset stats on each open.
-          // thread->stats.Start();
+        thread->stats.FinishedSingleOp();
+        MutexLock l(thread->shared->GetMutex());
+        while (!thread->snapshot_queue.empty()) {
+          db_->ReleaseSnapshot(thread->snapshot_queue.front().second.snapshot);
+          delete thread->snapshot_queue.front().second.key_vec;
+          thread->snapshot_queue.pop();
+        }
+        thread->shared->IncVotedReopen();
+        if (thread->shared->AllVotedReopen()) {
+          thread->shared->GetStressTest()->Reopen();
+          thread->shared->GetCondVar()->SignalAll();
+        } else {
+          thread->shared->GetCondVar()->Wait();
+        }
+        // Commenting this out as we don't want to reset stats on each open.
+        // thread->stats.Start();
       }
 
       for (uint64_t i = 0; i < ops_per_open; i++) {
@@ -2262,13 +2261,12 @@ class StressTest {
           ropt.snapshot = snapshot;
           std::string value_at;
           // When taking a snapshot, we also read a key from that snapshot. We
-          // will later read the same key before releasing the snapshot and verify
-          // that the results are the same.
+          // will later read the same key before releasing the snapshot and
+          // verify that the results are the same.
           auto status_at = db_->Get(ropt, column_family, key, &value_at);
-          std::vector<bool> *key_vec = nullptr;
+          std::vector<bool>* key_vec = nullptr;
 
-          if (FLAGS_compare_full_db_state_snapshot &&
-              (thread->tid == 0)) {
+          if (FLAGS_compare_full_db_state_snapshot && (thread->tid == 0)) {
             key_vec = new std::vector<bool>(FLAGS_max_key);
             // When `prefix_extractor` is set, seeking to beginning and scanning
             // across prefixes are only supported with `total_order_seek` set.
@@ -2284,7 +2282,8 @@ class StressTest {
 
           ThreadState::SnapshotState snap_state = {
               snapshot, rand_column_family, column_family->GetName(),
-              keystr,   status_at,          value_at, key_vec};
+              keystr,   status_at,          value_at,
+              key_vec};
           thread->snapshot_queue.emplace(
               std::min(FLAGS_ops_per_thread - 1, i + FLAGS_snapshot_hold_ops),
               snap_state);
@@ -2293,8 +2292,8 @@ class StressTest {
                i >= thread->snapshot_queue.front().first) {
           auto snap_state = thread->snapshot_queue.front().second;
           assert(snap_state.snapshot);
-          // Note: this is unsafe as the cf might be dropped concurrently. But it
-          // is ok since unclean cf drop is cunnrently not supported by write
+          // Note: this is unsafe as the cf might be dropped concurrently. But
+          // it is ok since unclean cf drop is cunnrently not supported by write
           // prepared transactions.
           Status s =
               AssertSame(db_, column_families_[snap_state.cf_at], snap_state);
@@ -2336,8 +2335,8 @@ class StressTest {
           TestPrefixScan(thread, read_opts, rand_column_families, rand_keys);
         } else if (prefixBound <= prob_op && prob_op < writeBound) {
           // OPERATION write
-          TestPut(thread, write_opts, read_opts, rand_column_families, rand_keys,
-                  value, lock);
+          TestPut(thread, write_opts, read_opts, rand_column_families,
+                  rand_keys, value, lock);
         } else if (writeBound <= prob_op && prob_op < delBound) {
           // OPERATION delete
           TestDelete(thread, write_opts, rand_column_families, rand_keys, lock);
@@ -2363,7 +2362,8 @@ class StressTest {
             thread->rand.Uniform(FLAGS_secondary_catch_up_one_in) == 0) {
           Status s = secondaries_[tid]->TryCatchUpWithPrimary();
           if (!s.ok()) {
-            VerificationAbort(shared, "Secondary instance failed to catch up", s);
+            VerificationAbort(shared, "Secondary instance failed to catch up",
+                              s);
             break;
           }
         }

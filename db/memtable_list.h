@@ -7,6 +7,7 @@
 
 #include <deque>
 #include <limits>
+#include <list>
 #include <set>
 #include <string>
 #include <vector>
@@ -256,7 +257,7 @@ class MemTableList {
       VersionSet* vset, InstrumentedMutex* mu, uint64_t file_number,
       autovector<MemTable*>* to_delete, Directory* db_directory,
       LogBuffer* log_buffer,
-      autovector<FlushJobInfo*>* committed_flush_jobs_info);
+      std::list<std::unique_ptr<FlushJobInfo>>* committed_flush_jobs_info);
 
   // New memtables are inserted at the front of the list.
   // Takes ownership of the referenced held on *m by the caller of Add().

@@ -1007,9 +1007,9 @@ class DBImpl : public DB {
                           const MutableCFOptions& mutable_cf_options,
                           int job_id);
 
-  void NotifyOnFlushCompleted(ColumnFamilyData* cfd,
-                              const MutableCFOptions& mutable_cf_options,
-                              autovector<FlushJobInfo*>* flush_jobs_info);
+  void NotifyOnFlushCompleted(
+      ColumnFamilyData* cfd, const MutableCFOptions& mutable_cf_options,
+      std::list<std::unique_ptr<FlushJobInfo>>* flush_jobs_info);
 
   void NotifyOnCompactionBegin(ColumnFamilyData* cfd, Compaction* c,
                                const Status& st,
