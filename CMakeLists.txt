@@ -62,7 +62,7 @@ if (WITH_WINDOWS_UTF8_FILENAMES)
 endif()
 # third-party/folly is only validated to work on Linux and Windows for now.
 # So only turn it on there by default.
-if(CMAKE_SYSTEM_NAME MATCHES "Linux" OR CMAKE_SYSTEM_NAME MATCHES "Windows")
+if(CMAKE_SYSTEM_NAME MATCHES "Linux|Windows")
   if(MSVC AND MSVC_VERSION LESS 1910)
     # Folly does not compile with MSVC older than VS2017
     option(WITH_FOLLY_DISTRIBUTED_MUTEX "build with folly::DistributedMutex" OFF)
@@ -72,10 +72,14 @@ if(CMAKE_SYSTEM_NAME MATCHES "Linux" OR CMAKE_SYSTEM_NAME MATCHES "Windows")
 else()
   option(WITH_FOLLY_DISTRIBUTED_MUTEX "build with folly::DistributedMutex" OFF)
 endif()
+
+# Defaults currently different for GFLAGS.
+#  We will address find_package work a little later
+include(CMakeDependentOption)
+CMAKE_DEPENDENT_OPTION(WITH_GFLAGS "build with GFlags" ON
+  "NOT MSVC;NOT MINGW" OFF)
+
 if(MSVC)
-  # Defaults currently different for GFLAGS.
-  #  We will address find_package work a little later
-  option(WITH_GFLAGS "build with GFlags" OFF)
   option(WITH_XPRESS "build with windows built in compression" OFF)
   include(${CMAKE_CURRENT_SOURCE_DIR}/thirdparty.inc)
 else()
@@ -92,7 +96,6 @@ else()
   endif()
 
   # No config file for this
-  option(WITH_GFLAGS "build with GFlags" ON)
   if(WITH_GFLAGS)
     find_package(gflags)
     if(gflags_FOUND)
@@ -901,7 +904,6 @@ add_library(testharness STATIC
 target_link_libraries(testharness gtest)
 
 # Tests are excluded from Release builds
-include(CMakeDependentOption)
 CMAKE_DEPENDENT_OPTION(WITH_TESTS "build with tests" ON
   "CMAKE_BUILD_TYPE STREQUAL Debug" OFF)
 if(WITH_TESTS)
