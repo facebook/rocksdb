@@ -34,6 +34,7 @@
 // We scan every table to compute
 // (1) smallest/largest for the table
 // (2) largest sequence number in the table
+// (3) oldest blob file referred to by the table (if applicable)
 //
 // If we are unable to scan the file, then we ignore the table.
 //
@@ -224,8 +225,6 @@ class Repairer {
     FileMetaData meta;
     uint32_t column_family_id;
     std::string column_family_name;
-    SequenceNumber min_sequence;
-    SequenceNumber max_sequence;
   };
 
   std::string const dbname_;
@@ -526,10 +525,7 @@ class Repairer {
           TableReaderCaller::kRepair, /*arena=*/nullptr, /*skip_filters=*/false,
           /*level=*/-1, /*smallest_compaction_key=*/nullptr,
           /*largest_compaction_key=*/nullptr);
-      bool empty = true;
       ParsedInternalKey parsed;
-      t->min_sequence = 0;
-      t->max_sequence = 0;
       for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
         Slice key = iter->key();
         if (!ParseInternalKey(key, &parsed)) {
@@ -540,18 +536,9 @@ class Repairer {
         }
 
         counter++;
-        if (empty) {
-          empty = false;
-          t->meta.smallest.DecodeFrom(key);
-          t->min_sequence = parsed.sequence;
-        }
-        t->meta.largest.DecodeFrom(key);
-        if (parsed.sequence < t->min_sequence) {
-          t->min_sequence = parsed.sequence;
-        }
-        if (parsed.sequence > t->max_sequence) {
-          t->max_sequence = parsed.sequence;
-        }
+
+        t->meta.UpdateBoundaries(key, iter->value(), parsed.sequence,
+                                 parsed.type);
       }
       if (!iter->status().ok()) {
         status = iter->status();
@@ -570,8 +557,8 @@ class Repairer {
     SequenceNumber max_sequence = 0;
     for (size_t i = 0; i < tables_.size(); i++) {
       cf_id_to_tables[tables_[i].column_family_id].push_back(&tables_[i]);
-      if (max_sequence < tables_[i].max_sequence) {
-        max_sequence = tables_[i].max_sequence;
+      if (max_sequence < tables_[i].meta.fd.largest_seqno) {
+        max_sequence = tables_[i].meta.fd.largest_seqno;
       }
     }
     vset_.SetLastAllocatedSequence(max_sequence);
@@ -591,8 +578,10 @@ class Repairer {
       for (const auto* table : cf_id_and_tables.second) {
         edit.AddFile(0, table->meta.fd.GetNumber(), table->meta.fd.GetPathId(),
                      table->meta.fd.GetFileSize(), table->meta.smallest,
-                     table->meta.largest, table->min_sequence,
-                     table->max_sequence, table->meta.marked_for_compaction);
+                     table->meta.largest, table->meta.fd.smallest_seqno,
+                     table->meta.fd.largest_seqno,
+                     table->meta.marked_for_compaction,
+                     table->meta.oldest_blob_file_number);
       }
       assert(next_file_number_ > 0);
       vset_.MarkFileNumberUsed(next_file_number_ - 1);
