@@ -372,15 +372,17 @@ TEST_F(DBFlushTest, FireOnFlushCompletedAfterCommittedResult) {
 
   SyncPoint::GetInstance()->LoadDependency(
       {{"DBImpl::FlushMemTable:AfterScheduleFlush",
-        "wait_for_schedule_first_flush"},
+        "DBFlushTest::FireOnFlushCompletedAfterCommittedResult:WaitFirst"},
        {"DBImpl::FlushMemTableToOutputFile:Finish",
-        "wait_for_second_flush_job_finish"}});
+        "DBFlushTest::FireOnFlushCompletedAfterCommittedResult:WaitSecond"}});
   SyncPoint::GetInstance()->SetCallBack(
       "FlushJob::WriteLevel0Table", [&listener](void* arg) {
         // Wait for the second flush finished, out of mutex.
         auto* mems = reinterpret_cast<autovector<MemTable*>*>(arg);
         if (mems->front()->GetEarliestSequenceNumber() == listener->seq1 - 1) {
-          TEST_SYNC_POINT("wait_for_second_flush_job_finish");
+          TEST_SYNC_POINT(
+              "DBFlushTest::FireOnFlushCompletedAfterCommittedResult:"
+              "WaitSecond");
         }
       });
 
@@ -401,7 +403,8 @@ TEST_F(DBFlushTest, FireOnFlushCompletedAfterCommittedResult) {
     ASSERT_OK(db_->Flush(FlushOptions()));
   });
   // Wait for first flush scheduled.
-  TEST_SYNC_POINT("wait_for_schedule_first_flush");
+  TEST_SYNC_POINT(
+      "DBFlushTest::FireOnFlushCompletedAfterCommittedResult:WaitFirst");
   // The second flush will exit early without commit its result. The work
   // is delegated to the first flush.
   ASSERT_OK(Put("bar", "v"));
