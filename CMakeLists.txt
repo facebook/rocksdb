@@ -45,6 +45,16 @@ if(POLICY CMP0042)
   cmake_policy(SET CMP0042 NEW)
 endif()
 
+if(NOT CMAKE_BUILD_TYPE)
+  if(EXISTS "${CMAKE_SOURCE_DIR}/.git")
+    set(default_build_type "Debug")
+  else()
+    set(default_build_type "RelWithDebInfo")
+  endif()
+  set(CMAKE_BUILD_TYPE "${default_build_type}" CACHE STRING
+    "Default BUILD_TYPE is ${default_build_type}" FORCE)
+endif()
+
 find_program(CCACHE_FOUND ccache)
 if(CCACHE_FOUND)
   set_property(GLOBAL PROPERTY RULE_LAUNCH_COMPILE ccache)
