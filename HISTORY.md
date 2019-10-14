@@ -21,6 +21,7 @@
 * Added DisableManualCompaction/EnableManualCompaction to stop and resume manual compaction.
 ### Performance Improvements
 * Improve the speed of the MemTable Bloom filter, reducing the write overhead of enabling it by 1/3 to 1/2, with similar benefit to read performance.
+* Level iterator to invlidate the iterator more often in prefix seek and the level is filtered out by prefix bloom.
 
 ## 6.4.0 (7/30/2019)
 ### Default Option Change
