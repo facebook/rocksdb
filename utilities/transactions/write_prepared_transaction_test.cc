@@ -3405,7 +3405,8 @@ TEST_P(WritePreparedTransactionTest, CommitOfDelayedPrepared) {
           roptions.snapshot = snap.load();
           ASSERT_NE(nullptr, roptions.snapshot);
           PinnableSlice value2;
-          auto s = db->Get(roptions, db->DefaultColumnFamily(), "key2", &value2);
+          auto s =
+              db->Get(roptions, db->DefaultColumnFamily(), "key2", &value2);
           ASSERT_OK(s);
           // It should see its own write
           ASSERT_TRUE(val_str == value2);

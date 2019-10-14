@@ -160,7 +160,8 @@ TEST(Fastrange64Test, Values) {
   EXPECT_EQ(fastrange64(0x8000000000000000, 420000000002), 210000000001U);
   EXPECT_EQ(fastrange64(0xffffFFFFffffFFFF, 420000000002), 420000000001U);
 
-  EXPECT_EQ(fastrange64(0xffffFFFFffffFFFF, 0xffffFFFFffffFFFF), 0xffffFFFFffffFFFEU);
+  EXPECT_EQ(fastrange64(0xffffFFFFffffFFFF, 0xffffFFFFffffFFFF),
+            0xffffFFFFffffFFFEU);
 #endif
 }
 

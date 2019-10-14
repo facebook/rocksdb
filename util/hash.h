@@ -67,13 +67,14 @@ inline size_t fastrange64(uint64_t hash, size_t range) {
   __uint128_t wide = __uint128_t(range) * hash;
   return static_cast<size_t>(wide >> 64);
 #elif defined(HAVE_PCLMUL)
-  auto mm = _mm_clmulepi64_si128(_mm_set_epi64x(0, hash), _mm_set_epi64x(0, range), 0);
- #ifdef HAVE_SSE42
+  auto mm = _mm_clmulepi64_si128(_mm_set_epi64x(0, hash),
+                                 _mm_set_epi64x(0, range), 0);
+#ifdef HAVE_SSE42
   // Technically SSE4.1
   return static_cast<size_t>(_mm_extract_epi64(mm, 1));
- #else
+#else
   return static_cast<size_t>(_mm_cvtsi128_si64(_mm_srli_si128(mm, 64)));
- #endif
+#endif
 #elif SIZE_MAX == UINT64_MAX
   // Fall back for 64-bit size_t: full decomposition
   uint64_t tmp = uint64_t(range & 0xffffFFFF) * uint64_t(hash & 0xffffFFFF);
@@ -87,7 +88,8 @@ inline size_t fastrange64(uint64_t hash, size_t range) {
   tmp += uint64_t(range >> 32) * uint64_t(hash >> 32);
   return size_t(tmp);
 #else
-  static_assert(SIZE_MAX == UINT32_MAX, "Expecting 32-bit size_t if not 64-bit");
+  static_assert(SIZE_MAX == UINT32_MAX,
+                "Expecting 32-bit size_t if not 64-bit");
   // Fall back for 32-bit size_t: a simpler decomposition (range >> 32 is 0)
   uint64_t tmp = uint64_t(range & 0xffffFFFF) * uint64_t(hash & 0xffffFFFF);
   tmp >>= 32;
