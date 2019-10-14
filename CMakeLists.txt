@@ -1110,20 +1110,11 @@ if(WITH_TESTS)
 
   if(ROCKSDB_LIB_FOR_C)
     set(C_TESTS db/c_test.c)
-
-    foreach(sourcefile ${C_TESTS})
-        string(REPLACE ".c" "" exename ${sourcefile})
-        string(REGEX REPLACE "^((.+)/)+" "" exename ${exename})
-        add_executable(${exename}${ARTIFACT_SUFFIX} ${sourcefile})
-        set_target_properties(${exename}${ARTIFACT_SUFFIX}
-          PROPERTIES EXCLUDE_FROM_DEFAULT_BUILD_RELEASE 1
-          EXCLUDE_FROM_DEFAULT_BUILD_MINRELEASE 1
-          EXCLUDE_FROM_DEFAULT_BUILD_RELWITHDEBINFO 1
-          )
-        target_link_libraries(${exename}${ARTIFACT_SUFFIX} ${ROCKSDB_LIB_FOR_C} testutillib${ARTIFACT_SUFFIX})
-        add_test(NAME ${exename} COMMAND ${exename}${ARTIFACT_SUFFIX})
-        add_dependencies(check ${exename}${ARTIFACT_SUFFIX})
-    endforeach(sourcefile ${C_TESTS})
+    # C executables must link to a shared object
+    add_executable(c_test db/c_test.c)
+    target_link_libraries(c_test ${ROCKSDB_SHARED_LIB} testharness)
+    add_test(NAME c_test COMMAND c_test${ARTIFACT_SUFFIX})
+    add_dependencies(check c_test)
   endif()
 endif()
 
