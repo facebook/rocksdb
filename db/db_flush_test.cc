@@ -15,6 +15,7 @@
 #include "port/stack_trace.h"
 #include "test_util/fault_injection_test_env.h"
 #include "test_util/sync_point.h"
+#include "util/cast_util.h"
 #include "util/mutexlock.h"
 
 namespace rocksdb {
@@ -351,8 +352,8 @@ TEST_F(DBFlushTest, FireOnFlushCompletedAfterCommittedResult) {
     }
 
     void CheckFlushResultCommitted(DB* db, SequenceNumber seq) {
-      DBImpl* db_impl = reinterpret_cast<DBImpl*>(db);
-      auto* mutex = db_impl->mutex();
+      DBImpl* db_impl = static_cast_with_check<DBImpl>(db);
+      InstrumentedMutex* mutex = db_impl->mutex();
       mutex->Lock();
       auto* cfd =
           reinterpret_cast<ColumnFamilyHandleImpl*>(db->DefaultColumnFamily())
@@ -371,16 +372,15 @@ TEST_F(DBFlushTest, FireOnFlushCompletedAfterCommittedResult) {
 
   SyncPoint::GetInstance()->LoadDependency(
       {{"DBImpl::FlushMemTable:AfterScheduleFlush",
-        "DBFlushTest::FireOnFlushCompletedAfterCommittedResult:1"},
+        "wait_for_schedule_first_flush"},
        {"DBImpl::FlushMemTableToOutputFile:Finish",
-        "DBFlushTest::FireOnFlushCompletedAfterCommittedResult:2"}});
+        "wait_for_second_flush_job_finish"}});
   SyncPoint::GetInstance()->SetCallBack(
-      "FlushJob::WriteLevel0Table", [&](void* arg) {
+      "FlushJob::WriteLevel0Table", [&listener](void* arg) {
         // Wait for the second flush finished, out of mutex.
         auto* mems = reinterpret_cast<autovector<MemTable*>*>(arg);
         if (mems->front()->GetEarliestSequenceNumber() == listener->seq1 - 1) {
-          TEST_SYNC_POINT(
-              "DBFlushTest::FireOnFlushCompletedAfterCommittedResult:2");
+          TEST_SYNC_POINT("wait_for_second_flush_job_finish");
         }
       });
 
@@ -401,7 +401,7 @@ TEST_F(DBFlushTest, FireOnFlushCompletedAfterCommittedResult) {
     ASSERT_OK(db_->Flush(FlushOptions()));
   });
   // Wait for first flush scheduled.
-  TEST_SYNC_POINT("DBFlushTest::FireOnFlushCompletedAfterCommittedResult:1");
+  TEST_SYNC_POINT("wait_for_schedule_first_flush");
   // The second flush will exit early without commit its result. The work
   // is delegated to the first flush.
   ASSERT_OK(Put("bar", "v"));

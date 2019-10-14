@@ -306,18 +306,18 @@ TEST_F(FlushJobTest, FlushMemtablesMultipleColumnFamilies) {
 
   EventLogger event_logger(db_options_.info_log.get());
   SnapshotChecker* snapshot_checker = nullptr;  // not relevant
-  std::vector<FlushJob> flush_jobs;
+  std::vector<std::unique_ptr<FlushJob>> flush_jobs;
   k = 0;
   for (auto cfd : all_cfds) {
     std::vector<SequenceNumber> snapshot_seqs;
-    flush_jobs.emplace_back(
+    flush_jobs.emplace_back(new FlushJob(
         dbname_, cfd, db_options_, *cfd->GetLatestMutableCFOptions(),
         &memtable_ids[k], env_options_, versions_.get(), &mutex_,
         &shutting_down_, snapshot_seqs, kMaxSequenceNumber, snapshot_checker,
         &job_context, nullptr, nullptr, nullptr, kNoCompression,
         db_options_.statistics.get(), &event_logger, true,
         false /* sync_output_directory */, false /* write_manifest */,
-        Env::Priority::USER);
+        Env::Priority::USER));
     k++;
   }
   HistogramData hist;
@@ -326,12 +326,12 @@ TEST_F(FlushJobTest, FlushMemtablesMultipleColumnFamilies) {
   file_metas.reserve(flush_jobs.size());
   mutex_.Lock();
   for (auto& job : flush_jobs) {
-    job.PickMemTable();
+    job->PickMemTable();
   }
   for (auto& job : flush_jobs) {
     FileMetaData meta;
     // Run will release and re-acquire  mutex
-    ASSERT_OK(job.Run(nullptr /**/, &meta));
+    ASSERT_OK(job->Run(nullptr /**/, &meta));
     file_metas.emplace_back(meta);
   }
   autovector<FileMetaData*> file_meta_ptrs;
@@ -340,7 +340,7 @@ TEST_F(FlushJobTest, FlushMemtablesMultipleColumnFamilies) {
   }
   autovector<const autovector<MemTable*>*> mems_list;
   for (size_t i = 0; i != all_cfds.size(); ++i) {
-    const auto& mems = flush_jobs[i].GetMemTables();
+    const auto& mems = flush_jobs[i]->GetMemTables();
     mems_list.push_back(&mems);
   }
   autovector<const MutableCFOptions*> mutable_cf_options_list;
