@@ -1131,26 +1131,41 @@ endif()
 
 option(WITH_BENCHMARK_TOOLS "build with benchmarks" ON)
 if(WITH_BENCHMARK_TOOLS)
-  set(BENCHMARKS
-        cache/cache_bench.cc
-        memtable/memtablerep_bench.cc
-        db/range_del_aggregator_bench.cc
-        table/table_reader_bench.cc
-        util/filter_bench.cc
-        utilities/persistent_cache/hash_table_bench.cc
-  )
-  foreach(sourcefile ${BENCHMARKS})
-    get_filename_component(exename ${sourcefile} NAME_WE)
-    add_executable(${exename}${ARTIFACT_SUFFIX} ${sourcefile}
-      $<TARGET_OBJECTS:testharness>)
-    target_link_libraries(${exename}${ARTIFACT_SUFFIX} gtest ${ROCKSDB_LIB})
-  endforeach(sourcefile ${BENCHMARKS})
-
-  add_executable(db_bench${ARTIFACT_SUFFIX}
+  add_executable(db_bench
     tools/db_bench.cc
-    tools/db_bench_tool.cc
-    $<TARGET_OBJECTS:testharness>)
-  target_link_libraries(db_bench${ARTIFACT_SUFFIX} gtest ${ROCKSDB_LIB})
+    tools/db_bench_tool.cc)
+  target_link_libraries(db_bench
+    ${ROCKSDB_LIB})
+
+  add_executable(cache_bench
+    cache/cache_bench.cc)
+  target_link_libraries(cache_bench
+    ${ROCKSDB_LIB})
+
+  add_executable(memtablerep_bench
+    memtable/memtablerep_bench.cc)
+  target_link_libraries(memtablerep_bench
+    ${ROCKSDB_LIB})
+
+  add_executable(range_del_aggregator_bench
+    db/range_del_aggregator_bench.cc)
+  target_link_libraries(range_del_aggregator_bench
+    ${ROCKSDB_LIB})
+
+  add_executable(table_reader_bench
+    table/table_reader_bench.cc)
+  target_link_libraries(table_reader_bench
+    ${ROCKSDB_LIB} testharness)
+
+  add_executable(filter_bench
+    util/filter_bench.cc)
+  target_link_libraries(filter_bench
+    ${ROCKSDB_LIB})
+
+  add_executable(hash_table_bench
+    utilities/persistent_cache/hash_table_bench.cc)
+  target_link_libraries(hash_table_bench
+    ${ROCKSDB_LIB})
 endif()
 
 option(WITH_TOOLS "build with tools" ON)
