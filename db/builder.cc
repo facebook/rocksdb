@@ -243,6 +243,9 @@ Status BuildTable(
     env->DeleteFile(fname);
   }
 
+  if (meta->fd.GetFileSize() == 0) {
+    fname = "(nil)";
+  }
   // Output to event logger and fire events.
   EventHelpers::LogAndNotifyTableFileCreationFinished(
       event_logger, ioptions.listeners, dbname, column_family_name, fname,
