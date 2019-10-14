@@ -21,7 +21,8 @@ class ColorString:
 
     @staticmethod
     def _make_color_str(text, color):
-        return "".join([color, text.encode('utf-8'), ColorString.ENDC])
+        return "".join(
+            [color, text.encode('utf-8').decode('utf-8'), ColorString.ENDC])
 
     @staticmethod
     def ok(text):

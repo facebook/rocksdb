@@ -108,9 +108,9 @@ def get_tests(repo_path):
 # Parse extra dependencies passed by user from command line
 def get_dependencies():
     deps_map = {
-        ''.encode('ascii'): {
-            'extra_deps'.encode('ascii'): [],
-            'extra_compiler_flags'.encode('ascii'): []
+        ''.encode('utf-8'): {
+            'extra_deps'.encode('utf-8').decode('utf-8'): [],
+            'extra_compiler_flags'.encode('utf-8').decode('utf-8'): []
         }
     }
     if len(sys.argv) < 2:
@@ -119,12 +119,12 @@ def get_dependencies():
     def encode_dict(data):
         rv = {}
         for k, v in data.items():
-            if isinstance(k, unicode):
-                k = k.encode('ascii')
-            if isinstance(v, unicode):
-                v = v.encode('ascii')
+            if isinstance(k, str):
+                k = k.encode('utf-8').decode('utf-8')
+            if isinstance(v, str):
+                v = v.encode('utf-8').decode('utf-8')
             elif isinstance(v, list):
-                v = [x.encode('ascii') for x in v]
+                v = [x.encode('utf-8').decode('utf-8') for x in v]
             elif isinstance(v, dict):
                 v = encode_dict(v)
             rv[k] = v

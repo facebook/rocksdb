@@ -79,3 +79,4 @@ tp2/
 fbcode/
 fbcode
 buckifier/*.pyc
+buckifier/__pycache__
