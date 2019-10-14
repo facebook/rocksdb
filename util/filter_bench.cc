@@ -13,7 +13,6 @@ int main() {
 
 #include <cinttypes>
 #include <iostream>
-#include <random>
 #include <vector>
 
 #include "port/port.h"
@@ -23,13 +22,14 @@ int main() {
 #include "table/block_based/mock_block_based_table.h"
 #include "util/gflags_compat.h"
 #include "util/hash.h"
+#include "util/random.h"
 #include "util/stop_watch.h"
 
 using GFLAGS_NAMESPACE::ParseCommandLineFlags;
 using GFLAGS_NAMESPACE::RegisterFlagValidator;
 using GFLAGS_NAMESPACE::SetUsageMessage;
 
-DEFINE_int64(seed, 0, "Seed for random number generators");
+DEFINE_uint32(seed, 0, "Seed for random number generators");
 
 DEFINE_double(working_mem_size_mb, 200,
               "MB of memory to get up to among all filters");
@@ -70,6 +70,7 @@ using rocksdb::fastrange32;
 using rocksdb::FilterBitsBuilder;
 using rocksdb::FilterBitsReader;
 using rocksdb::FullFilterBlockReader;
+using rocksdb::Random32;
 using rocksdb::Slice;
 using rocksdb::mock::MockBlockBasedTableTester;
 
@@ -154,7 +155,7 @@ const char *TestModeToString(TestMode tm) {
 struct FilterBench : public MockBlockBasedTableTester {
   std::vector<KeyMaker> kms_;
   std::vector<FilterInfo> infos_;
-  std::mt19937 random_;
+  Random32 random_;
 
   FilterBench()
       : MockBlockBasedTableTester(
@@ -193,9 +194,10 @@ void FilterBench::Go() {
   rocksdb::StopWatchNano timer(rocksdb::Env::Default(), true);
 
   while (total_memory_used < 1024 * 1024 * FLAGS_working_mem_size_mb) {
-    uint32_t filter_id = random_();
+    uint32_t filter_id = random_.Next();
     uint32_t keys_to_add = FLAGS_average_keys_per_filter +
-                           (random_() & variance_mask) - (variance_mask / 2);
+                           (random_.Next() & variance_mask) -
+                           (variance_mask / 2);
     for (uint32_t i = 0; i < keys_to_add; ++i) {
       builder->AddKey(kms_[0].Get(filter_id, i));
     }
@@ -256,19 +258,19 @@ void FilterBench::Go() {
 
   std::cout << "----------------------------" << std::endl;
   std::cout << "Inside queries..." << std::endl;
-  random_.seed(FLAGS_seed + 1);
+  random_.Seed(FLAGS_seed + 1);
   RandomQueryTest(/*inside*/ true, /*dry_run*/ true, kRandomFilter);
   for (TestMode tm : testModes) {
-    random_.seed(FLAGS_seed + 1);
+    random_.Seed(FLAGS_seed + 1);
     RandomQueryTest(/*inside*/ true, /*dry_run*/ false, tm);
   }
 
   std::cout << "----------------------------" << std::endl;
   std::cout << "Outside queries..." << std::endl;
-  random_.seed(FLAGS_seed + 2);
+  random_.Seed(FLAGS_seed + 2);
   RandomQueryTest(/*inside*/ false, /*dry_run*/ true, kRandomFilter);
   for (TestMode tm : testModes) {
-    random_.seed(FLAGS_seed + 2);
+    random_.Seed(FLAGS_seed + 2);
     RandomQueryTest(/*inside*/ false, /*dry_run*/ false, tm);
   }
 
@@ -282,13 +284,14 @@ void FilterBench::RandomQueryTest(bool inside, bool dry_run, TestMode mode) {
     info.false_positives_ = 0;
   }
 
+  uint32_t num_infos = static_cast<uint32_t>(infos_.size());
   uint32_t dry_run_hash = 0;
   uint64_t max_queries =
       static_cast<uint64_t>(FLAGS_m_queries * 1000000 + 0.50);
   // Some filters may be considered secondary in order to implement skewed
   // queries. num_primary_filters is the number that are to be treated as
   // equal, and any remainder will be treated as secondary.
-  size_t num_primary_filters = infos_.size();
+  uint32_t num_primary_filters = num_infos;
   // The proportion (when divided by 2^32 - 1) of filter queries going to
   // the primary filters (default = all). The remainder of queries are
   // against secondary filters.
@@ -307,14 +310,14 @@ void FilterBench::RandomQueryTest(bool inside, bool dry_run, TestMode mode) {
     // to 20% of filters
     num_primary_filters = (num_primary_filters + 4) / 5;
   }
-  size_t batch_size = 1;
+  uint32_t batch_size = 1;
   std::unique_ptr<Slice *[]> batch_slices;
   std::unique_ptr<bool[]> batch_results;
   if (mode == kBatchPrepared || mode == kBatchUnprepared) {
-    batch_size = kms_.size();
+    batch_size = static_cast<uint32_t>(kms_.size());
     batch_slices.reset(new Slice *[batch_size]);
     batch_results.reset(new bool[batch_size]);
-    for (size_t i = 0; i < batch_size; ++i) {
+    for (uint32_t i = 0; i < batch_size; ++i) {
       batch_slices[i] = &kms_[i].slice_;
       batch_results[i] = false;
     }
@@ -324,31 +327,30 @@ void FilterBench::RandomQueryTest(bool inside, bool dry_run, TestMode mode) {
 
   for (uint64_t q = 0; q < max_queries; q += batch_size) {
     uint32_t filter_index;
-    if (random_() <= primary_filter_threshold) {
-      filter_index = fastrange32(num_primary_filters, random_());
+    if (random_.Next() <= primary_filter_threshold) {
+      filter_index = random_.Uniformish(num_primary_filters);
     } else {
       // secondary
-      filter_index =
-          num_primary_filters +
-          fastrange32(infos_.size() - num_primary_filters, random_());
+      filter_index = num_primary_filters +
+                     random_.Uniformish(num_infos - num_primary_filters);
     }
     FilterInfo &info = infos_[filter_index];
-    for (size_t i = 0; i < batch_size; ++i) {
+    for (uint32_t i = 0; i < batch_size; ++i) {
       if (inside) {
-        kms_[i].Get(info.filter_id_, fastrange32(info.keys_added_, random_()));
+        kms_[i].Get(info.filter_id_, random_.Uniformish(info.keys_added_));
       } else {
-        kms_[i].Get(info.filter_id_, random_() | 0x80000000);
+        kms_[i].Get(info.filter_id_, random_.Next() | uint32_t{0x80000000});
         info.outside_queries_++;
       }
     }
     // TODO: implement batched interface to full block reader
     if (mode == kBatchPrepared && !dry_run && !FLAGS_use_full_block_reader) {
-      for (size_t i = 0; i < batch_size; ++i) {
+      for (uint32_t i = 0; i < batch_size; ++i) {
         batch_results[i] = false;
       }
       info.reader_->MayMatch(batch_size, batch_slices.get(),
                              batch_results.get());
-      for (size_t i = 0; i < batch_size; ++i) {
+      for (uint32_t i = 0; i < batch_size; ++i) {
         if (inside) {
           ALWAYS_ASSERT(batch_results[i]);
         } else {
@@ -356,7 +358,7 @@ void FilterBench::RandomQueryTest(bool inside, bool dry_run, TestMode mode) {
         }
       }
     } else {
-      for (size_t i = 0; i < batch_size; ++i) {
+      for (uint32_t i = 0; i < batch_size; ++i) {
         if (dry_run) {
           dry_run_hash ^= rocksdb::BloomHash(kms_[i].slice_);
         } else {

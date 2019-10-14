@@ -26,6 +26,7 @@
 #include "rocksdb/db.h"
 #include "rocksdb/env.h"
 #include "rocksdb/memtablerep.h"
+#include "table/multiget_context.h"
 #include "util/dynamic_bloom.h"
 #include "util/hash.h"
 
@@ -64,6 +65,7 @@ struct MemTablePostProcessInfo {
   uint64_t num_deletes = 0;
 };
 
+using MultiGetRange = MultiGetContext::Range;
 // Note:  Many of the methods in this class have comments indicating that
 // external synchronization is required as these methods are not thread-safe.
 // It is up to higher layers of code to decide how to prevent concurrent
@@ -221,6 +223,9 @@ class MemTable {
     return Get(key, value, s, merge_context, max_covering_tombstone_seq, &seq,
                read_opts, callback, is_blob_index, do_merge);
   }
+
+  void MultiGet(const ReadOptions& read_options, MultiGetRange* range,
+                ReadCallback* callback, bool* is_blob);
 
   // Attempts to update the new_value inplace, else does normal Add
   // Pseudocode
@@ -521,6 +526,13 @@ class MemTable {
   void UpdateFlushState();
 
   void UpdateOldestKeyTime();
+
+  void GetFromTable(const LookupKey& key,
+                    SequenceNumber max_covering_tombstone_seq, bool do_merge,
+                    ReadCallback* callback, bool* is_blob_index,
+                    std::string* value, Status* s, MergeContext* merge_context,
+                    SequenceNumber* seq, bool* found_final_value,
+                    bool* merge_in_progress);
 };
 
 extern const char* EncodeKey(std::string* scratch, const Slice& target);

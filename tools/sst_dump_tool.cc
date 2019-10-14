@@ -150,7 +150,7 @@ Status SstFileDumper::VerifyChecksum() {
 
 Status SstFileDumper::DumpTable(const std::string& out_filename) {
   std::unique_ptr<WritableFile> out_file;
-  Env* env = Env::Default();
+  Env* env = options_.env;
   env->NewWritableFile(out_filename, &out_file, soptions_);
   Status s = table_reader_->DumpTable(out_file.get());
   out_file->Close();
@@ -161,7 +161,7 @@ uint64_t SstFileDumper::CalculateCompressedTableSize(
     const TableBuilderOptions& tb_options, size_t block_size,
     uint64_t* num_data_blocks) {
   std::unique_ptr<WritableFile> out_file;
-  std::unique_ptr<Env> env(NewMemEnv(Env::Default()));
+  std::unique_ptr<Env> env(NewMemEnv(options_.env));
   env->NewWritableFile(testFileName, &out_file, soptions_);
   std::unique_ptr<WritableFileWriter> dest_writer;
   dest_writer.reset(
@@ -411,6 +411,9 @@ void print_help() {
     --file=<data_dir_OR_sst_file>
       Path to SST file or directory containing SST files
 
+    --env_uri=<uri of underlying Env>
+      URI of underlying Env
+
     --command=check|scan|raw|verify
         check: Iterate over entries in files but don't print anything except if an error is encountered (default command)
         scan: Iterate over entries in files and print them to screen
@@ -463,6 +466,7 @@ void print_help() {
 }  // namespace
 
 int SSTDumpTool::Run(int argc, char** argv, Options options) {
+  const char* env_uri = nullptr;
   const char* dir_or_file = nullptr;
   uint64_t read_num = std::numeric_limits<uint64_t>::max();
   std::string command;
@@ -489,15 +493,16 @@ int SSTDumpTool::Run(int argc, char** argv, Options options) {
   uint64_t total_index_block_size = 0;
   uint64_t total_filter_block_size = 0;
   for (int i = 1; i < argc; i++) {
-    if (strncmp(argv[i], "--file=", 7) == 0) {
+    if (strncmp(argv[i], "--env_uri=", 10) == 0) {
+      env_uri = argv[i] + 10;
+    } else if (strncmp(argv[i], "--file=", 7) == 0) {
       dir_or_file = argv[i] + 7;
     } else if (strcmp(argv[i], "--output_hex") == 0) {
       output_hex = true;
     } else if (strcmp(argv[i], "--input_key_hex") == 0) {
       input_key_hex = true;
-    } else if (sscanf(argv[i],
-               "--read_num=%lu%c",
-               (unsigned long*)&n, &junk) == 1) {
+    } else if (sscanf(argv[i], "--read_num=%lu%c", (unsigned long*)&n, &junk) ==
+               1) {
       read_num = n;
     } else if (strcmp(argv[i], "--verify_checksum") == 0) {
       verify_checksum = true;
@@ -587,6 +592,23 @@ int SSTDumpTool::Run(int argc, char** argv, Options options) {
     fprintf(stderr, "file or directory must be specified.\n\n");
     print_help();
     exit(1);
+  }
+
+  std::shared_ptr<rocksdb::Env> env_guard;
+
+  // If caller of SSTDumpTool::Run(...) does not specify a different env other
+  // than Env::Default(), then try to load custom env based on dir_or_file.
+  // Otherwise, the caller is responsible for creating custom env.
+  if (!options.env || options.env == rocksdb::Env::Default()) {
+    Env* env = Env::Default();
+    Status s = Env::LoadEnv(env_uri ? env_uri : "", &env, &env_guard);
+    if (!s.ok() && !s.IsNotFound()) {
+      fprintf(stderr, "LoadEnv: %s\n", s.ToString().c_str());
+      exit(1);
+    }
+    options.env = env;
+  } else {
+    fprintf(stdout, "options.env is %p\n", options.env);
   }
 
   std::vector<std::string> filenames;

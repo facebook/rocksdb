@@ -29,6 +29,7 @@ namespace rocksdb {
 class LDBCommand {
  public:
   // Command-line arguments
+  static const std::string ARG_ENV_URI;
   static const std::string ARG_DB;
   static const std::string ARG_PATH;
   static const std::string ARG_SECONDARY_PATH;
@@ -128,6 +129,7 @@ class LDBCommand {
 
  protected:
   LDBCommandExecuteResult exec_state_;
+  std::string env_uri_;
   std::string db_path_;
   // If empty, open DB as primary. If non-empty, open the DB as secondary
   // with this secondary path. When running against a database opened by
@@ -175,6 +177,9 @@ class LDBCommand {
 
   /** List of command-line options valid for this command */
   const std::vector<std::string> valid_cmd_line_options_;
+
+  /** Shared pointer to underlying environment if applicable **/
+  std::shared_ptr<Env> env_guard_;
 
   bool ParseKeyValue(const std::string& line, std::string* key,
                      std::string* value, bool is_key_hex, bool is_value_hex);

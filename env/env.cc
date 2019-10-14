@@ -43,6 +43,36 @@ Status Env::LoadEnv(const std::string& value, Env** result) {
   return s;
 }
 
+Status Env::LoadEnv(const std::string& value, Env** result,
+                    std::shared_ptr<Env>* guard) {
+  assert(result);
+  Status s;
+#ifndef ROCKSDB_LITE
+  Env* env = nullptr;
+  std::unique_ptr<Env> uniq_guard;
+  std::string err_msg;
+  assert(guard != nullptr);
+  env = ObjectRegistry::NewInstance()->NewObject<Env>(value, &uniq_guard,
+                                                      &err_msg);
+  if (!env) {
+    s = Status::NotFound(std::string("Cannot load ") + Env::Type() + ": " +
+                         value);
+    env = Env::Default();
+  }
+  if (s.ok() && uniq_guard) {
+    guard->reset(uniq_guard.release());
+    *result = guard->get();
+  } else {
+    *result = env;
+  }
+#else
+  (void)result;
+  (void)guard;
+  s = Status::NotSupported("Cannot load environment in LITE mode: ", value);
+#endif
+  return s;
+}
+
 std::string Env::PriorityToString(Env::Priority priority) {
   switch (priority) {
     case Env::Priority::BOTTOM:
