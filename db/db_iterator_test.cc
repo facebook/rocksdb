@@ -1696,6 +1696,64 @@ TEST_P(DBIteratorTest, IterSeekForPrevCrossingFiles) {
   }
 }
 
+TEST_P(DBIteratorTest, PrefixSameAsStartNotInDomain) {
+  Options options = CurrentOptions();
+  options.prefix_extractor.reset(NewFixedPrefixTransform(2));
+  options.disable_auto_compactions = true;
+  // Enable prefix bloom for SST files
+  BlockBasedTableOptions table_options;
+  table_options.filter_policy.reset(NewBloomFilterPolicy(10, true));
+  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+  DestroyAndReopen(options);
+
+  ASSERT_OK(Put("a", "va1"));
+  ASSERT_OK(Put("aa1", "va1"));
+  ASSERT_OK(Put("bb1", "va1"));
+  ASSERT_OK(Put("bb2", "va2"));
+  ASSERT_OK(Put("bb3", "va3"));
+  ASSERT_OK(Put("e", "va3"));
+  ASSERT_OK(Flush());
+
+  {
+    ReadOptions ro;
+    ro.prefix_same_as_start = true;
+    std::unique_ptr<Iterator> iter(NewIterator(ro));
+
+    // Behavior of prefix_same_as_start = ture with seek key not in domain
+    // is not defined, but assertion should not hit.
+    iter->Seek("b");
+    ASSERT_OK(iter->status());
+
+    iter->Seek("bb5");
+    ASSERT_FALSE(iter->Valid());
+    ASSERT_OK(iter->status());
+
+    iter->Seek("bb3");
+    ASSERT_TRUE(iter->Valid());
+    iter->Next();
+    ASSERT_FALSE(iter->Valid());
+    ASSERT_OK(iter->status());
+
+    iter->SeekForPrev("aa1");
+    ASSERT_TRUE(iter->Valid());
+    iter->Prev();
+    ASSERT_FALSE(iter->Valid());
+    ASSERT_OK(iter->status());
+
+    iter->SeekForPrev("aa0");
+    ASSERT_FALSE(iter->Valid());
+    ASSERT_OK(iter->status());
+
+    // Behavior of prefix_same_as_start = ture + SeekForPrev() is not defined
+    // when the first key is not indomain, but assertion should not hit.
+    iter->SeekToFirst();
+    ASSERT_OK(iter->status());
+
+    iter->SeekToLast();
+    ASSERT_OK(iter->status());
+  }
+}
+
 TEST_P(DBIteratorTest, IterSeekForPrevCrossingFilesCustomPrefixExtractor) {
   Options options = CurrentOptions();
   options.prefix_extractor =
