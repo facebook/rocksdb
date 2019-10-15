@@ -362,13 +362,12 @@ TEST_F(DBFlushTest, FireOnFlushCompletedAfterCommittedResult) {
       mutex->Unlock();
     }
 
-    std::atomic<SequenceNumber> seq1;
-    std::atomic<SequenceNumber> seq2;
+    std::atomic<SequenceNumber> seq1{0};
+    std::atomic<SequenceNumber> seq2{0};
     std::atomic<bool> completed1{false};
     std::atomic<bool> completed2{false};
   };
   std::shared_ptr<TestListener> listener = std::make_shared<TestListener>();
-  std::atomic<bool> first_flush_pending{false};
 
   SyncPoint::GetInstance()->LoadDependency(
       {{"DBImpl::FlushMemTable:AfterScheduleFlush",

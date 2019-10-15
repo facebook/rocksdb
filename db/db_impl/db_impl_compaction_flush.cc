@@ -382,6 +382,7 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
       TEST_SYNC_POINT(
           "DBImpl::AtomicFlushMemTablesToOutputFiles:SomeFlushJobsComplete:2");
     }
+    assert(exec_status.size() > 0);
     exec_status[0].second =
         jobs[0]->Run(&logs_with_prep_tracker_, &file_meta[0]);
     exec_status[0].first = true;
@@ -501,6 +502,7 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
 #ifndef ROCKSDB_LITE
     auto sfm = static_cast<SstFileManagerImpl*>(
         immutable_db_options_.sst_file_manager.get());
+    assert(all_mutable_cf_options.size() == static_cast<size_t>(num_cfs));
     for (int i = 0; i != num_cfs; ++i) {
       if (cfds[i]->IsDropped()) {
         continue;
