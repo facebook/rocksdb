@@ -2945,7 +2945,7 @@ void DumpSstFile(Options options, std::string filename, bool output_hex,
     return;
   }
   // no verification
-  rocksdb::SstFileDumper dumper(options, filename, false, output_hex);
+  rocksdb::SstFileDumper dumper(options, filename, false, output_hex, false);
   Status st = dumper.ReadSequential(true, std::numeric_limits<uint64_t>::max(),
                                     false,            // has_from
                                     from_key, false,  // has_to

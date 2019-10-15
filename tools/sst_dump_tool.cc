@@ -43,11 +43,12 @@ namespace rocksdb {
 
 SstFileDumper::SstFileDumper(const Options& options,
                              const std::string& file_path, bool verify_checksum,
-                             bool output_hex)
+                             bool output_hex, bool decode_blob_index)
     : file_name_(file_path),
       read_num_(0),
       verify_checksum_(verify_checksum),
       output_hex_(output_hex),
+      decode_blob_index_(decode_blob_index),
       options_(options),
       ioptions_(options_),
       moptions_(ColumnFamilyOptions(options_)),
@@ -380,7 +381,7 @@ Status SstFileDumper::ReadSequential(bool print_kv, uint64_t read_num,
     }
 
     if (print_kv) {
-      if (ikey.type != kTypeBlobIndex) {
+      if (!decode_blob_index_ || ikey.type != kTypeBlobIndex) {
         fprintf(stdout, "%s => %s\n", ikey.DebugString(output_hex_).c_str(),
                 value.ToString(output_hex_).c_str());
       } else {
@@ -439,6 +440,9 @@ void print_help() {
     --output_hex
       Can be combined with scan command to print the keys and values in Hex
 
+    --decode_blob_index
+      Decode blob indexes and print them in a human-readable format during scans.
+
     --from=<user_key>
       Key to start reading from when executing check|scan
 
@@ -489,6 +493,7 @@ int SSTDumpTool::Run(int argc, char** argv, Options options) {
   uint64_t n;
   bool verify_checksum = false;
   bool output_hex = false;
+  bool decode_blob_index = false;
   bool input_key_hex = false;
   bool has_from = false;
   bool has_to = false;
@@ -513,6 +518,8 @@ int SSTDumpTool::Run(int argc, char** argv, Options options) {
       dir_or_file = argv[i] + 7;
     } else if (strcmp(argv[i], "--output_hex") == 0) {
       output_hex = true;
+    } else if (strcmp(argv[i], "--decode_blob_index") == 0) {
+      decode_blob_index = true;
     } else if (strcmp(argv[i], "--input_key_hex") == 0) {
       input_key_hex = true;
     } else if (sscanf(argv[i], "--read_num=%lu%c", (unsigned long*)&n, &junk) ==
@@ -652,7 +659,7 @@ int SSTDumpTool::Run(int argc, char** argv, Options options) {
     }
 
     rocksdb::SstFileDumper dumper(options, filename, verify_checksum,
-                                  output_hex);
+                                  output_hex, decode_blob_index);
     if (!dumper.getStatus().ok()) {
       fprintf(stderr, "%s: %s\n", filename.c_str(),
               dumper.getStatus().ToString().c_str());
