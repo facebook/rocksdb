@@ -15,6 +15,7 @@
 #include <sstream>
 #include <vector>
 
+#include "db/blob_index.h"
 #include "db/memtable.h"
 #include "db/write_batch_internal.h"
 #include "options/cf_options.h"
@@ -379,9 +380,22 @@ Status SstFileDumper::ReadSequential(bool print_kv, uint64_t read_num,
     }
 
     if (print_kv) {
-      fprintf(stdout, "%s => %s\n",
-          ikey.DebugString(output_hex_).c_str(),
-          value.ToString(output_hex_).c_str());
+      if (ikey.type != kTypeBlobIndex) {
+        fprintf(stdout, "%s => %s\n", ikey.DebugString(output_hex_).c_str(),
+                value.ToString(output_hex_).c_str());
+      } else {
+        BlobIndex blob_index;
+
+        const Status s = blob_index.DecodeFrom(value);
+        if (!s.ok()) {
+          fprintf(stderr, "%s => error decoding blob index\n",
+                  ikey.DebugString(output_hex_).c_str());
+          continue;
+        }
+
+        fprintf(stdout, "%s => %s\n", ikey.DebugString(output_hex_).c_str(),
+                blob_index.DebugString(output_hex_).c_str());
+      }
     }
   }
 
