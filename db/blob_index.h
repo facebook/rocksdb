@@ -115,7 +115,7 @@ class BlobIndex {
     std::ostringstream oss;
 
     if (IsInlined()) {
-      oss << "[inlined blob] " << value_.ToString(output_hex);
+      oss << "[inlined blob] value:" << value_.ToString(output_hex);
     } else {
       oss << "[blob ref] file:" << file_number_ << " offset:" << offset_
           << " size:" << size_;
