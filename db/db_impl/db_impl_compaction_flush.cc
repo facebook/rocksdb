@@ -383,6 +383,7 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
           "DBImpl::AtomicFlushMemTablesToOutputFiles:SomeFlushJobsComplete:2");
     }
     assert(exec_status.size() > 0);
+    assert(!file_meta.empty());
     exec_status[0].second =
         jobs[0]->Run(&logs_with_prep_tracker_, &file_meta[0]);
     exec_status[0].first = true;
