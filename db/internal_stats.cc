@@ -1035,7 +1035,7 @@ void InternalStats::DumpDBStats(std::string* value) {
       NumberToHumanString(interval_write_with_wal).c_str(),
       NumberToHumanString(interval_wal_synced).c_str(),
       interval_write_with_wal / static_cast<double>(interval_wal_synced + 1),
-      interval_wal_bytes / kGB,
+      interval_wal_bytes / kMB,
       interval_wal_bytes / kMB / std::max(interval_seconds_up, 0.001));
   value->append(buf);
 
