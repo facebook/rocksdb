@@ -89,8 +89,10 @@ install:
   - if [ "${JOB_NAME}" == cmake-mingw ]; then
       sudo apt-get install -y mingw-w64 ;
     fi
-  - if [[ "${JOB_NAME}" == cmake* ]] && [ "${TRAVIS_OS_NAME}" == linux ]; then
+  - if [[ "${JOB_NAME}" == cmake* ]] && [ "${TRAVIS_OS_NAME}" == linux ] && [ "$(uname -m)" == x86_64 ]; then
       mkdir cmake-dist && curl --silent --fail --show-error --location https://github.com/Kitware/CMake/releases/download/v3.14.5/cmake-3.14.5-Linux-x86_64.tar.gz | tar --strip-components=1 -C cmake-dist -xz && export PATH=$PWD/cmake-dist/bin:$PATH;
+    elif [[ "${JOB_NAME}" == cmake* ]] && [ "${TRAVIS_OS_NAME}" == linux ] && [ "$(uname -m)" == ppc64le ]; then
+      mkdir cmake-dist && curl --silent --fail --show-error --location https://github.com/Kitware/CMake/releases/download/v3.14.5/cmake-3.14.5.tar.gz | tar --strip-components=1 -C cmake-dist -xz && mkdir cmake-dist/build && pushd cmake-dist/build && ../bootstrap && make && popd && export PATH=$PWD/cmake-dist/build/bin:$PATH;
     fi
   - if [[ "${JOB_NAME}" == java_test ]]; then
       java -version && echo "JAVA_HOME=${JAVA_HOME}";
