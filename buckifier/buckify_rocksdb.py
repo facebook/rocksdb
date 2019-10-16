@@ -3,6 +3,10 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 from __future__ import unicode_literals
+try:
+    from builtins import str
+except ImportError:
+    from __builtin__ import str
 from targets_builder import TARGETSBuilder
 import json
 import os

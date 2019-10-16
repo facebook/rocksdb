@@ -6,11 +6,15 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 from __future__ import unicode_literals
+try:
+    from builtins import object
+except ImportError:
+    from __builtin__ import object
 import subprocess
 import os
 import time
 
-class ColorString:
+class ColorString(object):
     """ Generate colorful strings on terminal """
     HEADER = '\033[95m'
     BLUE = '\033[94m'
