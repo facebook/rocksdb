@@ -65,12 +65,18 @@ matrix:
     env: TEST_GROUP=4
   - os: osx
     env: JOB_NAME=cmake-gcc8
-  - os : osx
+  - os: osx
     env: JOB_NAME=cmake-mingw
-  - os : linux
-    compiler: clang
-  - os : osx
+  - os: osx
+    arch: arm64 
+  - os: osx
     compiler: gcc
+  - os: linux
+    arch: arm64
+    env: JOB_NAME=cmake-mingw
+  - os: linux
+    compiler: clang
+
 
 install:
   - if [ "${TRAVIS_OS_NAME}" == osx ]; then
