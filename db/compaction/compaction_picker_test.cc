@@ -88,15 +88,13 @@ class CompactionPickerTest : public testing::Test {
            SequenceNumber smallest_seq = 100, SequenceNumber largest_seq = 100,
            size_t compensated_file_size = 0) {
     assert(level < vstorage_->num_levels());
-    FileMetaData* f = new FileMetaData;
-    f->fd = FileDescriptor(file_number, path_id, file_size);
-    f->smallest = InternalKey(smallest, smallest_seq, kTypeValue);
-    f->largest = InternalKey(largest, largest_seq, kTypeValue);
-    f->fd.smallest_seqno = smallest_seq;
-    f->fd.largest_seqno = largest_seq;
+    FileMetaData* f = new FileMetaData(
+        file_number, path_id, file_size,
+        InternalKey(smallest, smallest_seq, kTypeValue),
+        InternalKey(largest, largest_seq, kTypeValue), smallest_seq,
+        largest_seq, /* marked_for_compact */ false, kInvalidBlobFileNumber);
     f->compensated_file_size =
         (compensated_file_size != 0) ? compensated_file_size : file_size;
-    f->refs = 0;
     vstorage_->AddFile(level, f);
     files_.emplace_back(f);
     file_map_.insert({file_number, {f, level}});

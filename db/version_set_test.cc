@@ -35,10 +35,11 @@ class GenerateLevelFilesBriefTest : public testing::Test {
   void Add(const char* smallest, const char* largest,
            SequenceNumber smallest_seq = 100,
            SequenceNumber largest_seq = 100) {
-    FileMetaData* f = new FileMetaData;
-    f->fd = FileDescriptor(files_.size() + 1, 0, 0);
-    f->smallest = InternalKey(smallest, smallest_seq, kTypeValue);
-    f->largest = InternalKey(largest, largest_seq, kTypeValue);
+    FileMetaData* f = new FileMetaData(
+        files_.size() + 1, 0, 0,
+        InternalKey(smallest, smallest_seq, kTypeValue),
+        InternalKey(largest, largest_seq, kTypeValue), smallest_seq,
+        largest_seq, /* marked_for_compact */ false, kInvalidBlobFileNumber);
     files_.push_back(f);
   }
 
@@ -129,28 +130,22 @@ class VersionStorageInfoTest : public testing::Test {
   void Add(int level, uint32_t file_number, const char* smallest,
            const char* largest, uint64_t file_size = 0) {
     assert(level < vstorage_.num_levels());
-    FileMetaData* f = new FileMetaData;
-    f->fd = FileDescriptor(file_number, 0, file_size);
-    f->smallest = GetInternalKey(smallest, 0);
-    f->largest = GetInternalKey(largest, 0);
+    FileMetaData* f = new FileMetaData(
+        file_number, 0, file_size, GetInternalKey(smallest, 0),
+        GetInternalKey(largest, 0), /* smallest_seq */ 0, /* largest_seq */ 0,
+        /* marked_for_compact */ false, kInvalidBlobFileNumber);
     f->compensated_file_size = file_size;
-    f->refs = 0;
-    f->num_entries = 0;
-    f->num_deletions = 0;
     vstorage_.AddFile(level, f);
   }
 
   void Add(int level, uint32_t file_number, const InternalKey& smallest,
            const InternalKey& largest, uint64_t file_size = 0) {
     assert(level < vstorage_.num_levels());
-    FileMetaData* f = new FileMetaData;
-    f->fd = FileDescriptor(file_number, 0, file_size);
-    f->smallest = smallest;
-    f->largest = largest;
+    FileMetaData* f = new FileMetaData(
+        file_number, 0, file_size, smallest, largest, /* smallest_seq */ 0,
+        /* largest_seq */ 0, /* marked_for_compact */ false,
+        kInvalidBlobFileNumber);
     f->compensated_file_size = file_size;
-    f->refs = 0;
-    f->num_entries = 0;
-    f->num_deletions = 0;
     vstorage_.AddFile(level, f);
   }
 
