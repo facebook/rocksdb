@@ -100,7 +100,7 @@ class PartitionedFilterBlockReader : public FilterBlockReaderCommon<Block> {
       FilePrefetchBuffer* prefetch_buffer, const BlockHandle& handle,
       bool no_io, GetContext* get_context,
       BlockCacheLookupContext* lookup_context,
-      CachableEntry<BlockContents>* filter_block) const;
+      CachableEntry<FullFilterData>* filter_block) const;
 
   using FilterFunction = bool (FullFilterBlockReader::*)(
       const Slice& slice, const SliceTransform* prefix_extractor,
@@ -119,7 +119,7 @@ class PartitionedFilterBlockReader : public FilterBlockReaderCommon<Block> {
   bool index_value_is_full() const;
 
  protected:
-  std::unordered_map<uint64_t, CachableEntry<BlockContents>> filter_map_;
+  std::unordered_map<uint64_t, CachableEntry<FullFilterData>> filter_map_;
 };
 
 }  // namespace rocksdb

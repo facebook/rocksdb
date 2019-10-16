@@ -16,7 +16,7 @@
 #include "rocksdb/slice.h"
 #include "rocksdb/slice_transform.h"
 #include "table/block_based/filter_block_reader_common.h"
-#include "table/format.h"
+#include "table/block_based/full_filter_data.h"
 #include "util/hash.h"
 
 namespace rocksdb {
@@ -80,10 +80,10 @@ class FullFilterBlockBuilder : public FilterBlockBuilder {
 
 // A FilterBlockReader is used to parse filter from SST table.
 // KeyMayMatch and PrefixMayMatch would trigger filter checking
-class FullFilterBlockReader : public FilterBlockReaderCommon<BlockContents> {
+class FullFilterBlockReader : public FilterBlockReaderCommon<FullFilterData> {
  public:
   FullFilterBlockReader(const BlockBasedTable* t,
-                        CachableEntry<BlockContents>&& filter_block);
+                        CachableEntry<FullFilterData>&& filter_block);
 
   static std::unique_ptr<FilterBlockReader> Create(
       const BlockBasedTable* table, FilePrefetchBuffer* prefetch_buffer,

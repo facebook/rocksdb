@@ -126,6 +126,7 @@ LIB_SOURCES =                                                   \
   table/block_based/data_block_footer.cc                        \
   table/block_based/filter_block_reader_common.cc               \
   table/block_based/flush_block_policy.cc                       \
+  table/block_based/full_filter_data.cc                         \
   table/block_based/full_filter_block.cc                        \
   table/block_based/index_builder.cc                            \
   table/block_based/partitioned_filter_block.cc                 \
