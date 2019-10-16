@@ -3,6 +3,9 @@ language: cpp
 os:
   - linux
   - osx
+arch:
+  - amd64
+  - arm64
 compiler:
   - clang
   - gcc
