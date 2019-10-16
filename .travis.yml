@@ -72,6 +72,8 @@ matrix:
   - os: osx
     arch: ppc64le
   - os: osx
+    arch: s390x
+  - os: osx
     compiler: gcc
   - os : linux
     arch: arm64
@@ -81,6 +83,9 @@ matrix:
     env: JOB_NAME=make-gcc4.8
   - os: linux
     arch: ppc64le
+    env: JOB_NAME=cmake-mingw
+  - os: linux
+    arch: s390x
     env: JOB_NAME=cmake-mingw
   - os: linux
     arch: ppc64le
