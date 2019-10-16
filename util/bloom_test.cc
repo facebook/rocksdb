@@ -15,6 +15,7 @@ int main() {
 }
 #else
 
+#include <array>
 #include <vector>
 
 #include "logging/logging.h"
