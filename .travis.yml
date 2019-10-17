@@ -77,6 +77,10 @@ matrix:
   - os: linux
     compiler: clang
 
+before_install:
+  - if [[ "${JOB_NAME}" == java_test  || "${JOB_NAME}" == cmake* ]] && [ "$(uname -m)" == ppc64le ]; then
+     sudo apt-get -y install openjdk-8-jdk && export JAVA_HOME=/usr/lib/jvm/java-8-openjdk-ppc64el;
+   fi
 
 install:
   - if [ "${TRAVIS_OS_NAME}" == osx ]; then
@@ -94,7 +98,7 @@ install:
     elif [[ "${JOB_NAME}" == cmake* ]] && [ "${TRAVIS_OS_NAME}" == linux ] && [ "$(uname -m)" == ppc64le ]; then
       mkdir cmake-dist && curl --silent --fail --show-error --location https://github.com/Kitware/CMake/releases/download/v3.14.5/cmake-3.14.5.tar.gz | tar --strip-components=1 -C cmake-dist -xz && mkdir cmake-dist/build && pushd cmake-dist/build && ../bootstrap && make && popd && export PATH=$PWD/cmake-dist/build/bin:$PATH;
     fi
-  - if [[ "${JOB_NAME}" == java_test ]]; then
+  - if [[ "${JOB_NAME}" == java_test || "${JOB_NAME}" == cmake* ]]; then
       java -version && echo "JAVA_HOME=${JAVA_HOME}";
     fi
 
