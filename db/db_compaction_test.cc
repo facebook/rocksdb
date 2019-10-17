@@ -3521,6 +3521,45 @@ TEST_F(DBCompactionTest, LevelCompactExpiredTtlFiles) {
   rocksdb::SyncPoint::GetInstance()->DisableProcessing();
 }
 
+TEST_F(DBCompactionTest, FilesViolatingTtl) {
+  const int kNumKeysPerFile = 32;
+  const int kNumLevelFiles = 2;
+  const int kValueSize = 100;
+
+  Options options = CurrentOptions();
+  options.periodic_compaction_seconds = 48 * 60 * 60;  // 2 days
+  options.max_open_files = -1;  // needed for ttl compaction
+  env_->time_elapse_only_sleep_ = false;
+  options.env = env_;
+
+  env_->addon_time_.store(0);
+  DestroyAndReopen(options);
+
+  Random rnd(301);
+  for (int i = 0; i < kNumLevelFiles; ++i) {
+    for (int j = 0; j < kNumKeysPerFile; ++j) {
+      ASSERT_OK(
+          Put(Key(i * kNumKeysPerFile + j), RandomString(&rnd, kValueSize)));
+    }
+    Flush();
+  }
+  dbfull()->TEST_WaitForCompact();
+
+  // Add 50 hours and do a write
+  env_->addon_time_.fetch_add(50 * 60 * 60);
+  Slice slice;
+  dbfull()->GetFilesViolatingTtl(&slice);
+  std::string files = slice.data();
+  size_t start;
+  size_t end = 0;
+  int count = 0;
+  while ((start = files.find_first_not_of(":", end)) != std::string::npos) {
+    end = files.find(":", start);
+    count++;
+  }
+  ASSERT_EQ(2, count + 1);
+}
+
 TEST_F(DBCompactionTest, LevelPeriodicCompaction) {
   const int kNumKeysPerFile = 32;
   const int kNumLevelFiles = 2;

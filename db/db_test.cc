@@ -2798,6 +2798,10 @@ class ModelDB : public DB {
     return Status::OK();
   }
 
+  virtual Status GetFilesViolatingTtl(Slice* /*files*/) override {
+    return Status::OK();
+  }
+
   Status DeleteFile(std::string /*name*/) override { return Status::OK(); }
 
   Status GetUpdatesSince(

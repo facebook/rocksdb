@@ -672,6 +672,8 @@ class Version {
 
   uint64_t GetSstFilesSize();
 
+  void GetFilesViolatingTtl(std::string* files);
+
   const MutableCFOptions& GetMutableCFOptions() { return mutable_cf_options_; }
 
  private:

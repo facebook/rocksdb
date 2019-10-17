@@ -4270,6 +4270,30 @@ Status DBImpl::ReserveFileNumbersBeforeIngestion(
   dummy_sv_ctx.Clean();
   return s;
 }
+
+Status DBImpl::GetFilesViolatingTtl(Slice* files) {
+  (void)files;
+  if (mutable_db_options_.max_open_files == -1) {
+    std::string result;
+    for (auto cfd : *versions_->GetColumnFamilySet()) {
+      mutex_.Lock();
+      if (cfd->IsDropped() ||
+          (cfd->GetCurrentMutableCFOptions()->ttl == 0 &&
+           cfd->GetCurrentMutableCFOptions()->periodic_compaction_seconds ==
+               0)) {
+        continue;
+      }
+      mutex_.Unlock();
+      std::string current;
+      cfd->current()->GetFilesViolatingTtl(&current);
+      result.append(current);
+    }
+    files->clear();
+    files->size_ = result.size();
+    files->data_ = result.c_str();
+  }
+  return Status::OK();
+}
 #endif  // ROCKSDB_LITE
 
 }  // namespace rocksdb

@@ -1140,6 +1140,8 @@ class DB {
   virtual Status GetCurrentWalFile(
       std::unique_ptr<LogFile>* current_log_file) = 0;
 
+  virtual Status GetFilesViolatingTtl(Slice* files) = 0;
+
   // Note: this API is not yet consistent with WritePrepared transactions.
   // Sets iter to an iterator that is positioned at a write-batch containing
   // seq_number. If the sequence number is non existent, it returns an iterator
