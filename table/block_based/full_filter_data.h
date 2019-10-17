@@ -23,6 +23,7 @@ class FullFilterData {
   FilterBitsReader* filter_bits_reader() const {
     return filter_bits_reader_.get();
   }
+
   bool empty() const { return block_contents_.data.empty(); }
 
   // TODO: consider memory usage of FullFilterBitsReader

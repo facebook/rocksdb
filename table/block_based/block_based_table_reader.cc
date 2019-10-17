@@ -106,7 +106,7 @@ class BlocklikeTraits<FullFilterData> {
     return new FullFilterData(filter_policy, std::move(contents));
   }
 
-  static uint32_t GetNumRestarts(const FullFilterData& /* contents */) {
+  static uint32_t GetNumRestarts(const FullFilterData& /* data */) {
     return 0;
   }
 };
