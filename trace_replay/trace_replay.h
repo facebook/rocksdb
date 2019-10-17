@@ -153,9 +153,21 @@ class Replayer {
   Status ReadHeader(Trace* header);
   Status ReadFooter(Trace* footer);
   Status ReadTrace(Trace* trace);
+
+  // The background function for MultiThreadReplay to execute Get query
+  // based on the trace records.
   static void BGWorkGet(void* arg);
+
+  // The background function for MultiThreadReplay to execute WriteBatch
+  // (Put, Delete, SingleDelete, DeleteRange) based on the trace records.
   static void BGWorkWriteBatch(void* arg);
+
+  // The background function for MultiThreadReplay to execute Iterator (Seek)
+  // based on the trace records.
   static void BGWorkIterSeek(void* arg);
+
+  // The background function for MultiThreadReplay to execute Iterator
+  // (SeekForPrev) based on the trace records.
   static void BGWorkIterSeekForPrev(void* arg);
 
   DBImpl* db_;
@@ -165,6 +177,7 @@ class Replayer {
   uint32_t fast_forward_;
 };
 
+// The passin arg of MultiThreadRepkay for each trace record.
 struct ReplayerWorkerArg {
   DB* db;
   Trace trace_entry;

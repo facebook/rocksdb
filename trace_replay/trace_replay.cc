@@ -287,6 +287,11 @@ Status Replayer::Replay() {
   return s;
 }
 
+// The trace can be replayed with multithread by configurnge the number of
+// threads in the thread pool. Trace records are read from the trace file
+// sequentially and the corresponding queries are scheduled in the task
+// queue based on the timestamp. Currently, we support Write_batch (Put,
+// Delete, SingleDelete, DeleteRange), Get, Iterator (Seek and SeekForPrev).
 Status Replayer::MultiThreadReplay(uint32_t threads_num) {
   Status s;
   Trace header;
@@ -348,8 +353,7 @@ Status Replayer::MultiThreadReplay(uint32_t threads_num) {
     // Reaching eof returns Incomplete status at the moment.
     // Could happen when killing a process without calling EndTrace() API.
     // TODO: Add better error handling.
-    thread_pool.JoinAllThreads();
-    return Status::OK();
+    s = Status::OK();
   }
   thread_pool.JoinAllThreads();
   return s;
@@ -396,44 +400,43 @@ Status Replayer::ReadTrace(Trace* trace) {
 }
 
 void Replayer::BGWorkGet(void* arg) {
-  ReplayerWorkerArg ra = *(reinterpret_cast<ReplayerWorkerArg*>(arg));
-  delete reinterpret_cast<ReplayerWorkerArg*>(arg);
+  std::unique_ptr<ReplayerWorkerArg> ra(
+      reinterpret_cast<ReplayerWorkerArg*>(arg));
   auto cf_map = static_cast<std::unordered_map<uint32_t, ColumnFamilyHandle*>*>(
-      ra.cf_map);
+      ra->cf_map);
   uint32_t cf_id = 0;
   Slice key;
-  DecodeCFAndKey(ra.trace_entry.payload, &cf_id, &key);
+  DecodeCFAndKey(ra->trace_entry.payload, &cf_id, &key);
   if (cf_id > 0 && cf_map->find(cf_id) == cf_map->end()) {
     return;
   }
 
   std::string value;
   if (cf_id == 0) {
-    reinterpret_cast<DB*>(ra.db)->Get(ra.roptions, key, &value);
+    ra->db->Get(ra->roptions, key, &value);
   } else {
-    reinterpret_cast<DB*>(ra.db)->Get(ra.roptions, (*cf_map)[cf_id], key,
-                                      &value);
+    ra->db->Get(ra->roptions, (*cf_map)[cf_id], key, &value);
   }
 
   return;
 }
 
 void Replayer::BGWorkWriteBatch(void* arg) {
-  ReplayerWorkerArg ra = *(reinterpret_cast<ReplayerWorkerArg*>(arg));
-  delete reinterpret_cast<ReplayerWorkerArg*>(arg);
-  WriteBatch batch(ra.trace_entry.payload);
-  reinterpret_cast<DB*>(ra.db)->Write(ra.woptions, &batch);
+  std::unique_ptr<ReplayerWorkerArg> ra(
+      reinterpret_cast<ReplayerWorkerArg*>(arg));
+  WriteBatch batch(ra->trace_entry.payload);
+  ra->db->Write(ra->woptions, &batch);
   return;
 }
 
 void Replayer::BGWorkIterSeek(void* arg) {
-  ReplayerWorkerArg ra = *(reinterpret_cast<ReplayerWorkerArg*>(arg));
-  delete reinterpret_cast<ReplayerWorkerArg*>(arg);
+  std::unique_ptr<ReplayerWorkerArg> ra(
+      reinterpret_cast<ReplayerWorkerArg*>(arg));
   auto cf_map = static_cast<std::unordered_map<uint32_t, ColumnFamilyHandle*>*>(
-      ra.cf_map);
+      ra->cf_map);
   uint32_t cf_id = 0;
   Slice key;
-  DecodeCFAndKey(ra.trace_entry.payload, &cf_id, &key);
+  DecodeCFAndKey(ra->trace_entry.payload, &cf_id, &key);
   if (cf_id > 0 && cf_map->find(cf_id) == cf_map->end()) {
     return;
   }
@@ -441,10 +444,9 @@ void Replayer::BGWorkIterSeek(void* arg) {
   std::string value;
   Iterator* single_iter = nullptr;
   if (cf_id == 0) {
-    single_iter = reinterpret_cast<DB*>(ra.db)->NewIterator(ra.roptions);
+    single_iter = ra->db->NewIterator(ra->roptions);
   } else {
-    single_iter = reinterpret_cast<DB*>(ra.db)->NewIterator(ra.roptions,
-                                                            (*cf_map)[cf_id]);
+    single_iter = ra->db->NewIterator(ra->roptions, (*cf_map)[cf_id]);
   }
   single_iter->Seek(key);
   delete single_iter;
@@ -452,13 +454,13 @@ void Replayer::BGWorkIterSeek(void* arg) {
 }
 
 void Replayer::BGWorkIterSeekForPrev(void* arg) {
-  ReplayerWorkerArg ra = *(reinterpret_cast<ReplayerWorkerArg*>(arg));
-  delete reinterpret_cast<ReplayerWorkerArg*>(arg);
+  std::unique_ptr<ReplayerWorkerArg> ra(
+      reinterpret_cast<ReplayerWorkerArg*>(arg));
   auto cf_map = static_cast<std::unordered_map<uint32_t, ColumnFamilyHandle*>*>(
-      ra.cf_map);
+      ra->cf_map);
   uint32_t cf_id = 0;
   Slice key;
-  DecodeCFAndKey(ra.trace_entry.payload, &cf_id, &key);
+  DecodeCFAndKey(ra->trace_entry.payload, &cf_id, &key);
   if (cf_id > 0 && cf_map->find(cf_id) == cf_map->end()) {
     return;
   }
@@ -466,10 +468,9 @@ void Replayer::BGWorkIterSeekForPrev(void* arg) {
   std::string value;
   Iterator* single_iter = nullptr;
   if (cf_id == 0) {
-    single_iter = reinterpret_cast<DB*>(ra.db)->NewIterator(ra.roptions);
+    single_iter = ra->db->NewIterator(ra->roptions);
   } else {
-    single_iter = reinterpret_cast<DB*>(ra.db)->NewIterator(ra.roptions,
-                                                            (*cf_map)[cf_id]);
+    single_iter = ra->db->NewIterator(ra->roptions, (*cf_map)[cf_id]);
   }
   single_iter->SeekForPrev(key);
   delete single_iter;
