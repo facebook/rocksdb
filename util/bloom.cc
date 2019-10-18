@@ -132,39 +132,27 @@ inline void FullFilterBitsBuilder::AddHash(uint32_t h, char* data,
 }
 
 namespace {
+class AlwaysTrueFilter : public FilterBitsReader {
+ public:
+  bool MayMatch(const Slice&) override { return true; }
+  using FilterBitsReader::MayMatch;  // inherit overload
+};
+
+class AlwaysFalseFilter : public FilterBitsReader {
+ public:
+  bool MayMatch(const Slice&) override { return false; }
+  using FilterBitsReader::MayMatch;  // inherit overload
+};
+
 class FullFilterBitsReader : public FilterBitsReader {
  public:
-  explicit FullFilterBitsReader(const Slice& contents)
-      : data_(contents.data()),
-        data_len_(static_cast<uint32_t>(contents.size())),
-        num_probes_(0),
-        num_lines_(0),
-        log2_cache_line_size_(0) {
-    assert(data_);
-    GetFilterMeta(contents, &num_probes_, &num_lines_);
-    // Sanitize broken parameter
-    if (num_lines_ != 0 && (data_len_-5) % num_lines_ != 0) {
-      num_lines_ = 0;
-      num_probes_ = 0;
-    } else if (num_lines_ != 0) {
-      while (true) {
-        uint32_t num_lines_at_curr_cache_size =
-            (data_len_ - 5) >> log2_cache_line_size_;
-        if (num_lines_at_curr_cache_size == 0) {
-          // The cache line size seems not a power of two. It's not supported
-          // and indicates a corruption so disable using this filter.
-          // Removed for unit testing corruption: assert(false);
-          num_lines_ = 0;
-          num_probes_ = 0;
-          break;
-        }
-        if (num_lines_at_curr_cache_size == num_lines_) {
-          break;
-        }
-        ++log2_cache_line_size_;
-      }
-    }
-  }
+  FullFilterBitsReader(const char* data, int num_probes, uint32_t num_lines,
+                       uint32_t log2_cache_line_size)
+      : data_(data),
+        num_probes_(num_probes),
+        num_lines_(num_lines),
+        log2_cache_line_size_(log2_cache_line_size) {}
+
   // No Copy allowed
   FullFilterBitsReader(const FullFilterBitsReader&) = delete;
   void operator=(const FullFilterBitsReader&) = delete;
@@ -177,11 +165,6 @@ class FullFilterBitsReader : public FilterBitsReader {
   // if the key was not on the list, but it should aim to return false with a
   // high probability.
   bool MayMatch(const Slice& key) override {
-    if (data_len_ <= 5) {   // remain same with original filter
-      return false;
-    }
-    // Other Error params, including a broken filter, regarded as match
-    if (num_probes_ == 0 || num_lines_ == 0) return true;
     uint32_t hash = BloomHash(key);
     uint32_t byte_offset;
     LegacyFullFilterImpl::PrepareHashMayMatch(
@@ -191,17 +174,6 @@ class FullFilterBitsReader : public FilterBitsReader {
   }
 
   virtual void MayMatch(int num_keys, Slice** keys, bool* may_match) override {
-    if (data_len_ <= 5) {  // remain same with original filter
-      for (int i = 0; i < num_keys; ++i) {
-        may_match[i] = false;
-      }
-      return;
-    }
-    for (int i = 0; i < num_keys; ++i) {
-      may_match[i] = true;
-    }
-    // Other Error params, including a broken filter, regarded as match
-    if (num_probes_ == 0 || num_lines_ == 0) return;
     uint32_t hashes[MultiGetContext::MAX_BATCH_SIZE];
     uint32_t byte_offsets[MultiGetContext::MAX_BATCH_SIZE];
     for (int i = 0; i < num_keys; ++i) {
@@ -210,42 +182,20 @@ class FullFilterBitsReader : public FilterBitsReader {
                                                 /*out*/ &byte_offsets[i],
                                                 log2_cache_line_size_);
     }
-
     for (int i = 0; i < num_keys; ++i) {
-      if (!LegacyFullFilterImpl::HashMayMatchPrepared(hashes[i], num_probes_,
-                                                      data_ + byte_offsets[i],
-                                                      log2_cache_line_size_)) {
-        may_match[i] = false;
-      }
+      may_match[i] = LegacyFullFilterImpl::HashMayMatchPrepared(
+          hashes[i], num_probes_, data_ + byte_offsets[i],
+          log2_cache_line_size_);
     }
   }
 
  private:
-  // Filter meta data
   const char* data_;
-  uint32_t data_len_;
-  int num_probes_;
-  uint32_t num_lines_;
-  uint32_t log2_cache_line_size_;
-
-  // Get num_probes, and num_lines from filter
-  // If filter format broken, set both to 0.
-  void GetFilterMeta(const Slice& filter, int* num_probes, uint32_t* num_lines);
+  const int num_probes_;
+  const uint32_t num_lines_;
+  const uint32_t log2_cache_line_size_;
 };
 
-void FullFilterBitsReader::GetFilterMeta(const Slice& filter, int* num_probes,
-                                         uint32_t* num_lines) {
-  uint32_t len = static_cast<uint32_t>(filter.size());
-  if (len <= 5) {
-    // filter is empty or broken
-    *num_probes = 0;
-    *num_lines = 0;
-    return;
-  }
-
-  *num_probes = filter.data()[len - 5];
-  *num_lines = DecodeFixed32(filter.data() + len - 4);
-}
 
 // An implementation of filter policy
 class BloomFilterPolicy : public FilterPolicy {
@@ -311,8 +261,60 @@ class BloomFilterPolicy : public FilterPolicy {
     return new FullFilterBitsBuilder(bits_per_key_, num_probes_);
   }
 
+  // Read metadata to determine what kind of FilterBitsReader is needed
+  // and return a new one.
   FilterBitsReader* GetFilterBitsReader(const Slice& contents) const override {
-    return new FullFilterBitsReader(contents);
+    uint32_t len_with_meta = static_cast<uint32_t>(contents.size());
+    if (len_with_meta <= 5) {
+      // filter is empty or broken. Treat like zero keys added.
+      return new AlwaysFalseFilter();
+    }
+
+    char raw_num_probes = contents.data()[len_with_meta - 5];
+    // NB: *num_probes > 30 and < 128 probably have not been used, because of
+    // BloomFilterPolicy::initialize, unless directly calling
+    // FullFilterBitsBuilder as an API, but we are leaving those cases in
+    // limbo with FullFilterBitsReader for now.
+
+    if (raw_num_probes < 1) {
+      // Treat as zero probes (always FP) for now.
+      // NB: < 0 (or unsigned > 127) effectively reserved for future use.
+      return new AlwaysTrueFilter();
+    }
+    // else attempt decode for FullFilterBitsReader
+
+    int num_probes = raw_num_probes;
+    assert(num_probes >= 1);
+    assert(num_probes <= 127);
+
+    uint32_t len = len_with_meta - 5;
+    assert(len > 0);
+
+    uint32_t num_lines = DecodeFixed32(contents.data() + len_with_meta - 4);
+    uint32_t log2_cache_line_size;
+
+    if (num_lines * CACHE_LINE_SIZE == len) {
+      // Common case
+      log2_cache_line_size = folly::constexpr_log2(CACHE_LINE_SIZE);
+    } else if (num_lines == 0 || len % num_lines != 0) {
+      // Invalid (no solution to num_lines * x == len)
+      // Treat as zero probes (always FP) for now.
+      return new AlwaysTrueFilter();
+    } else {
+      // Determine the non-native cache line size (from another system)
+      log2_cache_line_size = 0;
+      while ((num_lines << log2_cache_line_size) < len) {
+        ++log2_cache_line_size;
+      }
+      if ((num_lines << log2_cache_line_size) != len) {
+        // Invalid (block size not a power of two)
+        // Treat as zero probes (always FP) for now.
+        return new AlwaysTrueFilter();
+      }
+    }
+    // if not early return
+    return new FullFilterBitsReader(contents.data(), num_probes, num_lines,
+                                    log2_cache_line_size);
   }
 
   // If choose to use block based builder
