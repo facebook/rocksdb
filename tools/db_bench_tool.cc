@@ -891,6 +891,8 @@ DEFINE_string(hdfs, "", "Name of hdfs environment. Mutually exclusive with"
               " --env_uri.");
 static rocksdb::Env* FLAGS_env = rocksdb::Env::Default();
 
+static std::shared_ptr<rocksdb::Env> env_guard;
+
 DEFINE_int64(stats_interval, 0, "Stats are reported every N operations when "
              "this is greater than zero. When 0 the interval grows over time.");
 
@@ -6592,7 +6594,6 @@ int db_bench_tool(int argc, char** argv) {
     StringToCompressionType(FLAGS_compression_type.c_str());
 
 #ifndef ROCKSDB_LITE
-  std::shared_ptr<rocksdb::Env> env_guard;
   if (!FLAGS_hdfs.empty() && !FLAGS_env_uri.empty()) {
     fprintf(stderr, "Cannot provide both --hdfs and --env_uri.\n");
     exit(1);
