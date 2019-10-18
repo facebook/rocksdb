@@ -302,6 +302,7 @@ class TestPlainTableReader : public PlainTableReader {
         EXPECT_TRUE(num_blocks_ptr != props->user_collected_properties.end());
       }
     }
+    table_properties_.reset(props);
   }
 
   ~TestPlainTableReader() override {}
@@ -396,7 +397,9 @@ TEST_P(PlainTableDBTest, Flush) {
   for (size_t huge_page_tlb_size = 0; huge_page_tlb_size <= 2 * 1024 * 1024;
        huge_page_tlb_size += 2 * 1024 * 1024) {
     for (EncodingType encoding_type : {kPlain, kPrefix}) {
-    for (int bloom_bits = 0; bloom_bits <= 117; bloom_bits += 117) {
+    for (int bloom = -1; bloom <= 117; bloom += 117) {
+      const int bloom_bits = std::max(bloom, 0);
+      const bool full_scan_mode = bloom < 0;
       for (int total_order = 0; total_order <= 1; total_order++) {
         for (int store_index_in_file = 0; store_index_in_file <= 1;
              ++store_index_in_file) {
@@ -414,7 +417,7 @@ TEST_P(PlainTableDBTest, Flush) {
             plain_table_options.index_sparseness = 2;
             plain_table_options.huge_page_tlb_size = huge_page_tlb_size;
             plain_table_options.encoding_type = encoding_type;
-            plain_table_options.full_scan_mode = false;
+            plain_table_options.full_scan_mode = full_scan_mode;
             plain_table_options.store_index_in_file = store_index_in_file;
 
             options.table_factory.reset(
@@ -427,7 +430,7 @@ TEST_P(PlainTableDBTest, Flush) {
             plain_table_options.index_sparseness = 16;
             plain_table_options.huge_page_tlb_size = huge_page_tlb_size;
             plain_table_options.encoding_type = encoding_type;
-            plain_table_options.full_scan_mode = false;
+            plain_table_options.full_scan_mode = full_scan_mode;
             plain_table_options.store_index_in_file = store_index_in_file;
 
             options.table_factory.reset(
@@ -454,20 +457,36 @@ TEST_P(PlainTableDBTest, Flush) {
           auto row = ptc.begin();
           auto tp = row->second;
 
-          if (!store_index_in_file) {
-            ASSERT_EQ(total_order ? "4" : "12",
-                      (tp->user_collected_properties)
-                          .at("plain_table_hash_table_size"));
-            ASSERT_EQ("0", (tp->user_collected_properties)
-                               .at("plain_table_sub_index_size"));
+          if (full_scan_mode) {
+            // Does not support Get/Seek
+            std::unique_ptr<Iterator> iter(dbfull()->NewIterator(ReadOptions()));
+            iter->SeekToFirst();
+            ASSERT_TRUE(iter->Valid());
+            ASSERT_EQ("0000000000000bar", iter->key().ToString());
+            ASSERT_EQ("v2", iter->value().ToString());
+            iter->Next();
+            ASSERT_TRUE(iter->Valid());
+            ASSERT_EQ("1000000000000foo", iter->key().ToString());
+            ASSERT_EQ("v3", iter->value().ToString());
+            iter->Next();
+            ASSERT_TRUE(!iter->Valid());
+            ASSERT_TRUE(iter->status().ok());
           } else {
-            ASSERT_EQ("0", (tp->user_collected_properties)
-                               .at("plain_table_hash_table_size"));
-            ASSERT_EQ("0", (tp->user_collected_properties)
-                               .at("plain_table_sub_index_size"));
+            if (!store_index_in_file) {
+              ASSERT_EQ(total_order ? "4" : "12",
+                        (tp->user_collected_properties)
+                            .at("plain_table_hash_table_size"));
+              ASSERT_EQ("0", (tp->user_collected_properties)
+                                 .at("plain_table_sub_index_size"));
+            } else {
+              ASSERT_EQ("0", (tp->user_collected_properties)
+                                 .at("plain_table_hash_table_size"));
+              ASSERT_EQ("0", (tp->user_collected_properties)
+                                 .at("plain_table_sub_index_size"));
+            }
+            ASSERT_EQ("v3", Get("1000000000000foo"));
+            ASSERT_EQ("v2", Get("0000000000000bar"));
           }
-          ASSERT_EQ("v3", Get("1000000000000foo"));
-          ASSERT_EQ("v2", Get("0000000000000bar"));
         }
         }
       }

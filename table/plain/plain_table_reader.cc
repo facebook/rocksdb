@@ -183,6 +183,8 @@ Status PlainTableReader::Open(
     // can be used.
     new_reader->full_scan_mode_ = true;
   }
+  // PopulateIndex can add to the props, so don't store them until now
+  new_reader->table_properties_.reset(props);
 
   if (immortal_table && new_reader->file_info_.is_mmap_mode) {
     new_reader->dummy_cleanable_.reset(new Cleanable());
@@ -199,6 +201,9 @@ InternalIterator* PlainTableReader::NewIterator(
     const ReadOptions& options, const SliceTransform* /* prefix_extractor */,
     Arena* arena, bool /*skip_filters*/, TableReaderCaller /*caller*/,
     size_t /*compaction_readahead_size*/) {
+  // Not necessarily used here, but make sure this has been initialized
+  assert(table_properties_);
+
   bool use_prefix_seek = !IsTotalOrderMode() && !options.total_order_seek;
   if (arena == nullptr) {
     return new PlainTableIterator(this, use_prefix_seek);
@@ -291,7 +296,6 @@ Status PlainTableReader::PopulateIndex(TableProperties* props,
                                        size_t index_sparseness,
                                        size_t huge_page_tlb_size) {
   assert(props != nullptr);
-  table_properties_.reset(props);
 
   BlockContents index_block_contents;
   Status s = ReadMetaBlock(file_info_.file.get(), nullptr /* prefetch_buffer */,
@@ -351,7 +355,7 @@ Status PlainTableReader::PopulateIndex(TableProperties* props,
     // Allocate bloom filter here for total order mode.
     if (IsTotalOrderMode()) {
       AllocateBloom(bloom_bits_per_key,
-                    static_cast<uint32_t>(table_properties_->num_entries),
+                    static_cast<uint32_t>(props->num_entries),
                     huge_page_tlb_size);
     }
   } else if (bloom_in_file) {

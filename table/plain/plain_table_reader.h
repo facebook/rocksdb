@@ -165,7 +165,9 @@ class PlainTableReader: public TableReader {
   const ImmutableCFOptions& ioptions_;
   std::unique_ptr<Cleanable> dummy_cleanable_;
   uint64_t file_size_;
+ protected: // for testing
   std::shared_ptr<const TableProperties> table_properties_;
+ private:
 
   bool IsFixedLength() const {
     return user_key_len_ != kPlainTableVariableLength;
