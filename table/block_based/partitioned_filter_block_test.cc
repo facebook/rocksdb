@@ -43,9 +43,10 @@ class MyPartitionedFilterBlockReader : public PartitionedFilterBlockReader {
 
       assert(t);
       assert(t->get_rep());
-      CachableEntry<FullFilterData> block(
-          new FullFilterData(t->get_rep()->table_options.filter_policy.get(),
-                             BlockContents(slice)),
+      CachableEntry<ParsedFullFilterBlock> block(
+          new ParsedFullFilterBlock(
+              t->get_rep()->table_options.filter_policy.get(),
+              BlockContents(slice)),
           nullptr /* cache */, nullptr /* cache_handle */,
           true /* own_value */);
       filter_map_[offset] = std::move(block);

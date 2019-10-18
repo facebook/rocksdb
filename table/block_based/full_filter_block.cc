@@ -93,7 +93,8 @@ Slice FullFilterBlockBuilder::Finish(const BlockHandle& /*tmp*/,
 }
 
 FullFilterBlockReader::FullFilterBlockReader(
-    const BlockBasedTable* t, CachableEntry<FullFilterData>&& filter_block)
+    const BlockBasedTable* t,
+    CachableEntry<ParsedFullFilterBlock>&& filter_block)
     : FilterBlockReaderCommon(t, std::move(filter_block)) {
   const SliceTransform* const prefix_extractor = table_prefix_extractor();
   if (prefix_extractor) {
@@ -125,7 +126,7 @@ std::unique_ptr<FilterBlockReader> FullFilterBlockReader::Create(
   assert(table->get_rep());
   assert(!pin || prefetch);
 
-  CachableEntry<FullFilterData> filter_block;
+  CachableEntry<ParsedFullFilterBlock> filter_block;
   if (prefetch || !use_cache) {
     const Status s = ReadFilterBlock(table, prefetch_buffer, ReadOptions(),
                                      use_cache, nullptr /* get_context */,
@@ -158,7 +159,7 @@ bool FullFilterBlockReader::PrefixMayMatch(
 bool FullFilterBlockReader::MayMatch(
     const Slice& entry, bool no_io, GetContext* get_context,
     BlockCacheLookupContext* lookup_context) const {
-  CachableEntry<FullFilterData> filter_block;
+  CachableEntry<ParsedFullFilterBlock> filter_block;
 
   const Status s =
       GetOrReadFilterBlock(no_io, get_context, lookup_context, &filter_block);
@@ -212,7 +213,7 @@ void FullFilterBlockReader::PrefixesMayMatch(
 void FullFilterBlockReader::MayMatch(
     MultiGetRange* range, bool no_io, const SliceTransform* prefix_extractor,
     BlockCacheLookupContext* lookup_context) const {
-  CachableEntry<FullFilterData> filter_block;
+  CachableEntry<ParsedFullFilterBlock> filter_block;
 
   const Status s = GetOrReadFilterBlock(no_io, range->begin()->get_context,
                                         lookup_context, &filter_block);

@@ -15,10 +15,11 @@ class FilterBitsReader;
 class FilterPolicy;
 
 // The sharable/cachable part of the full filter.
-class FullFilterData {
+class ParsedFullFilterBlock {
  public:
-  FullFilterData(const FilterPolicy* filter_policy, BlockContents&& contents);
-  ~FullFilterData();
+  ParsedFullFilterBlock(const FilterPolicy* filter_policy,
+                        BlockContents&& contents);
+  ~ParsedFullFilterBlock();
 
   FilterBitsReader* filter_bits_reader() const {
     return filter_bits_reader_.get();

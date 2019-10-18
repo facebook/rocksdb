@@ -113,9 +113,9 @@ TEST_F(PluginFullFilterBlockTest, PluginEmptyBuilder) {
   Slice slice = builder.Finish();
   ASSERT_EQ("", EscapeString(slice));
 
-  CachableEntry<FullFilterData> block(
-      new FullFilterData(table_options_.filter_policy.get(),
-                         BlockContents(slice)),
+  CachableEntry<ParsedFullFilterBlock> block(
+      new ParsedFullFilterBlock(table_options_.filter_policy.get(),
+                                BlockContents(slice)),
       nullptr /* cache */, nullptr /* cache_handle */, true /* own_value */);
 
   FullFilterBlockReader reader(table_.get(), std::move(block));
@@ -137,9 +137,9 @@ TEST_F(PluginFullFilterBlockTest, PluginSingleChunk) {
   builder.Add("hello");
   Slice slice = builder.Finish();
 
-  CachableEntry<FullFilterData> block(
-      new FullFilterData(table_options_.filter_policy.get(),
-                         BlockContents(slice)),
+  CachableEntry<ParsedFullFilterBlock> block(
+      new ParsedFullFilterBlock(table_options_.filter_policy.get(),
+                                BlockContents(slice)),
       nullptr /* cache */, nullptr /* cache_handle */, true /* own_value */);
 
   FullFilterBlockReader reader(table_.get(), std::move(block));
@@ -191,9 +191,9 @@ TEST_F(FullFilterBlockTest, EmptyBuilder) {
   Slice slice = builder.Finish();
   ASSERT_EQ("", EscapeString(slice));
 
-  CachableEntry<FullFilterData> block(
-      new FullFilterData(table_options_.filter_policy.get(),
-                         BlockContents(slice)),
+  CachableEntry<ParsedFullFilterBlock> block(
+      new ParsedFullFilterBlock(table_options_.filter_policy.get(),
+                                BlockContents(slice)),
       nullptr /* cache */, nullptr /* cache_handle */, true /* own_value */);
 
   FullFilterBlockReader reader(table_.get(), std::move(block));
@@ -250,9 +250,9 @@ TEST_F(FullFilterBlockTest, SingleChunk) {
   ASSERT_EQ(5, builder.NumAdded());
   Slice slice = builder.Finish();
 
-  CachableEntry<FullFilterData> block(
-      new FullFilterData(table_options_.filter_policy.get(),
-                         BlockContents(slice)),
+  CachableEntry<ParsedFullFilterBlock> block(
+      new ParsedFullFilterBlock(table_options_.filter_policy.get(),
+                                BlockContents(slice)),
       nullptr /* cache */, nullptr /* cache_handle */, true /* own_value */);
 
   FullFilterBlockReader reader(table_.get(), std::move(block));

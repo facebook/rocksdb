@@ -95,18 +95,18 @@ class BlocklikeTraits<BlockContents> {
 };
 
 template <>
-class BlocklikeTraits<FullFilterData> {
+class BlocklikeTraits<ParsedFullFilterBlock> {
  public:
-  static FullFilterData* Create(BlockContents&& contents,
-                                SequenceNumber /* global_seqno */,
-                                size_t /* read_amp_bytes_per_bit */,
-                                Statistics* /* statistics */,
-                                bool /* using_zstd */,
-                                const FilterPolicy* filter_policy) {
-    return new FullFilterData(filter_policy, std::move(contents));
+  static ParsedFullFilterBlock* Create(BlockContents&& contents,
+                                       SequenceNumber /* global_seqno */,
+                                       size_t /* read_amp_bytes_per_bit */,
+                                       Statistics* /* statistics */,
+                                       bool /* using_zstd */,
+                                       const FilterPolicy* filter_policy) {
+    return new ParsedFullFilterBlock(filter_policy, std::move(contents));
   }
 
-  static uint32_t GetNumRestarts(const FullFilterData& /* data */) {
+  static uint32_t GetNumRestarts(const ParsedFullFilterBlock& /* block */) {
     return 0;
   }
 };
@@ -2504,10 +2504,10 @@ template Status BlockBasedTable::RetrieveBlock<BlockContents>(
     GetContext* get_context, BlockCacheLookupContext* lookup_context,
     bool for_compaction, bool use_cache) const;
 
-template Status BlockBasedTable::RetrieveBlock<FullFilterData>(
+template Status BlockBasedTable::RetrieveBlock<ParsedFullFilterBlock>(
     FilePrefetchBuffer* prefetch_buffer, const ReadOptions& ro,
     const BlockHandle& handle, const UncompressionDict& uncompression_dict,
-    CachableEntry<FullFilterData>* block_entry, BlockType block_type,
+    CachableEntry<ParsedFullFilterBlock>* block_entry, BlockType block_type,
     GetContext* get_context, BlockCacheLookupContext* lookup_context,
     bool for_compaction, bool use_cache) const;
 
