@@ -168,8 +168,7 @@ bool FullFilterBlockReader::MayMatch(
 
   assert(filter_block.GetValue());
 
-  if (!filter_block.GetValue()->empty()) {
-    assert(filter_block.GetValue()->filter_bits_reader());
+  if (filter_block.GetValue()->filter_bits_reader()) {
     if (filter_block.GetValue()->filter_bits_reader()->MayMatch(entry)) {
       PERF_COUNTER_ADD(bloom_sst_hit_count, 1);
       return true;
@@ -223,7 +222,7 @@ void FullFilterBlockReader::MayMatch(
 
   assert(filter_block.GetValue());
 
-  if (filter_block.GetValue()->empty()) {
+  if (!filter_block.GetValue()->filter_bits_reader()) {
     return;
   }
 

@@ -13,7 +13,9 @@ FullFilterData::FullFilterData(const FilterPolicy* filter_policy,
                                BlockContents&& contents)
     : block_contents_(std::move(contents)),
       filter_bits_reader_(
-          filter_policy->GetFilterBitsReader(block_contents_.data)) {}
+          !block_contents_.data.empty()
+              ? filter_policy->GetFilterBitsReader(block_contents_.data)
+              : nullptr) {}
 
 FullFilterData::~FullFilterData() = default;
 

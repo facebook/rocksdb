@@ -24,8 +24,6 @@ class FullFilterData {
     return filter_bits_reader_.get();
   }
 
-  bool empty() const { return block_contents_.data.empty(); }
-
   // TODO: consider memory usage of FullFilterBitsReader
   size_t ApproximateMemoryUsage() const {
     return block_contents_.ApproximateMemoryUsage();
