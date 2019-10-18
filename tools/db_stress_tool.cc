@@ -683,7 +683,7 @@ bool GetNextPrefix(const rocksdb::Slice& src, std::string* v) {
 }  // namespace
 
 static enum RepFactory FLAGS_rep_factory;
-DEFINE_string(memtablerep, "prefix_hash", "");
+DEFINE_string(memtablerep, "skip_list", "");
 
 static bool ValidatePrefixSize(const char* flagname, int32_t value) {
   if (value < -1 || value > 8) {
@@ -2461,8 +2461,11 @@ class StressTest {
       VerifyIterator(thread, readoptionscopy, iter.get(), cmp_iter.get(), key,
                      &diverged);
 
+      bool no_reverse =
+          (FLAGS_memtablerep == "prefix_hash" && !read_opts.total_order_seek &&
+           options_.prefix_extractor.get() != nullptr);
       for (uint64_t i = 0; i < FLAGS_num_iterations && iter->Valid(); i++) {
-        if (thread->rand.OneIn(2)) {
+        if (no_reverse || thread->rand.OneIn(2)) {
           iter->Next();
           if (!diverged) {
             assert(cmp_iter->Valid());
