@@ -719,17 +719,19 @@ int SSTDumpTool::Run(int argc, char** argv, Options options) {
         total_data_block_size += table_properties->data_size;
         total_index_block_size += table_properties->index_size;
         total_filter_block_size += table_properties->filter_size;
-      }
-      if (show_properties) {
-        fprintf(stdout,
-                "Raw user collected properties\n"
-                "------------------------------\n");
-        for (const auto& kv : table_properties->user_collected_properties) {
-          std::string prop_name = kv.first;
-          std::string prop_val = Slice(kv.second).ToString(true);
-          fprintf(stdout, "  # %s: 0x%s\n", prop_name.c_str(),
-                  prop_val.c_str());
+        if (show_properties) {
+          fprintf(stdout,
+                  "Raw user collected properties\n"
+                  "------------------------------\n");
+          for (const auto& kv : table_properties->user_collected_properties) {
+            std::string prop_name = kv.first;
+            std::string prop_val = Slice(kv.second).ToString(true);
+            fprintf(stdout, "  # %s: 0x%s\n", prop_name.c_str(),
+                    prop_val.c_str());
+          }
         }
+      } else {
+        fprintf(stderr, "Reader unexpectedly returned null properties\n");
       }
     }
   }
