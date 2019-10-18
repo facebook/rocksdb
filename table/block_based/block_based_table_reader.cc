@@ -3750,8 +3750,11 @@ Status BlockBasedTable::VerifyChecksumInBlocks(
   size_t readahead_size = (read_options.readahead_size != 0)
                               ? read_options.readahead_size
                               : kMaxAutoReadaheadSize;
+  // FilePrefetchBuffer doesn't work in mmap mode and readahead is not
+  // needed there.
   FilePrefetchBuffer prefetch_buffer(rep_->file.get(), readahead_size,
-                                     readahead_size);
+                                     readahead_size,
+                                     !rep_->ioptions.allow_mmap_reads);
 
   for (index_iter->SeekToFirst(); index_iter->Valid(); index_iter->Next()) {
     s = index_iter->status();
