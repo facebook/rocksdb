@@ -20,7 +20,7 @@
 
 namespace rocksdb {
 
-std::map<uint64_t, Slice> slices;
+std::map<uint64_t, std::string> blooms;
 
 class MockedBlockBasedTable : public BlockBasedTable {
  public:
@@ -37,13 +37,18 @@ class MyPartitionedFilterBlockReader : public PartitionedFilterBlockReader {
   MyPartitionedFilterBlockReader(BlockBasedTable* t,
                                  CachableEntry<Block>&& filter_block)
       : PartitionedFilterBlockReader(t, std::move(filter_block)) {
-    for (const auto& pair : slices) {
+    for (const auto& pair : blooms) {
       const uint64_t offset = pair.first;
-      const Slice& slice = pair.second;
+      const std::string& bloom = pair.second;
 
-      CachableEntry<BlockContents> block(
-          new BlockContents(slice), nullptr /* cache */,
-          nullptr /* cache_handle */, true /* own_value */);
+      assert(t);
+      assert(t->get_rep());
+      CachableEntry<ParsedFullFilterBlock> block(
+          new ParsedFullFilterBlock(
+              t->get_rep()->table_options.filter_policy.get(),
+              BlockContents(Slice(bloom))),
+          nullptr /* cache */, nullptr /* cache_handle */,
+          true /* own_value */);
       filter_map_[offset] = std::move(block);
     }
   }
@@ -101,7 +106,7 @@ class PartitionedFilterBlockTest
   uint64_t last_offset = 10;
   BlockHandle Write(const Slice& slice) {
     BlockHandle bh(last_offset + 1, slice.size());
-    slices[bh.offset()] = slice;
+    blooms[bh.offset()] = slice.ToString();
     last_offset += bh.size();
     return bh;
   }
