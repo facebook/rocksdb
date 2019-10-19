@@ -373,6 +373,7 @@ TEST_F(CorruptionTest, VerifyChecksumReadahead) {
   // disabled).
   options.allow_mmap_reads = true;
   Reopen(&options);
+  dbi = static_cast<DBImpl*>(db_);
   ASSERT_OK(dbi->VerifyChecksum(ro));
 
   CloseDb();
