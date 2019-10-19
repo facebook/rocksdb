@@ -169,8 +169,11 @@ bool FullFilterBlockReader::MayMatch(
 
   assert(filter_block.GetValue());
 
-  if (filter_block.GetValue()->filter_bits_reader()) {
-    if (filter_block.GetValue()->filter_bits_reader()->MayMatch(entry)) {
+  FilterBitsReader* const filter_bits_reader =
+      filter_block.GetValue()->filter_bits_reader();
+
+  if (filter_bits_reader) {
+    if (filter_bits_reader->MayMatch(entry)) {
       PERF_COUNTER_ADD(bloom_sst_hit_count, 1);
       return true;
     } else {
@@ -223,7 +226,10 @@ void FullFilterBlockReader::MayMatch(
 
   assert(filter_block.GetValue());
 
-  if (!filter_block.GetValue()->filter_bits_reader()) {
+  FilterBitsReader* const filter_bits_reader =
+      filter_block.GetValue()->filter_bits_reader();
+
+  if (!filter_bits_reader) {
     return;
   }
 
@@ -247,9 +253,7 @@ void FullFilterBlockReader::MayMatch(
     }
   }
 
-  assert(filter_block.GetValue()->filter_bits_reader());
-  filter_block.GetValue()->filter_bits_reader()->MayMatch(num_keys, &keys[0],
-                                                          &may_match[0]);
+  filter_bits_reader->MayMatch(num_keys, &keys[0], &may_match[0]);
 
   int i = 0;
   for (auto iter = filter_range.begin(); iter != filter_range.end(); ++iter) {
