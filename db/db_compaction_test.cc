@@ -12,6 +12,7 @@
 #include "port/stack_trace.h"
 #include "rocksdb/concurrent_task_limiter.h"
 #include "rocksdb/experimental.h"
+#include "rocksdb/sst_file_writer.h"
 #include "rocksdb/utilities/convenience.h"
 #include "test_util/fault_injection_test_env.h"
 #include "test_util/sync_point.h"
@@ -4658,6 +4659,7 @@ TEST_P(DBCompactionTestWithParam, FixFileIngestionCompactionDeadlock) {
   ASSERT_OK(dbfull()->TEST_WaitForCompact());
   Close();
 }
+
 TEST_F(DBCompactionTest, ConsistencyFailTest) {
   Options options = CurrentOptions();
   DestroyAndReopen(options);
@@ -4682,6 +4684,77 @@ TEST_F(DBCompactionTest, ConsistencyFailTest) {
 
   ASSERT_NOK(Put("foo", "bar"));
   rocksdb::SyncPoint::GetInstance()->DisableProcessing();
+}
+
+TEST_P(DBCompactionTestWithParam, FlushCheckConsistencyFail) {
+  Options options = CurrentOptions();
+  options.force_consistency_checks = true;
+  options.compression = kNoCompression;
+  options.level0_file_num_compaction_trigger = 5;
+  options.max_background_compactions = 2;
+  options.max_subcompactions = max_subcompactions_;
+  DestroyAndReopen(options);
+
+  const size_t kValueSize = 1 << 20;
+  Random rnd(301);
+  std::string value(RandomString(&rnd, kValueSize));
+
+  rocksdb::SyncPoint::GetInstance()->LoadDependency(
+      {{"LevelCompactionPicker::PickCompactionBySize:0",
+        "CompactionJob::Run():Start"}});
+  rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+
+  // prevents trivial move
+  for (int i = 0; i < 10; ++i) {
+    ASSERT_OK(Put(Key(i), ""));  // prevents trivial move
+  }
+  ASSERT_OK(Flush());
+  Compact("", Key(99));
+  ASSERT_EQ(0, NumTableFilesAtLevel(0));
+
+  // Flush 5 L0 sst.
+  for (int i = 0; i < 5; ++i) {
+    ASSERT_OK(Put(Key(i + 1), value));
+    ASSERT_OK(Flush());
+  }
+  ASSERT_EQ(5, NumTableFilesAtLevel(0));
+  auto lsn = dbfull()->TEST_GetLastVisibleSequence();
+
+  // Put one key, to make smallest log sequence number in this memtable is less than sst which would be ingested in next step.
+  ASSERT_OK(Put(Key(0), "a"));
+  lsn = dbfull()->TEST_GetLastVisibleSequence();
+
+  ASSERT_EQ(5, NumTableFilesAtLevel(0));
+
+  // Ingest 5 L0 sst. And this files would trigger PickIntraL0Compaction.
+  for (int i = 5; i < 10; i ++) {
+    ExternalSstFileInfo info;
+    std::string f = test::PerThreadDBPath("sst_file" + Key(i));
+    EnvOptions env;
+    rocksdb::SstFileWriter writer(env, options);
+    auto s = writer.Open(f);
+    ASSERT_OK(s);
+    // ASSERT_OK(writer.Put(Key(), ""));
+    ASSERT_OK(writer.Put(Key(i), value));
+
+    ASSERT_OK(writer.Finish(&info));
+    IngestExternalFileOptions ingest_opt;
+    ASSERT_OK(dbfull()->IngestExternalFile({info.file_path}, ingest_opt));
+    ASSERT_EQ(i + 1, NumTableFilesAtLevel(0));
+    lsn = dbfull()->TEST_GetLastVisibleSequence();
+  }
+
+  // Put one key, to make biggest log sequence number in this memtable is bigger than sst which would be ingested in next step.
+  ASSERT_OK(Put(Key(2), "b"));
+  ASSERT_EQ(10, NumTableFilesAtLevel(0));
+  dbfull()->TEST_WaitForCompact();
+  rocksdb::SyncPoint::GetInstance()->DisableProcessing();
+  std::vector<std::vector<FileMetaData>> level_to_files;
+  dbfull()->TEST_GetFilesMetaData(dbfull()->DefaultColumnFamily(),
+                                  &level_to_files);
+  ASSERT_GT(level_to_files[0].size(), 0);
+
+  ASSERT_OK(Flush());
 }
 #endif // !defined(ROCKSDB_LITE)
 }  // namespace rocksdb
