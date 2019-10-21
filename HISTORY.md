@@ -31,6 +31,7 @@
 * Flush sets file name to "(nil)" for OnTableFileCreationCompleted() if the flush does not produce any L0. This can happen if the file is empty thus delete by RocksDB.
 ### Performance Improvements
 * Improve the speed of the MemTable Bloom filter, reducing the write overhead of enabling it by 1/3 to 1/2, with similar benefit to read performance.
+* Level iterator to invlidate the iterator more often in prefix seek and the level is filtered out by prefix bloom.
 
 ## 6.4.0 (7/30/2019)
 ### Default Option Change
