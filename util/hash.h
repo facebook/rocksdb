@@ -75,26 +75,21 @@ inline size_t fastrange64(uint64_t hash, size_t range) {
 #else
   return static_cast<size_t>(_mm_cvtsi128_si64(_mm_srli_si128(mm, 64)));
 #endif
-#elif SIZE_MAX == UINT64_MAX
-  // Fall back for 64-bit size_t: full decomposition
-  uint64_t tmp = uint64_t{range & 0xffffFFFF} * uint64_t{hash & 0xffffFFFF};
+#else
+  // Fall back: full decomposition.
+  // NOTE: Hopefully when size_t is 32 bits, the compiler can detect that
+  // the multiplications are really 32-bit inputs and that
+  // range64 >> 32 is zero.
+  uint64_t range64 = range; // ok to shift by 32, even if size_t is 32-bit
+  uint64_t tmp = uint64_t{range64 & 0xffffFFFF} * uint64_t{hash & 0xffffFFFF};
   tmp >>= 32;
-  tmp += uint64_t{range & 0xffffFFFF} * uint64_t{hash >> 32};
+  tmp += uint64_t{range64 & 0xffffFFFF} * uint64_t{hash >> 32};
   // Avoid overflow: first add lower 32 of tmp2, and later upper 32
-  uint64_t tmp2 = uint64_t{range >> 32} * uint64_t{hash & 0xffffFFFF};
+  uint64_t tmp2 = uint64_t{range64 >> 32} * uint64_t{hash & 0xffffFFFF};
   tmp += static_cast<uint32_t>(tmp2);
   tmp >>= 32;
   tmp += (tmp2 >> 32);
-  tmp += uint64_t{range >> 32} * uint64_t{hash >> 32};
-  return size_t{tmp};
-#else
-  static_assert(SIZE_MAX == UINT32_MAX,
-                "Expecting 32-bit size_t if not 64-bit");
-  // Fall back for 32-bit size_t: a simpler decomposition (range >> 32 is 0)
-  uint64_t tmp = uint64_t{range & 0xffffFFFF} * uint64_t{hash & 0xffffFFFF};
-  tmp >>= 32;
-  tmp += uint64_t{range & 0xffffFFFF} * uint64_t{hash >> 32};
-  tmp >>= 32;
+  tmp += uint64_t{range64 >> 32} * uint64_t{hash >> 32};
   return static_cast<size_t>(tmp);
 #endif
 }
