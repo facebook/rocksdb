@@ -1005,6 +1005,22 @@ DEFINE_uint64(
     "is the global rate in bytes/second.");
 
 // the parameters of mix_graph
+DEFINE_double(prefix_dist_a, 0.0,
+              "The parameter 'a' of prefix average access distribution "
+              "f(x)=a*exp(b*x)+c*exp(d*x)");
+DEFINE_double(prefix_dist_b, 0.0,
+              "The parameter 'b' of prefix average access distribution "
+              "f(x)=a*exp(b*x)+c*exp(d*x)");
+DEFINE_double(prefix_dist_c, 0.0,
+              "The parameter 'c' of prefix average access distribution"
+              "f(x)=a*exp(b*x)+c*exp(d*x)");
+DEFINE_double(prefix_dist_d, 0.0,
+              "The parameter 'd' of prefix average access distribution"
+              "f(x)=a*exp(b*x)+c*exp(d*x)");
+DEFINE_int64(prefix_num, 1,
+             "The number of key ranges that are in the same prefix "
+             "group, each prefix range will have its key acccess "
+             "distribution");
 DEFINE_double(key_dist_a, 0.0,
               "The parameter 'a' of key access distribution model "
               "f(x)=a*x^b");
@@ -5031,6 +5047,119 @@ class Benchmark {
         }
       }
       return 0;
+    }
+  };
+
+  // PrefixUnit is the struct of a key-range. It is used in a key-range vector
+  // to transfer a random value to one key-range based on the hotness.
+  struct PrefixUnit {
+    int64_t prefix_start;
+    int64_t prefix_access;
+    int64_t prefix_keys;
+  };
+
+  class GenerateTwoTermExpKeys {
+   public:
+    int64_t prefix_rand_max_;
+    int64_t prefix_size_;
+    int64_t prefix_num_;
+    bool initiated_;
+    std::vector<PrefixUnit> prefix_set_;
+
+    GenerateTwoTermExpKeys() {
+      prefix_rand_max_ = FLAGS_num;
+      initiated_ = false;
+    }
+
+    ~GenerateTwoTermExpKeys() {}
+
+    Status InitiateExpDistribution(const int64_t total_keys, const double key_a,
+                                   const double key_b, const double prefix_a,
+                                   const double prefix_b, const double prefix_c,
+                                   const double prefix_d) {
+      int64_t amplify = 0;
+      int64_t prefix_start = 0;
+      initiated_ = true;
+      if (FLAGS_prefix_num <= 0) {
+        prefix_num = 1;
+      } else {
+        prefix_num = FLAGS_prefix_num;
+      }
+      prefix_size_ = total_keys / prefix_num_;
+
+      // Calculate the key-range shares size based on the input parameters
+      for (int64_t pfx = prefix_num_; pfx >= 1; pfx--) {
+        double prefix_p = prefix_a * std::exp(prefix_b * pfx) +
+                          prefix_c * std::exp(prefix_d * pfx);
+
+        if (prefix_p < std::pow(10.0, -16.0)) {
+          prefix_p = 0.0;
+        }
+        if (amplify == 0 && prefix_p > 0) {
+          amplify = static_cast<int64_t>(std::floor(1 / prefix_p)) + 1;
+        }
+
+        PrefixUnit p_unit;
+        p_unit.prefix_start = prefix_start;
+        if (0.0 >= prefix_p) {
+          p_unit.prefix_access = 0;
+        } else {
+          p_unit.prefix_access =
+              static_cast<int64_t>(std::floor(amplify * prefix_p));
+        }
+        p_unit.prefix_keys = prefix_size_;
+        prefix_set_.push_back(p_unit);
+        prefix_start += p_unit.prefix_access;
+      }
+      prefix_rand_max_ = prefix_start;
+
+      // Shuffle the key-ranges randomly
+      Random64 rand_loca(prefix_rand_max_);
+      for (int64_t i = 0; i < FLAGS_prefix_num; i++) {
+        int64_t pos = rand_loca.Next() % FLAGS_prefix_num;
+        std::swap(prefix_set_[i], prefix_set_[pos]);
+      }
+
+      // Recalculate the prefix start postion after shuffling
+      int64_t offset = 0;
+      for (auto& p_unit : prefix_set_) {
+        p_unit.prefix_start = offset;
+        offset += p_unit.prefix_access;
+      }
+
+      return Status::OK();
+    }
+
+    // Generate the Key ID according to the input ini_rand,
+    // which is the random number within the key_rand_max_
+    int64_t DistGetKeyID(const int64_t& ini_rand) {
+      int64_t prefix_rand = ini_rand % prefix_rand_max_;
+
+      int64_t start = 0, end = static_cast<int64_t>(prefix_set_.size());
+      while (start + 1 < end) {
+        int64_t mid = start + (end - start) / 2;
+        if (prefix_rand < prefix_set_[mid].prefix_start) {
+          end = mid;
+        } else {
+          start = mid;
+        }
+      }
+      int64_t prefix_id = start;
+
+      int64_t key_rand = ini_rand % key_rand_max_;
+      start = 0;
+      end = static_cast<int64_t>(key_set_.size());
+      while (start + 1 < end) {
+        int64_t mid = start + (end - start) / 2;
+        if (key_rand < key_set_[mid].key_start) {
+          end = mid;
+        } else {
+          start = mid;
+        }
+      }
+
+      Random64 rand_key(start);
+      return prefix_size_ * prefix_id + rand_key.Next() % prefix_size_;
     }
   };
 
