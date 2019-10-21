@@ -172,7 +172,9 @@ def generate_targets(repo_path, deps_map):
     # rocksdb_stress_lib
     TARGETS.add_library(
         "rocksdb_stress_lib",
-        src_mk.get('STRESS_LIB_SOURCES', []) + ["test_util/testutil.cc"],
+        src_mk.get("ANALYZER_LIB_SOURCES", [])
+        + src_mk.get('STRESS_LIB_SOURCES', [])
+        + ["test_util/testutil.cc"],
         [":rocksdb_lib"])
 
     print("Extra dependencies:\n{0}".format(str(deps_map)))

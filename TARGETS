@@ -396,7 +396,9 @@ cpp_library(
     name = "rocksdb_stress_lib",
     srcs = [
         "test_util/testutil.cc",
+        "tools/block_cache_analyzer/block_cache_trace_analyzer.cc",
         "tools/db_stress_tool.cc",
+        "tools/trace_analyzer_tool.cc",
     ],
     auto_headers = AutoHeaders.RECURSIVE_GLOB,
     arch_preprocessor_flags = ROCKSDB_ARCH_PREPROCESSOR_FLAGS,
