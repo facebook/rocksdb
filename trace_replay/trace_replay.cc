@@ -313,13 +313,13 @@ Status Replayer::MultiThreadReplay(uint32_t threads_num) {
       std::chrono::system_clock::now();
   WriteOptions woptions;
   ReadOptions roptions;
-  ReplayerWorkerArg* ra;
   uint64_t ops = 0;
   while (s.ok()) {
-    ra = new ReplayerWorkerArg;
+    ReplayerWorkerArg* ra = new ReplayerWorkerArg;
     ra->db = db_;
     s = ReadTrace(&(ra->trace_entry));
     if (!s.ok()) {
+      delete ra;
       break;
     }
     ra->woptions = woptions;
