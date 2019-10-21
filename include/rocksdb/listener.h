@@ -170,6 +170,10 @@ struct FlushJobInfo {
   std::string cf_name;
   // the path to the newly created file
   std::string file_path;
+  // the file number of the newly created file
+  uint64_t file_number;
+  // the oldest blob file referenced by the newly created file
+  uint64_t oldest_blob_file_number;
   // the id of the thread that completed this flush job.
   uint64_t thread_id;
   // the job id, which is unique in the same thread.
@@ -213,11 +217,29 @@ struct CompactionJobInfo {
   int base_input_level;
   // the output level of the compaction.
   int output_level;
-  // the names of the compaction input files.
+
+  // The following variables contain information about compaction inputs
+  // and outputs. A file may appear in both the input and output lists
+  // if it was simply moved to a different level. The order of elements
+  // is the same across input_files and input_levels_and_file_numbers;
+  // similarly, it is the same across output_files,
+  // output_levels_and_file_numbers, and output_oldest_blob_file_numbers.
+
+  // The names of the compaction input files.
   std::vector<std::string> input_files;
 
-  // the names of the compaction output files.
+  // The levels and file numbers of the compaction input files.
+  std::vector<std::pair<int, uint64_t>> input_levels_and_file_numbers;
+
+  // The names of the compaction output files.
   std::vector<std::string> output_files;
+
+  // The levels and file numbers of the compaction output files.
+  std::vector<std::pair<int, uint64_t>> output_levels_and_file_numbers;
+
+  // The oldest blob file referenced by each compaction output file.
+  std::vector<uint64_t> output_oldest_blob_file_numbers;
+
   // Table properties for input and output tables.
   // The map is keyed by values from input_files and output_files.
   TablePropertiesCollection table_properties;
