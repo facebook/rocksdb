@@ -16,10 +16,6 @@
 #include "rocksdb/slice.h"
 #include "util/xxhash.h"
 
-#if defined(HAVE_PCLMUL) && !defined(HAVE_UINT128_EXTENSION)
-#include <immintrin.h>
-#endif
-
 namespace rocksdb {
 
 // Non-persistent hash. Must only used for in-memory data structure.
@@ -51,35 +47,27 @@ struct SliceHasher {
 };
 
 // An alternative to % for mapping a hash value to an arbitrary range. See
-// https://github.com/lemire/fastrange and
-// https://github.com/pdillinger/wormhashing/blob/2c4035a4462194bf15f3e9fc180c27c513335225/bloom_simulation_tests/foo.cc#L57
+// https://github.com/lemire/fastrange
 inline uint32_t fastrange32(uint32_t hash, uint32_t range) {
   uint64_t product = uint64_t{range} * hash;
   return static_cast<uint32_t>(product >> 32);
 }
 
 // An alternative to % for mapping a 64-bit hash value to an arbitrary range
-// that fits in size_t. See https://github.com/lemire/fastrange and
-// https://github.com/pdillinger/wormhashing/blob/2c4035a4462194bf15f3e9fc180c27c513335225/bloom_simulation_tests/foo.cc#L57
+// that fits in size_t. See https://github.com/lemire/fastrange
+// We find size_t more convenient than uint64_t for the range, with side
+// benefit of better optimization on 32-bit platforms.
 inline size_t fastrange64(uint64_t hash, size_t range) {
 #if defined(HAVE_UINT128_EXTENSION)
   // Can use compiler's 128-bit type. Trust it to do the right thing.
   __uint128_t wide = __uint128_t{range} * hash;
   return static_cast<size_t>(wide >> 64);
-#elif defined(HAVE_PCLMUL)
-  auto mm = _mm_clmulepi64_si128(_mm_set_epi64x(0, hash),
-                                 _mm_set_epi64x(0, range), 0);
-#ifdef HAVE_SSE42
-  // Technically SSE4.1
-  return static_cast<size_t>(_mm_extract_epi64(mm, 1));
-#else
-  return static_cast<size_t>(_mm_cvtsi128_si64(_mm_srli_si128(mm, 64)));
-#endif
 #else
   // Fall back: full decomposition.
-  // NOTE: Hopefully when size_t is 32 bits, the compiler can detect that
-  // the multiplications are really 32-bit inputs and that
-  // range64 >> 32 is zero.
+  // NOTE: GCC seems to fully understand this code as 64-bit x {32 or 64}-bit
+  // -> {96 or 128}-bit multiplication and optimize it down to a single
+  // wide-result multiplication (64-bit platform) or two wide-result
+  // multiplications (32-bit platforms, where range64 >> 32 is zero).
   uint64_t range64 = range; // ok to shift by 32, even if size_t is 32-bit
   uint64_t tmp = uint64_t{range64 & 0xffffFFFF} * uint64_t{hash & 0xffffFFFF};
   tmp >>= 32;
