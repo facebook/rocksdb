@@ -128,10 +128,11 @@ Status PlainTableReader::Open(
     return Status::NotSupported("File is too large for PlainTableReader!");
   }
 
-  TableProperties* props = nullptr;
+  TableProperties* props_ptr = nullptr;
   auto s = ReadTableProperties(file.get(), file_size, kPlainTableMagicNumber,
-                               ioptions, &props,
+                               ioptions, &props_ptr,
                                true /* compression_type_missing */);
+  std::shared_ptr<TableProperties> props(props_ptr);
   if (!s.ok()) {
     return s;
   }
@@ -165,7 +166,7 @@ Status PlainTableReader::Open(
 
   std::unique_ptr<PlainTableReader> new_reader(new PlainTableReader(
       ioptions, std::move(file), env_options, internal_comparator,
-      encoding_type, file_size, props, prefix_extractor));
+      encoding_type, file_size, props.get(), prefix_extractor));
 
   s = new_reader->MmapDataIfNeeded();
   if (!s.ok()) {
@@ -173,8 +174,9 @@ Status PlainTableReader::Open(
   }
 
   if (!full_scan_mode) {
-    s = new_reader->PopulateIndex(props, bloom_bits_per_key, hash_table_ratio,
-                                  index_sparseness, huge_page_tlb_size);
+    s = new_reader->PopulateIndex(props.get(), bloom_bits_per_key,
+                                  hash_table_ratio, index_sparseness,
+                                  huge_page_tlb_size);
     if (!s.ok()) {
       return s;
     }
@@ -184,7 +186,7 @@ Status PlainTableReader::Open(
     new_reader->full_scan_mode_ = true;
   }
   // PopulateIndex can add to the props, so don't store them until now
-  new_reader->table_properties_.reset(props);
+  new_reader->table_properties_ = props;
 
   if (immortal_table && new_reader->file_info_.is_mmap_mode) {
     new_reader->dummy_cleanable_.reset(new Cleanable());
