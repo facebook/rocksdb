@@ -2725,7 +2725,9 @@ class StressTest {
     assert(rand_column_families.size() == rand_keys.size());
     std::string checkpoint_dir =
         FLAGS_db + "/.checkpoint" + ToString(thread->tid);
-    DestroyDB(checkpoint_dir, Options());
+    Options tmp_opts(options_);
+    tmp_opts.listeners.clear();
+    DestroyDB(checkpoint_dir, tmp_opts);
     Checkpoint* checkpoint = nullptr;
     Status s = Checkpoint::Create(db_, &checkpoint);
     if (s.ok()) {
@@ -2781,7 +2783,7 @@ class StressTest {
       delete checkpoint_db;
       checkpoint_db = nullptr;
     }
-    DestroyDB(checkpoint_dir, options);
+    DestroyDB(checkpoint_dir, tmp_opts);
     if (!s.ok()) {
       fprintf(stderr, "A checkpoint operation failed with: %s\n",
               s.ToString().c_str());
