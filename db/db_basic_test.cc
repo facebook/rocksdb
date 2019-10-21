@@ -1388,13 +1388,6 @@ TEST_P(MultiGetPrefixExtractorTest, Batched) {
       {"k", "kk1", "kk2", "kk3", "kk4", "rofl", "lmho"});
   std::vector<std::string> inmem_values;
   inmem_values = MultiGet(mem_keys, nullptr);
-  std::vector<std::string> keys({"k", "kk1", "kk2", "kk3", "kk4"});
-  std::vector<std::string> inmem_values;
-  inmem_values = MultiGet(keys, nullptr);
-  std::vector<std::string> mem_keys(
-      {"k", "kk1", "kk2", "kk3", "kk4", "rofl", "lmho"});
-  std::vector<std::string> inmem_values;
-  inmem_values = MultiGet(mem_keys, nullptr);
   ASSERT_EQ(inmem_values[0], "v0");
   ASSERT_EQ(inmem_values[1], "v1");
   ASSERT_EQ(inmem_values[2], "v2");
