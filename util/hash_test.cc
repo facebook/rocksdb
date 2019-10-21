@@ -165,6 +165,21 @@ TEST(Fastrange64Test, Values) {
 #endif
 }
 
+// for inspection of disassembly
+uint32_t fastrange32(uint32_t hash, uint32_t range) {
+  return rocksdb::fastrange32(hash, range);
+}
+
+// for inspection of disassembly
+size_t fastrange64(uint64_t hash, size_t range) {
+  return rocksdb::fastrange64(hash, range);
+}
+
+// for inspection of disassembly
+uint64_t NPHash64(const char* data, size_t n) {
+  return rocksdb::NPHash64(data, n);
+}
+
 int main(int argc, char** argv) {
   ::testing::InitGoogleTest(&argc, argv);
 
