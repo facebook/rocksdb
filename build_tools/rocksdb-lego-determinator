@@ -553,7 +553,7 @@ UBSAN_TEST_COMMANDS="[
             $CLEANUP_ENV,
             {
                 'name':'Test RocksDB debug under UBSAN',
-                'shell':'set -o pipefail && $SHM $UBSAN $DEBUG make $PARALLELISM ubsan_check || $CONTRUN_NAME=ubsan_check $TASK_CREATION_TOOL',
+                'shell':'set -o pipefail && $SHM $UBSAN $CLANG $DEBUG make $PARALLELISM ubsan_check || $CONTRUN_NAME=ubsan_check $TASK_CREATION_TOOL',
                 'user':'root',
                 $PARSER
             }
@@ -576,7 +576,7 @@ UBSAN_CRASH_TEST_COMMANDS="[
             {
                 'name':'Build and run RocksDB debug ubsan_crash_test',
                 'timeout': 86400,
-                'shell':'$SHM $DEBUG $NON_TSAN_CRASH make J=1 ubsan_crash_test || $CONTRUN_NAME=ubsan_crash_test $TASK_CREATION_TOOL',
+                'shell':'$SHM $DEBUG $NON_TSAN_CRASH $CLANG make J=1 ubsan_crash_test || $CONTRUN_NAME=ubsan_crash_test $TASK_CREATION_TOOL',
                 'user':'root',
                 $PARSER
             },
@@ -599,7 +599,7 @@ UBSAN_CRASH_TEST_WITH_ATOMIC_FLUSH_COMMANDS="[
             {
                 'name':'Build and run RocksDB debug ubsan_crash_test_with_atomic_flush',
                 'timeout': 86400,
-                'shell':'$SHM $DEBUG $NON_TSAN_CRASH make J=1 ubsan_crash_test_with_atomic_flush || $CONTRUN_NAME=ubsan_crash_test_with_atomic_flush $TASK_CREATION_TOOL',
+                'shell':'$SHM $DEBUG $NON_TSAN_CRASH $CLANG make J=1 ubsan_crash_test_with_atomic_flush || $CONTRUN_NAME=ubsan_crash_test_with_atomic_flush $TASK_CREATION_TOOL',
                 'user':'root',
                 $PARSER
             },
