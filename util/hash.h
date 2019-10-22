@@ -68,7 +68,7 @@ inline size_t fastrange64(uint64_t hash, size_t range) {
   // -> {96 or 128}-bit multiplication and optimize it down to a single
   // wide-result multiplication (64-bit platform) or two wide-result
   // multiplications (32-bit platforms, where range64 >> 32 is zero).
-  uint64_t range64 = range; // ok to shift by 32, even if size_t is 32-bit
+  uint64_t range64 = range;  // ok to shift by 32, even if size_t is 32-bit
   uint64_t tmp = uint64_t{range64 & 0xffffFFFF} * uint64_t{hash & 0xffffFFFF};
   tmp >>= 32;
   tmp += uint64_t{range64 & 0xffffFFFF} * uint64_t{hash >> 32};
