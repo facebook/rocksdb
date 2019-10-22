@@ -575,8 +575,10 @@ void DBImpl::NotifyOnFlushBegin(ColumnFamilyData* cfd, FileMetaData* file_meta,
     info.cf_name = cfd->GetName();
     // TODO(yhchiang): make db_paths dynamic in case flush does not
     //                 go to L0 in the future.
+    const uint64_t file_number = file_meta->fd.GetNumber();
     info.file_path = MakeTableFileName(cfd->ioptions()->cf_paths[0].path,
-                                       file_meta->fd.GetNumber());
+                                       file_number);
+    info.file_number = file_number;
     info.thread_id = env_->GetThreadID();
     info.job_id = job_id;
     info.triggered_writes_slowdown = triggered_writes_slowdown;
