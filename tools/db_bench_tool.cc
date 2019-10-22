@@ -889,6 +889,9 @@ DEFINE_string(env_uri, "", "URI for registry Env lookup. Mutually exclusive"
 #endif  // ROCKSDB_LITE
 DEFINE_string(hdfs, "", "Name of hdfs environment. Mutually exclusive with"
               " --env_uri.");
+
+static std::shared_ptr<rocksdb::Env> env_guard;
+
 static rocksdb::Env* FLAGS_env = rocksdb::Env::Default();
 
 DEFINE_int64(stats_interval, 0, "Stats are reported every N operations when "
@@ -1738,7 +1741,7 @@ class Stats {
         "ElapsedTime", "Stage", "State", "OperationProperties");
 
     int64_t current_time = 0;
-    Env::Default()->GetCurrentTime(&current_time);
+    FLAGS_env->GetCurrentTime(&current_time);
     for (auto ts : thread_list) {
       fprintf(stderr, "%18" PRIu64 " %10s %12s %20s %13s %45s %12s",
           ts.thread_id,
@@ -2483,7 +2486,7 @@ class Benchmark {
                 "at the same time");
         exit(1);
       }
-      FLAGS_env = new ReportFileOpEnv(rocksdb::Env::Default());
+      FLAGS_env = new ReportFileOpEnv(FLAGS_env);
     }
 
     if (FLAGS_prefix_size > FLAGS_key_size) {
@@ -2500,6 +2503,7 @@ class Benchmark {
     }
     if (!FLAGS_use_existing_db) {
       Options options;
+      options.env = FLAGS_env;
       if (!FLAGS_wal_dir.empty()) {
         options.wal_dir = FLAGS_wal_dir;
       }
@@ -3377,8 +3381,9 @@ class Benchmark {
     DBOptions db_opts;
     std::vector<ColumnFamilyDescriptor> cf_descs;
     if (FLAGS_options_file != "") {
-      auto s = LoadOptionsFromFile(FLAGS_options_file, Env::Default(), &db_opts,
+      auto s = LoadOptionsFromFile(FLAGS_options_file, FLAGS_env, &db_opts,
                                    &cf_descs);
+      db_opts.env = FLAGS_env;
       if (s.ok()) {
         *opts = Options(db_opts, cf_descs[0].options);
         return true;
@@ -3399,6 +3404,7 @@ class Benchmark {
 
     assert(db_.db == nullptr);
 
+    options.env = FLAGS_env;
     options.max_open_files = FLAGS_open_files;
     if (FLAGS_cost_write_buffer_to_cache || FLAGS_db_write_buffer_size != 0) {
       options.write_buffer_manager.reset(
@@ -6596,7 +6602,7 @@ int db_bench_tool(int argc, char** argv) {
     fprintf(stderr, "Cannot provide both --hdfs and --env_uri.\n");
     exit(1);
   } else if (!FLAGS_env_uri.empty()) {
-    Status s = Env::LoadEnv(FLAGS_env_uri, &FLAGS_env);
+    Status s = Env::LoadEnv(FLAGS_env_uri, &FLAGS_env, &env_guard);
     if (FLAGS_env == nullptr) {
       fprintf(stderr, "No Env registered for URI: %s\n", FLAGS_env_uri.c_str());
       exit(1);
@@ -6641,7 +6647,7 @@ int db_bench_tool(int argc, char** argv) {
   // Choose a location for the test database if none given with --db=<path>
   if (FLAGS_db.empty()) {
     std::string default_db_path;
-    rocksdb::Env::Default()->GetTestDirectory(&default_db_path);
+    FLAGS_env->GetTestDirectory(&default_db_path);
     default_db_path += "/dbbench";
     FLAGS_db = default_db_path;
   }
