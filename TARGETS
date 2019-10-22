@@ -393,6 +393,24 @@ cpp_library(
 )
 
 cpp_library(
+    name = "rocksdb_stress_lib",
+    srcs = [
+        "test_util/testutil.cc",
+        "tools/block_cache_analyzer/block_cache_trace_analyzer.cc",
+        "tools/db_stress_tool.cc",
+        "tools/trace_analyzer_tool.cc",
+    ],
+    auto_headers = AutoHeaders.RECURSIVE_GLOB,
+    arch_preprocessor_flags = ROCKSDB_ARCH_PREPROCESSOR_FLAGS,
+    compiler_flags = ROCKSDB_COMPILER_FLAGS,
+    os_deps = ROCKSDB_OS_DEPS,
+    os_preprocessor_flags = ROCKSDB_OS_PREPROCESSOR_FLAGS,
+    preprocessor_flags = ROCKSDB_PREPROCESSOR_FLAGS,
+    deps = [":rocksdb_lib"],
+    external_deps = ROCKSDB_EXTERNAL_DEPS,
+)
+
+cpp_library(
     name = "env_basic_test_lib",
     srcs = ["env/env_basic_test.cc"],
     auto_headers = AutoHeaders.RECURSIVE_GLOB,
@@ -758,15 +776,15 @@ ROCKS_TESTS = [
         [],
     ],
     [
-        "db_merge_operator_test",
-        "db/db_merge_operator_test.cc",
-        "parallel",
+        "db_merge_operand_test",
+        "db/db_merge_operand_test.cc",
+        "serial",
         [],
         [],
     ],
     [
-        "db_merge_operand_test",
-        "db/db_merge_operand_test.cc",
+        "db_merge_operator_test",
+        "db/db_merge_operator_test.cc",
         "parallel",
         [],
         [],
