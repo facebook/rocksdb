@@ -341,7 +341,8 @@ Status Replayer::MultiThreadReplay(uint32_t threads_num) {
       thread_pool.Schedule(&Replayer::BGWorkIterSeekForPrev, ra, nullptr,
                            nullptr);
       ops++;
-    } else if (ra->trace_entry.type == kTraceEnd) {
+    } else {
+      // It is the case that ra->trace_entry.type == kTraceEnd
       // Do nothing for now.
       // TODO: Add some validations later.
       delete ra;
