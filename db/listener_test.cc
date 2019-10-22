@@ -79,11 +79,46 @@ class TestPropertiesCollectorFactory : public TablePropertiesCollectorFactory {
 
 class TestCompactionListener : public EventListener {
  public:
+  explicit TestCompactionListener(EventListenerTest* test) : test_(test) {}
+
   void OnCompactionCompleted(DB *db, const CompactionJobInfo& ci) override {
     std::lock_guard<std::mutex> lock(mutex_);
     compacted_dbs_.push_back(db);
     ASSERT_GT(ci.input_files.size(), 0U);
+    ASSERT_EQ(ci.input_files.size(), ci.input_levels_and_file_numbers.size());
+
+    for (size_t i = 0; i < ci.input_levels_and_file_numbers.size(); ++i) {
+      ASSERT_EQ(ci.input_levels_and_file_numbers[i].first, ci.base_input_level);
+      ASSERT_EQ(ci.input_levels_and_file_numbers[i].second,
+                TableFileNameToNumber(ci.input_files[i]));
+    }
+
     ASSERT_GT(ci.output_files.size(), 0U);
+    ASSERT_EQ(ci.output_files.size(), ci.output_levels_and_file_numbers.size());
+    ASSERT_EQ(ci.output_files.size(),
+              ci.output_oldest_blob_file_numbers.size());
+
+    std::vector<std::vector<FileMetaData>> files_by_level;
+    test_->dbfull()->TEST_GetFilesMetaData(test_->handles_[ci.cf_id],
+                                           &files_by_level);
+
+    for (size_t i = 0; i < ci.output_levels_and_file_numbers.size(); ++i) {
+      ASSERT_EQ(ci.output_levels_and_file_numbers[i].first, ci.output_level);
+      ASSERT_EQ(ci.output_levels_and_file_numbers[i].second,
+                TableFileNameToNumber(ci.output_files[i]));
+
+      auto it = std::find_if(
+          files_by_level[ci.output_level].begin(),
+          files_by_level[ci.output_level].end(), [&](const FileMetaData& meta) {
+            return meta.fd.GetNumber() ==
+                   ci.output_levels_and_file_numbers[i].second;
+          });
+      ASSERT_NE(it, files_by_level[ci.output_level].end());
+
+      ASSERT_EQ(ci.output_oldest_blob_file_numbers[i],
+                it->oldest_blob_file_number);
+    }
+
     ASSERT_EQ(db->GetEnv()->GetThreadID(), ci.thread_id);
     ASSERT_GT(ci.thread_id, 0U);
 
@@ -98,6 +133,7 @@ class TestCompactionListener : public EventListener {
     }
   }
 
+  EventListenerTest* test_;
   std::vector<DB*> compacted_dbs_;
   std::mutex mutex_;
 };
@@ -125,7 +161,7 @@ TEST_F(EventListenerTest, OnSingleDBCompactionTest) {
   options.table_properties_collector_factories.push_back(
       std::make_shared<TestPropertiesCollectorFactory>());
 
-  TestCompactionListener* listener = new TestCompactionListener();
+  TestCompactionListener* listener = new TestCompactionListener(this);
   options.listeners.emplace_back(listener);
   std::vector<std::string> cf_names = {
       "pikachu", "ilya", "muromec", "dobrynia",
