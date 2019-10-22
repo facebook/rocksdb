@@ -348,8 +348,9 @@ Status Replayer::MultiThreadReplay(uint32_t threads_num) {
       // TODO: Add some validations later.
       break;
     } else {
-      // Other trace entry types that are not replayed.
-      assert(false);
+      // Other trace entry types that are not implemented for replay.
+      // To finish the replay, we continue the process.
+      continue;
     }
   }
 
