@@ -615,7 +615,7 @@ $CXX $PLATFORM_CXXFLAGS $COMMON_FLAGS -x c++ - -o /dev/null 2>/dev/null <<EOF
   }
 EOF
 if [ "$?" = 0 ]; then
-  COMMON_FLAGS="$COMMON_FLAGS $TRY_PCLMUL -DHAVE_UINT128_EXTENSION"
+  COMMON_FLAGS="$COMMON_FLAGS -DHAVE_UINT128_EXTENSION"
 fi
 
 # iOS doesn't support thread-local storage, but this check would erroneously
