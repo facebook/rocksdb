@@ -618,7 +618,8 @@ static enum rocksdb::ChecksumType FLAGS_checksum_type_e = rocksdb::kCRC32c;
 
 DEFINE_string(hdfs, "", "Name of hdfs environment");
 
-DEFINE_string(env_uri, "", "URI for env lookup. Mutually exclusive with --hdfs");
+DEFINE_string(env_uri, "",
+              "URI for env lookup. Mutually exclusive with --hdfs");
 
 static std::shared_ptr<rocksdb::Env> env_guard;
 // posix or hdfs environment
@@ -2990,8 +2991,8 @@ class StressTest {
 #else
       DBOptions db_options;
       std::vector<ColumnFamilyDescriptor> cf_descriptors;
-      Status s = LoadOptionsFromFile(FLAGS_options_file, FLAGS_env,
-                                     &db_options, &cf_descriptors);
+      Status s = LoadOptionsFromFile(FLAGS_options_file, FLAGS_env, &db_options,
+                                     &cf_descriptors);
       db_options.env = FLAGS_env;
       if (!s.ok()) {
         fprintf(stderr, "Unable to load options file %s --- %s\n",
