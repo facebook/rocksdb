@@ -603,6 +603,7 @@ set(SOURCES
         table/block_based/flush_block_policy.cc
         table/block_based/full_filter_block.cc
         table/block_based/index_builder.cc
+        table/block_based/parsed_full_filter_block.cc
         table/block_based/partitioned_filter_block.cc
         table/block_based/uncompression_dict_reader.cc
         table/block_fetcher.cc
@@ -1047,6 +1048,7 @@ if(WITH_TESTS)
     db/range_del_aggregator_bench.cc
     tools/db_bench.cc
     table/table_reader_bench.cc
+    util/filter_bench.cc
     utilities/persistent_cache/hash_table_bench.cc)
   add_library(testharness OBJECT test_util/testharness.cc)
   foreach(sourcefile ${BENCHMARKS})

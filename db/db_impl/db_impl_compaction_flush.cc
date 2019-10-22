@@ -174,8 +174,7 @@ Status DBImpl::FlushMemTableToOutputFile(
 
 #ifndef ROCKSDB_LITE
   // may temporarily unlock and lock the mutex.
-  NotifyOnFlushBegin(cfd, &file_meta, mutable_cf_options, job_context->job_id,
-                     flush_job.GetTableProperties());
+  NotifyOnFlushBegin(cfd, &file_meta, mutable_cf_options, job_context->job_id);
 #endif  // ROCKSDB_LITE
 
   Status s;
@@ -223,8 +222,8 @@ Status DBImpl::FlushMemTableToOutputFile(
   if (s.ok()) {
 #ifndef ROCKSDB_LITE
     // may temporarily unlock and lock the mutex.
-    NotifyOnFlushCompleted(cfd, &file_meta, mutable_cf_options,
-                           job_context->job_id, flush_job.GetTableProperties());
+    NotifyOnFlushCompleted(cfd, mutable_cf_options,
+                           flush_job.GetCommittedFlushJobsInfo());
     auto sfm = static_cast<SstFileManagerImpl*>(
         immutable_db_options_.sst_file_manager.get());
     if (sfm) {
@@ -243,6 +242,7 @@ Status DBImpl::FlushMemTableToOutputFile(
     }
 #endif  // ROCKSDB_LITE
   }
+  TEST_SYNC_POINT("DBImpl::FlushMemTableToOutputFile:Finish");
   return s;
 }
 
@@ -375,7 +375,7 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
     const MutableCFOptions& mutable_cf_options = all_mutable_cf_options.at(i);
     // may temporarily unlock and lock the mutex.
     NotifyOnFlushBegin(cfds[i], &file_meta[i], mutable_cf_options,
-                       job_context->job_id, jobs[i]->GetTableProperties());
+                       job_context->job_id);
   }
 #endif /* !ROCKSDB_LITE */
 
@@ -406,6 +406,8 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
       TEST_SYNC_POINT(
           "DBImpl::AtomicFlushMemTablesToOutputFiles:SomeFlushJobsComplete:2");
     }
+    assert(exec_status.size() > 0);
+    assert(!file_meta.empty());
     exec_status[0].second =
         jobs[0]->Run(&logs_with_prep_tracker_, &file_meta[0]);
     exec_status[0].first = true;
@@ -525,12 +527,13 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
 #ifndef ROCKSDB_LITE
     auto sfm = static_cast<SstFileManagerImpl*>(
         immutable_db_options_.sst_file_manager.get());
+    assert(all_mutable_cf_options.size() == static_cast<size_t>(num_cfs));
     for (int i = 0; i != num_cfs; ++i) {
       if (cfds[i]->IsDropped()) {
         continue;
       }
-      NotifyOnFlushCompleted(cfds[i], &file_meta[i], all_mutable_cf_options[i],
-                             job_context->job_id, jobs[i]->GetTableProperties());
+      NotifyOnFlushCompleted(cfds[i], all_mutable_cf_options[i],
+                             jobs[i]->GetCommittedFlushJobsInfo());
       if (sfm) {
         std::string file_path = MakeTableFileName(
             cfds[i]->ioptions()->cf_paths[0].path, file_meta[i].fd.GetNumber());
@@ -573,7 +576,7 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
 
 void DBImpl::NotifyOnFlushBegin(ColumnFamilyData* cfd, FileMetaData* file_meta,
                                 const MutableCFOptions& mutable_cf_options,
-                                int job_id, TableProperties prop) {
+                                int job_id) {
 #ifndef ROCKSDB_LITE
   if (immutable_db_options_.listeners.size() == 0U) {
     return;
@@ -604,7 +607,6 @@ void DBImpl::NotifyOnFlushBegin(ColumnFamilyData* cfd, FileMetaData* file_meta,
     info.triggered_writes_stop = triggered_writes_stop;
     info.smallest_seqno = file_meta->fd.smallest_seqno;
     info.largest_seqno = file_meta->fd.largest_seqno;
-    info.table_properties = prop;
     info.flush_reason = cfd->GetFlushReason();
     for (auto listener : immutable_db_options_.listeners) {
       listener->OnFlushBegin(this, info);
@@ -618,15 +620,14 @@ void DBImpl::NotifyOnFlushBegin(ColumnFamilyData* cfd, FileMetaData* file_meta,
   (void)file_meta;
   (void)mutable_cf_options;
   (void)job_id;
-  (void)prop;
 #endif  // ROCKSDB_LITE
 }
 
-void DBImpl::NotifyOnFlushCompleted(ColumnFamilyData* cfd,
-                                    FileMetaData* file_meta,
-                                    const MutableCFOptions& mutable_cf_options,
-                                    int job_id, TableProperties prop) {
+void DBImpl::NotifyOnFlushCompleted(
+    ColumnFamilyData* cfd, const MutableCFOptions& mutable_cf_options,
+    std::list<std::unique_ptr<FlushJobInfo>>* flush_jobs_info) {
 #ifndef ROCKSDB_LITE
+  assert(flush_jobs_info != nullptr);
   if (immutable_db_options_.listeners.size() == 0U) {
     return;
   }
@@ -643,34 +644,22 @@ void DBImpl::NotifyOnFlushCompleted(ColumnFamilyData* cfd,
   // release lock while notifying events
   mutex_.Unlock();
   {
-    FlushJobInfo info;
-    info.cf_id = cfd->GetID();
-    info.cf_name = cfd->GetName();
-    // TODO(yhchiang): make db_paths dynamic in case flush does not
-    //                 go to L0 in the future.
-    info.file_path = MakeTableFileName(cfd->ioptions()->cf_paths[0].path,
-                                       file_meta->fd.GetNumber());
-    info.thread_id = env_->GetThreadID();
-    info.job_id = job_id;
-    info.triggered_writes_slowdown = triggered_writes_slowdown;
-    info.triggered_writes_stop = triggered_writes_stop;
-    info.smallest_seqno = file_meta->fd.smallest_seqno;
-    info.largest_seqno = file_meta->fd.largest_seqno;
-    info.table_properties = prop;
-    info.flush_reason = cfd->GetFlushReason();
-    for (auto listener : immutable_db_options_.listeners) {
-      listener->OnFlushCompleted(this, info);
+    for (auto& info : *flush_jobs_info) {
+      info->triggered_writes_slowdown = triggered_writes_slowdown;
+      info->triggered_writes_stop = triggered_writes_stop;
+      for (auto listener : immutable_db_options_.listeners) {
+        listener->OnFlushCompleted(this, *info);
+      }
     }
+    flush_jobs_info->clear();
   }
   mutex_.Lock();
   // no need to signal bg_cv_ as it will be signaled at the end of the
   // flush process.
 #else
   (void)cfd;
-  (void)file_meta;
   (void)mutable_cf_options;
-  (void)job_id;
-  (void)prop;
+  (void)flush_jobs_info;
 #endif  // ROCKSDB_LITE
 }
 
@@ -1000,8 +989,9 @@ Status DBImpl::CompactFilesImpl(
   GetSnapshotContext(job_context, &snapshot_seqs,
                      &earliest_write_conflict_snapshot, &snapshot_checker);
 
-  auto pending_outputs_inserted_elem =
-      CaptureCurrentFileNumberInPendingOutputs();
+  std::unique_ptr<std::list<uint64_t>::iterator> pending_outputs_inserted_elem(
+      new std::list<uint64_t>::iterator(
+          CaptureCurrentFileNumberInPendingOutputs()));
 
   assert(is_snapshot_supported_ || snapshots_.empty());
   CompactionJobStats compaction_job_stats;
@@ -1287,7 +1277,7 @@ Status DBImpl::ReFitLevel(ColumnFamilyData* cfd, int level, int target_level) {
       edit.AddFile(to_level, f->fd.GetNumber(), f->fd.GetPathId(),
                    f->fd.GetFileSize(), f->smallest, f->largest,
                    f->fd.smallest_seqno, f->fd.largest_seqno,
-                   f->marked_for_compaction);
+                   f->marked_for_compaction, f->oldest_blob_file_number);
     }
     ROCKS_LOG_DEBUG(immutable_db_options_.info_log,
                     "[%s] Apply version edit:\n%s", cfd->GetName().c_str(),
@@ -2247,8 +2237,9 @@ void DBImpl::BackgroundCallFlush(Env::Priority thread_pri) {
     assert(bg_flush_scheduled_);
     num_running_flushes_++;
 
-    auto pending_outputs_inserted_elem =
-        CaptureCurrentFileNumberInPendingOutputs();
+    std::unique_ptr<std::list<uint64_t>::iterator>
+        pending_outputs_inserted_elem(new std::list<uint64_t>::iterator(
+            CaptureCurrentFileNumberInPendingOutputs()));
     FlushReason reason;
 
     Status s = BackgroundFlush(&made_progress, &job_context, &log_buffer,
@@ -2329,8 +2320,9 @@ void DBImpl::BackgroundCallCompaction(PrepickedCompaction* prepicked_compaction,
 
     num_running_compactions_++;
 
-    auto pending_outputs_inserted_elem =
-        CaptureCurrentFileNumberInPendingOutputs();
+    std::unique_ptr<std::list<uint64_t>::iterator>
+        pending_outputs_inserted_elem(new std::list<uint64_t>::iterator(
+            CaptureCurrentFileNumberInPendingOutputs()));
 
     assert((bg_thread_pri == Env::Priority::BOTTOM &&
             bg_bottom_compaction_scheduled_) ||
@@ -2685,7 +2677,8 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
         c->edit()->AddFile(c->output_level(), f->fd.GetNumber(),
                            f->fd.GetPathId(), f->fd.GetFileSize(), f->smallest,
                            f->largest, f->fd.smallest_seqno,
-                           f->fd.largest_seqno, f->marked_for_compaction);
+                           f->fd.largest_seqno, f->marked_for_compaction,
+                           f->oldest_blob_file_number);
 
         ROCKS_LOG_BUFFER(
             log_buffer,

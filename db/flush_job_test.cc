@@ -4,9 +4,11 @@
 //  (found in the LICENSE.Apache file in the root directory).
 
 #include <algorithm>
+#include <array>
 #include <map>
 #include <string>
 
+#include "db/blob_index.h"
 #include "db/column_family.h"
 #include "db/db_impl/db_impl.h"
 #include "db/flush_job.h"
@@ -160,6 +162,7 @@ TEST_F(FlushJobTest, NonEmpty) {
   //   seqno [    1,    2 ... 8998, 8999, 9000, 9001, 9002 ... 9999 ]
   //   key   [ 1001, 1002 ... 9998, 9999,    0,    1,    2 ...  999 ]
   //   range-delete "9995" -> "9999" at seqno 10000
+  //   blob references with seqnos 10001..10006
   for (int i = 1; i < 10000; ++i) {
     std::string key(ToString((i + 1000) % 10000));
     std::string value("value" + key);
@@ -169,9 +172,43 @@ TEST_F(FlushJobTest, NonEmpty) {
       inserted_keys.insert({internal_key.Encode().ToString(), value});
     }
   }
-  new_mem->Add(SequenceNumber(10000), kTypeRangeDeletion, "9995", "9999a");
-  InternalKey internal_key("9995", SequenceNumber(10000), kTypeRangeDeletion);
-  inserted_keys.insert({internal_key.Encode().ToString(), "9999a"});
+
+  {
+    new_mem->Add(SequenceNumber(10000), kTypeRangeDeletion, "9995", "9999a");
+    InternalKey internal_key("9995", SequenceNumber(10000), kTypeRangeDeletion);
+    inserted_keys.insert({internal_key.Encode().ToString(), "9999a"});
+  }
+
+#ifndef ROCKSDB_LITE
+  // Note: the first two blob references will not be considered when resolving
+  // the oldest blob file referenced (the first one is inlined TTL, while the
+  // second one is TTL and thus points to a TTL blob file).
+  constexpr std::array<uint64_t, 6> blob_file_numbers{
+      kInvalidBlobFileNumber, 5, 103, 17, 102, 101};
+  for (size_t i = 0; i < blob_file_numbers.size(); ++i) {
+    std::string key(ToString(i + 10001));
+    std::string blob_index;
+    if (i == 0) {
+      BlobIndex::EncodeInlinedTTL(&blob_index, /* expiration */ 1234567890ULL,
+                                  "foo");
+    } else if (i == 1) {
+      BlobIndex::EncodeBlobTTL(&blob_index, /* expiration */ 1234567890ULL,
+                               blob_file_numbers[i], /* offset */ i << 10,
+                               /* size */ i << 20, kNoCompression);
+    } else {
+      BlobIndex::EncodeBlob(&blob_index, blob_file_numbers[i],
+                            /* offset */ i << 10, /* size */ i << 20,
+                            kNoCompression);
+    }
+
+    const SequenceNumber seq(i + 10001);
+    new_mem->Add(seq, kTypeBlobIndex, key, blob_index);
+
+    InternalKey internal_key(key, seq, kTypeBlobIndex);
+    inserted_keys.emplace_hint(inserted_keys.end(),
+                               internal_key.Encode().ToString(), blob_index);
+  }
+#endif
 
   autovector<MemTable*> to_delete;
   cfd->imm()->Add(new_mem, &to_delete);
@@ -201,11 +238,14 @@ TEST_F(FlushJobTest, NonEmpty) {
   ASSERT_GT(hist.average, 0.0);
 
   ASSERT_EQ(ToString(0), file_meta.smallest.user_key().ToString());
-  ASSERT_EQ(
-      "9999a",
-      file_meta.largest.user_key().ToString());  // range tombstone end key
+  ASSERT_EQ("9999a", file_meta.largest.user_key().ToString());
   ASSERT_EQ(1, file_meta.fd.smallest_seqno);
-  ASSERT_EQ(10000, file_meta.fd.largest_seqno);  // range tombstone seqnum 10000
+#ifndef ROCKSDB_LITE
+  ASSERT_EQ(10006, file_meta.fd.largest_seqno);
+  ASSERT_EQ(17, file_meta.oldest_blob_file_number);
+#else
+  ASSERT_EQ(10000, file_meta.fd.largest_seqno);
+#endif
   mock_table_factory_->AssertSingleFile(inserted_keys);
   job_context.Clean();
 }
@@ -269,6 +309,7 @@ TEST_F(FlushJobTest, FlushMemTablesSingleColumnFamily) {
   ASSERT_EQ(0, file_meta.fd.smallest_seqno);
   ASSERT_EQ(SequenceNumber(num_mems_to_flush * num_keys_per_table - 1),
             file_meta.fd.largest_seqno);
+  ASSERT_EQ(kInvalidBlobFileNumber, file_meta.oldest_blob_file_number);
 
   for (auto m : to_delete) {
     delete m;

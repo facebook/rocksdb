@@ -757,8 +757,9 @@ DEFINE_bool(blob_db_is_fifo, false, "Enable FIFO eviction strategy in BlobDB.");
 DEFINE_uint64(blob_db_max_db_size, 0,
               "Max size limit of the directory where blob files are stored.");
 
-DEFINE_uint64(blob_db_max_ttl_range, 86400,
-              "TTL range to generate BlobDB data (in seconds).");
+DEFINE_uint64(
+    blob_db_max_ttl_range, 0,
+    "TTL range to generate BlobDB data (in seconds). 0 means no TTL.");
 
 DEFINE_uint64(blob_db_ttl_range_secs, 3600,
               "TTL bucket size to use when creating blob files.");
@@ -797,7 +798,6 @@ DEFINE_string(trace_file, "", "Trace workload to a file. ");
 
 DEFINE_int32(trace_replay_fast_forward, 1,
              "Fast forward trace replay, must >= 1. ");
-
 DEFINE_int32(block_cache_trace_sampling_frequency, 1,
              "Block cache trace sampling frequency, termed s. It uses spatial "
              "downsampling and samples accesses to one out of s blocks.");
@@ -808,6 +808,8 @@ DEFINE_int64(
     "will not be logged if the trace file size exceeds this threshold. Default "
     "is 64 GB.");
 DEFINE_string(block_cache_trace_file, "", "Block cache trace file path.");
+DEFINE_int32(trace_replay_threads, 1,
+             "The number of threads to replay, must >=1.");
 
 static enum rocksdb::CompressionType StringToCompressionType(const char* ctype) {
   assert(ctype);
@@ -4188,10 +4190,14 @@ class Benchmark {
         if (use_blob_db_) {
 #ifndef ROCKSDB_LITE
           Slice val = gen.Generate(value_size_);
-          int ttl = rand() % FLAGS_blob_db_max_ttl_range;
           blob_db::BlobDB* blobdb =
               static_cast<blob_db::BlobDB*>(db_with_cfh->db);
-          s = blobdb->PutWithTTL(write_options_, key, val, ttl);
+          if (FLAGS_blob_db_max_ttl_range > 0) {
+            int ttl = rand() % FLAGS_blob_db_max_ttl_range;
+            s = blobdb->PutWithTTL(write_options_, key, val, ttl);
+          } else {
+            s = blobdb->Put(write_options_, key, val);
+          }
 #endif  //  ROCKSDB_LITE
         } else if (FLAGS_num_column_families <= 1) {
           batch.Put(key, gen.Generate(value_size_));
@@ -6524,7 +6530,8 @@ class Benchmark {
                       std::move(trace_reader));
     replayer.SetFastForward(
         static_cast<uint32_t>(FLAGS_trace_replay_fast_forward));
-    s = replayer.Replay();
+    s = replayer.MultiThreadReplay(
+        static_cast<uint32_t>(FLAGS_trace_replay_threads));
     if (s.ok()) {
       fprintf(stdout, "Replay started from trace_file: %s\n",
               FLAGS_trace_file.c_str());

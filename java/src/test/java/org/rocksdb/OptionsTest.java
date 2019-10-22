@@ -763,6 +763,15 @@ public class OptionsTest {
   }
 
   @Test
+  public void unordredWrite() {
+    try(final Options opt = new Options()) {
+      assertThat(opt.unorderedWrite()).isFalse();
+      opt.setUnorderedWrite(true);
+      assertThat(opt.unorderedWrite()).isTrue();
+    }
+  }
+
+  @Test
   public void allowConcurrentMemtableWrite() {
     try (final Options opt = new Options()) {
       final boolean boolValue = rand.nextBoolean();

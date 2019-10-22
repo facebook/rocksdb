@@ -15,6 +15,7 @@ int main() {
 }
 #else
 
+#include <array>
 #include <vector>
 
 #include "logging/logging.h"
@@ -274,6 +275,10 @@ class FullBloomTest : public testing::Test {
     bits_builder_->AddKey(s);
   }
 
+  void OpenRaw(const Slice& s) {
+    bits_reader_.reset(policy_->GetFilterBitsReader(s));
+  }
+
   void Build() {
     Slice filter = bits_builder_->Finish(&buf_);
     bits_reader_.reset(policy_->GetFilterBitsReader(filter));
@@ -291,6 +296,17 @@ class FullBloomTest : public testing::Test {
       Build();
     }
     return bits_reader_->MayMatch(s);
+  }
+
+  uint64_t PackedMatches() {
+    char buffer[sizeof(int)];
+    uint64_t result = 0;
+    for (int i = 0; i < 64; i++) {
+      if (Matches(Key(i + 12345, buffer))) {
+        result |= uint64_t{1} << i;
+      }
+    }
+    return result;
   }
 
   double FalsePositiveRate() {
@@ -450,6 +466,173 @@ TEST_F(FullBloomTest, Schema) {
             SelectByCacheLineSize(2885052954U, 769447944, 4175124908U));
 
   ResetPolicy();
+}
+
+// A helper class for testing custom or corrupt filter bits as read by
+// FullFilterBitsReader.
+struct RawFilterTester {
+  // Buffer, from which we always return a tail Slice, so the
+  // last five bytes are always the metadata bytes.
+  std::array<char, 3000> data_;
+  // Points five bytes from the end
+  char* metadata_ptr_;
+
+  RawFilterTester() : metadata_ptr_(&*(data_.end() - 5)) {}
+
+  Slice ResetNoFill(uint32_t len_without_metadata, uint32_t num_lines,
+                     uint32_t num_probes) {
+    metadata_ptr_[0] = static_cast<char>(num_probes);
+    EncodeFixed32(metadata_ptr_ + 1, num_lines);
+    uint32_t len = len_without_metadata + /*metadata*/ 5;
+    assert(len <= data_.size());
+    return Slice(metadata_ptr_ - len_without_metadata, len);
+  }
+
+  Slice Reset(uint32_t len_without_metadata, uint32_t num_lines,
+               uint32_t num_probes, bool fill_ones) {
+    data_.fill(fill_ones ? 0xff : 0);
+    return ResetNoFill(len_without_metadata, num_lines, num_probes);
+  }
+
+  Slice ResetWeirdFill(uint32_t len_without_metadata, uint32_t num_lines,
+                        uint32_t num_probes) {
+    for (uint32_t i = 0; i < data_.size(); ++i) {
+      data_[i] = static_cast<char>(0x7b7b >> (i % 7));
+    }
+    return ResetNoFill(len_without_metadata, num_lines, num_probes);
+  }
+};
+
+TEST_F(FullBloomTest, RawSchema) {
+  RawFilterTester cft;
+  // Two probes, about 3/4 bits set: ~50% "FP" rate
+  // One 256-byte cache line.
+  OpenRaw(cft.ResetWeirdFill(256, 1, 2));
+  ASSERT_EQ(uint64_t{11384799501900898790U}, PackedMatches());
+
+  // Two 128-byte cache lines.
+  OpenRaw(cft.ResetWeirdFill(256, 2, 2));
+  ASSERT_EQ(uint64_t{10157853359773492589U}, PackedMatches());
+
+  // Four 64-byte cache lines.
+  OpenRaw(cft.ResetWeirdFill(256, 4, 2));
+  ASSERT_EQ(uint64_t{7123594913907464682U}, PackedMatches());
+}
+
+TEST_F(FullBloomTest, CorruptFilters) {
+  RawFilterTester cft;
+
+  for (bool fill : {false, true}) {
+    // Good filter bits - returns same as fill
+    OpenRaw(cft.Reset(CACHE_LINE_SIZE, 1, 6, fill));
+    ASSERT_EQ(fill, Matches("hello"));
+    ASSERT_EQ(fill, Matches("world"));
+
+    // Good filter bits - returns same as fill
+    OpenRaw(cft.Reset(CACHE_LINE_SIZE * 3, 3, 6, fill));
+    ASSERT_EQ(fill, Matches("hello"));
+    ASSERT_EQ(fill, Matches("world"));
+
+    // Good filter bits - returns same as fill
+    // 256 is unusual but legal cache line size
+    OpenRaw(cft.Reset(256 * 3, 3, 6, fill));
+    ASSERT_EQ(fill, Matches("hello"));
+    ASSERT_EQ(fill, Matches("world"));
+
+    // Good filter bits - returns same as fill
+    // 30 should be max num_probes
+    OpenRaw(cft.Reset(CACHE_LINE_SIZE, 1, 30, fill));
+    ASSERT_EQ(fill, Matches("hello"));
+    ASSERT_EQ(fill, Matches("world"));
+
+    // Good filter bits - returns same as fill
+    // 1 should be min num_probes
+    OpenRaw(cft.Reset(CACHE_LINE_SIZE, 1, 1, fill));
+    ASSERT_EQ(fill, Matches("hello"));
+    ASSERT_EQ(fill, Matches("world"));
+
+    // Type 1 trivial filter bits - returns true as if FP by zero probes
+    OpenRaw(cft.Reset(CACHE_LINE_SIZE, 1, 0, fill));
+    ASSERT_TRUE(Matches("hello"));
+    ASSERT_TRUE(Matches("world"));
+
+    // Type 2 trivial filter bits - returns false as if built from zero keys
+    OpenRaw(cft.Reset(0, 0, 6, fill));
+    ASSERT_FALSE(Matches("hello"));
+    ASSERT_FALSE(Matches("world"));
+
+    // Type 2 trivial filter bits - returns false as if built from zero keys
+    OpenRaw(cft.Reset(0, 37, 6, fill));
+    ASSERT_FALSE(Matches("hello"));
+    ASSERT_FALSE(Matches("world"));
+
+    // Type 2 trivial filter bits - returns false as 0 size trumps 0 probes
+    OpenRaw(cft.Reset(0, 0, 0, fill));
+    ASSERT_FALSE(Matches("hello"));
+    ASSERT_FALSE(Matches("world"));
+
+    // Bad filter bits - returns true for safety
+    // No solution to 0 * x == CACHE_LINE_SIZE
+    OpenRaw(cft.Reset(CACHE_LINE_SIZE, 0, 6, fill));
+    ASSERT_TRUE(Matches("hello"));
+    ASSERT_TRUE(Matches("world"));
+
+    // Bad filter bits - returns true for safety
+    // Can't have 3 * x == 4 for integer x
+    OpenRaw(cft.Reset(4, 3, 6, fill));
+    ASSERT_TRUE(Matches("hello"));
+    ASSERT_TRUE(Matches("world"));
+
+    // Bad filter bits - returns true for safety
+    // 97 bytes is not a power of two, so not a legal cache line size
+    OpenRaw(cft.Reset(97 * 3, 3, 6, fill));
+    ASSERT_TRUE(Matches("hello"));
+    ASSERT_TRUE(Matches("world"));
+
+    // Bad filter bits - returns true for safety
+    // 65 bytes is not a power of two, so not a legal cache line size
+    OpenRaw(cft.Reset(65 * 3, 3, 6, fill));
+    ASSERT_TRUE(Matches("hello"));
+    ASSERT_TRUE(Matches("world"));
+
+    // Bad filter bits - returns false as if built from zero keys
+    // < 5 bytes overall means missing even metadata
+    OpenRaw(cft.Reset(-1, 3, 6, fill));
+    ASSERT_FALSE(Matches("hello"));
+    ASSERT_FALSE(Matches("world"));
+
+    OpenRaw(cft.Reset(-5, 3, 6, fill));
+    ASSERT_FALSE(Matches("hello"));
+    ASSERT_FALSE(Matches("world"));
+
+    // Dubious filter bits - returns same as fill (for now)
+    // 31 is not a useful num_probes, nor generated by RocksDB unless directly
+    // using filter bits API without BloomFilterPolicy.
+    OpenRaw(cft.Reset(CACHE_LINE_SIZE, 1, 31, fill));
+    ASSERT_EQ(fill, Matches("hello"));
+    ASSERT_EQ(fill, Matches("world"));
+
+    // Dubious filter bits - returns same as fill (for now)
+    // Similar, with 127, largest positive char
+    OpenRaw(cft.Reset(CACHE_LINE_SIZE, 1, 127, fill));
+    ASSERT_EQ(fill, Matches("hello"));
+    ASSERT_EQ(fill, Matches("world"));
+
+    // Dubious filter bits - returns true (for now)
+    // num_probes set to 128 / -128, lowest negative char
+    // NB: Bug in implementation interprets this as negative and has same
+    // effect as zero probes, but effectively reserves negative char values
+    // for future use.
+    OpenRaw(cft.Reset(CACHE_LINE_SIZE, 1, 128, fill));
+    ASSERT_TRUE(Matches("hello"));
+    ASSERT_TRUE(Matches("world"));
+
+    // Dubious filter bits - returns true (for now)
+    // Similar, with 255 / -1
+    OpenRaw(cft.Reset(CACHE_LINE_SIZE, 1, 255, fill));
+    ASSERT_TRUE(Matches("hello"));
+    ASSERT_TRUE(Matches("world"));
+  }
 }
 
 }  // namespace rocksdb

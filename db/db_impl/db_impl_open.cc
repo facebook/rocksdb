@@ -235,6 +235,11 @@ Status DBImpl::ValidateOptions(const DBOptions& db_options) {
         "unordered_write is incompatible with enable_pipelined_write");
   }
 
+  if (db_options.atomic_flush && db_options.enable_pipelined_write) {
+    return Status::InvalidArgument(
+        "atomic_flush is incompatible with enable_pipelined_write");
+  }
+
   return Status::OK();
 }
 
@@ -1060,6 +1065,8 @@ Status DBImpl::RecoverLogFiles(const std::vector<uint64_t>& log_numbers,
       versions_->MarkFileNumberUsed(max_log_number + 1);
       status = versions_->LogAndApply(cfd, *cfd->GetLatestMutableCFOptions(),
                                       edit, &mutex_);
+      TEST_SYNC_POINT_CALLBACK("DBImpl::RecoverLogFiles:AfterLogAndApply",
+                               nullptr);
       if (!status.ok()) {
         // Recovery failed
         break;
@@ -1136,8 +1143,9 @@ Status DBImpl::WriteLevel0TableForRecovery(int job_id, ColumnFamilyData* cfd,
   mutex_.AssertHeld();
   const uint64_t start_micros = env_->NowMicros();
   FileMetaData meta;
-  auto pending_outputs_inserted_elem =
-      CaptureCurrentFileNumberInPendingOutputs();
+  std::unique_ptr<std::list<uint64_t>::iterator> pending_outputs_inserted_elem(
+      new std::list<uint64_t>::iterator(
+          CaptureCurrentFileNumberInPendingOutputs()));
   meta.fd = FileDescriptor(versions_->NewFileNumber(), 0, 0);
   ReadOptions ro;
   ro.total_order_seek = true;
@@ -1209,7 +1217,7 @@ Status DBImpl::WriteLevel0TableForRecovery(int job_id, ColumnFamilyData* cfd,
     edit->AddFile(level, meta.fd.GetNumber(), meta.fd.GetPathId(),
                   meta.fd.GetFileSize(), meta.smallest, meta.largest,
                   meta.fd.smallest_seqno, meta.fd.largest_seqno,
-                  meta.marked_for_compaction);
+                  meta.marked_for_compaction, meta.oldest_blob_file_number);
   }
 
   InternalStats::CompactionStats stats(CompactionReason::kFlush, 1);

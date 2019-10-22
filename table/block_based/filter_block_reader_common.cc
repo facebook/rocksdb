@@ -7,6 +7,7 @@
 #include "table/block_based/filter_block_reader_common.h"
 #include "monitoring/perf_context_imp.h"
 #include "table/block_based/block_based_table_reader.h"
+#include "table/block_based/parsed_full_filter_block.h"
 
 namespace rocksdb {
 
@@ -96,5 +97,6 @@ size_t FilterBlockReaderCommon<TBlocklike>::ApproximateFilterBlockMemoryUsage()
 // This makes it possible to keep the template definitions in the .cc file.
 template class FilterBlockReaderCommon<BlockContents>;
 template class FilterBlockReaderCommon<Block>;
+template class FilterBlockReaderCommon<ParsedFullFilterBlock>;
 
 }  // namespace rocksdb

@@ -129,6 +129,7 @@ LIB_SOURCES =                                                   \
   table/block_based/flush_block_policy.cc                       \
   table/block_based/full_filter_block.cc                        \
   table/block_based/index_builder.cc                            \
+  table/block_based/parsed_full_filter_block.cc                 \
   table/block_based/partitioned_filter_block.cc                 \
   table/block_based/uncompression_dict_reader.cc                \
   table/block_fetcher.cc                             		\
@@ -265,6 +266,9 @@ MOCK_LIB_SOURCES =                                              \
 BENCH_LIB_SOURCES =                                             \
   tools/db_bench_tool.cc                                        \
 
+STRESS_LIB_SOURCES =                                            \
+  tools/db_stress_tool.cc                                       \
+
 TEST_LIB_SOURCES =                                              \
   db/db_test_util.cc                                            \
   test_util/testharness.cc                                      \
@@ -396,6 +400,7 @@ MAIN_SOURCES =                                                          \
   tools/db_bench.cc                                                     \
   tools/db_bench_tool_test.cc                                           \
   tools/db_sanity_test.cc                                               \
+  tools/db_stress.cc                                                    \
   tools/ldb_cmd_test.cc                                                 \
   tools/reduce_levels_test.cc                                           \
   tools/sst_dump_test.cc                                                \

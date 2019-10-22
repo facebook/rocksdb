@@ -4,9 +4,9 @@
 //  (found in the LICENSE.Apache file in the root directory).
 
 #include "table/block_based/full_filter_block.h"
-
 #include "rocksdb/filter_policy.h"
 #include "table/block_based/block_based_table_reader.h"
+#include "table/block_based/mock_block_based_table.h"
 #include "table/full_filter_bits_builder.h"
 #include "test_util/testharness.h"
 #include "test_util/testutil.h"
@@ -100,28 +100,11 @@ class TestHashFilter : public FilterPolicy {
   }
 };
 
-class PluginFullFilterBlockTest : public testing::Test {
+class PluginFullFilterBlockTest : public mock::MockBlockBasedTableTester,
+                                  public testing::Test {
  public:
-  Options options_;
-  ImmutableCFOptions ioptions_;
-  EnvOptions env_options_;
-  BlockBasedTableOptions table_options_;
-  InternalKeyComparator icomp_;
-  std::unique_ptr<BlockBasedTable> table_;
-
   PluginFullFilterBlockTest()
-      : ioptions_(options_),
-        env_options_(options_),
-        icomp_(options_.comparator) {
-    table_options_.filter_policy.reset(new TestHashFilter);
-
-    constexpr bool skip_filters = false;
-    constexpr int level = 0;
-    constexpr bool immortal_table = false;
-    table_.reset(new MockBlockBasedTable(
-        new BlockBasedTable::Rep(ioptions_, env_options_, table_options_,
-                                 icomp_, skip_filters, level, immortal_table)));
-  }
+      : mock::MockBlockBasedTableTester(new TestHashFilter) {}
 };
 
 TEST_F(PluginFullFilterBlockTest, PluginEmptyBuilder) {
@@ -130,9 +113,10 @@ TEST_F(PluginFullFilterBlockTest, PluginEmptyBuilder) {
   Slice slice = builder.Finish();
   ASSERT_EQ("", EscapeString(slice));
 
-  CachableEntry<BlockContents> block(
-      new BlockContents(slice), nullptr /* cache */, nullptr /* cache_handle */,
-      true /* own_value */);
+  CachableEntry<ParsedFullFilterBlock> block(
+      new ParsedFullFilterBlock(table_options_.filter_policy.get(),
+                                BlockContents(slice)),
+      nullptr /* cache */, nullptr /* cache_handle */, true /* own_value */);
 
   FullFilterBlockReader reader(table_.get(), std::move(block));
   // Remain same symantic with blockbased filter
@@ -153,9 +137,10 @@ TEST_F(PluginFullFilterBlockTest, PluginSingleChunk) {
   builder.Add("hello");
   Slice slice = builder.Finish();
 
-  CachableEntry<BlockContents> block(
-      new BlockContents(slice), nullptr /* cache */, nullptr /* cache_handle */,
-      true /* own_value */);
+  CachableEntry<ParsedFullFilterBlock> block(
+      new ParsedFullFilterBlock(table_options_.filter_policy.get(),
+                                BlockContents(slice)),
+      nullptr /* cache */, nullptr /* cache_handle */, true /* own_value */);
 
   FullFilterBlockReader reader(table_.get(), std::move(block));
   ASSERT_TRUE(reader.KeyMayMatch("foo", /*prefix_extractor=*/nullptr,
@@ -193,28 +178,11 @@ TEST_F(PluginFullFilterBlockTest, PluginSingleChunk) {
       /*lookup_context=*/nullptr));
 }
 
-class FullFilterBlockTest : public testing::Test {
+class FullFilterBlockTest : public mock::MockBlockBasedTableTester,
+                            public testing::Test {
  public:
-  Options options_;
-  ImmutableCFOptions ioptions_;
-  EnvOptions env_options_;
-  BlockBasedTableOptions table_options_;
-  InternalKeyComparator icomp_;
-  std::unique_ptr<BlockBasedTable> table_;
-
   FullFilterBlockTest()
-      : ioptions_(options_),
-        env_options_(options_),
-        icomp_(options_.comparator) {
-    table_options_.filter_policy.reset(NewBloomFilterPolicy(10, false));
-
-    constexpr bool skip_filters = false;
-    constexpr int level = 0;
-    constexpr bool immortal_table = false;
-    table_.reset(new MockBlockBasedTable(
-        new BlockBasedTable::Rep(ioptions_, env_options_, table_options_,
-                                 icomp_, skip_filters, level, immortal_table)));
-  }
+      : mock::MockBlockBasedTableTester(NewBloomFilterPolicy(10, false)) {}
 };
 
 TEST_F(FullFilterBlockTest, EmptyBuilder) {
@@ -223,9 +191,10 @@ TEST_F(FullFilterBlockTest, EmptyBuilder) {
   Slice slice = builder.Finish();
   ASSERT_EQ("", EscapeString(slice));
 
-  CachableEntry<BlockContents> block(
-      new BlockContents(slice), nullptr /* cache */, nullptr /* cache_handle */,
-      true /* own_value */);
+  CachableEntry<ParsedFullFilterBlock> block(
+      new ParsedFullFilterBlock(table_options_.filter_policy.get(),
+                                BlockContents(slice)),
+      nullptr /* cache */, nullptr /* cache_handle */, true /* own_value */);
 
   FullFilterBlockReader reader(table_.get(), std::move(block));
   // Remain same symantic with blockbased filter
@@ -281,9 +250,10 @@ TEST_F(FullFilterBlockTest, SingleChunk) {
   ASSERT_EQ(5, builder.NumAdded());
   Slice slice = builder.Finish();
 
-  CachableEntry<BlockContents> block(
-      new BlockContents(slice), nullptr /* cache */, nullptr /* cache_handle */,
-      true /* own_value */);
+  CachableEntry<ParsedFullFilterBlock> block(
+      new ParsedFullFilterBlock(table_options_.filter_policy.get(),
+                                BlockContents(slice)),
+      nullptr /* cache */, nullptr /* cache_handle */, true /* own_value */);
 
   FullFilterBlockReader reader(table_.get(), std::move(block));
   ASSERT_TRUE(reader.KeyMayMatch("foo", /*prefix_extractor=*/nullptr,

@@ -990,30 +990,30 @@ TEST_F(DBBasicTest, MmapAndBufferOptions) {
 
 class TestEnv : public EnvWrapper {
   public:
-    explicit TestEnv() : EnvWrapper(Env::Default()),
-                close_count(0) { }
+   explicit TestEnv(Env* base_env) : EnvWrapper(base_env), close_count(0) {}
 
-    class TestLogger : public Logger {
-      public:
-        using Logger::Logv;
-        TestLogger(TestEnv *env_ptr) : Logger() { env = env_ptr; }
-        ~TestLogger() override {
-          if (!closed_) {
-            CloseHelper();
-          }
-        }
-        void Logv(const char* /*format*/, va_list /*ap*/) override{};
+   class TestLogger : public Logger {
+    public:
+     using Logger::Logv;
+     explicit TestLogger(TestEnv* env_ptr) : Logger() { env = env_ptr; }
+     ~TestLogger() override {
+       if (!closed_) {
+         CloseHelper();
+       }
+     }
+     void Logv(const char* /*format*/, va_list /*ap*/) override {}
 
-       protected:
-        Status CloseImpl() override { return CloseHelper(); }
+    protected:
+     Status CloseImpl() override { return CloseHelper(); }
 
-       private:
-        Status CloseHelper() {
-          env->CloseCountInc();;
-          return Status::IOError();
-        }
-        TestEnv *env;
-    };
+    private:
+     Status CloseHelper() {
+       env->CloseCountInc();
+       ;
+       return Status::IOError();
+     }
+     TestEnv* env;
+   };
 
     void CloseCountInc() { close_count++; }
 
@@ -1035,7 +1035,8 @@ TEST_F(DBBasicTest, DBClose) {
   ASSERT_OK(DestroyDB(dbname, options));
 
   DB* db = nullptr;
-  TestEnv* env = new TestEnv();
+  TestEnv* env = new TestEnv(env_);
+  std::unique_ptr<TestEnv> local_env_guard(env);
   options.create_if_missing = true;
   options.env = env;
   Status s = DB::Open(options, dbname, &db);
@@ -1069,13 +1070,11 @@ TEST_F(DBBasicTest, DBClose) {
   ASSERT_EQ(env->GetCloseCount(), 2);
   options.info_log.reset();
   ASSERT_EQ(env->GetCloseCount(), 3);
-
-  delete options.env;
 }
 
 TEST_F(DBBasicTest, DBCloseFlushError) {
   std::unique_ptr<FaultInjectionTestEnv> fault_injection_env(
-      new FaultInjectionTestEnv(Env::Default()));
+      new FaultInjectionTestEnv(env_));
   Options options = GetDefaultOptions();
   options.create_if_missing = true;
   options.manual_wal_flush = true;
@@ -1440,6 +1439,7 @@ class MultiGetPrefixExtractorTest : public DBBasicTest,
 TEST_P(MultiGetPrefixExtractorTest, Batched) {
   Options options = CurrentOptions();
   options.prefix_extractor.reset(NewFixedPrefixTransform(2));
+  options.memtable_prefix_bloom_size_ratio = 10;
   BlockBasedTableOptions bbto;
   if (GetParam()) {
     bbto.index_type = BlockBasedTableOptions::IndexType::kTwoLevelIndexSearch;
@@ -1451,17 +1451,30 @@ TEST_P(MultiGetPrefixExtractorTest, Batched) {
   options.table_factory.reset(NewBlockBasedTableFactory(bbto));
   Reopen(options);
 
+  SetPerfLevel(kEnableCount);
+  get_perf_context()->Reset();
+
   // First key is not in the prefix_extractor domain
   ASSERT_OK(Put("k", "v0"));
   ASSERT_OK(Put("kk1", "v1"));
   ASSERT_OK(Put("kk2", "v2"));
   ASSERT_OK(Put("kk3", "v3"));
   ASSERT_OK(Put("kk4", "v4"));
+  std::vector<std::string> mem_keys(
+      {"k", "kk1", "kk2", "kk3", "kk4", "rofl", "lmho"});
+  std::vector<std::string> inmem_values;
+  inmem_values = MultiGet(mem_keys, nullptr);
+  ASSERT_EQ(inmem_values[0], "v0");
+  ASSERT_EQ(inmem_values[1], "v1");
+  ASSERT_EQ(inmem_values[2], "v2");
+  ASSERT_EQ(inmem_values[3], "v3");
+  ASSERT_EQ(inmem_values[4], "v4");
+  ASSERT_EQ(get_perf_context()->bloom_memtable_miss_count, 2);
+  ASSERT_EQ(get_perf_context()->bloom_memtable_hit_count, 5);
   ASSERT_OK(Flush());
 
   std::vector<std::string> keys({"k", "kk1", "kk2", "kk3", "kk4"});
   std::vector<std::string> values;
-  SetPerfLevel(kEnableCount);
   get_perf_context()->Reset();
   values = MultiGet(keys, nullptr);
   ASSERT_EQ(values[0], "v0");

@@ -544,6 +544,15 @@ public class DBOptionsTest {
   }
 
   @Test
+  public void unordredWrite() {
+    try(final DBOptions opt = new DBOptions()) {
+      assertThat(opt.unorderedWrite()).isFalse();
+      opt.setUnorderedWrite(true);
+      assertThat(opt.unorderedWrite()).isTrue();
+    }
+  }
+
+  @Test
   public void allowConcurrentMemtableWrite() {
     try (final DBOptions opt = new DBOptions()) {
       final boolean boolValue = rand.nextBoolean();

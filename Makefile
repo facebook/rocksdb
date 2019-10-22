@@ -439,6 +439,8 @@ BENCHTOOLOBJECTS = $(BENCH_LIB_SOURCES:.cc=.o) $(LIBOBJECTS) $(TESTUTIL)
 
 ANALYZETOOLOBJECTS = $(ANALYZER_LIB_SOURCES:.cc=.o)
 
+STRESSTOOLOBJECTS = $(STRESS_LIB_SOURCES:.cc=.o) $(LIBOBJECTS) $(TESTUTIL)
+
 EXPOBJECTS = $(LIBOBJECTS) $(TESTUTIL)
 
 TESTS = \
@@ -649,7 +651,7 @@ TEST_LIBS = \
 	librocksdb_env_basic_test.a
 
 # TODO: add back forward_iterator_bench, after making it build in all environemnts.
-BENCHMARKS = db_bench table_reader_bench cache_bench memtablerep_bench persistent_cache_bench range_del_aggregator_bench
+BENCHMARKS = db_bench table_reader_bench cache_bench memtablerep_bench filter_bench persistent_cache_bench range_del_aggregator_bench
 
 # if user didn't config LIBNAME, set the default
 ifeq ($(LIBNAME),)
@@ -662,6 +664,7 @@ endif
 endif
 LIBRARY = ${LIBNAME}.a
 TOOLS_LIBRARY = ${LIBNAME}_tools.a
+STRESS_LIBRARY = ${LIBNAME}_stress.a
 
 ROCKSDB_MAJOR = $(shell egrep "ROCKSDB_MAJOR.[0-9]" include/rocksdb/version.h | cut -d ' ' -f 3)
 ROCKSDB_MINOR = $(shell egrep "ROCKSDB_MINOR.[0-9]" include/rocksdb/version.h | cut -d ' ' -f 3)
@@ -750,6 +753,8 @@ all_but_some_tests: $(LIBRARY) $(BENCHMARKS) tools tools_lib test_libs $(SUBSET)
 static_lib: $(LIBRARY)
 
 shared_lib: $(SHARED)
+
+stress_lib: $(STRESS_LIBRARY)
 
 tools: $(TOOLS)
 
@@ -1135,6 +1140,10 @@ $(TOOLS_LIBRARY): $(BENCH_LIB_SOURCES:.cc=.o) $(TOOL_LIB_SOURCES:.cc=.o) $(LIB_S
 	$(AM_V_AR)rm -f $@
 	$(AM_V_at)$(AR) $(ARFLAGS) $@ $^
 
+$(STRESS_LIBRARY): $(LIB_SOURCES:.cc=.o) $(TESTUTIL) $(ANALYZER_LIB_SOURCES:.cc=.o) $(STRESS_LIB_SOURCES:.cc=.o)
+	$(AM_V_AR)rm -f $@
+	$(AM_V_at)$(AR) $(ARFLAGS) $@ $^
+
 librocksdb_env_basic_test.a: env/env_basic_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_V_AR)rm -f $@
 	$(AM_V_at)$(AR) $(ARFLAGS) $@ $^
@@ -1162,7 +1171,10 @@ persistent_cache_bench: utilities/persistent_cache/persistent_cache_bench.o $(LI
 memtablerep_bench: memtable/memtablerep_bench.o $(LIBOBJECTS) $(TESTUTIL)
 	$(AM_LINK)
 
-db_stress: tools/db_stress.o $(LIBOBJECTS) $(TESTUTIL)
+filter_bench: util/filter_bench.o $(LIBOBJECTS) $(TESTUTIL)
+	$(AM_LINK)
+
+db_stress: tools/db_stress.o $(STRESSTOOLOBJECTS)
 	$(AM_LINK)
 
 write_stress: tools/write_stress.o $(LIBOBJECTS) $(TESTUTIL)
@@ -2035,7 +2047,7 @@ endif
 #  	Source files dependencies detection
 # ---------------------------------------------------------------------------
 
-all_sources = $(LIB_SOURCES) $(MAIN_SOURCES) $(MOCK_LIB_SOURCES) $(TOOL_LIB_SOURCES) $(BENCH_LIB_SOURCES) $(TEST_LIB_SOURCES) $(ANALYZER_LIB_SOURCES)
+all_sources = $(LIB_SOURCES) $(MAIN_SOURCES) $(MOCK_LIB_SOURCES) $(TOOL_LIB_SOURCES) $(BENCH_LIB_SOURCES) $(TEST_LIB_SOURCES) $(ANALYZER_LIB_SOURCES) $(STRESS_LIB_SOURCES)
 DEPFILES = $(all_sources:.cc=.cc.d)
 
 # Add proper dependency support so changing a .h file forces a .cc file to
