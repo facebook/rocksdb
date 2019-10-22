@@ -98,9 +98,13 @@ class TestCompactionListener : public EventListener {
     ASSERT_EQ(ci.output_files.size(),
               ci.output_oldest_blob_file_numbers.size());
 
+    ASSERT_TRUE(test_);
+    ASSERT_EQ(test_->db_, db);
+
     std::vector<std::vector<FileMetaData>> files_by_level;
     test_->dbfull()->TEST_GetFilesMetaData(test_->handles_[ci.cf_id],
                                            &files_by_level);
+    ASSERT_GT(files_by_level.size(), ci.output_level);
 
     for (size_t i = 0; i < ci.output_levels_and_file_numbers.size(); ++i) {
       ASSERT_EQ(ci.output_levels_and_file_numbers[i].first, ci.output_level);
@@ -193,8 +197,8 @@ TEST_F(EventListenerTest, OnSingleDBCompactionTest) {
 // This simple Listener can only handle one flush at a time.
 class TestFlushListener : public EventListener {
  public:
-  explicit TestFlushListener(Env* env)
-      : slowdown_count(0), stop_count(0), db_closed(), env_(env) {
+  TestFlushListener(Env* env, EventListenerTest* test)
+      : slowdown_count(0), stop_count(0), db_closed(), env_(env), test_(test) {
     db_closed = false;
   }
   void OnTableFileCreated(
@@ -246,6 +250,24 @@ class TestFlushListener : public EventListener {
     ASSERT_EQ(prev_fc_info_.cf_name, info.cf_name);
     ASSERT_EQ(prev_fc_info_.job_id, info.job_id);
     ASSERT_EQ(prev_fc_info_.file_path, info.file_path);
+    ASSERT_EQ(TableFileNameToNumber(info.file_path), info.file_number);
+
+    // Note: the following chunk relies on the test being single-DB.
+    if (test_) {
+      ASSERT_EQ(test_->db_, db);
+      std::vector<std::vector<FileMetaData>> files_by_level;
+      test_->dbfull()->TEST_GetFilesMetaData(test_->handles_[info.cf_id],
+                                             &files_by_level);
+
+      ASSERT_FALSE(files_by_level.empty());
+      auto it = std::find_if(files_by_level[0].begin(), files_by_level[0].end(),
+                             [&](const FileMetaData& meta) {
+                               return meta.fd.GetNumber() == info.file_number;
+                             });
+      ASSERT_NE(it, files_by_level[0].end());
+      ASSERT_EQ(info.oldest_blob_file_number, it->oldest_blob_file_number);
+    }
+
     ASSERT_EQ(db->GetEnv()->GetThreadID(), info.thread_id);
     ASSERT_GT(info.thread_id, 0U);
     ASSERT_EQ(info.table_properties.user_collected_properties.find("0")->second,
@@ -262,6 +284,7 @@ class TestFlushListener : public EventListener {
 
  protected:
   Env* env_;
+  EventListenerTest* test_;
 };
 
 TEST_F(EventListenerTest, OnSingleDBFlushTest) {
@@ -271,7 +294,7 @@ TEST_F(EventListenerTest, OnSingleDBFlushTest) {
 #ifdef ROCKSDB_USING_THREAD_STATUS
   options.enable_thread_tracking = true;
 #endif  // ROCKSDB_USING_THREAD_STATUS
-  TestFlushListener* listener = new TestFlushListener(options.env);
+  TestFlushListener* listener = new TestFlushListener(options.env, this);
   options.listeners.emplace_back(listener);
   std::vector<std::string> cf_names = {
       "pikachu", "ilya", "muromec", "dobrynia",
@@ -308,7 +331,7 @@ TEST_F(EventListenerTest, MultiCF) {
 #ifdef ROCKSDB_USING_THREAD_STATUS
   options.enable_thread_tracking = true;
 #endif  // ROCKSDB_USING_THREAD_STATUS
-  TestFlushListener* listener = new TestFlushListener(options.env);
+  TestFlushListener* listener = new TestFlushListener(options.env, this);
   options.listeners.emplace_back(listener);
   options.table_properties_collector_factories.push_back(
       std::make_shared<TestPropertiesCollectorFactory>());
@@ -349,7 +372,8 @@ TEST_F(EventListenerTest, MultiDBMultiListeners) {
   const int kNumDBs = 5;
   const int kNumListeners = 10;
   for (int i = 0; i < kNumListeners; ++i) {
-    listeners.emplace_back(new TestFlushListener(options.env));
+    listeners.emplace_back(
+        new TestFlushListener(options.env, /* test */ nullptr));
   }
 
   std::vector<std::string> cf_names = {
@@ -426,7 +450,7 @@ TEST_F(EventListenerTest, DisableBGCompaction) {
 #ifdef ROCKSDB_USING_THREAD_STATUS
   options.enable_thread_tracking = true;
 #endif  // ROCKSDB_USING_THREAD_STATUS
-  TestFlushListener* listener = new TestFlushListener(options.env);
+  TestFlushListener* listener = new TestFlushListener(options.env, this);
   const int kCompactionTrigger = 1;
   const int kSlowdownTrigger = 5;
   const int kStopTrigger = 100;
