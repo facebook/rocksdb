@@ -3553,6 +3553,7 @@ TEST_F(DBCompactionTest, FilesViolatingTtl) {
   size_t start;
   size_t end = 0;
   int count = 0;
+  std::cout << "Files: " << files;
   while ((start = files.find_first_not_of(":", end)) != std::string::npos) {
     end = files.find(":", start);
     count++;

@@ -9,6 +9,7 @@
 
 #include "db/version_set.h"
 
+#include <iostream>
 #include <stdio.h>
 #include <algorithm>
 #include <array>
@@ -1489,15 +1490,18 @@ void Version::GetFilesViolatingTtl(std::string* files) {
     return;
   }
   const uint64_t current_time = static_cast<uint64_t>(temp_current_time);
+  std::cout << "Current time: " << current_time;
   for (int level = 0; level < storage_info_.num_levels_; level++) {
     for (FileMetaData* meta : storage_info_.LevelFiles(level)) {
       uint64_t file_creation_time =
           meta->fd.table_reader->GetTableProperties()->file_creation_time;
+      std::cout << "File creation time: " << file_creation_time;
       if (file_creation_time == 0) continue;
       uint64_t periodic_compaction_seconds =
           cfd_->initial_cf_options().periodic_compaction_seconds;
       uint64_t ttl = cfd_->initial_cf_options().ttl;
       uint64_t time_limit = ttl > 0 ? ttl : periodic_compaction_seconds;
+      std::cout << "time limit: " << time_limit;
       if (current_time - file_creation_time > time_limit) {
         std::string fname =
             TableFileName(cfd_->ioptions()->cf_paths, meta->fd.GetNumber(),
