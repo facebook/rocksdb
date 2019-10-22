@@ -4978,7 +4978,7 @@ class Benchmark {
     thread->stats.AddMessage(msg);
   }
 
-  // THe reverse function of Pareto function
+  // The inverse function of Pareto distribution
   int64_t ParetoCdfInversion(double u, double theta, double k, double sigma) {
     double ret;
     if (k == 0.0) {
@@ -4988,7 +4988,7 @@ class Benchmark {
     }
     return static_cast<int64_t>(ceil(ret));
   }
-  // inversion of y=ax^b
+  // The inverse function of power distribution (y=ax^b)
   int64_t PowerCdfInversion(double u, double a, double b) {
     double ret;
     ret = std::pow((u / a), (1 / b));
@@ -5009,7 +5009,7 @@ class Benchmark {
     }
   }
 
-  // decide the query type
+  // Decide the ratio of different query types
   // 0 Get, 1 Put, 2 Seek, 3 SeekForPrev, 4 Delete, 5 SingleDelete, 6 merge
   class QueryDecider {
    public:
@@ -5058,6 +5058,19 @@ class Benchmark {
     int64_t prefix_keys;
   };
 
+  // From our observations, the prefix hotness (key-range hotness) follows
+  // the two-term-exponential distribution: f(x) = a*exp(b*x) + c*exp(d*x).
+  // However, we cannot directly use the inverse function to decide a
+  // key-range from a random distribution. To achieve it, we create a list of
+  // PrefixUnit, each PrefixUnit occupies a range of integers whose size is
+  // decided based on the hotness of the key-range. When a random value is
+  // generated based on uniform distribution, we map it to the PrefixUnit Vec
+  // and one PrefixUnit is selected. The probability of one PrefixUnit being
+  // selected is the same as the hotness of this PrefixUnit. After that, the
+  // key can be randomly allocated to the key-range of this PrefixUnit, or we
+  // can based on the power distribution (y=ax^b) to generate the offset of
+  // the key in the selected key-range. In this way, we generate the keyID
+  // based on the hotness of the prefix and also the key hotness distribution.
   class GenerateTwoTermExpKeys {
    public:
     int64_t prefix_rand_max_;
@@ -5073,17 +5086,18 @@ class Benchmark {
 
     ~GenerateTwoTermExpKeys() {}
 
-    Status InitiateExpDistribution(const int64_t total_keys, const double key_a,
-                                   const double key_b, const double prefix_a,
-                                   const double prefix_b, const double prefix_c,
-                                   const double prefix_d) {
+    // Initiate the PrefixUnit vector and calculate the size of each
+    // PrefixUnit.
+    Status InitiateExpDistribution(int64_t total_keys, double prefix_a,
+                                   double prefix_b, double prefix_c,
+                                   double prefix_d) {
       int64_t amplify = 0;
       int64_t prefix_start = 0;
       initiated_ = true;
       if (FLAGS_prefix_num <= 0) {
-        prefix_num = 1;
+        prefix_num_ = 1;
       } else {
-        prefix_num = FLAGS_prefix_num;
+        prefix_num_ = FLAGS_prefix_num;
       }
       prefix_size_ = total_keys / prefix_num_;
 
@@ -5130,11 +5144,12 @@ class Benchmark {
       return Status::OK();
     }
 
-    // Generate the Key ID according to the input ini_rand,
-    // which is the random number within the key_rand_max_
-    int64_t DistGetKeyID(const int64_t& ini_rand) {
+    // Generate the Key ID according to the input ini_rand and key distribution
+    int64_t DistGetKeyID(int64_t ini_rand, double key_dist_a,
+                         double key_dist_b) {
       int64_t prefix_rand = ini_rand % prefix_rand_max_;
 
+      // Calculate and select one key-range that contains the new key
       int64_t start = 0, end = static_cast<int64_t>(prefix_set_.size());
       while (start + 1 < end) {
         int64_t mid = start + (end - start) / 2;
@@ -5146,24 +5161,27 @@ class Benchmark {
       }
       int64_t prefix_id = start;
 
-      int64_t key_rand = ini_rand % key_rand_max_;
-      start = 0;
-      end = static_cast<int64_t>(key_set_.size());
-      while (start + 1 < end) {
-        int64_t mid = start + (end - start) / 2;
-        if (key_rand < key_set_[mid].key_start) {
-          end = mid;
-        } else {
-          start = mid;
-        }
+      // Select one key in the key-range and compose the keyID
+      int64_t key_offset = 0, key_seed;
+      if (key_dist_a == 0.0 && key_dist_b == 0.0) {
+        key_offset = ini_rand % prefix_size_;
+      } else {
+        key_seed = static_cast<int64_t>(
+            ceil(std::pow((ini_rand / key_dist_a), (1 / key_dist_b))));
+        Random64 rand_key(key_seed);
+        key_offset = static_cast<int64_t>(rand_key.Next()) % prefix_size_;
       }
-
-      Random64 rand_key(start);
-      return prefix_size_ * prefix_id + rand_key.Next() % prefix_size_;
+      return prefix_size_ * prefix_id + key_offset;
     }
   };
 
-  // The graph wokrload mixed with Get, Put, Iterator
+  // The social graph wokrload mixed with Get, Put, Iterator queries.
+  // The value size and iterator length follow Pareto distribution.
+  // The overall key access follow power distribution. If user models the
+  // workload based on different key-ranges (or different prefixes), user
+  // can use two-term-exponential distribution to fit the workload. User
+  // needs to decides the ratio between Get, Put, Iterator queries before
+  // starting the benchmark.
   void MixGraph(ThreadState* thread) {
     int64_t read = 0;  // including single gets and Next of iterators
     int64_t gets = 0;
@@ -5177,6 +5195,8 @@ class Benchmark {
     int64_t scan_len_max = FLAGS_mix_max_scan_len;
     double write_rate = 1000000.0;
     double read_rate = 1000000.0;
+    bool use_prefix_modeling = false;
+    GenerateTwoTermExpKeys gen_exp;
     std::vector<double> ratio{FLAGS_mix_get_ratio, FLAGS_mix_put_ratio,
                               FLAGS_mix_seek_ratio};
     char value_buffer[default_value_max];
@@ -5202,15 +5222,32 @@ class Benchmark {
           NewGenericRateLimiter(static_cast<int64_t>(write_rate)));
     }
 
+    // Decide if user wants to use prefix based key generation
+    if (FLAGS_prefix_dist_a != 0.0 || FLAGS_prefix_dist_b != 0.0 ||
+        FLAGS_prefix_dist_c != 0.0 || FLAGS_prefix_dist_d != 0.0) {
+      use_prefix_modeling = true;
+      gen_exp.InitiateExpDistribution(FLAGS_num, FLAGS_prefix_dist_a,
+                                      FLAGS_prefix_dist_b, FLAGS_prefix_dist_c,
+                                      FLAGS_prefix_dist_d);
+    }
+
     Duration duration(FLAGS_duration, reads_);
     while (!duration.Done(1)) {
       DBWithColumnFamilies* db_with_cfh = SelectDBWithCfh(thread);
-      int64_t rand_v, key_rand, key_seed;
-      rand_v = GetRandomKey(&thread->rand) % FLAGS_num;
+      int64_t ini_rand, rand_v, key_rand, key_seed;
+      ini_rand = GetRandomKey(&thread->rand);
+      rand_v = ini_rand % FLAGS_num;
       double u = static_cast<double>(rand_v) / FLAGS_num;
-      key_seed = PowerCdfInversion(u, FLAGS_key_dist_a, FLAGS_key_dist_b);
-      Random64 rand(key_seed);
-      key_rand = static_cast<int64_t>(rand.Next()) % FLAGS_num;
+
+      // Generate the keyID based on the key hotness and prefix hotness
+      if (use_prefix_modeling) {
+        key_rand =
+            gen_exp.DistGetKeyID(ini_rand, FLAGS_key_dist_a, FLAGS_key_dist_b);
+      } else {
+        key_seed = PowerCdfInversion(u, FLAGS_key_dist_a, FLAGS_key_dist_b);
+        Random64 rand(key_seed);
+        key_rand = static_cast<int64_t>(rand.Next()) % FLAGS_num;
+      }
       GenerateKeyFromInt(key_rand, FLAGS_num, &key);
       int query_type = query.GetType(rand_v);
 
