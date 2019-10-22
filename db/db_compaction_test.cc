@@ -3543,9 +3543,8 @@ TEST_F(DBCompactionTest, FilesViolatingTtl) {
     }
     Flush();
   }
-  dbfull()->TEST_WaitForCompact();
 
-  // Add 50 hours and do a write
+  // Add 50 hours
   env_->addon_time_.fetch_add(50 * 60 * 60);
   Slice slice;
   dbfull()->GetFilesViolatingTtl(&slice);
@@ -3553,7 +3552,8 @@ TEST_F(DBCompactionTest, FilesViolatingTtl) {
   size_t start;
   size_t end = 0;
   int count = 0;
-  std::cout << "Files: " << files;
+  std::cout << "Files-1: " << files << "\n";
+  std::cout << "Files-2: " << files.c_str() << "\n";
   while ((start = files.find_first_not_of(":", end)) != std::string::npos) {
     end = files.find(":", start);
     count++;
