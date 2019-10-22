@@ -4228,12 +4228,72 @@ class CfConsistencyStressTest : public StressTest {
                          const std::vector<int64_t>& rand_keys) {
     std::string key_str = Key(rand_keys[0]);
     Slice key = key_str;
-    auto cfh =
-        column_families_[rand_column_families[thread->rand.Next() %
-                                              rand_column_families.size()]];
-    std::string from_db;
-    Status s = db_->Get(readoptions, cfh, key, &from_db);
-    if (s.ok()) {
+    Status s;
+    bool is_consistent = true;
+
+    if (thread->rand.OneIn(2)) {
+      // 1/2 chance, does a random read from random CF
+      auto cfh =
+          column_families_[rand_column_families[thread->rand.Next() %
+                                                rand_column_families.size()]];
+      std::string from_db;
+      s = db_->Get(readoptions, cfh, key, &from_db);
+    } else {
+      // 1/2 chance, comparing one key is the same across all CFs
+      const Snapshot* snapshot = db_->GetSnapshot();
+      ReadOptions readoptionscopy = readoptions;
+      readoptionscopy.snapshot = snapshot;
+
+      std::string value0;
+      s = db_->Get(readoptionscopy, column_families_[rand_column_families[0]],
+                   key, &value0);
+      if (s.ok() || s.IsNotFound()) {
+        bool found = s.ok();
+        for (size_t i = 1; i < rand_column_families.size(); i++) {
+          std::string value1;
+          s = db_->Get(readoptionscopy,
+                       column_families_[rand_column_families[i]], key, &value1);
+          if (!s.ok() && !s.IsNotFound()) {
+            break;
+          }
+          if (!found && s.ok()) {
+            fprintf(stderr, "Get() return different results with key %s\n",
+                    key_str.c_str());
+            fprintf(stderr, "CF %s is not found\n",
+                    column_family_names_[0].c_str());
+            fprintf(stderr, "CF %s returns value %s\n",
+                    column_family_names_[i].c_str(), value1.c_str());
+            is_consistent = false;
+          } else if (found && s.IsNotFound()) {
+            fprintf(stderr, "Get() return different results with key %s\n",
+                    key_str.c_str());
+            fprintf(stderr, "CF %s returns value %s\n",
+                    column_family_names_[0].c_str(), value0.c_str());
+            fprintf(stderr, "CF %s is not found\n",
+                    column_family_names_[i].c_str());
+            is_consistent = false;
+          } else if (s.ok() && value0 != value1) {
+            fprintf(stderr, "Get() return different results with key %s\n",
+                    key_str.c_str());
+            fprintf(stderr, "CF %s returns value %s\n",
+                    column_family_names_[0].c_str(), value0.c_str());
+            fprintf(stderr, "CF %s returns value %s\n",
+                    column_family_names_[i].c_str(), value1.c_str());
+            is_consistent = false;
+          }
+          if (!is_consistent) {
+            break;
+          }
+        }
+      }
+
+      db_->ReleaseSnapshot(snapshot);
+    }
+    if (!is_consistent) {
+      thread->stats.AddErrors(1);
+      // Fail fast to preserve the DB state.
+      thread->shared->SetVerificationFailure();
+    } else if (s.ok()) {
       thread->stats.AddGets(1, 1);
     } else if (s.IsNotFound()) {
       thread->stats.AddGets(1, 0);
