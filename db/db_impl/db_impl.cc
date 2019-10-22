@@ -4271,26 +4271,20 @@ Status DBImpl::ReserveFileNumbersBeforeIngestion(
   return s;
 }
 
-Status DBImpl::GetFilesViolatingTtl(Slice* files) {
-  (void)files;
+Status DBImpl::GetFilesViolatingTtl(std::vector<std::string>& files) {
   if (mutable_db_options_.max_open_files == -1) {
-    std::string result;
     for (auto cfd : *versions_->GetColumnFamilySet()) {
       mutex_.Lock();
       if (cfd->IsDropped() ||
           (cfd->GetCurrentMutableCFOptions()->ttl == 0 &&
            cfd->GetCurrentMutableCFOptions()->periodic_compaction_seconds ==
                0)) {
+        mutex_.Unlock();
         continue;
       }
       mutex_.Unlock();
-      std::string current;
-      cfd->current()->GetFilesViolatingTtl(&current);
-      result.append(current);
+      cfd->current()->GetFilesViolatingTtl(files);
     }
-    files->clear();
-    files->size_ = result.size();
-    files->data_ = result.c_str();
   }
   return Status::OK();
 }

@@ -2798,7 +2798,8 @@ class ModelDB : public DB {
     return Status::OK();
   }
 
-  virtual Status GetFilesViolatingTtl(Slice* /*files*/) override {
+  virtual Status GetFilesViolatingTtl(
+      std::vector<std::string>& /*files*/) override {
     return Status::OK();
   }
 

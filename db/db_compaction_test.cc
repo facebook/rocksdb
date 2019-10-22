@@ -3546,17 +3546,37 @@ TEST_F(DBCompactionTest, FilesViolatingTtl) {
 
   // Add 50 hours
   env_->addon_time_.fetch_add(50 * 60 * 60);
-  Slice slice;
-  dbfull()->GetFilesViolatingTtl(&slice);
-  std::string files = slice.data();
-  size_t start;
-  size_t end = 0;
-  int count = 0;
-  while ((start = files.find_first_not_of(":", end)) != std::string::npos) {
-    end = files.find(":", start);
-    count++;
+  std::vector<std::string> files;
+  dbfull()->GetFilesViolatingTtl(files);
+  // Inserted 2 files so expect 2 files to violate periodic_compaction_seconds
+  // setting.
+  ASSERT_EQ(2, files.size());
+
+  // When periodic_compaction_seconds=0 and ttl=0 then no files
+  // should be returned.
+  options = CurrentOptions();
+  options.periodic_compaction_seconds = 0;
+  options.max_open_files = -1;  // needed for ttl compaction
+  env_->time_elapse_only_sleep_ = false;
+  options.env = env_;
+
+  env_->addon_time_.store(0);
+  DestroyAndReopen(options);
+
+  for (int i = 0; i < kNumLevelFiles; ++i) {
+    for (int j = 0; j < kNumKeysPerFile; ++j) {
+      ASSERT_OK(
+          Put(Key(i * kNumKeysPerFile + j), RandomString(&rnd, kValueSize)));
+    }
+    Flush();
   }
-  ASSERT_EQ(2, count + 1);
+
+  // Add 50 hours
+  env_->addon_time_.fetch_add(50 * 60 * 60);
+  std::vector<std::string> files_2;
+  dbfull()->GetFilesViolatingTtl(files_2);
+  // Inserted 2 files but ttl/periodic_compaction_seconds == 0
+  ASSERT_EQ(0, files.size());
 }
 
 TEST_F(DBCompactionTest, LevelPeriodicCompaction) {

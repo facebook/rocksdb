@@ -1481,8 +1481,7 @@ uint64_t Version::GetSstFilesSize() {
   return sst_files_size;
 }
 
-void Version::GetFilesViolatingTtl(std::string* files) {
-  (void)files;
+void Version::GetFilesViolatingTtl(std::vector<std::string>& files) {
   int64_t temp_current_time = 0;
   auto status = cfd_->ioptions()->env->GetCurrentTime(&temp_current_time);
   if (!status.ok()) {
@@ -1502,12 +1501,10 @@ void Version::GetFilesViolatingTtl(std::string* files) {
         std::string fname =
             TableFileName(cfd_->ioptions()->cf_paths, meta->fd.GetNumber(),
                           meta->fd.GetPathId());
-        files->append(fname);
-        files->append(",");
+        files.push_back(std::move(fname));
       }
     }
   }
-  if (!files->empty()) files->pop_back();
 }
 
 uint64_t VersionStorageInfo::GetEstimatedActiveKeys() const {

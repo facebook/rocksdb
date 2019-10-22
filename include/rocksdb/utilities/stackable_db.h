@@ -383,7 +383,8 @@ class StackableDB : public DB {
     return db_->GetCurrentWalFile(current_log_file);
   }
 
-  virtual Status GetFilesViolatingTtl(Slice* files) override {
+  virtual Status GetFilesViolatingTtl(
+      std::vector<std::string>& files) override {
     return db_->GetFilesViolatingTtl(files);
   }
 
