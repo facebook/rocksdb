@@ -315,11 +315,10 @@ Status Replayer::MultiThreadReplay(uint32_t threads_num) {
   ReadOptions roptions;
   uint64_t ops = 0;
   while (s.ok()) {
-    ReplayerWorkerArg* ra = new ReplayerWorkerArg;
+    std::unique_ptr<ReplayerWorkerArg> ra(new ReplayerWorkerArg);
     ra->db = db_;
     s = ReadTrace(&(ra->trace_entry));
     if (!s.ok()) {
-      delete ra;
       break;
     }
     ra->woptions = woptions;
@@ -329,26 +328,28 @@ Status Replayer::MultiThreadReplay(uint32_t threads_num) {
         replay_epoch + std::chrono::microseconds(
                            (ra->trace_entry.ts - header.ts) / fast_forward_));
     if (ra->trace_entry.type == kTraceWrite) {
-      thread_pool.Schedule(&Replayer::BGWorkWriteBatch, ra, nullptr, nullptr);
-      ops++;
-    } else if (ra->trace_entry.type == kTraceGet) {
-      thread_pool.Schedule(&Replayer::BGWorkGet, ra, nullptr, nullptr);
-      ops++;
-    } else if (ra->trace_entry.type == kTraceIteratorSeek) {
-      thread_pool.Schedule(&Replayer::BGWorkIterSeek, ra, nullptr, nullptr);
-      ops++;
-    } else if (ra->trace_entry.type == kTraceIteratorSeekForPrev) {
-      thread_pool.Schedule(&Replayer::BGWorkIterSeekForPrev, ra, nullptr,
+      thread_pool.Schedule(&Replayer::BGWorkWriteBatch, ra.release(), nullptr,
                            nullptr);
       ops++;
-    } else {
-      // It is the case that ra->trace_entry.type == kTraceEnd
-      assert(ra->trace_entry.type == kTraceEnd);
-
+    } else if (ra->trace_entry.type == kTraceGet) {
+      thread_pool.Schedule(&Replayer::BGWorkGet, ra.release(), nullptr,
+                           nullptr);
+      ops++;
+    } else if (ra->trace_entry.type == kTraceIteratorSeek) {
+      thread_pool.Schedule(&Replayer::BGWorkIterSeek, ra.release(), nullptr,
+                           nullptr);
+      ops++;
+    } else if (ra->trace_entry.type == kTraceIteratorSeekForPrev) {
+      thread_pool.Schedule(&Replayer::BGWorkIterSeekForPrev, ra.release(),
+                           nullptr, nullptr);
+      ops++;
+    } else if (ra->trace_entry.type == kTraceEnd) {
       // Do nothing for now, free the ReplayerWorkerArg.
       // TODO: Add some validations later.
-      delete ra;
       break;
+    } else {
+      // Other trace entry types that are not replayed.
+      assert(false);
     }
   }
 
