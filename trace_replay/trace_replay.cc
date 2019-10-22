@@ -343,7 +343,9 @@ Status Replayer::MultiThreadReplay(uint32_t threads_num) {
       ops++;
     } else {
       // It is the case that ra->trace_entry.type == kTraceEnd
-      // Do nothing for now.
+      assert(ra->trace_entry.type == kTraceEnd);
+
+      // Do nothing for now, free the ReplayerWorkerArg.
       // TODO: Add some validations later.
       delete ra;
       break;
