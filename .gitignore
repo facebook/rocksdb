@@ -82,3 +82,4 @@ tp2/
 fbcode/
 fbcode
 buckifier/*.pyc
+.vs
