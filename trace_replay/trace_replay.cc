@@ -344,7 +344,7 @@ Status Replayer::MultiThreadReplay(uint32_t threads_num) {
                            nullptr, nullptr);
       ops++;
     } else if (ra->trace_entry.type == kTraceEnd) {
-      // Do nothing for now, free the ReplayerWorkerArg.
+      // Do nothing for now.
       // TODO: Add some validations later.
       break;
     } else {
