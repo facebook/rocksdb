@@ -617,6 +617,11 @@ DEFINE_string(checksum_type, "kCRC32c", "Algorithm to use to checksum blocks");
 static enum rocksdb::ChecksumType FLAGS_checksum_type_e = rocksdb::kCRC32c;
 
 DEFINE_string(hdfs, "", "Name of hdfs environment");
+
+DEFINE_string(env_uri, "",
+              "URI for env lookup. Mutually exclusive with --hdfs");
+
+static std::shared_ptr<rocksdb::Env> env_guard;
 // posix or hdfs environment
 static rocksdb::Env* FLAGS_env = rocksdb::Env::Default();
 
@@ -2721,7 +2726,9 @@ class StressTest {
     assert(rand_column_families.size() == rand_keys.size());
     std::string checkpoint_dir =
         FLAGS_db + "/.checkpoint" + ToString(thread->tid);
-    DestroyDB(checkpoint_dir, Options());
+    Options tmp_opts(options_);
+    tmp_opts.listeners.clear();
+    DestroyDB(checkpoint_dir, tmp_opts);
     Checkpoint* checkpoint = nullptr;
     Status s = Checkpoint::Create(db_, &checkpoint);
     if (s.ok()) {
@@ -2777,7 +2784,7 @@ class StressTest {
       delete checkpoint_db;
       checkpoint_db = nullptr;
     }
-    DestroyDB(checkpoint_dir, Options());
+    DestroyDB(checkpoint_dir, tmp_opts);
     if (!s.ok()) {
       fprintf(stderr, "A checkpoint operation failed with: %s\n",
               s.ToString().c_str());
@@ -2984,8 +2991,9 @@ class StressTest {
 #else
       DBOptions db_options;
       std::vector<ColumnFamilyDescriptor> cf_descriptors;
-      Status s = LoadOptionsFromFile(FLAGS_options_file, Env::Default(),
-                                     &db_options, &cf_descriptors);
+      Status s = LoadOptionsFromFile(FLAGS_options_file, FLAGS_env, &db_options,
+                                     &cf_descriptors);
+      db_options.env = FLAGS_env;
       if (!s.ok()) {
         fprintf(stderr, "Unable to load options file %s --- %s\n",
                 FLAGS_options_file.c_str(), s.ToString().c_str());
@@ -3169,6 +3177,7 @@ class StressTest {
         secondaries_.resize(FLAGS_threads);
         std::fill(secondaries_.begin(), secondaries_.end(), nullptr);
         Options tmp_opts;
+        tmp_opts.env = options_.env;
         tmp_opts.max_open_files = FLAGS_open_files;
         for (size_t i = 0; i != static_cast<size_t>(FLAGS_threads); ++i) {
           const std::string secondary_path =
@@ -3694,7 +3703,7 @@ class NonBatchedOpsStressTest : public StressTest {
       s = FLAGS_env->DeleteFile(sst_filename);
     }
 
-    SstFileWriter sst_file_writer(EnvOptions(), options_);
+    SstFileWriter sst_file_writer(EnvOptions(options_), options_);
     if (s.ok()) {
       s = sst_file_writer.Open(sst_filename);
     }
@@ -4324,7 +4333,7 @@ class CfConsistencyStressTest : public StressTest {
       const std::vector<int64_t>& /* rand_keys */) {
     std::string checkpoint_dir =
         FLAGS_db + "/.checkpoint" + ToString(thread->tid);
-    DestroyDB(checkpoint_dir, Options());
+    DestroyDB(checkpoint_dir, options_);
     Checkpoint* checkpoint = nullptr;
     Status s = Checkpoint::Create(db_, &checkpoint);
     if (s.ok()) {
@@ -4358,7 +4367,7 @@ class CfConsistencyStressTest : public StressTest {
       delete checkpoint_db;
       checkpoint_db = nullptr;
     }
-    DestroyDB(checkpoint_dir, Options());
+    DestroyDB(checkpoint_dir, options_);
     if (!s.ok()) {
       fprintf(stderr, "A checkpoint operation failed with: %s\n",
               s.ToString().c_str());
@@ -4546,7 +4555,17 @@ int db_stress_tool(int argc, char** argv) {
       StringToCompressionType(FLAGS_compression_type.c_str());
   FLAGS_checksum_type_e = StringToChecksumType(FLAGS_checksum_type.c_str());
   if (!FLAGS_hdfs.empty()) {
+    if (!FLAGS_env_uri.empty()) {
+      fprintf(stderr, "Cannot specify both --hdfs and --env_uri.\n");
+      exit(1);
+    }
     FLAGS_env = new rocksdb::HdfsEnv(FLAGS_hdfs);
+  } else if (!FLAGS_env_uri.empty()) {
+    Status s = Env::LoadEnv(FLAGS_env_uri, &FLAGS_env, &env_guard);
+    if (FLAGS_env == nullptr) {
+      fprintf(stderr, "No Env registered for URI: %s\n", FLAGS_env_uri.c_str());
+      exit(1);
+    }
   }
   FLAGS_rep_factory = StringToRepFactory(FLAGS_memtablerep.c_str());
 
@@ -4644,7 +4663,7 @@ int db_stress_tool(int argc, char** argv) {
   // Choose a location for the test database if none given with --db=<path>
   if (FLAGS_db.empty()) {
     std::string default_db_path;
-    rocksdb::Env::Default()->GetTestDirectory(&default_db_path);
+    FLAGS_env->GetTestDirectory(&default_db_path);
     default_db_path += "/dbstress";
     FLAGS_db = default_db_path;
   }
