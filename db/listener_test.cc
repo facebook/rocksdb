@@ -3,6 +3,7 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
+#include "db/blob_index.h"
 #include "db/db_impl/db_impl.h"
 #include "db/db_test_util.h"
 #include "db/dbformat.h"
@@ -41,6 +42,14 @@ namespace rocksdb {
 class EventListenerTest : public DBTestBase {
  public:
   EventListenerTest() : DBTestBase("/listener_test") {}
+
+  static std::string BlobStr(uint64_t blob_file_number, uint64_t offset,
+                             uint64_t size) {
+    std::string blob_index;
+    BlobIndex::EncodeBlob(&blob_index, blob_file_number, offset, size,
+                          kNoCompression);
+    return blob_index;
+  }
 
   const size_t k110KB = 110 << 10;
 };
