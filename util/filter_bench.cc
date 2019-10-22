@@ -217,7 +217,8 @@ struct FilterBench : public MockBlockBasedTableTester {
 
   void Go();
 
-  double RandomQueryTest(bool inside, bool dry_run, TestMode mode);
+  double RandomQueryTest(uint32_t inside_threshold, bool dry_run,
+                         TestMode mode);
 };
 
 void FilterBench::Go() {
@@ -345,26 +346,46 @@ void FilterBench::Go() {
   }
 
   std::cout << "----------------------------" << std::endl;
-  std::cout << "Inside queries..." << std::endl;
+  std::cout << "Mixed inside/outside queries..." << std::endl;
+  // 50% each inside and outside
+  uint32_t inside_threshold = UINT32_MAX / 2;
   for (TestMode tm : testModes) {
     random_.Seed(FLAGS_seed + 1);
-    double f = RandomQueryTest(/*inside*/ true, /*dry_run*/ false, tm);
+    double f = RandomQueryTest(inside_threshold, /*dry_run*/ false, tm);
     random_.Seed(FLAGS_seed + 1);
-    double d = RandomQueryTest(/*inside*/ true, /*dry_run*/ true, tm);
+    double d = RandomQueryTest(inside_threshold, /*dry_run*/ true, tm);
     std::cout << "  " << TestModeToString(tm) << " net ns/op: " << (f - d)
               << std::endl;
   }
-  std::cout << fp_rate_report_.str();
 
-  std::cout << "----------------------------" << std::endl;
-  std::cout << "Outside queries..." << std::endl;
-  for (TestMode tm : testModes) {
-    random_.Seed(FLAGS_seed + 2);
-    double f = RandomQueryTest(/*inside*/ false, /*dry_run*/ false, tm);
-    random_.Seed(FLAGS_seed + 2);
-    double d = RandomQueryTest(/*inside*/ false, /*dry_run*/ true, tm);
-    std::cout << "  " << TestModeToString(tm) << " net ns/op: " << (f - d)
-              << std::endl;
+  if (!FLAGS_quick) {
+    std::cout << "----------------------------" << std::endl;
+    std::cout << "Inside queries (mostly)..." << std::endl;
+    // Do about 95% inside queries rather than 100% so that branch predictor
+    // can't give itself an artifically crazy advantage.
+    inside_threshold = UINT32_MAX / 20 * 19;
+    for (TestMode tm : testModes) {
+      random_.Seed(FLAGS_seed + 1);
+      double f = RandomQueryTest(inside_threshold, /*dry_run*/ false, tm);
+      random_.Seed(FLAGS_seed + 1);
+      double d = RandomQueryTest(inside_threshold, /*dry_run*/ true, tm);
+      std::cout << "  " << TestModeToString(tm) << " net ns/op: " << (f - d)
+                << std::endl;
+    }
+
+    std::cout << "----------------------------" << std::endl;
+    std::cout << "Outside queries (mostly)..." << std::endl;
+    // Do about 95% outside queries rather than 100% so that branch predictor
+    // can't give itself an artifically crazy advantage.
+    inside_threshold = UINT32_MAX / 20;
+    for (TestMode tm : testModes) {
+      random_.Seed(FLAGS_seed + 2);
+      double f = RandomQueryTest(inside_threshold, /*dry_run*/ false, tm);
+      random_.Seed(FLAGS_seed + 2);
+      double d = RandomQueryTest(inside_threshold, /*dry_run*/ true, tm);
+      std::cout << "  " << TestModeToString(tm) << " net ns/op: " << (f - d)
+                << std::endl;
+    }
   }
   std::cout << fp_rate_report_.str();
 
@@ -372,7 +393,8 @@ void FilterBench::Go() {
   std::cout << "Done. (For more info, run with -legend or -help.)" << std::endl;
 }
 
-double FilterBench::RandomQueryTest(bool inside, bool dry_run, TestMode mode) {
+double FilterBench::RandomQueryTest(uint32_t inside_threshold, bool dry_run,
+                                    TestMode mode) {
   for (auto &info : infos_) {
     info.outside_queries_ = 0;
     info.false_positives_ = 0;
@@ -423,6 +445,8 @@ double FilterBench::RandomQueryTest(bool inside, bool dry_run, TestMode mode) {
   rocksdb::StopWatchNano timer(rocksdb::Env::Default(), true);
 
   for (uint64_t q = 0; q < max_queries; q += batch_size) {
+    bool inside_this_time = random_.Next() <= inside_threshold;
+
     uint32_t filter_index;
     if (random_.Next() <= primary_filter_threshold) {
       filter_index = random_.Uniformish(num_primary_filters);
@@ -433,7 +457,7 @@ double FilterBench::RandomQueryTest(bool inside, bool dry_run, TestMode mode) {
     }
     FilterInfo &info = infos_[filter_index];
     for (uint32_t i = 0; i < batch_size; ++i) {
-      if (inside) {
+      if (inside_this_time) {
         batch_slices[i] =
             kms_[i].Get(info.filter_id_, random_.Uniformish(info.keys_added_));
       } else {
@@ -460,7 +484,7 @@ double FilterBench::RandomQueryTest(bool inside, bool dry_run, TestMode mode) {
                                batch_results.get());
       }
       for (uint32_t i = 0; i < batch_size; ++i) {
-        if (inside) {
+        if (inside_this_time) {
           ALWAYS_ASSERT(batch_results[i]);
         } else {
           info.false_positives_ += batch_results[i];
@@ -498,7 +522,7 @@ double FilterBench::RandomQueryTest(bool inside, bool dry_run, TestMode mode) {
             may_match = info.reader_->MayMatch(batch_slices[i]);
           }
         }
-        if (inside) {
+        if (inside_this_time) {
           ALWAYS_ASSERT(may_match);
         } else {
           info.false_positives_ += may_match;
@@ -522,7 +546,8 @@ double FilterBench::RandomQueryTest(bool inside, bool dry_run, TestMode mode) {
     std::cout << "ns/op: " << ns << std::endl;
   }
 
-  if (!inside && !dry_run && mode == kRandomFilter) {
+  if (!dry_run) {
+    fp_rate_report_ = std::ostringstream();
     uint64_t q = 0;
     uint64_t fp = 0;
     double worst_fp_rate = 0.0;
@@ -545,8 +570,6 @@ double FilterBench::RandomQueryTest(bool inside, bool dry_run, TestMode mode) {
       fp_rate_report_ << "    Best possible bits/key: "
                       << -std::log(double(fp) / q) / std::log(2.0) << std::endl;
     }
-  } else {
-    fp_rate_report_.clear();
   }
   return ns;
 }
