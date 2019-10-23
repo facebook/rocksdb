@@ -11,6 +11,7 @@ try:
 except ImportError:
     from __builtin__ import object
 import subprocess
+import sys
 import os
 import time
 
@@ -25,6 +26,11 @@ class ColorString(object):
 
     @staticmethod
     def _make_color_str(text, color):
+        # In Python2, default encoding for unicode string is ASCII
+        if sys.version_info.major <= 2:
+            return "".join(
+                [color, text.encode('utf-8'), ColorString.ENDC])
+        # From Python3, default encoding for unicode string is UTF-8
         return "".join(
             [color, text, ColorString.ENDC])
 

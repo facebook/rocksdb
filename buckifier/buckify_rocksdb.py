@@ -123,13 +123,7 @@ def get_dependencies():
     def encode_dict(data):
         rv = {}
         for k, v in data.items():
-            if isinstance(k, str):
-                k = k
-            if isinstance(v, str):
-                v = v
-            elif isinstance(v, list):
-                v = [x for x in v]
-            elif isinstance(v, dict):
+            if isinstance(v, dict):
                 v = encode_dict(v)
             rv[k] = v
         return rv
