@@ -181,6 +181,12 @@ TEST_F(EventListenerTest, OnSingleDBCompactionTest) {
       "nikitich", "alyosha", "popovich"};
   CreateAndReopenWithCF(cf_names, options);
   ASSERT_OK(Put(1, "pikachu", std::string(90000, 'p')));
+
+  WriteBatch batch;
+  ASSERT_OK(WriteBatchInternal::PutBlobIndex(&batch, 1, "ditto",
+                                             BlobStr(123, 0, 1 << 10)));
+  ASSERT_OK(dbfull()->Write(WriteOptions(), &batch));
+
   ASSERT_OK(Put(2, "ilya", std::string(90000, 'i')));
   ASSERT_OK(Put(3, "muromec", std::string(90000, 'm')));
   ASSERT_OK(Put(4, "dobrynia", std::string(90000, 'd')));
@@ -189,11 +195,9 @@ TEST_F(EventListenerTest, OnSingleDBCompactionTest) {
   ASSERT_OK(Put(7, "popovich", std::string(90000, 'p')));
   for (int i = 1; i < 8; ++i) {
     ASSERT_OK(Flush(i));
-    const Slice kRangeStart = "a";
-    const Slice kRangeEnd = "z";
-    ASSERT_OK(dbfull()->CompactRange(CompactRangeOptions(), handles_[i],
-                                     &kRangeStart, &kRangeEnd));
     dbfull()->TEST_WaitForFlushMemTable();
+    ASSERT_OK(dbfull()->CompactRange(CompactRangeOptions(), handles_[i],
+                                     nullptr, nullptr));
     dbfull()->TEST_WaitForCompact();
   }
 
@@ -313,6 +317,12 @@ TEST_F(EventListenerTest, OnSingleDBFlushTest) {
   CreateAndReopenWithCF(cf_names, options);
 
   ASSERT_OK(Put(1, "pikachu", std::string(90000, 'p')));
+
+  WriteBatch batch;
+  ASSERT_OK(WriteBatchInternal::PutBlobIndex(&batch, 1, "ditto",
+                                             BlobStr(456, 0, 1 << 10)));
+  ASSERT_OK(dbfull()->Write(WriteOptions(), &batch));
+
   ASSERT_OK(Put(2, "ilya", std::string(90000, 'i')));
   ASSERT_OK(Put(3, "muromec", std::string(90000, 'm')));
   ASSERT_OK(Put(4, "dobrynia", std::string(90000, 'd')));
