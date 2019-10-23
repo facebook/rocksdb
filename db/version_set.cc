@@ -1488,11 +1488,11 @@ void Version::GetCreationTimeOfOldestFile(uint64_t* creation_time) {
       uint64_t file_creation_time =
           meta->fd.table_reader->GetTableProperties()->file_creation_time;
       if (file_creation_time == 0) {
-          *creation_time = file_creation_time;
-          return;
+        *creation_time = file_creation_time;
+        return;
       }
       if (file_creation_time < oldest_time) {
-          oldest_time = file_creation_time;
+        oldest_time = file_creation_time;
       }
     }
   }

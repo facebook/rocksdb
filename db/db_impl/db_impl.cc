@@ -4278,10 +4278,10 @@ Status DBImpl::GetCreationTimeOfOldestFile(std::string* creation_time) {
       uint64_t ctime;
       cfd->current()->GetCreationTimeOfOldestFile(&ctime);
       if (ctime < oldest_time) {
-          oldest_time = ctime;
+        oldest_time = ctime;
       }
       if (oldest_time == 0) {
-          break;
+        break;
       }
     }
     creation_time->append(std::to_string(oldest_time));

@@ -1140,6 +1140,8 @@ class DB {
   virtual Status GetCurrentWalFile(
       std::unique_ptr<LogFile>* current_log_file) = 0;
 
+  // Retrieves the creation time of the oldest file in the DB.
+  // This API only works if max_open_files = -1;
   virtual Status GetCreationTimeOfOldestFile(std::string* creation_time) = 0;
 
   // Note: this API is not yet consistent with WritePrepared transactions.
