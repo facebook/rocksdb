@@ -1120,9 +1120,10 @@ void DBImpl::NotifyOnCompactionBegin(ColumnFamilyData* cfd, Compaction* c,
     info.compression = c->output_compression();
     for (size_t i = 0; i < c->num_input_levels(); ++i) {
       for (const auto fmd : *c->inputs(i)) {
-        const uint64_t file_number = fmd->fd.GetNumber();
+        const FileDescriptor& desc = fmd->fd;
+        const uint64_t file_number = desc.GetNumber();
         auto fn = TableFileName(c->immutable_cf_options()->cf_paths,
-                                file_number, fmd->fd.GetPathId());
+                                file_number, desc.GetPathId());
         info.input_files.push_back(fn);
         info.input_levels_and_file_numbers.emplace_back(i, file_number);
         if (info.table_properties.count(fn) == 0) {
@@ -2962,9 +2963,10 @@ void DBImpl::BuildCompactionJobInfo(
   compaction_job_info->compression = c->output_compression();
   for (size_t i = 0; i < c->num_input_levels(); ++i) {
     for (const auto fmd : *c->inputs(i)) {
-      const uint64_t file_number = fmd->fd.GetNumber();
+      const FileDescriptor& desc = fmd->fd;
+      const uint64_t file_number = desc.GetNumber();
       auto fn = TableFileName(c->immutable_cf_options()->cf_paths, file_number,
-                              fmd->fd.GetPathId());
+                              desc.GetPathId());
       compaction_job_info->input_files.push_back(fn);
       compaction_job_info->input_levels_and_file_numbers.emplace_back(
           i, file_number);
