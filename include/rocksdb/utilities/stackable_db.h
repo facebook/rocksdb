@@ -384,7 +384,7 @@ class StackableDB : public DB {
   }
 
   virtual Status GetCreationTimeOfOldestFile(
-      std::string* creation_time) override {
+      uint64_t* creation_time) override {
     return db_->GetCreationTimeOfOldestFile(creation_time);
   }
 

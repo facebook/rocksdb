@@ -4271,7 +4271,7 @@ Status DBImpl::ReserveFileNumbersBeforeIngestion(
   return s;
 }
 
-Status DBImpl::GetCreationTimeOfOldestFile(std::string* creation_time) {
+Status DBImpl::GetCreationTimeOfOldestFile(uint64_t* creation_time) {
   if (mutable_db_options_.max_open_files == -1) {
     uint64_t oldest_time = ULONG_MAX;
     for (auto cfd : *versions_->GetColumnFamilySet()) {
@@ -4284,7 +4284,7 @@ Status DBImpl::GetCreationTimeOfOldestFile(std::string* creation_time) {
         break;
       }
     }
-    creation_time->append(std::to_string(oldest_time));
+    *creation_time = oldest_time;
   }
   return Status::OK();
 }

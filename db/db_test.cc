@@ -2799,7 +2799,7 @@ class ModelDB : public DB {
   }
 
   virtual Status GetCreationTimeOfOldestFile(
-      std::string* /*creation_time*/) override {
+      uint64_t* /*creation_time*/) override {
     return Status::OK();
   }
 
@@ -6276,7 +6276,7 @@ TEST_F(DBTest, LargeBlockSizeTest) {
   ASSERT_NOK(TryReopenWithColumnFamilies({"default", "pikachu"}, options));
 }
 
-TEST_F(DBCompactionTest, CreationTimeOfOldestFile) {
+TEST_F(DBTest, CreationTimeOfOldestFile) {
   const int kNumKeysPerFile = 32;
   const int kNumLevelFiles = 2;
   const int kValueSize = 100;
@@ -6312,7 +6312,7 @@ TEST_F(DBCompactionTest, CreationTimeOfOldestFile) {
             idx++;
           } else if (idx == 1) {
             props->file_creation_time = uint_time_1;
-            idx == 0;
+            idx = 0;
           }
         } else {
           if (idx == 0) {
@@ -6336,9 +6336,9 @@ TEST_F(DBCompactionTest, CreationTimeOfOldestFile) {
 
   // At this point there should be 2 files, oen with file_creation_time = 0 and
   // the other non-zero. GetCreationTimeOfOldestFile API should return 0.
-  std::string creation_time;
+  uint64_t creation_time;
   dbfull()->GetCreationTimeOfOldestFile(&creation_time);
-  ASSERT_EQ("0", creation_time);
+  ASSERT_EQ(0, creation_time);
 
   // Testing with non-zero file creation time.
   set_file_creation_time_to_zero = false;
@@ -6360,9 +6360,9 @@ TEST_F(DBCompactionTest, CreationTimeOfOldestFile) {
 
   // At this point there should be 2 files with non-zero file creation time.
   // GetCreationTimeOfOldestFile API should return non-zero value.
-  std::string ctime;
+  uint64_t ctime;
   dbfull()->GetCreationTimeOfOldestFile(&ctime);
-  ASSERT_EQ(std::to_string(uint_time_1), ctime);
+  ASSERT_EQ(uint_time_1, ctime);
 }
 
 }  // namespace rocksdb
