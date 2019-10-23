@@ -3527,13 +3527,44 @@ TEST_F(DBCompactionTest, FilesViolatingTtl) {
   const int kValueSize = 100;
 
   Options options = CurrentOptions();
-  options.periodic_compaction_seconds = 48 * 60 * 60;  // 2 days
   options.max_open_files = -1;  // needed for ttl compaction
   env_->time_elapse_only_sleep_ = false;
   options.env = env_;
 
   env_->addon_time_.store(0);
   DestroyAndReopen(options);
+
+  bool set_file_creation_time_to_zero = true;
+
+  int idx = 0;
+  int64_t time_1 = 0;
+  env_->GetCurrentTime(&time_1);
+  const uint64_t uint_time_1 = static_cast<uint64_t>(time_1);
+
+  // Add 50 hours
+  env_->addon_time_.fetch_add(50 * 60 * 60);
+
+  int64_t time_2 = 0;
+  env_->GetCurrentTime(&time_2);
+  const uint64_t uint_time_2 = static_cast<uint64_t>(time_2);
+
+
+    rocksdb::SyncPoint::GetInstance()->SetCallBack(
+        "PropertyBlockBuilder::AddTableProperty:Start", [&](void* arg) {
+          TableProperties* props = reinterpret_cast<TableProperties*>(arg);
+          if (set_file_creation_time_to_zero) {
+            props->file_creation_time = 0;
+          } else {
+              if (idx == 0) {
+                  props->file_creation_time = uint_time_1;
+                  idx++;
+              } else if (idx == 1) {
+                  props->file_creation_time = uint_time_2;
+              }
+          }
+        });
+    rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+
 
   Random rnd(301);
   for (int i = 0; i < kNumLevelFiles; ++i) {
@@ -3544,18 +3575,13 @@ TEST_F(DBCompactionTest, FilesViolatingTtl) {
     Flush();
   }
 
-  // Add 50 hours
-  env_->addon_time_.fetch_add(50 * 60 * 60);
-  std::vector<std::string> files;
-  dbfull()->GetFilesViolatingTtl(files);
-  // Inserted 2 files so expect 2 files to violate periodic_compaction_seconds
-  // setting.
-  ASSERT_EQ(2, files.size());
+  std::string creation_time;
+  dbfull()->GetCreationTimeOfOldestFile(&creation_time);
+  ASSERT_EQ("0", creation_time);
 
-  // When periodic_compaction_seconds=0 and ttl=0 then no files
-  // should be returned.
+
+  set_file_creation_time_to_zero = false;
   options = CurrentOptions();
-  options.periodic_compaction_seconds = 0;
   options.max_open_files = -1;  // needed for ttl compaction
   env_->time_elapse_only_sleep_ = false;
   options.env = env_;
@@ -3571,12 +3597,9 @@ TEST_F(DBCompactionTest, FilesViolatingTtl) {
     Flush();
   }
 
-  // Add 50 hours
-  env_->addon_time_.fetch_add(50 * 60 * 60);
-  std::vector<std::string> files_2;
-  dbfull()->GetFilesViolatingTtl(files_2);
-  // Inserted 2 files but ttl/periodic_compaction_seconds == 0
-  ASSERT_EQ(0, files.size());
+  std::string ctime;
+  dbfull()->GetCreationTimeOfOldestFile(&ctime);
+  ASSERT_EQ(std::to_string(uint_time_1), ctime);
 }
 
 TEST_F(DBCompactionTest, LevelPeriodicCompaction) {

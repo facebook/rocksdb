@@ -4271,20 +4271,20 @@ Status DBImpl::ReserveFileNumbersBeforeIngestion(
   return s;
 }
 
-Status DBImpl::GetFilesViolatingTtl(std::vector<std::string>& files) {
+Status DBImpl::GetCreationTimeOfOldestFile(std::string* creation_time) {
   if (mutable_db_options_.max_open_files == -1) {
+    uint64_t oldest_time = ULONG_MAX;
     for (auto cfd : *versions_->GetColumnFamilySet()) {
-      mutex_.Lock();
-      if (cfd->IsDropped() ||
-          (cfd->GetCurrentMutableCFOptions()->ttl == 0 &&
-           cfd->GetCurrentMutableCFOptions()->periodic_compaction_seconds ==
-               0)) {
-        mutex_.Unlock();
-        continue;
+      uint64_t ctime;
+      cfd->current()->GetCreationTimeOfOldestFile(&ctime);
+      if (ctime < oldest_time) {
+          oldest_time = ctime;
       }
-      mutex_.Unlock();
-      cfd->current()->GetFilesViolatingTtl(files);
+      if (oldest_time == 0) {
+          break;
+      }
     }
+    creation_time->append(std::to_string(oldest_time));
   }
   return Status::OK();
 }

@@ -383,9 +383,9 @@ class StackableDB : public DB {
     return db_->GetCurrentWalFile(current_log_file);
   }
 
-  virtual Status GetFilesViolatingTtl(
-      std::vector<std::string>& files) override {
-    return db_->GetFilesViolatingTtl(files);
+  virtual Status GetCreationTimeOfOldestFile(
+      std::string* creation_time) override {
+    return db_->GetCreationTimeOfOldestFile(creation_time);
   }
 
   virtual Status DeleteFile(std::string name) override {

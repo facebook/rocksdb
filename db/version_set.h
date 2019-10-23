@@ -672,7 +672,7 @@ class Version {
 
   uint64_t GetSstFilesSize();
 
-  void GetFilesViolatingTtl(std::vector<std::string>& files);
+  void GetCreationTimeOfOldestFile(uint64_t* creation_time);
 
   const MutableCFOptions& GetMutableCFOptions() { return mutable_cf_options_; }
 

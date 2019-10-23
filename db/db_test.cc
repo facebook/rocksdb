@@ -2798,8 +2798,8 @@ class ModelDB : public DB {
     return Status::OK();
   }
 
-  virtual Status GetFilesViolatingTtl(
-      std::vector<std::string>& /*files*/) override {
+  virtual Status GetCreationTimeOfOldestFile(
+          std::string* /*creation_time*/) override {
     return Status::OK();
   }
 
