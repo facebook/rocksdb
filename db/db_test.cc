@@ -6363,6 +6363,8 @@ TEST_F(DBTest, CreationTimeOfOldestFile) {
   uint64_t ctime;
   dbfull()->GetCreationTimeOfOldestFile(&ctime);
   ASSERT_EQ(uint_time_1, ctime);
+
+  rocksdb::SyncPoint::GetInstance()->DisableProcessing();
 }
 
 }  // namespace rocksdb
