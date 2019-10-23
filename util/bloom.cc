@@ -201,7 +201,7 @@ class FullFilterBitsReader : public FilterBitsReader {
 class BloomFilterPolicy : public FilterPolicy {
  public:
   explicit BloomFilterPolicy(int bits_per_key, bool use_block_based_builder)
-      : bits_per_key_(bits_per_key), hash_func_(BloomHash),
+      : bits_per_key_(bits_per_key),
         use_block_based_builder_(use_block_based_builder) {
     initialize();
   }
@@ -226,7 +226,7 @@ class BloomFilterPolicy : public FilterPolicy {
     dst->push_back(static_cast<char>(num_probes_));  // Remember # of probes
     char* array = &(*dst)[init_size];
     for (int i = 0; i < n; i++) {
-      LegacyNoLocalityBloomImpl::AddHash(hash_func_(keys[i]), bits, num_probes_,
+      LegacyNoLocalityBloomImpl::AddHash(BloomHash(keys[i]), bits, num_probes_,
                                          array);
     }
   }
@@ -249,7 +249,7 @@ class BloomFilterPolicy : public FilterPolicy {
       return true;
     }
     // NB: using k not num_probes_
-    return LegacyNoLocalityBloomImpl::HashMayMatch(hash_func_(key), bits, k,
+    return LegacyNoLocalityBloomImpl::HashMayMatch(BloomHash(key), bits, k,
                                                    array);
   }
 
@@ -323,8 +323,6 @@ class BloomFilterPolicy : public FilterPolicy {
  private:
   int bits_per_key_;
   int num_probes_;
-  uint32_t (*hash_func_)(const Slice& key);
-
   const bool use_block_based_builder_;
 
   void initialize() {
