@@ -265,9 +265,12 @@ class TestFlushListener : public EventListener {
     ASSERT_EQ(prev_fc_info_.file_path, info.file_path);
     ASSERT_EQ(TableFileNameToNumber(info.file_path), info.file_number);
 
-    // Note: the following chunk relies on the test being single-DB.
-    if (test_) {
-      ASSERT_EQ(test_->db_, db);
+    // Note: the following chunk relies on the notification pertaining to the
+    // database pointed to by DBTestBase::db_, and is thus bypassed when
+    // that assumption does not hold (see the test case MultiDBMultiListeners
+    // below).
+    ASSERT_TRUE(test_);
+    if (db == test_->db_) {
       std::vector<std::vector<FileMetaData>> files_by_level;
       test_->dbfull()->TEST_GetFilesMetaData(test_->handles_[info.cf_id],
                                              &files_by_level);
@@ -392,7 +395,7 @@ TEST_F(EventListenerTest, MultiDBMultiListeners) {
   const int kNumListeners = 10;
   for (int i = 0; i < kNumListeners; ++i) {
     listeners.emplace_back(
-        new TestFlushListener(options.env, /* test */ nullptr));
+        new TestFlushListener(options.env, this));
   }
 
   std::vector<std::string> cf_names = {
