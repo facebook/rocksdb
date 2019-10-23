@@ -1526,10 +1526,7 @@ TEST_F(DBRangeDelTest, OverlappedTombstones) {
   Options options = CurrentOptions();
   options.disable_auto_compactions = true;
   options.max_compaction_bytes = 9 * 1024;
-  options.db_log_dir = "/tmp";
   DestroyAndReopen(options);
-  // snapshot prevents key from being deleted during flush
-  const Snapshot* snapshot = db_->GetSnapshot();
   Random rnd(301);
   for (int i = 0; i < kNumFiles; ++i) {
     std::vector<std::string> values;
@@ -1548,19 +1545,19 @@ TEST_F(DBRangeDelTest, OverlappedTombstones) {
                              Key((kNumFiles)*kNumPerFile + 1)));
   ASSERT_OK(db_->Flush(FlushOptions()));
 
-  // The tombstone range is not broken up into multiple SSTs which may incur a
-  // large compaction with L2.
   ASSERT_EQ(1, NumTableFilesAtLevel(0));
 
   dbfull()->TEST_CompactRange(0, nullptr, nullptr, nullptr,
                               true /* disallow_trivial_move */);
+
+  // The tombstone range is not broken up into multiple SSTs which may incur a
+  // large compaction with L2.
   ASSERT_EQ(1, NumTableFilesAtLevel(1));
   std::vector<std::vector<FileMetaData>> files;
   dbfull()->TEST_CompactRange(1, nullptr, nullptr, nullptr,
                               true /* disallow_trivial_move */);
   ASSERT_EQ(1, NumTableFilesAtLevel(2));
   ASSERT_EQ(0, NumTableFilesAtLevel(1));
-  db_->ReleaseSnapshot(snapshot);
 }
 
 TEST_F(DBRangeDelTest, OverlappedKeys) {
@@ -1568,10 +1565,7 @@ TEST_F(DBRangeDelTest, OverlappedKeys) {
   Options options = CurrentOptions();
   options.disable_auto_compactions = true;
   options.max_compaction_bytes = 9 * 1024;
-  options.db_log_dir = "/tmp";
   DestroyAndReopen(options);
-  // snapshot prevents key from being deleted during flush
-  const Snapshot* snapshot = db_->GetSnapshot();
   Random rnd(301);
   for (int i = 0; i < kNumFiles; ++i) {
     std::vector<std::string> values;
@@ -1603,7 +1597,6 @@ TEST_F(DBRangeDelTest, OverlappedKeys) {
                               true /* disallow_trivial_move */);
   ASSERT_EQ(1, NumTableFilesAtLevel(2));
   ASSERT_EQ(0, NumTableFilesAtLevel(1));
-  db_->ReleaseSnapshot(snapshot);
 }
 
 #endif  // ROCKSDB_LITE
