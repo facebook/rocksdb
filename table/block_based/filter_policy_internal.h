@@ -28,7 +28,7 @@ class FullFilterBitsBuilder : public FilterBitsBuilder {
 
   ~FullFilterBitsBuilder();
 
-  virtual void AddKey(const Slice& key) override;
+  void AddKey(const Slice& key) override;
 
   // Create a filter that for hashes [0, n-1], the filter is allocated here
   // When creating filter, it is ensured that
@@ -44,12 +44,13 @@ class FullFilterBitsBuilder : public FilterBitsBuilder {
   // +----------------------------------------------------------------+
   // | ...                | num_probes : 1 byte | num_lines : 4 bytes |
   // +----------------------------------------------------------------+
-  virtual Slice Finish(std::unique_ptr<const char[]>* buf) override;
+  Slice Finish(std::unique_ptr<const char[]>* buf) override;
 
-  // Calculate num of entries fit into a space.
-  virtual int CalculateNumEntry(const uint32_t space) override;
+  int CalculateNumEntry(const uint32_t bytes) override;
 
-  // Calculate space for new filter. This is reverse of CalculateNumEntry.
+  // Calculate number of bytes needed for a new filter, including
+  // metadata. Passing the result to CalculateNumEntry should
+  // return >= the num_entry passed in.
   uint32_t CalculateSpace(const int num_entry, uint32_t* total_bits,
                           uint32_t* num_lines);
 
