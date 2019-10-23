@@ -40,6 +40,9 @@ bool FindIntraL0Compaction(const std::vector<FileMetaData*>& level_files,
                            uint64_t max_compact_bytes_per_del_file,
                            uint64_t max_compaction_bytes,
                            CompactionInputFiles* comp_inputs) {
+  if (level_files[0]->fd.smallest_seqno == level_files[0]->fd.largest_seqno) {
+    return false;
+  }
   size_t compact_bytes = static_cast<size_t>(level_files[0]->fd.file_size);
   uint64_t compensated_compact_bytes = level_files[0]->compensated_file_size;
   size_t compact_bytes_per_del_file = port::kMaxSizet;
@@ -52,7 +55,8 @@ bool FindIntraL0Compaction(const std::vector<FileMetaData*>& level_files,
     compact_bytes += static_cast<size_t>(level_files[span_len]->fd.file_size);
     compensated_compact_bytes += level_files[span_len]->compensated_file_size;
     new_compact_bytes_per_del_file = compact_bytes / span_len;
-    if (level_files[span_len]->being_compacted ||
+    if (level_files[span_len]->fd.smallest_seqno == level_files[span_len]->fd.largest_seqno||
+        level_files[span_len]->being_compacted ||
         new_compact_bytes_per_del_file > compact_bytes_per_del_file ||
         compensated_compact_bytes > max_compaction_bytes) {
       break;
