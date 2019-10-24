@@ -82,4 +82,5 @@ tp2/
 fbcode/
 fbcode
 buckifier/*.pyc
+buckifier/__pycache__
 .vs
