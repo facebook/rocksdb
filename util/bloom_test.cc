@@ -55,14 +55,14 @@ static int NextLength(int length) {
   return length;
 }
 
-class BloomTest : public testing::Test {
+class BlockBasedBloomTest : public testing::Test {
  private:
   std::unique_ptr<const FilterPolicy> policy_;
   std::string filter_;
   std::vector<std::string> keys_;
 
  public:
-  BloomTest() : policy_(NewBloomFilterPolicy(FLAGS_bits_per_key, true)) {}
+  BlockBasedBloomTest() : policy_(NewBloomFilterPolicy(FLAGS_bits_per_key, true)) {}
 
   void Reset() {
     keys_.clear();
@@ -130,12 +130,12 @@ class BloomTest : public testing::Test {
   }
 };
 
-TEST_F(BloomTest, EmptyFilter) {
+TEST_F(BlockBasedBloomTest, EmptyFilter) {
   ASSERT_TRUE(! Matches("hello"));
   ASSERT_TRUE(! Matches("world"));
 }
 
-TEST_F(BloomTest, Small) {
+TEST_F(BlockBasedBloomTest, Small) {
   Add("hello");
   Add("world");
   ASSERT_TRUE(Matches("hello"));
@@ -144,7 +144,7 @@ TEST_F(BloomTest, Small) {
   ASSERT_TRUE(! Matches("foo"));
 }
 
-TEST_F(BloomTest, VaryingLengths) {
+TEST_F(BlockBasedBloomTest, VaryingLengths) {
   char buffer[sizeof(int)];
 
   // Count number of filters that significantly exceed the false positive rate
@@ -185,7 +185,7 @@ TEST_F(BloomTest, VaryingLengths) {
 
 // Ensure the implementation doesn't accidentally change in an
 // incompatible way
-TEST_F(BloomTest, Schema) {
+TEST_F(BlockBasedBloomTest, Schema) {
   char buffer[sizeof(int)];
 
   ResetPolicy(NewBloomFilterPolicy(8, true));  // num_probes = 5
