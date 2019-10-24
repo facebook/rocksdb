@@ -24,7 +24,7 @@ namespace rocksdb {
 inline uint64_t NPHash64(const char* data, size_t n, uint32_t seed = 0) {
   // XXH3 currently experimental, but generally faster than other quality
   // 64-bit hash functions.
-  return XXH3_64bits_withSeed(data, n, seed);
+  return XXH3p_64bits_withSeed(data, n, seed);
 }
 
 extern uint32_t Hash(const char* data, size_t n, uint32_t seed);
