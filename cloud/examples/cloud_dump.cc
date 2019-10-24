@@ -42,8 +42,13 @@ int main() {
   char* user = getenv("USER");
   kBucketSuffix.append(user);
 
+  // "rockset." is the default bucket prefix
+  const std::string bucketPrefix = "rockset.";
+  cloud_env_options.src_bucket.SetBucketName(kBucketSuffix,bucketPrefix);
+  cloud_env_options.dest_bucket.SetBucketName(kBucketSuffix,bucketPrefix);
+  
   // create a bucket name for debugging purposes
-  const std::string bucketName = "rockset." + kBucketSuffix;
+  const std::string bucketName = bucketPrefix + kBucketSuffix;
 
   // Create a new AWS cloud env Status
   CloudEnv* cenv;
