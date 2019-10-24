@@ -3,6 +3,10 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 from __future__ import unicode_literals
+try:
+    from builtins import str
+except ImportError:
+    from __builtin__ import str
 from targets_builder import TARGETSBuilder
 import json
 import os
@@ -108,9 +112,9 @@ def get_tests(repo_path):
 # Parse extra dependencies passed by user from command line
 def get_dependencies():
     deps_map = {
-        ''.encode('ascii'): {
-            'extra_deps'.encode('ascii'): [],
-            'extra_compiler_flags'.encode('ascii'): []
+        '': {
+            'extra_deps': [],
+            'extra_compiler_flags': []
         }
     }
     if len(sys.argv) < 2:
@@ -119,13 +123,7 @@ def get_dependencies():
     def encode_dict(data):
         rv = {}
         for k, v in data.items():
-            if isinstance(k, unicode):
-                k = k.encode('ascii')
-            if isinstance(v, unicode):
-                v = v.encode('ascii')
-            elif isinstance(v, list):
-                v = [x.encode('ascii') for x in v]
-            elif isinstance(v, dict):
+            if isinstance(v, dict):
                 v = encode_dict(v)
             rv[k] = v
         return rv
