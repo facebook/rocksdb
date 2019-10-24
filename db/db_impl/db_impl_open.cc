@@ -1042,7 +1042,9 @@ Status DBImpl::RecoverLogFiles(const std::vector<uint64_t>& log_numbers,
         data_seen = true;
       }
 
-      // write MANIFEST with update
+      // Update the log number info in the version edit corresponding to this
+      // column family. Note that the version edits will be written to MANIFEST
+      // together later.
       // writing log_number in the manifest means that any log file
       // with number strongly less than (log_number + 1) is already
       // recovered and should be ignored on next reincarnation.
@@ -1069,6 +1071,7 @@ Status DBImpl::RecoverLogFiles(const std::vector<uint64_t>& log_numbers,
         assert(iter != version_edits.end());
         edit_lists.push_back({&iter->second});
       }
+      // write MANIFEST with update
       status = versions_->LogAndApply(cfds, cf_opts, edit_lists, &mutex_,
                                       directories_.GetDbDir(),
                                       /*new_descriptor_log=*/true);
