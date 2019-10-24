@@ -220,6 +220,10 @@ const char* BloomFilterPolicy::Name() const {
 
 void BloomFilterPolicy::CreateFilter(const Slice* keys, int n,
                                      std::string* dst) const {
+  // We should ideally only be using this deprecated interface for
+  // appropriately constructed BloomFilterPolicy
+  assert(impl_ == kBlock);
+
   // Compute bloom filter size (in both bits and bytes)
   uint32_t bits = static_cast<uint32_t>(n * bits_per_key_);
 

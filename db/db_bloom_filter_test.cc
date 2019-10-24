@@ -641,7 +641,7 @@ namespace {
 class WrappedBloom : public FilterPolicy {
  public:
   explicit WrappedBloom(int bits_per_key)
-      : filter_(NewBloomFilterPolicy(bits_per_key)), counter_(0) {}
+      : filter_(NewBloomFilterPolicy(bits_per_key, true)), counter_(0) {}
 
   ~WrappedBloom() override { delete filter_; }
 

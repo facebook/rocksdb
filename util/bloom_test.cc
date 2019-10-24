@@ -62,8 +62,7 @@ class BloomTest : public testing::Test {
   std::vector<std::string> keys_;
 
  public:
-  BloomTest() : policy_(
-      NewBloomFilterPolicy(FLAGS_bits_per_key)) {}
+  BloomTest() : policy_(NewBloomFilterPolicy(FLAGS_bits_per_key, true)) {}
 
   void Reset() {
     keys_.clear();
@@ -72,7 +71,7 @@ class BloomTest : public testing::Test {
 
   void ResetPolicy(const FilterPolicy* policy = nullptr) {
     if (policy == nullptr) {
-      policy_.reset(NewBloomFilterPolicy(FLAGS_bits_per_key));
+      policy_.reset(NewBloomFilterPolicy(FLAGS_bits_per_key, true));
     } else {
       policy_.reset(policy);
     }
@@ -189,42 +188,42 @@ TEST_F(BloomTest, VaryingLengths) {
 TEST_F(BloomTest, Schema) {
   char buffer[sizeof(int)];
 
-  ResetPolicy(NewBloomFilterPolicy(8));  // num_probes = 5
+  ResetPolicy(NewBloomFilterPolicy(8, true));  // num_probes = 5
   for (int key = 0; key < 87; key++) {
     Add(Key(key, buffer));
   }
   Build();
   ASSERT_EQ(BloomHash(FilterData()), 3589896109U);
 
-  ResetPolicy(NewBloomFilterPolicy(9));  // num_probes = 6
+  ResetPolicy(NewBloomFilterPolicy(9, true));  // num_probes = 6
   for (int key = 0; key < 87; key++) {
     Add(Key(key, buffer));
   }
   Build();
   ASSERT_EQ(BloomHash(FilterData()), 969445585);
 
-  ResetPolicy(NewBloomFilterPolicy(11));  // num_probes = 7
+  ResetPolicy(NewBloomFilterPolicy(11, true));  // num_probes = 7
   for (int key = 0; key < 87; key++) {
     Add(Key(key, buffer));
   }
   Build();
   ASSERT_EQ(BloomHash(FilterData()), 1694458207);
 
-  ResetPolicy(NewBloomFilterPolicy(10));  // num_probes = 6
+  ResetPolicy(NewBloomFilterPolicy(10, true));  // num_probes = 6
   for (int key = 0; key < 87; key++) {
     Add(Key(key, buffer));
   }
   Build();
   ASSERT_EQ(BloomHash(FilterData()), 2373646410U);
 
-  ResetPolicy(NewBloomFilterPolicy(10));
+  ResetPolicy(NewBloomFilterPolicy(10, true));
   for (int key = 1; key < 87; key++) {
     Add(Key(key, buffer));
   }
   Build();
   ASSERT_EQ(BloomHash(FilterData()), 1908442116);
 
-  ResetPolicy(NewBloomFilterPolicy(10));
+  ResetPolicy(NewBloomFilterPolicy(10, true));
   for (int key = 1; key < 88; key++) {
     Add(Key(key, buffer));
   }
