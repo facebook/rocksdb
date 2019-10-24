@@ -1521,6 +1521,84 @@ TEST_F(DBRangeDelTest, RangeTombstoneWrittenToMinimalSsts) {
   ASSERT_EQ(1, num_range_deletions);
 }
 
+TEST_F(DBRangeDelTest, OverlappedTombstones) {
+  const int kNumPerFile = 4, kNumFiles = 2;
+  Options options = CurrentOptions();
+  options.disable_auto_compactions = true;
+  options.max_compaction_bytes = 9 * 1024;
+  DestroyAndReopen(options);
+  Random rnd(301);
+  for (int i = 0; i < kNumFiles; ++i) {
+    std::vector<std::string> values;
+    // Write 12K (4 values, each 3K)
+    for (int j = 0; j < kNumPerFile; j++) {
+      values.push_back(RandomString(&rnd, 3 << 10));
+      ASSERT_OK(Put(Key(i * kNumPerFile + j), values[j]));
+    }
+  }
+  ASSERT_OK(db_->Flush(FlushOptions()));
+  ASSERT_EQ(1, NumTableFilesAtLevel(0));
+  MoveFilesToLevel(2);
+  ASSERT_EQ(2, NumTableFilesAtLevel(2));
+
+  ASSERT_OK(db_->DeleteRange(WriteOptions(), db_->DefaultColumnFamily(), Key(1),
+                             Key((kNumFiles)*kNumPerFile + 1)));
+  ASSERT_OK(db_->Flush(FlushOptions()));
+
+  ASSERT_EQ(1, NumTableFilesAtLevel(0));
+
+  dbfull()->TEST_CompactRange(0, nullptr, nullptr, nullptr,
+                              true /* disallow_trivial_move */);
+
+  // The tombstone range is not broken up into multiple SSTs which may incur a
+  // large compaction with L2.
+  ASSERT_EQ(1, NumTableFilesAtLevel(1));
+  std::vector<std::vector<FileMetaData>> files;
+  dbfull()->TEST_CompactRange(1, nullptr, nullptr, nullptr,
+                              true /* disallow_trivial_move */);
+  ASSERT_EQ(1, NumTableFilesAtLevel(2));
+  ASSERT_EQ(0, NumTableFilesAtLevel(1));
+}
+
+TEST_F(DBRangeDelTest, OverlappedKeys) {
+  const int kNumPerFile = 4, kNumFiles = 2;
+  Options options = CurrentOptions();
+  options.disable_auto_compactions = true;
+  options.max_compaction_bytes = 9 * 1024;
+  DestroyAndReopen(options);
+  Random rnd(301);
+  for (int i = 0; i < kNumFiles; ++i) {
+    std::vector<std::string> values;
+    // Write 12K (4 values, each 3K)
+    for (int j = 0; j < kNumPerFile; j++) {
+      values.push_back(RandomString(&rnd, 3 << 10));
+      ASSERT_OK(Put(Key(i * kNumPerFile + j), values[j]));
+    }
+  }
+  ASSERT_OK(db_->Flush(FlushOptions()));
+  ASSERT_EQ(1, NumTableFilesAtLevel(0));
+  MoveFilesToLevel(2);
+  ASSERT_EQ(2, NumTableFilesAtLevel(2));
+
+  for (int i = 1; i < kNumFiles * kNumPerFile + 1; i++) {
+    ASSERT_OK(Put(Key(i), "0x123"));
+  }
+  ASSERT_OK(db_->Flush(FlushOptions()));
+  ASSERT_EQ(1, NumTableFilesAtLevel(0));
+
+  // The key range is broken up into three SSTs to avoid a future big compaction
+  // with the grandparent
+  dbfull()->TEST_CompactRange(0, nullptr, nullptr, nullptr,
+                              true /* disallow_trivial_move */);
+  ASSERT_EQ(3, NumTableFilesAtLevel(1));
+
+  std::vector<std::vector<FileMetaData>> files;
+  dbfull()->TEST_CompactRange(1, nullptr, nullptr, nullptr,
+                              true /* disallow_trivial_move */);
+  ASSERT_EQ(1, NumTableFilesAtLevel(2));
+  ASSERT_EQ(0, NumTableFilesAtLevel(1));
+}
+
 #endif  // ROCKSDB_LITE
 
 }  // namespace rocksdb
