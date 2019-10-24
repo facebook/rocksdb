@@ -1023,6 +1023,9 @@ Status DBImpl::RecoverLogFiles(const std::vector<uint64_t>& log_numbers,
         continue;
       }
 
+      TEST_SYNC_POINT_CALLBACK(
+          "DBImpl::RecoverLogFiles:BeforeFlushFinalMemtable", /*arg=*/nullptr);
+
       // flush the final memtable (if non-empty)
       if (cfd->mem()->GetFirstSequenceNumber() != 0) {
         // If flush happened in the middle of recovery (e.g. due to memtable
