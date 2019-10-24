@@ -198,10 +198,14 @@ class FullFilterBitsReader : public FilterBitsReader {
 
 }  // namespace
 
-BloomFilterPolicy::BloomFilterPolicy(int bits_per_key,
-                                     bool use_block_based_builder)
-    : bits_per_key_(bits_per_key),
-      use_block_based_builder_(use_block_based_builder) {
+const std::vector<BloomFilterPolicy::Impl> BloomFilterPolicy::kAllImpls = {
+    // This one historically comes first in tests, so we can do that.
+    kBlock,
+    kFull,
+};
+
+BloomFilterPolicy::BloomFilterPolicy(int bits_per_key, Impl impl)
+    : bits_per_key_(bits_per_key), impl_(impl) {
   // We intentionally round down to reduce probing cost a little bit
   num_probes_ = static_cast<int>(bits_per_key_ * 0.69);  // 0.69 =~ ln(2)
   if (num_probes_ < 1) num_probes_ = 1;
@@ -260,7 +264,7 @@ bool BloomFilterPolicy::KeyMayMatch(const Slice& key,
 }
 
 FilterBitsBuilder* BloomFilterPolicy::GetFilterBitsBuilder() const {
-  if (use_block_based_builder_) {
+  if (impl_ == kBlock) {
     return nullptr;
   } else {
     return new FullFilterBitsBuilder(bits_per_key_, num_probes_);
@@ -326,7 +330,11 @@ FilterBitsReader* BloomFilterPolicy::GetFilterBitsReader(
 
 const FilterPolicy* NewBloomFilterPolicy(int bits_per_key,
                                          bool use_block_based_builder) {
-  return new BloomFilterPolicy(bits_per_key, use_block_based_builder);
+  if (use_block_based_builder) {
+    return new BloomFilterPolicy(bits_per_key, BloomFilterPolicy::kBlock);
+  } else {
+    return new BloomFilterPolicy(bits_per_key, BloomFilterPolicy::kFull);
+  }
 }
 
 FilterPolicy::~FilterPolicy() { }
