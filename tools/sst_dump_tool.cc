@@ -15,6 +15,7 @@
 #include <sstream>
 #include <vector>
 
+#include "db/blob_index.h"
 #include "db/memtable.h"
 #include "db/write_batch_internal.h"
 #include "options/cf_options.h"
@@ -42,11 +43,12 @@ namespace rocksdb {
 
 SstFileDumper::SstFileDumper(const Options& options,
                              const std::string& file_path, bool verify_checksum,
-                             bool output_hex)
+                             bool output_hex, bool decode_blob_index)
     : file_name_(file_path),
       read_num_(0),
       verify_checksum_(verify_checksum),
       output_hex_(output_hex),
+      decode_blob_index_(decode_blob_index),
       options_(options),
       ioptions_(options_),
       moptions_(ColumnFamilyOptions(options_)),
@@ -379,9 +381,22 @@ Status SstFileDumper::ReadSequential(bool print_kv, uint64_t read_num,
     }
 
     if (print_kv) {
-      fprintf(stdout, "%s => %s\n",
-          ikey.DebugString(output_hex_).c_str(),
-          value.ToString(output_hex_).c_str());
+      if (!decode_blob_index_ || ikey.type != kTypeBlobIndex) {
+        fprintf(stdout, "%s => %s\n", ikey.DebugString(output_hex_).c_str(),
+                value.ToString(output_hex_).c_str());
+      } else {
+        BlobIndex blob_index;
+
+        const Status s = blob_index.DecodeFrom(value);
+        if (!s.ok()) {
+          fprintf(stderr, "%s => error decoding blob index\n",
+                  ikey.DebugString(output_hex_).c_str());
+          continue;
+        }
+
+        fprintf(stdout, "%s => %s\n", ikey.DebugString(output_hex_).c_str(),
+                blob_index.DebugString(output_hex_).c_str());
+      }
     }
   }
 
@@ -424,6 +439,9 @@ void print_help() {
 
     --output_hex
       Can be combined with scan command to print the keys and values in Hex
+
+    --decode_blob_index
+      Decode blob indexes and print them in a human-readable format during scans.
 
     --from=<user_key>
       Key to start reading from when executing check|scan
@@ -475,6 +493,7 @@ int SSTDumpTool::Run(int argc, char** argv, Options options) {
   uint64_t n;
   bool verify_checksum = false;
   bool output_hex = false;
+  bool decode_blob_index = false;
   bool input_key_hex = false;
   bool has_from = false;
   bool has_to = false;
@@ -499,6 +518,8 @@ int SSTDumpTool::Run(int argc, char** argv, Options options) {
       dir_or_file = argv[i] + 7;
     } else if (strcmp(argv[i], "--output_hex") == 0) {
       output_hex = true;
+    } else if (strcmp(argv[i], "--decode_blob_index") == 0) {
+      decode_blob_index = true;
     } else if (strcmp(argv[i], "--input_key_hex") == 0) {
       input_key_hex = true;
     } else if (sscanf(argv[i], "--read_num=%lu%c", (unsigned long*)&n, &junk) ==
@@ -638,7 +659,7 @@ int SSTDumpTool::Run(int argc, char** argv, Options options) {
     }
 
     rocksdb::SstFileDumper dumper(options, filename, verify_checksum,
-                                  output_hex);
+                                  output_hex, decode_blob_index);
     if (!dumper.getStatus().ok()) {
       fprintf(stderr, "%s: %s\n", filename.c_str(),
               dumper.getStatus().ToString().c_str());
@@ -719,17 +740,19 @@ int SSTDumpTool::Run(int argc, char** argv, Options options) {
         total_data_block_size += table_properties->data_size;
         total_index_block_size += table_properties->index_size;
         total_filter_block_size += table_properties->filter_size;
-      }
-      if (show_properties) {
-        fprintf(stdout,
-                "Raw user collected properties\n"
-                "------------------------------\n");
-        for (const auto& kv : table_properties->user_collected_properties) {
-          std::string prop_name = kv.first;
-          std::string prop_val = Slice(kv.second).ToString(true);
-          fprintf(stdout, "  # %s: 0x%s\n", prop_name.c_str(),
-                  prop_val.c_str());
+        if (show_properties) {
+          fprintf(stdout,
+                  "Raw user collected properties\n"
+                  "------------------------------\n");
+          for (const auto& kv : table_properties->user_collected_properties) {
+            std::string prop_name = kv.first;
+            std::string prop_val = Slice(kv.second).ToString(true);
+            fprintf(stdout, "  # %s: 0x%s\n", prop_name.c_str(),
+                    prop_val.c_str());
+          }
         }
+      } else {
+        fprintf(stderr, "Reader unexpectedly returned null properties\n");
       }
     }
   }

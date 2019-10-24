@@ -459,6 +459,7 @@ class EventListener {
 #else
 
 class EventListener {};
+struct FlushJobInfo {};
 
 #endif  // ROCKSDB_LITE
 

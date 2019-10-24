@@ -9,7 +9,7 @@
 
 #include "table/block_based/block_based_table_reader.h"
 #include "table/block_based/partitioned_filter_block.h"
-#include "table/full_filter_bits_builder.h"
+#include "table/block_based/filter_policy_internal.h"
 
 #include "index_builder.h"
 #include "logging/logging.h"
@@ -20,7 +20,7 @@
 
 namespace rocksdb {
 
-std::map<uint64_t, Slice> slices;
+std::map<uint64_t, std::string> blooms;
 
 class MockedBlockBasedTable : public BlockBasedTable {
  public:
@@ -37,13 +37,18 @@ class MyPartitionedFilterBlockReader : public PartitionedFilterBlockReader {
   MyPartitionedFilterBlockReader(BlockBasedTable* t,
                                  CachableEntry<Block>&& filter_block)
       : PartitionedFilterBlockReader(t, std::move(filter_block)) {
-    for (const auto& pair : slices) {
+    for (const auto& pair : blooms) {
       const uint64_t offset = pair.first;
-      const Slice& slice = pair.second;
+      const std::string& bloom = pair.second;
 
-      CachableEntry<BlockContents> block(
-          new BlockContents(slice), nullptr /* cache */,
-          nullptr /* cache_handle */, true /* own_value */);
+      assert(t);
+      assert(t->get_rep());
+      CachableEntry<ParsedFullFilterBlock> block(
+          new ParsedFullFilterBlock(
+              t->get_rep()->table_options.filter_policy.get(),
+              BlockContents(Slice(bloom))),
+          nullptr /* cache */, nullptr /* cache_handle */,
+          true /* own_value */);
       filter_map_[offset] = std::move(block);
     }
   }
@@ -101,7 +106,7 @@ class PartitionedFilterBlockTest
   uint64_t last_offset = 10;
   BlockHandle Write(const Slice& slice) {
     BlockHandle bh(last_offset + 1, slice.size());
-    slices[bh.offset()] = slice;
+    blooms[bh.offset()] = slice.ToString();
     last_offset += bh.size();
     return bh;
   }
@@ -327,7 +332,7 @@ TEST_P(PartitionedFilterBlockTest, SamePrefixInMultipleBlocks) {
   std::unique_ptr<PartitionedIndexBuilder> pib(NewIndexBuilder());
   std::unique_ptr<PartitionedFilterBlockBuilder> builder(
       NewBuilder(pib.get(), prefix_extractor.get()));
-  const std::string pkeys[3] = {"p-key1", "p-key2", "p-key3"};
+  const std::string pkeys[3] = {"p-key10", "p-key20", "p-key30"};
   builder->Add(pkeys[0]);
   CutABlock(pib.get(), pkeys[0], pkeys[1]);
   builder->Add(pkeys[1]);
@@ -337,6 +342,16 @@ TEST_P(PartitionedFilterBlockTest, SamePrefixInMultipleBlocks) {
   std::unique_ptr<PartitionedFilterBlockReader> reader(
       NewReader(builder.get(), pib.get()));
   for (auto key : pkeys) {
+    auto ikey = InternalKey(key, 0, ValueType::kTypeValue);
+    const Slice ikey_slice = Slice(*ikey.rep());
+    ASSERT_TRUE(reader->PrefixMayMatch(
+        prefix_extractor->Transform(key), prefix_extractor.get(), kNotValid,
+        /*no_io=*/false, &ikey_slice, /*get_context=*/nullptr,
+        /*lookup_context=*/nullptr));
+  }
+  // Non-existent keys but with the same prefix
+  const std::string pnonkeys[4] = {"p-key9", "p-key11", "p-key21", "p-key31"};
+  for (auto key : pnonkeys) {
     auto ikey = InternalKey(key, 0, ValueType::kTypeValue);
     const Slice ikey_slice = Slice(*ikey.rep());
     ASSERT_TRUE(reader->PrefixMayMatch(

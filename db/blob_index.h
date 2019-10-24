@@ -5,12 +5,14 @@
 #pragma once
 #ifndef ROCKSDB_LITE
 
+#include <sstream>
+#include <string>
+
 #include "rocksdb/options.h"
 #include "util/coding.h"
 #include "util/string_util.h"
 
 namespace rocksdb {
-namespace blob_db {
 
 // BlobIndex is a pointer to the blob and metadata of the blob. The index is
 // stored in base DB as ValueType::kTypeBlobIndex.
@@ -109,6 +111,23 @@ class BlobIndex {
     return Status::OK();
   }
 
+  std::string DebugString(bool output_hex) {
+    std::ostringstream oss;
+
+    if (IsInlined()) {
+      oss << "[inlined blob] value:" << value_.ToString(output_hex);
+    } else {
+      oss << "[blob ref] file:" << file_number_ << " offset:" << offset_
+          << " size:" << size_;
+    }
+
+    if (HasTTL()) {
+      oss << " exp:" << expiration_;
+    }
+
+    return oss.str();
+  }
+
   static void EncodeInlinedTTL(std::string* dst, uint64_t expiration,
                                const Slice& value) {
     assert(dst != nullptr);
@@ -156,6 +175,5 @@ class BlobIndex {
   CompressionType compression_ = kNoCompression;
 };
 
-}  // namespace blob_db
 }  // namespace rocksdb
 #endif  // ROCKSDB_LITE

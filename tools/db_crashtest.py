@@ -50,7 +50,6 @@ default_params = {
     "mmap_read": lambda: random.randint(0, 1),
     "nooverwritepercent": 1,
     "open_files": lambda : random.choice([-1, 500000]),
-    # Temporarily disable partitioned filter
     "partition_filters": lambda: random.randint(0, 1),
     "prefixpercent": 5,
     "progress_reports": 0,
