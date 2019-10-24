@@ -71,4 +71,29 @@ class FullFilterBitsBuilder : public FilterBitsBuilder {
   void AddHash(uint32_t h, char* data, uint32_t num_lines, uint32_t total_bits);
 };
 
+// RocksDB built-in filter policy for Bloom or Bloom-like filters
+class BloomFilterPolicy : public FilterPolicy {
+ public:
+  explicit BloomFilterPolicy(int bits_per_key, bool use_block_based_builder);
+
+  ~BloomFilterPolicy() override;
+
+  const char* Name() const override;
+
+  void CreateFilter(const Slice* keys, int n, std::string* dst) const override;
+
+  bool KeyMayMatch(const Slice& key, const Slice& bloom_filter) const override;
+
+  FilterBitsBuilder* GetFilterBitsBuilder() const override;
+
+  // Read metadata to determine what kind of FilterBitsReader is needed
+  // and return a new one.
+  FilterBitsReader* GetFilterBitsReader(const Slice& contents) const override;
+
+ private:
+  int bits_per_key_;
+  int num_probes_;
+  const bool use_block_based_builder_;
+};
+
 }  // namespace rocksdb
