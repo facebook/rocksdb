@@ -20,9 +20,66 @@
 
 namespace rocksdb {
 
+namespace {
+
 typedef LegacyLocalityBloomImpl</*ExtraRotates*/ false> LegacyFullFilterImpl;
-class BlockBasedFilterBlockBuilder;
-class FullFilterBlockBuilder;
+
+class FullFilterBitsBuilder : public BuiltinFilterBitsBuilder {
+ public:
+  explicit FullFilterBitsBuilder(const int bits_per_key, const int num_probes);
+
+  // No Copy allowed
+  FullFilterBitsBuilder(const FullFilterBitsBuilder&) = delete;
+  void operator=(const FullFilterBitsBuilder&) = delete;
+
+  ~FullFilterBitsBuilder();
+
+  void AddKey(const Slice& key) override;
+
+  // Create a filter that for hashes [0, n-1], the filter is allocated here
+  // When creating filter, it is ensured that
+  // total_bits = num_lines * CACHE_LINE_SIZE * 8
+  // dst len is >= 5, 1 for num_probes, 4 for num_lines
+  // Then total_bits = (len - 5) * 8, and cache_line_size could be calculated
+  // +----------------------------------------------------------------+
+  // |              filter data with length total_bits/8              |
+  // +----------------------------------------------------------------+
+  // |                                                                |
+  // | ...                                                            |
+  // |                                                                |
+  // +----------------------------------------------------------------+
+  // | ...                | num_probes : 1 byte | num_lines : 4 bytes |
+  // +----------------------------------------------------------------+
+  Slice Finish(std::unique_ptr<const char[]>* buf) override;
+
+  int CalculateNumEntry(const uint32_t bytes) override;
+
+  uint32_t CalculateSpace(const int num_entry) override {
+    uint32_t dont_care1;
+    uint32_t dont_care2;
+    return CalculateSpace(num_entry, &dont_care1, &dont_care2);
+  }
+
+ private:
+  friend class FullFilterBlockTest_DuplicateEntries_Test;
+  int bits_per_key_;
+  int num_probes_;
+  std::vector<uint32_t> hash_entries_;
+
+  // Get totalbits that optimized for cpu cache line
+  uint32_t GetTotalBitsForLocality(uint32_t total_bits);
+
+  // Reserve space for new filter
+  char* ReserveSpace(const int num_entry, uint32_t* total_bits,
+                     uint32_t* num_lines);
+
+  // Implementation-specific variant of public CalculateSpace
+  uint32_t CalculateSpace(const int num_entry, uint32_t* total_bits,
+                          uint32_t* num_lines);
+
+  // Assuming single threaded access to this function.
+  void AddHash(uint32_t h, char* data, uint32_t num_lines, uint32_t total_bits);
+};
 
 FullFilterBitsBuilder::FullFilterBitsBuilder(const int bits_per_key,
                                              const int num_probes)
@@ -30,35 +87,35 @@ FullFilterBitsBuilder::FullFilterBitsBuilder(const int bits_per_key,
   assert(bits_per_key_);
 }
 
-  FullFilterBitsBuilder::~FullFilterBitsBuilder() {}
+FullFilterBitsBuilder::~FullFilterBitsBuilder() {}
 
-  void FullFilterBitsBuilder::AddKey(const Slice& key) {
-    uint32_t hash = BloomHash(key);
-    if (hash_entries_.size() == 0 || hash != hash_entries_.back()) {
-      hash_entries_.push_back(hash);
+void FullFilterBitsBuilder::AddKey(const Slice& key) {
+  uint32_t hash = BloomHash(key);
+  if (hash_entries_.size() == 0 || hash != hash_entries_.back()) {
+    hash_entries_.push_back(hash);
+  }
+}
+
+Slice FullFilterBitsBuilder::Finish(std::unique_ptr<const char[]>* buf) {
+  uint32_t total_bits, num_lines;
+  char* data = ReserveSpace(static_cast<int>(hash_entries_.size()),
+                            &total_bits, &num_lines);
+  assert(data);
+
+  if (total_bits != 0 && num_lines != 0) {
+    for (auto h : hash_entries_) {
+      AddHash(h, data, num_lines, total_bits);
     }
   }
+  data[total_bits/8] = static_cast<char>(num_probes_);
+  EncodeFixed32(data + total_bits/8 + 1, static_cast<uint32_t>(num_lines));
 
-  Slice FullFilterBitsBuilder::Finish(std::unique_ptr<const char[]>* buf) {
-    uint32_t total_bits, num_lines;
-    char* data = ReserveSpace(static_cast<int>(hash_entries_.size()),
-                              &total_bits, &num_lines);
-    assert(data);
+  const char* const_data = data;
+  buf->reset(const_data);
+  hash_entries_.clear();
 
-    if (total_bits != 0 && num_lines != 0) {
-      for (auto h : hash_entries_) {
-        AddHash(h, data, num_lines, total_bits);
-      }
-    }
-    data[total_bits/8] = static_cast<char>(num_probes_);
-    EncodeFixed32(data + total_bits/8 + 1, static_cast<uint32_t>(num_lines));
-
-    const char* const_data = data;
-    buf->reset(const_data);
-    hash_entries_.clear();
-
-    return Slice(data, total_bits / 8 + 5);
-  }
+  return Slice(data, total_bits / 8 + 5);
+}
 
 uint32_t FullFilterBitsBuilder::GetTotalBitsForLocality(uint32_t total_bits) {
   uint32_t num_lines =
@@ -106,13 +163,11 @@ char* FullFilterBitsBuilder::ReserveSpace(const int num_entry,
 int FullFilterBitsBuilder::CalculateNumEntry(const uint32_t bytes) {
   assert(bits_per_key_);
   assert(bytes > 0);
-  uint32_t dont_care1, dont_care2;
   int high = static_cast<int>(bytes * 8 / bits_per_key_ + 1);
   int low = 1;
   int n = high;
   for (; n >= low; n--) {
-    uint32_t sz = CalculateSpace(n, &dont_care1, &dont_care2);
-    if (sz <= bytes) {
+    if (CalculateSpace(n) <= bytes) {
       break;
     }
   }
@@ -131,7 +186,6 @@ inline void FullFilterBitsBuilder::AddHash(uint32_t h, char* data,
                                 folly::constexpr_log2(CACHE_LINE_SIZE));
 }
 
-namespace {
 class AlwaysTrueFilter : public FilterBitsReader {
  public:
   bool MayMatch(const Slice&) override { return true; }

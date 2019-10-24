@@ -250,8 +250,9 @@ class FullBloomTest : public testing::Test {
     Reset();
   }
 
-  FullFilterBitsBuilder* GetFullFilterBitsBuilder() {
-    return dynamic_cast<FullFilterBitsBuilder*>(bits_builder_.get());
+  BuiltinFilterBitsBuilder* GetBuiltinFilterBitsBuilder() {
+    // Throws on bad cast
+    return &dynamic_cast<BuiltinFilterBitsBuilder&>(*bits_builder_.get());
   }
 
   void Reset() {
@@ -321,15 +322,13 @@ class FullBloomTest : public testing::Test {
 };
 
 TEST_F(FullBloomTest, FilterSize) {
-  uint32_t dont_care1, dont_care2;
-  auto full_bits_builder = GetFullFilterBitsBuilder();
-  ASSERT_TRUE(full_bits_builder != nullptr);
+  auto bits_builder = GetBuiltinFilterBitsBuilder();
   for (int n = 1; n < 100; n++) {
-    auto space = full_bits_builder->CalculateSpace(n, &dont_care1, &dont_care2);
-    auto n2 = full_bits_builder->CalculateNumEntry(space);
+    auto space = bits_builder->CalculateSpace(n);
+    auto n2 = bits_builder->CalculateNumEntry(space);
     ASSERT_GE(n2, n);
     auto space2 =
-        full_bits_builder->CalculateSpace(n2, &dont_care1, &dont_care2);
+        bits_builder->CalculateSpace(n2);
     ASSERT_EQ(space, space2);
   }
 }
