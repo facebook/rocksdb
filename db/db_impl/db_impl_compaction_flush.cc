@@ -1125,7 +1125,8 @@ void DBImpl::NotifyOnCompactionBegin(ColumnFamilyData* cfd, Compaction* c,
         auto fn = TableFileName(c->immutable_cf_options()->cf_paths,
                                 file_number, desc.GetPathId());
         info.input_files.push_back(fn);
-        info.input_levels_and_file_numbers.emplace_back(i, file_number);
+        info.input_file_infos.push_back(CompactionFileInfo{
+            static_cast<int>(i), file_number, fmd->oldest_blob_file_number});
         if (info.table_properties.count(fn) == 0) {
           std::shared_ptr<const TableProperties> tp;
           auto s = current->GetTableProperties(&tp, fmd, &fn);
@@ -1136,11 +1137,13 @@ void DBImpl::NotifyOnCompactionBegin(ColumnFamilyData* cfd, Compaction* c,
       }
     }
     for (const auto newf : c->edit()->GetNewFiles()) {
-      const FileDescriptor& desc = newf.second.fd;
+      const FileMetaData& meta = newf.second;
+      const FileDescriptor& desc = meta.fd;
       const uint64_t file_number = desc.GetNumber();
       info.output_files.push_back(TableFileName(
           c->immutable_cf_options()->cf_paths, file_number, desc.GetPathId()));
-      info.output_levels_and_file_numbers.emplace_back(newf.first, file_number);
+      info.output_file_infos.push_back(CompactionFileInfo{
+          newf.first, file_number, meta.oldest_blob_file_number});
     }
     for (auto listener : immutable_db_options_.listeners) {
       listener->OnCompactionBegin(this, info);
@@ -2968,8 +2971,8 @@ void DBImpl::BuildCompactionJobInfo(
       auto fn = TableFileName(c->immutable_cf_options()->cf_paths, file_number,
                               desc.GetPathId());
       compaction_job_info->input_files.push_back(fn);
-      compaction_job_info->input_levels_and_file_numbers.emplace_back(
-          i, file_number);
+      compaction_job_info->input_file_infos.push_back(CompactionFileInfo{
+          static_cast<int>(i), file_number, fmd->oldest_blob_file_number});
       if (compaction_job_info->table_properties.count(fn) == 0) {
         std::shared_ptr<const TableProperties> tp;
         auto s = current->GetTableProperties(&tp, fmd, &fn);
@@ -2985,10 +2988,8 @@ void DBImpl::BuildCompactionJobInfo(
     const uint64_t file_number = desc.GetNumber();
     compaction_job_info->output_files.push_back(TableFileName(
         c->immutable_cf_options()->cf_paths, file_number, desc.GetPathId()));
-    compaction_job_info->output_levels_and_file_numbers.emplace_back(
-        newf.first, file_number);
-    compaction_job_info->output_oldest_blob_file_numbers.emplace_back(
-        meta.oldest_blob_file_number);
+    compaction_job_info->output_file_infos.push_back(CompactionFileInfo{
+        newf.first, file_number, meta.oldest_blob_file_number});
   }
 }
 #endif

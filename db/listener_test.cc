@@ -94,18 +94,16 @@ class TestCompactionListener : public EventListener {
     std::lock_guard<std::mutex> lock(mutex_);
     compacted_dbs_.push_back(db);
     ASSERT_GT(ci.input_files.size(), 0U);
-    ASSERT_EQ(ci.input_files.size(), ci.input_levels_and_file_numbers.size());
+    ASSERT_EQ(ci.input_files.size(), ci.input_file_infos.size());
 
-    for (size_t i = 0; i < ci.input_levels_and_file_numbers.size(); ++i) {
-      ASSERT_EQ(ci.input_levels_and_file_numbers[i].first, ci.base_input_level);
-      ASSERT_EQ(ci.input_levels_and_file_numbers[i].second,
+    for (size_t i = 0; i < ci.input_file_infos.size(); ++i) {
+      ASSERT_EQ(ci.input_file_infos[i].level, ci.base_input_level);
+      ASSERT_EQ(ci.input_file_infos[i].file_number,
                 TableFileNameToNumber(ci.input_files[i]));
     }
 
     ASSERT_GT(ci.output_files.size(), 0U);
-    ASSERT_EQ(ci.output_files.size(), ci.output_levels_and_file_numbers.size());
-    ASSERT_EQ(ci.output_files.size(),
-              ci.output_oldest_blob_file_numbers.size());
+    ASSERT_EQ(ci.output_files.size(), ci.output_file_infos.size());
 
     ASSERT_TRUE(test_);
     ASSERT_EQ(test_->db_, db);
@@ -115,20 +113,19 @@ class TestCompactionListener : public EventListener {
                                            &files_by_level);
     ASSERT_GT(files_by_level.size(), ci.output_level);
 
-    for (size_t i = 0; i < ci.output_levels_and_file_numbers.size(); ++i) {
-      ASSERT_EQ(ci.output_levels_and_file_numbers[i].first, ci.output_level);
-      ASSERT_EQ(ci.output_levels_and_file_numbers[i].second,
+    for (size_t i = 0; i < ci.output_file_infos.size(); ++i) {
+      ASSERT_EQ(ci.output_file_infos[i].level, ci.output_level);
+      ASSERT_EQ(ci.output_file_infos[i].file_number,
                 TableFileNameToNumber(ci.output_files[i]));
 
       auto it = std::find_if(
           files_by_level[ci.output_level].begin(),
           files_by_level[ci.output_level].end(), [&](const FileMetaData& meta) {
-            return meta.fd.GetNumber() ==
-                   ci.output_levels_and_file_numbers[i].second;
+            return meta.fd.GetNumber() == ci.output_file_infos[i].file_number;
           });
       ASSERT_NE(it, files_by_level[ci.output_level].end());
 
-      ASSERT_EQ(ci.output_oldest_blob_file_numbers[i],
+      ASSERT_EQ(ci.output_file_infos[i].oldest_blob_file_number,
                 it->oldest_blob_file_number);
     }
 
@@ -394,8 +391,7 @@ TEST_F(EventListenerTest, MultiDBMultiListeners) {
   const int kNumDBs = 5;
   const int kNumListeners = 10;
   for (int i = 0; i < kNumListeners; ++i) {
-    listeners.emplace_back(
-        new TestFlushListener(options.env, this));
+    listeners.emplace_back(new TestFlushListener(options.env, this));
   }
 
   std::vector<std::string> cf_names = {

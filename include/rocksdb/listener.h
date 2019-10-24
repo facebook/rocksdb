@@ -198,6 +198,17 @@ struct FlushJobInfo {
   FlushReason flush_reason;
 };
 
+struct CompactionFileInfo {
+  // The level of the file.
+  int level;
+
+  // The file number of the file.
+  uint64_t file_number;
+
+  // The file number of the oldest blob file this SST file references.
+  uint64_t oldest_blob_file_number;
+};
+
 struct CompactionJobInfo {
   // the id of the column family where the compaction happened.
   uint32_t cf_id;
@@ -217,24 +228,20 @@ struct CompactionJobInfo {
   // The following variables contain information about compaction inputs
   // and outputs. A file may appear in both the input and output lists
   // if it was simply moved to a different level. The order of elements
-  // is the same across input_files and input_levels_and_file_numbers;
-  // similarly, it is the same across output_files,
-  // output_levels_and_file_numbers, and output_oldest_blob_file_numbers.
+  // is the same across input_files and input_file_infos; similarly, it is
+  // the same across output_files and output_file_infos.
 
   // The names of the compaction input files.
   std::vector<std::string> input_files;
 
-  // The levels and file numbers of the compaction input files.
-  std::vector<std::pair<int, uint64_t>> input_levels_and_file_numbers;
+  // Additional information about the compaction input files.
+  std::vector<CompactionFileInfo> input_file_infos;
 
   // The names of the compaction output files.
   std::vector<std::string> output_files;
 
-  // The levels and file numbers of the compaction output files.
-  std::vector<std::pair<int, uint64_t>> output_levels_and_file_numbers;
-
-  // The oldest blob file referenced by each compaction output file.
-  std::vector<uint64_t> output_oldest_blob_file_numbers;
+  // Additional information about the compaction output files.
+  std::vector<CompactionFileInfo> output_file_infos;
 
   // Table properties for input and output tables.
   // The map is keyed by values from input_files and output_files.
