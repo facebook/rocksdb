@@ -12,7 +12,7 @@
 #include "rocksdb/slice.h"
 #include "table/block_based/block_based_filter_block.h"
 #include "table/block_based/full_filter_block.h"
-#include "table/full_filter_bits_builder.h"
+#include "table/block_based/filter_policy_internal.h"
 #include "third-party/folly/folly/ConstexprMath.h"
 #include "util/bloom_impl.h"
 #include "util/coding.h"
@@ -339,5 +339,7 @@ const FilterPolicy* NewBloomFilterPolicy(int bits_per_key,
                                          bool use_block_based_builder) {
   return new BloomFilterPolicy(bits_per_key, use_block_based_builder);
 }
+
+FilterPolicy::~FilterPolicy() { }
 
 }  // namespace rocksdb

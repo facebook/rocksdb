@@ -9,7 +9,7 @@
 
 #include "table/block_based/block_based_table_reader.h"
 #include "table/block_based/partitioned_filter_block.h"
-#include "table/full_filter_bits_builder.h"
+#include "table/block_based/filter_policy_internal.h"
 
 #include "index_builder.h"
 #include "logging/logging.h"
