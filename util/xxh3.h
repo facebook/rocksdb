@@ -1,4 +1,7 @@
-// Copyright (c) Facebook, Inc. and its affiliates. All Rights Reserved.
+//  Copyright (c) Facebook, Inc. and its affiliates. All Rights Reserved.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 /*
    xxHash - Extremely Fast Hash algorithm
    Development source file for `xxh3`
