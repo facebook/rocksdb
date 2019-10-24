@@ -1145,7 +1145,7 @@ XXH_PUBLIC_API XXH64_hash_t XXH64_hashFromCanonical(const XXH64_canonical_t* src
 *  New generation hash designed for speed on small keys and vectorization
 ************************************************************************ */
 
-#include "xxh3.h"
+#include "xxh3p.h" /* XXH3 preview for RocksDB */
 
 
 #endif  /* XXH_NO_LONG_LONG */
