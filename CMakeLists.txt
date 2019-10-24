@@ -646,7 +646,6 @@ set(SOURCES
         util/concurrent_task_limiter_impl.cc
         util/crc32c.cc
         util/dynamic_bloom.cc
-        util/filter_policy.cc
         util/hash.cc
         util/murmurhash.cc
         util/random.cc
