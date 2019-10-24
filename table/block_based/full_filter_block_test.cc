@@ -7,7 +7,7 @@
 #include "rocksdb/filter_policy.h"
 #include "table/block_based/block_based_table_reader.h"
 #include "table/block_based/mock_block_based_table.h"
-#include "table/full_filter_bits_builder.h"
+#include "table/block_based/filter_policy_internal.h"
 #include "test_util/testharness.h"
 #include "test_util/testutil.h"
 #include "util/coding.h"
