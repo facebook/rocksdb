@@ -2800,7 +2800,7 @@ class ModelDB : public DB {
 
   virtual Status GetCreationTimeOfOldestFile(
       uint64_t* /*creation_time*/) override {
-    return Status::OK();
+    return Status::NotSupported();
   }
 
   Status DeleteFile(std::string /*name*/) override { return Status::OK(); }
@@ -6337,13 +6337,14 @@ TEST_F(DBTest, CreationTimeOfOldestFile) {
   // At this point there should be 2 files, oen with file_creation_time = 0 and
   // the other non-zero. GetCreationTimeOfOldestFile API should return 0.
   uint64_t creation_time;
-  dbfull()->GetCreationTimeOfOldestFile(&creation_time);
+  Status s1 = dbfull()->GetCreationTimeOfOldestFile(&creation_time);
   ASSERT_EQ(0, creation_time);
+  ASSERT_EQ(s1, Status::OK());
 
   // Testing with non-zero file creation time.
   set_file_creation_time_to_zero = false;
   options = CurrentOptions();
-  options.max_open_files = -1;  // needed for ttl compaction
+  options.max_open_files = -1;
   env_->time_elapse_only_sleep_ = false;
   options.env = env_;
 
@@ -6361,8 +6362,16 @@ TEST_F(DBTest, CreationTimeOfOldestFile) {
   // At this point there should be 2 files with non-zero file creation time.
   // GetCreationTimeOfOldestFile API should return non-zero value.
   uint64_t ctime;
-  dbfull()->GetCreationTimeOfOldestFile(&ctime);
+  Status s2 = dbfull()->GetCreationTimeOfOldestFile(&ctime);
   ASSERT_EQ(uint_time_1, ctime);
+  ASSERT_EQ(s2, Status::OK());
+
+  // Testing with max_open_files != -1
+  options = CurrentOptions();
+  options.max_open_files = 10;
+  DestroyAndReopen(options);
+  Status s3 = dbfull()->GetCreationTimeOfOldestFile(&ctime);
+  ASSERT_EQ(s3, Status::NotSupported());
 
   rocksdb::SyncPoint::GetInstance()->DisableProcessing();
 }

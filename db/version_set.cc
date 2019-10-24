@@ -1482,7 +1482,7 @@ uint64_t Version::GetSstFilesSize() {
 }
 
 void Version::GetCreationTimeOfOldestFile(uint64_t* creation_time) {
-  uint64_t oldest_time = ULONG_MAX;
+  uint64_t oldest_time = port::kMaxUint64;
   for (int level = 0; level < storage_info_.num_levels_; level++) {
     for (FileMetaData* meta : storage_info_.LevelFiles(level)) {
       uint64_t file_creation_time =

@@ -1141,7 +1141,9 @@ class DB {
       std::unique_ptr<LogFile>* current_log_file) = 0;
 
   // Retrieves the creation time of the oldest file in the DB.
-  // This API only works if max_open_files = -1;
+  // This API only works if max_open_files = -1, if it is not then
+  // Status returned is Status::NotSupported()
+  // The file creation time is set using the env provided to the DB.
   virtual Status GetCreationTimeOfOldestFile(uint64_t* creation_time) = 0;
 
   // Note: this API is not yet consistent with WritePrepared transactions.
