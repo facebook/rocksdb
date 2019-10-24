@@ -53,11 +53,11 @@ Lookup3         1.2 GB/s      9       Bob Jenkins
 SuperFastHash   1.2 GB/s      1       Paul Hsieh
 CityHash64      1.05 GB/s    10       Pike & Alakuijala
 FNV             0.55 GB/s     5       Fowler, Noll, Vo
-CRC32           0.43 GB/s †   9
+CRC32           0.43 GB/s #   9
 MD5-32          0.33 GB/s    10       Ronald L. Rivest
 SHA1-32         0.28 GB/s    10
 
-Note †: other CRC32 implementations can be over 40x faster than SMHasher's:
+Note #: other CRC32 implementations can be over 40x faster than SMHasher's:
 http://fastcompression.blogspot.com/2019/03/presenting-xxh3.html?showComment=1552696407071#c3490092340461170735
 
 Q.Score is a measure of quality of the hash function.
