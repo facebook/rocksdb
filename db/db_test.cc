@@ -2798,6 +2798,11 @@ class ModelDB : public DB {
     return Status::OK();
   }
 
+  virtual Status GetCreationTimeOfOldestFile(
+      uint64_t* /*creation_time*/) override {
+    return Status::NotSupported();
+  }
+
   Status DeleteFile(std::string /*name*/) override { return Status::OK(); }
 
   Status GetUpdatesSince(
@@ -6269,6 +6274,106 @@ TEST_F(DBTest, LargeBlockSizeTest) {
   table_options.block_size = 8LL * 1024 * 1024 * 1024LL;
   options.table_factory.reset(NewBlockBasedTableFactory(table_options));
   ASSERT_NOK(TryReopenWithColumnFamilies({"default", "pikachu"}, options));
+}
+
+TEST_F(DBTest, CreationTimeOfOldestFile) {
+  const int kNumKeysPerFile = 32;
+  const int kNumLevelFiles = 2;
+  const int kValueSize = 100;
+
+  Options options = CurrentOptions();
+  options.max_open_files = -1;
+  env_->time_elapse_only_sleep_ = false;
+  options.env = env_;
+
+  env_->addon_time_.store(0);
+  DestroyAndReopen(options);
+
+  bool set_file_creation_time_to_zero = true;
+  int idx = 0;
+
+  int64_t time_1 = 0;
+  env_->GetCurrentTime(&time_1);
+  const uint64_t uint_time_1 = static_cast<uint64_t>(time_1);
+
+  // Add 50 hours
+  env_->addon_time_.fetch_add(50 * 60 * 60);
+
+  int64_t time_2 = 0;
+  env_->GetCurrentTime(&time_2);
+  const uint64_t uint_time_2 = static_cast<uint64_t>(time_2);
+
+  rocksdb::SyncPoint::GetInstance()->SetCallBack(
+      "PropertyBlockBuilder::AddTableProperty:Start", [&](void* arg) {
+        TableProperties* props = reinterpret_cast<TableProperties*>(arg);
+        if (set_file_creation_time_to_zero) {
+          if (idx == 0) {
+            props->file_creation_time = 0;
+            idx++;
+          } else if (idx == 1) {
+            props->file_creation_time = uint_time_1;
+            idx = 0;
+          }
+        } else {
+          if (idx == 0) {
+            props->file_creation_time = uint_time_1;
+            idx++;
+          } else if (idx == 1) {
+            props->file_creation_time = uint_time_2;
+          }
+        }
+      });
+  rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+
+  Random rnd(301);
+  for (int i = 0; i < kNumLevelFiles; ++i) {
+    for (int j = 0; j < kNumKeysPerFile; ++j) {
+      ASSERT_OK(
+          Put(Key(i * kNumKeysPerFile + j), RandomString(&rnd, kValueSize)));
+    }
+    Flush();
+  }
+
+  // At this point there should be 2 files, oen with file_creation_time = 0 and
+  // the other non-zero. GetCreationTimeOfOldestFile API should return 0.
+  uint64_t creation_time;
+  Status s1 = dbfull()->GetCreationTimeOfOldestFile(&creation_time);
+  ASSERT_EQ(0, creation_time);
+  ASSERT_EQ(s1, Status::OK());
+
+  // Testing with non-zero file creation time.
+  set_file_creation_time_to_zero = false;
+  options = CurrentOptions();
+  options.max_open_files = -1;
+  env_->time_elapse_only_sleep_ = false;
+  options.env = env_;
+
+  env_->addon_time_.store(0);
+  DestroyAndReopen(options);
+
+  for (int i = 0; i < kNumLevelFiles; ++i) {
+    for (int j = 0; j < kNumKeysPerFile; ++j) {
+      ASSERT_OK(
+          Put(Key(i * kNumKeysPerFile + j), RandomString(&rnd, kValueSize)));
+    }
+    Flush();
+  }
+
+  // At this point there should be 2 files with non-zero file creation time.
+  // GetCreationTimeOfOldestFile API should return non-zero value.
+  uint64_t ctime;
+  Status s2 = dbfull()->GetCreationTimeOfOldestFile(&ctime);
+  ASSERT_EQ(uint_time_1, ctime);
+  ASSERT_EQ(s2, Status::OK());
+
+  // Testing with max_open_files != -1
+  options = CurrentOptions();
+  options.max_open_files = 10;
+  DestroyAndReopen(options);
+  Status s3 = dbfull()->GetCreationTimeOfOldestFile(&ctime);
+  ASSERT_EQ(s3, Status::NotSupported());
+
+  rocksdb::SyncPoint::GetInstance()->DisableProcessing();
 }
 
 }  // namespace rocksdb
