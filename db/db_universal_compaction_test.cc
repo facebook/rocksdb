@@ -2150,6 +2150,72 @@ TEST_F(DBTestUniversalDeleteTrigCompaction, IngestBehind) {
   ASSERT_GT(NumTableFilesAtLevel(5), 0);
 }
 
+TEST_F(DBTestUniversalDeleteTrigCompaction, PeriodicCompaction) {
+  Options opts = CurrentOptions();
+  opts.env = env_;
+  opts.compaction_style = kCompactionStyleUniversal;
+  opts.level0_file_num_compaction_trigger = 10;
+  opts.max_open_files = -1;
+  opts.compaction_options_universal.size_ratio = 10;
+  opts.compaction_options_universal.min_merge_width = 2;
+  opts.compaction_options_universal.max_size_amplification_percent = 200;
+  opts.periodic_compaction_seconds = 48 * 60 * 60;  // 2 days
+  opts.num_levels = 5;
+  env_->addon_time_.store(0);
+  Reopen(opts);
+
+  int periodic_compactions = 0;
+  int start_level = -1;
+  int output_level = -1;
+  rocksdb::SyncPoint::GetInstance()->SetCallBack(
+      "UniversalCompactionPicker::PickPeriodicCompaction:Return",
+      [&](void* arg) {
+        Compaction* compaction = reinterpret_cast<Compaction*>(arg);
+        ASSERT_TRUE(arg != nullptr);
+        ASSERT_TRUE(compaction->compaction_reason() ==
+                    CompactionReason::kPeriodicCompaction);
+        start_level = compaction->start_level();
+        output_level = compaction->output_level();
+        periodic_compactions++;
+      });
+  rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+
+  // Case 1: Oldest flushed file excceeds periodic compaction threshold.
+  ASSERT_OK(Put("foo", "bar"));
+  Flush();
+  ASSERT_EQ(0, periodic_compactions);
+  // Move clock forward so that the flushed file would qualify periodic
+  // compaction.
+  env_->addon_time_.store(48 * 60 * 60 + 100);
+
+  // Another flush would trigger compaction the oldest file.
+  ASSERT_OK(Put("foo", "bar2"));
+  Flush();
+  dbfull()->TEST_WaitForCompact();
+
+  ASSERT_EQ(1, periodic_compactions);
+  ASSERT_EQ(0, start_level);
+  ASSERT_EQ(4, output_level);
+
+  // Case 2: Oldest compacted file exccceeds periodic compaction threshold
+  periodic_compactions = 0;
+  // A flush doesn't trigger a periodic compaction when threshold not hit
+  ASSERT_OK(Put("foo", "bar2"));
+  Flush();
+  dbfull()->TEST_WaitForCompact();
+  ASSERT_EQ(0, periodic_compactions);
+
+  // After periodic compaction threshold hits, a flush will trigger
+  // a compaction
+  ASSERT_OK(Put("foo", "bar2"));
+  env_->addon_time_.fetch_add(48 * 60 * 60 + 100);
+  Flush();
+  dbfull()->TEST_WaitForCompact();
+  ASSERT_EQ(1, periodic_compactions);
+  ASSERT_EQ(0, start_level);
+  ASSERT_EQ(4, output_level);
+}
+
 }  // namespace rocksdb
 
 #endif  // !defined(ROCKSDB_LITE)
