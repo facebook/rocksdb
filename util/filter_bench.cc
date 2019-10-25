@@ -70,6 +70,8 @@ DEFINE_uint32(impl, 0,
 
 DEFINE_bool(quick, false, "Run more limited set of tests, fewer queries");
 
+DEFINE_bool(best_case, false, "Run limited tests only for best-case");
+
 DEFINE_bool(allow_bad_fp_rate, false, "Continue even if FP rate is bad");
 
 DEFINE_bool(legend, false,
@@ -181,6 +183,10 @@ static const std::vector<TestMode> quickTestModes = {
     kRandomFilter,
 };
 
+static const std::vector<TestMode> bestCaseTestModes = {
+    kSingleFilter,
+};
+
 const char *TestModeToString(TestMode tm) {
   switch (tm) {
     case kSingleFilter:
@@ -245,9 +251,13 @@ void FilterBench::Go() {
   }
 
   const std::vector<TestMode> &testModes =
+      FLAGS_best_case ? bestCaseTestModes :
       FLAGS_quick ? quickTestModes : allTestModes;
   if (FLAGS_quick) {
     FLAGS_m_queries /= 7.0;
+  } else if (FLAGS_best_case) {
+    FLAGS_m_queries /= 3.0;
+    FLAGS_working_mem_size_mb /= 10.0;
   }
 
   std::cout << "Building..." << std::endl;
@@ -303,7 +313,7 @@ void FilterBench::Go() {
 
   double bpk = total_memory_used * 8.0 / total_keys_added;
   std::cout << "Bits/key actual: " << bpk << std::endl;
-  if (!FLAGS_quick) {
+  if (!FLAGS_quick && !FLAGS_best_case) {
     double tolerable_rate = std::pow(2.0, -(bpk - 1.0) / (1.4 + bpk / 50.0));
     std::cout << "Best possible FP rate %: " << 100.0 * std::pow(2.0, -bpk)
               << std::endl;
@@ -562,7 +572,7 @@ double FilterBench::RandomQueryTest(uint32_t inside_threshold, bool dry_run,
       }
     }
     fp_rate_report_ << "    Average FP rate %: " << 100.0 * fp / q << std::endl;
-    if (!FLAGS_quick) {
+    if (!FLAGS_quick && !FLAGS_best_case) {
       fp_rate_report_ << "    Worst   FP rate %: " << 100.0 * worst_fp_rate
                       << std::endl;
       fp_rate_report_ << "    Best    FP rate %: " << 100.0 * best_fp_rate
