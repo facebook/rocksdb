@@ -871,11 +871,12 @@ TEST_F(DBBasicTest, ChecksumTest) {
     ASSERT_OK(Flush());
   }
 
-  // verify data with each type of checksum
-  for (int i = 0; i <= kxxHash64; ++i) {
+  // with each valid checksum type setting...
+  for (int i = 0; i <= max_checksum; ++i) {
     table_options.checksum = static_cast<ChecksumType>(i);
     options.table_factory.reset(NewBlockBasedTableFactory(table_options));
     Reopen(options);
+    // verify every type of checksum (should be regardless of that setting)
     for (int j = 0; j < (max_checksum + 1) * kNumPerFile; ++j) {
       ASSERT_EQ(Key(j), Get(Key(j)));
     }
