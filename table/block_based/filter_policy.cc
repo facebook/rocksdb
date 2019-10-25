@@ -32,7 +32,7 @@ class FullFilterBitsBuilder : public BuiltinFilterBitsBuilder {
   FullFilterBitsBuilder(const FullFilterBitsBuilder&) = delete;
   void operator=(const FullFilterBitsBuilder&) = delete;
 
-  ~FullFilterBitsBuilder();
+  ~FullFilterBitsBuilder() override;
 
   void AddKey(const Slice& key) override;
 
