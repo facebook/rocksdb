@@ -1483,8 +1483,9 @@ uint64_t Version::GetSstFilesSize() {
 
 void Version::GetCreationTimeOfOldestFile(uint64_t* creation_time) {
   uint64_t oldest_time = port::kMaxUint64;
-  for (int level = 0; level < storage_info_.num_levels_; level++) {
+  for (int level = 0; level < storage_info_.num_non_empty_levels_; level++) {
     for (FileMetaData* meta : storage_info_.LevelFiles(level)) {
+      assert(meta->fd.table_reader != nullptr);
       uint64_t file_creation_time =
           meta->fd.table_reader->GetTableProperties()->file_creation_time;
       if (file_creation_time == 0) {

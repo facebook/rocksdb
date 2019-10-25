@@ -4287,7 +4287,7 @@ Status DBImpl::GetCreationTimeOfOldestFile(uint64_t* creation_time) {
     *creation_time = oldest_time;
     return Status::OK();
   } else {
-    return Status::NotSupported();
+    return Status::NotSupported("This API only works if max_open_files = -1");
   }
 }
 #endif  // ROCKSDB_LITE

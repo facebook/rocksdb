@@ -1144,6 +1144,12 @@ class DB {
   // This API only works if max_open_files = -1, if it is not then
   // Status returned is Status::NotSupported()
   // The file creation time is set using the env provided to the DB.
+  // If the DB was created from a very old release then its possible that
+  // the SST files might not have file_creation_time property and even after
+  // moving to a newer release its possible that some files never got compacted
+  // and may not have file_creation_time property. In both the cases
+  // file_creation_time is considered 0 which means this API will return
+  // creation_time = 0 as there wouldn't be a timestamp lower than 0.
   virtual Status GetCreationTimeOfOldestFile(uint64_t* creation_time) = 0;
 
   // Note: this API is not yet consistent with WritePrepared transactions.
