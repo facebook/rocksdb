@@ -672,6 +672,10 @@ class Version {
 
   uint64_t GetSstFilesSize();
 
+  // Retrieves the file_creation_time of the oldest file in the DB.
+  // Prerequisite for this API is max_open_files = -1
+  void GetCreationTimeOfOldestFile(uint64_t* creation_time);
+
   const MutableCFOptions& GetMutableCFOptions() { return mutable_cf_options_; }
 
  private:

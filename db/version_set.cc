@@ -1481,6 +1481,25 @@ uint64_t Version::GetSstFilesSize() {
   return sst_files_size;
 }
 
+void Version::GetCreationTimeOfOldestFile(uint64_t* creation_time) {
+  uint64_t oldest_time = port::kMaxUint64;
+  for (int level = 0; level < storage_info_.num_non_empty_levels_; level++) {
+    for (FileMetaData* meta : storage_info_.LevelFiles(level)) {
+      assert(meta->fd.table_reader != nullptr);
+      uint64_t file_creation_time =
+          meta->fd.table_reader->GetTableProperties()->file_creation_time;
+      if (file_creation_time == 0) {
+        *creation_time = file_creation_time;
+        return;
+      }
+      if (file_creation_time < oldest_time) {
+        oldest_time = file_creation_time;
+      }
+    }
+  }
+  *creation_time = oldest_time;
+}
+
 uint64_t VersionStorageInfo::GetEstimatedActiveKeys() const {
   // Estimation will be inaccurate when:
   // (1) there exist merge keys
