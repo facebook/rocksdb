@@ -68,6 +68,11 @@ DEFINE_uint32(impl, 0,
               "0 = full filter, 1 = block-based filter. With "
               "-use_plain_table_bloom: 0 = no locality, 1 = locality.");
 
+DEFINE_bool(net_includes_hashing, false,
+            "Whether query net ns/op times should include hashing. "
+            "(if not, dry run will include hashing) "
+            "(build times always include hashing)");
+
 DEFINE_bool(quick, false, "Run more limited set of tests, fewer queries");
 
 DEFINE_bool(best_case, false, "Run limited tests only for best-case");
@@ -203,6 +208,17 @@ const char *TestModeToString(TestMode tm) {
       return "Random filter";
   }
   return "Bad TestMode";
+}
+
+// Do just enough to keep some data dependence for the
+// compiler / CPU
+static inline uint32_t NoHash(Slice &s) {
+  uint32_t sz = static_cast<uint32_t>(s.size());
+  if (sz >= 4) {
+    return sz + s.data()[3];
+  } else {
+    return sz;
+  }
 }
 
 struct FilterBench : public MockBlockBasedTableTester {
@@ -487,7 +503,11 @@ double FilterBench::RandomQueryTest(uint32_t inside_threshold, bool dry_run,
       if (dry_run) {
         for (uint32_t i = 0; i < batch_size; ++i) {
           batch_results[i] = true;
-          dry_run_hash ^= BloomHash(batch_slices[i]);
+          if (FLAGS_net_includes_hashing) {
+            dry_run_hash += NoHash(batch_slices[i]);
+          } else {
+            dry_run_hash ^= BloomHash(batch_slices[i]);
+          }
         }
       } else {
         info.reader_->MayMatch(batch_size, batch_slice_ptrs.get(),
@@ -505,7 +525,11 @@ double FilterBench::RandomQueryTest(uint32_t inside_threshold, bool dry_run,
         bool may_match;
         if (FLAGS_use_plain_table_bloom) {
           if (dry_run) {
-            dry_run_hash ^= GetSliceHash(batch_slices[i]);
+            if (FLAGS_net_includes_hashing) {
+              dry_run_hash += NoHash(batch_slices[i]);
+            } else {
+              dry_run_hash ^= GetSliceHash(batch_slices[i]);
+            }
             may_match = true;
           } else {
             uint32_t hash = GetSliceHash(batch_slices[i]);
@@ -513,7 +537,11 @@ double FilterBench::RandomQueryTest(uint32_t inside_threshold, bool dry_run,
           }
         } else if (FLAGS_use_full_block_reader) {
           if (dry_run) {
-            dry_run_hash ^= BloomHash(batch_slices[i]);
+            if (FLAGS_net_includes_hashing) {
+              dry_run_hash += NoHash(batch_slices[i]);
+            } else {
+              dry_run_hash ^= BloomHash(batch_slices[i]);
+            }
             may_match = true;
           } else {
             may_match = info.full_block_reader_->KeyMayMatch(
@@ -526,7 +554,11 @@ double FilterBench::RandomQueryTest(uint32_t inside_threshold, bool dry_run,
           }
         } else {
           if (dry_run) {
-            dry_run_hash ^= rocksdb::BloomHash(batch_slices[i]);
+            if (FLAGS_net_includes_hashing) {
+              dry_run_hash += NoHash(batch_slices[i]);
+            } else {
+              dry_run_hash ^= BloomHash(batch_slices[i]);
+            }
             may_match = true;
           } else {
             may_match = info.reader_->MayMatch(batch_slices[i]);
