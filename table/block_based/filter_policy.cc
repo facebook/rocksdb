@@ -98,8 +98,8 @@ void FullFilterBitsBuilder::AddKey(const Slice& key) {
 
 Slice FullFilterBitsBuilder::Finish(std::unique_ptr<const char[]>* buf) {
   uint32_t total_bits, num_lines;
-  char* data = ReserveSpace(static_cast<int>(hash_entries_.size()),
-                            &total_bits, &num_lines);
+  char* data = ReserveSpace(static_cast<int>(hash_entries_.size()), &total_bits,
+                            &num_lines);
   assert(data);
 
   if (total_bits != 0 && num_lines != 0) {
@@ -107,8 +107,8 @@ Slice FullFilterBitsBuilder::Finish(std::unique_ptr<const char[]>* buf) {
       AddHash(h, data, num_lines, total_bits);
     }
   }
-  data[total_bits/8] = static_cast<char>(num_probes_);
-  EncodeFixed32(data + total_bits/8 + 1, static_cast<uint32_t>(num_lines));
+  data[total_bits / 8] = static_cast<char>(num_probes_);
+  EncodeFixed32(data + total_bits / 8 + 1, static_cast<uint32_t>(num_lines));
 
   const char* const_data = data;
   buf->reset(const_data);

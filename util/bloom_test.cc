@@ -62,7 +62,8 @@ class BlockBasedBloomTest : public testing::Test {
   std::vector<std::string> keys_;
 
  public:
-  BlockBasedBloomTest() : policy_(NewBloomFilterPolicy(FLAGS_bits_per_key, true)) {}
+  BlockBasedBloomTest()
+      : policy_(NewBloomFilterPolicy(FLAGS_bits_per_key, true)) {}
 
   void Reset() {
     keys_.clear();
@@ -327,8 +328,7 @@ TEST_F(FullBloomTest, FilterSize) {
     auto space = bits_builder->CalculateSpace(n);
     auto n2 = bits_builder->CalculateNumEntry(space);
     ASSERT_GE(n2, n);
-    auto space2 =
-        bits_builder->CalculateSpace(n2);
+    auto space2 = bits_builder->CalculateSpace(n2);
     ASSERT_EQ(space, space2);
   }
 }
