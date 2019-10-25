@@ -44,12 +44,13 @@ class FilterBitsBuilder {
   // The ownership of actual data is set to buf
   virtual Slice Finish(std::unique_ptr<const char[]>* buf) = 0;
 
-  // Calculate num of entries fit into a space.
+  // Calculate num of keys that can be added and generate a filter
+  // <= the specified number of bytes.
 #if defined(_MSC_VER)
 #pragma warning(push)
 #pragma warning(disable : 4702)  // unreachable code
 #endif
-  virtual int CalculateNumEntry(const uint32_t /*space*/) {
+  virtual int CalculateNumEntry(const uint32_t /*bytes*/) {
 #ifndef ROCKSDB_LITE
     throw std::runtime_error("CalculateNumEntry not Implemented");
 #else
@@ -119,13 +120,13 @@ class FilterPolicy {
   // list, but it should aim to return false with a high probability.
   virtual bool KeyMayMatch(const Slice& key, const Slice& filter) const = 0;
 
-  // Get the FilterBitsBuilder, which is ONLY used for full filter block
-  // It contains interface to take individual key, then generate filter
+  // Return a new FilterBitsBuilder for full or partitioned filter blocks, or
+  // nullptr if using block-based filter.
   virtual FilterBitsBuilder* GetFilterBitsBuilder() const { return nullptr; }
 
-  // Get the FilterBitsReader, which is ONLY used for full filter block
-  // It contains interface to tell if key can be in filter
-  // The input slice should NOT be deleted by FilterPolicy
+  // Return a new FilterBitsReader for full or partitioned filter blocks, or
+  // nullptr if using block-based filter.
+  // As here, the input slice should NOT be deleted by FilterPolicy.
   virtual FilterBitsReader* GetFilterBitsReader(
       const Slice& /*contents*/) const {
     return nullptr;

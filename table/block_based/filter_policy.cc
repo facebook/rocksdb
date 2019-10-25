@@ -103,16 +103,16 @@ char* FullFilterBitsBuilder::ReserveSpace(const int num_entry,
   return data;
 }
 
-int FullFilterBitsBuilder::CalculateNumEntry(const uint32_t space) {
+int FullFilterBitsBuilder::CalculateNumEntry(const uint32_t bytes) {
   assert(bits_per_key_);
-  assert(space > 0);
+  assert(bytes > 0);
   uint32_t dont_care1, dont_care2;
-  int high = static_cast<int>(space * 8 / bits_per_key_ + 1);
+  int high = static_cast<int>(bytes * 8 / bits_per_key_ + 1);
   int low = 1;
   int n = high;
   for (; n >= low; n--) {
     uint32_t sz = CalculateSpace(n, &dont_care1, &dont_care2);
-    if (sz <= space) {
+    if (sz <= bytes) {
       break;
     }
   }
