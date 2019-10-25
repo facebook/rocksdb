@@ -267,8 +267,8 @@ void FilterBench::Go() {
   }
 
   const std::vector<TestMode> &testModes =
-      FLAGS_best_case ? bestCaseTestModes :
-      FLAGS_quick ? quickTestModes : allTestModes;
+      FLAGS_best_case ? bestCaseTestModes
+                      : FLAGS_quick ? quickTestModes : allTestModes;
   if (FLAGS_quick) {
     FLAGS_m_queries /= 7.0;
   } else if (FLAGS_best_case) {
@@ -312,7 +312,8 @@ void FilterBench::Go() {
       CachableEntry<ParsedFullFilterBlock> block(
           new ParsedFullFilterBlock(table_options_.filter_policy.get(),
                                     BlockContents(info.filter_)),
-          nullptr /* cache */, nullptr /* cache_handle */, true /* own_value */);
+          nullptr /* cache */, nullptr /* cache_handle */,
+          true /* own_value */);
       info.full_block_reader_.reset(
           new FullFilterBlockReader(table_.get(), std::move(block)));
     }
