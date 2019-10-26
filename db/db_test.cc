@@ -6276,6 +6276,8 @@ TEST_F(DBTest, LargeBlockSizeTest) {
   ASSERT_NOK(TryReopenWithColumnFamilies({"default", "pikachu"}, options));
 }
 
+#ifndef ROCKSDB_LITE
+
 TEST_F(DBTest, CreationTimeOfOldestFile) {
   const int kNumKeysPerFile = 32;
   const int kNumLevelFiles = 2;
@@ -6375,6 +6377,8 @@ TEST_F(DBTest, CreationTimeOfOldestFile) {
 
   rocksdb::SyncPoint::GetInstance()->DisableProcessing();
 }
+
+#endif
 
 }  // namespace rocksdb
 
