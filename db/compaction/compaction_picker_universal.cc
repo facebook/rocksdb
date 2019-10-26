@@ -262,7 +262,7 @@ bool UniversalCompactionPicker::NeedsCompaction(
 Compaction* UniversalCompactionPicker::PickCompaction(
     const std::string& cf_name, const MutableCFOptions& mutable_cf_options,
     VersionStorageInfo* vstorage, LogBuffer* log_buffer,
-    SequenceNumber oldest_memtable_seqno) {
+    SequenceNumber /*oldest_memtable_seqno */) {
   UniversalCompactionBuilder builder(ioptions_, icmp_, cf_name,
                                      mutable_cf_options, vstorage, this,
                                      log_buffer);
