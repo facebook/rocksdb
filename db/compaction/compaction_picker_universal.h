@@ -19,10 +19,10 @@ class UniversalCompactionPicker : public CompactionPicker {
                             const InternalKeyComparator* icmp)
       : CompactionPicker(ioptions, icmp) {}
   virtual Compaction* PickCompaction(const std::string& cf_name,
-                                     const MutableCFOptions& mutable_cf_options,
-                                     VersionStorageInfo* vstorage,
-                                     LogBuffer* log_buffer) override;
-
+                                       const MutableCFOptions& mutable_cf_options,
+                                       VersionStorageInfo* vstorage,
+                                       LogBuffer* log_buffer,
+                                       SequenceNumber oldest_memtable_seqno = std::numeric_limits<uint64_t>::max()) override;
   virtual int MaxOutputLevel() const override { return NumberLevels() - 1; }
 
   virtual bool NeedsCompaction(

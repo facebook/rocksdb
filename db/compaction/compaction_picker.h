@@ -57,7 +57,8 @@ class CompactionPicker {
   virtual Compaction* PickCompaction(const std::string& cf_name,
                                      const MutableCFOptions& mutable_cf_options,
                                      VersionStorageInfo* vstorage,
-                                     LogBuffer* log_buffer) = 0;
+                                     LogBuffer* log_buffer,
+                                     SequenceNumber oldest_memtable_seqno = std::numeric_limits<uint64_t>::max()) = 0;
 
   // Return a compaction object for compacting the range [begin,end] in
   // the specified level.  Returns nullptr if there is nothing in that
@@ -250,7 +251,8 @@ class NullCompactionPicker : public CompactionPicker {
   Compaction* PickCompaction(const std::string& /*cf_name*/,
                              const MutableCFOptions& /*mutable_cf_options*/,
                              VersionStorageInfo* /*vstorage*/,
-                             LogBuffer* /*log_buffer*/) override {
+                             LogBuffer* log_buffer,
+                             SequenceNumber oldest_memtable_seqno = std::numeric_limits<uint64_t>::max()) override {
     return nullptr;
   }
 
@@ -296,7 +298,8 @@ bool FindIntraL0Compaction(const std::vector<FileMetaData*>& level_files,
                            size_t min_files_to_compact,
                            uint64_t max_compact_bytes_per_del_file,
                            uint64_t max_compaction_bytes,
-                           CompactionInputFiles* comp_inputs);
+                           CompactionInputFiles* comp_inputs,
+                           SequenceNumber oldest_mem_seqno = std::numeric_limits<uint64_t>::max());
 
 CompressionType GetCompressionType(const ImmutableCFOptions& ioptions,
                                    const VersionStorageInfo* vstorage,

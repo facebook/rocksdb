@@ -223,6 +223,7 @@ struct SuperVersion {
   void Cleanup();
   void Init(MemTable* new_mem, MemTableListVersion* new_imm,
             Version* new_current);
+  SequenceNumber GetSmallestMemSeqno() const;
 
   // The value of dummy is not actually used. kSVInUse takes its address as a
   // mark in the thread local storage to indicate the SuperVersion is in use

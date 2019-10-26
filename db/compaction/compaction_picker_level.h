@@ -23,7 +23,8 @@ class LevelCompactionPicker : public CompactionPicker {
   virtual Compaction* PickCompaction(const std::string& cf_name,
                                      const MutableCFOptions& mutable_cf_options,
                                      VersionStorageInfo* vstorage,
-                                     LogBuffer* log_buffer) override;
+                                     LogBuffer* log_buffer,
+                                     SequenceNumber oldest_memtable_seqno = std::numeric_limits<uint64_t>::max()) override;
 
   virtual bool NeedsCompaction(
       const VersionStorageInfo* vstorage) const override;

@@ -391,6 +391,11 @@ void SuperVersion::Init(MemTable* new_mem, MemTableListVersion* new_imm,
   refs.store(1, std::memory_order_relaxed);
 }
 
+SequenceNumber SuperVersion::GetSmallestMemSeqno() const {
+  SequenceNumber smallest_seqno = std::min(mem->GetEarliestSequenceNumber(), imm->GetEarliestSequenceNumber(false));
+  return smallest_seqno;
+}
+
 namespace {
 void SuperVersionUnrefHandle(void* ptr) {
   // UnrefHandle is called when a thread exists or a ThreadLocalPtr gets
@@ -929,8 +934,9 @@ bool ColumnFamilyData::NeedsCompaction() const {
 
 Compaction* ColumnFamilyData::PickCompaction(
     const MutableCFOptions& mutable_options, LogBuffer* log_buffer) {
+  SequenceNumber oldest_mem_seqno = super_version_->GetSmallestMemSeqno();
   auto* result = compaction_picker_->PickCompaction(
-      GetName(), mutable_options, current_->storage_info(), log_buffer);
+      GetName(), mutable_options, current_->storage_info(), log_buffer, oldest_mem_seqno);
   if (result != nullptr) {
     result->SetInputVersion(current_);
   }
