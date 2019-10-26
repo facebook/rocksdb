@@ -529,7 +529,6 @@ class MemTable {
 
   void UpdateOldestKeyTime();
 
-
   void GetFromTable(const LookupKey& key,
                     SequenceNumber max_covering_tombstone_seq, bool do_merge,
                     ReadCallback* callback, bool* is_blob_index,
