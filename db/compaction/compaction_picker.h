@@ -251,8 +251,8 @@ class NullCompactionPicker : public CompactionPicker {
   Compaction* PickCompaction(const std::string& /*cf_name*/,
                              const MutableCFOptions& /*mutable_cf_options*/,
                              VersionStorageInfo* /*vstorage*/,
-                             LogBuffer* log_buffer,
-                             SequenceNumber oldest_memtable_seqno = std::numeric_limits<uint64_t>::max()) override {
+                             LogBuffer* /* log_buffer */,
+                             SequenceNumber /* oldest_memtable_seqno */) override {
     return nullptr;
   }
 
