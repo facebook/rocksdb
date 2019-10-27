@@ -52,7 +52,7 @@ class LevelCompactionBuilder {
                          const ImmutableCFOptions& ioptions)
       : cf_name_(cf_name),
         vstorage_(vstorage),
-        oldest_mem_seqno_(oldest_mem_seqno),
+        earliest_mem_seqno_(oldest_mem_seqno),
         compaction_picker_(compaction_picker),
         log_buffer_(log_buffer),
         mutable_cf_options_(mutable_cf_options),
@@ -99,7 +99,7 @@ class LevelCompactionBuilder {
 
   const std::string& cf_name_;
   VersionStorageInfo* vstorage_;
-  SequenceNumber oldest_mem_seqno_;
+  SequenceNumber earliest_mem_seqno_;
   CompactionPicker* compaction_picker_;
   LogBuffer* log_buffer_;
   int start_level_ = -1;
@@ -542,14 +542,14 @@ bool LevelCompactionBuilder::PickIntraL0Compaction() {
   }
   return FindIntraL0Compaction(
       level_files, kMinFilesForIntraL0Compaction, port::kMaxUint64,
-      mutable_cf_options_.max_compaction_bytes, &start_level_inputs_, oldest_mem_seqno_);
+      mutable_cf_options_.max_compaction_bytes, &start_level_inputs_, earliest_mem_seqno_);
 }
 }  // namespace
 
 Compaction* LevelCompactionPicker::PickCompaction(
     const std::string& cf_name, const MutableCFOptions& mutable_cf_options,
-    VersionStorageInfo* vstorage, LogBuffer* log_buffer, SequenceNumber oldest_memtable_seqno) {
-  LevelCompactionBuilder builder(cf_name, vstorage, oldest_memtable_seqno, this, log_buffer,
+    VersionStorageInfo* vstorage, LogBuffer* log_buffer, SequenceNumber earliest_mem_seqno) {
+  LevelCompactionBuilder builder(cf_name, vstorage, earliest_mem_seqno, this, log_buffer,
                                  mutable_cf_options, ioptions_);
   return builder.PickCompaction();
 }

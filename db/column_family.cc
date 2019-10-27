@@ -391,7 +391,7 @@ void SuperVersion::Init(MemTable* new_mem, MemTableListVersion* new_imm,
   refs.store(1, std::memory_order_relaxed);
 }
 
-SequenceNumber SuperVersion::GetSmallestMemSeqno() const {
+SequenceNumber SuperVersion::GetEarliestMemTableSequenceNumber() const {
   SequenceNumber smallest_seqno = std::min(mem->GetEarliestSequenceNumber(), imm->GetEarliestSequenceNumber(false));
   return smallest_seqno;
 }
@@ -934,7 +934,7 @@ bool ColumnFamilyData::NeedsCompaction() const {
 
 Compaction* ColumnFamilyData::PickCompaction(
     const MutableCFOptions& mutable_options, LogBuffer* log_buffer) {
-  SequenceNumber oldest_mem_seqno = super_version_->GetSmallestMemSeqno();
+  SequenceNumber oldest_mem_seqno = super_version_->GetEarliestMemTableSequenceNumber();
   auto* result = compaction_picker_->PickCompaction(
       GetName(), mutable_options, current_->storage_info(), log_buffer, oldest_mem_seqno);
   if (result != nullptr) {

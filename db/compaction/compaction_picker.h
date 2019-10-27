@@ -58,7 +58,7 @@ class CompactionPicker {
                                      const MutableCFOptions& mutable_cf_options,
                                      VersionStorageInfo* vstorage,
                                      LogBuffer* log_buffer,
-                                     SequenceNumber oldest_memtable_seqno = std::numeric_limits<uint64_t>::max()) = 0;
+                                     SequenceNumber earliest_memtable_seqno = std::numeric_limits<uint64_t>::max()) = 0;
 
   // Return a compaction object for compacting the range [begin,end] in
   // the specified level.  Returns nullptr if there is nothing in that
