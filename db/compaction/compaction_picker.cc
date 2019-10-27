@@ -43,19 +43,24 @@ bool FindIntraL0Compaction(const std::vector<FileMetaData*>& level_files,
                            SequenceNumber earliest_mem_seqno) {
 
   // Do not pick ingested file when there is at least one memtable not flushed which of seqno is overlap with the sst.
-  if (level_files[0]->fd.smallest_seqno == level_files[0]->fd.largest_seqno &&
-      level_files[0]->fd.largest_seqno >= earliest_mem_seqno) {
+  size_t start = 0;
+  while (start < level_files.size() && level_files[start]->being_compacted &&
+      level_files[start]->fd.smallest_seqno == level_files[start]->fd.largest_seqno &&
+      level_files[start]->fd.largest_seqno >= earliest_mem_seqno) {
+    start ++;
+  }
+  if (start >= level_files.size()) {
     return false;
   }
-  size_t compact_bytes = static_cast<size_t>(level_files[0]->fd.file_size);
-  uint64_t compensated_compact_bytes = level_files[0]->compensated_file_size;
+  size_t compact_bytes = static_cast<size_t>(level_files[start]->fd.file_size);
+  uint64_t compensated_compact_bytes = level_files[start]->compensated_file_size;
   size_t compact_bytes_per_del_file = port::kMaxSizet;
   // Compaction range will be [0, span_len).
   size_t span_len;
   // Pull in files until the amount of compaction work per deleted file begins
   // increasing or maximum total compaction size is reached.
   size_t new_compact_bytes_per_del_file = 0;
-  for (span_len = 1; span_len < level_files.size(); ++span_len) {
+  for (span_len = start + 1; span_len < level_files.size(); ++span_len) {
     compact_bytes += static_cast<size_t>(level_files[span_len]->fd.file_size);
     compensated_compact_bytes += level_files[span_len]->compensated_file_size;
     new_compact_bytes_per_del_file = compact_bytes / span_len;
@@ -69,11 +74,11 @@ bool FindIntraL0Compaction(const std::vector<FileMetaData*>& level_files,
     compact_bytes_per_del_file = new_compact_bytes_per_del_file;
   }
 
-  if (span_len >= min_files_to_compact &&
+  if ((span_len - start) >= min_files_to_compact &&
       compact_bytes_per_del_file < max_compact_bytes_per_del_file) {
     assert(comp_inputs != nullptr);
     comp_inputs->level = 0;
-    for (size_t i = 0; i < span_len; ++i) {
+    for (size_t i = start; i < span_len; ++i) {
       comp_inputs->files.push_back(level_files[i]);
     }
     return true;
