@@ -137,6 +137,9 @@ Status BlobDBImpl::Open(std::vector<ColumnFamilyHandle*>* handles) {
       cf_options_.compaction_filter_factory != nullptr) {
     return Status::NotSupported("Blob DB doesn't support compaction filter.");
   }
+  // BlobDB does not support Periodic Compactions. So disable periodic
+  // compactions irrespective of the user set value.
+  cf_options_.periodic_compaction_seconds = 0;
 
   Status s;
 
