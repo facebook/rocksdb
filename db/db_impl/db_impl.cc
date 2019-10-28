@@ -3708,6 +3708,7 @@ GroupLeaderWriterGuard::~GroupLeaderWriterGuard() {
   if (leader_) {
     write_thread_->ExitUnbatched(writer_);
     writer_->state.store(WriteThread::STATE_INIT, std::memory_order_relaxed);
+    writer_->link_newer = writer_->link_older = nullptr;
   }
 }
 
