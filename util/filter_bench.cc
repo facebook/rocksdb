@@ -3,10 +3,10 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
-#ifndef GFLAGS
+#if !defined(GFLAGS) || defined(ROCKSDB_LITE)
 #include <cstdio>
 int main() {
-  fprintf(stderr, "Please install gflags to run rocksdb tools\n");
+  fprintf(stderr, "filter_bench requires gflags and !ROCKSDB_LITE\n");
   return 1;
 }
 #else
@@ -660,4 +660,4 @@ int main(int argc, char **argv) {
   return 0;
 }
 
-#endif  // GFLAGS
+#endif  // !defined(GFLAGS) || defined(ROCKSDB_LITE)
