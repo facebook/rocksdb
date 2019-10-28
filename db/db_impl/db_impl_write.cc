@@ -1574,13 +1574,13 @@ void DBImpl::NotifyOnMemTableSealed(ColumnFamilyData* /*cfd*/,
 // REQUIRES: this thread is currently at the front of the writer queue
 Status DBImpl::SwitchMemtable(ColumnFamilyData* cfd, WriteContext* context) {
   mutex_.AssertHeld();
-  WriteThread::Writer nonmem_w;
+  WriteThread* write_thread = nullptr;
   if (two_write_queues_) {
     // SwitchMemtable is a rare event. To simply the reasoning, we make sure
     // that there is no concurrent thread writing to WAL.
-    nonmem_write_thread_.EnterUnbatched(&nonmem_w, &mutex_);
+    write_thread = &nonmem_write_thread_;
   }
-
+  GroupLeaderWriterGuard nonmem_guard(write_thread, &mutex_);
   std::unique_ptr<WritableFile> lfile;
   log::Writer* new_log = nullptr;
   MemTable* new_mem = nullptr;
@@ -1697,10 +1697,6 @@ Status DBImpl::SwitchMemtable(ColumnFamilyData* cfd, WriteContext* context) {
     error_handler_.SetBGError(s, BackgroundErrorReason::kMemTable);
     // Read back bg_error in order to get the right severity
     s = error_handler_.GetBGError();
-
-    if (two_write_queues_) {
-      nonmem_write_thread_.ExitUnbatched(&nonmem_w);
-    }
     return s;
   }
 
@@ -1731,9 +1727,6 @@ Status DBImpl::SwitchMemtable(ColumnFamilyData* cfd, WriteContext* context) {
   NotifyOnMemTableSealed(cfd, memtable_info);
   mutex_.Lock();
 #endif  // ROCKSDB_LITE
-  if (two_write_queues_) {
-    nonmem_write_thread_.ExitUnbatched(&nonmem_w);
-  }
   return s;
 }
 

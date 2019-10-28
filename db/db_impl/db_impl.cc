@@ -3684,6 +3684,38 @@ Status DBImpl::GetLatestSequenceForKey(SuperVersion* sv, const Slice& key,
   return s;
 }
 
+
+GroupLeaderWriterGuard::GroupLeaderWriterGuard()
+  : write_thread_(nullptr)
+  , writer_(nullptr)
+  , leader_(false) {
+}
+
+// There may be more than two instance of RocksDB in the process, but every GroupLeaderWriterGuard would release
+// it writer before destruct
+GroupLeaderWriterGuard::GroupLeaderWriterGuard(
+        WriteThread* write_thread, InstrumentedMutex* mu)
+  : write_thread_(write_thread)
+  , writer_(GetLocalWriter())
+  , leader_(false){
+  if (write_thread_ && writer_->state.load(std::memory_order_relaxed) == WriteThread::STATE_INIT) {
+    write_thread_->EnterUnbatched(writer_, mu);
+    leader_ = true;
+  }
+}
+
+GroupLeaderWriterGuard::~GroupLeaderWriterGuard() {
+  if (leader_) {
+    write_thread_->ExitUnbatched(writer_);
+    writer_->state.store(WriteThread::STATE_INIT, std::memory_order_relaxed);
+  }
+}
+
+WriteThread::Writer* GroupLeaderWriterGuard::GetLocalWriter() {
+  thread_local WriteThread::Writer writer;
+  return &writer;
+}
+
 Status DBImpl::IngestExternalFile(
     ColumnFamilyHandle* column_family,
     const std::vector<std::string>& external_files,
@@ -3694,6 +3726,7 @@ Status DBImpl::IngestExternalFile(
   arg.options = ingestion_options;
   return IngestExternalFiles({arg});
 }
+
 
 Status DBImpl::IngestExternalFiles(
     const std::vector<IngestExternalFileArg>& args) {
@@ -3812,9 +3845,9 @@ Status DBImpl::IngestExternalFiles(
     // Stop writes to the DB by entering both write threads
     WriteThread::Writer w;
     write_thread_.EnterUnbatched(&w, &mutex_);
-    WriteThread::Writer nonmem_w;
+    std::unique_ptr<GroupLeaderWriterGuard> nonmem_guard;
     if (two_write_queues_) {
-      nonmem_write_thread_.EnterUnbatched(&nonmem_w, &mutex_);
+      nonmem_guard.reset(new GroupLeaderWriterGuard(&nonmem_write_thread_, &mutex_));
     }
 
     num_running_ingest_file_ += static_cast<int>(num_cfs);
@@ -3950,7 +3983,7 @@ Status DBImpl::IngestExternalFiles(
 
     // Resume writes to the DB
     if (two_write_queues_) {
-      nonmem_write_thread_.ExitUnbatched(&nonmem_w);
+      nonmem_guard.reset();
     }
     write_thread_.ExitUnbatched(&w);
 

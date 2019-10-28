@@ -731,7 +731,9 @@ void WriteThread::EnterUnbatched(Writer* w, InstrumentedMutex* mu) {
   assert(w != nullptr && w->batch == nullptr);
   mu->Unlock();
   bool linked_as_leader = LinkOne(w, &newest_writer_);
-  if (!linked_as_leader) {
+  if (linked_as_leader) {
+    SetState(w, STATE_GROUP_LEADER);
+  } else {
     TEST_SYNC_POINT("WriteThread::EnterUnbatched:Wait");
     // Last leader will not pick us as a follower since our batch is nullptr
     AwaitState(w, STATE_GROUP_LEADER, &eu_ctx);
