@@ -1973,7 +1973,7 @@ public:
     GroupLeaderWriterGuard(WriteThread* write_thread, InstrumentedMutex* mu);
     ~GroupLeaderWriterGuard();
 private:
-    static WriteThread::Writer* GetLocalWriter();
+    static WriteThread::Writer* GetLocalWriter(WriteThread* write_thread);
 
     WriteThread* write_thread_;
     WriteThread::Writer* writer_;

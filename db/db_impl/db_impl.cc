@@ -3696,7 +3696,7 @@ GroupLeaderWriterGuard::GroupLeaderWriterGuard()
 GroupLeaderWriterGuard::GroupLeaderWriterGuard(
         WriteThread* write_thread, InstrumentedMutex* mu)
   : write_thread_(write_thread)
-  , writer_(GetLocalWriter())
+  , writer_(GetLocalWriter(write_thread))
   , leader_(false){
   if (write_thread_ && writer_->state.load(std::memory_order_relaxed) == WriteThread::STATE_INIT) {
     write_thread_->EnterUnbatched(writer_, mu);
@@ -3711,9 +3711,20 @@ GroupLeaderWriterGuard::~GroupLeaderWriterGuard() {
   }
 }
 
-WriteThread::Writer* GroupLeaderWriterGuard::GetLocalWriter() {
-  thread_local WriteThread::Writer writer;
-  return &writer;
+WriteThread::Writer* GroupLeaderWriterGuard::GetLocalWriter(WriteThread* write_thread) {
+  if (write_thread != nullptr) {
+    thread_local std::unordered_map<std::uintptr_t, WriteThread::Writer*> writers;
+    auto addr = reinterpret_cast<std::uintptr_t>(write_thread);
+    auto iter = writers.find(addr);
+    if (iter == writers.end()) {
+      WriteThread::Writer* writer = new WriteThread::Writer;
+      writers.insert(std::make_pair(addr, writer));
+      return writer;
+    } else {
+      return iter->second;
+    }
+  }
+  return nullptr;
 }
 
 Status DBImpl::IngestExternalFile(
@@ -3846,6 +3857,7 @@ Status DBImpl::IngestExternalFiles(
     WriteThread::Writer w;
     write_thread_.EnterUnbatched(&w, &mutex_);
     std::unique_ptr<GroupLeaderWriterGuard> nonmem_guard;
+
     if (two_write_queues_) {
       nonmem_guard.reset(new GroupLeaderWriterGuard(&nonmem_write_thread_, &mutex_));
     }
