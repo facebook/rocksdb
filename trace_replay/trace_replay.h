@@ -68,6 +68,13 @@ struct Trace {
 
 class TracerHelper {
  public:
+  // Parse the string with major and minor version only
+  static Status ParseVersionStr(std::string& v_string, int* v_num);
+
+  // Parse the trace file version and db version in trace header
+  static Status ParseTraceHeader(const Trace& header, int* trace_version,
+                                 int* db_version);
+
   // Encode a trace object into the given string.
   static void EncodeTrace(const Trace& trace, std::string* encoded_trace);
 

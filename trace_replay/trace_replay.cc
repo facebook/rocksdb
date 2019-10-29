@@ -32,6 +32,54 @@ void DecodeCFAndKey(std::string& buffer, uint32_t* cf_id, Slice* key) {
 }
 }  // namespace
 
+Status TracerHelper::ParseVersionStr(std::string& v_string, int* v_num) {
+  if (v_string.find_first_of('.') == std::string::npos ||
+      v_string.find_first_of('.') != v_string.find_last_of('.')) {
+    return Status::Corruption(
+        "Corrupted trace file. Incorrect version format.");
+  }
+  int tmp_num = 0;
+  for (int i = 0; i < static_cast<int>(v_string.size()); i++) {
+    if (v_string[i] == '.') {
+      continue;
+    } else if (isdigit(v_string[i])) {
+      tmp_num = tmp_num * 10 + (v_string[i] - '0');
+    } else {
+      return Status::Corruption(
+          "Corrupted trace file. Incorrect version format");
+    }
+  }
+  *v_num = tmp_num;
+  return Status::OK();
+}
+
+Status TracerHelper::ParseTraceHeader(const Trace& header, int* trace_version,
+                                      int* db_version) {
+  std::vector<std::string> s_vec;
+  int begin = 0, end;
+  for (int i = 0; i < 3; i++) {
+    assert(header.payload.find("\t", begin) != std::string::npos);
+    end = static_cast<int>(header.payload.find("\t", begin));
+    s_vec.push_back(header.payload.substr(begin, end - begin));
+    begin = end + 1;
+  }
+
+  std::string t_v_str, db_v_str;
+  assert(s_vec.size() == 3);
+  assert(s_vec[1].find("Trace Version: ") != std::string::npos);
+  t_v_str = s_vec[1].substr(15);
+  assert(s_vec[2].find("RocksDB Version: ") != std::string::npos);
+  db_v_str = s_vec[2].substr(17);
+
+  Status s;
+  s = ParseVersionStr(t_v_str, trace_version);
+  if (s != Status::OK()) {
+    return s;
+  }
+  s = ParseVersionStr(db_v_str, db_version);
+  return s;
+}
+
 void TracerHelper::EncodeTrace(const Trace& trace, std::string* encoded_trace) {
   assert(encoded_trace);
   PutFixed64(encoded_trace, trace.ts);
@@ -197,7 +245,13 @@ Status Replayer::SetFastForward(uint32_t fast_forward) {
 Status Replayer::Replay() {
   Status s;
   Trace header;
+  TracerHelper helper;
+  int trace_version, db_version;
   s = ReadHeader(&header);
+  if (!s.ok()) {
+    return s;
+  }
+  s = helper.ParseTraceHeader(header, &trace_version, &db_version);
   if (!s.ok()) {
     return s;
   }
@@ -295,7 +349,13 @@ Status Replayer::Replay() {
 Status Replayer::MultiThreadReplay(uint32_t threads_num) {
   Status s;
   Trace header;
+  TracerHelper helper;
+  int trace_version, db_version;
   s = ReadHeader(&header);
+  if (!s.ok()) {
+    return s;
+  }
+  s = helper.ParseTraceHeader(header, &trace_version, &db_version);
   if (!s.ok()) {
     return s;
   }
