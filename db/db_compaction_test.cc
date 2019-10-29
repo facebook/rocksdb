@@ -3772,20 +3772,20 @@ TEST_F(DBCompactionTest, LevelPeriodicCompactionWithCompactionFilters) {
   options.env = env_;
   env_->addon_time_.store(0);
 
-  enum COMPACTION_FILTER_TYPE {
-    USE_COMPACTION_FILTER,
-    USE_COMPCTION_FILTER_FACTORY
+  enum CompactionFilterType {
+    kUseCompactionFilter,
+    kUseCompactionFilterFactory
   };
 
-  for (COMPACTION_FILTER_TYPE comp_filter_type :
-       {USE_COMPACTION_FILTER, USE_COMPCTION_FILTER_FACTORY}) {
+  for (CompactionFilterType comp_filter_type :
+       {kUseCompactionFilter, kUseCompactionFilterFactory}) {
     // Assert that periodic compactions are not enabled.
     ASSERT_EQ(port::kMaxUint64, options.periodic_compaction_seconds);
 
-    if (comp_filter_type == USE_COMPACTION_FILTER) {
+    if (comp_filter_type == kUseCompactionFilter) {
       options.compaction_filter = &test_compaction_filter;
       options.compaction_filter_factory.reset();
-    } else if (comp_filter_type == USE_COMPCTION_FILTER_FACTORY) {
+    } else if (comp_filter_type == kUseCompactionFilterFactory) {
       options.compaction_filter = nullptr;
       options.compaction_filter_factory.reset(
           new TestCompactionFilterFactory());
