@@ -670,10 +670,18 @@ struct AdvancedColumnFamilyOptions {
   // Only supported in Level compaction.
   // Pre-req: max_open_file == -1.
   // unit: seconds. Ex: 7 days = 7 * 24 * 60 * 60
-  // Default: 0 (disabled)
+  //
+  // Values:
+  // 0: Turn off Periodic compactions.
+  // UINT64_MAX (i.e 0xffffffffffffffff): Let RocksDB control this feature
+  //     as needed. For now, RocksDB will change this value to 30 days
+  //     (i.e 30 * 24 * 60 * 60) so that every file goes through the compaction
+  //     process at least once every 30 days if not compacted sooner.
+  //
+  // Default: UINT64_MAX (allow RocksDB to auto-tune)
   //
   // Dynamically changeable through SetOptions() API
-  uint64_t periodic_compaction_seconds = 0;
+  uint64_t periodic_compaction_seconds = 0xffffffffffffffff;
 
   // If this option is set then 1 in N blocks are compressed
   // using a fast (lz4) and slow (zstd) compression algorithm.

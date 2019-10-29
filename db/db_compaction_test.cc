@@ -3748,6 +3748,91 @@ TEST_F(DBCompactionTest, LevelPeriodicAndTtlCompaction) {
   rocksdb::SyncPoint::GetInstance()->DisableProcessing();
 }
 
+TEST_F(DBCompactionTest, LevelPeriodicCompactionWithCompactionFilters) {
+  class TestCompactionFilter : public CompactionFilter {
+    const char* Name() const override { return "TestCompactionFilter"; }
+  };
+  class TestCompactionFilterFactory : public CompactionFilterFactory {
+    const char* Name() const override { return "TestCompactionFilterFactory"; }
+    std::unique_ptr<CompactionFilter> CreateCompactionFilter(
+        const CompactionFilter::Context& /*context*/) override {
+      return std::unique_ptr<CompactionFilter>(new TestCompactionFilter());
+    }
+  };
+
+  const int kNumKeysPerFile = 32;
+  const int kNumLevelFiles = 2;
+  const int kValueSize = 100;
+
+  Random rnd(301);
+
+  Options options = CurrentOptions();
+  TestCompactionFilter test_compaction_filter;
+  env_->time_elapse_only_sleep_ = false;
+  options.env = env_;
+  env_->addon_time_.store(0);
+
+  enum CompactionFilterType {
+    kUseCompactionFilter,
+    kUseCompactionFilterFactory
+  };
+
+  for (CompactionFilterType comp_filter_type :
+       {kUseCompactionFilter, kUseCompactionFilterFactory}) {
+    // Assert that periodic compactions are not enabled.
+    ASSERT_EQ(port::kMaxUint64, options.periodic_compaction_seconds);
+
+    if (comp_filter_type == kUseCompactionFilter) {
+      options.compaction_filter = &test_compaction_filter;
+      options.compaction_filter_factory.reset();
+    } else if (comp_filter_type == kUseCompactionFilterFactory) {
+      options.compaction_filter = nullptr;
+      options.compaction_filter_factory.reset(
+          new TestCompactionFilterFactory());
+    }
+    DestroyAndReopen(options);
+
+    // periodic_compaction_seconds should be set to the sanitized value when
+    // a compaction filter or a compaction filter factory is used.
+    ASSERT_EQ(30 * 24 * 60 * 60,
+              dbfull()->GetOptions().periodic_compaction_seconds);
+
+    int periodic_compactions = 0;
+    rocksdb::SyncPoint::GetInstance()->SetCallBack(
+        "LevelCompactionPicker::PickCompaction:Return", [&](void* arg) {
+          Compaction* compaction = reinterpret_cast<Compaction*>(arg);
+          auto compaction_reason = compaction->compaction_reason();
+          if (compaction_reason == CompactionReason::kPeriodicCompaction) {
+            periodic_compactions++;
+          }
+        });
+    rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+
+    for (int i = 0; i < kNumLevelFiles; ++i) {
+      for (int j = 0; j < kNumKeysPerFile; ++j) {
+        ASSERT_OK(
+            Put(Key(i * kNumKeysPerFile + j), RandomString(&rnd, kValueSize)));
+      }
+      Flush();
+    }
+    dbfull()->TEST_WaitForCompact();
+
+    ASSERT_EQ("2", FilesPerLevel());
+    ASSERT_EQ(0, periodic_compactions);
+
+    // Add 31 days and do a write
+    env_->addon_time_.fetch_add(31 * 24 * 60 * 60);
+    ASSERT_OK(Put("a", "1"));
+    Flush();
+    dbfull()->TEST_WaitForCompact();
+    // Assert that the files stay in the same level
+    ASSERT_EQ("3", FilesPerLevel());
+    // The two old files go through the periodic compaction process
+    ASSERT_EQ(2, periodic_compactions);
+
+    rocksdb::SyncPoint::GetInstance()->DisableProcessing();
+  }
+}
 
 TEST_F(DBCompactionTest, CompactRangeDelayedByL0FileCount) {
   // Verify that, when `CompactRangeOptions::allow_write_stall == false`, manual
