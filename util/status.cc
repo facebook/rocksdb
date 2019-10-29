@@ -9,25 +9,27 @@
 
 #include "rocksdb/status.h"
 #include <stdio.h>
+#ifdef OS_WIN
+#include <string.h>
+#endif
 #include <cstring>
 #include "port/port.h"
 
 namespace rocksdb {
 
 const char* Status::CopyState(const char* state) {
-  const size_t cch =
-      std::strlen(state) + 1; // +1 for the null terminator
-  char* const result =
-      new char[cch];
-  result[cch - 1] = '\0';
 #ifdef OS_WIN
+  const size_t cch = std::strlen(state) + 1;  // +1 for the null terminator
+  char* result = new char[cch];
   errno_t ret;
   ret = strncpy_s(result, cch, state, cch - 1);
+  result[cch - 1] = '\0';
   assert(ret == 0);
-#else
-  std::strncpy(result, state, cch - 1);
-#endif
   return result;
+#else
+  const size_t cch = std::strlen(state) + 1;  // +1 for the null terminator
+  return std::strncpy(new char[cch], state, cch);
+#endif
 }
 
 Status::Status(Code _code, SubCode _subcode, const Slice& msg, const Slice& msg2)
