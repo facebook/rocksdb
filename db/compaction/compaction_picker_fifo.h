@@ -23,7 +23,7 @@ class FIFOCompactionPicker : public CompactionPicker {
                                      const MutableCFOptions& mutable_cf_options,
                                      VersionStorageInfo* version,
                                      LogBuffer* log_buffer,
-                                     SequenceNumber earliest_memtable_seqno = std::numeric_limits<uint64_t>::max()) override;
+                                     SequenceNumber earliest_memtable_seqno = port::kMaxUint64) override;
 
   virtual Compaction* CompactRange(
       const std::string& cf_name, const MutableCFOptions& mutable_cf_options,

@@ -63,7 +63,7 @@ bool FindIntraL0Compaction(const std::vector<FileMetaData*>& level_files,
   for (span_len = start + 1; span_len < level_files.size(); ++span_len) {
     compact_bytes += static_cast<size_t>(level_files[span_len]->fd.file_size);
     compensated_compact_bytes += level_files[span_len]->compensated_file_size;
-    new_compact_bytes_per_del_file = compact_bytes / span_len;
+    new_compact_bytes_per_del_file = compact_bytes / (span_len - start);
     if ((level_files[span_len]->fd.smallest_seqno == level_files[span_len]->fd.largest_seqno &&
       level_files[span_len]->fd.largest_seqno >= earliest_mem_seqno) ||
         level_files[span_len]->being_compacted ||

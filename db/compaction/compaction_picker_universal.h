@@ -22,7 +22,7 @@ class UniversalCompactionPicker : public CompactionPicker {
                                        const MutableCFOptions& mutable_cf_options,
                                        VersionStorageInfo* vstorage,
                                        LogBuffer* log_buffer,
-                                       SequenceNumber oldest_memtable_seqno = std::numeric_limits<uint64_t>::max()) override;
+                                       SequenceNumber earliest_memtable_seqno = port::kMaxUint64) override;
   virtual int MaxOutputLevel() const override { return NumberLevels() - 1; }
 
   virtual bool NeedsCompaction(

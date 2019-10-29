@@ -934,9 +934,9 @@ bool ColumnFamilyData::NeedsCompaction() const {
 
 Compaction* ColumnFamilyData::PickCompaction(
     const MutableCFOptions& mutable_options, LogBuffer* log_buffer) {
-  SequenceNumber oldest_mem_seqno = super_version_->GetEarliestMemTableSequenceNumber();
+  SequenceNumber earliest_mem_seqno = super_version_->GetEarliestMemTableSequenceNumber();
   auto* result = compaction_picker_->PickCompaction(
-      GetName(), mutable_options, current_->storage_info(), log_buffer, oldest_mem_seqno);
+      GetName(), mutable_options, current_->storage_info(), log_buffer, earliest_mem_seqno);
   if (result != nullptr) {
     result->SetInputVersion(current_);
   }

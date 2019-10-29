@@ -45,14 +45,14 @@ class LevelCompactionBuilder {
  public:
   LevelCompactionBuilder(const std::string& cf_name,
                          VersionStorageInfo* vstorage,
-                         SequenceNumber oldest_mem_seqno,
+                         SequenceNumber earliest_mem_seqno,
                          CompactionPicker* compaction_picker,
                          LogBuffer* log_buffer,
                          const MutableCFOptions& mutable_cf_options,
                          const ImmutableCFOptions& ioptions)
       : cf_name_(cf_name),
         vstorage_(vstorage),
-        earliest_mem_seqno_(oldest_mem_seqno),
+        earliest_mem_seqno_(earliest_mem_seqno),
         compaction_picker_(compaction_picker),
         log_buffer_(log_buffer),
         mutable_cf_options_(mutable_cf_options),
