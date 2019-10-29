@@ -525,8 +525,8 @@ TEST_F(CompactionPickerTest, UniversalPeriodiCompaction1) {
           cf_name_, mutable_cf_options_, vstorage_.get(), &log_buffer_));
 
   ASSERT_TRUE(compaction);
-  ASSERT_EQ(4U, compaction->output_level());
-  ASSERT_EQ(0U, compaction->start_level());
+  ASSERT_EQ(4, compaction->output_level());
+  ASSERT_EQ(0, compaction->start_level());
   ASSERT_EQ(1U, compaction->num_input_files(0));
 }
 
