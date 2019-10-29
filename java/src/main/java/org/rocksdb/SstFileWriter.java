@@ -46,6 +46,13 @@ public class SstFileWriter extends RocksObject {
   }
 
   /**
+   * SstFileWriter Constructor.
+   */
+  public SstFileWriter() {
+    this(new EnvOptions(), new Options());
+  }
+
+  /**
    * Prepare SstFileWriter to write to a file.
    *
    * @param filePath the location of file
