@@ -46,6 +46,12 @@ enum TraceType : char {
   kBlockTraceDataBlock = 9,
   kBlockTraceUncompressionDictBlock = 10,
   kBlockTraceRangeDeletionBlock = 11,
+
+  // Trace record that are collected when query is finished
+  kTraceWriteAtEnd = 12,
+  kTraceGetAtEnd = 13,
+  kTraceIteratorSeekAtEnd = 14,
+  kTraceIteratorSeekForPrevAtEnd = 15,
   // All trace types should be added before kTraceMax
   kTraceMax,
 };
@@ -57,7 +63,6 @@ enum TraceType : char {
 struct Trace {
   uint64_t ts;  // timestamp
   uint64_t record_guid;        // the global unique operation ID of record
-  bool is_collected_at_start;  // if the record is collected at query start
   TraceType type;
   std::string payload;
 
@@ -147,7 +152,7 @@ class Tracer {
 
   // The record_guid is get for each tracer function when query is first called,
   // then, it increases the counter
-  Status GetAndIncreaseRecordGuid(uint64_t* record_guid);
+  uint64_t GetAndIncreaseRecordGuid();
 
   Env* env_;
   TraceOptions trace_options_;

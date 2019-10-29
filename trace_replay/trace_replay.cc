@@ -115,51 +115,120 @@ Tracer::Tracer(Env* env, const TraceOptions& trace_options,
 
 Tracer::~Tracer() { trace_writer_.reset(); }
 
-Status Tracer::Write(WriteBatch* write_batch) {
+Status Tracer::Write(WriteBatch* write_batch, uint64_t* record_guid) {
   TraceType trace_type = kTraceWrite;
+  assert(record_guid != nullptr);
+  record_guid = GetAndIncreaseRecordGuid();
   if (ShouldSkipTrace(trace_type)) {
     return Status::OK();
   }
   Trace trace;
   trace.ts = env_->NowMicros();
+  trace.record_guid = record_guid;
   trace.type = trace_type;
   trace.payload = write_batch->Data();
   return WriteTrace(trace);
 }
 
-Status Tracer::Get(ColumnFamilyHandle* column_family, const Slice& key) {
-  TraceType trace_type = kTraceGet;
+Status Tracer::Write(const uint64_t& record_guid, const uint64_t& latency) {
+  TraceType trace_type = kTraceWriteAtEnd;
   if (ShouldSkipTrace(trace_type)) {
     return Status::OK();
   }
   Trace trace;
   trace.ts = env_->NowMicros();
+  trace.record_guid = record_guid;
+  trace.type = trace_type;
+  EncodeLatency(&trace.payload, latency);
+  return WriteTrace(trace);
+}
+
+Status Tracer::Get(ColumnFamilyHandle* column_family, const Slice& key,
+                   uint64_t* record_guid) {
+  TraceType trace_type = kTraceGet;
+  assert(record_guid != nullptr);
+  record_guid = GetAndIncreaseRecordGuid();
+  if (ShouldSkipTrace(trace_type)) {
+    return Status::OK();
+  }
+  Trace trace;
+  trace.ts = env_->NowMicros();
+  trace.record_guid = record_guid;
   trace.type = trace_type;
   EncodeCFAndKey(&trace.payload, column_family->GetID(), key);
   return WriteTrace(trace);
 }
 
-Status Tracer::IteratorSeek(const uint32_t& cf_id, const Slice& key) {
+Status Tracer::GetAtEnd(const uint64_t& record_guid, const uint64_t& latency) {
+  TraceType trace_type = kTraceGetAtEnd;
+  if (ShouldSkipTrace(trace_type)) {
+    return Status::OK();
+  }
+  Trace trace;
+  trace.ts = env_->NowMicros();
+  trace.record_guid = record_guid;
+  trace.type = trace_type;
+  EncodeLatency(&trace.payload, latency);
+  return WriteTrace(trace);
+}
+
+Status Tracer::IteratorSeek(const uint32_t& cf_id, const Slice& key,
+                            uint64_t* record_guid) {
+  TraceType trace_type = kTraceIteratorSeek;
+  assert(record_guid != nullptr);
+  record_guid = GetAndIncreaseRecordGuid();
+  if (ShouldSkipTrace(trace_type)) {
+    return Status::OK();
+  }
+  Trace trace;
+  trace.ts = env_->NowMicros();
+  trace.record_guid = record_guid;
+  trace.type = trace_type;
+  EncodeCFAndKey(&trace.payload, cf_id, key);
+  return WriteTrace(trace);
+}
+
+Status Tracer::IteratorSeekAtEnd(const uint64_t& record_guid,
+                                 const uint64_t& latency) {
   TraceType trace_type = kTraceIteratorSeek;
   if (ShouldSkipTrace(trace_type)) {
     return Status::OK();
   }
   Trace trace;
   trace.ts = env_->NowMicros();
+  trace.record_guid = record_guid;
+  trace.type = trace_type;
+  EncodeLatency(&trace.payload, latency);
+  return WriteTrace(trace);
+}
+
+Status Tracer::IteratorSeekForPrev(const uint32_t& cf_id, const Slice& key,
+                                   uint64_t* record_guid) {
+  TraceType trace_type = kTraceIteratorSeekForPrev;
+  assert(record_guid != nullptr);
+  record_guid = GetAndIncreaseRecordGuid();
+  if (ShouldSkipTrace(trace_type)) {
+    return Status::OK();
+  }
+  Trace trace;
+  trace.ts = env_->NowMicros();
+  trace.record_guid = record_guid;
   trace.type = trace_type;
   EncodeCFAndKey(&trace.payload, cf_id, key);
   return WriteTrace(trace);
 }
 
-Status Tracer::IteratorSeekForPrev(const uint32_t& cf_id, const Slice& key) {
+Status Tracer::IteratorSeekForPrevAtEnd(const uint64_t& record_guid,
+                                        const uint64_t& latency) {
   TraceType trace_type = kTraceIteratorSeekForPrev;
   if (ShouldSkipTrace(trace_type)) {
     return Status::OK();
   }
   Trace trace;
   trace.ts = env_->NowMicros();
+  trace.record_guid = record_guid;
   trace.type = trace_type;
-  EncodeCFAndKey(&trace.payload, cf_id, key);
+  EncodeLatency(&trace.payload, latency);
   return WriteTrace(trace);
 }
 
@@ -181,14 +250,11 @@ bool Tracer::ShouldSkipTrace(const TraceType& trace_type) {
   return false;
 }
 
-Status Tracer::GetAndIncreaseRecordGuid(uint64_t* record_guid) {
-  if (record_guid == nullptr) {
-    return Status::Corruption("Null record_guid pointer. ");
-  } else {
-    *record_guid = record_guid_counter_;
-    record_guid_counter_++;
-    return Status::ok();
-  }
+uint64_t Tracer::GetAndIncreaseRecordGuid() {
+  uint64_t record_guid = record_guid_counter_;
+  record_guid_counter_++;
+  return record_guid;
+}
 }
 
 bool Tracer::IsTraceFileOverMax() {
