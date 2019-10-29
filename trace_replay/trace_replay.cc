@@ -61,7 +61,7 @@ Tracer::Tracer(Env* env, const TraceOptions& trace_options,
     : env_(env),
       trace_options_(trace_options),
       trace_writer_(std::move(trace_writer)),
-      trace_request_count_ (0) {
+      trace_request_count_(0) record_guid_counter_(0) {
   WriteHeader();
 }
 
@@ -131,6 +131,16 @@ bool Tracer::ShouldSkipTrace(const TraceType& trace_type) {
   }
   trace_request_count_ = 0;
   return false;
+}
+
+Status Tracer::GetAndIncreaseRecordGuid(uint64_t* record_guid) {
+  if (record_guid == nullptr) {
+    return Status::Corruption("Null record_guid pointer. ");
+  } else {
+    *record_guid = record_guid_counter_;
+    record_guid_counter_++;
+    return Status::ok();
+  }
 }
 
 bool Tracer::IsTraceFileOverMax() {

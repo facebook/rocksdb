@@ -56,6 +56,8 @@ enum TraceType : char {
 // The data structure that defines a single trace.
 struct Trace {
   uint64_t ts;  // timestamp
+  uint64_t record_guid;        // the global unique operation ID of record
+  bool is_collected_at_start;  // if the record is collected at query start
   TraceType type;
   std::string payload;
 
@@ -73,6 +75,8 @@ class TracerHelper {
 
   // Decode a string into the given trace object.
   static Status DecodeTrace(const std::string& encoded_trace, Trace* trace);
+
+  // Parse the trace version
 };
 
 // Tracer captures all RocksDB operations using a user-provided TraceWriter.
@@ -85,14 +89,30 @@ class Tracer {
   ~Tracer();
 
   // Trace all write operations -- Put, Merge, Delete, SingleDelete, Write
-  Status Write(WriteBatch* write_batch);
+  // when write batch is called
+  Status Write(WriteBatch* write_batch, uint64_t* record_guid);
 
-  // Trace Get operations.
-  Status Get(ColumnFamilyHandle* cfname, const Slice& key);
+  // Trace the latency of finishing the write batch
+  Status WriteAtEnd(const uint64_t& record_guid, const uint64_t& latency);
 
-  // Trace Iterators.
-  Status IteratorSeek(const uint32_t& cf_id, const Slice& key);
-  Status IteratorSeekForPrev(const uint32_t& cf_id, const Slice& key);
+  // Trace Get operations when Get is called
+  Status Get(ColumnFamilyHandle* cfname, const Slice& key,
+             uint64_t* record_guid);
+
+  // Trace the latency of finishing Get operations.
+  Status GetAtEnd(const uint64_t& record_guid, const uint64_t& latency);
+
+  // Trace Iterators when the query is called
+  Status IteratorSeek(const uint32_t& cf_id, const Slice& key,
+                      uint64_t* record_guid);
+  Status IteratorSeekForPrev(const uint32_t& cf_id, const Slice& key,
+                             uint64_t* record_guid);
+
+  // Trace the latency of finishing IteratorSeek/IteratorSeekForPrev
+  Status IteratorSeekAtEnd(const uint64_t& record_guid,
+                           const uint64_t& latency);
+  Status IteratorSeekForPrevAtEnd(const uint64_t& record_guid,
+                                  const uint64_t& latency);
 
   // Returns true if the trace is over the configured max trace file limit.
   // False otherwise.
@@ -118,10 +138,15 @@ class Tracer {
   // Returns true if a trace should be skipped, false otherwise.
   bool ShouldSkipTrace(const TraceType& type);
 
+  // The record_guid is get for each tracer function when query is first called,
+  // then, it increases the counter
+  Status GetAndIncreaseRecordGuid(uint64_t* record_guid);
+
   Env* env_;
   TraceOptions trace_options_;
   std::unique_ptr<TraceWriter> trace_writer_;
   uint64_t trace_request_count_;
+  uint64_t record_guid_counter_;
 };
 
 // Replayer helps to replay the captured RocksDB operations, using a user
