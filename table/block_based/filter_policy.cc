@@ -12,7 +12,7 @@
 #include "rocksdb/slice.h"
 #include "table/block_based/block_based_filter_block.h"
 #include "table/block_based/full_filter_block.h"
-#include "table/full_filter_bits_builder.h"
+#include "table/block_based/filter_policy_internal.h"
 #include "third-party/folly/folly/ConstexprMath.h"
 #include "util/bloom_impl.h"
 #include "util/coding.h"
@@ -103,16 +103,16 @@ char* FullFilterBitsBuilder::ReserveSpace(const int num_entry,
   return data;
 }
 
-int FullFilterBitsBuilder::CalculateNumEntry(const uint32_t space) {
+int FullFilterBitsBuilder::CalculateNumEntry(const uint32_t bytes) {
   assert(bits_per_key_);
-  assert(space > 0);
+  assert(bytes > 0);
   uint32_t dont_care1, dont_care2;
-  int high = static_cast<int>(space * 8 / bits_per_key_ + 1);
+  int high = static_cast<int>(bytes * 8 / bits_per_key_ + 1);
   int low = 1;
   int n = high;
   for (; n >= low; n--) {
     uint32_t sz = CalculateSpace(n, &dont_care1, &dont_care2);
-    if (sz <= space) {
+    if (sz <= bytes) {
       break;
     }
   }
@@ -201,7 +201,7 @@ class FullFilterBitsReader : public FilterBitsReader {
 class BloomFilterPolicy : public FilterPolicy {
  public:
   explicit BloomFilterPolicy(int bits_per_key, bool use_block_based_builder)
-      : bits_per_key_(bits_per_key), hash_func_(BloomHash),
+      : bits_per_key_(bits_per_key),
         use_block_based_builder_(use_block_based_builder) {
     initialize();
   }
@@ -226,7 +226,7 @@ class BloomFilterPolicy : public FilterPolicy {
     dst->push_back(static_cast<char>(num_probes_));  // Remember # of probes
     char* array = &(*dst)[init_size];
     for (int i = 0; i < n; i++) {
-      LegacyNoLocalityBloomImpl::AddHash(hash_func_(keys[i]), bits, num_probes_,
+      LegacyNoLocalityBloomImpl::AddHash(BloomHash(keys[i]), bits, num_probes_,
                                          array);
     }
   }
@@ -249,7 +249,7 @@ class BloomFilterPolicy : public FilterPolicy {
       return true;
     }
     // NB: using k not num_probes_
-    return LegacyNoLocalityBloomImpl::HashMayMatch(hash_func_(key), bits, k,
+    return LegacyNoLocalityBloomImpl::HashMayMatch(BloomHash(key), bits, k,
                                                    array);
   }
 
@@ -323,8 +323,6 @@ class BloomFilterPolicy : public FilterPolicy {
  private:
   int bits_per_key_;
   int num_probes_;
-  uint32_t (*hash_func_)(const Slice& key);
-
   const bool use_block_based_builder_;
 
   void initialize() {
@@ -341,5 +339,7 @@ const FilterPolicy* NewBloomFilterPolicy(int bits_per_key,
                                          bool use_block_based_builder) {
   return new BloomFilterPolicy(bits_per_key, use_block_based_builder);
 }
+
+FilterPolicy::~FilterPolicy() { }
 
 }  // namespace rocksdb

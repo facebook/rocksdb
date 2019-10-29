@@ -21,7 +21,7 @@ int main() {
 #include "logging/logging.h"
 #include "memory/arena.h"
 #include "rocksdb/filter_policy.h"
-#include "table/full_filter_bits_builder.h"
+#include "table/block_based/filter_policy_internal.h"
 #include "test_util/testharness.h"
 #include "test_util/testutil.h"
 #include "util/gflags_compat.h"
@@ -324,6 +324,7 @@ class FullBloomTest : public testing::Test {
 TEST_F(FullBloomTest, FilterSize) {
   uint32_t dont_care1, dont_care2;
   auto full_bits_builder = GetFullFilterBitsBuilder();
+  ASSERT_TRUE(full_bits_builder != nullptr);
   for (int n = 1; n < 100; n++) {
     auto space = full_bits_builder->CalculateSpace(n, &dont_care1, &dont_care2);
     auto n2 = full_bits_builder->CalculateNumEntry(space);

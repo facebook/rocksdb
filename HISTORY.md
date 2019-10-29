@@ -1,5 +1,16 @@
 # Rocksdb Change Log
 ## Unreleased
+### Public API Change
+* Added an API GetCreationTimeOfOldestFile(uint64_t* creation_time) to get the
+file_creation_time of the oldest SST file in the DB. 
+
+## 6.5.1 (10/16/2019)
+### Bug Fixes
+* Revert the feature "Merging iterator to avoid child iterator reseek for some cases (#5286)" since it might cause strange results when reseek happens with a different iterator upper bound.
+* Fix a bug in BlockBasedTableIterator that might return incorrect results when reseek happens with a different iterator upper bound.
+* Fix a bug when partitioned filters and prefix search are used in conjunction, ::SeekForPrev could return invalid for an existing prefix. ::SeekForPrev might be called by the user, or internally on ::Prev, or within ::Seek if the return value involves Delete or a Merge operand.
+
+## 6.5.0 (9/13/2019)
 ### Bug Fixes
 * Fixed a number of data races in BlobDB.
 * Fix a bug where the compaction snapshot refresh feature is not disabled as advertised when `snap_refresh_nanos` is set to 0..
@@ -10,7 +21,11 @@
 * Fix a bug causing a crash during ingest external file when background compaction cause severe error (file not found).
 * Fix a bug when partitioned filters and prefix search are used in conjunction, ::SeekForPrev could return invalid for an existing prefix. ::SeekForPrev might be called by the user, or internally on ::Prev, or within ::Seek if the return value involves Delete or a Merge operand.
 * Fix OnFlushCompleted fired before flush result persisted in MANIFEST when there's concurrent flush job. The bug exists since OnFlushCompleted was introduced in rocksdb 3.8.
+* Fixed an sst_dump crash on some plain table SST files.
+* Fixed a memory leak in some error cases of opening plain table SST files.
+* Fix a bug when a crash happens while calling WriteLevel0TableForRecovery for multiple column families, leading to a column family's log number greater than the first corrutped log number when the DB is being opened in PointInTime recovery mode during next recovery attempt (#5856).
 * Fix data corruption casued by output of intra-L0 compaction on ingested file not being placed in correct order in L0.
+
 ### New Features
 * Introduced DBOptions::max_write_batch_group_size_bytes to configure maximum limit on number of bytes that are written in a single batch of WAL or memtable write. It is followed when the leader write size is larger than 1/8 of this limit.
 * VerifyChecksum() by default will issue readahead. Allow ReadOptions to be passed in to those functions to override the readhead size. For checksum verifying before external SST file ingestion, a new option IngestExternalFileOptions.verify_checksums_readahead_size, is added for this readahead setting.
@@ -21,6 +36,8 @@
 * When using BlobDB, a mapping is maintained and persisted in the MANIFEST between each SST file and the oldest non-TTL blob file it references.
 * `db_bench` now supports and by default issues non-TTL Puts to BlobDB. TTL Puts can be enabled by specifying a non-zero value for the `blob_db_max_ttl_range` command line parameter explicitly.
 * `sst_dump` now supports printing BlobDB blob indexes in a human-readable format. This can be enabled by specifying the `decode_blob_index` flag on the command line.
+* A number of new information elements are now exposed through the EventListener interface. For flushes, the file numbers of the new SST file and the oldest blob file referenced by the SST are propagated. For compactions, the level, file number, and the oldest blob file referenced are passed to the client for each compaction input and output file.
+
 ### Public API Change
 * Added max_write_buffer_size_to_maintain option to better control memory usage of immutable memtables.
 * Added a lightweight API GetCurrentWalFile() to get last live WAL filename and size. Meant to be used as a helper for backup/restore tooling in a larger ecosystem such as MySQL with a MyRocks storage engine.
@@ -30,8 +47,10 @@
 * Add TryCatchUpWithPrimary() to StackableDB in non-LITE mode.
 * Add a new Env::LoadEnv() overloaded function to return a shared_ptr to Env.
 * Flush sets file name to "(nil)" for OnTableFileCreationCompleted() if the flush does not produce any L0. This can happen if the file is empty thus delete by RocksDB.
+
 ### Performance Improvements
 * Improve the speed of the MemTable Bloom filter, reducing the write overhead of enabling it by 1/3 to 1/2, with similar benefit to read performance.
+* Level iterator to invlidate the iterator more often in prefix seek and the level is filtered out by prefix bloom.
 
 ## 6.4.0 (7/30/2019)
 ### Default Option Change

@@ -575,8 +575,10 @@ void DBImpl::NotifyOnFlushBegin(ColumnFamilyData* cfd, FileMetaData* file_meta,
     info.cf_name = cfd->GetName();
     // TODO(yhchiang): make db_paths dynamic in case flush does not
     //                 go to L0 in the future.
-    info.file_path = MakeTableFileName(cfd->ioptions()->cf_paths[0].path,
-                                       file_meta->fd.GetNumber());
+    const uint64_t file_number = file_meta->fd.GetNumber();
+    info.file_path =
+        MakeTableFileName(cfd->ioptions()->cf_paths[0].path, file_number);
+    info.file_number = file_number;
     info.thread_id = env_->GetThreadID();
     info.job_id = job_id;
     info.triggered_writes_slowdown = triggered_writes_slowdown;
@@ -1118,9 +1120,13 @@ void DBImpl::NotifyOnCompactionBegin(ColumnFamilyData* cfd, Compaction* c,
     info.compression = c->output_compression();
     for (size_t i = 0; i < c->num_input_levels(); ++i) {
       for (const auto fmd : *c->inputs(i)) {
+        const FileDescriptor& desc = fmd->fd;
+        const uint64_t file_number = desc.GetNumber();
         auto fn = TableFileName(c->immutable_cf_options()->cf_paths,
-                                fmd->fd.GetNumber(), fmd->fd.GetPathId());
+                                file_number, desc.GetPathId());
         info.input_files.push_back(fn);
+        info.input_file_infos.push_back(CompactionFileInfo{
+            static_cast<int>(i), file_number, fmd->oldest_blob_file_number});
         if (info.table_properties.count(fn) == 0) {
           std::shared_ptr<const TableProperties> tp;
           auto s = current->GetTableProperties(&tp, fmd, &fn);
@@ -1131,9 +1137,13 @@ void DBImpl::NotifyOnCompactionBegin(ColumnFamilyData* cfd, Compaction* c,
       }
     }
     for (const auto newf : c->edit()->GetNewFiles()) {
+      const FileMetaData& meta = newf.second;
+      const FileDescriptor& desc = meta.fd;
+      const uint64_t file_number = desc.GetNumber();
       info.output_files.push_back(TableFileName(
-          c->immutable_cf_options()->cf_paths, newf.second.fd.GetNumber(),
-          newf.second.fd.GetPathId()));
+          c->immutable_cf_options()->cf_paths, file_number, desc.GetPathId()));
+      info.output_file_infos.push_back(CompactionFileInfo{
+          newf.first, file_number, meta.oldest_blob_file_number});
     }
     for (auto listener : immutable_db_options_.listeners) {
       listener->OnCompactionBegin(this, info);
@@ -2956,9 +2966,13 @@ void DBImpl::BuildCompactionJobInfo(
   compaction_job_info->compression = c->output_compression();
   for (size_t i = 0; i < c->num_input_levels(); ++i) {
     for (const auto fmd : *c->inputs(i)) {
-      auto fn = TableFileName(c->immutable_cf_options()->cf_paths,
-                              fmd->fd.GetNumber(), fmd->fd.GetPathId());
+      const FileDescriptor& desc = fmd->fd;
+      const uint64_t file_number = desc.GetNumber();
+      auto fn = TableFileName(c->immutable_cf_options()->cf_paths, file_number,
+                              desc.GetPathId());
       compaction_job_info->input_files.push_back(fn);
+      compaction_job_info->input_file_infos.push_back(CompactionFileInfo{
+          static_cast<int>(i), file_number, fmd->oldest_blob_file_number});
       if (compaction_job_info->table_properties.count(fn) == 0) {
         std::shared_ptr<const TableProperties> tp;
         auto s = current->GetTableProperties(&tp, fmd, &fn);
@@ -2969,9 +2983,13 @@ void DBImpl::BuildCompactionJobInfo(
     }
   }
   for (const auto& newf : c->edit()->GetNewFiles()) {
-    compaction_job_info->output_files.push_back(
-        TableFileName(c->immutable_cf_options()->cf_paths,
-                      newf.second.fd.GetNumber(), newf.second.fd.GetPathId()));
+    const FileMetaData& meta = newf.second;
+    const FileDescriptor& desc = meta.fd;
+    const uint64_t file_number = desc.GetNumber();
+    compaction_job_info->output_files.push_back(TableFileName(
+        c->immutable_cf_options()->cf_paths, file_number, desc.GetPathId()));
+    compaction_job_info->output_file_infos.push_back(CompactionFileInfo{
+        newf.first, file_number, meta.oldest_blob_file_number});
   }
 }
 #endif

@@ -617,6 +617,11 @@ DEFINE_string(checksum_type, "kCRC32c", "Algorithm to use to checksum blocks");
 static enum rocksdb::ChecksumType FLAGS_checksum_type_e = rocksdb::kCRC32c;
 
 DEFINE_string(hdfs, "", "Name of hdfs environment");
+
+DEFINE_string(env_uri, "",
+              "URI for env lookup. Mutually exclusive with --hdfs");
+
+static std::shared_ptr<rocksdb::Env> env_guard;
 // posix or hdfs environment
 static rocksdb::Env* FLAGS_env = rocksdb::Env::Default();
 
@@ -2721,7 +2726,9 @@ class StressTest {
     assert(rand_column_families.size() == rand_keys.size());
     std::string checkpoint_dir =
         FLAGS_db + "/.checkpoint" + ToString(thread->tid);
-    DestroyDB(checkpoint_dir, Options());
+    Options tmp_opts(options_);
+    tmp_opts.listeners.clear();
+    DestroyDB(checkpoint_dir, tmp_opts);
     Checkpoint* checkpoint = nullptr;
     Status s = Checkpoint::Create(db_, &checkpoint);
     if (s.ok()) {
@@ -2777,7 +2784,7 @@ class StressTest {
       delete checkpoint_db;
       checkpoint_db = nullptr;
     }
-    DestroyDB(checkpoint_dir, Options());
+    DestroyDB(checkpoint_dir, tmp_opts);
     if (!s.ok()) {
       fprintf(stderr, "A checkpoint operation failed with: %s\n",
               s.ToString().c_str());
@@ -2984,8 +2991,9 @@ class StressTest {
 #else
       DBOptions db_options;
       std::vector<ColumnFamilyDescriptor> cf_descriptors;
-      Status s = LoadOptionsFromFile(FLAGS_options_file, Env::Default(),
-                                     &db_options, &cf_descriptors);
+      Status s = LoadOptionsFromFile(FLAGS_options_file, FLAGS_env, &db_options,
+                                     &cf_descriptors);
+      db_options.env = FLAGS_env;
       if (!s.ok()) {
         fprintf(stderr, "Unable to load options file %s --- %s\n",
                 FLAGS_options_file.c_str(), s.ToString().c_str());
@@ -3169,6 +3177,7 @@ class StressTest {
         secondaries_.resize(FLAGS_threads);
         std::fill(secondaries_.begin(), secondaries_.end(), nullptr);
         Options tmp_opts;
+        tmp_opts.env = options_.env;
         tmp_opts.max_open_files = FLAGS_open_files;
         for (size_t i = 0; i != static_cast<size_t>(FLAGS_threads); ++i) {
           const std::string secondary_path =
@@ -3694,7 +3703,7 @@ class NonBatchedOpsStressTest : public StressTest {
       s = FLAGS_env->DeleteFile(sst_filename);
     }
 
-    SstFileWriter sst_file_writer(EnvOptions(), options_);
+    SstFileWriter sst_file_writer(EnvOptions(options_), options_);
     if (s.ok()) {
       s = sst_file_writer.Open(sst_filename);
     }
@@ -4219,12 +4228,72 @@ class CfConsistencyStressTest : public StressTest {
                          const std::vector<int64_t>& rand_keys) {
     std::string key_str = Key(rand_keys[0]);
     Slice key = key_str;
-    auto cfh =
-        column_families_[rand_column_families[thread->rand.Next() %
-                                              rand_column_families.size()]];
-    std::string from_db;
-    Status s = db_->Get(readoptions, cfh, key, &from_db);
-    if (s.ok()) {
+    Status s;
+    bool is_consistent = true;
+
+    if (thread->rand.OneIn(2)) {
+      // 1/2 chance, does a random read from random CF
+      auto cfh =
+          column_families_[rand_column_families[thread->rand.Next() %
+                                                rand_column_families.size()]];
+      std::string from_db;
+      s = db_->Get(readoptions, cfh, key, &from_db);
+    } else {
+      // 1/2 chance, comparing one key is the same across all CFs
+      const Snapshot* snapshot = db_->GetSnapshot();
+      ReadOptions readoptionscopy = readoptions;
+      readoptionscopy.snapshot = snapshot;
+
+      std::string value0;
+      s = db_->Get(readoptionscopy, column_families_[rand_column_families[0]],
+                   key, &value0);
+      if (s.ok() || s.IsNotFound()) {
+        bool found = s.ok();
+        for (size_t i = 1; i < rand_column_families.size(); i++) {
+          std::string value1;
+          s = db_->Get(readoptionscopy,
+                       column_families_[rand_column_families[i]], key, &value1);
+          if (!s.ok() && !s.IsNotFound()) {
+            break;
+          }
+          if (!found && s.ok()) {
+            fprintf(stderr, "Get() return different results with key %s\n",
+                    key_str.c_str());
+            fprintf(stderr, "CF %s is not found\n",
+                    column_family_names_[0].c_str());
+            fprintf(stderr, "CF %s returns value %s\n",
+                    column_family_names_[i].c_str(), value1.c_str());
+            is_consistent = false;
+          } else if (found && s.IsNotFound()) {
+            fprintf(stderr, "Get() return different results with key %s\n",
+                    key_str.c_str());
+            fprintf(stderr, "CF %s returns value %s\n",
+                    column_family_names_[0].c_str(), value0.c_str());
+            fprintf(stderr, "CF %s is not found\n",
+                    column_family_names_[i].c_str());
+            is_consistent = false;
+          } else if (s.ok() && value0 != value1) {
+            fprintf(stderr, "Get() return different results with key %s\n",
+                    key_str.c_str());
+            fprintf(stderr, "CF %s returns value %s\n",
+                    column_family_names_[0].c_str(), value0.c_str());
+            fprintf(stderr, "CF %s returns value %s\n",
+                    column_family_names_[i].c_str(), value1.c_str());
+            is_consistent = false;
+          }
+          if (!is_consistent) {
+            break;
+          }
+        }
+      }
+
+      db_->ReleaseSnapshot(snapshot);
+    }
+    if (!is_consistent) {
+      thread->stats.AddErrors(1);
+      // Fail fast to preserve the DB state.
+      thread->shared->SetVerificationFailure();
+    } else if (s.ok()) {
       thread->stats.AddGets(1, 1);
     } else if (s.IsNotFound()) {
       thread->stats.AddGets(1, 0);
@@ -4324,7 +4393,7 @@ class CfConsistencyStressTest : public StressTest {
       const std::vector<int64_t>& /* rand_keys */) {
     std::string checkpoint_dir =
         FLAGS_db + "/.checkpoint" + ToString(thread->tid);
-    DestroyDB(checkpoint_dir, Options());
+    DestroyDB(checkpoint_dir, options_);
     Checkpoint* checkpoint = nullptr;
     Status s = Checkpoint::Create(db_, &checkpoint);
     if (s.ok()) {
@@ -4358,7 +4427,7 @@ class CfConsistencyStressTest : public StressTest {
       delete checkpoint_db;
       checkpoint_db = nullptr;
     }
-    DestroyDB(checkpoint_dir, Options());
+    DestroyDB(checkpoint_dir, options_);
     if (!s.ok()) {
       fprintf(stderr, "A checkpoint operation failed with: %s\n",
               s.ToString().c_str());
@@ -4546,7 +4615,17 @@ int db_stress_tool(int argc, char** argv) {
       StringToCompressionType(FLAGS_compression_type.c_str());
   FLAGS_checksum_type_e = StringToChecksumType(FLAGS_checksum_type.c_str());
   if (!FLAGS_hdfs.empty()) {
+    if (!FLAGS_env_uri.empty()) {
+      fprintf(stderr, "Cannot specify both --hdfs and --env_uri.\n");
+      exit(1);
+    }
     FLAGS_env = new rocksdb::HdfsEnv(FLAGS_hdfs);
+  } else if (!FLAGS_env_uri.empty()) {
+    Status s = Env::LoadEnv(FLAGS_env_uri, &FLAGS_env, &env_guard);
+    if (FLAGS_env == nullptr) {
+      fprintf(stderr, "No Env registered for URI: %s\n", FLAGS_env_uri.c_str());
+      exit(1);
+    }
   }
   FLAGS_rep_factory = StringToRepFactory(FLAGS_memtablerep.c_str());
 
@@ -4644,7 +4723,7 @@ int db_stress_tool(int argc, char** argv) {
   // Choose a location for the test database if none given with --db=<path>
   if (FLAGS_db.empty()) {
     std::string default_db_path;
-    rocksdb::Env::Default()->GetTestDirectory(&default_db_path);
+    FLAGS_env->GetTestDirectory(&default_db_path);
     default_db_path += "/dbstress";
     FLAGS_db = default_db_path;
   }
