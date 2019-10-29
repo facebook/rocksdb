@@ -253,9 +253,8 @@ class FullFilterBitsReader : public FilterBitsReader {
 }  // namespace
 
 const std::vector<BloomFilterPolicy::Impl> BloomFilterPolicy::kAllImpls = {
-    // This one historically comes first in tests, so we can do that.
-    kBlock,
     kFull,
+    kBlock,
 };
 
 BloomFilterPolicy::BloomFilterPolicy(int bits_per_key, Impl impl)
