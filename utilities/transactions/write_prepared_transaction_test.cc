@@ -3508,8 +3508,8 @@ TEST_P(WritePreparedTransactionTest, IngestFile) {
   ASSERT_OK(db->Put(WriteOptions(), "9999", "v1"));
   ExternalSstFileInfo info;
   std::string f = test::PerThreadDBPath("tmp_sst_file" + std::to_string(rand()));
-  EnvOptions env;
-  rocksdb::SstFileWriter writer(env, options);
+  EnvOptions env_;
+  rocksdb::SstFileWriter writer(env_, options);
   auto s = writer.Open(f);
   ASSERT_OK(s);
 // ASSERT_OK(writer.Put(Key(), ""));
