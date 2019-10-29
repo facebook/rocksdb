@@ -487,7 +487,12 @@ XXH3p_len_0to16_64b(const xxh_u8* input, size_t len, const xxh_u8* secret, XXH64
     {   if (len > 8) return XXH3p_len_9to16_64b(input, len, secret, seed);
         if (len >= 4) return XXH3p_len_4to8_64b(input, len, secret, seed);
         if (len) return XXH3p_len_1to3_64b(input, len, secret, seed);
-        return 0;
+        /*
+         * RocksDB modification from XXH3 preview: zero result for empty
+         * string can be problematic for multiplication-based algorithms.
+         * Return a hash of the seed instead.
+         */
+        return XXH3p_mul128_fold64(seed + XXH_readLE64(secret), PRIME64_2);
     }
 }
 

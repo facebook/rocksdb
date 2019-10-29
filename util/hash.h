@@ -7,41 +7,65 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 //
-// Common hash functions with convenient interfaces.
+// Common hash functions with convenient interfaces. If hashing a
+// statically-sized input in a performance-critical context, consider
+// calling a specific hash implementation directly, such as
+// XXH3p_64bits from xxhash.h.
+//
+// Since this is a very common header, implementation details are kept
+// out-of-line. Out-of-lining also aids in tracking the time spent in
+// hashing functions. Inlining is of limited benefit for runtime-sized
+// hash inputs.
 
 #pragma once
 #include <stddef.h>
 #include <stdint.h>
 
 #include "rocksdb/slice.h"
-#include "util/xxhash.h"
 
 namespace rocksdb {
 
 // Non-persistent hash. Must only used for in-memory data structure.
 // The hash results are thus applicable to change. (Thus, it rarely makes
 // sense to specify a seed for this function.)
-inline uint64_t NPHash64(const char* data, size_t n, uint32_t seed = 0) {
-  // XXH3 currently experimental, but generally faster than other quality
-  // 64-bit hash functions.
-  return XXH3p_64bits_withSeed(data, n, seed);
-}
+extern uint64_t NPHash64(const char* data, size_t n, uint32_t seed = 0);
 
+// Stable/persistent 32-bit hash. Moderate quality and high speed on
+// small inputs.
+// TODO: consider rename to Hash32
 extern uint32_t Hash(const char* data, size_t n, uint32_t seed);
 
+// Stable/persistent 64-bit hash. Higher quality and generally faster than
+// Hash(), especially for inputs > 24 bytes.
+extern uint64_t Hash64(const char* data, size_t n, uint64_t seed);
+
+// TODO: consider rename to LegacyBloomHash32
 inline uint32_t BloomHash(const Slice& key) {
   return Hash(key.data(), key.size(), 0xbc9f1d34);
+}
+
+inline uint64_t GetSliceHash64(const Slice& key) {
+  // Seed 0 is the by-design default, so it is best validated.
+  return Hash64(key.data(), key.size(), 0);
 }
 
 inline uint64_t GetSliceNPHash64(const Slice& s) {
   return NPHash64(s.data(), s.size());
 }
 
+// TODO: consider rename to GetSliceHash32
 inline uint32_t GetSliceHash(const Slice& s) {
   return Hash(s.data(), s.size(), 397);
 }
 
+// Useful for splitting up a 64-bit hash
+inline uint32_t Upper32of64(uint64_t v) {
+  return static_cast<uint32_t>(v >> 32);
+}
+inline uint32_t Lower32of64(uint64_t v) { return static_cast<uint32_t>(v); }
+
 // std::hash compatible interface.
+// TODO: consider rename to SliceHasher32
 struct SliceHasher {
   uint32_t operator()(const Slice& s) const { return GetSliceHash(s); }
 };
