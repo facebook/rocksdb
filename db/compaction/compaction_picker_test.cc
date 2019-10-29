@@ -558,6 +558,32 @@ TEST_F(CompactionPickerTest, UniversalPeriodiCompaction2) {
 }
 
 TEST_F(CompactionPickerTest, UniversalPeriodiCompaction3) {
+  // The case where universal periodic compaction does not
+  // pick up only the last sorted run which is an L0 file if it isn't
+  // marked as periodic compaction.
+  const uint64_t kFileSize = 100000;
+
+  mutable_cf_options_.periodic_compaction_seconds = 1000;
+  UniversalCompactionPicker universal_compaction_picker(ioptions_, &icmp_);
+
+  NewVersionStorage(5, kCompactionStyleUniversal);
+
+  Add(0, 1U, "150", "200", kFileSize, 0, 500, 550);
+  Add(0, 5U, "010", "080", kFileSize, 0, 200, 251);
+  Add(0, 6U, "501", "750", kFileSize, 0, 101, 150);
+
+  file_map_[5].first->being_compacted = true;
+  UpdateVersionStorageInfo();
+  vstorage_->AddFileMarkedForPeriodiCompaction(0, file_map_[1].first);
+
+  std::unique_ptr<Compaction> compaction(
+      universal_compaction_picker.PickCompaction(
+          cf_name_, mutable_cf_options_, vstorage_.get(), &log_buffer_));
+
+  ASSERT_FALSE(compaction);
+}
+
+TEST_F(CompactionPickerTest, UniversalPeriodiCompaction4) {
   // The case where universal periodic compaction couldn't form
   // a compaction that inlcudes any file marked for periodic compaction.
   // Right now we form the compaction anyway if it is more than one

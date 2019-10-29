@@ -1033,16 +1033,26 @@ Compaction* UniversalCompactionBuilder::PickPeriodicCompaction() {
   // There is a rare corner case where we can't pick up all the files
   // because some files are being compacted and we end up with picking files
   // but none of them need periodic compaction. Unless we simply recompact
-  // one single level, we would just execute the compaction, inorder to simplify
-  // the logic.
+  // the last sorted run (either the last level or last L0 file), we would just
+  // execute the compaction, in order to simplify  the logic.
   if (start_index == sorted_runs_.size() - 1) {
     bool included_file_marked = false;
     int start_level = sorted_runs_[start_index].level;
-    for (const std::pair<int, FileMetaData*>& level_file :
+    FileMetaData* start_file = sorted_runs_[start_index].file;
+    for (const std::pair<int, FileMetaData*>& level_file_pair :
          vstorage_->FilesMarkedForPeriodicCompaction()) {
-      if (start_level == level_file.first) {
-        included_file_marked = true;
-        break;
+      if (start_level != 0) {
+        // Last sorted run is a level
+        if (start_level == level_file_pair.first) {
+          included_file_marked = true;
+          break;
+        }
+      } else {
+        // Last sorted run is a L0 file.
+        if (start_file == level_file_pair.second) {
+          included_file_marked = true;
+          break;
+        }
       }
     }
     if (!included_file_marked) {
