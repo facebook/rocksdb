@@ -2400,6 +2400,14 @@ class StressTest {
       const std::vector<int64_t>& rand_keys,
       std::unique_ptr<MutexLock>& lock) = 0;
 
+  // Return a column family handle that mirrors what is pointed by
+  // `column_family_id`, which will be used to validate data to be correct.
+  // By default, the column family itself will be returned.
+  virtual ColumnFamilyHandle* GetControlCfh(ThreadState* /* thread*/,
+                                            int column_family_id) {
+    return column_families_[column_family_id];
+  }
+
   // Given a key K, this creates an iterator which scans to K and then
   // does a random sequence of Next/Prev operations.
   virtual Status TestIterate(ThreadState* thread, const ReadOptions& read_opts,
@@ -2458,13 +2466,15 @@ class StressTest {
       ReadOptions cmp_ro;
       cmp_ro.snapshot = snapshot;
       cmp_ro.total_order_seek = true;
-      std::unique_ptr<Iterator> cmp_iter(db_->NewIterator(cmp_ro, cfh));
+      ColumnFamilyHandle* cmp_cfh =
+          GetControlCfh(thread, rand_column_families[0]);
+      std::unique_ptr<Iterator> cmp_iter(db_->NewIterator(cmp_ro, cmp_cfh));
       bool diverged = false;
 
       iter->Seek(key);
       cmp_iter->Seek(key);
-      VerifyIterator(thread, readoptionscopy, iter.get(), cmp_iter.get(), key,
-                     &diverged);
+      VerifyIterator(thread, cmp_cfh, readoptionscopy, iter.get(),
+                     cmp_iter.get(), key, &diverged);
 
       bool no_reverse =
           (FLAGS_memtablerep == "prefix_hash" && !read_opts.total_order_seek &&
@@ -2483,8 +2493,8 @@ class StressTest {
             cmp_iter->Prev();
           }
         }
-        VerifyIterator(thread, readoptionscopy, iter.get(), cmp_iter.get(), key,
-                       &diverged);
+        VerifyIterator(thread, cmp_cfh, readoptionscopy, iter.get(),
+                       cmp_iter.get(), key, &diverged);
       }
 
       if (s.ok()) {
@@ -2506,9 +2516,9 @@ class StressTest {
   // Will flag failure if the verification fails.
   // diverged = true if the two iterator is already diverged.
   // True if verification passed, false if not.
-  void VerifyIterator(ThreadState* thread, const ReadOptions& ro,
-                      Iterator* iter, Iterator* cmp_iter, const Slice& seek_key,
-                      bool* diverged) {
+  void VerifyIterator(ThreadState* thread, ColumnFamilyHandle* cmp_cfh,
+                      const ReadOptions& ro, Iterator* iter, Iterator* cmp_iter,
+                      const Slice& seek_key, bool* diverged) {
     if (*diverged) {
       return;
     }
@@ -2601,6 +2611,7 @@ class StressTest {
       }
     }
     if (*diverged) {
+      fprintf(stderr, "Control CF %s\n", cmp_cfh->GetName().c_str());
       thread->stats.AddErrors(1);
       // Fail fast to preserve the DB state.
       thread->shared->SetVerificationFailure();
@@ -4374,6 +4385,13 @@ class CfConsistencyStressTest : public StressTest {
     }
     delete iter;
     return s;
+  }
+
+  virtual ColumnFamilyHandle* GetControlCfh(ThreadState* thread,
+                                            int /*column_family_id*/
+  ) {
+    // All column families should contain the same data. Randomly pick one.
+    return column_families_[thread->rand.Next() % column_families_.size()];
   }
 
 #ifdef ROCKSDB_LITE
