@@ -1349,10 +1349,22 @@ class DBImpl : public DB {
                                            bool* flush_needed);
 
   inline void WaitForPendingWrites() {
+    mutex_.AssertHeld();
+    // In case of pipelined write is enabled, wait for all pending memtable
+    // writers.
+    if (immutable_db_options_.enable_pipelined_write) {
+      // Memtable writers may call DB::Get in case max_successive_merges > 0,
+      // which may lock mutex. Unlocking mutex here to avoid deadlock.
+      mutex_.Unlock();
+      write_thread_.WaitForMemTableWriters();
+      mutex_.Lock();
+    }
+
     if (!immutable_db_options_.unordered_write) {
       // Then the writes are finished before the next write group starts
       return;
     }
+
     // Wait for the ones who already wrote to the WAL to finish their
     // memtable write.
     if (pending_memtable_writes_.load() != 0) {
