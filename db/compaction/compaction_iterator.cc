@@ -147,7 +147,7 @@ void CompactionIterator::Next() {
       // MergeUntil stops when it encounters a corrupt key and does not
       // include them in the result, so we expect the keys here to be valid.
       assert(valid_key);
-      if (UNLIKELY(!valid_key)) {
+      if (!valid_key) {
         ROCKS_LOG_FATAL(info_log_, "Invalid key (%s) in compaction",
                         key_.ToString(true).c_str());
       }
@@ -348,13 +348,13 @@ void CompactionIterator::NextFromInput() {
       // not compact out.  We will keep this Put, but can drop it's data.
       // (See Optimization 3, below.)
       assert(ikey_.type == kTypeValue);
-      if (UNLIKELY(ikey_.type != kTypeValue)) {
+      if (ikey_.type != kTypeValue) {
         ROCKS_LOG_FATAL(info_log_,
                         "Unexpected key type %d for compaction output",
                         ikey_.type);
       }
       assert(current_user_key_snapshot_ == last_snapshot);
-      if (UNLIKELY(current_user_key_snapshot_ != last_snapshot)) {
+      if (current_user_key_snapshot_ != last_snapshot) {
         ROCKS_LOG_FATAL(info_log_,
                         "current_user_key_snapshot_ (%" PRIu64
                         ") != last_snapshot (%" PRIu64 ")",
@@ -501,7 +501,7 @@ void CompactionIterator::NextFromInput() {
       // checking since there has already been a record returned for this key
       // in this snapshot.
       assert(last_sequence >= current_user_key_sequence_);
-      if (UNLIKELY(last_sequence < current_user_key_sequence_)) {
+      if (last_sequence < current_user_key_sequence_) {
         ROCKS_LOG_FATAL(info_log_,
                         "last_sequence (%" PRIu64
                         ") < current_user_key_sequence_ (%" PRIu64 ")",
@@ -590,7 +590,7 @@ void CompactionIterator::NextFromInput() {
         // MergeUntil stops when it encounters a corrupt key and does not
         // include them in the result, so we expect the keys here to valid.
         assert(valid_key);
-        if (UNLIKELY(!valid_key)) {
+        if (!valid_key) {
           ROCKS_LOG_FATAL(info_log_, "Invalid key (%s) in compaction",
                           key_.ToString(true).c_str());
         }
@@ -654,8 +654,7 @@ void CompactionIterator::PrepareOutput() {
       ikeyNotNeededForIncrementalSnapshot() && bottommost_level_ && valid_ &&
       IN_EARLIEST_SNAPSHOT(ikey_.sequence) && ikey_.type != kTypeMerge) {
     assert(ikey_.type != kTypeDeletion && ikey_.type != kTypeSingleDeletion);
-    if (UNLIKELY(ikey_.type == kTypeDeletion ||
-                 ikey_.type == kTypeSingleDeletion)) {
+    if (ikey_.type == kTypeDeletion || ikey_.type == kTypeSingleDeletion) {
       ROCKS_LOG_FATAL(info_log_,
                       "Unexpected key type %d for seq-zero optimization",
                       ikey_.type);
@@ -668,7 +667,7 @@ void CompactionIterator::PrepareOutput() {
 inline SequenceNumber CompactionIterator::findEarliestVisibleSnapshot(
     SequenceNumber in, SequenceNumber* prev_snapshot) {
   assert(snapshots_->size());
-  if (UNLIKELY(snapshots_->size() == 0)) {
+  if (snapshots_->size() == 0) {
     ROCKS_LOG_FATAL(info_log_,
                     "No snapshot left in findEarliestVisibleSnapshot");
   }
@@ -679,7 +678,7 @@ inline SequenceNumber CompactionIterator::findEarliestVisibleSnapshot(
   } else {
     *prev_snapshot = *std::prev(snapshots_iter);
     assert(*prev_snapshot < in);
-    if (UNLIKELY(*prev_snapshot >= in)) {
+    if (*prev_snapshot >= in) {
       ROCKS_LOG_FATAL(info_log_,
                       "*prev_snapshot >= in in findEarliestVisibleSnapshot");
     }
@@ -692,7 +691,7 @@ inline SequenceNumber CompactionIterator::findEarliestVisibleSnapshot(
   for (; snapshots_iter != snapshots_->end(); ++snapshots_iter) {
     auto cur = *snapshots_iter;
     assert(in <= cur);
-    if (UNLIKELY(in > cur)) {
+    if (in > cur) {
       ROCKS_LOG_FATAL(info_log_, "in > cur in findEarliestVisibleSnapshot");
     }
     // Skip if cur is in released_snapshots.
@@ -723,7 +722,7 @@ bool CompactionIterator::IsInEarliestSnapshot(SequenceNumber sequence) {
                         (earliest_snapshot_iter_ != snapshots_->end() &&
                          *earliest_snapshot_iter_ == earliest_snapshot_));
   assert(pre_condition);
-  if (UNLIKELY(!pre_condition)) {
+  if (!pre_condition) {
     ROCKS_LOG_FATAL(info_log_,
                     "Pre-Condition is not hold in IsInEarliestSnapshot");
   }
@@ -745,7 +744,7 @@ bool CompactionIterator::IsInEarliestSnapshot(SequenceNumber sequence) {
         snapshot_checker_->CheckInSnapshot(sequence, earliest_snapshot_);
   }
   assert(in_snapshot != SnapshotCheckerResult::kSnapshotReleased);
-  if (UNLIKELY(in_snapshot == SnapshotCheckerResult::kSnapshotReleased)) {
+  if (in_snapshot == SnapshotCheckerResult::kSnapshotReleased) {
     ROCKS_LOG_FATAL(info_log_,
                     "Unexpected released snapshot in IsInEarliestSnapshot");
   }
