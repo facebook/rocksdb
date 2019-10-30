@@ -90,9 +90,17 @@ class UniversalCompactionBuilder {
 
   Compaction* PickDeleteTriggeredCompaction();
 
+  // Form a compaction from the sorted run indicated by start_index to the
+  // oldest sorted run.
+  // The caller is responsbilt to make sure that those files are not in
+  // compaction.
   Compaction* PickCompactionToOldest(size_t start_index,
                                      CompactionReason compaction_reason);
 
+  // Try to pick periodic compaction. The caller should only call it
+  // if there is at least one file marked for periodic compaction.
+  // null will be returned if no such a compaction can be formed
+  // because some files are being compacted.
   Compaction* PickPeriodicCompaction();
 
   // Used in universal compaction when the enabled_trivial_move
