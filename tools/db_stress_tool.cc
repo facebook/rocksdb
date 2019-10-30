@@ -4269,27 +4269,31 @@ class CfConsistencyStressTest : public StressTest {
           }
           if (!found && s.ok()) {
             fprintf(stderr, "Get() return different results with key %s\n",
-                    key_str.c_str());
+                    Slice(key_str).ToString(true).c_str());
             fprintf(stderr, "CF %s is not found\n",
                     column_family_names_[0].c_str());
             fprintf(stderr, "CF %s returns value %s\n",
-                    column_family_names_[i].c_str(), value1.c_str());
+                    column_family_names_[i].c_str(),
+                    Slice(value1).ToString(true).c_str());
             is_consistent = false;
           } else if (found && s.IsNotFound()) {
             fprintf(stderr, "Get() return different results with key %s\n",
-                    key_str.c_str());
+                    Slice(key_str).ToString(true).c_str());
             fprintf(stderr, "CF %s returns value %s\n",
-                    column_family_names_[0].c_str(), value0.c_str());
+                    column_family_names_[0].c_str(),
+                    Slice(value0).ToString(true).c_str());
             fprintf(stderr, "CF %s is not found\n",
                     column_family_names_[i].c_str());
             is_consistent = false;
           } else if (s.ok() && value0 != value1) {
             fprintf(stderr, "Get() return different results with key %s\n",
-                    key_str.c_str());
+                    Slice(key_str).ToString(true).c_str());
             fprintf(stderr, "CF %s returns value %s\n",
-                    column_family_names_[0].c_str(), value0.c_str());
+                    column_family_names_[0].c_str(),
+                    Slice(value0).ToString(true).c_str());
             fprintf(stderr, "CF %s returns value %s\n",
-                    column_family_names_[i].c_str(), value1.c_str());
+                    column_family_names_[i].c_str(),
+                    Slice(value1).ToString(true).c_str());
             is_consistent = false;
           }
           if (!is_consistent) {
