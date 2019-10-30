@@ -653,6 +653,8 @@ struct AdvancedColumnFamilyOptions {
   //           compation process.
   // In FIFO: Files older than TTL will be deleted.
   // unit: seconds. Ex: 1 day = 1 * 24 * 60 * 60
+  // In FIFO, this option will have the same meaning as
+  // periodic_compaction_seconds. Whichever stricter will be used.
   //
   // Default: 0 (disabled)
   //
@@ -668,6 +670,8 @@ struct AdvancedColumnFamilyOptions {
   // Env).
   //
   // Only supported in Level compaction.
+  // In FIFO compaction, this option has the same meaning as TTL and whichever
+  // stricter will be used.
   // Pre-req: max_open_file == -1.
   // unit: seconds. Ex: 7 days = 7 * 24 * 60 * 60
   //
@@ -677,6 +681,9 @@ struct AdvancedColumnFamilyOptions {
   //     as needed. For now, RocksDB will change this value to 30 days
   //     (i.e 30 * 24 * 60 * 60) so that every file goes through the compaction
   //     process at least once every 30 days if not compacted sooner.
+  //     In FIFO compaction, since the option has the same meaning as ttl,
+  //     when this value is left default, and ttl is left to 0, 30 days will be
+  //     used. Otherwise, min(ttl, periodic_compaction_seconds) will be used.
   //
   // Default: UINT64_MAX (allow RocksDB to auto-tune)
   //

@@ -606,6 +606,32 @@ TEST_F(DBOptionsTest, SanitizeDelayedWriteRate) {
   ASSERT_EQ(31 * 1024 * 1024, dbfull()->GetDBOptions().delayed_write_rate);
 }
 
+TEST_F(DBOptionsTest, SanitizeFIFOPeriodicCompaction) {
+  Options options;
+  options.compaction_style = kCompactionStyleFIFO;
+  options.ttl = 0;
+  Reopen(options);
+  ASSERT_EQ(30 * 24 * 60 * 60, dbfull()->GetOptions().ttl);
+
+  options.ttl = 100;
+  Reopen(options);
+  ASSERT_EQ(100, dbfull()->GetOptions().ttl);
+
+  options.ttl = 100 * 24 * 60 * 60;
+  Reopen(options);
+  ASSERT_EQ(100 * 24 * 60 * 60, dbfull()->GetOptions().ttl);
+
+  options.ttl = 200;
+  options.periodic_compaction_seconds = 300;
+  Reopen(options);
+  ASSERT_EQ(200, dbfull()->GetOptions().ttl);
+
+  options.ttl = 500;
+  options.periodic_compaction_seconds = 300;
+  Reopen(options);
+  ASSERT_EQ(300, dbfull()->GetOptions().ttl);
+}
+  
 TEST_F(DBOptionsTest, SetFIFOCompactionOptions) {
   Options options;
   options.compaction_style = kCompactionStyleFIFO;
