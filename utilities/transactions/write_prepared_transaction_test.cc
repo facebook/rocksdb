@@ -3351,7 +3351,7 @@ TEST_P(WritePreparedTransactionTest, CommitOfDelayedPrepared) {
         snap.store(db->GetSnapshot());
         ReadOptions roptions;
         roptions.snapshot = snap.load();
-        auto s = db->Get(roptions, db->DefaultColumnFamily(), "key", &value);
+        auto s = db->Get(roptions, db->DefaultColumnFamily(), "key2", &value);
         ASSERT_OK(s);
       };
       auto callback = [&](void* param) {
@@ -3387,7 +3387,7 @@ TEST_P(WritePreparedTransactionTest, CommitOfDelayedPrepared) {
           ASSERT_OK(txn->SetName("xid"));
           std::string val_str = "value" + ToString(i);
           for (size_t b = 0; b < sub_batch_cnt; b++) {
-            ASSERT_OK(txn->Put(Slice("key"), val_str));
+            ASSERT_OK(txn->Put(Slice("key2"), val_str));
           }
           ASSERT_OK(txn->Prepare());
           // Let an eviction to kick in
@@ -3405,7 +3405,8 @@ TEST_P(WritePreparedTransactionTest, CommitOfDelayedPrepared) {
           roptions.snapshot = snap.load();
           ASSERT_NE(nullptr, roptions.snapshot);
           PinnableSlice value2;
-          auto s = db->Get(roptions, db->DefaultColumnFamily(), "key", &value2);
+          auto s =
+              db->Get(roptions, db->DefaultColumnFamily(), "key2", &value2);
           ASSERT_OK(s);
           // It should see its own write
           ASSERT_TRUE(val_str == value2);

@@ -313,10 +313,9 @@ Status Replayer::MultiThreadReplay(uint32_t threads_num) {
       std::chrono::system_clock::now();
   WriteOptions woptions;
   ReadOptions roptions;
-  ReplayerWorkerArg* ra;
   uint64_t ops = 0;
   while (s.ok()) {
-    ra = new ReplayerWorkerArg;
+    std::unique_ptr<ReplayerWorkerArg> ra(new ReplayerWorkerArg);
     ra->db = db_;
     s = ReadTrace(&(ra->trace_entry));
     if (!s.ok()) {
@@ -329,23 +328,29 @@ Status Replayer::MultiThreadReplay(uint32_t threads_num) {
         replay_epoch + std::chrono::microseconds(
                            (ra->trace_entry.ts - header.ts) / fast_forward_));
     if (ra->trace_entry.type == kTraceWrite) {
-      thread_pool.Schedule(&Replayer::BGWorkWriteBatch, ra, nullptr, nullptr);
+      thread_pool.Schedule(&Replayer::BGWorkWriteBatch, ra.release(), nullptr,
+                           nullptr);
       ops++;
     } else if (ra->trace_entry.type == kTraceGet) {
-      thread_pool.Schedule(&Replayer::BGWorkGet, ra, nullptr, nullptr);
+      thread_pool.Schedule(&Replayer::BGWorkGet, ra.release(), nullptr,
+                           nullptr);
       ops++;
     } else if (ra->trace_entry.type == kTraceIteratorSeek) {
-      thread_pool.Schedule(&Replayer::BGWorkIterSeek, ra, nullptr, nullptr);
+      thread_pool.Schedule(&Replayer::BGWorkIterSeek, ra.release(), nullptr,
+                           nullptr);
       ops++;
     } else if (ra->trace_entry.type == kTraceIteratorSeekForPrev) {
-      thread_pool.Schedule(&Replayer::BGWorkIterSeekForPrev, ra, nullptr,
-                           nullptr);
+      thread_pool.Schedule(&Replayer::BGWorkIterSeekForPrev, ra.release(),
+                           nullptr, nullptr);
       ops++;
     } else if (ra->trace_entry.type == kTraceEnd) {
       // Do nothing for now.
       // TODO: Add some validations later.
-      delete ra;
       break;
+    } else {
+      // Other trace entry types that are not implemented for replay.
+      // To finish the replay, we continue the process.
+      continue;
     }
   }
 

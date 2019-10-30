@@ -3,6 +3,12 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 from __future__ import unicode_literals
+try:
+    from builtins import object
+    from builtins import str
+except ImportError:
+    from __builtin__ import object
+    from __builtin__ import str
 import targets_cfg
 
 def pretty_list(lst, indent=8):
@@ -18,7 +24,7 @@ def pretty_list(lst, indent=8):
     return res
 
 
-class TARGETSBuilder:
+class TARGETSBuilder(object):
     def __init__(self, path):
         self.path = path
         self.targets_file = open(path, 'w')

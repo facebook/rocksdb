@@ -383,6 +383,11 @@ class StackableDB : public DB {
     return db_->GetCurrentWalFile(current_log_file);
   }
 
+  virtual Status GetCreationTimeOfOldestFile(
+      uint64_t* creation_time) override {
+    return db_->GetCreationTimeOfOldestFile(creation_time);
+  }
+
   virtual Status DeleteFile(std::string name) override {
     return db_->DeleteFile(name);
   }

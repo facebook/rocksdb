@@ -365,7 +365,7 @@ TEST_P(CacheTest, EvictionPolicy) {
   Insert(200, 201);
 
   // Frequently used entry must be kept around
-  for (int i = 0; i < kCacheSize + 200; i++) {
+  for (int i = 0; i < kCacheSize * 2; i++) {
     Insert(1000+i, 2000+i);
     ASSERT_EQ(101, Lookup(100));
   }
@@ -418,7 +418,7 @@ TEST_P(CacheTest, EvictionPolicyRef) {
   Insert(303, 104);
 
   // Insert entries much more than Cache capacity
-  for (int i = 0; i < kCacheSize + 200; i++) {
+  for (int i = 0; i < kCacheSize * 2; i++) {
     Insert(1000 + i, 2000 + i);
   }
 
