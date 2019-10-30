@@ -145,7 +145,6 @@ cf_consistency_params = {
     # use small value for write_buffer_size so that RocksDB triggers flush
     # more frequently
     "write_buffer_size": 1024 * 1024,
-    # disable pipelined write when test_atomic_flush is true
     "enable_pipelined_write": lambda: random.randint(0, 1),
 }
 
@@ -181,8 +180,10 @@ def finalize_and_sanitize(src_params):
             dest_params["partition_filters"] = 0
         else:
             dest_params["use_block_based_filter"] = 0
+    if dest_params.get("atomic_flush", 0) == 1:
+        # disable pipelined write when atomic flush is used.
+        dest_params["enable_pipelined_write"] = 0
     return dest_params
-
 
 def gen_cmd_params(args):
     params = {}
