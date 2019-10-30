@@ -57,12 +57,6 @@ uint32_t Hash(const char* data, size_t n, uint32_t seed) {
   return h;
 }
 
-uint64_t NPHash64(const char* data, size_t n, uint32_t seed) {
-  // XXH3 currently preview, but generally faster than other quality
-  // 64-bit hash functions.
-  return XXH3p_64bits_withSeed(data, n, seed);
-}
-
 // We are standardizing on a preview release of XXH3, because that's
 // the best available at time of standardizing.
 //
@@ -79,6 +73,11 @@ uint64_t NPHash64(const char* data, size_t n, uint32_t seed) {
 // the prefix extractors.
 uint64_t Hash64(const char* data, size_t n, uint64_t seed) {
   return XXH3p_64bits_withSeed(data, n, seed);
+}
+
+uint64_t Hash64(const char* data, size_t n) {
+  // Same as seed = 0
+  return XXH3p_64bits(data, n);
 }
 
 }  // namespace rocksdb

@@ -25,19 +25,31 @@
 
 namespace rocksdb {
 
+// Stable/persistent 64-bit hash. Higher quality and generally faster than
+// Hash(), especially for inputs > 24 bytes.
+extern uint64_t Hash64(const char* data, size_t n, uint64_t seed);
+
+// Specific optimization without seed (same as seed = 0)
+extern uint64_t Hash64(const char* data, size_t n);
+
 // Non-persistent hash. Must only used for in-memory data structure.
 // The hash results are thus applicable to change. (Thus, it rarely makes
 // sense to specify a seed for this function.)
-extern uint64_t NPHash64(const char* data, size_t n, uint32_t seed = 0);
+inline uint64_t NPHash64(const char* data, size_t n, uint32_t seed) {
+  // Currently same as Hash64
+  return Hash64(data, n, seed);
+}
+
+// Specific optimization without seed (same as seed = 0)
+inline uint64_t NPHash64(const char* data, size_t n) {
+  // Currently same as Hash64
+  return Hash64(data, n);
+}
 
 // Stable/persistent 32-bit hash. Moderate quality and high speed on
 // small inputs.
 // TODO: consider rename to Hash32
 extern uint32_t Hash(const char* data, size_t n, uint32_t seed);
-
-// Stable/persistent 64-bit hash. Higher quality and generally faster than
-// Hash(), especially for inputs > 24 bytes.
-extern uint64_t Hash64(const char* data, size_t n, uint64_t seed);
 
 // TODO: consider rename to LegacyBloomHash32
 inline uint32_t BloomHash(const Slice& key) {
@@ -45,8 +57,7 @@ inline uint32_t BloomHash(const Slice& key) {
 }
 
 inline uint64_t GetSliceHash64(const Slice& key) {
-  // Seed 0 is the by-design default, so it is best validated.
-  return Hash64(key.data(), key.size(), 0);
+  return Hash64(key.data(), key.size());
 }
 
 inline uint64_t GetSliceNPHash64(const Slice& s) {
