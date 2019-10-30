@@ -5,6 +5,9 @@
 * Added an API GetCreationTimeOfOldestFile(uint64_t* creation_time) to get the
 file_creation_time of the oldest SST file in the DB. 
 
+### Performance Improvements
+* For 64-bit hashing, RocksDB is standardizing on a slightly modified preview version of XXH3. This function is now used for many non-persisted hashes, along with fastrange64() in place of the modulus operator, and some benchmarks show a slight improvement.
+
 ## 6.5.1 (10/16/2019)
 ### Bug Fixes
 * Revert the feature "Merging iterator to avoid child iterator reseek for some cases (#5286)" since it might cause strange results when reseek happens with a different iterator upper bound.
