@@ -669,7 +669,7 @@ struct AdvancedColumnFamilyOptions {
   // age is based on the file's last modified time (given by the underlying
   // Env).
   //
-  // Only supported in Level compaction.
+  // Supported in Level and FIFO compaction.
   // In FIFO compaction, this option has the same meaning as TTL and whichever
   // stricter will be used.
   // Pre-req: max_open_file == -1.

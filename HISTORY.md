@@ -2,7 +2,7 @@
 ## Unreleased
 ### Public API Change
 * Changed the default value of periodic_compaction_seconds to `UINT64_MAX` which allows RocksDB to auto-tune periodic compaction scheduling. When using the default value, periodic compactions are now auto-enabled if a compaction filter is used. A value of `0` will turn off the feature completely.
-* With FIFO compaction style, options.periodic_compaction_seconds will have the same meeting as options.ttl. Whichever stricter will be used. With the default options.periodic_compaction_seconds value with options.ttl's default of 0, RocksDB will give a default of 30 days.
+* With FIFO compaction style, options.periodic_compaction_seconds will have the same meaning as options.ttl. Whichever stricter will be used. With the default options.periodic_compaction_seconds value with options.ttl's default of 0, RocksDB will give a default of 30 days.
 * Added an API GetCreationTimeOfOldestFile(uint64_t* creation_time) to get the
 file_creation_time of the oldest SST file in the DB. 
 
