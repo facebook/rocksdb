@@ -1,5 +1,8 @@
 # Rocksdb Change Log
 ## Unreleased
+### Bug Fixes
+* Fix data corruption casued by output of intra-L0 compaction on ingested file not being placed in correct order in L0.
+
 ### Public API Change
 * Added an API GetCreationTimeOfOldestFile(uint64_t* creation_time) to get the
 file_creation_time of the oldest SST file in the DB. 
@@ -24,7 +27,6 @@ file_creation_time of the oldest SST file in the DB.
 * Fixed an sst_dump crash on some plain table SST files.
 * Fixed a memory leak in some error cases of opening plain table SST files.
 * Fix a bug when a crash happens while calling WriteLevel0TableForRecovery for multiple column families, leading to a column family's log number greater than the first corrutped log number when the DB is being opened in PointInTime recovery mode during next recovery attempt (#5856).
-* Fix data corruption casued by output of intra-L0 compaction on ingested file not being placed in correct order in L0.
 
 ### New Features
 * Introduced DBOptions::max_write_batch_group_size_bytes to configure maximum limit on number of bytes that are written in a single batch of WAL or memtable write. It is followed when the leader write size is larger than 1/8 of this limit.
