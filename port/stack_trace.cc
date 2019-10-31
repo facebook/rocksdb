@@ -10,7 +10,9 @@
 #include <execinfo.h>
 #include <signal.h>
 #include <stdio.h>
-#include <stdlib.h>
+// It's odd that including this breaks in GCC 7 but the build doesn't break
+// if I remove it even under GCC 4.8.
+// #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
 
