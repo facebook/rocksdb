@@ -655,6 +655,7 @@ set(SOURCES
         util/string_util.cc
         util/thread_local.cc
         util/threadpool_imp.cc
+        util/xxhash.cc
         utilities/backupable/backupable_db.cc
         utilities/blob_db/blob_compaction_filter.cc
         utilities/blob_db/blob_db.cc
