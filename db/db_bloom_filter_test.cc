@@ -14,7 +14,9 @@
 
 namespace rocksdb {
 
-typedef BloomFilterPolicy BFP;
+namespace {
+using BFP = BloomFilterPolicy;
+}  // namespace
 
 // DB tests related to bloom filter.
 
