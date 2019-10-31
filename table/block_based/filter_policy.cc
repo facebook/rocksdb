@@ -24,15 +24,15 @@ namespace {
 
 typedef LegacyLocalityBloomImpl</*ExtraRotates*/ false> LegacyFullFilterImpl;
 
-class FullFilterBitsBuilder : public BuiltinFilterBitsBuilder {
+class LegacyBloomBitsBuilder : public BuiltinFilterBitsBuilder {
  public:
-  explicit FullFilterBitsBuilder(const int bits_per_key, const int num_probes);
+  explicit LegacyBloomBitsBuilder(const int bits_per_key, const int num_probes);
 
   // No Copy allowed
-  FullFilterBitsBuilder(const FullFilterBitsBuilder&) = delete;
-  void operator=(const FullFilterBitsBuilder&) = delete;
+  LegacyBloomBitsBuilder(const LegacyBloomBitsBuilder&) = delete;
+  void operator=(const LegacyBloomBitsBuilder&) = delete;
 
-  ~FullFilterBitsBuilder() override;
+  ~LegacyBloomBitsBuilder() override;
 
   void AddKey(const Slice& key) override;
 
@@ -81,22 +81,22 @@ class FullFilterBitsBuilder : public BuiltinFilterBitsBuilder {
   void AddHash(uint32_t h, char* data, uint32_t num_lines, uint32_t total_bits);
 };
 
-FullFilterBitsBuilder::FullFilterBitsBuilder(const int bits_per_key,
-                                             const int num_probes)
+LegacyBloomBitsBuilder::LegacyBloomBitsBuilder(const int bits_per_key,
+                                               const int num_probes)
     : bits_per_key_(bits_per_key), num_probes_(num_probes) {
   assert(bits_per_key_);
 }
 
-FullFilterBitsBuilder::~FullFilterBitsBuilder() {}
+LegacyBloomBitsBuilder::~LegacyBloomBitsBuilder() {}
 
-void FullFilterBitsBuilder::AddKey(const Slice& key) {
+void LegacyBloomBitsBuilder::AddKey(const Slice& key) {
   uint32_t hash = BloomHash(key);
   if (hash_entries_.size() == 0 || hash != hash_entries_.back()) {
     hash_entries_.push_back(hash);
   }
 }
 
-Slice FullFilterBitsBuilder::Finish(std::unique_ptr<const char[]>* buf) {
+Slice LegacyBloomBitsBuilder::Finish(std::unique_ptr<const char[]>* buf) {
   uint32_t total_bits, num_lines;
   char* data = ReserveSpace(static_cast<int>(hash_entries_.size()), &total_bits,
                             &num_lines);
@@ -117,7 +117,7 @@ Slice FullFilterBitsBuilder::Finish(std::unique_ptr<const char[]>* buf) {
   return Slice(data, total_bits / 8 + 5);
 }
 
-uint32_t FullFilterBitsBuilder::GetTotalBitsForLocality(uint32_t total_bits) {
+uint32_t LegacyBloomBitsBuilder::GetTotalBitsForLocality(uint32_t total_bits) {
   uint32_t num_lines =
       (total_bits + CACHE_LINE_SIZE * 8 - 1) / (CACHE_LINE_SIZE * 8);
 
@@ -129,9 +129,9 @@ uint32_t FullFilterBitsBuilder::GetTotalBitsForLocality(uint32_t total_bits) {
   return num_lines * (CACHE_LINE_SIZE * 8);
 }
 
-uint32_t FullFilterBitsBuilder::CalculateSpace(const int num_entry,
-                                               uint32_t* total_bits,
-                                               uint32_t* num_lines) {
+uint32_t LegacyBloomBitsBuilder::CalculateSpace(const int num_entry,
+                                                uint32_t* total_bits,
+                                                uint32_t* num_lines) {
   assert(bits_per_key_);
   if (num_entry != 0) {
     uint32_t total_bits_tmp = static_cast<uint32_t>(num_entry * bits_per_key_);
@@ -151,16 +151,16 @@ uint32_t FullFilterBitsBuilder::CalculateSpace(const int num_entry,
   return sz;
 }
 
-char* FullFilterBitsBuilder::ReserveSpace(const int num_entry,
-                                          uint32_t* total_bits,
-                                          uint32_t* num_lines) {
+char* LegacyBloomBitsBuilder::ReserveSpace(const int num_entry,
+                                           uint32_t* total_bits,
+                                           uint32_t* num_lines) {
   uint32_t sz = CalculateSpace(num_entry, total_bits, num_lines);
   char* data = new char[sz];
   memset(data, 0, sz);
   return data;
 }
 
-int FullFilterBitsBuilder::CalculateNumEntry(const uint32_t bytes) {
+int LegacyBloomBitsBuilder::CalculateNumEntry(const uint32_t bytes) {
   assert(bits_per_key_);
   assert(bytes > 0);
   int high = static_cast<int>(bytes * 8 / bits_per_key_ + 1);
@@ -175,8 +175,9 @@ int FullFilterBitsBuilder::CalculateNumEntry(const uint32_t bytes) {
   return n;
 }
 
-inline void FullFilterBitsBuilder::AddHash(uint32_t h, char* data,
-    uint32_t num_lines, uint32_t total_bits) {
+inline void LegacyBloomBitsBuilder::AddHash(uint32_t h, char* data,
+                                            uint32_t num_lines,
+                                            uint32_t total_bits) {
 #ifdef NDEBUG
   static_cast<void>(total_bits);
 #endif
@@ -185,6 +186,125 @@ inline void FullFilterBitsBuilder::AddHash(uint32_t h, char* data,
   LegacyFullFilterImpl::AddHash(h, num_lines, num_probes_, data,
                                 folly::constexpr_log2(CACHE_LINE_SIZE));
 }
+
+// See description in FastLocalBloomImpl
+class FastLocalBloomBitsBuilder : public BuiltinFilterBitsBuilder {
+ public:
+  FastLocalBloomBitsBuilder(const int bits_per_key, const int num_probes)
+      : bits_per_key_(bits_per_key), num_probes_(num_probes) {
+    assert(bits_per_key_);
+  }
+
+  // No Copy allowed
+  FastLocalBloomBitsBuilder(const FastLocalBloomBitsBuilder&) = delete;
+  void operator=(const FastLocalBloomBitsBuilder&) = delete;
+
+  ~FastLocalBloomBitsBuilder() {}
+
+  virtual void AddKey(const Slice& key) override {
+    uint64_t hash = GetSliceHash64(key);
+    if (hash_entries_.size() == 0 || hash != hash_entries_.back()) {
+      hash_entries_.push_back(hash);
+    }
+  }
+
+  virtual Slice Finish(std::unique_ptr<const char[]>* buf) override {
+    uint32_t num_entries = static_cast<uint32_t>(hash_entries_.size());
+    if (num_entries != hash_entries_.size()) {
+      // overflow
+      num_entries = UINT32_MAX;
+    }
+    uint32_t len_with_metadata = CalculateSpace(num_entries);
+    char* data = new char[len_with_metadata];
+    memset(data, 0, len_with_metadata);
+
+    assert(data);
+    assert(len_with_metadata >= 5);
+
+    uint32_t len = len_with_metadata - 5;
+    if (len > 0) {
+      for (auto h : hash_entries_) {
+        FastLocalBloomImpl::AddHash(Lower32of64(h), Upper32of64(h), len,
+                                    num_probes_, data);
+      }
+    }
+
+    // -1 = Marker for newer Bloom implementations
+    data[len] = static_cast<char>(-1);
+    // 0 = Marker for this sub-implementation
+    data[len + 1] = static_cast<char>(0);
+    // num_probes (and 0 in upper bits for 64-byte block size)
+    data[len + 2] = static_cast<char>(num_probes_);
+    // rest of metadata stays zero
+
+    const char* const_data = data;
+    buf->reset(const_data);
+    hash_entries_.clear();
+
+    return Slice(data, len_with_metadata);
+  }
+
+  int CalculateNumEntry(const uint32_t bytes) override {
+    uint32_t bytes_no_meta = bytes >= 5u ? bytes - 5u : 0;
+    return static_cast<int>(uint64_t{8} * bytes_no_meta / bits_per_key_);
+  }
+
+  uint32_t CalculateSpace(const int num_entry) override {
+    uint32_t num_cache_lines = 0;
+    if (bits_per_key_ > 0 && num_entry > 0) {
+      num_cache_lines = static_cast<uint32_t>(
+          (int64_t{num_entry} * bits_per_key_ + 511) / 512);
+    }
+    return num_cache_lines * 64 + /*metadata*/ 5;
+  }
+
+ private:
+  int bits_per_key_;
+  int num_probes_;
+  std::vector<uint64_t> hash_entries_;
+};
+
+// See description in FastLocalBloomImpl
+class FastLocalBloomBitsReader : public FilterBitsReader {
+ public:
+  FastLocalBloomBitsReader(const char* data, int num_probes, uint32_t len_bytes)
+      : data_(data), num_probes_(num_probes), len_bytes_(len_bytes) {}
+
+  // No Copy allowed
+  FastLocalBloomBitsReader(const FastLocalBloomBitsReader&) = delete;
+  void operator=(const FastLocalBloomBitsReader&) = delete;
+
+  ~FastLocalBloomBitsReader() override {}
+
+  bool MayMatch(const Slice& key) override {
+    uint64_t h = GetSliceHash64(key);
+    uint32_t byte_offset;
+    FastLocalBloomImpl::PrepareHashMayMatch(Lower32of64(h), len_bytes_, data_,
+                                            /*out*/ &byte_offset);
+    return FastLocalBloomImpl::HashMayMatchPrepared(Upper32of64(h), num_probes_,
+                                                    data_ + byte_offset);
+  }
+
+  virtual void MayMatch(int num_keys, Slice** keys, bool* may_match) override {
+    uint32_t hashes[MultiGetContext::MAX_BATCH_SIZE];
+    uint32_t byte_offsets[MultiGetContext::MAX_BATCH_SIZE];
+    for (int i = 0; i < num_keys; ++i) {
+      uint64_t h = GetSliceHash64(*keys[i]);
+      FastLocalBloomImpl::PrepareHashMayMatch(Lower32of64(h), len_bytes_, data_,
+                                              /*out*/ &byte_offsets[i]);
+      hashes[i] = Upper32of64(h);
+    }
+    for (int i = 0; i < num_keys; ++i) {
+      may_match[i] = FastLocalBloomImpl::HashMayMatchPrepared(
+          hashes[i], num_probes_, data_ + byte_offsets[i]);
+    }
+  }
+
+ private:
+  const char* data_;
+  const int num_probes_;
+  const uint32_t len_bytes_;
+};
 
 class AlwaysTrueFilter : public FilterBitsReader {
  public:
@@ -198,20 +318,20 @@ class AlwaysFalseFilter : public FilterBitsReader {
   using FilterBitsReader::MayMatch;  // inherit overload
 };
 
-class FullFilterBitsReader : public FilterBitsReader {
+class LegacyBloomBitsReader : public FilterBitsReader {
  public:
-  FullFilterBitsReader(const char* data, int num_probes, uint32_t num_lines,
-                       uint32_t log2_cache_line_size)
+  LegacyBloomBitsReader(const char* data, int num_probes, uint32_t num_lines,
+                        uint32_t log2_cache_line_size)
       : data_(data),
         num_probes_(num_probes),
         num_lines_(num_lines),
         log2_cache_line_size_(log2_cache_line_size) {}
 
   // No Copy allowed
-  FullFilterBitsReader(const FullFilterBitsReader&) = delete;
-  void operator=(const FullFilterBitsReader&) = delete;
+  LegacyBloomBitsReader(const LegacyBloomBitsReader&) = delete;
+  void operator=(const LegacyBloomBitsReader&) = delete;
 
-  ~FullFilterBitsReader() override {}
+  ~LegacyBloomBitsReader() override {}
 
   // "contents" contains the data built by a preceding call to
   // FilterBitsBuilder::Finish. MayMatch must return true if the key was
@@ -252,13 +372,19 @@ class FullFilterBitsReader : public FilterBitsReader {
 
 }  // namespace
 
-const std::vector<BloomFilterPolicy::Impl> BloomFilterPolicy::kAllImpls = {
-    kFull,
-    kBlock,
+const std::vector<BloomFilterPolicy::Mode> BloomFilterPolicy::kAllFixedImpls = {
+    kLegacyBloom,
+    kDeprecatedBlock,
+    kFastLocalBloom,
 };
 
-BloomFilterPolicy::BloomFilterPolicy(int bits_per_key, Impl impl)
-    : bits_per_key_(bits_per_key), impl_(impl) {
+const std::vector<BloomFilterPolicy::Mode> BloomFilterPolicy::kAllUserModes = {
+    kDeprecatedBlock,
+    kAuto,
+};
+
+BloomFilterPolicy::BloomFilterPolicy(int bits_per_key, Mode mode)
+    : bits_per_key_(bits_per_key), mode_(mode) {
   // We intentionally round down to reduce probing cost a little bit
   num_probes_ = static_cast<int>(bits_per_key_ * 0.69);  // 0.69 =~ ln(2)
   if (num_probes_ < 1) num_probes_ = 1;
@@ -275,7 +401,7 @@ void BloomFilterPolicy::CreateFilter(const Slice* keys, int n,
                                      std::string* dst) const {
   // We should ideally only be using this deprecated interface for
   // appropriately constructed BloomFilterPolicy
-  assert(impl_ == kBlock);
+  assert(mode_ == kDeprecatedBlock);
 
   // Compute bloom filter size (in both bits and bytes)
   uint32_t bits = static_cast<uint32_t>(n * bits_per_key_);
@@ -321,11 +447,41 @@ bool BloomFilterPolicy::KeyMayMatch(const Slice& key,
 }
 
 FilterBitsBuilder* BloomFilterPolicy::GetFilterBitsBuilder() const {
-  if (impl_ == kBlock) {
-    return nullptr;
-  } else {
-    return new FullFilterBitsBuilder(bits_per_key_, num_probes_);
+  // This code path should no longer be used, for the built-in
+  // BloomFilterPolicy. Internal to RocksDB and outside BloomFilterPolicy,
+  // only get a FilterBitsBuilder with FilterBuildingContext::GetBuilder(),
+  // which will call BloomFilterPolicy::GetFilterBitsBuilderInternal.
+  // RocksDB users have been warned (HISTORY.md) that they can no longer
+  // call this on the built-in BloomFilterPolicy (unlikely).
+  assert(false);
+  return GetFilterBitsBuilderInternal(
+      FilterBuildingContext(BlockBasedTableOptions()));
+}
+
+FilterBitsBuilder* BloomFilterPolicy::GetFilterBitsBuilderInternal(
+    const FilterBuildingContext& context) const {
+  Mode cur = mode_;
+  // Unusual code construction so that we can have just
+  // one exhaustive switch without (risky) recursion
+  for (int i = 0; i < 2; ++i) {
+    switch (cur) {
+      case kAuto:
+        if (context.table_options_.format_version < 5) {
+          cur = kLegacyBloom;
+        } else {
+          cur = kFastLocalBloom;
+        }
+        break;
+      case kDeprecatedBlock:
+        return nullptr;
+      case kFastLocalBloom:
+        return new FastLocalBloomBitsBuilder(bits_per_key_, num_probes_);
+      case kLegacyBloom:
+        return new LegacyBloomBitsBuilder(bits_per_key_, num_probes_);
+    }
   }
+  assert(false);
+  return nullptr;  // something legal
 }
 
 // Read metadata to determine what kind of FilterBitsReader is needed
@@ -341,15 +497,21 @@ FilterBitsReader* BloomFilterPolicy::GetFilterBitsReader(
   char raw_num_probes = contents.data()[len_with_meta - 5];
   // NB: *num_probes > 30 and < 128 probably have not been used, because of
   // BloomFilterPolicy::initialize, unless directly calling
-  // FullFilterBitsBuilder as an API, but we are leaving those cases in
-  // limbo with FullFilterBitsReader for now.
+  // LegacyBloomBitsBuilder as an API, but we are leaving those cases in
+  // limbo with LegacyBloomBitsReader for now.
 
   if (raw_num_probes < 1) {
+    // Note: < 0 (or unsigned > 127) indicate special new implementations
+    // (or reserved for future use)
+    if (raw_num_probes == -1) {
+      // Marker for newer Bloom implementations
+      return GetBloomBitsReader(contents);
+    }
+    // otherwise
     // Treat as zero probes (always FP) for now.
-    // NB: < 0 (or unsigned > 127) effectively reserved for future use.
     return new AlwaysTrueFilter();
   }
-  // else attempt decode for FullFilterBitsReader
+  // else attempt decode for LegacyBloomBitsReader
 
   int num_probes = raw_num_probes;
   assert(num_probes >= 1);
@@ -381,17 +543,68 @@ FilterBitsReader* BloomFilterPolicy::GetFilterBitsReader(
     }
   }
   // if not early return
-  return new FullFilterBitsReader(contents.data(), num_probes, num_lines,
-                                  log2_cache_line_size);
+  return new LegacyBloomBitsReader(contents.data(), num_probes, num_lines,
+                                   log2_cache_line_size);
+}
+
+// For newer Bloom filter implementations
+FilterBitsReader* BloomFilterPolicy::GetBloomBitsReader(
+    const Slice& contents) const {
+  uint32_t len_with_meta = static_cast<uint32_t>(contents.size());
+  uint32_t len = len_with_meta - 5;
+
+  assert(len > 0);  // precondition
+
+  // Read more metadata
+  char sub_impl_val = contents.data()[len_with_meta - 4];
+  // 0: FastLocalBloom
+  // other: reserved
+
+  char block_and_probes = contents.data()[len_with_meta - 3];
+  int log2_block_bytes = ((block_and_probes >> 5) & 7) + 6;
+  // 0 in top 3 bits -> 6 -> 64-byte (Intel cache line)
+  // reserved:
+  // 1 in top 3 bits -> 7 -> 128-byte
+  // 2 in top 3 bits -> 8 -> 256-byte
+  // ...
+
+  int num_probes = (block_and_probes & 31);
+  // num_probes in bottom 5 bits, except 0 and 31 reserved
+
+  if (num_probes < 1 || num_probes > 30) {
+    // Reserved / future safe
+    return new AlwaysTrueFilter();
+  }
+
+  uint16_t rest = DecodeFixed16(contents.data() + len_with_meta - 2);
+  if (rest != 0) {
+    // Reserved, possibly for hash seed
+    // Future safe
+    return new AlwaysTrueFilter();
+  }
+
+  if (sub_impl_val == 0) {        // FastLocalBloom
+    if (log2_block_bytes == 6) {  // Only block size supported for now
+      return new FastLocalBloomBitsReader(contents.data(), num_probes, len);
+    }
+  }
+  // otherwise
+  // Reserved / future safe
+  return new AlwaysTrueFilter();
 }
 
 const FilterPolicy* NewBloomFilterPolicy(int bits_per_key,
                                          bool use_block_based_builder) {
+  BloomFilterPolicy::Mode m;
   if (use_block_based_builder) {
-    return new BloomFilterPolicy(bits_per_key, BloomFilterPolicy::kBlock);
+    m = BloomFilterPolicy::kDeprecatedBlock;
   } else {
-    return new BloomFilterPolicy(bits_per_key, BloomFilterPolicy::kFull);
+    m = BloomFilterPolicy::kAuto;
   }
+  assert(std::find(BloomFilterPolicy::kAllUserModes.begin(),
+                   BloomFilterPolicy::kAllUserModes.end(),
+                   m) != BloomFilterPolicy::kAllUserModes.end());
+  return new BloomFilterPolicy(bits_per_key, m);
 }
 
 FilterPolicy::~FilterPolicy() { }

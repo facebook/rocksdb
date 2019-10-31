@@ -269,7 +269,10 @@ struct BlockBasedTableOptions {
   // probably use this as it would reduce the index size.
   // This option only affects newly written tables. When reading existing
   // tables, the information about version is read from the footer.
-  uint32_t format_version = 2;
+  // 5 -- Can be read by RocksDB's versions since X.X.X (something after 6.4.6)
+  // Full and partitioned filters use a generally faster and more accurate
+  // Bloom filter implementation, with a different schema.
+  uint32_t format_version = 5;  // TODO: back to 2
 
   // Store index blocks on disk in compressed format. Changing this option to
   // false  will avoid the overhead of decompression if index blocks are evicted
