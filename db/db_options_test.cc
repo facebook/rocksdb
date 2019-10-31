@@ -631,7 +631,7 @@ TEST_F(DBOptionsTest, SanitizeFIFOPeriodicCompaction) {
   Reopen(options);
   ASSERT_EQ(300, dbfull()->GetOptions().ttl);
 }
-  
+
 TEST_F(DBOptionsTest, SetFIFOCompactionOptions) {
   Options options;
   options.compaction_style = kCompactionStyleFIFO;
