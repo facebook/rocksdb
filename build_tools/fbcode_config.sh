@@ -48,7 +48,6 @@ if test -z $PIC_BUILD; then
   ZSTD_LIBS=" $ZSTD_BASE/lib/libzstd.a"
   CFLAGS+=" -DZSTD"
 fi
-CFLAGS+=" -DZSTD"
 
 # location of gflags headers and libraries
 GFLAGS_INCLUDE=" -I $GFLAGS_BASE/include/"
