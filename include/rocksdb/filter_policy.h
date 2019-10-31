@@ -138,8 +138,8 @@ class FilterPolicy {
 //
 // bits_per_key: bits per key in bloom filter. A good value for bits_per_key
 // is 10, which yields a filter with ~ 1% false positive rate.
-// use_block_based_builder: use block based filter rather than full filter.
-// If you want to builder full filter, it needs to be set to false.
+// use_block_based_builder: use deprecated block based filter (true) rather
+// than full or partitioned filter (false).
 //
 // Callers must delete the result after any database that is using the
 // result has been closed.
