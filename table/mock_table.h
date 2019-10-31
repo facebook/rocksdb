@@ -6,6 +6,7 @@
 //  of patent rights can be found in the PATENTS file in the same directory.
 #pragma once
 #include <algorithm>
+#include <functional>
 #include <set>
 #include <memory>
 #include <atomic>
