@@ -46,19 +46,6 @@ PLATFORM_CXXFLAGS="-std=c++11"
 # we currently depend on POSIX platform
 COMMON_FLAGS="-DROCKSDB_PLATFORM_POSIX -DROCKSDB_LIB_IO_POSIX"
 
-# Default to fbcode gcc on internal fb machines
-if [ -z "$ROCKSDB_NO_FBCODE" -a -d /mnt/gvfs/third-party ]; then
-    FBCODE_BUILD="true"
-    # If we're compiling with TSAN we need pic build
-    PIC_BUILD=$COMPILE_WITH_TSAN
-    if [ -z "$ROCKSDB_FBCODE_BUILD_WITH_481" ]; then
-      source "$PWD/build_tools/fbcode_config.sh"
-    else
-      # we need this to build with MySQL. Don't use for other purposes.
-      source "$PWD/build_tools/fbcode_config4.8.1.sh"
-    fi
-fi
-
 # Delete existing output, if it exists
 rm -f "$OUTPUT"
 touch "$OUTPUT"
