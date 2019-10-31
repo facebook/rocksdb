@@ -37,10 +37,12 @@ Status DBImplReadOnly::Get(const ReadOptions& read_options,
   SequenceNumber snapshot = versions_->LastSequence();
   auto cfh = reinterpret_cast<ColumnFamilyHandleImpl*>(column_family);
   auto cfd = cfh->cfd();
+  uint64_t record_guid = 0, latency = 0;
   if (tracer_) {
     InstrumentedMutexLock lock(&trace_mutex_);
     if (tracer_) {
-      tracer_->Get(column_family, key);
+      tracer_->Get(column_family, key, &record_guid);
+      latency = env_->NowMicros();
     }
   }
   SuperVersion* super_version = cfd->GetSuperVersion();
@@ -63,6 +65,13 @@ Status DBImplReadOnly::Get(const ReadOptions& read_options,
   RecordTick(stats_, BYTES_READ, size);
   RecordInHistogram(stats_, BYTES_PER_READ, size);
   PERF_COUNTER_ADD(get_read_bytes, size);
+  if (tracer_) {
+    InstrumentedMutexLock lock(&trace_mutex_);
+    if (tracer_ && tracer_->IsTraceAtEnd()) {
+      latency = env_->NowMicros() - latency;
+      tracer_->GetAtEnd(record_guid, latency);
+    }
+  }
   return s;
 }
 

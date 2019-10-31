@@ -85,9 +85,11 @@ class TracerHelper {
   // Encode a trace object into the given string.
   static void EncodeTrace(const Trace& trace, std::string* encoded_trace);
 
-  // Decode a string into the given trace object.
+  // Decode a string into the given trace object from trace file v 0.1
   static Status DecodeTrace(const std::string& encoded_trace, Trace* trace);
 
+  // Decode a string into given trace object from trace file v 0.2 or above
+  static Status DecodeTraceV2(const std::string& encoded_trace, Trace* trace);
   // Parse the trace version
 };
 
@@ -129,6 +131,8 @@ class Tracer {
   // Returns true if the trace is over the configured max trace file limit.
   // False otherwise.
   bool IsTraceFileOverMax();
+
+  bool IsTraceAtEnd();
 
   // Writes a trace footer at the end of the tracing
   Status Close();
@@ -212,6 +216,7 @@ class Replayer {
   std::unique_ptr<TraceReader> trace_reader_;
   std::unordered_map<uint32_t, ColumnFamilyHandle*> cf_map_;
   uint32_t fast_forward_;
+  int trace_file_version_;
 };
 
 // The passin arg of MultiThreadRepkay for each trace record.

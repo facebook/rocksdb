@@ -30,6 +30,17 @@ void DecodeCFAndKey(std::string& buffer, uint32_t* cf_id, Slice* key) {
   GetFixed32(&buf, cf_id);
   GetLengthPrefixedSlice(&buf, key);
 }
+
+void EncodeLatency(std::string* dst, uint64_t latency) {
+  PutFixed32(dst, latency);
+}
+
+/*
+void DecodeLatency(std::string& buffer, uint64_t* latency) {
+  Slice buf(buffer);
+  GetFixed64(&buf, latency);
+}
+*/
 }  // namespace
 
 Status TracerHelper::ParseVersionStr(std::string& v_string, int* v_num) {
@@ -83,6 +94,7 @@ Status TracerHelper::ParseTraceHeader(const Trace& header, int* trace_version,
 void TracerHelper::EncodeTrace(const Trace& trace, std::string* encoded_trace) {
   assert(encoded_trace);
   PutFixed64(encoded_trace, trace.ts);
+  PutFixed64(encoded_trace, trace.record_guid);
   encoded_trace->push_back(trace.type);
   PutFixed32(encoded_trace, static_cast<uint32_t>(trace.payload.size()));
   encoded_trace->append(trace.payload);
@@ -93,6 +105,26 @@ Status TracerHelper::DecodeTrace(const std::string& encoded_trace,
   assert(trace != nullptr);
   Slice enc_slice = Slice(encoded_trace);
   if (!GetFixed64(&enc_slice, &trace->ts)) {
+    return Status::Incomplete("Decode trace string failed");
+  }
+  trace->record_guid = 0;
+  if (enc_slice.size() < kTraceTypeSize + kTracePayloadLengthSize) {
+    return Status::Incomplete("Decode trace string failed");
+  }
+  trace->type = static_cast<TraceType>(enc_slice[0]);
+  enc_slice.remove_prefix(kTraceTypeSize + kTracePayloadLengthSize);
+  trace->payload = enc_slice.ToString();
+  return Status::OK();
+}
+
+Status TracerHelper::DecodeTraceV2(const std::string& encoded_trace,
+                                 Trace* trace) {
+  assert(trace != nullptr);
+  Slice enc_slice = Slice(encoded_trace);
+  if (!GetFixed64(&enc_slice, &trace->ts)) {
+    return Status::Incomplete("Decode trace string failed");
+  }
+  if (!GetFixed64(&enc_slice, &trace->record_guid)) {
     return Status::Incomplete("Decode trace string failed");
   }
   if (enc_slice.size() < kTraceTypeSize + kTracePayloadLengthSize) {
@@ -109,7 +141,7 @@ Tracer::Tracer(Env* env, const TraceOptions& trace_options,
     : env_(env),
       trace_options_(trace_options),
       trace_writer_(std::move(trace_writer)),
-      trace_request_count_(0) record_guid_counter_(0) {
+      trace_request_count_(0),record_guid_counter_(0) {
   WriteHeader();
 }
 
@@ -118,19 +150,19 @@ Tracer::~Tracer() { trace_writer_.reset(); }
 Status Tracer::Write(WriteBatch* write_batch, uint64_t* record_guid) {
   TraceType trace_type = kTraceWrite;
   assert(record_guid != nullptr);
-  record_guid = GetAndIncreaseRecordGuid();
+  *record_guid = GetAndIncreaseRecordGuid();
   if (ShouldSkipTrace(trace_type)) {
     return Status::OK();
   }
   Trace trace;
   trace.ts = env_->NowMicros();
-  trace.record_guid = record_guid;
+  trace.record_guid = *record_guid;
   trace.type = trace_type;
   trace.payload = write_batch->Data();
   return WriteTrace(trace);
 }
 
-Status Tracer::Write(const uint64_t& record_guid, const uint64_t& latency) {
+Status Tracer::WriteAtEnd(const uint64_t& record_guid, const uint64_t& latency) {
   TraceType trace_type = kTraceWriteAtEnd;
   if (ShouldSkipTrace(trace_type)) {
     return Status::OK();
@@ -147,13 +179,13 @@ Status Tracer::Get(ColumnFamilyHandle* column_family, const Slice& key,
                    uint64_t* record_guid) {
   TraceType trace_type = kTraceGet;
   assert(record_guid != nullptr);
-  record_guid = GetAndIncreaseRecordGuid();
+  *record_guid = GetAndIncreaseRecordGuid();
   if (ShouldSkipTrace(trace_type)) {
     return Status::OK();
   }
   Trace trace;
   trace.ts = env_->NowMicros();
-  trace.record_guid = record_guid;
+  trace.record_guid = *record_guid;
   trace.type = trace_type;
   EncodeCFAndKey(&trace.payload, column_family->GetID(), key);
   return WriteTrace(trace);
@@ -176,13 +208,13 @@ Status Tracer::IteratorSeek(const uint32_t& cf_id, const Slice& key,
                             uint64_t* record_guid) {
   TraceType trace_type = kTraceIteratorSeek;
   assert(record_guid != nullptr);
-  record_guid = GetAndIncreaseRecordGuid();
+  *record_guid = GetAndIncreaseRecordGuid();
   if (ShouldSkipTrace(trace_type)) {
     return Status::OK();
   }
   Trace trace;
   trace.ts = env_->NowMicros();
-  trace.record_guid = record_guid;
+  trace.record_guid = *record_guid;
   trace.type = trace_type;
   EncodeCFAndKey(&trace.payload, cf_id, key);
   return WriteTrace(trace);
@@ -206,13 +238,13 @@ Status Tracer::IteratorSeekForPrev(const uint32_t& cf_id, const Slice& key,
                                    uint64_t* record_guid) {
   TraceType trace_type = kTraceIteratorSeekForPrev;
   assert(record_guid != nullptr);
-  record_guid = GetAndIncreaseRecordGuid();
+  *record_guid = GetAndIncreaseRecordGuid();
   if (ShouldSkipTrace(trace_type)) {
     return Status::OK();
   }
   Trace trace;
   trace.ts = env_->NowMicros();
-  trace.record_guid = record_guid;
+  trace.record_guid = *record_guid;
   trace.type = trace_type;
   EncodeCFAndKey(&trace.payload, cf_id, key);
   return WriteTrace(trace);
@@ -255,23 +287,27 @@ uint64_t Tracer::GetAndIncreaseRecordGuid() {
   record_guid_counter_++;
   return record_guid;
 }
-}
 
 bool Tracer::IsTraceFileOverMax() {
   uint64_t trace_file_size = trace_writer_->GetFileSize();
   return (trace_file_size > trace_options_.max_trace_file_size);
 }
 
+bool Tracer::IsTraceAtEnd() {
+  return trace_options_.trace_at_end;
+}
+
 Status Tracer::WriteHeader() {
   std::ostringstream s;
   s << kTraceMagic << "\t"
-    << "Trace Version: 0.1\t"
+    << "Trace Version: 0.2\t"
     << "RocksDB Version: " << kMajorVersion << "." << kMinorVersion << "\t"
     << "Format: Timestamp OpType Payload\n";
   std::string header(s.str());
 
   Trace trace;
   trace.ts = env_->NowMicros();
+  trace.record_guid =GetAndIncreaseRecordGuid();
   trace.type = kTraceBegin;
   trace.payload = header;
   return WriteTrace(trace);
@@ -280,6 +316,7 @@ Status Tracer::WriteHeader() {
 Status Tracer::WriteFooter() {
   Trace trace;
   trace.ts = env_->NowMicros();
+  trace.record_guid =GetAndIncreaseRecordGuid();
   trace.type = kTraceEnd;
   trace.payload = "";
   return WriteTrace(trace);
@@ -303,6 +340,7 @@ Replayer::Replayer(DB* db, const std::vector<ColumnFamilyHandle*>& handles,
     cf_map_[cfh->GetID()] = cfh;
   }
   fast_forward_ = 1;
+  trace_file_version_ = 2;
 }
 
 Replayer::~Replayer() { trace_reader_.reset(); }
@@ -322,12 +360,12 @@ Status Replayer::Replay() {
   Status s;
   Trace header;
   TracerHelper helper;
-  int trace_version, db_version;
+  int db_version;
   s = ReadHeader(&header);
   if (!s.ok()) {
     return s;
   }
-  s = helper.ParseTraceHeader(header, &trace_version, &db_version);
+  s = helper.ParseTraceHeader(header, &trace_file_version_, &db_version);
   if (!s.ok()) {
     return s;
   }
@@ -426,12 +464,12 @@ Status Replayer::MultiThreadReplay(uint32_t threads_num) {
   Status s;
   Trace header;
   TracerHelper helper;
-  int trace_version, db_version;
+  int  db_version;
   s = ReadHeader(&header);
   if (!s.ok()) {
     return s;
   }
-  s = helper.ParseTraceHeader(header, &trace_version, &db_version);
+  s = helper.ParseTraceHeader(header, &trace_file_version_, &db_version);
   if (!s.ok()) {
     return s;
   }
@@ -537,7 +575,11 @@ Status Replayer::ReadTrace(Trace* trace) {
   if (!s.ok()) {
     return s;
   }
-  return TracerHelper::DecodeTrace(encoded_trace, trace);
+  if(trace_file_version_ < 2) {
+    return TracerHelper::DecodeTrace(encoded_trace, trace);
+  } else {
+    return TracerHelper::DecodeTraceV2(encoded_trace, trace);
+  }
 }
 
 void Replayer::BGWorkGet(void* arg) {

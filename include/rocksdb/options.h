@@ -1523,6 +1523,9 @@ struct TraceOptions {
   uint64_t sampling_frequency = 1;
   // Note: The filtering happens before sampling.
   uint64_t filter = kTraceFilterNone;
+  // If user want to trace some statistics after the query is finished
+  // (e.g., query respond latency), the this option needs to be specified
+  bool trace_at_end = false;
 };
 
 // ImportColumnFamilyOptions is used by ImportColumnFamily()

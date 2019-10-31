@@ -1480,12 +1480,14 @@ Status DBImpl::GetImpl(const ReadOptions& read_options, const Slice& key,
       reinterpret_cast<ColumnFamilyHandleImpl*>(get_impl_options.column_family);
   auto cfd = cfh->cfd();
 
+  uint64_t record_guid = 0, latency = 0;
   if (tracer_) {
     // TODO: This mutex should be removed later, to improve performance when
     // tracing is enabled.
     InstrumentedMutexLock lock(&trace_mutex_);
     if (tracer_) {
-      tracer_->Get(get_impl_options.column_family, key);
+      tracer_->Get(get_impl_options.column_family, key, &record_guid);
+      latency = env_->NowMicros();
     }
   }
 
@@ -1634,6 +1636,17 @@ Status DBImpl::GetImpl(const ReadOptions& read_options, const Slice& key,
     }
     RecordInHistogram(stats_, BYTES_PER_READ, size);
   }
+
+  if (tracer_) {
+    // TODO: This mutex should be removed later, to improve performance when
+    // tracing is enabled.
+    InstrumentedMutexLock lock(&trace_mutex_);
+    if (tracer_ && tracer_->IsTraceAtEnd()) {
+      latency = env_->NowMicros() - latency;
+      tracer_->GetAtEnd(record_guid, latency);
+    }
+  }
+
   return s;
 }
 
@@ -4218,24 +4231,54 @@ Status DBImpl::EndBlockCacheTrace() {
   return Status::OK();
 }
 
-Status DBImpl::TraceIteratorSeek(const uint32_t& cf_id, const Slice& key) {
+Status DBImpl::TraceIteratorSeek(const uint32_t& cf_id, const Slice& key,
+                                 uint64_t* record_guid, uint64_t* latency) {
   Status s;
   if (tracer_) {
     InstrumentedMutexLock lock(&trace_mutex_);
     if (tracer_) {
-      s = tracer_->IteratorSeek(cf_id, key);
+      s = tracer_->IteratorSeek(cf_id, key, record_guid);
+      *latency = env_->NowMicros();
     }
   }
   return s;
 }
 
-Status DBImpl::TraceIteratorSeekForPrev(const uint32_t& cf_id,
-                                        const Slice& key) {
+Status DBImpl::TraceIteratorSeekForPrev(const uint32_t& cf_id, const Slice& key,
+                                        uint64_t* record_guid,
+                                        uint64_t* latency) {
   Status s;
   if (tracer_) {
     InstrumentedMutexLock lock(&trace_mutex_);
     if (tracer_) {
-      s = tracer_->IteratorSeekForPrev(cf_id, key);
+      s = tracer_->IteratorSeekForPrev(cf_id, key, record_guid);
+      *latency = env_->NowMicros();
+    }
+  }
+  return s;
+}
+
+Status DBImpl::TraceIteratorSeekAtEnd(uint64_t& record_guid,
+                                      uint64_t& latency) {
+  Status s;
+  if (tracer_) {
+    InstrumentedMutexLock lock(&trace_mutex_);
+    if (tracer_ && tracer_->IsTraceAtEnd()) {
+      latency = env_->NowMicros() - latency;
+      s = tracer_->IteratorSeekAtEnd(record_guid, latency);
+    }
+  }
+  return s;
+}
+
+Status DBImpl::TraceIteratorSeekForPrevAtEnd(uint64_t& record_guid,
+                                             uint64_t& latency) {
+  Status s;
+  if (tracer_) {
+    InstrumentedMutexLock lock(&trace_mutex_);
+    if (tracer_ && tracer_->IsTraceAtEnd()) {
+      latency = env_->NowMicros() - latency;
+      s = tracer_->IteratorSeekForPrevAtEnd(record_guid, latency);
     }
   }
   return s;

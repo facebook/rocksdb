@@ -73,10 +73,13 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
   if (my_batch == nullptr) {
     return Status::Corruption("Batch is nullptr!");
   }
+
+  uint64_t record_guid = 0, latency = 0;
   if (tracer_) {
     InstrumentedMutexLock lock(&trace_mutex_);
     if (tracer_) {
-      tracer_->Write(my_batch);
+      tracer_->Write(my_batch, &record_guid);
+      latency = env_->NowMicros();
     }
   }
   if (write_options.sync && write_options.disableWAL) {
@@ -446,6 +449,15 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
   if (status.ok()) {
     status = w.FinalStatus();
   }
+
+  if (tracer_) {
+    InstrumentedMutexLock lock(&trace_mutex_);
+    if (tracer_ && tracer_->IsTraceAtEnd()) {
+      latency = env_->NowMicros() - latency;
+      tracer_->WriteAtEnd(record_guid, latency);
+    }
+  }
+
   return status;
 }
 

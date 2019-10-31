@@ -322,10 +322,13 @@ Status DBImplSecondary::GetImpl(const ReadOptions& read_options,
 
   auto cfh = static_cast<ColumnFamilyHandleImpl*>(column_family);
   ColumnFamilyData* cfd = cfh->cfd();
+
+  uint64_t record_guid = 0, latency = 0;
   if (tracer_) {
     InstrumentedMutexLock lock(&trace_mutex_);
     if (tracer_) {
-      tracer_->Get(column_family, key);
+      tracer_->Get(column_family, key, &record_guid);
+      latency = env_->NowMicros();
     }
   }
   // Acquire SuperVersion
@@ -370,6 +373,17 @@ Status DBImplSecondary::GetImpl(const ReadOptions& read_options,
     RecordTimeToHistogram(stats_, BYTES_PER_READ, size);
     PERF_COUNTER_ADD(get_read_bytes, size);
   }
+
+  if (tracer_) {
+    // TODO: This mutex should be removed later, to improve performance when
+    // tracing is enabled.
+    InstrumentedMutexLock lock(&trace_mutex_);
+    if (tracer_ && tracer_->IsTraceAtEnd()) {
+      latency = env_->NowMicros() - latency;
+      tracer_->GetAtEnd(record_guid, latency);
+    }
+  }
+
   return s;
 }
 

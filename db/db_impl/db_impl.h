@@ -529,8 +529,11 @@ class DBImpl : public DB {
                                  bool* found_record_for_key,
                                  bool* is_blob_index = nullptr);
 
-  Status TraceIteratorSeek(const uint32_t& cf_id, const Slice& key);
-  Status TraceIteratorSeekForPrev(const uint32_t& cf_id, const Slice& key);
+  Status TraceIteratorSeek(const uint32_t& cf_id, const Slice& key, uint64_t* record_guid, uint64_t* latency);
+  Status TraceIteratorSeekForPrev(const uint32_t& cf_id, const Slice& key, uint64_t* record_guid, uint64_t* latency);
+  Status TraceIteratorSeekAtEnd(uint64_t& record_guid, uint64_t& latency);
+  Status TraceIteratorSeekForPrevAtEnd(uint64_t& record_guid,
+                                       uint64_t& latency);
 #endif  // ROCKSDB_LITE
 
   // Similar to GetSnapshot(), but also lets the db know that this snapshot

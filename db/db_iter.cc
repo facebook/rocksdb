@@ -1100,8 +1100,9 @@ void DBIter::Seek(const Slice& target) {
   StopWatch sw(env_, statistics_, DB_SEEK);
 
 #ifndef ROCKSDB_LITE
+  uint64_t record_guid = 0, latency = 0;
   if (db_impl_ != nullptr && cfd_ != nullptr) {
-    db_impl_->TraceIteratorSeek(cfd_->GetID(), target);
+    db_impl_->TraceIteratorSeek(cfd_->GetID(), target, &record_guid, &latency);
   }
 #endif  // ROCKSDB_LITE
 
@@ -1156,6 +1157,12 @@ void DBIter::Seek(const Slice& target) {
     RecordTick(statistics_, ITER_BYTES_READ, key().size() + value().size());
   }
   PERF_COUNTER_ADD(iter_read_bytes, key().size() + value().size());
+
+#ifndef ROCKSDB_LITE
+  if (db_impl_ != nullptr && cfd_ != nullptr) {
+    db_impl_->TraceIteratorSeekAtEnd(record_guid, latency);
+  }
+#endif  // ROCKSDB_LITE
 }
 
 void DBIter::SeekForPrev(const Slice& target) {
@@ -1163,8 +1170,10 @@ void DBIter::SeekForPrev(const Slice& target) {
   StopWatch sw(env_, statistics_, DB_SEEK);
 
 #ifndef ROCKSDB_LITE
+  uint64_t record_guid = 0, latency = 0;
   if (db_impl_ != nullptr && cfd_ != nullptr) {
-    db_impl_->TraceIteratorSeekForPrev(cfd_->GetID(), target);
+    db_impl_->TraceIteratorSeekForPrev(cfd_->GetID(), target, &record_guid,
+                                       &latency);
   }
 #endif  // ROCKSDB_LITE
 
@@ -1212,6 +1221,12 @@ void DBIter::SeekForPrev(const Slice& target) {
     RecordTick(statistics_, ITER_BYTES_READ, key().size() + value().size());
     PERF_COUNTER_ADD(iter_read_bytes, key().size() + value().size());
   }
+
+#ifndef ROCKSDB_LITE
+  if (db_impl_ != nullptr && cfd_ != nullptr) {
+    db_impl_->TraceIteratorSeekForPrevAtEnd(record_guid, latency);
+  }
+#endif  // ROCKSDB_LITE
 }
 
 void DBIter::SeekToFirst() {
