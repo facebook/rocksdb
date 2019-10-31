@@ -13,7 +13,7 @@ source "$BASEDIR/dependencies.sh"
 CFLAGS=""
 
 # libgcc
-LIBGCC_INCLUDE="$LIBGCC_BASE/include"
+LIBGCC_INCLUDE="$LIBGCC_BASE/include/c++/7.3.0"
 LIBGCC_LIBS=" -L $LIBGCC_BASE/lib"
 
 # glibc
@@ -39,6 +39,7 @@ if test -z $PIC_BUILD; then
   LZ4_LIBS=" $LZ4_BASE/lib/liblz4.a"
   CFLAGS+=" -DLZ4"
 fi
+CFLAGS+=" -DZSTD"
 
 # location of gflags headers and libraries
 GFLAGS_INCLUDE=" -I $GFLAGS_BASE/include/"
@@ -95,8 +96,8 @@ if [ -z "$USE_CLANG" ]; then
   CXX="$GCC_BASE/bin/g++"
 
   CFLAGS+=" -B$BINUTILS/gold"
-  CFLAGS+=" -isystem $GLIBC_INCLUDE"
   CFLAGS+=" -isystem $LIBGCC_INCLUDE"
+  CFLAGS+=" -isystem $GLIBC_INCLUDE"
   JEMALLOC=1
 else
   # clang
@@ -107,8 +108,8 @@ else
   KERNEL_HEADERS_INCLUDE="$KERNEL_HEADERS_BASE/include"
 
   CFLAGS+=" -B$BINUTILS/gold -nostdinc -nostdlib"
-  CFLAGS+=" -isystem $LIBGCC_BASE/include/c++/5.x "
-  CFLAGS+=" -isystem $LIBGCC_BASE/include/c++/5.x/x86_64-facebook-linux "
+  CFLAGS+=" -isystem $LIBGCC_BASE/include/c++/7.x "
+  CFLAGS+=" -isystem $LIBGCC_BASE/include/c++/7.x/x86_64-facebook-linux "
   CFLAGS+=" -isystem $GLIBC_INCLUDE"
   CFLAGS+=" -isystem $LIBGCC_INCLUDE"
   CFLAGS+=" -isystem $CLANG_INCLUDE"
@@ -124,9 +125,9 @@ CXXFLAGS+=" $CFLAGS"
 
 EXEC_LDFLAGS=" $SNAPPY_LIBS $ZLIB_LIBS $LZ4_LIBS $ZSTD_LIBS $GFLAGS_LIBS $NUMA_LIB $TBB_LIBS"
 EXEC_LDFLAGS+=" -B$BINUTILS/gold"
-EXEC_LDFLAGS+=" -Wl,--dynamic-linker,/usr/local/fbcode/gcc-5-glibc-2.23/lib/ld.so"
+EXEC_LDFLAGS+=" -Wl,--dynamic-linker,/usr/local/fbcode/platform007/lib/ld.so"
 EXEC_LDFLAGS+=" $LIBUNWIND"
-EXEC_LDFLAGS+=" -Wl,-rpath=/usr/local/fbcode/gcc-5-glibc-2.23/lib"
+EXEC_LDFLAGS+=" -Wl,-rpath=/usr/local/fbcode/platform007/lib"
 # required by libtbb
 EXEC_LDFLAGS+=" -ldl"
 
@@ -136,12 +137,4 @@ EXEC_LDFLAGS_SHARED="$SNAPPY_LIBS $ZLIB_LIBS $LZ4_LIBS $ZSTD_LIBS $GFLAGS_LIBS $
 
 VALGRIND_VER="$VALGRIND_BASE/bin/"
 
-LUA_PATH="$LUA_BASE"
-
-if test -z $PIC_BUILD; then
-  LUA_LIB=" $LUA_PATH/lib/liblua.a"
-else
-  LUA_LIB=" $LUA_PATH/lib/liblua_pic.a"
-fi
-
-export CC CXX AR CFLAGS CXXFLAGS EXEC_LDFLAGS EXEC_LDFLAGS_SHARED VALGRIND_VER JEMALLOC_LIB JEMALLOC_INCLUDE CLANG_ANALYZER CLANG_SCAN_BUILD LUA_PATH LUA_LIB
+export CC CXX AR CFLAGS CXXFLAGS EXEC_LDFLAGS EXEC_LDFLAGS_SHARED VALGRIND_VER JEMALLOC_LIB JEMALLOC_INCLUDE CLANG_ANALYZER CLANG_SCAN_BUILD 
