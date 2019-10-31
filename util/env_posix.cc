@@ -350,7 +350,6 @@ class PosixMmapFile : public WritableFile {
         file_offset_(0),
         pending_sync_(false) {
     assert((page_size & (page_size - 1)) == 0);
-    assert(options.use_mmap_writes);
   }
 
 
@@ -519,7 +518,6 @@ class PosixWritableFile : public WritableFile {
     pending_fsync_(false),
     last_sync_size_(0),
     bytes_per_sync_(options.bytes_per_sync) {
-    assert(!options.use_mmap_writes);
   }
 
   ~PosixWritableFile() {
