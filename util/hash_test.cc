@@ -122,8 +122,8 @@ TEST(HashTest, Hash64Trivial) {
   constexpr uint64_t max_seed = thorough ? 0x1000000 : 0x10000;
   for (uint64_t seed = 0; seed < max_seed; ++seed) {
     uint64_t here = Hash64("", 0, seed);
-    EXPECT_NE(Lower32of64(here), 0);
-    EXPECT_NE(Upper32of64(here), 0);
+    EXPECT_NE(Lower32of64(here), 0u);
+    EXPECT_NE(Upper32of64(here), 0u);
   }
 
   // For standard seed, make sure hash of small strings are not zero
@@ -134,8 +134,8 @@ TEST(HashTest, Hash64Trivial) {
     for (uint32_t i = 0; (i >> (len * 8)) == 0; ++i) {
       EncodeFixed32(input, i);
       uint64_t here = Hash64(input, len, kSeed);
-      EXPECT_NE(Lower32of64(here), 0);
-      EXPECT_NE(Upper32of64(here), 0);
+      EXPECT_NE(Lower32of64(here), 0u);
+      EXPECT_NE(Upper32of64(here), 0u);
     }
   }
 }
