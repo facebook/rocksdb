@@ -2384,7 +2384,13 @@ void BlockBasedTable::RetrieveMultipleBlocks(
       }
     }
     if (s.ok()) {
-      if (options.fill_cache) {
+      Cache* block_cache = rep_->table_options.block_cache.get();
+      // No point to cache compressed blocks if it never goes away
+      Cache* block_cache_compressed =
+          rep_->immortal_table
+              ? nullptr
+              : rep_->table_options.block_cache_compressed.get();
+      if (options.fill_cache && (block_cache || block_cache_compressed)) {
         BlockCacheLookupContext lookup_data_block_context(
             TableReaderCaller::kUserMultiGet);
         CachableEntry<Block>* block_entry = &(*results)[idx_in_batch];
