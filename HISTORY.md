@@ -6,6 +6,9 @@
 * Added an API GetCreationTimeOfOldestFile(uint64_t* creation_time) to get the
 file_creation_time of the oldest SST file in the DB. 
 
+### New Features
+* Universal compaction to support options.periodic_compaction_seconds. A full compaction will be triggered if any file is over the threshold.
+
 ## 6.5.1 (10/16/2019)
 ### Bug Fixes
 * Revert the feature "Merging iterator to avoid child iterator reseek for some cases (#5286)" since it might cause strange results when reseek happens with a different iterator upper bound.
