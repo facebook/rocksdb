@@ -37,8 +37,7 @@ default_params = {
     "delpercent": 4,
     "delrangepercent": 1,
     "destroy_db_initially": 0,
-    # Temporarily disable it until its concurrency issue are fixed
-    "enable_pipelined_write": 0,
+    "enable_pipelined_write": lambda: random.randint(0, 1),
     "expected_values_path": expected_values_file.name,
     "flush_one_in": 1000000,
     # Temporarily disable hash index
@@ -146,8 +145,7 @@ cf_consistency_params = {
     # use small value for write_buffer_size so that RocksDB triggers flush
     # more frequently
     "write_buffer_size": 1024 * 1024,
-    # disable pipelined write when test_atomic_flush is true
-    "enable_pipelined_write": 0,
+    "enable_pipelined_write": lambda: random.randint(0, 1),
 }
 
 
@@ -182,8 +180,10 @@ def finalize_and_sanitize(src_params):
             dest_params["partition_filters"] = 0
         else:
             dest_params["use_block_based_filter"] = 0
+    if dest_params.get("atomic_flush", 0) == 1:
+        # disable pipelined write when atomic flush is used.
+        dest_params["enable_pipelined_write"] = 0
     return dest_params
-
 
 def gen_cmd_params(args):
     params = {}

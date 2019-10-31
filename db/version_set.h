@@ -312,6 +312,10 @@ class VersionStorageInfo {
     return files_marked_for_periodic_compaction_;
   }
 
+  void TEST_AddFileMarkedForPeriodicCompaction(int level, FileMetaData* f) {
+    files_marked_for_periodic_compaction_.emplace_back(level, f);
+  }
+
   // REQUIRES: This version has been saved (see VersionSet::SaveTo)
   // REQUIRES: DB mutex held during access
   const autovector<std::pair<int, FileMetaData*>>&
