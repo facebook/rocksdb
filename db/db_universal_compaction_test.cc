@@ -41,10 +41,9 @@ class DBTestUniversalCompaction : public DBTestUniversalCompactionBase {
       DBTestUniversalCompactionBase("/db_universal_compaction_test") {}
 };
 
-class DBTestUniversalDeleteTrigCompaction : public DBTestBase {
+class DBTestUniversalCompaction2 : public DBTestBase {
  public:
-  DBTestUniversalDeleteTrigCompaction()
-      : DBTestBase("/db_universal_compaction_test") {}
+  DBTestUniversalCompaction2() : DBTestBase("/db_universal_compaction_test2") {}
 };
 
 namespace {
@@ -1915,7 +1914,7 @@ INSTANTIATE_TEST_CASE_P(DBTestUniversalManualCompactionOutputPathId,
                         ::testing::Combine(::testing::Values(1, 8),
                                            ::testing::Bool()));
 
-TEST_F(DBTestUniversalDeleteTrigCompaction, BasicL0toL1) {
+TEST_F(DBTestUniversalCompaction2, BasicL0toL1) {
   const int kNumKeys = 3000;
   const int kWindowSize = 100;
   const int kNumDelsTrigger = 90;
@@ -1956,7 +1955,7 @@ TEST_F(DBTestUniversalDeleteTrigCompaction, BasicL0toL1) {
   ASSERT_GT(NumTableFilesAtLevel(6), 0);
 }
 
-TEST_F(DBTestUniversalDeleteTrigCompaction, SingleLevel) {
+TEST_F(DBTestUniversalCompaction2, SingleLevel) {
   const int kNumKeys = 3000;
   const int kWindowSize = 100;
   const int kNumDelsTrigger = 90;
@@ -1995,7 +1994,7 @@ TEST_F(DBTestUniversalDeleteTrigCompaction, SingleLevel) {
   ASSERT_EQ(1, NumTableFilesAtLevel(0));
 }
 
-TEST_F(DBTestUniversalDeleteTrigCompaction, MultipleLevels) {
+TEST_F(DBTestUniversalCompaction2, MultipleLevels) {
   const int kWindowSize = 100;
   const int kNumDelsTrigger = 90;
 
@@ -2067,7 +2066,7 @@ TEST_F(DBTestUniversalDeleteTrigCompaction, MultipleLevels) {
   ASSERT_GT(NumTableFilesAtLevel(6), 0);
 }
 
-TEST_F(DBTestUniversalDeleteTrigCompaction, OverlappingL0) {
+TEST_F(DBTestUniversalCompaction2, OverlappingL0) {
   const int kWindowSize = 100;
   const int kNumDelsTrigger = 90;
 
@@ -2107,7 +2106,7 @@ TEST_F(DBTestUniversalDeleteTrigCompaction, OverlappingL0) {
   ASSERT_GT(NumTableFilesAtLevel(6), 0);
 }
 
-TEST_F(DBTestUniversalDeleteTrigCompaction, IngestBehind) {
+TEST_F(DBTestUniversalCompaction2, IngestBehind) {
   const int kNumKeys = 3000;
   const int kWindowSize = 100;
   const int kNumDelsTrigger = 90;
@@ -2150,7 +2149,7 @@ TEST_F(DBTestUniversalDeleteTrigCompaction, IngestBehind) {
   ASSERT_GT(NumTableFilesAtLevel(5), 0);
 }
 
-TEST_F(DBTestUniversalDeleteTrigCompaction, PeriodicCompaction) {
+TEST_F(DBTestUniversalCompaction2, PeriodicCompaction) {
   Options opts = CurrentOptions();
   opts.env = env_;
   opts.compaction_style = kCompactionStyleUniversal;
@@ -2197,7 +2196,7 @@ TEST_F(DBTestUniversalDeleteTrigCompaction, PeriodicCompaction) {
   ASSERT_EQ(0, start_level);
   ASSERT_EQ(4, output_level);
 
-  // Case 2: Oldest compacted file exccceeds periodic compaction threshold
+  // Case 2: Oldest compacted file excceeds periodic compaction threshold
   periodic_compactions = 0;
   // A flush doesn't trigger a periodic compaction when threshold not hit
   ASSERT_OK(Put("foo", "bar2"));

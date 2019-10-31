@@ -312,7 +312,7 @@ class VersionStorageInfo {
     return files_marked_for_periodic_compaction_;
   }
 
-  void AddFileMarkedForPeriodiCompaction(int level, FileMetaData* f) {
+  void TEST_AddFileMarkedForPeriodicCompaction(int level, FileMetaData* f) {
     files_marked_for_periodic_compaction_.emplace_back(level, f);
   }
 

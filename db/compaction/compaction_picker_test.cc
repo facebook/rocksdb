@@ -499,7 +499,7 @@ TEST_F(CompactionPickerTest, AllowsTrivialMoveUniversal) {
   ASSERT_TRUE(compaction->is_trivial_move());
 }
 
-TEST_F(CompactionPickerTest, UniversalPeriodiCompaction1) {
+TEST_F(CompactionPickerTest, UniversalPeriodicCompaction1) {
   // The case where universal periodic compaction can be picked
   // with some newer files being compacted.
   const uint64_t kFileSize = 100000;
@@ -518,7 +518,7 @@ TEST_F(CompactionPickerTest, UniversalPeriodiCompaction1) {
 
   file_map_[2].first->being_compacted = true;
   UpdateVersionStorageInfo();
-  vstorage_->AddFileMarkedForPeriodiCompaction(4, file_map_[3].first);
+  vstorage_->TEST_AddFileMarkedForPeriodicCompaction(4, file_map_[3].first);
 
   std::unique_ptr<Compaction> compaction(
       universal_compaction_picker.PickCompaction(
@@ -530,7 +530,7 @@ TEST_F(CompactionPickerTest, UniversalPeriodiCompaction1) {
   ASSERT_EQ(1U, compaction->num_input_files(0));
 }
 
-TEST_F(CompactionPickerTest, UniversalPeriodiCompaction2) {
+TEST_F(CompactionPickerTest, UniversalPeriodicCompaction2) {
   // The case where universal periodic compaction does not
   // pick up only level to compact if it doesn't cover
   // any file marked as periodic compaction.
@@ -548,7 +548,7 @@ TEST_F(CompactionPickerTest, UniversalPeriodiCompaction2) {
 
   file_map_[5].first->being_compacted = true;
   UpdateVersionStorageInfo();
-  vstorage_->AddFileMarkedForPeriodiCompaction(0, file_map_[1].first);
+  vstorage_->TEST_AddFileMarkedForPeriodicCompaction(0, file_map_[1].first);
 
   std::unique_ptr<Compaction> compaction(
       universal_compaction_picker.PickCompaction(
@@ -557,7 +557,7 @@ TEST_F(CompactionPickerTest, UniversalPeriodiCompaction2) {
   ASSERT_FALSE(compaction);
 }
 
-TEST_F(CompactionPickerTest, UniversalPeriodiCompaction3) {
+TEST_F(CompactionPickerTest, UniversalPeriodicCompaction3) {
   // The case where universal periodic compaction does not
   // pick up only the last sorted run which is an L0 file if it isn't
   // marked as periodic compaction.
@@ -574,7 +574,7 @@ TEST_F(CompactionPickerTest, UniversalPeriodiCompaction3) {
 
   file_map_[5].first->being_compacted = true;
   UpdateVersionStorageInfo();
-  vstorage_->AddFileMarkedForPeriodiCompaction(0, file_map_[1].first);
+  vstorage_->TEST_AddFileMarkedForPeriodicCompaction(0, file_map_[1].first);
 
   std::unique_ptr<Compaction> compaction(
       universal_compaction_picker.PickCompaction(
@@ -583,7 +583,7 @@ TEST_F(CompactionPickerTest, UniversalPeriodiCompaction3) {
   ASSERT_FALSE(compaction);
 }
 
-TEST_F(CompactionPickerTest, UniversalPeriodiCompaction4) {
+TEST_F(CompactionPickerTest, UniversalPeriodicCompaction4) {
   // The case where universal periodic compaction couldn't form
   // a compaction that inlcudes any file marked for periodic compaction.
   // Right now we form the compaction anyway if it is more than one
@@ -604,7 +604,7 @@ TEST_F(CompactionPickerTest, UniversalPeriodiCompaction4) {
 
   file_map_[2].first->being_compacted = true;
   UpdateVersionStorageInfo();
-  vstorage_->AddFileMarkedForPeriodiCompaction(0, file_map_[2].first);
+  vstorage_->TEST_AddFileMarkedForPeriodicCompaction(0, file_map_[2].first);
 
   std::unique_ptr<Compaction> compaction(
       universal_compaction_picker.PickCompaction(
