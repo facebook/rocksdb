@@ -50,12 +50,7 @@ if [ -z "$ROCKSDB_NO_FBCODE" -a -d /mnt/gvfs/third-party ]; then
     FBCODE_BUILD="true"
     # If we're compiling with TSAN we need pic build
     PIC_BUILD=$COMPILE_WITH_TSAN
-    if [ -z "$ROCKSDB_FBCODE_BUILD_WITH_481" ]; then
-      source "$PWD/build_tools/fbcode_config.sh"
-    else
-      # we need this to build with MySQL. Don't use for other purposes.
-      source "$PWD/build_tools/fbcode_config4.8.1.sh"
-    fi
+    source "$PWD/build_tools/fbcode_config.sh"
 fi
 
 # Delete existing output, if it exists
