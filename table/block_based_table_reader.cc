@@ -9,6 +9,7 @@
 
 #include "table/block_based_table_reader.h"
 
+#include <functional>
 #include <string>
 #include <utility>
 
