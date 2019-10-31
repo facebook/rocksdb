@@ -90,6 +90,19 @@ class UniversalCompactionBuilder {
 
   Compaction* PickDeleteTriggeredCompaction();
 
+  // Form a compaction from the sorted run indicated by start_index to the
+  // oldest sorted run.
+  // The caller is responsible for making sure that those files are not in
+  // compaction.
+  Compaction* PickCompactionToOldest(size_t start_index,
+                                     CompactionReason compaction_reason);
+
+  // Try to pick periodic compaction. The caller should only call it
+  // if there is at least one file marked for periodic compaction.
+  // null will be returned if no such a compaction can be formed
+  // because some files are being compacted.
+  Compaction* PickPeriodicCompaction();
+
   // Used in universal compaction when the enabled_trivial_move
   // option is set. Checks whether there are any overlapping files
   // in the input. Returns true if the input files are non
@@ -253,6 +266,9 @@ bool UniversalCompactionPicker::NeedsCompaction(
   if (vstorage->CompactionScore(kLevel0) >= 1) {
     return true;
   }
+  if (!vstorage->FilesMarkedForPeriodicCompaction().empty()) {
+    return true;
+  }
   if (!vstorage->FilesMarkedForCompaction().empty()) {
     return true;
   }
@@ -358,7 +374,8 @@ Compaction* UniversalCompactionBuilder::PickCompaction() {
       CalculateSortedRuns(*vstorage_, ioptions_, mutable_cf_options_);
 
   if (sorted_runs_.size() == 0 ||
-      (vstorage_->FilesMarkedForCompaction().empty() &&
+      (vstorage_->FilesMarkedForPeriodicCompaction().empty() &&
+       vstorage_->FilesMarkedForCompaction().empty() &&
        sorted_runs_.size() < (unsigned int)mutable_cf_options_
                                  .level0_file_num_compaction_trigger)) {
     ROCKS_LOG_BUFFER(log_buffer_, "[%s] Universal: nothing to do\n",
@@ -373,11 +390,19 @@ Compaction* UniversalCompactionBuilder::PickCompaction() {
       "[%s] Universal: sorted runs files(%" ROCKSDB_PRIszt "): %s\n",
       cf_name_.c_str(), sorted_runs_.size(), vstorage_->LevelSummary(&tmp));
 
-  // Check for size amplification first.
   Compaction* c = nullptr;
-  if (sorted_runs_.size() >=
-      static_cast<size_t>(
-          mutable_cf_options_.level0_file_num_compaction_trigger)) {
+  // Periodic compaction has higher priority than other type of compaction
+  // because it's a hard requirement.
+  if (!vstorage_->FilesMarkedForPeriodicCompaction().empty()) {
+    // Always need to do a full compaction for periodic compaction.
+    c = PickPeriodicCompaction();
+  }
+
+  // Check for size amplification.
+  if (c == nullptr &&
+      sorted_runs_.size() >=
+          static_cast<size_t>(
+              mutable_cf_options_.level0_file_num_compaction_trigger)) {
     if ((c = PickCompactionToReduceSizeAmp()) != nullptr) {
       ROCKS_LOG_BUFFER(log_buffer_, "[%s] Universal: compacting for size amp\n",
                        cf_name_.c_str());
@@ -441,7 +466,8 @@ Compaction* UniversalCompactionBuilder::PickCompaction() {
   }
 
   if (mutable_cf_options_.compaction_options_universal.allow_trivial_move ==
-      true) {
+          true &&
+      c->compaction_reason() != CompactionReason::kPeriodicCompaction) {
     c->set_is_trivial_move(IsInputFilesNonOverlapping(c));
   }
 
@@ -815,59 +841,8 @@ Compaction* UniversalCompactionBuilder::PickCompactionToReduceSizeAmp() {
         " earliest-file-size %" PRIu64,
         cf_name_.c_str(), candidate_size, earliest_file_size);
   }
-  assert(start_index < sorted_runs_.size() - 1);
-
-  // Estimate total file size
-  uint64_t estimated_total_size = 0;
-  for (size_t loop = start_index; loop < sorted_runs_.size(); loop++) {
-    estimated_total_size += sorted_runs_[loop].size;
-  }
-  uint32_t path_id =
-      GetPathId(ioptions_, mutable_cf_options_, estimated_total_size);
-  int start_level = sorted_runs_[start_index].level;
-
-  std::vector<CompactionInputFiles> inputs(vstorage_->num_levels());
-  for (size_t i = 0; i < inputs.size(); ++i) {
-    inputs[i].level = start_level + static_cast<int>(i);
-  }
-  // We always compact all the files, so always compress.
-  for (size_t loop = start_index; loop < sorted_runs_.size(); loop++) {
-    auto& picking_sr = sorted_runs_[loop];
-    if (picking_sr.level == 0) {
-      FileMetaData* f = picking_sr.file;
-      inputs[0].files.push_back(f);
-    } else {
-      auto& files = inputs[picking_sr.level - start_level].files;
-      for (auto* f : vstorage_->LevelFiles(picking_sr.level)) {
-        files.push_back(f);
-      }
-    }
-    char file_num_buf[256];
-    picking_sr.DumpSizeInfo(file_num_buf, sizeof(file_num_buf), loop);
-    ROCKS_LOG_BUFFER(log_buffer_, "[%s] Universal: size amp picking %s",
-                     cf_name_.c_str(), file_num_buf);
-  }
-
-  // output files at the bottom most level, unless it's reserved
-  int output_level = vstorage_->num_levels() - 1;
-  // last level is reserved for the files ingested behind
-  if (ioptions_.allow_ingest_behind) {
-    assert(output_level > 1);
-    output_level--;
-  }
-
-  return new Compaction(
-      vstorage_, ioptions_, mutable_cf_options_, std::move(inputs),
-      output_level,
-      MaxFileSizeForLevel(mutable_cf_options_, output_level,
-                          kCompactionStyleUniversal),
-      /* max_grandparent_overlap_bytes */ LLONG_MAX, path_id,
-      GetCompressionType(ioptions_, vstorage_, mutable_cf_options_,
-                         output_level, 1),
-      GetCompressionOptions(ioptions_, vstorage_, output_level),
-      /* max_subcompactions */ 0, /* grandparents */ {}, /* is manual */ false,
-      score_, false /* deletion_compaction */,
-      CompactionReason::kUniversalSizeAmplification);
+  return PickCompactionToOldest(start_index,
+                                CompactionReason::kUniversalSizeAmplification);
 }
 
 // Pick files marked for compaction. Typically, files are marked by
@@ -986,6 +961,142 @@ Compaction* UniversalCompactionBuilder::PickDeleteTriggeredCompaction() {
       /* max_subcompactions */ 0, /* grandparents */ {}, /* is manual */ true,
       score_, false /* deletion_compaction */,
       CompactionReason::kFilesMarkedForCompaction);
+}
+
+Compaction* UniversalCompactionBuilder::PickCompactionToOldest(
+    size_t start_index, CompactionReason compaction_reason) {
+  assert(start_index < sorted_runs_.size() - 1);
+
+  // Estimate total file size
+  uint64_t estimated_total_size = 0;
+  for (size_t loop = start_index; loop < sorted_runs_.size(); loop++) {
+    estimated_total_size += sorted_runs_[loop].size;
+  }
+  uint32_t path_id =
+      GetPathId(ioptions_, mutable_cf_options_, estimated_total_size);
+  int start_level = sorted_runs_[start_index].level;
+
+  std::vector<CompactionInputFiles> inputs(vstorage_->num_levels());
+  for (size_t i = 0; i < inputs.size(); ++i) {
+    inputs[i].level = start_level + static_cast<int>(i);
+  }
+  for (size_t loop = start_index; loop < sorted_runs_.size(); loop++) {
+    auto& picking_sr = sorted_runs_[loop];
+    if (picking_sr.level == 0) {
+      FileMetaData* f = picking_sr.file;
+      inputs[0].files.push_back(f);
+    } else {
+      auto& files = inputs[picking_sr.level - start_level].files;
+      for (auto* f : vstorage_->LevelFiles(picking_sr.level)) {
+        files.push_back(f);
+      }
+    }
+    std::string comp_reason_print_string;
+    if (compaction_reason == CompactionReason::kPeriodicCompaction) {
+      comp_reason_print_string = "periodic compaction";
+    } else if (compaction_reason ==
+               CompactionReason::kUniversalSizeAmplification) {
+      comp_reason_print_string = "size amp";
+    } else {
+      assert(false);
+    }
+
+    char file_num_buf[256];
+    picking_sr.DumpSizeInfo(file_num_buf, sizeof(file_num_buf), loop);
+    ROCKS_LOG_BUFFER(log_buffer_, "[%s] Universal: %s picking %s",
+                     cf_name_.c_str(), comp_reason_print_string.c_str(),
+                     file_num_buf);
+  }
+
+  // output files at the bottom most level, unless it's reserved
+  int output_level = vstorage_->num_levels() - 1;
+  // last level is reserved for the files ingested behind
+  if (ioptions_.allow_ingest_behind) {
+    assert(output_level > 1);
+    output_level--;
+  }
+
+  // We never check size for
+  // compaction_options_universal.compression_size_percent,
+  // because we always compact all the files, so always compress.
+  return new Compaction(
+      vstorage_, ioptions_, mutable_cf_options_, std::move(inputs),
+      output_level,
+      MaxFileSizeForLevel(mutable_cf_options_, output_level,
+                          kCompactionStyleUniversal),
+      LLONG_MAX, path_id,
+      GetCompressionType(ioptions_, vstorage_, mutable_cf_options_, start_level,
+                         1, true /* enable_compression */),
+      GetCompressionOptions(ioptions_, vstorage_, start_level,
+                            true /* enable_compression */),
+      /* max_subcompactions */ 0, /* grandparents */ {}, /* is manual */ false,
+      score_, false /* deletion_compaction */, compaction_reason);
+}
+
+Compaction* UniversalCompactionBuilder::PickPeriodicCompaction() {
+  ROCKS_LOG_BUFFER(log_buffer_, "[%s] Universal: Periodic Compaction",
+                   cf_name_.c_str());
+
+  // In universal compaction, sorted runs contain older data are almost always
+  // generated earlier too. To simplify the problem, we just try to trigger
+  // a full compaction. We start from the oldest sorted run and include
+  // all sorted runs, until we hit a sorted already being compacted.
+  // Since usually the largest (which is usually the oldest) sorted run is
+  // included anyway, doing a full compaction won't increase write
+  // amplification much.
+
+  // Get some information from marked files to check whether a file is
+  // included in the compaction.
+
+  size_t start_index = sorted_runs_.size();
+  while (start_index > 0 && !sorted_runs_[start_index - 1].being_compacted) {
+    start_index--;
+  }
+  if (start_index == sorted_runs_.size()) {
+    return nullptr;
+  }
+
+  // There is a rare corner case where we can't pick up all the files
+  // because some files are being compacted and we end up with picking files
+  // but none of them need periodic compaction. Unless we simply recompact
+  // the last sorted run (either the last level or last L0 file), we would just
+  // execute the compaction, in order to simplify  the logic.
+  if (start_index == sorted_runs_.size() - 1) {
+    bool included_file_marked = false;
+    int start_level = sorted_runs_[start_index].level;
+    FileMetaData* start_file = sorted_runs_[start_index].file;
+    for (const std::pair<int, FileMetaData*>& level_file_pair :
+         vstorage_->FilesMarkedForPeriodicCompaction()) {
+      if (start_level != 0) {
+        // Last sorted run is a level
+        if (start_level == level_file_pair.first) {
+          included_file_marked = true;
+          break;
+        }
+      } else {
+        // Last sorted run is a L0 file.
+        if (start_file == level_file_pair.second) {
+          included_file_marked = true;
+          break;
+        }
+      }
+    }
+    if (!included_file_marked) {
+      ROCKS_LOG_BUFFER(log_buffer_,
+                       "[%s] Universal: Cannot form a compaction covering file "
+                       "marked for periodic compaction",
+                       cf_name_.c_str());
+      return nullptr;
+    }
+  }
+
+  Compaction* c = PickCompactionToOldest(start_index,
+                                         CompactionReason::kPeriodicCompaction);
+
+  TEST_SYNC_POINT_CALLBACK(
+      "UniversalCompactionPicker::PickPeriodicCompaction:Return", c);
+
+  return c;
 }
 }  // namespace rocksdb
 
