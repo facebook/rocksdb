@@ -11,11 +11,14 @@
 #include "util/coding.h"
 #include "util/hash.h"
 #include "util/util.h"
+#include "util/xxhash.h"
 
 namespace rocksdb {
 
 uint32_t Hash(const char* data, size_t n, uint32_t seed) {
-  // Similar to murmur hash
+  // MurmurHash1 - fast but mediocre quality
+  // https://github.com/aappleby/smhasher/wiki/MurmurHash1
+  //
   const uint32_t m = 0xc6a4a793;
   const uint32_t r = 24;
   const char* limit = data + n;
@@ -52,6 +55,29 @@ uint32_t Hash(const char* data, size_t n, uint32_t seed) {
       break;
   }
   return h;
+}
+
+// We are standardizing on a preview release of XXH3, because that's
+// the best available at time of standardizing.
+//
+// In testing (mostly Intel Skylake), this hash function is much more
+// thorough than Hash32 and is almost universally faster. Hash() only
+// seems faster when passing runtime-sized keys of the same small size
+// (less than about 24 bytes) thousands of times in a row; this seems
+// to allow the branch predictor to work some magic. XXH3's speed is
+// much less dependent on branch prediction.
+//
+// Hashing with a prefix extractor is potentially a common case of
+// hashing objects of small, predictable size. We could consider
+// bundling hash functions specialized for particular lengths with
+// the prefix extractors.
+uint64_t Hash64(const char* data, size_t n, uint64_t seed) {
+  return XXH3p_64bits_withSeed(data, n, seed);
+}
+
+uint64_t Hash64(const char* data, size_t n) {
+  // Same as seed = 0
+  return XXH3p_64bits(data, n);
 }
 
 }  // namespace rocksdb
