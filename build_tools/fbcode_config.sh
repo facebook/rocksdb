@@ -13,7 +13,7 @@ source "$BASEDIR/dependencies.sh"
 CFLAGS=""
 
 # libgcc
-LIBGCC_INCLUDE="$LIBGCC_BASE/include"
+LIBGCC_INCLUDE="$LIBGCC_BASE/include/c++/7.3.0"
 LIBGCC_LIBS=" -L $LIBGCC_BASE/lib"
 
 # glibc
@@ -89,34 +89,13 @@ CLANG_SRC="$CLANG_BASE/../../src"
 CLANG_ANALYZER="$CLANG_BIN/clang++"
 CLANG_SCAN_BUILD="$CLANG_SRC/llvm/tools/clang/tools/scan-build/bin/scan-build"
 
-if [ -z "$USE_CLANG" ]; then
-  # gcc
-  CC="$GCC_BASE/bin/gcc"
-  CXX="$GCC_BASE/bin/g++"
+CC="$GCC_BASE/bin/gcc"
+CXX="$GCC_BASE/bin/g++"
 
-  CFLAGS+=" -B$BINUTILS/gold"
-  CFLAGS+=" -isystem $GLIBC_INCLUDE"
-  CFLAGS+=" -isystem $LIBGCC_INCLUDE"
-  JEMALLOC=1
-else
-  # clang
-  CLANG_INCLUDE="$CLANG_LIB/clang/stable/include"
-  CC="$CLANG_BIN/clang"
-  CXX="$CLANG_BIN/clang++"
-
-  KERNEL_HEADERS_INCLUDE="$KERNEL_HEADERS_BASE/include"
-
-  CFLAGS+=" -B$BINUTILS/gold -nostdinc -nostdlib"
-  CFLAGS+=" -isystem $LIBGCC_BASE/include/c++/5.x "
-  CFLAGS+=" -isystem $LIBGCC_BASE/include/c++/5.x/x86_64-facebook-linux "
-  CFLAGS+=" -isystem $GLIBC_INCLUDE"
-  CFLAGS+=" -isystem $LIBGCC_INCLUDE"
-  CFLAGS+=" -isystem $CLANG_INCLUDE"
-  CFLAGS+=" -isystem $KERNEL_HEADERS_INCLUDE/linux "
-  CFLAGS+=" -isystem $KERNEL_HEADERS_INCLUDE "
-  CFLAGS+=" -Wno-expansion-to-defined "
-  CXXFLAGS="-nostdinc++"
-fi
+CFLAGS+=" -B$BINUTILS/gold"
+CFLAGS+=" -isystem $LIBGCC_INCLUDE"
+CFLAGS+=" -isystem $GLIBC_INCLUDE"
+JEMALLOC=1
 
 CFLAGS+=" $DEPS_INCLUDE"
 CFLAGS+=" -DROCKSDB_PLATFORM_POSIX -DROCKSDB_LIB_IO_POSIX -DROCKSDB_FALLOCATE_PRESENT -DROCKSDB_MALLOC_USABLE_SIZE -DROCKSDB_RANGESYNC_PRESENT -DROCKSDB_SCHED_GETCPU_PRESENT -DROCKSDB_SUPPORT_THREAD_LOCAL -DHAVE_SSE42"
@@ -124,9 +103,9 @@ CXXFLAGS+=" $CFLAGS"
 
 EXEC_LDFLAGS=" $SNAPPY_LIBS $ZLIB_LIBS $LZ4_LIBS $ZSTD_LIBS $GFLAGS_LIBS $NUMA_LIB $TBB_LIBS"
 EXEC_LDFLAGS+=" -B$BINUTILS/gold"
-EXEC_LDFLAGS+=" -Wl,--dynamic-linker,/usr/local/fbcode/gcc-5-glibc-2.23/lib/ld.so"
+EXEC_LDFLAGS+=" -Wl,--dynamic-linker,/usr/local/fbcode/platform007/lib/ld.so"
 EXEC_LDFLAGS+=" $LIBUNWIND"
-EXEC_LDFLAGS+=" -Wl,-rpath=/usr/local/fbcode/gcc-5-glibc-2.23/lib"
+EXEC_LDFLAGS+=" -Wl,-rpath=/usr/local/fbcode/platform007/lib"
 # required by libtbb
 EXEC_LDFLAGS+=" -ldl"
 
@@ -136,12 +115,4 @@ EXEC_LDFLAGS_SHARED="$SNAPPY_LIBS $ZLIB_LIBS $LZ4_LIBS $ZSTD_LIBS $GFLAGS_LIBS $
 
 VALGRIND_VER="$VALGRIND_BASE/bin/"
 
-LUA_PATH="$LUA_BASE"
-
-if test -z $PIC_BUILD; then
-  LUA_LIB=" $LUA_PATH/lib/liblua.a"
-else
-  LUA_LIB=" $LUA_PATH/lib/liblua_pic.a"
-fi
-
-export CC CXX AR CFLAGS CXXFLAGS EXEC_LDFLAGS EXEC_LDFLAGS_SHARED VALGRIND_VER JEMALLOC_LIB JEMALLOC_INCLUDE CLANG_ANALYZER CLANG_SCAN_BUILD LUA_PATH LUA_LIB
+export CC CXX AR CFLAGS CXXFLAGS EXEC_LDFLAGS EXEC_LDFLAGS_SHARED VALGRIND_VER JEMALLOC_LIB JEMALLOC_INCLUDE CLANG_ANALYZER CLANG_SCAN_BUILD 
