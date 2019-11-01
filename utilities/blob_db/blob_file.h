@@ -7,6 +7,7 @@
 
 #include <atomic>
 #include <memory>
+#include <unordered_set>
 
 #include "file/random_access_file_reader.h"
 #include "port/port.h"
@@ -26,6 +27,9 @@ class BlobFile {
   friend struct BlobFileComparator;
   friend struct BlobFileComparatorTTL;
 
+ public:
+  using SstFileSet = std::unordered_set<uint64_t>;
+
  private:
   // access to parent
   const BlobDBImpl* parent_;
@@ -37,6 +41,10 @@ class BlobFile {
   // the above 2 are created during file creation and never changed
   // after that
   uint64_t file_number_;
+
+  // The file numbers of the SST files whose oldest blob file reference
+  // points to this blob file.
+  SstFileSet parent_sst_files_;
 
   // Info log.
   Logger* info_log_;
@@ -115,6 +123,24 @@ class BlobFile {
   // Primary identifier for blob file.
   // once the file is created, this never changes
   uint64_t BlobFileNumber() const { return file_number_; }
+
+  // Get the set of SST files whose oldest blob file reference points to
+  // this file.
+  const SstFileSet& GetParentSstFiles() const { return parent_sst_files_; }
+
+  // Add an SST file whose oldest blob file reference points to this file.
+  void AddParentSstFile(uint64_t sst_file_number) {
+    auto it = parent_sst_files_.find(sst_file_number);
+    assert(it == parent_sst_files_.end());
+    parent_sst_files_.insert(it, sst_file_number);
+  }
+
+  // Remove an SST file whose oldest blob file reference points to this file.
+  void RemoveParentSstFile(uint64_t sst_file_number) {
+    auto it = parent_sst_files_.find(sst_file_number);
+    assert(it != parent_sst_files_.end());
+    parent_sst_files_.erase(it);
+  }
 
   // the following functions are atomic, and don't need
   // read lock
