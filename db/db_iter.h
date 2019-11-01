@@ -25,10 +25,10 @@ namespace ROCKSDB_NAMESPACE {
 // This file declares the factory functions of DBIter, in its original form
 // or a wrapped form with class ArenaWrappedDBIter, which is defined here.
 // Class DBIter, which is declared and implemented inside db_iter.cc, is
-// a iterator that converts internal keys (yielded by an InternalIterator)
+// an iterator that converts internal keys (yielded by an InternalIterator)
 // that were live at the specified sequence number into appropriate user
 // keys.
-// Each internal key is consist of a user key, a sequence number, and a value
+// Each internal key consists of a user key, a sequence number, and a value
 // type. DBIter deals with multiple key versions, tombstones, merge operands,
 // etc, and exposes an Iterator.
 // For example, DBIter may wrap following InternalIterator:
@@ -133,14 +133,12 @@ class DBIter final : public Iterator {
     local_stats_.BumpGlobalStatistics(statistics_);
     iter_.DeleteIter(arena_mode_);
   }
-  virtual void SetIter(InternalIterator* iter) {
+  void SetIter(InternalIterator* iter) {
     assert(iter_.iter() == nullptr);
     iter_.Set(iter);
     iter_.iter()->SetPinnedItersMgr(&pinned_iters_mgr_);
   }
-  virtual ReadRangeDelAggregator* GetRangeDelAggregator() {
-    return &range_del_agg_;
-  }
+  ReadRangeDelAggregator* GetRangeDelAggregator() { return &range_del_agg_; }
 
   bool Valid() const override { return valid_; }
   Slice key() const override {
@@ -184,7 +182,7 @@ class DBIter final : public Iterator {
   void SeekForPrev(const Slice& target) final override;
   void SeekToFirst() final override;
   void SeekToLast() final override;
-  Env* env() { return env_; }
+  Env* env() const { return env_; }
   void set_sequence(uint64_t s) {
     sequence_ = s;
     if (read_callback_) {
@@ -202,10 +200,10 @@ class DBIter final : public Iterator {
   bool ReverseToBackward();
   // Set saved_key_ to the seek key to target, with proper sequence number set.
   // It might get adjusted if the seek key is smaller than iterator lower bound.
-  void SetSavedKeyToSeekTarget(const Slice& /*target*/);
+  void SetSavedKeyToSeekTarget(const Slice& target);
   // Set saved_key_ to the seek key to target, with proper sequence number set.
   // It might get adjusted if the seek key is larger than iterator upper bound.
-  void SetSavedKeyToSeekForPrevTarget(const Slice& /*target*/);
+  void SetSavedKeyToSeekForPrevTarget(const Slice& target);
   bool FindValueForCurrentKey();
   bool FindValueForCurrentKeyUsingSeek();
   bool FindUserKeyBeforeSavedKey();
@@ -221,7 +219,7 @@ class DBIter final : public Iterator {
 
   // If prefix is not null, we need to set the iterator to invalid if no more
   // entry can be found within the prefix.
-  void PrevInternal(const Slice* /*prefix*/);
+  void PrevInternal(const Slice* prefix);
   bool TooManyInternalKeysSkipped(bool increment = true);
   bool IsVisible(SequenceNumber sequence);
 
@@ -330,6 +328,7 @@ class DBIter final : public Iterator {
   // if this value > 0 iterator will return internal keys
   SequenceNumber start_seqnum_;
 };
+
 // Return a new iterator that converts internal keys (yielded by
 // "*internal_iter") that were live at the specified `sequence` number
 // into appropriate user keys.

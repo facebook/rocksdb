@@ -54,6 +54,7 @@
 #include "util/crc32c.h"
 #include "util/stop_watch.h"
 #include "util/string_util.h"
+#include "util/util.h"
 #include "util/xxhash.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -4047,6 +4048,7 @@ Status BlockBasedTable::CreateIndexReader(
                                           index_reader);
     }
     case BlockBasedTableOptions::kBinarySearch:
+      FALLTHROUGH_INTENDED;
     case BlockBasedTableOptions::kBinarySearchWithFirstKey: {
       return BinarySearchIndexReader::Create(this, prefetch_buffer, use_cache,
                                              prefetch, pin, lookup_context,
