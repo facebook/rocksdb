@@ -246,17 +246,22 @@ struct BlockBasedTableOptions {
   // Default: 0 (disabled)
   uint32_t read_amp_bytes_per_bit = 0;
 
-  // format_version controls the compatibility of newly written tables
-  // with older versions of RockDB. This value is written to new tables
-  // so that version incompatibility is detected outright on table open.
-  // (Newer releases can read tables written by the same or older
-  // releases regardless of this setting.)
+  // format_version controls some features of newly written tables that
+  // are not understood by older versions of RocksDB. This value is written
+  // to new tables so that version incompatibility is detected outright on
+  // table open. (Newer releases can read tables written by the same or
+  // older releases regardless of this setting.)
   //
-  // Using the latest version appropriate for your interoperability
-  // requirements is highly recommended for maximizing performance and
-  // features (see below). The default will generally lag somewhat behind
-  // the latest version, to generally allow mixing of recent versions while
-  // adopting improvements in time.
+  // Although some new features present a new trade-off to the user, and
+  // get their own tuning option that breaks forward compatibility when
+  // enabled, format_version is for features that should not need an
+  // ongoing tuning option, either because they are a near-universal win
+  // or because they simply unlock other features. Thus, using the latest
+  // version appropriate for your interoperability requirements is highly
+  // recommended for maximizing performance and features (see below). The
+  // default will generally lag somewhat behind the latest version, to
+  // generally allow mixing of recent versions while adopting improvements
+  // over time.
   //
   // Available format_versions, their reason for being, and their
   // relationships to RocksDB releases:
