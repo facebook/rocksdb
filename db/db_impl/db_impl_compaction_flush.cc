@@ -1515,7 +1515,7 @@ void DBImpl::GenerateFlushRequest(const autovector<ColumnFamilyData*>& cfds,
 
 Status DBImpl::FlushMemTable(ColumnFamilyData* cfd,
                              const FlushOptions& flush_options,
-                             FlushReason flush_reason, bool writes_stopped) {
+                             FlushReason flush_reason, bool writes_stopped, bool nonmem_writes_stopped) {
   Status s;
   uint64_t flush_memtable_id = 0;
   if (!flush_options.allow_write_stall) {
@@ -1537,7 +1537,7 @@ Status DBImpl::FlushMemTable(ColumnFamilyData* cfd,
     }
 
     if (!cfd->mem()->IsEmpty() || !cached_recoverable_state_empty_.load()) {
-      s = SwitchMemtable(cfd, &context);
+      s = SwitchMemtable(cfd, &context, nonmem_writes_stopped);
     }
     if (s.ok()) {
       if (cfd->imm()->NumNotFlushed() != 0 || !cfd->mem()->IsEmpty() ||
@@ -1567,7 +1567,7 @@ Status DBImpl::FlushMemTable(ColumnFamilyData* cfd,
                            "Force flushing stats CF with manual flush of %s "
                            "to avoid holding old logs",
                            cfd->GetName().c_str());
-            s = SwitchMemtable(cfd_stats, &context);
+            s = SwitchMemtable(cfd_stats, &context, nonmem_writes_stopped);
             flush_memtable_id = cfd_stats->imm()->GetLatestMemTableID();
             flush_req.emplace_back(cfd_stats, flush_memtable_id);
           }
@@ -1626,7 +1626,7 @@ Status DBImpl::FlushMemTable(ColumnFamilyData* cfd,
 Status DBImpl::AtomicFlushMemTables(
     const autovector<ColumnFamilyData*>& column_family_datas,
     const FlushOptions& flush_options, FlushReason flush_reason,
-    bool writes_stopped) {
+    bool writes_stopped, bool nonmem_writes_stopped) {
   Status s;
   if (!flush_options.allow_write_stall) {
     int num_cfs_to_flush = 0;
@@ -1668,7 +1668,7 @@ Status DBImpl::AtomicFlushMemTables(
         continue;
       }
       cfd->Ref();
-      s = SwitchMemtable(cfd, &context);
+      s = SwitchMemtable(cfd, &context, nonmem_writes_stopped);
       cfd->Unref();
       if (!s.ok()) {
         break;

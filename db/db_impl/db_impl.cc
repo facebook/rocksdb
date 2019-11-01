@@ -3814,10 +3814,9 @@ Status DBImpl::IngestExternalFiles(
     // Stop writes to the DB by entering both write threads
     WriteThread::Writer w;
     write_thread_.EnterUnbatched(&w, &mutex_);
-    std::unique_ptr<GroupLeaderWriterGuard> nonmem_guard;
-
+    WriteThread::Writer nonmem_w;
     if (two_write_queues_) {
-      nonmem_guard.reset(new GroupLeaderWriterGuard(&nonmem_write_thread_, &mutex_));
+      nonmem_write_thread_.EnterUnbatched(&nonmem_w, &mutex_);
     }
 
     num_running_ingest_file_ += static_cast<int>(num_cfs);
@@ -3855,7 +3854,7 @@ Status DBImpl::IngestExternalFiles(
         mutex_.Unlock();
         status = AtomicFlushMemTables(cfds_to_flush, flush_opts,
                                       FlushReason::kExternalFileIngestion,
-                                      true /* writes_stopped */);
+                                      true /* writes_stopped */, true /* nonmem_writes_stopped */);
         mutex_.Lock();
       } else {
         for (size_t i = 0; i != num_cfs; ++i) {
@@ -3866,7 +3865,7 @@ Status DBImpl::IngestExternalFiles(
                     ->cfd();
             status = FlushMemTable(cfd, flush_opts,
                                    FlushReason::kExternalFileIngestion,
-                                   true /* writes_stopped */);
+                                   true /* writes_stopped */, true /* nonmem_writes_stopped */);
             mutex_.Lock();
             if (!status.ok()) {
               break;
@@ -3953,7 +3952,7 @@ Status DBImpl::IngestExternalFiles(
 
     // Resume writes to the DB
     if (two_write_queues_) {
-      nonmem_guard.reset();
+      nonmem_write_thread_.ExitUnbatched(&nonmem_w);
     }
     write_thread_.ExitUnbatched(&w);
 
@@ -4294,48 +4293,5 @@ Status DBImpl::GetCreationTimeOfOldestFile(uint64_t* creation_time) {
   }
 }
 #endif  // ROCKSDB_LITE
-
-GroupLeaderWriterGuard::GroupLeaderWriterGuard()
-  : write_thread_(nullptr)
-  , writer_(nullptr)
-  , leader_(false) {
-}
-
-// There may be more than two instance of RocksDB in the process, but every GroupLeaderWriterGuard would release
-// it writer before destruct
-GroupLeaderWriterGuard::GroupLeaderWriterGuard(
-        WriteThread* write_thread, InstrumentedMutex* mu)
-  : write_thread_(write_thread)
-  , writer_(GetLocalWriter(write_thread))
-  , leader_(false){
-  if (write_thread_ && writer_->state.load(std::memory_order_relaxed) == WriteThread::STATE_INIT) {
-    write_thread_->EnterUnbatched(writer_, mu);
-    leader_ = true;
-  }
-}
-
-GroupLeaderWriterGuard::~GroupLeaderWriterGuard() {
-  if (leader_) {
-    write_thread_->ExitUnbatched(writer_);
-    writer_->state.store(WriteThread::STATE_INIT, std::memory_order_relaxed);
-    writer_->link_newer = writer_->link_older = nullptr;
-  }
-}
-
-WriteThread::Writer* GroupLeaderWriterGuard::GetLocalWriter(WriteThread* write_thread) {
-  if (write_thread != nullptr) {
-    thread_local std::unordered_map<std::uintptr_t, WriteThread::Writer*> writers;
-    auto addr = reinterpret_cast<std::uintptr_t>(write_thread);
-    auto iter = writers.find(addr);
-    if (iter == writers.end()) {
-      WriteThread::Writer* writer = new WriteThread::Writer;
-      writers.insert(std::make_pair(addr, writer));
-      return writer;
-    } else {
-      return iter->second;
-    }
-  }
-  return nullptr;
-}
 
 }  // namespace rocksdb

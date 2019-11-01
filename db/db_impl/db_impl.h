@@ -1374,18 +1374,18 @@ class DBImpl : public DB {
 
   Status TrimMemtableHistory(WriteContext* context);
 
-  Status SwitchMemtable(ColumnFamilyData* cfd, WriteContext* context);
+  Status SwitchMemtable(ColumnFamilyData* cfd, WriteContext* context, bool nonmem_writes_stopped = false);
 
   void SelectColumnFamiliesForAtomicFlush(autovector<ColumnFamilyData*>* cfds);
 
   // Force current memtable contents to be flushed.
   Status FlushMemTable(ColumnFamilyData* cfd, const FlushOptions& options,
-                       FlushReason flush_reason, bool writes_stopped = false);
+                       FlushReason flush_reason, bool writes_stopped = false, bool nonmem_writes_stopped = false);
 
   Status AtomicFlushMemTables(
       const autovector<ColumnFamilyData*>& column_family_datas,
       const FlushOptions& options, FlushReason flush_reason,
-      bool writes_stopped = false);
+      bool writes_stopped = false, bool nonmem_writes_stopped = false);
 
   // Wait until flushing this column family won't stall writes
   Status WaitUntilFlushWouldNotStallWrites(ColumnFamilyData* cfd,
@@ -1965,19 +1965,6 @@ class DBImpl : public DB {
   InstrumentedCondVar atomic_flush_install_cv_;
 
   bool wal_in_db_path_;
-};
-
-class GroupLeaderWriterGuard {
-public:
-    GroupLeaderWriterGuard();
-    GroupLeaderWriterGuard(WriteThread* write_thread, InstrumentedMutex* mu);
-    ~GroupLeaderWriterGuard();
-private:
-    static WriteThread::Writer* GetLocalWriter(WriteThread* write_thread);
-
-    WriteThread* write_thread_;
-    WriteThread::Writer* writer_;
-    bool leader_;
 };
 
 extern Options SanitizeOptions(const std::string& db, const Options& src);
