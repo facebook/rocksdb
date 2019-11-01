@@ -4686,14 +4686,15 @@ TEST_F(DBCompactionTest, ConsistencyFailTest) {
   rocksdb::SyncPoint::GetInstance()->DisableProcessing();
 }
 
-void IngestOneKeyValue(DBImpl* db, const std::string& key, const std::string& value, const Options& options) {
+void IngestOneKeyValue(DBImpl* db, const std::string& key,
+                       const std::string& value, const Options& options) {
   ExternalSstFileInfo info;
   std::string f = test::PerThreadDBPath("sst_file" + key);
   EnvOptions env;
   rocksdb::SstFileWriter writer(env, options);
   auto s = writer.Open(f);
   ASSERT_OK(s);
-// ASSERT_OK(writer.Put(Key(), ""));
+  // ASSERT_OK(writer.Put(Key(), ""));
   ASSERT_OK(writer.Put(key, value));
 
   ASSERT_OK(writer.Finish(&info));
@@ -4702,7 +4703,8 @@ void IngestOneKeyValue(DBImpl* db, const std::string& key, const std::string& va
   ASSERT_OK(db->IngestExternalFile({info.file_path}, ingest_opt));
 }
 
-TEST_P(DBCompactionTestWithParam, FlushAfterL0IntraCompactionCheckConsistencyFail) {
+TEST_P(DBCompactionTestWithParam,
+       FlushAfterL0IntraCompactionCheckConsistencyFail) {
   Options options = CurrentOptions();
   options.force_consistency_checks = true;
   options.compression = kNoCompression;
@@ -4735,18 +4737,20 @@ TEST_P(DBCompactionTestWithParam, FlushAfterL0IntraCompactionCheckConsistencyFai
   }
   ASSERT_EQ(5, NumTableFilesAtLevel(0));
 
-  // Put one key, to make smallest log sequence number in this memtable is less than sst which would be ingested in next step.
+  // Put one key, to make smallest log sequence number in this memtable is less
+  // than sst which would be ingested in next step.
   ASSERT_OK(Put(Key(0), "a"));
 
   ASSERT_EQ(5, NumTableFilesAtLevel(0));
 
   // Ingest 5 L0 sst. And this files would trigger PickIntraL0Compaction.
-  for (int i = 5; i < 10; i ++) {
+  for (int i = 5; i < 10; i++) {
     IngestOneKeyValue(dbfull(), Key(i), value, options);
     ASSERT_EQ(i + 1, NumTableFilesAtLevel(0));
   }
 
-  // Put one key, to make biggest log sequence number in this memtable is bigger than sst which would be ingested in next step.
+  // Put one key, to make biggest log sequence number in this memtable is bigger
+  // than sst which would be ingested in next step.
   ASSERT_OK(Put(Key(2), "b"));
   ASSERT_EQ(10, NumTableFilesAtLevel(0));
   dbfull()->TEST_WaitForCompact();
@@ -4759,7 +4763,8 @@ TEST_P(DBCompactionTestWithParam, FlushAfterL0IntraCompactionCheckConsistencyFai
   ASSERT_OK(Flush());
 }
 
-TEST_P(DBCompactionTestWithParam, IntraL0CompactionAfterFlushCheckConsistencyFail) {
+TEST_P(DBCompactionTestWithParam,
+       IntraL0CompactionAfterFlushCheckConsistencyFail) {
   Options options = CurrentOptions();
   options.force_consistency_checks = true;
   options.compression = kNoCompression;
@@ -4801,19 +4806,18 @@ TEST_P(DBCompactionTestWithParam, IntraL0CompactionAfterFlushCheckConsistencyFai
   // Stop run flush job
   env_->SetBackgroundThreads(1, Env::HIGH);
   test::SleepingBackgroundTask sleeping_tasks;
-  env_->Schedule(&test::SleepingBackgroundTask::DoSleepTask,
-          &sleeping_tasks, Env::Priority::HIGH);
+  env_->Schedule(&test::SleepingBackgroundTask::DoSleepTask, &sleeping_tasks,
+                 Env::Priority::HIGH);
   sleeping_tasks.WaitUntilSleeping();
-
 
   // Put many keys to make memtable request to flush
   for (int i = 0; i < 6; ++i) {
-    ASSERT_OK(Put(Key(i), value+value));
+    ASSERT_OK(Put(Key(i), value + value));
   }
 
   ASSERT_EQ(6, NumTableFilesAtLevel(0));
   // ingest file to trigger IntraL0Compaction
-  for (int i = 6; i < 10; i ++) {
+  for (int i = 6; i < 10; i++) {
     ASSERT_EQ(i, NumTableFilesAtLevel(0));
     IngestOneKeyValue(dbfull(), Key(i), value, options);
   }
@@ -4823,14 +4827,12 @@ TEST_P(DBCompactionTestWithParam, IntraL0CompactionAfterFlushCheckConsistencyFai
   sleeping_tasks.WakeUp();
   sleeping_tasks.WaitUntilDone();
 
-
   dbfull()->TEST_WaitForCompact();
   rocksdb::SyncPoint::GetInstance()->DisableProcessing();
   uint64_t error_count = 0;
   db_->GetIntProperty("rocksdb.background-errors", &error_count);
   ASSERT_EQ(error_count, 0);
 }
-
 
 #endif // !defined(ROCKSDB_LITE)
 }  // namespace rocksdb

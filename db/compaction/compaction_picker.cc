@@ -41,14 +41,17 @@ bool FindIntraL0Compaction(const std::vector<FileMetaData*>& level_files,
                            uint64_t max_compaction_bytes,
                            CompactionInputFiles* comp_inputs,
                            SequenceNumber earliest_mem_seqno) {
-
-  // Do not pick ingested file when there is at least one memtable not flushed which of seqno is overlap with the sst.
+  // Do not pick ingested file when there is at least one memtable not flushed
+  // which of seqno is overlap with the sst.
   size_t start = 0;
   for (; start < level_files.size(); start++) {
     if (level_files[start]->being_compacted) {
       return false;
     }
-    // If there is no data in memtable, the earliest sequence number would the largest sequence number in last memtable.
+    // If there is no data in memtable, the earliest sequence number would the
+    // largest sequence number in last memtable.
+    // Because all files are sorted in descending order by largest_seqno, so we
+    // only need to check the first one.
     if (level_files[start]->fd.largest_seqno <= earliest_mem_seqno) {
       break;
     }
@@ -57,9 +60,10 @@ bool FindIntraL0Compaction(const std::vector<FileMetaData*>& level_files,
     return false;
   }
   size_t compact_bytes = static_cast<size_t>(level_files[start]->fd.file_size);
-  uint64_t compensated_compact_bytes = level_files[start]->compensated_file_size;
+  uint64_t compensated_compact_bytes =
+      level_files[start]->compensated_file_size;
   size_t compact_bytes_per_del_file = port::kMaxSizet;
-  // Compaction range will be [0, span_len).
+  // Compaction range will be [start, limit).
   size_t limit;
   // Pull in files until the amount of compaction work per deleted file begins
   // increasing or maximum total compaction size is reached.
@@ -68,8 +72,7 @@ bool FindIntraL0Compaction(const std::vector<FileMetaData*>& level_files,
     compact_bytes += static_cast<size_t>(level_files[limit]->fd.file_size);
     compensated_compact_bytes += level_files[limit]->compensated_file_size;
     new_compact_bytes_per_del_file = compact_bytes / (limit - start);
-    if (level_files[limit]->fd.largest_seqno >= earliest_mem_seqno ||
-        level_files[limit]->being_compacted ||
+    if (level_files[limit]->being_compacted ||
         new_compact_bytes_per_del_file > compact_bytes_per_del_file ||
         compensated_compact_bytes > max_compaction_bytes) {
       break;

@@ -540,17 +540,19 @@ bool LevelCompactionBuilder::PickIntraL0Compaction() {
     // resort to L0->L0 compaction yet.
     return false;
   }
-  return FindIntraL0Compaction(
-      level_files, kMinFilesForIntraL0Compaction, port::kMaxUint64,
-      mutable_cf_options_.max_compaction_bytes, &start_level_inputs_, earliest_mem_seqno_);
+  return FindIntraL0Compaction(level_files, kMinFilesForIntraL0Compaction,
+                               port::kMaxUint64,
+                               mutable_cf_options_.max_compaction_bytes,
+                               &start_level_inputs_, earliest_mem_seqno_);
 }
 }  // namespace
 
 Compaction* LevelCompactionPicker::PickCompaction(
     const std::string& cf_name, const MutableCFOptions& mutable_cf_options,
-    VersionStorageInfo* vstorage, LogBuffer* log_buffer, SequenceNumber earliest_mem_seqno) {
-  LevelCompactionBuilder builder(cf_name, vstorage, earliest_mem_seqno, this, log_buffer,
-                                 mutable_cf_options, ioptions_);
+    VersionStorageInfo* vstorage, LogBuffer* log_buffer,
+    SequenceNumber earliest_mem_seqno) {
+  LevelCompactionBuilder builder(cf_name, vstorage, earliest_mem_seqno, this,
+                                 log_buffer, mutable_cf_options, ioptions_);
   return builder.PickCompaction();
 }
 }  // namespace rocksdb
