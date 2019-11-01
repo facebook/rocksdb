@@ -175,6 +175,7 @@ def finalize_and_sanitize(src_params):
         # Disable compaction TTL in FIFO compaction, because right
         # now assertion failures are triggered.
         dest_params["compaction_ttl"] = 0
+        dest_params["periodic_compaction_seconds"] = 0
     if dest_params["partition_filters"] == 1:
         if dest_params["index_type"] != 2:
             dest_params["partition_filters"] = 0
