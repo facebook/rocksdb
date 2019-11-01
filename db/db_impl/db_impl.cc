@@ -3684,7 +3684,6 @@ Status DBImpl::GetLatestSequenceForKey(SuperVersion* sv, const Slice& key,
   return s;
 }
 
-
 Status DBImpl::IngestExternalFile(
     ColumnFamilyHandle* column_family,
     const std::vector<std::string>& external_files,
@@ -3695,7 +3694,6 @@ Status DBImpl::IngestExternalFile(
   arg.options = ingestion_options;
   return IngestExternalFiles({arg});
 }
-
 
 Status DBImpl::IngestExternalFiles(
     const std::vector<IngestExternalFileArg>& args) {

@@ -1097,7 +1097,6 @@ class DBImpl : public DB {
   // Actual implementation of Close()
   Status CloseImpl();
 
-
   // Recover the descriptor from persistent storage.  May do a significant
   // amount of work to recover recently logged updates.  Any changes to
   // be made to the descriptor are added to *edit.
