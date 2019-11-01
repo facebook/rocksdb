@@ -1800,7 +1800,7 @@ endif
 libbz2.a:
 	-rm -rf bzip2-$(BZIP2_VER)
 ifeq (,$(wildcard ./bzip2-$(BZIP2_VER).tar.gz))
-	curl --output bzip2-$(BZIP2_VER).tar.gz -L ${BZIP2_DOWNLOAD_BASE}/bzip2-$(BZIP2_VER).tar.gz
+	curl --output bzip2-$(BZIP2_VER).tar.gz -L ${CURL_SSL_OPTS} ${BZIP2_DOWNLOAD_BASE}/bzip2-$(BZIP2_VER).tar.gz
 endif
 	BZIP2_SHA256_ACTUAL=`$(SHA256_CMD) bzip2-$(BZIP2_VER).tar.gz | cut -d ' ' -f 1`; \
 	if [ "$(BZIP2_SHA256)" != "$$BZIP2_SHA256_ACTUAL" ]; then \
