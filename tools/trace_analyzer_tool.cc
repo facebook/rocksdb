@@ -190,12 +190,6 @@ uint64_t MultiplyCheckOverflow(uint64_t op1, uint64_t op2) {
   return (op1 * op2);
 }
 
-void DecodeCFAndKeyFromString(std::string& buffer, uint32_t* cf_id, Slice* key) {
-  Slice buf(buffer);
-  GetFixed32(&buf, cf_id);
-  GetLengthPrefixedSlice(&buf, key);
-}
-
 }  // namespace
 
 // The default constructor of AnalyzerOptions
@@ -427,7 +421,12 @@ Status TraceAnalyzer::ReadTraceRecord(Trace* trace) {
   }
 
   Slice enc_slice = Slice(encoded_trace);
-  GetFixed64(&enc_slice, &trace->ts);
+  if (!GetFixed64(&enc_slice, &trace->ts)) {
+    return Status::Incomplete("Decode trace string failed");
+  }
+  if (enc_slice.size() < kTraceTypeSize + kTracePayloadLengthSize) {
+    return Status::Incomplete("Decode trace string failed");
+  }
   trace->type = static_cast<TraceType>(enc_slice[0]);
   enc_slice.remove_prefix(kTraceTypeSize + kTracePayloadLengthSize);
   trace->payload = enc_slice.ToString();
@@ -445,6 +444,11 @@ Status TraceAnalyzer::StartProcessing() {
     fprintf(stderr, "Cannot read the header\n");
     return s;
   }
+  s = TracerHelper::ParseTraceHeader(header, &trace_file_version_,
+                                     &db_version_);
+  if (!s.ok()) {
+    return s;
+  }
   trace_create_time_ = header.ts;
   if (FLAGS_output_time_series) {
     time_series_start_ = header.ts;
@@ -460,11 +464,21 @@ Status TraceAnalyzer::StartProcessing() {
 
     total_requests_++;
     end_time_ = trace.ts;
+    uint64_t record_guid;
     if (trace.type == kTraceWrite) {
       total_writes_++;
       c_time_ = trace.ts;
-      WriteBatch batch(trace.payload);
-
+      Slice batch_data;
+      if (trace_file_version_ < 2) {
+        Slice tmp_data(trace.payload);
+        batch_data = tmp_data;
+      } else {
+        Slice tmp_data;
+        TraceCodingHelper::DecodeGuidAndWriteBatchData(trace.payload,
+                                                       &record_guid, &tmp_data);
+        batch_data = tmp_data;
+      }
+      WriteBatch batch(batch_data.ToString());
       // Note that, if the write happens in a transaction,
       // 'Write' will be called twice, one for Prepare, one for
       // Commit. Thus, in the trace, for the same WriteBatch, there
@@ -483,7 +497,12 @@ Status TraceAnalyzer::StartProcessing() {
     } else if (trace.type == kTraceGet) {
       uint32_t cf_id = 0;
       Slice key;
-      DecodeCFAndKeyFromString(trace.payload, &cf_id, &key);
+      if (trace_file_version_ < 2) {
+        TraceCodingHelper::DecodeCFAndKey(trace.payload, &cf_id, &key);
+      } else {
+        TraceCodingHelper::DecodeGuidCFAndKey(trace.payload, &record_guid,
+                                              &cf_id, &key);
+      }
       total_gets_++;
 
       s = HandleGet(cf_id, key.ToString(), trace.ts, 1);
@@ -495,7 +514,12 @@ Status TraceAnalyzer::StartProcessing() {
                trace.type == kTraceIteratorSeekForPrev) {
       uint32_t cf_id = 0;
       Slice key;
-      DecodeCFAndKeyFromString(trace.payload, &cf_id, &key);
+      if (trace_file_version_ < 2) {
+        TraceCodingHelper::DecodeCFAndKey(trace.payload, &cf_id, &key);
+      } else {
+        TraceCodingHelper::DecodeGuidCFAndKey(trace.payload, &record_guid,
+                                              &cf_id, &key);
+      }
       s = HandleIter(cf_id, key.ToString(), trace.ts, trace.type);
       if (!s.ok()) {
         fprintf(stderr, "Cannot process the iterator in the trace\n");
@@ -503,6 +527,8 @@ Status TraceAnalyzer::StartProcessing() {
       }
     } else if (trace.type == kTraceEnd) {
       break;
+    } else {
+      continue;
     }
   }
   if (s.IsIncomplete()) {

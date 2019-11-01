@@ -19,29 +19,58 @@ namespace rocksdb {
 
 const std::string kTraceMagic = "feedcafedeadbeef";
 
-namespace {
-void EncodeCFAndKey(std::string* dst, uint32_t cf_id, const Slice& key) {
+void TraceCodingHelper::EncodeCFAndKey(std::string* dst, uint32_t cf_id,
+                                       const Slice& key) {
   PutFixed32(dst, cf_id);
   PutLengthPrefixedSlice(dst, key);
 }
 
-void DecodeCFAndKey(std::string& buffer, uint32_t* cf_id, Slice* key) {
+void TraceCodingHelper::DecodeCFAndKey(std::string& buffer, uint32_t* cf_id,
+                                       Slice* key) {
   Slice buf(buffer);
   GetFixed32(&buf, cf_id);
   GetLengthPrefixedSlice(&buf, key);
 }
 
-void EncodeLatency(std::string* dst, uint64_t latency) {
-  PutFixed32(dst, latency);
+void TraceCodingHelper::EncodeGuidCFAndKey(std::string* dst,
+                                           uint64_t record_guid, uint32_t cf_id,
+                                           const Slice& key) {
+  PutFixed64(dst, record_guid);
+  PutFixed32(dst, cf_id);
+  PutLengthPrefixedSlice(dst, key);
 }
 
-/*
-void DecodeLatency(std::string& buffer, uint64_t* latency) {
+void TraceCodingHelper::DecodeGuidCFAndKey(std::string& buffer,
+                                           uint64_t* record_guid,
+                                           uint32_t* cf_id, Slice* key) {
   Slice buf(buffer);
-  GetFixed64(&buf, latency);
+  GetFixed64(&buf, record_guid);
+  GetFixed32(&buf, cf_id);
+  GetLengthPrefixedSlice(&buf, key);
 }
-*/
-}  // namespace
+
+void TraceCodingHelper::EncodeGuidAndWriteBatchData(std::string* dst,
+                                                    uint64_t record_guid,
+                                                    WriteBatch* write_batch) {
+  Slice data(write_batch->Data());
+  PutFixed64(dst, record_guid);
+  PutLengthPrefixedSlice(dst, data);
+}
+
+void TraceCodingHelper::DecodeGuidAndWriteBatchData(std::string& buffer,
+                                                    uint64_t* record_guid,
+                                                    Slice* data) {
+  Slice buf(buffer);
+  GetFixed64(&buf, record_guid);
+  GetLengthPrefixedSlice(&buf, data);
+}
+
+void TraceCodingHelper::EncodeGuidAndLatency(std::string* dst,
+                                             uint64_t record_guid,
+                                             uint64_t latency) {
+  PutFixed64(dst, record_guid);
+  PutFixed32(dst, latency);
+}
 
 Status TracerHelper::ParseVersionStr(std::string& v_string, int* v_num) {
   if (v_string.find_first_of('.') == std::string::npos ||
@@ -94,7 +123,6 @@ Status TracerHelper::ParseTraceHeader(const Trace& header, int* trace_version,
 void TracerHelper::EncodeTrace(const Trace& trace, std::string* encoded_trace) {
   assert(encoded_trace);
   PutFixed64(encoded_trace, trace.ts);
-  PutFixed64(encoded_trace, trace.record_guid);
   encoded_trace->push_back(trace.type);
   PutFixed32(encoded_trace, static_cast<uint32_t>(trace.payload.size()));
   encoded_trace->append(trace.payload);
@@ -105,26 +133,6 @@ Status TracerHelper::DecodeTrace(const std::string& encoded_trace,
   assert(trace != nullptr);
   Slice enc_slice = Slice(encoded_trace);
   if (!GetFixed64(&enc_slice, &trace->ts)) {
-    return Status::Incomplete("Decode trace string failed");
-  }
-  trace->record_guid = 0;
-  if (enc_slice.size() < kTraceTypeSize + kTracePayloadLengthSize) {
-    return Status::Incomplete("Decode trace string failed");
-  }
-  trace->type = static_cast<TraceType>(enc_slice[0]);
-  enc_slice.remove_prefix(kTraceTypeSize + kTracePayloadLengthSize);
-  trace->payload = enc_slice.ToString();
-  return Status::OK();
-}
-
-Status TracerHelper::DecodeTraceV2(const std::string& encoded_trace,
-                                 Trace* trace) {
-  assert(trace != nullptr);
-  Slice enc_slice = Slice(encoded_trace);
-  if (!GetFixed64(&enc_slice, &trace->ts)) {
-    return Status::Incomplete("Decode trace string failed");
-  }
-  if (!GetFixed64(&enc_slice, &trace->record_guid)) {
     return Status::Incomplete("Decode trace string failed");
   }
   if (enc_slice.size() < kTraceTypeSize + kTracePayloadLengthSize) {
@@ -141,7 +149,8 @@ Tracer::Tracer(Env* env, const TraceOptions& trace_options,
     : env_(env),
       trace_options_(trace_options),
       trace_writer_(std::move(trace_writer)),
-      trace_request_count_(0),record_guid_counter_(0) {
+      trace_request_count_(0),
+      record_guid_counter_(0) {
   WriteHeader();
 }
 
@@ -156,22 +165,22 @@ Status Tracer::Write(WriteBatch* write_batch, uint64_t* record_guid) {
   }
   Trace trace;
   trace.ts = env_->NowMicros();
-  trace.record_guid = *record_guid;
   trace.type = trace_type;
-  trace.payload = write_batch->Data();
+  TraceCodingHelper::EncodeGuidAndWriteBatchData(&trace.payload, *record_guid,
+                                                 write_batch);
   return WriteTrace(trace);
 }
 
-Status Tracer::WriteAtEnd(const uint64_t& record_guid, const uint64_t& latency) {
+Status Tracer::WriteAtEnd(const uint64_t& record_guid,
+                          const uint64_t& latency) {
   TraceType trace_type = kTraceWriteAtEnd;
   if (ShouldSkipTrace(trace_type)) {
     return Status::OK();
   }
   Trace trace;
   trace.ts = env_->NowMicros();
-  trace.record_guid = record_guid;
   trace.type = trace_type;
-  EncodeLatency(&trace.payload, latency);
+  TraceCodingHelper::EncodeGuidAndLatency(&trace.payload, record_guid, latency);
   return WriteTrace(trace);
 }
 
@@ -185,9 +194,9 @@ Status Tracer::Get(ColumnFamilyHandle* column_family, const Slice& key,
   }
   Trace trace;
   trace.ts = env_->NowMicros();
-  trace.record_guid = *record_guid;
   trace.type = trace_type;
-  EncodeCFAndKey(&trace.payload, column_family->GetID(), key);
+  TraceCodingHelper::EncodeGuidCFAndKey(&trace.payload, *record_guid,
+                                        column_family->GetID(), key);
   return WriteTrace(trace);
 }
 
@@ -198,9 +207,8 @@ Status Tracer::GetAtEnd(const uint64_t& record_guid, const uint64_t& latency) {
   }
   Trace trace;
   trace.ts = env_->NowMicros();
-  trace.record_guid = record_guid;
   trace.type = trace_type;
-  EncodeLatency(&trace.payload, latency);
+  TraceCodingHelper::EncodeGuidAndLatency(&trace.payload, record_guid, latency);
   return WriteTrace(trace);
 }
 
@@ -214,23 +222,22 @@ Status Tracer::IteratorSeek(const uint32_t& cf_id, const Slice& key,
   }
   Trace trace;
   trace.ts = env_->NowMicros();
-  trace.record_guid = *record_guid;
   trace.type = trace_type;
-  EncodeCFAndKey(&trace.payload, cf_id, key);
+  TraceCodingHelper::EncodeGuidCFAndKey(&trace.payload, *record_guid, cf_id,
+                                        key);
   return WriteTrace(trace);
 }
 
 Status Tracer::IteratorSeekAtEnd(const uint64_t& record_guid,
                                  const uint64_t& latency) {
-  TraceType trace_type = kTraceIteratorSeek;
+  TraceType trace_type = kTraceIteratorSeekAtEnd;
   if (ShouldSkipTrace(trace_type)) {
     return Status::OK();
   }
   Trace trace;
   trace.ts = env_->NowMicros();
-  trace.record_guid = record_guid;
   trace.type = trace_type;
-  EncodeLatency(&trace.payload, latency);
+  TraceCodingHelper::EncodeGuidAndLatency(&trace.payload, record_guid, latency);
   return WriteTrace(trace);
 }
 
@@ -244,23 +251,22 @@ Status Tracer::IteratorSeekForPrev(const uint32_t& cf_id, const Slice& key,
   }
   Trace trace;
   trace.ts = env_->NowMicros();
-  trace.record_guid = *record_guid;
   trace.type = trace_type;
-  EncodeCFAndKey(&trace.payload, cf_id, key);
+  TraceCodingHelper::EncodeGuidCFAndKey(&trace.payload, *record_guid, cf_id,
+                                        key);
   return WriteTrace(trace);
 }
 
 Status Tracer::IteratorSeekForPrevAtEnd(const uint64_t& record_guid,
                                         const uint64_t& latency) {
-  TraceType trace_type = kTraceIteratorSeekForPrev;
+  TraceType trace_type = kTraceIteratorSeekForPrevAtEnd;
   if (ShouldSkipTrace(trace_type)) {
     return Status::OK();
   }
   Trace trace;
   trace.ts = env_->NowMicros();
-  trace.record_guid = record_guid;
   trace.type = trace_type;
-  EncodeLatency(&trace.payload, latency);
+  TraceCodingHelper::EncodeGuidAndLatency(&trace.payload, record_guid, latency);
   return WriteTrace(trace);
 }
 
@@ -293,9 +299,7 @@ bool Tracer::IsTraceFileOverMax() {
   return (trace_file_size > trace_options_.max_trace_file_size);
 }
 
-bool Tracer::IsTraceAtEnd() {
-  return trace_options_.trace_at_end;
-}
+bool Tracer::IsTraceAtEnd() { return trace_options_.trace_at_end; }
 
 Status Tracer::WriteHeader() {
   std::ostringstream s;
@@ -307,16 +311,16 @@ Status Tracer::WriteHeader() {
 
   Trace trace;
   trace.ts = env_->NowMicros();
-  trace.record_guid =GetAndIncreaseRecordGuid();
   trace.type = kTraceBegin;
   trace.payload = header;
-  return WriteTrace(trace);
+  std::string encoded_trace;
+  TracerHelper::EncodeTrace(trace, &encoded_trace);
+  return trace_writer_->Write(Slice(encoded_trace));
 }
 
 Status Tracer::WriteFooter() {
   Trace trace;
   trace.ts = env_->NowMicros();
-  trace.record_guid =GetAndIncreaseRecordGuid();
   trace.type = kTraceEnd;
   trace.payload = "";
   return WriteTrace(trace);
@@ -369,13 +373,13 @@ Status Replayer::Replay() {
   if (!s.ok()) {
     return s;
   }
-
   std::chrono::system_clock::time_point replay_epoch =
       std::chrono::system_clock::now();
   WriteOptions woptions;
   ReadOptions roptions;
   Trace trace;
   uint64_t ops = 0;
+  uint64_t record_guid = 0;
   Iterator* single_iter = nullptr;
   while (s.ok()) {
     trace.reset();
@@ -383,18 +387,31 @@ Status Replayer::Replay() {
     if (!s.ok()) {
       break;
     }
-
     std::this_thread::sleep_until(
         replay_epoch +
         std::chrono::microseconds((trace.ts - header.ts) / fast_forward_));
     if (trace.type == kTraceWrite) {
-      WriteBatch batch(trace.payload);
-      db_->Write(woptions, &batch);
+      if (trace_file_version_ < 2) {
+        WriteBatch batch(trace.payload);
+        db_->Write(woptions, &batch);
+      } else {
+        Slice batch_data;
+        TraceCodingHelper::DecodeGuidAndWriteBatchData(
+            trace.payload, &record_guid, &batch_data);
+        WriteBatch batch(batch_data.ToString());
+        db_->Write(woptions, &batch);
+      }
+
       ops++;
     } else if (trace.type == kTraceGet) {
       uint32_t cf_id = 0;
       Slice key;
-      DecodeCFAndKey(trace.payload, &cf_id, &key);
+      if (trace_file_version_ < 2) {
+        TraceCodingHelper::DecodeCFAndKey(trace.payload, &cf_id, &key);
+      } else {
+        TraceCodingHelper::DecodeGuidCFAndKey(trace.payload, &record_guid,
+                                              &cf_id, &key);
+      }
       if (cf_id > 0 && cf_map_.find(cf_id) == cf_map_.end()) {
         return Status::Corruption("Invalid Column Family ID.");
       }
@@ -409,7 +426,12 @@ Status Replayer::Replay() {
     } else if (trace.type == kTraceIteratorSeek) {
       uint32_t cf_id = 0;
       Slice key;
-      DecodeCFAndKey(trace.payload, &cf_id, &key);
+      if (trace_file_version_ < 2) {
+        TraceCodingHelper::DecodeCFAndKey(trace.payload, &cf_id, &key);
+      } else {
+        TraceCodingHelper::DecodeGuidCFAndKey(trace.payload, &record_guid,
+                                              &cf_id, &key);
+      }
       if (cf_id > 0 && cf_map_.find(cf_id) == cf_map_.end()) {
         return Status::Corruption("Invalid Column Family ID.");
       }
@@ -426,11 +448,15 @@ Status Replayer::Replay() {
       // Currently, only support to call the Seek()
       uint32_t cf_id = 0;
       Slice key;
-      DecodeCFAndKey(trace.payload, &cf_id, &key);
+      if (trace_file_version_ < 2) {
+        TraceCodingHelper::DecodeCFAndKey(trace.payload, &cf_id, &key);
+      } else {
+        TraceCodingHelper::DecodeGuidCFAndKey(trace.payload, &record_guid,
+                                              &cf_id, &key);
+      }
       if (cf_id > 0 && cf_map_.find(cf_id) == cf_map_.end()) {
         return Status::Corruption("Invalid Column Family ID.");
       }
-
       if (cf_id == 0) {
         single_iter = db_->NewIterator(roptions);
       } else {
@@ -443,6 +469,8 @@ Status Replayer::Replay() {
       // Do nothing for now.
       // TODO: Add some validations later.
       break;
+    } else {
+      continue;
     }
   }
 
@@ -464,7 +492,7 @@ Status Replayer::MultiThreadReplay(uint32_t threads_num) {
   Status s;
   Trace header;
   TracerHelper helper;
-  int  db_version;
+  int db_version;
   s = ReadHeader(&header);
   if (!s.ok()) {
     return s;
@@ -497,6 +525,7 @@ Status Replayer::MultiThreadReplay(uint32_t threads_num) {
     }
     ra->woptions = woptions;
     ra->roptions = roptions;
+    ra->trace_file_version = trace_file_version_;
 
     std::this_thread::sleep_until(
         replay_epoch + std::chrono::microseconds(
@@ -538,9 +567,16 @@ Status Replayer::MultiThreadReplay(uint32_t threads_num) {
   return s;
 }
 
+int Replayer::GetTraceFileVersion() { return trace_file_version_; }
+
 Status Replayer::ReadHeader(Trace* header) {
   assert(header != nullptr);
-  Status s = ReadTrace(header);
+  std::string encoded_trace;
+  Status s = trace_reader_->Read(&encoded_trace);
+  if (!s.ok()) {
+    return s;
+  }
+  s = TracerHelper::DecodeTrace(encoded_trace, header);
   if (!s.ok()) {
     return s;
   }
@@ -575,11 +611,7 @@ Status Replayer::ReadTrace(Trace* trace) {
   if (!s.ok()) {
     return s;
   }
-  if(trace_file_version_ < 2) {
-    return TracerHelper::DecodeTrace(encoded_trace, trace);
-  } else {
-    return TracerHelper::DecodeTraceV2(encoded_trace, trace);
-  }
+  return TracerHelper::DecodeTrace(encoded_trace, trace);
 }
 
 void Replayer::BGWorkGet(void* arg) {
@@ -589,7 +621,14 @@ void Replayer::BGWorkGet(void* arg) {
       ra->cf_map);
   uint32_t cf_id = 0;
   Slice key;
-  DecodeCFAndKey(ra->trace_entry.payload, &cf_id, &key);
+  uint64_t record_guid;
+  if (ra->trace_file_version < 2) {
+    TraceCodingHelper::DecodeCFAndKey(ra->trace_entry.payload, &cf_id, &key);
+  } else {
+    TraceCodingHelper::DecodeGuidCFAndKey(ra->trace_entry.payload, &record_guid,
+                                          &cf_id, &key);
+  }
+
   if (cf_id > 0 && cf_map->find(cf_id) == cf_map->end()) {
     return;
   }
@@ -607,7 +646,19 @@ void Replayer::BGWorkGet(void* arg) {
 void Replayer::BGWorkWriteBatch(void* arg) {
   std::unique_ptr<ReplayerWorkerArg> ra(
       reinterpret_cast<ReplayerWorkerArg*>(arg));
-  WriteBatch batch(ra->trace_entry.payload);
+  uint64_t record_guid;
+  Slice batch_data;
+  if (ra->trace_file_version < 2) {
+    Slice tmp_data(ra->trace_entry.payload);
+    batch_data = tmp_data;
+  } else {
+    Slice tmp_data;
+    TraceCodingHelper::DecodeGuidAndWriteBatchData(ra->trace_entry.payload,
+                                                   &record_guid, &tmp_data);
+    batch_data = tmp_data;
+  }
+  WriteBatch batch(batch_data.ToString());
+
   ra->db->Write(ra->woptions, &batch);
   return;
 }
@@ -619,7 +670,13 @@ void Replayer::BGWorkIterSeek(void* arg) {
       ra->cf_map);
   uint32_t cf_id = 0;
   Slice key;
-  DecodeCFAndKey(ra->trace_entry.payload, &cf_id, &key);
+  uint64_t record_guid;
+  if (ra->trace_file_version < 2) {
+    TraceCodingHelper::DecodeCFAndKey(ra->trace_entry.payload, &cf_id, &key);
+  } else {
+    TraceCodingHelper::DecodeGuidCFAndKey(ra->trace_entry.payload, &record_guid,
+                                          &cf_id, &key);
+  }
   if (cf_id > 0 && cf_map->find(cf_id) == cf_map->end()) {
     return;
   }
@@ -643,7 +700,13 @@ void Replayer::BGWorkIterSeekForPrev(void* arg) {
       ra->cf_map);
   uint32_t cf_id = 0;
   Slice key;
-  DecodeCFAndKey(ra->trace_entry.payload, &cf_id, &key);
+  uint64_t record_guid;
+  if (ra->trace_file_version < 2) {
+    TraceCodingHelper::DecodeCFAndKey(ra->trace_entry.payload, &cf_id, &key);
+  } else {
+    TraceCodingHelper::DecodeGuidCFAndKey(ra->trace_entry.payload, &record_guid,
+                                          &cf_id, &key);
+  }
   if (cf_id > 0 && cf_map->find(cf_id) == cf_map->end()) {
     return;
   }

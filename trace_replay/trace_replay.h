@@ -62,7 +62,6 @@ enum TraceType : char {
 // The data structure that defines a single trace.
 struct Trace {
   uint64_t ts;  // timestamp
-  uint64_t record_guid;        // the global unique operation ID of record
   TraceType type;
   std::string payload;
 
@@ -71,6 +70,27 @@ struct Trace {
     type = kTraceMax;
     payload.clear();
   }
+};
+
+// Decode or encode the trace  payload and record
+class TraceCodingHelper {
+ public:
+  static void EncodeCFAndKey(std::string* dst, uint32_t cf_id,
+                             const Slice& key);
+  static void DecodeCFAndKey(std::string& buffer, uint32_t* cf_id, Slice* key);
+  static void EncodeGuidCFAndKey(std::string* dst, uint64_t record_guid,
+                                 uint32_t cf_id, const Slice& key);
+  static void DecodeGuidCFAndKey(std::string& buffer, uint64_t* record_guid,
+                                 uint32_t* cf_id, Slice* key);
+  static void EncodeGuidAndWriteBatchData(std::string* dst,
+                                          uint64_t record_guid,
+                                          WriteBatch* write_batch);
+  static void DecodeGuidAndWriteBatchData(std::string& buffer,
+                                          uint64_t* record_guid, Slice* data);
+  static void EncodeGuidAndLatency(std::string* dst, uint64_t record_guid,
+                                   uint64_t latency);
+  static void DecodeGuidAndLatency(std::string& buffer, uint64_t* record_guid,
+                                   uint64_t* latency);
 };
 
 class TracerHelper {
@@ -87,10 +107,6 @@ class TracerHelper {
 
   // Decode a string into the given trace object from trace file v 0.1
   static Status DecodeTrace(const std::string& encoded_trace, Trace* trace);
-
-  // Decode a string into given trace object from trace file v 0.2 or above
-  static Status DecodeTraceV2(const std::string& encoded_trace, Trace* trace);
-  // Parse the trace version
 };
 
 // Tracer captures all RocksDB operations using a user-provided TraceWriter.
@@ -190,6 +206,9 @@ class Replayer {
   //   If > 1, speed up the replay by this amount.
   Status SetFastForward(uint32_t fast_forward);
 
+  // Return the trace file version after the trace head is processed
+  int GetTraceFileVersion();
+
  private:
   Status ReadHeader(Trace* header);
   Status ReadFooter(Trace* footer);
@@ -226,6 +245,7 @@ struct ReplayerWorkerArg {
   std::unordered_map<uint32_t, ColumnFamilyHandle*>* cf_map;
   WriteOptions woptions;
   ReadOptions roptions;
+  int trace_file_version;
 };
 
 }  // namespace rocksdb
