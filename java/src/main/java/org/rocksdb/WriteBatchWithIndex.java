@@ -149,7 +149,7 @@ public class WriteBatchWithIndex extends AbstractWriteBatch {
    * point-in-timefrom baseIterator and modifications made in this write batch.
    */
   public RocksIterator newIteratorWithBase(final RocksIterator baseIterator) {
-    return newIteratorWithBase(baseIterator.parent_.getDefaultColumnFamily(), baseIterator);
+    return newIteratorWithBase(baseIterator.parent_, baseIterator);
   }
 
   /**

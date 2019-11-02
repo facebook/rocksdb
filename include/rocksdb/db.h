@@ -88,6 +88,8 @@ class ColumnFamilyHandle {
   // Returns the comparator of the column family associated with the
   // current handle.
   virtual const Comparator* GetComparator() const = 0;
+  // Returns a copy of this handle used to pin column family
+  virtual ColumnFamilyHandle* CloneHandle() const = 0;
 };
 
 static const int kMajorVersion = __ROCKSDB_MAJOR__;

@@ -612,6 +612,9 @@ class ColumnFamilyHandleImplDummy : public ColumnFamilyHandleImpl {
   const Comparator* GetComparator() const override {
     return BytewiseComparator();
   }
+  ColumnFamilyHandle* CloneHandle() const override {
+    return new ColumnFamilyHandleImplDummy(id_);
+  }
 
  private:
   uint32_t id_;

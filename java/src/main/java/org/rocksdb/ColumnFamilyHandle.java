@@ -63,6 +63,18 @@ public class ColumnFamilyHandle extends RocksObject {
     return getDescriptor(nativeHandle_);
   }
 
+  /**
+   * Gets a copy of the Column Family Handle, used to prevent Column Family
+   * from being released before some operations based on the Column Family,
+   * such as iterators for querying the Column Family.
+   *
+   * @return a copy ColumnFamilyHandle
+   */
+  public ColumnFamilyHandle cloneHandle() {
+    assert(isOwningHandle());
+    return new ColumnFamilyHandle(this.rocksDB_, cloneHandle(nativeHandle_));
+  }
+
   @Override
   public boolean equals(final Object o) {
     if (this == o) {
@@ -109,6 +121,7 @@ public class ColumnFamilyHandle extends RocksObject {
   private native byte[] getName(final long handle) throws RocksDBException;
   private native int getID(final long handle);
   private native ColumnFamilyDescriptor getDescriptor(final long handle) throws RocksDBException;
+  private native long cloneHandle(final long handle);
   @Override protected final native void disposeInternal(final long handle);
 
   private final RocksDB rocksDB_;

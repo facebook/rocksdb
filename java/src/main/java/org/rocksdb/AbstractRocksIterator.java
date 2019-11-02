@@ -23,8 +23,7 @@ public abstract class AbstractRocksIterator<P extends RocksObject>
     extends RocksObject implements RocksIteratorInterface {
   final P parent_;
 
-  protected AbstractRocksIterator(final P parent,
-      final long nativeHandle) {
+  protected AbstractRocksIterator(final P parent, final long nativeHandle) {
     super(nativeHandle);
     // parent must point to a valid RocksDB instance.
     assert (parent != null);
@@ -92,9 +91,9 @@ public abstract class AbstractRocksIterator<P extends RocksObject>
    */
   @Override
   protected void disposeInternal() {
-      if (parent_.isOwningHandle()) {
-        disposeInternal(nativeHandle_);
-      }
+    if (parent_.isOwningHandle()) {
+      disposeInternal(nativeHandle_);
+    }
   }
 
   abstract boolean isValid0(long handle);

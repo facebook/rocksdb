@@ -60,6 +60,19 @@ jobject Java_org_rocksdb_ColumnFamilyHandle_getDescriptor(JNIEnv* env,
 
 /*
  * Class:     org_rocksdb_ColumnFamilyHandle
+ * Method:    cloneHandle
+ * Signature: (J)J
+ */
+JNIEXPORT jlong JNICALL Java_org_rocksdb_ColumnFamilyHandle_cloneHandle(JNIEnv* /*env*/,
+                                                                        jobject /*jobj*/,
+                                                                        jlong jhandle) {
+  auto* cfh = reinterpret_cast<rocksdb::ColumnFamilyHandle*>(jhandle);
+  auto* clone = cfh->CloneHandle();
+  return reinterpret_cast<jlong>(clone);
+}
+
+/*
+ * Class:     org_rocksdb_ColumnFamilyHandle
  * Method:    disposeInternal
  * Signature: (J)V
  */

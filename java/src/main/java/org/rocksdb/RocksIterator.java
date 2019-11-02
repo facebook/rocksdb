@@ -18,9 +18,17 @@ package org.rocksdb;
  *
  * @see org.rocksdb.RocksObject
  */
-public class RocksIterator extends AbstractRocksIterator<RocksDB> {
-  protected RocksIterator(RocksDB rocksDB, long nativeHandle) {
-    super(rocksDB, nativeHandle);
+public class RocksIterator extends AbstractRocksIterator<ColumnFamilyHandle> {
+  final ColumnFamilyHandle cfHandle_;
+
+  protected RocksIterator(final RocksDB rocksDB, final long nativeHandle) {
+    super(rocksDB.getDefaultColumnFamily(), nativeHandle);
+    this.cfHandle_ = null;
+  }
+
+  protected RocksIterator(final ColumnFamilyHandle parent, final long nativeHandle) {
+    super(parent, nativeHandle);
+    this.cfHandle_ = parent;
   }
 
   /**
@@ -48,6 +56,14 @@ public class RocksIterator extends AbstractRocksIterator<RocksDB> {
   public byte[] value() {
     assert(isOwningHandle());
     return value0(nativeHandle_);
+  }
+
+  @Override
+  protected void disposeInternal() {
+    super.disposeInternal();
+    if (cfHandle_ != null) {
+      cfHandle_.close();
+    }
   }
 
   @Override protected final native void disposeInternal(final long handle);

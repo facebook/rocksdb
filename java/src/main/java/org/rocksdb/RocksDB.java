@@ -2406,8 +2406,9 @@ public class RocksDB extends RocksObject {
    */
   public RocksIterator newIterator(
       final ColumnFamilyHandle columnFamilyHandle) {
-    return new RocksIterator(this, iteratorCF(nativeHandle_,
-        columnFamilyHandle.nativeHandle_));
+    ColumnFamilyHandle cfHandle = columnFamilyHandle.cloneHandle();
+    return new RocksIterator(cfHandle,
+        iteratorCF(nativeHandle_, cfHandle.nativeHandle_));
   }
 
   /**
@@ -2427,8 +2428,9 @@ public class RocksDB extends RocksObject {
    */
   public RocksIterator newIterator(final ColumnFamilyHandle columnFamilyHandle,
       final ReadOptions readOptions) {
-    return new RocksIterator(this, iteratorCF(nativeHandle_,
-        columnFamilyHandle.nativeHandle_, readOptions.nativeHandle_));
+    ColumnFamilyHandle cfHandle = columnFamilyHandle.cloneHandle();
+    return new RocksIterator(cfHandle, iteratorCF(nativeHandle_,
+        cfHandle.nativeHandle_, readOptions.nativeHandle_));
   }
 
   /**
@@ -2468,18 +2470,20 @@ public class RocksDB extends RocksObject {
       final List<ColumnFamilyHandle> columnFamilyHandleList,
       final ReadOptions readOptions) throws RocksDBException {
 
-    final long[] columnFamilyHandles = new long[columnFamilyHandleList.size()];
-    for (int i = 0; i < columnFamilyHandleList.size(); i++) {
-      columnFamilyHandles[i] = columnFamilyHandleList.get(i).nativeHandle_;
+    int size = columnFamilyHandleList.size();
+    final ColumnFamilyHandle[] cloneCfHandles = new ColumnFamilyHandle[size];
+    final long[] cfRefs = new long[size];
+    for (int i = 0; i < size; i++) {
+      cloneCfHandles[i] = columnFamilyHandleList.get(i).cloneHandle();
+      cfRefs[i] = cloneCfHandles[i].nativeHandle_;
     }
 
-    final long[] iteratorRefs = iterators(nativeHandle_, columnFamilyHandles,
+    final long[] iteratorRefs = iterators(nativeHandle_, cfRefs,
         readOptions.nativeHandle_);
 
-    final List<RocksIterator> iterators = new ArrayList<>(
-        columnFamilyHandleList.size());
-    for (int i=0; i<columnFamilyHandleList.size(); i++){
-      iterators.add(new RocksIterator(this, iteratorRefs[i]));
+    final List<RocksIterator> iterators = new ArrayList<>(size);
+    for (int i = 0; i < size; i++) {
+      iterators.add(new RocksIterator(cloneCfHandles[i], iteratorRefs[i]));
     }
     return iterators;
   }

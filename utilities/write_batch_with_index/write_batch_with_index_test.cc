@@ -31,6 +31,9 @@ class ColumnFamilyHandleImplDummy : public ColumnFamilyHandleImpl {
         comparator_(comparator) {}
   uint32_t GetID() const override { return id_; }
   const Comparator* GetComparator() const override { return comparator_; }
+  ColumnFamilyHandle* CloneHandle() const override {
+    return new ColumnFamilyHandleImplDummy(id_, comparator_);
+  }
 
  private:
   uint32_t id_;

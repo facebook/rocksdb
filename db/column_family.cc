@@ -106,6 +106,10 @@ const Comparator* ColumnFamilyHandleImpl::GetComparator() const {
   return cfd()->user_comparator();
 }
 
+ColumnFamilyHandle* ColumnFamilyHandleImpl::CloneHandle() const {
+  return new ColumnFamilyHandleImpl(this->cfd_, this->db_, this->mutex_);
+}
+
 void GetIntTblPropCollectorFactory(
     const ImmutableCFOptions& ioptions,
     std::vector<std::unique_ptr<IntTblPropCollectorFactory>>*
