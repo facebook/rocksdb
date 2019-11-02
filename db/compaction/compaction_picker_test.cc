@@ -613,6 +613,54 @@ TEST_F(CompactionPickerTest, UniversalPeriodicCompaction4) {
               compaction->start_level() != compaction->output_level());
 }
 
+TEST_F(CompactionPickerTest, UniversalPeriodicCompaction5) {
+  // Test single L0 file periodic compaction triggering.
+  const uint64_t kFileSize = 100000;
+
+  mutable_cf_options_.periodic_compaction_seconds = 1000;
+  UniversalCompactionPicker universal_compaction_picker(ioptions_, &icmp_);
+
+  NewVersionStorage(5, kCompactionStyleUniversal);
+
+  Add(0, 6U, "150", "200", kFileSize, 0, 500, 550);
+  UpdateVersionStorageInfo();
+  vstorage_->TEST_AddFileMarkedForPeriodicCompaction(0, file_map_[6].first);
+
+  std::unique_ptr<Compaction> compaction(
+      universal_compaction_picker.PickCompaction(
+          cf_name_, mutable_cf_options_, vstorage_.get(), &log_buffer_));
+  ASSERT_TRUE(compaction);
+  ASSERT_EQ(0, compaction->start_level());
+  ASSERT_EQ(1U, compaction->num_input_files(0));
+  ASSERT_EQ(6U, compaction->input(0, 0)->fd.GetNumber());
+  ASSERT_EQ(4U, compaction->output_level());
+}
+
+TEST_F(CompactionPickerTest, UniversalPeriodicCompaction6) {
+  // Test single sorted run non-L0 periodic compaction
+  const uint64_t kFileSize = 100000;
+
+  mutable_cf_options_.periodic_compaction_seconds = 1000;
+  UniversalCompactionPicker universal_compaction_picker(ioptions_, &icmp_);
+
+  NewVersionStorage(5, kCompactionStyleUniversal);
+
+  Add(4, 5U, "150", "200", kFileSize, 0, 500, 550);
+  Add(4, 6U, "350", "400", kFileSize, 0, 500, 550);
+  UpdateVersionStorageInfo();
+  vstorage_->TEST_AddFileMarkedForPeriodicCompaction(4, file_map_[6].first);
+
+  std::unique_ptr<Compaction> compaction(
+      universal_compaction_picker.PickCompaction(
+          cf_name_, mutable_cf_options_, vstorage_.get(), &log_buffer_));
+  ASSERT_TRUE(compaction);
+  ASSERT_EQ(4, compaction->start_level());
+  ASSERT_EQ(2U, compaction->num_input_files(0));
+  ASSERT_EQ(5U, compaction->input(0, 0)->fd.GetNumber());
+  ASSERT_EQ(6U, compaction->input(0, 1)->fd.GetNumber());
+  ASSERT_EQ(4U, compaction->output_level());
+}
+
 TEST_F(CompactionPickerTest, NeedsCompactionFIFO) {
   NewVersionStorage(1, kCompactionStyleFIFO);
   const int kFileCount =
