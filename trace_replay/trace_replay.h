@@ -178,6 +178,8 @@ class Tracer {
   TraceOptions trace_options_;
   std::unique_ptr<TraceWriter> trace_writer_;
   uint64_t trace_request_count_;
+  // Each query being traced is paired with a global unique ID. The trace record
+  // at the begin and at the end have the same record_guid
   uint64_t record_guid_counter_;
 };
 
@@ -234,7 +236,11 @@ class Replayer {
   Env* env_;
   std::unique_ptr<TraceReader> trace_reader_;
   std::unordered_map<uint32_t, ColumnFamilyHandle*> cf_map_;
+  // If user want to speed up the replay, user can specify it
   uint32_t fast_forward_;
+  // When reading the trace header, the trace file version can be parsed.
+  // Replayer will use different decode method to get the trace content based
+  // on different trace file version.
   int trace_file_version_;
 };
 

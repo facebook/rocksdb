@@ -563,6 +563,9 @@ Status Replayer::MultiThreadReplay(uint32_t threads_num) {
     // TODO: Add better error handling.
     s = Status::OK();
   }
+
+  // When the loop is finished, if some of the jobs in the queue that are not
+  // executed, they will be dropped.
   thread_pool.JoinAllThreads();
   return s;
 }
@@ -639,7 +642,6 @@ void Replayer::BGWorkGet(void* arg) {
   } else {
     ra->db->Get(ra->roptions, (*cf_map)[cf_id], key, &value);
   }
-
   return;
 }
 
@@ -658,7 +660,6 @@ void Replayer::BGWorkWriteBatch(void* arg) {
     batch_data = tmp_data;
   }
   WriteBatch batch(batch_data.ToString());
-
   ra->db->Write(ra->woptions, &batch);
   return;
 }
