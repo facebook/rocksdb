@@ -10,6 +10,7 @@ import org.junit.Test;
 import org.junit.rules.TemporaryFolder;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.junit.Assert.fail;
 
 public class RocksIteratorTest {
 
@@ -23,8 +24,8 @@ public class RocksIteratorTest {
   @Test
   public void rocksIterator() throws RocksDBException {
     try (final Options options = new Options()
-        .setCreateIfMissing(true)
-        .setCreateMissingColumnFamilies(true);
+             .setCreateIfMissing(true)
+             .setCreateMissingColumnFamilies(true);
          final RocksDB db = RocksDB.open(options,
              dbFolder.getRoot().getAbsolutePath())) {
       db.put("key1".getBytes(), "value1".getBytes());
@@ -94,6 +95,63 @@ public class RocksIteratorTest {
         iterator.seekForPrev("key3".getBytes());
         assertThat(iterator.isValid()).isTrue();
         assertThat(iterator.key()).isEqualTo("key2".getBytes());
+      }
+    }
+  }
+
+  @Test
+  public void rocksIteratorReleaseAfterCfClose() throws RocksDBException {
+    try (final Options options = new Options()
+             .setCreateIfMissing(true)
+             .setCreateMissingColumnFamilies(true);
+         final RocksDB db = RocksDB.open(options,
+             this.dbFolder.getRoot().getAbsolutePath())) {
+      db.put("key".getBytes(), "value".getBytes());
+
+      // Release iterator after default CF close
+      try (final RocksIterator iterator = db.newIterator()) {
+        // In fact, calling close() on default CF has no effect
+        db.getDefaultColumnFamily().close();
+
+        iterator.seekToFirst();
+        assertThat(iterator.isValid()).isTrue();
+        assertThat(iterator.key()).isEqualTo("key".getBytes());
+        assertThat(iterator.value()).isEqualTo("value".getBytes());
+      }
+
+      // Release iterator after custom CF close
+      ColumnFamilyDescriptor cfd1 = new ColumnFamilyDescriptor("cf1".getBytes());
+      ColumnFamilyHandle cfHandle1 = db.createColumnFamily(cfd1);
+      db.put(cfHandle1, "key1".getBytes(), "value1".getBytes());
+
+      try (final RocksIterator iterator = db.newIterator(cfHandle1)) {
+        cfHandle1.close();
+
+        iterator.seekToFirst();
+        assertThat(iterator.isValid()).isTrue();
+        assertThat(iterator.key()).isEqualTo("key1".getBytes());
+        assertThat(iterator.value()).isEqualTo("value1".getBytes());
+      }
+
+      // Release iterator after custom CF drop & close
+      ColumnFamilyDescriptor cfd2 = new ColumnFamilyDescriptor("cf2".getBytes());
+      ColumnFamilyHandle cfHandle2 = db.createColumnFamily(cfd2);
+      db.put(cfHandle2, "key2".getBytes(), "value2".getBytes());
+
+      try (final RocksIterator iterator = db.newIterator(cfHandle2)) {
+        db.dropColumnFamily(cfHandle2);
+        cfHandle2.close();
+
+        iterator.seekToFirst();
+        assertThat(iterator.isValid()).isTrue();
+        assertThat(iterator.key()).isEqualTo("key2".getBytes());
+        assertThat(iterator.value()).isEqualTo("value2".getBytes());
+      }
+
+      try (RocksIterator iter = db.newIterator(cfHandle2)){
+        fail();
+      } catch (AssertionError e) {
+        // assert(isOwningHandle())
       }
     }
   }
