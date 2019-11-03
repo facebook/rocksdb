@@ -13,8 +13,9 @@ import java.util.Objects;
  * ColumnFamily Pointers.
  */
 public class ColumnFamilyHandle extends RocksObject {
-  ColumnFamilyHandle(final RocksDB rocksDB,
-      final long nativeHandle) {
+  final RocksDB rocksDB_;
+
+  ColumnFamilyHandle(final RocksDB rocksDB, final long nativeHandle) {
     super(nativeHandle);
     // rocksDB must point to a valid RocksDB instance;
     assert(rocksDB != null);
@@ -32,6 +33,7 @@ public class ColumnFamilyHandle extends RocksObject {
    * @throws RocksDBException if an error occurs whilst retrieving the name.
    */
   public byte[] getName() throws RocksDBException {
+    assert(isOwningHandle() || isDefaultColumnFamily());
     return getName(nativeHandle_);
   }
 
@@ -41,6 +43,7 @@ public class ColumnFamilyHandle extends RocksObject {
    * @return the ID of the Column Family.
    */
   public int getID() {
+    assert(isOwningHandle() || isDefaultColumnFamily());
     return getID(nativeHandle_);
   }
 
@@ -59,7 +62,7 @@ public class ColumnFamilyHandle extends RocksObject {
    *     descriptor.
    */
   public ColumnFamilyDescriptor getDescriptor() throws RocksDBException {
-    assert(isOwningHandle());
+    assert(isOwningHandle() || isDefaultColumnFamily());
     return getDescriptor(nativeHandle_);
   }
 
@@ -68,11 +71,11 @@ public class ColumnFamilyHandle extends RocksObject {
    * from being released before some operations based on the Column Family,
    * such as iterators for querying the Column Family.
    *
-   * @return a copy ColumnFamilyHandle
+   * @return a copy of ColumnFamilyHandle
    */
   public ColumnFamilyHandle cloneHandle() {
-    assert(isOwningHandle());
-    return new ColumnFamilyHandle(this.rocksDB_, cloneHandle(nativeHandle_));
+    assert(isOwningHandle() || isDefaultColumnFamily());
+    return new ColumnFamilyHandle(rocksDB_, cloneHandle(nativeHandle_));
   }
 
   @Override
@@ -103,6 +106,10 @@ public class ColumnFamilyHandle extends RocksObject {
     }
   }
 
+  protected boolean isDefaultColumnFamily() {
+    return nativeHandle_ == rocksDB_.getDefaultColumnFamily().nativeHandle_;
+  }
+
   /**
    * <p>Deletes underlying C++ iterator pointer.</p>
    *
@@ -123,6 +130,4 @@ public class ColumnFamilyHandle extends RocksObject {
   private native ColumnFamilyDescriptor getDescriptor(final long handle) throws RocksDBException;
   private native long cloneHandle(final long handle);
   @Override protected final native void disposeInternal(final long handle);
-
-  private final RocksDB rocksDB_;
 }

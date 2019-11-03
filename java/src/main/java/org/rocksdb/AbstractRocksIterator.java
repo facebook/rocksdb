@@ -21,10 +21,18 @@ package org.rocksdb;
  */
 public abstract class AbstractRocksIterator<P extends RocksObject>
     extends RocksObject implements RocksIteratorInterface {
+  final RocksObject owner_;
   final P parent_;
 
   protected AbstractRocksIterator(final P parent, final long nativeHandle) {
+    this(null, parent, nativeHandle);
+  }
+
+  protected AbstractRocksIterator(final RocksObject owner, final P parent,
+      final long nativeHandle) {
     super(nativeHandle);
+    // owner for pinning underlying C++ owner object, or it can be null
+    owner_ = owner;
     // parent must point to a valid RocksDB instance.
     assert (parent != null);
     // RocksIterator must hold a reference to the related parent instance
@@ -93,6 +101,9 @@ public abstract class AbstractRocksIterator<P extends RocksObject>
   protected void disposeInternal() {
     if (parent_.isOwningHandle()) {
       disposeInternal(nativeHandle_);
+    }
+    if (owner_ != null) {
+      owner_.close();
     }
   }
 

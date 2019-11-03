@@ -129,9 +129,8 @@ public class WriteBatchWithIndex extends AbstractWriteBatch {
   public RocksIterator newIteratorWithBase(
       final ColumnFamilyHandle columnFamilyHandle,
       final RocksIterator baseIterator) {
-    RocksIterator iterator = new RocksIterator(baseIterator.parent_,
-        iteratorWithBase(
-            nativeHandle_, columnFamilyHandle.nativeHandle_, baseIterator.nativeHandle_));
+    RocksIterator iterator = new RocksIterator(baseIterator, iteratorWithBase(
+        nativeHandle_, columnFamilyHandle.nativeHandle_, baseIterator.nativeHandle_));
     // when the iterator is deleted it will also delete the baseIterator
     baseIterator.disOwnNativeHandle();
     return iterator;
@@ -149,7 +148,7 @@ public class WriteBatchWithIndex extends AbstractWriteBatch {
    * point-in-timefrom baseIterator and modifications made in this write batch.
    */
   public RocksIterator newIteratorWithBase(final RocksIterator baseIterator) {
-    return newIteratorWithBase(baseIterator.parent_, baseIterator);
+    return newIteratorWithBase(baseIterator.parent_.getDefaultColumnFamily(), baseIterator);
   }
 
   /**
