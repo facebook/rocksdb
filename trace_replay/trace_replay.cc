@@ -363,13 +363,12 @@ Status Replayer::SetFastForward(uint32_t fast_forward) {
 Status Replayer::Replay() {
   Status s;
   Trace header;
-  TracerHelper helper;
   int db_version;
   s = ReadHeader(&header);
   if (!s.ok()) {
     return s;
   }
-  s = helper.ParseTraceHeader(header, &trace_file_version_, &db_version);
+  s = TracerHelper::ParseTraceHeader(header, &trace_file_version_, &db_version);
   if (!s.ok()) {
     return s;
   }
@@ -491,13 +490,12 @@ Status Replayer::Replay() {
 Status Replayer::MultiThreadReplay(uint32_t threads_num) {
   Status s;
   Trace header;
-  TracerHelper helper;
   int db_version;
   s = ReadHeader(&header);
   if (!s.ok()) {
     return s;
   }
-  s = helper.ParseTraceHeader(header, &trace_file_version_, &db_version);
+  s = TracerHelper::ParseTraceHeader(header, &trace_file_version_, &db_version);
   if (!s.ok()) {
     return s;
   }
