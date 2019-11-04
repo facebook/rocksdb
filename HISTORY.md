@@ -1,10 +1,10 @@
 # Rocksdb Change Log
 ## Unreleased
 ### Public API Change
+* TTL Compactions in Level compaction style now initiate successive cascading compactions on a key range so that it reaches the bottom level quickly on TTL expiry. `creation_time` table property for compaction output files is now set to the minimum of the creation times of all compaction inputs.
 * Changed the default value of periodic_compaction_seconds to `UINT64_MAX` which allows RocksDB to auto-tune periodic compaction scheduling. When using the default value, periodic compactions are now auto-enabled if a compaction filter is used. A value of `0` will turn off the feature completely.
 * With FIFO compaction style, options.periodic_compaction_seconds will have the same meaning as options.ttl. Whichever stricter will be used. With the default options.periodic_compaction_seconds value with options.ttl's default of 0, RocksDB will give a default of 30 days.
-* Added an API GetCreationTimeOfOldestFile(uint64_t* creation_time) to get the
-file_creation_time of the oldest SST file in the DB. 
+* Added an API GetCreationTimeOfOldestFile(uint64_t* creation_time) to get the file_creation_time of the oldest SST file in the DB.
 
 ### New Features
 * Universal compaction to support options.periodic_compaction_seconds. A full compaction will be triggered if any file is over the threshold.
