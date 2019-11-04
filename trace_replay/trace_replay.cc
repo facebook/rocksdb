@@ -69,7 +69,7 @@ void TraceCodingHelper::EncodeGuidAndLatency(std::string* dst,
                                              uint64_t record_guid,
                                              uint64_t latency) {
   PutFixed64(dst, record_guid);
-  PutFixed32(dst, latency);
+  PutFixed64(dst, latency);
 }
 
 Status TracerHelper::ParseVersionStr(std::string& v_string, int* v_num) {
