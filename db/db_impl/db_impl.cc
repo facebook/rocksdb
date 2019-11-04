@@ -3852,7 +3852,7 @@ Status DBImpl::IngestExternalFiles(
         mutex_.Unlock();
         status = AtomicFlushMemTables(cfds_to_flush, flush_opts,
                                       FlushReason::kExternalFileIngestion,
-                                      true /* writes_stopped */, true /* nonmem_writes_stopped */);
+                                      true /* writes_stopped */);
         mutex_.Lock();
       } else {
         for (size_t i = 0; i != num_cfs; ++i) {
@@ -3863,7 +3863,7 @@ Status DBImpl::IngestExternalFiles(
                     ->cfd();
             status = FlushMemTable(cfd, flush_opts,
                                    FlushReason::kExternalFileIngestion,
-                                   true /* writes_stopped */, true /* nonmem_writes_stopped */);
+                                   true /* writes_stopped */);
             mutex_.Lock();
             if (!status.ok()) {
               break;
