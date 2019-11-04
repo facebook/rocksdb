@@ -77,6 +77,7 @@ ROCKSDB_PREPROCESSOR_FLAGS = [
     # Directories with files for #include
     "-I" + REPO_PATH + "include/",
     "-I" + REPO_PATH,
+    "-I" + REPO_PATH + "third-party/folly/",
 ]
 
 ROCKSDB_ARCH_PREPROCESSOR_FLAGS = {

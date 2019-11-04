@@ -4,6 +4,8 @@
 //  (found in the LICENSE.Apache file in the root directory).
 #pragma once
 
+#include <folly/ConstexprMath.h>
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -13,9 +15,6 @@
 #include "util/bloom_impl.h"
 #include "util/hash.h"
 
-#include "third-party/folly/folly/ConstexprMath.h"
-
-#include <memory>
 
 namespace rocksdb {
 class Slice;
