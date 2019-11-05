@@ -3551,7 +3551,6 @@ TEST_F(DBCompactionTest, LevelTtlCascadingCompactions) {
     ASSERT_OK(Put(Key(i), RandomString(&rnd, kValueSize)));
   }
   Flush();
-  // MoveFilesToLevel(6);
   for (int i = 101; i <= 200; ++i) {
     ASSERT_OK(Put(Key(i), RandomString(&rnd, kValueSize)));
   }
@@ -3564,7 +3563,6 @@ TEST_F(DBCompactionTest, LevelTtlCascadingCompactions) {
     ASSERT_OK(Put(Key(i), RandomString(&rnd, kValueSize)));
   }
   Flush();
-  // MoveFilesToLevel(4);
   for (int i = 51; i <= 150; ++i) {
     ASSERT_OK(Put(Key(i), RandomString(&rnd, kValueSize)));
   }
