@@ -1386,9 +1386,12 @@ TEST_P(WritePreparedTransactionTest, MaxCatchupWithNewSnapshot) {
       std::this_thread::yield();
     }
     for (int i = 0; i < 10; i++) {
+      SequenceNumber max_lower_bound = wp_db->max_evicted_seq_;
       auto snap = db->GetSnapshot();
       if (snap->GetSequenceNumber() != 0) {
-        ASSERT_LT(wp_db->max_evicted_seq_, snap->GetSequenceNumber());
+        // Value of max_evicted_seq_ when snapshot was taken in unknown. We thus
+        // compare with the lower bound instead as an approximation.
+        ASSERT_LT(max_lower_bound, snap->GetSequenceNumber());
       }  // seq 0 is ok to be less than max since nothing is visible to it
       db->ReleaseSnapshot(snap);
     }
