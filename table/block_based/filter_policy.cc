@@ -211,7 +211,8 @@ class FastLocalBloomBitsBuilder : public BuiltinFilterBitsBuilder {
   }
 
   virtual Slice Finish(std::unique_ptr<const char[]>* buf) override {
-    uint32_t len_with_metadata = CalculateSpace(static_cast<uint32_t>(hash_entries_.size()));
+    uint32_t len_with_metadata =
+        CalculateSpace(static_cast<uint32_t>(hash_entries_.size()));
     char* data = new char[len_with_metadata];
     memset(data, 0, len_with_metadata);
 
