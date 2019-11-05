@@ -166,7 +166,7 @@ class WriteBatchWithIndex : public WriteBatchBase {
   // called.
   Iterator* NewIteratorWithBase(ColumnFamilyHandle* column_family,
                                 Iterator* base_iterator,
-                                const ReadOptions *opts = nullptr);
+                                const ReadOptions* opts = nullptr);
   // default column family
   Iterator* NewIteratorWithBase(Iterator* base_iterator);
 
