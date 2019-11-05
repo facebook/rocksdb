@@ -1833,19 +1833,8 @@ INSTANTIATE_TEST_CASE_P(
     // Param 1 - Uncompressed cache enabled
     // Param 2 - Data compression enabled
     // Param 3 - ReadOptions::fill_cache
-    ::testing::Values(std::make_tuple(false, true, true, true),
-                      std::make_tuple(true, true, true, true),
-                      std::make_tuple(false, true, false, true),
-                      std::make_tuple(false, true, true, false),
-                      std::make_tuple(true, true, true, false),
-                      std::make_tuple(false, true, false, false),
-                      std::make_tuple(false, false, true, true),
-                      std::make_tuple(true, false, true, true),
-                      std::make_tuple(false, false, false, true),
-                      std::make_tuple(false, false, true, false),
-                      std::make_tuple(true, false, true, false),
-                      std::make_tuple(false, false, false, false),
-                      std::make_tuple(true, false, false, true)));
+    ::testing::Combine(::testing::Bool(), ::testing::Bool(),
+                       ::testing::Bool(), testing::Bool()));
 
 class DBBasicTestWithTimestampWithParam
     : public DBTestBase,
