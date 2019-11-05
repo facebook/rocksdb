@@ -225,10 +225,7 @@ class FastLocalBloomBitsBuilder : public BuiltinFilterBitsBuilder {
 
     uint32_t len = len_with_metadata - 5;
     if (len > 0) {
-      for (auto h : hash_entries_) {
-        FastLocalBloomImpl::AddHash(Lower32of64(h), Upper32of64(h), len,
-                                    num_probes_, data);
-      }
+      AddAllEntries(data, len);
     }
 
     // -1 = Marker for newer Bloom implementations
@@ -261,6 +258,52 @@ class FastLocalBloomBitsBuilder : public BuiltinFilterBitsBuilder {
   }
 
  private:
+  void AddAllEntries(char* data, uint32_t len) {
+    // Simple version without prefetching:
+    //
+    // for (auto h : hash_entries_) {
+    //   FastLocalBloomImpl::AddHash(Lower32of64(h), Upper32of64(h), len,
+    //                               num_probes_, data);
+    // }
+
+    uint32_t num_entries = static_cast<uint32_t>(hash_entries_.size());
+    constexpr size_t kBufferMask = 7;
+    static_assert(((kBufferMask + 1) & kBufferMask) == 0,
+                  "Must be power of 2 minus 1");
+
+    std::array<uint32_t, kBufferMask + 1> hashes;
+    std::array<uint32_t, kBufferMask + 1> byte_offsets;
+
+    // Prime the buffer
+    size_t i = 0;
+    for (; i <= kBufferMask && i < num_entries; ++i) {
+      uint64_t h = hash_entries_[i];
+      FastLocalBloomImpl::PrepareHash(Lower32of64(h), len, data,
+                                      /*out*/ &byte_offsets[i]);
+      hashes[i] = Upper32of64(h);
+    }
+
+    // Process and buffer
+    for (; i < num_entries; ++i) {
+      uint32_t& hash_ref = hashes[i & kBufferMask];
+      uint32_t& byte_offset_ref = byte_offsets[i & kBufferMask];
+      // Process (add)
+      FastLocalBloomImpl::AddHashPrepared(hash_ref, num_probes_,
+                                          data + byte_offset_ref);
+      // And buffer
+      uint64_t h = hash_entries_[i];
+      FastLocalBloomImpl::PrepareHash(Lower32of64(h), len, data,
+                                      /*out*/ &byte_offset_ref);
+      hash_ref = Upper32of64(h);
+    }
+
+    // Finish processing
+    for (i = 0; i <= kBufferMask && i < num_entries; ++i) {
+      FastLocalBloomImpl::AddHashPrepared(hashes[i], num_probes_,
+                                          data + byte_offsets[i]);
+    }
+  }
+
   int bits_per_key_;
   int num_probes_;
   std::vector<uint64_t> hash_entries_;
@@ -281,19 +324,19 @@ class FastLocalBloomBitsReader : public FilterBitsReader {
   bool MayMatch(const Slice& key) override {
     uint64_t h = GetSliceHash64(key);
     uint32_t byte_offset;
-    FastLocalBloomImpl::PrepareHashMayMatch(Lower32of64(h), len_bytes_, data_,
-                                            /*out*/ &byte_offset);
+    FastLocalBloomImpl::PrepareHash(Lower32of64(h), len_bytes_, data_,
+                                    /*out*/ &byte_offset);
     return FastLocalBloomImpl::HashMayMatchPrepared(Upper32of64(h), num_probes_,
                                                     data_ + byte_offset);
   }
 
   virtual void MayMatch(int num_keys, Slice** keys, bool* may_match) override {
-    std::array<uint32_t,MultiGetContext::MAX_BATCH_SIZE> hashes;
-    std::array<uint32_t,MultiGetContext::MAX_BATCH_SIZE> byte_offsets;
+    std::array<uint32_t, MultiGetContext::MAX_BATCH_SIZE> hashes;
+    std::array<uint32_t, MultiGetContext::MAX_BATCH_SIZE> byte_offsets;
     for (int i = 0; i < num_keys; ++i) {
       uint64_t h = GetSliceHash64(*keys[i]);
-      FastLocalBloomImpl::PrepareHashMayMatch(Lower32of64(h), len_bytes_, data_,
-                                              /*out*/ &byte_offsets[i]);
+      FastLocalBloomImpl::PrepareHash(Lower32of64(h), len_bytes_, data_,
+                                      /*out*/ &byte_offsets[i]);
       hashes[i] = Upper32of64(h);
     }
     for (int i = 0; i < num_keys; ++i) {
@@ -350,8 +393,8 @@ class LegacyBloomBitsReader : public FilterBitsReader {
   }
 
   virtual void MayMatch(int num_keys, Slice** keys, bool* may_match) override {
-    uint32_t hashes[MultiGetContext::MAX_BATCH_SIZE];
-    uint32_t byte_offsets[MultiGetContext::MAX_BATCH_SIZE];
+    std::array<uint32_t, MultiGetContext::MAX_BATCH_SIZE> hashes;
+    std::array<uint32_t, MultiGetContext::MAX_BATCH_SIZE> byte_offsets;
     for (int i = 0; i < num_keys; ++i) {
       hashes[i] = BloomHash(*keys[i]);
       LegacyFullFilterImpl::PrepareHashMayMatch(hashes[i], num_lines_, data_,
