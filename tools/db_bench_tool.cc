@@ -1005,19 +1005,19 @@ DEFINE_uint64(
     "is the global rate in bytes/second.");
 
 // the parameters of mix_graph
-DEFINE_double(prefix_dist_a, 0.0,
+DEFINE_double(keyrange_dist_a, 0.0,
               "The parameter 'a' of prefix average access distribution "
               "f(x)=a*exp(b*x)+c*exp(d*x)");
-DEFINE_double(prefix_dist_b, 0.0,
+DEFINE_double(keyrange_dist_b, 0.0,
               "The parameter 'b' of prefix average access distribution "
               "f(x)=a*exp(b*x)+c*exp(d*x)");
-DEFINE_double(prefix_dist_c, 0.0,
+DEFINE_double(keyrange_dist_c, 0.0,
               "The parameter 'c' of prefix average access distribution"
               "f(x)=a*exp(b*x)+c*exp(d*x)");
-DEFINE_double(prefix_dist_d, 0.0,
+DEFINE_double(keyrange_dist_d, 0.0,
               "The parameter 'd' of prefix average access distribution"
               "f(x)=a*exp(b*x)+c*exp(d*x)");
-DEFINE_int64(prefix_num, 1,
+DEFINE_int64(keyrange_num, 1,
              "The number of key ranges that are in the same prefix "
              "group, each prefix range will have its key acccess "
              "distribution");
@@ -5050,95 +5050,111 @@ class Benchmark {
     }
   };
 
-  // PrefixUnit is the struct of a key-range. It is used in a key-range vector
-  // to transfer a random value to one key-range based on the hotness.
-  struct PrefixUnit {
-    int64_t prefix_start;
-    int64_t prefix_access;
-    int64_t prefix_keys;
+  // KeyrangeUnit is the struct of a keyrange. It is used in a keyrange vector
+  // to transfer a random value to one keyrange based on the hotness.
+  struct KeyrangeUnit {
+    int64_t keyrange_start;
+    int64_t keyrange_access;
+    int64_t keyrange_keys;
   };
 
   // From our observations, the prefix hotness (key-range hotness) follows
   // the two-term-exponential distribution: f(x) = a*exp(b*x) + c*exp(d*x).
   // However, we cannot directly use the inverse function to decide a
   // key-range from a random distribution. To achieve it, we create a list of
-  // PrefixUnit, each PrefixUnit occupies a range of integers whose size is
+  // KeyrangeUnit, each KeyrangeUnit occupies a range of integers whose size is
   // decided based on the hotness of the key-range. When a random value is
-  // generated based on uniform distribution, we map it to the PrefixUnit Vec
-  // and one PrefixUnit is selected. The probability of one PrefixUnit being
-  // selected is the same as the hotness of this PrefixUnit. After that, the
-  // key can be randomly allocated to the key-range of this PrefixUnit, or we
+  // generated based on uniform distribution, we map it to the KeyrangeUnit Vec
+  // and one KeyrangeUnit is selected. The probability of a  KeyrangeUnit being
+  // selected is the same as the hotness of this KeyrangeUnit. After that, the
+  // key can be randomly allocated to the key-range of this KeyrangeUnit, or we
   // can based on the power distribution (y=ax^b) to generate the offset of
   // the key in the selected key-range. In this way, we generate the keyID
   // based on the hotness of the prefix and also the key hotness distribution.
   class GenerateTwoTermExpKeys {
    public:
-    int64_t prefix_rand_max_;
-    int64_t prefix_size_;
-    int64_t prefix_num_;
+    int64_t keyrange_rand_max_;
+    int64_t keyrange_size_;
+    int64_t keyrange_num_;
     bool initiated_;
-    std::vector<PrefixUnit> prefix_set_;
+    std::vector<KeyrangeUnit> keyrange_set_;
 
     GenerateTwoTermExpKeys() {
-      prefix_rand_max_ = FLAGS_num;
+      keyrange_rand_max_ = FLAGS_num;
       initiated_ = false;
     }
 
     ~GenerateTwoTermExpKeys() {}
 
-    // Initiate the PrefixUnit vector and calculate the size of each
-    // PrefixUnit.
+    // Initiate the KeyrangeUnit vector and calculate the size of each
+    // KeyrangeUnit.
     Status InitiateExpDistribution(int64_t total_keys, double prefix_a,
                                    double prefix_b, double prefix_c,
                                    double prefix_d) {
       int64_t amplify = 0;
-      int64_t prefix_start = 0;
+      int64_t keyrange_start = 0;
       initiated_ = true;
-      if (FLAGS_prefix_num <= 0) {
-        prefix_num_ = 1;
+      if (FLAGS_keyrange_num <= 0) {
+        keyrange_num_ = 1;
       } else {
-        prefix_num_ = FLAGS_prefix_num;
+        keyrange_num_ = FLAGS_keyrange_num;
       }
-      prefix_size_ = total_keys / prefix_num_;
+      keyrange_size_ = total_keys / keyrange_num_;
 
       // Calculate the key-range shares size based on the input parameters
-      for (int64_t pfx = prefix_num_; pfx >= 1; pfx--) {
-        double prefix_p = prefix_a * std::exp(prefix_b * pfx) +
-                          prefix_c * std::exp(prefix_d * pfx);
-
-        if (prefix_p < std::pow(10.0, -16.0)) {
-          prefix_p = 0.0;
+      for (int64_t pfx = keyrange_num_; pfx >= 1; pfx--) {
+        // Step 1. Calculate the probability that this key range will be
+        // accessed in a query. It is based on the two-term expoential
+        // distribution
+        double keyrange_p = prefix_a * std::exp(prefix_b * pfx) +
+                            prefix_c * std::exp(prefix_d * pfx);
+        if (keyrange_p < std::pow(10.0, -16.0)) {
+          keyrange_p = 0.0;
         }
-        if (amplify == 0 && prefix_p > 0) {
-          amplify = static_cast<int64_t>(std::floor(1 / prefix_p)) + 1;
+        // Step 2. Calculate the amplify
+        // In order to allocate a query to a key-range based on the random
+        // number generated for this query, we need to extend the probability
+        // of each key range from [0,1] to [0, amplify]. Amplify is calculated
+        // by 1/(smallest key-range probability). In this way, we ensure that
+        // all key-ranges are assigned with an Integer that  >=0
+        if (amplify == 0 && keyrange_p > 0) {
+          amplify = static_cast<int64_t>(std::floor(1 / keyrange_p)) + 1;
         }
 
-        PrefixUnit p_unit;
-        p_unit.prefix_start = prefix_start;
-        if (0.0 >= prefix_p) {
-          p_unit.prefix_access = 0;
+        // Step 3. For each key-range, we calculate its position in the
+        // [0, amplify] range, including the start, the size (keyrange_access)
+        KeyrangeUnit p_unit;
+        p_unit.keyrange_start = keyrange_start;
+        if (0.0 >= keyrange_p) {
+          p_unit.keyrange_access = 0;
         } else {
-          p_unit.prefix_access =
-              static_cast<int64_t>(std::floor(amplify * prefix_p));
+          p_unit.keyrange_access =
+              static_cast<int64_t>(std::floor(amplify * keyrange_p));
         }
-        p_unit.prefix_keys = prefix_size_;
-        prefix_set_.push_back(p_unit);
-        prefix_start += p_unit.prefix_access;
+        p_unit.keyrange_keys = keyrange_size_;
+        keyrange_set_.push_back(p_unit);
+        keyrange_start += p_unit.keyrange_access;
       }
-      prefix_rand_max_ = prefix_start;
+      keyrange_rand_max_ = keyrange_start;
 
-      // Shuffle the key-ranges randomly
-      Random64 rand_loca(prefix_rand_max_);
-      for (int64_t i = 0; i < FLAGS_prefix_num; i++) {
-        int64_t pos = rand_loca.Next() % FLAGS_prefix_num;
-        std::swap(prefix_set_[i], prefix_set_[pos]);
+      // Step 4. Shuffle the key-ranges randomly
+      // Since the access probability is calculated from small to large,
+      // If we do not re-allocate them, hot key-ranges are always at the end
+      // and cold key-ranges are at the begin of the key space. Therefore, the
+      // key-ranges are shuffled and the rand seed is only decide by the
+      // key-range hotness distribution. With the same distribution parameters
+      // the shuffle results are the same.
+      Random64 rand_loca(keyrange_rand_max_);
+      for (int64_t i = 0; i < FLAGS_keyrange_num; i++) {
+        int64_t pos = rand_loca.Next() % FLAGS_keyrange_num;
+        std::swap(keyrange_set_[i], keyrange_set_[pos]);
       }
 
-      // Recalculate the prefix start postion after shuffling
+      // Step 5. Recalculate the prefix start postion after shuffling
       int64_t offset = 0;
-      for (auto& p_unit : prefix_set_) {
-        p_unit.prefix_start = offset;
-        offset += p_unit.prefix_access;
+      for (auto& p_unit : keyrange_set_) {
+        p_unit.keyrange_start = offset;
+        offset += p_unit.keyrange_access;
       }
 
       return Status::OK();
@@ -5147,31 +5163,31 @@ class Benchmark {
     // Generate the Key ID according to the input ini_rand and key distribution
     int64_t DistGetKeyID(int64_t ini_rand, double key_dist_a,
                          double key_dist_b) {
-      int64_t prefix_rand = ini_rand % prefix_rand_max_;
+      int64_t keyrange_rand = ini_rand % keyrange_rand_max_;
 
       // Calculate and select one key-range that contains the new key
-      int64_t start = 0, end = static_cast<int64_t>(prefix_set_.size());
+      int64_t start = 0, end = static_cast<int64_t>(keyrange_set_.size());
       while (start + 1 < end) {
         int64_t mid = start + (end - start) / 2;
-        if (prefix_rand < prefix_set_[mid].prefix_start) {
+        if (keyrange_rand < keyrange_set_[mid].keyrange_start) {
           end = mid;
         } else {
           start = mid;
         }
       }
-      int64_t prefix_id = start;
+      int64_t keyrange_id = start;
 
       // Select one key in the key-range and compose the keyID
       int64_t key_offset = 0, key_seed;
       if (key_dist_a == 0.0 && key_dist_b == 0.0) {
-        key_offset = ini_rand % prefix_size_;
+        key_offset = ini_rand % keyrange_size_;
       } else {
         key_seed = static_cast<int64_t>(
             ceil(std::pow((ini_rand / key_dist_a), (1 / key_dist_b))));
         Random64 rand_key(key_seed);
-        key_offset = static_cast<int64_t>(rand_key.Next()) % prefix_size_;
+        key_offset = static_cast<int64_t>(rand_key.Next()) % keyrange_size_;
       }
-      return prefix_size_ * prefix_id + key_offset;
+      return keyrange_size_ * keyrange_id + key_offset;
     }
   };
 
@@ -5223,12 +5239,12 @@ class Benchmark {
     }
 
     // Decide if user wants to use prefix based key generation
-    if (FLAGS_prefix_dist_a != 0.0 || FLAGS_prefix_dist_b != 0.0 ||
-        FLAGS_prefix_dist_c != 0.0 || FLAGS_prefix_dist_d != 0.0) {
+    if (FLAGS_keyrange_dist_a != 0.0 || FLAGS_keyrange_dist_b != 0.0 ||
+        FLAGS_keyrange_dist_c != 0.0 || FLAGS_keyrange_dist_d != 0.0) {
       use_prefix_modeling = true;
-      gen_exp.InitiateExpDistribution(FLAGS_num, FLAGS_prefix_dist_a,
-                                      FLAGS_prefix_dist_b, FLAGS_prefix_dist_c,
-                                      FLAGS_prefix_dist_d);
+      gen_exp.InitiateExpDistribution(
+          FLAGS_num, FLAGS_keyrange_dist_a, FLAGS_keyrange_dist_b,
+          FLAGS_keyrange_dist_c, FLAGS_keyrange_dist_d);
     }
 
     Duration duration(FLAGS_duration, reads_);
