@@ -7,6 +7,8 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
+#include <array>
+
 #include "rocksdb/filter_policy.h"
 
 #include "rocksdb/slice.h"
@@ -22,7 +24,7 @@ namespace rocksdb {
 
 namespace {
 
-typedef LegacyLocalityBloomImpl</*ExtraRotates*/ false> LegacyFullFilterImpl;
+using LegacyFullFilterImpl = LegacyLocalityBloomImpl</*ExtraRotates*/ false>;
 
 class LegacyBloomBitsBuilder : public BuiltinFilterBitsBuilder {
  public:
@@ -199,7 +201,7 @@ class FastLocalBloomBitsBuilder : public BuiltinFilterBitsBuilder {
   FastLocalBloomBitsBuilder(const FastLocalBloomBitsBuilder&) = delete;
   void operator=(const FastLocalBloomBitsBuilder&) = delete;
 
-  ~FastLocalBloomBitsBuilder() {}
+  ~FastLocalBloomBitsBuilder() override {}
 
   virtual void AddKey(const Slice& key) override {
     uint64_t hash = GetSliceHash64(key);
@@ -286,8 +288,8 @@ class FastLocalBloomBitsReader : public FilterBitsReader {
   }
 
   virtual void MayMatch(int num_keys, Slice** keys, bool* may_match) override {
-    uint32_t hashes[MultiGetContext::MAX_BATCH_SIZE];
-    uint32_t byte_offsets[MultiGetContext::MAX_BATCH_SIZE];
+    std::array<uint32_t,MultiGetContext::MAX_BATCH_SIZE> hashes;
+    std::array<uint32_t,MultiGetContext::MAX_BATCH_SIZE> byte_offsets;
     for (int i = 0; i < num_keys; ++i) {
       uint64_t h = GetSliceHash64(*keys[i]);
       FastLocalBloomImpl::PrepareHashMayMatch(Lower32of64(h), len_bytes_, data_,
