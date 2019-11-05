@@ -220,10 +220,6 @@ default: all
 WARNING_FLAGS = -W -Wextra -Wall -Wsign-compare -Wshadow \
   -Wno-unused-parameter
 
-ifndef DISABLE_WARNING_AS_ERROR
-	WARNING_FLAGS += -Werror
-endif
-
 
 ifdef LUA_PATH
 
