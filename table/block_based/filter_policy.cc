@@ -211,12 +211,7 @@ class FastLocalBloomBitsBuilder : public BuiltinFilterBitsBuilder {
   }
 
   virtual Slice Finish(std::unique_ptr<const char[]>* buf) override {
-    uint32_t num_entries = static_cast<uint32_t>(hash_entries_.size());
-    if (num_entries != hash_entries_.size()) {
-      // overflow
-      num_entries = UINT32_MAX;
-    }
-    uint32_t len_with_metadata = CalculateSpace(num_entries);
+    uint32_t len_with_metadata = CalculateSpace(static_cast<uint32_t>(hash_entries_.size()));
     char* data = new char[len_with_metadata];
     memset(data, 0, len_with_metadata);
 
@@ -258,7 +253,7 @@ class FastLocalBloomBitsBuilder : public BuiltinFilterBitsBuilder {
   }
 
  private:
-  void AddAllEntries(char* data, uint32_t len) {
+  void AddAllEntries(char* data, uint32_t len) const {
     // Simple version without prefetching:
     //
     // for (auto h : hash_entries_) {
@@ -266,7 +261,7 @@ class FastLocalBloomBitsBuilder : public BuiltinFilterBitsBuilder {
     //                               num_probes_, data);
     // }
 
-    uint32_t num_entries = static_cast<uint32_t>(hash_entries_.size());
+    const size_t num_entries = hash_entries_.size();
     constexpr size_t kBufferMask = 7;
     static_assert(((kBufferMask + 1) & kBufferMask) == 0,
                   "Must be power of 2 minus 1");
