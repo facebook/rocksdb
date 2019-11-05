@@ -187,6 +187,31 @@ Status BlobDBImpl::Open(std::vector<ColumnFamilyHandle*>* handles) {
   }
   db_impl_ = static_cast_with_check<DBImpl, DB>(db_->GetRootDB());
 
+  // Initialize SST file <-> oldest blob file mapping.
+  std::vector<LiveFileMetaData> live_files;
+  db_->GetLiveFilesMetaData(&live_files);
+
+  for (const auto& live_file : live_files) {
+    const uint64_t sst_file_number = live_file.file_number;
+    const uint64_t blob_file_number = live_file.oldest_blob_file_number;
+
+    auto it = blob_files_.find(blob_file_number);
+    if (it == blob_files_.end()) {
+      // TODO log
+      continue;
+    }
+
+    BlobFile* const blob_file = it->second.get();
+    assert(blob_file);
+
+    blob_file->AddParentSstFile(sst_file_number);
+
+    ROCKS_LOG_INFO(db_options_.info_log,
+                   "Blob file %" PRIu64
+                   " is the oldest one referenced by SST file %" PRIu64,
+                   blob_file_number, sst_file_number);
+  }
+
   // Add trash files in blob dir to file delete scheduler.
   SstFileManagerImpl* sfm = static_cast<SstFileManagerImpl*>(
       db_impl_->immutable_db_options().sst_file_manager.get());
