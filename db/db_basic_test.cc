@@ -1619,8 +1619,8 @@ class DBBasicTestWithParallelIO
 
   bool fill_cache() { return fill_cache_; }
   bool compression_enabled() { return compression_enabled_; }
-  bool compressed_cache() { return compressed_cache_ != nullptr; }
-  bool uncompressed_cache() { return uncompressed_cache_ != nullptr; }
+  bool has_compressed_cache() { return compressed_cache_ != nullptr; }
+  bool has_uncompressed_cache() { return uncompressed_cache_ != nullptr; }
 
   static void SetUpTestCase() {}
   static void TearDownTestCase() {}
@@ -1797,9 +1797,9 @@ TEST_P(DBBasicTestWithParallelIO, MultiGet) {
 
   bool read_from_cache = false;
   if (fill_cache()) {
-    if (uncompressed_cache()) {
+    if (has_uncompressed_cache()) {
       read_from_cache = true;
-    } else if (compressed_cache() && compression_enabled()) {
+    } else if (has_compressed_cache() && compression_enabled()) {
       read_from_cache = true;
     }
   }
