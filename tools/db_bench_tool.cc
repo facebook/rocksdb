@@ -5147,6 +5147,8 @@ class Benchmark {
       Random64 rand_loca(keyrange_rand_max_);
       for (int64_t i = 0; i < FLAGS_keyrange_num; i++) {
         int64_t pos = rand_loca.Next() % FLAGS_keyrange_num;
+        assert(i >= 0 && i < static_cast<int64_t>(keyrange_set_.size()) &&
+               pos >= 0 && pos < static_cast<int64_t>(keyrange_set_.size()));
         std::swap(keyrange_set_[i], keyrange_set_[pos]);
       }
 
@@ -5169,6 +5171,7 @@ class Benchmark {
       int64_t start = 0, end = static_cast<int64_t>(keyrange_set_.size());
       while (start + 1 < end) {
         int64_t mid = start + (end - start) / 2;
+        assert(mid >= 0 && mid < static_cast<int64_t>(keyrange_set_.size()));
         if (keyrange_rand < keyrange_set_[mid].keyrange_start) {
           end = mid;
         } else {
