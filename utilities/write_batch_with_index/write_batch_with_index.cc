@@ -42,9 +42,8 @@ class BaseDeltaIterator : public Iterator {
         base_iterator_(base_iterator),
         delta_iterator_(delta_iterator),
         comparator_(comparator),
-        iterate_upper_bound_(read_options? read_options->iterate_upper_bound :
-                                           nullptr)
-        {}
+        iterate_upper_bound_(read_options ? read_options->iterate_upper_bound
+                                          : nullptr) {}
 
   ~BaseDeltaIterator() override {}
 
@@ -284,8 +283,8 @@ class BaseDeltaIterator : public Iterator {
           return;
         }
         if (iterate_upper_bound_) {
-          if (comparator_->Compare(delta_entry.key,
-                                   *iterate_upper_bound_) >= 0) {
+          if (comparator_->Compare(delta_entry.key, *iterate_upper_bound_) >=
+              0) {
             // out of upper bound -> finished.
             return;
           }
@@ -660,7 +659,7 @@ WBWIIterator* WriteBatchWithIndex::NewIterator(
 
 Iterator* WriteBatchWithIndex::NewIteratorWithBase(
     ColumnFamilyHandle* column_family, Iterator* base_iterator,
-    const ReadOptions *read_options) {
+    const ReadOptions* read_options) {
   if (rep->overwrite_key == false) {
     assert(false);
     return nullptr;
