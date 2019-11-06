@@ -1024,11 +1024,11 @@ void CheckColumnFamilyMeta(const ColumnFamilyMetaData& cf_meta) {
   uint64_t cf_size = 0;
   uint64_t cf_csize = 0;
   size_t file_count = 0;
-  for (auto level_meta : cf_meta.levels) {
+  for (const auto& level_meta : cf_meta.levels) {
     uint64_t level_size = 0;
     uint64_t level_csize = 0;
     file_count += level_meta.files.size();
-    for (auto file_meta : level_meta.files) {
+    for (const auto& file_meta : level_meta.files) {
       level_size += file_meta.size;
       ASSERT_EQ(file_meta.file_number, TableFileNameToNumber(file_meta.name));
       ASSERT_EQ(file_meta.oldest_blob_file_number, 999);
@@ -1041,17 +1041,23 @@ void CheckColumnFamilyMeta(const ColumnFamilyMetaData& cf_meta) {
   ASSERT_EQ(cf_meta.size, cf_size);
 }
 
+void CheckLivesFileMeta(const std::vector<LiveFileMetaData>& live_file_meta) {
+  for (const auto& meta : live_file_meta) {
+    ASSERT_EQ(meta.file_number, TableFileNameToNumber(meta.name));
+    ASSERT_EQ(meta.oldest_blob_file_number, 999);
+  }
+}
+
 #ifndef ROCKSDB_LITE
-TEST_F(DBTest, ColumnFamilyMetaDataTest) {
+TEST_F(DBTest, MetaDataTest) {
   Options options = CurrentOptions();
   options.create_if_missing = true;
   DestroyAndReopen(options);
 
   Random rnd(301);
   int key_index = 0;
-  ColumnFamilyMetaData cf_meta;
   for (int i = 0; i < 100; ++i) {
-    // Add a single blob reference
+    // Add a single blob reference to each file
     std::string blob_index;
     BlobIndex::EncodeBlob(&blob_index, /* blob_file_number */ 999,
                           /* offset */ 1234, /* size */ 5678, kNoCompression);
@@ -1065,10 +1071,15 @@ TEST_F(DBTest, ColumnFamilyMetaDataTest) {
 
     GenerateNewFile(&rnd, &key_index, /* nowait */ true);
     Flush();
-
-    db_->GetColumnFamilyMetaData(&cf_meta);
-    CheckColumnFamilyMeta(cf_meta);
   }
+
+  ColumnFamilyMetaData cf_meta;
+  db_->GetColumnFamilyMetaData(&cf_meta);
+  CheckColumnFamilyMeta(cf_meta);
+
+  std::vector<LiveFileMetaData> live_file_meta;
+  db_->GetLiveFilesMetaData(&live_file_meta);
+  CheckLivesFileMeta(live_file_meta);
 }
 
 namespace {
