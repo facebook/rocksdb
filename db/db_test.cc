@@ -24,6 +24,7 @@
 #endif
 
 #include "cache/lru_cache.h"
+#include "db/blob_index.h"
 #include "db/db_impl/db_impl.h"
 #include "db/db_test_util.h"
 #include "db/dbformat.h"
@@ -1029,6 +1030,8 @@ void CheckColumnFamilyMeta(const ColumnFamilyMetaData& cf_meta) {
     file_count += level_meta.files.size();
     for (auto file_meta : level_meta.files) {
       level_size += file_meta.size;
+      ASSERT_EQ(file_meta.file_number, TableFileNameToNumber(file_meta.name));
+      ASSERT_EQ(file_meta.oldest_blob_file_number, file_meta.file_number + 1000);
     }
     ASSERT_EQ(level_meta.size, level_size);
     cf_size += level_size;
@@ -1048,6 +1051,13 @@ TEST_F(DBTest, ColumnFamilyMetaDataTest) {
   int key_index = 0;
   ColumnFamilyMetaData cf_meta;
   for (int i = 0; i < 100; ++i) {
+    // Add a single blob reference that points to blob file number i + 1000
+    std::string blob_index;
+    BlobIndex::EncodeBlob(&blob_index, /* blob_file_number */ i + 1000,
+                          /* offset */ 1234, /* size */ 5678, kNoCompression);
+    Put(Key(key_index), blob_index);
+    ++key_index;
+
     GenerateNewFile(&rnd, &key_index);
     db_->GetColumnFamilyMetaData(&cf_meta);
     CheckColumnFamilyMeta(cf_meta);
