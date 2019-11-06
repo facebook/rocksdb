@@ -1020,31 +1020,91 @@ TEST_F(DBTest, FailMoreDbPaths) {
   ASSERT_TRUE(TryReopen(options).IsNotSupported());
 }
 
-void CheckColumnFamilyMeta(const ColumnFamilyMetaData& cf_meta) {
+void CheckColumnFamilyMeta(
+    const ColumnFamilyMetaData& cf_meta,
+    const std::vector<std::vector<FileMetaData>>& files_by_level) {
+  ASSERT_EQ(cf_meta.name, kDefaultColumnFamilyName);
+  ASSERT_EQ(cf_meta.levels.size(), files_by_level.size());
+
   uint64_t cf_size = 0;
-  uint64_t cf_csize = 0;
   size_t file_count = 0;
-  for (const auto& level_meta : cf_meta.levels) {
+
+  for (size_t i = 0; i < cf_meta.levels.size(); ++i) {
+    const auto& level_meta_from_cf = cf_meta.levels[i];
+    const auto& level_meta_from_files = files_by_level[i];
+
+    ASSERT_EQ(level_meta_from_cf.level, i);
+    ASSERT_EQ(level_meta_from_cf.files.size(), level_meta_from_files.size());
+
+    file_count += level_meta_from_cf.files.size();
+
     uint64_t level_size = 0;
-    uint64_t level_csize = 0;
-    file_count += level_meta.files.size();
-    for (const auto& file_meta : level_meta.files) {
-      level_size += file_meta.size;
-      ASSERT_EQ(file_meta.file_number, TableFileNameToNumber(file_meta.name));
-      ASSERT_EQ(file_meta.oldest_blob_file_number, 999);
+    for (size_t j = 0; j < level_meta_from_cf.files.size(); ++j) {
+      const auto& file_meta_from_cf = level_meta_from_cf.files[j];
+      const auto& file_meta_from_files = level_meta_from_files[j];
+
+      level_size += file_meta_from_cf.size;
+
+      ASSERT_EQ(file_meta_from_cf.file_number,
+                file_meta_from_files.fd.GetNumber());
+      ASSERT_EQ(file_meta_from_cf.file_number,
+                TableFileNameToNumber(file_meta_from_cf.name));
+      ASSERT_EQ(file_meta_from_cf.size, file_meta_from_files.fd.file_size);
+      ASSERT_EQ(file_meta_from_cf.smallest_seqno,
+                file_meta_from_files.fd.smallest_seqno);
+      ASSERT_EQ(file_meta_from_cf.largest_seqno,
+                file_meta_from_files.fd.largest_seqno);
+      ASSERT_EQ(file_meta_from_cf.smallestkey,
+                file_meta_from_files.smallest.user_key().ToString());
+      ASSERT_EQ(file_meta_from_cf.largestkey,
+                file_meta_from_files.largest.user_key().ToString());
+      ASSERT_EQ(file_meta_from_cf.oldest_blob_file_number,
+                file_meta_from_files.oldest_blob_file_number);
     }
-    ASSERT_EQ(level_meta.size, level_size);
+
+    ASSERT_EQ(level_meta_from_cf.size, level_size);
     cf_size += level_size;
-    cf_csize += level_csize;
   }
+
   ASSERT_EQ(cf_meta.file_count, file_count);
   ASSERT_EQ(cf_meta.size, cf_size);
 }
 
-void CheckLivesFileMeta(const std::vector<LiveFileMetaData>& live_file_meta) {
+void CheckLivesFileMeta(
+    const std::vector<LiveFileMetaData>& live_file_meta,
+    const std::vector<std::vector<FileMetaData>>& files_by_level) {
+  size_t total_file_count = 0;
+  for (const auto& f : files_by_level) {
+    total_file_count += f.size();
+  }
+
+  ASSERT_EQ(live_file_meta.size(), total_file_count);
+
+  int level = 0;
+  int i = 0;
+
   for (const auto& meta : live_file_meta) {
+    if (level != meta.level) {
+      level = meta.level;
+      i = 0;
+    }
+
+    ASSERT_LT(i, files_by_level[level].size());
+
+    const auto& expected_meta = files_by_level[level][i];
+
+    ASSERT_EQ(meta.column_family_name, kDefaultColumnFamilyName);
+    ASSERT_EQ(meta.file_number, expected_meta.fd.GetNumber());
     ASSERT_EQ(meta.file_number, TableFileNameToNumber(meta.name));
-    ASSERT_EQ(meta.oldest_blob_file_number, 999);
+    ASSERT_EQ(meta.size, expected_meta.fd.file_size);
+    ASSERT_EQ(meta.smallest_seqno, expected_meta.fd.smallest_seqno);
+    ASSERT_EQ(meta.largest_seqno, expected_meta.fd.largest_seqno);
+    ASSERT_EQ(meta.smallestkey, expected_meta.smallest.user_key().ToString());
+    ASSERT_EQ(meta.largestkey, expected_meta.largest.user_key().ToString());
+    ASSERT_EQ(meta.oldest_blob_file_number,
+              expected_meta.oldest_blob_file_number);
+
+    ++i;
   }
 }
 
@@ -1059,7 +1119,7 @@ TEST_F(DBTest, MetaDataTest) {
   for (int i = 0; i < 100; ++i) {
     // Add a single blob reference to each file
     std::string blob_index;
-    BlobIndex::EncodeBlob(&blob_index, /* blob_file_number */ 999,
+    BlobIndex::EncodeBlob(&blob_index, /* blob_file_number */ i + 1000,
                           /* offset */ 1234, /* size */ 5678, kNoCompression);
 
     WriteBatch batch;
@@ -1073,13 +1133,16 @@ TEST_F(DBTest, MetaDataTest) {
     Flush();
   }
 
+  std::vector<std::vector<FileMetaData>> files_by_level;
+  dbfull()->TEST_GetFilesMetaData(db_->DefaultColumnFamily(), &files_by_level);
+
   ColumnFamilyMetaData cf_meta;
   db_->GetColumnFamilyMetaData(&cf_meta);
-  CheckColumnFamilyMeta(cf_meta);
+  CheckColumnFamilyMeta(cf_meta, files_by_level);
 
   std::vector<LiveFileMetaData> live_file_meta;
   db_->GetLiveFilesMetaData(&live_file_meta);
-  CheckLivesFileMeta(live_file_meta);
+  CheckLivesFileMeta(live_file_meta, files_by_level);
 }
 
 namespace {
