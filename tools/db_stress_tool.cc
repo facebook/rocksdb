@@ -2227,7 +2227,15 @@ class StressTest {
 
         if (FLAGS_acquire_snapshot_one_in > 0 &&
             thread->rand.Uniform(FLAGS_acquire_snapshot_one_in) == 0) {
-          auto snapshot = db_->GetSnapshot();
+#ifndef ROCKSDB_LITE
+          auto db_impl = reinterpret_cast<DBImpl*>(db_->GetRootDB());
+          const bool ww_snapshot = thread->rand.OneIn(10);
+          const Snapshot* snapshot =
+              ww_snapshot ? db_impl->GetSnapshotForWriteConflictBoundary()
+                          : db_->GetSnapshot();
+#else
+          const Snapshot* snapshot = db_->GetSnapshot();
+#endif  // !ROCKSDB_LITE
           ReadOptions ropt;
           ropt.snapshot = snapshot;
           std::string value_at;
