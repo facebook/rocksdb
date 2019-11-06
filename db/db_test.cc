@@ -1129,7 +1129,9 @@ TEST_F(DBTest, MetaDataTest) {
 
     ++key_index;
 
+    // Fill up the rest of the file with random values.
     GenerateNewFile(&rnd, &key_index, /* nowait */ true);
+
     Flush();
   }
 
