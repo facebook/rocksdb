@@ -1566,8 +1566,12 @@ class DBBasicTestWithParallelIO
     Options options = CurrentOptions();
     Random rnd(301);
     BlockBasedTableOptions table_options;
-    table_options.pin_l0_filter_and_index_blocks_in_cache = true;
     table_options.block_cache = uncompressed_cache_;
+    if (table_options.block_cache == nullptr) {
+      table_options.no_block_cache = true;
+    } else {
+      table_options.pin_l0_filter_and_index_blocks_in_cache = true;
+    }
     table_options.block_cache_compressed = compressed_cache_;
     table_options.flush_block_policy_factory.reset(
                       new MyFlushBlockPolicyFactory());
@@ -1609,6 +1613,9 @@ class DBBasicTestWithParallelIO
   }
 
   bool fill_cache() { return fill_cache_; }
+  bool compression_enabled() { return compression_enabled_; }
+  bool has_compressed_cache() { return compressed_cache_ != nullptr; }
+  bool has_uncompressed_cache() { return uncompressed_cache_ != nullptr; }
 
   static void SetUpTestCase() {}
   static void TearDownTestCase() {}
@@ -1793,7 +1800,16 @@ TEST_P(DBBasicTestWithParallelIO, MultiGet) {
   ASSERT_TRUE(CheckValue(1, values[0].ToString()));
   ASSERT_TRUE(CheckValue(51, values[1].ToString()));
 
-  int expected_reads = random_reads + (fill_cache() ? 0 : 2);
+  bool read_from_cache = false;
+  if (fill_cache()) {
+    if (has_uncompressed_cache()) {
+      read_from_cache = true;
+    } else if (has_compressed_cache() && compression_enabled()) {
+      read_from_cache = true;
+    }
+  }
+
+  int expected_reads = random_reads + (read_from_cache ? 0 : 2);
   ASSERT_EQ(env_->random_read_counter_.Read(), expected_reads);
 
   keys.resize(10);
@@ -1811,7 +1827,7 @@ TEST_P(DBBasicTestWithParallelIO, MultiGet) {
     ASSERT_OK(statuses[i]);
     ASSERT_TRUE(CheckValue(key_ints[i], values[i].ToString()));
   }
-  expected_reads += (fill_cache() ? 2 : 4);
+  expected_reads += (read_from_cache ? 2 : 4);
   ASSERT_EQ(env_->random_read_counter_.Read(), expected_reads);
 }
 
@@ -1822,12 +1838,8 @@ INSTANTIATE_TEST_CASE_P(
     // Param 1 - Uncompressed cache enabled
     // Param 2 - Data compression enabled
     // Param 3 - ReadOptions::fill_cache
-    ::testing::Values(std::make_tuple(false, true, true, true),
-                      std::make_tuple(true, true, true, true),
-                      std::make_tuple(false, true, false, true),
-                      std::make_tuple(false, true, true, false),
-                      std::make_tuple(true, true, true, false),
-                      std::make_tuple(false, true, false, false)));
+    ::testing::Combine(::testing::Bool(), ::testing::Bool(),
+                       ::testing::Bool(), ::testing::Bool()));
 
 class DBBasicTestWithTimestampWithParam
     : public DBTestBase,

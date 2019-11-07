@@ -2368,36 +2368,45 @@ void BlockBasedTable::RetrieveMultipleBlocks(
         // MaybeReadBlockAndLoadToCache will insert into the block caches if
         // necessary. Since we're passing the raw block contents, it will
         // avoid looking up the block cache
-        s = MaybeReadBlockAndLoadToCache(nullptr, options, handle,
-              uncompression_dict, block_entry, BlockType::kData,
-              mget_iter->get_context, &lookup_data_block_context,
-              &raw_block_contents);
+        s = MaybeReadBlockAndLoadToCache(
+            nullptr, options, handle, uncompression_dict, block_entry,
+            BlockType::kData, mget_iter->get_context,
+            &lookup_data_block_context, &raw_block_contents);
+
+        // block_entry value could be null if no block cache is present, i.e
+        // BlockBasedTableOptions::no_block_cache is true and no compressed
+        // block cache is configured. In that case, fall
+        // through and set up the block explicitly
+        if (block_entry->GetValue() != nullptr) {
+          continue;
+        }
+      }
+
+      CompressionType compression_type =
+          raw_block_contents.get_compression_type();
+      BlockContents contents;
+      if (compression_type != kNoCompression) {
+        UncompressionContext context(compression_type);
+        UncompressionInfo info(context, uncompression_dict, compression_type);
+        s = UncompressBlockContents(info, req.result.data(), handle.size(),
+                                    &contents, footer.version(),
+                                    rep_->ioptions, memory_allocator);
       } else {
-        CompressionType compression_type =
-                raw_block_contents.get_compression_type();
-        BlockContents contents;
-        if (compression_type != kNoCompression) {
-          UncompressionContext context(compression_type);
-          UncompressionInfo info(context, uncompression_dict, compression_type);
-          s = UncompressBlockContents(info, req.result.data(), handle.size(),
-                    &contents, footer.version(), rep_->ioptions,
-                    memory_allocator);
+        if (scratch != nullptr) {
+          // If we used the scratch buffer, then the contents need to be
+          // copied to heap
+          Slice raw = Slice(req.result.data(), handle.size());
+          contents = BlockContents(
+              CopyBufferToHeap(GetMemoryAllocator(rep_->table_options), raw),
+              handle.size());
         } else {
-          if (scratch != nullptr) {
-            // If we used the scratch buffer, then the contents need to be
-            // copied to heap
-            Slice raw = Slice(req.result.data(), handle.size());
-            contents = BlockContents(CopyBufferToHeap(
-                  GetMemoryAllocator(rep_->table_options), raw),
-                  handle.size());
-          } else {
-            contents = std::move(raw_block_contents);
-          }
+          contents = std::move(raw_block_contents);
         }
-        if (s.ok()) {
-          (*results)[idx_in_batch].SetOwnedValue(new Block(std::move(contents),
-                global_seqno, read_amp_bytes_per_bit, ioptions.statistics));
-        }
+      }
+      if (s.ok()) {
+        (*results)[idx_in_batch].SetOwnedValue(
+            new Block(std::move(contents), global_seqno,
+                      read_amp_bytes_per_bit, ioptions.statistics));
       }
     }
     (*statuses)[idx_in_batch] = s;
