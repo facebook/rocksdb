@@ -1112,6 +1112,7 @@ void CheckLiveFilesMeta(
 TEST_F(DBTest, MetaDataTest) {
   Options options = CurrentOptions();
   options.create_if_missing = true;
+  options.disable_auto_compactions = true;
   DestroyAndReopen(options);
 
   Random rnd(301);
