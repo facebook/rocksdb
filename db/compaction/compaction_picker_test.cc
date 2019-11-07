@@ -633,7 +633,7 @@ TEST_F(CompactionPickerTest, UniversalPeriodicCompaction5) {
   ASSERT_EQ(0, compaction->start_level());
   ASSERT_EQ(1U, compaction->num_input_files(0));
   ASSERT_EQ(6U, compaction->input(0, 0)->fd.GetNumber());
-  ASSERT_EQ(4U, compaction->output_level());
+  ASSERT_EQ(4, compaction->output_level());
 }
 
 TEST_F(CompactionPickerTest, UniversalPeriodicCompaction6) {
@@ -658,7 +658,7 @@ TEST_F(CompactionPickerTest, UniversalPeriodicCompaction6) {
   ASSERT_EQ(2U, compaction->num_input_files(0));
   ASSERT_EQ(5U, compaction->input(0, 0)->fd.GetNumber());
   ASSERT_EQ(6U, compaction->input(0, 1)->fd.GetNumber());
-  ASSERT_EQ(4U, compaction->output_level());
+  ASSERT_EQ(4, compaction->output_level());
 }
 
 TEST_F(CompactionPickerTest, NeedsCompactionFIFO) {
