@@ -461,8 +461,18 @@ class BlockBasedTable : public TableReader {
   void DumpKeyValue(const Slice& key, const Slice& value,
                     WritableFile* out_file);
 
+  // A cumulative data block file read in MultiGet lower than this size will
+  // use a stack buffer
+  static const size_t kMultiGetReadStackBufSize = 8192;
+
+  // Make block size calculation for IO less error prone
+  uint64_t block_size(const BlockHandle& handle) const {
+    return handle.size() + kBlockTrailerSize;
+  }
+
   friend class PartitionedFilterBlockReader;
   friend class PartitionedFilterBlockTest;
+  friend class DBBasicTest_MultiGetIOBufferOverrun_Test;
 };
 
 // Maitaning state of a two-level iteration on a partitioned index structure.

@@ -2327,7 +2327,7 @@ void BlockBasedTable::RetrieveMultipleBlocks(
     }
 
     ReadRequest req;
-    req.len = handle.size() + kBlockTrailerSize;
+    req.len = block_size(handle);
     if (scratch == nullptr) {
       req.scratch = new char[req.len];
     } else {
@@ -2354,11 +2354,11 @@ void BlockBasedTable::RetrieveMultipleBlocks(
     ReadRequest& req = read_reqs[read_req_idx++];
     Status s = req.status;
     if (s.ok()) {
-      if (req.result.size() != handle.size() + kBlockTrailerSize) {
+      if (req.result.size() != block_size(handle)) {
         s = Status::Corruption("truncated block read from " +
                                rep_->file->file_name() + " offset " +
                                ToString(handle.offset()) + ", expected " +
-                               ToString(handle.size() + kBlockTrailerSize) +
+                               ToString(block_size(handle)) +
                                " bytes, got " + ToString(req.result.size()));
       }
     }
@@ -2921,7 +2921,7 @@ void BlockBasedTableIterator<TBlockIter, TValue>::InitDataBlock() {
           if (!rep->file->use_direct_io() &&
               (data_block_handle.offset() +
                    static_cast<size_t>(data_block_handle.size()) +
-                   kBlockTrailerSize >
+                    kBlockTrailerSize >
                readahead_limit_)) {
             // Buffered I/O
             // Discarding the return status of Prefetch calls intentionally, as
@@ -3422,7 +3422,6 @@ void BlockBasedTable::MultiGet(const ReadOptions& read_options,
     autovector<BlockHandle, MultiGetContext::MAX_BATCH_SIZE> block_handles;
     autovector<CachableEntry<Block>, MultiGetContext::MAX_BATCH_SIZE> results;
     autovector<Status, MultiGetContext::MAX_BATCH_SIZE> statuses;
-    static const size_t kMultiGetReadStackBufSize = 8192;
     char stack_buf[kMultiGetReadStackBufSize];
     std::unique_ptr<char[]> block_buf;
     {
@@ -3504,7 +3503,7 @@ void BlockBasedTable::MultiGet(const ReadOptions& read_options,
           block_handles.emplace_back(BlockHandle::NullBlockHandle());
         } else {
           block_handles.emplace_back(handle);
-          total_len += handle.size();
+          total_len += block_size(handle);
         }
       }
 

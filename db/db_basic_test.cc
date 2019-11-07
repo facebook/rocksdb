@@ -11,6 +11,7 @@
 #include "port/stack_trace.h"
 #include "rocksdb/perf_context.h"
 #include "rocksdb/utilities/debug.h"
+#include "table/block_based/block_based_table_reader.h"
 #include "table/block_based/block_builder.h"
 #include "test_util/fault_injection_test_env.h"
 #if !defined(ROCKSDB_LITE)
@@ -1552,6 +1553,45 @@ TEST_F(DBBasicTest, GetAllKeyVersions) {
   ASSERT_EQ(kNumInserts + kNumDeletes + kNumUpdates - 3, key_versions.size());
 }
 #endif  // !ROCKSDB_LITE
+
+TEST_F(DBBasicTest, MultiGetIOBufferOverrun) {
+  Options options = CurrentOptions();
+  Random rnd(301);
+  BlockBasedTableOptions table_options;
+  table_options.pin_l0_filter_and_index_blocks_in_cache = true;
+  table_options.block_size = 16 * 1024;
+  assert(table_options.block_size >
+          BlockBasedTable::kMultiGetReadStackBufSize);
+  options.table_factory.reset(new BlockBasedTableFactory(table_options));
+  Reopen(options);
+
+  std::string zero_str(128, '\0');
+  for (int i = 0; i < 100; ++i) {
+    // Make the value compressible. A purely random string doesn't compress
+    // and the resultant data block will not be compressed
+    std::string value(RandomString(&rnd, 128) + zero_str);
+    assert(Put(Key(i), value) == Status::OK());
+  }
+  Flush();
+
+  std::vector<std::string> key_data(10);
+  std::vector<Slice> keys;
+  // We cannot resize a PinnableSlice vector, so just set initial size to
+  // largest we think we will need
+  std::vector<PinnableSlice> values(10);
+  std::vector<Status> statuses;
+  ReadOptions ro;
+
+  // Warm up the cache first
+  key_data.emplace_back(Key(0));
+  keys.emplace_back(Slice(key_data.back()));
+  key_data.emplace_back(Key(50));
+  keys.emplace_back(Slice(key_data.back()));
+  statuses.resize(keys.size());
+
+  dbfull()->MultiGet(ro, dbfull()->DefaultColumnFamily(), keys.size(),
+                     keys.data(), values.data(), statuses.data(), true);
+}
 
 class DBBasicTestWithParallelIO
     : public DBTestBase,
