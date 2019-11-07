@@ -2149,6 +2149,29 @@ TEST_F(DBTestUniversalCompaction2, IngestBehind) {
   ASSERT_GT(NumTableFilesAtLevel(5), 0);
 }
 
+TEST_F(DBTestUniversalCompaction2, PeriodicCompactionDefault) {
+  Options options;
+  options.compaction_style = kCompactionStyleUniversal;
+
+  KeepFilterFactory* filter = new KeepFilterFactory(true);
+  options.compaction_filter_factory.reset(filter);
+  Reopen(options);
+  ASSERT_EQ(30 * 24 * 60 * 60,
+            dbfull()->GetOptions().periodic_compaction_seconds);
+
+  KeepFilter df;
+  options.compaction_filter_factory.reset();
+  options.compaction_filter = &df;
+  Reopen(options);
+  ASSERT_EQ(30 * 24 * 60 * 60,
+            dbfull()->GetOptions().periodic_compaction_seconds);
+
+  options.compaction_filter = nullptr;
+  Reopen(options);
+  ASSERT_EQ(options.periodic_compaction_seconds,
+            dbfull()->GetOptions().periodic_compaction_seconds);
+}
+
 TEST_F(DBTestUniversalCompaction2, PeriodicCompaction) {
   Options opts = CurrentOptions();
   opts.env = env_;
