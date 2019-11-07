@@ -1070,7 +1070,7 @@ void CheckColumnFamilyMeta(
   ASSERT_EQ(cf_meta.size, cf_size);
 }
 
-void CheckLivesFileMeta(
+void CheckLiveFilesMeta(
     const std::vector<LiveFileMetaData>& live_file_meta,
     const std::vector<std::vector<FileMetaData>>& files_by_level) {
   size_t total_file_count = 0;
@@ -1144,7 +1144,7 @@ TEST_F(DBTest, MetaDataTest) {
 
   std::vector<LiveFileMetaData> live_file_meta;
   db_->GetLiveFilesMetaData(&live_file_meta);
-  CheckLivesFileMeta(live_file_meta, files_by_level);
+  CheckLiveFilesMeta(live_file_meta, files_by_level);
 }
 
 namespace {
