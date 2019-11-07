@@ -1834,7 +1834,7 @@ INSTANTIATE_TEST_CASE_P(
     // Param 2 - Data compression enabled
     // Param 3 - ReadOptions::fill_cache
     ::testing::Combine(::testing::Bool(), ::testing::Bool(),
-                       ::testing::Bool(), testing::Bool()));
+                       ::testing::Bool(), ::testing::Bool()));
 
 class DBBasicTestWithTimestampWithParam
     : public DBTestBase,
