@@ -736,17 +736,24 @@ void MemTableList::RemoveOldMemTables(uint64_t log_number,
   assert(to_delete != nullptr);
   InstallNewVersion();
   auto& memlist = current_->memlist_;
+  autovector<MemTable*> old_memtables;
   for (auto it = memlist.rbegin(); it != memlist.rend(); ++it) {
     MemTable* mem = *it;
     if (mem->GetNextLogNumber() > log_number) {
       break;
     }
+    old_memtables.push_back(mem);    
+  }
+
+  for (auto it = old_memtables.begin(); it!= old_memtables.end(); ++it) {
+    MemTable* mem = *it;
     current_->Remove(mem, to_delete);
     --num_flush_not_started_;
     if (0 == num_flush_not_started_) {
       imm_flush_needed.store(false, std::memory_order_release);
     }
   }
+
   UpdateMemoryUsageExcludingLast();
   ResetTrimHistoryNeeded();
 }
