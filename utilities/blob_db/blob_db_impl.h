@@ -284,6 +284,11 @@ class BlobDBImpl : public BlobDB {
   // Open all blob files found in blob_dir.
   Status OpenAllBlobFiles();
 
+  // Initialize the mapping between blob files and their parent SSTs
+  // dduring Open.
+  void InitializeParentSstMapping(
+      const std::vector<LiveFileMetaData>& live_files);
+
   Status GetBlobFileReader(const std::shared_ptr<BlobFile>& blob_file,
                            std::shared_ptr<RandomAccessFileReader>* reader);
 

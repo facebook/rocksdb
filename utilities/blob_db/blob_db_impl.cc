@@ -193,42 +193,24 @@ Status BlobDBImpl::Open(std::vector<ColumnFamilyHandle*>* handles) {
   if (!s.ok()) {
     ROCKS_LOG_ERROR(db_options_.info_log,
                     "Failed to pause background flushes/compactions during "
-                    "open, status: %s", s.ToString().c_str());
+                    "open, status: %s",
+                    s.ToString().c_str());
     return s;
   }
 
   std::vector<LiveFileMetaData> live_files;
   db_->GetLiveFilesMetaData(&live_files);
 
-  for (const auto& live_file : live_files) {
-    const uint64_t sst_file_number = live_file.file_number;
-    const uint64_t blob_file_number = live_file.oldest_blob_file_number;
-
-    auto it = blob_files_.find(blob_file_number);
-    if (it == blob_files_.end()) {
-      // TODO log
-      continue;
-    }
-
-    BlobFile* const blob_file = it->second.get();
-    assert(blob_file);
-
-    blob_file->AddParentSstFile(sst_file_number);
-
-    ROCKS_LOG_INFO(db_options_.info_log,
-                   "Blob file %" PRIu64
-                   " is the oldest one referenced by SST file %" PRIu64,
-                   blob_file_number, sst_file_number);
-  }
+  InitializeParentSstMapping(live_files);
 
   s = db_->ContinueBackgroundWork();
   if (!s.ok()) {
     ROCKS_LOG_ERROR(db_options_.info_log,
                     "Failed to resume background flushes/compactions during "
-                    "open, status: %s", s.ToString().c_str());
+                    "open, status: %s",
+                    s.ToString().c_str());
     return s;
   }
-
 
   // Add trash files in blob dir to file delete scheduler.
   SstFileManagerImpl* sfm = static_cast<SstFileManagerImpl*>(
@@ -343,6 +325,34 @@ Status BlobDBImpl::OpenAllBlobFiles() {
                  " incomplete or corrupted blob files: %s",
                  obsolete_files_.size(), obsolete_file_list.c_str());
   return s;
+}
+
+void BlobDBImpl::InitializeParentSstMapping(
+    const std::vector<LiveFileMetaData>& live_files) {
+  for (const auto& live_file : live_files) {
+    const uint64_t sst_file_number = live_file.file_number;
+    const uint64_t blob_file_number = live_file.oldest_blob_file_number;
+
+    auto it = blob_files_.find(blob_file_number);
+    if (it == blob_files_.end()) {
+      ROCKS_LOG_WARN(db_options_.info_log,
+                     "Blob file %" PRIu64
+                     " (the oldest one referenced by SST file %" PRIu64
+                     ") not found",
+                     blob_file_number, sst_file_number);
+      continue;
+    }
+
+    BlobFile* const blob_file = it->second.get();
+    assert(blob_file);
+
+    blob_file->AddParentSstFile(sst_file_number);
+
+    ROCKS_LOG_INFO(db_options_.info_log,
+                   "Blob file %" PRIu64
+                   " is the oldest one referenced by SST file %" PRIu64,
+                   blob_file_number, sst_file_number);
+  }
 }
 
 void BlobDBImpl::CloseRandomAccessLocked(
