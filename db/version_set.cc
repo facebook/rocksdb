@@ -1451,16 +1451,14 @@ void Version::GetColumnFamilyMetaData(ColumnFamilyMetaData* cf_meta) {
         assert(!ioptions->cf_paths.empty());
         file_path = ioptions->cf_paths.back().path;
       }
+      const uint64_t file_number = file->fd.GetNumber();
       files.emplace_back(SstFileMetaData{
-          MakeTableFileName("", file->fd.GetNumber()),
-          file_path,
-          static_cast<size_t>(file->fd.GetFileSize()),
-          file->fd.smallest_seqno,
-          file->fd.largest_seqno,
-          file->smallest.user_key().ToString(),
+          MakeTableFileName("", file_number), file_number, file_path,
+          static_cast<size_t>(file->fd.GetFileSize()), file->fd.smallest_seqno,
+          file->fd.largest_seqno, file->smallest.user_key().ToString(),
           file->largest.user_key().ToString(),
           file->stats.num_reads_sampled.load(std::memory_order_relaxed),
-          file->being_compacted});
+          file->being_compacted, file->oldest_blob_file_number});
       files.back().num_entries = file->num_entries;
       files.back().num_deletions = file->num_deletions;
       level_size += file->fd.GetFileSize();
@@ -5393,7 +5391,9 @@ void VersionSet::GetLiveFilesMetaData(std::vector<LiveFileMetaData>* metadata) {
           assert(!cfd->ioptions()->cf_paths.empty());
           filemetadata.db_path = cfd->ioptions()->cf_paths.back().path;
         }
-        filemetadata.name = MakeTableFileName("", file->fd.GetNumber());
+        const uint64_t file_number = file->fd.GetNumber();
+        filemetadata.name = MakeTableFileName("", file_number);
+        filemetadata.file_number = file_number;
         filemetadata.level = level;
         filemetadata.size = static_cast<size_t>(file->fd.GetFileSize());
         filemetadata.smallestkey = file->smallest.user_key().ToString();
@@ -5405,6 +5405,7 @@ void VersionSet::GetLiveFilesMetaData(std::vector<LiveFileMetaData>* metadata) {
         filemetadata.being_compacted = file->being_compacted;
         filemetadata.num_entries = file->num_entries;
         filemetadata.num_deletions = file->num_deletions;
+        filemetadata.oldest_blob_file_number = file->oldest_blob_file_number;
         metadata->push_back(filemetadata);
       }
     }
