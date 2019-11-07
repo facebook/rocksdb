@@ -26,14 +26,16 @@ class BlobDBListener : public EventListener {
     blob_db_impl_->SyncBlobFiles();
   }
 
-  void OnFlushCompleted(DB* /*db*/, const FlushJobInfo& /*info*/) override {
+  void OnFlushCompleted(DB* /*db*/, const FlushJobInfo& info) override {
     assert(blob_db_impl_ != nullptr);
+    blob_db_impl_->UpdateParentSstMapping(info);
     blob_db_impl_->UpdateLiveSSTSize();
   }
 
   void OnCompactionCompleted(DB* /*db*/,
-                             const CompactionJobInfo& /*info*/) override {
+                             const CompactionJobInfo& info) override {
     assert(blob_db_impl_ != nullptr);
+    blob_db_impl_->UpdateParentSstMapping(info);
     blob_db_impl_->UpdateLiveSSTSize();
   }
 

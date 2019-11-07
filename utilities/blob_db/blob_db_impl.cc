@@ -327,31 +327,108 @@ Status BlobDBImpl::OpenAllBlobFiles() {
   return s;
 }
 
+void BlobDBImpl::LinkParentSstToBlobFile(uint64_t sst_file_number,
+                                         uint64_t blob_file_number) {
+  assert(blob_file_number != kInvalidBlobFileNumber);
+
+  auto it = blob_files_.find(blob_file_number);
+  if (it == blob_files_.end()) {
+    ROCKS_LOG_WARN(db_options_.info_log,
+                   "Blob file %" PRIu64
+                   " not found while trying to link "
+                   "parent SST file %" PRIu64,
+                   blob_file_number, sst_file_number);
+    return;
+  }
+
+  BlobFile* const blob_file = it->second.get();
+  assert(blob_file);
+
+  {
+    WriteLock file_lock(&blob_file->mutex_);
+    blob_file->AddParentSstFile(sst_file_number);
+  }
+
+  ROCKS_LOG_INFO(db_options_.info_log,
+                 "Blob file %" PRIu64 " linked to parent SST file %" PRIu64,
+                 blob_file_number, sst_file_number);
+}
+
+void BlobDBImpl::UnlinkParentSstFromBlobFile(uint64_t sst_file_number,
+                                             uint64_t blob_file_number) {
+  assert(blob_file_number != kInvalidBlobFileNumber);
+
+  auto it = blob_files_.find(blob_file_number);
+  if (it == blob_files_.end()) {
+    ROCKS_LOG_WARN(db_options_.info_log,
+                   "Blob file %" PRIu64
+                   " not found while trying to unlink "
+                   "parent SST file %" PRIu64,
+                   blob_file_number, sst_file_number);
+    return;
+  }
+
+  BlobFile* const blob_file = it->second.get();
+  assert(blob_file);
+
+  {
+    WriteLock file_lock(&blob_file->mutex_);
+    blob_file->RemoveParentSstFile(sst_file_number);
+  }
+
+  ROCKS_LOG_INFO(db_options_.info_log,
+                 "Blob file %" PRIu64 " unlinked from parent SST file %" PRIu64,
+                 blob_file_number, sst_file_number);
+}
+
 void BlobDBImpl::InitializeParentSstMapping(
     const std::vector<LiveFileMetaData>& live_files) {
   for (const auto& live_file : live_files) {
     const uint64_t sst_file_number = live_file.file_number;
     const uint64_t blob_file_number = live_file.oldest_blob_file_number;
 
-    auto it = blob_files_.find(blob_file_number);
-    if (it == blob_files_.end()) {
-      ROCKS_LOG_WARN(db_options_.info_log,
-                     "Blob file %" PRIu64
-                     " (the oldest one referenced by SST file %" PRIu64
-                     ") not found",
-                     blob_file_number, sst_file_number);
+    if (blob_file_number == kInvalidBlobFileNumber) {
       continue;
     }
 
-    BlobFile* const blob_file = it->second.get();
-    assert(blob_file);
+    LinkParentSstToBlobFile(sst_file_number, blob_file_number);
+  }
+}
 
-    blob_file->AddParentSstFile(sst_file_number);
+void BlobDBImpl::UpdateParentSstMapping(const FlushJobInfo& info) {
+  if (info.oldest_blob_file_number == kInvalidBlobFileNumber) {
+    return;
+  }
 
-    ROCKS_LOG_INFO(db_options_.info_log,
-                   "Blob file %" PRIu64
-                   " is the oldest one referenced by SST file %" PRIu64,
-                   blob_file_number, sst_file_number);
+  {
+    ReadLock lock(&mutex_);
+    LinkParentSstToBlobFile(info.file_number, info.oldest_blob_file_number);
+  }
+}
+
+void BlobDBImpl::UpdateParentSstMapping(const CompactionJobInfo& info) {
+  // Note: the same SST file may appear in both the input and the output
+  // file list in case of a trivial move. We process the inputs first
+  // to ensure the blob file still has a link after processing all updates.
+
+  {
+    ReadLock lock(&mutex_);
+
+    for (const auto& input : info.input_file_infos) {
+      if (input.oldest_blob_file_number == kInvalidBlobFileNumber) {
+        continue;
+      }
+
+      UnlinkParentSstFromBlobFile(input.file_number, input.oldest_blob_file_number);
+    }
+
+    for (const auto& output : info.output_file_infos) {
+      if (output.oldest_blob_file_number == kInvalidBlobFileNumber) {
+        continue;
+      }
+
+      LinkParentSstToBlobFile(output.file_number, output.oldest_blob_file_number);
+    }
   }
 }
 

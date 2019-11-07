@@ -77,6 +77,7 @@ struct GCStats {
 class BlobDBImpl : public BlobDB {
   friend class BlobFile;
   friend class BlobDBIterator;
+  friend class BlobDBListener;
 
  public:
   // deletions check period
@@ -168,8 +169,6 @@ class BlobDBImpl : public BlobDB {
   Status Open(std::vector<ColumnFamilyHandle*>* handles);
 
   Status SyncBlobFiles() override;
-
-  void UpdateLiveSSTSize();
 
   void GetCompactionContext(BlobCompactionContext* context);
 
@@ -284,10 +283,27 @@ class BlobDBImpl : public BlobDB {
   // Open all blob files found in blob_dir.
   Status OpenAllBlobFiles();
 
+  // Link a parent SST to a blob file.
+  void LinkParentSstToBlobFile(uint64_t sst_file_number,
+                               uint64_t blob_file_number);
+
+  // Unlink a parent SST from a blob file.
+  void UnlinkParentSstFromBlobFile(uint64_t sst_file_number,
+                                   uint64_t blob_file_number);
+
   // Initialize the mapping between blob files and their parent SSTs
-  // dduring Open.
+  // during Open.
   void InitializeParentSstMapping(
       const std::vector<LiveFileMetaData>& live_files);
+
+  // Update the mapping between blob files and their parent SSTs after a flush.
+  void UpdateParentSstMapping(const FlushJobInfo& info);
+
+  // Update the mapping between blob files and their parent SSTs after a
+  // compaction.
+  void UpdateParentSstMapping(const CompactionJobInfo& info);
+
+  void UpdateLiveSSTSize();
 
   Status GetBlobFileReader(const std::shared_ptr<BlobFile>& blob_file,
                            std::shared_ptr<RandomAccessFileReader>* reader);
