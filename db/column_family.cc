@@ -349,12 +349,14 @@ ColumnFamilyOptions SanitizeOptions(const ImmutableDBOptions& db_options,
   // Turn on periodic compactions and set them to occur once every 30 days if
   // compaction filters are used and periodic_compaction_seconds is set to the
   // default value.
-  if (result.compaction_style == kCompactionStyleLevel &&
-      (result.compaction_filter != nullptr ||
-       result.compaction_filter_factory != nullptr) &&
-      result.periodic_compaction_seconds == kDefaultPeriodicCompSecs) {
-    result.periodic_compaction_seconds = kDefaultTtlSecs;
-  } else if (result.compaction_style == kCompactionStyleFIFO) {
+  if (result.compaction_style != kCompactionStyleFIFO) {
+    if ((result.compaction_filter != nullptr ||
+         result.compaction_filter_factory != nullptr) &&
+        result.periodic_compaction_seconds == kDefaultPeriodicCompSecs) {
+      result.periodic_compaction_seconds = kDefaultTtlSecs;
+    }
+  } else {
+    // result.compaction_style == kCompactionStyleFIFO
     if (result.ttl == 0) {
       if (result.periodic_compaction_seconds == kDefaultPeriodicCompSecs) {
         result.periodic_compaction_seconds = kDefaultTtlSecs;
