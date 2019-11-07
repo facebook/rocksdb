@@ -1572,7 +1572,8 @@ void DBImpl::NotifyOnMemTableSealed(ColumnFamilyData* /*cfd*/,
 
 // REQUIRES: mutex_ is held
 // REQUIRES: this thread is currently at the front of the writer queue
-Status DBImpl::SwitchMemtable(ColumnFamilyData* cfd, WriteContext* context, bool nonmem_writes_stopped) {
+Status DBImpl::SwitchMemtable(ColumnFamilyData* cfd, WriteContext* context,
+                              bool nonmem_writes_stopped) {
   mutex_.AssertHeld();
   WriteThread::Writer nonmem_w;
   if (two_write_queues_ && !nonmem_writes_stopped) {
