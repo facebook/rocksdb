@@ -150,6 +150,14 @@ class BlobDBImpl : public BlobDB {
   Status PutUntil(const WriteOptions& options, const Slice& key,
                   const Slice& value, uint64_t expiration) override;
 
+  using BlobDB::CompactFiles;
+  Status CompactFiles(
+      const CompactionOptions& compact_options,
+      const std::vector<std::string>& input_file_names, const int output_level,
+      const int output_path_id = -1,
+      std::vector<std::string>* const output_file_names = nullptr,
+      CompactionJobInfo* compaction_job_info = nullptr) override;
+
   BlobDBOptions GetBlobDBOptions() const override;
 
   BlobDBImpl(const std::string& dbname, const BlobDBOptions& bdb_options,

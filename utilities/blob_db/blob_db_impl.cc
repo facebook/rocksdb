@@ -425,7 +425,8 @@ void BlobDBImpl::UpdateParentSstMapping(const CompactionJobInfo& info) {
         continue;
       }
 
-      UnlinkParentSstFromBlobFile(input.file_number, input.oldest_blob_file_number);
+      UnlinkParentSstFromBlobFile(input.file_number,
+                                  input.oldest_blob_file_number);
     }
 
     for (const auto& output : info.output_file_infos) {
@@ -433,7 +434,8 @@ void BlobDBImpl::UpdateParentSstMapping(const CompactionJobInfo& info) {
         continue;
       }
 
-      LinkParentSstToBlobFile(output.file_number, output.oldest_blob_file_number);
+      LinkParentSstToBlobFile(output.file_number,
+                              output.oldest_blob_file_number);
     }
   }
 }
@@ -911,6 +913,34 @@ Slice BlobDBImpl::GetCompressedSlice(const Slice& raw,
   CompressBlock(raw, info, &type, kBlockBasedTableVersionFormat, false,
                 compression_output, nullptr, nullptr);
   return *compression_output;
+}
+
+Status BlobDBImpl::CompactFiles(
+    const CompactionOptions& compact_options,
+    const std::vector<std::string>& input_file_names, const int output_level,
+    const int output_path_id, std::vector<std::string>* const output_file_names,
+    CompactionJobInfo* compaction_job_info) {
+  // Note: we need CompactionJobInfo to be able to track updates to the
+  // blob file <-> SST mappings, so we provide one if the user hasn't,
+  // assuming that GC is enabled.
+  CompactionJobInfo info{};
+  if (bdb_options_.enable_garbage_collection && !compaction_job_info) {
+    compaction_job_info = &info;
+  }
+
+  const Status s =
+      db_->CompactFiles(compact_options, input_file_names, output_level,
+                        output_path_id, output_file_names, compaction_job_info);
+  if (!s.ok()) {
+    return s;
+  }
+
+  if (bdb_options_.enable_garbage_collection) {
+    assert(compaction_job_info);
+    UpdateParentSstMapping(*compaction_job_info);
+  }
+
+  return s;
 }
 
 void BlobDBImpl::GetCompactionContext(BlobCompactionContext* context) {
