@@ -370,7 +370,7 @@ TEST_F(DBFlushTest, FireOnFlushCompletedAfterCommittedResult) {
   std::shared_ptr<TestListener> listener = std::make_shared<TestListener>();
 
   SyncPoint::GetInstance()->LoadDependency(
-      {{"DBImpl::FlushMemTable:AfterScheduleFlush",
+      {{"DBImpl::BackgroundCallFlush:start",
         "DBFlushTest::FireOnFlushCompletedAfterCommittedResult:WaitFirst"},
        {"DBImpl::FlushMemTableToOutputFile:Finish",
         "DBFlushTest::FireOnFlushCompletedAfterCommittedResult:WaitSecond"}});
@@ -401,7 +401,7 @@ TEST_F(DBFlushTest, FireOnFlushCompletedAfterCommittedResult) {
     // flush_opts.wait = true
     ASSERT_OK(db_->Flush(FlushOptions()));
   });
-  // Wait for first flush scheduled.
+  // Wait for first flush started.
   TEST_SYNC_POINT(
       "DBFlushTest::FireOnFlushCompletedAfterCommittedResult:WaitFirst");
   // The second flush will exit early without commit its result. The work
