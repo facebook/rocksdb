@@ -141,6 +141,11 @@ Status BlobDBImpl::Open(std::vector<ColumnFamilyHandle*>* handles) {
   // compactions irrespective of the user set value.
   cf_options_.periodic_compaction_seconds = 0;
 
+  // Temporarily disable compactions in the base DB during open; save the user
+  // defined value beforehand so we can restore it once BlobDB is initialized.
+  const bool disable_auto_compactions = cf_options_.disable_auto_compactions;
+  cf_options_.disable_auto_compactions = true;
+
   Status s;
 
   // Create info log.
@@ -187,29 +192,20 @@ Status BlobDBImpl::Open(std::vector<ColumnFamilyHandle*>* handles) {
   }
   db_impl_ = static_cast_with_check<DBImpl, DB>(db_->GetRootDB());
 
-  // Initialize SST file <-> oldest blob file mapping. Pausing background work
-  // so we can get a consistent picture more easily.
-  s = db_->PauseBackgroundWork();
-  if (!s.ok()) {
-    ROCKS_LOG_ERROR(db_options_.info_log,
-                    "Failed to pause background flushes/compactions during "
-                    "open, status: %s",
-                    s.ToString().c_str());
-    return s;
-  }
-
+  // Initialize SST file <-> oldest blob file mapping.
   std::vector<LiveFileMetaData> live_files;
   db_->GetLiveFilesMetaData(&live_files);
 
   InitializeParentSstMapping(live_files);
 
-  s = db_->ContinueBackgroundWork();
-  if (!s.ok()) {
-    ROCKS_LOG_ERROR(db_options_.info_log,
-                    "Failed to resume background flushes/compactions during "
-                    "open, status: %s",
-                    s.ToString().c_str());
-    return s;
+  if (!disable_auto_compactions) {
+    s = db_->EnableAutoCompaction(*handles);
+    if (!s.ok()) {
+      ROCKS_LOG_ERROR(db_options_.info_log,
+          "Failed to enable automatic compactions during open, status: %s",
+          s.ToString().c_str());
+      return s;
+    }
   }
 
   // Add trash files in blob dir to file delete scheduler.
