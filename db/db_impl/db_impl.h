@@ -349,6 +349,8 @@ class DBImpl : public DB {
   virtual Status GetSortedWalFiles(VectorLogPtr& files) override;
   virtual Status GetCurrentWalFile(
       std::unique_ptr<LogFile>* current_log_file) override;
+  virtual Status GetCreationTimeOfOldestFile(
+      uint64_t* creation_time) override;
 
   virtual Status GetUpdatesSince(
       SequenceNumber seq_number, std::unique_ptr<TransactionLogIterator>* iter,
@@ -1005,11 +1007,11 @@ class DBImpl : public DB {
 
   void NotifyOnFlushBegin(ColumnFamilyData* cfd, FileMetaData* file_meta,
                           const MutableCFOptions& mutable_cf_options,
-                          int job_id, TableProperties prop);
+                          int job_id);
 
-  void NotifyOnFlushCompleted(ColumnFamilyData* cfd, FileMetaData* file_meta,
-                              const MutableCFOptions& mutable_cf_options,
-                              int job_id, TableProperties prop);
+  void NotifyOnFlushCompleted(
+      ColumnFamilyData* cfd, const MutableCFOptions& mutable_cf_options,
+      std::list<std::unique_ptr<FlushJobInfo>>* flush_jobs_info);
 
   void NotifyOnCompactionBegin(ColumnFamilyData* cfd, Compaction* c,
                                const Status& st,
@@ -1313,7 +1315,8 @@ class DBImpl : public DB {
   // created between the calls CaptureCurrentFileNumberInPendingOutputs() and
   // ReleaseFileNumberFromPendingOutputs() can now be deleted (if it's not live
   // and blocked by any other pending_outputs_ calls)
-  void ReleaseFileNumberFromPendingOutputs(std::list<uint64_t>::iterator v);
+  void ReleaseFileNumberFromPendingOutputs(
+      std::unique_ptr<std::list<uint64_t>::iterator>& v);
 
   Status SyncClosedLogs(JobContext* job_context);
 
@@ -1406,10 +1409,22 @@ class DBImpl : public DB {
       bool resuming_from_bg_err);
 
   inline void WaitForPendingWrites() {
+    mutex_.AssertHeld();
+    // In case of pipelined write is enabled, wait for all pending memtable
+    // writers.
+    if (immutable_db_options_.enable_pipelined_write) {
+      // Memtable writers may call DB::Get in case max_successive_merges > 0,
+      // which may lock mutex. Unlocking mutex here to avoid deadlock.
+      mutex_.Unlock();
+      write_thread_.WaitForMemTableWriters();
+      mutex_.Lock();
+    }
+
     if (!immutable_db_options_.unordered_write) {
       // Then the writes are finished before the next write group starts
       return;
     }
+
     // Wait for the ones who already wrote to the WAL to finish their
     // memtable write.
     if (pending_memtable_writes_.load() != 0) {
@@ -1605,7 +1620,7 @@ class DBImpl : public DB {
   // Write a version edit to the MANIFEST.
   Status ReserveFileNumbersBeforeIngestion(
       ColumnFamilyData* cfd, uint64_t num,
-      std::list<uint64_t>::iterator* pending_output_elem,
+      std::unique_ptr<std::list<uint64_t>::iterator>& pending_output_elem,
       uint64_t* next_file_number);
 #endif  //! ROCKSDB_LITE
 

@@ -13,6 +13,7 @@
 #include <string>
 #include <vector>
 
+#include "db/blob_index.h"
 #include "db/db_test_util.h"
 #include "file/file_util.h"
 #include "file/sst_file_manager_impl.h"
@@ -26,7 +27,6 @@
 #include "util/string_util.h"
 #include "utilities/blob_db/blob_db.h"
 #include "utilities/blob_db/blob_db_impl.h"
-#include "utilities/blob_db/blob_index.h"
 
 namespace rocksdb {
 namespace blob_db {
@@ -999,6 +999,7 @@ TEST_F(BlobDBTest, GetLiveFilesMetaData) {
   // Path should be relative to db_name, but begin with slash.
   std::string filename = "/blob_dir/000001.blob";
   ASSERT_EQ(filename, metadata[0].name);
+  ASSERT_EQ(1, metadata[0].file_number);
   ASSERT_EQ("default", metadata[0].column_family_name);
   std::vector<std::string> livefile;
   uint64_t mfs;

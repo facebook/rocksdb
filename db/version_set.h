@@ -312,6 +312,10 @@ class VersionStorageInfo {
     return files_marked_for_periodic_compaction_;
   }
 
+  void TEST_AddFileMarkedForPeriodicCompaction(int level, FileMetaData* f) {
+    files_marked_for_periodic_compaction_.emplace_back(level, f);
+  }
+
   // REQUIRES: This version has been saved (see VersionSet::SaveTo)
   // REQUIRES: DB mutex held during access
   const autovector<std::pair<int, FileMetaData*>>&
@@ -671,6 +675,10 @@ class Version {
   void GetColumnFamilyMetaData(ColumnFamilyMetaData* cf_meta);
 
   uint64_t GetSstFilesSize();
+
+  // Retrieves the file_creation_time of the oldest file in the DB.
+  // Prerequisite for this API is max_open_files = -1
+  void GetCreationTimeOfOldestFile(uint64_t* creation_time);
 
   const MutableCFOptions& GetMutableCFOptions() { return mutable_cf_options_; }
 

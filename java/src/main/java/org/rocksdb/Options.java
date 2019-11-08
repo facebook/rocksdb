@@ -920,6 +920,17 @@ public class Options extends RocksObject
   }
 
   @Override
+  public Options setUnorderedWrite(final boolean unorderedWrite) {
+    setUnorderedWrite(nativeHandle_, unorderedWrite);
+    return this;
+  }
+
+  @Override
+  public boolean unorderedWrite() {
+    return unorderedWrite(nativeHandle_);
+  }
+
+  @Override
   public Options setAllowConcurrentMemtableWrite(
       final boolean allowConcurrentMemtableWrite) {
     setAllowConcurrentMemtableWrite(nativeHandle_,
@@ -1886,6 +1897,9 @@ public class Options extends RocksObject
   private native void setEnablePipelinedWrite(final long handle,
       final boolean pipelinedWrite);
   private native boolean enablePipelinedWrite(final long handle);
+  private native void setUnorderedWrite(final long handle,
+      final boolean unorderedWrite);
+  private native boolean unorderedWrite(final long handle);
   private native void setAllowConcurrentMemtableWrite(long handle,
       boolean allowConcurrentMemtableWrite);
   private native boolean allowConcurrentMemtableWrite(long handle);

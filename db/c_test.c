@@ -1467,6 +1467,7 @@ int main(int argc, char** argv) {
        CheckCondition(!rocksdb_iter_valid(iter));
 
        rocksdb_iter_destroy(iter);
+       rocksdb_readoptions_set_iterate_upper_bound(roptions, NULL, 0);
     }
   }
 

@@ -11,6 +11,7 @@
 #include <iomanip>
 #include <memory>
 
+#include "db/blob_index.h"
 #include "db/db_impl/db_impl.h"
 #include "db/write_batch_internal.h"
 #include "file/file_util.h"
@@ -40,7 +41,6 @@
 #include "utilities/blob_db/blob_compaction_filter.h"
 #include "utilities/blob_db/blob_db_iterator.h"
 #include "utilities/blob_db/blob_db_listener.h"
-#include "utilities/blob_db/blob_index.h"
 
 namespace {
 int kBlockBasedTableVersionFormat = 2;
@@ -137,6 +137,9 @@ Status BlobDBImpl::Open(std::vector<ColumnFamilyHandle*>* handles) {
       cf_options_.compaction_filter_factory != nullptr) {
     return Status::NotSupported("Blob DB doesn't support compaction filter.");
   }
+  // BlobDB does not support Periodic Compactions. So disable periodic
+  // compactions irrespective of the user set value.
+  cf_options_.periodic_compaction_seconds = 0;
 
   Status s;
 

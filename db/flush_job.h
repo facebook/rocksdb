@@ -11,10 +11,11 @@
 #include <atomic>
 #include <deque>
 #include <limits>
+#include <list>
 #include <set>
+#include <string>
 #include <utility>
 #include <vector>
-#include <string>
 
 #include "db/column_family.h"
 #include "db/dbformat.h"
@@ -34,6 +35,7 @@
 #include "port/port.h"
 #include "rocksdb/db.h"
 #include "rocksdb/env.h"
+#include "rocksdb/listener.h"
 #include "rocksdb/memtablerep.h"
 #include "rocksdb/transaction_log.h"
 #include "table/scoped_arena_iterator.h"
@@ -79,14 +81,22 @@ class FlushJob {
   Status Run(LogsWithPrepTracker* prep_tracker = nullptr,
              FileMetaData* file_meta = nullptr);
   void Cancel();
-  TableProperties GetTableProperties() const { return table_properties_; }
   const autovector<MemTable*>& GetMemTables() const { return mems_; }
+
+#ifndef ROCKSDB_LITE
+  std::list<std::unique_ptr<FlushJobInfo>>* GetCommittedFlushJobsInfo() {
+    return &committed_flush_jobs_info_;
+  }
+#endif  // !ROCKSDB_LITE
 
  private:
   void ReportStartedFlush();
   void ReportFlushInputSize(const autovector<MemTable*>& mems);
   void RecordFlushIOStats();
   Status WriteLevel0Table();
+#ifndef ROCKSDB_LITE
+  std::unique_ptr<FlushJobInfo> GetFlushJobInfo() const;
+#endif  // !ROCKSDB_LITE
 
   const std::string& dbname_;
   ColumnFamilyData* cfd_;
@@ -131,6 +141,10 @@ class FlushJob {
   // In this case, only after all flush jobs succeed in flush can RocksDB
   // commit to the MANIFEST.
   const bool write_manifest_;
+  // The current flush job can commit flush result of a concurrent flush job.
+  // We collect FlushJobInfo of all jobs committed by current job and fire
+  // OnFlushCompleted for them.
+  std::list<std::unique_ptr<FlushJobInfo>> committed_flush_jobs_info_;
 
   // Variables below are set by PickMemTable():
   FileMetaData meta_;

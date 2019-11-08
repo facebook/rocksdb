@@ -413,9 +413,9 @@ class BlockBasedTable : public TableReader {
       TailPrefetchStats* tail_prefetch_stats, const bool prefetch_all,
       const bool preload_all,
       std::unique_ptr<FilePrefetchBuffer>* prefetch_buffer);
-  Status ReadMetaBlock(FilePrefetchBuffer* prefetch_buffer,
-                       std::unique_ptr<Block>* meta_block,
-                       std::unique_ptr<InternalIterator>* iter);
+  Status ReadMetaIndexBlock(FilePrefetchBuffer* prefetch_buffer,
+                            std::unique_ptr<Block>* metaindex_block,
+                            std::unique_ptr<InternalIterator>* iter);
   Status TryReadPropertiesWithGlobalSeqno(FilePrefetchBuffer* prefetch_buffer,
                                           const Slice& handle_value,
                                           TableProperties** table_properties);
@@ -615,8 +615,7 @@ class BlockBasedTableIterator : public InternalIteratorBase<TValue> {
                           const SliceTransform* prefix_extractor,
                           BlockType block_type, TableReaderCaller caller,
                           size_t compaction_readahead_size = 0)
-      : InternalIteratorBase<TValue>(false),
-        table_(table),
+      : table_(table),
         read_options_(read_options),
         icomp_(icomp),
         user_comparator_(icomp.user_comparator()),

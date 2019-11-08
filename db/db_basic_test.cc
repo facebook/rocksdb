@@ -871,11 +871,12 @@ TEST_F(DBBasicTest, ChecksumTest) {
     ASSERT_OK(Flush());
   }
 
-  // verify data with each type of checksum
-  for (int i = 0; i <= kxxHash64; ++i) {
+  // with each valid checksum type setting...
+  for (int i = 0; i <= max_checksum; ++i) {
     table_options.checksum = static_cast<ChecksumType>(i);
     options.table_factory.reset(NewBlockBasedTableFactory(table_options));
     Reopen(options);
+    // verify every type of checksum (should be regardless of that setting)
     for (int j = 0; j < (max_checksum + 1) * kNumPerFile; ++j) {
       ASSERT_EQ(Key(j), Get(Key(j)));
     }
@@ -913,30 +914,30 @@ TEST_F(DBBasicTest, MmapAndBufferOptions) {
 
 class TestEnv : public EnvWrapper {
   public:
-    explicit TestEnv() : EnvWrapper(Env::Default()),
-                close_count(0) { }
+   explicit TestEnv(Env* base_env) : EnvWrapper(base_env), close_count(0) {}
 
-    class TestLogger : public Logger {
-      public:
-        using Logger::Logv;
-        TestLogger(TestEnv *env_ptr) : Logger() { env = env_ptr; }
-        ~TestLogger() override {
-          if (!closed_) {
-            CloseHelper();
-          }
-        }
-        void Logv(const char* /*format*/, va_list /*ap*/) override{};
+   class TestLogger : public Logger {
+    public:
+     using Logger::Logv;
+     explicit TestLogger(TestEnv* env_ptr) : Logger() { env = env_ptr; }
+     ~TestLogger() override {
+       if (!closed_) {
+         CloseHelper();
+       }
+     }
+     void Logv(const char* /*format*/, va_list /*ap*/) override {}
 
-       protected:
-        Status CloseImpl() override { return CloseHelper(); }
+    protected:
+     Status CloseImpl() override { return CloseHelper(); }
 
-       private:
-        Status CloseHelper() {
-          env->CloseCountInc();;
-          return Status::IOError();
-        }
-        TestEnv *env;
-    };
+    private:
+     Status CloseHelper() {
+       env->CloseCountInc();
+       ;
+       return Status::IOError();
+     }
+     TestEnv* env;
+   };
 
     void CloseCountInc() { close_count++; }
 
@@ -958,7 +959,8 @@ TEST_F(DBBasicTest, DBClose) {
   ASSERT_OK(DestroyDB(dbname, options));
 
   DB* db = nullptr;
-  TestEnv* env = new TestEnv();
+  TestEnv* env = new TestEnv(env_);
+  std::unique_ptr<TestEnv> local_env_guard(env);
   options.create_if_missing = true;
   options.env = env;
   Status s = DB::Open(options, dbname, &db);
@@ -992,13 +994,11 @@ TEST_F(DBBasicTest, DBClose) {
   ASSERT_EQ(env->GetCloseCount(), 2);
   options.info_log.reset();
   ASSERT_EQ(env->GetCloseCount(), 3);
-
-  delete options.env;
 }
 
 TEST_F(DBBasicTest, DBCloseFlushError) {
   std::unique_ptr<FaultInjectionTestEnv> fault_injection_env(
-      new FaultInjectionTestEnv(Env::Default()));
+      new FaultInjectionTestEnv(env_));
   Options options = GetDefaultOptions();
   options.create_if_missing = true;
   options.manual_wal_flush = true;
@@ -1363,6 +1363,7 @@ class MultiGetPrefixExtractorTest : public DBBasicTest,
 TEST_P(MultiGetPrefixExtractorTest, Batched) {
   Options options = CurrentOptions();
   options.prefix_extractor.reset(NewFixedPrefixTransform(2));
+  options.memtable_prefix_bloom_size_ratio = 10;
   BlockBasedTableOptions bbto;
   if (GetParam()) {
     bbto.index_type = BlockBasedTableOptions::IndexType::kTwoLevelIndexSearch;
@@ -1374,17 +1375,30 @@ TEST_P(MultiGetPrefixExtractorTest, Batched) {
   options.table_factory.reset(NewBlockBasedTableFactory(bbto));
   Reopen(options);
 
+  SetPerfLevel(kEnableCount);
+  get_perf_context()->Reset();
+
   // First key is not in the prefix_extractor domain
   ASSERT_OK(Put("k", "v0"));
   ASSERT_OK(Put("kk1", "v1"));
   ASSERT_OK(Put("kk2", "v2"));
   ASSERT_OK(Put("kk3", "v3"));
   ASSERT_OK(Put("kk4", "v4"));
+  std::vector<std::string> mem_keys(
+      {"k", "kk1", "kk2", "kk3", "kk4", "rofl", "lmho"});
+  std::vector<std::string> inmem_values;
+  inmem_values = MultiGet(mem_keys, nullptr);
+  ASSERT_EQ(inmem_values[0], "v0");
+  ASSERT_EQ(inmem_values[1], "v1");
+  ASSERT_EQ(inmem_values[2], "v2");
+  ASSERT_EQ(inmem_values[3], "v3");
+  ASSERT_EQ(inmem_values[4], "v4");
+  ASSERT_EQ(get_perf_context()->bloom_memtable_miss_count, 2);
+  ASSERT_EQ(get_perf_context()->bloom_memtable_hit_count, 5);
   ASSERT_OK(Flush());
 
   std::vector<std::string> keys({"k", "kk1", "kk2", "kk3", "kk4"});
   std::vector<std::string> values;
-  SetPerfLevel(kEnableCount);
   get_perf_context()->Reset();
   values = MultiGet(keys, nullptr);
   ASSERT_EQ(values[0], "v0");
@@ -1563,8 +1577,12 @@ class DBBasicTestWithParallelIO
     Options options = CurrentOptions();
     Random rnd(301);
     BlockBasedTableOptions table_options;
-    table_options.pin_l0_filter_and_index_blocks_in_cache = true;
     table_options.block_cache = uncompressed_cache_;
+    if (table_options.block_cache == nullptr) {
+      table_options.no_block_cache = true;
+    } else {
+      table_options.pin_l0_filter_and_index_blocks_in_cache = true;
+    }
     table_options.block_cache_compressed = compressed_cache_;
     table_options.flush_block_policy_factory.reset(
         new MyFlushBlockPolicyFactory());
@@ -1600,6 +1618,9 @@ class DBBasicTestWithParallelIO
   int num_inserts_compressed() { return compressed_cache_->num_inserts(); }
 
   bool fill_cache() { return fill_cache_; }
+  bool compression_enabled() { return compression_enabled_; }
+  bool has_compressed_cache() { return compressed_cache_ != nullptr; }
+  bool has_uncompressed_cache() { return uncompressed_cache_ != nullptr; }
 
   static void SetUpTestCase() {}
   static void TearDownTestCase() {}
@@ -1774,7 +1795,16 @@ TEST_P(DBBasicTestWithParallelIO, MultiGet) {
   ASSERT_TRUE(CheckValue(1, values[0].ToString()));
   ASSERT_TRUE(CheckValue(51, values[1].ToString()));
 
-  int expected_reads = random_reads + (fill_cache() ? 0 : 2);
+  bool read_from_cache = false;
+  if (fill_cache()) {
+    if (has_uncompressed_cache()) {
+      read_from_cache = true;
+    } else if (has_compressed_cache() && compression_enabled()) {
+      read_from_cache = true;
+    }
+  }
+
+  int expected_reads = random_reads + (read_from_cache ? 0 : 2);
   ASSERT_EQ(env_->random_read_counter_.Read(), expected_reads);
 
   keys.resize(10);
@@ -1792,7 +1822,7 @@ TEST_P(DBBasicTestWithParallelIO, MultiGet) {
     ASSERT_OK(statuses[i]);
     ASSERT_TRUE(CheckValue(key_ints[i], values[i].ToString()));
   }
-  expected_reads += (fill_cache() ? 2 : 4);
+  expected_reads += (read_from_cache ? 2 : 4);
   ASSERT_EQ(env_->random_read_counter_.Read(), expected_reads);
 }
 
@@ -1803,12 +1833,8 @@ INSTANTIATE_TEST_CASE_P(
     // Param 1 - Uncompressed cache enabled
     // Param 2 - Data compression enabled
     // Param 3 - ReadOptions::fill_cache
-    ::testing::Values(std::make_tuple(false, true, true, true),
-                      std::make_tuple(true, true, true, true),
-                      std::make_tuple(false, true, false, true),
-                      std::make_tuple(false, true, true, false),
-                      std::make_tuple(true, true, true, false),
-                      std::make_tuple(false, true, false, false)));
+    ::testing::Combine(::testing::Bool(), ::testing::Bool(),
+                       ::testing::Bool(), ::testing::Bool()));
 
 class DBBasicTestWithTimestampWithParam
     : public DBTestBase,

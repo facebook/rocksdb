@@ -21,6 +21,8 @@ void LDBCommandRunner::PrintHelp(const LDBOptions& ldb_options,
   ret.append("commands MUST specify --" + LDBCommand::ARG_DB +
              "=<full_path_to_db_directory> when necessary\n");
   ret.append("\n");
+  ret.append("commands can optionally specify --" + LDBCommand::ARG_ENV_URI +
+             "=<uri_of_environment> if necessary\n\n");
   ret.append(
       "The following optional parameters control if keys/values are "
       "input/output as hex or as plain strings:\n");

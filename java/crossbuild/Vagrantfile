@@ -7,11 +7,11 @@ VAGRANTFILE_API_VERSION = "2"
 Vagrant.configure(VAGRANTFILE_API_VERSION) do |config|
 
   config.vm.define "linux32" do |linux32|
-    linux32.vm.box = "hansode/centos-6.7-i386"
+    linux32.vm.box = "bento/centos-6.10-i386"
   end
 
   config.vm.define "linux64" do |linux64|
-    linux64.vm.box = "hansode/centos-6.7-x86_64"
+    linux64.vm.box = "bento/centos-6.10"
   end
 
   config.vm.provider "virtualbox" do |v|
