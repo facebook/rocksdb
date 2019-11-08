@@ -335,6 +335,7 @@ Status BlobDBImpl::OpenAllBlobFiles() {
 
 void BlobDBImpl::LinkParentSstToBlobFile(uint64_t sst_file_number,
                                          uint64_t blob_file_number) {
+  assert(bdb_options_.enable_garbage_collection);
   assert(blob_file_number != kInvalidBlobFileNumber);
 
   auto it = blob_files_.find(blob_file_number);
@@ -362,6 +363,7 @@ void BlobDBImpl::LinkParentSstToBlobFile(uint64_t sst_file_number,
 
 void BlobDBImpl::UnlinkParentSstFromBlobFile(uint64_t sst_file_number,
                                              uint64_t blob_file_number) {
+  assert(bdb_options_.enable_garbage_collection);
   assert(blob_file_number != kInvalidBlobFileNumber);
 
   auto it = blob_files_.find(blob_file_number);
@@ -389,6 +391,8 @@ void BlobDBImpl::UnlinkParentSstFromBlobFile(uint64_t sst_file_number,
 
 void BlobDBImpl::InitializeParentSstMapping(
     const std::vector<LiveFileMetaData>& live_files) {
+  assert(bdb_options_.enable_garbage_collection);
+
   for (const auto& live_file : live_files) {
     const uint64_t sst_file_number = live_file.file_number;
     const uint64_t blob_file_number = live_file.oldest_blob_file_number;
@@ -402,6 +406,8 @@ void BlobDBImpl::InitializeParentSstMapping(
 }
 
 void BlobDBImpl::UpdateParentSstMapping(const FlushJobInfo& info) {
+  assert(bdb_options_.enable_garbage_collection);
+
   if (info.oldest_blob_file_number == kInvalidBlobFileNumber) {
     return;
   }
@@ -413,6 +419,8 @@ void BlobDBImpl::UpdateParentSstMapping(const FlushJobInfo& info) {
 }
 
 void BlobDBImpl::UpdateParentSstMapping(const CompactionJobInfo& info) {
+  assert(bdb_options_.enable_garbage_collection);
+
   // Note: the same SST file may appear in both the input and the output
   // file list in case of a trivial move. We process the inputs first
   // to ensure the blob file still has a link after processing all updates.
