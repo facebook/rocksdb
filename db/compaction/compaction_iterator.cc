@@ -3,6 +3,8 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
+#include <cinttypes>
+
 #include "db/compaction/compaction_iterator.h"
 #include "db/snapshot_checker.h"
 #include "port/likely.h"
@@ -38,7 +40,8 @@ CompactionIterator::CompactionIterator(
     const CompactionFilter* compaction_filter,
     const std::atomic<bool>* shutting_down,
     const SequenceNumber preserve_deletes_seqnum,
-    SnapshotListFetchCallback* snap_list_callback)
+    const std::atomic<bool>* manual_compaction_paused,
+    const std::shared_ptr<Logger> info_log)
     : CompactionIterator(
           input, cmp, merge_helper, last_sequence, snapshots,
           earliest_write_conflict_snapshot, snapshot_checker, env,
@@ -46,7 +49,7 @@ CompactionIterator::CompactionIterator(
           std::unique_ptr<CompactionProxy>(
               compaction ? new CompactionProxy(compaction) : nullptr),
           compaction_filter, shutting_down, preserve_deletes_seqnum,
-          snap_list_callback) {}
+          manual_compaction_paused, info_log) {}
 
 CompactionIterator::CompactionIterator(
     InternalIterator* input, const Comparator* cmp, MergeHelper* merge_helper,
@@ -59,7 +62,8 @@ CompactionIterator::CompactionIterator(
     const CompactionFilter* compaction_filter,
     const std::atomic<bool>* shutting_down,
     const SequenceNumber preserve_deletes_seqnum,
-    SnapshotListFetchCallback* snap_list_callback)
+    const std::atomic<bool>* manual_compaction_paused,
+    const std::shared_ptr<Logger> info_log)
     : input_(input),
       cmp_(cmp),
       merge_helper_(merge_helper),
@@ -73,12 +77,13 @@ CompactionIterator::CompactionIterator(
       compaction_(std::move(compaction)),
       compaction_filter_(compaction_filter),
       shutting_down_(shutting_down),
+      manual_compaction_paused_(manual_compaction_paused),
       preserve_deletes_seqnum_(preserve_deletes_seqnum),
       current_user_key_sequence_(0),
       current_user_key_snapshot_(0),
       merge_out_iter_(merge_helper_),
       current_key_committed_(false),
-      snap_list_callback_(snap_list_callback) {
+      info_log_(info_log) {
   assert(compaction_filter_ == nullptr || compaction_ != nullptr);
   assert(snapshots_ != nullptr);
   bottommost_level_ =
@@ -86,7 +91,24 @@ CompactionIterator::CompactionIterator(
   if (compaction_ != nullptr) {
     level_ptrs_ = std::vector<size_t>(compaction_->number_levels(), 0);
   }
-  ProcessSnapshotList();
+  if (snapshots_->size() == 0) {
+    // optimize for fast path if there are no snapshots
+    visible_at_tip_ = true;
+    earliest_snapshot_iter_ = snapshots_->end();
+    earliest_snapshot_ = kMaxSequenceNumber;
+    latest_snapshot_ = 0;
+  } else {
+    visible_at_tip_ = false;
+    earliest_snapshot_iter_ = snapshots_->begin();
+    earliest_snapshot_ = snapshots_->at(0);
+    latest_snapshot_ = snapshots_->back();
+  }
+#ifndef NDEBUG
+  // findEarliestVisibleSnapshot assumes this ordering.
+  for (size_t i = 1; i < snapshots_->size(); ++i) {
+    assert(snapshots_->at(i - 1) < snapshots_->at(i));
+  }
+#endif
   input_->SetPinnedItersMgr(&pinned_iters_mgr_);
   TEST_SYNC_POINT_CALLBACK("CompactionIterator:AfterInit", compaction_.get());
 }
@@ -125,6 +147,11 @@ void CompactionIterator::Next() {
       // MergeUntil stops when it encounters a corrupt key and does not
       // include them in the result, so we expect the keys here to be valid.
       assert(valid_key);
+      if (!valid_key) {
+        ROCKS_LOG_FATAL(info_log_, "Invalid key (%s) in compaction",
+                        key_.ToString(true).c_str());
+      }
+
       // Keep current_key_ in sync.
       current_key_.UpdateInternalKey(ikey_.sequence, ikey_.type);
       key_ = current_key_.GetInternalKey();
@@ -208,33 +235,12 @@ void CompactionIterator::InvokeFilterIfNeeded(bool* need_skip,
   }
 }
 
-void CompactionIterator::ProcessSnapshotList() {
-#ifndef NDEBUG
-  // findEarliestVisibleSnapshot assumes this ordering.
-  for (size_t i = 1; i < snapshots_->size(); ++i) {
-    assert(snapshots_->at(i - 1) < snapshots_->at(i));
-  }
-#endif
-  if (snapshots_->size() == 0) {
-    // optimize for fast path if there are no snapshots
-    visible_at_tip_ = true;
-    earliest_snapshot_iter_ = snapshots_->end();
-    earliest_snapshot_ = kMaxSequenceNumber;
-    latest_snapshot_ = 0;
-  } else {
-    visible_at_tip_ = false;
-    earliest_snapshot_iter_ = snapshots_->begin();
-    earliest_snapshot_ = snapshots_->at(0);
-    latest_snapshot_ = snapshots_->back();
-  }
-  released_snapshots_.clear();
-}
-
 void CompactionIterator::NextFromInput() {
   at_next_ = false;
   valid_ = false;
 
-  while (!valid_ && input_->Valid() && !IsShuttingDown()) {
+  while (!valid_ && input_->Valid() && !IsPausingManualCompaction() &&
+         !IsShuttingDown()) {
     key_ = input_->key();
     value_ = input_->value();
     iter_stats_.num_input_records++;
@@ -277,13 +283,6 @@ void CompactionIterator::NextFromInput() {
     // compaction filter). ikey_.user_key is pointing to the copy.
     if (!has_current_user_key_ ||
         !cmp_->Equal(ikey_.user_key, current_user_key_)) {
-      num_keys_++;
-      // Use num_keys_ to reduce the overhead of reading current time
-      if (snap_list_callback_ && snapshots_->size() &&
-          snap_list_callback_->TimeToRefresh(num_keys_)) {
-        snap_list_callback_->Refresh(snapshots_, latest_snapshot_);
-        ProcessSnapshotList();
-      }
       // First occurrence of this user key
       // Copy key for output
       key_ = current_key_.SetInternalKey(key_, &ikey_);
@@ -349,7 +348,18 @@ void CompactionIterator::NextFromInput() {
       // not compact out.  We will keep this Put, but can drop it's data.
       // (See Optimization 3, below.)
       assert(ikey_.type == kTypeValue);
+      if (ikey_.type != kTypeValue) {
+        ROCKS_LOG_FATAL(info_log_,
+                        "Unexpected key type %d for compaction output",
+                        ikey_.type);
+      }
       assert(current_user_key_snapshot_ == last_snapshot);
+      if (current_user_key_snapshot_ != last_snapshot) {
+        ROCKS_LOG_FATAL(info_log_,
+                        "current_user_key_snapshot_ (%" PRIu64
+                        ") != last_snapshot (%" PRIu64 ")",
+                        current_user_key_snapshot_, last_snapshot);
+      }
 
       value_.clear();
       valid_ = true;
@@ -491,6 +501,12 @@ void CompactionIterator::NextFromInput() {
       // checking since there has already been a record returned for this key
       // in this snapshot.
       assert(last_sequence >= current_user_key_sequence_);
+      if (last_sequence < current_user_key_sequence_) {
+        ROCKS_LOG_FATAL(info_log_,
+                        "last_sequence (%" PRIu64
+                        ") < current_user_key_sequence_ (%" PRIu64 ")",
+                        last_sequence, current_user_key_sequence_);
+      }
 
       ++iter_stats_.num_record_drop_hidden;  // (A)
       input_->Next();
@@ -574,6 +590,10 @@ void CompactionIterator::NextFromInput() {
         // MergeUntil stops when it encounters a corrupt key and does not
         // include them in the result, so we expect the keys here to valid.
         assert(valid_key);
+        if (!valid_key) {
+          ROCKS_LOG_FATAL(info_log_, "Invalid key (%s) in compaction",
+                          key_.ToString(true).c_str());
+        }
         // Keep current_key_ in sync.
         current_key_.UpdateInternalKey(ikey_.sequence, ikey_.type);
         key_ = current_key_.GetInternalKey();
@@ -612,6 +632,10 @@ void CompactionIterator::NextFromInput() {
   if (!valid_ && IsShuttingDown()) {
     status_ = Status::ShutdownInProgress();
   }
+
+  if (IsPausingManualCompaction()) {
+    status_ = Status::Incomplete(Status::SubCode::kManualCompactionPaused);
+  }
 }
 
 void CompactionIterator::PrepareOutput() {
@@ -630,6 +654,11 @@ void CompactionIterator::PrepareOutput() {
       ikeyNotNeededForIncrementalSnapshot() && bottommost_level_ && valid_ &&
       IN_EARLIEST_SNAPSHOT(ikey_.sequence) && ikey_.type != kTypeMerge) {
     assert(ikey_.type != kTypeDeletion && ikey_.type != kTypeSingleDeletion);
+    if (ikey_.type == kTypeDeletion || ikey_.type == kTypeSingleDeletion) {
+      ROCKS_LOG_FATAL(info_log_,
+                      "Unexpected key type %d for seq-zero optimization",
+                      ikey_.type);
+    }
     ikey_.sequence = 0;
     current_key_.UpdateInternalKey(0, ikey_.type);
   }
@@ -638,6 +667,10 @@ void CompactionIterator::PrepareOutput() {
 inline SequenceNumber CompactionIterator::findEarliestVisibleSnapshot(
     SequenceNumber in, SequenceNumber* prev_snapshot) {
   assert(snapshots_->size());
+  if (snapshots_->size() == 0) {
+    ROCKS_LOG_FATAL(info_log_,
+                    "No snapshot left in findEarliestVisibleSnapshot");
+  }
   auto snapshots_iter = std::lower_bound(
       snapshots_->begin(), snapshots_->end(), in);
   if (snapshots_iter == snapshots_->begin()) {
@@ -645,6 +678,10 @@ inline SequenceNumber CompactionIterator::findEarliestVisibleSnapshot(
   } else {
     *prev_snapshot = *std::prev(snapshots_iter);
     assert(*prev_snapshot < in);
+    if (*prev_snapshot >= in) {
+      ROCKS_LOG_FATAL(info_log_,
+                      "*prev_snapshot >= in in findEarliestVisibleSnapshot");
+    }
   }
   if (snapshot_checker_ == nullptr) {
     return snapshots_iter != snapshots_->end()
@@ -654,6 +691,9 @@ inline SequenceNumber CompactionIterator::findEarliestVisibleSnapshot(
   for (; snapshots_iter != snapshots_->end(); ++snapshots_iter) {
     auto cur = *snapshots_iter;
     assert(in <= cur);
+    if (in > cur) {
+      ROCKS_LOG_FATAL(info_log_, "in > cur in findEarliestVisibleSnapshot");
+    }
     // Skip if cur is in released_snapshots.
     if (has_released_snapshot && released_snapshots_.count(cur) > 0) {
       continue;
@@ -678,9 +718,14 @@ inline bool CompactionIterator::ikeyNotNeededForIncrementalSnapshot() {
 
 bool CompactionIterator::IsInEarliestSnapshot(SequenceNumber sequence) {
   assert(snapshot_checker_ != nullptr);
-  assert(earliest_snapshot_ == kMaxSequenceNumber ||
-         (earliest_snapshot_iter_ != snapshots_->end() &&
-          *earliest_snapshot_iter_ == earliest_snapshot_));
+  bool pre_condition = (earliest_snapshot_ == kMaxSequenceNumber ||
+                        (earliest_snapshot_iter_ != snapshots_->end() &&
+                         *earliest_snapshot_iter_ == earliest_snapshot_));
+  assert(pre_condition);
+  if (!pre_condition) {
+    ROCKS_LOG_FATAL(info_log_,
+                    "Pre-Condition is not hold in IsInEarliestSnapshot");
+  }
   auto in_snapshot =
       snapshot_checker_->CheckInSnapshot(sequence, earliest_snapshot_);
   while (UNLIKELY(in_snapshot == SnapshotCheckerResult::kSnapshotReleased)) {
@@ -699,6 +744,10 @@ bool CompactionIterator::IsInEarliestSnapshot(SequenceNumber sequence) {
         snapshot_checker_->CheckInSnapshot(sequence, earliest_snapshot_);
   }
   assert(in_snapshot != SnapshotCheckerResult::kSnapshotReleased);
+  if (in_snapshot == SnapshotCheckerResult::kSnapshotReleased) {
+    ROCKS_LOG_FATAL(info_log_,
+                    "Unexpected released snapshot in IsInEarliestSnapshot");
+  }
   return in_snapshot == SnapshotCheckerResult::kInSnapshot;
 }
 

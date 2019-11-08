@@ -143,7 +143,7 @@ CFLAGS +=  -DHAVE_POWER8
 HAVE_POWER8=1
 endif
 
-ifeq (,$(shell $(CXX) -fsyntax-only -march=armv8-a+crc -xc /dev/null 2>&1))
+ifeq (,$(shell $(CXX) -fsyntax-only -march=armv8-a+crc+crypto -xc /dev/null 2>&1))
 CXXFLAGS += -march=armv8-a+crc+crypto
 CFLAGS += -march=armv8-a+crc+crypto
 ARMCRC_SOURCE=1
@@ -256,8 +256,8 @@ endif
 ifdef COMPILE_WITH_TSAN
 	DISABLE_JEMALLOC=1
 	EXEC_LDFLAGS += -fsanitize=thread
-	PLATFORM_CCFLAGS += -fsanitize=thread -fPIC
-	PLATFORM_CXXFLAGS += -fsanitize=thread -fPIC
+	PLATFORM_CCFLAGS += -fsanitize=thread -fPIC -DFOLLY_SANITIZE_THREAD
+	PLATFORM_CXXFLAGS += -fsanitize=thread -fPIC -DFOLLY_SANITIZE_THREAD
         # Turn off -pg when enabling TSAN testing, because that induces
         # a link failure.  TODO: find the root cause
 	PROFILING_FLAGS =
@@ -310,7 +310,7 @@ endif
 
 export GTEST_THROW_ON_FAILURE=1
 export GTEST_HAS_EXCEPTIONS=1
-GTEST_DIR = ./third-party/gtest-1.7.0/fused-src
+GTEST_DIR = ./third-party/gtest-1.8.1/fused-src
 # AIX: pre-defined system headers are surrounded by an extern "C" block
 ifeq ($(PLATFORM), OS_AIX)
 	PLATFORM_CCFLAGS += -I$(GTEST_DIR)
@@ -330,6 +330,11 @@ ifeq ($(USE_FOLLY_DISTRIBUTED_MUTEX),1)
 		PLATFORM_CCFLAGS += -isystem $(FOLLY_DIR)
 		PLATFORM_CXXFLAGS += -isystem $(FOLLY_DIR)
 	endif
+endif
+
+ifdef TEST_CACHE_LINE_SIZE
+  PLATFORM_CCFLAGS += -DTEST_CACHE_LINE_SIZE=$(TEST_CACHE_LINE_SIZE)
+  PLATFORM_CXXFLAGS += -DTEST_CACHE_LINE_SIZE=$(TEST_CACHE_LINE_SIZE)
 endif
 
 # This (the first rule) must depend on "all".
@@ -433,6 +438,8 @@ VALGRIND_OPTS = --error-exitcode=$(VALGRIND_ERROR) --leak-check=full
 BENCHTOOLOBJECTS = $(BENCH_LIB_SOURCES:.cc=.o) $(LIBOBJECTS) $(TESTUTIL)
 
 ANALYZETOOLOBJECTS = $(ANALYZER_LIB_SOURCES:.cc=.o)
+
+STRESSTOOLOBJECTS = $(STRESS_LIB_SOURCES:.cc=.o) $(LIBOBJECTS) $(TESTUTIL)
 
 EXPOBJECTS = $(LIBOBJECTS) $(TESTUTIL)
 
@@ -644,7 +651,7 @@ TEST_LIBS = \
 	librocksdb_env_basic_test.a
 
 # TODO: add back forward_iterator_bench, after making it build in all environemnts.
-BENCHMARKS = db_bench table_reader_bench cache_bench memtablerep_bench persistent_cache_bench range_del_aggregator_bench
+BENCHMARKS = db_bench table_reader_bench cache_bench memtablerep_bench filter_bench persistent_cache_bench range_del_aggregator_bench
 
 # if user didn't config LIBNAME, set the default
 ifeq ($(LIBNAME),)
@@ -657,6 +664,7 @@ endif
 endif
 LIBRARY = ${LIBNAME}.a
 TOOLS_LIBRARY = ${LIBNAME}_tools.a
+STRESS_LIBRARY = ${LIBNAME}_stress.a
 
 ROCKSDB_MAJOR = $(shell egrep "ROCKSDB_MAJOR.[0-9]" include/rocksdb/version.h | cut -d ' ' -f 3)
 ROCKSDB_MINOR = $(shell egrep "ROCKSDB_MINOR.[0-9]" include/rocksdb/version.h | cut -d ' ' -f 3)
@@ -745,6 +753,8 @@ all_but_some_tests: $(LIBRARY) $(BENCHMARKS) tools tools_lib test_libs $(SUBSET)
 static_lib: $(LIBRARY)
 
 shared_lib: $(SHARED)
+
+stress_lib: $(STRESS_LIBRARY)
 
 tools: $(TOOLS)
 
@@ -950,7 +960,7 @@ blackbox_crash_test: db_stress
 	python -u tools/db_crashtest.py blackbox $(CRASH_TEST_EXT_ARGS)
 
 blackbox_crash_test_with_atomic_flush: db_stress
-	python -u tools/db_crashtest.py --enable_atomic_flush blackbox $(CRASH_TEST_EXT_ARGS)
+	python -u tools/db_crashtest.py --cf_consistency blackbox $(CRASH_TEST_EXT_ARGS)
 
 ifeq ($(CRASH_TEST_KILL_ODD),)
   CRASH_TEST_KILL_ODD=888887
@@ -963,7 +973,7 @@ whitebox_crash_test: db_stress
       $(CRASH_TEST_KILL_ODD) $(CRASH_TEST_EXT_ARGS)
 
 whitebox_crash_test_with_atomic_flush: db_stress
-	python -u tools/db_crashtest.py --enable_atomic_flush whitebox  --random_kill_odd \
+	python -u tools/db_crashtest.py --cf_consistency whitebox  --random_kill_odd \
       $(CRASH_TEST_KILL_ODD) $(CRASH_TEST_EXT_ARGS)
 
 asan_check:
@@ -1130,6 +1140,10 @@ $(TOOLS_LIBRARY): $(BENCH_LIB_SOURCES:.cc=.o) $(TOOL_LIB_SOURCES:.cc=.o) $(LIB_S
 	$(AM_V_AR)rm -f $@
 	$(AM_V_at)$(AR) $(ARFLAGS) $@ $^
 
+$(STRESS_LIBRARY): $(LIB_SOURCES:.cc=.o) $(TESTUTIL) $(ANALYZER_LIB_SOURCES:.cc=.o) $(STRESS_LIB_SOURCES:.cc=.o)
+	$(AM_V_AR)rm -f $@
+	$(AM_V_at)$(AR) $(ARFLAGS) $@ $^
+
 librocksdb_env_basic_test.a: env/env_basic_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_V_AR)rm -f $@
 	$(AM_V_at)$(AR) $(ARFLAGS) $@ $^
@@ -1157,7 +1171,10 @@ persistent_cache_bench: utilities/persistent_cache/persistent_cache_bench.o $(LI
 memtablerep_bench: memtable/memtablerep_bench.o $(LIBOBJECTS) $(TESTUTIL)
 	$(AM_LINK)
 
-db_stress: tools/db_stress.o $(LIBOBJECTS) $(TESTUTIL)
+filter_bench: util/filter_bench.o $(LIBOBJECTS) $(TESTUTIL)
+	$(AM_LINK)
+
+db_stress: tools/db_stress.o $(STRESSTOOLOBJECTS)
 	$(AM_LINK)
 
 write_stress: tools/write_stress.o $(LIBOBJECTS) $(TESTUTIL)
@@ -1226,7 +1243,7 @@ histogram_test: monitoring/histogram_test.o $(LIBOBJECTS) $(TESTHARNESS)
 thread_local_test: util/thread_local_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
-corruption_test: db/corruption_test.o $(LIBOBJECTS) $(TESTHARNESS)
+corruption_test: db/corruption_test.o db/db_test_util.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
 crc32c_test: util/crc32c_test.o $(LIBOBJECTS) $(TESTHARNESS)
@@ -1285,7 +1302,7 @@ db_merge_operator_test: db/db_merge_operator_test.o db/db_test_util.o $(LIBOBJEC
 
 db_merge_operand_test: db/db_merge_operand_test.o db/db_test_util.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
-	
+
 db_options_test: db/db_options_test.o db/db_test_util.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
@@ -1504,10 +1521,10 @@ util_merge_operators_test: utilities/util_merge_operators_test.o $(LIBOBJECTS) $
 options_file_test: db/options_file_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
-deletefile_test: db/deletefile_test.o $(LIBOBJECTS) $(TESTHARNESS)
+deletefile_test: db/deletefile_test.o db/db_test_util.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
-obsolete_files_test: db/obsolete_files_test.o $(LIBOBJECTS) $(TESTHARNESS)
+obsolete_files_test: db/obsolete_files_test.o db/db_test_util.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
 rocksdb_dump: tools/dump/rocksdb_dump.o $(LIBOBJECTS)
@@ -1696,7 +1713,7 @@ JAVA_INCLUDE = -I$(JAVA_HOME)/include/ -I$(JAVA_HOME)/include/linux
 ifeq ($(PLATFORM), OS_SOLARIS)
 	ARCH := $(shell isainfo -b)
 else ifeq ($(PLATFORM), OS_OPENBSD)
-	ifneq (,$(filter $(MACHINE), amd64 arm64 sparc64 aarch64))
+	ifneq (,$(filter $(MACHINE), amd64 arm64 aarch64 sparc64))
 		ARCH := 64
 	else
 		ARCH := 32
@@ -1705,12 +1722,9 @@ else
 	ARCH := $(shell getconf LONG_BIT)
 endif
 
-ifeq (,$(findstring ppc,$(MACHINE)))
+ifeq (,$(filter $(MACHINE), ppc arm64 aarch64 sparc64))
         ROCKSDBJNILIB = librocksdbjni-linux$(ARCH).so
 else
-        ROCKSDBJNILIB = librocksdbjni-linux-$(MACHINE).so
-endif
-ifneq (,$(findstring aarch64,$(MACHINE)))
         ROCKSDBJNILIB = librocksdbjni-linux-$(MACHINE).so
 endif
 ROCKSDB_JAR = rocksdbjni-$(ROCKSDB_MAJOR).$(ROCKSDB_MINOR).$(ROCKSDB_PATCH)-linux$(ARCH).jar
@@ -1724,7 +1738,7 @@ ZLIB_SHA256 ?= c3e5e9fdd5004dcb542feda5ee4f0ff0744628baf8ed2dd5d66f8ca1197cb1a1
 ZLIB_DOWNLOAD_BASE ?= http://zlib.net
 BZIP2_VER ?= 1.0.6
 BZIP2_SHA256 ?= a2848f34fcd5d6cf47def00461fcb528a0484d8edef8208d6d2e2909dc61d9cd
-BZIP2_DOWNLOAD_BASE ?= https://web.archive.org/web/20180624184835/http://www.bzip.org
+BZIP2_DOWNLOAD_BASE ?= https://downloads.sourceforge.net/project/bzip2
 SNAPPY_VER ?= 1.1.7
 SNAPPY_SHA256 ?= 3dfa02e873ff51a11ee02b9ca391807f0c8ea0529a4924afa645fbf97163f9d4
 SNAPPY_DOWNLOAD_BASE ?= https://github.com/google/snappy/archive
@@ -1786,7 +1800,7 @@ endif
 libbz2.a:
 	-rm -rf bzip2-$(BZIP2_VER)
 ifeq (,$(wildcard ./bzip2-$(BZIP2_VER).tar.gz))
-	curl --output bzip2-$(BZIP2_VER).tar.gz -L ${BZIP2_DOWNLOAD_BASE}/$(BZIP2_VER)/bzip2-$(BZIP2_VER).tar.gz
+	curl --output bzip2-$(BZIP2_VER).tar.gz -L ${CURL_SSL_OPTS} ${BZIP2_DOWNLOAD_BASE}/bzip2-$(BZIP2_VER).tar.gz
 endif
 	BZIP2_SHA256_ACTUAL=`$(SHA256_CMD) bzip2-$(BZIP2_VER).tar.gz | cut -d ' ' -f 1`; \
 	if [ "$(BZIP2_SHA256)" != "$$BZIP2_SHA256_ACTUAL" ]; then \
@@ -1909,6 +1923,14 @@ rocksdbjavastaticdockerppc64le:
 	mkdir -p java/target
 	docker run --rm --name rocksdb_linux_ppc64le-be --attach stdin --attach stdout --attach stderr --volume `pwd`:/rocksdb-host --env DEBUG_LEVEL=$(DEBUG_LEVEL) evolvedbinary/rocksjava:centos7_ppc64le-be /rocksdb-host/java/crossbuild/docker-build-linux-centos.sh
 
+rocksdbjavastaticdockerarm64v8:
+	mkdir -p java/target
+	DOCKER_LINUX_ARM64V8_CONTAINER=`docker ps -aqf name=rocksdb_linux_arm64v8-be`; \
+	if [ -z "$$DOCKER_LINUX_ARM64V8_CONTAINER" ]; then \
+		docker container create --attach stdin --attach stdout --attach stderr --volume `pwd`:/rocksdb-host --name rocksdb_linux_arm64v8-be evolvedbinary/rocksjava:centos7_arm64v8-be /rocksdb-host/java/crossbuild/docker-build-linux-centos.sh; \
+	fi
+	docker start -a rocksdb_linux_arm64v8-be
+
 rocksdbjavastaticpublish: rocksdbjavastaticrelease rocksdbjavastaticpublishcentral
 
 rocksdbjavastaticpublishdocker: rocksdbjavastaticreleasedocker rocksdbjavastaticpublishcentral
@@ -2025,7 +2047,7 @@ endif
 #  	Source files dependencies detection
 # ---------------------------------------------------------------------------
 
-all_sources = $(LIB_SOURCES) $(MAIN_SOURCES) $(MOCK_LIB_SOURCES) $(TOOL_LIB_SOURCES) $(BENCH_LIB_SOURCES) $(TEST_LIB_SOURCES) $(ANALYZER_LIB_SOURCES)
+all_sources = $(LIB_SOURCES) $(MAIN_SOURCES) $(MOCK_LIB_SOURCES) $(TOOL_LIB_SOURCES) $(BENCH_LIB_SOURCES) $(TEST_LIB_SOURCES) $(ANALYZER_LIB_SOURCES) $(STRESS_LIB_SOURCES)
 DEPFILES = $(all_sources:.cc=.cc.d)
 
 # Add proper dependency support so changing a .h file forces a .cc file to

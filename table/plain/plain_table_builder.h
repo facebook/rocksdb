@@ -13,7 +13,7 @@
 #include "rocksdb/status.h"
 #include "rocksdb/table.h"
 #include "rocksdb/table_properties.h"
-#include "table/bloom_block.h"
+#include "table/plain/plain_table_bloom.h"
 #include "table/plain/plain_table_index.h"
 #include "table/plain/plain_table_key_coding.h"
 #include "table/table_builder.h"
@@ -45,6 +45,9 @@ class PlainTableBuilder: public TableBuilder {
       const std::string& column_family_name, uint32_t num_probes = 6,
       size_t huge_page_tlb_size = 0, double hash_table_ratio = 0,
       bool store_index_in_file = false);
+  // No copying allowed
+  PlainTableBuilder(const PlainTableBuilder&) = delete;
+  void operator=(const PlainTableBuilder&) = delete;
 
   // REQUIRES: Either Finish() or Abandon() has been called.
   ~PlainTableBuilder();
@@ -131,10 +134,6 @@ class PlainTableBuilder: public TableBuilder {
   }
 
   bool IsTotalOrderMode() const { return (prefix_extractor_ == nullptr); }
-
-  // No copying allowed
-  PlainTableBuilder(const PlainTableBuilder&) = delete;
-  void operator=(const PlainTableBuilder&) = delete;
 };
 
 }  // namespace rocksdb

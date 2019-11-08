@@ -7,7 +7,7 @@
 
 #include <cinttypes>
 
-#include "db/db_iter.h"
+#include "db/arena_wrapped_db_iter.h"
 #include "db/merge_context.h"
 #include "logging/auto_roll_logger.h"
 #include "monitoring/perf_context_imp.h"
@@ -253,9 +253,9 @@ Status DBImplSecondary::RecoverLogFiles(
         bool has_valid_writes = false;
         status = WriteBatchInternal::InsertInto(
             &batch, column_family_memtables_.get(),
-            nullptr /* flush_scheduler */, true, log_number, this,
-            false /* concurrent_memtable_writes */, next_sequence,
-            &has_valid_writes, seq_per_batch_, batch_per_txn_);
+            nullptr /* flush_scheduler */, nullptr /* trim_history_scheduler*/,
+            true, log_number, this, false /* concurrent_memtable_writes */,
+            next_sequence, &has_valid_writes, seq_per_batch_, batch_per_txn_);
       }
       // If column family was not found, it might mean that the WAL write
       // batch references to the column family that was dropped after the
@@ -588,8 +588,7 @@ Status DB::OpenAsSecondary(
       &impl->write_controller_));
   impl->column_family_memtables_.reset(
       new ColumnFamilyMemTablesImpl(impl->versions_->GetColumnFamilySet()));
-  impl->wal_in_db_path_ =
-      IsWalDirSameAsDBPath(&impl->immutable_db_options_);
+  impl->wal_in_db_path_ = IsWalDirSameAsDBPath(&impl->immutable_db_options_);
 
   impl->mutex_.Lock();
   s = impl->Recover(column_families, true, false, false);

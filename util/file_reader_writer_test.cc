@@ -3,9 +3,12 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 //
-#include "util/file_reader_writer.h"
 #include <algorithm>
 #include <vector>
+#include "file/random_access_file_reader.h"
+#include "file/readahead_raf.h"
+#include "file/sequence_file_reader.h"
+#include "file/writable_file_writer.h"
 #include "test_util/testharness.h"
 #include "test_util/testutil.h"
 #include "util/random.h"

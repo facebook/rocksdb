@@ -11,7 +11,6 @@
 #include "port/jemalloc_helper.h"
 #include "port/port.h"
 #include "rocksdb/memory_allocator.h"
-#include "util/core_local.h"
 #include "util/thread_local.h"
 
 #if defined(ROCKSDB_JEMALLOC) && defined(ROCKSDB_PLATFORM_POSIX)

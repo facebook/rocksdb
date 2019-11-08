@@ -11,11 +11,14 @@
 #include <iomanip>
 #include <memory>
 
+#include "db/blob_index.h"
 #include "db/db_impl/db_impl.h"
 #include "db/write_batch_internal.h"
 #include "file/file_util.h"
 #include "file/filename.h"
+#include "file/random_access_file_reader.h"
 #include "file/sst_file_manager_impl.h"
+#include "file/writable_file_writer.h"
 #include "logging/logging.h"
 #include "monitoring/instrumented_mutex.h"
 #include "monitoring/statistics.h"
@@ -31,7 +34,6 @@
 #include "test_util/sync_point.h"
 #include "util/cast_util.h"
 #include "util/crc32c.h"
-#include "util/file_reader_writer.h"
 #include "util/mutexlock.h"
 #include "util/random.h"
 #include "util/stop_watch.h"
@@ -39,7 +41,6 @@
 #include "utilities/blob_db/blob_compaction_filter.h"
 #include "utilities/blob_db/blob_db_iterator.h"
 #include "utilities/blob_db/blob_db_listener.h"
-#include "utilities/blob_db/blob_index.h"
 
 namespace {
 int kBlockBasedTableVersionFormat = 2;
@@ -136,6 +137,9 @@ Status BlobDBImpl::Open(std::vector<ColumnFamilyHandle*>* handles) {
       cf_options_.compaction_filter_factory != nullptr) {
     return Status::NotSupported("Blob DB doesn't support compaction filter.");
   }
+  // BlobDB does not support Periodic Compactions. So disable periodic
+  // compactions irrespective of the user set value.
+  cf_options_.periodic_compaction_seconds = 0;
 
   Status s;
 
@@ -724,6 +728,7 @@ Status BlobDBImpl::PutBlobValue(const WriteOptions& /*options*/,
     }
     if (s.ok()) {
       if (expiration != kNoExpiration) {
+        WriteLock file_lock(&blob_file->mutex_);
         blob_file->ExtendExpirationRange(expiration);
       }
       s = CloseBlobFileIfNeeded(blob_file);
@@ -1177,6 +1182,8 @@ std::pair<bool, int64_t> BlobDBImpl::SanityCheck(bool aborted) {
     return std::make_pair(false, -1);
   }
 
+  ReadLock rl(&mutex_);
+
   ROCKS_LOG_INFO(db_options_.info_log, "Starting Sanity Check");
   ROCKS_LOG_INFO(db_options_.info_log, "Number of files %" ROCKSDB_PRIszt,
                  blob_files_.size());
@@ -1198,7 +1205,13 @@ std::pair<bool, int64_t> BlobDBImpl::SanityCheck(bool aborted) {
                        blob_file->BlobFileNumber(), blob_file->GetFileSize(),
                        blob_file->BlobCount(), blob_file->Immutable());
     if (blob_file->HasTTL()) {
-      auto expiration_range = blob_file->GetExpirationRange();
+      ExpirationRange expiration_range;
+
+      {
+        ReadLock file_lock(&blob_file->mutex_);
+        expiration_range = blob_file->GetExpirationRange();
+      }
+
       pos += snprintf(buf + pos, sizeof(buf) - pos,
                       ", expiration range (%" PRIu64 ", %" PRIu64 ")",
                       expiration_range.first, expiration_range.second);
@@ -1422,7 +1435,7 @@ class BlobDBImpl::GarbageCollectionWriteCallback : public WriteCallback {
       : cfd_(cfd), key_(key), upper_bound_(upper_bound) {}
 
   Status Callback(DB* db) override {
-    auto* db_impl = reinterpret_cast<DBImpl*>(db);
+    auto* db_impl = static_cast_with_check<DBImpl, DB>(db);
     auto* sv = db_impl->GetAndRefSuperVersion(cfd_);
     SequenceNumber latest_seq = 0;
     bool found_record_for_key = false;
@@ -1501,7 +1514,14 @@ Status BlobDBImpl::GCFileAndUpdateLSM(const std::shared_ptr<BlobFile>& bfptr,
   // this reads the key but skips the blob
   Reader::ReadLevel shallow = Reader::kReadHeaderKey;
 
-  bool file_expired = has_ttl && now >= bfptr->GetExpirationRange().second;
+  ExpirationRange expiration_range;
+
+  {
+    ReadLock file_lock(&bfptr->mutex_);
+    expiration_range = bfptr->GetExpirationRange();
+  }
+
+  bool file_expired = has_ttl && now >= expiration_range.second;
 
   if (!file_expired) {
     // read the blob because you have to write it back to new file
@@ -1761,7 +1781,11 @@ std::pair<bool, int64_t> BlobDBImpl::DeleteObsoleteFiles(bool aborted) {
                    "Will delete file due to snapshot success %s",
                    bfile->PathName().c_str());
 
-    blob_files_.erase(bfile->BlobFileNumber());
+    {
+      WriteLock wl(&mutex_);
+      blob_files_.erase(bfile->BlobFileNumber());
+    }
+
     Status s = DeleteDBFile(&(db_impl_->immutable_db_options()),
                             bfile->PathName(), blob_dir_, true,
                             /*force_fg=*/false);
@@ -1794,6 +1818,7 @@ std::pair<bool, int64_t> BlobDBImpl::DeleteObsoleteFiles(bool aborted) {
   if (!tobsolete.empty()) {
     WriteLock wl(&mutex_);
     for (auto bfile : tobsolete) {
+      blob_files_.insert(std::make_pair(bfile->BlobFileNumber(), bfile));
       obsolete_files_.push_front(bfile);
     }
   }

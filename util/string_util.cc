@@ -6,17 +6,16 @@
 #include "util/string_util.h"
 
 #include <errno.h>
-#include <cinttypes>
 #include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <algorithm>
+#include <cinttypes>
 #include <cmath>
 #include <sstream>
 #include <string>
 #include <utility>
 #include <vector>
-#include "rocksdb/env.h"
 #include "port/port.h"
 #include "port/sys_time.h"
 #include "rocksdb/slice.h"

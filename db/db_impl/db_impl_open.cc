@@ -12,7 +12,9 @@
 
 #include "db/builder.h"
 #include "db/error_handler.h"
+#include "file/read_write_util.h"
 #include "file/sst_file_manager_impl.h"
+#include "file/writable_file_writer.h"
 #include "monitoring/persistent_stats_history.h"
 #include "options/options_helper.h"
 #include "rocksdb/wal_filter.h"
@@ -133,9 +135,9 @@ DBOptions SanitizeOptions(const std::string& dbname, const DBOptions& src) {
     std::vector<std::string> filenames;
     result.env->GetChildren(result.wal_dir, &filenames);
     for (std::string& filename : filenames) {
-      if (filename.find(".log.trash",
-                  filename.length() - std::string(".log.trash").length()) !=
-                  std::string::npos) {
+      if (filename.find(".log.trash", filename.length() -
+                                          std::string(".log.trash").length()) !=
+          std::string::npos) {
         std::string trash_file = result.wal_dir + "/" + filename;
         result.env->DeleteFile(trash_file);
       }
@@ -226,16 +228,28 @@ Status DBImpl::ValidateOptions(const DBOptions& db_options) {
         "unordered_write is incompatible with enable_pipelined_write");
   }
 
+  if (db_options.atomic_flush && db_options.enable_pipelined_write) {
+    return Status::InvalidArgument(
+        "atomic_flush is incompatible with enable_pipelined_write");
+  }
+
   return Status::OK();
 }
 
 Status DBImpl::NewDB() {
   VersionEdit new_db;
+  Status s = SetIdentityFile(env_, dbname_);
+  if (!s.ok()) {
+    return s;
+  }
+  if (immutable_db_options_.write_dbid_to_manifest) {
+    std::string temp_db_id;
+    GetDbIdentityFromIdentityFile(&temp_db_id);
+    new_db.SetDBId(temp_db_id);
+  }
   new_db.SetLogNumber(0);
   new_db.SetNextFile(2);
   new_db.SetLastSequence(0);
-
-  Status s;
 
   ROCKS_LOG_INFO(immutable_db_options_.info_log, "Creating manifest 1 \n");
   const std::string manifest = DescriptorFileName(dbname_, 1);
@@ -339,6 +353,9 @@ Status DBImpl::Recover(
     s = env_->FileExists(CurrentFileName(dbname_));
     if (s.IsNotFound()) {
       if (immutable_db_options_.create_if_missing) {
+        // Has to be called only after Identity File creation is successful
+        // because DB ID is stored in Manifest if
+        // immutable_db_options_.write_dbid_to_manifest = true
         s = NewDB();
         is_new_db = true;
         if (!s.ok()) {
@@ -358,30 +375,19 @@ Status DBImpl::Recover(
       assert(s.IsIOError());
       return s;
     }
-    // Check for the IDENTITY file and create it if not there
-    s = env_->FileExists(IdentityFileName(dbname_));
-    if (s.IsNotFound()) {
-      s = SetIdentityFile(env_, dbname_);
-      if (!s.ok()) {
-        return s;
-      }
-    } else if (!s.ok()) {
-      assert(s.IsIOError());
-      return s;
-    }
     // Verify compatibility of env_options_ and filesystem
     {
       std::unique_ptr<RandomAccessFile> idfile;
       EnvOptions customized_env(env_options_);
       customized_env.use_direct_reads |=
           immutable_db_options_.use_direct_io_for_flush_and_compaction;
-      s = env_->NewRandomAccessFile(IdentityFileName(dbname_), &idfile,
+      s = env_->NewRandomAccessFile(CurrentFileName(dbname_), &idfile,
                                     customized_env);
       if (!s.ok()) {
         std::string error_str = s.ToString();
         // Check if unsupported Direct I/O is the root cause
         customized_env.use_direct_reads = false;
-        s = env_->NewRandomAccessFile(IdentityFileName(dbname_), &idfile,
+        s = env_->NewRandomAccessFile(CurrentFileName(dbname_), &idfile,
                                       customized_env);
         if (s.ok()) {
           return Status::InvalidArgument(
@@ -393,8 +399,42 @@ Status DBImpl::Recover(
       }
     }
   }
-
-  Status s = versions_->Recover(column_families, read_only);
+  assert(db_id_.empty());
+  Status s = versions_->Recover(column_families, read_only, &db_id_);
+  if (!s.ok()) {
+    return s;
+  }
+  // Happens when immutable_db_options_.write_dbid_to_manifest is set to true
+  // the very first time.
+  if (db_id_.empty()) {
+    // Check for the IDENTITY file and create it if not there.
+    s = env_->FileExists(IdentityFileName(dbname_));
+    // Typically Identity file is created in NewDB() and for some reason if
+    // it is no longer available then at this point DB ID is not in Identity
+    // file or Manifest.
+    if (s.IsNotFound()) {
+      s = SetIdentityFile(env_, dbname_);
+      if (!s.ok()) {
+        return s;
+      }
+    } else if (!s.ok()) {
+      assert(s.IsIOError());
+      return s;
+    }
+    GetDbIdentityFromIdentityFile(&db_id_);
+    if (immutable_db_options_.write_dbid_to_manifest) {
+      VersionEdit edit;
+      edit.SetDBId(db_id_);
+      Options options;
+      MutableCFOptions mutable_cf_options(options);
+      versions_->db_id_ = db_id_;
+      versions_->LogAndApply(versions_->GetColumnFamilySet()->GetDefault(),
+                             mutable_cf_options, &edit, &mutex_, nullptr,
+                             false);
+    }
+  } else {
+    SetIdentityFile(env_, dbname_, db_id_);
+  }
 
   if (immutable_db_options_.paranoid_checks && s.ok()) {
     s = CheckConsistency();
@@ -862,9 +902,10 @@ Status DBImpl::RecoverLogFiles(const std::vector<uint64_t>& log_numbers,
       // That's why we set ignore missing column families to true
       bool has_valid_writes = false;
       status = WriteBatchInternal::InsertInto(
-          &batch, column_family_memtables_.get(), &flush_scheduler_, true,
-          log_number, this, false /* concurrent_memtable_writes */,
-          next_sequence, &has_valid_writes, seq_per_batch_, batch_per_txn_);
+          &batch, column_family_memtables_.get(), &flush_scheduler_,
+          &trim_history_scheduler_, true, log_number, this,
+          false /* concurrent_memtable_writes */, next_sequence,
+          &has_valid_writes, seq_per_batch_, batch_per_txn_);
       MaybeIgnoreError(&status);
       if (!status.ok()) {
         // We are treating this as a failure while reading since we read valid
@@ -931,6 +972,7 @@ Status DBImpl::RecoverLogFiles(const std::vector<uint64_t>& log_numbers,
     }
 
     flush_scheduler_.Clear();
+    trim_history_scheduler_.Clear();
     auto last_sequence = *next_sequence - 1;
     if ((*next_sequence != kMaxSequenceNumber) &&
         (versions_->LastSequence() <= last_sequence)) {
@@ -981,6 +1023,9 @@ Status DBImpl::RecoverLogFiles(const std::vector<uint64_t>& log_numbers,
         continue;
       }
 
+      TEST_SYNC_POINT_CALLBACK(
+          "DBImpl::RecoverLogFiles:BeforeFlushFinalMemtable", /*arg=*/nullptr);
+
       // flush the final memtable (if non-empty)
       if (cfd->mem()->GetFirstSequenceNumber() != 0) {
         // If flush happened in the middle of recovery (e.g. due to memtable
@@ -1000,7 +1045,9 @@ Status DBImpl::RecoverLogFiles(const std::vector<uint64_t>& log_numbers,
         data_seen = true;
       }
 
-      // write MANIFEST with update
+      // Update the log number info in the version edit corresponding to this
+      // column family. Note that the version edits will be written to MANIFEST
+      // together later.
       // writing log_number in the manifest means that any log file
       // with number strongly less than (log_number + 1) is already
       // recovered and should be ignored on next reincarnation.
@@ -1009,17 +1056,28 @@ Status DBImpl::RecoverLogFiles(const std::vector<uint64_t>& log_numbers,
       if (flushed || cfd->mem()->GetFirstSequenceNumber() == 0) {
         edit->SetLogNumber(max_log_number + 1);
       }
+    }
+    if (status.ok()) {
       // we must mark the next log number as used, even though it's
       // not actually used. that is because VersionSet assumes
       // VersionSet::next_file_number_ always to be strictly greater than any
       // log number
       versions_->MarkFileNumberUsed(max_log_number + 1);
-      status = versions_->LogAndApply(cfd, *cfd->GetLatestMutableCFOptions(),
-                                      edit, &mutex_);
-      if (!status.ok()) {
-        // Recovery failed
-        break;
+
+      autovector<ColumnFamilyData*> cfds;
+      autovector<const MutableCFOptions*> cf_opts;
+      autovector<autovector<VersionEdit*>> edit_lists;
+      for (auto* cfd : *versions_->GetColumnFamilySet()) {
+        cfds.push_back(cfd);
+        cf_opts.push_back(cfd->GetLatestMutableCFOptions());
+        auto iter = version_edits.find(cfd->GetID());
+        assert(iter != version_edits.end());
+        edit_lists.push_back({&iter->second});
       }
+      // write MANIFEST with update
+      status = versions_->LogAndApply(cfds, cf_opts, edit_lists, &mutex_,
+                                      directories_.GetDbDir(),
+                                      /*new_descriptor_log=*/true);
     }
   }
 
@@ -1092,8 +1150,9 @@ Status DBImpl::WriteLevel0TableForRecovery(int job_id, ColumnFamilyData* cfd,
   mutex_.AssertHeld();
   const uint64_t start_micros = env_->NowMicros();
   FileMetaData meta;
-  auto pending_outputs_inserted_elem =
-      CaptureCurrentFileNumberInPendingOutputs();
+  std::unique_ptr<std::list<uint64_t>::iterator> pending_outputs_inserted_elem(
+      new std::list<uint64_t>::iterator(
+          CaptureCurrentFileNumberInPendingOutputs()));
   meta.fd = FileDescriptor(versions_->NewFileNumber(), 0, 0);
   ReadOptions ro;
   ro.total_order_seek = true;
@@ -1165,7 +1224,7 @@ Status DBImpl::WriteLevel0TableForRecovery(int job_id, ColumnFamilyData* cfd,
     edit->AddFile(level, meta.fd.GetNumber(), meta.fd.GetPathId(),
                   meta.fd.GetFileSize(), meta.smallest, meta.largest,
                   meta.fd.smallest_seqno, meta.fd.largest_seqno,
-                  meta.marked_for_compaction);
+                  meta.marked_for_compaction, meta.oldest_blob_file_number);
   }
 
   InternalStats::CompactionStats stats(CompactionReason::kFlush, 1);
@@ -1315,8 +1374,7 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
     return s;
   }
 
-  impl->wal_in_db_path_ =
-      IsWalDirSameAsDBPath(&impl->immutable_db_options_);
+  impl->wal_in_db_path_ = IsWalDirSameAsDBPath(&impl->immutable_db_options_);
 
   impl->mutex_.Lock();
   // Handles create_if_missing, error_if_exists

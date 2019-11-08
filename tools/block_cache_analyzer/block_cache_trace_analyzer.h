@@ -145,6 +145,7 @@ class BlockCacheTraceAnalyzer {
       const std::string& trace_file_path, const std::string& output_dir,
       const std::string& human_readable_trace_file_path,
       bool compute_reuse_distance, bool mrc_only,
+      bool is_human_readable_trace_file,
       std::unique_ptr<BlockCacheTraceSimulator>&& cache_simulator);
   ~BlockCacheTraceAnalyzer() = default;
   // No copy and move.
@@ -365,15 +366,13 @@ class BlockCacheTraceAnalyzer {
       const std::map<std::string, Predictions>& label_predictions,
       uint32_t max_number_of_values) const;
 
-  Status WriteHumanReadableTraceRecord(const BlockCacheTraceRecord& access,
-                                       uint64_t block_id, uint64_t get_key_id);
-
   rocksdb::Env* env_;
   const std::string trace_file_path_;
   const std::string output_dir_;
   std::string human_readable_trace_file_path_;
   const bool compute_reuse_distance_;
   const bool mrc_only_;
+  const bool is_human_readable_trace_file_;
 
   BlockCacheTraceHeader header_;
   std::unique_ptr<BlockCacheTraceSimulator> cache_simulator_;
@@ -386,8 +385,7 @@ class BlockCacheTraceAnalyzer {
   MissRatioStats miss_ratio_stats_;
   uint64_t unique_block_id_ = 1;
   uint64_t unique_get_key_id_ = 1;
-  char trace_record_buffer_[1024 * 1024];
-  std::unique_ptr<rocksdb::WritableFile> human_readable_trace_file_writer_;
+  BlockCacheHumanReadableTraceWriter human_readable_trace_writer_;
 };
 
 int block_cache_trace_analyzer_tool(int argc, char** argv);

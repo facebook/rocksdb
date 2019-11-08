@@ -605,9 +605,9 @@ TEST_F(DBSecondaryTest, SwitchWAL) {
 TEST_F(DBSecondaryTest, SwitchWALMultiColumnFamilies) {
   const int kNumKeysPerMemtable = 1;
   SyncPoint::GetInstance()->DisableProcessing();
-  SyncPoint::GetInstance()->LoadDependency({
-      {"DBImpl::BackgroundCallFlush:ContextCleanedUp",
-       "DBSecondaryTest::SwitchWALMultipleColumnFamilies:BeforeCatchUp"}});
+  SyncPoint::GetInstance()->LoadDependency(
+      {{"DBImpl::BackgroundCallFlush:ContextCleanedUp",
+        "DBSecondaryTest::SwitchWALMultipleColumnFamilies:BeforeCatchUp"}});
   SyncPoint::GetInstance()->EnableProcessing();
   const std::string kCFName1 = "pikachu";
   Options options;
@@ -662,7 +662,8 @@ TEST_F(DBSecondaryTest, SwitchWALMultiColumnFamilies) {
         Put(0 /*cf*/, "key" + std::to_string(k), "value" + std::to_string(k)));
     ASSERT_OK(
         Put(1 /*cf*/, "key" + std::to_string(k), "value" + std::to_string(k)));
-    TEST_SYNC_POINT("DBSecondaryTest::SwitchWALMultipleColumnFamilies:BeforeCatchUp");
+    TEST_SYNC_POINT(
+        "DBSecondaryTest::SwitchWALMultipleColumnFamilies:BeforeCatchUp");
     ASSERT_OK(db_secondary_->TryCatchUpWithPrimary());
     verify_db(dbfull(), handles_, db_secondary_, handles_secondary_);
     SyncPoint::GetInstance()->ClearTrace();

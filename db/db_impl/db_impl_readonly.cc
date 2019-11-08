@@ -4,6 +4,7 @@
 //  (found in the LICENSE.Apache file in the root directory).
 
 #include "db/db_impl/db_impl_readonly.h"
+#include "db/arena_wrapped_db_iter.h"
 
 #include "db/compacted_db_impl.h"
 #include "db/db_impl/db_impl.h"

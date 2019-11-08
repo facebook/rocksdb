@@ -25,7 +25,6 @@ struct KeyContext {
   MergeContext merge_context;
   SequenceNumber max_covering_tombstone_seq;
   bool key_exists;
-  SequenceNumber seq;
   void* cb_arg;
   PinnableSlice* value;
   GetContext* get_context;
@@ -36,7 +35,6 @@ struct KeyContext {
         s(stat),
         max_covering_tombstone_seq(0),
         key_exists(false),
-        seq(0),
         cb_arg(nullptr),
         value(val),
         get_context(nullptr) {}
@@ -229,6 +227,16 @@ class MultiGetContext {
 
     bool CheckKeyDone(Iterator& iter) {
       return ctx_->value_mask_ & (1ull << iter.index_);
+    }
+
+    uint64_t KeysLeft() {
+      uint64_t new_val = skip_mask_ | ctx_->value_mask_;
+      uint64_t count = 0;
+      while (new_val) {
+        new_val = new_val & (new_val - 1);
+        count++;
+      }
+      return end_ - count;
     }
 
    private:

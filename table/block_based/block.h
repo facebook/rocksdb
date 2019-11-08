@@ -12,16 +12,10 @@
 #include <stdint.h>
 #include <string>
 #include <vector>
-#ifdef ROCKSDB_MALLOC_USABLE_SIZE
-#ifdef OS_FREEBSD
-#include <malloc_np.h>
-#else
-#include <malloc.h>
-#endif
-#endif
 
 #include "db/dbformat.h"
 #include "db/pinned_iterators_manager.h"
+#include "port/malloc.h"
 #include "rocksdb/iterator.h"
 #include "rocksdb/options.h"
 #include "rocksdb/statistics.h"
@@ -141,12 +135,27 @@ class BlockReadAmpBitmap {
   uint32_t rnd_;
 };
 
+// This Block class is not for any old block: it is designed to hold only
+// uncompressed blocks containing sorted key-value pairs. It is thus
+// suitable for storing uncompressed data blocks, index blocks (including
+// partitions), range deletion blocks, properties blocks, metaindex blocks,
+// as well as the top level of the partitioned filter structure (which is
+// actually an index of the filter partitions). It is NOT suitable for
+// compressed blocks in general, filter blocks/partitions, or compression
+// dictionaries (since the latter do not contain sorted key-value pairs).
+// Use BlockContents directly for those.
+//
+// See https://github.com/facebook/rocksdb/wiki/Rocksdb-BlockBasedTable-Format
+// for details of the format and the various block types.
 class Block {
  public:
   // Initialize the block with the specified contents.
   explicit Block(BlockContents&& contents, SequenceNumber _global_seqno,
                  size_t read_amp_bytes_per_bit = 0,
                  Statistics* statistics = nullptr);
+  // No copying allowed
+  Block(const Block&) = delete;
+  void operator=(const Block&) = delete;
 
   ~Block();
 
@@ -222,10 +231,6 @@ class Block {
   const SequenceNumber global_seqno_;
 
   DataBlockHashIndex data_block_hash_index_;
-
-  // No copying allowed
-  Block(const Block&) = delete;
-  void operator=(const Block&) = delete;
 };
 
 template <class TValue>

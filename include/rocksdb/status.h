@@ -77,6 +77,7 @@ class Status {
     kSpaceLimit = 8,
     kPathNotFound = 9,
     KMergeOperandsInsufficientCapacity = 10,
+    kManualCompactionPaused = 11,
     kMaxSubCode
   };
 
@@ -293,6 +294,12 @@ class Status {
   // a specific subcode, enabling users to take appropriate action if necessary
   bool IsPathNotFound() const {
     return (code() == kIOError) && (subcode() == kPathNotFound);
+  }
+
+  // Returns true iff the status indicates manual compaction paused. This
+  // is caused by a call to PauseManualCompaction
+  bool IsManualCompactionPaused() const {
+    return (code() == kIncomplete) && (subcode() == kManualCompactionPaused);
   }
 
   // Return a string representation of this status suitable for printing.

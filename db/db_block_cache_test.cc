@@ -380,8 +380,13 @@ TEST_F(DBBlockCacheTest, IndexAndFilterBlocksStats) {
   options.statistics = rocksdb::CreateDBStatistics();
   BlockBasedTableOptions table_options;
   table_options.cache_index_and_filter_blocks = true;
+  LRUCacheOptions co;
   // 500 bytes are enough to hold the first two blocks
-  std::shared_ptr<Cache> cache = NewLRUCache(500, 0, false);
+  co.capacity = 500;
+  co.num_shard_bits = 0;
+  co.strict_capacity_limit = false;
+  co.metadata_charge_policy = kDontChargeCacheMetadata;
+  std::shared_ptr<Cache> cache = NewLRUCache(co);
   table_options.block_cache = cache;
   table_options.filter_policy.reset(NewBloomFilterPolicy(20, true));
   options.table_factory.reset(new BlockBasedTableFactory(table_options));
@@ -484,11 +489,11 @@ TEST_F(DBBlockCacheTest, IndexAndFilterBlocksCachePriority) {
               TestGetTickerCount(options, BLOCK_CACHE_ADD));
     ASSERT_EQ(0, TestGetTickerCount(options, BLOCK_CACHE_DATA_MISS));
     if (priority == Cache::Priority::LOW) {
-      ASSERT_EQ(0, MockCache::high_pri_insert_count);
-      ASSERT_EQ(2, MockCache::low_pri_insert_count);
+      ASSERT_EQ(0u, MockCache::high_pri_insert_count);
+      ASSERT_EQ(2u, MockCache::low_pri_insert_count);
     } else {
-      ASSERT_EQ(2, MockCache::high_pri_insert_count);
-      ASSERT_EQ(0, MockCache::low_pri_insert_count);
+      ASSERT_EQ(2u, MockCache::high_pri_insert_count);
+      ASSERT_EQ(0u, MockCache::low_pri_insert_count);
     }
 
     // Access data block.
@@ -502,11 +507,11 @@ TEST_F(DBBlockCacheTest, IndexAndFilterBlocksCachePriority) {
 
     // Data block should be inserted with low priority.
     if (priority == Cache::Priority::LOW) {
-      ASSERT_EQ(0, MockCache::high_pri_insert_count);
-      ASSERT_EQ(3, MockCache::low_pri_insert_count);
+      ASSERT_EQ(0u, MockCache::high_pri_insert_count);
+      ASSERT_EQ(3u, MockCache::low_pri_insert_count);
     } else {
-      ASSERT_EQ(2, MockCache::high_pri_insert_count);
-      ASSERT_EQ(1, MockCache::low_pri_insert_count);
+      ASSERT_EQ(2u, MockCache::high_pri_insert_count);
+      ASSERT_EQ(1u, MockCache::low_pri_insert_count);
     }
   }
 }

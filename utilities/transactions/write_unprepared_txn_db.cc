@@ -6,6 +6,7 @@
 #ifndef ROCKSDB_LITE
 
 #include "utilities/transactions/write_unprepared_txn_db.h"
+#include "db/arena_wrapped_db_iter.h"
 #include "rocksdb/utilities/transaction_db.h"
 #include "util/cast_util.h"
 
@@ -179,7 +180,7 @@ Status WriteUnpreparedTxnDB::Initialize(
     const std::vector<size_t>& compaction_enabled_cf_indices,
     const std::vector<ColumnFamilyHandle*>& handles) {
   // TODO(lth): Reduce code duplication in this function.
-  auto dbimpl = reinterpret_cast<DBImpl*>(GetRootDB());
+  auto dbimpl = static_cast_with_check<DBImpl, DB>(GetRootDB());
   assert(dbimpl != nullptr);
 
   db_impl_->SetSnapshotChecker(new WritePreparedSnapshotChecker(this));
@@ -292,7 +293,7 @@ Status WriteUnpreparedTxnDB::Initialize(
     }
   }
   // AddPrepared must be called in order
-  for (auto seq_cnt: ordered_seq_cnt) {
+  for (auto seq_cnt : ordered_seq_cnt) {
     auto seq = seq_cnt.first;
     auto cnt = seq_cnt.second;
     for (size_t i = 0; i < cnt; i++) {

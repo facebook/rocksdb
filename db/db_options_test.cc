@@ -505,10 +505,10 @@ TEST_F(DBOptionsTest, SetStatsDumpPeriodSec) {
   options.stats_dump_period_sec = 5;
   options.env = env_;
   Reopen(options);
-  ASSERT_EQ(5, dbfull()->GetDBOptions().stats_dump_period_sec);
+  ASSERT_EQ(5u, dbfull()->GetDBOptions().stats_dump_period_sec);
 
   for (int i = 0; i < 20; i++) {
-    int num = rand() % 5000 + 1;
+    unsigned int num = rand() % 5000 + 1;
     ASSERT_OK(
         dbfull()->SetDBOptions({{"stats_dump_period_sec", ToString(num)}}));
     ASSERT_EQ(num, dbfull()->GetDBOptions().stats_dump_period_sec);
@@ -522,12 +522,12 @@ TEST_F(DBOptionsTest, SetOptionsStatsPersistPeriodSec) {
   options.stats_persist_period_sec = 5;
   options.env = env_;
   Reopen(options);
-  ASSERT_EQ(5, dbfull()->GetDBOptions().stats_persist_period_sec);
+  ASSERT_EQ(5u, dbfull()->GetDBOptions().stats_persist_period_sec);
 
   ASSERT_OK(dbfull()->SetDBOptions({{"stats_persist_period_sec", "12345"}}));
-  ASSERT_EQ(12345, dbfull()->GetDBOptions().stats_persist_period_sec);
+  ASSERT_EQ(12345u, dbfull()->GetDBOptions().stats_persist_period_sec);
   ASSERT_NOK(dbfull()->SetDBOptions({{"stats_persist_period_sec", "abcde"}}));
-  ASSERT_EQ(12345, dbfull()->GetDBOptions().stats_persist_period_sec);
+  ASSERT_EQ(12345u, dbfull()->GetDBOptions().stats_persist_period_sec);
 }
 
 static void assert_candidate_files_empty(DBImpl* dbfull, const bool empty) {
@@ -604,6 +604,32 @@ TEST_F(DBOptionsTest, SanitizeDelayedWriteRate) {
   options.rate_limiter.reset(NewGenericRateLimiter(31 * 1024 * 1024));
   Reopen(options);
   ASSERT_EQ(31 * 1024 * 1024, dbfull()->GetDBOptions().delayed_write_rate);
+}
+
+TEST_F(DBOptionsTest, SanitizeFIFOPeriodicCompaction) {
+  Options options;
+  options.compaction_style = kCompactionStyleFIFO;
+  options.ttl = 0;
+  Reopen(options);
+  ASSERT_EQ(30 * 24 * 60 * 60, dbfull()->GetOptions().ttl);
+
+  options.ttl = 100;
+  Reopen(options);
+  ASSERT_EQ(100, dbfull()->GetOptions().ttl);
+
+  options.ttl = 100 * 24 * 60 * 60;
+  Reopen(options);
+  ASSERT_EQ(100 * 24 * 60 * 60, dbfull()->GetOptions().ttl);
+
+  options.ttl = 200;
+  options.periodic_compaction_seconds = 300;
+  Reopen(options);
+  ASSERT_EQ(200, dbfull()->GetOptions().ttl);
+
+  options.ttl = 500;
+  options.periodic_compaction_seconds = 300;
+  Reopen(options);
+  ASSERT_EQ(300, dbfull()->GetOptions().ttl);
 }
 
 TEST_F(DBOptionsTest, SetFIFOCompactionOptions) {

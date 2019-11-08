@@ -5,17 +5,18 @@
 #ifndef ROCKSDB_LITE
 
 #include "utilities/blob_db/blob_dump_tool.h"
-#include <cinttypes>
 #include <stdio.h>
+#include <cinttypes>
 #include <iostream>
 #include <memory>
 #include <string>
+#include "file/random_access_file_reader.h"
+#include "file/readahead_raf.h"
 #include "port/port.h"
 #include "rocksdb/convenience.h"
 #include "rocksdb/env.h"
 #include "table/format.h"
 #include "util/coding.h"
-#include "util/file_reader_writer.h"
 #include "util/string_util.h"
 
 namespace rocksdb {

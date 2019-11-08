@@ -4,8 +4,8 @@
 //  (found in the LICENSE.Apache file in the root directory).
 
 #pragma once
-#include <db/dbformat.h>
 #include <string>
+#include "db/dbformat.h"
 #include "db/merge_context.h"
 #include "db/read_callback.h"
 #include "rocksdb/env.h"
@@ -95,7 +95,7 @@ class GetContext {
              ReadCallback* callback = nullptr, bool* is_blob_index = nullptr,
              uint64_t tracing_get_id = 0);
 
-  GetContext() = default;
+  GetContext() = delete;
 
   // This can be called to indicate that a key may be present, but cannot be
   // confirmed due to IO not allowed

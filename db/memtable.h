@@ -26,11 +26,13 @@
 #include "rocksdb/db.h"
 #include "rocksdb/env.h"
 #include "rocksdb/memtablerep.h"
+#include "table/multiget_context.h"
 #include "util/dynamic_bloom.h"
 #include "util/hash.h"
 
 namespace rocksdb {
 
+struct FlushJobInfo;
 class Mutex;
 class MemTableIterator;
 class MergeContext;
@@ -63,6 +65,7 @@ struct MemTablePostProcessInfo {
   uint64_t num_deletes = 0;
 };
 
+using MultiGetRange = MultiGetContext::Range;
 // Note:  Many of the methods in this class have comments indicating that
 // external synchronization is required as these methods are not thread-safe.
 // It is up to higher layers of code to decide how to prevent concurrent
@@ -101,6 +104,9 @@ class MemTable {
                     const MutableCFOptions& mutable_cf_options,
                     WriteBufferManager* write_buffer_manager,
                     SequenceNumber earliest_seq, uint32_t column_family_id);
+  // No copying allowed
+  MemTable(const MemTable&) = delete;
+  MemTable& operator=(const MemTable&) = delete;
 
   // Do not delete this MemTable unless Unref() indicates it not in use.
   ~MemTable();
@@ -129,6 +135,12 @@ class MemTable {
   // REQUIRES: external synchronization to prevent simultaneous
   // operations on the same MemTable (unless this Memtable is immutable).
   size_t ApproximateMemoryUsage();
+
+  // As a cheap version of `ApproximateMemoryUsage()`, this function doens't
+  // require external synchronization. The value may be less accurate though
+  size_t ApproximateMemoryUsageFast() {
+    return approximate_memory_usage_.load(std::memory_order_relaxed);
+  }
 
   // This method heuristically determines if the memtable should continue to
   // host more data.
@@ -173,7 +185,8 @@ class MemTable {
   // the <key, seq> already exists.
   bool Add(SequenceNumber seq, ValueType type, const Slice& key,
            const Slice& value, bool allow_concurrent = false,
-           MemTablePostProcessInfo* post_process_info = nullptr);
+           MemTablePostProcessInfo* post_process_info = nullptr,
+           void** hint = nullptr);
 
   // Used to Get value associated with key or Get Merge Operands associated
   // with key.
@@ -210,6 +223,9 @@ class MemTable {
     return Get(key, value, s, merge_context, max_covering_tombstone_seq, &seq,
                read_opts, callback, is_blob_index, do_merge);
   }
+
+  void MultiGet(const ReadOptions& read_options, MultiGetRange* range,
+                ReadCallback* callback, bool* is_blob);
 
   // Attempts to update the new_value inplace, else does normal Add
   // Pseudocode
@@ -408,6 +424,16 @@ class MemTable {
     flush_in_progress_ = in_progress;
   }
 
+#ifndef ROCKSDB_LITE
+  void SetFlushJobInfo(std::unique_ptr<FlushJobInfo>&& info) {
+    flush_job_info_ = std::move(info);
+  }
+
+  std::unique_ptr<FlushJobInfo> ReleaseFlushJobInfo() {
+    return std::move(flush_job_info_);
+  }
+#endif  // !ROCKSDB_LITE
+
  private:
   enum FlushStateEnum { FLUSH_NOT_REQUESTED, FLUSH_REQUESTED, FLUSH_SCHEDULED };
 
@@ -486,17 +512,29 @@ class MemTable {
   // writes with sequence number smaller than seq are flushed.
   SequenceNumber atomic_flush_seqno_;
 
+  // keep track of memory usage in table_, arena_, and range_del_table_.
+  // Gets refrshed inside `ApproximateMemoryUsage()` or `ShouldFlushNow`
+  std::atomic<uint64_t> approximate_memory_usage_;
+
+#ifndef ROCKSDB_LITE
+  // Flush job info of the current memtable.
+  std::unique_ptr<FlushJobInfo> flush_job_info_;
+#endif  // !ROCKSDB_LITE
+
   // Returns a heuristic flush decision
-  bool ShouldFlushNow() const;
+  bool ShouldFlushNow();
 
   // Updates flush_state_ using ShouldFlushNow()
   void UpdateFlushState();
 
   void UpdateOldestKeyTime();
 
-  // No copying allowed
-  MemTable(const MemTable&);
-  MemTable& operator=(const MemTable&);
+  void GetFromTable(const LookupKey& key,
+                    SequenceNumber max_covering_tombstone_seq, bool do_merge,
+                    ReadCallback* callback, bool* is_blob_index,
+                    std::string* value, Status* s, MergeContext* merge_context,
+                    SequenceNumber* seq, bool* found_final_value,
+                    bool* merge_in_progress);
 };
 
 extern const char* EncodeKey(std::string* scratch, const Slice& target);

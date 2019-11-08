@@ -25,6 +25,7 @@
 #include <utility>
 #include <vector>
 
+#include "db/arena_wrapped_db_iter.h"
 #include "db/builder.h"
 #include "db/compaction/compaction_job.h"
 #include "db/db_info_dumper.h"
@@ -33,9 +34,9 @@
 #include "db/error_handler.h"
 #include "db/event_helpers.h"
 #include "db/external_sst_file_ingestion_job.h"
-#include "db/import_column_family_job.h"
 #include "db/flush_job.h"
 #include "db/forward_iterator.h"
+#include "db/import_column_family_job.h"
 #include "db/job_context.h"
 #include "db/log_reader.h"
 #include "db/log_writer.h"
@@ -53,6 +54,7 @@
 #include "db/write_callback.h"
 #include "file/file_util.h"
 #include "file/filename.h"
+#include "file/random_access_file_reader.h"
 #include "file/sst_file_manager_impl.h"
 #include "logging/auto_roll_logger.h"
 #include "logging/log_buffer.h"
@@ -91,10 +93,10 @@
 #include "tools/sst_dump_tool_imp.h"
 #include "util/autovector.h"
 #include "util/build_version.h"
+#include "util/cast_util.h"
 #include "util/coding.h"
 #include "util/compression.h"
 #include "util/crc32c.h"
-#include "util/file_reader_writer.h"
 #include "util/mutexlock.h"
 #include "util/stop_watch.h"
 #include "util/string_util.h"
@@ -163,6 +165,7 @@ DBImpl::DBImpl(const DBOptions& options, const std::string& dbname,
       batch_per_txn_(batch_per_txn),
       db_lock_(nullptr),
       shutting_down_(false),
+      manual_compaction_paused_(false),
       bg_cv_(&mutex_),
       logfile_number_(0),
       log_dir_synced_(false),
@@ -238,8 +241,11 @@ DBImpl::DBImpl(const DBOptions& options, const std::string& dbname,
   const int table_cache_size = (mutable_db_options_.max_open_files == -1)
                                    ? TableCache::kInfiniteCapacity
                                    : mutable_db_options_.max_open_files - 10;
-  table_cache_ = NewLRUCache(table_cache_size,
-                             immutable_db_options_.table_cache_numshardbits);
+  LRUCacheOptions co;
+  co.capacity = table_cache_size;
+  co.num_shard_bits = immutable_db_options_.table_cache_numshardbits;
+  co.metadata_charge_policy = kDontChargeCacheMetadata;
+  table_cache_ = NewLRUCache(co);
 
   versions_.reset(new VersionSet(dbname_, &immutable_db_options_, env_options_,
                                  table_cache_.get(), write_buffer_manager_,
@@ -471,6 +477,7 @@ Status DBImpl::CloseHelper() {
                            &files_grabbed_for_purge_);
   EraseThreadStatusDbInfo();
   flush_scheduler_.Clear();
+  trim_history_scheduler_.Clear();
 
   while (!flush_queue_.empty()) {
     const FlushRequest& flush_req = PopFirstFromFlushQueue();
@@ -862,6 +869,24 @@ void DBImpl::DumpStats() {
 #endif  // !ROCKSDB_LITE
 
   PrintStatistics();
+}
+
+Status DBImpl::TablesRangeTombstoneSummary(ColumnFamilyHandle* column_family,
+                                           int max_entries_to_print,
+                                           std::string* out_str) {
+  auto* cfh =
+      static_cast_with_check<ColumnFamilyHandleImpl, ColumnFamilyHandle>(
+          column_family);
+  ColumnFamilyData* cfd = cfh->cfd();
+
+  SuperVersion* super_version = cfd->GetReferencedSuperVersion(&mutex_);
+  Version* version = super_version->current;
+
+  Status s =
+      version->TablesRangeTombstoneSummary(max_entries_to_print, out_str);
+
+  CleanupSuperVersion(super_version);
+  return s;
 }
 
 void DBImpl::ScheduleBgLogWriterClose(JobContext* job_context) {
@@ -1289,32 +1314,28 @@ void DBImpl::SchedulePurge() {
 void DBImpl::BackgroundCallPurge() {
   mutex_.Lock();
 
-  // We use one single loop to clear both queues so that after existing the loop
-  // both queues are empty. This is stricter than what is needed, but can make
-  // it easier for us to reason the correctness.
-  while (!purge_queue_.empty() || !logs_to_free_queue_.empty()) {
-    // Check logs_to_free_queue_ first and close log writers.
-    if (!logs_to_free_queue_.empty()) {
-      assert(!logs_to_free_queue_.empty());
-      log::Writer* log_writer = *(logs_to_free_queue_.begin());
-      logs_to_free_queue_.pop_front();
-      mutex_.Unlock();
-      delete log_writer;
-      mutex_.Lock();
-    } else {
-      auto purge_file = purge_queue_.begin();
-      auto fname = purge_file->fname;
-      auto dir_to_sync = purge_file->dir_to_sync;
-      auto type = purge_file->type;
-      auto number = purge_file->number;
-      auto job_id = purge_file->job_id;
-      purge_queue_.pop_front();
-
-      mutex_.Unlock();
-      DeleteObsoleteFileImpl(job_id, fname, dir_to_sync, type, number);
-      mutex_.Lock();
-    }
+  while (!logs_to_free_queue_.empty()) {
+    assert(!logs_to_free_queue_.empty());
+    log::Writer* log_writer = *(logs_to_free_queue_.begin());
+    logs_to_free_queue_.pop_front();
+    mutex_.Unlock();
+    delete log_writer;
+    mutex_.Lock();
   }
+  for (const auto& file : purge_files_) {
+    const PurgeFileInfo& purge_file = file.second;
+    const std::string& fname = purge_file.fname;
+    const std::string& dir_to_sync = purge_file.dir_to_sync;
+    FileType type = purge_file.type;
+    uint64_t number = purge_file.number;
+    int job_id = purge_file.job_id;
+
+    mutex_.Unlock();
+    DeleteObsoleteFileImpl(job_id, fname, dir_to_sync, type, number);
+    mutex_.Lock();
+  }
+  purge_files_.clear();
+
   bg_purge_scheduled_--;
 
   bg_cv_.SignalAll();
@@ -1940,41 +1961,26 @@ void DBImpl::MultiGetImpl(
     keys_left -= batch_size;
     for (auto mget_iter = range.begin(); mget_iter != range.end();
          ++mget_iter) {
-      MergeContext& merge_context = mget_iter->merge_context;
-      merge_context.Clear();
-      Status& s = *mget_iter->s;
-      PinnableSlice* value = mget_iter->value;
-      s = Status::OK();
-
-      bool skip_memtable =
-          (read_options.read_tier == kPersistedTier &&
-           has_unpersisted_data_.load(std::memory_order_relaxed));
-      bool done = false;
-      if (!skip_memtable) {
-        if (super_version->mem->Get(*(mget_iter->lkey), value->GetSelf(), &s,
-                                    &merge_context,
-                                    &mget_iter->max_covering_tombstone_seq,
-                                    read_options, callback, is_blob_index)) {
-          done = true;
-          value->PinSelf();
-          RecordTick(stats_, MEMTABLE_HIT);
-        } else if (super_version->imm->Get(
-                       *(mget_iter->lkey), value->GetSelf(), &s, &merge_context,
-                       &mget_iter->max_covering_tombstone_seq, read_options,
-                       callback, is_blob_index)) {
-          done = true;
-          value->PinSelf();
-          RecordTick(stats_, MEMTABLE_HIT);
-        }
-      }
-      if (done) {
-        range.MarkKeyDone(mget_iter);
-      } else {
-        RecordTick(stats_, MEMTABLE_MISS);
-        lookup_current = true;
-      }
+      mget_iter->merge_context.Clear();
+      *mget_iter->s = Status::OK();
     }
 
+    bool skip_memtable =
+        (read_options.read_tier == kPersistedTier &&
+         has_unpersisted_data_.load(std::memory_order_relaxed));
+    if (!skip_memtable) {
+      super_version->mem->MultiGet(read_options, &range, callback,
+                                   is_blob_index);
+      if (!range.empty()) {
+        super_version->imm->MultiGet(read_options, &range, callback,
+                                     is_blob_index);
+      }
+      if (!range.empty()) {
+        lookup_current = true;
+        uint64_t left = range.KeysLeft();
+        RecordTick(stats_, MEMTABLE_MISS, left);
+      }
+    }
     if (lookup_current) {
       PERF_TIMER_GUARD(get_from_output_files_time);
       super_version->current->MultiGet(read_options, &range, callback,
@@ -2883,8 +2889,11 @@ DBImpl::CaptureCurrentFileNumberInPendingOutputs() {
 }
 
 void DBImpl::ReleaseFileNumberFromPendingOutputs(
-    std::list<uint64_t>::iterator v) {
-  pending_outputs_.erase(v);
+    std::unique_ptr<std::list<uint64_t>::iterator>& v) {
+  if (v.get() != nullptr) {
+    pending_outputs_.erase(*v.get());
+    v.reset();
+  }
 }
 
 #ifndef ROCKSDB_LITE
@@ -3138,6 +3147,11 @@ Status DBImpl::CheckConsistency() {
 }
 
 Status DBImpl::GetDbIdentity(std::string& identity) const {
+  identity.assign(db_id_);
+  return Status::OK();
+}
+
+Status DBImpl::GetDbIdentityFromIdentityFile(std::string* identity) const {
   std::string idfilename = IdentityFileName(dbname_);
   const EnvOptions soptions;
   std::unique_ptr<SequentialFileReader> id_file_reader;
@@ -3164,10 +3178,10 @@ Status DBImpl::GetDbIdentity(std::string& identity) const {
   if (!s.ok()) {
     return s;
   }
-  identity.assign(id.ToString());
+  identity->assign(id.ToString());
   // If last character is '\n' remove it from identity
-  if (identity.size() > 0 && identity.back() == '\n') {
-    identity.pop_back();
+  if (identity->size() > 0 && identity->back() == '\n') {
+    identity->pop_back();
   }
   return s;
 }
@@ -3260,9 +3274,8 @@ Status DestroyDB(const std::string& dbname, const Options& options,
         if (type == kMetaDatabase) {
           del = DestroyDB(path_to_delete, options);
         } else if (type == kTableFile || type == kLogFile) {
-          del =
-              DeleteDBFile(&soptions, path_to_delete, dbname,
-                           /*force_bg=*/false, /*force_fg=*/!wal_in_db_path);
+          del = DeleteDBFile(&soptions, path_to_delete, dbname,
+                             /*force_bg=*/false, /*force_fg=*/!wal_in_db_path);
         } else {
           del = env->DeleteFile(path_to_delete);
         }
@@ -3719,7 +3732,7 @@ Status DBImpl::IngestExternalFiles(
 
   // TODO (yanqin) maybe handle the case in which column_families have
   // duplicates
-  std::list<uint64_t>::iterator pending_output_elem;
+  std::unique_ptr<std::list<uint64_t>::iterator> pending_output_elem;
   size_t total = 0;
   for (const auto& arg : args) {
     total += arg.external_files.size();
@@ -3727,7 +3740,7 @@ Status DBImpl::IngestExternalFiles(
   uint64_t next_file_number = 0;
   Status status = ReserveFileNumbersBeforeIngestion(
       static_cast<ColumnFamilyHandleImpl*>(args[0].column_family)->cfd(), total,
-      &pending_output_elem, &next_file_number);
+      pending_output_elem, &next_file_number);
   if (!status.ok()) {
     InstrumentedMutexLock l(&mutex_);
     ReleaseFileNumberFromPendingOutputs(pending_output_elem);
@@ -3737,18 +3750,18 @@ Status DBImpl::IngestExternalFiles(
   std::vector<ExternalSstFileIngestionJob> ingestion_jobs;
   for (const auto& arg : args) {
     auto* cfd = static_cast<ColumnFamilyHandleImpl*>(arg.column_family)->cfd();
-    ingestion_jobs.emplace_back(env_, versions_.get(), cfd,
-                                immutable_db_options_, env_options_,
-                                &snapshots_, arg.options, &directories_);
+    ingestion_jobs.emplace_back(
+        env_, versions_.get(), cfd, immutable_db_options_, env_options_,
+        &snapshots_, arg.options, &directories_, &event_logger_);
   }
   std::vector<std::pair<bool, Status>> exec_results;
   for (size_t i = 0; i != num_cfs; ++i) {
     exec_results.emplace_back(false, Status::OK());
   }
   // TODO(yanqin) maybe make jobs run in parallel
+  uint64_t start_file_number = next_file_number;
   for (size_t i = 1; i != num_cfs; ++i) {
-    uint64_t start_file_number =
-        next_file_number + args[i - 1].external_files.size();
+    start_file_number += args[i - 1].external_files.size();
     auto* cfd =
         static_cast<ColumnFamilyHandleImpl*>(args[i].column_family)->cfd();
     SuperVersion* super_version = cfd->GetReferencedSuperVersion(&mutex_);
@@ -3869,19 +3882,21 @@ Status DBImpl::IngestExternalFiles(
       }
     }
     if (status.ok()) {
-      bool should_increment_last_seqno =
-          ingestion_jobs[0].ShouldIncrementLastSequence();
+      int consumed_seqno_count =
+          ingestion_jobs[0].ConsumedSequenceNumbersCount();
 #ifndef NDEBUG
       for (size_t i = 1; i != num_cfs; ++i) {
-        assert(should_increment_last_seqno ==
-               ingestion_jobs[i].ShouldIncrementLastSequence());
+        assert(!!consumed_seqno_count ==
+               !!ingestion_jobs[i].ConsumedSequenceNumbersCount());
+        consumed_seqno_count +=
+            ingestion_jobs[i].ConsumedSequenceNumbersCount();
       }
 #endif
-      if (should_increment_last_seqno) {
+      if (consumed_seqno_count > 0) {
         const SequenceNumber last_seqno = versions_->LastSequence();
-        versions_->SetLastAllocatedSequence(last_seqno + 1);
-        versions_->SetLastPublishedSequence(last_seqno + 1);
-        versions_->SetLastSequence(last_seqno + 1);
+        versions_->SetLastAllocatedSequence(last_seqno + consumed_seqno_count);
+        versions_->SetLastPublishedSequence(last_seqno + consumed_seqno_count);
+        versions_->SetLastSequence(last_seqno + consumed_seqno_count);
       }
       autovector<ColumnFamilyData*> cfds_to_commit;
       autovector<const MutableCFOptions*> mutable_cf_options_list;
@@ -3975,8 +3990,7 @@ Status DBImpl::IngestExternalFiles(
 Status DBImpl::CreateColumnFamilyWithImport(
     const ColumnFamilyOptions& options, const std::string& column_family_name,
     const ImportColumnFamilyOptions& import_options,
-    const ExportImportFilesMetaData& metadata,
-    ColumnFamilyHandle** handle) {
+    const ExportImportFilesMetaData& metadata, ColumnFamilyHandle** handle) {
   assert(handle != nullptr);
   assert(*handle == nullptr);
   std::string cf_comparator_name = options.comparator->Name();
@@ -4000,7 +4014,7 @@ Status DBImpl::CreateColumnFamilyWithImport(
   SuperVersionContext dummy_sv_ctx(/* create_superversion */ true);
   VersionEdit dummy_edit;
   uint64_t next_file_number = 0;
-  std::list<uint64_t>::iterator pending_output_elem;
+  std::unique_ptr<std::list<uint64_t>::iterator> pending_output_elem;
   {
     // Lock db mutex
     InstrumentedMutexLock l(&mutex_);
@@ -4010,15 +4024,15 @@ Status DBImpl::CreateColumnFamilyWithImport(
     }
 
     // Make sure that bg cleanup wont delete the files that we are importing
-    pending_output_elem = CaptureCurrentFileNumberInPendingOutputs();
+    pending_output_elem.reset(new std::list<uint64_t>::iterator(
+        CaptureCurrentFileNumberInPendingOutputs()));
 
     if (status.ok()) {
       // If crash happen after a hard link established, Recover function may
       // reuse the file number that has already assigned to the internal file,
       // and this will overwrite the external file. To protect the external
       // file, we have to make sure the file number will never being reused.
-      next_file_number =
-          versions_->FetchAddFileNumber(metadata.files.size());
+      next_file_number = versions_->FetchAddFileNumber(metadata.files.size());
       auto cf_options = cfd->GetLatestMutableCFOptions();
       status = versions_->LogAndApply(cfd, *cf_options, &dummy_edit, &mutex_,
                                       directories_.GetDbDir());
@@ -4093,7 +4107,7 @@ Status DBImpl::CreateColumnFamilyWithImport(
   return status;
 }
 
-Status DBImpl::VerifyChecksum() {
+Status DBImpl::VerifyChecksum(const ReadOptions& read_options) {
   Status s;
   std::vector<ColumnFamilyData*> cfd_list;
   {
@@ -4124,7 +4138,8 @@ Status DBImpl::VerifyChecksum() {
         const auto& fd = vstorage->LevelFilesBrief(i).files[j].fd;
         std::string fname = TableFileName(cfd->ioptions()->cf_paths,
                                           fd.GetNumber(), fd.GetPathId());
-        s = rocksdb::VerifySstFileChecksum(opts, env_options_, fname);
+        s = rocksdb::VerifySstFileChecksum(opts, env_options_, read_options,
+                                           fname);
       }
     }
     if (!s.ok()) {
@@ -4228,18 +4243,18 @@ Status DBImpl::TraceIteratorSeekForPrev(const uint32_t& cf_id,
 
 Status DBImpl::ReserveFileNumbersBeforeIngestion(
     ColumnFamilyData* cfd, uint64_t num,
-    std::list<uint64_t>::iterator* pending_output_elem,
+    std::unique_ptr<std::list<uint64_t>::iterator>& pending_output_elem,
     uint64_t* next_file_number) {
   Status s;
   SuperVersionContext dummy_sv_ctx(true /* create_superversion */);
-  assert(nullptr != pending_output_elem);
   assert(nullptr != next_file_number);
   InstrumentedMutexLock l(&mutex_);
   if (error_handler_.IsDBStopped()) {
     // Do not ingest files when there is a bg_error
     return error_handler_.GetBGError();
   }
-  *pending_output_elem = CaptureCurrentFileNumberInPendingOutputs();
+  pending_output_elem.reset(new std::list<uint64_t>::iterator(
+      CaptureCurrentFileNumberInPendingOutputs()));
   *next_file_number = versions_->FetchAddFileNumber(static_cast<uint64_t>(num));
   auto cf_options = cfd->GetLatestMutableCFOptions();
   VersionEdit dummy_edit;
@@ -4254,6 +4269,26 @@ Status DBImpl::ReserveFileNumbersBeforeIngestion(
   }
   dummy_sv_ctx.Clean();
   return s;
+}
+
+Status DBImpl::GetCreationTimeOfOldestFile(uint64_t* creation_time) {
+  if (mutable_db_options_.max_open_files == -1) {
+    uint64_t oldest_time = port::kMaxUint64;
+    for (auto cfd : *versions_->GetColumnFamilySet()) {
+      uint64_t ctime;
+      cfd->current()->GetCreationTimeOfOldestFile(&ctime);
+      if (ctime < oldest_time) {
+        oldest_time = ctime;
+      }
+      if (oldest_time == 0) {
+        break;
+      }
+    }
+    *creation_time = oldest_time;
+    return Status::OK();
+  } else {
+    return Status::NotSupported("This API only works if max_open_files = -1");
+  }
 }
 #endif  // ROCKSDB_LITE
 

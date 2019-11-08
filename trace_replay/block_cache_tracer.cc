@@ -5,6 +5,10 @@
 
 #include "trace_replay/block_cache_tracer.h"
 
+#include <cinttypes>
+#include <cstdio>
+#include <cstdlib>
+
 #include "db/db_impl/db_impl.h"
 #include "db/dbformat.h"
 #include "rocksdb/slice.h"
@@ -24,8 +28,8 @@ bool ShouldTrace(const Slice& block_key, const TraceOptions& trace_options) {
   }
   // We use spatial downsampling so that we have a complete access history for a
   // block.
-  const uint64_t hash = GetSliceNPHash64(block_key);
-  return hash % trace_options.sampling_frequency == 0;
+  return 0 == fastrange64(GetSliceNPHash64(block_key),
+                          trace_options.sampling_frequency);
 }
 }  // namespace
 
@@ -296,6 +300,141 @@ Status BlockCacheTraceReader::ReadAccess(BlockCacheTraceRecord* record) {
           "referenced_key_exist_in_block.");
     }
     record->referenced_key_exist_in_block = static_cast<Boolean>(enc_slice[0]);
+  }
+  return Status::OK();
+}
+
+BlockCacheHumanReadableTraceWriter::~BlockCacheHumanReadableTraceWriter() {
+  if (human_readable_trace_file_writer_) {
+    human_readable_trace_file_writer_->Flush();
+    human_readable_trace_file_writer_->Close();
+  }
+}
+
+Status BlockCacheHumanReadableTraceWriter::NewWritableFile(
+    const std::string& human_readable_trace_file_path, rocksdb::Env* env) {
+  if (human_readable_trace_file_path.empty()) {
+    return Status::InvalidArgument(
+        "The provided human_readable_trace_file_path is null.");
+  }
+  return env->NewWritableFile(human_readable_trace_file_path,
+                              &human_readable_trace_file_writer_, EnvOptions());
+}
+
+Status BlockCacheHumanReadableTraceWriter::WriteHumanReadableTraceRecord(
+    const BlockCacheTraceRecord& access, uint64_t block_id,
+    uint64_t get_key_id) {
+  if (!human_readable_trace_file_writer_) {
+    return Status::OK();
+  }
+  int ret = snprintf(
+      trace_record_buffer_, sizeof(trace_record_buffer_),
+      "%" PRIu64 ",%" PRIu64 ",%u,%" PRIu64 ",%" PRIu64 ",%s,%" PRIu32
+      ",%" PRIu64 ",%u,%u,%" PRIu64 ",%" PRIu64 ",%" PRIu64 ",%u,%u,%" PRIu64
+      ",%" PRIu64 ",%" PRIu64 ",%" PRIu64 ",%" PRIu64 ",%" PRIu64 "\n",
+      access.access_timestamp, block_id, access.block_type, access.block_size,
+      access.cf_id, access.cf_name.c_str(), access.level, access.sst_fd_number,
+      access.caller, access.no_insert, access.get_id, get_key_id,
+      access.referenced_data_size, access.is_cache_hit,
+      access.referenced_key_exist_in_block, access.num_keys_in_block,
+      BlockCacheTraceHelper::GetTableId(access),
+      BlockCacheTraceHelper::GetSequenceNumber(access),
+      static_cast<uint64_t>(access.block_key.size()),
+      static_cast<uint64_t>(access.referenced_key.size()),
+      BlockCacheTraceHelper::GetBlockOffsetInFile(access));
+  if (ret < 0) {
+    return Status::IOError("failed to format the output");
+  }
+  std::string printout(trace_record_buffer_);
+  return human_readable_trace_file_writer_->Append(printout);
+}
+
+BlockCacheHumanReadableTraceReader::BlockCacheHumanReadableTraceReader(
+    const std::string& trace_file_path)
+    : BlockCacheTraceReader(/*trace_reader=*/nullptr) {
+  human_readable_trace_reader_.open(trace_file_path, std::ifstream::in);
+}
+
+BlockCacheHumanReadableTraceReader::~BlockCacheHumanReadableTraceReader() {
+  human_readable_trace_reader_.close();
+}
+
+Status BlockCacheHumanReadableTraceReader::ReadHeader(
+    BlockCacheTraceHeader* /*header*/) {
+  return Status::OK();
+}
+
+Status BlockCacheHumanReadableTraceReader::ReadAccess(
+    BlockCacheTraceRecord* record) {
+  std::string line;
+  if (!std::getline(human_readable_trace_reader_, line)) {
+    return Status::Incomplete("No more records to read.");
+  }
+  std::stringstream ss(line);
+  std::vector<std::string> record_strs;
+  while (ss.good()) {
+    std::string substr;
+    getline(ss, substr, ',');
+    record_strs.push_back(substr);
+  }
+  if (record_strs.size() != 21) {
+    return Status::Incomplete("Records format is wrong.");
+  }
+
+  record->access_timestamp = ParseUint64(record_strs[0]);
+  uint64_t block_key = ParseUint64(record_strs[1]);
+  record->block_type = static_cast<TraceType>(ParseUint64(record_strs[2]));
+  record->block_size = ParseUint64(record_strs[3]);
+  record->cf_id = ParseUint64(record_strs[4]);
+  record->cf_name = record_strs[5];
+  record->level = static_cast<uint32_t>(ParseUint64(record_strs[6]));
+  record->sst_fd_number = ParseUint64(record_strs[7]);
+  record->caller = static_cast<TableReaderCaller>(ParseUint64(record_strs[8]));
+  record->no_insert = static_cast<Boolean>(ParseUint64(record_strs[9]));
+  record->get_id = ParseUint64(record_strs[10]);
+  uint64_t get_key_id = ParseUint64(record_strs[11]);
+
+  record->referenced_data_size = ParseUint64(record_strs[12]);
+  record->is_cache_hit = static_cast<Boolean>(ParseUint64(record_strs[13]));
+  record->referenced_key_exist_in_block =
+      static_cast<Boolean>(ParseUint64(record_strs[14]));
+  record->num_keys_in_block = ParseUint64(record_strs[15]);
+  uint64_t table_id = ParseUint64(record_strs[16]);
+  if (table_id > 0) {
+    // Decrement since valid table id in the trace file equals traced table id
+    // + 1.
+    table_id -= 1;
+  }
+  uint64_t get_sequence_number = ParseUint64(record_strs[17]);
+  if (get_sequence_number > 0) {
+    record->get_from_user_specified_snapshot = Boolean::kTrue;
+    // Decrement since valid seq number in the trace file equals traced seq
+    // number + 1.
+    get_sequence_number -= 1;
+  }
+  uint64_t block_key_size = ParseUint64(record_strs[18]);
+  uint64_t get_key_size = ParseUint64(record_strs[19]);
+  uint64_t block_offset = ParseUint64(record_strs[20]);
+
+  std::string tmp_block_key;
+  PutVarint64(&tmp_block_key, block_key);
+  PutVarint64(&tmp_block_key, block_offset);
+  // Append 1 until the size is the same as traced block key size.
+  while (record->block_key.size() < block_key_size - tmp_block_key.size()) {
+    record->block_key += "1";
+  }
+  record->block_key += tmp_block_key;
+
+  if (get_key_id != 0) {
+    std::string tmp_get_key;
+    PutFixed64(&tmp_get_key, get_key_id);
+    PutFixed64(&tmp_get_key, get_sequence_number << 8);
+    PutFixed32(&record->referenced_key, static_cast<uint32_t>(table_id));
+    // Append 1 until the size is the same as traced key size.
+    while (record->referenced_key.size() < get_key_size - tmp_get_key.size()) {
+      record->referenced_key += "1";
+    }
+    record->referenced_key += tmp_get_key;
   }
   return Status::OK();
 }

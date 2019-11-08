@@ -6,8 +6,8 @@
 #ifndef ROCKSDB_LITE
 #include "utilities/blob_db/blob_file.h"
 
-#include <cinttypes>
 #include <stdio.h>
+#include <cinttypes>
 
 #include <algorithm>
 #include <limits>
@@ -17,6 +17,7 @@
 #include "db/db_impl/db_impl.h"
 #include "db/dbformat.h"
 #include "file/filename.h"
+#include "file/readahead_raf.h"
 #include "logging/logging.h"
 #include "utilities/blob_db/blob_db_impl.h"
 

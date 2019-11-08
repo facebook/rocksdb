@@ -14,6 +14,7 @@
 #include "rocksdb/comparator.h"
 #include "rocksdb/db.h"
 #include "rocksdb/status.h"
+#include "util/cast_util.h"
 #include "util/string_util.h"
 
 namespace rocksdb {
@@ -21,7 +22,7 @@ namespace rocksdb {
 TransactionBaseImpl::TransactionBaseImpl(DB* db,
                                          const WriteOptions& write_options)
     : db_(db),
-      dbimpl_(reinterpret_cast<DBImpl*>(db)),
+      dbimpl_(static_cast_with_check<DBImpl, DB>(db)),
       write_options_(write_options),
       cmp_(GetColumnFamilyUserComparator(db->DefaultColumnFamily())),
       start_time_(db_->GetEnv()->NowMicros()),
@@ -169,7 +170,7 @@ Status TransactionBaseImpl::RollbackToSavePoint() {
         }
         if (tracked_keys_iter->second.num_reads == 0 &&
             tracked_keys_iter->second.num_writes == 0) {
-          tracked_keys_[column_family_id].erase(tracked_keys_iter);
+          cf_tracked_keys.erase(tracked_keys_iter);
         }
       }
     }
@@ -368,7 +369,8 @@ Iterator* TransactionBaseImpl::GetIterator(const ReadOptions& read_options,
   Iterator* db_iter = db_->NewIterator(read_options, column_family);
   assert(db_iter);
 
-  return write_batch_.NewIteratorWithBase(column_family, db_iter);
+  return write_batch_.NewIteratorWithBase(column_family, db_iter,
+                                          &read_options);
 }
 
 Status TransactionBaseImpl::Put(ColumnFamilyHandle* column_family,
@@ -632,6 +634,16 @@ void TransactionBaseImpl::TrackKey(TransactionKeyMap* key_map, uint32_t cfh_id,
                                    const std::string& key, SequenceNumber seq,
                                    bool read_only, bool exclusive) {
   auto& cf_key_map = (*key_map)[cfh_id];
+#ifdef __cpp_lib_unordered_map_try_emplace
+  // use c++17's try_emplace if available, to avoid rehashing the key
+  // in case it is not already in the map
+  auto result = cf_key_map.try_emplace(key, seq);
+  auto iter = result.first;
+  if (!result.second && seq < iter->second.seq) {
+    // Now tracking this key with an earlier sequence number
+    iter->second.seq = seq;
+  }
+#else
   auto iter = cf_key_map.find(key);
   if (iter == cf_key_map.end()) {
     auto result = cf_key_map.emplace(key, TransactionKeyMapInfo(seq));
@@ -640,10 +652,11 @@ void TransactionBaseImpl::TrackKey(TransactionKeyMap* key_map, uint32_t cfh_id,
     // Now tracking this key with an earlier sequence number
     iter->second.seq = seq;
   }
+#endif
   // else we do not update the seq. The smaller the tracked seq, the stronger it
   // the guarantee since it implies from the seq onward there has not been a
   // concurrent update to the key. So we update the seq if it implies stronger
-  // guarantees, i.e., if it is smaller than the existing trakced seq.
+  // guarantees, i.e., if it is smaller than the existing tracked seq.
 
   if (read_only) {
     iter->second.num_reads++;

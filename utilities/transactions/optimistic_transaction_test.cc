@@ -9,7 +9,6 @@
 #include <string>
 #include <thread>
 
-
 #include "db/db_impl/db_impl.h"
 #include "logging/logging.h"
 #include "port/port.h"
@@ -36,6 +35,7 @@ class OptimisticTransactionTest : public testing::Test {
   OptimisticTransactionTest() {
     options.create_if_missing = true;
     options.max_write_buffer_number = 2;
+    options.max_write_buffer_size_to_maintain = 1600;
     dbname = test::PerThreadDBPath("optimistic_transaction_testdb");
 
     DestroyDB(dbname, options);

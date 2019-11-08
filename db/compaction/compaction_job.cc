@@ -7,8 +7,8 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
-#include <cinttypes>
 #include <algorithm>
+#include <cinttypes>
 #include <functional>
 #include <list>
 #include <memory>
@@ -34,7 +34,9 @@
 #include "db/range_del_aggregator.h"
 #include "db/version_set.h"
 #include "file/filename.h"
+#include "file/read_write_util.h"
 #include "file/sst_file_manager_impl.h"
+#include "file/writable_file_writer.h"
 #include "logging/log_buffer.h"
 #include "logging/logging.h"
 #include "monitoring/iostats_context_imp.h"
@@ -52,7 +54,6 @@
 #include "table/table_builder.h"
 #include "test_util/sync_point.h"
 #include "util/coding.h"
-#include "util/file_reader_writer.h"
 #include "util/mutexlock.h"
 #include "util/random.h"
 #include "util/stop_watch.h"
@@ -310,7 +311,7 @@ CompactionJob::CompactionJob(
     const SnapshotChecker* snapshot_checker, std::shared_ptr<Cache> table_cache,
     EventLogger* event_logger, bool paranoid_file_checks, bool measure_io_stats,
     const std::string& dbname, CompactionJobStats* compaction_job_stats,
-    Env::Priority thread_pri, SnapshotListFetchCallback* snap_list_callback)
+    Env::Priority thread_pri, const std::atomic<bool>* manual_compaction_paused)
     : job_id_(job_id),
       compact_(new CompactionState(compaction)),
       compaction_job_stats_(compaction_job_stats),
@@ -323,6 +324,7 @@ CompactionJob::CompactionJob(
           env_->OptimizeForCompactionTableRead(env_options, db_options_)),
       versions_(versions),
       shutting_down_(shutting_down),
+      manual_compaction_paused_(manual_compaction_paused),
       preserve_deletes_seqnum_(preserve_deletes_seqnum),
       log_buffer_(log_buffer),
       db_directory_(db_directory),
@@ -331,7 +333,6 @@ CompactionJob::CompactionJob(
       db_mutex_(db_mutex),
       db_error_handler_(db_error_handler),
       existing_snapshots_(std::move(existing_snapshots)),
-      snap_list_callback_(snap_list_callback),
       earliest_write_conflict_snapshot_(earliest_write_conflict_snapshot),
       snapshot_checker_(snapshot_checker),
       table_cache_(std::move(table_cache)),
@@ -866,9 +867,13 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
       false /* internal key corruption is expected */,
       existing_snapshots_.empty() ? 0 : existing_snapshots_.back(),
       snapshot_checker_, compact_->compaction->level(),
-      db_options_.statistics.get(), shutting_down_);
+      db_options_.statistics.get());
 
   TEST_SYNC_POINT("CompactionJob::Run():Inprogress");
+  TEST_SYNC_POINT_CALLBACK(
+      "CompactionJob::Run():PausingManualCompaction:1",
+      reinterpret_cast<void*>(
+          const_cast<std::atomic<bool>*>(manual_compaction_paused_)));
 
   Slice* start = sub_compact->start;
   Slice* end = sub_compact->end;
@@ -886,9 +891,8 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
       &existing_snapshots_, earliest_write_conflict_snapshot_,
       snapshot_checker_, env_, ShouldReportDetailedTime(env_, stats_), false,
       &range_del_agg, sub_compact->compaction, compaction_filter,
-      shutting_down_, preserve_deletes_seqnum_,
-      // Currently range_del_agg is incompatible with snapshot refresh feature.
-      range_del_agg.IsEmpty() ? snap_list_callback_ : nullptr));
+      shutting_down_, preserve_deletes_seqnum_, manual_compaction_paused_,
+      db_options_.info_log));
   auto c_iter = sub_compact->c_iter.get();
   c_iter->SeekToFirst();
   if (c_iter->Valid() && sub_compact->compaction->output_level() != 0) {
@@ -930,8 +934,9 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
     assert(sub_compact->current_output() != nullptr);
     sub_compact->builder->Add(key, value);
     sub_compact->current_output_file_size = sub_compact->builder->FileSize();
+    const ParsedInternalKey& ikey = c_iter->ikey();
     sub_compact->current_output()->meta.UpdateBoundaries(
-        key, c_iter->ikey().sequence);
+        key, value, ikey.sequence, ikey.type);
     sub_compact->num_output_records++;
 
     // Close output file if it is big enough. Two possibilities determine it's
@@ -952,7 +957,14 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
       input_status = input->status();
       output_file_ended = true;
     }
+    TEST_SYNC_POINT_CALLBACK(
+        "CompactionJob::Run():PausingManualCompaction:2",
+        reinterpret_cast<void*>(
+            const_cast<std::atomic<bool>*>(manual_compaction_paused_)));
     c_iter->Next();
+    if (c_iter->status().IsManualCompactionPaused()) {
+      break;
+    }
     if (!output_file_ended && c_iter->Valid() &&
         sub_compact->compaction->output_level() != 0 &&
         sub_compact->ShouldStopBefore(c_iter->key(),
@@ -1004,6 +1016,11 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
   if ((status.ok() || status.IsColumnFamilyDropped()) &&
       shutting_down_->load(std::memory_order_relaxed)) {
     status = Status::ShutdownInProgress("Database shutdown");
+  }
+  if ((status.ok() || status.IsColumnFamilyDropped()) &&
+      (manual_compaction_paused_ &&
+       manual_compaction_paused_->load(std::memory_order_relaxed))) {
+    status = Status::Incomplete(Status::SubCode::kManualCompactionPaused);
   }
   if (status.ok()) {
     status = input->status();
@@ -1334,17 +1351,20 @@ Status CompactionJob::FinishCompactionOutputFile(
   }
   std::string fname;
   FileDescriptor output_fd;
+  uint64_t oldest_blob_file_number = kInvalidBlobFileNumber;
   if (meta != nullptr) {
     fname =
         TableFileName(sub_compact->compaction->immutable_cf_options()->cf_paths,
                       meta->fd.GetNumber(), meta->fd.GetPathId());
     output_fd = meta->fd;
+    oldest_blob_file_number = meta->oldest_blob_file_number;
   } else {
     fname = "(nil)";
   }
   EventHelpers::LogAndNotifyTableFileCreationFinished(
       event_logger_, cfd->ioptions()->listeners, dbname_, cfd->GetName(), fname,
-      job_id_, output_fd, tp, TableFileCreationReason::kCompaction, s);
+      job_id_, output_fd, oldest_blob_file_number, tp,
+      TableFileCreationReason::kCompaction, s);
 
 #ifndef ROCKSDB_LITE
   // Report new file to SstFileManagerImpl
@@ -1454,8 +1474,8 @@ Status CompactionJob::OpenCompactionOutputFile(
     LogFlush(db_options_.info_log);
     EventHelpers::LogAndNotifyTableFileCreationFinished(
         event_logger_, cfd->ioptions()->listeners, dbname_, cfd->GetName(),
-        fname, job_id_, FileDescriptor(), TableProperties(),
-        TableFileCreationReason::kCompaction, s);
+        fname, job_id_, FileDescriptor(), kInvalidBlobFileNumber,
+        TableProperties(), TableFileCreationReason::kCompaction, s);
     return s;
   }
 

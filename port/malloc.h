@@ -3,14 +3,15 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 //
-// Copyright (c) 2012 The LevelDB Authors. All rights reserved.
+// Copyright (c) 2011 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
+#pragma once
 
-#include "rocksdb/filter_policy.h"
-
-namespace rocksdb {
-
-FilterPolicy::~FilterPolicy() { }
-
-}  // namespace rocksdb
+#ifdef ROCKSDB_MALLOC_USABLE_SIZE
+#ifdef OS_FREEBSD
+#include <malloc_np.h>
+#else
+#include <malloc.h>
+#endif  // OS_FREEBSD
+#endif  // ROCKSDB_MALLOC_USABLE_SIZE

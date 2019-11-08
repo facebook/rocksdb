@@ -93,6 +93,14 @@ class TableCache {
              HistogramImpl* file_read_hist = nullptr, bool skip_filters = false,
              int level = -1);
 
+  // Return the range delete tombstone iterator of the file specified by
+  // `file_meta`.
+  Status GetRangeTombstoneIterator(
+      const ReadOptions& options,
+      const InternalKeyComparator& internal_comparator,
+      const FileMetaData& file_meta,
+      std::unique_ptr<FragmentedRangeTombstoneIterator>* out_iter);
+
   // If a seek to internal key "k" in specified file finds an entry,
   // call get_context->SaveValue() repeatedly until
   // it returns false. As a side effect, it will insert the TableReader
@@ -159,6 +167,13 @@ class TableCache {
       const InternalKeyComparator& internal_comparator,
       const SliceTransform* prefix_extractor = nullptr);
 
+  // Returns approximated data size between start and end keys in a file
+  // represented by fd (the start key must not be greater than the end key).
+  uint64_t ApproximateSize(const Slice& start, const Slice& end,
+                           const FileDescriptor& fd, TableReaderCaller caller,
+                           const InternalKeyComparator& internal_comparator,
+                           const SliceTransform* prefix_extractor = nullptr);
+
   // Release the handle from a cache
   void ReleaseHandle(Cache::Handle* handle);
 
@@ -186,6 +201,19 @@ class TableCache {
                         const SliceTransform* prefix_extractor = nullptr,
                         bool skip_filters = false, int level = -1,
                         bool prefetch_index_and_filter_in_cache = true);
+
+  // Create a key prefix for looking up the row cache. The prefix is of the
+  // format row_cache_id + fd_number + seq_no. Later, the user key can be
+  // appended to form the full key
+  void CreateRowCacheKeyPrefix(const ReadOptions& options,
+                               const FileDescriptor& fd,
+                               const Slice& internal_key,
+                               GetContext* get_context, IterKey& row_cache_key);
+
+  // Helper function to lookup the row cache for a key. It appends the
+  // user key to row_cache_key at offset prefix_size
+  bool GetFromRowCache(const Slice& user_key, IterKey& row_cache_key,
+                       size_t prefix_size, GetContext* get_context);
 
   const ImmutableCFOptions& ioptions_;
   const EnvOptions& env_options_;

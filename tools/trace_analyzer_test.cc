@@ -23,6 +23,7 @@ int main() {
 #include <thread>
 
 #include "db/db_test_util.h"
+#include "file/read_write_util.h"
 #include "rocksdb/db.h"
 #include "rocksdb/env.h"
 #include "rocksdb/status.h"

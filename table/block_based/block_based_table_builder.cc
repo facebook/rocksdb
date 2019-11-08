@@ -733,11 +733,13 @@ void BlockBasedTableBuilder::WriteRawBlock(const Slice& block_contents,
         break;
       }
       case kxxHash: {
-        void* xxh = XXH32_init(0);
-        XXH32_update(xxh, block_contents.data(),
+        XXH32_state_t* const state = XXH32_createState();
+        XXH32_reset(state, 0);
+        XXH32_update(state, block_contents.data(),
                      static_cast<uint32_t>(block_contents.size()));
-        XXH32_update(xxh, trailer, 1);  // Extend  to cover block type
-        EncodeFixed32(trailer_without_type, XXH32_digest(xxh));
+        XXH32_update(state, trailer, 1);  // Extend  to cover block type
+        EncodeFixed32(trailer_without_type, XXH32_digest(state));
+        XXH32_freeState(state);
         break;
       }
       case kxxHash64: {

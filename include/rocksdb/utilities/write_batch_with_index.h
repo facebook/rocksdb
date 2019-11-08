@@ -165,7 +165,8 @@ class WriteBatchWithIndex : public WriteBatchBase {
   // the write batch update finishes. The state may recover after Next() is
   // called.
   Iterator* NewIteratorWithBase(ColumnFamilyHandle* column_family,
-                                Iterator* base_iterator);
+                                Iterator* base_iterator,
+                                const ReadOptions* opts = nullptr);
   // default column family
   Iterator* NewIteratorWithBase(Iterator* base_iterator);
 

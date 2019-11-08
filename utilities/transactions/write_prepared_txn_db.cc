@@ -13,6 +13,7 @@
 #include <unordered_set>
 #include <vector>
 
+#include "db/arena_wrapped_db_iter.h"
 #include "db/db_impl/db_impl.h"
 #include "rocksdb/db.h"
 #include "rocksdb/options.h"
@@ -29,7 +30,7 @@ namespace rocksdb {
 Status WritePreparedTxnDB::Initialize(
     const std::vector<size_t>& compaction_enabled_cf_indices,
     const std::vector<ColumnFamilyHandle*>& handles) {
-  auto dbimpl = reinterpret_cast<DBImpl*>(GetRootDB());
+  auto dbimpl = static_cast_with_check<DBImpl, DB>(GetRootDB());
   assert(dbimpl != nullptr);
   auto rtxns = dbimpl->recovered_transactions();
   std::map<SequenceNumber, SequenceNumber> ordered_seq_cnt;
@@ -42,7 +43,7 @@ Status WritePreparedTxnDB::Initialize(
     ordered_seq_cnt[seq] = cnt;
   }
   // AddPrepared must be called in order
-  for (auto seq_cnt: ordered_seq_cnt) {
+  for (auto seq_cnt : ordered_seq_cnt) {
     auto seq = seq_cnt.first;
     auto cnt = seq_cnt.second;
     for (size_t i = 0; i < cnt; i++) {
@@ -432,8 +433,12 @@ void WritePreparedTxnDB::CheckPreparedAgainstMax(SequenceNumber new_max,
                      " new_max=%" PRIu64,
                      static_cast<uint64_t>(delayed_prepared_.size()),
                      to_be_popped, new_max);
-      prepared_txns_.pop();
       delayed_prepared_empty_.store(false, std::memory_order_release);
+      // Update prepared_txns_ after updating delayed_prepared_empty_ otherwise
+      // there will be a point in time that the entry is neither in
+      // prepared_txns_ nor in delayed_prepared_, which will not be checked if
+      // delayed_prepared_empty_ is false.
+      prepared_txns_.pop();
     }
     if (locked) {
       prepared_txns_.push_pop_mutex()->Lock();

@@ -255,6 +255,10 @@ class DB {
                                    std::vector<std::string>* column_families);
 
   DB() {}
+  // No copying allowed
+  DB(const DB&) = delete;
+  void operator=(const DB&) = delete;
+
   virtual ~DB();
 
   // Create a column_family and return the handle of column family
@@ -995,6 +999,9 @@ class DB {
   virtual Status EnableAutoCompaction(
       const std::vector<ColumnFamilyHandle*>& column_family_handles) = 0;
 
+  virtual void DisableManualCompaction() = 0;
+  virtual void EnableManualCompaction() = 0;
+
   // Number of levels used for this DB.
   virtual int NumberLevels(ColumnFamilyHandle* column_family) = 0;
   virtual int NumberLevels() { return NumberLevels(DefaultColumnFamily()); }
@@ -1123,6 +1130,28 @@ class DB {
   // Retrieve the sorted list of all wal files with earliest file first
   virtual Status GetSortedWalFiles(VectorLogPtr& files) = 0;
 
+  // Retrieve information about the current wal file
+  //
+  // Note that the log might have rolled after this call in which case
+  // the current_log_file would not point to the current log file.
+  //
+  // Additionally, for the sake of optimization current_log_file->StartSequence
+  // would always be set to 0
+  virtual Status GetCurrentWalFile(
+      std::unique_ptr<LogFile>* current_log_file) = 0;
+
+  // Retrieves the creation time of the oldest file in the DB.
+  // This API only works if max_open_files = -1, if it is not then
+  // Status returned is Status::NotSupported()
+  // The file creation time is set using the env provided to the DB.
+  // If the DB was created from a very old release then its possible that
+  // the SST files might not have file_creation_time property and even after
+  // moving to a newer release its possible that some files never got compacted
+  // and may not have file_creation_time property. In both the cases
+  // file_creation_time is considered 0 which means this API will return
+  // creation_time = 0 as there wouldn't be a timestamp lower than 0.
+  virtual Status GetCreationTimeOfOldestFile(uint64_t* creation_time) = 0;
+
   // Note: this API is not yet consistent with WritePrepared transactions.
   // Sets iter to an iterator that is positioned at a write-batch containing
   // seq_number. If the sequence number is non existent, it returns an iterator
@@ -1225,7 +1254,9 @@ class DB {
       const ExportImportFilesMetaData& metadata,
       ColumnFamilyHandle** handle) = 0;
 
-  virtual Status VerifyChecksum() = 0;
+  virtual Status VerifyChecksum(const ReadOptions& read_options) = 0;
+
+  virtual Status VerifyChecksum() { return VerifyChecksum(ReadOptions()); }
 
   // AddFile() is deprecated, please use IngestExternalFile()
   ROCKSDB_DEPRECATED_FUNC virtual Status AddFile(
@@ -1410,11 +1441,6 @@ class DB {
     return Status::NotSupported("Supported only by secondary instance");
   }
 #endif  // !ROCKSDB_LITE
-
- private:
-  // No copying allowed
-  DB(const DB&);
-  void operator=(const DB&);
 };
 
 // Destroy the contents of the specified database.

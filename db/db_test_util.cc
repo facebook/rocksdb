@@ -10,6 +10,7 @@
 #include "db/db_test_util.h"
 #include "db/forward_iterator.h"
 #include "rocksdb/env_encryption.h"
+#include "rocksdb/utilities/object_registry.h"
 
 namespace rocksdb {
 
@@ -47,20 +48,30 @@ ROT13BlockCipher rot13Cipher_(16);
 #endif  // ROCKSDB_LITE
 
 DBTestBase::DBTestBase(const std::string path)
-    : mem_env_(!getenv("MEM_ENV") ? nullptr : new MockEnv(Env::Default())),
+    : mem_env_(nullptr), encrypted_env_(nullptr), option_config_(kDefault) {
+  Env* base_env = Env::Default();
 #ifndef ROCKSDB_LITE
-      encrypted_env_(
-          !getenv("ENCRYPTED_ENV")
-              ? nullptr
-              : NewEncryptedEnv(mem_env_ ? mem_env_ : Env::Default(),
-                                new CTREncryptionProvider(rot13Cipher_))),
-#else
-      encrypted_env_(nullptr),
-#endif  // ROCKSDB_LITE
-      env_(new SpecialEnv(encrypted_env_
-                              ? encrypted_env_
-                              : (mem_env_ ? mem_env_ : Env::Default()))),
-      option_config_(kDefault) {
+  const char* test_env_uri = getenv("TEST_ENV_URI");
+  if (test_env_uri) {
+    Status s = ObjectRegistry::NewInstance()->NewSharedObject(test_env_uri,
+                                                              &env_guard_);
+    base_env = env_guard_.get();
+    EXPECT_OK(s);
+    EXPECT_NE(Env::Default(), base_env);
+  }
+#endif  // !ROCKSDB_LITE
+  EXPECT_NE(nullptr, base_env);
+  if (getenv("MEM_ENV")) {
+    mem_env_ = new MockEnv(base_env);
+  }
+#ifndef ROCKSDB_LITE
+  if (getenv("ENCRYPTED_ENV")) {
+    encrypted_env_ = NewEncryptedEnv(mem_env_ ? mem_env_ : base_env,
+                                     new CTREncryptionProvider(rot13Cipher_));
+  }
+#endif  // !ROCKSDB_LITE
+  env_ = new SpecialEnv(encrypted_env_ ? encrypted_env_
+                                       : (mem_env_ ? mem_env_ : base_env));
   env_->SetBackgroundThreads(1, Env::LOW);
   env_->SetBackgroundThreads(1, Env::HIGH);
   dbname_ = test::PerThreadDBPath(env_, path);
@@ -573,7 +584,8 @@ void DBTestBase::CreateColumnFamilies(const std::vector<std::string>& cfs,
   size_t cfi = handles_.size();
   handles_.resize(cfi + cfs.size());
   for (auto cf : cfs) {
-    ASSERT_OK(db_->CreateColumnFamily(cf_opts, cf, &handles_[cfi++]));
+    Status s = db_->CreateColumnFamily(cf_opts, cf, &handles_[cfi++]);
+    ASSERT_OK(s);
   }
 }
 

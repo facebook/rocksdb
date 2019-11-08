@@ -45,11 +45,12 @@ class TableReader {
   //        all the states but those allocated in arena.
   // skip_filters: disables checking the bloom filters even if they exist. This
   //               option is effective only for block-based table format.
-  // compaction_readahead_size: its value will only be used if caller = kCompaction
-  virtual InternalIterator* NewIterator(const ReadOptions&,
-                                        const SliceTransform* prefix_extractor,
-                                        Arena* arena, bool skip_filters,
-                                        TableReaderCaller caller, size_t compaction_readahead_size = 0) = 0;
+  // compaction_readahead_size: its value will only be used if caller =
+  // kCompaction
+  virtual InternalIterator* NewIterator(
+      const ReadOptions&, const SliceTransform* prefix_extractor, Arena* arena,
+      bool skip_filters, TableReaderCaller caller,
+      size_t compaction_readahead_size = 0) = 0;
 
   virtual FragmentedRangeTombstoneIterator* NewRangeTombstoneIterator(
       const ReadOptions& /*read_options*/) {
@@ -64,6 +65,12 @@ class TableReader {
   // be close to the file length.
   virtual uint64_t ApproximateOffsetOf(const Slice& key,
                                        TableReaderCaller caller) = 0;
+
+  // Given start and end keys, return the approximate data size in the file
+  // between the keys. The returned value is in terms of file bytes, and so
+  // includes effects like compression of the underlying data.
+  virtual uint64_t ApproximateSize(const Slice& start, const Slice& end,
+                                   TableReaderCaller caller) = 0;
 
   // Set up the table for Compaction. Might change some parameters with
   // posix_fadvise
@@ -121,7 +128,8 @@ class TableReader {
   }
 
   // check whether there is corruption in this db file
-  virtual Status VerifyChecksum(TableReaderCaller /*caller*/) {
+  virtual Status VerifyChecksum(const ReadOptions& /*read_options*/,
+                                TableReaderCaller /*caller*/) {
     return Status::NotSupported("VerifyChecksum() not supported");
   }
 };

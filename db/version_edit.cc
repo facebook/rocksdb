@@ -9,6 +9,7 @@
 
 #include "db/version_edit.h"
 
+#include "db/blob_index.h"
 #include "db/version_set.h"
 #include "logging/event_logger.h"
 #include "rocksdb/slice.h"
@@ -18,8 +19,13 @@
 
 namespace rocksdb {
 
+// Mask for an identified tag from the future which can be safely ignored.
+const uint32_t kTagSafeIgnoreMask = 1 << 13;
+
 // Tag numbers for serialized VersionEdit.  These numbers are written to
-// disk and should not be changed.
+// disk and should not be changed. The number should be forward compatible so
+// users can down-grade RocksDB safely. A future Tag is ignored by doing '&'
+// between Tag and kTagSafeIgnoreMask field.
 enum Tag : uint32_t {
   kComparator = 1,
   kLogNumber = 2,
@@ -31,6 +37,8 @@ enum Tag : uint32_t {
   // 8 was used for large value refs
   kPrevLogNumber = 9,
   kMinLogNumberToKeep = 10,
+  // Ignore-able field
+  kDbId = kTagSafeIgnoreMask + 1,
 
   // these are new formats divergent from open source leveldb
   kNewFile2 = 100,
@@ -44,9 +52,6 @@ enum Tag : uint32_t {
   kInAtomicGroup = 300,
 };
 
-// Mask for an identified tag from the future which can be safely ignored.
-uint32_t kTagSafeIgnoreMask = 1 << 13;
-
 enum CustomTag : uint32_t {
   kTerminate = 1,  // The end of customized fields
   kNeedCompaction = 2,
@@ -55,6 +60,7 @@ enum CustomTag : uint32_t {
   // kMinLogNumberToKeep as part of a CustomTag as a hack. This should be
   // removed when manifest becomes forward-comptabile.
   kMinLogNumberToKeepHack = 3,
+  kOldestBlobFileNumber = 4,
   kPathId = 65,
 };
 // If this bit for the custom tag is set, opening DB should fail if
@@ -66,7 +72,51 @@ uint64_t PackFileNumberAndPathId(uint64_t number, uint64_t path_id) {
   return number | (path_id * (kFileNumberMask + 1));
 }
 
+void FileMetaData::UpdateBoundaries(const Slice& key, const Slice& value,
+                                    SequenceNumber seqno,
+                                    ValueType value_type) {
+  if (smallest.size() == 0) {
+    smallest.DecodeFrom(key);
+  }
+  largest.DecodeFrom(key);
+  fd.smallest_seqno = std::min(fd.smallest_seqno, seqno);
+  fd.largest_seqno = std::max(fd.largest_seqno, seqno);
+
+#ifndef ROCKSDB_LITE
+  if (value_type == kTypeBlobIndex) {
+    BlobIndex blob_index;
+    const Status s = blob_index.DecodeFrom(value);
+    if (!s.ok()) {
+      return;
+    }
+
+    if (blob_index.IsInlined()) {
+      return;
+    }
+
+    if (blob_index.HasTTL()) {
+      return;
+    }
+
+    // Paranoid check: this should not happen because BlobDB numbers the blob
+    // files starting from 1.
+    if (blob_index.file_number() == kInvalidBlobFileNumber) {
+      return;
+    }
+
+    if (oldest_blob_file_number == kInvalidBlobFileNumber ||
+        oldest_blob_file_number > blob_index.file_number()) {
+      oldest_blob_file_number = blob_index.file_number();
+    }
+  }
+#else
+  (void)value;
+  (void)value_type;
+#endif
+}
+
 void VersionEdit::Clear() {
+  db_id_.clear();
   comparator_.clear();
   max_level_ = 0;
   log_number_ = 0;
@@ -75,6 +125,7 @@ void VersionEdit::Clear() {
   next_file_number_ = 0;
   max_column_family_ = 0;
   min_log_number_to_keep_ = 0;
+  has_db_id_ = false;
   has_comparator_ = false;
   has_log_number_ = false;
   has_prev_log_number_ = false;
@@ -93,6 +144,10 @@ void VersionEdit::Clear() {
 }
 
 bool VersionEdit::EncodeTo(std::string* dst) const {
+  if (has_db_id_) {
+    PutVarint32(dst, kDbId);
+    PutLengthPrefixedSlice(dst, db_id_);
+  }
   if (has_comparator_) {
     PutVarint32(dst, kComparator);
     PutLengthPrefixedSlice(dst, comparator_);
@@ -124,7 +179,8 @@ bool VersionEdit::EncodeTo(std::string* dst) const {
       return false;
     }
     bool has_customized_fields = false;
-    if (f.marked_for_compaction || has_min_log_number_to_keep_) {
+    if (f.marked_for_compaction || has_min_log_number_to_keep_ ||
+        f.oldest_blob_file_number != kInvalidBlobFileNumber) {
       PutVarint32(dst, kNewFile4);
       has_customized_fields = true;
     } else if (f.fd.GetPathId() == 0) {
@@ -186,6 +242,12 @@ bool VersionEdit::EncodeTo(std::string* dst) const {
         PutFixed64(&varint_log_number, min_log_number_to_keep_);
         PutLengthPrefixedSlice(dst, Slice(varint_log_number));
         min_log_num_written = true;
+      }
+      if (f.oldest_blob_file_number != kInvalidBlobFileNumber) {
+        PutVarint32(dst, CustomTag::kOldestBlobFileNumber);
+        std::string oldest_blob_file_number;
+        PutVarint64(&oldest_blob_file_number, f.oldest_blob_file_number);
+        PutLengthPrefixedSlice(dst, Slice(oldest_blob_file_number));
       }
       TEST_SYNC_POINT_CALLBACK("VersionEdit::EncodeTo:NewFile4:CustomizeFields",
                                dst);
@@ -292,6 +354,11 @@ const char* VersionEdit::DecodeNewFile4From(Slice* input) {
           }
           has_min_log_number_to_keep_ = true;
           break;
+        case kOldestBlobFileNumber:
+          if (!GetVarint64(&field, &f.oldest_blob_file_number)) {
+            return "invalid oldest blob file number";
+          }
+          break;
         default:
           if ((custom_tag & kCustomTagNonSafeIgnoreMask) != 0) {
             // Should not proceed if cannot understand it
@@ -320,9 +387,16 @@ Status VersionEdit::DecodeFrom(const Slice& src) {
   FileMetaData f;
   Slice str;
   InternalKey key;
-
   while (msg == nullptr && GetVarint32(&input, &tag)) {
     switch (tag) {
+      case kDbId:
+        if (GetLengthPrefixedSlice(&input, &str)) {
+          db_id_ = str.ToString();
+          has_db_id_ = true;
+        } else {
+          msg = "db id";
+        }
+        break;
       case kComparator:
         if (GetLengthPrefixedSlice(&input, &str)) {
           comparator_ = str.ToString();
@@ -537,6 +611,10 @@ Status VersionEdit::DecodeFrom(const Slice& src) {
 std::string VersionEdit::DebugString(bool hex_key) const {
   std::string r;
   r.append("VersionEdit {");
+  if (has_db_id_) {
+    r.append("\n  DB ID: ");
+    r.append(db_id_);
+  }
   if (has_comparator_) {
     r.append("\n  Comparator: ");
     r.append(comparator_);
@@ -581,6 +659,10 @@ std::string VersionEdit::DebugString(bool hex_key) const {
     r.append(f.smallest.DebugString(hex_key));
     r.append(" .. ");
     r.append(f.largest.DebugString(hex_key));
+    if (f.oldest_blob_file_number != kInvalidBlobFileNumber) {
+      r.append(" blob_file:");
+      AppendNumberTo(&r, f.oldest_blob_file_number);
+    }
   }
   r.append("\n  ColumnFamily: ");
   AppendNumberTo(&r, column_family_);
@@ -608,6 +690,9 @@ std::string VersionEdit::DebugJSON(int edit_num, bool hex_key) const {
   JSONWriter jw;
   jw << "EditNumber" << edit_num;
 
+  if (has_db_id_) {
+    jw << "DB ID" << db_id_;
+  }
   if (has_comparator_) {
     jw << "Comparator" << comparator_;
   }
@@ -652,6 +737,9 @@ std::string VersionEdit::DebugJSON(int edit_num, bool hex_key) const {
       jw << "FileSize" << f.fd.GetFileSize();
       jw << "SmallestIKey" << f.smallest.DebugString(hex_key);
       jw << "LargestIKey" << f.largest.DebugString(hex_key);
+      if (f.oldest_blob_file_number != kInvalidBlobFileNumber) {
+        jw << "OldestBlobFile" << f.oldest_blob_file_number;
+      }
       jw.EndArrayedObject();
     }
 

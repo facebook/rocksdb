@@ -2,18 +2,18 @@
 
 #include "db/import_column_family_job.h"
 
-#include <cinttypes>
 #include <algorithm>
+#include <cinttypes>
 #include <string>
 #include <vector>
 
 #include "db/version_edit.h"
 #include "file/file_util.h"
+#include "file/random_access_file_reader.h"
 #include "table/merging_iterator.h"
 #include "table/scoped_arena_iterator.h"
 #include "table/sst_file_writer_collectors.h"
 #include "table/table_builder.h"
-#include "util/file_reader_writer.h"
 #include "util/stop_watch.h"
 
 namespace rocksdb {
@@ -58,13 +58,14 @@ Status ImportColumnFamilyJob::Prepare(uint64_t next_file_number,
       std::sort(sorted_files.begin(), sorted_files.end(),
                 [&ucmp](const IngestedFileInfo* info1,
                         const IngestedFileInfo* info2) {
-                  return ucmp->Compare(info1->smallest_user_key,
-                                       info2->smallest_user_key) < 0;
+                  return sstableKeyCompare(ucmp, info1->smallest_internal_key,
+                                           info2->smallest_internal_key) < 0;
                 });
 
       for (size_t i = 0; i < sorted_files.size() - 1; i++) {
-        if (ucmp->Compare(sorted_files[i]->largest_user_key,
-                          sorted_files[i + 1]->smallest_user_key) >= 0) {
+        if (sstableKeyCompare(ucmp, sorted_files[i]->largest_internal_key,
+                              sorted_files[i + 1]->smallest_internal_key) >=
+            0) {
           return Status::InvalidArgument("Files have overlapping ranges");
         }
       }
@@ -76,8 +77,7 @@ Status ImportColumnFamilyJob::Prepare(uint64_t next_file_number,
       return Status::InvalidArgument("File contain no entries");
     }
 
-    if (!f.smallest_internal_key().Valid() ||
-        !f.largest_internal_key().Valid()) {
+    if (!f.smallest_internal_key.Valid() || !f.largest_internal_key.Valid()) {
       return Status::Corruption("File has corrupted keys");
     }
   }
@@ -136,10 +136,11 @@ Status ImportColumnFamilyJob::Run() {
   for (size_t i = 0; i < files_to_import_.size(); ++i) {
     const auto& f = files_to_import_[i];
     const auto& file_metadata = metadata_[i];
+
     edit_.AddFile(file_metadata.level, f.fd.GetNumber(), f.fd.GetPathId(),
-                  f.fd.GetFileSize(), f.smallest_internal_key(),
-                  f.largest_internal_key(), file_metadata.smallest_seqno,
-                  file_metadata.largest_seqno, false);
+                  f.fd.GetFileSize(), f.smallest_internal_key,
+                  f.largest_internal_key, file_metadata.smallest_seqno,
+                  file_metadata.largest_seqno, false, kInvalidBlobFileNumber);
 
     // If incoming sequence number is higher, update local sequence number.
     if (file_metadata.largest_seqno > versions_->LastSequence()) {
@@ -198,8 +199,8 @@ Status ImportColumnFamilyJob::GetIngestedFileInfo(
   if (!status.ok()) {
     return status;
   }
-  sst_file_reader.reset(new RandomAccessFileReader(std::move(sst_file),
-                                                   external_file));
+  sst_file_reader.reset(
+      new RandomAccessFileReader(std::move(sst_file), external_file));
 
   status = cfd_->ioptions()->table_factory->NewTableReader(
       TableReaderOptions(*cfd_->ioptions(),
@@ -236,14 +237,14 @@ Status ImportColumnFamilyJob::GetIngestedFileInfo(
   if (!ParseInternalKey(iter->key(), &key)) {
     return Status::Corruption("external file have corrupted keys");
   }
-  file_to_import->smallest_user_key = key.user_key.ToString();
+  file_to_import->smallest_internal_key.SetFrom(key);
 
   // Get last (largest) key from file
   iter->SeekToLast();
   if (!ParseInternalKey(iter->key(), &key)) {
     return Status::Corruption("external file have corrupted keys");
   }
-  file_to_import->largest_user_key = key.user_key.ToString();
+  file_to_import->largest_internal_key.SetFrom(key);
 
   file_to_import->cf_id = static_cast<uint32_t>(props->column_family_id);
 

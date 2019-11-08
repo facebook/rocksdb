@@ -37,6 +37,7 @@
 #include "db/read_callback.h"
 #include "db/snapshot_checker.h"
 #include "db/snapshot_impl.h"
+#include "db/trim_history_scheduler.h"
 #include "db/version_edit.h"
 #include "db/wal_manager.h"
 #include "db/write_controller.h"
@@ -127,6 +128,10 @@ class DBImpl : public DB {
  public:
   DBImpl(const DBOptions& options, const std::string& dbname,
          const bool seq_per_batch = false, const bool batch_per_txn = true);
+  // No copying allowed
+  DBImpl(const DBImpl&) = delete;
+  void operator=(const DBImpl&) = delete;
+
   virtual ~DBImpl();
 
   // ---- Implementations of the DB interface ----
@@ -277,6 +282,9 @@ class DBImpl : public DB {
   virtual Status EnableAutoCompaction(
       const std::vector<ColumnFamilyHandle*>& column_family_handles) override;
 
+  virtual void EnableManualCompaction() override;
+  virtual void DisableManualCompaction() override;
+
   using DB::SetOptions;
   Status SetOptions(
       ColumnFamilyHandle* column_family,
@@ -316,6 +324,8 @@ class DBImpl : public DB {
 
   virtual Status GetDbIdentity(std::string& identity) const override;
 
+  virtual Status GetDbIdentityFromIdentityFile(std::string* identity) const;
+
   ColumnFamilyHandle* DefaultColumnFamily() const override;
 
   ColumnFamilyHandle* PersistentStatsColumnFamily() const;
@@ -337,6 +347,10 @@ class DBImpl : public DB {
                               uint64_t* manifest_file_size,
                               bool flush_memtable = true) override;
   virtual Status GetSortedWalFiles(VectorLogPtr& files) override;
+  virtual Status GetCurrentWalFile(
+      std::unique_ptr<LogFile>* current_log_file) override;
+  virtual Status GetCreationTimeOfOldestFile(
+      uint64_t* creation_time) override;
 
   virtual Status GetUpdatesSince(
       SequenceNumber seq_number, std::unique_ptr<TransactionLogIterator>* iter,
@@ -380,7 +394,8 @@ class DBImpl : public DB {
       const ExportImportFilesMetaData& metadata,
       ColumnFamilyHandle** handle) override;
 
-  virtual Status VerifyChecksum() override;
+  using DB::VerifyChecksum;
+  virtual Status VerifyChecksum(const ReadOptions& /*read_options*/) override;
 
   using DB::StartTrace;
   virtual Status StartTrace(
@@ -812,6 +827,13 @@ class DBImpl : public DB {
                        uint64_t* new_time,
                        std::map<std::string, uint64_t>* stats_map);
 
+  // Print information of all tombstones of all iterators to the std::string
+  // This is only used by ldb. The output might be capped. Tombstones
+  // printed out are not guaranteed to be in any order.
+  Status TablesRangeTombstoneSummary(ColumnFamilyHandle* column_family,
+                                     int max_entries_to_print,
+                                     std::string* out_str);
+
 #ifndef NDEBUG
   // Compact any files in the named level that overlap [*begin, *end]
   Status TEST_CompactRange(int level, const Slice* begin, const Slice* end,
@@ -912,12 +934,12 @@ class DBImpl : public DB {
   void TEST_WaitForPersistStatsRun(std::function<void()> callback) const;
   bool TEST_IsPersistentStatsEnabled() const;
   size_t TEST_EstimateInMemoryStatsHistorySize() const;
-
 #endif  // NDEBUG
 
  protected:
   Env* const env_;
   const std::string dbname_;
+  std::string db_id_;
   std::unique_ptr<VersionSet> versions_;
   // Flag to check whether we allocated and own the info log file
   bool own_info_log_;
@@ -985,11 +1007,11 @@ class DBImpl : public DB {
 
   void NotifyOnFlushBegin(ColumnFamilyData* cfd, FileMetaData* file_meta,
                           const MutableCFOptions& mutable_cf_options,
-                          int job_id, TableProperties prop);
+                          int job_id);
 
-  void NotifyOnFlushCompleted(ColumnFamilyData* cfd, FileMetaData* file_meta,
-                              const MutableCFOptions& mutable_cf_options,
-                              int job_id, TableProperties prop);
+  void NotifyOnFlushCompleted(
+      ColumnFamilyData* cfd, const MutableCFOptions& mutable_cf_options,
+      std::list<std::unique_ptr<FlushJobInfo>>* flush_jobs_info);
 
   void NotifyOnCompactionBegin(ColumnFamilyData* cfd, Compaction* c,
                                const Status& st,
@@ -1293,7 +1315,8 @@ class DBImpl : public DB {
   // created between the calls CaptureCurrentFileNumberInPendingOutputs() and
   // ReleaseFileNumberFromPendingOutputs() can now be deleted (if it's not live
   // and blocked by any other pending_outputs_ calls)
-  void ReleaseFileNumberFromPendingOutputs(std::list<uint64_t>::iterator v);
+  void ReleaseFileNumberFromPendingOutputs(
+      std::unique_ptr<std::list<uint64_t>::iterator>& v);
 
   Status SyncClosedLogs(JobContext* job_context);
 
@@ -1348,6 +1371,8 @@ class DBImpl : public DB {
 
   void MaybeFlushStatsCF(autovector<ColumnFamilyData*>* cfds);
 
+  Status TrimMemtableHistory(WriteContext* context);
+
   Status SwitchMemtable(ColumnFamilyData* cfd, WriteContext* context);
 
   void SelectColumnFamiliesForAtomicFlush(autovector<ColumnFamilyData*>* cfds);
@@ -1384,10 +1409,22 @@ class DBImpl : public DB {
       bool resuming_from_bg_err);
 
   inline void WaitForPendingWrites() {
+    mutex_.AssertHeld();
+    // In case of pipelined write is enabled, wait for all pending memtable
+    // writers.
+    if (immutable_db_options_.enable_pipelined_write) {
+      // Memtable writers may call DB::Get in case max_successive_merges > 0,
+      // which may lock mutex. Unlocking mutex here to avoid deadlock.
+      mutex_.Unlock();
+      write_thread_.WaitForMemTableWriters();
+      mutex_.Lock();
+    }
+
     if (!immutable_db_options_.unordered_write) {
       // Then the writes are finished before the next write group starts
       return;
     }
+
     // Wait for the ones who already wrote to the WAL to finish their
     // memtable write.
     if (pending_memtable_writes_.load() != 0) {
@@ -1549,10 +1586,6 @@ class DBImpl : public DB {
 
   void WaitForBackgroundWork();
 
-  // No copying allowed
-  DBImpl(const DBImpl&);
-  void operator=(const DBImpl&);
-
   // Background threads call this function, which is just a wrapper around
   // the InstallSuperVersion() function. Background threads carry
   // sv_context which can have new_superversion already
@@ -1587,7 +1620,7 @@ class DBImpl : public DB {
   // Write a version edit to the MANIFEST.
   Status ReserveFileNumbersBeforeIngestion(
       ColumnFamilyData* cfd, uint64_t num,
-      std::list<uint64_t>::iterator* pending_output_elem,
+      std::unique_ptr<std::list<uint64_t>::iterator>& pending_output_elem,
       uint64_t* next_file_number);
 #endif  //! ROCKSDB_LITE
 
@@ -1624,6 +1657,7 @@ class DBImpl : public DB {
   InstrumentedMutex log_write_mutex_;
 
   std::atomic<bool> shutting_down_;
+  std::atomic<bool> manual_compaction_paused_;
   // This condition variable is signaled on these conditions:
   // * whenever bg_compaction_scheduled_ goes down to 0
   // * if AnyManualCompaction, whenever a compaction finishes, even if it hasn't
@@ -1726,6 +1760,8 @@ class DBImpl : public DB {
 
   FlushScheduler flush_scheduler_;
 
+  TrimHistoryScheduler trim_history_scheduler_;
+
   SnapshotList snapshots_;
 
   // For each background job, pending_outputs_ keeps the current file number at
@@ -1764,12 +1800,12 @@ class DBImpl : public DB {
   // ColumnFamilyData::pending_compaction_ == true)
   std::deque<ColumnFamilyData*> compaction_queue_;
 
-  // A queue to store filenames of the files to be purged
-  std::deque<PurgeFileInfo> purge_queue_;
+  // A map to store file numbers and filenames of the files to be purged
+  std::unordered_map<uint64_t, PurgeFileInfo> purge_files_;
 
   // A vector to store the file numbers that have been assigned to certain
   // JobContext. Current implementation tracks ssts only.
-  std::vector<uint64_t> files_grabbed_for_purge_;
+  std::unordered_set<uint64_t> files_grabbed_for_purge_;
 
   // A queue to store log writers to close
   std::deque<log::Writer*> logs_to_free_queue_;

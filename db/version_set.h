@@ -65,6 +65,14 @@ class MergeContext;
 class ColumnFamilySet;
 class MergeIteratorBuilder;
 
+// VersionEdit is always supposed to be valid and it is used to point at
+// entries in Manifest. Ideally it should not be used as a container to
+// carry around few of its fields as function params because it can cause
+// readers to think it's a valid entry from Manifest. To avoid that confusion
+// introducing VersionEditParams to simply carry around multiple VersionEdit
+// params. It need not point to a valid record in Manifest.
+using VersionEditParams = VersionEdit;
+
 // Return the smallest index i such that file_level.files[i]->largest >= key.
 // Return file_level.num_files if there is no such file.
 // REQUIRES: "file_level.files" contains a sorted list of
@@ -101,6 +109,9 @@ class VersionStorageInfo {
                      CompactionStyle compaction_style,
                      VersionStorageInfo* src_vstorage,
                      bool _force_consistency_checks);
+  // No copying allowed
+  VersionStorageInfo(const VersionStorageInfo&) = delete;
+  void operator=(const VersionStorageInfo&) = delete;
   ~VersionStorageInfo();
 
   void Reserve(int level, size_t size) { files_[level].reserve(size); }
@@ -299,6 +310,10 @@ class VersionStorageInfo {
   FilesMarkedForPeriodicCompaction() const {
     assert(finalized_);
     return files_marked_for_periodic_compaction_;
+  }
+
+  void TEST_AddFileMarkedForPeriodicCompaction(int level, FileMetaData* f) {
+    files_marked_for_periodic_compaction_.emplace_back(level, f);
   }
 
   // REQUIRES: This version has been saved (see VersionSet::SaveTo)
@@ -534,9 +549,6 @@ class VersionStorageInfo {
 
   friend class Version;
   friend class VersionSet;
-  // No copying allowed
-  VersionStorageInfo(const VersionStorageInfo&) = delete;
-  void operator=(const VersionStorageInfo&) = delete;
 };
 
 using MultiGetRange = MultiGetContext::Range;
@@ -630,6 +642,11 @@ class Version {
   Status GetPropertiesOfTablesInRange(const Range* range, std::size_t n,
                                       TablePropertiesCollection* props) const;
 
+  // Print summary of range delete tombstones in SST files into out_str,
+  // with maximum max_entries_to_print entries printed out.
+  Status TablesRangeTombstoneSummary(int max_entries_to_print,
+                                     std::string* out_str);
+
   // REQUIRES: lock is held
   // On success, "tp" will contains the aggregated table property among
   // the table properties of all sst files in this version.
@@ -658,6 +675,10 @@ class Version {
   void GetColumnFamilyMetaData(ColumnFamilyMetaData* cf_meta);
 
   uint64_t GetSstFilesSize();
+
+  // Retrieves the file_creation_time of the oldest file in the DB.
+  // Prerequisite for this API is max_open_files = -1
+  void GetCreationTimeOfOldestFile(uint64_t* creation_time);
 
   const MutableCFOptions& GetMutableCFOptions() { return mutable_cf_options_; }
 
@@ -721,8 +742,8 @@ class Version {
   ~Version();
 
   // No copying allowed
-  Version(const Version&);
-  void operator=(const Version&);
+  Version(const Version&) = delete;
+  void operator=(const Version&) = delete;
 };
 
 struct ObsoleteFileInfo {
@@ -784,6 +805,10 @@ class VersionSet {
              WriteBufferManager* write_buffer_manager,
              WriteController* write_controller,
              BlockCacheTracer* const block_cache_tracer);
+  // No copying allowed
+  VersionSet(const VersionSet&) = delete;
+  void operator=(const VersionSet&) = delete;
+
   virtual ~VersionSet();
 
   // Apply *edit to the current version to form a new descriptor that
@@ -846,7 +871,7 @@ class VersionSet {
   // If read_only == true, Recover() will not complain if some column families
   // are not opened
   Status Recover(const std::vector<ColumnFamilyDescriptor>& column_families,
-                 bool read_only = false);
+                 bool read_only = false, std::string* db_id = nullptr);
 
   // Reads a manifest file and returns a list of column families in
   // column_families.
@@ -1038,11 +1063,18 @@ class VersionSet {
     }
   };
 
+  // Returns approximated offset of a key in a file for a given version.
+  uint64_t ApproximateOffsetOf(Version* v, const FdWithKeyRange& f,
+                               const Slice& key, TableReaderCaller caller);
+
+  // Returns approximated data size between start and end keys in a file
+  // for a given version.
   uint64_t ApproximateSize(Version* v, const FdWithKeyRange& f,
-                           const Slice& key, TableReaderCaller caller);
+                           const Slice& start, const Slice& end,
+                           TableReaderCaller caller);
 
   // Save current contents to *log
-  Status WriteSnapshot(log::Writer* log);
+  Status WriteCurrentStateToManifest(log::Writer* log);
 
   void AppendVersion(ColumnFamilyData* column_family_data, Version* v);
 
@@ -1056,10 +1088,7 @@ class VersionSet {
       std::unordered_map<int, std::string>& column_families_not_found,
       std::unordered_map<
           uint32_t, std::unique_ptr<BaseReferencedVersionBuilder>>& builders,
-      bool* have_log_number, uint64_t* log_number, bool* have_prev_log_number,
-      uint64_t* previous_log_number, bool* have_next_file, uint64_t* next_file,
-      bool* have_last_sequence, SequenceNumber* last_sequence,
-      uint64_t* min_log_number_to_keep, uint32_t* max_column_family);
+      VersionEditParams* version_edit, std::string* db_id = nullptr);
 
   // REQUIRES db mutex
   Status ApplyOneVersionEditToBuilder(
@@ -1068,22 +1097,17 @@ class VersionSet {
       std::unordered_map<int, std::string>& column_families_not_found,
       std::unordered_map<
           uint32_t, std::unique_ptr<BaseReferencedVersionBuilder>>& builders,
-      bool* have_log_number, uint64_t* log_number, bool* have_prev_log_number,
-      uint64_t* previous_log_number, bool* have_next_file, uint64_t* next_file,
-      bool* have_last_sequence, SequenceNumber* last_sequence,
-      uint64_t* min_log_number_to_keep, uint32_t* max_column_family);
+      VersionEditParams* version_edit);
 
-  Status ExtractInfoFromVersionEdit(
-      ColumnFamilyData* cfd, const VersionEdit& edit, bool* have_log_number,
-      uint64_t* log_number, bool* have_prev_log_number,
-      uint64_t* previous_log_number, bool* have_next_file, uint64_t* next_file,
-      bool* have_last_sequence, SequenceNumber* last_sequence,
-      uint64_t* min_log_number_to_keep, uint32_t* max_column_family);
+  Status ExtractInfoFromVersionEdit(ColumnFamilyData* cfd,
+                                    const VersionEdit& from_edit,
+                                    VersionEditParams* version_edit_params);
 
   std::unique_ptr<ColumnFamilySet> column_family_set_;
 
   Env* const env_;
   const std::string dbname_;
+  std::string db_id_;
   const ImmutableDBOptions* const db_options_;
   std::atomic<uint64_t> next_file_number_;
   // Any log number equal or lower than this should be ignored during recovery,
@@ -1131,10 +1155,6 @@ class VersionSet {
   BlockCacheTracer* const block_cache_tracer_;
 
  private:
-  // No copying allowed
-  VersionSet(const VersionSet&);
-  void operator=(const VersionSet&);
-
   // REQUIRES db mutex at beginning. may release and re-acquire db mutex
   Status ProcessManifestWrites(std::deque<ManifestWriter>& writers,
                                InstrumentedMutex* mu, Directory* db_directory,
@@ -1142,8 +1162,8 @@ class VersionSet {
                                const ColumnFamilyOptions* new_cf_options);
 
   void LogAndApplyCFHelper(VersionEdit* edit);
-  void LogAndApplyHelper(ColumnFamilyData* cfd, VersionBuilder* b,
-                         VersionEdit* edit, InstrumentedMutex* mu);
+  Status LogAndApplyHelper(ColumnFamilyData* cfd, VersionBuilder* b,
+                           VersionEdit* edit, InstrumentedMutex* mu);
 };
 
 // ReactiveVersionSet represents a collection of versions of the column
@@ -1183,10 +1203,7 @@ class ReactiveVersionSet : public VersionSet {
   // REQUIRES db mutex
   Status ApplyOneVersionEditToBuilder(
       VersionEdit& edit, std::unordered_set<ColumnFamilyData*>* cfds_changed,
-      bool* have_log_number, uint64_t* log_number, bool* have_prev_log_number,
-      uint64_t* previous_log_number, bool* have_next_file, uint64_t* next_file,
-      bool* have_last_sequence, SequenceNumber* last_sequence,
-      uint64_t* min_log_number_to_keep, uint32_t* max_column_family);
+      VersionEdit* version_edit);
 
   Status MaybeSwitchManifest(
       log::Reader::Reporter* reporter,

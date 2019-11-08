@@ -197,6 +197,9 @@ void CuckooTableReader::Prepare(const Slice& key) {
 class CuckooTableIterator : public InternalIterator {
  public:
   explicit CuckooTableIterator(CuckooTableReader* reader);
+  // No copying allowed
+  CuckooTableIterator(const CuckooTableIterator&) = delete;
+  void operator=(const Iterator&) = delete;
   ~CuckooTableIterator() override {}
   bool Valid() const override;
   void SeekToFirst() override;
@@ -248,9 +251,6 @@ class CuckooTableIterator : public InternalIterator {
   uint32_t curr_key_idx_;
   Slice curr_value_;
   IterKey curr_key_;
-  // No copying allowed
-  CuckooTableIterator(const CuckooTableIterator&) = delete;
-  void operator=(const Iterator&) = delete;
 };
 
 CuckooTableIterator::CuckooTableIterator(CuckooTableReader* reader)

@@ -75,8 +75,8 @@ Status TransactionUtil::CheckKey(DBImpl* db_impl, SuperVersion* sv,
 
     if (cache_only) {
       result = Status::TryAgain(
-          "Transaction ould not check for conflicts as the MemTable does not "
-          "countain a long enough history to check write at SequenceNumber: ",
+          "Transaction could not check for conflicts as the MemTable does not "
+          "contain a long enough history to check write at SequenceNumber: ",
           ToString(snap_seq));
     }
   } else if (snap_seq < earliest_seq || min_uncommitted <= earliest_seq) {
@@ -94,7 +94,7 @@ Status TransactionUtil::CheckKey(DBImpl* db_impl, SuperVersion* sv,
                " as the MemTable only contains changes newer than "
                "SequenceNumber %" PRIu64
                ".  Increasing the value of the "
-               "max_write_buffer_number_to_maintain option could reduce the "
+               "max_write_buffer_size_to_maintain option could reduce the "
                "frequency "
                "of this error.",
                snap_seq, earliest_seq);

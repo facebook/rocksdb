@@ -13,6 +13,7 @@
 #include <string>
 
 #include "block_fetcher.h"
+#include "file/random_access_file_reader.h"
 #include "logging/logging.h"
 #include "memory/memory_allocator.h"
 #include "monitoring/perf_context_imp.h"
@@ -24,10 +25,8 @@
 #include "util/coding.h"
 #include "util/compression.h"
 #include "util/crc32c.h"
-#include "util/file_reader_writer.h"
 #include "util/stop_watch.h"
 #include "util/string_util.h"
-#include "util/xxhash.h"
 
 namespace rocksdb {
 

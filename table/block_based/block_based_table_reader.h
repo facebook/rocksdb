@@ -18,6 +18,7 @@
 
 #include "db/range_tombstone_fragmenter.h"
 #include "file/filename.h"
+#include "file/random_access_file_reader.h"
 #include "options/cf_options.h"
 #include "rocksdb/options.h"
 #include "rocksdb/persistent_cache.h"
@@ -39,7 +40,6 @@
 #include "table/two_level_iterator.h"
 #include "trace_replay/block_cache_tracer.h"
 #include "util/coding.h"
-#include "util/file_reader_writer.h"
 #include "util/user_comparator_wrapper.h"
 
 namespace rocksdb {
@@ -81,6 +81,13 @@ class BlockBasedTable : public TableReader {
   // The longest prefix of the cache key used to identify blocks.
   // For Posix files the unique ID is three varints.
   static const size_t kMaxCacheKeyPrefixSize = kMaxVarint64Length * 3 + 1;
+
+  // All the below fields control iterator readahead
+  static const size_t kInitAutoReadaheadSize = 8 * 1024;
+  // Found that 256 KB readahead size provides the best performance, based on
+  // experiments, for auto readahead. Experiment data is in PR #3282.
+  static const size_t kMaxAutoReadaheadSize;
+  static const int kMinNumFileReadsToStartAutoReadahead = 2;
 
   // Attempt to open the table that is stored in bytes [0..file_size)
   // of "file", and read the metadata entries necessary to allow
@@ -151,12 +158,19 @@ class BlockBasedTable : public TableReader {
 
   // Given a key, return an approximate byte offset in the file where
   // the data for that key begins (or would begin if the key were
-  // present in the file).  The returned value is in terms of file
+  // present in the file). The returned value is in terms of file
   // bytes, and so includes effects like compression of the underlying data.
   // E.g., the approximate offset of the last key in the table will
   // be close to the file length.
   uint64_t ApproximateOffsetOf(const Slice& key,
                                TableReaderCaller caller) override;
+
+  // Given start and end keys, return the approximate data size in the file
+  // between the keys. The returned value is in terms of file bytes, and so
+  // includes effects like compression of the underlying data.
+  // The start key must not be greater than the end key.
+  uint64_t ApproximateSize(const Slice& start, const Slice& end,
+                           TableReaderCaller caller) override;
 
   bool TEST_BlockInCache(const BlockHandle& handle) const;
 
@@ -175,7 +189,8 @@ class BlockBasedTable : public TableReader {
   // convert SST file to a human readable form
   Status DumpTable(WritableFile* out_file) override;
 
-  Status VerifyChecksum(TableReaderCaller caller) override;
+  Status VerifyChecksum(const ReadOptions& readOptions,
+                        TableReaderCaller caller) override;
 
   ~BlockBasedTable();
 
@@ -250,6 +265,9 @@ class BlockBasedTable : public TableReader {
   Rep* rep_;
   explicit BlockBasedTable(Rep* rep, BlockCacheTracer* const block_cache_tracer)
       : rep_(rep), block_cache_tracer_(block_cache_tracer) {}
+  // No copying allowed
+  explicit BlockBasedTable(const TableReader&) = delete;
+  void operator=(const TableReader&) = delete;
 
  private:
   friend class MockedBlockBasedTable;
@@ -299,20 +317,14 @@ class BlockBasedTable : public TableReader {
                        CachableEntry<TBlocklike>* block_entry,
                        BlockType block_type, GetContext* get_context,
                        BlockCacheLookupContext* lookup_context,
-                       bool for_compaction = false) const;
+                       bool for_compaction, bool use_cache) const;
 
-  Status GetDataBlockFromCache(
-      const ReadOptions& ro, const BlockHandle& handle,
-      const UncompressionDict& uncompression_dict,
-      CachableEntry<Block>* block_entry, BlockType block_type,
-      GetContext* get_context) const;
-
-  void MaybeLoadBlocksToCache(
+  void RetrieveMultipleBlocks(
       const ReadOptions& options, const MultiGetRange* batch,
-      const autovector<BlockHandle, MultiGetContext::MAX_BATCH_SIZE>*  handles,
+      const autovector<BlockHandle, MultiGetContext::MAX_BATCH_SIZE>* handles,
       autovector<Status, MultiGetContext::MAX_BATCH_SIZE>* statuses,
-      autovector<
-        CachableEntry<Block>, MultiGetContext::MAX_BATCH_SIZE>* results,
+      autovector<CachableEntry<Block>, MultiGetContext::MAX_BATCH_SIZE>*
+          results,
       char* scratch, const UncompressionDict& uncompression_dict) const;
 
   // Get the iterator from the index reader.
@@ -401,9 +413,9 @@ class BlockBasedTable : public TableReader {
       TailPrefetchStats* tail_prefetch_stats, const bool prefetch_all,
       const bool preload_all,
       std::unique_ptr<FilePrefetchBuffer>* prefetch_buffer);
-  Status ReadMetaBlock(FilePrefetchBuffer* prefetch_buffer,
-                       std::unique_ptr<Block>* meta_block,
-                       std::unique_ptr<InternalIterator>* iter);
+  Status ReadMetaIndexBlock(FilePrefetchBuffer* prefetch_buffer,
+                            std::unique_ptr<Block>* metaindex_block,
+                            std::unique_ptr<InternalIterator>* iter);
   Status TryReadPropertiesWithGlobalSeqno(FilePrefetchBuffer* prefetch_buffer,
                                           const Slice& handle_value,
                                           TableProperties** table_properties);
@@ -423,7 +435,8 @@ class BlockBasedTable : public TableReader {
   static BlockType GetBlockTypeForMetaBlockByName(const Slice& meta_block_name);
 
   Status VerifyChecksumInMetaBlocks(InternalIteratorBase<Slice>* index_iter);
-  Status VerifyChecksumInBlocks(InternalIteratorBase<IndexValue>* index_iter);
+  Status VerifyChecksumInBlocks(const ReadOptions& read_options,
+                                InternalIteratorBase<IndexValue>* index_iter);
 
   // Create the filter from the filter block.
   std::unique_ptr<FilterBlockReader> CreateFilterBlockReader(
@@ -438,15 +451,15 @@ class BlockBasedTable : public TableReader {
   static void GenerateCachePrefix(Cache* cc, WritableFile* file, char* buffer,
                                   size_t* size);
 
+  // Given an iterator return its offset in file.
+  uint64_t ApproximateOffsetOf(
+      const InternalIteratorBase<IndexValue>& index_iter) const;
+
   // Helper functions for DumpTable()
   Status DumpIndexBlock(WritableFile* out_file);
   Status DumpDataBlocks(WritableFile* out_file);
   void DumpKeyValue(const Slice& key, const Slice& value,
                     WritableFile* out_file);
-
-  // No copying allowed
-  explicit BlockBasedTable(const TableReader&) = delete;
-  void operator=(const TableReader&) = delete;
 
   friend class PartitionedFilterBlockReader;
   friend class PartitionedFilterBlockTest;
@@ -602,8 +615,7 @@ class BlockBasedTableIterator : public InternalIteratorBase<TValue> {
                           const SliceTransform* prefix_extractor,
                           BlockType block_type, TableReaderCaller caller,
                           size_t compaction_readahead_size = 0)
-      : InternalIteratorBase<TValue>(false),
-        table_(table),
+      : table_(table),
         read_options_(read_options),
         icomp_(icomp),
         user_comparator_(icomp.user_comparator()),
@@ -761,13 +773,7 @@ class BlockBasedTableIterator : public InternalIteratorBase<TValue> {
   // lookup_context_.caller = kCompaction.
   size_t compaction_readahead_size_;
 
-  // All the below fields control iterator readahead
-  static const size_t kInitAutoReadaheadSize = 8 * 1024;
-  // Found that 256 KB readahead size provides the best performance, based on
-  // experiments, for auto readahead. Experiment data is in PR #3282.
-  static const size_t kMaxAutoReadaheadSize;
-  static const int kMinNumFileReadsToStartAutoReadahead = 2;
-  size_t readahead_size_ = kInitAutoReadaheadSize;
+  size_t readahead_size_ = BlockBasedTable::kInitAutoReadaheadSize;
   size_t readahead_limit_ = 0;
   int64_t num_file_reads_ = 0;
   std::unique_ptr<FilePrefetchBuffer> prefetch_buffer_;

@@ -9,6 +9,7 @@
 
 #include <functional>
 
+#include "db/arena_wrapped_db_iter.h"
 #include "db/db_iter.h"
 #include "db/db_test_util.h"
 #include "port/port.h"
@@ -179,6 +180,33 @@ TEST_P(DBIteratorTest, IterSeekBeforePrev) {
   iter->Prev();
   iter->Seek(Slice("a"));
   iter->Prev();
+  delete iter;
+}
+
+TEST_P(DBIteratorTest, IterReseekNewUpperBound) {
+  Random rnd(301);
+  Options options = CurrentOptions();
+  BlockBasedTableOptions table_options;
+  table_options.block_size = 1024;
+  table_options.block_size_deviation = 50;
+  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+  options.compression = kNoCompression;
+  Reopen(options);
+
+  ASSERT_OK(Put("a", RandomString(&rnd, 400)));
+  ASSERT_OK(Put("aabb", RandomString(&rnd, 400)));
+  ASSERT_OK(Put("aaef", RandomString(&rnd, 400)));
+  ASSERT_OK(Put("b", RandomString(&rnd, 400)));
+  dbfull()->Flush(FlushOptions());
+  ReadOptions opts;
+  Slice ub = Slice("aa");
+  opts.iterate_upper_bound = &ub;
+  auto iter = NewIterator(opts);
+  iter->Seek(Slice("a"));
+  ub = Slice("b");
+  iter->Seek(Slice("aabc"));
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_EQ(iter->key().ToString(), "aaef");
   delete iter;
 }
 
@@ -1069,7 +1097,8 @@ TEST_P(DBIteratorTest, IndexWithFirstKey) {
         BlockBasedTableOptions::IndexShorteningMode::kNoShortening;
     table_options.flush_block_policy_factory =
         std::make_shared<FlushBlockEveryKeyPolicyFactory>();
-    table_options.block_cache = NewLRUCache(1000);  // fits all blocks
+    table_options.block_cache =
+        NewLRUCache(8000);  // fits all blocks and their cache metadata overhead
     options.table_factory.reset(NewBlockBasedTableFactory(table_options));
 
     DestroyAndReopen(options);
@@ -2685,75 +2714,6 @@ TEST_P(DBIteratorTest, AvoidReseekLevelIterator) {
     ASSERT_TRUE(iter->Valid());
     ASSERT_EQ(3, num_find_file_in_level);
     ASSERT_EQ(6, num_idx_blk_seek);
-  }
-
-  SyncPoint::GetInstance()->DisableProcessing();
-}
-
-TEST_P(DBIteratorTest, AvoidReseekChildIterator) {
-  Options options = CurrentOptions();
-  options.compression = CompressionType::kNoCompression;
-  BlockBasedTableOptions table_options;
-  table_options.block_size = 800;
-  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
-  Reopen(options);
-
-  Random rnd(301);
-  std::string random_str = RandomString(&rnd, 180);
-
-  ASSERT_OK(Put("1", random_str));
-  ASSERT_OK(Put("2", random_str));
-  ASSERT_OK(Put("3", random_str));
-  ASSERT_OK(Put("4", random_str));
-  ASSERT_OK(Put("8", random_str));
-  ASSERT_OK(Put("9", random_str));
-  ASSERT_OK(Flush());
-  ASSERT_OK(Put("5", random_str));
-  ASSERT_OK(Put("6", random_str));
-  ASSERT_OK(Put("7", random_str));
-  ASSERT_OK(Flush());
-
-  // These two keys will be kept in memtable.
-  ASSERT_OK(Put("0", random_str));
-  ASSERT_OK(Put("8", random_str));
-
-  int num_iter_wrapper_seek = 0;
-  SyncPoint::GetInstance()->SetCallBack(
-      "IteratorWrapper::Seek:0",
-      [&](void* /*arg*/) { num_iter_wrapper_seek++; });
-  SyncPoint::GetInstance()->EnableProcessing();
-  {
-    std::unique_ptr<Iterator> iter(NewIterator(ReadOptions()));
-    iter->Seek("1");
-    ASSERT_TRUE(iter->Valid());
-    // DBIter always wraps internal iterator with IteratorWrapper,
-    // and in merging iterator each child iterator will be wrapped
-    // with IteratorWrapper.
-    ASSERT_EQ(4, num_iter_wrapper_seek);
-
-    // child position: 1 and 5
-    num_iter_wrapper_seek = 0;
-    iter->Seek("2");
-    ASSERT_TRUE(iter->Valid());
-    ASSERT_EQ(3, num_iter_wrapper_seek);
-
-    // child position: 2 and 5
-    num_iter_wrapper_seek = 0;
-    iter->Seek("6");
-    ASSERT_TRUE(iter->Valid());
-    ASSERT_EQ(4, num_iter_wrapper_seek);
-
-    // child position: 8 and 6
-    num_iter_wrapper_seek = 0;
-    iter->Seek("7");
-    ASSERT_TRUE(iter->Valid());
-    ASSERT_EQ(3, num_iter_wrapper_seek);
-
-    // child position: 8 and 7
-    num_iter_wrapper_seek = 0;
-    iter->Seek("5");
-    ASSERT_TRUE(iter->Valid());
-    ASSERT_EQ(4, num_iter_wrapper_seek);
   }
 
   SyncPoint::GetInstance()->DisableProcessing();

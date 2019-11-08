@@ -52,6 +52,10 @@ using MultiGetRange = MultiGetContext::Range;
 class FilterBlockBuilder {
  public:
   explicit FilterBlockBuilder() {}
+  // No copying allowed
+  FilterBlockBuilder(const FilterBlockBuilder&) = delete;
+  void operator=(const FilterBlockBuilder&) = delete;
+
   virtual ~FilterBlockBuilder() {}
 
   virtual bool IsBlockBased() = 0;                    // If is blockbased filter
@@ -66,11 +70,6 @@ class FilterBlockBuilder {
     return ret;
   }
   virtual Slice Finish(const BlockHandle& tmp, Status* status) = 0;
-
- private:
-  // No copying allowed
-  FilterBlockBuilder(const FilterBlockBuilder&);
-  void operator=(const FilterBlockBuilder&);
 };
 
 // A FilterBlockReader is used to parse filter from SST table.
@@ -137,9 +136,10 @@ class FilterBlockReader {
       const Slice ukey = iter->ukey;
       const Slice ikey = iter->ikey;
       GetContext* const get_context = iter->get_context;
-      if (!KeyMayMatch(prefix_extractor->Transform(ukey), prefix_extractor,
-                       block_offset, no_io, &ikey, get_context,
-                       lookup_context)) {
+      if (prefix_extractor->InDomain(ukey) &&
+          !PrefixMayMatch(prefix_extractor->Transform(ukey), prefix_extractor,
+                          block_offset, no_io, &ikey, get_context,
+                          lookup_context)) {
         range->SkipKey(iter);
       }
     }

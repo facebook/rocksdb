@@ -269,17 +269,7 @@ struct ColumnFamilyOptions : public AdvancedColumnFamilyOptions {
   // Dynamically changeable through SetOptions() API
   uint64_t max_bytes_for_level_base = 256 * 1048576;
 
-  // If non-zero, compactions will periodically refresh the snapshot list. The
-  // delay for the first refresh is snap_refresh_nanos nano seconds and
-  // exponentially increases afterwards. When having many short-lived snapshots,
-  // this option helps reducing the cpu usage of long-running compactions. The
-  // feature is disabled when max_subcompactions is greater than one.
-  //
-  // NOTE: This feautre is currently incompatible with RangeDeletes.
-  //
-  // Default: 0
-  //
-  // Dynamically changeable through SetOptions() API
+  // Deprecated.
   uint64_t snap_refresh_nanos = 0;
 
   // Disable automatic compactions. Manual compactions can still
@@ -953,6 +943,13 @@ struct DBOptions {
   // Default: true
   bool enable_write_thread_adaptive_yield = true;
 
+  // The maximum limit of number of bytes that are written in a single batch
+  // of WAL or memtable write. It is followed when the leader write size
+  // is larger than 1/8 of this limit.
+  //
+  // Default: 1 MB
+  uint64_t max_write_batch_group_size_bytes = 1 << 20;
+
   // The maximum number of microseconds that a write operation will use
   // a yielding spin loop to coordinate with other write threads before
   // blocking on a mutex.  (Assuming write_thread_slow_yield_usec is
@@ -1089,6 +1086,17 @@ struct DBOptions {
   // If set to true, takes precedence over
   // ReadOptions::background_purge_on_iterator_cleanup.
   bool avoid_unnecessary_blocking_io = false;
+
+  // Historically DB ID has always been stored in Identity File in DB folder.
+  // If this flag is true, the DB ID is written to Manifest file in addition
+  // to the Identity file. By doing this 2 problems are solved
+  // 1. We don't checksum the Identity file where as Manifest file is.
+  // 2. Since the source of truth for DB is Manifest file DB ID will sit with
+  //    the source of truth. Previously the Identity file could be copied
+  //    independent of Manifest and that can result in wrong DB ID.
+  // We recommend setting this flag to true.
+  // Default: false
+  bool write_dbid_to_manifest = false;
 
   // The number of bytes to prefetch when reading the log. This is mostly useful
   // for reading a remotely located log, as it can save the number of
@@ -1338,6 +1346,15 @@ struct WriteOptions {
   // Default: false
   bool low_pri;
 
+  // If true, this writebatch will maintain the last insert positions of each
+  // memtable as hints in concurrent write. It can improve write performance
+  // in concurrent writes if keys in one writebatch are sequential. In
+  // non-concurrent writes (when concurrent_memtable_writes is false) this
+  // option will be ignored.
+  //
+  // Default: false
+  bool memtable_insert_hint_per_batch;
+
   // Timestamp of write operation, e.g. Put. All timestamps of the same
   // database must share the same length and format. The user is also
   // responsible for providing a customized compare function via Comparator to
@@ -1355,6 +1372,7 @@ struct WriteOptions {
         ignore_missing_column_families(false),
         no_slowdown(false),
         low_pri(false),
+        memtable_insert_hint_per_batch(false),
         timestamp(nullptr) {}
 };
 
@@ -1477,6 +1495,13 @@ struct IngestExternalFileOptions {
   // Warning: setting this to true causes slowdown in file ingestion because
   // the external SST file has to be read.
   bool verify_checksums_before_ingest = false;
+  // When verify_checksums_before_ingest = true, RocksDB uses default
+  // readahead setting to scan the file while verifying checksums before
+  // ingestion.
+  // Users can override the default value using this option.
+  // Using a large readahead size (> 2MB) can typically improve the performance
+  // of forward iteration on spinning disks.
+  size_t verify_checksums_readahead_size = 0;
 };
 
 enum TraceFilterType : uint64_t {

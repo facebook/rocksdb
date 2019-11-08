@@ -11,8 +11,8 @@
 
 #include "utilities/checkpoint/checkpoint_impl.h"
 
-#include <cinttypes>
 #include <algorithm>
+#include <cinttypes>
 #include <string>
 #include <vector>
 
@@ -420,11 +420,14 @@ Status CheckpointImpl::ExportColumnFamily(
         LiveFileMetaData live_file_metadata;
         live_file_metadata.size = file_metadata.size;
         live_file_metadata.name = std::move(file_metadata.name);
+        live_file_metadata.file_number = file_metadata.file_number;
         live_file_metadata.db_path = export_dir;
         live_file_metadata.smallest_seqno = file_metadata.smallest_seqno;
         live_file_metadata.largest_seqno = file_metadata.largest_seqno;
         live_file_metadata.smallestkey = std::move(file_metadata.smallestkey);
         live_file_metadata.largestkey = std::move(file_metadata.largestkey);
+        live_file_metadata.oldest_blob_file_number =
+            file_metadata.oldest_blob_file_number;
         live_file_metadata.level = level_metadata.level;
         result_metadata->files.push_back(live_file_metadata);
       }

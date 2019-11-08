@@ -135,7 +135,8 @@ else()
   endif()
 endif()
 
-string(TIMESTAMP GIT_DATE_TIME "%Y/%m/%d %H:%M:%S" UTC)
+string(TIMESTAMP TS "%Y/%m/%d %H:%M:%S" UTC)
+set(GIT_DATE_TIME "${TS}" CACHE STRING "the time we first built rocksdb")
 
 find_package(Git)
 
@@ -200,11 +201,11 @@ if(CMAKE_SYSTEM_PROCESSOR MATCHES "ppc64le")
 endif(CMAKE_SYSTEM_PROCESSOR MATCHES "ppc64le")
 
 if(CMAKE_SYSTEM_PROCESSOR MATCHES "aarch64|AARCH64")
-        CHECK_C_COMPILER_FLAG("-march=armv8-a+crc" HAS_ARMV8_CRC)
+        CHECK_C_COMPILER_FLAG("-march=armv8-a+crc+crypto" HAS_ARMV8_CRC)
   if(HAS_ARMV8_CRC)
     message(STATUS " HAS_ARMV8_CRC yes")
-    set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -march=armv8-a+crc -Wno-unused-function")
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -march=armv8-a+crc -Wno-unused-function")
+    set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -march=armv8-a+crc+crypto -Wno-unused-function")
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -march=armv8-a+crc+crypto -Wno-unused-function")
   endif(HAS_ARMV8_CRC)
 endif(CMAKE_SYSTEM_PROCESSOR MATCHES "aarch64|AARCH64")
 
@@ -468,7 +469,7 @@ endif()
 
 include_directories(${PROJECT_SOURCE_DIR})
 include_directories(${PROJECT_SOURCE_DIR}/include)
-include_directories(SYSTEM ${PROJECT_SOURCE_DIR}/third-party/gtest-1.7.0/fused-src)
+include_directories(SYSTEM ${PROJECT_SOURCE_DIR}/third-party/gtest-1.8.1/fused-src)
 if(WITH_FOLLY_DISTRIBUTED_MUTEX)
   include_directories(${PROJECT_SOURCE_DIR}/third-party/folly)
 endif()
@@ -480,6 +481,7 @@ set(SOURCES
         cache/clock_cache.cc
         cache/lru_cache.cc
         cache/sharded_cache.cc
+        db/arena_wrapped_db_iter.cc
         db/builder.cc
         db/c.cc
         db/column_family.cc
@@ -530,6 +532,7 @@ set(SOURCES
         db/table_cache.cc
         db/table_properties_collector.cc
         db/transaction_log_impl.cc
+        db/trim_history_scheduler.cc
         db/version_builder.cc
         db/version_edit.cc
         db/version_set.cc
@@ -544,9 +547,15 @@ set(SOURCES
         env/env_hdfs.cc
         env/mock_env.cc
         file/delete_scheduler.cc
+        file/file_prefetch_buffer.cc
         file/file_util.cc
         file/filename.cc
+        file/random_access_file_reader.cc
+        file/read_write_util.cc
+        file/readahead_raf.cc
+        file/sequence_file_reader.cc
         file/sst_file_manager_impl.cc
+        file/writable_file_writer.cc
         logging/auto_roll_logger.cc
         logging/event_logger.cc
         logging/log_buffer.cc
@@ -590,13 +599,14 @@ set(SOURCES
         table/block_based/data_block_hash_index.cc
         table/block_based/data_block_footer.cc
         table/block_based/filter_block_reader_common.cc
+        table/block_based/filter_policy.cc
         table/block_based/flush_block_policy.cc
         table/block_based/full_filter_block.cc
         table/block_based/index_builder.cc
+        table/block_based/parsed_full_filter_block.cc
         table/block_based/partitioned_filter_block.cc
         table/block_based/uncompression_dict_reader.cc
         table/block_fetcher.cc
-        table/bloom_block.cc
         table/cuckoo/cuckoo_table_builder.cc
         table/cuckoo/cuckoo_table_factory.cc
         table/cuckoo/cuckoo_table_reader.cc
@@ -606,6 +616,7 @@ set(SOURCES
         table/merging_iterator.cc
         table/meta_blocks.cc
         table/persistent_cache_helper.cc
+        table/plain/plain_table_bloom.cc
         table/plain/plain_table_builder.cc
         table/plain/plain_table_factory.cc
         table/plain/plain_table_index.cc
@@ -628,7 +639,6 @@ set(SOURCES
         tools/trace_analyzer_tool.cc
         trace_replay/trace_replay.cc
         trace_replay/block_cache_tracer.cc
-        util/bloom.cc
         util/coding.cc
         util/compaction_job_stats_impl.cc
         util/comparator.cc
@@ -636,8 +646,6 @@ set(SOURCES
         util/concurrent_task_limiter_impl.cc
         util/crc32c.cc
         util/dynamic_bloom.cc
-        util/file_reader_writer.cc
-        util/filter_policy.cc
         util/hash.cc
         util/murmurhash.cc
         util/random.cc
@@ -878,7 +886,7 @@ endif()
 
 option(WITH_TESTS "build with tests" ON)
 if(WITH_TESTS)
-  add_subdirectory(third-party/gtest-1.7.0/fused-src/gtest)
+  add_subdirectory(third-party/gtest-1.8.1/fused-src/gtest)
   set(TESTS
         cache/cache_test.cc
         cache/lru_cache_test.cc
@@ -1038,6 +1046,7 @@ if(WITH_TESTS)
     db/range_del_aggregator_bench.cc
     tools/db_bench.cc
     table/table_reader_bench.cc
+    util/filter_bench.cc
     utilities/persistent_cache/hash_table_bench.cc)
   add_library(testharness OBJECT test_util/testharness.cc)
   foreach(sourcefile ${BENCHMARKS})

@@ -37,6 +37,7 @@
 // Get nano time includes
 #if defined(OS_LINUX) || defined(OS_FREEBSD)
 #elif defined(__MACH__)
+#include <Availability.h>
 #include <mach/clock.h>
 #include <mach/mach.h>
 #else
@@ -938,7 +939,7 @@ class PosixEnv : public Env {
 
   uint64_t NowCPUNanos() override {
 #if defined(OS_LINUX) || defined(OS_FREEBSD) || defined(OS_AIX) || \
-    defined(__MACH__)
+    (defined(__MACH__) && defined(__MAC_10_12))
     struct timespec ts;
     clock_gettime(CLOCK_THREAD_CPUTIME_ID, &ts);
     return static_cast<uint64_t>(ts.tv_sec) * 1000000000 + ts.tv_nsec;

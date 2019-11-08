@@ -5,6 +5,8 @@
 
 #pragma once
 
+#include <folly/CPortability.h>
+
 #if defined(__arm__)
 #define FOLLY_ARM 1
 #else
@@ -70,5 +72,13 @@ namespace folly {
 constexpr bool kIsMsvc = true;
 #else
 constexpr bool kIsMsvc = false;
+#endif
+} // namespace folly
+
+namespace folly {
+#if FOLLY_SANITIZE_THREAD
+constexpr bool kIsSanitizeThread = true;
+#else
+constexpr bool kIsSanitizeThread = false;
 #endif
 } // namespace folly

@@ -26,7 +26,8 @@ bool WriteUnpreparedTxnReadCallback::IsVisibleFullCheck(SequenceNumber seq) {
   }
 
   bool snap_released = false;
-  auto ret = db_->IsInSnapshot(seq, wup_snapshot_, min_uncommitted_);
+  auto ret =
+      db_->IsInSnapshot(seq, wup_snapshot_, min_uncommitted_, &snap_released);
   assert(!snap_released || backed_by_snapshot_ == kUnbackedByDBSnapshot);
   snap_released_ |= snap_released;
   return ret;
@@ -37,6 +38,7 @@ WriteUnpreparedTxn::WriteUnpreparedTxn(WriteUnpreparedTxnDB* txn_db,
                                        const TransactionOptions& txn_options)
     : WritePreparedTxn(txn_db, write_options, txn_options),
       wupt_db_(txn_db),
+      last_log_number_(0),
       recovered_txn_(false),
       largest_validated_seq_(0) {
   if (txn_options.write_batch_flush_threshold < 0) {
@@ -56,10 +58,15 @@ WriteUnpreparedTxn::~WriteUnpreparedTxn() {
     // We should rollback regardless of GetState, but some unit tests that
     // test crash recovery run the destructor assuming that rollback does not
     // happen, so that rollback during recovery can be exercised.
-    if (GetState() == STARTED) {
-      auto s __attribute__((__unused__)) = RollbackInternal();
-      // TODO(lth): Better error handling.
+    if (GetState() == STARTED || GetState() == LOCKS_STOLEN) {
+      auto s = RollbackInternal();
       assert(s.ok());
+      if (!s.ok()) {
+        ROCKS_LOG_FATAL(
+            wupt_db_->info_log_,
+            "Rollback of WriteUnprepared transaction failed in destructor: %s",
+            s.ToString().c_str());
+      }
       dbimpl_->logs_with_prep_tracker()->MarkLogAsHavingPrepSectionFlushed(
           log_number_);
     }
@@ -86,12 +93,17 @@ void WriteUnpreparedTxn::Initialize(const TransactionOptions& txn_options) {
   unflushed_save_points_.reset(nullptr);
   recovered_txn_ = false;
   largest_validated_seq_ = 0;
+  assert(active_iterators_.empty());
+  active_iterators_.clear();
 }
 
 Status WriteUnpreparedTxn::HandleWrite(std::function<Status()> do_write) {
-  Status s = MaybeFlushWriteBatchToDB();
-  if (!s.ok()) {
-    return s;
+  Status s;
+  if (active_iterators_.empty()) {
+    s = MaybeFlushWriteBatchToDB();
+    if (!s.ok()) {
+      return s;
+    }
   }
   s = do_write();
   if (s.ok()) {
@@ -99,7 +111,10 @@ Status WriteUnpreparedTxn::HandleWrite(std::function<Status()> do_write) {
       largest_validated_seq_ =
           std::max(largest_validated_seq_, snapshot_->GetSequenceNumber());
     } else {
-      largest_validated_seq_ = kMaxSequenceNumber;
+      // TODO(lth): We should use the same number as tracked_at_seq in TryLock,
+      // because what is actually being tracked is the sequence number at which
+      // this key was locked at.
+      largest_validated_seq_ = db_impl_->GetLastPublishedSequence();
     }
   }
   return s;
@@ -233,6 +248,7 @@ Status WriteUnpreparedTxn::MaybeFlushWriteBatchToDB() {
   const bool kPrepared = true;
   Status s;
   if (write_batch_flush_threshold_ > 0 &&
+      write_batch_.GetWriteBatch()->Count() > 0 &&
       write_batch_.GetDataSize() >
           static_cast<size_t>(write_batch_flush_threshold_)) {
     assert(GetState() != PREPARED);
@@ -257,7 +273,17 @@ Status WriteUnpreparedTxn::FlushWriteBatchToDB(bool prepared) {
 
 Status WriteUnpreparedTxn::FlushWriteBatchToDBInternal(bool prepared) {
   if (name_.empty()) {
-    return Status::InvalidArgument("Cannot write to DB without SetName.");
+    assert(!prepared);
+#ifndef NDEBUG
+    static std::atomic_ullong autogen_id{0};
+    // To avoid changing all tests to call SetName, just autogenerate one.
+    if (wupt_db_->txn_db_options_.autogenerate_name) {
+      SetName(std::string("autoxid") + ToString(autogen_id.fetch_add(1)));
+    } else
+#endif
+    {
+      return Status::InvalidArgument("Cannot write to DB without SetName.");
+    }
   }
 
   // TODO(lth): Reduce duplicate code with WritePrepared prepare logic.
@@ -285,11 +311,14 @@ Status WriteUnpreparedTxn::FlushWriteBatchToDBInternal(bool prepared) {
   // from the current transaction. This means that if log_number_ is set,
   // WriteImpl should not overwrite that value, so set log_used to nullptr if
   // log_number_ is already set.
-  uint64_t* log_used = log_number_ ? nullptr : &log_number_;
-  auto s = db_impl_->WriteImpl(write_options, GetWriteBatch()->GetWriteBatch(),
-                               /*callback*/ nullptr, log_used, /*log ref*/
-                               0, !DISABLE_MEMTABLE, &seq_used,
-                               prepare_batch_cnt_, &add_prepared_callback);
+  auto s =
+      db_impl_->WriteImpl(write_options, GetWriteBatch()->GetWriteBatch(),
+                          /*callback*/ nullptr, &last_log_number_, /*log ref*/
+                          0, !DISABLE_MEMTABLE, &seq_used, prepare_batch_cnt_,
+                          &add_prepared_callback);
+  if (log_number_ == 0) {
+    log_number_ = last_log_number_;
+  }
   assert(!s.ok() || seq_used != kMaxSequenceNumber);
   auto prepare_seq = seq_used;
 
@@ -378,10 +407,12 @@ Status WriteUnpreparedTxn::FlushWriteBatchWithSavePointToDB() {
 
   size_t prev_boundary = WriteBatchInternal::kHeader;
   const bool kPrepared = true;
-  for (size_t i = 0; i < unflushed_save_points_->size(); i++) {
+  for (size_t i = 0; i < unflushed_save_points_->size() + 1; i++) {
+    bool trailing_batch = i == unflushed_save_points_->size();
     SavePointBatchHandler sp_handler(&write_batch_,
                                      *wupt_db_->GetCFHandleMap().get());
-    size_t curr_boundary = (*unflushed_save_points_)[i];
+    size_t curr_boundary = trailing_batch ? wb.GetWriteBatch()->GetDataSize()
+                                          : (*unflushed_save_points_)[i];
 
     // Construct the partial write batch up to the savepoint.
     //
@@ -395,18 +426,22 @@ Status WriteUnpreparedTxn::FlushWriteBatchWithSavePointToDB() {
       return s;
     }
 
-    // Flush the write batch.
-    s = FlushWriteBatchToDBInternal(!kPrepared);
-    if (!s.ok()) {
-      return s;
+    if (write_batch_.GetWriteBatch()->Count() > 0) {
+      // Flush the write batch.
+      s = FlushWriteBatchToDBInternal(!kPrepared);
+      if (!s.ok()) {
+        return s;
+      }
     }
 
-    if (flushed_save_points_ == nullptr) {
-      flushed_save_points_.reset(
-          new autovector<WriteUnpreparedTxn::SavePoint>());
+    if (!trailing_batch) {
+      if (flushed_save_points_ == nullptr) {
+        flushed_save_points_.reset(
+            new autovector<WriteUnpreparedTxn::SavePoint>());
+      }
+      flushed_save_points_->emplace_back(
+          unprep_seqs_, new ManagedSnapshot(db_impl_, wupt_db_->GetSnapshot()));
     }
-    flushed_save_points_->emplace_back(
-        unprep_seqs_, new ManagedSnapshot(db_impl_, wupt_db_->GetSnapshot()));
 
     prev_boundary = curr_boundary;
     const bool kClear = true;
@@ -659,6 +694,13 @@ void WriteUnpreparedTxn::Clear() {
   if (!recovered_txn_) {
     txn_db_impl_->UnLock(this, &GetTrackedKeys());
   }
+  unprep_seqs_.clear();
+  flushed_save_points_.reset(nullptr);
+  unflushed_save_points_.reset(nullptr);
+  recovered_txn_ = false;
+  largest_validated_seq_ = 0;
+  assert(active_iterators_.empty());
+  active_iterators_.clear();
   TransactionBaseImpl::Clear();
 }
 
@@ -700,7 +742,6 @@ Status WriteUnpreparedTxn::RollbackToSavePointInternal() {
   assert(flushed_save_points_->size() > 0);
   WriteUnpreparedTxn::SavePoint& top = flushed_save_points_->back();
 
-  assert(top.unprep_seqs_.size() > 0);
   assert(save_points_ != nullptr && save_points_->size() > 0);
   const TransactionKeyMap& tracked_keys = save_points_->top().new_keys_;
 
@@ -833,6 +874,14 @@ Status WriteUnpreparedTxn::Get(const ReadOptions& options,
   }
 }
 
+namespace {
+static void CleanupWriteUnpreparedWBWIIterator(void* arg1, void* arg2) {
+  auto txn = reinterpret_cast<WriteUnpreparedTxn*>(arg1);
+  auto iter = reinterpret_cast<Iterator*>(arg2);
+  txn->RemoveActiveIterator(iter);
+}
+}  // anonymous namespace
+
 Iterator* WriteUnpreparedTxn::GetIterator(const ReadOptions& options) {
   return GetIterator(options, wupt_db_->DefaultColumnFamily());
 }
@@ -843,7 +892,10 @@ Iterator* WriteUnpreparedTxn::GetIterator(const ReadOptions& options,
   Iterator* db_iter = wupt_db_->NewIterator(options, column_family, this);
   assert(db_iter);
 
-  return write_batch_.NewIteratorWithBase(column_family, db_iter);
+  auto iter = write_batch_.NewIteratorWithBase(column_family, db_iter);
+  active_iterators_.push_back(iter);
+  iter->RegisterCleanup(CleanupWriteUnpreparedWBWIIterator, this, iter);
+  return iter;
 }
 
 Status WriteUnpreparedTxn::ValidateSnapshot(ColumnFamilyHandle* column_family,

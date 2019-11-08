@@ -183,9 +183,6 @@ class ListColumnFamiliesCommand : public LDBCommand {
   virtual void DoCommand() override;
 
   virtual bool NoDBOpen() override { return true; }
-
- private:
-  std::string dbname_;
 };
 
 class CreateColumnFamilyCommand : public LDBCommand {
@@ -510,6 +507,7 @@ class BackupableCommand : public LDBCommand {
   std::string backup_dir_;
   int num_threads_;
   std::unique_ptr<Logger> logger_;
+  std::shared_ptr<Env> backup_env_guard_;
 
  private:
   static const std::string ARG_BACKUP_DIR;
@@ -590,6 +588,22 @@ class IngestExternalSstFilesCommand : public LDBCommand {
   static const std::string ARG_ALLOW_BLOCKING_FLUSH;
   static const std::string ARG_INGEST_BEHIND;
   static const std::string ARG_WRITE_GLOBAL_SEQNO;
+};
+
+// Command that prints out range delete tombstones in SST files.
+class ListFileRangeDeletesCommand : public LDBCommand {
+ public:
+  static std::string Name() { return "list_file_range_deletes"; }
+
+  ListFileRangeDeletesCommand(const std::map<std::string, std::string>& options,
+                              const std::vector<std::string>& flags);
+
+  void DoCommand() override;
+
+  static void Help(std::string& ret);
+
+ private:
+  int max_keys_ = 1000;
 };
 
 }  // namespace rocksdb

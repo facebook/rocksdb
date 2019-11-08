@@ -6,9 +6,9 @@
 
 #ifndef ROCKSDB_LITE
 
-#include <cinttypes>
 #include <stdint.h>
 #include <algorithm>
+#include <cinttypes>
 #include <string>
 #include "db/db_impl/db_impl.h"
 #include "db/job_context.h"
@@ -163,6 +163,15 @@ Status DBImpl::GetSortedWalFiles(VectorLogPtr& files) {
   return wal_manager_.GetSortedWalFiles(files);
 }
 
+Status DBImpl::GetCurrentWalFile(std::unique_ptr<LogFile>* current_log_file) {
+  uint64_t current_logfile_number;
+  {
+    InstrumentedMutexLock l(&mutex_);
+    current_logfile_number = logfile_number_;
+  }
+
+  return wal_manager_.GetLiveWalFile(current_logfile_number, current_log_file);
+}
 }
 
 #endif  // ROCKSDB_LITE
