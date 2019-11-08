@@ -57,7 +57,7 @@ class LevelCompactionBuilder {
         ioptions_(ioptions) {}
 
   // Pick and return a compaction.
-  Compaction* PickCompaction();
+  Compaction* PickCompaction(Version* version);
 
   // Pick the initial files to compact to the next level. (or together
   // in Intra-L0 compactions)
@@ -69,7 +69,7 @@ class LevelCompactionBuilder {
 
   // Based on initial files, setup other files need to be compacted
   // in this compaction, accordingly.
-  bool SetupOtherInputsIfNeeded();
+  bool SetupOtherInputsIfNeeded(Version* version);
 
   Compaction* GetCompaction();
 
@@ -108,6 +108,7 @@ class LevelCompactionBuilder {
   CompactionInputFiles start_level_inputs_;
   std::vector<CompactionInputFiles> compaction_inputs_;
   CompactionInputFiles output_level_inputs_;
+  std::vector<FileMetaData*> skipped_output_level_files_;
   std::vector<FileMetaData*> grandparents_;
   CompactionReason compaction_reason_ = CompactionReason::kUnknown;
 
@@ -304,7 +305,7 @@ bool LevelCompactionBuilder::SetupOtherL0FilesIfNeeded() {
   return true;
 }
 
-bool LevelCompactionBuilder::SetupOtherInputsIfNeeded() {
+bool LevelCompactionBuilder::SetupOtherInputsIfNeeded(Version* version) {
   // Setup input files from output level. For output to L0, we only compact
   // spans of files that do not interact with any pending compactions, so don't
   // need to consider other levels.
@@ -314,6 +315,12 @@ bool LevelCompactionBuilder::SetupOtherInputsIfNeeded() {
             cf_name_, mutable_cf_options_, vstorage_, &start_level_inputs_,
             &output_level_inputs_, &parent_index_, base_index_)) {
       return false;
+    }
+
+    if (version && !output_level_inputs_.empty()) {
+      version->SkipNonOverlappingOutputLevelFiles(
+          start_level_inputs_.level, start_level_inputs_.files,
+          &output_level_inputs_.files, &skipped_output_level_files_);
     }
 
     compaction_inputs_.push_back(start_level_inputs_);
@@ -341,7 +348,7 @@ bool LevelCompactionBuilder::SetupOtherInputsIfNeeded() {
   return true;
 }
 
-Compaction* LevelCompactionBuilder::PickCompaction() {
+Compaction* LevelCompactionBuilder::PickCompaction(Version* version) {
   // Pick up the first file to start compaction. It may have been extended
   // to a clean cut.
   SetupInitialFiles();
@@ -358,7 +365,7 @@ Compaction* LevelCompactionBuilder::PickCompaction() {
 
   // Pick files in the output level and expand more files in the start level
   // if needed.
-  if (!SetupOtherInputsIfNeeded()) {
+  if (!SetupOtherInputsIfNeeded(version)) {
     return nullptr;
   }
 
@@ -383,7 +390,8 @@ Compaction* LevelCompactionBuilder::GetCompaction() {
                          output_level_, vstorage_->base_level()),
       GetCompressionOptions(ioptions_, vstorage_, output_level_),
       /* max_subcompactions */ 0, std::move(grandparents_), is_manual_,
-      start_level_score_, false /* deletion_compaction */, compaction_reason_);
+      start_level_score_, false /* deletion_compaction */, compaction_reason_,
+      skipped_output_level_files_);
 
   // If it's level 0 compaction, make sure we don't execute any other level 0
   // compactions in parallel
@@ -548,6 +556,15 @@ Compaction* LevelCompactionPicker::PickCompaction(
     VersionStorageInfo* vstorage, LogBuffer* log_buffer) {
   LevelCompactionBuilder builder(cf_name, vstorage, this, log_buffer,
                                  mutable_cf_options, ioptions_);
-  return builder.PickCompaction();
+  return builder.PickCompaction(nullptr);
 }
+
+Compaction* LevelCompactionPicker::PickCompaction(
+    const std::string& cf_name, const MutableCFOptions& mutable_cf_options,
+    Version* version, LogBuffer* log_buffer) {
+  LevelCompactionBuilder builder(cf_name, version->storage_info(), this,
+                                 log_buffer, mutable_cf_options, ioptions_);
+  return builder.PickCompaction(version);
+}
+
 }  // namespace rocksdb

@@ -1671,6 +1671,68 @@ Status Version::OverlapWithLevelIterator(const ReadOptions& read_options,
   return status;
 }
 
+void Version::SkipNonOverlappingOutputLevelFiles(
+    int start_level, const std::vector<FileMetaData*>& start_level_files,
+    std::vector<FileMetaData*>* output_level_files,
+    std::vector<FileMetaData*>* skipped_output_level_files) {
+  auto icmp = cfd_->internal_comparator();
+  auto ucmp = icmp.user_comparator();
+
+  ReadOptions read_options;
+  read_options.fill_cache = false;
+  read_options.total_order_seek = true;
+
+  EnvOptions env_options_for_compaction =
+      env_->OptimizeForCompactionTableRead(env_options_, *vset_->db_options());
+
+  Arena arena;
+  LevelFilesBrief start_level_brief;
+  ScopedArenaIterator start_level_iter;
+  if (start_level == 0) {
+    MergeIteratorBuilder builder(&icmp, &arena);
+    for (auto file : start_level_files) {
+      builder.AddIterator(cfd_->table_cache()->NewIterator(
+          read_options, env_options_for_compaction, icmp, *file,
+          /*range_del_agg=*/nullptr,
+          GetMutableCFOptions().prefix_extractor.get(),
+          /*table_reader_ptr=*/nullptr, /*file_read_hist=*/nullptr,
+          TableReaderCaller::kCompaction, &arena,
+          /*skip_filters=*/false, start_level,
+          /*smallest_compaction_key=*/nullptr,
+          /*largest_compaction_key=*/nullptr));
+    }
+    start_level_iter.set(builder.Finish());
+  } else {
+    DoGenerateLevelFilesBrief(&start_level_brief, start_level_files, &arena);
+    auto mem = arena.AllocateAligned(sizeof(LevelIterator));
+    start_level_iter.set(new (mem) LevelIterator(
+        cfd_->table_cache(), read_options, env_options_for_compaction,
+        icmp, &start_level_brief,
+        GetMutableCFOptions().prefix_extractor.get(),
+        /*should_sample=*/false,
+        /*no per level latency histogram=*/nullptr,
+        TableReaderCaller::kCompaction, /*skip_filters=*/false,
+        start_level, /*range_del_agg=*/nullptr));
+  }
+
+  Status s;
+  bool overlap = false;
+  Slice largest_user_key;
+  std::vector<FileMetaData*> origin_files(std::move(*output_level_files));
+  for (auto file : origin_files) {
+    s = OverlapWithIterator(ucmp,
+                            file->smallest.user_key(), file->largest.user_key(),
+                            start_level_iter.get(), &overlap);
+    if (s.ok() && !overlap &&
+        ucmp->Compare(file->smallest.user_key(), largest_user_key) > 0) {
+      skipped_output_level_files->push_back(file);
+    } else {
+      output_level_files->push_back(file);
+      largest_user_key = file->largest.user_key();
+    }
+  }
+}
+
 VersionStorageInfo::VersionStorageInfo(
     const InternalKeyComparator* internal_comparator,
     const Comparator* user_comparator, int levels,

@@ -16,6 +16,7 @@
 #include <utility>
 #include <vector>
 #include "db/column_family.h"
+#include "db/version_set.h"
 #include "file/filename.h"
 #include "logging/log_buffer.h"
 #include "monitoring/statistics.h"
@@ -1105,6 +1106,14 @@ bool CompactionPicker::GetOverlappingL0Files(
   assert(!start_level_inputs->files.empty());
 
   return true;
+}
+
+Compaction* CompactionPicker::PickCompaction(
+    const std::string& cf_name,
+    const MutableCFOptions& mutable_cf_options,
+    Version* version, LogBuffer* log_buffer) {
+  return PickCompaction(cf_name, mutable_cf_options,
+                        version->storage_info(), log_buffer);
 }
 
 }  // namespace rocksdb

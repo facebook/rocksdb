@@ -572,6 +572,11 @@ class Version {
                                   const Slice& largest_user_key,
                                   int level, bool* overlap);
 
+  void SkipNonOverlappingOutputLevelFiles(
+      int start_level, const std::vector<FileMetaData*>& start_level_files,
+      std::vector<FileMetaData*>* output_level_files,
+      std::vector<FileMetaData*>* skipped_output_level_files);
+
   // Lookup the value for key or get all merge operands for key.
   // If do_merge = true (default) then lookup value for key.
   // Behavior if do_merge = true:

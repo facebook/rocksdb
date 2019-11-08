@@ -78,7 +78,8 @@ class Compaction {
              std::vector<FileMetaData*> grandparents,
              bool manual_compaction = false, double score = -1,
              bool deletion_compaction = false,
-             CompactionReason compaction_reason = CompactionReason::kUnknown);
+             CompactionReason compaction_reason = CompactionReason::kUnknown,
+             std::vector<FileMetaData*> skipped_output_level_files = {});
 
   // No copying allowed
   Compaction(const Compaction&) = delete;
@@ -151,6 +152,10 @@ class Compaction {
   // Returns the LevelFilesBrief of the specified compaction input level.
   const LevelFilesBrief* input_levels(size_t compaction_input_level) const {
     return &input_levels_[compaction_input_level];
+  }
+
+  const std::vector<FileMetaData*>& skipped_output_level_files() const {
+    return skipped_output_level_files_;
   }
 
   // Maximum size of files to build during this compaction.
@@ -349,6 +354,8 @@ class Compaction {
   // (grandparent == "output_level_ + 1")
   std::vector<FileMetaData*> grandparents_;
   const double score_;         // score that was used to pick this compaction.
+
+  const std::vector<FileMetaData*> skipped_output_level_files_;
 
   // Is this compaction creating a file in the bottom most level?
   const bool bottommost_level_;

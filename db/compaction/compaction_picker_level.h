@@ -24,6 +24,10 @@ class LevelCompactionPicker : public CompactionPicker {
                                      const MutableCFOptions& mutable_cf_options,
                                      VersionStorageInfo* vstorage,
                                      LogBuffer* log_buffer) override;
+  virtual Compaction* PickCompaction(const std::string& cf_name,
+                                     const MutableCFOptions& mutable_cf_options,
+                                     Version* version,
+                                     LogBuffer* log_buffer) override;
 
   virtual bool NeedsCompaction(
       const VersionStorageInfo* vstorage) const override;

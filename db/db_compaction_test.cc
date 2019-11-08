@@ -4768,6 +4768,59 @@ TEST_F(DBCompactionTest, ConsistencyFailTest) {
   ASSERT_NOK(Put("foo", "bar"));
   rocksdb::SyncPoint::GetInstance()->DisableProcessing();
 }
+
+TEST_F(DBCompactionTest, SkipNonOverlappingOutputLevelFiles) {
+  Options options = CurrentOptions();
+  options.level0_file_num_compaction_trigger = 2;
+  DestroyAndReopen(options);
+  Random rnd(301);
+
+  // L0: [5, 5]
+  ASSERT_OK(Put(Key(5), Key(5)));
+  Flush();
+  dbfull()->TEST_WaitForCompact();
+  ASSERT_EQ(NumTableFilesAtLevel(0), 1);
+
+  CompactRangeOptions cro;
+  cro.change_level = true;
+  cro.target_level = 1;
+  db_->CompactRange(cro, nullptr, nullptr);
+  dbfull()->TEST_WaitForCompact();
+  // L1: [5, 5]
+  ASSERT_EQ(NumTableFilesAtLevel(0), 0);
+  ASSERT_EQ(NumTableFilesAtLevel(1), 1);
+
+  // L0: [2, 8], [3, 7]
+  ASSERT_OK(Put(Key(2), Key(2)));
+  ASSERT_OK(Put(Key(8), Key(8)));
+  Flush();
+  ASSERT_OK(Put(Key(3), Key(3)));
+  ASSERT_OK(Put(Key(7), Key(7)));
+  Flush();
+  dbfull()->TEST_WaitForCompact();
+  // L1: [2, 3], [5, 5], [7, 8]
+  ASSERT_EQ(NumTableFilesAtLevel(0), 0);
+  ASSERT_EQ(NumTableFilesAtLevel(1), 3);
+
+  // L0: [1, 4, 6], [0, 2, 9]
+  ASSERT_OK(Put(Key(1), Key(1)));
+  ASSERT_OK(Put(Key(4), Key(4)));
+  ASSERT_OK(Put(Key(6), Key(6)));
+  Flush();
+  ASSERT_OK(Put(Key(0), Key(0)));
+  ASSERT_OK(Put(Key(2), Key(2)));
+  ASSERT_OK(Put(Key(9), Key(9)));
+  Flush();
+  dbfull()->TEST_WaitForCompact();
+  // L1: [0, 4], [5, 5], [6, 6], [7, 8], [9, 9]
+  ASSERT_EQ(NumTableFilesAtLevel(0), 0);
+  ASSERT_EQ(NumTableFilesAtLevel(1), 5);
+
+  for (int i = 0; i < 10; i++) {
+    ASSERT_EQ(Get(Key(i)), Key(i));
+  }
+}
+
 #endif // !defined(ROCKSDB_LITE)
 }  // namespace rocksdb
 

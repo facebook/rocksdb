@@ -156,6 +156,8 @@ struct CompactionJob::SubcompactionState {
   // A flag determine whether the key has been seen in ShouldStopBefore()
   bool seen_key = false;
 
+  size_t current_skipped_file_index = 0;
+
   SubcompactionState(Compaction* c, Slice* _start, Slice* _end,
                      uint64_t size = 0)
       : compaction(c),
@@ -204,6 +206,15 @@ struct CompactionJob::SubcompactionState {
   // Returns true iff we should stop building the current output
   // before processing "internal_key".
   bool ShouldStopBefore(const Slice& internal_key, uint64_t curr_file_size) {
+    if (CheckOverlappedBytes(internal_key, curr_file_size) ||
+        CheckSkippedFilesRange(internal_key)) {
+      overlapped_bytes = 0;
+      return true;
+    }
+    return false;
+  }
+
+  bool CheckOverlappedBytes(const Slice& internal_key, uint64_t curr_file_size) {
     const InternalKeyComparator* icmp =
         &compaction->column_family_data()->internal_comparator();
     const std::vector<FileMetaData*>& grandparents = compaction->grandparents();
@@ -227,11 +238,26 @@ struct CompactionJob::SubcompactionState {
     if (overlapped_bytes + curr_file_size >
         compaction->max_compaction_bytes()) {
       // Too much overlap for current output; start new output
-      overlapped_bytes = 0;
       return true;
     }
 
     return false;
+  }
+
+  bool CheckSkippedFilesRange(const Slice& internal_key) {
+    auto skipped_files = compaction->skipped_output_level_files();
+    auto icmp = compaction->column_family_data()->internal_comparator();
+
+    bool should_stop = false;
+    while (current_skipped_file_index < skipped_files.size()) {
+      auto file = skipped_files[current_skipped_file_index];
+      if (icmp.Compare(internal_key, file->smallest.Encode()) < 0) {
+        break;
+      }
+      should_stop = true;
+      current_skipped_file_index++;
+    }
+    return should_stop;
   }
 };
 
