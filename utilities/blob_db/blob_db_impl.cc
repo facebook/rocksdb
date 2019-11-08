@@ -2076,6 +2076,11 @@ Status BlobDBImpl::TEST_GetBlobValue(const Slice& key, const Slice& index_entry,
   return GetBlobValue(key, index_entry, value);
 }
 
+void BlobDBImpl::TEST_AddDummyBlobFile(uint64_t blob_file_number) {
+  blob_files_[blob_file_number] = std::make_shared<BlobFile>(
+      this, blob_dir_, blob_file_number, db_options_.info_log.get());
+}
+
 std::vector<std::shared_ptr<BlobFile>> BlobDBImpl::TEST_GetBlobFiles() const {
   ReadLock l(&mutex_);
   std::vector<std::shared_ptr<BlobFile>> blob_files;
@@ -2122,6 +2127,20 @@ void BlobDBImpl::TEST_EvictExpiredFiles() {
 }
 
 uint64_t BlobDBImpl::TEST_live_sst_size() { return live_sst_size_.load(); }
+
+void BlobDBImpl::TEST_InitializeParentSstMapping(
+    const std::vector<LiveFileMetaData>& live_files) {
+  InitializeParentSstMapping(live_files);
+}
+
+void BlobDBImpl::TEST_UpdateParentSstMapping(const FlushJobInfo& info) {
+  UpdateParentSstMapping(info);
+}
+
+void BlobDBImpl::TEST_UpdateParentSstMapping(const CompactionJobInfo& info) {
+  UpdateParentSstMapping(info);
+}
+
 #endif  //  !NDEBUG
 
 }  // namespace blob_db

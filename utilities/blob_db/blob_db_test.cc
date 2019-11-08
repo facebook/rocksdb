@@ -1614,6 +1614,111 @@ TEST_F(BlobDBTest, DisableFileDeletions) {
   }
 }
 
+TEST_F(BlobDBTest, MaintainParentSstMapping) {
+  BlobDBOptions bdb_options;
+  bdb_options.enable_garbage_collection = true;
+  bdb_options.disable_background_tasks = true;
+  Open(bdb_options);
+
+  // Register some dummy blob files.
+  blob_db_impl()->TEST_AddDummyBlobFile(1);
+  blob_db_impl()->TEST_AddDummyBlobFile(2);
+  blob_db_impl()->TEST_AddDummyBlobFile(3);
+  blob_db_impl()->TEST_AddDummyBlobFile(4);
+  blob_db_impl()->TEST_AddDummyBlobFile(5);
+
+  // Initialize the blob <-> SST file mapping. First, add some SST files with
+  // blob file references, then some without.
+  std::vector<LiveFileMetaData> live_files;
+
+  for (uint64_t i = 1; i <= 10; ++i) {
+    LiveFileMetaData live_file;
+    live_file.file_number = i;
+    live_file.oldest_blob_file_number = ((i - 1) % 5) + 1;
+
+    live_files.emplace_back(live_file);
+  }
+
+  for (uint64_t i = 11; i <= 20; ++i) {
+    LiveFileMetaData live_file;
+    live_file.file_number = i;
+
+    live_files.emplace_back(live_file);
+  }
+
+  blob_db_impl()->TEST_InitializeParentSstMapping(live_files);
+
+  // Check that the blob <-> SST mappings have been correctly initialized.
+  auto blob_files = blob_db_impl()->TEST_GetBlobFiles();
+
+  ASSERT_EQ(blob_files.size(), 5);
+
+  {
+    const std::vector<BlobFile::SstFileSet> expected_parent_files{
+        {1, 6}, {2, 7}, {3, 8}, {4, 9}, {5, 10}};
+    for (size_t i = 0; i < 5; ++i) {
+      const auto &blob_file = blob_files[i];
+      ASSERT_EQ(blob_file->GetParentSstFiles(), expected_parent_files[i]);
+    }
+  }
+
+  // Simulate a flush where the SST does not reference any blob files.
+  FlushJobInfo info1{};
+  info1.file_number = 21;
+
+  blob_db_impl()->TEST_UpdateParentSstMapping(info1);
+
+  {
+    const std::vector<BlobFile::SstFileSet> expected_parent_files{
+        {1, 6}, {2, 7}, {3, 8}, {4, 9}, {5, 10}};
+    for (size_t i = 0; i < 5; ++i) {
+      const auto &blob_file = blob_files[i];
+      ASSERT_EQ(blob_file->GetParentSstFiles(), expected_parent_files[i]);
+    }
+  }
+
+  // Simulate a flush where the SST references a blob file.
+  FlushJobInfo info2{};
+  info2.file_number = 22;
+  info2.oldest_blob_file_number = 5;
+
+  blob_db_impl()->TEST_UpdateParentSstMapping(info2);
+
+  {
+    const std::vector<BlobFile::SstFileSet> expected_parent_files{
+        {1, 6}, {2, 7}, {3, 8}, {4, 9}, {5, 10, 22}};
+    for (size_t i = 0; i < 5; ++i) {
+      const auto &blob_file = blob_files[i];
+      ASSERT_EQ(blob_file->GetParentSstFiles(), expected_parent_files[i]);
+    }
+  }
+
+  // Simulate a compaction. Some inputs and outputs have blob file references,
+  // some don't. There is also a trivial move (which means the SST appears on
+  // both the input and the output list).
+  CompactionJobInfo info3{};
+  info3.input_file_infos.emplace_back(CompactionFileInfo{1, 1, 1});
+  info3.input_file_infos.emplace_back(CompactionFileInfo{1, 2, 2});
+  info3.input_file_infos.emplace_back(
+      CompactionFileInfo{1, 11, kInvalidBlobFileNumber});
+  info3.input_file_infos.emplace_back(CompactionFileInfo{1, 5, 22});
+  info3.output_file_infos.emplace_back(CompactionFileInfo{2, 23, 3});
+  info3.output_file_infos.emplace_back(
+      CompactionFileInfo{2, 24, kInvalidBlobFileNumber});
+  info3.output_file_infos.emplace_back(CompactionFileInfo{2, 5, 22});
+
+  blob_db_impl()->TEST_UpdateParentSstMapping(info3);
+
+  {
+    const std::vector<BlobFile::SstFileSet> expected_parent_files{
+        {6}, {7}, {3, 8, 23}, {4, 9}, {5, 10, 22}};
+    for (size_t i = 0; i < 5; ++i) {
+      const auto &blob_file = blob_files[i];
+      ASSERT_EQ(blob_file->GetParentSstFiles(), expected_parent_files[i]);
+    }
+  }
+}
+
 TEST_F(BlobDBTest, ShutdownWait) {
   BlobDBOptions bdb_options;
   bdb_options.ttl_range_secs = 100;

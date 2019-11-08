@@ -185,6 +185,8 @@ class BlobDBImpl : public BlobDB {
   Status TEST_GetBlobValue(const Slice& key, const Slice& index_entry,
                            PinnableSlice* value);
 
+  void TEST_AddDummyBlobFile(uint64_t blob_file_number);
+
   std::vector<std::shared_ptr<BlobFile>> TEST_GetBlobFiles() const;
 
   std::vector<std::shared_ptr<BlobFile>> TEST_GetObsoleteFiles() const;
@@ -207,6 +209,14 @@ class BlobDBImpl : public BlobDB {
   uint64_t TEST_live_sst_size();
 
   const std::string& TEST_blob_dir() const { return blob_dir_; }
+
+  void TEST_InitializeParentSstMapping(
+      const std::vector<LiveFileMetaData>& live_files);
+
+  void TEST_UpdateParentSstMapping(const FlushJobInfo& info);
+
+  void TEST_UpdateParentSstMapping(const CompactionJobInfo& info);
+
 #endif  //  !NDEBUG
 
  private:
