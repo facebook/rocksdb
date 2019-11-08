@@ -1650,6 +1650,39 @@ class DBImpl : public DB {
       const size_t num_keys, bool sorted,
       autovector<KeyContext*, MultiGetContext::MAX_BATCH_SIZE>* key_ptrs);
 
+  // A structure to hold the information required to process MultiGet of keys
+  // belonging to one column family. For a multi column family MultiGet, there
+  // will be a container of these objects.
+  struct MultiGetColumnFamilyData {
+    ColumnFamilyHandle* cf;
+    ColumnFamilyData* cfd;
+
+    // For the batched MultiGet which relies on sorted keys, start specifies
+    // the index of first key belonging to this column family in the sorted
+    // list.
+    size_t start;
+
+    // For the batched MultiGet case, num_keys specifies the number of keys
+    // belonging to this column family in the sorted list
+    size_t num_keys;
+
+    // SuperVersion for the column family obtained in a manner that ensures a
+    // consistent view across all column families in the DB
+    SuperVersion* super_version;
+    MultiGetColumnFamilyData(ColumnFamilyHandle* column_family, SuperVersion* sv)
+        : cf(column_family),
+          cfd(static_cast<ColumnFamilyHandleImpl*>(cf)->cfd()), start(0),
+          num_keys(0), super_version(sv) {}
+
+    MultiGetColumnFamilyData(ColumnFamilyHandle* column_family, size_t first,
+                             size_t count, SuperVersion* sv)
+        : cf(column_family),
+          cfd(static_cast<ColumnFamilyHandleImpl*>(cf)->cfd()), start(first),
+          num_keys(count), super_version(sv) {}
+
+    MultiGetColumnFamilyData() = default;
+  };
+
   // A common function to obtain a consistent snapshot, which can be implicit
   // if the user doesn't specify a snapshot in read_options, across
   // multiple column families for MultiGet. It will attempt to get an implicit
@@ -1664,8 +1697,10 @@ class DBImpl : public DB {
   // A return value of true indicates that the SuperVersions were obtained
   // from the ColumnFamilyData, whereas false indicates they are thread
   // local
-  template <class T, typename NodeFunc>
+  template <class T>
   bool MultiCFSnapshot(const ReadOptions& read_options, ReadCallback* callback,
+                       std::function<MultiGetColumnFamilyData*(
+                         typename T::iterator&)>& iter_deref_func,
                        T* cf_list, SequenceNumber* snapshot);
 
   // The actual implementation of the batching MultiGet. The caller is expected

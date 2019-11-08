@@ -1645,14 +1645,8 @@ std::vector<Status> DBImpl::MultiGet(
   StopWatch sw(env_, stats_, DB_MULTIGET);
   PERF_TIMER_GUARD(get_snapshot_time);
 
-  SequenceNumber snapshot;
+  SequenceNumber consistent_seqnum;;
 
-  struct MultiGetColumnFamilyData {
-    ColumnFamilyData* cfd;
-    SuperVersion* super_version;
-    MultiGetColumnFamilyData(ColumnFamilyData* cf, SuperVersion* sv)
-        : cfd(cf), super_version(sv) {}
-  };
   std::unordered_map<uint32_t, MultiGetColumnFamilyData> multiget_cf_data(
       column_family.size());
   for (auto cf : column_family) {
@@ -1660,22 +1654,22 @@ std::vector<Status> DBImpl::MultiGet(
     auto cfd = cfh->cfd();
     if (multiget_cf_data.find(cfd->GetID()) == multiget_cf_data.end()) {
       multiget_cf_data.emplace(cfd->GetID(),
-                               MultiGetColumnFamilyData(cfd, nullptr));
+                               MultiGetColumnFamilyData(cfh, nullptr));
     }
   }
 
-  struct IterDerefFunc {
-    inline MultiGetColumnFamilyData* operator()(
-        std::unordered_map<uint32_t, MultiGetColumnFamilyData>::iterator&
-            cf_iter) {
-      return &cf_iter->second;
-    }
+  std::function<MultiGetColumnFamilyData*(
+      std::unordered_map<uint32_t,
+        MultiGetColumnFamilyData>::iterator&)> iter_deref_lambda = [](
+      std::unordered_map<uint32_t, MultiGetColumnFamilyData>::iterator&
+          cf_iter) {
+    return &cf_iter->second;
   };
 
   bool unref_only =
-      MultiCFSnapshot<std::unordered_map<uint32_t, MultiGetColumnFamilyData>,
-                      IterDerefFunc>(read_options, nullptr, &multiget_cf_data,
-                                     &snapshot);
+      MultiCFSnapshot<std::unordered_map<uint32_t, MultiGetColumnFamilyData>>
+                (read_options, nullptr, iter_deref_lambda, &multiget_cf_data,
+                                     &consistent_seqnum);
 
   // Contain a list of merge operations if merge occurs.
   MergeContext merge_context;
@@ -1699,7 +1693,7 @@ std::vector<Status> DBImpl::MultiGet(
     Status& s = stat_list[i];
     std::string* value = &(*values)[i];
 
-    LookupKey lkey(keys[i], snapshot);
+    LookupKey lkey(keys[i], consistent_seqnum);
     auto cfh = reinterpret_cast<ColumnFamilyHandleImpl*>(column_family[i]);
     SequenceNumber max_covering_tombstone_seq = 0;
     auto mgd_iter = multiget_cf_data.find(cfh->cfd()->GetID());
@@ -1760,9 +1754,12 @@ std::vector<Status> DBImpl::MultiGet(
   return stat_list;
 }
 
-template <class T, typename IterDerefFunc>
+template <class T>
 bool DBImpl::MultiCFSnapshot(const ReadOptions& read_options,
-                             ReadCallback* callback, T* cf_list,
+                             ReadCallback* callback,
+                             std::function<MultiGetColumnFamilyData*(
+                               typename T::iterator&)>& iter_deref_func,
+                             T* cf_list,
                              SequenceNumber* snapshot) {
   PERF_TIMER_GUARD(get_snapshot_time);
 
@@ -1771,7 +1768,7 @@ bool DBImpl::MultiCFSnapshot(const ReadOptions& read_options,
     // Fast path for a single column family. We can simply get the thread loca
     // super version
     auto cf_iter = cf_list->begin();
-    auto node = IterDerefFunc()(cf_iter);
+    auto node = iter_deref_func(cf_iter);
     node->super_version = GetAndRefSuperVersion(node->cfd);
     if (read_options.snapshot != nullptr) {
       // Note: In WritePrepared txns this is not necessary but not harmful
@@ -1783,7 +1780,7 @@ bool DBImpl::MultiCFSnapshot(const ReadOptions& read_options,
       // may skip uncommitted data that should be visible to the transaction for
       // reading own writes.
       *snapshot =
-          reinterpret_cast<const SnapshotImpl*>(read_options.snapshot)->number_;
+          static_cast<const SnapshotImpl*>(read_options.snapshot)->number_;
       if (callback) {
         *snapshot = std::max(*snapshot, callback->max_visible_seq());
       }
@@ -1815,7 +1812,7 @@ bool DBImpl::MultiCFSnapshot(const ReadOptions& read_options,
       if (i > 0) {
         for (auto cf_iter = cf_list->begin(); cf_iter != cf_list->end();
              ++cf_iter) {
-          auto node = IterDerefFunc()(cf_iter);
+          auto node = iter_deref_func(cf_iter);
           SuperVersion* super_version = node->super_version;
           ColumnFamilyData* cfd = node->cfd;
           if (super_version != nullptr) {
@@ -1840,7 +1837,7 @@ bool DBImpl::MultiCFSnapshot(const ReadOptions& read_options,
       }
       for (auto cf_iter = cf_list->begin(); cf_iter != cf_list->end();
            ++cf_iter) {
-        auto node = IterDerefFunc()(cf_iter);
+        auto node = iter_deref_func(cf_iter);
         if (!last_try) {
           node->super_version = GetAndRefSuperVersion(node->cfd);
         } else {
@@ -1898,21 +1895,6 @@ void DBImpl::MultiGet(const ReadOptions& read_options, const size_t num_keys,
   }
   PrepareMultiGetKeys(num_keys, sorted_input, &sorted_keys);
 
-  struct MultiGetColumnFamilyData {
-    ColumnFamilyHandle* cf;
-    ColumnFamilyData* cfd;
-    size_t start;
-    size_t num_keys;
-    SuperVersion* super_version;
-    MultiGetColumnFamilyData(ColumnFamilyHandle* column_family, size_t first,
-                             size_t count, SuperVersion* sv)
-        : cf(column_family), start(first), num_keys(count), super_version(sv) {
-      ColumnFamilyHandleImpl* cfh =
-          reinterpret_cast<ColumnFamilyHandleImpl*>(cf);
-      cfd = cfh->cfd();
-    }
-    MultiGetColumnFamilyData() = default;
-  };
   autovector<MultiGetColumnFamilyData, MultiGetContext::MAX_BATCH_SIZE>
       multiget_cf_data;
   size_t cf_start = 0;
@@ -1927,26 +1909,27 @@ void DBImpl::MultiGet(const ReadOptions& read_options, const size_t num_keys,
     }
   }
   {
-    multiget_cf_data.emplace_back(
-        MultiGetColumnFamilyData(cf, cf_start, num_keys - cf_start, nullptr));
+    // multiget_cf_data.emplace_back(
+       // MultiGetColumnFamilyData(cf, cf_start, num_keys - cf_start, nullptr));
+    multiget_cf_data.emplace_back( cf, cf_start, num_keys - cf_start, nullptr);
   }
-  struct IterDerefFunc {
-    inline MultiGetColumnFamilyData* operator()(
+  std::function<MultiGetColumnFamilyData*(autovector<MultiGetColumnFamilyData,
+    MultiGetContext::MAX_BATCH_SIZE>::iterator&)> iter_deref_lambda = [](
         autovector<MultiGetColumnFamilyData,
                    MultiGetContext::MAX_BATCH_SIZE>::iterator& cf_iter) {
       return &(*cf_iter);
-    }
   };
 
-  SequenceNumber snapshot;
+  SequenceNumber consistent_seqnum;
   bool unref_only = MultiCFSnapshot<
-      autovector<MultiGetColumnFamilyData, MultiGetContext::MAX_BATCH_SIZE>,
-      IterDerefFunc>(read_options, nullptr, &multiget_cf_data, &snapshot);
+      autovector<MultiGetColumnFamilyData, MultiGetContext::MAX_BATCH_SIZE>>
+      (read_options, nullptr, iter_deref_lambda, &multiget_cf_data,
+       &consistent_seqnum);
 
   for (auto cf_iter = multiget_cf_data.begin();
        cf_iter != multiget_cf_data.end(); ++cf_iter) {
     MultiGetImpl(read_options, cf_iter->start, cf_iter->num_keys, &sorted_keys,
-                 cf_iter->super_version, snapshot, nullptr, nullptr);
+                 cf_iter->super_version, consistent_seqnum, nullptr, nullptr);
     if (!unref_only) {
       ReturnAndCleanupSuperVersion(cf_iter->cfd, cf_iter->super_version);
     } else {
@@ -1955,14 +1938,15 @@ void DBImpl::MultiGet(const ReadOptions& read_options, const size_t num_keys,
   }
 }
 
+namespace {
 // Order keys by CF ID, followed by key contents
 struct CompareKeyContext {
   inline bool operator()(const KeyContext* lhs, const KeyContext* rhs) {
     ColumnFamilyHandleImpl* cfh =
-        reinterpret_cast<ColumnFamilyHandleImpl*>(lhs->column_family);
+        static_cast<ColumnFamilyHandleImpl*>(lhs->column_family);
     uint32_t cfd_id1 = cfh->cfd()->GetID();
     const Comparator* comparator = cfh->cfd()->user_comparator();
-    cfh = reinterpret_cast<ColumnFamilyHandleImpl*>(lhs->column_family);
+    cfh = static_cast<ColumnFamilyHandleImpl*>(lhs->column_family);
     uint32_t cfd_id2 = cfh->cfd()->GetID();
 
     if (cfd_id1 < cfd_id2) {
@@ -1979,6 +1963,8 @@ struct CompareKeyContext {
     return false;
   }
 };
+
+} // anonymous namespace
 
 void DBImpl::PrepareMultiGetKeys(
     size_t num_keys, bool sorted_input,
@@ -2037,33 +2023,20 @@ void DBImpl::MultiGetWithCallback(
     const ReadOptions& read_options, ColumnFamilyHandle* column_family,
     ReadCallback* callback,
     autovector<KeyContext*, MultiGetContext::MAX_BATCH_SIZE>* sorted_keys) {
-  struct MultiGetColumnFamilyData {
-    ColumnFamilyHandle* cf;
-    ColumnFamilyData* cfd;
-    SuperVersion* super_version;
-    MultiGetColumnFamilyData(ColumnFamilyHandle* col_family,
-                             SuperVersion* sv)
-        : cf(col_family), super_version(sv) {
-      ColumnFamilyHandleImpl* cfh =
-          reinterpret_cast<ColumnFamilyHandleImpl*>(cf);
-      cfd = cfh->cfd();
-    }
-    MultiGetColumnFamilyData() = default;
-  };
   std::array<MultiGetColumnFamilyData, 1> multiget_cf_data;
   multiget_cf_data[0] = MultiGetColumnFamilyData(column_family, nullptr);
-  struct IterDerefFunc {
-    inline MultiGetColumnFamilyData* operator()(
-        std::array<MultiGetColumnFamilyData, 1>::iterator& cf_iter) {
-      return &(*cf_iter);
-    }
+  std::function<MultiGetColumnFamilyData*(
+      std::array<MultiGetColumnFamilyData, 1>::iterator&)> iter_deref_lambda = [](
+      std::array<MultiGetColumnFamilyData, 1>::iterator& cf_iter) {
+    return &(*cf_iter);
   };
 
   size_t num_keys = sorted_keys->size();
-  SequenceNumber snapshot;
+  SequenceNumber consistent_seqnum;
   bool unref_only =
-      MultiCFSnapshot<std::array<MultiGetColumnFamilyData, 1>, IterDerefFunc>(
-          read_options, callback, &multiget_cf_data, &snapshot);
+      MultiCFSnapshot<std::array<MultiGetColumnFamilyData, 1>>(
+          read_options, callback, iter_deref_lambda, &multiget_cf_data,
+          &consistent_seqnum);
 #ifndef NDEBUG
   assert(!unref_only);
 #else
@@ -2076,7 +2049,7 @@ void DBImpl::MultiGetWithCallback(
     // that max_visible_seq is larger. Seek to the std::max of the two.
     // However, we still want our callback to contain the actual snapshot so
     // that it can do the correct visibility filtering.
-    callback->Refresh(snapshot);
+    callback->Refresh(consistent_seqnum);
 
     // Internally, WriteUnpreparedTxnReadCallback::Refresh would set
     // max_visible_seq = max(max_visible_seq, snapshot)
@@ -2087,11 +2060,12 @@ void DBImpl::MultiGetWithCallback(
     // be needed.
     //
     // assert(callback->max_visible_seq() >= snapshot);
-    snapshot = callback->max_visible_seq();
+    consistent_seqnum = callback->max_visible_seq();
   }
 
   MultiGetImpl(read_options, 0, num_keys, sorted_keys,
-               multiget_cf_data[0].super_version, snapshot, nullptr, nullptr);
+               multiget_cf_data[0].super_version, consistent_seqnum, nullptr,
+               nullptr);
   ReturnAndCleanupSuperVersion(multiget_cf_data[0].cfd,
                                multiget_cf_data[0].super_version);
 }
