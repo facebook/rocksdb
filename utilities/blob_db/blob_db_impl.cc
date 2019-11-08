@@ -143,8 +143,12 @@ Status BlobDBImpl::Open(std::vector<ColumnFamilyHandle*>* handles) {
 
   // Temporarily disable compactions in the base DB during open; save the user
   // defined value beforehand so we can restore it once BlobDB is initialized.
+  // Note: this is only needed if garbage collection is enabled.
   const bool disable_auto_compactions = cf_options_.disable_auto_compactions;
-  cf_options_.disable_auto_compactions = true;
+
+  if (bdb_options_.enable_garbage_collection) {
+    cf_options_.disable_auto_compactions = true;
+  }
 
   Status s;
 
@@ -180,7 +184,9 @@ Status BlobDBImpl::Open(std::vector<ColumnFamilyHandle*>* handles) {
   }
 
   // Update options
-  db_options_.listeners.push_back(std::make_shared<BlobDBListener>(this));
+  db_options_.listeners.push_back(bdb_options_.enable_garbage_collection
+                                      ? std::make_shared<BlobDBListenerGC>(this)
+                                      : std::make_shared<BlobDBListener>(this));
   cf_options_.compaction_filter_factory.reset(
       new BlobIndexCompactionFilterFactory(this, env_, statistics_));
 
@@ -192,19 +198,23 @@ Status BlobDBImpl::Open(std::vector<ColumnFamilyHandle*>* handles) {
   }
   db_impl_ = static_cast_with_check<DBImpl, DB>(db_->GetRootDB());
 
-  // Initialize SST file <-> oldest blob file mapping.
-  std::vector<LiveFileMetaData> live_files;
-  db_->GetLiveFilesMetaData(&live_files);
+  // Initialize SST file <-> oldest blob file mapping if garbage collection
+  // is enabled.
+  if (bdb_options_.enable_garbage_collection) {
+    std::vector<LiveFileMetaData> live_files;
+    db_->GetLiveFilesMetaData(&live_files);
 
-  InitializeParentSstMapping(live_files);
+    InitializeParentSstMapping(live_files);
 
-  if (!disable_auto_compactions) {
-    s = db_->EnableAutoCompaction(*handles);
-    if (!s.ok()) {
-      ROCKS_LOG_ERROR(db_options_.info_log,
-          "Failed to enable automatic compactions during open, status: %s",
-          s.ToString().c_str());
-      return s;
+    if (!disable_auto_compactions) {
+      s = db_->EnableAutoCompaction(*handles);
+      if (!s.ok()) {
+        ROCKS_LOG_ERROR(
+            db_options_.info_log,
+            "Failed to enable automatic compactions during open, status: %s",
+            s.ToString().c_str());
+        return s;
+      }
     }
   }
 

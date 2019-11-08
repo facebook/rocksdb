@@ -26,21 +26,39 @@ class BlobDBListener : public EventListener {
     blob_db_impl_->SyncBlobFiles();
   }
 
-  void OnFlushCompleted(DB* /*db*/, const FlushJobInfo& info) override {
+  void OnFlushCompleted(DB* /*db*/, const FlushJobInfo& /*info*/) override {
     assert(blob_db_impl_ != nullptr);
-    blob_db_impl_->UpdateParentSstMapping(info);
     blob_db_impl_->UpdateLiveSSTSize();
   }
 
   void OnCompactionCompleted(DB* /*db*/,
-                             const CompactionJobInfo& info) override {
+                             const CompactionJobInfo& /*info*/) override {
     assert(blob_db_impl_ != nullptr);
-    blob_db_impl_->UpdateParentSstMapping(info);
     blob_db_impl_->UpdateLiveSSTSize();
   }
 
- private:
+ protected:
   BlobDBImpl* blob_db_impl_;
+};
+
+class BlobDBListenerGC : public BlobDBListener {
+ public:
+  explicit BlobDBListenerGC(BlobDBImpl* blob_db_impl)
+      : BlobDBListener(blob_db_impl) {}
+
+  void OnFlushCompleted(DB* db, const FlushJobInfo& info) override {
+    BlobDBListener::OnFlushCompleted(db, info);
+
+    assert(blob_db_impl_);
+    blob_db_impl_->UpdateParentSstMapping(info);
+  }
+
+  void OnCompactionCompleted(DB* db, const CompactionJobInfo& info) override {
+    BlobDBListener::OnCompactionCompleted(db, info);
+
+    assert(blob_db_impl_);
+    blob_db_impl_->UpdateParentSstMapping(info);
+  }
 };
 
 }  // namespace blob_db
