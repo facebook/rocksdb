@@ -2354,11 +2354,11 @@ void BlockBasedTable::RetrieveMultipleBlocks(
     ReadRequest& req = read_reqs[read_req_idx++];
     Status s = req.status;
     if (s.ok()) {
-      if (req.result.size() != block_size(handle)) {
+      if (req.result.size() != req.len) {
         s = Status::Corruption("truncated block read from " +
                                rep_->file->file_name() + " offset " +
                                ToString(handle.offset()) + ", expected " +
-                               ToString(block_size(handle)) +
+                               ToString(req.len) +
                                " bytes, got " + ToString(req.result.size()));
       }
     }

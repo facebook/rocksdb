@@ -463,7 +463,7 @@ class BlockBasedTable : public TableReader {
 
   // A cumulative data block file read in MultiGet lower than this size will
   // use a stack buffer
-  static const size_t kMultiGetReadStackBufSize = 8192;
+  static constexpr size_t kMultiGetReadStackBufSize = 8192;
 
   // Make block size calculation for IO less error prone
   uint64_t block_size(const BlockHandle& handle) const {
