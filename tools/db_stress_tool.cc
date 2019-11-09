@@ -2479,10 +2479,19 @@ class StressTest {
       std::unique_ptr<Iterator> cmp_iter(db_->NewIterator(cmp_ro, cmp_cfh));
       bool diverged = false;
 
-      iter->Seek(key);
-      cmp_iter->Seek(key);
+      LastIterateOp last_op;
+      if (thread->rand.OneIn(8)) {
+        // 1/8 chance, does SeekForPrev(). Otherwise, Seek().
+        iter->SeekForPrev(key);
+        cmp_iter->SeekForPrev(key);
+        last_op = kLastOpSeekForPrev;
+      } else {
+        iter->Seek(key);
+        cmp_iter->Seek(key);
+        last_op = kLastOpSeek;
+      }
       VerifyIterator(thread, cmp_cfh, readoptionscopy, iter.get(),
-                     cmp_iter.get(), key, &diverged);
+                     cmp_iter.get(), last_op, key, &diverged);
 
       bool no_reverse =
           (FLAGS_memtablerep == "prefix_hash" && !read_opts.total_order_seek &&
@@ -2502,7 +2511,7 @@ class StressTest {
           }
         }
         VerifyIterator(thread, cmp_cfh, readoptionscopy, iter.get(),
-                       cmp_iter.get(), key, &diverged);
+                       cmp_iter.get(), last_op, key, &diverged);
       }
 
       if (s.ok()) {
@@ -2518,6 +2527,9 @@ class StressTest {
     return s;
   }
 
+  // Enum used by VerifyIterator() to identify the mode to validate.
+  enum LastIterateOp { kLastOpSeek, kLastOpSeekForPrev, kLastOpNextOrPrev };
+
   // Compare the two iterator, iter and cmp_iter are in the same position,
   // unless iter might be made invalidate or undefined because of
   // upper or lower bounds, or prefix extractor.
@@ -2526,18 +2538,29 @@ class StressTest {
   // True if verification passed, false if not.
   void VerifyIterator(ThreadState* thread, ColumnFamilyHandle* cmp_cfh,
                       const ReadOptions& ro, Iterator* iter, Iterator* cmp_iter,
-                      const Slice& seek_key, bool* diverged) {
+                      LastIterateOp op, const Slice& seek_key, bool* diverged) {
     if (*diverged) {
       return;
     }
 
-    if (ro.iterate_lower_bound != nullptr &&
+    if (op == kLastOpSeek && ro.iterate_lower_bound != nullptr &&
         (options_.comparator->Compare(*ro.iterate_lower_bound, seek_key) >= 0 ||
          (ro.iterate_upper_bound != nullptr &&
           options_.comparator->Compare(*ro.iterate_lower_bound,
                                        *ro.iterate_upper_bound) >= 0))) {
       // Lower bound behavior is not well defined if it is larger than
       // seek key or upper bound. Disable the check for now.
+      *diverged = true;
+      return;
+    }
+
+    if (op == kLastOpSeekForPrev && ro.iterate_upper_bound != nullptr &&
+        (options_.comparator->Compare(*ro.iterate_upper_bound, seek_key) <= 0 ||
+         (ro.iterate_lower_bound != nullptr &&
+          options_.comparator->Compare(*ro.iterate_lower_bound,
+                                       *ro.iterate_upper_bound) >= 0))) {
+      // Uppder bound behavior is not well defined if it is smaller than
+      // seek key or lower bound. Disable the check for now.
       *diverged = true;
       return;
     }
