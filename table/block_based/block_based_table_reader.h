@@ -465,11 +465,6 @@ class BlockBasedTable : public TableReader {
   // use a stack buffer
   static constexpr size_t kMultiGetReadStackBufSize = 8192;
 
-  // Make block size calculation for IO less error prone
-  uint64_t block_size(const BlockHandle& handle) const {
-    return handle.size() + kBlockTrailerSize;
-  }
-
   friend class PartitionedFilterBlockReader;
   friend class PartitionedFilterBlockTest;
   friend class DBBasicTest_MultiGetIOBufferOverrun_Test;

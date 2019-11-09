@@ -496,7 +496,7 @@ class PartitionIndexReader : public BlockBasedTable::IndexReaderCommon {
       return;
     }
     handle = biter.value().handle;
-    uint64_t last_off = handle.offset() + handle.size() + kBlockTrailerSize;
+    uint64_t last_off = handle.offset() + block_size(handle);
     uint64_t prefetch_len = last_off - prefetch_off;
     std::unique_ptr<FilePrefetchBuffer> prefetch_buffer;
     auto& file = rep->file;
@@ -2920,8 +2920,7 @@ void BlockBasedTableIterator<TBlockIter, TValue>::InitDataBlock() {
             BlockBasedTable::kMinNumFileReadsToStartAutoReadahead) {
           if (!rep->file->use_direct_io() &&
               (data_block_handle.offset() +
-                   static_cast<size_t>(data_block_handle.size()) +
-                    kBlockTrailerSize >
+                   static_cast<size_t>(block_size(data_block_handle)) >
                readahead_limit_)) {
             // Buffered I/O
             // Discarding the return status of Prefetch calls intentionally, as
