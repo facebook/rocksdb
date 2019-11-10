@@ -26,10 +26,14 @@ public class RocksIterator extends AbstractRocksIterator<RocksDB> {
 
   protected RocksIterator(final ColumnFamilyHandle cfHandle, final long nativeHandle) {
     super(cfHandle, cfHandle.rocksDB_, nativeHandle);
+    cfHandle.iter_ = this;
   }
 
   protected RocksIterator(final RocksIterator base, final long nativeHandle) {
     super(base.owner_, base.parent_, nativeHandle);
+    if (base.owner_ != null) {
+      ((ColumnFamilyHandle) base.owner_).iter_ = this;
+    }
   }
 
   /**

@@ -120,10 +120,15 @@ public class ColumnFamilyHandle extends RocksObject {
    */
   @Override
   protected void disposeInternal() {
+    if (iter_ != null) {
+      iter_.close();
+    }
     if(rocksDB_.isOwningHandle()) {
       disposeInternal(nativeHandle_);
     }
   }
+
+  protected AbstractRocksIterator iter_ = null;
 
   private native byte[] getName(final long handle) throws RocksDBException;
   private native int getID(final long handle);
