@@ -27,9 +27,6 @@ class BlobFile {
   friend struct BlobFileComparator;
   friend struct BlobFileComparatorTTL;
 
- public:
-  using SstFileSet = std::unordered_set<uint64_t>;
-
  private:
   // access to parent
   const BlobDBImpl* parent_;
@@ -44,7 +41,7 @@ class BlobFile {
 
   // The file numbers of the SST files whose oldest blob file reference
   // points to this blob file.
-  SstFileSet linked_sst_files_;
+  std::unordered_set<uint64_t> linked_sst_files_;
 
   // Info log.
   Logger* info_log_;
@@ -126,7 +123,9 @@ class BlobFile {
 
   // Get the set of SST files whose oldest blob file reference points to
   // this file.
-  const SstFileSet& GetLinkedSstFiles() const { return linked_sst_files_; }
+  const std::unordered_set<uint64_t>& GetLinkedSstFiles() const {
+    return linked_sst_files_;
+  }
 
   // Link an SST file whose oldest blob file reference points to this file.
   void LinkSstFile(uint64_t sst_file_number) {

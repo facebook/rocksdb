@@ -1654,7 +1654,7 @@ TEST_F(BlobDBTest, MaintainBlobFileToSstMapping) {
   ASSERT_EQ(blob_files.size(), 5);
 
   {
-    const std::vector<BlobFile::SstFileSet> expected_sst_files{
+    const std::vector<std::unordered_set<uint64_t>> expected_sst_files{
         {1, 6}, {2, 7}, {3, 8}, {4, 9}, {5, 10}};
     for (size_t i = 0; i < 5; ++i) {
       const auto &blob_file = blob_files[i];
@@ -1669,7 +1669,7 @@ TEST_F(BlobDBTest, MaintainBlobFileToSstMapping) {
 
     blob_db_impl()->TEST_ProcessFlushJobInfo(info);
 
-    const std::vector<BlobFile::SstFileSet> expected_sst_files{
+    const std::vector<std::unordered_set<uint64_t>> expected_sst_files{
         {1, 6}, {2, 7}, {3, 8}, {4, 9}, {5, 10}};
     for (size_t i = 0; i < 5; ++i) {
       const auto &blob_file = blob_files[i];
@@ -1685,7 +1685,7 @@ TEST_F(BlobDBTest, MaintainBlobFileToSstMapping) {
 
     blob_db_impl()->TEST_ProcessFlushJobInfo(info);
 
-    const std::vector<BlobFile::SstFileSet> expected_sst_files{
+    const std::vector<std::unordered_set<uint64_t>> expected_sst_files{
         {1, 6}, {2, 7}, {3, 8}, {4, 9}, {5, 10, 22}};
     for (size_t i = 0; i < 5; ++i) {
       const auto &blob_file = blob_files[i];
@@ -1710,7 +1710,7 @@ TEST_F(BlobDBTest, MaintainBlobFileToSstMapping) {
 
     blob_db_impl()->TEST_ProcessCompactionJobInfo(info);
 
-    const std::vector<BlobFile::SstFileSet> expected_sst_files{
+    const std::vector<std::unordered_set<uint64_t>> expected_sst_files{
         {6}, {7}, {3, 8, 23}, {4, 9}, {5, 10, 22}};
     for (size_t i = 0; i < 5; ++i) {
       const auto &blob_file = blob_files[i];
