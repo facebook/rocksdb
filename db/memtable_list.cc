@@ -742,7 +742,7 @@ void MemTableList::RemoveOldMemTables(uint64_t log_number,
     if (mem->GetNextLogNumber() > log_number) {
       break;
     }
-    old_memtables.push_back(mem);    
+    old_memtables.push_back(mem);
   }
 
   for (auto it = old_memtables.begin(); it!= old_memtables.end(); ++it) {
