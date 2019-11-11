@@ -129,8 +129,7 @@ class BlobFile {
 
   // Link an SST file whose oldest blob file reference points to this file.
   void LinkSstFile(uint64_t sst_file_number) {
-    auto it = linked_sst_files_.find(sst_file_number);
-    assert(it == linked_sst_files_.end());
+    assert(linked_sst_files_.find(sst_file_number) == linked_sst_files_.end());
     linked_sst_files_.insert(sst_file_number);
   }
 
