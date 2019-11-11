@@ -333,8 +333,10 @@ Status BlobDBImpl::OpenAllBlobFiles() {
   return s;
 }
 
-void BlobDBImpl::LinkSstToBlobFile(uint64_t sst_file_number,
-                                   uint64_t blob_file_number) {
+template <typename Linker>
+void BlobDBImpl::LinkSstToBlobFileImpl(uint64_t sst_file_number,
+                                       uint64_t blob_file_number,
+                                       Linker linker) {
   assert(bdb_options_.enable_garbage_collection);
   assert(blob_file_number != kInvalidBlobFileNumber);
 
@@ -351,14 +353,30 @@ void BlobDBImpl::LinkSstToBlobFile(uint64_t sst_file_number,
   BlobFile* const blob_file = it->second.get();
   assert(blob_file);
 
-  {
-    WriteLock file_lock(&blob_file->mutex_);
-    blob_file->LinkSstFile(sst_file_number);
-  }
+  linker(blob_file, sst_file_number);
 
   ROCKS_LOG_INFO(db_options_.info_log,
                  "Blob file %" PRIu64 " linked to SST file %" PRIu64,
                  blob_file_number, sst_file_number);
+}
+
+void BlobDBImpl::LinkSstToBlobFile(uint64_t sst_file_number,
+                                   uint64_t blob_file_number) {
+  auto linker = [](BlobFile* blob_file, uint64_t sst_file) {
+    WriteLock file_lock(&blob_file->mutex_);
+    blob_file->LinkSstFile(sst_file);
+  };
+
+  LinkSstToBlobFileImpl(sst_file_number, blob_file_number, linker);
+}
+
+void BlobDBImpl::LinkSstToBlobFileNoLock(uint64_t sst_file_number,
+                                         uint64_t blob_file_number) {
+  auto linker = [](BlobFile* blob_file, uint64_t sst_file) {
+    blob_file->LinkSstFile(sst_file);
+  };
+
+  LinkSstToBlobFileImpl(sst_file_number, blob_file_number, linker);
 }
 
 void BlobDBImpl::UnlinkSstFromBlobFile(uint64_t sst_file_number,
@@ -401,7 +419,7 @@ void BlobDBImpl::InitializeBlobFileToSstMapping(
       continue;
     }
 
-    LinkSstToBlobFile(sst_file_number, blob_file_number);
+    LinkSstToBlobFileNoLock(sst_file_number, blob_file_number);
   }
 }
 

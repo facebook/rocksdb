@@ -302,8 +302,16 @@ class BlobDBImpl : public BlobDB {
   // Open all blob files found in blob_dir.
   Status OpenAllBlobFiles();
 
-  // Link an SST to a blob file.
+  // Link an SST to a blob file. Comes in locking and non-locking varieties
+  // (the latter is used during Open).
+  template <typename Linker>
+  void LinkSstToBlobFileImpl(uint64_t sst_file_number,
+                             uint64_t blob_file_number, Linker linker);
+
   void LinkSstToBlobFile(uint64_t sst_file_number, uint64_t blob_file_number);
+
+  void LinkSstToBlobFileNoLock(uint64_t sst_file_number,
+                               uint64_t blob_file_number);
 
   // Unlink an SST from a blob file.
   void UnlinkSstFromBlobFile(uint64_t sst_file_number,
