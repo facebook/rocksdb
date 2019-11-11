@@ -1512,7 +1512,7 @@ Status CompactionJob::OpenCompactionOutputFile(
   uint64_t current_time = static_cast<uint64_t>(temp_current_time);
 
   uint64_t creation_time = sub_compact->compaction->MinInputFileCreationTime();
-  if (creation_time == 0) {
+  if (creation_time == port::kMaxUint64) {
     creation_time = current_time;
   }
 
