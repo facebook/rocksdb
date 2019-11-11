@@ -1654,12 +1654,33 @@ TEST_F(BlobDBTest, MaintainBlobFileToSstMapping) {
   ASSERT_EQ(blob_files.size(), 5);
 
   {
+    auto live_imm_files = blob_db_impl()->TEST_GetLiveImmNonTTLFiles();
+    ASSERT_EQ(live_imm_files.size(), 5);
+    for (size_t i = 0; i < 5; ++i) {
+      ASSERT_EQ(live_imm_files[i]->BlobFileNumber(), i + 1);
+    }
+
+    ASSERT_TRUE(blob_db_impl()->TEST_GetObsoleteFiles().empty());
+  }
+
+  {
     const std::vector<std::unordered_set<uint64_t>> expected_sst_files{
         {1, 6}, {2, 7}, {3, 8}, {4, 9}, {5, 10}};
+    const std::vector<bool> expected_obsolete{false, false, false, false,
+                                              false};
     for (size_t i = 0; i < 5; ++i) {
       const auto &blob_file = blob_files[i];
       ASSERT_EQ(blob_file->GetLinkedSstFiles(), expected_sst_files[i]);
+      ASSERT_EQ(blob_file->Obsolete(), expected_obsolete[i]);
     }
+
+    auto live_imm_files = blob_db_impl()->TEST_GetLiveImmNonTTLFiles();
+    ASSERT_EQ(live_imm_files.size(), 5);
+    for (size_t i = 0; i < 5; ++i) {
+      ASSERT_EQ(live_imm_files[i]->BlobFileNumber(), i + 1);
+    }
+
+    ASSERT_TRUE(blob_db_impl()->TEST_GetObsoleteFiles().empty());
   }
 
   // Simulate a flush where the SST does not reference any blob files.
@@ -1671,10 +1692,21 @@ TEST_F(BlobDBTest, MaintainBlobFileToSstMapping) {
 
     const std::vector<std::unordered_set<uint64_t>> expected_sst_files{
         {1, 6}, {2, 7}, {3, 8}, {4, 9}, {5, 10}};
+    const std::vector<bool> expected_obsolete{false, false, false, false,
+                                              false};
     for (size_t i = 0; i < 5; ++i) {
       const auto &blob_file = blob_files[i];
       ASSERT_EQ(blob_file->GetLinkedSstFiles(), expected_sst_files[i]);
+      ASSERT_EQ(blob_file->Obsolete(), expected_obsolete[i]);
     }
+
+    auto live_imm_files = blob_db_impl()->TEST_GetLiveImmNonTTLFiles();
+    ASSERT_EQ(live_imm_files.size(), 5);
+    for (size_t i = 0; i < 5; ++i) {
+      ASSERT_EQ(live_imm_files[i]->BlobFileNumber(), i + 1);
+    }
+
+    ASSERT_TRUE(blob_db_impl()->TEST_GetObsoleteFiles().empty());
   }
 
   // Simulate a flush where the SST references a blob file.
@@ -1687,19 +1719,32 @@ TEST_F(BlobDBTest, MaintainBlobFileToSstMapping) {
 
     const std::vector<std::unordered_set<uint64_t>> expected_sst_files{
         {1, 6}, {2, 7}, {3, 8}, {4, 9}, {5, 10, 22}};
+    const std::vector<bool> expected_obsolete{false, false, false, false,
+                                              false};
     for (size_t i = 0; i < 5; ++i) {
       const auto &blob_file = blob_files[i];
       ASSERT_EQ(blob_file->GetLinkedSstFiles(), expected_sst_files[i]);
+      ASSERT_EQ(blob_file->Obsolete(), expected_obsolete[i]);
     }
+
+    auto live_imm_files = blob_db_impl()->TEST_GetLiveImmNonTTLFiles();
+    ASSERT_EQ(live_imm_files.size(), 5);
+    for (size_t i = 0; i < 5; ++i) {
+      ASSERT_EQ(live_imm_files[i]->BlobFileNumber(), i + 1);
+    }
+
+    ASSERT_TRUE(blob_db_impl()->TEST_GetObsoleteFiles().empty());
   }
 
   // Simulate a compaction. Some inputs and outputs have blob file references,
   // some don't. There is also a trivial move (which means the SST appears on
-  // both the input and the output list).
+  // both the input and the output list), and blob file 1 loses all its
+  // linked SSTs, so it can be marked obsolete.
   {
     CompactionJobInfo info{};
     info.input_file_infos.emplace_back(CompactionFileInfo{1, 1, 1});
     info.input_file_infos.emplace_back(CompactionFileInfo{1, 2, 2});
+    info.input_file_infos.emplace_back(CompactionFileInfo{1, 6, 1});
     info.input_file_infos.emplace_back(
         CompactionFileInfo{1, 11, kInvalidBlobFileNumber});
     info.input_file_infos.emplace_back(CompactionFileInfo{1, 5, 22});
@@ -1711,11 +1756,23 @@ TEST_F(BlobDBTest, MaintainBlobFileToSstMapping) {
     blob_db_impl()->TEST_ProcessCompactionJobInfo(info);
 
     const std::vector<std::unordered_set<uint64_t>> expected_sst_files{
-        {6}, {7}, {3, 8, 23}, {4, 9}, {5, 10, 22}};
+        {}, {7}, {3, 8, 23}, {4, 9}, {5, 10, 22}};
+    const std::vector<bool> expected_obsolete{true, false, false, false, false};
     for (size_t i = 0; i < 5; ++i) {
       const auto &blob_file = blob_files[i];
       ASSERT_EQ(blob_file->GetLinkedSstFiles(), expected_sst_files[i]);
+      ASSERT_EQ(blob_file->Obsolete(), expected_obsolete[i]);
     }
+
+    auto live_imm_files = blob_db_impl()->TEST_GetLiveImmNonTTLFiles();
+    ASSERT_EQ(live_imm_files.size(), 4);
+    for (size_t i = 0; i < 4; ++i) {
+      ASSERT_EQ(live_imm_files[i]->BlobFileNumber(), i + 2);
+    }
+
+    auto obsolete_files = blob_db_impl()->TEST_GetObsoleteFiles();
+    ASSERT_EQ(obsolete_files.size(), 1);
+    ASSERT_EQ(obsolete_files[0]->BlobFileNumber(), 1);
   }
 }
 

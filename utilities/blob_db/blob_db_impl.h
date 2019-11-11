@@ -189,6 +189,8 @@ class BlobDBImpl : public BlobDB {
 
   std::vector<std::shared_ptr<BlobFile>> TEST_GetBlobFiles() const;
 
+  std::vector<std::shared_ptr<BlobFile>> TEST_GetLiveImmNonTTLFiles() const;
+
   std::vector<std::shared_ptr<BlobFile>> TEST_GetObsoleteFiles() const;
 
   Status TEST_CloseBlobFile(std::shared_ptr<BlobFile>& bfile);
@@ -238,9 +240,12 @@ class BlobDBImpl : public BlobDB {
                            std::string* compression_output) const;
 
   // Close a file by appending a footer, and removes file from open files list.
-  Status CloseBlobFile(std::shared_ptr<BlobFile> bfile, bool need_lock = true);
+  // REQUIRES: lock held on write_mutex_, write lock held on both the db mutex_
+  // and the blob file's mutex_.
+  Status CloseBlobFile(std::shared_ptr<BlobFile> bfile);
 
   // Close a file if its size exceeds blob_file_size
+  // REQUIRES: lock held on write_mutex_.
   Status CloseBlobFileIfNeeded(std::shared_ptr<BlobFile>& bfile);
 
   // Mark file as obsolete and move the file to obsolete file list.
@@ -327,6 +332,21 @@ class BlobDBImpl : public BlobDB {
   // Update the mapping between blob files and SSTs after a compaction.
   void ProcessCompactionJobInfo(const CompactionJobInfo& info);
 
+  // Mark an immutable non-TTL blob file obsolete assuming it has no more SSTs
+  // linked to it. Note: should only be called if the condition holds for all
+  // lower-numbered non-TTL blob files as well.
+  bool MarkBlobFileObsoleteIfNeeded(const std::shared_ptr<BlobFile>& blob_file,
+                                    SequenceNumber obsolete_seq);
+
+  // Mark all immutable non-TTL blob files that aren't needed by any SSTs as
+  // obsolete. Comes in two varieties; the version used during Open need not
+  // worry about locking or snapshots.
+  template <class Mark>
+  void MarkUnreferencedBlobFilesObsoleteImpl(Mark mark_if_needed);
+
+  void MarkUnreferencedBlobFilesObsolete();
+  void MarkUnreferencedBlobFilesObsoleteDuringOpen();
+
   void UpdateLiveSSTSize();
 
   Status GetBlobFileReader(const std::shared_ptr<BlobFile>& blob_file,
@@ -403,6 +423,9 @@ class BlobDBImpl : public BlobDB {
 
   // entire metadata of all the BLOB files memory
   std::map<uint64_t, std::shared_ptr<BlobFile>> blob_files_;
+
+  // All live immutable non-TTL blob files.
+  std::map<uint64_t, std::shared_ptr<BlobFile>> live_imm_non_ttl_blob_files_;
 
   // epoch or version of the open files.
   std::atomic<uint64_t> epoch_of_;
