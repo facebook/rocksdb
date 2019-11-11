@@ -44,7 +44,7 @@ class BlobFile {
 
   // The file numbers of the SST files whose oldest blob file reference
   // points to this blob file.
-  SstFileSet parent_sst_files_;
+  SstFileSet linked_sst_files_;
 
   // Info log.
   Logger* info_log_;
@@ -126,20 +126,20 @@ class BlobFile {
 
   // Get the set of SST files whose oldest blob file reference points to
   // this file.
-  const SstFileSet& GetParentSstFiles() const { return parent_sst_files_; }
+  const SstFileSet& GetLinkedSstFiles() const { return linked_sst_files_; }
 
-  // Add an SST file whose oldest blob file reference points to this file.
-  void AddParentSstFile(uint64_t sst_file_number) {
-    auto it = parent_sst_files_.find(sst_file_number);
-    assert(it == parent_sst_files_.end());
-    parent_sst_files_.insert(it, sst_file_number);
+  // Link an SST file whose oldest blob file reference points to this file.
+  void LinkSstFile(uint64_t sst_file_number) {
+    auto it = linked_sst_files_.find(sst_file_number);
+    assert(it == linked_sst_files_.end());
+    linked_sst_files_.insert(it, sst_file_number);
   }
 
-  // Remove an SST file whose oldest blob file reference points to this file.
-  void RemoveParentSstFile(uint64_t sst_file_number) {
-    auto it = parent_sst_files_.find(sst_file_number);
-    assert(it != parent_sst_files_.end());
-    parent_sst_files_.erase(it);
+  // Unlink an SST file whose oldest blob file reference points to this file.
+  void UnlinkSstFile(uint64_t sst_file_number) {
+    auto it = linked_sst_files_.find(sst_file_number);
+    assert(it != linked_sst_files_.end());
+    linked_sst_files_.erase(it);
   }
 
   // the following functions are atomic, and don't need

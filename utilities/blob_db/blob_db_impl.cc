@@ -204,7 +204,7 @@ Status BlobDBImpl::Open(std::vector<ColumnFamilyHandle*>* handles) {
     std::vector<LiveFileMetaData> live_files;
     db_->GetLiveFilesMetaData(&live_files);
 
-    InitializeParentSstMapping(live_files);
+    InitializeBlobFileToSstMapping(live_files);
 
     if (!disable_auto_compactions) {
       s = db_->EnableAutoCompaction(*handles);
@@ -333,8 +333,8 @@ Status BlobDBImpl::OpenAllBlobFiles() {
   return s;
 }
 
-void BlobDBImpl::LinkParentSstToBlobFile(uint64_t sst_file_number,
-                                         uint64_t blob_file_number) {
+void BlobDBImpl::LinkSstToBlobFile(uint64_t sst_file_number,
+                                   uint64_t blob_file_number) {
   assert(bdb_options_.enable_garbage_collection);
   assert(blob_file_number != kInvalidBlobFileNumber);
 
@@ -343,7 +343,7 @@ void BlobDBImpl::LinkParentSstToBlobFile(uint64_t sst_file_number,
     ROCKS_LOG_WARN(db_options_.info_log,
                    "Blob file %" PRIu64
                    " not found while trying to link "
-                   "parent SST file %" PRIu64,
+                   "SST file %" PRIu64,
                    blob_file_number, sst_file_number);
     return;
   }
@@ -353,16 +353,16 @@ void BlobDBImpl::LinkParentSstToBlobFile(uint64_t sst_file_number,
 
   {
     WriteLock file_lock(&blob_file->mutex_);
-    blob_file->AddParentSstFile(sst_file_number);
+    blob_file->LinkSstFile(sst_file_number);
   }
 
   ROCKS_LOG_INFO(db_options_.info_log,
-                 "Blob file %" PRIu64 " linked to parent SST file %" PRIu64,
+                 "Blob file %" PRIu64 " linked to SST file %" PRIu64,
                  blob_file_number, sst_file_number);
 }
 
-void BlobDBImpl::UnlinkParentSstFromBlobFile(uint64_t sst_file_number,
-                                             uint64_t blob_file_number) {
+void BlobDBImpl::UnlinkSstFromBlobFile(uint64_t sst_file_number,
+                                       uint64_t blob_file_number) {
   assert(bdb_options_.enable_garbage_collection);
   assert(blob_file_number != kInvalidBlobFileNumber);
 
@@ -371,7 +371,7 @@ void BlobDBImpl::UnlinkParentSstFromBlobFile(uint64_t sst_file_number,
     ROCKS_LOG_WARN(db_options_.info_log,
                    "Blob file %" PRIu64
                    " not found while trying to unlink "
-                   "parent SST file %" PRIu64,
+                   "SST file %" PRIu64,
                    blob_file_number, sst_file_number);
     return;
   }
@@ -381,15 +381,15 @@ void BlobDBImpl::UnlinkParentSstFromBlobFile(uint64_t sst_file_number,
 
   {
     WriteLock file_lock(&blob_file->mutex_);
-    blob_file->RemoveParentSstFile(sst_file_number);
+    blob_file->UnlinkSstFile(sst_file_number);
   }
 
   ROCKS_LOG_INFO(db_options_.info_log,
-                 "Blob file %" PRIu64 " unlinked from parent SST file %" PRIu64,
+                 "Blob file %" PRIu64 " unlinked from SST file %" PRIu64,
                  blob_file_number, sst_file_number);
 }
 
-void BlobDBImpl::InitializeParentSstMapping(
+void BlobDBImpl::InitializeBlobFileToSstMapping(
     const std::vector<LiveFileMetaData>& live_files) {
   assert(bdb_options_.enable_garbage_collection);
 
@@ -401,7 +401,7 @@ void BlobDBImpl::InitializeParentSstMapping(
       continue;
     }
 
-    LinkParentSstToBlobFile(sst_file_number, blob_file_number);
+    LinkSstToBlobFile(sst_file_number, blob_file_number);
   }
 }
 
@@ -414,7 +414,7 @@ void BlobDBImpl::ProcessFlushJobInfo(const FlushJobInfo& info) {
 
   {
     ReadLock lock(&mutex_);
-    LinkParentSstToBlobFile(info.file_number, info.oldest_blob_file_number);
+    LinkSstToBlobFile(info.file_number, info.oldest_blob_file_number);
   }
 }
 
@@ -433,8 +433,7 @@ void BlobDBImpl::ProcessCompactionJobInfo(const CompactionJobInfo& info) {
         continue;
       }
 
-      UnlinkParentSstFromBlobFile(input.file_number,
-                                  input.oldest_blob_file_number);
+      UnlinkSstFromBlobFile(input.file_number, input.oldest_blob_file_number);
     }
 
     for (const auto& output : info.output_file_infos) {
@@ -442,8 +441,7 @@ void BlobDBImpl::ProcessCompactionJobInfo(const CompactionJobInfo& info) {
         continue;
       }
 
-      LinkParentSstToBlobFile(output.file_number,
-                              output.oldest_blob_file_number);
+      LinkSstToBlobFile(output.file_number, output.oldest_blob_file_number);
     }
   }
 }
@@ -2128,9 +2126,9 @@ void BlobDBImpl::TEST_EvictExpiredFiles() {
 
 uint64_t BlobDBImpl::TEST_live_sst_size() { return live_sst_size_.load(); }
 
-void BlobDBImpl::TEST_InitializeParentSstMapping(
+void BlobDBImpl::TEST_InitializeBlobFileToSstMapping(
     const std::vector<LiveFileMetaData>& live_files) {
-  InitializeParentSstMapping(live_files);
+  InitializeBlobFileToSstMapping(live_files);
 }
 
 void BlobDBImpl::TEST_ProcessFlushJobInfo(const FlushJobInfo& info) {

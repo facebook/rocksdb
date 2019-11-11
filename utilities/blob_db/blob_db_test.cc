@@ -1614,7 +1614,7 @@ TEST_F(BlobDBTest, DisableFileDeletions) {
   }
 }
 
-TEST_F(BlobDBTest, MaintainParentSstMapping) {
+TEST_F(BlobDBTest, MaintainBlobFileToSstMapping) {
   BlobDBOptions bdb_options;
   bdb_options.enable_garbage_collection = true;
   bdb_options.disable_background_tasks = true;
@@ -1646,7 +1646,7 @@ TEST_F(BlobDBTest, MaintainParentSstMapping) {
     live_files.emplace_back(live_file);
   }
 
-  blob_db_impl()->TEST_InitializeParentSstMapping(live_files);
+  blob_db_impl()->TEST_InitializeBlobFileToSstMapping(live_files);
 
   // Check that the blob <-> SST mappings have been correctly initialized.
   auto blob_files = blob_db_impl()->TEST_GetBlobFiles();
@@ -1654,11 +1654,11 @@ TEST_F(BlobDBTest, MaintainParentSstMapping) {
   ASSERT_EQ(blob_files.size(), 5);
 
   {
-    const std::vector<BlobFile::SstFileSet> expected_parent_files{
+    const std::vector<BlobFile::SstFileSet> expected_sst_files{
         {1, 6}, {2, 7}, {3, 8}, {4, 9}, {5, 10}};
     for (size_t i = 0; i < 5; ++i) {
       const auto &blob_file = blob_files[i];
-      ASSERT_EQ(blob_file->GetParentSstFiles(), expected_parent_files[i]);
+      ASSERT_EQ(blob_file->GetLinkedSstFiles(), expected_sst_files[i]);
     }
   }
 
@@ -1669,11 +1669,11 @@ TEST_F(BlobDBTest, MaintainParentSstMapping) {
 
     blob_db_impl()->TEST_ProcessFlushJobInfo(info);
 
-    const std::vector<BlobFile::SstFileSet> expected_parent_files{
+    const std::vector<BlobFile::SstFileSet> expected_sst_files{
         {1, 6}, {2, 7}, {3, 8}, {4, 9}, {5, 10}};
     for (size_t i = 0; i < 5; ++i) {
       const auto &blob_file = blob_files[i];
-      ASSERT_EQ(blob_file->GetParentSstFiles(), expected_parent_files[i]);
+      ASSERT_EQ(blob_file->GetLinkedSstFiles(), expected_sst_files[i]);
     }
   }
 
@@ -1685,11 +1685,11 @@ TEST_F(BlobDBTest, MaintainParentSstMapping) {
 
     blob_db_impl()->TEST_ProcessFlushJobInfo(info);
 
-    const std::vector<BlobFile::SstFileSet> expected_parent_files{
+    const std::vector<BlobFile::SstFileSet> expected_sst_files{
         {1, 6}, {2, 7}, {3, 8}, {4, 9}, {5, 10, 22}};
     for (size_t i = 0; i < 5; ++i) {
       const auto &blob_file = blob_files[i];
-      ASSERT_EQ(blob_file->GetParentSstFiles(), expected_parent_files[i]);
+      ASSERT_EQ(blob_file->GetLinkedSstFiles(), expected_sst_files[i]);
     }
   }
 
@@ -1710,11 +1710,11 @@ TEST_F(BlobDBTest, MaintainParentSstMapping) {
 
     blob_db_impl()->TEST_ProcessCompactionJobInfo(info);
 
-    const std::vector<BlobFile::SstFileSet> expected_parent_files{
+    const std::vector<BlobFile::SstFileSet> expected_sst_files{
         {6}, {7}, {3, 8, 23}, {4, 9}, {5, 10, 22}};
     for (size_t i = 0; i < 5; ++i) {
       const auto &blob_file = blob_files[i];
-      ASSERT_EQ(blob_file->GetParentSstFiles(), expected_parent_files[i]);
+      ASSERT_EQ(blob_file->GetLinkedSstFiles(), expected_sst_files[i]);
     }
   }
 }

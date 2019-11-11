@@ -210,7 +210,7 @@ class BlobDBImpl : public BlobDB {
 
   const std::string& TEST_blob_dir() const { return blob_dir_; }
 
-  void TEST_InitializeParentSstMapping(
+  void TEST_InitializeBlobFileToSstMapping(
       const std::vector<LiveFileMetaData>& live_files);
 
   void TEST_ProcessFlushJobInfo(const FlushJobInfo& info);
@@ -302,17 +302,15 @@ class BlobDBImpl : public BlobDB {
   // Open all blob files found in blob_dir.
   Status OpenAllBlobFiles();
 
-  // Link a parent SST to a blob file.
-  void LinkParentSstToBlobFile(uint64_t sst_file_number,
-                               uint64_t blob_file_number);
+  // Link an SST to a blob file.
+  void LinkSstToBlobFile(uint64_t sst_file_number, uint64_t blob_file_number);
 
-  // Unlink a parent SST from a blob file.
-  void UnlinkParentSstFromBlobFile(uint64_t sst_file_number,
-                                   uint64_t blob_file_number);
+  // Unlink an SST from a blob file.
+  void UnlinkSstFromBlobFile(uint64_t sst_file_number,
+                             uint64_t blob_file_number);
 
-  // Initialize the mapping between blob files and their parent SSTs
-  // during Open.
-  void InitializeParentSstMapping(
+  // Initialize the mapping between blob files and SSTs during Open.
+  void InitializeBlobFileToSstMapping(
       const std::vector<LiveFileMetaData>& live_files);
 
   // Update the mapping between blob files and SSTs after a flush.
