@@ -745,7 +745,7 @@ void MemTableList::RemoveOldMemTables(uint64_t log_number,
     old_memtables.push_back(mem);
   }
 
-  for (auto it = old_memtables.begin(); it!= old_memtables.end(); ++it) {
+  for (auto it = old_memtables.begin(); it != old_memtables.end(); ++it) {
     MemTable* mem = *it;
     current_->Remove(mem, to_delete);
     --num_flush_not_started_;
