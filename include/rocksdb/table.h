@@ -246,29 +246,38 @@ struct BlockBasedTableOptions {
   // Default: 0 (disabled)
   uint32_t read_amp_bytes_per_bit = 0;
 
-  // We currently have five versions:
-  // 0 -- This version is currently written out by all RocksDB's versions by
-  // default.  Can be read by really old RocksDB's. Doesn't support changing
+  // format_version controls some features of newly written tables that
+  // are not understood by older versions of RocksDB. This value is written
+  // to new tables so that version incompatibility is detected outright on
+  // table open. (Newer releases can read tables written by the same or
+  // older releases regardless of this setting.)
+  //
+  // Although some new features present a new trade-off to the user, and
+  // get their own tuning option that breaks forward compatibility when
+  // enabled, format_version is for features that should not need an
+  // ongoing tuning option, either because they are a near-universal win
+  // or because they simply unlock other features. Thus, using the latest
+  // version appropriate for your interoperability requirements is highly
+  // recommended for maximizing performance and features (see below). The
+  // default will generally lag somewhat behind the latest version, to
+  // generally allow mixing of recent versions while adopting improvements
+  // over time.
+  //
+  // Available format_versions, their reason for being, and their
+  // relationships to RocksDB releases:
+  // 0 -- Can be read by really old RocksDB's. Doesn't support changing
   // checksum (default is CRC32).
   // 1 -- Can be read by RocksDB's versions since 3.0. Supports non-default
   // checksum, like xxHash. It is written by RocksDB when
   // BlockBasedTableOptions::checksum is something other than kCRC32c. (version
   // 0 is silently upconverted)
   // 2 -- Can be read by RocksDB's versions since 3.10. Changes the way we
-  // encode compressed blocks with LZ4, BZip2 and Zlib compression. If you
-  // don't plan to run RocksDB before version 3.10, you should probably use
-  // this.
+  // encode compressed blocks with LZ4, BZip2 and Zlib compression.
   // 3 -- Can be read by RocksDB's versions since 5.15. Changes the way we
-  // encode the keys in index blocks. If you don't plan to run RocksDB before
-  // version 5.15, you should probably use this.
-  // This option only affects newly written tables. When reading existing
-  // tables, the information about version is read from the footer.
+  // encode the keys in index blocks.
   // 4 -- Can be read by RocksDB's versions since 5.16. Changes the way we
-  // encode the values in index blocks. If you don't plan to run RocksDB before
-  // version 5.16 and you are using index_block_restart_interval > 1, you should
-  // probably use this as it would reduce the index size.
-  // This option only affects newly written tables. When reading existing
-  // tables, the information about version is read from the footer.
+  // encode the values in index blocks. If using
+  // index_block_restart_interval > 1, this change reduces the index size.
   uint32_t format_version = 2;
 
   // Store index blocks on disk in compressed format. Changing this option to
