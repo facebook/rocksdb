@@ -1,23 +1,22 @@
 //  Copyright (c) 2016-present, Rockset, Inc.  All rights reserved.
 //
 #pragma once
-#ifdef USE_AWS
+#include <atomic>
+#include <thread>
 
-#include <chrono>
-
-#include "cloud/aws/aws_env.h"
-#include "cloud/aws/aws_log.h"
+#include "rocksdb/env.h"
 #include "rocksdb/status.h"
 
 namespace rocksdb {
-//
+class CloudEnv;
+class CloudEnvOptions;
+
 // Creates a new file, appends data to a file or delete an existing file via
 // logging into a cloud stream (such as Kinesis).
 //
 class CloudLogWritableFile : public WritableFile {
  public:
-  CloudLogWritableFile(
-      AwsEnv* env, const std::string& fname, const EnvOptions& options);
+  CloudLogWritableFile(CloudEnv* env, const std::string& fname, const EnvOptions& options);
   virtual ~CloudLogWritableFile();
 
   virtual Status Flush() {
@@ -42,7 +41,7 @@ class CloudLogWritableFile : public WritableFile {
   virtual Status LogDelete() = 0;
 
  protected:
-  AwsEnv* env_;
+  CloudEnv* env_;
   const std::string fname_;
   Status status_;
 };
@@ -58,14 +57,14 @@ class CloudLogController {
   static const uint32_t kDelete = 0x2;  // delete a log file
   static const uint32_t kClosed = 0x4;  // closing a file
 
-  CloudLogController(AwsEnv* env, std::shared_ptr<Logger> info_log);
+  CloudLogController(CloudEnv* env);
   virtual ~CloudLogController();
 
   // Create a stream to store all log files.
-  virtual Status CreateStream(const std::string& bucket_prefix) = 0;
+  virtual Status CreateStream(const std::string& topic) = 0;
 
   // Waits for stream to be ready (blocking).
-  virtual Status WaitForStreamReady(const std::string& bucket_prefix) = 0;
+  virtual Status WaitForStreamReady(const std::string& topic) = 0;
 
   // Continuously tail the cloud log stream and apply changes to
   // the local file system (blocking).
@@ -76,16 +75,15 @@ class CloudLogController {
                                                    const EnvOptions& options) = 0;
 
   // Returns name of the cloud log type (Kinesis, etc.).
-  virtual const std::string GetTypeName() { return "cloudlog"; }
+  virtual const char *Name() const { return "cloudlog"; }
 
   // Directory where files are cached locally.
-  std::string const GetCacheDir() { return cache_dir_; }
+  const std::string & GetCacheDir() const { return cache_dir_; }
 
   Status const status() { return status_; }
 
   // Converts an original pathname to a pathname in the cache.
-  static std::string GetCachePath(const std::string& cache_dir,
-                                  const Slice& original_pathname);
+  std::string GetCachePath(const Slice& original_pathname) const;
 
   static void SerializeLogRecordAppend(const Slice& filename, const Slice& data,
                                        uint64_t offset, std::string* out);
@@ -96,11 +94,11 @@ class CloudLogController {
 
   // Retries fnc until success or timeout has expired.
   typedef std::function<Status()> RetryType;
-  static Status Retry(Env* env, RetryType func);
-
+  Status Retry(RetryType func);
+  Status StartTailingStream(const std::string & topic);
+  void StopTailingStream();
  protected:
-  AwsEnv* env_;
-  std::shared_ptr<Logger> info_log_;
+  CloudEnv* env_;
   Status status_;
   std::string cache_dir_;
 
@@ -111,8 +109,13 @@ class CloudLogController {
   static bool ExtractLogRecord(const Slice& input, uint32_t* operation,
                                Slice* filename, uint64_t* offset_in_file,
                                uint64_t* file_size, Slice* data);
+  bool IsRunning() const { return running_; }
+private:
+  // Background thread to tail stream
+  std::unique_ptr<std::thread> tid_;
+  std::atomic<bool> running_;
 };
-
+Status CreateKinesisController(CloudEnv* env, std::unique_ptr<CloudLogController> * result);
+Status CreateKafkaController(CloudEnv* env, std::unique_ptr<CloudLogController> * result);
 } // namespace rocksdb
 
-#endif /* USE_AWS */

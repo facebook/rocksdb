@@ -16,10 +16,7 @@
 #endif
 
 #include "cloud/aws/aws_file.h"
-#include "cloud/aws/aws_kafka.h"
-#include "cloud/aws/aws_kinesis.h"
-#include "cloud/aws/aws_log.h"
-#include "cloud/aws/aws_retry.h"
+#include "cloud/cloud_log_controller.h"
 #include "cloud/db_cloud_impl.h"
 
 namespace rocksdb {
@@ -391,8 +388,7 @@ Aws::S3::Model::HeadObjectOutcome AwsS3ClientWrapper::HeadObject(
 //
 AwsEnv::AwsEnv(Env* underlying_env, const CloudEnvOptions& _cloud_env_options,
                const std::shared_ptr<Logger>& info_log)
-  : CloudEnvImpl(_cloud_env_options, underlying_env, info_log),
-      running_(true) {
+  : CloudEnvImpl(_cloud_env_options, underlying_env, info_log) {
   Aws::InitAPI(Aws::SDKOptions());
   if (cloud_env_options.src_bucket.GetRegion().empty() ||
       cloud_env_options.dest_bucket.GetRegion().empty()) {
@@ -432,18 +428,7 @@ AwsEnv::AwsEnv(Env* underlying_env, const CloudEnvOptions& _cloud_env_options,
          creds ? "[given]" : "[not given]");
 
   base_env_ = underlying_env;
-  // create AWS S3 client with appropriate timeouts
-  Aws::Client::ClientConfiguration config;
-  config.connectTimeoutMs = 30000;
-  config.requestTimeoutMs = 600000;
-
-  // Setup how retries need to be done
-  config.retryStrategy =
-      std::make_shared<AwsRetryStrategy>(cloud_env_options, info_log_);
-  if (cloud_env_options.request_timeout_ms != 0) {
-    config.requestTimeoutMs = cloud_env_options.request_timeout_ms;
-  }
-
+  
   // TODO: support buckets being in different regions
   if (!SrcMatchesDest() && HasSrcBucket() && HasDestBucket()) {
     if (cloud_env_options.src_bucket.GetRegion() == cloud_env_options.dest_bucket.GetRegion()) {
@@ -461,9 +446,13 @@ AwsEnv::AwsEnv(Env* underlying_env, const CloudEnvOptions& _cloud_env_options,
       return;
     }
   }
+  // create AWS S3 client with appropriate timeouts
+  Aws::Client::ClientConfiguration config;
+  create_bucket_status_ =
+    AwsCloudOptions::GetClientConfiguration(this,
+                                            cloud_env_options.src_bucket.GetRegion(),
+                                            &config);
 
-  // Use specified region if any
-  config.region = ToAwsString(cloud_env_options.src_bucket.GetRegion());
   Header(info_log_, "AwsEnv connection to endpoint in region: %s",
          config.region.c_str());
   bucket_location_ = Aws::S3::Model::BucketLocationConstraintMapper::
@@ -518,33 +507,10 @@ AwsEnv::AwsEnv(Env* underlying_env, const CloudEnvOptions& _cloud_env_options,
   // create cloud log client for storing/reading logs
   if (create_bucket_status_.ok() && !cloud_env_options.keep_local_log_files) {
     if (cloud_env_options.log_type == kLogKinesis) {
-      std::unique_ptr<Aws::Kinesis::KinesisClient> kinesis_client;
-      kinesis_client.reset(creds
-                               ? new Aws::Kinesis::KinesisClient(creds, config)
-                               : new Aws::Kinesis::KinesisClient(config));
-
-      if (!kinesis_client) {
-        create_bucket_status_ =
-            Status::IOError("Error in creating Kinesis client");
-      }
-
-      if (create_bucket_status_.ok()) {
-        cloud_log_controller_.reset(
-            new KinesisController(this, info_log_, std::move(kinesis_client)));
-
-        if (!cloud_log_controller_) {
-          create_bucket_status_ =
-              Status::IOError("Error in creating Kinesis controller");
-        }
-      }
+      create_bucket_status_ = CreateKinesisController(this, &cloud_log_controller_);
     } else if (cloud_env_options.log_type == kLogKafka) {
 #ifdef USE_KAFKA
-      KafkaController* kafka_controller = nullptr;
-
-      create_bucket_status_ = KafkaController::create(
-          this, info_log_, cloud_env_options, &kafka_controller);
-
-      cloud_log_controller_.reset(kafka_controller);
+      create_bucket_status_ = CreateKafkaController(this, &cloud_log_controller_);
 #else
       create_bucket_status_ = Status::NotSupported(
           "In order to use Kafka, make sure you're compiling with "
@@ -567,16 +533,12 @@ AwsEnv::AwsEnv(Env* underlying_env, const CloudEnvOptions& _cloud_env_options,
     // Create Kinesis stream and wait for it to be ready
     if (create_bucket_status_.ok()) {
       create_bucket_status_ =
-          cloud_log_controller_->CreateStream(GetSrcBucketName());
+          cloud_log_controller_->StartTailingStream(GetSrcBucketName());
       if (!create_bucket_status_.ok()) {
         Log(InfoLogLevel::ERROR_LEVEL, info_log,
             "[aws] NewAwsEnv Unable to create stream %s",
             create_bucket_status_.ToString().c_str());
       }
-    }
-
-    if (create_bucket_status_.ok()) {
-      create_bucket_status_ = StartTailingStream();
     }
   }
   if (!create_bucket_status_.ok()) {
@@ -587,8 +549,6 @@ AwsEnv::AwsEnv(Env* underlying_env, const CloudEnvOptions& _cloud_env_options,
 }
 
 AwsEnv::~AwsEnv() {
-  running_ = false;
-
   {
     std::lock_guard<std::mutex> lk(files_to_delete_mutex_);
     using std::swap;
@@ -599,22 +559,8 @@ AwsEnv::~AwsEnv() {
   }
 
   StopPurger();
-  if (tid_ && tid_->joinable()) {
-    tid_->join();
-  }
 }
 
-Status AwsEnv::StartTailingStream() {
-  if (tid_) {
-    return Status::Busy("Tailer already started");
-  }
-
-  // create tailer thread
-  auto lambda = [this]() { cloud_log_controller_->TailStream(); };
-  tid_.reset(new std::thread(lambda));
-
-  return Status::OK();
-}
 
 Status AwsEnv::status() { return create_bucket_status_; }
 
@@ -705,15 +651,14 @@ Status AwsEnv::NewSequentialFile(const std::string& logical_fname,
     st = cloud_log_controller_->status();
     if (st.ok()) {
       // map  pathname to cache dir
-      std::string pathname = CloudLogController::GetCachePath(
-          cloud_log_controller_->GetCacheDir(), Slice(fname));
+      std::string pathname = cloud_log_controller_->GetCachePath(Slice(fname));
       Log(InfoLogLevel::DEBUG_LEVEL, info_log_,
           "[Kinesis] NewSequentialFile logfile %s %s", pathname.c_str(), "ok");
 
       auto lambda = [this, pathname, &result, options]() -> Status {
         return base_env_->NewSequentialFile(pathname, result, options);
       };
-      return CloudLogController::Retry(this, lambda);
+      return cloud_log_controller_->Retry(lambda);
     }
   }
 
@@ -818,8 +763,7 @@ Status AwsEnv::NewRandomAccessFile(const std::string& logical_fname,
     st = cloud_log_controller_->status();
     if (st.ok()) {
       // map  pathname to cache dir
-      std::string pathname = CloudLogController::GetCachePath(
-          cloud_log_controller_->GetCacheDir(), Slice(fname));
+      std::string pathname = cloud_log_controller_->GetCachePath(Slice(fname));
       Log(InfoLogLevel::DEBUG_LEVEL, info_log_,
           "[kinesis] NewRandomAccessFile logfile %s %s", pathname.c_str(),
           "ok");
@@ -827,7 +771,7 @@ Status AwsEnv::NewRandomAccessFile(const std::string& logical_fname,
       auto lambda = [this, pathname, &result, options]() -> Status {
         return base_env_->NewRandomAccessFile(pathname, result, options);
       };
-      return CloudLogController::Retry(this, lambda);
+      return cloud_log_controller_->Retry(lambda);
     }
   }
 
@@ -962,15 +906,14 @@ Status AwsEnv::FileExists(const std::string& logical_fname) {
     st = cloud_log_controller_->status();
     if (st.ok()) {
       // map  pathname to cache dir
-      std::string pathname = CloudLogController::GetCachePath(
-          cloud_log_controller_->GetCacheDir(), Slice(fname));
+      std::string pathname = cloud_log_controller_->GetCachePath(Slice(fname));
       Log(InfoLogLevel::DEBUG_LEVEL, info_log_,
           "[kinesis] FileExists logfile %s %s", pathname.c_str(), "ok");
 
       auto lambda = [this, pathname]() -> Status {
         return base_env_->FileExists(pathname);
       };
-      st = CloudLogController::Retry(this, lambda);
+      st = cloud_log_controller_->Retry(lambda);
     }
   } else {
     st = base_env_->FileExists(fname);
@@ -1432,15 +1375,14 @@ Status AwsEnv::GetFileSize(const std::string& logical_fname, uint64_t* size) {
     st = cloud_log_controller_->status();
     if (st.ok()) {
       // map  pathname to cache dir
-      std::string pathname = CloudLogController::GetCachePath(
-          cloud_log_controller_->GetCacheDir(), Slice(fname));
+      std::string pathname = cloud_log_controller_->GetCachePath(Slice(fname));
       Log(InfoLogLevel::DEBUG_LEVEL, info_log_,
           "[kinesis] GetFileSize logfile %s %s", pathname.c_str(), "ok");
 
       auto lambda = [this, pathname, size]() -> Status {
         return base_env_->GetFileSize(pathname, size);
       };
-      st = CloudLogController::Retry(this, lambda);
+      st = cloud_log_controller_->Retry(lambda);
     }
   } else {
     st = base_env_->GetFileSize(fname, size);
@@ -1479,8 +1421,7 @@ Status AwsEnv::GetFileModificationTime(const std::string& logical_fname,
     st = cloud_log_controller_->status();
     if (st.ok()) {
       // map  pathname to cache dir
-      std::string pathname = CloudLogController::GetCachePath(
-          cloud_log_controller_->GetCacheDir(), Slice(fname));
+      std::string pathname = cloud_log_controller_->GetCachePath(Slice(fname));
       Log(InfoLogLevel::DEBUG_LEVEL, info_log_,
           "[kinesis] GetFileModificationTime logfile %s %s", pathname.c_str(),
           "ok");
@@ -1488,7 +1429,7 @@ Status AwsEnv::GetFileModificationTime(const std::string& logical_fname,
       auto lambda = [this, pathname, time]() -> Status {
         return base_env_->GetFileModificationTime(pathname, time);
       };
-      st = CloudLogController::Retry(this, lambda);
+      st = cloud_log_controller_->Retry(lambda);
     }
   } else {
     st = base_env_->GetFileModificationTime(fname, time);
@@ -2029,31 +1970,6 @@ std::string AwsEnv::GetWALCacheDir() {
   return cloud_log_controller_->GetCacheDir();
 }
 
-//
-// Keep retrying the command until it is successful or the timeout has expired
-//
-Status CloudLogController::Retry(Env* env, RetryType func) {
-  Status stat;
-  std::chrono::microseconds start(env->NowMicros());
-
-  while (true) {
-    // If command is successful, return immediately
-    stat = func();
-    if (stat.ok()) {
-      break;
-    }
-    // sleep for some time
-    std::this_thread::sleep_for(std::chrono::milliseconds(100));
-
-    // If timeout has expired, return error
-    std::chrono::microseconds now(env->NowMicros());
-    if (start + CloudLogController::kRetryPeriod < now) {
-      stat = Status::TimedOut();
-      break;
-    }
-  }
-  return stat;
-}
 
 #pragma GCC diagnostic pop
 #endif  // USE_AWS

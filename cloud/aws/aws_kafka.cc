@@ -3,38 +3,60 @@
 // This file defines an AWS-Kinesis environment for rocksdb.
 // A log file maps to a stream in Kinesis.
 //
-#include "cloud/aws/aws_kafka.h"
-
-#ifdef USE_KAFKA
 
 #include <fstream>
 #include <iostream>
 
-#include "cloud/aws/aws_env.h"
-#include "cloud/aws/aws_file.h"
+#include "cloud/cloud_log_controller.h"
+#include "rocksdb/cloud/cloud_env_options.h"
 #include "rocksdb/status.h"
 #include "util/coding.h"
 #include "util/stderr_logger.h"
 #include "util/string_util.h"
 
+#ifdef USE_KAFKA
+#include <librdkafka/rdkafkacpp.h>
 namespace rocksdb {
+namespace cloud {
+namespace kafka {
+  
+/***************************************************/
+/*                KafkaWritableFile                */
+/***************************************************/
+class KafkaWritableFile : public CloudLogWritableFile {
+ public:
+  static const std::chrono::microseconds kFlushTimeout;
 
-const std::chrono::microseconds KafkaWritableFile::kFlushTimeout =
-    std::chrono::seconds(10);
-
-KafkaWritableFile::KafkaWritableFile(
-    AwsEnv* env, const std::string& fname, const EnvOptions& options,
-    std::shared_ptr<RdKafka::Producer> producer,
-    std::shared_ptr<RdKafka::Topic> topic)
+  KafkaWritableFile(CloudEnv* env, const std::string& fname, const EnvOptions& options,
+                    std::shared_ptr<RdKafka::Producer> producer,
+                    std::shared_ptr<RdKafka::Topic> topic)
     : CloudLogWritableFile(env, fname, options),
       producer_(producer),
       topic_(topic),
       current_offset_(0) {
-  Log(InfoLogLevel::DEBUG_LEVEL, env_->info_log_,
-      "[kafka] WritableFile opened file %s", fname_.c_str());
-}
+    Log(InfoLogLevel::DEBUG_LEVEL, env_->info_log_,
+        "[kafka] WritableFile opened file %s", fname_.c_str());
+  }
 
-KafkaWritableFile::~KafkaWritableFile() {}
+  ~KafkaWritableFile() {}
+  virtual Status Append(const Slice& data);
+  virtual Status Close();
+  virtual bool IsSyncThreadSafe() const;
+  virtual Status Sync();
+  virtual Status Flush();
+  virtual Status LogDelete();
+
+ private:
+  Status ProduceRaw(const std::string& operation_name, const Slice& message);
+
+  std::shared_ptr<RdKafka::Producer> producer_;
+  std::shared_ptr<RdKafka::Topic> topic_;
+
+  uint64_t current_offset_;
+};
+const std::chrono::microseconds KafkaWritableFile::kFlushTimeout =
+    std::chrono::seconds(10);
+
 
 Status KafkaWritableFile::ProduceRaw(const std::string& operation_name,
                                      const Slice& message) {
@@ -143,110 +165,88 @@ Status KafkaWritableFile::LogDelete() {
   return ProduceRaw("Delete", serialized_data);
 }
 
-KafkaController::KafkaController(AwsEnv* env, std::shared_ptr<Logger> info_log,
-                                 std::unique_ptr<RdKafka::Producer> producer,
-                                 std::unique_ptr<RdKafka::Consumer> consumer)
-    : CloudLogController(env, info_log),
+/***************************************************/
+/*                 KafkaController                 */
+/***************************************************/
+
+//
+// Intricacies of reading a Kafka stream
+//
+class KafkaController : public CloudLogController {
+ public:
+  KafkaController(CloudEnv* env, 
+                  std::unique_ptr<RdKafka::Producer> producer,
+                  std::unique_ptr<RdKafka::Consumer> consumer)
+    : CloudLogController(env),
       producer_(std::move(producer)),
       consumer_(std::move(consumer)) {
-  const std::string topic_name = env_->GetSrcBucketName();
-
-  Log(InfoLogLevel::DEBUG_LEVEL, env_->info_log_,
-      "[%s] KafkaController opening stream %s using cachedir '%s'",
-      GetTypeName().c_str(), topic_name.c_str(), cache_dir_.c_str());
-
-  std::string pt_errstr, ct_errstr;
-
-  // Initialize stream name.
-  RdKafka::Topic* producer_topic =
+    const std::string topic_name = env_->GetSrcBucketName();
+    
+    Log(InfoLogLevel::DEBUG_LEVEL, env_->info_log_,
+        "[%s] KafkaController opening stream %s using cachedir '%s'",
+        Name(), topic_name.c_str(), cache_dir_.c_str());
+    
+    std::string pt_errstr, ct_errstr;
+    
+    // Initialize stream name.
+    RdKafka::Topic* producer_topic =
       RdKafka::Topic::create(producer_.get(), topic_name, NULL, pt_errstr);
-
-  RdKafka::Topic* consumer_topic =
+    
+    RdKafka::Topic* consumer_topic =
       RdKafka::Topic::create(consumer_.get(), topic_name, NULL, ct_errstr);
-
-  RdKafka::Queue* consuming_queue = RdKafka::Queue::create(consumer_.get());
-
-  assert(producer_topic != nullptr);
-  assert(consumer_topic != nullptr);
-  assert(consuming_queue != nullptr);
-
-  consuming_queue_.reset(consuming_queue);
-
-  producer_topic_.reset(producer_topic);
-  consumer_topic_.reset(consumer_topic);
-}
-
-KafkaController::~KafkaController() {
-  for (size_t i = 0; i < partitions_.size(); i++) {
-    consumer_->stop(consumer_topic_.get(), partitions_[i]->partition());
+    
+    RdKafka::Queue* consuming_queue = RdKafka::Queue::create(consumer_.get());
+    
+    assert(producer_topic != nullptr);
+    assert(consumer_topic != nullptr);
+    assert(consuming_queue != nullptr);
+    
+    consuming_queue_.reset(consuming_queue);
+    
+    producer_topic_.reset(producer_topic);
+    consumer_topic_.reset(consumer_topic);
   }
 
-  Log(InfoLogLevel::DEBUG_LEVEL, env_->info_log_,
-      "[%s] KafkaController closed.", GetTypeName().c_str());
-}
-
-Status KafkaController::create(AwsEnv* env, std::shared_ptr<Logger> info_log,
-                               const CloudEnvOptions& cloud_env_options,
-                               KafkaController** output) {
-  Status st = Status::OK();
-  std::string conf_errstr, producer_errstr, consumer_errstr;
-  const auto& kconf =
-      cloud_env_options.kafka_log_options.client_config_params;
-
-  std::unique_ptr<RdKafka::Conf> conf(
-      RdKafka::Conf::create(RdKafka::Conf::CONF_GLOBAL));
-
-  if (kconf.empty()) {
-    st = Status::InvalidArgument("No configs specified to kafka client");
-
-    Log(InfoLogLevel::ERROR_LEVEL, info_log,
-        "[aws] NewAwsEnv Kafka conf error: %s", st.ToString().c_str());
-    return st;
-  }
-
-  for (auto const& item : kconf) {
-    if (conf->set(item.first,
-                  item.second,
-                  conf_errstr) != RdKafka::Conf::CONF_OK) {
-      st = Status::InvalidArgument("Failed adding specified conf to Kafka conf",
-                                   conf_errstr.c_str());
-
-      Log(InfoLogLevel::ERROR_LEVEL, info_log,
-          "[aws] NewAwsEnv Kafka conf set error: %s", st.ToString().c_str());
-      return st;
+  ~KafkaController() {
+    for (size_t i = 0; i < partitions_.size(); i++) {
+      consumer_->stop(consumer_topic_.get(), partitions_[i]->partition());
     }
+    
+    Log(InfoLogLevel::DEBUG_LEVEL, env_->info_log_,
+        "[%s] KafkaController closed.", Name());
+  }
+  
+  const char *Name() const override { return "kafka"; }
+
+  virtual Status CreateStream(const std::string& /* bucket_prefix */) override {
+    // Kafka client cannot create a topic. Topics are either manually created
+    // or implicitly created on first write if auto.create.topics.enable is
+    // true.
+    return status_;
+  }
+  virtual Status WaitForStreamReady(const std::string& /* bucket_prefix */) override {
+    // Kafka topics don't need to be waited on.
+    return status_;
   }
 
-  {
-    std::unique_ptr<RdKafka::Producer> producer(
-        RdKafka::Producer::create(conf.get(), producer_errstr));
-    std::unique_ptr<RdKafka::Consumer> consumer(
-        RdKafka::Consumer::create(conf.get(), consumer_errstr));
+  virtual Status TailStream() override;
 
-    if (!producer) {
-      st = Status::InvalidArgument("Failed creating Kafka producer",
-                                   producer_errstr.c_str());
+  virtual CloudLogWritableFile* CreateWritableFile(const std::string& fname,
+                                                   const EnvOptions& options) override;
 
-      Log(InfoLogLevel::ERROR_LEVEL, info_log,
-          "[aws] NewAwsEnv Kafka producer error: %s", st.ToString().c_str());
-    } else if (!consumer) {
-      st = Status::InvalidArgument("Failed creating Kafka consumer",
-                                   consumer_errstr.c_str());
+ private:
+  Status InitializePartitions();
 
-      Log(InfoLogLevel::ERROR_LEVEL, info_log,
-          "[aws] NewAwsEnv Kafka consumer error: %s", st.ToString().c_str());
-    } else {
-      *output = new KafkaController(env, info_log, std::move(producer),
-                                    std::move(consumer));
+  std::shared_ptr<RdKafka::Producer> producer_;
+  std::shared_ptr<RdKafka::Consumer> consumer_;
 
-      if (*output == nullptr) {
-        st = Status::IOError("Error in creating Kafka controller");
-      }
-    }
-  }
+  std::shared_ptr<RdKafka::Topic> producer_topic_;
+  std::shared_ptr<RdKafka::Topic> consumer_topic_;
 
-  return st;
-}
+  std::shared_ptr<RdKafka::Queue> consuming_queue_;
+
+  std::vector<std::shared_ptr<RdKafka::TopicPartition>> partitions_;
+};
 
 Status KafkaController::TailStream() {
   InitializePartitions();
@@ -256,12 +256,12 @@ Status KafkaController::TailStream() {
   }
 
   Log(InfoLogLevel::DEBUG_LEVEL, env_->info_log_, "[%s] TailStream topic %s %s",
-      GetTypeName().c_str(), consumer_topic_->name().c_str(),
+      Name(), consumer_topic_->name().c_str(),
       status_.ToString().c_str());
 
   Status lastErrorStatus;
   int retryAttempt = 0;
-  while (env_->IsRunning()) {
+  while (IsRunning()) {
     if (retryAttempt > 10) {
       status_ = lastErrorStatus;
       break;
@@ -282,13 +282,13 @@ Status KafkaController::TailStream() {
           Log(InfoLogLevel::ERROR_LEVEL, env_->info_log_,
               "[%s] error processing message size %ld "
               "extracted from stream %s %s",
-              GetTypeName().c_str(), message->len(),
+              Name(), message->len(),
               consumer_topic_->name().c_str(), status_.ToString().c_str());
         } else {
           Log(InfoLogLevel::DEBUG_LEVEL, env_->info_log_,
               "[%s] successfully processed message size %ld "
               "extracted from stream %s %s",
-              GetTypeName().c_str(), message->len(),
+              Name(), message->len(),
               consumer_topic_->name().c_str(), status_.ToString().c_str());
         }
 
@@ -307,7 +307,7 @@ Status KafkaController::TailStream() {
                             RdKafka::err2str(message->err()).c_str());
 
         Log(InfoLogLevel::DEBUG_LEVEL, env_->info_log_,
-            "[%s] error reading %s %s", GetTypeName().c_str(),
+            "[%s] error reading %s %s", Name(),
             consumer_topic_->name().c_str(),
             RdKafka::err2str(message->err()).c_str());
 
@@ -317,7 +317,7 @@ Status KafkaController::TailStream() {
     }
   }
   Log(InfoLogLevel::DEBUG_LEVEL, env_->info_log_,
-      "[%s] TailStream topic %s finished: %s", GetTypeName().c_str(),
+      "[%s] TailStream topic %s finished: %s", Name(),
       consumer_topic_->name().c_str(), status_.ToString().c_str());
 
   return status_;
@@ -340,7 +340,7 @@ Status KafkaController::InitializePartitions() {
 
     Log(InfoLogLevel::DEBUG_LEVEL, env_->info_log_,
         "[%s] S3ReadableFile file %s Unable to find shards %s",
-        GetTypeName().c_str(), consumer_topic_->name().c_str(),
+        Name(), consumer_topic_->name().c_str(),
         status_.ToString().c_str());
 
     return status_;
@@ -384,6 +384,78 @@ CloudLogWritableFile* KafkaController::CreateWritableFile(
       new KafkaWritableFile(env_, fname, options, producer_, producer_topic_));
 }
 
+}  // namespace kafka
+}  // namespace cloud
 }  // namespace rocksdb
 
 #endif /* USE_KAFKA */
+
+namespace rocksdb {
+#ifndef USE_KAFKA
+Status CreateKafkaController(CloudEnv *,
+                             std::unique_ptr<CloudLogController> *) {
+  return Status::NotSupported("In order to use Kafka, make sure you're compiling with "
+                              "USE_KAFKA=1");
+}
+#else
+Status CreateKafkaController(CloudEnv *env,
+                             std::unique_ptr<CloudLogController> *output) {
+  Status st = Status::OK();
+  std::string conf_errstr, producer_errstr, consumer_errstr;
+  const auto& kconf = env->GetCloudEnvOptions().kafka_log_options.client_config_params;
+
+  std::unique_ptr<RdKafka::Conf> conf(
+      RdKafka::Conf::create(RdKafka::Conf::CONF_GLOBAL));
+
+  if (kconf.empty()) {
+    st = Status::InvalidArgument("No configs specified to kafka client");
+
+    return st;
+  }
+
+  for (auto const& item : kconf) {
+    if (conf->set(item.first,
+                  item.second,
+                  conf_errstr) != RdKafka::Conf::CONF_OK) {
+      st = Status::InvalidArgument("Failed adding specified conf to Kafka conf",
+                                   conf_errstr.c_str());
+
+      Log(InfoLogLevel::ERROR_LEVEL, env->info_log_,
+          "[aws] NewAwsEnv Kafka conf set error: %s", st.ToString().c_str());
+      return st;
+    }
+  }
+
+  {
+    std::unique_ptr<RdKafka::Producer> producer(
+        RdKafka::Producer::create(conf.get(), producer_errstr));
+    std::unique_ptr<RdKafka::Consumer> consumer(
+        RdKafka::Consumer::create(conf.get(), consumer_errstr));
+
+    if (!producer) {
+      st = Status::InvalidArgument("Failed creating Kafka producer",
+                                   producer_errstr.c_str());
+
+      Log(InfoLogLevel::ERROR_LEVEL, env->info_log_,
+          "[aws] NewAwsEnv Kafka producer error: %s", st.ToString().c_str());
+    } else if (!consumer) {
+      st = Status::InvalidArgument("Failed creating Kafka consumer",
+                                   consumer_errstr.c_str());
+
+      Log(InfoLogLevel::ERROR_LEVEL, env->info_log_,
+          "[aws] NewAwsEnv Kafka consumer error: %s", st.ToString().c_str());
+    } else {
+      output->reset(new rocksdb::cloud::kafka::KafkaController(env, 
+                                                               std::move(producer),
+                                                               std::move(consumer)));
+      
+      if (output->get() == nullptr) {
+        st = Status::IOError("Error in creating Kafka controller");
+      }
+    }
+  }
+  return st;
+}
+#endif // USE_KAFKA
+}  // namespace rocksdb
+

@@ -224,13 +224,13 @@ LIB_SOURCES =                                                   \
   cloud/aws/aws_env.cc                                          \
   cloud/aws/aws_kafka.cc                                        \
   cloud/aws/aws_kinesis.cc                                      \
-  cloud/aws/aws_log.cc                                          \
   cloud/aws/aws_retry.cc                                        \
   cloud/aws/aws_s3.cc                                           \
   cloud/db_cloud_impl.cc                                        \
   cloud/cloud_env.cc                                            \
   cloud/cloud_env_impl.cc                                       \
   cloud/cloud_env_options.cc                                    \
+  cloud/cloud_log_controller.cc                                 \
   cloud/manifest_reader.cc                                      \
   cloud/purge.cc                                                \
   cloud/cloud_manifest.cc                                       \

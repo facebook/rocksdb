@@ -25,7 +25,6 @@
 
 namespace rocksdb {
 
-class CloudLogController;
 class S3ReadableFile;
 
 class AwsS3ClientWrapper {
@@ -234,8 +233,6 @@ class AwsEnv : public CloudEnvImpl {
   virtual Status EmptyBucket(const std::string& bucket,
                              const std::string& path) override;
 
-  bool IsRunning() const { return running_; }
-
   std::string GetWALCacheDir();
 
   // The S3 client
@@ -243,8 +240,6 @@ class AwsEnv : public CloudEnvImpl {
 
   // AWS's utility to help out with uploading and downloading S3 file
   std::shared_ptr<Aws::Transfer::TransferManager> awsTransferManager_;
-
-  Status StartTailingStream();
 
   // Saves and retrieves the dbid->dirname mapping in S3
   Status SaveDbid(const std::string& bucket_name, const std::string& dbid,
@@ -324,12 +319,6 @@ class AwsEnv : public CloudEnvImpl {
   static constexpr const char* dbid_registry_ = "/.rockset/dbid/";
 
   Status create_bucket_status_;
-
-  // Background thread to tail stream
-  std::unique_ptr<std::thread> tid_;
-  std::atomic<bool> running_;
-
-  std::unique_ptr<CloudLogController> cloud_log_controller_;
 
   std::mutex files_to_delete_mutex_;
   std::chrono::seconds file_deletion_delay_ = std::chrono::hours(1);

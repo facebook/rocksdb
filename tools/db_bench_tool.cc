@@ -1067,7 +1067,7 @@ rocksdb::Env* CreateAwsEnv(const std::string& dbpath ,
   fprintf(stderr, "Creating AwsEnv for path %s\n", dbpath.c_str());
   std::shared_ptr<rocksdb::Logger> info_log;
   info_log.reset(new rocksdb::StderrLogger(
-		     rocksdb::InfoLogLevel::WARN_LEVEL));
+                     rocksdb::InfoLogLevel::WARN_LEVEL));
   rocksdb::CloudEnvOptions coptions;
   std::string region;
   if (FLAGS_aws_access_id.size() != 0) {
@@ -1081,17 +1081,11 @@ rocksdb::Env* CreateAwsEnv(const std::string& dbpath ,
   coptions.TEST_Initialize("dbbench.", "", region);
   rocksdb::CloudEnv* s;
   rocksdb::Status st = rocksdb::AwsEnv::NewAwsEnv(rocksdb::Env::Default(),
-						  coptions,
-						  std::move(info_log),
-						  &s);
+                                                  coptions,
+                                                  std::move(info_log),
+                                                  &s);
   assert(st.ok());
   ((rocksdb::CloudEnvImpl*)s)->TEST_DisableCloudManifest();
-  // If we are keeping wal in cloud storage, then tail it as well.
-  // so that our unit tests can run to completion.
-  if (!coptions.keep_local_log_files) {
-    rocksdb::AwsEnv* aws = static_cast<rocksdb::AwsEnv *>(s);
-    aws->StartTailingStream();
-  }
   result->reset(s);
   return s;
 }

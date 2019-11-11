@@ -5,6 +5,7 @@
 
 #include "cloud/cloud_env_impl.h"
 #include "cloud/cloud_env_wrapper.h"
+#include "cloud/cloud_log_controller.h"
 #include "cloud/filename.h"
 #include "cloud/manifest_reader.h"
 #include "port/likely.h"
@@ -22,7 +23,12 @@ namespace rocksdb {
   CloudEnvImpl::CloudEnvImpl(const CloudEnvOptions& opts, Env* base, const std::shared_ptr<Logger>& l)
     : CloudEnv(opts, base, l), purger_is_running_(true) {}
 
-CloudEnvImpl::~CloudEnvImpl() { StopPurger(); }
+CloudEnvImpl::~CloudEnvImpl() {
+  if (cloud_log_controller_) {
+    cloud_log_controller_->StopTailingStream();
+  }
+  StopPurger();
+}
 
 void CloudEnvImpl::StopPurger() {
   {

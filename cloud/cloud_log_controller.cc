@@ -3,23 +3,21 @@
 // This file defines an AWS-Kinesis environment for rocksdb.
 // A log file maps to a stream in Kinesis.
 //
-#ifdef USE_AWS
 
 #include <fstream>
 #include <iostream>
 
-#include "cloud/aws/aws_env.h"
-#include "cloud/aws/aws_file.h"
-#include "cloud/aws/aws_kinesis.h"
+#include "cloud/cloud_log_controller.h"
+#include "cloud/filename.h"
 #include "rocksdb/status.h"
+#include "rocksdb/cloud/cloud_env_options.h"
 #include "util/coding.h"
 #include "util/stderr_logger.h"
 #include "util/string_util.h"
 
 namespace rocksdb {
-
 CloudLogWritableFile::CloudLogWritableFile(
-    AwsEnv* env, const std::string& fname, const EnvOptions& /*options*/)
+    CloudEnv* env, const std::string& fname, const EnvOptions& /*options*/)
   : env_(env), fname_(fname) {}
 
 CloudLogWritableFile::~CloudLogWritableFile() {}
@@ -27,9 +25,8 @@ CloudLogWritableFile::~CloudLogWritableFile() {}
 const std::chrono::microseconds CloudLogController::kRetryPeriod =
   std::chrono::seconds(30);
 
-CloudLogController::CloudLogController(
-    AwsEnv* env, std::shared_ptr<Logger> info_log)
-  : env_(env), info_log_(info_log) {
+CloudLogController::CloudLogController(CloudEnv* env)
+  : env_(env), running_(false) {
 
   // Create a random number for the cache directory.
   const std::string uid = trim(env_->GetBaseEnv()->GenerateUniqueId());
@@ -49,12 +46,19 @@ CloudLogController::CloudLogController(
 }
 
 CloudLogController::~CloudLogController() {
+  if (running_) {
+    // This is probably not a good situation as the derived class is partially destroyed
+    // but the tailer might still be active.
+    Log(InfoLogLevel::DEBUG_LEVEL, env_->info_log_,
+        "[%s] CloudLogController closing.  Stopping stream.", Name());
+    StopTailingStream();
+  }
   Log(InfoLogLevel::DEBUG_LEVEL, env_->info_log_,
-      "[%s] CloudLogController closed.", GetTypeName().c_str());
+      "[%s] CloudLogController closed.", Name());
 }
 
-std::string CloudLogController::GetCachePath(
-    const std::string& cache_dir, const Slice& original_pathname) {
+std::string CloudLogController::GetCachePath(const Slice& original_pathname) const {
+  const std::string & cache_dir = GetCacheDir();
   return cache_dir + pathsep + basename(original_pathname.ToString());
 }
 
@@ -72,13 +76,13 @@ Status CloudLogController::Apply(const Slice& in) {
   }
 
   // Convert original pathname to a local file path.
-  std::string pathname = GetCachePath(cache_dir_, original_pathname);
+  std::string pathname = GetCachePath(original_pathname);
 
   // Apply operation on cache file.
   if (operation == kAppend) {
     Log(InfoLogLevel::DEBUG_LEVEL, env_->info_log_,
         "[%s] Tailer: Appending %ld bytes to %s at offset %ld",
-        GetTypeName().c_str(), payload.size(), pathname.c_str(),
+        Name(), payload.size(), pathname.c_str(),
         offset_in_file);
 
     auto iter = cache_fds_.find(pathname);
@@ -104,7 +108,7 @@ Status CloudLogController::Apply(const Slice& in) {
         cache_fds_[pathname] = std::move(result);
         Log(InfoLogLevel::DEBUG_LEVEL, env_->info_log_,
             "[%s] Tailer: Successfully opened file %s and cached",
-            GetTypeName().c_str(), pathname.c_str());
+            Name(), pathname.c_str());
       } else {
           return st;
       }
@@ -115,7 +119,7 @@ Status CloudLogController::Apply(const Slice& in) {
     if (!st.ok()) {
       Log(InfoLogLevel::DEBUG_LEVEL, env_->info_log_,
           "[%s] Tailer: Error writing to cached file: %s", pathname.c_str(),
-          GetTypeName().c_str(), st.ToString().c_str());
+          Name(), st.ToString().c_str());
     }
   } else if (operation == kDelete) {
     // Delete file from cache directory.
@@ -123,7 +127,7 @@ Status CloudLogController::Apply(const Slice& in) {
     if (iter != cache_fds_.end()) {
       Log(InfoLogLevel::DEBUG_LEVEL, env_->info_log_,
           "[%s] Tailer: Delete file %s, but it is still open."
-          " Closing it now..", GetTypeName().c_str(), pathname.c_str());
+          " Closing it now..", Name(), pathname.c_str());
       RandomRWFile* fd = iter->second.get();
       fd->Close();
       cache_fds_.erase(iter);
@@ -132,7 +136,7 @@ Status CloudLogController::Apply(const Slice& in) {
     st = env_->GetBaseEnv()->DeleteFile(pathname);
     Log(InfoLogLevel::DEBUG_LEVEL, env_->info_log_,
         "[%s] Tailer: Deleted file: %s %s",
-        GetTypeName().c_str(), pathname.c_str(), st.ToString().c_str());
+        Name(), pathname.c_str(), st.ToString().c_str());
 
     if (st.IsNotFound()) {
       st = Status::OK();
@@ -146,12 +150,12 @@ Status CloudLogController::Apply(const Slice& in) {
     }
     Log(InfoLogLevel::DEBUG_LEVEL, env_->info_log_,
         "[%s] Tailer: Closed file %s %s",
-        GetTypeName().c_str(), pathname.c_str(), st.ToString().c_str());
+        Name(), pathname.c_str(), st.ToString().c_str());
   } else {
     st = Status::IOError("Unknown operation");
     Log(InfoLogLevel::DEBUG_LEVEL, env_->info_log_,
         "[%s] Tailer: Unknown operation '%x': File %s %s",
-        GetTypeName().c_str(), operation, pathname.c_str(),
+        Name(), operation, pathname.c_str(),
         st.ToString().c_str());
   }
 
@@ -233,6 +237,52 @@ bool CloudLogController::ExtractLogRecord(const Slice& input,
   return true;
 }
 
-}  // namespace
+Status CloudLogController::StartTailingStream(const std::string & topic) {
+  if (tid_) {
+    return Status::Busy("Tailer already started");
+  }
 
-#endif /* USE_AWS */
+  Status st = CreateStream(topic);
+  if (st.ok()) {
+    running_ = true;
+    // create tailer thread
+    auto lambda = [this]() { TailStream(); };
+    tid_.reset(new std::thread(lambda));
+  }
+  return st;
+}
+
+void CloudLogController::StopTailingStream() {
+  running_ = false;
+  if (tid_ && tid_->joinable()) {
+    tid_->join();
+  }
+  tid_.reset();
+}
+//
+// Keep retrying the command until it is successful or the timeout has expired
+//
+Status CloudLogController::Retry(RetryType func) {
+  Status stat;
+  std::chrono::microseconds start(env_->NowMicros());
+  
+  while (true) {
+    // If command is successful, return immediately
+    stat = func();
+    if (stat.ok()) {
+      break;
+    }
+    // sleep for some time
+    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+
+    // If timeout has expired, return error
+    std::chrono::microseconds now(env_->NowMicros());
+    if (start + CloudLogController::kRetryPeriod < now) {
+      stat = Status::TimedOut();
+      break;
+    }
+  }
+  return stat;
+}
+  
+}  // namespace rocksdb

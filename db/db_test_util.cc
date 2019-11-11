@@ -632,12 +632,6 @@ Env* DBTestBase::CreateNewAwsEnv(const std::string& prefix) {
     Log(InfoLogLevel::DEBUG_LEVEL, info_log_, st.ToString().c_str());
   }
   assert(st.ok() && cenv);
-  // If we are keeping wal in cloud storage, then tail it as well.
-  // so that our unit tests can run to completion.
-  if (!coptions.keep_local_log_files) {
-    AwsEnv* aws = static_cast<AwsEnv*>(cenv);
-    aws->StartTailingStream();
-  }
   return cenv;
 }
 #endif

@@ -12,11 +12,16 @@ namespace Aws {
 namespace Auth {
 class AWSCredentialsProvider;
 }  // namespace Auth
+namespace Client {
+struct ClientConfiguration;
+}  // namespace Client
 }  // namespace Aws
 
 namespace rocksdb {
 
 class BucketObjectMetadata;
+class CloudEnv;
+class CloudLogController;
 
 enum CloudType : unsigned char {
   kCloudNone = 0x0,       // Not really a cloud env
@@ -145,6 +150,13 @@ inline bool operator==(const BucketOptions& lhs, const BucketOptions& rhs) {
 inline bool operator!=(const BucketOptions& lhs, const BucketOptions& rhs) {
   return !(lhs == rhs);
 }
+
+class AwsCloudOptions {
+public:
+  static Status GetClientConfiguration(CloudEnv *env,
+                                       const std::string& region,
+                                       Aws::Client::ClientConfiguration* config);
+};
 
 //
 // The cloud environment for rocksdb. It allows configuring the rocksdb
@@ -308,11 +320,9 @@ class CloudEnv : public Env {
  protected:
   CloudEnvOptions cloud_env_options;
   Env* base_env_; // The underlying env
-  CloudEnv(const CloudEnvOptions& options, Env *base, const std::shared_ptr<Logger>& logger)
-    : cloud_env_options(options),
-      base_env_(base),
-      info_log_(logger) {
-  }
+  std::unique_ptr<CloudLogController> cloud_log_controller_;
+
+  CloudEnv(const CloudEnvOptions& options, Env *base, const std::shared_ptr<Logger>& logger);
 public:
   std::shared_ptr<Logger> info_log_;  // informational messages
   virtual ~CloudEnv();
