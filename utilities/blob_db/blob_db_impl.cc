@@ -405,7 +405,7 @@ void BlobDBImpl::InitializeParentSstMapping(
   }
 }
 
-void BlobDBImpl::UpdateParentSstMapping(const FlushJobInfo& info) {
+void BlobDBImpl::ProcessFlushJobInfo(const FlushJobInfo& info) {
   assert(bdb_options_.enable_garbage_collection);
 
   if (info.oldest_blob_file_number == kInvalidBlobFileNumber) {
@@ -418,7 +418,7 @@ void BlobDBImpl::UpdateParentSstMapping(const FlushJobInfo& info) {
   }
 }
 
-void BlobDBImpl::UpdateParentSstMapping(const CompactionJobInfo& info) {
+void BlobDBImpl::ProcessCompactionJobInfo(const CompactionJobInfo& info) {
   assert(bdb_options_.enable_garbage_collection);
 
   // Note: the same SST file may appear in both the input and the output
@@ -945,7 +945,7 @@ Status BlobDBImpl::CompactFiles(
 
   if (bdb_options_.enable_garbage_collection) {
     assert(compaction_job_info);
-    UpdateParentSstMapping(*compaction_job_info);
+    ProcessCompactionJobInfo(*compaction_job_info);
   }
 
   return s;
@@ -2133,12 +2133,12 @@ void BlobDBImpl::TEST_InitializeParentSstMapping(
   InitializeParentSstMapping(live_files);
 }
 
-void BlobDBImpl::TEST_UpdateParentSstMapping(const FlushJobInfo& info) {
-  UpdateParentSstMapping(info);
+void BlobDBImpl::TEST_ProcessFlushJobInfo(const FlushJobInfo& info) {
+  ProcessFlushJobInfo(info);
 }
 
-void BlobDBImpl::TEST_UpdateParentSstMapping(const CompactionJobInfo& info) {
-  UpdateParentSstMapping(info);
+void BlobDBImpl::TEST_ProcessCompactionJobInfo(const CompactionJobInfo& info) {
+  ProcessCompactionJobInfo(info);
 }
 
 #endif  //  !NDEBUG

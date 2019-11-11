@@ -1663,12 +1663,12 @@ TEST_F(BlobDBTest, MaintainParentSstMapping) {
   }
 
   // Simulate a flush where the SST does not reference any blob files.
-  FlushJobInfo info1{};
-  info1.file_number = 21;
-
-  blob_db_impl()->TEST_UpdateParentSstMapping(info1);
-
   {
+    FlushJobInfo info{};
+    info.file_number = 21;
+
+    blob_db_impl()->TEST_ProcessFlushJobInfo(info);
+
     const std::vector<BlobFile::SstFileSet> expected_parent_files{
         {1, 6}, {2, 7}, {3, 8}, {4, 9}, {5, 10}};
     for (size_t i = 0; i < 5; ++i) {
@@ -1678,13 +1678,13 @@ TEST_F(BlobDBTest, MaintainParentSstMapping) {
   }
 
   // Simulate a flush where the SST references a blob file.
-  FlushJobInfo info2{};
-  info2.file_number = 22;
-  info2.oldest_blob_file_number = 5;
-
-  blob_db_impl()->TEST_UpdateParentSstMapping(info2);
-
   {
+    FlushJobInfo info{};
+    info.file_number = 22;
+    info.oldest_blob_file_number = 5;
+
+    blob_db_impl()->TEST_ProcessFlushJobInfo(info);
+
     const std::vector<BlobFile::SstFileSet> expected_parent_files{
         {1, 6}, {2, 7}, {3, 8}, {4, 9}, {5, 10, 22}};
     for (size_t i = 0; i < 5; ++i) {
@@ -1696,20 +1696,20 @@ TEST_F(BlobDBTest, MaintainParentSstMapping) {
   // Simulate a compaction. Some inputs and outputs have blob file references,
   // some don't. There is also a trivial move (which means the SST appears on
   // both the input and the output list).
-  CompactionJobInfo info3{};
-  info3.input_file_infos.emplace_back(CompactionFileInfo{1, 1, 1});
-  info3.input_file_infos.emplace_back(CompactionFileInfo{1, 2, 2});
-  info3.input_file_infos.emplace_back(
-      CompactionFileInfo{1, 11, kInvalidBlobFileNumber});
-  info3.input_file_infos.emplace_back(CompactionFileInfo{1, 5, 22});
-  info3.output_file_infos.emplace_back(CompactionFileInfo{2, 23, 3});
-  info3.output_file_infos.emplace_back(
-      CompactionFileInfo{2, 24, kInvalidBlobFileNumber});
-  info3.output_file_infos.emplace_back(CompactionFileInfo{2, 5, 22});
-
-  blob_db_impl()->TEST_UpdateParentSstMapping(info3);
-
   {
+    CompactionJobInfo info{};
+    info.input_file_infos.emplace_back(CompactionFileInfo{1, 1, 1});
+    info.input_file_infos.emplace_back(CompactionFileInfo{1, 2, 2});
+    info.input_file_infos.emplace_back(
+        CompactionFileInfo{1, 11, kInvalidBlobFileNumber});
+    info.input_file_infos.emplace_back(CompactionFileInfo{1, 5, 22});
+    info.output_file_infos.emplace_back(CompactionFileInfo{2, 23, 3});
+    info.output_file_infos.emplace_back(
+        CompactionFileInfo{2, 24, kInvalidBlobFileNumber});
+    info.output_file_infos.emplace_back(CompactionFileInfo{2, 5, 22});
+
+    blob_db_impl()->TEST_ProcessCompactionJobInfo(info);
+
     const std::vector<BlobFile::SstFileSet> expected_parent_files{
         {6}, {7}, {3, 8, 23}, {4, 9}, {5, 10, 22}};
     for (size_t i = 0; i < 5; ++i) {

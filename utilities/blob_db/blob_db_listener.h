@@ -50,14 +50,14 @@ class BlobDBListenerGC : public BlobDBListener {
     BlobDBListener::OnFlushCompleted(db, info);
 
     assert(blob_db_impl_);
-    blob_db_impl_->UpdateParentSstMapping(info);
+    blob_db_impl_->ProcessFlushJobInfo(info);
   }
 
   void OnCompactionCompleted(DB* db, const CompactionJobInfo& info) override {
     BlobDBListener::OnCompactionCompleted(db, info);
 
     assert(blob_db_impl_);
-    blob_db_impl_->UpdateParentSstMapping(info);
+    blob_db_impl_->ProcessCompactionJobInfo(info);
   }
 };
 

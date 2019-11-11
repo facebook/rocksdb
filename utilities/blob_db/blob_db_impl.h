@@ -213,9 +213,9 @@ class BlobDBImpl : public BlobDB {
   void TEST_InitializeParentSstMapping(
       const std::vector<LiveFileMetaData>& live_files);
 
-  void TEST_UpdateParentSstMapping(const FlushJobInfo& info);
+  void TEST_ProcessFlushJobInfo(const FlushJobInfo& info);
 
-  void TEST_UpdateParentSstMapping(const CompactionJobInfo& info);
+  void TEST_ProcessCompactionJobInfo(const CompactionJobInfo& info);
 
 #endif  //  !NDEBUG
 
@@ -315,12 +315,11 @@ class BlobDBImpl : public BlobDB {
   void InitializeParentSstMapping(
       const std::vector<LiveFileMetaData>& live_files);
 
-  // Update the mapping between blob files and their parent SSTs after a flush.
-  void UpdateParentSstMapping(const FlushJobInfo& info);
+  // Update the mapping between blob files and SSTs after a flush.
+  void ProcessFlushJobInfo(const FlushJobInfo& info);
 
-  // Update the mapping between blob files and their parent SSTs after a
-  // compaction.
-  void UpdateParentSstMapping(const CompactionJobInfo& info);
+  // Update the mapping between blob files and SSTs after a compaction.
+  void ProcessCompactionJobInfo(const CompactionJobInfo& info);
 
   void UpdateLiveSSTSize();
 
