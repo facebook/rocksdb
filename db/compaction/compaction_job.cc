@@ -1511,10 +1511,9 @@ Status CompactionJob::OpenCompactionOutputFile(
   }
   uint64_t current_time = static_cast<uint64_t>(temp_current_time);
 
-  uint64_t latest_key_time =
-      sub_compact->compaction->MaxInputFileCreationTime();
-  if (latest_key_time == 0) {
-    latest_key_time = current_time;
+  uint64_t creation_time = sub_compact->compaction->MinInputFileCreationTime();
+  if (creation_time == port::kMaxUint64) {
+    creation_time = current_time;
   }
 
   sub_compact->builder.reset(NewTableBuilder(
@@ -1524,7 +1523,7 @@ Status CompactionJob::OpenCompactionOutputFile(
       sub_compact->compaction->output_compression(),
       0 /*sample_for_compression */,
       sub_compact->compaction->output_compression_opts(),
-      sub_compact->compaction->output_level(), skip_filters, latest_key_time,
+      sub_compact->compaction->output_level(), skip_filters, creation_time,
       0 /* oldest_key_time */, sub_compact->compaction->max_output_file_size(),
       current_time));
   LogFlush(db_options_.info_log);
