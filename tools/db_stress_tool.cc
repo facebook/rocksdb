@@ -2510,6 +2510,7 @@ class StressTest {
             cmp_iter->Prev();
           }
         }
+        last_op = kLastOpNextOrPrev;
         VerifyIterator(thread, cmp_cfh, readoptionscopy, iter.get(),
                        cmp_iter.get(), last_op, key, &diverged);
       }
