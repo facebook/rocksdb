@@ -1019,15 +1019,27 @@ TEST_F(DBBasicTest, DBCloseFlushError) {
   Destroy(options);
 }
 
-TEST_F(DBBasicTest, MultiGetMultiCF) {
+class DBMultiGetTestWithParam : public DBBasicTest,
+                                public testing::WithParamInterface<bool> {};
+
+TEST_P(DBMultiGetTestWithParam, MultiGetMultiCF) {
   Options options = CurrentOptions();
   CreateAndReopenWithCF({"pikachu", "ilya", "muromec", "dobrynia", "nikitich",
                          "alyosha", "popovich"},
                         options);
+  // <CF, key, value> tuples
+  std::vector<std::tuple<int, std::string, std::string>> cf_kv_vec;
+  static const int num_keys = 24;
+  cf_kv_vec.reserve(num_keys);
 
-  for (int i = 0; i < 8; ++i) {
-    ASSERT_OK(Put(i, "cf" + std::to_string(i) + "_key",
-                  "cf" + std::to_string(i) + "_val"));
+  for (int i = 0; i < num_keys; ++i) {
+    int cf = i / 3;
+    int cf_key = 1 % 3;
+    cf_kv_vec.emplace_back(std::make_tuple(
+        cf, "cf" + std::to_string(cf) + "_key_" + std::to_string(cf_key),
+        "cf" + std::to_string(cf) + "_val_" + std::to_string(cf_key)));
+    ASSERT_OK(Put(std::get<0>(cf_kv_vec[i]), std::get<1>(cf_kv_vec[i]),
+                  std::get<2>(cf_kv_vec[i])));
   }
 
   int get_sv_count = 0;
@@ -1037,10 +1049,14 @@ TEST_F(DBBasicTest, MultiGetMultiCF) {
         if (++get_sv_count == 2) {
           // After MultiGet refs a couple of CFs, flush all CFs so MultiGet
           // is forced to repeat the process
-          for (int i = 0; i < 8; ++i) {
-            ASSERT_OK(Flush(i));
-            ASSERT_OK(Put(i, "cf" + std::to_string(i) + "_key",
-                          "cf" + std::to_string(i) + "_val2"));
+          for (int i = 0; i < num_keys; ++i) {
+            int cf = i / 3;
+            int cf_key = i % 8;
+            if (cf_key == 0) {
+              ASSERT_OK(Flush(cf));
+            }
+            ASSERT_OK(Put(std::get<0>(cf_kv_vec[i]), std::get<1>(cf_kv_vec[i]),
+                          std::get<2>(cf_kv_vec[i]) + "_2"));
           }
         }
         if (get_sv_count == 11) {
@@ -1058,26 +1074,53 @@ TEST_F(DBBasicTest, MultiGetMultiCF) {
   std::vector<std::string> keys;
   std::vector<std::string> values;
 
-  for (int i = 0; i < 8; ++i) {
-    cfs.push_back(i);
-    keys.push_back("cf" + std::to_string(i) + "_key");
+  for (int i = 0; i < num_keys; ++i) {
+    cfs.push_back(std::get<0>(cf_kv_vec[i]));
+    keys.push_back(std::get<1>(cf_kv_vec[i]));
   }
 
-  values = MultiGet(cfs, keys, nullptr);
-  ASSERT_EQ(values.size(), 8);
+  values = MultiGet(cfs, keys, nullptr, GetParam());
+  ASSERT_EQ(values.size(), num_keys);
   for (unsigned int j = 0; j < values.size(); ++j) {
-    ASSERT_EQ(values[j], "cf" + std::to_string(j) + "_val2");
+    ASSERT_EQ(values[j], std::get<2>(cf_kv_vec[j]) + "_2");
   }
-  for (int i = 0; i < 8; ++i) {
+
+  keys.clear();
+  cfs.clear();
+  cfs.push_back(std::get<0>(cf_kv_vec[0]));
+  keys.push_back(std::get<1>(cf_kv_vec[0]));
+  cfs.push_back(std::get<0>(cf_kv_vec[3]));
+  keys.push_back(std::get<1>(cf_kv_vec[3]));
+  cfs.push_back(std::get<0>(cf_kv_vec[4]));
+  keys.push_back(std::get<1>(cf_kv_vec[4]));
+  values = MultiGet(cfs, keys, nullptr, GetParam());
+  ASSERT_EQ(values[0], std::get<2>(cf_kv_vec[0]) + "_2");
+  ASSERT_EQ(values[1], std::get<2>(cf_kv_vec[3]) + "_2");
+  ASSERT_EQ(values[2], std::get<2>(cf_kv_vec[4]) + "_2");
+
+  keys.clear();
+  cfs.clear();
+  cfs.push_back(std::get<0>(cf_kv_vec[7]));
+  keys.push_back(std::get<1>(cf_kv_vec[7]));
+  cfs.push_back(std::get<0>(cf_kv_vec[6]));
+  keys.push_back(std::get<1>(cf_kv_vec[6]));
+  cfs.push_back(std::get<0>(cf_kv_vec[1]));
+  keys.push_back(std::get<1>(cf_kv_vec[1]));
+  values = MultiGet(cfs, keys, nullptr, GetParam());
+  ASSERT_EQ(values[0], std::get<2>(cf_kv_vec[7]) + "_2");
+  ASSERT_EQ(values[1], std::get<2>(cf_kv_vec[6]) + "_2");
+  ASSERT_EQ(values[2], std::get<2>(cf_kv_vec[1]) + "_2");
+
+  for (int cf = 0; cf < 8; ++cf) {
     auto* cfd = reinterpret_cast<ColumnFamilyHandleImpl*>(
-                    reinterpret_cast<DBImpl*>(db_)->GetColumnFamilyHandle(i))
+                    reinterpret_cast<DBImpl*>(db_)->GetColumnFamilyHandle(cf))
                     ->cfd();
     ASSERT_NE(cfd->TEST_GetLocalSV()->Get(), SuperVersion::kSVInUse);
     ASSERT_NE(cfd->TEST_GetLocalSV()->Get(), SuperVersion::kSVObsolete);
   }
 }
 
-TEST_F(DBBasicTest, MultiGetMultiCFMutex) {
+TEST_P(DBMultiGetTestWithParam, MultiGetMultiCFMutex) {
   Options options = CurrentOptions();
   CreateAndReopenWithCF({"pikachu", "ilya", "muromec", "dobrynia", "nikitich",
                          "alyosha", "popovich"},
@@ -1123,7 +1166,7 @@ TEST_F(DBBasicTest, MultiGetMultiCFMutex) {
     keys.push_back("cf" + std::to_string(i) + "_key");
   }
 
-  values = MultiGet(cfs, keys, nullptr);
+  values = MultiGet(cfs, keys, nullptr, GetParam());
   ASSERT_TRUE(last_try);
   ASSERT_EQ(values.size(), 8);
   for (unsigned int j = 0; j < values.size(); ++j) {
@@ -1138,7 +1181,7 @@ TEST_F(DBBasicTest, MultiGetMultiCFMutex) {
   }
 }
 
-TEST_F(DBBasicTest, MultiGetMultiCFSnapshot) {
+TEST_P(DBMultiGetTestWithParam, MultiGetMultiCFSnapshot) {
   Options options = CurrentOptions();
   CreateAndReopenWithCF({"pikachu", "ilya", "muromec", "dobrynia", "nikitich",
                          "alyosha", "popovich"},
@@ -1183,7 +1226,7 @@ TEST_F(DBBasicTest, MultiGetMultiCFSnapshot) {
   }
 
   const Snapshot* snapshot = db_->GetSnapshot();
-  values = MultiGet(cfs, keys, snapshot);
+  values = MultiGet(cfs, keys, snapshot, GetParam());
   db_->ReleaseSnapshot(snapshot);
   ASSERT_EQ(values.size(), 8);
   for (unsigned int j = 0; j < values.size(); ++j) {
@@ -1196,6 +1239,9 @@ TEST_F(DBBasicTest, MultiGetMultiCFSnapshot) {
     ASSERT_NE(cfd->TEST_GetLocalSV()->Get(), SuperVersion::kSVInUse);
   }
 }
+
+INSTANTIATE_TEST_CASE_P(DBMultiGetTestWithParam, DBMultiGetTestWithParam,
+                        testing::Bool());
 
 TEST_F(DBBasicTest, MultiGetBatchedSimpleUnsorted) {
   do {
