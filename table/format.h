@@ -220,6 +220,11 @@ Status ReadFooterFromFile(RandomAccessFileReader* file,
 // 1-byte type + 32-bit crc
 static const size_t kBlockTrailerSize = 5;
 
+// Make block size calculation for IO less error prone
+inline uint64_t block_size(const BlockHandle& handle) {
+  return handle.size() + kBlockTrailerSize;
+}
+
 inline CompressionType get_block_compression_type(const char* block_data,
                                                   size_t block_size) {
   return static_cast<CompressionType>(block_data[block_size]);

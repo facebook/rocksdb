@@ -2,6 +2,7 @@
 ## Unreleased
 ### Bug Fixes
 * Fix a assertion failure in MultiGe4t() when BlockBasedTableOptions::no_block_cache is true and there is no compressed block cache
+* Fix a buffer overrun problem in BlockBasedTable::MultiGet() when compression is enabled and no compressed block cache is configured.
 
 ## 6.5.1 (10/16/2019)
 ### Bug Fixes
