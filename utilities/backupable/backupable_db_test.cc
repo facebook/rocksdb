@@ -516,13 +516,13 @@ static void AssertEmpty(DB* db, int from, int to) {
 
 class BackupableDBTest : public testing::Test {
  public:
-  enum SharedOption {
+  enum ShareOption {
     kNoShare,
     kShareNoChecksum,
     kShareWithChecksum,
   };
 
-  const std::vector<SharedOption> kAllSharedOptions = {
+  const std::vector<ShareOption> kAllShareOptions = {
       kNoShare, kShareNoChecksum, kShareWithChecksum};
 
   BackupableDBTest() {
@@ -571,7 +571,7 @@ class BackupableDBTest : public testing::Test {
   }
 
   void OpenDBAndBackupEngine(bool destroy_old_data = false, bool dummy = false,
-                             SharedOption shared_option = kShareNoChecksum) {
+                             ShareOption shared_option = kShareNoChecksum) {
     // reset all the defaults
     test_backup_env_->SetLimitWrittenFiles(1000000);
     test_db_env_->SetLimitWrittenFiles(1000000);
@@ -1285,7 +1285,7 @@ TEST_F(BackupableDBTest, ShareTableFilesWithChecksumsTransition) {
 // of a new backup.
 TEST_F(BackupableDBTest, DeleteTmpFiles) {
   for (int cleanup_fn : {1, 2, 3, 4}) {
-    for (SharedOption shared_option : kAllSharedOptions) {
+    for (ShareOption shared_option : kAllShareOptions) {
       OpenDBAndBackupEngine(false /* destroy_old_data */, false /* dummy */,
                             shared_option);
       ASSERT_OK(backup_engine_->CreateNewBackup(db_.get()));
