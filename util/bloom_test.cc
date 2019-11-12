@@ -21,7 +21,7 @@ int main() {
 #include "logging/logging.h"
 #include "memory/arena.h"
 #include "rocksdb/filter_policy.h"
-#include "table/full_filter_bits_builder.h"
+#include "table/block_based/filter_policy_internal.h"
 #include "test_util/testharness.h"
 #include "test_util/testutil.h"
 #include "util/gflags_compat.h"
@@ -55,15 +55,15 @@ static int NextLength(int length) {
   return length;
 }
 
-class BloomTest : public testing::Test {
+class BlockBasedBloomTest : public testing::Test {
  private:
   std::unique_ptr<const FilterPolicy> policy_;
   std::string filter_;
   std::vector<std::string> keys_;
 
  public:
-  BloomTest() : policy_(
-      NewBloomFilterPolicy(FLAGS_bits_per_key)) {}
+  BlockBasedBloomTest()
+      : policy_(NewBloomFilterPolicy(FLAGS_bits_per_key, true)) {}
 
   void Reset() {
     keys_.clear();
@@ -72,7 +72,7 @@ class BloomTest : public testing::Test {
 
   void ResetPolicy(const FilterPolicy* policy = nullptr) {
     if (policy == nullptr) {
-      policy_.reset(NewBloomFilterPolicy(FLAGS_bits_per_key));
+      policy_.reset(NewBloomFilterPolicy(FLAGS_bits_per_key, true));
     } else {
       policy_.reset(policy);
     }
@@ -131,12 +131,12 @@ class BloomTest : public testing::Test {
   }
 };
 
-TEST_F(BloomTest, EmptyFilter) {
+TEST_F(BlockBasedBloomTest, EmptyFilter) {
   ASSERT_TRUE(! Matches("hello"));
   ASSERT_TRUE(! Matches("world"));
 }
 
-TEST_F(BloomTest, Small) {
+TEST_F(BlockBasedBloomTest, Small) {
   Add("hello");
   Add("world");
   ASSERT_TRUE(Matches("hello"));
@@ -145,7 +145,7 @@ TEST_F(BloomTest, Small) {
   ASSERT_TRUE(! Matches("foo"));
 }
 
-TEST_F(BloomTest, VaryingLengths) {
+TEST_F(BlockBasedBloomTest, VaryingLengths) {
   char buffer[sizeof(int)];
 
   // Count number of filters that significantly exceed the false positive rate
@@ -186,45 +186,45 @@ TEST_F(BloomTest, VaryingLengths) {
 
 // Ensure the implementation doesn't accidentally change in an
 // incompatible way
-TEST_F(BloomTest, Schema) {
+TEST_F(BlockBasedBloomTest, Schema) {
   char buffer[sizeof(int)];
 
-  ResetPolicy(NewBloomFilterPolicy(8));  // num_probes = 5
+  ResetPolicy(NewBloomFilterPolicy(8, true));  // num_probes = 5
   for (int key = 0; key < 87; key++) {
     Add(Key(key, buffer));
   }
   Build();
   ASSERT_EQ(BloomHash(FilterData()), 3589896109U);
 
-  ResetPolicy(NewBloomFilterPolicy(9));  // num_probes = 6
+  ResetPolicy(NewBloomFilterPolicy(9, true));  // num_probes = 6
   for (int key = 0; key < 87; key++) {
     Add(Key(key, buffer));
   }
   Build();
   ASSERT_EQ(BloomHash(FilterData()), 969445585);
 
-  ResetPolicy(NewBloomFilterPolicy(11));  // num_probes = 7
+  ResetPolicy(NewBloomFilterPolicy(11, true));  // num_probes = 7
   for (int key = 0; key < 87; key++) {
     Add(Key(key, buffer));
   }
   Build();
   ASSERT_EQ(BloomHash(FilterData()), 1694458207);
 
-  ResetPolicy(NewBloomFilterPolicy(10));  // num_probes = 6
+  ResetPolicy(NewBloomFilterPolicy(10, true));  // num_probes = 6
   for (int key = 0; key < 87; key++) {
     Add(Key(key, buffer));
   }
   Build();
   ASSERT_EQ(BloomHash(FilterData()), 2373646410U);
 
-  ResetPolicy(NewBloomFilterPolicy(10));
+  ResetPolicy(NewBloomFilterPolicy(10, true));
   for (int key = 1; key < 87; key++) {
     Add(Key(key, buffer));
   }
   Build();
   ASSERT_EQ(BloomHash(FilterData()), 1908442116);
 
-  ResetPolicy(NewBloomFilterPolicy(10));
+  ResetPolicy(NewBloomFilterPolicy(10, true));
   for (int key = 1; key < 88; key++) {
     Add(Key(key, buffer));
   }
@@ -251,8 +251,9 @@ class FullBloomTest : public testing::Test {
     Reset();
   }
 
-  FullFilterBitsBuilder* GetFullFilterBitsBuilder() {
-    return dynamic_cast<FullFilterBitsBuilder*>(bits_builder_.get());
+  BuiltinFilterBitsBuilder* GetBuiltinFilterBitsBuilder() {
+    // Throws on bad cast
+    return &dynamic_cast<BuiltinFilterBitsBuilder&>(*bits_builder_.get());
   }
 
   void Reset() {
@@ -322,14 +323,12 @@ class FullBloomTest : public testing::Test {
 };
 
 TEST_F(FullBloomTest, FilterSize) {
-  uint32_t dont_care1, dont_care2;
-  auto full_bits_builder = GetFullFilterBitsBuilder();
+  auto bits_builder = GetBuiltinFilterBitsBuilder();
   for (int n = 1; n < 100; n++) {
-    auto space = full_bits_builder->CalculateSpace(n, &dont_care1, &dont_care2);
-    auto n2 = full_bits_builder->CalculateNumEntry(space);
+    auto space = bits_builder->CalculateSpace(n);
+    auto n2 = bits_builder->CalculateNumEntry(space);
     ASSERT_GE(n2, n);
-    auto space2 =
-        full_bits_builder->CalculateSpace(n2, &dont_care1, &dont_care2);
+    auto space2 = bits_builder->CalculateSpace(n2);
     ASSERT_EQ(space, space2);
   }
 }

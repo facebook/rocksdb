@@ -23,8 +23,6 @@
 #include "port/malloc.h"
 #include "port/port.h"  // noexcept
 #include "table/persistent_cache_options.h"
-#include "util/crc32c.h"
-#include "util/xxhash.h"
 
 namespace rocksdb {
 
@@ -215,6 +213,11 @@ Status ReadFooterFromFile(RandomAccessFileReader* file,
 
 // 1-byte type + 32-bit crc
 static const size_t kBlockTrailerSize = 5;
+
+// Make block size calculation for IO less error prone
+inline uint64_t block_size(const BlockHandle& handle) {
+  return handle.size() + kBlockTrailerSize;
+}
 
 inline CompressionType get_block_compression_type(const char* block_data,
                                                   size_t block_size) {

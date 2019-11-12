@@ -4270,6 +4270,26 @@ Status DBImpl::ReserveFileNumbersBeforeIngestion(
   dummy_sv_ctx.Clean();
   return s;
 }
+
+Status DBImpl::GetCreationTimeOfOldestFile(uint64_t* creation_time) {
+  if (mutable_db_options_.max_open_files == -1) {
+    uint64_t oldest_time = port::kMaxUint64;
+    for (auto cfd : *versions_->GetColumnFamilySet()) {
+      uint64_t ctime;
+      cfd->current()->GetCreationTimeOfOldestFile(&ctime);
+      if (ctime < oldest_time) {
+        oldest_time = ctime;
+      }
+      if (oldest_time == 0) {
+        break;
+      }
+    }
+    *creation_time = oldest_time;
+    return Status::OK();
+  } else {
+    return Status::NotSupported("This API only works if max_open_files = -1");
+  }
+}
 #endif  // ROCKSDB_LITE
 
 }  // namespace rocksdb

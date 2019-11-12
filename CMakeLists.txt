@@ -600,6 +600,7 @@ set(SOURCES
         table/block_based/data_block_hash_index.cc
         table/block_based/data_block_footer.cc
         table/block_based/filter_block_reader_common.cc
+        table/block_based/filter_policy.cc
         table/block_based/flush_block_policy.cc
         table/block_based/full_filter_block.cc
         table/block_based/index_builder.cc
@@ -639,7 +640,6 @@ set(SOURCES
         tools/trace_analyzer_tool.cc
         trace_replay/trace_replay.cc
         trace_replay/block_cache_tracer.cc
-        util/bloom.cc
         util/coding.cc
         util/compaction_job_stats_impl.cc
         util/comparator.cc
@@ -647,7 +647,6 @@ set(SOURCES
         util/concurrent_task_limiter_impl.cc
         util/crc32c.cc
         util/dynamic_bloom.cc
-        util/filter_policy.cc
         util/hash.cc
         util/murmurhash.cc
         util/random.cc

@@ -3,23 +3,26 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
-#ifndef GFLAGS
+#if !defined(GFLAGS) || defined(ROCKSDB_LITE)
 #include <cstdio>
 int main() {
-  fprintf(stderr, "Please install gflags to run rocksdb tools\n");
+  fprintf(stderr, "filter_bench requires gflags and !ROCKSDB_LITE\n");
   return 1;
 }
 #else
 
 #include <cinttypes>
 #include <iostream>
+#include <sstream>
 #include <vector>
 
+#include "memory/arena.h"
 #include "port/port.h"
 #include "port/stack_trace.h"
 #include "rocksdb/filter_policy.h"
 #include "table/block_based/full_filter_block.h"
 #include "table/block_based/mock_block_based_table.h"
+#include "table/plain/plain_table_bloom.h"
 #include "util/gflags_compat.h"
 #include "util/hash.h"
 #include "util/random.h"
@@ -37,7 +40,15 @@ DEFINE_double(working_mem_size_mb, 200,
 DEFINE_uint32(average_keys_per_filter, 10000,
               "Average number of keys per filter");
 
-DEFINE_uint32(key_size, 16, "Number of bytes each key should be");
+DEFINE_uint32(key_size, 24, "Average number of bytes for each key");
+
+DEFINE_bool(vary_key_alignment, true,
+            "Whether to vary key alignment (default: at least 32-bit "
+            "alignment)");
+
+DEFINE_uint32(vary_key_size_log2_interval, 5,
+              "Use same key size 2^n times, then change. Key size varies from "
+              "-2 to +2 bytes vs. average, unless n>=30 to fix key size.");
 
 DEFINE_uint32(batch_size, 8, "Number of keys to group in each batch");
 
@@ -48,7 +59,23 @@ DEFINE_double(m_queries, 200, "Millions of queries for each test mode");
 DEFINE_bool(use_full_block_reader, false,
             "Use FullFilterBlockReader interface rather than FilterBitsReader");
 
+DEFINE_bool(use_plain_table_bloom, false,
+            "Use PlainTableBloom structure and interface rather than "
+            "FilterBitsReader/FullFilterBlockReader");
+
+DEFINE_uint32(impl, 0,
+              "Select filter implementation. Without -use_plain_table_bloom:"
+              "0 = full filter, 1 = block-based filter. With "
+              "-use_plain_table_bloom: 0 = no locality, 1 = locality.");
+
+DEFINE_bool(net_includes_hashing, false,
+            "Whether query net ns/op times should include hashing. "
+            "(if not, dry run will include hashing) "
+            "(build times always include hashing)");
+
 DEFINE_bool(quick, false, "Run more limited set of tests, fewer queries");
+
+DEFINE_bool(best_case, false, "Run limited tests only for best-case");
 
 DEFINE_bool(allow_bad_fp_rate, false, "Continue even if FP rate is bad");
 
@@ -64,33 +91,60 @@ void _always_assert_fail(int line, const char *file, const char *expr) {
 #define ALWAYS_ASSERT(cond) \
   ((cond) ? (void)0 : ::_always_assert_fail(__LINE__, __FILE__, #cond))
 
+using rocksdb::Arena;
 using rocksdb::BlockContents;
+using rocksdb::BloomHash;
 using rocksdb::CachableEntry;
+using rocksdb::EncodeFixed32;
 using rocksdb::fastrange32;
 using rocksdb::FilterBitsBuilder;
 using rocksdb::FilterBitsReader;
 using rocksdb::FullFilterBlockReader;
+using rocksdb::GetSliceHash;
+using rocksdb::GetSliceHash64;
+using rocksdb::Lower32of64;
 using rocksdb::ParsedFullFilterBlock;
+using rocksdb::PlainTableBloomV1;
 using rocksdb::Random32;
 using rocksdb::Slice;
 using rocksdb::mock::MockBlockBasedTableTester;
 
 struct KeyMaker {
-  KeyMaker(size_t size)
-      : data_(new char[size]),
-        slice_(data_.get(), size),
-        vals_(reinterpret_cast<uint32_t *>(data_.get())) {
-    assert(size >= 8);
-    memset(data_.get(), 0, size);
+  KeyMaker(size_t avg_size)
+      : smallest_size_(avg_size -
+                       (FLAGS_vary_key_size_log2_interval >= 30 ? 2 : 0)),
+        buf_size_(avg_size + 11),  // pad to vary key size and alignment
+        buf_(new char[buf_size_]) {
+    memset(buf_.get(), 0, buf_size_);
+    assert(smallest_size_ > 8);
   }
-  std::unique_ptr<char[]> data_;
-  Slice slice_;
-  uint32_t *vals_;
+  size_t smallest_size_;
+  size_t buf_size_;
+  std::unique_ptr<char[]> buf_;
 
+  // Returns a unique(-ish) key based on the given parameter values. Each
+  // call returns a Slice from the same buffer so previously returned
+  // Slices should be considered invalidated.
   Slice Get(uint32_t filter_num, uint32_t val_num) {
-    vals_[0] = filter_num + val_num;
-    vals_[1] = val_num;
-    return slice_;
+    size_t start = FLAGS_vary_key_alignment ? val_num % 4 : 0;
+    size_t len = smallest_size_;
+    if (FLAGS_vary_key_size_log2_interval < 30) {
+      // To get range [avg_size - 2, avg_size + 2]
+      // use range [smallest_size, smallest_size + 4]
+      len += fastrange32(
+          (val_num >> FLAGS_vary_key_size_log2_interval) * 1234567891, 5);
+    }
+    char * data = buf_.get() + start;
+    // Populate key data such that all data makes it into a key of at
+    // least 8 bytes. We also don't want all the within-filter key
+    // variance confined to a contiguous 32 bits, because then a 32 bit
+    // hash function can "cheat" the false positive rate by
+    // approximating a perfect hash.
+    EncodeFixed32(data, val_num);
+    EncodeFixed32(data + 4, filter_num + val_num);
+    // ensure clearing leftovers from different alignment
+    EncodeFixed32(data + 8, 0);
+    return Slice(data, len);
   }
 };
 
@@ -112,6 +166,7 @@ struct FilterInfo {
   uint32_t keys_added_ = 0;
   std::unique_ptr<FilterBitsReader> reader_;
   std::unique_ptr<FullFilterBlockReader> full_block_reader_;
+  std::unique_ptr<PlainTableBloomV1> plain_table_bloom_;
   uint64_t outside_queries_ = 0;
   uint64_t false_positives_ = 0;
 };
@@ -135,6 +190,10 @@ static const std::vector<TestMode> quickTestModes = {
     kRandomFilter,
 };
 
+static const std::vector<TestMode> bestCaseTestModes = {
+    kSingleFilter,
+};
+
 const char *TestModeToString(TestMode tm) {
   switch (tm) {
     case kSingleFilter:
@@ -153,10 +212,32 @@ const char *TestModeToString(TestMode tm) {
   return "Bad TestMode";
 }
 
+// Do just enough to keep some data dependence for the
+// compiler / CPU
+static uint32_t DryRunNoHash(Slice &s) {
+  uint32_t sz = static_cast<uint32_t>(s.size());
+  if (sz >= 4) {
+    return sz + s.data()[3];
+  } else {
+    return sz;
+  }
+}
+
+static uint32_t DryRunHash32(Slice &s) {
+  // Same perf characteristics as GetSliceHash()
+  return BloomHash(s);
+}
+
+static uint32_t DryRunHash64(Slice &s) {
+  return Lower32of64(GetSliceHash64(s));
+}
+
 struct FilterBench : public MockBlockBasedTableTester {
   std::vector<KeyMaker> kms_;
   std::vector<FilterInfo> infos_;
   Random32 random_;
+  std::ostringstream fp_rate_report_;
+  Arena arena_;
 
   FilterBench()
       : MockBlockBasedTableTester(
@@ -169,12 +250,27 @@ struct FilterBench : public MockBlockBasedTableTester {
 
   void Go();
 
-  void RandomQueryTest(bool inside, bool dry_run, TestMode mode);
+  double RandomQueryTest(uint32_t inside_threshold, bool dry_run,
+                         TestMode mode);
 };
 
 void FilterBench::Go() {
-  std::unique_ptr<FilterBitsBuilder> builder(
-      table_options_.filter_policy->GetFilterBitsBuilder());
+  if (FLAGS_use_plain_table_bloom && FLAGS_use_full_block_reader) {
+    throw std::runtime_error(
+        "Can't combine -use_plain_table_bloom and -use_full_block_reader");
+  }
+  if (FLAGS_impl > 1) {
+    throw std::runtime_error("-impl must currently be >= 0 and <= 1");
+  }
+  if (!FLAGS_use_plain_table_bloom && FLAGS_impl == 1) {
+    throw std::runtime_error(
+        "Block-based filter not currently supported by filter_bench");
+  }
+
+  std::unique_ptr<FilterBitsBuilder> builder;
+  if (!FLAGS_use_plain_table_bloom && FLAGS_impl != 1) {
+    builder.reset(table_options_.filter_policy->GetFilterBitsBuilder());
+  }
 
   uint32_t variance_mask = 1;
   while (variance_mask * variance_mask * 4 < FLAGS_average_keys_per_filter) {
@@ -182,9 +278,13 @@ void FilterBench::Go() {
   }
 
   const std::vector<TestMode> &testModes =
-      FLAGS_quick ? quickTestModes : allTestModes;
+      FLAGS_best_case ? bestCaseTestModes
+                      : FLAGS_quick ? quickTestModes : allTestModes;
   if (FLAGS_quick) {
-    FLAGS_m_queries /= 10.0;
+    FLAGS_m_queries /= 7.0;
+  } else if (FLAGS_best_case) {
+    FLAGS_m_queries /= 3.0;
+    FLAGS_working_mem_size_mb /= 10.0;
   }
 
   std::cout << "Building..." << std::endl;
@@ -199,22 +299,35 @@ void FilterBench::Go() {
     uint32_t keys_to_add = FLAGS_average_keys_per_filter +
                            (random_.Next() & variance_mask) -
                            (variance_mask / 2);
-    for (uint32_t i = 0; i < keys_to_add; ++i) {
-      builder->AddKey(kms_[0].Get(filter_id, i));
-    }
     infos_.emplace_back();
     FilterInfo &info = infos_.back();
     info.filter_id_ = filter_id;
-    info.filter_ = builder->Finish(&info.owner_);
     info.keys_added_ = keys_to_add;
-    info.reader_.reset(
-        table_options_.filter_policy->GetFilterBitsReader(info.filter_));
-    CachableEntry<ParsedFullFilterBlock> block(
-        new ParsedFullFilterBlock(table_options_.filter_policy.get(),
-                                  BlockContents(info.filter_)),
-        nullptr /* cache */, nullptr /* cache_handle */, true /* own_value */);
-    info.full_block_reader_.reset(
-        new FullFilterBlockReader(table_.get(), std::move(block)));
+    if (FLAGS_use_plain_table_bloom) {
+      info.plain_table_bloom_.reset(new PlainTableBloomV1());
+      info.plain_table_bloom_->SetTotalBits(
+          &arena_, keys_to_add * FLAGS_bits_per_key, FLAGS_impl,
+          0 /*huge_page*/, nullptr /*logger*/);
+      for (uint32_t i = 0; i < keys_to_add; ++i) {
+        uint32_t hash = GetSliceHash(kms_[0].Get(filter_id, i));
+        info.plain_table_bloom_->AddHash(hash);
+      }
+      info.filter_ = info.plain_table_bloom_->GetRawData();
+    } else {
+      for (uint32_t i = 0; i < keys_to_add; ++i) {
+        builder->AddKey(kms_[0].Get(filter_id, i));
+      }
+      info.filter_ = builder->Finish(&info.owner_);
+      info.reader_.reset(
+          table_options_.filter_policy->GetFilterBitsReader(info.filter_));
+      CachableEntry<ParsedFullFilterBlock> block(
+          new ParsedFullFilterBlock(table_options_.filter_policy.get(),
+                                    BlockContents(info.filter_)),
+          nullptr /* cache */, nullptr /* cache_handle */,
+          true /* own_value */);
+      info.full_block_reader_.reset(
+          new FullFilterBlockReader(table_.get(), std::move(block)));
+    }
     total_memory_used += info.filter_.size();
     total_keys_added += keys_to_add;
   }
@@ -228,7 +341,7 @@ void FilterBench::Go() {
 
   double bpk = total_memory_used * 8.0 / total_keys_added;
   std::cout << "Bits/key actual: " << bpk << std::endl;
-  if (!FLAGS_quick) {
+  if (!FLAGS_quick && !FLAGS_best_case) {
     double tolerable_rate = std::pow(2.0, -(bpk - 1.0) / (1.4 + bpk / 50.0));
     std::cout << "Best possible FP rate %: " << 100.0 * std::pow(2.0, -bpk)
               << std::endl;
@@ -242,11 +355,23 @@ void FilterBench::Go() {
     for (uint32_t i = 0; i < infos_.size(); ++i) {
       FilterInfo &info = infos_[i];
       for (uint32_t j = 0; j < info.keys_added_; ++j) {
-        ALWAYS_ASSERT(info.reader_->MayMatch(kms_[0].Get(info.filter_id_, j)));
+        if (FLAGS_use_plain_table_bloom) {
+          uint32_t hash = GetSliceHash(kms_[0].Get(info.filter_id_, j));
+          ALWAYS_ASSERT(info.plain_table_bloom_->MayContainHash(hash));
+        } else {
+          ALWAYS_ASSERT(
+              info.reader_->MayMatch(kms_[0].Get(info.filter_id_, j)));
+        }
       }
       for (uint32_t j = 0; j < outside_q_per_f; ++j) {
-        fps += info.reader_->MayMatch(
-            kms_[0].Get(info.filter_id_, j | 0x80000000));
+        if (FLAGS_use_plain_table_bloom) {
+          uint32_t hash =
+              GetSliceHash(kms_[0].Get(info.filter_id_, j | 0x80000000));
+          fps += info.plain_table_bloom_->MayContainHash(hash);
+        } else {
+          fps += info.reader_->MayMatch(
+              kms_[0].Get(info.filter_id_, j | 0x80000000));
+        }
       }
     }
     std::cout << " No FNs :)" << std::endl;
@@ -259,31 +384,67 @@ void FilterBench::Go() {
   }
 
   std::cout << "----------------------------" << std::endl;
-  std::cout << "Inside queries..." << std::endl;
-  random_.Seed(FLAGS_seed + 1);
-  RandomQueryTest(/*inside*/ true, /*dry_run*/ true, kRandomFilter);
+  std::cout << "Mixed inside/outside queries..." << std::endl;
+  // 50% each inside and outside
+  uint32_t inside_threshold = UINT32_MAX / 2;
   for (TestMode tm : testModes) {
     random_.Seed(FLAGS_seed + 1);
-    RandomQueryTest(/*inside*/ true, /*dry_run*/ false, tm);
+    double f = RandomQueryTest(inside_threshold, /*dry_run*/ false, tm);
+    random_.Seed(FLAGS_seed + 1);
+    double d = RandomQueryTest(inside_threshold, /*dry_run*/ true, tm);
+    std::cout << "  " << TestModeToString(tm) << " net ns/op: " << (f - d)
+              << std::endl;
   }
 
-  std::cout << "----------------------------" << std::endl;
-  std::cout << "Outside queries..." << std::endl;
-  random_.Seed(FLAGS_seed + 2);
-  RandomQueryTest(/*inside*/ false, /*dry_run*/ true, kRandomFilter);
-  for (TestMode tm : testModes) {
-    random_.Seed(FLAGS_seed + 2);
-    RandomQueryTest(/*inside*/ false, /*dry_run*/ false, tm);
+  if (!FLAGS_quick) {
+    std::cout << "----------------------------" << std::endl;
+    std::cout << "Inside queries (mostly)..." << std::endl;
+    // Do about 95% inside queries rather than 100% so that branch predictor
+    // can't give itself an artifically crazy advantage.
+    inside_threshold = UINT32_MAX / 20 * 19;
+    for (TestMode tm : testModes) {
+      random_.Seed(FLAGS_seed + 1);
+      double f = RandomQueryTest(inside_threshold, /*dry_run*/ false, tm);
+      random_.Seed(FLAGS_seed + 1);
+      double d = RandomQueryTest(inside_threshold, /*dry_run*/ true, tm);
+      std::cout << "  " << TestModeToString(tm) << " net ns/op: " << (f - d)
+                << std::endl;
+    }
+
+    std::cout << "----------------------------" << std::endl;
+    std::cout << "Outside queries (mostly)..." << std::endl;
+    // Do about 95% outside queries rather than 100% so that branch predictor
+    // can't give itself an artifically crazy advantage.
+    inside_threshold = UINT32_MAX / 20;
+    for (TestMode tm : testModes) {
+      random_.Seed(FLAGS_seed + 2);
+      double f = RandomQueryTest(inside_threshold, /*dry_run*/ false, tm);
+      random_.Seed(FLAGS_seed + 2);
+      double d = RandomQueryTest(inside_threshold, /*dry_run*/ true, tm);
+      std::cout << "  " << TestModeToString(tm) << " net ns/op: " << (f - d)
+                << std::endl;
+    }
   }
+  std::cout << fp_rate_report_.str();
 
   std::cout << "----------------------------" << std::endl;
   std::cout << "Done. (For more info, run with -legend or -help.)" << std::endl;
 }
 
-void FilterBench::RandomQueryTest(bool inside, bool dry_run, TestMode mode) {
+double FilterBench::RandomQueryTest(uint32_t inside_threshold, bool dry_run,
+                                    TestMode mode) {
   for (auto &info : infos_) {
     info.outside_queries_ = 0;
     info.false_positives_ = 0;
+  }
+
+  auto dry_run_hash_fn = DryRunNoHash;
+  if (!FLAGS_net_includes_hashing) {
+    if (FLAGS_impl < 2 || FLAGS_use_plain_table_bloom) {
+      dry_run_hash_fn = DryRunHash32;
+    } else {
+      dry_run_hash_fn = DryRunHash64;
+    }
   }
 
   uint32_t num_infos = static_cast<uint32_t>(infos_.size());
@@ -313,21 +474,26 @@ void FilterBench::RandomQueryTest(bool inside, bool dry_run, TestMode mode) {
     num_primary_filters = (num_primary_filters + 4) / 5;
   }
   uint32_t batch_size = 1;
-  std::unique_ptr<Slice *[]> batch_slices;
+  std::unique_ptr<Slice[]> batch_slices;
+  std::unique_ptr<Slice *[]> batch_slice_ptrs;
   std::unique_ptr<bool[]> batch_results;
   if (mode == kBatchPrepared || mode == kBatchUnprepared) {
     batch_size = static_cast<uint32_t>(kms_.size());
-    batch_slices.reset(new Slice *[batch_size]);
-    batch_results.reset(new bool[batch_size]);
-    for (uint32_t i = 0; i < batch_size; ++i) {
-      batch_slices[i] = &kms_[i].slice_;
-      batch_results[i] = false;
-    }
+  }
+
+  batch_slices.reset(new Slice[batch_size]);
+  batch_slice_ptrs.reset(new Slice *[batch_size]);
+  batch_results.reset(new bool[batch_size]);
+  for (uint32_t i = 0; i < batch_size; ++i) {
+    batch_results[i] = false;
+    batch_slice_ptrs[i] = &batch_slices[i];
   }
 
   rocksdb::StopWatchNano timer(rocksdb::Env::Default(), true);
 
   for (uint64_t q = 0; q < max_queries; q += batch_size) {
+    bool inside_this_time = random_.Next() <= inside_threshold;
+
     uint32_t filter_index;
     if (random_.Next() <= primary_filter_threshold) {
       filter_index = random_.Uniformish(num_primary_filters);
@@ -338,22 +504,34 @@ void FilterBench::RandomQueryTest(bool inside, bool dry_run, TestMode mode) {
     }
     FilterInfo &info = infos_[filter_index];
     for (uint32_t i = 0; i < batch_size; ++i) {
-      if (inside) {
-        kms_[i].Get(info.filter_id_, random_.Uniformish(info.keys_added_));
+      if (inside_this_time) {
+        batch_slices[i] =
+            kms_[i].Get(info.filter_id_, random_.Uniformish(info.keys_added_));
       } else {
-        kms_[i].Get(info.filter_id_, random_.Next() | uint32_t{0x80000000});
+        batch_slices[i] =
+            kms_[i].Get(info.filter_id_, random_.Uniformish(info.keys_added_) |
+                                             uint32_t{0x80000000});
         info.outside_queries_++;
       }
     }
     // TODO: implement batched interface to full block reader
-    if (mode == kBatchPrepared && !dry_run && !FLAGS_use_full_block_reader) {
+    // TODO: implement batched interface to plain table bloom
+    if (mode == kBatchPrepared && !FLAGS_use_full_block_reader &&
+        !FLAGS_use_plain_table_bloom) {
       for (uint32_t i = 0; i < batch_size; ++i) {
         batch_results[i] = false;
       }
-      info.reader_->MayMatch(batch_size, batch_slices.get(),
-                             batch_results.get());
+      if (dry_run) {
+        for (uint32_t i = 0; i < batch_size; ++i) {
+          batch_results[i] = true;
+          dry_run_hash += dry_run_hash_fn(batch_slices[i]);
+        }
+      } else {
+        info.reader_->MayMatch(batch_size, batch_slice_ptrs.get(),
+                               batch_results.get());
+      }
       for (uint32_t i = 0; i < batch_size; ++i) {
-        if (inside) {
+        if (inside_this_time) {
           ALWAYS_ASSERT(batch_results[i]);
         } else {
           info.false_positives_ += batch_results[i];
@@ -361,26 +539,40 @@ void FilterBench::RandomQueryTest(bool inside, bool dry_run, TestMode mode) {
       }
     } else {
       for (uint32_t i = 0; i < batch_size; ++i) {
-        if (dry_run) {
-          dry_run_hash ^= rocksdb::BloomHash(kms_[i].slice_);
-        } else {
-          bool may_match;
-          if (FLAGS_use_full_block_reader) {
+        bool may_match;
+        if (FLAGS_use_plain_table_bloom) {
+          if (dry_run) {
+            dry_run_hash += dry_run_hash_fn(batch_slices[i]);
+            may_match = true;
+          } else {
+            uint32_t hash = GetSliceHash(batch_slices[i]);
+            may_match = info.plain_table_bloom_->MayContainHash(hash);
+          }
+        } else if (FLAGS_use_full_block_reader) {
+          if (dry_run) {
+            dry_run_hash += dry_run_hash_fn(batch_slices[i]);
+            may_match = true;
+          } else {
             may_match = info.full_block_reader_->KeyMayMatch(
-                kms_[i].slice_,
+                batch_slices[i],
                 /*prefix_extractor=*/nullptr,
                 /*block_offset=*/rocksdb::kNotValid,
                 /*no_io=*/false, /*const_ikey_ptr=*/nullptr,
                 /*get_context=*/nullptr,
                 /*lookup_context=*/nullptr);
-          } else {
-            may_match = info.reader_->MayMatch(kms_[i].slice_);
           }
-          if (inside) {
-            ALWAYS_ASSERT(may_match);
+        } else {
+          if (dry_run) {
+            dry_run_hash += dry_run_hash_fn(batch_slices[i]);
+            may_match = true;
           } else {
-            info.false_positives_ += may_match;
+            may_match = info.reader_->MayMatch(batch_slices[i]);
           }
+        }
+        if (inside_this_time) {
+          ALWAYS_ASSERT(may_match);
+        } else {
+          info.false_positives_ += may_match;
         }
       }
     }
@@ -389,17 +581,20 @@ void FilterBench::RandomQueryTest(bool inside, bool dry_run, TestMode mode) {
   uint64_t elapsed_nanos = timer.ElapsedNanos();
   double ns = double(elapsed_nanos) / max_queries;
 
-  if (dry_run) {
-    // Printing part of hash prevents dry run components from being optimized
-    // away by compiler
-    std::cout << "  Dry run (" << std::hex << (dry_run_hash & 0xfff) << std::dec
-              << ") ";
-  } else {
-    std::cout << "  " << TestModeToString(mode) << " ";
+  if (!FLAGS_quick) {
+    if (dry_run) {
+      // Printing part of hash prevents dry run components from being optimized
+      // away by compiler
+      std::cout << "    Dry run (" << std::hex << (dry_run_hash & 0xfffff)
+                << std::dec << ") ";
+    } else {
+      std::cout << "    Gross filter    ";
+    }
+    std::cout << "ns/op: " << ns << std::endl;
   }
-  std::cout << "ns/op: " << ns << std::endl;
 
-  if (!inside && !dry_run && mode == kRandomFilter) {
+  if (!dry_run) {
+    fp_rate_report_ = std::ostringstream();
     uint64_t q = 0;
     uint64_t fp = 0;
     double worst_fp_rate = 0.0;
@@ -413,16 +608,17 @@ void FilterBench::RandomQueryTest(bool inside, bool dry_run, TestMode mode) {
         best_fp_rate = std::min(best_fp_rate, fp_rate);
       }
     }
-    std::cout << "    Average FP rate %: " << 100.0 * fp / q << std::endl;
-    if (!FLAGS_quick) {
-      std::cout << "    Worst   FP rate %: " << 100.0 * worst_fp_rate
-                << std::endl;
-      std::cout << "    Best    FP rate %: " << 100.0 * best_fp_rate
-                << std::endl;
-      std::cout << "    Best possible bits/key: "
-                << -std::log(double(fp) / q) / std::log(2.0) << std::endl;
+    fp_rate_report_ << "    Average FP rate %: " << 100.0 * fp / q << std::endl;
+    if (!FLAGS_quick && !FLAGS_best_case) {
+      fp_rate_report_ << "    Worst   FP rate %: " << 100.0 * worst_fp_rate
+                      << std::endl;
+      fp_rate_report_ << "    Best    FP rate %: " << 100.0 * best_fp_rate
+                      << std::endl;
+      fp_rate_report_ << "    Best possible bits/key: "
+                      << -std::log(double(fp) / q) / std::log(2.0) << std::endl;
     }
   }
+  return ns;
 }
 
 int main(int argc, char **argv) {
@@ -440,8 +636,14 @@ int main(int argc, char **argv) {
         << "  \"Outside\" - key that was not added to filter" << std::endl
         << "  \"FN\" - false negative query (must not happen)" << std::endl
         << "  \"FP\" - false positive query (OK at low rate)" << std::endl
-        << "  \"Dry run\" - cost of testing and hashing overhead. Consider"
-        << "\n     subtracting this cost from the others." << std::endl
+        << "  \"Dry run\" - cost of testing and hashing overhead." << std::endl
+        << "  \"Gross filter\" - cost of filter queries including testing "
+        << "\n     and hashing overhead." << std::endl
+        << "  \"net\" - best estimate of time in filter operation, without "
+        << "\n     testing and hashing overhead (gross filter - dry run)"
+        << std::endl
+        << "  \"ns/op\" - nanoseconds per operation (key query or add)"
+        << std::endl
         << "  \"Single filter\" - essentially minimum cost, assuming filter"
         << "\n     fits easily in L1 CPU cache." << std::endl
         << "  \"Batched, prepared\" - several queries at once against a"
@@ -462,4 +664,4 @@ int main(int argc, char **argv) {
   return 0;
 }
 
-#endif  // GFLAGS
+#endif  // !defined(GFLAGS) || defined(ROCKSDB_LITE)

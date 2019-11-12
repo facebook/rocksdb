@@ -11,6 +11,7 @@
 #include "port/stack_trace.h"
 #include "rocksdb/perf_context.h"
 #include "rocksdb/utilities/debug.h"
+#include "table/block_based/block_based_table_reader.h"
 #include "table/block_based/block_builder.h"
 #include "test_util/fault_injection_test_env.h"
 #if !defined(ROCKSDB_LITE)
@@ -948,11 +949,12 @@ TEST_F(DBBasicTest, ChecksumTest) {
     ASSERT_OK(Flush());
   }
 
-  // verify data with each type of checksum
-  for (int i = 0; i <= kxxHash64; ++i) {
+  // with each valid checksum type setting...
+  for (int i = 0; i <= max_checksum; ++i) {
     table_options.checksum = static_cast<ChecksumType>(i);
     options.table_factory.reset(NewBlockBasedTableFactory(table_options));
     Reopen(options);
+    // verify every type of checksum (should be regardless of that setting)
     for (int j = 0; j < (max_checksum + 1) * kNumPerFile; ++j) {
       ASSERT_EQ(Key(j), Get(Key(j)));
     }
@@ -1629,6 +1631,45 @@ TEST_F(DBBasicTest, GetAllKeyVersions) {
 }
 #endif  // !ROCKSDB_LITE
 
+TEST_F(DBBasicTest, MultiGetIOBufferOverrun) {
+  Options options = CurrentOptions();
+  Random rnd(301);
+  BlockBasedTableOptions table_options;
+  table_options.pin_l0_filter_and_index_blocks_in_cache = true;
+  table_options.block_size = 16 * 1024;
+  assert(table_options.block_size >
+          BlockBasedTable::kMultiGetReadStackBufSize);
+  options.table_factory.reset(new BlockBasedTableFactory(table_options));
+  Reopen(options);
+
+  std::string zero_str(128, '\0');
+  for (int i = 0; i < 100; ++i) {
+    // Make the value compressible. A purely random string doesn't compress
+    // and the resultant data block will not be compressed
+    std::string value(RandomString(&rnd, 128) + zero_str);
+    assert(Put(Key(i), value) == Status::OK());
+  }
+  Flush();
+
+  std::vector<std::string> key_data(10);
+  std::vector<Slice> keys;
+  // We cannot resize a PinnableSlice vector, so just set initial size to
+  // largest we think we will need
+  std::vector<PinnableSlice> values(10);
+  std::vector<Status> statuses;
+  ReadOptions ro;
+
+  // Warm up the cache first
+  key_data.emplace_back(Key(0));
+  keys.emplace_back(Slice(key_data.back()));
+  key_data.emplace_back(Key(50));
+  keys.emplace_back(Slice(key_data.back()));
+  statuses.resize(keys.size());
+
+  dbfull()->MultiGet(ro, dbfull()->DefaultColumnFamily(), keys.size(),
+                     keys.data(), values.data(), statuses.data(), true);
+}
+
 class DBBasicTestWithParallelIO
     : public DBTestBase,
       public testing::WithParamInterface<std::tuple<bool, bool, bool, bool>> {
@@ -1653,8 +1694,12 @@ class DBBasicTestWithParallelIO
     Options options = CurrentOptions();
     Random rnd(301);
     BlockBasedTableOptions table_options;
-    table_options.pin_l0_filter_and_index_blocks_in_cache = true;
     table_options.block_cache = uncompressed_cache_;
+    if (table_options.block_cache == nullptr) {
+      table_options.no_block_cache = true;
+    } else {
+      table_options.pin_l0_filter_and_index_blocks_in_cache = true;
+    }
     table_options.block_cache_compressed = compressed_cache_;
     table_options.flush_block_policy_factory.reset(
         new MyFlushBlockPolicyFactory());
@@ -1690,6 +1735,9 @@ class DBBasicTestWithParallelIO
   int num_inserts_compressed() { return compressed_cache_->num_inserts(); }
 
   bool fill_cache() { return fill_cache_; }
+  bool compression_enabled() { return compression_enabled_; }
+  bool has_compressed_cache() { return compressed_cache_ != nullptr; }
+  bool has_uncompressed_cache() { return uncompressed_cache_ != nullptr; }
 
   static void SetUpTestCase() {}
   static void TearDownTestCase() {}
@@ -1864,7 +1912,16 @@ TEST_P(DBBasicTestWithParallelIO, MultiGet) {
   ASSERT_TRUE(CheckValue(1, values[0].ToString()));
   ASSERT_TRUE(CheckValue(51, values[1].ToString()));
 
-  int expected_reads = random_reads + (fill_cache() ? 0 : 2);
+  bool read_from_cache = false;
+  if (fill_cache()) {
+    if (has_uncompressed_cache()) {
+      read_from_cache = true;
+    } else if (has_compressed_cache() && compression_enabled()) {
+      read_from_cache = true;
+    }
+  }
+
+  int expected_reads = random_reads + (read_from_cache ? 0 : 2);
   ASSERT_EQ(env_->random_read_counter_.Read(), expected_reads);
 
   keys.resize(10);
@@ -1882,7 +1939,7 @@ TEST_P(DBBasicTestWithParallelIO, MultiGet) {
     ASSERT_OK(statuses[i]);
     ASSERT_TRUE(CheckValue(key_ints[i], values[i].ToString()));
   }
-  expected_reads += (fill_cache() ? 2 : 4);
+  expected_reads += (read_from_cache ? 2 : 4);
   ASSERT_EQ(env_->random_read_counter_.Read(), expected_reads);
 }
 
@@ -1893,12 +1950,8 @@ INSTANTIATE_TEST_CASE_P(
     // Param 1 - Uncompressed cache enabled
     // Param 2 - Data compression enabled
     // Param 3 - ReadOptions::fill_cache
-    ::testing::Values(std::make_tuple(false, true, true, true),
-                      std::make_tuple(true, true, true, true),
-                      std::make_tuple(false, true, false, true),
-                      std::make_tuple(false, true, true, false),
-                      std::make_tuple(true, true, true, false),
-                      std::make_tuple(false, true, false, false)));
+    ::testing::Combine(::testing::Bool(), ::testing::Bool(),
+                       ::testing::Bool(), ::testing::Bool()));
 
 class DBBasicTestWithTimestampWithParam
     : public DBTestBase,
