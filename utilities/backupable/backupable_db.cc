@@ -764,7 +764,11 @@ Status BackupEngineImpl::CreateNewBackupWithMetadata(
   if (s.ok()) {
     // maybe last backup failed and left partial state behind, clean it up.
     // need to do this before updating backups_ such that a private dir
-    // named after new_backup_id will be cleaned up
+    // named after new_backup_id will be cleaned up.
+    // (If an incomplete new backup is followed by an incomplete delete
+    // of the latest full backup, then there could be more than one next
+    // id with a private dir, the last thing to be deleted in delete
+    // backup, but all will be cleaned up with a GarbageCollect.)
     s = GarbageCollect();
   } else if (s.IsNotFound()) {
     // normal case, the new backup's private dir doesn't exist yet
@@ -1572,51 +1576,55 @@ Status BackupEngineImpl::GarbageCollect() {
         "constrains how many backups the engine knows about");
   }
 
-  if (options_.share_table_files &&
-      options_.max_valid_backups_to_open == port::kMaxInt32) {
+  if (options_.max_valid_backups_to_open == port::kMaxInt32) {
     // delete obsolete shared files
     // we cannot do this when BackupEngine has `max_valid_backups_to_open` set
     // as those engines don't know about all shared files.
-    std::vector<std::string> shared_children;
-    {
-      std::string shared_path;
-      if (options_.share_files_with_checksum) {
-        shared_path = GetAbsolutePath(GetSharedFileWithChecksumRel());
-      } else {
-        shared_path = GetAbsolutePath(GetSharedFileRel());
-      }
-      auto s = backup_env_->FileExists(shared_path);
-      if (s.ok()) {
-        s = backup_env_->GetChildren(shared_path, &shared_children);
-      } else if (s.IsNotFound()) {
-        s = Status::OK();
-      }
-      if (!s.ok()) {
-        overall_status = s;
-        // Trying again later might work
-        might_need_garbage_collect_ = true;
-      }
-    }
-    for (auto& child : shared_children) {
-      std::string rel_fname;
-      if (options_.share_files_with_checksum) {
-        rel_fname = GetSharedFileWithChecksumRel(child);
-      } else {
-        rel_fname = GetSharedFileRel(child);
-      }
-      auto child_itr = backuped_file_infos_.find(rel_fname);
-      // if it's not refcounted, delete it
-      if (child_itr == backuped_file_infos_.end() ||
-          child_itr->second->refs == 0) {
-        // this might be a directory, but DeleteFile will just fail in that
-        // case, so we're good
-        Status s = backup_env_->DeleteFile(GetAbsolutePath(rel_fname));
-        ROCKS_LOG_INFO(options_.info_log, "Deleting %s -- %s",
-                       rel_fname.c_str(), s.ToString().c_str());
-        backuped_file_infos_.erase(rel_fname);
+    for (bool with_checksum : {false, true}) {
+      std::vector<std::string> shared_children;
+      {
+        std::string shared_path;
+        if (with_checksum) {
+          shared_path = GetAbsolutePath(GetSharedFileWithChecksumRel());
+        } else {
+          shared_path = GetAbsolutePath(GetSharedFileRel());
+        }
+        auto s = backup_env_->FileExists(shared_path);
+        if (s.ok()) {
+          s = backup_env_->GetChildren(shared_path, &shared_children);
+        } else if (s.IsNotFound()) {
+          s = Status::OK();
+        }
         if (!s.ok()) {
+          overall_status = s;
           // Trying again later might work
           might_need_garbage_collect_ = true;
+        }
+      }
+      for (auto& child : shared_children) {
+        if (child == "." || child == "..") {
+          continue;
+        }
+        std::string rel_fname;
+        if (with_checksum) {
+          rel_fname = GetSharedFileWithChecksumRel(child);
+        } else {
+          rel_fname = GetSharedFileRel(child);
+        }
+        auto child_itr = backuped_file_infos_.find(rel_fname);
+        // if it's not refcounted, delete it
+        if (child_itr == backuped_file_infos_.end() ||
+            child_itr->second->refs == 0) {
+          // this might be a directory, but DeleteFile will just fail in that
+          // case, so we're good
+          Status s = backup_env_->DeleteFile(GetAbsolutePath(rel_fname));
+          ROCKS_LOG_INFO(options_.info_log, "Deleting %s -- %s",
+                         rel_fname.c_str(), s.ToString().c_str());
+          backuped_file_infos_.erase(rel_fname);
+          if (!s.ok()) {
+            // Trying again later might work
+            might_need_garbage_collect_ = true;
+          }
         }
       }
     }
@@ -1634,6 +1642,9 @@ Status BackupEngineImpl::GarbageCollect() {
     }
   }
   for (auto& child : private_children) {
+    if (child == "." || child == "..") {
+      continue;
+    }
     // it's ok to do this when BackupEngine has `max_valid_backups_to_open` set
     // as the engine always knows all valid backup numbers.
     BackupID backup_id = 0;
@@ -1650,6 +1661,9 @@ Status BackupEngineImpl::GarbageCollect() {
     std::vector<std::string> subchildren;
     backup_env_->GetChildren(full_private_path, &subchildren);
     for (auto& subchild : subchildren) {
+      if (subchild == "." || subchild == "..") {
+        continue;
+      }
       Status s = backup_env_->DeleteFile(full_private_path + subchild);
       ROCKS_LOG_INFO(options_.info_log, "Deleting %s -- %s",
                      (full_private_path + subchild).c_str(),

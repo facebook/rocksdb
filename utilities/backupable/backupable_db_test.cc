@@ -11,6 +11,7 @@
 
 #include <algorithm>
 #include <string>
+#include <utility>
 
 #include "db/db_impl/db_impl.h"
 #include "env/env_chroot.h"
@@ -515,6 +516,15 @@ static void AssertEmpty(DB* db, int from, int to) {
 
 class BackupableDBTest : public testing::Test {
  public:
+  enum SharedOption {
+    kNoShare,
+    kShareNoChecksum,
+    kShareWithChecksum,
+  };
+
+  const std::vector<SharedOption> kAllSharedOptions = {
+      kNoShare, kShareNoChecksum, kShareWithChecksum};
+
   BackupableDBTest() {
     // set up files
     std::string db_chroot = test::PerThreadDBPath("backupable_db");
@@ -560,15 +570,8 @@ class BackupableDBTest : public testing::Test {
     return db;
   }
 
-  void OpenDBAndBackupEngineShareWithChecksum(
-      bool destroy_old_data = false, bool dummy = false,
-      bool /*share_table_files*/ = true, bool share_with_checksums = false) {
-    backupable_options_->share_files_with_checksum = share_with_checksums;
-    OpenDBAndBackupEngine(destroy_old_data, dummy, share_with_checksums);
-  }
-
   void OpenDBAndBackupEngine(bool destroy_old_data = false, bool dummy = false,
-                             bool share_table_files = true) {
+                             SharedOption shared_option = kShareNoChecksum) {
     // reset all the defaults
     test_backup_env_->SetLimitWrittenFiles(1000000);
     test_db_env_->SetLimitWrittenFiles(1000000);
@@ -583,7 +586,9 @@ class BackupableDBTest : public testing::Test {
     }
     db_.reset(db);
     backupable_options_->destroy_old_data = destroy_old_data;
-    backupable_options_->share_table_files = share_table_files;
+    backupable_options_->share_table_files = shared_option != kNoShare;
+    backupable_options_->share_files_with_checksum =
+        shared_option == kShareWithChecksum;
     BackupEngine* backup_engine;
     ASSERT_OK(BackupEngine::Open(test_db_env_.get(), *backupable_options_,
                                  &backup_engine));
@@ -1204,7 +1209,7 @@ TEST_F(BackupableDBTest, FailOverwritingBackups) {
 
 TEST_F(BackupableDBTest, NoShareTableFiles) {
   const int keys_iteration = 5000;
-  OpenDBAndBackupEngine(true, false, false);
+  OpenDBAndBackupEngine(true, false, kNoShare);
   for (int i = 0; i < 5; ++i) {
     FillDB(db_.get(), keys_iteration * i, keys_iteration * (i + 1));
     ASSERT_OK(backup_engine_->CreateNewBackup(db_.get(), !!(i % 2)));
@@ -1220,7 +1225,7 @@ TEST_F(BackupableDBTest, NoShareTableFiles) {
 // Verify that you can backup and restore with share_files_with_checksum on
 TEST_F(BackupableDBTest, ShareTableFilesWithChecksums) {
   const int keys_iteration = 5000;
-  OpenDBAndBackupEngineShareWithChecksum(true, false, true, true);
+  OpenDBAndBackupEngine(true, false, kShareWithChecksum);
   for (int i = 0; i < 5; ++i) {
     FillDB(db_.get(), keys_iteration * i, keys_iteration * (i + 1));
     ASSERT_OK(backup_engine_->CreateNewBackup(db_.get(), !!(i % 2)));
@@ -1238,7 +1243,7 @@ TEST_F(BackupableDBTest, ShareTableFilesWithChecksums) {
 TEST_F(BackupableDBTest, ShareTableFilesWithChecksumsTransition) {
   const int keys_iteration = 5000;
   // set share_files_with_checksum to false
-  OpenDBAndBackupEngineShareWithChecksum(true, false, true, false);
+  OpenDBAndBackupEngine(true, false, kShareNoChecksum);
   for (int i = 0; i < 5; ++i) {
     FillDB(db_.get(), keys_iteration * i, keys_iteration * (i + 1));
     ASSERT_OK(backup_engine_->CreateNewBackup(db_.get(), true));
@@ -1251,65 +1256,107 @@ TEST_F(BackupableDBTest, ShareTableFilesWithChecksumsTransition) {
   }
 
   // set share_files_with_checksum to true and do some more backups
-  OpenDBAndBackupEngineShareWithChecksum(true, false, true, true);
+  OpenDBAndBackupEngine(false /* destroy_old_data */, false,
+                        kShareWithChecksum);
   for (int i = 5; i < 10; ++i) {
     FillDB(db_.get(), keys_iteration * i, keys_iteration * (i + 1));
     ASSERT_OK(backup_engine_->CreateNewBackup(db_.get(), true));
   }
   CloseDBAndBackupEngine();
 
-  for (int i = 0; i < 5; ++i) {
-    AssertBackupConsistency(i + 1, 0, keys_iteration * (i + 5 + 1),
+  // Verify first (about to delete)
+  AssertBackupConsistency(1, 0, keys_iteration, keys_iteration * 11);
+
+  // For an extra challenge, make sure that GarbageCollect / DeleteBackup
+  // is OK even if we open without share_table_files
+  OpenDBAndBackupEngine(false /* destroy_old_data */, false, kNoShare);
+  backup_engine_->DeleteBackup(1);
+  backup_engine_->GarbageCollect();
+  CloseDBAndBackupEngine();
+
+  // Verify rest (not deleted)
+  for (int i = 1; i < 10; ++i) {
+    AssertBackupConsistency(i + 1, 0, keys_iteration * (i + 1),
                             keys_iteration * 11);
   }
 }
 
+// This test simulates cleaning up after aborted or incomplete creation
+// of a new backup.
 TEST_F(BackupableDBTest, DeleteTmpFiles) {
-  for (int cleanup_fn : {1, 2, 3}) {
-    for (bool shared_checksum : {false, true}) {
-      OpenDBAndBackupEngineShareWithChecksum(
-          false /* destroy_old_data */, false /* dummy */,
-          true /* share_table_files */, shared_checksum);
+  for (int cleanup_fn : {1, 2, 3, 4}) {
+    for (SharedOption shared_option : kAllSharedOptions) {
+      OpenDBAndBackupEngine(false /* destroy_old_data */, false /* dummy */,
+                            shared_option);
+      ASSERT_OK(backup_engine_->CreateNewBackup(db_.get()));
+      BackupID next_id = 1;
+      BackupID oldest_id = INT_MAX;
+      {
+        std::vector<BackupInfo> backup_info;
+        backup_engine_->GetBackupInfo(&backup_info);
+        for (const auto& bi : backup_info) {
+          next_id = std::max(next_id, bi.backup_id + 1);
+          oldest_id = std::min(oldest_id, bi.backup_id);
+        }
+      }
       CloseDBAndBackupEngine();
-      std::string shared_tmp = backupdir_;
-      if (shared_checksum) {
-        shared_tmp += "/shared_checksum";
-      } else {
-        shared_tmp += "/shared";
+
+      // An aborted or incomplete new backup will always be in the next
+      // id (maybe more)
+      std::string next_private = "private/" + std::to_string(next_id);
+
+      // NOTE: both shared and shared_checksum should be cleaned up
+      // regardless of how the backup engine is opened.
+      std::vector<std::string> tmp_files_and_dirs;
+      for (auto&& dir_and_file : {
+               std::make_pair(std::string("shared"),
+                              std::string(".00006.sst.tmp")),
+               std::make_pair(std::string("shared_checksum"),
+                              std::string(".00007.sst.tmp")),
+               std::make_pair(next_private, std::string("00003.sst")),
+           }) {
+        std::string dir = backupdir_ + "/" + dir_and_file.first;
+        file_manager_->CreateDir(dir);
+        ASSERT_OK(file_manager_->FileExists(dir));
+
+        std::string file = dir + "/" + dir_and_file.second;
+        file_manager_->WriteToFile(file, "tmp");
+        ASSERT_OK(file_manager_->FileExists(file));
+
+        tmp_files_and_dirs.push_back(file);
       }
-      shared_tmp += "/.00006.sst.tmp";
-      std::string private_tmp_dir = backupdir_ + "/private/10";
-      std::string private_tmp_file = private_tmp_dir + "/00003.sst";
-      file_manager_->WriteToFile(shared_tmp, "tmp");
-      file_manager_->CreateDir(private_tmp_dir);
-      file_manager_->WriteToFile(private_tmp_file, "tmp");
-      ASSERT_OK(file_manager_->FileExists(private_tmp_dir));
-      if (shared_checksum) {
-        OpenDBAndBackupEngineShareWithChecksum(
-            false /* destroy_old_data */, false /* dummy */,
-            true /* share_table_files */, true /* share_with_checksums */);
-      } else {
-        OpenDBAndBackupEngine();
+      if (cleanup_fn != /*CreateNewBackup*/ 4) {
+        // This exists after CreateNewBackup because it's deleted then
+        // re-created.
+        tmp_files_and_dirs.push_back(backupdir_ + "/" + next_private);
       }
+
+      OpenDBAndBackupEngine(false /* destroy_old_data */, false /* dummy */,
+                            shared_option);
       // Need to call one of these explicitly to delete tmp files
       switch (cleanup_fn) {
         case 1:
-          (void)backup_engine_->GarbageCollect();
+          ASSERT_OK(backup_engine_->GarbageCollect());
           break;
         case 2:
-          (void)backup_engine_->DeleteBackup(1);
+          ASSERT_OK(backup_engine_->DeleteBackup(oldest_id));
           break;
         case 3:
-          (void)backup_engine_->PurgeOldBackups(1);
+          ASSERT_OK(backup_engine_->PurgeOldBackups(1));
+          break;
+        case 4:
+          // Does a garbage collect if it sees that next private dir exists
+          ASSERT_OK(backup_engine_->CreateNewBackup(db_.get()));
           break;
         default:
           assert(false);
       }
       CloseDBAndBackupEngine();
-      ASSERT_EQ(Status::NotFound(), file_manager_->FileExists(shared_tmp));
-      ASSERT_EQ(Status::NotFound(),
-                file_manager_->FileExists(private_tmp_file));
-      ASSERT_EQ(Status::NotFound(), file_manager_->FileExists(private_tmp_dir));
+      for (std::string file_or_dir : tmp_files_and_dirs) {
+        if (file_manager_->FileExists(file_or_dir) != Status::NotFound()) {
+          FAIL() << file_or_dir << " was expected to be deleted." << cleanup_fn;
+        }
+      }
     }
   }
 }
