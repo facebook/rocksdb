@@ -1,6 +1,6 @@
 ## Cross-building
 
-RocksDB can be built as a single self contained cross-platform JAR. The cross-platform jar can be usd on any 64-bit OSX system, 32-bit Linux system, or 64-bit Linux system.
+RocksDB can be built as a single self contained cross-platform JAR. The cross-platform jar can be used on any 64-bit OSX system, 32-bit Linux system, or 64-bit Linux system.
 
 Building a cross-platform JAR requires:
 
