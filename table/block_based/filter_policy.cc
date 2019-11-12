@@ -338,7 +338,8 @@ FilterBitsReader* BloomFilterPolicy::GetFilterBitsReader(
     return new AlwaysFalseFilter();
   }
 
-  char raw_num_probes = contents.data()[len_with_meta - 5];
+  int8_t raw_num_probes =
+      static_cast<int8_t>(contents.data()[len_with_meta - 5]);
   // NB: *num_probes > 30 and < 128 probably have not been used, because of
   // BloomFilterPolicy::initialize, unless directly calling
   // FullFilterBitsBuilder as an API, but we are leaving those cases in
