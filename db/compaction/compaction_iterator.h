@@ -70,7 +70,8 @@ class CompactionIterator {
       const CompactionFilter* compaction_filter = nullptr,
       const std::atomic<bool>* shutting_down = nullptr,
       const SequenceNumber preserve_deletes_seqnum = 0,
-      const std::atomic<bool>* manual_compaction_paused = nullptr);
+      const std::atomic<bool>* manual_compaction_paused = nullptr,
+      const std::shared_ptr<Logger> info_log = nullptr);
 
   // Constructor with custom CompactionProxy, used for tests.
   CompactionIterator(
@@ -84,7 +85,8 @@ class CompactionIterator {
       const CompactionFilter* compaction_filter = nullptr,
       const std::atomic<bool>* shutting_down = nullptr,
       const SequenceNumber preserve_deletes_seqnum = 0,
-      const std::atomic<bool>* manual_compaction_paused = nullptr);
+      const std::atomic<bool>* manual_compaction_paused = nullptr,
+      const std::shared_ptr<Logger> info_log = nullptr);
 
   ~CompactionIterator();
 
@@ -222,6 +224,7 @@ class CompactionIterator {
   // Used to avoid purging uncommitted values. The application can specify
   // uncommitted values by providing a SnapshotChecker object.
   bool current_key_committed_;
+  std::shared_ptr<Logger> info_log_;
 
   bool IsShuttingDown() {
     // This is a best-effort facility, so memory_order_relaxed is sufficient.

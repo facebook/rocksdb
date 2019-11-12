@@ -7,8 +7,8 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
-#include <cinttypes>
 #include <algorithm>
+#include <cinttypes>
 #include <functional>
 #include <list>
 #include <memory>
@@ -891,7 +891,8 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
       &existing_snapshots_, earliest_write_conflict_snapshot_,
       snapshot_checker_, env_, ShouldReportDetailedTime(env_, stats_), false,
       &range_del_agg, sub_compact->compaction, compaction_filter,
-      shutting_down_, preserve_deletes_seqnum_, manual_compaction_paused_));
+      shutting_down_, preserve_deletes_seqnum_, manual_compaction_paused_,
+      db_options_.info_log));
   auto c_iter = sub_compact->c_iter.get();
   c_iter->SeekToFirst();
   if (c_iter->Valid() && sub_compact->compaction->output_level() != 0) {
@@ -933,8 +934,9 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
     assert(sub_compact->current_output() != nullptr);
     sub_compact->builder->Add(key, value);
     sub_compact->current_output_file_size = sub_compact->builder->FileSize();
+    const ParsedInternalKey& ikey = c_iter->ikey();
     sub_compact->current_output()->meta.UpdateBoundaries(
-        key, c_iter->ikey().sequence);
+        key, value, ikey.sequence, ikey.type);
     sub_compact->num_output_records++;
 
     // Close output file if it is big enough. Two possibilities determine it's
@@ -1349,17 +1351,20 @@ Status CompactionJob::FinishCompactionOutputFile(
   }
   std::string fname;
   FileDescriptor output_fd;
+  uint64_t oldest_blob_file_number = kInvalidBlobFileNumber;
   if (meta != nullptr) {
     fname =
         TableFileName(sub_compact->compaction->immutable_cf_options()->cf_paths,
                       meta->fd.GetNumber(), meta->fd.GetPathId());
     output_fd = meta->fd;
+    oldest_blob_file_number = meta->oldest_blob_file_number;
   } else {
     fname = "(nil)";
   }
   EventHelpers::LogAndNotifyTableFileCreationFinished(
       event_logger_, cfd->ioptions()->listeners, dbname_, cfd->GetName(), fname,
-      job_id_, output_fd, tp, TableFileCreationReason::kCompaction, s);
+      job_id_, output_fd, oldest_blob_file_number, tp,
+      TableFileCreationReason::kCompaction, s);
 
 #ifndef ROCKSDB_LITE
   // Report new file to SstFileManagerImpl
@@ -1469,8 +1474,8 @@ Status CompactionJob::OpenCompactionOutputFile(
     LogFlush(db_options_.info_log);
     EventHelpers::LogAndNotifyTableFileCreationFinished(
         event_logger_, cfd->ioptions()->listeners, dbname_, cfd->GetName(),
-        fname, job_id_, FileDescriptor(), TableProperties(),
-        TableFileCreationReason::kCompaction, s);
+        fname, job_id_, FileDescriptor(), kInvalidBlobFileNumber,
+        TableProperties(), TableFileCreationReason::kCompaction, s);
     return s;
   }
 
@@ -1506,10 +1511,9 @@ Status CompactionJob::OpenCompactionOutputFile(
   }
   uint64_t current_time = static_cast<uint64_t>(temp_current_time);
 
-  uint64_t latest_key_time =
-      sub_compact->compaction->MaxInputFileCreationTime();
-  if (latest_key_time == 0) {
-    latest_key_time = current_time;
+  uint64_t creation_time = sub_compact->compaction->MinInputFileCreationTime();
+  if (creation_time == port::kMaxUint64) {
+    creation_time = current_time;
   }
 
   sub_compact->builder.reset(NewTableBuilder(
@@ -1519,7 +1523,7 @@ Status CompactionJob::OpenCompactionOutputFile(
       sub_compact->compaction->output_compression(),
       0 /*sample_for_compression */,
       sub_compact->compaction->output_compression_opts(),
-      sub_compact->compaction->output_level(), skip_filters, latest_key_time,
+      sub_compact->compaction->output_level(), skip_filters, creation_time,
       0 /* oldest_key_time */, sub_compact->compaction->max_output_file_size(),
       current_time));
   LogFlush(db_options_.info_log);

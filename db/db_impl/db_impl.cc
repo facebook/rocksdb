@@ -1961,41 +1961,26 @@ void DBImpl::MultiGetImpl(
     keys_left -= batch_size;
     for (auto mget_iter = range.begin(); mget_iter != range.end();
          ++mget_iter) {
-      MergeContext& merge_context = mget_iter->merge_context;
-      merge_context.Clear();
-      Status& s = *mget_iter->s;
-      PinnableSlice* value = mget_iter->value;
-      s = Status::OK();
-
-      bool skip_memtable =
-          (read_options.read_tier == kPersistedTier &&
-           has_unpersisted_data_.load(std::memory_order_relaxed));
-      bool done = false;
-      if (!skip_memtable) {
-        if (super_version->mem->Get(*(mget_iter->lkey), value->GetSelf(), &s,
-                                    &merge_context,
-                                    &mget_iter->max_covering_tombstone_seq,
-                                    read_options, callback, is_blob_index)) {
-          done = true;
-          value->PinSelf();
-          RecordTick(stats_, MEMTABLE_HIT);
-        } else if (super_version->imm->Get(
-                       *(mget_iter->lkey), value->GetSelf(), &s, &merge_context,
-                       &mget_iter->max_covering_tombstone_seq, read_options,
-                       callback, is_blob_index)) {
-          done = true;
-          value->PinSelf();
-          RecordTick(stats_, MEMTABLE_HIT);
-        }
-      }
-      if (done) {
-        range.MarkKeyDone(mget_iter);
-      } else {
-        RecordTick(stats_, MEMTABLE_MISS);
-        lookup_current = true;
-      }
+      mget_iter->merge_context.Clear();
+      *mget_iter->s = Status::OK();
     }
 
+    bool skip_memtable =
+        (read_options.read_tier == kPersistedTier &&
+         has_unpersisted_data_.load(std::memory_order_relaxed));
+    if (!skip_memtable) {
+      super_version->mem->MultiGet(read_options, &range, callback,
+                                   is_blob_index);
+      if (!range.empty()) {
+        super_version->imm->MultiGet(read_options, &range, callback,
+                                     is_blob_index);
+      }
+      if (!range.empty()) {
+        lookup_current = true;
+        uint64_t left = range.KeysLeft();
+        RecordTick(stats_, MEMTABLE_MISS, left);
+      }
+    }
     if (lookup_current) {
       PERF_TIMER_GUARD(get_from_output_files_time);
       super_version->current->MultiGet(read_options, &range, callback,
@@ -2904,8 +2889,11 @@ DBImpl::CaptureCurrentFileNumberInPendingOutputs() {
 }
 
 void DBImpl::ReleaseFileNumberFromPendingOutputs(
-    std::list<uint64_t>::iterator v) {
-  pending_outputs_.erase(v);
+    std::unique_ptr<std::list<uint64_t>::iterator>& v) {
+  if (v.get() != nullptr) {
+    pending_outputs_.erase(*v.get());
+    v.reset();
+  }
 }
 
 #ifndef ROCKSDB_LITE
@@ -3286,9 +3274,8 @@ Status DestroyDB(const std::string& dbname, const Options& options,
         if (type == kMetaDatabase) {
           del = DestroyDB(path_to_delete, options);
         } else if (type == kTableFile || type == kLogFile) {
-          del =
-              DeleteDBFile(&soptions, path_to_delete, dbname,
-                           /*force_bg=*/false, /*force_fg=*/!wal_in_db_path);
+          del = DeleteDBFile(&soptions, path_to_delete, dbname,
+                             /*force_bg=*/false, /*force_fg=*/!wal_in_db_path);
         } else {
           del = env->DeleteFile(path_to_delete);
         }
@@ -3745,7 +3732,7 @@ Status DBImpl::IngestExternalFiles(
 
   // TODO (yanqin) maybe handle the case in which column_families have
   // duplicates
-  std::list<uint64_t>::iterator pending_output_elem;
+  std::unique_ptr<std::list<uint64_t>::iterator> pending_output_elem;
   size_t total = 0;
   for (const auto& arg : args) {
     total += arg.external_files.size();
@@ -3753,7 +3740,7 @@ Status DBImpl::IngestExternalFiles(
   uint64_t next_file_number = 0;
   Status status = ReserveFileNumbersBeforeIngestion(
       static_cast<ColumnFamilyHandleImpl*>(args[0].column_family)->cfd(), total,
-      &pending_output_elem, &next_file_number);
+      pending_output_elem, &next_file_number);
   if (!status.ok()) {
     InstrumentedMutexLock l(&mutex_);
     ReleaseFileNumberFromPendingOutputs(pending_output_elem);
@@ -4003,8 +3990,7 @@ Status DBImpl::IngestExternalFiles(
 Status DBImpl::CreateColumnFamilyWithImport(
     const ColumnFamilyOptions& options, const std::string& column_family_name,
     const ImportColumnFamilyOptions& import_options,
-    const ExportImportFilesMetaData& metadata,
-    ColumnFamilyHandle** handle) {
+    const ExportImportFilesMetaData& metadata, ColumnFamilyHandle** handle) {
   assert(handle != nullptr);
   assert(*handle == nullptr);
   std::string cf_comparator_name = options.comparator->Name();
@@ -4028,7 +4014,7 @@ Status DBImpl::CreateColumnFamilyWithImport(
   SuperVersionContext dummy_sv_ctx(/* create_superversion */ true);
   VersionEdit dummy_edit;
   uint64_t next_file_number = 0;
-  std::list<uint64_t>::iterator pending_output_elem;
+  std::unique_ptr<std::list<uint64_t>::iterator> pending_output_elem;
   {
     // Lock db mutex
     InstrumentedMutexLock l(&mutex_);
@@ -4038,15 +4024,15 @@ Status DBImpl::CreateColumnFamilyWithImport(
     }
 
     // Make sure that bg cleanup wont delete the files that we are importing
-    pending_output_elem = CaptureCurrentFileNumberInPendingOutputs();
+    pending_output_elem.reset(new std::list<uint64_t>::iterator(
+        CaptureCurrentFileNumberInPendingOutputs()));
 
     if (status.ok()) {
       // If crash happen after a hard link established, Recover function may
       // reuse the file number that has already assigned to the internal file,
       // and this will overwrite the external file. To protect the external
       // file, we have to make sure the file number will never being reused.
-      next_file_number =
-          versions_->FetchAddFileNumber(metadata.files.size());
+      next_file_number = versions_->FetchAddFileNumber(metadata.files.size());
       auto cf_options = cfd->GetLatestMutableCFOptions();
       status = versions_->LogAndApply(cfd, *cf_options, &dummy_edit, &mutex_,
                                       directories_.GetDbDir());
@@ -4257,18 +4243,18 @@ Status DBImpl::TraceIteratorSeekForPrev(const uint32_t& cf_id,
 
 Status DBImpl::ReserveFileNumbersBeforeIngestion(
     ColumnFamilyData* cfd, uint64_t num,
-    std::list<uint64_t>::iterator* pending_output_elem,
+    std::unique_ptr<std::list<uint64_t>::iterator>& pending_output_elem,
     uint64_t* next_file_number) {
   Status s;
   SuperVersionContext dummy_sv_ctx(true /* create_superversion */);
-  assert(nullptr != pending_output_elem);
   assert(nullptr != next_file_number);
   InstrumentedMutexLock l(&mutex_);
   if (error_handler_.IsDBStopped()) {
     // Do not ingest files when there is a bg_error
     return error_handler_.GetBGError();
   }
-  *pending_output_elem = CaptureCurrentFileNumberInPendingOutputs();
+  pending_output_elem.reset(new std::list<uint64_t>::iterator(
+      CaptureCurrentFileNumberInPendingOutputs()));
   *next_file_number = versions_->FetchAddFileNumber(static_cast<uint64_t>(num));
   auto cf_options = cfd->GetLatestMutableCFOptions();
   VersionEdit dummy_edit;
@@ -4283,6 +4269,26 @@ Status DBImpl::ReserveFileNumbersBeforeIngestion(
   }
   dummy_sv_ctx.Clean();
   return s;
+}
+
+Status DBImpl::GetCreationTimeOfOldestFile(uint64_t* creation_time) {
+  if (mutable_db_options_.max_open_files == -1) {
+    uint64_t oldest_time = port::kMaxUint64;
+    for (auto cfd : *versions_->GetColumnFamilySet()) {
+      uint64_t ctime;
+      cfd->current()->GetCreationTimeOfOldestFile(&ctime);
+      if (ctime < oldest_time) {
+        oldest_time = ctime;
+      }
+      if (oldest_time == 0) {
+        break;
+      }
+    }
+    *creation_time = oldest_time;
+    return Status::OK();
+  } else {
+    return Status::NotSupported("This API only works if max_open_files = -1");
+  }
 }
 #endif  // ROCKSDB_LITE
 

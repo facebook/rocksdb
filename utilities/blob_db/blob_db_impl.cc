@@ -11,6 +11,7 @@
 #include <iomanip>
 #include <memory>
 
+#include "db/blob_index.h"
 #include "db/db_impl/db_impl.h"
 #include "db/write_batch_internal.h"
 #include "file/file_util.h"
@@ -40,7 +41,6 @@
 #include "utilities/blob_db/blob_compaction_filter.h"
 #include "utilities/blob_db/blob_db_iterator.h"
 #include "utilities/blob_db/blob_db_listener.h"
-#include "utilities/blob_db/blob_index.h"
 
 namespace {
 int kBlockBasedTableVersionFormat = 2;
@@ -137,6 +137,18 @@ Status BlobDBImpl::Open(std::vector<ColumnFamilyHandle*>* handles) {
       cf_options_.compaction_filter_factory != nullptr) {
     return Status::NotSupported("Blob DB doesn't support compaction filter.");
   }
+  // BlobDB does not support Periodic Compactions. So disable periodic
+  // compactions irrespective of the user set value.
+  cf_options_.periodic_compaction_seconds = 0;
+
+  // Temporarily disable compactions in the base DB during open; save the user
+  // defined value beforehand so we can restore it once BlobDB is initialized.
+  // Note: this is only needed if garbage collection is enabled.
+  const bool disable_auto_compactions = cf_options_.disable_auto_compactions;
+
+  if (bdb_options_.enable_garbage_collection) {
+    cf_options_.disable_auto_compactions = true;
+  }
 
   Status s;
 
@@ -172,7 +184,9 @@ Status BlobDBImpl::Open(std::vector<ColumnFamilyHandle*>* handles) {
   }
 
   // Update options
-  db_options_.listeners.push_back(std::make_shared<BlobDBListener>(this));
+  db_options_.listeners.push_back(bdb_options_.enable_garbage_collection
+                                      ? std::make_shared<BlobDBListenerGC>(this)
+                                      : std::make_shared<BlobDBListener>(this));
   cf_options_.compaction_filter_factory.reset(
       new BlobIndexCompactionFilterFactory(this, env_, statistics_));
 
@@ -183,6 +197,26 @@ Status BlobDBImpl::Open(std::vector<ColumnFamilyHandle*>* handles) {
     return s;
   }
   db_impl_ = static_cast_with_check<DBImpl, DB>(db_->GetRootDB());
+
+  // Initialize SST file <-> oldest blob file mapping if garbage collection
+  // is enabled.
+  if (bdb_options_.enable_garbage_collection) {
+    std::vector<LiveFileMetaData> live_files;
+    db_->GetLiveFilesMetaData(&live_files);
+
+    InitializeBlobFileToSstMapping(live_files);
+
+    if (!disable_auto_compactions) {
+      s = db_->EnableAutoCompaction(*handles);
+      if (!s.ok()) {
+        ROCKS_LOG_ERROR(
+            db_options_.info_log,
+            "Failed to enable automatic compactions during open, status: %s",
+            s.ToString().c_str());
+        return s;
+      }
+    }
+  }
 
   // Add trash files in blob dir to file delete scheduler.
   SstFileManagerImpl* sfm = static_cast<SstFileManagerImpl*>(
@@ -297,6 +331,137 @@ Status BlobDBImpl::OpenAllBlobFiles() {
                  " incomplete or corrupted blob files: %s",
                  obsolete_files_.size(), obsolete_file_list.c_str());
   return s;
+}
+
+template <typename Linker>
+void BlobDBImpl::LinkSstToBlobFileImpl(uint64_t sst_file_number,
+                                       uint64_t blob_file_number,
+                                       Linker linker) {
+  assert(bdb_options_.enable_garbage_collection);
+  assert(blob_file_number != kInvalidBlobFileNumber);
+
+  auto it = blob_files_.find(blob_file_number);
+  if (it == blob_files_.end()) {
+    ROCKS_LOG_WARN(db_options_.info_log,
+                   "Blob file %" PRIu64
+                   " not found while trying to link "
+                   "SST file %" PRIu64,
+                   blob_file_number, sst_file_number);
+    return;
+  }
+
+  BlobFile* const blob_file = it->second.get();
+  assert(blob_file);
+
+  linker(blob_file, sst_file_number);
+
+  ROCKS_LOG_INFO(db_options_.info_log,
+                 "Blob file %" PRIu64 " linked to SST file %" PRIu64,
+                 blob_file_number, sst_file_number);
+}
+
+void BlobDBImpl::LinkSstToBlobFile(uint64_t sst_file_number,
+                                   uint64_t blob_file_number) {
+  auto linker = [](BlobFile* blob_file, uint64_t sst_file) {
+    WriteLock file_lock(&blob_file->mutex_);
+    blob_file->LinkSstFile(sst_file);
+  };
+
+  LinkSstToBlobFileImpl(sst_file_number, blob_file_number, linker);
+}
+
+void BlobDBImpl::LinkSstToBlobFileNoLock(uint64_t sst_file_number,
+                                         uint64_t blob_file_number) {
+  auto linker = [](BlobFile* blob_file, uint64_t sst_file) {
+    blob_file->LinkSstFile(sst_file);
+  };
+
+  LinkSstToBlobFileImpl(sst_file_number, blob_file_number, linker);
+}
+
+void BlobDBImpl::UnlinkSstFromBlobFile(uint64_t sst_file_number,
+                                       uint64_t blob_file_number) {
+  assert(bdb_options_.enable_garbage_collection);
+  assert(blob_file_number != kInvalidBlobFileNumber);
+
+  auto it = blob_files_.find(blob_file_number);
+  if (it == blob_files_.end()) {
+    ROCKS_LOG_WARN(db_options_.info_log,
+                   "Blob file %" PRIu64
+                   " not found while trying to unlink "
+                   "SST file %" PRIu64,
+                   blob_file_number, sst_file_number);
+    return;
+  }
+
+  BlobFile* const blob_file = it->second.get();
+  assert(blob_file);
+
+  {
+    WriteLock file_lock(&blob_file->mutex_);
+    blob_file->UnlinkSstFile(sst_file_number);
+  }
+
+  ROCKS_LOG_INFO(db_options_.info_log,
+                 "Blob file %" PRIu64 " unlinked from SST file %" PRIu64,
+                 blob_file_number, sst_file_number);
+}
+
+void BlobDBImpl::InitializeBlobFileToSstMapping(
+    const std::vector<LiveFileMetaData>& live_files) {
+  assert(bdb_options_.enable_garbage_collection);
+
+  for (const auto& live_file : live_files) {
+    const uint64_t sst_file_number = live_file.file_number;
+    const uint64_t blob_file_number = live_file.oldest_blob_file_number;
+
+    if (blob_file_number == kInvalidBlobFileNumber) {
+      continue;
+    }
+
+    LinkSstToBlobFileNoLock(sst_file_number, blob_file_number);
+  }
+}
+
+void BlobDBImpl::ProcessFlushJobInfo(const FlushJobInfo& info) {
+  assert(bdb_options_.enable_garbage_collection);
+
+  if (info.oldest_blob_file_number == kInvalidBlobFileNumber) {
+    return;
+  }
+
+  {
+    ReadLock lock(&mutex_);
+    LinkSstToBlobFile(info.file_number, info.oldest_blob_file_number);
+  }
+}
+
+void BlobDBImpl::ProcessCompactionJobInfo(const CompactionJobInfo& info) {
+  assert(bdb_options_.enable_garbage_collection);
+
+  // Note: the same SST file may appear in both the input and the output
+  // file list in case of a trivial move. We process the inputs first
+  // to ensure the blob file still has a link after processing all updates.
+
+  {
+    ReadLock lock(&mutex_);
+
+    for (const auto& input : info.input_file_infos) {
+      if (input.oldest_blob_file_number == kInvalidBlobFileNumber) {
+        continue;
+      }
+
+      UnlinkSstFromBlobFile(input.file_number, input.oldest_blob_file_number);
+    }
+
+    for (const auto& output : info.output_file_infos) {
+      if (output.oldest_blob_file_number == kInvalidBlobFileNumber) {
+        continue;
+      }
+
+      LinkSstToBlobFile(output.file_number, output.oldest_blob_file_number);
+    }
+  }
 }
 
 void BlobDBImpl::CloseRandomAccessLocked(
@@ -772,6 +937,34 @@ Slice BlobDBImpl::GetCompressedSlice(const Slice& raw,
   CompressBlock(raw, info, &type, kBlockBasedTableVersionFormat, false,
                 compression_output, nullptr, nullptr);
   return *compression_output;
+}
+
+Status BlobDBImpl::CompactFiles(
+    const CompactionOptions& compact_options,
+    const std::vector<std::string>& input_file_names, const int output_level,
+    const int output_path_id, std::vector<std::string>* const output_file_names,
+    CompactionJobInfo* compaction_job_info) {
+  // Note: we need CompactionJobInfo to be able to track updates to the
+  // blob file <-> SST mappings, so we provide one if the user hasn't,
+  // assuming that GC is enabled.
+  CompactionJobInfo info{};
+  if (bdb_options_.enable_garbage_collection && !compaction_job_info) {
+    compaction_job_info = &info;
+  }
+
+  const Status s =
+      db_->CompactFiles(compact_options, input_file_names, output_level,
+                        output_path_id, output_file_names, compaction_job_info);
+  if (!s.ok()) {
+    return s;
+  }
+
+  if (bdb_options_.enable_garbage_collection) {
+    assert(compaction_job_info);
+    ProcessCompactionJobInfo(*compaction_job_info);
+  }
+
+  return s;
 }
 
 void BlobDBImpl::GetCompactionContext(BlobCompactionContext* context) {
@@ -1899,6 +2092,11 @@ Status BlobDBImpl::TEST_GetBlobValue(const Slice& key, const Slice& index_entry,
   return GetBlobValue(key, index_entry, value);
 }
 
+void BlobDBImpl::TEST_AddDummyBlobFile(uint64_t blob_file_number) {
+  blob_files_[blob_file_number] = std::make_shared<BlobFile>(
+      this, blob_dir_, blob_file_number, db_options_.info_log.get());
+}
+
 std::vector<std::shared_ptr<BlobFile>> BlobDBImpl::TEST_GetBlobFiles() const {
   ReadLock l(&mutex_);
   std::vector<std::shared_ptr<BlobFile>> blob_files;
@@ -1945,6 +2143,20 @@ void BlobDBImpl::TEST_EvictExpiredFiles() {
 }
 
 uint64_t BlobDBImpl::TEST_live_sst_size() { return live_sst_size_.load(); }
+
+void BlobDBImpl::TEST_InitializeBlobFileToSstMapping(
+    const std::vector<LiveFileMetaData>& live_files) {
+  InitializeBlobFileToSstMapping(live_files);
+}
+
+void BlobDBImpl::TEST_ProcessFlushJobInfo(const FlushJobInfo& info) {
+  ProcessFlushJobInfo(info);
+}
+
+void BlobDBImpl::TEST_ProcessCompactionJobInfo(const CompactionJobInfo& info) {
+  ProcessCompactionJobInfo(info);
+}
+
 #endif  //  !NDEBUG
 
 }  // namespace blob_db

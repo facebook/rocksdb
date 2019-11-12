@@ -37,12 +37,11 @@ default_params = {
     "delpercent": 4,
     "delrangepercent": 1,
     "destroy_db_initially": 0,
-    # Temporarily disable it until its concurrency issue are fixed
-    "enable_pipelined_write": 0,
+    "enable_pipelined_write": lambda: random.randint(0, 1),
     "expected_values_path": expected_values_file.name,
     "flush_one_in": 1000000,
-    # Temporarily disable hash and partitioned index
-    "index_type": 0,
+    # Temporarily disable hash index
+    "index_type": lambda: random.choice([0,2]),
     "max_background_compactions": 20,
     "max_bytes_for_level_base": 10485760,
     "max_key": 100000000,
@@ -50,8 +49,7 @@ default_params = {
     "mmap_read": lambda: random.randint(0, 1),
     "nooverwritepercent": 1,
     "open_files": lambda : random.choice([-1, 500000]),
-    # Temporarily disable partitioned filter
-    "partition_filters": 0,
+    "partition_filters": lambda: random.randint(0, 1),
     "prefixpercent": 5,
     "progress_reports": 0,
     "readpercent": 45,
@@ -124,8 +122,9 @@ simple_default_params = {
     "max_background_compactions": 1,
     "max_bytes_for_level_base": 67108864,
     "memtablerep": "skip_list",
-    "prefixpercent": 25,
-    "readpercent": 25,
+    "prefixpercent": 0,
+    "readpercent": 50,
+    "prefix_size" : -1,
     "target_file_size_base": 16777216,
     "target_file_size_multiplier": 1,
     "test_batches_snapshots": 0,
@@ -146,8 +145,7 @@ cf_consistency_params = {
     # use small value for write_buffer_size so that RocksDB triggers flush
     # more frequently
     "write_buffer_size": 1024 * 1024,
-    # disable pipelined write when test_atomic_flush is true
-    "enable_pipelined_write": 0,
+    "enable_pipelined_write": lambda: random.randint(0, 1),
 }
 
 
@@ -177,11 +175,16 @@ def finalize_and_sanitize(src_params):
         # Disable compaction TTL in FIFO compaction, because right
         # now assertion failures are triggered.
         dest_params["compaction_ttl"] = 0
+        dest_params["periodic_compaction_seconds"] = 0
     if dest_params["partition_filters"] == 1:
-        dest_params["index_type"] = 2
-        dest_params["use_block_based_filter"] = 0
+        if dest_params["index_type"] != 2:
+            dest_params["partition_filters"] = 0
+        else:
+            dest_params["use_block_based_filter"] = 0
+    if dest_params.get("atomic_flush", 0) == 1:
+        # disable pipelined write when atomic flush is used.
+        dest_params["enable_pipelined_write"] = 0
     return dest_params
-
 
 def gen_cmd_params(args):
     params = {}

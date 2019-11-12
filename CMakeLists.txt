@@ -599,9 +599,11 @@ set(SOURCES
         table/block_based/data_block_hash_index.cc
         table/block_based/data_block_footer.cc
         table/block_based/filter_block_reader_common.cc
+        table/block_based/filter_policy.cc
         table/block_based/flush_block_policy.cc
         table/block_based/full_filter_block.cc
         table/block_based/index_builder.cc
+        table/block_based/parsed_full_filter_block.cc
         table/block_based/partitioned_filter_block.cc
         table/block_based/uncompression_dict_reader.cc
         table/block_fetcher.cc
@@ -637,7 +639,6 @@ set(SOURCES
         tools/trace_analyzer_tool.cc
         trace_replay/trace_replay.cc
         trace_replay/block_cache_tracer.cc
-        util/bloom.cc
         util/coding.cc
         util/compaction_job_stats_impl.cc
         util/comparator.cc
@@ -645,7 +646,6 @@ set(SOURCES
         util/concurrent_task_limiter_impl.cc
         util/crc32c.cc
         util/dynamic_bloom.cc
-        util/filter_policy.cc
         util/hash.cc
         util/murmurhash.cc
         util/random.cc
@@ -1046,6 +1046,7 @@ if(WITH_TESTS)
     db/range_del_aggregator_bench.cc
     tools/db_bench.cc
     table/table_reader_bench.cc
+    util/filter_bench.cc
     utilities/persistent_cache/hash_table_bench.cc)
   add_library(testharness OBJECT test_util/testharness.cc)
   foreach(sourcefile ${BENCHMARKS})

@@ -16,7 +16,7 @@
 #include "rocksdb/slice.h"
 #include "rocksdb/slice_transform.h"
 #include "table/block_based/filter_block_reader_common.h"
-#include "table/format.h"
+#include "table/block_based/parsed_full_filter_block.h"
 #include "util/hash.h"
 
 namespace rocksdb {
@@ -59,6 +59,8 @@ class FullFilterBlockBuilder : public FilterBlockBuilder {
   virtual void AddKey(const Slice& key);
   std::unique_ptr<FilterBitsBuilder> filter_bits_builder_;
   virtual void Reset();
+  void AddPrefix(const Slice& key);
+  const SliceTransform* prefix_extractor() { return prefix_extractor_; }
 
  private:
   // important: all of these might point to invalid addresses
@@ -74,15 +76,15 @@ class FullFilterBlockBuilder : public FilterBlockBuilder {
   uint32_t num_added_;
   std::unique_ptr<const char[]> filter_data_;
 
-  void AddPrefix(const Slice& key);
 };
 
 // A FilterBlockReader is used to parse filter from SST table.
 // KeyMayMatch and PrefixMayMatch would trigger filter checking
-class FullFilterBlockReader : public FilterBlockReaderCommon<BlockContents> {
+class FullFilterBlockReader
+    : public FilterBlockReaderCommon<ParsedFullFilterBlock> {
  public:
   FullFilterBlockReader(const BlockBasedTable* t,
-                        CachableEntry<BlockContents>&& filter_block);
+                        CachableEntry<ParsedFullFilterBlock>&& filter_block);
 
   static std::unique_ptr<FilterBlockReader> Create(
       const BlockBasedTable* table, FilePrefetchBuffer* prefetch_buffer,

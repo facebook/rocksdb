@@ -369,6 +369,13 @@ TEST_F(CorruptionTest, VerifyChecksumReadahead) {
   ASSERT_GE(senv.random_read_counter_.Read(), 213);
   ASSERT_LE(senv.random_read_counter_.Read(), 447);
 
+  // Test readahead shouldn't break mmap mode (where it should be
+  // disabled).
+  options.allow_mmap_reads = true;
+  Reopen(&options);
+  dbi = static_cast<DBImpl*>(db_);
+  ASSERT_OK(dbi->VerifyChecksum(ro));
+
   CloseDb();
 }
 

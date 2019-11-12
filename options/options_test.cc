@@ -8,9 +8,9 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
 #include <cctype>
+#include <cinttypes>
 #include <cstring>
 #include <unordered_map>
-#include <cinttypes>
 
 #include "cache/lru_cache.h"
 #include "cache/sharded_cache.h"

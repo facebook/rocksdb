@@ -125,9 +125,11 @@ LIB_SOURCES =                                                   \
   table/block_based/data_block_hash_index.cc                    \
   table/block_based/data_block_footer.cc                        \
   table/block_based/filter_block_reader_common.cc               \
+  table/block_based/filter_policy.cc                                                 \
   table/block_based/flush_block_policy.cc                       \
   table/block_based/full_filter_block.cc                        \
   table/block_based/index_builder.cc                            \
+  table/block_based/parsed_full_filter_block.cc                 \
   table/block_based/partitioned_filter_block.cc                 \
   table/block_based/uncompression_dict_reader.cc                \
   table/block_fetcher.cc                             		\
@@ -156,7 +158,6 @@ LIB_SOURCES =                                                   \
   tools/dump/db_dump_tool.cc                                    \
   trace_replay/trace_replay.cc                                  \
   trace_replay/block_cache_tracer.cc                            \
-  util/bloom.cc                                                 \
   util/build_version.cc                                         \
   util/coding.cc                                                \
   util/compaction_job_stats_impl.cc                             \
@@ -165,7 +166,6 @@ LIB_SOURCES =                                                   \
   util/concurrent_task_limiter_impl.cc                          \
   util/crc32c.cc                                                \
   util/dynamic_bloom.cc                                         \
-  util/filter_policy.cc                                         \
   util/hash.cc                                                  \
   util/murmurhash.cc                                            \
   util/random.cc                                                \
@@ -263,6 +263,9 @@ MOCK_LIB_SOURCES =                                              \
 
 BENCH_LIB_SOURCES =                                             \
   tools/db_bench_tool.cc                                        \
+
+STRESS_LIB_SOURCES =                                            \
+  tools/db_stress_tool.cc                                       \
 
 TEST_LIB_SOURCES =                                              \
   db/db_test_util.cc                                            \
@@ -395,6 +398,7 @@ MAIN_SOURCES =                                                          \
   tools/db_bench.cc                                                     \
   tools/db_bench_tool_test.cc                                           \
   tools/db_sanity_test.cc                                               \
+  tools/db_stress.cc                                                    \
   tools/ldb_cmd_test.cc                                                 \
   tools/reduce_levels_test.cc                                           \
   tools/sst_dump_test.cc                                                \

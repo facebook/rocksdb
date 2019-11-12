@@ -979,7 +979,8 @@ uint64_t WinEnvIO::NowMicros() {
     return li.QuadPart;
   }
   using namespace std::chrono;
-  return duration_cast<microseconds>(system_clock::now().time_since_epoch()).count();
+  return duration_cast<microseconds>(system_clock::now().time_since_epoch())
+      .count();
 }
 
 uint64_t WinEnvIO::NowNanos() {

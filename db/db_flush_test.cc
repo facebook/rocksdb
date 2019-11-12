@@ -7,10 +7,16 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
+#include <atomic>
+
+#include "db/db_impl/db_impl.h"
 #include "db/db_test_util.h"
+#include "port/port.h"
 #include "port/stack_trace.h"
 #include "test_util/fault_injection_test_env.h"
 #include "test_util/sync_point.h"
+#include "util/cast_util.h"
+#include "util/mutexlock.h"
 
 namespace rocksdb {
 
@@ -322,6 +328,96 @@ TEST_F(DBFlushTest, CFDropRaceWithWaitForFlushMemTables) {
   Close();
   SyncPoint::GetInstance()->DisableProcessing();
 }
+
+#ifndef ROCKSDB_LITE
+TEST_F(DBFlushTest, FireOnFlushCompletedAfterCommittedResult) {
+  class TestListener : public EventListener {
+   public:
+    void OnFlushCompleted(DB* db, const FlushJobInfo& info) override {
+      // There's only one key in each flush.
+      ASSERT_EQ(info.smallest_seqno, info.largest_seqno);
+      ASSERT_NE(0, info.smallest_seqno);
+      if (info.smallest_seqno == seq1) {
+        // First flush completed
+        ASSERT_FALSE(completed1);
+        completed1 = true;
+        CheckFlushResultCommitted(db, seq1);
+      } else {
+        // Second flush completed
+        ASSERT_FALSE(completed2);
+        completed2 = true;
+        ASSERT_EQ(info.smallest_seqno, seq2);
+        CheckFlushResultCommitted(db, seq2);
+      }
+    }
+
+    void CheckFlushResultCommitted(DB* db, SequenceNumber seq) {
+      DBImpl* db_impl = static_cast_with_check<DBImpl>(db);
+      InstrumentedMutex* mutex = db_impl->mutex();
+      mutex->Lock();
+      auto* cfd =
+          reinterpret_cast<ColumnFamilyHandleImpl*>(db->DefaultColumnFamily())
+              ->cfd();
+      ASSERT_LT(seq, cfd->imm()->current()->GetEarliestSequenceNumber());
+      mutex->Unlock();
+    }
+
+    std::atomic<SequenceNumber> seq1{0};
+    std::atomic<SequenceNumber> seq2{0};
+    std::atomic<bool> completed1{false};
+    std::atomic<bool> completed2{false};
+  };
+  std::shared_ptr<TestListener> listener = std::make_shared<TestListener>();
+
+  SyncPoint::GetInstance()->LoadDependency(
+      {{"DBImpl::BackgroundCallFlush:start",
+        "DBFlushTest::FireOnFlushCompletedAfterCommittedResult:WaitFirst"},
+       {"DBImpl::FlushMemTableToOutputFile:Finish",
+        "DBFlushTest::FireOnFlushCompletedAfterCommittedResult:WaitSecond"}});
+  SyncPoint::GetInstance()->SetCallBack(
+      "FlushJob::WriteLevel0Table", [&listener](void* arg) {
+        // Wait for the second flush finished, out of mutex.
+        auto* mems = reinterpret_cast<autovector<MemTable*>*>(arg);
+        if (mems->front()->GetEarliestSequenceNumber() == listener->seq1 - 1) {
+          TEST_SYNC_POINT(
+              "DBFlushTest::FireOnFlushCompletedAfterCommittedResult:"
+              "WaitSecond");
+        }
+      });
+
+  Options options = CurrentOptions();
+  options.create_if_missing = true;
+  options.listeners.push_back(listener);
+  // Setting max_flush_jobs = max_background_jobs / 4 = 2.
+  options.max_background_jobs = 8;
+  // Allow 2 immutable memtables.
+  options.max_write_buffer_number = 3;
+  Reopen(options);
+  SyncPoint::GetInstance()->EnableProcessing();
+  ASSERT_OK(Put("foo", "v"));
+  listener->seq1 = db_->GetLatestSequenceNumber();
+  // t1 will wait for the second flush complete before committing flush result.
+  auto t1 = port::Thread([&]() {
+    // flush_opts.wait = true
+    ASSERT_OK(db_->Flush(FlushOptions()));
+  });
+  // Wait for first flush started.
+  TEST_SYNC_POINT(
+      "DBFlushTest::FireOnFlushCompletedAfterCommittedResult:WaitFirst");
+  // The second flush will exit early without commit its result. The work
+  // is delegated to the first flush.
+  ASSERT_OK(Put("bar", "v"));
+  listener->seq2 = db_->GetLatestSequenceNumber();
+  FlushOptions flush_opts;
+  flush_opts.wait = false;
+  ASSERT_OK(db_->Flush(flush_opts));
+  t1.join();
+  ASSERT_TRUE(listener->completed1);
+  ASSERT_TRUE(listener->completed2);
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+}
+#endif  // !ROCKSDB_LITE
 
 TEST_P(DBAtomicFlushTest, ManualAtomicFlush) {
   Options options = CurrentOptions();

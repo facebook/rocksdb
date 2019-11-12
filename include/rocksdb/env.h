@@ -152,6 +152,10 @@ class Env {
   // Loads the environment specified by the input value into the result
   static Status LoadEnv(const std::string& value, Env** result);
 
+  // Loads the environment specified by the input value into the result
+  static Status LoadEnv(const std::string& value, Env** result,
+                        std::shared_ptr<Env>* guard);
+
   // Return a default environment suitable for the current operating
   // system.  Sophisticated users may wish to provide their own Env
   // implementation instead of relying on this default environment.
@@ -523,6 +527,8 @@ class Env {
                               uint64_t* /*diskfree*/) {
     return Status::NotSupported();
   }
+
+  virtual void SanitizeEnvOptions(EnvOptions* /*env_opts*/) const {}
 
   // If you're adding methods here, remember to add them to EnvWrapper too.
 
@@ -1358,6 +1364,9 @@ class EnvWrapper : public Env {
   }
   Status GetFreeSpace(const std::string& path, uint64_t* diskfree) override {
     return target_->GetFreeSpace(path, diskfree);
+  }
+  void SanitizeEnvOptions(EnvOptions* env_opts) const override {
+    target_->SanitizeEnvOptions(env_opts);
   }
 
  private:

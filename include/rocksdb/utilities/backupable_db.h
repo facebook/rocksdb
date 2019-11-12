@@ -325,7 +325,10 @@ class BackupEngine {
 
   // Will delete all the files we don't need anymore
   // It will do the full scan of the files/ directory and delete all the
-  // files that are not referenced.
+  // files that are not referenced. PurgeOldBackups() and DeleteBackup()
+  // will do a similar operation as needed to clean up from any incomplete
+  // deletions, so this function is not really needed if calling one of
+  // those.
   virtual Status GarbageCollect() = 0;
 };
 

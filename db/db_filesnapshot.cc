@@ -6,9 +6,9 @@
 
 #ifndef ROCKSDB_LITE
 
-#include <cinttypes>
 #include <stdint.h>
 #include <algorithm>
+#include <cinttypes>
 #include <string>
 #include "db/db_impl/db_impl.h"
 #include "db/job_context.h"
@@ -172,7 +172,6 @@ Status DBImpl::GetCurrentWalFile(std::unique_ptr<LogFile>* current_log_file) {
 
   return wal_manager_.GetLiveWalFile(current_logfile_number, current_log_file);
 }
-
 }
 
 #endif  // ROCKSDB_LITE

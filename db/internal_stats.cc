@@ -10,8 +10,8 @@
 
 #include "db/internal_stats.h"
 
-#include <cinttypes>
 #include <algorithm>
+#include <cinttypes>
 #include <limits>
 #include <string>
 #include <utility>

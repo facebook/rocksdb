@@ -41,10 +41,9 @@ class DBTestUniversalCompaction : public DBTestUniversalCompactionBase {
       DBTestUniversalCompactionBase("/db_universal_compaction_test") {}
 };
 
-class DBTestUniversalDeleteTrigCompaction : public DBTestBase {
+class DBTestUniversalCompaction2 : public DBTestBase {
  public:
-  DBTestUniversalDeleteTrigCompaction()
-      : DBTestBase("/db_universal_compaction_test") {}
+  DBTestUniversalCompaction2() : DBTestBase("/db_universal_compaction_test2") {}
 };
 
 namespace {
@@ -452,7 +451,7 @@ TEST_P(DBTestUniversalCompaction, DynamicUniversalCompactionSizeAmplification) {
   ASSERT_OK(dbfull()->TEST_GetLatestMutableCFOptions(handles_[1],
                                                      &mutable_cf_options));
   ASSERT_EQ(110u, mutable_cf_options.compaction_options_universal
-                     .max_size_amplification_percent);
+                      .max_size_amplification_percent);
 
   dbfull()->TEST_WaitForCompact();
   // Verify that size amplification did happen
@@ -534,8 +533,10 @@ TEST_P(DBTestUniversalCompaction, DynamicUniversalCompactionReadAmplification) {
   ASSERT_OK(dbfull()->TEST_GetLatestMutableCFOptions(handles_[1],
                                                      &mutable_cf_options));
   ASSERT_EQ(mutable_cf_options.compaction_options_universal.size_ratio, 100u);
-  ASSERT_EQ(mutable_cf_options.compaction_options_universal.min_merge_width, 2u);
-  ASSERT_EQ(mutable_cf_options.compaction_options_universal.max_merge_width, 2u);
+  ASSERT_EQ(mutable_cf_options.compaction_options_universal.min_merge_width,
+            2u);
+  ASSERT_EQ(mutable_cf_options.compaction_options_universal.max_merge_width,
+            2u);
 
   dbfull()->TEST_WaitForCompact();
 
@@ -1913,7 +1914,7 @@ INSTANTIATE_TEST_CASE_P(DBTestUniversalManualCompactionOutputPathId,
                         ::testing::Combine(::testing::Values(1, 8),
                                            ::testing::Bool()));
 
-TEST_F(DBTestUniversalDeleteTrigCompaction, BasicL0toL1) {
+TEST_F(DBTestUniversalCompaction2, BasicL0toL1) {
   const int kNumKeys = 3000;
   const int kWindowSize = 100;
   const int kNumDelsTrigger = 90;
@@ -1954,7 +1955,7 @@ TEST_F(DBTestUniversalDeleteTrigCompaction, BasicL0toL1) {
   ASSERT_GT(NumTableFilesAtLevel(6), 0);
 }
 
-TEST_F(DBTestUniversalDeleteTrigCompaction, SingleLevel) {
+TEST_F(DBTestUniversalCompaction2, SingleLevel) {
   const int kNumKeys = 3000;
   const int kWindowSize = 100;
   const int kNumDelsTrigger = 90;
@@ -1993,7 +1994,7 @@ TEST_F(DBTestUniversalDeleteTrigCompaction, SingleLevel) {
   ASSERT_EQ(1, NumTableFilesAtLevel(0));
 }
 
-TEST_F(DBTestUniversalDeleteTrigCompaction, MultipleLevels) {
+TEST_F(DBTestUniversalCompaction2, MultipleLevels) {
   const int kWindowSize = 100;
   const int kNumDelsTrigger = 90;
 
@@ -2065,7 +2066,7 @@ TEST_F(DBTestUniversalDeleteTrigCompaction, MultipleLevels) {
   ASSERT_GT(NumTableFilesAtLevel(6), 0);
 }
 
-TEST_F(DBTestUniversalDeleteTrigCompaction, OverlappingL0) {
+TEST_F(DBTestUniversalCompaction2, OverlappingL0) {
   const int kWindowSize = 100;
   const int kNumDelsTrigger = 90;
 
@@ -2105,7 +2106,7 @@ TEST_F(DBTestUniversalDeleteTrigCompaction, OverlappingL0) {
   ASSERT_GT(NumTableFilesAtLevel(6), 0);
 }
 
-TEST_F(DBTestUniversalDeleteTrigCompaction, IngestBehind) {
+TEST_F(DBTestUniversalCompaction2, IngestBehind) {
   const int kNumKeys = 3000;
   const int kWindowSize = 100;
   const int kNumDelsTrigger = 90;
@@ -2146,6 +2147,95 @@ TEST_F(DBTestUniversalDeleteTrigCompaction, IngestBehind) {
   ASSERT_EQ(0, NumTableFilesAtLevel(0));
   ASSERT_EQ(0, NumTableFilesAtLevel(6));
   ASSERT_GT(NumTableFilesAtLevel(5), 0);
+}
+
+TEST_F(DBTestUniversalCompaction2, PeriodicCompactionDefault) {
+  Options options;
+  options.compaction_style = kCompactionStyleUniversal;
+
+  KeepFilterFactory* filter = new KeepFilterFactory(true);
+  options.compaction_filter_factory.reset(filter);
+  Reopen(options);
+  ASSERT_EQ(30 * 24 * 60 * 60,
+            dbfull()->GetOptions().periodic_compaction_seconds);
+
+  KeepFilter df;
+  options.compaction_filter_factory.reset();
+  options.compaction_filter = &df;
+  Reopen(options);
+  ASSERT_EQ(30 * 24 * 60 * 60,
+            dbfull()->GetOptions().periodic_compaction_seconds);
+
+  options.compaction_filter = nullptr;
+  Reopen(options);
+  ASSERT_EQ(options.periodic_compaction_seconds,
+            dbfull()->GetOptions().periodic_compaction_seconds);
+}
+
+TEST_F(DBTestUniversalCompaction2, PeriodicCompaction) {
+  Options opts = CurrentOptions();
+  opts.env = env_;
+  opts.compaction_style = kCompactionStyleUniversal;
+  opts.level0_file_num_compaction_trigger = 10;
+  opts.max_open_files = -1;
+  opts.compaction_options_universal.size_ratio = 10;
+  opts.compaction_options_universal.min_merge_width = 2;
+  opts.compaction_options_universal.max_size_amplification_percent = 200;
+  opts.periodic_compaction_seconds = 48 * 60 * 60;  // 2 days
+  opts.num_levels = 5;
+  env_->addon_time_.store(0);
+  Reopen(opts);
+
+  int periodic_compactions = 0;
+  int start_level = -1;
+  int output_level = -1;
+  rocksdb::SyncPoint::GetInstance()->SetCallBack(
+      "UniversalCompactionPicker::PickPeriodicCompaction:Return",
+      [&](void* arg) {
+        Compaction* compaction = reinterpret_cast<Compaction*>(arg);
+        ASSERT_TRUE(arg != nullptr);
+        ASSERT_TRUE(compaction->compaction_reason() ==
+                    CompactionReason::kPeriodicCompaction);
+        start_level = compaction->start_level();
+        output_level = compaction->output_level();
+        periodic_compactions++;
+      });
+  rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+
+  // Case 1: Oldest flushed file excceeds periodic compaction threshold.
+  ASSERT_OK(Put("foo", "bar"));
+  Flush();
+  ASSERT_EQ(0, periodic_compactions);
+  // Move clock forward so that the flushed file would qualify periodic
+  // compaction.
+  env_->addon_time_.store(48 * 60 * 60 + 100);
+
+  // Another flush would trigger compaction the oldest file.
+  ASSERT_OK(Put("foo", "bar2"));
+  Flush();
+  dbfull()->TEST_WaitForCompact();
+
+  ASSERT_EQ(1, periodic_compactions);
+  ASSERT_EQ(0, start_level);
+  ASSERT_EQ(4, output_level);
+
+  // Case 2: Oldest compacted file excceeds periodic compaction threshold
+  periodic_compactions = 0;
+  // A flush doesn't trigger a periodic compaction when threshold not hit
+  ASSERT_OK(Put("foo", "bar2"));
+  Flush();
+  dbfull()->TEST_WaitForCompact();
+  ASSERT_EQ(0, periodic_compactions);
+
+  // After periodic compaction threshold hits, a flush will trigger
+  // a compaction
+  ASSERT_OK(Put("foo", "bar2"));
+  env_->addon_time_.fetch_add(48 * 60 * 60 + 100);
+  Flush();
+  dbfull()->TEST_WaitForCompact();
+  ASSERT_EQ(1, periodic_compactions);
+  ASSERT_EQ(0, start_level);
+  ASSERT_EQ(4, output_level);
 }
 
 }  // namespace rocksdb

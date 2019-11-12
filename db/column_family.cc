@@ -9,11 +9,11 @@
 
 #include "db/column_family.h"
 
-#include <cinttypes>
-#include <vector>
-#include <string>
 #include <algorithm>
+#include <cinttypes>
 #include <limits>
+#include <string>
+#include <vector>
 
 #include "db/compaction/compaction_picker.h"
 #include "db/compaction/compaction_picker_fifo.h"
@@ -30,6 +30,7 @@
 #include "memtable/hash_skiplist_rep.h"
 #include "monitoring/thread_status_util.h"
 #include "options/options_helper.h"
+#include "port/port.h"
 #include "table/block_based/block_based_table_factory.h"
 #include "table/merging_iterator.h"
 #include "util/autovector.h"
@@ -340,6 +341,30 @@ ColumnFamilyOptions SanitizeOptions(const ImmutableDBOptions& db_options,
 
   if (result.max_compaction_bytes == 0) {
     result.max_compaction_bytes = result.target_file_size_base * 25;
+  }
+
+  const uint64_t kDefaultPeriodicCompSecs = 0xffffffffffffffff;
+  const uint64_t kDefaultTtlSecs = 30 * 24 * 60 * 60;
+
+  // Turn on periodic compactions and set them to occur once every 30 days if
+  // compaction filters are used and periodic_compaction_seconds is set to the
+  // default value.
+  if (result.compaction_style != kCompactionStyleFIFO) {
+    if ((result.compaction_filter != nullptr ||
+         result.compaction_filter_factory != nullptr) &&
+        result.periodic_compaction_seconds == kDefaultPeriodicCompSecs) {
+      result.periodic_compaction_seconds = kDefaultTtlSecs;
+    }
+  } else {
+    // result.compaction_style == kCompactionStyleFIFO
+    if (result.ttl == 0) {
+      if (result.periodic_compaction_seconds == kDefaultPeriodicCompSecs) {
+        result.periodic_compaction_seconds = kDefaultTtlSecs;
+      }
+      result.ttl = result.periodic_compaction_seconds;
+    } else if (result.periodic_compaction_seconds != 0) {
+      result.ttl = std::min(result.ttl, result.periodic_compaction_seconds);
+    }
   }
 
   return result;
@@ -1180,12 +1205,8 @@ Status ColumnFamilyData::ValidateOptions(
     }
   }
 
-  if (cf_options.periodic_compaction_seconds > 0) {
-    if (db_options.max_open_files != -1) {
-      return Status::NotSupported(
-          "Periodic Compaction is only supported when files are always "
-          "kept open (set max_open_files = -1). ");
-    }
+  if (cf_options.periodic_compaction_seconds > 0 &&
+      cf_options.periodic_compaction_seconds < port::kMaxUint64) {
     if (cf_options.table_factory->Name() != BlockBasedTableFactory().Name()) {
       return Status::NotSupported(
           "Periodic Compaction is only supported in "

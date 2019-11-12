@@ -13,6 +13,7 @@
 #include <string>
 #include <vector>
 
+#include "db/blob_index.h"
 #include "db/db_test_util.h"
 #include "file/file_util.h"
 #include "file/sst_file_manager_impl.h"
@@ -26,7 +27,6 @@
 #include "util/string_util.h"
 #include "utilities/blob_db/blob_db.h"
 #include "utilities/blob_db/blob_db_impl.h"
-#include "utilities/blob_db/blob_index.h"
 
 namespace rocksdb {
 namespace blob_db {
@@ -999,6 +999,7 @@ TEST_F(BlobDBTest, GetLiveFilesMetaData) {
   // Path should be relative to db_name, but begin with slash.
   std::string filename = "/blob_dir/000001.blob";
   ASSERT_EQ(filename, metadata[0].name);
+  ASSERT_EQ(1, metadata[0].file_number);
   ASSERT_EQ("default", metadata[0].column_family_name);
   std::vector<std::string> livefile;
   uint64_t mfs;
@@ -1610,6 +1611,111 @@ TEST_F(BlobDBTest, DisableFileDeletions) {
     ASSERT_EQ(0, blob_db_impl()->TEST_GetBlobFiles().size());
     ASSERT_EQ(0, blob_db_impl()->TEST_GetObsoleteFiles().size());
     VerifyDB({});
+  }
+}
+
+TEST_F(BlobDBTest, MaintainBlobFileToSstMapping) {
+  BlobDBOptions bdb_options;
+  bdb_options.enable_garbage_collection = true;
+  bdb_options.disable_background_tasks = true;
+  Open(bdb_options);
+
+  // Register some dummy blob files.
+  blob_db_impl()->TEST_AddDummyBlobFile(1);
+  blob_db_impl()->TEST_AddDummyBlobFile(2);
+  blob_db_impl()->TEST_AddDummyBlobFile(3);
+  blob_db_impl()->TEST_AddDummyBlobFile(4);
+  blob_db_impl()->TEST_AddDummyBlobFile(5);
+
+  // Initialize the blob <-> SST file mapping. First, add some SST files with
+  // blob file references, then some without.
+  std::vector<LiveFileMetaData> live_files;
+
+  for (uint64_t i = 1; i <= 10; ++i) {
+    LiveFileMetaData live_file;
+    live_file.file_number = i;
+    live_file.oldest_blob_file_number = ((i - 1) % 5) + 1;
+
+    live_files.emplace_back(live_file);
+  }
+
+  for (uint64_t i = 11; i <= 20; ++i) {
+    LiveFileMetaData live_file;
+    live_file.file_number = i;
+
+    live_files.emplace_back(live_file);
+  }
+
+  blob_db_impl()->TEST_InitializeBlobFileToSstMapping(live_files);
+
+  // Check that the blob <-> SST mappings have been correctly initialized.
+  auto blob_files = blob_db_impl()->TEST_GetBlobFiles();
+
+  ASSERT_EQ(blob_files.size(), 5);
+
+  {
+    const std::vector<std::unordered_set<uint64_t>> expected_sst_files{
+        {1, 6}, {2, 7}, {3, 8}, {4, 9}, {5, 10}};
+    for (size_t i = 0; i < 5; ++i) {
+      const auto &blob_file = blob_files[i];
+      ASSERT_EQ(blob_file->GetLinkedSstFiles(), expected_sst_files[i]);
+    }
+  }
+
+  // Simulate a flush where the SST does not reference any blob files.
+  {
+    FlushJobInfo info{};
+    info.file_number = 21;
+
+    blob_db_impl()->TEST_ProcessFlushJobInfo(info);
+
+    const std::vector<std::unordered_set<uint64_t>> expected_sst_files{
+        {1, 6}, {2, 7}, {3, 8}, {4, 9}, {5, 10}};
+    for (size_t i = 0; i < 5; ++i) {
+      const auto &blob_file = blob_files[i];
+      ASSERT_EQ(blob_file->GetLinkedSstFiles(), expected_sst_files[i]);
+    }
+  }
+
+  // Simulate a flush where the SST references a blob file.
+  {
+    FlushJobInfo info{};
+    info.file_number = 22;
+    info.oldest_blob_file_number = 5;
+
+    blob_db_impl()->TEST_ProcessFlushJobInfo(info);
+
+    const std::vector<std::unordered_set<uint64_t>> expected_sst_files{
+        {1, 6}, {2, 7}, {3, 8}, {4, 9}, {5, 10, 22}};
+    for (size_t i = 0; i < 5; ++i) {
+      const auto &blob_file = blob_files[i];
+      ASSERT_EQ(blob_file->GetLinkedSstFiles(), expected_sst_files[i]);
+    }
+  }
+
+  // Simulate a compaction. Some inputs and outputs have blob file references,
+  // some don't. There is also a trivial move (which means the SST appears on
+  // both the input and the output list).
+  {
+    CompactionJobInfo info{};
+    info.input_file_infos.emplace_back(CompactionFileInfo{1, 1, 1});
+    info.input_file_infos.emplace_back(CompactionFileInfo{1, 2, 2});
+    info.input_file_infos.emplace_back(
+        CompactionFileInfo{1, 11, kInvalidBlobFileNumber});
+    info.input_file_infos.emplace_back(CompactionFileInfo{1, 5, 22});
+    info.output_file_infos.emplace_back(CompactionFileInfo{2, 23, 3});
+    info.output_file_infos.emplace_back(
+        CompactionFileInfo{2, 24, kInvalidBlobFileNumber});
+    info.output_file_infos.emplace_back(CompactionFileInfo{2, 5, 22});
+
+    blob_db_impl()->TEST_ProcessCompactionJobInfo(info);
+
+    const std::vector<std::unordered_set<uint64_t>> expected_sst_files{
+        {6}, {7}, {3, 8, 23}, {4, 9}, {5, 10, 22}};
+    for (size_t i = 0; i < 5; ++i) {
+      const auto &blob_file = blob_files[i];
+      ASSERT_EQ(blob_file->GetLinkedSstFiles(), expected_sst_files[i]);
+    }
   }
 }
 
