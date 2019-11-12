@@ -2481,7 +2481,6 @@ class StressTest {
 
       LastIterateOp last_op;
       if (thread->rand.OneIn(8)) {
-        // 1/8 chance, does SeekForPrev(). Otherwise, Seek().
         iter->SeekForPrev(key);
         cmp_iter->SeekForPrev(key);
         last_op = kLastOpSeekForPrev;
