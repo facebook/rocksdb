@@ -1669,16 +1669,21 @@ class DBImpl : public DB {
     // SuperVersion for the column family obtained in a manner that ensures a
     // consistent view across all column families in the DB
     SuperVersion* super_version;
-    MultiGetColumnFamilyData(ColumnFamilyHandle* column_family, SuperVersion* sv)
+    MultiGetColumnFamilyData(ColumnFamilyHandle* column_family,
+                             SuperVersion* sv)
         : cf(column_family),
-          cfd(static_cast<ColumnFamilyHandleImpl*>(cf)->cfd()), start(0),
-          num_keys(0), super_version(sv) {}
+          cfd(static_cast<ColumnFamilyHandleImpl*>(cf)->cfd()),
+          start(0),
+          num_keys(0),
+          super_version(sv) {}
 
     MultiGetColumnFamilyData(ColumnFamilyHandle* column_family, size_t first,
                              size_t count, SuperVersion* sv)
         : cf(column_family),
-          cfd(static_cast<ColumnFamilyHandleImpl*>(cf)->cfd()), start(first),
-          num_keys(count), super_version(sv) {}
+          cfd(static_cast<ColumnFamilyHandleImpl*>(cf)->cfd()),
+          start(first),
+          num_keys(count),
+          super_version(sv) {}
 
     MultiGetColumnFamilyData() = default;
   };
@@ -1698,10 +1703,11 @@ class DBImpl : public DB {
   // from the ColumnFamilyData, whereas false indicates they are thread
   // local
   template <class T>
-  bool MultiCFSnapshot(const ReadOptions& read_options, ReadCallback* callback,
-                       std::function<MultiGetColumnFamilyData*(
-                         typename T::iterator&)>& iter_deref_func,
-                       T* cf_list, SequenceNumber* snapshot);
+  bool MultiCFSnapshot(
+      const ReadOptions& read_options, ReadCallback* callback,
+      std::function<MultiGetColumnFamilyData*(typename T::iterator&)>&
+          iter_deref_func,
+      T* cf_list, SequenceNumber* snapshot);
 
   // The actual implementation of the batching MultiGet. The caller is expected
   // to have acquired the SuperVersion and pass in a snapshot sequence number

@@ -1645,7 +1645,8 @@ std::vector<Status> DBImpl::MultiGet(
   StopWatch sw(env_, stats_, DB_MULTIGET);
   PERF_TIMER_GUARD(get_snapshot_time);
 
-  SequenceNumber consistent_seqnum;;
+  SequenceNumber consistent_seqnum;
+  ;
 
   std::unordered_map<uint32_t, MultiGetColumnFamilyData> multiget_cf_data(
       column_family.size());
@@ -1659,17 +1660,15 @@ std::vector<Status> DBImpl::MultiGet(
   }
 
   std::function<MultiGetColumnFamilyData*(
-      std::unordered_map<uint32_t,
-        MultiGetColumnFamilyData>::iterator&)> iter_deref_lambda = [](
-      std::unordered_map<uint32_t, MultiGetColumnFamilyData>::iterator&
-          cf_iter) {
-    return &cf_iter->second;
-  };
+      std::unordered_map<uint32_t, MultiGetColumnFamilyData>::iterator&)>
+      iter_deref_lambda =
+          [](std::unordered_map<uint32_t, MultiGetColumnFamilyData>::iterator&
+                 cf_iter) { return &cf_iter->second; };
 
   bool unref_only =
-      MultiCFSnapshot<std::unordered_map<uint32_t, MultiGetColumnFamilyData>>
-                (read_options, nullptr, iter_deref_lambda, &multiget_cf_data,
-                                     &consistent_seqnum);
+      MultiCFSnapshot<std::unordered_map<uint32_t, MultiGetColumnFamilyData>>(
+          read_options, nullptr, iter_deref_lambda, &multiget_cf_data,
+          &consistent_seqnum);
 
   // Contain a list of merge operations if merge occurs.
   MergeContext merge_context;
@@ -1755,12 +1754,11 @@ std::vector<Status> DBImpl::MultiGet(
 }
 
 template <class T>
-bool DBImpl::MultiCFSnapshot(const ReadOptions& read_options,
-                             ReadCallback* callback,
-                             std::function<MultiGetColumnFamilyData*(
-                               typename T::iterator&)>& iter_deref_func,
-                             T* cf_list,
-                             SequenceNumber* snapshot) {
+bool DBImpl::MultiCFSnapshot(
+    const ReadOptions& read_options, ReadCallback* callback,
+    std::function<MultiGetColumnFamilyData*(typename T::iterator&)>&
+        iter_deref_func,
+    T* cf_list, SequenceNumber* snapshot) {
   PERF_TIMER_GUARD(get_snapshot_time);
 
   bool last_try = false;
@@ -1910,21 +1908,23 @@ void DBImpl::MultiGet(const ReadOptions& read_options, const size_t num_keys,
   }
   {
     // multiget_cf_data.emplace_back(
-       // MultiGetColumnFamilyData(cf, cf_start, num_keys - cf_start, nullptr));
-    multiget_cf_data.emplace_back( cf, cf_start, num_keys - cf_start, nullptr);
+    // MultiGetColumnFamilyData(cf, cf_start, num_keys - cf_start, nullptr));
+    multiget_cf_data.emplace_back(cf, cf_start, num_keys - cf_start, nullptr);
   }
-  std::function<MultiGetColumnFamilyData*(autovector<MultiGetColumnFamilyData,
-    MultiGetContext::MAX_BATCH_SIZE>::iterator&)> iter_deref_lambda = [](
-        autovector<MultiGetColumnFamilyData,
-                   MultiGetContext::MAX_BATCH_SIZE>::iterator& cf_iter) {
-      return &(*cf_iter);
-  };
+  std::function<MultiGetColumnFamilyData*(
+      autovector<MultiGetColumnFamilyData,
+                 MultiGetContext::MAX_BATCH_SIZE>::iterator&)>
+      iter_deref_lambda =
+          [](autovector<MultiGetColumnFamilyData,
+                        MultiGetContext::MAX_BATCH_SIZE>::iterator& cf_iter) {
+            return &(*cf_iter);
+          };
 
   SequenceNumber consistent_seqnum;
   bool unref_only = MultiCFSnapshot<
-      autovector<MultiGetColumnFamilyData, MultiGetContext::MAX_BATCH_SIZE>>
-      (read_options, nullptr, iter_deref_lambda, &multiget_cf_data,
-       &consistent_seqnum);
+      autovector<MultiGetColumnFamilyData, MultiGetContext::MAX_BATCH_SIZE>>(
+      read_options, nullptr, iter_deref_lambda, &multiget_cf_data,
+      &consistent_seqnum);
 
   for (auto cf_iter = multiget_cf_data.begin();
        cf_iter != multiget_cf_data.end(); ++cf_iter) {
@@ -1964,7 +1964,7 @@ struct CompareKeyContext {
   }
 };
 
-} // anonymous namespace
+}  // anonymous namespace
 
 void DBImpl::PrepareMultiGetKeys(
     size_t num_keys, bool sorted_input,
@@ -2026,23 +2026,23 @@ void DBImpl::MultiGetWithCallback(
   std::array<MultiGetColumnFamilyData, 1> multiget_cf_data;
   multiget_cf_data[0] = MultiGetColumnFamilyData(column_family, nullptr);
   std::function<MultiGetColumnFamilyData*(
-      std::array<MultiGetColumnFamilyData, 1>::iterator&)> iter_deref_lambda = [](
-      std::array<MultiGetColumnFamilyData, 1>::iterator& cf_iter) {
-    return &(*cf_iter);
-  };
+      std::array<MultiGetColumnFamilyData, 1>::iterator&)>
+      iter_deref_lambda =
+          [](std::array<MultiGetColumnFamilyData, 1>::iterator& cf_iter) {
+            return &(*cf_iter);
+          };
 
   size_t num_keys = sorted_keys->size();
   SequenceNumber consistent_seqnum;
-  bool unref_only =
-      MultiCFSnapshot<std::array<MultiGetColumnFamilyData, 1>>(
-          read_options, callback, iter_deref_lambda, &multiget_cf_data,
-          &consistent_seqnum);
+  bool unref_only = MultiCFSnapshot<std::array<MultiGetColumnFamilyData, 1>>(
+      read_options, callback, iter_deref_lambda, &multiget_cf_data,
+      &consistent_seqnum);
 #ifndef NDEBUG
   assert(!unref_only);
 #else
   // Silence unused variable warning
   (void)unref_only;
-#endif // NDEBUG
+#endif  // NDEBUG
 
   if (callback && read_options.snapshot == nullptr) {
     // The unprep_seqs are not published for write unprepared, so it could be
