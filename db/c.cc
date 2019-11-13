@@ -3618,6 +3618,12 @@ const char* rocksdb_livefiles_name(
   return lf->rep[index].name.c_str();
 }
 
+const char* rocksdb_livefiles_column_family_name(
+  const rocksdb_livefiles_t* lf,
+  int index) {
+  return lf->rep[index].column_family_name.c_str();
+}
+
 int rocksdb_livefiles_level(
   const rocksdb_livefiles_t* lf,
   int index) {
