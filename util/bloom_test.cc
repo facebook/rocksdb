@@ -287,6 +287,16 @@ class FullBloomTest : public testing::TestWithParam<BloomFilterPolicy::Mode> {
 
   Slice FilterData() { return Slice(buf_.get(), filter_size_); }
 
+  int GetNumProbesFromFilterData() {
+    assert(filter_size_ >= 5);
+    int8_t raw_num_probes = static_cast<int8_t>(buf_.get()[filter_size_ - 5]);
+    if (raw_num_probes == -1) {  // New bloom filter marker
+      return static_cast<uint8_t>(buf_.get()[filter_size_ - 3]);
+    } else {
+      return raw_num_probes;
+    }
+  }
+
   bool Matches(const Slice& s) {
     if (bits_reader_ == nullptr) {
       Build();
@@ -294,6 +304,8 @@ class FullBloomTest : public testing::TestWithParam<BloomFilterPolicy::Mode> {
     return bits_reader_->MayMatch(s);
   }
 
+  // Provides a kind of fingerprint on the Bloom filter's
+  // behavior, for reasonbly high FP rates.
   uint64_t PackedMatches() {
     char buffer[sizeof(int)];
     uint64_t result = 0;
@@ -303,6 +315,26 @@ class FullBloomTest : public testing::TestWithParam<BloomFilterPolicy::Mode> {
       }
     }
     return result;
+  }
+
+  // Provides a kind of fingerprint on the Bloom filter's
+  // behavior, for lower FP rates.
+  std::string FirstFPs(int count) {
+    char buffer[sizeof(int)];
+    std::string rv;
+    int fp_count = 0;
+    for (int i = 0; i < 1000000; i++) {
+      // Pack four match booleans into each hexadecimal digit
+      if (Matches(Key(i + 1000000, buffer))) {
+        ++fp_count;
+        rv += std::to_string(i);
+        if (fp_count == count) {
+          break;
+        }
+        rv += ',';
+      }
+    }
+    return rv;
   }
 
   double FalsePositiveRate() {
@@ -420,72 +452,169 @@ inline uint32_t SelectByCacheLineSize(uint32_t for64, uint32_t for128,
 }  // namespace
 
 // Ensure the implementation doesn't accidentally change in an
-// incompatible way
+// incompatible way. This test doesn't check the reading side
+// (FirstFPs/PackedMatches) for LegacyBloom because it requires the
+// ability to read filters generated using other cache line sizes.
+// See RawSchema.
 TEST_P(FullBloomTest, Schema) {
   char buffer[sizeof(int)];
 
   // Use enough keys so that changing bits / key by 1 is guaranteed to
   // change number of allocated cache lines. So keys > max cache line bits.
 
+  ResetPolicy(2);  // num_probes = 1
+  for (int key = 0; key < 2087; key++) {
+    Add(Key(key, buffer));
+  }
+  Build();
+  EXPECT_EQ(GetNumProbesFromFilterData(), 1);
+  EXPECT_EQ(
+      BloomHash(FilterData()),
+      SelectByImpl(SelectByCacheLineSize(1567096579, 1964771444, 2659542661U),
+                   3817481309U));
+  if (GetParam() == BloomFilterPolicy::kFastLocalBloom) {
+    EXPECT_EQ("11,13,17,25,29,30,35,37,45,53", FirstFPs(10));
+  }
+
+  ResetPolicy(3);  // num_probes = 2
+  for (int key = 0; key < 2087; key++) {
+    Add(Key(key, buffer));
+  }
+  Build();
+  EXPECT_EQ(GetNumProbesFromFilterData(), 2);
+  EXPECT_EQ(
+      BloomHash(FilterData()),
+      SelectByImpl(SelectByCacheLineSize(2707206547U, 2571983456U, 218344685),
+                   2807269961U));
+  if (GetParam() == BloomFilterPolicy::kFastLocalBloom) {
+    EXPECT_EQ("4,15,17,24,27,28,29,53,63,70", FirstFPs(10));
+  }
+
+  ResetPolicy(5);  // num_probes = 3
+  for (int key = 0; key < 2087; key++) {
+    Add(Key(key, buffer));
+  }
+  Build();
+  EXPECT_EQ(GetNumProbesFromFilterData(), 3);
+  EXPECT_EQ(
+      BloomHash(FilterData()),
+      SelectByImpl(SelectByCacheLineSize(515748486, 94611728, 2436112214U),
+                   204628445));
+  if (GetParam() == BloomFilterPolicy::kFastLocalBloom) {
+    EXPECT_EQ("15,24,29,39,53,87,89,100,103,104", FirstFPs(10));
+  }
+
   ResetPolicy(8);  // num_probes = 5
   for (int key = 0; key < 2087; key++) {
     Add(Key(key, buffer));
   }
   Build();
+  EXPECT_EQ(GetNumProbesFromFilterData(), 5);
   EXPECT_EQ(
       BloomHash(FilterData()),
       SelectByImpl(SelectByCacheLineSize(1302145999, 2811644657U, 756553699),
                    355564975));
+  if (GetParam() == BloomFilterPolicy::kFastLocalBloom) {
+    EXPECT_EQ("16,60,66,126,220,238,244,256,265,287", FirstFPs(10));
+  }
 
   ResetPolicy(9);  // num_probes = 6
   for (int key = 0; key < 2087; key++) {
     Add(Key(key, buffer));
   }
   Build();
+  EXPECT_EQ(GetNumProbesFromFilterData(), 6);
   EXPECT_EQ(
       BloomHash(FilterData()),
       SelectByImpl(SelectByCacheLineSize(2092755149, 661139132, 1182970461),
-                   2137566013));
+                   2137566013U));
+  if (GetParam() == BloomFilterPolicy::kFastLocalBloom) {
+    EXPECT_EQ("156,367,791,872,945,1015,1139,1159,1265,1435", FirstFPs(10));
+  }
 
   ResetPolicy(11);  // num_probes = 7
   for (int key = 0; key < 2087; key++) {
     Add(Key(key, buffer));
   }
   Build();
+  EXPECT_EQ(GetNumProbesFromFilterData(), 7);
   EXPECT_EQ(
       BloomHash(FilterData()),
       SelectByImpl(SelectByCacheLineSize(3755609649U, 1812694762, 1449142939),
-                   2561502687));
+                   2561502687U));
+  if (GetParam() == BloomFilterPolicy::kFastLocalBloom) {
+    EXPECT_EQ("34,74,130,236,643,882,962,1015,1035,1110", FirstFPs(10));
+  }
+
+  ResetPolicy(14);  // num_probes = 9
+  for (int key = 0; key < 2087; key++) {
+    Add(Key(key, buffer));
+  }
+  Build();
+  EXPECT_EQ(GetNumProbesFromFilterData(), 9);
+  EXPECT_EQ(
+      BloomHash(FilterData()),
+      SelectByImpl(SelectByCacheLineSize(178861123, 379087593, 2574136516U),
+                   3129678118U));
+  if (GetParam() == BloomFilterPolicy::kFastLocalBloom) {
+    EXPECT_EQ("130,989,2002,3225,3543,4522,4863,5256,5277", FirstFPs(9));
+  }
+
+  ResetPolicy(16);  // num_probes = 11
+  for (int key = 0; key < 2087; key++) {
+    Add(Key(key, buffer));
+  }
+  Build();
+  EXPECT_EQ(GetNumProbesFromFilterData(), 11);
+  EXPECT_EQ(
+      BloomHash(FilterData()),
+      SelectByImpl(SelectByCacheLineSize(1129406313, 3049154394U, 1727750964),
+                   1262483504));
+  if (GetParam() == BloomFilterPolicy::kFastLocalBloom) {
+    EXPECT_EQ("240,945,2660,3299,4031,4282,5173,6197,8715", FirstFPs(9));
+  }
 
   ResetPolicy(10);  // num_probes = 6, but different memory ratio vs. 9
   for (int key = 0; key < 2087; key++) {
     Add(Key(key, buffer));
   }
   Build();
+  EXPECT_EQ(GetNumProbesFromFilterData(), 6);
   EXPECT_EQ(
       BloomHash(FilterData()),
       SelectByImpl(SelectByCacheLineSize(1478976371, 2910591341U, 1182970461),
-                   2498541272));
+                   2498541272U));
+  if (GetParam() == BloomFilterPolicy::kFastLocalBloom) {
+    EXPECT_EQ("16,126,133,422,466,472,813,1002,1035,1159", FirstFPs(10));
+  }
 
   ResetPolicy(10);
   for (int key = /*CHANGED*/ 1; key < 2087; key++) {
     Add(Key(key, buffer));
   }
   Build();
+  EXPECT_EQ(GetNumProbesFromFilterData(), 6);
   EXPECT_EQ(
       BloomHash(FilterData()),
       SelectByImpl(SelectByCacheLineSize(4205696321U, 1132081253U, 2385981855U),
-                   2058382345));
+                   2058382345U));
+  if (GetParam() == BloomFilterPolicy::kFastLocalBloom) {
+    EXPECT_EQ("16,126,133,422,466,472,813,1002,1035,1159", FirstFPs(10));
+  }
 
   ResetPolicy(10);
   for (int key = 1; key < /*CHANGED*/ 2088; key++) {
     Add(Key(key, buffer));
   }
   Build();
+  EXPECT_EQ(GetNumProbesFromFilterData(), 6);
   EXPECT_EQ(
       BloomHash(FilterData()),
       SelectByImpl(SelectByCacheLineSize(2885052954U, 769447944, 4175124908U),
                    23699164));
+  if (GetParam() == BloomFilterPolicy::kFastLocalBloom) {
+    EXPECT_EQ("16,126,133,422,466,472,813,1002,1035,1159", FirstFPs(10));
+  }
 
   ResetPolicy();
 }
@@ -530,15 +659,15 @@ TEST_P(FullBloomTest, RawSchema) {
   // Two probes, about 3/4 bits set: ~50% "FP" rate
   // One 256-byte cache line.
   OpenRaw(cft.ResetWeirdFill(256, 1, 2));
-  ASSERT_EQ(uint64_t{11384799501900898790U}, PackedMatches());
+  EXPECT_EQ(uint64_t{11384799501900898790U}, PackedMatches());
 
   // Two 128-byte cache lines.
   OpenRaw(cft.ResetWeirdFill(256, 2, 2));
-  ASSERT_EQ(uint64_t{10157853359773492589U}, PackedMatches());
+  EXPECT_EQ(uint64_t{10157853359773492589U}, PackedMatches());
 
   // Four 64-byte cache lines.
   OpenRaw(cft.ResetWeirdFill(256, 4, 2));
-  ASSERT_EQ(uint64_t{7123594913907464682U}, PackedMatches());
+  EXPECT_EQ(uint64_t{7123594913907464682U}, PackedMatches());
 }
 
 TEST_P(FullBloomTest, CorruptFilters) {
