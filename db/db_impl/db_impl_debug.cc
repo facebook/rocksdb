@@ -105,7 +105,16 @@ Status DBImpl::TEST_SwitchMemtable(ColumnFamilyData* cfd) {
   if (cfd == nullptr) {
     cfd = default_cf_handle_->cfd();
   }
-  return SwitchMemtable(cfd, &write_context);
+
+  WriteThread::Writer nonmem_w;
+  if (two_write_queues_) {
+    nonmem_write_thread_.EnterUnbatched(&nonmem_w, &mutex_);
+  }
+  Status s = SwitchMemtable(cfd, &write_context);
+  if (two_write_queues_) {
+    nonmem_write_thread_.ExitUnbatched(&nonmem_w);
+  }
+  return s;
 }
 
 Status DBImpl::TEST_FlushMemTable(bool wait, bool allow_write_stall,

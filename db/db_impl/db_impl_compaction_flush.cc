@@ -1532,12 +1532,14 @@ Status DBImpl::FlushMemTable(ColumnFamilyData* cfd,
     InstrumentedMutexLock guard_lock(&mutex_);
 
     WriteThread::Writer w;
+    WriteThread::Writer nonmem_w;
     if (!writes_stopped) {
       write_thread_.EnterUnbatched(&w, &mutex_);
+      nonmem_write_thread_.EnterUnbatched(&nonmem_w, &mutex_);
     }
 
     if (!cfd->mem()->IsEmpty() || !cached_recoverable_state_empty_.load()) {
-      s = SwitchMemtable(cfd, &context, writes_stopped);
+      s = SwitchMemtable(cfd, &context);
     }
     if (s.ok()) {
       if (cfd->imm()->NumNotFlushed() != 0 || !cfd->mem()->IsEmpty() ||
@@ -1567,7 +1569,7 @@ Status DBImpl::FlushMemTable(ColumnFamilyData* cfd,
                            "Force flushing stats CF with manual flush of %s "
                            "to avoid holding old logs",
                            cfd->GetName().c_str());
-            s = SwitchMemtable(cfd_stats, &context, writes_stopped);
+            s = SwitchMemtable(cfd_stats, &context);
             flush_memtable_id = cfd_stats->imm()->GetLatestMemTableID();
             flush_req.emplace_back(cfd_stats, flush_memtable_id);
           }
@@ -1596,6 +1598,9 @@ Status DBImpl::FlushMemTable(ColumnFamilyData* cfd,
 
     if (!writes_stopped) {
       write_thread_.ExitUnbatched(&w);
+      if (two_write_queues_) {
+        nonmem_write_thread_.ExitUnbatched(&nonmem_w);
+      }
     }
   }
   TEST_SYNC_POINT("DBImpl::FlushMemTable:AfterScheduleFlush");
@@ -1650,8 +1655,14 @@ Status DBImpl::AtomicFlushMemTables(
     InstrumentedMutexLock guard_lock(&mutex_);
 
     WriteThread::Writer w;
+    WriteThread::Writer nonmem_w;
     if (!writes_stopped) {
       write_thread_.EnterUnbatched(&w, &mutex_);
+      if (two_write_queues_) {
+        // SwitchMemtable is a rare event. To simply the reasoning, we make sure
+        // that there is no concurrent thread writing to WAL.
+        nonmem_write_thread_.EnterUnbatched(&nonmem_w, &mutex_);
+      }
     }
 
     for (auto cfd : column_family_datas) {
@@ -1668,7 +1679,7 @@ Status DBImpl::AtomicFlushMemTables(
         continue;
       }
       cfd->Ref();
-      s = SwitchMemtable(cfd, &context, writes_stopped);
+      s = SwitchMemtable(cfd, &context);
       cfd->Unref();
       if (!s.ok()) {
         break;
@@ -1695,6 +1706,9 @@ Status DBImpl::AtomicFlushMemTables(
 
     if (!writes_stopped) {
       write_thread_.ExitUnbatched(&w);
+      if (two_write_queues_) {
+        nonmem_write_thread_.ExitUnbatched(&nonmem_w);
+      }
     }
   }
   TEST_SYNC_POINT("DBImpl::AtomicFlushMemTables:AfterScheduleFlush");
