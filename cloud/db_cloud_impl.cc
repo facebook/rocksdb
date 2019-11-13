@@ -339,5 +339,27 @@ Status DBCloudImpl::DoCheckpointToCloud(
                       destination.GetObjectPath());
   return st;
 }
+
+Status DBCloudImpl::ExecuteRemoteCompactionRequest(
+      const PluggableCompactionParam& inputParams,
+      PluggableCompactionResult* result ,
+      bool doSanitize) {
+  auto cenv = static_cast<CloudEnvImpl*>(GetEnv());
+
+  // run the compaction request on the underlying local database
+  Status status = GetBaseDB()->ExecuteRemoteCompactionRequest(inputParams,
+		  result, doSanitize);
+  if (!status.ok()) {
+    return status;
+  }
+
+  // convert the local pathnames to the cloud pathnames
+  for (unsigned int i = 0; i < result->output_files.size(); i++) {
+      OutputFile* outfile = &result->output_files[i];
+      outfile->pathname = cenv->RemapFilename(outfile->pathname);
+  }
+  return Status::OK();
+}
+
 }  // namespace rocksdb
 #endif  // ROCKSDB_LITE

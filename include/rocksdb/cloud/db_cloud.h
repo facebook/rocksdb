@@ -55,6 +55,14 @@ class DBCloud : public StackableDB {
   virtual Status CheckpointToCloud(const BucketOptions& destination,
                                    const CheckpointToCloudOptions& options) = 0;
 
+  // Executes an external compaction request on this cloud  database.
+  // The output pathnames returned in PluggableCompactionResult are the
+  // cloud path names.
+  virtual Status ExecuteRemoteCompactionRequest(
+      const PluggableCompactionParam& inputParams,
+      PluggableCompactionResult* result,
+      bool sanitize)  = 0;
+
   virtual ~DBCloud() {}
 
  protected:

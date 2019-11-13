@@ -27,6 +27,11 @@ class DBCloudImpl : public DBCloud {
   Status CheckpointToCloud(const BucketOptions& destination,
                            const CheckpointToCloudOptions& options) override;
 
+  Status ExecuteRemoteCompactionRequest(
+      const PluggableCompactionParam& inputParams,
+      PluggableCompactionResult* result,
+      bool sanitize) override;
+
  protected:
   // The CloudEnv used by this open instance.
   CloudEnv* cenv_;

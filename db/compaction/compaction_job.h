@@ -38,6 +38,7 @@
 #include "rocksdb/db.h"
 #include "rocksdb/env.h"
 #include "rocksdb/memtablerep.h"
+#include "rocksdb/pluggable_compaction.h"
 #include "rocksdb/transaction_log.h"
 #include "table/scoped_arena_iterator.h"
 #include "util/autovector.h"
@@ -96,6 +97,12 @@ class CompactionJob {
   // REQUIRED: mutex held
   // Add compaction input/output to the current version
   Status Install(const MutableCFOptions& mutable_cf_options);
+
+  // Invoke a pluggable compaction logic.
+  void RunRemote(PluggableCompactionService* service);
+
+  // Retrieve results of this compaction and clean it up
+  void RetrieveResultsAndCleanup(PluggableCompactionResult* result);
 
  private:
   struct SubcompactionState;

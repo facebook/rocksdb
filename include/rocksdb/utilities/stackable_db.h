@@ -434,6 +434,22 @@ class StackableDB : public DB {
     return db_->DefaultColumnFamily();
   }
 
+  virtual Status ExecuteRemoteCompactionRequest(
+      const PluggableCompactionParam& inputParams,
+      PluggableCompactionResult* result,
+      bool sanitize) {
+    return db_->ExecuteRemoteCompactionRequest(inputParams, result, sanitize);
+  }
+
+  virtual Status RegisterPluggableCompactionService(
+      std::unique_ptr<PluggableCompactionService> rservice) {
+    return db_->RegisterPluggableCompactionService(std::move(rservice));
+  }
+
+  virtual void UnRegisterPluggableCompactionService() {
+    db_->UnRegisterPluggableCompactionService();
+  }
+
  protected:
   DB* db_;
   std::shared_ptr<DB> shared_db_ptr_;

@@ -2753,7 +2753,16 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
     mutex_.Unlock();
     TEST_SYNC_POINT_CALLBACK(
         "DBImpl::BackgroundCompaction:NonTrivial:BeforeRun", nullptr);
-    compaction_job.Run();
+
+    // This check is not thread safe. XXX
+    bool remote = (remote_compaction_service_ != nullptr);
+
+    if (remote) {
+      compaction_job.RunRemote(remote_compaction_service_.get());
+    } else {
+      compaction_job.Run();
+    }
+
     TEST_SYNC_POINT("DBImpl::BackgroundCompaction:NonTrivial:AfterRun");
     mutex_.Lock();
 

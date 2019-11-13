@@ -442,6 +442,7 @@ ANALYZETOOLOBJECTS = $(ANALYZER_LIB_SOURCES:.cc=.o)
 EXPOBJECTS = $(LIBOBJECTS) $(TESTUTIL)
 
 TESTS = \
+	remote_compaction_test \
 	db_cloud_test \
 	cloud_manifest_test \
 	db_basic_test \
@@ -1614,6 +1615,9 @@ ldb_cmd_test: tools/ldb_cmd_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
 ldb: tools/ldb.o $(LIBOBJECTS)
+	$(AM_LINK)
+
+remote_compaction_test: cloud/remote_compaction_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
 db_cloud_test: cloud/db_cloud_test.o $(LIBOBJECTS) $(TESTHARNESS)
