@@ -1535,7 +1535,9 @@ Status DBImpl::FlushMemTable(ColumnFamilyData* cfd,
     WriteThread::Writer nonmem_w;
     if (!writes_stopped) {
       write_thread_.EnterUnbatched(&w, &mutex_);
-      nonmem_write_thread_.EnterUnbatched(&nonmem_w, &mutex_);
+      if (two_write_queues_) {
+        nonmem_write_thread_.EnterUnbatched(&nonmem_w, &mutex_);
+      }
     }
 
     if (!cfd->mem()->IsEmpty() || !cached_recoverable_state_empty_.load()) {
