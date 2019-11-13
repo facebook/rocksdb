@@ -18,7 +18,7 @@
 namespace rocksdb {
 
 const char* Status::CopyState(const char* state) {
-#ifdef OS_WIN
+#if defined(OS_WIN) && defined(_MSC_VER)
   const size_t cch = std::strlen(state) + 1;  // +1 for the null terminator
   char* result = new char[cch];
   errno_t ret;
