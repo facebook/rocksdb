@@ -838,7 +838,7 @@ INSTANTIATE_TEST_CASE_P(BackupableDBTestWithParam, BackupableDBTestWithParam,
                         ::testing::Bool());
 
 // this will make sure that backup does not copy the same file twice
-TEST_F(BackupableDBTest, NoDoubleCopy) {
+TEST_F(BackupableDBTest, NoDoubleCopy_And_AutoGC) {
   OpenDBAndBackupEngine(true, true);
 
   // should write 5 DB files + one meta file
@@ -856,23 +856,30 @@ TEST_F(BackupableDBTest, NoDoubleCopy) {
   AppendPath(backupdir_, should_have_written);
   test_backup_env_->AssertWrittenFiles(should_have_written);
 
-  // should write 4 new DB files + one meta file
-  // should not write/copy 00010.sst, since it's already there!
-  test_backup_env_->SetLimitWrittenFiles(6);
-  test_backup_env_->ClearWrittenFiles();
+  char db_number = '1';
 
-  dummy_db_->live_files_ = {"/00010.sst", "/00015.sst", "/CURRENT",
-                            "/MANIFEST-01"};
-  dummy_db_->wal_files_ = {{"/00011.log", true}, {"/00012.log", false}};
-  test_db_env_->SetFilenamesForMockedAttrs(dummy_db_->live_files_);
-  ASSERT_OK(backup_engine_->CreateNewBackup(db_.get(), false));
-  // should not open 00010.sst - it's already there
+  for (std::string other_sst : {"00015.sst", "00017.sst", "00019.sst"}) {
+    // should write 4 new DB files + one meta file
+    // should not write/copy 00010.sst, since it's already there!
+    test_backup_env_->SetLimitWrittenFiles(6);
+    test_backup_env_->ClearWrittenFiles();
 
-  should_have_written = {"/shared/.00015.sst.tmp", "/private/2/CURRENT",
-                         "/private/2/MANIFEST-01", "/private/2/00011.log",
-                         "/meta/.2.tmp"};
-  AppendPath(backupdir_, should_have_written);
-  test_backup_env_->AssertWrittenFiles(should_have_written);
+    dummy_db_->live_files_ = {"/00010.sst", "/" + other_sst, "/CURRENT",
+                              "/MANIFEST-01"};
+    dummy_db_->wal_files_ = {{"/00011.log", true}, {"/00012.log", false}};
+    test_db_env_->SetFilenamesForMockedAttrs(dummy_db_->live_files_);
+    ASSERT_OK(backup_engine_->CreateNewBackup(db_.get(), false));
+    // should not open 00010.sst - it's already there
+
+    ++db_number;
+    std::string private_dir = std::string("/private/") + db_number;
+    should_have_written = {
+        "/shared/." + other_sst + ".tmp", private_dir + "/CURRENT",
+        private_dir + "/MANIFEST-01", private_dir + "/00011.log",
+        std::string("/meta/.") + db_number + ".tmp"};
+    AppendPath(backupdir_, should_have_written);
+    test_backup_env_->AssertWrittenFiles(should_have_written);
+  }
 
   ASSERT_OK(backup_engine_->DeleteBackup(1));
   ASSERT_OK(test_backup_env_->FileExists(backupdir_ + "/shared/00010.sst"));
@@ -888,6 +895,42 @@ TEST_F(BackupableDBTest, NoDoubleCopy) {
   ASSERT_EQ(100UL, size);
   test_backup_env_->GetFileSize(backupdir_ + "/shared/00015.sst", &size);
   ASSERT_EQ(200UL, size);
+
+  CloseBackupEngine();
+
+  //
+  // Now simulate incomplete delete by removing just meta
+  //
+  ASSERT_OK(test_backup_env_->DeleteFile(backupdir_ + "/meta/2"));
+
+  OpenBackupEngine();
+
+  // 1 appears to be removed, so
+  // 2 non-corrupt and 0 corrupt seen
+  std::vector<BackupInfo> backup_info;
+  std::vector<BackupID> corrupt_backup_ids;
+  backup_engine_->GetBackupInfo(&backup_info);
+  backup_engine_->GetCorruptedBackups(&corrupt_backup_ids);
+  ASSERT_EQ(2UL, backup_info.size());
+  ASSERT_EQ(0UL, corrupt_backup_ids.size());
+
+  // Keep the two we see, but this should suffice to purge unreferenced
+  // shared files from incomplete delete.
+  ASSERT_OK(backup_engine_->PurgeOldBackups(2));
+
+  // Make sure dangling sst file has been removed (somewhere along this
+  // process). GarbageCollect should not be needed.
+  ASSERT_EQ(Status::NotFound(),
+            test_backup_env_->FileExists(backupdir_ + "/shared/00015.sst"));
+  ASSERT_OK(test_backup_env_->FileExists(backupdir_ + "/shared/00017.sst"));
+  ASSERT_OK(test_backup_env_->FileExists(backupdir_ + "/shared/00019.sst"));
+
+  // Now actually purge a good one
+  ASSERT_OK(backup_engine_->PurgeOldBackups(1));
+
+  ASSERT_EQ(Status::NotFound(),
+            test_backup_env_->FileExists(backupdir_ + "/shared/00017.sst"));
+  ASSERT_OK(test_backup_env_->FileExists(backupdir_ + "/shared/00019.sst"));
 
   CloseDBAndBackupEngine();
 }
@@ -971,7 +1014,8 @@ TEST_F(BackupableDBTest, CorruptionsTest) {
   ASSERT_OK(backup_engine_->DeleteBackup(4));
   ASSERT_OK(backup_engine_->DeleteBackup(3));
   ASSERT_OK(backup_engine_->DeleteBackup(2));
-  (void)backup_engine_->GarbageCollect();
+  // Should not be needed anymore with auto-GC on DeleteBackup
+  //(void)backup_engine_->GarbageCollect();
   ASSERT_EQ(Status::NotFound(),
             file_manager_->FileExists(backupdir_ + "/meta/5"));
   ASSERT_EQ(Status::NotFound(),
@@ -1221,41 +1265,52 @@ TEST_F(BackupableDBTest, ShareTableFilesWithChecksumsTransition) {
 }
 
 TEST_F(BackupableDBTest, DeleteTmpFiles) {
-  for (bool shared_checksum : {false, true}) {
-    if (shared_checksum) {
+  for (int cleanup_fn : {1, 2, 3}) {
+    for (bool shared_checksum : {false, true}) {
       OpenDBAndBackupEngineShareWithChecksum(
           false /* destroy_old_data */, false /* dummy */,
-          true /* share_table_files */, true /* share_with_checksums */);
-    } else {
-      OpenDBAndBackupEngine();
+          true /* share_table_files */, shared_checksum);
+      CloseDBAndBackupEngine();
+      std::string shared_tmp = backupdir_;
+      if (shared_checksum) {
+        shared_tmp += "/shared_checksum";
+      } else {
+        shared_tmp += "/shared";
+      }
+      shared_tmp += "/.00006.sst.tmp";
+      std::string private_tmp_dir = backupdir_ + "/private/10";
+      std::string private_tmp_file = private_tmp_dir + "/00003.sst";
+      file_manager_->WriteToFile(shared_tmp, "tmp");
+      file_manager_->CreateDir(private_tmp_dir);
+      file_manager_->WriteToFile(private_tmp_file, "tmp");
+      ASSERT_OK(file_manager_->FileExists(private_tmp_dir));
+      if (shared_checksum) {
+        OpenDBAndBackupEngineShareWithChecksum(
+            false /* destroy_old_data */, false /* dummy */,
+            true /* share_table_files */, true /* share_with_checksums */);
+      } else {
+        OpenDBAndBackupEngine();
+      }
+      // Need to call one of these explicitly to delete tmp files
+      switch (cleanup_fn) {
+        case 1:
+          (void)backup_engine_->GarbageCollect();
+          break;
+        case 2:
+          (void)backup_engine_->DeleteBackup(1);
+          break;
+        case 3:
+          (void)backup_engine_->PurgeOldBackups(1);
+          break;
+        default:
+          assert(false);
+      }
+      CloseDBAndBackupEngine();
+      ASSERT_EQ(Status::NotFound(), file_manager_->FileExists(shared_tmp));
+      ASSERT_EQ(Status::NotFound(),
+                file_manager_->FileExists(private_tmp_file));
+      ASSERT_EQ(Status::NotFound(), file_manager_->FileExists(private_tmp_dir));
     }
-    CloseDBAndBackupEngine();
-    std::string shared_tmp = backupdir_;
-    if (shared_checksum) {
-      shared_tmp += "/shared_checksum";
-    } else {
-      shared_tmp += "/shared";
-    }
-    shared_tmp += "/.00006.sst.tmp";
-    std::string private_tmp_dir = backupdir_ + "/private/10";
-    std::string private_tmp_file = private_tmp_dir + "/00003.sst";
-    file_manager_->WriteToFile(shared_tmp, "tmp");
-    file_manager_->CreateDir(private_tmp_dir);
-    file_manager_->WriteToFile(private_tmp_file, "tmp");
-    ASSERT_OK(file_manager_->FileExists(private_tmp_dir));
-    if (shared_checksum) {
-      OpenDBAndBackupEngineShareWithChecksum(
-          false /* destroy_old_data */, false /* dummy */,
-          true /* share_table_files */, true /* share_with_checksums */);
-    } else {
-      OpenDBAndBackupEngine();
-    }
-    // Need to call this explicitly to delete tmp files
-    (void)backup_engine_->GarbageCollect();
-    CloseDBAndBackupEngine();
-    ASSERT_EQ(Status::NotFound(), file_manager_->FileExists(shared_tmp));
-    ASSERT_EQ(Status::NotFound(), file_manager_->FileExists(private_tmp_file));
-    ASSERT_EQ(Status::NotFound(), file_manager_->FileExists(private_tmp_dir));
   }
 }
 

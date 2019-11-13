@@ -387,7 +387,7 @@ TEST_F(CompactFilesTest, GetCompactionJobInfo) {
   auto l0_files_1 = collector->GetFlushedFiles();
   CompactionOptions co;
   co.compression = CompressionType::kLZ4Compression;
-  CompactionJobInfo compaction_job_info;
+  CompactionJobInfo compaction_job_info{};
   ASSERT_OK(
       db->CompactFiles(co, l0_files_1, 0, -1, nullptr, &compaction_job_info));
   ASSERT_EQ(compaction_job_info.base_input_level, 0);

@@ -2227,7 +2227,15 @@ class StressTest {
 
         if (FLAGS_acquire_snapshot_one_in > 0 &&
             thread->rand.Uniform(FLAGS_acquire_snapshot_one_in) == 0) {
-          auto snapshot = db_->GetSnapshot();
+#ifndef ROCKSDB_LITE
+          auto db_impl = reinterpret_cast<DBImpl*>(db_->GetRootDB());
+          const bool ww_snapshot = thread->rand.OneIn(10);
+          const Snapshot* snapshot =
+              ww_snapshot ? db_impl->GetSnapshotForWriteConflictBoundary()
+                          : db_->GetSnapshot();
+#else
+          const Snapshot* snapshot = db_->GetSnapshot();
+#endif  // !ROCKSDB_LITE
           ReadOptions ropt;
           ropt.snapshot = snapshot;
           std::string value_at;
@@ -2471,10 +2479,18 @@ class StressTest {
       std::unique_ptr<Iterator> cmp_iter(db_->NewIterator(cmp_ro, cmp_cfh));
       bool diverged = false;
 
-      iter->Seek(key);
-      cmp_iter->Seek(key);
+      LastIterateOp last_op;
+      if (thread->rand.OneIn(8)) {
+        iter->SeekForPrev(key);
+        cmp_iter->SeekForPrev(key);
+        last_op = kLastOpSeekForPrev;
+      } else {
+        iter->Seek(key);
+        cmp_iter->Seek(key);
+        last_op = kLastOpSeek;
+      }
       VerifyIterator(thread, cmp_cfh, readoptionscopy, iter.get(),
-                     cmp_iter.get(), key, &diverged);
+                     cmp_iter.get(), last_op, key, &diverged);
 
       bool no_reverse =
           (FLAGS_memtablerep == "prefix_hash" && !read_opts.total_order_seek &&
@@ -2493,8 +2509,9 @@ class StressTest {
             cmp_iter->Prev();
           }
         }
+        last_op = kLastOpNextOrPrev;
         VerifyIterator(thread, cmp_cfh, readoptionscopy, iter.get(),
-                       cmp_iter.get(), key, &diverged);
+                       cmp_iter.get(), last_op, key, &diverged);
       }
 
       if (s.ok()) {
@@ -2510,6 +2527,9 @@ class StressTest {
     return s;
   }
 
+  // Enum used by VerifyIterator() to identify the mode to validate.
+  enum LastIterateOp { kLastOpSeek, kLastOpSeekForPrev, kLastOpNextOrPrev };
+
   // Compare the two iterator, iter and cmp_iter are in the same position,
   // unless iter might be made invalidate or undefined because of
   // upper or lower bounds, or prefix extractor.
@@ -2518,14 +2538,29 @@ class StressTest {
   // True if verification passed, false if not.
   void VerifyIterator(ThreadState* thread, ColumnFamilyHandle* cmp_cfh,
                       const ReadOptions& ro, Iterator* iter, Iterator* cmp_iter,
-                      const Slice& seek_key, bool* diverged) {
+                      LastIterateOp op, const Slice& seek_key, bool* diverged) {
     if (*diverged) {
       return;
     }
 
-    if (ro.iterate_lower_bound != nullptr) {
-      // Lower bound would create a lot of discrepency for now so disabling
-      // the verification for now.
+    if (op == kLastOpSeek && ro.iterate_lower_bound != nullptr &&
+        (options_.comparator->Compare(*ro.iterate_lower_bound, seek_key) >= 0 ||
+         (ro.iterate_upper_bound != nullptr &&
+          options_.comparator->Compare(*ro.iterate_lower_bound,
+                                       *ro.iterate_upper_bound) >= 0))) {
+      // Lower bound behavior is not well defined if it is larger than
+      // seek key or upper bound. Disable the check for now.
+      *diverged = true;
+      return;
+    }
+
+    if (op == kLastOpSeekForPrev && ro.iterate_upper_bound != nullptr &&
+        (options_.comparator->Compare(*ro.iterate_upper_bound, seek_key) <= 0 ||
+         (ro.iterate_lower_bound != nullptr &&
+          options_.comparator->Compare(*ro.iterate_lower_bound,
+                                       *ro.iterate_upper_bound) >= 0))) {
+      // Uppder bound behavior is not well defined if it is smaller than
+      // seek key or lower bound. Disable the check for now.
       *diverged = true;
       return;
     }
@@ -4269,27 +4304,31 @@ class CfConsistencyStressTest : public StressTest {
           }
           if (!found && s.ok()) {
             fprintf(stderr, "Get() return different results with key %s\n",
-                    key_str.c_str());
+                    Slice(key_str).ToString(true).c_str());
             fprintf(stderr, "CF %s is not found\n",
                     column_family_names_[0].c_str());
             fprintf(stderr, "CF %s returns value %s\n",
-                    column_family_names_[i].c_str(), value1.c_str());
+                    column_family_names_[i].c_str(),
+                    Slice(value1).ToString(true).c_str());
             is_consistent = false;
           } else if (found && s.IsNotFound()) {
             fprintf(stderr, "Get() return different results with key %s\n",
-                    key_str.c_str());
+                    Slice(key_str).ToString(true).c_str());
             fprintf(stderr, "CF %s returns value %s\n",
-                    column_family_names_[0].c_str(), value0.c_str());
+                    column_family_names_[0].c_str(),
+                    Slice(value0).ToString(true).c_str());
             fprintf(stderr, "CF %s is not found\n",
                     column_family_names_[i].c_str());
             is_consistent = false;
           } else if (s.ok() && value0 != value1) {
             fprintf(stderr, "Get() return different results with key %s\n",
-                    key_str.c_str());
+                    Slice(key_str).ToString(true).c_str());
             fprintf(stderr, "CF %s returns value %s\n",
-                    column_family_names_[0].c_str(), value0.c_str());
+                    column_family_names_[0].c_str(),
+                    Slice(value0).ToString(true).c_str());
             fprintf(stderr, "CF %s returns value %s\n",
-                    column_family_names_[i].c_str(), value1.c_str());
+                    column_family_names_[i].c_str(),
+                    Slice(value1).ToString(true).c_str());
             is_consistent = false;
           }
           if (!is_consistent) {

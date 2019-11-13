@@ -965,7 +965,7 @@ Compaction* UniversalCompactionBuilder::PickDeleteTriggeredCompaction() {
 
 Compaction* UniversalCompactionBuilder::PickCompactionToOldest(
     size_t start_index, CompactionReason compaction_reason) {
-  assert(start_index < sorted_runs_.size() - 1);
+  assert(start_index < sorted_runs_.size());
 
   // Estimate total file size
   uint64_t estimated_total_size = 0;
