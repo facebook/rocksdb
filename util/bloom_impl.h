@@ -20,126 +20,6 @@
 
 namespace rocksdb {
 
-// A legacy Bloom filter implementation with no locality of probes (slow).
-// It uses double hashing to generate a sequence of hash values.
-// Asymptotic analysis is in [Kirsch,Mitzenmacher 2006], but known to have
-// subtle accuracy flaws for practical sizes [Dillinger,Manolios 2004].
-//
-// DO NOT REUSE - faster and more predictably accurate implementations
-// are available at
-// https://github.com/pdillinger/wormhashing/blob/master/bloom_simulation_tests/foo.cc
-// See e.g. RocksDB DynamicBloom.
-//
-class LegacyNoLocalityBloomImpl {
- public:
-  static inline void AddHash(uint32_t h, uint32_t total_bits, int num_probes,
-                             char *data) {
-    const uint32_t delta = (h >> 17) | (h << 15);  // Rotate right 17 bits
-    for (int i = 0; i < num_probes; i++) {
-      const uint32_t bitpos = h % total_bits;
-      data[bitpos / 8] |= (1 << (bitpos % 8));
-      h += delta;
-    }
-  }
-
-  static inline bool HashMayMatch(uint32_t h, uint32_t total_bits,
-                                  int num_probes, const char *data) {
-    const uint32_t delta = (h >> 17) | (h << 15);  // Rotate right 17 bits
-    for (int i = 0; i < num_probes; i++) {
-      const uint32_t bitpos = h % total_bits;
-      if ((data[bitpos / 8] & (1 << (bitpos % 8))) == 0) {
-        return false;
-      }
-      h += delta;
-    }
-    return true;
-  }
-};
-
-// A legacy Bloom filter implementation with probes local to a single
-// cache line (fast). Because SST files might be transported between
-// platforms, the cache line size is a parameter rather than hard coded.
-// (But if specified as a constant parameter, an optimizing compiler
-// should take advantage of that.)
-//
-// When ExtraRotates is false, this implementation is notably deficient in
-// accuracy. Specifically, it uses double hashing with a 1/512 chance of the
-// increment being zero (when cache line size is 512 bits). Thus, there's a
-// 1/512 chance of probing only one index, which we'd expect to incur about
-// a 1/2 * 1/512 or absolute 0.1% FP rate penalty. More detail at
-// https://github.com/facebook/rocksdb/issues/4120
-//
-// DO NOT REUSE - faster and more predictably accurate implementations
-// are available at
-// https://github.com/pdillinger/wormhashing/blob/master/bloom_simulation_tests/foo.cc
-// See e.g. RocksDB DynamicBloom.
-//
-template <bool ExtraRotates>
-class LegacyLocalityBloomImpl {
- private:
-  static inline uint32_t GetLine(uint32_t h, uint32_t num_lines) {
-    uint32_t offset_h = ExtraRotates ? (h >> 11) | (h << 21) : h;
-    return offset_h % num_lines;
-  }
-
- public:
-  static inline void AddHash(uint32_t h, uint32_t num_lines, int num_probes,
-                             char *data, int log2_cache_line_bytes) {
-    const int log2_cache_line_bits = log2_cache_line_bytes + 3;
-
-    char *data_at_offset =
-        data + (GetLine(h, num_lines) << log2_cache_line_bytes);
-    const uint32_t delta = (h >> 17) | (h << 15);
-    for (int i = 0; i < num_probes; ++i) {
-      // Mask to bit-within-cache-line address
-      const uint32_t bitpos = h & ((1 << log2_cache_line_bits) - 1);
-      data_at_offset[bitpos / 8] |= (1 << (bitpos % 8));
-      if (ExtraRotates) {
-        h = (h >> log2_cache_line_bits) | (h << (32 - log2_cache_line_bits));
-      }
-      h += delta;
-    }
-  }
-
-  static inline void PrepareHashMayMatch(uint32_t h, uint32_t num_lines,
-                                         const char *data,
-                                         uint32_t /*out*/ *byte_offset,
-                                         int log2_cache_line_bytes) {
-    uint32_t b = GetLine(h, num_lines) << log2_cache_line_bytes;
-    PREFETCH(data + b, 0 /* rw */, 1 /* locality */);
-    PREFETCH(data + b + ((1 << log2_cache_line_bytes) - 1), 0 /* rw */,
-             1 /* locality */);
-    *byte_offset = b;
-  }
-
-  static inline bool HashMayMatch(uint32_t h, uint32_t num_lines,
-                                  int num_probes, const char *data,
-                                  int log2_cache_line_bytes) {
-    uint32_t b = GetLine(h, num_lines) << log2_cache_line_bytes;
-    return HashMayMatchPrepared(h, num_probes, data + b, log2_cache_line_bytes);
-  }
-
-  static inline bool HashMayMatchPrepared(uint32_t h, int num_probes,
-                                          const char *data_at_offset,
-                                          int log2_cache_line_bytes) {
-    const int log2_cache_line_bits = log2_cache_line_bytes + 3;
-
-    const uint32_t delta = (h >> 17) | (h << 15);
-    for (int i = 0; i < num_probes; ++i) {
-      // Mask to bit-within-cache-line address
-      const uint32_t bitpos = h & ((1 << log2_cache_line_bits) - 1);
-      if (((data_at_offset[bitpos / 8]) & (1 << (bitpos % 8))) == 0) {
-        return false;
-      }
-      if (ExtraRotates) {
-        h = (h >> log2_cache_line_bits) | (h << (32 - log2_cache_line_bits));
-      }
-      h += delta;
-    }
-    return true;
-  }
-};
-
 // A fast, flexible, and accurate cache-local Bloom implementation with
 // SIMD-optimized query performance (currently using AVX2 on Intel). Write
 // performance and non-SIMD read are very good, benefiting from fastrange32
@@ -204,7 +84,7 @@ class FastLocalBloomImpl {
     for (int i = 0; i < num_probes; ++i, h *= uint32_t{0x9e3779b9}) {
       // 9-bit address within 512 bit cache line
       int bitpos = h >> (32 - 9);
-      data_at_cache_line[bitpos >> 3] |= (uint8_t(1) << (bitpos & 7));
+      data_at_cache_line[bitpos >> 3] |= (uint8_t{1} << (bitpos & 7));
     }
   }
 
@@ -249,11 +129,20 @@ class FastLocalBloomImpl {
       // associativity of multiplication.
       hash_vector = _mm256_mullo_epi32(hash_vector, multipliers);
 
-      // Shift right by 28 bits to get 4-bit addresses of 32-bit values within
-      // a cache line.
+      // Now the top 9 bits of each of the eight 32-bit values in
+      // hash_vector are bit addresses for probes within the cache line.
+      // While the platform-independent code uses byte addressing (6 bits
+      // to pick a byte + 3 bits to pick a bit within a byte), here we work
+      // with 32-bit words (4 bits to pick a word + 5 bits to pick a bit
+      // within a word) because that works well with AVX2 and is equivalent
+      // under little-endian.
+
+      // Shift each right by 28 bits to get 4-bit word addresses.
       const __m256i word_addresses = _mm256_srli_epi32(hash_vector, 28);
 
-      // Gather 32-bit values spread over 512 bits by 4-bit address.
+      // Gather 32-bit values spread over 512 bits by 4-bit address. In
+      // essence, we are dereferencing eight pointers within the cache
+      // line.
       //
       // Option 1: AVX2 gather (seems to be a little slow - understandable)
       // const __m256i value_vector =
@@ -285,12 +174,14 @@ class FastLocalBloomImpl {
       // END Option 3
 
       // We might not need to probe all 8, so build a mask for selecting only
-      // what we need. The k_selector(s) could be pre-computed but that
-      // doesn't seem to make a noticeable performance difference.
+      // what we need. (The k_selector(s) could be pre-computed but that
+      // doesn't seem to make a noticeable performance difference.)
       const __m256i zero_to_seven = _mm256_setr_epi32(0, 1, 2, 3, 4, 5, 6, 7);
+      // Subtract rem_probes from each of those constants
       __m256i k_selector =
           _mm256_sub_epi32(zero_to_seven, _mm256_set1_epi32(rem_probes));
-      // Keep only high bit; negative after subtract -> use/select
+      // Negative after subtract -> use/select
+      // Keep only high bit (logical shift right each by 31).
       k_selector = _mm256_srli_epi32(k_selector, 31);
 
       // Strip off the 4 bit word address (shift left)
@@ -325,6 +216,120 @@ class FastLocalBloomImpl {
     }
     return true;
 #endif
+  }
+};
+
+// A legacy Bloom filter implementation with no locality of probes (slow).
+// It uses double hashing to generate a sequence of hash values.
+// Asymptotic analysis is in [Kirsch,Mitzenmacher 2006], but known to have
+// subtle accuracy flaws for practical sizes [Dillinger,Manolios 2004].
+//
+// DO NOT REUSE
+//
+class LegacyNoLocalityBloomImpl {
+ public:
+  static inline void AddHash(uint32_t h, uint32_t total_bits, int num_probes,
+                             char *data) {
+    const uint32_t delta = (h >> 17) | (h << 15);  // Rotate right 17 bits
+    for (int i = 0; i < num_probes; i++) {
+      const uint32_t bitpos = h % total_bits;
+      data[bitpos / 8] |= (1 << (bitpos % 8));
+      h += delta;
+    }
+  }
+
+  static inline bool HashMayMatch(uint32_t h, uint32_t total_bits,
+                                  int num_probes, const char *data) {
+    const uint32_t delta = (h >> 17) | (h << 15);  // Rotate right 17 bits
+    for (int i = 0; i < num_probes; i++) {
+      const uint32_t bitpos = h % total_bits;
+      if ((data[bitpos / 8] & (1 << (bitpos % 8))) == 0) {
+        return false;
+      }
+      h += delta;
+    }
+    return true;
+  }
+};
+
+// A legacy Bloom filter implementation with probes local to a single
+// cache line (fast). Because SST files might be transported between
+// platforms, the cache line size is a parameter rather than hard coded.
+// (But if specified as a constant parameter, an optimizing compiler
+// should take advantage of that.)
+//
+// When ExtraRotates is false, this implementation is notably deficient in
+// accuracy. Specifically, it uses double hashing with a 1/512 chance of the
+// increment being zero (when cache line size is 512 bits). Thus, there's a
+// 1/512 chance of probing only one index, which we'd expect to incur about
+// a 1/2 * 1/512 or absolute 0.1% FP rate penalty. More detail at
+// https://github.com/facebook/rocksdb/issues/4120
+//
+// DO NOT REUSE
+//
+template <bool ExtraRotates>
+class LegacyLocalityBloomImpl {
+ private:
+  static inline uint32_t GetLine(uint32_t h, uint32_t num_lines) {
+    uint32_t offset_h = ExtraRotates ? (h >> 11) | (h << 21) : h;
+    return offset_h % num_lines;
+  }
+
+ public:
+  static inline void AddHash(uint32_t h, uint32_t num_lines, int num_probes,
+                             char *data, int log2_cache_line_bytes) {
+    const int log2_cache_line_bits = log2_cache_line_bytes + 3;
+
+    char *data_at_offset =
+        data + (GetLine(h, num_lines) << log2_cache_line_bytes);
+    const uint32_t delta = (h >> 17) | (h << 15);
+    for (int i = 0; i < num_probes; ++i) {
+      // Mask to bit-within-cache-line address
+      const uint32_t bitpos = h & ((1 << log2_cache_line_bits) - 1);
+      data_at_offset[bitpos / 8] |= (1 << (bitpos % 8));
+      if (ExtraRotates) {
+        h = (h >> log2_cache_line_bits) | (h << (32 - log2_cache_line_bits));
+      }
+      h += delta;
+    }
+  }
+
+  static inline void PrepareHashMayMatch(uint32_t h, uint32_t num_lines,
+                                         const char *data,
+                                         uint32_t /*out*/ *byte_offset,
+                                         int log2_cache_line_bytes) {
+    uint32_t b = GetLine(h, num_lines) << log2_cache_line_bytes;
+    PREFETCH(data + b, 0 /* rw */, 1 /* locality */);
+    PREFETCH(data + b + ((1 << log2_cache_line_bytes) - 1), 0 /* rw */,
+             1 /* locality */);
+    *byte_offset = b;
+  }
+
+  static inline bool HashMayMatch(uint32_t h, uint32_t num_lines,
+                                  int num_probes, const char *data,
+                                  int log2_cache_line_bytes) {
+    uint32_t b = GetLine(h, num_lines) << log2_cache_line_bytes;
+    return HashMayMatchPrepared(h, num_probes, data + b, log2_cache_line_bytes);
+  }
+
+  static inline bool HashMayMatchPrepared(uint32_t h, int num_probes,
+                                          const char *data_at_offset,
+                                          int log2_cache_line_bytes) {
+    const int log2_cache_line_bits = log2_cache_line_bytes + 3;
+
+    const uint32_t delta = (h >> 17) | (h << 15);
+    for (int i = 0; i < num_probes; ++i) {
+      // Mask to bit-within-cache-line address
+      const uint32_t bitpos = h & ((1 << log2_cache_line_bits) - 1);
+      if (((data_at_offset[bitpos / 8]) & (1 << (bitpos % 8))) == 0) {
+        return false;
+      }
+      if (ExtraRotates) {
+        h = (h >> log2_cache_line_bits) | (h << (32 - log2_cache_line_bits));
+      }
+      h += delta;
+    }
+    return true;
   }
 };
 

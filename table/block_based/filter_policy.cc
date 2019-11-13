@@ -24,171 +24,6 @@ namespace rocksdb {
 
 namespace {
 
-using LegacyFullFilterImpl = LegacyLocalityBloomImpl</*ExtraRotates*/ false>;
-
-class LegacyBloomBitsBuilder : public BuiltinFilterBitsBuilder {
- public:
-  explicit LegacyBloomBitsBuilder(const int bits_per_key, const int num_probes);
-
-  // No Copy allowed
-  LegacyBloomBitsBuilder(const LegacyBloomBitsBuilder&) = delete;
-  void operator=(const LegacyBloomBitsBuilder&) = delete;
-
-  ~LegacyBloomBitsBuilder() override;
-
-  void AddKey(const Slice& key) override;
-
-  // Create a filter that for hashes [0, n-1], the filter is allocated here
-  // When creating filter, it is ensured that
-  // total_bits = num_lines * CACHE_LINE_SIZE * 8
-  // dst len is >= 5, 1 for num_probes, 4 for num_lines
-  // Then total_bits = (len - 5) * 8, and cache_line_size could be calculated
-  // +----------------------------------------------------------------+
-  // |              filter data with length total_bits/8              |
-  // +----------------------------------------------------------------+
-  // |                                                                |
-  // | ...                                                            |
-  // |                                                                |
-  // +----------------------------------------------------------------+
-  // | ...                | num_probes : 1 byte | num_lines : 4 bytes |
-  // +----------------------------------------------------------------+
-  Slice Finish(std::unique_ptr<const char[]>* buf) override;
-
-  int CalculateNumEntry(const uint32_t bytes) override;
-
-  uint32_t CalculateSpace(const int num_entry) override {
-    uint32_t dont_care1;
-    uint32_t dont_care2;
-    return CalculateSpace(num_entry, &dont_care1, &dont_care2);
-  }
-
- private:
-  friend class FullFilterBlockTest_DuplicateEntries_Test;
-  int bits_per_key_;
-  int num_probes_;
-  std::vector<uint32_t> hash_entries_;
-
-  // Get totalbits that optimized for cpu cache line
-  uint32_t GetTotalBitsForLocality(uint32_t total_bits);
-
-  // Reserve space for new filter
-  char* ReserveSpace(const int num_entry, uint32_t* total_bits,
-                     uint32_t* num_lines);
-
-  // Implementation-specific variant of public CalculateSpace
-  uint32_t CalculateSpace(const int num_entry, uint32_t* total_bits,
-                          uint32_t* num_lines);
-
-  // Assuming single threaded access to this function.
-  void AddHash(uint32_t h, char* data, uint32_t num_lines, uint32_t total_bits);
-};
-
-LegacyBloomBitsBuilder::LegacyBloomBitsBuilder(const int bits_per_key,
-                                               const int num_probes)
-    : bits_per_key_(bits_per_key), num_probes_(num_probes) {
-  assert(bits_per_key_);
-}
-
-LegacyBloomBitsBuilder::~LegacyBloomBitsBuilder() {}
-
-void LegacyBloomBitsBuilder::AddKey(const Slice& key) {
-  uint32_t hash = BloomHash(key);
-  if (hash_entries_.size() == 0 || hash != hash_entries_.back()) {
-    hash_entries_.push_back(hash);
-  }
-}
-
-Slice LegacyBloomBitsBuilder::Finish(std::unique_ptr<const char[]>* buf) {
-  uint32_t total_bits, num_lines;
-  char* data = ReserveSpace(static_cast<int>(hash_entries_.size()), &total_bits,
-                            &num_lines);
-  assert(data);
-
-  if (total_bits != 0 && num_lines != 0) {
-    for (auto h : hash_entries_) {
-      AddHash(h, data, num_lines, total_bits);
-    }
-  }
-  data[total_bits / 8] = static_cast<char>(num_probes_);
-  EncodeFixed32(data + total_bits / 8 + 1, static_cast<uint32_t>(num_lines));
-
-  const char* const_data = data;
-  buf->reset(const_data);
-  hash_entries_.clear();
-
-  return Slice(data, total_bits / 8 + 5);
-}
-
-uint32_t LegacyBloomBitsBuilder::GetTotalBitsForLocality(uint32_t total_bits) {
-  uint32_t num_lines =
-      (total_bits + CACHE_LINE_SIZE * 8 - 1) / (CACHE_LINE_SIZE * 8);
-
-  // Make num_lines an odd number to make sure more bits are involved
-  // when determining which block.
-  if (num_lines % 2 == 0) {
-    num_lines++;
-  }
-  return num_lines * (CACHE_LINE_SIZE * 8);
-}
-
-uint32_t LegacyBloomBitsBuilder::CalculateSpace(const int num_entry,
-                                                uint32_t* total_bits,
-                                                uint32_t* num_lines) {
-  assert(bits_per_key_);
-  if (num_entry != 0) {
-    uint32_t total_bits_tmp = static_cast<uint32_t>(num_entry * bits_per_key_);
-
-    *total_bits = GetTotalBitsForLocality(total_bits_tmp);
-    *num_lines = *total_bits / (CACHE_LINE_SIZE * 8);
-    assert(*total_bits > 0 && *total_bits % 8 == 0);
-  } else {
-    // filter is empty, just leave space for metadata
-    *total_bits = 0;
-    *num_lines = 0;
-  }
-
-  // Reserve space for Filter
-  uint32_t sz = *total_bits / 8;
-  sz += 5;  // 4 bytes for num_lines, 1 byte for num_probes
-  return sz;
-}
-
-char* LegacyBloomBitsBuilder::ReserveSpace(const int num_entry,
-                                           uint32_t* total_bits,
-                                           uint32_t* num_lines) {
-  uint32_t sz = CalculateSpace(num_entry, total_bits, num_lines);
-  char* data = new char[sz];
-  memset(data, 0, sz);
-  return data;
-}
-
-int LegacyBloomBitsBuilder::CalculateNumEntry(const uint32_t bytes) {
-  assert(bits_per_key_);
-  assert(bytes > 0);
-  int high = static_cast<int>(bytes * 8 / bits_per_key_ + 1);
-  int low = 1;
-  int n = high;
-  for (; n >= low; n--) {
-    if (CalculateSpace(n) <= bytes) {
-      break;
-    }
-  }
-  assert(n < high);  // High should be an overestimation
-  return n;
-}
-
-inline void LegacyBloomBitsBuilder::AddHash(uint32_t h, char* data,
-                                            uint32_t num_lines,
-                                            uint32_t total_bits) {
-#ifdef NDEBUG
-  static_cast<void>(total_bits);
-#endif
-  assert(num_lines > 0 && total_bits > 0);
-
-  LegacyFullFilterImpl::AddHash(h, num_lines, num_probes_, data,
-                                folly::constexpr_log2(CACHE_LINE_SIZE));
-}
-
 // See description in FastLocalBloomImpl
 class FastLocalBloomBitsBuilder : public BuiltinFilterBitsBuilder {
  public:
@@ -224,6 +59,7 @@ class FastLocalBloomBitsBuilder : public BuiltinFilterBitsBuilder {
       AddAllEntries(data, len);
     }
 
+    // See BloomFilterPolicy::GetBloomBitsReader re: metadata
     // -1 = Marker for newer Bloom implementations
     data[len] = static_cast<char>(-1);
     // 0 = Marker for this sub-implementation
@@ -347,17 +183,157 @@ class FastLocalBloomBitsReader : public FilterBitsReader {
   const uint32_t len_bytes_;
 };
 
-class AlwaysTrueFilter : public FilterBitsReader {
+using LegacyBloomImpl = LegacyLocalityBloomImpl</*ExtraRotates*/ false>;
+
+class LegacyBloomBitsBuilder : public BuiltinFilterBitsBuilder {
  public:
-  bool MayMatch(const Slice&) override { return true; }
-  using FilterBitsReader::MayMatch;  // inherit overload
+  explicit LegacyBloomBitsBuilder(const int bits_per_key, const int num_probes);
+
+  // No Copy allowed
+  LegacyBloomBitsBuilder(const LegacyBloomBitsBuilder&) = delete;
+  void operator=(const LegacyBloomBitsBuilder&) = delete;
+
+  ~LegacyBloomBitsBuilder() override;
+
+  void AddKey(const Slice& key) override;
+
+  Slice Finish(std::unique_ptr<const char[]>* buf) override;
+
+  int CalculateNumEntry(const uint32_t bytes) override;
+
+  uint32_t CalculateSpace(const int num_entry) override {
+    uint32_t dont_care1;
+    uint32_t dont_care2;
+    return CalculateSpace(num_entry, &dont_care1, &dont_care2);
+  }
+
+ private:
+  friend class FullFilterBlockTest_DuplicateEntries_Test;
+  int bits_per_key_;
+  int num_probes_;
+  std::vector<uint32_t> hash_entries_;
+
+  // Get totalbits that optimized for cpu cache line
+  uint32_t GetTotalBitsForLocality(uint32_t total_bits);
+
+  // Reserve space for new filter
+  char* ReserveSpace(const int num_entry, uint32_t* total_bits,
+                     uint32_t* num_lines);
+
+  // Implementation-specific variant of public CalculateSpace
+  uint32_t CalculateSpace(const int num_entry, uint32_t* total_bits,
+                          uint32_t* num_lines);
+
+  // Assuming single threaded access to this function.
+  void AddHash(uint32_t h, char* data, uint32_t num_lines, uint32_t total_bits);
 };
 
-class AlwaysFalseFilter : public FilterBitsReader {
- public:
-  bool MayMatch(const Slice&) override { return false; }
-  using FilterBitsReader::MayMatch;  // inherit overload
-};
+LegacyBloomBitsBuilder::LegacyBloomBitsBuilder(const int bits_per_key,
+                                               const int num_probes)
+    : bits_per_key_(bits_per_key), num_probes_(num_probes) {
+  assert(bits_per_key_);
+}
+
+LegacyBloomBitsBuilder::~LegacyBloomBitsBuilder() {}
+
+void LegacyBloomBitsBuilder::AddKey(const Slice& key) {
+  uint32_t hash = BloomHash(key);
+  if (hash_entries_.size() == 0 || hash != hash_entries_.back()) {
+    hash_entries_.push_back(hash);
+  }
+}
+
+Slice LegacyBloomBitsBuilder::Finish(std::unique_ptr<const char[]>* buf) {
+  uint32_t total_bits, num_lines;
+  char* data = ReserveSpace(static_cast<int>(hash_entries_.size()), &total_bits,
+                            &num_lines);
+  assert(data);
+
+  if (total_bits != 0 && num_lines != 0) {
+    for (auto h : hash_entries_) {
+      AddHash(h, data, num_lines, total_bits);
+    }
+  }
+  // See BloomFilterPolicy::GetFilterBitsReader for metadata
+  data[total_bits / 8] = static_cast<char>(num_probes_);
+  EncodeFixed32(data + total_bits / 8 + 1, static_cast<uint32_t>(num_lines));
+
+  const char* const_data = data;
+  buf->reset(const_data);
+  hash_entries_.clear();
+
+  return Slice(data, total_bits / 8 + 5);
+}
+
+uint32_t LegacyBloomBitsBuilder::GetTotalBitsForLocality(uint32_t total_bits) {
+  uint32_t num_lines =
+      (total_bits + CACHE_LINE_SIZE * 8 - 1) / (CACHE_LINE_SIZE * 8);
+
+  // Make num_lines an odd number to make sure more bits are involved
+  // when determining which block.
+  if (num_lines % 2 == 0) {
+    num_lines++;
+  }
+  return num_lines * (CACHE_LINE_SIZE * 8);
+}
+
+uint32_t LegacyBloomBitsBuilder::CalculateSpace(const int num_entry,
+                                                uint32_t* total_bits,
+                                                uint32_t* num_lines) {
+  assert(bits_per_key_);
+  if (num_entry != 0) {
+    uint32_t total_bits_tmp = static_cast<uint32_t>(num_entry * bits_per_key_);
+
+    *total_bits = GetTotalBitsForLocality(total_bits_tmp);
+    *num_lines = *total_bits / (CACHE_LINE_SIZE * 8);
+    assert(*total_bits > 0 && *total_bits % 8 == 0);
+  } else {
+    // filter is empty, just leave space for metadata
+    *total_bits = 0;
+    *num_lines = 0;
+  }
+
+  // Reserve space for Filter
+  uint32_t sz = *total_bits / 8;
+  sz += 5;  // 4 bytes for num_lines, 1 byte for num_probes
+  return sz;
+}
+
+char* LegacyBloomBitsBuilder::ReserveSpace(const int num_entry,
+                                           uint32_t* total_bits,
+                                           uint32_t* num_lines) {
+  uint32_t sz = CalculateSpace(num_entry, total_bits, num_lines);
+  char* data = new char[sz];
+  memset(data, 0, sz);
+  return data;
+}
+
+int LegacyBloomBitsBuilder::CalculateNumEntry(const uint32_t bytes) {
+  assert(bits_per_key_);
+  assert(bytes > 0);
+  int high = static_cast<int>(bytes * 8 / bits_per_key_ + 1);
+  int low = 1;
+  int n = high;
+  for (; n >= low; n--) {
+    if (CalculateSpace(n) <= bytes) {
+      break;
+    }
+  }
+  assert(n < high);  // High should be an overestimation
+  return n;
+}
+
+inline void LegacyBloomBitsBuilder::AddHash(uint32_t h, char* data,
+                                            uint32_t num_lines,
+                                            uint32_t total_bits) {
+#ifdef NDEBUG
+  static_cast<void>(total_bits);
+#endif
+  assert(num_lines > 0 && total_bits > 0);
+
+  LegacyBloomImpl::AddHash(h, num_lines, num_probes_, data,
+                           folly::constexpr_log2(CACHE_LINE_SIZE));
+}
 
 class LegacyBloomBitsReader : public FilterBitsReader {
  public:
@@ -382,9 +358,9 @@ class LegacyBloomBitsReader : public FilterBitsReader {
   bool MayMatch(const Slice& key) override {
     uint32_t hash = BloomHash(key);
     uint32_t byte_offset;
-    LegacyFullFilterImpl::PrepareHashMayMatch(
+    LegacyBloomImpl::PrepareHashMayMatch(
         hash, num_lines_, data_, /*out*/ &byte_offset, log2_cache_line_size_);
-    return LegacyFullFilterImpl::HashMayMatchPrepared(
+    return LegacyBloomImpl::HashMayMatchPrepared(
         hash, num_probes_, data_ + byte_offset, log2_cache_line_size_);
   }
 
@@ -393,12 +369,12 @@ class LegacyBloomBitsReader : public FilterBitsReader {
     std::array<uint32_t, MultiGetContext::MAX_BATCH_SIZE> byte_offsets;
     for (int i = 0; i < num_keys; ++i) {
       hashes[i] = BloomHash(*keys[i]);
-      LegacyFullFilterImpl::PrepareHashMayMatch(hashes[i], num_lines_, data_,
-                                                /*out*/ &byte_offsets[i],
-                                                log2_cache_line_size_);
+      LegacyBloomImpl::PrepareHashMayMatch(hashes[i], num_lines_, data_,
+                                           /*out*/ &byte_offsets[i],
+                                           log2_cache_line_size_);
     }
     for (int i = 0; i < num_keys; ++i) {
-      may_match[i] = LegacyFullFilterImpl::HashMayMatchPrepared(
+      may_match[i] = LegacyBloomImpl::HashMayMatchPrepared(
           hashes[i], num_probes_, data_ + byte_offsets[i],
           log2_cache_line_size_);
     }
@@ -409,6 +385,18 @@ class LegacyBloomBitsReader : public FilterBitsReader {
   const int num_probes_;
   const uint32_t num_lines_;
   const uint32_t log2_cache_line_size_;
+};
+
+class AlwaysTrueFilter : public FilterBitsReader {
+ public:
+  bool MayMatch(const Slice&) override { return true; }
+  using FilterBitsReader::MayMatch;  // inherit overload
+};
+
+class AlwaysFalseFilter : public FilterBitsReader {
+ public:
+  bool MayMatch(const Slice&) override { return false; }
+  using FilterBitsReader::MayMatch;  // inherit overload
 };
 
 }  // namespace
@@ -535,6 +523,18 @@ FilterBitsReader* BloomFilterPolicy::GetFilterBitsReader(
     return new AlwaysFalseFilter();
   }
 
+  // Legacy Bloom filter data:
+  //             0 +-----------------------------------+
+  //               | Raw Bloom filter data             |
+  //               | ...                               |
+  //           len +-----------------------------------+
+  //               | byte for num_probes or            |
+  //               |   marker for new implementations  |
+  //         len+1 +-----------------------------------+
+  //               | four bytes for number of cache    |
+  //               |   lines                           |
+  // len_with_meta +-----------------------------------+
+
   int8_t raw_num_probes =
       static_cast<int8_t>(contents.data()[len_with_meta - 5]);
   // NB: *num_probes > 30 and < 128 probably have not been used, because of
@@ -597,22 +597,36 @@ FilterBitsReader* BloomFilterPolicy::GetBloomBitsReader(
 
   assert(len > 0);  // precondition
 
-  // Read more metadata
-  char sub_impl_val = contents.data()[len_with_meta - 4];
-  // 0: FastLocalBloom
-  // other: reserved
+  // New Bloom filter data:
+  //             0 +-----------------------------------+
+  //               | Raw Bloom filter data             |
+  //               | ...                               |
+  //           len +-----------------------------------+
+  //               | char{-1} byte -> new Bloom filter |
+  //         len+1 +-----------------------------------+
+  //               | byte for subimplementation        |
+  //               |   0: FastLocalBloom               |
+  //               |   other: reserved                 |
+  //         len+2 +-----------------------------------+
+  //               | byte for block_and_probes         |
+  //               |   0 in top 3 bits -> 6 -> 64-byte |
+  //               |   reserved:                       |
+  //               |   1 in top 3 bits -> 7 -> 128-byte|
+  //               |   2 in top 3 bits -> 8 -> 256-byte|
+  //               |   ...                             |
+  //               |   num_probes in bottom 5 bits,    |
+  //               |     except 0 and 31 reserved      |
+  //         len+3 +-----------------------------------+
+  //               | two bytes reserved                |
+  //               |   possibly for hash seed          |
+  // len_with_meta +-----------------------------------+
 
+  // Read more metadata (see above)
+  char sub_impl_val = contents.data()[len_with_meta - 4];
   char block_and_probes = contents.data()[len_with_meta - 3];
   int log2_block_bytes = ((block_and_probes >> 5) & 7) + 6;
-  // 0 in top 3 bits -> 6 -> 64-byte (Intel cache line)
-  // reserved:
-  // 1 in top 3 bits -> 7 -> 128-byte
-  // 2 in top 3 bits -> 8 -> 256-byte
-  // ...
 
   int num_probes = (block_and_probes & 31);
-  // num_probes in bottom 5 bits, except 0 and 31 reserved
-
   if (num_probes < 1 || num_probes > 30) {
     // Reserved / future safe
     return new AlwaysTrueFilter();
