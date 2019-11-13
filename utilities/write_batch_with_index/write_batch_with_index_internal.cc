@@ -261,7 +261,13 @@ WriteBatchWithIndexInternal::Result WriteBatchWithIndexInternal::GetFromBatch(
         Logger* logger = immuable_db_options.info_log.get();
 
         if (merge_operator) {
-          *s = MergeHelper::TimedFullMerge(merge_operator, key, &entry_value,
+          Slice* merge_data;
+          if (result == WriteBatchWithIndexInternal::Result::kFound) {
+            merge_data = &entry_value;
+          } else {  // Key not present (result == kDeleted)
+            merge_data = nullptr;
+          }
+          *s = MergeHelper::TimedFullMerge(merge_operator, key, merge_data,
                                            merge_context->GetOperands(), value,
                                            logger, statistics, env);
         } else {
