@@ -44,6 +44,8 @@ endif()
 
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_LIST_DIR}/cmake/modules/")
 
+include(CheckSymbolExists)
+
 option(WITH_JEMALLOC "build with JeMalloc" OFF)
 option(WITH_SNAPPY "build with SNAPPY" OFF)
 option(WITH_LZ4 "build with lz4" OFF)
@@ -426,6 +428,26 @@ int main() {
   if(HAVE_FALLOCATE)
     add_definitions(-DROCKSDB_FALLOCATE_PRESENT)
   endif()
+endif()
+
+CHECK_SYMBOL_EXISTS(gettimeofday "sys/time.h" HAVE_GETTIMEOFDAY)
+if(HAVE_GETTIMEOFDAY)
+  add_definitions(-DHAVE_GETTIMEOFDAY)
+endif()
+
+CHECK_SYMBOL_EXISTS(localtime_r "time.h;sys/time.h" HAVE_LOCALTIME_R)
+if(HAVE_LOCALTIME_R)
+  add_definitions(-DHAVE_LOCALTIME_R)
+endif()
+
+CHECK_SYMBOL_EXISTS(localtime_s "time.h;sys/time.h" HAVE_LOCALTIME_S)
+if(HAVE_LOCALTIME_S)
+  add_definitions(-DHAVE_LOCALTIME_S)
+endif()
+
+CHECK_SYMBOL_EXISTS(localtime "time.h;sys/time.h" HAVE_LOCALTIME)
+if(HAVE_LOCALTIME)
+  add_definitions(-DHAVE_LOCALTIME)
 endif()
 
 CHECK_CXX_SOURCE_COMPILES("

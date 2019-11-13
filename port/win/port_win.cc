@@ -53,6 +53,7 @@ std::wstring utf8_to_utf16(const std::string& utf8) {
 }
 #endif
 
+#if !defined(HAVE_GETTIMEOFDAY) && defined(_MSC_VER)
 void gettimeofday(struct timeval* tv, struct timezone* /* tz */) {
   using namespace std::chrono;
 
@@ -65,6 +66,7 @@ void gettimeofday(struct timeval* tv, struct timezone* /* tz */) {
   tv->tv_usec = static_cast<long>(usNow.count() -
       duration_cast<microseconds>(secNow).count());
 }
+#endif
 
 Mutex::~Mutex() {}
 
