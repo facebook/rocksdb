@@ -3497,31 +3497,6 @@ TEST_P(WritePreparedTransactionTest, WC_WP_WALForwardIncompatibility) {
   CrossCompatibilityTest(WRITE_PREPARED, WRITE_COMMITTED, !empty_wal);
 }
 
-TEST_P(WritePreparedTransactionTest, IngestFile) {
-  // Use large buffer to avoid memtable flush after 1024 insertions
-  options.write_buffer_size = 1024 * 1024;
-  txn_db_options.skip_concurrency_control = true;
-  printf("two write que: %d, unordered write: %d\n", options.two_write_queues, options.unordered_write);
-  ReOpen();
-  ASSERT_OK(db->Put(WriteOptions(), "1000", "v1"));
-  ASSERT_OK(db->Put(WriteOptions(), "1001", "v1"));
-  ASSERT_OK(db->Put(WriteOptions(), "9999", "v1"));
-  ExternalSstFileInfo info;
-  std::string f = test::PerThreadDBPath("tmp_sst_file" + std::to_string(rand()));
-  EnvOptions env_;
-  rocksdb::SstFileWriter writer(env_, options);
-  auto s = writer.Open(f);
-  ASSERT_OK(s);
-// ASSERT_OK(writer.Put(Key(), ""));
-  ASSERT_OK(writer.Put("1001", "v2"));
-  ASSERT_OK(writer.Put("2001", "v2"));
-
-  ASSERT_OK(writer.Finish(&info));
-  IngestExternalFileOptions ingest_opt;
-
-  ASSERT_OK(db->IngestExternalFile({info.file_path}, ingest_opt));
-}
-
 }  // namespace rocksdb
 
 int main(int argc, char** argv) {

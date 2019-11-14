@@ -1661,8 +1661,6 @@ Status DBImpl::AtomicFlushMemTables(
     if (!writes_stopped) {
       write_thread_.EnterUnbatched(&w, &mutex_);
       if (two_write_queues_) {
-        // SwitchMemtable is a rare event. To simply the reasoning, we make sure
-        // that there is no concurrent thread writing to WAL.
         nonmem_write_thread_.EnterUnbatched(&nonmem_w, &mutex_);
       }
     }
