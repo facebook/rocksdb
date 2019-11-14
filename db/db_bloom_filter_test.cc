@@ -7,9 +7,6 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
-#ifndef ROCKSDB_LITE
-#include <folly/Optional.h>
-#endif  // ROCKSDB_LITE
 #include "db/db_test_util.h"
 #include "port/stack_trace.h"
 #include "rocksdb/perf_context.h"
@@ -19,6 +16,12 @@ namespace rocksdb {
 
 namespace {
 using BFP = BloomFilterPolicy;
+
+namespace BFP2 {
+// Extends BFP::Mode with option to use Plain table
+using PseudoMode = int;
+static constexpr PseudoMode kPlainTable = -1;
+}  // namespace BFP2
 }  // namespace
 
 // DB tests related to bloom filter.
@@ -867,8 +870,7 @@ TEST_F(DBBloomFilterTest, MemtablePrefixBloomOutOfDomain) {
 #ifndef ROCKSDB_LITE
 class BloomStatsTestWithParam
     : public DBBloomFilterTest,
-      public testing::WithParamInterface<
-          std::tuple<folly::Optional<BFP::Mode>, bool>> {
+      public testing::WithParamInterface<std::tuple<BFP2::PseudoMode, bool>> {
  public:
   BloomStatsTestWithParam() {
     bfp_impl_ = std::get<0>(GetParam());
@@ -878,21 +880,22 @@ class BloomStatsTestWithParam
     options_.prefix_extractor.reset(rocksdb::NewFixedPrefixTransform(4));
     options_.memtable_prefix_bloom_size_ratio =
         8.0 * 1024.0 / static_cast<double>(options_.write_buffer_size);
-    if (bfp_impl_) {
+    if (bfp_impl_ == BFP2::kPlainTable) {
+      assert(!partition_filters_);  // not supported in plain table
+      PlainTableOptions table_options;
+      options_.table_factory.reset(NewPlainTableFactory(table_options));
+    } else {
       BlockBasedTableOptions table_options;
       table_options.hash_index_allow_collision = false;
       if (partition_filters_) {
-        assert(*bfp_impl_ != BFP::kDeprecatedBlock);
+        assert(bfp_impl_ != BFP::kDeprecatedBlock);
         table_options.partition_filters = partition_filters_;
         table_options.index_type =
             BlockBasedTableOptions::IndexType::kTwoLevelIndexSearch;
       }
-      table_options.filter_policy.reset(new BFP(10, *bfp_impl_));
+      table_options.filter_policy.reset(
+          new BFP(10, static_cast<BFP::Mode>(bfp_impl_)));
       options_.table_factory.reset(NewBlockBasedTableFactory(table_options));
-    } else {
-      assert(!partition_filters_);  // not supported in plain table
-      PlainTableOptions table_options;
-      options_.table_factory.reset(NewPlainTableFactory(table_options));
     }
     options_.env = env_;
 
@@ -909,7 +912,7 @@ class BloomStatsTestWithParam
   static void SetUpTestCase() {}
   static void TearDownTestCase() {}
 
-  folly::Optional<BFP::Mode> bfp_impl_;
+  BFP2::PseudoMode bfp_impl_;
   bool partition_filters_;
   Options options_;
 };
@@ -1030,7 +1033,7 @@ INSTANTIATE_TEST_CASE_P(
                       std::make_tuple(BFP::kLegacyBloom, true),
                       std::make_tuple(BFP::kFastLocalBloom, false),
                       std::make_tuple(BFP::kFastLocalBloom, true),
-                      std::make_tuple(folly::Optional<BFP::Mode>(), false)));
+                      std::make_tuple(BFP2::kPlainTable, false)));
 
 namespace {
 void PrefixScanInit(DBBloomFilterTest* dbtest) {

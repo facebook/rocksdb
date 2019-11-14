@@ -320,7 +320,7 @@ else
 	PLATFORM_CXXFLAGS += -isystem $(GTEST_DIR)
 endif
 
-ifeq ($(filter -DROCKSDB_LITE,$(OPT)),)
+ifeq ($(USE_FOLLY_DISTRIBUTED_MUTEX),1)
 	FOLLY_DIR = ./third-party/folly
 	# AIX: pre-defined system headers are surrounded by an extern "C" block
 	ifeq ($(PLATFORM), OS_AIX)
