@@ -499,6 +499,168 @@ TEST_F(CompactionPickerTest, AllowsTrivialMoveUniversal) {
   ASSERT_TRUE(compaction->is_trivial_move());
 }
 
+TEST_F(CompactionPickerTest, UniversalPeriodicCompaction1) {
+  // The case where universal periodic compaction can be picked
+  // with some newer files being compacted.
+  const uint64_t kFileSize = 100000;
+
+  mutable_cf_options_.periodic_compaction_seconds = 1000;
+  UniversalCompactionPicker universal_compaction_picker(ioptions_, &icmp_);
+
+  NewVersionStorage(5, kCompactionStyleUniversal);
+
+  Add(0, 1U, "150", "200", kFileSize, 0, 500, 550);
+  Add(0, 2U, "201", "250", kFileSize, 0, 401, 450);
+  Add(0, 4U, "260", "300", kFileSize, 0, 260, 300);
+  Add(3, 5U, "010", "080", kFileSize, 0, 200, 251);
+  Add(4, 3U, "301", "350", kFileSize, 0, 101, 150);
+  Add(4, 6U, "501", "750", kFileSize, 0, 101, 150);
+
+  file_map_[2].first->being_compacted = true;
+  UpdateVersionStorageInfo();
+  vstorage_->TEST_AddFileMarkedForPeriodicCompaction(4, file_map_[3].first);
+
+  std::unique_ptr<Compaction> compaction(
+      universal_compaction_picker.PickCompaction(
+          cf_name_, mutable_cf_options_, vstorage_.get(), &log_buffer_));
+
+  ASSERT_TRUE(compaction);
+  ASSERT_EQ(4, compaction->output_level());
+  ASSERT_EQ(0, compaction->start_level());
+  ASSERT_EQ(1U, compaction->num_input_files(0));
+}
+
+TEST_F(CompactionPickerTest, UniversalPeriodicCompaction2) {
+  // The case where universal periodic compaction does not
+  // pick up only level to compact if it doesn't cover
+  // any file marked as periodic compaction.
+  const uint64_t kFileSize = 100000;
+
+  mutable_cf_options_.periodic_compaction_seconds = 1000;
+  UniversalCompactionPicker universal_compaction_picker(ioptions_, &icmp_);
+
+  NewVersionStorage(5, kCompactionStyleUniversal);
+
+  Add(0, 1U, "150", "200", kFileSize, 0, 500, 550);
+  Add(3, 5U, "010", "080", kFileSize, 0, 200, 251);
+  Add(4, 3U, "301", "350", kFileSize, 0, 101, 150);
+  Add(4, 6U, "501", "750", kFileSize, 0, 101, 150);
+
+  file_map_[5].first->being_compacted = true;
+  UpdateVersionStorageInfo();
+  vstorage_->TEST_AddFileMarkedForPeriodicCompaction(0, file_map_[1].first);
+
+  std::unique_ptr<Compaction> compaction(
+      universal_compaction_picker.PickCompaction(
+          cf_name_, mutable_cf_options_, vstorage_.get(), &log_buffer_));
+
+  ASSERT_FALSE(compaction);
+}
+
+TEST_F(CompactionPickerTest, UniversalPeriodicCompaction3) {
+  // The case where universal periodic compaction does not
+  // pick up only the last sorted run which is an L0 file if it isn't
+  // marked as periodic compaction.
+  const uint64_t kFileSize = 100000;
+
+  mutable_cf_options_.periodic_compaction_seconds = 1000;
+  UniversalCompactionPicker universal_compaction_picker(ioptions_, &icmp_);
+
+  NewVersionStorage(5, kCompactionStyleUniversal);
+
+  Add(0, 1U, "150", "200", kFileSize, 0, 500, 550);
+  Add(0, 5U, "010", "080", kFileSize, 0, 200, 251);
+  Add(0, 6U, "501", "750", kFileSize, 0, 101, 150);
+
+  file_map_[5].first->being_compacted = true;
+  UpdateVersionStorageInfo();
+  vstorage_->TEST_AddFileMarkedForPeriodicCompaction(0, file_map_[1].first);
+
+  std::unique_ptr<Compaction> compaction(
+      universal_compaction_picker.PickCompaction(
+          cf_name_, mutable_cf_options_, vstorage_.get(), &log_buffer_));
+
+  ASSERT_FALSE(compaction);
+}
+
+TEST_F(CompactionPickerTest, UniversalPeriodicCompaction4) {
+  // The case where universal periodic compaction couldn't form
+  // a compaction that inlcudes any file marked for periodic compaction.
+  // Right now we form the compaction anyway if it is more than one
+  // sorted run. Just put the case here to validate that it doesn't
+  // crash.
+  const uint64_t kFileSize = 100000;
+
+  mutable_cf_options_.periodic_compaction_seconds = 1000;
+  UniversalCompactionPicker universal_compaction_picker(ioptions_, &icmp_);
+
+  NewVersionStorage(5, kCompactionStyleUniversal);
+
+  Add(0, 1U, "150", "200", kFileSize, 0, 500, 550);
+  Add(2, 2U, "010", "080", kFileSize, 0, 200, 251);
+  Add(3, 5U, "010", "080", kFileSize, 0, 200, 251);
+  Add(4, 3U, "301", "350", kFileSize, 0, 101, 150);
+  Add(4, 6U, "501", "750", kFileSize, 0, 101, 150);
+
+  file_map_[2].first->being_compacted = true;
+  UpdateVersionStorageInfo();
+  vstorage_->TEST_AddFileMarkedForPeriodicCompaction(0, file_map_[2].first);
+
+  std::unique_ptr<Compaction> compaction(
+      universal_compaction_picker.PickCompaction(
+          cf_name_, mutable_cf_options_, vstorage_.get(), &log_buffer_));
+  ASSERT_TRUE(!compaction ||
+              compaction->start_level() != compaction->output_level());
+}
+
+TEST_F(CompactionPickerTest, UniversalPeriodicCompaction5) {
+  // Test single L0 file periodic compaction triggering.
+  const uint64_t kFileSize = 100000;
+
+  mutable_cf_options_.periodic_compaction_seconds = 1000;
+  UniversalCompactionPicker universal_compaction_picker(ioptions_, &icmp_);
+
+  NewVersionStorage(5, kCompactionStyleUniversal);
+
+  Add(0, 6U, "150", "200", kFileSize, 0, 500, 550);
+  UpdateVersionStorageInfo();
+  vstorage_->TEST_AddFileMarkedForPeriodicCompaction(0, file_map_[6].first);
+
+  std::unique_ptr<Compaction> compaction(
+      universal_compaction_picker.PickCompaction(
+          cf_name_, mutable_cf_options_, vstorage_.get(), &log_buffer_));
+  ASSERT_TRUE(compaction);
+  ASSERT_EQ(0, compaction->start_level());
+  ASSERT_EQ(1U, compaction->num_input_files(0));
+  ASSERT_EQ(6U, compaction->input(0, 0)->fd.GetNumber());
+  ASSERT_EQ(4, compaction->output_level());
+}
+
+TEST_F(CompactionPickerTest, UniversalPeriodicCompaction6) {
+  // Test single sorted run non-L0 periodic compaction
+  const uint64_t kFileSize = 100000;
+
+  mutable_cf_options_.periodic_compaction_seconds = 1000;
+  UniversalCompactionPicker universal_compaction_picker(ioptions_, &icmp_);
+
+  NewVersionStorage(5, kCompactionStyleUniversal);
+
+  Add(4, 5U, "150", "200", kFileSize, 0, 500, 550);
+  Add(4, 6U, "350", "400", kFileSize, 0, 500, 550);
+  UpdateVersionStorageInfo();
+  vstorage_->TEST_AddFileMarkedForPeriodicCompaction(4, file_map_[6].first);
+
+  std::unique_ptr<Compaction> compaction(
+      universal_compaction_picker.PickCompaction(
+          cf_name_, mutable_cf_options_, vstorage_.get(), &log_buffer_));
+  ASSERT_TRUE(compaction);
+  ASSERT_EQ(4, compaction->start_level());
+  ASSERT_EQ(2U, compaction->num_input_files(0));
+  ASSERT_EQ(5U, compaction->input(0, 0)->fd.GetNumber());
+  ASSERT_EQ(6U, compaction->input(0, 1)->fd.GetNumber());
+  ASSERT_EQ(4, compaction->output_level());
+}
+
 TEST_F(CompactionPickerTest, NeedsCompactionFIFO) {
   NewVersionStorage(1, kCompactionStyleFIFO);
   const int kFileCount =

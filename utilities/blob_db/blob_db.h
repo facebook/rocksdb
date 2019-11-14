@@ -204,6 +204,28 @@ class BlobDB : public StackableDB {
     return NewIterator(options);
   }
 
+  Status CompactFiles(
+      const CompactionOptions& compact_options,
+      const std::vector<std::string>& input_file_names, const int output_level,
+      const int output_path_id = -1,
+      std::vector<std::string>* const output_file_names = nullptr,
+      CompactionJobInfo* compaction_job_info = nullptr) override = 0;
+  Status CompactFiles(
+      const CompactionOptions& compact_options,
+      ColumnFamilyHandle* column_family,
+      const std::vector<std::string>& input_file_names, const int output_level,
+      const int output_path_id = -1,
+      std::vector<std::string>* const output_file_names = nullptr,
+      CompactionJobInfo* compaction_job_info = nullptr) override {
+    if (column_family != DefaultColumnFamily()) {
+      return Status::NotSupported(
+          "Blob DB doesn't support non-default column family.");
+    }
+
+    return CompactFiles(compact_options, input_file_names, output_level,
+                        output_path_id, output_file_names, compaction_job_info);
+  }
+
   using rocksdb::StackableDB::Close;
   virtual Status Close() override = 0;
 

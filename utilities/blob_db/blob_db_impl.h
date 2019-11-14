@@ -77,6 +77,8 @@ struct GCStats {
 class BlobDBImpl : public BlobDB {
   friend class BlobFile;
   friend class BlobDBIterator;
+  friend class BlobDBListener;
+  friend class BlobDBListenerGC;
 
  public:
   // deletions check period
@@ -148,6 +150,14 @@ class BlobDBImpl : public BlobDB {
   Status PutUntil(const WriteOptions& options, const Slice& key,
                   const Slice& value, uint64_t expiration) override;
 
+  using BlobDB::CompactFiles;
+  Status CompactFiles(
+      const CompactionOptions& compact_options,
+      const std::vector<std::string>& input_file_names, const int output_level,
+      const int output_path_id = -1,
+      std::vector<std::string>* const output_file_names = nullptr,
+      CompactionJobInfo* compaction_job_info = nullptr) override;
+
   BlobDBOptions GetBlobDBOptions() const override;
 
   BlobDBImpl(const std::string& dbname, const BlobDBOptions& bdb_options,
@@ -169,13 +179,13 @@ class BlobDBImpl : public BlobDB {
 
   Status SyncBlobFiles() override;
 
-  void UpdateLiveSSTSize();
-
   void GetCompactionContext(BlobCompactionContext* context);
 
 #ifndef NDEBUG
   Status TEST_GetBlobValue(const Slice& key, const Slice& index_entry,
                            PinnableSlice* value);
+
+  void TEST_AddDummyBlobFile(uint64_t blob_file_number);
 
   std::vector<std::shared_ptr<BlobFile>> TEST_GetBlobFiles() const;
 
@@ -199,6 +209,14 @@ class BlobDBImpl : public BlobDB {
   uint64_t TEST_live_sst_size();
 
   const std::string& TEST_blob_dir() const { return blob_dir_; }
+
+  void TEST_InitializeBlobFileToSstMapping(
+      const std::vector<LiveFileMetaData>& live_files);
+
+  void TEST_ProcessFlushJobInfo(const FlushJobInfo& info);
+
+  void TEST_ProcessCompactionJobInfo(const CompactionJobInfo& info);
+
 #endif  //  !NDEBUG
 
  private:
@@ -283,6 +301,33 @@ class BlobDBImpl : public BlobDB {
 
   // Open all blob files found in blob_dir.
   Status OpenAllBlobFiles();
+
+  // Link an SST to a blob file. Comes in locking and non-locking varieties
+  // (the latter is used during Open).
+  template <typename Linker>
+  void LinkSstToBlobFileImpl(uint64_t sst_file_number,
+                             uint64_t blob_file_number, Linker linker);
+
+  void LinkSstToBlobFile(uint64_t sst_file_number, uint64_t blob_file_number);
+
+  void LinkSstToBlobFileNoLock(uint64_t sst_file_number,
+                               uint64_t blob_file_number);
+
+  // Unlink an SST from a blob file.
+  void UnlinkSstFromBlobFile(uint64_t sst_file_number,
+                             uint64_t blob_file_number);
+
+  // Initialize the mapping between blob files and SSTs during Open.
+  void InitializeBlobFileToSstMapping(
+      const std::vector<LiveFileMetaData>& live_files);
+
+  // Update the mapping between blob files and SSTs after a flush.
+  void ProcessFlushJobInfo(const FlushJobInfo& info);
+
+  // Update the mapping between blob files and SSTs after a compaction.
+  void ProcessCompactionJobInfo(const CompactionJobInfo& info);
+
+  void UpdateLiveSSTSize();
 
   Status GetBlobFileReader(const std::shared_ptr<BlobFile>& blob_file,
                            std::shared_ptr<RandomAccessFileReader>* reader);

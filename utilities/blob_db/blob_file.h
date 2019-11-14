@@ -7,6 +7,7 @@
 
 #include <atomic>
 #include <memory>
+#include <unordered_set>
 
 #include "file/random_access_file_reader.h"
 #include "port/port.h"
@@ -37,6 +38,10 @@ class BlobFile {
   // the above 2 are created during file creation and never changed
   // after that
   uint64_t file_number_;
+
+  // The file numbers of the SST files whose oldest blob file reference
+  // points to this blob file.
+  std::unordered_set<uint64_t> linked_sst_files_;
 
   // Info log.
   Logger* info_log_;
@@ -115,6 +120,25 @@ class BlobFile {
   // Primary identifier for blob file.
   // once the file is created, this never changes
   uint64_t BlobFileNumber() const { return file_number_; }
+
+  // Get the set of SST files whose oldest blob file reference points to
+  // this file.
+  const std::unordered_set<uint64_t>& GetLinkedSstFiles() const {
+    return linked_sst_files_;
+  }
+
+  // Link an SST file whose oldest blob file reference points to this file.
+  void LinkSstFile(uint64_t sst_file_number) {
+    assert(linked_sst_files_.find(sst_file_number) == linked_sst_files_.end());
+    linked_sst_files_.insert(sst_file_number);
+  }
+
+  // Unlink an SST file whose oldest blob file reference points to this file.
+  void UnlinkSstFile(uint64_t sst_file_number) {
+    auto it = linked_sst_files_.find(sst_file_number);
+    assert(it != linked_sst_files_.end());
+    linked_sst_files_.erase(it);
+  }
 
   // the following functions are atomic, and don't need
   // read lock

@@ -413,9 +413,9 @@ class BlockBasedTable : public TableReader {
       TailPrefetchStats* tail_prefetch_stats, const bool prefetch_all,
       const bool preload_all,
       std::unique_ptr<FilePrefetchBuffer>* prefetch_buffer);
-  Status ReadMetaBlock(FilePrefetchBuffer* prefetch_buffer,
-                       std::unique_ptr<Block>* meta_block,
-                       std::unique_ptr<InternalIterator>* iter);
+  Status ReadMetaIndexBlock(FilePrefetchBuffer* prefetch_buffer,
+                            std::unique_ptr<Block>* metaindex_block,
+                            std::unique_ptr<InternalIterator>* iter);
   Status TryReadPropertiesWithGlobalSeqno(FilePrefetchBuffer* prefetch_buffer,
                                           const Slice& handle_value,
                                           TableProperties** table_properties);
@@ -461,8 +461,13 @@ class BlockBasedTable : public TableReader {
   void DumpKeyValue(const Slice& key, const Slice& value,
                     WritableFile* out_file);
 
+  // A cumulative data block file read in MultiGet lower than this size will
+  // use a stack buffer
+  static constexpr size_t kMultiGetReadStackBufSize = 8192;
+
   friend class PartitionedFilterBlockReader;
   friend class PartitionedFilterBlockTest;
+  friend class DBBasicTest_MultiGetIOBufferOverrun_Test;
 };
 
 // Maitaning state of a two-level iteration on a partitioned index structure.

@@ -591,8 +591,10 @@ XXH32_update(XXH32_state_t* state, const void* input, size_t len)
             state->memsize = 0;
         }
 
-        if (p <= bEnd-16) {
-            const xxh_u8* const limit = bEnd - 16;
+        // uintptr_t casts added to avoid array-bounds error on
+        // some inlined calls
+        if ((uintptr_t)p <= (uintptr_t)bEnd - 16) {
+            const uintptr_t limit = (uintptr_t)bEnd - 16;
             xxh_u32 v1 = state->v1;
             xxh_u32 v2 = state->v2;
             xxh_u32 v3 = state->v3;
@@ -603,7 +605,7 @@ XXH32_update(XXH32_state_t* state, const void* input, size_t len)
                 v2 = XXH32_round(v2, XXH_readLE32(p)); p+=4;
                 v3 = XXH32_round(v3, XXH_readLE32(p)); p+=4;
                 v4 = XXH32_round(v4, XXH_readLE32(p)); p+=4;
-            } while (p<=limit);
+            } while ((uintptr_t)p <= limit);
 
             state->v1 = v1;
             state->v2 = v2;
@@ -1072,8 +1074,10 @@ XXH64_update (XXH64_state_t* state, const void* input, size_t len)
             state->memsize = 0;
         }
 
-        if (p+32 <= bEnd) {
-            const xxh_u8* const limit = bEnd - 32;
+        // uintptr_t casts added to avoid array-bounds error on
+        // some inlined calls
+        if ((uintptr_t)p + 32 <= (uintptr_t)bEnd) {
+            const uintptr_t limit = (uintptr_t)bEnd - 32;
             xxh_u64 v1 = state->v1;
             xxh_u64 v2 = state->v2;
             xxh_u64 v3 = state->v3;
@@ -1084,7 +1088,7 @@ XXH64_update (XXH64_state_t* state, const void* input, size_t len)
                 v2 = XXH64_round(v2, XXH_readLE64(p)); p+=8;
                 v3 = XXH64_round(v3, XXH_readLE64(p)); p+=8;
                 v4 = XXH64_round(v4, XXH_readLE64(p)); p+=8;
-            } while (p<=limit);
+            } while ((uintptr_t)p <= limit);
 
             state->v1 = v1;
             state->v2 = v2;

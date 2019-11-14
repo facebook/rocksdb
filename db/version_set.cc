@@ -867,7 +867,8 @@ class LevelIterator final : public InternalIterator {
         icomparator_(icomparator),
         user_comparator_(icomparator.user_comparator()),
         flevel_(flevel),
-        prefix_extractor_(prefix_extractor),
+        prefix_extractor_(read_options.total_order_seek ? nullptr
+                                                        : prefix_extractor),
         file_read_hist_(file_read_hist),
         should_sample_(should_sample),
         caller_(caller),
@@ -1451,16 +1452,14 @@ void Version::GetColumnFamilyMetaData(ColumnFamilyMetaData* cf_meta) {
         assert(!ioptions->cf_paths.empty());
         file_path = ioptions->cf_paths.back().path;
       }
+      const uint64_t file_number = file->fd.GetNumber();
       files.emplace_back(SstFileMetaData{
-          MakeTableFileName("", file->fd.GetNumber()),
-          file_path,
-          static_cast<size_t>(file->fd.GetFileSize()),
-          file->fd.smallest_seqno,
-          file->fd.largest_seqno,
-          file->smallest.user_key().ToString(),
+          MakeTableFileName("", file_number), file_number, file_path,
+          static_cast<size_t>(file->fd.GetFileSize()), file->fd.smallest_seqno,
+          file->fd.largest_seqno, file->smallest.user_key().ToString(),
           file->largest.user_key().ToString(),
           file->stats.num_reads_sampled.load(std::memory_order_relaxed),
-          file->being_compacted});
+          file->being_compacted, file->oldest_blob_file_number});
       files.back().num_entries = file->num_entries;
       files.back().num_deletions = file->num_deletions;
       level_size += file->fd.GetFileSize();
@@ -2445,7 +2444,8 @@ void VersionStorageInfo::ComputeCompactionScore(
   if (mutable_cf_options.ttl > 0) {
     ComputeExpiredTtlFiles(immutable_cf_options, mutable_cf_options.ttl);
   }
-  if (mutable_cf_options.periodic_compaction_seconds > 0) {
+  if (mutable_cf_options.periodic_compaction_seconds > 0 &&
+      mutable_cf_options.periodic_compaction_seconds < port::kMaxUint64) {
     ComputeFilesMarkedForPeriodicCompaction(
         immutable_cf_options, mutable_cf_options.periodic_compaction_seconds);
   }
@@ -2505,7 +2505,8 @@ void VersionStorageInfo::ComputeExpiredTtlFiles(
 void VersionStorageInfo::ComputeFilesMarkedForPeriodicCompaction(
     const ImmutableCFOptions& ioptions,
     const uint64_t periodic_compaction_seconds) {
-  assert(periodic_compaction_seconds > 0);
+  assert(periodic_compaction_seconds > 0 &&
+      periodic_compaction_seconds < port::kMaxUint64);
 
   files_marked_for_periodic_compaction_.clear();
 
@@ -2515,6 +2516,13 @@ void VersionStorageInfo::ComputeFilesMarkedForPeriodicCompaction(
     return;
   }
   const uint64_t current_time = static_cast<uint64_t>(temp_current_time);
+
+  assert(periodic_compaction_seconds <= current_time);
+  // Disable periodic compaction if periodic_compaction_seconds > current_time.
+  // This also help handle the underflow case.
+  if (periodic_compaction_seconds > current_time) {
+    return;
+  }
   const uint64_t allowed_time_limit =
       current_time - periodic_compaction_seconds;
 
@@ -5384,7 +5392,9 @@ void VersionSet::GetLiveFilesMetaData(std::vector<LiveFileMetaData>* metadata) {
           assert(!cfd->ioptions()->cf_paths.empty());
           filemetadata.db_path = cfd->ioptions()->cf_paths.back().path;
         }
-        filemetadata.name = MakeTableFileName("", file->fd.GetNumber());
+        const uint64_t file_number = file->fd.GetNumber();
+        filemetadata.name = MakeTableFileName("", file_number);
+        filemetadata.file_number = file_number;
         filemetadata.level = level;
         filemetadata.size = static_cast<size_t>(file->fd.GetFileSize());
         filemetadata.smallestkey = file->smallest.user_key().ToString();
@@ -5396,6 +5406,7 @@ void VersionSet::GetLiveFilesMetaData(std::vector<LiveFileMetaData>* metadata) {
         filemetadata.being_compacted = file->being_compacted;
         filemetadata.num_entries = file->num_entries;
         filemetadata.num_deletions = file->num_deletions;
+        filemetadata.oldest_blob_file_number = file->oldest_blob_file_number;
         metadata->push_back(filemetadata);
       }
     }

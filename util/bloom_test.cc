@@ -55,29 +55,27 @@ static int NextLength(int length) {
   return length;
 }
 
-class BloomTest : public testing::Test {
+class BlockBasedBloomTest : public testing::Test {
  private:
   std::unique_ptr<const FilterPolicy> policy_;
   std::string filter_;
   std::vector<std::string> keys_;
 
  public:
-  BloomTest() : policy_(
-      NewBloomFilterPolicy(FLAGS_bits_per_key)) {}
+  BlockBasedBloomTest() { ResetPolicy(); }
 
   void Reset() {
     keys_.clear();
     filter_.clear();
   }
 
-  void ResetPolicy(const FilterPolicy* policy = nullptr) {
-    if (policy == nullptr) {
-      policy_.reset(NewBloomFilterPolicy(FLAGS_bits_per_key));
-    } else {
-      policy_.reset(policy);
-    }
+  void ResetPolicy(int bits_per_key) {
+    policy_.reset(new BloomFilterPolicy(bits_per_key,
+                                        BloomFilterPolicy::kDeprecatedBlock));
     Reset();
   }
+
+  void ResetPolicy() { ResetPolicy(FLAGS_bits_per_key); }
 
   void Add(const Slice& s) {
     keys_.push_back(s.ToString());
@@ -131,12 +129,12 @@ class BloomTest : public testing::Test {
   }
 };
 
-TEST_F(BloomTest, EmptyFilter) {
+TEST_F(BlockBasedBloomTest, EmptyFilter) {
   ASSERT_TRUE(! Matches("hello"));
   ASSERT_TRUE(! Matches("world"));
 }
 
-TEST_F(BloomTest, Small) {
+TEST_F(BlockBasedBloomTest, Small) {
   Add("hello");
   Add("world");
   ASSERT_TRUE(Matches("hello"));
@@ -145,7 +143,7 @@ TEST_F(BloomTest, Small) {
   ASSERT_TRUE(! Matches("foo"));
 }
 
-TEST_F(BloomTest, VaryingLengths) {
+TEST_F(BlockBasedBloomTest, VaryingLengths) {
   char buffer[sizeof(int)];
 
   // Count number of filters that significantly exceed the false positive rate
@@ -186,46 +184,46 @@ TEST_F(BloomTest, VaryingLengths) {
 
 // Ensure the implementation doesn't accidentally change in an
 // incompatible way
-TEST_F(BloomTest, Schema) {
+TEST_F(BlockBasedBloomTest, Schema) {
   char buffer[sizeof(int)];
 
-  ResetPolicy(NewBloomFilterPolicy(8));  // num_probes = 5
+  ResetPolicy(8);  // num_probes = 5
   for (int key = 0; key < 87; key++) {
     Add(Key(key, buffer));
   }
   Build();
   ASSERT_EQ(BloomHash(FilterData()), 3589896109U);
 
-  ResetPolicy(NewBloomFilterPolicy(9));  // num_probes = 6
+  ResetPolicy(9);  // num_probes = 6
   for (int key = 0; key < 87; key++) {
     Add(Key(key, buffer));
   }
   Build();
   ASSERT_EQ(BloomHash(FilterData()), 969445585);
 
-  ResetPolicy(NewBloomFilterPolicy(11));  // num_probes = 7
+  ResetPolicy(11);  // num_probes = 7
   for (int key = 0; key < 87; key++) {
     Add(Key(key, buffer));
   }
   Build();
   ASSERT_EQ(BloomHash(FilterData()), 1694458207);
 
-  ResetPolicy(NewBloomFilterPolicy(10));  // num_probes = 6
+  ResetPolicy(10);  // num_probes = 6
   for (int key = 0; key < 87; key++) {
     Add(Key(key, buffer));
   }
   Build();
   ASSERT_EQ(BloomHash(FilterData()), 2373646410U);
 
-  ResetPolicy(NewBloomFilterPolicy(10));
-  for (int key = 1; key < 87; key++) {
+  ResetPolicy(10);
+  for (int key = /*CHANGED*/ 1; key < 87; key++) {
     Add(Key(key, buffer));
   }
   Build();
   ASSERT_EQ(BloomHash(FilterData()), 1908442116);
 
-  ResetPolicy(NewBloomFilterPolicy(10));
-  for (int key = 1; key < 88; key++) {
+  ResetPolicy(10);
+  for (int key = 1; key < /*CHANGED*/ 88; key++) {
     Add(Key(key, buffer));
   }
   Build();
@@ -236,40 +234,38 @@ TEST_F(BloomTest, Schema) {
 
 // Different bits-per-byte
 
-class FullBloomTest : public testing::Test {
+class FullBloomTest : public testing::TestWithParam<BloomFilterPolicy::Mode> {
  private:
-  std::unique_ptr<const FilterPolicy> policy_;
+  BlockBasedTableOptions table_options_;
+  std::shared_ptr<const FilterPolicy>& policy_;
   std::unique_ptr<FilterBitsBuilder> bits_builder_;
   std::unique_ptr<FilterBitsReader> bits_reader_;
   std::unique_ptr<const char[]> buf_;
   size_t filter_size_;
 
  public:
-  FullBloomTest() :
-      policy_(NewBloomFilterPolicy(FLAGS_bits_per_key, false)),
-      filter_size_(0) {
-    Reset();
+  FullBloomTest() : policy_(table_options_.filter_policy), filter_size_(0) {
+    ResetPolicy();
   }
 
-  FullFilterBitsBuilder* GetFullFilterBitsBuilder() {
-    return dynamic_cast<FullFilterBitsBuilder*>(bits_builder_.get());
+  BuiltinFilterBitsBuilder* GetBuiltinFilterBitsBuilder() {
+    // Throws on bad cast
+    return &dynamic_cast<BuiltinFilterBitsBuilder&>(*bits_builder_.get());
   }
 
   void Reset() {
-    bits_builder_.reset(policy_->GetFilterBitsBuilder());
+    bits_builder_.reset(FilterBuildingContext(table_options_).GetBuilder());
     bits_reader_.reset(nullptr);
     buf_.reset(nullptr);
     filter_size_ = 0;
   }
 
-  void ResetPolicy(const FilterPolicy* policy = nullptr) {
-    if (policy == nullptr) {
-      policy_.reset(NewBloomFilterPolicy(FLAGS_bits_per_key, false));
-    } else {
-      policy_.reset(policy);
-    }
+  void ResetPolicy(int bits_per_key) {
+    policy_.reset(new BloomFilterPolicy(bits_per_key, GetParam()));
     Reset();
   }
+
+  void ResetPolicy() { ResetPolicy(FLAGS_bits_per_key); }
 
   void Add(const Slice& s) {
     bits_builder_->AddKey(s);
@@ -291,6 +287,16 @@ class FullBloomTest : public testing::Test {
 
   Slice FilterData() { return Slice(buf_.get(), filter_size_); }
 
+  int GetNumProbesFromFilterData() {
+    assert(filter_size_ >= 5);
+    int8_t raw_num_probes = static_cast<int8_t>(buf_.get()[filter_size_ - 5]);
+    if (raw_num_probes == -1) {  // New bloom filter marker
+      return static_cast<uint8_t>(buf_.get()[filter_size_ - 3]);
+    } else {
+      return raw_num_probes;
+    }
+  }
+
   bool Matches(const Slice& s) {
     if (bits_reader_ == nullptr) {
       Build();
@@ -298,6 +304,8 @@ class FullBloomTest : public testing::Test {
     return bits_reader_->MayMatch(s);
   }
 
+  // Provides a kind of fingerprint on the Bloom filter's
+  // behavior, for reasonbly high FP rates.
   uint64_t PackedMatches() {
     char buffer[sizeof(int)];
     uint64_t result = 0;
@@ -307,6 +315,26 @@ class FullBloomTest : public testing::Test {
       }
     }
     return result;
+  }
+
+  // Provides a kind of fingerprint on the Bloom filter's
+  // behavior, for lower FP rates.
+  std::string FirstFPs(int count) {
+    char buffer[sizeof(int)];
+    std::string rv;
+    int fp_count = 0;
+    for (int i = 0; i < 1000000; i++) {
+      // Pack four match booleans into each hexadecimal digit
+      if (Matches(Key(i + 1000000, buffer))) {
+        ++fp_count;
+        rv += std::to_string(i);
+        if (fp_count == count) {
+          break;
+        }
+        rv += ',';
+      }
+    }
+    return rv;
   }
 
   double FalsePositiveRate() {
@@ -319,29 +347,42 @@ class FullBloomTest : public testing::Test {
     }
     return result / 10000.0;
   }
+
+  uint32_t SelectByImpl(uint32_t for_legacy_bloom,
+                        uint32_t for_fast_local_bloom) {
+    switch (GetParam()) {
+      case BloomFilterPolicy::kLegacyBloom:
+        return for_legacy_bloom;
+      case BloomFilterPolicy::kFastLocalBloom:
+        return for_fast_local_bloom;
+      case BloomFilterPolicy::kDeprecatedBlock:
+      case BloomFilterPolicy::kAuto:
+          /* N/A */;
+    }
+    // otherwise
+    assert(false);
+    return 0;
+  }
 };
 
-TEST_F(FullBloomTest, FilterSize) {
-  uint32_t dont_care1, dont_care2;
-  auto full_bits_builder = GetFullFilterBitsBuilder();
-  ASSERT_TRUE(full_bits_builder != nullptr);
+TEST_P(FullBloomTest, FilterSize) {
+  auto bits_builder = GetBuiltinFilterBitsBuilder();
   for (int n = 1; n < 100; n++) {
-    auto space = full_bits_builder->CalculateSpace(n, &dont_care1, &dont_care2);
-    auto n2 = full_bits_builder->CalculateNumEntry(space);
+    auto space = bits_builder->CalculateSpace(n);
+    auto n2 = bits_builder->CalculateNumEntry(space);
     ASSERT_GE(n2, n);
-    auto space2 =
-        full_bits_builder->CalculateSpace(n2, &dont_care1, &dont_care2);
+    auto space2 = bits_builder->CalculateSpace(n2);
     ASSERT_EQ(space, space2);
   }
 }
 
-TEST_F(FullBloomTest, FullEmptyFilter) {
+TEST_P(FullBloomTest, FullEmptyFilter) {
   // Empty filter is not match, at this level
   ASSERT_TRUE(!Matches("hello"));
   ASSERT_TRUE(!Matches("world"));
 }
 
-TEST_F(FullBloomTest, FullSmall) {
+TEST_P(FullBloomTest, FullSmall) {
   Add("hello");
   Add("world");
   ASSERT_TRUE(Matches("hello"));
@@ -350,7 +391,7 @@ TEST_F(FullBloomTest, FullSmall) {
   ASSERT_TRUE(!Matches("foo"));
 }
 
-TEST_F(FullBloomTest, FullVaryingLengths) {
+TEST_P(FullBloomTest, FullVaryingLengths) {
   char buffer[sizeof(int)];
 
   // Count number of filters that significantly exceed the false positive rate
@@ -411,66 +452,175 @@ inline uint32_t SelectByCacheLineSize(uint32_t for64, uint32_t for128,
 }  // namespace
 
 // Ensure the implementation doesn't accidentally change in an
-// incompatible way
-TEST_F(FullBloomTest, Schema) {
+// incompatible way. This test doesn't check the reading side
+// (FirstFPs/PackedMatches) for LegacyBloom because it requires the
+// ability to read filters generated using other cache line sizes.
+// See RawSchema.
+TEST_P(FullBloomTest, Schema) {
   char buffer[sizeof(int)];
 
   // Use enough keys so that changing bits / key by 1 is guaranteed to
   // change number of allocated cache lines. So keys > max cache line bits.
 
-  ResetPolicy(NewBloomFilterPolicy(8));  // num_probes = 5
+  ResetPolicy(2);  // num_probes = 1
   for (int key = 0; key < 2087; key++) {
     Add(Key(key, buffer));
   }
   Build();
-  ASSERT_EQ(BloomHash(FilterData()),
-            SelectByCacheLineSize(1302145999, 2811644657U, 756553699));
+  EXPECT_EQ(GetNumProbesFromFilterData(), 1);
+  EXPECT_EQ(
+      BloomHash(FilterData()),
+      SelectByImpl(SelectByCacheLineSize(1567096579, 1964771444, 2659542661U),
+                   3817481309U));
+  if (GetParam() == BloomFilterPolicy::kFastLocalBloom) {
+    EXPECT_EQ("11,13,17,25,29,30,35,37,45,53", FirstFPs(10));
+  }
 
-  ResetPolicy(NewBloomFilterPolicy(9));  // num_probes = 6
+  ResetPolicy(3);  // num_probes = 2
   for (int key = 0; key < 2087; key++) {
     Add(Key(key, buffer));
   }
   Build();
-  ASSERT_EQ(BloomHash(FilterData()),
-            SelectByCacheLineSize(2092755149, 661139132, 1182970461));
+  EXPECT_EQ(GetNumProbesFromFilterData(), 2);
+  EXPECT_EQ(
+      BloomHash(FilterData()),
+      SelectByImpl(SelectByCacheLineSize(2707206547U, 2571983456U, 218344685),
+                   2807269961U));
+  if (GetParam() == BloomFilterPolicy::kFastLocalBloom) {
+    EXPECT_EQ("4,15,17,24,27,28,29,53,63,70", FirstFPs(10));
+  }
 
-  ResetPolicy(NewBloomFilterPolicy(11));  // num_probes = 7
+  ResetPolicy(5);  // num_probes = 3
   for (int key = 0; key < 2087; key++) {
     Add(Key(key, buffer));
   }
   Build();
-  ASSERT_EQ(BloomHash(FilterData()),
-            SelectByCacheLineSize(3755609649U, 1812694762, 1449142939));
+  EXPECT_EQ(GetNumProbesFromFilterData(), 3);
+  EXPECT_EQ(
+      BloomHash(FilterData()),
+      SelectByImpl(SelectByCacheLineSize(515748486, 94611728, 2436112214U),
+                   204628445));
+  if (GetParam() == BloomFilterPolicy::kFastLocalBloom) {
+    EXPECT_EQ("15,24,29,39,53,87,89,100,103,104", FirstFPs(10));
+  }
 
-  ResetPolicy(NewBloomFilterPolicy(10));  // num_probes = 6
+  ResetPolicy(8);  // num_probes = 5
   for (int key = 0; key < 2087; key++) {
     Add(Key(key, buffer));
   }
   Build();
-  ASSERT_EQ(BloomHash(FilterData()),
-            SelectByCacheLineSize(1478976371, 2910591341U, 1182970461));
+  EXPECT_EQ(GetNumProbesFromFilterData(), 5);
+  EXPECT_EQ(
+      BloomHash(FilterData()),
+      SelectByImpl(SelectByCacheLineSize(1302145999, 2811644657U, 756553699),
+                   355564975));
+  if (GetParam() == BloomFilterPolicy::kFastLocalBloom) {
+    EXPECT_EQ("16,60,66,126,220,238,244,256,265,287", FirstFPs(10));
+  }
 
-  ResetPolicy(NewBloomFilterPolicy(10));
-  for (int key = 1; key < 2087; key++) {
+  ResetPolicy(9);  // num_probes = 6
+  for (int key = 0; key < 2087; key++) {
     Add(Key(key, buffer));
   }
   Build();
-  ASSERT_EQ(BloomHash(FilterData()),
-            SelectByCacheLineSize(4205696321U, 1132081253U, 2385981855U));
+  EXPECT_EQ(GetNumProbesFromFilterData(), 6);
+  EXPECT_EQ(
+      BloomHash(FilterData()),
+      SelectByImpl(SelectByCacheLineSize(2092755149, 661139132, 1182970461),
+                   2137566013U));
+  if (GetParam() == BloomFilterPolicy::kFastLocalBloom) {
+    EXPECT_EQ("156,367,791,872,945,1015,1139,1159,1265,1435", FirstFPs(10));
+  }
 
-  ResetPolicy(NewBloomFilterPolicy(10));
-  for (int key = 1; key < 2088; key++) {
+  ResetPolicy(11);  // num_probes = 7
+  for (int key = 0; key < 2087; key++) {
     Add(Key(key, buffer));
   }
   Build();
-  ASSERT_EQ(BloomHash(FilterData()),
-            SelectByCacheLineSize(2885052954U, 769447944, 4175124908U));
+  EXPECT_EQ(GetNumProbesFromFilterData(), 7);
+  EXPECT_EQ(
+      BloomHash(FilterData()),
+      SelectByImpl(SelectByCacheLineSize(3755609649U, 1812694762, 1449142939),
+                   2561502687U));
+  if (GetParam() == BloomFilterPolicy::kFastLocalBloom) {
+    EXPECT_EQ("34,74,130,236,643,882,962,1015,1035,1110", FirstFPs(10));
+  }
+
+  ResetPolicy(14);  // num_probes = 9
+  for (int key = 0; key < 2087; key++) {
+    Add(Key(key, buffer));
+  }
+  Build();
+  EXPECT_EQ(GetNumProbesFromFilterData(), 9);
+  EXPECT_EQ(
+      BloomHash(FilterData()),
+      SelectByImpl(SelectByCacheLineSize(178861123, 379087593, 2574136516U),
+                   3129678118U));
+  if (GetParam() == BloomFilterPolicy::kFastLocalBloom) {
+    EXPECT_EQ("130,989,2002,3225,3543,4522,4863,5256,5277", FirstFPs(9));
+  }
+
+  ResetPolicy(16);  // num_probes = 11
+  for (int key = 0; key < 2087; key++) {
+    Add(Key(key, buffer));
+  }
+  Build();
+  EXPECT_EQ(GetNumProbesFromFilterData(), 11);
+  EXPECT_EQ(
+      BloomHash(FilterData()),
+      SelectByImpl(SelectByCacheLineSize(1129406313, 3049154394U, 1727750964),
+                   1262483504));
+  if (GetParam() == BloomFilterPolicy::kFastLocalBloom) {
+    EXPECT_EQ("240,945,2660,3299,4031,4282,5173,6197,8715", FirstFPs(9));
+  }
+
+  ResetPolicy(10);  // num_probes = 6, but different memory ratio vs. 9
+  for (int key = 0; key < 2087; key++) {
+    Add(Key(key, buffer));
+  }
+  Build();
+  EXPECT_EQ(GetNumProbesFromFilterData(), 6);
+  EXPECT_EQ(
+      BloomHash(FilterData()),
+      SelectByImpl(SelectByCacheLineSize(1478976371, 2910591341U, 1182970461),
+                   2498541272U));
+  if (GetParam() == BloomFilterPolicy::kFastLocalBloom) {
+    EXPECT_EQ("16,126,133,422,466,472,813,1002,1035,1159", FirstFPs(10));
+  }
+
+  ResetPolicy(10);
+  for (int key = /*CHANGED*/ 1; key < 2087; key++) {
+    Add(Key(key, buffer));
+  }
+  Build();
+  EXPECT_EQ(GetNumProbesFromFilterData(), 6);
+  EXPECT_EQ(
+      BloomHash(FilterData()),
+      SelectByImpl(SelectByCacheLineSize(4205696321U, 1132081253U, 2385981855U),
+                   2058382345U));
+  if (GetParam() == BloomFilterPolicy::kFastLocalBloom) {
+    EXPECT_EQ("16,126,133,422,466,472,813,1002,1035,1159", FirstFPs(10));
+  }
+
+  ResetPolicy(10);
+  for (int key = 1; key < /*CHANGED*/ 2088; key++) {
+    Add(Key(key, buffer));
+  }
+  Build();
+  EXPECT_EQ(GetNumProbesFromFilterData(), 6);
+  EXPECT_EQ(
+      BloomHash(FilterData()),
+      SelectByImpl(SelectByCacheLineSize(2885052954U, 769447944, 4175124908U),
+                   23699164));
+  if (GetParam() == BloomFilterPolicy::kFastLocalBloom) {
+    EXPECT_EQ("16,126,133,422,466,472,813,1002,1035,1159", FirstFPs(10));
+  }
 
   ResetPolicy();
 }
 
 // A helper class for testing custom or corrupt filter bits as read by
-// FullFilterBitsReader.
+// built-in FilterBitsReaders.
 struct RawFilterTester {
   // Buffer, from which we always return a tail Slice, so the
   // last five bytes are always the metadata bytes.
@@ -504,23 +654,23 @@ struct RawFilterTester {
   }
 };
 
-TEST_F(FullBloomTest, RawSchema) {
+TEST_P(FullBloomTest, RawSchema) {
   RawFilterTester cft;
   // Two probes, about 3/4 bits set: ~50% "FP" rate
   // One 256-byte cache line.
   OpenRaw(cft.ResetWeirdFill(256, 1, 2));
-  ASSERT_EQ(uint64_t{11384799501900898790U}, PackedMatches());
+  EXPECT_EQ(uint64_t{11384799501900898790U}, PackedMatches());
 
   // Two 128-byte cache lines.
   OpenRaw(cft.ResetWeirdFill(256, 2, 2));
-  ASSERT_EQ(uint64_t{10157853359773492589U}, PackedMatches());
+  EXPECT_EQ(uint64_t{10157853359773492589U}, PackedMatches());
 
   // Four 64-byte cache lines.
   OpenRaw(cft.ResetWeirdFill(256, 4, 2));
-  ASSERT_EQ(uint64_t{7123594913907464682U}, PackedMatches());
+  EXPECT_EQ(uint64_t{7123594913907464682U}, PackedMatches());
 }
 
-TEST_F(FullBloomTest, CorruptFilters) {
+TEST_P(FullBloomTest, CorruptFilters) {
   RawFilterTester cft;
 
   for (bool fill : {false, true}) {
@@ -635,6 +785,10 @@ TEST_F(FullBloomTest, CorruptFilters) {
     ASSERT_TRUE(Matches("world"));
   }
 }
+
+INSTANTIATE_TEST_CASE_P(Full, FullBloomTest,
+                        testing::Values(BloomFilterPolicy::kLegacyBloom,
+                                        BloomFilterPolicy::kFastLocalBloom));
 
 }  // namespace rocksdb
 

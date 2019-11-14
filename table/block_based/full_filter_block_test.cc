@@ -111,7 +111,7 @@ class PluginFullFilterBlockTest : public mock::MockBlockBasedTableTester,
 
 TEST_F(PluginFullFilterBlockTest, PluginEmptyBuilder) {
   FullFilterBlockBuilder builder(
-      nullptr, true, table_options_.filter_policy->GetFilterBitsBuilder());
+      nullptr, true, FilterBuildingContext(table_options_).GetBuilder());
   Slice slice = builder.Finish();
   ASSERT_EQ("", EscapeString(slice));
 
@@ -131,7 +131,7 @@ TEST_F(PluginFullFilterBlockTest, PluginEmptyBuilder) {
 
 TEST_F(PluginFullFilterBlockTest, PluginSingleChunk) {
   FullFilterBlockBuilder builder(
-      nullptr, true, table_options_.filter_policy->GetFilterBitsBuilder());
+      nullptr, true, FilterBuildingContext(table_options_).GetBuilder());
   builder.Add("foo");
   builder.Add("bar");
   builder.Add("box");
@@ -189,7 +189,7 @@ class FullFilterBlockTest : public mock::MockBlockBasedTableTester,
 
 TEST_F(FullFilterBlockTest, EmptyBuilder) {
   FullFilterBlockBuilder builder(
-      nullptr, true, table_options_.filter_policy->GetFilterBitsBuilder());
+      nullptr, true, FilterBuildingContext(table_options_).GetBuilder());
   Slice slice = builder.Finish();
   ASSERT_EQ("", EscapeString(slice));
 
@@ -239,7 +239,7 @@ TEST_F(FullFilterBlockTest, DuplicateEntries) {
     std::unique_ptr<const SliceTransform> prefix_extractor(
         NewFixedPrefixTransform(0));
     auto bits_builder = new CountUniqueFilterBitsBuilderWrapper(
-        table_options_.filter_policy->GetFilterBitsBuilder());
+        FilterBuildingContext(table_options_).GetBuilder());
     const bool WHOLE_KEY = true;
     FullFilterBlockBuilder builder(prefix_extractor.get(), WHOLE_KEY,
                                    bits_builder);
@@ -263,7 +263,7 @@ TEST_F(FullFilterBlockTest, DuplicateEntries) {
   std::unique_ptr<const SliceTransform> prefix_extractor(
       NewFixedPrefixTransform(7));
   auto bits_builder = new CountUniqueFilterBitsBuilderWrapper(
-      table_options_.filter_policy->GetFilterBitsBuilder());
+      FilterBuildingContext(table_options_).GetBuilder());
   const bool WHOLE_KEY = true;
   FullFilterBlockBuilder builder(prefix_extractor.get(), WHOLE_KEY,
                                  bits_builder);
@@ -280,7 +280,7 @@ TEST_F(FullFilterBlockTest, DuplicateEntries) {
 
 TEST_F(FullFilterBlockTest, SingleChunk) {
   FullFilterBlockBuilder builder(
-      nullptr, true, table_options_.filter_policy->GetFilterBitsBuilder());
+      nullptr, true, FilterBuildingContext(table_options_).GetBuilder());
   ASSERT_EQ(0, builder.NumAdded());
   builder.Add("foo");
   builder.Add("bar");

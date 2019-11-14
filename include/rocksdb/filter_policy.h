@@ -80,6 +80,9 @@ class FilterBitsReader {
   }
 };
 
+// Internal type required for FilterPolicy
+struct FilterBuildingContext;
+
 // We add a new format of filter block called full filter block
 // This new interface gives you more space of customization
 //
@@ -131,6 +134,18 @@ class FilterPolicy {
       const Slice& /*contents*/) const {
     return nullptr;
   }
+
+ protected:
+  // An internal-use-only variant of GetFilterBitsBuilder that allows
+  // a built-in FilterPolicy to customize the builder for contextual
+  // constraints and hints. (Name changed to avoid triggering
+  // -Werror=overloaded-virtual.)
+  virtual FilterBitsBuilder* GetFilterBitsBuilderInternal(
+      const FilterBuildingContext&) const {
+    return GetFilterBitsBuilder();
+  }
+
+  friend FilterBuildingContext;
 };
 
 // Return a new filter policy that uses a bloom filter with approximately
@@ -138,8 +153,8 @@ class FilterPolicy {
 //
 // bits_per_key: bits per key in bloom filter. A good value for bits_per_key
 // is 10, which yields a filter with ~ 1% false positive rate.
-// use_block_based_builder: use block based filter rather than full filter.
-// If you want to builder full filter, it needs to be set to false.
+// use_block_based_builder: use deprecated block based filter (true) rather
+// than full or partitioned filter (false).
 //
 // Callers must delete the result after any database that is using the
 // result has been closed.

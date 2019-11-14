@@ -570,7 +570,7 @@ void DBImpl::NotifyOnFlushBegin(ColumnFamilyData* cfd, FileMetaData* file_meta,
   // release lock while notifying events
   mutex_.Unlock();
   {
-    FlushJobInfo info;
+    FlushJobInfo info{};
     info.cf_id = cfd->GetID();
     info.cf_name = cfd->GetName();
     // TODO(yhchiang): make db_paths dynamic in case flush does not
@@ -1107,7 +1107,7 @@ void DBImpl::NotifyOnCompactionBegin(ColumnFamilyData* cfd, Compaction* c,
   mutex_.Unlock();
   TEST_SYNC_POINT("DBImpl::NotifyOnCompactionBegin::UnlockMutex");
   {
-    CompactionJobInfo info;
+    CompactionJobInfo info{};
     info.cf_name = cfd->GetName();
     info.status = st;
     info.thread_id = env_->GetThreadID();
@@ -1181,7 +1181,7 @@ void DBImpl::NotifyOnCompactionCompleted(
   mutex_.Unlock();
   TEST_SYNC_POINT("DBImpl::NotifyOnCompactionCompleted::UnlockMutex");
   {
-    CompactionJobInfo info;
+    CompactionJobInfo info{};
     BuildCompactionJobInfo(cfd, c, st, compaction_job_stats, job_id, current,
                            &info);
     for (auto listener : immutable_db_options_.listeners) {
