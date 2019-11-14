@@ -72,6 +72,10 @@ default_params = {
     "periodic_compaction_seconds" :
         lambda: random.choice([0, 0, 1, 2, 10, 100, 1000]),
     "compaction_ttl" : lambda: random.choice([0, 0, 1, 2, 10, 100, 1000]),
+    # Test small max_manifest_file_size in a smaller chance, as most of the
+    # time we wnat manifest history to be preserved to help debug
+    "max_manifest_file_size" : lambda : random.choice(
+        [t * 16384 if t < 3 else 1024 * 1024 * 1024 for t in range(1,30)])
 }
 
 _TEST_DIR_ENV_VAR = 'TEST_TMPDIR'
