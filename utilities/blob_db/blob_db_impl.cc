@@ -1477,11 +1477,13 @@ std::pair<bool, int64_t> BlobDBImpl::SanityCheck(bool aborted) {
                  open_ttl_files_.size());
 
   for (const auto& blob_file : open_ttl_files_) {
+    (void)blob_file;
     assert(!blob_file->Immutable());
   }
 
   for (const auto& pair : live_imm_non_ttl_blob_files_) {
     const auto& blob_file = pair.second;
+    (void)blob_file;
     assert(!blob_file->HasTTL());
     assert(blob_file->Immutable());
   }
