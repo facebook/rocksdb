@@ -1578,6 +1578,7 @@ TEST_P(WritePreparedTransactionTest, AdvanceMaxEvictedSeqWithDuplicatesTest) {
   delete txn0;
 }
 
+#ifndef ROCKSDB_VALGRIND_RUN
 // Stress SmallestUnCommittedSeq, which reads from both prepared_txns_ and
 // delayed_prepared_, when is run concurrently with advancing max_evicted_seq,
 // which moves prepared txns from prepared_txns_ to delayed_prepared_.
@@ -1639,6 +1640,7 @@ TEST_P(WritePreparedTransactionTest, SmallestUnCommittedSeq) {
     delete txn;
   }
 }
+#endif  // ROCKSDB_VALGRIND_RUN
 
 TEST_P(SeqAdvanceConcurrentTest, SeqAdvanceConcurrentTest) {
   // Given the sequential run of txns, with this timeout we should never see a
