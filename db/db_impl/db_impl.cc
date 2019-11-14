@@ -3811,8 +3811,8 @@ Status DBImpl::IngestExternalFiles(
 
     // Stop writes to the DB by entering both write threads
     WriteThread::Writer w;
-    write_thread_.EnterUnbatched(&w, &mutex_);
     WriteThread::Writer nonmem_w;
+    write_thread_.EnterUnbatched(&w, &mutex_);
     if (two_write_queues_) {
       nonmem_write_thread_.EnterUnbatched(&nonmem_w, &mutex_);
     }
