@@ -117,7 +117,7 @@ inline uint32_t GetCompressFormatForVersion(CompressionType compression_type,
 }
 
 inline bool BlockBasedTableSupportedVersion(uint32_t version) {
-  return version <= 4;
+  return version <= 5;
 }
 
 // Footer encapsulates the fixed information stored at the tail

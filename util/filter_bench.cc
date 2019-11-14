@@ -19,7 +19,7 @@ int main() {
 #include "memory/arena.h"
 #include "port/port.h"
 #include "port/stack_trace.h"
-#include "rocksdb/filter_policy.h"
+#include "table/block_based/filter_policy_internal.h"
 #include "table/block_based/full_filter_block.h"
 #include "table/block_based/mock_block_based_table.h"
 #include "table/plain/plain_table_bloom.h"
@@ -93,12 +93,14 @@ void _always_assert_fail(int line, const char *file, const char *expr) {
 
 using rocksdb::Arena;
 using rocksdb::BlockContents;
+using rocksdb::BloomFilterPolicy;
 using rocksdb::BloomHash;
 using rocksdb::CachableEntry;
 using rocksdb::EncodeFixed32;
 using rocksdb::fastrange32;
 using rocksdb::FilterBitsBuilder;
 using rocksdb::FilterBitsReader;
+using rocksdb::FilterBuildingContext;
 using rocksdb::FullFilterBlockReader;
 using rocksdb::GetSliceHash;
 using rocksdb::GetSliceHash64;
@@ -240,8 +242,9 @@ struct FilterBench : public MockBlockBasedTableTester {
   Arena arena_;
 
   FilterBench()
-      : MockBlockBasedTableTester(
-            rocksdb::NewBloomFilterPolicy(FLAGS_bits_per_key)),
+      : MockBlockBasedTableTester(new BloomFilterPolicy(
+            FLAGS_bits_per_key,
+            static_cast<BloomFilterPolicy::Mode>(FLAGS_impl))),
         random_(FLAGS_seed) {
     for (uint32_t i = 0; i < FLAGS_batch_size; ++i) {
       kms_.emplace_back(FLAGS_key_size < 8 ? 8 : FLAGS_key_size);
@@ -259,17 +262,25 @@ void FilterBench::Go() {
     throw std::runtime_error(
         "Can't combine -use_plain_table_bloom and -use_full_block_reader");
   }
-  if (FLAGS_impl > 1) {
-    throw std::runtime_error("-impl must currently be >= 0 and <= 1");
-  }
-  if (!FLAGS_use_plain_table_bloom && FLAGS_impl == 1) {
-    throw std::runtime_error(
-        "Block-based filter not currently supported by filter_bench");
+  if (FLAGS_use_plain_table_bloom) {
+    if (FLAGS_impl > 1) {
+      throw std::runtime_error(
+          "-impl must currently be >= 0 and <= 1 for Plain table");
+    }
+  } else {
+    if (FLAGS_impl == 1) {
+      throw std::runtime_error(
+          "Block-based filter not currently supported by filter_bench");
+    }
+    if (FLAGS_impl > 2) {
+      throw std::runtime_error(
+          "-impl must currently be 0 or 2 for Block-based table");
+    }
   }
 
   std::unique_ptr<FilterBitsBuilder> builder;
   if (!FLAGS_use_plain_table_bloom && FLAGS_impl != 1) {
-    builder.reset(table_options_.filter_policy->GetFilterBitsBuilder());
+    builder.reset(FilterBuildingContext(table_options_).GetBuilder());
   }
 
   uint32_t variance_mask = 1;
@@ -350,7 +361,8 @@ void FilterBench::Go() {
     std::cout << "----------------------------" << std::endl;
     std::cout << "Verifying..." << std::endl;
 
-    uint32_t outside_q_per_f = 1000000 / infos_.size();
+    uint32_t outside_q_per_f =
+        static_cast<uint32_t>(FLAGS_m_queries * 1000000 / infos_.size());
     uint64_t fps = 0;
     for (uint32_t i = 0; i < infos_.size(); ++i) {
       FilterInfo &info = infos_[i];
