@@ -7,6 +7,9 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
+#ifndef ROCKSDB_LITE
+#include <folly/Optional.h>
+#endif  // ROCKSDB_LITE
 #include "db/db_test_util.h"
 #include "port/stack_trace.h"
 #include "rocksdb/perf_context.h"
@@ -27,10 +30,10 @@ class DBBloomFilterTest : public DBTestBase {
 
 class DBBloomFilterTestWithParam : public DBTestBase,
                                    public testing::WithParamInterface<
-                                       std::tuple<BFP::Impl, bool, uint32_t>> {
+                                       std::tuple<BFP::Mode, bool, uint32_t>> {
   //                             public testing::WithParamInterface<bool> {
  protected:
-  BFP::Impl bfp_impl_;
+  BFP::Mode bfp_impl_;
   bool partition_filters_;
   uint32_t format_version_;
 
@@ -506,23 +509,26 @@ TEST_P(DBBloomFilterTestWithParam, BloomFilter) {
 INSTANTIATE_TEST_CASE_P(
     FormatDef, DBBloomFilterTestDefFormatVersion,
     ::testing::Values(
-        std::make_tuple(BFP::kBlock, false, test::kDefaultFormatVersion),
-        std::make_tuple(BFP::kFull, true, test::kDefaultFormatVersion),
-        std::make_tuple(BFP::kFull, false, test::kDefaultFormatVersion)));
+        std::make_tuple(BFP::kDeprecatedBlock, false,
+                        test::kDefaultFormatVersion),
+        std::make_tuple(BFP::kAuto, true, test::kDefaultFormatVersion),
+        std::make_tuple(BFP::kAuto, false, test::kDefaultFormatVersion)));
 
 INSTANTIATE_TEST_CASE_P(
     FormatDef, DBBloomFilterTestWithParam,
     ::testing::Values(
-        std::make_tuple(BFP::kBlock, false, test::kDefaultFormatVersion),
-        std::make_tuple(BFP::kFull, true, test::kDefaultFormatVersion),
-        std::make_tuple(BFP::kFull, false, test::kDefaultFormatVersion)));
+        std::make_tuple(BFP::kDeprecatedBlock, false,
+                        test::kDefaultFormatVersion),
+        std::make_tuple(BFP::kAuto, true, test::kDefaultFormatVersion),
+        std::make_tuple(BFP::kAuto, false, test::kDefaultFormatVersion)));
 
 INSTANTIATE_TEST_CASE_P(
     FormatLatest, DBBloomFilterTestWithParam,
     ::testing::Values(
-        std::make_tuple(BFP::kBlock, false, test::kLatestFormatVersion),
-        std::make_tuple(BFP::kFull, true, test::kLatestFormatVersion),
-        std::make_tuple(BFP::kFull, false, test::kLatestFormatVersion)));
+        std::make_tuple(BFP::kDeprecatedBlock, false,
+                        test::kLatestFormatVersion),
+        std::make_tuple(BFP::kAuto, true, test::kLatestFormatVersion),
+        std::make_tuple(BFP::kAuto, false, test::kLatestFormatVersion)));
 #endif  // ROCKSDB_VALGRIND_RUN
 
 TEST_F(DBBloomFilterTest, BloomFilterRate) {
@@ -861,27 +867,27 @@ TEST_F(DBBloomFilterTest, MemtablePrefixBloomOutOfDomain) {
 #ifndef ROCKSDB_LITE
 class BloomStatsTestWithParam
     : public DBBloomFilterTest,
-      public testing::WithParamInterface<std::tuple<bool, BFP::Impl, bool>> {
+      public testing::WithParamInterface<
+          std::tuple<folly::Optional<BFP::Mode>, bool>> {
  public:
   BloomStatsTestWithParam() {
-    use_block_table_ = std::get<0>(GetParam());
-    bfp_impl_ = std::get<1>(GetParam());
-    partition_filters_ = std::get<2>(GetParam());
+    bfp_impl_ = std::get<0>(GetParam());
+    partition_filters_ = std::get<1>(GetParam());
 
     options_.create_if_missing = true;
     options_.prefix_extractor.reset(rocksdb::NewFixedPrefixTransform(4));
     options_.memtable_prefix_bloom_size_ratio =
         8.0 * 1024.0 / static_cast<double>(options_.write_buffer_size);
-    if (use_block_table_) {
+    if (bfp_impl_) {
       BlockBasedTableOptions table_options;
       table_options.hash_index_allow_collision = false;
       if (partition_filters_) {
-        assert(bfp_impl_ != BFP::kBlock);
+        assert(*bfp_impl_ != BFP::kDeprecatedBlock);
         table_options.partition_filters = partition_filters_;
         table_options.index_type =
             BlockBasedTableOptions::IndexType::kTwoLevelIndexSearch;
       }
-      table_options.filter_policy.reset(new BFP(10, bfp_impl_));
+      table_options.filter_policy.reset(new BFP(10, *bfp_impl_));
       options_.table_factory.reset(NewBlockBasedTableFactory(table_options));
     } else {
       assert(!partition_filters_);  // not supported in plain table
@@ -903,8 +909,7 @@ class BloomStatsTestWithParam
   static void SetUpTestCase() {}
   static void TearDownTestCase() {}
 
-  bool use_block_table_;
-  BFP::Impl bfp_impl_;
+  folly::Optional<BFP::Mode> bfp_impl_;
   bool partition_filters_;
   Options options_;
 };
@@ -1008,7 +1013,7 @@ TEST_P(BloomStatsTestWithParam, BloomStatsTestWithIter) {
   ASSERT_EQ(value3, iter->value().ToString());
   // The seek doesn't check block-based bloom filter because last index key
   // starts with the same prefix we're seeking to.
-  uint64_t expected_hits = bfp_impl_ == BFP::kBlock ? 1 : 2;
+  uint64_t expected_hits = bfp_impl_ == BFP::kDeprecatedBlock ? 1 : 2;
   ASSERT_EQ(expected_hits, get_perf_context()->bloom_sst_hit_count);
 
   iter->Seek(key2);
@@ -1020,10 +1025,12 @@ TEST_P(BloomStatsTestWithParam, BloomStatsTestWithIter) {
 
 INSTANTIATE_TEST_CASE_P(
     BloomStatsTestWithParam, BloomStatsTestWithParam,
-    ::testing::Values(std::make_tuple(true, BFP::kBlock, false),
-                      std::make_tuple(true, BFP::kFull, false),
-                      std::make_tuple(true, BFP::kFull, true),
-                      std::make_tuple(false, BFP::kFull, false)));
+    ::testing::Values(std::make_tuple(BFP::kDeprecatedBlock, false),
+                      std::make_tuple(BFP::kLegacyBloom, false),
+                      std::make_tuple(BFP::kLegacyBloom, true),
+                      std::make_tuple(BFP::kFastLocalBloom, false),
+                      std::make_tuple(BFP::kFastLocalBloom, true),
+                      std::make_tuple(folly::Optional<BFP::Mode>(), false)));
 
 namespace {
 void PrefixScanInit(DBBloomFilterTest* dbtest) {
@@ -1330,8 +1337,8 @@ int CountIter(std::unique_ptr<Iterator>& iter, const Slice& key) {
 // into the same string, or 2) the transformed seek key is of the same length
 // as the upper bound and two keys are adjacent according to the comparator.
 TEST_F(DBBloomFilterTest, DynamicBloomFilterUpperBound) {
-  for (auto bfp_impl : BFP::kAllImpls) {
-    int using_full_builder = bfp_impl != BFP::kBlock;
+  for (auto bfp_impl : BFP::kAllFixedImpls) {
+    int using_full_builder = bfp_impl != BFP::kDeprecatedBlock;
     Options options;
     options.create_if_missing = true;
     options.prefix_extractor.reset(NewCappedPrefixTransform(4));
@@ -1461,8 +1468,8 @@ TEST_F(DBBloomFilterTest, DynamicBloomFilterUpperBound) {
 // Create multiple SST files each with a different prefix_extractor config,
 // verify iterators can read all SST files using the latest config.
 TEST_F(DBBloomFilterTest, DynamicBloomFilterMultipleSST) {
-  for (auto bfp_impl : BFP::kAllImpls) {
-    int using_full_builder = bfp_impl != BFP::kBlock;
+  for (auto bfp_impl : BFP::kAllFixedImpls) {
+    int using_full_builder = bfp_impl != BFP::kDeprecatedBlock;
     Options options;
     options.create_if_missing = true;
     options.prefix_extractor.reset(NewFixedPrefixTransform(1));
@@ -1596,7 +1603,7 @@ TEST_F(DBBloomFilterTest, DynamicBloomFilterMultipleSST) {
 // as expected
 TEST_F(DBBloomFilterTest, DynamicBloomFilterNewColumnFamily) {
   int iteration = 0;
-  for (auto bfp_impl : BFP::kAllImpls) {
+  for (auto bfp_impl : BFP::kAllFixedImpls) {
     Options options = CurrentOptions();
     options.create_if_missing = true;
     options.prefix_extractor.reset(NewFixedPrefixTransform(1));
@@ -1654,7 +1661,7 @@ TEST_F(DBBloomFilterTest, DynamicBloomFilterNewColumnFamily) {
 // Verify it's possible to change prefix_extractor at runtime and iterators
 // behaves as expected
 TEST_F(DBBloomFilterTest, DynamicBloomFilterOptions) {
-  for (auto bfp_impl : BFP::kAllImpls) {
+  for (auto bfp_impl : BFP::kAllFixedImpls) {
     Options options;
     options.create_if_missing = true;
     options.prefix_extractor.reset(NewFixedPrefixTransform(1));

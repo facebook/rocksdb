@@ -80,6 +80,9 @@ class FilterBitsReader {
   }
 };
 
+// Internal type required for FilterPolicy
+struct FilterBuildingContext;
+
 // We add a new format of filter block called full filter block
 // This new interface gives you more space of customization
 //
@@ -131,6 +134,18 @@ class FilterPolicy {
       const Slice& /*contents*/) const {
     return nullptr;
   }
+
+ protected:
+  // An internal-use-only variant of GetFilterBitsBuilder that allows
+  // a built-in FilterPolicy to customize the builder for contextual
+  // constraints and hints. (Name changed to avoid triggering
+  // -Werror=overloaded-virtual.)
+  virtual FilterBitsBuilder* GetFilterBitsBuilderInternal(
+      const FilterBuildingContext&) const {
+    return GetFilterBitsBuilder();
+  }
+
+  friend FilterBuildingContext;
 };
 
 // Return a new filter policy that uses a bloom filter with approximately

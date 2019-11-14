@@ -126,7 +126,7 @@ class PartitionedFilterBlockTest
     const bool kValueDeltaEncoded = true;
     return new PartitionedFilterBlockBuilder(
         prefix_extractor, table_options_.whole_key_filtering,
-        table_options_.filter_policy->GetFilterBitsBuilder(),
+        FilterBuildingContext(table_options_).GetBuilder(),
         table_options_.index_block_restart_interval, !kValueDeltaEncoded,
         p_index_builder, partition_size);
   }
