@@ -341,8 +341,8 @@ class BlobDBImpl : public BlobDB {
   // Mark all immutable non-TTL blob files that aren't needed by any SSTs as
   // obsolete. Comes in two varieties; the version used during Open need not
   // worry about locking or snapshots.
-  template <class Mark>
-  void MarkUnreferencedBlobFilesObsoleteImpl(Mark mark_if_needed);
+  template <class Functor>
+  void MarkUnreferencedBlobFilesObsoleteImpl(Functor mark_if_needed);
 
   void MarkUnreferencedBlobFilesObsolete();
   void MarkUnreferencedBlobFilesObsoleteDuringOpen();

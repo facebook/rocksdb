@@ -508,8 +508,8 @@ bool BlobDBImpl::MarkBlobFileObsoleteIfNeeded(
   return true;
 }
 
-template <class Mark>
-void BlobDBImpl::MarkUnreferencedBlobFilesObsoleteImpl(Mark mark_if_needed) {
+template <class Functor>
+void BlobDBImpl::MarkUnreferencedBlobFilesObsoleteImpl(Functor mark_if_needed) {
   assert(bdb_options_.enable_garbage_collection);
 
   // Iterate through all live immutable non-TTL blob files, and mark them
