@@ -1617,6 +1617,19 @@ class DBBasicTestWithParallelIO
     Options options = CurrentOptions();
     Random rnd(301);
     BlockBasedTableOptions table_options;
+
+    if (compression_enabled_) {
+      std::vector<CompressionType> compression_types;
+      compression_types = GetSupportedCompressions();
+      // Not every platform may have compression libraries available, so
+      // dynamically pick based on what's available
+      if (compression_types.size() == 0) {
+        compression_enabled_ = false;
+      } else {
+        options.compression = compression_types[0];
+      }
+    }
+
     table_options.block_cache = uncompressed_cache_;
     if (table_options.block_cache == nullptr) {
       table_options.no_block_cache = true;
