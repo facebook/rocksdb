@@ -17,10 +17,11 @@ namespace rocksdb {
 namespace {
 using BFP = BloomFilterPolicy;
 
+namespace BFP2 {
 // Extends BFP::Mode with option to use Plain table
-using BFP_PseudoMode = int;
-static const BFP_PseudoMode kPlainTablePseudoMode = -1;
-
+using PseudoMode = int;
+static constexpr PseudoMode kPlainTable = -1;
+}  // namespace BFP2
 }  // namespace
 
 // DB tests related to bloom filter.
@@ -869,8 +870,7 @@ TEST_F(DBBloomFilterTest, MemtablePrefixBloomOutOfDomain) {
 #ifndef ROCKSDB_LITE
 class BloomStatsTestWithParam
     : public DBBloomFilterTest,
-      public testing::WithParamInterface<
-          std::tuple<BFP_PseudoMode, bool>> {
+      public testing::WithParamInterface<std::tuple<BFP2::PseudoMode, bool>> {
  public:
   BloomStatsTestWithParam() {
     bfp_impl_ = std::get<0>(GetParam());
@@ -880,7 +880,7 @@ class BloomStatsTestWithParam
     options_.prefix_extractor.reset(rocksdb::NewFixedPrefixTransform(4));
     options_.memtable_prefix_bloom_size_ratio =
         8.0 * 1024.0 / static_cast<double>(options_.write_buffer_size);
-    if (bfp_impl_ == kPlainTablePseudoMode) {
+    if (bfp_impl_ == BFP2::kPlainTable) {
       assert(!partition_filters_);  // not supported in plain table
       PlainTableOptions table_options;
       options_.table_factory.reset(NewPlainTableFactory(table_options));
@@ -893,7 +893,8 @@ class BloomStatsTestWithParam
         table_options.index_type =
             BlockBasedTableOptions::IndexType::kTwoLevelIndexSearch;
       }
-      table_options.filter_policy.reset(new BFP(10, static_cast<BFP::Mode>(bfp_impl_)));
+      table_options.filter_policy.reset(
+          new BFP(10, static_cast<BFP::Mode>(bfp_impl_)));
       options_.table_factory.reset(NewBlockBasedTableFactory(table_options));
     }
     options_.env = env_;
@@ -911,7 +912,7 @@ class BloomStatsTestWithParam
   static void SetUpTestCase() {}
   static void TearDownTestCase() {}
 
-  BFP_PseudoMode bfp_impl_;
+  BFP2::PseudoMode bfp_impl_;
   bool partition_filters_;
   Options options_;
 };
@@ -1032,7 +1033,7 @@ INSTANTIATE_TEST_CASE_P(
                       std::make_tuple(BFP::kLegacyBloom, true),
                       std::make_tuple(BFP::kFastLocalBloom, false),
                       std::make_tuple(BFP::kFastLocalBloom, true),
-                      std::make_tuple(kPlainTablePseudoMode, false)));
+                      std::make_tuple(BFP2::kPlainTable, false)));
 
 namespace {
 void PrefixScanInit(DBBloomFilterTest* dbtest) {
