@@ -10,6 +10,7 @@
 #if !defined(ROCKSDB_LITE) && !defined(OS_WIN)
 
 #include <algorithm>
+#include <limits>
 #include <string>
 #include <utility>
 
@@ -1290,7 +1291,7 @@ TEST_F(BackupableDBTest, DeleteTmpFiles) {
                             shared_option);
       ASSERT_OK(backup_engine_->CreateNewBackup(db_.get()));
       BackupID next_id = 1;
-      BackupID oldest_id = INT_MAX;
+      BackupID oldest_id = std::numeric_limits<BackupID>::max();
       {
         std::vector<BackupInfo> backup_info;
         backup_engine_->GetBackupInfo(&backup_info);
@@ -1308,7 +1309,7 @@ TEST_F(BackupableDBTest, DeleteTmpFiles) {
       // NOTE: both shared and shared_checksum should be cleaned up
       // regardless of how the backup engine is opened.
       std::vector<std::string> tmp_files_and_dirs;
-      for (auto&& dir_and_file : {
+      for (const auto& dir_and_file : {
                std::make_pair(std::string("shared"),
                               std::string(".00006.sst.tmp")),
                std::make_pair(std::string("shared_checksum"),
