@@ -173,6 +173,12 @@ class CompactionFilter {
     return Decision::kKeep;
   }
 
+  virtual bool PrepareOutput(const Slice& /* key */, ValueType /* value_type */,
+                             const Slice& /* existing_value */,
+                             std::string* /* new_value */) const {
+    return false;
+  }
+
   // This function is deprecated. Snapshots will always be ignored for
   // compaction filters, because we realized that not ignoring snapshots doesn't
   // provide the gurantee we initially thought it would provide. Repeatable

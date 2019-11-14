@@ -79,6 +79,7 @@ class BlobDBImpl : public BlobDB {
   friend class BlobDBIterator;
   friend class BlobDBListener;
   friend class BlobDBListenerGC;
+  friend class BlobIndexCompactionFilter;
 
  public:
   // deletions check period

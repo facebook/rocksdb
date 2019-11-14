@@ -728,7 +728,6 @@ Status BlobDBImpl::CreateBlobFileAndWriter(
                     "Failed to write header to new blob file: %s"
                     " status: '%s'",
                     (*blob_file)->PathName().c_str(), s.ToString().c_str());
-    return s;
   }
 
   (*blob_file)->SetFileSize(BlobLogHeader::kSize);
@@ -1064,6 +1063,15 @@ Status BlobDBImpl::CompactFiles(
 
 void BlobDBImpl::GetCompactionContext(BlobCompactionContext* context) {
   ReadLock l(&mutex_);
+
+  context->blob_db_impl = this;
+
+  if (!live_imm_non_ttl_blob_files_.empty()) {
+    auto it = live_imm_non_ttl_blob_files_.begin();
+    std::advance(it, 0.25 * live_imm_non_ttl_blob_files_.size());
+    assert(it != live_imm_non_ttl_blob_files_.end());
+    context->cutoff_file_number = it->first;
+  }
 
   context->next_file_number = next_file_number_.load();
   context->current_blob_files.clear();

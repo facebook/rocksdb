@@ -17,7 +17,9 @@ namespace rocksdb {
 namespace blob_db {
 
 struct BlobCompactionContext {
+  BlobDBImpl* blob_db_impl;
   uint64_t next_file_number;
+  uint64_t cutoff_file_number;
   std::unordered_set<uint64_t> current_blob_files;
   SequenceNumber fifo_eviction_seq;
   uint64_t evict_expiration_up_to;
