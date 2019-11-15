@@ -1246,6 +1246,11 @@ Status DBImpl::SwitchWAL(WriteContext* write_context) {
     }
     MaybeFlushStatsCF(&cfds);
   }
+  WriteThread::Writer nonmem_w;
+  if (two_write_queues_) {
+    nonmem_write_thread_.EnterUnbatched(&nonmem_w, &mutex_);
+  }
+
   for (const auto cfd : cfds) {
     cfd->Ref();
     status = SwitchMemtable(cfd, write_context);
@@ -1254,6 +1259,10 @@ Status DBImpl::SwitchWAL(WriteContext* write_context) {
       break;
     }
   }
+  if (two_write_queues_) {
+    nonmem_write_thread_.ExitUnbatched(&nonmem_w);
+  }
+
   if (status.ok()) {
     if (immutable_db_options_.atomic_flush) {
       AssignAtomicFlushSeq(cfds);
@@ -1314,6 +1323,10 @@ Status DBImpl::HandleWriteBufferFull(WriteContext* write_context) {
     MaybeFlushStatsCF(&cfds);
   }
 
+  WriteThread::Writer nonmem_w;
+  if (two_write_queues_) {
+    nonmem_write_thread_.EnterUnbatched(&nonmem_w, &mutex_);
+  }
   for (const auto cfd : cfds) {
     if (cfd->mem()->IsEmpty()) {
       continue;
@@ -1325,6 +1338,10 @@ Status DBImpl::HandleWriteBufferFull(WriteContext* write_context) {
       break;
     }
   }
+  if (two_write_queues_) {
+    nonmem_write_thread_.ExitUnbatched(&nonmem_w);
+  }
+
   if (status.ok()) {
     if (immutable_db_options_.atomic_flush) {
       AssignAtomicFlushSeq(cfds);
@@ -1530,6 +1547,11 @@ Status DBImpl::ScheduleFlushes(WriteContext* context) {
     MaybeFlushStatsCF(&cfds);
   }
   Status status;
+  WriteThread::Writer nonmem_w;
+  if (two_write_queues_) {
+    nonmem_write_thread_.EnterUnbatched(&nonmem_w, &mutex_);
+  }
+
   for (auto& cfd : cfds) {
     if (!cfd->mem()->IsEmpty()) {
       status = SwitchMemtable(cfd, context);
@@ -1542,6 +1564,11 @@ Status DBImpl::ScheduleFlushes(WriteContext* context) {
       break;
     }
   }
+
+  if (two_write_queues_) {
+    nonmem_write_thread_.ExitUnbatched(&nonmem_w);
+  }
+
   if (status.ok()) {
     if (immutable_db_options_.atomic_flush) {
       AssignAtomicFlushSeq(cfds);
@@ -1572,15 +1599,11 @@ void DBImpl::NotifyOnMemTableSealed(ColumnFamilyData* /*cfd*/,
 
 // REQUIRES: mutex_ is held
 // REQUIRES: this thread is currently at the front of the writer queue
+// REQUIRES: this thread is currently at the front of the 2nd writer queue if
+// two_write_queues_ is true (This is to simplify the reasoning.)
 Status DBImpl::SwitchMemtable(ColumnFamilyData* cfd, WriteContext* context) {
   mutex_.AssertHeld();
   WriteThread::Writer nonmem_w;
-  if (two_write_queues_) {
-    // SwitchMemtable is a rare event. To simply the reasoning, we make sure
-    // that there is no concurrent thread writing to WAL.
-    nonmem_write_thread_.EnterUnbatched(&nonmem_w, &mutex_);
-  }
-
   std::unique_ptr<WritableFile> lfile;
   log::Writer* new_log = nullptr;
   MemTable* new_mem = nullptr;
@@ -1687,10 +1710,6 @@ Status DBImpl::SwitchMemtable(ColumnFamilyData* cfd, WriteContext* context) {
     error_handler_.SetBGError(s, BackgroundErrorReason::kMemTable);
     // Read back bg_error in order to get the right severity
     s = error_handler_.GetBGError();
-
-    if (two_write_queues_) {
-      nonmem_write_thread_.ExitUnbatched(&nonmem_w);
-    }
     return s;
   }
 
@@ -1721,9 +1740,6 @@ Status DBImpl::SwitchMemtable(ColumnFamilyData* cfd, WriteContext* context) {
   NotifyOnMemTableSealed(cfd, memtable_info);
   mutex_.Lock();
 #endif  // ROCKSDB_LITE
-  if (two_write_queues_) {
-    nonmem_write_thread_.ExitUnbatched(&nonmem_w);
-  }
   return s;
 }
 
