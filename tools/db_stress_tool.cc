@@ -2426,6 +2426,11 @@ class StressTest {
     ReadOptions readoptionscopy = read_opts;
     readoptionscopy.snapshot = snapshot;
 
+    if (thread->rand.OneIn(16)) {
+      // When prefix extractor is used, it's useful to cover total order seek.
+      readoptionscopy.total_order_seek = true;
+    }
+
     std::string upper_bound_str;
     Slice upper_bound;
     if (thread->rand.OneIn(16)) {
@@ -2585,7 +2590,8 @@ class StressTest {
       // Iterator is not valid. It can be legimate if it has already been
       // out of upper or lower bound, or filtered out by prefix iterator.
       const Slice& total_order_key = cmp_iter->key();
-      const SliceTransform* pe = options_.prefix_extractor.get();
+      const SliceTransform* pe =
+          ro.total_order_seek ? nullptr : options_.prefix_extractor.get();
       const Comparator* cmp = options_.comparator;
 
       if (pe != nullptr) {
