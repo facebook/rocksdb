@@ -1710,18 +1710,12 @@ class MemTableInserter : public WriteBatch::Handler {
         cf_handle = db_->DefaultColumnFamily();
       }
       Status get_status = db_->Get(read_options, cf_handle, key, &get_value);
-      if (!get_status.ok() && !get_status.IsNotFound()) {
-        // Failed to get!
+      if (!get_status.ok()) {
+        // Failed to get or value is range deleted.
         // Store the delta in memtable
         perform_merge = false;
       } else {
         Slice get_value_slice = Slice(get_value);
-        Slice* merge_data;
-        if (get_status.ok()) {
-          merge_data = &get_value_slice;
-        } else {  // Key not present in db. (s.IsNotFound())
-          merge_data = nullptr;
-        }
 
         // 2) Apply this merge
         auto merge_operator = moptions->merge_operator;
@@ -1730,7 +1724,7 @@ class MemTableInserter : public WriteBatch::Handler {
         std::string new_value;
 
         Status merge_status = MergeHelper::TimedFullMerge(
-            merge_operator, key, merge_data, {value}, &new_value,
+            merge_operator, key, &get_value_slice, {value}, &new_value,
             moptions->info_log, moptions->statistics, Env::Default());
 
         if (!merge_status.ok()) {

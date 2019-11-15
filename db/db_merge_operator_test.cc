@@ -161,6 +161,23 @@ TEST_F(DBMergeOperatorTest, MergeErrorOnWrite) {
   VerifyDBInternal({{"k1", "corrupted"}, {"k1", "v2"}, {"k1", "v1"}});
 }
 
+TEST_F(DBMergeOperatorTest, GetThenMergeErrorOnWrite) {
+  Options options;
+  options.create_if_missing = true;
+  options.merge_operator.reset(new TestPutOperator());
+  options.max_successive_merges = 3;
+  options.env = env_;
+  Reopen(options);
+  ASSERT_OK(Merge("k1", "v1"));
+  ASSERT_OK(Merge("k1", "v2"));
+  ASSERT_OK(DeleteRange("k1", "k2"));
+  // Will trigger a merge when hitting max_successive_merges and the merge
+  // will fail because Get returns IsNotFound error.
+  ASSERT_OK(Merge("k1", "v3"));
+  // Merges before range delete will be filtered.
+  VerifyDBInternal({{"k1", "v3"}});
+}
+
 TEST_F(DBMergeOperatorTest, MergeErrorOnIteration) {
   Options options;
   options.create_if_missing = true;
