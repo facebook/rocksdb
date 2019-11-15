@@ -210,7 +210,6 @@ struct SuperVersion {
 
   // should be called outside the mutex
   SuperVersion() = default;
-  ~SuperVersion();
   SuperVersion* Ref();
   // If Unref() returns true, Cleanup() should be called with mutex held
   // before deleting this SuperVersion.
@@ -235,10 +234,6 @@ struct SuperVersion {
 
  private:
   std::atomic<uint32_t> refs;
-  // We need to_delete because during Cleanup(), imm->Unref() returns
-  // all memtables that we need to free through this vector. We then
-  // delete all those memtables outside of mutex, during destruction
-  autovector<MemTable*> to_delete;
 };
 
 extern Status CheckCompressionSupported(const ColumnFamilyOptions& cf_options);

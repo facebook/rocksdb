@@ -374,12 +374,6 @@ int SuperVersion::dummy = 0;
 void* const SuperVersion::kSVInUse = &SuperVersion::dummy;
 void* const SuperVersion::kSVObsolete = nullptr;
 
-SuperVersion::~SuperVersion() {
-  for (auto td : to_delete) {
-    delete td;
-  }
-}
-
 SuperVersion* SuperVersion::Ref() {
   refs.fetch_add(1, std::memory_order_relaxed);
   return this;
@@ -394,6 +388,7 @@ bool SuperVersion::Unref() {
 
 void SuperVersion::Cleanup() {
   assert(refs.load(std::memory_order_relaxed) == 0);
+  autovector<MemTable*> to_delete;
   imm->Unref(&to_delete);
   MemTable* m = mem->Unref();
   if (m != nullptr) {
@@ -401,6 +396,15 @@ void SuperVersion::Cleanup() {
     assert(*memory_usage >= m->ApproximateMemoryUsage());
     *memory_usage -= m->ApproximateMemoryUsage();
     to_delete.push_back(m);
+  }
+  if (to_delete.size()) {
+    auto func = [to_delete] {
+      for (auto td : to_delete) {
+        delete td;
+      }
+    };
+    std::thread t(func);
+    t.detach();
   }
   current->Unref();
 }
