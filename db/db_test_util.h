@@ -635,7 +635,7 @@ class TestPutOperator : public MergeOperator {
         *(merge_in.existing_value) == "corrupted") {
       return false;
     }
-    Slice* output = merge_in.existing_value;
+    Slice* output = nullptr;
     for (auto value : merge_in.operand_list) {
       if (value == "corrupted") {
         return false;
@@ -645,6 +645,8 @@ class TestPutOperator : public MergeOperator {
     }
     if (output) {
       merge_out->existing_operand = *output;
+    } else if (merge_in.existing_value) {
+      merge_out->existing_operand = *merge_in.existing_value;
     } else {
       merge_out->new_value = std::string("");
     }
