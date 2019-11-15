@@ -2355,10 +2355,11 @@ void BlockBasedTable::RetrieveMultipleBlocks(
     Status s = req.status;
     if (s.ok()) {
       if (req.result.size() != req.len) {
-        s = Status::Corruption(
-            "truncated block read from " + rep_->file->file_name() +
-            " offset " + ToString(handle.offset()) + ", expected " +
-            ToString(req.len) + " bytes, got " + ToString(req.result.size()));
+        s = Status::Corruption("truncated block read from " +
+                               rep_->file->file_name() + " offset " +
+                               ToString(handle.offset()) + ", expected " +
+                               ToString(req.len) +
+                               " bytes, got " + ToString(req.result.size()));
       }
     }
 
@@ -2414,8 +2415,8 @@ void BlockBasedTable::RetrieveMultipleBlocks(
         UncompressionContext context(compression_type);
         UncompressionInfo info(context, uncompression_dict, compression_type);
         s = UncompressBlockContents(info, req.result.data(), handle.size(),
-                                    &contents, footer.version(), rep_->ioptions,
-                                    memory_allocator);
+                                    &contents, footer.version(),
+                                    rep_->ioptions, memory_allocator);
       } else {
         if (scratch != nullptr) {
           // If we used the scratch buffer, then the contents need to be
@@ -2430,8 +2431,8 @@ void BlockBasedTable::RetrieveMultipleBlocks(
       }
       if (s.ok()) {
         (*results)[idx_in_batch].SetOwnedValue(
-            new Block(std::move(contents), global_seqno, read_amp_bytes_per_bit,
-                      ioptions.statistics));
+            new Block(std::move(contents), global_seqno,
+                      read_amp_bytes_per_bit, ioptions.statistics));
       }
     }
     (*statuses)[idx_in_batch] = s;
