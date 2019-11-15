@@ -7,6 +7,7 @@
 #include <algorithm>
 #include <array>
 #include <string>
+
 #include "db/lookup_key.h"
 #include "db/merge_context.h"
 #include "rocksdb/env.h"

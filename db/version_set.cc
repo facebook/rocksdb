@@ -2506,7 +2506,7 @@ void VersionStorageInfo::ComputeFilesMarkedForPeriodicCompaction(
     const ImmutableCFOptions& ioptions,
     const uint64_t periodic_compaction_seconds) {
   assert(periodic_compaction_seconds > 0 &&
-      periodic_compaction_seconds < port::kMaxUint64);
+         periodic_compaction_seconds < port::kMaxUint64);
 
   files_marked_for_periodic_compaction_.clear();
 

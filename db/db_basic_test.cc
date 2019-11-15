@@ -1606,8 +1606,7 @@ TEST_F(DBBasicTest, MultiGetIOBufferOverrun) {
   BlockBasedTableOptions table_options;
   table_options.pin_l0_filter_and_index_blocks_in_cache = true;
   table_options.block_size = 16 * 1024;
-  assert(table_options.block_size >
-          BlockBasedTable::kMultiGetReadStackBufSize);
+  assert(table_options.block_size > BlockBasedTable::kMultiGetReadStackBufSize);
   options.table_factory.reset(new BlockBasedTableFactory(table_options));
   Reopen(options);
 
@@ -1912,15 +1911,15 @@ TEST_P(DBBasicTestWithParallelIO, MultiGet) {
   ASSERT_EQ(env_->random_read_counter_.Read(), expected_reads);
 }
 
-INSTANTIATE_TEST_CASE_P(
-    ParallelIO, DBBasicTestWithParallelIO,
-    // Params are as follows -
-    // Param 0 - Compressed cache enabled
-    // Param 1 - Uncompressed cache enabled
-    // Param 2 - Data compression enabled
-    // Param 3 - ReadOptions::fill_cache
-    ::testing::Combine(::testing::Bool(), ::testing::Bool(),
-                       ::testing::Bool(), ::testing::Bool()));
+INSTANTIATE_TEST_CASE_P(ParallelIO, DBBasicTestWithParallelIO,
+                        // Params are as follows -
+                        // Param 0 - Compressed cache enabled
+                        // Param 1 - Uncompressed cache enabled
+                        // Param 2 - Data compression enabled
+                        // Param 3 - ReadOptions::fill_cache
+                        ::testing::Combine(::testing::Bool(), ::testing::Bool(),
+                                           ::testing::Bool(),
+                                           ::testing::Bool()));
 
 class DBBasicTestWithTimestampWithParam
     : public DBTestBase,

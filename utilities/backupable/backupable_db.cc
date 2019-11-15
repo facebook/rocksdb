@@ -9,7 +9,10 @@
 
 #ifndef ROCKSDB_LITE
 
+#include "rocksdb/utilities/backupable_db.h"
+
 #include <stdlib.h>
+
 #include <algorithm>
 #include <atomic>
 #include <cinttypes>
@@ -32,7 +35,6 @@
 #include "port/port.h"
 #include "rocksdb/rate_limiter.h"
 #include "rocksdb/transaction_log.h"
-#include "rocksdb/utilities/backupable_db.h"
 #include "test_util/sync_point.h"
 #include "util/channel.h"
 #include "util/coding.h"

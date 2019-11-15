@@ -7,20 +7,21 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
+#include "util/hash.h"
+
 #include <cstring>
 #include <vector>
 
 #include "test_util/testharness.h"
 #include "util/coding.h"
-#include "util/hash.h"
 
 using rocksdb::EncodeFixed32;
 using rocksdb::GetSliceHash64;
 using rocksdb::Hash;
 using rocksdb::Hash64;
 using rocksdb::Lower32of64;
-using rocksdb::Upper32of64;
 using rocksdb::Slice;
+using rocksdb::Upper32of64;
 
 // The hash algorithm is part of the file format, for example for the Bloom
 // filters. Test that the hash values are stable for a set of random strings of
