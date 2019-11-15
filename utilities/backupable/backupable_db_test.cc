@@ -524,8 +524,8 @@ class BackupableDBTest : public testing::Test {
     kShareWithChecksum,
   };
 
-  const std::vector<ShareOption> kAllShareOptions = {
-      kNoShare, kShareNoChecksum, kShareWithChecksum};
+  const std::vector<ShareOption> kAllShareOptions = {kNoShare, kShareNoChecksum,
+                                                     kShareWithChecksum};
 
   BackupableDBTest() {
     // set up files
