@@ -626,7 +626,7 @@ class OnFileDeletionListener : public EventListener {
 #endif
 
 // A test merge operator mimics put but also fails if one of merge operands is
-// "corrupted".
+// "corrupted", and ignores "ignored" operands"
 class TestPutOperator : public MergeOperator {
  public:
   virtual bool FullMergeV2(const MergeOperationInput& merge_in,
@@ -635,12 +635,19 @@ class TestPutOperator : public MergeOperator {
         *(merge_in.existing_value) == "corrupted") {
       return false;
     }
+    Slice* output = merge_in.existing_value;
     for (auto value : merge_in.operand_list) {
       if (value == "corrupted") {
         return false;
+      } else if (value != "ignored") {
+        output = &value;
       }
     }
-    merge_out->existing_operand = merge_in.operand_list.back();
+    if (output) {
+      merge_out->existing_operand = *output;
+    } else {
+      merge_out->new_value = std::string("");
+    }
     return true;
   }
 

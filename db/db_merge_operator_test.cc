@@ -149,33 +149,34 @@ TEST_F(DBMergeOperatorTest, MergeErrorOnWrite) {
   Options options;
   options.create_if_missing = true;
   options.merge_operator.reset(new TestPutOperator());
-  options.max_successive_merges = 3;
+  options.max_successive_merges = 2;
   options.env = env_;
   Reopen(options);
-  ASSERT_OK(Merge("k1", "v1"));
-  ASSERT_OK(Merge("k1", "v2"));
-  // Will trigger a merge when hitting max_successive_merges and the merge
-  // will fail. The delta will be inserted nevertheless.
   ASSERT_OK(Merge("k1", "corrupted"));
-  // Data should stay unmerged after the error.
-  VerifyDBInternal({{"k1", "corrupted"}, {"k1", "v2"}, {"k1", "v1"}});
+  ASSERT_OK(Merge("k1", "v1"));
+  // Will trigger a merge when existing merges hitting max_successive_merges
+  // and the merge will fail. The delta will be inserted nevertheless.
+  ASSERT_OK(Merge("k1", "ignored"));
+  // Data should stay unmerged after the error. Or latest value will be
+  // {"k1", "v1"}
+  VerifyDBInternal({{"k1", "ignored"}, {"k1", "v1"}, {"k1", "corrupted"}});
 }
 
 TEST_F(DBMergeOperatorTest, GetThenMergeErrorOnWrite) {
   Options options;
   options.create_if_missing = true;
   options.merge_operator.reset(new TestPutOperator());
-  options.max_successive_merges = 3;
+  options.max_successive_merges = 2;
   options.env = env_;
   Reopen(options);
   ASSERT_OK(Merge("k1", "v1"));
   ASSERT_OK(Merge("k1", "v2"));
   ASSERT_OK(DeleteRange("k1", "k2"));
-  // Will trigger a merge when hitting max_successive_merges and the merge
-  // will fail because Get returns IsNotFound error.
-  ASSERT_OK(Merge("k1", "v3"));
-  // Merges before range delete will be filtered.
-  VerifyDBInternal({{"k1", "v3"}});
+  // Will trigger a merge when existing merges hitting max_successive_merges
+  // and the merge will fail because Get returns IsNotFound error.
+  ASSERT_OK(Merge("k1", "ignored"));
+  // Latest value will be {"k1", "v2"} if merge does succeed.
+  VerifyDBInternal({{"k1", "ignored"}, {"k1", "v2"}, {"k1", "v1"}});
 }
 
 TEST_F(DBMergeOperatorTest, MergeErrorOnIteration) {
