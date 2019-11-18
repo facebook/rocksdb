@@ -298,7 +298,7 @@ Status BlobDBImpl::OpenAllBlobFiles() {
   for (auto& file_number : file_numbers) {
     std::shared_ptr<BlobFile> blob_file = std::make_shared<BlobFile>(
         this, blob_dir_, file_number, db_options_.info_log.get());
-    blob_file->MarkImmutable();
+    blob_file->MarkImmutable(/* sequence */ 0);
 
     // Read file header and footer
     Status read_metadata_status = blob_file->ReadMetadata(env_, env_options_);
@@ -1536,12 +1536,15 @@ Status BlobDBImpl::CloseBlobFile(std::shared_ptr<BlobFile> bfile) {
   ROCKS_LOG_INFO(db_options_.info_log,
                  "Closing blob file %" PRIu64 ". Path: %s",
                  bfile->BlobFileNumber(), bfile->PathName().c_str());
-  const Status s = bfile->WriteFooterAndCloseLocked();
+
+  const SequenceNumber sequence = GetLatestSequenceNumber();
+
+  const Status s = bfile->WriteFooterAndCloseLocked(sequence);
 
   if (s.ok()) {
     total_blob_size_ += BlobLogFooter::kSize;
   } else {
-    bfile->MarkImmutable();
+    bfile->MarkImmutable(sequence);
 
     ROCKS_LOG_ERROR(db_options_.info_log,
                     "Failed to close blob file %" PRIu64 "with error: %s",
@@ -2223,7 +2226,7 @@ Status BlobDBImpl::TEST_GetBlobValue(const Slice& key, const Slice& index_entry,
 void BlobDBImpl::TEST_AddDummyBlobFile(uint64_t blob_file_number) {
   auto blob_file = std::make_shared<BlobFile>(this, blob_dir_, blob_file_number,
                                               db_options_.info_log.get());
-  blob_file->MarkImmutable();
+  blob_file->MarkImmutable(/* sequence */ 0);
 
   blob_files_[blob_file_number] = blob_file;
   live_imm_non_ttl_blob_files_[blob_file_number] = blob_file;
