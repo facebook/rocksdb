@@ -1841,7 +1841,6 @@ TEST_F(BlobDBTest, MaintainBlobFileToSstMapping) {
     ASSERT_EQ(obsolete_files[0]->BlobFileNumber(), 1);
     ASSERT_EQ(obsolete_files[1]->BlobFileNumber(), 2);
   }
-
 }
 
 TEST_F(BlobDBTest, ShutdownWait) {

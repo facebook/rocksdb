@@ -445,13 +445,14 @@ void BlobDBImpl::InitializeBlobFileToSstMapping(
 void BlobDBImpl::ProcessFlushJobInfo(const FlushJobInfo& info) {
   assert(bdb_options_.enable_garbage_collection);
 
-  assert(flush_sequence_ < info.largest_seqno);
-  flush_sequence_ = info.largest_seqno;
+  WriteLock lock(&mutex_);
 
   if (info.oldest_blob_file_number != kInvalidBlobFileNumber) {
-    ReadLock lock(&mutex_);
     LinkSstToBlobFile(info.file_number, info.oldest_blob_file_number);
   }
+
+  assert(flush_sequence_ < info.largest_seqno);
+  flush_sequence_ = info.largest_seqno;
 
   MarkUnreferencedBlobFilesObsolete();
 }
@@ -463,24 +464,22 @@ void BlobDBImpl::ProcessCompactionJobInfo(const CompactionJobInfo& info) {
   // file list in case of a trivial move. We process the inputs first
   // to ensure the blob file still has a link after processing all updates.
 
-  {
-    ReadLock lock(&mutex_);
+  WriteLock lock(&mutex_);
 
-    for (const auto& input : info.input_file_infos) {
-      if (input.oldest_blob_file_number == kInvalidBlobFileNumber) {
-        continue;
-      }
-
-      UnlinkSstFromBlobFile(input.file_number, input.oldest_blob_file_number);
+  for (const auto& input : info.input_file_infos) {
+    if (input.oldest_blob_file_number == kInvalidBlobFileNumber) {
+      continue;
     }
 
-    for (const auto& output : info.output_file_infos) {
-      if (output.oldest_blob_file_number == kInvalidBlobFileNumber) {
-        continue;
-      }
+    UnlinkSstFromBlobFile(input.file_number, input.oldest_blob_file_number);
+  }
 
-      LinkSstToBlobFile(output.file_number, output.oldest_blob_file_number);
+  for (const auto& output : info.output_file_infos) {
+    if (output.oldest_blob_file_number == kInvalidBlobFileNumber) {
+      continue;
     }
+
+    LinkSstToBlobFile(output.file_number, output.oldest_blob_file_number);
   }
 
   MarkUnreferencedBlobFilesObsolete();
@@ -498,6 +497,12 @@ bool BlobDBImpl::MarkBlobFileObsoleteIfNeeded(
     return true;
   }
 
+  // We cannot mark this file (or any higher-numbered files for that matter)
+  // obsolete if it is referenced by any memtables or SSTs. We keep track of
+  // the SSTs explicitly. To account for memtables, we keep track of the highest
+  // sequence number received in flush notifications, and we do not mark the
+  // blob file obsolete if there are still unflushed memtables from before
+  // the time the blob file was closed.
   if (blob_file->GetImmutableSequence() > flush_sequence_ ||
       !blob_file->GetLinkedSstFiles().empty()) {
     return false;
@@ -518,7 +523,7 @@ void BlobDBImpl::MarkUnreferencedBlobFilesObsoleteImpl(Functor mark_if_needed) {
   // Iterate through all live immutable non-TTL blob files, and mark them
   // obsolete assuming no SST files rely on the blobs in them.
   // Note: we need to stop as soon as we find a blob file that has any
-  // linked SSTs.
+  // linked SSTs (or one potentially referenced by memtables).
 
   auto it = live_imm_non_ttl_blob_files_.begin();
   while (it != live_imm_non_ttl_blob_files_.end()) {
@@ -545,8 +550,6 @@ void BlobDBImpl::MarkUnreferencedBlobFilesObsoleteImpl(Functor mark_if_needed) {
 
 void BlobDBImpl::MarkUnreferencedBlobFilesObsolete() {
   const SequenceNumber obsolete_seq = GetLatestSequenceNumber();
-
-  WriteLock lock(&mutex_);
 
   MarkUnreferencedBlobFilesObsoleteImpl(
       [=](const std::shared_ptr<BlobFile>& blob_file) {
