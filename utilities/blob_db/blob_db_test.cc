@@ -1621,11 +1621,11 @@ TEST_F(BlobDBTest, MaintainBlobFileToSstMapping) {
   Open(bdb_options);
 
   // Register some dummy blob files.
-  blob_db_impl()->TEST_AddDummyBlobFile(1);
-  blob_db_impl()->TEST_AddDummyBlobFile(2);
-  blob_db_impl()->TEST_AddDummyBlobFile(3);
-  blob_db_impl()->TEST_AddDummyBlobFile(4);
-  blob_db_impl()->TEST_AddDummyBlobFile(5);
+  blob_db_impl()->TEST_AddDummyBlobFile(1, /* immutable_sequence */ 200);
+  blob_db_impl()->TEST_AddDummyBlobFile(2, /* immutable_sequence */ 300);
+  blob_db_impl()->TEST_AddDummyBlobFile(3, /* immutable_sequence */ 400);
+  blob_db_impl()->TEST_AddDummyBlobFile(4, /* immutable_sequence */ 500);
+  blob_db_impl()->TEST_AddDummyBlobFile(5, /* immutable_sequence */ 600);
 
   // Initialize the blob <-> SST file mapping. First, add some SST files with
   // blob file references, then some without.

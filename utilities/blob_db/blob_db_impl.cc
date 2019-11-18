@@ -2230,10 +2230,11 @@ Status BlobDBImpl::TEST_GetBlobValue(const Slice& key, const Slice& index_entry,
   return GetBlobValue(key, index_entry, value);
 }
 
-void BlobDBImpl::TEST_AddDummyBlobFile(uint64_t blob_file_number) {
+void BlobDBImpl::TEST_AddDummyBlobFile(uint64_t blob_file_number,
+                                       SequenceNumber immutable_sequence) {
   auto blob_file = std::make_shared<BlobFile>(this, blob_dir_, blob_file_number,
                                               db_options_.info_log.get());
-  blob_file->MarkImmutable(/* sequence */ 0);
+  blob_file->MarkImmutable(immutable_sequence);
 
   blob_files_[blob_file_number] = blob_file;
   live_imm_non_ttl_blob_files_[blob_file_number] = blob_file;

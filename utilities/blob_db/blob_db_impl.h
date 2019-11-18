@@ -185,7 +185,8 @@ class BlobDBImpl : public BlobDB {
   Status TEST_GetBlobValue(const Slice& key, const Slice& index_entry,
                            PinnableSlice* value);
 
-  void TEST_AddDummyBlobFile(uint64_t blob_file_number);
+  void TEST_AddDummyBlobFile(uint64_t blob_file_number,
+                             SequenceNumber immutable_sequence);
 
   std::vector<std::shared_ptr<BlobFile>> TEST_GetBlobFiles() const;
 
