@@ -456,6 +456,8 @@ void BlobDBImpl::ProcessFlushJobInfo(const FlushJobInfo& info) {
     ReadLock lock(&mutex_);
     LinkSstToBlobFile(info.file_number, info.oldest_blob_file_number);
   }
+
+  MarkUnreferencedBlobFilesObsolete();
 }
 
 void BlobDBImpl::ProcessCompactionJobInfo(const CompactionJobInfo& info) {
