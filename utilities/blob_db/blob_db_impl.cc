@@ -521,7 +521,7 @@ void BlobDBImpl::MarkUnreferencedBlobFilesObsoleteImpl(Functor mark_if_needed) {
   assert(bdb_options_.enable_garbage_collection);
 
   // Iterate through all live immutable non-TTL blob files, and mark them
-  // obsolete assuming no SST files rely on the blobs in them.
+  // obsolete assuming no SST files or memtables rely on the blobs in them.
   // Note: we need to stop as soon as we find a blob file that has any
   // linked SSTs (or one potentially referenced by memtables).
 
