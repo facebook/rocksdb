@@ -2750,6 +2750,26 @@ TEST_P(ExternalSSTFileTest,
   Destroy(options, true /* delete_cf_paths */);
 }
 
+TEST_P(ExternalSSTFileTest, IngestFilesTriggerFlushingWithTwoWriteQueue) {
+  Options options = CurrentOptions();
+  // Use large buffer to avoid memtable flush
+  options.write_buffer_size = 1024 * 1024;
+  options.two_write_queues = true;
+  DestroyAndReopen(options);
+
+  ASSERT_OK(dbfull()->Put(WriteOptions(), "1000", "v1"));
+  ASSERT_OK(dbfull()->Put(WriteOptions(), "1001", "v1"));
+  ASSERT_OK(dbfull()->Put(WriteOptions(), "9999", "v1"));
+
+  // Put one key which is overlap with keys in memtable.
+  // It will trigger flushing memtable and require this thread is
+  // currently at the front of the 2nd writer queue. We must make
+  // sure that it won't enter the 2nd writer queue for the second time.
+  std::vector<std::pair<std::string, std::string>> data;
+  data.push_back(std::make_pair("1001", "v2"));
+  GenerateAndAddExternalFile(options, data);
+}
+
 INSTANTIATE_TEST_CASE_P(ExternalSSTFileTest, ExternalSSTFileTest,
                         testing::Values(std::make_tuple(false, false),
                                         std::make_tuple(false, true),
