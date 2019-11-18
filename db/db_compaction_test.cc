@@ -4778,6 +4778,8 @@ TEST_P(DBCompactionTestWithParam,
   const size_t kValueSize = 1 << 20;
   Random rnd(301);
   std::string value(RandomString(&rnd, kValueSize));
+  std::string value2(RandomString(&rnd, kValueSize));
+  std::string bigvalue = value + value;
 
   // prevents trivial move
   for (int i = 0; i < 10; ++i) {
@@ -4790,7 +4792,6 @@ TEST_P(DBCompactionTestWithParam,
       {{"LevelCompactionPicker::PickCompactionBySize:0",
         "CompactionJob::Run():Start"}});
   rocksdb::SyncPoint::GetInstance()->EnableProcessing();
-
   // Make 6 L0 sst.
   for (int i = 0; i < 6; ++i) {
     if (i % 2 == 0) {
@@ -4812,26 +4813,32 @@ TEST_P(DBCompactionTestWithParam,
 
   // Put many keys to make memtable request to flush
   for (int i = 0; i < 6; ++i) {
-    ASSERT_OK(Put(Key(i), value + value));
+    ASSERT_OK(Put(Key(i), bigvalue));
   }
 
   ASSERT_EQ(6, NumTableFilesAtLevel(0));
   // ingest file to trigger IntraL0Compaction
-  for (int i = 6; i < 10; i++) {
+  for (int i = 6; i < 10; ++i) {
     ASSERT_EQ(i, NumTableFilesAtLevel(0));
-    IngestOneKeyValue(dbfull(), Key(i), value, options);
+    IngestOneKeyValue(dbfull(), Key(i), value2, options);
   }
   ASSERT_EQ(10, NumTableFilesAtLevel(0));
 
   // Wake up flush job
   sleeping_tasks.WakeUp();
   sleeping_tasks.WaitUntilDone();
-
   dbfull()->TEST_WaitForCompact();
   rocksdb::SyncPoint::GetInstance()->DisableProcessing();
+
   uint64_t error_count = 0;
   db_->GetIntProperty("rocksdb.background-errors", &error_count);
   ASSERT_EQ(error_count, 0);
+  for (int i = 0; i < 6; ++i) {
+    ASSERT_EQ(bigvalue, Get(Key(i)));
+  }
+  for (int i = 6; i < 10; ++i) {
+    ASSERT_EQ(value2, Get(Key(i)));
+  }
 }
 
 #endif // !defined(ROCKSDB_LITE)
