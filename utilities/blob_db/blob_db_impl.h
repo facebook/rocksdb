@@ -327,15 +327,18 @@ class BlobDBImpl : public BlobDB {
   void InitializeBlobFileToSstMapping(
       const std::vector<LiveFileMetaData>& live_files);
 
-  // Update the mapping between blob files and SSTs after a flush.
+  // Update the mapping between blob files and SSTs after a flush and mark
+  // any unneeded blob files obsolete.
   void ProcessFlushJobInfo(const FlushJobInfo& info);
 
-  // Update the mapping between blob files and SSTs after a compaction.
+  // Update the mapping between blob files and SSTs after a compaction and
+  // mark any unneeded blob files obsolete.
   void ProcessCompactionJobInfo(const CompactionJobInfo& info);
 
   // Mark an immutable non-TTL blob file obsolete assuming it has no more SSTs
-  // linked to it. Note: should only be called if the condition holds for all
-  // lower-numbered non-TTL blob files as well.
+  // linked to it, and all memtables from before the blob file became immutable
+  // have been flushed. Note: should only be called if the condition holds for
+  // all lower-numbered non-TTL blob files as well.
   bool MarkBlobFileObsoleteIfNeeded(const std::shared_ptr<BlobFile>& blob_file,
                                     SequenceNumber obsolete_seq);
 
