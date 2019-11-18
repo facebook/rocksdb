@@ -448,11 +448,7 @@ void BlobDBImpl::ProcessFlushJobInfo(const FlushJobInfo& info) {
   assert(flush_sequence_ < info.largest_seqno);
   flush_sequence_ = info.largest_seqno;
 
-  if (info.oldest_blob_file_number == kInvalidBlobFileNumber) {
-    return;
-  }
-
-  {
+  if (info.oldest_blob_file_number != kInvalidBlobFileNumber) {
     ReadLock lock(&mutex_);
     LinkSstToBlobFile(info.file_number, info.oldest_blob_file_number);
   }
