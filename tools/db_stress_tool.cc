@@ -2416,13 +2416,12 @@ class StressTest {
     return column_families_[column_family_id];
   }
 
+#ifndef ROCKSDB_LITE
   // Generated a list of keys that close to boundaries of SST keys.
   // If there isn't any SST file in the DB, return empty list.
   std::vector<std::string> GetWhiteBoxKeys(ThreadState* thread, DB* db,
                                            ColumnFamilyHandle* cfh,
                                            size_t num_keys) {
-    std::vector<std::string> ret;
-#ifndef ROCKSDB_LITE
     ColumnFamilyMetaData cfmd;
     db->GetColumnFamilyMetaData(cfh, &cfmd);
     std::vector<std::string> boundaries;
@@ -2436,6 +2435,7 @@ class StressTest {
       return {};
     }
 
+    std::vector<std::string> ret;
     for (size_t j = 0; j < num_keys; j++) {
       std::string k =
           boundaries[thread->rand.Uniform(static_cast<int>(boundaries.size()))];
@@ -2464,9 +2464,16 @@ class StressTest {
       }
       ret.push_back(k);
     }
-#endif  // !ROCKSDB_LITE
     return ret;
   }
+#else // !ROCKSDB_LITE
+std::vector<std::string> GetWhiteBoxKeys(ThreadState*, DB*,
+                                         ColumnFamilyHandle*,
+                                         size_t) {
+  // Not supported in LITE mode.
+  return {};
+}
+#endif // !ROCKSDB_LITE
 
   // Given a key K, this creates an iterator which scans to K and then
   // does a random sequence of Next/Prev operations.
