@@ -1687,6 +1687,8 @@ TEST_F(BlobDBTest, MaintainBlobFileToSstMapping) {
   {
     FlushJobInfo info{};
     info.file_number = 21;
+    info.smallest_seqno = 1;
+    info.largest_seqno = 100;
 
     blob_db_impl()->TEST_ProcessFlushJobInfo(info);
 
@@ -1714,6 +1716,8 @@ TEST_F(BlobDBTest, MaintainBlobFileToSstMapping) {
     FlushJobInfo info{};
     info.file_number = 22;
     info.oldest_blob_file_number = 5;
+    info.smallest_seqno = 101;
+    info.largest_seqno = 200;
 
     blob_db_impl()->TEST_ProcessFlushJobInfo(info);
 

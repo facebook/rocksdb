@@ -83,6 +83,7 @@ BlobDBImpl::BlobDBImpl(const std::string& dbname,
       env_options_(db_options),
       statistics_(db_options_.statistics.get()),
       next_file_number_(1),
+      flush_sequence_(0),
       epoch_of_(0),
       closed_(true),
       open_file_count_(0),
@@ -444,6 +445,9 @@ void BlobDBImpl::InitializeBlobFileToSstMapping(
 void BlobDBImpl::ProcessFlushJobInfo(const FlushJobInfo& info) {
   assert(bdb_options_.enable_garbage_collection);
 
+  assert(flush_sequence_ < info.largest_seqno);
+  flush_sequence_ = info.largest_seqno;
+
   if (info.oldest_blob_file_number == kInvalidBlobFileNumber) {
     return;
   }
@@ -496,7 +500,8 @@ bool BlobDBImpl::MarkBlobFileObsoleteIfNeeded(
     return true;
   }
 
-  if (!blob_file->GetLinkedSstFiles().empty()) {
+  if (blob_file->GetImmutableSequence() > flush_sequence_ ||
+      !blob_file->GetLinkedSstFiles().empty()) {
     return false;
   }
 

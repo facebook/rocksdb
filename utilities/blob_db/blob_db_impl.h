@@ -427,6 +427,9 @@ class BlobDBImpl : public BlobDB {
   // All live immutable non-TTL blob files.
   std::map<uint64_t, std::shared_ptr<BlobFile>> live_imm_non_ttl_blob_files_;
 
+  // The largest sequence number that has been flushed.
+  std::atomic<uint64_t> flush_sequence_;
+
   // epoch or version of the open files.
   std::atomic<uint64_t> epoch_of_;
 
