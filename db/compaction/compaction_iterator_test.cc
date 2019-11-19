@@ -184,7 +184,7 @@ class TestSnapshotChecker : public SnapshotChecker {
  public:
   explicit TestSnapshotChecker(
       SequenceNumber last_committed_sequence,
-      const std::unordered_map<SequenceNumber, SequenceNumber>& snapshots = {})
+      const std::unordered_map<SequenceNumber, SequenceNumber>& snapshots = {{}})
       : last_committed_sequence_(last_committed_sequence),
         snapshots_(snapshots) {}
 

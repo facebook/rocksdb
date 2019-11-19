@@ -606,7 +606,7 @@ double FilterBench::RandomQueryTest(uint32_t inside_threshold, bool dry_run,
   }
 
   if (!dry_run) {
-    fp_rate_report_ = std::ostringstream();
+    fp_rate_report_.str("");
     uint64_t q = 0;
     uint64_t fp = 0;
     double worst_fp_rate = 0.0;
