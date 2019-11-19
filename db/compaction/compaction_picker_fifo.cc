@@ -202,7 +202,8 @@ Compaction* FIFOCompactionPicker::PickSizeCompaction(
 
 Compaction* FIFOCompactionPicker::PickCompaction(
     const std::string& cf_name, const MutableCFOptions& mutable_cf_options,
-    VersionStorageInfo* vstorage, LogBuffer* log_buffer) {
+    VersionStorageInfo* vstorage, LogBuffer* log_buffer,
+    SequenceNumber /*earliest_memtable_seqno*/) {
   assert(vstorage->num_levels() == 1);
 
   Compaction* c = nullptr;
