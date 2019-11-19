@@ -5,6 +5,7 @@
 
 ### Bug Fixes
 * Fix OnFlushCompleted fired before flush result persisted in MANIFEST when there's concurrent flush job. The bug exists since OnFlushCompleted was introduced in rocksdb 3.8.
+* Fix data corruption casued by output of intra-L0 compaction on ingested file not being placed in correct order in L0.
 
 ## 6.4.6 (10/16/2019)
 * Fix a bug when partitioned filters and prefix search are used in conjunction, ::SeekForPrev could return invalid for an existing prefix. ::SeekForPrev might be called by the user, or internally on ::Prev, or within ::Seek if the return value involves Delete or a Merge operand.

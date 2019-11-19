@@ -1488,12 +1488,12 @@ TEST_F(CompactionPickerTest, IntraL0MaxCompactionBytesNotHit) {
   // All 5 L0 files will be picked for intra L0 compaction. The one L1 file
   // spans entire L0 key range and is marked as being compacted to avoid
   // L0->L1 compaction.
-  Add(0, 1U, "100", "150", 200000U);
-  Add(0, 2U, "151", "200", 200000U);
-  Add(0, 3U, "201", "250", 200000U);
-  Add(0, 4U, "251", "300", 200000U);
-  Add(0, 5U, "301", "350", 200000U);
-  Add(1, 6U, "100", "350", 200000U);
+  Add(0, 1U, "100", "150", 200000U, 0, 100, 101);
+  Add(0, 2U, "151", "200", 200000U, 0, 102, 103);
+  Add(0, 3U, "201", "250", 200000U, 0, 104, 105);
+  Add(0, 4U, "251", "300", 200000U, 0, 106, 107);
+  Add(0, 5U, "301", "350", 200000U, 0, 108, 109);
+  Add(1, 6U, "100", "350", 200000U, 0, 110, 111);
   vstorage_->LevelFiles(1)[0]->being_compacted = true;
   UpdateVersionStorageInfo();
 
@@ -1518,12 +1518,12 @@ TEST_F(CompactionPickerTest, IntraL0MaxCompactionBytesHit) {
   // max_compaction_bytes limit (the minimum number of files for triggering
   // intra L0 compaction is 4). The one L1 file spans entire L0 key range and
   // is marked as being compacted to avoid L0->L1 compaction.
-  Add(0, 1U, "100", "150", 200000U);
-  Add(0, 2U, "151", "200", 200000U);
-  Add(0, 3U, "201", "250", 200000U);
-  Add(0, 4U, "251", "300", 200000U);
-  Add(0, 5U, "301", "350", 200000U);
-  Add(1, 6U, "100", "350", 200000U);
+  Add(0, 1U, "100", "150", 200000U, 0, 100, 101);
+  Add(0, 2U, "151", "200", 200000U, 0, 102, 103);
+  Add(0, 3U, "201", "250", 200000U, 0, 104, 105);
+  Add(0, 4U, "251", "300", 200000U, 0, 106, 107);
+  Add(0, 5U, "301", "350", 200000U, 0, 108, 109);
+  Add(1, 6U, "100", "350", 200000U, 0, 109, 110);
   vstorage_->LevelFiles(1)[0]->being_compacted = true;
   UpdateVersionStorageInfo();
 
@@ -1535,6 +1535,38 @@ TEST_F(CompactionPickerTest, IntraL0MaxCompactionBytesHit) {
   ASSERT_EQ(CompactionReason::kLevelL0FilesNum,
             compaction->compaction_reason());
   ASSERT_EQ(0U, compaction->output_level());
+}
+
+TEST_F(CompactionPickerTest, IntraL0ForEarliestSeqno) {
+  // Intra L0 compaction triggers only if there are at least
+  // level0_file_num_compaction_trigger + 2 L0 files.
+  mutable_cf_options_.level0_file_num_compaction_trigger = 3;
+  mutable_cf_options_.max_compaction_bytes = 999999u;
+  NewVersionStorage(6, kCompactionStyleLevel);
+
+  // 4 out of 6 L0 files will be picked for intra L0 compaction due to
+  // being_compact limit. And the latest one L0 will be skipped due to earliest
+  // seqno. The one L1 file spans entire L0 key range and is marked as being
+  // compacted to avoid L0->L1 compaction.
+  Add(1, 1U, "100", "350", 200000U, 0, 110, 111);
+  Add(0, 2U, "301", "350", 1U, 0, 108, 109);
+  Add(0, 3U, "251", "300", 1U, 0, 106, 107);
+  Add(0, 4U, "201", "250", 1U, 0, 104, 105);
+  Add(0, 5U, "151", "200", 1U, 0, 102, 103);
+  Add(0, 6U, "100", "150", 1U, 0, 100, 101);
+  Add(0, 7U, "100", "100", 1U, 0, 99, 100);
+  vstorage_->LevelFiles(0)[5]->being_compacted = true;
+  vstorage_->LevelFiles(1)[0]->being_compacted = true;
+  UpdateVersionStorageInfo();
+
+  std::unique_ptr<Compaction> compaction(level_compaction_picker.PickCompaction(
+      cf_name_, mutable_cf_options_, vstorage_.get(), &log_buffer_, 107));
+  ASSERT_TRUE(compaction.get() != nullptr);
+  ASSERT_EQ(1U, compaction->num_input_levels());
+  ASSERT_EQ(4U, compaction->num_input_files(0));
+  ASSERT_EQ(CompactionReason::kLevelL0FilesNum,
+            compaction->compaction_reason());
+  ASSERT_EQ(0, compaction->output_level());
 }
 
 }  // namespace rocksdb

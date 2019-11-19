@@ -252,7 +252,8 @@ UniversalCompactionPicker::CalculateSortedRuns(
 // time-range to compact.
 Compaction* UniversalCompactionPicker::PickCompaction(
     const std::string& cf_name, const MutableCFOptions& mutable_cf_options,
-    VersionStorageInfo* vstorage, LogBuffer* log_buffer) {
+    VersionStorageInfo* vstorage, LogBuffer* log_buffer,
+    SequenceNumber /* earliest_memtable_seqno */) {
   const int kLevel0 = 0;
   double score = vstorage->CompactionScore(kLevel0);
   std::vector<SortedRun> sorted_runs =
