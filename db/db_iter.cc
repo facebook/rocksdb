@@ -856,6 +856,7 @@ bool DBIter::FindValueForCurrentKeyUsingSeek() {
   // In case read_callback presents, the value we seek to may not be visible.
   // Find the next value that's visible.
   ParsedInternalKey ikey;
+  is_blob_ = false;
   while (true) {
     if (!iter_.Valid()) {
       valid_ = false;
@@ -897,6 +898,7 @@ bool DBIter::FindValueForCurrentKeyUsingSeek() {
   if (ikey.type == kTypeValue || ikey.type == kTypeBlobIndex) {
     assert(iter_.iter()->IsValuePinned());
     pinned_value_ = iter_.value();
+    is_blob_ = (ikey.type == kTypeBlobIndex);
     valid_ = true;
     return true;
   }
