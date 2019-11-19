@@ -395,6 +395,26 @@ TEST_F(DBBlobIndexTest, Iterate) {
     verify(15, Status::kOk, get_value(16, 0), get_value(14, 0),
            create_blob_iterator, check_is_blob(false));
 
+    // Iterator with blob support and using seek.
+    ASSERT_OK(dbfull()->SetOptions(cfh(), {{"max_sequential_skip_in_iterations", "0"}}));
+    verify(1, Status::kOk, get_value(1, 0), get_value(1, 0),
+           create_blob_iterator, check_is_blob(true));
+    verify(3, Status::kOk, get_value(3, 0), get_value(3, 0),
+           create_blob_iterator, check_is_blob(true));
+    verify(5, Status::kOk, get_value(5, 0), get_value(5, 0),
+           create_blob_iterator, check_is_blob(false));
+    verify(7, Status::kOk, get_value(8, 0), get_value(6, 0),
+           create_blob_iterator, check_is_blob(false));
+    verify(9, Status::kOk, get_value(10, 0), get_value(8, 0),
+           create_blob_iterator, check_is_blob(false));
+    verify(11, Status::kNotSupported, "", "", create_blob_iterator);
+    verify(13, Status::kOk,
+           get_value(13, 2) + "," + get_value(13, 1) + "," + get_value(13, 0),
+           get_value(13, 2) + "," + get_value(13, 1) + "," + get_value(13, 0),
+           create_blob_iterator, check_is_blob(false));
+    verify(15, Status::kOk, get_value(16, 0), get_value(14, 0),
+           create_blob_iterator, check_is_blob(false));
+
     for (auto* snapshot : snapshots) {
       dbfull()->ReleaseSnapshot(snapshot);
     }
