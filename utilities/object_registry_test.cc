@@ -156,6 +156,108 @@ TEST_F(EnvRegistryTest, CheckUnique) {
   ASSERT_EQ(unique, nullptr);
 }
 
+class EnumRegistryTest : public testing::Test {
+};
+
+TEST_F(EnumRegistryTest, TestSimpleEnum) {
+  enum SimpleEnum { kSimpleA, kSimpleB };
+  std::shared_ptr<ObjectRegistry> registry = ObjectRegistry::NewInstance();
+  std::shared_ptr<ObjectLibrary> library = std::make_shared<ObjectLibrary>();
+  registry->AddLibrary(library);
+  library->Register<int>("SimpleEnum", 
+                         {{"A", SimpleEnum::kSimpleA},
+                          {"B", SimpleEnum::kSimpleB},
+                         });
+  int i;
+  std::string s;
+  ASSERT_TRUE(registry->AsEnum("SimpleEnum", "A", &i));
+  ASSERT_EQ(i, SimpleEnum::kSimpleA);
+  ASSERT_TRUE(registry->AsString("SimpleEnum", i, &s));
+  ASSERT_EQ(s, "A");
+  ASSERT_TRUE(registry->AsEnum("SimpleEnum", "B", &i));
+  ASSERT_EQ(i, SimpleEnum::kSimpleB);
+  ASSERT_TRUE(registry->AsString("SimpleEnum", i, &s));
+  ASSERT_EQ(s, "B");
+  ASSERT_FALSE(registry->AsEnum("SimpleEnum", "C", &i));
+  ASSERT_FALSE(registry->AsString("SimpleEnum", 3, &s));
+}
+
+TEST_F(EnumRegistryTest, TestIntEnum) {
+  enum IntEnum : int { kIntA, kIntB };
+  std::shared_ptr<ObjectRegistry> registry = ObjectRegistry::NewInstance();
+  std::shared_ptr<ObjectLibrary> library = std::make_shared<ObjectLibrary>();
+  registry->AddLibrary(library);
+  library->Register<int>("IntEnum", 
+                         {{"A", IntEnum::kIntA},
+                          {"B", IntEnum::kIntB},
+                         });
+  int i;
+  std::string s;
+  ASSERT_TRUE(registry->AsEnum("IntEnum", "A", &i));
+  ASSERT_EQ(i, IntEnum::kIntA);
+  ASSERT_TRUE(registry->AsString("IntEnum", i, &s));
+  ASSERT_EQ(s, "A");
+  ASSERT_TRUE(registry->AsEnum("IntEnum", "B", &i));
+  ASSERT_EQ(i, IntEnum::kIntB);
+  ASSERT_TRUE(registry->AsString("IntEnum", i, &s));
+  ASSERT_EQ(s, "B");
+  ASSERT_FALSE(registry->AsEnum("IntEnum", "C", &i));
+  ASSERT_FALSE(registry->AsString("IntEnum", 3, &s));
+}
+
+TEST_F(EnumRegistryTest, TestCharEnum) {
+  enum CharEnum : char { kCharA, kCharB };
+  std::shared_ptr<ObjectRegistry> registry = ObjectRegistry::NewInstance();
+  std::shared_ptr<ObjectLibrary> library = std::make_shared<ObjectLibrary>();
+  registry->AddLibrary(library);
+  library->Register<char>("CharEnum", 
+                         {{"A", CharEnum::kCharA},
+                          {"B", CharEnum::kCharB},
+                         });
+  char i;
+  std::string s;
+  ASSERT_TRUE(registry->AsEnum("CharEnum", "A", &i));
+  ASSERT_EQ(i, CharEnum::kCharA);
+  ASSERT_TRUE(registry->AsString("CharEnum", i, &s));
+  ASSERT_EQ(s, "A");
+  ASSERT_TRUE(registry->AsEnum("CharEnum", "B", &i));
+  ASSERT_EQ(i, CharEnum::kCharB);
+  ASSERT_TRUE(registry->AsString("CharEnum", i, &s));
+  ASSERT_EQ(s, "B");
+  ASSERT_FALSE(registry->AsEnum("CharEnum", "C", &i));
+  ASSERT_FALSE(registry->AsString("CharEnum", 3, &s));
+}
+
+TEST_F(EnumRegistryTest, TestClassEnum) {
+  enum class ClassEnum : int { kClassA, kClassB };
+  std::shared_ptr<ObjectRegistry> registry = ObjectRegistry::NewInstance();
+  std::shared_ptr<ObjectLibrary> library = std::make_shared<ObjectLibrary>();
+  registry->AddLibrary(library);
+  library->Register<int>("ClassEnum", 
+                         {{"A", static_cast<int>(ClassEnum::kClassA)},
+                          {"B", static_cast<int>(ClassEnum::kClassB)},
+                         });
+  int i;
+  std::string s;
+  ASSERT_TRUE(registry->AsEnum("ClassEnum", "A", &i));
+  ASSERT_EQ(i, static_cast<int>(ClassEnum::kClassA));
+  ASSERT_TRUE(registry->AsString("ClassEnum", i, &s));
+  ASSERT_EQ(s, "A");
+  ASSERT_TRUE(registry->AsEnum("ClassEnum", "B", &i));
+  ASSERT_EQ(i, static_cast<int>(ClassEnum::kClassB));
+  ASSERT_TRUE(registry->AsString("ClassEnum", i, &s));
+  ASSERT_EQ(s, "B");
+  ASSERT_FALSE(registry->AsEnum("ClassEnum", "C", &i));
+}
+
+TEST_F(EnumRegistryTest, TestUnknownEnum) {
+  std::shared_ptr<ObjectRegistry> registry = ObjectRegistry::NewInstance();
+  int i;
+  std::string s;
+  ASSERT_FALSE(registry->AsEnum("Uknown", "A", &i));
+  ASSERT_FALSE(registry->AsEnum("SimpleEnum", "C", &i));
+  ASSERT_FALSE(registry->AsString("SimpleEnum", 3, &s));
+}
 }  // namespace rocksdb
 
 int main(int argc, char** argv) {

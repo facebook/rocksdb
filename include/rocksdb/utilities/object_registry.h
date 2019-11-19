@@ -61,6 +61,39 @@ class ObjectLibrary {
     std::regex pattern_;  // The pattern for this entry
     FactoryFunc<T> factory_;
   };  // End class FactoryEntry
+
+  // An Entry containing a Enum Map for translating enums to/from strings
+  template <typename T>
+  class EnumEntry : public Entry {
+   public:
+    EnumEntry(const std::string& type, const std::unordered_map<std::string, T> & map)
+        : Entry(type), type_map_(std::move(map)) {}
+    ~EnumEntry() override {}
+
+    // Creates a new T object.
+    bool AsString(T value, std::string* string) const {
+      for (const auto& pair : type_map_) {
+        if (pair.second == value) {
+          *string = pair.first;
+          return true;
+        }
+      }
+      return false;
+    }
+    
+    bool AsEnum(const std::string & string, T *value) const {
+      const auto iter = type_map_.find(string);
+      if (iter != type_map_.end()) {
+        *value = iter->second;
+        return true;
+      }
+      return false;
+    }
+
+   private:
+    const std::unordered_map<std::string, T> type_map_;
+  }; // End class EnumEntry
+  
  public:
   // Finds the entry matching the input name and type
   const Entry* FindEntry(const std::string& type,
@@ -76,6 +109,15 @@ class ObjectLibrary {
     AddEntry(T::Type(), entry);
     return factory;
   }
+
+  template <typename T>
+  const std::unordered_map<std::string, T> & Register(const std::string & type,
+                                                const std::unordered_map<std::string, T> & map) {
+    std::unique_ptr<Entry> entry(new EnumEntry<T>(type, map));
+    AddEntry("Enum", entry);
+    return map;
+  }
+
   // Returns the default ObjectLibrary
   static std::shared_ptr<ObjectLibrary>& Default();
 
@@ -187,6 +229,29 @@ class ObjectRegistry {
       *result = ptr;
       return Status::OK();
     }
+  }
+
+  template <typename T>
+  bool AsString(const std::string & type, T value, std::string* string) const {
+    const auto* basic = FindEntry("Enum", type);
+    if (basic != nullptr) {
+      const auto* enum_entry =
+          static_cast<const ObjectLibrary::EnumEntry<T>*>(basic);
+      return enum_entry->AsString(value, string);
+    } 
+    return false;
+  }
+    
+  template <typename T>
+  bool AsEnum(const std::string & type, const std::string & string, T *value) const {
+    const auto* basic = FindEntry("Enum", type);
+    if (basic != nullptr) {
+      const auto* enum_entry =
+          static_cast<const ObjectLibrary::EnumEntry<T>*>(basic);
+      return enum_entry->AsEnum(string, value);
+    } 
+    return false;
+    
   }
 
   // Dump the contents of the registry to the logger
