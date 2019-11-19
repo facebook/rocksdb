@@ -2416,6 +2416,65 @@ class StressTest {
     return column_families_[column_family_id];
   }
 
+#ifndef ROCKSDB_LITE
+  // Generated a list of keys that close to boundaries of SST keys.
+  // If there isn't any SST file in the DB, return empty list.
+  std::vector<std::string> GetWhiteBoxKeys(ThreadState* thread, DB* db,
+                                           ColumnFamilyHandle* cfh,
+                                           size_t num_keys) {
+    ColumnFamilyMetaData cfmd;
+    db->GetColumnFamilyMetaData(cfh, &cfmd);
+    std::vector<std::string> boundaries;
+    for (const LevelMetaData& lmd : cfmd.levels) {
+      for (const SstFileMetaData& sfmd : lmd.files) {
+        boundaries.push_back(sfmd.smallestkey);
+        boundaries.push_back(sfmd.largestkey);
+      }
+    }
+    if (boundaries.empty()) {
+      return {};
+    }
+
+    std::vector<std::string> ret;
+    for (size_t j = 0; j < num_keys; j++) {
+      std::string k =
+          boundaries[thread->rand.Uniform(static_cast<int>(boundaries.size()))];
+      if (thread->rand.OneIn(3)) {
+        // Reduce one byte from the string
+        for (int i = static_cast<int>(k.length()) - 1; i >= 0; i--) {
+          uint8_t cur = k[i];
+          if (cur > 0) {
+            k[i] = static_cast<char>(cur - 1);
+            break;
+          } else if (i > 0) {
+            k[i] = 0xFF;
+          }
+        }
+      } else if (thread->rand.OneIn(2)) {
+        // Add one byte to the string
+        for (int i = static_cast<int>(k.length()) - 1; i >= 0; i--) {
+          uint8_t cur = k[i];
+          if (cur < 255) {
+            k[i] = static_cast<char>(cur + 1);
+            break;
+          } else if (i > 0) {
+            k[i] = 0x00;
+          }
+        }
+      }
+      ret.push_back(k);
+    }
+    return ret;
+  }
+#else // !ROCKSDB_LITE
+std::vector<std::string> GetWhiteBoxKeys(ThreadState*, DB*,
+                                         ColumnFamilyHandle*,
+                                         size_t) {
+  // Not supported in LITE mode.
+  return {};
+}
+#endif // !ROCKSDB_LITE
+
   // Given a key K, this creates an iterator which scans to K and then
   // does a random sequence of Next/Prev operations.
   virtual Status TestIterate(ThreadState* thread, const ReadOptions& read_opts,
@@ -2457,9 +2516,21 @@ class StressTest {
     auto cfh = column_families_[rand_column_families[0]];
     std::unique_ptr<Iterator> iter(db_->NewIterator(readoptionscopy, cfh));
 
-    for (int64_t rkey : rand_keys) {
-      std::string key_str = Key(rkey);
-      Slice key = key_str;
+    std::vector<std::string> key_str;
+    if (thread->rand.OneIn(16)) {
+      // Generate keys close to lower or upper bound of SST files.
+      key_str = GetWhiteBoxKeys(thread, db_, cfh, rand_keys.size());
+    }
+    if (key_str.empty()) {
+      // If key string is not geneerated using white block keys,
+      // Use randomized key passe in.
+      for (int64_t rkey : rand_keys) {
+        key_str.push_back(Key(rkey));
+      }
+    }
+
+    for (const std::string& skey : key_str) {
+      Slice key = skey;
 
       if (readoptionscopy.iterate_upper_bound != nullptr &&
           thread->rand.OneIn(2)) {
