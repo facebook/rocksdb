@@ -68,6 +68,9 @@ class BlobFile {
   // no more blobs will be appended and the footer has been written out
   std::atomic<bool> closed_;
 
+  // The latest sequence number when the file was closed/made immutable.
+  SequenceNumber immutable_sequence_;
+
   // has a pass of garbage collection successfully finished on this file
   // obsolete_ still needs to do iterator/snapshot checks
   std::atomic<bool> obsolete_;
@@ -97,8 +100,6 @@ class BlobFile {
   bool header_valid_;
 
   bool footer_valid_;
-
-  SequenceNumber garbage_collection_finish_sequence_;
 
  public:
   BlobFile();
@@ -153,7 +154,15 @@ class BlobFile {
 
   // Mark the file as immutable.
   // REQUIRES: write lock held, or access from single thread (on DB open).
-  void MarkImmutable() { closed_ = true; }
+  void MarkImmutable(SequenceNumber sequence) {
+    closed_ = true;
+    immutable_sequence_ = sequence;
+  }
+
+  SequenceNumber GetImmutableSequence() const {
+    assert(Immutable());
+    return immutable_sequence_;
+  }
 
   // if the file has gone through GC and blobs have been relocated
   bool Obsolete() const {
@@ -216,7 +225,7 @@ class BlobFile {
 
   Status ReadFooter(BlobLogFooter* footer);
 
-  Status WriteFooterAndCloseLocked();
+  Status WriteFooterAndCloseLocked(SequenceNumber sequence);
 
   void CloseRandomAccessLocked();
 

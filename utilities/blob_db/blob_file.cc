@@ -35,7 +35,9 @@ BlobFile::BlobFile()
       blob_count_(0),
       file_size_(0),
       closed_(false),
+      immutable_sequence_(0),
       obsolete_(false),
+      obsolete_sequence_(0),
       expiration_range_({0, 0}),
       last_access_(-1),
       last_fsync_(0),
@@ -54,7 +56,9 @@ BlobFile::BlobFile(const BlobDBImpl* p, const std::string& bdir, uint64_t fn,
       blob_count_(0),
       file_size_(0),
       closed_(false),
+      immutable_sequence_(0),
       obsolete_(false),
+      obsolete_sequence_(0),
       expiration_range_({0, 0}),
       last_access_(-1),
       last_fsync_(0),
@@ -125,7 +129,7 @@ bool BlobFile::NeedsFsync(bool hard, uint64_t bytes_per_sync) const {
                 : (file_size_ - last_fsync_) >= bytes_per_sync;
 }
 
-Status BlobFile::WriteFooterAndCloseLocked() {
+Status BlobFile::WriteFooterAndCloseLocked(SequenceNumber sequence) {
   BlobLogFooter footer;
   footer.blob_count = blob_count_;
   if (HasTTL()) {
@@ -136,6 +140,7 @@ Status BlobFile::WriteFooterAndCloseLocked() {
   Status s = log_writer_->AppendFooter(footer);
   if (s.ok()) {
     closed_ = true;
+    immutable_sequence_ = sequence;
     file_size_ += BlobLogFooter::kSize;
   }
   // delete the sequential writer
