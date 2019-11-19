@@ -1664,6 +1664,7 @@ class DBBasicTestWithParallelIO
     Random rnd(301);
     BlockBasedTableOptions table_options;
 
+#ifndef ROCKSDB_LITE
     if (compression_enabled_) {
       std::vector<CompressionType> compression_types;
       compression_types = GetSupportedCompressions();
@@ -1675,6 +1676,12 @@ class DBBasicTestWithParallelIO
         options.compression = compression_types[0];
       }
     }
+#else
+    // GetSupportedCompressions() is not available in LITE build
+    if (!Snappy_Supported()) {
+      compression_enabled_ = false;
+    }
+#endif //ROCKSDB_LITE
 
     table_options.block_cache = uncompressed_cache_;
     if (table_options.block_cache == nullptr) {
