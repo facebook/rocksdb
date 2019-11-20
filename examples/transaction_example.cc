@@ -50,16 +50,32 @@ int main() {
 
   // Read a key OUTSIDE this transaction. Does not affect txn.
   s = txn_db->Get(read_options, "abc", &value);
+  assert(s.IsNotFound());
 
   // Write a key OUTSIDE of this transaction.
-  // Does not affect txn since this is an unrelated key.  If we wrote key 'abc'
-  // here, the transaction would fail to commit.
+  // Does not affect txn since this is an unrelated key.
   s = txn_db->Put(write_options, "xyz", "zzz");
+  assert(s.ok());
+
+  // Write a key OUTSIDE of this transaction.
+  // Fail because the key conflicts with the key written in txn.
+  s = txn_db->Put(write_options, "abc", "def");
+  assert(s.subcode() == Status::kLockTimeout);
+
+  // Value for key "xyz" has been committed, can be read in txn.
+  s = txn->Get(read_options, "xyz", &value);
+  assert(s.ok());
+  assert(value == "zzz");
 
   // Commit transaction
   s = txn->Commit();
   assert(s.ok());
   delete txn;
+
+  // Value is committed, can be read now.
+  s = txn_db->Get(read_options, "abc", &value);
+  assert(s.ok());
+  assert(value == "def");
 
   ////////////////////////////////////////////////////////
   //
