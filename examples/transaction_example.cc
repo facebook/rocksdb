@@ -62,6 +62,11 @@ int main() {
   s = txn_db->Put(write_options, "abc", "def");
   assert(s.subcode() == Status::kLockTimeout);
 
+  // Value for key "xyz" has been committed, can be read in txn.
+  s = txn->Get(read_options, "xyz", &value);
+  assert(s.ok());
+  assert(value == "zzz");
+
   // Commit transaction
   s = txn->Commit();
   assert(s.ok());
