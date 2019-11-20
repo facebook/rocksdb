@@ -2,6 +2,7 @@
 ## Unreleased
 ### Bug Fixes
 * Fix data corruption casued by output of intra-L0 compaction on ingested file not being placed in correct order in L0.
+* Fix a data race between Version::GetColumnFamilyMetaData() and Compaction::MarkFilesBeingCompacted() for access to being_compacted (#6056).
 
 ### Public API Change
 * TTL Compactions in Level compaction style now initiate successive cascading compactions on a key range so that it reaches the bottom level quickly on TTL expiry. `creation_time` table property for compaction output files is now set to the minimum of the creation times of all compaction inputs.
