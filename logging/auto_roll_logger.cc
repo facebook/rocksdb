@@ -247,7 +247,9 @@ bool AutoRollLogger::LogExpired() {
 
 Status CreateLoggerFromOptions(const std::string& dbname,
                                const DBOptions& options,
-                               std::shared_ptr<Logger>* logger) {
+                               std::shared_ptr<Logger>* logger,
+							   std::string* created_db_dir,
+							   std::string* created_info_log_file) {
   if (options.info_log) {
     *logger = options.info_log;
     return Status::OK();
@@ -258,8 +260,12 @@ Status CreateLoggerFromOptions(const std::string& dbname,
   env->GetAbsolutePath(dbname, &db_absolute_path);
   std::string fname =
       InfoLogFileName(dbname, db_absolute_path, options.db_log_dir);
-
+  bool db_dir_does_not_exist = env->FileExists(dbname).IsNotFound();
   env->CreateDirIfMissing(dbname);  // In case it does not exist
+  if (db_dir_does_not_exist && created_db_dir) {
+	  *created_db_dir = dbname;
+  }
+	  
   // Currently we only support roll by time-to-roll and log size
 #ifndef ROCKSDB_LITE
   if (options.log_file_time_to_roll > 0 || options.max_log_file_size > 0) {
@@ -280,7 +286,11 @@ Status CreateLoggerFromOptions(const std::string& dbname,
   env->RenameFile(fname,
                   OldInfoLogFileName(dbname, env->NowMicros(), db_absolute_path,
                                      options.db_log_dir));
+  bool info_log_does_not_exist = env->FileExists(fname).IsNotFound();
   auto s = env->NewLogger(fname, logger);
+  if (created_info_log_file && info_log_does_not_exist && s.ok()) {
+	  *created_info_log_file = fname;
+  }
   if (logger->get() != nullptr) {
     (*logger)->SetInfoLogLevel(options.info_log_level);
   }

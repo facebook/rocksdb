@@ -139,6 +139,8 @@ class AutoRollLogger : public Logger {
 // Facade to craete logger automatically
 Status CreateLoggerFromOptions(const std::string& dbname,
                                const DBOptions& options,
-                               std::shared_ptr<Logger>* logger);
+                               std::shared_ptr<Logger>* logger,
+                               std::string* created_db_dir,
+                               std::string* created_info_log_file);
 
 }  // namespace rocksdb
