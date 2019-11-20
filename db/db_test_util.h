@@ -631,24 +631,24 @@ class TestPutOperator : public MergeOperator {
  public:
   virtual bool FullMergeV2(const MergeOperationInput& merge_in,
                            MergeOperationOutput* merge_out) const override {
-    if (merge_in.existing_value != nullptr &&
-        *(merge_in.existing_value) == "corrupted") {
-      return false;
+    bool has_value = false;
+    if (merge_in.existing_value != nullptr) {
+      if (*(merge_in.existing_value) == "corrupted") {
+        return false;
+      } else if (*(merge_in.existing_value) != "ignored") {
+        has_value = true;
+        merge_out->existing_operand = *merge_in.existing_value;
+      }
     }
-    Slice* output = nullptr;
     for (auto value : merge_in.operand_list) {
       if (value == "corrupted") {
         return false;
       } else if (value != "ignored") {
-        output = &value;
+        has_value = true;
+        merge_out->existing_operand = value;
       }
     }
-    if (output) {
-      merge_out->existing_operand = *output;
-    } else if (merge_in.existing_value &&
-               *(merge_in.existing_value) != "ignored") {
-      merge_out->existing_operand = *merge_in.existing_value;
-    } else {
+    if (!has_value) {
       merge_out->new_value = std::string("");
     }
     return true;
