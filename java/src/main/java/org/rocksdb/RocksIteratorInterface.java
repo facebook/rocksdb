@@ -89,4 +89,14 @@ public interface RocksIteratorInterface {
    *                          native library.
    */
   void status() throws RocksDBException;
+
+  /**
+   * <p>If supported, renew the iterator to represent the latest state. The
+   * iterator will be invalidated after the call. Not supported if
+   * ReadOptions.snapshot is given when creating the iterator.</p>
+   *
+   * @throws RocksDBException thrown if error happens in underlying
+   *                          native library.
+   */
+  void refresh() throws RocksDBException;
 }

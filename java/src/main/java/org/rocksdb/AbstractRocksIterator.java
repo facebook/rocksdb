@@ -82,6 +82,12 @@ public abstract class AbstractRocksIterator<P extends RocksObject>
     status0(nativeHandle_);
   }
 
+  @Override
+  public void refresh() throws RocksDBException {
+    assert(isOwningHandle());
+    refresh0(nativeHandle_);
+  }
+
   /**
    * <p>Deletes underlying C++ iterator pointer.</p>
    *
@@ -105,4 +111,5 @@ public abstract class AbstractRocksIterator<P extends RocksObject>
   abstract void seek0(long handle, byte[] target, int targetLen);
   abstract void seekForPrev0(long handle, byte[] target, int targetLen);
   abstract void status0(long handle) throws RocksDBException;
+  abstract void refresh0(long handle) throws RocksDBException;
 }

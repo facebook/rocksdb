@@ -690,6 +690,23 @@ void Java_org_rocksdb_WBWIRocksIterator_status0(JNIEnv* env, jobject /*jobj*/,
 
 /*
  * Class:     org_rocksdb_WBWIRocksIterator
+ * Method:    refresh0
+ * Signature: (J)V
+ */
+void Java_org_rocksdb_WBWIRocksIterator_refresh0(
+    JNIEnv* env, jobject jobj, jlong handle) {
+  auto* it = reinterpret_cast<rocksdb::Iterator*>(handle);
+  rocksdb::Status s = it->Refresh();
+
+  if (s.ok()) {
+    return;
+  }
+
+  rocksdb::RocksDBExceptionJni::ThrowNew(env, s);
+}
+
+/*
+ * Class:     org_rocksdb_WBWIRocksIterator
  * Method:    entry1
  * Signature: (J)[J
  */
