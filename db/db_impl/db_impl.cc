@@ -3238,7 +3238,19 @@ void DBImpl::GetColumnFamilyMetaData(ColumnFamilyHandle* column_family,
   assert(column_family);
   auto* cfd = reinterpret_cast<ColumnFamilyHandleImpl*>(column_family)->cfd();
   auto* sv = GetAndRefSuperVersion(cfd);
-  sv->current->GetColumnFamilyMetaData(cf_meta);
+  {
+    // Without mutex, Version::GetColumnFamilyMetaData will have data race with
+    // Compaction::MarkFilesBeingCompacted. One solution is to use mutex, but
+    // this may cause regression. An alternative is to make
+    // FileMetaData::being_compacted atomic, but it will make FileMetaData
+    // non-copy-able. Another option is to separate these variables from
+    // original FileMetaData struct, and this requires re-organization of data
+    // structures. For now, we take the easy approach. If
+    // DB::GetColumnFamilyMetaData is not called frequently, the regression
+    // should not be big. We still need to keep an eye on it.
+    InstrumentedMutexLock l(&mutex_);
+    sv->current->GetColumnFamilyMetaData(cf_meta);
+  }
   ReturnAndCleanupSuperVersion(cfd, sv);
 }
 
