@@ -73,7 +73,7 @@ class BlobFile {
   std::atomic<bool> closed_{false};
 
   // The latest sequence number when the file was closed/made immutable.
-  SequenceNumber immutable_sequence_ = 0;
+  SequenceNumber immutable_sequence_{0};
 
   // has a pass of garbage collection successfully finished on this file
   // obsolete_ still needs to do iterator/snapshot checks
@@ -117,10 +117,6 @@ class BlobFile {
   ~BlobFile();
 
   uint32_t column_family_id() const;
-
-  void SetColumnFamilyId(uint32_t cf_id) {
-    column_family_id_ = cf_id;
-  }
 
   // Returns log file's absolute pathname.
   std::string PathName() const;
@@ -209,10 +205,6 @@ class BlobFile {
   void SetHasTTL(bool has_ttl) { has_ttl_ = has_ttl; }
 
   CompressionType compression() const { return compression_; }
-
-  void SetCompression(CompressionType c) {
-    compression_ = c;
-  }
 
   std::shared_ptr<Writer> GetWriter() const { return log_writer_; }
 
