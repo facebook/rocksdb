@@ -94,9 +94,19 @@ int main() {
   s = txn_db->Put(write_options, "abc", "xyz");
   assert(s.ok());
 
+  // Read the latest committed value.
+  s = txn->Get(read_options, "abc", &value);
+  assert(s.ok());
+  assert(value == "xyz");
+
+  // Read the snapshotted value.
+  read_options.snapshot = snapshot;
+  s = txn->Get(read_options, "abc", &value);
+  assert(s.ok());
+  assert(value == "def");
+
   // Attempt to read a key using the snapshot.  This will fail since
   // the previous write outside this txn conflicts with this read.
-  read_options.snapshot = snapshot;
   s = txn->GetForUpdate(read_options, "abc", &value);
   assert(s.IsBusy());
 
