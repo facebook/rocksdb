@@ -26,10 +26,7 @@ namespace blob_db {
 
 BlobFile::BlobFile(const BlobDBImpl* p, const std::string& bdir, uint64_t fn,
                    Logger* info_log)
-    : parent_(p),
-      path_to_dir_(bdir),
-      file_number_(fn),
-      info_log_(info_log) {}
+    : parent_(p), path_to_dir_(bdir), file_number_(fn), info_log_(info_log) {}
 
 BlobFile::BlobFile(const BlobDBImpl* p, const std::string& bdir, uint64_t fn,
                    Logger* info_log, uint32_t column_family_id,

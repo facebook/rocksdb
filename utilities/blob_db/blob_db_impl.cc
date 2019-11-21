@@ -1950,8 +1950,6 @@ Status BlobDBImpl::GCFileAndUpdateLSM(const std::shared_ptr<BlobFile>& bfptr,
                         newfile->PathName().c_str(), s.ToString().c_str());
         break;
       }
-      // Can't use header beyond this point
-      newfile->header_ = std::move(header);
       newfile->file_size_ = BlobLogHeader::kSize;
 
       s = new_writer->WriteHeader(newfile->header_);
