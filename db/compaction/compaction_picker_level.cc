@@ -116,10 +116,6 @@ class LevelCompactionBuilder {
 
   const MutableCFOptions& mutable_cf_options_;
   const ImmutableCFOptions& ioptions_;
-  // Pick a path ID to place a newly generated file, with its level
-  static uint32_t GetPathId(const ImmutableCFOptions& ioptions,
-                            const MutableCFOptions& mutable_cf_options,
-                            int level);
 
   static const int kMinFilesForIntraL0Compaction = 4;
 };
@@ -374,6 +370,14 @@ Compaction* LevelCompactionBuilder::PickCompaction() {
 }
 
 Compaction* LevelCompactionBuilder::GetCompaction() {
+  const struct DbPathSupplierContext db_path_supplier_ctx {
+    kDbPathSupplierFactoryCallSiteFromAutoCompaction, // call_site
+    ioptions_, // ioptions
+    mutable_cf_options_, // moptions
+    0, // estimated_file_size
+    0 // manual_compaction_specified_path_id
+  };
+
   auto c = new Compaction(
       vstorage_, ioptions_, mutable_cf_options_, std::move(compaction_inputs_),
       output_level_,
@@ -381,12 +385,12 @@ Compaction* LevelCompactionBuilder::GetCompaction() {
                           ioptions_.compaction_style, vstorage_->base_level(),
                           ioptions_.level_compaction_dynamic_level_bytes),
       mutable_cf_options_.max_compaction_bytes,
-      GetPathId(ioptions_, mutable_cf_options_, output_level_),
       GetCompressionType(ioptions_, vstorage_, mutable_cf_options_,
                          output_level_, vstorage_->base_level()),
       GetCompressionOptions(ioptions_, vstorage_, output_level_),
-      /* max_subcompactions */ 0, std::move(grandparents_), is_manual_,
-      start_level_score_, false /* deletion_compaction */, compaction_reason_);
+      /* max_subcompactions */ 0, std::move(grandparents_),
+      ioptions_.db_path_supplier_factory->CreateDbPathSupplier(db_path_supplier_ctx),
+      is_manual_, start_level_score_, false /* deletion_compaction */, compaction_reason_);
 
   // If it's level 0 compaction, make sure we don't execute any other level 0
   // compactions in parallel
@@ -398,60 +402,6 @@ Compaction* LevelCompactionBuilder::GetCompaction() {
   // here
   vstorage_->ComputeCompactionScore(ioptions_, mutable_cf_options_);
   return c;
-}
-
-/*
- * Find the optimal path to place a file
- * Given a level, finds the path where levels up to it will fit in levels
- * up to and including this path
- */
-uint32_t LevelCompactionBuilder::GetPathId(
-    const ImmutableCFOptions& ioptions,
-    const MutableCFOptions& mutable_cf_options, int level) {
-  uint32_t p = 0;
-  assert(!ioptions.cf_paths.empty());
-
-  // size remaining in the most recent path
-  uint64_t current_path_size = ioptions.cf_paths[0].target_size;
-
-  uint64_t level_size;
-  int cur_level = 0;
-
-  // max_bytes_for_level_base denotes L1 size.
-  // We estimate L0 size to be the same as L1.
-  level_size = mutable_cf_options.max_bytes_for_level_base;
-
-  // Last path is the fallback
-  while (p < ioptions.cf_paths.size() - 1) {
-    if (level_size <= current_path_size) {
-      if (cur_level == level) {
-        // Does desired level fit in this path?
-        return p;
-      } else {
-        current_path_size -= level_size;
-        if (cur_level > 0) {
-          if (ioptions.level_compaction_dynamic_level_bytes) {
-            // Currently, level_compaction_dynamic_level_bytes is ignored when
-            // multiple db paths are specified. https://github.com/facebook/
-            // rocksdb/blob/master/db/column_family.cc.
-            // Still, adding this check to avoid accidentally using
-            // max_bytes_for_level_multiplier_additional
-            level_size = static_cast<uint64_t>(
-                level_size * mutable_cf_options.max_bytes_for_level_multiplier);
-          } else {
-            level_size = static_cast<uint64_t>(
-                level_size * mutable_cf_options.max_bytes_for_level_multiplier *
-                mutable_cf_options.MaxBytesMultiplerAdditional(cur_level));
-          }
-        }
-        cur_level++;
-        continue;
-      }
-    }
-    p++;
-    current_path_size = ioptions.cf_paths[p].target_size;
-  }
-  return p;
 }
 
 bool LevelCompactionBuilder::PickFileToCompact() {

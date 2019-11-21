@@ -189,6 +189,8 @@ TEST_F(OptionsSettableTest, DBOptionsAllFieldsSettable) {
       {offsetof(struct DBOptions, statistics),
        sizeof(std::shared_ptr<Statistics>)},
       {offsetof(struct DBOptions, db_paths), sizeof(std::vector<DbPath>)},
+      {offsetof(struct DBOptions, db_path_supplier_factory),
+       sizeof(std::shared_ptr<DbPathSupplierFactory>)},
       {offsetof(struct DBOptions, db_log_dir), sizeof(std::string)},
       {offsetof(struct DBOptions, wal_dir), sizeof(std::string)},
       {offsetof(struct DBOptions, write_buffer_manager),

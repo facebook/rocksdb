@@ -1278,4 +1278,35 @@ public class OptionsTest {
     }
   }
 
+  @Test
+  public void cfPaths() {
+    final List<DbPath> cfPaths = new ArrayList<>();
+    cfPaths.add(new DbPath(Paths.get("/a"), 10));
+    cfPaths.add(new DbPath(Paths.get("/b"), 100));
+    cfPaths.add(new DbPath(Paths.get("/c"), 1000));
+
+    try(final Options opt = new Options()) {
+      assertThat(opt.cfPaths()).isEqualTo(Collections.emptyList());
+
+      opt.setCFPaths(cfPaths);
+
+      assertThat(opt.cfPaths()).isEqualTo(cfPaths);
+    }
+  }
+
+  @Test
+  public void setGradualMoveOldDataDbPathSupplierFactory() {
+    try (final Options options = new Options()) {
+      final DbPathSupplierFactory factory = new GradualMoveOldDataDbPathSupplierFactory();
+      options.setDbPathSupplierFactory(factory);
+    }
+  }
+
+  @Test
+  public void setRandomDbPathSupplierFactory() {
+    try (final Options options = new Options()) {
+      final DbPathSupplierFactory factory = new RandomDbPathSupplierFactory();
+      options.setDbPathSupplierFactory(factory);
+    }
+  }
 }

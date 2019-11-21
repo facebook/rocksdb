@@ -103,10 +103,21 @@ Compaction* FIFOCompactionPicker::PickTTLCompaction(
                      f->fd.table_reader->GetTableProperties()->creation_time);
   }
 
+  const struct DbPathSupplierContext db_path_supplier_ctx {
+      kDbPathSupplierFactoryCallSiteFromAutoCompaction, // call_site
+      ioptions_, // ioptions
+      mutable_cf_options, // moptions
+      0, // estimated_file_size
+      0 // manual_compaction_specified_path_id
+  };
+
   Compaction* c = new Compaction(
-      vstorage, ioptions_, mutable_cf_options, std::move(inputs), 0, 0, 0, 0,
+      vstorage, ioptions_, mutable_cf_options, std::move(inputs), 0, 0, 0,
       kNoCompression, ioptions_.compression_opts, /* max_subcompactions */ 0,
-      {}, /* is manual */ false, vstorage->CompactionScore(0),
+      {},
+      ioptions_.db_path_supplier_factory->CreateDbPathSupplier(db_path_supplier_ctx),
+      /* is manual */ false,
+      vstorage->CompactionScore(0),
       /* is deletion compaction */ true, CompactionReason::kFIFOTtl);
   return c;
 }
@@ -141,13 +152,24 @@ Compaction* FIFOCompactionPicker::PickSizeCompaction(
               ,
               max_compact_bytes_per_del_file,
               mutable_cf_options.max_compaction_bytes, &comp_inputs)) {
+
+        const struct DbPathSupplierContext db_path_supplier_ctx {
+            kDbPathSupplierFactoryCallSiteFromAutoCompaction, // call_site
+            ioptions_, // ioptions
+            mutable_cf_options, // moptions
+            0, // estimated_file_size
+            0 // manual_compaction_specified_path_id
+        };
+
         Compaction* c = new Compaction(
             vstorage, ioptions_, mutable_cf_options, {comp_inputs}, 0,
             16 * 1024 * 1024 /* output file size limit */,
             0 /* max compaction bytes, not applicable */,
-            0 /* output path ID */, mutable_cf_options.compression,
+            mutable_cf_options.compression,
             ioptions_.compression_opts, 0 /* max_subcompactions */, {},
-            /* is manual */ false, vstorage->CompactionScore(0),
+            ioptions_.db_path_supplier_factory->CreateDbPathSupplier(db_path_supplier_ctx),
+            /* is manual */ false,
+            vstorage->CompactionScore(0),
             /* is deletion compaction */ false,
             CompactionReason::kFIFOReduceNumFiles);
         return c;
@@ -192,10 +214,21 @@ Compaction* FIFOCompactionPicker::PickSizeCompaction(
     }
   }
 
+  const struct DbPathSupplierContext db_path_supplier_ctx {
+      kDbPathSupplierFactoryCallSiteFromAutoCompaction, // call_site
+      ioptions_, // ioptions
+      mutable_cf_options, // moptions
+      0, // estimated_file_size
+      0 // manual_compaction_specified_path_id
+  };
+
   Compaction* c = new Compaction(
-      vstorage, ioptions_, mutable_cf_options, std::move(inputs), 0, 0, 0, 0,
+      vstorage, ioptions_, mutable_cf_options, std::move(inputs), 0, 0, 0,
       kNoCompression, ioptions_.compression_opts, /* max_subcompactions */ 0,
-      {}, /* is manual */ false, vstorage->CompactionScore(0),
+      {},
+      ioptions_.db_path_supplier_factory->CreateDbPathSupplier(db_path_supplier_ctx),
+      /* is manual */ false,
+      vstorage->CompactionScore(0),
       /* is deletion compaction */ true, CompactionReason::kFIFOMaxSize);
   return c;
 }

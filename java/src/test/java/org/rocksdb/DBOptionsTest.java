@@ -780,4 +780,20 @@ public class DBOptionsTest {
       assertThat(stats).isNotNull();
     }
   }
+
+  @Test
+  public void setGradualMoveOldDataDbPathSupplierFactory() {
+    try (final DBOptions options = new DBOptions()) {
+      final DbPathSupplierFactory factory = new GradualMoveOldDataDbPathSupplierFactory();
+      options.setDbPathSupplierFactory(factory);
+    }
+  }
+
+  @Test
+  public void setRandomDbPathSupplierFactory() {
+    try (final DBOptions options = new DBOptions()) {
+      final DbPathSupplierFactory factory = new RandomDbPathSupplierFactory();
+      options.setDbPathSupplierFactory(factory);
+    }
+  }
 }

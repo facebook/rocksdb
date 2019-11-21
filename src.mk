@@ -17,6 +17,7 @@ LIB_SOURCES =                                                   \
   db/compaction/compaction_picker_universal.cc                 	\
   db/convenience.cc                                             \
   db/db_filesnapshot.cc                                         \
+  db/db_path_supplier.cc                                        \
   db/db_impl/db_impl.cc                                         \
   db/db_impl/db_impl_compaction_flush.cc                        \
   db/db_impl/db_impl_debug.cc                                   \
@@ -457,6 +458,7 @@ JNI_NATIVE_SOURCES =                                          \
   java/rocksjni/comparator.cc                                 \
   java/rocksjni/comparatorjnicallback.cc                      \
   java/rocksjni/compression_options.cc                        \
+  java/rocksjni/db_path_supplier_factory.cc                   \
   java/rocksjni/env.cc                                        \
   java/rocksjni/env_options.cc                                \
   java/rocksjni/ingest_external_file_options.cc               \

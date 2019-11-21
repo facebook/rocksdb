@@ -5,6 +5,9 @@
 
 package org.rocksdb;
 
+import java.util.Collection;
+import java.util.List;
+
 public interface ColumnFamilyOptionsInterface<T extends ColumnFamilyOptionsInterface<T>>
     extends AdvancedColumnFamilyOptionsInterface<T> {
   /**
@@ -446,4 +449,32 @@ public interface ColumnFamilyOptionsInterface<T extends ColumnFamilyOptionsInter
    * </ol>
    */
   long DEFAULT_COMPACTION_MEMTABLE_MEMORY_BUDGET = 512 * 1024 * 1024;
+
+  /**
+   * A list of paths where SST files can be put into. These path will be used
+   * differently according to the {@link DbPathSupplierFactory} set in the option.
+   *
+   * If left empty, then the database will use the dbPaths specified through
+   * {@link DBOptions}.
+   *
+   * Default: empty
+   *
+   * @param cfPaths the paths and target sizes
+   *
+   * @return the reference to the current options
+   */
+  T setCFPaths(final Collection<DbPath> cfPaths);
+
+  /**
+   * A list of paths where SST files can be put into. These path will be used
+   * differently according to the {@link DbPathSupplierFactory} set in the option.
+   *
+   * If left empty, then the database will use the dbPaths specified through
+   * {@link DBOptions}.
+   *
+   * Default: {@link java.util.Collections#emptyList()}
+   *
+   * @return cfPaths the paths and target sizes
+   */
+  List<DbPath> cfPaths();
 }

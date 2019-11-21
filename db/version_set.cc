@@ -3211,7 +3211,8 @@ void VersionStorageInfo::CalculateBaseBytes(const ImmutableCFOptions& ioptions,
         level_max_bytes_[i] = MultiplyCheckOverflow(
             MultiplyCheckOverflow(level_max_bytes_[i - 1],
                                   options.max_bytes_for_level_multiplier),
-            options.MaxBytesMultiplerAdditional(i - 1));
+            MutableCFOptions::MaxBytesMultiplerAdditional(
+                options.max_bytes_for_level_multiplier_additional, i - 1));
       } else {
         level_max_bytes_[i] = options.max_bytes_for_level_base;
       }
@@ -5474,9 +5475,9 @@ uint64_t VersionSet::GetTotalSstFilesSize(Version* dummy_versions) {
     VersionStorageInfo* storage_info = v->storage_info();
     for (int level = 0; level < storage_info->num_levels_; level++) {
       for (const auto& file_meta : storage_info->LevelFiles(level)) {
-        if (unique_files.find(file_meta->fd.packed_number_and_path_id) ==
+        if (unique_files.find(file_meta->fd.GetNumber()) ==
             unique_files.end()) {
-          unique_files.insert(file_meta->fd.packed_number_and_path_id);
+          unique_files.insert(file_meta->fd.GetNumber());
           total_files_size += file_meta->fd.GetFileSize();
         }
       }

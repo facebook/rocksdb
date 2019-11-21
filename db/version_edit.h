@@ -22,7 +22,7 @@ namespace rocksdb {
 
 class VersionSet;
 
-constexpr uint64_t kFileNumberMask = 0x3FFFFFFFFFFFFFFF;
+constexpr uint64_t kFileNumberMask = 0x0FFFFFFFFFFFFFFF;
 constexpr uint64_t kInvalidBlobFileNumber = 0;
 
 extern uint64_t PackFileNumberAndPathId(uint64_t number, uint64_t path_id);

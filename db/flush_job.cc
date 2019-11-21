@@ -93,11 +93,11 @@ FlushJob::FlushJob(const std::string& dbname, ColumnFamilyData* cfd,
                    SequenceNumber earliest_write_conflict_snapshot,
                    SnapshotChecker* snapshot_checker, JobContext* job_context,
                    LogBuffer* log_buffer, Directory* db_directory,
-                   Directory* output_file_directory,
                    CompressionType output_compression, Statistics* stats,
                    EventLogger* event_logger, bool measure_io_stats,
                    const bool sync_output_directory, const bool write_manifest,
-                   Env::Priority thread_pri)
+                   Env::Priority thread_pri,
+                   std::unique_ptr<DbPathSupplier>&& db_path_supplier)
     : dbname_(dbname),
       cfd_(cfd),
       db_options_(db_options),
@@ -113,7 +113,6 @@ FlushJob::FlushJob(const std::string& dbname, ColumnFamilyData* cfd,
       job_context_(job_context),
       log_buffer_(log_buffer),
       db_directory_(db_directory),
-      output_file_directory_(output_file_directory),
       output_compression_(output_compression),
       stats_(stats),
       event_logger_(event_logger),
@@ -123,7 +122,8 @@ FlushJob::FlushJob(const std::string& dbname, ColumnFamilyData* cfd,
       edit_(nullptr),
       base_(nullptr),
       pick_memtable_called(false),
-      thread_pri_(thread_pri) {
+      thread_pri_(thread_pri),
+      db_path_supplier_(std::move(db_path_supplier)) {
   // Update the thread status to indicate flush.
   ReportStartedFlush();
   TEST_SYNC_POINT("FlushJob::FlushJob()");
@@ -183,8 +183,8 @@ void FlushJob::PickMemTable() {
   edit_->SetLogNumber(mems_.back()->GetNextLogNumber());
   edit_->SetColumnFamily(cfd_->GetID());
 
-  // path 0 for level 0 file.
-  meta_.fd = FileDescriptor(versions_->NewFileNumber(), 0, 0);
+  uint32_t path_id = db_path_supplier_->GetPathId(0);
+  meta_.fd = FileDescriptor(versions_->NewFileNumber(), path_id, 0);
 
   base_ = cfd_->current();
   base_->Ref();  // it is likely that we do not need this reference
@@ -389,8 +389,8 @@ Status FlushJob::WriteLevel0Table() {
                    s.ToString().c_str(),
                    meta_.marked_for_compaction ? " (needs compaction)" : "");
 
-    if (s.ok() && output_file_directory_ != nullptr && sync_output_directory_) {
-      s = output_file_directory_->Fsync();
+    if (s.ok() && sync_output_directory_) {
+      s = db_path_supplier_->FsyncDbPath(meta_.fd.GetPathId());
     }
     TEST_SYNC_POINT_CALLBACK("FlushJob::WriteLevel0Table", &mems_);
     db_mutex_->Lock();

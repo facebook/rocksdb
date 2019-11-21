@@ -70,6 +70,8 @@ struct ImmutableCFOptions {
 
   std::vector<DbPath> db_paths;
 
+  std::shared_ptr<DbPathSupplierFactory> db_path_supplier_factory;
+
   MemTableRepFactory* memtable_factory;
 
   TableFactory* table_factory;
@@ -206,7 +208,8 @@ struct MutableCFOptions {
     RefreshDerivedOptions(ioptions.num_levels, ioptions.compaction_style);
   }
 
-  int MaxBytesMultiplerAdditional(int level) const {
+  static int MaxBytesMultiplerAdditional(
+      const std::vector<int>& max_bytes_for_level_multiplier_additional, int level) {
     if (level >=
         static_cast<int>(max_bytes_for_level_multiplier_additional.size())) {
       return 1;

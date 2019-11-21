@@ -146,15 +146,25 @@ Status DBImpl::FlushMemTableToOutputFile(
   assert(cfd->imm()->NumNotFlushed() != 0);
   assert(cfd->imm()->IsFlushPending());
 
+  const ImmutableCFOptions& ioptions = *cfd->ioptions();
+
+  const struct DbPathSupplierContext db_path_supplier_ctx {
+      kDbPathSupplierFactoryCallSiteFromFlush, // call_site
+      ioptions, // ioptions
+      mutable_cf_options, // moptions
+      0, // estimated_file_size
+      0 // manual_compaction_specified_path_id
+  };
+
   FlushJob flush_job(
       dbname_, cfd, immutable_db_options_, mutable_cf_options,
       nullptr /* memtable_id */, env_options_for_compaction_, versions_.get(),
       &mutex_, &shutting_down_, snapshot_seqs, earliest_write_conflict_snapshot,
       snapshot_checker, job_context, log_buffer, directories_.GetDbDir(),
-      GetDataDir(cfd, 0U),
       GetCompressionFlush(*cfd->ioptions(), mutable_cf_options), stats_,
       &event_logger_, mutable_cf_options.report_bg_io_stats,
-      true /* sync_output_directory */, true /* write_manifest */, thread_pri);
+      true /* sync_output_directory */, true /* write_manifest */, thread_pri,
+      ioptions.db_path_supplier_factory->CreateDbPathSupplier(db_path_supplier_ctx));
 
   FileMetaData file_meta;
 
@@ -309,8 +319,36 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
   all_mutable_cf_options.reserve(num_cfs);
   for (int i = 0; i < num_cfs; ++i) {
     auto cfd = cfds[i];
-    Directory* data_dir = GetDataDir(cfd, 0U);
-    const std::string& curr_path = cfd->ioptions()->cf_paths[0].path;
+
+    all_mutable_cf_options.emplace_back(*cfd->GetLatestMutableCFOptions());
+    const MutableCFOptions& mutable_cf_options = all_mutable_cf_options.back();
+    const uint64_t* max_memtable_id = &(bg_flush_args[i].max_memtable_id_);
+    const ImmutableCFOptions& ioptions = *cfd->ioptions();
+
+    const struct DbPathSupplierContext db_path_supplier_ctx {
+        kDbPathSupplierFactoryCallSiteFromFlush, // call_site
+        ioptions, // ioptions
+        mutable_cf_options, // moptions
+        0, // estimated_file_size
+        0 // manual_compaction_specified_path_id
+    };
+
+    FlushJob* flush_job = new FlushJob(
+        dbname_, cfd, immutable_db_options_, mutable_cf_options,
+        max_memtable_id, env_options_for_compaction_, versions_.get(), &mutex_,
+        &shutting_down_, snapshot_seqs, earliest_write_conflict_snapshot,
+        snapshot_checker, job_context, log_buffer, directories_.GetDbDir(),
+        GetCompressionFlush(*cfd->ioptions(), mutable_cf_options),
+        stats_, &event_logger_, mutable_cf_options.report_bg_io_stats,
+        false /* sync_output_directory */, false /* write_manifest */, thread_pri,
+        ioptions.db_path_supplier_factory->CreateDbPathSupplier(db_path_supplier_ctx));
+    flush_job->PickMemTable();
+
+    uint32_t chosen_path_id = flush_job->GetOutputPathId();
+    Directory* data_dir = cfd->GetDataDir(chosen_path_id);
+    const std::string& curr_path = cfd->ioptions()->cf_paths[chosen_path_id].path;
+
+    jobs.push_back(std::unique_ptr<FlushJob>(flush_job));
 
     // Add to distinct output directories if eligible. Use linear search. Since
     // the number of elements in the vector is not large, performance should be
@@ -326,20 +364,6 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
       distinct_output_dir_paths.emplace_back(curr_path);
       distinct_output_dirs.emplace_back(data_dir);
     }
-
-    all_mutable_cf_options.emplace_back(*cfd->GetLatestMutableCFOptions());
-    const MutableCFOptions& mutable_cf_options = all_mutable_cf_options.back();
-    const uint64_t* max_memtable_id = &(bg_flush_args[i].max_memtable_id_);
-    jobs.emplace_back(new FlushJob(
-        dbname_, cfd, immutable_db_options_, mutable_cf_options,
-        max_memtable_id, env_options_for_compaction_, versions_.get(), &mutex_,
-        &shutting_down_, snapshot_seqs, earliest_write_conflict_snapshot,
-        snapshot_checker, job_context, log_buffer, directories_.GetDbDir(),
-        data_dir, GetCompressionFlush(*cfd->ioptions(), mutable_cf_options),
-        stats_, &event_logger_, mutable_cf_options.report_bg_io_stats,
-        false /* sync_output_directory */, false /* write_manifest */,
-        thread_pri));
-    jobs.back()->PickMemTable();
   }
 
   std::vector<FileMetaData> file_meta(num_cfs);
@@ -897,15 +921,7 @@ Status DBImpl::CompactFilesImpl(
   // following functions call is pluggable to external developers.
   version->GetColumnFamilyMetaData(&cf_meta);
 
-  if (output_path_id < 0) {
-    if (cfd->ioptions()->cf_paths.size() == 1U) {
-      output_path_id = 0;
-    } else {
-      return Status::NotSupported(
-          "Automatic output path selection is not "
-          "yet supported in CompactFiles()");
-    }
-  }
+  const ImmutableCFOptions* ioptions = cfd->ioptions();
 
   Status s = cfd->compaction_picker()->SanitizeCompactionInputFiles(
       &input_set, cf_meta, output_level);
@@ -943,9 +959,24 @@ Status DBImpl::CompactFilesImpl(
 
   std::unique_ptr<Compaction> c;
   assert(cfd->compaction_picker());
+
+  uint32_t output_path_id_u32 = 0;
+  if (output_path_id >= 0) {
+    output_path_id_u32 = static_cast<uint32_t>(output_path_id);
+  }
+
+  const struct DbPathSupplierContext db_path_supplier_ctx {
+      kDbPathSupplierFactoryCallSiteFromManualCompaction, // call_site
+      *ioptions, // ioptions
+      *cfd->GetCurrentMutableCFOptions(), // moptions
+      0, // estimated_file_size
+      output_path_id_u32 // manual_compaction_specified_path_id
+  };
+
   c.reset(cfd->compaction_picker()->CompactFiles(
       compact_options, input_files, output_level, version->storage_info(),
-      *cfd->GetLatestMutableCFOptions(), output_path_id));
+      *cfd->GetLatestMutableCFOptions(),
+      ioptions->db_path_supplier_factory->CreateDbPathSupplier(db_path_supplier_ctx)));
   // we already sanitized the set of input files and checked for conflicts
   // without releasing the lock, so we're guaranteed a compaction can be formed.
   assert(c != nullptr);
@@ -970,7 +1001,7 @@ Status DBImpl::CompactFilesImpl(
       job_context->job_id, c.get(), immutable_db_options_,
       env_options_for_compaction_, versions_.get(), &shutting_down_,
       preserve_deletes_seqnum_.load(), log_buffer, directories_.GetDbDir(),
-      GetDataDir(c->column_family_data(), c->output_path_id()), stats_, &mutex_,
+      stats_, &mutex_,
       &error_handler_, snapshot_seqs, earliest_write_conflict_snapshot,
       snapshot_checker, table_cache_, &event_logger_,
       c->mutable_cf_options()->paranoid_file_checks,
@@ -2752,8 +2783,7 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
         job_context->job_id, c.get(), immutable_db_options_,
         env_options_for_compaction_, versions_.get(), &shutting_down_,
         preserve_deletes_seqnum_.load(), log_buffer, directories_.GetDbDir(),
-        GetDataDir(c->column_family_data(), c->output_path_id()), stats_,
-        &mutex_, &error_handler_, snapshot_seqs,
+        stats_, &mutex_, &error_handler_, snapshot_seqs,
         earliest_write_conflict_snapshot, snapshot_checker, table_cache_,
         &event_logger_, c->mutable_cf_options()->paranoid_file_checks,
         c->mutable_cf_options()->report_bg_io_stats, dbname_,

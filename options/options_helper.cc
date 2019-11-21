@@ -49,6 +49,8 @@ DBOptions BuildDBOptions(const ImmutableDBOptions& immutable_db_options,
   options.statistics = immutable_db_options.statistics;
   options.use_fsync = immutable_db_options.use_fsync;
   options.db_paths = immutable_db_options.db_paths;
+  options.db_path_supplier_factory =
+      immutable_db_options.db_path_supplier_factory;
   options.db_log_dir = immutable_db_options.db_log_dir;
   options.wal_dir = immutable_db_options.wal_dir;
   options.delete_obsolete_files_period_micros =
@@ -207,6 +209,7 @@ ColumnFamilyOptions BuildColumnFamilyOptions(
   cf_opts.sample_for_compression = mutable_cf_options.sample_for_compression;
 
   cf_opts.table_factory = options.table_factory;
+  cf_opts.cf_paths = options.cf_paths;
   // TODO(yhchiang): find some way to handle the following derived options
   // * max_file_size
 
@@ -249,6 +252,7 @@ std::unordered_map<std::string, CompressionType>
         {"kZSTD", kZSTD},
         {"kZSTDNotFinalCompression", kZSTDNotFinalCompression},
         {"kDisableCompressionOption", kDisableCompressionOption}};
+
 #ifndef ROCKSDB_LITE
 
 const std::string kNameComparator = "comparator";

@@ -168,24 +168,17 @@ Status CheckConcurrentWritesSupported(const ColumnFamilyOptions& cf_options) {
 
 Status CheckCFPathsSupported(const DBOptions& db_options,
                              const ColumnFamilyOptions& cf_options) {
-  // More than one cf_paths are supported only in universal
-  // and level compaction styles. This function also checks the case
-  // in which cf_paths is not specified, which results in db_paths
-  // being used.
-  if ((cf_options.compaction_style != kCompactionStyleUniversal) &&
-      (cf_options.compaction_style != kCompactionStyleLevel)) {
-    if (cf_options.cf_paths.size() > 1) {
-      return Status::NotSupported(
-          "More than one CF paths are only supported in "
-          "universal and level compaction styles. ");
-    } else if (cf_options.cf_paths.empty() &&
-               db_options.db_paths.size() > 1) {
-      return Status::NotSupported(
-          "More than one DB paths are only supported in "
-          "universal and level compaction styles. ");
-    }
+  if (db_options.db_path_supplier_factory.get() == nullptr) {
+    // If the db_path_supplier_factory is null, it means that the user did not specify
+    // a factory and we should fall back to the default factory behavior. However, at
+    // this point, it's possible that the default value for db_path_supplier_factory is
+    // not set yet (the default value is currently set in SanitizeOptions). In this case,
+    // we'll just use the default DbPathFactory to do the check.
+    return GradualMoveOldDataDbPathSupplierFactory::CfPathsSanityCheckStatic(
+        cf_options, db_options);
   }
-  return Status::OK();
+
+  return db_options.db_path_supplier_factory->CfPathsSanityCheck(cf_options, db_options);
 }
 
 ColumnFamilyOptions SanitizeOptions(const ImmutableDBOptions& db_options,

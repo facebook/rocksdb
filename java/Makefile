@@ -24,6 +24,7 @@ NATIVE_JAVA_CLASSES = org.rocksdb.AbstractCompactionFilter\
 	org.rocksdb.Comparator\
 	org.rocksdb.ComparatorOptions\
 	org.rocksdb.CompressionOptions\
+	org.rocksdb.DbPathSupplierFactory\
 	org.rocksdb.DBOptions\
 	org.rocksdb.DirectComparator\
 	org.rocksdb.DirectSlice\
@@ -31,6 +32,7 @@ NATIVE_JAVA_CLASSES = org.rocksdb.AbstractCompactionFilter\
 	org.rocksdb.EnvOptions\
 	org.rocksdb.FlushOptions\
 	org.rocksdb.Filter\
+	org.rocksdb.GradualMoveOldDataDbPathSupplierFactory\
 	org.rocksdb.IngestExternalFileOptions\
 	org.rocksdb.HashLinkedListMemTableConfig\
 	org.rocksdb.HashSkipListMemTableConfig\
@@ -47,6 +49,7 @@ NATIVE_JAVA_CLASSES = org.rocksdb.AbstractCompactionFilter\
 	org.rocksdb.OptionsUtil\
 	org.rocksdb.PersistentCache\
 	org.rocksdb.PlainTableConfig\
+	org.rocksdb.RandomDbPathSupplierFactory\
 	org.rocksdb.RateLimiter\
 	org.rocksdb.ReadOptions\
 	org.rocksdb.RemoveEmptyValueCompactionFilter\

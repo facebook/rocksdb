@@ -123,6 +123,13 @@ DBOptions SanitizeOptions(const std::string& dbname, const DBOptions& src) {
     result.avoid_flush_during_recovery = false;
   }
 
+  // Create a default DbPathSupplierFactory
+  if (result.db_path_supplier_factory.get() == nullptr) {
+    std::shared_ptr<DbPathSupplierFactory> db_path_supplier_factory(
+        NewGradualMoveOldDataDbPathSupplierFactory());
+    result.db_path_supplier_factory = db_path_supplier_factory;
+  }
+
 #ifndef ROCKSDB_LITE
   ImmutableDBOptions immutable_db_options(result);
   if (!IsWalDirSameAsDBPath(&immutable_db_options)) {

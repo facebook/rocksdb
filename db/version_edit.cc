@@ -336,8 +336,8 @@ const char* VersionEdit::DecodeNewFile4From(Slice* input) {
             return "path_id field wrong size";
           }
           path_id = field[0];
-          if (path_id > 3) {
-            return "path_id wrong vaue";
+          if (path_id > 15) {
+            return "path_id wrong value";
           }
           break;
         case kNeedCompaction:

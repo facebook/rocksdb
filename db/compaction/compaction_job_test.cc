@@ -312,8 +312,11 @@ class CompactionJobTest : public testing::Test {
     Compaction compaction(cfd->current()->storage_info(), *cfd->ioptions(),
                           *cfd->GetLatestMutableCFOptions(),
                           compaction_input_files, output_level, 1024 * 1024,
-                          10 * 1024 * 1024, 0, kNoCompression,
-                          cfd->ioptions()->compression_opts, 0, {}, true);
+                          10 * 1024 * 1024, kNoCompression,
+                          cfd->ioptions()->compression_opts, 0, {},
+                          std::unique_ptr<DbPathSupplier>(
+                              new FixedDbPathSupplier(*cfd->ioptions(), 0)),
+                          true);
     compaction.SetInputVersion(cfd->current());
 
     LogBuffer log_buffer(InfoLogLevel::INFO_LEVEL, db_options_.info_log.get());
@@ -324,7 +327,7 @@ class CompactionJobTest : public testing::Test {
     CompactionJob compaction_job(
         0, &compaction, db_options_, env_options_, versions_.get(),
         &shutting_down_, preserve_deletes_seqnum_, &log_buffer, nullptr,
-        nullptr, nullptr, &mutex_, &error_handler_, snapshots,
+        nullptr, &mutex_, &error_handler_, snapshots,
         earliest_write_conflict_snapshot, snapshot_checker, table_cache_,
         &event_logger, false, false, dbname_, &compaction_job_stats_,
         Env::Priority::USER);

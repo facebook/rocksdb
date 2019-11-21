@@ -16,6 +16,7 @@
 #include <vector>
 
 #include "db/compaction/compaction.h"
+#include "db/db_path_supplier.h"
 #include "db/version_set.h"
 #include "options/cf_options.h"
 #include "rocksdb/env.h"
@@ -113,7 +114,7 @@ class CompactionPicker {
                            const std::vector<CompactionInputFiles>& input_files,
                            int output_level, VersionStorageInfo* vstorage,
                            const MutableCFOptions& mutable_cf_options,
-                           uint32_t output_path_id);
+                           std::unique_ptr<DbPathSupplier>&& db_path_supplier);
 
   // Converts a set of compaction input file numbers into
   // a list of CompactionInputFiles.

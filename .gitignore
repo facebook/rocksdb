@@ -28,6 +28,9 @@ make_config.mk
 CMakeCache.txt
 CMakeFiles/
 build/
+java/java/include
+Testing/
+build_version.cc
 
 ldb
 manifest_dump
@@ -80,3 +83,4 @@ fbcode/
 fbcode
 buckifier/*.pyc
 buckifier/__pycache__
+.vs
