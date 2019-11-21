@@ -272,6 +272,11 @@ class BlobDBImpl : public BlobDB {
   // find an existing blob log file to append the value to
   Status SelectBlobFile(std::shared_ptr<BlobFile>* blob_file);
 
+  // Create a new blob file and associated writer.
+  Status CreateBlobFileAndWriter(const std::string& reason,
+                                 std::shared_ptr<BlobFile>* blob_file,
+                                 std::shared_ptr<Writer>* writer);
+
   std::shared_ptr<BlobFile> FindBlobFileLocked(uint64_t expiration) const;
 
   // periodic sanity check. Bunch of checks

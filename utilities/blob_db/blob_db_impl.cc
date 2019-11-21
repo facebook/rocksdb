@@ -704,12 +704,31 @@ Status BlobDBImpl::SelectBlobFile(std::shared_ptr<BlobFile>* blob_file) {
     return Status::OK();
   }
 
-  *blob_file = NewBlobFile("SelectBlobFile");
-  assert(*blob_file != nullptr);
+  std::shared_ptr<Writer> writer;
+  const Status s =
+      CreateBlobFileAndWriter("SelectBlobFile", blob_file, &writer);
+  if (!s.ok()) {
+    return s;
+  }
+
+  blob_files_.insert(
+      std::make_pair((*blob_file)->BlobFileNumber(), *blob_file));
+  open_non_ttl_file_ = *blob_file;
+
+  return s;
+}
+
+Status BlobDBImpl::CreateBlobFileAndWriter(const std::string& reason,
+                                           std::shared_ptr<BlobFile>* blob_file,
+                                           std::shared_ptr<Writer>* writer) {
+  assert(blob_file);
+  assert(writer);
+
+  *blob_file = NewBlobFile(reason);
+  assert(*blob_file);
 
   // file not visible, hence no lock
-  std::shared_ptr<Writer> writer;
-  Status s = CheckOrCreateWriterLocked(*blob_file, &writer);
+  Status s = CheckOrCreateWriterLocked(*blob_file, writer);
   if (!s.ok()) {
     ROCKS_LOG_ERROR(db_options_.info_log,
                     "Failed to get writer from blob file: %s, error: %s",
@@ -717,29 +736,28 @@ Status BlobDBImpl::SelectBlobFile(std::shared_ptr<BlobFile>* blob_file) {
     return s;
   }
 
+  assert(*writer);
+
   (*blob_file)->file_size_ = BlobLogHeader::kSize;
   (*blob_file)->header_.compression = bdb_options_.compression;
   (*blob_file)->header_.has_ttl = false;
   (*blob_file)->header_.column_family_id =
-      reinterpret_cast<ColumnFamilyHandleImpl*>(DefaultColumnFamily())->GetID();
+      static_cast<ColumnFamilyHandleImpl*>(DefaultColumnFamily())->GetID();
   (*blob_file)->header_valid_ = true;
   (*blob_file)->SetColumnFamilyId((*blob_file)->header_.column_family_id);
   (*blob_file)->SetHasTTL(false);
   (*blob_file)->SetCompression(bdb_options_.compression);
 
-  s = writer->WriteHeader((*blob_file)->header_);
+  s = (*writer)->WriteHeader((*blob_file)->header_);
   if (!s.ok()) {
     ROCKS_LOG_ERROR(db_options_.info_log,
                     "Failed to write header to new blob file: %s"
                     " status: '%s'",
                     (*blob_file)->PathName().c_str(), s.ToString().c_str());
-    return s;
   }
 
-  blob_files_.insert(
-      std::make_pair((*blob_file)->BlobFileNumber(), *blob_file));
-  open_non_ttl_file_ = *blob_file;
   total_blob_size_ += BlobLogHeader::kSize;
+
   return s;
 }
 
