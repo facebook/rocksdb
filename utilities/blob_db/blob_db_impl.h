@@ -264,20 +264,21 @@ class BlobDBImpl : public BlobDB {
                     const Slice& value, uint64_t expiration,
                     std::string* index_entry);
 
-  // find an existing blob log file based on the expiration unix epoch
-  // if such a file does not exist, return nullptr
-  Status SelectBlobFileTTL(uint64_t expiration,
-                           std::shared_ptr<BlobFile>* blob_file);
-
-  // find an existing blob log file to append the value to
-  Status SelectBlobFile(std::shared_ptr<BlobFile>* blob_file);
-
   // Create a new blob file and associated writer.
   Status CreateBlobFileAndWriter(bool has_ttl,
                                  const ExpirationRange& expiration_range,
                                  const std::string& reason,
                                  std::shared_ptr<BlobFile>* blob_file,
                                  std::shared_ptr<Writer>* writer);
+
+  // Get the open non-TTL blob log file, or create a new one if no such file
+  // exists.
+  Status SelectBlobFile(std::shared_ptr<BlobFile>* blob_file);
+
+  // Get the open TTL blob log file for a certain expiration, or create a new
+  // one if no such file exists.
+  Status SelectBlobFileTTL(uint64_t expiration,
+                           std::shared_ptr<BlobFile>* blob_file);
 
   std::shared_ptr<BlobFile> FindBlobFileLocked(uint64_t expiration) const;
 

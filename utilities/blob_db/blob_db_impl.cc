@@ -687,38 +687,6 @@ Status BlobDBImpl::CheckOrCreateWriterLocked(
   return s;
 }
 
-Status BlobDBImpl::SelectBlobFile(std::shared_ptr<BlobFile>* blob_file) {
-  assert(blob_file != nullptr);
-  {
-    ReadLock rl(&mutex_);
-    if (open_non_ttl_file_ != nullptr) {
-      *blob_file = open_non_ttl_file_;
-      return Status::OK();
-    }
-  }
-
-  // CHECK again
-  WriteLock wl(&mutex_);
-  if (open_non_ttl_file_ != nullptr) {
-    *blob_file = open_non_ttl_file_;
-    return Status::OK();
-  }
-
-  std::shared_ptr<Writer> writer;
-  const Status s =
-      CreateBlobFileAndWriter(/* has_ttl */ false, ExpirationRange(),
-                              "SelectBlobFile", blob_file, &writer);
-  if (!s.ok()) {
-    return s;
-  }
-
-  blob_files_.insert(
-      std::make_pair((*blob_file)->BlobFileNumber(), *blob_file));
-  open_non_ttl_file_ = *blob_file;
-
-  return s;
-}
-
 Status BlobDBImpl::CreateBlobFileAndWriter(
     bool has_ttl, const ExpirationRange& expiration_range,
     const std::string& reason, std::shared_ptr<BlobFile>* blob_file,
@@ -734,7 +702,7 @@ Status BlobDBImpl::CreateBlobFileAndWriter(
   Status s = CheckOrCreateWriterLocked(*blob_file, writer);
   if (!s.ok()) {
     ROCKS_LOG_ERROR(db_options_.info_log,
-                    "Failed to get writer from blob file: %s, error: %s",
+                    "Failed to get writer for blob file: %s, error: %s",
                     (*blob_file)->PathName().c_str(), s.ToString().c_str());
     return s;
   }
@@ -765,6 +733,38 @@ Status BlobDBImpl::CreateBlobFileAndWriter(
   }
 
   total_blob_size_ += BlobLogHeader::kSize;
+
+  return s;
+}
+
+Status BlobDBImpl::SelectBlobFile(std::shared_ptr<BlobFile>* blob_file) {
+  assert(blob_file != nullptr);
+  {
+    ReadLock rl(&mutex_);
+    if (open_non_ttl_file_ != nullptr) {
+      *blob_file = open_non_ttl_file_;
+      return Status::OK();
+    }
+  }
+
+  // CHECK again
+  WriteLock wl(&mutex_);
+  if (open_non_ttl_file_ != nullptr) {
+    *blob_file = open_non_ttl_file_;
+    return Status::OK();
+  }
+
+  std::shared_ptr<Writer> writer;
+  const Status s =
+      CreateBlobFileAndWriter(/* has_ttl */ false, ExpirationRange(),
+                              "SelectBlobFile", blob_file, &writer);
+  if (!s.ok()) {
+    return s;
+  }
+
+  blob_files_.insert(
+      std::make_pair((*blob_file)->BlobFileNumber(), *blob_file));
+  open_non_ttl_file_ = *blob_file;
 
   return s;
 }
