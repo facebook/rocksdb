@@ -718,16 +718,16 @@ Status BlobDBImpl::CreateBlobFileAndWriter(
 
   assert(*writer);
 
-  (*blob_file)->file_size_ = BlobLogHeader::kSize;
-
   s = (*writer)->WriteHeader((*blob_file)->header_);
   if (!s.ok()) {
     ROCKS_LOG_ERROR(db_options_.info_log,
                     "Failed to write header to new blob file: %s"
                     " status: '%s'",
                     (*blob_file)->PathName().c_str(), s.ToString().c_str());
+    return s;
   }
 
+  (*blob_file)->SetFileSize(BlobLogHeader::kSize);
   total_blob_size_ += BlobLogHeader::kSize;
 
   return s;
@@ -756,9 +756,9 @@ Status BlobDBImpl::SelectBlobFile(std::shared_ptr<BlobFile>* blob_file) {
   }
 
   std::shared_ptr<Writer> writer;
-  const Status s =
-      CreateBlobFileAndWriter(/* has_ttl */ false, ExpirationRange(),
-                              "SelectBlobFile", blob_file, &writer);
+  const Status s = CreateBlobFileAndWriter(
+      /* has_ttl */ false, ExpirationRange(),
+      /* reason */ "SelectBlobFile", blob_file, &writer);
   if (!s.ok()) {
     return s;
   }
@@ -803,8 +803,9 @@ Status BlobDBImpl::SelectBlobFileTTL(uint64_t expiration,
   oss << "SelectBlobFileTTL range: [" << exp_low << ',' << exp_high << ')';
 
   std::shared_ptr<Writer> writer;
-  const Status s = CreateBlobFileAndWriter(/* has_ttl */ true, expiration_range,
-                                           oss.str(), blob_file, &writer);
+  const Status s =
+      CreateBlobFileAndWriter(/* has_ttl */ true, expiration_range,
+                              /* reason */ oss.str(), blob_file, &writer);
   if (!s.ok()) {
     return s;
   }
