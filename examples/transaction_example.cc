@@ -112,6 +112,7 @@ int main() {
 
   txn->Rollback();
 
+  // Snapshot will be released upon deleting the transaction.
   delete txn;
   // Clear snapshot from read options since it is no longer valid
   read_options.snapshot = nullptr;
