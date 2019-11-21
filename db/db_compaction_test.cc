@@ -3626,7 +3626,7 @@ TEST_F(DBCompactionTest, LevelTtlCascadingCompactions) {
       // Add 25 hours and do a write
       env_->addon_time_.fetch_add(25 * 60 * 60);
 
-      ASSERT_OK(Put("a", "1"));
+      ASSERT_OK(Put(Key(1), "1"));
       if (if_restart) {
         Reopen(options);
       } else {
@@ -3635,6 +3635,17 @@ TEST_F(DBCompactionTest, LevelTtlCascadingCompactions) {
       dbfull()->TEST_WaitForCompact();
       ASSERT_EQ("1,0,0,0,0,0,1", FilesPerLevel());
       ASSERT_EQ(5, ttl_compactions);
+
+      env_->addon_time_.fetch_add(25 * 60 * 60);
+      ASSERT_OK(Put(Key(2), "1"));
+      if (if_restart) {
+        Reopen(options);
+      } else {
+        Flush();
+      }
+      dbfull()->TEST_WaitForCompact();
+      ASSERT_EQ("1,0,0,0,0,0,1", FilesPerLevel());
+      ASSERT_GE(ttl_compactions, 6);
 
       rocksdb::SyncPoint::GetInstance()->DisableProcessing();
     }

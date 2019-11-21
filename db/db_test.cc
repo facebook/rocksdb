@@ -3311,22 +3311,6 @@ TEST_F(DBTest, FIFOCompactionStyleWithCompactionAndDelete) {
   }
 }
 
-// Check that FIFO-with-TTL is not supported with max_open_files != -1.
-TEST_F(DBTest, FIFOCompactionWithTTLAndMaxOpenFilesTest) {
-  Options options;
-  options.compaction_style = kCompactionStyleFIFO;
-  options.create_if_missing = true;
-  options.ttl = 600;  // seconds
-
-  // Check that it is not supported with max_open_files != -1.
-  options.max_open_files = 100;
-  options = CurrentOptions(options);
-  ASSERT_TRUE(TryReopen(options).IsNotSupported());
-
-  options.max_open_files = -1;
-  ASSERT_OK(TryReopen(options));
-}
-
 // Check that FIFO-with-TTL is supported only with BlockBasedTableFactory.
 TEST_F(DBTest, FIFOCompactionWithTTLAndVariousTableFormatsTest) {
   Options options;
