@@ -583,14 +583,22 @@ Status BlobDBImpl::GetBlobFileReader(
   return s;
 }
 
-std::shared_ptr<BlobFile> BlobDBImpl::NewBlobFile(const std::string& reason) {
+std::shared_ptr<BlobFile> BlobDBImpl::NewBlobFile(
+    bool has_ttl, const ExpirationRange& expiration_range,
+    const std::string& reason) {
   uint64_t file_num = next_file_number_++;
-  auto bfile = std::make_shared<BlobFile>(this, blob_dir_, file_num,
-                                          db_options_.info_log.get());
+
+  const uint32_t column_family_id =
+      static_cast<ColumnFamilyHandleImpl*>(DefaultColumnFamily())->GetID();
+  auto blob_file = std::make_shared<BlobFile>(
+      this, blob_dir_, file_num, db_options_.info_log.get(), column_family_id,
+      bdb_options_.compression, has_ttl, expiration_range);
+
   ROCKS_LOG_DEBUG(db_options_.info_log, "New blob file created: %s reason='%s'",
-                  bfile->PathName().c_str(), reason.c_str());
+                  blob_file->PathName().c_str(), reason.c_str());
   LogFlush(db_options_.info_log);
-  return bfile;
+
+  return blob_file;
 }
 
 Status BlobDBImpl::CreateWriterLocked(const std::shared_ptr<BlobFile>& bfile) {
@@ -694,7 +702,7 @@ Status BlobDBImpl::CreateBlobFileAndWriter(
   assert(blob_file);
   assert(writer);
 
-  *blob_file = NewBlobFile(reason);
+  *blob_file = NewBlobFile(has_ttl, expiration_range, reason);
   assert(*blob_file);
 
   // file not visible, hence no lock
@@ -709,19 +717,6 @@ Status BlobDBImpl::CreateBlobFileAndWriter(
   assert(*writer);
 
   (*blob_file)->file_size_ = BlobLogHeader::kSize;
-
-  (*blob_file)->header_.expiration_range = expiration_range;
-  (*blob_file)->header_.compression = bdb_options_.compression;
-  (*blob_file)->header_.has_ttl = has_ttl;
-  (*blob_file)->header_.column_family_id =
-      static_cast<ColumnFamilyHandleImpl*>(DefaultColumnFamily())->GetID();
-
-  (*blob_file)->header_valid_ = true;
-
-  (*blob_file)->expiration_range_ = expiration_range;
-  (*blob_file)->SetCompression(bdb_options_.compression);
-  (*blob_file)->SetHasTTL(has_ttl);
-  (*blob_file)->SetColumnFamilyId((*blob_file)->header_.column_family_id);
 
   s = (*writer)->WriteHeader((*blob_file)->header_);
   if (!s.ok()) {
@@ -1946,7 +1941,7 @@ Status BlobDBImpl::GCFileAndUpdateLSM(const std::shared_ptr<BlobFile>& bfptr,
       // new file
       std::string reason("GC of ");
       reason += bfptr->PathName();
-      newfile = NewBlobFile(reason);
+      newfile = NewBlobFile(bfptr->HasTTL(), bfptr->expiration_range_, reason);
 
       s = CheckOrCreateWriterLocked(newfile, &new_writer);
       if (!s.ok()) {
@@ -1957,12 +1952,7 @@ Status BlobDBImpl::GCFileAndUpdateLSM(const std::shared_ptr<BlobFile>& bfptr,
       }
       // Can't use header beyond this point
       newfile->header_ = std::move(header);
-      newfile->header_valid_ = true;
       newfile->file_size_ = BlobLogHeader::kSize;
-      newfile->SetColumnFamilyId(bfptr->column_family_id());
-      newfile->SetHasTTL(bfptr->HasTTL());
-      newfile->SetCompression(bfptr->compression());
-      newfile->expiration_range_ = bfptr->expiration_range_;
 
       s = new_writer->WriteHeader(newfile->header_);
       if (!s.ok()) {

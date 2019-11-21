@@ -308,7 +308,9 @@ class BlobDBImpl : public BlobDB {
   void StartBackgroundTasks();
 
   // add a new Blob File
-  std::shared_ptr<BlobFile> NewBlobFile(const std::string& reason);
+  std::shared_ptr<BlobFile> NewBlobFile(bool has_ttl,
+                                        const ExpirationRange& expiration_range,
+                                        const std::string& reason);
 
   // collect all the blob log files from the blob directory
   Status GetAllBlobFiles(std::set<uint64_t>* file_numbers);

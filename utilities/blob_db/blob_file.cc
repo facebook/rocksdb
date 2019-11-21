@@ -29,20 +29,7 @@ BlobFile::BlobFile(const BlobDBImpl* p, const std::string& bdir, uint64_t fn,
     : parent_(p),
       path_to_dir_(bdir),
       file_number_(fn),
-      info_log_(info_log),
-      column_family_id_(std::numeric_limits<uint32_t>::max()),
-      compression_(kNoCompression),
-      has_ttl_(false),
-      blob_count_(0),
-      file_size_(0),
-      closed_(false),
-      immutable_sequence_(0),
-      obsolete_(false),
-      obsolete_sequence_(0),
-      last_access_(-1),
-      last_fsync_(0),
-      header_valid_(false),
-      footer_valid_(false) {}
+      info_log_(info_log) {}
 
 BlobFile::BlobFile(const BlobDBImpl* p, const std::string& bdir, uint64_t fn,
                    Logger* info_log, uint32_t column_family_id,
@@ -56,17 +43,8 @@ BlobFile::BlobFile(const BlobDBImpl* p, const std::string& bdir, uint64_t fn,
       compression_(compression),
       has_ttl_(has_ttl),
       expiration_range_(expiration_range),
-      blob_count_(0),
-      file_size_(0),
       header_(column_family_id, compression, has_ttl, expiration_range),
-      closed_(false),
-      immutable_sequence_(0),
-      obsolete_(false),
-      obsolete_sequence_(0),
-      last_access_(-1),
-      last_fsync_(0),
-      header_valid_(false),
-      footer_valid_(false) {}
+      header_valid_(true) {}
 
 BlobFile::~BlobFile() {
   if (obsolete_) {
