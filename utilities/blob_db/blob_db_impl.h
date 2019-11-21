@@ -273,7 +273,9 @@ class BlobDBImpl : public BlobDB {
   Status SelectBlobFile(std::shared_ptr<BlobFile>* blob_file);
 
   // Create a new blob file and associated writer.
-  Status CreateBlobFileAndWriter(const std::string& reason,
+  Status CreateBlobFileAndWriter(bool has_ttl,
+                                 const ExpirationRange& expiration_range,
+                                 const std::string& reason,
                                  std::shared_ptr<BlobFile>* blob_file,
                                  std::shared_ptr<Writer>* writer);
 
