@@ -191,7 +191,6 @@ Status MemTableListVersion::AddRangeTombstoneIterators(
     snapshot = read_opts.snapshot->GetSequenceNumber();
   }
   for (auto& m : memlist_) {
-    // Using kMaxSequenceNumber is OK because these are immutable memtables.
     std::unique_ptr<FragmentedRangeTombstoneIterator> range_del_iter(
         m->NewRangeTombstoneIterator(read_opts, snapshot /* read_seq */));
     range_del_agg->AddTombstones(std::move(range_del_iter));
