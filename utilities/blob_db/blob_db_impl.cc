@@ -790,18 +790,15 @@ Status BlobDBImpl::SelectBlobFileTTL(uint64_t expiration,
   uint64_t exp_high = exp_low + bdb_options_.ttl_range_secs;
   ExpirationRange expiration_range = std::make_pair(exp_low, exp_high);
 
+  std::ostringstream oss;
+  oss << "SelectBlobFileTTL range: [" << exp_low << ',' << exp_high << ')';
+
   std::shared_ptr<Writer> writer;
-  const Status s =
-      CreateBlobFileAndWriter(/* has_ttl */ true, expiration_range,
-                              "SelectBlobFileTTL", blob_file, &writer);
+  const Status s = CreateBlobFileAndWriter(/* has_ttl */ true, expiration_range,
+                                           oss.str(), blob_file, &writer);
   if (!s.ok()) {
     return s;
   }
-
-  ROCKS_LOG_INFO(db_options_.info_log,
-                 "New blob file TTL range: %s %" PRIu64 " %" PRIu64,
-                 (*blob_file)->PathName().c_str(), exp_low, exp_high);
-  LogFlush(db_options_.info_log);
 
   WriteLock wl(&mutex_);
   // in case the epoch has shifted in the interim, then check
