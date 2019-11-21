@@ -586,6 +586,8 @@ Status BlobDBImpl::GetBlobFileReader(
 std::shared_ptr<BlobFile> BlobDBImpl::NewBlobFile(
     bool has_ttl, const ExpirationRange& expiration_range,
     const std::string& reason) {
+  assert(has_ttl == (expiration_range.first || expiration_range.second));
+
   uint64_t file_num = next_file_number_++;
 
   const uint32_t column_family_id =
