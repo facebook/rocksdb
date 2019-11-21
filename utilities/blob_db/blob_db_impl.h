@@ -442,9 +442,6 @@ class BlobDBImpl : public BlobDB {
   // The largest sequence number that has been flushed.
   SequenceNumber flush_sequence_;
 
-  // epoch or version of the open files.
-  std::atomic<uint64_t> epoch_of_;
-
   // opened non-TTL blob file.
   std::shared_ptr<BlobFile> open_non_ttl_file_;
 

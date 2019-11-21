@@ -84,7 +84,6 @@ BlobDBImpl::BlobDBImpl(const std::string& dbname,
       statistics_(db_options_.statistics.get()),
       next_file_number_(1),
       flush_sequence_(0),
-      epoch_of_(0),
       closed_(true),
       open_file_count_(0),
       total_blob_size_(0),
@@ -738,18 +737,23 @@ Status BlobDBImpl::CreateBlobFileAndWriter(
 }
 
 Status BlobDBImpl::SelectBlobFile(std::shared_ptr<BlobFile>* blob_file) {
-  assert(blob_file != nullptr);
+  assert(blob_file);
+
   {
     ReadLock rl(&mutex_);
-    if (open_non_ttl_file_ != nullptr) {
+
+    if (open_non_ttl_file_) {
+      assert(!open_non_ttl_file_->Immutable());
       *blob_file = open_non_ttl_file_;
       return Status::OK();
     }
   }
 
-  // CHECK again
+  // Check again
   WriteLock wl(&mutex_);
-  if (open_non_ttl_file_ != nullptr) {
+
+  if (open_non_ttl_file_) {
+    assert(!open_non_ttl_file_->Immutable());
     *blob_file = open_non_ttl_file_;
     return Status::OK();
   }
@@ -762,8 +766,8 @@ Status BlobDBImpl::SelectBlobFile(std::shared_ptr<BlobFile>* blob_file) {
     return s;
   }
 
-  blob_files_.insert(
-      std::make_pair((*blob_file)->BlobFileNumber(), *blob_file));
+  blob_files_.insert(std::map<uint64_t, std::shared_ptr<BlobFile>>::value_type(
+      (*blob_file)->BlobFileNumber(), *blob_file));
   open_non_ttl_file_ = *blob_file;
 
   return s;
@@ -771,24 +775,32 @@ Status BlobDBImpl::SelectBlobFile(std::shared_ptr<BlobFile>* blob_file) {
 
 Status BlobDBImpl::SelectBlobFileTTL(uint64_t expiration,
                                      std::shared_ptr<BlobFile>* blob_file) {
-  assert(blob_file != nullptr);
+  assert(blob_file);
   assert(expiration != kNoExpiration);
-  uint64_t epoch_read = 0;
+
   {
     ReadLock rl(&mutex_);
+
     *blob_file = FindBlobFileLocked(expiration);
-    epoch_read = epoch_of_.load();
+    if (*blob_file != nullptr) {
+      assert(!(*blob_file)->Immutable());
+      return Status::OK();
+    }
   }
 
+  // Check again
+  WriteLock wl(&mutex_);
+
+  *blob_file = FindBlobFileLocked(expiration);
   if (*blob_file != nullptr) {
     assert(!(*blob_file)->Immutable());
     return Status::OK();
   }
 
-  uint64_t exp_low =
+  const uint64_t exp_low =
       (expiration / bdb_options_.ttl_range_secs) * bdb_options_.ttl_range_secs;
-  uint64_t exp_high = exp_low + bdb_options_.ttl_range_secs;
-  ExpirationRange expiration_range = std::make_pair(exp_low, exp_high);
+  const uint64_t exp_high = exp_low + bdb_options_.ttl_range_secs;
+  const ExpirationRange expiration_range(exp_low, exp_high);
 
   std::ostringstream oss;
   oss << "SelectBlobFileTTL range: [" << exp_low << ',' << exp_high << ')';
@@ -800,22 +812,9 @@ Status BlobDBImpl::SelectBlobFileTTL(uint64_t expiration,
     return s;
   }
 
-  WriteLock wl(&mutex_);
-  // in case the epoch has shifted in the interim, then check
-  // check condition again - should be rare.
-  if (epoch_of_.load() != epoch_read) {
-    std::shared_ptr<BlobFile> blob_file2 = FindBlobFileLocked(expiration);
-    if (blob_file2 != nullptr) {
-      *blob_file = std::move(blob_file2);
-      return Status::OK();
-    }
-  }
-
-  blob_files_.insert(
-      std::make_pair((*blob_file)->BlobFileNumber(), *blob_file));
+  blob_files_.insert(std::map<uint64_t, std::shared_ptr<BlobFile>>::value_type(
+      (*blob_file)->BlobFileNumber(), *blob_file));
   open_ttl_files_.insert(*blob_file);
-  total_blob_size_ += BlobLogHeader::kSize;
-  epoch_of_++;
 
   return s;
 }
