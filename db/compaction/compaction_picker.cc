@@ -43,6 +43,7 @@ bool FindIntraL0Compaction(const std::vector<FileMetaData*>& level_files,
                            SequenceNumber earliest_mem_seqno) {
   // Do not pick ingested file when there is at least one memtable not flushed
   // which of seqno is overlap with the sst.
+  TEST_SYNC_POINT("FindIntraL0Compaction");
   size_t start = 0;
   for (; start < level_files.size(); start++) {
     if (level_files[start]->being_compacted) {
