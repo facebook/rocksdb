@@ -428,7 +428,7 @@ AwsEnv::AwsEnv(Env* underlying_env, const CloudEnvOptions& _cloud_env_options,
          creds ? "[given]" : "[not given]");
 
   base_env_ = underlying_env;
-  
+
   // TODO: support buckets being in different regions
   if (!SrcMatchesDest() && HasSrcBucket() && HasDestBucket()) {
     if (cloud_env_options.src_bucket.GetRegion() == cloud_env_options.dest_bucket.GetRegion()) {
@@ -474,8 +474,11 @@ AwsEnv::AwsEnv(Env* underlying_env, const CloudEnvOptions& _cloud_env_options,
                             transferManagerConfig.putObjectTemplate);
     SetEncryptionParameters(
         cloud_env_options, transferManagerConfig.createMultipartUploadTemplate);
-    awsTransferManager_ =
-        Aws::Transfer::TransferManager::Create(transferManagerConfig);
+
+    if (cloud_env_options.use_aws_transfer_manager) {
+      awsTransferManager_ =
+          Aws::Transfer::TransferManager::Create(transferManagerConfig);
+    }
   }
 
   // create dest bucket if specified
@@ -1974,4 +1977,3 @@ std::string AwsEnv::GetWALCacheDir() {
 #pragma GCC diagnostic pop
 #endif  // USE_AWS
 }  // namespace rocksdb
-
