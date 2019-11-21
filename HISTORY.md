@@ -4,6 +4,7 @@
 * Fix data corruption casued by output of intra-L0 compaction on ingested file not being placed in correct order in L0.
 
 ### Public API Change
+* Database generated will not be able to be opened by version 5.1 or older, even if no new feature is used.
 * TTL Compactions in Level compaction style now initiate successive cascading compactions on a key range so that it reaches the bottom level quickly on TTL expiry. `creation_time` table property for compaction output files is now set to the minimum of the creation times of all compaction inputs.
 * Changed the default value of periodic_compaction_seconds to `UINT64_MAX` which allows RocksDB to auto-tune periodic compaction scheduling. When using the default value, periodic compactions are now auto-enabled if a compaction filter is used. A value of `0` will turn off the feature completely.
 * With FIFO compaction style, options.periodic_compaction_seconds will have the same meaning as options.ttl. Whichever stricter will be used. With the default options.periodic_compaction_seconds value with options.ttl's default of 0, RocksDB will give a default of 30 days.
@@ -16,6 +17,7 @@
 * A batched MultiGet API (DB::MultiGet()) that supports retrieving keys from multiple column families.
 * Full and partitioned filters in the block-based table use an improved Bloom filter implementation, enabled with format_version 5 (or above) because previous releases cannot read this filter. This replacement is faster and more accurate, especially for high bits per key or millions of keys in a single (full) filter. For example, the new Bloom filter has a lower false positive rate at 16 bits per key than the old one at 100 bits per key.
 * Added AVX2 instructions to USE_SSE builds to accelerate the new Bloom filter and XXH3-based hash function on compatible x86_64 platforms (Haswell and later, ~2014).
+* Support options.ttl with options.max_open_files = -1. File's oldest ancester time will be written to manifest. If it is availalbe, this information will be used instead of creation_time in table properties.
 
 ### Performance Improvements
 * For 64-bit hashing, RocksDB is standardizing on a slightly modified preview version of XXH3. This function is now used for many non-persisted hashes, along with fastrange64() in place of the modulus operator, and some benchmarks show a slight improvement.
