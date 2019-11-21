@@ -4876,7 +4876,7 @@ void IngestOneKeyValue(DBImpl* db, const std::string& key,
 }
 
 TEST_P(DBCompactionTestWithParam,
-       FlushAfterL0IntraCompactionCheckConsistencyFail) {
+       FlushAfterIntraL0CompactionCheckConsistencyFail) {
   Options options = CurrentOptions();
   options.force_consistency_checks = true;
   options.compression = kNoCompression;
@@ -4887,11 +4887,16 @@ TEST_P(DBCompactionTestWithParam,
 
   const size_t kValueSize = 1 << 20;
   Random rnd(301);
+  std::atomic<int> pick_intra_l0_count(0);
   std::string value(RandomString(&rnd, kValueSize));
 
   rocksdb::SyncPoint::GetInstance()->LoadDependency(
-      {{"LevelCompactionPicker::PickCompactionBySize:0",
+      {{"DBCompactionTestWithParam::FlushAfterIntraL0:1",
         "CompactionJob::Run():Start"}});
+  rocksdb::SyncPoint::GetInstance()->SetCallBack(
+      "FindIntraL0Compaction",
+      [&](void* /*arg*/) { pick_intra_l0_count.fetch_add(1); });
+
   rocksdb::SyncPoint::GetInstance()->EnableProcessing();
 
   // prevents trivial move
@@ -4921,6 +4926,7 @@ TEST_P(DBCompactionTestWithParam,
     ASSERT_EQ(i + 1, NumTableFilesAtLevel(0));
   }
 
+  TEST_SYNC_POINT("DBCompactionTestWithParam::FlushAfterIntraL0:1");
   // Put one key, to make biggest log sequence number in this memtable is bigger
   // than sst which would be ingested in next step.
   ASSERT_OK(Put(Key(2), "b"));
@@ -4931,6 +4937,7 @@ TEST_P(DBCompactionTestWithParam,
   dbfull()->TEST_GetFilesMetaData(dbfull()->DefaultColumnFamily(),
                                   &level_to_files);
   ASSERT_GT(level_to_files[0].size(), 0);
+  ASSERT_GT(pick_intra_l0_count.load(), 0);
 
   ASSERT_OK(Flush());
 }
@@ -4960,9 +4967,14 @@ TEST_P(DBCompactionTestWithParam,
   ASSERT_OK(Flush());
   Compact("", Key(99));
   ASSERT_EQ(0, NumTableFilesAtLevel(0));
+
+  std::atomic<int> pick_intra_l0_count(0);
   rocksdb::SyncPoint::GetInstance()->LoadDependency(
-      {{"LevelCompactionPicker::PickCompactionBySize:0",
+      {{"DBCompactionTestWithParam::IntraL0CompactionAfterFlush:1",
         "CompactionJob::Run():Start"}});
+  rocksdb::SyncPoint::GetInstance()->SetCallBack(
+      "FindIntraL0Compaction",
+      [&](void* /*arg*/) { pick_intra_l0_count.fetch_add(1); });
   rocksdb::SyncPoint::GetInstance()->EnableProcessing();
   // Make 6 L0 sst.
   for (int i = 0; i < 6; ++i) {
@@ -4999,12 +5011,14 @@ TEST_P(DBCompactionTestWithParam,
   // Wake up flush job
   sleeping_tasks.WakeUp();
   sleeping_tasks.WaitUntilDone();
+  TEST_SYNC_POINT("DBCompactionTestWithParam::IntraL0CompactionAfterFlush:1");
   dbfull()->TEST_WaitForCompact();
   rocksdb::SyncPoint::GetInstance()->DisableProcessing();
 
   uint64_t error_count = 0;
   db_->GetIntProperty("rocksdb.background-errors", &error_count);
   ASSERT_EQ(error_count, 0);
+  ASSERT_GT(pick_intra_l0_count.load(), 0);
   for (int i = 0; i < 6; ++i) {
     ASSERT_EQ(bigvalue, Get(Key(i)));
   }
