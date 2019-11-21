@@ -18,6 +18,7 @@
 #include "rocksdb/merge_operator.h"
 #include "rocksdb/utilities/db_ttl.h"
 #include "test_util/testharness.h"
+#include "util/coding.h"
 #include "utilities/merge_operators.h"
 
 namespace rocksdb {
@@ -97,6 +98,7 @@ std::shared_ptr<DB> OpenDb(const std::string& dbname, const bool ttl = false,
     std::cerr << s.ToString() << std::endl;
     assert(false);
   }
+  db->GetEnv()->SetBackgroundThreads(2, Env::HIGH);
   return std::shared_ptr<DB>(db);
 }
 
@@ -296,6 +298,87 @@ void testCounters(Counters& counters, DB* db, bool test_compaction) {
   }
 }
 
+void testCountersWithFlushAndCompaction(Counters& counters, DB* db) {
+  FlushOptions o;
+  o.wait = true;
+
+  // add some data, therefore we can trigger compaction
+  db->Put({}, "1", "1");
+  db->Flush(o);
+  db->Put({}, "2", "2");
+  db->Flush(o);
+  db->Put({}, "5", "5");
+  db->Flush(o);
+  db->Put({}, "6", "6");
+  db->Flush(o);
+
+  // wait flush finished
+  db->GetEnv()->SleepForMicroseconds(2000000);
+  //reinterpret_cast<DBImpl*>(db)->TEST_WaitForFlushMemTable(
+  //    db->DefaultColumnFamily());
+
+  std::shared_ptr<std::atomic<bool>> verified(new std::atomic<bool>(false));
+  std::atomic<int> cnt{0};
+  auto get_thread_id = [&cnt]() {
+    thread_local int thread_id{cnt++};
+    return thread_id;
+  };
+
+  rocksdb::SyncPoint::GetInstance()->SetCallBack(
+      "VersionSet::LogAndApply::WriterIsWaiting", [&, verified](void* arg) {
+        InstrumentedMutex* mtx = reinterpret_cast<InstrumentedMutex*>(arg);
+        auto thread_id = get_thread_id();
+        // condition variable is fine to be false-postive
+        // it is always legal to wake up and do nothing
+        while (!*verified) {
+          mtx->AssertHeld();
+          mtx->Unlock();
+          //std::cout << "thread - " + std::to_string(thread_id) +
+          //                 " is waiting\n";
+          db->GetEnv()->SleepForMicroseconds(1000000);
+          mtx->Lock();
+
+          // I am 100% sure the leader is thread - 0 and there are 2 working
+          // background threads
+          if (thread_id == 0 && cnt == 2) {
+            break;
+          }
+        }
+      });
+  rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+
+  Slice begin("0");
+  Slice end("3");
+  db->SuggestCompactRange(db->DefaultColumnFamily(), &begin, &end);
+
+  // ensure the compaction job gets executed eariler than the incoming flush job
+  // sleeping 2 seconds just works
+  db->GetEnv()->SleepForMicroseconds(2000000);
+
+  counters.add("test-key", 1);
+  counters.add("test-key", 1);
+  counters.add("test-key", 1);
+
+  o.wait = false;
+  db->Flush(o);
+
+  std::string val;
+  std::string actual_val;
+  PutFixed64(&actual_val, 3);
+  for (size_t i = 0; i < 10; i++) {
+    db->Get(ReadOptions(), "test-key", &val);
+    if (val != actual_val) {
+      verified->store(true);
+      rocksdb::SyncPoint::GetInstance()->ClearAllCallBacks();
+    }
+    ASSERT_EQ(val, actual_val);
+    db->GetEnv()->SleepForMicroseconds(1000000);
+  }
+
+  verified->store(true);
+  rocksdb::SyncPoint::GetInstance()->ClearAllCallBacks();
+}
+
 void testSuccessiveMerge(Counters& counters, size_t max_num_merges,
                          size_t num_merges) {
 
@@ -398,9 +481,13 @@ void testSingleBatchSuccessiveMerge(DB* db, size_t max_num_merges,
 }
 
 void runTest(const std::string& dbname, const bool use_ttl = false) {
-
   {
     auto db = OpenDb(dbname, use_ttl);
+
+    {
+      MergeBasedCounters counters(db, 0);
+      testCountersWithFlushAndCompaction(counters, db.get());
+    }
 
     {
       Counters counters(db, 0);
