@@ -14,9 +14,9 @@ namespace blob_db {
 // CompactionFilter to delete expired blob index from base DB.
 class BlobIndexCompactionFilter : public CompactionFilter {
  public:
-  BlobIndexCompactionFilter(BlobCompactionContext context,
+  BlobIndexCompactionFilter(BlobCompactionContext&& context,
                             uint64_t current_time, Statistics* statistics)
-      : context_(context),
+      : context_(std::move(context)),
         current_time_(current_time),
         statistics_(statistics) {}
 
@@ -249,7 +249,7 @@ BlobIndexCompactionFilterFactory::CreateCompactionFilter(
   blob_db_impl_->GetCompactionContext(&context);
 
   return std::unique_ptr<CompactionFilter>(new BlobIndexCompactionFilter(
-      context, static_cast<uint64_t>(current_time), statistics_));
+      std::move(context), static_cast<uint64_t>(current_time), statistics_));
 }
 
 }  // namespace blob_db
