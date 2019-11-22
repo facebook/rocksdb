@@ -607,7 +607,7 @@ std::shared_ptr<BlobFile> BlobDBImpl::NewBlobFile(
   return blob_file;
 }
 
-void BlobDBImpl::RegisterBlobFile(const std::shared_ptr<BlobFile>& blob_file) {
+void BlobDBImpl::RegisterBlobFile(std::shared_ptr<BlobFile> blob_file) {
   const uint64_t blob_file_number = blob_file->BlobFileNumber();
 
   auto it = blob_files_.lower_bound(blob_file_number);
@@ -615,7 +615,7 @@ void BlobDBImpl::RegisterBlobFile(const std::shared_ptr<BlobFile>& blob_file) {
 
   blob_files_.insert(it,
                      std::map<uint64_t, std::shared_ptr<BlobFile>>::value_type(
-                         blob_file_number, blob_file));
+                         blob_file_number, std::move(blob_file)));
 }
 
 Status BlobDBImpl::CreateWriterLocked(const std::shared_ptr<BlobFile>& bfile) {
