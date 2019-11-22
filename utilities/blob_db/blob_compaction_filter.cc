@@ -92,7 +92,7 @@ class BlobIndexCompactionFilter : public CompactionFilter {
     }
 
     BlobIndex blob_index;
-    Status s = blob_index.DecodeFrom(existing_value);
+    const Status s = blob_index.DecodeFrom(existing_value);
     if (!s.ok()) {
       return false;
     }
@@ -109,37 +109,75 @@ class BlobIndexCompactionFilter : public CompactionFilter {
       return false;
     }
 
-    if (!blob_file_) {
-      assert(!writer_);
+    if (!OpenNewBlobFileIfNeeded()) {
+      return false;
+    }
 
-      s = context_.blob_db_impl->CreateBlobFileAndWriter(
-          /* has_ttl */ false, ExpirationRange(), "GC", &blob_file_, &writer_);
-      if (!s.ok()) {
-        return false;
-      }
+    PinnableSlice blob;
+    if (!ReadBlobFromOldFile(key, blob_index, &blob)) {
+      return false;
+    }
 
-      WriteLock wl(&context_.blob_db_impl->mutex_);
-      context_.blob_db_impl->RegisterBlobFile(blob_file_);
+    uint64_t new_blob_file_number = 0;
+    uint64_t new_blob_offset = 0;
+    if (!WriteBlobToNewFile(key, blob, &new_blob_file_number,
+                            &new_blob_offset)) {
+      return false;
+    }
+
+    if (!CloseNewBlobFileIfNeeded()) {
+      return false;
+    }
+
+    BlobIndex::EncodeBlob(new_value, new_blob_file_number, new_blob_offset,
+                          blob.size(),
+                          context_.blob_db_impl->bdb_options_.compression);
+
+    return true;
+  }
+
+ private:
+  bool OpenNewBlobFileIfNeeded() const {
+    if (blob_file_) {
+      assert(writer_);
+      return true;
+    }
+
+    const Status s = context_.blob_db_impl->CreateBlobFileAndWriter(
+        /* has_ttl */ false, ExpirationRange(), "GC", &blob_file_, &writer_);
+    if (!s.ok()) {
+      return false;
     }
 
     assert(blob_file_);
     assert(writer_);
 
-    PinnableSlice blob;
-    CompressionType compression_type = kNoCompression;
-    s = context_.blob_db_impl->GetRawBlobFromFile(
+    WriteLock wl(&context_.blob_db_impl->mutex_);
+    context_.blob_db_impl->RegisterBlobFile(blob_file_);
+
+    return true;
+  }
+
+  bool ReadBlobFromOldFile(const Slice& key, const BlobIndex& blob_index,
+                           PinnableSlice* blob) const {
+    const Status s = context_.blob_db_impl->GetRawBlobFromFile(
         key, blob_index.file_number(), blob_index.offset(), blob_index.size(),
-        &blob, &compression_type);
-    if (!s.ok()) {
-      return false;
-    }
+        blob, /* compression_type */ nullptr);
 
-    const uint64_t new_blob_file_number = blob_file_->BlobFileNumber();
+    return s.ok();
+  }
 
-    uint64_t new_blob_offset = 0;
+  bool WriteBlobToNewFile(const Slice& key, const Slice& blob,
+                          uint64_t* new_blob_file_number,
+                          uint64_t* new_blob_offset) const {
+    assert(new_blob_file_number);
+    assert(new_blob_offset);
+
+    *new_blob_file_number = blob_file_->BlobFileNumber();
+
     uint64_t new_key_offset = 0;
-    s = writer_->AddRecord(key, blob, kNoExpiration, &new_key_offset,
-                           &new_blob_offset);
+    const Status s = writer_->AddRecord(key, blob, kNoExpiration,
+                                        &new_key_offset, new_blob_offset);
 
     if (!s.ok()) {
       return false;
@@ -152,24 +190,22 @@ class BlobIndexCompactionFilter : public CompactionFilter {
     blob_file_->file_size_ += new_size;
     context_.blob_db_impl->total_blob_size_ += new_size;
 
+    return true;
+  }
+
+  bool CloseNewBlobFileIfNeeded() const {
+    Status s;
+
     {
       MutexLock l(&context_.blob_db_impl->write_mutex_);
       s = context_.blob_db_impl->CloseBlobFileIfNeeded(blob_file_);
-    }
-
-    if (!s.ok()) {
-      return false;
     }
 
     if (blob_file_->Immutable()) {
       blob_file_.reset();
     }
 
-    BlobIndex::EncodeBlob(new_value, new_blob_file_number, new_blob_offset,
-                          blob.size(),
-                          context_.blob_db_impl->bdb_options_.compression);
-
-    return true;
+    return s.ok();
   }
 
  private:
