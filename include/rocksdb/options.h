@@ -20,6 +20,7 @@
 #include "rocksdb/comparator.h"
 #include "rocksdb/env.h"
 #include "rocksdb/listener.h"
+#include "rocksdb/pre_release_callback.h"
 #include "rocksdb/universal_compaction.h"
 #include "rocksdb/version.h"
 #include "rocksdb/write_buffer_manager.h"
@@ -1220,12 +1221,16 @@ struct WriteOptions {
   // Default: false
   bool low_pri;
 
+  // See comments for PreReleaseCallback
+  PreReleaseCallback* pre_release_callback;
+
   WriteOptions()
       : sync(false),
         disableWAL(false),
         ignore_missing_column_families(false),
         no_slowdown(false),
-        low_pri(false) {}
+        low_pri(false),
+        pre_release_callback(nullptr) {}
 };
 
 // Options that control flush operations

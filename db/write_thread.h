@@ -15,10 +15,10 @@
 #include <vector>
 
 #include "db/dbformat.h"
-#include "db/pre_release_callback.h"
 #include "db/write_callback.h"
 #include "monitoring/instrumented_mutex.h"
 #include "rocksdb/options.h"
+#include "rocksdb/pre_release_callback.h"
 #include "rocksdb/status.h"
 #include "rocksdb/types.h"
 #include "rocksdb/write_batch.h"
