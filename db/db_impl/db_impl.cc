@@ -176,8 +176,6 @@ DBImpl::DBImpl(const DBOptions& options, const std::string& dbname,
       write_thread_(immutable_db_options_),
       nonmem_write_thread_(immutable_db_options_),
       write_controller_(mutable_db_options_.delayed_write_rate),
-      // Use delayed_write_rate as a base line to determine the initial
-      // low pri write rate limit. It may be adjusted later.
       last_batch_group_size_(0),
       unscheduled_flushes_(0),
       unscheduled_compactions_(0),
