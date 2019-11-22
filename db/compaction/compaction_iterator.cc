@@ -641,9 +641,8 @@ void CompactionIterator::NextFromInput() {
 void CompactionIterator::PrepareOutput() {
   if (valid_) {
     if (compaction_filter_ && ikey_.type == kTypeBlobIndex) {
-      if (compaction_filter_->PrepareOutput(
-              user_key(), CompactionFilter::ValueType::kBlobIndex, value_,
-              &compaction_filter_value_)) {
+      if (compaction_filter_->PrepareBlobOutput(user_key(), value_,
+                                                &compaction_filter_value_)) {
         value_ = compaction_filter_value_;
       }
     }

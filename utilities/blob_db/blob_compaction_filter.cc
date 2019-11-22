@@ -83,16 +83,11 @@ class BlobIndexCompactionFilter : public CompactionFilter {
     return Decision::kKeep;
   }
 
-  bool PrepareOutput(const Slice& key, ValueType value_type,
-                     const Slice& existing_value,
-                     std::string* new_value) const override {
+  bool PrepareBlobOutput(const Slice& key, const Slice& existing_value,
+                         std::string* new_value) const override {
     assert(new_value);
 
     if (!context_.blob_db_impl->bdb_options_.enable_garbage_collection) {
-      return false;
-    }
-
-    if (value_type != kBlobIndex) {
       return false;
     }
 

@@ -173,9 +173,10 @@ class CompactionFilter {
     return Decision::kKeep;
   }
 
-  virtual bool PrepareOutput(const Slice& /* key */, ValueType /* value_type */,
-                             const Slice& /* existing_value */,
-                             std::string* /* new_value */) const {
+  // Internal (BlobDB) use only. Do not override.
+  virtual bool PrepareBlobOutput(const Slice& /* key */,
+                                 const Slice& /* existing_value */,
+                                 std::string* /* new_value */) const {
     return false;
   }
 
