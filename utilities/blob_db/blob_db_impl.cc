@@ -739,6 +739,7 @@ Status BlobDBImpl::CreateBlobFileAndWriter(
                     "Failed to write header to new blob file: %s"
                     " status: '%s'",
                     (*blob_file)->PathName().c_str(), s.ToString().c_str());
+    return s;
   }
 
   (*blob_file)->SetFileSize(BlobLogHeader::kSize);
