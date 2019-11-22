@@ -7,9 +7,9 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 #include "table/block_based/block_based_table_reader.h"
-
 #include <algorithm>
 #include <array>
+#include <iostream>
 #include <limits>
 #include <string>
 #include <utility>
@@ -2319,6 +2319,66 @@ void BlockBasedTable::RetrieveMultipleBlocks(
   autovector<ReadRequest, MultiGetContext::MAX_BATCH_SIZE> read_reqs;
   size_t buf_offset = 0;
   size_t idx_in_batch = 0;
+
+  uint64_t prev_offset = 0;
+  size_t prev_len = 0;
+  autovector<size_t, MultiGetContext::MAX_BATCH_SIZE> req_idx_for_block;
+  autovector<size_t, MultiGetContext::MAX_BATCH_SIZE> req_offset_for_block;
+  for (auto mget_iter = batch->begin(); mget_iter != batch->end();
+       ++mget_iter, ++idx_in_batch) {
+    const BlockHandle& handle = (*handles)[idx_in_batch];
+    if (handle.IsNull()) {
+      continue;
+    }
+
+    size_t prev_end = static_cast<size_t>(prev_offset) + prev_len;
+
+    // Current block is next to the previous one and also enable compression
+    if (rep_->blocks_maybe_compressed != kNoCompression &&
+        rep_->table_options.block_cache_compressed == nullptr &&
+        prev_end == handle.offset()) {
+      req_offset_for_block.emplace_back(prev_len);
+      prev_len += block_size(handle);
+    } else {
+      // No compression or current block and previous on is not adjacent
+      // Step 1, create a new request for previous blocks
+      if (prev_len != 0) {
+        ReadRequest req;
+        req.offset = prev_offset;
+        req.len = prev_len;
+        if (scratch == nullptr) {
+          req.scratch = new char[req.len];
+        } else {
+          req.scratch = scratch + buf_offset;
+          buf_offset += req.len;
+        }
+        req.status = Status::OK();
+        read_reqs.emplace_back(req);
+      }
+
+      // Step 2, remeber the previous block info
+      prev_offset = handle.offset();
+      prev_len = block_size(handle);
+      req_offset_for_block.emplace_back(0);
+    }
+    req_idx_for_block.emplace_back(read_reqs.size());
+  }
+  // Hanle the last block if no more blocks needs to be handled
+  if (prev_len != 0) {
+    ReadRequest req;
+    req.offset = prev_offset;
+    req.len = prev_len;
+    if (scratch == nullptr) {
+      req.scratch = new char[req.len];
+    } else {
+      req.scratch = scratch + buf_offset;
+      buf_offset += req.len;
+    }
+    req.status = Status::OK();
+    read_reqs.emplace_back(req);
+  }
+
+  /*
   for (auto mget_iter = batch->begin(); mget_iter != batch->end();
        ++mget_iter, ++idx_in_batch) {
     const BlockHandle& handle = (*handles)[idx_in_batch];
@@ -2338,9 +2398,146 @@ void BlockBasedTable::RetrieveMultipleBlocks(
     req.status = Status::OK();
     read_reqs.emplace_back(req);
   }
+  */
 
   file->MultiRead(&read_reqs[0], read_reqs.size());
 
+  idx_in_batch = 0;
+  size_t valid_batch_idx = 0;
+  for (auto mget_iter = batch->begin(); mget_iter != batch->end();
+       ++mget_iter, ++idx_in_batch) {
+    const BlockHandle& handle = (*handles)[idx_in_batch];
+
+    if (handle.IsNull()) {
+      continue;
+    }
+
+    assert(valid_batch_idx < req_idx_for_block.size());
+    assert(valid_batch_idx < req_offset_for_block.size());
+    assert(req_idx_for_block[valid_batch_idx] < read_reqs.size());
+    size_t& req_idx = req_idx_for_block[valid_batch_idx];
+    size_t& req_offset = req_offset_for_block[valid_batch_idx];
+    valid_batch_idx++;
+    ReadRequest& req = read_reqs[req_idx];
+    Status s = req.status;
+    if (s.ok()) {
+      if (req.result.size() != req.len) {
+        s = Status::Corruption(
+            "truncated block read from " + rep_->file->file_name() +
+            " offset " + ToString(handle.offset()) + ", expected " +
+            ToString(req.len) + " bytes, got " + ToString(req.result.size()));
+      }
+    }
+
+    BlockContents raw_block_contents;
+    size_t cur_read_end = req_offset + block_size(handle);
+    if (cur_read_end > req.result.size()) {
+      s = Status::Corruption(
+          "truncated block read from " + rep_->file->file_name() + " offset " +
+          ToString(handle.offset()) + ", expected " + ToString(req.len) +
+          " bytes, got " + ToString(req.result.size()));
+    }
+
+    bool blocks_share_scratch = (req.result.size() != block_size(handle));
+
+    if (s.ok()) {
+      if (scratch == nullptr && !blocks_share_scratch) {
+        // We allocated a buffer for this block. Give ownership of it to
+        // BlockContents so it can free the memory
+        assert(req.result.data() == req.scratch);
+        std::unique_ptr<char[]> raw_block(req.scratch + req_offset);
+        raw_block_contents = BlockContents(std::move(raw_block), handle.size());
+      } else {
+        // We used the scratch buffer, so no need to free anything
+        raw_block_contents =
+            BlockContents(Slice(req.scratch + req_offset, handle.size()));
+      }
+
+#ifndef NDEBUG
+      raw_block_contents.is_raw_block = true;
+#endif
+      if (options.verify_checksums) {
+        PERF_TIMER_GUARD(block_checksum_time);
+        const char* data = req.result.data();
+        uint32_t expected =
+            DecodeFixed32(data + req_offset + handle.size() + 1);
+        s = rocksdb::VerifyChecksum(footer.checksum(),
+                                    req.result.data() + req_offset,
+                                    handle.size() + 1, expected);
+      }
+    }
+
+    if (s.ok()) {
+      // It handles a rare case: compression is set and these is no compressed
+      // cache (enable combined read), some block is actually not compressed
+      // since its compression space saving is smaller than the threshold. In
+      // this case, if the block shares the scratch memory, we need to copy it
+      // to the heap such that it can be added to the block cache.
+      CompressionType compression_type =
+            raw_block_contents.get_compression_type();
+      if (blocks_share_scratch && compression_type == kNoCompression){
+        Slice raw = Slice(req.scratch + req_offset, handle.size());
+        raw_block_contents = BlockContents(
+              CopyBufferToHeap(GetMemoryAllocator(rep_->table_options), raw),
+              handle.size());
+      }
+    }
+
+    if (s.ok()) {
+      if (options.fill_cache) {
+        BlockCacheLookupContext lookup_data_block_context(
+            TableReaderCaller::kUserMultiGet);
+        CachableEntry<Block>* block_entry = &(*results)[idx_in_batch];
+        // MaybeReadBlockAndLoadToCache will insert into the block caches if
+        // necessary. Since we're passing the raw block contents, it will
+        // avoid looking up the block cache
+        s = MaybeReadBlockAndLoadToCache(
+            nullptr, options, handle, uncompression_dict, block_entry,
+            BlockType::kData, mget_iter->get_context,
+            &lookup_data_block_context, &raw_block_contents);
+
+        // block_entry value could be null if no block cache is present, i.e
+        // BlockBasedTableOptions::no_block_cache is true and no compressed
+        // block cache is configured. In that case, fall
+        // through and set up the block explicitly
+        if (block_entry->GetValue() != nullptr) {
+          continue;
+        }
+      }
+
+      CompressionType compression_type =
+          raw_block_contents.get_compression_type();
+      BlockContents contents;
+      if (compression_type != kNoCompression) {
+        UncompressionContext context(compression_type);
+        UncompressionInfo info(context, uncompression_dict, compression_type);
+        s = UncompressBlockContents(info, req.result.data() + req_offset,
+                                    handle.size(), &contents, footer.version(),
+                                    rep_->ioptions, memory_allocator);
+      } else {
+        if (scratch != nullptr || block_size(handle) != req.result.size()) {
+          // If we used the scratch buffer, then the contents need to be
+          // copied to heap
+          // If the read buffer is shared but the block is not compressed, copy
+          // to the head
+          Slice raw = Slice(req.result.data(), handle.size());
+          contents = BlockContents(
+              CopyBufferToHeap(GetMemoryAllocator(rep_->table_options), raw),
+              handle.size());
+        } else {
+          contents = std::move(raw_block_contents);
+        }
+      }
+      if (s.ok()) {
+        (*results)[idx_in_batch].SetOwnedValue(
+            new Block(std::move(contents), global_seqno, read_amp_bytes_per_bit,
+                      ioptions.statistics));
+      }
+    }
+    (*statuses)[idx_in_batch] = s;
+  }
+
+  /*
   size_t read_req_idx = 0;
   idx_in_batch = 0;
   for (auto mget_iter = batch->begin(); mget_iter != batch->end();
@@ -2437,6 +2634,7 @@ void BlockBasedTable::RetrieveMultipleBlocks(
     }
     (*statuses)[idx_in_batch] = s;
   }
+  */
 }
 
 template <typename TBlocklike>
