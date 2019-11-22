@@ -173,7 +173,7 @@ class CompactionFilter {
     return Decision::kKeep;
   }
 
-  // Internal (BlobDB) use only. Do not override.
+  // Internal (BlobDB) use only. Do not override in application code.
   virtual bool PrepareBlobOutput(const Slice& /* key */,
                                  const Slice& /* existing_value */,
                                  std::string* /* new_value */) const {
