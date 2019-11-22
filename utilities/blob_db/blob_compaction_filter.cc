@@ -22,6 +22,8 @@ class BlobIndexCompactionFilter : public CompactionFilter {
 
   ~BlobIndexCompactionFilter() override {
     if (blob_file_) {
+      assert(context_.blob_db_impl);
+
       MutexLock l(&context_.blob_db_impl->write_mutex_);
       WriteLock lock(&context_.blob_db_impl->mutex_);
       WriteLock file_lock(&blob_file_->mutex_);
@@ -87,6 +89,7 @@ class BlobIndexCompactionFilter : public CompactionFilter {
                          std::string* new_value) const override {
     assert(new_value);
 
+    assert(context_.blob_db_impl);
     if (!context_.blob_db_impl->bdb_options_.enable_garbage_collection) {
       return false;
     }
@@ -114,7 +117,8 @@ class BlobIndexCompactionFilter : public CompactionFilter {
     }
 
     PinnableSlice blob;
-    if (!ReadBlobFromOldFile(key, blob_index, &blob)) {
+    CompressionType compression_type = kNoCompression;
+    if (!ReadBlobFromOldFile(key, blob_index, &blob, &compression_type)) {
       return false;
     }
 
@@ -130,8 +134,7 @@ class BlobIndexCompactionFilter : public CompactionFilter {
     }
 
     BlobIndex::EncodeBlob(new_value, new_blob_file_number, new_blob_offset,
-                          blob.size(),
-                          context_.blob_db_impl->bdb_options_.compression);
+                          blob.size(), compression_type);
 
     return true;
   }
@@ -143,6 +146,7 @@ class BlobIndexCompactionFilter : public CompactionFilter {
       return true;
     }
 
+    assert(context_.blob_db_impl);
     const Status s = context_.blob_db_impl->CreateBlobFileAndWriter(
         /* has_ttl */ false, ExpirationRange(), "GC", &blob_file_, &writer_);
     if (!s.ok()) {
@@ -159,10 +163,12 @@ class BlobIndexCompactionFilter : public CompactionFilter {
   }
 
   bool ReadBlobFromOldFile(const Slice& key, const BlobIndex& blob_index,
-                           PinnableSlice* blob) const {
+                           PinnableSlice* blob,
+                           CompressionType* compression_type) const {
+    assert(context_.blob_db_impl);
     const Status s = context_.blob_db_impl->GetRawBlobFromFile(
         key, blob_index.file_number(), blob_index.offset(), blob_index.size(),
-        blob, /* compression_type */ nullptr);
+        blob, compression_type);
 
     return s.ok();
   }
@@ -173,8 +179,10 @@ class BlobIndexCompactionFilter : public CompactionFilter {
     assert(new_blob_file_number);
     assert(new_blob_offset);
 
+    assert(blob_file_);
     *new_blob_file_number = blob_file_->BlobFileNumber();
 
+    assert(writer_);
     uint64_t new_key_offset = 0;
     const Status s = writer_->AddRecord(key, blob, kNoExpiration,
                                         &new_key_offset, new_blob_offset);
@@ -188,6 +196,8 @@ class BlobIndexCompactionFilter : public CompactionFilter {
     const uint64_t new_size =
         BlobLogRecord::kHeaderSize + key.size() + blob.size();
     blob_file_->file_size_ += new_size;
+
+    assert(context_.blob_db_impl);
     context_.blob_db_impl->total_blob_size_ += new_size;
 
     return true;
@@ -197,10 +207,13 @@ class BlobIndexCompactionFilter : public CompactionFilter {
     Status s;
 
     {
+      assert(context_.blob_db_impl);
+
       MutexLock l(&context_.blob_db_impl->write_mutex_);
       s = context_.blob_db_impl->CloseBlobFileIfNeeded(blob_file_);
     }
 
+    assert(blob_file_);
     if (blob_file_->Immutable()) {
       blob_file_.reset();
     }
