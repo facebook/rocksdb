@@ -318,6 +318,10 @@ class BlobDBImpl : public BlobDB {
                                         const ExpirationRange& expiration_range,
                                         const std::string& reason);
 
+  // Register a new blob file.
+  // REQUIRES: write lock on mutex_.
+  void RegisterBlobFile(const std::shared_ptr<BlobFile>& blob_file);
+
   // collect all the blob log files from the blob directory
   Status GetAllBlobFiles(std::set<uint64_t>* file_numbers);
 

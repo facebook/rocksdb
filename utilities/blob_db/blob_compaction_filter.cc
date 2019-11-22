@@ -119,8 +119,7 @@ class BlobIndexCompactionFilter : public CompactionFilter {
       }
 
       WriteLock wl(&context_.blob_db_impl->mutex_);
-      context_.blob_db_impl->blob_files_.insert(
-          std::make_pair(blob_file_->BlobFileNumber(), blob_file_));
+      context_.blob_db_impl->RegisterBlobFile(blob_file_);
     }
 
     assert(blob_file_);

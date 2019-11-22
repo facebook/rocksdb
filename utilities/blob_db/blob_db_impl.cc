@@ -607,6 +607,17 @@ std::shared_ptr<BlobFile> BlobDBImpl::NewBlobFile(
   return blob_file;
 }
 
+void BlobDBImpl::RegisterBlobFile(const std::shared_ptr<BlobFile>& blob_file) {
+  const uint64_t blob_file_number = blob_file->BlobFileNumber();
+
+  auto it = blob_files_.lower_bound(blob_file_number);
+  assert(it == blob_files_.end() || it->first != blob_file_number);
+
+  blob_files_.insert(it,
+                     std::map<uint64_t, std::shared_ptr<BlobFile>>::value_type(
+                         blob_file_number, blob_file));
+}
+
 Status BlobDBImpl::CreateWriterLocked(const std::shared_ptr<BlobFile>& bfile) {
   std::string fpath(bfile->PathName());
   std::unique_ptr<WritableFile> wfile;
@@ -766,8 +777,7 @@ Status BlobDBImpl::SelectBlobFile(std::shared_ptr<BlobFile>* blob_file) {
     return s;
   }
 
-  blob_files_.insert(std::map<uint64_t, std::shared_ptr<BlobFile>>::value_type(
-      (*blob_file)->BlobFileNumber(), *blob_file));
+  RegisterBlobFile(*blob_file);
   open_non_ttl_file_ = *blob_file;
 
   return s;
@@ -813,8 +823,7 @@ Status BlobDBImpl::SelectBlobFileTTL(uint64_t expiration,
     return s;
   }
 
-  blob_files_.insert(std::map<uint64_t, std::shared_ptr<BlobFile>>::value_type(
-      (*blob_file)->BlobFileNumber(), *blob_file));
+  RegisterBlobFile(*blob_file);
   open_ttl_files_.insert(*blob_file);
 
   return s;
