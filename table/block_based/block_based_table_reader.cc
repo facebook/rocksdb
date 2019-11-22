@@ -2279,6 +2279,8 @@ Status BlockBasedTable::MaybeReadBlockAndLoadToCache(
 // false and scratch is non-null and the blocks are uncompressed, it copies
 // the buffers to heap. In any case, the CachableEntry<Block> returned will
 // own the data bytes.
+// If compression is enabled and also there is no compressed block cache,
+// the adjacent blocks are read out in one IO (combined read)
 // batch - A MultiGetRange with only those keys with unique data blocks not
 //         found in cache
 // handles - A vector of block handles. Some of them me be NULL handles
@@ -2333,14 +2335,16 @@ void BlockBasedTable::RetrieveMultipleBlocks(
 
     size_t prev_end = static_cast<size_t>(prev_offset) + prev_len;
 
-    // Current block is next to the previous one and also enable compression
-    if (rep_->blocks_maybe_compressed != kNoCompression &&
+    // If current block is adjacent to the previous one, at the same time,
+    // compression is enabled and there is no compressed cache, we combine
+    // the two block read as one.
+    if (rep_->blocks_maybe_compressed &&
         rep_->table_options.block_cache_compressed == nullptr &&
         prev_end == handle.offset()) {
       req_offset_for_block.emplace_back(prev_len);
       prev_len += block_size(handle);
     } else {
-      // No compression or current block and previous on is not adjacent
+      // No compression or current block and previous one is not adjacent:
       // Step 1, create a new request for previous blocks
       if (prev_len != 0) {
         ReadRequest req;
@@ -2363,7 +2367,7 @@ void BlockBasedTable::RetrieveMultipleBlocks(
     }
     req_idx_for_block.emplace_back(read_reqs.size());
   }
-  // Hanle the last block if no more blocks needs to be handled
+  // Hanle the last block and process the pending last request
   if (prev_len != 0) {
     ReadRequest req;
     req.offset = prev_offset;
@@ -2377,28 +2381,6 @@ void BlockBasedTable::RetrieveMultipleBlocks(
     req.status = Status::OK();
     read_reqs.emplace_back(req);
   }
-
-  /*
-  for (auto mget_iter = batch->begin(); mget_iter != batch->end();
-       ++mget_iter, ++idx_in_batch) {
-    const BlockHandle& handle = (*handles)[idx_in_batch];
-    if (handle.IsNull()) {
-      continue;
-    }
-
-    ReadRequest req;
-    req.len = block_size(handle);
-    if (scratch == nullptr) {
-      req.scratch = new char[req.len];
-    } else {
-      req.scratch = scratch + buf_offset;
-      buf_offset += req.len;
-    }
-    req.offset = handle.offset();
-    req.status = Status::OK();
-    read_reqs.emplace_back(req);
-  }
-  */
 
   file->MultiRead(&read_reqs[0], read_reqs.size());
 
@@ -2474,12 +2456,14 @@ void BlockBasedTable::RetrieveMultipleBlocks(
       // this case, if the block shares the scratch memory, we need to copy it
       // to the heap such that it can be added to the block cache.
       CompressionType compression_type =
-            raw_block_contents.get_compression_type();
-      if (blocks_share_scratch && compression_type == kNoCompression){
+          raw_block_contents.get_compression_type();
+      if (rep_->blocks_maybe_compressed && compression_type == kNoCompression) {
+      }
+      if (blocks_share_scratch && compression_type == kNoCompression) {
         Slice raw = Slice(req.scratch + req_offset, handle.size());
         raw_block_contents = BlockContents(
-              CopyBufferToHeap(GetMemoryAllocator(rep_->table_options), raw),
-              handle.size());
+            CopyBufferToHeap(GetMemoryAllocator(rep_->table_options), raw),
+            handle.size());
       }
     }
 
@@ -2535,106 +2519,10 @@ void BlockBasedTable::RetrieveMultipleBlocks(
       }
     }
     (*statuses)[idx_in_batch] = s;
+    if (!s.ok()) {
+      std::cout << s.ToString() << "\n";
+    }
   }
-
-  /*
-  size_t read_req_idx = 0;
-  idx_in_batch = 0;
-  for (auto mget_iter = batch->begin(); mget_iter != batch->end();
-       ++mget_iter, ++idx_in_batch) {
-    const BlockHandle& handle = (*handles)[idx_in_batch];
-
-    if (handle.IsNull()) {
-      continue;
-    }
-
-    ReadRequest& req = read_reqs[read_req_idx++];
-    Status s = req.status;
-    if (s.ok()) {
-      if (req.result.size() != req.len) {
-        s = Status::Corruption("truncated block read from " +
-                               rep_->file->file_name() + " offset " +
-                               ToString(handle.offset()) + ", expected " +
-                               ToString(req.len) +
-                               " bytes, got " + ToString(req.result.size()));
-      }
-    }
-
-    BlockContents raw_block_contents;
-    if (s.ok()) {
-      if (scratch == nullptr) {
-        // We allocated a buffer for this block. Give ownership of it to
-        // BlockContents so it can free the memory
-        assert(req.result.data() == req.scratch);
-        std::unique_ptr<char[]> raw_block(req.scratch);
-        raw_block_contents = BlockContents(std::move(raw_block), handle.size());
-      } else {
-        // We used the scratch buffer, so no need to free anything
-        raw_block_contents = BlockContents(Slice(req.scratch, handle.size()));
-      }
-#ifndef NDEBUG
-      raw_block_contents.is_raw_block = true;
-#endif
-      if (options.verify_checksums) {
-        PERF_TIMER_GUARD(block_checksum_time);
-        const char* data = req.result.data();
-        uint32_t expected = DecodeFixed32(data + handle.size() + 1);
-        s = rocksdb::VerifyChecksum(footer.checksum(), req.result.data(),
-                                    handle.size() + 1, expected);
-      }
-    }
-    if (s.ok()) {
-      if (options.fill_cache) {
-        BlockCacheLookupContext lookup_data_block_context(
-            TableReaderCaller::kUserMultiGet);
-        CachableEntry<Block>* block_entry = &(*results)[idx_in_batch];
-        // MaybeReadBlockAndLoadToCache will insert into the block caches if
-        // necessary. Since we're passing the raw block contents, it will
-        // avoid looking up the block cache
-        s = MaybeReadBlockAndLoadToCache(
-            nullptr, options, handle, uncompression_dict, block_entry,
-            BlockType::kData, mget_iter->get_context,
-            &lookup_data_block_context, &raw_block_contents);
-
-        // block_entry value could be null if no block cache is present, i.e
-        // BlockBasedTableOptions::no_block_cache is true and no compressed
-        // block cache is configured. In that case, fall
-        // through and set up the block explicitly
-        if (block_entry->GetValue() != nullptr) {
-          continue;
-        }
-      }
-
-      CompressionType compression_type =
-          raw_block_contents.get_compression_type();
-      BlockContents contents;
-      if (compression_type != kNoCompression) {
-        UncompressionContext context(compression_type);
-        UncompressionInfo info(context, uncompression_dict, compression_type);
-        s = UncompressBlockContents(info, req.result.data(), handle.size(),
-                                    &contents, footer.version(),
-                                    rep_->ioptions, memory_allocator);
-      } else {
-        if (scratch != nullptr) {
-          // If we used the scratch buffer, then the contents need to be
-          // copied to heap
-          Slice raw = Slice(req.result.data(), handle.size());
-          contents = BlockContents(
-              CopyBufferToHeap(GetMemoryAllocator(rep_->table_options), raw),
-              handle.size());
-        } else {
-          contents = std::move(raw_block_contents);
-        }
-      }
-      if (s.ok()) {
-        (*results)[idx_in_batch].SetOwnedValue(
-            new Block(std::move(contents), global_seqno,
-                      read_amp_bytes_per_bit, ioptions.statistics));
-      }
-    }
-    (*statuses)[idx_in_batch] = s;
-  }
-  */
 }
 
 template <typename TBlocklike>

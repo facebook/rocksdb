@@ -1710,10 +1710,11 @@ class DBBasicTestWithParallelIO
     for (int i = 0; i < 100; ++i) {
       // block cannot gain space by compression
       uncompressable_values_.emplace_back(RandomString(&rnd, 256) + '\0');
-      assert(Put("a"+Key(i+100), uncompressable_values_[i]) == Status::OK());
+      std::string tmp_key = "a" + Key(i);
+      assert(Put(tmp_key, uncompressable_values_[i]) == Status::OK());
     }
     Flush();
- }
+  }
 
   bool CheckValue(int i, const std::string& value) {
     if (values_[i].compare(value) == 0) {
@@ -1723,7 +1724,7 @@ class DBBasicTestWithParallelIO
   }
 
   bool CheckUncompressableValue(int i, const std::string& value) {
-    if (uncompressable_values_[i-100].compare(value) == 0) {
+    if (uncompressable_values_[i].compare(value) == 0) {
       return true;
     }
     return false;
@@ -1952,9 +1953,9 @@ TEST_P(DBBasicTestWithParallelIO, MultiGet) {
 
   keys.resize(10);
   statuses.resize(10);
-  std::vector<int> key_uncmp{11, 12, 115, 116, 155, 181, 182, 183, 184, 185};
+  std::vector<int> key_uncmp{1, 2, 15, 16, 55, 81, 82, 83, 84, 85};
   for (size_t i = 0; i < key_uncmp.size(); ++i) {
-    key_data[i] = "a"+Key(key_uncmp[i]);
+    key_data[i] = "a" + Key(key_uncmp[i]);
     keys[i] = Slice(key_data[i]);
     statuses[i] = Status::OK();
     values[i].Reset();
@@ -1966,12 +1967,33 @@ TEST_P(DBBasicTestWithParallelIO, MultiGet) {
     ASSERT_TRUE(CheckUncompressableValue(key_uncmp[i], values[i].ToString()));
   }
   if (compression_enabled() && !has_compressed_cache()) {
-    expected_reads += (read_from_cache ? 2 : 3);
+    expected_reads += (read_from_cache ? 3 : 3);
   } else {
-    expected_reads += (read_from_cache ? 2 : 4);
+    expected_reads += (read_from_cache ? 4 : 4);
   }
   ASSERT_EQ(env_->random_read_counter_.Read(), expected_reads);
 
+  keys.resize(5);
+  statuses.resize(5);
+  std::vector<int> key_tr{1, 2, 15, 16, 55};
+  for (size_t i = 0; i < key_tr.size(); ++i) {
+    key_data[i] = "a" + Key(key_tr[i]);
+    keys[i] = Slice(key_data[i]);
+    statuses[i] = Status::OK();
+    values[i].Reset();
+  }
+  dbfull()->MultiGet(ro, dbfull()->DefaultColumnFamily(), keys.size(),
+                     keys.data(), values.data(), statuses.data(), true);
+  for (size_t i = 0; i < key_tr.size(); ++i) {
+    ASSERT_OK(statuses[i]);
+    ASSERT_TRUE(CheckUncompressableValue(key_tr[i], values[i].ToString()));
+  }
+  if (compression_enabled() && !has_compressed_cache()) {
+    expected_reads += (read_from_cache ? 0 : 2);
+  } else {
+    expected_reads += (read_from_cache ? 0 : 3);
+  }
+  ASSERT_EQ(env_->random_read_counter_.Read(), expected_reads);
 }
 
 INSTANTIATE_TEST_CASE_P(
