@@ -17,23 +17,26 @@ namespace rocksdb {
 namespace blob_db {
 
 struct BlobCompactionContext {
-  BlobDBImpl* blob_db_impl;
-  uint64_t next_file_number;
-  uint64_t cutoff_file_number;
+  uint64_t next_file_number = 0;
   std::unordered_set<uint64_t> current_blob_files;
-  SequenceNumber fifo_eviction_seq;
-  uint64_t evict_expiration_up_to;
+  SequenceNumber fifo_eviction_seq = 0;
+  uint64_t evict_expiration_up_to = 0;
 };
 
-class BlobIndexCompactionFilterFactory : public CompactionFilterFactory {
- public:
-  BlobIndexCompactionFilterFactory(BlobDBImpl* blob_db_impl, Env* env,
-                                   Statistics* statistics)
-      : blob_db_impl_(blob_db_impl), env_(env), statistics_(statistics) {}
+struct BlobCompactionContextGC {
+  BlobDBImpl* blob_db_impl = nullptr;
+  uint64_t cutoff_file_number = 0;
+};
 
-  virtual const char* Name() const override {
-    return "BlobIndexCompactionFilterFactory";
-  }
+class BlobIndexCompactionFilter;
+class BlobIndexCompactionFilterGC;
+
+template <typename Filter>
+class BlobIndexCompactionFilterFactoryBase : public CompactionFilterFactory {
+ public:
+  BlobIndexCompactionFilterFactoryBase(BlobDBImpl* blob_db_impl, Env* env,
+                                       Statistics* statistics)
+      : blob_db_impl_(blob_db_impl), env_(env), statistics_(statistics) {}
 
   virtual std::unique_ptr<CompactionFilter> CreateCompactionFilter(
       const CompactionFilter::Context& /*context*/) override;
@@ -42,6 +45,30 @@ class BlobIndexCompactionFilterFactory : public CompactionFilterFactory {
   BlobDBImpl* blob_db_impl_;
   Env* env_;
   Statistics* statistics_;
+};
+
+class BlobIndexCompactionFilterFactory
+    : public BlobIndexCompactionFilterFactoryBase<BlobIndexCompactionFilter> {
+ public:
+  BlobIndexCompactionFilterFactory(BlobDBImpl* blob_db_impl, Env* env,
+                                   Statistics* statistics)
+      : BlobIndexCompactionFilterFactoryBase(blob_db_impl, env, statistics) {}
+
+  virtual const char* Name() const override {
+    return "BlobIndexCompactionFilterFactory";
+  }
+};
+
+class BlobIndexCompactionFilterFactoryGC
+    : public BlobIndexCompactionFilterFactoryBase<BlobIndexCompactionFilterGC> {
+ public:
+  BlobIndexCompactionFilterFactoryGC(BlobDBImpl* blob_db_impl, Env* env,
+                                     Statistics* statistics)
+      : BlobIndexCompactionFilterFactoryBase(blob_db_impl, env, statistics) {}
+
+  virtual const char* Name() const override {
+    return "BlobIndexCompactionFilterFactoryGC";
+  }
 };
 
 }  // namespace blob_db

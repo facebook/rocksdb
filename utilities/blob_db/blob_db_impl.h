@@ -44,6 +44,7 @@ struct FlushJobInfo;
 namespace blob_db {
 
 struct BlobCompactionContext;
+struct BlobCompactionContextGC;
 class BlobDBImpl;
 class BlobFile;
 
@@ -79,7 +80,7 @@ class BlobDBImpl : public BlobDB {
   friend class BlobDBIterator;
   friend class BlobDBListener;
   friend class BlobDBListenerGC;
-  friend class BlobIndexCompactionFilter;
+  friend class BlobIndexCompactionFilterGC;
 
  public:
   // deletions check period
@@ -180,7 +181,13 @@ class BlobDBImpl : public BlobDB {
 
   Status SyncBlobFiles() override;
 
+  // Common part of the two GetCompactionContext methods below.
+  // REQUIRES: read lock on mutex_
+  void GetCompactionContextCommon(BlobCompactionContext* context);
+
   void GetCompactionContext(BlobCompactionContext* context);
+  void GetCompactionContext(BlobCompactionContext* context,
+                            BlobCompactionContextGC* context_gc);
 
 #ifndef NDEBUG
   Status TEST_GetBlobValue(const Slice& key, const Slice& index_entry,

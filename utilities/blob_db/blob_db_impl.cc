@@ -185,11 +185,17 @@ Status BlobDBImpl::Open(std::vector<ColumnFamilyHandle*>* handles) {
   }
 
   // Update options
-  db_options_.listeners.push_back(bdb_options_.enable_garbage_collection
-                                      ? std::make_shared<BlobDBListenerGC>(this)
-                                      : std::make_shared<BlobDBListener>(this));
-  cf_options_.compaction_filter_factory.reset(
-      new BlobIndexCompactionFilterFactory(this, env_, statistics_));
+  if (bdb_options_.enable_garbage_collection) {
+    db_options_.listeners.push_back(std::make_shared<BlobDBListenerGC>(this));
+    cf_options_.compaction_filter_factory =
+        std::make_shared<BlobIndexCompactionFilterFactoryGC>(this, env_,
+                                                             statistics_);
+  } else {
+    db_options_.listeners.push_back(std::make_shared<BlobDBListener>(this));
+    cf_options_.compaction_filter_factory =
+        std::make_shared<BlobIndexCompactionFilterFactory>(this, env_,
+                                                           statistics_);
+  }
 
   // Open base db.
   ColumnFamilyDescriptor cf_descriptor(kDefaultColumnFamilyName, cf_options_);
@@ -1071,18 +1077,8 @@ Status BlobDBImpl::CompactFiles(
   return s;
 }
 
-void BlobDBImpl::GetCompactionContext(BlobCompactionContext* context) {
-  ReadLock l(&mutex_);
-
-  context->blob_db_impl = this;
-
-  if (!live_imm_non_ttl_blob_files_.empty()) {
-    auto it = live_imm_non_ttl_blob_files_.begin();
-    std::advance(it, bdb_options_.garbage_collection_cutoff *
-                         live_imm_non_ttl_blob_files_.size());
-    assert(it != live_imm_non_ttl_blob_files_.end());
-    context->cutoff_file_number = it->first;
-  }
+void BlobDBImpl::GetCompactionContextCommon(BlobCompactionContext* context) {
+  assert(context);
 
   context->next_file_number = next_file_number_.load();
   context->current_blob_files.clear();
@@ -1091,6 +1087,32 @@ void BlobDBImpl::GetCompactionContext(BlobCompactionContext* context) {
   }
   context->fifo_eviction_seq = fifo_eviction_seq_;
   context->evict_expiration_up_to = evict_expiration_up_to_;
+}
+
+void BlobDBImpl::GetCompactionContext(BlobCompactionContext* context) {
+  assert(context);
+
+  ReadLock l(&mutex_);
+  GetCompactionContextCommon(context);
+}
+
+void BlobDBImpl::GetCompactionContext(BlobCompactionContext* context,
+                                      BlobCompactionContextGC* context_gc) {
+  assert(context);
+  assert(context_gc);
+
+  ReadLock l(&mutex_);
+  GetCompactionContextCommon(context);
+
+  context_gc->blob_db_impl = this;
+
+  if (!live_imm_non_ttl_blob_files_.empty()) {
+    auto it = live_imm_non_ttl_blob_files_.begin();
+    std::advance(it, bdb_options_.garbage_collection_cutoff *
+                         live_imm_non_ttl_blob_files_.size());
+    assert(it != live_imm_non_ttl_blob_files_.end());
+    context_gc->cutoff_file_number = it->first;
+  }
 }
 
 void BlobDBImpl::UpdateLiveSSTSize() {

@@ -12,31 +12,20 @@ namespace rocksdb {
 namespace blob_db {
 
 // CompactionFilter to delete expired blob index from base DB.
-class BlobIndexCompactionFilter : public CompactionFilter {
+class BlobIndexCompactionFilterBase : public CompactionFilter {
  public:
-  BlobIndexCompactionFilter(BlobCompactionContext&& context,
-                            uint64_t current_time, Statistics* statistics)
+  BlobIndexCompactionFilterBase(BlobCompactionContext&& context,
+                                uint64_t current_time, Statistics* statistics)
       : context_(std::move(context)),
         current_time_(current_time),
         statistics_(statistics) {}
 
-  ~BlobIndexCompactionFilter() override {
-    if (blob_file_) {
-      assert(context_.blob_db_impl);
-
-      MutexLock l(&context_.blob_db_impl->write_mutex_);
-      WriteLock lock(&context_.blob_db_impl->mutex_);
-      WriteLock file_lock(&blob_file_->mutex_);
-      context_.blob_db_impl->CloseBlobFile(blob_file_);
-    }
-
+  ~BlobIndexCompactionFilterBase() override {
     RecordTick(statistics_, BLOB_DB_BLOB_INDEX_EXPIRED_COUNT, expired_count_);
     RecordTick(statistics_, BLOB_DB_BLOB_INDEX_EXPIRED_SIZE, expired_size_);
     RecordTick(statistics_, BLOB_DB_BLOB_INDEX_EVICTED_COUNT, evicted_count_);
     RecordTick(statistics_, BLOB_DB_BLOB_INDEX_EVICTED_SIZE, evicted_size_);
   }
-
-  const char* Name() const override { return "BlobIndexCompactionFilter"; }
 
   // Filter expired blob indexes regardless of snapshots.
   bool IgnoreSnapshots() const override { return true; }
@@ -85,14 +74,56 @@ class BlobIndexCompactionFilter : public CompactionFilter {
     return Decision::kKeep;
   }
 
+ private:
+  BlobCompactionContext context_;
+  const uint64_t current_time_;
+  Statistics* statistics_;
+  // It is safe to not using std::atomic since the compaction filter, created
+  // from a compaction filter factroy, will not be called from multiple threads.
+  mutable uint64_t expired_count_ = 0;
+  mutable uint64_t expired_size_ = 0;
+  mutable uint64_t evicted_count_ = 0;
+  mutable uint64_t evicted_size_ = 0;
+};
+
+class BlobIndexCompactionFilter : public BlobIndexCompactionFilterBase {
+ public:
+  BlobIndexCompactionFilter(BlobCompactionContext&& context,
+                            uint64_t current_time, Statistics* statistics)
+      : BlobIndexCompactionFilterBase(std::move(context), current_time,
+                                      statistics) {}
+
+  const char* Name() const override { return "BlobIndexCompactionFilter"; }
+};
+
+class BlobIndexCompactionFilterGC : public BlobIndexCompactionFilterBase {
+ public:
+  BlobIndexCompactionFilterGC(BlobCompactionContext&& context,
+                              BlobCompactionContextGC&& context_gc,
+                              uint64_t current_time, Statistics* statistics)
+      : BlobIndexCompactionFilterBase(std::move(context), current_time,
+                                      statistics),
+        context_gc_(std::move(context_gc)) {}
+
+  ~BlobIndexCompactionFilterGC() override {
+    if (blob_file_) {
+      assert(context_gc_.blob_db_impl);
+
+      MutexLock l(&context_gc_.blob_db_impl->write_mutex_);
+      WriteLock lock(&context_gc_.blob_db_impl->mutex_);
+      WriteLock file_lock(&blob_file_->mutex_);
+      context_gc_.blob_db_impl->CloseBlobFile(blob_file_);
+    }
+  }
+
+  const char* Name() const override { return "BlobIndexCompactionFilterGC"; }
+
   bool PrepareBlobOutput(const Slice& key, const Slice& existing_value,
                          std::string* new_value) const override {
     assert(new_value);
 
-    assert(context_.blob_db_impl);
-    if (!context_.blob_db_impl->bdb_options_.enable_garbage_collection) {
-      return false;
-    }
+    assert(context_gc_.blob_db_impl);
+    assert(context_gc_.blob_db_impl->bdb_options_.enable_garbage_collection);
 
     BlobIndex blob_index;
     const Status s = blob_index.DecodeFrom(existing_value);
@@ -108,7 +139,7 @@ class BlobIndexCompactionFilter : public CompactionFilter {
       return false;
     }
 
-    if (blob_index.file_number() >= context_.cutoff_file_number) {
+    if (blob_index.file_number() >= context_gc_.cutoff_file_number) {
       return false;
     }
 
@@ -146,8 +177,8 @@ class BlobIndexCompactionFilter : public CompactionFilter {
       return true;
     }
 
-    assert(context_.blob_db_impl);
-    const Status s = context_.blob_db_impl->CreateBlobFileAndWriter(
+    assert(context_gc_.blob_db_impl);
+    const Status s = context_gc_.blob_db_impl->CreateBlobFileAndWriter(
         /* has_ttl */ false, ExpirationRange(), "GC", &blob_file_, &writer_);
     if (!s.ok()) {
       return false;
@@ -156,8 +187,8 @@ class BlobIndexCompactionFilter : public CompactionFilter {
     assert(blob_file_);
     assert(writer_);
 
-    WriteLock wl(&context_.blob_db_impl->mutex_);
-    context_.blob_db_impl->RegisterBlobFile(blob_file_);
+    WriteLock wl(&context_gc_.blob_db_impl->mutex_);
+    context_gc_.blob_db_impl->RegisterBlobFile(blob_file_);
 
     return true;
   }
@@ -165,8 +196,8 @@ class BlobIndexCompactionFilter : public CompactionFilter {
   bool ReadBlobFromOldFile(const Slice& key, const BlobIndex& blob_index,
                            PinnableSlice* blob,
                            CompressionType* compression_type) const {
-    assert(context_.blob_db_impl);
-    const Status s = context_.blob_db_impl->GetRawBlobFromFile(
+    assert(context_gc_.blob_db_impl);
+    const Status s = context_gc_.blob_db_impl->GetRawBlobFromFile(
         key, blob_index.file_number(), blob_index.offset(), blob_index.size(),
         blob, compression_type);
 
@@ -197,8 +228,8 @@ class BlobIndexCompactionFilter : public CompactionFilter {
         BlobLogRecord::kHeaderSize + key.size() + blob.size();
     blob_file_->file_size_ += new_size;
 
-    assert(context_.blob_db_impl);
-    context_.blob_db_impl->total_blob_size_ += new_size;
+    assert(context_gc_.blob_db_impl);
+    context_gc_.blob_db_impl->total_blob_size_ += new_size;
 
     return true;
   }
@@ -207,10 +238,10 @@ class BlobIndexCompactionFilter : public CompactionFilter {
     Status s;
 
     {
-      assert(context_.blob_db_impl);
+      assert(context_gc_.blob_db_impl);
 
-      MutexLock l(&context_.blob_db_impl->write_mutex_);
-      s = context_.blob_db_impl->CloseBlobFileIfNeeded(blob_file_);
+      MutexLock l(&context_gc_.blob_db_impl->write_mutex_);
+      s = context_gc_.blob_db_impl->CloseBlobFileIfNeeded(blob_file_);
     }
 
     assert(blob_file_);
@@ -222,21 +253,50 @@ class BlobIndexCompactionFilter : public CompactionFilter {
   }
 
  private:
-  BlobCompactionContext context_;
-  const uint64_t current_time_;
-  Statistics* statistics_;
-  // It is safe to not using std::atomic since the compaction filter, created
-  // from a compaction filter factroy, will not be called from multiple threads.
-  mutable uint64_t expired_count_ = 0;
-  mutable uint64_t expired_size_ = 0;
-  mutable uint64_t evicted_count_ = 0;
-  mutable uint64_t evicted_size_ = 0;
+  BlobCompactionContextGC context_gc_;
   mutable std::shared_ptr<BlobFile> blob_file_;
   mutable std::shared_ptr<Writer> writer_;
 };
 
+template <typename Filter>
+class FilterTraits;
+
+template <>
+class FilterTraits<BlobIndexCompactionFilter> {
+ public:
+  static std::unique_ptr<CompactionFilter> Create(BlobDBImpl* blob_db_impl,
+                                                  uint64_t current_time,
+                                                  Statistics* statistics) {
+    assert(blob_db_impl);
+
+    BlobCompactionContext context;
+    blob_db_impl->GetCompactionContext(&context);
+
+    return std::unique_ptr<CompactionFilter>(new BlobIndexCompactionFilter(
+        std::move(context), current_time, statistics));
+  }
+};
+
+template <>
+class FilterTraits<BlobIndexCompactionFilterGC> {
+ public:
+  static std::unique_ptr<CompactionFilter> Create(BlobDBImpl* blob_db_impl,
+                                                  uint64_t current_time,
+                                                  Statistics* statistics) {
+    assert(blob_db_impl);
+
+    BlobCompactionContext context;
+    BlobCompactionContextGC context_gc;
+    blob_db_impl->GetCompactionContext(&context, &context_gc);
+
+    return std::unique_ptr<CompactionFilter>(new BlobIndexCompactionFilterGC(
+        std::move(context), std::move(context_gc), current_time, statistics));
+  }
+};
+
+template <typename Filter>
 std::unique_ptr<CompactionFilter>
-BlobIndexCompactionFilterFactory::CreateCompactionFilter(
+BlobIndexCompactionFilterFactoryBase<Filter>::CreateCompactionFilter(
     const CompactionFilter::Context& /*context*/) {
   int64_t current_time = 0;
   Status s = env_->GetCurrentTime(&current_time);
@@ -245,12 +305,13 @@ BlobIndexCompactionFilterFactory::CreateCompactionFilter(
   }
   assert(current_time >= 0);
 
-  BlobCompactionContext context{};
-  blob_db_impl_->GetCompactionContext(&context);
-
-  return std::unique_ptr<CompactionFilter>(new BlobIndexCompactionFilter(
-      std::move(context), static_cast<uint64_t>(current_time), statistics_));
+  return FilterTraits<Filter>::Create(
+      blob_db_impl_, static_cast<uint64_t>(current_time), statistics_);
 }
+
+template class BlobIndexCompactionFilterFactoryBase<BlobIndexCompactionFilter>;
+template class BlobIndexCompactionFilterFactoryBase<
+    BlobIndexCompactionFilterGC>;
 
 }  // namespace blob_db
 }  // namespace rocksdb
