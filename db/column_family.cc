@@ -1198,11 +1198,6 @@ Status ColumnFamilyData::ValidateOptions(
   }
 
   if (cf_options.ttl > 0) {
-    if (db_options.max_open_files != -1) {
-      return Status::NotSupported(
-          "TTL is only supported when files are always "
-          "kept open (set max_open_files = -1). ");
-    }
     if (cf_options.table_factory->Name() != BlockBasedTableFactory().Name()) {
       return Status::NotSupported(
           "TTL is only supported in Block-Based Table format. ");

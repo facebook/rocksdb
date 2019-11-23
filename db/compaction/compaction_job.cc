@@ -1479,12 +1479,32 @@ Status CompactionJob::OpenCompactionOutputFile(
     return s;
   }
 
-  SubcompactionState::Output out;
-  out.meta.fd =
-      FileDescriptor(file_number, sub_compact->compaction->output_path_id(), 0);
-  out.finished = false;
+  // Try to figure out the output file's oldest ancester time.
+  int64_t temp_current_time = 0;
+  auto get_time_status = env_->GetCurrentTime(&temp_current_time);
+  // Safe to proceed even if GetCurrentTime fails. So, log and proceed.
+  if (!get_time_status.ok()) {
+    ROCKS_LOG_WARN(db_options_.info_log,
+                   "Failed to get current time. Status: %s",
+                   get_time_status.ToString().c_str());
+  }
+  uint64_t current_time = static_cast<uint64_t>(temp_current_time);
+  uint64_t oldest_ancester_time =
+      sub_compact->compaction->MinInputFileOldestAncesterTime();
+  if (oldest_ancester_time == port::kMaxUint64) {
+    oldest_ancester_time = current_time;
+  }
 
-  sub_compact->outputs.push_back(out);
+  // Initialize a SubcompactionState::Output and add it to sub_compact->outputs
+  {
+    SubcompactionState::Output out;
+    out.meta.fd = FileDescriptor(file_number,
+                                 sub_compact->compaction->output_path_id(), 0);
+    out.meta.oldest_ancester_time = oldest_ancester_time;
+    out.finished = false;
+    sub_compact->outputs.push_back(out);
+  }
+
   writable_file->SetIOPriority(Env::IO_LOW);
   writable_file->SetWriteLifeTimeHint(write_hint_);
   writable_file->SetPreallocationBlockSize(static_cast<size_t>(
@@ -1501,21 +1521,6 @@ Status CompactionJob::OpenCompactionOutputFile(
   bool skip_filters =
       cfd->ioptions()->optimize_filters_for_hits && bottommost_level_;
 
-  int64_t temp_current_time = 0;
-  auto get_time_status = env_->GetCurrentTime(&temp_current_time);
-  // Safe to proceed even if GetCurrentTime fails. So, log and proceed.
-  if (!get_time_status.ok()) {
-    ROCKS_LOG_WARN(db_options_.info_log,
-                   "Failed to get current time. Status: %s",
-                   get_time_status.ToString().c_str());
-  }
-  uint64_t current_time = static_cast<uint64_t>(temp_current_time);
-
-  uint64_t creation_time = sub_compact->compaction->MinInputFileCreationTime();
-  if (creation_time == port::kMaxUint64) {
-    creation_time = current_time;
-  }
-
   sub_compact->builder.reset(NewTableBuilder(
       *cfd->ioptions(), *(sub_compact->compaction->mutable_cf_options()),
       cfd->internal_comparator(), cfd->int_tbl_prop_collector_factories(),
@@ -1523,9 +1528,9 @@ Status CompactionJob::OpenCompactionOutputFile(
       sub_compact->compaction->output_compression(),
       0 /*sample_for_compression */,
       sub_compact->compaction->output_compression_opts(),
-      sub_compact->compaction->output_level(), skip_filters, creation_time,
-      0 /* oldest_key_time */, sub_compact->compaction->max_output_file_size(),
-      current_time));
+      sub_compact->compaction->output_level(), skip_filters,
+      oldest_ancester_time, 0 /* oldest_key_time */,
+      sub_compact->compaction->max_output_file_size(), current_time));
   LogFlush(db_options_.info_log);
   return s;
 }
