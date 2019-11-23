@@ -2464,6 +2464,9 @@ void BlockBasedTable::RetrieveMultipleBlocks(
         raw_block_contents = BlockContents(
             CopyBufferToHeap(GetMemoryAllocator(rep_->table_options), raw),
             handle.size());
+#ifndef NDEBUG
+        raw_block_contents.is_raw_block = true;
+#endif
       }
     }
 
