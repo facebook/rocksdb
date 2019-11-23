@@ -2442,8 +2442,7 @@ void VersionStorageInfo::ComputeCompactionScore(
   if (mutable_cf_options.ttl > 0) {
     ComputeExpiredTtlFiles(immutable_cf_options, mutable_cf_options.ttl);
   }
-  if (mutable_cf_options.periodic_compaction_seconds > 0 &&
-      mutable_cf_options.periodic_compaction_seconds < port::kMaxUint64) {
+  if (mutable_cf_options.periodic_compaction_seconds > 0) {
     ComputeFilesMarkedForPeriodicCompaction(
         immutable_cf_options, mutable_cf_options.periodic_compaction_seconds);
   }

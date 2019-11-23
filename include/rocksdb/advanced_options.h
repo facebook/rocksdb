@@ -680,7 +680,7 @@ struct AdvancedColumnFamilyOptions {
   //
   // Values:
   // 0: Turn off Periodic compactions.
-  // UINT64_MAX (i.e 0xffffffffffffffff): Let RocksDB control this feature
+  // UINT64_MAX - 1 (i.e 0xfffffffffffffffe): Let RocksDB control this feature
   //     as needed. For now, RocksDB will change this value to 30 days
   //     (i.e 30 * 24 * 60 * 60) so that every file goes through the compaction
   //     process at least once every 30 days if not compacted sooner.
@@ -688,10 +688,10 @@ struct AdvancedColumnFamilyOptions {
   //     when this value is left default, and ttl is left to 0, 30 days will be
   //     used. Otherwise, min(ttl, periodic_compaction_seconds) will be used.
   //
-  // Default: UINT64_MAX (allow RocksDB to auto-tune)
+  // Default: UINT64_MAX - 1 (allow RocksDB to auto-tune)
   //
   // Dynamically changeable through SetOptions() API
-  uint64_t periodic_compaction_seconds = 0xffffffffffffffff;
+  uint64_t periodic_compaction_seconds = 0xfffffffffffffffe;
 
   // If this option is set then 1 in N blocks are compressed
   // using a fast (lz4) and slow (zstd) compression algorithm.

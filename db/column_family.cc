@@ -357,7 +357,7 @@ ColumnFamilyOptions SanitizeOptions(const ImmutableDBOptions& db_options,
     }
   }
 
-  const uint64_t kDefaultPeriodicCompSecs = 0xffffffffffffffff;
+  const uint64_t kDefaultPeriodicCompSecs = 0xfffffffffffffffe;
   const uint64_t kAdjustedPeriodicCompSecs = 30 * 24 * 60 * 60;
 
   // Turn on periodic compactions and set them to occur once every 30 days if
@@ -391,6 +391,10 @@ ColumnFamilyOptions SanitizeOptions(const ImmutableDBOptions& db_options,
     } else {
       result.periodic_compaction_seconds = result.ttl;
     }
+  }
+
+  if (result.periodic_compaction_seconds == kDefaultPeriodicCompSecs) {
+    result.periodic_compaction_seconds = 0;
   }
 
   return result;
