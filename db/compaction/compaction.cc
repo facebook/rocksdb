@@ -545,17 +545,16 @@ bool Compaction::ShouldFormSubcompactions() const {
   }
 }
 
-uint64_t Compaction::MinInputFileCreationTime() const {
-  uint64_t min_creation_time = port::kMaxUint64;
+uint64_t Compaction::MinInputFileOldestAncesterTime() const {
+  uint64_t min_oldest_ancester_time = port::kMaxUint64;
   for (const auto& file : inputs_[0].files) {
-    if (file->fd.table_reader != nullptr &&
-        file->fd.table_reader->GetTableProperties() != nullptr) {
-      uint64_t creation_time =
-          file->fd.table_reader->GetTableProperties()->creation_time;
-      min_creation_time = std::min(min_creation_time, creation_time);
+    uint64_t oldest_ancester_time = file->TryGetOldestAncesterTime();
+    if (oldest_ancester_time != 0) {
+      min_oldest_ancester_time =
+          std::min(min_oldest_ancester_time, oldest_ancester_time);
     }
   }
-  return min_creation_time;
+  return min_oldest_ancester_time;
 }
 
 int Compaction::GetInputBaseLevel() const {
