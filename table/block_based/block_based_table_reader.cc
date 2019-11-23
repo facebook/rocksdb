@@ -9,6 +9,7 @@
 #include "table/block_based/block_based_table_reader.h"
 #include <algorithm>
 #include <array>
+#include <iostream>
 #include <limits>
 #include <string>
 #include <utility>
@@ -2457,13 +2458,14 @@ void BlockBasedTable::RetrieveMultipleBlocks(
       // to the heap such that it can be added to the block cache.
       CompressionType compression_type =
           raw_block_contents.get_compression_type();
-      if (rep_->blocks_maybe_compressed && compression_type == kNoCompression) {
-      }
-      if (blocks_share_scratch && compression_type == kNoCompression) {
+      if (rep_->blocks_maybe_compressed &&
+          rep_->table_options.block_cache_compressed == nullptr &&
+          compression_type == kNoCompression && blocks_share_scratch) {
         Slice raw = Slice(req.scratch + req_offset, handle.size());
         raw_block_contents = BlockContents(
             CopyBufferToHeap(GetMemoryAllocator(rep_->table_options), raw),
             handle.size());
+
 #ifndef NDEBUG
         raw_block_contents.is_raw_block = true;
 #endif
