@@ -4812,6 +4812,7 @@ TEST_F(DBTest, DynamicCompactionOptions) {
 // Even more FIFOCompactionTests are at DBTest.FIFOCompaction* .
 TEST_F(DBTest, DynamicFIFOCompactionOptions) {
   Options options;
+  options.ttl = 0;
   options.create_if_missing = true;
   DestroyAndReopen(options);
 

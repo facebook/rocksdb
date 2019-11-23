@@ -654,11 +654,15 @@ struct AdvancedColumnFamilyOptions {
   // unit: seconds. Ex: 1 day = 1 * 24 * 60 * 60
   // In FIFO, this option will have the same meaning as
   // periodic_compaction_seconds. Whichever stricter will be used.
+  // 0 means disabling.
+  // UINT64_MAX - 1 (0xfffffffffffffffe) is special flag to allow RocksDB to
+  // pick default.
   //
-  // Default: 0 (disabled)
+  // Default: 30 days for leveled compaction + block based table. disable
+  //          otherwise.
   //
   // Dynamically changeable through SetOptions() API
-  uint64_t ttl = 0;
+  uint64_t ttl = 0xfffffffffffffffe;
 
   // Files older than this value will be picked up for compaction, and
   // re-written to the same level as they were before.
