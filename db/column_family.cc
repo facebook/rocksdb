@@ -376,11 +376,12 @@ ColumnFamilyOptions SanitizeOptions(const ImmutableDBOptions& db_options,
   } else {
     // result.compaction_style == kCompactionStyleFIFO
     if (result.ttl == 0) {
-      if (result.periodic_compaction_seconds == kDefaultPeriodicCompSecs &&
-          is_block_based_table) {
-        result.periodic_compaction_seconds = kAdjustedPeriodicCompSecs;
+      if (is_block_based_table) {
+        if (result.periodic_compaction_seconds == kDefaultPeriodicCompSecs) {
+          result.periodic_compaction_seconds = kAdjustedPeriodicCompSecs;
+        }
+        result.ttl = result.periodic_compaction_seconds;
       }
-      result.ttl = result.periodic_compaction_seconds;
     } else if (result.periodic_compaction_seconds != 0) {
       result.ttl = std::min(result.ttl, result.periodic_compaction_seconds);
     }
