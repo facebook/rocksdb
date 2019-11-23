@@ -9,7 +9,6 @@
 #include "table/block_based/block_based_table_reader.h"
 #include <algorithm>
 #include <array>
-#include <iostream>
 #include <limits>
 #include <string>
 #include <utility>
