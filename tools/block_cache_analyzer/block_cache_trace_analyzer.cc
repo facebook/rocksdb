@@ -1674,7 +1674,7 @@ void BlockCacheTraceAnalyzer::PrintAccessCountStats(bool user_access_only,
     if (bottom_k_index >= bottom_k) {
       break;
     }
-    std::map<TableReaderCaller, uint32_t> caller_naccesses;
+    std::map<TableReaderCaller, uint64_t> caller_naccesses;
     uint64_t naccesses = 0;
     for (auto const& block_id : naccess_it->second) {
       BlockAccessInfo* block = block_info_map_.find(block_id)->second;
