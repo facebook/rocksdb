@@ -543,22 +543,38 @@ void locktree::dump_locks(void *cdata, dump_callback cb)
     lkr.prepare(m_rangetree);
     lkr.acquire(range);
 
-    GrowableArray<row_lock> all_locks;
-    all_locks.init();
-    iterate_and_get_overlapping_row_locks(&lkr, &all_locks);
+    TXNID sto_txn;
+    if ((sto_txn = toku_unsafe_fetch(m_sto_txnid)) != TXNID_NONE) {
+        // insert all of the ranges from the single txnid buffer into a new rangtree
+        range_buffer::iterator iter(&m_sto_buffer);
+        range_buffer::iterator::record rec;
+        while (iter.current(&rec)) {
+            (*cb)(cdata,
+                  rec.get_left_key(),
+                  rec.get_right_key(),
+                  sto_txn,
+                  !rec.get_exclusive_flag(),
+                  nullptr);
+            iter.next();
+        }
+    } else {
+        GrowableArray<row_lock> all_locks;
+        all_locks.init();
+        iterate_and_get_overlapping_row_locks(&lkr, &all_locks);
 
-    const size_t n_locks = all_locks.get_size();
-    for (size_t i = 0; i < n_locks; i++) {
-        const row_lock lock = all_locks.fetch_unchecked(i);
-        (*cb)(cdata, 
-              lock.range.get_left_key(), 
-              lock.range.get_right_key(), 
-              lock.txnid,
-              lock.is_shared,
-              lock.owners);
+        const size_t n_locks = all_locks.get_size();
+        for (size_t i = 0; i < n_locks; i++) {
+            const row_lock lock = all_locks.fetch_unchecked(i);
+            (*cb)(cdata,
+                  lock.range.get_left_key(),
+                  lock.range.get_right_key(),
+                  lock.txnid,
+                  lock.is_shared,
+                  lock.owners);
+        }
+        all_locks.deinit();
     }
     lkr.release();
-    all_locks.deinit();
     range.destroy();
 }
 
