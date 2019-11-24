@@ -42,7 +42,7 @@ jlong Java_org_rocksdb_StringAppendOperator_newSharedStringAppendOperator(
  * Signature: ([B)J
  */
 jlong Java_org_rocksdb_StringAppendOperator_newSharedStringAppendTESTOperator(
-        JNIEnv* env, jclass /*jclazz*/, jbyteArray jdelim) {
+        JNIEnv* env, jclass, jbyteArray jdelim) {
   jboolean has_exception = JNI_FALSE;
   std::string delim = rocksdb::JniUtil::byteString<std::string>(
           env, jdelim,

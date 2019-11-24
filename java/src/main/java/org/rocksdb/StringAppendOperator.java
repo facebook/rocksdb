@@ -5,8 +5,6 @@
 
 package org.rocksdb;
 
-import java.nio.charset.Charset;
-
 /**
  * StringAppendOperator is a merge operator that concatenates
  * two strings.
@@ -16,20 +14,12 @@ public class StringAppendOperator extends MergeOperator {
         this(',');
     }
 
-    public StringAppendOperator(char delim) {
+    public StringAppendOperator(final char delim) {
         super(newSharedStringAppendOperator(delim));
     }
 
-    public StringAppendOperator(byte[] delim) {
+    public StringAppendOperator(final byte[] delim) {
         super(newSharedStringAppendTESTOperator(delim));
-    }
-
-    public StringAppendOperator(String delim) {
-        this(delim.getBytes());
-    }
-
-    public StringAppendOperator(String delim, Charset charset) {
-        this(delim.getBytes(charset));
     }
 
     private native static long newSharedStringAppendOperator(final char delim);
