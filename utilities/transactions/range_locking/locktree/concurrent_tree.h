@@ -106,15 +106,25 @@ public:
         template <class F>
         void iterate(F *function) const;
 
+        // Adds another owner to the lock on the specified keyrange.
+        // requires: the keyrange contains one treenode whose bounds are
+        //           exactly equal to the specifed range (no sub/supersets)
+        void add_shared_owner(const keyrange &range, TXNID new_owner);
+
         // inserts the given range into the tree, with an associated txnid.
         // requires: range does not overlap with anything in this locked_keyrange
         // rationale: caller is responsible for only inserting unique ranges
-        void insert(const keyrange &range, TXNID txnid);
+        void insert(const keyrange &range, TXNID txnid, bool is_shared);
 
-        // effect: removes the given range from the tree
+        // effect: removes the given range from the tree.
+        //         - txnid=TXNID_ANY means remove the range no matter what its
+        //           owners are
+        //         - Other value means remove the specified txnid from
+        //           ownership (if the range has other owners, it will remain
+        //           in the tree)
         // requires: range exists exactly in this locked_keyrange
         // rationale: caller is responsible for only removing existing ranges
-        void remove(const keyrange &range);
+        void remove(const keyrange &range, TXNID txnid);
 
         // effect: removes all of the keys represented by this locked keyrange
         // rationale: we'd like a fast way to empty out a tree

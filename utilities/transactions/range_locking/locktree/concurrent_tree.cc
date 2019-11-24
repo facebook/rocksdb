@@ -97,6 +97,12 @@ void concurrent_tree::locked_keyrange::acquire(const keyrange &range) {
     m_subtree = subtree;
 }
 
+void concurrent_tree::locked_keyrange::add_shared_owner(const keyrange &range,
+                                                        TXNID new_owner)
+{
+    m_subtree->insert(range, new_owner, /*is_shared*/ true);
+}
+
 void concurrent_tree::locked_keyrange::release(void) {
     m_subtree->mutex_unlock();
 }
@@ -110,18 +116,19 @@ void concurrent_tree::locked_keyrange::iterate(F *function) const {
     }
 }
 
-void concurrent_tree::locked_keyrange::insert(const keyrange &range, TXNID txnid) {
+void concurrent_tree::locked_keyrange::insert(const keyrange &range,
+                                              TXNID txnid, bool is_shared) {
     // empty means no children, and only the root should ever be empty
     if (m_subtree->is_empty()) {
-        m_subtree->set_range_and_txnid(range, txnid);
+        m_subtree->set_range_and_txnid(range, txnid, is_shared);
     } else {
-        m_subtree->insert(range, txnid);
+        m_subtree->insert(range, txnid, is_shared);
     }
 }
 
-void concurrent_tree::locked_keyrange::remove(const keyrange &range) {
+void concurrent_tree::locked_keyrange::remove(const keyrange &range, TXNID txnid) {
     invariant(!m_subtree->is_empty());
-    treenode *new_subtree = m_subtree->remove(range);
+    treenode *new_subtree = m_subtree->remove(range, txnid);
     // if removing range changed the root of the subtree,
     // then the subtree must be the root of the entire tree.
     if (new_subtree == nullptr) {

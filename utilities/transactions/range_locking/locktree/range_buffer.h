@@ -77,12 +77,14 @@ namespace toku {
             bool right_neg_inf;
             uint16_t left_key_size;
             uint16_t right_key_size;
+            bool is_exclusive_lock;
 
             bool left_is_infinite(void) const;
 
             bool right_is_infinite(void) const;
 
-            void init(const DBT *left_key, const DBT *right_key);
+            void init(const DBT *left_key, const DBT *right_key,
+                      bool is_exclusive);
         };
         // PORT static_assert(sizeof(record_header) == 8, "record header format is off");
         
@@ -108,6 +110,10 @@ namespace toku {
 
                 // how big is this record? this tells us where the next record is
                 size_t size(void) const;
+
+                bool get_exclusive_flag() const {
+                    return _header.is_exclusive_lock;
+                }
 
                 // populate a record header and point our DBT's
                 // buffers into ours if they are not infinite.
@@ -145,7 +151,8 @@ namespace toku {
 
         // append a left/right key range to the buffer.
         // if the keys are equal, then only one copy is stored.
-        void append(const DBT *left_key, const DBT *right_key);
+        void append(const DBT *left_key, const DBT *right_key,
+                    bool is_write_request=false);
 
         // is this range buffer empty?
         bool is_empty(void) const;
@@ -162,11 +169,11 @@ namespace toku {
         memarena _arena;
         int _num_ranges;
 
-        void append_range(const DBT *left_key, const DBT *right_key);
+        void append_range(const DBT *left_key, const DBT *right_key, bool is_write_request);
 
         // append a point to the buffer. this is the space/time saving
         // optimization for key ranges where left == right.
-        void append_point(const DBT *key);
+        void append_point(const DBT *key, bool is_write_request);
     };
 
 } /* namespace toku */

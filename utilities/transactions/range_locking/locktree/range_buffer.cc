@@ -66,7 +66,9 @@ namespace toku {
         return right_neg_inf || right_pos_inf;
     }
 
-    void range_buffer::record_header::init(const DBT *left_key, const DBT *right_key) {
+    void range_buffer::record_header::init(const DBT *left_key, const DBT *right_key,
+                                           bool is_exclusive) {
+        is_exclusive_lock= is_exclusive;
         left_neg_inf = left_key == toku_dbt_negative_infinity();
         left_pos_inf = left_key == toku_dbt_positive_infinity();
         left_key_size = toku_dbt_is_infinite(left_key) ? 0 : left_key->size;
@@ -186,15 +188,16 @@ namespace toku {
         _num_ranges = 0;
     }
 
-    void range_buffer::append(const DBT *left_key, const DBT *right_key) {
+    void range_buffer::append(const DBT *left_key, const DBT *right_key,
+                              bool is_write_request) {
         // if the keys are equal, then only one copy is stored.
         if (toku_dbt_equals(left_key, right_key)) {
             invariant(left_key->size <= MAX_KEY_SIZE);
-            append_point(left_key);
+            append_point(left_key, is_write_request);
         } else {
             invariant(left_key->size <= MAX_KEY_SIZE);
             invariant(right_key->size <= MAX_KEY_SIZE);
-            append_range(left_key, right_key);
+            append_range(left_key, right_key, is_write_request);
         }
         _num_ranges++;
     }
@@ -215,12 +218,13 @@ namespace toku {
         _arena.destroy();
     }
 
-    void range_buffer::append_range(const DBT *left_key, const DBT *right_key) {
+    void range_buffer::append_range(const DBT *left_key, const DBT *right_key,
+                                    bool is_exclusive) {
         size_t record_length = sizeof(record_header) + left_key->size + right_key->size;
         char *buf = reinterpret_cast<char *>(_arena.malloc_from_arena(record_length));
 
         record_header h;
-        h.init(left_key, right_key);
+        h.init(left_key, right_key, is_exclusive);
 
         // serialize the header
         memcpy(buf, &h, sizeof(record_header));
@@ -238,12 +242,12 @@ namespace toku {
         }
     }
 
-    void range_buffer::append_point(const DBT *key) {
+    void range_buffer::append_point(const DBT *key, bool is_exclusive) {
         size_t record_length = sizeof(record_header) + key->size;
         char *buf = reinterpret_cast<char *>(_arena.malloc_from_arena(record_length));
 
         record_header h;
-        h.init(key, nullptr);
+        h.init(key, nullptr, is_exclusive);
 
         // serialize the header
         memcpy(buf, &h, sizeof(record_header));

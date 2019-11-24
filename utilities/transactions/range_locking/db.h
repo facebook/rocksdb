@@ -6,6 +6,8 @@
 
 typedef struct __toku_db DB;
 typedef struct __toku_dbt DBT;
+
+// port: this is currently not used
 struct simple_dbt {
     uint32_t len;
     void     *data;
@@ -72,6 +74,7 @@ struct __toku_dbt {
   void*data;
   uint32_t size;
   uint32_t ulen;
+  // One of DB_DBT_XXX flags
   uint32_t flags;
 };
 typedef struct __toku_descriptor {

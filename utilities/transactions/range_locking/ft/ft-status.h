@@ -80,7 +80,7 @@ public:
     TOKU_ENGINE_STATUS_ROW_S status[LTM_STATUS_NUM_ROWS];
 
 private:
-    bool m_initialized;
+    bool m_initialized = false;
 };
 typedef  LTM_STATUS_S* LTM_STATUS;
 extern LTM_STATUS_S ltm_status;

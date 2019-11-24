@@ -92,7 +92,7 @@ public:
     void destroy_root(void);
 
     // effect: sets the txnid and copies the given range for this node
-    void set_range_and_txnid(const keyrange &range, TXNID txnid);
+    void set_range_and_txnid(const keyrange &range, TXNID txnid, bool is_shared);
 
     // returns: true iff this node is marked as empty
     bool is_empty(void);
@@ -127,12 +127,12 @@ public:
 
     // effect: inserts the given range and txnid into a subtree, recursively
     // requires: range does not overlap with any node below the subtree
-    void insert(const keyrange &range, TXNID txnid);
+    void insert(const keyrange &range, TXNID txnid, bool is_shared);
 
     // effect: removes the given range from the subtree
     // requires: range exists in the subtree
     // returns: the root of the resulting subtree
-    treenode *remove(const keyrange &range);
+    treenode *remove(const keyrange &range, TXNID txnid);
 
     // effect: removes this node and all of its children, recursively
     // requires: every node at and below this node is unlocked
@@ -166,13 +166,30 @@ private:
     // destroyed, it frees the memory associated with whatever range
     // it has at the time of destruction.
     keyrange m_range;
+
+    void remove_shared_owner(TXNID txnid);
+
+    bool has_multiple_owners() { return (m_txnid == TXNID_SHARED); }
+
+private:
+    // Owner transaction id.
+    // A value of TXNID_SHARED means this node has multiple owners
     TXNID m_txnid;
+
+    // If true, this lock is a non-exclusive lock, and it can have either
+    // one or several owners.
+    bool m_is_shared;
+
+    // List of the owners, or nullptr if there's just one owner.
+    TxnidVector *m_owners;
 
     // two child pointers
     child_ptr m_left_child;
     child_ptr m_right_child;
 
     // comparator for ranges
+    // psergey-todo: Is there any sense to store the comparator in each tree
+    // node?
     const comparator *m_cmp;
 
     // marked for the root node. the root node is never free()'d
@@ -184,6 +201,10 @@ private:
 
     // effect: initializes an empty node with the given comparator
     void init(const comparator *cmp);
+
+    // requires: this is a shared node (m_is_shared==true)
+    // effect: another transaction is added as an owner.
+    void add_shared_owner(TXNID txnid);
 
     // requires: *parent is initialized to something meaningful.
     // requires: subtree is non-empty
@@ -230,7 +251,8 @@ private:
     treenode *maybe_rebalance(void);
 
     // returns: allocated treenode populated with a copy of the range and txnid
-    static treenode *alloc(const comparator *cmp, const keyrange &range, TXNID txnid);
+    static treenode *alloc(const comparator *cmp, const keyrange &range,
+                           TXNID txnid, bool is_shared);
 
     // requires: node is a locked root node, or an unlocked non-root node
     static void free(treenode *node);

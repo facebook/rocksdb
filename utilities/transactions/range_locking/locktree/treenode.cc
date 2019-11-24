@@ -64,6 +64,10 @@ void treenode::init(const comparator *cmp) {
     m_is_root = false;
     m_is_empty = true;
     m_cmp = cmp;
+
+    m_is_shared= false;
+    m_owners= nullptr;
+
     // use an adaptive mutex at each node since we expect the time the
     // lock is held to be relatively short compared to a context switch.
     // indeed, this improves performance at high thread counts considerably.
@@ -89,10 +93,11 @@ void treenode::destroy_root(void) {
     m_cmp = nullptr;
 }
 
-void treenode::set_range_and_txnid(const keyrange &range, TXNID txnid) {
+void treenode::set_range_and_txnid(const keyrange &range, TXNID txnid, bool is_shared) {
     // allocates a new copy of the range for this node
     m_range.create_copy(range);
     m_txnid = txnid;
+    m_is_shared= is_shared;
     m_is_empty = false;
 }
 
@@ -108,10 +113,11 @@ bool treenode::range_overlaps(const keyrange &range) {
     return m_range.overlaps(*m_cmp, range);
 }
 
-treenode *treenode::alloc(const comparator *cmp, const keyrange &range, TXNID txnid) {
+treenode *treenode::alloc(const comparator *cmp, const keyrange &range,
+                          TXNID txnid, bool is_shared) {
     treenode *XCALLOC(node);
     node->init(cmp);
-    node->set_range_and_txnid(range, txnid);
+    node->set_range_and_txnid(range, txnid, is_shared);
     return node;
 }
 
@@ -122,11 +128,30 @@ void treenode::swap_in_place(treenode *node1, treenode *node2) {
     node1->m_txnid = node2->m_txnid;
     node2->m_range = tmp_range;
     node2->m_txnid = tmp_txnid;
+
+    bool tmp_is_shared= node1->m_is_shared;
+    node1->m_is_shared= node2->m_is_shared;
+    node2->m_is_shared= tmp_is_shared;
+}
+
+void treenode::add_shared_owner(TXNID txnid) {
+    assert(m_is_shared);
+    if (m_txnid != TXNID_SHARED) {
+        m_owners= new TxnidVector;
+        m_owners->insert(m_txnid);
+        m_txnid= TXNID_SHARED;
+    }
+    m_owners->insert(txnid);
 }
 
 void treenode::free(treenode *node) {
     // destroy the range, freeing any copied keys
     node->m_range.destroy();
+
+    if (node->m_owners) {
+        delete node->m_owners;
+        node->m_owners = nullptr; // need this?
+    }
 
     // the root is simply marked as empty.
     if (node->is_root()) {
@@ -189,7 +214,7 @@ void treenode::traverse_overlaps(const keyrange &range, F *function) {
     if (c == keyrange::comparison::EQUALS) {
         // Doesn't matter if fn wants to keep going, there
         // is nothing left, so return.
-        function->fn(m_range, m_txnid);
+        function->fn(m_range, m_txnid, m_is_shared, m_owners);
         return;
     }
 
@@ -204,7 +229,7 @@ void treenode::traverse_overlaps(const keyrange &range, F *function) {
     }
 
     if (c == keyrange::comparison::OVERLAPS) {
-        bool keep_going = function->fn(m_range, m_txnid);
+        bool keep_going = function->fn(m_range, m_txnid, m_is_shared, m_owners);
         if (!keep_going) {
             return;
         }
@@ -221,29 +246,35 @@ void treenode::traverse_overlaps(const keyrange &range, F *function) {
     }
 }
 
-void treenode::insert(const keyrange &range, TXNID txnid) {
+void treenode::insert(const keyrange &range, TXNID txnid, bool is_shared) {
     // choose a child to check. if that child is null, then insert the new node there.
     // otherwise recur down that child's subtree
     keyrange::comparison c = range.compare(*m_cmp, m_range);
     if (c == keyrange::comparison::LESS_THAN) {
         treenode *left_child = lock_and_rebalance_left();
         if (left_child == nullptr) {
-            left_child = treenode::alloc(m_cmp, range, txnid);
+            left_child = treenode::alloc(m_cmp, range, txnid, is_shared);
             m_left_child.set(left_child);
         } else {
-            left_child->insert(range, txnid);
+            left_child->insert(range, txnid, is_shared);
             left_child->mutex_unlock();
         }
-    } else {
-        invariant(c == keyrange::comparison::GREATER_THAN);
+    } else if (c == keyrange::comparison::GREATER_THAN) {
+        //invariant(c == keyrange::comparison::GREATER_THAN);
         treenode *right_child = lock_and_rebalance_right();
         if (right_child == nullptr) {
-            right_child = treenode::alloc(m_cmp, range, txnid);
+            right_child = treenode::alloc(m_cmp, range, txnid, is_shared);
             m_right_child.set(right_child);
         } else {
-            right_child->insert(range, txnid);
+            right_child->insert(range, txnid, is_shared);
             right_child->mutex_unlock();
         }
+    } else if (c == keyrange::comparison::EQUALS) {
+        invariant(is_shared);
+        invariant(m_is_shared);
+        add_shared_owner(txnid);
+    } else {
+        invariant(0);
     }
 }
 
@@ -337,19 +368,38 @@ void treenode::recursive_remove(void) {
     treenode::free(this);
 }
 
-treenode *treenode::remove(const keyrange &range) {
+void treenode::remove_shared_owner(TXNID txnid) {
+    m_owners->erase(txnid);
+    /* if there is just one owner left, move it to m_txnid */
+    if (m_owners->size() == 1)
+    {
+        m_txnid = * m_owners->begin();
+        delete m_owners;
+        m_owners = nullptr;
+    }
+}
+
+treenode *treenode::remove(const keyrange &range, TXNID txnid) {
     treenode *child;
     // if the range is equal to this node's range, then just remove
     // the root of this subtree. otherwise search down the tree
     // in either the left or right children.
     keyrange::comparison c = range.compare(*m_cmp, m_range);
     switch (c) {
-    case keyrange::comparison::EQUALS:
-        return remove_root_of_subtree();
+    case keyrange::comparison::EQUALS: {
+        // if we are the only owners, remove. Otherwise, just remove
+        // us from the owners list.
+        if (txnid != TXNID_ANY && has_multiple_owners()) {
+            remove_shared_owner(txnid);
+            return this;
+        } else {
+            return remove_root_of_subtree();
+        }
+    }
     case keyrange::comparison::LESS_THAN:
         child = m_left_child.get_locked();
         invariant_notnull(child);
-        child = child->remove(range);
+        child = child->remove(range, txnid);
 
         // unlock the child if there still is one.
         // regardless, set the right child pointer
@@ -361,7 +411,7 @@ treenode *treenode::remove(const keyrange &range) {
     case keyrange::comparison::GREATER_THAN:
         child = m_right_child.get_locked();
         invariant_notnull(child);
-        child = child->remove(range);
+        child = child->remove(range, txnid);
 
         // unlock the child if there still is one.
         // regardless, set the right child pointer

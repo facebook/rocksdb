@@ -339,7 +339,10 @@ namespace toku {
         // since the lock_request object is opaque 
         struct lt_lock_request_info *get_lock_request_info(void);
 
-        typedef void (*dump_callback)(void *cdata, const DBT *left, const DBT *right, TXNID txnid);
+        typedef void (*dump_callback)(void *cdata,
+                                      const DBT *left, const DBT *right,
+                                      TXNID txnid, bool is_shared,
+                                      TxnidVector *owners);
         void dump_locks(void *cdata, dump_callback cb);
     private:
         locktree_manager *m_mgr;
@@ -359,6 +362,12 @@ namespace toku {
 
         void *m_userdata;
         struct lt_lock_request_info m_lock_request_info;
+
+        // psergey-todo:
+        //  Each transaction also keeps a list of ranges it has locked.
+        //  So, when a transaction is running in STO mode, two identical
+        //  lists are kept: the STO lock list and transaction's owned locks
+        //  list. Why can't we do with just one list?
 
         // The following fields and members prefixed with "sto_" are for
         // the single txnid optimization, intended to speed up the case
@@ -453,7 +462,8 @@ namespace toku {
 
         // effect: append a range to the sto buffer
         // requires: m_sto_txnid is valid
-        void sto_append(const DBT *left_key, const DBT *right_key);
+        void sto_append(const DBT *left_key, const DBT *right_key,
+                        bool is_write_request);
 
         // effect: ends the single txnid optimization, releaseing any memory
         //         stored in the sto buffer, notifying the tracker, and
@@ -494,7 +504,8 @@ namespace toku {
         //        back to zero.
         // returns: true if the lock was acquired for this txnid
         bool sto_try_acquire(void *prepared_lkr, TXNID txnid,
-                const DBT *left_key, const DBT *right_key);
+                const DBT *left_key, const DBT *right_key,
+                bool is_write_request);
 
         // Effect:
         //  Provides a hook for a helgrind suppression.
@@ -513,7 +524,7 @@ namespace toku {
 
         int acquire_lock_consolidated(void *prepared_lkr, TXNID txnid,
                                       const DBT *left_key, const DBT *right_key,
-                                      txnid_set *conflicts);
+                                      bool is_write_request, txnid_set *conflicts);
 
         int acquire_lock(bool is_write_request, TXNID txnid,
                          const DBT *left_key, const DBT *right_key,
