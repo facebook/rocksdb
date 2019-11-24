@@ -1103,13 +1103,22 @@ unity_test: db/db_test.o db/db_test_util.o $(TESTHARNESS) $(TOOLLIBOBJECTS) unit
 rocksdb.h rocksdb.cc: build_tools/amalgamate.py Makefile $(LIB_SOURCES) unity.cc
 	build_tools/amalgamate.py -I. -i./include unity.cc -x include/rocksdb/c.h -H rocksdb.h -o rocksdb.cc
 
-clean:
+clean: clean-ext-libraries-all clean-rocks
+
+clean-not-downloaded: clean-ext-libraries-bin clean-rocks
+
+clean-rocks:
 	rm -f $(BENCHMARKS) $(TOOLS) $(TESTS) $(PARALLEL_TEST) $(LIBRARY) $(SHARED)
 	rm -rf $(CLEAN_FILES) ios-x86 ios-arm scan_build_report
 	$(FIND) . -name "*.[oda]" -exec rm -f {} \;
 	$(FIND) . -type f -regex ".*\.\(\(gcda\)\|\(gcno\)\)" -exec rm {} \;
-	rm -rf bzip2* snappy* zlib* lz4* zstd*
 	cd java; $(MAKE) clean
+
+clean-ext-libraries-all:
+	rm -rf bzip2* snappy* zlib* lz4* zstd*
+
+clean-ext-libraries-bin:
+	find . -maxdepth 1 -type d \( -name bzip2\* -or -name snappy\* -or -name zlib\* -or -name lz4\* -or -name zstd\* \) -prune -exec rm -rf {} \;
 
 tags:
 	ctags -R .
