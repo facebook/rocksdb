@@ -2419,10 +2419,8 @@ void BlockBasedTable::RetrieveMultipleBlocks(
           " bytes, got " + ToString(req.result.size()));
     }
 
-    bool blocks_share_scratch = (req.result.size() != block_size(handle));
-
     if (s.ok()) {
-      if (scratch == nullptr && !blocks_share_scratch) {
+      if (scratch == nullptr) {
         // We allocated a buffer for this block. Give ownership of it to
         // BlockContents so it can free the memory
         assert(req.result.data() == req.scratch);
@@ -2445,28 +2443,6 @@ void BlockBasedTable::RetrieveMultipleBlocks(
         s = rocksdb::VerifyChecksum(footer.checksum(),
                                     req.result.data() + req_offset,
                                     handle.size() + 1, expected);
-      }
-    }
-
-    if (s.ok()) {
-      // It handles a rare case: compression is set and these is no compressed
-      // cache (enable combined read), some block is actually not compressed
-      // since its compression space saving is smaller than the threshold. In
-      // this case, if the block shares the scratch memory, we need to copy it
-      // to the heap such that it can be added to the block cache.
-      CompressionType compression_type =
-          raw_block_contents.get_compression_type();
-      if (rep_->blocks_maybe_compressed &&
-          rep_->table_options.block_cache_compressed == nullptr &&
-          compression_type == kNoCompression && blocks_share_scratch) {
-        Slice raw = Slice(req.scratch + req_offset, handle.size());
-        raw_block_contents = BlockContents(
-            CopyBufferToHeap(GetMemoryAllocator(rep_->table_options), raw),
-            handle.size());
-
-#ifndef NDEBUG
-        raw_block_contents.is_raw_block = true;
-#endif
       }
     }
 
@@ -2502,11 +2478,11 @@ void BlockBasedTable::RetrieveMultipleBlocks(
                                     handle.size(), &contents, footer.version(),
                                     rep_->ioptions, memory_allocator);
       } else {
-        if (scratch != nullptr || block_size(handle) != req.result.size()) {
+        if (scratch != nullptr) {
           // If we used the scratch buffer, then the contents need to be
           // copied to heap
           // If the read buffer is shared but the block is not compressed, copy
-          // to the head
+          // to the heap
           Slice raw = Slice(req.result.data(), handle.size());
           contents = BlockContents(
               CopyBufferToHeap(GetMemoryAllocator(rep_->table_options), raw),
