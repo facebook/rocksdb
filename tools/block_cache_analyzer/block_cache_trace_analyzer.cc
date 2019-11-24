@@ -14,6 +14,7 @@
 #include <fstream>
 #include <iomanip>
 #include <iostream>
+#include <memory>
 #include <random>
 #include <sstream>
 
@@ -1170,7 +1171,7 @@ void BlockCacheTraceAnalyzer::WriteReuseLifetime(
 }
 
 void BlockCacheTraceAnalyzer::WriteBlockReuseTimeline(
-    uint64_t reuse_window, bool user_access_only, TraceType block_type) const {
+    const uint64_t reuse_window, bool user_access_only, TraceType block_type) const {
   // A map from block key to an array of bools that states whether a block is
   // accessed in a time window.
   std::map<uint64_t, std::vector<bool>> block_accessed;
@@ -1209,11 +1210,11 @@ void BlockCacheTraceAnalyzer::WriteBlockReuseTimeline(
   TraverseBlocks(block_callback);
 
   // A cell is the number of blocks accessed in a reuse window.
-  uint64_t reuse_table[reuse_vector_size][reuse_vector_size];
+  std::unique_ptr<uint64_t[]> reuse_table(new uint64_t[reuse_vector_size * reuse_vector_size]);
   for (uint64_t start_time = 0; start_time < reuse_vector_size; start_time++) {
     // Initialize the reuse_table.
     for (uint64_t i = 0; i < reuse_vector_size; i++) {
-      reuse_table[start_time][i] = 0;
+      reuse_table[start_time * reuse_vector_size + i] = 0;
     }
     // Examine all blocks.
     for (auto const& block : block_accessed) {
@@ -1222,7 +1223,7 @@ void BlockCacheTraceAnalyzer::WriteBlockReuseTimeline(
           // This block is accessed at start time and at the current time. We
           // increment reuse_table[start_time][i] since it is reused at the ith
           // window.
-          reuse_table[start_time][i]++;
+          reuse_table[start_time * reuse_vector_size + i]++;
         }
       }
     }
@@ -1250,8 +1251,8 @@ void BlockCacheTraceAnalyzer::WriteBlockReuseTimeline(
       if (j < start_time) {
         row += "100.0";
       } else {
-        row += std::to_string(percent(reuse_table[start_time][j],
-                                      reuse_table[start_time][start_time]));
+        row += std::to_string(percent(reuse_table[start_time * reuse_vector_size + j],
+                                      reuse_table[start_time * reuse_vector_size + start_time]));
       }
     }
     out << row << std::endl;
