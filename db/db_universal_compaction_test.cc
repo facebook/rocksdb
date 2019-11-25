@@ -2168,8 +2168,7 @@ TEST_F(DBTestUniversalCompaction2, PeriodicCompactionDefault) {
 
   options.compaction_filter = nullptr;
   Reopen(options);
-  ASSERT_EQ(options.periodic_compaction_seconds,
-            dbfull()->GetOptions().periodic_compaction_seconds);
+  ASSERT_EQ(0, dbfull()->GetOptions().periodic_compaction_seconds);
 }
 
 TEST_F(DBTestUniversalCompaction2, PeriodicCompaction) {
