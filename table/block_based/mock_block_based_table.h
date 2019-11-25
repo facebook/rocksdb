@@ -18,6 +18,8 @@ class MockBlockBasedTable : public BlockBasedTable {
 };
 
 class MockBlockBasedTableTester {
+  static constexpr int kMockLevel = 0;
+
  public:
   Options options_;
   ImmutableCFOptions ioptions_;
@@ -33,11 +35,18 @@ class MockBlockBasedTableTester {
     table_options_.filter_policy.reset(filter_policy);
 
     constexpr bool skip_filters = false;
-    constexpr int level = 0;
     constexpr bool immortal_table = false;
-    table_.reset(new MockBlockBasedTable(
-        new BlockBasedTable::Rep(ioptions_, env_options_, table_options_,
-                                 icomp_, skip_filters, level, immortal_table)));
+    table_.reset(new MockBlockBasedTable(new BlockBasedTable::Rep(
+        ioptions_, env_options_, table_options_, icomp_, skip_filters,
+        kMockLevel, immortal_table)));
+  }
+
+  FilterBitsBuilder* GetBuilder() const {
+    FilterBuildingContext context(table_options_);
+    context.column_family_name = "mock_cf";
+    context.compaction_style = ioptions_.compaction_style;
+    context.level_at_creation = kMockLevel;
+    return context.GetBuilder();
   }
 };
 

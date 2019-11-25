@@ -479,15 +479,14 @@ FilterBitsBuilder* BloomFilterPolicy::GetFilterBitsBuilder() const {
   // This code path should no longer be used, for the built-in
   // BloomFilterPolicy. Internal to RocksDB and outside BloomFilterPolicy,
   // only get a FilterBitsBuilder with FilterBuildingContext::GetBuilder(),
-  // which will call BloomFilterPolicy::GetFilterBitsBuilderInternal.
+  // which will call BloomFilterPolicy::GetBuilderWithContext.
   // RocksDB users have been warned (HISTORY.md) that they can no longer
   // call this on the built-in BloomFilterPolicy (unlikely).
   assert(false);
-  return GetFilterBitsBuilderInternal(
-      FilterBuildingContext(BlockBasedTableOptions()));
+  return GetBuilderWithContext(FilterBuildingContext(BlockBasedTableOptions()));
 }
 
-FilterBitsBuilder* BloomFilterPolicy::GetFilterBitsBuilderInternal(
+FilterBitsBuilder* BloomFilterPolicy::GetBuilderWithContext(
     const FilterBuildingContext& context) const {
   Mode cur = mode_;
   // Unusual code construction so that we can have just
@@ -495,7 +494,7 @@ FilterBitsBuilder* BloomFilterPolicy::GetFilterBitsBuilderInternal(
   for (int i = 0; i < 2; ++i) {
     switch (cur) {
       case kAuto:
-        if (context.table_options_.format_version < 5) {
+        if (context.table_options.format_version < 5) {
           cur = kLegacyBloom;
         } else {
           cur = kFastLocalBloom;
@@ -661,6 +660,18 @@ const FilterPolicy* NewBloomFilterPolicy(int bits_per_key,
                    BloomFilterPolicy::kAllUserModes.end(),
                    m) != BloomFilterPolicy::kAllUserModes.end());
   return new BloomFilterPolicy(bits_per_key, m);
+}
+
+FilterBuildingContext::FilterBuildingContext(
+    const BlockBasedTableOptions& _table_options)
+    : table_options(_table_options) {}
+
+FilterBitsBuilder* FilterBuildingContext::GetBuilder() const {
+  if (table_options.filter_policy) {
+    return table_options.filter_policy->GetBuilderWithContext(*this);
+  } else {
+    return nullptr;
+  }
 }
 
 FilterPolicy::~FilterPolicy() { }
