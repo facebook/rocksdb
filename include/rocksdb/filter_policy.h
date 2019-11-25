@@ -30,7 +30,7 @@
 namespace rocksdb {
 
 class Slice;
-class BlockBasedTableOptions;
+struct BlockBasedTableOptions;
 
 // A class that takes a bunch of keys, then generates filter
 class FilterBitsBuilder {
