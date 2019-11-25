@@ -2504,12 +2504,12 @@ void BlockBasedTable::RetrieveMultipleBlocks(
                                     handle.size(), &contents, footer.version(),
                                     rep_->ioptions, memory_allocator);
       } else {
-        if (scratch != nullptr || block_size(handle) != req.result.size()) {
+        if (scratch != nullptr || blocks_share_scratch) {
           // If we used the scratch buffer, then the contents need to be
           // copied to heap
           // If the read buffer is shared but the block is not compressed, copy
           // to the head
-          Slice raw = Slice(req.result.data(), handle.size());
+          Slice raw = Slice(req.result.data() + req_offset, handle.size());
           contents = BlockContents(
               CopyBufferToHeap(GetMemoryAllocator(rep_->table_options), raw),
               handle.size());
