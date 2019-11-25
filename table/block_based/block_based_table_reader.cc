@@ -2483,7 +2483,7 @@ void BlockBasedTable::RetrieveMultipleBlocks(
           // copied to heap
           // If the read buffer is shared but the block is not compressed, copy
           // to the heap
-          Slice raw = Slice(req.result.data(), handle.size());
+          Slice raw = Slice(req.result.data() + req_offset, handle.size());
           contents = BlockContents(
               CopyBufferToHeap(GetMemoryAllocator(rep_->table_options), raw),
               handle.size());
