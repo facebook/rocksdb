@@ -367,6 +367,18 @@ ColumnFamilyOptions SanitizeOptions(const ImmutableDBOptions& db_options,
     }
   }
 
+  // TTL compactions would work similar to Periodic Compactions in Universal in
+  // most of the cases. So, if ttl is set, execute the periodic compaction
+  // codepath.
+  if (result.compaction_style == kCompactionStyleUniversal && result.ttl != 0) {
+    if (result.periodic_compaction_seconds != 0) {
+      result.periodic_compaction_seconds =
+          std::min(result.ttl, result.periodic_compaction_seconds);
+    } else {
+      result.periodic_compaction_seconds = result.ttl;
+    }
+  }
+
   return result;
 }
 
@@ -1198,11 +1210,6 @@ Status ColumnFamilyData::ValidateOptions(
   }
 
   if (cf_options.ttl > 0) {
-    if (db_options.max_open_files != -1) {
-      return Status::NotSupported(
-          "TTL is only supported when files are always "
-          "kept open (set max_open_files = -1). ");
-    }
     if (cf_options.table_factory->Name() != BlockBasedTableFactory().Name()) {
       return Status::NotSupported(
           "TTL is only supported in Block-Based Table format. ");
