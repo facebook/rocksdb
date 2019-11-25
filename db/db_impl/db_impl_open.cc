@@ -1175,6 +1175,7 @@ Status DBImpl::WriteLevel0TableForRecovery(int job_id, ColumnFamilyData* cfd,
     int64_t _current_time = 0;
     env_->GetCurrentTime(&_current_time);  // ignore error
     const uint64_t current_time = static_cast<uint64_t>(_current_time);
+    meta.oldest_ancester_time = current_time;
 
     {
       auto write_hint = cfd->CalculateSSTWriteHint(0);
@@ -1224,7 +1225,8 @@ Status DBImpl::WriteLevel0TableForRecovery(int job_id, ColumnFamilyData* cfd,
     edit->AddFile(level, meta.fd.GetNumber(), meta.fd.GetPathId(),
                   meta.fd.GetFileSize(), meta.smallest, meta.largest,
                   meta.fd.smallest_seqno, meta.fd.largest_seqno,
-                  meta.marked_for_compaction, meta.oldest_blob_file_number);
+                  meta.marked_for_compaction, meta.oldest_blob_file_number,
+                  meta.oldest_ancester_time);
   }
 
   InternalStats::CompactionStats stats(CompactionReason::kFlush, 1);

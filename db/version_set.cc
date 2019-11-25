@@ -2330,13 +2330,11 @@ uint32_t GetExpiredTtlFilesCount(const ImmutableCFOptions& ioptions,
   auto status = ioptions.env->GetCurrentTime(&_current_time);
   if (status.ok()) {
     const uint64_t current_time = static_cast<uint64_t>(_current_time);
-    for (auto f : files) {
-      if (!f->being_compacted && f->fd.table_reader != nullptr &&
-          f->fd.table_reader->GetTableProperties() != nullptr) {
-        auto creation_time =
-            f->fd.table_reader->GetTableProperties()->creation_time;
-        if (creation_time > 0 &&
-            creation_time < (current_time - mutable_cf_options.ttl)) {
+    for (FileMetaData* f : files) {
+      if (!f->being_compacted) {
+        uint64_t oldest_ancester_time = f->TryGetOldestAncesterTime();
+        if (oldest_ancester_time != 0 &&
+            oldest_ancester_time < (current_time - mutable_cf_options.ttl)) {
           ttl_expired_files_count++;
         }
       }
@@ -2489,12 +2487,11 @@ void VersionStorageInfo::ComputeExpiredTtlFiles(
   const uint64_t current_time = static_cast<uint64_t>(_current_time);
 
   for (int level = 0; level < num_levels() - 1; level++) {
-    for (auto f : files_[level]) {
-      if (!f->being_compacted && f->fd.table_reader != nullptr &&
-          f->fd.table_reader->GetTableProperties() != nullptr) {
-        auto creation_time =
-            f->fd.table_reader->GetTableProperties()->creation_time;
-        if (creation_time > 0 && creation_time < (current_time - ttl)) {
+    for (FileMetaData* f : files_[level]) {
+      if (!f->being_compacted) {
+        uint64_t oldest_ancester_time = f->TryGetOldestAncesterTime();
+        if (oldest_ancester_time > 0 &&
+            oldest_ancester_time < (current_time - ttl)) {
           expired_ttl_files_.emplace_back(level, f);
         }
       }
@@ -2539,8 +2536,7 @@ void VersionStorageInfo::ComputeFilesMarkedForPeriodicCompaction(
         uint64_t file_modification_time =
             f->fd.table_reader->GetTableProperties()->file_creation_time;
         if (file_modification_time == 0) {
-          file_modification_time =
-              f->fd.table_reader->GetTableProperties()->creation_time;
+          file_modification_time = f->TryGetOldestAncesterTime();
         }
         if (file_modification_time == 0) {
           auto file_path = TableFileName(ioptions.cf_paths, f->fd.GetNumber(),
@@ -4984,7 +4980,8 @@ Status VersionSet::WriteCurrentStateToManifest(log::Writer* log) {
           edit.AddFile(level, f->fd.GetNumber(), f->fd.GetPathId(),
                        f->fd.GetFileSize(), f->smallest, f->largest,
                        f->fd.smallest_seqno, f->fd.largest_seqno,
-                       f->marked_for_compaction, f->oldest_blob_file_number);
+                       f->marked_for_compaction, f->oldest_blob_file_number,
+                       f->oldest_ancester_time);
         }
       }
       edit.SetLogNumber(cfd->GetLogNumber());
