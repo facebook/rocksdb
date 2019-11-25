@@ -38,7 +38,7 @@ class BlobIndexCompactionFilterFactoryBase : public CompactionFilterFactory {
                                        Statistics* statistics)
       : blob_db_impl_(blob_db_impl), env_(env), statistics_(statistics) {}
 
-  virtual std::unique_ptr<CompactionFilter> CreateCompactionFilter(
+  std::unique_ptr<CompactionFilter> CreateCompactionFilter(
       const CompactionFilter::Context& /*context*/) override;
 
  private:
@@ -54,7 +54,7 @@ class BlobIndexCompactionFilterFactory
                                    Statistics* statistics)
       : BlobIndexCompactionFilterFactoryBase(blob_db_impl, env, statistics) {}
 
-  virtual const char* Name() const override {
+  const char* Name() const override {
     return "BlobIndexCompactionFilterFactory";
   }
 };
@@ -66,7 +66,7 @@ class BlobIndexCompactionFilterFactoryGC
                                      Statistics* statistics)
       : BlobIndexCompactionFilterFactoryBase(blob_db_impl, env, statistics) {}
 
-  virtual const char* Name() const override {
+  const char* Name() const override {
     return "BlobIndexCompactionFilterFactoryGC";
   }
 };
