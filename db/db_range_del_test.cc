@@ -1437,17 +1437,20 @@ TEST_F(DBRangeDelTest, SnapshotPreventsDroppedKeysInIMMemTables) {
   Reopen(options);
 
   // block flush thread -> pin immtables in memory
-  std::shared_ptr<std::atomic<bool>> verified(new std::atomic<bool>(false));
-  rocksdb::SyncPoint::GetInstance()->SetCallBack(
-      "DBImpl::BGWorkFlush", [&, verified](void*) {
-        while (!(*verified)) {
-          env_->SleepForMicroseconds(1000);
-        }
-      });
+  SyncPoint::GetInstance()->DisableProcessing();
+  rocksdb::SyncPoint::GetInstance()->LoadDependency({
+    {"SnapshotPreventsDroppedKeysInIMMemTables:AfterNewIterator",
+     "DBImpl::BGWorkFlush"},
+  });
   rocksdb::SyncPoint::GetInstance()->EnableProcessing();
 
   ASSERT_OK(Put(Key(0), "a"));
-  const Snapshot* snapshot = db_->GetSnapshot();
+  std::unique_ptr<const Snapshot,
+                  std::function<void(const Snapshot*)>> snapshot(
+      db_->GetSnapshot(),
+      [this](const Snapshot* s) {
+        db_->ReleaseSnapshot(s);
+      });
 
   ASSERT_OK(db_->DeleteRange(WriteOptions(), db_->DefaultColumnFamily(), Key(0),
                              Key(10)));
@@ -1455,8 +1458,10 @@ TEST_F(DBRangeDelTest, SnapshotPreventsDroppedKeysInIMMemTables) {
   ASSERT_OK(dbfull()->TEST_SwitchMemtable());
 
   ReadOptions read_opts;
-  read_opts.snapshot = snapshot;
-  auto* iter = db_->NewIterator(read_opts);
+  read_opts.snapshot = snapshot.get();
+  std::unique_ptr<Iterator> iter(db_->NewIterator(read_opts));
+
+  TEST_SYNC_POINT("SnapshotPreventsDroppedKeysInIMMemTables:AfterNewIterator");
 
   iter->SeekToFirst();
   ASSERT_TRUE(iter->Valid());
@@ -1464,10 +1469,6 @@ TEST_F(DBRangeDelTest, SnapshotPreventsDroppedKeysInIMMemTables) {
 
   iter->Next();
   ASSERT_FALSE(iter->Valid());
-
-  verified->store(true);
-  delete iter;
-  db_->ReleaseSnapshot(snapshot);
 }
 
 TEST_F(DBRangeDelTest, RangeTombstoneWrittenToMinimalSsts) {
