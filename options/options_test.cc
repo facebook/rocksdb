@@ -23,6 +23,7 @@
 #include "rocksdb/memtablerep.h"
 #include "rocksdb/utilities/leveldb_options.h"
 #include "rocksdb/utilities/object_registry.h"
+#include "table/block_based/filter_policy_internal.h"
 #include "test_util/testharness.h"
 #include "test_util/testutil.h"
 #include "util/random.h"
@@ -515,13 +516,15 @@ TEST_F(OptionsTest, GetBlockBasedTableOptionsFromString) {
   BlockBasedTableOptions table_opt;
   BlockBasedTableOptions new_opt;
   // make sure default values are overwritten by something else
-  ASSERT_OK(GetBlockBasedTableOptionsFromString(table_opt,
-            "cache_index_and_filter_blocks=1;index_type=kHashSearch;"
-            "checksum=kxxHash;hash_index_allow_collision=1;no_block_cache=1;"
-            "block_cache=1M;block_cache_compressed=1k;block_size=1024;"
-            "block_size_deviation=8;block_restart_interval=4;"
-            "filter_policy=bloomfilter:4:true;whole_key_filtering=1;",
-            &new_opt));
+  ASSERT_OK(GetBlockBasedTableOptionsFromString(
+      table_opt,
+      "cache_index_and_filter_blocks=1;index_type=kHashSearch;"
+      "checksum=kxxHash;hash_index_allow_collision=1;no_block_cache=1;"
+      "block_cache=1M;block_cache_compressed=1k;block_size=1024;"
+      "block_size_deviation=8;block_restart_interval=4;"
+      "format_version=5;whole_key_filtering=1;"
+      "filter_policy=bloomfilter:4.567:false;",
+      &new_opt));
   ASSERT_TRUE(new_opt.cache_index_and_filter_blocks);
   ASSERT_EQ(new_opt.index_type, BlockBasedTableOptions::kHashSearch);
   ASSERT_EQ(new_opt.checksum, ChecksumType::kxxHash);
@@ -534,7 +537,13 @@ TEST_F(OptionsTest, GetBlockBasedTableOptionsFromString) {
   ASSERT_EQ(new_opt.block_size, 1024UL);
   ASSERT_EQ(new_opt.block_size_deviation, 8);
   ASSERT_EQ(new_opt.block_restart_interval, 4);
+  ASSERT_EQ(new_opt.format_version, 5);
+  ASSERT_EQ(new_opt.whole_key_filtering, true);
   ASSERT_TRUE(new_opt.filter_policy != nullptr);
+  const BloomFilterPolicy& bfp =
+      dynamic_cast<const BloomFilterPolicy&>(*new_opt.filter_policy);
+  EXPECT_EQ(bfp.GetMillibitsPerKey(), 4567);
+  EXPECT_EQ(bfp.GetWholeBitsPerKey(), 5);
 
   // unknown option
   ASSERT_NOK(GetBlockBasedTableOptionsFromString(table_opt,

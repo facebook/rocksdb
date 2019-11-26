@@ -151,8 +151,12 @@ class FilterPolicy {
 // Return a new filter policy that uses a bloom filter with approximately
 // the specified number of bits per key.
 //
-// bits_per_key: bits per key in bloom filter. A good value for bits_per_key
-// is 10, which yields a filter with ~ 1% false positive rate.
+// bits_per_key: average bits allocated per key in bloom filter. A good
+// choice is 9.9, which yields a filter with ~ 1% false positive rate.
+// When format_version < 5, the value will be rounded to the nearest
+// integer. Recommend using no more than three decimal digits after the
+// decimal point, as in 6.667.
+//
 // use_block_based_builder: use deprecated block based filter (true) rather
 // than full or partitioned filter (false).
 //
@@ -167,5 +171,5 @@ class FilterPolicy {
 // FilterPolicy (like NewBloomFilterPolicy) that does not ignore
 // trailing spaces in keys.
 extern const FilterPolicy* NewBloomFilterPolicy(
-    int bits_per_key, bool use_block_based_builder = false);
+    double bits_per_key, bool use_block_based_builder = false);
 }  // namespace rocksdb
