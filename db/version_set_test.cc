@@ -39,7 +39,8 @@ class GenerateLevelFilesBriefTest : public testing::Test {
         files_.size() + 1, 0, 0,
         InternalKey(smallest, smallest_seq, kTypeValue),
         InternalKey(largest, largest_seq, kTypeValue), smallest_seq,
-        largest_seq, /* marked_for_compact */ false, kInvalidBlobFileNumber);
+        largest_seq, /* marked_for_compact */ false, kInvalidBlobFileNumber,
+        kUnknownOldestAncesterTime);
     files_.push_back(f);
   }
 
@@ -133,7 +134,8 @@ class VersionStorageInfoTest : public testing::Test {
     FileMetaData* f = new FileMetaData(
         file_number, 0, file_size, GetInternalKey(smallest, 0),
         GetInternalKey(largest, 0), /* smallest_seq */ 0, /* largest_seq */ 0,
-        /* marked_for_compact */ false, kInvalidBlobFileNumber);
+        /* marked_for_compact */ false, kInvalidBlobFileNumber,
+        kUnknownOldestAncesterTime);
     f->compensated_file_size = file_size;
     vstorage_.AddFile(level, f);
   }
@@ -144,7 +146,7 @@ class VersionStorageInfoTest : public testing::Test {
     FileMetaData* f = new FileMetaData(
         file_number, 0, file_size, smallest, largest, /* smallest_seq */ 0,
         /* largest_seq */ 0, /* marked_for_compact */ false,
-        kInvalidBlobFileNumber);
+        kInvalidBlobFileNumber, kUnknownOldestAncesterTime);
     f->compensated_file_size = file_size;
     vstorage_.AddFile(level, f);
   }

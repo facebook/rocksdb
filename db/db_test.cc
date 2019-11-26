@@ -3318,10 +3318,10 @@ TEST_F(DBTest, FIFOCompactionWithTTLAndMaxOpenFilesTest) {
   options.create_if_missing = true;
   options.ttl = 600;  // seconds
 
-  // Check that it is not supported with max_open_files != -1.
+  // TTL is now supported with max_open_files != -1.
   options.max_open_files = 100;
   options = CurrentOptions(options);
-  ASSERT_TRUE(TryReopen(options).IsNotSupported());
+  ASSERT_OK(TryReopen(options));
 
   options.max_open_files = -1;
   ASSERT_OK(TryReopen(options));
@@ -4828,6 +4828,7 @@ TEST_F(DBTest, DynamicCompactionOptions) {
 // Even more FIFOCompactionTests are at DBTest.FIFOCompaction* .
 TEST_F(DBTest, DynamicFIFOCompactionOptions) {
   Options options;
+  options.ttl = 0;
   options.create_if_missing = true;
   DestroyAndReopen(options);
 
@@ -6187,10 +6188,10 @@ TEST_F(DBTest, CreateColumnFamilyShouldFailOnIncompatibleOptions) {
   Reopen(options);
 
   ColumnFamilyOptions cf_options(options);
-  // ttl is only supported when max_open_files is -1.
+  // ttl is now supported when max_open_files is -1.
   cf_options.ttl = 3600;
   ColumnFamilyHandle* handle;
-  ASSERT_NOK(db_->CreateColumnFamily(cf_options, "pikachu", &handle));
+  ASSERT_OK(db_->CreateColumnFamily(cf_options, "pikachu", &handle));
   delete handle;
 }
 

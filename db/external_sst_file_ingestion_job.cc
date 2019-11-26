@@ -244,10 +244,18 @@ Status ExternalSstFileIngestionJob::Run() {
       return status;
     }
 
+    // We use the import time as the ancester time. This is the time the data
+    // is written to the database.
+    uint64_t oldest_ancester_time = 0;
+    int64_t temp_current_time = 0;
+    if (env_->GetCurrentTime(&temp_current_time).ok()) {
+      oldest_ancester_time = static_cast<uint64_t>(temp_current_time);
+    }
+
     edit_.AddFile(f.picked_level, f.fd.GetNumber(), f.fd.GetPathId(),
                   f.fd.GetFileSize(), f.smallest_internal_key,
                   f.largest_internal_key, f.assigned_seqno, f.assigned_seqno,
-                  false, kInvalidBlobFileNumber);
+                  false, kInvalidBlobFileNumber, oldest_ancester_time);
   }
   return status;
 }
