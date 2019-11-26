@@ -876,7 +876,10 @@ else()
     port/port_posix.cc
     env/env_posix.cc
     env/fs_posix.cc
-    env/io_posix.cc)
+    env/io_posix.cc
+    env/fs_zenfs.cc
+    env/io_zenfs.cc
+    env/zbd_zenfs.cc)
 endif()
 
 if(WITH_FOLLY_DISTRIBUTED_MUTEX)

@@ -47,6 +47,7 @@
 #include <vector>
 
 #include "env/composite_env_wrapper.h"
+#include "env/fs_zenfs.h"
 #include "env/io_posix.h"
 #include "logging/posix_logger.h"
 #include "monitoring/iostats_context_imp.h"
@@ -1055,8 +1056,42 @@ static FactoryFunc<FileSystem> posix_filesystem_reg =
           f->reset(new PosixFileSystem());
           return f->get();
         });
-#endif
 
+static FactoryFunc<FileSystem> zenfs_filesystem_reg =
+    ObjectLibrary::Default()->Register<FileSystem>(
+        "zenfs://.*", [](const std::string& uri, std::unique_ptr<FileSystem>* f,
+                         std::string* errmsg) {
+          std::string devID = uri;
+          FileSystem* fs = nullptr;
+          Status s;
+
+          devID.replace(0, strlen("zenfs://"), "");
+          if (devID.rfind("dev:") == 0) {
+            devID.replace(0, strlen("dev:"), "");
+            s = NewZenFS(&fs, devID, FileSystem::Default());
+            if (!s.ok()) {
+              *errmsg = s.ToString();
+            }
+          } else if (devID.rfind("uuid:") == 0) {
+            std::map<std::string, std::string> zenFileSystems =
+                ListZenFileSystems();
+            devID.replace(0, strlen("uuid:"), "");
+
+            if (zenFileSystems.find(devID) == zenFileSystems.end()) {
+              *errmsg = "UUID not found";
+            } else {
+              s = NewZenFS(&fs, zenFileSystems[devID], FileSystem::Default());
+              if (!s.ok()) {
+                *errmsg = s.ToString();
+              }
+            }
+          } else {
+            *errmsg = "Malformed URI";
+          }
+          f->reset(fs);
+          return f->get();
+        });
+#endif
 }  // namespace ROCKSDB_NAMESPACE
 
 #endif

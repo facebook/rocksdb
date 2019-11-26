@@ -396,6 +396,19 @@ EOF
         fi
     fi
 
+    if ! test $ROCKSDB_DISABLE_LZBD; then
+        # Test whether libzbd is installed
+        $CXX $CFLAGS $COMMON_FLAGS -x c++ - -o /dev/null 2>/dev/null  <<EOF
+          #include <libzbd/zbd.h>
+          int main() {}
+EOF
+        if [ "$?" = 0 ]; then
+            COMMON_FLAGS="$COMMON_FLAGS -DLIBZBD"
+            PLATFORM_LDFLAGS="$PLATFORM_LDFLAGS -lzbd"
+            JAVA_LDFLAGS="$JAVA_LDFLAGS -lzbd"
+        fi
+    fi
+
     if ! test $ROCKSDB_DISABLE_NUMA; then
         # Test whether numa is available
         $CXX $CFLAGS -x c++ - -o /dev/null -lnuma 2>/dev/null  <<EOF
