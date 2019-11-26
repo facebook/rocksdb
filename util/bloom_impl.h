@@ -104,17 +104,15 @@ class FastLocalBloomImpl {
       return 11;
     } else if (millibits_per_key <= 25501) {
       return 12;
+    } else if (millibits_per_key > 50000) {
+      // Top out at 24 probes (three sets of 8)
+      return 24;
     } else {
-      // Roughly optimal choice above that point
+      // Roughly optimal choices for remaining range
       // e.g.
       // 28000 -> 12, 28001 -> 13
       // 50000 -> 23, 50001 -> 24
-      int num_probes = (millibits_per_key - 1) / 2000 - 1;
-      if (num_probes > 30) {
-        return 30;
-      } else {
-        return num_probes;
-      }
+      return (millibits_per_key - 1) / 2000 - 1;
     }
   }
 
