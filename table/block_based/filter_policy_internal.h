@@ -87,12 +87,18 @@ class BloomFilterPolicy : public FilterPolicy {
 
   FilterBitsBuilder* GetFilterBitsBuilder() const override;
 
-  // To use this function, call FilterBuildingContext::GetBuilder().
+  // To use this function, call GetBuilderFromContext().
   //
   // Neither the context nor any objects therein should be saved beyond
   // the call to this function, unless it's shared_ptr.
   FilterBitsBuilder* GetBuilderWithContext(
       const FilterBuildingContext&) const override;
+
+  // Returns a new FilterBitsBuilder from the filter_policy in
+  // table_options of a context, or nullptr if not applicable.
+  // (An internal convenience function to save boilerplate.)
+  static FilterBitsBuilder* GetBuilderFromContext(
+      const FilterBuildingContext&);
 
   // Read metadata to determine what kind of FilterBitsReader is needed
   // and return a new one. This must successfully process any filter data

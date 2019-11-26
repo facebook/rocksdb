@@ -254,7 +254,7 @@ class FullBloomTest : public testing::TestWithParam<BloomFilterPolicy::Mode> {
   }
 
   void Reset() {
-    bits_builder_.reset(FilterBuildingContext(table_options_).GetBuilder());
+    bits_builder_.reset(BloomFilterPolicy::GetBuilderFromContext(FilterBuildingContext(table_options_)));
     bits_reader_.reset(nullptr);
     buf_.reset(nullptr);
     filter_size_ = 0;

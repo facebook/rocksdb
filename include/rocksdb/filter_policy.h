@@ -89,11 +89,6 @@ struct FilterBuildingContext {
   // This constructor is for internal use only and subject to change.
   FilterBuildingContext(const BlockBasedTableOptions& table_options);
 
-  // Returns a new FilterBitsBuilder from the filter_policy in
-  // table_options, or nullptr if not applicable.
-  // (An internal convenience function to save boilerplate.)
-  FilterBitsBuilder* GetBuilder() const;
-
   // Options for the table being built
   const BlockBasedTableOptions& table_options;
 

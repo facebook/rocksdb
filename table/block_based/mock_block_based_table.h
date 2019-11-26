@@ -7,6 +7,7 @@
 #include "table/block_based/block_based_filter_block.h"
 #include "rocksdb/filter_policy.h"
 #include "table/block_based/block_based_table_reader.h"
+#include "table/block_based/filter_policy_internal.h"
 
 namespace rocksdb {
 namespace mock {
@@ -46,7 +47,7 @@ class MockBlockBasedTableTester {
     context.column_family_name = "mock_cf";
     context.compaction_style = ioptions_.compaction_style;
     context.level_at_creation = kMockLevel;
-    return context.GetBuilder();
+    return BloomFilterPolicy::GetBuilderFromContext(context);
   }
 };
 

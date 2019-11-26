@@ -68,7 +68,8 @@ FilterBlockBuilder* CreateFilterBlockBuilder(
   const BlockBasedTableOptions& table_opt = context.table_options;
   if (table_opt.filter_policy == nullptr) return nullptr;
 
-  FilterBitsBuilder* filter_bits_builder = context.GetBuilder();
+  FilterBitsBuilder* filter_bits_builder =
+      BloomFilterPolicy::GetBuilderFromContext(context);
   if (filter_bits_builder == nullptr) {
     return new BlockBasedFilterBlockBuilder(mopt.prefix_extractor.get(),
                                             table_opt);

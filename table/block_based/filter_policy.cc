@@ -477,11 +477,12 @@ bool BloomFilterPolicy::KeyMayMatch(const Slice& key,
 
 FilterBitsBuilder* BloomFilterPolicy::GetFilterBitsBuilder() const {
   // This code path should no longer be used, for the built-in
-  // BloomFilterPolicy. Internal to RocksDB and outside BloomFilterPolicy,
-  // only get a FilterBitsBuilder with FilterBuildingContext::GetBuilder(),
-  // which will call BloomFilterPolicy::GetBuilderWithContext.
-  // RocksDB users have been warned (HISTORY.md) that they can no longer
-  // call this on the built-in BloomFilterPolicy (unlikely).
+  // BloomFilterPolicy. Internal to RocksDB and outside
+  // BloomFilterPolicy, only get a FilterBitsBuilder with
+  // BloomFilterPolicy::GetBuilderFromContext(), which will call
+  // BloomFilterPolicy::GetBuilderWithContext(). RocksDB users have
+  // been warned (HISTORY.md) that they can no longer call this on
+  // the built-in BloomFilterPolicy (unlikely).
   assert(false);
   return GetBuilderWithContext(FilterBuildingContext(BlockBasedTableOptions()));
 }
@@ -510,6 +511,14 @@ FilterBitsBuilder* BloomFilterPolicy::GetBuilderWithContext(
   }
   assert(false);
   return nullptr;  // something legal
+}
+
+FilterBitsBuilder* BloomFilterPolicy::GetBuilderFromContext(const FilterBuildingContext& context) {
+  if (context.table_options.filter_policy) {
+    return context.table_options.filter_policy->GetBuilderWithContext(context);
+  } else {
+    return nullptr;
+  }
 }
 
 // Read metadata to determine what kind of FilterBitsReader is needed
@@ -665,14 +674,6 @@ const FilterPolicy* NewBloomFilterPolicy(int bits_per_key,
 FilterBuildingContext::FilterBuildingContext(
     const BlockBasedTableOptions& _table_options)
     : table_options(_table_options) {}
-
-FilterBitsBuilder* FilterBuildingContext::GetBuilder() const {
-  if (table_options.filter_policy) {
-    return table_options.filter_policy->GetBuilderWithContext(*this);
-  } else {
-    return nullptr;
-  }
-}
 
 FilterPolicy::~FilterPolicy() { }
 
