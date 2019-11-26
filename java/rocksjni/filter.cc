@@ -19,10 +19,10 @@
 /*
  * Class:     org_rocksdb_BloomFilter
  * Method:    createBloomFilter
- * Signature: (IZ)J
+ * Signature: (DZ)J
  */
 jlong Java_org_rocksdb_BloomFilter_createNewBloomFilter(
-    JNIEnv* /*env*/, jclass /*jcls*/, jint bits_per_key,
+    JNIEnv* /*env*/, jclass /*jcls*/, jdouble bits_per_key,
     jboolean use_block_base_builder) {
   auto* sptr_filter = new std::shared_ptr<const rocksdb::FilterPolicy>(
       rocksdb::NewBloomFilterPolicy(bits_per_key, use_block_base_builder));

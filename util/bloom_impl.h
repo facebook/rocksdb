@@ -72,6 +72,50 @@ namespace rocksdb {
 //
 class FastLocalBloomImpl {
  public:
+  static inline int ChooseNumProbes(int millibits_per_key) {
+    // Since this implementation can (with AVX2) make up to 8 probes
+    // for the same cost, we pick the most accurate num_probes, based
+    // on actual tests of the implementation. Note that for higher
+    // bits/key, the best choice for cache-local Bloom can be notably
+    // smaller than standard bloom, e.g. 9 instead of 11 @ 16 b/k.
+    if (millibits_per_key <= 2080) {
+      return 1;
+    } else if (millibits_per_key <= 3580) {
+      return 2;
+    } else if (millibits_per_key <= 5100) {
+      return 3;
+    } else if (millibits_per_key <= 6640) {
+      return 4;
+    } else if (millibits_per_key <= 8300) {
+      return 5;
+    } else if (millibits_per_key <= 10070) {
+      return 6;
+    } else if (millibits_per_key <= 11720) {
+      return 7;
+    } else if (millibits_per_key <= 14001) {
+      // Would be something like <= 13800 but sacrificing *slightly* for
+      // more settings using <= 8 probes.
+      return 8;
+    } else if (millibits_per_key <= 16050) {
+      return 9;
+    } else if (millibits_per_key <= 18300) {
+      return 10;
+    } else if (millibits_per_key <= 22001) {
+      return 11;
+    } else if (millibits_per_key <= 25501) {
+      return 12;
+    } else if (millibits_per_key > 50000) {
+      // Top out at 24 probes (three sets of 8)
+      return 24;
+    } else {
+      // Roughly optimal choices for remaining range
+      // e.g.
+      // 28000 -> 12, 28001 -> 13
+      // 50000 -> 23, 50001 -> 24
+      return (millibits_per_key - 1) / 2000 - 1;
+    }
+  }
+
   static inline void AddHash(uint32_t h1, uint32_t h2, uint32_t len_bytes,
                              int num_probes, char *data) {
     uint32_t bytes_to_cache_line = fastrange32(len_bytes >> 6, h1) << 6;
@@ -228,6 +272,14 @@ class FastLocalBloomImpl {
 //
 class LegacyNoLocalityBloomImpl {
  public:
+  static inline int ChooseNumProbes(int bits_per_key) {
+    // We intentionally round down to reduce probing cost a little bit
+    int num_probes = static_cast<int>(bits_per_key * 0.69);  // 0.69 =~ ln(2)
+    if (num_probes < 1) num_probes = 1;
+    if (num_probes > 30) num_probes = 30;
+    return num_probes;
+  }
+
   static inline void AddHash(uint32_t h, uint32_t total_bits, int num_probes,
                              char *data) {
     const uint32_t delta = (h >> 17) | (h << 15);  // Rotate right 17 bits
