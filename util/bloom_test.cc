@@ -16,6 +16,7 @@ int main() {
 #else
 
 #include <array>
+#include <cmath>
 #include <vector>
 
 #include "logging/logging.h"
@@ -69,7 +70,7 @@ class BlockBasedBloomTest : public testing::Test {
     filter_.clear();
   }
 
-  void ResetPolicy(int bits_per_key) {
+  void ResetPolicy(double bits_per_key) {
     policy_.reset(new BloomFilterPolicy(bits_per_key,
                                         BloomFilterPolicy::kDeprecatedBlock));
     Reset();
@@ -229,6 +230,22 @@ TEST_F(BlockBasedBloomTest, Schema) {
   Build();
   ASSERT_EQ(BloomHash(FilterData()), 3057004015U);
 
+  // With new fractional bits_per_key, check that we are rounding to
+  // whole bits per key for old Bloom filters.
+  ResetPolicy(9.5);  // Treated as 10
+  for (int key = 1; key < 88; key++) {
+    Add(Key(key, buffer));
+  }
+  Build();
+  ASSERT_EQ(BloomHash(FilterData()), /*SAME*/ 3057004015U);
+
+  ResetPolicy(10.499);  // Treated as 10
+  for (int key = 1; key < 88; key++) {
+    Add(Key(key, buffer));
+  }
+  Build();
+  ASSERT_EQ(BloomHash(FilterData()), /*SAME*/ 3057004015U);
+
   ResetPolicy();
 }
 
@@ -250,7 +267,12 @@ class FullBloomTest : public testing::TestWithParam<BloomFilterPolicy::Mode> {
 
   BuiltinFilterBitsBuilder* GetBuiltinFilterBitsBuilder() {
     // Throws on bad cast
-    return &dynamic_cast<BuiltinFilterBitsBuilder&>(*bits_builder_.get());
+    return &dynamic_cast<BuiltinFilterBitsBuilder&>(*bits_builder_);
+  }
+
+  const BloomFilterPolicy* GetBloomFilterPolicy() {
+    // Throws on bad cast
+    return &dynamic_cast<const BloomFilterPolicy&>(*policy_);
   }
 
   void Reset() {
@@ -260,7 +282,7 @@ class FullBloomTest : public testing::TestWithParam<BloomFilterPolicy::Mode> {
     filter_size_ = 0;
   }
 
-  void ResetPolicy(int bits_per_key) {
+  void ResetPolicy(double bits_per_key) {
     policy_.reset(new BloomFilterPolicy(bits_per_key, GetParam()));
     Reset();
   }
@@ -366,14 +388,57 @@ class FullBloomTest : public testing::TestWithParam<BloomFilterPolicy::Mode> {
 };
 
 TEST_P(FullBloomTest, FilterSize) {
-  auto bits_builder = GetBuiltinFilterBitsBuilder();
-  for (int n = 1; n < 100; n++) {
-    auto space = bits_builder->CalculateSpace(n);
-    auto n2 = bits_builder->CalculateNumEntry(space);
-    ASSERT_GE(n2, n);
-    auto space2 = bits_builder->CalculateSpace(n2);
-    ASSERT_EQ(space, space2);
+  // In addition to checking the consistency of space computation, we are
+  // checking that denoted and computed doubles are interpreted as expected
+  // as bits_per_key values.
+  bool some_computed_less_than_denoted = false;
+  // Note: enforced minimum is 1 bit per key (1000 millibits), and enforced
+  // maximum is 100 bits per key (100000 millibits).
+  for (auto bpk :
+       std::vector<std::pair<double, int> >{{-HUGE_VAL, 1000},
+                                            {-INFINITY, 1000},
+                                            {0.0, 1000},
+                                            {1.234, 1234},
+                                            {3.456, 3456},
+                                            {9.5, 9500},
+                                            {10.0, 10000},
+                                            {10.499, 10499},
+                                            {21.345, 21345},
+                                            {99.999, 99999},
+                                            {1234.0, 100000},
+                                            {HUGE_VAL, 100000},
+                                            {INFINITY, 100000},
+                                            {NAN, 100000}}) {
+    ResetPolicy(bpk.first);
+    auto bfp = GetBloomFilterPolicy();
+    EXPECT_EQ(bpk.second, bfp->GetMillibitsPerKey());
+    EXPECT_EQ((bpk.second + 500) / 1000, bfp->GetWholeBitsPerKey());
+
+    double computed = bpk.first;
+    // This transforms e.g. 9.5 -> 9.499999999999998, which we still
+    // round to 10 for whole bits per key.
+    computed += 0.5;
+    computed /= 1234567.0;
+    computed *= 1234567.0;
+    computed -= 0.5;
+    some_computed_less_than_denoted |= (computed < bpk.first);
+    ResetPolicy(computed);
+    bfp = GetBloomFilterPolicy();
+    EXPECT_EQ(bpk.second, bfp->GetMillibitsPerKey());
+    EXPECT_EQ((bpk.second + 500) / 1000, bfp->GetWholeBitsPerKey());
+
+    auto bits_builder = GetBuiltinFilterBitsBuilder();
+    for (int n = 1; n < 100; n++) {
+      auto space = bits_builder->CalculateSpace(n);
+      auto n2 = bits_builder->CalculateNumEntry(space);
+      EXPECT_GE(n2, n);
+      auto space2 = bits_builder->CalculateSpace(n2);
+      EXPECT_EQ(space, space2);
+    }
   }
+  // Check that the compiler hasn't optimized our computation into nothing
+  EXPECT_TRUE(some_computed_less_than_denoted);
+  ResetPolicy();
 }
 
 TEST_P(FullBloomTest, FullEmptyFilter) {
@@ -546,32 +611,43 @@ TEST_P(FullBloomTest, Schema) {
     EXPECT_EQ("34,74,130,236,643,882,962,1015,1035,1110", FirstFPs(10));
   }
 
-  ResetPolicy(14);  // num_probes = 9
+  // This used to be 9 probes, but 8 is a better choice for speed,
+  // especially with SIMD groups of 8 probes, with essentially no
+  // change in FP rate.
+  // FP rate @ 9 probes, old Bloom: 0.4321%
+  // FP rate @ 9 probes, new Bloom: 0.1846%
+  // FP rate @ 8 probes, new Bloom: 0.1843%
+  ResetPolicy(14);  // num_probes = 8 (new), 9 (old)
   for (int key = 0; key < 2087; key++) {
     Add(Key(key, buffer));
   }
   Build();
-  EXPECT_EQ(GetNumProbesFromFilterData(), 9);
+  EXPECT_EQ(GetNumProbesFromFilterData(), SelectByImpl(9, 8));
   EXPECT_EQ(
       BloomHash(FilterData()),
       SelectByImpl(SelectByCacheLineSize(178861123, 379087593, 2574136516U),
-                   3129678118U));
+                   3709876890U));
   if (GetParam() == BloomFilterPolicy::kFastLocalBloom) {
-    EXPECT_EQ("130,989,2002,3225,3543,4522,4863,5256,5277", FirstFPs(9));
+    EXPECT_EQ("130,240,522,565,989,2002,2526,3147,3543", FirstFPs(9));
   }
 
-  ResetPolicy(16);  // num_probes = 11
+  // This used to be 11 probes, but 9 is a better choice for speed
+  // AND accuracy.
+  // FP rate @ 11 probes, old Bloom: 0.3571%
+  // FP rate @ 11 probes, new Bloom: 0.0884%
+  // FP rate @  9 probes, new Bloom: 0.0843%
+  ResetPolicy(16);  // num_probes = 9 (new), 11 (old)
   for (int key = 0; key < 2087; key++) {
     Add(Key(key, buffer));
   }
   Build();
-  EXPECT_EQ(GetNumProbesFromFilterData(), 11);
+  EXPECT_EQ(GetNumProbesFromFilterData(), SelectByImpl(11, 9));
   EXPECT_EQ(
       BloomHash(FilterData()),
       SelectByImpl(SelectByCacheLineSize(1129406313, 3049154394U, 1727750964),
-                   1262483504));
+                   1087138490));
   if (GetParam() == BloomFilterPolicy::kFastLocalBloom) {
-    EXPECT_EQ("240,945,2660,3299,4031,4282,5173,6197,8715", FirstFPs(9));
+    EXPECT_EQ("3299,3611,3916,6620,7822,8079,8482,8942,10167", FirstFPs(9));
   }
 
   ResetPolicy(10);  // num_probes = 6, but different memory ratio vs. 9
@@ -614,6 +690,39 @@ TEST_P(FullBloomTest, Schema) {
                    23699164));
   if (GetParam() == BloomFilterPolicy::kFastLocalBloom) {
     EXPECT_EQ("16,126,133,422,466,472,813,1002,1035,1159", FirstFPs(10));
+  }
+
+  // With new fractional bits_per_key, check that we are rounding to
+  // whole bits per key for old Bloom filters but fractional for
+  // new Bloom filter.
+  ResetPolicy(9.5);
+  for (int key = 1; key < 2088; key++) {
+    Add(Key(key, buffer));
+  }
+  Build();
+  EXPECT_EQ(GetNumProbesFromFilterData(), 6);
+  EXPECT_EQ(BloomHash(FilterData()),
+            SelectByImpl(/*SAME*/ SelectByCacheLineSize(2885052954U, 769447944,
+                                                        4175124908U),
+                         /*CHANGED*/ 3166884174U));
+  if (GetParam() == BloomFilterPolicy::kFastLocalBloom) {
+    EXPECT_EQ(/*CHANGED*/ "126,156,367,444,458,791,813,976,1015,1035",
+              FirstFPs(10));
+  }
+
+  ResetPolicy(10.499);
+  for (int key = 1; key < 2088; key++) {
+    Add(Key(key, buffer));
+  }
+  Build();
+  EXPECT_EQ(GetNumProbesFromFilterData(), SelectByImpl(6, 7));
+  EXPECT_EQ(BloomHash(FilterData()),
+            SelectByImpl(/*SAME*/ SelectByCacheLineSize(2885052954U, 769447944,
+                                                        4175124908U),
+                         /*CHANGED*/ 4098502778U));
+  if (GetParam() == BloomFilterPolicy::kFastLocalBloom) {
+    EXPECT_EQ(/*CHANGED*/ "16,236,240,472,1015,1045,1111,1409,1465,1612",
+              FirstFPs(10));
   }
 
   ResetPolicy();

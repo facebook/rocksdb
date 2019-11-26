@@ -91,7 +91,7 @@ class BloomFilterPolicy : public FilterPolicy {
   // tests should prefer using NewBloomFilterPolicy (user-exposed).
   static const std::vector<Mode> kAllUserModes;
 
-  explicit BloomFilterPolicy(int bits_per_key, Mode mode);
+  explicit BloomFilterPolicy(double bits_per_key, Mode mode);
 
   ~BloomFilterPolicy() override;
 
@@ -111,6 +111,11 @@ class BloomFilterPolicy : public FilterPolicy {
   // chosen for this BloomFilterPolicy. Not compatible with CreateFilter.
   FilterBitsReader* GetFilterBitsReader(const Slice& contents) const override;
 
+  // Essentially for testing only: configured millibits/key
+  int GetMillibitsPerKey() const { return millibits_per_key_; }
+  // Essentially for testing only: legacy whole bits/key
+  int GetWholeBitsPerKey() const { return whole_bits_per_key_; }
+
  protected:
   // To use this function, call FilterBuildingContext::GetBuilder().
   //
@@ -120,8 +125,16 @@ class BloomFilterPolicy : public FilterPolicy {
       const FilterBuildingContext&) const override;
 
  private:
-  int bits_per_key_;
-  int num_probes_;
+  // Newer filters support fractional bits per key. For predictable behavior
+  // of 0.001-precision values across floating point implementations, we
+  // round to thousandths of a bit (on average) per key.
+  int millibits_per_key_;
+
+  // Older filters round to whole number bits per key. (There *should* be no
+  // compatibility issue with fractional bits per key, but preserving old
+  // behavior with format_version < 5 just in case.)
+  int whole_bits_per_key_;
+
   // Selected mode (a specific implementation or way of selecting an
   // implementation) for building new SST filters.
   Mode mode_;
