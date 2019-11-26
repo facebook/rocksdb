@@ -1705,6 +1705,16 @@ TEST_F(BlobDBTest, GarbageCollection) {
   VerifyBaseDB(blob_value_versions);
   VerifyBaseDBBlobIndex(blob_index_versions);
 
+  // At this point, we should have 128 immutable non-TTL files with file numbers
+  // 1..128.
+  {
+    auto live_imm_files = blob_db_impl()->TEST_GetLiveImmNonTTLFiles();
+    ASSERT_EQ(live_imm_files.size(), kNumBlobFiles);
+    for (size_t i = 0; i < kNumBlobFiles; ++i) {
+      ASSERT_EQ(live_imm_files[i]->BlobFileNumber(), i + 1);
+    }
+  }
+
   mock_env_->set_current_time(kCompactTime);
 
   ASSERT_OK(blob_db_->CompactRange(CompactRangeOptions(),
@@ -1723,8 +1733,7 @@ TEST_F(BlobDBTest, GarbageCollection) {
 
   VerifyBaseDB(blob_value_versions);
 
-  const uint64_t cutoff =
-      bdb_options.garbage_collection_cutoff * kNumBlobFiles + 1;
+  const uint64_t cutoff = bdb_options.garbage_collection_cutoff * kNumBlobFiles;
   for (auto &pair : blob_index_versions) {
     BlobIndexVersion &version = pair.second;
 
@@ -1734,7 +1743,7 @@ TEST_F(BlobDBTest, GarbageCollection) {
       continue;
     }
 
-    if (version.file_number >= cutoff) {
+    if (version.file_number > cutoff) {
       continue;
     }
 
@@ -1742,6 +1751,21 @@ TEST_F(BlobDBTest, GarbageCollection) {
   }
 
   VerifyBaseDBBlobIndex(blob_index_versions);
+
+  // At this point, we should have 128 immutable non-TTL files with file numbers
+  // 33..128 and 130..161. (129 was taken by the TTL blob file.)
+  {
+    auto live_imm_files = blob_db_impl()->TEST_GetLiveImmNonTTLFiles();
+    ASSERT_EQ(live_imm_files.size(), kNumBlobFiles);
+    for (size_t i = 0; i < kNumBlobFiles; ++i) {
+      uint64_t expected_file_number = i + cutoff + 1;
+      if (expected_file_number > kNumBlobFiles) {
+        ++expected_file_number;
+      }
+
+      ASSERT_EQ(live_imm_files[i]->BlobFileNumber(), expected_file_number);
+    }
+  }
 }
 
 // File should be evicted after expiration.
