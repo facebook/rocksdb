@@ -1641,7 +1641,7 @@ JAVA_INCLUDE = -I$(JAVA_HOME)/include/ -I$(JAVA_HOME)/include/linux
 ifeq ($(PLATFORM), OS_SOLARIS)
 	ARCH := $(shell isainfo -b)
 else ifeq ($(PLATFORM), OS_OPENBSD)
-	ifneq (,$(filter $(MACHINE), amd64 arm64 aarch64 sparc64))
+	ifneq (,$(filter amd64 ppc64 ppc64le arm64 aarch64 sparc64, $(MACHINE)))
 		ARCH := 64
 	else
 		ARCH := 32
@@ -1650,10 +1650,10 @@ else
 	ARCH := $(shell getconf LONG_BIT)
 endif
 
-ifeq (,$(filter $(MACHINE), ppc arm64 aarch64 sparc64))
-        ROCKSDBJNILIB = librocksdbjni-linux$(ARCH).so
+ifneq (,$(filter ppc% arm64 aarch64 sparc64, $(MACHINE)))
+	ROCKSDBJNILIB = librocksdbjni-linux-$(MACHINE).so
 else
-        ROCKSDBJNILIB = librocksdbjni-linux-$(MACHINE).so
+	ROCKSDBJNILIB = librocksdbjni-linux$(ARCH).so
 endif
 ROCKSDB_JAR = rocksdbjni-$(ROCKSDB_MAJOR).$(ROCKSDB_MINOR).$(ROCKSDB_PATCH)-linux$(ARCH).jar
 ROCKSDB_JAR_ALL = rocksdbjni-$(ROCKSDB_MAJOR).$(ROCKSDB_MINOR).$(ROCKSDB_PATCH).jar
