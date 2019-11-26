@@ -1731,7 +1731,7 @@ else
 	ARCH := $(shell getconf LONG_BIT)
 endif
 
-ifeq ($(shell ldd /bin/sh 2>/dev/null | grep -q musl; echo $$?),0)
+ifeq ($(shell ldd /usr/bin/env 2>/dev/null | grep -q musl; echo $$?),0)
         LINUXLIB = musl
 else
         LINUXLIB = linux
