@@ -4,8 +4,7 @@ RocksDB can be built as a single self contained cross-platform JAR. The cross-pl
 
 Building a cross-platform JAR requires:
 
- * [Vagrant](https://www.vagrantup.com/)
- * [Virtualbox](https://www.virtualbox.org/)
+ * [Docker](https://www.docker.com/docker-community)
  * A Mac OSX machine that can compile RocksDB.
  * Java 7 set as JAVA_HOME.
 
