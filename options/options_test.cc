@@ -537,7 +537,7 @@ TEST_F(OptionsTest, GetBlockBasedTableOptionsFromString) {
   ASSERT_EQ(new_opt.block_size, 1024UL);
   ASSERT_EQ(new_opt.block_size_deviation, 8);
   ASSERT_EQ(new_opt.block_restart_interval, 4);
-  ASSERT_EQ(new_opt.format_version, 5);
+  ASSERT_EQ(new_opt.format_version, 5U);
   ASSERT_EQ(new_opt.whole_key_filtering, true);
   ASSERT_TRUE(new_opt.filter_policy != nullptr);
   const BloomFilterPolicy& bfp =
