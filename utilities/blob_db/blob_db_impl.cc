@@ -1251,15 +1251,18 @@ bool BlobDBImpl::SetSnapshotIfNeeded(ReadOptions* read_options) {
 
 Status BlobDBImpl::GetBlobValue(const Slice& key, const Slice& index_entry,
                                 PinnableSlice* value, uint64_t* expiration) {
-  assert(value != nullptr);
+  assert(value);
+
   BlobIndex blob_index;
   Status s = blob_index.DecodeFrom(index_entry);
   if (!s.ok()) {
     return s;
   }
+
   if (blob_index.HasTTL() && blob_index.expiration() <= EpochNow()) {
     return Status::NotFound("Key expired");
   }
+
   if (expiration != nullptr) {
     if (blob_index.HasTTL()) {
       *expiration = blob_index.expiration();
@@ -1267,6 +1270,7 @@ Status BlobDBImpl::GetBlobValue(const Slice& key, const Slice& index_entry,
       *expiration = kNoExpiration;
     }
   }
+
   if (blob_index.IsInlined()) {
     // TODO(yiwu): If index_entry is a PinnableSlice, we can also pin the same
     // memory buffer to avoid extra copy.
@@ -1294,20 +1298,20 @@ Status BlobDBImpl::GetBlobValue(const Slice& key, const Slice& index_entry,
       s = UncompressBlockContentsForCompressionType(
           info, value->data(), value->size(), &contents,
           kBlockBasedTableVersionFormat, *(cfh->cfd()->ioptions()));
-      if (!s.ok()) {
-        if (debug_level_ >= 2) {
-          ROCKS_LOG_ERROR(
-              db_options_.info_log,
-              "Uncompression error during blob read from file: %" PRIu64
-              " blob_offset: %" PRIu64 " blob_size: %" PRIu64
-              " key: %s status: '%s'",
-              blob_index.file_number(), blob_index.offset(), blob_index.size(),
-              key.ToString(/* output_hex */ true).c_str(),
-              s.ToString().c_str());
-        }
+    }
 
-        return Status::Corruption("Unable to uncompress blob.");
+    if (!s.ok()) {
+      if (debug_level_ >= 2) {
+        ROCKS_LOG_ERROR(
+            db_options_.info_log,
+            "Uncompression error during blob read from file: %" PRIu64
+            " blob_offset: %" PRIu64 " blob_size: %" PRIu64
+            " key: %s status: '%s'",
+            blob_index.file_number(), blob_index.offset(), blob_index.size(),
+            key.ToString(/* output_hex */ true).c_str(), s.ToString().c_str());
       }
+
+      return Status::Corruption("Unable to uncompress blob.");
     }
 
     value->PinSelf(contents.data);
