@@ -3311,6 +3311,22 @@ TEST_F(DBTest, FIFOCompactionStyleWithCompactionAndDelete) {
   }
 }
 
+// Check that FIFO-with-TTL is not supported with max_open_files != -1.
+TEST_F(DBTest, FIFOCompactionWithTTLAndMaxOpenFilesTest) {
+  Options options;
+  options.compaction_style = kCompactionStyleFIFO;
+  options.create_if_missing = true;
+  options.ttl = 600;  // seconds
+
+  // TTL is now supported with max_open_files != -1.
+  options.max_open_files = 100;
+  options = CurrentOptions(options);
+  ASSERT_OK(TryReopen(options));
+
+  options.max_open_files = -1;
+  ASSERT_OK(TryReopen(options));
+}
+
 // Check that FIFO-with-TTL is supported only with BlockBasedTableFactory.
 TEST_F(DBTest, FIFOCompactionWithTTLAndVariousTableFormatsTest) {
   Options options;
@@ -4812,6 +4828,7 @@ TEST_F(DBTest, DynamicCompactionOptions) {
 // Even more FIFOCompactionTests are at DBTest.FIFOCompaction* .
 TEST_F(DBTest, DynamicFIFOCompactionOptions) {
   Options options;
+  options.ttl = 0;
   options.create_if_missing = true;
   DestroyAndReopen(options);
 
@@ -6163,6 +6180,19 @@ TEST_F(DBTest, FailWhenCompressionNotSupportedTest) {
       ASSERT_TRUE(!db_->CreateColumnFamily(cf_options, "name", &handle).ok());
     }
   }
+}
+
+TEST_F(DBTest, CreateColumnFamilyShouldFailOnIncompatibleOptions) {
+  Options options = CurrentOptions();
+  options.max_open_files = 100;
+  Reopen(options);
+
+  ColumnFamilyOptions cf_options(options);
+  // ttl is now supported when max_open_files is -1.
+  cf_options.ttl = 3600;
+  ColumnFamilyHandle* handle;
+  ASSERT_OK(db_->CreateColumnFamily(cf_options, "pikachu", &handle));
+  delete handle;
 }
 
 #ifndef ROCKSDB_LITE

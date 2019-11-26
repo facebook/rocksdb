@@ -635,6 +635,21 @@ TEST_F(DBOptionsTest, SanitizeUniversalTTLCompaction) {
   ASSERT_EQ(100, dbfull()->GetOptions().periodic_compaction_seconds);
 }
 
+TEST_F(DBOptionsTest, SanitizeTtlDefault) {
+  Options options;
+  Reopen(options);
+  ASSERT_EQ(30 * 24 * 60 * 60, dbfull()->GetOptions().ttl);
+
+  options.compaction_style = kCompactionStyleLevel;
+  options.ttl = 0;
+  Reopen(options);
+  ASSERT_EQ(0, dbfull()->GetOptions().ttl);
+
+  options.ttl = 100;
+  Reopen(options);
+  ASSERT_EQ(100, dbfull()->GetOptions().ttl);
+}
+
 TEST_F(DBOptionsTest, SanitizeFIFOPeriodicCompaction) {
   Options options;
   options.compaction_style = kCompactionStyleFIFO;

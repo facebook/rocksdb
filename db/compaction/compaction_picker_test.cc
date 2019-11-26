@@ -57,6 +57,8 @@ class CompactionPickerTest : public testing::Test {
         log_buffer_(InfoLogLevel::INFO_LEVEL, &logger_),
         file_num_(1),
         vstorage_(nullptr) {
+    mutable_cf_options_.ttl = 0;
+    mutable_cf_options_.periodic_compaction_seconds = 0;
     // ioptions_.compaction_pri = kMinOverlappingRatio has its own set of
     // tests to cover.
     ioptions_.compaction_pri = kByCompensatedSize;
