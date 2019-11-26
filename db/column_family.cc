@@ -188,6 +188,11 @@ Status CheckCFPathsSupported(const DBOptions& db_options,
   return Status::OK();
 }
 
+namespace {
+const uint64_t kDefaultTtl = 0xfffffffffffffffe;
+const uint64_t kDefaultPeriodicCompSecs = 0xfffffffffffffffe;
+};  // namespace
+
 ColumnFamilyOptions SanitizeOptions(const ImmutableDBOptions& db_options,
                                     const ColumnFamilyOptions& src) {
   ColumnFamilyOptions result = src;
@@ -343,8 +348,20 @@ ColumnFamilyOptions SanitizeOptions(const ImmutableDBOptions& db_options,
     result.max_compaction_bytes = result.target_file_size_base * 25;
   }
 
-  const uint64_t kDefaultPeriodicCompSecs = 0xffffffffffffffff;
-  const uint64_t kDefaultTtlSecs = 30 * 24 * 60 * 60;
+  bool is_block_based_table =
+      (result.table_factory->Name() == BlockBasedTableFactory().Name());
+
+  const uint64_t kAdjustedTtl = 30 * 24 * 60 * 60;
+  if (result.ttl == kDefaultTtl) {
+    if (is_block_based_table &&
+        result.compaction_style != kCompactionStyleFIFO) {
+      result.ttl = kAdjustedTtl;
+    } else {
+      result.ttl = 0;
+    }
+  }
+
+  const uint64_t kAdjustedPeriodicCompSecs = 30 * 24 * 60 * 60;
 
   // Turn on periodic compactions and set them to occur once every 30 days if
   // compaction filters are used and periodic_compaction_seconds is set to the
@@ -352,16 +369,19 @@ ColumnFamilyOptions SanitizeOptions(const ImmutableDBOptions& db_options,
   if (result.compaction_style != kCompactionStyleFIFO) {
     if ((result.compaction_filter != nullptr ||
          result.compaction_filter_factory != nullptr) &&
-        result.periodic_compaction_seconds == kDefaultPeriodicCompSecs) {
-      result.periodic_compaction_seconds = kDefaultTtlSecs;
+        result.periodic_compaction_seconds == kDefaultPeriodicCompSecs &&
+        is_block_based_table) {
+      result.periodic_compaction_seconds = kAdjustedPeriodicCompSecs;
     }
   } else {
     // result.compaction_style == kCompactionStyleFIFO
     if (result.ttl == 0) {
-      if (result.periodic_compaction_seconds == kDefaultPeriodicCompSecs) {
-        result.periodic_compaction_seconds = kDefaultTtlSecs;
+      if (is_block_based_table) {
+        if (result.periodic_compaction_seconds == kDefaultPeriodicCompSecs) {
+          result.periodic_compaction_seconds = kAdjustedPeriodicCompSecs;
+        }
+        result.ttl = result.periodic_compaction_seconds;
       }
-      result.ttl = result.periodic_compaction_seconds;
     } else if (result.periodic_compaction_seconds != 0) {
       result.ttl = std::min(result.ttl, result.periodic_compaction_seconds);
     }
@@ -377,6 +397,10 @@ ColumnFamilyOptions SanitizeOptions(const ImmutableDBOptions& db_options,
     } else {
       result.periodic_compaction_seconds = result.ttl;
     }
+  }
+
+  if (result.periodic_compaction_seconds == kDefaultPeriodicCompSecs) {
+    result.periodic_compaction_seconds = 0;
   }
 
   return result;
@@ -1209,7 +1233,7 @@ Status ColumnFamilyData::ValidateOptions(
     return s;
   }
 
-  if (cf_options.ttl > 0) {
+  if (cf_options.ttl > 0 && cf_options.ttl != kDefaultTtl) {
     if (cf_options.table_factory->Name() != BlockBasedTableFactory().Name()) {
       return Status::NotSupported(
           "TTL is only supported in Block-Based Table format. ");
@@ -1217,7 +1241,7 @@ Status ColumnFamilyData::ValidateOptions(
   }
 
   if (cf_options.periodic_compaction_seconds > 0 &&
-      cf_options.periodic_compaction_seconds < port::kMaxUint64) {
+      cf_options.periodic_compaction_seconds != kDefaultPeriodicCompSecs) {
     if (cf_options.table_factory->Name() != BlockBasedTableFactory().Name()) {
       return Status::NotSupported(
           "Periodic Compaction is only supported in "
