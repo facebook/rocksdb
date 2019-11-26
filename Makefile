@@ -1944,19 +1944,11 @@ rocksdbjavastaticdockerarm64v8:
 
 rocksdbjavastaticdockerx86musl:
 	mkdir -p java/target
-	DOCKER_LINUX_MUSL_X64_CONTAINER=`docker ps -aqf name=rocksdb_linux_musl_x64-be`; \
-	if [ -z "$$DOCKER_LINUX_MUSL_X64_CONTAINER" ]; then \
-		docker container create --attach stdin --attach stdout --attach stderr --volume `pwd`:/rocksdb-host --name rocksdb_linux_musl_x64-be evolvedbinary/rocksjava:alpine-linux_x64 /rocksdb-host/java/crossbuild/docker-build-linux-alpine.sh; \
-	fi
-	docker start -a rocksdb_linux_musl_x64-be
+	docker run --rm --name rocksdb_linux_x86-musl-be --attach stdin --attach stdout --attach stderr --volume `pwd`:/rocksdb-host:ro --volume /rocksdb-local-build --volume `pwd`/java/target:/rocksdb-java-target --env DEBUG_LEVEL=$(DEBUG_LEVEL) evolvedbinary/rocksjava:alpine3_x86-be /rocksdb-host/java/crossbuild/docker-build-linux-centos.sh
 
 rocksdbjavastaticdockerx86_64musl:
 	mkdir -p java/target
-	DOCKER_LINUX_MUSL_X86_CONTAINER=`docker ps -aqf name=rocksdb_linux_musl_x86-be`; \
-	if [ -z "$$DOCKER_LINUX_MUSL_X86_CONTAINER" ]; then \
-		docker container create --attach stdin --attach stdout --attach stderr --volume `pwd`:/rocksdb-host --name rocksdb_linux_musl_x86-be evolvedbinary/rocksjava:alpine-linux_x86 /rocksdb-host/java/crossbuild/docker-build-linux-alpine.sh; \
-	fi
-	docker start -a rocksdb_linux_musl_x86-be
+	docker run --rm --name rocksdb_linux_x64-musl-be --attach stdin --attach stdout --attach stderr --volume `pwd`:/rocksdb-host:ro --volume /rocksdb-local-build --volume `pwd`/java/target:/rocksdb-java-target --env DEBUG_LEVEL=$(DEBUG_LEVEL) evolvedbinary/rocksjava:alpine3_x64-be /rocksdb-host/java/crossbuild/docker-build-linux-centos.sh
 
 rocksdbjavastaticpublish: rocksdbjavastaticrelease rocksdbjavastaticpublishcentral
 
