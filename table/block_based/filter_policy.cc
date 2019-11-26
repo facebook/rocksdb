@@ -513,7 +513,8 @@ FilterBitsBuilder* BloomFilterPolicy::GetBuilderWithContext(
   return nullptr;  // something legal
 }
 
-FilterBitsBuilder* BloomFilterPolicy::GetBuilderFromContext(const FilterBuildingContext& context) {
+FilterBitsBuilder* BloomFilterPolicy::GetBuilderFromContext(
+    const FilterBuildingContext& context) {
   if (context.table_options.filter_policy) {
     return context.table_options.filter_policy->GetBuilderWithContext(context);
   } else {

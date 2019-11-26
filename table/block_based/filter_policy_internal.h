@@ -97,8 +97,7 @@ class BloomFilterPolicy : public FilterPolicy {
   // Returns a new FilterBitsBuilder from the filter_policy in
   // table_options of a context, or nullptr if not applicable.
   // (An internal convenience function to save boilerplate.)
-  static FilterBitsBuilder* GetBuilderFromContext(
-      const FilterBuildingContext&);
+  static FilterBitsBuilder* GetBuilderFromContext(const FilterBuildingContext&);
 
   // Read metadata to determine what kind of FilterBitsReader is needed
   // and return a new one. This must successfully process any filter data
