@@ -20,6 +20,7 @@
 * Added AVX2 instructions to USE_SSE builds to accelerate the new Bloom filter and XXH3-based hash function on compatible x86_64 platforms (Haswell and later, ~2014).
 * Support options.ttl with options.max_open_files = -1. File's oldest ancester time will be written to manifest. If it is availalbe, this information will be used instead of creation_time in table properties.
 * Setting options.ttl for universal compaction now has the same meaning as setting periodic_compaction_seconds.
+* Deletion and GC of backups is supported by a new canary file. Whenever a backup is created, it is associated with a new canary file. In the process of a deletion of a backup, its canary file is the first one to be deleted (even before any metedata). The advantage is that backups with no canary file are safe to be deleted by a garbage collection. Hence garbage collection is faster because it can exclude private folders of backups that are associated with a canary file.
 
 ### Performance Improvements
 * For 64-bit hashing, RocksDB is standardizing on a slightly modified preview version of XXH3. This function is now used for many non-persisted hashes, along with fastrange64() in place of the modulus operator, and some benchmarks show a slight improvement.

@@ -40,6 +40,7 @@
 #include "util/string_util.h"
 #include "utilities/checkpoint/checkpoint_impl.h"
 
+
 namespace rocksdb {
 
 void BackupStatistics::IncrementNumberSuccessBackup() {
@@ -122,6 +123,11 @@ class BackupEngineImpl : public BackupEngine {
  private:
   void DeleteChildren(const std::string& dir, uint32_t file_type_filter = 0);
   Status DeleteBackupInternal(BackupID backup_id);
+  Status DeleteBackupWithCanaryInternal(BackupID backup_id);
+  Status GarbageCollectDeep();
+  Status GarbageCollectWithCanaryAndMeta();
+  Status GarbageCollectSharedDir();
+  Status GarbageCollectPrivateDir(BackupID backup_id);
 
   // Extends the "result" map with pathname->size mappings for the contents of
   // "dir" in "env". Pathnames are prefixed with "dir".
@@ -146,6 +152,7 @@ class BackupEngineImpl : public BackupEngine {
    public:
     BackupMeta(
         const std::string& meta_filename, const std::string& meta_tmp_filename,
+        const std::string& canary_filename,
         std::unordered_map<std::string, std::shared_ptr<FileInfo>>* file_infos,
         Env* env)
         : timestamp_(0),
@@ -153,6 +160,8 @@ class BackupEngineImpl : public BackupEngine {
           size_(0),
           meta_filename_(meta_filename),
           meta_tmp_filename_(meta_tmp_filename),
+          canary_filename_(canary_filename),
+          is_canary_stored_(false),
           file_infos_(file_infos),
           env_(env) {}
 
@@ -184,9 +193,15 @@ class BackupEngineImpl : public BackupEngine {
       app_metadata_ = app_metadata;
     }
 
+    void SetCanaryStored(bool value) { is_canary_stored_ = value; }
+
+    bool IsCanaryStored() { return is_canary_stored_; }
+
     Status AddFile(std::shared_ptr<FileInfo> file_info);
 
     Status Delete(bool delete_meta = true);
+
+    Status DeleteCanary();
 
     bool Empty() {
       return files_.empty();
@@ -207,7 +222,7 @@ class BackupEngineImpl : public BackupEngine {
     Status LoadFromFile(
         const std::string& backup_dir,
         const std::unordered_map<std::string, uint64_t>& abs_path_to_size);
-    Status StoreToFile(bool sync);
+    Status StoreToFile(bool sync, bool with_canary_delete_files);
 
     std::string GetInfoString() {
       std::ostringstream ss;
@@ -233,6 +248,8 @@ class BackupEngineImpl : public BackupEngine {
     std::string app_metadata_;
     std::string const meta_filename_;
     std::string const meta_tmp_filename_;
+    std::string const canary_filename_;
+    bool is_canary_stored_;
     // files with relative paths (without "/" prefix!!)
     std::vector<std::shared_ptr<FileInfo>> files_;
     std::unordered_map<std::string, std::shared_ptr<FileInfo>>* file_infos_;
@@ -293,6 +310,12 @@ class BackupEngineImpl : public BackupEngine {
   inline std::string GetBackupMetaFile(BackupID backup_id, bool tmp) const {
     return GetBackupMetaDir() + "/" + (tmp ? "." : "") +
            rocksdb::ToString(backup_id) + (tmp ? ".tmp" : "");
+  }
+  inline std::string GetBackupCanaryDir() const {
+    return GetAbsolutePath("canary");
+  }
+  inline std::string GetBackupCanaryFile(BackupID backup_id) const {
+    return GetBackupCanaryDir() + "/" + rocksdb::ToString(backup_id);
   }
 
   // If size_limit == 0, there is no size limit, copy everything.
@@ -502,6 +525,7 @@ class BackupEngineImpl : public BackupEngine {
   std::unique_ptr<Directory> backup_directory_;
   std::unique_ptr<Directory> shared_directory_;
   std::unique_ptr<Directory> meta_directory_;
+  std::unique_ptr<Directory> canary_directory_;
   std::unique_ptr<Directory> private_directory_;
 
   static const size_t kDefaultCopyFileBufferSize = 5 * 1024 * 1024LL;  // 5MB
@@ -593,6 +617,11 @@ Status BackupEngineImpl::Initialize() {
     directories.emplace_back(GetAbsolutePath(GetPrivateDirRel()),
                              &private_directory_);
     directories.emplace_back(GetBackupMetaDir(), &meta_directory_);
+
+    if (options_.with_canary_delete_files) {
+      directories.emplace_back(GetBackupCanaryDir(), &canary_directory_);
+    }
+
     // create all the dirs we need
     for (const auto& d : directories) {
       auto s = backup_env_->CreateDirIfMissing(d.first);
@@ -637,7 +666,47 @@ Status BackupEngineImpl::Initialize() {
         backup_id, std::unique_ptr<BackupMeta>(new BackupMeta(
                        GetBackupMetaFile(backup_id, false /* tmp */),
                        GetBackupMetaFile(backup_id, true /* tmp */),
+                       GetBackupCanaryFile(backup_id),
                        &backuped_file_infos_, backup_env_))));
+  }
+
+  if (options_.with_canary_delete_files) {
+    // Load canary files
+    std::vector<std::string> backup_canary_files;
+    {
+      auto s =
+          backup_env_->GetChildren(GetBackupCanaryDir(), &backup_canary_files);
+      if (s.IsNotFound()) {
+        return Status::NotFound(GetBackupCanaryDir() + " is missing");
+      } else if (!s.ok()) {
+        return s;
+      }
+    }
+
+    // Validate canary files:
+    // if a file is unrecognized, delete it. Otherwise, remember it.
+    for (auto& file : backup_canary_files) {
+      if (file == "." || file == "..") {
+        continue;
+      }
+      ROCKS_LOG_INFO(options_.info_log, "Detected canary %s", file.c_str());
+      BackupID backup_id = 0;
+      sscanf(file.c_str(), "%u", &backup_id);
+      if (backup_id == 0 || file != rocksdb::ToString(backup_id) ||
+          backups_.find(backup_id) == backups_.end()) {
+        if (!read_only_) {
+          // invalid file name, delete that
+          auto s = backup_env_->DeleteFile(GetBackupCanaryDir() + "/" + file);
+          ROCKS_LOG_INFO(options_.info_log,
+                         "Unrecognized canary file %s, deleting -- %s",
+                         file.c_str(), s.ToString().c_str());
+        }
+      } else {
+        auto backup = backups_.find(backup_id);
+        assert(backup != backups_.end());
+        backup->second->SetCanaryStored(true);
+      }
+    }
   }
 
   latest_backup_id_ = 0;
@@ -777,7 +846,10 @@ Status BackupEngineImpl::CreateNewBackupWithMetadata(
     // of the latest full backup, then there could be more than one next
     // id with a private dir, the last thing to be deleted in delete
     // backup, but all will be cleaned up with a GarbageCollect.)
-    s = GarbageCollect();
+
+    // GarbageCollectDeep() is needed. Any other GC policy that relies on
+    // metedata may fail because metadata might not be stored.
+    s = GarbageCollectDeep();
   } else if (s.IsNotFound()) {
     // normal case, the new backup's private dir doesn't exist yet
     s = Status::OK();
@@ -787,6 +859,7 @@ Status BackupEngineImpl::CreateNewBackupWithMetadata(
       new_backup_id, std::unique_ptr<BackupMeta>(new BackupMeta(
                          GetBackupMetaFile(new_backup_id, false /* tmp */),
                          GetBackupMetaFile(new_backup_id, true /* tmp */),
+                         GetBackupCanaryFile(new_backup_id),
                          &backuped_file_infos_, backup_env_))));
   assert(ret.second == true);
   auto& new_backup = ret.first->second;
@@ -914,7 +987,8 @@ Status BackupEngineImpl::CreateNewBackupWithMetadata(
 
   if (s.ok()) {
     // persist the backup metadata on the disk
-    s = new_backup->StoreToFile(options_.sync);
+    s = new_backup->StoreToFile(options_.sync,
+                                options_.with_canary_delete_files);
   }
   if (s.ok() && options_.sync) {
     std::unique_ptr<Directory> backup_private_directory;
@@ -929,6 +1003,9 @@ Status BackupEngineImpl::CreateNewBackupWithMetadata(
     }
     if (s.ok() && meta_directory_ != nullptr) {
       s = meta_directory_->Fsync();
+    }
+    if (s.ok() && canary_directory_ != nullptr) {
+      s = canary_directory_->Fsync();
     }
     if (s.ok() && shared_directory_ != nullptr) {
       s = shared_directory_->Fsync();
@@ -991,7 +1068,13 @@ Status BackupEngineImpl::PurgeOldBackups(uint32_t num_backups_to_keep) {
     itr++;
   }
   for (auto backup_id : to_delete) {
-    auto s = DeleteBackupInternal(backup_id);
+    Status s;
+    if (options_.with_canary_delete_files) {
+      s = DeleteBackupWithCanaryInternal(backup_id);
+    } else {
+      s = DeleteBackupInternal(backup_id);
+    }
+
     if (!s.ok()) {
       overall_status = s;
     }
@@ -1008,7 +1091,13 @@ Status BackupEngineImpl::PurgeOldBackups(uint32_t num_backups_to_keep) {
 }
 
 Status BackupEngineImpl::DeleteBackup(BackupID backup_id) {
-  auto s1 = DeleteBackupInternal(backup_id);
+  Status s1;
+  if (options_.with_canary_delete_files) {
+    s1 = DeleteBackupWithCanaryInternal(backup_id);
+  } else {
+    s1 = DeleteBackupInternal(backup_id);
+  }
+
   auto s2 = Status::OK();
 
   // Clean up after any incomplete backup deletion, potentially from
@@ -1079,6 +1168,112 @@ Status BackupEngineImpl::DeleteBackupInternal(BackupID backup_id) {
     // Full gc or trying again later might work
     might_need_garbage_collect_ = true;
   }
+  return Status::OK();
+}
+
+// Does not auto-GarbageCollect
+Status BackupEngineImpl::DeleteBackupWithCanaryInternal(BackupID backup_id) {
+  assert(initialized_);
+  assert(!read_only_);
+
+  auto backup = backups_.find(backup_id);
+  auto overall_s = Status::OK();
+  auto s = Status::OK();
+  std::vector<std::string> to_delete;
+
+  if (backup != backups_.end()) {
+    overall_s = backup->second->DeleteCanary();
+
+    if (overall_s.ok() && backup->second->GetNumberFiles() == 0) {
+      // This backup exists but it does not have files.
+      overall_s = Status::Corruption("Backup corrupted");
+    }
+
+    if (overall_s.ok()) {
+      for (const auto& file_info : backup->second->GetFiles()) {
+        if (file_info->refs == 1) {
+          s = backup_env_->FileExists(GetAbsolutePath(file_info->filename));
+          if (s.ok()) {
+            s = backup_env_->DeleteFile(GetAbsolutePath(file_info->filename));
+          } else if (s.IsNotFound()) {
+            s = Status::OK();  // nothing to delete
+          }
+          ROCKS_LOG_INFO(options_.info_log, "Deleting %s -- %s",
+                         file_info->filename.c_str(), s.ToString().c_str());
+          to_delete.push_back(file_info->filename);
+          if (!s.ok()) {
+            overall_s = s;
+          }
+        }
+      }
+    }
+  } else {
+    auto corrupt = corrupt_backups_.find(backup_id);
+    if (corrupt == corrupt_backups_.end()) {
+      return Status::NotFound("Backup not found");
+    }
+    overall_s = corrupt->second.second->DeleteCanary();
+
+    if (overall_s.ok() && corrupt->second.second->GetNumberFiles() == 0) {
+      // This backup exists but it does not have files.
+      overall_s = Status::Corruption("Backup corrupted");
+    }
+    if (overall_s.ok()) {
+      for (const auto& file_info : corrupt->second.second->GetFiles()) {
+        if (file_info->refs == 1) {
+          s = backup_env_->FileExists(GetAbsolutePath(file_info->filename));
+          if (s.ok()) {
+            s = backup_env_->DeleteFile(GetAbsolutePath(file_info->filename));
+          } else if (s.IsNotFound()) {
+            s = Status::OK();  // nothing to delete
+          }
+          ROCKS_LOG_INFO(options_.info_log, "Deleting %s -- %s",
+                         file_info->filename.c_str(), s.ToString().c_str());
+          to_delete.push_back(file_info->filename);
+          if (!s.ok()) {
+            overall_s = s;
+          }
+        }
+      }
+    }
+  }
+
+  // take care of private dirs -- GarbageCollect() will take care of them
+  // if they are not empty
+  std::string private_dir = GetPrivateFileRel(backup_id);
+  if (overall_s.ok()) {
+    overall_s = backup_env_->DeleteDir(GetAbsolutePath(private_dir));
+    ROCKS_LOG_INFO(options_.info_log, "Deleting private dir %s -- %s",
+                   private_dir.c_str(), s.ToString().c_str());
+  }
+
+  // Take care of metadata only if deletion of files succeeded.
+  if (overall_s.ok()) {
+    for (auto& td : to_delete) {
+      backuped_file_infos_.erase(td);
+    }
+
+    if (backup != backups_.end()) {
+      overall_s = backup->second->Delete();
+      if (overall_s.ok()) {
+        backups_.erase(backup);
+      }
+    } else {
+      auto corrupt = corrupt_backups_.find(backup_id);
+      if (corrupt == corrupt_backups_.end()) {
+        return Status::NotFound("Backup not found");
+      }
+      overall_s = corrupt->second.second->Delete();
+      if (overall_s.ok()) {
+        corrupt_backups_.erase(corrupt);
+      }
+    }
+  }
+
+  if (!overall_s.ok()) {
+    might_need_garbage_collect_ = true;
+  }
+
   return Status::OK();
 }
 
@@ -1562,15 +1757,136 @@ Status BackupEngineImpl::InsertPathnameToSizeBytes(
 Status BackupEngineImpl::GarbageCollect() {
   assert(!read_only_);
 
+    ROCKS_LOG_INFO(options_.info_log, "Starting garbage collection");
+
+  if (options_.with_canary_delete_files) {
+    return GarbageCollectWithCanaryAndMeta();
+  } else {
+    return GarbageCollectDeep();
+  }
+}
+
+Status BackupEngineImpl::GarbageCollectDeep() {
+  assert(!read_only_);
+
   // We will make a best effort to remove all garbage even in the presence
   // of inconsistencies or I/O failures that inhibit finding garbage.
   Status overall_status = Status::OK();
   // If all goes well, we don't need another auto-GC this session
   might_need_garbage_collect_ = false;
 
-  ROCKS_LOG_INFO(options_.info_log, "Starting garbage collection");
+  auto s = GarbageCollectSharedDir();
 
-  // delete obsolete shared files
+  if (!s.ok()) {
+    overall_status = s;
+    might_need_garbage_collect_ = true;
+  }
+
+  // delete obsolete private files
+  std::vector<std::string> private_children;
+  {
+    s = backup_env_->GetChildren(GetAbsolutePath(GetPrivateDirRel()),
+                                      &private_children);
+    if (!s.ok()) {
+      overall_status = s;
+      // Trying again later might work
+      might_need_garbage_collect_ = true;
+    }
+  }
+  for (auto& child : private_children) {
+    if (child == "." || child == "..") {
+      continue;
+    }
+
+    BackupID backup_id = 0;
+    bool tmp_dir = child.find(".tmp") != std::string::npos;
+    sscanf(child.c_str(), "%u", &backup_id);
+    if (!tmp_dir &&  // if it's tmp_dir, delete it
+        (backup_id == 0 || backups_.find(backup_id) != backups_.end())) {
+      // it's either not a number or it's still alive. continue
+      continue;
+    }
+
+    s = GarbageCollectPrivateDir(backup_id);
+    if (!s.ok()) {
+      overall_status = s;
+      // Trying again later might work
+      might_need_garbage_collect_ = true;
+    }
+  }
+
+  assert(overall_status.ok() || might_need_garbage_collect_);
+  return overall_status;
+}
+
+Status BackupEngineImpl::GarbageCollectWithCanaryAndMeta() {
+  assert(!read_only_);
+
+  // We will make a best effort to remove all garbage even in the presence
+  // of inconsistencies or I/O failures that inhibit finding garbage.
+  Status overall_status = Status::OK();
+  // If all goes well, we don't need another auto-GC this session
+  might_need_garbage_collect_ = false;
+
+  std::vector<BackupID> to_erase;
+  std::vector<BackupID> to_erase_corrupt;
+
+  for (auto& itr : backups_) {
+    BackupID backup_id = itr.first;
+    bool is_canary_stored = itr.second->IsCanaryStored();
+    if (!is_canary_stored) {
+      auto s = GarbageCollectPrivateDir(backup_id);
+      if (s.ok()) {
+        s = itr.second->Delete();
+      }
+      if (s.ok()) {
+        to_erase.push_back(backup_id);
+      } else {
+        overall_status = s;
+        might_need_garbage_collect_ = true;
+      }
+    }
+  }
+
+  for (auto& b : to_erase) {
+    backups_.erase(b);
+  }
+
+  for (auto& itr : corrupt_backups_) {
+    BackupID backup_id = itr.first;
+    bool is_canary_stored = itr.second.second->IsCanaryStored();
+    if (!is_canary_stored) {
+      auto s = GarbageCollectPrivateDir(backup_id);
+      if (s.ok()) {
+        s = itr.second.second->Delete();
+      }
+      if (s.ok()) {
+        to_erase_corrupt.push_back(backup_id);
+      } else {
+        overall_status = s;
+        might_need_garbage_collect_ = true;
+      }
+    }
+  }
+
+  for (auto& b : to_erase_corrupt) {
+    corrupt_backups_.erase(b);
+  }
+
+  auto s = GarbageCollectSharedDir();
+
+  if (!s.ok()) {
+    overall_status = s;
+    might_need_garbage_collect_ = true;
+  }
+
+  assert(overall_status.ok() || might_need_garbage_collect_);
+  return overall_status;
+}
+
+Status BackupEngineImpl::GarbageCollectSharedDir() {
+  Status overall_status = Status::OK();
+
   for (bool with_checksum : {false, true}) {
     std::vector<std::string> shared_children;
     {
@@ -1588,8 +1904,6 @@ Status BackupEngineImpl::GarbageCollect() {
       }
       if (!s.ok()) {
         overall_status = s;
-        // Trying again later might work
-        might_need_garbage_collect_ = true;
       }
     }
     for (auto& child : shared_children) {
@@ -1613,67 +1927,47 @@ Status BackupEngineImpl::GarbageCollect() {
                        rel_fname.c_str(), s.ToString().c_str());
         backuped_file_infos_.erase(rel_fname);
         if (!s.ok()) {
-          // Trying again later might work
-          might_need_garbage_collect_ = true;
+          overall_status = s;
         }
       }
     }
   }
-
-  // delete obsolete private files
-  std::vector<std::string> private_children;
-  {
-    auto s = backup_env_->GetChildren(GetAbsolutePath(GetPrivateDirRel()),
-                                      &private_children);
-    if (!s.ok()) {
-      overall_status = s;
-      // Trying again later might work
-      might_need_garbage_collect_ = true;
-    }
-  }
-  for (auto& child : private_children) {
-    if (child == "." || child == "..") {
-      continue;
-    }
-
-    BackupID backup_id = 0;
-    bool tmp_dir = child.find(".tmp") != std::string::npos;
-    sscanf(child.c_str(), "%u", &backup_id);
-    if (!tmp_dir &&  // if it's tmp_dir, delete it
-        (backup_id == 0 || backups_.find(backup_id) != backups_.end())) {
-      // it's either not a number or it's still alive. continue
-      continue;
-    }
-    // here we have to delete the dir and all its children
-    std::string full_private_path =
-        GetAbsolutePath(GetPrivateFileRel(backup_id));
-    std::vector<std::string> subchildren;
-    backup_env_->GetChildren(full_private_path, &subchildren);
-    for (auto& subchild : subchildren) {
-      if (subchild == "." || subchild == "..") {
-        continue;
-      }
-      Status s = backup_env_->DeleteFile(full_private_path + subchild);
-      ROCKS_LOG_INFO(options_.info_log, "Deleting %s -- %s",
-                     (full_private_path + subchild).c_str(),
-                     s.ToString().c_str());
-      if (!s.ok()) {
-        // Trying again later might work
-        might_need_garbage_collect_ = true;
-      }
-    }
-    // finally delete the private dir
-    Status s = backup_env_->DeleteDir(full_private_path);
-    ROCKS_LOG_INFO(options_.info_log, "Deleting dir %s -- %s",
-                   full_private_path.c_str(), s.ToString().c_str());
-    if (!s.ok()) {
-      // Trying again later might work
-      might_need_garbage_collect_ = true;
-    }
-  }
-
-  assert(overall_status.ok() || might_need_garbage_collect_);
   return overall_status;
+}
+
+Status BackupEngineImpl::GarbageCollectPrivateDir(BackupID backup_id) {
+  assert(!read_only_);
+
+  auto backup_delete_status = Status::OK();
+  // here we have to delete the dir and all its children
+  std::string full_private_path = GetAbsolutePath(GetPrivateFileRel(backup_id));
+  std::vector<std::string> subchildren;
+  backup_env_->GetChildren(full_private_path, &subchildren);
+  for (auto& subchild : subchildren) {
+    if (subchild == "." || subchild == "..") {
+      continue;
+    }
+    Status s = backup_env_->DeleteFile(full_private_path + subchild);
+    ROCKS_LOG_INFO(options_.info_log, "Deleting %s -- %s",
+                   (full_private_path + subchild).c_str(),
+                   s.ToString().c_str());
+    if (!s.ok()) {
+      backup_delete_status = s;
+    }
+  }
+  if (backup_delete_status.ok()) {
+    backup_delete_status = backup_env_->FileExists(full_private_path);
+    if (backup_delete_status.ok()) {
+      backup_delete_status = backup_env_->DeleteDir(full_private_path);
+      ROCKS_LOG_INFO(options_.info_log, "Deleting dir %s -- %s",
+                     full_private_path.c_str(),
+                     backup_delete_status.ToString().c_str());
+    } else if (backup_delete_status.IsNotFound()) {
+      backup_delete_status = Status::OK();
+    }
+  }
+
+  return backup_delete_status;
 }
 
 // ------- BackupMeta class --------
@@ -1721,6 +2015,22 @@ Status BackupEngineImpl::BackupMeta::Delete(bool delete_meta) {
     }
   }
   timestamp_ = 0;
+  return s;
+}
+
+Status BackupEngineImpl::BackupMeta::DeleteCanary() {
+  Status s;
+
+  s = env_->FileExists(canary_filename_);
+  if (s.ok()) {
+    s = env_->DeleteFile(canary_filename_);
+  } else if (s.IsNotFound()) {
+    s = Status::OK();  // nothing to delete
+  }
+
+  if (s.ok()) {
+    is_canary_stored_ = false;
+  }
   return s;
 }
 
@@ -1839,7 +2149,8 @@ Status BackupEngineImpl::BackupMeta::LoadFromFile(
   return s;
 }
 
-Status BackupEngineImpl::BackupMeta::StoreToFile(bool sync) {
+Status BackupEngineImpl::BackupMeta::StoreToFile(
+    bool sync, bool with_canary_delete_files) {
   Status s;
   std::unique_ptr<WritableFile> backup_meta_file;
   EnvOptions env_options;
@@ -1860,11 +2171,11 @@ Status BackupEngineImpl::BackupMeta::StoreToFile(bool sync) {
         Slice(app_metadata_).ToString(/* hex */ true);
 
     // +1 to accommodate newline character
-    size_t hex_meta_strlen = kMetaDataPrefix.ToString().length() + hex_encoded_metadata.length() + 1;
+    size_t hex_meta_strlen =
+        kMetaDataPrefix.ToString().length() + hex_encoded_metadata.length() + 1;
     if (hex_meta_strlen >= buf_size) {
       return Status::Corruption("Buffer too small to fit backup metadata");
-    }
-    else if (len + hex_meta_strlen >= buf_size) {
+    } else if (len + hex_meta_strlen >= buf_size) {
       backup_meta_file->Append(Slice(buf.get(), len));
       buf.reset();
       std::unique_ptr<char[]> new_reset_buf(
@@ -1879,7 +2190,8 @@ Status BackupEngineImpl::BackupMeta::StoreToFile(bool sync) {
 
   char writelen_temp[19];
   if (len + snprintf(writelen_temp, sizeof(writelen_temp),
-                     "%" ROCKSDB_PRIszt "\n", files_.size()) >= buf_size) {
+                     "%" ROCKSDB_PRIszt "\n", files_.size()) >=
+      buf_size) {
     backup_meta_file->Append(Slice(buf.get(), len));
     buf.reset();
     std::unique_ptr<char[]> new_reset_buf(new char[max_backup_meta_file_size_]);
@@ -1887,16 +2199,17 @@ Status BackupEngineImpl::BackupMeta::StoreToFile(bool sync) {
     len = 0;
   }
   {
-    const char *const_write = writelen_temp;
+    const char* const_write = writelen_temp;
     len += snprintf(buf.get() + len, buf_size - len, "%s", const_write);
   }
 
   for (const auto& file : files_) {
     // use crc32 for now, switch to something else if needed
 
-    size_t newlen = len + file->filename.length() + snprintf(writelen_temp,
-      sizeof(writelen_temp), " crc32 %u\n", file->checksum_value);
-    const char *const_write = writelen_temp;
+    size_t newlen = len + file->filename.length() +
+                    snprintf(writelen_temp, sizeof(writelen_temp),
+                             " crc32 %u\n", file->checksum_value);
+    const char* const_write = writelen_temp;
     if (newlen >= buf_size) {
       backup_meta_file->Append(Slice(buf.get(), len));
       buf.reset();
@@ -1919,6 +2232,24 @@ Status BackupEngineImpl::BackupMeta::StoreToFile(bool sync) {
   if (s.ok()) {
     s = env_->RenameFile(meta_tmp_filename_, meta_filename_);
   }
+
+  // Store the canary file
+  if (with_canary_delete_files) {
+    std::unique_ptr<WritableFile> backup_canary_file;
+    if (s.ok()) {
+      s = env_->NewWritableFile(canary_filename_, &backup_canary_file,
+                                env_options);
+    }
+    if (s.ok() && sync) {
+      s = backup_canary_file->Sync();
+    }
+    if (s.ok()) {
+      s = backup_canary_file->Close();
+      // Rememeber that canary file has been stored;
+      is_canary_stored_ = true;
+    }
+  }
+
   return s;
 }
 

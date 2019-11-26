@@ -115,6 +115,12 @@ struct BackupableDBOptions {
   // Default: INT_MAX
   int max_valid_backups_to_open;
 
+  // If equal to true, a canary file is added to a backup on creation.
+  // The file can be used to detect backups that have been corrupted on
+  // deletion.
+  // Default: false
+  bool with_canary_delete_files;
+
   void Dump(Logger* logger) const;
 
   explicit BackupableDBOptions(
@@ -124,7 +130,8 @@ struct BackupableDBOptions {
       bool _backup_log_files = true, uint64_t _backup_rate_limit = 0,
       uint64_t _restore_rate_limit = 0, int _max_background_operations = 1,
       uint64_t _callback_trigger_interval_size = 4 * 1024 * 1024,
-      int _max_valid_backups_to_open = INT_MAX)
+      int _max_valid_backups_to_open = INT_MAX,
+      bool _with_canary_delete_files = false)
       : backup_dir(_backup_dir),
         backup_env(_backup_env),
         share_table_files(_share_table_files),
@@ -137,7 +144,8 @@ struct BackupableDBOptions {
         share_files_with_checksum(false),
         max_background_operations(_max_background_operations),
         callback_trigger_interval_size(_callback_trigger_interval_size),
-        max_valid_backups_to_open(_max_valid_backups_to_open) {
+        max_valid_backups_to_open(_max_valid_backups_to_open),
+        with_canary_delete_files(_with_canary_delete_files) {
     assert(share_table_files || !share_files_with_checksum);
   }
 };
