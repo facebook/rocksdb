@@ -3673,7 +3673,7 @@ TEST_F(DBCompactionTest, LevelPeriodicCompaction) {
             *max_open_files = 0;
           });
       // In the case where all files are opened and doing DB restart
-      // forcing the oldest ancester time in manifest file to be 0 to
+      // forcing the file creation time in manifest file to be 0 to
       // simulate the case of reading from an old version.
       rocksdb::SyncPoint::GetInstance()->SetCallBack(
           "VersionEdit::EncodeTo:VarintFileCreationTime", [&](void* arg) {
@@ -3766,7 +3766,6 @@ TEST_F(DBCompactionTest, LevelPeriodicCompactionWithOldDB) {
   const int kValueSize = 100;
 
   Options options = CurrentOptions();
-  options.max_open_files = -1;  // needed for ttl compaction
   env_->time_elapse_only_sleep_ = false;
   options.env = env_;
 

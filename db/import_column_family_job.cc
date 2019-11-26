@@ -137,9 +137,9 @@ Status ImportColumnFamilyJob::Run() {
   // is written to the database.
   uint64_t oldest_ancester_time = 0;
   int64_t temp_current_time = 0;
-  uint64_t current_time = static_cast<uint64_t>(temp_current_time);
+  uint64_t current_time = kUnknownOldestAncesterTime;
   if (env_->GetCurrentTime(&temp_current_time).ok()) {
-    oldest_ancester_time = current_time;
+    oldest_ancester_time = static_cast<uint64_t>(temp_current_time);
   }
 
   for (size_t i = 0; i < files_to_import_.size(); ++i) {
