@@ -132,6 +132,10 @@ void treenode::swap_in_place(treenode *node1, treenode *node2) {
     bool tmp_is_shared= node1->m_is_shared;
     node1->m_is_shared= node2->m_is_shared;
     node2->m_is_shared= tmp_is_shared;
+
+    auto tmp_m_owners = node1->m_owners;
+    node1->m_owners = node2->m_owners;
+    node2->m_owners = tmp_m_owners;
 }
 
 void treenode::add_shared_owner(TXNID txnid) {
