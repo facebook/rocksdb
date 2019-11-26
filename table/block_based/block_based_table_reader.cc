@@ -2458,13 +2458,12 @@ void BlockBasedTable::RetrieveMultipleBlocks(
       // to the heap such that it can be added to the block cache.
       CompressionType compression_type =
           raw_block_contents.get_compression_type();
-      if (rep_->blocks_maybe_compressed &&
-          rep_->table_options.block_cache_compressed == nullptr &&
-          compression_type == kNoCompression && blocks_share_scratch) {
+      if (scratch != nullptr && compression_type == kNoCompression) {
         Slice raw = Slice(req.scratch + req_offset, handle.size());
         raw_block_contents = BlockContents(
             CopyBufferToHeap(GetMemoryAllocator(rep_->table_options), raw),
             handle.size());
+        std::cout<<req.result.size()<<" "<<handle.size()<<" rare case, compress enabled but not block not compressed\n";
 
 #ifndef NDEBUG
         raw_block_contents.is_raw_block = true;
