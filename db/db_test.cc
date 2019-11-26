@@ -6420,6 +6420,12 @@ TEST_F(DBTest, CreationTimeOfOldestFile) {
           }
         }
       });
+  // Set file creation time in manifest all to 0.
+  rocksdb::SyncPoint::GetInstance()->SetCallBack(
+      "FileMetaData::FileMetaData", [&](void* arg) {
+        FileMetaData* meta = static_cast<FileMetaData*>(arg);
+        meta->file_creation_time = 0;
+      });
   rocksdb::SyncPoint::GetInstance()->EnableProcessing();
 
   Random rnd(301);
@@ -6431,7 +6437,7 @@ TEST_F(DBTest, CreationTimeOfOldestFile) {
     Flush();
   }
 
-  // At this point there should be 2 files, oen with file_creation_time = 0 and
+  // At this point there should be 2 files, one with file_creation_time = 0 and
   // the other non-zero. GetCreationTimeOfOldestFile API should return 0.
   uint64_t creation_time;
   Status s1 = dbfull()->GetCreationTimeOfOldestFile(&creation_time);

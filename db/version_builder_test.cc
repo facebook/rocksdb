@@ -63,7 +63,7 @@ class VersionBuilderTest : public testing::Test {
         file_number, path_id, file_size, GetInternalKey(smallest, smallest_seq),
         GetInternalKey(largest, largest_seq), smallest_seqno, largest_seqno,
         /* marked_for_compact */ false, kInvalidBlobFileNumber,
-        kUnknownOldestAncesterTime);
+        kUnknownOldestAncesterTime, kUnknownFileCreationTime);
     f->compensated_file_size = file_size;
     f->num_entries = num_entries;
     f->num_deletions = num_deletions;
@@ -114,7 +114,8 @@ TEST_F(VersionBuilderTest, ApplyAndSaveTo) {
   VersionEdit version_edit;
   version_edit.AddFile(2, 666, 0, 100U, GetInternalKey("301"),
                        GetInternalKey("350"), 200, 200, false,
-                       kInvalidBlobFileNumber, kUnknownOldestAncesterTime);
+                       kInvalidBlobFileNumber, kUnknownOldestAncesterTime,
+                       kUnknownFileCreationTime);
   version_edit.DeleteFile(3, 27U);
 
   EnvOptions env_options;
@@ -149,7 +150,8 @@ TEST_F(VersionBuilderTest, ApplyAndSaveToDynamic) {
   VersionEdit version_edit;
   version_edit.AddFile(3, 666, 0, 100U, GetInternalKey("301"),
                        GetInternalKey("350"), 200, 200, false,
-                       kInvalidBlobFileNumber, kUnknownOldestAncesterTime);
+                       kInvalidBlobFileNumber, kUnknownOldestAncesterTime,
+                       kUnknownFileCreationTime);
   version_edit.DeleteFile(0, 1U);
   version_edit.DeleteFile(0, 88U);
 
@@ -187,7 +189,8 @@ TEST_F(VersionBuilderTest, ApplyAndSaveToDynamic2) {
   VersionEdit version_edit;
   version_edit.AddFile(4, 666, 0, 100U, GetInternalKey("301"),
                        GetInternalKey("350"), 200, 200, false,
-                       kInvalidBlobFileNumber, kUnknownOldestAncesterTime);
+                       kInvalidBlobFileNumber, kUnknownOldestAncesterTime,
+                       kUnknownFileCreationTime);
   version_edit.DeleteFile(0, 1U);
   version_edit.DeleteFile(0, 88U);
   version_edit.DeleteFile(4, 6U);
@@ -216,19 +219,24 @@ TEST_F(VersionBuilderTest, ApplyMultipleAndSaveTo) {
   VersionEdit version_edit;
   version_edit.AddFile(2, 666, 0, 100U, GetInternalKey("301"),
                        GetInternalKey("350"), 200, 200, false,
-                       kInvalidBlobFileNumber, kUnknownOldestAncesterTime);
+                       kInvalidBlobFileNumber, kUnknownOldestAncesterTime,
+                       kUnknownFileCreationTime);
   version_edit.AddFile(2, 676, 0, 100U, GetInternalKey("401"),
                        GetInternalKey("450"), 200, 200, false,
-                       kInvalidBlobFileNumber, kUnknownOldestAncesterTime);
+                       kInvalidBlobFileNumber, kUnknownOldestAncesterTime,
+                       kUnknownFileCreationTime);
   version_edit.AddFile(2, 636, 0, 100U, GetInternalKey("601"),
                        GetInternalKey("650"), 200, 200, false,
-                       kInvalidBlobFileNumber, kUnknownOldestAncesterTime);
+                       kInvalidBlobFileNumber, kUnknownOldestAncesterTime,
+                       kUnknownFileCreationTime);
   version_edit.AddFile(2, 616, 0, 100U, GetInternalKey("501"),
                        GetInternalKey("550"), 200, 200, false,
-                       kInvalidBlobFileNumber, kUnknownOldestAncesterTime);
+                       kInvalidBlobFileNumber, kUnknownOldestAncesterTime,
+                       kUnknownFileCreationTime);
   version_edit.AddFile(2, 606, 0, 100U, GetInternalKey("701"),
                        GetInternalKey("750"), 200, 200, false,
-                       kInvalidBlobFileNumber, kUnknownOldestAncesterTime);
+                       kInvalidBlobFileNumber, kUnknownOldestAncesterTime,
+                       kUnknownFileCreationTime);
 
   EnvOptions env_options;
 
@@ -255,30 +263,37 @@ TEST_F(VersionBuilderTest, ApplyDeleteAndSaveTo) {
   VersionEdit version_edit;
   version_edit.AddFile(2, 666, 0, 100U, GetInternalKey("301"),
                        GetInternalKey("350"), 200, 200, false,
-                       kInvalidBlobFileNumber, kUnknownOldestAncesterTime);
+                       kInvalidBlobFileNumber, kUnknownOldestAncesterTime,
+                       kUnknownFileCreationTime);
   version_edit.AddFile(2, 676, 0, 100U, GetInternalKey("401"),
                        GetInternalKey("450"), 200, 200, false,
-                       kInvalidBlobFileNumber, kUnknownOldestAncesterTime);
+                       kInvalidBlobFileNumber, kUnknownOldestAncesterTime,
+                       kUnknownFileCreationTime);
   version_edit.AddFile(2, 636, 0, 100U, GetInternalKey("601"),
                        GetInternalKey("650"), 200, 200, false,
-                       kInvalidBlobFileNumber, kUnknownOldestAncesterTime);
+                       kInvalidBlobFileNumber, kUnknownOldestAncesterTime,
+                       kUnknownFileCreationTime);
   version_edit.AddFile(2, 616, 0, 100U, GetInternalKey("501"),
                        GetInternalKey("550"), 200, 200, false,
-                       kInvalidBlobFileNumber, kUnknownOldestAncesterTime);
+                       kInvalidBlobFileNumber, kUnknownOldestAncesterTime,
+                       kUnknownFileCreationTime);
   version_edit.AddFile(2, 606, 0, 100U, GetInternalKey("701"),
                        GetInternalKey("750"), 200, 200, false,
-                       kInvalidBlobFileNumber, kUnknownOldestAncesterTime);
+                       kInvalidBlobFileNumber, kUnknownOldestAncesterTime,
+                       kUnknownFileCreationTime);
   version_builder.Apply(&version_edit);
 
   VersionEdit version_edit2;
   version_edit.AddFile(2, 808, 0, 100U, GetInternalKey("901"),
                        GetInternalKey("950"), 200, 200, false,
-                       kInvalidBlobFileNumber, kUnknownOldestAncesterTime);
+                       kInvalidBlobFileNumber, kUnknownOldestAncesterTime,
+                       kUnknownFileCreationTime);
   version_edit2.DeleteFile(2, 616);
   version_edit2.DeleteFile(2, 636);
   version_edit.AddFile(2, 806, 0, 100U, GetInternalKey("801"),
                        GetInternalKey("850"), 200, 200, false,
-                       kInvalidBlobFileNumber, kUnknownOldestAncesterTime);
+                       kInvalidBlobFileNumber, kUnknownOldestAncesterTime,
+                       kUnknownFileCreationTime);
   version_builder.Apply(&version_edit2);
 
   version_builder.SaveTo(&new_vstorage);
