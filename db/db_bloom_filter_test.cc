@@ -747,7 +747,7 @@ class LevelAndStyleCustomFilterPolicy : public FilterPolicy {
     }
   }
 
-  FilterBitsReader* GetFilterBitsReader(const Slice& contents) const {
+  FilterBitsReader* GetFilterBitsReader(const Slice& contents) const override {
     // OK to defer to any of them; they all can parse built-in filters
     // from any settings.
     return policy_fifo_->GetFilterBitsReader(contents);
@@ -808,8 +808,7 @@ TEST_F(DBBloomFilterTest, ContextCustomFilterPolicy) {
         fifo ? kCompactionStyleFIFO : kCompactionStyleLevel;
 
     BlockBasedTableOptions table_options;
-    std::shared_ptr<TestingContextCustomFilterPolicy> policy(
-        new TestingContextCustomFilterPolicy(15, 8, 5));
+    auto policy = std::make_shared<TestingContextCustomFilterPolicy>(15, 8, 5);
     table_options.filter_policy = policy;
     table_options.format_version = 5;
     options.table_factory.reset(NewBlockBasedTableFactory(table_options));
