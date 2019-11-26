@@ -250,7 +250,7 @@ Status ExternalSstFileIngestionJob::Run() {
     int64_t temp_current_time = 0;
     uint64_t current_time = kUnknownOldestAncesterTime;
     if (env_->GetCurrentTime(&temp_current_time).ok()) {
-      oldest_ancester_time = = static_cast<uint64_t>(temp_current_time);
+      oldest_ancester_time = static_cast<uint64_t>(temp_current_time);
       ;
     }
 
