@@ -18,17 +18,19 @@ You can find all native binaries and JARs in the java/target directory upon comp
 
     librocksdbjni-linux32.so
     librocksdbjni-linux64.so
-    librocksdbjni-musl64.so
-    librocksdbjni-musl32.so
+    librocksdbjni-linux64-musl.so
+    librocksdbjni-linux32-musl.so
     librocksdbjni-osx.jnilib
-    rocksdbjni-3.5.0-javadoc.jar
-    rocksdbjni-3.5.0-linux32.jar
-    rocksdbjni-3.5.0-linux64.jar
-    rocksdbjni-3.5.0-musl64.jar
-    rocksdbjni-3.5.0-musl32.jar
-    rocksdbjni-3.5.0-osx.jar
-    rocksdbjni-3.5.0-sources.jar
-    rocksdbjni-3.5.0.jar
+    rocksdbjni-x.y.z-javadoc.jar
+    rocksdbjni-x.y.z-linux32.jar
+    rocksdbjni-x.y.z-linux64.jar
+    rocksdbjni-x.y.z-linux64-musl.jar
+    rocksdbjni-x.y.z-linux32-musl.jar
+    rocksdbjni-x.y.z-osx.jar
+    rocksdbjni-x.y.z-sources.jar
+    rocksdbjni-x.y.z.jar
+
+Where x.y.z is the built version number of RocksDB.
 
 ## Maven publication
 

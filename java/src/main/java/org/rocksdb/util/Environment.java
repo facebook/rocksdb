@@ -11,9 +11,9 @@ public class Environment {
 
   static {
     try {
-      Process p = new ProcessBuilder("/bin/sh", "-c", "ldd /bin/sh | grep -q musl").start();
-      MUSL_LIBC = (p.waitFor() == 0);
-    } catch (IOException | InterruptedException e) {
+      final Process p = new ProcessBuilder("/usr/bin/env", "sh", "-c", "ldd /usr/bin/env | grep -q musl").start();
+      MUSL_LIBC = p.waitFor() == 0;
+    } catch (final IOException | InterruptedException e) {
       MUSL_LIBC = false;
     }
   }
@@ -78,17 +78,37 @@ public class Environment {
     return appendLibOsSuffix("lib" + getSharedLibraryName(name), true);
   }
 
+  /**
+   * Get the name of the libc implementation
+   *
+   * @return the name of the implementation,
+   *    or null if the default for that platform (e.g. glibc on Linux).
+   */
+  public static /* @Nullable */ String getLibcName() {
+    if (isMuslLibc()) {
+      return "musl";
+    } else {
+      return null;
+    }
+  }
+
+  private static String getLibcPostfix() {
+    final String libcName = getLibcName();
+    if (libcName == null) {
+      return "";
+    }
+    return "-" + libcName;
+  }
+
   public static String getJniLibraryName(final String name) {
     if (isUnix()) {
       final String arch = is64Bit() ? "64" : "32";
       if (isPowerPC() || isAarch64()) {
-        return String.format("%sjni-linux-%s", name, ARCH);
+        return String.format("%sjni-linux-%s%s", name, ARCH, getLibcPostfix());
       } else if (isS390x()) {
         return String.format("%sjni-linux%s", name, ARCH);
-      } else if (isMuslLibc()) {
-        return String.format("%sjni-musl%s", name, arch);
       } else {
-        return String.format("%sjni-linux%s", name, arch);
+        return String.format("%sjni-linux%s%s", name, arch, getLibcPostfix());
       }
     } else if (isMac()) {
       return String.format("%sjni-osx", name);
