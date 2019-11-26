@@ -76,6 +76,9 @@ LIB_SOURCES =                                                   \
   env/file_system.cc                                            \
   env/fs_posix.cc                                           	  \
   env/io_posix.cc                                               \
+  env/fs_zenfs.cc                                               \
+  env/io_zenfs.cc                                               \
+  env/zbd_zenfs.cc                                              \
   env/mock_env.cc                                               \
   file/delete_scheduler.cc                                      \
   file/file_prefetch_buffer.cc                                  \

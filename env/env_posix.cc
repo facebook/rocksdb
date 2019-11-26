@@ -62,6 +62,7 @@
 #include "port/port.h"
 #include "rocksdb/options.h"
 #include "rocksdb/slice.h"
+#include "rocksdb/utilities/object_registry.h"
 #include "test_util/sync_point.h"
 #include "util/coding.h"
 #include "util/compression_context_cache.h"
