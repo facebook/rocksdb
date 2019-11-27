@@ -246,12 +246,12 @@ Status ExternalSstFileIngestionJob::Run() {
 
     // We use the import time as the ancester time. This is the time the data
     // is written to the database.
-    uint64_t oldest_ancester_time = 0;
     int64_t temp_current_time = 0;
-    uint64_t current_time = kUnknownOldestAncesterTime;
+    uint64_t current_time = kUnknownFileCreationTime;
+    uint64_t oldest_ancester_time = kUnknownOldestAncesterTime;
     if (env_->GetCurrentTime(&temp_current_time).ok()) {
-      oldest_ancester_time = static_cast<uint64_t>(temp_current_time);
-      ;
+      current_time = oldest_ancester_time =
+          static_cast<uint64_t>(temp_current_time);
     }
 
     edit_.AddFile(f.picked_level, f.fd.GetNumber(), f.fd.GetPathId(),
