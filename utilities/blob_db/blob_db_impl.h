@@ -183,7 +183,7 @@ class BlobDBImpl : public BlobDB {
 
   // Common part of the two GetCompactionContext methods below.
   // REQUIRES: read lock on mutex_
-  void GetCompactionContextCommon(BlobCompactionContext* context);
+  void GetCompactionContextCommon(BlobCompactionContext* context) const;
 
   void GetCompactionContext(BlobCompactionContext* context);
   void GetCompactionContext(BlobCompactionContext* context,

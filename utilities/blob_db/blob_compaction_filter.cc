@@ -117,7 +117,7 @@ class BlobIndexCompactionFilterGC : public BlobIndexCompactionFilterBase {
                          std::string* new_value) const override {
     assert(new_value);
 
-    BlobDBImpl* const blob_db_impl = context_gc_.blob_db_impl;
+    const BlobDBImpl* const blob_db_impl = context_gc_.blob_db_impl;
     assert(blob_db_impl);
     assert(blob_db_impl->bdb_options_.enable_garbage_collection);
 
@@ -230,7 +230,7 @@ class BlobIndexCompactionFilterGC : public BlobIndexCompactionFilterBase {
                                         &new_key_offset, new_blob_offset);
 
     if (!s.ok()) {
-      BlobDBImpl* const blob_db_impl = context_gc_.blob_db_impl;
+      const BlobDBImpl* const blob_db_impl = context_gc_.blob_db_impl;
       assert(blob_db_impl);
 
       ROCKS_LOG_ERROR(
@@ -254,7 +254,7 @@ class BlobIndexCompactionFilterGC : public BlobIndexCompactionFilterBase {
   }
 
   bool CloseAndRegisterNewBlobFileIfNeeded() const {
-    BlobDBImpl* const blob_db_impl = context_gc_.blob_db_impl;
+    const BlobDBImpl* const blob_db_impl = context_gc_.blob_db_impl;
     assert(blob_db_impl);
 
     assert(blob_file_);

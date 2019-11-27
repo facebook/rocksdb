@@ -1077,7 +1077,8 @@ Status BlobDBImpl::CompactFiles(
   return s;
 }
 
-void BlobDBImpl::GetCompactionContextCommon(BlobCompactionContext* context) {
+void BlobDBImpl::GetCompactionContextCommon(
+    BlobCompactionContext* context) const {
   assert(context);
 
   context->next_file_number = next_file_number_.load();
