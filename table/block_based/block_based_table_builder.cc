@@ -10,7 +10,6 @@
 #include "table/block_based/block_based_table_builder.h"
 
 #include <assert.h>
-#include <iostream>
 #include <stdio.h>
 #include <list>
 #include <map>
@@ -100,7 +99,6 @@ FilterBlockBuilder* CreateFilterBlockBuilder(
 
 bool GoodCompressionRatio(size_t compressed_size, size_t raw_size) {
   // Check to see if compressed less than 12.5%
-  std::cout<<raw_size<<" "<<compressed_size<<" "<<raw_size - (raw_size / 8u)<<"\n";
   return compressed_size < raw_size - (raw_size / 8u);
 }
 

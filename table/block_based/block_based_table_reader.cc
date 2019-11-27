@@ -9,7 +9,6 @@
 #include "table/block_based/block_based_table_reader.h"
 #include <algorithm>
 #include <array>
-#include <iostream>
 #include <limits>
 #include <string>
 #include <utility>
@@ -2422,8 +2421,6 @@ void BlockBasedTable::RetrieveMultipleBlocks(
     }
 
     bool blocks_share_scratch = (req.result.size() != block_size(handle));
-    std::cout<<"req: "<<req_idx<<" "<<req_offset<<" "<<req.result.size()<<" handle "<<handle.offset()<<" "<<block_size(handle)<<"\n";
-
     if (s.ok()) {
       if (scratch == nullptr && !blocks_share_scratch) {
         // We allocated a buffer for this block. Give ownership of it to
@@ -2465,8 +2462,6 @@ void BlockBasedTable::RetrieveMultipleBlocks(
         raw_block_contents = BlockContents(
             CopyBufferToHeap(GetMemoryAllocator(rep_->table_options), raw),
             handle.size());
-        std::cout<<"rare case: scratch!=null or combined read\n";
-
 #ifndef NDEBUG
         raw_block_contents.is_raw_block = true;
 #endif
