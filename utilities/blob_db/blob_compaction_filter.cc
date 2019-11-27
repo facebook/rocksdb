@@ -114,6 +114,10 @@ class BlobIndexCompactionFilterGC : public BlobIndexCompactionFilterBase {
       WriteLock lock(&blob_db_impl->mutex_);
       WriteLock file_lock(&blob_file_->mutex_);
       blob_db_impl->CloseBlobFile(blob_file_);
+
+      // Note: we delay registering the new blob file until it's closed to
+      // prevent FIFO eviction from processing it during the GC run.
+      blob_db_impl->RegisterBlobFile(blob_file_);
     }
   }
 
@@ -194,9 +198,6 @@ class BlobIndexCompactionFilterGC : public BlobIndexCompactionFilterBase {
 
     assert(blob_file_);
     assert(writer_);
-
-    WriteLock wl(&blob_db_impl->mutex_);
-    blob_db_impl->RegisterBlobFile(blob_file_);
 
     return true;
   }
@@ -281,6 +282,13 @@ class BlobIndexCompactionFilterGC : public BlobIndexCompactionFilterBase {
 
     assert(blob_file_);
     if (blob_file_->Immutable()) {
+      // Note: we delay registering the new blob file until it's closed to
+      // prevent FIFO eviction from processing it during the GC run.
+      {
+        WriteLock wl(&blob_db_impl->mutex_);
+        blob_db_impl->RegisterBlobFile(blob_file_);
+      }
+
       blob_file_.reset();
     }
 
