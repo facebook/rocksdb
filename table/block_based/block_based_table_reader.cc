@@ -2422,6 +2422,7 @@ void BlockBasedTable::RetrieveMultipleBlocks(
     }
 
     bool blocks_share_scratch = (req.result.size() != block_size(handle));
+    std::cout<<"req: "<<req_idx<<" "<<req_offset<<" "<<req.result.size()<<" handle "<<handle.offset()<<" "<<block_size(handle)<<"\n";
 
     if (s.ok()) {
       if (scratch == nullptr && !blocks_share_scratch) {
@@ -2464,6 +2465,7 @@ void BlockBasedTable::RetrieveMultipleBlocks(
         raw_block_contents = BlockContents(
             CopyBufferToHeap(GetMemoryAllocator(rep_->table_options), raw),
             handle.size());
+        std::cout<<"rare case: scratch!=null or combined read\n";
 
 #ifndef NDEBUG
         raw_block_contents.is_raw_block = true;
