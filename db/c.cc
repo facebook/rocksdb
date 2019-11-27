@@ -2032,6 +2032,16 @@ void rocksdb_block_based_options_set_index_type(
   options->rep.index_type = static_cast<BlockBasedTableOptions::IndexType>(v);
 }
 
+void rocksdb_block_based_options_set_data_block_index_type(
+    rocksdb_block_based_table_options_t* options, int v) {
+  options->rep.data_block_index_type = static_cast<BlockBasedTableOptions::DataBlockIndexType>(v);
+}
+
+void rocksdb_block_based_options_set_data_block_hash_ratio(
+    rocksdb_block_based_table_options_t* options, double v) {
+  options->rep.data_block_hash_table_util_ratio = v;
+}
+
 void rocksdb_block_based_options_set_hash_index_allow_collision(
     rocksdb_block_based_table_options_t* options, unsigned char v) {
   options->rep.hash_index_allow_collision = v;
