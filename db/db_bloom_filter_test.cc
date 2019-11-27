@@ -851,8 +851,8 @@ TEST_F(DBBloomFilterTest, ContextCustomFilterPolicy) {
     {
       auto useful_count =
           TestGetAndResetTickerCount(options, BLOOM_FILTER_USEFUL);
-      EXPECT_GE(useful_count, maxKey * 2 * (fifo ? 0.998 : 0.975));
-      EXPECT_LE(useful_count, maxKey * 2 * (fifo ? 0.999 : 0.98));
+      EXPECT_GE(useful_count, maxKey * 2 * (fifo ? 0.9980 : 0.975));
+      EXPECT_LE(useful_count, maxKey * 2 * (fifo ? 0.9995 : 0.98));
     }
 
     if (!fifo) {  // FIFO only has L0
