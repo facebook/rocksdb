@@ -1181,7 +1181,7 @@ struct ReadOptions {
   // "iterate_upper_bound" defines the extent upto which the forward iterator
   // can returns entries. Once the bound is reached, Valid() will be false.
   // "iterate_upper_bound" is exclusive ie the bound value is
-  // not a valid entry.  If iterator_extractor is not null, the Seek target
+  // not a valid entry. If prefix_extractor is not null, the Seek target
   // and iterate_upper_bound need to have the same prefix.
   // This is because ordering is not guaranteed outside of prefix domain.
   //
