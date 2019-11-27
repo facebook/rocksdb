@@ -107,12 +107,13 @@ class BlobIndexCompactionFilterGC : public BlobIndexCompactionFilterBase {
 
   ~BlobIndexCompactionFilterGC() override {
     if (blob_file_) {
-      assert(context_gc_.blob_db_impl);
+      BlobDBImpl* const blob_db_impl = context_gc_.blob_db_impl;
+      assert(blob_db_impl);
 
-      MutexLock l(&context_gc_.blob_db_impl->write_mutex_);
-      WriteLock lock(&context_gc_.blob_db_impl->mutex_);
+      MutexLock l(&blob_db_impl->write_mutex_);
+      WriteLock lock(&blob_db_impl->mutex_);
       WriteLock file_lock(&blob_file_->mutex_);
-      context_gc_.blob_db_impl->CloseBlobFile(blob_file_);
+      blob_db_impl->CloseBlobFile(blob_file_);
     }
   }
 
@@ -122,8 +123,9 @@ class BlobIndexCompactionFilterGC : public BlobIndexCompactionFilterBase {
                          std::string* new_value) const override {
     assert(new_value);
 
-    assert(context_gc_.blob_db_impl);
-    assert(context_gc_.blob_db_impl->bdb_options_.enable_garbage_collection);
+    BlobDBImpl* const blob_db_impl = context_gc_.blob_db_impl;
+    assert(blob_db_impl);
+    assert(blob_db_impl->bdb_options_.enable_garbage_collection);
 
     BlobIndex blob_index;
     const Status s = blob_index.DecodeFrom(existing_value);
@@ -177,8 +179,10 @@ class BlobIndexCompactionFilterGC : public BlobIndexCompactionFilterBase {
       return true;
     }
 
-    assert(context_gc_.blob_db_impl);
-    const Status s = context_gc_.blob_db_impl->CreateBlobFileAndWriter(
+    BlobDBImpl* const blob_db_impl = context_gc_.blob_db_impl;
+    assert(blob_db_impl);
+
+    const Status s = blob_db_impl->CreateBlobFileAndWriter(
         /* has_ttl */ false, ExpirationRange(), "GC", &blob_file_, &writer_);
     if (!s.ok()) {
       return false;
@@ -187,8 +191,8 @@ class BlobIndexCompactionFilterGC : public BlobIndexCompactionFilterBase {
     assert(blob_file_);
     assert(writer_);
 
-    WriteLock wl(&context_gc_.blob_db_impl->mutex_);
-    context_gc_.blob_db_impl->RegisterBlobFile(blob_file_);
+    WriteLock wl(&blob_db_impl->mutex_);
+    blob_db_impl->RegisterBlobFile(blob_file_);
 
     return true;
   }
@@ -196,8 +200,10 @@ class BlobIndexCompactionFilterGC : public BlobIndexCompactionFilterBase {
   bool ReadBlobFromOldFile(const Slice& key, const BlobIndex& blob_index,
                            PinnableSlice* blob,
                            CompressionType* compression_type) const {
-    assert(context_gc_.blob_db_impl);
-    const Status s = context_gc_.blob_db_impl->GetRawBlobFromFile(
+    BlobDBImpl* const blob_db_impl = context_gc_.blob_db_impl;
+    assert(blob_db_impl);
+
+    const Status s = blob_db_impl->GetRawBlobFromFile(
         key, blob_index.file_number(), blob_index.offset(), blob_index.size(),
         blob, compression_type);
 
@@ -228,8 +234,10 @@ class BlobIndexCompactionFilterGC : public BlobIndexCompactionFilterBase {
         BlobLogRecord::kHeaderSize + key.size() + blob.size();
     blob_file_->file_size_ += new_size;
 
-    assert(context_gc_.blob_db_impl);
-    context_gc_.blob_db_impl->total_blob_size_ += new_size;
+    BlobDBImpl* const blob_db_impl = context_gc_.blob_db_impl;
+    assert(blob_db_impl);
+
+    blob_db_impl->total_blob_size_ += new_size;
 
     return true;
   }
@@ -238,10 +246,11 @@ class BlobIndexCompactionFilterGC : public BlobIndexCompactionFilterBase {
     Status s;
 
     {
-      assert(context_gc_.blob_db_impl);
+      BlobDBImpl* const blob_db_impl = context_gc_.blob_db_impl;
+      assert(blob_db_impl);
 
-      MutexLock l(&context_gc_.blob_db_impl->write_mutex_);
-      s = context_gc_.blob_db_impl->CloseBlobFileIfNeeded(blob_file_);
+      MutexLock l(&blob_db_impl->write_mutex_);
+      s = blob_db_impl->CloseBlobFileIfNeeded(blob_file_);
     }
 
     assert(blob_file_);
