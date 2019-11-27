@@ -172,6 +172,24 @@ class DBImplSecondary : public DBImpl {
     return Status::NotSupported("Not supported operation in secondary mode.");
   }
 
+  using DBImpl::SetDBOptions;
+  Status SetDBOptions(const std::unordered_map<std::string, std::string>&
+                          /*options_map*/) override {
+    // Currently not supported because changing certain options may cause
+    // flush/compaction.
+    return Status::NotSupported("Not supported operation in secondary mode.");
+  }
+
+  using DBImpl::SetOptions;
+  Status SetOptions(
+      ColumnFamilyHandle* /*cfd*/,
+      const std::unordered_map<std::string, std::string>& /*options_map*/)
+      override {
+    // Currently not supported because changing certain options may cause
+    // flush/compaction and/or write to MANIFEST.
+    return Status::NotSupported("Not supported operation in secondary mode.");
+  }
+
   using DBImpl::SyncWAL;
   Status SyncWAL() override {
     return Status::NotSupported("Not supported operation in secondary mode.");
@@ -267,6 +285,12 @@ class DBImplSecondary : public DBImpl {
       }
     }
     return s;
+  }
+
+  bool OwnTablesAndLogs() const override {
+    InstrumentedMutexLock lock_guard(&mutex_);
+    return versions_->GetColumnFamilySet()->get_table_cache()->GetCapacity() !=
+           TableCache::kInfiniteCapacity;
   }
 
  private:
