@@ -368,6 +368,7 @@ Status FlushJob::WriteLevel0Table() {
       // It's not clear whether oldest_key_time is always available. In case
       // it is not available, use current_time.
       meta_.oldest_ancester_time = std::min(current_time, oldest_key_time);
+      meta_.file_creation_time = current_time;
 
       s = BuildTable(
           dbname_, db_options_.env, *cfd_->ioptions(), mutable_cf_options_,
@@ -413,7 +414,7 @@ Status FlushJob::WriteLevel0Table() {
                    meta_.fd.GetFileSize(), meta_.smallest, meta_.largest,
                    meta_.fd.smallest_seqno, meta_.fd.largest_seqno,
                    meta_.marked_for_compaction, meta_.oldest_blob_file_number,
-                   meta_.oldest_ancester_time);
+                   meta_.oldest_ancester_time, meta_.file_creation_time);
   }
 #ifndef ROCKSDB_LITE
   // Piggyback FlushJobInfo on the first first flushed memtable.
