@@ -1712,6 +1712,8 @@ TEST_F(BlobDBTest, GarbageCollection) {
     ASSERT_EQ(live_imm_files.size(), kNumBlobFiles);
     for (size_t i = 0; i < kNumBlobFiles; ++i) {
       ASSERT_EQ(live_imm_files[i]->BlobFileNumber(), i + 1);
+      ASSERT_EQ(live_imm_files[i]->GetFileSize(),
+                kBlobFileSize + BlobLogFooter::kSize);
     }
   }
 
@@ -1764,6 +1766,8 @@ TEST_F(BlobDBTest, GarbageCollection) {
       }
 
       ASSERT_EQ(live_imm_files[i]->BlobFileNumber(), expected_file_number);
+      ASSERT_EQ(live_imm_files[i]->GetFileSize(),
+                kBlobFileSize + BlobLogFooter::kSize);
     }
   }
 }
