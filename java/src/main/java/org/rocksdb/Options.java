@@ -16,7 +16,7 @@ import java.util.List;
  * during the creation of a {@link org.rocksdb.RocksDB} (i.e., RocksDB.open()).
  *
  * If {@link #dispose()} function is not called, then it will be GC'd
- * automaticallyand native resources will be released as part of the process.
+ * automatically and native resources will be released as part of the process.
  */
 public class Options extends RocksObject
     implements DBOptionsInterface<Options>,
@@ -917,6 +917,17 @@ public class Options extends RocksObject
   @Override
   public boolean enablePipelinedWrite() {
     return enablePipelinedWrite(nativeHandle_);
+  }
+
+  @Override
+  public Options setUnorderedWrite(final boolean unorderedWrite) {
+    setUnorderedWrite(nativeHandle_, unorderedWrite);
+    return this;
+  }
+
+  @Override
+  public boolean unorderedWrite() {
+    return unorderedWrite(nativeHandle_);
   }
 
   @Override
@@ -1886,6 +1897,9 @@ public class Options extends RocksObject
   private native void setEnablePipelinedWrite(final long handle,
       final boolean pipelinedWrite);
   private native boolean enablePipelinedWrite(final long handle);
+  private native void setUnorderedWrite(final long handle,
+      final boolean unorderedWrite);
+  private native boolean unorderedWrite(final long handle);
   private native void setAllowConcurrentMemtableWrite(long handle,
       boolean allowConcurrentMemtableWrite);
   private native boolean allowConcurrentMemtableWrite(long handle);

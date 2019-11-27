@@ -109,15 +109,15 @@ class InternalStats {
   };
 
   enum InternalDBStatsType {
-    WAL_FILE_BYTES,
-    WAL_FILE_SYNCED,
-    BYTES_WRITTEN,
-    NUMBER_KEYS_WRITTEN,
-    WRITE_DONE_BY_OTHER,
-    WRITE_DONE_BY_SELF,
-    WRITE_WITH_WAL,
-    WRITE_STALL_MICROS,
-    INTERNAL_DB_STATS_ENUM_MAX,
+    kIntStatsWalFileBytes,
+    kIntStatsWalFileSynced,
+    kIntStatsBytesWritten,
+    kIntStatsNumKeysWritten,
+    kIntStatsWriteDoneByOther,
+    kIntStatsWriteDoneBySelf,
+    kIntStatsWriteWithWal,
+    kIntStatsWriteStallMicros,
+    kIntStatsNumMax,
   };
 
   InternalStats(int num_levels, Env* env, ColumnFamilyData* cfd)
@@ -237,6 +237,28 @@ class InternalStats {
       }
     }
 
+    CompactionStats& operator=(const CompactionStats& c) {
+      micros = c.micros;
+      cpu_micros = c.cpu_micros;
+      bytes_read_non_output_levels = c.bytes_read_non_output_levels;
+      bytes_read_output_level = c.bytes_read_output_level;
+      bytes_written = c.bytes_written;
+      bytes_moved = c.bytes_moved;
+      num_input_files_in_non_output_levels =
+          c.num_input_files_in_non_output_levels;
+      num_input_files_in_output_level = c.num_input_files_in_output_level;
+      num_output_files = c.num_output_files;
+      num_input_records = c.num_input_records;
+      num_dropped_records = c.num_dropped_records;
+      count = c.count;
+
+      int num_of_reasons = static_cast<int>(CompactionReason::kNumOfReasons);
+      for (int i = 0; i < num_of_reasons; i++) {
+        counts[i] = c.counts[i];
+      }
+      return *this;
+    }
+
     void Clear() {
       this->micros = 0;
       this->cpu_micros = 0;
@@ -300,7 +322,7 @@ class InternalStats {
   };
 
   void Clear() {
-    for (int i = 0; i < INTERNAL_DB_STATS_ENUM_MAX; i++) {
+    for (int i = 0; i < kIntStatsNumMax; i++) {
       db_stats_[i].store(0);
     }
     for (int i = 0; i < INTERNAL_CF_STATS_ENUM_MAX; i++) {
@@ -394,7 +416,7 @@ class InternalStats {
   bool HandleBlockCacheStat(Cache** block_cache);
 
   // Per-DB stats
-  std::atomic<uint64_t> db_stats_[INTERNAL_DB_STATS_ENUM_MAX];
+  std::atomic<uint64_t> db_stats_[kIntStatsNumMax];
   // Per-ColumnFamily stats
   uint64_t cf_stats_value_[INTERNAL_CF_STATS_ENUM_MAX];
   uint64_t cf_stats_count_[INTERNAL_CF_STATS_ENUM_MAX];
@@ -593,15 +615,15 @@ class InternalStats {
   };
 
   enum InternalDBStatsType {
-    WAL_FILE_BYTES,
-    WAL_FILE_SYNCED,
-    BYTES_WRITTEN,
-    NUMBER_KEYS_WRITTEN,
-    WRITE_DONE_BY_OTHER,
-    WRITE_DONE_BY_SELF,
-    WRITE_WITH_WAL,
-    WRITE_STALL_MICROS,
-    INTERNAL_DB_STATS_ENUM_MAX,
+    kIntStatsWalFileBytes,
+    kIntStatsWalFileSynced,
+    kIntStatsBytesWritten,
+    kIntStatsNumKeysWritten,
+    kIntStatsWriteDoneByOther,
+    kIntStatsWriteDoneBySelf,
+    kIntStatsWriteWithWal,
+    kIntStatsWriteStallMicros,
+    kIntStatsNumMax,
   };
 
   InternalStats(int /*num_levels*/, Env* /*env*/, ColumnFamilyData* /*cfd*/) {}

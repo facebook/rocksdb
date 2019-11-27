@@ -138,6 +138,10 @@ extern ROCKSDB_LIBRARY_API rocksdb_t* rocksdb_open_for_read_only(
     const rocksdb_options_t* options, const char* name,
     unsigned char error_if_log_file_exist, char** errptr);
 
+extern ROCKSDB_LIBRARY_API rocksdb_t* rocksdb_open_as_secondary(
+    const rocksdb_options_t* options, const char* name,
+    const char* secondary_path, char** errptr);
+
 extern ROCKSDB_LIBRARY_API rocksdb_backup_engine_t* rocksdb_backup_engine_open(
     const rocksdb_options_t* options, const char* path, char** errptr);
 
@@ -217,6 +221,13 @@ rocksdb_open_for_read_only_column_families(
     const rocksdb_options_t** column_family_options,
     rocksdb_column_family_handle_t** column_family_handles,
     unsigned char error_if_log_file_exist, char** errptr);
+
+extern ROCKSDB_LIBRARY_API rocksdb_t* rocksdb_open_as_secondary_column_families(
+    const rocksdb_options_t* options, const char* name,
+    const char* secondary_path, int num_column_families,
+    const char** column_family_names,
+    const rocksdb_options_t** column_family_options,
+    rocksdb_column_family_handle_t** colummn_family_handles, char** errptr);
 
 extern ROCKSDB_LIBRARY_API char** rocksdb_list_column_families(
     const rocksdb_options_t* options, const char* name, size_t* lencf,
@@ -816,8 +827,6 @@ extern ROCKSDB_LIBRARY_API void rocksdb_options_set_target_file_size_multiplier(
     rocksdb_options_t*, int);
 extern ROCKSDB_LIBRARY_API void rocksdb_options_set_max_bytes_for_level_base(
     rocksdb_options_t*, uint64_t);
-extern ROCKSDB_LIBRARY_API void rocksdb_options_set_snap_refresh_nanos(
-    rocksdb_options_t*, uint64_t);
 extern ROCKSDB_LIBRARY_API void
 rocksdb_options_set_level_compaction_dynamic_level_bytes(rocksdb_options_t*,
                                                          unsigned char);
@@ -843,7 +852,12 @@ rocksdb_options_set_min_write_buffer_number_to_merge(rocksdb_options_t*, int);
 extern ROCKSDB_LIBRARY_API void
 rocksdb_options_set_max_write_buffer_number_to_maintain(rocksdb_options_t*,
                                                         int);
+extern ROCKSDB_LIBRARY_API void
+rocksdb_options_set_max_write_buffer_size_to_maintain(rocksdb_options_t*,
+                                                      int64_t);
 extern ROCKSDB_LIBRARY_API void rocksdb_options_set_enable_pipelined_write(
+    rocksdb_options_t*, unsigned char);
+extern ROCKSDB_LIBRARY_API void rocksdb_options_set_unordered_write(
     rocksdb_options_t*, unsigned char);
 extern ROCKSDB_LIBRARY_API void rocksdb_options_set_max_subcompactions(
     rocksdb_options_t*, uint32_t);
@@ -1247,6 +1261,9 @@ extern ROCKSDB_LIBRARY_API void rocksdb_writeoptions_set_no_slowdown(
     rocksdb_writeoptions_t*, unsigned char);
 extern ROCKSDB_LIBRARY_API void rocksdb_writeoptions_set_low_pri(
     rocksdb_writeoptions_t*, unsigned char);
+extern ROCKSDB_LIBRARY_API void
+rocksdb_writeoptions_set_memtable_insert_hint_per_batch(rocksdb_writeoptions_t*,
+                                                        unsigned char);
 
 /* Compact range options */
 
@@ -1301,6 +1318,11 @@ extern ROCKSDB_LIBRARY_API void
 rocksdb_env_set_high_priority_background_threads(rocksdb_env_t* env, int n);
 extern ROCKSDB_LIBRARY_API void rocksdb_env_join_all_threads(
     rocksdb_env_t* env);
+extern ROCKSDB_LIBRARY_API void rocksdb_env_lower_thread_pool_io_priority(rocksdb_env_t* env);
+extern ROCKSDB_LIBRARY_API void rocksdb_env_lower_high_priority_thread_pool_io_priority(rocksdb_env_t* env);
+extern ROCKSDB_LIBRARY_API void rocksdb_env_lower_thread_pool_cpu_priority(rocksdb_env_t* env);
+extern ROCKSDB_LIBRARY_API void rocksdb_env_lower_high_priority_thread_pool_cpu_priority(rocksdb_env_t* env);
+
 extern ROCKSDB_LIBRARY_API void rocksdb_env_destroy(rocksdb_env_t*);
 
 extern ROCKSDB_LIBRARY_API rocksdb_envoptions_t* rocksdb_envoptions_create();
@@ -1367,6 +1389,9 @@ extern ROCKSDB_LIBRARY_API void rocksdb_ingest_external_file_cf(
     rocksdb_t* db, rocksdb_column_family_handle_t* handle,
     const char* const* file_list, const size_t list_len,
     const rocksdb_ingestexternalfileoptions_t* opt, char** errptr);
+
+extern ROCKSDB_LIBRARY_API void rocksdb_try_catch_up_with_primary(
+    rocksdb_t* db, char** errptr);
 
 /* SliceTransform */
 

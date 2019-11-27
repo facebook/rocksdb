@@ -1549,6 +1549,27 @@ jboolean Java_org_rocksdb_Options_enablePipelinedWrite(
 
 /*
  * Class:     org_rocksdb_Options
+ * Method:    setUnorderedWrite
+ * Signature: (JZ)V
+ */
+void Java_org_rocksdb_Options_setUnorderedWrite(
+    JNIEnv*, jobject, jlong jhandle, jboolean unordered_write) {
+    reinterpret_cast<rocksdb::DBOptions*>(jhandle)
+        ->unordered_write = static_cast<bool>(unordered_write);
+}
+
+/*
+ * Class:     org_rocksdb_Options
+ * Method:    unorderedWrite
+ * Signature: (J)Z
+ */
+jboolean Java_org_rocksdb_Options_unorderedWrite(
+        JNIEnv*, jobject, jlong jhandle) {
+    return reinterpret_cast<rocksdb::Options*>(jhandle)->unordered_write;
+}
+
+/*
+ * Class:     org_rocksdb_Options
  * Method:    setAllowConcurrentMemtableWrite
  * Signature: (JZ)V
  */
@@ -5716,6 +5737,29 @@ jboolean Java_org_rocksdb_DBOptions_enablePipelinedWrite(
   auto* opt = reinterpret_cast<rocksdb::DBOptions*>(jhandle);
   return static_cast<jboolean>(opt->enable_pipelined_write);
 }
+
+/*
+ * Class:     org_rocksdb_DBOptions
+ * Method:    setUnorderedWrite
+ * Signature: (JZ)V
+ */
+void Java_org_rocksdb_DBOptions_setUnorderedWrite(
+        JNIEnv*, jobject, jlong jhandle, jboolean junordered_write) {
+    auto* opt = reinterpret_cast<rocksdb::DBOptions*>(jhandle);
+    opt->unordered_write = junordered_write == JNI_TRUE;
+}
+
+/*
+ * Class:     org_rocksdb_DBOptions
+ * Method:    unorderedWrite
+ * Signature: (J)Z
+ */
+jboolean Java_org_rocksdb_DBOptions_unorderedWrite(
+        JNIEnv*, jobject, jlong jhandle) {
+auto* opt = reinterpret_cast<rocksdb::DBOptions*>(jhandle);
+return static_cast<jboolean>(opt->unordered_write);
+}
+
 
 /*
  * Class:     org_rocksdb_DBOptions

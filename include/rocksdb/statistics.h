@@ -324,6 +324,8 @@ enum Tickers : uint32_t {
   TXN_DUPLICATE_KEY_OVERHEAD,
   // # of times snapshot_mutex_ is acquired in the fast path.
   TXN_SNAPSHOT_MUTEX_OVERHEAD,
+  // # of times ::Get returned TryAgain due to expired snapshot seq
+  TXN_GET_TRY_AGAIN,
 
   // Number of keys actually found in MultiGet calls (vs number requested by
   // caller)
@@ -447,6 +449,10 @@ struct HistogramData {
   double min = 0.0;
 };
 
+// StatsLevel can be used to reduce statistics overhead by skipping certain
+// types of stats in the stats collection process.
+// Usage:
+//   options.statistics->set_stats_level(StatsLevel::kExceptTimeForMutex);
 enum StatsLevel : uint8_t {
   // Disable timer stats, and skip histogram stats
   kExceptHistogramOrTimers,
@@ -464,11 +470,19 @@ enum StatsLevel : uint8_t {
   kAll,
 };
 
-// Analyze the performance of a db
+// Analyze the performance of a db by providing cumulative stats over time.
+// Usage:
+//  Options options;
+//  options.statistics = rocksdb::CreateDBStatistics();
+//  Status s = DB::Open(options, kDBPath, &db);
+//  ...
+//  options.statistics->getTickerCount(NUMBER_BLOCK_COMPRESSED);
+//  HistogramData hist;
+//  options.statistics->histogramData(FLUSH_TIME, &hist);
 class Statistics {
  public:
   virtual ~Statistics() {}
-
+  static const char* Type() { return "Statistics"; }
   virtual uint64_t getTickerCount(uint32_t tickerType) const = 0;
   virtual void histogramData(uint32_t type,
                              HistogramData* const data) const = 0;

@@ -38,15 +38,13 @@ void appendToReplayLog(std::string* replay_log, ValueType type, Slice value) {
 
 }  // namespace
 
-GetContext::GetContext(const Comparator* ucmp,
-                       const MergeOperator* merge_operator, Logger* logger,
-                       Statistics* statistics, GetState init_state,
-                       const Slice& user_key, PinnableSlice* pinnable_val,
-                       bool* value_found, MergeContext* merge_context,
-                       SequenceNumber* _max_covering_tombstone_seq, Env* env,
-                       SequenceNumber* seq,
-                       PinnedIteratorsManager* _pinned_iters_mgr,
-                       ReadCallback* callback, bool* is_blob_index)
+GetContext::GetContext(
+    const Comparator* ucmp, const MergeOperator* merge_operator, Logger* logger,
+    Statistics* statistics, GetState init_state, const Slice& user_key,
+    PinnableSlice* pinnable_val, bool* value_found, MergeContext* merge_context,
+    bool do_merge, SequenceNumber* _max_covering_tombstone_seq, Env* env,
+    SequenceNumber* seq, PinnedIteratorsManager* _pinned_iters_mgr,
+    ReadCallback* callback, bool* is_blob_index, uint64_t tracing_get_id)
     : ucmp_(ucmp),
       merge_operator_(merge_operator),
       logger_(logger),
@@ -62,7 +60,9 @@ GetContext::GetContext(const Comparator* ucmp,
       replay_log_(nullptr),
       pinned_iters_mgr_(_pinned_iters_mgr),
       callback_(callback),
-      is_blob_index_(is_blob_index) {
+      do_merge_(do_merge),
+      is_blob_index_(is_blob_index),
+      tracing_get_id_(tracing_get_id) {
   if (seq_) {
     *seq_ = kMaxSequenceNumber;
   }
@@ -182,7 +182,7 @@ bool GetContext::SaveValue(const ParsedInternalKey& parsed_key,
   assert(matched);
   assert((state_ != kMerge && parsed_key.type != kTypeMerge) ||
          merge_context_ != nullptr);
-  if (ucmp_->Equal(parsed_key.user_key, user_key_)) {
+  if (ucmp_->CompareWithoutTimestamp(parsed_key.user_key, user_key_) == 0) {
     *matched = true;
     // If the value is not in the snapshot, skip it
     if (!CheckCallback(parsed_key.sequence)) {
@@ -216,29 +216,44 @@ bool GetContext::SaveValue(const ParsedInternalKey& parsed_key,
         }
         if (kNotFound == state_) {
           state_ = kFound;
-          if (LIKELY(pinnable_val_ != nullptr)) {
-            if (LIKELY(value_pinner != nullptr)) {
-              // If the backing resources for the value are provided, pin them
-              pinnable_val_->PinSlice(value, value_pinner);
-            } else {
-              TEST_SYNC_POINT_CALLBACK("GetContext::SaveValue::PinSelf", this);
+          if (do_merge_) {
+            if (LIKELY(pinnable_val_ != nullptr)) {
+              if (LIKELY(value_pinner != nullptr)) {
+                // If the backing resources for the value are provided, pin them
+                pinnable_val_->PinSlice(value, value_pinner);
+              } else {
+                TEST_SYNC_POINT_CALLBACK("GetContext::SaveValue::PinSelf",
+                                         this);
 
-              // Otherwise copy the value
-              pinnable_val_->PinSelf(value);
+                // Otherwise copy the value
+                pinnable_val_->PinSelf(value);
+              }
             }
+          } else {
+            // It means this function is called as part of DB GetMergeOperands
+            // API and the current value should be part of
+            // merge_context_->operand_list
+            push_operand(value, value_pinner);
           }
         } else if (kMerge == state_) {
           assert(merge_operator_ != nullptr);
           state_ = kFound;
-          if (LIKELY(pinnable_val_ != nullptr)) {
-            Status merge_status = MergeHelper::TimedFullMerge(
-                merge_operator_, user_key_, &value,
-                merge_context_->GetOperands(), pinnable_val_->GetSelf(),
-                logger_, statistics_, env_);
-            pinnable_val_->PinSelf();
-            if (!merge_status.ok()) {
-              state_ = kCorrupt;
+          if (do_merge_) {
+            if (LIKELY(pinnable_val_ != nullptr)) {
+              Status merge_status = MergeHelper::TimedFullMerge(
+                  merge_operator_, user_key_, &value,
+                  merge_context_->GetOperands(), pinnable_val_->GetSelf(),
+                  logger_, statistics_, env_);
+              pinnable_val_->PinSelf();
+              if (!merge_status.ok()) {
+                state_ = kCorrupt;
+              }
             }
+          } else {
+            // It means this function is called as part of DB GetMergeOperands
+            // API and the current value should be part of
+            // merge_context_->operand_list
+            push_operand(value, value_pinner);
           }
         }
         if (is_blob_index_ != nullptr) {
@@ -257,14 +272,18 @@ bool GetContext::SaveValue(const ParsedInternalKey& parsed_key,
         } else if (kMerge == state_) {
           state_ = kFound;
           if (LIKELY(pinnable_val_ != nullptr)) {
-            Status merge_status = MergeHelper::TimedFullMerge(
-                merge_operator_, user_key_, nullptr,
-                merge_context_->GetOperands(), pinnable_val_->GetSelf(),
-                logger_, statistics_, env_);
-            pinnable_val_->PinSelf();
-            if (!merge_status.ok()) {
-              state_ = kCorrupt;
+            if (do_merge_) {
+              Status merge_status = MergeHelper::TimedFullMerge(
+                  merge_operator_, user_key_, nullptr,
+                  merge_context_->GetOperands(), pinnable_val_->GetSelf(),
+                  logger_, statistics_, env_);
+              pinnable_val_->PinSelf();
+              if (!merge_status.ok()) {
+                state_ = kCorrupt;
+              }
             }
+            // If do_merge_ = false then the current value shouldn't be part of
+            // merge_context_->operand_list
           }
         }
         return false;
@@ -273,24 +292,23 @@ bool GetContext::SaveValue(const ParsedInternalKey& parsed_key,
         assert(state_ == kNotFound || state_ == kMerge);
         state_ = kMerge;
         // value_pinner is not set from plain_table_reader.cc for example.
-        if (pinned_iters_mgr() && pinned_iters_mgr()->PinningEnabled() &&
-            value_pinner != nullptr) {
-          value_pinner->DelegateCleanupsTo(pinned_iters_mgr());
-          merge_context_->PushOperand(value, true /*value_pinned*/);
-        } else {
-          merge_context_->PushOperand(value, false);
-        }
-        if (merge_operator_ != nullptr &&
-            merge_operator_->ShouldMerge(merge_context_->GetOperandsDirectionBackward())) {
+        push_operand(value, value_pinner);
+        if (do_merge_ && merge_operator_ != nullptr &&
+            merge_operator_->ShouldMerge(
+                merge_context_->GetOperandsDirectionBackward())) {
           state_ = kFound;
           if (LIKELY(pinnable_val_ != nullptr)) {
-            Status merge_status = MergeHelper::TimedFullMerge(
-                merge_operator_, user_key_, nullptr,
-                merge_context_->GetOperands(), pinnable_val_->GetSelf(),
-                logger_, statistics_, env_);
-            pinnable_val_->PinSelf();
-            if (!merge_status.ok()) {
-              state_ = kCorrupt;
+            // do_merge_ = true this is the case where this function is called
+            // as part of DB Get API hence merge operators should be merged.
+            if (do_merge_) {
+              Status merge_status = MergeHelper::TimedFullMerge(
+                  merge_operator_, user_key_, nullptr,
+                  merge_context_->GetOperands(), pinnable_val_->GetSelf(),
+                  logger_, statistics_, env_);
+              pinnable_val_->PinSelf();
+              if (!merge_status.ok()) {
+                state_ = kCorrupt;
+              }
             }
           }
           return false;
@@ -305,6 +323,16 @@ bool GetContext::SaveValue(const ParsedInternalKey& parsed_key,
 
   // state_ could be Corrupt, merge or notfound
   return false;
+}
+
+void GetContext::push_operand(const Slice& value, Cleanable* value_pinner) {
+  if (pinned_iters_mgr() && pinned_iters_mgr()->PinningEnabled() &&
+      value_pinner != nullptr) {
+    value_pinner->DelegateCleanupsTo(pinned_iters_mgr());
+    merge_context_->PushOperand(value, true /*value_pinned*/);
+  } else {
+    merge_context_->PushOperand(value, false);
+  }
 }
 
 void replayGetContextLog(const Slice& replay_log, const Slice& user_key,

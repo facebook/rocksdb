@@ -269,16 +269,8 @@ struct ColumnFamilyOptions : public AdvancedColumnFamilyOptions {
   // Dynamically changeable through SetOptions() API
   uint64_t max_bytes_for_level_base = 256 * 1048576;
 
-  // If non-zero, compactions will periodically refresh the snapshot list. The
-  // delay for the first refresh is snap_refresh_nanos nano seconds and
-  // exponentially increases afterwards. When having many short-lived snapshots,
-  // this option helps reducing the cpu usage of long-running compactions. The
-  // feature is disabled when max_subcompactions is greater than one.
-  //
-  // Default: 0.5s
-  //
-  // Dynamically changeable through SetOptions() API
-  uint64_t snap_refresh_nanos = 500 * 1000 * 1000;  // 0.5s
+  // Deprecated.
+  uint64_t snap_refresh_nanos = 0;
 
   // Disable automatic compactions. Manual compactions can still
   // be issued on this column family
@@ -694,6 +686,18 @@ struct DBOptions {
   // Default: 600
   unsigned int stats_persist_period_sec = 600;
 
+  // If true, automatically persist stats to a hidden column family (column
+  // family name: ___rocksdb_stats_history___) every
+  // stats_persist_period_sec seconds; otherwise, write to an in-memory
+  // struct. User can query through `GetStatsHistory` API.
+  // If user attempts to create a column family with the same name on a DB
+  // which have previously set persist_stats_to_disk to true, the column family
+  // creation will fail, but the hidden column family will survive, as well as
+  // the previously persisted statistics.
+  // When peristing stats to disk, the stat name will be limited at 100 bytes.
+  // Default: false
+  bool persist_stats_to_disk = false;
+
   // if not zero, periodically take stats snapshots and store in memory, the
   // memory size for stats snapshots is capped at stats_history_buffer_size
   // Default: 1MB
@@ -748,6 +752,8 @@ struct DBOptions {
   // for this mode if using block-based table.
   //
   // Default: false
+  // This flag has no affect on the behavior of compaction and plan to delete
+  // in the future.
   bool new_table_reader_for_compaction_inputs = false;
 
   // If non-zero, we perform bigger reads when doing compaction. If you're
@@ -893,6 +899,32 @@ struct DBOptions {
   // Default: false
   bool enable_pipelined_write = false;
 
+  // Setting unordered_write to true trades higher write throughput with
+  // relaxing the immutability guarantee of snapshots. This violates the
+  // repeatability one expects from ::Get from a snapshot, as well as
+  // ::MultiGet and Iterator's consistent-point-in-time view property.
+  // If the application cannot tolerate the relaxed guarantees, it can implement
+  // its own mechanisms to work around that and yet benefit from the higher
+  // throughput. Using TransactionDB with WRITE_PREPARED write policy and
+  // two_write_queues=true is one way to achieve immutable snapshots despite
+  // unordered_write.
+  //
+  // By default, i.e., when it is false, rocksdb does not advance the sequence
+  // number for new snapshots unless all the writes with lower sequence numbers
+  // are already finished. This provides the immutability that we except from
+  // snapshots. Moreover, since Iterator and MultiGet internally depend on
+  // snapshots, the snapshot immutability results into Iterator and MultiGet
+  // offering consistent-point-in-time view. If set to true, although
+  // Read-Your-Own-Write property is still provided, the snapshot immutability
+  // property is relaxed: the writes issued after the snapshot is obtained (with
+  // larger sequence numbers) will be still not visible to the reads from that
+  // snapshot, however, there still might be pending writes (with lower sequence
+  // number) that will change the state visible to the snapshot after they are
+  // landed to the memtable.
+  //
+  // Default: false
+  bool unordered_write = false;
+
   // If true, allow multi-writers to update mem tables in parallel.
   // Only some memtable_factory-s support concurrent writes; currently it
   // is implemented only for SkipListFactory.  Concurrent memtable writes
@@ -910,6 +942,13 @@ struct DBOptions {
   //
   // Default: true
   bool enable_write_thread_adaptive_yield = true;
+
+  // The maximum limit of number of bytes that are written in a single batch
+  // of WAL or memtable write. It is followed when the leader write size
+  // is larger than 1/8 of this limit.
+  //
+  // Default: 1 MB
+  uint64_t max_write_batch_group_size_bytes = 1 << 20;
 
   // The maximum number of microseconds that a write operation will use
   // a yielding spin loop to coordinate with other write threads before
@@ -1047,6 +1086,24 @@ struct DBOptions {
   // If set to true, takes precedence over
   // ReadOptions::background_purge_on_iterator_cleanup.
   bool avoid_unnecessary_blocking_io = false;
+
+  // Historically DB ID has always been stored in Identity File in DB folder.
+  // If this flag is true, the DB ID is written to Manifest file in addition
+  // to the Identity file. By doing this 2 problems are solved
+  // 1. We don't checksum the Identity file where as Manifest file is.
+  // 2. Since the source of truth for DB is Manifest file DB ID will sit with
+  //    the source of truth. Previously the Identity file could be copied
+  //    independent of Manifest and that can result in wrong DB ID.
+  // We recommend setting this flag to true.
+  // Default: false
+  bool write_dbid_to_manifest = false;
+
+  // The number of bytes to prefetch when reading the log. This is mostly useful
+  // for reading a remotely located log, as it can save the number of
+  // round-trips. If 0, then the prefetching is disabled.
+  //
+  // Default: 0
+  size_t log_readahead_size = 0;
 };
 
 // Options to control the behavior of a database (passed to DB::Open)
@@ -1229,6 +1286,14 @@ struct ReadOptions {
   // Default: 0 (don't filter by seqnum, return user keys)
   SequenceNumber iter_start_seqnum;
 
+  // Timestamp of operation. Read should return the latest data visible to the
+  // specified timestamp. All timestamps of the same database must be of the
+  // same length and format. The user is responsible for providing a customized
+  // compare function via Comparator to order <key, timestamp> tuples.
+  // The user-specified timestamp feature is still under active development,
+  // and the API is subject to change.
+  const Slice* timestamp;
+
   ReadOptions();
   ReadOptions(bool cksum, bool cache);
 };
@@ -1281,12 +1346,34 @@ struct WriteOptions {
   // Default: false
   bool low_pri;
 
+  // If true, this writebatch will maintain the last insert positions of each
+  // memtable as hints in concurrent write. It can improve write performance
+  // in concurrent writes if keys in one writebatch are sequential. In
+  // non-concurrent writes (when concurrent_memtable_writes is false) this
+  // option will be ignored.
+  //
+  // Default: false
+  bool memtable_insert_hint_per_batch;
+
+  // Timestamp of write operation, e.g. Put. All timestamps of the same
+  // database must share the same length and format. The user is also
+  // responsible for providing a customized compare function via Comparator to
+  // order <key, timestamp> tuples. If the user wants to enable timestamp, then
+  // all write operations must be associated with timestamp because RocksDB, as
+  // a single-node storage engine currently has no knowledge of global time,
+  // thus has to rely on the application.
+  // The user-specified timestamp feature is still under active development,
+  // and the API is subject to change.
+  const Slice* timestamp;
+
   WriteOptions()
       : sync(false),
         disableWAL(false),
         ignore_missing_column_families(false),
         no_slowdown(false),
-        low_pri(false) {}
+        low_pri(false),
+        memtable_insert_hint_per_batch(false),
+        timestamp(nullptr) {}
 };
 
 // Options that control flush operations
@@ -1372,6 +1459,8 @@ struct CompactRangeOptions {
 struct IngestExternalFileOptions {
   // Can be set to true to move the files instead of copying them.
   bool move_files = false;
+  // If set to true, ingestion falls back to copy when move fails.
+  bool failed_move_fall_back_to_copy = true;
   // If set to false, an ingested file keys could appear in existing snapshots
   // that where created before the file was ingested.
   bool snapshot_consistency = true;
@@ -1406,6 +1495,13 @@ struct IngestExternalFileOptions {
   // Warning: setting this to true causes slowdown in file ingestion because
   // the external SST file has to be read.
   bool verify_checksums_before_ingest = false;
+  // When verify_checksums_before_ingest = true, RocksDB uses default
+  // readahead setting to scan the file while verifying checksums before
+  // ingestion.
+  // Users can override the default value using this option.
+  // Using a large readahead size (> 2MB) can typically improve the performance
+  // of forward iteration on spinning disks.
+  size_t verify_checksums_readahead_size = 0;
 };
 
 enum TraceFilterType : uint64_t {
@@ -1427,6 +1523,32 @@ struct TraceOptions {
   uint64_t sampling_frequency = 1;
   // Note: The filtering happens before sampling.
   uint64_t filter = kTraceFilterNone;
+};
+
+// ImportColumnFamilyOptions is used by ImportColumnFamily()
+struct ImportColumnFamilyOptions {
+  // Can be set to true to move the files instead of copying them.
+  bool move_files = false;
+};
+
+// Options used with DB::GetApproximateSizes()
+struct SizeApproximationOptions {
+  // Defines whether the returned size should include the recently written
+  // data in the mem-tables. If set to false, include_files must be true.
+  bool include_memtabtles = false;
+  // Defines whether the returned size should include data serialized to disk.
+  // If set to false, include_memtabtles must be true.
+  bool include_files = true;
+  // When approximating the files total size that is used to store a keys range
+  // using DB::GetApproximateSizes, allow approximation with an error margin of
+  // up to total_files_size * files_size_error_margin. This allows to take some
+  // shortcuts in files size approximation, resulting in better performance,
+  // while guaranteeing the resulting error is within a reasonable margin.
+  // E.g., if the value is 0.1, then the error margin of the returned files size
+  // approximation will be within 10%.
+  // If the value is non-positive - a more precise yet more CPU intensive
+  // estimation is performed.
+  double files_size_error_margin = -1.0;
 };
 
 }  // namespace rocksdb

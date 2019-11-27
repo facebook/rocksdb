@@ -717,6 +717,11 @@ public enum TickerType {
      */
     TXN_SNAPSHOT_MUTEX_OVERHEAD((byte) -0x0C),
 
+    /**
+     * # of times ::Get returned TryAgain due to expired snapshot seq
+     */
+    TXN_GET_TRY_AGAIN((byte) -0x0D),
+
     TICKER_ENUM_MAX((byte) 0x5F);
 
     private final byte value;

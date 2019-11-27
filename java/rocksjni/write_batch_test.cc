@@ -22,8 +22,8 @@
 #include "rocksdb/write_buffer_manager.h"
 #include "rocksjni/portal.h"
 #include "table/scoped_arena_iterator.h"
+#include "test_util/testharness.h"
 #include "util/string_util.h"
-#include "util/testharness.h"
 
 /*
  * Class:     org_rocksdb_WriteBatchTest
@@ -52,9 +52,9 @@ jbyteArray Java_org_rocksdb_WriteBatchTest_getContents(JNIEnv* env,
   mem->Ref();
   std::string state;
   rocksdb::ColumnFamilyMemTablesDefault cf_mems_default(mem);
-  rocksdb::Status s =
-      rocksdb::WriteBatchInternal::InsertInto(b, &cf_mems_default, nullptr);
-  int count = 0;
+  rocksdb::Status s = rocksdb::WriteBatchInternal::InsertInto(
+      b, &cf_mems_default, nullptr, nullptr);
+  unsigned int count = 0;
   rocksdb::Arena arena;
   rocksdb::ScopedArenaIterator iter(
       mem->NewIterator(rocksdb::ReadOptions(), &arena));

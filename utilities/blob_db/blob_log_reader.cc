@@ -9,8 +9,8 @@
 
 #include <algorithm>
 
+#include "file/random_access_file_reader.h"
 #include "monitoring/statistics.h"
-#include "util/file_reader_writer.h"
 #include "util/stop_watch.h"
 
 namespace rocksdb {

@@ -16,6 +16,7 @@
 #include "port/stack_trace.h"
 #include "rocksdb/persistent_cache.h"
 #include "rocksdb/wal_filter.h"
+#include "test_util/fault_injection_test_env.h"
 
 namespace rocksdb {
 
@@ -1036,8 +1037,7 @@ TEST_F(DBTest2, WalFilterTestWithColumnFamilies) {
   ASSERT_TRUE(index == keys_cf.size());
 }
 
-// Temporarily disable it because the test is flaky.
-TEST_F(DBTest2, DISABLED_PresetCompressionDict) {
+TEST_F(DBTest2, PresetCompressionDict) {
   // Verifies that compression ratio improves when dictionary is enabled, and
   // improves even further when the dictionary is trained by ZSTD.
   const size_t kBlockSizeBytes = 4 << 10;
@@ -1046,7 +1046,8 @@ TEST_F(DBTest2, DISABLED_PresetCompressionDict) {
   const int kNumL0Files = 5;
 
   Options options;
-  options.env = CurrentOptions().env; // Make sure to use any custom env that the test is configured with.
+  // Make sure to use any custom env that the test is configured with.
+  options.env = CurrentOptions().env;
   options.allow_concurrent_memtable_write = false;
   options.arena_block_size = kBlockSizeBytes;
   options.create_if_missing = true;
@@ -1072,10 +1073,19 @@ TEST_F(DBTest2, DISABLED_PresetCompressionDict) {
     compression_types.push_back(kZSTD);
   }
 
+  enum DictionaryTypes : int {
+    kWithoutDict,
+    kWithDict,
+    kWithZSTDTrainedDict,
+    kDictEnd,
+  };
+
   for (auto compression_type : compression_types) {
     options.compression = compression_type;
-    size_t prev_out_bytes;
-    for (int i = 0; i < 3; ++i) {
+    size_t bytes_without_dict = 0;
+    size_t bytes_with_dict = 0;
+    size_t bytes_with_zstd_trained_dict = 0;
+    for (int i = kWithoutDict; i < kDictEnd; i++) {
       // First iteration: compress without preset dictionary
       // Second iteration: compress with preset dictionary
       // Third iteration (zstd only): compress with zstd-trained dictionary
@@ -1085,19 +1095,19 @@ TEST_F(DBTest2, DISABLED_PresetCompressionDict) {
       // the non-first iterations, verify the data we get out is the same data
       // we put in.
       switch (i) {
-        case 0:
+        case kWithoutDict:
           options.compression_opts.max_dict_bytes = 0;
           options.compression_opts.zstd_max_train_bytes = 0;
           break;
-        case 1:
-          options.compression_opts.max_dict_bytes = 4 * kBlockSizeBytes;
+        case kWithDict:
+          options.compression_opts.max_dict_bytes = kBlockSizeBytes;
           options.compression_opts.zstd_max_train_bytes = 0;
           break;
-        case 2:
+        case kWithZSTDTrainedDict:
           if (compression_type != kZSTD) {
             continue;
           }
-          options.compression_opts.max_dict_bytes = 4 * kBlockSizeBytes;
+          options.compression_opts.max_dict_bytes = kBlockSizeBytes;
           options.compression_opts.zstd_max_train_bytes = kL0FileBytes;
           break;
         default:
@@ -1129,23 +1139,32 @@ TEST_F(DBTest2, DISABLED_PresetCompressionDict) {
       ASSERT_EQ(0, NumTableFilesAtLevel(0, 1));
       ASSERT_GT(NumTableFilesAtLevel(1, 1), 0);
 
-      size_t out_bytes = 0;
-      std::vector<std::string> files;
-      GetSstFiles(env_, dbname_, &files);
-      for (const auto& file : files) {
-        uint64_t curr_bytes;
-        env_->GetFileSize(dbname_ + "/" + file, &curr_bytes);
-        out_bytes += static_cast<size_t>(curr_bytes);
+      // Get the live sst files size
+      size_t total_sst_bytes = TotalSize(1);
+      if (i == kWithoutDict) {
+        bytes_without_dict = total_sst_bytes;
+      } else if (i == kWithDict) {
+        bytes_with_dict = total_sst_bytes;
+      } else if (i == kWithZSTDTrainedDict) {
+        bytes_with_zstd_trained_dict = total_sst_bytes;
       }
 
       for (size_t j = 0; j < kNumL0Files * (kL0FileBytes / kBlockSizeBytes);
            j++) {
         ASSERT_EQ(seq_datas[(j / 10) % 10], Get(1, Key(static_cast<int>(j))));
       }
-      if (i) {
-        ASSERT_GT(prev_out_bytes, out_bytes);
+      if (i == kWithDict) {
+        ASSERT_GT(bytes_without_dict, bytes_with_dict);
+      } else if (i == kWithZSTDTrainedDict) {
+        // In zstd compression, it is sometimes possible that using a trained
+        // dictionary does not get as good a compression ratio as without
+        // training.
+        // But using a dictionary (with or without training) should always get
+        // better compression ratio than not using one.
+        ASSERT_TRUE(bytes_with_dict > bytes_with_zstd_trained_dict ||
+                    bytes_without_dict > bytes_with_zstd_trained_dict);
       }
-      prev_out_bytes = out_bytes;
+
       DestroyAndReopen(options);
     }
   }
@@ -1923,7 +1942,10 @@ TEST_F(DBTest2, TestPerfContextIterCpuTime) {
 }
 #endif  // OS_LINUX
 
-#ifndef OS_SOLARIS // GetUniqueIdFromFile is not implemented
+// GetUniqueIdFromFile is not implemented on these platforms. Persistent cache
+// breaks when that function is not implemented and no regular block cache is
+// provided.
+#if !defined(OS_SOLARIS) && !defined(OS_WIN)
 TEST_F(DBTest2, PersistentCache) {
   int num_iter = 80;
 
@@ -1987,7 +2009,7 @@ TEST_F(DBTest2, PersistentCache) {
     }
   }
 }
-#endif // !OS_SOLARIS
+#endif  // !defined(OS_SOLARIS) && !defined(OS_WIN)
 
 namespace {
 void CountSyncPoint() {
@@ -2380,6 +2402,215 @@ TEST_F(DBTest2, ManualCompactionOverlapManualCompaction) {
   cro.bottommost_level_compaction = BottommostLevelCompaction::kForceOptimized;
   ASSERT_OK(db_->CompactRange(cro, nullptr, nullptr));
   bg_thread.join();
+
+  rocksdb::SyncPoint::GetInstance()->DisableProcessing();
+}
+
+TEST_F(DBTest2, PausingManualCompaction1) {
+  Options options = CurrentOptions();
+  options.disable_auto_compactions = true;
+  options.num_levels = 7;
+
+  DestroyAndReopen(options);
+  Random rnd(301);
+  // Generate a file containing 10 keys.
+  for (int i = 0; i < 10; i++) {
+    ASSERT_OK(Put(Key(i), RandomString(&rnd, 50)));
+  }
+  ASSERT_OK(Flush());
+
+  // Generate another file containing same keys
+  for (int i = 0; i < 10; i++) {
+    ASSERT_OK(Put(Key(i), RandomString(&rnd, 50)));
+  }
+  ASSERT_OK(Flush());
+
+  int manual_compactions_paused = 0;
+  rocksdb::SyncPoint::GetInstance()->SetCallBack(
+      "CompactionJob::Run():PausingManualCompaction:1", [&](void* arg) {
+        auto paused = reinterpret_cast<std::atomic<bool>*>(arg);
+        ASSERT_FALSE(paused->load(std::memory_order_acquire));
+        paused->store(true, std::memory_order_release);
+        manual_compactions_paused += 1;
+      });
+  rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+
+  std::vector<std::string> files_before_compact, files_after_compact;
+  // Remember file name before compaction is triggered
+  std::vector<LiveFileMetaData> files_meta;
+  dbfull()->GetLiveFilesMetaData(&files_meta);
+  for (auto file : files_meta) {
+    files_before_compact.push_back(file.name);
+  }
+
+  // OK, now trigger a manual compaction
+  dbfull()->CompactRange(CompactRangeOptions(), nullptr, nullptr);
+
+  // Wait for compactions to get scheduled and stopped
+  dbfull()->TEST_WaitForCompact(true);
+
+  // Get file names after compaction is stopped
+  files_meta.clear();
+  dbfull()->GetLiveFilesMetaData(&files_meta);
+  for (auto file : files_meta) {
+    files_after_compact.push_back(file.name);
+  }
+
+  // Like nothing happened
+  ASSERT_EQ(files_before_compact, files_after_compact);
+  ASSERT_EQ(manual_compactions_paused, 1);
+
+  manual_compactions_paused = 0;
+  // Now make sure CompactFiles also not run
+  dbfull()->CompactFiles(rocksdb::CompactionOptions(), files_before_compact, 0);
+  // Wait for manual compaction to get scheduled and finish
+  dbfull()->TEST_WaitForCompact(true);
+
+  files_meta.clear();
+  files_after_compact.clear();
+  dbfull()->GetLiveFilesMetaData(&files_meta);
+  for (auto file : files_meta) {
+    files_after_compact.push_back(file.name);
+  }
+
+  ASSERT_EQ(files_before_compact, files_after_compact);
+  // CompactFiles returns at entry point
+  ASSERT_EQ(manual_compactions_paused, 0);
+
+  rocksdb::SyncPoint::GetInstance()->DisableProcessing();
+}
+
+// PausingManualCompaction does not affect auto compaction
+TEST_F(DBTest2, PausingManualCompaction2) {
+  Options options = CurrentOptions();
+  options.level0_file_num_compaction_trigger = 2;
+  options.disable_auto_compactions = false;
+
+  DestroyAndReopen(options);
+  dbfull()->DisableManualCompaction();
+
+  Random rnd(301);
+  for (int i = 0; i < 2; i++) {
+    // Generate a file containing 10 keys.
+    for (int j = 0; j < 100; j++) {
+      ASSERT_OK(Put(Key(j), RandomString(&rnd, 50)));
+    }
+    ASSERT_OK(Flush());
+  }
+  ASSERT_OK(dbfull()->TEST_WaitForCompact(true));
+
+  std::vector<LiveFileMetaData> files_meta;
+  dbfull()->GetLiveFilesMetaData(&files_meta);
+  ASSERT_EQ(files_meta.size(), 1);
+}
+
+TEST_F(DBTest2, PausingManualCompaction3) {
+  CompactRangeOptions compact_options;
+  Options options = CurrentOptions();
+  options.disable_auto_compactions = true;
+  options.num_levels = 7;
+
+  Random rnd(301);
+  auto generate_files = [&]() {
+    for (int i = 0; i < options.num_levels; i++) {
+      for (int j = 0; j < options.num_levels - i + 1; j++) {
+        for (int k = 0; k < 1000; k++) {
+          ASSERT_OK(Put(Key(k + j * 1000), RandomString(&rnd, 50)));
+        }
+        Flush();
+      }
+
+      for (int l = 1; l < options.num_levels - i; l++) {
+        MoveFilesToLevel(l);
+      }
+    }
+  };
+
+  DestroyAndReopen(options);
+  generate_files();
+#ifndef ROCKSDB_LITE
+  ASSERT_EQ("2,3,4,5,6,7,8", FilesPerLevel());
+#endif  // !ROCKSDB_LITE
+  int run_manual_compactions = 0;
+  rocksdb::SyncPoint::GetInstance()->SetCallBack(
+      "CompactionJob::Run():PausingManualCompaction:1",
+      [&](void* /*arg*/) { run_manual_compactions++; });
+  rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+
+  dbfull()->DisableManualCompaction();
+  dbfull()->CompactRange(compact_options, nullptr, nullptr);
+  dbfull()->TEST_WaitForCompact(true);
+  // As manual compaction disabled, not even reach sync point
+  ASSERT_EQ(run_manual_compactions, 0);
+#ifndef ROCKSDB_LITE
+  ASSERT_EQ("2,3,4,5,6,7,8", FilesPerLevel());
+#endif  // !ROCKSDB_LITE
+
+  rocksdb::SyncPoint::GetInstance()->ClearCallBack(
+      "CompactionJob::Run():PausingManualCompaction:1");
+  dbfull()->EnableManualCompaction();
+  dbfull()->CompactRange(compact_options, nullptr, nullptr);
+  dbfull()->TEST_WaitForCompact(true);
+#ifndef ROCKSDB_LITE
+  ASSERT_EQ("0,0,0,0,0,0,2", FilesPerLevel());
+#endif  // !ROCKSDB_LITE
+
+  rocksdb::SyncPoint::GetInstance()->DisableProcessing();
+}
+
+TEST_F(DBTest2, PausingManualCompaction4) {
+  CompactRangeOptions compact_options;
+  Options options = CurrentOptions();
+  options.disable_auto_compactions = true;
+  options.num_levels = 7;
+
+  Random rnd(301);
+  auto generate_files = [&]() {
+    for (int i = 0; i < options.num_levels; i++) {
+      for (int j = 0; j < options.num_levels - i + 1; j++) {
+        for (int k = 0; k < 1000; k++) {
+          ASSERT_OK(Put(Key(k + j * 1000), RandomString(&rnd, 50)));
+        }
+        Flush();
+      }
+
+      for (int l = 1; l < options.num_levels - i; l++) {
+        MoveFilesToLevel(l);
+      }
+    }
+  };
+
+  DestroyAndReopen(options);
+  generate_files();
+#ifndef ROCKSDB_LITE
+  ASSERT_EQ("2,3,4,5,6,7,8", FilesPerLevel());
+#endif  // !ROCKSDB_LITE
+  int run_manual_compactions = 0;
+  rocksdb::SyncPoint::GetInstance()->SetCallBack(
+      "CompactionJob::Run():PausingManualCompaction:2", [&](void* arg) {
+        auto paused = reinterpret_cast<std::atomic<bool>*>(arg);
+        ASSERT_FALSE(paused->load(std::memory_order_acquire));
+        paused->store(true, std::memory_order_release);
+        run_manual_compactions++;
+      });
+  rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+
+  dbfull()->EnableManualCompaction();
+  dbfull()->CompactRange(compact_options, nullptr, nullptr);
+  dbfull()->TEST_WaitForCompact(true);
+  ASSERT_EQ(run_manual_compactions, 1);
+#ifndef ROCKSDB_LITE
+  ASSERT_EQ("2,3,4,5,6,7,8", FilesPerLevel());
+#endif  // !ROCKSDB_LITE
+
+  rocksdb::SyncPoint::GetInstance()->ClearCallBack(
+      "CompactionJob::Run():PausingManualCompaction:2");
+  dbfull()->EnableManualCompaction();
+  dbfull()->CompactRange(compact_options, nullptr, nullptr);
+  dbfull()->TEST_WaitForCompact(true);
+#ifndef ROCKSDB_LITE
+  ASSERT_EQ("0,0,0,0,0,0,2", FilesPerLevel());
+#endif  // !ROCKSDB_LITE
 
   rocksdb::SyncPoint::GetInstance()->DisableProcessing();
 }
@@ -2779,8 +3010,12 @@ TEST_F(DBTest2, ReadCallbackTest) {
     ReadOptions roptions;
     TestReadCallback callback(seq);
     bool dont_care = true;
-    Status s = dbfull()->GetImpl(roptions, dbfull()->DefaultColumnFamily(), key,
-                                 &pinnable_val, &dont_care, &callback);
+    DBImpl::GetImplOptions get_impl_options;
+    get_impl_options.column_family = dbfull()->DefaultColumnFamily();
+    get_impl_options.value = &pinnable_val;
+    get_impl_options.value_found = &dont_care;
+    get_impl_options.callback = &callback;
+    Status s = dbfull()->GetImpl(roptions, key, get_impl_options);
     ASSERT_TRUE(s.ok());
     // Assuming that after each Put the DB increased seq by one, the value and
     // seq number must be equal since we also inc value by 1 after each Put.
@@ -3738,10 +3973,256 @@ TEST_F(DBTest2, OldStatsInterface) {
   ASSERT_GT(dos->num_rt, 0);
   ASSERT_GT(dos->num_mt, 0);
 }
+
+TEST_F(DBTest2, CloseWithUnreleasedSnapshot) {
+  const Snapshot* ss = db_->GetSnapshot();
+
+  for (auto h : handles_) {
+    db_->DestroyColumnFamilyHandle(h);
+  }
+  handles_.clear();
+
+  ASSERT_NOK(db_->Close());
+  db_->ReleaseSnapshot(ss);
+  ASSERT_OK(db_->Close());
+  delete db_;
+  db_ = nullptr;
+}
+
+TEST_F(DBTest2, PrefixBloomReseek) {
+  Options options = CurrentOptions();
+  options.create_if_missing = true;
+  options.prefix_extractor.reset(NewCappedPrefixTransform(3));
+  BlockBasedTableOptions bbto;
+  bbto.filter_policy.reset(NewBloomFilterPolicy(10, false));
+  bbto.whole_key_filtering = false;
+  options.table_factory.reset(NewBlockBasedTableFactory(bbto));
+  DestroyAndReopen(options);
+
+  // Construct two L1 files with keys:
+  // f1:[aaa1 ccc1] f2:[ddd0]
+  ASSERT_OK(Put("aaa1", ""));
+  ASSERT_OK(Put("ccc1", ""));
+  ASSERT_OK(Flush());
+  ASSERT_OK(Put("ddd0", ""));
+  ASSERT_OK(Flush());
+  CompactRangeOptions cro;
+  cro.bottommost_level_compaction = BottommostLevelCompaction::kSkip;
+  ASSERT_OK(db_->CompactRange(cro, nullptr, nullptr));
+
+  ASSERT_OK(Put("bbb1", ""));
+
+  Iterator* iter = db_->NewIterator(ReadOptions());
+
+  // Seeking into f1, the iterator will check bloom filter which returns the
+  // file iterator ot be invalidate, and the cursor will put into f2, with
+  // the next key to be "ddd0".
+  iter->Seek("bbb1");
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_EQ("bbb1", iter->key().ToString());
+
+  // Reseek ccc1, the L1 iterator needs to go back to f1 and reseek.
+  iter->Seek("ccc1");
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_EQ("ccc1", iter->key().ToString());
+
+  delete iter;
+}
+
+TEST_F(DBTest2, PrefixBloomFilteredOut) {
+  Options options = CurrentOptions();
+  options.create_if_missing = true;
+  options.prefix_extractor.reset(NewCappedPrefixTransform(3));
+  BlockBasedTableOptions bbto;
+  bbto.filter_policy.reset(NewBloomFilterPolicy(10, false));
+  bbto.whole_key_filtering = false;
+  options.table_factory.reset(NewBlockBasedTableFactory(bbto));
+  DestroyAndReopen(options);
+
+  // Construct two L1 files with keys:
+  // f1:[aaa1 ccc1] f2:[ddd0]
+  ASSERT_OK(Put("aaa1", ""));
+  ASSERT_OK(Put("ccc1", ""));
+  ASSERT_OK(Flush());
+  ASSERT_OK(Put("ddd0", ""));
+  ASSERT_OK(Flush());
+  CompactRangeOptions cro;
+  cro.bottommost_level_compaction = BottommostLevelCompaction::kSkip;
+  ASSERT_OK(db_->CompactRange(cro, nullptr, nullptr));
+
+  Iterator* iter = db_->NewIterator(ReadOptions());
+
+  // Bloom filter is filterd out by f1.
+  // This is just one of several valid position following the contract.
+  // Postioning to ccc1 or ddd0 is also valid. This is just to validate
+  // the behavior of the current implementation. If underlying implementation
+  // changes, the test might fail here.
+  iter->Seek("bbb1");
+  ASSERT_FALSE(iter->Valid());
+
+  delete iter;
+}
+
+#ifndef ROCKSDB_LITE
+TEST_F(DBTest2, RowCacheSnapshot) {
+  Options options = CurrentOptions();
+  options.statistics = rocksdb::CreateDBStatistics();
+  options.row_cache = NewLRUCache(8 * 8192);
+  DestroyAndReopen(options);
+
+  ASSERT_OK(Put("foo", "bar1"));
+
+  const Snapshot* s1 = db_->GetSnapshot();
+
+  ASSERT_OK(Put("foo", "bar2"));
+  ASSERT_OK(Flush());
+
+  ASSERT_OK(Put("foo2", "bar"));
+  const Snapshot* s2 = db_->GetSnapshot();
+  ASSERT_OK(Put("foo3", "bar"));
+  const Snapshot* s3 = db_->GetSnapshot();
+
+  ASSERT_EQ(TestGetTickerCount(options, ROW_CACHE_HIT), 0);
+  ASSERT_EQ(TestGetTickerCount(options, ROW_CACHE_MISS), 0);
+  ASSERT_EQ(Get("foo"), "bar2");
+  ASSERT_EQ(TestGetTickerCount(options, ROW_CACHE_HIT), 0);
+  ASSERT_EQ(TestGetTickerCount(options, ROW_CACHE_MISS), 1);
+  ASSERT_EQ(Get("foo"), "bar2");
+  ASSERT_EQ(TestGetTickerCount(options, ROW_CACHE_HIT), 1);
+  ASSERT_EQ(TestGetTickerCount(options, ROW_CACHE_MISS), 1);
+  ASSERT_EQ(Get("foo", s1), "bar1");
+  ASSERT_EQ(TestGetTickerCount(options, ROW_CACHE_HIT), 1);
+  ASSERT_EQ(TestGetTickerCount(options, ROW_CACHE_MISS), 2);
+  ASSERT_EQ(Get("foo", s2), "bar2");
+  ASSERT_EQ(TestGetTickerCount(options, ROW_CACHE_HIT), 2);
+  ASSERT_EQ(TestGetTickerCount(options, ROW_CACHE_MISS), 2);
+  ASSERT_EQ(Get("foo", s1), "bar1");
+  ASSERT_EQ(TestGetTickerCount(options, ROW_CACHE_HIT), 3);
+  ASSERT_EQ(TestGetTickerCount(options, ROW_CACHE_MISS), 2);
+  ASSERT_EQ(Get("foo", s3), "bar2");
+  ASSERT_EQ(TestGetTickerCount(options, ROW_CACHE_HIT), 4);
+  ASSERT_EQ(TestGetTickerCount(options, ROW_CACHE_MISS), 2);
+
+  db_->ReleaseSnapshot(s1);
+  db_->ReleaseSnapshot(s2);
+  db_->ReleaseSnapshot(s3);
+}
+#endif  // ROCKSDB_LITE
+
+// When DB is reopened with multiple column families, the manifest file
+// is written after the first CF is flushed, and it is written again
+// after each flush. If DB crashes between the flushes, the flushed CF
+// flushed will pass the latest log file, and now we require it not
+// to be corrupted, and triggering a corruption report.
+// We need to fix the bug and enable the test.
+TEST_F(DBTest2, CrashInRecoveryMultipleCF) {
+  const std::vector<std::string> sync_points = {
+      "DBImpl::RecoverLogFiles:BeforeFlushFinalMemtable",
+      "VersionSet::ProcessManifestWrites:BeforeWriteLastVersionEdit:0"};
+  for (const auto& test_sync_point : sync_points) {
+    Options options = CurrentOptions();
+    // First destroy original db to ensure a clean start.
+    DestroyAndReopen(options);
+    options.create_if_missing = true;
+    options.wal_recovery_mode = WALRecoveryMode::kPointInTimeRecovery;
+    CreateAndReopenWithCF({"pikachu"}, options);
+    ASSERT_OK(Put("foo", "bar"));
+    ASSERT_OK(Flush());
+    ASSERT_OK(Put(1, "foo", "bar"));
+    ASSERT_OK(Flush(1));
+    ASSERT_OK(Put("foo", "bar"));
+    ASSERT_OK(Put(1, "foo", "bar"));
+    // The value is large enough to be divided to two blocks.
+    std::string large_value(400, ' ');
+    ASSERT_OK(Put("foo1", large_value));
+    ASSERT_OK(Put("foo2", large_value));
+    Close();
+
+    // Corrupt the log file in the middle, so that it is not corrupted
+    // in the tail.
+    std::vector<std::string> filenames;
+    ASSERT_OK(env_->GetChildren(dbname_, &filenames));
+    for (const auto& f : filenames) {
+      uint64_t number;
+      FileType type;
+      if (ParseFileName(f, &number, &type) && type == FileType::kLogFile) {
+        std::string fname = dbname_ + "/" + f;
+        std::string file_content;
+        ASSERT_OK(ReadFileToString(env_, fname, &file_content));
+        file_content[400] = 'h';
+        file_content[401] = 'a';
+        ASSERT_OK(WriteStringToFile(env_, file_content, fname));
+        break;
+      }
+    }
+
+    // Reopen and freeze the file system after the first manifest write.
+    FaultInjectionTestEnv fit_env(options.env);
+    options.env = &fit_env;
+    rocksdb::SyncPoint::GetInstance()->ClearAllCallBacks();
+    rocksdb::SyncPoint::GetInstance()->SetCallBack(
+        test_sync_point,
+        [&](void* /*arg*/) { fit_env.SetFilesystemActive(false); });
+    rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+    ASSERT_NOK(TryReopenWithColumnFamilies(
+        {kDefaultColumnFamilyName, "pikachu"}, options));
+    rocksdb::SyncPoint::GetInstance()->DisableProcessing();
+
+    fit_env.SetFilesystemActive(true);
+    // If we continue using failure ingestion Env, it will conplain something
+    // when renaming current file, which is not expected. Need to investigate
+    // why.
+    options.env = env_;
+    ASSERT_OK(TryReopenWithColumnFamilies({kDefaultColumnFamilyName, "pikachu"},
+                                          options));
+  }
+}
+
+TEST_F(DBTest2, SeekFileRangeDeleteTail) {
+  Options options = CurrentOptions();
+  options.prefix_extractor.reset(NewCappedPrefixTransform(1));
+  options.num_levels = 3;
+  DestroyAndReopen(options);
+
+  ASSERT_OK(Put("a", "a"));
+  const Snapshot* s1 = db_->GetSnapshot();
+  ASSERT_OK(
+      db_->DeleteRange(WriteOptions(), db_->DefaultColumnFamily(), "a", "f"));
+  ASSERT_OK(Put("b", "a"));
+  ASSERT_OK(Flush());
+
+  ASSERT_OK(Put("x", "a"));
+  ASSERT_OK(Put("z", "a"));
+  ASSERT_OK(Flush());
+
+  CompactRangeOptions cro;
+  cro.change_level = true;
+  cro.target_level = 2;
+  ASSERT_OK(db_->CompactRange(cro, nullptr, nullptr));
+
+  {
+    ReadOptions ro;
+    ro.total_order_seek = true;
+    std::unique_ptr<Iterator> iter(db_->NewIterator(ro));
+    iter->Seek("e");
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_EQ("x", iter->key().ToString());
+  }
+  db_->ReleaseSnapshot(s1);
+}
 }  // namespace rocksdb
+
+#ifdef ROCKSDB_UNITTESTS_WITH_CUSTOM_OBJECTS_FROM_STATIC_LIBS
+extern "C" {
+void RegisterCustomObjects(int argc, char** argv);
+}
+#else
+void RegisterCustomObjects(int /*argc*/, char** /*argv*/) {}
+#endif  // !ROCKSDB_UNITTESTS_WITH_CUSTOM_OBJECTS_FROM_STATIC_LIBS
 
 int main(int argc, char** argv) {
   rocksdb::port::InstallStackTraceHandler();
   ::testing::InitGoogleTest(&argc, argv);
+  RegisterCustomObjects(argc, argv);
   return RUN_ALL_TESTS();
 }

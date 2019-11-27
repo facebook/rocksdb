@@ -6,12 +6,14 @@
 #ifndef ROCKSDB_LITE
 
 #include <atomic>
+#include <limits>
 #include <memory>
+#include <unordered_set>
 
+#include "file/random_access_file_reader.h"
 #include "port/port.h"
 #include "rocksdb/env.h"
 #include "rocksdb/options.h"
-#include "util/file_reader_writer.h"
 #include "utilities/blob_db/blob_log_format.h"
 #include "utilities/blob_db/blob_log_reader.h"
 #include "utilities/blob_db/blob_log_writer.h"
@@ -28,7 +30,7 @@ class BlobFile {
 
  private:
   // access to parent
-  const BlobDBImpl* parent_;
+  const BlobDBImpl* parent_{nullptr};
 
   // path to blob directory
   std::string path_to_dir_;
@@ -36,42 +38,50 @@ class BlobFile {
   // the id of the file.
   // the above 2 are created during file creation and never changed
   // after that
-  uint64_t file_number_;
+  uint64_t file_number_{0};
+
+  // The file numbers of the SST files whose oldest blob file reference
+  // points to this blob file.
+  std::unordered_set<uint64_t> linked_sst_files_;
 
   // Info log.
-  Logger* info_log_;
+  Logger* info_log_{nullptr};
 
   // Column family id.
-  uint32_t column_family_id_;
+  uint32_t column_family_id_{std::numeric_limits<uint32_t>::max()};
 
   // Compression type of blobs in the file
-  CompressionType compression_;
+  CompressionType compression_{kNoCompression};
 
   // If true, the keys in this file all has TTL. Otherwise all keys don't
   // have TTL.
-  bool has_ttl_;
+  bool has_ttl_{false};
+
+  // TTL range of blobs in the file.
+  ExpirationRange expiration_range_;
 
   // number of blobs in the file
-  std::atomic<uint64_t> blob_count_;
+  std::atomic<uint64_t> blob_count_{0};
 
   // size of the file
-  std::atomic<uint64_t> file_size_;
+  std::atomic<uint64_t> file_size_{0};
 
   BlobLogHeader header_;
 
   // closed_ = true implies the file is no more mutable
   // no more blobs will be appended and the footer has been written out
-  std::atomic<bool> closed_;
+  std::atomic<bool> closed_{false};
+
+  // The latest sequence number when the file was closed/made immutable.
+  SequenceNumber immutable_sequence_{0};
 
   // has a pass of garbage collection successfully finished on this file
   // obsolete_ still needs to do iterator/snapshot checks
-  std::atomic<bool> obsolete_;
+  std::atomic<bool> obsolete_{false};
 
   // The last sequence number by the time the file marked as obsolete.
   // Data in this file is visible to a snapshot taken before the sequence.
-  SequenceNumber obsolete_sequence_;
-
-  ExpirationRange expiration_range_;
+  SequenceNumber obsolete_sequence_{0};
 
   // Sequential/Append writer for blobs
   std::shared_ptr<Writer> log_writer_;
@@ -84,30 +94,29 @@ class BlobFile {
   mutable port::RWMutex mutex_;
 
   // time when the random access reader was last created.
-  std::atomic<std::int64_t> last_access_;
+  std::atomic<std::int64_t> last_access_{-1};
 
   // last time file was fsync'd/fdatasyncd
-  std::atomic<uint64_t> last_fsync_;
+  std::atomic<uint64_t> last_fsync_{0};
 
-  bool header_valid_;
+  bool header_valid_{false};
 
-  bool footer_valid_;
-
-  SequenceNumber garbage_collection_finish_sequence_;
+  bool footer_valid_{false};
 
  public:
-  BlobFile();
+  BlobFile() = default;
 
   BlobFile(const BlobDBImpl* parent, const std::string& bdir, uint64_t fnum,
            Logger* info_log);
 
+  BlobFile(const BlobDBImpl* parent, const std::string& bdir, uint64_t fnum,
+           Logger* info_log, uint32_t column_family_id,
+           CompressionType compression, bool has_ttl,
+           const ExpirationRange& expiration_range);
+
   ~BlobFile();
 
   uint32_t column_family_id() const;
-
-  void SetColumnFamilyId(uint32_t cf_id) {
-    column_family_id_ = cf_id;
-  }
 
   // Returns log file's absolute pathname.
   std::string PathName() const;
@@ -115,6 +124,25 @@ class BlobFile {
   // Primary identifier for blob file.
   // once the file is created, this never changes
   uint64_t BlobFileNumber() const { return file_number_; }
+
+  // Get the set of SST files whose oldest blob file reference points to
+  // this file.
+  const std::unordered_set<uint64_t>& GetLinkedSstFiles() const {
+    return linked_sst_files_;
+  }
+
+  // Link an SST file whose oldest blob file reference points to this file.
+  void LinkSstFile(uint64_t sst_file_number) {
+    assert(linked_sst_files_.find(sst_file_number) == linked_sst_files_.end());
+    linked_sst_files_.insert(sst_file_number);
+  }
+
+  // Unlink an SST file whose oldest blob file reference points to this file.
+  void UnlinkSstFile(uint64_t sst_file_number) {
+    auto it = linked_sst_files_.find(sst_file_number);
+    assert(it != linked_sst_files_.end());
+    linked_sst_files_.erase(it);
+  }
 
   // the following functions are atomic, and don't need
   // read lock
@@ -129,7 +157,15 @@ class BlobFile {
 
   // Mark the file as immutable.
   // REQUIRES: write lock held, or access from single thread (on DB open).
-  void MarkImmutable() { closed_ = true; }
+  void MarkImmutable(SequenceNumber sequence) {
+    closed_ = true;
+    immutable_sequence_ = sequence;
+  }
+
+  SequenceNumber GetImmutableSequence() const {
+    assert(Immutable());
+    return immutable_sequence_;
+  }
 
   // if the file has gone through GC and blobs have been relocated
   bool Obsolete() const {
@@ -170,10 +206,6 @@ class BlobFile {
 
   CompressionType compression() const { return compression_; }
 
-  void SetCompression(CompressionType c) {
-    compression_ = c;
-  }
-
   std::shared_ptr<Writer> GetWriter() const { return log_writer_; }
 
   // Read blob file header and footer. Return corruption if file header is
@@ -192,7 +224,7 @@ class BlobFile {
 
   Status ReadFooter(BlobLogFooter* footer);
 
-  Status WriteFooterAndCloseLocked();
+  Status WriteFooterAndCloseLocked(SequenceNumber sequence);
 
   void CloseRandomAccessLocked();
 

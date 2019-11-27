@@ -7,10 +7,16 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
+#include <atomic>
+
+#include "db/db_impl/db_impl.h"
 #include "db/db_test_util.h"
+#include "port/port.h"
 #include "port/stack_trace.h"
-#include "util/fault_injection_test_env.h"
-#include "util/sync_point.h"
+#include "test_util/fault_injection_test_env.h"
+#include "test_util/sync_point.h"
+#include "util/cast_util.h"
+#include "util/mutexlock.h"
 
 namespace rocksdb {
 
@@ -290,6 +296,129 @@ TEST_F(DBFlushTest, ManualFlushFailsInReadOnlyMode) {
   Close();
 }
 
+TEST_F(DBFlushTest, CFDropRaceWithWaitForFlushMemTables) {
+  Options options = CurrentOptions();
+  options.create_if_missing = true;
+  CreateAndReopenWithCF({"pikachu"}, options);
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->LoadDependency(
+      {{"DBImpl::FlushMemTable:AfterScheduleFlush",
+        "DBFlushTest::CFDropRaceWithWaitForFlushMemTables:BeforeDrop"},
+       {"DBFlushTest::CFDropRaceWithWaitForFlushMemTables:AfterFree",
+        "DBImpl::BackgroundCallFlush:start"},
+       {"DBImpl::BackgroundCallFlush:start",
+        "DBImpl::FlushMemTable:BeforeWaitForBgFlush"}});
+  SyncPoint::GetInstance()->EnableProcessing();
+  ASSERT_EQ(2, handles_.size());
+  ASSERT_OK(Put(1, "key", "value"));
+  auto* cfd = static_cast<ColumnFamilyHandleImpl*>(handles_[1])->cfd();
+  port::Thread drop_cf_thr([&]() {
+    TEST_SYNC_POINT(
+        "DBFlushTest::CFDropRaceWithWaitForFlushMemTables:BeforeDrop");
+    ASSERT_OK(dbfull()->DropColumnFamily(handles_[1]));
+    ASSERT_OK(dbfull()->DestroyColumnFamilyHandle(handles_[1]));
+    handles_.resize(1);
+    TEST_SYNC_POINT(
+        "DBFlushTest::CFDropRaceWithWaitForFlushMemTables:AfterFree");
+  });
+  FlushOptions flush_opts;
+  flush_opts.allow_write_stall = true;
+  ASSERT_NOK(dbfull()->TEST_FlushMemTable(cfd, flush_opts));
+  drop_cf_thr.join();
+  Close();
+  SyncPoint::GetInstance()->DisableProcessing();
+}
+
+#ifndef ROCKSDB_LITE
+TEST_F(DBFlushTest, FireOnFlushCompletedAfterCommittedResult) {
+  class TestListener : public EventListener {
+   public:
+    void OnFlushCompleted(DB* db, const FlushJobInfo& info) override {
+      // There's only one key in each flush.
+      ASSERT_EQ(info.smallest_seqno, info.largest_seqno);
+      ASSERT_NE(0, info.smallest_seqno);
+      if (info.smallest_seqno == seq1) {
+        // First flush completed
+        ASSERT_FALSE(completed1);
+        completed1 = true;
+        CheckFlushResultCommitted(db, seq1);
+      } else {
+        // Second flush completed
+        ASSERT_FALSE(completed2);
+        completed2 = true;
+        ASSERT_EQ(info.smallest_seqno, seq2);
+        CheckFlushResultCommitted(db, seq2);
+      }
+    }
+
+    void CheckFlushResultCommitted(DB* db, SequenceNumber seq) {
+      DBImpl* db_impl = static_cast_with_check<DBImpl>(db);
+      InstrumentedMutex* mutex = db_impl->mutex();
+      mutex->Lock();
+      auto* cfd =
+          reinterpret_cast<ColumnFamilyHandleImpl*>(db->DefaultColumnFamily())
+              ->cfd();
+      ASSERT_LT(seq, cfd->imm()->current()->GetEarliestSequenceNumber());
+      mutex->Unlock();
+    }
+
+    std::atomic<SequenceNumber> seq1{0};
+    std::atomic<SequenceNumber> seq2{0};
+    std::atomic<bool> completed1{false};
+    std::atomic<bool> completed2{false};
+  };
+  std::shared_ptr<TestListener> listener = std::make_shared<TestListener>();
+
+  SyncPoint::GetInstance()->LoadDependency(
+      {{"DBImpl::BackgroundCallFlush:start",
+        "DBFlushTest::FireOnFlushCompletedAfterCommittedResult:WaitFirst"},
+       {"DBImpl::FlushMemTableToOutputFile:Finish",
+        "DBFlushTest::FireOnFlushCompletedAfterCommittedResult:WaitSecond"}});
+  SyncPoint::GetInstance()->SetCallBack(
+      "FlushJob::WriteLevel0Table", [&listener](void* arg) {
+        // Wait for the second flush finished, out of mutex.
+        auto* mems = reinterpret_cast<autovector<MemTable*>*>(arg);
+        if (mems->front()->GetEarliestSequenceNumber() == listener->seq1 - 1) {
+          TEST_SYNC_POINT(
+              "DBFlushTest::FireOnFlushCompletedAfterCommittedResult:"
+              "WaitSecond");
+        }
+      });
+
+  Options options = CurrentOptions();
+  options.create_if_missing = true;
+  options.listeners.push_back(listener);
+  // Setting max_flush_jobs = max_background_jobs / 4 = 2.
+  options.max_background_jobs = 8;
+  // Allow 2 immutable memtables.
+  options.max_write_buffer_number = 3;
+  Reopen(options);
+  SyncPoint::GetInstance()->EnableProcessing();
+  ASSERT_OK(Put("foo", "v"));
+  listener->seq1 = db_->GetLatestSequenceNumber();
+  // t1 will wait for the second flush complete before committing flush result.
+  auto t1 = port::Thread([&]() {
+    // flush_opts.wait = true
+    ASSERT_OK(db_->Flush(FlushOptions()));
+  });
+  // Wait for first flush started.
+  TEST_SYNC_POINT(
+      "DBFlushTest::FireOnFlushCompletedAfterCommittedResult:WaitFirst");
+  // The second flush will exit early without commit its result. The work
+  // is delegated to the first flush.
+  ASSERT_OK(Put("bar", "v"));
+  listener->seq2 = db_->GetLatestSequenceNumber();
+  FlushOptions flush_opts;
+  flush_opts.wait = false;
+  ASSERT_OK(db_->Flush(flush_opts));
+  t1.join();
+  ASSERT_TRUE(listener->completed1);
+  ASSERT_TRUE(listener->completed2);
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+}
+#endif  // !ROCKSDB_LITE
+
 TEST_P(DBAtomicFlushTest, ManualAtomicFlush) {
   Options options = CurrentOptions();
   options.create_if_missing = true;
@@ -431,7 +560,7 @@ TEST_P(DBAtomicFlushTest, FlushMultipleCFs_DropSomeBeforeRequestFlush) {
     cf_ids.push_back(cf_id);
   }
   ASSERT_OK(dbfull()->DropColumnFamily(handles_[1]));
-  ASSERT_TRUE(Flush(cf_ids).IsShutdownInProgress());
+  ASSERT_TRUE(Flush(cf_ids).IsColumnFamilyDropped());
   Destroy(options);
 }
 
@@ -512,6 +641,80 @@ TEST_P(DBAtomicFlushTest, TriggerFlushAndClose) {
 
   ReopenWithColumnFamilies({kDefaultColumnFamilyName, "pikachu"}, options);
   ASSERT_EQ("value", Get(0, "key"));
+}
+
+TEST_P(DBAtomicFlushTest, PickMemtablesRaceWithBackgroundFlush) {
+  bool atomic_flush = GetParam();
+  Options options = CurrentOptions();
+  options.create_if_missing = true;
+  options.atomic_flush = atomic_flush;
+  options.max_write_buffer_number = 4;
+  // Set min_write_buffer_number_to_merge to be greater than 1, so that
+  // a column family with one memtable in the imm will not cause IsFlushPending
+  // to return true when flush_requested_ is false.
+  options.min_write_buffer_number_to_merge = 2;
+  CreateAndReopenWithCF({"pikachu"}, options);
+  ASSERT_EQ(2, handles_.size());
+  ASSERT_OK(dbfull()->PauseBackgroundWork());
+  ASSERT_OK(Put(0, "key00", "value00"));
+  ASSERT_OK(Put(1, "key10", "value10"));
+  FlushOptions flush_opts;
+  flush_opts.wait = false;
+  ASSERT_OK(dbfull()->Flush(flush_opts, handles_));
+  ASSERT_OK(Put(0, "key01", "value01"));
+  // Since max_write_buffer_number is 4, the following flush won't cause write
+  // stall.
+  ASSERT_OK(dbfull()->Flush(flush_opts));
+  ASSERT_OK(dbfull()->DropColumnFamily(handles_[1]));
+  ASSERT_OK(dbfull()->DestroyColumnFamilyHandle(handles_[1]));
+  handles_[1] = nullptr;
+  ASSERT_OK(dbfull()->ContinueBackgroundWork());
+  ASSERT_OK(dbfull()->TEST_WaitForFlushMemTable(handles_[0]));
+  delete handles_[0];
+  handles_.clear();
+}
+
+TEST_P(DBAtomicFlushTest, CFDropRaceWithWaitForFlushMemTables) {
+  bool atomic_flush = GetParam();
+  if (!atomic_flush) {
+    return;
+  }
+  Options options = CurrentOptions();
+  options.create_if_missing = true;
+  options.atomic_flush = atomic_flush;
+  CreateAndReopenWithCF({"pikachu"}, options);
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->LoadDependency(
+      {{"DBImpl::AtomicFlushMemTables:AfterScheduleFlush",
+        "DBAtomicFlushTest::CFDropRaceWithWaitForFlushMemTables:BeforeDrop"},
+       {"DBAtomicFlushTest::CFDropRaceWithWaitForFlushMemTables:AfterFree",
+        "DBImpl::BackgroundCallFlush:start"},
+       {"DBImpl::BackgroundCallFlush:start",
+        "DBImpl::AtomicFlushMemTables:BeforeWaitForBgFlush"}});
+  SyncPoint::GetInstance()->EnableProcessing();
+  ASSERT_EQ(2, handles_.size());
+  ASSERT_OK(Put(0, "key", "value"));
+  ASSERT_OK(Put(1, "key", "value"));
+  auto* cfd_default =
+      static_cast<ColumnFamilyHandleImpl*>(dbfull()->DefaultColumnFamily())
+          ->cfd();
+  auto* cfd_pikachu = static_cast<ColumnFamilyHandleImpl*>(handles_[1])->cfd();
+  port::Thread drop_cf_thr([&]() {
+    TEST_SYNC_POINT(
+        "DBAtomicFlushTest::CFDropRaceWithWaitForFlushMemTables:BeforeDrop");
+    ASSERT_OK(dbfull()->DropColumnFamily(handles_[1]));
+    delete handles_[1];
+    handles_.resize(1);
+    TEST_SYNC_POINT(
+        "DBAtomicFlushTest::CFDropRaceWithWaitForFlushMemTables:AfterFree");
+  });
+  FlushOptions flush_opts;
+  flush_opts.allow_write_stall = true;
+  ASSERT_OK(dbfull()->TEST_AtomicFlushMemTables({cfd_default, cfd_pikachu},
+                                                flush_opts));
+  drop_cf_thr.join();
+  Close();
+  SyncPoint::GetInstance()->DisableProcessing();
 }
 
 INSTANTIATE_TEST_CASE_P(DBFlushDirectIOTest, DBFlushDirectIOTest,

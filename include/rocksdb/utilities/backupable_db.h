@@ -10,11 +10,7 @@
 #pragma once
 #ifndef ROCKSDB_LITE
 
-#ifndef __STDC_FORMAT_MACROS
-#define __STDC_FORMAT_MACROS
-#endif
-
-#include <inttypes.h>
+#include <cinttypes>
 #include <functional>
 #include <map>
 #include <string>
@@ -280,10 +276,14 @@ class BackupEngine {
                                        progress_callback);
   }
 
-  // deletes old backups, keeping latest num_backups_to_keep alive
+  // Deletes old backups, keeping latest num_backups_to_keep alive.
+  // See also DeleteBackup.
   virtual Status PurgeOldBackups(uint32_t num_backups_to_keep) = 0;
 
-  // deletes a specific backup
+  // Deletes a specific backup. If this operation (or PurgeOldBackups)
+  // is not completed due to crash, power failure, etc. the state
+  // will be cleaned up the next time you call DeleteBackup,
+  // PurgeOldBackups, or GarbageCollect.
   virtual Status DeleteBackup(BackupID backup_id) = 0;
 
   // Call this from another thread if you want to stop the backup
@@ -291,8 +291,8 @@ class BackupEngine {
   // not wait for the backup to stop.
   // The backup will stop ASAP and the call to CreateNewBackup will
   // return Status::Incomplete(). It will not clean up after itself, but
-  // the state will remain consistent. The state will be cleaned up
-  // next time you create BackupableDB or RestoreBackupableDB.
+  // the state will remain consistent. The state will be cleaned up the
+  // next time you call CreateNewBackup or GarbageCollect.
   virtual void StopBackup() = 0;
 
   // Returns info about backups in backup_info
@@ -327,9 +327,13 @@ class BackupEngine {
   // Returns Status::OK() if all checks are good
   virtual Status VerifyBackup(BackupID backup_id) = 0;
 
-  // Will delete all the files we don't need anymore
-  // It will do the full scan of the files/ directory and delete all the
-  // files that are not referenced.
+  // Will delete any files left over from incomplete creation or deletion of
+  // a backup. This is not normally needed as those operations also clean up
+  // after prior incomplete calls to the same kind of operation (create or
+  // delete).
+  // NOTE: This is not designed to delete arbitrary files added to the backup
+  // directory outside of BackupEngine, and clean-up is always subject to
+  // permissions on and availability of the underlying filesystem.
   virtual Status GarbageCollect() = 0;
 };
 

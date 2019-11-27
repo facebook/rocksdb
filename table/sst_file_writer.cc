@@ -6,12 +6,13 @@
 #include "rocksdb/sst_file_writer.h"
 
 #include <vector>
+
 #include "db/dbformat.h"
+#include "file/writable_file_writer.h"
 #include "rocksdb/table.h"
-#include "table/block_based_table_builder.h"
+#include "table/block_based/block_based_table_builder.h"
 #include "table/sst_file_writer_collectors.h"
-#include "util/file_reader_writer.h"
-#include "util/sync_point.h"
+#include "test_util/sync_point.h"
 
 namespace rocksdb {
 

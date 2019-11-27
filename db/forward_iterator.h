@@ -10,12 +10,12 @@
 #include <vector>
 #include <queue>
 
+#include "db/dbformat.h"
+#include "memory/arena.h"
 #include "rocksdb/db.h"
 #include "rocksdb/iterator.h"
 #include "rocksdb/options.h"
-#include "db/dbformat.h"
 #include "table/internal_iterator.h"
-#include "util/arena.h"
 
 namespace rocksdb {
 

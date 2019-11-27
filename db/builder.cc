@@ -13,7 +13,7 @@
 #include <deque>
 #include <vector>
 
-#include "db/compaction_iterator.h"
+#include "db/compaction/compaction_iterator.h"
 #include "db/dbformat.h"
 #include "db/event_helpers.h"
 #include "db/internal_stats.h"
@@ -21,6 +21,9 @@
 #include "db/range_del_aggregator.h"
 #include "db/table_cache.h"
 #include "db/version_edit.h"
+#include "file/filename.h"
+#include "file/read_write_util.h"
+#include "file/writable_file_writer.h"
 #include "monitoring/iostats_context_imp.h"
 #include "monitoring/thread_status_util.h"
 #include "rocksdb/db.h"
@@ -28,13 +31,11 @@
 #include "rocksdb/iterator.h"
 #include "rocksdb/options.h"
 #include "rocksdb/table.h"
-#include "table/block_based_table_builder.h"
+#include "table/block_based/block_based_table_builder.h"
 #include "table/format.h"
 #include "table/internal_iterator.h"
-#include "util/file_reader_writer.h"
-#include "util/filename.h"
+#include "test_util/sync_point.h"
 #include "util/stop_watch.h"
-#include "util/sync_point.h"
 
 namespace rocksdb {
 
@@ -123,7 +124,7 @@ Status BuildTable(
       if (!s.ok()) {
         EventHelpers::LogAndNotifyTableFileCreationFinished(
             event_logger, ioptions.listeners, dbname, column_family_name, fname,
-            job_id, meta->fd, tp, reason, s);
+            job_id, meta->fd, kInvalidBlobFileNumber, tp, reason, s);
         return s;
       }
       file->SetIOPriority(io_priority);
@@ -156,8 +157,9 @@ Status BuildTable(
     for (; c_iter.Valid(); c_iter.Next()) {
       const Slice& key = c_iter.key();
       const Slice& value = c_iter.value();
+      const ParsedInternalKey& ikey = c_iter.ikey();
       builder->Add(key, value);
-      meta->UpdateBoundaries(key, c_iter.ikey().sequence);
+      meta->UpdateBoundaries(key, value, ikey.sequence, ikey.type);
 
       // TODO(noetzli): Update stats after flush, too.
       if (io_priority == Env::IO_HIGH &&
@@ -221,8 +223,9 @@ Status BuildTable(
           mutable_cf_options.prefix_extractor.get(), nullptr,
           (internal_stats == nullptr) ? nullptr
                                       : internal_stats->GetFileReadHist(0),
-          false /* for_compaction */, nullptr /* arena */,
-          false /* skip_filter */, level));
+          TableReaderCaller::kFlush, /*arena=*/nullptr,
+          /*skip_filter=*/false, level, /*smallest_compaction_key=*/nullptr,
+          /*largest_compaction_key*/ nullptr));
       s = it->status();
       if (s.ok() && paranoid_file_checks) {
         for (it->SeekToFirst(); it->Valid(); it->Next()) {
@@ -241,10 +244,13 @@ Status BuildTable(
     env->DeleteFile(fname);
   }
 
+  if (meta->fd.GetFileSize() == 0) {
+    fname = "(nil)";
+  }
   // Output to event logger and fire events.
   EventHelpers::LogAndNotifyTableFileCreationFinished(
       event_logger, ioptions.listeners, dbname, column_family_name, fname,
-      job_id, meta->fd, tp, reason, s);
+      job_id, meta->fd, meta->oldest_blob_file_number, tp, reason, s);
 
   return s;
 }

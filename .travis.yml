@@ -1,5 +1,4 @@
-sudo: false
-dist: trusty
+dist: xenial
 language: cpp
 os:
   - linux
@@ -9,7 +8,7 @@ compiler:
   - gcc
 osx_image: xcode8.3
 jdk:
-  - oraclejdk7
+  - openjdk7
 cache:
   - ccache
   - apt
@@ -71,7 +70,10 @@ install:
       CC=gcc-8 && CXX=g++-8;
     fi
   - if [[ "${JOB_NAME}" == cmake* ]] && [ "${TRAVIS_OS_NAME}" == linux ]; then
-      mkdir cmake-dist && curl -sfSL https://cmake.org/files/v3.8/cmake-3.8.1-Linux-x86_64.tar.gz | tar --strip-components=1 -C cmake-dist -xz && export PATH=$PWD/cmake-dist/bin:$PATH;
+      mkdir cmake-dist && curl -sfSL https://github.com/Kitware/CMake/releases/download/v3.14.5/cmake-3.14.5-Linux-x86_64.tar.gz | tar --strip-components=1 -C cmake-dist -xz && export PATH=$PWD/cmake-dist/bin:$PATH;
+    fi
+  - if [[ "${JOB_NAME}" == java_test ]]; then
+      java -version && echo "JAVA_HOME=${JAVA_HOME}";
     fi
 
 before_script:
@@ -87,13 +89,13 @@ script:
       OPT=-DTRAVIS V=1 ROCKSDBTESTS_END=db_block_cache_test make -j4 all_but_some_tests check_some
       ;;
     1)
-      OPT=-DTRAVIS V=1 ROCKSDBTESTS_START=db_block_cache_test ROCKSDBTESTS_END=full_filter_block_test make -j4 check_some
+      OPT=-DTRAVIS V=1 ROCKSDBTESTS_START=db_block_cache_test ROCKSDBTESTS_END=db_iter_test make -j4 check_some
       ;;
     2)
-      OPT=-DTRAVIS V=1 make -j4 tools && OPT=-DTRAVIS V=1 ROCKSDBTESTS_START=full_filter_block_test ROCKSDBTESTS_END=write_batch_with_index_test make -j4 check_some
+      OPT=-DTRAVIS V=1 make -j4 tools && OPT=-DTRAVIS V=1 ROCKSDBTESTS_START=db_iter_test ROCKSDBTESTS_END=options_file_test make -j4 check_some
       ;;
     3)
-      OPT=-DTRAVIS V=1 ROCKSDBTESTS_START=write_batch_with_index_test ROCKSDBTESTS_END=write_prepared_transaction_test make -j4 check_some
+      OPT=-DTRAVIS V=1 ROCKSDBTESTS_START=options_file_test ROCKSDBTESTS_END=write_prepared_transaction_test make -j4 check_some
       ;;
     4)
       OPT=-DTRAVIS V=1 ROCKSDBTESTS_START=write_prepared_transaction_test make -j4 check_some
@@ -101,7 +103,7 @@ script:
     esac
   - case $JOB_NAME in
     java_test)
-      OPT=-DTRAVIS V=1 make clean jclean && make rocksdbjava jtest
+      OPT=-DTRAVIS V=1 make rocksdbjava jtest
       ;;
     lite_build)
       OPT='-DTRAVIS -DROCKSDB_LITE' V=1 make -j4 static_lib tools
@@ -110,6 +112,7 @@ script:
       OPT=-DTRAVIS V=1 make -j4 static_lib && cd examples && make -j4
       ;;
     cmake-mingw)
+      sudo update-alternatives --set x86_64-w64-mingw32-g++ /usr/bin/x86_64-w64-mingw32-g++-posix;
       mkdir build && cd build && cmake -DJNI=1 .. -DCMAKE_C_COMPILER=x86_64-w64-mingw32-gcc -DCMAKE_CXX_COMPILER=x86_64-w64-mingw32-g++ -DCMAKE_SYSTEM_NAME=Windows && make -j4 rocksdb rocksdbjni
       ;;
     cmake*)
@@ -119,5 +122,3 @@ script:
 notifications:
     email:
       - leveldb@fb.com
-    webhooks:
-      - https://buildtimetrend.herokuapp.com/travis

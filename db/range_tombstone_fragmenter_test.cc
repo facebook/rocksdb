@@ -7,7 +7,7 @@
 
 #include "db/db_test_util.h"
 #include "rocksdb/comparator.h"
-#include "util/testutil.h"
+#include "test_util/testutil.h"
 
 namespace rocksdb {
 

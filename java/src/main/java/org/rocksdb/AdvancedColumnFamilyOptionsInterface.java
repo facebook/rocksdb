@@ -13,9 +13,8 @@ import java.util.List;
  *
  * Taken from include/rocksdb/advanced_options.h
  */
-public interface AdvancedColumnFamilyOptionsInterface
-    <T extends AdvancedColumnFamilyOptionsInterface> {
-
+public interface AdvancedColumnFamilyOptionsInterface<
+    T extends AdvancedColumnFamilyOptionsInterface<T>> {
   /**
    * The minimum number of write buffers that will be merged together
    * before writing to storage.  If set to 1, then

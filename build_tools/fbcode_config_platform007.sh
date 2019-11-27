@@ -86,9 +86,10 @@ else
 fi
 CFLAGS+=" -DTBB"
 
-# use Intel SSE support for checksum calculations
-export USE_SSE=1
-export PORTABLE=1
+test "$USE_SSE" || USE_SSE=1
+export USE_SSE
+test "$PORTABLE" || PORTABLE=1
+export PORTABLE
 
 BINUTILS="$BINUTILS_BASE/bin"
 AR="$BINUTILS/ar"
@@ -154,5 +155,7 @@ VALGRIND_VER="$VALGRIND_BASE/bin/"
 # lua not supported because it's on track for deprecation, I think
 LUA_PATH=
 LUA_LIB=
+
+USE_FOLLY_DISTRIBUTED_MUTEX=1
 
 export CC CXX AR CFLAGS CXXFLAGS EXEC_LDFLAGS EXEC_LDFLAGS_SHARED VALGRIND_VER JEMALLOC_LIB JEMALLOC_INCLUDE CLANG_ANALYZER CLANG_SCAN_BUILD LUA_PATH LUA_LIB

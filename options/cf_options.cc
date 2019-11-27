@@ -5,19 +5,15 @@
 
 #include "options/cf_options.h"
 
-#ifndef __STDC_FORMAT_MACROS
-#define __STDC_FORMAT_MACROS
-#endif
-
-#include <inttypes.h>
 #include <cassert>
+#include <cinttypes>
 #include <limits>
 #include <string>
 #include "options/db_options.h"
 #include "port/port.h"
+#include "rocksdb/concurrent_task_limiter.h"
 #include "rocksdb/env.h"
 #include "rocksdb/options.h"
-#include "rocksdb/concurrent_task_limiter.h"
 
 namespace rocksdb {
 
@@ -37,6 +33,8 @@ ImmutableCFOptions::ImmutableCFOptions(const ImmutableDBOptions& db_options,
           cf_options.min_write_buffer_number_to_merge),
       max_write_buffer_number_to_maintain(
           cf_options.max_write_buffer_number_to_maintain),
+      max_write_buffer_size_to_maintain(
+          cf_options.max_write_buffer_size_to_maintain),
       inplace_update_support(cf_options.inplace_update_support),
       inplace_callback(cf_options.inplace_callback),
       info_log(db_options.info_log.get()),
@@ -169,8 +167,6 @@ void MutableCFOptions::Dump(Logger* log) const {
                  target_file_size_multiplier);
   ROCKS_LOG_INFO(log, "                 max_bytes_for_level_base: %" PRIu64,
                  max_bytes_for_level_base);
-  ROCKS_LOG_INFO(log, "                       snap_refresh_nanos: %" PRIu64,
-                 snap_refresh_nanos);
   ROCKS_LOG_INFO(log, "           max_bytes_for_level_multiplier: %f",
                  max_bytes_for_level_multiplier);
   ROCKS_LOG_INFO(log, "                                      ttl: %" PRIu64,

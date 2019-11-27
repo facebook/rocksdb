@@ -5,14 +5,14 @@
 
 #ifndef ROCKSDB_LITE
 
-#include <inttypes.h>
+#include <cinttypes>
 
 #include "rocksdb/db.h"
 #include "rocksdb/sst_file_reader.h"
 #include "rocksdb/sst_file_writer.h"
 #include "table/sst_file_writer_collectors.h"
-#include "util/testharness.h"
-#include "util/testutil.h"
+#include "test_util/testharness.h"
+#include "test_util/testutil.h"
 #include "utilities/merge_operators.h"
 
 namespace rocksdb {

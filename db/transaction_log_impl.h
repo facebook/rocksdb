@@ -9,13 +9,13 @@
 
 #include "db/log_reader.h"
 #include "db/version_set.h"
+#include "file/filename.h"
 #include "options/db_options.h"
 #include "port/port.h"
 #include "rocksdb/env.h"
 #include "rocksdb/options.h"
 #include "rocksdb/transaction_log.h"
 #include "rocksdb/types.h"
-#include "util/filename.h"
 
 namespace rocksdb {
 
@@ -86,6 +86,7 @@ class TransactionLogIteratorImpl : public TransactionLogIterator {
   size_t current_file_index_;
   std::unique_ptr<WriteBatch> current_batch_;
   std::unique_ptr<log::Reader> current_log_reader_;
+  std::string scratch_;
   Status OpenLogFile(const LogFile* log_file,
                      std::unique_ptr<SequentialFileReader>* file);
 
@@ -107,7 +108,7 @@ class TransactionLogIteratorImpl : public TransactionLogIterator {
   VersionSet const* const versions_;
   const bool seq_per_batch_;
   // Reads from transaction log only if the writebatch record has been written
-  bool RestrictedRead(Slice* record, std::string* scratch);
+  bool RestrictedRead(Slice* record);
   // Seeks to startingSequenceNumber reading from startFileIndex in files_.
   // If strict is set,then must get a batch starting with startingSequenceNumber
   void SeekToStartSequence(uint64_t start_file_index = 0, bool strict = false);

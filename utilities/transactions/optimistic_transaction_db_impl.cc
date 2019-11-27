@@ -10,7 +10,7 @@
 #include <string>
 #include <vector>
 
-#include "db/db_impl.h"
+#include "db/db_impl/db_impl.h"
 #include "rocksdb/db.h"
 #include "rocksdb/options.h"
 #include "rocksdb/utilities/optimistic_transaction_db.h"
@@ -63,9 +63,11 @@ Status OptimisticTransactionDB::Open(
   for (auto& column_family : column_families_copy) {
     ColumnFamilyOptions* options = &column_family.options;
 
-    if (options->max_write_buffer_number_to_maintain == 0) {
-      // Setting to -1 will set the History size to max_write_buffer_number.
-      options->max_write_buffer_number_to_maintain = -1;
+    if (options->max_write_buffer_size_to_maintain == 0 &&
+        options->max_write_buffer_number_to_maintain == 0) {
+      // Setting to -1 will set the History size to
+      // max_write_buffer_number * write_buffer_size.
+      options->max_write_buffer_size_to_maintain = -1;
     }
   }
 
