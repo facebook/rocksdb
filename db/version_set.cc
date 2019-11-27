@@ -2442,8 +2442,7 @@ void VersionStorageInfo::ComputeCompactionScore(
   if (mutable_cf_options.ttl > 0) {
     ComputeExpiredTtlFiles(immutable_cf_options, mutable_cf_options.ttl);
   }
-  if (mutable_cf_options.periodic_compaction_seconds > 0 &&
-      mutable_cf_options.periodic_compaction_seconds < port::kMaxUint64) {
+  if (mutable_cf_options.periodic_compaction_seconds > 0) {
     ComputeFilesMarkedForPeriodicCompaction(
         immutable_cf_options, mutable_cf_options.periodic_compaction_seconds);
   }
@@ -2514,12 +2513,12 @@ void VersionStorageInfo::ComputeFilesMarkedForPeriodicCompaction(
   }
   const uint64_t current_time = static_cast<uint64_t>(temp_current_time);
 
-  assert(periodic_compaction_seconds <= current_time);
-  // Disable periodic compaction if periodic_compaction_seconds > current_time.
-  // This also help handle the underflow case.
+  // If periodic_compaction_seconds > current_time, no file possibly qualifies
+  // periodic compaction.
   if (periodic_compaction_seconds > current_time) {
     return;
   }
+
   const uint64_t allowed_time_limit =
       current_time - periodic_compaction_seconds;
 
