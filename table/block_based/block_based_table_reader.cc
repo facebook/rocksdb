@@ -2458,12 +2458,12 @@ void BlockBasedTable::RetrieveMultipleBlocks(
       // to the heap such that it can be added to the block cache.
       CompressionType compression_type =
           raw_block_contents.get_compression_type();
-      if (scratch != nullptr && compression_type == kNoCompression) {
-        Slice raw = Slice(req.scratch + req_offset, handle.size());
+      if ((scratch != nullptr && compression_type == kNoCompression) ||
+          (scratch == nullptr && blocks_share_scratch)) {
+        Slice raw = Slice(req.scratch + req_offset, block_size(handle));
         raw_block_contents = BlockContents(
             CopyBufferToHeap(GetMemoryAllocator(rep_->table_options), raw),
             handle.size());
-        std::cout<<req.result.size()<<" "<<handle.size()<<" rare case, compress enabled but not block not compressed\n";
 
 #ifndef NDEBUG
         raw_block_contents.is_raw_block = true;
@@ -2503,18 +2503,12 @@ void BlockBasedTable::RetrieveMultipleBlocks(
                                     handle.size(), &contents, footer.version(),
                                     rep_->ioptions, memory_allocator);
       } else {
-        if (scratch != nullptr || blocks_share_scratch) {
-          // If we used the scratch buffer, then the contents need to be
-          // copied to heap
-          // If the read buffer is shared but the block is not compressed, copy
-          // to the head
-          Slice raw = Slice(req.result.data() + req_offset, handle.size());
-          contents = BlockContents(
-              CopyBufferToHeap(GetMemoryAllocator(rep_->table_options), raw),
-              handle.size());
-        } else {
-          contents = std::move(raw_block_contents);
-        }
+        // There are two cases here: 1) caller uses the scratch buffer; 2) we
+        // use the requst buffer. If scratch buffer is used, we ensure that
+        // all raw blocks are copyed to the heap as single blocks. If scratch
+        // buffer is not used, we also have no combined read, so the raw
+        // block can be used directly.
+        contents = std::move(raw_block_contents);
       }
       if (s.ok()) {
         (*results)[idx_in_batch].SetOwnedValue(

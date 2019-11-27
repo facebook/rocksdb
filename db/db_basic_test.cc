@@ -6,7 +6,6 @@
 // Copyright (c) 2011 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
-#include<iostream>
 #include "db/db_test_util.h"
 #include "port/stack_trace.h"
 #include "rocksdb/perf_context.h"
@@ -1993,7 +1992,6 @@ TEST_P(DBBasicTestWithParallelIO, MultiGet) {
   } else {
     expected_reads += (read_from_cache ? 0 : 3);
   }
-  std::cout<<env_->random_read_counter_.Read()<<" "<<expected_reads<<"\n";
   ASSERT_EQ(env_->random_read_counter_.Read(), expected_reads);
 }
 

@@ -11,7 +11,6 @@
 
 #include <assert.h>
 #include <stdio.h>
-#include <iostream>
 #include <list>
 #include <map>
 #include <memory>
@@ -100,7 +99,6 @@ FilterBlockBuilder* CreateFilterBlockBuilder(
 
 bool GoodCompressionRatio(size_t compressed_size, size_t raw_size) {
   // Check to see if compressed less than 12.5%
-  std::cout<<raw_size<<" "<<raw_size - (raw_size / 8u)<<" "<<compressed_size<<"\n";
   return compressed_size < raw_size - (raw_size / 8u);
 }
 
