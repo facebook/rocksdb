@@ -237,6 +237,11 @@ class BlobDBImpl : public BlobDB {
   Status GetBlobValue(const Slice& key, const Slice& index_entry,
                       PinnableSlice* value, uint64_t* expiration = nullptr);
 
+  Status GetRawBlobFromFile(const Slice& key, uint64_t file_number,
+                            uint64_t offset, uint64_t size,
+                            PinnableSlice* value,
+                            CompressionType* compression_type);
+
   Slice GetCompressedSlice(const Slice& raw,
                            std::string* compression_output) const;
 
