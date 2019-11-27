@@ -1,4 +1,7 @@
 # Rocksdb Change Log
+## Unreleased
+### Buf Fixes
+* Fix a bug that can cause unnecessary bg thread to be scheduled(#6104).
 ## 6.6.0 (11/25/2019)
 ### Bug Fixes
 * Fix data corruption casued by output of intra-L0 compaction on ingested file not being placed in correct order in L0.
