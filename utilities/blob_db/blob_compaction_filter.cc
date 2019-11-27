@@ -250,11 +250,9 @@ class BlobIndexCompactionFilterGC : public BlobIndexCompactionFilterBase {
       return false;
     }
 
-    blob_file_->blob_count_++;
-
     const uint64_t new_size =
         BlobLogRecord::kHeaderSize + key.size() + blob.size();
-    blob_file_->file_size_ += new_size;
+    blob_file_->BlobRecordAdded(new_size);
 
     BlobDBImpl* const blob_db_impl = context_gc_.blob_db_impl;
     assert(blob_db_impl);

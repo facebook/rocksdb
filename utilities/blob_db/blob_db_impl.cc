@@ -1240,11 +1240,8 @@ Status BlobDBImpl::AppendBlob(const std::shared_ptr<BlobFile>& bfile,
     return s;
   }
 
-  // increment blob count
-  bfile->blob_count_++;
-
   uint64_t size_put = headerbuf.size() + key.size() + value.size();
-  bfile->file_size_ += size_put;
+  bfile->BlobRecordAdded(size_put);
   total_blob_size_ += size_put;
 
   if (expiration == kNoExpiration) {

@@ -241,6 +241,11 @@ class BlobFile {
   void SetFileSize(uint64_t fs) { file_size_ = fs; }
 
   void SetBlobCount(uint64_t bc) { blob_count_ = bc; }
+
+  void BlobRecordAdded(uint64_t record_size) {
+    ++blob_count_;
+    file_size_ += record_size;
+  }
 };
 }  // namespace blob_db
 }  // namespace rocksdb
