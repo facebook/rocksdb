@@ -975,7 +975,7 @@ Status BlobDBImpl::PutBlobValue(const WriteOptions& /*options*/,
     }
     if (s.ok()) {
       assert(blob_file != nullptr);
-      assert(blob_file->compression() == bdb_options_.compression);
+      assert(blob_file->GetCompressionType() == bdb_options_.compression);
       s = AppendBlob(blob_file, headerbuf, key, value_compressed, expiration,
                      &index_entry);
     }
@@ -1364,7 +1364,7 @@ Status BlobDBImpl::GetRawBlobFromFile(const Slice& key, uint64_t file_number,
     blob_file = it->second;
   }
 
-  *compression_type = blob_file->compression();
+  *compression_type = blob_file->GetCompressionType();
 
   // takes locks when called
   std::shared_ptr<RandomAccessFileReader> reader;
