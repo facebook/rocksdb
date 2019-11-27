@@ -95,7 +95,7 @@ class CompactionPickerTest : public testing::Test {
         InternalKey(smallest, smallest_seq, kTypeValue),
         InternalKey(largest, largest_seq, kTypeValue), smallest_seq,
         largest_seq, /* marked_for_compact */ false, kInvalidBlobFileNumber,
-        kUnknownOldestAncesterTime);
+        kUnknownOldestAncesterTime, kUnknownFileCreationTime);
     f->compensated_file_size =
         (compensated_file_size != 0) ? compensated_file_size : file_size;
     vstorage_->AddFile(level, f);

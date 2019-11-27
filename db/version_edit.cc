@@ -62,6 +62,7 @@ enum CustomTag : uint32_t {
   kMinLogNumberToKeepHack = 3,
   kOldestBlobFileNumber = 4,
   kOldestAncesterTime = 5,
+  kFileCreationTime = 6,
   kPathId = 65,
 };
 // If this bit for the custom tag is set, opening DB should fail if
@@ -217,6 +218,14 @@ bool VersionEdit::EncodeTo(std::string* dst) const {
     TEST_SYNC_POINT_CALLBACK("VersionEdit::EncodeTo:VarintOldestAncesterTime",
                              &varint_oldest_ancester_time);
     PutLengthPrefixedSlice(dst, Slice(varint_oldest_ancester_time));
+
+    PutVarint32(dst, CustomTag::kFileCreationTime);
+    std::string varint_file_creation_time;
+    PutVarint64(&varint_file_creation_time, f.file_creation_time);
+    TEST_SYNC_POINT_CALLBACK("VersionEdit::EncodeTo:VarintFileCreationTime",
+                             &varint_file_creation_time);
+    PutLengthPrefixedSlice(dst, Slice(varint_file_creation_time));
+
     if (f.fd.GetPathId() != 0) {
       PutVarint32(dst, CustomTag::kPathId);
       char p = static_cast<char>(f.fd.GetPathId());
@@ -333,6 +342,11 @@ const char* VersionEdit::DecodeNewFile4From(Slice* input) {
         case kOldestAncesterTime:
           if (!GetVarint64(&field, &f.oldest_ancester_time)) {
             return "invalid oldest ancester time";
+          }
+          break;
+        case kFileCreationTime:
+          if (!GetVarint64(&field, &f.file_creation_time)) {
+            return "invalid file creation time";
           }
           break;
         case kNeedCompaction:
@@ -660,6 +674,8 @@ std::string VersionEdit::DebugString(bool hex_key) const {
     }
     r.append(" oldest_ancester_time:");
     AppendNumberTo(&r, f.oldest_ancester_time);
+    r.append(" file_creation_time:");
+    AppendNumberTo(&r, f.file_creation_time);
   }
   r.append("\n  ColumnFamily: ");
   AppendNumberTo(&r, column_family_);
