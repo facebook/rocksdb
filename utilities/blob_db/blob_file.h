@@ -116,7 +116,7 @@ class BlobFile {
 
   ~BlobFile();
 
-  uint32_t column_family_id() const;
+  uint32_t GetColumnFamilyId() const;
 
   // Returns log file's absolute pathname.
   std::string PathName() const;
@@ -204,7 +204,7 @@ class BlobFile {
 
   void SetHasTTL(bool has_ttl) { has_ttl_ = has_ttl; }
 
-  CompressionType compression() const { return compression_; }
+  CompressionType GetCompressionType() const { return compression_; }
 
   std::shared_ptr<Writer> GetWriter() const { return log_writer_; }
 
