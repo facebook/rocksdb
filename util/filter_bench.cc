@@ -280,7 +280,7 @@ void FilterBench::Go() {
 
   std::unique_ptr<FilterBitsBuilder> builder;
   if (!FLAGS_use_plain_table_bloom && FLAGS_impl != 1) {
-    builder.reset(FilterBuildingContext(table_options_).GetBuilder());
+    builder.reset(GetBuilder());
   }
 
   uint32_t variance_mask = 1;

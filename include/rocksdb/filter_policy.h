@@ -25,9 +25,12 @@
 #include <string>
 #include <vector>
 
+#include "rocksdb/advanced_options.h"
+
 namespace rocksdb {
 
 class Slice;
+struct BlockBasedTableOptions;
 
 // A class that takes a bunch of keys, then generates filter
 class FilterBitsBuilder {
@@ -80,8 +83,25 @@ class FilterBitsReader {
   }
 };
 
-// Internal type required for FilterPolicy
-struct FilterBuildingContext;
+// Contextual information passed to BloomFilterPolicy at filter building time.
+// Used in overriding FilterPolicy::GetBuilderWithContext().
+struct FilterBuildingContext {
+  // This constructor is for internal use only and subject to change.
+  FilterBuildingContext(const BlockBasedTableOptions& table_options);
+
+  // Options for the table being built
+  const BlockBasedTableOptions& table_options;
+
+  // Name of the column family for the table (or empty string if unknown)
+  std::string column_family_name;
+
+  // The compactions style in effect for the table
+  CompactionStyle compaction_style = kCompactionStyleLevel;
+
+  // The table level at time of constructing the SST file, or -1 if unknown.
+  // (The table file could later be used at a different level.)
+  int level_at_creation = -1;
+};
 
 // We add a new format of filter block called full filter block
 // This new interface gives you more space of customization
@@ -125,7 +145,20 @@ class FilterPolicy {
 
   // Return a new FilterBitsBuilder for full or partitioned filter blocks, or
   // nullptr if using block-based filter.
+  // NOTE: This function is only called by GetBuilderWithContext() below for
+  // custom FilterPolicy implementations. Thus, it is not necessary to
+  // override this function if overriding GetBuilderWithContext().
   virtual FilterBitsBuilder* GetFilterBitsBuilder() const { return nullptr; }
+
+  // A newer variant of GetFilterBitsBuilder that allows a FilterPolicy
+  // to customize the builder for contextual constraints and hints.
+  // (Name changed to avoid triggering -Werror=overloaded-virtual.)
+  // If overriding GetFilterBitsBuilder() suffices, it is not necessary to
+  // override this function.
+  virtual FilterBitsBuilder* GetBuilderWithContext(
+      const FilterBuildingContext&) const {
+    return GetFilterBitsBuilder();
+  }
 
   // Return a new FilterBitsReader for full or partitioned filter blocks, or
   // nullptr if using block-based filter.
@@ -134,18 +167,6 @@ class FilterPolicy {
       const Slice& /*contents*/) const {
     return nullptr;
   }
-
- protected:
-  // An internal-use-only variant of GetFilterBitsBuilder that allows
-  // a built-in FilterPolicy to customize the builder for contextual
-  // constraints and hints. (Name changed to avoid triggering
-  // -Werror=overloaded-virtual.)
-  virtual FilterBitsBuilder* GetFilterBitsBuilderInternal(
-      const FilterBuildingContext&) const {
-    return GetFilterBitsBuilder();
-  }
-
-  friend FilterBuildingContext;
 };
 
 // Return a new filter policy that uses a bloom filter with approximately
