@@ -185,6 +185,10 @@ class BlobIndexCompactionFilterGC : public BlobIndexCompactionFilterBase {
     const Status s = blob_db_impl->CreateBlobFileAndWriter(
         /* has_ttl */ false, ExpirationRange(), "GC", &blob_file_, &writer_);
     if (!s.ok()) {
+      ROCKS_LOG_ERROR(blob_db_impl->db_options_.info_log,
+                      "Error opening new blob file during GC, status: %s",
+                      s.ToString().c_str());
+
       return false;
     }
 
@@ -207,7 +211,17 @@ class BlobIndexCompactionFilterGC : public BlobIndexCompactionFilterBase {
         key, blob_index.file_number(), blob_index.offset(), blob_index.size(),
         blob, compression_type);
 
-    return s.ok();
+    if (!s.ok()) {
+      ROCKS_LOG_ERROR(blob_db_impl->db_options_.info_log,
+                      "Error reading blob during GC, key: %s (%s), status: %s",
+                      key.ToString(/* output_hex */ true).c_str(),
+                      blob_index.DebugString(/* output_hex */ true).c_str(),
+                      s.ToString().c_str());
+
+      return false;
+    }
+
+    return true;
   }
 
   bool WriteBlobToNewFile(const Slice& key, const Slice& blob,
@@ -225,6 +239,14 @@ class BlobIndexCompactionFilterGC : public BlobIndexCompactionFilterBase {
                                         &new_key_offset, new_blob_offset);
 
     if (!s.ok()) {
+      BlobDBImpl* const blob_db_impl = context_gc_.blob_db_impl;
+      assert(blob_db_impl);
+
+      ROCKS_LOG_ERROR(
+          blob_db_impl->db_options_.info_log,
+          "Error writing blob to new file %s during GC, key: %s, status: %s",
+          blob_file_->PathName().c_str(),
+          key.ToString(/* output_hex */ true).c_str(), s.ToString().c_str());
       return false;
     }
 
@@ -243,14 +265,20 @@ class BlobIndexCompactionFilterGC : public BlobIndexCompactionFilterBase {
   }
 
   bool CloseNewBlobFileIfNeeded() const {
+    BlobDBImpl* const blob_db_impl = context_gc_.blob_db_impl;
+    assert(blob_db_impl);
+
     Status s;
 
     {
-      BlobDBImpl* const blob_db_impl = context_gc_.blob_db_impl;
-      assert(blob_db_impl);
-
       MutexLock l(&blob_db_impl->write_mutex_);
       s = blob_db_impl->CloseBlobFileIfNeeded(blob_file_);
+    }
+
+    if (!s.ok()) {
+      ROCKS_LOG_ERROR(blob_db_impl->db_options_.info_log,
+                      "Error closing new blob file %s during GC, status: %s",
+                      blob_file_->PathName().c_str(), s.ToString().c_str());
     }
 
     assert(blob_file_);
