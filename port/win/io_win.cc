@@ -1025,7 +1025,12 @@ Status WinRandomRWFile::Close() {
 //////////////////////////////////////////////////////////////////////////
 /// WinMemoryMappedBufer
 WinMemoryMappedBuffer::~WinMemoryMappedBuffer() {
-  BOOL ret = FALSE;
+  BOOL ret
+#if defined(_MSC_VER)
+    = FALSE;
+#else
+    __attribute__((__unused__));
+#endif
   if (base_ != nullptr) {
     ret = ::UnmapViewOfFile(base_);
     assert(ret);
