@@ -27,7 +27,7 @@ namespace {
 // See description in FastLocalBloomImpl
 class FastLocalBloomBitsBuilder : public BuiltinFilterBitsBuilder {
  public:
-  FastLocalBloomBitsBuilder(const int millibits_per_key)
+  explicit FastLocalBloomBitsBuilder(const int millibits_per_key)
       : millibits_per_key_(millibits_per_key),
         num_probes_(FastLocalBloomImpl::ChooseNumProbes(millibits_per_key_)) {
     assert(millibits_per_key >= 1000);
