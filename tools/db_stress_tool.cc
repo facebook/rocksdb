@@ -341,9 +341,9 @@ DEFINE_int32(reopen, 10, "Number of times database reopens");
 static const bool FLAGS_reopen_dummy __attribute__((__unused__)) =
     RegisterFlagValidator(&FLAGS_reopen, &ValidateInt32Positive);
 
-DEFINE_int32(bloom_bits, 10,
-             "Bloom filter bits per key. "
-             "Negative means use default settings.");
+DEFINE_double(bloom_bits, 10,
+              "Bloom filter bits per key. "
+              "Negative means use default settings.");
 
 DEFINE_bool(use_block_based_filter, false,
             "use block based filter"
@@ -540,6 +540,16 @@ static const bool FLAGS_num_iterations_dummy __attribute__((__unused__)) =
     RegisterFlagValidator(&FLAGS_num_iterations, &ValidateUint32Range);
 
 namespace {
+
+// Unified output format for double parameters
+std::string format_double_param(double param) { return std::to_string(param); }
+
+// Make sure that double parameter is a value we can reproduce by
+// re-inputting the value printed.
+void sanitize_double_param(double* param) {
+  *param = std::atof(format_double_param(*param).c_str());
+}
+
 enum rocksdb::CompressionType StringToCompressionType(const char* ctype) {
   assert(ctype);
 
@@ -2981,6 +2991,8 @@ std::vector<std::string> GetWhiteBoxKeys(ThreadState*, DB*,
     fprintf(stdout, "Compression               : %s\n", compression.c_str());
     std::string checksum = ChecksumTypeToString(FLAGS_checksum_type_e);
     fprintf(stdout, "Checksum type             : %s\n", checksum.c_str());
+    fprintf(stdout, "Bloom bits / key          : %s\n",
+            format_double_param(FLAGS_bloom_bits).c_str());
     fprintf(stdout, "Max subcompactions        : %" PRIu64 "\n",
             FLAGS_subcompactions);
     fprintf(stdout, "Use MultiGet              : %s\n",
@@ -4738,6 +4750,9 @@ int db_stress_tool(int argc, char** argv) {
   SetUsageMessage(std::string("\nUSAGE:\n") + std::string(argv[0]) +
                   " [OPTIONS]...");
   ParseCommandLineFlags(&argc, &argv, true);
+
+  sanitize_double_param(&FLAGS_bloom_bits);
+  sanitize_double_param(&FLAGS_memtable_prefix_bloom_size_ratio);
 
   if (FLAGS_statistics) {
     dbstats = rocksdb::CreateDBStatistics();
