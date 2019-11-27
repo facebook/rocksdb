@@ -107,17 +107,7 @@ class BlobIndexCompactionFilterGC : public BlobIndexCompactionFilterBase {
 
   ~BlobIndexCompactionFilterGC() override {
     if (blob_file_) {
-      BlobDBImpl* const blob_db_impl = context_gc_.blob_db_impl;
-      assert(blob_db_impl);
-
-      MutexLock l(&blob_db_impl->write_mutex_);
-      WriteLock lock(&blob_db_impl->mutex_);
-      WriteLock file_lock(&blob_file_->mutex_);
-      blob_db_impl->CloseBlobFile(blob_file_);
-
-      // Note: we delay registering the new blob file until it's closed to
-      // prevent FIFO eviction from processing it during the GC run.
-      blob_db_impl->RegisterBlobFile(blob_file_);
+      CloseAndRegisterNewBlobFile();
     }
   }
 
@@ -166,7 +156,7 @@ class BlobIndexCompactionFilterGC : public BlobIndexCompactionFilterBase {
       return false;
     }
 
-    if (!CloseNewBlobFileIfNeeded()) {
+    if (!CloseAndRegisterNewBlobFileIfNeeded()) {
       return false;
     }
 
@@ -263,36 +253,47 @@ class BlobIndexCompactionFilterGC : public BlobIndexCompactionFilterBase {
     return true;
   }
 
-  bool CloseNewBlobFileIfNeeded() const {
+  bool CloseAndRegisterNewBlobFileIfNeeded() const {
     BlobDBImpl* const blob_db_impl = context_gc_.blob_db_impl;
     assert(blob_db_impl);
+
+    assert(blob_file_);
+    if (blob_file_->GetFileSize() < blob_db_impl->bdb_options_.blob_file_size) {
+      return true;
+    }
+
+    return CloseAndRegisterNewBlobFile();
+  }
+
+  bool CloseAndRegisterNewBlobFile() const {
+    BlobDBImpl* const blob_db_impl = context_gc_.blob_db_impl;
+    assert(blob_db_impl);
+    assert(blob_file_);
 
     Status s;
 
     {
-      MutexLock l(&blob_db_impl->write_mutex_);
-      s = blob_db_impl->CloseBlobFileIfNeeded(blob_file_);
+      WriteLock wl(&blob_db_impl->mutex_);
+
+      s = blob_db_impl->CloseBlobFile(blob_file_);
+
+      // Note: we delay registering the new blob file until it's closed to
+      // prevent FIFO eviction from processing it during the GC run.
+      blob_db_impl->RegisterBlobFile(blob_file_);
     }
+
+    assert(blob_file_->Immutable());
+    blob_file_.reset();
 
     if (!s.ok()) {
       ROCKS_LOG_ERROR(blob_db_impl->db_options_.info_log,
                       "Error closing new blob file %s during GC, status: %s",
                       blob_file_->PathName().c_str(), s.ToString().c_str());
+
+      return false;
     }
 
-    assert(blob_file_);
-    if (blob_file_->Immutable()) {
-      // Note: we delay registering the new blob file until it's closed to
-      // prevent FIFO eviction from processing it during the GC run.
-      {
-        WriteLock wl(&blob_db_impl->mutex_);
-        blob_db_impl->RegisterBlobFile(blob_file_);
-      }
-
-      blob_file_.reset();
-    }
-
-    return s.ok();
+    return true;
   }
 
  private:

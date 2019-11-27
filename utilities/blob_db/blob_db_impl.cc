@@ -1611,7 +1611,10 @@ Status BlobDBImpl::CloseBlobFile(std::shared_ptr<BlobFile> bfile) {
   assert(bfile);
   assert(!bfile->Immutable());
   assert(!bfile->Obsolete());
-  write_mutex_.AssertHeld();
+
+  if (bfile->HasTTL() || bfile == open_non_ttl_file_) {
+    write_mutex_.AssertHeld();
+  }
 
   ROCKS_LOG_INFO(db_options_.info_log,
                  "Closing blob file %" PRIu64 ". Path: %s",
