@@ -10,16 +10,28 @@ package org.rocksdb;
  * values.
  */
 public class CassandraValueMergeOperator extends MergeOperator {
+
+  private int gcGracePeriodInSeconds;
+  private int operandsLimit;
+
   public CassandraValueMergeOperator(int gcGracePeriodInSeconds) {
-    super(newSharedCassandraValueMergeOperator(gcGracePeriodInSeconds, 0));
-    }
+    this(gcGracePeriodInSeconds, 0);
+  }
 
-    public CassandraValueMergeOperator(int gcGracePeriodInSeconds, int operandsLimit) {
-      super(newSharedCassandraValueMergeOperator(gcGracePeriodInSeconds, operandsLimit));
-    }
+  public CassandraValueMergeOperator(int gcGracePeriodInSeconds, int operandsLimit) {
+    super();
+    this.gcGracePeriodInSeconds = gcGracePeriodInSeconds;
+    this.operandsLimit = operandsLimit;
+  }
 
-    private native static long newSharedCassandraValueMergeOperator(
-        int gcGracePeriodInSeconds, int limit);
+  @Override
+  protected long initializeNative(final long... nativeParameterHandles) {
+    this.gcGracePeriodInSeconds = (int)nativeParameterHandles[0];
+    this.operandsLimit = (int)nativeParameterHandles[1];
+    return newSharedCassandraValueMergeOperator(gcGracePeriodInSeconds, operandsLimit);
+  }
 
-    @Override protected final native void disposeInternal(final long handle);
+  protected void disposeInternal() { disposeInternal(nativeHandle_); }
+  protected final native void disposeInternal(final long handle);
+  private native long newSharedCassandraValueMergeOperator(int gcGracePeriodInSeconds, int limit);
 }

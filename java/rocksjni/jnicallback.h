@@ -22,6 +22,8 @@ namespace rocksdb {
     jobject m_jcallback_obj;
     JNIEnv* getJniEnv(jboolean* attached) const;
     void releaseJniEnv(jboolean& attached) const;
+
+    void catchAndLog(JNIEnv* env) const;
   };
 }
 

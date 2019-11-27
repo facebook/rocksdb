@@ -11,8 +11,12 @@ package org.rocksdb;
  * two merge operands held under the same key in order to obtain a single
  * value.
  */
-public abstract class MergeOperator extends RocksObject {
-    protected MergeOperator(final long nativeHandle) {
-        super(nativeHandle);
-    }
+public abstract class MergeOperator extends RocksCallbackObject {
+  protected MergeOperator(final long... nativeParameterHandles) { super(nativeParameterHandles); }
+
+  protected void disposeInternal() {
+    disposeInternal(nativeHandle_);
+  }
+
+  private native void disposeInternal(final long handle);
 }

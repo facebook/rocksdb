@@ -13,6 +13,7 @@
 #include <memory>
 #include <string>
 
+#include "include/org_rocksdb_AbstractMergeOperator.h"
 #include "include/org_rocksdb_StringAppendOperator.h"
 #include "include/org_rocksdb_UInt64AddOperator.h"
 #include "rocksdb/db.h"
@@ -31,7 +32,7 @@
  * Signature: (C)J
  */
 jlong Java_org_rocksdb_StringAppendOperator_newSharedStringAppendOperator(
-    JNIEnv* /*env*/, jclass /*jclazz*/, jchar jdelim) {
+    JNIEnv* /*env*/, jobject /*jobj*/, jchar jdelim) {
   auto* sptr_string_append_op = new std::shared_ptr<rocksdb::MergeOperator>(
       rocksdb::MergeOperators::CreateStringAppendOperator((char)jdelim));
   return reinterpret_cast<jlong>(sptr_string_append_op);
@@ -56,7 +57,7 @@ void Java_org_rocksdb_StringAppendOperator_disposeInternal(JNIEnv* /*env*/,
  * Signature: ()J
  */
 jlong Java_org_rocksdb_UInt64AddOperator_newSharedUInt64AddOperator(
-    JNIEnv* /*env*/, jclass /*jclazz*/) {
+    JNIEnv* /*env*/, jobject /*jobj*/) {
   auto* sptr_uint64_add_op = new std::shared_ptr<rocksdb::MergeOperator>(
       rocksdb::MergeOperators::CreateUInt64AddOperator());
   return reinterpret_cast<jlong>(sptr_uint64_add_op);
@@ -73,4 +74,28 @@ void Java_org_rocksdb_UInt64AddOperator_disposeInternal(JNIEnv* /*env*/,
   auto* sptr_uint64_add_op =
       reinterpret_cast<std::shared_ptr<rocksdb::MergeOperator>*>(jhandle);
   delete sptr_uint64_add_op;  // delete std::shared_ptr
+}
+
+jlong Java_org_rocksdb_AbstractMergeOperator_newMergeOperator(JNIEnv* env,
+                                                              jobject jobj,
+                                                              jboolean _allowSingleOperand,
+                                                              jboolean _allowShouldMerge,
+                                                              jboolean _allowPartialMultiMerge) {
+  auto* sptr_nasso_merge_op = new std::shared_ptr<rocksdb::MergeOperator>(
+      new rocksdb::MergeOperatorJniCallback(env, jobj,
+                                            _allowSingleOperand, _allowShouldMerge, _allowPartialMultiMerge));
+  return reinterpret_cast<jlong>(sptr_nasso_merge_op);
+}
+
+/*
+ * Class:     org_rocksdb_AbstractMergeOperator
+ * Method:    disposeInternal
+ * Signature: (J)V
+ */
+void Java_org_rocksdb_AbstractMergeOperator_disposeInternal(JNIEnv* /*env*/,
+                                                            jobject /*jobj*/,
+                                                            jlong jhandle) {
+  auto* sptr_nasso_merge_op =
+      reinterpret_cast<std::shared_ptr<rocksdb::MergeOperator>*>(jhandle);
+  delete sptr_nasso_merge_op;  // delete std::shared_ptr
 }

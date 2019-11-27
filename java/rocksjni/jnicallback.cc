@@ -49,5 +49,14 @@ JniCallback::~JniCallback() {
 
   releaseJniEnv(attached_thread);
 }
+
+void JniCallback::catchAndLog(JNIEnv* env) const {
+  jboolean hasException = env->ExceptionCheck();
+  if (hasException == JNI_TRUE) {
+    env->ExceptionDescribe();
+    env->ExceptionClear();
+  }
+}
+
 // @lint-ignore TXT4 T25377293 Grandfathered in
 }  // namespace rocksdb

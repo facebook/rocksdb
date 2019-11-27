@@ -5,6 +5,8 @@ if(${CMAKE_VERSION} VERSION_LESS "3.11.4")
 endif()
 
 set(JNI_NATIVE_SOURCES
+        rocksjni/associative_merge_operator.cc
+        rocksjni/associative_merge_operator_jnicallback.cc
         rocksjni/backupablejni.cc
         rocksjni/backupenginejni.cc
         rocksjni/cassandra_compactionfilterjni.cc
@@ -35,6 +37,7 @@ set(JNI_NATIVE_SOURCES
         rocksjni/memory_util.cc
         rocksjni/memtablejni.cc
         rocksjni/merge_operator.cc
+        rocksjni/merge_operator_jnicallback.cc
         rocksjni/native_comparator_wrapper_test.cc
         rocksjni/optimistic_transaction_db.cc
         rocksjni/optimistic_transaction_options.cc
@@ -79,10 +82,12 @@ set(JNI_NATIVE_SOURCES
 )
 
 set(JAVA_MAIN_CLASSES
+  src/main/java/org/rocksdb/AbstractAssociativeMergeOperator.java
   src/main/java/org/rocksdb/AbstractCompactionFilter.java
   src/main/java/org/rocksdb/AbstractCompactionFilterFactory.java
   src/main/java/org/rocksdb/AbstractComparator.java
   src/main/java/org/rocksdb/AbstractImmutableNativeReference.java
+  src/main/java/org/rocksdb/AbstractMergeOperator.java
   src/main/java/org/rocksdb/AbstractMutableOptions.java
   src/main/java/org/rocksdb/AbstractNativeReference.java
   src/main/java/org/rocksdb/AbstractRocksIterator.java
@@ -180,6 +185,7 @@ set(JAVA_MAIN_CLASSES
   src/main/java/org/rocksdb/ReadTier.java
   src/main/java/org/rocksdb/RemoveEmptyValueCompactionFilter.java
   src/main/java/org/rocksdb/RestoreOptions.java
+  src/main/java/org/rocksdb/ReturnType.java
   src/main/java/org/rocksdb/RocksCallbackObject.java
   src/main/java/org/rocksdb/RocksDBException.java
   src/main/java/org/rocksdb/RocksDB.java
@@ -370,10 +376,12 @@ if(${CMAKE_VERSION} VERSION_LESS "3.11.4" OR (${Java_VERSION_MINOR} STREQUAL "7"
   # Old CMake or Java 1.7 ONLY generate JNI headers, Java 1.8+ JNI is handled in add_jar step above
   message("Preparing JNI headers for Java 7")
   set(NATIVE_JAVA_CLASSES
+          org.rocksdb.AbstractAssociativeMergeOperator
           org.rocksdb.AbstractCompactionFilter
           org.rocksdb.AbstractCompactionFilterFactory
           org.rocksdb.AbstractComparator
           org.rocksdb.AbstractImmutableNativeReference
+          org.rocksdb.AbstractMergeOperator        
           org.rocksdb.AbstractNativeReference
           org.rocksdb.AbstractRocksIterator
           org.rocksdb.AbstractSlice
@@ -427,6 +435,7 @@ if(${CMAKE_VERSION} VERSION_LESS "3.11.4" OR (${Java_VERSION_MINOR} STREQUAL "7"
           org.rocksdb.ReadOptions
           org.rocksdb.RemoveEmptyValueCompactionFilter
           org.rocksdb.RestoreOptions
+          org.rocksdb.ReturnType          
           org.rocksdb.RocksCallbackObject
           org.rocksdb.RocksDB
           org.rocksdb.RocksEnv
