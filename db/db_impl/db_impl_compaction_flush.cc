@@ -1257,7 +1257,7 @@ Status DBImpl::ReFitLevel(ColumnFamilyData* cfd, int level, int target_level) {
                    f->fd.GetFileSize(), f->smallest, f->largest,
                    f->fd.smallest_seqno, f->fd.largest_seqno,
                    f->marked_for_compaction, f->oldest_blob_file_number,
-                   f->oldest_ancester_time);
+                   f->oldest_ancester_time, f->file_creation_time);
     }
     ROCKS_LOG_DEBUG(immutable_db_options_.info_log,
                     "[%s] Apply version edit:\n%s", cfd->GetName().c_str(),
@@ -1918,6 +1918,10 @@ void DBImpl::MaybeScheduleFlushOrCompaction() {
     fta->thread_pri_ = Env::Priority::HIGH;
     env_->Schedule(&DBImpl::BGWorkFlush, fta, Env::Priority::HIGH, this,
                    &DBImpl::UnscheduleFlushCallback);
+    --unscheduled_flushes_;
+    TEST_SYNC_POINT_CALLBACK(
+        "DBImpl::MaybeScheduleFlushOrCompaction:AfterSchedule:0",
+        &unscheduled_flushes_);
   }
 
   // special case -- if high-pri (flush) thread pool is empty, then schedule
@@ -1932,6 +1936,7 @@ void DBImpl::MaybeScheduleFlushOrCompaction() {
       fta->thread_pri_ = Env::Priority::LOW;
       env_->Schedule(&DBImpl::BGWorkFlush, fta, Env::Priority::LOW, this,
                      &DBImpl::UnscheduleFlushCallback);
+      --unscheduled_flushes_;
     }
   }
 
@@ -2015,8 +2020,6 @@ ColumnFamilyData* DBImpl::PopFirstFromCompactionQueue() {
 DBImpl::FlushRequest DBImpl::PopFirstFromFlushQueue() {
   assert(!flush_queue_.empty());
   FlushRequest flush_req = flush_queue_.front();
-  assert(unscheduled_flushes_ >= static_cast<int>(flush_req.size()));
-  unscheduled_flushes_ -= static_cast<int>(flush_req.size());
   flush_queue_.pop_front();
   // TODO: need to unset flush reason?
   return flush_req;
@@ -2058,7 +2061,7 @@ void DBImpl::SchedulePendingFlush(const FlushRequest& flush_req,
     cfd->Ref();
     cfd->SetFlushReason(flush_reason);
   }
-  unscheduled_flushes_ += static_cast<int>(flush_req.size());
+  ++unscheduled_flushes_;
   flush_queue_.push_back(flush_req);
 }
 
@@ -2672,7 +2675,8 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
                            f->fd.GetPathId(), f->fd.GetFileSize(), f->smallest,
                            f->largest, f->fd.smallest_seqno,
                            f->fd.largest_seqno, f->marked_for_compaction,
-                           f->oldest_blob_file_number, f->oldest_ancester_time);
+                           f->oldest_blob_file_number, f->oldest_ancester_time,
+                           f->file_creation_time);
 
         ROCKS_LOG_BUFFER(
             log_buffer,

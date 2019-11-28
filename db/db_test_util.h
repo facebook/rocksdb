@@ -988,6 +988,11 @@ class DBTestBase : public testing::Test {
   uint64_t TestGetTickerCount(const Options& options, Tickers ticker_type) {
     return options.statistics->getTickerCount(ticker_type);
   }
+
+  uint64_t TestGetAndResetTickerCount(const Options& options,
+                                      Tickers ticker_type) {
+    return options.statistics->getAndResetTickerCount(ticker_type);
+  }
 };
 
 }  // namespace rocksdb

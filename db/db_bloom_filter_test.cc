@@ -648,15 +648,17 @@ TEST_F(DBBloomFilterTest, BloomFilterReverseCompatibility) {
 }
 
 namespace {
-// A wrapped bloom over default FilterPolicy
-class WrappedBloom : public FilterPolicy {
+// A wrapped bloom over block-based FilterPolicy
+class TestingWrappedBlockBasedFilterPolicy : public FilterPolicy {
  public:
-  explicit WrappedBloom(int bits_per_key)
+  explicit TestingWrappedBlockBasedFilterPolicy(int bits_per_key)
       : filter_(NewBloomFilterPolicy(bits_per_key, true)), counter_(0) {}
 
-  ~WrappedBloom() override { delete filter_; }
+  ~TestingWrappedBlockBasedFilterPolicy() override { delete filter_; }
 
-  const char* Name() const override { return "WrappedRocksDbFilterPolicy"; }
+  const char* Name() const override {
+    return "TestingWrappedBlockBasedFilterPolicy";
+  }
 
   void CreateFilter(const rocksdb::Slice* keys, int n,
                     std::string* dst) const override {
@@ -683,12 +685,13 @@ class WrappedBloom : public FilterPolicy {
 };
 }  // namespace
 
-TEST_F(DBBloomFilterTest, BloomFilterWrapper) {
+TEST_F(DBBloomFilterTest, WrappedBlockBasedFilterPolicy) {
   Options options = CurrentOptions();
   options.statistics = rocksdb::CreateDBStatistics();
 
   BlockBasedTableOptions table_options;
-  WrappedBloom* policy = new WrappedBloom(10);
+  TestingWrappedBlockBasedFilterPolicy* policy =
+      new TestingWrappedBlockBasedFilterPolicy(10);
   table_options.filter_policy.reset(policy);
   options.table_factory.reset(NewBlockBasedTableFactory(table_options));
 
@@ -716,6 +719,166 @@ TEST_F(DBBloomFilterTest, BloomFilterWrapper) {
   }
   ASSERT_GE(TestGetTickerCount(options, BLOOM_FILTER_USEFUL), maxKey * 0.98);
   ASSERT_EQ(2U * maxKey, policy->GetCounter());
+}
+
+namespace {
+// NOTE: This class is referenced by HISTORY.md as a model for a wrapper
+// FilterPolicy selecting among configurations based on context.
+class LevelAndStyleCustomFilterPolicy : public FilterPolicy {
+ public:
+  explicit LevelAndStyleCustomFilterPolicy(int bpk_fifo, int bpk_l0_other,
+                                           int bpk_otherwise)
+      : policy_fifo_(NewBloomFilterPolicy(bpk_fifo)),
+        policy_l0_other_(NewBloomFilterPolicy(bpk_l0_other)),
+        policy_otherwise_(NewBloomFilterPolicy(bpk_otherwise)) {}
+
+  // OK to use built-in policy name because we are deferring to a
+  // built-in builder. We aren't changing the serialized format.
+  const char* Name() const override { return policy_fifo_->Name(); }
+
+  FilterBitsBuilder* GetBuilderWithContext(
+      const FilterBuildingContext& context) const override {
+    if (context.compaction_style == kCompactionStyleFIFO) {
+      return policy_fifo_->GetBuilderWithContext(context);
+    } else if (context.level_at_creation == 0) {
+      return policy_l0_other_->GetBuilderWithContext(context);
+    } else {
+      return policy_otherwise_->GetBuilderWithContext(context);
+    }
+  }
+
+  FilterBitsReader* GetFilterBitsReader(const Slice& contents) const override {
+    // OK to defer to any of them; they all can parse built-in filters
+    // from any settings.
+    return policy_fifo_->GetFilterBitsReader(contents);
+  }
+
+  // Defer just in case configuration uses block-based filter
+  void CreateFilter(const Slice* keys, int n, std::string* dst) const override {
+    policy_otherwise_->CreateFilter(keys, n, dst);
+  }
+  bool KeyMayMatch(const Slice& key, const Slice& filter) const override {
+    return policy_otherwise_->KeyMayMatch(key, filter);
+  }
+
+ private:
+  const std::unique_ptr<const FilterPolicy> policy_fifo_;
+  const std::unique_ptr<const FilterPolicy> policy_l0_other_;
+  const std::unique_ptr<const FilterPolicy> policy_otherwise_;
+};
+
+class TestingContextCustomFilterPolicy
+    : public LevelAndStyleCustomFilterPolicy {
+ public:
+  explicit TestingContextCustomFilterPolicy(int bpk_fifo, int bpk_l0_other,
+                                            int bpk_otherwise)
+      : LevelAndStyleCustomFilterPolicy(bpk_fifo, bpk_l0_other, bpk_otherwise) {
+  }
+
+  FilterBitsBuilder* GetBuilderWithContext(
+      const FilterBuildingContext& context) const override {
+    test_report_ += "cf=";
+    test_report_ += context.column_family_name;
+    test_report_ += ",cs=";
+    test_report_ +=
+        OptionsHelper::compaction_style_to_string[context.compaction_style];
+    test_report_ += ",lv=";
+    test_report_ += std::to_string(context.level_at_creation);
+    test_report_ += "\n";
+
+    return LevelAndStyleCustomFilterPolicy::GetBuilderWithContext(context);
+  }
+
+  std::string DumpTestReport() {
+    std::string rv;
+    std::swap(rv, test_report_);
+    return rv;
+  }
+
+ private:
+  mutable std::string test_report_;
+};
+}  // namespace
+
+TEST_F(DBBloomFilterTest, ContextCustomFilterPolicy) {
+  for (bool fifo : {true, false}) {
+    Options options = CurrentOptions();
+    options.statistics = rocksdb::CreateDBStatistics();
+    options.compaction_style =
+        fifo ? kCompactionStyleFIFO : kCompactionStyleLevel;
+
+    BlockBasedTableOptions table_options;
+    auto policy = std::make_shared<TestingContextCustomFilterPolicy>(15, 8, 5);
+    table_options.filter_policy = policy;
+    table_options.format_version = 5;
+    options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+
+    CreateAndReopenWithCF({fifo ? "abe" : "bob"}, options);
+
+    const int maxKey = 10000;
+    for (int i = 0; i < maxKey / 2; i++) {
+      ASSERT_OK(Put(1, Key(i), Key(i)));
+    }
+    // Add a large key to make the file contain wide range
+    ASSERT_OK(Put(1, Key(maxKey + 55555), Key(maxKey + 55555)));
+    Flush(1);
+    EXPECT_EQ(policy->DumpTestReport(),
+              fifo ? "cf=abe,cs=kCompactionStyleFIFO,lv=0\n"
+                   : "cf=bob,cs=kCompactionStyleLevel,lv=0\n");
+
+    for (int i = maxKey / 2; i < maxKey; i++) {
+      ASSERT_OK(Put(1, Key(i), Key(i)));
+    }
+    Flush(1);
+    EXPECT_EQ(policy->DumpTestReport(),
+              fifo ? "cf=abe,cs=kCompactionStyleFIFO,lv=0\n"
+                   : "cf=bob,cs=kCompactionStyleLevel,lv=0\n");
+
+    // Check that they can be found
+    for (int i = 0; i < maxKey; i++) {
+      ASSERT_EQ(Key(i), Get(1, Key(i)));
+    }
+    // Since we have two tables / two filters, we might have Bloom checks on
+    // our queries, but no more than one "useful" per query on a found key.
+    EXPECT_LE(TestGetAndResetTickerCount(options, BLOOM_FILTER_USEFUL), maxKey);
+
+    // Check that we have two filters, each about
+    // fifo: 0.12% FP rate (15 bits per key)
+    // level: 2.3% FP rate (8 bits per key)
+    for (int i = 0; i < maxKey; i++) {
+      ASSERT_EQ("NOT_FOUND", Get(1, Key(i + 33333)));
+    }
+    {
+      auto useful_count =
+          TestGetAndResetTickerCount(options, BLOOM_FILTER_USEFUL);
+      EXPECT_GE(useful_count, maxKey * 2 * (fifo ? 0.9980 : 0.975));
+      EXPECT_LE(useful_count, maxKey * 2 * (fifo ? 0.9995 : 0.98));
+    }
+
+    if (!fifo) {  // FIFO only has L0
+      // Full compaction
+      ASSERT_OK(db_->CompactRange(CompactRangeOptions(), handles_[1], nullptr,
+                                  nullptr));
+      EXPECT_EQ(policy->DumpTestReport(),
+                "cf=bob,cs=kCompactionStyleLevel,lv=1\n");
+
+      // Check that we now have one filter, about 9.2% FP rate (5 bits per key)
+      for (int i = 0; i < maxKey; i++) {
+        ASSERT_EQ("NOT_FOUND", Get(1, Key(i + 33333)));
+      }
+      {
+        auto useful_count =
+            TestGetAndResetTickerCount(options, BLOOM_FILTER_USEFUL);
+        EXPECT_GE(useful_count, maxKey * 0.90);
+        EXPECT_LE(useful_count, maxKey * 0.91);
+      }
+    }
+
+    // Destroy
+    ASSERT_OK(dbfull()->DropColumnFamily(handles_[1]));
+    dbfull()->DestroyColumnFamilyHandle(handles_[1]);
+    handles_[1] = nullptr;
+  }
 }
 
 class SliceTransformLimitedDomain : public SliceTransform {
@@ -1159,6 +1322,7 @@ TEST_F(DBBloomFilterTest, OptimizeFiltersForHits) {
   options.table_factory.reset(NewBlockBasedTableFactory(bbto));
   options.optimize_filters_for_hits = true;
   options.statistics = rocksdb::CreateDBStatistics();
+  get_perf_context()->Reset();
   get_perf_context()->EnablePerLevelPerfContext();
   CreateAndReopenWithCF({"mypikachu"}, options);
 

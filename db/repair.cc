@@ -577,13 +577,13 @@ class Repairer {
 
       // TODO(opt): separate out into multiple levels
       for (const auto* table : cf_id_and_tables.second) {
-        edit.AddFile(0, table->meta.fd.GetNumber(), table->meta.fd.GetPathId(),
-                     table->meta.fd.GetFileSize(), table->meta.smallest,
-                     table->meta.largest, table->meta.fd.smallest_seqno,
-                     table->meta.fd.largest_seqno,
-                     table->meta.marked_for_compaction,
-                     table->meta.oldest_blob_file_number,
-                     table->meta.oldest_ancester_time);
+        edit.AddFile(
+            0, table->meta.fd.GetNumber(), table->meta.fd.GetPathId(),
+            table->meta.fd.GetFileSize(), table->meta.smallest,
+            table->meta.largest, table->meta.fd.smallest_seqno,
+            table->meta.fd.largest_seqno, table->meta.marked_for_compaction,
+            table->meta.oldest_blob_file_number,
+            table->meta.oldest_ancester_time, table->meta.file_creation_time);
       }
       assert(next_file_number_ > 0);
       vset_.MarkFileNumberUsed(next_file_number_ - 1);

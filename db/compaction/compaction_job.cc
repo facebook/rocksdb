@@ -1501,6 +1501,7 @@ Status CompactionJob::OpenCompactionOutputFile(
     out.meta.fd = FileDescriptor(file_number,
                                  sub_compact->compaction->output_path_id(), 0);
     out.meta.oldest_ancester_time = oldest_ancester_time;
+    out.meta.file_creation_time = current_time;
     out.finished = false;
     sub_compact->outputs.push_back(out);
   }

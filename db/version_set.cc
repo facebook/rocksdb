@@ -1459,7 +1459,8 @@ void Version::GetColumnFamilyMetaData(ColumnFamilyMetaData* cf_meta) {
           file->fd.largest_seqno, file->smallest.user_key().ToString(),
           file->largest.user_key().ToString(),
           file->stats.num_reads_sampled.load(std::memory_order_relaxed),
-          file->being_compacted, file->oldest_blob_file_number});
+          file->being_compacted, file->oldest_blob_file_number,
+          file->TryGetOldestAncesterTime(), file->TryGetFileCreationTime()});
       files.back().num_entries = file->num_entries;
       files.back().num_deletions = file->num_deletions;
       level_size += file->fd.GetFileSize();
@@ -1485,10 +1486,9 @@ void Version::GetCreationTimeOfOldestFile(uint64_t* creation_time) {
   for (int level = 0; level < storage_info_.num_non_empty_levels_; level++) {
     for (FileMetaData* meta : storage_info_.LevelFiles(level)) {
       assert(meta->fd.table_reader != nullptr);
-      uint64_t file_creation_time =
-          meta->fd.table_reader->GetTableProperties()->file_creation_time;
-      if (file_creation_time == 0) {
-        *creation_time = file_creation_time;
+      uint64_t file_creation_time = meta->TryGetFileCreationTime();
+      if (file_creation_time == kUnknownFileCreationTime) {
+        *creation_time = 0;
         return;
       }
       if (file_creation_time < oldest_time) {
@@ -2501,8 +2501,7 @@ void VersionStorageInfo::ComputeExpiredTtlFiles(
 void VersionStorageInfo::ComputeFilesMarkedForPeriodicCompaction(
     const ImmutableCFOptions& ioptions,
     const uint64_t periodic_compaction_seconds) {
-  assert(periodic_compaction_seconds > 0 &&
-      periodic_compaction_seconds < port::kMaxUint64);
+  assert(periodic_compaction_seconds > 0);
 
   files_marked_for_periodic_compaction_.clear();
 
@@ -2513,8 +2512,8 @@ void VersionStorageInfo::ComputeFilesMarkedForPeriodicCompaction(
   }
   const uint64_t current_time = static_cast<uint64_t>(temp_current_time);
 
-  // If periodic_compaction_seconds > current_time, no file possibly qualifies
-  // periodic compaction.
+  // If periodic_compaction_seconds is larger than current time, periodic
+  // compaction can't possibly be triggered.
   if (periodic_compaction_seconds > current_time) {
     return;
   }
@@ -2524,20 +2523,18 @@ void VersionStorageInfo::ComputeFilesMarkedForPeriodicCompaction(
 
   for (int level = 0; level < num_levels(); level++) {
     for (auto f : files_[level]) {
-      if (!f->being_compacted && f->fd.table_reader != nullptr &&
-          f->fd.table_reader->GetTableProperties() != nullptr) {
+      if (!f->being_compacted) {
         // Compute a file's modification time in the following order:
         // 1. Use file_creation_time table property if it is > 0.
         // 2. Use creation_time table property if it is > 0.
         // 3. Use file's mtime metadata if the above two table properties are 0.
         // Don't consider the file at all if the modification time cannot be
         // correctly determined based on the above conditions.
-        uint64_t file_modification_time =
-            f->fd.table_reader->GetTableProperties()->file_creation_time;
-        if (file_modification_time == 0) {
+        uint64_t file_modification_time = f->TryGetFileCreationTime();
+        if (file_modification_time == kUnknownFileCreationTime) {
           file_modification_time = f->TryGetOldestAncesterTime();
         }
-        if (file_modification_time == 0) {
+        if (file_modification_time == kUnknownOldestAncesterTime) {
           auto file_path = TableFileName(ioptions.cf_paths, f->fd.GetNumber(),
                                          f->fd.GetPathId());
           status = ioptions.env->GetFileModificationTime(
@@ -4980,7 +4977,7 @@ Status VersionSet::WriteCurrentStateToManifest(log::Writer* log) {
                        f->fd.GetFileSize(), f->smallest, f->largest,
                        f->fd.smallest_seqno, f->fd.largest_seqno,
                        f->marked_for_compaction, f->oldest_blob_file_number,
-                       f->oldest_ancester_time);
+                       f->oldest_ancester_time, f->file_creation_time);
         }
       }
       edit.SetLogNumber(cfd->GetLogNumber());

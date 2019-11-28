@@ -27,7 +27,7 @@ namespace {
 // See description in FastLocalBloomImpl
 class FastLocalBloomBitsBuilder : public BuiltinFilterBitsBuilder {
  public:
-  FastLocalBloomBitsBuilder(const int millibits_per_key)
+  explicit FastLocalBloomBitsBuilder(const int millibits_per_key)
       : millibits_per_key_(millibits_per_key),
         num_probes_(FastLocalBloomImpl::ChooseNumProbes(millibits_per_key_)) {
     assert(millibits_per_key >= 1000);
@@ -493,17 +493,17 @@ bool BloomFilterPolicy::KeyMayMatch(const Slice& key,
 
 FilterBitsBuilder* BloomFilterPolicy::GetFilterBitsBuilder() const {
   // This code path should no longer be used, for the built-in
-  // BloomFilterPolicy. Internal to RocksDB and outside BloomFilterPolicy,
-  // only get a FilterBitsBuilder with FilterBuildingContext::GetBuilder(),
-  // which will call BloomFilterPolicy::GetFilterBitsBuilderInternal.
-  // RocksDB users have been warned (HISTORY.md) that they can no longer
-  // call this on the built-in BloomFilterPolicy (unlikely).
+  // BloomFilterPolicy. Internal to RocksDB and outside
+  // BloomFilterPolicy, only get a FilterBitsBuilder with
+  // BloomFilterPolicy::GetBuilderFromContext(), which will call
+  // BloomFilterPolicy::GetBuilderWithContext(). RocksDB users have
+  // been warned (HISTORY.md) that they can no longer call this on
+  // the built-in BloomFilterPolicy (unlikely).
   assert(false);
-  return GetFilterBitsBuilderInternal(
-      FilterBuildingContext(BlockBasedTableOptions()));
+  return GetBuilderWithContext(FilterBuildingContext(BlockBasedTableOptions()));
 }
 
-FilterBitsBuilder* BloomFilterPolicy::GetFilterBitsBuilderInternal(
+FilterBitsBuilder* BloomFilterPolicy::GetBuilderWithContext(
     const FilterBuildingContext& context) const {
   Mode cur = mode_;
   // Unusual code construction so that we can have just
@@ -511,7 +511,7 @@ FilterBitsBuilder* BloomFilterPolicy::GetFilterBitsBuilderInternal(
   for (int i = 0; i < 2; ++i) {
     switch (cur) {
       case kAuto:
-        if (context.table_options_.format_version < 5) {
+        if (context.table_options.format_version < 5) {
           cur = kLegacyBloom;
         } else {
           cur = kFastLocalBloom;
@@ -527,6 +527,15 @@ FilterBitsBuilder* BloomFilterPolicy::GetFilterBitsBuilderInternal(
   }
   assert(false);
   return nullptr;  // something legal
+}
+
+FilterBitsBuilder* BloomFilterPolicy::GetBuilderFromContext(
+    const FilterBuildingContext& context) {
+  if (context.table_options.filter_policy) {
+    return context.table_options.filter_policy->GetBuilderWithContext(context);
+  } else {
+    return nullptr;
+  }
 }
 
 // Read metadata to determine what kind of FilterBitsReader is needed
@@ -678,6 +687,10 @@ const FilterPolicy* NewBloomFilterPolicy(double bits_per_key,
                    m) != BloomFilterPolicy::kAllUserModes.end());
   return new BloomFilterPolicy(bits_per_key, m);
 }
+
+FilterBuildingContext::FilterBuildingContext(
+    const BlockBasedTableOptions& _table_options)
+    : table_options(_table_options) {}
 
 FilterPolicy::~FilterPolicy() { }
 
