@@ -1995,10 +1995,11 @@ TEST_P(DBBasicTestWithParallelIO, MultiGet) {
       expected_reads += (read_from_cache ? 0 : 3);
       ASSERT_EQ(env_->random_read_counter_.Read(), expected_reads);
     } else {
-      // A rare case, the we enable the block compression but the data
-      // block might not be compressed. At the same time, we only have
-      // compressed cache, so 0 to 3 data blocks might no tbe cached, and
-      // block reads will be triggered.
+      // A rare case, even we enable the block compression but some of data
+      // blocks are not compressed due to content. If user only enable the
+      // compressed cache, the uncompressed blocks will not tbe cached, and
+      // block reads will be triggered. The number of reads is related to
+      // the compression algorithm.
       ASSERT_TRUE(env_->random_read_counter_.Read() >= expected_reads);
     }
   }
