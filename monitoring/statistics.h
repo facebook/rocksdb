@@ -76,6 +76,7 @@ class StatisticsImpl : public Statistics {
   //
   // Alignment attributes expand to nothing depending on the platform
   struct ALIGN_AS(CACHE_LINE_SIZE) StatisticsData {
+    StatisticsData() : tickers_{{0}} {};
     std::atomic_uint_fast64_t tickers_[TICKER_MAX];
     HistogramImpl histograms_[HISTOGRAM_MAX];
 #ifndef HAVE_ALIGNED_NEW
@@ -88,11 +89,6 @@ class StatisticsImpl : public Statistics {
     void *operator new[](size_t s) { return port::cacheline_aligned_alloc(s); }
     void operator delete(void *p) { port::cacheline_aligned_free(p); }
     void operator delete[](void *p) { port::cacheline_aligned_free(p); }
-    StatisticsData() {
-      for (size_t i = 0; i < TICKER_MAX; i++) {
-        tickers_[i] = 0;
-      }
-    }
   };
 
   static_assert(sizeof(StatisticsData) % CACHE_LINE_SIZE == 0, "Expected " TOSTRING(CACHE_LINE_SIZE) "-byte aligned");
