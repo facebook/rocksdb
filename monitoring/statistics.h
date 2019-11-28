@@ -88,6 +88,11 @@ class StatisticsImpl : public Statistics {
     void *operator new[](size_t s) { return port::cacheline_aligned_alloc(s); }
     void operator delete(void *p) { port::cacheline_aligned_free(p); }
     void operator delete[](void *p) { port::cacheline_aligned_free(p); }
+    StatisticsData() {
+      for (size_t i = 0; i < TICKER_MAX; i++) {
+        tickers_[i] = 0;
+      }
+    }
   };
 
   static_assert(sizeof(StatisticsData) % CACHE_LINE_SIZE == 0, "Expected " TOSTRING(CACHE_LINE_SIZE) "-byte aligned");
