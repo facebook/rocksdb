@@ -237,6 +237,11 @@ class BlobDBImpl : public BlobDB {
   Status GetBlobValue(const Slice& key, const Slice& index_entry,
                       PinnableSlice* value, uint64_t* expiration = nullptr);
 
+  Status GetRawBlobFromFile(const Slice& key, uint64_t file_number,
+                            uint64_t offset, uint64_t size,
+                            PinnableSlice* value,
+                            CompressionType* compression_type);
+
   Slice GetCompressedSlice(const Slice& raw,
                            std::string* compression_output) const;
 
@@ -264,13 +269,21 @@ class BlobDBImpl : public BlobDB {
                     const Slice& value, uint64_t expiration,
                     std::string* index_entry);
 
-  // find an existing blob log file based on the expiration unix epoch
-  // if such a file does not exist, return nullptr
+  // Create a new blob file and associated writer.
+  Status CreateBlobFileAndWriter(bool has_ttl,
+                                 const ExpirationRange& expiration_range,
+                                 const std::string& reason,
+                                 std::shared_ptr<BlobFile>* blob_file,
+                                 std::shared_ptr<Writer>* writer);
+
+  // Get the open non-TTL blob log file, or create a new one if no such file
+  // exists.
+  Status SelectBlobFile(std::shared_ptr<BlobFile>* blob_file);
+
+  // Get the open TTL blob log file for a certain expiration, or create a new
+  // one if no such file exists.
   Status SelectBlobFileTTL(uint64_t expiration,
                            std::shared_ptr<BlobFile>* blob_file);
-
-  // find an existing blob log file to append the value to
-  Status SelectBlobFile(std::shared_ptr<BlobFile>* blob_file);
 
   std::shared_ptr<BlobFile> FindBlobFileLocked(uint64_t expiration) const;
 
@@ -300,7 +313,9 @@ class BlobDBImpl : public BlobDB {
   void StartBackgroundTasks();
 
   // add a new Blob File
-  std::shared_ptr<BlobFile> NewBlobFile(const std::string& reason);
+  std::shared_ptr<BlobFile> NewBlobFile(bool has_ttl,
+                                        const ExpirationRange& expiration_range,
+                                        const std::string& reason);
 
   // collect all the blob log files from the blob directory
   Status GetAllBlobFiles(std::set<uint64_t>* file_numbers);
@@ -433,9 +448,6 @@ class BlobDBImpl : public BlobDB {
 
   // The largest sequence number that has been flushed.
   SequenceNumber flush_sequence_;
-
-  // epoch or version of the open files.
-  std::atomic<uint64_t> epoch_of_;
 
   // opened non-TTL blob file.
   std::shared_ptr<BlobFile> open_non_ttl_file_;

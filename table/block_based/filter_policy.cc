@@ -27,9 +27,10 @@ namespace {
 // See description in FastLocalBloomImpl
 class FastLocalBloomBitsBuilder : public BuiltinFilterBitsBuilder {
  public:
-  FastLocalBloomBitsBuilder(const int bits_per_key, const int num_probes)
-      : bits_per_key_(bits_per_key), num_probes_(num_probes) {
-    assert(bits_per_key_);
+  explicit FastLocalBloomBitsBuilder(const int millibits_per_key)
+      : millibits_per_key_(millibits_per_key),
+        num_probes_(FastLocalBloomImpl::ChooseNumProbes(millibits_per_key_)) {
+    assert(millibits_per_key >= 1000);
   }
 
   // No Copy allowed
@@ -77,14 +78,15 @@ class FastLocalBloomBitsBuilder : public BuiltinFilterBitsBuilder {
 
   int CalculateNumEntry(const uint32_t bytes) override {
     uint32_t bytes_no_meta = bytes >= 5u ? bytes - 5u : 0;
-    return static_cast<int>(uint64_t{8} * bytes_no_meta / bits_per_key_);
+    return static_cast<int>(uint64_t{8000} * bytes_no_meta /
+                            millibits_per_key_);
   }
 
   uint32_t CalculateSpace(const int num_entry) override {
     uint32_t num_cache_lines = 0;
-    if (bits_per_key_ > 0 && num_entry > 0) {
+    if (millibits_per_key_ > 0 && num_entry > 0) {
       num_cache_lines = static_cast<uint32_t>(
-          (int64_t{num_entry} * bits_per_key_ + 511) / 512);
+          (int64_t{num_entry} * millibits_per_key_ + 511999) / 512000);
     }
     return num_cache_lines * 64 + /*metadata*/ 5;
   }
@@ -136,7 +138,7 @@ class FastLocalBloomBitsBuilder : public BuiltinFilterBitsBuilder {
     }
   }
 
-  int bits_per_key_;
+  int millibits_per_key_;
   int num_probes_;
   std::vector<uint64_t> hash_entries_;
 };
@@ -187,7 +189,7 @@ using LegacyBloomImpl = LegacyLocalityBloomImpl</*ExtraRotates*/ false>;
 
 class LegacyBloomBitsBuilder : public BuiltinFilterBitsBuilder {
  public:
-  explicit LegacyBloomBitsBuilder(const int bits_per_key, const int num_probes);
+  explicit LegacyBloomBitsBuilder(const int bits_per_key);
 
   // No Copy allowed
   LegacyBloomBitsBuilder(const LegacyBloomBitsBuilder&) = delete;
@@ -208,7 +210,6 @@ class LegacyBloomBitsBuilder : public BuiltinFilterBitsBuilder {
   }
 
  private:
-  friend class FullFilterBlockTest_DuplicateEntries_Test;
   int bits_per_key_;
   int num_probes_;
   std::vector<uint32_t> hash_entries_;
@@ -228,9 +229,9 @@ class LegacyBloomBitsBuilder : public BuiltinFilterBitsBuilder {
   void AddHash(uint32_t h, char* data, uint32_t num_lines, uint32_t total_bits);
 };
 
-LegacyBloomBitsBuilder::LegacyBloomBitsBuilder(const int bits_per_key,
-                                               const int num_probes)
-    : bits_per_key_(bits_per_key), num_probes_(num_probes) {
+LegacyBloomBitsBuilder::LegacyBloomBitsBuilder(const int bits_per_key)
+    : bits_per_key_(bits_per_key),
+      num_probes_(LegacyNoLocalityBloomImpl::ChooseNumProbes(bits_per_key_)) {
   assert(bits_per_key_);
 }
 
@@ -412,12 +413,24 @@ const std::vector<BloomFilterPolicy::Mode> BloomFilterPolicy::kAllUserModes = {
     kAuto,
 };
 
-BloomFilterPolicy::BloomFilterPolicy(int bits_per_key, Mode mode)
-    : bits_per_key_(bits_per_key), mode_(mode) {
-  // We intentionally round down to reduce probing cost a little bit
-  num_probes_ = static_cast<int>(bits_per_key_ * 0.69);  // 0.69 =~ ln(2)
-  if (num_probes_ < 1) num_probes_ = 1;
-  if (num_probes_ > 30) num_probes_ = 30;
+BloomFilterPolicy::BloomFilterPolicy(double bits_per_key, Mode mode)
+    : mode_(mode) {
+  // Sanitize bits_per_key
+  if (bits_per_key < 1.0) {
+    bits_per_key = 1.0;
+  } else if (!(bits_per_key < 100.0)) {  // including NaN
+    bits_per_key = 100.0;
+  }
+
+  // Includes a nudge toward rounding up, to ensure on all platforms
+  // that doubles specified with three decimal digits after the decimal
+  // point are interpreted accurately.
+  millibits_per_key_ = static_cast<int>(bits_per_key * 1000.0 + 0.500001);
+
+  // For better or worse, this is a rounding up of a nudged rounding up,
+  // e.g. 7.4999999999999 will round up to 8, but that provides more
+  // predictability against small arithmetic errors in floating point.
+  whole_bits_per_key_ = (millibits_per_key_ + 500) / 1000;
 }
 
 BloomFilterPolicy::~BloomFilterPolicy() {}
@@ -433,7 +446,7 @@ void BloomFilterPolicy::CreateFilter(const Slice* keys, int n,
   assert(mode_ == kDeprecatedBlock);
 
   // Compute bloom filter size (in both bits and bytes)
-  uint32_t bits = static_cast<uint32_t>(n * bits_per_key_);
+  uint32_t bits = static_cast<uint32_t>(n * whole_bits_per_key_);
 
   // For small n, we can see a very high false positive rate.  Fix it
   // by enforcing a minimum bloom filter length.
@@ -442,12 +455,15 @@ void BloomFilterPolicy::CreateFilter(const Slice* keys, int n,
   uint32_t bytes = (bits + 7) / 8;
   bits = bytes * 8;
 
+  int num_probes =
+      LegacyNoLocalityBloomImpl::ChooseNumProbes(whole_bits_per_key_);
+
   const size_t init_size = dst->size();
   dst->resize(init_size + bytes, 0);
-  dst->push_back(static_cast<char>(num_probes_));  // Remember # of probes
+  dst->push_back(static_cast<char>(num_probes));  // Remember # of probes
   char* array = &(*dst)[init_size];
   for (int i = 0; i < n; i++) {
-    LegacyNoLocalityBloomImpl::AddHash(BloomHash(keys[i]), bits, num_probes_,
+    LegacyNoLocalityBloomImpl::AddHash(BloomHash(keys[i]), bits, num_probes,
                                        array);
   }
 }
@@ -470,24 +486,24 @@ bool BloomFilterPolicy::KeyMayMatch(const Slice& key,
     // Consider it a match.
     return true;
   }
-  // NB: using k not num_probes_
+  // NB: using stored k not num_probes for whole_bits_per_key_
   return LegacyNoLocalityBloomImpl::HashMayMatch(BloomHash(key), bits, k,
                                                  array);
 }
 
 FilterBitsBuilder* BloomFilterPolicy::GetFilterBitsBuilder() const {
   // This code path should no longer be used, for the built-in
-  // BloomFilterPolicy. Internal to RocksDB and outside BloomFilterPolicy,
-  // only get a FilterBitsBuilder with FilterBuildingContext::GetBuilder(),
-  // which will call BloomFilterPolicy::GetFilterBitsBuilderInternal.
-  // RocksDB users have been warned (HISTORY.md) that they can no longer
-  // call this on the built-in BloomFilterPolicy (unlikely).
+  // BloomFilterPolicy. Internal to RocksDB and outside
+  // BloomFilterPolicy, only get a FilterBitsBuilder with
+  // BloomFilterPolicy::GetBuilderFromContext(), which will call
+  // BloomFilterPolicy::GetBuilderWithContext(). RocksDB users have
+  // been warned (HISTORY.md) that they can no longer call this on
+  // the built-in BloomFilterPolicy (unlikely).
   assert(false);
-  return GetFilterBitsBuilderInternal(
-      FilterBuildingContext(BlockBasedTableOptions()));
+  return GetBuilderWithContext(FilterBuildingContext(BlockBasedTableOptions()));
 }
 
-FilterBitsBuilder* BloomFilterPolicy::GetFilterBitsBuilderInternal(
+FilterBitsBuilder* BloomFilterPolicy::GetBuilderWithContext(
     const FilterBuildingContext& context) const {
   Mode cur = mode_;
   // Unusual code construction so that we can have just
@@ -495,7 +511,7 @@ FilterBitsBuilder* BloomFilterPolicy::GetFilterBitsBuilderInternal(
   for (int i = 0; i < 2; ++i) {
     switch (cur) {
       case kAuto:
-        if (context.table_options_.format_version < 5) {
+        if (context.table_options.format_version < 5) {
           cur = kLegacyBloom;
         } else {
           cur = kFastLocalBloom;
@@ -504,13 +520,22 @@ FilterBitsBuilder* BloomFilterPolicy::GetFilterBitsBuilderInternal(
       case kDeprecatedBlock:
         return nullptr;
       case kFastLocalBloom:
-        return new FastLocalBloomBitsBuilder(bits_per_key_, num_probes_);
+        return new FastLocalBloomBitsBuilder(millibits_per_key_);
       case kLegacyBloom:
-        return new LegacyBloomBitsBuilder(bits_per_key_, num_probes_);
+        return new LegacyBloomBitsBuilder(whole_bits_per_key_);
     }
   }
   assert(false);
   return nullptr;  // something legal
+}
+
+FilterBitsBuilder* BloomFilterPolicy::GetBuilderFromContext(
+    const FilterBuildingContext& context) {
+  if (context.table_options.filter_policy) {
+    return context.table_options.filter_policy->GetBuilderWithContext(context);
+  } else {
+    return nullptr;
+  }
 }
 
 // Read metadata to determine what kind of FilterBitsReader is needed
@@ -649,7 +674,7 @@ FilterBitsReader* BloomFilterPolicy::GetBloomBitsReader(
   return new AlwaysTrueFilter();
 }
 
-const FilterPolicy* NewBloomFilterPolicy(int bits_per_key,
+const FilterPolicy* NewBloomFilterPolicy(double bits_per_key,
                                          bool use_block_based_builder) {
   BloomFilterPolicy::Mode m;
   if (use_block_based_builder) {
@@ -662,6 +687,10 @@ const FilterPolicy* NewBloomFilterPolicy(int bits_per_key,
                    m) != BloomFilterPolicy::kAllUserModes.end());
   return new BloomFilterPolicy(bits_per_key, m);
 }
+
+FilterBuildingContext::FilterBuildingContext(
+    const BlockBasedTableOptions& _table_options)
+    : table_options(_table_options) {}
 
 FilterPolicy::~FilterPolicy() { }
 

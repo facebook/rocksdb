@@ -52,7 +52,7 @@ DEFINE_uint32(vary_key_size_log2_interval, 5,
 
 DEFINE_uint32(batch_size, 8, "Number of keys to group in each batch");
 
-DEFINE_uint32(bits_per_key, 10, "Bits per key setting for filters");
+DEFINE_double(bits_per_key, 10.0, "Bits per key setting for filters");
 
 DEFINE_double(m_queries, 200, "Millions of queries for each test mode");
 
@@ -280,7 +280,7 @@ void FilterBench::Go() {
 
   std::unique_ptr<FilterBitsBuilder> builder;
   if (!FLAGS_use_plain_table_bloom && FLAGS_impl != 1) {
-    builder.reset(FilterBuildingContext(table_options_).GetBuilder());
+    builder.reset(GetBuilder());
   }
 
   uint32_t variance_mask = 1;

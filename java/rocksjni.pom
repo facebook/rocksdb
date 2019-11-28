@@ -10,7 +10,7 @@
     <artifactId>rocksdbjni</artifactId>
     <!-- Version will be automatically replaced -->
     <version>-</version>
-    <description>RocksDB fat jar that contains .so files for linux32 and linux64, jnilib files
+    <description>RocksDB fat jar that contains .so files for linux32 and linux64 (glibc and musl-libc), jnilib files
         for Mac OSX, and a .dll for Windows x64.
     </description>
     <licenses>

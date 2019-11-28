@@ -135,10 +135,12 @@ Status ImportColumnFamilyJob::Run() {
 
   // We use the import time as the ancester time. This is the time the data
   // is written to the database.
-  uint64_t oldest_ancester_time = 0;
   int64_t temp_current_time = 0;
+  uint64_t oldest_ancester_time = kUnknownOldestAncesterTime;
+  uint64_t current_time = kUnknownOldestAncesterTime;
   if (env_->GetCurrentTime(&temp_current_time).ok()) {
-    oldest_ancester_time = static_cast<uint64_t>(temp_current_time);
+    current_time = oldest_ancester_time =
+        static_cast<uint64_t>(temp_current_time);
   }
 
   for (size_t i = 0; i < files_to_import_.size(); ++i) {
@@ -149,7 +151,7 @@ Status ImportColumnFamilyJob::Run() {
                   f.fd.GetFileSize(), f.smallest_internal_key,
                   f.largest_internal_key, file_metadata.smallest_seqno,
                   file_metadata.largest_seqno, false, kInvalidBlobFileNumber,
-                  oldest_ancester_time);
+                  oldest_ancester_time, current_time);
 
     // If incoming sequence number is higher, update local sequence number.
     if (file_metadata.largest_seqno > versions_->LastSequence()) {
