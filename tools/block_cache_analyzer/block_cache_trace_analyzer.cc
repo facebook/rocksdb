@@ -579,8 +579,8 @@ void BlockCacheTraceAnalyzer::WriteSkewness(
   // Sort in descending order.
   sort(
       pairs.begin(), pairs.end(),
-      [=](std::pair<std::string, uint64_t>& a,
-          std::pair<std::string, uint64_t>& b) { return b.second < a.second; });
+      [=](const std::pair<std::string, uint64_t>& a,
+          const std::pair<std::string, uint64_t>& b) { return b.second < a.second; });
 
   size_t prev_start_index = 0;
   for (auto const& percent : percent_buckets) {
