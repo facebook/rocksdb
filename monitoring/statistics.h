@@ -4,19 +4,18 @@
 //  (found in the LICENSE.Apache file in the root directory).
 //
 #pragma once
-#include "rocksdb/statistics.h"
-
+#include <algorithm>
 #include <atomic>
+#include <cinttypes>
+#include <cstdio>
 #include <map>
 #include <string>
 #include <vector>
-#include <cstdio>
-#include <algorithm>
-#include <cinttypes>
 
 #include "monitoring/histogram.h"
 #include "port/likely.h"
 #include "port/port.h"
+#include "rocksdb/statistics.h"
 #include "util/core_local.h"
 #include "util/mutexlock.h"
 
@@ -134,8 +133,9 @@ template <uint32_t TICKER_MAX, uint32_t HISTOGRAM_MAX>
 std::shared_ptr<Statistics> CreateDBStatistics() {
   return std::make_shared<StatisticsImpl<TICKER_MAX, HISTOGRAM_MAX>>(nullptr);
 }
-// Explicitly instantiate templates to make it possible to keep the template definitions in this file.
-template std::shared_ptr<Statistics> CreateDBStatistics<TICKER_ENUM_MAX, HISTOGRAM_ENUM_MAX>();
-
+// Explicitly instantiate templates to make it possible to keep the template
+// definitions in this file.
+template std::shared_ptr<Statistics>
+CreateDBStatistics<TICKER_ENUM_MAX, HISTOGRAM_ENUM_MAX>();
 
 }

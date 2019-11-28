@@ -5,10 +5,10 @@
 //
 #include "monitoring/statistics.h"
 
-#include <algorithm>	
-#include <cinttypes>	
-#include <cstdio>	
-#include "port/likely.h"	
+#include <algorithm>
+#include <cinttypes>
+#include <cstdio>
+#include "port/likely.h"
 #include "rocksdb/statistics.h"
 
 namespace rocksdb {
