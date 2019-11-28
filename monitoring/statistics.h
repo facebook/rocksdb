@@ -135,7 +135,7 @@ std::shared_ptr<Statistics> CreateDBStatistics() {
 }
 // Explicitly instantiate templates to make it possible to keep the template definitions in this file.
 template std::shared_ptr<Statistics> CreateDBStatistics<TICKER_ENUM_MAX, HISTOGRAM_ENUM_MAX>();
- 
+
 template <uint32_t TICKER_MAX, uint32_t HISTOGRAM_MAX>
 StatisticsImpl<TICKER_MAX, HISTOGRAM_MAX>::StatisticsImpl(
     std::shared_ptr<Statistics> stats)
