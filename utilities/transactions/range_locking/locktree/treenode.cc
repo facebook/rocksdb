@@ -140,6 +140,9 @@ void treenode::swap_in_place(treenode *node1, treenode *node2) {
 
 void treenode::add_shared_owner(TXNID txnid) {
     assert(m_is_shared);
+    if (txnid == m_txnid)
+        return; // acquiring a lock on the same range by the same trx
+
     if (m_txnid != TXNID_SHARED) {
         m_owners= new TxnidVector;
         m_owners->insert(m_txnid);
@@ -373,7 +376,9 @@ void treenode::recursive_remove(void) {
 }
 
 void treenode::remove_shared_owner(TXNID txnid) {
+    assert(m_owners->size()>1);
     m_owners->erase(txnid);
+    assert(m_owners->size()>0);
     /* if there is just one owner left, move it to m_txnid */
     if (m_owners->size() == 1)
     {
