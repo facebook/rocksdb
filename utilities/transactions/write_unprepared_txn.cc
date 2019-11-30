@@ -790,7 +790,7 @@ Status WriteUnpreparedTxn::RollbackInternal() {
 
 void WriteUnpreparedTxn::Clear() {
   if (!recovered_txn_) {
-    txn_db_impl_->UnLock(this, &GetTrackedKeys());
+    txn_db_impl_->UnLock(this, &GetTrackedKeys(), /*all_keys_hint=*/ true);
   }
   unprep_seqs_.clear();
   flushed_save_points_.reset(nullptr);
