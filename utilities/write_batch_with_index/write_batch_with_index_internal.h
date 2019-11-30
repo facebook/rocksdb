@@ -10,18 +10,19 @@
 #include <string>
 #include <vector>
 
-#include "options/db_options.h"
 #include "port/port.h"
-#include "rocksdb/comparator.h"
 #include "rocksdb/iterator.h"
-#include "rocksdb/slice.h"
 #include "rocksdb/status.h"
 #include "rocksdb/utilities/write_batch_with_index.h"
 
 namespace rocksdb {
 
+class ColumnFamilyHandle;
+class Comparator;
+class Slice;
 class MergeContext;
 struct Options;
+struct ImmutableDBOptions;
 
 // Key used by skip list, as the binary searchable index of WriteBatchWithIndex.
 struct WriteBatchIndexEntry {

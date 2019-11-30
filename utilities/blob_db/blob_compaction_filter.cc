@@ -6,6 +6,7 @@
 #ifndef ROCKSDB_LITE
 
 #include "utilities/blob_db/blob_compaction_filter.h"
+#include "utilities/blob_db/blob_db_impl.h"
 #include "db/dbformat.h"
 
 namespace rocksdb {

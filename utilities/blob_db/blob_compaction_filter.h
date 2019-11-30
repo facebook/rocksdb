@@ -8,13 +8,16 @@
 #include <unordered_set>
 
 #include "db/blob_index.h"
-#include "monitoring/statistics.h"
 #include "rocksdb/compaction_filter.h"
-#include "rocksdb/env.h"
-#include "utilities/blob_db/blob_db_impl.h"
 
 namespace rocksdb {
+
+class Statistics;
+class Env;
+
 namespace blob_db {
+
+class BlobDBImpl;
 
 struct BlobCompactionContext {
   uint64_t next_file_number;

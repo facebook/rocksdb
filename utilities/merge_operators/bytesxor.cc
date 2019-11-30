@@ -7,6 +7,7 @@
 #include <string>
 
 #include "utilities/merge_operators/bytesxor.h"
+#include "utilities/merge_operators.h"
 
 namespace rocksdb {
 

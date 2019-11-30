@@ -10,9 +10,10 @@
 #include <string>
 
 #include "rocksdb/compaction_filter.h"
-#include "rocksdb/slice.h"
 
 namespace rocksdb {
+
+class Slice;
 
 class RemoveEmptyValueCompactionFilter : public CompactionFilter {
  public:

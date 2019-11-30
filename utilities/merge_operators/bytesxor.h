@@ -5,16 +5,13 @@
 
 #pragma once
 
-#include <algorithm>
-#include <memory>
 #include <string>
-#include "rocksdb/env.h"
 #include "rocksdb/merge_operator.h"
-#include "rocksdb/slice.h"
-#include "util/coding.h"
-#include "utilities/merge_operators.h"
 
 namespace rocksdb {
+
+class Slice;
+class Logger;
 
 // A 'model' merge operator that XORs two (same sized) array of bytes.
 // Implemented as an AssociativeMergeOperator for simplicity and example.
