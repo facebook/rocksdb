@@ -333,7 +333,7 @@ void PessimisticTransaction::Initialize(const TransactionOptions& txn_options) {
 }
 
 PessimisticTransaction::~PessimisticTransaction() {
-  txn_db_impl_->UnLock(this, &GetTrackedKeys()/*, all_keys_hint=true*/);
+  txn_db_impl_->UnLock(this, &GetTrackedKeys(), /*all_keys_hint=*/true);
   if (expiration_time_ > 0) {
     txn_db_impl_->RemoveExpirableTransaction(txn_id_);
   }
