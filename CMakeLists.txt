@@ -767,7 +767,6 @@ endif()
 
 set(ROCKSDB_STATIC_LIB rocksdb${ARTIFACT_SUFFIX})
 set(ROCKSDB_SHARED_LIB rocksdb-shared${ARTIFACT_SUFFIX})
-set(ROCKSDB_IMPORT_LIB ${ROCKSDB_SHARED_LIB})
 
 option(WITH_LIBRADOS "Build with librados" OFF)
 if(WITH_LIBRADOS)
@@ -778,38 +777,36 @@ endif()
 
 if(WIN32)
   set(SYSTEM_LIBS ${SYSTEM_LIBS} shlwapi.lib rpcrt4.lib)
-  set(LIBS ${ROCKSDB_STATIC_LIB} ${THIRDPARTY_LIBS} ${SYSTEM_LIBS})
+  set(ROCKSDB_LIB ${ROCKSDB_STATIC_LIB})
 else()
   set(SYSTEM_LIBS ${CMAKE_THREAD_LIBS_INIT})
-  set(LIBS ${ROCKSDB_SHARED_LIB} ${THIRDPARTY_LIBS} ${SYSTEM_LIBS})
-
-  add_library(${ROCKSDB_SHARED_LIB} SHARED ${SOURCES})
-  target_link_libraries(${ROCKSDB_SHARED_LIB}
-    ${THIRDPARTY_LIBS} ${SYSTEM_LIBS})
-  set_target_properties(${ROCKSDB_SHARED_LIB} PROPERTIES
-                        LINKER_LANGUAGE CXX
-                        VERSION ${rocksdb_VERSION}
-                        SOVERSION ${rocksdb_VERSION_MAJOR}
-                        CXX_STANDARD 11
-                        OUTPUT_NAME "rocksdb")
+  set(ROCKSDB_LIB ${ROCKSDB_SHARED_LIB})
 endif()
 
 add_library(${ROCKSDB_STATIC_LIB} STATIC ${SOURCES})
 target_link_libraries(${ROCKSDB_STATIC_LIB}
   ${THIRDPARTY_LIBS} ${SYSTEM_LIBS})
 
+add_library(${ROCKSDB_SHARED_LIB} SHARED ${SOURCES})
+target_link_libraries(${ROCKSDB_SHARED_LIB}
+  ${THIRDPARTY_LIBS} ${SYSTEM_LIBS})
+
 if(WIN32)
-  add_library(${ROCKSDB_IMPORT_LIB} SHARED ${SOURCES})
-  target_link_libraries(${ROCKSDB_IMPORT_LIB}
-    ${THIRDPARTY_LIBS} ${SYSTEM_LIBS})
-  set_target_properties(${ROCKSDB_IMPORT_LIB} PROPERTIES
+  set_target_properties(${ROCKSDB_SHARED_LIB} PROPERTIES
     COMPILE_DEFINITIONS "ROCKSDB_DLL;ROCKSDB_LIBRARY_EXPORTS")
   if(MSVC)
     set_target_properties(${ROCKSDB_STATIC_LIB} PROPERTIES
       COMPILE_FLAGS "/Fd${CMAKE_CFG_INTDIR}/${ROCKSDB_STATIC_LIB}.pdb")
-    set_target_properties(${ROCKSDB_IMPORT_LIB} PROPERTIES
-      COMPILE_FLAGS "/Fd${CMAKE_CFG_INTDIR}/${ROCKSDB_IMPORT_LIB}.pdb")
+    set_target_properties(${ROCKSDB_SHARED_LIB} PROPERTIES
+      COMPILE_FLAGS "/Fd${CMAKE_CFG_INTDIR}/${ROCKSDB_SHARED_LIB}.pdb")
   endif()
+else()
+  set_target_properties(${ROCKSDB_SHARED_LIB} PROPERTIES
+                        LINKER_LANGUAGE CXX
+                        VERSION ${rocksdb_VERSION}
+                        SOVERSION ${rocksdb_VERSION_MAJOR}
+                        CXX_STANDARD 11
+                        OUTPUT_NAME "rocksdb")
 endif()
 
 option(WITH_JNI "build with JNI" OFF)
@@ -1053,7 +1050,7 @@ if(WITH_TESTS)
     get_filename_component(exename ${sourcefile} NAME_WE)
     add_executable(${exename}${ARTIFACT_SUFFIX} ${sourcefile}
       $<TARGET_OBJECTS:testharness>)
-    target_link_libraries(${exename}${ARTIFACT_SUFFIX} gtest ${LIBS})
+    target_link_libraries(${exename}${ARTIFACT_SUFFIX} gtest ${ROCKSDB_LIB})
   endforeach(sourcefile ${BENCHMARKS})
 
   # For test util library that is build only in DEBUG mode
@@ -1070,7 +1067,7 @@ if(WITH_TESTS)
   add_custom_target(check COMMAND ${CMAKE_CTEST_COMMAND})
   set(TESTUTILLIB testutillib${ARTIFACT_SUFFIX})
   add_library(${TESTUTILLIB} STATIC ${TESTUTIL_SOURCE})
-  target_link_libraries(${TESTUTILLIB} ${LIBS})
+  target_link_libraries(${TESTUTILLIB} ${ROCKSDB_LIB})
   if(MSVC)
     set_target_properties(${TESTUTILLIB} PROPERTIES COMPILE_FLAGS "/Fd${CMAKE_CFG_INTDIR}/testutillib${ARTIFACT_SUFFIX}.pdb")
   endif()
@@ -1093,7 +1090,7 @@ if(WITH_TESTS)
         EXCLUDE_FROM_DEFAULT_BUILD_RELWITHDEBINFO 1
         OUTPUT_NAME ${exename}${ARTIFACT_SUFFIX}
         )
-      target_link_libraries(${CMAKE_PROJECT_NAME}_${exename}${ARTIFACT_SUFFIX} testutillib${ARTIFACT_SUFFIX} gtest ${LIBS})
+      target_link_libraries(${CMAKE_PROJECT_NAME}_${exename}${ARTIFACT_SUFFIX} testutillib${ARTIFACT_SUFFIX} gtest ${ROCKSDB_LIB})
       if(NOT "${exename}" MATCHES "db_sanity_test")
         add_test(NAME ${exename} COMMAND ${exename}${ARTIFACT_SUFFIX})
         add_dependencies(check ${CMAKE_PROJECT_NAME}_${exename}${ARTIFACT_SUFFIX})
@@ -1113,7 +1110,7 @@ if(WITH_TESTS)
         EXCLUDE_FROM_DEFAULT_BUILD_MINRELEASE 1
         EXCLUDE_FROM_DEFAULT_BUILD_RELWITHDEBINFO 1
         )
-      target_link_libraries(${exename}${ARTIFACT_SUFFIX} ${ROCKSDB_IMPORT_LIB} testutillib${ARTIFACT_SUFFIX})
+      target_link_libraries(${exename}${ARTIFACT_SUFFIX} ${ROCKSDB_SHARED_LIB} testutillib${ARTIFACT_SUFFIX})
       add_test(NAME ${exename} COMMAND ${exename}${ARTIFACT_SUFFIX})
       add_dependencies(check ${exename}${ARTIFACT_SUFFIX})
   endforeach(sourcefile ${C_TEST_EXES})
