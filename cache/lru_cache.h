@@ -133,7 +133,6 @@ struct LRUHandle {
   // Caclculate the memory usage by metadata
   inline size_t CalcTotalCharge(
       CacheMetadataChargePolicy metadata_charge_policy) {
-    assert(key_length);
     size_t meta_charge = 0;
     if (metadata_charge_policy == kFullChargeCacheMetadata) {
 #ifdef ROCKSDB_MALLOC_USABLE_SIZE
