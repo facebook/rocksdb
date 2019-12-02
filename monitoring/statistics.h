@@ -133,6 +133,7 @@ template <uint32_t TICKER_MAX, uint32_t HISTOGRAM_MAX>
 std::shared_ptr<Statistics> CreateDBStatistics() {
   return std::make_shared<StatisticsImpl<TICKER_MAX, HISTOGRAM_MAX>>(nullptr);
 }
+
 // Explicitly instantiate templates to make it possible to keep the template
 // definitions in this file.
 template std::shared_ptr<Statistics>
