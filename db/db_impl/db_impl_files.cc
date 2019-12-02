@@ -385,7 +385,6 @@ void DBImpl::PurgeObsoleteFiles(JobContext& state, bool schedule_only) {
     w->Close();
   }
 
-  // This function acquires and releases db mutex
   bool own_files = OwnTablesAndLogs();
   std::unordered_set<uint64_t> files_to_del;
   for (const auto& candidate_file : candidate_files) {

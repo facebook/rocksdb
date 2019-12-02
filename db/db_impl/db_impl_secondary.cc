@@ -545,8 +545,9 @@ Status DBImplSecondary::TryCatchUpWithPrimary() {
   JobContext purge_files_job_context(0);
   {
     InstrumentedMutexLock lock_guard(&mutex_);
-    FindObsoleteFiles(&purge_files_job_context,
-                      !s.ok() && !s.IsShutdownInProgress());
+    // Currently, secondary instance does not own the database files, thus it
+    // is unnecessary for the secondary to force full scan.
+    FindObsoleteFiles(&purge_files_job_context, /*force=*/false);
   }
   if (purge_files_job_context.HaveSomethingToDelete()) {
     PurgeObsoleteFiles(purge_files_job_context);

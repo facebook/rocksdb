@@ -174,7 +174,7 @@ class DBImplSecondary : public DBImpl {
 
   using DBImpl::SetDBOptions;
   Status SetDBOptions(const std::unordered_map<std::string, std::string>&
-                          /*options_map*/) override {
+                      /*options_map*/) override {
     // Currently not supported because changing certain options may cause
     // flush/compaction.
     return Status::NotSupported("Not supported operation in secondary mode.");
@@ -288,9 +288,11 @@ class DBImplSecondary : public DBImpl {
   }
 
   bool OwnTablesAndLogs() const override {
-    InstrumentedMutexLock lock_guard(&mutex_);
-    return versions_->GetColumnFamilySet()->get_table_cache()->GetCapacity() !=
-           TableCache::kInfiniteCapacity;
+    // Currently, the secondary instance does not own the database files. It
+    // simply opens the files of the primary instance and tracks their file
+    // descriptors until they become obsolete. In the future, the secondary may
+    // create links to database files. OwnTablesAndLogs will return true then.
+    return false;
   }
 
  private:
