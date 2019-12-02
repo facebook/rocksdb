@@ -1700,6 +1700,43 @@ TEST_F(ExternalSSTFileTest, SstFileWriterNonSharedKeys) {
   ASSERT_OK(DeprecatedAddFile({file_path}));
 }
 
+TEST_F(ExternalSSTFileTest, WithUnorderedWrite) {
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->LoadDependency(
+      {{"DBImpl::WriteImpl:UnorderedWriteAfterWriteWAL",
+        "ExternalSSTFileTest::WithUnorderedWrite:WaitWriteWAL"},
+       {"ExternalSSTFileTest::WithUnorderedWrite:ContinueWriteMemtable",
+        "DBImpl::WriteImpl:BeforeUnorderedWriteMemtable"}});
+  SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::IngestExternalFile:NeedFlush", [&](void* need_flush) {
+        ASSERT_TRUE(*reinterpret_cast<bool*>(need_flush));
+      });
+
+  Options options = CurrentOptions();
+  options.unordered_write = true;
+  DestroyAndReopen(options);
+  Put("foo", "v1");
+  SyncPoint::GetInstance()->EnableProcessing();
+  port::Thread writer1([&]() { Put("bar", "v2"); });
+  port::Thread writer2([&]() {
+    TEST_SYNC_POINT("ExternalSSTFileTest::WithUnorderedWrite:WaitWriteWAL");
+    ASSERT_OK(GenerateAndAddExternalFile(options, {{"bar", "v3"}}, -1,
+                                         true /* allow_global_seqno */));
+  });
+
+  // make sure `Put` and `GenerateAndAddExternalFile` are all called.
+  env_->SleepForMicroseconds(100000);
+  TEST_SYNC_POINT(
+      "ExternalSSTFileTest::WithUnorderedWrite:ContinueWriteMemtable");
+
+  writer1.join();
+  writer2.join();
+  ASSERT_EQ("v3", Get("bar"));
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+}
+
 TEST_P(ExternalSSTFileTest, IngestFileWithGlobalSeqnoRandomized) {
   Options options = CurrentOptions();
   options.IncreaseParallelism(20);

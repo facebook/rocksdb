@@ -131,6 +131,7 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
                               log_used, log_ref, &seq, sub_batch_cnt,
                               pre_release_callback, kDoAssignOrder,
                               kDoPublishLastSeq, disable_memtable);
+    TEST_SYNC_POINT("DBImpl::WriteImpl:UnorderedWriteAfterWriteWAL");
     if (!status.ok()) {
       return status;
     }
@@ -138,6 +139,7 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
       *seq_used = seq;
     }
     if (!disable_memtable) {
+      TEST_SYNC_POINT("DBImpl::WriteImpl:BeforeUnorderedWriteMemtable");
       status = UnorderedWriteMemtable(write_options, my_batch, callback,
                                       log_ref, seq, sub_batch_cnt);
     }
