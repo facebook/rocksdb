@@ -4,9 +4,10 @@
 //  (found in the LICENSE.Apache file in the root directory).
 //
 #pragma once
-#include "rocksdb/statistics.h"
-
+#include <algorithm>
 #include <atomic>
+#include <cinttypes>
+#include <cstdio>
 #include <map>
 #include <string>
 #include <vector>
@@ -14,6 +15,7 @@
 #include "monitoring/histogram.h"
 #include "port/likely.h"
 #include "port/port.h"
+#include "rocksdb/statistics.h"
 #include "util/core_local.h"
 #include "util/mutexlock.h"
 
@@ -30,16 +32,8 @@
 
 namespace rocksdb {
 
-enum TickersInternal : uint32_t {
-  INTERNAL_TICKER_ENUM_START = TICKER_ENUM_MAX,
-  INTERNAL_TICKER_ENUM_MAX
-};
-
-enum HistogramsInternal : uint32_t {
-  INTERNAL_HISTOGRAM_START = HISTOGRAM_ENUM_MAX,
-  INTERNAL_HISTOGRAM_ENUM_MAX
-};
-
+template <uint32_t TICKER_MAX = TICKER_ENUM_MAX,
+          uint32_t HISTOGRAM_MAX = HISTOGRAM_ENUM_MAX>
 class StatisticsImpl : public Statistics {
  public:
   StatisticsImpl(std::shared_ptr<Statistics> stats);
@@ -54,7 +48,7 @@ class StatisticsImpl : public Statistics {
   virtual uint64_t getAndResetTickerCount(uint32_t ticker_type) override;
   virtual void recordTick(uint32_t ticker_type, uint64_t count) override;
   // The function is implemented for now for backward compatibility reason.
-  // In case a user explictly calls it, for example, they may have a wrapped
+  // In case a user explicitly calls it, for example, they may have a wrapped
   // Statistics object, passing the call to recordTick() into here, nothing
   // will break.
   void measureTime(uint32_t histogramType, uint64_t time) override {
@@ -81,14 +75,14 @@ class StatisticsImpl : public Statistics {
   //
   // Alignment attributes expand to nothing depending on the platform
   struct ALIGN_AS(CACHE_LINE_SIZE) StatisticsData {
-    std::atomic_uint_fast64_t tickers_[INTERNAL_TICKER_ENUM_MAX] = {{0}};
-    HistogramImpl histograms_[INTERNAL_HISTOGRAM_ENUM_MAX];
+    StatisticsData() : tickers_{{0}} {};
+    std::atomic_uint_fast64_t tickers_[TICKER_MAX];
+    HistogramImpl histograms_[HISTOGRAM_MAX];
 #ifndef HAVE_ALIGNED_NEW
-    char
-        padding[(CACHE_LINE_SIZE -
-                 (INTERNAL_TICKER_ENUM_MAX * sizeof(std::atomic_uint_fast64_t) +
-                  INTERNAL_HISTOGRAM_ENUM_MAX * sizeof(HistogramImpl)) %
-                     CACHE_LINE_SIZE)] ROCKSDB_FIELD_UNUSED;
+    char padding[(CACHE_LINE_SIZE -
+                  (TICKER_MAX * sizeof(std::atomic_uint_fast64_t) +
+                   HISTOGRAM_MAX * sizeof(HistogramImpl)) %
+                      CACHE_LINE_SIZE)] ROCKSDB_FIELD_UNUSED;
 #endif
     void *operator new(size_t s) { return port::cacheline_aligned_alloc(s); }
     void *operator new[](size_t s) { return port::cacheline_aligned_alloc(s); }
@@ -134,5 +128,15 @@ inline void SetTickerCount(Statistics* statistics, uint32_t ticker_type,
     statistics->setTickerCount(ticker_type, count);
   }
 }
+
+template <uint32_t TICKER_MAX, uint32_t HISTOGRAM_MAX>
+std::shared_ptr<Statistics> CreateDBStatistics() {
+  return std::make_shared<StatisticsImpl<TICKER_MAX, HISTOGRAM_MAX>>(nullptr);
+}
+
+// Explicitly instantiate templates to make it possible to keep the template
+// definitions in this file.
+template std::shared_ptr<Statistics>
+CreateDBStatistics<TICKER_ENUM_MAX, HISTOGRAM_ENUM_MAX>();
 
 }
