@@ -33,6 +33,9 @@ class SstFileChecksum {
   // Return the checksum value of data[0,n-1]
   virtual uint32_t Value(const char* data, size_t n) = 0;
 
+  // Return a processed value of the checksum for store in somewhere
+  virtual uint32_t ProcessChecksum(const uint32_t checksum) = 0;
+
   // Returns a name that identifies the current file checksum method.
   virtual const char* Name() const = 0;
 };
