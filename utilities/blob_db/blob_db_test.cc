@@ -1735,7 +1735,8 @@ TEST_F(BlobDBTest, GarbageCollection) {
 
   VerifyBaseDB(blob_value_versions);
 
-  const uint64_t cutoff = bdb_options.garbage_collection_cutoff * kNumBlobFiles;
+  const uint64_t cutoff = static_cast<uint64_t>(
+      bdb_options.garbage_collection_cutoff * kNumBlobFiles);
   for (auto &pair : blob_index_versions) {
     BlobIndexVersion &version = pair.second;
 
