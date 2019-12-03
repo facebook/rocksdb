@@ -28,8 +28,88 @@ struct BlobCompactionContextGC {
   uint64_t cutoff_file_number = 0;
 };
 
-class BlobIndexCompactionFilter;
-class BlobIndexCompactionFilterGC;
+// Compaction filter that deletes expired blob indexes from the base DB.
+// Comes into two varieties, one for the non-GC case and one for the GC case.
+class BlobIndexCompactionFilterBase : public CompactionFilter {
+ public:
+  BlobIndexCompactionFilterBase(BlobCompactionContext&& context,
+                                uint64_t current_time, Statistics* statistics)
+      : context_(std::move(context)),
+        current_time_(current_time),
+        statistics_(statistics) {}
+
+  ~BlobIndexCompactionFilterBase() override {
+    RecordTick(statistics_, BLOB_DB_BLOB_INDEX_EXPIRED_COUNT, expired_count_);
+    RecordTick(statistics_, BLOB_DB_BLOB_INDEX_EXPIRED_SIZE, expired_size_);
+    RecordTick(statistics_, BLOB_DB_BLOB_INDEX_EVICTED_COUNT, evicted_count_);
+    RecordTick(statistics_, BLOB_DB_BLOB_INDEX_EVICTED_SIZE, evicted_size_);
+  }
+
+  // Filter expired blob indexes regardless of snapshots.
+  bool IgnoreSnapshots() const override { return true; }
+
+  Decision FilterV2(int /*level*/, const Slice& key, ValueType value_type,
+                    const Slice& value, std::string* /*new_value*/,
+                    std::string* /*skip_until*/) const override;
+
+ private:
+  BlobCompactionContext context_;
+  const uint64_t current_time_;
+  Statistics* statistics_;
+  // It is safe to not using std::atomic since the compaction filter, created
+  // from a compaction filter factroy, will not be called from multiple threads.
+  mutable uint64_t expired_count_ = 0;
+  mutable uint64_t expired_size_ = 0;
+  mutable uint64_t evicted_count_ = 0;
+  mutable uint64_t evicted_size_ = 0;
+};
+
+class BlobIndexCompactionFilter : public BlobIndexCompactionFilterBase {
+ public:
+  BlobIndexCompactionFilter(BlobCompactionContext&& context,
+                            uint64_t current_time, Statistics* statistics)
+      : BlobIndexCompactionFilterBase(std::move(context), current_time,
+                                      statistics) {}
+
+  const char* Name() const override { return "BlobIndexCompactionFilter"; }
+};
+
+class BlobIndexCompactionFilterGC : public BlobIndexCompactionFilterBase {
+ public:
+  BlobIndexCompactionFilterGC(BlobCompactionContext&& context,
+                              BlobCompactionContextGC&& context_gc,
+                              uint64_t current_time, Statistics* statistics)
+      : BlobIndexCompactionFilterBase(std::move(context), current_time,
+                                      statistics),
+        context_gc_(std::move(context_gc)) {}
+
+  ~BlobIndexCompactionFilterGC() override {
+    if (blob_file_) {
+      CloseAndRegisterNewBlobFile();
+    }
+  }
+
+  const char* Name() const override { return "BlobIndexCompactionFilterGC"; }
+
+  bool PrepareBlobOutput(const Slice& key, const Slice& existing_value,
+                         std::string* new_value) const override;
+
+ private:
+  bool OpenNewBlobFileIfNeeded() const;
+  bool ReadBlobFromOldFile(const Slice& key, const BlobIndex& blob_index,
+                           PinnableSlice* blob,
+                           CompressionType* compression_type) const;
+  bool WriteBlobToNewFile(const Slice& key, const Slice& blob,
+                          uint64_t* new_blob_file_number,
+                          uint64_t* new_blob_offset) const;
+  bool CloseAndRegisterNewBlobFileIfNeeded() const;
+  bool CloseAndRegisterNewBlobFile() const;
+
+ private:
+  BlobCompactionContextGC context_gc_;
+  mutable std::shared_ptr<BlobFile> blob_file_;
+  mutable std::shared_ptr<Writer> writer_;
+};
 
 template <typename Filter>
 class BlobIndexCompactionFilterFactoryBase : public CompactionFilterFactory {
