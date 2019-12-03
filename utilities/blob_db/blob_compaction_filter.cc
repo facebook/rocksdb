@@ -118,6 +118,8 @@ class BlobIndexCompactionFilterGC : public BlobIndexCompactionFilterBase {
     assert(new_value);
 
     const BlobDBImpl* const blob_db_impl = context_gc_.blob_db_impl;
+    (void)blob_db_impl;
+
     assert(blob_db_impl);
     assert(blob_db_impl->bdb_options_.enable_garbage_collection);
 
