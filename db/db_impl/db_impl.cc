@@ -2217,13 +2217,12 @@ Status DBImpl::CreateColumnFamilies(
 Status DBImpl::CreateColumnFamilyImpl(const ColumnFamilyOptions& cf_options,
                                       const std::string& column_family_name,
                                       ColumnFamilyHandle** handle) {
-  Status s;
   Status persist_options_status;
   *handle = nullptr;
 
   DBOptions db_options =
       BuildDBOptions(immutable_db_options_, mutable_db_options_);
-  s = ColumnFamilyData::ValidateOptions(db_options, cf_options);
+  Status s = ColumnFamilyData::ValidateOptions(db_options, cf_options);
   if (s.ok()) {
     for (auto& cf_path : cf_options.cf_paths) {
       s = env_->CreateDirIfMissing(cf_path.path);

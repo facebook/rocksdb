@@ -72,11 +72,10 @@ Status CopyFile(Env* env, const std::string& source,
 Status CreateFile(Env* env, const std::string& destination,
                   const std::string& contents, bool use_fsync) {
   const EnvOptions soptions;
-  Status s;
   std::unique_ptr<WritableFileWriter> dest_writer;
 
   std::unique_ptr<WritableFile> destfile;
-  s = env->NewWritableFile(destination, &destfile, soptions);
+  Status s = env->NewWritableFile(destination, &destfile, soptions);
   if (!s.ok()) {
     return s;
   }

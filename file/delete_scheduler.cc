@@ -112,10 +112,9 @@ bool DeleteScheduler::IsTrashFile(const std::string& file_path) {
 
 Status DeleteScheduler::CleanupDirectory(Env* env, SstFileManagerImpl* sfm,
                                          const std::string& path) {
-  Status s;
   // Check if there are any files marked as trash in this path
   std::vector<std::string> files_in_path;
-  s = env->GetChildren(path, &files_in_path);
+  Status s = env->GetChildren(path, &files_in_path);
   if (!s.ok()) {
     return s;
   }

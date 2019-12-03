@@ -378,7 +378,7 @@ Status TableCache::Get(const ReadOptions& options,
   Status s;
   TableReader* t = fd.table_reader;
   Cache::Handle* handle = nullptr;
-  if (!done && s.ok()) {
+  if (!done) {
     if (t == nullptr) {
       s = FindTable(
           env_options_, internal_comparator, fd, &handle, prefix_extractor,
@@ -438,7 +438,6 @@ Status TableCache::MultiGet(const ReadOptions& options,
                             HistogramImpl* file_read_hist, bool skip_filters,
                             int level) {
   auto& fd = file_meta.fd;
-  Status s;
   TableReader* t = fd.table_reader;
   Cache::Handle* handle = nullptr;
   MultiGetRange table_range(*mget_range, mget_range->begin(),
@@ -462,7 +461,6 @@ Status TableCache::MultiGet(const ReadOptions& options,
     for (auto miter = table_range.begin(); miter != table_range.end();
          ++miter) {
       const Slice& user_key = miter->ukey;
-      ;
       GetContext* get_context = miter->get_context;
 
       if (GetFromRowCache(user_key, row_cache_key, row_cache_key_prefix_size,
@@ -476,9 +474,10 @@ Status TableCache::MultiGet(const ReadOptions& options,
   }
 #endif  // ROCKSDB_LITE
 
+  Status s;
   // Check that table_range is not empty. Its possible all keys may have been
   // found in the row cache and thus the range may now be empty
-  if (s.ok() && !table_range.empty()) {
+  if (!table_range.empty()) {
     if (t == nullptr) {
       s = FindTable(
           env_options_, internal_comparator, fd, &handle, prefix_extractor,
@@ -525,7 +524,6 @@ Status TableCache::MultiGet(const ReadOptions& options,
          ++miter) {
       std::string& row_cache_entry = row_cache_entries[row_idx++];
       const Slice& user_key = miter->ukey;
-      ;
       GetContext* get_context = miter->get_context;
 
       get_context->SetReplayLog(nullptr);
@@ -581,7 +579,6 @@ size_t TableCache::GetMemoryUsageByTableReader(
     const EnvOptions& env_options,
     const InternalKeyComparator& internal_comparator, const FileDescriptor& fd,
     const SliceTransform* prefix_extractor) {
-  Status s;
   auto table_reader = fd.table_reader;
   // table already been pre-loaded?
   if (table_reader) {
@@ -589,8 +586,8 @@ size_t TableCache::GetMemoryUsageByTableReader(
   }
 
   Cache::Handle* table_handle = nullptr;
-  s = FindTable(env_options, internal_comparator, fd, &table_handle,
-                prefix_extractor, true);
+  Status s = FindTable(env_options, internal_comparator, fd, &table_handle,
+                       prefix_extractor, true);
   if (!s.ok()) {
     return 0;
   }
