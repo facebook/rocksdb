@@ -111,6 +111,9 @@ class BlobIndexCompactionFilterGC : public BlobIndexCompactionFilterBase {
   mutable std::shared_ptr<Writer> writer_;
 };
 
+// Compaction filter factory; similarly to the filters above, it comes
+// in two flavors, one that creates filters that support GC, and one
+// that creates non-GC filters.
 template <typename Filter>
 class BlobIndexCompactionFilterFactoryBase : public CompactionFilterFactory {
  public:
