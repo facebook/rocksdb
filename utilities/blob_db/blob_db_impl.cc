@@ -131,13 +131,22 @@ BlobDBOptions BlobDBImpl::GetBlobDBOptions() const { return bdb_options_; }
 Status BlobDBImpl::Open(std::vector<ColumnFamilyHandle*>* handles) {
   assert(handles != nullptr);
   assert(db_ == nullptr);
+
   if (blob_dir_.empty()) {
     return Status::NotSupported("No blob directory in options");
   }
+
   if (cf_options_.compaction_filter != nullptr ||
       cf_options_.compaction_filter_factory != nullptr) {
     return Status::NotSupported("Blob DB doesn't support compaction filter.");
   }
+
+  if (bdb_options_.garbage_collection_cutoff < 0.0 ||
+      bdb_options_.garbage_collection_cutoff > 1.0) {
+    return Status::InvalidArgument(
+        "Garbage collection cutoff must be in the interval [0.0, 1.0]");
+  }
+
   // BlobDB does not support Periodic Compactions. So disable periodic
   // compactions irrespective of the user set value.
   cf_options_.periodic_compaction_seconds = 0;
