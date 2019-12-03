@@ -1602,8 +1602,8 @@ TEST_F(BlobDBTest, GarbageCollection) {
   constexpr uint64_t kSmallValueSize = 1 << 6;
   constexpr uint64_t kLargeValueSize = 1 << 8;
   constexpr uint64_t kMinBlobSize = 1 << 7;
-  static_assert(kSmallValueSize < kMinBlobSize);
-  static_assert(kLargeValueSize > kMinBlobSize);
+  static_assert(kSmallValueSize < kMinBlobSize, "");
+  static_assert(kLargeValueSize > kMinBlobSize, "");
 
   constexpr size_t kBlobsPerFile = 8;
   constexpr size_t kNumBlobFiles = kNumPuts / kBlobsPerFile;
