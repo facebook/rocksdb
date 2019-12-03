@@ -1120,8 +1120,9 @@ void BlobDBImpl::GetCompactionContext(BlobCompactionContext* context,
     auto it = live_imm_non_ttl_blob_files_.begin();
     std::advance(it, bdb_options_.garbage_collection_cutoff *
                          live_imm_non_ttl_blob_files_.size());
-    assert(it != live_imm_non_ttl_blob_files_.end());
-    context_gc->cutoff_file_number = it->first;
+    context_gc->cutoff_file_number = it != live_imm_non_ttl_blob_files_.end()
+                                         ? it->first
+                                         : std::numeric_limits<uint64_t>::max();
   }
 }
 
