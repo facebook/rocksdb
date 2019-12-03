@@ -768,6 +768,8 @@ endif()
 set(ROCKSDB_STATIC_LIB rocksdb${ARTIFACT_SUFFIX})
 set(ROCKSDB_SHARED_LIB rocksdb-shared${ARTIFACT_SUFFIX})
 
+option(ROCKSDB_BUILD_SHARED "Build shared versions of the RocksDB libraries" ON)
+
 option(WITH_LIBRADOS "Build with librados" OFF)
 if(WITH_LIBRADOS)
   list(APPEND SOURCES
@@ -777,36 +779,42 @@ endif()
 
 if(WIN32)
   set(SYSTEM_LIBS ${SYSTEM_LIBS} shlwapi.lib rpcrt4.lib)
-  set(ROCKSDB_LIB ${ROCKSDB_STATIC_LIB})
 else()
   set(SYSTEM_LIBS ${CMAKE_THREAD_LIBS_INIT})
-  set(ROCKSDB_LIB ${ROCKSDB_SHARED_LIB})
 endif()
 
 add_library(${ROCKSDB_STATIC_LIB} STATIC ${SOURCES})
 target_link_libraries(${ROCKSDB_STATIC_LIB}
   ${THIRDPARTY_LIBS} ${SYSTEM_LIBS})
 
-add_library(${ROCKSDB_SHARED_LIB} SHARED ${SOURCES})
-target_link_libraries(${ROCKSDB_SHARED_LIB}
-  ${THIRDPARTY_LIBS} ${SYSTEM_LIBS})
+if(ROCKSDB_BUILD_SHARED)
+  add_library(${ROCKSDB_SHARED_LIB} SHARED ${SOURCES})
+  target_link_libraries(${ROCKSDB_SHARED_LIB}
+    ${THIRDPARTY_LIBS} ${SYSTEM_LIBS})
 
-if(WIN32)
-  set_target_properties(${ROCKSDB_SHARED_LIB} PROPERTIES
-    COMPILE_DEFINITIONS "ROCKSDB_DLL;ROCKSDB_LIBRARY_EXPORTS")
-  if(MSVC)
-    set_target_properties(${ROCKSDB_STATIC_LIB} PROPERTIES
-      COMPILE_FLAGS "/Fd${CMAKE_CFG_INTDIR}/${ROCKSDB_STATIC_LIB}.pdb")
+  if(WIN32)
     set_target_properties(${ROCKSDB_SHARED_LIB} PROPERTIES
-      COMPILE_FLAGS "/Fd${CMAKE_CFG_INTDIR}/${ROCKSDB_SHARED_LIB}.pdb")
+      COMPILE_DEFINITIONS "ROCKSDB_DLL;ROCKSDB_LIBRARY_EXPORTS")
+    if(MSVC)
+      set_target_properties(${ROCKSDB_STATIC_LIB} PROPERTIES
+        COMPILE_FLAGS "/Fd${CMAKE_CFG_INTDIR}/${ROCKSDB_STATIC_LIB}.pdb")
+      set_target_properties(${ROCKSDB_SHARED_LIB} PROPERTIES
+        COMPILE_FLAGS "/Fd${CMAKE_CFG_INTDIR}/${ROCKSDB_SHARED_LIB}.pdb")
+    endif()
+  else()
+    set_target_properties(${ROCKSDB_SHARED_LIB} PROPERTIES
+                          LINKER_LANGUAGE CXX
+                          VERSION ${rocksdb_VERSION}
+                          SOVERSION ${rocksdb_VERSION_MAJOR}
+                          CXX_STANDARD 11
+                          OUTPUT_NAME "rocksdb")
   endif()
+endif()
+
+if(ROCKSDB_BUILD_SHARED AND NOT WIN32)
+  set(ROCKSDB_LIB ${ROCKSDB_SHARED_LIB})
 else()
-  set_target_properties(${ROCKSDB_SHARED_LIB} PROPERTIES
-                        LINKER_LANGUAGE CXX
-                        VERSION ${rocksdb_VERSION}
-                        SOVERSION ${rocksdb_VERSION_MAJOR}
-                        CXX_STANDARD 11
-                        OUTPUT_NAME "rocksdb")
+  set(ROCKSDB_LIB ${ROCKSDB_STATIC_LIB})
 endif()
 
 option(WITH_JNI "build with JNI" OFF)
@@ -855,15 +863,17 @@ if(NOT WIN32 OR ROCKSDB_INSTALL_ON_WINDOWS)
     INCLUDES DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}"
   )
 
-  install(
-    TARGETS ${ROCKSDB_SHARED_LIB}
-    EXPORT RocksDBTargets
-    COMPONENT runtime
-    ARCHIVE DESTINATION "${CMAKE_INSTALL_LIBDIR}"
-    RUNTIME DESTINATION "${CMAKE_INSTALL_BINDIR}"
-    LIBRARY DESTINATION "${CMAKE_INSTALL_LIBDIR}"
-    INCLUDES DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}"
-  )
+  if(ROCKSDB_BUILD_SHARED)
+    install(
+      TARGETS ${ROCKSDB_SHARED_LIB}
+      EXPORT RocksDBTargets
+      COMPONENT runtime
+      ARCHIVE DESTINATION "${CMAKE_INSTALL_LIBDIR}"
+      RUNTIME DESTINATION "${CMAKE_INSTALL_BINDIR}"
+      LIBRARY DESTINATION "${CMAKE_INSTALL_LIBDIR}"
+      INCLUDES DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}"
+    )
+  endif()
 
   install(
     EXPORT RocksDBTargets
@@ -1097,23 +1107,35 @@ if(WITH_TESTS)
       endif()
   endforeach(sourcefile ${TEST_EXES})
 
-  # C executables must link to a shared object
-  set(C_TESTS db/c_test.c)
-  set(C_TEST_EXES ${C_TESTS})
+  if(WIN32)
+    # C executables must link to a shared object
+    if(ROCKSDB_BUILD_SHARED)
+      set(ROCKSDB_LIB_FOR_C ${ROCKSDB_SHARED_LIB})
+    else()
+      set(ROCKSDB_LIB_FOR_C OFF)
+    endif()
+  else()
+    set(ROCKSDB_LIB_FOR_C ${ROCKSDB_LIB})
+  endif()
 
-  foreach(sourcefile ${C_TEST_EXES})
-      string(REPLACE ".c" "" exename ${sourcefile})
-      string(REGEX REPLACE "^((.+)/)+" "" exename ${exename})
-      add_executable(${exename}${ARTIFACT_SUFFIX} ${sourcefile})
-      set_target_properties(${exename}${ARTIFACT_SUFFIX}
-        PROPERTIES EXCLUDE_FROM_DEFAULT_BUILD_RELEASE 1
-        EXCLUDE_FROM_DEFAULT_BUILD_MINRELEASE 1
-        EXCLUDE_FROM_DEFAULT_BUILD_RELWITHDEBINFO 1
-        )
-      target_link_libraries(${exename}${ARTIFACT_SUFFIX} ${ROCKSDB_SHARED_LIB} testutillib${ARTIFACT_SUFFIX})
-      add_test(NAME ${exename} COMMAND ${exename}${ARTIFACT_SUFFIX})
-      add_dependencies(check ${exename}${ARTIFACT_SUFFIX})
-  endforeach(sourcefile ${C_TEST_EXES})
+  if(ROCKSDB_LIB_FOR_C)
+    set(C_TESTS db/c_test.c)
+    set(C_TEST_EXES ${C_TESTS})
+
+    foreach(sourcefile ${C_TEST_EXES})
+        string(REPLACE ".c" "" exename ${sourcefile})
+        string(REGEX REPLACE "^((.+)/)+" "" exename ${exename})
+        add_executable(${exename}${ARTIFACT_SUFFIX} ${sourcefile})
+        set_target_properties(${exename}${ARTIFACT_SUFFIX}
+          PROPERTIES EXCLUDE_FROM_DEFAULT_BUILD_RELEASE 1
+          EXCLUDE_FROM_DEFAULT_BUILD_MINRELEASE 1
+          EXCLUDE_FROM_DEFAULT_BUILD_RELWITHDEBINFO 1
+          )
+        target_link_libraries(${exename}${ARTIFACT_SUFFIX} ${ROCKSDB_LIB_FOR_C} testutillib${ARTIFACT_SUFFIX})
+        add_test(NAME ${exename} COMMAND ${exename}${ARTIFACT_SUFFIX})
+        add_dependencies(check ${exename}${ARTIFACT_SUFFIX})
+    endforeach(sourcefile ${C_TEST_EXES})
+  endif()
 endif()
 
 option(WITH_TOOLS "build with tools" ON)
