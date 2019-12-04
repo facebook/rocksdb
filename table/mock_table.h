@@ -153,10 +153,17 @@ class MockTableBuilder : public TableBuilder {
     return TableProperties();
   }
 
+  uint32_t GetFileChecksum() const override {return file_checksum_; }
+
  private:
   uint32_t id_;
   MockTableFileSystem* file_system_;
   stl_wrappers::KVMap table_;
+  // Check if it is the first round of calculate table checksum
+  bool is_first_checksum_ = true;
+
+  // Store checksum value. If checksum is disabled, its value is 0
+  uint32_t file_checksum_ = 0;
 };
 
 class MockTableFactory : public TableFactory {
