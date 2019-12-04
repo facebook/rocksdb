@@ -487,8 +487,11 @@ int main(int argc, char** argv) {
   rocksdb_options_set_paranoid_checks(options, 1);
   rocksdb_options_set_max_open_files(options, 10);
   rocksdb_options_set_base_background_compactions(options, 1);
+
   table_options = rocksdb_block_based_options_create();
   rocksdb_block_based_options_set_block_cache(table_options, cache);
+  rocksdb_block_based_options_set_data_block_index_type(table_options, 1);
+  rocksdb_block_based_options_set_data_block_hash_ratio(table_options, 0.75);
   rocksdb_options_set_block_based_table_factory(options, table_options);
 
   rocksdb_options_set_compression(options, rocksdb_no_compression);
