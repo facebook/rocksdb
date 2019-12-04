@@ -160,7 +160,7 @@ class TableBuilder {
   // Returns table properties
   virtual TableProperties GetTableProperties() const = 0;
 
-  //Return the checksum of the file
+  // Return the checksum of the file
   virtual uint32_t GetFileChecksum() const = 0;
 };
 
