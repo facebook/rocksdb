@@ -153,7 +153,7 @@ class MockTableBuilder : public TableBuilder {
     return TableProperties();
   }
 
-  uint32_t GetFileChecksum() const override {return file_checksum_; }
+  uint32_t GetFileChecksum() const override { return file_checksum_; }
 
  private:
   uint32_t id_;
