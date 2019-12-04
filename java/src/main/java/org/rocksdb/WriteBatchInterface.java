@@ -5,6 +5,8 @@
 
 package org.rocksdb;
 
+import java.nio.ByteBuffer;
+
 /**
  * <p>Defines the interface for a Write Batch which
  * holds a collection of updates to apply atomically to a DB.</p>
@@ -39,6 +41,33 @@ public interface WriteBatchInterface {
      */
     void put(ColumnFamilyHandle columnFamilyHandle,
                     byte[] key, byte[] value) throws RocksDBException;
+
+    /**
+     * <p>Store the mapping "key-&gt;value" within given column
+     * family.</p>
+     *
+     * @param key the specified key to be inserted. It is using position and limit.
+     *     Supports direct buffer only.
+     * @param value the value associated with the specified key. It is using position and limit.
+     *     Supports direct buffer only.
+     * @throws RocksDBException
+     */
+    void put(ByteBuffer key, ByteBuffer value) throws RocksDBException;
+
+    /**
+     * <p>Store the mapping "key-&gt;value" within given column
+     * family.</p>
+     *
+     * @param columnFamilyHandle {@link org.rocksdb.ColumnFamilyHandle}
+     *     instance
+     * @param key the specified key to be inserted. It is using position and limit.
+     *     Supports direct buffer only.
+     * @param value the value associated with the specified key. It is using position and limit.
+     *     Supports direct buffer only.
+     * @throws RocksDBException
+     */
+    void put(ColumnFamilyHandle columnFamilyHandle, ByteBuffer key, ByteBuffer value)
+        throws RocksDBException;
 
     /**
      * <p>Merge "value" with the existing value of "key" in the database.
@@ -155,6 +184,25 @@ public interface WriteBatchInterface {
     @Experimental("Performance optimization for a very specific workload")
     void singleDelete(final ColumnFamilyHandle columnFamilyHandle,
             final byte[] key) throws RocksDBException;
+
+    /**
+     * <p>If column family contains a mapping for "key", erase it.  Else do nothing.</p>
+     *
+     * @param key Key to delete within database. It is using position and limit.
+     *     Supports direct buffer only.
+     * @throws RocksDBException
+     */
+    void remove(ByteBuffer key) throws RocksDBException;
+
+    /**
+     * <p>If column family contains a mapping for "key", erase it.  Else do nothing.</p>
+     *
+     * @param columnFamilyHandle {@link ColumnFamilyHandle} instance
+     * @param key Key to delete within database. It is using position and limit.
+     *     Supports direct buffer only.
+     * @throws RocksDBException
+     */
+    void remove(ColumnFamilyHandle columnFamilyHandle, ByteBuffer key) throws RocksDBException;
 
     /**
      * Removes the database entries in the range ["beginKey", "endKey"), i.e.,

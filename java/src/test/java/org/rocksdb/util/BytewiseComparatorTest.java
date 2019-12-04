@@ -5,11 +5,10 @@
 
 package org.rocksdb.util;
 
-import org.junit.Test;
-import org.rocksdb.*;
-import org.rocksdb.Comparator;
+import static org.junit.Assert.*;
 
 import java.io.IOException;
+import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.FileVisitResult;
 import java.nio.file.Files;
@@ -17,8 +16,9 @@ import java.nio.file.Path;
 import java.nio.file.SimpleFileVisitor;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.util.*;
-
-import static org.junit.Assert.*;
+import org.junit.Test;
+import org.rocksdb.*;
+import org.rocksdb.Comparator;
 
 /**
  * This is a direct port of various C++
@@ -515,6 +515,16 @@ public class BytewiseComparatorTest {
       } else {
         return entries.get(offset).getValue();
       }
+    }
+
+    @Override
+    public void seek(ByteBuffer target) {
+      throw new IllegalAccessError("Not implemented");
+    }
+
+    @Override
+    public void seekForPrev(ByteBuffer target) {
+      throw new IllegalAccessError("Not implemented");
     }
   }
 }

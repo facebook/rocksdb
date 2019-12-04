@@ -9,6 +9,7 @@
 #include <jni.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <algorithm>
 
 #include "include/org_rocksdb_RocksIterator.h"
 #include "rocksdb/iterator.h"
@@ -104,6 +105,36 @@ void Java_org_rocksdb_RocksIterator_seek0(JNIEnv* env, jobject /*jobj*/,
 
 /*
  * Class:     org_rocksdb_RocksIterator
+ * Method:    seekDirect0
+ * Signature: (JLjava/nio/ByteBuffer;II)V
+ */
+void Java_org_rocksdb_RocksIterator_seekDirect0(JNIEnv* env, jobject /*jobj*/,
+                                                jlong handle, jobject jtarget,
+                                                jint jtarget_off,
+                                                jint jtarget_len) {
+  auto* it = reinterpret_cast<rocksdb::Iterator*>(handle);
+  auto seek = [&it](rocksdb::Slice& target_slice) { it->Seek(target_slice); };
+  rocksdb::JniUtil::k_op_direct(seek, env, jtarget, jtarget_off, jtarget_len);
+}
+
+/*
+ * Class:     org_rocksdb_RocksIterator
+ * Method:    seekForPrevDirect0
+ * Signature: (JLjava/nio/ByteBuffer;II)V
+ */
+void Java_org_rocksdb_RocksIterator_seekForPrevDirect0(
+    JNIEnv* env, jobject /*jobj*/, jlong handle, jobject jtarget,
+    jint jtarget_off, jint jtarget_len) {
+  auto* it = reinterpret_cast<rocksdb::Iterator*>(handle);
+  auto seekPrev = [&it](rocksdb::Slice& target_slice) {
+    it->SeekForPrev(target_slice);
+  };
+  rocksdb::JniUtil::k_op_direct(seekPrev, env, jtarget, jtarget_off,
+                                jtarget_len);
+}
+
+/*
+ * Class:     org_rocksdb_RocksIterator
  * Method:    seekForPrev0
  * Signature: (J[BI)V
  */
@@ -165,6 +196,21 @@ jbyteArray Java_org_rocksdb_RocksIterator_key0(JNIEnv* env, jobject /*jobj*/,
 
 /*
  * Class:     org_rocksdb_RocksIterator
+ * Method:    keyDirect0
+ * Signature: (JLjava/nio/ByteBuffer;II)I
+ */
+jint Java_org_rocksdb_RocksIterator_keyDirect0(JNIEnv* env, jobject /*jobj*/,
+                                               jlong handle, jobject jtarget,
+                                               jint jtarget_off,
+                                               jint jtarget_len) {
+  auto* it = reinterpret_cast<rocksdb::Iterator*>(handle);
+  rocksdb::Slice key_slice = it->key();
+  return rocksdb::JniUtil::copyToDirect(env, key_slice, jtarget, jtarget_off,
+                                        jtarget_len);
+}
+
+/*
+ * Class:     org_rocksdb_RocksIterator
  * Method:    value0
  * Signature: (J)[B
  */
@@ -183,4 +229,19 @@ jbyteArray Java_org_rocksdb_RocksIterator_value0(JNIEnv* env, jobject /*jobj*/,
       jkeyValue, 0, static_cast<jsize>(value_slice.size()),
       const_cast<jbyte*>(reinterpret_cast<const jbyte*>(value_slice.data())));
   return jkeyValue;
+}
+
+/*
+ * Class:     org_rocksdb_RocksIterator
+ * Method:    valueDirect0
+ * Signature: (JLjava/nio/ByteBuffer;II)I
+ */
+jint Java_org_rocksdb_RocksIterator_valueDirect0(JNIEnv* env, jobject /*jobj*/,
+                                                 jlong handle, jobject jtarget,
+                                                 jint jtarget_off,
+                                                 jint jtarget_len) {
+  auto* it = reinterpret_cast<rocksdb::Iterator*>(handle);
+  rocksdb::Slice value_slice = it->value();
+  return rocksdb::JniUtil::copyToDirect(env, value_slice, jtarget, jtarget_off,
+                                        jtarget_len);
 }
