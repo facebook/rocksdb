@@ -1109,6 +1109,8 @@ class DBImpl : public DB {
       bool read_only = false, bool error_if_log_file_exist = false,
       bool error_if_data_exists_in_logs = false);
 
+  virtual bool OwnTablesAndLogs() const { return true; }
+
  private:
   friend class DB;
   friend class ErrorHandler;
