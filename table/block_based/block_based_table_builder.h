@@ -146,6 +146,10 @@ class BlockBasedTableBuilder : public TableBuilder {
 
   // Store checksum value. If checksum is disabled, its value is 0
   uint32_t file_checksum_ = 0;
+
+  // Calculate the checksum for this builder in a stream fashion
+  void CalculateFileCheckSum(SstFileChecksum* checksum_cal, const char* data,
+                             size_t n);
 };
 
 Slice CompressBlock(const Slice& raw, const CompressionInfo& info,

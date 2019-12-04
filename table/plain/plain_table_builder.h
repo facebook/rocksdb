@@ -85,7 +85,11 @@ class PlainTableBuilder: public TableBuilder {
 
   // Get the checksum of the file. If file checksum is disabled, it returns 0.
   // Caller of TableBuilder should specify it should be used
-  uint32_t GetFileChecksum() const override {return file_checksum_; };
+  uint32_t GetFileChecksum() const override { return file_checksum_; };
+
+  // Calculate the checksum for the data in the buffer
+  void CalculateFileCheckSum(SstFileChecksum* checksum_cal, const char* data,
+                             size_t n);
 
  private:
   Arena arena_;
