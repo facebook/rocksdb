@@ -24,7 +24,6 @@ class SstFileChecksum {
  public:
 
   virtual ~SstFileChecksum() {}
-
   // Return the checksum of concat (A, data[0,n-1]) where init_checksum is the
   // returned value of some string A. It is used to maintain the checksum of a
   // stream of data

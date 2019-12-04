@@ -138,7 +138,7 @@ DBOptions SanitizeOptions(const std::string& dbname, const DBOptions& src) {
   }
 
   if (result.enable_sst_file_checksum && !result.sst_file_checksum) {
-    result.sst_file_checksum = new SstFileChecksumCrc32c();
+    result.sst_file_checksum.reset(new SstFileChecksumCrc32c());
   }
 
 #ifndef ROCKSDB_LITE

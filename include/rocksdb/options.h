@@ -20,6 +20,7 @@
 #include "rocksdb/comparator.h"
 #include "rocksdb/env.h"
 #include "rocksdb/listener.h"
+#include "rocksdb/sst_file_checksum.h"
 #include "rocksdb/universal_compaction.h"
 #include "rocksdb/version.h"
 #include "rocksdb/write_buffer_manager.h"
@@ -46,7 +47,6 @@ class MemTableRepFactory;
 class RateLimiter;
 class Slice;
 class Statistics;
-class SstFileChecksum;
 class InternalKeyComparator;
 class WalFilter;
 class FileSystem;
@@ -1127,7 +1127,7 @@ struct DBOptions {
   // Make sure the algorithm is thread safe.
   //
   // Default: nullptr
-  const SstFileChecksum* sst_file_checksum = nullptr;
+  std::shared_ptr<SstFileChecksum> sst_file_checksum = nullptr;
 };
 
 // Options to control the behavior of a database (passed to DB::Open)

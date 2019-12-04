@@ -4,8 +4,8 @@
 //  (found in the LICENSE.Apache file in the root directory).
 
 #pragma once
-#include <string>
 #include <cassert>
+#include <string>
 
 #include "rocksdb/sst_file_checksum.h"
 
@@ -14,11 +14,7 @@
 namespace rocksdb {
 
 class SstFileChecksumCrc32c : public SstFileChecksum {
-public:
-  SstFileChecksumCrc32c() {}
-
-  ~SstFileChecksumCrc32c() {}
-
+ public:
   uint32_t Extend(uint32_t init_checksum, const char* data, size_t n) override {
     assert(data != nullptr);
     return crc32c::Extend(init_checksum, data, n);
@@ -33,9 +29,7 @@ public:
     return crc32c::Mask(checksum);
   }
 
-  const char* Name() const override {
-    return "SstFileChecksumCrc32c";
-  }
+  const char* Name() const override { return "SstFileChecksumCrc32c"; }
 };
 
 }  // namespace rocksdb
