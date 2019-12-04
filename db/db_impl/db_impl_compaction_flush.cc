@@ -1540,6 +1540,7 @@ Status DBImpl::FlushMemTable(ColumnFamilyData* cfd,
         nonmem_write_thread_.EnterUnbatched(&nonmem_w, &mutex_);
       }
     }
+    WaitForPendingWrites();
 
     if (!cfd->mem()->IsEmpty() || !cached_recoverable_state_empty_.load()) {
       s = SwitchMemtable(cfd, &context);
@@ -1625,11 +1626,11 @@ Status DBImpl::FlushMemTable(ColumnFamilyData* cfd,
       }
     }
   }
-  TEST_SYNC_POINT("FlushMemTableFinished");
+  TEST_SYNC_POINT("DBImpl::FlushMemTable:FlushMemTableFinished");
   return s;
 }
 
-// Flush all elments in 'column_family_datas'
+// Flush all elements in 'column_family_datas'
 // and atomically record the result to the MANIFEST.
 Status DBImpl::AtomicFlushMemTables(
     const autovector<ColumnFamilyData*>& column_family_datas,
@@ -1665,6 +1666,7 @@ Status DBImpl::AtomicFlushMemTables(
         nonmem_write_thread_.EnterUnbatched(&nonmem_w, &mutex_);
       }
     }
+    WaitForPendingWrites();
 
     for (auto cfd : column_family_datas) {
       if (cfd->IsDropped()) {

@@ -1503,6 +1503,47 @@ TEST_F(DBCompactionTest, DISABLED_ManualPartialFill) {
   }
 }
 
+TEST_F(DBCompactionTest, ManualCompactionWithUnorderedWrite) {
+  rocksdb::SyncPoint::GetInstance()->LoadDependency(
+      {{"DBImpl::WriteImpl:UnorderedWriteAfterWriteWAL",
+        "DBCompactionTest::ManualCompactionWithUnorderedWrite:WaitWriteWAL"},
+       {"DBCompactionTest::ManualCompactionWithUnorderedWrite:"
+        "ContinueWriteMemtable",
+        "DBImpl::WriteImpl:BeforeUnorderedWriteMemtable"}});
+
+  Options options = CurrentOptions();
+  options.unordered_write = true;
+  options.max_write_buffer_size_to_maintain = 0;
+  DestroyAndReopen(options);
+  Put("foo", "v1");
+  ASSERT_OK(Flush());
+
+  Put("bar", "v1");
+  rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+  port::Thread writer1([&]() { Put("foo", "v2"); });
+  port::Thread writer2([&]() {
+    TEST_SYNC_POINT(
+        "DBCompactionTest::ManualCompactionWithUnorderedWrite:WaitWriteWAL");
+    ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
+  });
+
+  // make sure `Put` and `CompactRange` are all called.
+  env_->SleepForMicroseconds(100000);
+  TEST_SYNC_POINT(
+      "DBCompactionTest::ManualCompactionWithUnorderedWrite:"
+      "ContinueWriteMemtable");
+
+  writer1.join();
+  writer2.join();
+  ASSERT_EQ("v2", Get("foo"));
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+
+  Reopen(options);
+  ASSERT_EQ("v2", Get("foo"));
+}
+
 TEST_F(DBCompactionTest, DeleteFileRange) {
   Options options = CurrentOptions();
   options.write_buffer_size = 10 * 1024 * 1024;
