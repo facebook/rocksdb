@@ -1198,6 +1198,10 @@ TableProperties BlockBasedTableBuilder::GetTableProperties() const {
   return ret;
 }
 
+uint32_t BlockBasedTableBuilder::GetFileChecksum() const {
+  return file_checksum_;
+}
+
 const std::string BlockBasedTable::kFilterBlockPrefix = "filter.";
 const std::string BlockBasedTable::kFullFilterBlockPrefix = "fullfilter.";
 const std::string BlockBasedTable::kPartitionedFilterBlockPrefix =
