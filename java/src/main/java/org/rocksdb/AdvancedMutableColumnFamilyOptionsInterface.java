@@ -191,7 +191,7 @@ public interface AdvancedMutableColumnFamilyOptionsInterface<
    * target_file_size_multiplier is 10, then each file on level-1 will
    * be 2MB, and each file on level 2 will be 20MB,
    * and each file on level-3 will be 200MB.
-   * by default targetFileSizeBase is 2MB.
+   * by default targetFileSizeBase is 64MB.
    *
    * @param targetFileSizeBase the target size of a level-0 file.
    * @return the reference to the current options.
@@ -210,7 +210,7 @@ public interface AdvancedMutableColumnFamilyOptionsInterface<
    * target_file_size_multiplier is 10, then each file on level-1 will
    * be 2MB, and each file on level 2 will be 20MB,
    * and each file on level-3 will be 200MB.
-   * by default targetFileSizeBase is 2MB.
+   * by default targetFileSizeBase is 64MB.
    *
    * @return the target size of a level-0 file.
    *
