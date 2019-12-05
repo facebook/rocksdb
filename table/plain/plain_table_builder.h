@@ -87,6 +87,10 @@ class PlainTableBuilder: public TableBuilder {
   // Caller of TableBuilder should specify it should be used
   uint32_t GetFileChecksum() const override { return file_checksum_; };
 
+  // Get the sst file checksum name. If sst file check sum is disabled, it
+  // returns "".
+  const char* GetFileChecksumName() const override {return "";};
+
   // Calculate the checksum for the data in the buffer
   void CalculateFileCheckSum(SstFileChecksum* checksum_cal, const char* data,
                              size_t n);

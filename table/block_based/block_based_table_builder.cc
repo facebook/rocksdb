@@ -1229,6 +1229,14 @@ void BlockBasedTableBuilder::CalculateFileCheckSum(
   }
 }
 
+const char* BlockBasedTableBuilder::GetFileChecksumName() const {
+  if (rep_->ioptions.enable_sst_file_checksum && rep_->ioptions.sst_file_checksum != nullptr) {
+    return rep_->ioptions.sst_file_checksum->Name();
+  } else {
+    return "";
+  }
+}
+
 const std::string BlockBasedTable::kFilterBlockPrefix = "filter.";
 const std::string BlockBasedTable::kFullFilterBlockPrefix = "fullfilter.";
 const std::string BlockBasedTable::kPartitionedFilterBlockPrefix =
