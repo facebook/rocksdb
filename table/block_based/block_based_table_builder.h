@@ -95,6 +95,10 @@ class BlockBasedTableBuilder : public TableBuilder {
   // Caller of TableBuilder should specify it should be used
   uint32_t GetFileChecksum() const override;
 
+  // Get the sst file checksum name. If sst file check sum is disabled, it
+  // returns "".
+  const char* GetFileChecksumName() const override;
+
  private:
   bool ok() const { return status().ok(); }
 

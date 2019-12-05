@@ -70,6 +70,9 @@ class CuckooTableBuilder: public TableBuilder {
   // Caller of TableBuilder should specify it should be used
   uint32_t GetFileChecksum() const override { return file_checksum_; };
 
+  // Get the sst file checksum name. If sst file check sum is disabled, it
+  // returns "".
+  const char* GetFileChecksumName() const override {return  "";};
  private:
   struct CuckooBucket {
     CuckooBucket()
