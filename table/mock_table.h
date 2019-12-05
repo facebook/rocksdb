@@ -155,6 +155,10 @@ class MockTableBuilder : public TableBuilder {
 
   uint32_t GetFileChecksum() const override { return file_checksum_; }
 
+  //Get the sst file checksum name. If sst file check sum is disabled, it
+  // returns "".
+  const char* GetFileChecksumName() const override {return "";};
+
  private:
   uint32_t id_;
   MockTableFileSystem* file_system_;
