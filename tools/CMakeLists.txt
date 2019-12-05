@@ -1,7 +1,6 @@
 set(TOOLS
   sst_dump.cc
   db_sanity_test.cc
-  db_stress.cc
   write_stress.cc
   ldb.cc
   db_repl_stress.cc
@@ -14,6 +13,11 @@ foreach(src ${TOOLS})
   target_link_libraries(${exename}${ARTIFACT_SUFFIX} ${LIBS})
   list(APPEND tool_deps ${exename})
 endforeach()
+
+add_executable(db_stress${ARTIFACT_SUFFIX} db_stress.cc db_stress_tool.cc)
+target_link_libraries(db_stress${ARTIFACT_SUFFIX} ${LIBS})
+list(APPEND tool_deps db_stress)
+
 add_custom_target(tools
   DEPENDS ${tool_deps})
 add_custom_target(ldb_tests
