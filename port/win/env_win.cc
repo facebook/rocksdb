@@ -14,7 +14,6 @@
 #include <thread>
 
 #include <errno.h>
-#include <process.h> // _getpid
 #include <io.h> // _access
 #include <direct.h> // _rmdir, _mkdir, _getcwd
 #include <sys/types.h>
@@ -906,7 +905,7 @@ Status WinEnvIO::GetTestDirectory(std::string* result) {
   CreateDir(output);
 
   output.append("\\testrocksdb-");
-  output.append(std::to_string(_getpid()));
+  output.append(std::to_string(GetCurrentProcessId()));
 
   CreateDir(output);
 
