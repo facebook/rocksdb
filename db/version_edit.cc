@@ -64,7 +64,7 @@ enum CustomTag : uint32_t {
   kOldestAncesterTime = 5,
   kFileCreationTime = 6,
   kFileChecksum = 7,
-  kFileChecksumName =8,
+  kFileChecksumName = 8,
   kPathId = 65,
 };
 // If this bit for the custom tag is set, opening DB should fail if
@@ -231,13 +231,9 @@ bool VersionEdit::EncodeTo(std::string* dst) const {
     PutVarint32(dst, CustomTag::kFileChecksum);
     std::string varint_file_checksum;
     PutVarint64(&varint_file_checksum, f.file_checksum);
-    TEST_SYNC_POINT_CALLBACK("VersionEdit::EncodeTo:VarintFileChecksum",
-                                 &varint_file_checksum);
     PutLengthPrefixedSlice(dst, Slice(varint_file_checksum));
 
     PutVarint32(dst, CustomTag::kFileChecksumName);
-    TEST_SYNC_POINT_CALLBACK("VersionEdit::EncodeTo:VarintFileChecksum",
-                                     &f.file_checksum_name);
     PutLengthPrefixedSlice(dst, Slice(f.file_checksum_name));
 
     if (f.fd.GetPathId() != 0) {
@@ -366,14 +362,14 @@ const char* VersionEdit::DecodeNewFile4From(Slice* input) {
           break;
         case kFileChecksum:
           if (!GetVarint32(&field, &f.file_checksum)) {
-              return "invalid file checksum";
+            return "invalid file checksum";
           }
           break;
         case kFileChecksumName:
           if (GetLengthPrefixedSlice(&field, &str)) {
-              f.file_checksum_name = str.ToString();
+            f.file_checksum_name = str.ToString();
           } else {
-              f.file_checksum_name = kUnknownFileChecksumName;
+            f.file_checksum_name = kUnknownFileChecksumName;
           }
           break;
         case kNeedCompaction:
