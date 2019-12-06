@@ -1460,7 +1460,7 @@ void Version::GetColumnFamilyMetaData(ColumnFamilyMetaData* cf_meta) {
           file->largest.user_key().ToString(),
           file->stats.num_reads_sampled.load(std::memory_order_relaxed),
           file->being_compacted, file->oldest_blob_file_number,
-          file->TryGetOldestAncesterTime(), file->TryGetFileCreationTime()});
+          file->TryGetOldestAncesterTime(), file->TryGetFileCreationTime(), file->file_checksum, file->file_checksum_name});
       files.back().num_entries = file->num_entries;
       files.back().num_deletions = file->num_deletions;
       level_size += file->fd.GetFileSize();
@@ -4977,7 +4977,7 @@ Status VersionSet::WriteCurrentStateToManifest(log::Writer* log) {
                        f->fd.GetFileSize(), f->smallest, f->largest,
                        f->fd.smallest_seqno, f->fd.largest_seqno,
                        f->marked_for_compaction, f->oldest_blob_file_number,
-                       f->oldest_ancester_time, f->file_creation_time);
+                       f->oldest_ancester_time, f->file_creation_time, f->file_checksum, f->file_checksum_name);
         }
       }
       edit.SetLogNumber(cfd->GetLogNumber());

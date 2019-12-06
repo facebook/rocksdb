@@ -1231,7 +1231,7 @@ Status DBImpl::WriteLevel0TableForRecovery(int job_id, ColumnFamilyData* cfd,
                   meta.fd.GetFileSize(), meta.smallest, meta.largest,
                   meta.fd.smallest_seqno, meta.fd.largest_seqno,
                   meta.marked_for_compaction, meta.oldest_blob_file_number,
-                  meta.oldest_ancester_time, meta.file_creation_time);
+                  meta.oldest_ancester_time, meta.file_creation_time, meta.file_checksum, meta.file_checksum_name);
   }
 
   InternalStats::CompactionStats stats(CompactionReason::kFlush, 1);
