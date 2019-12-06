@@ -3048,6 +3048,15 @@ rocksdb_filterpolicy_t* rocksdb_filterpolicy_create_bloom_format(int bits_per_ke
     bool KeyMayMatch(const Slice& key, const Slice& filter) const override {
       return rep_->KeyMayMatch(key, filter);
     }
+    // No need to override GetFilterBitsBuilder if this one is overridden
+    rocksdb::FilterBitsBuilder* GetBuilderWithContext(
+        const rocksdb::FilterBuildingContext& context) const override {
+      return rep_->GetBuilderWithContext(context);
+    }
+    rocksdb::FilterBitsReader* GetFilterBitsReader(
+        const Slice& contents) const override {
+      return rep_->GetFilterBitsReader(contents);
+    }
     static void DoNothing(void*) { }
   };
   Wrapper* wrapper = new Wrapper;
