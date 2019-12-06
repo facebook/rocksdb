@@ -2367,7 +2367,7 @@ void BlockBasedTable::RetrieveMultipleBlocks(
     }
     req_idx_for_block.emplace_back(read_reqs.size());
   }
-  // Hanle the last block and process the pending last request
+  // Handle the last block and process the pending last request
   if (prev_len != 0) {
     ReadRequest req;
     req.offset = prev_offset;
@@ -2420,16 +2420,17 @@ void BlockBasedTable::RetrieveMultipleBlocks(
           " bytes, got " + ToString(req.result.size()));
     }
 
-    bool blocks_share_scratch = (req.result.size() != block_size(handle));
+    bool blocks_share_read_buffer = (req.result.size() != block_size(handle));
     if (s.ok()) {
-      if (scratch == nullptr && !blocks_share_scratch) {
+      if (scratch == nullptr && !blocks_share_read_buffer) {
         // We allocated a buffer for this block. Give ownership of it to
         // BlockContents so it can free the memory
         assert(req.result.data() == req.scratch);
         std::unique_ptr<char[]> raw_block(req.scratch + req_offset);
         raw_block_contents = BlockContents(std::move(raw_block), handle.size());
       } else {
-        // We used the scratch buffer, so no need to free anything
+        // We used the scratch buffer which are shared by the blocks.
+        // raw_block_contents does not have the ownership.
         raw_block_contents =
             BlockContents(Slice(req.scratch + req_offset, handle.size()));
       }
@@ -2442,6 +2443,11 @@ void BlockBasedTable::RetrieveMultipleBlocks(
         const char* data = req.result.data();
         uint32_t expected =
             DecodeFixed32(data + req_offset + handle.size() + 1);
+        // Since the scratch might be shared. the offset of the data block in
+        // the buffer might not be 0. req.result.data() only point to the
+        // begin address of each read request, we need to add the offset
+        // in each read request. Checksum is stored in the block trailer,
+        // which is handle.size() + 1.
         s = rocksdb::VerifyChecksum(footer.checksum(),
                                     req.result.data() + req_offset,
                                     handle.size() + 1, expected);
@@ -2450,14 +2456,14 @@ void BlockBasedTable::RetrieveMultipleBlocks(
 
     if (s.ok()) {
       // It handles a rare case: compression is set and these is no compressed
-      // cache (enable combined read), some block is actually not compressed
+      // cache (enable combined read). In this case, the scratch != nullptr.
+      // At the same time, some blocks are actually not compressed,
       // since its compression space saving is smaller than the threshold. In
       // this case, if the block shares the scratch memory, we need to copy it
-      // to the heap such that it can be added to the block cache.
+      // to the heap such that it can be added to the regular elock cache.
       CompressionType compression_type =
           raw_block_contents.get_compression_type();
-      if ((scratch != nullptr && compression_type == kNoCompression) ||
-          (scratch == nullptr && blocks_share_scratch)) {
+      if (scratch != nullptr && compression_type == kNoCompression) {
         Slice raw = Slice(req.scratch + req_offset, block_size(handle));
         raw_block_contents = BlockContents(
             CopyBufferToHeap(GetMemoryAllocator(rep_->table_options), raw),
