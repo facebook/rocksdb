@@ -70,7 +70,8 @@ struct SstFileMetaData {
                   const std::string& _smallestkey,
                   const std::string& _largestkey, uint64_t _num_reads_sampled,
                   bool _being_compacted, uint64_t _oldest_blob_file_number,
-                  uint64_t _oldest_ancester_time, uint64_t _file_creation_time, uint32_t _file_checksum, std::string& _file_checksum_name)
+                  uint64_t _oldest_ancester_time, uint64_t _file_creation_time,
+                  uint32_t _file_checksum, std::string& _file_checksum_name)
       : size(_size),
         name(_file_name),
         file_number(_file_number),
