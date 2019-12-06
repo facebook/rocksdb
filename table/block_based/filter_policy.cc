@@ -443,7 +443,8 @@ void BloomFilterPolicy::CreateFilter(const Slice* keys, int n,
                                      std::string* dst) const {
   // We should ideally only be using this deprecated interface for
   // appropriately constructed BloomFilterPolicy
-  assert(mode_ == kDeprecatedBlock);
+  // FIXME disabled because of bug in C interface; see issue #6129
+  //assert(mode_ == kDeprecatedBlock);
 
   // Compute bloom filter size (in both bits and bytes)
   uint32_t bits = static_cast<uint32_t>(n * whole_bits_per_key_);
