@@ -15,7 +15,7 @@ foreach(src ${TOOLS})
 endforeach()
 
 add_executable(db_stress${ARTIFACT_SUFFIX} db_stress.cc db_stress_tool.cc)
-target_link_libraries(db_stress${ARTIFACT_SUFFIX} ${LIBS})
+target_link_libraries(db_stress${ARTIFACT_SUFFIX} ${ROCKSDB_LIB})
 list(APPEND tool_deps db_stress)
 
 add_custom_target(tools
