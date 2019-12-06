@@ -151,7 +151,8 @@ Status ImportColumnFamilyJob::Run() {
                   f.fd.GetFileSize(), f.smallest_internal_key,
                   f.largest_internal_key, file_metadata.smallest_seqno,
                   file_metadata.largest_seqno, false, kInvalidBlobFileNumber,
-                  oldest_ancester_time, current_time, f.file_checksum, f.file_checksume_name);
+                  oldest_ancester_time, current_time, kUnknownFileChecksum,
+                  kUnknownFileChecksumName);
 
     // If incoming sequence number is higher, update local sequence number.
     if (file_metadata.largest_seqno > versions_->LastSequence()) {
