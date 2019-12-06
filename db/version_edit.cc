@@ -9,6 +9,7 @@
 
 #include "db/version_edit.h"
 
+#include <iostream>
 #include "db/blob_index.h"
 #include "db/version_set.h"
 #include "logging/event_logger.h"
@@ -230,7 +231,7 @@ bool VersionEdit::EncodeTo(std::string* dst) const {
 
     PutVarint32(dst, CustomTag::kFileChecksum);
     std::string varint_file_checksum;
-    PutVarint64(&varint_file_checksum, f.file_checksum);
+    PutVarint32(&varint_file_checksum, f.file_checksum);
     PutLengthPrefixedSlice(dst, Slice(varint_file_checksum));
 
     PutVarint32(dst, CustomTag::kFileChecksumName);
@@ -365,11 +366,7 @@ const char* VersionEdit::DecodeNewFile4From(Slice* input) {
           }
           break;
         case kFileChecksumName:
-          if (GetLengthPrefixedSlice(&field, &str)) {
-            f.file_checksum_name = str.ToString();
-          } else {
-            f.file_checksum_name = kUnknownFileChecksumName;
-          }
+          f.file_checksum_name = field.ToString();
           break;
         case kNeedCompaction:
           if (field.size() != 1) {
