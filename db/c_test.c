@@ -1123,7 +1123,7 @@ int main(int argc, char** argv) {
 
       // Other than the first value, these are essentially fingerprints of
       // the underlying Bloom filter schemas.
-      static const int expected_hits[] = {keys_to_query / 2, 241, 224};
+      static const int expected_hits[] = {5000, 241, 224};
       CheckCondition(
           expected_hits[run] ==
           (int)rocksdb_perfcontext_metric(perf, rocksdb_bloom_sst_hit_count));
