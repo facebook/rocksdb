@@ -203,7 +203,7 @@ static const int kValueMaxLen = 100;
 
 static std::shared_ptr<rocksdb::Env> env_guard;
 // posix or hdfs environment
-static rocksdb::Env* FLAGS_env = rocksdb::Env::Default();
+extern rocksdb::Env* FLAGS_env;
 
 extern enum rocksdb::CompressionType FLAGS_compression_type_e;
 extern enum rocksdb::ChecksumType FLAGS_checksum_type_e;
