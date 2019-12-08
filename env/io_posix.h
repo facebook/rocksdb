@@ -114,9 +114,6 @@ class PosixRandomAccessFile : public RandomAccessFile {
   ThreadLocalPtr* thread_local_io_urings_;
 #endif
 
- private:
-  Status SerializeMultiRead(ReadRequest* reqs, size_t num_reqs);
-
  public:
   PosixRandomAccessFile(const std::string& fname, int fd,
                         const EnvOptions& options

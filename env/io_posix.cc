@@ -471,15 +471,6 @@ Status PosixRandomAccessFile::Read(uint64_t offset, size_t n, Slice* result,
   return s;
 }
 
-Status PosixRandomAccessFile::SerializeMultiRead(ReadRequest* reqs,
-                                                 size_t num_reqs) {
-  for (size_t i = 0; i < num_reqs; ++i) {
-    ReadRequest& req = reqs[i];
-    req.status = Read(req.offset, req.len, &req.result, req.scratch);
-  }
-  return Status::OK();
-}
-
 Status PosixRandomAccessFile::MultiRead(ReadRequest* reqs, size_t num_reqs) {
 #if defined(ROCKSDB_IOURING_PRESENT)
   size_t reqs_off;
@@ -499,7 +490,7 @@ Status PosixRandomAccessFile::MultiRead(ReadRequest* reqs, size_t num_reqs) {
   // Init failed, platform doesn't support io_uring. Fall back to
   // serialized reads
   if (iu == nullptr) {
-    return SerializeMultiRead(reqs, num_reqs);
+    return RandomAccessFile::MultiRead(reqs, num_reqs);
   }
 
   struct WrappedReadRequest {
@@ -566,7 +557,7 @@ Status PosixRandomAccessFile::MultiRead(ReadRequest* reqs, size_t num_reqs) {
   }
   return Status::OK();
 #else
-  return SerializeMultiRead(reqs, num_reqs);
+  return RandomAccessFile::MultiRead(reqs, num_reqs);
 #endif
 }
 
