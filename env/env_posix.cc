@@ -1147,8 +1147,9 @@ PosixEnv::PosixEnv()
   thread_status_updater_ = CreateThreadStatusUpdater();
 
 #if defined(ROCKSDB_IOURING_PRESENT)
-  // Test whether IOUring is supported, and create a thread pool for it
-  // if it does.
+  // Test whether IOUring is supported, and if it does, create a managing
+  // object for thread local point so that in the future thread-local
+  // io_uring can be created.
   struct io_uring* new_io_uring = CreateIOUring();
   if (new_io_uring != nullptr) {
     thread_local_io_urings_.reset(new ThreadLocalPtr(DeleteIOUring));
