@@ -519,7 +519,6 @@ Status PosixRandomAccessFile::MultiRead(ReadRequest* reqs, size_t num_reqs) {
       sqe = io_uring_get_sqe(iu);
       req_wraps[index].iov.iov_base = reqs[index].scratch;
       req_wraps[index].iov.iov_len = reqs[index].len;
-      reqs[index].result = reqs[index].scratch;
       io_uring_prep_readv(sqe, fd_, &req_wraps[index].iov, 1,
                           reqs[index].offset);
       io_uring_sqe_set_data(sqe, &req_wraps[index]);
