@@ -26,9 +26,13 @@ inline IOStatus status_to_io_status(Status&& status) {
     return IOStatus::OK();
   } else {
     const char* state = status.getState();
-    return IOStatus(status.code(), status.subcode(),
-                    Slice(state, state ? strlen(status.getState()) + 1 : 0),
-                    Slice());
+    if (state) {
+      return IOStatus(status.code(), status.subcode(),
+                      Slice(state, strlen(status.getState()) + 1),
+                      Slice());
+    } else {
+      return IOStatus(status.code(), status.subcode());
+    }
   }
 }
 

@@ -1068,7 +1068,7 @@ class DB {
   // Get Env object from the DB
   virtual Env* GetEnv() const = 0;
 
-  virtual FileSystem* GetFileSystem() const { return nullptr; }
+  virtual FileSystem* GetFileSystem() const;
 
   // Get DB Options that we use.  During the process of opening the
   // column family, the options provided when calling DB::Open() or

@@ -2726,6 +2726,11 @@ const std::string& DBImpl::GetName() const { return dbname_; }
 
 Env* DBImpl::GetEnv() const { return env_; }
 
+FileSystem* DB::GetFileSystem() const {
+  static LegacyFileSystemWrapper fs_wrap(GetEnv());
+  return &fs_wrap;
+}
+
 FileSystem* DBImpl::GetFileSystem() const {
   return immutable_db_options_.fs.get();
 }

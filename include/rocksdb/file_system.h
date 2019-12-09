@@ -160,7 +160,7 @@ class FileSystem {
 
   static const char* Type() { return "FileSystem"; }
 
-  // Loads the environment specified by the input value into the result
+  // Loads the FileSystem specified by the input value into the result
   static Status Load(const std::string& value,
                      std::shared_ptr<FileSystem>* result);
 
@@ -246,7 +246,7 @@ class FileSystem {
                                    std::unique_ptr<FSRandomRWFile>* /*result*/,
                                    IODebugContext* /*dbg*/) {
     return IOStatus::NotSupported(
-        "RandomRWFile is not implemented in this Env");
+        "RandomRWFile is not implemented in this FileSystem");
   }
 
   // Opens `fname` as a memory-mapped file for read and write (in-place updates
@@ -256,7 +256,7 @@ class FileSystem {
       const std::string& /*fname*/,
       std::unique_ptr<MemoryMappedFileBuffer>* /*result*/) {
     return IOStatus::NotSupported(
-        "MemoryMappedFileBuffer is not implemented in this Env");
+        "MemoryMappedFileBuffer is not implemented in this FileSystem");
   }
 
   // Create an object that represents a directory. Will fail if directory
@@ -339,7 +339,7 @@ class FileSystem {
   virtual IOStatus Truncate(const std::string& /*fname*/, size_t /*size*/,
                             const IOOptions& /*options*/,
                             IODebugContext* /*dbg*/) {
-    return IOStatus::NotSupported("Truncate is not supported for this Env");
+    return IOStatus::NotSupported("Truncate is not supported for this FileSystem");
   }
 
   // Create the specified directory. Returns error if directory exists.
@@ -376,21 +376,21 @@ class FileSystem {
                             const std::string& /*target*/,
                             const IOOptions& /*options*/,
                             IODebugContext* /*dbg*/) {
-    return IOStatus::NotSupported("LinkFile is not supported for this Env");
+    return IOStatus::NotSupported("LinkFile is not supported for this FileSystem");
   }
 
   virtual IOStatus NumFileLinks(const std::string& /*fname*/,
                                 const IOOptions& /*options*/,
                                 uint64_t* /*count*/, IODebugContext* /*dbg*/) {
     return IOStatus::NotSupported(
-        "Getting number of file links is not supported for this Env");
+        "Getting number of file links is not supported for this FileSystem");
   }
 
   virtual IOStatus AreFilesSame(const std::string& /*first*/,
                                 const std::string& /*second*/,
                                 const IOOptions& /*options*/, bool* /*res*/,
                                 IODebugContext* /*dbg*/) {
-    return IOStatus::NotSupported("AreFilesSame is not supported for this Env");
+    return IOStatus::NotSupported("AreFilesSame is not supported for this FileSystem");
   }
 
   // Lock the specified file.  Used to prevent concurrent access to
