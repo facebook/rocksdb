@@ -14,12 +14,8 @@ foreach(src ${TOOLS})
   list(APPEND tool_deps ${exename})
 endforeach()
 
-add_executable(db_stress${ARTIFACT_SUFFIX} db_stress.cc db_stress_tool.cc)
-target_link_libraries(db_stress${ARTIFACT_SUFFIX} ${LIBS})
-list(APPEND tool_deps db_stress)
+list(APPEND tool_deps)
 
-add_custom_target(tools
-  DEPENDS ${tool_deps})
 add_custom_target(ldb_tests
   COMMAND python ${CMAKE_CURRENT_SOURCE_DIR}/ldb_tests.py
   DEPENDS ldb)

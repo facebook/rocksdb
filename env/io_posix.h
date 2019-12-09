@@ -102,7 +102,7 @@ inline struct io_uring* CreateIOUring() {
   }
   return new_io_uring;
 }
-#endif // defined(ROCKSDB_IOURING_PRESENT)
+#endif  // defined(ROCKSDB_IOURING_PRESENT)
 
 class PosixRandomAccessFile : public RandomAccessFile {
  protected:
