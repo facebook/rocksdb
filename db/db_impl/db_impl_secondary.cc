@@ -11,6 +11,7 @@
 #include "db/merge_context.h"
 #include "logging/auto_roll_logger.h"
 #include "monitoring/perf_context_imp.h"
+#include "util/cast_util.h"
 
 namespace rocksdb {
 
@@ -497,45 +498,61 @@ Status DBImplSecondary::TryCatchUpWithPrimary() {
   // read the manifest and apply new changes to the secondary instance
   std::unordered_set<ColumnFamilyData*> cfds_changed;
   JobContext job_context(0, true /*create_superversion*/);
-  InstrumentedMutexLock lock_guard(&mutex_);
-  s = static_cast<ReactiveVersionSet*>(versions_.get())
-          ->ReadAndApply(&mutex_, &manifest_reader_, &cfds_changed);
+  {
+    InstrumentedMutexLock lock_guard(&mutex_);
+    s = static_cast_with_check<ReactiveVersionSet>(versions_.get())
+            ->ReadAndApply(&mutex_, &manifest_reader_, &cfds_changed);
 
-  ROCKS_LOG_INFO(immutable_db_options_.info_log, "Last sequence is %" PRIu64,
-                 static_cast<uint64_t>(versions_->LastSequence()));
-  for (ColumnFamilyData* cfd : cfds_changed) {
-    if (cfd->IsDropped()) {
-      ROCKS_LOG_DEBUG(immutable_db_options_.info_log, "[%s] is dropped\n",
-                      cfd->GetName().c_str());
-      continue;
+    ROCKS_LOG_INFO(immutable_db_options_.info_log, "Last sequence is %" PRIu64,
+                   static_cast<uint64_t>(versions_->LastSequence()));
+    for (ColumnFamilyData* cfd : cfds_changed) {
+      if (cfd->IsDropped()) {
+        ROCKS_LOG_DEBUG(immutable_db_options_.info_log, "[%s] is dropped\n",
+                        cfd->GetName().c_str());
+        continue;
+      }
+      VersionStorageInfo::LevelSummaryStorage tmp;
+      ROCKS_LOG_DEBUG(immutable_db_options_.info_log,
+                      "[%s] Level summary: %s\n", cfd->GetName().c_str(),
+                      cfd->current()->storage_info()->LevelSummary(&tmp));
     }
-    VersionStorageInfo::LevelSummaryStorage tmp;
-    ROCKS_LOG_DEBUG(immutable_db_options_.info_log, "[%s] Level summary: %s\n",
-                    cfd->GetName().c_str(),
-                    cfd->current()->storage_info()->LevelSummary(&tmp));
-  }
 
-  // list wal_dir to discover new WALs and apply new changes to the secondary
-  // instance
-  if (s.ok()) {
-    s = FindAndRecoverLogFiles(&cfds_changed, &job_context);
-  }
-  if (s.IsPathNotFound()) {
-    ROCKS_LOG_INFO(immutable_db_options_.info_log,
-                   "Secondary tries to read WAL, but WAL file(s) have already "
-                   "been purged by primary.");
-    s = Status::OK();
-  }
-  if (s.ok()) {
-    for (auto cfd : cfds_changed) {
-      cfd->imm()->RemoveOldMemTables(cfd->GetLogNumber(),
-                                     &job_context.memtables_to_free);
-      auto& sv_context = job_context.superversion_contexts.back();
-      cfd->InstallSuperVersion(&sv_context, &mutex_);
-      sv_context.NewSuperVersion();
+    // list wal_dir to discover new WALs and apply new changes to the secondary
+    // instance
+    if (s.ok()) {
+      s = FindAndRecoverLogFiles(&cfds_changed, &job_context);
     }
-    job_context.Clean();
+    if (s.IsPathNotFound()) {
+      ROCKS_LOG_INFO(
+          immutable_db_options_.info_log,
+          "Secondary tries to read WAL, but WAL file(s) have already "
+          "been purged by primary.");
+      s = Status::OK();
+    }
+    if (s.ok()) {
+      for (auto cfd : cfds_changed) {
+        cfd->imm()->RemoveOldMemTables(cfd->GetLogNumber(),
+                                       &job_context.memtables_to_free);
+        auto& sv_context = job_context.superversion_contexts.back();
+        cfd->InstallSuperVersion(&sv_context, &mutex_);
+        sv_context.NewSuperVersion();
+      }
+    }
   }
+  job_context.Clean();
+
+  // Cleanup unused, obsolete files.
+  JobContext purge_files_job_context(0);
+  {
+    InstrumentedMutexLock lock_guard(&mutex_);
+    // Currently, secondary instance does not own the database files, thus it
+    // is unnecessary for the secondary to force full scan.
+    FindObsoleteFiles(&purge_files_job_context, /*force=*/false);
+  }
+  if (purge_files_job_context.HaveSomethingToDelete()) {
+    PurgeObsoleteFiles(purge_files_job_context);
+  }
+  purge_files_job_context.Clean();
   return s;
 }
 

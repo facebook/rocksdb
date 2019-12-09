@@ -1753,13 +1753,14 @@ TEST_P(DBTestUniversalCompaction, RecalculateScoreAfterPicking) {
   // scheduling more; otherwise, other CFs/DBs may be delayed unnecessarily.
   const int kNumFilesTrigger = 8;
   Options options = CurrentOptions();
+  options.memtable_factory.reset(
+      new SpecialSkipListFactory(KNumKeysByGenerateNewFile - 1));
   options.compaction_options_universal.max_merge_width = kNumFilesTrigger / 2;
   options.compaction_options_universal.max_size_amplification_percent =
       static_cast<unsigned int>(-1);
   options.compaction_style = kCompactionStyleUniversal;
   options.level0_file_num_compaction_trigger = kNumFilesTrigger;
   options.num_levels = num_levels_;
-  options.write_buffer_size = 100 << 10;  // 100KB
   Reopen(options);
 
   std::atomic<int> num_compactions_attempted(0);

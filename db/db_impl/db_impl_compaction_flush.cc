@@ -1918,6 +1918,10 @@ void DBImpl::MaybeScheduleFlushOrCompaction() {
     fta->thread_pri_ = Env::Priority::HIGH;
     env_->Schedule(&DBImpl::BGWorkFlush, fta, Env::Priority::HIGH, this,
                    &DBImpl::UnscheduleFlushCallback);
+    --unscheduled_flushes_;
+    TEST_SYNC_POINT_CALLBACK(
+        "DBImpl::MaybeScheduleFlushOrCompaction:AfterSchedule:0",
+        &unscheduled_flushes_);
   }
 
   // special case -- if high-pri (flush) thread pool is empty, then schedule
@@ -1932,6 +1936,7 @@ void DBImpl::MaybeScheduleFlushOrCompaction() {
       fta->thread_pri_ = Env::Priority::LOW;
       env_->Schedule(&DBImpl::BGWorkFlush, fta, Env::Priority::LOW, this,
                      &DBImpl::UnscheduleFlushCallback);
+      --unscheduled_flushes_;
     }
   }
 
@@ -2015,8 +2020,6 @@ ColumnFamilyData* DBImpl::PopFirstFromCompactionQueue() {
 DBImpl::FlushRequest DBImpl::PopFirstFromFlushQueue() {
   assert(!flush_queue_.empty());
   FlushRequest flush_req = flush_queue_.front();
-  assert(unscheduled_flushes_ >= static_cast<int>(flush_req.size()));
-  unscheduled_flushes_ -= static_cast<int>(flush_req.size());
   flush_queue_.pop_front();
   // TODO: need to unset flush reason?
   return flush_req;
@@ -2058,7 +2061,7 @@ void DBImpl::SchedulePendingFlush(const FlushRequest& flush_req,
     cfd->Ref();
     cfd->SetFlushReason(flush_reason);
   }
-  unscheduled_flushes_ += static_cast<int>(flush_req.size());
+  ++unscheduled_flushes_;
   flush_queue_.push_back(flush_req);
 }
 
