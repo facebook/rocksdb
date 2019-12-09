@@ -8,6 +8,7 @@
 #include "rocksdb/utilities/ldb_cmd.h"
 
 #include <cinttypes>
+#include <regex>
 
 #include "db/db_impl/db_impl.h"
 #include "db/dbformat.h"
@@ -1016,8 +1017,8 @@ void DumpManifestFile(Options options, std::string file, bool verbose, bool hex,
                       /*block_cache_tracer=*/nullptr);
   Status s = versions.DumpManifest(options, file, verbose, hex, json);
   if (!s.ok()) {
-    printf("Error in processing file %s %s\n", file.c_str(),
-           s.ToString().c_str());
+    fprintf(stderr, "Error in processing file %s %s\n", file.c_str(),
+            s.ToString().c_str());
   }
 }
 
@@ -1066,45 +1067,52 @@ void ManifestDumpCommand::DoCommand() {
   if (!path_.empty()) {
     manifestfile = path_;
   } else {
-    bool found = false;
     // We need to find the manifest file by searching the directory
     // containing the db for files of the form MANIFEST_[0-9]+
 
-    auto CloseDir = [](DIR* p) { closedir(p); };
-    std::unique_ptr<DIR, decltype(CloseDir)> d(opendir(db_path_.c_str()),
-                                               CloseDir);
-
-    if (d == nullptr) {
-      exec_state_ =
-          LDBCommandExecuteResult::Failed(db_path_ + " is not a directory");
+    std::vector<std::string> files;
+    Status s = options_.env->GetChildren(db_path_, &files);
+    if (!s.ok()) {
+      std::string err_msg = s.ToString();
+      err_msg.append(": Failed to list the content of ");
+      err_msg.append(db_path_);
+      exec_state_ = LDBCommandExecuteResult::Failed(err_msg.c_str());
       return;
     }
-    struct dirent* entry;
-    while ((entry = readdir(d.get())) != nullptr) {
-      unsigned int match;
-      uint64_t num;
-      if (sscanf(entry->d_name, "MANIFEST-%" PRIu64 "%n", &num, &match) &&
-          match == strlen(entry->d_name)) {
-        if (!found) {
-          manifestfile = db_path_ + "/" + std::string(entry->d_name);
-          found = true;
-        } else {
+    // This regex has to match DescriptorFilename() in filename.cc
+    std::regex manifest_fname_regex("MANIFEST-[0-9]{6}");
+    const std::string* matched_file = nullptr;
+    for (const auto& fname : files) {
+      if (std::regex_match(fname, manifest_fname_regex)) {
+        if (matched_file) {
           exec_state_ = LDBCommandExecuteResult::Failed(
               "Multiple MANIFEST files found; use --path to select one");
           return;
+        } else {
+          matched_file = &fname;
         }
       }
     }
+    if (!matched_file) {
+      std::string err_msg("No MANIFEST found in ");
+      err_msg.append(db_path_);
+      exec_state_ = LDBCommandExecuteResult::Failed(err_msg.c_str());
+      return;
+    }
+    if (db_path_[db_path_.length() - 1] != '/') {
+      db_path_.append("/");
+    }
+    manifestfile = db_path_ + *matched_file;
   }
 
   if (verbose_) {
-    printf("Processing Manifest file %s\n", manifestfile.c_str());
+    fprintf(stdout, "Processing Manifest file %s\n", manifestfile.c_str());
   }
 
   DumpManifestFile(options_, manifestfile, verbose_, is_key_hex_, json_);
 
   if (verbose_) {
-    printf("Processing Manifest file %s done\n", manifestfile.c_str());
+    fprintf(stdout, "Processing Manifest file %s done\n", manifestfile.c_str());
   }
 }
 
@@ -1126,19 +1134,19 @@ void ListColumnFamiliesCommand::DoCommand() {
   std::vector<std::string> column_families;
   Status s = DB::ListColumnFamilies(options_, db_path_, &column_families);
   if (!s.ok()) {
-    printf("Error in processing db %s %s\n", db_path_.c_str(),
-           s.ToString().c_str());
+    fprintf(stderr, "Error in processing db %s %s\n", db_path_.c_str(),
+            s.ToString().c_str());
   } else {
-    printf("Column families in %s: \n{", db_path_.c_str());
+    fprintf(stdout, "Column families in %s: \n{", db_path_.c_str());
     bool first = true;
     for (auto cf : column_families) {
       if (!first) {
-        printf(", ");
+        fprintf(stdout, ", ");
       }
       first = false;
-      printf("%s", cf.c_str());
+      fprintf(stdout, "%s", cf.c_str());
     }
-    printf("}\n");
+    fprintf(stdout, "}\n");
   }
 }
 
@@ -2761,7 +2769,7 @@ void CheckPointCommand::DoCommand() {
   Status status = Checkpoint::Create(db_, &checkpoint);
   status = checkpoint->CreateCheckpoint(checkpoint_dir_);
   if (status.ok()) {
-    printf("OK\n");
+    fprintf(stdout, "OK\n");
   } else {
     exec_state_ = LDBCommandExecuteResult::Failed(status.ToString());
   }
@@ -2785,7 +2793,7 @@ void RepairCommand::DoCommand() {
   options.info_log.reset(new StderrLogger(InfoLogLevel::WARN_LEVEL));
   Status status = RepairDB(db_path_, options);
   if (status.ok()) {
-    printf("OK\n");
+    fprintf(stdout, "OK\n");
   } else {
     exec_state_ = LDBCommandExecuteResult::Failed(status.ToString());
   }
@@ -2865,7 +2873,7 @@ void BackupCommand::DoCommand() {
     assert(GetExecuteState().IsFailed());
     return;
   }
-  printf("open db OK\n");
+  fprintf(stdout, "open db OK\n");
   Env* custom_env = nullptr;
   Env::LoadEnv(backup_env_uri_, &custom_env, &backup_env_guard_);
   assert(custom_env != nullptr);
@@ -2876,14 +2884,14 @@ void BackupCommand::DoCommand() {
   backup_options.max_background_operations = num_threads_;
   status = BackupEngine::Open(custom_env, backup_options, &backup_engine);
   if (status.ok()) {
-    printf("open backup engine OK\n");
+    fprintf(stdout, "open backup engine OK\n");
   } else {
     exec_state_ = LDBCommandExecuteResult::Failed(status.ToString());
     return;
   }
   status = backup_engine->CreateNewBackup(db_);
   if (status.ok()) {
-    printf("create new backup OK\n");
+    fprintf(stdout, "create new backup OK\n");
   } else {
     exec_state_ = LDBCommandExecuteResult::Failed(status.ToString());
     return;
@@ -2921,11 +2929,11 @@ void RestoreCommand::DoCommand() {
     }
   }
   if (status.ok()) {
-    printf("open restore engine OK\n");
+    fprintf(stdout, "open restore engine OK\n");
     status = restore_engine->RestoreDBFromLatestBackup(db_path_, db_path_);
   }
   if (status.ok()) {
-    printf("restore from backup OK\n");
+    fprintf(stdout, "restore from backup OK\n");
   } else {
     exec_state_ = LDBCommandExecuteResult::Failed(status.ToString());
   }
