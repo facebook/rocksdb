@@ -16,6 +16,9 @@
 #if defined(OS_LINUX)
 #include <linux/fs.h>
 #endif
+#if defined(ROCKSDB_IOURING_PRESENT)
+#include <liburing.h>
+#endif
 #include <pthread.h>
 #include <signal.h>
 #include <stdio.h>
@@ -32,6 +35,9 @@
 #include <sys/statvfs.h>
 #include <sys/time.h>
 #include <sys/types.h>
+#if defined(ROCKSDB_IOURING_PRESENT)
+#include <sys/uio.h>
+#endif
 #include <time.h>
 #include <algorithm>
 // Get nano time includes
@@ -286,7 +292,12 @@ class PosixEnv : public Env {
         }
 #endif
       }
-      result->reset(new PosixRandomAccessFile(fname, fd, options));
+      result->reset(new PosixRandomAccessFile(fname, fd, options
+#if defined(ROCKSDB_IOURING_PRESENT)
+                                              ,
+                                              thread_local_io_urings_.get()
+#endif
+                                                  ));
     }
     return s;
   }
@@ -1105,6 +1116,11 @@ class PosixEnv : public Env {
 #endif
   }
 
+#if defined(ROCKSDB_IOURING_PRESENT)
+  // io_uring instance
+  std::unique_ptr<ThreadLocalPtr> thread_local_io_urings_;
+#endif
+
   size_t page_size_;
 
   std::vector<ThreadPoolImpl> thread_pools_;
@@ -1129,6 +1145,17 @@ PosixEnv::PosixEnv()
     thread_pools_[pool_id].SetHostEnv(this);
   }
   thread_status_updater_ = CreateThreadStatusUpdater();
+
+#if defined(ROCKSDB_IOURING_PRESENT)
+  // Test whether IOUring is supported, and if it does, create a managing
+  // object for thread local point so that in the future thread-local
+  // io_uring can be created.
+  struct io_uring* new_io_uring = CreateIOUring();
+  if (new_io_uring != nullptr) {
+    thread_local_io_urings_.reset(new ThreadLocalPtr(DeleteIOUring));
+    delete new_io_uring;
+  }
+#endif
 }
 
 void PosixEnv::Schedule(void (*function)(void* arg1), void* arg, Priority pri,
