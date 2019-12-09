@@ -1058,8 +1058,8 @@ int main(int argc, char** argv) {
     CheckNoError(err);
     rocksdb_filterpolicy_t* policy;
     if (run == 0) {
-      policy = rocksdb_filterpolicy_create(
-          NULL, FilterDestroy, FilterCreate, FilterKeyMatch, NULL, FilterName);
+      policy = rocksdb_filterpolicy_create(NULL, FilterDestroy, FilterCreate,
+                                           FilterKeyMatch, NULL, FilterName);
     } else if (run == 1) {
       policy = rocksdb_filterpolicy_create_bloom(8);
     } else {
