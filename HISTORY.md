@@ -1,10 +1,11 @@
 # Rocksdb Change Log
 ## Unreleased
-### Buf Fixes
+### Bug Fixes
 * Fix a bug that can cause unnecessary bg thread to be scheduled(#6104).
+* Fix a race in WAL manager that could cause spurious errors with archived logfiles being deleted while enumerated via GetUpdatesSince.
 ## 6.6.0 (11/25/2019)
 ### Bug Fixes
-* Fix data corruption casued by output of intra-L0 compaction on ingested file not being placed in correct order in L0.
+* Fix data corruption caused by output of intra-L0 compaction on ingested file not being placed in correct order in L0.
 * Fix a data race between Version::GetColumnFamilyMetaData() and Compaction::MarkFilesBeingCompacted() for access to being_compacted (#6056). The current fix acquires the db mutex during Version::GetColumnFamilyMetaData(), which may cause regression.
 * Fix a bug in DBIter that is_blob_ state isn't updated when iterating backward using seek.
 * Fix a bug when format_version=3, partitioned fitlers, and prefix search are used in conjunction. The bug could result into Seek::(prefix) returning NotFound for an existing prefix.
