@@ -9,7 +9,7 @@
 //
 
 #ifdef GFLAGS
-#include "db_stress_shared_state.h"
+#include "db_stress_tool/db_stress_shared_state.h"
 
 namespace rocksdb {
 const uint32_t SharedState::UNKNOWN_SENTINEL = 0xfffffffe;

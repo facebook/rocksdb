@@ -9,8 +9,8 @@
 //
 
 #ifdef GFLAGS
-#include "db_stress_common.h"
-#include "db_stress_driver.h"
+#include "db_stress_tool/db_stress_common.h"
+#include "db_stress_tool/db_stress_driver.h"
 
 namespace rocksdb {
 StressTest::StressTest()

@@ -9,7 +9,7 @@
 //
 
 #ifdef GFLAGS
-#include "db_stress_common.h"
+#include "db_stress_tool/db_stress_common.h"
 
 namespace rocksdb {
 void ThreadBody(void* v) {

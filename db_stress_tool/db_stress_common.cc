@@ -9,7 +9,7 @@
 //
 
 #ifdef GFLAGS
-#include "db_stress_common.h"
+#include "db_stress_tool/db_stress_common.h"
 
 rocksdb::Env* FLAGS_env = rocksdb::Env::Default();
 enum rocksdb::CompressionType FLAGS_compression_type_e =
