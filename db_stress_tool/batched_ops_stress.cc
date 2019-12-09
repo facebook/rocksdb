@@ -19,12 +19,11 @@ class BatchedOpsStressTest : public StressTest {
   // Given a key K and value V, this puts ("0"+K, "0"+V), ("1"+K, "1"+V), ...
   // ("9"+K, "9"+V) in DB atomically i.e in a single batch.
   // Also refer BatchedOpsStressTest::TestGet
-  virtual Status TestPut(ThreadState* thread, WriteOptions& write_opts,
-                         const ReadOptions& /* read_opts */,
-                         const std::vector<int>& rand_column_families,
-                         const std::vector<int64_t>& rand_keys,
-                         char (&value)[100],
-                         std::unique_ptr<MutexLock>& /* lock */) {
+  Status TestPut(ThreadState* thread, WriteOptions& write_opts,
+                 const ReadOptions& /* read_opts */,
+                 const std::vector<int>& rand_column_families,
+                 const std::vector<int64_t>& rand_keys, char (&value)[100],
+                 std::unique_ptr<MutexLock>& /* lock */) override {
     uint32_t value_base =
         thread->rand.Next() % thread->shared->UNKNOWN_SENTINEL;
     size_t sz = GenerateValue(value_base, value, sizeof(value));
@@ -61,10 +60,10 @@ class BatchedOpsStressTest : public StressTest {
 
   // Given a key K, this deletes ("0"+K), ("1"+K),... ("9"+K)
   // in DB atomically i.e in a single batch. Also refer MultiGet.
-  virtual Status TestDelete(ThreadState* thread, WriteOptions& writeoptions,
-                            const std::vector<int>& rand_column_families,
-                            const std::vector<int64_t>& rand_keys,
-                            std::unique_ptr<MutexLock>& /* lock */) {
+  Status TestDelete(ThreadState* thread, WriteOptions& writeoptions,
+                    const std::vector<int>& rand_column_families,
+                    const std::vector<int64_t>& rand_keys,
+                    std::unique_ptr<MutexLock>& /* lock */) override {
     std::string keys[10] = {"9", "7", "5", "3", "1", "8", "6", "4", "2", "0"};
 
     WriteBatch batch;
@@ -87,22 +86,22 @@ class BatchedOpsStressTest : public StressTest {
     return s;
   }
 
-  virtual Status TestDeleteRange(
-      ThreadState* /* thread */, WriteOptions& /* write_opts */,
-      const std::vector<int>& /* rand_column_families */,
-      const std::vector<int64_t>& /* rand_keys */,
-      std::unique_ptr<MutexLock>& /* lock */) {
+  Status TestDeleteRange(ThreadState* /* thread */,
+                         WriteOptions& /* write_opts */,
+                         const std::vector<int>& /* rand_column_families */,
+                         const std::vector<int64_t>& /* rand_keys */,
+                         std::unique_ptr<MutexLock>& /* lock */) override {
     assert(false);
     return Status::NotSupported(
         "BatchedOpsStressTest does not support "
         "TestDeleteRange");
   }
 
-  virtual void TestIngestExternalFile(
+  void TestIngestExternalFile(
       ThreadState* /* thread */,
       const std::vector<int>& /* rand_column_families */,
       const std::vector<int64_t>& /* rand_keys */,
-      std::unique_ptr<MutexLock>& /* lock */) {
+      std::unique_ptr<MutexLock>& /* lock */) override {
     assert(false);
     fprintf(stderr,
             "BatchedOpsStressTest does not support "
@@ -115,9 +114,9 @@ class BatchedOpsStressTest : public StressTest {
   // "0"+V, "1"+V,..."9"+V.
   // ASSUMES that BatchedOpsStressTest::TestPut was used to put (K, V) into
   // the DB.
-  virtual Status TestGet(ThreadState* thread, const ReadOptions& readoptions,
-                         const std::vector<int>& rand_column_families,
-                         const std::vector<int64_t>& rand_keys) {
+  Status TestGet(ThreadState* thread, const ReadOptions& readoptions,
+                 const std::vector<int>& rand_column_families,
+                 const std::vector<int64_t>& rand_keys) override {
     std::string keys[10] = {"0", "1", "2", "3", "4", "5", "6", "7", "8", "9"};
     Slice key_slices[10];
     std::string values[10];
@@ -170,10 +169,10 @@ class BatchedOpsStressTest : public StressTest {
     return s;
   }
 
-  virtual std::vector<Status> TestMultiGet(
+  std::vector<Status> TestMultiGet(
       ThreadState* thread, const ReadOptions& readoptions,
       const std::vector<int>& rand_column_families,
-      const std::vector<int64_t>& rand_keys) {
+      const std::vector<int64_t>& rand_keys) override {
     size_t num_keys = rand_keys.size();
     std::vector<Status> ret_status(num_keys);
     std::array<std::string, 10> keys = {"0", "1", "2", "3", "4",
@@ -246,10 +245,9 @@ class BatchedOpsStressTest : public StressTest {
   // each series should be the same length, and it is verified for each
   // index i that all the i'th values are of the form "0"+V, "1"+V,..."9"+V.
   // ASSUMES that MultiPut was used to put (K, V)
-  virtual Status TestPrefixScan(ThreadState* thread,
-                                const ReadOptions& readoptions,
-                                const std::vector<int>& rand_column_families,
-                                const std::vector<int64_t>& rand_keys) {
+  Status TestPrefixScan(ThreadState* thread, const ReadOptions& readoptions,
+                        const std::vector<int>& rand_column_families,
+                        const std::vector<int64_t>& rand_keys) override {
     size_t prefix_to_use =
         (FLAGS_prefix_size < 0) ? 7 : static_cast<size_t>(FLAGS_prefix_size);
     std::string key_str = Key(rand_keys[0]);
@@ -333,7 +331,7 @@ class BatchedOpsStressTest : public StressTest {
     return s;
   }
 
-  virtual void VerifyDb(ThreadState* /* thread */) const {}
+  void VerifyDb(ThreadState* /* thread */) const override {}
 };
 
 StressTest* CreateBatchedOpsStressTest() { return new BatchedOpsStressTest(); }
