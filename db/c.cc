@@ -3057,7 +3057,7 @@ rocksdb_filterpolicy_t* rocksdb_filterpolicy_create_bloom_format(int bits_per_ke
         const Slice& contents) const override {
       return rep_->GetFilterBitsReader(contents);
     }
-    static void DoNothing(void*) { }
+    static void DoNothing(void*) {}
   };
   Wrapper* wrapper = new Wrapper;
   wrapper->rep_ = NewBloomFilterPolicy(bits_per_key, original_format);

@@ -1108,7 +1108,8 @@ void BlockBasedTableBuilder::EnterUnbuffered() {
 
     for (const auto& key : keys) {
       if (r->filter_builder != nullptr) {
-        size_t ts_sz = r->internal_comparator.user_comparator()->timestamp_size();
+        size_t ts_sz =
+            r->internal_comparator.user_comparator()->timestamp_size();
         r->filter_builder->Add(ExtractUserKeyAndStripTimestamp(key, ts_sz));
       }
       r->index_builder->OnKeyAdded(key);

@@ -1127,7 +1127,7 @@ TEST(DistributedMutex, StressBigValueReturnSixtyFourThreads) {
   concurrentBigValueReturnStress(64, std::chrono::seconds{kStressTestSeconds});
 }
 
-} // namespace folly
+}  // namespace folly
 
 int main(int argc, char** argv) {
   ::testing::InitGoogleTest(&argc, argv);
