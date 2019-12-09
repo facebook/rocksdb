@@ -43,10 +43,10 @@ class BaseLockMgr;
 //    will be used to perform locking.
 class LockManagerHandle {
  public:
-   // dynamic_cast from this class to BaseLockMgr should work, this is how
-   // PessimisticTransactionDB will get the Lock Manager it's going to use.
+  // dynamic_cast from this class to BaseLockMgr should work, this is how
+  // PessimisticTransactionDB will get the Lock Manager it's going to use.
 
-   virtual ~LockManagerHandle(){};
+  virtual ~LockManagerHandle(){};
 };
 
 // A handle to control RangeLockMgr (Range-based lock manager) from outside
