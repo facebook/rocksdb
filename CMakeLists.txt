@@ -631,7 +631,6 @@ set(SOURCES
         test_util/testutil.cc
         test_util/transaction_test_util.cc
         tools/block_cache_analyzer/block_cache_trace_analyzer.cc
-        tools/db_bench_tool.cc
         tools/dump/db_dump_tool.cc
         tools/ldb_cmd.cc
         tools/ldb_tool.cc
@@ -1109,7 +1108,6 @@ if(WITH_BENCHMARK_TOOLS)
         cache/cache_bench.cc
         memtable/memtablerep_bench.cc
         db/range_del_aggregator_bench.cc
-        tools/db_bench.cc
         table/table_reader_bench.cc
         util/filter_bench.cc
         utilities/persistent_cache/hash_table_bench.cc
@@ -1121,9 +1119,18 @@ if(WITH_BENCHMARK_TOOLS)
       $<TARGET_OBJECTS:testharness>)
     target_link_libraries(${exename}${ARTIFACT_SUFFIX} gtest ${LIBS})
   endforeach(sourcefile ${BENCHMARKS})
+
+  add_executable(db_bench${ARTIFACT_SUFFIX}
+    tools/db_bench.cc
+    tools/db_bench_tool.cc
+    $<TARGET_OBJECTS:testharness>)
+  target_link_libraries(db_bench${ARTIFACT_SUFFIX} gtest ${LIBS})
 endif()
 
 option(WITH_TOOLS "build with tools" ON)
 if(WITH_TOOLS)
   add_subdirectory(tools)
+  add_subdirectory(db_stress_tool)
+  add_custom_target(tools
+    DEPENDS ${tool_deps})
 endif()

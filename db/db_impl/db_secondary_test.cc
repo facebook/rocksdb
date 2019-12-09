@@ -198,7 +198,7 @@ TEST_F(DBSecondaryTest, OpenAsSecondary) {
 namespace {
 class TraceFileEnv : public EnvWrapper {
  public:
-  explicit TraceFileEnv(Env* target) : EnvWrapper(target) {}
+  explicit TraceFileEnv(Env* _target) : EnvWrapper(_target) {}
   Status NewRandomAccessFile(const std::string& f,
                              std::unique_ptr<RandomAccessFile>* r,
                              const EnvOptions& env_options) override {
