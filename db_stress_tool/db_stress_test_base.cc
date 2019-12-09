@@ -573,26 +573,13 @@ void StressTest::OperateDb(ThreadState* thread) {
             shared->GetMutexForKey(rand_column_family, rand_key)));
       }
 
-      auto column_family = column_families_[rand_column_family];
+      ColumnFamilyHandle* column_family = column_families_[rand_column_family];
 
       if (FLAGS_compact_range_one_in > 0 &&
           thread->rand.Uniform(FLAGS_compact_range_one_in) == 0) {
-        int64_t end_key_num;
-        if (port::kMaxInt64 - rand_key < FLAGS_compact_range_width) {
-          end_key_num = port::kMaxInt64;
-        } else {
-          end_key_num = FLAGS_compact_range_width + rand_key;
-        }
-        std::string end_key_buf = Key(end_key_num);
-        Slice end_key(end_key_buf);
-
-        CompactRangeOptions cro;
-        cro.exclusive_manual_compaction =
-            static_cast<bool>(thread->rand.Next() % 2);
-        Status status = db_->CompactRange(cro, column_family, &key, &end_key);
-        if (!status.ok()) {
-          printf("Unable to perform CompactRange(): %s\n",
-                 status.ToString().c_str());
+        TestCompactRange(thread, rand_key, key, column_family);
+        if (thread->shared->HasVerificationFailedYet()) {
+          break;
         }
       }
 
@@ -1182,6 +1169,92 @@ Status StressTest::TestBackupRestore(
            s.ToString().c_str());
   }
   return s;
+}
+
+void StressTest::TestCompactRange(ThreadState* thread, int64_t rand_key,
+                                  const Slice& start_key,
+                                  ColumnFamilyHandle* column_family) {
+  int64_t end_key_num;
+  if (port::kMaxInt64 - rand_key < FLAGS_compact_range_width) {
+    end_key_num = port::kMaxInt64;
+  } else {
+    end_key_num = FLAGS_compact_range_width + rand_key;
+  }
+  std::string end_key_buf = Key(end_key_num);
+  Slice end_key(end_key_buf);
+
+  CompactRangeOptions cro;
+  cro.exclusive_manual_compaction = static_cast<bool>(thread->rand.Next() % 2);
+  cro.change_level = static_cast<bool>(thread->rand.Next() % 2);
+  std::vector<BottommostLevelCompaction> bottom_level_styles = {
+      BottommostLevelCompaction::kSkip,
+      BottommostLevelCompaction::kIfHaveCompactionFilter,
+      BottommostLevelCompaction::kForce,
+      BottommostLevelCompaction::kForceOptimized};
+  cro.bottommost_level_compaction =
+      bottom_level_styles[thread->rand.Next() %
+                          static_cast<uint32_t>(bottom_level_styles.size())];
+  cro.allow_write_stall = static_cast<bool>(thread->rand.Next() % 2);
+  cro.max_subcompactions = static_cast<uint32_t>(thread->rand.Next() % 4);
+
+  const Snapshot* pre_snapshot = nullptr;
+  uint32_t pre_hash;
+  if (thread->rand.OneIn(2)) {
+    // Do some validation by declaring a snapshot and compare the data before
+    // and after the compaction
+    pre_snapshot = db_->GetSnapshot();
+    pre_hash =
+        GetRangeHash(thread, pre_snapshot, column_family, start_key, end_key);
+  }
+
+  Status status = db_->CompactRange(cro, column_family, &start_key, &end_key);
+
+  if (!status.ok()) {
+    printf("Unable to perform CompactRange(): %s\n", status.ToString().c_str());
+  }
+
+  if (pre_snapshot != nullptr) {
+    uint32_t post_hash =
+        GetRangeHash(thread, pre_snapshot, column_family, start_key, end_key);
+    if (pre_hash != post_hash) {
+      fprintf(stderr,
+              "Data hash different before and after compact range "
+              "start_key %s end_key %s\n",
+              start_key.ToString(true).c_str(), end_key.ToString(true).c_str());
+      thread->stats.AddErrors(1);
+      // Fail fast to preserve the DB state.
+      thread->shared->SetVerificationFailure();
+    }
+    db_->ReleaseSnapshot(pre_snapshot);
+  }
+}
+
+uint32_t StressTest::GetRangeHash(ThreadState* thread, const Snapshot* snapshot,
+                                  ColumnFamilyHandle* column_family,
+                                  const Slice& start_key,
+                                  const Slice& end_key) {
+  const std::string kCrcCalculatorSepearator = ";";
+  uint32_t crc = 0;
+  ReadOptions ro;
+  ro.snapshot = snapshot;
+  ro.total_order_seek = true;
+  std::unique_ptr<Iterator> it(db_->NewIterator(ro, column_family));
+  for (it->Seek(start_key);
+       it->Valid() && options_.comparator->Compare(it->key(), end_key) <= 0;
+       it->Next()) {
+    crc = crc32c::Extend(crc, it->key().data(), it->key().size());
+    crc = crc32c::Extend(crc, kCrcCalculatorSepearator.data(), 1);
+    crc = crc32c::Extend(crc, it->value().data(), it->value().size());
+    crc = crc32c::Extend(crc, kCrcCalculatorSepearator.data(), 1);
+  }
+  if (!it->status().ok()) {
+    fprintf(stderr, "Iterator non-OK when calculating range CRC: %s\n",
+            it->status().ToString().c_str());
+    thread->stats.AddErrors(1);
+    // Fail fast to preserve the DB state.
+    thread->shared->SetVerificationFailure();
+  }
+  return crc;
 }
 
 Status StressTest::TestCheckpoint(ThreadState* thread,
