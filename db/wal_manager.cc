@@ -325,7 +325,7 @@ Status WalManager::GetSortedWalsOfType(const std::string& path,
       } else if (!s.ok()) {
         if (log_type == kArchivedLogFile &&
             (s.IsNotFound() || 
-             (s.IsIOError() && !env_->FileExists(LogFileName(path, number)).ok()))) {
+             (s.IsIOError() && env_->FileExists(LogFileName(path, number)).IsNotFound()))) {
           // it may happen that the iteration performed by GetChildren() found
           // a file in the archive, but that this file has been deleted by
           // another thread in the meantime. in this case just ignore it.
