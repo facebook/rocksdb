@@ -14,7 +14,7 @@
 #        cd build
 # 3. Run cmake to generate project files for Windows, add more options to enable required third-party libraries.
 #    See thirdparty.inc for more information.
-#        sample command: cmake -G "Visual Studio 15 Win64" -DWITH_GFLAGS=1 -DWITH_SNAPPY=1 -DWITH_JEMALLOC=1 -DWITH_JNI=1 ..
+#        sample command: cmake -G "Visual Studio 15 Win64" -DCMAKE_BUILD_TYPE=Release -DWITH_GFLAGS=1 -DWITH_SNAPPY=1 -DWITH_JEMALLOC=1 -DWITH_JNI=1 ..
 # 4. Then build the project in debug mode (you may want to add /m[:<N>] flag to run msbuild in <N> parallel threads
 #                                          or simply /m to use all avail cores)
 #        msbuild rocksdb.sln
@@ -174,7 +174,7 @@ else()
   set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -W -Wextra -Wall")
   set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wsign-compare -Wshadow -Wno-unused-parameter -Wno-unused-variable -Woverloaded-virtual -Wnon-virtual-dtor -Wno-missing-field-initializers -Wno-strict-aliasing")
   if(MINGW)
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wno-format")
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wno-format -fno-asynchronous-unwind-tables")
     add_definitions(-D_POSIX_C_SOURCE=1)
   endif()
   set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++11")
@@ -631,7 +631,6 @@ set(SOURCES
         test_util/testutil.cc
         test_util/transaction_test_util.cc
         tools/block_cache_analyzer/block_cache_trace_analyzer.cc
-        tools/db_bench_tool.cc
         tools/dump/db_dump_tool.cc
         tools/ldb_cmd.cc
         tools/ldb_tool.cc
@@ -885,7 +884,9 @@ if(NOT WIN32 OR ROCKSDB_INSTALL_ON_WINDOWS)
 endif()
 
 option(WITH_TESTS "build with tests" ON)
-if(WITH_TESTS)
+# For test libraries, utilities, and exes that are build iff WITH_TESTS=ON and
+# in Debug mode. Add test only code that is not #ifdefed for Release here.
+if(WITH_TESTS AND CMAKE_BUILD_TYPE STREQUAL "Debug")
   add_subdirectory(third-party/gtest-1.8.1/fused-src/gtest)
   set(TESTS
         cache/cache_test.cc
@@ -1040,24 +1041,6 @@ if(WITH_TESTS)
     list(APPEND TESTS third-party/folly/folly/synchronization/test/DistributedMutexTest.cpp)
   endif()
 
-  set(BENCHMARKS
-    cache/cache_bench.cc
-    memtable/memtablerep_bench.cc
-    db/range_del_aggregator_bench.cc
-    tools/db_bench.cc
-    table/table_reader_bench.cc
-    util/filter_bench.cc
-    utilities/persistent_cache/hash_table_bench.cc)
-  add_library(testharness OBJECT test_util/testharness.cc)
-  foreach(sourcefile ${BENCHMARKS})
-    get_filename_component(exename ${sourcefile} NAME_WE)
-    add_executable(${exename}${ARTIFACT_SUFFIX} ${sourcefile}
-      $<TARGET_OBJECTS:testharness>)
-    target_link_libraries(${exename}${ARTIFACT_SUFFIX} gtest ${LIBS})
-  endforeach(sourcefile ${BENCHMARKS})
-
-  # For test util library that is build only in DEBUG mode
-  # and linked to tests. Add test only code that is not #ifdefed for Release here.
   set(TESTUTIL_SOURCE
       db/db_test_util.cc
       monitoring/thread_status_updater_debug.cc
@@ -1065,7 +1048,6 @@ if(WITH_TESTS)
       test_util/fault_injection_test_env.cc
       utilities/cassandra/test_utils.cc
   )
-  # test utilities are only build in debug
   enable_testing()
   add_custom_target(check COMMAND ${CMAKE_CTEST_COMMAND})
   set(TESTUTILLIB testutillib${ARTIFACT_SUFFIX})
@@ -1080,9 +1062,7 @@ if(WITH_TESTS)
         EXCLUDE_FROM_DEFAULT_BUILD_RELWITHDEBINFO 1
         )
 
-  # Tests are excluded from Release builds
   set(TEST_EXES ${TESTS})
-
   foreach(sourcefile ${TEST_EXES})
       get_filename_component(exename ${sourcefile} NAME_WE)
       add_executable(${CMAKE_PROJECT_NAME}_${exename}${ARTIFACT_SUFFIX} ${sourcefile}
@@ -1119,7 +1099,38 @@ if(WITH_TESTS)
   endforeach(sourcefile ${C_TEST_EXES})
 endif()
 
+option(WITH_BENCHMARK_TOOLS "build with benchmarks" ON)
+if(WITH_BENCHMARK_TOOLS)
+  if(NOT TARGET gtest)
+    add_subdirectory(third-party/gtest-1.8.1/fused-src/gtest)
+  endif()
+  set(BENCHMARKS
+        cache/cache_bench.cc
+        memtable/memtablerep_bench.cc
+        db/range_del_aggregator_bench.cc
+        table/table_reader_bench.cc
+        util/filter_bench.cc
+        utilities/persistent_cache/hash_table_bench.cc
+  )
+  add_library(testharness OBJECT test_util/testharness.cc)
+  foreach(sourcefile ${BENCHMARKS})
+    get_filename_component(exename ${sourcefile} NAME_WE)
+    add_executable(${exename}${ARTIFACT_SUFFIX} ${sourcefile}
+      $<TARGET_OBJECTS:testharness>)
+    target_link_libraries(${exename}${ARTIFACT_SUFFIX} gtest ${LIBS})
+  endforeach(sourcefile ${BENCHMARKS})
+
+  add_executable(db_bench${ARTIFACT_SUFFIX}
+    tools/db_bench.cc
+    tools/db_bench_tool.cc
+    $<TARGET_OBJECTS:testharness>)
+  target_link_libraries(db_bench${ARTIFACT_SUFFIX} gtest ${LIBS})
+endif()
+
 option(WITH_TOOLS "build with tools" ON)
 if(WITH_TOOLS)
   add_subdirectory(tools)
+  add_subdirectory(db_stress_tool)
+  add_custom_target(tools
+    DEPENDS ${tool_deps})
 endif()
