@@ -17,12 +17,11 @@ class CfConsistencyStressTest : public StressTest {
 
   virtual ~CfConsistencyStressTest() {}
 
-  virtual Status TestPut(ThreadState* thread, WriteOptions& write_opts,
-                         const ReadOptions& /* read_opts */,
-                         const std::vector<int>& rand_column_families,
-                         const std::vector<int64_t>& rand_keys,
-                         char (&value)[100],
-                         std::unique_ptr<MutexLock>& /* lock */) {
+  Status TestPut(ThreadState* thread, WriteOptions& write_opts,
+                 const ReadOptions& /* read_opts */,
+                 const std::vector<int>& rand_column_families,
+                 const std::vector<int64_t>& rand_keys, char (&value)[100],
+                 std::unique_ptr<MutexLock>& /* lock */) override {
     std::string key_str = Key(rand_keys[0]);
     Slice key = key_str;
     uint64_t value_base = batch_id_.fetch_add(1);
@@ -50,10 +49,10 @@ class CfConsistencyStressTest : public StressTest {
     return s;
   }
 
-  virtual Status TestDelete(ThreadState* thread, WriteOptions& write_opts,
-                            const std::vector<int>& rand_column_families,
-                            const std::vector<int64_t>& rand_keys,
-                            std::unique_ptr<MutexLock>& /* lock */) {
+  Status TestDelete(ThreadState* thread, WriteOptions& write_opts,
+                    const std::vector<int>& rand_column_families,
+                    const std::vector<int64_t>& rand_keys,
+                    std::unique_ptr<MutexLock>& /* lock */) override {
     std::string key_str = Key(rand_keys[0]);
     Slice key = key_str;
     WriteBatch batch;
@@ -71,10 +70,10 @@ class CfConsistencyStressTest : public StressTest {
     return s;
   }
 
-  virtual Status TestDeleteRange(ThreadState* thread, WriteOptions& write_opts,
-                                 const std::vector<int>& rand_column_families,
-                                 const std::vector<int64_t>& rand_keys,
-                                 std::unique_ptr<MutexLock>& /* lock */) {
+  Status TestDeleteRange(ThreadState* thread, WriteOptions& write_opts,
+                         const std::vector<int>& rand_column_families,
+                         const std::vector<int64_t>& rand_keys,
+                         std::unique_ptr<MutexLock>& /* lock */) override {
     int64_t rand_key = rand_keys[0];
     auto shared = thread->shared;
     int64_t max_key = shared->GetMaxKey();
@@ -102,11 +101,11 @@ class CfConsistencyStressTest : public StressTest {
     return s;
   }
 
-  virtual void TestIngestExternalFile(
+  void TestIngestExternalFile(
       ThreadState* /* thread */,
       const std::vector<int>& /* rand_column_families */,
       const std::vector<int64_t>& /* rand_keys */,
-      std::unique_ptr<MutexLock>& /* lock */) {
+      std::unique_ptr<MutexLock>& /* lock */) override {
     assert(false);
     fprintf(stderr,
             "CfConsistencyStressTest does not support TestIngestExternalFile "
@@ -114,9 +113,9 @@ class CfConsistencyStressTest : public StressTest {
     std::terminate();
   }
 
-  virtual Status TestGet(ThreadState* thread, const ReadOptions& readoptions,
-                         const std::vector<int>& rand_column_families,
-                         const std::vector<int64_t>& rand_keys) {
+  Status TestGet(ThreadState* thread, const ReadOptions& readoptions,
+                 const std::vector<int>& rand_column_families,
+                 const std::vector<int64_t>& rand_keys) override {
     std::string key_str = Key(rand_keys[0]);
     Slice key = key_str;
     Status s;
@@ -198,10 +197,10 @@ class CfConsistencyStressTest : public StressTest {
     return s;
   }
 
-  virtual std::vector<Status> TestMultiGet(
+  std::vector<Status> TestMultiGet(
       ThreadState* thread, const ReadOptions& read_opts,
       const std::vector<int>& rand_column_families,
-      const std::vector<int64_t>& rand_keys) {
+      const std::vector<int64_t>& rand_keys) override {
     size_t num_keys = rand_keys.size();
     std::vector<std::string> key_str;
     std::vector<Slice> keys;
@@ -232,10 +231,9 @@ class CfConsistencyStressTest : public StressTest {
     return statuses;
   }
 
-  virtual Status TestPrefixScan(ThreadState* thread,
-                                const ReadOptions& readoptions,
-                                const std::vector<int>& rand_column_families,
-                                const std::vector<int64_t>& rand_keys) {
+  Status TestPrefixScan(ThreadState* thread, const ReadOptions& readoptions,
+                        const std::vector<int>& rand_column_families,
+                        const std::vector<int64_t>& rand_keys) override {
     size_t prefix_to_use =
         (FLAGS_prefix_size < 0) ? 7 : static_cast<size_t>(FLAGS_prefix_size);
 
@@ -271,18 +269,17 @@ class CfConsistencyStressTest : public StressTest {
     return s;
   }
 
-  virtual ColumnFamilyHandle* GetControlCfh(ThreadState* thread,
-                                            int /*column_family_id*/
-  ) {
+  ColumnFamilyHandle* GetControlCfh(ThreadState* thread,
+                                    int /*column_family_id*/
+                                    ) override {
     // All column families should contain the same data. Randomly pick one.
     return column_families_[thread->rand.Next() % column_families_.size()];
   }
 
 #ifdef ROCKSDB_LITE
-  virtual Status TestCheckpoint(
-      ThreadState* /* thread */,
-      const std::vector<int>& /* rand_column_families */,
-      const std::vector<int64_t>& /* rand_keys */) {
+  Status TestCheckpoint(ThreadState* /* thread */,
+                        const std::vector<int>& /* rand_column_families */,
+                        const std::vector<int64_t>& /* rand_keys */) override {
     assert(false);
     fprintf(stderr,
             "RocksDB lite does not support "
@@ -290,9 +287,9 @@ class CfConsistencyStressTest : public StressTest {
     std::terminate();
   }
 #else
-  virtual Status TestCheckpoint(
-      ThreadState* thread, const std::vector<int>& /* rand_column_families */,
-      const std::vector<int64_t>& /* rand_keys */) {
+  Status TestCheckpoint(ThreadState* thread,
+                        const std::vector<int>& /* rand_column_families */,
+                        const std::vector<int64_t>& /* rand_keys */) override {
     std::string checkpoint_dir =
         FLAGS_db + "/.checkpoint" + ToString(thread->tid);
     DestroyDB(checkpoint_dir, options_);
@@ -338,7 +335,7 @@ class CfConsistencyStressTest : public StressTest {
   }
 #endif  // !ROCKSDB_LITE
 
-  virtual void VerifyDb(ThreadState* thread) const {
+  void VerifyDb(ThreadState* thread) const override {
     ReadOptions options(FLAGS_verify_checksum, true);
     // We must set total_order_seek to true because we are doing a SeekToFirst
     // on a column family whose memtables may support (by default) prefix-based
@@ -489,8 +486,9 @@ class CfConsistencyStressTest : public StressTest {
     } while (true);
   }
 
-  virtual std::vector<int> GenerateColumnFamilies(
-      const int /* num_column_families */, int /* rand_column_family */) const {
+  std::vector<int> GenerateColumnFamilies(
+      const int /* num_column_families */,
+      int /* rand_column_family */) const override {
     std::vector<int> ret;
     int num = static_cast<int>(column_families_.size());
     int k = 0;

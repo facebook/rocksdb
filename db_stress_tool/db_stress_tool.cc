@@ -25,6 +25,10 @@
 #include "db_stress_tool/db_stress_driver.h"
 
 namespace rocksdb {
+namespace {
+static std::shared_ptr<rocksdb::Env> env_guard;
+}  // namespace
+
 int db_stress_tool(int argc, char** argv) {
   SetUsageMessage(std::string("\nUSAGE:\n") + std::string(argv[0]) +
                   " [OPTIONS]...");

@@ -197,11 +197,10 @@ DECLARE_int32(prefix_size);
 DECLARE_bool(use_merge);
 DECLARE_bool(use_full_merge_v1);
 
-static const long KB = 1024;
-static const int kRandomValueMaxFactor = 3;
-static const int kValueMaxLen = 100;
+const long KB = 1024;
+const int kRandomValueMaxFactor = 3;
+const int kValueMaxLen = 100;
 
-static std::shared_ptr<rocksdb::Env> env_guard;
 // posix or hdfs environment
 extern rocksdb::Env* FLAGS_env;
 
