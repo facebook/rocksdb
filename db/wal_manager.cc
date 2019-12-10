@@ -309,29 +309,45 @@ Status WalManager::GetSortedWalsOfType(const std::string& path,
       TEST_SYNC_POINT("WalManager::GetSortedWalsOfType:1");
       TEST_SYNC_POINT("WalManager::GetSortedWalsOfType:2");
 
+      // In the following code we handle the following "special" situations:
+      // - an alive logfile was found by GetChildren(), but was moved to 
+      //   archive before GetFileSize() was called. If the archived logfile
+      //   still exists and we can read its filesize, all is good.
+      // - an alive logfile was found by GetChildren(), but was moved to the
+      //   archive *and* already deleted before GetFileSize() was called. In 
+      //   this case we don't report any error, but silently move on, ignoring
+      //   the file.
+      // - an archived logfile was found by GetChildren(), but was deleted from
+      //   the archive before GetFileSize() was called. In this case we don't
+      //   report any error, but silently move on, ignoring the file.
       uint64_t size_bytes;
       s = env_->GetFileSize(LogFileName(path, number), &size_bytes);
-      // re-try in case the alive log file has been moved to archive.
       if (!s.ok() && log_type == kAliveLogFile) {
+        // Retry in case the alive log file has been moved to archive.
         std::string archived_file = ArchivedLogFileName(path, number);
         if (env_->FileExists(archived_file).ok()) {
           s = env_->GetFileSize(archived_file, &size_bytes);
           if (!s.ok() && env_->FileExists(archived_file).IsNotFound()) {
-            // oops, the file just got deleted from archived dir! move on
+            // Oops, the file just got deleted from the archive between the
+            // calls to env_->GetChildren() and env_->GetFileSize(). This
+            // may happen, and is not considered a problem.
             s = Status::OK();
             continue;
           }
         }
-      } else if (!s.ok()) {
+      } 
+
+      if (!s.ok()) {
         if (log_type == kArchivedLogFile &&
             (s.IsNotFound() || 
-             (s.IsIOError() && env_->FileExists(LogFileName(path, number)).IsNotFound()))) {
-          // it may happen that the iteration performed by GetChildren() found
-          // a file in the archive, but that this file has been deleted by
-          // another thread in the meantime. in this case just ignore it.
+             (s.IsIOError() && env_->FileExists(ArchivedLogFileName(path, number)).IsNotFound()))) {
+          // It may happen that the iteration performed by GetChildren() found
+          // a logfile in the archive, but that this file has been deleted by
+          // another thread in the meantime. In this case just ignore it.
           s = Status::OK();
           continue;
         }
+        // in all other cases report a "real" error
         return s;
       }
 
