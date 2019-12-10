@@ -168,6 +168,7 @@ DECLARE_int32(ingest_external_file_width);
 DECLARE_int32(compact_files_one_in);
 DECLARE_int32(compact_range_one_in);
 DECLARE_int32(flush_one_in);
+DECLARE_int32(pause_background_one_in);
 DECLARE_int32(compact_range_width);
 DECLARE_int32(acquire_snapshot_one_in);
 DECLARE_bool(compare_full_db_state_snapshot);
