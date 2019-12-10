@@ -1171,6 +1171,82 @@ Status StressTest::TestBackupRestore(
   return s;
 }
 
+Status StressTest::TestCheckpoint(ThreadState* thread,
+                                  const std::vector<int>& rand_column_families,
+                                  const std::vector<int64_t>& rand_keys) {
+  // Note the column families chosen by `rand_column_families` cannot be
+  // dropped while the locks for `rand_keys` are held. So we should not have
+  // to worry about accessing those column families throughout this function.
+  assert(rand_column_families.size() == rand_keys.size());
+  std::string checkpoint_dir =
+      FLAGS_db + "/.checkpoint" + ToString(thread->tid);
+  Options tmp_opts(options_);
+  tmp_opts.listeners.clear();
+  DestroyDB(checkpoint_dir, tmp_opts);
+  Checkpoint* checkpoint = nullptr;
+  Status s = Checkpoint::Create(db_, &checkpoint);
+  if (s.ok()) {
+    s = checkpoint->CreateCheckpoint(checkpoint_dir);
+  }
+  std::vector<ColumnFamilyHandle*> cf_handles;
+  DB* checkpoint_db = nullptr;
+  if (s.ok()) {
+    delete checkpoint;
+    checkpoint = nullptr;
+    Options options(options_);
+    options.listeners.clear();
+    std::vector<ColumnFamilyDescriptor> cf_descs;
+    // TODO(ajkr): `column_family_names_` is not safe to access here when
+    // `clear_column_family_one_in != 0`. But we can't easily switch to
+    // `ListColumnFamilies` to get names because it won't necessarily give
+    // the same order as `column_family_names_`.
+    if (FLAGS_clear_column_family_one_in == 0) {
+      for (const auto& name : column_family_names_) {
+        cf_descs.emplace_back(name, ColumnFamilyOptions(options));
+      }
+      s = DB::OpenForReadOnly(DBOptions(options), checkpoint_dir, cf_descs,
+                              &cf_handles, &checkpoint_db);
+    }
+  }
+  if (checkpoint_db != nullptr) {
+    for (size_t i = 0; s.ok() && i < rand_column_families.size(); ++i) {
+      std::string key_str = Key(rand_keys[i]);
+      Slice key = key_str;
+      std::string value;
+      Status get_status = checkpoint_db->Get(
+          ReadOptions(), cf_handles[rand_column_families[i]], key, &value);
+      bool exists =
+          thread->shared->Exists(rand_column_families[i], rand_keys[i]);
+      if (get_status.ok()) {
+        if (!exists) {
+          s = Status::Corruption(
+              "key exists in checkpoint but not in original db");
+        }
+      } else if (get_status.IsNotFound()) {
+        if (exists) {
+          s = Status::Corruption(
+              "key exists in original db but not in checkpoint");
+        }
+      } else {
+        s = get_status;
+      }
+    }
+    for (auto cfh : cf_handles) {
+      delete cfh;
+    }
+    cf_handles.clear();
+    delete checkpoint_db;
+    checkpoint_db = nullptr;
+  }
+  DestroyDB(checkpoint_dir, tmp_opts);
+  if (!s.ok()) {
+    fprintf(stderr, "A checkpoint operation failed with: %s\n",
+            s.ToString().c_str());
+  }
+  return s;
+}
+#endif  // ROCKSDB_LITE
+
 void StressTest::TestCompactRange(ThreadState* thread, int64_t rand_key,
                                   const Slice& start_key,
                                   ColumnFamilyHandle* column_family) {
@@ -1256,82 +1332,6 @@ uint32_t StressTest::GetRangeHash(ThreadState* thread, const Snapshot* snapshot,
   }
   return crc;
 }
-
-Status StressTest::TestCheckpoint(ThreadState* thread,
-                                  const std::vector<int>& rand_column_families,
-                                  const std::vector<int64_t>& rand_keys) {
-  // Note the column families chosen by `rand_column_families` cannot be
-  // dropped while the locks for `rand_keys` are held. So we should not have
-  // to worry about accessing those column families throughout this function.
-  assert(rand_column_families.size() == rand_keys.size());
-  std::string checkpoint_dir =
-      FLAGS_db + "/.checkpoint" + ToString(thread->tid);
-  Options tmp_opts(options_);
-  tmp_opts.listeners.clear();
-  DestroyDB(checkpoint_dir, tmp_opts);
-  Checkpoint* checkpoint = nullptr;
-  Status s = Checkpoint::Create(db_, &checkpoint);
-  if (s.ok()) {
-    s = checkpoint->CreateCheckpoint(checkpoint_dir);
-  }
-  std::vector<ColumnFamilyHandle*> cf_handles;
-  DB* checkpoint_db = nullptr;
-  if (s.ok()) {
-    delete checkpoint;
-    checkpoint = nullptr;
-    Options options(options_);
-    options.listeners.clear();
-    std::vector<ColumnFamilyDescriptor> cf_descs;
-    // TODO(ajkr): `column_family_names_` is not safe to access here when
-    // `clear_column_family_one_in != 0`. But we can't easily switch to
-    // `ListColumnFamilies` to get names because it won't necessarily give
-    // the same order as `column_family_names_`.
-    if (FLAGS_clear_column_family_one_in == 0) {
-      for (const auto& name : column_family_names_) {
-        cf_descs.emplace_back(name, ColumnFamilyOptions(options));
-      }
-      s = DB::OpenForReadOnly(DBOptions(options), checkpoint_dir, cf_descs,
-                              &cf_handles, &checkpoint_db);
-    }
-  }
-  if (checkpoint_db != nullptr) {
-    for (size_t i = 0; s.ok() && i < rand_column_families.size(); ++i) {
-      std::string key_str = Key(rand_keys[i]);
-      Slice key = key_str;
-      std::string value;
-      Status get_status = checkpoint_db->Get(
-          ReadOptions(), cf_handles[rand_column_families[i]], key, &value);
-      bool exists =
-          thread->shared->Exists(rand_column_families[i], rand_keys[i]);
-      if (get_status.ok()) {
-        if (!exists) {
-          s = Status::Corruption(
-              "key exists in checkpoint but not in original db");
-        }
-      } else if (get_status.IsNotFound()) {
-        if (exists) {
-          s = Status::Corruption(
-              "key exists in original db but not in checkpoint");
-        }
-      } else {
-        s = get_status;
-      }
-    }
-    for (auto cfh : cf_handles) {
-      delete cfh;
-    }
-    cf_handles.clear();
-    delete checkpoint_db;
-    checkpoint_db = nullptr;
-  }
-  DestroyDB(checkpoint_dir, tmp_opts);
-  if (!s.ok()) {
-    fprintf(stderr, "A checkpoint operation failed with: %s\n",
-            s.ToString().c_str());
-  }
-  return s;
-}
-#endif  // ROCKSDB_LITE
 
 void StressTest::PrintEnv() const {
   fprintf(stdout, "RocksDB version           : %d.%d\n", kMajorVersion,
