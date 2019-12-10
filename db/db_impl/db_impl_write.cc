@@ -1254,7 +1254,7 @@ Status DBImpl::SwitchWAL(WriteContext* write_context) {
   for (const auto cfd : cfds) {
     cfd->Ref();
     status = SwitchMemtable(cfd, write_context);
-    cfd->Unref();
+    cfd->UnrefAndTryDelete();
     if (!status.ok()) {
       break;
     }
@@ -1333,7 +1333,7 @@ Status DBImpl::HandleWriteBufferFull(WriteContext* write_context) {
     }
     cfd->Ref();
     status = SwitchMemtable(cfd, write_context);
-    cfd->Unref();
+    cfd->UnrefAndTryDelete();
     if (!status.ok()) {
       break;
     }
@@ -1523,8 +1523,7 @@ Status DBImpl::TrimMemtableHistory(WriteContext* context) {
     assert(context->superversion_context.new_superversion.get() != nullptr);
     cfd->InstallSuperVersion(&context->superversion_context, &mutex_);
 
-    if (cfd->Unref()) {
-      delete cfd;
+    if (cfd->UnrefAndTryDelete()) {
       cfd = nullptr;
     }
   }
@@ -1556,8 +1555,7 @@ Status DBImpl::ScheduleFlushes(WriteContext* context) {
     if (!cfd->mem()->IsEmpty()) {
       status = SwitchMemtable(cfd, context);
     }
-    if (cfd->Unref()) {
-      delete cfd;
+    if (cfd->UnrefAndTryDelete()) {
       cfd = nullptr;
     }
     if (!status.ok()) {

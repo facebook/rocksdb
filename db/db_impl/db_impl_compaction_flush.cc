@@ -1617,12 +1617,9 @@ Status DBImpl::FlushMemTable(ColumnFamilyData* cfd,
     }
     s = WaitForFlushMemTables(cfds, flush_memtable_ids,
                               (flush_reason == FlushReason::kErrorRecovery));
+    InstrumentedMutexLock lock_guard(&mutex_);
     for (auto* tmp_cfd : cfds) {
-      if (tmp_cfd->Unref()) {
-        // Only one thread can reach here.
-        InstrumentedMutexLock lock_guard(&mutex_);
-        delete tmp_cfd;
-      }
+      tmp_cfd->UnrefAndTryDelete();
     }
   }
   TEST_SYNC_POINT("FlushMemTableFinished");
@@ -1681,7 +1678,7 @@ Status DBImpl::AtomicFlushMemTables(
       }
       cfd->Ref();
       s = SwitchMemtable(cfd, &context);
-      cfd->Unref();
+      cfd->UnrefAndTryDelete();
       if (!s.ok()) {
         break;
       }
@@ -1721,12 +1718,9 @@ Status DBImpl::AtomicFlushMemTables(
     }
     s = WaitForFlushMemTables(cfds, flush_memtable_ids,
                               (flush_reason == FlushReason::kErrorRecovery));
+    InstrumentedMutexLock lock_guard(&mutex_);
     for (auto* cfd : cfds) {
-      if (cfd->Unref()) {
-        // Only one thread can reach here.
-        InstrumentedMutexLock lock_guard(&mutex_);
-        delete cfd;
-      }
+      cfd->UnrefAndTryDelete();
     }
   }
   return s;
@@ -2207,16 +2201,13 @@ Status DBImpl::BackgroundFlush(bool* made_progress, JobContext* job_context,
     *reason = bg_flush_args[0].cfd_->GetFlushReason();
     for (auto& arg : bg_flush_args) {
       ColumnFamilyData* cfd = arg.cfd_;
-      if (cfd->Unref()) {
-        delete cfd;
+      if (cfd->UnrefAndTryDelete()) {
         arg.cfd_ = nullptr;
       }
     }
   }
   for (auto cfd : column_families_not_to_flush) {
-    if (cfd->Unref()) {
-      delete cfd;
-    }
+    cfd->UnrefAndTryDelete();
   }
   return status;
 }
@@ -2545,10 +2536,9 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
     // reference).
     // This will all happen under a mutex so we don't have to be afraid of
     // somebody else deleting it.
-    if (cfd->Unref()) {
+    if (cfd->UnrefAndTryDelete()) {
       // This was the last reference of the column family, so no need to
       // compact.
-      delete cfd;
       return Status::OK();
     }
 
