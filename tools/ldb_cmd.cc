@@ -1081,18 +1081,10 @@ void ManifestDumpCommand::DoCommand() {
     const std::string kManifestNamePrefix = "MANIFEST-";
     const std::string* matched_file = nullptr;
     for (const auto& fname : files) {
-      if (fname.compare(0, kManifestNamePrefix.size(), kManifestNamePrefix) ==
-          0) {
-        try {
-          unsigned long long file_num =
-              std::stoull(fname.substr(kManifestNamePrefix.size()));
-          (void)file_num;
-        } catch (const std::invalid_argument& /*ex*/) {
-          std::string err_msg("Ill-formed MANIFEST file name: ");
-          err_msg.append(fname);
-          exec_state_ = LDBCommandExecuteResult::Failed(err_msg);
-          return;
-        }
+      uint64_t file_num = 0;
+      FileType file_type = kLogFile;  // Just for initialization
+      if (ParseFileName(fname, &file_num, &file_type) &&
+          file_type == kDescriptorFile) {
         if (matched_file) {
           exec_state_ = LDBCommandExecuteResult::Failed(
               "Multiple MANIFEST files found; use --path to select one");
