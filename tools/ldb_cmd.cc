@@ -8,7 +8,6 @@
 #include "rocksdb/utilities/ldb_cmd.h"
 
 #include <cinttypes>
-#include <regex>
 
 #include "db/db_impl/db_impl.h"
 #include "db/dbformat.h"
@@ -1076,14 +1075,24 @@ void ManifestDumpCommand::DoCommand() {
       std::string err_msg = s.ToString();
       err_msg.append(": Failed to list the content of ");
       err_msg.append(db_path_);
-      exec_state_ = LDBCommandExecuteResult::Failed(err_msg.c_str());
+      exec_state_ = LDBCommandExecuteResult::Failed(err_msg);
       return;
     }
-    // This regex has to match DescriptorFilename() in filename.cc
-    std::regex manifest_fname_regex("MANIFEST-[0-9]{6}");
+    const std::string kManifestNamePrefix = "MANIFEST-";
     const std::string* matched_file = nullptr;
     for (const auto& fname : files) {
-      if (std::regex_match(fname, manifest_fname_regex)) {
+      if (fname.compare(0, kManifestNamePrefix.size(), kManifestNamePrefix) ==
+          0) {
+        try {
+          unsigned long long file_num =
+              std::stoull(fname.substr(kManifestNamePrefix.size()));
+          (void)file_num;
+        } catch (const std::invalid_argument& /*ex*/) {
+          std::string err_msg("Ill-formed MANIFEST file name: ");
+          err_msg.append(fname);
+          exec_state_ = LDBCommandExecuteResult::Failed(err_msg);
+          return;
+        }
         if (matched_file) {
           exec_state_ = LDBCommandExecuteResult::Failed(
               "Multiple MANIFEST files found; use --path to select one");
@@ -1096,7 +1105,7 @@ void ManifestDumpCommand::DoCommand() {
     if (!matched_file) {
       std::string err_msg("No MANIFEST found in ");
       err_msg.append(db_path_);
-      exec_state_ = LDBCommandExecuteResult::Failed(err_msg.c_str());
+      exec_state_ = LDBCommandExecuteResult::Failed(err_msg);
       return;
     }
     if (db_path_[db_path_.length() - 1] != '/') {
