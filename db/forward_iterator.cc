@@ -614,7 +614,7 @@ void ForwardIterator::RebuildIterators(bool refresh_sv) {
   Cleanup(refresh_sv);
   if (refresh_sv) {
     // New
-    sv_ = cfd_->GetReferencedSuperVersion(&(db_->mutex_));
+    sv_ = cfd_->GetReferencedSuperVersion(db_);
   }
   ReadRangeDelAggregator range_del_agg(&cfd_->internal_comparator(),
                                        kMaxSequenceNumber /* upper_bound */);
@@ -668,7 +668,7 @@ void ForwardIterator::RebuildIterators(bool refresh_sv) {
 void ForwardIterator::RenewIterators() {
   SuperVersion* svnew;
   assert(sv_);
-  svnew = cfd_->GetReferencedSuperVersion(&(db_->mutex_));
+  svnew = cfd_->GetReferencedSuperVersion(db_);
 
   if (mutable_iter_ != nullptr) {
     DeleteIterator(mutable_iter_, true /* is_arena */);

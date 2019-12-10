@@ -659,7 +659,7 @@ Status DBImpl::CompactRange(const CompactRangeOptions& options,
     // one/both sides of the interval are unbounded. But it requires more
     // changes to RangesOverlapWithMemtables.
     Range range(*begin, *end);
-    SuperVersion* super_version = cfd->GetReferencedSuperVersion(&mutex_);
+    SuperVersion* super_version = cfd->GetReferencedSuperVersion(this);
     cfd->RangesOverlapWithMemtables({range}, super_version, &flush_needed);
     CleanupSuperVersion(super_version);
   }
