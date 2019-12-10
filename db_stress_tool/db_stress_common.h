@@ -133,7 +133,7 @@ DECLARE_uint64(compaction_ttl);
 DECLARE_bool(allow_concurrent_memtable_write);
 DECLARE_bool(enable_write_thread_adaptive_yield);
 DECLARE_int32(reopen);
-DECLARE_int32(bloom_bits);
+DECLARE_double(bloom_bits);
 DECLARE_bool(use_block_based_filter);
 DECLARE_bool(partition_filters);
 DECLARE_int32(index_type);
@@ -340,6 +340,17 @@ extern inline std::string StringToHex(const std::string& str) {
   std::string result = "0x";
   result.append(Slice(str).ToString(true));
   return result;
+}
+
+// Unified output format for double parameters
+extern inline std::string FormatDoubleParam(double param) {
+  return std::to_string(param);
+}
+
+// Make sure that double parameter is a value we can reproduce by
+// re-inputting the value printed.
+extern inline void SanitizeDoubleParam(double* param) {
+  *param = std::atof(FormatDoubleParam(*param).c_str());
 }
 
 extern void PoolSizeChangeThread(void* v);

@@ -34,6 +34,10 @@ int db_stress_tool(int argc, char** argv) {
                   " [OPTIONS]...");
   ParseCommandLineFlags(&argc, &argv, true);
 
+  SanitizeDoubleParam(&FLAGS_bloom_bits);
+  SanitizeDoubleParam(&FLAGS_memtable_prefix_bloom_size_ratio);
+  SanitizeDoubleParam(&FLAGS_max_bytes_for_level_multiplier);
+
   if (FLAGS_statistics) {
     dbstats = rocksdb::CreateDBStatistics();
     if (FLAGS_enable_secondary) {
