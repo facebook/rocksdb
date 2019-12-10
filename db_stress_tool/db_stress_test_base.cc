@@ -613,6 +613,28 @@ void StressTest::OperateDb(ThreadState* thread) {
         }
       }
 
+      if (FLAGS_pause_background_one_in > 0 &&
+          thread->rand.OneIn(FLAGS_pause_background_one_in)) {
+        Status status = db_->PauseBackgroundWork();
+        if (!status.ok()) {
+          VerificationAbort(shared, "PauseBackgroundWork status not OK",
+                            status);
+        }
+        // To avoid stalling/deadlocking ourself in this thread, just
+        // sleep here during pause and let other threads do db operations.
+        // Sleep up to ~16 seconds (2**24 microseconds), but very skewed
+        // toward short pause. (1 chance in 25 of pausing >= 1s;
+        // 1 chance in 625 of pausing full 16s.)
+        int pwr2_micros =
+            std::min(thread->rand.Uniform(25), thread->rand.Uniform(25));
+        FLAGS_env->SleepForMicroseconds(1 << pwr2_micros);
+        status = db_->ContinueBackgroundWork();
+        if (!status.ok()) {
+          VerificationAbort(shared, "ContinueBackgroundWork status not OK",
+                            status);
+        }
+      }
+
       std::vector<int64_t> rand_keys = GenerateKeys(rand_key);
 
       if (FLAGS_ingest_external_file_one_in > 0 &&

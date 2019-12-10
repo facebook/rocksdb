@@ -50,6 +50,7 @@ default_params = {
     "nooverwritepercent": 1,
     "open_files": lambda : random.choice([-1, 500000]),
     "partition_filters": lambda: random.randint(0, 1),
+    "pause_background_one_in": 1000000,
     "prefixpercent": 5,
     "progress_reports": 0,
     "readpercent": 45,

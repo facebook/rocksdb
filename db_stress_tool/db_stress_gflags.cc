@@ -401,6 +401,10 @@ DEFINE_int32(flush_one_in, 0,
              "If non-zero, then Flush() will be called once for every N ops "
              "on average.  0 indicates calls to Flush() are disabled.");
 
+DEFINE_int32(pause_background_one_in, 0,
+             "If non-zero, then PauseBackgroundWork()+Continue will be called "
+             "once for every N ops on average.  0 disables.");
+
 DEFINE_int32(compact_range_width, 10000,
              "The width of the ranges passed to CompactRange().");
 
