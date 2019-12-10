@@ -1108,7 +1108,7 @@ void ManifestDumpCommand::DoCommand() {
               "Multiple MANIFEST files found; use --path to select one");
           return;
         } else {
-          matched_file = std::move(file_path);
+          matched_file.swap(fname);
         }
       }
     }
