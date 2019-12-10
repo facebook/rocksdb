@@ -63,7 +63,12 @@ endif()
 # third-party/folly is only validated to work on Linux and Windows for now.
 # So only turn it on there by default.
 if(CMAKE_SYSTEM_NAME MATCHES "Linux" OR CMAKE_SYSTEM_NAME MATCHES "Windows")
-  option(WITH_FOLLY_DISTRIBUTED_MUTEX "build with folly::DistributedMutex" ON)
+  if(MSVC AND MSVC_VERSION LESS 1910)
+    # Folly does not compile with MSVC older than VS2017
+    option(WITH_FOLLY_DISTRIBUTED_MUTEX "build with folly::DistributedMutex" OFF)
+  else()
+    option(WITH_FOLLY_DISTRIBUTED_MUTEX "build with folly::DistributedMutex" ON)
+  endif()
 else()
   option(WITH_FOLLY_DISTRIBUTED_MUTEX "build with folly::DistributedMutex" OFF)
 endif()
