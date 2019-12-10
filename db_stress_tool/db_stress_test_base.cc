@@ -37,7 +37,8 @@ StressTest::StressTest()
       }
     }
     Options options;
-    options.env = FLAGS_env;
+    // Remove files without preserving manfiest files
+    options.env = FLAGS_env->target();
     Status s = DestroyDB(FLAGS_db, options);
     if (!s.ok()) {
       fprintf(stderr, "Cannot destroy original db: %s\n", s.ToString().c_str());
@@ -1195,7 +1196,10 @@ Status StressTest::TestCheckpoint(ThreadState* thread,
       FLAGS_db + "/.checkpoint" + ToString(thread->tid);
   Options tmp_opts(options_);
   tmp_opts.listeners.clear();
+  tmp_opts.env = FLAGS_env->target();
+
   DestroyDB(checkpoint_dir, tmp_opts);
+
   Checkpoint* checkpoint = nullptr;
   Status s = Checkpoint::Create(db_, &checkpoint);
   if (s.ok()) {
@@ -1251,7 +1255,9 @@ Status StressTest::TestCheckpoint(ThreadState* thread,
     delete checkpoint_db;
     checkpoint_db = nullptr;
   }
+
   DestroyDB(checkpoint_dir, tmp_opts);
+
   if (!s.ok()) {
     fprintf(stderr, "A checkpoint operation failed with: %s\n",
             s.ToString().c_str());
@@ -1443,7 +1449,7 @@ void StressTest::Open() {
     std::vector<ColumnFamilyDescriptor> cf_descriptors;
     Status s = LoadOptionsFromFile(FLAGS_options_file, FLAGS_env, &db_options,
                                    &cf_descriptors);
-    db_options.env = FLAGS_env;
+    db_options.env = new DbStressEnvWrapper(FLAGS_env);
     if (!s.ok()) {
       fprintf(stderr, "Unable to load options file %s --- %s\n",
               FLAGS_options_file.c_str(), s.ToString().c_str());
