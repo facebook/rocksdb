@@ -11,6 +11,7 @@
 #ifdef GFLAGS
 #include "db_stress_tool/db_stress_common.h"
 #include "db_stress_tool/db_stress_driver.h"
+#include "rocksdb/convenience.h"
 
 namespace rocksdb {
 StressTest::StressTest()
@@ -485,7 +486,7 @@ void StressTest::OperateDb(ThreadState* thread) {
       }
       thread->shared->IncVotedReopen();
       if (thread->shared->AllVotedReopen()) {
-        thread->shared->GetStressTest()->Reopen();
+        thread->shared->GetStressTest()->Reopen(thread);
         thread->shared->GetCondVar()->SignalAll();
       } else {
         thread->shared->GetCondVar()->Wait();
@@ -1649,11 +1650,20 @@ void StressTest::Open() {
   }
 }
 
-void StressTest::Reopen() {
+void StressTest::Reopen(ThreadState* thread) {
+  if (thread->rand.OneIn(2)) {
+    CancelAllBackgroundWork(db_, static_cast<bool>(thread->rand.OneIn(2)));
+  }
+
   for (auto cf : column_families_) {
     delete cf;
   }
   column_families_.clear();
+
+  if (thread->rand.OneIn(2)) {
+    Status s = db_->Close();
+    assert(s.ok());
+  }
   delete db_;
   db_ = nullptr;
 #ifndef ROCKSDB_LITE

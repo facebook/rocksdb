@@ -159,7 +159,7 @@ class StressTest {
 
   void Open();
 
-  void Reopen();
+  void Reopen(ThreadState* thread);
 
   std::shared_ptr<Cache> cache_;
   std::shared_ptr<Cache> compressed_cache_;
