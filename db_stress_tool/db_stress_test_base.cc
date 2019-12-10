@@ -513,6 +513,14 @@ void StressTest::OperateDb(ThreadState* thread) {
 
       MaybeClearOneColumnFamily(thread);
 
+      if (FLAGS_sync_wal_one_in > 0 &&
+          thread->rand.Uniform(FLAGS_sync_wal_one_in) == 0) {
+        Status s = db_->SyncWAL();
+        if (!s.ok()) {
+          fprintf(stdout, "Unable to SyncWAL(): %s\n", s.ToString().c_str());
+        }
+      }
+
 #ifndef ROCKSDB_LITE
       if (FLAGS_compact_files_one_in > 0 &&
           thread->rand.Uniform(FLAGS_compact_files_one_in) == 0) {
