@@ -1731,7 +1731,7 @@ TEST_F(ExternalSSTFileTest, WithUnorderedWrite) {
 
   writer1.join();
   writer2.join();
-  ASSERT_EQ("v3", Get("bar"));
+  ASSERT_EQ(Get("bar"), "v3");
 
   SyncPoint::GetInstance()->DisableProcessing();
   SyncPoint::GetInstance()->ClearAllCallBacks();

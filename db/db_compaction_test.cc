@@ -1513,7 +1513,6 @@ TEST_F(DBCompactionTest, ManualCompactionWithUnorderedWrite) {
 
   Options options = CurrentOptions();
   options.unordered_write = true;
-  options.max_write_buffer_size_to_maintain = 0;
   DestroyAndReopen(options);
   Put("foo", "v1");
   ASSERT_OK(Flush());
@@ -1535,13 +1534,13 @@ TEST_F(DBCompactionTest, ManualCompactionWithUnorderedWrite) {
 
   writer1.join();
   writer2.join();
-  ASSERT_EQ("v2", Get("foo"));
+  ASSERT_EQ(Get("foo"), "v2");
 
   SyncPoint::GetInstance()->DisableProcessing();
   SyncPoint::GetInstance()->ClearAllCallBacks();
 
   Reopen(options);
-  ASSERT_EQ("v2", Get("foo"));
+  ASSERT_EQ(Get("foo"), "v2");
 }
 
 TEST_F(DBCompactionTest, DeleteFileRange) {
