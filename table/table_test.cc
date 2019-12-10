@@ -8,6 +8,7 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
 #include <stdio.h>
+#include <iostream>
 
 #include <algorithm>
 #include <iostream>
@@ -32,6 +33,7 @@
 #include "rocksdb/memtablerep.h"
 #include "rocksdb/perf_context.h"
 #include "rocksdb/slice_transform.h"
+#include "rocksdb/sst_file_checksum.h"
 #include "rocksdb/statistics.h"
 #include "rocksdb/write_buffer_manager.h"
 #include "table/block_based/block.h"
@@ -45,6 +47,7 @@
 #include "table/internal_iterator.h"
 #include "table/plain/plain_table_factory.h"
 #include "table/scoped_arena_iterator.h"
+#include "table/sst_file_checksum_crc32c.h"
 #include "table/sst_file_writer_collectors.h"
 #include "test_util/sync_point.h"
 #include "test_util/testharness.h"
@@ -1169,6 +1172,115 @@ class BlockBasedTableTest
 class PlainTableTest : public TableTest {};
 class TablePropertyTest : public testing::Test {};
 class BBTTailPrefetchTest : public TableTest {};
+
+// The helper class to test the file checksum
+class FileChecksumHelper {
+ public:
+  FileChecksumHelper(bool convert_to_internal_key = false)
+      : convert_to_internal_key_(convert_to_internal_key) {
+    sink_ = new test::StringSink();
+  }
+  ~FileChecksumHelper() {}
+
+  void CreateWriteableFile() {
+    file_writer_.reset(test::GetWritableFileWriter(sink_, "" /* don't care */));
+  }
+
+  WritableFileWriter* GetFileWriter() { return file_writer_.get(); }
+
+  Status ResetTableBuilder(std::unique_ptr<TableBuilder> builder) {
+    assert(builder != nullptr);
+    table_builder_ = std::move(builder);
+    return Status::OK();
+  }
+
+  void AddKVtoKVMap(int num_entries) {
+    Random rnd(test::RandomSeed());
+    for (int i = 0; i < num_entries; i++) {
+      std::string v;
+      test::RandomString(&rnd, 100, &v);
+      kv_map_[test::RandomKey(&rnd, 20)] = v;
+    }
+  }
+
+  Status WriteKVAndFlushTable() {
+    for (const auto kv : kv_map_) {
+      if (convert_to_internal_key_) {
+        ParsedInternalKey ikey(kv.first, kMaxSequenceNumber, kTypeValue);
+        std::string encoded;
+        AppendInternalKey(&encoded, ikey);
+        table_builder_->Add(encoded, kv.second);
+      } else {
+        table_builder_->Add(kv.first, kv.second);
+      }
+      EXPECT_TRUE(table_builder_->status().ok());
+    }
+    Status s = table_builder_->Finish();
+    file_writer_->Flush();
+    EXPECT_TRUE(s.ok()) << s.ToString();
+
+    EXPECT_EQ(sink_->contents().size(), table_builder_->FileSize());
+    return s;
+  }
+
+  uint32_t GetFileChecksum() { return table_builder_->GetFileChecksum(); }
+
+  const char* GetFileChecksumName() {
+    return table_builder_->GetFileChecksumName();
+  }
+
+  Status CalculateFileChecksum(const ImmutableCFOptions& ioptions,
+                               SstFileChecksum* file_checksum_cal,
+                               uint32_t* checksum) {
+    assert(file_checksum_cal != nullptr);
+    assert(ioptions.enable_sst_file_checksum != false);
+    cur_uniq_id_ = checksum_uniq_id_++;
+    test::StringSink* ss_rw = static_cast<test::StringSink*>(file_writer_->writable_file());
+    file_reader_.reset(test::GetRandomAccessFileReader(new test::StringSource(ss_rw->contents())));
+    std::cout<<"ss_rw size: "<<ss_rw->contents().size()<<"\n";
+    size_t scratch_size = 2048;
+    char scratch[scratch_size];
+    Slice result;
+    uint64_t offset = 0;
+    uint32_t tmp_checksum = 0;
+    bool first_read = true;
+    Status s;
+    s = file_reader_->Read(offset, scratch_size, &result, scratch, false);
+    if (!s.ok()) {
+      return s;
+    }
+    while (result.size() != 0) {
+        if (first_read) {
+          first_read = false;
+          tmp_checksum = file_checksum_cal->Value(scratch, result.size());
+        } else {
+          tmp_checksum =
+              file_checksum_cal->Extend(tmp_checksum, scratch, result.size());
+        }
+        offset += static_cast<uint64_t>(result.size());
+        s = file_reader_->Read(offset, scratch_size, &result, scratch, false);
+        if (!s.ok()) {
+            return s;
+        }
+    }
+    EXPECT_EQ(offset, table_builder_->FileSize());
+    *checksum = tmp_checksum;
+    return Status::OK();
+  }
+
+ private:
+  bool convert_to_internal_key_;
+  uint64_t cur_uniq_id_;
+  std::unique_ptr<WritableFileWriter> file_writer_;
+  std::unique_ptr<RandomAccessFileReader> file_reader_;
+  std::unique_ptr<TableBuilder> table_builder_;
+  stl_wrappers::KVMap kv_map_;
+  test::StringSink* sink_;
+
+  static uint64_t checksum_uniq_id_;
+};
+
+uint64_t FileChecksumHelper::checksum_uniq_id_ = 1;
 
 INSTANTIATE_TEST_CASE_P(FormatDef, BlockBasedTableTest,
                         testing::Values(test::kDefaultFormatVersion));
@@ -3027,6 +3139,91 @@ TEST_P(BlockBasedTableTest, MemoryAllocator) {
             custom_memory_allocator->numDeallocations.load());
   // make sure that allocations actually happened through the cache allocator
   EXPECT_GT(custom_memory_allocator->numAllocations.load(), 0);
+}
+
+// Test the file checksum of block based table
+TEST_P(BlockBasedTableTest, NoFileCheckSum) {
+  Options options;
+  ImmutableCFOptions ioptions(options);
+  MutableCFOptions moptions(options);
+  BlockBasedTableOptions table_options = GetBlockBasedTableOptions();
+  std::unique_ptr<InternalKeyComparator> comparator(
+      new InternalKeyComparator(BytewiseComparator()));
+  SequenceNumber largest_seqno = 0;
+  int level = 0;
+  std::vector<std::unique_ptr<IntTblPropCollectorFactory>>
+      int_tbl_prop_collector_factories;
+
+  if (largest_seqno != 0) {
+    // Pretend that it's an external file written by SstFileWriter.
+    int_tbl_prop_collector_factories.emplace_back(
+        new SstFileWriterPropertiesCollectorFactory(2 /* version */,
+                                                    0 /* global_seqno*/));
+  }
+  std::string column_family_name;
+
+  FileChecksumHelper f(true);
+  f.CreateWriteableFile();
+  std::unique_ptr<TableBuilder> builder;
+  builder.reset(ioptions.table_factory->NewTableBuilder(
+      TableBuilderOptions(ioptions, moptions, *comparator,
+                          &int_tbl_prop_collector_factories,
+                          options.compression, options.sample_for_compression,
+                          options.compression_opts, false /* skip_filters */,
+                          column_family_name, level),
+      TablePropertiesCollectorFactory::Context::kUnknownColumnFamily,
+      f.GetFileWriter()));
+  f.ResetTableBuilder(std::move(builder));
+  f.AddKVtoKVMap(1000);
+  f.WriteKVAndFlushTable();
+  ASSERT_STREQ(f.GetFileChecksumName(), "None");
+  EXPECT_EQ(f.GetFileChecksum(), 0);
+}
+
+TEST_P(BlockBasedTableTest, Crc32FileCheckSum) {
+  std::unique_ptr<SstFileChecksumCrc32c> file_checksum(
+      new SstFileChecksumCrc32c);
+  Options options;
+  options.enable_sst_file_checksum = true;
+  options.sst_file_checksum = std::move(file_checksum);
+  ImmutableCFOptions ioptions(options);
+  MutableCFOptions moptions(options);
+  BlockBasedTableOptions table_options = GetBlockBasedTableOptions();
+  std::unique_ptr<InternalKeyComparator> comparator(
+      new InternalKeyComparator(BytewiseComparator()));
+  SequenceNumber largest_seqno = 0;
+  int level = 0;
+  std::vector<std::unique_ptr<IntTblPropCollectorFactory>>
+      int_tbl_prop_collector_factories;
+
+  if (largest_seqno != 0) {
+    // Pretend that it's an external file written by SstFileWriter.
+    int_tbl_prop_collector_factories.emplace_back(
+        new SstFileWriterPropertiesCollectorFactory(2 /* version */,
+                                                    0 /* global_seqno*/));
+  }
+  std::string column_family_name;
+
+  FileChecksumHelper f(true);
+  f.CreateWriteableFile();
+  std::unique_ptr<TableBuilder> builder;
+  builder.reset(ioptions.table_factory->NewTableBuilder(
+      TableBuilderOptions(ioptions, moptions, *comparator,
+                          &int_tbl_prop_collector_factories,
+                          options.compression, options.sample_for_compression,
+                          options.compression_opts, false /* skip_filters */,
+                          column_family_name, level),
+      TablePropertiesCollectorFactory::Context::kUnknownColumnFamily,
+      f.GetFileWriter()));
+  f.ResetTableBuilder(std::move(builder));
+  f.AddKVtoKVMap(1000);
+  f.WriteKVAndFlushTable();
+  ASSERT_STREQ(f.GetFileChecksumName(), "SstFileChecksumCrc32c");
+  uint32_t checksum;
+  ASSERT_OK(f.CalculateFileChecksum(ioptions, options.sst_file_checksum.get(),
+                                    &checksum));
+  std::cout<<"original: "<<f.GetFileChecksum()<<" "<<f.GetFileChecksumName()<<" current:"<<checksum<<"\n";
+  EXPECT_EQ(f.GetFileChecksum(), checksum);
 }
 
 // Plain table is not supported in ROCKSDB_LITE
