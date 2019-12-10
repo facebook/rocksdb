@@ -17,7 +17,7 @@ class NonBatchedOpsStressTest : public StressTest {
 
   virtual ~NonBatchedOpsStressTest() {}
 
-  virtual void VerifyDb(ThreadState* thread) const {
+  void VerifyDb(ThreadState* thread) const override {
     ReadOptions options(FLAGS_verify_checksum, true);
     auto shared = thread->shared;
     const int64_t max_key = shared->GetMaxKey();
@@ -95,7 +95,7 @@ class NonBatchedOpsStressTest : public StressTest {
     }
   }
 
-  virtual void MaybeClearOneColumnFamily(ThreadState* thread) {
+  void MaybeClearOneColumnFamily(ThreadState* thread) override {
     if (FLAGS_clear_column_family_one_in != 0 && FLAGS_column_families > 1) {
       if (thread->rand.OneIn(FLAGS_clear_column_family_one_in)) {
         // drop column family and then create it again (can't drop default)
@@ -130,11 +130,11 @@ class NonBatchedOpsStressTest : public StressTest {
     }
   }
 
-  virtual bool ShouldAcquireMutexOnKey() const { return true; }
+  bool ShouldAcquireMutexOnKey() const override { return true; }
 
-  virtual Status TestGet(ThreadState* thread, const ReadOptions& read_opts,
-                         const std::vector<int>& rand_column_families,
-                         const std::vector<int64_t>& rand_keys) {
+  Status TestGet(ThreadState* thread, const ReadOptions& read_opts,
+                 const std::vector<int>& rand_column_families,
+                 const std::vector<int64_t>& rand_keys) override {
     auto cfh = column_families_[rand_column_families[0]];
     std::string key_str = Key(rand_keys[0]);
     Slice key = key_str;
@@ -153,10 +153,10 @@ class NonBatchedOpsStressTest : public StressTest {
     return s;
   }
 
-  virtual std::vector<Status> TestMultiGet(
+  std::vector<Status> TestMultiGet(
       ThreadState* thread, const ReadOptions& read_opts,
       const std::vector<int>& rand_column_families,
-      const std::vector<int64_t>& rand_keys) {
+      const std::vector<int64_t>& rand_keys) override {
     size_t num_keys = rand_keys.size();
     std::vector<std::string> key_str;
     std::vector<Slice> keys;
@@ -187,10 +187,9 @@ class NonBatchedOpsStressTest : public StressTest {
     return statuses;
   }
 
-  virtual Status TestPrefixScan(ThreadState* thread,
-                                const ReadOptions& read_opts,
-                                const std::vector<int>& rand_column_families,
-                                const std::vector<int64_t>& rand_keys) {
+  Status TestPrefixScan(ThreadState* thread, const ReadOptions& read_opts,
+                        const std::vector<int>& rand_column_families,
+                        const std::vector<int64_t>& rand_keys) override {
     auto cfh = column_families_[rand_column_families[0]];
     std::string key_str = Key(rand_keys[0]);
     Slice key = key_str;
@@ -222,11 +221,11 @@ class NonBatchedOpsStressTest : public StressTest {
     return s;
   }
 
-  virtual Status TestPut(ThreadState* thread, WriteOptions& write_opts,
-                         const ReadOptions& read_opts,
-                         const std::vector<int>& rand_column_families,
-                         const std::vector<int64_t>& rand_keys,
-                         char (&value)[100], std::unique_ptr<MutexLock>& lock) {
+  Status TestPut(ThreadState* thread, WriteOptions& write_opts,
+                 const ReadOptions& read_opts,
+                 const std::vector<int>& rand_column_families,
+                 const std::vector<int64_t>& rand_keys, char (&value)[100],
+                 std::unique_ptr<MutexLock>& lock) override {
     auto shared = thread->shared;
     int64_t max_key = shared->GetMaxKey();
     int64_t rand_key = rand_keys[0];
@@ -301,10 +300,10 @@ class NonBatchedOpsStressTest : public StressTest {
     return s;
   }
 
-  virtual Status TestDelete(ThreadState* thread, WriteOptions& write_opts,
-                            const std::vector<int>& rand_column_families,
-                            const std::vector<int64_t>& rand_keys,
-                            std::unique_ptr<MutexLock>& lock) {
+  Status TestDelete(ThreadState* thread, WriteOptions& write_opts,
+                    const std::vector<int>& rand_column_families,
+                    const std::vector<int64_t>& rand_keys,
+                    std::unique_ptr<MutexLock>& lock) override {
     int64_t rand_key = rand_keys[0];
     int rand_column_family = rand_column_families[0];
     auto shared = thread->shared;
@@ -377,10 +376,10 @@ class NonBatchedOpsStressTest : public StressTest {
     return s;
   }
 
-  virtual Status TestDeleteRange(ThreadState* thread, WriteOptions& write_opts,
-                                 const std::vector<int>& rand_column_families,
-                                 const std::vector<int64_t>& rand_keys,
-                                 std::unique_ptr<MutexLock>& lock) {
+  Status TestDeleteRange(ThreadState* thread, WriteOptions& write_opts,
+                         const std::vector<int>& rand_column_families,
+                         const std::vector<int64_t>& rand_keys,
+                         std::unique_ptr<MutexLock>& lock) override {
     // OPERATION delete range
     std::vector<std::unique_ptr<MutexLock>> range_locks;
     // delete range does not respect disallowed overwrites. the keys for
@@ -429,11 +428,11 @@ class NonBatchedOpsStressTest : public StressTest {
   }
 
 #ifdef ROCKSDB_LITE
-  virtual void TestIngestExternalFile(
+  void TestIngestExternalFile(
       ThreadState* /* thread */,
       const std::vector<int>& /* rand_column_families */,
       const std::vector<int64_t>& /* rand_keys */,
-      std::unique_ptr<MutexLock>& /* lock */) {
+      std::unique_ptr<MutexLock>& /* lock */) override {
     assert(false);
     fprintf(stderr,
             "RocksDB lite does not support "
@@ -441,9 +440,10 @@ class NonBatchedOpsStressTest : public StressTest {
     std::terminate();
   }
 #else
-  virtual void TestIngestExternalFile(
-      ThreadState* thread, const std::vector<int>& rand_column_families,
-      const std::vector<int64_t>& rand_keys, std::unique_ptr<MutexLock>& lock) {
+  void TestIngestExternalFile(ThreadState* thread,
+                              const std::vector<int>& rand_column_families,
+                              const std::vector<int64_t>& rand_keys,
+                              std::unique_ptr<MutexLock>& lock) override {
     const std::string sst_filename =
         FLAGS_db + "/." + ToString(thread->tid) + ".sst";
     Status s;
