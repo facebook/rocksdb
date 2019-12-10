@@ -2045,48 +2045,81 @@ TEST_P(DBBasicTestWithTimestampWithParam, PutAndGet) {
       10 /*bits_per_key*/, false /*use_block_based_builder*/));
   bbto.whole_key_filtering = true;
   options.table_factory.reset(NewBlockBasedTableFactory(bbto));
-  DestroyAndReopen(options);
-  CreateAndReopenWithCF({"pikachu"}, options);
-  size_t num_cfs = handles_.size();
-  ASSERT_EQ(2, num_cfs);
-  std::vector<std::string> write_ts_strs(kNumTimestamps);
-  std::vector<std::string> read_ts_strs(kNumTimestamps);
-  std::vector<Slice> write_ts_list;
-  std::vector<Slice> read_ts_list;
 
-  for (size_t i = 0; i != kNumTimestamps; ++i) {
-    write_ts_list.emplace_back(EncodeTimestamp(i * 2, 0, &write_ts_strs[i]));
-    read_ts_list.emplace_back(EncodeTimestamp(1 + i * 2, 0, &read_ts_strs[i]));
-    const Slice& write_ts = write_ts_list.back();
-    WriteOptions wopts;
-    wopts.timestamp = &write_ts;
-    for (int cf = 0; cf != static_cast<int>(num_cfs); ++cf) {
-      for (size_t j = 0; j != (kNumKeysPerFile - 1) / kNumTimestamps; ++j) {
-        ASSERT_OK(Put(cf, "key" + std::to_string(j),
-                      "value_" + std::to_string(j) + "_" + std::to_string(i),
-                      wopts));
-      }
-      if (!memtable_only) {
-        ASSERT_OK(Flush(cf));
-      }
-    }
+  std::vector<CompressionType> compression_types;
+  compression_types.push_back(kNoCompression);
+  if (Zlib_Supported()) {
+    compression_types.push_back(kZlibCompression);
   }
-  const auto& verify_db_func = [&]() {
-    for (size_t i = 0; i != kNumTimestamps; ++i) {
-      ReadOptions ropts;
-      ropts.timestamp = &read_ts_list[i];
-      for (int cf = 0; cf != static_cast<int>(num_cfs); ++cf) {
-        ColumnFamilyHandle* cfh = handles_[cf];
-        for (size_t j = 0; j != (kNumKeysPerFile - 1) / kNumTimestamps; ++j) {
-          std::string value;
-          ASSERT_OK(db_->Get(ropts, cfh, "key" + std::to_string(j), &value));
-          ASSERT_EQ("value_" + std::to_string(j) + "_" + std::to_string(i),
-                    value);
+#if LZ4_VERSION_NUMBER >= 10400  // r124+
+  compression_types.push_back(kLZ4Compression);
+  compression_types.push_back(kLZ4HCCompression);
+#endif  // LZ4_VERSION_NUMBER >= 10400
+  if (ZSTD_Supported()) {
+    compression_types.push_back(kZSTD);
+  }
+
+  // Switch compression dictionary on/off to check key extraction
+  // correctness in kBuffered state
+  std::vector<uint32_t> max_dict_bytes_list = {0, 1 << 14};  // 0 or 16KB
+
+  for (auto compression_type : compression_types) {
+    for (uint32_t max_dict_bytes : max_dict_bytes_list) {
+      options.compression = compression_type;
+      options.compression_opts.max_dict_bytes = max_dict_bytes;
+      if (compression_type == kZSTD) {
+        options.compression_opts.zstd_max_train_bytes = max_dict_bytes;
+      }
+      options.target_file_size_base = 1 << 26;  // 64MB
+
+      DestroyAndReopen(options);
+      CreateAndReopenWithCF({"pikachu"}, options);
+      size_t num_cfs = handles_.size();
+      ASSERT_EQ(2, num_cfs);
+      std::vector<std::string> write_ts_strs(kNumTimestamps);
+      std::vector<std::string> read_ts_strs(kNumTimestamps);
+      std::vector<Slice> write_ts_list;
+      std::vector<Slice> read_ts_list;
+
+      for (size_t i = 0; i != kNumTimestamps; ++i) {
+        write_ts_list.emplace_back(
+            EncodeTimestamp(i * 2, 0, &write_ts_strs[i]));
+        read_ts_list.emplace_back(
+            EncodeTimestamp(1 + i * 2, 0, &read_ts_strs[i]));
+        const Slice& write_ts = write_ts_list.back();
+        WriteOptions wopts;
+        wopts.timestamp = &write_ts;
+        for (int cf = 0; cf != static_cast<int>(num_cfs); ++cf) {
+          for (size_t j = 0; j != (kNumKeysPerFile - 1) / kNumTimestamps; ++j) {
+            ASSERT_OK(Put(
+                cf, "key" + std::to_string(j),
+                "value_" + std::to_string(j) + "_" + std::to_string(i), wopts));
+          }
+          if (!memtable_only) {
+            ASSERT_OK(Flush(cf));
+          }
         }
       }
+      const auto& verify_db_func = [&]() {
+        for (size_t i = 0; i != kNumTimestamps; ++i) {
+          ReadOptions ropts;
+          ropts.timestamp = &read_ts_list[i];
+          for (int cf = 0; cf != static_cast<int>(num_cfs); ++cf) {
+            ColumnFamilyHandle* cfh = handles_[cf];
+            for (size_t j = 0; j != (kNumKeysPerFile - 1) / kNumTimestamps;
+                 ++j) {
+              std::string value;
+              ASSERT_OK(
+                  db_->Get(ropts, cfh, "key" + std::to_string(j), &value));
+              ASSERT_EQ("value_" + std::to_string(j) + "_" + std::to_string(i),
+                        value);
+            }
+          }
+        }
+      };
+      verify_db_func();
     }
-  };
-  verify_db_func();
+  }
 }
 
 INSTANTIATE_TEST_CASE_P(Timestamp, DBBasicTestWithTimestampWithParam,
