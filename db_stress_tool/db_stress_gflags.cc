@@ -275,9 +275,9 @@ DEFINE_int32(reopen, 10, "Number of times database reopens");
 static const bool FLAGS_reopen_dummy __attribute__((__unused__)) =
     RegisterFlagValidator(&FLAGS_reopen, &ValidateInt32Positive);
 
-DEFINE_int32(bloom_bits, 10,
-             "Bloom filter bits per key. "
-             "Negative means use default settings.");
+DEFINE_double(bloom_bits, 10,
+              "Bloom filter bits per key. "
+              "Negative means use default settings.");
 
 DEFINE_bool(use_block_based_filter, false,
             "use block based filter"

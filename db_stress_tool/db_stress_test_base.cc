@@ -1310,6 +1310,8 @@ void StressTest::PrintEnv() const {
   fprintf(stdout, "Compression               : %s\n", compression.c_str());
   std::string checksum = ChecksumTypeToString(FLAGS_checksum_type_e);
   fprintf(stdout, "Checksum type             : %s\n", checksum.c_str());
+  fprintf(stdout, "Bloom bits / key          : %s\n",
+          FormatDoubleParam(FLAGS_bloom_bits).c_str());
   fprintf(stdout, "Max subcompactions        : %" PRIu64 "\n",
           FLAGS_subcompactions);
   fprintf(stdout, "Use MultiGet              : %s\n",
