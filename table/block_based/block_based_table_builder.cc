@@ -19,6 +19,7 @@
 #include <utility>
 
 #include "db/dbformat.h"
+#include "db/version_edit.h"
 #include "index_builder.h"
 
 #include "rocksdb/cache.h"
@@ -1232,7 +1233,7 @@ const char* BlockBasedTableBuilder::GetFileChecksumName() const {
   if (rep_->ioptions.enable_sst_file_checksum && rep_->ioptions.sst_file_checksum != nullptr) {
     return rep_->ioptions.sst_file_checksum->Name();
   } else {
-    return "";
+    return kUnknownFileChecksumName.c_str();
   }
 }
 
