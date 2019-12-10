@@ -1235,9 +1235,11 @@ class FileChecksumHelper {
     assert(file_checksum_cal != nullptr);
     assert(ioptions.enable_sst_file_checksum != false);
     cur_uniq_id_ = checksum_uniq_id_++;
-    test::StringSink* ss_rw = static_cast<test::StringSink*>(file_writer_->writable_file());
-    file_reader_.reset(test::GetRandomAccessFileReader(new test::StringSource(ss_rw->contents())));
-    std::cout<<"ss_rw size: "<<ss_rw->contents().size()<<"\n";
+    test::StringSink* ss_rw =
+        static_cast<test::StringSink*>(file_writer_->writable_file());
+    file_reader_.reset(test::GetRandomAccessFileReader(
+        new test::StringSource(ss_rw->contents())));
+    std::cout << "ss_rw size: " << ss_rw->contents().size() << "\n";
     size_t scratch_size = 2048;
     char scratch[scratch_size];
     Slice result;
@@ -1250,18 +1252,18 @@ class FileChecksumHelper {
       return s;
     }
     while (result.size() != 0) {
-        if (first_read) {
-          first_read = false;
-          tmp_checksum = file_checksum_cal->Value(scratch, result.size());
-        } else {
-          tmp_checksum =
-              file_checksum_cal->Extend(tmp_checksum, scratch, result.size());
-        }
-        offset += static_cast<uint64_t>(result.size());
-        s = file_reader_->Read(offset, scratch_size, &result, scratch, false);
-        if (!s.ok()) {
-            return s;
-        }
+      if (first_read) {
+        first_read = false;
+        tmp_checksum = file_checksum_cal->Value(scratch, result.size());
+      } else {
+        tmp_checksum =
+            file_checksum_cal->Extend(tmp_checksum, scratch, result.size());
+      }
+      offset += static_cast<uint64_t>(result.size());
+      s = file_reader_->Read(offset, scratch_size, &result, scratch, false);
+      if (!s.ok()) {
+        return s;
+      }
     }
     EXPECT_EQ(offset, table_builder_->FileSize());
     *checksum = tmp_checksum;
@@ -3142,7 +3144,7 @@ TEST_P(BlockBasedTableTest, MemoryAllocator) {
 }
 
 // Test the file checksum of block based table
-TEST_P(BlockBasedTableTest, NoFileCheckSum) {
+TEST_P(BlockBasedTableTest, NoFileChecksum) {
   Options options;
   ImmutableCFOptions ioptions(options);
   MutableCFOptions moptions(options);
@@ -3180,7 +3182,7 @@ TEST_P(BlockBasedTableTest, NoFileCheckSum) {
   EXPECT_EQ(f.GetFileChecksum(), 0);
 }
 
-TEST_P(BlockBasedTableTest, Crc32FileCheckSum) {
+TEST_P(BlockBasedTableTest, Crc32FileChecksum) {
   std::unique_ptr<SstFileChecksumCrc32c> file_checksum(
       new SstFileChecksumCrc32c);
   Options options;
@@ -3222,7 +3224,8 @@ TEST_P(BlockBasedTableTest, Crc32FileCheckSum) {
   uint32_t checksum;
   ASSERT_OK(f.CalculateFileChecksum(ioptions, options.sst_file_checksum.get(),
                                     &checksum));
-  std::cout<<"original: "<<f.GetFileChecksum()<<" "<<f.GetFileChecksumName()<<" current:"<<checksum<<"\n";
+  std::cout << "original: " << f.GetFileChecksum() << " "
+            << f.GetFileChecksumName() << " current:" << checksum << "\n";
   EXPECT_EQ(f.GetFileChecksum(), checksum);
 }
 
@@ -3283,6 +3286,80 @@ TEST_F(PlainTableTest, BasicPlainTableProperties) {
   ASSERT_EQ(26ul, props->num_entries);
   ASSERT_EQ(1ul, props->num_data_blocks);
 }
+
+TEST_F(PlainTableTest, NoFileChecksum) {
+  PlainTableOptions plain_table_options;
+  plain_table_options.user_key_len = 20;
+  plain_table_options.bloom_bits_per_key = 8;
+  plain_table_options.hash_table_ratio = 0;
+  PlainTableFactory factory(plain_table_options);
+
+  Options options;
+  const ImmutableCFOptions ioptions(options);
+  const MutableCFOptions moptions(options);
+  InternalKeyComparator ikc(options.comparator);
+  std::vector<std::unique_ptr<IntTblPropCollectorFactory>>
+      int_tbl_prop_collector_factories;
+  std::string column_family_name;
+  int unknown_level = -1;
+  FileChecksumHelper f(true);
+  f.CreateWriteableFile();
+
+  std::unique_ptr<TableBuilder> builder(factory.NewTableBuilder(
+      TableBuilderOptions(
+          ioptions, moptions, ikc, &int_tbl_prop_collector_factories,
+          kNoCompression, 0 /* sample_for_compression */, CompressionOptions(),
+          false /* skip_filters */, column_family_name, unknown_level),
+      TablePropertiesCollectorFactory::Context::kUnknownColumnFamily,
+      f.GetFileWriter()));
+  f.ResetTableBuilder(std::move(builder));
+  f.AddKVtoKVMap(1000);
+  f.WriteKVAndFlushTable();
+  ASSERT_STREQ(f.GetFileChecksumName(), "None");
+  EXPECT_EQ(f.GetFileChecksum(), 0);
+}
+
+TEST_F(PlainTableTest, Crc32FileChecksum) {
+  std::unique_ptr<SstFileChecksumCrc32c> file_checksum(
+      new SstFileChecksumCrc32c);
+  PlainTableOptions plain_table_options;
+  plain_table_options.user_key_len = 20;
+  plain_table_options.bloom_bits_per_key = 8;
+  plain_table_options.hash_table_ratio = 0;
+  PlainTableFactory factory(plain_table_options);
+
+  Options options;
+  options.enable_sst_file_checksum = true;
+  options.sst_file_checksum = std::move(file_checksum);
+  const ImmutableCFOptions ioptions(options);
+  const MutableCFOptions moptions(options);
+  InternalKeyComparator ikc(options.comparator);
+  std::vector<std::unique_ptr<IntTblPropCollectorFactory>>
+      int_tbl_prop_collector_factories;
+  std::string column_family_name;
+  int unknown_level = -1;
+  FileChecksumHelper f(true);
+  f.CreateWriteableFile();
+
+  std::unique_ptr<TableBuilder> builder(factory.NewTableBuilder(
+      TableBuilderOptions(
+          ioptions, moptions, ikc, &int_tbl_prop_collector_factories,
+          kNoCompression, 0 /* sample_for_compression */, CompressionOptions(),
+          false /* skip_filters */, column_family_name, unknown_level),
+      TablePropertiesCollectorFactory::Context::kUnknownColumnFamily,
+      f.GetFileWriter()));
+  f.ResetTableBuilder(std::move(builder));
+  f.AddKVtoKVMap(1000);
+  f.WriteKVAndFlushTable();
+  ASSERT_STREQ(f.GetFileChecksumName(), "SstFileChecksumCrc32c");
+  uint32_t checksum;
+  ASSERT_OK(f.CalculateFileChecksum(ioptions, options.sst_file_checksum.get(),
+                                    &checksum));
+  std::cout << "original: " << f.GetFileChecksum() << " "
+            << f.GetFileChecksumName() << " current:" << checksum << "\n";
+  EXPECT_EQ(f.GetFileChecksum(), checksum);
+}
+
 #endif  // !ROCKSDB_LITE
 
 TEST_F(GeneralTableTest, ApproximateOffsetOfPlain) {

@@ -13,6 +13,7 @@
 #include <map>
 
 #include "db/dbformat.h"
+#include "db/version_edit.h"
 #include "file/writable_file_writer.h"
 #include "rocksdb/comparator.h"
 #include "rocksdb/env.h"
@@ -145,8 +146,13 @@ void PlainTableBuilder::Add(const Slice& key, const Slice& value) {
   assert(offset_ <= std::numeric_limits<uint32_t>::max());
   auto prev_offset = static_cast<uint32_t>(offset_);
   // Write out the key
-  encoder_.AppendKey(key, file_, &offset_, meta_bytes_buf,
-                     &meta_bytes_buf_size);
+  uint32_t tmp_checksum = file_checksum_;
+  bool tmp_is_first_checksum = is_first_checksum_;
+  encoder_.AppendKey(key, file_, &offset_, meta_bytes_buf, &meta_bytes_buf_size,
+                     ioptions_.enable_sst_file_checksum, &tmp_checksum,
+                     ioptions_.sst_file_checksum, &tmp_is_first_checksum);
+  file_checksum_ = tmp_checksum;
+  is_first_checksum_ = tmp_is_first_checksum;
   if (SaveIndexInFile()) {
     index_builder_->AddKeyPrefix(GetPrefix(internal_key), prev_offset);
   }
@@ -340,6 +346,15 @@ void PlainTableBuilder::CalculateFileCheckSum(SstFileChecksum* checksum_cal,
     is_first_checksum_ = false;
   } else {
     file_checksum_ = checksum_cal->Extend(file_checksum_, data, n);
+  }
+}
+
+const char* PlainTableBuilder::GetFileChecksumName() const {
+  if (ioptions_.enable_sst_file_checksum &&
+      ioptions_.sst_file_checksum != nullptr) {
+    return ioptions_.sst_file_checksum->Name();
+  } else {
+    return kUnknownFileChecksumName.c_str();
   }
 }
 
