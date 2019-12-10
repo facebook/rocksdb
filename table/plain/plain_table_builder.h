@@ -89,7 +89,7 @@ class PlainTableBuilder: public TableBuilder {
 
   // Get the sst file checksum name. If sst file check sum is disabled, it
   // returns "".
-  const char* GetFileChecksumName() const override {return "";};
+  const char* GetFileChecksumName() const override;
 
   // Calculate the checksum for the data in the buffer
   void CalculateFileCheckSum(SstFileChecksum* checksum_cal, const char* data,
