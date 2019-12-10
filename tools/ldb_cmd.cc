@@ -1079,22 +1079,40 @@ void ManifestDumpCommand::DoCommand() {
       return;
     }
     const std::string kManifestNamePrefix = "MANIFEST-";
-    const std::string* matched_file = nullptr;
-    for (const auto& fname : files) {
+    std::string matched_file;
+#ifdef OS_WIN
+    const char kPathDelim = '\\';
+#else
+    const char kPathDelim = '/';
+#endif
+    for (const auto& file_path : files) {
+      // Some Env::GetChildren() return absolute paths. Some directories' path
+      // end with path delim, e.g. '/' or '\\'.
+      size_t pos = file_path.find_last_of(kPathDelim);
+      if (pos == file_path.size() - 1) {
+        continue;
+      }
+      std::string fname;
+      if (pos != std::string::npos) {
+        // Absolute path.
+        fname.assign(file_path, pos + 1, file_path.size() - pos - 1);
+      } else {
+        fname = file_path;
+      }
       uint64_t file_num = 0;
       FileType file_type = kLogFile;  // Just for initialization
       if (ParseFileName(fname, &file_num, &file_type) &&
           file_type == kDescriptorFile) {
-        if (matched_file) {
+        if (!matched_file.empty()) {
           exec_state_ = LDBCommandExecuteResult::Failed(
               "Multiple MANIFEST files found; use --path to select one");
           return;
         } else {
-          matched_file = &fname;
+          matched_file = std::move(file_path);
         }
       }
     }
-    if (!matched_file) {
+    if (matched_file.empty()) {
       std::string err_msg("No MANIFEST found in ");
       err_msg.append(db_path_);
       exec_state_ = LDBCommandExecuteResult::Failed(err_msg);
@@ -1103,7 +1121,7 @@ void ManifestDumpCommand::DoCommand() {
     if (db_path_[db_path_.length() - 1] != '/') {
       db_path_.append("/");
     }
-    manifestfile = db_path_ + *matched_file;
+    manifestfile = db_path_ + matched_file;
   }
 
   if (verbose_) {
