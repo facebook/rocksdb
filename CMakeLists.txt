@@ -83,8 +83,6 @@ else()
   option(WITH_FOLLY_DISTRIBUTED_MUTEX "build with folly::DistributedMutex" OFF)
 endif()
 
-# Defaults currently different for GFLAGS.
-#  We will address find_package work a little later
 include(CMakeDependentOption)
 CMAKE_DEPENDENT_OPTION(WITH_GFLAGS "build with GFlags" ON
   "NOT MSVC;NOT MINGW" OFF)
@@ -108,11 +106,8 @@ else()
   # No config file for this
   if(WITH_GFLAGS)
     find_package(gflags)
-    if(gflags_FOUND)
-      add_definitions(-DGFLAGS=1)
-      include_directories(${gflags_INCLUDE_DIR})
-      list(APPEND THIRDPARTY_LIBS ${gflags_LIBRARIES})
-    endif()
+    add_definitions(-DGFLAGS=1)
+    list(APPEND THIRDPARTY_LIBS gflags::gflags)
   endif()
 
   if(WITH_SNAPPY)
