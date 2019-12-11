@@ -105,8 +105,9 @@ else()
 
   # No config file for this
   if(WITH_GFLAGS)
-    find_package(gflags)
+    find_package(gflags REQUIRED)
     add_definitions(-DGFLAGS=1)
+    include_directories(${gflags_INCLUDE_DIR})
     list(APPEND THIRDPARTY_LIBS gflags::gflags)
   endif()
 
