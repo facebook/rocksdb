@@ -10,7 +10,6 @@
 #include <array>
 #include "db/dbformat.h"
 #include "rocksdb/slice.h"
-#include "rocksdb/sst_file_checksum.h"
 #include "table/plain/plain_table_reader.h"
 
 // The file contains three helper classes of PlainTable format,
@@ -46,9 +45,7 @@ class PlainTableKeyEncoder {
   // meta_bytes_buf_size: offset to append extra meta bytes. Will be updated
   //                      if meta_bytes_buf is updated.
   Status AppendKey(const Slice& key, WritableFileWriter* file, uint64_t* offset,
-                   char* meta_bytes_buf, size_t* meta_bytes_buf_size,
-                   const bool enable_checksum, uint32_t* checksum,
-                   SstFileChecksum* checksum_cal, bool* is_first_checksum);
+                   char* meta_bytes_buf, size_t* meta_bytes_buf_size);
 
   // Return actual encoding type to be picked
   EncodingType GetEncodingType() { return encoding_type_; }

@@ -19,7 +19,6 @@
 #include <utility>
 
 #include "db/dbformat.h"
-#include "db/version_edit.h"
 #include "index_builder.h"
 
 #include "rocksdb/cache.h"
@@ -725,11 +724,6 @@ void BlockBasedTableBuilder::WriteRawBlock(const Slice& block_contents,
   handle->set_size(block_contents.size());
   assert(r->status.ok());
   r->status = r->file->Append(block_contents);
-  if (r->ioptions.enable_sst_file_checksum &&
-      r->ioptions.sst_file_checksum != nullptr) {
-    CalculateFileCheckSum(r->ioptions.sst_file_checksum, block_contents.data(),
-                          block_contents.size());
-  }
   if (r->status.ok()) {
     char trailer[kBlockTrailerSize];
     trailer[0] = type;
@@ -774,11 +768,6 @@ void BlockBasedTableBuilder::WriteRawBlock(const Slice& block_contents,
         "BlockBasedTableBuilder::WriteRawBlock:TamperWithChecksum",
         static_cast<char*>(trailer));
     r->status = r->file->Append(Slice(trailer, kBlockTrailerSize));
-    if (r->ioptions.enable_sst_file_checksum &&
-        r->ioptions.sst_file_checksum != nullptr) {
-      CalculateFileCheckSum(r->ioptions.sst_file_checksum, trailer,
-                            kBlockTrailerSize);
-    }
     if (r->status.ok()) {
       r->status = InsertBlockInCache(block_contents, type, handle);
     }
@@ -1065,11 +1054,6 @@ void BlockBasedTableBuilder::WriteFooter(BlockHandle& metaindex_block_handle,
   footer.EncodeTo(&footer_encoding);
   assert(r->status.ok());
   r->status = r->file->Append(footer_encoding);
-  if (r->ioptions.enable_sst_file_checksum &&
-      r->ioptions.sst_file_checksum != nullptr) {
-    CalculateFileCheckSum(r->ioptions.sst_file_checksum, footer_encoding.data(),
-                          footer_encoding.size());
-  }
   if (r->status.ok()) {
     r->offset += footer_encoding.size();
   }
@@ -1212,29 +1196,6 @@ TableProperties BlockBasedTableBuilder::GetTableProperties() const {
     collector->Finish(&ret.user_collected_properties);
   }
   return ret;
-}
-
-uint32_t BlockBasedTableBuilder::GetFileChecksum() const {
-  return file_checksum_;
-}
-
-void BlockBasedTableBuilder::CalculateFileCheckSum(
-    SstFileChecksum* checksum_cal, const char* data, size_t n) {
-  assert(checksum_cal != nullptr);
-  if (is_first_checksum_) {
-    file_checksum_ = checksum_cal->Value(data, n);
-    is_first_checksum_ = false;
-  } else {
-    file_checksum_ = checksum_cal->Extend(file_checksum_, data, n);
-  }
-}
-
-const char* BlockBasedTableBuilder::GetFileChecksumName() const {
-  if (rep_->ioptions.enable_sst_file_checksum && rep_->ioptions.sst_file_checksum != nullptr) {
-    return rep_->ioptions.sst_file_checksum->Name();
-  } else {
-    return kUnknownFileChecksumName.c_str();
-  }
 }
 
 const std::string BlockBasedTable::kFilterBlockPrefix = "filter.";

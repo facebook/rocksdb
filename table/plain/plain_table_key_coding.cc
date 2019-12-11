@@ -80,11 +80,10 @@ inline Status PlainTableKeyDecoder::DecodeSize(uint32_t start_offset,
   }
 }
 
-Status PlainTableKeyEncoder::AppendKey(
-    const Slice& key, WritableFileWriter* file, uint64_t* offset,
-    char* meta_bytes_buf, size_t* meta_bytes_buf_size,
-    const bool enable_checksum, uint32_t* checksum,
-    SstFileChecksum* checksum_cal, bool* is_first_checksum) {
+Status PlainTableKeyEncoder::AppendKey(const Slice& key,
+                                       WritableFileWriter* file,
+                                       uint64_t* offset, char* meta_bytes_buf,
+                                       size_t* meta_bytes_buf_size) {
   ParsedInternalKey parsed_key;
   if (!ParseInternalKey(key, &parsed_key)) {
     return Status::Corruption(Slice());
@@ -103,14 +102,6 @@ Status PlainTableKeyEncoder::AppendKey(
       Status s = file->Append(Slice(key_size_buf, len));
       if (!s.ok()) {
         return s;
-      }
-      if (enable_checksum && checksum_cal != nullptr) {
-        if (*is_first_checksum) {
-          *is_first_checksum = false;
-          *checksum = checksum_cal->Value(key_size_buf, len);
-        } else {
-          *checksum = checksum_cal->Extend(*checksum, key_size_buf, len);
-        }
       }
       *offset += len;
     }
@@ -148,15 +139,6 @@ Status PlainTableKeyEncoder::AppendKey(
       if (!s.ok()) {
         return s;
       }
-      if (enable_checksum && checksum_cal != nullptr) {
-        if (*is_first_checksum) {
-          *is_first_checksum = false;
-          *checksum = checksum_cal->Value(size_bytes, size_bytes_pos);
-        } else {
-          *checksum =
-              checksum_cal->Extend(*checksum, size_bytes, size_bytes_pos);
-        }
-      }
       *offset += size_bytes_pos;
       key_to_write = Slice(key.data() + prefix_len, key.size() - prefix_len);
     }
@@ -172,31 +154,11 @@ Status PlainTableKeyEncoder::AppendKey(
     if (!s.ok()) {
       return s;
     }
-    if (enable_checksum && checksum_cal != nullptr) {
-      if (*is_first_checksum) {
-        *is_first_checksum = false;
-        *checksum =
-            checksum_cal->Value(key_to_write.data(), key_to_write.size() - 8);
-      } else {
-        *checksum = checksum_cal->Extend(*checksum, key_to_write.data(),
-                                         key_to_write.size() - 8);
-      }
-    }
     *offset += key_to_write.size() - 8;
     meta_bytes_buf[*meta_bytes_buf_size] = PlainTableFactory::kValueTypeSeqId0;
     *meta_bytes_buf_size += 1;
   } else {
     file->Append(key_to_write);
-    if (enable_checksum && checksum_cal != nullptr) {
-      if (*is_first_checksum) {
-        *is_first_checksum = false;
-        *checksum =
-            checksum_cal->Value(key_to_write.data(), key_to_write.size());
-      } else {
-        *checksum = checksum_cal->Extend(*checksum, key_to_write.data(),
-                                         key_to_write.size());
-      }
-    }
     *offset += key_to_write.size();
   }
 

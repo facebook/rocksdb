@@ -83,18 +83,6 @@ class PlainTableBuilder: public TableBuilder {
 
   bool SaveIndexInFile() const { return store_index_in_file_; }
 
-  // Get the checksum of the file. If file checksum is disabled, it returns 0.
-  // Caller of TableBuilder should specify it should be used
-  uint32_t GetFileChecksum() const override { return file_checksum_; };
-
-  // Get the sst file checksum name. If sst file check sum is disabled, it
-  // returns "".
-  const char* GetFileChecksumName() const override;
-
-  // Calculate the checksum for the data in the buffer
-  void CalculateFileCheckSum(SstFileChecksum* checksum_cal, const char* data,
-                             size_t n);
-
  private:
   Arena arena_;
   const ImmutableCFOptions& ioptions_;
@@ -146,12 +134,6 @@ class PlainTableBuilder: public TableBuilder {
   }
 
   bool IsTotalOrderMode() const { return (prefix_extractor_ == nullptr); }
-
-  // Check if it is the first round of calculate table checksum
-  bool is_first_checksum_ = true;
-
-  // Store checksum value. If checksum is disabled, its value is 0
-  uint32_t file_checksum_ = 0;
 };
 
 }  // namespace rocksdb
