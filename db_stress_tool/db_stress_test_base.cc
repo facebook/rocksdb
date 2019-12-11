@@ -1651,19 +1651,25 @@ void StressTest::Open() {
 }
 
 void StressTest::Reopen(ThreadState* thread) {
+#ifndef ROCKSDB_LITE
   if (thread->rand.OneIn(2)) {
     CancelAllBackgroundWork(db_, static_cast<bool>(thread->rand.OneIn(2)));
   }
+#else
+  (void) thread;
+#endif
 
   for (auto cf : column_families_) {
     delete cf;
   }
   column_families_.clear();
 
+#ifndef ROCKSDB_LITE
   if (thread->rand.OneIn(2)) {
     Status s = db_->Close();
     assert(s.ok());
   }
+#endif
   delete db_;
   db_ = nullptr;
 #ifndef ROCKSDB_LITE
