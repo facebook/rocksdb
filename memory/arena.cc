@@ -45,7 +45,7 @@ size_t OptimizeBlockSize(size_t block_size) {
 // This is run only once so we don't need to overoptimize.
 uint32_t CalcShift(size_t block_size) {
   for (uint32_t shift = 0; shift < 32; ++shift) {
-    if ((1lu << shift) >= block_size) {
+    if ((uint64_t(1) << shift) >= block_size) {
       return shift;
     }
   }

@@ -826,7 +826,7 @@ template <class Comparator, class NodePtr>
 typename InlineSkipList<Comparator, NodePtr>::Splice*
 InlineSkipList<Comparator, NodePtr>::AllocateSplice() {
   // size of prev_ and next_
-  size_t array_size = sizeof(NodePtr[kMaxHeight_ + 1]);
+  size_t array_size = sizeof(NodePtr) * (kMaxHeight_ + 1);
   char* raw = arena_->AllocateAligned(sizeof(Splice) + array_size * 2);
   Splice* splice = reinterpret_cast<Splice*>(raw);
   splice->height_ = 0;
