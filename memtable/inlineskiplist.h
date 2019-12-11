@@ -937,9 +937,9 @@ bool InlineSkipList<Comparator, NodePtr>::Insert(const char* key, Splice* splice
   Node* x = reinterpret_cast<Node*>(const_cast<char*>(key)) - 1;
   const DecodedKey key_decoded = compare_.decode_key(key);
   NodeRef ref = x->UnstashRef();
-  auto height = 1 +
-      (reinterpret_cast<const NodeRef*>(x) -
-       reinterpret_cast<NodeRef*>(GetNode(ref)));
+  int height = 1 +
+      static_cast<int>(reinterpret_cast<const NodeRef*>(x) -
+                           reinterpret_cast<NodeRef*>(GetNode(ref)));
   assert(height >= 1 && height <= kMaxHeight_);
   // Now the ref should reference the node, not the start of allocated memory
   NodeRef x_ref =
