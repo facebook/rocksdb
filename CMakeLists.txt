@@ -895,12 +895,16 @@ if(NOT WIN32 OR ROCKSDB_INSTALL_ON_WINDOWS)
   )
 endif()
 
+add_subdirectory(third-party/gtest-1.8.1/fused-src/gtest)
+add_library(testharness STATIC
+  test_util/testharness.cc)
+target_link_libraries(testharness gtest)
+
 # Tests are excluded from Release builds
 include(CMakeDependentOption)
 CMAKE_DEPENDENT_OPTION(WITH_TESTS "build with tests" ON
   "CMAKE_BUILD_TYPE STREQUAL Debug" OFF)
 if(WITH_TESTS)
-  add_subdirectory(third-party/gtest-1.8.1/fused-src/gtest)
   set(TESTS
         cache/cache_test.cc
         cache/lru_cache_test.cc
@@ -1078,15 +1082,14 @@ if(WITH_TESTS)
   set(TEST_EXES ${TESTS})
   foreach(sourcefile ${TEST_EXES})
       get_filename_component(exename ${sourcefile} NAME_WE)
-      add_executable(${CMAKE_PROJECT_NAME}_${exename}${ARTIFACT_SUFFIX} ${sourcefile}
-        $<TARGET_OBJECTS:testharness>)
+      add_executable(${CMAKE_PROJECT_NAME}_${exename}${ARTIFACT_SUFFIX} ${sourcefile})
       set_target_properties(${CMAKE_PROJECT_NAME}_${exename}${ARTIFACT_SUFFIX}
         PROPERTIES EXCLUDE_FROM_DEFAULT_BUILD_RELEASE 1
         EXCLUDE_FROM_DEFAULT_BUILD_MINRELEASE 1
         EXCLUDE_FROM_DEFAULT_BUILD_RELWITHDEBINFO 1
         OUTPUT_NAME ${exename}${ARTIFACT_SUFFIX}
         )
-      target_link_libraries(${CMAKE_PROJECT_NAME}_${exename}${ARTIFACT_SUFFIX} testutillib${ARTIFACT_SUFFIX} gtest ${ROCKSDB_LIB})
+      target_link_libraries(${CMAKE_PROJECT_NAME}_${exename}${ARTIFACT_SUFFIX} testutillib${ARTIFACT_SUFFIX} testharness gtest ${ROCKSDB_LIB})
       if(NOT "${exename}" MATCHES "db_sanity_test")
         add_test(NAME ${exename} COMMAND ${exename}${ARTIFACT_SUFFIX})
         add_dependencies(check ${CMAKE_PROJECT_NAME}_${exename}${ARTIFACT_SUFFIX})
@@ -1126,9 +1129,6 @@ endif()
 
 option(WITH_BENCHMARK_TOOLS "build with benchmarks" ON)
 if(WITH_BENCHMARK_TOOLS)
-  if(NOT TARGET gtest)
-    add_subdirectory(third-party/gtest-1.8.1/fused-src/gtest)
-  endif()
   set(BENCHMARKS
         cache/cache_bench.cc
         memtable/memtablerep_bench.cc
@@ -1137,7 +1137,6 @@ if(WITH_BENCHMARK_TOOLS)
         util/filter_bench.cc
         utilities/persistent_cache/hash_table_bench.cc
   )
-  add_library(testharness OBJECT test_util/testharness.cc)
   foreach(sourcefile ${BENCHMARKS})
     get_filename_component(exename ${sourcefile} NAME_WE)
     add_executable(${exename}${ARTIFACT_SUFFIX} ${sourcefile}
