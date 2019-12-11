@@ -36,7 +36,6 @@ class Arena : public Allocator {
   static const size_t kMinBlockSize;
   static const size_t kMaxBlockSize;
   static const size_t kRefShift = 2;
-  static const int64_t kMaxSize = 8UL << 30;
 
   // huge_page_size: if 0, don't use huge page TLB. If > 0 (should set to the
   // supported hugepage size of the system), block allocation will try huge
