@@ -52,14 +52,17 @@ class ConcurrentArena : public Allocator {
                         [=]() { return arena_.Allocate(bytes); });
   }
 
-  char* AllocateAligned(size_t bytes, size_t huge_page_size = 0,
-                        Logger* logger = nullptr) override {
+  char* AllocateAligned(
+      size_t bytes,
+      size_t huge_page_size = 0,
+      Logger* logger = nullptr,
+      size_t align_unit = alignof(max_align_t)) override {
     size_t rounded_up = ((bytes - 1) | (sizeof(void*) - 1)) + 1;
     assert(rounded_up >= bytes && rounded_up < bytes + sizeof(void*) &&
            (rounded_up % sizeof(void*)) == 0);
 
     return AllocateImpl(rounded_up, huge_page_size != 0 /*force_arena*/, [=]() {
-      return arena_.AllocateAligned(rounded_up, huge_page_size, logger);
+      return arena_.AllocateAligned(rounded_up, huge_page_size, logger, align_unit);
     });
   }
 
@@ -80,6 +83,26 @@ class ConcurrentArena : public Allocator {
 
   size_t IrregularBlockNum() const {
     return irregular_block_num_.load(std::memory_order_relaxed);
+  }
+
+  char* AllocateAlignedWithRef(size_t bytes, uint32_t* p_ref) {
+    size_t rounded_up = ((bytes - 1) | (sizeof(uint32_t) - 1)) + 1;
+    char* ptr = AllocateImpl(rounded_up, false /*force_arena*/, [=]() {
+      return arena_.AllocateAligned(rounded_up, 0, nullptr, sizeof(uint32_t));
+    });
+    *p_ref = arena_.GetRef(ptr);
+    return ptr;
+  }
+
+
+  // These are pass-through and not an overrides to save a little bit of speed
+  // and make sure the compiler can inline them all the way through.
+  inline uint32_t AdvanceRef(uint32_t ref, int offset) {
+    return arena_.AdvanceRef(ref, offset);
+  }
+
+  inline char* ConvertRef(uint32_t ref) {
+    return arena_.ConvertRef(ref);
   }
 
   size_t BlockSize() const override { return arena_.BlockSize(); }

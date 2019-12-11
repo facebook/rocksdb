@@ -11,7 +11,7 @@
 namespace rocksdb {
 namespace {
 class SkipListRep : public MemTableRep {
-  InlineSkipList<const MemTableRep::KeyComparator&> skip_list_;
+  InlineSkipList<const MemTableRep::KeyComparator&, RawNodePtr> skip_list_;
   const MemTableRep::KeyComparator& cmp_;
   const SliceTransform* transform_;
   const size_t lookahead_;
@@ -22,7 +22,7 @@ public:
                       Allocator* allocator, const SliceTransform* transform,
                       const size_t lookahead)
      : MemTableRep(allocator),
-       skip_list_(compare, allocator),
+       skip_list_(compare, static_cast<ConcurrentArena*>(allocator)),
        cmp_(compare),
        transform_(transform),
        lookahead_(lookahead) {}
@@ -99,13 +99,15 @@ public:
 
   // Iteration over the contents of a skip list
   class Iterator : public MemTableRep::Iterator {
-    InlineSkipList<const MemTableRep::KeyComparator&>::Iterator iter_;
+    InlineSkipList<const MemTableRep::KeyComparator&,
+                   RawNodePtr>::Iterator iter_;
 
    public:
     // Initialize an iterator over the specified list.
     // The returned iterator is not valid.
     explicit Iterator(
-        const InlineSkipList<const MemTableRep::KeyComparator&>* list)
+        const InlineSkipList<const MemTableRep::KeyComparator&,
+                             RawNodePtr>* list)
         : iter_(list) {}
 
     ~Iterator() override {}
@@ -251,8 +253,10 @@ public:
 
    private:
     const SkipListRep& rep_;
-    InlineSkipList<const MemTableRep::KeyComparator&>::Iterator iter_;
-    InlineSkipList<const MemTableRep::KeyComparator&>::Iterator prev_;
+    InlineSkipList<const MemTableRep::KeyComparator&,
+                   RawNodePtr>::Iterator iter_;
+    InlineSkipList<const MemTableRep::KeyComparator&,
+                   RawNodePtr>::Iterator prev_;
   };
 
   MemTableRep::Iterator* GetIterator(Arena* arena = nullptr) override {

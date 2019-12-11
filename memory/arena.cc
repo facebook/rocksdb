@@ -17,7 +17,6 @@
 #include "port/port.h"
 #include "rocksdb/env.h"
 #include "test_util/sync_point.h"
-
 namespace rocksdb {
 
 // MSVC complains that it is already defined since it is static in the header.
@@ -28,6 +27,7 @@ const size_t Arena::kInlineSize;
 const size_t Arena::kMinBlockSize = 4096;
 const size_t Arena::kMaxBlockSize = 2u << 30;
 static const int kAlignUnit = alignof(max_align_t);
+static const int64_t kMaxSize = 8L << 30;
 
 size_t OptimizeBlockSize(size_t block_size) {
   // Make sure block_size is in optimal range
@@ -42,10 +42,25 @@ size_t OptimizeBlockSize(size_t block_size) {
   return block_size;
 }
 
+// This is run only once so we don't need to overoptimize.
+uint32_t CalcShift(size_t block_size) {
+  for (uint32_t shift = 0; shift < 32; ++shift) {
+    if ((1u << shift) >= block_size) {
+      return shift;
+    }
+  }
+  // We should not have blocks this large
+  assert(false);
+  return 31;
+}
+
 Arena::Arena(size_t block_size, AllocTracker* tracker, size_t huge_page_size)
-    : kBlockSize(OptimizeBlockSize(block_size)), tracker_(tracker) {
+    : kBlockSize(OptimizeBlockSize(block_size)),
+      kBlockShift(CalcShift(std::max(kBlockSize, kInlineSize))),
+      tracker_(tracker) {
   assert(kBlockSize >= kMinBlockSize && kBlockSize <= kMaxBlockSize &&
          kBlockSize % kAlignUnit == 0);
+  assert(kBlockShift < 32 && kBlockShift > 10);
   TEST_SYNC_POINT_CALLBACK("Arena::Arena:0", const_cast<size_t*>(&kBlockSize));
   alloc_bytes_remaining_ = sizeof(inline_block_);
   blocks_memory_ += alloc_bytes_remaining_;
@@ -62,6 +77,9 @@ Arena::Arena(size_t block_size, AllocTracker* tracker, size_t huge_page_size)
   if (tracker_ != nullptr) {
     tracker_->Allocate(kInlineSize);
   }
+  blocks_ = nullptr;
+  blocks_capacity_ = 0;
+  blocks_size_ = 0;
 }
 
 Arena::~Arena() {
@@ -69,8 +87,11 @@ Arena::~Arena() {
     assert(tracker_->is_freed());
     tracker_->FreeMem();
   }
-  for (const auto& block : blocks_) {
-    delete[] block;
+  for (size_t i = 0; i < blocks_size_; ++i) {
+    delete[] blocks_[i];
+  }
+  for (const auto& block_vector : blocks_to_delete_) {
+    delete[] block_vector;
   }
 
 #ifdef MAP_HUGETLB
@@ -154,9 +175,9 @@ char* Arena::AllocateFromHugePage(size_t bytes) {
 }
 
 char* Arena::AllocateAligned(size_t bytes, size_t huge_page_size,
-                             Logger* logger) {
-  assert((kAlignUnit & (kAlignUnit - 1)) ==
-         0);  // Pointer size should be a power of 2
+                             Logger* logger, size_t align_unit) {
+  // Pointer size should be a power of 2
+  assert((align_unit & (align_unit - 1)) == 0);
 
 #ifdef MAP_HUGETLB
   if (huge_page_size > 0 && bytes > 0) {
@@ -182,8 +203,8 @@ char* Arena::AllocateAligned(size_t bytes, size_t huge_page_size,
 #endif
 
   size_t current_mod =
-      reinterpret_cast<uintptr_t>(aligned_alloc_ptr_) & (kAlignUnit - 1);
-  size_t slop = (current_mod == 0 ? 0 : kAlignUnit - current_mod);
+      reinterpret_cast<uintptr_t>(aligned_alloc_ptr_) & (align_unit - 1);
+  size_t slop = (current_mod == 0 ? 0 : align_unit - current_mod);
   size_t needed = bytes + slop;
   char* result;
   if (needed <= alloc_bytes_remaining_) {
@@ -194,20 +215,50 @@ char* Arena::AllocateAligned(size_t bytes, size_t huge_page_size,
     // AllocateFallback always returns aligned memory
     result = AllocateFallback(bytes, true /* aligned */);
   }
-  assert((reinterpret_cast<uintptr_t>(result) & (kAlignUnit - 1)) == 0);
+  assert((reinterpret_cast<uintptr_t>(result) & (align_unit - 1)) == 0);
   return result;
 }
 
+uint32_t Arena::GetRef(char* ptr) {
+  // We encode the block index in the upper part of the code, and the
+  // offset within the block in the lower part (of size kBlockAlign - 3).
+  // We save 3 trailing bits as they are always 0 for aligned pointers.
+  uint32_t offset;
+  uint32_t index;
+  if (ptr >= &inline_block_[0] && ptr <= &inline_block_[kInlineSize - 1]) {
+    index = 0;
+    offset = ptr - &inline_block_[0];
+    assert(offset < kInlineSize);
+  } else {
+    index = blocks_size_;
+    while (
+        index > 0 &&
+        !(ptr >= blocks_[index - 1] && ptr < blocks_[index - 1] + kBlockSize)) {
+      --index;
+    }
+    assert(index > 0);
+    offset = ptr - blocks_[index - 1];
+    assert(offset < kBlockSize);
+  }
+  uint32_t ref = (index << (kBlockShift - kRefShift)) + (offset >> kRefShift);
+  assert(ConvertRef(ref) == ptr);
+  return ref;
+}
+
 char* Arena::AllocateNewBlock(size_t block_bytes) {
-  // Reserve space in `blocks_` before allocating memory via new.
-  // Use `emplace_back()` instead of `reserve()` to let std::vector manage its
-  // own memory and do fewer reallocations.
-  //
-  // - If `emplace_back` throws, no memory leaks because we haven't called `new`
-  //   yet.
-  // - If `new` throws, no memory leaks because the vector will be cleaned up
-  //   via RAII.
-  blocks_.emplace_back(nullptr);
+  if (blocks_size_ >= blocks_capacity_) {
+    // Because lock-free reads may reference blocks_, we have to do a little
+    // bit of memory management ourselves. Nothing more sophisiticated than
+    // what std::vector would do, but we keep the old memory around.
+    const uint32_t new_blocks_capacity  = std::max(blocks_capacity_ * 2, 32u);
+    Blocks new_blocks = new char*[new_blocks_capacity];
+    blocks_to_delete_.push_back(new_blocks);
+    if (blocks_ != nullptr) {
+      memcpy(new_blocks, blocks_, blocks_capacity_ * sizeof(char*));
+    }
+    blocks_ = new_blocks;
+    blocks_capacity_ = new_blocks_capacity;
+  }
 
   char* block = new char[block_bytes];
   size_t allocated_size;
@@ -226,7 +277,8 @@ char* Arena::AllocateNewBlock(size_t block_bytes) {
   if (tracker_ != nullptr) {
     tracker_->Allocate(allocated_size);
   }
-  blocks_.back() = block;
+  blocks_[blocks_size_] = block;
+  blocks_size_++;
   return block;
 }
 

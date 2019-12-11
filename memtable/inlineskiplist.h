@@ -46,7 +46,7 @@
 #include <algorithm>
 #include <atomic>
 #include <type_traits>
-#include "memory/allocator.h"
+#include "memory/concurrent_arena.h"
 #include "port/likely.h"
 #include "port/port.h"
 #include "rocksdb/slice.h"
@@ -55,11 +55,85 @@
 
 namespace rocksdb {
 
-template <class Comparator>
+// The Node data type is more of a pointer into custom-managed memory than
+// a traditional C++ struct.  The key is stored in the bytes immediately
+// after the struct, and the next_ pointers for nodes with height > 1 are
+// stored immediately _before_ the struct.  This avoids the need to include
+// any pointer or sizing data, which reduces per-node memory overheads.
+template <typename NodeRef>
+struct ListNode {
+  // Stores the start of the node in the memory location normally used for
+  // next_[0]. It is not real NodeRef but the start of the node's allocated
+  // memory. This is used for passing data from AllocateKey to Insert.
+  void StashRef(const NodeRef ref) {
+    static_assert(sizeof(NodeRef) == sizeof(next_[0]));
+    next_[0] = ref;
+  }
+
+  // Retrieves the value passed to StashHeight.  Undefined after a call
+  // to SetNext or NoBarrier_SetNext.
+  NodeRef UnstashRef() const {
+    return next_[0];
+  }
+
+  const char* Key() const { return reinterpret_cast<const char*>(&next_[1]); }
+
+  // Accessors/mutators for links.  Wrapped in methods so we can add
+  // the appropriate barriers as necessary, and perform the necessary
+  // addressing trickery for storing links below the Node in memory.
+  NodeRef Next(int n) {
+    assert(n >= 0);
+    // Use an 'acquire load' so that we observe a fully initialized
+    // version of the returned Node.
+    return (&next_[0] - n)->load(std::memory_order_acquire);
+  }
+
+  void SetNext(int n, NodeRef ref) {
+    assert(n >= 0);
+    // Use a 'release store' so that anybody who reads through this
+    // pointer observes a fully initialized version of the inserted node.
+    (&next_[0] - n)->store(ref, std::memory_order_release);
+  }
+
+  bool CASNext(int n, NodeRef expected, NodeRef ref) {
+    assert(n >= 0);
+    return (&next_[0] - n)->compare_exchange_strong(expected, ref);
+  }
+
+  // No-barrier variants that can be safely used in a few locations.
+  NodeRef NoBarrier_Next(int n) {
+    assert(n >= 0);
+    return (&next_[0] - n)->load(std::memory_order_relaxed);
+  }
+
+  void NoBarrier_SetNext(int n, NodeRef ref) {
+    assert(n >= 0);
+    (&next_[0] - n)->store(ref, std::memory_order_relaxed);
+  }
+
+ private:
+  // next_[0] is the lowest level link (level 0).  Higher levels are
+  // stored _earlier_, so level 1 is at next_[-1].
+  std::atomic<NodeRef> next_[1];
+};
+
+// The NodePtr structure consists of a node pointer proper plus the 32-bit
+// reference to it in case we are using 32-bit references.
+// We use it exclusively in data structures that are not
+// supposed to be stored, and use it to avoid calling GetNode() more often than
+// necessary.
+
+template <class Comparator, class NodePtr>
 class InlineSkipList {
  private:
-  struct Node;
+  using NodeRef = typename NodePtr::NodeRef;
+  using Node = ListNode<NodeRef>;
   struct Splice;
+
+  // We store references to nodes as 32-bit entities. Inside we encode the
+  // block number where the node was allocated and the offset in the block.
+  // The allocating arena can convert a NodeRef to the raw pointer, but the
+  // back transformation is harder and we avoid it as much as possible.
 
  public:
   using DecodedKey = \
@@ -71,7 +145,7 @@ class InlineSkipList {
   // keys, and will allocate memory using "*allocator".  Objects allocated
   // in the allocator must remain allocated for the lifetime of the
   // skiplist object.
-  explicit InlineSkipList(Comparator cmp, Allocator* allocator,
+  explicit InlineSkipList(Comparator cmp, ConcurrentArena* allocator,
                           int32_t max_height = 12,
                           int32_t branching_factor = 4);
   // No copying allowed
@@ -187,7 +261,7 @@ class InlineSkipList {
 
    private:
     const InlineSkipList* list_;
-    Node* node_;
+    NodePtr ptr_;
     // Intentionally copyable
   };
 
@@ -196,10 +270,12 @@ class InlineSkipList {
   const uint16_t kBranching_;
   const uint32_t kScaledInverseBranching_;
 
-  Allocator* const allocator_;  // Allocator used for allocations of nodes
+  // Allocator used for allocations of nodes.
+  // It has to be an arena allocator to support our 32-bit node refs.
+  ConcurrentArena* const arena_;
   // Immutable after construction
   Comparator const compare_;
-  Node* const head_;
+  NodePtr head_;
 
   // Modified only by Insert().  Read racily by readers, but stale
   // values are ok.
@@ -210,13 +286,29 @@ class InlineSkipList {
   // non-concurrent insertion.
   Splice* seq_splice_;
 
+  inline Node* GetNode(NodeRef ref) const {
+    return NodePtr::GetNode(arena_, ref);
+  }
+
+  inline NodeRef AdvanceRef(NodeRef ref, int bytes) {
+    return NodePtr::AdvanceRef(arena_, ref, bytes);
+  }
+
+  inline NodePtr Next(const NodePtr& ptr, int n) const {
+    return NodePtr::FromRef(arena_, ptr.Next(n));
+  }
+
+  inline void PrefetchNode(NodeRef ref) const {
+    NodePtr::PrefetchNode(ref);
+  }
+
   inline int GetMaxHeight() const {
     return max_height_.load(std::memory_order_relaxed);
   }
 
   int RandomHeight();
 
-  Node* AllocateNode(size_t key_size, int height);
+  NodePtr AllocateNode(size_t key_size, int height);
 
   bool Equal(const char* a, const char* b) const {
     return (compare_(a, b) == 0);
@@ -228,29 +320,31 @@ class InlineSkipList {
 
   // Return true if key is greater than the data stored in "n".  Null n
   // is considered infinite.  n should not be head_.
-  bool KeyIsAfterNode(const char* key, Node* n) const;
-  bool KeyIsAfterNode(const DecodedKey& key, Node* n) const;
+  bool KeyIsAfterNode(const char* key, const NodePtr& n) const;
+  bool KeyIsAfterNode(const DecodedKey& key, const NodePtr& n) const;
 
   // Returns the earliest node with a key >= key.
   // Return nullptr if there is no such node.
-  Node* FindGreaterOrEqual(const char* key) const;
+  NodePtr FindGreaterOrEqual(const char* key) const;
 
   // Return the latest node with a key < key.
   // Return head_ if there is no such node.
   // Fills prev[level] with pointer to previous node at "level" for every
   // level in [0..max_height_-1], if prev is non-null.
-  Node* FindLessThan(const char* key, Node** prev = nullptr) const;
+  NodePtr FindLessThan(
+      const char* key, NodePtr* prev = nullptr) const;
 
   // Return the latest node with a key < key on bottom_level. Start searching
   // from root node on the level below top_level.
   // Fills prev[level] with pointer to previous node at "level" for every
   // level in [bottom_level..top_level-1], if prev is non-null.
-  Node* FindLessThan(const char* key, Node** prev, Node* root, int top_level,
-                     int bottom_level) const;
+  NodePtr FindLessThan(
+      const char* key, NodePtr* prev, const NodePtr& root,
+                       int top_level, int bottom_level) const;
 
   // Return the last node in the list.
   // Return head_ if list is empty.
-  Node* FindLast() const;
+  NodePtr FindLast() const;
 
   // Traverses a single level of the list, setting *out_prev to the last
   // node before the key and *out_next to the first node after. Assumes
@@ -258,9 +352,13 @@ class InlineSkipList {
   // point to a node that is before the key, and after should point to
   // a node that is after the key.  after should be nullptr if a good after
   // node isn't conveniently available.
-  template<bool prefetch_before>
-  void FindSpliceForLevel(const DecodedKey& key, Node* before, Node* after, int level,
-                          Node** out_prev, Node** out_next);
+  template <bool pretetch_before>
+  void FindSpliceForLevel(const DecodedKey& key,
+                          NodePtr before,
+                          const NodePtr& after,
+                          int level,
+                          NodePtr* out_prev,
+                          NodePtr* out_next);
 
   // Recomputes Splice levels from highest_level (inclusive) down to
   // lowest_level (inclusive).
@@ -270,8 +368,8 @@ class InlineSkipList {
 
 // Implementation details follow
 
-template <class Comparator>
-struct InlineSkipList<Comparator>::Splice {
+template <class Comparator, class NodePtr>
+struct InlineSkipList<Comparator, NodePtr>::Splice {
   // The invariant of a Splice is that prev_[i+1].key <= prev_[i].key <
   // next_[i].key <= next_[i+1].key for all i.  That means that if a
   // key is bracketed by prev_[i] and next_[i] then it is bracketed by
@@ -279,129 +377,205 @@ struct InlineSkipList<Comparator>::Splice {
   // next_[i] (it probably did at some point in the past, but intervening
   // or concurrent operations might have inserted nodes in between).
   int height_ = 0;
-  Node** prev_;
-  Node** next_;
+  NodePtr* prev_;
+  NodePtr* next_;
 };
 
-// The Node data type is more of a pointer into custom-managed memory than
-// a traditional C++ struct.  The key is stored in the bytes immediately
-// after the struct, and the next_ pointers for nodes with height > 1 are
-// stored immediately _before_ the struct.  This avoids the need to include
-// any pointer or sizing data, which reduces per-node memory overheads.
-template <class Comparator>
-struct InlineSkipList<Comparator>::Node {
-  // Stores the height of the node in the memory location normally used for
-  // next_[0].  This is used for passing data from AllocateKey to Insert.
-  void StashHeight(const int height) {
-    assert(sizeof(int) <= sizeof(next_[0]));
-    memcpy(static_cast<void*>(&next_[0]), &height, sizeof(int));
+struct BlockOffsetNodePtr {
+  using NodeRef = uint32_t;
+  using Node = ListNode<NodeRef>;
+  static constexpr NodeRef kNullRef = 0xFFFFFFFF;
+
+  BlockOffsetNodePtr() : node_(nullptr), ref_(kNullRef) {}
+
+  BlockOffsetNodePtr(Node* node, NodeRef ref) : node_(node), ref_(ref) {}
+
+  inline static Node* GetNode(ConcurrentArena* arena, NodeRef ref) {
+    return reinterpret_cast<Node*>(arena->ConvertRef(ref));
   }
 
-  // Retrieves the value passed to StashHeight.  Undefined after a call
-  // to SetNext or NoBarrier_SetNext.
-  int UnstashHeight() const {
-    int rv;
-    memcpy(&rv, &next_[0], sizeof(int));
-    return rv;
+  static void AllocateAlignedWithRef(
+      ConcurrentArena* arena, size_t size, char** raw, uint32_t* ref) {
+    *raw = arena->AllocateAlignedWithRef(size, ref);
   }
 
-  const char* Key() const { return reinterpret_cast<const char*>(&next_[1]); }
-
-  // Accessors/mutators for links.  Wrapped in methods so we can add
-  // the appropriate barriers as necessary, and perform the necessary
-  // addressing trickery for storing links below the Node in memory.
-  Node* Next(int n) {
-    assert(n >= 0);
-    // Use an 'acquire load' so that we observe a fully initialized
-    // version of the returned Node.
-    return ((&next_[0] - n)->load(std::memory_order_acquire));
+  inline static NodeRef AdvanceRef(
+      ConcurrentArena* arena, NodeRef ref, int bytes) {
+    return arena->AdvanceRef(ref, bytes);
   }
 
-  void SetNext(int n, Node* x) {
-    assert(n >= 0);
-    // Use a 'release store' so that anybody who reads through this
-    // pointer observes a fully initialized version of the inserted node.
-    (&next_[0] - n)->store(x, std::memory_order_release);
+  inline static BlockOffsetNodePtr FromRef(ConcurrentArena* arena, NodeRef ref) {
+    if (ref == kNullRef) {
+      return BlockOffsetNodePtr();
+    }
+    return BlockOffsetNodePtr(GetNode(arena, ref), ref);
   }
 
-  bool CASNext(int n, Node* expected, Node* x) {
-    assert(n >= 0);
-    return (&next_[0] - n)->compare_exchange_strong(expected, x);
+  static void PrefetchNode(NodeRef ref) {
+    // No prefetch in 32-bit mode
+    (void)ref;
   }
 
-  // No-barrier variants that can be safely used in a few locations.
-  Node* NoBarrier_Next(int n) {
-    assert(n >= 0);
-    return (&next_[0] - n)->load(std::memory_order_relaxed);
+  BlockOffsetNodePtr(const BlockOffsetNodePtr& ptr) {
+    node_ = ptr.node();
+    ref_ = ptr.ref();
   }
 
-  void NoBarrier_SetNext(int n, Node* x) {
-    assert(n >= 0);
-    (&next_[0] - n)->store(x, std::memory_order_relaxed);
+  BlockOffsetNodePtr& operator= (const BlockOffsetNodePtr& ptr) {
+    node_ = ptr.node();
+    ref_ = ptr.ref();
+    return *this;
   }
 
-  // Insert node after prev on specific level.
-  void InsertAfter(Node* prev, int level) {
-    // NoBarrier_SetNext() suffices since we will add a barrier when
-    // we publish a pointer to "this" in prev.
-    NoBarrier_SetNext(level, prev->NoBarrier_Next(level));
-    prev->SetNext(level, this);
+  bool operator== (const BlockOffsetNodePtr& ptr) const {
+      return node_ == ptr.node();
   }
+
+  bool operator!= (const BlockOffsetNodePtr& ptr) const {
+      return node_ != ptr.node();
+  }
+
+  NodeRef Next(int n) const {
+    return node_->Next(n);
+  }
+
+  const char* Key() const {
+    return node_->Key();
+  }
+
+  bool IsNull() const {
+    return node_ == nullptr;
+  }
+
+  Node* node() const { return node_; }
+  NodeRef ref() const {return ref_; }
 
  private:
-  // next_[0] is the lowest level link (level 0).  Higher levels are
-  // stored _earlier_, so level 1 is at next_[-1].
-  std::atomic<Node*> next_[1];
+  Node* node_;
+  NodeRef ref_;
 };
 
-template <class Comparator>
-inline InlineSkipList<Comparator>::Iterator::Iterator(
+struct RawNodePtr {
+  using NodeRef = void*;
+  using Node = ListNode<NodeRef>;
+  static constexpr NodeRef kNullRef = nullptr;
+
+  RawNodePtr() : node_(nullptr) {}
+
+  RawNodePtr(Node* node, NodeRef ref) : node_(node) {
+    assert(node == ref);
+  }
+
+  static void AllocateAlignedWithRef(
+      ConcurrentArena* arena, size_t size, char** raw, void** ref) {
+    *raw = arena->AllocateAligned(size);
+    *ref = reinterpret_cast<void*>(*raw);
+  }
+
+  static Node* GetNode(const ConcurrentArena* arena, NodeRef ref) {
+    (void)arena;
+    return reinterpret_cast<Node*>(ref);
+  }
+
+  inline static NodeRef AdvanceRef(
+      ConcurrentArena* arena, NodeRef ref, int bytes) {
+    (void)arena;
+    return reinterpret_cast<char*>(ref) + bytes;
+  }
+
+  static RawNodePtr FromRef(const ConcurrentArena* arena, NodeRef ref) {
+    (void)arena;
+    return RawNodePtr(reinterpret_cast<Node*>(ref), ref);
+  }
+
+  static void PrefetchNode(NodeRef ref) {
+    PREFETCH(ref, 0, 1);
+  }
+
+  RawNodePtr(const RawNodePtr& ptr) {
+    node_ = ptr.node();
+  }
+
+  RawNodePtr& operator= (const RawNodePtr& ptr) {
+    node_ = ptr.node();
+    return *this;
+  }
+
+  bool operator== (const RawNodePtr& ptr) const {
+      return node_ == ptr.node();
+  }
+
+  bool operator!= (const RawNodePtr& ptr) const {
+      return node_ != ptr.node();
+  }
+
+  NodeRef Next(int n) const {
+    return node_->Next(n);
+  }
+
+  const char* Key() const {
+    return node_->Key();
+  }
+
+  bool IsNull() const {
+    return node_ == nullptr;
+  }
+
+  Node* node() const { return node_; }
+  NodeRef ref() const {return node_; }
+
+ private:
+  Node* node_;
+};
+
+template <class Comparator, class NodePtr>
+inline InlineSkipList<Comparator, NodePtr>::Iterator::Iterator(
     const InlineSkipList* list) {
   SetList(list);
 }
 
-template <class Comparator>
-inline void InlineSkipList<Comparator>::Iterator::SetList(
+template <class Comparator, class NodePtr>
+inline void InlineSkipList<Comparator, NodePtr>::Iterator::SetList(
     const InlineSkipList* list) {
   list_ = list;
-  node_ = nullptr;
+  ptr_ = NodePtr();
 }
 
-template <class Comparator>
-inline bool InlineSkipList<Comparator>::Iterator::Valid() const {
-  return node_ != nullptr;
+template <class Comparator, class NodePtr>
+inline bool InlineSkipList<Comparator, NodePtr>::Iterator::Valid() const {
+  return !ptr_.IsNull();
 }
 
-template <class Comparator>
-inline const char* InlineSkipList<Comparator>::Iterator::key() const {
+template <class Comparator, class NodePtr>
+inline const char* InlineSkipList<Comparator, NodePtr>::Iterator::key() const {
   assert(Valid());
-  return node_->Key();
+  return ptr_.Key();
 }
 
-template <class Comparator>
-inline void InlineSkipList<Comparator>::Iterator::Next() {
+template <class Comparator, class NodePtr>
+inline void InlineSkipList<Comparator, NodePtr>::Iterator::Next() {
   assert(Valid());
-  node_ = node_->Next(0);
+  ptr_ = list_->Next(ptr_, 0);
 }
 
-template <class Comparator>
-inline void InlineSkipList<Comparator>::Iterator::Prev() {
+template <class Comparator, class NodePtr>
+inline void InlineSkipList<Comparator, NodePtr>::Iterator::Prev() {
   // Instead of using explicit "prev" links, we just search for the
   // last node that falls before key.
   assert(Valid());
-  node_ = list_->FindLessThan(node_->Key());
-  if (node_ == list_->head_) {
-    node_ = nullptr;
+  ptr_ = list_->FindLessThan(ptr_.Key());
+  if (ptr_ == list_->head_) {
+    ptr_ = NodePtr();
   }
 }
 
-template <class Comparator>
-inline void InlineSkipList<Comparator>::Iterator::Seek(const char* target) {
-  node_ = list_->FindGreaterOrEqual(target);
+template <class Comparator, class NodePtr>
+inline void InlineSkipList<Comparator, NodePtr>::Iterator::Seek(const char* target) {
+  ptr_ = list_->FindGreaterOrEqual(target);
 }
 
-template <class Comparator>
-inline void InlineSkipList<Comparator>::Iterator::SeekForPrev(
+template <class Comparator, class NodePtr>
+inline void InlineSkipList<Comparator, NodePtr>::Iterator::SeekForPrev(
     const char* target) {
   Seek(target);
   if (!Valid()) {
@@ -412,21 +586,21 @@ inline void InlineSkipList<Comparator>::Iterator::SeekForPrev(
   }
 }
 
-template <class Comparator>
-inline void InlineSkipList<Comparator>::Iterator::SeekToFirst() {
-  node_ = list_->head_->Next(0);
+template <class Comparator, class NodePtr>
+inline void InlineSkipList<Comparator, NodePtr>::Iterator::SeekToFirst() {
+  ptr_ = list_->Next(list_->head_, 0);
 }
 
-template <class Comparator>
-inline void InlineSkipList<Comparator>::Iterator::SeekToLast() {
-  node_ = list_->FindLast();
-  if (node_ == list_->head_) {
-    node_ = nullptr;
+template <class Comparator, class NodePtr>
+inline void InlineSkipList<Comparator, NodePtr>::Iterator::SeekToLast() {
+  ptr_ = list_->FindLast();
+  if (ptr_ == list_->head_) {
+    ptr_ = NodePtr();
   }
 }
 
-template <class Comparator>
-int InlineSkipList<Comparator>::RandomHeight() {
+template <class Comparator, class NodePtr>
+int InlineSkipList<Comparator, NodePtr>::RandomHeight() {
   auto rnd = Random::GetTLSInstance();
 
   // Increase height with probability 1 in kBranching
@@ -441,46 +615,45 @@ int InlineSkipList<Comparator>::RandomHeight() {
   return height;
 }
 
-template <class Comparator>
-bool InlineSkipList<Comparator>::KeyIsAfterNode(const char* key,
-                                                Node* n) const {
-  // nullptr n is considered infinite
+template <class Comparator, class NodePtr>
+bool InlineSkipList<Comparator, NodePtr>::KeyIsAfterNode(
+    const char* key, const NodePtr& n) const {
+  // null n is considered infinite
   assert(n != head_);
-  return (n != nullptr) && (compare_(n->Key(), key) < 0);
+  return (!n.IsNull()) && (compare_(n.Key(), key) < 0);
 }
 
-template <class Comparator>
-bool InlineSkipList<Comparator>::KeyIsAfterNode(const DecodedKey& key,
-                                                Node* n) const {
-  // nullptr n is considered infinite
+template <class Comparator, class NodePtr>
+bool InlineSkipList<Comparator, NodePtr>::KeyIsAfterNode(const DecodedKey& key,
+                                                const NodePtr& n) const {
+  // null n is considered infinite
   assert(n != head_);
-  return (n != nullptr) && (compare_(n->Key(), key) < 0);
+  return (!n.IsNull()) && (compare_(n.Key(), key) < 0);
 }
 
-template <class Comparator>
-typename InlineSkipList<Comparator>::Node*
-InlineSkipList<Comparator>::FindGreaterOrEqual(const char* key) const {
+template <class Comparator, class NodePtr> NodePtr
+InlineSkipList<Comparator, NodePtr>::FindGreaterOrEqual(const char* key) const {
   // Note: It looks like we could reduce duplication by implementing
   // this function as FindLessThan(key)->Next(0), but we wouldn't be able
   // to exit early on equality and the result wouldn't even be correct.
   // A concurrent insert might occur after FindLessThan(key) but before
   // we get a chance to call Next(0).
-  Node* x = head_;
+  NodePtr x = head_;
   int level = GetMaxHeight() - 1;
-  Node* last_bigger = nullptr;
+  NodePtr last_bigger = NodePtr();
   const DecodedKey key_decoded = compare_.decode_key(key);
   while (true) {
-    Node* next = x->Next(level);
-    if (next != nullptr) {
-      PREFETCH(next->Next(level), 0, 1);
+    NodePtr next = Next(x, level);
+    if (!next.IsNull()) {
+      PrefetchNode(next.Next(level));
     }
     // Make sure the lists are sorted
-    assert(x == head_ || next == nullptr || KeyIsAfterNode(next->Key(), x));
+    assert(x == head_ || next.IsNull() || KeyIsAfterNode(next.Key(), x));
     // Make sure we haven't overshot during our search
     assert(x == head_ || KeyIsAfterNode(key_decoded, x));
-    int cmp = (next == nullptr || next == last_bigger)
+    int cmp = (next.IsNull() || next == last_bigger)
                   ? 1
-                  : compare_(next->Key(), key_decoded);
+                  : compare_(next.Key(), key_decoded);
     if (cmp == 0 || (cmp > 0 && level == 0)) {
       return next;
     } else if (cmp < 0) {
@@ -494,34 +667,35 @@ InlineSkipList<Comparator>::FindGreaterOrEqual(const char* key) const {
   }
 }
 
-template <class Comparator>
-typename InlineSkipList<Comparator>::Node*
-InlineSkipList<Comparator>::FindLessThan(const char* key, Node** prev) const {
+template <class Comparator, class NodePtr> NodePtr
+InlineSkipList<Comparator, NodePtr>::FindLessThan(
+   const char* key, NodePtr* prev) const {
   return FindLessThan(key, prev, head_, GetMaxHeight(), 0);
 }
 
-template <class Comparator>
-typename InlineSkipList<Comparator>::Node*
-InlineSkipList<Comparator>::FindLessThan(const char* key, Node** prev,
-                                         Node* root, int top_level,
+template <class Comparator, class NodePtr> NodePtr
+InlineSkipList<Comparator, NodePtr>::FindLessThan(const char* key,
+                                         NodePtr* prev,
+                                         const NodePtr& root,
+                                         int top_level,
                                          int bottom_level) const {
   assert(top_level > bottom_level);
   int level = top_level - 1;
-  Node* x = root;
+  NodePtr x = root;
   // KeyIsAfter(key, last_not_after) is definitely false
-  Node* last_not_after = nullptr;
+  NodePtr last_not_after = NodePtr();
   const DecodedKey key_decoded = compare_.decode_key(key);
   while (true) {
-    assert(x != nullptr);
-    Node* next = x->Next(level);
-    if (next != nullptr) {
-      PREFETCH(next->Next(level), 0, 1);
+    assert(!x.IsNull());
+    NodePtr next = Next(x, level);
+    if (!next.IsNull()) {
+      PrefetchNode(next.Next(level));
     }
-    assert(x == head_ || next == nullptr || KeyIsAfterNode(next->Key(), x));
+    assert(x == head_ || next.IsNull()|| KeyIsAfterNode(next.Key(), x));
     assert(x == head_ || KeyIsAfterNode(key_decoded, x));
     if (next != last_not_after && KeyIsAfterNode(key_decoded, next)) {
       // Keep searching in this list
-      assert(next != nullptr);
+      assert(!next.IsNull());
       x = next;
     } else {
       if (prev != nullptr) {
@@ -538,14 +712,13 @@ InlineSkipList<Comparator>::FindLessThan(const char* key, Node** prev,
   }
 }
 
-template <class Comparator>
-typename InlineSkipList<Comparator>::Node*
-InlineSkipList<Comparator>::FindLast() const {
-  Node* x = head_;
+template <class Comparator, class NodePtr> NodePtr
+InlineSkipList<Comparator, NodePtr>::FindLast() const {
+  NodePtr x = head_;
   int level = GetMaxHeight() - 1;
   while (true) {
-    Node* next = x->Next(level);
-    if (next == nullptr) {
+    NodePtr next = Next(x, level);
+    if (next.IsNull()) {
       if (level == 0) {
         return x;
       } else {
@@ -558,20 +731,20 @@ InlineSkipList<Comparator>::FindLast() const {
   }
 }
 
-template <class Comparator>
-uint64_t InlineSkipList<Comparator>::EstimateCount(const char* key) const {
+template <class Comparator, class NodePtr>
+uint64_t InlineSkipList<Comparator, NodePtr>::EstimateCount(const char* key) const {
   uint64_t count = 0;
 
-  Node* x = head_;
+  NodePtr x = head_;
   int level = GetMaxHeight() - 1;
   const DecodedKey key_decoded = compare_.decode_key(key);
   while (true) {
-    assert(x == head_ || compare_(x->Key(), key_decoded) < 0);
-    Node* next = x->Next(level);
-    if (next != nullptr) {
-      PREFETCH(next->Next(level), 0, 1);
+    assert(x == head_ || compare_(x.Key(), key_decoded) < 0);
+    NodePtr next = Next(x, level);
+    if (!next.IsNull()) {
+      PrefetchNode(next.Next(level));
     }
-    if (next == nullptr || compare_(next->Key(), key_decoded) >= 0) {
+    if (next.IsNull() || compare_(next.Key(), key_decoded) >= 0) {
       if (level == 0) {
         return count;
       } else {
@@ -586,100 +759,110 @@ uint64_t InlineSkipList<Comparator>::EstimateCount(const char* key) const {
   }
 }
 
-template <class Comparator>
-InlineSkipList<Comparator>::InlineSkipList(const Comparator cmp,
-                                           Allocator* allocator,
+template <class Comparator, class NodePtr>
+InlineSkipList<Comparator, NodePtr>::InlineSkipList(const Comparator cmp,
+                                           ConcurrentArena* arena,
                                            int32_t max_height,
                                            int32_t branching_factor)
     : kMaxHeight_(static_cast<uint16_t>(max_height)),
       kBranching_(static_cast<uint16_t>(branching_factor)),
       kScaledInverseBranching_((Random::kMaxNext + 1) / kBranching_),
-      allocator_(allocator),
+      arena_(arena),
       compare_(cmp),
       head_(AllocateNode(0, max_height)),
       max_height_(1),
       seq_splice_(AllocateSplice()) {
+  assert(arena_ != nullptr);
   assert(max_height > 0 && kMaxHeight_ == static_cast<uint32_t>(max_height));
   assert(branching_factor > 1 &&
          kBranching_ == static_cast<uint32_t>(branching_factor));
   assert(kScaledInverseBranching_ > 0);
 
   for (int i = 0; i < kMaxHeight_; ++i) {
-    head_->SetNext(i, nullptr);
+    head_.node()->SetNext(i, NodePtr::kNullRef);
   }
 }
 
-template <class Comparator>
-char* InlineSkipList<Comparator>::AllocateKey(size_t key_size) {
-  return const_cast<char*>(AllocateNode(key_size, RandomHeight())->Key());
+template <class Comparator, class NodePtr>
+char* InlineSkipList<Comparator, NodePtr>::AllocateKey(size_t key_size) {
+  return const_cast<char*>(
+      AllocateNode(key_size, RandomHeight()).Key());
 }
 
-template <class Comparator>
-typename InlineSkipList<Comparator>::Node*
-InlineSkipList<Comparator>::AllocateNode(size_t key_size, int height) {
-  auto prefix = sizeof(std::atomic<Node*>) * (height - 1);
+template <class Comparator, class NodePtr> NodePtr
+InlineSkipList<Comparator, NodePtr>::AllocateNode(size_t key_size, int height) {
+  auto prefix = sizeof(NodeRef) * (height - 1);
 
   // prefix is space for the height - 1 pointers that we store before
   // the Node instance (next_[-(height - 1) .. -1]).  Node starts at
   // raw + prefix, and holds the bottom-mode (level 0) skip list pointer
   // next_[0].  key_size is the bytes for the key, which comes just after
   // the Node.
-  char* raw = allocator_->AllocateAligned(prefix + sizeof(Node) + key_size);
-  Node* x = reinterpret_cast<Node*>(raw + prefix);
+  NodeRef mem_ref = NodePtr::kNullRef;
+  char* raw = nullptr;
+  NodePtr::AllocateAlignedWithRef(
+      arena_, prefix + sizeof(Node) + key_size, &raw, &mem_ref);
+  Node* const x = reinterpret_cast<Node*>(raw + prefix);
 
   // Once we've linked the node into the skip list we don't actually need
   // to know its height, because we can implicitly use the fact that we
   // traversed into a node at level h to known that h is a valid level
   // for that node.  We need to convey the height to the Insert step,
   // however, so that it can perform the proper links.  Since we're not
-  // using the pointers at the moment, StashHeight temporarily borrow
+  // using the pointers at the moment, StashRef temporarily borrow
   // storage from next_[0] for that purpose.
-  x->StashHeight(height);
-  return x;
+  x->StashRef(mem_ref);
+  const NodeRef x_ref = AdvanceRef(mem_ref, prefix);
+  assert(GetNode(x_ref) == x);
+  assert(GetNode(x_ref) == x);
+  assert(height ==
+      1 + (reinterpret_cast<const NodeRef*>(x) -
+           reinterpret_cast<NodeRef*>(GetNode(mem_ref))));
+  return NodePtr(x, x_ref);
 }
 
-template <class Comparator>
-typename InlineSkipList<Comparator>::Splice*
-InlineSkipList<Comparator>::AllocateSplice() {
+template <class Comparator, class NodePtr>
+typename InlineSkipList<Comparator, NodePtr>::Splice*
+InlineSkipList<Comparator, NodePtr>::AllocateSplice() {
   // size of prev_ and next_
-  size_t array_size = sizeof(Node*) * (kMaxHeight_ + 1);
-  char* raw = allocator_->AllocateAligned(sizeof(Splice) + array_size * 2);
+  size_t array_size = sizeof(NodePtr[kMaxHeight_ + 1]);
+  char* raw = arena_->AllocateAligned(sizeof(Splice) + array_size * 2);
   Splice* splice = reinterpret_cast<Splice*>(raw);
   splice->height_ = 0;
-  splice->prev_ = reinterpret_cast<Node**>(raw + sizeof(Splice));
-  splice->next_ = reinterpret_cast<Node**>(raw + sizeof(Splice) + array_size);
+  splice->prev_ = reinterpret_cast<NodePtr*>(raw + sizeof(Splice));
+  splice->next_ = reinterpret_cast<NodePtr*>(raw + sizeof(Splice) + array_size);
   return splice;
 }
 
-template <class Comparator>
-typename InlineSkipList<Comparator>::Splice*
-InlineSkipList<Comparator>::AllocateSpliceOnHeap() {
-  size_t array_size = sizeof(Node*) * (kMaxHeight_ + 1);
+template <class Comparator, class NodePtr>
+typename InlineSkipList<Comparator, NodePtr>::Splice*
+InlineSkipList<Comparator, NodePtr>::AllocateSpliceOnHeap() {
+  size_t array_size = sizeof(NodePtr[kMaxHeight_ + 1]);
   char* raw = new char[sizeof(Splice) + array_size * 2];
   Splice* splice = reinterpret_cast<Splice*>(raw);
   splice->height_ = 0;
-  splice->prev_ = reinterpret_cast<Node**>(raw + sizeof(Splice));
-  splice->next_ = reinterpret_cast<Node**>(raw + sizeof(Splice) + array_size);
+  splice->prev_ = reinterpret_cast<NodePtr*>(raw + sizeof(Splice));
+  splice->next_ = reinterpret_cast<NodePtr*>(raw + sizeof(Splice) + array_size);
   return splice;
 }
 
-template <class Comparator>
-bool InlineSkipList<Comparator>::Insert(const char* key) {
+template <class Comparator, class NodePtr>
+bool InlineSkipList<Comparator, NodePtr>::Insert(const char* key) {
   return Insert<false>(key, seq_splice_, false);
 }
 
-template <class Comparator>
-bool InlineSkipList<Comparator>::InsertConcurrently(const char* key) {
-  Node* prev[kMaxPossibleHeight];
-  Node* next[kMaxPossibleHeight];
+template <class Comparator, class NodePtr>
+bool InlineSkipList<Comparator, NodePtr>::InsertConcurrently(const char* key) {
+  NodePtr prev[kMaxPossibleHeight];
+  NodePtr next[kMaxPossibleHeight];
   Splice splice;
   splice.prev_ = prev;
   splice.next_ = next;
   return Insert<true>(key, &splice, false);
 }
 
-template <class Comparator>
-bool InlineSkipList<Comparator>::InsertWithHint(const char* key, void** hint) {
+template <class Comparator, class NodePtr>
+bool InlineSkipList<Comparator, NodePtr>::InsertWithHint(const char* key, void** hint) {
   assert(hint != nullptr);
   Splice* splice = reinterpret_cast<Splice*>(*hint);
   if (splice == nullptr) {
@@ -689,8 +872,8 @@ bool InlineSkipList<Comparator>::InsertWithHint(const char* key, void** hint) {
   return Insert<false>(key, splice, true);
 }
 
-template <class Comparator>
-bool InlineSkipList<Comparator>::InsertWithHintConcurrently(const char* key,
+template <class Comparator, class NodePtr>
+bool InlineSkipList<Comparator, NodePtr>::InsertWithHintConcurrently(const char* key,
                                                             void** hint) {
   assert(hint != nullptr);
   Splice* splice = reinterpret_cast<Splice*>(*hint);
@@ -701,24 +884,26 @@ bool InlineSkipList<Comparator>::InsertWithHintConcurrently(const char* key,
   return Insert<true>(key, splice, true);
 }
 
-template <class Comparator>
+template <class Comparator, class NodePtr>
 template <bool prefetch_before>
-void InlineSkipList<Comparator>::FindSpliceForLevel(const DecodedKey& key,
-                                                    Node* before, Node* after,
-                                                    int level, Node** out_prev,
-                                                    Node** out_next) {
+void InlineSkipList<Comparator, NodePtr>::FindSpliceForLevel(const DecodedKey& key,
+                                                    NodePtr before,
+                                                    const NodePtr& after,
+                                                    int level,
+                                                    NodePtr* out_prev,
+                                                    NodePtr* out_next) {
   while (true) {
-    Node* next = before->Next(level);
-    if (next != nullptr) {
-      PREFETCH(next->Next(level), 0, 1);
-    }
-    if (prefetch_before == true) {
-      if (next != nullptr && level>0) {
-        PREFETCH(next->Next(level-1), 0, 1);
+    NodePtr next = Next(before, level);
+    if (!next.IsNull()) {
+      PrefetchNode(next.Next(level));
+      if (prefetch_before == true) {
+        if (level > 0) {
+          PrefetchNode(next.Next(level - 1));
+        }
       }
     }
-    assert(before == head_ || next == nullptr ||
-           KeyIsAfterNode(next->Key(), before));
+    assert(before == head_ || next.IsNull() ||
+           KeyIsAfterNode(next.Key(), before));
     assert(before == head_ || KeyIsAfterNode(key, before));
     if (next == after || !KeyIsAfterNode(key, next)) {
       // found it
@@ -730,26 +915,33 @@ void InlineSkipList<Comparator>::FindSpliceForLevel(const DecodedKey& key,
   }
 }
 
-template <class Comparator>
-void InlineSkipList<Comparator>::RecomputeSpliceLevels(const DecodedKey& key,
+template <class Comparator, class NodePtr>
+void InlineSkipList<Comparator, NodePtr>::RecomputeSpliceLevels(const DecodedKey& key,
                                                        Splice* splice,
                                                        int recompute_level) {
   assert(recompute_level > 0);
   assert(recompute_level <= splice->height_);
   for (int i = recompute_level - 1; i >= 0; --i) {
     FindSpliceForLevel<true>(key, splice->prev_[i + 1], splice->next_[i + 1], i,
-                       &splice->prev_[i], &splice->next_[i]);
+                             &splice->prev_[i], &splice->next_[i]);
   }
 }
 
-template <class Comparator>
+template <class Comparator, class NodePtr>
 template <bool UseCAS>
-bool InlineSkipList<Comparator>::Insert(const char* key, Splice* splice,
+bool InlineSkipList<Comparator, NodePtr>::Insert(const char* key, Splice* splice,
                                         bool allow_partial_splice_fix) {
   Node* x = reinterpret_cast<Node*>(const_cast<char*>(key)) - 1;
   const DecodedKey key_decoded = compare_.decode_key(key);
-  int height = x->UnstashHeight();
+  NodeRef ref = x->UnstashRef();
+  int height = 1 +
+      (reinterpret_cast<const NodeRef*>(x) -
+       reinterpret_cast<NodeRef*>(GetNode(ref)));
   assert(height >= 1 && height <= kMaxHeight_);
+  // Now the ref should reference the node, not the start of allocated memory
+  NodeRef x_ref = AdvanceRef(ref, sizeof(NodeRef) * (height - 1));
+  assert(GetNode(x_ref) == x);
+  NodePtr x_ptr = NodePtr(x, x_ref);
 
   int max_height = max_height_.load(std::memory_order_relaxed);
   while (height > max_height) {
@@ -769,7 +961,7 @@ bool InlineSkipList<Comparator>::Insert(const char* key, Splice* splice,
     // last use.  We could potentially fix it in the latter case, but
     // that is tricky.
     splice->prev_[max_height] = head_;
-    splice->next_[max_height] = nullptr;
+    splice->next_[max_height] = NodePtr();
     splice->height_ = max_height;
     recompute_height = max_height;
   } else {
@@ -802,8 +994,8 @@ bool InlineSkipList<Comparator>::Insert(const char* key, Splice* splice,
     // optimistic if the caller actually went to the work of providing
     // a Splice.
     while (recompute_height < max_height) {
-      if (splice->prev_[recompute_height]->Next(recompute_height) !=
-          splice->next_[recompute_height]) {
+      if (splice->prev_[recompute_height].Next(recompute_height) !=
+          splice->next_[recompute_height].ref()) {
         // splice isn't tight at this level, there must have been some inserts
         // to this
         // location that didn't update the splice.  We might only be a little
@@ -820,7 +1012,7 @@ bool InlineSkipList<Comparator>::Insert(const char* key, Splice* splice,
         // key is from before splice
         if (allow_partial_splice_fix) {
           // skip all levels with the same node without more comparisons
-          Node* bad = splice->prev_[recompute_height];
+          NodePtr bad = splice->prev_[recompute_height];
           while (splice->prev_[recompute_height] == bad) {
             ++recompute_height;
           }
@@ -832,7 +1024,7 @@ bool InlineSkipList<Comparator>::Insert(const char* key, Splice* splice,
                                 splice->next_[recompute_height])) {
         // key is from after splice
         if (allow_partial_splice_fix) {
-          Node* bad = splice->next_[recompute_height];
+          NodePtr bad = splice->next_[recompute_height];
           while (splice->next_[recompute_height] == bad) {
             ++recompute_height;
           }
@@ -855,22 +1047,22 @@ bool InlineSkipList<Comparator>::Insert(const char* key, Splice* splice,
     for (int i = 0; i < height; ++i) {
       while (true) {
         // Checking for duplicate keys on the level 0 is sufficient
-        if (UNLIKELY(i == 0 && splice->next_[i] != nullptr &&
-                     compare_(x->Key(), splice->next_[i]->Key()) >= 0)) {
+        if (UNLIKELY(i == 0 && !splice->next_[i].IsNull() &&
+                  compare_(x->Key(), splice->next_[i].Key()) >= 0)) {
           // duplicate key
           return false;
         }
         if (UNLIKELY(i == 0 && splice->prev_[i] != head_ &&
-                     compare_(splice->prev_[i]->Key(), x->Key()) >= 0)) {
+                  compare_(splice->prev_[i].Key(), x->Key()) >= 0)) {
           // duplicate key
           return false;
         }
-        assert(splice->next_[i] == nullptr ||
-               compare_(x->Key(), splice->next_[i]->Key()) < 0);
+        assert(splice->next_[i].IsNull()||
+               compare_(x->Key(), splice->next_[i].Key()) < 0);
         assert(splice->prev_[i] == head_ ||
-               compare_(splice->prev_[i]->Key(), x->Key()) < 0);
-        x->NoBarrier_SetNext(i, splice->next_[i]);
-        if (splice->prev_[i]->CASNext(i, splice->next_[i], x)) {
+               compare_(splice->prev_[i].Key(), x->Key()) < 0);
+        x->NoBarrier_SetNext(i, splice->next_[i].ref());
+        if (splice->prev_[i].node()->CASNext(i, splice->next_[i].ref(), x_ref)) {
           // success
           break;
         }
@@ -879,7 +1071,8 @@ bool InlineSkipList<Comparator>::Insert(const char* key, Splice* splice,
         // search, because it should be unlikely that lots of nodes have
         // been inserted between prev[i] and next[i]. No point in using
         // next[i] as the after hint, because we know it is stale.
-        FindSpliceForLevel<false>(key_decoded, splice->prev_[i], nullptr, i,
+        FindSpliceForLevel<false>(key_decoded, splice->prev_[i],
+                                  NodePtr(), i,
                                   &splice->prev_[i], &splice->next_[i]);
 
         // Since we've narrowed the bracket for level i, we might have
@@ -893,49 +1086,50 @@ bool InlineSkipList<Comparator>::Insert(const char* key, Splice* splice,
   } else {
     for (int i = 0; i < height; ++i) {
       if (i >= recompute_height &&
-          splice->prev_[i]->Next(i) != splice->next_[i]) {
-        FindSpliceForLevel<false>(key_decoded, splice->prev_[i], nullptr, i,
+          splice->prev_[i].Next(i) != splice->next_[i].ref()) {
+        FindSpliceForLevel<false>(key_decoded, splice->prev_[i],
+                                  NodePtr(), i,
                                   &splice->prev_[i], &splice->next_[i]);
       }
       // Checking for duplicate keys on the level 0 is sufficient
-      if (UNLIKELY(i == 0 && splice->next_[i] != nullptr &&
-                   compare_(x->Key(), splice->next_[i]->Key()) >= 0)) {
+      if (UNLIKELY(i == 0 && !splice->next_[i].IsNull() &&
+                   compare_(x->Key(), splice->next_[i].Key()) >= 0)) {
         // duplicate key
         return false;
       }
       if (UNLIKELY(i == 0 && splice->prev_[i] != head_ &&
-                   compare_(splice->prev_[i]->Key(), x->Key()) >= 0)) {
+                   compare_(splice->prev_[i].Key(), x->Key()) >= 0)) {
         // duplicate key
         return false;
       }
-      assert(splice->next_[i] == nullptr ||
-             compare_(x->Key(), splice->next_[i]->Key()) < 0);
+      assert(splice->next_[i].IsNull() ||
+             compare_(x->Key(), splice->next_[i].Key()) < 0);
       assert(splice->prev_[i] == head_ ||
-             compare_(splice->prev_[i]->Key(), x->Key()) < 0);
-      assert(splice->prev_[i]->Next(i) == splice->next_[i]);
-      x->NoBarrier_SetNext(i, splice->next_[i]);
-      splice->prev_[i]->SetNext(i, x);
+             compare_(splice->prev_[i].Key(), x->Key()) < 0);
+      assert(splice->prev_[i].Next(i) == splice->next_[i].ref());
+      x->NoBarrier_SetNext(i, splice->next_[i].ref());
+      splice->prev_[i].node()->SetNext(i, x_ref);
     }
   }
   if (splice_is_valid) {
     for (int i = 0; i < height; ++i) {
-      splice->prev_[i] = x;
+      splice->prev_[i] = x_ptr;
     }
     assert(splice->prev_[splice->height_] == head_);
-    assert(splice->next_[splice->height_] == nullptr);
+    assert(splice->next_[splice->height_].IsNull());
     for (int i = 0; i < splice->height_; ++i) {
-      assert(splice->next_[i] == nullptr ||
-             compare_(key, splice->next_[i]->Key()) < 0);
+      assert(splice->next_[i].IsNull() ||
+             compare_(key, splice->next_[i].Key()) < 0);
       assert(splice->prev_[i] == head_ ||
-             compare_(splice->prev_[i]->Key(), key) <= 0);
+             compare_(splice->prev_[i].Key(), key) <= 0);
       assert(splice->prev_[i + 1] == splice->prev_[i] ||
              splice->prev_[i + 1] == head_ ||
-             compare_(splice->prev_[i + 1]->Key(), splice->prev_[i]->Key()) <
-                 0);
+             compare_(splice->prev_[i + 1].Key(),
+                      splice->prev_[i].Key()) < 0);
       assert(splice->next_[i + 1] == splice->next_[i] ||
-             splice->next_[i + 1] == nullptr ||
-             compare_(splice->next_[i]->Key(), splice->next_[i + 1]->Key()) <
-                 0);
+             splice->next_[i + 1].IsNull() ||
+             compare_(splice->next_[i].Key(),
+                      splice->next_[i + 1].Key()) < 0);
     }
   } else {
     splice->height_ = 0;
@@ -943,42 +1137,43 @@ bool InlineSkipList<Comparator>::Insert(const char* key, Splice* splice,
   return true;
 }
 
-template <class Comparator>
-bool InlineSkipList<Comparator>::Contains(const char* key) const {
-  Node* x = FindGreaterOrEqual(key);
-  if (x != nullptr && Equal(key, x->Key())) {
+template <class Comparator, class NodePtr>
+bool InlineSkipList<Comparator, NodePtr>::Contains(const char* key) const {
+  NodePtr x = FindGreaterOrEqual(key);
+  if (!x.IsNull() && Equal(key, x.Key())) {
     return true;
   } else {
     return false;
   }
 }
 
-template <class Comparator>
-void InlineSkipList<Comparator>::TEST_Validate() const {
+template <class Comparator, class NodePtr>
+void InlineSkipList<Comparator, NodePtr>::TEST_Validate() const {
   // Interate over all levels at the same time, and verify nodes appear in
   // the right order, and nodes appear in upper level also appear in lower
   // levels.
-  Node* nodes[kMaxPossibleHeight];
+  NodePtr nodes[kMaxPossibleHeight];
   int max_height = GetMaxHeight();
   assert(max_height > 0);
   for (int i = 0; i < max_height; i++) {
     nodes[i] = head_;
   }
-  while (nodes[0] != nullptr) {
-    Node* l0_next = nodes[0]->Next(0);
-    if (l0_next == nullptr) {
+  while (!nodes[0].IsNull()) {
+    NodePtr l0_next = Next(nodes[0], 0);
+    if (l0_next.IsNull()) {
       break;
     }
-    assert(nodes[0] == head_ || compare_(nodes[0]->Key(), l0_next->Key()) < 0);
+    assert(nodes[0] == head_ || compare_(nodes[0].Key(),
+                                         l0_next.Key()) < 0);
     nodes[0] = l0_next;
 
     int i = 1;
     while (i < max_height) {
-      Node* next = nodes[i]->Next(i);
-      if (next == nullptr) {
+      NodePtr next = Next(nodes[i], i);
+      if (next.IsNull()) {
         break;
       }
-      auto cmp = compare_(nodes[0]->Key(), next->Key());
+      auto cmp = compare_(nodes[0].Key(), next.Key());
       assert(cmp <= 0);
       if (cmp == 0) {
         assert(next == nodes[0]);
@@ -990,7 +1185,8 @@ void InlineSkipList<Comparator>::TEST_Validate() const {
     }
   }
   for (int i = 1; i < max_height; i++) {
-    assert(nodes[i] != nullptr && nodes[i]->Next(i) == nullptr);
+    assert(!nodes[i].IsNull() &&
+           nodes[i].node()->Next(i) == NodePtr::kNullRef);
   }
 }
 
