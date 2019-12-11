@@ -463,6 +463,7 @@ struct RawNodePtr {
   RawNodePtr() : node_(nullptr) {}
 
   RawNodePtr(Node* node, NodeRef ref) : node_(node) {
+    (void)ref;
     assert(node == ref);
   }
 
