@@ -1302,6 +1302,10 @@ Status CompactionJob::FinishCompactionOutputFile(
   }
   const uint64_t current_bytes = sub_compact->builder->FileSize();
   if (s.ok()) {
+    // Add the checksum information to file metadata.
+    meta->file_checksum = sub_compact->builder->GetFileChecksum();
+    meta->file_checksum_name = sub_compact->builder->GetFileChecksumName();
+
     meta->fd.file_size = current_bytes;
   }
   sub_compact->current_output()->finished = true;

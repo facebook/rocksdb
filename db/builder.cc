@@ -198,6 +198,9 @@ Status BuildTable(
       if (table_properties) {
         *table_properties = tp;
       }
+      // Add the checksum information to file metadata.
+      meta->file_checksum = builder->GetFileChecksum();
+      meta->file_checksum_name = builder->GetFileChecksumName();
     }
     delete builder;
 
