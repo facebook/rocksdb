@@ -66,7 +66,7 @@ struct ListNode {
   // next_[0]. It is not real NodeRef but the start of the node's allocated
   // memory. This is used for passing data from AllocateKey to Insert.
   void StashRef(const NodeRef ref) {
-    static_assert(sizeof(NodeRef) == sizeof(next_[0]));
+    // static_assert(sizeof(NodeRef) == sizeof(next_[0]));
     next_[0] = ref;
   }
 
@@ -117,23 +117,18 @@ struct ListNode {
   std::atomic<NodeRef> next_[1];
 };
 
-// The NodePtr structure consists of a node pointer proper plus the 32-bit
-// reference to it in case we are using 32-bit references.
+// In 32-bit mode, the NodePtr structure consists of a node pointer proper
+// plus the 32-bit reference to it in case we are using 32-bit references.
 // We use it exclusively in data structures that are not
 // supposed to be stored, and use it to avoid calling GetNode() more often than
 // necessary.
-
+// In 64-bit mode, it's nothing more than just a raw ppinter.
 template <class Comparator, class NodePtr>
 class InlineSkipList {
  private:
   using NodeRef = typename NodePtr::NodeRef;
   using Node = ListNode<NodeRef>;
   struct Splice;
-
-  // We store references to nodes as 32-bit entities. Inside we encode the
-  // block number where the node was allocated and the offset in the block.
-  // The allocating arena can convert a NodeRef to the raw pointer, but the
-  // back transformation is harder and we avoid it as much as possible.
 
  public:
   using DecodedKey = \
@@ -271,7 +266,7 @@ class InlineSkipList {
   const uint32_t kScaledInverseBranching_;
 
   // Allocator used for allocations of nodes.
-  // It has to be an arena allocator to support our 32-bit node refs.
+  // It has to be an arena allocator to support 32-bit node refs in 32-bit mode.
   ConcurrentArena* const arena_;
   // Immutable after construction
   Comparator const compare_;
@@ -381,6 +376,10 @@ struct InlineSkipList<Comparator, NodePtr>::Splice {
   NodePtr* next_;
 };
 
+// We store references to nodes as 32-bit entities. Inside we encode the
+// block number where the node was allocated and the offset in the block.
+// The allocating arena can convert a NodeRef to the raw pointer, but the
+// back transformation is harder and we avoid it as much as possible.
 struct BlockOffsetNodePtr {
   using NodeRef = uint32_t;
   using Node = ListNode<NodeRef>;
@@ -455,6 +454,8 @@ struct BlockOffsetNodePtr {
   NodeRef ref_;
 };
 
+// When InlineSkipList is parameterized with RawNodePtr, it uses regular
+// 64-bit pointers as node references.
 struct RawNodePtr {
   using NodeRef = void*;
   using Node = ListNode<NodeRef>;
@@ -571,7 +572,8 @@ inline void InlineSkipList<Comparator, NodePtr>::Iterator::Prev() {
 }
 
 template <class Comparator, class NodePtr>
-inline void InlineSkipList<Comparator, NodePtr>::Iterator::Seek(const char* target) {
+inline void InlineSkipList<Comparator, NodePtr>::Iterator::Seek(
+    const char* target) {
   node_ = list_->FindGreaterOrEqual(target);
 }
 
@@ -935,7 +937,7 @@ bool InlineSkipList<Comparator, NodePtr>::Insert(const char* key, Splice* splice
   Node* x = reinterpret_cast<Node*>(const_cast<char*>(key)) - 1;
   const DecodedKey key_decoded = compare_.decode_key(key);
   NodeRef ref = x->UnstashRef();
-  int height = 1 +
+  auto height = 1 +
       (reinterpret_cast<const NodeRef*>(x) -
        reinterpret_cast<NodeRef*>(GetNode(ref)));
   assert(height >= 1 && height <= kMaxHeight_);
