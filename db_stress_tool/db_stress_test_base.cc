@@ -516,8 +516,8 @@ void StressTest::OperateDb(ThreadState* thread) {
       if (FLAGS_sync_wal_one_in > 0 &&
           thread->rand.Uniform(FLAGS_sync_wal_one_in) == 0) {
         Status s = db_->SyncWAL();
-        if (!s.ok()) {
-          fprintf(stdout, "Unable to SyncWAL(): %s\n", s.ToString().c_str());
+        if (!s.ok() && !s.IsNotSupported()) {
+          fprintf(stdout, "SyncWAL() failed: %s\n", s.ToString().c_str());
         }
       }
 
