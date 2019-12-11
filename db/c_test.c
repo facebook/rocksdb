@@ -1121,14 +1121,21 @@ int main(int argc, char** argv) {
         CheckGet(db, roptions, keybuf, NULL);
       }
 
-      // Other than the first value, these are essentially fingerprints of
-      // the underlying Bloom filter schemas.
-      static const int expected_hits[] = {5000, 241, 224};
+      const int hits =
+          (int)rocksdb_perfcontext_metric(perf, rocksdb_bloom_sst_hit_count);
+      if (run == 0) {
+        // Due to half true, half false with fake filter result
+        CheckCondition(hits == keys_to_query / 2);
+      } else if (run == 1) {
+        // Essentially a fingerprint of the block-based Bloom schema
+        CheckCondition(hits == 241);
+      } else {
+        // Essentially a fingerprint of the full Bloom schema(s),
+        // format_version < 5, which vary for three different CACHE_LINE_SIZEs
+        CheckCondition(hits == 224 || hits == 180 || hits == 125);
+      }
       CheckCondition(
-          expected_hits[run] ==
-          (int)rocksdb_perfcontext_metric(perf, rocksdb_bloom_sst_hit_count));
-      CheckCondition(
-          (keys_to_query - expected_hits[run]) ==
+          (keys_to_query - hits) ==
           (int)rocksdb_perfcontext_metric(perf, rocksdb_bloom_sst_miss_count));
 
       rocksdb_perfcontext_destroy(perf);
