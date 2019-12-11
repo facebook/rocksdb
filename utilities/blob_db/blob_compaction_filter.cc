@@ -84,6 +84,10 @@ bool BlobIndexCompactionFilterGC::PrepareBlobOutput(
     return false;
   }
 
+  // Note: each compaction generates its own blob files, which, depending on the
+  // workload, might result in many small blob files. The total number of files
+  // is bounded though (determined by the number of compactions and the blob
+  // file size option).
   if (!OpenNewBlobFileIfNeeded()) {
     return false;
   }
