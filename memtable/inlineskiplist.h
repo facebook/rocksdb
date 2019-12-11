@@ -261,7 +261,7 @@ class InlineSkipList {
 
    private:
     const InlineSkipList* list_;
-    NodePtr ptr_;
+    NodePtr node_;
     // Intentionally copyable
   };
 
@@ -538,24 +538,24 @@ template <class Comparator, class NodePtr>
 inline void InlineSkipList<Comparator, NodePtr>::Iterator::SetList(
     const InlineSkipList* list) {
   list_ = list;
-  ptr_ = NodePtr();
+  node_ = NodePtr();
 }
 
 template <class Comparator, class NodePtr>
 inline bool InlineSkipList<Comparator, NodePtr>::Iterator::Valid() const {
-  return !ptr_.IsNull();
+  return !node_.IsNull();
 }
 
 template <class Comparator, class NodePtr>
 inline const char* InlineSkipList<Comparator, NodePtr>::Iterator::key() const {
   assert(Valid());
-  return ptr_.Key();
+  return node_.Key();
 }
 
 template <class Comparator, class NodePtr>
 inline void InlineSkipList<Comparator, NodePtr>::Iterator::Next() {
   assert(Valid());
-  ptr_ = list_->Next(ptr_, 0);
+  node_ = list_->Next(node_, 0);
 }
 
 template <class Comparator, class NodePtr>
@@ -563,15 +563,15 @@ inline void InlineSkipList<Comparator, NodePtr>::Iterator::Prev() {
   // Instead of using explicit "prev" links, we just search for the
   // last node that falls before key.
   assert(Valid());
-  ptr_ = list_->FindLessThan(ptr_.Key());
-  if (ptr_ == list_->head_) {
-    ptr_ = NodePtr();
+  node_ = list_->FindLessThan(node_.Key());
+  if (node_ == list_->head_) {
+    node_ = NodePtr();
   }
 }
 
 template <class Comparator, class NodePtr>
 inline void InlineSkipList<Comparator, NodePtr>::Iterator::Seek(const char* target) {
-  ptr_ = list_->FindGreaterOrEqual(target);
+  node_ = list_->FindGreaterOrEqual(target);
 }
 
 template <class Comparator, class NodePtr>
@@ -588,14 +588,14 @@ inline void InlineSkipList<Comparator, NodePtr>::Iterator::SeekForPrev(
 
 template <class Comparator, class NodePtr>
 inline void InlineSkipList<Comparator, NodePtr>::Iterator::SeekToFirst() {
-  ptr_ = list_->Next(list_->head_, 0);
+  node_ = list_->Next(list_->head_, 0);
 }
 
 template <class Comparator, class NodePtr>
 inline void InlineSkipList<Comparator, NodePtr>::Iterator::SeekToLast() {
-  ptr_ = list_->FindLast();
-  if (ptr_ == list_->head_) {
-    ptr_ = NodePtr();
+  node_ = list_->FindLast();
+  if (node_ == list_->head_) {
+    node_ = NodePtr();
   }
 }
 

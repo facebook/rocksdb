@@ -123,7 +123,7 @@ class Arena : public Allocator {
   typedef char** Blocks;
   std::vector<Blocks> blocks_to_delete_;
   // Last size of the blocks_ vector, for concurrent reads.
-  std::atomic_uint32_t blocks_size_;
+  std::atomic<uint32_t> blocks_size_;
   uint32_t blocks_capacity_;
   std::atomic<Blocks> blocks_;
 
