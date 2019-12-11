@@ -45,7 +45,7 @@ class CompactionFilter {
     kRemoveAndSkipUntil,
   };
 
-  enum class BlobDecision { kKeep, kChangeValue, kError };
+  enum class BlobDecision { kKeep, kChangeValue, kCorruption, kIOError };
 
   // Context information of a compaction run
   struct Context {

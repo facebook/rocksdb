@@ -69,7 +69,7 @@ CompactionFilter::BlobDecision BlobIndexCompactionFilterGC::PrepareBlobOutput(
   BlobIndex blob_index;
   const Status s = blob_index.DecodeFrom(existing_value);
   if (!s.ok()) {
-    return BlobDecision::kError;
+    return BlobDecision::kCorruption;
   }
 
   if (blob_index.IsInlined()) {
@@ -89,23 +89,23 @@ CompactionFilter::BlobDecision BlobIndexCompactionFilterGC::PrepareBlobOutput(
   // is bounded though (determined by the number of compactions and the blob
   // file size option).
   if (!OpenNewBlobFileIfNeeded()) {
-    return BlobDecision::kError;
+    return BlobDecision::kIOError;
   }
 
   PinnableSlice blob;
   CompressionType compression_type = kNoCompression;
   if (!ReadBlobFromOldFile(key, blob_index, &blob, &compression_type)) {
-    return BlobDecision::kError;
+    return BlobDecision::kIOError;
   }
 
   uint64_t new_blob_file_number = 0;
   uint64_t new_blob_offset = 0;
   if (!WriteBlobToNewFile(key, blob, &new_blob_file_number, &new_blob_offset)) {
-    return BlobDecision::kError;
+    return BlobDecision::kIOError;
   }
 
   if (!CloseAndRegisterNewBlobFileIfNeeded()) {
-    return BlobDecision::kError;
+    return BlobDecision::kIOError;
   }
 
   BlobIndex::EncodeBlob(new_value, new_blob_file_number, new_blob_offset,
