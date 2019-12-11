@@ -131,9 +131,16 @@ Status BuildTable(
       file->SetIOPriority(io_priority);
       file->SetWriteLifeTimeHint(write_hint);
 
-      file_writer.reset(
-          new WritableFileWriter(std::move(file), fname, file_options, env,
+      if (ioptions.enable_sst_file_checksum && ioptions.sst_file_checksum != nullptr) {
+        // Calculate the file checksum when do Append
+        file_writer.reset(
+                new WritableFileWriter(std::move(file), fname, env_options, env,
+                ioptions.statistics, ioptions.listeners, ioptions.sst_file_checksum));
+      } else {
+        file_writer.reset(
+          new WritableFileWriter(std::move(file), fname, env_options, env,
                                  ioptions.statistics, ioptions.listeners));
+      }
       builder = NewTableBuilder(
           ioptions, mutable_cf_options, internal_comparator,
           int_tbl_prop_collector_factories, column_family_id,
