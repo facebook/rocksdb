@@ -533,4 +533,8 @@ DEFINE_bool(use_merge, false,
 DEFINE_bool(use_full_merge_v1, false,
             "On true, use a merge operator that implement the deprecated "
             "version of FullMerge");
+
+DEFINE_int32(sync_wal_one_in, 0,
+             "If non-zero, then SyncWAL() will be called once for every N ops "
+             "on average. 0 indicates that calls to SyncWAL() are disabled.");
 #endif  // GFLAGS
