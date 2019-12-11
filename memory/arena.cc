@@ -28,7 +28,6 @@ const size_t Arena::kInlineSize;
 const size_t Arena::kMinBlockSize = 4096;
 const size_t Arena::kMaxBlockSize = 2u << 30;
 static const int kAlignUnit = alignof(max_align_t);
-static const int64_t kMaxSize = 8L << 30;
 
 size_t OptimizeBlockSize(size_t block_size) {
   // Make sure block_size is in optimal range
