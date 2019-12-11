@@ -238,6 +238,44 @@ public interface MutableDBOptionsInterface<T extends MutableDBOptionsInterface<T
   int statsDumpPeriodSec();
 
   /**
+   * If not zero, dump rocksdb.stats to RocksDB every
+   * {@code statsPersistPeriodSec}
+   *
+   * Default: 600
+   *
+   * @param statsPersistPeriodSec time interval in seconds.
+   * @return the instance of the current object.
+   */
+  T setStatsPersistPeriodSec(int statsPersistPeriodSec);
+
+  /**
+   * If not zero, dump rocksdb.stats to RocksDB every
+   * {@code statsPersistPeriodSec}
+   *
+   * @return time interval in seconds.
+   */
+  int statsPersistPeriodSec();
+
+  /**
+   * If not zero, periodically take stats snapshots and store in memory, the
+   * memory size for stats snapshots is capped at {@code statsHistoryBufferSize}
+   *
+   * Default: 1MB
+   *
+   * @param statsHistoryBufferSize the size of the buffer.
+   * @return the instance of the current object.
+   */
+  T setStatsHistoryBufferSize(long statsHistoryBufferSize);
+
+  /**
+   * If not zero, periodically take stats snapshots and store in memory, the
+   * memory size for stats snapshots is capped at {@code statsHistoryBufferSize}
+   *
+   * @return the size of the buffer.
+   */
+  long statsHistoryBufferSize();
+
+  /**
    * Number of open files that can be used by the DB.  You may need to
    * increase this if your database has a large working set. Value -1 means
    * files opened are always kept open. You can estimate number of files based
@@ -303,6 +341,42 @@ public interface MutableDBOptionsInterface<T extends MutableDBOptionsInterface<T
    */
   long walBytesPerSync();
 
+  /**
+   * When true, guarantees WAL files have at most {@link #walBytesPerSync()}
+   * bytes submitted for writeback at any given time, and SST files have at most
+   * {@link #bytesPerSync()} bytes pending writeback at any given time. This
+   * can be used to handle cases where processing speed exceeds I/O speed
+   * during file generation, which can lead to a huge sync when the file is
+   * finished, even with {@link #bytesPerSync()} / {@link #walBytesPerSync()}
+   * properly configured.
+   *
+   * - If `sync_file_range` is supported it achieves this by waiting for any
+   *   prior `sync_file_range`s to finish before proceeding. In this way,
+   *   processing (compression, etc.) can proceed uninhibited in the gap
+   *   between `sync_file_range`s, and we block only when I/O falls
+   *   behind.
+   * - Otherwise the `WritableFile::Sync` method is used. Note this mechanism
+   *   always blocks, thus preventing the interleaving of I/O and processing.
+   *
+   * Note: Enabling this option does not provide any additional persistence
+   * guarantees, as it may use `sync_file_range`, which does not write out
+   * metadata.
+   *
+   * Default: false
+   *
+   * @param strictBytesPerSync the bytes per sync
+   * @return the instance of the current object.
+   */
+  T setStrictBytesPerSync(boolean strictBytesPerSync);
+
+  /**
+   * Return the strict byte limit per sync.
+   *
+   * See {@link #setStrictBytesPerSync(boolean)}
+   *
+   * @return the limit in bytes.
+   */
+  boolean strictBytesPerSync();
 
   /**
    * If non-zero, we perform bigger reads when doing compaction. If you're
