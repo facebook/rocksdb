@@ -403,7 +403,8 @@ struct BlockOffsetNodePtr {
     return arena->AdvanceRef(ref, bytes);
   }
 
-  inline static BlockOffsetNodePtr FromRef(ConcurrentArena* arena, NodeRef ref) {
+  inline static BlockOffsetNodePtr FromRef(ConcurrentArena* arena,
+                                           NodeRef ref) {
     if (ref == kNullRef) {
       return BlockOffsetNodePtr();
     }
@@ -735,7 +736,8 @@ InlineSkipList<Comparator, NodePtr>::FindLast() const {
 }
 
 template <class Comparator, class NodePtr>
-uint64_t InlineSkipList<Comparator, NodePtr>::EstimateCount(const char* key) const {
+uint64_t InlineSkipList<Comparator, NodePtr>::EstimateCount(
+    const char* key) const {
   uint64_t count = 0;
 
   NodePtr x = head_;
@@ -865,7 +867,8 @@ bool InlineSkipList<Comparator, NodePtr>::InsertConcurrently(const char* key) {
 }
 
 template <class Comparator, class NodePtr>
-bool InlineSkipList<Comparator, NodePtr>::InsertWithHint(const char* key, void** hint) {
+bool InlineSkipList<Comparator, NodePtr>::InsertWithHint(const char* key,
+                                                         void** hint) {
   assert(hint != nullptr);
   Splice* splice = reinterpret_cast<Splice*>(*hint);
   if (splice == nullptr) {
@@ -876,8 +879,8 @@ bool InlineSkipList<Comparator, NodePtr>::InsertWithHint(const char* key, void**
 }
 
 template <class Comparator, class NodePtr>
-bool InlineSkipList<Comparator, NodePtr>::InsertWithHintConcurrently(const char* key,
-                                                            void** hint) {
+bool InlineSkipList<Comparator, NodePtr>::InsertWithHintConcurrently(
+    const char* key, void** hint) {
   assert(hint != nullptr);
   Splice* splice = reinterpret_cast<Splice*>(*hint);
   if (splice == nullptr) {
@@ -889,7 +892,8 @@ bool InlineSkipList<Comparator, NodePtr>::InsertWithHintConcurrently(const char*
 
 template <class Comparator, class NodePtr>
 template <bool prefetch_before>
-void InlineSkipList<Comparator, NodePtr>::FindSpliceForLevel(const DecodedKey& key,
+void InlineSkipList<Comparator, NodePtr>::FindSpliceForLevel(
+                                                    const DecodedKey& key,
                                                     NodePtr before,
                                                     const NodePtr& after,
                                                     int level,
@@ -919,7 +923,8 @@ void InlineSkipList<Comparator, NodePtr>::FindSpliceForLevel(const DecodedKey& k
 }
 
 template <class Comparator, class NodePtr>
-void InlineSkipList<Comparator, NodePtr>::RecomputeSpliceLevels(const DecodedKey& key,
+void InlineSkipList<Comparator, NodePtr>::RecomputeSpliceLevels(
+                                                       const DecodedKey& key,
                                                        Splice* splice,
                                                        int recompute_level) {
   assert(recompute_level > 0);
@@ -932,8 +937,8 @@ void InlineSkipList<Comparator, NodePtr>::RecomputeSpliceLevels(const DecodedKey
 
 template <class Comparator, class NodePtr>
 template <bool UseCAS>
-bool InlineSkipList<Comparator, NodePtr>::Insert(const char* key, Splice* splice,
-                                        bool allow_partial_splice_fix) {
+bool InlineSkipList<Comparator, NodePtr>::Insert(
+    const char* key, Splice* splice, bool allow_partial_splice_fix) {
   Node* x = reinterpret_cast<Node*>(const_cast<char*>(key)) - 1;
   const DecodedKey key_decoded = compare_.decode_key(key);
   NodeRef ref = x->UnstashRef();
@@ -1066,7 +1071,8 @@ bool InlineSkipList<Comparator, NodePtr>::Insert(const char* key, Splice* splice
         assert(splice->prev_[i] == head_ ||
                compare_(splice->prev_[i].Key(), x->Key()) < 0);
         x->NoBarrier_SetNext(i, splice->next_[i].ref());
-        if (splice->prev_[i].node()->CASNext(i, splice->next_[i].ref(), x_ref)) {
+        if (splice->prev_[i].node()->CASNext(i, splice->next_[i].ref(),
+                                             x_ref)) {
           // success
           break;
         }

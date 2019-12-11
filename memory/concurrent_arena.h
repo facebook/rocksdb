@@ -62,7 +62,8 @@ class ConcurrentArena : public Allocator {
            (rounded_up % sizeof(void*)) == 0);
 
     return AllocateImpl(rounded_up, huge_page_size != 0 /*force_arena*/, [=]() {
-      return arena_.AllocateAligned(rounded_up, huge_page_size, logger, align_unit);
+      return arena_.AllocateAligned(rounded_up, huge_page_size,
+                                    logger, align_unit);
     });
   }
 
