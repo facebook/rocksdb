@@ -96,8 +96,8 @@ class NonBatchedOpsStressTest : public StressTest {
   }
 
   void MaybeClearOneColumnFamily(ThreadState* thread) override {
-    if (FLAGS_clear_column_family_one_in != 0 && FLAGS_column_families > 1) {
-      if (thread->rand.OneIn(FLAGS_clear_column_family_one_in)) {
+    if (FLAGS_column_families > 1) {
+      if (thread->rand.OneInOpt(FLAGS_clear_column_family_one_in)) {
         // drop column family and then create it again (can't drop default)
         int cf = thread->rand.Next() % (FLAGS_column_families - 1) + 1;
         std::string new_name = ToString(new_column_family_name_.fetch_add(1));
