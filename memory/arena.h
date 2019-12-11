@@ -73,7 +73,7 @@ class Arena : public Allocator {
   uint32_t GetRef(char* ptr);
 
   // Performs simple ref arithmetic within one allocated block.
-  inline uint32_t AdvanceRef(uint32_t ref, int offset) {
+  inline uint32_t AdvanceRef(uint32_t ref, uint32_t offset) {
     return ref + (offset >> kRefShift);
   }
 

@@ -45,7 +45,7 @@ size_t OptimizeBlockSize(size_t block_size) {
 // This is run only once so we don't need to overoptimize.
 uint32_t CalcShift(size_t block_size) {
   for (uint32_t shift = 0; shift < 32; ++shift) {
-    if ((1u << shift) >= block_size) {
+    if ((1lu << shift) >= block_size) {
       return shift;
     }
   }
@@ -227,7 +227,7 @@ uint32_t Arena::GetRef(char* ptr) {
   uint32_t index;
   if (ptr >= &inline_block_[0] && ptr <= &inline_block_[kInlineSize - 1]) {
     index = 0;
-    offset = ptr - &inline_block_[0];
+    offset = static_cast<uint32_t>(ptr - &inline_block_[0]);
     assert(offset < kInlineSize);
   } else {
     index = blocks_size_;
@@ -237,7 +237,7 @@ uint32_t Arena::GetRef(char* ptr) {
       --index;
     }
     assert(index > 0);
-    offset = ptr - blocks_[index - 1];
+    offset = static_cast<uint32_t>(ptr - blocks_[index - 1]);
     assert(offset < kBlockSize);
   }
   uint32_t ref = (index << (kBlockShift - kRefShift)) + (offset >> kRefShift);
@@ -253,7 +253,7 @@ char* Arena::AllocateNewBlock(size_t block_bytes) {
     const uint32_t new_blocks_capacity  = std::max(blocks_capacity_ * 2, 32u);
     Blocks new_blocks = new char*[new_blocks_capacity];
     blocks_to_delete_.push_back(new_blocks);
-    if (blocks_ != nullptr) {
+    if (blocks_.load() != nullptr) {
       memcpy(new_blocks, blocks_, blocks_capacity_ * sizeof(char*));
     }
     blocks_ = new_blocks;

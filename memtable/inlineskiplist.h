@@ -290,7 +290,7 @@ class InlineSkipList {
     return NodePtr::GetNode(arena_, ref);
   }
 
-  inline NodeRef AdvanceRef(NodeRef ref, int bytes) {
+  inline NodeRef AdvanceRef(NodeRef ref, uint32_t bytes) {
     return NodePtr::AdvanceRef(arena_, ref, bytes);
   }
 
@@ -400,7 +400,7 @@ struct BlockOffsetNodePtr {
   }
 
   inline static NodeRef AdvanceRef(
-      ConcurrentArena* arena, NodeRef ref, int bytes) {
+      ConcurrentArena* arena, NodeRef ref, uint32_t bytes) {
     return arena->AdvanceRef(ref, bytes);
   }
 
@@ -479,7 +479,7 @@ struct RawNodePtr {
   }
 
   inline static NodeRef AdvanceRef(
-      ConcurrentArena* arena, NodeRef ref, int bytes) {
+      ConcurrentArena* arena, NodeRef ref, uint32_t bytes) {
     (void)arena;
     return reinterpret_cast<char*>(ref) + bytes;
   }
@@ -792,7 +792,7 @@ char* InlineSkipList<Comparator, NodePtr>::AllocateKey(size_t key_size) {
 
 template <class Comparator, class NodePtr> NodePtr
 InlineSkipList<Comparator, NodePtr>::AllocateNode(size_t key_size, int height) {
-  auto prefix = sizeof(NodeRef) * (height - 1);
+  uint32_t prefix = static_cast<uint32_t>(sizeof(NodeRef) * (height - 1));
 
   // prefix is space for the height - 1 pointers that we store before
   // the Node instance (next_[-(height - 1) .. -1]).  Node starts at
@@ -838,7 +838,7 @@ InlineSkipList<Comparator, NodePtr>::AllocateSplice() {
 template <class Comparator, class NodePtr>
 typename InlineSkipList<Comparator, NodePtr>::Splice*
 InlineSkipList<Comparator, NodePtr>::AllocateSpliceOnHeap() {
-  size_t array_size = sizeof(NodePtr[kMaxHeight_ + 1]);
+  size_t array_size = sizeof(NodePtr) * (kMaxHeight_ + 1);
   char* raw = new char[sizeof(Splice) + array_size * 2];
   Splice* splice = reinterpret_cast<Splice*>(raw);
   splice->height_ = 0;
@@ -940,7 +940,8 @@ bool InlineSkipList<Comparator, NodePtr>::Insert(const char* key, Splice* splice
        reinterpret_cast<NodeRef*>(GetNode(ref)));
   assert(height >= 1 && height <= kMaxHeight_);
   // Now the ref should reference the node, not the start of allocated memory
-  NodeRef x_ref = AdvanceRef(ref, sizeof(NodeRef) * (height - 1));
+  NodeRef x_ref =
+      AdvanceRef(ref, static_cast<uint32_t>(sizeof(NodeRef) * (height - 1)));
   assert(GetNode(x_ref) == x);
   NodePtr x_ptr = NodePtr(x, x_ref);
 
