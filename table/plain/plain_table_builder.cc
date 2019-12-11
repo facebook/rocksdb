@@ -13,7 +13,6 @@
 #include <map>
 
 #include "db/dbformat.h"
-#include "db/version_edit.h"
 #include "file/writable_file_writer.h"
 #include "rocksdb/comparator.h"
 #include "rocksdb/env.h"
@@ -146,13 +145,8 @@ void PlainTableBuilder::Add(const Slice& key, const Slice& value) {
   assert(offset_ <= std::numeric_limits<uint32_t>::max());
   auto prev_offset = static_cast<uint32_t>(offset_);
   // Write out the key
-  uint32_t tmp_checksum = file_checksum_;
-  bool tmp_is_first_checksum = is_first_checksum_;
-  encoder_.AppendKey(key, file_, &offset_, meta_bytes_buf, &meta_bytes_buf_size,
-                     ioptions_.enable_sst_file_checksum, &tmp_checksum,
-                     ioptions_.sst_file_checksum, &tmp_is_first_checksum);
-  file_checksum_ = tmp_checksum;
-  is_first_checksum_ = tmp_is_first_checksum;
+  encoder_.AppendKey(key, file_, &offset_, meta_bytes_buf,
+                     &meta_bytes_buf_size);
   if (SaveIndexInFile()) {
     index_builder_->AddKeyPrefix(GetPrefix(internal_key), prev_offset);
   }
@@ -164,19 +158,9 @@ void PlainTableBuilder::Add(const Slice& key, const Slice& value) {
   assert(end_ptr <= meta_bytes_buf + sizeof(meta_bytes_buf));
   meta_bytes_buf_size = end_ptr - meta_bytes_buf;
   file_->Append(Slice(meta_bytes_buf, meta_bytes_buf_size));
-  if (ioptions_.enable_sst_file_checksum &&
-      ioptions_.sst_file_checksum != nullptr) {
-    CalculateFileCheckSum(ioptions_.sst_file_checksum, meta_bytes_buf,
-                          meta_bytes_buf_size);
-  }
 
   // Write value
   file_->Append(value);
-  if (ioptions_.enable_sst_file_checksum &&
-      ioptions_.sst_file_checksum != nullptr) {
-    CalculateFileCheckSum(ioptions_.sst_file_checksum, value.data(),
-                          value.size());
-  }
   offset_ += value_size + meta_bytes_buf_size;
 
   properties_.num_entries++;
@@ -235,12 +219,6 @@ Status PlainTableBuilder::Finish() {
       if (!s.ok()) {
         return s;
       }
-      if (ioptions_.enable_sst_file_checksum &&
-          ioptions_.sst_file_checksum != nullptr) {
-        CalculateFileCheckSum(ioptions_.sst_file_checksum,
-                              bloom_finish_result.data(),
-                              bloom_finish_result.size());
-      }
       meta_index_builer.Add(BloomBlockBuilder::kBloomBlock, bloom_block_handle);
     }
     BlockHandle index_block_handle;
@@ -252,12 +230,7 @@ Status PlainTableBuilder::Finish() {
     if (!s.ok()) {
       return s;
     }
-    if (ioptions_.enable_sst_file_checksum &&
-        ioptions_.sst_file_checksum != nullptr) {
-      CalculateFileCheckSum(ioptions_.sst_file_checksum,
-                            index_finish_result.data(),
-                            index_finish_result.size());
-    }
+
     meta_index_builer.Add(PlainTableIndexBuilder::kPlainTableIndexBlock,
                           index_block_handle);
   }
@@ -276,34 +249,27 @@ Status PlainTableBuilder::Finish() {
 
   // -- Write property block
   BlockHandle property_block_handle;
-  Slice property_block_builder_result = property_block_builder.Finish();
-  auto s = WriteBlock(property_block_builder_result, file_, &offset_,
-                      &property_block_handle);
+  auto s = WriteBlock(
+      property_block_builder.Finish(),
+      file_,
+      &offset_,
+      &property_block_handle
+  );
   if (!s.ok()) {
     return s;
   }
-  if (ioptions_.enable_sst_file_checksum &&
-      ioptions_.sst_file_checksum != nullptr) {
-    CalculateFileCheckSum(ioptions_.sst_file_checksum,
-                          property_block_builder_result.data(),
-                          property_block_builder_result.size());
-  }
-
   meta_index_builer.Add(kPropertiesBlock, property_block_handle);
 
   // -- write metaindex block
   BlockHandle metaindex_block_handle;
-  Slice meta_index_builer_result = meta_index_builer.Finish();
-  s = WriteBlock(meta_index_builer_result, file_, &offset_,
-                 &metaindex_block_handle);
+  s = WriteBlock(
+      meta_index_builer.Finish(),
+      file_,
+      &offset_,
+      &metaindex_block_handle
+  );
   if (!s.ok()) {
     return s;
-  }
-  if (ioptions_.enable_sst_file_checksum &&
-      ioptions_.sst_file_checksum != nullptr) {
-    CalculateFileCheckSum(ioptions_.sst_file_checksum,
-                          meta_index_builer_result.data(),
-                          meta_index_builer_result.size());
   }
 
   // Write Footer
@@ -314,11 +280,6 @@ Status PlainTableBuilder::Finish() {
   std::string footer_encoding;
   footer.EncodeTo(&footer_encoding);
   s = file_->Append(footer_encoding);
-  if (ioptions_.enable_sst_file_checksum &&
-      ioptions_.sst_file_checksum != nullptr) {
-    CalculateFileCheckSum(ioptions_.sst_file_checksum, footer_encoding.data(),
-                          footer_encoding.size());
-  }
   if (s.ok()) {
     offset_ += footer_encoding.size();
   }
@@ -336,26 +297,6 @@ uint64_t PlainTableBuilder::NumEntries() const {
 
 uint64_t PlainTableBuilder::FileSize() const {
   return offset_;
-}
-
-void PlainTableBuilder::CalculateFileCheckSum(SstFileChecksum* checksum_cal,
-                                              const char* data, size_t n) {
-  assert(checksum_cal != nullptr);
-  if (is_first_checksum_) {
-    file_checksum_ = checksum_cal->Value(data, n);
-    is_first_checksum_ = false;
-  } else {
-    file_checksum_ = checksum_cal->Extend(file_checksum_, data, n);
-  }
-}
-
-const char* PlainTableBuilder::GetFileChecksumName() const {
-  if (ioptions_.enable_sst_file_checksum &&
-      ioptions_.sst_file_checksum != nullptr) {
-    return ioptions_.sst_file_checksum->Name();
-  } else {
-    return kUnknownFileChecksumName.c_str();
-  }
 }
 
 }  // namespace rocksdb
