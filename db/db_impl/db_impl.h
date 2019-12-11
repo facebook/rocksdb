@@ -1831,8 +1831,6 @@ class DBImpl : public DB {
 
   WriteController write_controller_;
 
-  std::unique_ptr<RateLimiter> low_pri_write_rate_limiter_;
-
   // Size of the last batch group. In slowdown mode, next write needs to
   // sleep if it uses up the quota.
   // Note: This is to protect memtable and compaction. If the batch only writes
