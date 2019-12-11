@@ -644,7 +644,10 @@ void CompactionIterator::PrepareOutput() {
       const auto blob_decision = compaction_filter_->PrepareBlobOutput(
           user_key(), value_, &compaction_filter_value_);
 
-      if (blob_decision == CompactionFilter::BlobDecision::kChangeValue) {
+      if (blob_decision == CompactionFilter::BlobDecision::kError) {
+        status_ = Status::IOError("Could not relocate blob during GC");
+      } else if (blob_decision ==
+                 CompactionFilter::BlobDecision::kChangeValue) {
         value_ = compaction_filter_value_;
       }
     }
