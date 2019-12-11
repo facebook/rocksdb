@@ -111,7 +111,7 @@ class BlobIndex {
     return Status::OK();
   }
 
-  std::string DebugString(bool output_hex) {
+  std::string DebugString(bool output_hex) const {
     std::ostringstream oss;
 
     if (IsInlined()) {
