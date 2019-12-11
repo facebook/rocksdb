@@ -91,8 +91,8 @@ class BlobIndexCompactionFilterGC : public BlobIndexCompactionFilterBase {
 
   const char* Name() const override { return "BlobIndexCompactionFilterGC"; }
 
-  bool PrepareBlobOutput(const Slice& key, const Slice& existing_value,
-                         std::string* new_value) const override;
+  BlobDecision PrepareBlobOutput(const Slice& key, const Slice& existing_value,
+                                 std::string* new_value) const override;
 
  private:
   bool OpenNewBlobFileIfNeeded() const;

@@ -55,7 +55,7 @@ CompactionFilter::Decision BlobIndexCompactionFilterBase::FilterV2(
   return Decision::kKeep;
 }
 
-bool BlobIndexCompactionFilterGC::PrepareBlobOutput(
+CompactionFilter::BlobDecision BlobIndexCompactionFilterGC::PrepareBlobOutput(
     const Slice& key, const Slice& existing_value,
     std::string* new_value) const {
   assert(new_value);
@@ -69,19 +69,19 @@ bool BlobIndexCompactionFilterGC::PrepareBlobOutput(
   BlobIndex blob_index;
   const Status s = blob_index.DecodeFrom(existing_value);
   if (!s.ok()) {
-    return false;
+    return BlobDecision::kError;
   }
 
   if (blob_index.IsInlined()) {
-    return false;
+    return BlobDecision::kKeep;
   }
 
   if (blob_index.HasTTL()) {
-    return false;
+    return BlobDecision::kKeep;
   }
 
   if (blob_index.file_number() >= context_gc_.cutoff_file_number) {
-    return false;
+    return BlobDecision::kKeep;
   }
 
   // Note: each compaction generates its own blob files, which, depending on the
@@ -89,29 +89,29 @@ bool BlobIndexCompactionFilterGC::PrepareBlobOutput(
   // is bounded though (determined by the number of compactions and the blob
   // file size option).
   if (!OpenNewBlobFileIfNeeded()) {
-    return false;
+    return BlobDecision::kError;
   }
 
   PinnableSlice blob;
   CompressionType compression_type = kNoCompression;
   if (!ReadBlobFromOldFile(key, blob_index, &blob, &compression_type)) {
-    return false;
+    return BlobDecision::kError;
   }
 
   uint64_t new_blob_file_number = 0;
   uint64_t new_blob_offset = 0;
   if (!WriteBlobToNewFile(key, blob, &new_blob_file_number, &new_blob_offset)) {
-    return false;
+    return BlobDecision::kError;
   }
 
   if (!CloseAndRegisterNewBlobFileIfNeeded()) {
-    return false;
+    return BlobDecision::kError;
   }
 
   BlobIndex::EncodeBlob(new_value, new_blob_file_number, new_blob_offset,
                         blob.size(), compression_type);
 
-  return true;
+  return BlobDecision::kChangeValue;
 }
 
 bool BlobIndexCompactionFilterGC::OpenNewBlobFileIfNeeded() const {

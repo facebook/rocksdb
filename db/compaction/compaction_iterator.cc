@@ -641,8 +641,10 @@ void CompactionIterator::NextFromInput() {
 void CompactionIterator::PrepareOutput() {
   if (valid_) {
     if (compaction_filter_ && ikey_.type == kTypeBlobIndex) {
-      if (compaction_filter_->PrepareBlobOutput(user_key(), value_,
-                                                &compaction_filter_value_)) {
+      const auto blob_decision = compaction_filter_->PrepareBlobOutput(
+          user_key(), value_, &compaction_filter_value_);
+
+      if (blob_decision == CompactionFilter::BlobDecision::kChangeValue) {
         value_ = compaction_filter_value_;
       }
     }
