@@ -9,6 +9,7 @@
 //
 
 #ifdef GFLAGS
+#include <cmath>
 #include "db_stress_tool/db_stress_common.h"
 
 rocksdb::Env* FLAGS_env = rocksdb::Env::Default();
@@ -16,8 +17,43 @@ enum rocksdb::CompressionType FLAGS_compression_type_e =
     rocksdb::kSnappyCompression;
 enum rocksdb::ChecksumType FLAGS_checksum_type_e = rocksdb::kCRC32c;
 enum RepFactory FLAGS_rep_factory = kSkipList;
+std::vector<double> sum_probs(100001);
+int64_t zipf_sum_size = 100000;
 
 namespace rocksdb {
+void InitilizeHotKeyGenerator(double alpha) {
+  double c = 0;
+  for (int64_t i = 1; i <= zipf_sum_size; i++) {
+    c = c + (1.0 / std::pow(static_cast<double>(i), alpha));
+  }
+  c = 1.0 / c;
+
+  sum_probs[0] = 0;
+  for (int64_t i = 1; i <= zipf_sum_size; i++) {
+    sum_probs[i] = sum_probs[i - 1] + c / std::pow(static_cast<double>(i), alpha);
+  }
+}
+
+int64_t GetOneHotKeyID(double rand_seed, int64_t max_key) {
+  int64_t low = 1, mid, high = zipf_sum_size, zipf = 0;
+  while (low <= high) {
+    mid = floor((low+high)/2);
+    if (sum_probs[mid] >= rand_seed && sum_probs[mid - 1] < rand_seed) {
+      zipf = mid;
+      break;
+    } else if (sum_probs[mid] >= rand_seed) {
+      high = mid - 1;
+    } else {
+      low = mid + 1;
+    }
+  }
+  int64_t tmp_zipf_seed =
+      static_cast<int64_t>(floor(zipf * max_key / (static_cast<double>(zipf_sum_size))));
+  Random64 rand_local(tmp_zipf_seed);
+  return rand_local.Next() % max_key;
+  //return tmp_zipf_seed;
+}
+
 void PoolSizeChangeThread(void* v) {
   assert(FLAGS_compaction_thread_pool_adjust_interval > 0);
   ThreadState* thread = reinterpret_cast<ThreadState*>(v);

@@ -79,6 +79,7 @@ using GFLAGS_NAMESPACE::SetUsageMessage;
 DECLARE_uint64(seed);
 DECLARE_bool(read_only);
 DECLARE_int64(max_key);
+DECLARE_double(hot_key_alpha);
 DECLARE_int32(column_families);
 DECLARE_string(options_file);
 DECLARE_int64(active_width);
@@ -372,5 +373,7 @@ extern size_t GenerateValue(uint32_t rand, char* v, size_t max_sz);
 extern StressTest* CreateCfConsistencyStressTest();
 extern StressTest* CreateBatchedOpsStressTest();
 extern StressTest* CreateNonBatchedOpsStressTest();
+extern void InitilizeHotKeyGenerator(double alpha);
+extern int64_t GetOneHotKeyID(double rand_seed, int64_t max_key);
 }  // namespace rocksdb
 #endif  // GFLAGS

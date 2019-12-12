@@ -228,12 +228,24 @@ class NonBatchedOpsStressTest : public StressTest {
                  std::unique_ptr<MutexLock>& lock) override {
     auto shared = thread->shared;
     int64_t max_key = shared->GetMaxKey();
-    int64_t rand_key = rand_keys[0];
+    int64_t rand_seed = rand_keys[0];
+    int64_t rand_key;
+    if (FLAGS_hot_key_alpha != 0) {
+      double float_rand = (static_cast<double>(rand_seed%max_key))/max_key;
+      rand_key = GetOneHotKeyID(float_rand, max_key);
+    } else {
+      rand_key = rand_seed;
+    }
     int rand_column_family = rand_column_families[0];
     while (!shared->AllowsOverwrite(rand_key) &&
            (FLAGS_use_merge || shared->Exists(rand_column_family, rand_key))) {
       lock.reset();
-      rand_key = thread->rand.Next() % max_key;
+      if (FLAGS_hot_key_alpha != 0) {
+        double float_rand = (static_cast<double>(thread->rand.Next()%max_key))/max_key;
+        rand_key = GetOneHotKeyID(float_rand, max_key);
+      } else {
+        rand_key = thread->rand.Next() % max_key;
+      }
       rand_column_family = thread->rand.Next() % FLAGS_column_families;
       lock.reset(
           new MutexLock(shared->GetMutexForKey(rand_column_family, rand_key)));

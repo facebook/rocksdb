@@ -21,6 +21,8 @@
 // different behavior. See comment of the flag for details.
 
 #ifdef GFLAGS
+#include <cmath>
+#include <cstdlib>
 #include "db_stress_tool/db_stress_common.h"
 #include "db_stress_tool/db_stress_driver.h"
 
@@ -189,6 +191,20 @@ int db_stress_tool(int argc, char** argv) {
     stress.reset(CreateBatchedOpsStressTest());
   } else {
     stress.reset(CreateNonBatchedOpsStressTest());
+  }
+  InitilizeHotKeyGenerator(FLAGS_hot_key_alpha);
+  int64_t max_key = 100000;
+  std::map<int64_t, int64_t> counter;
+  srand(1);
+  for (int64_t i=0; i<100000; i++) {
+    double rand_seed = (static_cast<double>(rand()%max_key))/max_key;
+    int64_t cur_hot = GetOneHotKeyID(rand_seed, max_key);
+    counter[cur_hot]++;
+  }
+  for (auto i:counter) {
+    if (i.second>10) {
+      std::cout<<"key: "<<i.first<<" count: "<<i.second<<"\n";
+    }
   }
   if (RunStressTest(stress.get())) {
     return 0;
