@@ -21,8 +21,6 @@
 // different behavior. See comment of the flag for details.
 
 #ifdef GFLAGS
-#include <cmath>
-#include <cstdlib>
 #include "db_stress_tool/db_stress_common.h"
 #include "db_stress_tool/db_stress_driver.h"
 
