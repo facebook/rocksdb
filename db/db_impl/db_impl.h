@@ -1416,6 +1416,7 @@ class DBImpl : public DB {
 
   inline void WaitForPendingWrites() {
     mutex_.AssertHeld();
+    TEST_SYNC_POINT("DBImpl::WaitForPendingWrites:BeforeBlock");
     // In case of pipelined write is enabled, wait for all pending memtable
     // writers.
     if (immutable_db_options_.enable_pipelined_write) {

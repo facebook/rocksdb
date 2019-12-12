@@ -1507,8 +1507,7 @@ TEST_F(DBCompactionTest, ManualCompactionWithUnorderedWrite) {
   rocksdb::SyncPoint::GetInstance()->LoadDependency(
       {{"DBImpl::WriteImpl:UnorderedWriteAfterWriteWAL",
         "DBCompactionTest::ManualCompactionWithUnorderedWrite:WaitWriteWAL"},
-       {"DBCompactionTest::ManualCompactionWithUnorderedWrite:"
-        "ContinueWriteMemtable",
+       {"DBImpl::WaitForPendingWrites:BeforeBlock",
         "DBImpl::WriteImpl:BeforeUnorderedWriteMemtable"}});
 
   Options options = CurrentOptions();
@@ -1519,21 +1518,13 @@ TEST_F(DBCompactionTest, ManualCompactionWithUnorderedWrite) {
 
   Put("bar", "v1");
   rocksdb::SyncPoint::GetInstance()->EnableProcessing();
-  port::Thread writer1([&]() { Put("foo", "v2"); });
-  port::Thread writer2([&]() {
-    TEST_SYNC_POINT(
-        "DBCompactionTest::ManualCompactionWithUnorderedWrite:WaitWriteWAL");
-    ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
-  });
+  port::Thread writer([&]() { Put("foo", "v2"); });
 
-  // make sure `Put` and `CompactRange` are all called.
-  env_->SleepForMicroseconds(100000);
   TEST_SYNC_POINT(
-      "DBCompactionTest::ManualCompactionWithUnorderedWrite:"
-      "ContinueWriteMemtable");
+      "DBCompactionTest::ManualCompactionWithUnorderedWrite:WaitWriteWAL");
+  ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
 
-  writer1.join();
-  writer2.join();
+  writer.join();
   ASSERT_EQ(Get("foo"), "v2");
 
   SyncPoint::GetInstance()->DisableProcessing();
