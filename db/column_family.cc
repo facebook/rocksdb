@@ -1116,19 +1116,27 @@ SuperVersion* ColumnFamilyData::GetThreadLocalSuperVersion(DBImpl* db) {
   if (sv == SuperVersion::kSVObsolete ||
       sv->version_number != super_version_number_.load()) {
     RecordTick(ioptions_.statistics, NUMBER_SUPERVERSION_ACQUIRES);
+    SuperVersion* sv_to_delete = nullptr;
 
     if (sv && sv->Unref()) {
       RecordTick(ioptions_.statistics, NUMBER_SUPERVERSION_CLEANUPS);
       db->mutex()->Lock();
       // NOTE: underlying resources held by superversion (sst files) might
       // not be released until the next background job.
-      db->AddSuperVersionsToFreeQueue(sv);
-      db->SchedulePurge();
+      sv->Cleanup();
+      if (db->immutable_db_options().avoid_unnecessary_blocking_io) {
+        db->AddSuperVersionsToFreeQueue(sv);
+        db->SchedulePurge();
+      } else {
+        sv_to_delete = sv;
+      }
     } else {
       db->mutex()->Lock();
     }
     sv = super_version_->Ref();
     db->mutex()->Unlock();
+
+    delete sv_to_delete;
   }
   assert(sv != nullptr);
   return sv;

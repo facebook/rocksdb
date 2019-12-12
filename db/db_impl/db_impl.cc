@@ -895,7 +895,6 @@ void DBImpl::ScheduleBgLogWriterClose(JobContext* job_context) {
       AddToLogsToFreeQueue(l);
     }
     job_context->logs_to_free.clear();
-    SchedulePurge();
   }
 }
 
@@ -1382,10 +1381,14 @@ static void CleanupIteratorState(void* arg1, void* /*arg2*/) {
     state->db->FindObsoleteFiles(&job_context, false, true);
     if (state->background_purge) {
       state->db->ScheduleBgLogWriterClose(&job_context);
+      state->db->AddSuperVersionsToFreeQueue(state->super_version);
+      state->db->SchedulePurge();
     }
     state->mu->Unlock();
 
-    delete state->super_version;
+    if (!state->background_purge) {
+      delete state->super_version;
+    }
     if (job_context.HaveSomethingToDelete()) {
       if (state->background_purge) {
         // PurgeObsoleteFiles here does not delete files. Instead, it adds the
@@ -2910,10 +2913,18 @@ SuperVersion* DBImpl::GetAndRefSuperVersion(uint32_t column_family_id) {
 void DBImpl::CleanupSuperVersion(SuperVersion* sv) {
   // Release SuperVersion
   if (sv->Unref()) {
+    bool defer_purge =
+            immutable_db_options().avoid_unnecessary_blocking_io;
     {
       InstrumentedMutexLock l(&mutex_);
-      AddSuperVersionsToFreeQueue(sv);
-      SchedulePurge();
+      sv->Cleanup();
+      if (defer_purge) {
+        AddSuperVersionsToFreeQueue(sv);
+        SchedulePurge();
+      }
+    }
+    if (!defer_purge) {
+      delete sv;
     }
     RecordTick(stats_, NUMBER_SUPERVERSION_CLEANUPS);
   }
@@ -4302,14 +4313,23 @@ Status DBImpl::VerifyChecksum(const ReadOptions& read_options) {
       break;
     }
   }
+  bool defer_purge =
+          immutable_db_options().avoid_unnecessary_blocking_io;
   {
     InstrumentedMutexLock l(&mutex_);
     for (auto sv : sv_list) {
       if (sv && sv->Unref()) {
-        AddSuperVersionsToFreeQueue(sv);
+        sv->Cleanup();
+        if (defer_purge) {
+          AddSuperVersionsToFreeQueue(sv);
+        } else {
+          delete sv;
+        }
       }
     }
-    SchedulePurge();
+    if (defer_purge) {
+      SchedulePurge();
+    }
     for (auto cfd : cfd_list) {
       cfd->Unref();
     }

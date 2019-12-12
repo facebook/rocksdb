@@ -799,7 +799,6 @@ class DBImpl : public DB {
   }
 
   void AddSuperVersionsToFreeQueue(SuperVersion* sv) {
-    sv->Cleanup();
     superversions_to_free_queue_.push_back(sv);
   }
 

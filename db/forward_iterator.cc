@@ -239,9 +239,13 @@ void ForwardIterator::SVCleanup(DBImpl* db, SuperVersion* sv,
     db->FindObsoleteFiles(&job_context, false, true);
     if (background_purge_on_iterator_cleanup) {
       db->ScheduleBgLogWriterClose(&job_context);
+      db->AddSuperVersionsToFreeQueue(sv);
+      db->SchedulePurge();
     }
     db->mutex_.Unlock();
-    delete sv;
+    if (!background_purge_on_iterator_cleanup) {
+      delete sv;
+    }
     if (job_context.HaveSomethingToDelete()) {
       db->PurgeObsoleteFiles(job_context, background_purge_on_iterator_cleanup);
     }
