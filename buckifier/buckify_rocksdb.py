@@ -11,7 +11,6 @@ from targets_builder import TARGETSBuilder
 import json
 import os
 import fnmatch
-import sys
 
 from util import ColorString
 
