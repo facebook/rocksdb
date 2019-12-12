@@ -3958,6 +3958,13 @@ Status DBImpl::IngestExternalFiles(
       nonmem_write_thread_.EnterUnbatched(&nonmem_w, &mutex_);
     }
 
+    // When unordered_write is enabled, the keys are writing to memtable in an
+    // unordered way. If the ingestion job checks memtable key range before the
+    // key landing in memtable, the ingestion job may skip the necessary
+    // memtable flush.
+    // So wait here to ensure there is no pending write to memtable.
+    WaitForPendingWrites();
+
     num_running_ingest_file_ += static_cast<int>(num_cfs);
     TEST_SYNC_POINT("DBImpl::IngestExternalFile:AfterIncIngestFileCounter");
 
