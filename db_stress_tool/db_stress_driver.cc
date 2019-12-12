@@ -87,9 +87,9 @@ bool RunStressTest(StressTest* stress) {
     }
     if (shared.ShouldVerifyAtBeginning()) {
       if (shared.HasVerificationFailedYet()) {
-        printf("Crash-recovery verification failed :(\n");
+        fprintf(stderr, "Crash-recovery verification failed :(\n");
       } else {
-        printf("Crash-recovery verification passed :)\n");
+        fprintf(stdout, "Crash-recovery verification passed :)\n");
       }
     }
 
@@ -148,7 +148,7 @@ bool RunStressTest(StressTest* stress) {
   }
 
   if (shared.HasVerificationFailedYet()) {
-    printf("Verification failed :(\n");
+    fprintf(stderr, "Verification failed :(\n");
     return false;
   }
   return true;

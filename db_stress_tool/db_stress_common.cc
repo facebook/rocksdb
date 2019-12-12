@@ -85,7 +85,7 @@ void PoolSizeChangeThread(void* v) {
   while (true) {
     {
       MutexLock l(shared->GetMutex());
-      if (shared->ShoudStopBgThread()) {
+      if (shared->ShouldStopBgThread()) {
         shared->SetBgThreadFinish();
         shared->GetCondVar()->SignalAll();
         return;

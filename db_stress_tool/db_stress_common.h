@@ -141,7 +141,7 @@ DECLARE_bool(partition_filters);
 DECLARE_int32(index_type);
 DECLARE_string(db);
 DECLARE_string(secondaries_base);
-DECLARE_bool(enable_secondary);
+DECLARE_bool(test_secondary);
 DECLARE_string(expected_values_path);
 DECLARE_bool(verify_checksum);
 DECLARE_bool(mmap_read);
@@ -208,6 +208,7 @@ DECLARE_bool(write_dbid_to_manifest);
 DECLARE_uint64(max_write_batch_group_size_bytes);
 DECLARE_bool(level_compaction_dynamic_level_bytes);
 DECLARE_int32(verify_checksum_one_in);
+DECLARE_int32(verify_db_one_in);
 
 const long KB = 1024;
 const int kRandomValueMaxFactor = 3;

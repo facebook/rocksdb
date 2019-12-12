@@ -57,7 +57,7 @@ class SharedState {
     // Pick random keys in each column family that will not experience
     // overwrite
 
-    printf("Choosing random keys with no overwrite\n");
+    fprintf(stdout, "Choosing random keys with no overwrite\n");
     Random64 rnd(seed_);
     // Start with the identity permutation. Subsequent iterations of
     // for loop below will start with perm of previous for loop
@@ -290,7 +290,7 @@ class SharedState {
 
   void SetShouldStopBgThread() { should_stop_bg_thread_ = true; }
 
-  bool ShoudStopBgThread() { return should_stop_bg_thread_; }
+  bool ShouldStopBgThread() { return should_stop_bg_thread_; }
 
   void SetBgThreadFinish() { bg_thread_finished_ = true; }
 

@@ -13,7 +13,6 @@
 
 namespace rocksdb {
 const uint32_t SharedState::UNKNOWN_SENTINEL = 0xfffffffe;
-// indicates a key should definitely be deleted
 const uint32_t SharedState::DELETION_SENTINEL = 0xffffffff;
 }  // namespace rocksdb
 #endif  // GFLAGS

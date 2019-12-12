@@ -187,7 +187,7 @@ void StressTest::InitReadonlyDb(SharedState* shared) {
 
 bool StressTest::VerifySecondaries() {
 #ifndef ROCKSDB_LITE
-  if (FLAGS_enable_secondary) {
+  if (FLAGS_test_secondary) {
     uint64_t now = FLAGS_env->NowMicros();
     fprintf(
         stdout, "%s Start to verify secondaries against primary\n",
@@ -232,7 +232,7 @@ bool StressTest::VerifySecondaries() {
       return false;
     }
   }
-  if (FLAGS_enable_secondary) {
+  if (FLAGS_test_secondary) {
     uint64_t now = FLAGS_env->NowMicros();
     fprintf(
         stdout, "%s Verification of secondaries succeeded\n",
@@ -294,15 +294,16 @@ Status StressTest::AssertSame(DB* db, ColumnFamilyHandle* cf,
 
 void StressTest::VerificationAbort(SharedState* shared, std::string msg,
                                    Status s) const {
-  printf("Verification failed: %s. Status is %s\n", msg.c_str(),
-         s.ToString().c_str());
+  fprintf(stderr, "Verification failed: %s. Status is %s\n", msg.c_str(),
+          s.ToString().c_str());
   shared->SetVerificationFailure();
 }
 
 void StressTest::VerificationAbort(SharedState* shared, std::string msg, int cf,
                                    int64_t key) const {
-  printf("Verification failed for column family %d key %" PRIi64 ": %s\n", cf,
-         key, msg.c_str());
+  fprintf(stderr,
+          "Verification failed for column family %d key %" PRIi64 ": %s\n", cf,
+          key, msg.c_str());
   shared->SetVerificationFailure();
 }
 
@@ -466,10 +467,11 @@ void StressTest::OperateDb(ThreadState* thread) {
     write_opts.sync = true;
   }
   write_opts.disableWAL = FLAGS_disable_wal;
-  const int prefixBound = (int)FLAGS_readpercent + (int)FLAGS_prefixpercent;
-  const int writeBound = prefixBound + (int)FLAGS_writepercent;
-  const int delBound = writeBound + (int)FLAGS_delpercent;
-  const int delRangeBound = delBound + (int)FLAGS_delrangepercent;
+  const int prefixBound = static_cast<int>(FLAGS_readpercent) +
+                          static_cast<int>(FLAGS_prefixpercent);
+  const int writeBound = prefixBound + static_cast<int>(FLAGS_writepercent);
+  const int delBound = writeBound + static_cast<int>(FLAGS_delpercent);
+  const int delRangeBound = delBound + static_cast<int>(FLAGS_delrangepercent);
   const uint64_t ops_per_open = FLAGS_ops_per_thread / (FLAGS_reopen + 1);
 
   thread->stats.Start();
@@ -510,12 +512,17 @@ void StressTest::OperateDb(ThreadState* thread) {
         options_.inplace_update_support ^= options_.inplace_update_support;
       }
 
+      if (thread->tid == 0 && FLAGS_verify_db_one_in > 0 &&
+          thread->rand.OneIn(FLAGS_verify_db_one_in)) {
+        VerifyDb(thread);
+      }
+
       MaybeClearOneColumnFamily(thread);
 
       if (thread->rand.OneInOpt(FLAGS_sync_wal_one_in)) {
         Status s = db_->SyncWAL();
         if (!s.ok() && !s.IsNotSupported()) {
-          fprintf(stdout, "SyncWAL() failed: %s\n", s.ToString().c_str());
+          fprintf(stderr, "SyncWAL() failed: %s\n", s.ToString().c_str());
         }
       }
 
@@ -729,7 +736,7 @@ void StressTest::OperateDb(ThreadState* thread) {
       // Reset this in case we pick something other than a read op. We don't
       // want to use a stale value when deciding at the beginning of the loop
       // whether to vote to reopen
-      if (prob_op < (int)FLAGS_readpercent) {
+      if (prob_op >= 0 && prob_op < static_cast<int>(FLAGS_readpercent)) {
         assert(0 <= prob_op);
         // OPERATION read
         if (FLAGS_use_multiget) {
@@ -748,7 +755,7 @@ void StressTest::OperateDb(ThreadState* thread) {
           TestGet(thread, read_opts, rand_column_families, rand_keys);
         }
       } else if (prob_op < prefixBound) {
-        assert((int)FLAGS_readpercent <= prob_op);
+        assert(static_cast<int>(FLAGS_readpercent) <= prob_op);
         // OPERATION prefix scan
         // keys are 8 bytes long, prefix size is FLAGS_prefix_size. There are
         // (8 - FLAGS_prefix_size) bytes besides the prefix. So there will
@@ -1213,8 +1220,8 @@ Status StressTest::TestBackupRestore(
     restored_db = nullptr;
   }
   if (!s.ok()) {
-    printf("A backup/restore operation failed with: %s\n",
-           s.ToString().c_str());
+    fprintf(stderr, "A backup/restore operation failed with: %s\n",
+            s.ToString().c_str());
   }
   return s;
 }
@@ -1339,7 +1346,8 @@ void StressTest::TestCompactRange(ThreadState* thread, int64_t rand_key,
   Status status = db_->CompactRange(cro, column_family, &start_key, &end_key);
 
   if (!status.ok()) {
-    printf("Unable to perform CompactRange(): %s\n", status.ToString().c_str());
+    fprintf(stdout, "Unable to perform CompactRange(): %s\n",
+            status.ToString().c_str());
   }
 
   if (pre_snapshot != nullptr) {
@@ -1666,16 +1674,16 @@ void StressTest::Open() {
                 existing_column_families.end());
       if (sorted_cfn != existing_column_families) {
         fprintf(stderr, "Expected column families differ from the existing:\n");
-        printf("Expected: {");
+        fprintf(stderr, "Expected: {");
         for (auto cf : sorted_cfn) {
-          printf("%s ", cf.c_str());
+          fprintf(stderr, "%s ", cf.c_str());
         }
-        printf("}\n");
-        printf("Existing: {");
+        fprintf(stderr, "}\n");
+        fprintf(stderr, "Existing: {");
         for (auto cf : existing_column_families) {
-          printf("%s ", cf.c_str());
+          fprintf(stderr, "%s ", cf.c_str());
         }
-        printf("}\n");
+        fprintf(stderr, "}\n");
       }
       assert(sorted_cfn == existing_column_families);
     }
@@ -1742,7 +1750,7 @@ void StressTest::Open() {
     assert(!s.ok() || column_families_.size() ==
                           static_cast<size_t>(FLAGS_column_families));
 
-    if (FLAGS_enable_secondary) {
+    if (FLAGS_test_secondary) {
 #ifndef ROCKSDB_LITE
       secondaries_.resize(FLAGS_threads);
       std::fill(secondaries_.begin(), secondaries_.end(), nullptr);
@@ -1772,7 +1780,7 @@ void StressTest::Open() {
     DBWithTTL* db_with_ttl;
     s = DBWithTTL::Open(options_, FLAGS_db, &db_with_ttl, FLAGS_ttl);
     db_ = db_with_ttl;
-    if (FLAGS_enable_secondary) {
+    if (FLAGS_test_secondary) {
       secondaries_.resize(FLAGS_threads);
       std::fill(secondaries_.begin(), secondaries_.end(), nullptr);
       Options tmp_opts;

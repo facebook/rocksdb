@@ -41,7 +41,7 @@ int db_stress_tool(int argc, char** argv) {
 
   if (FLAGS_statistics) {
     dbstats = rocksdb::CreateDBStatistics();
-    if (FLAGS_enable_secondary) {
+    if (FLAGS_test_secondary) {
       dbstats_secondaries = rocksdb::CreateDBStatistics();
     }
   }
@@ -171,7 +171,7 @@ int db_stress_tool(int argc, char** argv) {
     FLAGS_db = default_db_path;
   }
 
-  if (FLAGS_enable_secondary && FLAGS_secondaries_base.empty()) {
+  if (FLAGS_test_secondary && FLAGS_secondaries_base.empty()) {
     std::string default_secondaries_path;
     FLAGS_env->GetTestDirectory(&default_secondaries_path);
     default_secondaries_path += "/dbstress_secondaries";
@@ -184,8 +184,17 @@ int db_stress_tool(int argc, char** argv) {
     FLAGS_secondaries_base = default_secondaries_path;
   }
 
-  if (!FLAGS_enable_secondary && FLAGS_secondary_catch_up_one_in > 0) {
-    fprintf(stderr, "Secondary instance is disabled.\n");
+  if (!FLAGS_test_secondary && FLAGS_secondary_catch_up_one_in > 0) {
+    fprintf(
+        stderr,
+        "Must set -test_secondary=true if secondary_catch_up_one_in > 0.\n");
+    exit(1);
+  }
+
+  if (!FLAGS_test_cf_consistency && FLAGS_verify_db_one_in > 0) {
+    fprintf(stderr,
+            "For non cf_consistency tests, VerifyDb() is called only before "
+            "and after test.\n");
     exit(1);
   }
 

@@ -307,7 +307,7 @@ DEFINE_string(db, "", "Use the db with the following name.");
 DEFINE_string(secondaries_base, "",
               "Use this path as the base path for secondary instances.");
 
-DEFINE_bool(enable_secondary, false, "Enable secondary instance.");
+DEFINE_bool(test_secondary, false, "Test secondary instance.");
 
 DEFINE_string(
     expected_values_path, "",
@@ -582,4 +582,8 @@ DEFINE_int32(verify_checksum_one_in, 0,
              " checksum verification of all the files in the database once for"
              " every N ops on average. 0 indicates that calls to"
              " VerifyChecksum() are disabled.");
+DEFINE_int32(verify_db_one_in, 0,
+             "If non-zero, call VerifyDb() once for every N ops. 0 indicates "
+             "that VerifyDb() will not be called in OperateDb(). Note that "
+             "enabling this can slow down tests.");
 #endif  // GFLAGS

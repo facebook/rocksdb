@@ -350,6 +350,12 @@ class CfConsistencyStressTest : public StressTest {
     // iterate the memtable using this iterator any more, although the memtable
     // contains the most up-to-date key-values.
     options.total_order_seek = true;
+    const auto ss_deleter = [this](const Snapshot* ss) {
+      db_->ReleaseSnapshot(ss);
+    };
+    std::unique_ptr<const Snapshot, decltype(ss_deleter)> snapshot_guard(
+        db_->GetSnapshot(), ss_deleter);
+    options.snapshot = snapshot_guard.get();
     assert(thread != nullptr);
     auto shared = thread->shared;
     std::vector<std::unique_ptr<Iterator>> iters(column_families_.size());
@@ -387,9 +393,6 @@ class CfConsistencyStressTest : public StressTest {
                     s.ToString().c_str());
             shared->SetVerificationFailure();
           }
-        }
-        if (status.ok()) {
-          fprintf(stdout, "Finished scanning all column families.\n");
         }
         break;
       } else if (valid_cnt != iters.size()) {
