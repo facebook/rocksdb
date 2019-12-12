@@ -14,7 +14,7 @@
 #        cd build
 # 3. Run cmake to generate project files for Windows, add more options to enable required third-party libraries.
 #    See thirdparty.inc for more information.
-#        sample command: cmake -G "Visual Studio 15 Win64" -DWITH_GFLAGS=1 -DWITH_SNAPPY=1 -DWITH_JEMALLOC=1 -DWITH_JNI=1 ..
+#        sample command: cmake -G "Visual Studio 15 Win64" -DCMAKE_BUILD_TYPE=Release -DWITH_GFLAGS=1 -DWITH_SNAPPY=1 -DWITH_JEMALLOC=1 -DWITH_JNI=1 ..
 # 4. Then build the project in debug mode (you may want to add /m[:<N>] flag to run msbuild in <N> parallel threads
 #                                          or simply /m to use all avail cores)
 #        msbuild rocksdb.sln
@@ -63,7 +63,12 @@ endif()
 # third-party/folly is only validated to work on Linux and Windows for now.
 # So only turn it on there by default.
 if(CMAKE_SYSTEM_NAME MATCHES "Linux" OR CMAKE_SYSTEM_NAME MATCHES "Windows")
-  option(WITH_FOLLY_DISTRIBUTED_MUTEX "build with folly::DistributedMutex" ON)
+  if(MSVC AND MSVC_VERSION LESS 1910)
+    # Folly does not compile with MSVC older than VS2017
+    option(WITH_FOLLY_DISTRIBUTED_MUTEX "build with folly::DistributedMutex" OFF)
+  else()
+    option(WITH_FOLLY_DISTRIBUTED_MUTEX "build with folly::DistributedMutex" ON)
+  endif()
 else()
   option(WITH_FOLLY_DISTRIBUTED_MUTEX "build with folly::DistributedMutex" OFF)
 endif()
@@ -174,7 +179,7 @@ else()
   set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -W -Wextra -Wall")
   set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wsign-compare -Wshadow -Wno-unused-parameter -Wno-unused-variable -Woverloaded-virtual -Wnon-virtual-dtor -Wno-missing-field-initializers -Wno-strict-aliasing")
   if(MINGW)
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wno-format")
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wno-format -fno-asynchronous-unwind-tables")
     add_definitions(-D_POSIX_C_SOURCE=1)
   endif()
   set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++11")
@@ -631,7 +636,6 @@ set(SOURCES
         test_util/testutil.cc
         test_util/transaction_test_util.cc
         tools/block_cache_analyzer/block_cache_trace_analyzer.cc
-        tools/db_bench_tool.cc
         tools/dump/db_dump_tool.cc
         tools/ldb_cmd.cc
         tools/ldb_tool.cc
@@ -767,7 +771,8 @@ endif()
 
 set(ROCKSDB_STATIC_LIB rocksdb${ARTIFACT_SUFFIX})
 set(ROCKSDB_SHARED_LIB rocksdb-shared${ARTIFACT_SUFFIX})
-set(ROCKSDB_IMPORT_LIB ${ROCKSDB_SHARED_LIB})
+
+option(ROCKSDB_BUILD_SHARED "Build shared versions of the RocksDB libraries" ON)
 
 option(WITH_LIBRADOS "Build with librados" OFF)
 if(WITH_LIBRADOS)
@@ -778,38 +783,42 @@ endif()
 
 if(WIN32)
   set(SYSTEM_LIBS ${SYSTEM_LIBS} shlwapi.lib rpcrt4.lib)
-  set(LIBS ${ROCKSDB_STATIC_LIB} ${THIRDPARTY_LIBS} ${SYSTEM_LIBS})
 else()
   set(SYSTEM_LIBS ${CMAKE_THREAD_LIBS_INIT})
-  set(LIBS ${ROCKSDB_SHARED_LIB} ${THIRDPARTY_LIBS} ${SYSTEM_LIBS})
-
-  add_library(${ROCKSDB_SHARED_LIB} SHARED ${SOURCES})
-  target_link_libraries(${ROCKSDB_SHARED_LIB}
-    ${THIRDPARTY_LIBS} ${SYSTEM_LIBS})
-  set_target_properties(${ROCKSDB_SHARED_LIB} PROPERTIES
-                        LINKER_LANGUAGE CXX
-                        VERSION ${rocksdb_VERSION}
-                        SOVERSION ${rocksdb_VERSION_MAJOR}
-                        CXX_STANDARD 11
-                        OUTPUT_NAME "rocksdb")
 endif()
 
 add_library(${ROCKSDB_STATIC_LIB} STATIC ${SOURCES})
 target_link_libraries(${ROCKSDB_STATIC_LIB}
   ${THIRDPARTY_LIBS} ${SYSTEM_LIBS})
 
-if(WIN32)
-  add_library(${ROCKSDB_IMPORT_LIB} SHARED ${SOURCES})
-  target_link_libraries(${ROCKSDB_IMPORT_LIB}
+if(ROCKSDB_BUILD_SHARED)
+  add_library(${ROCKSDB_SHARED_LIB} SHARED ${SOURCES})
+  target_link_libraries(${ROCKSDB_SHARED_LIB}
     ${THIRDPARTY_LIBS} ${SYSTEM_LIBS})
-  set_target_properties(${ROCKSDB_IMPORT_LIB} PROPERTIES
-    COMPILE_DEFINITIONS "ROCKSDB_DLL;ROCKSDB_LIBRARY_EXPORTS")
-  if(MSVC)
-    set_target_properties(${ROCKSDB_STATIC_LIB} PROPERTIES
-      COMPILE_FLAGS "/Fd${CMAKE_CFG_INTDIR}/${ROCKSDB_STATIC_LIB}.pdb")
-    set_target_properties(${ROCKSDB_IMPORT_LIB} PROPERTIES
-      COMPILE_FLAGS "/Fd${CMAKE_CFG_INTDIR}/${ROCKSDB_IMPORT_LIB}.pdb")
+
+  if(WIN32)
+    set_target_properties(${ROCKSDB_SHARED_LIB} PROPERTIES
+      COMPILE_DEFINITIONS "ROCKSDB_DLL;ROCKSDB_LIBRARY_EXPORTS")
+    if(MSVC)
+      set_target_properties(${ROCKSDB_STATIC_LIB} PROPERTIES
+        COMPILE_FLAGS "/Fd${CMAKE_CFG_INTDIR}/${ROCKSDB_STATIC_LIB}.pdb")
+      set_target_properties(${ROCKSDB_SHARED_LIB} PROPERTIES
+        COMPILE_FLAGS "/Fd${CMAKE_CFG_INTDIR}/${ROCKSDB_SHARED_LIB}.pdb")
+    endif()
+  else()
+    set_target_properties(${ROCKSDB_SHARED_LIB} PROPERTIES
+                          LINKER_LANGUAGE CXX
+                          VERSION ${rocksdb_VERSION}
+                          SOVERSION ${rocksdb_VERSION_MAJOR}
+                          CXX_STANDARD 11
+                          OUTPUT_NAME "rocksdb")
   endif()
+endif()
+
+if(ROCKSDB_BUILD_SHARED AND NOT WIN32)
+  set(ROCKSDB_LIB ${ROCKSDB_SHARED_LIB})
+else()
+  set(ROCKSDB_LIB ${ROCKSDB_STATIC_LIB})
 endif()
 
 option(WITH_JNI "build with JNI" OFF)
@@ -858,15 +867,17 @@ if(NOT WIN32 OR ROCKSDB_INSTALL_ON_WINDOWS)
     INCLUDES DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}"
   )
 
-  install(
-    TARGETS ${ROCKSDB_SHARED_LIB}
-    EXPORT RocksDBTargets
-    COMPONENT runtime
-    ARCHIVE DESTINATION "${CMAKE_INSTALL_LIBDIR}"
-    RUNTIME DESTINATION "${CMAKE_INSTALL_BINDIR}"
-    LIBRARY DESTINATION "${CMAKE_INSTALL_LIBDIR}"
-    INCLUDES DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}"
-  )
+  if(ROCKSDB_BUILD_SHARED)
+    install(
+      TARGETS ${ROCKSDB_SHARED_LIB}
+      EXPORT RocksDBTargets
+      COMPONENT runtime
+      ARCHIVE DESTINATION "${CMAKE_INSTALL_LIBDIR}"
+      RUNTIME DESTINATION "${CMAKE_INSTALL_BINDIR}"
+      LIBRARY DESTINATION "${CMAKE_INSTALL_LIBDIR}"
+      INCLUDES DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}"
+    )
+  endif()
 
   install(
     EXPORT RocksDBTargets
@@ -885,7 +896,9 @@ if(NOT WIN32 OR ROCKSDB_INSTALL_ON_WINDOWS)
 endif()
 
 option(WITH_TESTS "build with tests" ON)
-if(WITH_TESTS)
+# For test libraries, utilities, and exes that are build iff WITH_TESTS=ON and
+# in Debug mode. Add test only code that is not #ifdefed for Release here.
+if(WITH_TESTS AND CMAKE_BUILD_TYPE STREQUAL "Debug")
   add_subdirectory(third-party/gtest-1.8.1/fused-src/gtest)
   set(TESTS
         cache/cache_test.cc
@@ -1040,24 +1053,6 @@ if(WITH_TESTS)
     list(APPEND TESTS third-party/folly/folly/synchronization/test/DistributedMutexTest.cpp)
   endif()
 
-  set(BENCHMARKS
-    cache/cache_bench.cc
-    memtable/memtablerep_bench.cc
-    db/range_del_aggregator_bench.cc
-    tools/db_bench.cc
-    table/table_reader_bench.cc
-    util/filter_bench.cc
-    utilities/persistent_cache/hash_table_bench.cc)
-  add_library(testharness OBJECT test_util/testharness.cc)
-  foreach(sourcefile ${BENCHMARKS})
-    get_filename_component(exename ${sourcefile} NAME_WE)
-    add_executable(${exename}${ARTIFACT_SUFFIX} ${sourcefile}
-      $<TARGET_OBJECTS:testharness>)
-    target_link_libraries(${exename}${ARTIFACT_SUFFIX} gtest ${LIBS})
-  endforeach(sourcefile ${BENCHMARKS})
-
-  # For test util library that is build only in DEBUG mode
-  # and linked to tests. Add test only code that is not #ifdefed for Release here.
   set(TESTUTIL_SOURCE
       db/db_test_util.cc
       monitoring/thread_status_updater_debug.cc
@@ -1065,12 +1060,11 @@ if(WITH_TESTS)
       test_util/fault_injection_test_env.cc
       utilities/cassandra/test_utils.cc
   )
-  # test utilities are only build in debug
   enable_testing()
   add_custom_target(check COMMAND ${CMAKE_CTEST_COMMAND})
   set(TESTUTILLIB testutillib${ARTIFACT_SUFFIX})
   add_library(${TESTUTILLIB} STATIC ${TESTUTIL_SOURCE})
-  target_link_libraries(${TESTUTILLIB} ${LIBS})
+  target_link_libraries(${TESTUTILLIB} ${ROCKSDB_LIB})
   if(MSVC)
     set_target_properties(${TESTUTILLIB} PROPERTIES COMPILE_FLAGS "/Fd${CMAKE_CFG_INTDIR}/testutillib${ARTIFACT_SUFFIX}.pdb")
   endif()
@@ -1080,9 +1074,7 @@ if(WITH_TESTS)
         EXCLUDE_FROM_DEFAULT_BUILD_RELWITHDEBINFO 1
         )
 
-  # Tests are excluded from Release builds
   set(TEST_EXES ${TESTS})
-
   foreach(sourcefile ${TEST_EXES})
       get_filename_component(exename ${sourcefile} NAME_WE)
       add_executable(${CMAKE_PROJECT_NAME}_${exename}${ARTIFACT_SUFFIX} ${sourcefile}
@@ -1093,33 +1085,76 @@ if(WITH_TESTS)
         EXCLUDE_FROM_DEFAULT_BUILD_RELWITHDEBINFO 1
         OUTPUT_NAME ${exename}${ARTIFACT_SUFFIX}
         )
-      target_link_libraries(${CMAKE_PROJECT_NAME}_${exename}${ARTIFACT_SUFFIX} testutillib${ARTIFACT_SUFFIX} gtest ${LIBS})
+      target_link_libraries(${CMAKE_PROJECT_NAME}_${exename}${ARTIFACT_SUFFIX} testutillib${ARTIFACT_SUFFIX} gtest ${ROCKSDB_LIB})
       if(NOT "${exename}" MATCHES "db_sanity_test")
         add_test(NAME ${exename} COMMAND ${exename}${ARTIFACT_SUFFIX})
         add_dependencies(check ${CMAKE_PROJECT_NAME}_${exename}${ARTIFACT_SUFFIX})
       endif()
   endforeach(sourcefile ${TEST_EXES})
 
-  # C executables must link to a shared object
-  set(C_TESTS db/c_test.c)
-  set(C_TEST_EXES ${C_TESTS})
+  if(WIN32)
+    # C executables must link to a shared object
+    if(ROCKSDB_BUILD_SHARED)
+      set(ROCKSDB_LIB_FOR_C ${ROCKSDB_SHARED_LIB})
+    else()
+      set(ROCKSDB_LIB_FOR_C OFF)
+    endif()
+  else()
+    set(ROCKSDB_LIB_FOR_C ${ROCKSDB_LIB})
+  endif()
 
-  foreach(sourcefile ${C_TEST_EXES})
-      string(REPLACE ".c" "" exename ${sourcefile})
-      string(REGEX REPLACE "^((.+)/)+" "" exename ${exename})
-      add_executable(${exename}${ARTIFACT_SUFFIX} ${sourcefile})
-      set_target_properties(${exename}${ARTIFACT_SUFFIX}
-        PROPERTIES EXCLUDE_FROM_DEFAULT_BUILD_RELEASE 1
-        EXCLUDE_FROM_DEFAULT_BUILD_MINRELEASE 1
-        EXCLUDE_FROM_DEFAULT_BUILD_RELWITHDEBINFO 1
-        )
-      target_link_libraries(${exename}${ARTIFACT_SUFFIX} ${ROCKSDB_IMPORT_LIB} testutillib${ARTIFACT_SUFFIX})
-      add_test(NAME ${exename} COMMAND ${exename}${ARTIFACT_SUFFIX})
-      add_dependencies(check ${exename}${ARTIFACT_SUFFIX})
-  endforeach(sourcefile ${C_TEST_EXES})
+  if(ROCKSDB_LIB_FOR_C)
+    set(C_TESTS db/c_test.c)
+    set(C_TEST_EXES ${C_TESTS})
+
+    foreach(sourcefile ${C_TEST_EXES})
+        string(REPLACE ".c" "" exename ${sourcefile})
+        string(REGEX REPLACE "^((.+)/)+" "" exename ${exename})
+        add_executable(${exename}${ARTIFACT_SUFFIX} ${sourcefile})
+        set_target_properties(${exename}${ARTIFACT_SUFFIX}
+          PROPERTIES EXCLUDE_FROM_DEFAULT_BUILD_RELEASE 1
+          EXCLUDE_FROM_DEFAULT_BUILD_MINRELEASE 1
+          EXCLUDE_FROM_DEFAULT_BUILD_RELWITHDEBINFO 1
+          )
+        target_link_libraries(${exename}${ARTIFACT_SUFFIX} ${ROCKSDB_LIB_FOR_C} testutillib${ARTIFACT_SUFFIX})
+        add_test(NAME ${exename} COMMAND ${exename}${ARTIFACT_SUFFIX})
+        add_dependencies(check ${exename}${ARTIFACT_SUFFIX})
+    endforeach(sourcefile ${C_TEST_EXES})
+  endif()
+endif()
+
+option(WITH_BENCHMARK_TOOLS "build with benchmarks" ON)
+if(WITH_BENCHMARK_TOOLS)
+  if(NOT TARGET gtest)
+    add_subdirectory(third-party/gtest-1.8.1/fused-src/gtest)
+  endif()
+  set(BENCHMARKS
+        cache/cache_bench.cc
+        memtable/memtablerep_bench.cc
+        db/range_del_aggregator_bench.cc
+        table/table_reader_bench.cc
+        util/filter_bench.cc
+        utilities/persistent_cache/hash_table_bench.cc
+  )
+  add_library(testharness OBJECT test_util/testharness.cc)
+  foreach(sourcefile ${BENCHMARKS})
+    get_filename_component(exename ${sourcefile} NAME_WE)
+    add_executable(${exename}${ARTIFACT_SUFFIX} ${sourcefile}
+      $<TARGET_OBJECTS:testharness>)
+    target_link_libraries(${exename}${ARTIFACT_SUFFIX} gtest ${ROCKSDB_LIB})
+  endforeach(sourcefile ${BENCHMARKS})
+
+  add_executable(db_bench${ARTIFACT_SUFFIX}
+    tools/db_bench.cc
+    tools/db_bench_tool.cc
+    $<TARGET_OBJECTS:testharness>)
+  target_link_libraries(db_bench${ARTIFACT_SUFFIX} gtest ${ROCKSDB_LIB})
 endif()
 
 option(WITH_TOOLS "build with tools" ON)
 if(WITH_TOOLS)
   add_subdirectory(tools)
+  add_subdirectory(db_stress_tool)
+  add_custom_target(tools
+    DEPENDS ${tool_deps})
 endif()

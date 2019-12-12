@@ -8,10 +8,15 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 #pragma once
 #include <errno.h>
+#if defined(ROCKSDB_IOURING_PRESENT)
+#include <liburing.h>
+#include <sys/uio.h>
+#endif
 #include <unistd.h>
 #include <atomic>
 #include <string>
 #include "rocksdb/env.h"
+#include "util/thread_local.h"
 
 // For non linux platform, the following macros are used only as place
 // holder.
@@ -79,20 +84,50 @@ class PosixSequentialFile : public SequentialFile {
   }
 };
 
+#if defined(ROCKSDB_IOURING_PRESENT)
+// io_uring instance queue depth
+const unsigned int kIoUringDepth = 256;
+
+inline void DeleteIOUring(void* p) {
+  struct io_uring* iu = static_cast<struct io_uring*>(p);
+  delete iu;
+}
+
+inline struct io_uring* CreateIOUring() {
+  struct io_uring* new_io_uring = new struct io_uring;
+  int ret = io_uring_queue_init(kIoUringDepth, new_io_uring, 0);
+  if (ret) {
+    delete new_io_uring;
+    new_io_uring = nullptr;
+  }
+  return new_io_uring;
+}
+#endif  // defined(ROCKSDB_IOURING_PRESENT)
+
 class PosixRandomAccessFile : public RandomAccessFile {
  protected:
   std::string filename_;
   int fd_;
   bool use_direct_io_;
   size_t logical_sector_size_;
+#if defined(ROCKSDB_IOURING_PRESENT)
+  ThreadLocalPtr* thread_local_io_urings_;
+#endif
 
  public:
   PosixRandomAccessFile(const std::string& fname, int fd,
-                        const EnvOptions& options);
+                        const EnvOptions& options
+#if defined(ROCKSDB_IOURING_PRESENT)
+                        ,
+                        ThreadLocalPtr* thread_local_io_urings
+#endif
+  );
   virtual ~PosixRandomAccessFile();
 
   virtual Status Read(uint64_t offset, size_t n, Slice* result,
                       char* scratch) const override;
+
+  virtual Status MultiRead(ReadRequest* reqs, size_t num_reqs) override;
 
   virtual Status Prefetch(uint64_t offset, size_t n) override;
 

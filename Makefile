@@ -743,7 +743,8 @@ endif  # PLATFORM_SHARED_EXT
 	release tags tags0 valgrind_check whitebox_crash_test format static_lib shared_lib all \
 	dbg rocksdbjavastatic rocksdbjava install install-static install-shared uninstall \
 	analyze tools tools_lib \
-	blackbox_crash_test_with_atomic_flush whitebox_crash_test_with_atomic_flush
+	blackbox_crash_test_with_atomic_flush whitebox_crash_test_with_atomic_flush  \
+	blackbox_crash_test_with_txn whitebox_crash_test_with_txn 
 
 
 all: $(LIBRARY) $(BENCHMARKS) tools tools_lib test_libs $(TESTS)
@@ -955,12 +956,17 @@ crash_test: whitebox_crash_test blackbox_crash_test
 
 crash_test_with_atomic_flush: whitebox_crash_test_with_atomic_flush blackbox_crash_test_with_atomic_flush
 
+crash_test_with_txn: whitebox_crash_test_with_txn blackbox_crash_test_with_txn
+
 blackbox_crash_test: db_stress
 	python -u tools/db_crashtest.py --simple blackbox $(CRASH_TEST_EXT_ARGS)
 	python -u tools/db_crashtest.py blackbox $(CRASH_TEST_EXT_ARGS)
 
 blackbox_crash_test_with_atomic_flush: db_stress
 	python -u tools/db_crashtest.py --cf_consistency blackbox $(CRASH_TEST_EXT_ARGS)
+
+blackbox_crash_test_with_txn: db_stress
+	python -u tools/db_crashtest.py --txn blackbox $(CRASH_TEST_EXT_ARGS)
 
 ifeq ($(CRASH_TEST_KILL_ODD),)
   CRASH_TEST_KILL_ODD=888887
@@ -974,6 +980,10 @@ whitebox_crash_test: db_stress
 
 whitebox_crash_test_with_atomic_flush: db_stress
 	python -u tools/db_crashtest.py --cf_consistency whitebox  --random_kill_odd \
+      $(CRASH_TEST_KILL_ODD) $(CRASH_TEST_EXT_ARGS)
+
+whitebox_crash_test_with_txn: db_stress
+	python -u tools/db_crashtest.py --txn whitebox --random_kill_odd \
       $(CRASH_TEST_KILL_ODD) $(CRASH_TEST_EXT_ARGS)
 
 asan_check:
@@ -991,6 +1001,11 @@ asan_crash_test_with_atomic_flush:
 	COMPILE_WITH_ASAN=1 $(MAKE) crash_test_with_atomic_flush
 	$(MAKE) clean
 
+asan_crash_test_with_txn:
+	$(MAKE) clean
+	COMPILE_WITH_ASAN=1 $(MAKE) crash_test_with_txn
+	$(MAKE) clean
+
 ubsan_check:
 	$(MAKE) clean
 	COMPILE_WITH_UBSAN=1 $(MAKE) check -j32
@@ -1004,6 +1019,11 @@ ubsan_crash_test:
 ubsan_crash_test_with_atomic_flush:
 	$(MAKE) clean
 	COMPILE_WITH_UBSAN=1 $(MAKE) crash_test_with_atomic_flush
+	$(MAKE) clean
+
+ubsan_crash_test_with_txn:
+	$(MAKE) clean
+	COMPILE_WITH_UBSAN=1 $(MAKE) crash_test_with_txn
 	$(MAKE) clean
 
 valgrind_test:
@@ -1183,7 +1203,7 @@ memtablerep_bench: memtable/memtablerep_bench.o $(LIBOBJECTS) $(TESTUTIL)
 filter_bench: util/filter_bench.o $(LIBOBJECTS) $(TESTUTIL)
 	$(AM_LINK)
 
-db_stress: tools/db_stress.o $(STRESSTOOLOBJECTS)
+db_stress: db_stress_tool/db_stress.o $(STRESSTOOLOBJECTS)
 	$(AM_LINK)
 
 write_stress: tools/write_stress.o $(LIBOBJECTS) $(TESTUTIL)
@@ -2085,7 +2105,11 @@ endif
 # ---------------------------------------------------------------------------
 
 all_sources = $(LIB_SOURCES) $(MAIN_SOURCES) $(MOCK_LIB_SOURCES) $(TOOL_LIB_SOURCES) $(BENCH_LIB_SOURCES) $(TEST_LIB_SOURCES) $(ANALYZER_LIB_SOURCES) $(STRESS_LIB_SOURCES)
-DEPFILES = $(all_sources:.cc=.cc.d) $(FOLLY_SOURCES:.cpp=.cpp.d)
+DEPFILES = $(all_sources:.cc=.cc.d)
+
+ifeq ($(USE_FOLLY_DISTRIBUTED_MUTEX),1)
+  DEPFILES += $(FOLLY_SOURCES:.cpp=.cpp.d)
+endif
 
 # Add proper dependency support so changing a .h file forces a .cc file to
 # rebuild.

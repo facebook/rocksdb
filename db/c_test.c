@@ -1051,17 +1051,20 @@ int main(int argc, char** argv) {
   }
 
   StartPhase("filter");
-  for (run = 0; run < 2; run++) {
-    // First run uses custom filter, second run uses bloom filter
+  for (run = 0; run <= 2; run++) {
+    // First run uses custom filter
+    // Second run uses old block-based bloom filter
+    // Third run uses full bloom filter
     CheckNoError(err);
     rocksdb_filterpolicy_t* policy;
     if (run == 0) {
-      policy = rocksdb_filterpolicy_create(
-          NULL, FilterDestroy, FilterCreate, FilterKeyMatch, NULL, FilterName);
+      policy = rocksdb_filterpolicy_create(NULL, FilterDestroy, FilterCreate,
+                                           FilterKeyMatch, NULL, FilterName);
+    } else if (run == 1) {
+      policy = rocksdb_filterpolicy_create_bloom(8);
     } else {
-      policy = rocksdb_filterpolicy_create_bloom(10);
+      policy = rocksdb_filterpolicy_create_bloom_full(8);
     }
-
     rocksdb_block_based_options_set_filter_policy(table_options, policy);
 
     // Create new database
@@ -1074,12 +1077,24 @@ int main(int argc, char** argv) {
     CheckNoError(err);
     rocksdb_put(db, woptions, "bar", 3, "barvalue", 8, &err);
     CheckNoError(err);
+
+    {
+      // Add enough keys to get just one reasonably populated Bloom filter
+      const int keys_to_add = 1500;
+      int i;
+      char keybuf[100];
+      for (i = 0; i < keys_to_add; i++) {
+        snprintf(keybuf, sizeof(keybuf), "yes%020d", i);
+        rocksdb_put(db, woptions, keybuf, strlen(keybuf), "val", 3, &err);
+        CheckNoError(err);
+      }
+    }
     rocksdb_compact_range(db, NULL, 0, NULL, 0);
 
     fake_filter_result = 1;
     CheckGet(db, roptions, "foo", "foovalue");
     CheckGet(db, roptions, "bar", "barvalue");
-    if (phase == 0) {
+    if (run == 0) {
       // Must not find value when custom filter returns false
       fake_filter_result = 0;
       CheckGet(db, roptions, "foo", NULL);
@@ -1089,6 +1104,43 @@ int main(int argc, char** argv) {
       CheckGet(db, roptions, "foo", "foovalue");
       CheckGet(db, roptions, "bar", "barvalue");
     }
+
+    {
+      // Query some keys not added to identify Bloom filter implementation
+      // from false positive queries, using perfcontext to detect Bloom
+      // filter behavior
+      rocksdb_perfcontext_t* perf = rocksdb_perfcontext_create();
+      rocksdb_perfcontext_reset(perf);
+
+      const int keys_to_query = 10000;
+      int i;
+      char keybuf[100];
+      for (i = 0; i < keys_to_query; i++) {
+        fake_filter_result = i % 2;
+        snprintf(keybuf, sizeof(keybuf), "no%020d", i);
+        CheckGet(db, roptions, keybuf, NULL);
+      }
+
+      const int hits =
+          (int)rocksdb_perfcontext_metric(perf, rocksdb_bloom_sst_hit_count);
+      if (run == 0) {
+        // Due to half true, half false with fake filter result
+        CheckCondition(hits == keys_to_query / 2);
+      } else if (run == 1) {
+        // Essentially a fingerprint of the block-based Bloom schema
+        CheckCondition(hits == 241);
+      } else {
+        // Essentially a fingerprint of the full Bloom schema(s),
+        // format_version < 5, which vary for three different CACHE_LINE_SIZEs
+        CheckCondition(hits == 224 || hits == 180 || hits == 125);
+      }
+      CheckCondition(
+          (keys_to_query - hits) ==
+          (int)rocksdb_perfcontext_metric(perf, rocksdb_bloom_sst_miss_count));
+
+      rocksdb_perfcontext_destroy(perf);
+    }
+
     // Reset the policy
     rocksdb_block_based_options_set_filter_policy(table_options, NULL);
     rocksdb_options_set_block_based_table_factory(options, table_options);
