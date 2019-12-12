@@ -197,19 +197,21 @@ class NonBatchedOpsStressTest : public StressTest {
     std::string upper_bound;
     Slice ub_slice;
     ReadOptions ro_copy = read_opts;
-    if (thread->rand.OneIn(2) && GetNextPrefix(prefix, &upper_bound)) {
+    // Get the next prefix first and then see if we want to set upper bound.
+    // We'll use the next prefix in an assertion later on
+    if (GetNextPrefix(prefix, &upper_bound) && thread->rand.OneIn(2)) {
       // For half of the time, set the upper bound to the next prefix
       ub_slice = Slice(upper_bound);
       ro_copy.iterate_upper_bound = &ub_slice;
     }
 
     Iterator* iter = db_->NewIterator(ro_copy, cfh);
-    long count = 0;
+    unsigned long count = 0;
     for (iter->Seek(prefix); iter->Valid() && iter->key().starts_with(prefix);
          iter->Next()) {
       ++count;
     }
-    assert(count <= (static_cast<long>(1) << ((8 - FLAGS_prefix_size) * 8)));
+    assert(count <= GetPrefixKeyCount(prefix.ToString(), upper_bound));
     Status s = iter->status();
     if (iter->status().ok()) {
       thread->stats.AddPrefixes(1, count);
