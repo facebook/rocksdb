@@ -2338,9 +2338,7 @@ void BlockBasedTable::RetrieveMultipleBlocks(
     // If current block is adjacent to the previous one, at the same time,
     // compression is enabled and there is no compressed cache, we combine
     // the two block read as one.
-    if (rep_->blocks_maybe_compressed &&
-        rep_->table_options.block_cache_compressed == nullptr &&
-        prev_end == handle.offset()) {
+    if (scratch != nullptr && prev_end == handle.offset()) {
       req_offset_for_block.emplace_back(prev_len);
       prev_len += block_size(handle);
     } else {
@@ -2460,7 +2458,7 @@ void BlockBasedTable::RetrieveMultipleBlocks(
       // At the same time, some blocks are actually not compressed,
       // since its compression space saving is smaller than the threshold. In
       // this case, if the block shares the scratch memory, we need to copy it
-      // to the heap such that it can be added to the regular elock cache.
+      // to the heap such that it can be added to the regular block cache.
       CompressionType compression_type =
           raw_block_contents.get_compression_type();
       if (scratch != nullptr && compression_type == kNoCompression) {
