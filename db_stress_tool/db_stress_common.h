@@ -373,7 +373,7 @@ extern size_t GenerateValue(uint32_t rand, char* v, size_t max_sz);
 extern StressTest* CreateCfConsistencyStressTest();
 extern StressTest* CreateBatchedOpsStressTest();
 extern StressTest* CreateNonBatchedOpsStressTest();
-extern void InitilizeHotKeyGenerator(double alpha);
+extern void InitializeHotKeyGenerator(double alpha);
 extern int64_t GetOneHotKeyID(double rand_seed, int64_t max_key);
 }  // namespace rocksdb
 #endif  // GFLAGS

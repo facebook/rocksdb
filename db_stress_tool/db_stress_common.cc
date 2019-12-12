@@ -21,7 +21,10 @@ std::vector<double> sum_probs(100001);
 int64_t zipf_sum_size = 100000;
 
 namespace rocksdb {
-void InitilizeHotKeyGenerator(double alpha) {
+
+// Zipfian distribution is generated based on a pre-calculated array.
+// It should be used before start the stress test
+void InitializeHotKeyGenerator(double alpha) {
   double c = 0;
   for (int64_t i = 1; i <= zipf_sum_size; i++) {
     c = c + (1.0 / std::pow(static_cast<double>(i), alpha));
@@ -34,6 +37,9 @@ void InitilizeHotKeyGenerator(double alpha) {
   }
 }
 
+// Generate one key that follows the Zipfian distribution. The skewness
+// is decided by the parameter alpha. Input is the rand_seed [0,1] and
+// the max of the key to be generated.
 int64_t GetOneHotKeyID(double rand_seed, int64_t max_key) {
   int64_t low = 1, mid, high = zipf_sum_size, zipf = 0;
   while (low <= high) {
@@ -106,7 +112,16 @@ int64_t GenerateOneKey(ThreadState* thread, uint64_t iteration) {
       static_cast<double>(iteration) / FLAGS_ops_per_thread;
   const int64_t base_key = static_cast<int64_t>(
       completed_ratio * (FLAGS_max_key - FLAGS_active_width));
-  return base_key + thread->rand.Next() % FLAGS_active_width;
+  int64_t rand_seed = base_key + thread->rand.Next() % FLAGS_active_width;
+  int64_t cur_key = rand_seed;
+  if (FLAGS_hot_key_alpha != 0) {
+    // If set the Zipfian distribution Alpha to non 0, use Zipfian
+    double float_rand =
+        (static_cast<double>(thread->rand.Next() % FLAGS_max_key)) /
+        FLAGS_max_key;
+    cur_key = GetOneHotKeyID(float_rand, FLAGS_max_key);
+  }
+  return cur_key;
 }
 
 std::vector<int64_t> GenerateNKeys(ThreadState* thread, int num_keys,
@@ -120,9 +135,17 @@ std::vector<int64_t> GenerateNKeys(ThreadState* thread, int num_keys,
   int64_t next_key = base_key + thread->rand.Next() % FLAGS_active_width;
   keys.push_back(next_key);
   for (int i = 1; i < num_keys; ++i) {
-    // This may result in some duplicate keys
-    next_key = next_key + thread->rand.Next() %
-                              (FLAGS_active_width - (next_key - base_key));
+    // Generate the key follows zipfian distribution
+    if (FLAGS_hot_key_alpha != 0) {
+      double float_rand =
+          (static_cast<double>(thread->rand.Next() % FLAGS_max_key)) /
+          FLAGS_max_key;
+      next_key = GetOneHotKeyID(float_rand, FLAGS_max_key);
+    } else {
+      // This may result in some duplicate keys
+      next_key = next_key + thread->rand.Next() %
+                                (FLAGS_active_width - (next_key - base_key));
+    }
     keys.push_back(next_key);
   }
   return keys;
