@@ -243,60 +243,48 @@ bool BlobIndexCompactionFilterGC::CloseAndRegisterNewBlobFile() const {
   return true;
 }
 
-template <typename Filter>
-class FilterTraits;
-
-template <>
-class FilterTraits<BlobIndexCompactionFilter> {
- public:
-  static std::unique_ptr<CompactionFilter> Create(BlobDBImpl* blob_db_impl,
-                                                  uint64_t current_time,
-                                                  Statistics* statistics) {
-    assert(blob_db_impl);
-
-    BlobCompactionContext context;
-    blob_db_impl->GetCompactionContext(&context);
-
-    return std::unique_ptr<CompactionFilter>(new BlobIndexCompactionFilter(
-        std::move(context), current_time, statistics));
-  }
-};
-
-template <>
-class FilterTraits<BlobIndexCompactionFilterGC> {
- public:
-  static std::unique_ptr<CompactionFilter> Create(BlobDBImpl* blob_db_impl,
-                                                  uint64_t current_time,
-                                                  Statistics* statistics) {
-    assert(blob_db_impl);
-
-    BlobCompactionContext context;
-    BlobCompactionContextGC context_gc;
-    blob_db_impl->GetCompactionContext(&context, &context_gc);
-
-    return std::unique_ptr<CompactionFilter>(new BlobIndexCompactionFilterGC(
-        std::move(context), std::move(context_gc), current_time, statistics));
-  }
-};
-
-template <typename Filter>
 std::unique_ptr<CompactionFilter>
-BlobIndexCompactionFilterFactoryBase<Filter>::CreateCompactionFilter(
+BlobIndexCompactionFilterFactory::CreateCompactionFilter(
     const CompactionFilter::Context& /*context*/) {
+  assert(env());
+
   int64_t current_time = 0;
-  Status s = env_->GetCurrentTime(&current_time);
+  Status s = env()->GetCurrentTime(&current_time);
   if (!s.ok()) {
     return nullptr;
   }
   assert(current_time >= 0);
 
-  return FilterTraits<Filter>::Create(
-      blob_db_impl_, static_cast<uint64_t>(current_time), statistics_);
+  assert(blob_db_impl());
+
+  BlobCompactionContext context;
+  blob_db_impl()->GetCompactionContext(&context);
+
+  return std::unique_ptr<CompactionFilter>(new BlobIndexCompactionFilter(
+      std::move(context), current_time, statistics()));
 }
 
-template class BlobIndexCompactionFilterFactoryBase<BlobIndexCompactionFilter>;
-template class BlobIndexCompactionFilterFactoryBase<
-    BlobIndexCompactionFilterGC>;
+std::unique_ptr<CompactionFilter>
+BlobIndexCompactionFilterFactoryGC::CreateCompactionFilter(
+    const CompactionFilter::Context& /*context*/) {
+  assert(env());
+
+  int64_t current_time = 0;
+  Status s = env()->GetCurrentTime(&current_time);
+  if (!s.ok()) {
+    return nullptr;
+  }
+  assert(current_time >= 0);
+
+  assert(blob_db_impl());
+
+  BlobCompactionContext context;
+  BlobCompactionContextGC context_gc;
+  blob_db_impl()->GetCompactionContext(&context, &context_gc);
+
+  return std::unique_ptr<CompactionFilter>(new BlobIndexCompactionFilterGC(
+      std::move(context), std::move(context_gc), current_time, statistics()));
+}
 
 }  // namespace blob_db
 }  // namespace rocksdb

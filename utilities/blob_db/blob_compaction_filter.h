@@ -114,15 +114,16 @@ class BlobIndexCompactionFilterGC : public BlobIndexCompactionFilterBase {
 // Compaction filter factory; similarly to the filters above, it comes
 // in two flavors, one that creates filters that support GC, and one
 // that creates non-GC filters.
-template <typename Filter>
 class BlobIndexCompactionFilterFactoryBase : public CompactionFilterFactory {
  public:
   BlobIndexCompactionFilterFactoryBase(BlobDBImpl* blob_db_impl, Env* env,
                                        Statistics* statistics)
       : blob_db_impl_(blob_db_impl), env_(env), statistics_(statistics) {}
 
-  std::unique_ptr<CompactionFilter> CreateCompactionFilter(
-      const CompactionFilter::Context& /*context*/) override;
+ protected:
+  BlobDBImpl* blob_db_impl() const { return blob_db_impl_; }
+  Env* env() const { return env_; }
+  Statistics* statistics() const { return statistics_; }
 
  private:
   BlobDBImpl* blob_db_impl_;
@@ -131,7 +132,7 @@ class BlobIndexCompactionFilterFactoryBase : public CompactionFilterFactory {
 };
 
 class BlobIndexCompactionFilterFactory
-    : public BlobIndexCompactionFilterFactoryBase<BlobIndexCompactionFilter> {
+    : public BlobIndexCompactionFilterFactoryBase {
  public:
   BlobIndexCompactionFilterFactory(BlobDBImpl* blob_db_impl, Env* env,
                                    Statistics* statistics)
@@ -140,10 +141,13 @@ class BlobIndexCompactionFilterFactory
   const char* Name() const override {
     return "BlobIndexCompactionFilterFactory";
   }
+
+  std::unique_ptr<CompactionFilter> CreateCompactionFilter(
+      const CompactionFilter::Context& /*context*/) override;
 };
 
 class BlobIndexCompactionFilterFactoryGC
-    : public BlobIndexCompactionFilterFactoryBase<BlobIndexCompactionFilterGC> {
+    : public BlobIndexCompactionFilterFactoryBase {
  public:
   BlobIndexCompactionFilterFactoryGC(BlobDBImpl* blob_db_impl, Env* env,
                                      Statistics* statistics)
@@ -152,6 +156,9 @@ class BlobIndexCompactionFilterFactoryGC
   const char* Name() const override {
     return "BlobIndexCompactionFilterFactoryGC";
   }
+
+  std::unique_ptr<CompactionFilter> CreateCompactionFilter(
+      const CompactionFilter::Context& /*context*/) override;
 };
 
 }  // namespace blob_db
