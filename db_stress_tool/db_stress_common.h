@@ -161,7 +161,7 @@ DECLARE_int32(range_deletion_width);
 DECLARE_uint64(rate_limiter_bytes_per_sec);
 DECLARE_bool(rate_limit_bg_reads);
 DECLARE_bool(use_txn);
-DECLARE_uint32(txn_write_policy);
+DECLARE_uint64(txn_write_policy);
 DECLARE_int32(backup_one_in);
 DECLARE_int32(checkpoint_one_in);
 DECLARE_int32(ingest_external_file_one_in);
