@@ -371,6 +371,11 @@ DEFINE_bool(use_txn, false,
             "Use TransactionDB. Currently the default write policy is "
             "TxnDBWritePolicy::WRITE_PREPARED");
 
+DEFINE_uint64(txn_write_policy, 0,
+              "The transaction write policy. Default is "
+              "TxnDBWritePolicy::WRITE_COMMITTED. Note that this should not be "
+              "changed accross crashes.");
+
 DEFINE_int32(backup_one_in, 0,
              "If non-zero, then CreateNewBackup() will be called once for "
              "every N operations on average.  0 indicates CreateNewBackup() "
