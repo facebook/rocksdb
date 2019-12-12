@@ -45,8 +45,8 @@ size_t OptimizeBlockSize(size_t block_size) {
 
 Arena::Arena(size_t block_size, AllocTracker* tracker, size_t huge_page_size)
     : kBlockSize(OptimizeBlockSize(block_size)),
-      kBlockShift(folly::constexpr_log2_ceil(
-                      std::max(kBlockSize, kInlineSize))),
+      kBlockShift(static_cast<uint32_t>(folly::constexpr_log2_ceil(
+                      std::max(kBlockSize, kInlineSize)))),
       tracker_(tracker) {
   assert(kBlockSize >= kMinBlockSize && kBlockSize <= kMaxBlockSize &&
          kBlockSize % kAlignUnit == 0);
