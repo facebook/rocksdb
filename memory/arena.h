@@ -35,7 +35,7 @@ class Arena : public Allocator {
   static const size_t kInlineSize = 2048;
   static const size_t kMinBlockSize;
   static const size_t kMaxBlockSize;
-  static const size_t kRefShift = 2;
+  static const uint32_t kRefShift = 2;
 
   // huge_page_size: if 0, don't use huge page TLB. If > 0 (should set to the
   // supported hugepage size of the system), block allocation will try huge
@@ -73,8 +73,9 @@ class Arena : public Allocator {
   uint32_t GetRef(char* ptr);
 
   // Performs simple ref arithmetic within one allocated block.
-  inline uint32_t AdvanceRef(uint32_t ref, uint32_t offset) {
-    return ref + (offset >> kRefShift);
+  // We don't need this for negative offsets right now so let's keep it simple.
+  inline uint32_t AdvanceRef(uint32_t ref, uint32_t offset_bytes) {
+    return ref + (offset_bytes >> kRefShift);
   }
 
   // Converts a ref back to the raw pointer.
@@ -95,7 +96,8 @@ class Arena : public Allocator {
   // by the arena (exclude the space allocated but not yet used for future
   // allocations).
   size_t ApproximateMemoryUsage() const {
-    return blocks_memory_ - alloc_bytes_remaining_;
+    return blocks_memory_ + blocks_capacity_ * sizeof(char*) * 2 -
+           alloc_bytes_remaining_;
   }
 
   size_t MemoryAllocatedBytes() const { return blocks_memory_; }
@@ -116,14 +118,17 @@ class Arena : public Allocator {
   char inline_block_[kInlineSize] __attribute__((__aligned__(alignof(max_align_t))));
   // Number of bytes allocated in one block.
   const size_t kBlockSize;
-  // We should have kBlockSize == 1 << kBlockShift;
+  // We should have kBlockSize == 1 << kBlockShift.
   const uint32_t kBlockShift;
-  // Array of new[] allocated memory blocks
-  typedef char** Blocks;
+  using Blocks = char**;
+  // Past and present vectors of blocks_ we need to keeep around
+  // for concurrent reads to be able to access them lock-free.
   std::vector<Blocks> blocks_to_delete_;
-  // Last size of the blocks_ vector, for concurrent reads.
+  // Last size of the blocks_ vector, atomic for concurrent reads.
   std::atomic<uint32_t> blocks_size_;
+  // The allocated size of blocks_.
   uint32_t blocks_capacity_;
+  // Array of new[] allocated memory blocks
   std::atomic<Blocks> blocks_;
 
   struct MmapInfo {

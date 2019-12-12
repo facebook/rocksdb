@@ -17,6 +17,7 @@
 #include "port/port.h"
 #include "rocksdb/env.h"
 #include "test_util/sync_point.h"
+#include "third-party/folly/folly/ConstexprMath.h"
 
 namespace rocksdb {
 
@@ -42,21 +43,10 @@ size_t OptimizeBlockSize(size_t block_size) {
   return block_size;
 }
 
-// This is run only once so we don't need to overoptimize.
-uint32_t CalcShift(size_t block_size) {
-  for (uint32_t shift = 0; shift < 32; ++shift) {
-    if ((uint64_t(1) << shift) >= block_size) {
-      return shift;
-    }
-  }
-  // We should not have blocks this large
-  assert(false);
-  return 31;
-}
-
 Arena::Arena(size_t block_size, AllocTracker* tracker, size_t huge_page_size)
     : kBlockSize(OptimizeBlockSize(block_size)),
-      kBlockShift(CalcShift(std::max(kBlockSize, kInlineSize))),
+      kBlockShift(folly::constexpr_log2_ceil(
+                      std::max(kBlockSize, kInlineSize))),
       tracker_(tracker) {
   assert(kBlockSize >= kMinBlockSize && kBlockSize <= kMaxBlockSize &&
          kBlockSize % kAlignUnit == 0);

@@ -127,10 +127,10 @@ static void ApproximateMemoryUsageTest(size_t huge_page_size) {
     usage = arena.ApproximateMemoryUsage();
   }
   if (huge_page_size) {
-    ASSERT_TRUE(usage >= mem_usage ||
+    ASSERT_TRUE(usage > mem_usage ||
                 usage + huge_page_size - kBlockSize == mem_usage);
   } else {
-    ASSERT_GE(usage, mem_usage);
+    ASSERT_GT(usage, mem_usage);
   }
 }
 
