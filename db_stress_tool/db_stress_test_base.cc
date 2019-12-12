@@ -1671,8 +1671,9 @@ void StressTest::Open() {
     } else {
 #ifndef ROCKSDB_LITE
       TransactionDBOptions txn_db_options;
-      // For the moment it is sufficient to test WRITE_PREPARED policy
-      txn_db_options.write_policy = TxnDBWritePolicy::WRITE_PREPARED;
+      assert(FLAGS_txn_write_policy <= TxnDBWritePolicy::WRITE_UNPREPARED);
+      txn_db_options.write_policy =
+          static_cast<TxnDBWritePolicy>(FLAGS_txn_write_policy);
       s = TransactionDB::Open(options_, txn_db_options, FLAGS_db,
                               cf_descriptors, &column_families_, &txn_db_);
       db_ = txn_db_;

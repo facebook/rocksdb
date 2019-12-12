@@ -159,6 +159,8 @@ cf_consistency_params = {
 
 txn_params = {
     "use_txn" : 1,
+    # Avoid lambda to set it once for the entire test
+    "txn_write_policy": random.randint(0, 2),
     "disable_wal": 0,
     # OpenReadOnly after checkpoint is not currnetly compatible with WritePrepared txns
     "checkpoint_one_in": 0,
