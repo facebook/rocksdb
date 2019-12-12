@@ -1674,6 +1674,12 @@ void StressTest::Open() {
       assert(FLAGS_txn_write_policy <= TxnDBWritePolicy::WRITE_UNPREPARED);
       txn_db_options.write_policy =
           static_cast<TxnDBWritePolicy>(FLAGS_txn_write_policy);
+      if (FLAGS_unordered_write) {
+        assert(txn_db_options.write_policy == TxnDBWritePolicy::WRITE_PREPARED);
+        options_.unordered_write = true;
+        options_.two_write_queues = true;
+        txn_db_options.skip_concurrency_control = true;
+      }
       s = TransactionDB::Open(options_, txn_db_options, FLAGS_db,
                               cf_descriptors, &column_families_, &txn_db_);
       db_ = txn_db_;
