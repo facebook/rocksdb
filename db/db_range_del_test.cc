@@ -1427,6 +1427,47 @@ TEST_F(DBRangeDelTest, SnapshotPreventsDroppedKeys) {
   db_->ReleaseSnapshot(snapshot);
 }
 
+TEST_F(DBRangeDelTest, SnapshotPreventsDroppedKeysInImmMemTables) {
+  const int kFileBytes = 1 << 20;
+
+  Options options = CurrentOptions();
+  options.compression = kNoCompression;
+  options.disable_auto_compactions = true;
+  options.target_file_size_base = kFileBytes;
+  Reopen(options);
+
+  // block flush thread -> pin immtables in memory
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->LoadDependency({
+      {"SnapshotPreventsDroppedKeysInImmMemTables:AfterNewIterator",
+       "DBImpl::BGWorkFlush"},
+  });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  ASSERT_OK(Put(Key(0), "a"));
+  std::unique_ptr<const Snapshot, std::function<void(const Snapshot*)>>
+      snapshot(db_->GetSnapshot(),
+               [this](const Snapshot* s) { db_->ReleaseSnapshot(s); });
+
+  ASSERT_OK(db_->DeleteRange(WriteOptions(), db_->DefaultColumnFamily(), Key(0),
+                             Key(10)));
+
+  ASSERT_OK(dbfull()->TEST_SwitchMemtable());
+
+  ReadOptions read_opts;
+  read_opts.snapshot = snapshot.get();
+  std::unique_ptr<Iterator> iter(db_->NewIterator(read_opts));
+
+  TEST_SYNC_POINT("SnapshotPreventsDroppedKeysInImmMemTables:AfterNewIterator");
+
+  iter->SeekToFirst();
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_EQ(Key(0), iter->key());
+
+  iter->Next();
+  ASSERT_FALSE(iter->Valid());
+}
+
 TEST_F(DBRangeDelTest, RangeTombstoneWrittenToMinimalSsts) {
   // Adapted from
   // https://github.com/cockroachdb/cockroach/blob/de8b3ea603dd1592d9dc26443c2cc92c356fbc2f/pkg/storage/engine/rocksdb_test.go#L1267-L1398.

@@ -275,9 +275,9 @@ DEFINE_int32(reopen, 10, "Number of times database reopens");
 static const bool FLAGS_reopen_dummy __attribute__((__unused__)) =
     RegisterFlagValidator(&FLAGS_reopen, &ValidateInt32Positive);
 
-DEFINE_int32(bloom_bits, 10,
-             "Bloom filter bits per key. "
-             "Negative means use default settings.");
+DEFINE_double(bloom_bits, 10,
+              "Bloom filter bits per key. "
+              "Negative means use default settings.");
 
 DEFINE_bool(use_block_based_filter, false,
             "use block based filter"
@@ -371,6 +371,11 @@ DEFINE_bool(use_txn, false,
             "Use TransactionDB. Currently the default write policy is "
             "TxnDBWritePolicy::WRITE_PREPARED");
 
+DEFINE_uint64(txn_write_policy, 0,
+              "The transaction write policy. Default is "
+              "TxnDBWritePolicy::WRITE_COMMITTED. Note that this should not be "
+              "changed accross crashes.");
+
 DEFINE_int32(backup_one_in, 0,
              "If non-zero, then CreateNewBackup() will be called once for "
              "every N operations on average.  0 indicates CreateNewBackup() "
@@ -400,6 +405,10 @@ DEFINE_int32(compact_range_one_in, 0,
 DEFINE_int32(flush_one_in, 0,
              "If non-zero, then Flush() will be called once for every N ops "
              "on average.  0 indicates calls to Flush() are disabled.");
+
+DEFINE_int32(pause_background_one_in, 0,
+             "If non-zero, then PauseBackgroundWork()+Continue will be called "
+             "once for every N ops on average.  0 disables.");
 
 DEFINE_int32(compact_range_width, 10000,
              "The width of the ranges passed to CompactRange().");
@@ -529,4 +538,8 @@ DEFINE_bool(use_merge, false,
 DEFINE_bool(use_full_merge_v1, false,
             "On true, use a merge operator that implement the deprecated "
             "version of FullMerge");
+
+DEFINE_int32(sync_wal_one_in, 0,
+             "If non-zero, then SyncWAL() will be called once for every N ops "
+             "on average. 0 indicates that calls to SyncWAL() are disabled.");
 #endif  // GFLAGS

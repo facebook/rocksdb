@@ -10,7 +10,7 @@ foreach(src ${TOOLS})
   get_filename_component(exename ${src} NAME_WE)
   add_executable(${exename}${ARTIFACT_SUFFIX}
     ${src})
-  target_link_libraries(${exename}${ARTIFACT_SUFFIX} ${LIBS})
+  target_link_libraries(${exename}${ARTIFACT_SUFFIX} ${ROCKSDB_LIB})
   list(APPEND tool_deps ${exename})
 endforeach()
 

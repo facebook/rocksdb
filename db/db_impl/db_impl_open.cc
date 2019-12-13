@@ -920,7 +920,7 @@ Status DBImpl::RecoverLogFiles(const std::vector<uint64_t>& log_numbers,
         ColumnFamilyData* cfd;
 
         while ((cfd = flush_scheduler_.TakeNextColumnFamily()) != nullptr) {
-          cfd->Unref();
+          cfd->UnrefAndTryDelete();
           // If this asserts, it means that InsertInto failed in
           // filtering updates to already-flushed column families
           assert(cfd->GetLogNumber() <= log_number);

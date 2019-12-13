@@ -101,6 +101,18 @@ class StressTest {
       const std::vector<int64_t>& rand_keys,
       std::unique_ptr<MutexLock>& lock) = 0;
 
+  // Issue compact range, starting with start_key, whose integer value
+  // is rand_key.
+  virtual void TestCompactRange(ThreadState* thread, int64_t rand_key,
+                                const Slice& start_key,
+                                ColumnFamilyHandle* column_family);
+
+  // Calculate a hash value for all keys in range [start_key, end_key]
+  // at a certain snapshot.
+  uint32_t GetRangeHash(ThreadState* thread, const Snapshot* snapshot,
+                        ColumnFamilyHandle* column_family,
+                        const Slice& start_key, const Slice& end_key);
+
   // Return a column family handle that mirrors what is pointed by
   // `column_family_id`, which will be used to validate data to be correct.
   // By default, the column family itself will be returned.
@@ -159,7 +171,7 @@ class StressTest {
 
   void Open();
 
-  void Reopen();
+  void Reopen(ThreadState* thread);
 
   std::shared_ptr<Cache> cache_;
   std::shared_ptr<Cache> compressed_cache_;

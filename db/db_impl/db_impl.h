@@ -1420,6 +1420,7 @@ class DBImpl : public DB {
 
   inline void WaitForPendingWrites() {
     mutex_.AssertHeld();
+    TEST_SYNC_POINT("DBImpl::WaitForPendingWrites:BeforeBlock");
     // In case of pipelined write is enabled, wait for all pending memtable
     // writers.
     if (immutable_db_options_.enable_pipelined_write) {
@@ -1834,8 +1835,6 @@ class DBImpl : public DB {
   WriteThread nonmem_write_thread_;
 
   WriteController write_controller_;
-
-  std::unique_ptr<RateLimiter> low_pri_write_rate_limiter_;
 
   // Size of the last batch group. In slowdown mode, next write needs to
   // sleep if it uses up the quota.

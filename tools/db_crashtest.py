@@ -19,12 +19,16 @@ import argparse
 #   for cf_consistency:
 #       default_params < {blackbox,whitebox}_default_params <
 #       cf_consistency_params < args
+#   for txn:
+#       default_params < {blackbox,whitebox}_default_params < txn_params < args
 
 expected_values_file = tempfile.NamedTemporaryFile()
 
 default_params = {
     "acquire_snapshot_one_in": 10000,
     "block_size": 16384,
+    "bloom_bits": lambda: random.choice([random.randint(0,19),
+                                         random.lognormvariate(2.3, 1.3)]),
     "cache_index_and_filter_blocks": lambda: random.randint(0, 1),
     "cache_size": 1048576,
     "checkpoint_one_in": 1000000,
@@ -50,6 +54,7 @@ default_params = {
     "nooverwritepercent": 1,
     "open_files": lambda : random.choice([-1, 500000]),
     "partition_filters": lambda: random.randint(0, 1),
+    "pause_background_one_in": 1000000,
     "prefixpercent": 5,
     "progress_reports": 0,
     "readpercent": 45,
@@ -152,6 +157,16 @@ cf_consistency_params = {
     "enable_pipelined_write": lambda: random.randint(0, 1),
 }
 
+txn_params = {
+    "use_txn" : 1,
+    # Avoid lambda to set it once for the entire test
+    "txn_write_policy": random.randint(0, 2),
+    "disable_wal": 0,
+    # OpenReadOnly after checkpoint is not currnetly compatible with WritePrepared txns
+    "checkpoint_one_in": 0,
+    # pipeline write is not currnetly compatible with WritePrepared txns
+    "enable_pipelined_write": 0,
+}
 
 def finalize_and_sanitize(src_params):
     dest_params = dict([(k,  v() if callable(v) else v)
@@ -165,7 +180,9 @@ def finalize_and_sanitize(src_params):
             dest_params["db"]):
         dest_params["use_direct_io_for_flush_and_compaction"] = 0
         dest_params["use_direct_reads"] = 0
-    if dest_params.get("test_batches_snapshots") == 1:
+    # DeleteRange is not currnetly compatible with Txns
+    if dest_params.get("test_batches_snapshots") == 1 or \
+            dest_params.get("use_txn") == 1:
         dest_params["delpercent"] += dest_params["delrangepercent"]
         dest_params["delrangepercent"] = 0
     if dest_params.get("disable_wal", 0) == 1:
@@ -206,6 +223,8 @@ def gen_cmd_params(args):
             params.update(whitebox_simple_default_params)
     if args.cf_consistency:
         params.update(cf_consistency_params)
+    if args.txn:
+        params.update(txn_params)
 
     for k, v in vars(args).items():
         if v is not None:
@@ -218,7 +237,7 @@ def gen_cmd(params, unknown_params):
         '--{0}={1}'.format(k, v)
         for k, v in finalize_and_sanitize(params).items()
         if k not in set(['test_type', 'simple', 'duration', 'interval',
-                         'random_kill_odd', 'cf_consistency'])
+                         'random_kill_odd', 'cf_consistency', 'txn'])
         and v is not None] + unknown_params
     return cmd
 
@@ -416,6 +435,7 @@ def main():
     parser.add_argument("test_type", choices=["blackbox", "whitebox"])
     parser.add_argument("--simple", action="store_true")
     parser.add_argument("--cf_consistency", action='store_true')
+    parser.add_argument("--txn", action='store_true')
 
     all_params = dict(default_params.items()
                       + blackbox_default_params.items()

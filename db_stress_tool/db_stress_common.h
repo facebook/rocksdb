@@ -133,7 +133,7 @@ DECLARE_uint64(compaction_ttl);
 DECLARE_bool(allow_concurrent_memtable_write);
 DECLARE_bool(enable_write_thread_adaptive_yield);
 DECLARE_int32(reopen);
-DECLARE_int32(bloom_bits);
+DECLARE_double(bloom_bits);
 DECLARE_bool(use_block_based_filter);
 DECLARE_bool(partition_filters);
 DECLARE_int32(index_type);
@@ -161,6 +161,7 @@ DECLARE_int32(range_deletion_width);
 DECLARE_uint64(rate_limiter_bytes_per_sec);
 DECLARE_bool(rate_limit_bg_reads);
 DECLARE_bool(use_txn);
+DECLARE_uint64(txn_write_policy);
 DECLARE_int32(backup_one_in);
 DECLARE_int32(checkpoint_one_in);
 DECLARE_int32(ingest_external_file_one_in);
@@ -168,6 +169,7 @@ DECLARE_int32(ingest_external_file_width);
 DECLARE_int32(compact_files_one_in);
 DECLARE_int32(compact_range_one_in);
 DECLARE_int32(flush_one_in);
+DECLARE_int32(pause_background_one_in);
 DECLARE_int32(compact_range_width);
 DECLARE_int32(acquire_snapshot_one_in);
 DECLARE_bool(compare_full_db_state_snapshot);
@@ -196,6 +198,7 @@ DECLARE_string(memtablerep);
 DECLARE_int32(prefix_size);
 DECLARE_bool(use_merge);
 DECLARE_bool(use_full_merge_v1);
+DECLARE_int32(sync_wal_one_in);
 
 const long KB = 1024;
 const int kRandomValueMaxFactor = 3;
@@ -340,6 +343,17 @@ extern inline std::string StringToHex(const std::string& str) {
   std::string result = "0x";
   result.append(Slice(str).ToString(true));
   return result;
+}
+
+// Unified output format for double parameters
+extern inline std::string FormatDoubleParam(double param) {
+  return std::to_string(param);
+}
+
+// Make sure that double parameter is a value we can reproduce by
+// re-inputting the value printed.
+extern inline void SanitizeDoubleParam(double* param) {
+  *param = std::atof(FormatDoubleParam(*param).c_str());
 }
 
 extern void PoolSizeChangeThread(void* v);

@@ -247,7 +247,8 @@ bool UniversalCompactionBuilder::IsInputFilesNonOverlapping(Compaction* c) {
 
     next.f = nullptr;
 
-    if (curr.level != 0 && curr.index < c->num_input_files(curr.level) - 1) {
+    if (c->level(curr.level) != 0 &&
+        curr.index < c->num_input_files(curr.level) - 1) {
       next.f = c->input(curr.level, curr.index + 1);
       next.level = curr.level;
       next.index = curr.index + 1;

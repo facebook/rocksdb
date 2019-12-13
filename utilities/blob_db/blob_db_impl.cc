@@ -459,6 +459,10 @@ void BlobDBImpl::ProcessFlushJobInfo(const FlushJobInfo& info) {
 void BlobDBImpl::ProcessCompactionJobInfo(const CompactionJobInfo& info) {
   assert(bdb_options_.enable_garbage_collection);
 
+  if (!info.status.ok()) {
+    return;
+  }
+
   // Note: the same SST file may appear in both the input and the output
   // file list in case of a trivial move. We process the inputs first
   // to ensure the blob file still has a link after processing all updates.

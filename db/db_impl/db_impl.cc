@@ -141,8 +141,6 @@ void DumpSupportInfo(Logger* logger) {
   ROCKS_LOG_HEADER(logger, "Fast CRC32 supported: %s",
                    crc32c::IsFastCrc32Supported().c_str());
 }
-
-int64_t kDefaultLowPriThrottledRate = 2 * 1024 * 1024;
 }  // namespace
 
 DBImpl::DBImpl(const DBOptions& options, const std::string& dbname,
@@ -178,11 +176,6 @@ DBImpl::DBImpl(const DBOptions& options, const std::string& dbname,
       write_thread_(immutable_db_options_),
       nonmem_write_thread_(immutable_db_options_),
       write_controller_(mutable_db_options_.delayed_write_rate),
-      // Use delayed_write_rate as a base line to determine the initial
-      // low pri write rate limit. It may be adjusted later.
-      low_pri_write_rate_limiter_(NewGenericRateLimiter(std::min(
-          static_cast<int64_t>(mutable_db_options_.delayed_write_rate / 8),
-          kDefaultLowPriThrottledRate))),
       last_batch_group_size_(0),
       unscheduled_flushes_(0),
       unscheduled_compactions_(0),
@@ -337,7 +330,7 @@ Status DBImpl::ResumeImpl() {
         mutex_.Unlock();
         s = FlushMemTable(cfd, flush_opts, FlushReason::kErrorRecovery);
         mutex_.Lock();
-        cfd->Unref();
+        cfd->UnrefAndTryDelete();
         if (!s.ok()) {
           break;
         }
@@ -425,7 +418,7 @@ void DBImpl::CancelAllBackgroundWork(bool wait) {
           mutex_.Unlock();
           FlushMemTable(cfd, FlushOptions(), FlushReason::kShutDown);
           mutex_.Lock();
-          cfd->Unref();
+          cfd->UnrefAndTryDelete();
         }
       }
     }
@@ -482,17 +475,12 @@ Status DBImpl::CloseHelper() {
   while (!flush_queue_.empty()) {
     const FlushRequest& flush_req = PopFirstFromFlushQueue();
     for (const auto& iter : flush_req) {
-      ColumnFamilyData* cfd = iter.first;
-      if (cfd->Unref()) {
-        delete cfd;
-      }
+      iter.first->UnrefAndTryDelete();
     }
   }
   while (!compaction_queue_.empty()) {
     auto cfd = PopFirstFromCompactionQueue();
-    if (cfd->Unref()) {
-      delete cfd;
-    }
+    cfd->UnrefAndTryDelete();
   }
 
   if (default_cf_handle_ != nullptr || persist_stats_cf_handle_ != nullptr) {
@@ -3984,6 +3972,13 @@ Status DBImpl::IngestExternalFiles(
       nonmem_write_thread_.EnterUnbatched(&nonmem_w, &mutex_);
     }
 
+    // When unordered_write is enabled, the keys are writing to memtable in an
+    // unordered way. If the ingestion job checks memtable key range before the
+    // key landing in memtable, the ingestion job may skip the necessary
+    // memtable flush.
+    // So wait here to ensure there is no pending write to memtable.
+    WaitForPendingWrites();
+
     num_running_ingest_file_ += static_cast<int>(num_cfs);
     TEST_SYNC_POINT("DBImpl::IngestExternalFile:AfterIncIngestFileCounter");
 
@@ -4331,7 +4326,7 @@ Status DBImpl::VerifyChecksum(const ReadOptions& read_options) {
       SchedulePurge();
     }
     for (auto cfd : cfd_list) {
-      cfd->Unref();
+      cfd->UnrefAndTryDelete();
     }
   }
   return s;

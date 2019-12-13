@@ -11,6 +11,7 @@
 #ifdef GFLAGS
 #include "db_stress_tool/db_stress_common.h"
 #include "db_stress_tool/db_stress_driver.h"
+#include "rocksdb/convenience.h"
 
 namespace rocksdb {
 StressTest::StressTest()
@@ -485,7 +486,7 @@ void StressTest::OperateDb(ThreadState* thread) {
       }
       thread->shared->IncVotedReopen();
       if (thread->shared->AllVotedReopen()) {
-        thread->shared->GetStressTest()->Reopen();
+        thread->shared->GetStressTest()->Reopen(thread);
         thread->shared->GetCondVar()->SignalAll();
       } else {
         thread->shared->GetCondVar()->Wait();
@@ -511,6 +512,14 @@ void StressTest::OperateDb(ThreadState* thread) {
       }
 
       MaybeClearOneColumnFamily(thread);
+
+      if (FLAGS_sync_wal_one_in > 0 &&
+          thread->rand.Uniform(FLAGS_sync_wal_one_in) == 0) {
+        Status s = db_->SyncWAL();
+        if (!s.ok() && !s.IsNotSupported()) {
+          fprintf(stdout, "SyncWAL() failed: %s\n", s.ToString().c_str());
+        }
+      }
 
 #ifndef ROCKSDB_LITE
       if (FLAGS_compact_files_one_in > 0 &&
@@ -573,26 +582,13 @@ void StressTest::OperateDb(ThreadState* thread) {
             shared->GetMutexForKey(rand_column_family, rand_key)));
       }
 
-      auto column_family = column_families_[rand_column_family];
+      ColumnFamilyHandle* column_family = column_families_[rand_column_family];
 
       if (FLAGS_compact_range_one_in > 0 &&
           thread->rand.Uniform(FLAGS_compact_range_one_in) == 0) {
-        int64_t end_key_num;
-        if (port::kMaxInt64 - rand_key < FLAGS_compact_range_width) {
-          end_key_num = port::kMaxInt64;
-        } else {
-          end_key_num = FLAGS_compact_range_width + rand_key;
-        }
-        std::string end_key_buf = Key(end_key_num);
-        Slice end_key(end_key_buf);
-
-        CompactRangeOptions cro;
-        cro.exclusive_manual_compaction =
-            static_cast<bool>(thread->rand.Next() % 2);
-        Status status = db_->CompactRange(cro, column_family, &key, &end_key);
-        if (!status.ok()) {
-          printf("Unable to perform CompactRange(): %s\n",
-                 status.ToString().c_str());
+        TestCompactRange(thread, rand_key, key, column_family);
+        if (thread->shared->HasVerificationFailedYet()) {
+          break;
         }
       }
 
@@ -610,6 +606,28 @@ void StressTest::OperateDb(ThreadState* thread) {
         if (!status.ok()) {
           fprintf(stdout, "Unable to perform Flush(): %s\n",
                   status.ToString().c_str());
+        }
+      }
+
+      if (FLAGS_pause_background_one_in > 0 &&
+          thread->rand.OneIn(FLAGS_pause_background_one_in)) {
+        Status status = db_->PauseBackgroundWork();
+        if (!status.ok()) {
+          VerificationAbort(shared, "PauseBackgroundWork status not OK",
+                            status);
+        }
+        // To avoid stalling/deadlocking ourself in this thread, just
+        // sleep here during pause and let other threads do db operations.
+        // Sleep up to ~16 seconds (2**24 microseconds), but very skewed
+        // toward short pause. (1 chance in 25 of pausing >= 1s;
+        // 1 chance in 625 of pausing full 16s.)
+        int pwr2_micros =
+            std::min(thread->rand.Uniform(25), thread->rand.Uniform(25));
+        FLAGS_env->SleepForMicroseconds(1 << pwr2_micros);
+        status = db_->ContinueBackgroundWork();
+        if (!status.ok()) {
+          VerificationAbort(shared, "ContinueBackgroundWork status not OK",
+                            status);
         }
       }
 
@@ -1260,6 +1278,92 @@ Status StressTest::TestCheckpoint(ThreadState* thread,
 }
 #endif  // ROCKSDB_LITE
 
+void StressTest::TestCompactRange(ThreadState* thread, int64_t rand_key,
+                                  const Slice& start_key,
+                                  ColumnFamilyHandle* column_family) {
+  int64_t end_key_num;
+  if (port::kMaxInt64 - rand_key < FLAGS_compact_range_width) {
+    end_key_num = port::kMaxInt64;
+  } else {
+    end_key_num = FLAGS_compact_range_width + rand_key;
+  }
+  std::string end_key_buf = Key(end_key_num);
+  Slice end_key(end_key_buf);
+
+  CompactRangeOptions cro;
+  cro.exclusive_manual_compaction = static_cast<bool>(thread->rand.Next() % 2);
+  cro.change_level = static_cast<bool>(thread->rand.Next() % 2);
+  std::vector<BottommostLevelCompaction> bottom_level_styles = {
+      BottommostLevelCompaction::kSkip,
+      BottommostLevelCompaction::kIfHaveCompactionFilter,
+      BottommostLevelCompaction::kForce,
+      BottommostLevelCompaction::kForceOptimized};
+  cro.bottommost_level_compaction =
+      bottom_level_styles[thread->rand.Next() %
+                          static_cast<uint32_t>(bottom_level_styles.size())];
+  cro.allow_write_stall = static_cast<bool>(thread->rand.Next() % 2);
+  cro.max_subcompactions = static_cast<uint32_t>(thread->rand.Next() % 4);
+
+  const Snapshot* pre_snapshot = nullptr;
+  uint32_t pre_hash;
+  if (thread->rand.OneIn(2)) {
+    // Do some validation by declaring a snapshot and compare the data before
+    // and after the compaction
+    pre_snapshot = db_->GetSnapshot();
+    pre_hash =
+        GetRangeHash(thread, pre_snapshot, column_family, start_key, end_key);
+  }
+
+  Status status = db_->CompactRange(cro, column_family, &start_key, &end_key);
+
+  if (!status.ok()) {
+    printf("Unable to perform CompactRange(): %s\n", status.ToString().c_str());
+  }
+
+  if (pre_snapshot != nullptr) {
+    uint32_t post_hash =
+        GetRangeHash(thread, pre_snapshot, column_family, start_key, end_key);
+    if (pre_hash != post_hash) {
+      fprintf(stderr,
+              "Data hash different before and after compact range "
+              "start_key %s end_key %s\n",
+              start_key.ToString(true).c_str(), end_key.ToString(true).c_str());
+      thread->stats.AddErrors(1);
+      // Fail fast to preserve the DB state.
+      thread->shared->SetVerificationFailure();
+    }
+    db_->ReleaseSnapshot(pre_snapshot);
+  }
+}
+
+uint32_t StressTest::GetRangeHash(ThreadState* thread, const Snapshot* snapshot,
+                                  ColumnFamilyHandle* column_family,
+                                  const Slice& start_key,
+                                  const Slice& end_key) {
+  const std::string kCrcCalculatorSepearator = ";";
+  uint32_t crc = 0;
+  ReadOptions ro;
+  ro.snapshot = snapshot;
+  ro.total_order_seek = true;
+  std::unique_ptr<Iterator> it(db_->NewIterator(ro, column_family));
+  for (it->Seek(start_key);
+       it->Valid() && options_.comparator->Compare(it->key(), end_key) <= 0;
+       it->Next()) {
+    crc = crc32c::Extend(crc, it->key().data(), it->key().size());
+    crc = crc32c::Extend(crc, kCrcCalculatorSepearator.data(), 1);
+    crc = crc32c::Extend(crc, it->value().data(), it->value().size());
+    crc = crc32c::Extend(crc, kCrcCalculatorSepearator.data(), 1);
+  }
+  if (!it->status().ok()) {
+    fprintf(stderr, "Iterator non-OK when calculating range CRC: %s\n",
+            it->status().ToString().c_str());
+    thread->stats.AddErrors(1);
+    // Fail fast to preserve the DB state.
+    thread->shared->SetVerificationFailure();
+  }
+  return crc;
+}
+
 void StressTest::PrintEnv() const {
   fprintf(stdout, "RocksDB version           : %d.%d\n", kMajorVersion,
           kMinorVersion);
@@ -1310,6 +1414,8 @@ void StressTest::PrintEnv() const {
   fprintf(stdout, "Compression               : %s\n", compression.c_str());
   std::string checksum = ChecksumTypeToString(FLAGS_checksum_type_e);
   fprintf(stdout, "Checksum type             : %s\n", checksum.c_str());
+  fprintf(stdout, "Bloom bits / key          : %s\n",
+          FormatDoubleParam(FLAGS_bloom_bits).c_str());
   fprintf(stdout, "Max subcompactions        : %" PRIu64 "\n",
           FLAGS_subcompactions);
   fprintf(stdout, "Use MultiGet              : %s\n",
@@ -1565,8 +1671,9 @@ void StressTest::Open() {
     } else {
 #ifndef ROCKSDB_LITE
       TransactionDBOptions txn_db_options;
-      // For the moment it is sufficient to test WRITE_PREPARED policy
-      txn_db_options.write_policy = TxnDBWritePolicy::WRITE_PREPARED;
+      assert(FLAGS_txn_write_policy <= TxnDBWritePolicy::WRITE_UNPREPARED);
+      txn_db_options.write_policy =
+          static_cast<TxnDBWritePolicy>(FLAGS_txn_write_policy);
       s = TransactionDB::Open(options_, txn_db_options, FLAGS_db,
                               cf_descriptors, &column_families_, &txn_db_);
       db_ = txn_db_;
@@ -1649,11 +1756,26 @@ void StressTest::Open() {
   }
 }
 
-void StressTest::Reopen() {
+void StressTest::Reopen(ThreadState* thread) {
+#ifndef ROCKSDB_LITE
+  if (thread->rand.OneIn(2)) {
+    CancelAllBackgroundWork(db_, static_cast<bool>(thread->rand.OneIn(2)));
+  }
+#else
+  (void) thread;
+#endif
+
   for (auto cf : column_families_) {
     delete cf;
   }
   column_families_.clear();
+
+#ifndef ROCKSDB_LITE
+  if (thread->rand.OneIn(2)) {
+    Status s = db_->Close();
+    assert(s.ok());
+  }
+#endif
   delete db_;
   db_ = nullptr;
 #ifndef ROCKSDB_LITE

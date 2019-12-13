@@ -1780,6 +1780,36 @@ TEST_F(BlobDBTest, MaintainBlobFileToSstMapping) {
     ASSERT_EQ(obsolete_files[0]->BlobFileNumber(), 1);
   }
 
+  // Simulate a failed compaction. No mappings should be updated.
+  {
+    CompactionJobInfo info{};
+    info.input_file_infos.emplace_back(CompactionFileInfo{1, 7, 2});
+    info.input_file_infos.emplace_back(CompactionFileInfo{2, 22, 5});
+    info.output_file_infos.emplace_back(CompactionFileInfo{2, 25, 3});
+    info.status = Status::Corruption();
+
+    blob_db_impl()->TEST_ProcessCompactionJobInfo(info);
+
+    const std::vector<std::unordered_set<uint64_t>> expected_sst_files{
+        {}, {7}, {3, 8, 23}, {4, 9}, {5, 10, 22}};
+    const std::vector<bool> expected_obsolete{true, false, false, false, false};
+    for (size_t i = 0; i < 5; ++i) {
+      const auto &blob_file = blob_files[i];
+      ASSERT_EQ(blob_file->GetLinkedSstFiles(), expected_sst_files[i]);
+      ASSERT_EQ(blob_file->Obsolete(), expected_obsolete[i]);
+    }
+
+    auto live_imm_files = blob_db_impl()->TEST_GetLiveImmNonTTLFiles();
+    ASSERT_EQ(live_imm_files.size(), 4);
+    for (size_t i = 0; i < 4; ++i) {
+      ASSERT_EQ(live_imm_files[i]->BlobFileNumber(), i + 2);
+    }
+
+    auto obsolete_files = blob_db_impl()->TEST_GetObsoleteFiles();
+    ASSERT_EQ(obsolete_files.size(), 1);
+    ASSERT_EQ(obsolete_files[0]->BlobFileNumber(), 1);
+  }
+
   // Simulate another compaction. Blob file 2 loses all its linked SSTs
   // but since it got marked immutable at sequence number 300 which hasn't
   // been flushed yet, it cannot be marked obsolete at this point.

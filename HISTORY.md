@@ -1,13 +1,15 @@
 # Rocksdb Change Log
 ## Unreleased
-### Buf Fixes
+### Bug Fixes
 * Fix a bug that can cause unnecessary bg thread to be scheduled(#6104).
+* Fix a bug in which a snapshot read could be affected by a DeleteRange after the snapshot (#6062).
+
 ## 6.6.0 (11/25/2019)
 ### Bug Fixes
-* Fix data corruption casued by output of intra-L0 compaction on ingested file not being placed in correct order in L0.
+* Fix data corruption caused by output of intra-L0 compaction on ingested file not being placed in correct order in L0.
 * Fix a data race between Version::GetColumnFamilyMetaData() and Compaction::MarkFilesBeingCompacted() for access to being_compacted (#6056). The current fix acquires the db mutex during Version::GetColumnFamilyMetaData(), which may cause regression.
 * Fix a bug in DBIter that is_blob_ state isn't updated when iterating backward using seek.
-* Fix a bug when format_version=3, partitioned fitlers, and prefix search are used in conjunction. The bug could result into Seek::(prefix) returning NotFound for an existing prefix.
+* Fix a bug when format_version=3, partitioned filters, and prefix search are used in conjunction. The bug could result into Seek::(prefix) returning NotFound for an existing prefix.
 * Revert the feature "Merging iterator to avoid child iterator reseek for some cases (#5286)" since it might cause strong results when reseek happens with a different iterator upper bound.
 * Fix a bug causing a crash during ingest external file when background compaction cause severe error (file not found).
 * Fix a bug when partitioned filters and prefix search are used in conjunction, ::SeekForPrev could return invalid for an existing prefix. ::SeekForPrev might be called by the user, or internally on ::Prev, or within ::Seek if the return value involves Delete or a Merge operand.
@@ -20,13 +22,13 @@
 * Universal compaction to support options.periodic_compaction_seconds. A full compaction will be triggered if any file is over the threshold.
 * `GetLiveFilesMetaData` and `GetColumnFamilyMetaData` now expose the file number of SST files as well as the oldest blob file referenced by each SST.
 * A batched MultiGet API (DB::MultiGet()) that supports retrieving keys from multiple column families.
-* Full and partitioned filters in the block-based table use an improved Bloom filter implementation, enabled with format_version 5 (or above) because previous releases cannot read this filter. This replacement is faster and more accurate, especially for high bits per key or millions of keys in a single (full) filter. For example, the new Bloom filter has the same false postive rate at 9.55 bits per key as the old one at 10 bits per key, and a lower false positive rate at 16 bits per key than the old one at 100 bits per key.
+* Full and partitioned filters in the block-based table use an improved Bloom filter implementation, enabled with format_version 5 (or above) because previous releases cannot read this filter. This replacement is faster and more accurate, especially for high bits per key or millions of keys in a single (full) filter. For example, the new Bloom filter has the same false positive rate at 9.55 bits per key as the old one at 10 bits per key, and a lower false positive rate at 16 bits per key than the old one at 100 bits per key.
 * Added AVX2 instructions to USE_SSE builds to accelerate the new Bloom filter and XXH3-based hash function on compatible x86_64 platforms (Haswell and later, ~2014).
 * Support options.ttl or options.periodic_compaction_seconds with options.max_open_files = -1. File's oldest ancester time and file creation time will be written to manifest. If it is availalbe, this information will be used instead of creation_time and file_creation_time in table properties.
 * Setting options.ttl for universal compaction now has the same meaning as setting periodic_compaction_seconds.
 * SstFileMetaData also returns file creation time and oldest ancester time.
 * The `sst_dump` command line tool `recompress` command now displays how many blocks were compressed and how many were not, in particular how many were not compressed because the compression ratio was not met (12.5% threshold for GoodCompressionRatio), as seen in the `number.block.not_compressed` counter stat since version 6.0.0.
-* The block cache usage is now takes into account the overhead of metadata per each entry. This results into more accurate managment of memory. A side-effect of this feature is that less items are fit into the block cache of the same size, which would result to higher cache miss rates. This can be remedied by increasing the block cache size or passing kDontChargeCacheMetadata to its constuctor to restore the old behavior.
+* The block cache usage is now takes into account the overhead of metadata per each entry. This results into more accurate management of memory. A side-effect of this feature is that less items are fit into the block cache of the same size, which would result to higher cache miss rates. This can be remedied by increasing the block cache size or passing kDontChargeCacheMetadata to its constuctor to restore the old behavior.
 * When using BlobDB, a mapping is maintained and persisted in the MANIFEST between each SST file and the oldest non-TTL blob file it references.
 * `db_bench` now supports and by default issues non-TTL Puts to BlobDB. TTL Puts can be enabled by specifying a non-zero value for the `blob_db_max_ttl_range` command line parameter explicitly.
 * `sst_dump` now supports printing BlobDB blob indexes in a human-readable format. This can be enabled by specifying the `decode_blob_index` flag on the command line.
@@ -49,7 +51,7 @@
 
 ### Default Option Changes
 * Changed the default value of periodic_compaction_seconds to `UINT64_MAX - 1` which allows RocksDB to auto-tune periodic compaction scheduling. When using the default value, periodic compactions are now auto-enabled if a compaction filter is used. A value of `0` will turn off the feature completely.
-* Changed the default value of ttl to `UINT64_MAX - 1` which allows RocksDB to auto-tune ttl value. When using the default value, TTL will be auto-enabled to 30 days, when the feature is supported. To revert the old behavior, you can explictly set it to 0.
+* Changed the default value of ttl to `UINT64_MAX - 1` which allows RocksDB to auto-tune ttl value. When using the default value, TTL will be auto-enabled to 30 days, when the feature is supported. To revert the old behavior, you can explicitly set it to 0.
 
 ### Performance Improvements
 * For 64-bit hashing, RocksDB is standardizing on a slightly modified preview version of XXH3. This function is now used for many non-persisted hashes, along with fastrange64() in place of the modulus operator, and some benchmarks show a slight improvement.
@@ -90,7 +92,7 @@
 
 ## 6.4.0 (7/30/2019)
 ### Default Option Change
-* LRUCacheOptions.high_pri_pool_ratio is set to 0.5 (previously 0.0) by default, which means that by default midpoint insertion is enabled. The same change is made for the default value of high_pri_pool_ratio argument in NewLRUCache(). When block cache is not explictly created, the small block cache created by BlockBasedTable will still has this option to be 0.0.
+* LRUCacheOptions.high_pri_pool_ratio is set to 0.5 (previously 0.0) by default, which means that by default midpoint insertion is enabled. The same change is made for the default value of high_pri_pool_ratio argument in NewLRUCache(). When block cache is not explicitly created, the small block cache created by BlockBasedTable will still has this option to be 0.0.
 * Change BlockBasedTableOptions.cache_index_and_filter_blocks_with_high_priority's default value from false to true.
 
 ### Public API Change
@@ -114,7 +116,7 @@
 * Support loading custom objects in unit tests. In the affected unit tests, RocksDB will create custom Env objects based on environment variable TEST_ENV_URI. Users need to make sure custom object types are properly registered. For example, a static library should expose a `RegisterCustomObjects` function. By linking the unit test binary with the static library, the unit test can execute this function.
 
 ### Performance Improvements
-* Reduce iterator key comparision for upper/lower bound check.
+* Reduce iterator key comparison for upper/lower bound check.
 * Improve performance of row_cache: make reads with newer snapshots than data in an SST file share the same cache key, except in some transaction cases.
 * The compression dictionary is no longer copied to a new object upon retrieval.
 
@@ -210,7 +212,7 @@
 * Introduce two more stats levels, kExceptHistogramOrTimers and kExceptTimers.
 * Added a feature to perform data-block sampling for compressibility, and report stats to user.
 * Add support for trace filtering.
-* Add DBOptions.avoid_unnecessary_blocking_io. If true, we avoid file deletion when destorying ColumnFamilyHandle and Iterator. Instead, a job is scheduled to delete the files in background.
+* Add DBOptions.avoid_unnecessary_blocking_io. If true, we avoid file deletion when destroying ColumnFamilyHandle and Iterator. Instead, a job is scheduled to delete the files in background.
 
 ### Public API Change
 * Remove bundled fbson library.
@@ -589,7 +591,7 @@ if set to something > 0 user will see 2 changes in iterators behavior 1) only ke
 
 ## 5.2.0 (02/08/2017)
 ### Public API Change
-* NewLRUCache() will determine number of shard bits automatically based on capacity, if the user doesn't pass one. This also impacts the default block cache when the user doesn't explict provide one.
+* NewLRUCache() will determine number of shard bits automatically based on capacity, if the user doesn't pass one. This also impacts the default block cache when the user doesn't explicit provide one.
 * Change the default of delayed slowdown value to 16MB/s and further increase the L0 stop condition to 36 files.
 * Options::use_direct_writes and Options::use_direct_reads are now ready to use.
 * (Experimental) Two-level indexing that partition the index and creates a 2nd level index on the partitions. The feature can be enabled by setting kTwoLevelIndexSearch as IndexType and configuring index_per_partition.
@@ -660,7 +662,7 @@ if set to something > 0 user will see 2 changes in iterators behavior 1) only ke
 
 ### New Features
 * A tool to migrate DB after options change. See include/rocksdb/utilities/option_change_migration.h.
-* Add ReadOptions.background_purge_on_iterator_cleanup. If true, we avoid file deletion when destorying iterators.
+* Add ReadOptions.background_purge_on_iterator_cleanup. If true, we avoid file deletion when destroying iterators.
 
 ## 4.10.0 (7/5/2016)
 ### Public API Change
