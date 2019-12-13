@@ -668,7 +668,8 @@ void CompactionIterator::PrepareOutput() {
     //
     // Can we do the same for levels above bottom level as long as
     // KeyNotExistsBeyondOutputLevel() return true?
-    if ((compaction_ != nullptr && !compaction_->allow_ingest_behind()) &&
+    if (valid_ && compaction_ != nullptr &&
+        !compaction_->allow_ingest_behind() &&
         ikeyNotNeededForIncrementalSnapshot() && bottommost_level_ &&
         IN_EARLIEST_SNAPSHOT(ikey_.sequence) && ikey_.type != kTypeMerge) {
       assert(ikey_.type != kTypeDeletion && ikey_.type != kTypeSingleDeletion);
