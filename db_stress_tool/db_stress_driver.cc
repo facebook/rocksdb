@@ -75,6 +75,11 @@ bool RunStressTest(StressTest* stress) {
   if (FLAGS_compaction_thread_pool_adjust_interval > 0) {
     FLAGS_env->StartThread(PoolSizeChangeThread, &bg_thread);
   }
+  ThreadState continuous_verification_thread(0, &shared);
+  if (FLAGS_continuous_verification_interval > 0) {
+    FLAGS_env->StartThread(DbVerificationThread,
+                           &continuous_verification_thread);
+  }
 
   // Each thread goes through the following states:
   // initializing -> wait for others to init -> read/populate/depopulate
@@ -135,10 +140,11 @@ bool RunStressTest(StressTest* stress) {
   }
   stress->PrintStatistics();
 
-  if (FLAGS_compaction_thread_pool_adjust_interval > 0) {
+  if (FLAGS_compaction_thread_pool_adjust_interval > 0 ||
+      FLAGS_continuous_verification_interval > 0) {
     MutexLock l(shared.GetMutex());
     shared.SetShouldStopBgThread();
-    while (!shared.BgThreadFinished()) {
+    while (!shared.BgThreadsFinished()) {
       shared.GetCondVar()->Wait();
     }
   }

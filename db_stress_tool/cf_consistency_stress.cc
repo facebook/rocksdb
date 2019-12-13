@@ -15,7 +15,7 @@ class CfConsistencyStressTest : public StressTest {
  public:
   CfConsistencyStressTest() : batch_id_(0) {}
 
-  virtual ~CfConsistencyStressTest() {}
+  ~CfConsistencyStressTest() override {}
 
   Status TestPut(ThreadState* thread, WriteOptions& write_opts,
                  const ReadOptions& /* read_opts */,
@@ -492,6 +492,39 @@ class CfConsistencyStressTest : public StressTest {
         iter->Next();
       }
     } while (true);
+  }
+
+  void ContinuouslyVerifyDb(ThreadState* thread) const override {
+    assert(cmp_db_ != nullptr);
+    Status s = cmp_db_->TryCatchUpWithPrimary();
+    ReadOptions ropts;
+    ropts.total_order_seek = true;
+    uint32_t crc = 0;
+    {
+      // Compute crc for all key-values of default column family.
+      std::unique_ptr<Iterator> iter(cmp_db_->NewIterator(ropts));
+      for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
+        crc = crc32c::Extend(crc, iter->key().data(), iter->key().size());
+        crc = crc32c::Extend(crc, iter->value().data(), iter->value().size());
+      }
+    }
+    for (ColumnFamilyHandle* cfh : cmp_cfhs_) {
+      if (cfh == cmp_db_->DefaultColumnFamily()) {
+        continue;
+      }
+      std::unique_ptr<Iterator> it(cmp_db_->NewIterator(ropts, cfh));
+      uint32_t tmp_crc = 0;
+      for (it->SeekToFirst(); it->Valid(); it->Next()) {
+        tmp_crc = crc32c::Extend(tmp_crc, it->key().data(), it->key().size());
+        tmp_crc =
+            crc32c::Extend(tmp_crc, it->value().data(), it->value().size());
+      }
+      if (tmp_crc != crc) {
+        SharedState* shared = thread->shared;
+        shared->SetVerificationFailure();
+        return;
+      }
+    }
   }
 
   std::vector<int> GenerateColumnFamilies(

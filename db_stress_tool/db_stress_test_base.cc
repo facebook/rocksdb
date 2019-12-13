@@ -28,7 +28,8 @@ StressTest::StressTest()
 #endif
       new_column_family_name_(1),
       num_times_reopened_(0),
-      db_preload_finished_(false) {
+      db_preload_finished_(false),
+      cmp_db_(nullptr) {
   if (FLAGS_destroy_db_initially) {
     std::vector<std::string> files;
     FLAGS_env->GetChildren(FLAGS_db, &files);
@@ -65,6 +66,12 @@ StressTest::~StressTest() {
     delete secondaries_[i];
   }
   secondaries_.clear();
+
+  for (auto* cf : cmp_cfhs_) {
+    delete cf;
+  }
+  cmp_cfhs_.clear();
+  delete cmp_db_;
 }
 
 std::shared_ptr<Cache> StressTest::NewCache(size_t capacity) {
@@ -1770,10 +1777,21 @@ void StressTest::Open() {
           break;
         }
       }
+      assert(s.ok());
 #else
       fprintf(stderr, "Secondary is not supported in RocksDBLite\n");
       exit(1);
 #endif
+    }
+    if (FLAGS_continuous_verification_interval > 0 && !cmp_db_) {
+      Options tmp_opts;
+      tmp_opts.max_open_files = FLAGS_open_files;
+      tmp_opts.env = FLAGS_env;
+      std::string secondary_path = FLAGS_secondaries_base + "/cmp_database";
+      s = DB::OpenAsSecondary(tmp_opts, FLAGS_db, secondary_path,
+                              cf_descriptors, &cmp_cfhs_, &cmp_db_);
+      assert(!s.ok() ||
+             cmp_cfhs_.size() == static_cast<size_t>(FLAGS_column_families));
     }
   } else {
 #ifndef ROCKSDB_LITE

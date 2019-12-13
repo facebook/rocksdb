@@ -22,6 +22,8 @@ DECLARE_int32(nooverwritepercent);
 DECLARE_string(expected_values_path);
 DECLARE_int32(clear_column_family_one_in);
 DECLARE_bool(test_batches_snapshots);
+DECLARE_int32(compaction_thread_pool_adjust_interval);
+DECLARE_int32(continuous_verification_interval);
 
 namespace rocksdb {
 class StressTest;
@@ -47,8 +49,9 @@ class SharedState {
         num_done_(0),
         start_(false),
         start_verify_(false),
+        num_bg_threads_(0),
         should_stop_bg_thread_(false),
-        bg_thread_finished_(false),
+        bg_thread_finished_(0),
         stress_test_(stress_test),
         verification_failure_(false),
         no_overwrite_ids_(FLAGS_column_families),
@@ -158,6 +161,14 @@ class SharedState {
       for (auto& ptr : key_locks_[i]) {
         ptr.reset(new port::Mutex);
       }
+    }
+    if (FLAGS_compaction_thread_pool_adjust_interval > 0) {
+      ++num_bg_threads_;
+      fprintf(stdout, "Starting compaction_thread_pool_adjust_thread\n");
+    }
+    if (FLAGS_continuous_verification_interval > 0) {
+      ++num_bg_threads_;
+      fprintf(stdout, "Starting continuous_verification_thread\n");
     }
   }
 
@@ -292,9 +303,11 @@ class SharedState {
 
   bool ShouldStopBgThread() { return should_stop_bg_thread_; }
 
-  void SetBgThreadFinish() { bg_thread_finished_ = true; }
+  void IncBgThreadsFinished() { ++bg_thread_finished_; }
 
-  bool BgThreadFinished() const { return bg_thread_finished_; }
+  bool BgThreadsFinished() const {
+    return bg_thread_finished_ == num_bg_threads_;
+  }
 
   bool ShouldVerifyAtBeginning() const {
     return expected_mmap_buffer_.get() != nullptr;
@@ -323,8 +336,9 @@ class SharedState {
   long num_done_;
   bool start_;
   bool start_verify_;
+  int num_bg_threads_;
   bool should_stop_bg_thread_;
-  bool bg_thread_finished_;
+  int bg_thread_finished_;
   StressTest* stress_test_;
   std::atomic<bool> verification_failure_;
 

@@ -209,6 +209,7 @@ DECLARE_uint64(max_write_batch_group_size_bytes);
 DECLARE_bool(level_compaction_dynamic_level_bytes);
 DECLARE_int32(verify_checksum_one_in);
 DECLARE_int32(verify_db_one_in);
+DECLARE_int32(continuous_verification_interval);
 
 const long KB = 1024;
 const int kRandomValueMaxFactor = 3;
@@ -367,6 +368,8 @@ extern inline void SanitizeDoubleParam(double* param) {
 }
 
 extern void PoolSizeChangeThread(void* v);
+
+extern void DbVerificationThread(void* v);
 
 extern void PrintKeyValue(int cf, uint64_t key, const char* value, size_t sz);
 

@@ -171,7 +171,8 @@ int db_stress_tool(int argc, char** argv) {
     FLAGS_db = default_db_path;
   }
 
-  if (FLAGS_test_secondary && FLAGS_secondaries_base.empty()) {
+  if ((FLAGS_test_secondary || FLAGS_continuous_verification_interval > 0) &&
+      FLAGS_secondaries_base.empty()) {
     std::string default_secondaries_path;
     FLAGS_env->GetTestDirectory(&default_secondaries_path);
     default_secondaries_path += "/dbstress_secondaries";

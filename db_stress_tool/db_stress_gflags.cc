@@ -586,4 +586,8 @@ DEFINE_int32(verify_db_one_in, 0,
              "If non-zero, call VerifyDb() once for every N ops. 0 indicates "
              "that VerifyDb() will not be called in OperateDb(). Note that "
              "enabling this can slow down tests.");
+
+DEFINE_int32(continuous_verification_interval, 0,
+             "While test is running, verify db every N milliseconds. 0 "
+             "disables continuous verification.");
 #endif  // GFLAGS

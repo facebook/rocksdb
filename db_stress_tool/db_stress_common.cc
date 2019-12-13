@@ -86,8 +86,10 @@ void PoolSizeChangeThread(void* v) {
     {
       MutexLock l(shared->GetMutex());
       if (shared->ShouldStopBgThread()) {
-        shared->SetBgThreadFinish();
-        shared->GetCondVar()->SignalAll();
+        shared->IncBgThreadsFinished();
+        if (shared->BgThreadsFinished()) {
+          shared->GetCondVar()->SignalAll();
+        }
         return;
       }
     }
@@ -106,6 +108,32 @@ void PoolSizeChangeThread(void* v) {
     FLAGS_env->SleepForMicroseconds(
         thread->rand.Next() % FLAGS_compaction_thread_pool_adjust_interval *
             1000 +
+        1);
+  }
+}
+
+void DbVerificationThread(void* v) {
+  assert(FLAGS_continuous_verification_interval > 0);
+  auto* thread = reinterpret_cast<ThreadState*>(v);
+  SharedState* shared = thread->shared;
+  StressTest* stress_test = shared->GetStressTest();
+  assert(stress_test != nullptr);
+  while (true) {
+    {
+      MutexLock l(shared->GetMutex());
+      if (shared->ShouldStopBgThread()) {
+        shared->IncBgThreadsFinished();
+        if (shared->BgThreadsFinished()) {
+          shared->GetCondVar()->SignalAll();
+        }
+        return;
+      }
+    }
+    if (!shared->HasVerificationFailedYet()) {
+      stress_test->ContinuouslyVerifyDb(thread);
+    }
+    FLAGS_env->SleepForMicroseconds(
+        thread->rand.Next() % FLAGS_continuous_verification_interval * 1000 +
         1);
   }
 }
