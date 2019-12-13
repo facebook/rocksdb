@@ -12,6 +12,7 @@
 #include <algorithm>
 #include <mutex>
 
+#include "db/version_edit.h"
 #include "monitoring/histogram.h"
 #include "monitoring/iostats_context_imp.h"
 #include "port/port.h"
@@ -213,6 +214,14 @@ Status WritableFileWriter::Flush() {
   }
 
   return s;
+}
+
+const char* WritableFileWriter::GetFileChecksumName() const {
+  if (checksum_cal_ != nullptr) {
+    return checksum_cal_->Name();
+  } else {
+    return kUnknownFileChecksumName.c_str();
+  }
 }
 
 Status WritableFileWriter::Sync(bool use_fsync) {

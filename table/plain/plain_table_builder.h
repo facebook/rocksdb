@@ -83,6 +83,12 @@ class PlainTableBuilder: public TableBuilder {
 
   bool SaveIndexInFile() const { return store_index_in_file_; }
 
+  // Get the checksum of the file
+  uint32_t GetFileChecksum() const override { return file_checksum_; };
+
+  // Get the checksum method name
+  const char* GetFileChecksumName() const override;
+
  private:
   Arena arena_;
   const ImmutableCFOptions& ioptions_;
@@ -107,6 +113,9 @@ class PlainTableBuilder: public TableBuilder {
   bool closed_ = false;  // Either Finish() or Abandon() has been called.
 
   const SliceTransform* prefix_extractor_;
+
+  // Store checksum value. If checksum is disabled, its value is 0
+  uint32_t file_checksum_ = 0;
 
   Slice GetPrefix(const Slice& target) const {
     assert(target.size() >= 8);  // target is internal key

@@ -91,6 +91,12 @@ class BlockBasedTableBuilder : public TableBuilder {
   // Get table properties
   TableProperties GetTableProperties() const override;
 
+  // Get checksum value
+  uint32_t GetFileChecksum() const override { return file_checksum_; };
+
+  // Get checksum method name
+  const char* GetFileChecksumName() const override;
+
  private:
   bool ok() const { return status().ok(); }
 
@@ -136,6 +142,9 @@ class BlockBasedTableBuilder : public TableBuilder {
   // Some compression libraries fail when the raw size is bigger than int. If
   // uncompressed size is bigger than kCompressionSizeLimit, don't compress it
   const uint64_t kCompressionSizeLimit = std::numeric_limits<int>::max();
+
+  // Store checksum value. If checksum is disabled, its value is 0
+  uint32_t file_checksum_ = 0;
 };
 
 Slice CompressBlock(const Slice& raw, const CompressionInfo& info,
