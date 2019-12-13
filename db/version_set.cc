@@ -3888,9 +3888,7 @@ Status VersionSet::ProcessManifestWrites(
     } else if (first_writer.edit_list.front()->is_column_family_drop_) {
       assert(batch_edits.size() == 1);
       first_writer.cfd->SetDropped();
-      if (first_writer.cfd->Unref()) {
-        delete first_writer.cfd;
-      }
+      first_writer.cfd->UnrefAndTryDelete();
     } else {
       // Each version in versions corresponds to a column family.
       // For each column family, update its log number indicating that logs
@@ -4168,8 +4166,7 @@ Status VersionSet::ApplyOneVersionEditToBuilder(
       builders.erase(builder);
       cfd = column_family_set_->GetColumnFamily(edit.column_family_);
       assert(cfd != nullptr);
-      if (cfd->Unref()) {
-        delete cfd;
+      if (cfd->UnrefAndTryDelete()) {
         cfd = nullptr;
       } else {
         // who else can have reference to cfd!?
@@ -4781,8 +4778,7 @@ Status VersionSet::DumpManifest(Options& options, std::string& dscname,
         comparators.erase(edit.column_family_);
         cfd = column_family_set_->GetColumnFamily(edit.column_family_);
         assert(cfd != nullptr);
-        cfd->Unref();
-        delete cfd;
+        cfd->UnrefAndTryDelete();
         cfd = nullptr;
       } else {
         if (!cf_in_builders) {
@@ -5808,8 +5804,7 @@ Status ReactiveVersionSet::ApplyOneVersionEditToBuilder(
     // secondary instance. (Is it possible that the ref count for cfd is 0 but
     // the ref count for its versions is higher than 0?)
     cfd->SetDropped();
-    if (cfd->Unref()) {
-      delete cfd;
+    if (cfd->UnrefAndTryDelete()) {
       cfd = nullptr;
     }
     active_version_builders_.erase(builder_iter);

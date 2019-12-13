@@ -330,7 +330,7 @@ Status DBImpl::ResumeImpl() {
         mutex_.Unlock();
         s = FlushMemTable(cfd, flush_opts, FlushReason::kErrorRecovery);
         mutex_.Lock();
-        cfd->Unref();
+        cfd->UnrefAndTryDelete();
         if (!s.ok()) {
           break;
         }
@@ -418,7 +418,7 @@ void DBImpl::CancelAllBackgroundWork(bool wait) {
           mutex_.Unlock();
           FlushMemTable(cfd, FlushOptions(), FlushReason::kShutDown);
           mutex_.Lock();
-          cfd->Unref();
+          cfd->UnrefAndTryDelete();
         }
       }
     }
@@ -475,17 +475,12 @@ Status DBImpl::CloseHelper() {
   while (!flush_queue_.empty()) {
     const FlushRequest& flush_req = PopFirstFromFlushQueue();
     for (const auto& iter : flush_req) {
-      ColumnFamilyData* cfd = iter.first;
-      if (cfd->Unref()) {
-        delete cfd;
-      }
+      iter.first->UnrefAndTryDelete();
     }
   }
   while (!compaction_queue_.empty()) {
     auto cfd = PopFirstFromCompactionQueue();
-    if (cfd->Unref()) {
-      delete cfd;
-    }
+    cfd->UnrefAndTryDelete();
   }
 
   if (default_cf_handle_ != nullptr || persist_stats_cf_handle_ != nullptr) {
@@ -4303,7 +4298,7 @@ Status DBImpl::VerifyChecksum(const ReadOptions& read_options) {
       }
     }
     for (auto cfd : cfd_list) {
-      cfd->Unref();
+      cfd->UnrefAndTryDelete();
     }
   }
   return s;
