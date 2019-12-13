@@ -50,13 +50,13 @@ namespace rocksdb {
 
             }
 
-            virtual bool AllowSingleOperand() const { return allowSingleOperand; }
+            virtual bool AllowSingleOperand() const override { return allowSingleOperand; }
 
             virtual bool PartialMerge(const Slice &key,
                                       const Slice &lop,
                                       const Slice &rop,
                                       std::string *new_value,
-                                      Logger *logger) const {
+                                      Logger*) const override {
 
 
                 JNIEnv *env = rocksdb::getEnv();
@@ -68,21 +68,21 @@ namespace rocksdb {
 
                 size_t s0 = key.size() * sizeof(char);
                 buf0 = (jbyte *) key.data();
-                jb0 = env->NewByteArray(s0);
-                env->SetByteArrayRegion(jb0, 0, s0, buf0);
+                jb0 = env->NewByteArray(static_cast<jint>(s0));
+                env->SetByteArrayRegion(jb0, 0, static_cast<jint>(s0), buf0);
 
 
                 size_t s1 = lop.size() * sizeof(char);
                 buf1 = (jbyte *) lop.data();
-                jb1 = env->NewByteArray(s1);
+                jb1 = env->NewByteArray(static_cast<jint>(s1));
 
-                env->SetByteArrayRegion(jb1, 0, s1, buf1);
+                env->SetByteArrayRegion(jb1, 0, static_cast<jint>(s1), buf1);
 
 
                 size_t s2 = rop.size() * sizeof(char);
                 buf2 = (jbyte *) rop.data();
-                jb2 = env->NewByteArray(s2);
-                env->SetByteArrayRegion(jb2, 0, s2, buf2);
+                jb2 = env->NewByteArray(static_cast<jint>(s2));
+                env->SetByteArrayRegion(jb2, 0, static_cast<jint>(s2), buf2);
 
                 jobject rtobject = env->NewObject( rtClass, rtConstructor);
 
@@ -123,7 +123,7 @@ namespace rocksdb {
 
             virtual bool PartialMergeMulti(const Slice &key,
                                            const std::deque<Slice> &operands,
-                                           std::string *new_value, Logger *logger) const {
+                                           std::string *new_value, Logger*) const override {
                 if (!allowPartialMultiMerge) return false;
 
                 JNIEnv *env = rocksdb::getEnv();
@@ -131,19 +131,19 @@ namespace rocksdb {
 
 
                 size_t size = operands.size();
-                jobjectArray oa = env->NewObjectArray(size, bytearrayClass, NULL);
+                jobjectArray oa = env->NewObjectArray(static_cast<jint>(size), bytearrayClass, NULL);
                 Slice slice;
                 jbyteArray jb;
                 for (size_t i = 0; i < size; i++) {
                     slice = operands.at(i);
-                    jb = env->NewByteArray(slice.size());
-                    env->SetByteArrayRegion(jb, 0, slice.size(), (jbyte *) slice.data());
-                    env->SetObjectArrayElement(oa, i, jb);
+                    jb = env->NewByteArray(static_cast<jint>(slice.size()));
+                    env->SetByteArrayRegion(jb, 0, static_cast<jint>(slice.size()), (jbyte *) slice.data());
+                    env->SetObjectArrayElement(oa, static_cast<jint>(i), jb);
                 }
                 size_t s0 = key.size() * sizeof(char);
-                jb = env->NewByteArray(s0);
+                jb = env->NewByteArray(static_cast<jint>(s0));
                 jbyte* buf=(jbyte *) key.data();
-                env->SetByteArrayRegion(jb, 0, s0,buf );
+                env->SetByteArrayRegion(jb, 0, static_cast<jint>(s0), buf);
                 jobject rtobject = env->NewObject( rtClass, rtConstructor);
 
 
@@ -153,7 +153,7 @@ namespace rocksdb {
 
                 env->ReleaseByteArrayElements(jb, buf, JNI_COMMIT);
                 for (size_t i = 0; i < size; i++) {
-                    jb = (jbyteArray) env->GetObjectArrayElement(oa, i);
+                    jb = (jbyteArray) env->GetObjectArrayElement(oa, static_cast<jint>(i));
                     jbyte *r =  env->GetByteArrayElements(jb, 0);
                     env->ReleaseByteArrayElements(jb, r, JNI_COMMIT);
 
@@ -187,20 +187,20 @@ namespace rocksdb {
             }
 
 
-            virtual bool ShouldMerge(const std::vector<Slice> &operands) const {
+            virtual bool ShouldMerge(const std::vector<Slice> &operands) const override {
                 if (!allowShouldMerge) return false;
 
                 JNIEnv *env = rocksdb::getEnv();
                 if (env == NULL) return false;
                 size_t size = operands.size();
-                jobjectArray oa = env->NewObjectArray(size, bytearrayClass, NULL);
+                jobjectArray oa = env->NewObjectArray(static_cast<jint>(size), bytearrayClass, NULL);
                 Slice slice;
                 jbyteArray jb;
                 for (size_t i = 0; i < size; i++) {
                     slice = operands.at(i);
-                    jb = env->NewByteArray(slice.size());
-                    env->SetByteArrayRegion(jb, 0, slice.size(), (jbyte *) slice.data());
-                    env->SetObjectArrayElement(oa, i, jb);
+                    jb = env->NewByteArray(static_cast<jint>(slice.size()));
+                    env->SetByteArrayRegion(jb, 0, static_cast<jint>(slice.size()), (jbyte *) slice.data());
+                    env->SetObjectArrayElement(oa, static_cast<jint>(i), jb);
                 }
 
 
@@ -208,7 +208,7 @@ namespace rocksdb {
                 jthrowable ex = env->ExceptionOccurred();
 
                 for (size_t i = 0; i < size; i++) {
-                    jb = (jbyteArray) env->GetObjectArrayElement(oa, i);
+                    jb = (jbyteArray) env->GetObjectArrayElement(oa, static_cast<jint>(i));
                     jbyte *r =  env->GetByteArrayElements(jb, 0);
                     env->ReleaseByteArrayElements(jb, r, JNI_COMMIT);
 
@@ -244,16 +244,16 @@ namespace rocksdb {
                 Slice key = merge_in.key;
                 size_t s0 = key.size() * sizeof(char);
                 buf0 = (jbyte *) key.data();
-                jb0 = env->NewByteArray(s0);
-                env->SetByteArrayRegion(jb0, 0, s0, buf0);
+                jb0 = env->NewByteArray(static_cast<jint>(s0));
+                env->SetByteArrayRegion(jb0, 0, static_cast<jint>(s0), buf0);
                 const Slice *existing_value = merge_in.existing_value;
 
                 if (existing_value != NULL) {
                     size_t s1 = existing_value->size() * sizeof(char);
                     buf1 = (jbyte *) existing_value->data();
-                    jb1 = env->NewByteArray(s1);
+                    jb1 = env->NewByteArray(static_cast<jint>(s1));
 
-                    env->SetByteArrayRegion(jb1, 0, s1, buf1);
+                    env->SetByteArrayRegion(jb1, 0, static_cast<jint>(s1), buf1);
                 } else {
                     buf1 = NULL;
                     jb1 = NULL;
@@ -264,14 +264,14 @@ namespace rocksdb {
                 size_t size = operands.size();
 
 
-                jobjectArray oa = env->NewObjectArray(size, bytearrayClass, NULL);
+                jobjectArray oa = env->NewObjectArray(static_cast<jint>(size), bytearrayClass, NULL);
                 Slice slice;
                 for (size_t i = 0; i < size; i++) {
 
                     slice = operands.at(i);
-                    jb = env->NewByteArray(slice.size());
-                    env->SetByteArrayRegion(jb, 0, slice.size(), (jbyte *) slice.data());
-                    env->SetObjectArrayElement(oa, i, jb);
+                    jb = env->NewByteArray(static_cast<jint>(slice.size()));
+                    env->SetByteArrayRegion(jb, 0, static_cast<jint>(slice.size()), (jbyte *) slice.data());
+                    env->SetObjectArrayElement(oa, static_cast<jint>(i), jb);
                 }
                 jobject rtobject = env->NewObject( rtClass, rtConstructor);
 
@@ -286,7 +286,7 @@ namespace rocksdb {
                 env-> ReleaseByteArrayElements(jb0, buf0, JNI_COMMIT);//key
                 if (existing_value != NULL)  env->ReleaseByteArrayElements(jb1, buf1, JNI_COMMIT);//old value
                 for (size_t i = 0; i < size; i++) {
-                    jb = (jbyteArray) env->GetObjectArrayElement(oa, i);
+                    jb = (jbyteArray) env->GetObjectArrayElement(oa, static_cast<jint>(i));
                     jbyte *r =  env->GetByteArrayElements(jb, 0);
                     env->ReleaseByteArrayElements(jb, r,  JNI_COMMIT);
 
@@ -473,7 +473,7 @@ void  Java_org_rocksdb_AbstractNotAssociativeMergeOperator_initOperator(
 
  jlong  Java_org_rocksdb_AbstractNotAssociativeMergeOperator_newOperator
 (
-        JNIEnv* env, jclass jclazz,
+        JNIEnv*, jclass,
         jboolean allowSingleOperand,
         jboolean allowShouldMerge,
         jboolean allowPartialMultiMerge) {
@@ -483,7 +483,7 @@ void  Java_org_rocksdb_AbstractNotAssociativeMergeOperator_initOperator(
 }
 
 void Java_org_rocksdb_AbstractNotAssociativeMergeOperator_disposeInternal(
-        JNIEnv* env, jobject obj, jlong jhandle) {
+        JNIEnv* env, jobject, jlong jhandle) {
     std::shared_ptr<rocksdb::JNIAbstractNotAssociativeMergeOperator::JNIMergeOperator>*  op =
             reinterpret_cast<std::shared_ptr<rocksdb::JNIAbstractNotAssociativeMergeOperator::JNIMergeOperator>*>(jhandle);
     op->get()->destroy(env);

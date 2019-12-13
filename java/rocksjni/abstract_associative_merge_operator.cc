@@ -36,7 +36,7 @@ namespace rocksdb {
                                const Slice *existing_value,
                                const Slice &value,
                                std::string *new_value,
-                               Logger *logger) const override {
+                               Logger*) const override {
 
 
                 JNIEnv *env = rocksdb::getEnv();
@@ -48,15 +48,15 @@ namespace rocksdb {
 
                 size_t s0 = key.size() * sizeof(char);
                 buf0 = (jbyte *) key.data();
-                jb0 = env->NewByteArray(s0);
-                env->SetByteArrayRegion(jb0, 0, s0, buf0);
+                jb0 = env->NewByteArray(static_cast<jint>(s0));
+                env->SetByteArrayRegion(jb0, 0, static_cast<jint>(s0), buf0);
 
                 if (existing_value != NULL) {
                     size_t s1 = existing_value->size() * sizeof(char);
                     buf1 = (jbyte *) existing_value->data();
-                    jb1 = env->NewByteArray(s1);
+                    jb1 = env->NewByteArray(static_cast<jint>(s1));
 
-                    env->SetByteArrayRegion(jb1, 0, s1, buf1);
+                    env->SetByteArrayRegion(jb1, 0, static_cast<jint>(s1), buf1);
                 } else {
                     buf1 = NULL;
                     jb1 = NULL;
@@ -64,8 +64,8 @@ namespace rocksdb {
 
                 size_t s2 = value.size() * sizeof(char);
                 buf2 = (jbyte *) value.data();
-                jb2 = env->NewByteArray(s2);
-                env->SetByteArrayRegion(jb2, 0, s2, buf2);
+                jb2 = env->NewByteArray(static_cast<jint>(s2));
+                env->SetByteArrayRegion(jb2, 0, static_cast<jint>(s2), buf2);
               
 
                jobject rtobject = env->NewObject( rtClass, rtConstructor);
@@ -184,14 +184,14 @@ jboolean  Java_org_rocksdb_AbstractAssociativeMergeOperator_initOperator(
      }
 
 jlong Java_org_rocksdb_AbstractAssociativeMergeOperator_newOperator(
-        JNIEnv* env, jclass jclazz) {
+        JNIEnv*, jclass) {
     std::shared_ptr<rocksdb::MergeOperator> p= std::make_shared<rocksdb::JNIAbstractAssociativeMergeOperator::JNIMergeOperator>();
     auto* op = new std::shared_ptr<rocksdb::MergeOperator>(p);
     return reinterpret_cast<jlong>(op);
 }
 
 void Java_org_rocksdb_AbstractAssociativeMergeOperator_disposeInternal(
-        JNIEnv* env, jobject obj, jlong jhandle) {
+        JNIEnv* env, jobject, jlong jhandle) {
     std::shared_ptr<rocksdb::JNIAbstractAssociativeMergeOperator::JNIMergeOperator>*  op =
             reinterpret_cast<std::shared_ptr<rocksdb::JNIAbstractAssociativeMergeOperator::JNIMergeOperator>*>(jhandle);
     op->get()->destroy(env);

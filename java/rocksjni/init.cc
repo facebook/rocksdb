@@ -93,7 +93,7 @@ namespace rocksdb {
         //    std::cout << "destroy jni context\n";
             JNIEnv *env = rocksdb::getEnv();
             rocksdb::callback func;
-            for (unsigned i = rocksdb::unloaders.size(); i-- > 0;) {
+            for (size_t i = rocksdb::unloaders.size(); i-- > 0;) {
                 func = rocksdb::unloaders[i];
                 (*func)(env);
             }
@@ -159,14 +159,14 @@ namespace rocksdb {
 }
 
 JNIEXPORT void JNICALL Java_org_rocksdb_util_Environment_detachCurrentThreadIfPossible
-(JNIEnv * env, jclass clazz){
+(JNIEnv*, jclass){
   rocksdb::detachCurrentThread();
 
 }
 
 
 
-jint JNI_OnLoad(JavaVM *vm, void *reserved) {
+jint JNI_OnLoad(JavaVM *vm, void*) {
   //  std::cout << "load vm\n";
     rocksdb::JVM = vm;
     pthread_key_create(&rocksdb::CURRENT_ATTACHED_ENV, rocksdb::_detachCurrentThread);
@@ -187,10 +187,6 @@ jint JNI_OnLoad(JavaVM *vm, void *reserved) {
  *
  * */
 
-void JNI_OnUnload(JavaVM *vm, void *reserved){
-
-
+void JNI_OnUnload(JavaVM*, void*){
     rocksdb::JVM = nullptr;
-
-
 }
