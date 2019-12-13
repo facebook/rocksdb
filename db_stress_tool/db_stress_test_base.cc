@@ -1779,6 +1779,10 @@ void StressTest::Reopen(ThreadState* thread) {
 #ifndef ROCKSDB_LITE
   if (thread->rand.OneIn(2)) {
     Status s = db_->Close();
+    if (!s.ok()) {
+      fprintf(stderr, "Non-ok close status: %s\n", s.ToString().c_str());
+      fflush(stderr);
+    }
     assert(s.ok());
   }
 #endif
