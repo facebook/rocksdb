@@ -25,18 +25,20 @@ namespace rocksdb {
 // Zipfian distribution is generated based on a pre-calculated array.
 // It should be used before start the stress test.
 // First, the probability distribution function (PDF) of this Zipfian follows
-// power low. So we calculate the PDF when x is from 0 to zipf_sum_size via c
-// and add the PDF value togetger. SUch that, we get the total probability.
-// Next, we calculate the CDF of Zipfian and store the CDF value of each X in
-// an array (sum_probs)
+// power low. P(x) = 1/(x^alpha).
+// So we calculate the PDF when x is from 0 to zipf_sum_size in first for loop
+// and add the PDF value togetger as c. So we get the total probability in c.
+// Next, we calculate inverse CDF of Zipfian and store the value of each in
+// an array (sum_probs). The rank is from 0 to zipf_sum_size. For example, for
+// integer k, its Zipfian CDF value is sum_probs[k].
 // Third, when we need to get an integer whose probability follows Zipfian
 // distribution, we use a rand_seed [0,1] which follows uniform distribution
 // as a seed and search it in the sum_probs via binary search. When we find
 // the closest sum_probs[i] of rand_seed, i is the integer that in
 // [0, zipf_sum_size] following Zipfian distribution with parameter alpha.
-// Finally, we can scale i to [0, max_key] scale. In order to avoid that hot
-// keys are close to each other and skew towards 0. We use Rando64 to shuffle
-// it.
+// Finally, we can scale i to [0, max_key] scale.
+// In order to avoid that hot keys are close to each other and skew towards 0,
+// we use Rando64 to shuffle it.
 void InitializeHotKeyGenerator(double alpha) {
   double c = 0;
   for (int64_t i = 1; i <= zipf_sum_size; i++) {
@@ -52,7 +54,9 @@ void InitializeHotKeyGenerator(double alpha) {
 
 // Generate one key that follows the Zipfian distribution. The skewness
 // is decided by the parameter alpha. Input is the rand_seed [0,1] and
-// the max of the key to be generated.
+// the max of the key to be generated. If we directly return tmp_zipf_seed,
+// the closer to 0, the higher probability will be. To randomly distribute
+// the hot keys in [0, max_key], we use Random64 to shuffle it.
 int64_t GetOneHotKeyID(double rand_seed, int64_t max_key) {
   int64_t low = 1, mid, high = zipf_sum_size, zipf = 0;
   while (low <= high) {
