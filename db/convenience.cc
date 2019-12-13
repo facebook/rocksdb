@@ -9,7 +9,6 @@
 #include "rocksdb/convenience.h"
 
 #include "db/db_impl/db_impl.h"
-#include "env/composite_env_wrapper.h"
 #include "util/cast_util.h"
 
 namespace rocksdb {
