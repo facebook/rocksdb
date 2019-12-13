@@ -501,20 +501,17 @@ void StressTest::OperateDb(ThreadState* thread) {
       }
 
       // Change Options
-      if (FLAGS_set_options_one_in > 0 &&
-          thread->rand.OneIn(FLAGS_set_options_one_in)) {
+      if (thread->rand.OneInOpt(FLAGS_set_options_one_in)) {
         SetOptions(thread);
       }
 
-      if (FLAGS_set_in_place_one_in > 0 &&
-          thread->rand.OneIn(FLAGS_set_in_place_one_in)) {
+      if (thread->rand.OneInOpt(FLAGS_set_in_place_one_in)) {
         options_.inplace_update_support ^= options_.inplace_update_support;
       }
 
       MaybeClearOneColumnFamily(thread);
 
-      if (FLAGS_sync_wal_one_in > 0 &&
-          thread->rand.Uniform(FLAGS_sync_wal_one_in) == 0) {
+      if (thread->rand.OneInOpt(FLAGS_sync_wal_one_in)) {
         Status s = db_->SyncWAL();
         if (!s.ok() && !s.IsNotSupported()) {
           fprintf(stdout, "SyncWAL() failed: %s\n", s.ToString().c_str());
@@ -522,8 +519,7 @@ void StressTest::OperateDb(ThreadState* thread) {
       }
 
 #ifndef ROCKSDB_LITE
-      if (FLAGS_compact_files_one_in > 0 &&
-          thread->rand.Uniform(FLAGS_compact_files_one_in) == 0) {
+      if (thread->rand.OneInOpt(FLAGS_compact_files_one_in)) {
         auto* random_cf =
             column_families_[thread->rand.Next() % FLAGS_column_families];
         rocksdb::ColumnFamilyMetaData cf_meta_data;
@@ -584,8 +580,7 @@ void StressTest::OperateDb(ThreadState* thread) {
 
       ColumnFamilyHandle* column_family = column_families_[rand_column_family];
 
-      if (FLAGS_compact_range_one_in > 0 &&
-          thread->rand.Uniform(FLAGS_compact_range_one_in) == 0) {
+      if (thread->rand.OneInOpt(FLAGS_compact_range_one_in)) {
         TestCompactRange(thread, rand_key, key, column_family);
         if (thread->shared->HasVerificationFailedYet()) {
           break;
@@ -595,8 +590,7 @@ void StressTest::OperateDb(ThreadState* thread) {
       std::vector<int> rand_column_families =
           GenerateColumnFamilies(FLAGS_column_families, rand_column_family);
 
-      if (FLAGS_flush_one_in > 0 &&
-          thread->rand.Uniform(FLAGS_flush_one_in) == 0) {
+      if (thread->rand.OneInOpt(FLAGS_flush_one_in)) {
         FlushOptions flush_opts;
         std::vector<ColumnFamilyHandle*> cfhs;
         std::for_each(
@@ -609,8 +603,7 @@ void StressTest::OperateDb(ThreadState* thread) {
         }
       }
 
-      if (FLAGS_pause_background_one_in > 0 &&
-          thread->rand.OneIn(FLAGS_pause_background_one_in)) {
+      if (thread->rand.OneInOpt(FLAGS_pause_background_one_in)) {
         Status status = db_->PauseBackgroundWork();
         if (!status.ok()) {
           VerificationAbort(shared, "PauseBackgroundWork status not OK",
@@ -633,13 +626,11 @@ void StressTest::OperateDb(ThreadState* thread) {
 
       std::vector<int64_t> rand_keys = GenerateKeys(rand_key);
 
-      if (FLAGS_ingest_external_file_one_in > 0 &&
-          thread->rand.Uniform(FLAGS_ingest_external_file_one_in) == 0) {
+      if (thread->rand.OneInOpt(FLAGS_ingest_external_file_one_in)) {
         TestIngestExternalFile(thread, rand_column_families, rand_keys, lock);
       }
 
-      if (FLAGS_backup_one_in > 0 &&
-          thread->rand.Uniform(FLAGS_backup_one_in) == 0) {
+      if (thread->rand.OneInOpt(FLAGS_backup_one_in)) {
         Status s = TestBackupRestore(thread, rand_column_families, rand_keys);
         if (!s.ok()) {
           VerificationAbort(shared, "Backup/restore gave inconsistent state",
@@ -647,16 +638,14 @@ void StressTest::OperateDb(ThreadState* thread) {
         }
       }
 
-      if (FLAGS_checkpoint_one_in > 0 &&
-          thread->rand.Uniform(FLAGS_checkpoint_one_in) == 0) {
+      if (thread->rand.OneInOpt(FLAGS_checkpoint_one_in)) {
         Status s = TestCheckpoint(thread, rand_column_families, rand_keys);
         if (!s.ok()) {
           VerificationAbort(shared, "Checkpoint gave inconsistent state", s);
         }
       }
 
-      if (FLAGS_acquire_snapshot_one_in > 0 &&
-          thread->rand.Uniform(FLAGS_acquire_snapshot_one_in) == 0) {
+      if (thread->rand.OneInOpt(FLAGS_acquire_snapshot_one_in)) {
 #ifndef ROCKSDB_LITE
         auto db_impl = reinterpret_cast<DBImpl*>(db_->GetRootDB());
         const bool ww_snapshot = thread->rand.OneIn(10);
@@ -718,7 +707,8 @@ void StressTest::OperateDb(ThreadState* thread) {
       // Reset this in case we pick something other than a read op. We don't
       // want to use a stale value when deciding at the beginning of the loop
       // whether to vote to reopen
-      if (prob_op >= 0 && prob_op < (int)FLAGS_readpercent) {
+      if (prob_op < (int)FLAGS_readpercent) {
+        assert(0 <= prob_op);
         // OPERATION read
         if (FLAGS_use_multiget) {
           // Leave room for one more iteration of the loop with a single key
@@ -735,25 +725,30 @@ void StressTest::OperateDb(ThreadState* thread) {
         } else {
           TestGet(thread, read_opts, rand_column_families, rand_keys);
         }
-      } else if ((int)FLAGS_readpercent <= prob_op && prob_op < prefixBound) {
+      } else if (prob_op < prefixBound) {
+        assert((int)FLAGS_readpercent <= prob_op);
         // OPERATION prefix scan
         // keys are 8 bytes long, prefix size is FLAGS_prefix_size. There are
         // (8 - FLAGS_prefix_size) bytes besides the prefix. So there will
         // be 2 ^ ((8 - FLAGS_prefix_size) * 8) possible keys with the same
         // prefix
         TestPrefixScan(thread, read_opts, rand_column_families, rand_keys);
-      } else if (prefixBound <= prob_op && prob_op < writeBound) {
+      } else if (prob_op < writeBound) {
+        assert(prefixBound <= prob_op);
         // OPERATION write
         TestPut(thread, write_opts, read_opts, rand_column_families, rand_keys,
                 value, lock);
-      } else if (writeBound <= prob_op && prob_op < delBound) {
+      } else if (prob_op < delBound) {
+        assert(writeBound <= prob_op);
         // OPERATION delete
         TestDelete(thread, write_opts, rand_column_families, rand_keys, lock);
-      } else if (delBound <= prob_op && prob_op < delRangeBound) {
+      } else if (prob_op < delRangeBound) {
+        assert(delBound <= prob_op);
         // OPERATION delete range
         TestDeleteRange(thread, write_opts, rand_column_families, rand_keys,
                         lock);
       } else {
+        assert(delRangeBound <= prob_op);
         // OPERATION iterate
         int num_seeks = static_cast<int>(
             std::min(static_cast<uint64_t>(thread->rand.Uniform(4)),
