@@ -17,6 +17,7 @@
 
 #include "db/blob_index.h"
 #include "db/db_test_util.h"
+#include "env/composite_env_wrapper.h"
 #include "file/file_util.h"
 #include "file/sst_file_manager_impl.h"
 #include "port/port.h"
@@ -904,10 +905,10 @@ TEST_F(BlobDBTest, SstFileManagerRestart) {
   Close();
 
   // Create 3 dummy trash files under the blob_dir
-  CreateFile(db_options.env, blob_dir + "/000666.blob.trash", "", false);
-  CreateFile(db_options.env, blob_dir + "/000888.blob.trash", "", true);
-  CreateFile(db_options.env, blob_dir + "/something_not_match.trash", "",
-             false);
+  LegacyFileSystemWrapper fs(db_options.env);
+  CreateFile(&fs, blob_dir + "/000666.blob.trash", "", false);
+  CreateFile(&fs, blob_dir + "/000888.blob.trash", "", true);
+  CreateFile(&fs, blob_dir + "/something_not_match.trash", "", false);
 
   // Make sure that reopening the DB rescan the existing trash files
   Open(bdb_options, db_options);

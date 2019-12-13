@@ -8,6 +8,7 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
 #include "db/db_test_util.h"
+#include "env/composite_env_wrapper.h"
 #include "options/options_helper.h"
 #include "port/port.h"
 #include "port/stack_trace.h"
@@ -902,8 +903,8 @@ class RecoveryTestHelper {
       std::string fname = LogFileName(test->dbname_, current_log_number);
       std::unique_ptr<WritableFile> file;
       ASSERT_OK(db_options.env->NewWritableFile(fname, &file, env_options));
-      std::unique_ptr<WritableFileWriter> file_writer(
-          new WritableFileWriter(std::move(file), fname, env_options));
+      std::unique_ptr<WritableFileWriter> file_writer(new WritableFileWriter(
+          NewLegacyWritableFileWrapper(std::move(file)), fname, env_options));
       current_log_writer.reset(
           new log::Writer(std::move(file_writer), current_log_number,
                           db_options.recycle_log_file_num > 0));

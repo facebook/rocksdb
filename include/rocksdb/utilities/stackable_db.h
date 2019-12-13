@@ -299,6 +299,10 @@ class StackableDB : public DB {
 
   virtual Env* GetEnv() const override { return db_->GetEnv(); }
 
+  virtual FileSystem* GetFileSystem() const override {
+    return db_->GetFileSystem();
+  }
+
   using DB::GetOptions;
   virtual Options GetOptions(ColumnFamilyHandle* column_family) const override {
     return db_->GetOptions(column_family);

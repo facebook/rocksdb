@@ -66,8 +66,8 @@ class DBBenchTest : public testing::Test {
   void VerifyOptions(const Options& opt) {
     DBOptions loaded_db_opts;
     std::vector<ColumnFamilyDescriptor> cf_descs;
-    ASSERT_OK(LoadLatestOptions(db_path_, Env::Default(), &loaded_db_opts,
-                                &cf_descs));
+    ASSERT_OK(LoadLatestOptions(db_path_, FileSystem::Default(),
+                                &loaded_db_opts, &cf_descs));
 
     ASSERT_OK(
         RocksDBOptionsParser::VerifyDBOptions(DBOptions(opt), loaded_db_opts));

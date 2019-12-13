@@ -144,9 +144,10 @@ Status DBImplSecondary::MaybeInitLogReader(
 
     std::unique_ptr<SequentialFileReader> file_reader;
     {
-      std::unique_ptr<SequentialFile> file;
-      Status status = env_->NewSequentialFile(
-          fname, &file, env_->OptimizeForLogRead(env_options_));
+      std::unique_ptr<FSSequentialFile> file;
+      Status status = fs_->NewSequentialFile(
+          fname, fs_->OptimizeForLogRead(file_options_), &file,
+          nullptr);
       if (!status.ok()) {
         *log_reader = nullptr;
         return status;
@@ -600,7 +601,7 @@ Status DB::OpenAsSecondary(
   handles->clear();
   DBImplSecondary* impl = new DBImplSecondary(tmp_opts, dbname);
   impl->versions_.reset(new ReactiveVersionSet(
-      dbname, &impl->immutable_db_options_, impl->env_options_,
+      dbname, &impl->immutable_db_options_, impl->file_options_,
       impl->table_cache_.get(), impl->write_buffer_manager_,
       &impl->write_controller_));
   impl->column_family_memtables_.reset(

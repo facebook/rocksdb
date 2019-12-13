@@ -30,16 +30,13 @@ class FlushJobTest : public testing::Test {
  public:
   FlushJobTest()
       : env_(Env::Default()),
+        fs_(std::make_shared<LegacyFileSystemWrapper>(env_)),
         dbname_(test::PerThreadDBPath("flush_job_test")),
         options_(),
         db_options_(options_),
         column_family_names_({kDefaultColumnFamilyName, "foo", "bar"}),
         table_cache_(NewLRUCache(50000, 16)),
         write_buffer_manager_(db_options_.db_write_buffer_size),
-        versions_(new VersionSet(dbname_, &db_options_, env_options_,
-                                 table_cache_.get(), &write_buffer_manager_,
-                                 &write_controller_,
-                                 /*block_cache_tracer=*/nullptr)),
         shutting_down_(false),
         mock_table_factory_(new mock::MockTableFactory()) {
     EXPECT_OK(env_->CreateDirIfMissing(dbname_));
@@ -54,6 +51,12 @@ class FlushJobTest : public testing::Test {
       column_families.emplace_back(cf_name, cf_options_);
     }
 
+    db_options_.env = env_;
+    db_options_.fs = fs_;
+    versions_.reset(new VersionSet(dbname_, &db_options_, env_options_,
+                                   table_cache_.get(), &write_buffer_manager_,
+                                   &write_controller_,
+                                   /*block_cache_tracer=*/nullptr));
     EXPECT_OK(versions_->Recover(column_families, false));
   }
 
@@ -88,8 +91,8 @@ class FlushJobTest : public testing::Test {
     Status s = env_->NewWritableFile(
         manifest, &file, env_->OptimizeForManifestWrite(env_options_));
     ASSERT_OK(s);
-    std::unique_ptr<WritableFileWriter> file_writer(
-        new WritableFileWriter(std::move(file), manifest, EnvOptions()));
+    std::unique_ptr<WritableFileWriter> file_writer(new WritableFileWriter(
+        NewLegacyWritableFileWrapper(std::move(file)), manifest, EnvOptions()));
     {
       log::Writer log(std::move(file_writer), 0, false);
       std::string record;
@@ -109,6 +112,7 @@ class FlushJobTest : public testing::Test {
   }
 
   Env* env_;
+  std::shared_ptr<FileSystem> fs_;
   std::string dbname_;
   EnvOptions env_options_;
   Options options_;

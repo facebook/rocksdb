@@ -15,6 +15,7 @@
 #include "db/blob_index.h"
 #include "db/db_impl/db_impl.h"
 #include "db/write_batch_internal.h"
+#include "env/composite_env_wrapper.h"
 #include "file/file_util.h"
 #include "file/filename.h"
 #include "file/random_access_file_reader.h"
@@ -648,7 +649,8 @@ Status BlobDBImpl::CreateWriterLocked(const std::shared_ptr<BlobFile>& bfile) {
   }
 
   std::unique_ptr<WritableFileWriter> fwriter;
-  fwriter.reset(new WritableFileWriter(std::move(wfile), fpath, env_options_));
+  fwriter.reset(new WritableFileWriter(
+      NewLegacyWritableFileWrapper(std::move(wfile)), fpath, env_options_));
 
   uint64_t boffset = bfile->GetFileSize();
   if (debug_level_ >= 2 && boffset) {

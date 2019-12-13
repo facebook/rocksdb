@@ -15,6 +15,7 @@
 #include "db/column_family.h"
 #include "db/db_impl/db_impl.h"
 #include "db/dbformat.h"
+#include "env/composite_env_wrapper.h"
 #include "file/filename.h"
 #include "file/readahead_raf.h"
 #include "logging/logging.h"
@@ -74,7 +75,8 @@ std::shared_ptr<Reader> BlobFile::OpenRandomAccessReader(
   sfile = NewReadaheadRandomAccessFile(std::move(sfile), kReadaheadSize);
 
   std::unique_ptr<RandomAccessFileReader> sfile_reader;
-  sfile_reader.reset(new RandomAccessFileReader(std::move(sfile), path_name));
+  sfile_reader.reset(new RandomAccessFileReader(
+      NewLegacyRandomAccessFileWrapper(sfile), path_name));
 
   std::shared_ptr<Reader> log_reader = std::make_shared<Reader>(
       std::move(sfile_reader), db_options.env, db_options.statistics.get());
@@ -209,8 +211,8 @@ Status BlobFile::GetReader(Env* env, const EnvOptions& env_options,
     return s;
   }
 
-  ra_file_reader_ = std::make_shared<RandomAccessFileReader>(std::move(rfile),
-                                                             PathName());
+  ra_file_reader_ = std::make_shared<RandomAccessFileReader>(
+      NewLegacyRandomAccessFileWrapper(rfile), PathName());
   *reader = ra_file_reader_;
   *fresh_open = true;
   return s;
@@ -248,7 +250,8 @@ Status BlobFile::ReadMetadata(Env* env, const EnvOptions& env_options) {
     return s;
   }
   std::unique_ptr<RandomAccessFileReader> file_reader(
-      new RandomAccessFileReader(std::move(file), PathName()));
+      new RandomAccessFileReader(NewLegacyRandomAccessFileWrapper(file),
+                                 PathName()));
 
   // Read file header.
   char header_buf[BlobLogHeader::kSize];
