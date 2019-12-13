@@ -143,7 +143,13 @@ class StressTest {
                              const std::vector<int64_t>& rand_keys);
 
   // Enum used by VerifyIterator() to identify the mode to validate.
-  enum LastIterateOp { kLastOpSeek, kLastOpSeekForPrev, kLastOpNextOrPrev };
+  enum LastIterateOp {
+    kLastOpSeek,
+    kLastOpSeekForPrev,
+    kLastOpNextOrPrev,
+    kLastOpSeekToFirst,
+    kLastOpSeekToLast
+  };
 
   // Compare the two iterator, iter and cmp_iter are in the same position,
   // unless iter might be made invalidate or undefined because of
@@ -151,9 +157,11 @@ class StressTest {
   // Will flag failure if the verification fails.
   // diverged = true if the two iterator is already diverged.
   // True if verification passed, false if not.
+  // op_logs is the information to print when validation fails.
   void VerifyIterator(ThreadState* thread, ColumnFamilyHandle* cmp_cfh,
                       const ReadOptions& ro, Iterator* iter, Iterator* cmp_iter,
-                      LastIterateOp op, const Slice& seek_key, bool* diverged);
+                      LastIterateOp op, const Slice& seek_key,
+                      const std::string& op_logs, bool* diverged);
 
   virtual Status TestBackupRestore(ThreadState* thread,
                                    const std::vector<int>& rand_column_families,
