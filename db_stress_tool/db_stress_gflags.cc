@@ -376,6 +376,11 @@ DEFINE_uint64(txn_write_policy, 0,
               "TxnDBWritePolicy::WRITE_COMMITTED. Note that this should not be "
               "changed accross crashes.");
 
+DEFINE_bool(unordered_write, false,
+            "Turn on the unordered_write feature. This options is currently "
+            "tested only in combination with use_txn=true and "
+            "txn_write_policy=TxnDBWritePolicy::WRITE_PREPARED.");
+
 DEFINE_int32(backup_one_in, 0,
              "If non-zero, then CreateNewBackup() will be called once for "
              "every N operations on average.  0 indicates CreateNewBackup() "
