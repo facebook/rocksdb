@@ -693,18 +693,20 @@ void StressTest::OperateDb(ThreadState* thread) {
             snapshot, rand_column_family, column_family->GetName(),
             keystr,   status_at,          value_at,
             key_vec};
-        auto hold_for = FLAGS_snapshot_hold_ops;
+        uint64_t hold_for = FLAGS_snapshot_hold_ops;
         if (FLAGS_long_running_snapshots) {
           // Hold 10% of snapshots for 10x more
           if (thread->rand.OneIn(10)) {
+            assert(hold_for < port::kMaxInt64 / 10);
             hold_for *= 10;
             // Hold 1% of snapshots for 100x more
             if (thread->rand.OneIn(10)) {
+              assert(hold_for < port::kMaxInt64 / 10);
               hold_for *= 10;
             }
           }
         }
-        auto release_at = std::min(FLAGS_ops_per_thread - 1, i + hold_for);
+        uint64_t release_at = std::min(FLAGS_ops_per_thread - 1, i + hold_for);
         thread->snapshot_queue.emplace(release_at, snap_state);
       }
       while (!thread->snapshot_queue.empty() &&
