@@ -23,7 +23,20 @@ int64_t zipf_sum_size = 100000;
 namespace rocksdb {
 
 // Zipfian distribution is generated based on a pre-calculated array.
-// It should be used before start the stress test
+// It should be used before start the stress test.
+// First, the probability distribution function (PDF) of this Zipfian follows
+// power low. So we calculate the PDF when x is from 0 to zipf_sum_size via c
+// and add the PDF value togetger. SUch that, we get the total probability.
+// Next, we calculate the CDF of Zipfian and store the CDF value of each X in
+// an array (sum_probs)
+// Third, when we need to get an integer whose probability follows Zipfian
+// distribution, we use a rand_seed [0,1] which follows uniform distribution
+// as a seed and search it in the sum_probs via binary search. When we find
+// the closest sum_probs[i] of rand_seed, i is the integer that in
+// [0, zipf_sum_size] following Zipfian distribution with parameter alpha.
+// Finally, we can scale i to [0, max_key] scale. In order to avoid that hot
+// keys are close to each other and skew towards 0. We use Rando64 to shuffle
+// it.
 void InitializeHotKeyGenerator(double alpha) {
   double c = 0;
   for (int64_t i = 1; i <= zipf_sum_size; i++) {
@@ -57,7 +70,6 @@ int64_t GetOneHotKeyID(double rand_seed, int64_t max_key) {
       static_cast<int64_t>(floor(zipf * max_key / (static_cast<double>(zipf_sum_size))));
   Random64 rand_local(tmp_zipf_seed);
   return rand_local.Next() % max_key;
-  //return tmp_zipf_seed;
 }
 
 void PoolSizeChangeThread(void* v) {
