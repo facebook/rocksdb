@@ -89,9 +89,9 @@ namespace rocksdb {
                 jbyteArray jresult = (jbyteArray) env->CallObjectMethod(obj, merge, jb0, jb1, jb2,rtobject);
                 jthrowable ex = env->ExceptionOccurred();
 
-                env->ReleaseByteArrayElements(jb0, buf0, JNI_COMMIT);
-                env->ReleaseByteArrayElements(jb1, buf1, JNI_COMMIT);
-                env->ReleaseByteArrayElements(jb2, buf2, JNI_COMMIT);
+                env->DeleteLocalRef(jb0);
+                env->DeleteLocalRef(jb1);
+                env->DeleteLocalRef(jb2);
                 env->DeleteLocalRef(rtobject);
 
 
@@ -139,6 +139,7 @@ namespace rocksdb {
                     jb = env->NewByteArray(static_cast<jint>(slice.size()));
                     env->SetByteArrayRegion(jb, 0, static_cast<jint>(slice.size()), (jbyte *) slice.data());
                     env->SetObjectArrayElement(oa, static_cast<jint>(i), jb);
+                    //TODO(AR) need to do loop cleanup of jb later!
                 }
                 size_t s0 = key.size() * sizeof(char);
                 jb = env->NewByteArray(static_cast<jint>(s0));
@@ -151,7 +152,7 @@ namespace rocksdb {
                 jthrowable ex = env->ExceptionOccurred();
 
 
-                env->ReleaseByteArrayElements(jb, buf, JNI_COMMIT);
+                env->DeleteLocalRef(jb);
                 for (size_t i = 0; i < size; i++) {
                     jb = (jbyteArray) env->GetObjectArrayElement(oa, static_cast<jint>(i));
                     jbyte *r =  env->GetByteArrayElements(jb, 0);
@@ -201,6 +202,7 @@ namespace rocksdb {
                     jb = env->NewByteArray(static_cast<jint>(slice.size()));
                     env->SetByteArrayRegion(jb, 0, static_cast<jint>(slice.size()), (jbyte *) slice.data());
                     env->SetObjectArrayElement(oa, static_cast<jint>(i), jb);
+                    //TODO(AR) need to do loop cleanup of jb later
                 }
 
 
@@ -272,6 +274,7 @@ namespace rocksdb {
                     jb = env->NewByteArray(static_cast<jint>(slice.size()));
                     env->SetByteArrayRegion(jb, 0, static_cast<jint>(slice.size()), (jbyte *) slice.data());
                     env->SetObjectArrayElement(oa, static_cast<jint>(i), jb);
+                    //TODO(AR) need to do loop cleanup of jb later!
                 }
                 jobject rtobject = env->NewObject( rtClass, rtConstructor);
 
@@ -282,9 +285,10 @@ namespace rocksdb {
                // std::cout.flush();
                 jthrowable ex = env->ExceptionOccurred();
 
+                //TODO(AR) jb1 and jb are not cleaned up
 
-                env-> ReleaseByteArrayElements(jb0, buf0, JNI_COMMIT);//key
-                if (existing_value != NULL)  env->ReleaseByteArrayElements(jb1, buf1, JNI_COMMIT);//old value
+                env->DeleteLocalRef(jb0);//key
+                if (jb1 != NULL) env->DeleteLocalRef(jb1);//old value
                 for (size_t i = 0; i < size; i++) {
                     jb = (jbyteArray) env->GetObjectArrayElement(oa, static_cast<jint>(i));
                     jbyte *r =  env->GetByteArrayElements(jb, 0);

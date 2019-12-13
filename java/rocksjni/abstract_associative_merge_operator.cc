@@ -72,10 +72,10 @@ namespace rocksdb {
                 jbyteArray jresult = (jbyteArray) env->CallObjectMethod(obj, rocksdb::JNIAbstractAssociativeMergeOperator::method, jb0, jb1, jb2,rtobject);
                 jthrowable ex = env->ExceptionOccurred();
 
-                env->ReleaseByteArrayElements(jb0, buf0, JNI_COMMIT);
+                env->DeleteLocalRef(jb0);
                // env->DeleteLocalRef(jb0);
-                if (jb1 != NULL) env->ReleaseByteArrayElements(jb1, buf1, JNI_COMMIT);
-                env->ReleaseByteArrayElements(jb2, buf2, JNI_COMMIT);
+                if (jb1 != NULL) env->DeleteLocalRef(jb1);
+                env->DeleteLocalRef(jb2);
                 env->DeleteLocalRef(rtobject);
 
                 if (ex) {
