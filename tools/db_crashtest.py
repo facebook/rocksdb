@@ -161,6 +161,7 @@ txn_params = {
     "use_txn" : 1,
     # Avoid lambda to set it once for the entire test
     "txn_write_policy": random.randint(0, 2),
+    "unordered_write": random.randint(0, 1),
     "disable_wal": 0,
     # OpenReadOnly after checkpoint is not currnetly compatible with WritePrepared txns
     "checkpoint_one_in": 0,
@@ -185,6 +186,10 @@ def finalize_and_sanitize(src_params):
             dest_params.get("use_txn") == 1:
         dest_params["delpercent"] += dest_params["delrangepercent"]
         dest_params["delrangepercent"] = 0
+    # Only under WritePrepared txns, unordered_write would provide the same guarnatees as vanilla rocksdb
+    if dest_params.get("unordered_write", 0) == 1:
+        dest_params["txn_write_policy"] = 1
+        dest_params["allow_concurrent_memtable_write"] = 1
     if dest_params.get("disable_wal", 0) == 1:
         dest_params["atomic_flush"] = 1
     if dest_params.get("open_files", 1) != -1:
