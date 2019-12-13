@@ -63,7 +63,7 @@ matrix:
 # https://docs.travis-ci.com/user/caching/#ccache-cache
 install:
   - if [ "${TRAVIS_OS_NAME}" == osx ]; then
-      brew install ccache zstd lz4 snappy xz;
+      brew install ccache gflags zstd lz4 snappy xz;
       PATH=$PATH:/usr/local/opt/ccache/libexec;
     fi
   - if [ "${JOB_NAME}" == cmake-gcc8 ]; then
