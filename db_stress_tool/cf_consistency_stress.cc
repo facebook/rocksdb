@@ -499,31 +499,41 @@ class CfConsistencyStressTest : public StressTest {
     Status s = cmp_db_->TryCatchUpWithPrimary();
     ReadOptions ropts;
     ropts.total_order_seek = true;
+    const auto checksum_column_family = [](Iterator* iter,
+                                           uint32_t* checksum) -> Status {
+      assert(nullptr != checksum);
+      uint32_t ret = 0;
+      for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
+        ret = crc32c::Extend(ret, iter->key().data(), iter->key().size());
+        ret = crc32c::Extend(ret, iter->value().data(), iter->value().size());
+      }
+      *checksum = ret;
+      return iter->status();
+    };
+    SharedState* shared = thread->shared;
+    Status status;
     uint32_t crc = 0;
     {
       // Compute crc for all key-values of default column family.
-      std::unique_ptr<Iterator> iter(cmp_db_->NewIterator(ropts));
-      for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
-        crc = crc32c::Extend(crc, iter->key().data(), iter->key().size());
-        crc = crc32c::Extend(crc, iter->value().data(), iter->value().size());
+      std::unique_ptr<Iterator> it(cmp_db_->NewIterator(ropts));
+      status = checksum_column_family(it.get(), &crc);
+    }
+    uint32_t tmp_crc = 0;
+    if (status.ok()) {
+      for (ColumnFamilyHandle* cfh : cmp_cfhs_) {
+        if (cfh == cmp_db_->DefaultColumnFamily()) {
+          continue;
+        }
+        std::unique_ptr<Iterator> it(cmp_db_->NewIterator(ropts, cfh));
+        tmp_crc = 0;
+        status = checksum_column_family(it.get(), &tmp_crc);
+        if (!status.ok() || tmp_crc != crc) {
+          break;
+        }
       }
     }
-    for (ColumnFamilyHandle* cfh : cmp_cfhs_) {
-      if (cfh == cmp_db_->DefaultColumnFamily()) {
-        continue;
-      }
-      std::unique_ptr<Iterator> it(cmp_db_->NewIterator(ropts, cfh));
-      uint32_t tmp_crc = 0;
-      for (it->SeekToFirst(); it->Valid(); it->Next()) {
-        tmp_crc = crc32c::Extend(tmp_crc, it->key().data(), it->key().size());
-        tmp_crc =
-            crc32c::Extend(tmp_crc, it->value().data(), it->value().size());
-      }
-      if (tmp_crc != crc) {
-        SharedState* shared = thread->shared;
-        shared->SetVerificationFailure();
-        return;
-      }
+    if (!status.ok() || tmp_crc != crc) {
+      shared->SetShouldStopTest();
     }
   }
 

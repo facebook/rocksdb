@@ -54,6 +54,7 @@ class SharedState {
         bg_thread_finished_(0),
         stress_test_(stress_test),
         verification_failure_(false),
+        should_stop_test_(false),
         no_overwrite_ids_(FLAGS_column_families),
         values_(nullptr),
         printing_verification_results_(false) {
@@ -210,7 +211,11 @@ class SharedState {
 
   void SetVerificationFailure() { verification_failure_.store(true); }
 
-  bool HasVerificationFailedYet() { return verification_failure_.load(); }
+  bool HasVerificationFailedYet() const { return verification_failure_.load(); }
+
+  void SetShouldStopTest() { should_stop_test_.store(true); }
+
+  bool ShouldStopTest() const { return should_stop_test_.load(); }
 
   port::Mutex* GetMutexForKey(int cf, int64_t key) {
     return key_locks_[cf][key >> log2_keys_per_lock_].get();
@@ -341,6 +346,7 @@ class SharedState {
   int bg_thread_finished_;
   StressTest* stress_test_;
   std::atomic<bool> verification_failure_;
+  std::atomic<bool> should_stop_test_;
 
   // Keys that should not be overwritten
   std::unordered_set<size_t> no_overwrite_ids_;

@@ -483,7 +483,8 @@ void StressTest::OperateDb(ThreadState* thread) {
 
   thread->stats.Start();
   for (int open_cnt = 0; open_cnt <= FLAGS_reopen; ++open_cnt) {
-    if (thread->shared->HasVerificationFailedYet()) {
+    if (thread->shared->HasVerificationFailedYet() ||
+        thread->shared->ShouldStopTest()) {
       break;
     }
     if (open_cnt != 0) {
@@ -1764,7 +1765,8 @@ void StressTest::Open() {
       secondary_cfh_lists_.clear();
       secondary_cfh_lists_.resize(FLAGS_threads);
       Options tmp_opts;
-      tmp_opts.max_open_files = FLAGS_open_files;
+      // TODO(yanqin) support max_open_files != -1 for secondary instance.
+      tmp_opts.max_open_files = -1;
       tmp_opts.statistics = dbstats_secondaries;
       tmp_opts.env = FLAGS_env;
       for (size_t i = 0; i != static_cast<size_t>(FLAGS_threads); ++i) {
@@ -1785,7 +1787,8 @@ void StressTest::Open() {
     }
     if (FLAGS_continuous_verification_interval > 0 && !cmp_db_) {
       Options tmp_opts;
-      tmp_opts.max_open_files = FLAGS_open_files;
+      // TODO(yanqin) support max_open_files != -1 for secondary instance.
+      tmp_opts.max_open_files = -1;
       tmp_opts.env = FLAGS_env;
       std::string secondary_path = FLAGS_secondaries_base + "/cmp_database";
       s = DB::OpenAsSecondary(tmp_opts, FLAGS_db, secondary_path,
@@ -1803,7 +1806,8 @@ void StressTest::Open() {
       std::fill(secondaries_.begin(), secondaries_.end(), nullptr);
       Options tmp_opts;
       tmp_opts.env = options_.env;
-      tmp_opts.max_open_files = FLAGS_open_files;
+      // TODO(yanqin) support max_open_files != -1 for secondary instance.
+      tmp_opts.max_open_files = -1;
       for (size_t i = 0; i != static_cast<size_t>(FLAGS_threads); ++i) {
         const std::string secondary_path =
             FLAGS_secondaries_base + "/" + std::to_string(i);
