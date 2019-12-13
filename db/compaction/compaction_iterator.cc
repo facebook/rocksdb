@@ -647,8 +647,10 @@ void CompactionIterator::PrepareOutput() {
       if (blob_decision == CompactionFilter::BlobDecision::kCorruption) {
         status_ = Status::Corruption(
             "Corrupted blob reference encountered during GC");
+        valid_ = false;
       } else if (blob_decision == CompactionFilter::BlobDecision::kIOError) {
         status_ = Status::IOError("Could not relocate blob during GC");
+        valid_ = false;
       } else if (blob_decision ==
                  CompactionFilter::BlobDecision::kChangeValue) {
         value_ = compaction_filter_value_;
