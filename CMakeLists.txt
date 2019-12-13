@@ -1028,6 +1028,7 @@ if(WITH_TESTS)
         util/filelock_test.cc
         util/hash_test.cc
         util/heap_test.cc
+        util/random_test.cc
         util/rate_limiter_test.cc
         util/repeatable_thread_test.cc
         util/slice_transform_test.cc
