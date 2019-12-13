@@ -15,6 +15,7 @@
 #include "rocksdb/file_system.h"
 #include "rocksdb/listener.h"
 #include "rocksdb/rate_limiter.h"
+#include "rocksdb/sst_file_checksum.h"
 #include "test_util/sync_point.h"
 #include "util/aligned_buffer.h"
 
@@ -47,7 +48,7 @@ class WritableFileWriter {
 #endif  // ROCKSDB_LITE
 
   bool ShouldNotifyListeners() const { return !listeners_.empty(); }
-  void CalculateChecksum(const Slice& data);
+  void CalculateFileChecksum(const Slice& data);
 
   std::unique_ptr<FSWritableFile> writable_file_;
   std::string file_name_;
@@ -147,6 +148,14 @@ class WritableFileWriter {
 
   bool TEST_BufferIsEmpty() { return buf_.CurrentSize() == 0; }
 
+  void SetFileChecksumMethod(SstFileChecksum* checksum_cal) {
+    checksum_cal_ = checksum_cal;
+  }
+
+  uint32_t GetFileChecksum() { return file_checksum_; }
+
+  const char* GetFileChecksumName() const;
+
  private:
   // Used when os buffering is OFF and we are writing
   // DMA such as in Direct I/O mode
@@ -157,7 +166,5 @@ class WritableFileWriter {
   Status WriteBuffered(const char* data, size_t size);
   Status RangeSync(uint64_t offset, uint64_t nbytes);
   Status SyncInternal(bool use_fsync);
-
-  uint32_t GetFileCheckSum() {return file_checksum_;}
 };
 }  // namespace rocksdb

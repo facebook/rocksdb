@@ -1187,6 +1187,12 @@ class FileChecksumHelper {
     file_writer_.reset(test::GetWritableFileWriter(sink_, "" /* don't care */));
   }
 
+  void SetFileChecksumMethod(SstFileChecksum* checksum_cal) {
+    if (file_writer_ != nullptr) {
+      file_writer_->SetFileChecksumMethod(checksum_cal);
+    }
+  }
+
   WritableFileWriter* GetFileWriter() { return file_writer_.get(); }
 
   Status ResetTableBuilder(std::unique_ptr<TableBuilder> builder) {
@@ -3209,6 +3215,7 @@ TEST_P(BlockBasedTableTest, Crc32FileChecksum) {
 
   FileChecksumHelper f(true);
   f.CreateWriteableFile();
+  f.SetFileChecksumMethod(options.sst_file_checksum.get());
   std::unique_ptr<TableBuilder> builder;
   builder.reset(ioptions.table_factory->NewTableBuilder(
       TableBuilderOptions(ioptions, moptions, *comparator,
@@ -3341,6 +3348,7 @@ TEST_F(PlainTableTest, Crc32FileChecksum) {
   int unknown_level = -1;
   FileChecksumHelper f(true);
   f.CreateWriteableFile();
+  f.SetFileChecksumMethod(options.sst_file_checksum.get());
 
   std::unique_ptr<TableBuilder> builder(factory.NewTableBuilder(
       TableBuilderOptions(
