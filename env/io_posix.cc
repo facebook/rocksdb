@@ -565,7 +565,7 @@ IOStatus PosixRandomAccessFile::MultiRead(FSReadRequest* reqs,
   }
   return IOStatus::OK();
 #else
-  return RandomAccessFile::MultiRead(reqs, num_reqs, options, dbg);
+  return FSRandomAccessFile::MultiRead(reqs, num_reqs, options, dbg);
 #endif
 }
 
