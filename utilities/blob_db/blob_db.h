@@ -68,10 +68,14 @@ struct BlobDBOptions {
   // what compression to use for Blob's
   CompressionType compression = kNoCompression;
 
-  // If enabled, blob DB periodically cleanup stale data by rewriting remaining
-  // live data in blob files to new files. If garbage collection is not enabled,
-  // blob files will be cleanup based on TTL.
+  // If enabled, BlobDB cleans up stale blobs in non-TTL files during compaction
+  // by rewriting the remaining live blobs to new files.
   bool enable_garbage_collection = false;
+
+  // The cutoff in terms of blob file age for garbage collection. Blobs in
+  // the oldest N non-TTL blob files will be rewritten when encountered during
+  // compaction, where N = garbage_collection_cutoff * number_of_non_TTL_files.
+  double garbage_collection_cutoff = 0.25;
 
   // Disable all background job. Used for test only.
   bool disable_background_tasks = false;

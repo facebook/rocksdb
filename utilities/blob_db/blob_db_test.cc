@@ -8,8 +8,10 @@
 #include <algorithm>
 #include <chrono>
 #include <cstdlib>
+#include <iomanip>
 #include <map>
 #include <memory>
+#include <sstream>
 #include <string>
 #include <vector>
 
@@ -35,10 +37,22 @@ class BlobDBTest : public testing::Test {
  public:
   const int kMaxBlobSize = 1 << 14;
 
-  struct BlobRecord {
-    std::string key;
-    std::string value;
-    uint64_t expiration = 0;
+  struct BlobIndexVersion {
+    BlobIndexVersion() = default;
+    BlobIndexVersion(std::string _user_key, uint64_t _file_number,
+                     uint64_t _expiration, SequenceNumber _sequence,
+                     ValueType _type)
+        : user_key(std::move(_user_key)),
+          file_number(_file_number),
+          expiration(_expiration),
+          sequence(_sequence),
+          type(_type) {}
+
+    std::string user_key;
+    uint64_t file_number = kInvalidBlobFileNumber;
+    uint64_t expiration = kNoExpiration;
+    SequenceNumber sequence = 0;
+    ValueType type = kTypeValue;
   };
 
   BlobDBTest()
@@ -227,6 +241,45 @@ class BlobDBTest : public testing::Test {
         ASSERT_EQ(expected_version.value, value.ToString());
       }
       i++;
+    }
+  }
+
+  void VerifyBaseDBBlobIndex(
+      const std::map<std::string, BlobIndexVersion> &expected_versions) {
+    const size_t kMaxKeys = 10000;
+    std::vector<KeyVersion> versions;
+    ASSERT_OK(
+        GetAllKeyVersions(blob_db_->GetRootDB(), "", "", kMaxKeys, &versions));
+    ASSERT_EQ(versions.size(), expected_versions.size());
+
+    size_t i = 0;
+    for (const auto &expected_pair : expected_versions) {
+      const BlobIndexVersion &expected_version = expected_pair.second;
+
+      ASSERT_EQ(versions[i].user_key, expected_version.user_key);
+      ASSERT_EQ(versions[i].sequence, expected_version.sequence);
+      ASSERT_EQ(versions[i].type, expected_version.type);
+      if (versions[i].type != kTypeBlobIndex) {
+        ASSERT_EQ(kInvalidBlobFileNumber, expected_version.file_number);
+        ASSERT_EQ(kNoExpiration, expected_version.expiration);
+
+        ++i;
+        continue;
+      }
+
+      BlobIndex blob_index;
+      ASSERT_OK(blob_index.DecodeFrom(versions[i].value));
+
+      const uint64_t file_number = !blob_index.IsInlined()
+                                       ? blob_index.file_number()
+                                       : kInvalidBlobFileNumber;
+      ASSERT_EQ(file_number, expected_version.file_number);
+
+      const uint64_t expiration =
+          blob_index.HasTTL() ? blob_index.expiration() : kNoExpiration;
+      ASSERT_EQ(expiration, expected_version.expiration);
+
+      ++i;
     }
   }
 
@@ -1536,6 +1589,188 @@ TEST_F(BlobDBTest, FilterForFIFOEviction) {
   data_after_compact["large_key2"] = large_value;
   data_after_compact["large_key3"] = large_value;
   VerifyDB(data_after_compact);
+}
+
+TEST_F(BlobDBTest, GarbageCollection) {
+  constexpr size_t kNumPuts = 1 << 10;
+
+  constexpr uint64_t kExpiration = 1000;
+  constexpr uint64_t kCompactTime = 500;
+
+  constexpr uint64_t kKeySize = 7;  // "key" + 4 digits
+
+  constexpr uint64_t kSmallValueSize = 1 << 6;
+  constexpr uint64_t kLargeValueSize = 1 << 8;
+  constexpr uint64_t kMinBlobSize = 1 << 7;
+  static_assert(kSmallValueSize < kMinBlobSize, "");
+  static_assert(kLargeValueSize > kMinBlobSize, "");
+
+  constexpr size_t kBlobsPerFile = 8;
+  constexpr size_t kNumBlobFiles = kNumPuts / kBlobsPerFile;
+  constexpr uint64_t kBlobFileSize =
+      BlobLogHeader::kSize +
+      (BlobLogRecord::kHeaderSize + kKeySize + kLargeValueSize) * kBlobsPerFile;
+
+  BlobDBOptions bdb_options;
+  bdb_options.min_blob_size = kMinBlobSize;
+  bdb_options.blob_file_size = kBlobFileSize;
+  bdb_options.enable_garbage_collection = true;
+  bdb_options.garbage_collection_cutoff = 0.25;
+  bdb_options.disable_background_tasks = true;
+
+  Options options;
+  options.env = mock_env_.get();
+
+  Open(bdb_options, options);
+
+  std::map<std::string, std::string> data;
+  std::map<std::string, KeyVersion> blob_value_versions;
+  std::map<std::string, BlobIndexVersion> blob_index_versions;
+
+  Random rnd(301);
+
+  // Add a bunch of large non-TTL values. These will be written to non-TTL
+  // blob files and will be subject to GC.
+  for (size_t i = 0; i < kNumPuts; ++i) {
+    std::ostringstream oss;
+    oss << "key" << std::setw(4) << std::setfill('0') << i;
+
+    const std::string key(oss.str());
+    const std::string value(
+        test::RandomHumanReadableString(&rnd, kLargeValueSize));
+    const SequenceNumber sequence = blob_db_->GetLatestSequenceNumber() + 1;
+
+    ASSERT_OK(Put(key, value));
+    ASSERT_EQ(blob_db_->GetLatestSequenceNumber(), sequence);
+
+    data[key] = value;
+    blob_value_versions[key] = KeyVersion(key, value, sequence, kTypeBlobIndex);
+    blob_index_versions[key] =
+        BlobIndexVersion(key, /* file_number */ (i >> 3) + 1, kNoExpiration,
+                         sequence, kTypeBlobIndex);
+  }
+
+  // Add some small and/or TTL values that will be ignored during GC.
+  // First, add a large TTL value will be written to its own TTL blob file.
+  {
+    const std::string key("key2000");
+    const std::string value(
+        test::RandomHumanReadableString(&rnd, kLargeValueSize));
+    const SequenceNumber sequence = blob_db_->GetLatestSequenceNumber() + 1;
+
+    ASSERT_OK(PutUntil(key, value, kExpiration));
+    ASSERT_EQ(blob_db_->GetLatestSequenceNumber(), sequence);
+
+    data[key] = value;
+    blob_value_versions[key] = KeyVersion(key, value, sequence, kTypeBlobIndex);
+    blob_index_versions[key] =
+        BlobIndexVersion(key, /* file_number */ kNumBlobFiles + 1, kExpiration,
+                         sequence, kTypeBlobIndex);
+  }
+
+  // Now add a small TTL value (which will be inlined).
+  {
+    const std::string key("key3000");
+    const std::string value(
+        test::RandomHumanReadableString(&rnd, kSmallValueSize));
+    const SequenceNumber sequence = blob_db_->GetLatestSequenceNumber() + 1;
+
+    ASSERT_OK(PutUntil(key, value, kExpiration));
+    ASSERT_EQ(blob_db_->GetLatestSequenceNumber(), sequence);
+
+    data[key] = value;
+    blob_value_versions[key] = KeyVersion(key, value, sequence, kTypeBlobIndex);
+    blob_index_versions[key] = BlobIndexVersion(
+        key, kInvalidBlobFileNumber, kExpiration, sequence, kTypeBlobIndex);
+  }
+
+  // Finally, add a small non-TTL value (which will be stored as a regular
+  // value).
+  {
+    const std::string key("key4000");
+    const std::string value(
+        test::RandomHumanReadableString(&rnd, kSmallValueSize));
+    const SequenceNumber sequence = blob_db_->GetLatestSequenceNumber() + 1;
+
+    ASSERT_OK(Put(key, value));
+    ASSERT_EQ(blob_db_->GetLatestSequenceNumber(), sequence);
+
+    data[key] = value;
+    blob_value_versions[key] = KeyVersion(key, value, sequence, kTypeValue);
+    blob_index_versions[key] = BlobIndexVersion(
+        key, kInvalidBlobFileNumber, kNoExpiration, sequence, kTypeValue);
+  }
+
+  VerifyDB(data);
+  VerifyBaseDB(blob_value_versions);
+  VerifyBaseDBBlobIndex(blob_index_versions);
+
+  // At this point, we should have 128 immutable non-TTL files with file numbers
+  // 1..128.
+  {
+    auto live_imm_files = blob_db_impl()->TEST_GetLiveImmNonTTLFiles();
+    ASSERT_EQ(live_imm_files.size(), kNumBlobFiles);
+    for (size_t i = 0; i < kNumBlobFiles; ++i) {
+      ASSERT_EQ(live_imm_files[i]->BlobFileNumber(), i + 1);
+      ASSERT_EQ(live_imm_files[i]->GetFileSize(),
+                kBlobFileSize + BlobLogFooter::kSize);
+    }
+  }
+
+  mock_env_->set_current_time(kCompactTime);
+
+  ASSERT_OK(blob_db_->CompactRange(CompactRangeOptions(),
+                                   blob_db_->DefaultColumnFamily(), nullptr,
+                                   nullptr));
+
+  // We expect the data to remain the same and the blobs from the oldest N files
+  // to be moved to new files. Sequence numbers get zeroed out during the
+  // compaction.
+  VerifyDB(data);
+
+  for (auto &pair : blob_value_versions) {
+    KeyVersion &version = pair.second;
+    version.sequence = 0;
+  }
+
+  VerifyBaseDB(blob_value_versions);
+
+  const uint64_t cutoff = static_cast<uint64_t>(
+      bdb_options.garbage_collection_cutoff * kNumBlobFiles);
+  for (auto &pair : blob_index_versions) {
+    BlobIndexVersion &version = pair.second;
+
+    version.sequence = 0;
+
+    if (version.file_number == kInvalidBlobFileNumber) {
+      continue;
+    }
+
+    if (version.file_number > cutoff) {
+      continue;
+    }
+
+    version.file_number += kNumBlobFiles + 1;
+  }
+
+  VerifyBaseDBBlobIndex(blob_index_versions);
+
+  // At this point, we should have 128 immutable non-TTL files with file numbers
+  // 33..128 and 130..161. (129 was taken by the TTL blob file.)
+  {
+    auto live_imm_files = blob_db_impl()->TEST_GetLiveImmNonTTLFiles();
+    ASSERT_EQ(live_imm_files.size(), kNumBlobFiles);
+    for (size_t i = 0; i < kNumBlobFiles; ++i) {
+      uint64_t expected_file_number = i + cutoff + 1;
+      if (expected_file_number > kNumBlobFiles) {
+        ++expected_file_number;
+      }
+
+      ASSERT_EQ(live_imm_files[i]->BlobFileNumber(), expected_file_number);
+      ASSERT_EQ(live_imm_files[i]->GetFileSize(),
+                kBlobFileSize + BlobLogFooter::kSize);
+    }
+  }
 }
 
 // File should be evicted after expiration.
