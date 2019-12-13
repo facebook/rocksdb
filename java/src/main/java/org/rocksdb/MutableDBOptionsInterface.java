@@ -22,9 +22,12 @@ public interface MutableDBOptionsInterface<T extends MutableDBOptionsInterface<T
   int maxBackgroundJobs();
 
   /**
+   * NOT SUPPORTED ANYMORE: RocksDB automatically decides this based on the
+   * value of max_background_jobs. This option is ignored.
+   *
    * Suggested number of concurrent background compaction jobs, submitted to
    * the default LOW priority thread pool.
-   * Default: 1
+   * Default: -1
    *
    * @param baseBackgroundCompactions Suggested number of background compaction
    *     jobs
@@ -35,20 +38,29 @@ public interface MutableDBOptionsInterface<T extends MutableDBOptionsInterface<T
   void setBaseBackgroundCompactions(int baseBackgroundCompactions);
 
   /**
+   * NOT SUPPORTED ANYMORE: RocksDB automatically decides this based on the
+   * value of max_background_jobs. This option is ignored.
+   *
    * Suggested number of concurrent background compaction jobs, submitted to
    * the default LOW priority thread pool.
-   * Default: 1
+   * Default: -1
    *
    * @return Suggested number of background compaction jobs
    */
   int baseBackgroundCompactions();
 
   /**
+   * NOT SUPPORTED ANYMORE: RocksDB automatically decides this based on the
+   * value of max_background_jobs. For backwards compatibility we will set
+   * `max_background_jobs = max_background_compactions + max_background_flushes`
+   * in the case where user sets at least one of `max_background_compactions` or
+   * `max_background_flushes` (we replace -1 by 1 in case one option is unset).
+   *
    * Specifies the maximum number of concurrent background compaction jobs,
    * submitted to the default LOW priority thread pool.
    * If you're increasing this, also consider increasing number of threads in
    * LOW priority thread pool. For more information, see
-   * Default: 1
+   * Default: -1
    *
    * @param maxBackgroundCompactions the maximum number of background
    *     compaction jobs.
@@ -57,15 +69,23 @@ public interface MutableDBOptionsInterface<T extends MutableDBOptionsInterface<T
    * @see RocksEnv#setBackgroundThreads(int)
    * @see RocksEnv#setBackgroundThreads(int, Priority)
    * @see DBOptionsInterface#maxBackgroundFlushes()
+   * @deprecated Use {@link #setMaxBackgroundJobs(int)}
    */
+  @Deprecated
   T setMaxBackgroundCompactions(int maxBackgroundCompactions);
 
   /**
+   * NOT SUPPORTED ANYMORE: RocksDB automatically decides this based on the
+   * value of max_background_jobs. For backwards compatibility we will set
+   * `max_background_jobs = max_background_compactions + max_background_flushes`
+   * in the case where user sets at least one of `max_background_compactions` or
+   * `max_background_flushes` (we replace -1 by 1 in case one option is unset).
+   *
    * Returns the maximum number of concurrent background compaction jobs,
    * submitted to the default LOW priority thread pool.
    * When increasing this number, we may also want to consider increasing
    * number of threads in LOW priority thread pool.
-   * Default: 1
+   * Default: -1
    *
    * @return the maximum number of concurrent background compaction jobs.
    * @see RocksEnv#setBackgroundThreads(int)
@@ -141,10 +161,16 @@ public interface MutableDBOptionsInterface<T extends MutableDBOptionsInterface<T
    * mem tables. It is calculated using size of user write requests before
    * compression. RocksDB may decide to slow down more if the compaction still
    * gets behind further.
+   * If the value is 0, we will infer a value from `rater_limiter` value
+   * if it is not empty, or 16MB if `rater_limiter` is empty. Note that
+   * if users change the rate in `rate_limiter` after DB is opened,
+   * `delayed_write_rate` won't be adjusted.
    *
    * Unit: bytes per second.
    *
-   * Default: 16MB/s
+   * Default: 0
+   *
+   * Dynamically changeable through {@link RocksDB#setDBOptions(MutableDBOptions)}.
    *
    * @param delayedWriteRate the rate in bytes per second
    *
@@ -160,10 +186,16 @@ public interface MutableDBOptionsInterface<T extends MutableDBOptionsInterface<T
    * mem tables. It is calculated using size of user write requests before
    * compression. RocksDB may decide to slow down more if the compaction still
    * gets behind further.
+   * If the value is 0, we will infer a value from `rater_limiter` value
+   * if it is not empty, or 16MB if `rater_limiter` is empty. Note that
+   * if users change the rate in `rate_limiter` after DB is opened,
+   * `delayed_write_rate` won't be adjusted.
    *
    * Unit: bytes per second.
    *
-   * Default: 16MB/s
+   * Default: 0
+   *
+   * Dynamically changeable through {@link RocksDB#setDBOptions(MutableDBOptions)}.
    *
    * @return the rate in bytes per second
    */
@@ -282,7 +314,7 @@ public interface MutableDBOptionsInterface<T extends MutableDBOptionsInterface<T
    * on {@code target_file_size_base} and {@code target_file_size_multiplier}
    * for level-based compaction. For universal-style compaction, you can usually
    * set it to -1.
-   * Default: 5000
+   * Default: -1
    *
    * @param maxOpenFiles the maximum number of open files.
    * @return the instance of the current object.
@@ -296,6 +328,7 @@ public interface MutableDBOptionsInterface<T extends MutableDBOptionsInterface<T
    * on {@code target_file_size_base} and {@code target_file_size_multiplier}
    * for level-based compaction. For universal-style compaction, you can usually
    * set it to -1.
+   * Default: -1
    *
    * @return the maximum number of open files.
    */
