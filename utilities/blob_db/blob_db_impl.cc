@@ -131,13 +131,22 @@ BlobDBOptions BlobDBImpl::GetBlobDBOptions() const { return bdb_options_; }
 Status BlobDBImpl::Open(std::vector<ColumnFamilyHandle*>* handles) {
   assert(handles != nullptr);
   assert(db_ == nullptr);
+
   if (blob_dir_.empty()) {
     return Status::NotSupported("No blob directory in options");
   }
+
   if (cf_options_.compaction_filter != nullptr ||
       cf_options_.compaction_filter_factory != nullptr) {
     return Status::NotSupported("Blob DB doesn't support compaction filter.");
   }
+
+  if (bdb_options_.garbage_collection_cutoff < 0.0 ||
+      bdb_options_.garbage_collection_cutoff > 1.0) {
+    return Status::InvalidArgument(
+        "Garbage collection cutoff must be in the interval [0.0, 1.0]");
+  }
+
   // BlobDB does not support Periodic Compactions. So disable periodic
   // compactions irrespective of the user set value.
   cf_options_.periodic_compaction_seconds = 0;
@@ -185,11 +194,17 @@ Status BlobDBImpl::Open(std::vector<ColumnFamilyHandle*>* handles) {
   }
 
   // Update options
-  db_options_.listeners.push_back(bdb_options_.enable_garbage_collection
-                                      ? std::make_shared<BlobDBListenerGC>(this)
-                                      : std::make_shared<BlobDBListener>(this));
-  cf_options_.compaction_filter_factory.reset(
-      new BlobIndexCompactionFilterFactory(this, env_, statistics_));
+  if (bdb_options_.enable_garbage_collection) {
+    db_options_.listeners.push_back(std::make_shared<BlobDBListenerGC>(this));
+    cf_options_.compaction_filter_factory =
+        std::make_shared<BlobIndexCompactionFilterFactoryGC>(this, env_,
+                                                             statistics_);
+  } else {
+    db_options_.listeners.push_back(std::make_shared<BlobDBListener>(this));
+    cf_options_.compaction_filter_factory =
+        std::make_shared<BlobIndexCompactionFilterFactory>(this, env_,
+                                                           statistics_);
+  }
 
   // Open base db.
   ColumnFamilyDescriptor cf_descriptor(kDefaultColumnFamilyName, cf_options_);
@@ -607,6 +622,17 @@ std::shared_ptr<BlobFile> BlobDBImpl::NewBlobFile(
   return blob_file;
 }
 
+void BlobDBImpl::RegisterBlobFile(std::shared_ptr<BlobFile> blob_file) {
+  const uint64_t blob_file_number = blob_file->BlobFileNumber();
+
+  auto it = blob_files_.lower_bound(blob_file_number);
+  assert(it == blob_files_.end() || it->first != blob_file_number);
+
+  blob_files_.insert(it,
+                     std::map<uint64_t, std::shared_ptr<BlobFile>>::value_type(
+                         blob_file_number, std::move(blob_file)));
+}
+
 Status BlobDBImpl::CreateWriterLocked(const std::shared_ptr<BlobFile>& bfile) {
   std::string fpath(bfile->PathName());
   std::unique_ptr<WritableFile> wfile;
@@ -767,8 +793,7 @@ Status BlobDBImpl::SelectBlobFile(std::shared_ptr<BlobFile>* blob_file) {
     return s;
   }
 
-  blob_files_.insert(std::map<uint64_t, std::shared_ptr<BlobFile>>::value_type(
-      (*blob_file)->BlobFileNumber(), *blob_file));
+  RegisterBlobFile(*blob_file);
   open_non_ttl_file_ = *blob_file;
 
   return s;
@@ -814,8 +839,7 @@ Status BlobDBImpl::SelectBlobFileTTL(uint64_t expiration,
     return s;
   }
 
-  blob_files_.insert(std::map<uint64_t, std::shared_ptr<BlobFile>>::value_type(
-      (*blob_file)->BlobFileNumber(), *blob_file));
+  RegisterBlobFile(*blob_file);
   open_ttl_files_.insert(*blob_file);
 
   return s;
@@ -1062,8 +1086,9 @@ Status BlobDBImpl::CompactFiles(
   return s;
 }
 
-void BlobDBImpl::GetCompactionContext(BlobCompactionContext* context) {
-  ReadLock l(&mutex_);
+void BlobDBImpl::GetCompactionContextCommon(
+    BlobCompactionContext* context) const {
+  assert(context);
 
   context->next_file_number = next_file_number_.load();
   context->current_blob_files.clear();
@@ -1072,6 +1097,33 @@ void BlobDBImpl::GetCompactionContext(BlobCompactionContext* context) {
   }
   context->fifo_eviction_seq = fifo_eviction_seq_;
   context->evict_expiration_up_to = evict_expiration_up_to_;
+}
+
+void BlobDBImpl::GetCompactionContext(BlobCompactionContext* context) {
+  assert(context);
+
+  ReadLock l(&mutex_);
+  GetCompactionContextCommon(context);
+}
+
+void BlobDBImpl::GetCompactionContext(BlobCompactionContext* context,
+                                      BlobCompactionContextGC* context_gc) {
+  assert(context);
+  assert(context_gc);
+
+  ReadLock l(&mutex_);
+  GetCompactionContextCommon(context);
+
+  context_gc->blob_db_impl = this;
+
+  if (!live_imm_non_ttl_blob_files_.empty()) {
+    auto it = live_imm_non_ttl_blob_files_.begin();
+    std::advance(it, bdb_options_.garbage_collection_cutoff *
+                         live_imm_non_ttl_blob_files_.size());
+    context_gc->cutoff_file_number = it != live_imm_non_ttl_blob_files_.end()
+                                         ? it->first
+                                         : std::numeric_limits<uint64_t>::max();
+  }
 }
 
 void BlobDBImpl::UpdateLiveSSTSize() {
@@ -1199,11 +1251,8 @@ Status BlobDBImpl::AppendBlob(const std::shared_ptr<BlobFile>& bfile,
     return s;
   }
 
-  // increment blob count
-  bfile->blob_count_++;
-
   uint64_t size_put = headerbuf.size() + key.size() + value.size();
-  bfile->file_size_ += size_put;
+  bfile->BlobRecordAdded(size_put);
   total_blob_size_ += size_put;
 
   if (expiration == kNoExpiration) {
@@ -1573,7 +1622,10 @@ Status BlobDBImpl::CloseBlobFile(std::shared_ptr<BlobFile> bfile) {
   assert(bfile);
   assert(!bfile->Immutable());
   assert(!bfile->Obsolete());
-  write_mutex_.AssertHeld();
+
+  if (bfile->HasTTL() || bfile == open_non_ttl_file_) {
+    write_mutex_.AssertHeld();
+  }
 
   ROCKS_LOG_INFO(db_options_.info_log,
                  "Closing blob file %" PRIu64 ". Path: %s",
