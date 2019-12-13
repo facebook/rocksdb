@@ -148,10 +148,6 @@ Status BlobDBImpl::Open(std::vector<ColumnFamilyHandle*>* handles) {
         "Garbage collection cutoff must be in the interval [0.0, 1.0]");
   }
 
-  // BlobDB does not support Periodic Compactions. So disable periodic
-  // compactions irrespective of the user set value.
-  cf_options_.periodic_compaction_seconds = 0;
-
   // Temporarily disable compactions in the base DB during open; save the user
   // defined value beforehand so we can restore it once BlobDB is initialized.
   // Note: this is only needed if garbage collection is enabled.
