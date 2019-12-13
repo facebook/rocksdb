@@ -45,6 +45,16 @@ if(POLICY CMP0042)
   cmake_policy(SET CMP0042 NEW)
 endif()
 
+if(NOT CMAKE_BUILD_TYPE)
+  if(EXISTS "${CMAKE_SOURCE_DIR}/.git")
+    set(default_build_type "Debug")
+  else()
+    set(default_build_type "RelWithDebInfo")
+  endif()
+  set(CMAKE_BUILD_TYPE "${default_build_type}" CACHE STRING
+    "Default BUILD_TYPE is ${default_build_type}" FORCE)
+endif()
+
 find_program(CCACHE_FOUND ccache)
 if(CCACHE_FOUND)
   set_property(GLOBAL PROPERTY RULE_LAUNCH_COMPILE ccache)
@@ -62,7 +72,7 @@ if (WITH_WINDOWS_UTF8_FILENAMES)
 endif()
 # third-party/folly is only validated to work on Linux and Windows for now.
 # So only turn it on there by default.
-if(CMAKE_SYSTEM_NAME MATCHES "Linux" OR CMAKE_SYSTEM_NAME MATCHES "Windows")
+if(CMAKE_SYSTEM_NAME MATCHES "Linux|Windows")
   if(MSVC AND MSVC_VERSION LESS 1910)
     # Folly does not compile with MSVC older than VS2017
     option(WITH_FOLLY_DISTRIBUTED_MUTEX "build with folly::DistributedMutex" OFF)
@@ -72,10 +82,12 @@ if(CMAKE_SYSTEM_NAME MATCHES "Linux" OR CMAKE_SYSTEM_NAME MATCHES "Windows")
 else()
   option(WITH_FOLLY_DISTRIBUTED_MUTEX "build with folly::DistributedMutex" OFF)
 endif()
+
+include(CMakeDependentOption)
+CMAKE_DEPENDENT_OPTION(WITH_GFLAGS "build with GFlags" ON
+  "NOT MSVC;NOT MINGW" OFF)
+
 if(MSVC)
-  # Defaults currently different for GFLAGS.
-  #  We will address find_package work a little later
-  option(WITH_GFLAGS "build with GFlags" OFF)
   option(WITH_XPRESS "build with windows built in compression" OFF)
   include(${CMAKE_CURRENT_SOURCE_DIR}/thirdparty.inc)
 else()
@@ -92,14 +104,11 @@ else()
   endif()
 
   # No config file for this
-  option(WITH_GFLAGS "build with GFlags" ON)
   if(WITH_GFLAGS)
-    find_package(gflags)
-    if(gflags_FOUND)
-      add_definitions(-DGFLAGS=1)
-      include_directories(${gflags_INCLUDE_DIR})
-      list(APPEND THIRDPARTY_LIBS ${gflags_LIBRARIES})
-    endif()
+    find_package(gflags REQUIRED)
+    add_definitions(-DGFLAGS=1)
+    include_directories(${gflags_INCLUDE_DIR})
+    list(APPEND THIRDPARTY_LIBS gflags::gflags)
   endif()
 
   if(WITH_SNAPPY)
@@ -895,11 +904,15 @@ if(NOT WIN32 OR ROCKSDB_INSTALL_ON_WINDOWS)
   )
 endif()
 
-option(WITH_TESTS "build with tests" ON)
-# For test libraries, utilities, and exes that are build iff WITH_TESTS=ON and
-# in Debug mode. Add test only code that is not #ifdefed for Release here.
-if(WITH_TESTS AND CMAKE_BUILD_TYPE STREQUAL "Debug")
-  add_subdirectory(third-party/gtest-1.8.1/fused-src/gtest)
+add_subdirectory(third-party/gtest-1.8.1/fused-src/gtest)
+add_library(testharness STATIC
+  test_util/testharness.cc)
+target_link_libraries(testharness gtest)
+
+# Tests are excluded from Release builds
+CMAKE_DEPENDENT_OPTION(WITH_TESTS "build with tests" ON
+  "CMAKE_BUILD_TYPE STREQUAL Debug" OFF)
+if(WITH_TESTS)
   set(TESTS
         cache/cache_test.cc
         cache/lru_cache_test.cc
@@ -1074,23 +1087,21 @@ if(WITH_TESTS AND CMAKE_BUILD_TYPE STREQUAL "Debug")
         EXCLUDE_FROM_DEFAULT_BUILD_RELWITHDEBINFO 1
         )
 
-  set(TEST_EXES ${TESTS})
-  foreach(sourcefile ${TEST_EXES})
+  foreach(sourcefile ${TESTS})
       get_filename_component(exename ${sourcefile} NAME_WE)
-      add_executable(${CMAKE_PROJECT_NAME}_${exename}${ARTIFACT_SUFFIX} ${sourcefile}
-        $<TARGET_OBJECTS:testharness>)
+      add_executable(${CMAKE_PROJECT_NAME}_${exename}${ARTIFACT_SUFFIX} ${sourcefile})
       set_target_properties(${CMAKE_PROJECT_NAME}_${exename}${ARTIFACT_SUFFIX}
         PROPERTIES EXCLUDE_FROM_DEFAULT_BUILD_RELEASE 1
         EXCLUDE_FROM_DEFAULT_BUILD_MINRELEASE 1
         EXCLUDE_FROM_DEFAULT_BUILD_RELWITHDEBINFO 1
         OUTPUT_NAME ${exename}${ARTIFACT_SUFFIX}
         )
-      target_link_libraries(${CMAKE_PROJECT_NAME}_${exename}${ARTIFACT_SUFFIX} testutillib${ARTIFACT_SUFFIX} gtest ${ROCKSDB_LIB})
+      target_link_libraries(${CMAKE_PROJECT_NAME}_${exename}${ARTIFACT_SUFFIX} testutillib${ARTIFACT_SUFFIX} testharness gtest ${ROCKSDB_LIB})
       if(NOT "${exename}" MATCHES "db_sanity_test")
         add_test(NAME ${exename} COMMAND ${exename}${ARTIFACT_SUFFIX})
         add_dependencies(check ${CMAKE_PROJECT_NAME}_${exename}${ARTIFACT_SUFFIX})
       endif()
-  endforeach(sourcefile ${TEST_EXES})
+  endforeach(sourcefile ${TESTS})
 
   if(WIN32)
     # C executables must link to a shared object
@@ -1105,50 +1116,51 @@ if(WITH_TESTS AND CMAKE_BUILD_TYPE STREQUAL "Debug")
 
   if(ROCKSDB_LIB_FOR_C)
     set(C_TESTS db/c_test.c)
-    set(C_TEST_EXES ${C_TESTS})
-
-    foreach(sourcefile ${C_TEST_EXES})
-        string(REPLACE ".c" "" exename ${sourcefile})
-        string(REGEX REPLACE "^((.+)/)+" "" exename ${exename})
-        add_executable(${exename}${ARTIFACT_SUFFIX} ${sourcefile})
-        set_target_properties(${exename}${ARTIFACT_SUFFIX}
-          PROPERTIES EXCLUDE_FROM_DEFAULT_BUILD_RELEASE 1
-          EXCLUDE_FROM_DEFAULT_BUILD_MINRELEASE 1
-          EXCLUDE_FROM_DEFAULT_BUILD_RELWITHDEBINFO 1
-          )
-        target_link_libraries(${exename}${ARTIFACT_SUFFIX} ${ROCKSDB_LIB_FOR_C} testutillib${ARTIFACT_SUFFIX})
-        add_test(NAME ${exename} COMMAND ${exename}${ARTIFACT_SUFFIX})
-        add_dependencies(check ${exename}${ARTIFACT_SUFFIX})
-    endforeach(sourcefile ${C_TEST_EXES})
+    # C executables must link to a shared object
+    add_executable(c_test db/c_test.c)
+    target_link_libraries(c_test ${ROCKSDB_SHARED_LIB} testharness)
+    add_test(NAME c_test COMMAND c_test${ARTIFACT_SUFFIX})
+    add_dependencies(check c_test)
   endif()
 endif()
 
 option(WITH_BENCHMARK_TOOLS "build with benchmarks" ON)
 if(WITH_BENCHMARK_TOOLS)
-  if(NOT TARGET gtest)
-    add_subdirectory(third-party/gtest-1.8.1/fused-src/gtest)
-  endif()
-  set(BENCHMARKS
-        cache/cache_bench.cc
-        memtable/memtablerep_bench.cc
-        db/range_del_aggregator_bench.cc
-        table/table_reader_bench.cc
-        util/filter_bench.cc
-        utilities/persistent_cache/hash_table_bench.cc
-  )
-  add_library(testharness OBJECT test_util/testharness.cc)
-  foreach(sourcefile ${BENCHMARKS})
-    get_filename_component(exename ${sourcefile} NAME_WE)
-    add_executable(${exename}${ARTIFACT_SUFFIX} ${sourcefile}
-      $<TARGET_OBJECTS:testharness>)
-    target_link_libraries(${exename}${ARTIFACT_SUFFIX} gtest ${ROCKSDB_LIB})
-  endforeach(sourcefile ${BENCHMARKS})
-
-  add_executable(db_bench${ARTIFACT_SUFFIX}
+  add_executable(db_bench
     tools/db_bench.cc
-    tools/db_bench_tool.cc
-    $<TARGET_OBJECTS:testharness>)
-  target_link_libraries(db_bench${ARTIFACT_SUFFIX} gtest ${ROCKSDB_LIB})
+    tools/db_bench_tool.cc)
+  target_link_libraries(db_bench
+    ${ROCKSDB_LIB})
+
+  add_executable(cache_bench
+    cache/cache_bench.cc)
+  target_link_libraries(cache_bench
+    ${ROCKSDB_LIB})
+
+  add_executable(memtablerep_bench
+    memtable/memtablerep_bench.cc)
+  target_link_libraries(memtablerep_bench
+    ${ROCKSDB_LIB})
+
+  add_executable(range_del_aggregator_bench
+    db/range_del_aggregator_bench.cc)
+  target_link_libraries(range_del_aggregator_bench
+    ${ROCKSDB_LIB})
+
+  add_executable(table_reader_bench
+    table/table_reader_bench.cc)
+  target_link_libraries(table_reader_bench
+    ${ROCKSDB_LIB} testharness)
+
+  add_executable(filter_bench
+    util/filter_bench.cc)
+  target_link_libraries(filter_bench
+    ${ROCKSDB_LIB})
+
+  add_executable(hash_table_bench
+    utilities/persistent_cache/hash_table_bench.cc)
+  target_link_libraries(hash_table_bench
+    ${ROCKSDB_LIB})
 endif()
 
 option(WITH_TOOLS "build with tools" ON)
