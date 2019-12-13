@@ -275,9 +275,7 @@ Compaction::~Compaction() {
     input_version_->Unref();
   }
   if (cfd_ != nullptr) {
-    if (cfd_->Unref()) {
-      delete cfd_;
-    }
+    cfd_->UnrefAndTryDelete();
   }
 }
 

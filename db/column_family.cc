@@ -60,11 +60,8 @@ ColumnFamilyHandleImpl::~ColumnFamilyHandleImpl() {
     ColumnFamilyOptions initial_cf_options_copy = cfd_->initial_cf_options();
     JobContext job_context(0);
     mutex_->Lock();
-    if (cfd_->Unref()) {
-      bool dropped = cfd_->IsDropped();
-
-      delete cfd_;
-
+    bool dropped = cfd_->IsDropped();
+    if (cfd_->UnrefAndTryDelete()) {
       if (dropped) {
         db_->FindObsoleteFiles(&job_context, false, true);
       }
@@ -439,13 +436,18 @@ void SuperVersion::Cleanup() {
     to_delete.push_back(m);
   }
   current->Unref();
+  if (cfd->Unref()) {
+    delete cfd;
+  }
 }
 
-void SuperVersion::Init(MemTable* new_mem, MemTableListVersion* new_imm,
-                        Version* new_current) {
+void SuperVersion::Init(ColumnFamilyData* new_cfd, MemTable* new_mem,
+                        MemTableListVersion* new_imm, Version* new_current) {
+  cfd = new_cfd;
   mem = new_mem;
   imm = new_imm;
   current = new_current;
+  cfd->Ref();
   mem->Ref();
   imm->Ref();
   current->Ref();
@@ -581,21 +583,7 @@ ColumnFamilyData::~ColumnFamilyData() {
   // compaction_queue_ and we destroyed it
   assert(!queued_for_flush_);
   assert(!queued_for_compaction_);
-
-  if (super_version_ != nullptr) {
-    // Release SuperVersion reference kept in ThreadLocalPtr.
-    // This must be done outside of mutex_ since unref handler can lock mutex.
-    super_version_->db_mutex->Unlock();
-    local_sv_.reset();
-    super_version_->db_mutex->Lock();
-
-    bool is_last_reference __attribute__((__unused__));
-    is_last_reference = super_version_->Unref();
-    assert(is_last_reference);
-    super_version_->Cleanup();
-    delete super_version_;
-    super_version_ = nullptr;
-  }
+  assert(super_version_ == nullptr);
 
   if (dummy_versions_ != nullptr) {
     // List must be empty
@@ -613,6 +601,36 @@ ColumnFamilyData::~ColumnFamilyData() {
   for (MemTable* m : to_delete) {
     delete m;
   }
+}
+
+bool ColumnFamilyData::UnrefAndTryDelete() {
+  int old_refs = refs_.fetch_sub(1);
+  assert(old_refs > 0);
+
+  if (old_refs == 1) {
+    assert(super_version_ == nullptr);
+    delete this;
+    return true;
+  }
+
+  if (old_refs == 2 && super_version_ != nullptr) {
+    // Only the super_version_ holds me
+    SuperVersion* sv = super_version_;
+    super_version_ = nullptr;
+    // Release SuperVersion reference kept in ThreadLocalPtr.
+    // This must be done outside of mutex_ since unref handler can lock mutex.
+    sv->db_mutex->Unlock();
+    local_sv_.reset();
+    sv->db_mutex->Lock();
+
+    if (sv->Unref()) {
+      // May delete this ColumnFamilyData after calling Cleanup()
+      sv->Cleanup();
+      delete sv;
+      return true;
+    }
+  }
+  return false;
 }
 
 void ColumnFamilyData::SetDropped() {
@@ -1169,7 +1187,7 @@ void ColumnFamilyData::InstallSuperVersion(
   SuperVersion* new_superversion = sv_context->new_superversion.release();
   new_superversion->db_mutex = db_mutex;
   new_superversion->mutable_cf_options = mutable_cf_options;
-  new_superversion->Init(mem_, imm_.current(), current_);
+  new_superversion->Init(this, mem_, imm_.current(), current_);
   SuperVersion* old_superversion = super_version_;
   super_version_ = new_superversion;
   ++super_version_number_;
@@ -1344,14 +1362,12 @@ ColumnFamilySet::~ColumnFamilySet() {
     // cfd destructor will delete itself from column_family_data_
     auto cfd = column_family_data_.begin()->second;
     bool last_ref __attribute__((__unused__));
-    last_ref = cfd->Unref();
+    last_ref = cfd->UnrefAndTryDelete();
     assert(last_ref);
-    delete cfd;
   }
   bool dummy_last_ref __attribute__((__unused__));
-  dummy_last_ref = dummy_cfd_->Unref();
+  dummy_last_ref = dummy_cfd_->UnrefAndTryDelete();
   assert(dummy_last_ref);
-  delete dummy_cfd_;
 }
 
 ColumnFamilyData* ColumnFamilySet::GetDefault() const {
