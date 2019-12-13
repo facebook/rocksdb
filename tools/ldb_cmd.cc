@@ -13,6 +13,7 @@
 #include "db/dbformat.h"
 #include "db/log_reader.h"
 #include "db/write_batch_internal.h"
+#include "env/composite_env_wrapper.h"
 #include "file/filename.h"
 #include "port/port_dirent.h"
 #include "rocksdb/cache.h"
@@ -285,6 +286,8 @@ void LDBCommand::Run() {
     }
     options_.env = env;
   }
+
+  options_.file_system.reset(new LegacyFileSystemWrapper(options_.env));
 
   if (db_ == nullptr && !NoDBOpen()) {
     OpenDB();
@@ -705,6 +708,7 @@ Options LDBCommand::PrepareOptionsForOpenDB() {
           LDBCommandExecuteResult::Failed(ARG_FIX_PREFIX_LEN + " must be > 0.");
     }
   }
+
   // TODO(ajkr): this return value doesn't reflect the CF options changed, so
   // subcommands that rely on this won't see the effect of CF-related CLI args.
   // Such subcommands need to be changed to properly support CFs.
@@ -1806,6 +1810,8 @@ void ReduceDBLevelsCommand::DoCommand() {
   Status st;
   Options opt = PrepareOptionsForOpenDB();
   int old_level_num = -1;
+  opt.file_system.reset(new LegacyFileSystemWrapper(opt.env));
+  ;
   st = GetOldNumOfLevels(opt, &old_level_num);
   if (!st.ok()) {
     exec_state_ = LDBCommandExecuteResult::Failed(st.ToString());
@@ -2092,8 +2098,8 @@ void DumpWalFile(Options options, std::string wal_file, bool print_header,
     std::unique_ptr<SequentialFile> file;
     status = env->NewSequentialFile(wal_file, &file, soptions);
     if (status.ok()) {
-      wal_file_reader.reset(
-          new SequentialFileReader(std::move(file), wal_file));
+      wal_file_reader.reset(new SequentialFileReader(
+          NewLegacySequentialFileWrapper(file), wal_file));
     }
   }
   if (!status.ok()) {

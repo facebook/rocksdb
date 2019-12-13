@@ -1112,10 +1112,14 @@ TEST_F(OptionsTest, ConvertOptionsTest) {
 #ifndef ROCKSDB_LITE
 class OptionsParserTest : public testing::Test {
  public:
-  OptionsParserTest() { env_.reset(new test::StringEnv(Env::Default())); }
+  OptionsParserTest() {
+    env_.reset(new test::StringEnv(Env::Default()));
+    fs_.reset(new LegacyFileSystemWrapper(env_.get()));
+  }
 
  protected:
   std::unique_ptr<test::StringEnv> env_;
+  std::unique_ptr<LegacyFileSystemWrapper> fs_;
 };
 
 TEST_F(OptionsParserTest, Comment) {
@@ -1146,7 +1150,7 @@ TEST_F(OptionsParserTest, Comment) {
   const std::string kTestFileName = "test-rocksdb-options.ini";
   env_->WriteToNewFile(kTestFileName, options_file_content);
   RocksDBOptionsParser parser;
-  ASSERT_OK(parser.Parse(kTestFileName, env_.get()));
+  ASSERT_OK(parser.Parse(kTestFileName, fs_.get()));
 
   ASSERT_OK(RocksDBOptionsParser::VerifyDBOptions(*parser.db_opt(), db_opt));
   ASSERT_EQ(parser.NumColumnFamilies(), 1U);
@@ -1172,7 +1176,7 @@ TEST_F(OptionsParserTest, ExtraSpace) {
   const std::string kTestFileName = "test-rocksdb-options.ini";
   env_->WriteToNewFile(kTestFileName, options_file_content);
   RocksDBOptionsParser parser;
-  ASSERT_OK(parser.Parse(kTestFileName, env_.get()));
+  ASSERT_OK(parser.Parse(kTestFileName, fs_.get()));
 }
 
 TEST_F(OptionsParserTest, MissingDBOptions) {
@@ -1189,7 +1193,7 @@ TEST_F(OptionsParserTest, MissingDBOptions) {
   const std::string kTestFileName = "test-rocksdb-options.ini";
   env_->WriteToNewFile(kTestFileName, options_file_content);
   RocksDBOptionsParser parser;
-  ASSERT_NOK(parser.Parse(kTestFileName, env_.get()));
+  ASSERT_NOK(parser.Parse(kTestFileName, fs_.get()));
 }
 
 TEST_F(OptionsParserTest, DoubleDBOptions) {
@@ -1217,7 +1221,7 @@ TEST_F(OptionsParserTest, DoubleDBOptions) {
   const std::string kTestFileName = "test-rocksdb-options.ini";
   env_->WriteToNewFile(kTestFileName, options_file_content);
   RocksDBOptionsParser parser;
-  ASSERT_NOK(parser.Parse(kTestFileName, env_.get()));
+  ASSERT_NOK(parser.Parse(kTestFileName, fs_.get()));
 }
 
 TEST_F(OptionsParserTest, NoDefaultCFOptions) {
@@ -1244,7 +1248,7 @@ TEST_F(OptionsParserTest, NoDefaultCFOptions) {
   const std::string kTestFileName = "test-rocksdb-options.ini";
   env_->WriteToNewFile(kTestFileName, options_file_content);
   RocksDBOptionsParser parser;
-  ASSERT_NOK(parser.Parse(kTestFileName, env_.get()));
+  ASSERT_NOK(parser.Parse(kTestFileName, fs_.get()));
 }
 
 TEST_F(OptionsParserTest, DefaultCFOptionsMustBeTheFirst) {
@@ -1273,7 +1277,7 @@ TEST_F(OptionsParserTest, DefaultCFOptionsMustBeTheFirst) {
   const std::string kTestFileName = "test-rocksdb-options.ini";
   env_->WriteToNewFile(kTestFileName, options_file_content);
   RocksDBOptionsParser parser;
-  ASSERT_NOK(parser.Parse(kTestFileName, env_.get()));
+  ASSERT_NOK(parser.Parse(kTestFileName, fs_.get()));
 }
 
 TEST_F(OptionsParserTest, DuplicateCFOptions) {
@@ -1301,7 +1305,7 @@ TEST_F(OptionsParserTest, DuplicateCFOptions) {
   const std::string kTestFileName = "test-rocksdb-options.ini";
   env_->WriteToNewFile(kTestFileName, options_file_content);
   RocksDBOptionsParser parser;
-  ASSERT_NOK(parser.Parse(kTestFileName, env_.get()));
+  ASSERT_NOK(parser.Parse(kTestFileName, fs_.get()));
 }
 
 TEST_F(OptionsParserTest, IgnoreUnknownOptions) {
@@ -1369,12 +1373,12 @@ TEST_F(OptionsParserTest, IgnoreUnknownOptions) {
     env_->DeleteFile(kTestFileName);
     env_->WriteToNewFile(kTestFileName, options_file_content);
     RocksDBOptionsParser parser;
-    ASSERT_NOK(parser.Parse(kTestFileName, env_.get()));
+    ASSERT_NOK(parser.Parse(kTestFileName, fs_.get()));
     if (should_ignore) {
-      ASSERT_OK(parser.Parse(kTestFileName, env_.get(),
+      ASSERT_OK(parser.Parse(kTestFileName, fs_.get(),
                              true /* ignore_unknown_options */));
     } else {
-      ASSERT_NOK(parser.Parse(kTestFileName, env_.get(),
+      ASSERT_NOK(parser.Parse(kTestFileName, fs_.get(),
                               true /* ignore_unknown_options */));
     }
   }
@@ -1413,7 +1417,7 @@ TEST_F(OptionsParserTest, ParseVersion) {
 
     parser.Reset();
     env_->WriteToNewFile(iv, buffer);
-    ASSERT_NOK(parser.Parse(iv, env_.get()));
+    ASSERT_NOK(parser.Parse(iv, fs_.get()));
   }
 
   const std::vector<std::string> valid_versions = {
@@ -1422,7 +1426,7 @@ TEST_F(OptionsParserTest, ParseVersion) {
     snprintf(buffer, kLength - 1, file_template.c_str(), vv.c_str());
     parser.Reset();
     env_->WriteToNewFile(vv, buffer);
-    ASSERT_OK(parser.Parse(vv, env_.get()));
+    ASSERT_OK(parser.Parse(vv, fs_.get()));
   }
 }
 
@@ -1547,10 +1551,10 @@ TEST_F(OptionsParserTest, DumpAndParse) {
 
   const std::string kOptionsFileName = "test-persisted-options.ini";
   ASSERT_OK(PersistRocksDBOptions(base_db_opt, cf_names, base_cf_opts,
-                                  kOptionsFileName, env_.get()));
+                                  kOptionsFileName, fs_.get()));
 
   RocksDBOptionsParser parser;
-  ASSERT_OK(parser.Parse(kOptionsFileName, env_.get()));
+  ASSERT_OK(parser.Parse(kOptionsFileName, fs_.get()));
 
   // Make sure block-based table factory options was deserialized correctly
   std::shared_ptr<TableFactory> ttf = (*parser.cf_opts())[4].table_factory;
@@ -1562,7 +1566,7 @@ TEST_F(OptionsParserTest, DumpAndParse) {
             parsed_bbto.cache_index_and_filter_blocks);
 
   ASSERT_OK(RocksDBOptionsParser::VerifyRocksDBOptionsFromFile(
-      base_db_opt, cf_names, base_cf_opts, kOptionsFileName, env_.get()));
+      base_db_opt, cf_names, base_cf_opts, kOptionsFileName, fs_.get()));
 
   ASSERT_OK(
       RocksDBOptionsParser::VerifyDBOptions(*parser.db_opt(), base_db_opt));
@@ -1585,7 +1589,7 @@ TEST_F(OptionsParserTest, DumpAndParse) {
 
   base_db_opt.max_open_files++;
   ASSERT_NOK(RocksDBOptionsParser::VerifyRocksDBOptionsFromFile(
-      base_db_opt, cf_names, base_cf_opts, kOptionsFileName, env_.get()));
+      base_db_opt, cf_names, base_cf_opts, kOptionsFileName, fs_.get()));
 
   for (int c = 0; c < num_cf; ++c) {
     if (base_cf_opts[c].compaction_filter) {
@@ -1606,10 +1610,10 @@ TEST_F(OptionsParserTest, DifferentDefault) {
 
   ASSERT_OK(PersistRocksDBOptions(DBOptions(), {"default", "universal"},
                                   {cf_level_opts, cf_univ_opts},
-                                  kOptionsFileName, env_.get()));
+                                  kOptionsFileName, fs_.get()));
 
   RocksDBOptionsParser parser;
-  ASSERT_OK(parser.Parse(kOptionsFileName, env_.get()));
+  ASSERT_OK(parser.Parse(kOptionsFileName, fs_.get()));
 
   {
     Options old_default_opts;
@@ -1692,7 +1696,7 @@ class OptionsSanityCheckTest : public OptionsParserTest {
   Status SanityCheckCFOptions(const ColumnFamilyOptions& cf_opts,
                               OptionsSanityCheckLevel level) {
     return RocksDBOptionsParser::VerifyRocksDBOptionsFromFile(
-        DBOptions(), {"default"}, {cf_opts}, kOptionsFileName, env_.get(),
+        DBOptions(), {"default"}, {cf_opts}, kOptionsFileName, fs_.get(),
         level);
   }
 
@@ -1702,7 +1706,7 @@ class OptionsSanityCheckTest : public OptionsParserTest {
       return s;
     }
     return PersistRocksDBOptions(DBOptions(), {"default"}, {cf_opts},
-                                 kOptionsFileName, env_.get());
+                                 kOptionsFileName, fs_.get());
   }
 
   const std::string kOptionsFileName = "OPTIONS";

@@ -6,6 +6,7 @@
 #ifndef ROCKSDB_LITE
 
 #include "rocksdb/utilities/ldb_cmd.h"
+#include "env/composite_env_wrapper.h"
 #include "port/stack_trace.h"
 #include "test_util/sync_point.h"
 #include "test_util/testharness.h"
@@ -73,6 +74,8 @@ TEST_F(LdbCmdTest, MemEnv) {
   Options opts;
   opts.env = env.get();
   opts.create_if_missing = true;
+
+  opts.file_system.reset(new LegacyFileSystemWrapper(opts.env));
 
   DB* db = nullptr;
   std::string dbname = test::TmpDir();

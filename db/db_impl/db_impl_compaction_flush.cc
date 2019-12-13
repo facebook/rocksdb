@@ -148,7 +148,7 @@ Status DBImpl::FlushMemTableToOutputFile(
 
   FlushJob flush_job(
       dbname_, cfd, immutable_db_options_, mutable_cf_options,
-      nullptr /* memtable_id */, env_options_for_compaction_, versions_.get(),
+      nullptr /* memtable_id */, file_options_for_compaction_, versions_.get(),
       &mutex_, &shutting_down_, snapshot_seqs, earliest_write_conflict_snapshot,
       snapshot_checker, job_context, log_buffer, directories_.GetDbDir(),
       GetDataDir(cfd, 0U),
@@ -332,7 +332,7 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
     const uint64_t* max_memtable_id = &(bg_flush_args[i].max_memtable_id_);
     jobs.emplace_back(new FlushJob(
         dbname_, cfd, immutable_db_options_, mutable_cf_options,
-        max_memtable_id, env_options_for_compaction_, versions_.get(), &mutex_,
+        max_memtable_id, file_options_for_compaction_, versions_.get(), &mutex_,
         &shutting_down_, snapshot_seqs, earliest_write_conflict_snapshot,
         snapshot_checker, job_context, log_buffer, directories_.GetDbDir(),
         data_dir, GetCompressionFlush(*cfd->ioptions(), mutable_cf_options),
@@ -968,7 +968,7 @@ Status DBImpl::CompactFilesImpl(
   CompactionJobStats compaction_job_stats;
   CompactionJob compaction_job(
       job_context->job_id, c.get(), immutable_db_options_,
-      env_options_for_compaction_, versions_.get(), &shutting_down_,
+      file_options_for_compaction_, versions_.get(), &shutting_down_,
       preserve_deletes_seqnum_.load(), log_buffer, directories_.GetDbDir(),
       GetDataDir(c->column_family_data(), c->output_path_id()), stats_, &mutex_,
       &error_handler_, snapshot_seqs, earliest_write_conflict_snapshot,
@@ -2747,7 +2747,7 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
     assert(is_snapshot_supported_ || snapshots_.empty());
     CompactionJob compaction_job(
         job_context->job_id, c.get(), immutable_db_options_,
-        env_options_for_compaction_, versions_.get(), &shutting_down_,
+        file_options_for_compaction_, versions_.get(), &shutting_down_,
         preserve_deletes_seqnum_.load(), log_buffer, directories_.GetDbDir(),
         GetDataDir(c->column_family_data(), c->output_path_id()), stats_,
         &mutex_, &error_handler_, snapshot_seqs,
