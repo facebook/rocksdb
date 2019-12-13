@@ -1499,12 +1499,14 @@ Status DBImpl::TrimMemtableHistory(WriteContext* context) {
   for (auto& cfd : cfds) {
     autovector<MemTable*> to_delete;
     cfd->imm()->TrimHistory(&to_delete, cfd->mem()->ApproximateMemoryUsage());
-    for (auto m : to_delete) {
-      delete m;
+    if (!to_delete.empty()) {
+      for (auto m : to_delete) {
+        delete m;
+      }
+      context->superversion_context.NewSuperVersion();
+      assert(context->superversion_context.new_superversion.get() != nullptr);
+      cfd->InstallSuperVersion(&context->superversion_context, &mutex_);
     }
-    context->superversion_context.NewSuperVersion();
-    assert(context->superversion_context.new_superversion.get() != nullptr);
-    cfd->InstallSuperVersion(&context->superversion_context, &mutex_);
 
     if (cfd->Unref()) {
       delete cfd;
