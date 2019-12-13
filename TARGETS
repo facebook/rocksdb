@@ -1246,6 +1246,13 @@ ROCKS_TESTS = [
         [],
     ],
     [
+        "random_test",
+        "util/random_test.cc",
+        "serial",
+        [],
+        [],
+    ],
+    [
         "range_del_aggregator_test",
         "db/range_del_aggregator_test.cc",
         "serial",

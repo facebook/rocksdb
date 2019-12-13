@@ -460,6 +460,7 @@ TESTS = \
 	env_test \
 	env_logger_test \
 	hash_test \
+	random_test \
 	thread_local_test \
 	rate_limiter_test \
 	perf_context_test \
@@ -1223,6 +1224,9 @@ coding_test: util/coding_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
 hash_test: util/hash_test.o $(LIBOBJECTS) $(TESTHARNESS)
+	$(AM_LINK)
+
+random_test: util/random_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
 option_change_migration_test: utilities/option_change_migration/option_change_migration_test.o db/db_test_util.o $(LIBOBJECTS) $(TESTHARNESS)
