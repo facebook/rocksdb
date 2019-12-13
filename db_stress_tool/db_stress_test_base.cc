@@ -1447,6 +1447,14 @@ void StressTest::PrintEnv() const {
           FLAGS_periodic_compaction_seconds);
   fprintf(stdout, "Compaction TTL            : %" PRIu64 "\n",
           FLAGS_compaction_ttl);
+  fprintf(stdout, "Background Purge          : %d\n",
+          static_cast<int>(FLAGS_avoid_unnecessary_blocking_io));
+  fprintf(stdout, "Write DB ID to manifest   : %d\n",
+          static_cast<int>(FLAGS_write_dbid_to_manifest));
+  fprintf(stdout, "Max Write Batch Group Size: %" PRIu64 "\n",
+          FLAGS_max_write_batch_group_size_bytes);
+  fprintf(stdout, "Use dynamic level         : %d\n",
+          static_cast<int>(FLAGS_level_compaction_dynamic_level_bytes));
 
   fprintf(stdout, "------------------------------------------------\n");
 }
@@ -1540,6 +1548,13 @@ void StressTest::Open() {
     options_.compaction_options_universal.max_size_amplification_percent =
         FLAGS_universal_max_size_amplification_percent;
     options_.atomic_flush = FLAGS_atomic_flush;
+    options_.avoid_unnecessary_blocking_io =
+        FLAGS_avoid_unnecessary_blocking_io;
+    options_.write_dbid_to_manifest = FLAGS_write_dbid_to_manifest;
+    options_.max_write_batch_group_size_bytes =
+        FLAGS_max_write_batch_group_size_bytes;
+    options_.level_compaction_dynamic_level_bytes =
+        FLAGS_level_compaction_dynamic_level_bytes;
   } else {
 #ifdef ROCKSDB_LITE
     fprintf(stderr, "--options_file not supported in lite mode\n");

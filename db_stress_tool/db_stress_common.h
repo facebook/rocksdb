@@ -200,6 +200,10 @@ DECLARE_int32(prefix_size);
 DECLARE_bool(use_merge);
 DECLARE_bool(use_full_merge_v1);
 DECLARE_int32(sync_wal_one_in);
+DECLARE_bool(avoid_unnecessary_blocking_io);
+DECLARE_bool(write_dbid_to_manifest);
+DECLARE_uint64(max_write_batch_group_size_bytes);
+DECLARE_bool(level_compaction_dynamic_level_bytes);
 
 const long KB = 1024;
 const int kRandomValueMaxFactor = 3;
