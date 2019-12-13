@@ -1764,8 +1764,10 @@ void StressTest::Open() {
 
 void StressTest::Reopen(ThreadState* thread) {
 #ifndef ROCKSDB_LITE
+  bool bg_canceled = false;
   if (thread->rand.OneIn(2)) {
     CancelAllBackgroundWork(db_, static_cast<bool>(thread->rand.OneIn(2)));
+    bg_canceled = true;
   }
 #else
   (void) thread;
@@ -1777,7 +1779,9 @@ void StressTest::Reopen(ThreadState* thread) {
   column_families_.clear();
 
 #ifndef ROCKSDB_LITE
-  if (thread->rand.OneIn(2)) {
+  // BG jobs in WritePrepared hold on to a snapshot
+  const bool write_prepared = FLAGS_use_txn && FLAGS_txn_write_policy != 0;
+  if (thread->rand.OneIn(2) && (!write_prepared || bg_canceled)) {
     Status s = db_->Close();
     if (!s.ok()) {
       fprintf(stderr, "Non-ok close status: %s\n", s.ToString().c_str());
