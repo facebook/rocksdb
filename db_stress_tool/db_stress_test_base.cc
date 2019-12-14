@@ -522,7 +522,10 @@ void StressTest::OperateDb(ThreadState* thread) {
 
       if (thread->tid == 0 && FLAGS_verify_db_one_in > 0 &&
           thread->rand.OneIn(FLAGS_verify_db_one_in)) {
-        VerifyDb(thread);
+        ContinuouslyVerifyDb(thread);
+        if (thread->shared->ShouldStopTest()) {
+          break;
+        }
       }
 
       MaybeClearOneColumnFamily(thread);
