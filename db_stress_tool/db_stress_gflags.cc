@@ -430,6 +430,9 @@ DEFINE_uint64(snapshot_hold_ops, 0,
               "If non-zero, then releases snapshots N operations after they're "
               "acquired.");
 
+DEFINE_bool(long_running_snapshots, false,
+            "If set, hold on some some snapshots for much longer time.");
+
 DEFINE_bool(use_multiget, false,
             "If set, use the batched MultiGet API for reads");
 

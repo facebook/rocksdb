@@ -175,6 +175,7 @@ DECLARE_int32(compact_range_width);
 DECLARE_int32(acquire_snapshot_one_in);
 DECLARE_bool(compare_full_db_state_snapshot);
 DECLARE_uint64(snapshot_hold_ops);
+DECLARE_bool(long_running_snapshots);
 DECLARE_bool(use_multiget);
 DECLARE_int32(readpercent);
 DECLARE_int32(prefixpercent);
