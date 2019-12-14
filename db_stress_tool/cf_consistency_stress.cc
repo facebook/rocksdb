@@ -494,6 +494,7 @@ class CfConsistencyStressTest : public StressTest {
     } while (true);
   }
 
+#ifndef ROCKSDB_LITE
   void ContinuouslyVerifyDb(ThreadState* thread) const override {
     assert(cmp_db_ != nullptr);
     Status s = cmp_db_->TryCatchUpWithPrimary();
@@ -525,7 +526,6 @@ class CfConsistencyStressTest : public StressTest {
           continue;
         }
         std::unique_ptr<Iterator> it(cmp_db_->NewIterator(ropts, cfh));
-        tmp_crc = 0;
         status = checksum_column_family(it.get(), &tmp_crc);
         if (!status.ok() || tmp_crc != crc) {
           break;
@@ -536,6 +536,7 @@ class CfConsistencyStressTest : public StressTest {
       shared->SetShouldStopTest();
     }
   }
+#endif  // !ROCKSDB_LITE
 
   std::vector<int> GenerateColumnFamilies(
       const int /* num_column_families */,
