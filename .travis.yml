@@ -18,9 +18,12 @@ addons:
       - ubuntu-toolchain-r-test
     packages:
       - curl
-      - libbz2-dev
       - libgflags-dev
+      - libbz2-dev
+      - liblz4-dev
       - libsnappy-dev
+      - liblzma-dev  # xv
+      - libzstd-dev
       - zlib1g-dev
   homebrew:
     update: true
