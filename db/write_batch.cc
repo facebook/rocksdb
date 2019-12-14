@@ -1797,6 +1797,7 @@ class MemTableInserter : public WriteBatch::Handler {
 
         if (imm->NumFlushed() > 0) {
           const MemTable* const mem = cfd->mem();
+          assert(mem);
 
           if (mem->ApproximateMemoryUsageFast() +
                       imm->ApproximateMemoryUsageExcludingLast() >=
