@@ -30,7 +30,9 @@ DEFINE_int64(max_key, 1 * KB * KB,
 
 DEFINE_int32(column_families, 10, "Number of column families");
 
-DEFINE_double(hot_key_alpha, 0, "Use Zipfian distribution to generate the key "
+DEFINE_double(
+    hot_key_alpha, 0,
+    "Use Zipfian distribution to generate the key "
     "distribution. If it is not specified, write path will use random "
     "distribution to generate the keys. The parameter is [0, double_max]). "
     "However, the larger alpha is, the more shewed will be. If alpha is "
