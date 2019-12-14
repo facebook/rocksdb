@@ -162,7 +162,7 @@ class MemTableListVersion {
   // excluding the last MemTable in memlist_history_. The reason for excluding
   // the last MemTable is to see if dropping the last MemTable will keep total
   // memory usage above or equal to max_write_buffer_size_to_maintain_
-  size_t ApproximateMemoryUsageExcludingLast();
+  size_t ApproximateMemoryUsageExcludingLast() const;
 
   bool MemtableLimitExceeded(size_t usage);
 
@@ -267,7 +267,7 @@ class MemTableList {
   size_t ApproximateMemoryUsage();
 
   // Returns the cached current_memory_usage_excluding_last_ value
-  size_t ApproximateMemoryUsageExcludingLast();
+  size_t ApproximateMemoryUsageExcludingLast() const;
 
   // Update current_memory_usage_excluding_last_ from MemtableListVersion
   void UpdateMemoryUsageExcludingLast();
