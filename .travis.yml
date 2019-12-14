@@ -24,6 +24,16 @@ addons:
       - libsnappy-dev
       - mingw-w64
       - zlib1g-dev
+  homebrew:
+    update: true
+    packages:
+      - ccache
+      - gflags
+      - lz4
+      - snappy
+      - xz
+      - zstd
+
 env:
   - TEST_GROUP=platform_dependent # 16-18 minutes
   - TEST_GROUP=1 # 33-35 minutes
@@ -59,10 +69,8 @@ matrix:
   - os : osx
     compiler: gcc
 
-# https://docs.travis-ci.com/user/caching/#ccache-cache
 install:
   - if [ "${TRAVIS_OS_NAME}" == osx ]; then
-      brew install ccache gflags zstd lz4 snappy xz;
       PATH=$PATH:/usr/local/opt/ccache/libexec;
     fi
   - if [ "${JOB_NAME}" == cmake-gcc8 ]; then
