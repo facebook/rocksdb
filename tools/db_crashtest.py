@@ -61,6 +61,7 @@ default_params = {
     "recycle_log_file_num": lambda: random.randint(0, 1),
     "reopen": 20,
     "snapshot_hold_ops": 100000,
+    "long_running_snapshots": lambda: random.randint(0, 1),
     "subcompactions": lambda: random.randint(1, 4),
     "target_file_size_base": 2097152,
     "target_file_size_multiplier": 2,
