@@ -135,7 +135,7 @@ class MemTable {
 
   // As a cheap version of `ApproximateMemoryUsage()`, this function doens't
   // require external synchronization. The value may be less accurate though
-  size_t ApproximateMemoryUsageFast() {
+  size_t ApproximateMemoryUsageFast() const {
     return approximate_memory_usage_.load(std::memory_order_relaxed);
   }
 

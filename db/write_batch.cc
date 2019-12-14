@@ -1786,14 +1786,28 @@ class MemTableInserter : public WriteBatch::Handler {
     // check if memtable_list size exceeds max_write_buffer_size_to_maintain
     if (trim_history_scheduler_ != nullptr) {
       auto* cfd = cf_mems_->current();
-      assert(cfd != nullptr);
-      if (cfd->ioptions()->max_write_buffer_size_to_maintain > 0 &&
-          cfd->mem()->ApproximateMemoryUsageFast() +
-                  cfd->imm()->ApproximateMemoryUsageExcludingLast() >=
-              static_cast<size_t>(
-                  cfd->ioptions()->max_write_buffer_size_to_maintain) &&
-          cfd->imm()->MarkTrimHistoryNeeded()) {
-        trim_history_scheduler_->ScheduleWork(cfd);
+
+      assert(cfd);
+      assert(cfd->ioptions());
+
+      const size_t size_to_maintain = static_cast<size_t>(
+          cfd->ioptions()->max_write_buffer_size_to_maintain);
+
+      if (size_to_maintain > 0) {
+        MemTableList* const imm = cfd->imm();
+        assert(imm);
+
+        if (imm->NumFlushed() > 0) {
+          const MemTable* const mem = cfd->mem();
+          assert(mem);
+
+          if (mem->ApproximateMemoryUsageFast() +
+                      imm->ApproximateMemoryUsageExcludingLast() >=
+                  size_to_maintain &&
+              imm->MarkTrimHistoryNeeded()) {
+            trim_history_scheduler_->ScheduleWork(cfd);
+          }
+        }
       }
     }
   }
