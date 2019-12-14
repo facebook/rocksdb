@@ -18,7 +18,6 @@ addons:
       - ubuntu-toolchain-r-test
     packages:
       - curl
-      - g++-8
       - libbz2-dev
       - libgflags-dev
       - libsnappy-dev
@@ -74,6 +73,7 @@ install:
       PATH=$PATH:/usr/local/opt/ccache/libexec;
     fi
   - if [ "${JOB_NAME}" == cmake-gcc8 ]; then
+      sudo apt-get install -y g++-8;
       CC=gcc-8 && CXX=g++-8;
     fi
   - if [[ "${JOB_NAME}" == cmake* ]] && [ "${TRAVIS_OS_NAME}" == linux ]; then
