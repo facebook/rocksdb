@@ -280,7 +280,7 @@ void MemTableListVersion::Remove(MemTable* m,
 }
 
 // return the total memory usage assuming the oldest flushed memtable is dropped
-size_t MemTableListVersion::ApproximateMemoryUsageExcludingLast() {
+size_t MemTableListVersion::ApproximateMemoryUsageExcludingLast() const {
   size_t total_memtable_size = 0;
   for (auto& memtable : memlist_) {
     total_memtable_size += memtable->ApproximateMemoryUsage();
@@ -566,7 +566,7 @@ size_t MemTableList::ApproximateUnflushedMemTablesMemoryUsage() {
 
 size_t MemTableList::ApproximateMemoryUsage() { return current_memory_usage_; }
 
-size_t MemTableList::ApproximateMemoryUsageExcludingLast() {
+size_t MemTableList::ApproximateMemoryUsageExcludingLast() const {
   size_t usage =
       current_memory_usage_excluding_last_.load(std::memory_order_relaxed);
   return usage;
