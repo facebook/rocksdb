@@ -99,16 +99,6 @@ ThreadStatusUpdater* CreateThreadStatusUpdater() {
   return new ThreadStatusUpdater();
 }
 
-// list of pathnames that are locked
-static std::set<std::string> lockedFiles;
-static port::Mutex mutex_lockedFiles;
-
-class PosixFileLock : public FileLock {
- public:
-  int fd_;
-  std::string filename;
-};
-
 #ifndef ROCKSDB_NO_DYNAMIC_EXTENSION
 class PosixDynamicLibrary : public DynamicLibrary {
  public:
