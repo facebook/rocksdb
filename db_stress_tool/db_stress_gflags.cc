@@ -558,7 +558,7 @@ DEFINE_bool(write_dbid_to_manifest, rocksdb::Options().write_dbid_to_manifest,
 
 DEFINE_uint64(max_write_batch_group_size_bytes,
               rocksdb::Options().max_write_batch_group_size_bytes,
-              "Max write buffer group size");
+              "Max write batch group size");
 
 DEFINE_bool(level_compaction_dynamic_level_bytes,
             rocksdb::Options().level_compaction_dynamic_level_bytes,
