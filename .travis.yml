@@ -17,7 +17,6 @@ addons:
     sources:
       - ubuntu-toolchain-r-test
     packages:
-      - curl
       - libgflags-dev
       - libbz2-dev
       - liblz4-dev
