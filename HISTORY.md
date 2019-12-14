@@ -7,6 +7,7 @@
 ### Bug Fixes
 * Fix a bug that can cause unnecessary bg thread to be scheduled(#6104).
 * Fix a bug in which a snapshot read could be affected by a DeleteRange after the snapshot (#6062).
+* Fix crash caused by concurrent CF iterations and drops(#6147).
 
 ## 6.6.0 (11/25/2019)
 ### Bug Fixes
