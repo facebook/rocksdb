@@ -1618,7 +1618,7 @@ jboolean key_may_exist_helper(JNIEnv* env, rocksdb::DB* db,
   delete[] key;
 
   // extract the value
-  if (value_found && !value.empty()) {
+  if (value_found && !value.empty() && jstring_builder != nullptr) {
     jobject jresult_string_builder =
         rocksdb::StringBuilderJni::append(env, jstring_builder, value.c_str());
     if (jresult_string_builder == nullptr) {
