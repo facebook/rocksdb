@@ -13,6 +13,10 @@ import java.util.List;
  */
 public abstract class Env extends RocksObject {
 
+  static {
+    RocksDB.loadLibrary();
+  }
+
   private static final Env DEFAULT_ENV = new RocksEnv(getDefaultEnvInternal());
   static {
     /**
