@@ -578,7 +578,8 @@ bool MemTableList::HasHistory() const {
 }
 
 void MemTableList::UpdateCachedValuesFromMemTableListVersion() {
-  const size_t total_memtable_size = current_->ApproximateMemoryUsageExcludingLast();
+  const size_t total_memtable_size =
+      current_->ApproximateMemoryUsageExcludingLast();
   current_memory_usage_excluding_last_.store(total_memtable_size,
                                              std::memory_order_relaxed);
 
