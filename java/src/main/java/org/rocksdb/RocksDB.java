@@ -2183,68 +2183,97 @@ public class RocksDB extends RocksObject {
 
   /**
    * If the key definitely does not exist in the database, then this method
-   * returns false, else true.
+   * returns null, else it returns an instance of KeyMayExistResult
    *
-   * This check is potentially lighter-weight than invoking DB::Get(). One way
-   * to make this lighter weight is to avoid doing any IOs.
+   * If the caller wants to obtain value when the key
+   * is found in memory, then {@code retrieveFoundValue} must be set.
+   *
+   * This check is potentially lighter-weight than invoking
+   * {@link #get(byte[])}. One way to make this lighter weight is to avoid
+   * doing any IOs.
    *
    * @param key byte array of a key to search for
-   * @param value StringBuilder instance which is a out parameter if a value is
-   *    found in block-cache.
-   * @return boolean value indicating if key does not exist or might exist.
+   * @param retrieveFoundValue true to retrieve the value if it is found
+   *
+   * @return null if the key definitely does not exist in the database.
+   *     {@link KeyMayExistResult#VALUE_NOT_SET} is returned
+   *     if {@code retrieveFoundValue == false} or the value could
+   *     not be retrieved properly. Otherwise, an instance
+   *     of {@link KeyMayExistResult} is returned with a value.
    */
-  public boolean keyMayExist(final byte[] key, final StringBuilder value) {
-    return keyMayExist(nativeHandle_, key, 0, key.length, value);
+  public /* @Nullable */ KeyMayExistResult keyMayExist(final byte[] key,
+      final boolean retrieveFoundValue) {
+    return keyMayExist(key, 0, key.length, retrieveFoundValue);
   }
 
   /**
    * If the key definitely does not exist in the database, then this method
-   * returns false, else true.
+   * returns null, else it returns an instance of KeyMayExistResult
    *
-   * This check is potentially lighter-weight than invoking DB::Get(). One way
-   * to make this lighter weight is to avoid doing any IOs.
+   * If the caller wants to obtain value when the key
+   * is found in memory, then {@code retrieveFoundValue} must be set.
+   *
+   * This check is potentially lighter-weight than invoking
+   * {@link #get(byte[], int, int)}. One way to make this lighter weight is to avoid
+   * doing any IOs.
    *
    * @param key byte array of a key to search for
    * @param offset the offset of the "key" array to be used, must be
    *     non-negative and no larger than "key".length
    * @param len the length of the "key" array to be used, must be non-negative
    *     and no larger than "key".length
-   * @param value StringBuilder instance which is a out parameter if a value is
-   *    found in block-cache.
+   * @param retrieveFoundValue true to retrieve the value if it is found
    *
-   * @return boolean value indicating if key does not exist or might exist.
+   * @return null if the key definitely does not exist in the database.
+   *     {@link KeyMayExistResult#VALUE_NOT_SET} is returned
+   *     if {@code retrieveFoundValue == false} or the value could
+   *     not be retrieved properly. Otherwise, an instance
+   *     of {@link KeyMayExistResult} is returned with a value.
    */
-  public boolean keyMayExist(final byte[] key, final int offset, final int len,
-      final StringBuilder value) {
-    checkBounds(offset, len, key.length);
-    return keyMayExist(nativeHandle_, key, offset, len, value);
+  public /* @Nullable */ KeyMayExistResult keyMayExist(final byte[] key,
+      final int offset, final int len, final boolean retrieveFoundValue) {
+    return keyMayExist((ColumnFamilyHandle)null, key, offset, len,
+        retrieveFoundValue);
   }
 
   /**
    * If the key definitely does not exist in the database, then this method
-   * returns false, else true.
+   * returns null, else it returns an instance of KeyMayExistResult
    *
-   * This check is potentially lighter-weight than invoking DB::Get(). One way
-   * to make this lighter weight is to avoid doing any IOs.
+   * If the caller wants to obtain value when the key
+   * is found in memory, then {@code retrieveFoundValue} must be set.
+   *
+   * This check is potentially lighter-weight than invoking
+   * {@link #get(ColumnFamilyHandle,byte[])}. One way to make this lighter
+   * weight is to avoid doing any IOs.
    *
    * @param columnFamilyHandle {@link ColumnFamilyHandle} instance
    * @param key byte array of a key to search for
-   * @param value StringBuilder instance which is a out parameter if a value is
-   *    found in block-cache.
-   * @return boolean value indicating if key does not exist or might exist.
+   * @param retrieveFoundValue true to retrieve the value if it is found
+   *
+   * @return null if the key definitely does not exist in the database.
+   *     {@link KeyMayExistResult#VALUE_NOT_SET} is returned
+   *     if {@code retrieveFoundValue == false} or the value could
+   *     not be retrieved properly. Otherwise, an instance
+   *     of {@link KeyMayExistResult} is returned with a value.
    */
-  public boolean keyMayExist(final ColumnFamilyHandle columnFamilyHandle,
-      final byte[] key, final StringBuilder value) {
-    return keyMayExist(nativeHandle_, key, 0, key.length,
-        columnFamilyHandle.nativeHandle_, value);
+  public /* @Nullable */ KeyMayExistResult keyMayExist(
+      final ColumnFamilyHandle columnFamilyHandle, final byte[] key,
+      final boolean retrieveFoundValue) {
+    return keyMayExist(columnFamilyHandle, key, 0, key.length,
+        retrieveFoundValue);
   }
 
   /**
    * If the key definitely does not exist in the database, then this method
-   * returns false, else true.
+   * returns null, else it returns an instance of KeyMayExistResult
    *
-   * This check is potentially lighter-weight than invoking DB::Get(). One way
-   * to make this lighter weight is to avoid doing any IOs.
+   * If the caller wants to obtain value when the key
+   * is found in memory, then {@code retrieveFoundValue} must be set.
+   *
+   * This check is potentially lighter-weight than invoking
+   * {@link #get(ColumnFamilyHandle, byte[], int, int)}. One way to make this
+   * lighter weight is to avoid doing any IOs.
    *
    * @param columnFamilyHandle {@link ColumnFamilyHandle} instance
    * @param key byte array of a key to search for
@@ -2252,42 +2281,59 @@ public class RocksDB extends RocksObject {
    *    non-negative and no larger than "key".length
    * @param len the length of the "key" array to be used, must be non-negative
    *    and no larger than "key".length
-   * @param value StringBuilder instance which is a out parameter if a value is
-   *    found in block-cache.
-   * @return boolean value indicating if key does not exist or might exist.
+   * @param retrieveFoundValue true to retrieve the value if it is found
+   *
+   * @return null if the key definitely does not exist in the database.
+   *     {@link KeyMayExistResult#VALUE_NOT_SET} is returned
+   *     if {@code retrieveFoundValue == false} or the value could
+   *     not be retrieved properly. Otherwise, an instance
+   *     of {@link KeyMayExistResult} is returned with a value.
    */
-  public boolean keyMayExist(final ColumnFamilyHandle columnFamilyHandle,
-      final byte[] key, int offset, int len, final StringBuilder value) {
-    checkBounds(offset, len, key.length);
-    return keyMayExist(nativeHandle_, key, offset, len,
-        columnFamilyHandle.nativeHandle_, value);
+  public /* @Nullable */ KeyMayExistResult keyMayExist(
+      final ColumnFamilyHandle columnFamilyHandle,
+      final byte[] key, int offset, int len, final boolean retrieveFoundValue) {
+    return keyMayExist(columnFamilyHandle, null, key, offset, len,
+        retrieveFoundValue);
   }
 
   /**
    * If the key definitely does not exist in the database, then this method
-   * returns false, else true.
+   * returns null, else it returns an instance of KeyMayExistResult
    *
-   * This check is potentially lighter-weight than invoking DB::Get(). One way
-   * to make this lighter weight is to avoid doing any IOs.
+   * If the caller wants to obtain value when the key
+   * is found in memory, then {@code retrieveFoundValue} must be set.
+   *
+   * This check is potentially lighter-weight than invoking
+   * {@link #get(ReadOptions, byte[])}. One way to make this
+   * lighter weight is to avoid doing any IOs.
    *
    * @param readOptions {@link ReadOptions} instance
    * @param key byte array of a key to search for
-   * @param value StringBuilder instance which is a out parameter if a value is
-   *    found in block-cache.
-   * @return boolean value indicating if key does not exist or might exist.
+   * @param retrieveFoundValue true to retrieve the value if it is found
+   *
+   * @return null if the key definitely does not exist in the database.
+   *     {@link KeyMayExistResult#VALUE_NOT_SET} is returned
+   *     if {@code retrieveFoundValue == false} or the value could
+   *     not be retrieved properly. Otherwise, an instance
+   *     of {@link KeyMayExistResult} is returned with a value.
    */
-  public boolean keyMayExist(final ReadOptions readOptions,
-      final byte[] key, final StringBuilder value) {
-    return keyMayExist(nativeHandle_, readOptions.nativeHandle_,
-        key, 0, key.length, value);
+  public /* @Nullable */ KeyMayExistResult keyMayExist(
+      final ReadOptions readOptions, final byte[] key,
+      final boolean retrieveFoundValue) {
+    return keyMayExist(readOptions, key, 0, key.length,
+        retrieveFoundValue);
   }
 
   /**
    * If the key definitely does not exist in the database, then this method
-   * returns false, else true.
+   * returns null, else it returns an instance of KeyMayExistResult
    *
-   * This check is potentially lighter-weight than invoking DB::Get(). One way
-   * to make this lighter weight is to avoid doing any IOs.
+   * If the caller wants to obtain value when the key
+   * is found in memory, then {@code retrieveFoundValue} must be set.
+   *
+   * This check is potentially lighter-weight than invoking
+   * {@link #get(ReadOptions, byte[], int, int)}. One way to make this
+   * lighter weight is to avoid doing any IOs.
    *
    * @param readOptions {@link ReadOptions} instance
    * @param key byte array of a key to search for
@@ -2295,65 +2341,104 @@ public class RocksDB extends RocksObject {
    *     non-negative and no larger than "key".length
    * @param len the length of the "key" array to be used, must be non-negative
    *     and no larger than "key".length
-   * @param value StringBuilder instance which is a out parameter if a value is
-   *    found in block-cache.
-   * @return boolean value indicating if key does not exist or might exist.
+   * @param retrieveFoundValue true to retrieve the value if it is found
+   *
+   * @return null if the key definitely does not exist in the database.
+   *     {@link KeyMayExistResult#VALUE_NOT_SET} is returned
+   *     if {@code retrieveFoundValue == false} or the value could
+   *     not be retrieved properly. Otherwise, an instance
+   *     of {@link KeyMayExistResult} is returned with a value.
    */
-  public boolean keyMayExist(final ReadOptions readOptions,
+  public /* @Nullable */ KeyMayExistResult keyMayExist(
+      final ReadOptions readOptions,
       final byte[] key, final int offset, final int len,
-      final StringBuilder value) {
-    checkBounds(offset, len, key.length);
-    return keyMayExist(nativeHandle_, readOptions.nativeHandle_,
-        key, offset, len, value);
+      final boolean retrieveFoundValue) {
+    return keyMayExist(null, readOptions,
+        key, offset, len, retrieveFoundValue);
   }
 
   /**
    * If the key definitely does not exist in the database, then this method
-   * returns false, else true.
+   * returns null, else it returns an instance of KeyMayExistResult
    *
-   * This check is potentially lighter-weight than invoking DB::Get(). One way
-   * to make this lighter weight is to avoid doing any IOs.
+   * If the caller wants to obtain value when the key
+   * is found in memory, then {@code retrieveFoundValue} must be set.
    *
-   * @param readOptions {@link ReadOptions} instance
+   * This check is potentially lighter-weight than invoking
+   * {@link #get(ColumnFamilyHandle, ReadOptions, byte[])}. One way to make this
+   * lighter weight is to avoid doing any IOs.
+   *
    * @param columnFamilyHandle {@link ColumnFamilyHandle} instance
+   * @param readOptions {@link ReadOptions} instance
    * @param key byte array of a key to search for
-   * @param value StringBuilder instance which is a out parameter if a value is
-   *    found in block-cache.
-   * @return boolean value indicating if key does not exist or might exist.
+   * @param retrieveFoundValue true to retrieve the value if it is found
+   *
+   * @return null if the key definitely does not exist in the database.
+   *     {@link KeyMayExistResult#VALUE_NOT_SET} is returned
+   *     if {@code retrieveFoundValue == false} or the value could
+   *     not be retrieved properly. Otherwise, an instance
+   *     of {@link KeyMayExistResult} is returned with a value.
    */
-  public boolean keyMayExist(final ReadOptions readOptions,
-      final ColumnFamilyHandle columnFamilyHandle, final byte[] key,
-      final StringBuilder value) {
-    return keyMayExist(nativeHandle_, readOptions.nativeHandle_,
-        key, 0, key.length, columnFamilyHandle.nativeHandle_,
-        value);
+  public /* @Nullable */ KeyMayExistResult keyMayExist(
+      final ColumnFamilyHandle columnFamilyHandle,
+      final ReadOptions readOptions, final byte[] key,
+      final boolean retrieveFoundValue) {
+    return keyMayExist(columnFamilyHandle, readOptions,
+        key, 0, key.length, retrieveFoundValue);
   }
 
   /**
    * If the key definitely does not exist in the database, then this method
-   * returns false, else true.
+   * returns null, else it returns an instance of KeyMayExistResult
    *
-   * This check is potentially lighter-weight than invoking DB::Get(). One way
-   * to make this lighter weight is to avoid doing any IOs.
+   * If the caller wants to obtain value when the key
+   * is found in memory, then {@code retrieveFoundValue} must be set.
    *
-   * @param readOptions {@link ReadOptions} instance
+   * This check is potentially lighter-weight than invoking
+   * {@link #get(ColumnFamilyHandle, ReadOptions, byte[], int, int)}.
+   * One way to make this lighter weight is to avoid doing any IOs.
+   *
    * @param columnFamilyHandle {@link ColumnFamilyHandle} instance
+   * @param readOptions {@link ReadOptions} instance
    * @param key byte array of a key to search for
    * @param offset the offset of the "key" array to be used, must be
    *     non-negative and no larger than "key".length
    * @param len the length of the "key" array to be used, must be non-negative
    *     and no larger than "key".length
-   * @param value StringBuilder instance which is a out parameter if a value is
-   *    found in block-cache.
-   * @return boolean value indicating if key does not exist or might exist.
+   * @param retrieveFoundValue true to retrieve the value if it is found
+   *
+   * @return null if the key definitely does not exist in the database.
+   *     {@link KeyMayExistResult#VALUE_NOT_SET} is returned
+   *     if {@code retrieveFoundValue == false} or the value could
+   *     not be retrieved properly. Otherwise, an instance
+   *     of {@link KeyMayExistResult} is returned with a value.
    */
-  public boolean keyMayExist(final ReadOptions readOptions,
-      final ColumnFamilyHandle columnFamilyHandle, final byte[] key,
-      final int offset, final int len, final StringBuilder value) {
+  public /* @Nullable */ KeyMayExistResult keyMayExist(
+      final ColumnFamilyHandle columnFamilyHandle,
+      final ReadOptions readOptions,
+      final byte[] key, final int offset, final int len,
+      final boolean retrieveFoundValue) {
     checkBounds(offset, len, key.length);
-    return keyMayExist(nativeHandle_, readOptions.nativeHandle_,
-        key, offset, len, columnFamilyHandle.nativeHandle_,
-        value);
+    if (!retrieveFoundValue) {
+      return keyMayExist(nativeHandle_,
+          columnFamilyHandle == null ? 0 : columnFamilyHandle.nativeHandle_,
+          readOptions == null ? 0 : readOptions.nativeHandle_,
+          key, offset, len)
+          ? KeyMayExistResult.VALUE_NOT_SET : null;
+    } else {
+      final byte[][] result = keyMayExistFoundValue(
+          nativeHandle_,
+          columnFamilyHandle == null ? 0 : columnFamilyHandle.nativeHandle_,
+          readOptions == null ? 0 : readOptions.nativeHandle_,
+          key, offset, len);
+      if (result[0][0] == 0x0) {
+        return null;
+      } else if (result[0][0] == 0x1) {
+        return KeyMayExistResult.VALUE_NOT_SET;
+      } else {
+        return new KeyMayExistResult(result[1]);
+      }
+    }
   }
 
   /**
@@ -4083,19 +4168,12 @@ public class RocksDB extends RocksObject {
   private native byte[][] multiGet(final long dbHandle, final long rOptHandle,
       final byte[][] keys, final int[] keyOffsets, final int[] keyLengths,
       final long[] columnFamilyHandles);
-  private native boolean keyMayExist(final long handle, final byte[] key,
-      final int keyOffset, final int keyLength,
-      final StringBuilder stringBuilder);
-  private native boolean keyMayExist(final long handle, final byte[] key,
-      final int keyOffset, final int keyLength, final long cfHandle,
-      final StringBuilder stringBuilder);
-  private native boolean keyMayExist(final long handle,
-      final long optionsHandle, final byte[] key, final int keyOffset,
-      final int keyLength, final StringBuilder stringBuilder);
-  private native boolean keyMayExist(final long handle,
-      final long optionsHandle, final byte[] key, final int keyOffset,
-      final int keyLength, final long cfHandle,
-      final StringBuilder stringBuilder);
+  private native boolean keyMayExist(
+      final long handle, final long cfHandle, final long readOptHandle,
+      final byte[] key, final int keyOffset, final int keyLength);
+  private native byte[][] keyMayExistFoundValue(
+      final long handle, final long cfHandle, final long readOptHandle,
+      final byte[] key, final int keyOffset, final int keyLength);
   private native long iterator(final long handle);
   private native long iterator(final long handle, final long readOptHandle);
   private native long iteratorCF(final long handle, final long cfHandle);

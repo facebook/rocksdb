@@ -147,6 +147,7 @@ set(JAVA_MAIN_CLASSES
   src/main/java/org/rocksdb/IndexType.java
   src/main/java/org/rocksdb/InfoLogLevel.java
   src/main/java/org/rocksdb/IngestExternalFileOptions.java
+  src/main/java/org/rocksdb/KeyMayExistResult.java
   src/main/java/org/rocksdb/LevelMetaData.java
   src/main/java/org/rocksdb/LiveFileMetaData.java
   src/main/java/org/rocksdb/LogFile.java
