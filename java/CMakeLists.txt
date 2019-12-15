@@ -258,6 +258,11 @@ set(JAVA_TEST_CLASSES
 
 include(FindJava)
 include(UseJava)
+
+set(JAVA_AWT_LIBRARY NotNeeded)
+set(JAVA_JVM_LIBRARY NotNeeded)
+set(JAVA_INCLUDE_PATH2 NotNeeded)
+set(JAVA_AWT_INCLUDE_PATH NotNeeded)
 find_package(JNI)
 
 include_directories(${JNI_INCLUDE_DIRS})
@@ -481,16 +486,23 @@ if(NOT MSVC)
   set_property(TARGET ${ROCKSDB_STATIC_LIB} PROPERTY POSITION_INDEPENDENT_CODE ON)
 endif()
 
-set(ROCKSDBJNI_STATIC_LIB rocksdbjni${ARTIFACT_SUFFIX})
-add_library(${ROCKSDBJNI_STATIC_LIB} ${JNI_NATIVE_SOURCES})
-add_dependencies(${ROCKSDBJNI_STATIC_LIB} rocksdbjni_headers)
-target_link_libraries(${ROCKSDBJNI_STATIC_LIB} ${ROCKSDB_STATIC_LIB} ${LIBS})
+if(NOT CMAKE_SYSTEM_NAME MATCHES "Android")
+  set(ROCKSDBJNI_STATIC_LIB "rocksdbjni${ARTIFACT_SUFFIX}")
+  add_library(${ROCKSDBJNI_STATIC_LIB} ${JNI_NATIVE_SOURCES})
+  add_dependencies(${ROCKSDBJNI_STATIC_LIB} rocksdbjni_headers)
+  target_link_libraries(${ROCKSDBJNI_STATIC_LIB} ${ROCKSDB_STATIC_LIB} ${LIBS})
+endif()
 
 if(NOT MINGW)
-  set(ROCKSDBJNI_SHARED_LIB rocksdbjni-shared${ARTIFACT_SUFFIX})
+  if(CMAKE_SYSTEM_NAME MATCHES "Android")
+    # On Android the shared lib is used in generating the JNI
+    set(ROCKSDBJNI_SHARED_LIB "rocksdbjni${ARTIFACT_SUFFIX}")
+  else ()
+    set(ROCKSDBJNI_SHARED_LIB "rocksdbjni-shared${ARTIFACT_SUFFIX}")
+  endif()
   add_library(${ROCKSDBJNI_SHARED_LIB} SHARED ${JNI_NATIVE_SOURCES})
   add_dependencies(${ROCKSDBJNI_SHARED_LIB} rocksdbjni_headers)
-  target_link_libraries(${ROCKSDBJNI_SHARED_LIB} ${ROCKSDB_STATIC_LIB} ${LIBS})
+  target_link_libraries(${ROCKSDBJNI_SHARED_LIB} ${ROCKSDB_STATIC_LIB} ${THIRDPARTY_LIBS} ${SYSTEM_LIBS})
 
   set_target_properties(
     ${ROCKSDBJNI_SHARED_LIB}
