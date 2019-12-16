@@ -22,12 +22,12 @@ class SliceTransform;
 // written to the file system. The checksum is stored in the Manifest
 class SstFileChecksum {
  public:
-
   virtual ~SstFileChecksum() {}
   // Return the checksum of concat (A, data[0,n-1]) where init_checksum is the
   // returned value of some string A. It is used to maintain the checksum of a
   // stream of data
-  virtual uint32_t Extend(uint32_t init_checksum, const char* data, size_t n) = 0;
+  virtual uint32_t Extend(uint32_t init_checksum, const char* data,
+                          size_t n) = 0;
 
   // Return the checksum value of data[0,n-1]
   virtual uint32_t Value(const char* data, size_t n) = 0;

@@ -337,7 +337,8 @@ void WritableFileWriter::CalculateFileChecksum(const Slice& data) {
       file_checksum_ = checksum_cal_->Value(data.data(), data.size());
       is_first_checksum_ = false;
     } else {
-      file_checksum_ = checksum_cal_->Extend(file_checksum_, data.data(), data.size());
+      file_checksum_ =
+          checksum_cal_->Extend(file_checksum_, data.data(), data.size());
     }
   }
 }
