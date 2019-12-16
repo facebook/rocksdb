@@ -54,8 +54,8 @@ ROT13BlockCipher rot13Cipher_(16);
 DBTestBase::DBTestBase(const std::string path)
     : mem_env_(nullptr),
       encrypted_env_(nullptr),
-      s3_env_(nullptr),
-      option_config_(kDefault) {
+      option_config_(kDefault),
+      s3_env_(nullptr) {
   Env* base_env = Env::Default();
 #ifndef ROCKSDB_LITE
   const char* test_env_uri = getenv("TEST_ENV_URI");
@@ -196,6 +196,12 @@ bool DBTestBase::ChangeOptions(int skip_mask) {
      break;
    }
    if (option_config_ >= kEnd) {
+#ifndef USE_AWS
+     // If not built for AWS, skip it
+     if (option_env_ + 1 == kAwsEnv) {
+       option_env_++;
+     }
+#endif
      if (option_env_ + 1 >= kEndEnv) {
        Destroy(last_options_);
        return false;
@@ -639,7 +645,7 @@ Env* DBTestBase::CreateNewAwsEnv(const std::string& prefix) {
   ((AwsEnv*)cenv)->TEST_SetFileDeletionDelay(std::chrono::seconds(0));
   ROCKS_LOG_INFO(info_log_, "Created new aws env with path %s", prefix.c_str());
   if (!st.ok()) {
-    Log(InfoLogLevel::DEBUG_LEVEL, info_log_, st.ToString().c_str());
+    Log(InfoLogLevel::DEBUG_LEVEL, info_log_, "%s", st.ToString().c_str());
   }
   assert(st.ok() && cenv);
   return cenv;

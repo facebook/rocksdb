@@ -436,27 +436,4 @@ FragmentedRangeTombstoneIterator::SplitBySnapshot(
   return splits;
 }
 
-std::map<SequenceNumber, std::unique_ptr<FragmentedRangeTombstoneIterator>>
-FragmentedRangeTombstoneIterator::SplitBySnapshot(
-    const std::vector<SequenceNumber>& snapshots) {
-  std::map<SequenceNumber, std::unique_ptr<FragmentedRangeTombstoneIterator>>
-      splits;
-  SequenceNumber lower = 0;
-  SequenceNumber upper;
-  for (size_t i = 0; i <= snapshots.size(); i++) {
-    if (i >= snapshots.size()) {
-      upper = kMaxSequenceNumber;
-    } else {
-      upper = snapshots[i];
-    }
-    if (tombstones_->ContainsRange(lower, upper)) {
-      splits.emplace(upper, std::unique_ptr<FragmentedRangeTombstoneIterator>(
-                                new FragmentedRangeTombstoneIterator(
-                                    tombstones_, *icmp_, upper, lower)));
-    }
-    lower = upper + 1;
-  }
-  return splits;
-}
-
 }  // namespace rocksdb

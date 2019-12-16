@@ -273,6 +273,10 @@ struct BlockContents {
   // The additional memory space taken by the block data.
   size_t usable_size() const {
     if (allocation.get() != nullptr) {
+      auto allocator = allocation.get_deleter().allocator;
+      if (allocator) {
+        return allocator->UsableSize(allocation.get(), data.size());
+      }
 #ifdef ROCKSDB_MALLOC_USABLE_SIZE
       return malloc_usable_size(allocation.get());
 #else

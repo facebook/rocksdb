@@ -650,7 +650,7 @@ void BlockCacheTraceAnalyzer::WriteCorrelationFeaturesToFile(
     const std::map<std::string, Features>& label_features,
     const std::map<std::string, Predictions>& label_predictions,
     uint32_t max_number_of_values) const {
-  std::default_random_engine rand_engine(env_->NowMicros());
+  std::default_random_engine rand_engine(static_cast<std::default_random_engine::result_type>(env_->NowMicros()));
   for (auto const& label_feature_vectors : label_features) {
     const Features& past = label_feature_vectors.second;
     auto it = label_predictions.find(label_feature_vectors.first);

@@ -481,27 +481,6 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
   }
 
   if (s.ok()) {
-    autovector<ColumnFamilyData*> tmp_cfds;
-    autovector<const autovector<MemTable*>*> mems_list;
-    autovector<const MutableCFOptions*> mutable_cf_options_list;
-    autovector<FileMetaData*> tmp_file_meta;
-    for (int i = 0; i != num_cfs; ++i) {
-      const auto& mems = jobs[i].GetMemTables();
-      if (!cfds[i]->IsDropped() && !mems.empty()) {
-        tmp_cfds.emplace_back(cfds[i]);
-        mems_list.emplace_back(&mems);
-        mutable_cf_options_list.emplace_back(&all_mutable_cf_options[i]);
-        tmp_file_meta.emplace_back(&file_meta[i]);
-      }
-    }
-
-    s = InstallMemtableAtomicFlushResults(
-        nullptr /* imm_lists */, tmp_cfds, mutable_cf_options_list, mems_list,
-        versions_.get(), &mutex_, tmp_file_meta,
-        &job_context->memtables_to_free, directories_.GetDbDir(), log_buffer);
-  }
-
-  if (s.ok() || s.IsShutdownInProgress()) {
     assert(num_cfs ==
            static_cast<int>(job_context->superversion_contexts.size()));
     for (int i = 0; i != num_cfs; ++i) {

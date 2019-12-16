@@ -23,7 +23,6 @@
 #include "test_util/testharness.h"
 #include "util/cast_util.h"
 #include "util/random.h"
-#include "util/sst_file_manager_impl.h"
 #include "util/string_util.h"
 #include "utilities/blob_db/blob_db.h"
 #include "utilities/blob_db/blob_db_impl.h"
