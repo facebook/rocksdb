@@ -82,14 +82,14 @@ default_params = {
     # Test small max_manifest_file_size in a smaller chance, as most of the
     # time we wnat manifest history to be preserved to help debug
     "max_manifest_file_size" : lambda : random.choice(
-        [t * 16384 if t < 3 else 1024 * 1024 * 1024 for t in range(1,30)]),
+        [t * 16384 if t < 3 else 1024 * 1024 * 1024 for t in range(1, 30)]),
     # Sync mode might make test runs slower so running it in a smaller chance
     "sync" : lambda : random.choice(
         [0 if t == 0 else 1 for t in range(1, 20)]),
     "compaction_readahead_size" : lambda : random.choice(
         [0, 0, 1024 * 1024]),
     "db_write_buffer_size" : lambda: random.choice(
-        [0, 0, 0, 1024 * 1024, 8 * 1024 * 1024, 128 * 1024 * 1024]), 
+        [0, 0, 0, 1024 * 1024, 8 * 1024 * 1024, 128 * 1024 * 1024]),
     "avoid_unnecessary_blocking_io" : random.randint(0, 1),
     "write_dbid_to_manifest" : random.randint(0, 1),
     "max_write_batch_group_size_bytes" : lambda: random.choice(
