@@ -1795,7 +1795,7 @@ class MemTableInserter : public WriteBatch::Handler {
         MemTableList* const imm = cfd->imm();
         assert(imm);
 
-        if (imm->NumFlushed() > 0) {
+        if (imm->HasHistory()) {
           const MemTable* const mem = cfd->mem();
           assert(mem);
 
