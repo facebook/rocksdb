@@ -1774,7 +1774,7 @@ void StressTest::Reopen(ThreadState* thread) {
   bool bg_canceled = false;
   if (thread->rand.OneIn(2)) {
     const bool wait = static_cast<bool>(thread->rand.OneIn(2);
-    CancelAllBackgroundWork(db_, wait));
+    CancelAllBackgroundWork(db_, wait);
     bg_canceled = wait;
   }
 #else
