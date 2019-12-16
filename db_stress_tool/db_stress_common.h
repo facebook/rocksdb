@@ -36,6 +36,7 @@
 
 #include "db/db_impl/db_impl.h"
 #include "db/version_set.h"
+#include "db_stress_tool/db_stress_env_wrapper.h"
 #include "db_stress_tool/db_stress_listener.h"
 #include "db_stress_tool/db_stress_shared_state.h"
 #include "db_stress_tool/db_stress_test_base.h"
@@ -207,8 +208,8 @@ const long KB = 1024;
 const int kRandomValueMaxFactor = 3;
 const int kValueMaxLen = 100;
 
-// posix or hdfs environment
-extern rocksdb::Env* FLAGS_env;
+// wrapped posix or hdfs environment
+extern rocksdb::DbStressEnvWrapper* FLAGS_env;
 
 extern enum rocksdb::CompressionType FLAGS_compression_type_e;
 extern enum rocksdb::ChecksumType FLAGS_checksum_type_e;
