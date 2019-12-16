@@ -53,11 +53,13 @@ if [ -z "$ROCKSDB_NO_FBCODE" -a -d /mnt/gvfs/third-party ]; then
     FBCODE_BUILD="true"
     # If we're compiling with TSAN we need pic build
     PIC_BUILD=$COMPILE_WITH_TSAN
-    if [ -z "$ROCKSDB_FBCODE_BUILD_WITH_481" ]; then
-      source "$PWD/build_tools/fbcode_config.sh"
-    else
+    if [ -n "$ROCKSDB_FBCODE_BUILD_WITH_481" ]; then
       # we need this to build with MySQL. Don't use for other purposes.
       source "$PWD/build_tools/fbcode_config4.8.1.sh"
+    elif [ -n "$ROCKSDB_FBCODE_BUILD_WITH_5xx" ]; then
+      source "$PWD/build_tools/fbcode_config.sh"
+    else
+      source "$PWD/build_tools/fbcode_config_platform007.sh"
     fi
 fi
 
@@ -148,6 +150,9 @@ case "$TARGET_OS" in
             PLATFORM_LDFLAGS="$PLATFORM_LDFLAGS -latomic"
         fi
         PLATFORM_LDFLAGS="$PLATFORM_LDFLAGS -lpthread -lrt"
+        if test -z "$USE_FOLLY_DISTRIBUTED_MUTEX"; then
+          USE_FOLLY_DISTRIBUTED_MUTEX=1
+        fi
         # PORT_FILES=port/linux/linux_specific.cc
         ;;
     SunOS)
@@ -232,7 +237,7 @@ else
           #include <linux/falloc.h>
           int main() {
       int fd = open("/dev/null", 0);
-      fallocate(fd, FALLOC_FL_KEEP_SIZE | FALLOC_FL_PUNCH_HOLE, 0, 1024);
+      fallocate(fd, FALLOC_FL_KEEP_SIZE, 0, 1024);
           }
 EOF
         if [ "$?" = 0 ]; then
@@ -368,6 +373,16 @@ EOF
             # JEMALLOC can be enabled either using the flag (like here) or by
             # providing direct link to the jemalloc library
             WITH_JEMALLOC_FLAG=1
+            # check for JEMALLOC installed with HomeBrew
+            if [ "$PLATFORM" == "OS_MACOSX" ]; then
+                if hash brew 2>/dev/null && brew ls --versions jemalloc > /dev/null; then
+                    JEMALLOC_VER=$(brew ls --versions jemalloc | tail -n 1 | cut -f 2 -d ' ')
+                    JEMALLOC_INCLUDE="-I/usr/local/Cellar/jemalloc/${JEMALLOC_VER}/include"
+                    JEMALLOC_LIB="/usr/local/Cellar/jemalloc/${JEMALLOC_VER}/lib/libjemalloc_pic.a"
+                    PLATFORM_LDFLAGS="$PLATFORM_LDFLAGS $JEMALLOC_LIB"
+                    JAVA_STATIC_LDFLAGS="$JAVA_STATIC_LDFLAGS $JEMALLOC_LIB"
+                fi
+            fi
         fi
     fi
     if ! test $JEMALLOC && ! test $ROCKSDB_DISABLE_TCMALLOC; then
@@ -385,6 +400,7 @@ EOF
           #include <malloc.h>
           int main() {
             size_t res = malloc_usable_size(0);
+            (void)res;
             return 0;
           }
 EOF
@@ -399,6 +415,7 @@ EOF
           #include <pthread.h>
           int main() {
             int x = PTHREAD_MUTEX_ADAPTIVE_NP;
+            (void)x;
             return 0;
           }
 EOF
@@ -410,7 +427,7 @@ EOF
     if ! test $ROCKSDB_DISABLE_BACKTRACE; then
         # Test whether backtrace is available
         $CXX $CFLAGS -x c++ - -o /dev/null 2>/dev/null  <<EOF
-          #include <execinfo.h>>
+          #include <execinfo.h>
           int main() {
             void* frames[1];
             backtrace_symbols(frames, backtrace(frames, 1));
@@ -468,6 +485,7 @@ EOF
           #include <sched.h>
           int main() {
             int cpuid = sched_getcpu();
+            (void)cpuid;
           }
 EOF
         if [ "$?" = 0 ]; then
@@ -503,11 +521,11 @@ fi
 
 if test "$USE_HDFS"; then
   if test -z "$JAVA_HOME"; then
-    echo "JAVA_HOME has to be set for HDFS usage."
+    echo "JAVA_HOME has to be set for HDFS usage." >&2
     exit 1
   fi
-  HDFS_CCFLAGS="$HDFS_CCFLAGS -I$JAVA_HOME/include -I$JAVA_HOME/include/linux -DUSE_HDFS"
-  HDFS_LDFLAGS="$HDFS_LDFLAGS -lhdfs -L$JAVA_HOME/jre/lib/amd64"
+  HDFS_CCFLAGS="$HDFS_CCFLAGS -I$JAVA_HOME/include -I$JAVA_HOME/include/linux -DUSE_HDFS -I$HADOOP_HOME/include"
+  HDFS_LDFLAGS="$HDFS_LDFLAGS -lhdfs -L$JAVA_HOME/jre/lib/amd64 -L$HADOOP_HOME/lib/native"
   HDFS_LDFLAGS="$HDFS_LDFLAGS -L$JAVA_HOME/jre/lib/amd64/server -L$GLIBC_RUNTIME_PATH/lib"
   HDFS_LDFLAGS="$HDFS_LDFLAGS -ldl -lverify -ljava -ljvm"
   COMMON_FLAGS="$COMMON_FLAGS $HDFS_CCFLAGS"
@@ -538,42 +556,62 @@ if [ "${USE_KAFKA}XXX" = "1XXX" ]; then
   PLATFORM_LDFLAGS="-lrdkafka++ $PLATFORM_LDFLAGS"
 fi
 
-if test -z "$PORTABLE"; then
+if test "0$PORTABLE" -eq 0; then
   if test -n "`echo $TARGET_ARCHITECTURE | grep ^ppc64`"; then
     # Tune for this POWER processor, treating '+' models as base models
     POWER=`LD_SHOW_AUXV=1 /bin/true | grep AT_PLATFORM | grep -E -o power[0-9]+`
     COMMON_FLAGS="$COMMON_FLAGS -mcpu=$POWER -mtune=$POWER "
   elif test -n "`echo $TARGET_ARCHITECTURE | grep ^s390x`"; then
     COMMON_FLAGS="$COMMON_FLAGS -march=z10 "
-  elif test -n "`echo $TARGET_ARCHITECTURE | grep ^arm`"; then
+  elif test -n "`echo $TARGET_ARCHITECTURE | grep -e^arm -e^aarch64`"; then
     # TODO: Handle this with approprite options.
+    COMMON_FLAGS="$COMMON_FLAGS"
+  elif test -n "`echo $TARGET_ARCHITECTURE | grep ^aarch64`"; then
     COMMON_FLAGS="$COMMON_FLAGS"
   elif [ "$TARGET_OS" == "IOS" ]; then
     COMMON_FLAGS="$COMMON_FLAGS"
-  elif [ "$TARGET_OS" != "AIX" ] && [ "$TARGET_OS" != "SunOS" ]; then
+  elif [ "$TARGET_OS" == "AIX" ] || [ "$TARGET_OS" == "SunOS" ]; then
+    # TODO: Not sure why we don't use -march=native on these OSes
+    if test "$USE_SSE"; then
+      TRY_SSE_ETC="1"
+    fi
+  else
     COMMON_FLAGS="$COMMON_FLAGS -march=native "
-  elif test "$USE_SSE"; then
-    COMMON_FLAGS="$COMMON_FLAGS -msse4.2 -mpclmul"
   fi
-elif test "$USE_SSE"; then
-  COMMON_FLAGS="$COMMON_FLAGS -msse4.2 -mpclmul"
+else
+  # PORTABLE=1
+  if test "$USE_SSE"; then
+    TRY_SSE_ETC="1"
+  fi
 fi
 
-$CXX $PLATFORM_CXXFLAGS $COMMON_FLAGS -x c++ - -o /dev/null 2>/dev/null <<EOF
+if test "$TRY_SSE_ETC"; then
+  # The USE_SSE flag now means "attempt to compile with widely-available
+  # Intel architecture extensions utilized by specific optimizations in the
+  # source code." It's a qualifier on PORTABLE=1 that means "mostly portable."
+  # It doesn't even really check that your current CPU is compatible.
+  #
+  # SSE4.2 available since nehalem, ca. 2008-2010
+  TRY_SSE42="-msse4.2"
+  # PCLMUL available since westmere, ca. 2010-2011
+  TRY_PCLMUL="-mpclmul"
+fi
+
+$CXX $PLATFORM_CXXFLAGS $COMMON_FLAGS $TRY_SSE42 -x c++ - -o /dev/null 2>/dev/null <<EOF
   #include <cstdint>
   #include <nmmintrin.h>
   int main() {
     volatile uint32_t x = _mm_crc32_u32(0, 0);
+    (void)x;
   }
 EOF
 if [ "$?" = 0 ]; then
-  COMMON_FLAGS="$COMMON_FLAGS -DHAVE_SSE42"
+  COMMON_FLAGS="$COMMON_FLAGS $TRY_SSE42 -DHAVE_SSE42"
 elif test "$USE_SSE"; then
-  echo "warning: USE_SSE specified but compiler could not use SSE intrinsics, disabling"
-  exit 1
+  echo "warning: USE_SSE specified but compiler could not use SSE intrinsics, disabling" >&2
 fi
 
-$CXX $PLATFORM_CXXFLAGS $COMMON_FLAGS -x c++ - -o /dev/null 2>/dev/null <<EOF
+$CXX $PLATFORM_CXXFLAGS $COMMON_FLAGS $TRY_PCLMUL -x c++ - -o /dev/null 2>/dev/null <<EOF
   #include <cstdint>
   #include <wmmintrin.h>
   int main() {
@@ -581,13 +619,13 @@ $CXX $PLATFORM_CXXFLAGS $COMMON_FLAGS -x c++ - -o /dev/null 2>/dev/null <<EOF
     const auto b = _mm_set_epi64x(0, 0);
     const auto c = _mm_clmulepi64_si128(a, b, 0x00);
     auto d = _mm_cvtsi128_si64(c);
+    (void)d;
   }
 EOF
 if [ "$?" = 0 ]; then
-  COMMON_FLAGS="$COMMON_FLAGS -DHAVE_PCLMUL"
+  COMMON_FLAGS="$COMMON_FLAGS $TRY_PCLMUL -DHAVE_PCLMUL"
 elif test "$USE_SSE"; then
-  echo "warning: USE_SSE specified but compiler could not use PCLMUL intrinsics, disabling"
-  exit 1
+  echo "warning: USE_SSE specified but compiler could not use PCLMUL intrinsics, disabling" >&2
 fi
 
 # iOS doesn't support thread-local storage, but this check would erroneously
@@ -600,10 +638,24 @@ if [ "$PLATFORM" != IOS ]; then
   #endif
   int main() {
     static __thread int tls;
+    (void)tls;
   }
 EOF
   if [ "$?" = 0 ]; then
     COMMON_FLAGS="$COMMON_FLAGS -DROCKSDB_SUPPORT_THREAD_LOCAL"
+  fi
+fi
+
+if [ "$FBCODE_BUILD" != "true" -a "$PLATFORM" = OS_LINUX ]; then
+  $CXX $COMMON_FLAGS $PLATFORM_SHARED_CFLAGS -x c++ -c - -o test_dl.o 2>/dev/null <<EOF
+  void dummy_func() {}
+EOF
+  if [ "$?" = 0 ]; then
+    $CXX $COMMON_FLAGS $PLATFORM_SHARED_LDFLAGS test_dl.o -o /dev/null 2>/dev/null
+    if [ "$?" = 0 ]; then
+      EXEC_LDFLAGS+="-ldl"
+      rm -f test_dl.o
+    fi
   fi
 fi
 
@@ -651,3 +703,6 @@ if test -n "$WITH_JEMALLOC_FLAG"; then
   echo "WITH_JEMALLOC_FLAG=$WITH_JEMALLOC_FLAG" >> "$OUTPUT"
 fi
 echo "LUA_PATH=$LUA_PATH" >> "$OUTPUT"
+if test -n "$USE_FOLLY_DISTRIBUTED_MUTEX"; then
+  echo "USE_FOLLY_DISTRIBUTED_MUTEX=$USE_FOLLY_DISTRIBUTED_MUTEX" >> "$OUTPUT"
+fi

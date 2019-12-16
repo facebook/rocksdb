@@ -1,3 +1,4 @@
+// Copyright (c) Facebook, Inc. and its affiliates. All Rights Reserved.
 //  Copyright (c) 2015, Red Hat, Inc.  All rights reserved.
 //  This source code is licensed under both the GPLv2 (found in the
 //  COPYING file in the root directory) and Apache 2.0 License
@@ -7,7 +8,7 @@
 
 #include "rocksdb/utilities/env_mirror.h"
 #include "env/mock_env.h"
-#include "util/testharness.h"
+#include "test_util/testharness.h"
 
 namespace rocksdb {
 

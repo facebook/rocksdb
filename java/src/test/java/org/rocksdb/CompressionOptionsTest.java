@@ -50,4 +50,22 @@ public class CompressionOptionsTest {
       assertThat(opt.maxDictBytes()).isEqualTo(maxDictBytes);
     }
   }
+
+  @Test
+  public void zstdMaxTrainBytes() {
+    final int zstdMaxTrainBytes = 999;
+    try(final CompressionOptions opt = new CompressionOptions()) {
+      opt.setZStdMaxTrainBytes(zstdMaxTrainBytes);
+      assertThat(opt.zstdMaxTrainBytes()).isEqualTo(zstdMaxTrainBytes);
+    }
+  }
+
+  @Test
+  public void enabled() {
+    try(final CompressionOptions opt = new CompressionOptions()) {
+      assertThat(opt.enabled()).isFalse();
+      opt.setEnabled(true);
+      assertThat(opt.enabled()).isTrue();
+    }
+  }
 }

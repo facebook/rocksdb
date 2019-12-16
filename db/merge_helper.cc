@@ -64,8 +64,8 @@ Status MergeHelper::TimedFullMerge(const MergeOperator* merge_operator,
   }
 
   if (update_num_ops_stats) {
-    MeasureTime(statistics, READ_NUM_MERGE_OPERANDS,
-                static_cast<uint64_t>(operands.size()));
+    RecordInHistogram(statistics, READ_NUM_MERGE_OPERANDS,
+                      static_cast<uint64_t>(operands.size()));
   }
 
   bool success;
@@ -138,7 +138,11 @@ Status MergeHelper::MergeUntil(InternalIterator* iter,
   // orig_ikey is backed by original_key if keys_.empty()
   // orig_ikey is backed by keys_.back() if !keys_.empty()
   ParsedInternalKey orig_ikey;
-  ParseInternalKey(original_key, &orig_ikey);
+  bool succ = ParseInternalKey(original_key, &orig_ikey);
+  assert(succ);
+  if (!succ) {
+    return Status::Corruption("Cannot parse key in MergeUntil");
+  }
 
   Status s;
   bool hit_the_next_user_key = false;
@@ -166,9 +170,11 @@ Status MergeHelper::MergeUntil(InternalIterator* iter,
       break;
     } else if (stop_before > 0 && ikey.sequence <= stop_before &&
                LIKELY(snapshot_checker_ == nullptr ||
-                      snapshot_checker_->IsInSnapshot(ikey.sequence,
-                                                      stop_before))) {
-      // hit an entry that's visible by the previous snapshot, can't touch that
+                      snapshot_checker_->CheckInSnapshot(ikey.sequence,
+                                                         stop_before) !=
+                          SnapshotCheckerResult::kNotInSnapshot)) {
+      // hit an entry that's possibly visible by the previous snapshot, can't
+      // touch that
       break;
     }
 
@@ -195,7 +201,15 @@ Status MergeHelper::MergeUntil(InternalIterator* iter,
       // want. Also if we're in compaction and it's a put, it would be nice to
       // run compaction filter on it.
       const Slice val = iter->value();
-      const Slice* val_ptr = (kTypeValue == ikey.type) ? &val : nullptr;
+      const Slice* val_ptr;
+      if (kTypeValue == ikey.type &&
+          (range_del_agg == nullptr ||
+           !range_del_agg->ShouldDelete(
+               ikey, RangeDelPositioningMode::kForwardTraversal))) {
+        val_ptr = &val;
+      } else {
+        val_ptr = nullptr;
+      }
       std::string merge_result;
       s = TimedFullMerge(user_merge_operator_, ikey.user_key, val_ptr,
                          merge_context_.GetOperands(), &merge_result, logger_,
@@ -280,22 +294,24 @@ Status MergeHelper::MergeUntil(InternalIterator* iter,
     return Status::OK();
   }
 
-  // We are sure we have seen this key's entire history if we are at the
-  // last level and exhausted all internal keys of this user key.
-  // NOTE: !iter->Valid() does not necessarily mean we hit the
-  // beginning of a user key, as versions of a user key might be
-  // split into multiple files (even files on the same level)
-  // and some files might not be included in the compaction/merge.
+  // We are sure we have seen this key's entire history if:
+  // at_bottom == true (this does not necessarily mean it is the bottommost
+  // layer, but rather that we are confident the key does not appear on any of
+  // the lower layers, at_bottom == false doesn't mean it does appear, just
+  // that we can't be sure, see Compaction::IsBottommostLevel for details)
+  // AND
+  // we have either encountered another key or end of key history on this
+  // layer.
   //
-  // There are also cases where we have seen the root of history of this
-  // key without being sure of it. Then, we simply miss the opportunity
+  // When these conditions are true we are able to merge all the keys
+  // using full merge.
+  //
+  // For these cases we are not sure about, we simply miss the opportunity
   // to combine the keys. Since VersionSet::SetupOtherInputs() always makes
   // sure that all merge-operands on the same level get compacted together,
   // this will simply lead to these merge operands moving to the next level.
-  //
-  // So, we only perform the following logic (to merge all operands together
-  // without a Put/Delete) if we are certain that we have seen the end of key.
-  bool surely_seen_the_beginning = hit_the_next_user_key && at_bottom;
+  bool surely_seen_the_beginning =
+      (hit_the_next_user_key || !iter->Valid()) && at_bottom;
   if (surely_seen_the_beginning) {
     // do a final merge with nullptr as the existing value and say
     // bye to the merge type (it's now converted to a Put)

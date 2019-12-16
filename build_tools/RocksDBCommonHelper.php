@@ -97,7 +97,7 @@ function getSteps($applyDiff, $diffID, $username, $test) {
   }
 
   // fbcode is a sub-repo. We cannot patch until we add it to ignore otherwise
-  // Git thinks it is an uncommited change.
+  // Git thinks it is an uncommitted change.
   $fix_git_ignore = array(
     "name" => "Fix git ignore",
     "shell" => "echo fbcode >> .git/info/exclude",

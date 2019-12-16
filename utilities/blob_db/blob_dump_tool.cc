@@ -4,12 +4,8 @@
 //  (found in the LICENSE.Apache file in the root directory).
 #ifndef ROCKSDB_LITE
 
-#ifndef __STDC_FORMAT_MACROS
-#define __STDC_FORMAT_MACROS
-#endif
-
 #include "utilities/blob_db/blob_dump_tool.h"
-#include <inttypes.h>
+#include <cinttypes>
 #include <stdio.h>
 #include <iostream>
 #include <memory>
@@ -208,10 +204,13 @@ Status BlobDumpTool::DumpRecord(DisplayType show_key, DisplayType show_blob,
   if (compression != kNoCompression &&
       (show_uncompressed_blob != DisplayType::kNone || show_summary)) {
     BlockContents contents;
-    UncompressionContext uncompression_ctx(compression);
+    UncompressionContext context(compression);
+    UncompressionInfo info(context, UncompressionDict::GetEmptyDict(),
+                           compression);
     s = UncompressBlockContentsForCompressionType(
-        uncompression_ctx, slice.data() + key_size, static_cast<size_t>(value_size),
-        &contents, 2 /*compress_format_version*/, ImmutableCFOptions(Options()));
+        info, slice.data() + key_size, static_cast<size_t>(value_size),
+        &contents, 2 /*compress_format_version*/,
+        ImmutableCFOptions(Options()));
     if (!s.ok()) {
       return s;
     }

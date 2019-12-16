@@ -47,6 +47,8 @@ Status GetTableFactoryFromMap(
 enum class OptionType {
   kBoolean,
   kInt,
+  kInt32T,
+  kInt64T,
   kVectorInt,
   kUInt,
   kUInt32T,
@@ -70,6 +72,7 @@ enum class OptionType {
   kMemTableRepFactory,
   kBlockBasedTableIndexType,
   kBlockBasedTableDataBlockIndexType,
+  kBlockBasedTableIndexShorteningMode,
   kFilterPolicy,
   kFlushBlockPolicyFactory,
   kChecksumType,
@@ -78,7 +81,8 @@ enum class OptionType {
   kAccessHint,
   kInfoLogLevel,
   kLRUCacheOptions,
-  kUnknown
+  kEnv,
+  kUnknown,
 };
 
 enum class OptionVerificationType {
@@ -167,6 +171,9 @@ struct OptionsHelper {
   static std::unordered_map<std::string,
                             BlockBasedTableOptions::DataBlockIndexType>
       block_base_table_data_block_index_type_string_map;
+  static std::unordered_map<std::string,
+                            BlockBasedTableOptions::IndexShorteningMode>
+      block_base_table_index_shortening_mode_string_map;
   static std::unordered_map<std::string, EncodingType> encoding_type_string_map;
   static std::unordered_map<std::string, CompactionStyle>
       compaction_style_string_map;
@@ -209,6 +216,8 @@ static auto& block_base_table_index_type_string_map =
     OptionsHelper::block_base_table_index_type_string_map;
 static auto& block_base_table_data_block_index_type_string_map =
     OptionsHelper::block_base_table_data_block_index_type_string_map;
+static auto& block_base_table_index_shortening_mode_string_map =
+    OptionsHelper::block_base_table_index_shortening_mode_string_map;
 static auto& encoding_type_string_map = OptionsHelper::encoding_type_string_map;
 static auto& compaction_style_string_map =
     OptionsHelper::compaction_style_string_map;

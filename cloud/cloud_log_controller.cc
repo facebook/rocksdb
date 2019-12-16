@@ -4,13 +4,15 @@
 // A log file maps to a stream in Kinesis.
 //
 
+#include "cloud/cloud_log_controller.h"
+
+#include <cinttypes>
 #include <fstream>
 #include <iostream>
 
-#include "cloud/cloud_log_controller.h"
 #include "cloud/filename.h"
-#include "rocksdb/status.h"
 #include "rocksdb/cloud/cloud_env_options.h"
+#include "rocksdb/status.h"
 #include "util/coding.h"
 #include "util/stderr_logger.h"
 #include "util/string_util.h"
@@ -81,21 +83,20 @@ Status CloudLogController::Apply(const Slice& in) {
   // Apply operation on cache file.
   if (operation == kAppend) {
     Log(InfoLogLevel::DEBUG_LEVEL, env_->info_log_,
-        "[%s] Tailer: Appending %ld bytes to %s at offset %ld",
-        Name(), payload.size(), pathname.c_str(),
-        offset_in_file);
+        "[%s] Tailer: Appending %ld bytes to %s at offset %" PRIu64, Name(),
+        payload.size(), pathname.c_str(), offset_in_file);
 
     auto iter = cache_fds_.find(pathname);
 
     // If this file is not yet open, open it and store it in cache.
     if (iter == cache_fds_.end()) {
-      unique_ptr<RandomRWFile> result;
+      std::unique_ptr<RandomRWFile> result;
       st = env_->GetBaseEnv()->NewRandomRWFile(
           pathname, &result, EnvOptions());
 
       if (!st.ok()) {
           // create the file
-          unique_ptr<WritableFile> tmp_writable_file;
+          std::unique_ptr<WritableFile> tmp_writable_file;
           env_->GetBaseEnv()->NewWritableFile(pathname, &tmp_writable_file,
                                                EnvOptions());
           tmp_writable_file.reset();
@@ -118,7 +119,7 @@ Status CloudLogController::Apply(const Slice& in) {
     st = fd->Write(offset_in_file, payload);
     if (!st.ok()) {
       Log(InfoLogLevel::DEBUG_LEVEL, env_->info_log_,
-          "[%s] Tailer: Error writing to cached file: %s", pathname.c_str(),
+          "[%s] Tailer: Error writing to cached file %s: %s", pathname.c_str(),
           Name(), st.ToString().c_str());
     }
   } else if (operation == kDelete) {

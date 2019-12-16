@@ -1,9 +1,10 @@
 // Copyright (c) 2017 Rockset
 
 #include "cloud/cloud_manifest.h"
-#include <rocksdb/env.h>
+
+#include "rocksdb/env.h"
+#include "test_util/testharness.h"
 #include "util/file_reader_writer.h"
-#include "util/testharness.h"
 
 namespace rocksdb {
 

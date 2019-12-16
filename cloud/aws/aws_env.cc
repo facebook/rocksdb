@@ -1,11 +1,15 @@
 //  Copyright (c) 2016-present, Rockset, Inc.  All rights reserved.
 //
 #include "cloud/aws/aws_env.h"
+
 #include <unistd.h>
+
 #include <chrono>
+#include <cinttypes>
 #include <fstream>
 #include <iostream>
 #include <memory>
+
 #include "rocksdb/env.h"
 #include "rocksdb/status.h"
 #include "util/stderr_logger.h"
@@ -171,8 +175,9 @@ struct JobHandle {
 
 class JobExecutor {
  public:
-  shared_ptr<JobHandle> ScheduleJob(std::chrono::steady_clock::time_point time,
-                                    std::function<void(void)> callback);
+  std::shared_ptr<JobHandle> ScheduleJob(
+      std::chrono::steady_clock::time_point time,
+      std::function<void(void)> callback);
   void CancelJob(JobHandle* handle);
 
   JobExecutor();
@@ -205,7 +210,7 @@ JobExecutor::~JobExecutor() {
   }
 }
 
-shared_ptr<JobHandle> JobExecutor::ScheduleJob(
+std::shared_ptr<JobHandle> JobExecutor::ScheduleJob(
     std::chrono::steady_clock::time_point time,
     std::function<void(void)> callback) {
   std::lock_guard<std::mutex> lk(mutex_);
@@ -404,7 +409,7 @@ AwsEnv::AwsEnv(Env* underlying_env, const CloudEnvOptions& _cloud_env_options,
     }
   }
 
-  shared_ptr<Aws::Auth::AWSCredentialsProvider> creds;
+  std::shared_ptr<Aws::Auth::AWSCredentialsProvider> creds;
   create_bucket_status_ =
       cloud_env_options.credentials.GetCredentialsProvider(&creds);
   if (!create_bucket_status_.ok()) {
@@ -582,10 +587,10 @@ Status AwsEnv::CheckOption(const EnvOptions& options) {
 // Ability to read a file directly from cloud storage
 Status AwsEnv::NewSequentialFileCloud(const std::string& bucket,
                                       const std::string& fname,
-                                      unique_ptr<SequentialFile>* result,
+                                      std::unique_ptr<SequentialFile>* result,
                                       const EnvOptions& options) {
   assert(status().ok());
-  unique_ptr<S3ReadableFile> file;
+  std::unique_ptr<S3ReadableFile> file;
   Status st = NewS3ReadableFile(bucket, fname, &file);
   if (!st.ok()) {
     return st;
@@ -597,7 +602,7 @@ Status AwsEnv::NewSequentialFileCloud(const std::string& bucket,
 
 // open a file for sequential reading
 Status AwsEnv::NewSequentialFile(const std::string& logical_fname,
-                                 unique_ptr<SequentialFile>* result,
+                                 std::unique_ptr<SequentialFile>* result,
                                  const EnvOptions& options) {
   assert(status().ok());
   result->reset();
@@ -632,7 +637,7 @@ Status AwsEnv::NewSequentialFile(const std::string& logical_fname,
           st = base_env_->NewSequentialFile(fname, result, options);
         }
       } else {
-        unique_ptr<S3ReadableFile> file;
+        std::unique_ptr<S3ReadableFile> file;
         if (!st.ok() && HasDestBucket()) {  // read from destination S3
           st = NewS3ReadableFile(GetDestBucketName(), destname(fname), &file);
         }
@@ -671,7 +676,7 @@ Status AwsEnv::NewSequentialFile(const std::string& logical_fname,
 
 // open a file for random reading
 Status AwsEnv::NewRandomAccessFile(const std::string& logical_fname,
-                                   unique_ptr<RandomAccessFile>* result,
+                                   std::unique_ptr<RandomAccessFile>* result,
                                    const EnvOptions& options) {
   assert(status().ok());
   result->reset();
@@ -745,7 +750,7 @@ Status AwsEnv::NewRandomAccessFile(const std::string& logical_fname,
       // Only execute this code path if keep_local_sst_files == false. If it's
       // true, we will never use S3ReadableFile to read; we copy the file
       // locally and read using base_env.
-      unique_ptr<S3ReadableFile> file;
+      std::unique_ptr<S3ReadableFile> file;
       if (!st.ok() && HasDestBucket()) {
         st = NewS3ReadableFile(GetDestBucketName(), destname(fname), &file);
       }
@@ -784,7 +789,7 @@ Status AwsEnv::NewRandomAccessFile(const std::string& logical_fname,
 
 // create a new file for writing
 Status AwsEnv::NewWritableFile(const std::string& logical_fname,
-                               unique_ptr<WritableFile>* result,
+                               std::unique_ptr<WritableFile>* result,
                                const EnvOptions& options) {
   assert(status().ok());
   result->reset();
@@ -799,7 +804,7 @@ Status AwsEnv::NewWritableFile(const std::string& logical_fname,
   Status s;
 
   if (HasDestBucket() && (sstfile || identity || manifest)) {
-    unique_ptr<S3WritableFile> f(
+    std::unique_ptr<S3WritableFile> f(
         new S3WritableFile(this, fname, GetDestBucketName(), destname(fname),
                            options, cloud_env_options));
     s = f->status();
@@ -851,7 +856,7 @@ class S3Directory : public Directory {
   AwsEnv* env_;
   std::string name_;
   Status status_;
-  unique_ptr<Directory> posixDir;
+  std::unique_ptr<Directory> posixDir;
 };
 
 //
@@ -859,7 +864,7 @@ class S3Directory : public Directory {
 //  AWS S3 service and the posixEnv local directory exists as well.
 //
 Status AwsEnv::NewDirectory(const std::string& name,
-                            unique_ptr<Directory>* result) {
+                            std::unique_ptr<Directory>* result) {
   assert(status().ok());
   result->reset(nullptr);
 
@@ -867,7 +872,7 @@ Status AwsEnv::NewDirectory(const std::string& name,
       name.c_str());
 
   // create new object.
-  unique_ptr<S3Directory> d(new S3Directory(this, name));
+  std::unique_ptr<S3Directory> d(new S3Directory(this, name));
 
   // Check if the path exists in local dir
   if (!d->status().ok()) {
@@ -964,7 +969,7 @@ Status AwsEnv::GetChildrenFromS3(const std::string& path,
           s3err == Aws::S3::S3Errors::NO_SUCH_KEY ||
           s3err == Aws::S3::S3Errors::RESOURCE_NOT_FOUND) {
         Log(InfoLogLevel::ERROR_LEVEL, info_log_,
-            "[s3] GetChildren dir %s does not exist", path.c_str(),
+            "[s3] GetChildren dir %s does not exist: %s", path.c_str(),
             errmsg.c_str());
         return Status::NotFound(path, errmsg.c_str());
       }
@@ -1037,7 +1042,7 @@ Status AwsEnv::HeadObject(const std::string& bucket,
 
 Status AwsEnv::NewS3ReadableFile(const std::string& bucket,
                                  const std::string& fname,
-                                 unique_ptr<S3ReadableFile>* result) {
+                                 std::unique_ptr<S3ReadableFile>* result) {
   // First, check if the file exists and also find its size. We use size in
   // S3ReadableFile to make sure we always read the valid ranges of the file
   uint64_t size;
@@ -1065,7 +1070,8 @@ Status AwsEnv::EmptyBucket(const std::string& bucket,
     return st;
   }
   Log(InfoLogLevel::DEBUG_LEVEL, info_log_,
-      "[s3] EmptyBucket going to delete %d objects in bucket %s",
+      "[s3] EmptyBucket going to delete %" ROCKSDB_PRIszt
+      " objects in bucket %s",
       results.size(), bucket.c_str());
 
   // Delete all objects from bucket
@@ -1145,8 +1151,8 @@ Status AwsEnv::GetChildren(const std::string& path,
   result->erase(std::unique(result->begin(), result->end()), result->end());
 
   Log(InfoLogLevel::DEBUG_LEVEL, info_log_,
-      "[s3] GetChildren %s successfully returned %d files", path.c_str(),
-      result->size());
+      "[s3] GetChildren %s successfully returned %" ROCKSDB_PRIszt " files",
+      path.c_str(), result->size());
   return Status::OK();
 }
 
@@ -1390,8 +1396,9 @@ Status AwsEnv::GetFileSize(const std::string& logical_fname, uint64_t* size) {
   } else {
     st = base_env_->GetFileSize(fname, size);
   }
-  Log(InfoLogLevel::DEBUG_LEVEL, info_log_, "[aws] GetFileSize src '%s' %s %ld",
-      fname.c_str(), st.ToString().c_str(), *size);
+  Log(InfoLogLevel::DEBUG_LEVEL, info_log_,
+      "[aws] GetFileSize src '%s' %s %" PRIu64, fname.c_str(),
+      st.ToString().c_str(), *size);
   return st;
 }
 
@@ -1817,17 +1824,18 @@ Status AwsEnv::GetObject(const std::string& bucket_name,
     localenv->DeleteFile(tmp_destination);
     s = Status::IOError("Partial download of a file " + local_destination);
     Log(InfoLogLevel::ERROR_LEVEL, info_log_,
-        "[s3] GetObject %s/%s local size %ld != cloud size "
+        "[s3] GetObject %s/%s local size %" PRIu64
+        " != cloud size "
         "%ld. %s",
-        bucket_name.c_str(), object_path.c_str(), file_size,
-        result.objectSize, s.ToString().c_str());
+        bucket_name.c_str(), object_path.c_str(), file_size, result.objectSize,
+        s.ToString().c_str());
   }
 
   if (s.ok()) {
     s = localenv->RenameFile(tmp_destination, local_destination);
   }
   Log(InfoLogLevel::INFO_LEVEL, info_log_,
-      "[s3] GetObject %s/%s size %ld. %s", bucket_name.c_str(),
+      "[s3] GetObject %s/%s size %" PRIu64 ". %s", bucket_name.c_str(),
       object_path.c_str(), file_size, s.ToString().c_str());
   return s;
 }
@@ -1910,11 +1918,11 @@ Status AwsEnv::PutObject(const std::string& local_file,
     std::string errmsg(error.GetMessage().c_str(), error.GetMessage().size());
     st = Status::IOError(local_file, errmsg);
     Log(InfoLogLevel::ERROR_LEVEL, info_log_,
-        "[s3] PutObject %s/%s, size %zu, ERROR %s", s3_bucket.c_str(),
+        "[s3] PutObject %s/%s, size %" PRIu64 ", ERROR %s", s3_bucket.c_str(),
         object_path.c_str(), fsize, errmsg.c_str());
   } else {
     Log(InfoLogLevel::INFO_LEVEL, info_log_,
-        "[s3] PutObject %s/%s, size %zu, OK", s3_bucket.c_str(),
+        "[s3] PutObject %s/%s, size %" PRIu64 ", OK", s3_bucket.c_str(),
         object_path.c_str(), fsize);
   }
 
@@ -1946,7 +1954,8 @@ Status AwsEnv::LockFile(const std::string& fname, FileLock** lock) {
 
 Status AwsEnv::UnlockFile(FileLock* lock) { return Status::OK(); }
 
-Status AwsEnv::NewLogger(const std::string& fname, shared_ptr<Logger>* result) {
+Status AwsEnv::NewLogger(const std::string& fname,
+                         std::shared_ptr<Logger>* result) {
   return base_env_->NewLogger(fname, result);
 }
 
@@ -1960,7 +1969,7 @@ Status AwsEnv::NewAwsEnv(Env* base_env,
   if (!base_env) {
     base_env = Env::Default();
   }
-  unique_ptr<AwsEnv> aenv(new AwsEnv(base_env, cloud_options, info_log));
+  std::unique_ptr<AwsEnv> aenv(new AwsEnv(base_env, cloud_options, info_log));
   if (!aenv->status().ok()) {
     status = aenv->status();
   } else {

@@ -4,6 +4,7 @@
 // A log file maps to a stream in Kinesis.
 //
 
+#include <cinttypes>
 #include <fstream>
 #include <iostream>
 
@@ -144,8 +145,8 @@ Status KafkaWritableFile::Flush() {
         "[kafka] WritableFile src %s Flushed", fname_.c_str());
   } else if (timeout) {
     Log(InfoLogLevel::DEBUG_LEVEL, env_->info_log_,
-        "[kafka] WritableFile src %s Flushing timed out after %lldus",
-        fname_.c_str(), kFlushTimeout);
+        "[kafka] WritableFile src %s Flushing timed out after %" PRId64 "us",
+        fname_.c_str(), kFlushTimeout.count());
     status_ = Status::TimedOut();
   } else {
     Log(InfoLogLevel::DEBUG_LEVEL, env_->info_log_,

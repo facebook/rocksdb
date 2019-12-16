@@ -96,6 +96,14 @@ public class StatisticsTest {
       final HistogramData histogramData = statistics.getHistogramData(HistogramType.BYTES_PER_READ);
       assertThat(histogramData).isNotNull();
       assertThat(histogramData.getAverage()).isGreaterThan(0);
+      assertThat(histogramData.getMedian()).isGreaterThan(0);
+      assertThat(histogramData.getPercentile95()).isGreaterThan(0);
+      assertThat(histogramData.getPercentile99()).isGreaterThan(0);
+      assertThat(histogramData.getStandardDeviation()).isEqualTo(0.00);
+      assertThat(histogramData.getMax()).isGreaterThan(0);
+      assertThat(histogramData.getCount()).isGreaterThan(0);
+      assertThat(histogramData.getSum()).isGreaterThan(0);
+      assertThat(histogramData.getMin()).isGreaterThan(0);
     }
   }
 

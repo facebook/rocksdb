@@ -12,9 +12,9 @@
 #include "db/write_thread.h"
 #include "port/port.h"
 #include "port/stack_trace.h"
-#include "util/fault_injection_test_env.h"
+#include "test_util/fault_injection_test_env.h"
+#include "test_util/sync_point.h"
 #include "util/string_util.h"
-#include "util/sync_point.h"
 
 namespace rocksdb {
 
@@ -138,6 +138,51 @@ TEST_P(DBWriteTest, IOErrorOnWALWriteTriggersReadOnlyMode) {
   }
   // Close before mock_env destruct.
   Close();
+}
+
+TEST_P(DBWriteTest, IOErrorOnSwitchMemtable) {
+  Random rnd(301);
+  std::unique_ptr<FaultInjectionTestEnv> mock_env(
+      new FaultInjectionTestEnv(Env::Default()));
+  Options options = GetOptions();
+  options.env = mock_env.get();
+  options.writable_file_max_buffer_size = 4 * 1024 * 1024;
+  options.write_buffer_size = 3 * 512 * 1024;
+  options.wal_bytes_per_sync = 256 * 1024;
+  options.manual_wal_flush = true;
+  Reopen(options);
+  mock_env->SetFilesystemActive(false, Status::IOError("Not active"));
+  Status s;
+  for (int i = 0; i < 4 * 512; ++i) {
+    s = Put(Key(i), RandomString(&rnd, 1024));
+    if (!s.ok()) {
+      break;
+    }
+  }
+  ASSERT_EQ(s.severity(), Status::Severity::kFatalError);
+
+  mock_env->SetFilesystemActive(true);
+  // Close before mock_env destruct.
+  Close();
+}
+
+// Test that db->LockWAL() flushes the WAL after locking.
+TEST_P(DBWriteTest, LockWalInEffect) {
+  Options options = GetOptions();
+  Reopen(options);
+  // try the 1st WAL created during open
+  ASSERT_OK(Put("key" + ToString(0), "value"));
+  ASSERT_TRUE(options.manual_wal_flush != dbfull()->TEST_WALBufferIsEmpty());
+  ASSERT_OK(dbfull()->LockWAL());
+  ASSERT_TRUE(dbfull()->TEST_WALBufferIsEmpty(false));
+  ASSERT_OK(dbfull()->UnlockWAL());
+  // try the 2nd wal created during SwitchWAL
+  dbfull()->TEST_SwitchWAL();
+  ASSERT_OK(Put("key" + ToString(0), "value"));
+  ASSERT_TRUE(options.manual_wal_flush != dbfull()->TEST_WALBufferIsEmpty());
+  ASSERT_OK(dbfull()->LockWAL());
+  ASSERT_TRUE(dbfull()->TEST_WALBufferIsEmpty(false));
+  ASSERT_OK(dbfull()->UnlockWAL());
 }
 
 INSTANTIATE_TEST_CASE_P(DBWriteTestInstance, DBWriteTest,

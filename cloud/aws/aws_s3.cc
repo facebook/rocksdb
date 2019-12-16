@@ -6,12 +6,8 @@
 //
 #ifdef USE_AWS
 
-#ifndef __STDC_FORMAT_MACROS
-#define __STDC_FORMAT_MACROS
-#endif
-
-#include <assert.h>
-#include <inttypes.h>
+#include <cassert>
+#include <cinttypes>
 #include <fstream>
 #include <iostream>
 
@@ -54,15 +50,16 @@ Status S3ReadableFile::Read(size_t n, Slice* result, char* scratch) {
 Status S3ReadableFile::Read(uint64_t offset, size_t n, Slice* result,
                             char* scratch) const {
   Log(InfoLogLevel::DEBUG_LEVEL, env_->info_log_,
-      "[s3] S3ReadableFile reading %s at offset %ld size %ld", fname_.c_str(),
-      offset, n);
+      "[s3] S3ReadableFile reading %s at offset %" PRIu64
+      " size %" ROCKSDB_PRIszt,
+      fname_.c_str(), offset, n);
 
   *result = Slice();
 
   if (offset >= file_size_) {
     Log(InfoLogLevel::DEBUG_LEVEL, env_->info_log_,
-        "[s3] S3ReadableFile reading %s at offset %" PRIu64
-        " filesize %ld."
+        "[s3] S3ReadableFile reading %s at offset %" PRIu64 " filesize %" PRIu64
+        "."
         " Nothing to do",
         fname_.c_str(), offset, file_size_);
     return Status::OK();
@@ -72,7 +69,8 @@ Status S3ReadableFile::Read(uint64_t offset, size_t n, Slice* result,
   if (offset + n > file_size_) {
     n = file_size_ - offset;
     Log(InfoLogLevel::DEBUG_LEVEL, env_->info_log_,
-        "[s3] S3ReadableFile reading %s at offset %" PRIu64 " trimmed size %ld",
+        "[s3] S3ReadableFile reading %s at offset %" PRIu64
+        " trimmed size %" ROCKSDB_PRIszt,
         fname_.c_str(), offset, n);
   }
 
@@ -115,8 +113,8 @@ Status S3ReadableFile::Read(uint64_t offset, size_t n, Slice* result,
       return Status::NotFound(fname_, errmsg.c_str());
     }
     Log(InfoLogLevel::ERROR_LEVEL, env_->info_log_,
-        "[s3] S3ReadableFile error in reading %s %ld %s %s", fname_.c_str(),
-        offset, buffer, error.GetMessage().c_str());
+        "[s3] S3ReadableFile error in reading %s %" PRIu64 " %s %s",
+        fname_.c_str(), offset, buffer, error.GetMessage().c_str());
     return Status::IOError(fname_, errmsg.c_str());
   }
   std::stringstream ss;
@@ -133,14 +131,14 @@ Status S3ReadableFile::Read(uint64_t offset, size_t n, Slice* result,
   *result = Slice(scratch, size);
 
   Log(InfoLogLevel::DEBUG_LEVEL, env_->info_log_,
-      "[s3] S3ReadableFile file %s filesize %ld read %d bytes", fname_.c_str(),
-      file_size_, size);
+      "[s3] S3ReadableFile file %s filesize %" PRIu64 " read %" PRIu64 " bytes",
+      fname_.c_str(), file_size_, size);
   return Status::OK();
 }
 
 Status S3ReadableFile::Skip(uint64_t n) {
   Log(InfoLogLevel::DEBUG_LEVEL, env_->info_log_,
-      "[s3] S3ReadableFile file %s skip %ld", fname_.c_str(), n);
+      "[s3] S3ReadableFile file %s skip %" PRIu64, fname_.c_str(), n);
   // Update offset_ so that it does not go beyond filesize
   offset_ += n;
   if (offset_ > file_size_) {
@@ -348,7 +346,7 @@ Status S3WritableFile::Sync() {
     } else {
       Log(InfoLogLevel::ERROR_LEVEL, env_->info_log_,
           "[s3] S3WritableFile failed to make manifest %s durable to "
-          "bucket %s bucketpath. %s",
+          "bucket %s bucketpath %s. %s",
           fname_.c_str(), bucket_prefix_.c_str(), cloud_fname_.c_str(),
           stat.ToString().c_str());
     }

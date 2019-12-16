@@ -46,13 +46,13 @@ public class MergeTest {
   }
 
   private byte[] longToByteArray(long l) {
-    ByteBuffer buf = ByteBuffer.allocate(Long.BYTES);
+    ByteBuffer buf = ByteBuffer.allocate(Long.SIZE / Byte.SIZE);
     buf.putLong(l);
     return buf.array();
   }
 
   private long longFromByteArray(byte[] a) {
-    ByteBuffer buf = ByteBuffer.allocate(Long.BYTES);
+    ByteBuffer buf = ByteBuffer.allocate(Long.SIZE / Byte.SIZE);
     buf.put(a);
     buf.flip();
     return buf.getLong();

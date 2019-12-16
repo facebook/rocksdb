@@ -134,7 +134,7 @@ class CloudEnvImpl : public CloudEnv {
  private:
   Status writeCloudManifest(CloudManifest* manifest, const std::string& fname);
   std::string generateNewEpochId();
-  unique_ptr<CloudManifest> cloud_manifest_;
+  std::unique_ptr<CloudManifest> cloud_manifest_;
   // This runs only in tests when we want to disable cloud manifest
   // functionality
   bool test_disable_cloud_manifest_{false};

@@ -208,13 +208,10 @@ struct rocksdb_compactionfilter_t : public CompactionFilter {
   const char* (*name_)(void*);
   unsigned char ignore_snapshots_;
 
-  virtual ~rocksdb_compactionfilter_t() {
-    (*destructor_)(state_);
-  }
+  ~rocksdb_compactionfilter_t() override { (*destructor_)(state_); }
 
-  virtual bool Filter(int level, const Slice& key, const Slice& existing_value,
-                      std::string* new_value,
-                      bool* value_changed) const override {
+  bool Filter(int level, const Slice& key, const Slice& existing_value,
+              std::string* new_value, bool* value_changed) const override {
     char* c_new_value = nullptr;
     size_t new_value_length = 0;
     unsigned char c_value_changed = 0;
@@ -231,9 +228,9 @@ struct rocksdb_compactionfilter_t : public CompactionFilter {
     return result;
   }
 
-  virtual const char* Name() const override { return (*name_)(state_); }
+  const char* Name() const override { return (*name_)(state_); }
 
-  virtual bool IgnoreSnapshots() const override { return ignore_snapshots_; }
+  bool IgnoreSnapshots() const override { return ignore_snapshots_; }
 };
 
 struct rocksdb_compactionfilterfactory_t : public CompactionFilterFactory {
@@ -243,9 +240,9 @@ struct rocksdb_compactionfilterfactory_t : public CompactionFilterFactory {
       void*, rocksdb_compactionfiltercontext_t* context);
   const char* (*name_)(void*);
 
-  virtual ~rocksdb_compactionfilterfactory_t() { (*destructor_)(state_); }
+  ~rocksdb_compactionfilterfactory_t() override { (*destructor_)(state_); }
 
-  virtual std::unique_ptr<CompactionFilter> CreateCompactionFilter(
+  std::unique_ptr<CompactionFilter> CreateCompactionFilter(
       const CompactionFilter::Context& context) override {
     rocksdb_compactionfiltercontext_t ccontext;
     ccontext.rep = context;
@@ -253,7 +250,7 @@ struct rocksdb_compactionfilterfactory_t : public CompactionFilterFactory {
     return std::unique_ptr<CompactionFilter>(cf);
   }
 
-  virtual const char* Name() const override { return (*name_)(state_); }
+  const char* Name() const override { return (*name_)(state_); }
 };
 
 struct rocksdb_comparator_t : public Comparator {
@@ -265,20 +262,17 @@ struct rocksdb_comparator_t : public Comparator {
       const char* b, size_t blen);
   const char* (*name_)(void*);
 
-  virtual ~rocksdb_comparator_t() {
-    (*destructor_)(state_);
-  }
+  ~rocksdb_comparator_t() override { (*destructor_)(state_); }
 
-  virtual int Compare(const Slice& a, const Slice& b) const override {
+  int Compare(const Slice& a, const Slice& b) const override {
     return (*compare_)(state_, a.data(), a.size(), b.data(), b.size());
   }
 
-  virtual const char* Name() const override { return (*name_)(state_); }
+  const char* Name() const override { return (*name_)(state_); }
 
   // No-ops since the C binding does not support key shortening methods.
-  virtual void FindShortestSeparator(std::string*,
-                                     const Slice&) const override {}
-  virtual void FindShortSuccessor(std::string* /*key*/) const override {}
+  void FindShortestSeparator(std::string*, const Slice&) const override {}
+  void FindShortSuccessor(std::string* /*key*/) const override {}
 };
 
 struct rocksdb_filterpolicy_t : public FilterPolicy {
@@ -298,14 +292,11 @@ struct rocksdb_filterpolicy_t : public FilterPolicy {
       void*,
       const char* filter, size_t filter_length);
 
-  virtual ~rocksdb_filterpolicy_t() {
-    (*destructor_)(state_);
-  }
+  ~rocksdb_filterpolicy_t() override { (*destructor_)(state_); }
 
-  virtual const char* Name() const override { return (*name_)(state_); }
+  const char* Name() const override { return (*name_)(state_); }
 
-  virtual void CreateFilter(const Slice* keys, int n,
-                            std::string* dst) const override {
+  void CreateFilter(const Slice* keys, int n, std::string* dst) const override {
     std::vector<const char*> key_pointers(n);
     std::vector<size_t> key_sizes(n);
     for (int i = 0; i < n; i++) {
@@ -323,8 +314,7 @@ struct rocksdb_filterpolicy_t : public FilterPolicy {
     }
   }
 
-  virtual bool KeyMayMatch(const Slice& key,
-                           const Slice& filter) const override {
+  bool KeyMayMatch(const Slice& key, const Slice& filter) const override {
     return (*key_match_)(state_, key.data(), key.size(),
                          filter.data(), filter.size());
   }
@@ -349,14 +339,12 @@ struct rocksdb_mergeoperator_t : public MergeOperator {
       void*,
       const char* value, size_t value_length);
 
-  virtual ~rocksdb_mergeoperator_t() {
-    (*destructor_)(state_);
-  }
+  ~rocksdb_mergeoperator_t() override { (*destructor_)(state_); }
 
-  virtual const char* Name() const override { return (*name_)(state_); }
+  const char* Name() const override { return (*name_)(state_); }
 
-  virtual bool FullMergeV2(const MergeOperationInput& merge_in,
-                           MergeOperationOutput* merge_out) const override {
+  bool FullMergeV2(const MergeOperationInput& merge_in,
+                   MergeOperationOutput* merge_out) const override {
     size_t n = merge_in.operand_list.size();
     std::vector<const char*> operand_pointers(n);
     std::vector<size_t> operand_sizes(n);
@@ -390,10 +378,10 @@ struct rocksdb_mergeoperator_t : public MergeOperator {
     return success;
   }
 
-  virtual bool PartialMergeMulti(const Slice& key,
-                                 const std::deque<Slice>& operand_list,
-                                 std::string* new_value,
-                                 Logger* /*logger*/) const override {
+  bool PartialMergeMulti(const Slice& key,
+                         const std::deque<Slice>& operand_list,
+                         std::string* new_value,
+                         Logger* /*logger*/) const override {
     size_t operand_count = operand_list.size();
     std::vector<const char*> operand_pointers(operand_count);
     std::vector<size_t> operand_sizes(operand_count);
@@ -444,23 +432,21 @@ struct rocksdb_slicetransform_t : public SliceTransform {
       void*,
       const char* key, size_t length);
 
-  virtual ~rocksdb_slicetransform_t() {
-    (*destructor_)(state_);
-  }
+  ~rocksdb_slicetransform_t() override { (*destructor_)(state_); }
 
-  virtual const char* Name() const override { return (*name_)(state_); }
+  const char* Name() const override { return (*name_)(state_); }
 
-  virtual Slice Transform(const Slice& src) const override {
+  Slice Transform(const Slice& src) const override {
     size_t len;
     char* dst = (*transform_)(state_, src.data(), src.size(), &len);
     return Slice(dst, len);
   }
 
-  virtual bool InDomain(const Slice& src) const override {
+  bool InDomain(const Slice& src) const override {
     return (*in_domain_)(state_, src.data(), src.size());
   }
 
-  virtual bool InRange(const Slice& src) const override {
+  bool InRange(const Slice& src) const override {
     return (*in_range_)(state_, src.data(), src.size());
   }
 };
@@ -524,6 +510,21 @@ rocksdb_t* rocksdb_open_for_read_only(
     char** errptr) {
   DB* db;
   if (SaveError(errptr, DB::OpenForReadOnly(options->rep, std::string(name), &db, error_if_log_file_exist))) {
+    return nullptr;
+  }
+  rocksdb_t* result = new rocksdb_t;
+  result->rep = db;
+  return result;
+}
+
+rocksdb_t* rocksdb_open_as_secondary(const rocksdb_options_t* options,
+                                     const char* name,
+                                     const char* secondary_path,
+                                     char** errptr) {
+  DB* db;
+  if (SaveError(errptr,
+                DB::OpenAsSecondary(options->rep, std::string(name),
+                                    std::string(secondary_path), &db))) {
     return nullptr;
   }
   rocksdb_t* result = new rocksdb_t;
@@ -723,6 +724,37 @@ rocksdb_t* rocksdb_open_for_read_only_column_families(
 
   for (size_t i = 0; i < handles.size(); i++) {
     rocksdb_column_family_handle_t* c_handle = new rocksdb_column_family_handle_t;
+    c_handle->rep = handles[i];
+    column_family_handles[i] = c_handle;
+  }
+  rocksdb_t* result = new rocksdb_t;
+  result->rep = db;
+  return result;
+}
+
+rocksdb_t* rocksdb_open_as_secondary_column_families(
+    const rocksdb_options_t* db_options, const char* name,
+    const char* secondary_path, int num_column_families,
+    const char** column_family_names,
+    const rocksdb_options_t** column_family_options,
+    rocksdb_column_family_handle_t** column_family_handles, char** errptr) {
+  std::vector<ColumnFamilyDescriptor> column_families;
+  for (int i = 0; i != num_column_families; ++i) {
+    column_families.emplace_back(
+        std::string(column_family_names[i]),
+        ColumnFamilyOptions(column_family_options[i]->rep));
+  }
+  DB* db;
+  std::vector<ColumnFamilyHandle*> handles;
+  if (SaveError(errptr, DB::OpenAsSecondary(DBOptions(db_options->rep),
+                                            std::string(name),
+                                            std::string(secondary_path),
+                                            column_families, &handles, &db))) {
+    return nullptr;
+  }
+  for (size_t i = 0; i != handles.size(); ++i) {
+    rocksdb_column_family_handle_t* c_handle =
+        new rocksdb_column_family_handle_t;
     c_handle->rep = handles[i];
     column_family_handles[i] = c_handle;
   }
@@ -1002,7 +1034,7 @@ void rocksdb_wal_iter_destroy (const rocksdb_wal_iterator_t* iter) {
 rocksdb_writebatch_t* rocksdb_wal_iter_get_batch (const rocksdb_wal_iterator_t* iter, uint64_t* seq) {
   rocksdb_writebatch_t* result = rocksdb_writebatch_create();
   BatchResult wal_batch = iter->rep->GetBatch();
-  result->rep = * wal_batch.writeBatchPtr.release();
+  result->rep = std::move(*wal_batch.writeBatchPtr);
   if (seq != nullptr) {
     *seq = wal_batch.sequence;
   }
@@ -1078,6 +1110,18 @@ int rocksdb_property_int(
     const char* propname,
     uint64_t *out_val) {
   if (db->rep->GetIntProperty(Slice(propname), out_val)) {
+    return 0;
+  } else {
+    return -1;
+  }
+}
+
+int rocksdb_property_int_cf(
+    rocksdb_t* db,
+    rocksdb_column_family_handle_t* column_family,
+    const char* propname,
+    uint64_t *out_val) {
+  if (db->rep->GetIntProperty(column_family->rep, Slice(propname), out_val)) {
     return 0;
   } else {
     return -1;
@@ -1195,6 +1239,14 @@ void rocksdb_flush(
     const rocksdb_flushoptions_t* options,
     char** errptr) {
   SaveError(errptr, db->rep->Flush(options->rep));
+}
+
+void rocksdb_flush_cf(
+    rocksdb_t* db,
+    const rocksdb_flushoptions_t* options,
+    rocksdb_column_family_handle_t* column_family,
+    char** errptr) {
+  SaveError(errptr, db->rep->Flush(options->rep, column_family->rep));
 }
 
 void rocksdb_disable_file_deletions(
@@ -1495,10 +1547,10 @@ class H : public WriteBatch::Handler {
   void* state_;
   void (*put_)(void*, const char* k, size_t klen, const char* v, size_t vlen);
   void (*deleted_)(void*, const char* k, size_t klen);
-  virtual void Put(const Slice& key, const Slice& value) override {
+  void Put(const Slice& key, const Slice& value) override {
     (*put_)(state_, key.data(), key.size(), value.data(), value.size());
   }
-  virtual void Delete(const Slice& key) override {
+  void Delete(const Slice& key) override {
     (*deleted_)(state_, key.data(), key.size());
   }
 };
@@ -1784,11 +1836,11 @@ rocksdb_iterator_t* rocksdb_writebatch_wi_create_iterator_with_base(
 }
 
 rocksdb_iterator_t* rocksdb_writebatch_wi_create_iterator_with_base_cf(
-    rocksdb_writebatch_wi_t* wbwi,
-    rocksdb_iterator_t* base_iterator,
+    rocksdb_writebatch_wi_t* wbwi, rocksdb_iterator_t* base_iterator,
     rocksdb_column_family_handle_t* column_family) {
   rocksdb_iterator_t* result = new rocksdb_iterator_t;
-  result->rep = wbwi->rep->NewIteratorWithBase(column_family->rep, base_iterator->rep);
+  result->rep =
+      wbwi->rep->NewIteratorWithBase(column_family->rep, base_iterator->rep);
   delete base_iterator;
   return result;
 }
@@ -2067,6 +2119,15 @@ void rocksdb_set_options(
             db->rep->SetOptions(options_map));
     }
 
+void rocksdb_set_options_cf(
+    rocksdb_t* db, rocksdb_column_family_handle_t* handle, int count, const char* const keys[], const char* const values[], char** errptr) {
+        std::unordered_map<std::string, std::string> options_map;
+        for (int i=0; i<count; i++)
+            options_map[keys[i]] = values[i];
+        SaveError(errptr,
+            db->rep->SetOptions(handle->rep, options_map));
+    }
+
 rocksdb_options_t* rocksdb_options_create() {
   return new rocksdb_options_t;
 }
@@ -2209,6 +2270,11 @@ void rocksdb_options_set_target_file_size_multiplier(
 void rocksdb_options_set_max_bytes_for_level_base(
     rocksdb_options_t* opt, uint64_t n) {
   opt->rep.max_bytes_for_level_base = n;
+}
+
+void rocksdb_options_set_snap_refresh_nanos(rocksdb_options_t* opt,
+                                            uint64_t n) {
+  opt->rep.snap_refresh_nanos = n;
 }
 
 void rocksdb_options_set_level_compaction_dynamic_level_bytes(
@@ -2448,9 +2514,19 @@ void rocksdb_options_set_max_write_buffer_number_to_maintain(
   opt->rep.max_write_buffer_number_to_maintain = n;
 }
 
+void rocksdb_options_set_max_write_buffer_size_to_maintain(
+    rocksdb_options_t* opt, int64_t n) {
+  opt->rep.max_write_buffer_size_to_maintain = n;
+}
+
 void rocksdb_options_set_enable_pipelined_write(rocksdb_options_t* opt,
                                                 unsigned char v) {
   opt->rep.enable_pipelined_write = v;
+}
+
+void rocksdb_options_set_unordered_write(rocksdb_options_t* opt,
+                                         unsigned char v) {
+  opt->rep.unordered_write = v;
 }
 
 void rocksdb_options_set_max_subcompactions(rocksdb_options_t* opt,
@@ -2857,7 +2933,7 @@ rocksdb_compactionfilter_t* rocksdb_compactionfilter_create(
   result->state_ = state;
   result->destructor_ = destructor;
   result->filter_ = filter;
-  result->ignore_snapshots_ = false;
+  result->ignore_snapshots_ = true;
   result->name_ = name;
   return result;
 }
@@ -2957,7 +3033,7 @@ rocksdb_filterpolicy_t* rocksdb_filterpolicy_create_bloom_format(int bits_per_ke
   // supplied C functions.
   struct Wrapper : public rocksdb_filterpolicy_t {
     const FilterPolicy* rep_;
-    ~Wrapper() { delete rep_; }
+    ~Wrapper() override { delete rep_; }
     const char* Name() const override { return rep_->Name(); }
     void CreateFilter(const Slice* keys, int n,
                       std::string* dst) const override {
@@ -3148,6 +3224,11 @@ void rocksdb_writeoptions_set_low_pri(
   opt->rep.low_pri = v;
 }
 
+void rocksdb_writeoptions_set_memtable_insert_hint_per_batch(
+    rocksdb_writeoptions_t* opt, unsigned char v) {
+  opt->rep.memtable_insert_hint_per_batch = v;
+}
+
 rocksdb_compactoptions_t* rocksdb_compactoptions_create() {
   return new rocksdb_compactoptions_t;
 }
@@ -3246,6 +3327,22 @@ void rocksdb_env_set_high_priority_background_threads(rocksdb_env_t* env, int n)
 
 void rocksdb_env_join_all_threads(rocksdb_env_t* env) {
   env->rep->WaitForJoin();
+}
+
+void rocksdb_env_lower_thread_pool_io_priority(rocksdb_env_t* env) {
+  env->rep->LowerThreadPoolIOPriority();
+}
+
+void rocksdb_env_lower_high_priority_thread_pool_io_priority(rocksdb_env_t* env) {
+  env->rep->LowerThreadPoolIOPriority(Env::HIGH);
+}
+
+void rocksdb_env_lower_thread_pool_cpu_priority(rocksdb_env_t* env) {
+  env->rep->LowerThreadPoolCPUPriority();
+}
+
+void rocksdb_env_lower_high_priority_thread_pool_cpu_priority(rocksdb_env_t* env) {
+  env->rep->LowerThreadPoolCPUPriority(Env::HIGH);
 }
 
 void rocksdb_env_destroy(rocksdb_env_t* env) {
@@ -3382,6 +3479,10 @@ void rocksdb_ingest_external_file_cf(
   SaveError(errptr, db->rep->IngestExternalFile(handle->rep, files, opt->rep));
 }
 
+void rocksdb_try_catch_up_with_primary(rocksdb_t* db, char** errptr) {
+  SaveError(errptr, db->rep->TryCatchUpWithPrimary());
+}
+
 rocksdb_slicetransform_t* rocksdb_slicetransform_create(
     void* state,
     void (*destructor)(void*),
@@ -3412,7 +3513,7 @@ void rocksdb_slicetransform_destroy(rocksdb_slicetransform_t* st) {
 
 struct Wrapper : public rocksdb_slicetransform_t {
   const SliceTransform* rep_;
-  ~Wrapper() { delete rep_; }
+  ~Wrapper() override { delete rep_; }
   const char* Name() const override { return rep_->Name(); }
   Slice Transform(const Slice& src) const override {
     return rep_->Transform(src);
@@ -3707,6 +3808,38 @@ rocksdb_transactiondb_t* rocksdb_transactiondb_open(
   return result;
 }
 
+rocksdb_transactiondb_t* rocksdb_transactiondb_open_column_families(
+    const rocksdb_options_t* options,
+    const rocksdb_transactiondb_options_t* txn_db_options, const char* name,
+    int num_column_families, const char** column_family_names,
+    const rocksdb_options_t** column_family_options,
+    rocksdb_column_family_handle_t** column_family_handles, char** errptr) {
+  std::vector<ColumnFamilyDescriptor> column_families;
+  for (int i = 0; i < num_column_families; i++) {
+    column_families.push_back(ColumnFamilyDescriptor(
+        std::string(column_family_names[i]),
+        ColumnFamilyOptions(column_family_options[i]->rep)));
+  }
+
+  TransactionDB* txn_db;
+  std::vector<ColumnFamilyHandle*> handles;
+  if (SaveError(errptr, TransactionDB::Open(options->rep, txn_db_options->rep,
+                                            std::string(name), column_families,
+                                            &handles, &txn_db))) {
+    return nullptr;
+  }
+
+  for (size_t i = 0; i < handles.size(); i++) {
+    rocksdb_column_family_handle_t* c_handle =
+        new rocksdb_column_family_handle_t;
+    c_handle->rep = handles[i];
+    column_family_handles[i] = c_handle;
+  }
+  rocksdb_transactiondb_t* result = new rocksdb_transactiondb_t;
+  result->rep = txn_db;
+  return result;
+}
+
 const rocksdb_snapshot_t* rocksdb_transactiondb_create_snapshot(
     rocksdb_transactiondb_t* txn_db) {
   rocksdb_snapshot_t* result = new rocksdb_snapshot_t;
@@ -3827,6 +3960,26 @@ char* rocksdb_transaction_get_for_update(rocksdb_transaction_t* txn,
   return result;
 }
 
+char* rocksdb_transaction_get_for_update_cf(
+    rocksdb_transaction_t* txn, const rocksdb_readoptions_t* options,
+    rocksdb_column_family_handle_t* column_family, const char* key, size_t klen,
+    size_t* vlen, unsigned char exclusive, char** errptr) {
+  char* result = nullptr;
+  std::string tmp;
+  Status s = txn->rep->GetForUpdate(options->rep, column_family->rep,
+                                    Slice(key, klen), &tmp, exclusive);
+  if (s.ok()) {
+    *vlen = tmp.size();
+    result = CopyString(tmp);
+  } else {
+    *vlen = 0;
+    if (!s.IsNotFound()) {
+      SaveError(errptr, s);
+    }
+  }
+  return result;
+}
+
 // Read a key outside a transaction
 char* rocksdb_transactiondb_get(
     rocksdb_transactiondb_t* txn_db,
@@ -3919,6 +4072,14 @@ void rocksdb_transaction_merge(rocksdb_transaction_t* txn, const char* key,
   SaveError(errptr, txn->rep->Merge(Slice(key, klen), Slice(val, vlen)));
 }
 
+void rocksdb_transaction_merge_cf(rocksdb_transaction_t* txn,
+                                  rocksdb_column_family_handle_t* column_family,
+                                  const char* key, size_t klen, const char* val,
+                                  size_t vlen, char** errptr) {
+  SaveError(errptr, txn->rep->Merge(column_family->rep, Slice(key, klen),
+                                    Slice(val, vlen)));
+}
+
 // Merge a key outside a transaction
 void rocksdb_transactiondb_merge(rocksdb_transactiondb_t* txn_db,
                                  const rocksdb_writeoptions_t* options,
@@ -3926,6 +4087,14 @@ void rocksdb_transactiondb_merge(rocksdb_transactiondb_t* txn_db,
                                  size_t vlen, char** errptr) {
   SaveError(errptr, txn_db->rep->Merge(options->rep, Slice(key, klen),
                                        Slice(val, vlen)));
+}
+
+void rocksdb_transactiondb_merge_cf(
+    rocksdb_transactiondb_t* txn_db, const rocksdb_writeoptions_t* options,
+    rocksdb_column_family_handle_t* column_family, const char* key, size_t klen,
+    const char* val, size_t vlen, char** errptr) {
+  SaveError(errptr, txn_db->rep->Merge(options->rep, column_family->rep,
+                                       Slice(key, klen), Slice(val, vlen)));
 }
 
 // Delete a key inside a transaction
@@ -3977,6 +4146,14 @@ rocksdb_iterator_t* rocksdb_transactiondb_create_iterator(
     rocksdb_transactiondb_t* txn_db, const rocksdb_readoptions_t* options) {
   rocksdb_iterator_t* result = new rocksdb_iterator_t;
   result->rep = txn_db->rep->NewIterator(options->rep);
+  return result;
+}
+
+rocksdb_iterator_t* rocksdb_transactiondb_create_iterator_cf(
+    rocksdb_transactiondb_t* txn_db, const rocksdb_readoptions_t* options,
+    rocksdb_column_family_handle_t* column_family) {
+  rocksdb_iterator_t* result = new rocksdb_iterator_t;
+  result->rep = txn_db->rep->NewIterator(options->rep, column_family->rep);
   return result;
 }
 

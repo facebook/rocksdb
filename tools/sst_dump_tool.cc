@@ -1,3 +1,4 @@
+
 //  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
 //  This source code is licensed under both the GPLv2 (found in the
 //  COPYING file in the root directory) and Apache 2.0 License
@@ -7,11 +8,7 @@
 
 #include "tools/sst_dump_tool_imp.h"
 
-#ifndef __STDC_FORMAT_MACROS
-#define __STDC_FORMAT_MACROS
-#endif
-
-#include <inttypes.h>
+#include <cinttypes>
 #include <iostream>
 #include <map>
 #include <memory>
@@ -28,13 +25,13 @@
 #include "rocksdb/status.h"
 #include "rocksdb/table_properties.h"
 #include "rocksdb/utilities/ldb_cmd.h"
-#include "table/block.h"
-#include "table/block_based_table_builder.h"
-#include "table/block_based_table_factory.h"
-#include "table/block_builder.h"
+#include "table/block_based/block.h"
+#include "table/block_based/block_based_table_builder.h"
+#include "table/block_based/block_based_table_factory.h"
+#include "table/block_based/block_builder.h"
 #include "table/format.h"
 #include "table/meta_blocks.h"
-#include "table/plain_table_factory.h"
+#include "table/plain/plain_table_factory.h"
 #include "table/table_reader.h"
 #include "util/compression.h"
 #include "util/random.h"
@@ -43,12 +40,14 @@
 
 namespace rocksdb {
 
-SstFileDumper::SstFileDumper(const std::string& file_path, bool verify_checksum,
+SstFileDumper::SstFileDumper(const Options& options,
+                             const std::string& file_path, bool verify_checksum,
                              bool output_hex)
     : file_name_(file_path),
       read_num_(0),
       verify_checksum_(verify_checksum),
       output_hex_(output_hex),
+      options_(options),
       ioptions_(options_),
       moptions_(ColumnFamilyOptions(options_)),
       internal_comparator_(BytewiseComparator()) {
@@ -144,15 +143,16 @@ Status SstFileDumper::NewTableReader(
 }
 
 Status SstFileDumper::VerifyChecksum() {
-  return table_reader_->VerifyChecksum();
+  // We could pass specific readahead setting into read options if needed.
+  return table_reader_->VerifyChecksum(ReadOptions(),
+                                       TableReaderCaller::kSSTDumpTool);
 }
 
 Status SstFileDumper::DumpTable(const std::string& out_filename) {
   std::unique_ptr<WritableFile> out_file;
   Env* env = Env::Default();
   env->NewWritableFile(out_filename, &out_file, soptions_);
-  Status s = table_reader_->DumpTable(out_file.get(),
-                                      moptions_.prefix_extractor.get());
+  Status s = table_reader_->DumpTable(out_file.get());
   out_file->Close();
   return s;
 }
@@ -174,7 +174,8 @@ uint64_t SstFileDumper::CalculateCompressedTableSize(
       TablePropertiesCollectorFactory::Context::kUnknownColumnFamily,
       dest_writer.get()));
   std::unique_ptr<InternalIterator> iter(table_reader_->NewIterator(
-      ReadOptions(), moptions_.prefix_extractor.get()));
+      ReadOptions(), moptions_.prefix_extractor.get(), /*arena=*/nullptr,
+      /*skip_filters=*/false, TableReaderCaller::kSSTDumpTool));
   for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
     if (!iter->status().ok()) {
       fputs(iter->status().ToString().c_str(), stderr);
@@ -214,7 +215,7 @@ int SstFileDumper::ShowAllCompressionSizes(
       int unknown_level = -1;
       TableBuilderOptions tb_opts(
           imoptions, moptions, ikc, &block_based_table_factories, i.first,
-          compress_opt, nullptr /* compression_dict */,
+          0 /* sample_for_compression */, compress_opt,
           false /* skip_filters */, column_family_name, unknown_level);
       uint64_t file_size = CalculateCompressedTableSize(tb_opts, block_size);
       fprintf(stdout, "Compression: %s", i.second);
@@ -300,7 +301,9 @@ Status SstFileDumper::ReadSequential(bool print_kv, uint64_t read_num,
   }
 
   InternalIterator* iter = table_reader_->NewIterator(
-      ReadOptions(verify_checksum_, false), moptions_.prefix_extractor.get());
+      ReadOptions(verify_checksum_, false), moptions_.prefix_extractor.get(),
+      /*arena=*/nullptr, /*skip_filters=*/false,
+      TableReaderCaller::kSSTDumpTool);
   uint64_t i = 0;
   if (has_from) {
     InternalKey ikey;
@@ -417,7 +420,7 @@ void print_help() {
 
 }  // namespace
 
-int SSTDumpTool::Run(int argc, char** argv) {
+int SSTDumpTool::Run(int argc, char** argv, Options options) {
   const char* dir_or_file = nullptr;
   uint64_t read_num = std::numeric_limits<uint64_t>::max();
   std::string command;
@@ -545,7 +548,7 @@ int SSTDumpTool::Run(int argc, char** argv) {
   }
 
   std::vector<std::string> filenames;
-  rocksdb::Env* env = rocksdb::Env::Default();
+  rocksdb::Env* env = options.env;
   rocksdb::Status st = env->GetChildren(dir_or_file, &filenames);
   bool dir = true;
   if (!st.ok()) {
@@ -570,7 +573,7 @@ int SSTDumpTool::Run(int argc, char** argv) {
       filename = std::string(dir_or_file) + "/" + filename;
     }
 
-    rocksdb::SstFileDumper dumper(filename, verify_checksum,
+    rocksdb::SstFileDumper dumper(options, filename, verify_checksum,
                                   output_hex);
     if (!dumper.getStatus().ok()) {
       fprintf(stderr, "%s: %s\n", filename.c_str(),

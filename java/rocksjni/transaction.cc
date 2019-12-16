@@ -418,20 +418,20 @@ jobjectArray Java_org_rocksdb_Transaction_multiGet__JJ_3_3B(
 /*
  * Class:     org_rocksdb_Transaction
  * Method:    getForUpdate
- * Signature: (JJ[BIJZ)[B
+ * Signature: (JJ[BIJZZ)[B
  */
-jbyteArray Java_org_rocksdb_Transaction_getForUpdate__JJ_3BIJZ(
+jbyteArray Java_org_rocksdb_Transaction_getForUpdate__JJ_3BIJZZ(
     JNIEnv* env, jobject /*jobj*/, jlong jhandle, jlong jread_options_handle,
     jbyteArray jkey, jint jkey_part_len, jlong jcolumn_family_handle,
-    jboolean jexclusive) {
+    jboolean jexclusive, jboolean jdo_validate) {
   auto* column_family_handle =
       reinterpret_cast<rocksdb::ColumnFamilyHandle*>(jcolumn_family_handle);
   auto* txn = reinterpret_cast<rocksdb::Transaction*>(jhandle);
   FnGet fn_get_for_update = std::bind<rocksdb::Status (rocksdb::Transaction::*)(
       const rocksdb::ReadOptions&, rocksdb::ColumnFamilyHandle*,
-      const rocksdb::Slice&, std::string*, bool)>(
+      const rocksdb::Slice&, std::string*, bool, bool)>(
       &rocksdb::Transaction::GetForUpdate, txn, _1, column_family_handle, _2,
-      _3, jexclusive);
+      _3, jexclusive, jdo_validate);
   return txn_get_helper(env, fn_get_for_update, jread_options_handle, jkey,
                         jkey_part_len);
 }
@@ -439,15 +439,17 @@ jbyteArray Java_org_rocksdb_Transaction_getForUpdate__JJ_3BIJZ(
 /*
  * Class:     org_rocksdb_Transaction
  * Method:    getForUpdate
- * Signature: (JJ[BIZ)[B
+ * Signature: (JJ[BIZZ)[B
  */
-jbyteArray Java_org_rocksdb_Transaction_getForUpdate__JJ_3BIZ(
+jbyteArray Java_org_rocksdb_Transaction_getForUpdate__JJ_3BIZZ(
     JNIEnv* env, jobject /*jobj*/, jlong jhandle, jlong jread_options_handle,
-    jbyteArray jkey, jint jkey_part_len, jboolean jexclusive) {
+    jbyteArray jkey, jint jkey_part_len, jboolean jexclusive,
+    jboolean jdo_validate) {
   auto* txn = reinterpret_cast<rocksdb::Transaction*>(jhandle);
   FnGet fn_get_for_update = std::bind<rocksdb::Status (rocksdb::Transaction::*)(
-      const rocksdb::ReadOptions&, const rocksdb::Slice&, std::string*, bool)>(
-      &rocksdb::Transaction::GetForUpdate, txn, _1, _2, _3, jexclusive);
+      const rocksdb::ReadOptions&, const rocksdb::Slice&, std::string*, bool,
+      bool)>(&rocksdb::Transaction::GetForUpdate, txn, _1, _2, _3, jexclusive,
+             jdo_validate);
   return txn_get_helper(env, fn_get_for_update, jread_options_handle, jkey,
                         jkey_part_len);
 }
@@ -568,19 +570,20 @@ void txn_write_kv_helper(JNIEnv* env, const FnWriteKV& fn_write_kv,
 /*
  * Class:     org_rocksdb_Transaction
  * Method:    put
- * Signature: (J[BI[BIJ)V
+ * Signature: (J[BI[BIJZ)V
  */
-void Java_org_rocksdb_Transaction_put__J_3BI_3BIJ(
+void Java_org_rocksdb_Transaction_put__J_3BI_3BIJZ(
     JNIEnv* env, jobject /*jobj*/, jlong jhandle, jbyteArray jkey,
     jint jkey_part_len, jbyteArray jval, jint jval_len,
-    jlong jcolumn_family_handle) {
+    jlong jcolumn_family_handle, jboolean jassume_tracked) {
   auto* txn = reinterpret_cast<rocksdb::Transaction*>(jhandle);
   auto* column_family_handle =
       reinterpret_cast<rocksdb::ColumnFamilyHandle*>(jcolumn_family_handle);
   FnWriteKV fn_put = std::bind<rocksdb::Status (rocksdb::Transaction::*)(
       rocksdb::ColumnFamilyHandle*, const rocksdb::Slice&,
-      const rocksdb::Slice&)>(&rocksdb::Transaction::Put, txn,
-                              column_family_handle, _1, _2);
+      const rocksdb::Slice&, bool)>(&rocksdb::Transaction::Put, txn,
+                                    column_family_handle, _1, _2,
+                                    jassume_tracked);
   txn_write_kv_helper(env, fn_put, jkey, jkey_part_len, jval, jval_len);
 }
 
@@ -706,20 +709,21 @@ void txn_write_kv_parts_helper(JNIEnv* env,
 /*
  * Class:     org_rocksdb_Transaction
  * Method:    put
- * Signature: (J[[BI[[BIJ)V
+ * Signature: (J[[BI[[BIJZ)V
  */
-void Java_org_rocksdb_Transaction_put__J_3_3BI_3_3BIJ(
+void Java_org_rocksdb_Transaction_put__J_3_3BI_3_3BIJZ(
     JNIEnv* env, jobject /*jobj*/, jlong jhandle, jobjectArray jkey_parts,
     jint jkey_parts_len, jobjectArray jvalue_parts, jint jvalue_parts_len,
-    jlong jcolumn_family_handle) {
+    jlong jcolumn_family_handle, jboolean jassume_tracked) {
   auto* txn = reinterpret_cast<rocksdb::Transaction*>(jhandle);
   auto* column_family_handle =
       reinterpret_cast<rocksdb::ColumnFamilyHandle*>(jcolumn_family_handle);
   FnWriteKVParts fn_put_parts =
       std::bind<rocksdb::Status (rocksdb::Transaction::*)(
           rocksdb::ColumnFamilyHandle*, const rocksdb::SliceParts&,
-          const rocksdb::SliceParts&)>(&rocksdb::Transaction::Put, txn,
-                                       column_family_handle, _1, _2);
+          const rocksdb::SliceParts&, bool)>(&rocksdb::Transaction::Put, txn,
+                                             column_family_handle, _1, _2,
+                                             jassume_tracked);
   txn_write_kv_parts_helper(env, fn_put_parts, jkey_parts, jkey_parts_len,
                             jvalue_parts, jvalue_parts_len);
 }
@@ -744,19 +748,20 @@ void Java_org_rocksdb_Transaction_put__J_3_3BI_3_3BI(
 /*
  * Class:     org_rocksdb_Transaction
  * Method:    merge
- * Signature: (J[BI[BIJ)V
+ * Signature: (J[BI[BIJZ)V
  */
-void Java_org_rocksdb_Transaction_merge__J_3BI_3BIJ(
+void Java_org_rocksdb_Transaction_merge__J_3BI_3BIJZ(
     JNIEnv* env, jobject /*jobj*/, jlong jhandle, jbyteArray jkey,
     jint jkey_part_len, jbyteArray jval, jint jval_len,
-    jlong jcolumn_family_handle) {
+    jlong jcolumn_family_handle, jboolean jassume_tracked) {
   auto* txn = reinterpret_cast<rocksdb::Transaction*>(jhandle);
   auto* column_family_handle =
       reinterpret_cast<rocksdb::ColumnFamilyHandle*>(jcolumn_family_handle);
   FnWriteKV fn_merge = std::bind<rocksdb::Status (rocksdb::Transaction::*)(
       rocksdb::ColumnFamilyHandle*, const rocksdb::Slice&,
-      const rocksdb::Slice&)>(&rocksdb::Transaction::Merge, txn,
-                              column_family_handle, _1, _2);
+      const rocksdb::Slice&, bool)>(&rocksdb::Transaction::Merge, txn,
+                                    column_family_handle, _1, _2,
+                                    jassume_tracked);
   txn_write_kv_helper(env, fn_merge, jkey, jkey_part_len, jval, jval_len);
 }
 
@@ -803,18 +808,18 @@ void txn_write_k_helper(JNIEnv* env, const FnWriteK& fn_write_k,
 /*
  * Class:     org_rocksdb_Transaction
  * Method:    delete
- * Signature: (J[BIJ)V
+ * Signature: (J[BIJZ)V
  */
-void Java_org_rocksdb_Transaction_delete__J_3BIJ(JNIEnv* env, jobject /*jobj*/,
-                                                 jlong jhandle, jbyteArray jkey,
-                                                 jint jkey_part_len,
-                                                 jlong jcolumn_family_handle) {
+void Java_org_rocksdb_Transaction_delete__J_3BIJZ(
+    JNIEnv* env, jobject /*jobj*/, jlong jhandle, jbyteArray jkey,
+    jint jkey_part_len, jlong jcolumn_family_handle, jboolean jassume_tracked) {
   auto* txn = reinterpret_cast<rocksdb::Transaction*>(jhandle);
   auto* column_family_handle =
       reinterpret_cast<rocksdb::ColumnFamilyHandle*>(jcolumn_family_handle);
   FnWriteK fn_delete = std::bind<rocksdb::Status (rocksdb::Transaction::*)(
-      rocksdb::ColumnFamilyHandle*, const rocksdb::Slice&)>(
-      &rocksdb::Transaction::Delete, txn, column_family_handle, _1);
+      rocksdb::ColumnFamilyHandle*, const rocksdb::Slice&, bool)>(
+      &rocksdb::Transaction::Delete, txn, column_family_handle, _1,
+      jassume_tracked);
   txn_write_k_helper(env, fn_delete, jkey, jkey_part_len);
 }
 
@@ -892,18 +897,20 @@ void txn_write_k_parts_helper(JNIEnv* env,
 /*
  * Class:     org_rocksdb_Transaction
  * Method:    delete
- * Signature: (J[[BIJ)V
+ * Signature: (J[[BIJZ)V
  */
-void Java_org_rocksdb_Transaction_delete__J_3_3BIJ(
+void Java_org_rocksdb_Transaction_delete__J_3_3BIJZ(
     JNIEnv* env, jobject /*jobj*/, jlong jhandle, jobjectArray jkey_parts,
-    jint jkey_parts_len, jlong jcolumn_family_handle) {
+    jint jkey_parts_len, jlong jcolumn_family_handle,
+    jboolean jassume_tracked) {
   auto* txn = reinterpret_cast<rocksdb::Transaction*>(jhandle);
   auto* column_family_handle =
       reinterpret_cast<rocksdb::ColumnFamilyHandle*>(jcolumn_family_handle);
   FnWriteKParts fn_delete_parts =
       std::bind<rocksdb::Status (rocksdb::Transaction::*)(
-          rocksdb::ColumnFamilyHandle*, const rocksdb::SliceParts&)>(
-          &rocksdb::Transaction::Delete, txn, column_family_handle, _1);
+          rocksdb::ColumnFamilyHandle*, const rocksdb::SliceParts&, bool)>(
+          &rocksdb::Transaction::Delete, txn, column_family_handle, _1,
+          jassume_tracked);
   txn_write_k_parts_helper(env, fn_delete_parts, jkey_parts, jkey_parts_len);
 }
 
@@ -926,18 +933,19 @@ void Java_org_rocksdb_Transaction_delete__J_3_3BI(JNIEnv* env, jobject /*jobj*/,
 /*
  * Class:     org_rocksdb_Transaction
  * Method:    singleDelete
- * Signature: (J[BIJ)V
+ * Signature: (J[BIJZ)V
  */
-void Java_org_rocksdb_Transaction_singleDelete__J_3BIJ(
+void Java_org_rocksdb_Transaction_singleDelete__J_3BIJZ(
     JNIEnv* env, jobject /*jobj*/, jlong jhandle, jbyteArray jkey,
-    jint jkey_part_len, jlong jcolumn_family_handle) {
+    jint jkey_part_len, jlong jcolumn_family_handle, jboolean jassume_tracked) {
   auto* txn = reinterpret_cast<rocksdb::Transaction*>(jhandle);
   auto* column_family_handle =
       reinterpret_cast<rocksdb::ColumnFamilyHandle*>(jcolumn_family_handle);
   FnWriteK fn_single_delete =
       std::bind<rocksdb::Status (rocksdb::Transaction::*)(
-          rocksdb::ColumnFamilyHandle*, const rocksdb::Slice&)>(
-          &rocksdb::Transaction::SingleDelete, txn, column_family_handle, _1);
+          rocksdb::ColumnFamilyHandle*, const rocksdb::Slice&, bool)>(
+          &rocksdb::Transaction::SingleDelete, txn, column_family_handle, _1,
+          jassume_tracked);
   txn_write_k_helper(env, fn_single_delete, jkey, jkey_part_len);
 }
 
@@ -961,18 +969,20 @@ void Java_org_rocksdb_Transaction_singleDelete__J_3BI(JNIEnv* env,
 /*
  * Class:     org_rocksdb_Transaction
  * Method:    singleDelete
- * Signature: (J[[BIJ)V
+ * Signature: (J[[BIJZ)V
  */
-void Java_org_rocksdb_Transaction_singleDelete__J_3_3BIJ(
+void Java_org_rocksdb_Transaction_singleDelete__J_3_3BIJZ(
     JNIEnv* env, jobject /*jobj*/, jlong jhandle, jobjectArray jkey_parts,
-    jint jkey_parts_len, jlong jcolumn_family_handle) {
+    jint jkey_parts_len, jlong jcolumn_family_handle,
+    jboolean jassume_tracked) {
   auto* txn = reinterpret_cast<rocksdb::Transaction*>(jhandle);
   auto* column_family_handle =
       reinterpret_cast<rocksdb::ColumnFamilyHandle*>(jcolumn_family_handle);
   FnWriteKParts fn_single_delete_parts =
       std::bind<rocksdb::Status (rocksdb::Transaction::*)(
-          rocksdb::ColumnFamilyHandle*, const rocksdb::SliceParts&)>(
-          &rocksdb::Transaction::SingleDelete, txn, column_family_handle, _1);
+          rocksdb::ColumnFamilyHandle*, const rocksdb::SliceParts&, bool)>(
+          &rocksdb::Transaction::SingleDelete, txn, column_family_handle, _1,
+          jassume_tracked);
   txn_write_k_parts_helper(env, fn_single_delete_parts, jkey_parts,
                            jkey_parts_len);
 }

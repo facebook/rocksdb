@@ -50,6 +50,10 @@ Check out their blog post: http://blog.cloudera.com/blog/2015/08/inside-santande
 ## Airbnb
 Airbnb is using RocksDB as a storage engine for their personalized search service. You can learn more about it here: https://www.youtube.com/watch?v=ASQ6XMtogMs
 
+## Alluxio
+[Alluxio](https://www.alluxio.io) uses RocksDB to serve and scale file system metadata to beyond 1 Billion files. The detailed design and implementation is described in this engineering blog:
+https://www.alluxio.io/blog/scalable-metadata-service-in-alluxio-storing-billions-of-files/
+
 ## Pinterest
 Pinterest's Object Retrieval System uses RocksDB for storage: https://www.youtube.com/watch?v=MtFEVEs_2Vo
 
@@ -92,3 +96,6 @@ LzLabs is using RocksDB as a storage engine in their multi-database distributed 
 
 ## IOTA Foundation
  [IOTA Foundation](https://www.iota.org/) is using RocksDB in the [IOTA Reference Implementation (IRI)](https://github.com/iotaledger/iri) to store the local state of the Tangle. The Tangle is the first open-source distributed ledger powering the future of the Internet of Things.
+ 
+## Crux
+[Crux](https://github.com/juxt/crux) is a document database that uses RocksDB for local [EAV](https://en.wikipedia.org/wiki/Entity%E2%80%93attribute%E2%80%93value_model) index storage to enable point-in-time bitemporal Datalog queries. The "unbundled" architecture uses Kafka to provide horizontal scalability.

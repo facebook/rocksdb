@@ -127,7 +127,7 @@ class WriteThread {
     std::atomic<uint8_t> state;  // write under StateMutex() or pre-link
     WriteGroup* write_group;
     SequenceNumber sequence;  // the sequence number to use for the first key
-    Status status;            // status of memtable inserter
+    Status status;
     Status callback_status;   // status returned by callback->Callback()
 
     std::aligned_storage<sizeof(std::mutex)>::type state_mutex_bytes;
@@ -359,6 +359,11 @@ class WriteThread {
 
   // Enable pipelined write to WAL and memtable.
   const bool enable_pipelined_write_;
+
+  // The maximum limit of number of bytes that are written in a single batch
+  // of WAL or memtable write. It is followed when the leader write size
+  // is larger than 1/8 of this limit.
+  const uint64_t max_write_batch_group_size_bytes;
 
   // Points to the newest pending writer. Only leader can remove
   // elements, adding can be done lock-free by anybody.

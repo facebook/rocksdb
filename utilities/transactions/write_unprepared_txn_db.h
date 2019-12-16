@@ -6,10 +6,6 @@
 #pragma once
 #ifndef ROCKSDB_LITE
 
-#ifndef __STDC_FORMAT_MACROS
-#define __STDC_FORMAT_MACROS
-#endif
-
 #include "utilities/transactions/write_prepared_txn_db.h"
 #include "utilities/transactions/write_unprepared_txn.h"
 
@@ -59,8 +55,10 @@ class WriteUnpreparedCommitEntryPreReleaseCallback : public PreReleaseCallback {
     assert(unprep_seqs.size() > 0);
   }
 
-  virtual Status Callback(SequenceNumber commit_seq, bool is_mem_disabled
-                          __attribute__((__unused__))) override {
+  virtual Status Callback(SequenceNumber commit_seq,
+                          bool is_mem_disabled __attribute__((__unused__)),
+                          uint64_t, size_t /*index*/,
+                          size_t /*total*/) override {
     const uint64_t last_commit_seq = LIKELY(data_batch_cnt_ <= 1)
                                          ? commit_seq
                                          : commit_seq + data_batch_cnt_ - 1;
@@ -106,31 +104,44 @@ class WriteUnpreparedCommitEntryPreReleaseCallback : public PreReleaseCallback {
   bool publish_seq_;
 };
 
-struct KeySetBuilder : public WriteBatch::Handler {
-  WriteUnpreparedTxn* txn_;
-  bool rollback_merge_operands_;
-
-  KeySetBuilder(WriteUnpreparedTxn* txn, bool rollback_merge_operands)
-      : txn_(txn), rollback_merge_operands_(rollback_merge_operands) {}
-
-  Status PutCF(uint32_t cf, const Slice& key, const Slice& val) override;
-
-  Status DeleteCF(uint32_t cf, const Slice& key) override;
-
-  Status SingleDeleteCF(uint32_t cf, const Slice& key) override;
-
-  Status MergeCF(uint32_t cf, const Slice& key, const Slice& val) override;
-
-  // Recovered batches do not contain 2PC markers.
-  Status MarkNoop(bool) override { return Status::InvalidArgument(); }
-  Status MarkBeginPrepare(bool) override { return Status::InvalidArgument(); }
-  Status MarkEndPrepare(const Slice&) override {
-    return Status::InvalidArgument();
+class WriteUnpreparedRollbackPreReleaseCallback : public PreReleaseCallback {
+  // TODO(lth): Reduce code duplication with
+  // WritePreparedCommitEntryPreReleaseCallback
+ public:
+  WriteUnpreparedRollbackPreReleaseCallback(
+      WritePreparedTxnDB* db, DBImpl* db_impl,
+      const std::map<SequenceNumber, size_t>& unprep_seqs,
+      SequenceNumber rollback_seq)
+      : db_(db),
+        db_impl_(db_impl),
+        unprep_seqs_(unprep_seqs),
+        rollback_seq_(rollback_seq) {
+    assert(unprep_seqs.size() > 0);
+    assert(db_impl_->immutable_db_options().two_write_queues);
   }
-  Status MarkCommit(const Slice&) override { return Status::InvalidArgument(); }
-  Status MarkRollback(const Slice&) override {
-    return Status::InvalidArgument();
+
+  virtual Status Callback(SequenceNumber commit_seq,
+                          bool is_mem_disabled __attribute__((__unused__)),
+                          uint64_t, size_t /*index*/,
+                          size_t /*total*/) override {
+    assert(is_mem_disabled);  // implies the 2nd queue
+    const uint64_t last_commit_seq = commit_seq;
+    db_->AddCommitted(rollback_seq_, last_commit_seq);
+    // Recall that unprep_seqs maps (un)prepared_seq => prepare_batch_cnt.
+    for (const auto& s : unprep_seqs_) {
+      for (size_t i = 0; i < s.second; i++) {
+        db_->AddCommitted(s.first + i, last_commit_seq);
+      }
+    }
+    db_impl_->SetLastPublishedSequence(last_commit_seq);
+    return Status::OK();
   }
+
+ private:
+  WritePreparedTxnDB* db_;
+  DBImpl* db_impl_;
+  const std::map<SequenceNumber, size_t>& unprep_seqs_;
+  SequenceNumber rollback_seq_;
 };
 
 }  //  namespace rocksdb

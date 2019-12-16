@@ -6,10 +6,10 @@
 #include <string>
 #include "db/version_edit.h"
 #include "db/version_set.h"
-#include "util/logging.h"
+#include "logging/logging.h"
+#include "test_util/testharness.h"
+#include "test_util/testutil.h"
 #include "util/string_util.h"
-#include "util/testharness.h"
-#include "util/testutil.h"
 
 namespace rocksdb {
 
@@ -37,7 +37,7 @@ class VersionBuilderTest : public testing::Test {
     size_being_compacted_.resize(options_.num_levels);
   }
 
-  ~VersionBuilderTest() {
+  ~VersionBuilderTest() override {
     for (int i = 0; i < vstorage_.num_levels(); i++) {
       for (auto* f : vstorage_.LevelFiles(i)) {
         if (--f->refs == 0) {

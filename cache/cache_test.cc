@@ -16,9 +16,9 @@
 #include <vector>
 #include "cache/clock_cache.h"
 #include "cache/lru_cache.h"
+#include "test_util/testharness.h"
 #include "util/coding.h"
 #include "util/string_util.h"
-#include "util/testharness.h"
 
 namespace rocksdb {
 
@@ -73,8 +73,7 @@ class CacheTest : public testing::TestWithParam<std::string> {
     current_ = this;
   }
 
-  ~CacheTest() {
-  }
+  ~CacheTest() override {}
 
   std::shared_ptr<Cache> NewCache(size_t capacity) {
     auto type = GetParam();
@@ -91,7 +90,7 @@ class CacheTest : public testing::TestWithParam<std::string> {
                                   bool strict_capacity_limit) {
     auto type = GetParam();
     if (type == kLRU) {
-      return NewLRUCache(capacity, num_shard_bits, strict_capacity_limit);
+      return NewLRUCache(capacity, num_shard_bits, strict_capacity_limit, 0.0);
     }
     if (type == kClock) {
       return NewClockCache(capacity, num_shard_bits, strict_capacity_limit);
@@ -99,7 +98,7 @@ class CacheTest : public testing::TestWithParam<std::string> {
     return nullptr;
   }
 
-  int Lookup(shared_ptr<Cache> cache, int key) {
+  int Lookup(std::shared_ptr<Cache> cache, int key) {
     Cache::Handle* handle = cache->Lookup(EncodeKey(key));
     const int r = (handle == nullptr) ? -1 : DecodeValue(cache->Value(handle));
     if (handle != nullptr) {
@@ -108,15 +107,15 @@ class CacheTest : public testing::TestWithParam<std::string> {
     return r;
   }
 
-  void Insert(shared_ptr<Cache> cache, int key, int value, int charge = 1) {
+  void Insert(std::shared_ptr<Cache> cache, int key, int value,
+              int charge = 1) {
     cache->Insert(EncodeKey(key), EncodeValue(value), charge,
                   &CacheTest::Deleter);
   }
 
-  void Erase(shared_ptr<Cache> cache, int key) {
+  void Erase(std::shared_ptr<Cache> cache, int key) {
     cache->Erase(EncodeKey(key));
   }
-
 
   int Lookup(int key) {
     return Lookup(cache_, key);
@@ -307,7 +306,7 @@ TEST_P(CacheTest, EvictionPolicy) {
   Insert(200, 201);
 
   // Frequently used entry must be kept around
-  for (int i = 0; i < kCacheSize + 100; i++) {
+  for (int i = 0; i < kCacheSize + 200; i++) {
     Insert(1000+i, 2000+i);
     ASSERT_EQ(101, Lookup(100));
   }
@@ -360,7 +359,7 @@ TEST_P(CacheTest, EvictionPolicyRef) {
   Insert(303, 104);
 
   // Insert entries much more than Cache capacity
-  for (int i = 0; i < kCacheSize + 100; i++) {
+  for (int i = 0; i < kCacheSize + 200; i++) {
     Insert(1000 + i, 2000 + i);
   }
 
@@ -563,6 +562,7 @@ TEST_P(CacheTest, SetStrictCapacityLimit) {
     ASSERT_OK(s);
     ASSERT_NE(nullptr, handles[i]);
   }
+  ASSERT_EQ(10, cache->GetUsage());
 
   // test2: set the flag to true. Insert and check if it fails.
   std::string extra_key = "extra";
@@ -572,6 +572,7 @@ TEST_P(CacheTest, SetStrictCapacityLimit) {
   s = cache->Insert(extra_key, extra_value, 1, &deleter, &handle);
   ASSERT_TRUE(s.IsIncomplete());
   ASSERT_EQ(nullptr, handle);
+  ASSERT_EQ(10, cache->GetUsage());
 
   for (size_t i = 0; i < 10; i++) {
     cache->Release(handles[i]);
@@ -592,7 +593,7 @@ TEST_P(CacheTest, SetStrictCapacityLimit) {
   s = cache2->Insert(extra_key, extra_value, 1, &deleter);
   // AS if the key have been inserted into cache but get evicted immediately.
   ASSERT_OK(s);
-  ASSERT_EQ(5, cache->GetUsage());
+  ASSERT_EQ(5, cache2->GetUsage());
   ASSERT_EQ(nullptr, cache2->Lookup(extra_key));
 
   for (size_t i = 0; i < 5; i++) {
@@ -687,8 +688,17 @@ TEST_P(CacheTest, DefaultShardBits) {
   ASSERT_EQ(6, sc->GetNumShardBits());
 }
 
+TEST_P(CacheTest, GetCharge) {
+  Insert(1, 2);
+  Cache::Handle* h1 = cache_->Lookup(EncodeKey(1));
+  ASSERT_EQ(2, DecodeValue(cache_->Value(h1)));
+  ASSERT_EQ(1, cache_->GetCharge(h1));
+  cache_->Release(h1);
+}
+
 #ifdef SUPPORT_CLOCK_CACHE
-shared_ptr<Cache> (*new_clock_cache_func)(size_t, int, bool) = NewClockCache;
+std::shared_ptr<Cache> (*new_clock_cache_func)(size_t, int,
+                                               bool) = NewClockCache;
 INSTANTIATE_TEST_CASE_P(CacheTestInstance, CacheTest,
                         testing::Values(kLRU, kClock));
 #else

@@ -19,7 +19,7 @@
 namespace rocksdb {
 namespace blob_db {
 
-Writer::Writer(unique_ptr<WritableFileWriter>&& dest, Env* env,
+Writer::Writer(std::unique_ptr<WritableFileWriter>&& dest, Env* env,
                Statistics* statistics, uint64_t log_number, uint64_t bpsync,
                bool use_fs, uint64_t boffset)
     : dest_(std::move(dest)),

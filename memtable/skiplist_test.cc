@@ -9,11 +9,11 @@
 
 #include "memtable/skiplist.h"
 #include <set>
+#include "memory/arena.h"
 #include "rocksdb/env.h"
-#include "util/arena.h"
+#include "test_util/testharness.h"
 #include "util/hash.h"
 #include "util/random.h"
-#include "util/testharness.h"
 
 namespace rocksdb {
 

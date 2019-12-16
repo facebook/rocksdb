@@ -12,6 +12,7 @@
 #include <vector>
 #include "db/dbformat.h"
 #include "db/pinned_iterators_manager.h"
+#include "memory/arena.h"
 #include "monitoring/perf_context_imp.h"
 #include "rocksdb/comparator.h"
 #include "rocksdb/iterator.h"
@@ -19,11 +20,10 @@
 #include "table/internal_iterator.h"
 #include "table/iter_heap.h"
 #include "table/iterator_wrapper.h"
-#include "util/arena.h"
+#include "test_util/sync_point.h"
 #include "util/autovector.h"
 #include "util/heap.h"
 #include "util/stop_watch.h"
-#include "util/sync_point.h"
 
 namespace rocksdb {
 // Without anonymous namespace here, we fail the warning -Wmissing-prototypes
@@ -83,19 +83,17 @@ class MergingIterator : public InternalIterator {
     }
   }
 
-  virtual ~MergingIterator() {
+  ~MergingIterator() override {
     for (auto& child : children_) {
       child.DeleteIter(is_arena_mode_);
     }
   }
 
-  virtual bool Valid() const override {
-    return current_ != nullptr && status_.ok();
-  }
+  bool Valid() const override { return current_ != nullptr && status_.ok(); }
 
-  virtual Status status() const override { return status_; }
+  Status status() const override { return status_; }
 
-  virtual void SeekToFirst() override {
+  void SeekToFirst() override {
     ClearHeaps();
     status_ = Status::OK();
     for (auto& child : children_) {
@@ -111,7 +109,7 @@ class MergingIterator : public InternalIterator {
     current_ = CurrentForward();
   }
 
-  virtual void SeekToLast() override {
+  void SeekToLast() override {
     ClearHeaps();
     InitMaxHeap();
     status_ = Status::OK();
@@ -128,7 +126,7 @@ class MergingIterator : public InternalIterator {
     current_ = CurrentReverse();
   }
 
-  virtual void Seek(const Slice& target) override {
+  void Seek(const Slice& target) override {
     ClearHeaps();
     status_ = Status::OK();
     for (auto& child : children_) {
@@ -153,7 +151,7 @@ class MergingIterator : public InternalIterator {
     }
   }
 
-  virtual void SeekForPrev(const Slice& target) override {
+  void SeekForPrev(const Slice& target) override {
     ClearHeaps();
     InitMaxHeap();
     status_ = Status::OK();
@@ -180,7 +178,7 @@ class MergingIterator : public InternalIterator {
     }
   }
 
-  virtual void Next() override {
+  void Next() override {
     assert(Valid());
 
     // Ensure that all children are positioned after key().
@@ -214,7 +212,17 @@ class MergingIterator : public InternalIterator {
     current_ = CurrentForward();
   }
 
-  virtual void Prev() override {
+  bool NextAndGetResult(IterateResult* result) override {
+    Next();
+    bool is_valid = Valid();
+    if (is_valid) {
+      result->key = key();
+      result->may_be_out_of_upper_bound = MayBeOutOfUpperBound();
+    }
+    return is_valid;
+  }
+
+  void Prev() override {
     assert(Valid());
     // Ensure that all children are positioned before key().
     // If we are moving in the reverse direction, it is already
@@ -273,31 +281,44 @@ class MergingIterator : public InternalIterator {
     current_ = CurrentReverse();
   }
 
-  virtual Slice key() const override {
+  Slice key() const override {
     assert(Valid());
     return current_->key();
   }
 
-  virtual Slice value() const override {
+  Slice value() const override {
     assert(Valid());
     return current_->value();
   }
 
-  virtual void SetPinnedItersMgr(
-      PinnedIteratorsManager* pinned_iters_mgr) override {
+  // Here we simply relay MayBeOutOfLowerBound/MayBeOutOfUpperBound result
+  // from current child iterator. Potentially as long as one of child iterator
+  // report out of bound is not possible, we know current key is within bound.
+
+  bool MayBeOutOfLowerBound() override {
+    assert(Valid());
+    return current_->MayBeOutOfLowerBound();
+  }
+
+  bool MayBeOutOfUpperBound() override {
+    assert(Valid());
+    return current_->MayBeOutOfUpperBound();
+  }
+
+  void SetPinnedItersMgr(PinnedIteratorsManager* pinned_iters_mgr) override {
     pinned_iters_mgr_ = pinned_iters_mgr;
     for (auto& child : children_) {
       child.SetPinnedItersMgr(pinned_iters_mgr);
     }
   }
 
-  virtual bool IsKeyPinned() const override {
+  bool IsKeyPinned() const override {
     assert(Valid());
     return pinned_iters_mgr_ && pinned_iters_mgr_->PinningEnabled() &&
            current_->IsKeyPinned();
   }
 
-  virtual bool IsValuePinned() const override {
+  bool IsValuePinned() const override {
     assert(Valid());
     return pinned_iters_mgr_ && pinned_iters_mgr_->PinningEnabled() &&
            current_->IsValuePinned();

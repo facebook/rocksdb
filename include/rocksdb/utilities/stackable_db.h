@@ -1,3 +1,4 @@
+// Copyright (c) Facebook, Inc. and its affiliates. All Rights Reserved.
 // Copyright (c) 2011 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
@@ -12,7 +13,6 @@
 // Windows API macro interference
 #undef DeleteFile
 #endif
-
 
 namespace rocksdb {
 
@@ -37,9 +37,7 @@ class StackableDB : public DB {
 
   virtual Status Close() override { return db_->Close(); }
 
-  virtual DB* GetBaseDB() {
-    return db_;
-  }
+  virtual DB* GetBaseDB() { return db_; }
 
   virtual DB* GetRootDB() override { return db_->GetRootDB(); }
 
@@ -90,6 +88,17 @@ class StackableDB : public DB {
     return db_->Get(options, column_family, key, value);
   }
 
+  using DB::GetMergeOperands;
+  virtual Status GetMergeOperands(
+      const ReadOptions& options, ColumnFamilyHandle* column_family,
+      const Slice& key, PinnableSlice* slice,
+      GetMergeOperandsOptions* get_merge_operands_options,
+      int* number_of_operands) override {
+    return db_->GetMergeOperands(options, column_family, key, slice,
+                                 get_merge_operands_options,
+                                 number_of_operands);
+  }
+
   using DB::MultiGet;
   virtual std::vector<Status> MultiGet(
       const ReadOptions& options,
@@ -97,6 +106,15 @@ class StackableDB : public DB {
       const std::vector<Slice>& keys,
       std::vector<std::string>* values) override {
     return db_->MultiGet(options, column_family, keys, values);
+  }
+
+  virtual void MultiGet(const ReadOptions& options,
+                        ColumnFamilyHandle* column_family,
+                        const size_t num_keys, const Slice* keys,
+                        PinnableSlice* values, Status* statuses,
+                        const bool sorted_input = false) override {
+    return db_->MultiGet(options, column_family, num_keys, keys,
+                         values, statuses, sorted_input);
   }
 
   using DB::IngestExternalFile;
@@ -107,7 +125,27 @@ class StackableDB : public DB {
     return db_->IngestExternalFile(column_family, external_files, options);
   }
 
+  using DB::IngestExternalFiles;
+  virtual Status IngestExternalFiles(
+      const std::vector<IngestExternalFileArg>& args) override {
+    return db_->IngestExternalFiles(args);
+  }
+
+  using DB::CreateColumnFamilyWithImport;
+  virtual Status CreateColumnFamilyWithImport(
+      const ColumnFamilyOptions& options, const std::string& column_family_name,
+      const ImportColumnFamilyOptions& import_options,
+      const ExportImportFilesMetaData& metadata,
+      ColumnFamilyHandle** handle) override {
+    return db_->CreateColumnFamilyWithImport(options, column_family_name,
+                                             import_options, metadata, handle);
+  }
+
   virtual Status VerifyChecksum() override { return db_->VerifyChecksum(); }
+
+  virtual Status VerifyChecksum(const ReadOptions& options) override {
+    return db_->VerifyChecksum(options);
+  }
 
   using DB::KeyMayExist;
   virtual bool KeyMayExist(const ReadOptions& options,
@@ -138,10 +176,8 @@ class StackableDB : public DB {
     return db_->Merge(options, column_family, key, value);
   }
 
-
-  virtual Status Write(const WriteOptions& opts, WriteBatch* updates)
-    override {
-      return db_->Write(opts, updates);
+  virtual Status Write(const WriteOptions& opts, WriteBatch* updates) override {
+    return db_->Write(opts, updates);
   }
 
   using DB::NewIterator;
@@ -157,10 +193,7 @@ class StackableDB : public DB {
     return db_->NewIterators(options, column_families, iterators);
   }
 
-
-  virtual const Snapshot* GetSnapshot() override {
-    return db_->GetSnapshot();
-  }
+  virtual const Snapshot* GetSnapshot() override { return db_->GetSnapshot(); }
 
   virtual void ReleaseSnapshot(const Snapshot* snapshot) override {
     return db_->ReleaseSnapshot(snapshot);
@@ -191,12 +224,11 @@ class StackableDB : public DB {
   }
 
   using DB::GetApproximateSizes;
-  virtual void GetApproximateSizes(ColumnFamilyHandle* column_family,
-                                   const Range* r, int n, uint64_t* sizes,
-                                   uint8_t include_flags
-                                   = INCLUDE_FILES) override {
-    return db_->GetApproximateSizes(column_family, r, n, sizes,
-                                    include_flags);
+  virtual Status GetApproximateSizes(const SizeApproximationOptions& options,
+                                     ColumnFamilyHandle* column_family,
+                                     const Range* r, int n,
+                                     uint64_t* sizes) override {
+    return db_->GetApproximateSizes(options, column_family, r, n, sizes);
   }
 
   using DB::GetApproximateMemTableStats;
@@ -218,12 +250,13 @@ class StackableDB : public DB {
   virtual Status CompactFiles(
       const CompactionOptions& compact_options,
       ColumnFamilyHandle* column_family,
-      const std::vector<std::string>& input_file_names,
-      const int output_level, const int output_path_id = -1,
-      std::vector<std::string>* const output_file_names = nullptr) override {
-    return db_->CompactFiles(
-        compact_options, column_family, input_file_names,
-        output_level, output_path_id, output_file_names);
+      const std::vector<std::string>& input_file_names, const int output_level,
+      const int output_path_id = -1,
+      std::vector<std::string>* const output_file_names = nullptr,
+      CompactionJobInfo* compaction_job_info = nullptr) override {
+    return db_->CompactFiles(compact_options, column_family, input_file_names,
+                             output_level, output_path_id, output_file_names,
+                             compaction_job_info);
   }
 
   virtual Status PauseBackgroundWork() override {
@@ -244,24 +277,20 @@ class StackableDB : public DB {
   }
 
   using DB::MaxMemCompactionLevel;
-  virtual int MaxMemCompactionLevel(ColumnFamilyHandle* column_family)
-      override {
+  virtual int MaxMemCompactionLevel(
+      ColumnFamilyHandle* column_family) override {
     return db_->MaxMemCompactionLevel(column_family);
   }
 
   using DB::Level0StopWriteTrigger;
-  virtual int Level0StopWriteTrigger(ColumnFamilyHandle* column_family)
-      override {
+  virtual int Level0StopWriteTrigger(
+      ColumnFamilyHandle* column_family) override {
     return db_->Level0StopWriteTrigger(column_family);
   }
 
-  virtual const std::string& GetName() const override {
-    return db_->GetName();
-  }
+  virtual const std::string& GetName() const override { return db_->GetName(); }
 
-  virtual Env* GetEnv() const override {
-    return db_->GetEnv();
-  }
+  virtual Env* GetEnv() const override { return db_->GetEnv(); }
 
   using DB::GetOptions;
   virtual Options GetOptions(ColumnFamilyHandle* column_family) const override {
@@ -284,11 +313,13 @@ class StackableDB : public DB {
     return db_->Flush(fopts, column_families);
   }
 
-  virtual Status SyncWAL() override {
-    return db_->SyncWAL();
-  }
+  virtual Status SyncWAL() override { return db_->SyncWAL(); }
 
   virtual Status FlushWAL(bool sync) override { return db_->FlushWAL(sync); }
+
+  virtual Status LockWAL() override { return db_->LockWAL(); }
+
+  virtual Status UnlockWAL() override { return db_->UnlockWAL(); }
 
 #ifndef ROCKSDB_LITE
 
@@ -305,29 +336,43 @@ class StackableDB : public DB {
     db_->GetLiveFilesMetaData(metadata);
   }
 
-  virtual void GetColumnFamilyMetaData(
-      ColumnFamilyHandle *column_family,
-      ColumnFamilyMetaData* cf_meta) override {
+  virtual void GetColumnFamilyMetaData(ColumnFamilyHandle* column_family,
+                                       ColumnFamilyMetaData* cf_meta) override {
     db_->GetColumnFamilyMetaData(column_family, cf_meta);
   }
+
+  using DB::StartBlockCacheTrace;
+  Status StartBlockCacheTrace(
+      const TraceOptions& options,
+      std::unique_ptr<TraceWriter>&& trace_writer) override {
+    return db_->StartBlockCacheTrace(options, std::move(trace_writer));
+  }
+
+  using DB::EndBlockCacheTrace;
+  Status EndBlockCacheTrace() override { return db_->EndBlockCacheTrace(); }
 
 #endif  // ROCKSDB_LITE
 
   virtual Status GetLiveFiles(std::vector<std::string>& vec, uint64_t* mfs,
                               bool flush_memtable = true) override {
-      return db_->GetLiveFiles(vec, mfs, flush_memtable);
+    return db_->GetLiveFiles(vec, mfs, flush_memtable);
   }
 
   virtual SequenceNumber GetLatestSequenceNumber() const override {
     return db_->GetLatestSequenceNumber();
   }
 
-  virtual bool SetPreserveDeletesSequenceNumber(SequenceNumber seqnum) override {
+  virtual bool SetPreserveDeletesSequenceNumber(
+      SequenceNumber seqnum) override {
     return db_->SetPreserveDeletesSequenceNumber(seqnum);
   }
 
   virtual Status GetSortedWalFiles(VectorLogPtr& files) override {
     return db_->GetSortedWalFiles(files);
+  }
+
+  virtual Status GetCurrentWalFile(std::unique_ptr<LogFile>* current_log_file) override {
+    return db_->GetCurrentWalFile(current_log_file);
   }
 
   virtual Status DeleteFile(std::string name) override {
@@ -394,4 +439,4 @@ class StackableDB : public DB {
   std::shared_ptr<DB> shared_db_ptr_;
 };
 
-} //  namespace rocksdb
+}  //  namespace rocksdb

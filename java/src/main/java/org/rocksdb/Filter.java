@@ -12,6 +12,7 @@ package org.rocksdb;
  * number of disk seeks form a handful to a single disk seek per
  * DB::Get() call.
  */
+//TODO(AR) should be renamed FilterPolicy
 public abstract class Filter extends RocksObject {
 
   protected Filter(final long nativeHandle) {

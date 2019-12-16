@@ -8,9 +8,9 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
 #include "rocksdb/iterator.h"
+#include "memory/arena.h"
 #include "table/internal_iterator.h"
 #include "table/iterator_wrapper.h"
-#include "util/arena.h"
 
 namespace rocksdb {
 
@@ -110,13 +110,13 @@ namespace {
 class EmptyIterator : public Iterator {
  public:
   explicit EmptyIterator(const Status& s) : status_(s) { }
-  virtual bool Valid() const override { return false; }
-  virtual void Seek(const Slice& /*target*/) override {}
-  virtual void SeekForPrev(const Slice& /*target*/) override {}
-  virtual void SeekToFirst() override {}
-  virtual void SeekToLast() override {}
-  virtual void Next() override { assert(false); }
-  virtual void Prev() override { assert(false); }
+  bool Valid() const override { return false; }
+  void Seek(const Slice& /*target*/) override {}
+  void SeekForPrev(const Slice& /*target*/) override {}
+  void SeekToFirst() override {}
+  void SeekToLast() override {}
+  void Next() override { assert(false); }
+  void Prev() override { assert(false); }
   Slice key() const override {
     assert(false);
     return Slice();
@@ -125,7 +125,7 @@ class EmptyIterator : public Iterator {
     assert(false);
     return Slice();
   }
-  virtual Status status() const override { return status_; }
+  Status status() const override { return status_; }
 
  private:
   Status status_;
@@ -135,13 +135,13 @@ template <class TValue = Slice>
 class EmptyInternalIterator : public InternalIteratorBase<TValue> {
  public:
   explicit EmptyInternalIterator(const Status& s) : status_(s) {}
-  virtual bool Valid() const override { return false; }
-  virtual void Seek(const Slice& /*target*/) override {}
-  virtual void SeekForPrev(const Slice& /*target*/) override {}
-  virtual void SeekToFirst() override {}
-  virtual void SeekToLast() override {}
-  virtual void Next() override { assert(false); }
-  virtual void Prev() override { assert(false); }
+  bool Valid() const override { return false; }
+  void Seek(const Slice& /*target*/) override {}
+  void SeekForPrev(const Slice& /*target*/) override {}
+  void SeekToFirst() override {}
+  void SeekToLast() override {}
+  void Next() override { assert(false); }
+  void Prev() override { assert(false); }
   Slice key() const override {
     assert(false);
     return Slice();
@@ -150,16 +150,14 @@ class EmptyInternalIterator : public InternalIteratorBase<TValue> {
     assert(false);
     return TValue();
   }
-  virtual Status status() const override { return status_; }
+  Status status() const override { return status_; }
 
  private:
   Status status_;
 };
 }  // namespace
 
-Iterator* NewEmptyIterator() {
-  return new EmptyIterator(Status::OK());
-}
+Iterator* NewEmptyIterator() { return new EmptyIterator(Status::OK()); }
 
 Iterator* NewErrorIterator(const Status& status) {
   return new EmptyIterator(status);
@@ -169,7 +167,7 @@ template <class TValue>
 InternalIteratorBase<TValue>* NewErrorInternalIterator(const Status& status) {
   return new EmptyInternalIterator<TValue>(status);
 }
-template InternalIteratorBase<BlockHandle>* NewErrorInternalIterator(
+template InternalIteratorBase<IndexValue>* NewErrorInternalIterator(
     const Status& status);
 template InternalIteratorBase<Slice>* NewErrorInternalIterator(
     const Status& status);
@@ -180,11 +178,11 @@ InternalIteratorBase<TValue>* NewErrorInternalIterator(const Status& status,
   if (arena == nullptr) {
     return NewErrorInternalIterator<TValue>(status);
   } else {
-    auto mem = arena->AllocateAligned(sizeof(EmptyIterator));
+    auto mem = arena->AllocateAligned(sizeof(EmptyInternalIterator<TValue>));
     return new (mem) EmptyInternalIterator<TValue>(status);
   }
 }
-template InternalIteratorBase<BlockHandle>* NewErrorInternalIterator(
+template InternalIteratorBase<IndexValue>* NewErrorInternalIterator(
     const Status& status, Arena* arena);
 template InternalIteratorBase<Slice>* NewErrorInternalIterator(
     const Status& status, Arena* arena);
@@ -193,7 +191,7 @@ template <class TValue>
 InternalIteratorBase<TValue>* NewEmptyInternalIterator() {
   return new EmptyInternalIterator<TValue>(Status::OK());
 }
-template InternalIteratorBase<BlockHandle>* NewEmptyInternalIterator();
+template InternalIteratorBase<IndexValue>* NewEmptyInternalIterator();
 template InternalIteratorBase<Slice>* NewEmptyInternalIterator();
 
 template <class TValue>
@@ -201,11 +199,11 @@ InternalIteratorBase<TValue>* NewEmptyInternalIterator(Arena* arena) {
   if (arena == nullptr) {
     return NewEmptyInternalIterator<TValue>();
   } else {
-    auto mem = arena->AllocateAligned(sizeof(EmptyIterator));
+    auto mem = arena->AllocateAligned(sizeof(EmptyInternalIterator<TValue>));
     return new (mem) EmptyInternalIterator<TValue>(Status::OK());
   }
 }
-template InternalIteratorBase<BlockHandle>* NewEmptyInternalIterator(
+template InternalIteratorBase<IndexValue>* NewEmptyInternalIterator(
     Arena* arena);
 template InternalIteratorBase<Slice>* NewEmptyInternalIterator(Arena* arena);
 

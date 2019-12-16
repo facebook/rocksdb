@@ -40,7 +40,7 @@ Status CloudManifest::LoadFromLog(std::unique_ptr<SequentialFileReader> log,
   CorruptionReporter reporter;
   reporter.status = &status;
   log::Reader reader(nullptr, std::move(log), &reporter, true /* checksum */,
-                     0 /* log_num */, false /* retry_after_eof */);
+                     0 /* log_num */);
   Slice record;
   std::string scratch;
   bool headerRead = false;

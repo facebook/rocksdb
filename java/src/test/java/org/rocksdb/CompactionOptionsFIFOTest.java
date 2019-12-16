@@ -25,15 +25,6 @@ public class CompactionOptionsFIFOTest {
   }
 
   @Test
-  public void ttl() {
-    final long ttl = 7 * 24 * 60 * 60; // 7 days
-    try (final CompactionOptionsFIFO opt = new CompactionOptionsFIFO()) {
-      opt.setTtl(ttl);
-      assertThat(opt.ttl()).isEqualTo(ttl);
-    }
-  }
-
-  @Test
   public void allowCompaction() {
     final boolean allowCompaction = true;
     try (final CompactionOptionsFIFO opt = new CompactionOptionsFIFO()) {

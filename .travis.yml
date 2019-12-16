@@ -5,6 +5,9 @@ os:
 - linux
 compiler:
   - gcc
+osx_image: xcode8.3
+jdk:
+  - openjdk7
 cache:
   directories:
   - "$BUILD_DIR/aws"
