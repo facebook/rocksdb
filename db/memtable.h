@@ -19,13 +19,13 @@
 #include "db/range_tombstone_fragmenter.h"
 #include "db/read_callback.h"
 #include "db/version_edit.h"
+#include "memory/allocator.h"
+#include "memory/concurrent_arena.h"
 #include "monitoring/instrumented_mutex.h"
 #include "options/cf_options.h"
 #include "rocksdb/db.h"
 #include "rocksdb/env.h"
 #include "rocksdb/memtablerep.h"
-#include "util/allocator.h"
-#include "util/concurrent_arena.h"
 #include "util/dynamic_bloom.h"
 #include "util/hash.h"
 
@@ -41,6 +41,7 @@ struct ImmutableMemTableOptions {
   size_t arena_block_size;
   uint32_t memtable_prefix_bloom_bits;
   size_t memtable_huge_page_size;
+  bool memtable_whole_key_filtering;
   bool inplace_update_support;
   size_t inplace_update_num_locks;
   UpdateStatus (*inplace_callback)(char* existing_value,
@@ -100,6 +101,9 @@ class MemTable {
                     const MutableCFOptions& mutable_cf_options,
                     WriteBufferManager* write_buffer_manager,
                     SequenceNumber earliest_seq, uint32_t column_family_id);
+  // No copying allowed
+  MemTable(const MemTable&) = delete;
+  MemTable& operator=(const MemTable&) = delete;
 
   // Do not delete this MemTable unless Unref() indicates it not in use.
   ~MemTable();
@@ -128,6 +132,12 @@ class MemTable {
   // REQUIRES: external synchronization to prevent simultaneous
   // operations on the same MemTable (unless this Memtable is immutable).
   size_t ApproximateMemoryUsage();
+
+  // As a cheap version of `ApproximateMemoryUsage()`, this function doens't
+  // require external synchronization. The value may be less accurate though
+  size_t ApproximateMemoryUsageFast() {
+    return approximate_memory_usage_.load(std::memory_order_relaxed);
+  }
 
   // This method heuristically determines if the memtable should continue to
   // host more data.
@@ -172,8 +182,13 @@ class MemTable {
   // the <key, seq> already exists.
   bool Add(SequenceNumber seq, ValueType type, const Slice& key,
            const Slice& value, bool allow_concurrent = false,
-           MemTablePostProcessInfo* post_process_info = nullptr);
+           MemTablePostProcessInfo* post_process_info = nullptr,
+           void** hint = nullptr);
 
+  // Used to Get value associated with key or Get Merge Operands associated
+  // with key.
+  // If do_merge = true the default behavior which is Get value for key is
+  // executed. Expected behavior is described right below.
   // If memtable contains a value for key, store it in *value and return true.
   // If memtable contains a deletion for key, store a NotFound() error
   // in *status and return true.
@@ -187,20 +202,23 @@ class MemTable {
   // returned).  Otherwise, *seq will be set to kMaxSequenceNumber.
   // On success, *s may be set to OK, NotFound, or MergeInProgress.  Any other
   // status returned indicates a corruption or other unexpected error.
+  // If do_merge = false then any Merge Operands encountered for key are simply
+  // stored in merge_context.operands_list and never actually merged to get a
+  // final value. The raw Merge Operands are eventually returned to the user.
   bool Get(const LookupKey& key, std::string* value, Status* s,
            MergeContext* merge_context,
            SequenceNumber* max_covering_tombstone_seq, SequenceNumber* seq,
            const ReadOptions& read_opts, ReadCallback* callback = nullptr,
-           bool* is_blob_index = nullptr);
+           bool* is_blob_index = nullptr, bool do_merge = true);
 
   bool Get(const LookupKey& key, std::string* value, Status* s,
            MergeContext* merge_context,
            SequenceNumber* max_covering_tombstone_seq,
            const ReadOptions& read_opts, ReadCallback* callback = nullptr,
-           bool* is_blob_index = nullptr) {
+           bool* is_blob_index = nullptr, bool do_merge = true) {
     SequenceNumber seq;
     return Get(key, value, s, merge_context, max_covering_tombstone_seq, &seq,
-               read_opts, callback, is_blob_index);
+               read_opts, callback, is_blob_index, do_merge);
   }
 
   // Attempts to update the new_value inplace, else does normal Add
@@ -265,12 +283,16 @@ class MemTable {
     return num_deletes_.load(std::memory_order_relaxed);
   }
 
+  uint64_t get_data_size() const {
+    return data_size_.load(std::memory_order_relaxed);
+  }
+
   // Dynamically change the memtable's capacity. If set below the current usage,
   // the next key added will trigger a flush. Can only increase size when
   // memtable prefix bloom is disabled, since we can't easily allocate more
   // space.
   void UpdateWriteBufferSize(size_t new_write_buffer_size) {
-    if (prefix_bloom_ == nullptr ||
+    if (bloom_filter_ == nullptr ||
         new_write_buffer_size < write_buffer_size_) {
       write_buffer_size_.store(new_write_buffer_size,
                                std::memory_order_relaxed);
@@ -411,7 +433,7 @@ class MemTable {
   ConcurrentArena arena_;
   std::unique_ptr<MemTableRep> table_;
   std::unique_ptr<MemTableRep> range_del_table_;
-  bool is_range_del_table_empty_;
+  std::atomic_bool is_range_del_table_empty_;
 
   // Total data size of all data inserted
   std::atomic<uint64_t> data_size_;
@@ -450,7 +472,7 @@ class MemTable {
   std::vector<port::RWMutex> locks_;
 
   const SliceTransform* const prefix_extractor_;
-  std::unique_ptr<DynamicBloom> prefix_bloom_;
+  std::unique_ptr<DynamicBloom> bloom_filter_;
 
   std::atomic<FlushStateEnum> flush_state_;
 
@@ -474,17 +496,17 @@ class MemTable {
   // writes with sequence number smaller than seq are flushed.
   SequenceNumber atomic_flush_seqno_;
 
+  // keep track of memory usage in table_, arena_, and range_del_table_.
+  // Gets refrshed inside `ApproximateMemoryUsage()` or `ShouldFlushNow`
+  std::atomic<uint64_t> approximate_memory_usage_;
+
   // Returns a heuristic flush decision
-  bool ShouldFlushNow() const;
+  bool ShouldFlushNow();
 
   // Updates flush_state_ using ShouldFlushNow()
   void UpdateFlushState();
 
   void UpdateOldestKeyTime();
-
-  // No copying allowed
-  MemTable(const MemTable&);
-  MemTable& operator=(const MemTable&);
 };
 
 extern const char* EncodeKey(std::string* scratch, const Slice& target);

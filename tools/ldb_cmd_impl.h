@@ -205,6 +205,23 @@ class CreateColumnFamilyCommand : public LDBCommand {
   std::string new_cf_name_;
 };
 
+class DropColumnFamilyCommand : public LDBCommand {
+ public:
+  static std::string Name() { return "drop_column_family"; }
+
+  DropColumnFamilyCommand(const std::vector<std::string>& params,
+                          const std::map<std::string, std::string>& options,
+                          const std::vector<std::string>& flags);
+
+  static void Help(std::string& ret);
+  virtual void DoCommand() override;
+
+  virtual bool NoDBOpen() override { return false; }
+
+ private:
+  std::string cf_name_to_drop_;
+};
+
 class ReduceDBLevelsCommand : public LDBCommand {
  public:
   static std::string Name() { return "reduce_levels"; }
@@ -573,6 +590,22 @@ class IngestExternalSstFilesCommand : public LDBCommand {
   static const std::string ARG_ALLOW_BLOCKING_FLUSH;
   static const std::string ARG_INGEST_BEHIND;
   static const std::string ARG_WRITE_GLOBAL_SEQNO;
+};
+
+// Command that prints out range delete tombstones in SST files.
+class ListFileRangeDeletesCommand : public LDBCommand {
+ public:
+  static std::string Name() { return "list_file_range_deletes"; }
+
+  ListFileRangeDeletesCommand(const std::map<std::string, std::string>& options,
+                              const std::vector<std::string>& flags);
+
+  void DoCommand() override;
+
+  static void Help(std::string& ret);
+
+ private:
+  int max_keys_ = 1000;
 };
 
 }  // namespace rocksdb

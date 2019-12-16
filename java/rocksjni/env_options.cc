@@ -32,9 +32,22 @@
  * Method:    newEnvOptions
  * Signature: ()J
  */
-jlong Java_org_rocksdb_EnvOptions_newEnvOptions(JNIEnv * /*env*/,
-                                                jclass /*jcls*/) {
+jlong Java_org_rocksdb_EnvOptions_newEnvOptions__(
+    JNIEnv*, jclass) {
   auto *env_opt = new rocksdb::EnvOptions();
+  return reinterpret_cast<jlong>(env_opt);
+}
+
+/*
+ * Class:     org_rocksdb_EnvOptions
+ * Method:    newEnvOptions
+ * Signature: (J)J
+ */
+jlong Java_org_rocksdb_EnvOptions_newEnvOptions__J(
+    JNIEnv*, jclass, jlong jdboptions_handle) {
+  auto* db_options =
+      reinterpret_cast<rocksdb::DBOptions*>(jdboptions_handle);
+  auto* env_opt = new rocksdb::EnvOptions(*db_options);
   return reinterpret_cast<jlong>(env_opt);
 }
 
@@ -43,9 +56,8 @@ jlong Java_org_rocksdb_EnvOptions_newEnvOptions(JNIEnv * /*env*/,
  * Method:    disposeInternal
  * Signature: (J)V
  */
-void Java_org_rocksdb_EnvOptions_disposeInternal(JNIEnv * /*env*/,
-                                                 jobject /*jobj*/,
-                                                 jlong jhandle) {
+void Java_org_rocksdb_EnvOptions_disposeInternal(
+    JNIEnv*, jobject, jlong jhandle) {
   auto *eo = reinterpret_cast<rocksdb::EnvOptions *>(jhandle);
   assert(eo != nullptr);
   delete eo;
@@ -53,13 +65,51 @@ void Java_org_rocksdb_EnvOptions_disposeInternal(JNIEnv * /*env*/,
 
 /*
  * Class:     org_rocksdb_EnvOptions
+ * Method:    setUseMmapReads
+ * Signature: (JZ)V
+ */
+void Java_org_rocksdb_EnvOptions_setUseMmapReads(
+    JNIEnv*, jobject, jlong jhandle, jboolean use_mmap_reads) {
+  ENV_OPTIONS_SET_BOOL(jhandle, use_mmap_reads);
+}
+
+/*
+ * Class:     org_rocksdb_EnvOptions
+ * Method:    useMmapReads
+ * Signature: (J)Z
+ */
+jboolean Java_org_rocksdb_EnvOptions_useMmapReads(
+    JNIEnv*, jobject, jlong jhandle) {
+  return ENV_OPTIONS_GET(jhandle, use_mmap_reads);
+}
+
+/*
+ * Class:     org_rocksdb_EnvOptions
+ * Method:    setUseMmapWrites
+ * Signature: (JZ)V
+ */
+void Java_org_rocksdb_EnvOptions_setUseMmapWrites(
+    JNIEnv*, jobject, jlong jhandle, jboolean use_mmap_writes) {
+  ENV_OPTIONS_SET_BOOL(jhandle, use_mmap_writes);
+}
+
+/*
+ * Class:     org_rocksdb_EnvOptions
+ * Method:    useMmapWrites
+ * Signature: (J)Z
+ */
+jboolean Java_org_rocksdb_EnvOptions_useMmapWrites(
+    JNIEnv*, jobject, jlong jhandle) {
+  return ENV_OPTIONS_GET(jhandle, use_mmap_writes);
+}
+
+/*
+ * Class:     org_rocksdb_EnvOptions
  * Method:    setUseDirectReads
  * Signature: (JZ)V
  */
-void Java_org_rocksdb_EnvOptions_setUseDirectReads(JNIEnv * /*env*/,
-                                                   jobject /*jobj*/,
-                                                   jlong jhandle,
-                                                   jboolean use_direct_reads) {
+void Java_org_rocksdb_EnvOptions_setUseDirectReads(
+    JNIEnv*, jobject, jlong jhandle, jboolean use_direct_reads) {
   ENV_OPTIONS_SET_BOOL(jhandle, use_direct_reads);
 }
 
@@ -68,9 +118,8 @@ void Java_org_rocksdb_EnvOptions_setUseDirectReads(JNIEnv * /*env*/,
  * Method:    useDirectReads
  * Signature: (J)Z
  */
-jboolean Java_org_rocksdb_EnvOptions_useDirectReads(JNIEnv * /*env*/,
-                                                    jobject /*jobj*/,
-                                                    jlong jhandle) {
+jboolean Java_org_rocksdb_EnvOptions_useDirectReads(
+    JNIEnv*, jobject, jlong jhandle) {
   return ENV_OPTIONS_GET(jhandle, use_direct_reads);
 }
 
@@ -80,8 +129,7 @@ jboolean Java_org_rocksdb_EnvOptions_useDirectReads(JNIEnv * /*env*/,
  * Signature: (JZ)V
  */
 void Java_org_rocksdb_EnvOptions_setUseDirectWrites(
-    JNIEnv * /*env*/, jobject /*jobj*/, jlong jhandle,
-    jboolean use_direct_writes) {
+    JNIEnv*, jobject, jlong jhandle, jboolean use_direct_writes) {
   ENV_OPTIONS_SET_BOOL(jhandle, use_direct_writes);
 }
 
@@ -90,56 +138,9 @@ void Java_org_rocksdb_EnvOptions_setUseDirectWrites(
  * Method:    useDirectWrites
  * Signature: (J)Z
  */
-jboolean Java_org_rocksdb_EnvOptions_useDirectWrites(JNIEnv * /*env*/,
-                                                     jobject /*jobj*/,
-                                                     jlong jhandle) {
+jboolean Java_org_rocksdb_EnvOptions_useDirectWrites(
+    JNIEnv*,  jobject, jlong jhandle) {
   return ENV_OPTIONS_GET(jhandle, use_direct_writes);
-}
-
-/*
- * Class:     org_rocksdb_EnvOptions
- * Method:    setUseMmapReads
- * Signature: (JZ)V
- */
-void Java_org_rocksdb_EnvOptions_setUseMmapReads(JNIEnv * /*env*/,
-                                                 jobject /*jobj*/,
-                                                 jlong jhandle,
-                                                 jboolean use_mmap_reads) {
-  ENV_OPTIONS_SET_BOOL(jhandle, use_mmap_reads);
-}
-
-/*
- * Class:     org_rocksdb_EnvOptions
- * Method:    useMmapReads
- * Signature: (J)Z
- */
-jboolean Java_org_rocksdb_EnvOptions_useMmapReads(JNIEnv * /*env*/,
-                                                  jobject /*jobj*/,
-                                                  jlong jhandle) {
-  return ENV_OPTIONS_GET(jhandle, use_mmap_reads);
-}
-
-/*
- * Class:     org_rocksdb_EnvOptions
- * Method:    setUseMmapWrites
- * Signature: (JZ)V
- */
-void Java_org_rocksdb_EnvOptions_setUseMmapWrites(JNIEnv * /*env*/,
-                                                  jobject /*jobj*/,
-                                                  jlong jhandle,
-                                                  jboolean use_mmap_writes) {
-  ENV_OPTIONS_SET_BOOL(jhandle, use_mmap_writes);
-}
-
-/*
- * Class:     org_rocksdb_EnvOptions
- * Method:    useMmapWrites
- * Signature: (J)Z
- */
-jboolean Java_org_rocksdb_EnvOptions_useMmapWrites(JNIEnv * /*env*/,
-                                                   jobject /*jobj*/,
-                                                   jlong jhandle) {
-  return ENV_OPTIONS_GET(jhandle, use_mmap_writes);
 }
 
 /*
@@ -147,10 +148,8 @@ jboolean Java_org_rocksdb_EnvOptions_useMmapWrites(JNIEnv * /*env*/,
  * Method:    setAllowFallocate
  * Signature: (JZ)V
  */
-void Java_org_rocksdb_EnvOptions_setAllowFallocate(JNIEnv * /*env*/,
-                                                   jobject /*jobj*/,
-                                                   jlong jhandle,
-                                                   jboolean allow_fallocate) {
+void Java_org_rocksdb_EnvOptions_setAllowFallocate(
+    JNIEnv*, jobject, jlong jhandle, jboolean allow_fallocate) {
   ENV_OPTIONS_SET_BOOL(jhandle, allow_fallocate);
 }
 
@@ -159,9 +158,8 @@ void Java_org_rocksdb_EnvOptions_setAllowFallocate(JNIEnv * /*env*/,
  * Method:    allowFallocate
  * Signature: (J)Z
  */
-jboolean Java_org_rocksdb_EnvOptions_allowFallocate(JNIEnv * /*env*/,
-                                                    jobject /*jobj*/,
-                                                    jlong jhandle) {
+jboolean Java_org_rocksdb_EnvOptions_allowFallocate(
+    JNIEnv*, jobject, jlong jhandle) {
   return ENV_OPTIONS_GET(jhandle, allow_fallocate);
 }
 
@@ -170,10 +168,8 @@ jboolean Java_org_rocksdb_EnvOptions_allowFallocate(JNIEnv * /*env*/,
  * Method:    setSetFdCloexec
  * Signature: (JZ)V
  */
-void Java_org_rocksdb_EnvOptions_setSetFdCloexec(JNIEnv * /*env*/,
-                                                 jobject /*jobj*/,
-                                                 jlong jhandle,
-                                                 jboolean set_fd_cloexec) {
+void Java_org_rocksdb_EnvOptions_setSetFdCloexec(
+    JNIEnv*, jobject, jlong jhandle, jboolean set_fd_cloexec) {
   ENV_OPTIONS_SET_BOOL(jhandle, set_fd_cloexec);
 }
 
@@ -182,9 +178,8 @@ void Java_org_rocksdb_EnvOptions_setSetFdCloexec(JNIEnv * /*env*/,
  * Method:    setFdCloexec
  * Signature: (J)Z
  */
-jboolean Java_org_rocksdb_EnvOptions_setFdCloexec(JNIEnv * /*env*/,
-                                                  jobject /*jobj*/,
-                                                  jlong jhandle) {
+jboolean Java_org_rocksdb_EnvOptions_setFdCloexec(
+    JNIEnv*, jobject, jlong jhandle) {
   return ENV_OPTIONS_GET(jhandle, set_fd_cloexec);
 }
 
@@ -193,10 +188,8 @@ jboolean Java_org_rocksdb_EnvOptions_setFdCloexec(JNIEnv * /*env*/,
  * Method:    setBytesPerSync
  * Signature: (JJ)V
  */
-void Java_org_rocksdb_EnvOptions_setBytesPerSync(JNIEnv * /*env*/,
-                                                 jobject /*jobj*/,
-                                                 jlong jhandle,
-                                                 jlong bytes_per_sync) {
+void Java_org_rocksdb_EnvOptions_setBytesPerSync(
+    JNIEnv*, jobject, jlong jhandle, jlong bytes_per_sync) {
   ENV_OPTIONS_SET_UINT64_T(jhandle, bytes_per_sync);
 }
 
@@ -205,9 +198,8 @@ void Java_org_rocksdb_EnvOptions_setBytesPerSync(JNIEnv * /*env*/,
  * Method:    bytesPerSync
  * Signature: (J)J
  */
-jlong Java_org_rocksdb_EnvOptions_bytesPerSync(JNIEnv * /*env*/,
-                                               jobject /*jobj*/,
-                                               jlong jhandle) {
+jlong Java_org_rocksdb_EnvOptions_bytesPerSync(
+    JNIEnv*,  jobject,  jlong jhandle) {
   return ENV_OPTIONS_GET(jhandle, bytes_per_sync);
 }
 
@@ -217,8 +209,7 @@ jlong Java_org_rocksdb_EnvOptions_bytesPerSync(JNIEnv * /*env*/,
  * Signature: (JZ)V
  */
 void Java_org_rocksdb_EnvOptions_setFallocateWithKeepSize(
-    JNIEnv * /*env*/, jobject /*jobj*/, jlong jhandle,
-    jboolean fallocate_with_keep_size) {
+    JNIEnv*, jobject, jlong jhandle, jboolean fallocate_with_keep_size) {
   ENV_OPTIONS_SET_BOOL(jhandle, fallocate_with_keep_size);
 }
 
@@ -227,9 +218,8 @@ void Java_org_rocksdb_EnvOptions_setFallocateWithKeepSize(
  * Method:    fallocateWithKeepSize
  * Signature: (J)Z
  */
-jboolean Java_org_rocksdb_EnvOptions_fallocateWithKeepSize(JNIEnv * /*env*/,
-                                                           jobject /*jobj*/,
-                                                           jlong jhandle) {
+jboolean Java_org_rocksdb_EnvOptions_fallocateWithKeepSize(
+    JNIEnv*, jobject, jlong jhandle) {
   return ENV_OPTIONS_GET(jhandle, fallocate_with_keep_size);
 }
 
@@ -239,8 +229,7 @@ jboolean Java_org_rocksdb_EnvOptions_fallocateWithKeepSize(JNIEnv * /*env*/,
  * Signature: (JJ)V
  */
 void Java_org_rocksdb_EnvOptions_setCompactionReadaheadSize(
-    JNIEnv * /*env*/, jobject /*jobj*/, jlong jhandle,
-    jlong compaction_readahead_size) {
+    JNIEnv*, jobject, jlong jhandle, jlong compaction_readahead_size) {
   ENV_OPTIONS_SET_SIZE_T(jhandle, compaction_readahead_size);
 }
 
@@ -249,9 +238,8 @@ void Java_org_rocksdb_EnvOptions_setCompactionReadaheadSize(
  * Method:    compactionReadaheadSize
  * Signature: (J)J
  */
-jlong Java_org_rocksdb_EnvOptions_compactionReadaheadSize(JNIEnv * /*env*/,
-                                                          jobject /*jobj*/,
-                                                          jlong jhandle) {
+jlong Java_org_rocksdb_EnvOptions_compactionReadaheadSize(
+    JNIEnv*, jobject, jlong jhandle) {
   return ENV_OPTIONS_GET(jhandle, compaction_readahead_size);
 }
 
@@ -261,8 +249,7 @@ jlong Java_org_rocksdb_EnvOptions_compactionReadaheadSize(JNIEnv * /*env*/,
  * Signature: (JJ)V
  */
 void Java_org_rocksdb_EnvOptions_setRandomAccessMaxBufferSize(
-    JNIEnv * /*env*/, jobject /*jobj*/, jlong jhandle,
-    jlong random_access_max_buffer_size) {
+    JNIEnv*, jobject, jlong jhandle, jlong random_access_max_buffer_size) {
   ENV_OPTIONS_SET_SIZE_T(jhandle, random_access_max_buffer_size);
 }
 
@@ -271,9 +258,8 @@ void Java_org_rocksdb_EnvOptions_setRandomAccessMaxBufferSize(
  * Method:    randomAccessMaxBufferSize
  * Signature: (J)J
  */
-jlong Java_org_rocksdb_EnvOptions_randomAccessMaxBufferSize(JNIEnv * /*env*/,
-                                                            jobject /*jobj*/,
-                                                            jlong jhandle) {
+jlong Java_org_rocksdb_EnvOptions_randomAccessMaxBufferSize(
+    JNIEnv*, jobject, jlong jhandle) {
   return ENV_OPTIONS_GET(jhandle, random_access_max_buffer_size);
 }
 
@@ -283,8 +269,7 @@ jlong Java_org_rocksdb_EnvOptions_randomAccessMaxBufferSize(JNIEnv * /*env*/,
  * Signature: (JJ)V
  */
 void Java_org_rocksdb_EnvOptions_setWritableFileMaxBufferSize(
-    JNIEnv * /*env*/, jobject /*jobj*/, jlong jhandle,
-    jlong writable_file_max_buffer_size) {
+    JNIEnv*, jobject, jlong jhandle, jlong writable_file_max_buffer_size) {
   ENV_OPTIONS_SET_SIZE_T(jhandle, writable_file_max_buffer_size);
 }
 
@@ -293,9 +278,8 @@ void Java_org_rocksdb_EnvOptions_setWritableFileMaxBufferSize(
  * Method:    writableFileMaxBufferSize
  * Signature: (J)J
  */
-jlong Java_org_rocksdb_EnvOptions_writableFileMaxBufferSize(JNIEnv * /*env*/,
-                                                            jobject /*jobj*/,
-                                                            jlong jhandle) {
+jlong Java_org_rocksdb_EnvOptions_writableFileMaxBufferSize(
+    JNIEnv*, jobject, jlong jhandle) {
   return ENV_OPTIONS_GET(jhandle, writable_file_max_buffer_size);
 }
 
@@ -304,9 +288,8 @@ jlong Java_org_rocksdb_EnvOptions_writableFileMaxBufferSize(JNIEnv * /*env*/,
  * Method:    setRateLimiter
  * Signature: (JJ)V
  */
-void Java_org_rocksdb_EnvOptions_setRateLimiter(JNIEnv * /*env*/,
-                                                jobject /*jobj*/, jlong jhandle,
-                                                jlong rl_handle) {
+void Java_org_rocksdb_EnvOptions_setRateLimiter(
+    JNIEnv*, jobject, jlong jhandle, jlong rl_handle) {
   auto *sptr_rate_limiter =
       reinterpret_cast<std::shared_ptr<rocksdb::RateLimiter> *>(rl_handle);
   auto *env_opt = reinterpret_cast<rocksdb::EnvOptions *>(jhandle);

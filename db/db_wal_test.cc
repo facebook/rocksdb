@@ -11,8 +11,8 @@
 #include "options/options_helper.h"
 #include "port/port.h"
 #include "port/stack_trace.h"
-#include "util/fault_injection_test_env.h"
-#include "util/sync_point.h"
+#include "test_util/fault_injection_test_env.h"
+#include "test_util/sync_point.h"
 
 namespace rocksdb {
 class DBWALTest : public DBTestBase {
@@ -283,7 +283,31 @@ TEST_F(DBWALTest, RecoverWithTableHandle) {
     ASSERT_OK(Put(1, "bar", "v4"));
     ASSERT_OK(Flush(1));
     ASSERT_OK(Put(1, "big", std::string(100, 'a')));
-    ReopenWithColumnFamilies({"default", "pikachu"}, CurrentOptions());
+
+    options = CurrentOptions();
+    const int kSmallMaxOpenFiles = 13;
+    if (option_config_ == kDBLogDir) {
+      // Use this option to check not preloading files
+      // Set the max open files to be small enough so no preload will
+      // happen.
+      options.max_open_files = kSmallMaxOpenFiles;
+      // RocksDB sanitize max open files to at least 20. Modify it back.
+      rocksdb::SyncPoint::GetInstance()->SetCallBack(
+          "SanitizeOptions::AfterChangeMaxOpenFiles", [&](void* arg) {
+            int* max_open_files = static_cast<int*>(arg);
+            *max_open_files = kSmallMaxOpenFiles;
+          });
+
+    } else if (option_config_ == kWalDirAndMmapReads) {
+      // Use this option to check always loading all files.
+      options.max_open_files = 100;
+    } else {
+      options.max_open_files = -1;
+    }
+    rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+    ReopenWithColumnFamilies({"default", "pikachu"}, options);
+    rocksdb::SyncPoint::GetInstance()->DisableProcessing();
+    rocksdb::SyncPoint::GetInstance()->ClearAllCallBacks();
 
     std::vector<std::vector<FileMetaData>> files;
     dbfull()->TEST_GetFilesMetaData(handles_[1], &files);
@@ -294,10 +318,10 @@ TEST_F(DBWALTest, RecoverWithTableHandle) {
     ASSERT_EQ(total_files, 3);
     for (const auto& level : files) {
       for (const auto& file : level) {
-        if (kInfiniteMaxOpenFiles == option_config_) {
-          ASSERT_TRUE(file.table_reader_handle != nullptr);
-        } else {
+        if (options.max_open_files == kSmallMaxOpenFiles) {
           ASSERT_TRUE(file.table_reader_handle == nullptr);
+        } else {
+          ASSERT_TRUE(file.table_reader_handle != nullptr);
         }
       }
     }
@@ -542,6 +566,56 @@ TEST_F(DBWALTest, GetSortedWalFiles) {
     ASSERT_OK(Put(1, "foo", "v1"));
     ASSERT_OK(dbfull()->GetSortedWalFiles(log_files));
     ASSERT_EQ(1, log_files.size());
+  } while (ChangeWalOptions());
+}
+
+TEST_F(DBWALTest, GetCurrentWalFile) {
+  do {
+    CreateAndReopenWithCF({"pikachu"}, CurrentOptions());
+
+    std::unique_ptr<LogFile>* bad_log_file = nullptr;
+    ASSERT_NOK(dbfull()->GetCurrentWalFile(bad_log_file));
+
+    std::unique_ptr<LogFile> log_file;
+    ASSERT_OK(dbfull()->GetCurrentWalFile(&log_file));
+
+    // nothing has been written to the log yet
+    ASSERT_EQ(log_file->StartSequence(), 0);
+    ASSERT_EQ(log_file->SizeFileBytes(), 0);
+    ASSERT_EQ(log_file->Type(), kAliveLogFile);
+    ASSERT_GT(log_file->LogNumber(), 0);
+
+    // add some data and verify that the file size actually moves foward
+    ASSERT_OK(Put(0, "foo", "v1"));
+    ASSERT_OK(Put(0, "foo2", "v2"));
+    ASSERT_OK(Put(0, "foo3", "v3"));
+
+    ASSERT_OK(dbfull()->GetCurrentWalFile(&log_file));
+
+    ASSERT_EQ(log_file->StartSequence(), 0);
+    ASSERT_GT(log_file->SizeFileBytes(), 0);
+    ASSERT_EQ(log_file->Type(), kAliveLogFile);
+    ASSERT_GT(log_file->LogNumber(), 0);
+
+    // force log files to cycle and add some more data, then check if
+    // log number moves forward
+
+    ReopenWithColumnFamilies({"default", "pikachu"}, CurrentOptions());
+    for (int i = 0; i < 10; i++) {
+      ReopenWithColumnFamilies({"default", "pikachu"}, CurrentOptions());
+    }
+
+    ASSERT_OK(Put(0, "foo4", "v4"));
+    ASSERT_OK(Put(0, "foo5", "v5"));
+    ASSERT_OK(Put(0, "foo6", "v6"));
+
+    ASSERT_OK(dbfull()->GetCurrentWalFile(&log_file));
+
+    ASSERT_EQ(log_file->StartSequence(), 0);
+    ASSERT_GT(log_file->SizeFileBytes(), 0);
+    ASSERT_EQ(log_file->Type(), kAliveLogFile);
+    ASSERT_GT(log_file->LogNumber(), 0);
+
   } while (ChangeWalOptions());
 }
 
@@ -800,7 +874,9 @@ class RecoveryTestHelper {
   // Create WAL files with values filled in
   static void FillData(DBWALTest* test, const Options& options,
                        const size_t wal_count, size_t* count) {
-    const ImmutableDBOptions db_options(options);
+    // Calling internal functions requires sanitized options.
+    Options sanitized_options = SanitizeOptions(test->dbname_, options);
+    const ImmutableDBOptions db_options(sanitized_options);
 
     *count = 0;
 
@@ -814,7 +890,8 @@ class RecoveryTestHelper {
 
     versions.reset(new VersionSet(test->dbname_, &db_options, env_options,
                                   table_cache.get(), &write_buffer_manager,
-                                  &write_controller));
+                                  &write_controller,
+                                  /*block_cache_tracer=*/nullptr));
 
     wal_manager.reset(new WalManager(db_options, env_options));
 

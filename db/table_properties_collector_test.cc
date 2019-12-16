@@ -9,26 +9,27 @@
 #include <utility>
 #include <vector>
 
-#include "db/db_impl.h"
 #include "db/dbformat.h"
 #include "db/table_properties_collector.h"
+
+#include "db/db_impl/db_impl.h"
 #include "options/cf_options.h"
 #include "rocksdb/table.h"
-#include "table/block_based_table_factory.h"
+#include "table/block_based/block_based_table_factory.h"
 #include "table/meta_blocks.h"
-#include "table/plain_table_factory.h"
+#include "table/plain/plain_table_factory.h"
 #include "table/table_builder.h"
+#include "test_util/testharness.h"
+#include "test_util/testutil.h"
 #include "util/coding.h"
 #include "util/file_reader_writer.h"
-#include "util/testharness.h"
-#include "util/testutil.h"
 
 namespace rocksdb {
 
 class TablePropertiesTest : public testing::Test,
                             public testing::WithParamInterface<bool> {
  public:
-  virtual void SetUp() override { backward_mode_ = GetParam(); }
+  void SetUp() override { backward_mode_ = GetParam(); }
 
   bool backward_mode_;
 };
@@ -52,7 +53,8 @@ void MakeBuilder(const Options& options, const ImmutableCFOptions& ioptions,
   builder->reset(NewTableBuilder(
       ioptions, moptions, internal_comparator, int_tbl_prop_collector_factories,
       kTestColumnFamilyId, kTestColumnFamilyName, writable->get(),
-      options.compression, options.compression_opts, unknown_level));
+      options.compression, options.sample_for_compression,
+      options.compression_opts, unknown_level));
 }
 }  // namespace
 
@@ -106,7 +108,7 @@ class RegularKeysStartWithA: public TablePropertiesCollector {
     return Status::OK();
   }
 
-  virtual UserCollectedProperties GetReadableProperties() const override {
+  UserCollectedProperties GetReadableProperties() const override {
     return UserCollectedProperties{};
   }
 
@@ -143,7 +145,7 @@ class RegularKeysStartWithABackwardCompatible
     return Status::OK();
   }
 
-  virtual UserCollectedProperties GetReadableProperties() const override {
+  UserCollectedProperties GetReadableProperties() const override {
     return UserCollectedProperties{};
   }
 
@@ -172,7 +174,14 @@ class RegularKeysStartWithAInternal : public IntTblPropCollector {
     return Status::OK();
   }
 
-  virtual UserCollectedProperties GetReadableProperties() const override {
+  void BlockAdd(uint64_t /* blockRawBytes */,
+                uint64_t /* blockCompressedBytesFast */,
+                uint64_t /* blockCompressedBytesSlow */) override {
+    // Nothing to do.
+    return;
+  }
+
+  UserCollectedProperties GetReadableProperties() const override {
     return UserCollectedProperties{};
   }
 
@@ -185,7 +194,7 @@ class RegularKeysStartWithAFactory : public IntTblPropCollectorFactory,
  public:
   explicit RegularKeysStartWithAFactory(bool backward_mode)
       : backward_mode_(backward_mode) {}
-  virtual TablePropertiesCollector* CreateTablePropertiesCollector(
+  TablePropertiesCollector* CreateTablePropertiesCollector(
       TablePropertiesCollectorFactory::Context context) override {
     EXPECT_EQ(kTestColumnFamilyId, context.column_family_id);
     if (!backward_mode_) {
@@ -194,7 +203,7 @@ class RegularKeysStartWithAFactory : public IntTblPropCollectorFactory,
       return new RegularKeysStartWithABackwardCompatible();
     }
   }
-  virtual IntTblPropCollector* CreateIntTblPropCollector(
+  IntTblPropCollector* CreateIntTblPropCollector(
       uint32_t /*column_family_id*/) override {
     return new RegularKeysStartWithAInternal();
   }
@@ -205,7 +214,7 @@ class RegularKeysStartWithAFactory : public IntTblPropCollectorFactory,
 
 class FlushBlockEveryThreePolicy : public FlushBlockPolicy {
  public:
-  virtual bool Update(const Slice& /*key*/, const Slice& /*value*/) override {
+  bool Update(const Slice& /*key*/, const Slice& /*value*/) override {
     return (++count_ % 3U == 0);
   }
 

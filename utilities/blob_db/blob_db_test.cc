@@ -6,6 +6,7 @@
 #ifndef ROCKSDB_LITE
 
 #include <algorithm>
+#include <chrono>
 #include <cstdlib>
 #include <map>
 #include <memory>
@@ -13,15 +14,17 @@
 #include <vector>
 
 #include "db/db_test_util.h"
+#include "file/file_util.h"
+#include "file/sst_file_manager_impl.h"
 #include "port/port.h"
 #include "rocksdb/utilities/debug.h"
+#include "test_util/fault_injection_test_env.h"
+#include "test_util/sync_point.h"
+#include "test_util/testharness.h"
 #include "util/cast_util.h"
-#include "util/fault_injection_test_env.h"
 #include "util/random.h"
 #include "util/sst_file_manager_impl.h"
 #include "util/string_util.h"
-#include "util/sync_point.h"
-#include "util/testharness.h"
 #include "utilities/blob_db/blob_db.h"
 #include "utilities/blob_db/blob_db_impl.h"
 #include "utilities/blob_db/blob_index.h"
@@ -48,7 +51,7 @@ class BlobDBTest : public testing::Test {
     assert(s.ok());
   }
 
-  ~BlobDBTest() {
+  ~BlobDBTest() override {
     SyncPoint::GetInstance()->ClearAllCallBacks();
     Destroy();
   }
@@ -70,6 +73,12 @@ class BlobDBTest : public testing::Test {
     delete blob_db_;
     blob_db_ = nullptr;
     Open(bdb_options, options);
+  }
+
+  void Close() {
+    assert(blob_db_ != nullptr);
+    delete blob_db_;
+    blob_db_ = nullptr;
   }
 
   void Destroy() {
@@ -803,10 +812,73 @@ TEST_F(BlobDBTest, SstFileManager) {
   ASSERT_EQ(0, files_deleted_directly);
   Destroy();
   // Make sure that DestroyBlobDB() also goes through delete scheduler.
-  ASSERT_GE(2, files_scheduled_to_delete);
-  ASSERT_EQ(0, files_deleted_directly);
+  ASSERT_GE(files_scheduled_to_delete, 2);
+  // Due to a timing issue, the WAL may or may not be deleted directly. The
+  // blob file is first scheduled, followed by WAL. If the background trash
+  // thread does not wake up on time, the WAL file will be directly
+  // deleted as the trash size will be > DB size
+  ASSERT_LE(files_deleted_directly, 1);
   SyncPoint::GetInstance()->DisableProcessing();
   sfm->WaitForEmptyTrash();
+}
+
+TEST_F(BlobDBTest, SstFileManagerRestart) {
+  int files_deleted_directly = 0;
+  int files_scheduled_to_delete = 0;
+  rocksdb::SyncPoint::GetInstance()->SetCallBack(
+      "SstFileManagerImpl::ScheduleFileDeletion",
+      [&](void * /*arg*/) { files_scheduled_to_delete++; });
+  rocksdb::SyncPoint::GetInstance()->SetCallBack(
+      "DeleteScheduler::DeleteFile",
+      [&](void * /*arg*/) { files_deleted_directly++; });
+
+  // run the same test for Get(), MultiGet() and Iterator each.
+  std::shared_ptr<SstFileManager> sst_file_manager(
+      NewSstFileManager(mock_env_.get()));
+  sst_file_manager->SetDeleteRateBytesPerSecond(1);
+  SstFileManagerImpl *sfm =
+      static_cast<SstFileManagerImpl *>(sst_file_manager.get());
+
+  BlobDBOptions bdb_options;
+  bdb_options.min_blob_size = 0;
+  Options db_options;
+
+  SyncPoint::GetInstance()->EnableProcessing();
+  db_options.sst_file_manager = sst_file_manager;
+
+  Open(bdb_options, db_options);
+  std::string blob_dir = blob_db_impl()->TEST_blob_dir();
+  blob_db_->Put(WriteOptions(), "foo", "bar");
+  Close();
+
+  // Create 3 dummy trash files under the blob_dir
+  CreateFile(db_options.env, blob_dir + "/000666.blob.trash", "", false);
+  CreateFile(db_options.env, blob_dir + "/000888.blob.trash", "", true);
+  CreateFile(db_options.env, blob_dir + "/something_not_match.trash", "",
+             false);
+
+  // Make sure that reopening the DB rescan the existing trash files
+  Open(bdb_options, db_options);
+  ASSERT_GE(files_scheduled_to_delete, 3);
+  // Depending on timing, the WAL file may or may not be directly deleted
+  ASSERT_LE(files_deleted_directly, 1);
+
+  sfm->WaitForEmptyTrash();
+
+  // There should be exact one file under the blob dir now.
+  std::vector<std::string> all_files;
+  ASSERT_OK(db_options.env->GetChildren(blob_dir, &all_files));
+  int nfiles = 0;
+  for (const auto &f : all_files) {
+    assert(!f.empty());
+    if (f[0] == '.') {
+      continue;
+    }
+    nfiles++;
+  }
+  ASSERT_EQ(nfiles, 1);
+
+  SyncPoint::GetInstance()->DisableProcessing();
 }
 
 TEST_F(BlobDBTest, SnapshotAndGarbageCollection) {
@@ -1234,12 +1306,12 @@ TEST_F(BlobDBTest, InlineSmallValues) {
 
 TEST_F(BlobDBTest, CompactionFilterNotSupported) {
   class TestCompactionFilter : public CompactionFilter {
-    virtual const char *Name() const { return "TestCompactionFilter"; }
+    const char *Name() const override { return "TestCompactionFilter"; }
   };
   class TestCompactionFilterFactory : public CompactionFilterFactory {
-    virtual const char *Name() const { return "TestCompactionFilterFactory"; }
-    virtual std::unique_ptr<CompactionFilter> CreateCompactionFilter(
-        const CompactionFilter::Context & /*context*/) {
+    const char *Name() const override { return "TestCompactionFilterFactory"; }
+    std::unique_ptr<CompactionFilter> CreateCompactionFilter(
+        const CompactionFilter::Context & /*context*/) override {
       return std::unique_ptr<CompactionFilter>(new TestCompactionFilter());
     }
   };
@@ -1540,6 +1612,68 @@ TEST_F(BlobDBTest, DisableFileDeletions) {
     ASSERT_EQ(0, blob_db_impl()->TEST_GetObsoleteFiles().size());
     VerifyDB({});
   }
+}
+
+TEST_F(BlobDBTest, ShutdownWait) {
+  BlobDBOptions bdb_options;
+  bdb_options.ttl_range_secs = 100;
+  bdb_options.min_blob_size = 0;
+  bdb_options.disable_background_tasks = false;
+  Options options;
+  options.env = mock_env_.get();
+
+  SyncPoint::GetInstance()->LoadDependency({
+      {"BlobDBImpl::EvictExpiredFiles:0", "BlobDBTest.ShutdownWait:0"},
+      {"BlobDBTest.ShutdownWait:1", "BlobDBImpl::EvictExpiredFiles:1"},
+      {"BlobDBImpl::EvictExpiredFiles:2", "BlobDBTest.ShutdownWait:2"},
+      {"BlobDBTest.ShutdownWait:3", "BlobDBImpl::EvictExpiredFiles:3"},
+  });
+  // Force all tasks to be scheduled immediately.
+  rocksdb::SyncPoint::GetInstance()->SetCallBack(
+      "TimeQueue::Add:item.end", [&](void *arg) {
+        std::chrono::steady_clock::time_point *tp =
+            static_cast<std::chrono::steady_clock::time_point *>(arg);
+        *tp =
+            std::chrono::steady_clock::now() - std::chrono::milliseconds(10000);
+      });
+
+  rocksdb::SyncPoint::GetInstance()->SetCallBack(
+      "BlobDBImpl::EvictExpiredFiles:cb", [&](void * /*arg*/) {
+        // Sleep 3 ms to increase the chance of data race.
+        // We've synced up the code so that EvictExpiredFiles()
+        // is called concurrently with ~BlobDBImpl().
+        // ~BlobDBImpl() is supposed to wait for all background
+        // task to shutdown before doing anything else. In order
+        // to use the same test to reproduce a bug of the waiting
+        // logic, we wait a little bit here, so that TSAN can
+        // catch the data race.
+        // We should improve the test if we find a better way.
+        Env::Default()->SleepForMicroseconds(3000);
+      });
+
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  Open(bdb_options, options);
+  mock_env_->set_current_time(50);
+  std::map<std::string, std::string> data;
+  ASSERT_OK(PutWithTTL("foo", "bar", 100, &data));
+  auto blob_files = blob_db_impl()->TEST_GetBlobFiles();
+  ASSERT_EQ(1, blob_files.size());
+  auto blob_file = blob_files[0];
+  ASSERT_FALSE(blob_file->Immutable());
+  ASSERT_FALSE(blob_file->Obsolete());
+  VerifyDB(data);
+
+  TEST_SYNC_POINT("BlobDBTest.ShutdownWait:0");
+  mock_env_->set_current_time(250);
+  // The key should expired now.
+  TEST_SYNC_POINT("BlobDBTest.ShutdownWait:1");
+
+  TEST_SYNC_POINT("BlobDBTest.ShutdownWait:2");
+  TEST_SYNC_POINT("BlobDBTest.ShutdownWait:3");
+  Close();
+
+  SyncPoint::GetInstance()->DisableProcessing();
 }
 
 }  //  namespace blob_db

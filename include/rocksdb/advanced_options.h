@@ -62,13 +62,6 @@ struct CompactionOptionsFIFO {
   // Default: 1GB
   uint64_t max_table_files_size;
 
-  // Drop files older than TTL. TTL based deletion will take precedence over
-  // size based deletion if ttl > 0.
-  // delete if sst_file_creation_time < (current_time - ttl)
-  // unit: seconds. Ex: 1 day = 1 * 24 * 60 * 60
-  // Default: 0 (disabled)
-  uint64_t ttl = 0;
-
   // If true, try to do compaction to compact smaller files into larger ones.
   // Minimum files to compact follows options.level0_file_num_compaction_trigger
   // and compaction won't trigger if average compact bytes per del file is
@@ -78,10 +71,8 @@ struct CompactionOptionsFIFO {
   bool allow_compaction = false;
 
   CompactionOptionsFIFO() : max_table_files_size(1 * 1024 * 1024 * 1024) {}
-  CompactionOptionsFIFO(uint64_t _max_table_files_size, bool _allow_compaction,
-                        uint64_t _ttl = 0)
+  CompactionOptionsFIFO(uint64_t _max_table_files_size, bool _allow_compaction)
       : max_table_files_size(_max_table_files_size),
-        ttl(_ttl),
         allow_compaction(_allow_compaction) {}
 };
 
@@ -184,11 +175,26 @@ struct AdvancedColumnFamilyOptions {
   // individual write buffers.  Default: 1
   int min_write_buffer_number_to_merge = 1;
 
+  // DEPRECATED
   // The total maximum number of write buffers to maintain in memory including
   // copies of buffers that have already been flushed.  Unlike
   // max_write_buffer_number, this parameter does not affect flushing.
-  // This controls the minimum amount of write history that will be available
-  // in memory for conflict checking when Transactions are used.
+  // This parameter is being replaced by max_write_buffer_size_to_maintain.
+  // If both parameters are set to non-zero values, this parameter will be
+  // ignored.
+  int max_write_buffer_number_to_maintain = 0;
+
+  // The total maximum size(bytes) of write buffers to maintain in memory
+  // including copies of buffers that have already been flushed. This parameter
+  // only affects trimming of flushed buffers and does not affect flushing.
+  // This controls the maximum amount of write history that will be available
+  // in memory for conflict checking when Transactions are used. The actual
+  // size of write history (flushed Memtables) might be higher than this limit
+  // if further trimming will reduce write history total size below this
+  // limit. For example, if max_write_buffer_size_to_maintain is set to 64MB,
+  // and there are three flushed Memtables, with sizes of 32MB, 20MB, 20MB.
+  // Because trimming the next Memtable of size 20MB will reduce total memory
+  // usage to 52MB which is below the limit, RocksDB will stop trimming.
   //
   // When using an OptimisticTransactionDB:
   // If this value is too low, some transactions may fail at commit time due
@@ -201,14 +207,14 @@ struct AdvancedColumnFamilyOptions {
   // done for conflict detection.
   //
   // Setting this value to 0 will cause write buffers to be freed immediately
-  // after they are flushed.
-  // If this value is set to -1, 'max_write_buffer_number' will be used.
+  // after they are flushed. If this value is set to -1,
+  // 'max_write_buffer_number * write_buffer_size' will be used.
   //
   // Default:
   // If using a TransactionDB/OptimisticTransactionDB, the default value will
-  // be set to the value of 'max_write_buffer_number' if it is not explicitly
-  // set by the user.  Otherwise, the default is 0.
-  int max_write_buffer_number_to_maintain = 0;
+  // be set to the value of 'max_write_buffer_number * write_buffer_size'
+  // if it is not explicitly set by the user.  Otherwise, the default is 0.
+  int64_t max_write_buffer_size_to_maintain = 0;
 
   // Allows thread-safe inplace updates. If this is true, there is no way to
   // achieve point-in-time consistency using snapshot or iterator (assuming
@@ -280,6 +286,15 @@ struct AdvancedColumnFamilyOptions {
   //
   // Dynamically changeable through SetOptions() API
   double memtable_prefix_bloom_size_ratio = 0.0;
+
+  // Enable whole key bloom filter in memtable. Note this will only take effect
+  // if memtable_prefix_bloom_size_ratio is not 0. Enabling whole key filtering
+  // can potentially reduce CPU usage for point-look-ups.
+  //
+  // Default: false (disable)
+  //
+  // Dynamically changeable through SetOptions() API
+  bool memtable_whole_key_filtering = false;
 
   // Page size for huge page for the arena used by the memtable. If <=0, it
   // won't allocate from huge page but from malloc.
@@ -528,8 +543,8 @@ struct AdvancedColumnFamilyOptions {
 
   // If level compaction_style = kCompactionStyleLevel, for each level,
   // which files are prioritized to be picked to compact.
-  // Default: kByCompensatedSize
-  CompactionPri compaction_pri = kByCompensatedSize;
+  // Default: kMinOverlappingRatio
+  CompactionPri compaction_pri = kMinOverlappingRatio;
 
   // The options needed to support Universal Style compactions
   //
@@ -542,7 +557,7 @@ struct AdvancedColumnFamilyOptions {
   //
   // Dynamically changeable through SetOptions() API
   // Dynamic change example:
-  // SetOptions("compaction_options_fifo", "{max_table_files_size=100;ttl=2;}")
+  // SetOptions("compaction_options_fifo", "{max_table_files_size=100;}")
   CompactionOptionsFIFO compaction_options_fifo;
 
   // An iteration->Next() sequentially skips over keys with the same
@@ -631,14 +646,40 @@ struct AdvancedColumnFamilyOptions {
   // Dynamically changeable through SetOptions() API
   bool report_bg_io_stats = false;
 
-  // Non-bottom-level files older than TTL will go through the compaction
-  // process. This needs max_open_files to be set to -1.
-  // Enabled only for level compaction for now.
+  // Files older than TTL will go through the compaction process.
+  // Supported in Level and FIFO compaction.
+  // Pre-req: This needs max_open_files to be set to -1.
+  // In Level: Non-bottom-level files older than TTL will go through the
+  //           compation process.
+  // In FIFO: Files older than TTL will be deleted.
+  // unit: seconds. Ex: 1 day = 1 * 24 * 60 * 60
   //
   // Default: 0 (disabled)
   //
   // Dynamically changeable through SetOptions() API
   uint64_t ttl = 0;
+
+  // Files older than this value will be picked up for compaction, and
+  // re-written to the same level as they were before.
+  //
+  // A file's age is computed by looking at file_creation_time or creation_time
+  // table properties in order, if they have valid non-zero values; if not, the
+  // age is based on the file's last modified time (given by the underlying
+  // Env).
+  //
+  // Only supported in Level compaction.
+  // Pre-req: max_open_file == -1.
+  // unit: seconds. Ex: 7 days = 7 * 24 * 60 * 60
+  // Default: 0 (disabled)
+  //
+  // Dynamically changeable through SetOptions() API
+  uint64_t periodic_compaction_seconds = 0;
+
+  // If this option is set then 1 in N blocks are compressed
+  // using a fast (lz4) and slow (zstd) compression algorithm.
+  // The compressibility is reported as stats and the stored
+  // data is left uncompressed (unless compression is also requested).
+  uint64_t sample_for_compression = 0;
 
   // Create ColumnFamilyOptions with default values for all fields
   AdvancedColumnFamilyOptions();

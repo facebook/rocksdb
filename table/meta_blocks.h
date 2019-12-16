@@ -15,7 +15,8 @@
 #include "rocksdb/memory_allocator.h"
 #include "rocksdb/options.h"
 #include "rocksdb/slice.h"
-#include "table/block_builder.h"
+#include "table/block_based/block_builder.h"
+#include "table/block_based/block_type.h"
 #include "table/format.h"
 #include "util/kv_map.h"
 
@@ -83,7 +84,12 @@ bool NotifyCollectTableCollectorsOnAdd(
     const std::vector<std::unique_ptr<IntTblPropCollector>>& collectors,
     Logger* info_log);
 
-// NotifyCollectTableCollectorsOnAdd() triggers the `Finish` event for all
+void NotifyCollectTableCollectorsOnBlockAdd(
+    const std::vector<std::unique_ptr<IntTblPropCollector>>& collectors,
+    uint64_t blockRawBytes, uint64_t blockCompressedBytesFast,
+    uint64_t blockCompressedBytesSlow);
+
+// NotifyCollectTableCollectorsOnFinish() triggers the `Finish` event for all
 // property collectors. The collected properties will be added to `builder`.
 bool NotifyCollectTableCollectorsOnFinish(
     const std::vector<std::unique_ptr<IntTblPropCollector>>& collectors,
@@ -96,7 +102,9 @@ bool NotifyCollectTableCollectorsOnFinish(
 Status ReadProperties(const Slice& handle_value, RandomAccessFileReader* file,
                       FilePrefetchBuffer* prefetch_buffer, const Footer& footer,
                       const ImmutableCFOptions& ioptions,
-                      TableProperties** table_properties,
+                      TableProperties** table_properties, bool verify_checksum,
+                      BlockHandle* block_handle,
+                      CacheAllocationPtr* verification_buf,
                       bool compression_type_missing = false,
                       MemoryAllocator* memory_allocator = nullptr);
 
@@ -136,7 +144,7 @@ Status ReadMetaBlock(RandomAccessFileReader* file,
                      FilePrefetchBuffer* prefetch_buffer, uint64_t file_size,
                      uint64_t table_magic_number,
                      const ImmutableCFOptions& ioptions,
-                     const std::string& meta_block_name,
+                     const std::string& meta_block_name, BlockType block_type,
                      BlockContents* contents,
                      bool compression_type_missing = false,
                      MemoryAllocator* memory_allocator = nullptr);

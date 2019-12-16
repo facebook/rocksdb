@@ -9,9 +9,9 @@
 #include <string>
 
 #include "db/db_test_util.h"
-#include "util/arena.h"
+#include "memory/arena.h"
+#include "test_util/testharness.h"
 #include "util/random.h"
-#include "util/testharness.h"
 #include "utilities/persistent_cache/hash_table.h"
 #include "utilities/persistent_cache/hash_table_evictable.h"
 
@@ -20,7 +20,7 @@
 namespace rocksdb {
 
 struct HashTableTest : public testing::Test {
-  ~HashTableTest() { map_.Clear(&HashTableTest::ClearNode); }
+  ~HashTableTest() override { map_.Clear(&HashTableTest::ClearNode); }
 
   struct Node {
     Node() {}
@@ -49,7 +49,9 @@ struct HashTableTest : public testing::Test {
 };
 
 struct EvictableHashTableTest : public testing::Test {
-  ~EvictableHashTableTest() { map_.Clear(&EvictableHashTableTest::ClearNode); }
+  ~EvictableHashTableTest() override {
+    map_.Clear(&EvictableHashTableTest::ClearNode);
+  }
 
   struct Node : LRUElement<Node> {
     Node() {}

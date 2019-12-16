@@ -56,6 +56,8 @@ Status CompactToLevel(const Options& options, const std::string& dbname,
   cro.change_level = true;
   cro.target_level = dest_level;
   if (dest_level == 0) {
+    // cannot use kForceOptimized because the compaction is expected to
+    // generate one output file
     cro.bottommost_level_compaction = BottommostLevelCompaction::kForce;
   }
   db->CompactRange(cro, nullptr, nullptr);

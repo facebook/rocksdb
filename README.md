@@ -22,7 +22,7 @@ RocksDB-Cloud provides three main advantages for AWS environments:
 RocksDB-Cloud is API compatible and data format compatible with [RocksDB](https://github.com/facebook/rocksdb).
 
 RocksDB is developed and maintained by Facebook Database Engineering Team.
-It is built on earlier work on LevelDB by Sanjay Ghemawat (sanjay@google.com)
+It is built on earlier work on [LevelDB](https://github.com/google/leveldb) by Sanjay Ghemawat (sanjay@google.com)
 and Jeff Dean (jeff@google.com)
 
 This code is a library that forms the core building block for a fast

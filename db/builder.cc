@@ -13,7 +13,7 @@
 #include <deque>
 #include <vector>
 
-#include "db/compaction_iterator.h"
+#include "db/compaction/compaction_iterator.h"
 #include "db/dbformat.h"
 #include "db/event_helpers.h"
 #include "db/internal_stats.h"
@@ -21,6 +21,7 @@
 #include "db/range_del_aggregator.h"
 #include "db/table_cache.h"
 #include "db/version_edit.h"
+#include "file/filename.h"
 #include "monitoring/iostats_context_imp.h"
 #include "monitoring/thread_status_util.h"
 #include "rocksdb/db.h"
@@ -28,13 +29,12 @@
 #include "rocksdb/iterator.h"
 #include "rocksdb/options.h"
 #include "rocksdb/table.h"
-#include "table/block_based_table_builder.h"
+#include "table/block_based/block_based_table_builder.h"
 #include "table/format.h"
 #include "table/internal_iterator.h"
+#include "test_util/sync_point.h"
 #include "util/file_reader_writer.h"
-#include "util/filename.h"
 #include "util/stop_watch.h"
-#include "util/sync_point.h"
 
 namespace rocksdb {
 
@@ -47,18 +47,20 @@ TableBuilder* NewTableBuilder(
         int_tbl_prop_collector_factories,
     uint32_t column_family_id, const std::string& column_family_name,
     WritableFileWriter* file, const CompressionType compression_type,
-    const CompressionOptions& compression_opts, int level,
-    const std::string* compression_dict, const bool skip_filters,
-    const uint64_t creation_time, const uint64_t oldest_key_time) {
+    uint64_t sample_for_compression, const CompressionOptions& compression_opts,
+    int level, const bool skip_filters, const uint64_t creation_time,
+    const uint64_t oldest_key_time, const uint64_t target_file_size,
+    const uint64_t file_creation_time) {
   assert((column_family_id ==
           TablePropertiesCollectorFactory::Context::kUnknownColumnFamily) ==
          column_family_name.empty());
   return ioptions.table_factory->NewTableBuilder(
       TableBuilderOptions(ioptions, moptions, internal_comparator,
                           int_tbl_prop_collector_factories, compression_type,
-                          compression_opts, compression_dict, skip_filters,
-                          column_family_name, level, creation_time,
-                          oldest_key_time),
+                          sample_for_compression, compression_opts,
+                          skip_filters, column_family_name, level,
+                          creation_time, oldest_key_time, target_file_size,
+                          file_creation_time),
       column_family_id, file);
 }
 
@@ -75,11 +77,12 @@ Status BuildTable(
     std::vector<SequenceNumber> snapshots,
     SequenceNumber earliest_write_conflict_snapshot,
     SnapshotChecker* snapshot_checker, const CompressionType compression,
-    const CompressionOptions& compression_opts, bool paranoid_file_checks,
-    InternalStats* internal_stats, TableFileCreationReason reason,
-    EventLogger* event_logger, int job_id, const Env::IOPriority io_priority,
-    TableProperties* table_properties, int level, const uint64_t creation_time,
-    const uint64_t oldest_key_time, Env::WriteLifeTimeHint write_hint) {
+    uint64_t sample_for_compression, const CompressionOptions& compression_opts,
+    bool paranoid_file_checks, InternalStats* internal_stats,
+    TableFileCreationReason reason, EventLogger* event_logger, int job_id,
+    const Env::IOPriority io_priority, TableProperties* table_properties,
+    int level, const uint64_t creation_time, const uint64_t oldest_key_time,
+    Env::WriteLifeTimeHint write_hint, const uint64_t file_creation_time) {
   assert((column_family_id ==
           TablePropertiesCollectorFactory::Context::kUnknownColumnFamily) ==
          column_family_name.empty());
@@ -105,6 +108,11 @@ Status BuildTable(
   if (iter->Valid() || !range_del_agg->IsEmpty()) {
     TableBuilder* builder;
     std::unique_ptr<WritableFileWriter> file_writer;
+    // Currently we only enable dictionary compression during compaction to the
+    // bottommost level.
+    CompressionOptions compression_opts_for_flush(compression_opts);
+    compression_opts_for_flush.max_dict_bytes = 0;
+    compression_opts_for_flush.zstd_max_train_bytes = 0;
     {
       std::unique_ptr<WritableFile> file;
 #ifndef NDEBUG
@@ -121,15 +129,16 @@ Status BuildTable(
       file->SetIOPriority(io_priority);
       file->SetWriteLifeTimeHint(write_hint);
 
-      file_writer.reset(new WritableFileWriter(std::move(file), fname,
-                                               env_options, ioptions.statistics,
-                                               ioptions.listeners));
+      file_writer.reset(
+          new WritableFileWriter(std::move(file), fname, env_options, env,
+                                 ioptions.statistics, ioptions.listeners));
       builder = NewTableBuilder(
           ioptions, mutable_cf_options, internal_comparator,
           int_tbl_prop_collector_factories, column_family_id,
-          column_family_name, file_writer.get(), compression, compression_opts,
-          level, nullptr /* compression_dict */, false /* skip_filters */,
-          creation_time, oldest_key_time);
+          column_family_name, file_writer.get(), compression,
+          sample_for_compression, compression_opts_for_flush, level,
+          false /* skip_filters */, creation_time, oldest_key_time,
+          0 /*target_file_size*/, file_creation_time);
     }
 
     MergeHelper merge(env, internal_comparator.user_comparator(),
@@ -212,8 +221,9 @@ Status BuildTable(
           mutable_cf_options.prefix_extractor.get(), nullptr,
           (internal_stats == nullptr) ? nullptr
                                       : internal_stats->GetFileReadHist(0),
-          false /* for_compaction */, nullptr /* arena */,
-          false /* skip_filter */, level));
+          TableReaderCaller::kFlush, /*arena=*/nullptr,
+          /*skip_filter=*/false, level, /*smallest_compaction_key=*/nullptr,
+          /*largest_compaction_key*/ nullptr));
       s = it->status();
       if (s.ok() && paranoid_file_checks) {
         for (it->SeekToFirst(); it->Valid(); it->Next()) {

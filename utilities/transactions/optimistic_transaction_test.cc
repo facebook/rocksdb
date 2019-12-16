@@ -9,15 +9,19 @@
 #include <string>
 #include <thread>
 
+
+#include "db/db_impl/db_impl.h"
+#include "logging/logging.h"
+#include "port/port.h"
 #include "rocksdb/db.h"
+#include "rocksdb/perf_context.h"
 #include "rocksdb/utilities/optimistic_transaction_db.h"
 #include "rocksdb/utilities/transaction.h"
+#include "test_util/sync_point.h"
+#include "test_util/testharness.h"
+#include "test_util/transaction_test_util.h"
 #include "util/crc32c.h"
-#include "util/logging.h"
 #include "util/random.h"
-#include "util/testharness.h"
-#include "util/transaction_test_util.h"
-#include "port/port.h"
 
 using std::string;
 
@@ -32,12 +36,13 @@ class OptimisticTransactionTest : public testing::Test {
   OptimisticTransactionTest() {
     options.create_if_missing = true;
     options.max_write_buffer_number = 2;
+    options.max_write_buffer_size_to_maintain = 1600;
     dbname = test::PerThreadDBPath("optimistic_transaction_testdb");
 
     DestroyDB(dbname, options);
     Open();
   }
-  ~OptimisticTransactionTest() {
+  ~OptimisticTransactionTest() override {
     delete txn_db;
     DestroyDB(dbname, options);
   }
@@ -306,6 +311,120 @@ TEST_F(OptimisticTransactionTest, FlushTest2) {
   ASSERT_EQ(value, "bar");
 
   delete txn;
+}
+
+// Trigger the condition where some old memtables are skipped when doing
+// TransactionUtil::CheckKey(), and make sure the result is still correct.
+TEST_F(OptimisticTransactionTest, CheckKeySkipOldMemtable) {
+  const int kAttemptHistoryMemtable = 0;
+  const int kAttemptImmMemTable = 1;
+  for (int attempt = kAttemptHistoryMemtable; attempt <= kAttemptImmMemTable;
+       attempt++) {
+    options.max_write_buffer_number_to_maintain = 3;
+    Reopen();
+
+    WriteOptions write_options;
+    ReadOptions read_options;
+    ReadOptions snapshot_read_options;
+    ReadOptions snapshot_read_options2;
+    string value;
+    Status s;
+
+    ASSERT_OK(txn_db->Put(write_options, Slice("foo"), Slice("bar")));
+    ASSERT_OK(txn_db->Put(write_options, Slice("foo2"), Slice("bar")));
+
+    Transaction* txn = txn_db->BeginTransaction(write_options);
+    ASSERT_TRUE(txn != nullptr);
+
+    Transaction* txn2 = txn_db->BeginTransaction(write_options);
+    ASSERT_TRUE(txn2 != nullptr);
+
+    snapshot_read_options.snapshot = txn->GetSnapshot();
+    ASSERT_OK(txn->GetForUpdate(snapshot_read_options, "foo", &value));
+    ASSERT_EQ(value, "bar");
+    ASSERT_OK(txn->Put(Slice("foo"), Slice("bar2")));
+
+    snapshot_read_options2.snapshot = txn2->GetSnapshot();
+    ASSERT_OK(txn2->GetForUpdate(snapshot_read_options2, "foo2", &value));
+    ASSERT_EQ(value, "bar");
+    ASSERT_OK(txn2->Put(Slice("foo2"), Slice("bar2")));
+
+    // txn updates "foo" and txn2 updates "foo2", and now a write is
+    // issued for "foo", which conflicts with txn but not txn2
+    ASSERT_OK(txn_db->Put(write_options, "foo", "bar"));
+
+    if (attempt == kAttemptImmMemTable) {
+      // For the second attempt, hold flush from beginning. The memtable
+      // will be switched to immutable after calling TEST_SwitchMemtable()
+      // while CheckKey() is called.
+      rocksdb::SyncPoint::GetInstance()->LoadDependency(
+          {{"OptimisticTransactionTest.CheckKeySkipOldMemtable",
+            "FlushJob::Start"}});
+      rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+    }
+
+    // force a memtable flush. The memtable should still be kept
+    FlushOptions flush_ops;
+    if (attempt == kAttemptHistoryMemtable) {
+      ASSERT_OK(txn_db->Flush(flush_ops));
+    } else {
+      assert(attempt == kAttemptImmMemTable);
+      DBImpl* db_impl = static_cast<DBImpl*>(txn_db->GetRootDB());
+      db_impl->TEST_SwitchMemtable();
+    }
+    uint64_t num_imm_mems;
+    ASSERT_TRUE(txn_db->GetIntProperty(DB::Properties::kNumImmutableMemTable,
+                                       &num_imm_mems));
+    if (attempt == kAttemptHistoryMemtable) {
+      ASSERT_EQ(0, num_imm_mems);
+    } else {
+      assert(attempt == kAttemptImmMemTable);
+      ASSERT_EQ(1, num_imm_mems);
+    }
+
+    // Put something in active memtable
+    ASSERT_OK(txn_db->Put(write_options, Slice("foo3"), Slice("bar")));
+
+    // Create txn3 after flushing, when this transaction is commited,
+    // only need to check the active memtable
+    Transaction* txn3 = txn_db->BeginTransaction(write_options);
+    ASSERT_TRUE(txn3 != nullptr);
+
+    // Commit both of txn and txn2. txn will conflict but txn2 will
+    // pass. In both ways, both memtables are queried.
+    SetPerfLevel(PerfLevel::kEnableCount);
+
+    get_perf_context()->Reset();
+    s = txn->Commit();
+    // We should have checked two memtables
+    ASSERT_EQ(2, get_perf_context()->get_from_memtable_count);
+    // txn should fail because of conflict, even if the memtable
+    // has flushed, because it is still preserved in history.
+    ASSERT_TRUE(s.IsBusy());
+
+    get_perf_context()->Reset();
+    s = txn2->Commit();
+    // We should have checked two memtables
+    ASSERT_EQ(2, get_perf_context()->get_from_memtable_count);
+    ASSERT_TRUE(s.ok());
+
+    txn3->Put(Slice("foo2"), Slice("bar2"));
+    get_perf_context()->Reset();
+    s = txn3->Commit();
+    // txn3 is created after the active memtable is created, so that is the only
+    // memtable to check.
+    ASSERT_EQ(1, get_perf_context()->get_from_memtable_count);
+    ASSERT_TRUE(s.ok());
+
+    TEST_SYNC_POINT("OptimisticTransactionTest.CheckKeySkipOldMemtable");
+    rocksdb::SyncPoint::GetInstance()->DisableProcessing();
+
+    SetPerfLevel(PerfLevel::kDisable);
+
+    delete txn;
+    delete txn2;
+    delete txn3;
+  }
 }
 
 TEST_F(OptimisticTransactionTest, NoSnapshotTest) {

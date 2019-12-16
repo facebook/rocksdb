@@ -1,5 +1,9 @@
 cmake_minimum_required(VERSION 3.4)
 
+if(${CMAKE_VERSION} VERSION_LESS "3.11.4")
+    message("Please consider switching to CMake 3.11.4 or newer")
+endif()
+
 set(JNI_NATIVE_SOURCES
         rocksjni/backupablejni.cc
         rocksjni/backupenginejni.cc
@@ -11,6 +15,9 @@ set(JNI_NATIVE_SOURCES
         rocksjni/compaction_filter.cc
         rocksjni/compaction_filter_factory.cc
         rocksjni/compaction_filter_factory_jnicallback.cc
+        rocksjni/compaction_job_info.cc
+        rocksjni/compaction_job_stats.cc
+        rocksjni/compaction_options.cc
         rocksjni/compaction_options_fifo.cc
         rocksjni/compaction_options_universal.cc
         rocksjni/compact_range_options.cc
@@ -33,6 +40,7 @@ set(JNI_NATIVE_SOURCES
         rocksjni/optimistic_transaction_options.cc
         rocksjni/options.cc
         rocksjni/options_util.cc
+        rocksjni/persistent_cache.cc
         rocksjni/ratelimiterjni.cc
         rocksjni/remove_emptyvalue_compactionfilterjni.cc
         rocksjni/restorejni.cc
@@ -43,9 +51,16 @@ set(JNI_NATIVE_SOURCES
         rocksjni/snapshot.cc
         rocksjni/sst_file_manager.cc
         rocksjni/sst_file_writerjni.cc
+        rocksjni/sst_file_readerjni.cc
+        rocksjni/sst_file_reader_iterator.cc
         rocksjni/statistics.cc
         rocksjni/statisticsjni.cc
         rocksjni/table.cc
+        rocksjni/table_filter.cc
+        rocksjni/table_filter_jnicallback.cc
+        rocksjni/thread_status.cc
+        rocksjni/trace_writer.cc
+        rocksjni/trace_writer_jnicallback.cc
         rocksjni/transaction.cc
         rocksjni/transaction_db.cc
         rocksjni/transaction_db_options.cc
@@ -54,6 +69,8 @@ set(JNI_NATIVE_SOURCES
         rocksjni/transaction_notifier_jnicallback.cc
         rocksjni/transaction_options.cc
         rocksjni/ttl.cc
+        rocksjni/wal_filter.cc
+        rocksjni/wal_filter_jnicallback.cc
         rocksjni/write_batch.cc
         rocksjni/writebatchhandlerjnicallback.cc
         rocksjni/write_batch_test.cc
@@ -61,121 +78,19 @@ set(JNI_NATIVE_SOURCES
         rocksjni/write_buffer_manager.cc
 )
 
-set(NATIVE_JAVA_CLASSES
-        org.rocksdb.AbstractCompactionFilter
-        org.rocksdb.AbstractCompactionFilterFactory
-        org.rocksdb.AbstractComparator
-        org.rocksdb.AbstractImmutableNativeReference
-        org.rocksdb.AbstractNativeReference
-        org.rocksdb.AbstractRocksIterator
-        org.rocksdb.AbstractSlice
-        org.rocksdb.AbstractTransactionNotifier
-        org.rocksdb.BackupableDBOptions
-        org.rocksdb.BackupEngine
-        org.rocksdb.BlockBasedTableConfig
-        org.rocksdb.BloomFilter
-        org.rocksdb.CassandraCompactionFilter
-        org.rocksdb.CassandraValueMergeOperator
-        org.rocksdb.Checkpoint
-        org.rocksdb.ClockCache
-        org.rocksdb.ColumnFamilyHandle
-        org.rocksdb.ColumnFamilyOptions
-        org.rocksdb.CompactionOptionsFIFO
-        org.rocksdb.CompactionOptionsUniversal
-        org.rocksdb.CompactRangeOptions
-        org.rocksdb.Comparator
-        org.rocksdb.ComparatorOptions
-        org.rocksdb.CompressionOptions
-        org.rocksdb.DBOptions
-        org.rocksdb.DirectComparator
-        org.rocksdb.DirectSlice
-        org.rocksdb.Env
-        org.rocksdb.EnvOptions
-        org.rocksdb.Filter
-        org.rocksdb.FlushOptions
-        org.rocksdb.HashLinkedListMemTableConfig
-        org.rocksdb.HashSkipListMemTableConfig
-        org.rocksdb.IngestExternalFileOptions
-        org.rocksdb.Logger
-        org.rocksdb.LRUCache
-        org.rocksdb.MemoryUtil
-        org.rocksdb.MemTableConfig
-        org.rocksdb.NativeComparatorWrapper
-        org.rocksdb.NativeLibraryLoader
-        org.rocksdb.OptimisticTransactionDB
-        org.rocksdb.OptimisticTransactionOptions
-        org.rocksdb.Options
-        org.rocksdb.OptionsUtil
-        org.rocksdb.PlainTableConfig
-        org.rocksdb.RateLimiter
-        org.rocksdb.ReadOptions
-        org.rocksdb.RemoveEmptyValueCompactionFilter
-        org.rocksdb.RestoreOptions
-        org.rocksdb.RocksCallbackObject
-        org.rocksdb.RocksDB
-        org.rocksdb.RocksEnv
-        org.rocksdb.RocksIterator
-        org.rocksdb.RocksIteratorInterface
-        org.rocksdb.RocksMemEnv
-        org.rocksdb.RocksMutableObject
-        org.rocksdb.RocksObject
-        org.rocksdb.SkipListMemTableConfig
-        org.rocksdb.Slice
-        org.rocksdb.Snapshot
-        org.rocksdb.SstFileManager
-        org.rocksdb.SstFileWriter
-        org.rocksdb.Statistics
-        org.rocksdb.StringAppendOperator
-        org.rocksdb.TableFormatConfig
-        org.rocksdb.Transaction
-        org.rocksdb.TransactionDB
-        org.rocksdb.TransactionDBOptions
-        org.rocksdb.TransactionLogIterator
-        org.rocksdb.TransactionOptions
-        org.rocksdb.TtlDB
-        org.rocksdb.UInt64AddOperator
-        org.rocksdb.VectorMemTableConfig
-        org.rocksdb.WBWIRocksIterator
-        org.rocksdb.WriteBatch
-        org.rocksdb.WriteBatch.Handler
-        org.rocksdb.WriteBatchInterface
-        org.rocksdb.WriteBatchWithIndex
-        org.rocksdb.WriteOptions
-        org.rocksdb.NativeComparatorWrapperTest
-        org.rocksdb.RocksDBExceptionTest
-        org.rocksdb.SnapshotTest
-        org.rocksdb.WriteBatchTest
-        org.rocksdb.WriteBatchTestInternalHelper
-        org.rocksdb.WriteBufferManager
-)
-
-include(FindJava)
-include(UseJava)
-include(FindJNI)
-
-include_directories(${JNI_INCLUDE_DIRS})
-include_directories(${PROJECT_SOURCE_DIR}/java)
-
-set(JAVA_TEST_LIBDIR ${PROJECT_SOURCE_DIR}/java/test-libs)
-set(JAVA_TMP_JAR ${JAVA_TEST_LIBDIR}/tmp.jar)
-set(JAVA_JUNIT_JAR ${JAVA_TEST_LIBDIR}/junit-4.12.jar)
-set(JAVA_HAMCR_JAR ${JAVA_TEST_LIBDIR}/hamcrest-core-1.3.jar)
-set(JAVA_MOCKITO_JAR ${JAVA_TEST_LIBDIR}/mockito-all-1.10.19.jar)
-set(JAVA_CGLIB_JAR ${JAVA_TEST_LIBDIR}/cglib-2.2.2.jar)
-set(JAVA_ASSERTJ_JAR ${JAVA_TEST_LIBDIR}/assertj-core-1.7.1.jar)
-set(JAVA_TESTCLASSPATH ${JAVA_JUNIT_JAR} ${JAVA_HAMCR_JAR} ${JAVA_MOCKITO_JAR} ${JAVA_CGLIB_JAR} ${JAVA_ASSERTJ_JAR})
-
-add_jar(
-  rocksdbjni_classes
-  SOURCES
-  src/main/java/org/rocksdb/AbstractCompactionFilterFactory.java
+set(JAVA_MAIN_CLASSES
   src/main/java/org/rocksdb/AbstractCompactionFilter.java
+  src/main/java/org/rocksdb/AbstractCompactionFilterFactory.java
   src/main/java/org/rocksdb/AbstractComparator.java
   src/main/java/org/rocksdb/AbstractImmutableNativeReference.java
+  src/main/java/org/rocksdb/AbstractMutableOptions.java
   src/main/java/org/rocksdb/AbstractNativeReference.java
   src/main/java/org/rocksdb/AbstractRocksIterator.java
   src/main/java/org/rocksdb/AbstractSlice.java
+  src/main/java/org/rocksdb/AbstractTableFilter.java
+  src/main/java/org/rocksdb/AbstractTraceWriter.java
   src/main/java/org/rocksdb/AbstractTransactionNotifier.java
+  src/main/java/org/rocksdb/AbstractWalFilter.java
   src/main/java/org/rocksdb/AbstractWriteBatch.java
   src/main/java/org/rocksdb/AccessHint.java
   src/main/java/org/rocksdb/AdvancedColumnFamilyOptionsInterface.java
@@ -194,11 +109,16 @@ add_jar(
   src/main/java/org/rocksdb/ClockCache.java
   src/main/java/org/rocksdb/ColumnFamilyDescriptor.java
   src/main/java/org/rocksdb/ColumnFamilyHandle.java
+  src/main/java/org/rocksdb/ColumnFamilyMetaData.java
   src/main/java/org/rocksdb/ColumnFamilyOptionsInterface.java
   src/main/java/org/rocksdb/ColumnFamilyOptions.java
+  src/main/java/org/rocksdb/CompactionJobInfo.java
+  src/main/java/org/rocksdb/CompactionJobStats.java
+  src/main/java/org/rocksdb/CompactionOptions.java
   src/main/java/org/rocksdb/CompactionOptionsFIFO.java
   src/main/java/org/rocksdb/CompactionOptionsUniversal.java
   src/main/java/org/rocksdb/CompactionPriority.java
+  src/main/java/org/rocksdb/CompactionReason.java
   src/main/java/org/rocksdb/CompactRangeOptions.java
   src/main/java/org/rocksdb/CompactionStopStyle.java
   src/main/java/org/rocksdb/CompactionStyle.java
@@ -207,6 +127,7 @@ add_jar(
   src/main/java/org/rocksdb/ComparatorType.java
   src/main/java/org/rocksdb/CompressionOptions.java
   src/main/java/org/rocksdb/CompressionType.java
+  src/main/java/org/rocksdb/DataBlockIndexType.java
   src/main/java/org/rocksdb/DBOptionsInterface.java
   src/main/java/org/rocksdb/DBOptions.java
   src/main/java/org/rocksdb/DbPath.java
@@ -220,26 +141,39 @@ add_jar(
   src/main/java/org/rocksdb/FlushOptions.java
   src/main/java/org/rocksdb/HashLinkedListMemTableConfig.java
   src/main/java/org/rocksdb/HashSkipListMemTableConfig.java
+  src/main/java/org/rocksdb/HdfsEnv.java
   src/main/java/org/rocksdb/HistogramData.java
   src/main/java/org/rocksdb/HistogramType.java
   src/main/java/org/rocksdb/IndexType.java
   src/main/java/org/rocksdb/InfoLogLevel.java
   src/main/java/org/rocksdb/IngestExternalFileOptions.java
+  src/main/java/org/rocksdb/LevelMetaData.java
+  src/main/java/org/rocksdb/LiveFileMetaData.java
+  src/main/java/org/rocksdb/LogFile.java
   src/main/java/org/rocksdb/Logger.java
   src/main/java/org/rocksdb/LRUCache.java
   src/main/java/org/rocksdb/MemoryUsageType.java
   src/main/java/org/rocksdb/MemoryUtil.java
   src/main/java/org/rocksdb/MemTableConfig.java
   src/main/java/org/rocksdb/MergeOperator.java
-  src/main/java/org/rocksdb/MutableColumnFamilyOptionsInterface.java
   src/main/java/org/rocksdb/MutableColumnFamilyOptions.java
+  src/main/java/org/rocksdb/MutableColumnFamilyOptionsInterface.java
+  src/main/java/org/rocksdb/MutableDBOptions.java
+  src/main/java/org/rocksdb/MutableDBOptionsInterface.java
+  src/main/java/org/rocksdb/MutableOptionKey.java
+  src/main/java/org/rocksdb/MutableOptionValue.java
   src/main/java/org/rocksdb/NativeComparatorWrapper.java
   src/main/java/org/rocksdb/NativeLibraryLoader.java
+  src/main/java/org/rocksdb/OperationStage.java
+  src/main/java/org/rocksdb/OperationType.java
   src/main/java/org/rocksdb/OptimisticTransactionDB.java
   src/main/java/org/rocksdb/OptimisticTransactionOptions.java
   src/main/java/org/rocksdb/Options.java
   src/main/java/org/rocksdb/OptionsUtil.java
+  src/main/java/org/rocksdb/PersistentCache.java
   src/main/java/org/rocksdb/PlainTableConfig.java
+  src/main/java/org/rocksdb/Priority.java
+  src/main/java/org/rocksdb/Range.java
   src/main/java/org/rocksdb/RateLimiter.java
   src/main/java/org/rocksdb/RateLimiterMode.java
   src/main/java/org/rocksdb/ReadOptions.java
@@ -255,11 +189,16 @@ add_jar(
   src/main/java/org/rocksdb/RocksMemEnv.java
   src/main/java/org/rocksdb/RocksMutableObject.java
   src/main/java/org/rocksdb/RocksObject.java
+  src/main/java/org/rocksdb/SizeApproximationFlag.java
   src/main/java/org/rocksdb/SkipListMemTableConfig.java
   src/main/java/org/rocksdb/Slice.java
   src/main/java/org/rocksdb/Snapshot.java
   src/main/java/org/rocksdb/SstFileManager.java
+  src/main/java/org/rocksdb/SstFileMetaData.java
   src/main/java/org/rocksdb/SstFileWriter.java
+  src/main/java/org/rocksdb/SstFileReader.java
+  src/main/java/org/rocksdb/SstFileReaderIterator.java
+  src/main/java/org/rocksdb/StateType.java
   src/main/java/org/rocksdb/StatisticsCollectorCallback.java
   src/main/java/org/rocksdb/StatisticsCollector.java
   src/main/java/org/rocksdb/Statistics.java
@@ -267,8 +206,15 @@ add_jar(
   src/main/java/org/rocksdb/StatsLevel.java
   src/main/java/org/rocksdb/Status.java
   src/main/java/org/rocksdb/StringAppendOperator.java
+  src/main/java/org/rocksdb/TableFilter.java
+  src/main/java/org/rocksdb/TableProperties.java
   src/main/java/org/rocksdb/TableFormatConfig.java
+  src/main/java/org/rocksdb/ThreadType.java
+  src/main/java/org/rocksdb/ThreadStatus.java
   src/main/java/org/rocksdb/TickerType.java
+  src/main/java/org/rocksdb/TimedEnv.java
+  src/main/java/org/rocksdb/TraceOptions.java
+  src/main/java/org/rocksdb/TraceWriter.java
   src/main/java/org/rocksdb/TransactionalDB.java
   src/main/java/org/rocksdb/TransactionalOptions.java
   src/main/java/org/rocksdb/TransactionDB.java
@@ -279,10 +225,13 @@ add_jar(
   src/main/java/org/rocksdb/TtlDB.java
   src/main/java/org/rocksdb/TxnDBWritePolicy.java
   src/main/java/org/rocksdb/VectorMemTableConfig.java
+  src/main/java/org/rocksdb/WalFileType.java
+  src/main/java/org/rocksdb/WalFilter.java
+  src/main/java/org/rocksdb/WalProcessingOption.java
   src/main/java/org/rocksdb/WALRecoveryMode.java
   src/main/java/org/rocksdb/WBWIRocksIterator.java
-  src/main/java/org/rocksdb/WriteBatchInterface.java
   src/main/java/org/rocksdb/WriteBatch.java
+  src/main/java/org/rocksdb/WriteBatchInterface.java
   src/main/java/org/rocksdb/WriteBatchWithIndex.java
   src/main/java/org/rocksdb/WriteOptions.java
   src/main/java/org/rocksdb/WriteBufferManager.java
@@ -291,6 +240,10 @@ add_jar(
   src/main/java/org/rocksdb/util/Environment.java
   src/main/java/org/rocksdb/util/ReverseBytewiseComparator.java
   src/main/java/org/rocksdb/util/SizeUnit.java
+  src/main/java/org/rocksdb/UInt64AddOperator.java
+)
+
+set(JAVA_TEST_CLASSES
   src/test/java/org/rocksdb/BackupEngineTest.java
   src/test/java/org/rocksdb/IngestExternalFileOptionsTest.java
   src/test/java/org/rocksdb/NativeComparatorWrapperTest.java
@@ -298,12 +251,58 @@ add_jar(
   src/test/java/org/rocksdb/RocksDBExceptionTest.java
   src/test/java/org/rocksdb/RocksMemoryResource.java
   src/test/java/org/rocksdb/SnapshotTest.java
-  src/main/java/org/rocksdb/UInt64AddOperator.java
   src/test/java/org/rocksdb/WriteBatchTest.java
   src/test/java/org/rocksdb/util/CapturingWriteBatchHandler.java
   src/test/java/org/rocksdb/util/WriteBatchGetter.java
-  INCLUDE_JARS ${JAVA_TESTCLASSPATH}
 )
+
+include(FindJava)
+include(UseJava)
+find_package(JNI)
+
+include_directories(${JNI_INCLUDE_DIRS})
+include_directories(${PROJECT_SOURCE_DIR}/java)
+
+set(JAVA_TEST_LIBDIR ${PROJECT_SOURCE_DIR}/java/test-libs)
+set(JAVA_TMP_JAR ${JAVA_TEST_LIBDIR}/tmp.jar)
+set(JAVA_JUNIT_JAR ${JAVA_TEST_LIBDIR}/junit-4.12.jar)
+set(JAVA_HAMCR_JAR ${JAVA_TEST_LIBDIR}/hamcrest-core-1.3.jar)
+set(JAVA_MOCKITO_JAR ${JAVA_TEST_LIBDIR}/mockito-all-1.10.19.jar)
+set(JAVA_CGLIB_JAR ${JAVA_TEST_LIBDIR}/cglib-2.2.2.jar)
+set(JAVA_ASSERTJ_JAR ${JAVA_TEST_LIBDIR}/assertj-core-1.7.1.jar)
+set(JAVA_TESTCLASSPATH ${JAVA_JUNIT_JAR} ${JAVA_HAMCR_JAR} ${JAVA_MOCKITO_JAR} ${JAVA_CGLIB_JAR} ${JAVA_ASSERTJ_JAR})
+
+set(JNI_OUTPUT_DIR ${PROJECT_SOURCE_DIR}/java/include)
+file(MAKE_DIRECTORY ${JNI_OUTPUT_DIR})
+
+if(${Java_VERSION_MAJOR} VERSION_GREATER_EQUAL "10" AND ${CMAKE_VERSION} VERSION_LESS "3.11.4")
+  # Java 10 and newer don't have javah, but the alternative GENERATE_NATIVE_HEADERS requires CMake 3.11.4 or newer
+  message(FATAL_ERROR "Detected Java 10 or newer (${Java_VERSION_STRING}), to build with CMake please upgrade CMake to 3.11.4 or newer")
+
+elseif(${CMAKE_VERSION} VERSION_LESS "3.11.4" OR (${Java_VERSION_MINOR} STREQUAL "7" AND ${Java_VERSION_MAJOR} STREQUAL "1"))
+  # Old CMake or Java 1.7 prepare the JAR...
+  message("Preparing Jar for Java 7")
+  add_jar(
+      rocksdbjni_classes
+      SOURCES
+      ${JAVA_MAIN_CLASSES}
+      ${JAVA_TEST_CLASSES}
+      INCLUDE_JARS ${JAVA_TESTCLASSPATH}
+  )
+
+else ()
+  # Java 1.8 or newer prepare the JAR...
+  message("Preparing Jar for JDK ${Java_VERSION_STRING}")
+  add_jar(
+      rocksdbjni_classes
+      SOURCES
+      ${JAVA_MAIN_CLASSES}
+      ${JAVA_TEST_CLASSES}
+      INCLUDE_JARS ${JAVA_TESTCLASSPATH}
+      GENERATE_NATIVE_HEADERS rocksdbjni_headers DESTINATION ${JNI_OUTPUT_DIR}
+  )
+
+endif()
 
 if(NOT EXISTS ${PROJECT_SOURCE_DIR}/java/classes)
   file(MAKE_DIRECTORY ${PROJECT_SOURCE_DIR}/java/classes)
@@ -367,15 +366,116 @@ if(NOT EXISTS ${JAVA_ASSERTJ_JAR})
   file(RENAME ${JAVA_TMP_JAR} ${JAVA_ASSERTJ_JAR})
 endif()
 
-set(JNI_OUTPUT_DIR ${PROJECT_SOURCE_DIR}/java/include)
+if(${CMAKE_VERSION} VERSION_LESS "3.11.4" OR (${Java_VERSION_MINOR} STREQUAL "7" AND ${Java_VERSION_MAJOR} STREQUAL "1"))
+  # Old CMake or Java 1.7 ONLY generate JNI headers, Java 1.8+ JNI is handled in add_jar step above
+  message("Preparing JNI headers for Java 7")
+  set(NATIVE_JAVA_CLASSES
+          org.rocksdb.AbstractCompactionFilter
+          org.rocksdb.AbstractCompactionFilterFactory
+          org.rocksdb.AbstractComparator
+          org.rocksdb.AbstractImmutableNativeReference
+          org.rocksdb.AbstractNativeReference
+          org.rocksdb.AbstractRocksIterator
+          org.rocksdb.AbstractSlice
+          org.rocksdb.AbstractTableFilter
+          org.rocksdb.AbstractTraceWriter
+          org.rocksdb.AbstractTransactionNotifier
+          org.rocksdb.AbstractWalFilter
+          org.rocksdb.BackupableDBOptions
+          org.rocksdb.BackupEngine
+          org.rocksdb.BlockBasedTableConfig
+          org.rocksdb.BloomFilter
+          org.rocksdb.CassandraCompactionFilter
+          org.rocksdb.CassandraValueMergeOperator
+          org.rocksdb.Checkpoint
+          org.rocksdb.ClockCache
+          org.rocksdb.ColumnFamilyHandle
+          org.rocksdb.ColumnFamilyOptions
+          org.rocksdb.CompactionJobInfo
+          org.rocksdb.CompactionJobStats
+          org.rocksdb.CompactionOptions
+          org.rocksdb.CompactionOptionsFIFO
+          org.rocksdb.CompactionOptionsUniversal
+          org.rocksdb.CompactRangeOptions
+          org.rocksdb.Comparator
+          org.rocksdb.ComparatorOptions
+          org.rocksdb.CompressionOptions
+          org.rocksdb.DBOptions
+          org.rocksdb.DirectComparator
+          org.rocksdb.DirectSlice
+          org.rocksdb.Env
+          org.rocksdb.EnvOptions
+          org.rocksdb.Filter
+          org.rocksdb.FlushOptions
+          org.rocksdb.HashLinkedListMemTableConfig
+          org.rocksdb.HashSkipListMemTableConfig
+          org.rocksdb.HdfsEnv
+          org.rocksdb.IngestExternalFileOptions
+          org.rocksdb.Logger
+          org.rocksdb.LRUCache
+          org.rocksdb.MemoryUtil
+          org.rocksdb.MemTableConfig
+          org.rocksdb.NativeComparatorWrapper
+          org.rocksdb.NativeLibraryLoader
+          org.rocksdb.OptimisticTransactionDB
+          org.rocksdb.OptimisticTransactionOptions
+          org.rocksdb.Options
+          org.rocksdb.OptionsUtil
+          org.rocksdb.PersistentCache
+          org.rocksdb.PlainTableConfig
+          org.rocksdb.RateLimiter
+          org.rocksdb.ReadOptions
+          org.rocksdb.RemoveEmptyValueCompactionFilter
+          org.rocksdb.RestoreOptions
+          org.rocksdb.RocksCallbackObject
+          org.rocksdb.RocksDB
+          org.rocksdb.RocksEnv
+          org.rocksdb.RocksIterator
+          org.rocksdb.RocksIteratorInterface
+          org.rocksdb.RocksMemEnv
+          org.rocksdb.RocksMutableObject
+          org.rocksdb.RocksObject
+          org.rocksdb.SkipListMemTableConfig
+          org.rocksdb.Slice
+          org.rocksdb.Snapshot
+          org.rocksdb.SstFileManager
+          org.rocksdb.SstFileWriter
+          org.rocksdb.SstFileReader
+          org.rocksdb.SstFileReaderIterator
+          org.rocksdb.Statistics
+          org.rocksdb.StringAppendOperator
+          org.rocksdb.TableFormatConfig
+          org.rocksdb.ThreadStatus
+          org.rocksdb.TimedEnv
+          org.rocksdb.Transaction
+          org.rocksdb.TransactionDB
+          org.rocksdb.TransactionDBOptions
+          org.rocksdb.TransactionLogIterator
+          org.rocksdb.TransactionOptions
+          org.rocksdb.TtlDB
+          org.rocksdb.UInt64AddOperator
+          org.rocksdb.VectorMemTableConfig
+          org.rocksdb.WBWIRocksIterator
+          org.rocksdb.WriteBatch
+          org.rocksdb.WriteBatch.Handler
+          org.rocksdb.WriteBatchInterface
+          org.rocksdb.WriteBatchWithIndex
+          org.rocksdb.WriteOptions
+          org.rocksdb.NativeComparatorWrapperTest
+          org.rocksdb.RocksDBExceptionTest
+          org.rocksdb.SnapshotTest
+          org.rocksdb.WriteBatchTest
+          org.rocksdb.WriteBatchTestInternalHelper
+          org.rocksdb.WriteBufferManager
+  )
 
-file(MAKE_DIRECTORY ${JNI_OUTPUT_DIR})
-create_javah(
-  TARGET rocksdbjni_headers
-  CLASSES ${NATIVE_JAVA_CLASSES}
-  CLASSPATH rocksdbjni_classes ${JAVA_TESTCLASSPATH}
-  OUTPUT_DIR ${JNI_OUTPUT_DIR}
-)
+  create_javah(
+    TARGET rocksdbjni_headers
+    CLASSES ${NATIVE_JAVA_CLASSES}
+    CLASSPATH rocksdbjni_classes ${JAVA_TESTCLASSPATH}
+    OUTPUT_DIR ${JNI_OUTPUT_DIR}
+  )
+endif()
 
 if(NOT MSVC)
   set_property(TARGET ${ROCKSDB_STATIC_LIB} PROPERTY POSITION_INDEPENDENT_CODE ON)

@@ -7,13 +7,9 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
-#ifndef __STDC_FORMAT_MACROS
-#define __STDC_FORMAT_MACROS
-#endif
-
 #include "monitoring/histogram.h"
 
-#include <inttypes.h>
+#include <cinttypes>
 #include <cassert>
 #include <math.h>
 #include <stdio.h>
@@ -237,6 +233,7 @@ void HistogramStat::Data(HistogramData * const data) const {
   data->standard_deviation = StandardDeviation();
   data->count = num();
   data->sum = sum();
+  data->min = static_cast<double>(min());
 }
 
 void HistogramImpl::Clear() {

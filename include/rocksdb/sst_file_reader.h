@@ -7,9 +7,9 @@
 
 #ifndef ROCKSDB_LITE
 
-#include "rocksdb/slice.h"
-#include "rocksdb/options.h"
 #include "rocksdb/iterator.h"
+#include "rocksdb/options.h"
+#include "rocksdb/slice.h"
 #include "rocksdb/table_properties.h"
 
 namespace rocksdb {
@@ -33,7 +33,9 @@ class SstFileReader {
   std::shared_ptr<const TableProperties> GetTableProperties() const;
 
   // Verifies whether there is corruption in this table.
-  Status VerifyChecksum();
+  Status VerifyChecksum(const ReadOptions& /*read_options*/);
+
+  Status VerifyChecksum() { return VerifyChecksum(ReadOptions()); }
 
  private:
   struct Rep;

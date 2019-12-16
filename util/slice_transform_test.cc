@@ -14,7 +14,7 @@
 #include "rocksdb/filter_policy.h"
 #include "rocksdb/statistics.h"
 #include "rocksdb/table.h"
-#include "util/testharness.h"
+#include "test_util/testharness.h"
 
 namespace rocksdb {
 
@@ -57,7 +57,7 @@ class SliceTransformDBTest : public testing::Test {
     EXPECT_OK(DestroyDB(dbname_, last_options_));
   }
 
-  ~SliceTransformDBTest() {
+  ~SliceTransformDBTest() override {
     delete db_;
     EXPECT_OK(DestroyDB(dbname_, last_options_));
   }

@@ -1,3 +1,4 @@
+// Copyright (c) Facebook, Inc. and its affiliates. All Rights Reserved.
 // Copyright (c) 2011 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
@@ -8,8 +9,8 @@
 #include <memory>
 #include "rocksdb/compaction_filter.h"
 #include "rocksdb/utilities/db_ttl.h"
+#include "test_util/testharness.h"
 #include "util/string_util.h"
-#include "util/testharness.h"
 #ifndef OS_WIN
 #include <unistd.h>
 #endif
@@ -30,7 +31,7 @@ class SpecialTimeEnv : public EnvWrapper {
   }
 
   void Sleep(int64_t sleep_time) { current_time_ += sleep_time; }
-  virtual Status GetCurrentTime(int64_t* current_time) override {
+  Status GetCurrentTime(int64_t* current_time) override {
     *current_time = current_time_;
     return Status::OK();
   }
@@ -53,7 +54,7 @@ class TtlTest : public testing::Test {
     DestroyDB(dbname_, Options());
   }
 
-  ~TtlTest() {
+  ~TtlTest() override {
     CloseTtl();
     DestroyDB(dbname_, Options());
   }
@@ -85,9 +86,24 @@ class TtlTest : public testing::Test {
     ASSERT_OK(DBWithTTL::Open(options_, dbname_, &db_ttl_, ttl, true));
   }
 
+  // Call db_ttl_->Close() before delete db_ttl_
   void CloseTtl() {
-    delete db_ttl_;
-    db_ttl_ = nullptr;
+    CloseTtlHelper(true);
+  }
+
+  // No db_ttl_->Close() before delete db_ttl_
+  void CloseTtlNoDBClose() {
+    CloseTtlHelper(false);
+  }
+
+  void CloseTtlHelper(bool close_db) {
+    if (db_ttl_ != nullptr) {
+      if (close_db) {
+        db_ttl_->Close();
+      }
+      delete db_ttl_;
+      db_ttl_ = nullptr;
+    }
   }
 
   // Populates and returns a kv-map
@@ -301,9 +317,8 @@ class TtlTest : public testing::Test {
     // Keeps key if it is in [kSampleSize_/3, 2*kSampleSize_/3),
     // Change value if it is in [2*kSampleSize_/3, kSampleSize_)
     // Eg. kSampleSize_=6. Drop:key0-1...Keep:key2-3...Change:key4-5...
-    virtual bool Filter(int /*level*/, const Slice& key, const Slice& /*value*/,
-                        std::string* new_value,
-                        bool* value_changed) const override {
+    bool Filter(int /*level*/, const Slice& key, const Slice& /*value*/,
+                std::string* new_value, bool* value_changed) const override {
       assert(new_value != nullptr);
 
       std::string search_str = "0123456789";
@@ -334,9 +349,7 @@ class TtlTest : public testing::Test {
       }
     }
 
-    virtual const char* Name() const override {
-      return "TestFilter";
-    }
+    const char* Name() const override { return "TestFilter"; }
 
    private:
     const int64_t kSampleSize_;
@@ -350,17 +363,15 @@ class TtlTest : public testing::Test {
           kNewValue_(kNewValue) {
       }
 
-      virtual std::unique_ptr<CompactionFilter> CreateCompactionFilter(
+      std::unique_ptr<CompactionFilter> CreateCompactionFilter(
           const CompactionFilter::Context& /*context*/) override {
         return std::unique_ptr<CompactionFilter>(
             new TestFilter(kSampleSize_, kNewValue_));
       }
 
-      virtual const char* Name() const override {
-        return "TestFilterFactory";
-      }
+      const char* Name() const override { return "TestFilterFactory"; }
 
-    private:
+     private:
       const int64_t kSampleSize_;
       const std::string kNewValue_;
   };
@@ -403,6 +414,30 @@ TEST_F(TtlTest, NoEffect) {
   PutValues(boundary2, kSampleSize_ - boundary2); //T=3: Set3 never deleted
   SleepCompactCheck(1, 0, kSampleSize_, true);    //T=4: Sets 1,2,3 still there
   CloseTtl();
+}
+
+
+// Rerun the NoEffect test with a different version of CloseTtl
+// function, where db is directly deleted without close.
+TEST_F(TtlTest, DestructWithoutClose) {
+  MakeKVMap(kSampleSize_);
+  int64_t boundary1 = kSampleSize_ / 3;
+  int64_t boundary2 = 2 * boundary1;
+
+  OpenTtl();
+  PutValues(0, boundary1);                       //T=0: Set1 never deleted
+  SleepCompactCheck(1, 0, boundary1);            //T=1: Set1 still there
+  CloseTtlNoDBClose();
+
+  OpenTtl(0);
+  PutValues(boundary1, boundary2 - boundary1);   //T=1: Set2 never deleted
+  SleepCompactCheck(1, 0, boundary2);            //T=2: Sets1 & 2 still there
+  CloseTtlNoDBClose();
+
+  OpenTtl(-1);
+  PutValues(boundary2, kSampleSize_ - boundary2); //T=3: Set3 never deleted
+  SleepCompactCheck(1, 0, kSampleSize_, true);    //T=4: Sets 1,2,3 still there
+  CloseTtlNoDBClose();
 }
 
 // Puts a set of values and checks its presence using Get during ttl

@@ -50,7 +50,17 @@ public class ColumnFamilyOptions extends RocksObject
     this.compactionFilterFactory_ = other.compactionFilterFactory_;
     this.compactionOptionsUniversal_ = other.compactionOptionsUniversal_;
     this.compactionOptionsFIFO_ = other.compactionOptionsFIFO_;
+    this.bottommostCompressionOptions_ = other.bottommostCompressionOptions_;
     this.compressionOptions_ = other.compressionOptions_;
+  }
+
+  /**
+   * Constructor from Options
+   *
+   * @param options The options.
+   */
+  public ColumnFamilyOptions(final Options options) {
+    super(newColumnFamilyOptionsFromOptions(options.nativeHandle_));
   }
 
   /**
@@ -186,22 +196,7 @@ public class ColumnFamilyOptions extends RocksObject
     return this;
   }
 
-  /**
-   * A single CompactionFilter instance to call into during compaction.
-   * Allows an application to modify/delete a key-value during background
-   * compaction.
-   *
-   * If the client requires a new compaction filter to be used for different
-   * compaction runs, it can specify call
-   * {@link #setCompactionFilterFactory(AbstractCompactionFilterFactory)}
-   * instead.
-   *
-   * The client should specify only set one of the two.
-   * {@link #setCompactionFilter(AbstractCompactionFilter)} takes precedence
-   * over {@link #setCompactionFilterFactory(AbstractCompactionFilterFactory)}
-   * if the client specifies both.
-   */
-  //TODO(AR) need to set a note on the concurrency of the compaction filter used from this method
+  @Override
   public ColumnFamilyOptions setCompactionFilter(
         final AbstractCompactionFilter<? extends AbstractSlice<?>>
             compactionFilter) {
@@ -210,20 +205,24 @@ public class ColumnFamilyOptions extends RocksObject
     return this;
   }
 
-  /**
-   * This is a factory that provides {@link AbstractCompactionFilter} objects
-   * which allow an application to modify/delete a key-value during background
-   * compaction.
-   *
-   * A new filter will be created on each compaction run.  If multithreaded
-   * compaction is being used, each created CompactionFilter will only be used
-   * from a single thread and so does not need to be thread-safe.
-   */
+  @Override
+  public AbstractCompactionFilter<? extends AbstractSlice<?>> compactionFilter() {
+    assert (isOwningHandle());
+    return compactionFilter_;
+  }
+
+  @Override
   public ColumnFamilyOptions setCompactionFilterFactory(final AbstractCompactionFilterFactory<? extends AbstractCompactionFilter<?>> compactionFilterFactory) {
     assert (isOwningHandle());
     setCompactionFilterFactoryHandle(nativeHandle_, compactionFilterFactory.nativeHandle_);
     compactionFilterFactory_ = compactionFilterFactory;
     return this;
+  }
+
+  @Override
+  public AbstractCompactionFilterFactory<? extends AbstractCompactionFilter<?>> compactionFilterFactory() {
+    assert (isOwningHandle());
+    return compactionFilterFactory_;
   }
 
   @Override
@@ -327,6 +326,20 @@ public class ColumnFamilyOptions extends RocksObject
   public CompressionType bottommostCompressionType() {
     return CompressionType.getCompressionType(
         bottommostCompressionType(nativeHandle_));
+  }
+
+  @Override
+  public ColumnFamilyOptions setBottommostCompressionOptions(
+      final CompressionOptions bottommostCompressionOptions) {
+    setBottommostCompressionOptions(nativeHandle_,
+        bottommostCompressionOptions.nativeHandle_);
+    this.bottommostCompressionOptions_ = bottommostCompressionOptions;
+    return this;
+  }
+
+  @Override
+  public CompressionOptions bottommostCompressionOptions() {
+    return this.bottommostCompressionOptions_;
   }
 
   @Override
@@ -493,7 +506,7 @@ public class ColumnFamilyOptions extends RocksObject
 
   @Override
   public CompactionStyle compactionStyle() {
-    return CompactionStyle.values()[compactionStyle(nativeHandle_)];
+    return CompactionStyle.fromValue(compactionStyle(nativeHandle_));
   }
 
   @Override
@@ -763,6 +776,17 @@ public class ColumnFamilyOptions extends RocksObject
   }
 
   @Override
+  public ColumnFamilyOptions setTtl(final long ttl) {
+    setTtl(nativeHandle_, ttl);
+    return this;
+  }
+
+  @Override
+  public long ttl() {
+    return ttl(nativeHandle_);
+  }
+
+  @Override
   public ColumnFamilyOptions setCompactionOptionsUniversal(
       final CompactionOptionsUniversal compactionOptionsUniversal) {
     setCompactionOptionsUniversal(nativeHandle_,
@@ -804,7 +828,9 @@ public class ColumnFamilyOptions extends RocksObject
       String optString);
 
   private static native long newColumnFamilyOptions();
-  private static native long copyColumnFamilyOptions(long handle);
+  private static native long copyColumnFamilyOptions(final long handle);
+  private static native long newColumnFamilyOptionsFromOptions(
+      final long optionsHandle);
   @Override protected final native void disposeInternal(final long handle);
 
   private native void optimizeForSmallDb(final long handle);
@@ -840,6 +866,8 @@ public class ColumnFamilyOptions extends RocksObject
   private native void setBottommostCompressionType(long handle,
       byte bottommostCompressionType);
   private native byte bottommostCompressionType(long handle);
+  private native void setBottommostCompressionOptions(final long handle,
+      final long bottommostCompressionOptionsHandle);
   private native void setCompressionOptions(long handle,
       long compressionOptionsHandle);
   private native void useFixedLengthPrefixExtractor(
@@ -947,6 +975,8 @@ public class ColumnFamilyOptions extends RocksObject
   private native void setReportBgIoStats(final long handle,
     final boolean reportBgIoStats);
   private native boolean reportBgIoStats(final long handle);
+  private native void setTtl(final long handle, final long ttl);
+  private native long ttl(final long handle);
   private native void setCompactionOptionsUniversal(final long handle,
     final long compactionOptionsUniversalHandle);
   private native void setCompactionOptionsFIFO(final long handle,
@@ -961,10 +991,11 @@ public class ColumnFamilyOptions extends RocksObject
   private TableFormatConfig tableFormatConfig_;
   private AbstractComparator<? extends AbstractSlice<?>> comparator_;
   private AbstractCompactionFilter<? extends AbstractSlice<?>> compactionFilter_;
-  AbstractCompactionFilterFactory<? extends AbstractCompactionFilter<?>>
+  private AbstractCompactionFilterFactory<? extends AbstractCompactionFilter<?>>
       compactionFilterFactory_;
   private CompactionOptionsUniversal compactionOptionsUniversal_;
   private CompactionOptionsFIFO compactionOptionsFIFO_;
+  private CompressionOptions bottommostCompressionOptions_;
   private CompressionOptions compressionOptions_;
 
 }

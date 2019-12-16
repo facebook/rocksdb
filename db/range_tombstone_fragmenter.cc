@@ -9,7 +9,7 @@
 #include <functional>
 #include <set>
 
-#include <inttypes.h>
+#include <cinttypes>
 #include <stdio.h>
 
 #include "util/autovector.h"
@@ -407,9 +407,33 @@ bool FragmentedRangeTombstoneIterator::Valid() const {
 }
 
 SequenceNumber FragmentedRangeTombstoneIterator::MaxCoveringTombstoneSeqnum(
-    const Slice& user_key) {
-  SeekToCoveringTombstone(user_key);
-  return ValidPos() && ucmp_->Compare(start_key(), user_key) <= 0 ? seq() : 0;
+    const Slice& target_user_key) {
+  SeekToCoveringTombstone(target_user_key);
+  return ValidPos() && ucmp_->Compare(start_key(), target_user_key) <= 0 ? seq()
+                                                                         : 0;
+}
+
+std::map<SequenceNumber, std::unique_ptr<FragmentedRangeTombstoneIterator>>
+FragmentedRangeTombstoneIterator::SplitBySnapshot(
+    const std::vector<SequenceNumber>& snapshots) {
+  std::map<SequenceNumber, std::unique_ptr<FragmentedRangeTombstoneIterator>>
+      splits;
+  SequenceNumber lower = 0;
+  SequenceNumber upper;
+  for (size_t i = 0; i <= snapshots.size(); i++) {
+    if (i >= snapshots.size()) {
+      upper = kMaxSequenceNumber;
+    } else {
+      upper = snapshots[i];
+    }
+    if (tombstones_->ContainsRange(lower, upper)) {
+      splits.emplace(upper, std::unique_ptr<FragmentedRangeTombstoneIterator>(
+                                new FragmentedRangeTombstoneIterator(
+                                    tombstones_, *icmp_, upper, lower)));
+    }
+    lower = upper + 1;
+  }
+  return splits;
 }
 
 std::map<SequenceNumber, std::unique_ptr<FragmentedRangeTombstoneIterator>>

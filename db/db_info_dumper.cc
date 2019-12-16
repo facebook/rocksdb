@@ -3,20 +3,16 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
-#ifndef __STDC_FORMAT_MACROS
-#define __STDC_FORMAT_MACROS
-#endif
-
 #include "db/db_info_dumper.h"
 
-#include <inttypes.h>
+#include <cinttypes>
 #include <stdio.h>
 #include <string>
 #include <algorithm>
 #include <vector>
 
+#include "file/filename.h"
 #include "rocksdb/env.h"
-#include "util/filename.h"
 
 namespace rocksdb {
 

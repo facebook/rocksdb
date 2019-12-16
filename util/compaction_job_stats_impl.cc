@@ -11,6 +11,7 @@ namespace rocksdb {
 
 void CompactionJobStats::Reset() {
   elapsed_micros = 0;
+  cpu_micros = 0;
 
   num_input_records = 0;
   num_input_files = 0;
@@ -39,12 +40,16 @@ void CompactionJobStats::Reset() {
   file_fsync_nanos = 0;
   file_prepare_write_nanos = 0;
 
+  smallest_output_key_prefix.clear();
+  largest_output_key_prefix.clear();
+
   num_single_del_fallthru = 0;
   num_single_del_mismatch = 0;
 }
 
 void CompactionJobStats::Add(const CompactionJobStats& stats) {
   elapsed_micros += stats.elapsed_micros;
+  cpu_micros += stats.cpu_micros;
 
   num_input_records += stats.num_input_records;
   num_input_files += stats.num_input_files;

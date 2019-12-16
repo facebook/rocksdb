@@ -11,16 +11,17 @@
 #include <unordered_map>
 
 #include "db/column_family.h"
-#include "db/db_impl.h"
+#include "db/db_impl/db_impl.h"
 #include "db/db_test_util.h"
 #include "options/options_helper.h"
 #include "port/stack_trace.h"
 #include "rocksdb/cache.h"
 #include "rocksdb/convenience.h"
 #include "rocksdb/rate_limiter.h"
+#include "rocksdb/stats_history.h"
+#include "test_util/sync_point.h"
+#include "test_util/testutil.h"
 #include "util/random.h"
-#include "util/sync_point.h"
-#include "util/testutil.h"
 
 namespace rocksdb {
 
@@ -63,10 +64,10 @@ class DBOptionsTest : public DBTestBase {
 
   std::unordered_map<std::string, std::string> GetRandomizedMutableCFOptionsMap(
       Random* rnd) {
-    Options options;
+    Options options = CurrentOptions();
     options.env = env_;
     ImmutableDBOptions db_options(options);
-    test::RandomInitCFOptions(&options, rnd);
+    test::RandomInitCFOptions(&options, options, rnd);
     auto sanitized_options = SanitizeOptions(db_options, options);
     auto opt_map = GetMutableCFOptionsMap(sanitized_options);
     delete options.compaction_filter;
@@ -504,41 +505,29 @@ TEST_F(DBOptionsTest, SetStatsDumpPeriodSec) {
   options.stats_dump_period_sec = 5;
   options.env = env_;
   Reopen(options);
-  ASSERT_EQ(5, dbfull()->GetDBOptions().stats_dump_period_sec);
+  ASSERT_EQ(5u, dbfull()->GetDBOptions().stats_dump_period_sec);
 
   for (int i = 0; i < 20; i++) {
-    int num = rand() % 5000 + 1;
-    ASSERT_OK(dbfull()->SetDBOptions(
-        {{"stats_dump_period_sec", std::to_string(num)}}));
+    unsigned int num = rand() % 5000 + 1;
+    ASSERT_OK(
+        dbfull()->SetDBOptions({{"stats_dump_period_sec", ToString(num)}}));
     ASSERT_EQ(num, dbfull()->GetDBOptions().stats_dump_period_sec);
   }
+  Close();
 }
 
-TEST_F(DBOptionsTest, RunStatsDumpPeriodSec) {
+TEST_F(DBOptionsTest, SetOptionsStatsPersistPeriodSec) {
   Options options;
   options.create_if_missing = true;
-  options.stats_dump_period_sec = 5;
-  std::unique_ptr<rocksdb::MockTimeEnv> mock_env;
-  mock_env.reset(new rocksdb::MockTimeEnv(env_));
-  mock_env->set_current_time(0); // in seconds
-  options.env = mock_env.get();
-  int counter = 0;
-  rocksdb::SyncPoint::GetInstance()->SetCallBack(
-      "DBImpl::DumpStats:1", [&](void* /*arg*/) {
-        counter++;
-      });
-  rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+  options.stats_persist_period_sec = 5;
+  options.env = env_;
   Reopen(options);
-  ASSERT_EQ(5, dbfull()->GetDBOptions().stats_dump_period_sec);
-  dbfull()->TEST_WaitForTimedTaskRun([&] { mock_env->set_current_time(5); });
-  ASSERT_GE(counter, 1);
+  ASSERT_EQ(5u, dbfull()->GetDBOptions().stats_persist_period_sec);
 
-  // Test cacel job through SetOptions
-  ASSERT_OK(dbfull()->SetDBOptions({{"stats_dump_period_sec", "0"}}));
-  int old_val = counter;
-  env_->SleepForMicroseconds(10000000);
-  ASSERT_EQ(counter, old_val);
-  Close();
+  ASSERT_OK(dbfull()->SetDBOptions({{"stats_persist_period_sec", "12345"}}));
+  ASSERT_EQ(12345u, dbfull()->GetDBOptions().stats_persist_period_sec);
+  ASSERT_NOK(dbfull()->SetDBOptions({{"stats_persist_period_sec", "abcde"}}));
+  ASSERT_EQ(12345u, dbfull()->GetDBOptions().stats_persist_period_sec);
 }
 
 static void assert_candidate_files_empty(DBImpl* dbfull, const bool empty) {
@@ -628,9 +617,9 @@ TEST_F(DBOptionsTest, SetFIFOCompactionOptions) {
   env_->time_elapse_only_sleep_ = false;
   options.env = env_;
 
-  // Test dynamically changing compaction_options_fifo.ttl
+  // Test dynamically changing ttl.
   env_->addon_time_.store(0);
-  options.compaction_options_fifo.ttl = 1 * 60 * 60;  // 1 hour
+  options.ttl = 1 * 60 * 60;  // 1 hour
   ASSERT_OK(TryReopen(options));
 
   Random rnd(301);
@@ -648,13 +637,13 @@ TEST_F(DBOptionsTest, SetFIFOCompactionOptions) {
   env_->addon_time_.fetch_add(61);
 
   // No files should be compacted as ttl is set to 1 hour.
-  ASSERT_EQ(dbfull()->GetOptions().compaction_options_fifo.ttl, 3600);
+  ASSERT_EQ(dbfull()->GetOptions().ttl, 3600);
   dbfull()->CompactRange(CompactRangeOptions(), nullptr, nullptr);
   ASSERT_EQ(NumTableFilesAtLevel(0), 10);
 
   // Set ttl to 1 minute. So all files should get deleted.
-  ASSERT_OK(dbfull()->SetOptions({{"compaction_options_fifo", "{ttl=60;}"}}));
-  ASSERT_EQ(dbfull()->GetOptions().compaction_options_fifo.ttl, 60);
+  ASSERT_OK(dbfull()->SetOptions({{"ttl", "60"}}));
+  ASSERT_EQ(dbfull()->GetOptions().ttl, 60);
   dbfull()->CompactRange(CompactRangeOptions(), nullptr, nullptr);
   ASSERT_OK(dbfull()->TEST_WaitForCompact());
   ASSERT_EQ(NumTableFilesAtLevel(0), 0);
@@ -662,7 +651,7 @@ TEST_F(DBOptionsTest, SetFIFOCompactionOptions) {
   // Test dynamically changing compaction_options_fifo.max_table_files_size
   env_->addon_time_.store(0);
   options.compaction_options_fifo.max_table_files_size = 500 << 10;  // 00KB
-  options.compaction_options_fifo.ttl = 0;
+  options.ttl = 0;
   DestroyAndReopen(options);
 
   for (int i = 0; i < 10; i++) {
@@ -692,7 +681,7 @@ TEST_F(DBOptionsTest, SetFIFOCompactionOptions) {
 
   // Test dynamically changing compaction_options_fifo.allow_compaction
   options.compaction_options_fifo.max_table_files_size = 500 << 10;  // 500KB
-  options.compaction_options_fifo.ttl = 0;
+  options.ttl = 0;
   options.compaction_options_fifo.allow_compaction = false;
   options.level0_file_num_compaction_trigger = 6;
   DestroyAndReopen(options);
@@ -751,6 +740,53 @@ TEST_F(DBOptionsTest, CompactionReadaheadSizeChange) {
   ASSERT_EQ(256, env_->compaction_readahead_size_);
   Close();
 }
+
+TEST_F(DBOptionsTest, FIFOTtlBackwardCompatible) {
+  Options options;
+  options.compaction_style = kCompactionStyleFIFO;
+  options.write_buffer_size = 10 << 10;  // 10KB
+  options.create_if_missing = true;
+
+  ASSERT_OK(TryReopen(options));
+
+  Random rnd(301);
+  for (int i = 0; i < 10; i++) {
+    // Generate and flush a file about 10KB.
+    for (int j = 0; j < 10; j++) {
+      ASSERT_OK(Put(ToString(i * 20 + j), RandomString(&rnd, 980)));
+    }
+    Flush();
+  }
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
+  ASSERT_EQ(NumTableFilesAtLevel(0), 10);
+
+  // In release 6.0, ttl was promoted from a secondary level option under
+  // compaction_options_fifo to a top level option under ColumnFamilyOptions.
+  // We still need to handle old SetOptions calls but should ignore
+  // ttl under compaction_options_fifo.
+  ASSERT_OK(dbfull()->SetOptions(
+      {{"compaction_options_fifo",
+        "{allow_compaction=true;max_table_files_size=1024;ttl=731;}"},
+       {"ttl", "60"}}));
+  ASSERT_EQ(dbfull()->GetOptions().compaction_options_fifo.allow_compaction,
+            true);
+  ASSERT_EQ(dbfull()->GetOptions().compaction_options_fifo.max_table_files_size,
+            1024);
+  ASSERT_EQ(dbfull()->GetOptions().ttl, 60);
+
+  // Put ttl as the first option inside compaction_options_fifo. That works as
+  // it doesn't overwrite any other option.
+  ASSERT_OK(dbfull()->SetOptions(
+      {{"compaction_options_fifo",
+        "{ttl=985;allow_compaction=true;max_table_files_size=1024;}"},
+       {"ttl", "191"}}));
+  ASSERT_EQ(dbfull()->GetOptions().compaction_options_fifo.allow_compaction,
+            true);
+  ASSERT_EQ(dbfull()->GetOptions().compaction_options_fifo.max_table_files_size,
+            1024);
+  ASSERT_EQ(dbfull()->GetOptions().ttl, 191);
+}
+
 #endif  // ROCKSDB_LITE
 
 }  // namespace rocksdb

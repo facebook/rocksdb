@@ -8,7 +8,7 @@
 #include "db/write_controller.h"
 
 #include "rocksdb/env.h"
-#include "util/testharness.h"
+#include "test_util/testharness.h"
 
 namespace rocksdb {
 
@@ -18,7 +18,7 @@ class TimeSetEnv : public EnvWrapper {
  public:
   explicit TimeSetEnv() : EnvWrapper(nullptr) {}
   uint64_t now_micros_ = 6666;
-  virtual uint64_t NowNanos() override { return now_micros_ * std::milli::den; }
+  uint64_t NowNanos() override { return now_micros_ * std::milli::den; }
 };
 
 TEST_F(WriteControllerTest, ChangeDelayRateTest) {

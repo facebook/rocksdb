@@ -9,34 +9,31 @@
 
 #include "db/column_family.h"
 
-#ifndef __STDC_FORMAT_MACROS
-#define __STDC_FORMAT_MACROS
-#endif
-
-#include <inttypes.h>
+#include <cinttypes>
 #include <vector>
 #include <string>
 #include <algorithm>
 #include <limits>
 
-#include "db/compaction_picker.h"
-#include "db/compaction_picker_fifo.h"
-#include "db/compaction_picker_universal.h"
-#include "db/db_impl.h"
+#include "db/compaction/compaction_picker.h"
+#include "db/compaction/compaction_picker_fifo.h"
+#include "db/compaction/compaction_picker_level.h"
+#include "db/compaction/compaction_picker_universal.h"
+#include "db/db_impl/db_impl.h"
 #include "db/internal_stats.h"
 #include "db/job_context.h"
 #include "db/range_del_aggregator.h"
 #include "db/table_properties_collector.h"
 #include "db/version_set.h"
 #include "db/write_controller.h"
+#include "file/sst_file_manager_impl.h"
 #include "memtable/hash_skiplist_rep.h"
 #include "monitoring/thread_status_util.h"
 #include "options/options_helper.h"
-#include "table/block_based_table_factory.h"
+#include "table/block_based/block_based_table_factory.h"
 #include "table/merging_iterator.h"
 #include "util/autovector.h"
 #include "util/compression.h"
-#include "util/sst_file_manager_impl.h"
 
 namespace rocksdb {
 
@@ -63,12 +60,24 @@ ColumnFamilyHandleImpl::~ColumnFamilyHandleImpl() {
     JobContext job_context(0);
     mutex_->Lock();
     if (cfd_->Unref()) {
+      bool dropped = cfd_->IsDropped();
+
       delete cfd_;
+
+      if (dropped) {
+        db_->FindObsoleteFiles(&job_context, false, true);
+      }
     }
-    db_->FindObsoleteFiles(&job_context, false, true);
     mutex_->Unlock();
     if (job_context.HaveSomethingToDelete()) {
-      db_->PurgeObsoleteFiles(job_context);
+      bool defer_purge =
+          db_->immutable_db_options().avoid_unnecessary_blocking_io;
+      db_->PurgeObsoleteFiles(job_context, defer_purge);
+      if (defer_purge) {
+        mutex_->Lock();
+        db_->SchedulePurge();
+        mutex_->Unlock();
+      }
     }
     job_context.Clean();
   }
@@ -129,14 +138,10 @@ Status CheckCompressionSupported(const ColumnFamilyOptions& cf_options) {
     }
   }
   if (cf_options.compression_opts.zstd_max_train_bytes > 0) {
-    if (!CompressionTypeSupported(CompressionType::kZSTD)) {
-      // Dictionary trainer is available since v0.6.1, but ZSTD was marked
-      // stable only since v0.8.0. For now we enable the feature in stable
-      // versions only.
+    if (!ZSTD_TrainDictionarySupported()) {
       return Status::InvalidArgument(
-          "zstd dictionary trainer cannot be used because " +
-          CompressionTypeToString(CompressionType::kZSTD) +
-          " is not linked with the binary.");
+          "zstd dictionary trainer cannot be used because ZSTD 1.1.3+ "
+          "is not linked with the binary.");
     }
     if (cf_options.compression_opts.max_dict_bytes == 0) {
       return Status::InvalidArgument(
@@ -222,7 +227,14 @@ ColumnFamilyOptions SanitizeOptions(const ImmutableDBOptions& db_options,
   if (result.max_write_buffer_number < 2) {
     result.max_write_buffer_number = 2;
   }
-  if (result.max_write_buffer_number_to_maintain < 0) {
+  // fall back max_write_buffer_number_to_maintain if
+  // max_write_buffer_size_to_maintain is not set
+  if (result.max_write_buffer_size_to_maintain < 0) {
+    result.max_write_buffer_size_to_maintain =
+        result.max_write_buffer_number *
+        static_cast<int64_t>(result.write_buffer_size);
+  } else if (result.max_write_buffer_size_to_maintain == 0 &&
+             result.max_write_buffer_number_to_maintain < 0) {
     result.max_write_buffer_number_to_maintain = result.max_write_buffer_number;
   }
   // bloom filter size shouldn't exceed 1/4 of memtable size.
@@ -400,7 +412,8 @@ ColumnFamilyData::ColumnFamilyData(
     uint32_t id, const std::string& name, Version* _dummy_versions,
     Cache* _table_cache, WriteBufferManager* write_buffer_manager,
     const ColumnFamilyOptions& cf_options, const ImmutableDBOptions& db_options,
-    const EnvOptions& env_options, ColumnFamilySet* column_family_set)
+    const EnvOptions& env_options, ColumnFamilySet* column_family_set,
+    BlockCacheTracer* const block_cache_tracer)
     : id_(id),
       name_(name),
       dummy_versions_(_dummy_versions),
@@ -417,7 +430,8 @@ ColumnFamilyData::ColumnFamilyData(
       write_buffer_manager_(write_buffer_manager),
       mem_(nullptr),
       imm_(ioptions_.min_write_buffer_number_to_merge,
-           ioptions_.max_write_buffer_number_to_maintain),
+           ioptions_.max_write_buffer_number_to_maintain,
+           ioptions_.max_write_buffer_size_to_maintain),
       super_version_(nullptr),
       super_version_number_(0),
       local_sv_(new ThreadLocalPtr(&SuperVersionUnrefHandle)),
@@ -440,7 +454,8 @@ ColumnFamilyData::ColumnFamilyData(
   if (_dummy_versions != nullptr) {
     internal_stats_.reset(
         new InternalStats(ioptions_.num_levels, db_options.env, this));
-    table_cache_.reset(new TableCache(ioptions_, env_options, _table_cache));
+    table_cache_.reset(new TableCache(ioptions_, env_options, _table_cache,
+                                      block_cache_tracer));
     if (ioptions_.compaction_style == kCompactionStyleLevel) {
       compaction_picker_.reset(
           new LevelCompactionPicker(ioptions_, &internal_comparator_));
@@ -986,13 +1001,14 @@ const int ColumnFamilyData::kCompactToBaseLevel = -2;
 
 Compaction* ColumnFamilyData::CompactRange(
     const MutableCFOptions& mutable_cf_options, int input_level,
-    int output_level, uint32_t output_path_id, uint32_t max_subcompactions,
+    int output_level, const CompactRangeOptions& compact_range_options,
     const InternalKey* begin, const InternalKey* end,
-    InternalKey** compaction_end, bool* conflict) {
+    InternalKey** compaction_end, bool* conflict,
+    uint64_t max_file_num_to_ignore) {
   auto* result = compaction_picker_->CompactRange(
       GetName(), mutable_cf_options, current_->storage_info(), input_level,
-      output_level, output_path_id, max_subcompactions, begin, end,
-      compaction_end, conflict);
+      output_level, compact_range_options, begin, end, compaction_end, conflict,
+      max_file_num_to_ignore);
   if (result != nullptr) {
     result->SetInputVersion(current_);
   }
@@ -1138,13 +1154,60 @@ void ColumnFamilyData::ResetThreadLocalSuperVersions() {
   }
 }
 
+Status ColumnFamilyData::ValidateOptions(
+    const DBOptions& db_options, const ColumnFamilyOptions& cf_options) {
+  Status s;
+  s = CheckCompressionSupported(cf_options);
+  if (s.ok() && db_options.allow_concurrent_memtable_write) {
+    s = CheckConcurrentWritesSupported(cf_options);
+  }
+  if (s.ok()) {
+    s = CheckCFPathsSupported(db_options, cf_options);
+  }
+  if (!s.ok()) {
+    return s;
+  }
+
+  if (cf_options.ttl > 0) {
+    if (db_options.max_open_files != -1) {
+      return Status::NotSupported(
+          "TTL is only supported when files are always "
+          "kept open (set max_open_files = -1). ");
+    }
+    if (cf_options.table_factory->Name() != BlockBasedTableFactory().Name()) {
+      return Status::NotSupported(
+          "TTL is only supported in Block-Based Table format. ");
+    }
+  }
+
+  if (cf_options.periodic_compaction_seconds > 0) {
+    if (db_options.max_open_files != -1) {
+      return Status::NotSupported(
+          "Periodic Compaction is only supported when files are always "
+          "kept open (set max_open_files = -1). ");
+    }
+    if (cf_options.table_factory->Name() != BlockBasedTableFactory().Name()) {
+      return Status::NotSupported(
+          "Periodic Compaction is only supported in "
+          "Block-Based Table format. ");
+    }
+  }
+  return s;
+}
+
 #ifndef ROCKSDB_LITE
 Status ColumnFamilyData::SetOptions(
-      const std::unordered_map<std::string, std::string>& options_map) {
+    const DBOptions& db_options,
+    const std::unordered_map<std::string, std::string>& options_map) {
   MutableCFOptions new_mutable_cf_options;
   Status s =
       GetMutableOptionsFromStrings(mutable_cf_options_, options_map,
                                    ioptions_.info_log, &new_mutable_cf_options);
+  if (s.ok()) {
+    ColumnFamilyOptions cf_options =
+        BuildColumnFamilyOptions(initial_cf_options_, new_mutable_cf_options);
+    s = ValidateOptions(db_options, cf_options);
+  }
   if (s.ok()) {
     mutable_cf_options_ = new_mutable_cf_options;
     mutable_cf_options_.RefreshDerivedOptions(ioptions_);
@@ -1201,18 +1264,20 @@ ColumnFamilySet::ColumnFamilySet(const std::string& dbname,
                                  const EnvOptions& env_options,
                                  Cache* table_cache,
                                  WriteBufferManager* write_buffer_manager,
-                                 WriteController* write_controller)
+                                 WriteController* write_controller,
+                                 BlockCacheTracer* const block_cache_tracer)
     : max_column_family_(0),
-      dummy_cfd_(new ColumnFamilyData(0, "", nullptr, nullptr, nullptr,
-                                      ColumnFamilyOptions(), *db_options,
-                                      env_options, nullptr)),
+      dummy_cfd_(new ColumnFamilyData(
+          0, "", nullptr, nullptr, nullptr, ColumnFamilyOptions(), *db_options,
+          env_options, nullptr, block_cache_tracer)),
       default_cfd_cache_(nullptr),
       db_name_(dbname),
       db_options_(db_options),
       env_options_(env_options),
       table_cache_(table_cache),
       write_buffer_manager_(write_buffer_manager),
-      write_controller_(write_controller) {
+      write_controller_(write_controller),
+      block_cache_tracer_(block_cache_tracer) {
   // initialize linked list
   dummy_cfd_->prev_ = dummy_cfd_;
   dummy_cfd_->next_ = dummy_cfd_;
@@ -1280,7 +1345,7 @@ ColumnFamilyData* ColumnFamilySet::CreateColumnFamily(
   assert(column_families_.find(name) == column_families_.end());
   ColumnFamilyData* new_cfd = new ColumnFamilyData(
       id, name, dummy_versions, table_cache_, write_buffer_manager_, options,
-      *db_options_, env_options_, this);
+      *db_options_, env_options_, this, block_cache_tracer_);
   column_families_.insert({name, id});
   column_family_data_.insert({id, new_cfd});
   max_column_family_ = std::max(max_column_family_, id);

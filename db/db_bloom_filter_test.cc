@@ -32,7 +32,7 @@ class DBBloomFilterTestWithParam
  public:
   DBBloomFilterTestWithParam() : DBTestBase("/db_bloom_filter_tests") {}
 
-  ~DBBloomFilterTestWithParam() {}
+  ~DBBloomFilterTestWithParam() override {}
 
   void SetUp() override {
     use_block_based_filter_ = std::get<0>(GetParam());
@@ -642,7 +642,7 @@ class WrappedBloom : public FilterPolicy {
   explicit WrappedBloom(int bits_per_key)
       : filter_(NewBloomFilterPolicy(bits_per_key)), counter_(0) {}
 
-  ~WrappedBloom() { delete filter_; }
+  ~WrappedBloom() override { delete filter_; }
 
   const char* Name() const override { return "WrappedRocksDbFilterPolicy"; }
 
@@ -786,6 +786,75 @@ TEST_F(DBBloomFilterTest, PrefixExtractorBlockFilter) {
   delete iter;
 }
 
+TEST_F(DBBloomFilterTest, MemtableWholeKeyBloomFilter) {
+  // regression test for #2743. the range delete tombstones in memtable should
+  // be added even when Get() skips searching due to its prefix bloom filter
+  const int kMemtableSize = 1 << 20;              // 1MB
+  const int kMemtablePrefixFilterSize = 1 << 13;  // 8KB
+  const int kPrefixLen = 4;
+  Options options = CurrentOptions();
+  options.memtable_prefix_bloom_size_ratio =
+      static_cast<double>(kMemtablePrefixFilterSize) / kMemtableSize;
+  options.prefix_extractor.reset(rocksdb::NewFixedPrefixTransform(kPrefixLen));
+  options.write_buffer_size = kMemtableSize;
+  options.memtable_whole_key_filtering = false;
+  Reopen(options);
+  std::string key1("AAAABBBB");
+  std::string key2("AAAACCCC");  // not in DB
+  std::string key3("AAAADDDD");
+  std::string key4("AAAAEEEE");
+  std::string value1("Value1");
+  std::string value3("Value3");
+  std::string value4("Value4");
+
+  ASSERT_OK(Put(key1, value1, WriteOptions()));
+
+  // check memtable bloom stats
+  ASSERT_EQ("NOT_FOUND", Get(key2));
+  ASSERT_EQ(0, get_perf_context()->bloom_memtable_miss_count);
+  // same prefix, bloom filter false positive
+  ASSERT_EQ(1, get_perf_context()->bloom_memtable_hit_count);
+
+  // enable whole key bloom filter
+  options.memtable_whole_key_filtering = true;
+  Reopen(options);
+  // check memtable bloom stats
+  ASSERT_OK(Put(key3, value3, WriteOptions()));
+  ASSERT_EQ("NOT_FOUND", Get(key2));
+  // whole key bloom filter kicks in and determines it's a miss
+  ASSERT_EQ(1, get_perf_context()->bloom_memtable_miss_count);
+  ASSERT_EQ(1, get_perf_context()->bloom_memtable_hit_count);
+
+  // verify whole key filtering does not depend on prefix_extractor
+  options.prefix_extractor.reset();
+  Reopen(options);
+  // check memtable bloom stats
+  ASSERT_OK(Put(key4, value4, WriteOptions()));
+  ASSERT_EQ("NOT_FOUND", Get(key2));
+  // whole key bloom filter kicks in and determines it's a miss
+  ASSERT_EQ(2, get_perf_context()->bloom_memtable_miss_count);
+  ASSERT_EQ(1, get_perf_context()->bloom_memtable_hit_count);
+}
+
+TEST_F(DBBloomFilterTest, MemtablePrefixBloomOutOfDomain) {
+  constexpr size_t kPrefixSize = 8;
+  const std::string kKey = "key";
+  assert(kKey.size() < kPrefixSize);
+  Options options = CurrentOptions();
+  options.prefix_extractor.reset(NewFixedPrefixTransform(kPrefixSize));
+  options.memtable_prefix_bloom_size_ratio = 0.25;
+  Reopen(options);
+  ASSERT_OK(Put(kKey, "v"));
+  ASSERT_EQ("v", Get(kKey));
+  std::unique_ptr<Iterator> iter(dbfull()->NewIterator(ReadOptions()));
+  iter->Seek(kKey);
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_EQ(kKey, iter->key());
+  iter->SeekForPrev(kKey);
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_EQ(kKey, iter->key());
+}
+
 #ifndef ROCKSDB_LITE
 class BloomStatsTestWithParam
     : public DBBloomFilterTest,
@@ -823,7 +892,7 @@ class BloomStatsTestWithParam
     DestroyAndReopen(options_);
   }
 
-  ~BloomStatsTestWithParam() {
+  ~BloomStatsTestWithParam() override {
     get_perf_context()->Reset();
     Destroy(options_);
   }
@@ -935,13 +1004,16 @@ TEST_P(BloomStatsTestWithParam, BloomStatsTestWithIter) {
   ASSERT_OK(iter->status());
   ASSERT_TRUE(iter->Valid());
   ASSERT_EQ(value3, iter->value().ToString());
-  ASSERT_EQ(2, get_perf_context()->bloom_sst_hit_count);
+  // The seek doesn't check block-based bloom filter because last index key
+  // starts with the same prefix we're seeking to.
+  uint64_t expected_hits = use_block_based_builder_ ? 1 : 2;
+  ASSERT_EQ(expected_hits, get_perf_context()->bloom_sst_hit_count);
 
   iter->Seek(key2);
   ASSERT_OK(iter->status());
   ASSERT_TRUE(!iter->Valid());
   ASSERT_EQ(1, get_perf_context()->bloom_sst_miss_count);
-  ASSERT_EQ(2, get_perf_context()->bloom_sst_hit_count);
+  ASSERT_EQ(expected_hits, get_perf_context()->bloom_sst_hit_count);
 }
 
 INSTANTIATE_TEST_CASE_P(BloomStatsTestWithParam, BloomStatsTestWithParam,
@@ -1023,6 +1095,8 @@ TEST_F(DBBloomFilterTest, PrefixScan) {
     options.max_background_compactions = 2;
     options.create_if_missing = true;
     options.memtable_factory.reset(NewHashSkipListRepFactory(16));
+    assert(!options.unordered_write);
+    // It is incompatible with allow_concurrent_memtable_write=false
     options.allow_concurrent_memtable_write = false;
 
     BlockBasedTableOptions table_options;
@@ -1266,6 +1340,8 @@ TEST_F(DBBloomFilterTest, DynamicBloomFilterUpperBound) {
     table_options.cache_index_and_filter_blocks = true;
     table_options.filter_policy.reset(
         NewBloomFilterPolicy(10, use_block_based_builder));
+    table_options.index_shortening = BlockBasedTableOptions::
+        IndexShorteningMode::kShortenSeparatorsAndSuccessor;
     options.table_factory.reset(NewBlockBasedTableFactory(table_options));
     DestroyAndReopen(options);
 

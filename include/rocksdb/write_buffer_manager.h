@@ -26,6 +26,10 @@ class WriteBufferManager {
   // the memory allocated to the cache. It can be used even if _buffer_size = 0.
   explicit WriteBufferManager(size_t _buffer_size,
                               std::shared_ptr<Cache> cache = {});
+  // No copying allowed
+  WriteBufferManager(const WriteBufferManager&) = delete;
+  WriteBufferManager& operator=(const WriteBufferManager&) = delete;
+
   ~WriteBufferManager();
 
   bool enabled() const { return buffer_size_ != 0; }
@@ -94,9 +98,5 @@ class WriteBufferManager {
 
   void ReserveMemWithCache(size_t mem);
   void FreeMemWithCache(size_t mem);
-
-  // No copying allowed
-  WriteBufferManager(const WriteBufferManager&) = delete;
-  WriteBufferManager& operator=(const WriteBufferManager&) = delete;
 };
 }  // namespace rocksdb

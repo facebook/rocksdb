@@ -8,12 +8,12 @@
 #include <sstream>
 #include <cstdlib>
 
-#include "rocksdb/db.h"
+#include "port/port.h"
 #include "rocksdb/compaction_filter.h"
+#include "rocksdb/db.h"
 #include "rocksdb/slice.h"
 #include "rocksdb/write_batch.h"
-#include "util/testharness.h"
-#include "port/port.h"
+#include "test_util/testharness.h"
 
 using namespace rocksdb;
 
@@ -51,15 +51,13 @@ class DestroyAllCompactionFilter : public CompactionFilter {
  public:
   DestroyAllCompactionFilter() {}
 
-  virtual bool Filter(int /*level*/, const Slice& /*key*/,
-                      const Slice& existing_value, std::string* /*new_value*/,
-                      bool* /*value_changed*/) const override {
+  bool Filter(int /*level*/, const Slice& /*key*/, const Slice& existing_value,
+              std::string* /*new_value*/,
+              bool* /*value_changed*/) const override {
     return existing_value.ToString() == "destroy";
   }
 
-  virtual const char* Name() const override {
-    return "DestroyAllCompactionFilter";
-  }
+  const char* Name() const override { return "DestroyAllCompactionFilter"; }
 };
 
 TEST_F(ManualCompactionTest, CompactTouchesAllKeys) {

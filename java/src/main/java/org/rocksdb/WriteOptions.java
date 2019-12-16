@@ -90,7 +90,10 @@ public class WriteOptions extends RocksObject {
 
   /**
    * If true, writes will not first go to the write ahead log,
-   * and the write may got lost after a crash.
+   * and the write may got lost after a crash. The backup engine
+   * relies on write-ahead logs to back up the memtable, so if
+   * you disable write-ahead logs, you must create backups with
+   * flush_before_backup=true to avoid losing unflushed memtable data.
    *
    * @param flag a boolean flag to specify whether to disable
    *     write-ahead-log on writes.
@@ -103,7 +106,10 @@ public class WriteOptions extends RocksObject {
 
   /**
    * If true, writes will not first go to the write ahead log,
-   * and the write may got lost after a crash.
+   * and the write may got lost after a crash. The backup engine
+   * relies on write-ahead logs to back up the memtable, so if
+   * you disable write-ahead logs, you must create backups with
+   * flush_before_backup=true to avoid losing unflushed memtable data.
    *
    * @return boolean value indicating if WAL is disabled.
    */
@@ -163,8 +169,41 @@ public class WriteOptions extends RocksObject {
     return noSlowdown(nativeHandle_);
   }
 
+  /**
+   * If true, this write request is of lower priority if compaction is
+   * behind. In this case that, {@link #noSlowdown()} == true, the request
+   * will be cancelled immediately with {@link Status.Code#Incomplete} returned.
+   * Otherwise, it will be slowed down. The slowdown value is determined by
+   * RocksDB to guarantee it introduces minimum impacts to high priority writes.
+   *
+   * Default: false
+   *
+   * @param lowPri true if the write request should be of lower priority than
+   *     compactions which are behind.
+   *
+   * @return the instance of the current WriteOptions.
+   */
+  public WriteOptions setLowPri(final boolean lowPri) {
+    setLowPri(nativeHandle_, lowPri);
+    return this;
+  }
+
+  /**
+   * Returns true if this write request is of lower priority if compaction is
+   * behind.
+   *
+   * See {@link #setLowPri(boolean)}.
+   *
+   * @return true if this write request is of lower priority, false otherwise.
+   */
+  public boolean lowPri() {
+    return lowPri(nativeHandle_);
+  }
+
   private native static long newWriteOptions();
   private native static long copyWriteOptions(long handle);
+  @Override protected final native void disposeInternal(final long handle);
+
   private native void setSync(long handle, boolean flag);
   private native boolean sync(long handle);
   private native void setDisableWAL(long handle, boolean flag);
@@ -175,5 +214,6 @@ public class WriteOptions extends RocksObject {
   private native void setNoSlowdown(final long handle,
       final boolean noSlowdown);
   private native boolean noSlowdown(final long handle);
-  @Override protected final native void disposeInternal(final long handle);
+  private native void setLowPri(final long handle, final boolean lowPri);
+  private native boolean lowPri(final long handle);
 }

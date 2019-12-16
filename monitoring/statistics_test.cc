@@ -5,8 +5,8 @@
 //
 
 #include "port/stack_trace.h"
-#include "util/testharness.h"
-#include "util/testutil.h"
+#include "test_util/testharness.h"
+#include "test_util/testutil.h"
 
 #include "rocksdb/statistics.h"
 

@@ -24,7 +24,7 @@ class SnapshotImpl : public Snapshot {
   // It indicates the smallest uncommitted data at the time the snapshot was
   // taken. This is currently used by WritePrepared transactions to limit the
   // scope of queries to IsInSnpashot.
-  SequenceNumber min_uncommitted_ = 0;
+  SequenceNumber min_uncommitted_ = kMinUnCommittedSeq;
 
   virtual SequenceNumber GetSequenceNumber() const override { return number_; }
 
@@ -86,25 +86,38 @@ class SnapshotList {
   }
 
   // retrieve all snapshot numbers up until max_seq. They are sorted in
-  // ascending order.
+  // ascending order (with no duplicates).
   std::vector<SequenceNumber> GetAll(
       SequenceNumber* oldest_write_conflict_snapshot = nullptr,
       const SequenceNumber& max_seq = kMaxSequenceNumber) const {
     std::vector<SequenceNumber> ret;
+    GetAll(&ret, oldest_write_conflict_snapshot, max_seq);
+    return ret;
+  }
+
+  void GetAll(std::vector<SequenceNumber>* snap_vector,
+              SequenceNumber* oldest_write_conflict_snapshot = nullptr,
+              const SequenceNumber& max_seq = kMaxSequenceNumber) const {
+    std::vector<SequenceNumber>& ret = *snap_vector;
+    // So far we have no use case that would pass a non-empty vector
+    assert(ret.size() == 0);
 
     if (oldest_write_conflict_snapshot != nullptr) {
       *oldest_write_conflict_snapshot = kMaxSequenceNumber;
     }
 
     if (empty()) {
-      return ret;
+      return;
     }
     const SnapshotImpl* s = &list_;
     while (s->next_ != &list_) {
       if (s->next_->number_ > max_seq) {
         break;
       }
-      ret.push_back(s->next_->number_);
+      // Avoid duplicates
+      if (ret.empty() || ret.back() != s->next_->number_) {
+        ret.push_back(s->next_->number_);
+      }
 
       if (oldest_write_conflict_snapshot != nullptr &&
           *oldest_write_conflict_snapshot == kMaxSequenceNumber &&
@@ -116,7 +129,7 @@ class SnapshotList {
 
       s = s->next_;
     }
-    return ret;
+    return;
   }
 
   // Whether there is an active snapshot in range [lower_bound, upper_bound).
