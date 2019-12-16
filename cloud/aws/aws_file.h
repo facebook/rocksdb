@@ -8,9 +8,9 @@
 #include <iostream>
 #include "cloud/aws/aws_env.h"
 #include "cloud/filename.h"
+#include "file/filename.h"
 #include "rocksdb/env.h"
 #include "rocksdb/status.h"
-#include "util/filename.h"
 
 #include <aws/core/Aws.h>
 #include <aws/core/utils/DateTime.h>
@@ -79,7 +79,7 @@ class S3WritableFile : public WritableFile {
   std::string fname_;
   std::string tmp_file_;
   Status status_;
-  unique_ptr<WritableFile> local_file_;
+  std::unique_ptr<WritableFile> local_file_;
   std::string bucket_prefix_;
   std::string cloud_fname_;
   bool is_manifest_;

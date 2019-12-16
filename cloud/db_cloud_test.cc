@@ -4,15 +4,12 @@
 
 #ifdef USE_AWS
 
-#ifndef __STDC_FORMAT_MACROS
-#define __STDC_FORMAT_MACROS
-#endif
-
-#include <inttypes.h>
 #include "rocksdb/cloud/db_cloud.h"
+
+#include <cinttypes>
 #include <algorithm>
 #include <chrono>
-#include <inttypes.h>
+
 #include "cloud/aws/aws_env.h"
 #include "cloud/aws/aws_file.h"
 #include "cloud/db_cloud_impl.h"
@@ -21,10 +18,8 @@
 #include "rocksdb/options.h"
 #include "rocksdb/status.h"
 #include "rocksdb/table.h"
-#include "util/filename.h"
-#include "util/logging.h"
+#include "test_util/testharness.h"
 #include "util/string_util.h"
-#include "util/testharness.h"
 #ifndef OS_WIN
 #include <unistd.h>
 #endif
@@ -251,7 +246,7 @@ class CloudTest : public testing::Test {
   std::string persistent_cache_path_;
   uint64_t persistent_cache_size_gb_;
   DBCloud* db_;
-  unique_ptr<CloudEnv> aenv_;
+  std::unique_ptr<CloudEnv> aenv_;
 };
 
 //
@@ -560,7 +555,7 @@ TEST_F(CloudTest, CopyToFromS3) {
 
     // create a 10 MB file and upload it to cloud
     {
-      unique_ptr<WritableFile> writer;
+      std::unique_ptr<WritableFile> writer;
       ASSERT_OK(aenv_->NewWritableFile(fname, &writer, EnvOptions()));
 
       for (int i = 0; i < 10; i++) {
@@ -574,7 +569,7 @@ TEST_F(CloudTest, CopyToFromS3) {
 
     // reopen file for reading. It should be refetched from cloud storage.
     {
-      unique_ptr<RandomAccessFile> reader;
+      std::unique_ptr<RandomAccessFile> reader;
       ASSERT_OK(aenv_->NewRandomAccessFile(fname, &reader, EnvOptions()));
 
       uint64_t offset = 0;
@@ -599,7 +594,7 @@ TEST_F(CloudTest, DelayFileDeletion) {
   ((AwsEnv*)aenv_.get())->TEST_SetFileDeletionDelay(std::chrono::seconds(2));
 
   auto createFile = [&]() {
-    unique_ptr<WritableFile> writer;
+    std::unique_ptr<WritableFile> writer;
     ASSERT_OK(aenv_->NewWritableFile(fname, &writer, EnvOptions()));
 
     for (int i = 0; i < 10; i++) {
@@ -1000,7 +995,7 @@ TEST_F(CloudTest, MigrateFromPureRocksDB) {
     Options options;
     options.create_if_missing = true;
     DB* dbptr;
-    unique_ptr<DB> db;
+    std::unique_ptr<DB> db;
     ASSERT_OK(DB::Open(options, dbname_, &dbptr));
     db.reset(dbptr);
     // create 5 files

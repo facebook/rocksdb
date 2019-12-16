@@ -1,21 +1,21 @@
 // Copyright (c) 2017 Rockset.
 #ifndef ROCKSDB_LITE
 
-#include <inttypes.h>
+#include <cinttypes>
 
 #include "cloud/cloud_env_impl.h"
 #include "cloud/cloud_env_wrapper.h"
 #include "cloud/cloud_log_controller.h"
 #include "cloud/filename.h"
 #include "cloud/manifest_reader.h"
+#include "file/filename.h"
+#include "file/file_util.h"
 #include "port/likely.h"
 #include "rocksdb/db.h"
 #include "rocksdb/env.h"
 #include "rocksdb/options.h"
 #include "rocksdb/status.h"
 #include "util/file_reader_writer.h"
-#include "util/file_util.h"
-#include "util/filename.h"
 #include "util/xxhash.h"
 
 namespace rocksdb {
@@ -47,7 +47,7 @@ Status CloudEnvImpl::LoadLocalCloudManifest(const std::string& dbname) {
   if (cloud_manifest_) {
     cloud_manifest_.reset();
   }
-  unique_ptr<SequentialFile> file;
+  std::unique_ptr<SequentialFile> file;
   auto cloudManifestFile = CloudManifestFile(dbname);
   auto s =
       GetBaseEnv()->NewSequentialFile(cloudManifestFile, &file, EnvOptions());
@@ -55,7 +55,7 @@ Status CloudEnvImpl::LoadLocalCloudManifest(const std::string& dbname) {
     return s;
   }
   return CloudManifest::LoadFromLog(
-      unique_ptr<SequentialFileReader>(
+    std::unique_ptr<SequentialFileReader>(
           new SequentialFileReader(std::move(file), cloudManifestFile)),
       &cloud_manifest_);
 }
@@ -154,7 +154,7 @@ Status CloudEnvImpl::CreateNewIdentityFile(const std::string& dbid,
   Env* env = GetBaseEnv();
   Status st;
   {
-    unique_ptr<WritableFile> destfile;
+    std::unique_ptr<WritableFile> destfile;
     st = env->NewWritableFile(tmp_identity_path, &destfile, soptions);
     if (!st.ok()) {
       Log(InfoLogLevel::ERROR_LEVEL, info_log_,
@@ -180,7 +180,7 @@ Status CloudEnvImpl::CreateNewIdentityFile(const std::string& dbid,
   if (!st.ok()) {
     Log(InfoLogLevel::ERROR_LEVEL, info_log_,
         "[cloud_env_impl] Unable to rename newly created IDENTITY.tmp "
-        " to IDENTITY. %S",
+        " to IDENTITY. %s",
         st.ToString().c_str());
     return st;
   }
@@ -196,7 +196,7 @@ Status CloudEnvImpl::writeCloudManifest(CloudManifest* manifest,
   std::unique_ptr<WritableFile> file;
   Status s = local_env->NewWritableFile(tmp_fname, &file, EnvOptions());
   if (s.ok()) {
-    s = manifest->WriteToLog(unique_ptr<WritableFileWriter>(
+    s = manifest->WriteToLog(std::unique_ptr<WritableFileWriter>(
         new WritableFileWriter(std::move(file), tmp_fname, EnvOptions())));
   }
   if (s.ok()) {
@@ -813,7 +813,7 @@ Status CloudEnvImpl::SanitizeDirectory(const DBOptions& options,
   // remap the filename appropriately, this is just to fool the underyling
   // RocksDB)
   {
-    unique_ptr<WritableFile> destfile;
+    std::unique_ptr<WritableFile> destfile;
     st = env->NewWritableFile(CurrentFileName(local_name), &destfile, soptions);
     if (!st.ok()) {
       Log(InfoLogLevel::ERROR_LEVEL, info_log_,
@@ -896,7 +896,7 @@ Status CloudEnvImpl::FetchCloudManifest(const std::string& local_dbname,
       local_dbname.c_str());
 
   // No cloud manifest, create an empty one
-  unique_ptr<CloudManifest> manifest;
+  std::unique_ptr<CloudManifest> manifest;
   CloudManifest::CreateForEmptyDatabase("", &manifest);
   return writeCloudManifest(manifest.get(), cloudmanifest);
 }

@@ -14,8 +14,6 @@
 #include "rocksdb/env.h"
 #include "rocksdb/options.h"
 #include "rocksdb/status.h"
-#include "util/file_reader_writer.h"
-#include "util/filename.h"
 
 namespace rocksdb {
 
@@ -114,12 +112,17 @@ Status CloudEnv::NewAwsEnv(
   return NewAwsEnv(base_env, options, logger, cenv);
 }
 
+#ifndef USE_AWS
+Status CloudEnv::NewAwsEnv(Env* /*base_env*/,
+                           const CloudEnvOptions& /*options*/,
+                           const std::shared_ptr<Logger>& /*logger*/,
+                           CloudEnv** /*cenv*/) {
+  return Status::NotSupported("RocksDB Cloud not compiled with AWS support");
+}
+#else
 Status CloudEnv::NewAwsEnv(Env* base_env,
                            const CloudEnvOptions& options,
                            const std::shared_ptr<Logger> & logger, CloudEnv** cenv) {
-#ifndef USE_AWS
-  return Status::NotSupported("RocksDB Cloud not compiled with AWS support");
-#else
   // Dump out cloud env options
   options.Dump(logger.get());
 
@@ -135,8 +138,8 @@ Status CloudEnv::NewAwsEnv(Env* base_env,
     }
   }
   return st;
-#endif
 }
+#endif
 
 }  // namespace rocksdb
 #endif  // ROCKSDB_LITE

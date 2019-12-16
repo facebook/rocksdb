@@ -11,7 +11,6 @@
 #include "rocksdb/env.h"
 #include "rocksdb/options.h"
 #include "rocksdb/status.h"
-#include "util/file_reader_writer.h"
 
 namespace rocksdb {
 
@@ -27,9 +26,9 @@ ManifestReader::~ManifestReader() {}
 Status ManifestReader::GetLiveFiles(const std::string bucket_path,
                                     std::set<uint64_t>* list) {
   Status s;
-  unique_ptr<CloudManifest> cloud_manifest;
+  std::unique_ptr<CloudManifest> cloud_manifest;
   {
-    unique_ptr<SequentialFile> file;
+    std::unique_ptr<SequentialFile> file;
     auto cloudManifestFile = CloudManifestFile(bucket_path);
     s = cenv_->NewSequentialFileCloud(
         bucket_prefix_, cloudManifestFile, &file, EnvOptions());
@@ -37,18 +36,18 @@ Status ManifestReader::GetLiveFiles(const std::string bucket_path,
       return s;
     }
     s = CloudManifest::LoadFromLog(
-        unique_ptr<SequentialFileReader>(
+        std::unique_ptr<SequentialFileReader>(
             new SequentialFileReader(std::move(file), cloudManifestFile)),
         &cloud_manifest);
     if (!s.ok()) {
       return s;
     }
   }
-  unique_ptr<SequentialFileReader> file_reader;
+  std::unique_ptr<SequentialFileReader> file_reader;
   {
     auto manifestFile = ManifestFileWithEpoch(
         bucket_path, cloud_manifest->GetCurrentEpoch().ToString());
-    unique_ptr<SequentialFile> file;
+    std::unique_ptr<SequentialFile> file;
     s = cenv_->NewSequentialFileCloud(bucket_prefix_, manifestFile, &file,
                                       EnvOptions());
     if (!s.ok()) {
@@ -61,7 +60,7 @@ Status ManifestReader::GetLiveFiles(const std::string bucket_path,
   VersionSet::LogReporter reporter;
   reporter.status = &s;
   log::Reader reader(nullptr, std::move(file_reader), &reporter,
-                     true /*checksum*/, 0, false /* retry_after_eof */);
+                     true /*checksum*/, 0);
 
   Slice record;
   std::string scratch;
@@ -105,7 +104,7 @@ Status ManifestReader::GetMaxFileNumberFromManifest(Env* env,
   if (!s.ok()) {
     return s;
   }
-  unique_ptr<SequentialFile> file;
+  std::unique_ptr<SequentialFile> file;
   s = env->NewSequentialFile(fname, &file, EnvOptions());
   if (!s.ok()) {
     return s;
@@ -114,10 +113,9 @@ Status ManifestReader::GetMaxFileNumberFromManifest(Env* env,
   VersionSet::LogReporter reporter;
   reporter.status = &s;
   log::Reader reader(NULL,
-                     unique_ptr<SequentialFileReader>(
+                     std::unique_ptr<SequentialFileReader>(
                          new SequentialFileReader(std::move(file), fname)),
-                     &reporter, true /*checksum*/, 0,
-                     false /* retry_after_eof */);
+                     &reporter, true /*checksum*/, 0);
 
   Slice record;
   std::string scratch;

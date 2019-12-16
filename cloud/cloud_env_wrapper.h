@@ -34,7 +34,7 @@ class CloudEnvWrapper : public CloudEnvImpl {
   }
   virtual Status NewSequentialFileCloud(const std::string& bucket_prefix,
                                         const std::string& fname,
-                                        unique_ptr<SequentialFile>* result,
+                                        std::unique_ptr<SequentialFile>* result,
                                         const EnvOptions& options) override {
     return notsup_;
   }
@@ -59,38 +59,39 @@ class CloudEnvWrapper : public CloudEnvImpl {
 
   // Ability to read a file directly from cloud storage
   virtual Status NewSequentialFileCloud(const std::string& fname,
-                                        unique_ptr<SequentialFile>* result,
+                                        std::unique_ptr<SequentialFile>* result,
                                         const EnvOptions& options) {
     return notsup_;
   }
 
   // The following text is boilerplate that forwards all methods to base_env
-  Status NewSequentialFile(const std::string& f, unique_ptr<SequentialFile>* r,
+  Status NewSequentialFile(const std::string& f,
+                           std::unique_ptr<SequentialFile>* r,
                            const EnvOptions& options) override {
     return base_env_->NewSequentialFile(f, r, options);
   }
   Status NewRandomAccessFile(const std::string& f,
-                             unique_ptr<RandomAccessFile>* r,
+                             std::unique_ptr<RandomAccessFile>* r,
                              const EnvOptions& options) override {
     return base_env_->NewRandomAccessFile(f, r, options);
   }
-  Status NewWritableFile(const std::string& f, unique_ptr<WritableFile>* r,
+  Status NewWritableFile(const std::string& f, std::unique_ptr<WritableFile>* r,
                          const EnvOptions& options) override {
     return base_env_->NewWritableFile(f, r, options);
   }
   Status ReuseWritableFile(const std::string& fname,
                            const std::string& old_fname,
-                           unique_ptr<WritableFile>* r,
+                           std::unique_ptr<WritableFile>* r,
                            const EnvOptions& options) override {
     return base_env_->ReuseWritableFile(fname, old_fname, r, options);
   }
   Status NewRandomRWFile(const std::string& fname,
-                         unique_ptr<RandomRWFile>* result,
+                         std::unique_ptr<RandomRWFile>* result,
                          const EnvOptions& options) override {
     return base_env_->NewRandomRWFile(fname, result, options);
   }
   virtual Status NewDirectory(const std::string& name,
-                              unique_ptr<Directory>* result) override {
+                              std::unique_ptr<Directory>* result) override {
     return base_env_->NewDirectory(name, result);
   }
   Status FileExists(const std::string& f) override {
@@ -160,7 +161,7 @@ class CloudEnvWrapper : public CloudEnvImpl {
     return base_env_->GetTestDirectory(path);
   }
   virtual Status NewLogger(const std::string& fname,
-                           shared_ptr<Logger>* result) override {
+                           std::shared_ptr<Logger>* result) override {
     return base_env_->NewLogger(fname, result);
   }
   uint64_t NowMicros() override { return base_env_->NowMicros(); }

@@ -346,9 +346,8 @@ class AwsEnv : public CloudEnvImpl {
                     Aws::Map<Aws::String, Aws::String>* metadata = nullptr,
                     uint64_t* size = nullptr, uint64_t* modtime = nullptr);
 
-  Status NewS3ReadableFile(const std::string& bucket,
-                           const std::string& fname,
-                           unique_ptr<S3ReadableFile>* result);
+  Status NewS3ReadableFile(const std::string& bucket, const std::string& fname,
+                           std::unique_ptr<S3ReadableFile>* result);
 
   // Save IDENTITY file to S3. Update dbid registry.
   Status SaveIdentitytoS3(const std::string& localfile,

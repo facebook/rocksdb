@@ -10,18 +10,16 @@
 #include <inttypes.h>
 
 #include "cloud/aws/aws_env.h"
-#include "cloud/cloud_env_wrapper.h"
 #include "cloud/filename.h"
 #include "cloud/manifest_reader.h"
+#include "file/file_util.h"
+#include "logging/auto_roll_logger.h"
 #include "rocksdb/db.h"
 #include "rocksdb/env.h"
 #include "rocksdb/options.h"
 #include "rocksdb/persistent_cache.h"
 #include "rocksdb/status.h"
 #include "rocksdb/table.h"
-#include "util/auto_roll_logger.h"
-#include "util/file_reader_writer.h"
-#include "util/file_util.h"
 #include "util/xxhash.h"
 
 namespace rocksdb {
@@ -105,7 +103,7 @@ Status DBCloud::Open(const Options& opt, const std::string& local_dbname,
         if (st.ok()) {
           tableopt->persistent_cache = pcache;
           Log(InfoLogLevel::INFO_LEVEL, options.info_log,
-              "Created persistent cache %s with size %ld GB",
+              "Created persistent cache %s with size %" PRIu64 "GB",
               persistent_cache_path.c_str(), persistent_cache_size_gb);
         } else {
           Log(InfoLogLevel::INFO_LEVEL, options.info_log,

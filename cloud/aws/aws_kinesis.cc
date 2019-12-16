@@ -249,8 +249,8 @@ Status KinesisController::TailStream() {
       Aws::Kinesis::KinesisErrors err = error.GetErrorType();
       if (err == Aws::Kinesis::KinesisErrors::EXPIRED_ITERATOR) {
         Log(InfoLogLevel::DEBUG_LEVEL, env_->info_log_,
-            "[%s] expired shard iterator for %s. Reseeking...",
-            Name(), topic_.c_str(), error.GetMessage().c_str());
+            "[%s] expired shard iterator for %s. Reseeking...", Name(),
+            topic_.c_str());
         shards_iterator_[0] = "";
         SeekShards();  // read position at last seqno
       } else {
