@@ -12,7 +12,7 @@
 #include "db_stress_tool/db_stress_common.h"
 #include <cmath>
 
-rocksdb::Env* FLAGS_env = rocksdb::Env::Default();
+rocksdb::DbStressEnvWrapper* FLAGS_env = nullptr;
 enum rocksdb::CompressionType FLAGS_compression_type_e =
     rocksdb::kSnappyCompression;
 enum rocksdb::ChecksumType FLAGS_checksum_type_e = rocksdb::kCRC32c;
@@ -100,7 +100,8 @@ void PoolSizeChangeThread(void* v) {
     if (new_thread_pool_size < 1) {
       new_thread_pool_size = 1;
     }
-    FLAGS_env->SetBackgroundThreads(new_thread_pool_size);
+    FLAGS_env->SetBackgroundThreads(new_thread_pool_size,
+                                    rocksdb::Env::Priority::LOW);
     // Sleep up to 3 seconds
     FLAGS_env->SleepForMicroseconds(
         thread->rand.Next() % FLAGS_compaction_thread_pool_adjust_interval *
