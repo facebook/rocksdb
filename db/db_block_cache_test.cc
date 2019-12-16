@@ -686,13 +686,13 @@ TEST_F(DBBlockCacheTest, CacheCompressionDict) {
 
   // Try all the available libraries that support dictionary compression
   std::vector<CompressionType> compression_types;
-#ifdef ZLIB
-  compression_types.push_back(kZlibCompression);
-#endif  // ZLIB
-#if LZ4_VERSION_NUMBER >= 10400
-  compression_types.push_back(kLZ4Compression);
-  compression_types.push_back(kLZ4HCCompression);
-#endif  // LZ4_VERSION_NUMBER >= 10400
+  if (Zlib_Supported()) {
+    compression_types.push_back(kZlibCompression);
+  }
+  if (LZ4_Supported()) {
+    compression_types.push_back(kLZ4Compression);
+    compression_types.push_back(kLZ4HCCompression);
+  }
   if (ZSTD_Supported()) {
     compression_types.push_back(kZSTD);
   } else if (ZSTDNotFinal_Supported()) {
