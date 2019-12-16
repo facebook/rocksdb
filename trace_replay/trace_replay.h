@@ -80,7 +80,7 @@ class TracerHelper {
 // timestamp and type, followed by the trace payload.
 class Tracer {
  public:
-  Tracer(Env* env, const TraceOptions& trace_options,
+  Tracer(const std::shared_ptr<Env>& env, const TraceOptions& trace_options,
          std::unique_ptr<TraceWriter>&& trace_writer);
   ~Tracer();
 
@@ -118,7 +118,7 @@ class Tracer {
   // Returns true if a trace should be skipped, false otherwise.
   bool ShouldSkipTrace(const TraceType& type);
 
-  Env* env_;
+  std::shared_ptr<Env> env_;
   TraceOptions trace_options_;
   std::unique_ptr<TraceWriter> trace_writer_;
   uint64_t trace_request_count_;
@@ -171,7 +171,7 @@ class Replayer {
   static void BGWorkIterSeekForPrev(void* arg);
 
   DBImpl* db_;
-  Env* env_;
+  std::shared_ptr<Env> env_;
   std::unique_ptr<TraceReader> trace_reader_;
   std::unordered_map<uint32_t, ColumnFamilyHandle*> cf_map_;
   uint32_t fast_forward_;

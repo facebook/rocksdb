@@ -26,7 +26,7 @@ class MergeHelperTest : public testing::Test {
              SequenceNumber latest_snapshot = 0) {
     iter_.reset(new test::VectorIterator(ks_, vs_));
     iter_->SeekToFirst();
-    merge_helper_.reset(new MergeHelper(env_, BytewiseComparator(),
+    merge_helper_.reset(new MergeHelper(env_.get(), BytewiseComparator(),
                                         merge_op_.get(), filter_.get(), nullptr,
                                         false, latest_snapshot));
     return merge_helper_->MergeUntil(iter_.get(), nullptr /* range_del_agg */,
@@ -44,7 +44,7 @@ class MergeHelperTest : public testing::Test {
     vs_.push_back(val);
   }
 
-  Env* env_;
+  std::shared_ptr<Env> env_;
   std::unique_ptr<test::VectorIterator> iter_;
   std::shared_ptr<MergeOperator> merge_op_;
   std::unique_ptr<MergeHelper> merge_helper_;

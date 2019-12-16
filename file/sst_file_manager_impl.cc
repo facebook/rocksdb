@@ -19,8 +19,9 @@
 namespace rocksdb {
 
 #ifndef ROCKSDB_LITE
-SstFileManagerImpl::SstFileManagerImpl(Env* env, std::shared_ptr<FileSystem> fs,
-                                       std::shared_ptr<Logger> logger,
+SstFileManagerImpl::SstFileManagerImpl(const std::shared_ptr<Env>& env,
+                                       const std::shared_ptr<FileSystem>& fs,
+                                       const std::shared_ptr<Logger>& logger,
                                        int64_t rate_bytes_per_sec,
                                        double max_trash_db_ratio,
                                        uint64_t bytes_max_delete_chunk)
@@ -32,7 +33,7 @@ SstFileManagerImpl::SstFileManagerImpl(Env* env, std::shared_ptr<FileSystem> fs,
       compaction_buffer_size_(0),
       cur_compactions_reserved_size_(0),
       max_allowed_space_(0),
-      delete_scheduler_(env, fs_.get(), rate_bytes_per_sec, logger.get(), this,
+      delete_scheduler_(env.get(), fs_.get(), rate_bytes_per_sec, logger.get(), this,
                         max_trash_db_ratio, bytes_max_delete_chunk),
       cv_(&mu_),
       closing_(false),
@@ -467,8 +468,9 @@ void SstFileManagerImpl::OnDeleteFileImpl(const std::string& file_path) {
   tracked_files_.erase(tracked_file);
 }
 
-SstFileManager* NewSstFileManager(Env* env, std::shared_ptr<Logger> info_log,
-                                  std::string trash_dir,
+SstFileManager* NewSstFileManager(const std::shared_ptr<Env>& env,
+                                  const std::shared_ptr<Logger>& info_log,
+                                  const std::string& trash_dir,
                                   int64_t rate_bytes_per_sec,
                                   bool delete_existing_trash, Status* status,
                                   double max_trash_db_ratio,
@@ -478,7 +480,7 @@ SstFileManager* NewSstFileManager(Env* env, std::shared_ptr<Logger> info_log,
   if (env == Env::Default()) {
     fs = FileSystem::Default();
   } else {
-    fs.reset(new LegacyFileSystemWrapper(env));
+    fs.reset(new LegacyFileSystemWrapper(env.get()));
   }
 
   return NewSstFileManager(env, fs, info_log, trash_dir, rate_bytes_per_sec,
@@ -486,8 +488,9 @@ SstFileManager* NewSstFileManager(Env* env, std::shared_ptr<Logger> info_log,
                            bytes_max_delete_chunk);
 }
 
-SstFileManager* NewSstFileManager(Env* env, std::shared_ptr<FileSystem> fs,
-                                  std::shared_ptr<Logger> info_log,
+SstFileManager* NewSstFileManager(const std::shared_ptr<Env>& env,
+                                  const std::shared_ptr<FileSystem>& fs,
+                                  const std::shared_ptr<Logger>& info_log,
                                   const std::string& trash_dir,
                                   int64_t rate_bytes_per_sec,
                                   bool delete_existing_trash, Status* status,
@@ -529,8 +532,8 @@ SstFileManager* NewSstFileManager(Env* env, std::shared_ptr<FileSystem> fs,
 
 #else
 
-SstFileManager* NewSstFileManager(Env* /*env*/,
-                                  std::shared_ptr<Logger> /*info_log*/,
+SstFileManager* NewSstFileManager(const std::shared_ptr<Env>& /*env*/,
+                                  const std::shared_ptr<Logger>& /*info_log*/,
                                   std::string /*trash_dir*/,
                                   int64_t /*rate_bytes_per_sec*/,
                                   bool /*delete_existing_trash*/,

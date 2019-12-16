@@ -67,8 +67,8 @@ class FaultInjectionTest
     kResetDropAndDeleteUnsynced
   };
 
-  std::unique_ptr<Env> base_env_;
-  FaultInjectionTestEnv* env_;
+  std::shared_ptr<Env> base_env_;
+  std::shared_ptr<FaultInjectionTestEnv> env_;
   std::string dbname_;
   std::shared_ptr<Cache> tiny_cache_;
   Options options_;
@@ -146,8 +146,7 @@ class FaultInjectionTest
     assert(tiny_cache_ == nullptr);
     assert(env_ == nullptr);
 
-    env_ =
-        new FaultInjectionTestEnv(base_env_ ? base_env_.get() : Env::Default());
+    env_ = FaultInjectionTestEnv::Get(base_env_ ? base_env_ : Env::Default());
 
     options_ = CurrentOptions();
     options_.env = env_;
@@ -177,9 +176,6 @@ class FaultInjectionTest
     CloseDB();
 
     Status s = DestroyDB(dbname_, options_);
-
-    delete env_;
-    env_ = nullptr;
 
     tiny_cache_.reset();
 

@@ -59,7 +59,7 @@ class PersistentCache {
 };
 
 // Factor method to create a new persistent cache
-Status NewPersistentCache(Env* const env, const std::string& path,
+Status NewPersistentCache(const std::shared_ptr<Env> &env, const std::string& path,
                           const uint64_t size,
                           const std::shared_ptr<Logger>& log,
                           const bool optimized_for_nvm,

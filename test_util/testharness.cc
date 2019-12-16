@@ -23,7 +23,7 @@ namespace test {
   }
 }
 
-std::string TmpDir(Env* env) {
+std::string TmpDir(const std::shared_ptr<Env>& env) {
   std::string dir;
   Status s = env->GetTestDirectory(&dir);
   EXPECT_TRUE(s.ok()) << s.ToString();
@@ -39,7 +39,7 @@ std::string PerThreadDBPath(std::string name) {
   return PerThreadDBPath(test::TmpDir(), name);
 }
 
-std::string PerThreadDBPath(Env* env, std::string name) {
+std::string PerThreadDBPath(const std::shared_ptr<Env>& env, std::string name) {
   return PerThreadDBPath(test::TmpDir(env), name);
 }
 

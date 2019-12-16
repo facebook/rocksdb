@@ -16,7 +16,7 @@ class HistogramTest : public testing::Test {};
 namespace {
   const double kIota = 0.1;
   const HistogramBucketMapper bucketMapper;
-  Env* env = Env::Default();
+  std::shared_ptr<Env> env = Env::Default();
 }
 
 void PopulateHistogram(Histogram& histogram,

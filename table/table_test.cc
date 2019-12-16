@@ -452,7 +452,7 @@ class TableConstructor: public Constructor {
 
   static uint64_t cur_uniq_id_;
   EnvOptions soptions;
-  Env* env_;
+  std::shared_ptr<Env> env_;
 };
 uint64_t TableConstructor::cur_uniq_id_ = 1;
 
@@ -1087,7 +1087,7 @@ class BlockBasedTableTest
     trace_file_path_ = test_path_ + "/block_cache_trace_file";
     TraceOptions trace_opt;
     std::unique_ptr<TraceWriter> trace_writer;
-    EXPECT_OK(NewFileTraceWriter(env_, EnvOptions(), trace_file_path_,
+    EXPECT_OK(NewFileTraceWriter(env_.get(), EnvOptions(), trace_file_path_,
                                  &trace_writer));
     c->block_cache_tracer_.StartTrace(env_, trace_opt, std::move(trace_writer));
     {
@@ -1111,7 +1111,7 @@ class BlockBasedTableTest
 
     std::unique_ptr<TraceReader> trace_reader;
     Status s =
-        NewFileTraceReader(env_, EnvOptions(), trace_file_path_, &trace_reader);
+      NewFileTraceReader(env_.get(), EnvOptions(), trace_file_path_, &trace_reader);
     EXPECT_OK(s);
     BlockCacheTraceReader reader(std::move(trace_reader));
     BlockCacheTraceHeader header;
@@ -1163,7 +1163,7 @@ class BlockBasedTableTest
 
  private:
   uint32_t format_;
-  Env* env_;
+  std::shared_ptr<Env> env_;
   std::string trace_file_path_;
   std::string test_path_;
 };

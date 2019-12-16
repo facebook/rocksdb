@@ -87,17 +87,17 @@ class EnvPosixTest : public testing::Test {
   std::string events_;
 
  public:
-  Env* env_;
+  std::shared_ptr<Env> env_;
   bool direct_io_;
   EnvPosixTest() : env_(Env::Default()), direct_io_(false) {}
 };
 
 class EnvPosixTestWithParam
     : public EnvPosixTest,
-      public ::testing::WithParamInterface<std::pair<Env*, bool>> {
+      public ::testing::WithParamInterface<std::pair<std::shared_ptr<Env>, bool>> {
  public:
   EnvPosixTestWithParam() {
-    std::pair<Env*, bool> param_pair = GetParam();
+    std::pair<std::shared_ptr<Env>, bool> param_pair = GetParam();
     env_ = param_pair.first;
     direct_io_ = param_pair.second;
   }
@@ -1847,23 +1847,22 @@ TEST_F(EnvTest, Close) {
 }
 
 INSTANTIATE_TEST_CASE_P(DefaultEnvWithoutDirectIO, EnvPosixTestWithParam,
-                        ::testing::Values(std::pair<Env*, bool>(Env::Default(),
+                        ::testing::Values(std::pair<std::shared_ptr<Env>, bool>(Env::Default(),
                                                                 false)));
 #if !defined(ROCKSDB_LITE)
 INSTANTIATE_TEST_CASE_P(DefaultEnvWithDirectIO, EnvPosixTestWithParam,
-                        ::testing::Values(std::pair<Env*, bool>(Env::Default(),
+                        ::testing::Values(std::pair<std::shared_ptr<Env>, bool>(Env::Default(),
                                                                 true)));
 #endif  // !defined(ROCKSDB_LITE)
 
 #if !defined(ROCKSDB_LITE) && !defined(OS_WIN)
-static std::unique_ptr<Env> chroot_env(
-    NewChrootEnv(Env::Default(), test::TmpDir(Env::Default())));
+static std::shared_ptr<Env> chroot_env = NewChrootEnv(Env::Default(), test::TmpDir(Env::Default()));
 INSTANTIATE_TEST_CASE_P(
     ChrootEnvWithoutDirectIO, EnvPosixTestWithParam,
-    ::testing::Values(std::pair<Env*, bool>(chroot_env.get(), false)));
+    ::testing::Values(std::pair<std::shared_ptr<Env>, bool>(chroot_env, false)));
 INSTANTIATE_TEST_CASE_P(
     ChrootEnvWithDirectIO, EnvPosixTestWithParam,
-    ::testing::Values(std::pair<Env*, bool>(chroot_env.get(), true)));
+    ::testing::Values(std::pair<std::shared_ptr<Env>, bool>(chroot_env, true)));
 #endif  // !defined(ROCKSDB_LITE) && !defined(OS_WIN)
 
 }  // namespace rocksdb

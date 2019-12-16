@@ -11,7 +11,11 @@ namespace rocksdb {
 
 class MockTimeEnv : public EnvWrapper {
  public:
-  explicit MockTimeEnv(Env* base) : EnvWrapper(base) {}
+  static std::shared_ptr<MockTimeEnv> Get(const std::shared_ptr<Env>& base = Env::Default()) {
+    return std::make_shared<MockTimeEnv>(base);
+  }
+  
+  explicit MockTimeEnv(const std::shared_ptr<Env> & base) : EnvWrapper(base) {}
 
   virtual Status GetCurrentTime(int64_t* time) override {
     assert(time != nullptr);

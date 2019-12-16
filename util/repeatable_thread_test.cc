@@ -14,16 +14,16 @@
 class RepeatableThreadTest : public testing::Test {
  public:
   RepeatableThreadTest()
-      : mock_env_(new rocksdb::MockTimeEnv(rocksdb::Env::Default())) {}
+    : mock_env_(rocksdb::MockTimeEnv::Get(rocksdb::Env::Default())) {}
 
  protected:
-  std::unique_ptr<rocksdb::MockTimeEnv> mock_env_;
+  std::shared_ptr<rocksdb::MockTimeEnv> mock_env_;
 };
 
 TEST_F(RepeatableThreadTest, TimedTest) {
   constexpr uint64_t kSecond = 1000000;  // 1s = 1000000us
   constexpr int kIteration = 3;
-  rocksdb::Env* env = rocksdb::Env::Default();
+  auto env = rocksdb::Env::Default();
   rocksdb::port::Mutex mutex;
   rocksdb::port::CondVar test_cv(&mutex);
   int count = 0;
@@ -86,7 +86,7 @@ TEST_F(RepeatableThreadTest, MockEnvTest) {
   rocksdb::SyncPoint::GetInstance()->EnableProcessing();
 #endif  // OS_MACOSX && !NDEBUG
 
-  rocksdb::RepeatableThread thread([&] { count++; }, "rt_test", mock_env_.get(),
+  rocksdb::RepeatableThread thread([&] { count++; }, "rt_test", mock_env_,
                                    1 * kSecond, 1 * kSecond);
   for (int i = 1; i <= kIteration; i++) {
     // Bump current time

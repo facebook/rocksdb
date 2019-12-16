@@ -319,7 +319,7 @@ CompactionJob::CompactionJob(
       dbname_(dbname),
       db_options_(db_options),
       file_options_(file_options),
-      env_(db_options.env),
+      env_(db_options.env.get()),
       fs_(db_options.fs.get()),
       file_options_for_read_(
           fs_->OptimizeForCompactionTableRead(file_options, db_options_)),

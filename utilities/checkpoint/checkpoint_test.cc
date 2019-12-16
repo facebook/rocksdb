@@ -40,7 +40,7 @@ class CheckpointTest : public testing::Test {
  public:
   std::string dbname_;
   std::string alternative_wal_dir_;
-  Env* env_;
+  std::shared_ptr<Env> env_;
   DB* db_;
   Options last_options_;
   std::vector<ColumnFamilyHandle*> handles_;
@@ -723,8 +723,8 @@ TEST_F(CheckpointTest, CheckpointWithParallelWrites) {
 
 TEST_F(CheckpointTest, CheckpointWithUnsyncedDataDropped) {
   Options options = CurrentOptions();
-  std::unique_ptr<FaultInjectionTestEnv> env(new FaultInjectionTestEnv(env_));
-  options.env = env.get();
+  auto env = FaultInjectionTestEnv::Get(env_);
+  options.env = env;
   Reopen(options);
   ASSERT_OK(Put("key1", "val1"));
   Checkpoint* checkpoint;

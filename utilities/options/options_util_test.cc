@@ -30,13 +30,13 @@ namespace rocksdb {
 class OptionsUtilTest : public testing::Test {
  public:
   OptionsUtilTest() : rnd_(0xFB) {
-    env_.reset(new test::StringEnv(Env::Default()));
+    env_ = std::make_shared<test::StringEnv>(Env::Default());
     fs_.reset(new LegacyFileSystemWrapper(env_.get()));
     dbname_ = test::PerThreadDBPath("options_util_test");
   }
 
  protected:
-  std::unique_ptr<test::StringEnv> env_;
+  std::shared_ptr<test::StringEnv> env_;
   std::unique_ptr<LegacyFileSystemWrapper> fs_;
   std::string dbname_;
   Random rnd_;
@@ -65,7 +65,7 @@ TEST_F(OptionsUtilTest, SaveAndLoad) {
 
   DBOptions loaded_db_opt;
   std::vector<ColumnFamilyDescriptor> loaded_cf_descs;
-  ASSERT_OK(LoadOptionsFromFile(kFileName, env_.get(), &loaded_db_opt,
+  ASSERT_OK(LoadOptionsFromFile(kFileName, env_, &loaded_db_opt,
                                 &loaded_cf_descs));
 
   ASSERT_OK(RocksDBOptionsParser::VerifyDBOptions(db_opt, loaded_db_opt));
@@ -125,7 +125,7 @@ TEST_F(OptionsUtilTest, SaveAndLoadWithCacheCheck) {
   PersistRocksDBOptions(db_opt, cf_names, cf_opts, kFileName, fs_.get());
   DBOptions loaded_db_opt;
   std::vector<ColumnFamilyDescriptor> loaded_cf_descs;
-  ASSERT_OK(LoadOptionsFromFile(kFileName, env_.get(), &loaded_db_opt,
+  ASSERT_OK(LoadOptionsFromFile(kFileName, env_, &loaded_db_opt,
                                 &loaded_cf_descs, false, &cache));
   for (size_t i = 0; i < loaded_cf_descs.size(); i++) {
     if (IsBlockBasedTableFactory(cf_opts[i].table_factory.get())) {

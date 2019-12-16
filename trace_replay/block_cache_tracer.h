@@ -172,7 +172,7 @@ struct BlockCacheTraceHeader {
 // payload.
 class BlockCacheTraceWriter {
  public:
-  BlockCacheTraceWriter(Env* env, const TraceOptions& trace_options,
+  BlockCacheTraceWriter(const std::shared_ptr<Env>&env, const TraceOptions& trace_options,
                         std::unique_ptr<TraceWriter>&& trace_writer);
   ~BlockCacheTraceWriter() = default;
   // No copy and move.
@@ -191,7 +191,7 @@ class BlockCacheTraceWriter {
   Status WriteHeader();
 
  private:
-  Env* env_;
+  std::shared_ptr<Env> env_;
   TraceOptions trace_options_;
   std::unique_ptr<TraceWriter> trace_writer_;
 };
@@ -265,7 +265,8 @@ class BlockCacheTracer {
   BlockCacheTracer& operator=(BlockCacheTracer&&) = delete;
 
   // Start writing block cache accesses to the trace_writer.
-  Status StartTrace(Env* env, const TraceOptions& trace_options,
+  Status StartTrace(const std::shared_ptr<Env>& env,
+                    const TraceOptions& trace_options,
                     std::unique_ptr<TraceWriter>&& trace_writer);
 
   // Stop writing block cache accesses to the trace_writer.

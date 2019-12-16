@@ -256,7 +256,7 @@ class ComparatorDBTest
       virtual public ::testing::WithParamInterface<uint32_t> {
  private:
   std::string dbname_;
-  Env* env_;
+  std::shared_ptr<Env> env_;
   DB* db_;
   Options last_options_;
   std::unique_ptr<const Comparator> comparator_guard;

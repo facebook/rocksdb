@@ -215,7 +215,7 @@ int main(int argc, char** argv) {
                   fragmented_range_tombstone_lists.back().get(), icmp,
                   rocksdb::kMaxSequenceNumber));
 
-      rocksdb::StopWatchNano stop_watch_add_tombstones(rocksdb::Env::Default(),
+      rocksdb::StopWatchNano stop_watch_add_tombstones(rocksdb::Env::Default().get(),
                                                        true /* auto_start */);
       range_del_agg.AddTombstones(std::move(fragmented_range_del_iter));
       stats.time_add_tombstones += stop_watch_add_tombstones.ElapsedNanos();
@@ -232,7 +232,7 @@ int main(int argc, char** argv) {
       std::string key_string = rocksdb::Key(first_key + j);
       parsed_key.user_key = key_string;
 
-      rocksdb::StopWatchNano stop_watch_should_delete(rocksdb::Env::Default(),
+      rocksdb::StopWatchNano stop_watch_should_delete(rocksdb::Env::Default().get(),
                                                       true /* auto_start */);
       range_del_agg.ShouldDelete(parsed_key, mode);
       uint64_t call_time = stop_watch_should_delete.ElapsedNanos();

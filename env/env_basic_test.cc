@@ -19,7 +19,7 @@ namespace rocksdb {
 // run on all Envs.
 class NormalizingEnvWrapper : public EnvWrapper {
  public:
-  explicit NormalizingEnvWrapper(Env* base) : EnvWrapper(base) {}
+  explicit NormalizingEnvWrapper(const std::shared_ptr<Env>& base) : EnvWrapper(base) {}
 
   // Removes . and .. from directory listing
   Status GetChildren(const std::string& dir,
@@ -51,9 +51,9 @@ class NormalizingEnvWrapper : public EnvWrapper {
 };
 
 class EnvBasicTestWithParam : public testing::Test,
-                              public ::testing::WithParamInterface<Env*> {
+                              public ::testing::WithParamInterface<std::shared_ptr<Env> > {
  public:
-  Env* env_;
+  std::shared_ptr<Env> env_;
   const EnvOptions soptions_;
   std::string test_dir_;
 
@@ -80,19 +80,19 @@ class EnvBasicTestWithParam : public testing::Test,
 
 class EnvMoreTestWithParam : public EnvBasicTestWithParam {};
 
-static std::unique_ptr<Env> def_env(new NormalizingEnvWrapper(Env::Default()));
+static std::shared_ptr<Env> def_env = std::make_shared<NormalizingEnvWrapper>(Env::Default());
 INSTANTIATE_TEST_CASE_P(EnvDefault, EnvBasicTestWithParam,
-                        ::testing::Values(def_env.get()));
+                        ::testing::Values(def_env));
 INSTANTIATE_TEST_CASE_P(EnvDefault, EnvMoreTestWithParam,
-                        ::testing::Values(def_env.get()));
+                        ::testing::Values(def_env));
 
-static std::unique_ptr<Env> mock_env(new MockEnv(Env::Default()));
+static std::shared_ptr<Env> mock_env = std::make_shared<MockEnv>(Env::Default());
 INSTANTIATE_TEST_CASE_P(MockEnv, EnvBasicTestWithParam,
-                        ::testing::Values(mock_env.get()));
+                        ::testing::Values(mock_env));
 #ifndef ROCKSDB_LITE
-static std::unique_ptr<Env> mem_env(NewMemEnv(Env::Default()));
+static std::shared_ptr<Env> mem_env = NewMemEnv(Env::Default());
 INSTANTIATE_TEST_CASE_P(MemEnv, EnvBasicTestWithParam,
-                        ::testing::Values(mem_env.get()));
+                        ::testing::Values(mem_env));
 
 namespace {
 
@@ -101,8 +101,8 @@ namespace {
 //
 // The purpose of returning an empty vector (instead of nullptr) is that gtest
 // ValuesIn() will skip running tests when given an empty collection.
-std::vector<Env*> GetCustomEnvs() {
-  static Env* custom_env;
+std::vector<std::shared_ptr<Env>> GetCustomEnvs() {
+  static std::shared_ptr<Env> custom_env;
   static bool init = false;
   if (!init) {
     init = true;
@@ -112,7 +112,7 @@ std::vector<Env*> GetCustomEnvs() {
     }
   }
 
-  std::vector<Env*> res;
+  std::vector<std::shared_ptr<Env> > res;
   if (custom_env != nullptr) {
     res.emplace_back(custom_env);
   }

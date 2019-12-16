@@ -257,7 +257,7 @@ WriteBatchWithIndexInternal::Result WriteBatchWithIndexInternal::GetFromBatch(
           return result;
         }
         Statistics* statistics = immuable_db_options.statistics.get();
-        Env* env = immuable_db_options.env;
+        Env* env = immuable_db_options.env.get();
         Logger* logger = immuable_db_options.info_log.get();
 
         if (merge_operator) {

@@ -366,7 +366,7 @@ class BlockCacheTraceAnalyzer {
       const std::map<std::string, Predictions>& label_predictions,
       uint32_t max_number_of_values) const;
 
-  rocksdb::Env* env_;
+  std::shared_ptr<rocksdb::Env> env_;
   const std::string trace_file_path_;
   const std::string output_dir_;
   std::string human_readable_trace_file_path_;

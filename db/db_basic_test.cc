@@ -915,7 +915,7 @@ TEST_F(DBBasicTest, MmapAndBufferOptions) {
 
 class TestEnv : public EnvWrapper {
   public:
-   explicit TestEnv(Env* base_env) : EnvWrapper(base_env), close_count(0) {}
+  explicit TestEnv(const std::shared_ptr<Env>& base_env) : EnvWrapper(base_env), close_count(0) {}
 
    class TestLogger : public Logger {
     public:
@@ -960,8 +960,7 @@ TEST_F(DBBasicTest, DBClose) {
   ASSERT_OK(DestroyDB(dbname, options));
 
   DB* db = nullptr;
-  TestEnv* env = new TestEnv(env_);
-  std::unique_ptr<TestEnv> local_env_guard(env);
+  auto env = std::make_shared<TestEnv>(env_);
   options.create_if_missing = true;
   options.env = env;
   Status s = DB::Open(options, dbname, &db);
@@ -983,7 +982,7 @@ TEST_F(DBBasicTest, DBClose) {
   ASSERT_EQ(env->GetCloseCount(), 2);
 
   // Provide our own logger and ensure DB::Close() does not close it
-  options.info_log.reset(new TestEnv::TestLogger(env));
+  options.info_log.reset(new TestEnv::TestLogger(env.get()));
   options.create_if_missing = false;
   s = DB::Open(options, dbname, &db);
   ASSERT_OK(s);
@@ -998,13 +997,12 @@ TEST_F(DBBasicTest, DBClose) {
 }
 
 TEST_F(DBBasicTest, DBCloseFlushError) {
-  std::unique_ptr<FaultInjectionTestEnv> fault_injection_env(
-      new FaultInjectionTestEnv(env_));
+  auto fault_injection_env = FaultInjectionTestEnv::Get(env_);
   Options options = GetDefaultOptions();
   options.create_if_missing = true;
   options.manual_wal_flush = true;
   options.write_buffer_size=100;
-  options.env = fault_injection_env.get();
+  options.env = fault_injection_env;
 
   Reopen(options);
   ASSERT_OK(Put("key1", "value1"));

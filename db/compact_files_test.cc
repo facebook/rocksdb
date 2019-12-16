@@ -28,7 +28,7 @@ class CompactFilesTest : public testing::Test {
   }
 
   std::string db_name_;
-  Env* env_;
+  std::shared_ptr<Env> env_;
 };
 
 // A class which remembers the name of each flushed file.

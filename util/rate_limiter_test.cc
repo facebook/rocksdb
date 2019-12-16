@@ -61,7 +61,7 @@ TEST_F(RateLimiterTest, Modes) {
 
 #if !(defined(TRAVIS) && defined(OS_MACOSX))
 TEST_F(RateLimiterTest, Rate) {
-  auto* env = Env::Default();
+  auto env = Env::Default();
   struct Arg {
     Arg(int32_t _target_rate, int _burst)
         : limiter(NewGenericRateLimiter(_target_rate, 100 * 1000, 10)),
@@ -73,7 +73,7 @@ TEST_F(RateLimiterTest, Rate) {
   };
 
   auto writer = [](void* p) {
-    auto* thread_env = Env::Default();
+    auto thread_env = Env::Default();
     auto* arg = static_cast<Arg*>(p);
     // Test for 2 seconds
     auto until = thread_env->NowMicros() + 2 * 1000000;
@@ -127,7 +127,7 @@ TEST_F(RateLimiterTest, Rate) {
 TEST_F(RateLimiterTest, LimitChangeTest) {
   // starvation test when limit changes to a smaller value
   int64_t refill_period = 1000 * 1000;
-  auto* env = Env::Default();
+  auto env = Env::Default();
   rocksdb::SyncPoint::GetInstance()->EnableProcessing();
   struct Arg {
     Arg(int32_t _request_size, Env::IOPriority _pri,
@@ -180,15 +180,15 @@ TEST_F(RateLimiterTest, AutoTuneIncreaseWhenFull) {
   const std::chrono::seconds kTimePerRefill(1);
   const int kRefillsPerTune = 100;  // needs to match util/rate_limiter.cc
 
-  SpecialEnv special_env(Env::Default());
-  special_env.no_slowdown_ = true;
-  special_env.time_elapse_only_sleep_ = true;
+  auto special_env = SpecialEnv::Get(Env::Default());
+  special_env->no_slowdown_ = true;
+  special_env->time_elapse_only_sleep_ = true;
 
   auto stats = CreateDBStatistics();
   std::unique_ptr<RateLimiter> rate_limiter(new GenericRateLimiter(
       1000 /* rate_bytes_per_sec */,
       std::chrono::microseconds(kTimePerRefill).count(), 10 /* fairness */,
-      RateLimiter::Mode::kWritesOnly, &special_env, true /* auto_tuned */));
+      RateLimiter::Mode::kWritesOnly, special_env, true /* auto_tuned */));
 
   // Use callback to advance time because we need to advance (1) after Request()
   // has determined the bytes are not available; and (2) before Refill()
@@ -196,7 +196,7 @@ TEST_F(RateLimiterTest, AutoTuneIncreaseWhenFull) {
   // the next request to drain the rate limiter).
   rocksdb::SyncPoint::GetInstance()->SetCallBack(
       "GenericRateLimiter::Refill", [&](void* /*arg*/) {
-        special_env.SleepForMicroseconds(static_cast<int>(
+        special_env->SleepForMicroseconds(static_cast<int>(
             std::chrono::microseconds(kTimePerRefill).count()));
       });
   rocksdb::SyncPoint::GetInstance()->EnableProcessing();
@@ -206,7 +206,7 @@ TEST_F(RateLimiterTest, AutoTuneIncreaseWhenFull) {
   int64_t orig_bytes_per_sec = rate_limiter->GetSingleBurstBytes();
   rate_limiter->Request(orig_bytes_per_sec, Env::IO_HIGH, stats.get(),
                         RateLimiter::OpType::kWrite);
-  while (std::chrono::microseconds(special_env.NowMicros()) <=
+  while (std::chrono::microseconds(special_env->NowMicros()) <=
          kRefillsPerTune * kTimePerRefill) {
     rate_limiter->Request(orig_bytes_per_sec, Env::IO_HIGH, stats.get(),
                           RateLimiter::OpType::kWrite);
@@ -218,7 +218,7 @@ TEST_F(RateLimiterTest, AutoTuneIncreaseWhenFull) {
 
   // decreases after a sequence of periods where rate limiter is not drained
   orig_bytes_per_sec = new_bytes_per_sec;
-  special_env.SleepForMicroseconds(static_cast<int>(
+  special_env->SleepForMicroseconds(static_cast<int>(
       kRefillsPerTune * std::chrono::microseconds(kTimePerRefill).count()));
   // make a request so tuner can be triggered
   rate_limiter->Request(1 /* bytes */, Env::IO_HIGH, stats.get(),

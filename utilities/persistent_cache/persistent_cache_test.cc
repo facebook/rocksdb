@@ -104,7 +104,7 @@ std::unique_ptr<PersistentTieredCache> NewTieredCache(
 
 // create block cache
 std::unique_ptr<PersistentCacheTier> NewBlockCache(
-    Env* env, const std::string& path,
+    const std::shared_ptr<Env>& env, const std::string& path,
     const uint64_t max_size = std::numeric_limits<uint64_t>::max(),
     const bool enable_direct_writes = false) {
   const uint32_t max_file_size = static_cast<uint32_t>(12 * 1024 * 1024 * kStressFactor);
@@ -121,7 +121,7 @@ std::unique_ptr<PersistentCacheTier> NewBlockCache(
 
 // create a new cache tier
 std::unique_ptr<PersistentTieredCache> NewTieredCache(
-    Env* env, const std::string& path, const uint64_t max_volatile_cache_size,
+    const std::shared_ptr<Env>& env, const std::string& path, const uint64_t max_volatile_cache_size,
     const uint64_t max_block_cache_size =
         std::numeric_limits<uint64_t>::max()) {
   const uint32_t max_file_size = static_cast<uint32_t>(12 * 1024 * 1024 * kStressFactor);

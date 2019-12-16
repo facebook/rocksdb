@@ -141,7 +141,7 @@ class PosixEnv : public CompositeEnvWrapper {
     // Env::Default().  This is to avoid the free-after-use error when
     // Env::Default() is destructed while some other child threads are
     // still trying to update thread status.
-    if (this != Env::Default()) {
+    if (this != Env::Default().get()) {
       delete thread_status_updater_;
     }
   }
@@ -504,7 +504,7 @@ std::string Env::GenerateUniqueId() {
 //
 // Default Posix Env
 //
-Env* Env::Default() {
+const std::shared_ptr<Env>& Env::Default() {
   // The following function call initializes the singletons of ThreadLocalPtr
   // right before the static default_env.  This guarantees default_env will
   // always being destructed before the ThreadLocalPtr singletons get
@@ -518,10 +518,9 @@ Env* Env::Default() {
   ThreadLocalPtr::InitSingletons();
   CompressionContextCache::InitSingleton();
   INIT_SYNC_POINT_SINGLETONS();
-  static PosixEnv default_env;
-  static CompositeEnvWrapper composite_env(&default_env,
-                                           FileSystem::Default().get());
-  return &composite_env;
+
+  static std::shared_ptr<Env> default_env = std::make_shared<PosixEnv>();
+  return default_env;
 }
 
 }  // namespace rocksdb

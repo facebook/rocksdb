@@ -28,7 +28,7 @@ std::string GetDirName(const std::string filename) {
 }
 
 // A basic file truncation function suitable for this test.
-Status Truncate(Env* env, const std::string& filename, uint64_t length) {
+static Status Truncate(const std::shared_ptr<Env>& env, const std::string& filename, uint64_t length) {
   std::unique_ptr<SequentialFile> orig_file;
   const EnvOptions options;
   Status s = env->NewSequentialFile(filename, &orig_file, options);
@@ -83,12 +83,12 @@ std::pair<std::string, std::string> GetDirAndName(const std::string& name) {
   return std::make_pair(dirname, fname);
 }
 
-Status FileState::DropUnsyncedData(Env* env) const {
+Status FileState::DropUnsyncedData(const std::shared_ptr<Env>& env) const {
   ssize_t sync_pos = pos_at_last_sync_ == -1 ? 0 : pos_at_last_sync_;
   return Truncate(env, filename_, sync_pos);
 }
 
-Status FileState::DropRandomUnsyncedData(Env* env, Random* rand) const {
+Status FileState::DropRandomUnsyncedData(const std::shared_ptr<Env>& env, Random* rand) const {
   ssize_t sync_pos = pos_at_last_sync_ == -1 ? 0 : pos_at_last_sync_;
   assert(pos_ >= sync_pos);
   int range = static_cast<int>(pos_ - sync_pos);
@@ -374,7 +374,7 @@ void FaultInjectionTestEnv::WritableFileAppended(const FileState& state) {
 // For every file that is not fully synced, make a call to `func` with
 // FileState of the file as the parameter.
 Status FaultInjectionTestEnv::DropFileData(
-    std::function<Status(Env*, FileState)> func) {
+    std::function<Status(const std::shared_ptr<Env>&, FileState)> func) {
   Status s;
   MutexLock l(&mutex_);
   for (std::map<std::string, FileState>::const_iterator it =
@@ -389,13 +389,13 @@ Status FaultInjectionTestEnv::DropFileData(
 }
 
 Status FaultInjectionTestEnv::DropUnsyncedFileData() {
-  return DropFileData([&](Env* env, const FileState& state) {
+  return DropFileData([&](const std::shared_ptr<Env>& env, const FileState& state) {
     return state.DropUnsyncedData(env);
   });
 }
 
 Status FaultInjectionTestEnv::DropRandomUnsyncedFileData(Random* rnd) {
-  return DropFileData([&](Env* env, const FileState& state) {
+  return DropFileData([&](const std::shared_ptr<Env>&env, const FileState& state) {
     return state.DropRandomUnsyncedData(env, rnd);
   });
 }

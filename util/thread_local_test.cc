@@ -21,7 +21,7 @@ class ThreadLocalTest : public testing::Test {
  public:
   ThreadLocalTest() : env_(Env::Default()) {}
 
-  Env* env_;
+  std::shared_ptr<Env> env_;
 };
 
 namespace {
@@ -190,7 +190,7 @@ TEST_F(ThreadLocalTest, ConcurrentReadWriteTest) {
     ASSERT_TRUE(p.tls1.Get() == nullptr);
     ASSERT_TRUE(p.tls2->Get() == nullptr);
 
-    auto* env = Env::Default();
+    auto env = Env::Default();
     auto start = env->NowMicros();
 
     p.tls1.Reset(reinterpret_cast<size_t*>(own));

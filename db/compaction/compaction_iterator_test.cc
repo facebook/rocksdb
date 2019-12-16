@@ -245,7 +245,7 @@ class CompactionIteratorTest : public testing::TestWithParam<bool> {
           new TestSnapshotChecker(last_committed_sequence, snapshot_map_));
     }
     merge_helper_.reset(
-        new MergeHelper(Env::Default(), cmp_, merge_op, filter, nullptr, false,
+        new MergeHelper(Env::Default().get(), cmp_, merge_op, filter, nullptr, false,
                         0 /*latest_snapshot*/, snapshot_checker_.get(),
                         0 /*level*/, nullptr /*statistics*/, &shutting_down_));
 
@@ -254,7 +254,7 @@ class CompactionIteratorTest : public testing::TestWithParam<bool> {
     c_iter_.reset(new CompactionIterator(
         iter_.get(), cmp_, merge_helper_.get(), last_sequence, &snapshots_,
         earliest_write_conflict_snapshot, snapshot_checker_.get(),
-        Env::Default(), false /* report_detailed_time */, false,
+        Env::Default().get(), false /* report_detailed_time */, false,
         range_del_agg_.get(), std::move(compaction), filter, &shutting_down_));
   }
 

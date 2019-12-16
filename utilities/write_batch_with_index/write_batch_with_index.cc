@@ -919,7 +919,7 @@ Status WriteBatchWithIndex::GetFromBatchAndDB(
       const MergeOperator* merge_operator =
           cfh->cfd()->ioptions()->merge_operator;
       Statistics* statistics = immuable_db_options.statistics.get();
-      Env* env = immuable_db_options.env;
+      Env* env = immuable_db_options.env.get();
       Logger* logger = immuable_db_options.info_log.get();
 
       Slice* merge_data;
@@ -1028,7 +1028,7 @@ void WriteBatchWithIndex::MultiGetFromBatchAndDB(
           WriteBatchWithIndexInternal::Result::kMergeInProgress) {
         // Merge result from DB with merges in Batch
         Statistics* statistics = immuable_db_options.statistics.get();
-        Env* env = immuable_db_options.env;
+        Env* env = immuable_db_options.env.get();
         Logger* logger = immuable_db_options.info_log.get();
 
         Slice* merge_data;

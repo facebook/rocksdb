@@ -46,9 +46,9 @@ struct FileState {
 
   bool IsFullySynced() const { return pos_ <= 0 || pos_ == pos_at_last_sync_; }
 
-  Status DropUnsyncedData(Env* env) const;
+  Status DropUnsyncedData(const std::shared_ptr<Env>& env) const;
 
-  Status DropRandomUnsyncedData(Env* env, Random* rand) const;
+  Status DropRandomUnsyncedData(const std::shared_ptr<Env>& env, Random* rand) const;
 };
 
 // A wrapper around WritableFileWriter* file
@@ -124,7 +124,11 @@ class TestDirectory : public Directory {
 
 class FaultInjectionTestEnv : public EnvWrapper {
  public:
-  explicit FaultInjectionTestEnv(Env* base)
+  static std::shared_ptr<FaultInjectionTestEnv> Get(const std::shared_ptr<Env> & base = Env::Default()) {
+    return std::make_shared<FaultInjectionTestEnv>(base);
+  }
+  
+  explicit FaultInjectionTestEnv(const std::shared_ptr<Env>& base)
       : EnvWrapper(base), filesystem_active_(true) {}
   virtual ~FaultInjectionTestEnv() {}
 
@@ -172,7 +176,7 @@ class FaultInjectionTestEnv : public EnvWrapper {
 
   // For every file that is not fully synced, make a call to `func` with
   // FileState of the file as the parameter.
-  Status DropFileData(std::function<Status(Env*, FileState)> func);
+  Status DropFileData(std::function<Status(const std::shared_ptr<Env>&, FileState)> func);
 
   Status DropUnsyncedFileData();
 

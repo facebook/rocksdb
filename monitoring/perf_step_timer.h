@@ -19,7 +19,7 @@ class PerfStepTimer {
       : perf_counter_enabled_(perf_level >= enable_level),
         use_cpu_time_(use_cpu_time),
         env_((perf_counter_enabled_ || statistics != nullptr)
-                 ? ((env != nullptr) ? env : Env::Default())
+                 ? ((env != nullptr) ? env : Env::Default().get())
                  : nullptr),
         start_(0),
         metric_(metric),

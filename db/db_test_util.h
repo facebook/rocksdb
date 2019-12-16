@@ -207,7 +207,10 @@ class SpecialSkipListFactory : public MemTableRepFactory {
 // Special Env used to delay background operations
 class SpecialEnv : public EnvWrapper {
  public:
-  explicit SpecialEnv(Env* base);
+  static std::shared_ptr<SpecialEnv> Get(const std::shared_ptr<Env>& base = Env::Default()) {
+    return std::make_shared<SpecialEnv>(base);
+  }
+  explicit SpecialEnv(const std::shared_ptr<Env> & base);
 
   Status NewWritableFile(const std::string& f, std::unique_ptr<WritableFile>* r,
                          const EnvOptions& soptions) override {
@@ -699,10 +702,9 @@ class DBTestBase : public testing::Test {
   std::string dbname_;
   std::string alternative_wal_dir_;
   std::string alternative_db_log_dir_;
-  MockEnv* mem_env_;
-  Env* encrypted_env_;
-  SpecialEnv* env_;
-  std::shared_ptr<Env> env_guard_;
+  std::shared_ptr<MockEnv> mem_env_;
+  std::shared_ptr<Env> encrypted_env_;
+  std::shared_ptr<SpecialEnv> env_;
   DB* db_;
   std::vector<ColumnFamilyHandle*> handles_;
 
@@ -916,7 +918,7 @@ class DBTestBase : public testing::Test {
 
   std::string DumpSSTableList();
 
-  static void GetSstFiles(Env* env, std::string path,
+  static void GetSstFiles(const std::shared_ptr<Env>& env, const std::string& path,
                           std::vector<std::string>* files);
 
   int GetSstFileCount(std::string path);
@@ -970,7 +972,7 @@ class DBTestBase : public testing::Test {
   std::unordered_map<std::string, uint64_t> GetAllSSTFiles(
       uint64_t* total_size = nullptr);
 
-  std::vector<std::uint64_t> ListTableFiles(Env* env, const std::string& path);
+  std::vector<std::uint64_t> ListTableFiles(const std::shared_ptr<Env>& env, const std::string& path);
 
   void VerifyDBFromMap(
       std::map<std::string, std::string> true_data,

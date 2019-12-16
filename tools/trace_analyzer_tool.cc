@@ -354,7 +354,7 @@ TraceAnalyzer::~TraceAnalyzer() {}
 Status TraceAnalyzer::PrepareProcessing() {
   Status s;
   // Prepare the trace reader
-  s = NewFileTraceReader(env_, env_options_, trace_name_, &trace_reader_);
+  s = NewFileTraceReader(env_.get(), env_options_, trace_name_, &trace_reader_);
   if (!s.ok()) {
     return s;
   }

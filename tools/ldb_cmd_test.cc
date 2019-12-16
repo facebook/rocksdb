@@ -21,18 +21,14 @@ class LdbCmdTest : public testing::Test {
  public:
   LdbCmdTest() : testing::Test() {}
 
-  Env* TryLoadCustomOrDefaultEnv() {
+  std::shared_ptr<Env> TryLoadCustomOrDefaultEnv() {
     const char* test_env_uri = getenv("TEST_ENV_URI");
-    if (!test_env_uri) {
-      return Env::Default();
+    std::shared_ptr<Env> env = Env::Default();
+    if (test_env_uri) {
+      Env::LoadEnv(test_env_uri, &env);
     }
-    Env* env = Env::Default();
-    Env::LoadEnv(test_env_uri, &env, &env_guard_);
     return env;
   }
-
- private:
-  std::shared_ptr<Env> env_guard_;
 };
 
 TEST_F(LdbCmdTest, HexToString) {
@@ -69,13 +65,13 @@ TEST_F(LdbCmdTest, HexToStringBadInputs) {
 }
 
 TEST_F(LdbCmdTest, MemEnv) {
-  Env* base_env = TryLoadCustomOrDefaultEnv();
-  std::unique_ptr<Env> env(NewMemEnv(base_env));
+  auto base_env = TryLoadCustomOrDefaultEnv();
+  auto env = NewMemEnv(base_env);
   Options opts;
-  opts.env = env.get();
+  opts.env = env;
   opts.create_if_missing = true;
 
-  opts.file_system.reset(new LegacyFileSystemWrapper(opts.env));
+  opts.file_system.reset(new LegacyFileSystemWrapper(opts.env.get()));
 
   DB* db = nullptr;
   std::string dbname = test::TmpDir();
@@ -143,10 +139,10 @@ TEST_F(LdbCmdTest, OptionParsing) {
 }
 
 TEST_F(LdbCmdTest, ListFileTombstone) {
-  Env* base_env = TryLoadCustomOrDefaultEnv();
-  std::unique_ptr<Env> env(NewMemEnv(base_env));
+  auto base_env = TryLoadCustomOrDefaultEnv();
+  auto env = NewMemEnv(base_env);
   Options opts;
-  opts.env = env.get();
+  opts.env = env;
   opts.create_if_missing = true;
 
   DB* db = nullptr;

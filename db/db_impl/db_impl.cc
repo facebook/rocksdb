@@ -155,7 +155,7 @@ DBImpl::DBImpl(const DBOptions& options, const std::string& dbname,
       immutable_db_options_(initial_db_options_),
       mutable_db_options_(initial_db_options_),
       stats_(immutable_db_options_.statistics.get()),
-      mutex_(stats_, env_, DB_MUTEX_WAIT_MICROS,
+      mutex_(stats_, env_.get(), DB_MUTEX_WAIT_MICROS,
              immutable_db_options_.use_adaptive_mutex),
       default_cf_handle_(nullptr),
       max_total_in_memory_state_(0),
@@ -1464,8 +1464,8 @@ Status DBImpl::GetImpl(const ReadOptions& read_options, const Slice& key,
                        GetImplOptions get_impl_options) {
   assert(get_impl_options.value != nullptr ||
          get_impl_options.merge_operands != nullptr);
-  PERF_CPU_TIMER_GUARD(get_cpu_nanos, env_);
-  StopWatch sw(env_, stats_, DB_GET);
+  PERF_CPU_TIMER_GUARD(get_cpu_nanos, env_.get());
+  StopWatch sw(env_.get(), stats_, DB_GET);
   PERF_TIMER_GUARD(get_snapshot_time);
 
   auto cfh =
@@ -1633,8 +1633,8 @@ std::vector<Status> DBImpl::MultiGet(
     const ReadOptions& read_options,
     const std::vector<ColumnFamilyHandle*>& column_family,
     const std::vector<Slice>& keys, std::vector<std::string>* values) {
-  PERF_CPU_TIMER_GUARD(get_cpu_nanos, env_);
-  StopWatch sw(env_, stats_, DB_MULTIGET);
+  PERF_CPU_TIMER_GUARD(get_cpu_nanos, env_.get());
+  StopWatch sw(env_.get(), stats_, DB_MULTIGET);
   PERF_TIMER_GUARD(get_snapshot_time);
 
   SequenceNumber consistent_seqnum;
@@ -2070,8 +2070,8 @@ void DBImpl::MultiGetImpl(
     autovector<KeyContext*, MultiGetContext::MAX_BATCH_SIZE>* sorted_keys,
     SuperVersion* super_version, SequenceNumber snapshot,
     ReadCallback* callback, bool* is_blob_index) {
-  PERF_CPU_TIMER_GUARD(get_cpu_nanos, env_);
-  StopWatch sw(env_, stats_, DB_MULTIGET);
+  PERF_CPU_TIMER_GUARD(get_cpu_nanos, env_.get());
+  StopWatch sw(env_.get(), stats_, DB_MULTIGET);
 
   // For each of the given keys, apply the entire "get" process as follows:
   // First look in the memtable, then in the immutable memtable (if any).
@@ -2447,7 +2447,7 @@ Iterator* DBImpl::NewIterator(const ReadOptions& read_options,
     SuperVersion* sv = cfd->GetReferencedSuperVersion(&mutex_);
     auto iter = new ForwardIterator(this, read_options, cfd, sv);
     result = NewDBIterator(
-        env_, read_options, *cfd->ioptions(), sv->mutable_cf_options,
+        env_.get(), read_options, *cfd->ioptions(), sv->mutable_cf_options,
         cfd->user_comparator(), iter, kMaxSequenceNumber,
         sv->mutable_cf_options.max_sequential_skip_in_iterations, read_callback,
         this, cfd);
@@ -2515,7 +2515,7 @@ ArenaWrappedDBIter* DBImpl::NewIteratorImpl(const ReadOptions& read_options,
   // likely that any iterator pointer is close to the iterator it points to so
   // that they are likely to be in the same cache line and/or page.
   ArenaWrappedDBIter* db_iter = NewArenaWrappedDbIterator(
-      env_, read_options, *cfd->ioptions(), sv->mutable_cf_options, snapshot,
+      env_.get(), read_options, *cfd->ioptions(), sv->mutable_cf_options, snapshot,
       sv->mutable_cf_options.max_sequential_skip_in_iterations,
       sv->version_number, read_callback, this, cfd, allow_blob,
       ((read_options.snapshot != nullptr) ? false : allow_refresh));
@@ -2552,7 +2552,7 @@ Status DBImpl::NewIterators(
       SuperVersion* sv = cfd->GetReferencedSuperVersion(&mutex_);
       auto iter = new ForwardIterator(this, read_options, cfd, sv);
       iterators->push_back(NewDBIterator(
-          env_, read_options, *cfd->ioptions(), sv->mutable_cf_options,
+          env_.get(), read_options, *cfd->ioptions(), sv->mutable_cf_options,
           cfd->user_comparator(), iter, kMaxSequenceNumber,
           sv->mutable_cf_options.max_sequential_skip_in_iterations,
           read_callback, this, cfd));
@@ -2719,7 +2719,7 @@ Status DBImpl::GetPropertiesOfTablesInRange(ColumnFamilyHandle* column_family,
 
 const std::string& DBImpl::GetName() const { return dbname_; }
 
-Env* DBImpl::GetEnv() const { return env_; }
+Env* DBImpl::GetEnv() const { return env_.get(); }
 
 FileSystem* DB::GetFileSystem() const {
   static LegacyFileSystemWrapper fs_wrap(GetEnv());
@@ -3391,7 +3391,7 @@ Status DB::ListColumnFamilies(const DBOptions& db_options,
                               const std::string& name,
                               std::vector<std::string>* column_families) {
   FileSystem* fs = db_options.file_system.get();
-  LegacyFileSystemWrapper legacy_fs(db_options.env);
+  LegacyFileSystemWrapper legacy_fs(db_options.env.get());
   if (!fs) {
     fs = &legacy_fs;
   }
@@ -3403,7 +3403,7 @@ Snapshot::~Snapshot() {}
 Status DestroyDB(const std::string& dbname, const Options& options,
                  const std::vector<ColumnFamilyDescriptor>& column_families) {
   ImmutableDBOptions soptions(SanitizeOptions(dbname, options));
-  Env* env = soptions.env;
+  auto env = soptions.env;
   std::vector<std::string> filenames;
   bool wal_in_db_path = IsWalDirSameAsDBPath(&soptions);
 
@@ -3905,7 +3905,7 @@ Status DBImpl::IngestExternalFiles(
   for (const auto& arg : args) {
     auto* cfd = static_cast<ColumnFamilyHandleImpl*>(arg.column_family)->cfd();
     ingestion_jobs.emplace_back(
-        env_, versions_.get(), cfd, immutable_db_options_, file_options_,
+        env_.get(), versions_.get(), cfd, immutable_db_options_, file_options_,
         &snapshots_, arg.options, &directories_, &event_logger_);
   }
   std::vector<std::pair<bool, Status>> exec_results;
@@ -4168,7 +4168,7 @@ Status DBImpl::CreateColumnFamilyWithImport(
   // Import sst files from metadata.
   auto cfh = reinterpret_cast<ColumnFamilyHandleImpl*>(*handle);
   auto cfd = cfh->cfd();
-  ImportColumnFamilyJob import_job(env_, versions_.get(), cfd,
+  ImportColumnFamilyJob import_job(env_.get(), versions_.get(), cfd,
                                    immutable_db_options_, file_options_,
                                    import_options, metadata.files);
 

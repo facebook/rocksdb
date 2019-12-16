@@ -20,7 +20,9 @@ namespace rocksdb {
 
 class MemFile {
  public:
-  explicit MemFile(Env* env, const std::string& fn, bool _is_lock_file = false)
+  explicit MemFile(Env* const env,
+                   const std::string& fn,
+                   bool _is_lock_file = false)
       : env_(env),
         fn_(fn),
         refs_(0),
@@ -157,7 +159,7 @@ class MemFile {
   // Private since only Unref() should be used to delete it.
   ~MemFile() { assert(refs_ == 0); }
 
-  Env* env_;
+  Env* const env_;
   const std::string fn_;
   mutable port::Mutex mutex_;
   int refs_;
@@ -413,7 +415,8 @@ class TestMemLogger : public Logger {
 
 }  // Anonymous namespace
 
-MockEnv::MockEnv(Env* base_env) : EnvWrapper(base_env), fake_sleep_micros_(0) {}
+MockEnv::MockEnv(const std::shared_ptr<Env> &base_env)
+  : EnvWrapper(base_env), fake_sleep_micros_(0) {}
 
 MockEnv::~MockEnv() {
   for (FileSystem::iterator i = file_map_.begin(); i != file_map_.end(); ++i) {
@@ -763,11 +766,19 @@ void MockEnv::FakeSleepForMicroseconds(int64_t micros) {
 
 #ifndef ROCKSDB_LITE
 // This is to maintain the behavior before swithcing from InMemoryEnv to MockEnv
-Env* NewMemEnv(Env* base_env) { return new MockEnv(base_env); }
+std::shared_ptr<Env> NewMemEnv(const std::shared_ptr<Env>& base_env) {
+  std::shared_ptr<Env> result;
+  result.reset(new MockEnv(base_env)); 
+  return result;
+}
 
 #else  // ROCKSDB_LITE
 
-Env* NewMemEnv(Env* /*base_env*/) { return nullptr; }
+std::shared_ptr<Env> NewMemEnv(const std::shared_ptr<Env>&) {
+  std::shared_ptr<Env> result;
+  return result;
+}
+
 
 #endif  // !ROCKSDB_LITE
 

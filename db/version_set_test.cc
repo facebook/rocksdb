@@ -610,7 +610,7 @@ class VersionSetTestBase {
 
   VersionSetTestBase()
       : env_(Env::Default()),
-        fs_(std::make_shared<LegacyFileSystemWrapper>(env_)),
+        fs_(std::make_shared<LegacyFileSystemWrapper>(env_.get())),
         dbname_(test::PerThreadDBPath("version_set_test")),
         db_options_(),
         mutable_cf_options_(cf_options_),
@@ -700,11 +700,11 @@ class VersionSetTestBase {
     std::vector<ColumnFamilyDescriptor> column_families;
     SequenceNumber last_seqno;
     std::unique_ptr<log::Writer> log_writer;
-    SetIdentityFile(env_, dbname_);
+    SetIdentityFile(env_.get(), dbname_);
     PrepareManifest(&column_families, &last_seqno, &log_writer);
     log_writer.reset();
     // Make "CURRENT" file point to the new manifest file.
-    Status s = SetCurrentFile(env_, dbname_, 1, nullptr);
+    Status s = SetCurrentFile(env_.get(), dbname_, 1, nullptr);
     ASSERT_OK(s);
 
     EXPECT_OK(versions_->Recover(column_families, false));
@@ -712,7 +712,7 @@ class VersionSetTestBase {
               versions_->GetColumnFamilySet()->NumberOfColumnFamilies());
   }
 
-  Env* env_;
+  std::shared_ptr<Env> env_;
   std::shared_ptr<FileSystem> fs_;
   const std::string dbname_;
   EnvOptions env_options_;
@@ -793,7 +793,7 @@ class VersionSetAtomicGroupTest : public VersionSetTestBase,
       edits_[i].MarkAtomicGroup(--remaining);
       edits_[i].SetLastSequence(last_seqno_++);
     }
-    ASSERT_OK(SetCurrentFile(env_, dbname_, 1, nullptr));
+    ASSERT_OK(SetCurrentFile(env_.get(), dbname_, 1, nullptr));
   }
 
   void SetupIncompleteTrailingAtomicGroup(int atomic_group_size) {
@@ -805,7 +805,7 @@ class VersionSetAtomicGroupTest : public VersionSetTestBase,
       edits_[i].MarkAtomicGroup(--remaining);
       edits_[i].SetLastSequence(last_seqno_++);
     }
-    ASSERT_OK(SetCurrentFile(env_, dbname_, 1, nullptr));
+    ASSERT_OK(SetCurrentFile(env_.get(), dbname_, 1, nullptr));
   }
 
   void SetupCorruptedAtomicGroup(int atomic_group_size) {
@@ -819,7 +819,7 @@ class VersionSetAtomicGroupTest : public VersionSetTestBase,
       }
       edits_[i].SetLastSequence(last_seqno_++);
     }
-    ASSERT_OK(SetCurrentFile(env_, dbname_, 1, nullptr));
+    ASSERT_OK(SetCurrentFile(env_.get(), dbname_, 1, nullptr));
   }
 
   void SetupIncorrectAtomicGroup(int atomic_group_size) {
@@ -835,7 +835,7 @@ class VersionSetAtomicGroupTest : public VersionSetTestBase,
       }
       edits_[i].SetLastSequence(last_seqno_++);
     }
-    ASSERT_OK(SetCurrentFile(env_, dbname_, 1, nullptr));
+    ASSERT_OK(SetCurrentFile(env_.get(), dbname_, 1, nullptr));
   }
 
   void SetupTestSyncPoints() {
@@ -1186,7 +1186,7 @@ TEST_P(VersionSetTestDropOneCF, HandleDroppedColumnFamilyInAtomicGroup) {
   SequenceNumber last_seqno;
   std::unique_ptr<log::Writer> log_writer;
   PrepareManifest(&column_families, &last_seqno, &log_writer);
-  Status s = SetCurrentFile(env_, dbname_, 1, nullptr);
+  Status s = SetCurrentFile(env_.get(), dbname_, 1, nullptr);
   ASSERT_OK(s);
 
   EXPECT_OK(versions_->Recover(column_families, false /* read_only */));

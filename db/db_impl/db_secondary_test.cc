@@ -198,7 +198,7 @@ TEST_F(DBSecondaryTest, OpenAsSecondary) {
 namespace {
 class TraceFileEnv : public EnvWrapper {
  public:
-  explicit TraceFileEnv(Env* _target) : EnvWrapper(_target) {}
+  explicit TraceFileEnv(const std::shared_ptr<Env>& _target) : EnvWrapper(_target) {}
   Status NewRandomAccessFile(const std::string& f,
                              std::unique_ptr<RandomAccessFile>* r,
                              const EnvOptions& env_options) override {
@@ -242,8 +242,8 @@ TEST_F(DBSecondaryTest, SecondaryCloseFiles) {
   options.disable_auto_compactions = true;
   Reopen(options);
   Options options1;
-  std::unique_ptr<Env> traced_env(new TraceFileEnv(env_));
-  options1.env = traced_env.get();
+  std::shared_ptr<Env> traced_env = std::make_shared<TraceFileEnv>(env_);
+  options1.env = traced_env;
   OpenSecondary(options1);
 
   static const auto verify_db = [&]() {

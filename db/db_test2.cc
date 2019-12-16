@@ -3149,7 +3149,7 @@ TEST_F(DBTest2, TraceAndReplay) {
 
   std::string trace_filename = dbname_ + "/rocksdb.trace";
   std::unique_ptr<TraceWriter> trace_writer;
-  ASSERT_OK(NewFileTraceWriter(env_, env_opts, trace_filename, &trace_writer));
+  ASSERT_OK(NewFileTraceWriter(env_.get(), env_opts, trace_filename, &trace_writer));
   ASSERT_OK(db_->StartTrace(trace_opts, std::move(trace_writer)));
 
   ASSERT_OK(Put(0, "a", "1"));
@@ -3215,7 +3215,7 @@ TEST_F(DBTest2, TraceAndReplay) {
   ASSERT_TRUE(db2->Get(ro, handles[0], "g", &value).IsNotFound());
 
   std::unique_ptr<TraceReader> trace_reader;
-  ASSERT_OK(NewFileTraceReader(env_, env_opts, trace_filename, &trace_reader));
+  ASSERT_OK(NewFileTraceReader(env_.get(), env_opts, trace_filename, &trace_reader));
   Replayer replayer(db2, handles_, std::move(trace_reader));
   ASSERT_OK(replayer.Replay());
 
@@ -3252,7 +3252,7 @@ TEST_F(DBTest2, TraceWithLimit) {
   trace_opts.max_trace_file_size = 5;
   std::string trace_filename = dbname_ + "/rocksdb.trace1";
   std::unique_ptr<TraceWriter> trace_writer;
-  ASSERT_OK(NewFileTraceWriter(env_, env_opts, trace_filename, &trace_writer));
+  ASSERT_OK(NewFileTraceWriter(env_.get(), env_opts, trace_filename, &trace_writer));
   ASSERT_OK(db_->StartTrace(trace_opts, std::move(trace_writer)));
   ASSERT_OK(Put(0, "a", "1"));
   ASSERT_OK(Put(0, "b", "1"));
@@ -3291,7 +3291,7 @@ TEST_F(DBTest2, TraceWithLimit) {
   ASSERT_TRUE(db2->Get(ro, handles[0], "c", &value).IsNotFound());
 
   std::unique_ptr<TraceReader> trace_reader;
-  ASSERT_OK(NewFileTraceReader(env_, env_opts, trace_filename, &trace_reader));
+  ASSERT_OK(NewFileTraceReader(env_.get(), env_opts, trace_filename, &trace_reader));
   Replayer replayer(db2, handles_, std::move(trace_reader));
   ASSERT_OK(replayer.Replay());
 
@@ -3319,7 +3319,7 @@ TEST_F(DBTest2, TraceWithSampling) {
   trace_opts.sampling_frequency = 2;
   std::string trace_filename = dbname_ + "/rocksdb.trace_sampling";
   std::unique_ptr<TraceWriter> trace_writer;
-  ASSERT_OK(NewFileTraceWriter(env_, env_opts, trace_filename, &trace_writer));
+  ASSERT_OK(NewFileTraceWriter(env_.get(), env_opts, trace_filename, &trace_writer));
   ASSERT_OK(db_->StartTrace(trace_opts, std::move(trace_writer)));
   ASSERT_OK(Put(0, "a", "1"));
   ASSERT_OK(Put(0, "b", "2"));
@@ -3360,7 +3360,7 @@ TEST_F(DBTest2, TraceWithSampling) {
   ASSERT_TRUE(db2->Get(ro, handles[0], "e", &value).IsNotFound());
 
   std::unique_ptr<TraceReader> trace_reader;
-  ASSERT_OK(NewFileTraceReader(env_, env_opts, trace_filename, &trace_reader));
+  ASSERT_OK(NewFileTraceReader(env_.get(), env_opts, trace_filename, &trace_reader));
   Replayer replayer(db2, handles_, std::move(trace_reader));
   ASSERT_OK(replayer.Replay());
 
@@ -3392,7 +3392,7 @@ TEST_F(DBTest2, TraceWithFilter) {
 
   std::string trace_filename = dbname_ + "/rocksdb.trace";
   std::unique_ptr<TraceWriter> trace_writer;
-  ASSERT_OK(NewFileTraceWriter(env_, env_opts, trace_filename, &trace_writer));
+  ASSERT_OK(NewFileTraceWriter(env_.get(), env_opts, trace_filename, &trace_writer));
   ASSERT_OK(db_->StartTrace(trace_opts, std::move(trace_writer)));
 
   ASSERT_OK(Put(0, "a", "1"));
@@ -3458,7 +3458,7 @@ TEST_F(DBTest2, TraceWithFilter) {
   ASSERT_TRUE(db2->Get(ro, handles[0], "g", &value).IsNotFound());
 
   std::unique_ptr<TraceReader> trace_reader;
-  ASSERT_OK(NewFileTraceReader(env_, env_opts, trace_filename, &trace_reader));
+  ASSERT_OK(NewFileTraceReader(env_.get(), env_opts, trace_filename, &trace_reader));
   Replayer replayer(db2, handles_, std::move(trace_reader));
   ASSERT_OK(replayer.Replay());
 
@@ -3508,7 +3508,7 @@ TEST_F(DBTest2, TraceWithFilter) {
   std::string trace_filename3 = dbname_ + "/rocksdb.trace_3";
   std::unique_ptr<TraceWriter> trace_writer3;
   ASSERT_OK(
-    NewFileTraceWriter(env_, env_opts, trace_filename3, &trace_writer3));
+    NewFileTraceWriter(env_.get(), env_opts, trace_filename3, &trace_writer3));
   ASSERT_OK(db3->StartTrace(trace_opts, std::move(trace_writer3)));
 
   ASSERT_OK(db3->Put(wo, handles[0], "a", "1"));
@@ -3530,7 +3530,7 @@ TEST_F(DBTest2, TraceWithFilter) {
 
   std::unique_ptr<TraceReader> trace_reader3;
   ASSERT_OK(
-    NewFileTraceReader(env_, env_opts, trace_filename3, &trace_reader3));
+    NewFileTraceReader(env_.get(), env_opts, trace_filename3, &trace_reader3));
 
   // Count the number of records in the trace file;
   int count = 0;
@@ -4148,27 +4148,27 @@ TEST_F(DBTest2, CrashInRecoveryMultipleCF) {
       if (ParseFileName(f, &number, &type) && type == FileType::kLogFile) {
         std::string fname = dbname_ + "/" + f;
         std::string file_content;
-        ASSERT_OK(ReadFileToString(env_, fname, &file_content));
+        ASSERT_OK(ReadFileToString(env_.get(), fname, &file_content));
         file_content[400] = 'h';
         file_content[401] = 'a';
-        ASSERT_OK(WriteStringToFile(env_, file_content, fname));
+        ASSERT_OK(WriteStringToFile(env_.get(), file_content, fname));
         break;
       }
     }
 
     // Reopen and freeze the file system after the first manifest write.
-    FaultInjectionTestEnv fit_env(options.env);
-    options.env = &fit_env;
+    auto fit_env = FaultInjectionTestEnv::Get(options.env);
+    options.env = fit_env;
     rocksdb::SyncPoint::GetInstance()->ClearAllCallBacks();
     rocksdb::SyncPoint::GetInstance()->SetCallBack(
         test_sync_point,
-        [&](void* /*arg*/) { fit_env.SetFilesystemActive(false); });
+        [&](void* /*arg*/) { fit_env->SetFilesystemActive(false); });
     rocksdb::SyncPoint::GetInstance()->EnableProcessing();
     ASSERT_NOK(TryReopenWithColumnFamilies(
         {kDefaultColumnFamilyName, "pikachu"}, options));
     rocksdb::SyncPoint::GetInstance()->DisableProcessing();
 
-    fit_env.SetFilesystemActive(true);
+    fit_env->SetFilesystemActive(true);
     // If we continue using failure ingestion Env, it will conplain something
     // when renaming current file, which is not expected. Need to investigate
     // why.

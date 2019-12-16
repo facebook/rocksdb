@@ -322,7 +322,7 @@ ColumnFamilyOptions SanitizeOptions(const ImmutableDBOptions& db_options,
   // was not used)
   auto sfm = static_cast<SstFileManagerImpl*>(db_options.sst_file_manager.get());
   for (size_t i = 0; i < result.cf_paths.size(); i++) {
-    DeleteScheduler::CleanupDirectory(db_options.env, sfm, result.cf_paths[i].path);
+    DeleteScheduler::CleanupDirectory(db_options.env.get(), sfm, result.cf_paths[i].path);
   }
 #endif
 
@@ -516,7 +516,7 @@ ColumnFamilyData::ColumnFamilyData(
   // if _dummy_versions is nullptr, then this is a dummy column family.
   if (_dummy_versions != nullptr) {
     internal_stats_.reset(
-        new InternalStats(ioptions_.num_levels, db_options.env, this));
+        new InternalStats(ioptions_.num_levels, db_options.env.get(), this));
     table_cache_.reset(new TableCache(ioptions_, file_options, _table_cache,
                                       block_cache_tracer));
     if (ioptions_.compaction_style == kCompactionStyleLevel) {

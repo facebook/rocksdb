@@ -102,7 +102,7 @@ uint64_t BlockCacheTraceHelper::GetBlockOffsetInFile(
 }
 
 BlockCacheTraceWriter::BlockCacheTraceWriter(
-    Env* env, const TraceOptions& trace_options,
+    const std::shared_ptr<Env>& env, const TraceOptions& trace_options,
     std::unique_ptr<TraceWriter>&& trace_writer)
     : env_(env),
       trace_options_(trace_options),
@@ -444,7 +444,7 @@ BlockCacheTracer::BlockCacheTracer() { writer_.store(nullptr); }
 BlockCacheTracer::~BlockCacheTracer() { EndTrace(); }
 
 Status BlockCacheTracer::StartTrace(
-    Env* env, const TraceOptions& trace_options,
+    const std::shared_ptr<Env>& env, const TraceOptions& trace_options,
     std::unique_ptr<TraceWriter>&& trace_writer) {
   InstrumentedMutexLock lock_guard(&trace_writer_mutex_);
   if (writer_.load()) {

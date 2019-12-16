@@ -150,18 +150,14 @@ class Env {
   static const char* Type() { return "Environment"; }
 
   // Loads the environment specified by the input value into the result
-  static Status LoadEnv(const std::string& value, Env** result);
-
-  // Loads the environment specified by the input value into the result
-  static Status LoadEnv(const std::string& value, Env** result,
-                        std::shared_ptr<Env>* guard);
+  static Status LoadEnv(const std::string& value, std::shared_ptr<Env>* result);
 
   // Return a default environment suitable for the current operating
   // system.  Sophisticated users may wish to provide their own Env
   // implementation instead of relying on this default environment.
   //
   // The result of Default() belongs to rocksdb and must never be deleted.
-  static Env* Default();
+  static const std::shared_ptr<Env> &Default();
 
   // Create a brand new sequentially-readable file with the specified name.
   // On success, stores a pointer to the new file in *result and returns OK.
@@ -1146,11 +1142,11 @@ extern Status ReadFileToString(Env* env, const std::string& fname,
 class EnvWrapper : public Env {
  public:
   // Initialize an EnvWrapper that delegates all calls to *t
-  explicit EnvWrapper(Env* t) : target_(t) {}
+  explicit EnvWrapper(const std::shared_ptr<Env> & t) : target_(t) {}
   ~EnvWrapper() override;
 
   // Return the target to which this Env forwards all calls
-  Env* target() const { return target_; }
+  const std::shared_ptr<Env> &target() const { return target_; }
 
   // The following text is boilerplate that forwards all methods to target()
   Status NewSequentialFile(const std::string& f,
@@ -1370,7 +1366,7 @@ class EnvWrapper : public Env {
   }
 
  private:
-  Env* target_;
+  std::shared_ptr<Env> target_;
 };
 
 class SequentialFileWrapper : public SequentialFile {
@@ -1567,21 +1563,21 @@ class LoggerWrapper : public Logger {
 // all non-file-storage tasks to base_env. The caller must delete the result
 // when it is no longer needed.
 // *base_env must remain live while the result is in use.
-Env* NewMemEnv(Env* base_env);
+std::shared_ptr<Env> NewMemEnv(const std::shared_ptr<Env>& base_env);
 
 // Returns a new environment that is used for HDFS environment.
 // This is a factory method for HdfsEnv declared in hdfs/env_hdfs.h
-Status NewHdfsEnv(Env** hdfs_env, const std::string& fsname);
+Status NewHdfsEnv(std::shared_ptr<Env>* hdfs_env, const std::string& fsname);
 
 // Returns a new environment that measures function call times for filesystem
 // operations, reporting results to variables in PerfContext.
 // This is a factory method for TimedEnv defined in utilities/env_timed.cc.
-Env* NewTimedEnv(Env* base_env);
+std::shared_ptr<Env> NewTimedEnv(const std::shared_ptr<Env> & base_env);
 
 // Returns an instance of logger that can be used for storing informational
 // messages.
 // This is a factory method for EnvLogger declared in logging/env_logging.h
-Status NewEnvLogger(const std::string& fname, Env* env,
+Status NewEnvLogger(const std::string& fname, Env* const env,
                     std::shared_ptr<Logger>* result);
 
 }  // namespace rocksdb

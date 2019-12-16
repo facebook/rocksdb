@@ -66,7 +66,7 @@ class TraceAnalyzerTest : public testing::Test {
     Iterator* single_iter = nullptr;
 
     ASSERT_OK(
-        NewFileTraceWriter(env_, env_options_, trace_path, &trace_writer));
+        NewFileTraceWriter(env_.get(), env_options_, trace_path, &trace_writer));
     ASSERT_OK(DB::Open(options, dbname_, &db_));
     ASSERT_OK(db_->StartTrace(trace_opt, std::move(trace_writer)));
 
@@ -174,7 +174,7 @@ class TraceAnalyzerTest : public testing::Test {
     RunTraceAnalyzer(paras);
   }
 
-  rocksdb::Env* env_;
+  std::shared_ptr<rocksdb::Env> env_;
   EnvOptions env_options_;
   std::string test_path_;
   std::string dbname_;

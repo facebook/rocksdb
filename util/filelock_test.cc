@@ -17,7 +17,7 @@ class LockTest : public testing::Test {
  public:
   static LockTest* current_;
   std::string file_;
-  rocksdb::Env* env_;
+  std::shared_ptr<rocksdb::Env> env_;
 
   LockTest()
       : file_(test::PerThreadDBPath("db_testlock_file")),

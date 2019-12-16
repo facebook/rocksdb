@@ -79,7 +79,7 @@ Iterator* DBImplReadOnly::NewIterator(const ReadOptions& read_options,
           : latest_snapshot;
   ReadCallback* read_callback = nullptr;  // No read callback provided.
   auto db_iter = NewArenaWrappedDbIterator(
-      env_, read_options, *cfd->ioptions(), super_version->mutable_cf_options,
+      env_.get(), read_options, *cfd->ioptions(), super_version->mutable_cf_options,
       read_seq,
       super_version->mutable_cf_options.max_sequential_skip_in_iterations,
       super_version->version_number, read_callback);
@@ -111,7 +111,7 @@ Status DBImplReadOnly::NewIterators(
     auto* cfd = reinterpret_cast<ColumnFamilyHandleImpl*>(cfh)->cfd();
     auto* sv = cfd->GetSuperVersion()->Ref();
     auto* db_iter = NewArenaWrappedDbIterator(
-        env_, read_options, *cfd->ioptions(), sv->mutable_cf_options, read_seq,
+        env_.get(), read_options, *cfd->ioptions(), sv->mutable_cf_options, read_seq,
         sv->mutable_cf_options.max_sequential_skip_in_iterations,
         sv->version_number, read_callback);
     auto* internal_iter =

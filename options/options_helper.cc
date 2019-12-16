@@ -1193,7 +1193,7 @@ Status ParseDBOption(const std::string& name,
           NewGenericRateLimiter(static_cast<int64_t>(ParseUint64(value))));
     } else if (name == kNameEnv) {
       // Currently `Env` can be deserialized from object registry only.
-      Env* env = new_options->env;
+      auto & env = new_options->env;
       Status status = Env::LoadEnv(value, &env);
       // Only support static env for now.
       if (status.ok()) {

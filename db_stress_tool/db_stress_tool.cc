@@ -25,10 +25,7 @@
 #include "db_stress_tool/db_stress_driver.h"
 
 namespace rocksdb {
-namespace {
-static std::shared_ptr<rocksdb::Env> env_guard;
-}  // namespace
-
+  
 int db_stress_tool(int argc, char** argv) {
   SetUsageMessage(std::string("\nUSAGE:\n") + std::string(argv[0]) +
                   " [OPTIONS]...");
@@ -52,9 +49,9 @@ int db_stress_tool(int argc, char** argv) {
       fprintf(stderr, "Cannot specify both --hdfs and --env_uri.\n");
       exit(1);
     }
-    FLAGS_env = new rocksdb::HdfsEnv(FLAGS_hdfs);
+    FLAGS_env.reset(new rocksdb::HdfsEnv(FLAGS_hdfs));
   } else if (!FLAGS_env_uri.empty()) {
-    Status s = Env::LoadEnv(FLAGS_env_uri, &FLAGS_env, &env_guard);
+    Status s = Env::LoadEnv(FLAGS_env_uri, &FLAGS_env);
     if (FLAGS_env == nullptr) {
       fprintf(stderr, "No Env registered for URI: %s\n", FLAGS_env_uri.c_str());
       exit(1);

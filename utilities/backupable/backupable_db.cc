@@ -67,7 +67,7 @@ std::string BackupStatistics::ToString() const {
 void BackupableDBOptions::Dump(Logger* logger) const {
   ROCKS_LOG_INFO(logger, "               Options.backup_dir: %s",
                  backup_dir.c_str());
-  ROCKS_LOG_INFO(logger, "               Options.backup_env: %p", backup_env);
+  ROCKS_LOG_INFO(logger, "               Options.backup_env: %p", backup_env.get());
   ROCKS_LOG_INFO(logger, "        Options.share_table_files: %d",
                  static_cast<int>(share_table_files));
   ROCKS_LOG_INFO(logger, "                 Options.info_log: %p", info_log);
@@ -88,7 +88,7 @@ void BackupableDBOptions::Dump(Logger* logger) const {
 // -------- BackupEngineImpl class ---------
 class BackupEngineImpl : public BackupEngine {
  public:
-  BackupEngineImpl(Env* db_env, const BackupableDBOptions& options,
+  BackupEngineImpl(const std::shared_ptr<Env>& db_env, const BackupableDBOptions& options,
                    bool read_only = false);
   ~BackupEngineImpl() override;
   Status CreateNewBackupWithMetadata(DB* db, const std::string& app_metadata,
@@ -127,7 +127,7 @@ class BackupEngineImpl : public BackupEngine {
   // Extends the "result" map with pathname->size mappings for the contents of
   // "dir" in "env". Pathnames are prefixed with "dir".
   Status InsertPathnameToSizeBytes(
-      const std::string& dir, Env* env,
+      const std::string& dir, const std::shared_ptr<Env>& env,
       std::unordered_map<std::string, uint64_t>* result);
 
   struct FileInfo {
@@ -311,7 +311,8 @@ class BackupEngineImpl : public BackupEngine {
                           uint64_t size_limit = 0,
                           std::function<void()> progress_callback = []() {});
 
-  Status CalculateChecksum(const std::string& src, Env* src_env,
+  Status CalculateChecksum(const std::string& src,
+                           const std::shared_ptr<Env>& src_env,
                            const EnvOptions& src_env_options,
                            uint64_t size_limit, uint32_t* checksum_value);
 
@@ -496,8 +497,8 @@ class BackupEngineImpl : public BackupEngine {
 
   // options data
   BackupableDBOptions options_;
-  Env* db_env_;
-  Env* backup_env_;
+  std::shared_ptr<Env> db_env_;
+  std::shared_ptr<Env> backup_env_;
 
   // directories
   std::unique_ptr<Directory> backup_directory_;
@@ -512,7 +513,7 @@ class BackupEngineImpl : public BackupEngine {
   static const size_t kMaxAppMetaSize = 1024 * 1024;  // 1MB
 };
 
-Status BackupEngine::Open(Env* env, const BackupableDBOptions& options,
+Status BackupEngine::Open(const std::shared_ptr<Env>& env, const BackupableDBOptions& options,
                           BackupEngine** backup_engine_ptr) {
   std::unique_ptr<BackupEngineImpl> backup_engine(
       new BackupEngineImpl(env, options));
@@ -525,7 +526,7 @@ Status BackupEngine::Open(Env* env, const BackupableDBOptions& options,
   return Status::OK();
 }
 
-BackupEngineImpl::BackupEngineImpl(Env* db_env,
+BackupEngineImpl::BackupEngineImpl(const std::shared_ptr<Env>& db_env,
                                    const BackupableDBOptions& options,
                                    bool read_only)
     : initialized_(false),
@@ -638,7 +639,7 @@ Status BackupEngineImpl::Initialize() {
         backup_id, std::unique_ptr<BackupMeta>(new BackupMeta(
                        GetBackupMetaFile(backup_id, false /* tmp */),
                        GetBackupMetaFile(backup_id, true /* tmp */),
-                       &backuped_file_infos_, backup_env_))));
+                       &backuped_file_infos_, backup_env_.get()))));
   }
 
   latest_backup_id_ = 0;
@@ -788,7 +789,7 @@ Status BackupEngineImpl::CreateNewBackupWithMetadata(
       new_backup_id, std::unique_ptr<BackupMeta>(new BackupMeta(
                          GetBackupMetaFile(new_backup_id, false /* tmp */),
                          GetBackupMetaFile(new_backup_id, true /* tmp */),
-                         &backuped_file_infos_, backup_env_))));
+                         &backuped_file_infos_, backup_env_.get()))));
   assert(ret.second == true);
   auto& new_backup = ret.first->second;
   new_backup->RecordTimestamp();
@@ -1197,8 +1198,8 @@ Status BackupEngineImpl::RestoreDBFromBackup(
     ROCKS_LOG_INFO(options_.info_log, "Restoring %s to %s\n", file.c_str(),
                    dst.c_str());
     CopyOrCreateWorkItem copy_or_create_work_item(
-        GetAbsolutePath(file), dst, "" /* contents */, backup_env_, db_env_,
-        EnvOptions() /* src_env_options */, false, rate_limiter,
+        GetAbsolutePath(file), dst, "" /* contents */, backup_env_.get(),
+        db_env_.get(), EnvOptions() /* src_env_options */, false, rate_limiter,
         0 /* size_limit */);
     RestoreAfterCopyOrCreateWorkItem after_copy_or_create_work_item(
         copy_or_create_work_item.result.get_future(),
@@ -1463,17 +1464,17 @@ Status BackupEngineImpl::AddBackupFileWorkItem(
                    copy_dest_path->c_str());
     CopyOrCreateWorkItem copy_or_create_work_item(
         src_dir.empty() ? "" : src_dir + fname, *copy_dest_path, contents,
-        db_env_, backup_env_, src_env_options, options_.sync, rate_limiter,
+        db_env_.get(), backup_env_.get(), src_env_options, options_.sync, rate_limiter,
         size_limit, progress_callback);
     BackupAfterCopyOrCreateWorkItem after_copy_or_create_work_item(
         copy_or_create_work_item.result.get_future(), shared, need_to_copy,
-        backup_env_, temp_dest_path, final_dest_path, dst_relative);
+        backup_env_.get(), temp_dest_path, final_dest_path, dst_relative);
     files_to_copy_or_create_.write(std::move(copy_or_create_work_item));
     backup_items_to_finish.push_back(std::move(after_copy_or_create_work_item));
   } else {
     std::promise<CopyOrCreateResult> promise_result;
     BackupAfterCopyOrCreateWorkItem after_copy_or_create_work_item(
-        promise_result.get_future(), shared, need_to_copy, backup_env_,
+        promise_result.get_future(), shared, need_to_copy, backup_env_.get(),
         temp_dest_path, final_dest_path, dst_relative);
     backup_items_to_finish.push_back(std::move(after_copy_or_create_work_item));
     CopyOrCreateResult result;
@@ -1485,7 +1486,8 @@ Status BackupEngineImpl::AddBackupFileWorkItem(
   return s;
 }
 
-Status BackupEngineImpl::CalculateChecksum(const std::string& src, Env* src_env,
+Status BackupEngineImpl::CalculateChecksum(const std::string& src,
+                                           const std::shared_ptr<Env>& src_env,
                                            const EnvOptions& src_env_options,
                                            uint64_t size_limit,
                                            uint32_t* checksum_value) {
@@ -1542,7 +1544,7 @@ void BackupEngineImpl::DeleteChildren(const std::string& dir,
 }
 
 Status BackupEngineImpl::InsertPathnameToSizeBytes(
-    const std::string& dir, Env* env,
+    const std::string& dir, const std::shared_ptr<Env>& env,
     std::unordered_map<std::string, uint64_t>* result) {
   assert(result != nullptr);
   std::vector<Env::FileAttributes> files_attrs;
@@ -1928,7 +1930,7 @@ Status BackupEngineImpl::BackupMeta::StoreToFile(bool sync) {
 // -------- BackupEngineReadOnlyImpl ---------
 class BackupEngineReadOnlyImpl : public BackupEngineReadOnly {
  public:
-  BackupEngineReadOnlyImpl(Env* db_env, const BackupableDBOptions& options)
+  BackupEngineReadOnlyImpl(const std::shared_ptr<Env>& db_env, const BackupableDBOptions& options)
       : backup_engine_(new BackupEngineImpl(db_env, options, true)) {}
 
   ~BackupEngineReadOnlyImpl() override {}
@@ -1967,7 +1969,8 @@ class BackupEngineReadOnlyImpl : public BackupEngineReadOnly {
   std::unique_ptr<BackupEngineImpl> backup_engine_;
 };
 
-Status BackupEngineReadOnly::Open(Env* env, const BackupableDBOptions& options,
+Status BackupEngineReadOnly::Open(const std::shared_ptr<Env>& env,
+                                  const BackupableDBOptions& options,
                                   BackupEngineReadOnly** backup_engine_ptr) {
   if (options.destroy_old_data) {
     return Status::InvalidArgument(

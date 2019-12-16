@@ -39,19 +39,20 @@ static const int kValueSize = 1000;
 
 class CorruptionTest : public testing::Test {
  public:
-  test::ErrorEnv env_;
+  std::shared_ptr<test::ErrorEnv> env_;
   std::string dbname_;
   std::shared_ptr<Cache> tiny_cache_;
   Options options_;
   DB* db_;
 
   CorruptionTest() {
+    env_ = std::make_shared<test::ErrorEnv>();
     // If LRU cache shard bit is smaller than 2 (or -1 which will automatically
     // set it to 0), test SequenceNumberRecovery will fail, likely because of a
     // bug in recovery code. Keep it 4 for now to make the test passes.
     tiny_cache_ = NewLRUCache(100, 4);
     options_.wal_recovery_mode = WALRecoveryMode::kTolerateCorruptedTailRecords;
-    options_.env = &env_;
+    options_.env = env_;
     dbname_ = test::PerThreadDBPath("corruption_test");
     DestroyDB(dbname_, options_);
 
@@ -81,7 +82,7 @@ class CorruptionTest : public testing::Test {
     if (opt.env == Options().env) {
       // If env is not overridden, replace it with ErrorEnv.
       // Otherwise, the test already uses a non-default Env.
-      opt.env = &env_;
+      opt.env = env_;
     }
     opt.arena_block_size = 4096;
     BlockBasedTableOptions table_options;
@@ -181,23 +182,23 @@ class CorruptionTest : public testing::Test {
 
     // Do it
     std::string contents;
-    Status s = ReadFileToString(Env::Default(), fname, &contents);
+    Status s = ReadFileToString(Env::Default().get(), fname, &contents);
     ASSERT_TRUE(s.ok()) << s.ToString();
     for (int i = 0; i < bytes_to_corrupt; i++) {
       contents[i + offset] ^= 0x80;
     }
-    s = WriteStringToFile(Env::Default(), contents, fname);
+    s = WriteStringToFile(Env::Default().get(), contents, fname);
     ASSERT_TRUE(s.ok()) << s.ToString();
     Options options;
     EnvOptions env_options;
-    options.file_system.reset(new LegacyFileSystemWrapper(options.env));
+    options.file_system.reset(new LegacyFileSystemWrapper(options.env.get()));
     ASSERT_NOK(VerifySstFileChecksum(options, env_options, fname));
   }
 
   void Corrupt(FileType filetype, int offset, int bytes_to_corrupt) {
     // Pick file to corrupt
     std::vector<std::string> filenames;
-    ASSERT_OK(env_.GetChildren(dbname_, &filenames));
+    ASSERT_OK(env_->GetChildren(dbname_, &filenames));
     uint64_t number;
     FileType type;
     std::string fname;
@@ -288,14 +289,14 @@ TEST_F(CorruptionTest, Recovery) {
 }
 
 TEST_F(CorruptionTest, RecoverWriteError) {
-  env_.writable_file_error_ = true;
+  env_->writable_file_error_ = true;
   Status s = TryReopen();
   ASSERT_TRUE(!s.ok());
 }
 
 TEST_F(CorruptionTest, NewFileErrorDuringWrite) {
   // Do enough writing to force minor compaction
-  env_.writable_file_error_ = true;
+  env_->writable_file_error_ = true;
   const int num =
       static_cast<int>(3 + (Options().write_buffer_size / kValueSize));
   std::string value_storage;
@@ -311,8 +312,8 @@ TEST_F(CorruptionTest, NewFileErrorDuringWrite) {
     ASSERT_TRUE(!failed || !s.ok());
   }
   ASSERT_TRUE(!s.ok());
-  ASSERT_GE(env_.num_writable_file_errors_, 1);
-  env_.writable_file_error_ = false;
+  ASSERT_GE(env_->num_writable_file_errors_, 1);
+  env_->writable_file_error_ = false;
   Reopen();
 }
 
@@ -330,8 +331,8 @@ TEST_F(CorruptionTest, TableFile) {
 
 TEST_F(CorruptionTest, VerifyChecksumReadahead) {
   Options options;
-  SpecialEnv senv(Env::Default());
-  options.env = &senv;
+  auto senv = SpecialEnv::Get(Env::Default());
+  options.env = senv;
   // Disable block cache as we are going to check checksum for
   // the same file twice and measure number of reads.
   BlockBasedTableOptions table_options_no_bc;
@@ -346,19 +347,19 @@ TEST_F(CorruptionTest, VerifyChecksumReadahead) {
   dbi->TEST_CompactRange(0, nullptr, nullptr);
   dbi->TEST_CompactRange(1, nullptr, nullptr);
 
-  senv.count_random_reads_ = true;
-  senv.random_read_counter_.Reset();
+  senv->count_random_reads_ = true;
+  senv->random_read_counter_.Reset();
   ASSERT_OK(dbi->VerifyChecksum());
 
   // Make sure the counter is enabled.
-  ASSERT_GT(senv.random_read_counter_.Read(), 0);
+  ASSERT_GT(senv->random_read_counter_.Read(), 0);
 
   // The SST file is about 10MB. Default readahead size is 256KB.
   // Give a conservative 20 reads for metadata blocks, The number
   // of random reads should be within 10 MB / 256KB + 20 = 60.
-  ASSERT_LT(senv.random_read_counter_.Read(), 60);
+  ASSERT_LT(senv->random_read_counter_.Read(), 60);
 
-  senv.random_read_bytes_counter_ = 0;
+  senv->random_read_bytes_counter_ = 0;
   ReadOptions ro;
   ro.readahead_size = size_t{32 * 1024};
   ASSERT_OK(dbi->VerifyChecksum(ro));
@@ -368,8 +369,8 @@ TEST_F(CorruptionTest, VerifyChecksumReadahead) {
   //   10MB / 48KB + 0 = 213
   // The higher bound is
   //   10MB / 24KB + 20 = 447.
-  ASSERT_GE(senv.random_read_counter_.Read(), 213);
-  ASSERT_LE(senv.random_read_counter_.Read(), 447);
+  ASSERT_GE(senv->random_read_counter_.Read(), 213);
+  ASSERT_LE(senv->random_read_counter_.Read(), 447);
 
   // Test readahead shouldn't break mmap mode (where it should be
   // disabled).
@@ -582,11 +583,11 @@ TEST_F(CorruptionTest, FileSystemStateCorrupted) {
 
     if (iter == 0) {  // corrupt file size
       std::unique_ptr<WritableFile> file;
-      env_.NewWritableFile(filename, &file, EnvOptions());
+      env_->NewWritableFile(filename, &file, EnvOptions());
       file->Append(Slice("corrupted sst"));
       file.reset();
     } else {  // delete the file
-      env_.DeleteFile(filename);
+      env_->DeleteFile(filename);
     }
 
     Status x = TryReopen(&options);

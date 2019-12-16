@@ -62,7 +62,8 @@ namespace rocksdb {
 //     to the options file itself.
 //
 // @see LoadOptionsFromFile
-Status LoadLatestOptions(const std::string& dbpath, Env* env,
+Status LoadLatestOptions(const std::string& dbpath,
+                         const std::shared_ptr<Env>& env,
                          DBOptions* db_options,
                          std::vector<ColumnFamilyDescriptor>* cf_descs,
                          bool ignore_unknown_options = false,
@@ -72,14 +73,16 @@ Status LoadLatestOptions(const std::string& dbpath, Env* env,
 // and ColumnFamilyDescriptors based on the specified RocksDB Options file.
 //
 // @see LoadLatestOptions
-Status LoadOptionsFromFile(const std::string& options_file_name, Env* env,
+Status LoadOptionsFromFile(const std::string& options_file_name,
+                           const std::shared_ptr<Env>& env,
                            DBOptions* db_options,
                            std::vector<ColumnFamilyDescriptor>* cf_descs,
                            bool ignore_unknown_options = false,
                            std::shared_ptr<Cache>* cache = {});
 
 // Returns the latest options file name under the specified db path.
-Status GetLatestOptionsFileName(const std::string& dbpath, Env* env,
+Status GetLatestOptionsFileName(const std::string& dbpath,
+                                const std::shared_ptr<Env>& env,
                                 std::string* options_file_name);
 
 // Returns Status::OK if the input DBOptions and ColumnFamilyDescriptors
@@ -94,7 +97,7 @@ Status GetLatestOptionsFileName(const std::string& dbpath, Env* env,
 // * table_factory
 // * merge_operator
 Status CheckOptionsCompatibility(
-    const std::string& dbpath, Env* env, const DBOptions& db_options,
+    const std::string& dbpath, const std::shared_ptr<Env>& env, const DBOptions& db_options,
     const std::vector<ColumnFamilyDescriptor>& cf_descs,
     bool ignore_unknown_options = false);
 

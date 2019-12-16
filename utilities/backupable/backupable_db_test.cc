@@ -49,7 +49,7 @@ class DummyDB : public StackableDB {
 
   const std::string& GetName() const override { return dbname_; }
 
-  Env* GetEnv() const override { return options_.env; }
+  Env* GetEnv() const override { return options_.env.get(); }
 
   using DB::GetOptions;
   Options GetOptions(ColumnFamilyHandle* /*column_family*/) const override {
@@ -136,7 +136,7 @@ class DummyDB : public StackableDB {
 
 class TestEnv : public EnvWrapper {
  public:
-  explicit TestEnv(Env* t) : EnvWrapper(t) {}
+  explicit TestEnv(const std::shared_ptr<Env>& t) : EnvWrapper(t) {}
 
   class DummySequentialFile : public SequentialFile {
    public:
@@ -374,7 +374,7 @@ class TestEnv : public EnvWrapper {
 
 class FileManager : public EnvWrapper {
  public:
-  explicit FileManager(Env* t) : EnvWrapper(t), rnd_(5) {}
+  explicit FileManager(std::shared_ptr<Env>& t) : EnvWrapper(t), rnd_(5) {}
 
   Status DeleteRandomFileInDir(const std::string& dir) {
     std::vector<std::string> children;
@@ -536,27 +536,27 @@ class BackupableDBTest : public testing::Test {
     backupdir_ = "/tempbk";
 
     // set up envs
-    db_chroot_env_.reset(NewChrootEnv(Env::Default(), db_chroot));
-    backup_chroot_env_.reset(NewChrootEnv(Env::Default(), backup_chroot));
-    test_db_env_.reset(new TestEnv(db_chroot_env_.get()));
-    test_backup_env_.reset(new TestEnv(backup_chroot_env_.get()));
-    file_manager_.reset(new FileManager(backup_chroot_env_.get()));
+    db_chroot_env_ = NewChrootEnv(Env::Default(), db_chroot);
+    backup_chroot_env_ = NewChrootEnv(Env::Default(), backup_chroot);
+    test_db_env_ = std::make_shared<TestEnv>(db_chroot_env_);
+    test_backup_env_ = std::make_shared<TestEnv>(backup_chroot_env_);
+    file_manager_ = std::make_shared<FileManager>(backup_chroot_env_);
 
     // set up db options
     options_.create_if_missing = true;
     options_.paranoid_checks = true;
     options_.write_buffer_size = 1 << 17; // 128KB
-    options_.env = test_db_env_.get();
+    options_.env = test_db_env_;
     options_.wal_dir = dbname_;
 
     // Create logger
     DBOptions logger_options;
-    logger_options.env = db_chroot_env_.get();
+    logger_options.env = db_chroot_env_;
     CreateLoggerFromOptions(dbname_, logger_options, &logger_);
 
     // set up backup db options
     backupable_options_.reset(new BackupableDBOptions(
-        backupdir_, test_backup_env_.get(), true, logger_.get(), true));
+        backupdir_, test_backup_env_, true, logger_.get(), true));
 
     // most tests will use multi-threaded backups
     backupable_options_->max_background_operations = 7;
@@ -591,7 +591,7 @@ class BackupableDBTest : public testing::Test {
     backupable_options_->share_files_with_checksum =
         shared_option == kShareWithChecksum;
     BackupEngine* backup_engine;
-    ASSERT_OK(BackupEngine::Open(test_db_env_.get(), *backupable_options_,
+    ASSERT_OK(BackupEngine::Open(test_db_env_, *backupable_options_,
                                  &backup_engine));
     backup_engine_.reset(backup_engine);
   }
@@ -604,7 +604,7 @@ class BackupableDBTest : public testing::Test {
   void OpenBackupEngine() {
     backupable_options_->destroy_old_data = false;
     BackupEngine* backup_engine;
-    ASSERT_OK(BackupEngine::Open(test_db_env_.get(), *backupable_options_,
+    ASSERT_OK(BackupEngine::Open(test_db_env_, *backupable_options_,
                                  &backup_engine));
     backup_engine_.reset(backup_engine);
   }
@@ -666,11 +666,11 @@ class BackupableDBTest : public testing::Test {
   std::shared_ptr<Logger> logger_;
 
   // envs
-  std::unique_ptr<Env> db_chroot_env_;
-  std::unique_ptr<Env> backup_chroot_env_;
-  std::unique_ptr<TestEnv> test_db_env_;
-  std::unique_ptr<TestEnv> test_backup_env_;
-  std::unique_ptr<FileManager> file_manager_;
+  std::shared_ptr<Env> db_chroot_env_;
+  std::shared_ptr<Env> backup_chroot_env_;
+  std::shared_ptr<TestEnv> test_db_env_;
+  std::shared_ptr<TestEnv> test_backup_env_;
+  std::shared_ptr<FileManager> file_manager_;
 
   // all the dbs!
   DummyDB* dummy_db_; // BackupableDB owns dummy_db_
@@ -1154,7 +1154,7 @@ TEST_F(BackupableDBTest, NoDeleteWithReadOnly) {
 
   backupable_options_->destroy_old_data = false;
   BackupEngineReadOnly* read_only_backup_engine;
-  ASSERT_OK(BackupEngineReadOnly::Open(backup_chroot_env_.get(),
+  ASSERT_OK(BackupEngineReadOnly::Open(backup_chroot_env_,
                                        *backupable_options_,
                                        &read_only_backup_engine));
 
@@ -1455,7 +1455,7 @@ TEST_F(BackupableDBTest, ReadOnlyBackupEngine) {
   test_backup_env_->SetLimitDeleteFiles(0);
   BackupEngineReadOnly* read_only_backup_engine;
   ASSERT_OK(BackupEngineReadOnly::Open(
-      db_chroot_env_.get(), *backupable_options_, &read_only_backup_engine));
+      db_chroot_env_, *backupable_options_, &read_only_backup_engine));
   std::vector<BackupInfo> backup_info;
   read_only_backup_engine->GetBackupInfo(&backup_info);
   ASSERT_EQ(backup_info.size(), 2U);
@@ -1518,7 +1518,7 @@ TEST_F(BackupableDBTest, EnvFailures) {
   // get children failure
   {
     test_backup_env_->SetGetChildrenFailure(true);
-    ASSERT_NOK(BackupEngine::Open(test_db_env_.get(), *backupable_options_,
+    ASSERT_NOK(BackupEngine::Open(test_db_env_, *backupable_options_,
                                   &backup_engine));
     test_backup_env_->SetGetChildrenFailure(false);
   }
@@ -1526,7 +1526,7 @@ TEST_F(BackupableDBTest, EnvFailures) {
   // created dir failure
   {
     test_backup_env_->SetCreateDirIfMissingFailure(true);
-    ASSERT_NOK(BackupEngine::Open(test_db_env_.get(), *backupable_options_,
+    ASSERT_NOK(BackupEngine::Open(test_db_env_, *backupable_options_,
                                   &backup_engine));
     test_backup_env_->SetCreateDirIfMissingFailure(false);
   }
@@ -1534,7 +1534,7 @@ TEST_F(BackupableDBTest, EnvFailures) {
   // new directory failure
   {
     test_backup_env_->SetNewDirectoryFailure(true);
-    ASSERT_NOK(BackupEngine::Open(test_db_env_.get(), *backupable_options_,
+    ASSERT_NOK(BackupEngine::Open(test_db_env_, *backupable_options_,
                                   &backup_engine));
     test_backup_env_->SetNewDirectoryFailure(false);
   }
@@ -1549,7 +1549,7 @@ TEST_F(BackupableDBTest, EnvFailures) {
     test_backup_env_->SetDummySequentialFile(true);
     test_backup_env_->SetDummySequentialFileFailReads(true);
     backupable_options_->destroy_old_data = false;
-    ASSERT_NOK(BackupEngine::Open(test_db_env_.get(), *backupable_options_,
+    ASSERT_NOK(BackupEngine::Open(test_db_env_, *backupable_options_,
                                   &backup_engine));
     test_backup_env_->SetDummySequentialFile(false);
     test_backup_env_->SetDummySequentialFileFailReads(false);
@@ -1557,7 +1557,7 @@ TEST_F(BackupableDBTest, EnvFailures) {
 
   // no failure
   {
-    ASSERT_OK(BackupEngine::Open(test_db_env_.get(), *backupable_options_,
+    ASSERT_OK(BackupEngine::Open(test_db_env_, *backupable_options_,
                                  &backup_engine));
     delete backup_engine;
   }
@@ -1608,7 +1608,7 @@ TEST_F(BackupableDBTest, Issue921Test) {
   backupable_options_->share_table_files = false;
   backup_chroot_env_->CreateDirIfMissing(backupable_options_->backup_dir);
   backupable_options_->backup_dir += "/new_dir";
-  ASSERT_OK(BackupEngine::Open(backup_chroot_env_.get(), *backupable_options_,
+  ASSERT_OK(BackupEngine::Open(backup_chroot_env_, *backupable_options_,
                                &backup_engine));
 
   delete backup_engine;
@@ -1689,7 +1689,7 @@ TEST_F(BackupableDBTest, LimitBackupsOpened) {
   backupable_options_->max_valid_backups_to_open = 2;
   backupable_options_->destroy_old_data = false;
   BackupEngineReadOnly* read_only_backup_engine;
-  ASSERT_OK(BackupEngineReadOnly::Open(backup_chroot_env_.get(),
+  ASSERT_OK(BackupEngineReadOnly::Open(backup_chroot_env_,
                                        *backupable_options_,
                                        &read_only_backup_engine));
 
@@ -1793,7 +1793,7 @@ TEST_P(BackupableDBTestWithParam, BackupUsingDirectIO) {
   // backup env
   // We use ChrootEnv underneath so the below line checks for direct I/O support
   // in the chroot directory, not the true filesystem root.
-  if (!test::IsDirectIOSupported(test_db_env_.get(), "/")) {
+  if (!test::IsDirectIOSupported(test_db_env_, "/")) {
     return;
   }
   const int kNumKeysPerBackup = 100;

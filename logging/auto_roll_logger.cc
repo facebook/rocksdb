@@ -15,7 +15,8 @@ namespace rocksdb {
 #ifndef ROCKSDB_LITE
 // -- AutoRollLogger
 
-AutoRollLogger::AutoRollLogger(Env* env, const std::string& dbname,
+  AutoRollLogger::AutoRollLogger(const std::shared_ptr<Env>& env,
+                                 const std::string& dbname,
                                const std::string& db_log_dir,
                                size_t log_max_size,
                                size_t log_file_time_to_roll,
@@ -98,7 +99,7 @@ void AutoRollLogger::GetExistingFiles() {
   std::string parent_dir;
   std::vector<std::string> info_log_files;
   Status s =
-      GetInfoLogFiles(env_, db_log_dir_, dbname_, &parent_dir, &info_log_files);
+    GetInfoLogFiles(env_.get(), db_log_dir_, dbname_, &parent_dir, &info_log_files);
   if (status_.ok()) {
     status_ = s;
   }
@@ -253,7 +254,7 @@ Status CreateLoggerFromOptions(const std::string& dbname,
     return Status::OK();
   }
 
-  Env* env = options.env;
+  std::shared_ptr<Env> env = options.env;
   std::string db_absolute_path;
   env->GetAbsolutePath(dbname, &db_absolute_path);
   std::string fname =

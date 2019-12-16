@@ -21,7 +21,7 @@ class ExternalSSTFileBasicTest
  public:
   ExternalSSTFileBasicTest() : DBTestBase("/external_sst_file_basic_test") {
     sst_files_dir_ = dbname_ + "/sst_files/";
-    fault_injection_test_env_.reset(new FaultInjectionTestEnv(Env::Default()));
+    fault_injection_test_env_ = FaultInjectionTestEnv::Get(Env::Default());
     DestroyAndRecreateExternalSSTFilesDir();
   }
 
@@ -142,7 +142,7 @@ class ExternalSSTFileBasicTest
 
  protected:
   std::string sst_files_dir_;
-  std::unique_ptr<FaultInjectionTestEnv> fault_injection_test_env_;
+  std::shared_ptr<FaultInjectionTestEnv> fault_injection_test_env_;
 };
 
 TEST_F(ExternalSSTFileBasicTest, Basic) {
@@ -695,7 +695,7 @@ TEST_F(ExternalSSTFileBasicTest, FadviseTrigger) {
 TEST_F(ExternalSSTFileBasicTest, SyncFailure) {
   Options options;
   options.create_if_missing = true;
-  options.env = fault_injection_test_env_.get();
+  options.env = fault_injection_test_env_;
 
   std::vector<std::pair<std::string, std::string>> test_cases = {
       {"ExternalSstFileIngestionJob::BeforeSyncIngestedFile",
@@ -748,8 +748,8 @@ TEST_F(ExternalSSTFileBasicTest, SyncFailure) {
 TEST_F(ExternalSSTFileBasicTest, VerifyChecksumReadahead) {
   Options options;
   options.create_if_missing = true;
-  SpecialEnv senv(Env::Default());
-  options.env = &senv;
+  auto senv = SpecialEnv::Get(Env::Default());
+  options.env = senv;
   DestroyAndReopen(options);
 
   Options sst_file_writer_options;
@@ -768,11 +768,11 @@ TEST_F(ExternalSSTFileBasicTest, VerifyChecksumReadahead) {
   // preads.
   IngestExternalFileOptions ingest_opt;
   ingest_opt.move_files = false;
-  senv.count_random_reads_ = true;
-  senv.random_read_bytes_counter_ = 0;
+  senv->count_random_reads_ = true;
+  senv->random_read_bytes_counter_ = 0;
   ASSERT_OK(db_->IngestExternalFile({file_name}, ingest_opt));
 
-  auto base_num_reads = senv.random_read_counter_.Read();
+  auto base_num_reads = senv->random_read_counter_.Read();
   // Make sure the counter is enabled.
   ASSERT_GT(base_num_reads, 0);
 
@@ -781,17 +781,17 @@ TEST_F(ExternalSSTFileBasicTest, VerifyChecksumReadahead) {
   ingest_opt.verify_checksums_before_ingest = true;
   ingest_opt.verify_checksums_readahead_size = size_t{2 * 1024 * 1024};
 
-  senv.count_random_reads_ = true;
-  senv.random_read_bytes_counter_ = 0;
+  senv->count_random_reads_ = true;
+  senv->random_read_bytes_counter_ = 0;
   ASSERT_OK(db_->IngestExternalFile({file_name}, ingest_opt));
 
   // Make sure the counter is enabled.
-  ASSERT_GT(senv.random_read_counter_.Read() - base_num_reads, 0);
+  ASSERT_GT(senv->random_read_counter_.Read() - base_num_reads, 0);
 
   // The SST file is about 20MB. Readahead size is 2MB.
   // Give a conservative 15 reads for metadata blocks, the number
   // of random reads should be within 20 MB / 2MB + 15 = 25.
-  ASSERT_LE(senv.random_read_counter_.Read() - base_num_reads, 40);
+  ASSERT_LE(senv->random_read_counter_.Read() - base_num_reads, 40);
 
   Destroy(options);
 }

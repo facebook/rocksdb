@@ -26,7 +26,7 @@ enum BatchOperation { OP_PUT = 0, OP_DELETE = 1 };
 
 class SpecialTimeEnv : public EnvWrapper {
  public:
-  explicit SpecialTimeEnv(Env* base) : EnvWrapper(base) {
+  explicit SpecialTimeEnv(const std::shared_ptr<Env>& base) : EnvWrapper(base) {
     base->GetCurrentTime(&current_time_);
   }
 
@@ -43,10 +43,10 @@ class SpecialTimeEnv : public EnvWrapper {
 class TtlTest : public testing::Test {
  public:
   TtlTest() {
-    env_.reset(new SpecialTimeEnv(Env::Default()));
+    env_ = std::make_shared<SpecialTimeEnv>(Env::Default());
     dbname_ = test::PerThreadDBPath("db_ttl");
     options_.create_if_missing = true;
-    options_.env = env_.get();
+    options_.env = env_;
     // ensure that compaction is kicked in to always strip timestamp from kvs
     options_.max_compaction_bytes = 1;
     // compaction should take place always from level0 for determinism
@@ -377,7 +377,7 @@ class TtlTest : public testing::Test {
   static const int64_t kSampleSize_ = 100;
   std::string dbname_;
   DBWithTTL* db_ttl_;
-  std::unique_ptr<SpecialTimeEnv> env_;
+  std::shared_ptr<SpecialTimeEnv> env_;
 
  private:
   Options options_;
@@ -609,7 +609,7 @@ TEST_F(TtlTest, ColumnFamiliesTest) {
   DB* db;
   Options options;
   options.create_if_missing = true;
-  options.env = env_.get();
+  options.env = env_;
 
   DB::Open(options, dbname_, &db);
   ColumnFamilyHandle* handle;

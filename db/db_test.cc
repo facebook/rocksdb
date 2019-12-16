@@ -93,10 +93,10 @@ class DBTestWithParam
 };
 
 TEST_F(DBTest, MockEnvTest) {
-  std::unique_ptr<MockEnv> env{new MockEnv(Env::Default())};
+  std::shared_ptr<MockEnv> env = std::make_shared<MockEnv>(Env::Default());
   Options options;
   options.create_if_missing = true;
-  options.env = env.get();
+  options.env = env;
   DB* db;
 
   const Slice keys[] = {Slice("aaa"), Slice("bbb"), Slice("ccc")};
@@ -143,10 +143,10 @@ TEST_F(DBTest, MockEnvTest) {
 // defined.
 #ifndef ROCKSDB_LITE
 TEST_F(DBTest, MemEnvTest) {
-  std::unique_ptr<Env> env{NewMemEnv(Env::Default())};
+  std::shared_ptr<Env> env = NewMemEnv(Env::Default());
   Options options;
   options.create_if_missing = true;
-  options.env = env.get();
+  options.env = env;
   DB* db;
 
   const Slice keys[] = {Slice("aaa"), Slice("bbb"), Slice("ccc")};
@@ -3982,7 +3982,7 @@ TEST_F(DBTest, DynamicMemtableOptions) {
 
 #ifdef ROCKSDB_USING_THREAD_STATUS
 namespace {
-void VerifyOperationCount(Env* env, ThreadStatus::OperationType op_type,
+void VerifyOperationCount(const std::shared_ptr<Env>& env, ThreadStatus::OperationType op_type,
                           int expected_count) {
   int op_count = 0;
   std::vector<ThreadStatus> thread_list;

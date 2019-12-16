@@ -15,7 +15,7 @@ namespace rocksdb {
 // operations, reporting results to variables in PerfContext.
 class TimedEnv : public EnvWrapper {
  public:
-  explicit TimedEnv(Env* base_env) : EnvWrapper(base_env) {}
+  explicit TimedEnv(const std::shared_ptr<Env>& base_env) : EnvWrapper(base_env) {}
 
   Status NewSequentialFile(const std::string& fname,
                            std::unique_ptr<SequentialFile>* result,
@@ -134,11 +134,18 @@ class TimedEnv : public EnvWrapper {
   }
 };
 
-Env* NewTimedEnv(Env* base_env) { return new TimedEnv(base_env); }
+std::shared_ptr<Env> NewTimedEnv(const std::shared_ptr<Env>& base_env) {
+  std::shared_ptr<Env> result;
+  result.reset(new TimedEnv(base_env));
+  return result;
+}
 
 #else  // ROCKSDB_LITE
 
-Env* NewTimedEnv(Env* /*base_env*/) { return nullptr; }
+std::shared_ptr<Env> NewTimedEnv(const std::shared_ptr<Env>&) {
+  std::shared_ptr<Env> result;
+  return result;
+}
 
 #endif  // !ROCKSDB_LITE
 

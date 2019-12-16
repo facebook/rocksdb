@@ -41,7 +41,7 @@ enum WriteOrdering : bool { kOrderedWrite, kUnorderedWrite };
 class TransactionTestBase : public ::testing::Test {
  public:
   TransactionDB* db;
-  FaultInjectionTestEnv* env;
+  std::shared_ptr<FaultInjectionTestEnv> env;
   std::string dbname;
   Options options;
 
@@ -58,7 +58,7 @@ class TransactionTestBase : public ::testing::Test {
     options.unordered_write = write_ordering == kUnorderedWrite;
     options.level0_file_num_compaction_trigger = 2;
     options.merge_operator = MergeOperators::CreateFromStringId("stringappend");
-    env = new FaultInjectionTestEnv(Env::Default());
+    env = std::make_shared<FaultInjectionTestEnv>(Env::Default());
     options.env = env;
     options.two_write_queues = two_write_queue;
     dbname = test::PerThreadDBPath("transaction_testdb");
@@ -92,7 +92,6 @@ class TransactionTestBase : public ::testing::Test {
     // from attempting to delete such files in DestroyDB.
     options.env = Env::Default();
     DestroyDB(dbname, options);
-    delete env;
   }
 
   Status ReOpenNoDelete() {

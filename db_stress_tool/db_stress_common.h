@@ -207,7 +207,7 @@ const int kRandomValueMaxFactor = 3;
 const int kValueMaxLen = 100;
 
 // posix or hdfs environment
-extern rocksdb::Env* FLAGS_env;
+extern std::shared_ptr<rocksdb::Env> FLAGS_env;
 
 extern enum rocksdb::CompressionType FLAGS_compression_type_e;
 extern enum rocksdb::ChecksumType FLAGS_checksum_type_e;

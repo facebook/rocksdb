@@ -486,7 +486,7 @@ class DBWALTestWithParam
 TEST_P(DBWALTestWithParam, WALTrashCleanupOnOpen) {
   class MyEnv : public EnvWrapper {
    public:
-    MyEnv(Env* t) : EnvWrapper(t), fake_log_delete(false) {}
+    MyEnv(const std::shared_ptr<Env>& t) : EnvWrapper(t), fake_log_delete(false) {}
 
     Status DeleteFile(const std::string& fname) {
       if (fname.find(".log.trash") != std::string::npos && fake_log_delete) {
@@ -502,7 +502,7 @@ TEST_P(DBWALTestWithParam, WALTrashCleanupOnOpen) {
     bool fake_log_delete;
   };
 
-  std::unique_ptr<MyEnv> env(new MyEnv(Env::Default()));
+  std::shared_ptr<MyEnv> env = std::make_shared<MyEnv>(Env::Default());
   Destroy(last_options_);
 
   env->set_fake_log_delete(true);
@@ -510,7 +510,7 @@ TEST_P(DBWALTestWithParam, WALTrashCleanupOnOpen) {
   Options options = CurrentOptions();
   options.disable_auto_compactions = true;
   options.compression = kNoCompression;
-  options.env = env.get();
+  options.env = env;
   options.wal_dir = dbname_ + wal_dir_;
 
   int64_t rate_bytes_per_sec = 1024 * 10;  // 10 Kbs / Sec
@@ -586,9 +586,9 @@ TEST_F(DBSSTTest, OpenDBWithExistingTrash) {
 
   // Add some trash files to the db directory so the DB can clean them up
   env_->CreateDirIfMissing(dbname_);
-  ASSERT_OK(WriteStringToFile(env_, "abc", dbname_ + "/" + "001.sst.trash"));
-  ASSERT_OK(WriteStringToFile(env_, "abc", dbname_ + "/" + "002.sst.trash"));
-  ASSERT_OK(WriteStringToFile(env_, "abc", dbname_ + "/" + "003.sst.trash"));
+  ASSERT_OK(WriteStringToFile(env_.get(), "abc", dbname_ + "/" + "001.sst.trash"));
+  ASSERT_OK(WriteStringToFile(env_.get(), "abc", dbname_ + "/" + "002.sst.trash"));
+  ASSERT_OK(WriteStringToFile(env_.get(), "abc", dbname_ + "/" + "003.sst.trash"));
 
   // Reopen the DB and verify that it deletes existing trash files
   ASSERT_OK(TryReopen(options));
@@ -1011,13 +1011,13 @@ TEST_F(DBSSTTest, GetTotalSstFilesSize) {
   // we encode table properties as varint64. Force time to be 0 to work around
   // it. Should remove the workaround after we propagate the property on
   // compaction.
-  std::unique_ptr<MockTimeEnv> mock_env(new MockTimeEnv(Env::Default()));
+  auto mock_env = MockTimeEnv::Get(Env::Default());
   mock_env->set_current_time(0);
 
   Options options = CurrentOptions();
   options.disable_auto_compactions = true;
   options.compression = kNoCompression;
-  options.env = mock_env.get();
+  options.env = mock_env;
   DestroyAndReopen(options);
   // Generate 5 files in L0
   for (int i = 0; i < 5; i++) {

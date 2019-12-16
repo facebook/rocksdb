@@ -28,7 +28,7 @@ namespace rocksdb {
 namespace {
 class NoSleepEnv : public EnvWrapper {
  public:
-  NoSleepEnv(Env* base) : EnvWrapper(base) {}
+  NoSleepEnv(const std::shared_ptr<Env>& base) : EnvWrapper(base) {}
   void SleepForMicroseconds(int micros) override {
     fake_time_ += static_cast<uint64_t>(micros);
   }
@@ -76,7 +76,7 @@ class AutoRollLoggerTest : public testing::Test {
 
   void RollLogFileBySizeTest(AutoRollLogger* logger, size_t log_max_size,
                              const std::string& log_message);
-  void RollLogFileByTimeTest(Env*, AutoRollLogger* logger, size_t time,
+  void RollLogFileByTimeTest(const std::shared_ptr<Env>& env, AutoRollLogger* logger, size_t time,
                              const std::string& log_message);
   // return list of files under kTestDir that contains "LOG"
   std::vector<std::string> GetLogFiles() {
@@ -117,7 +117,7 @@ class AutoRollLoggerTest : public testing::Test {
   static const std::string kSampleMessage;
   static const std::string kTestDir;
   static const std::string kLogFile;
-  static Env* default_env;
+  static std::shared_ptr<Env> default_env;
 };
 
 const std::string AutoRollLoggerTest::kSampleMessage(
@@ -126,7 +126,7 @@ const std::string AutoRollLoggerTest::kTestDir(
     test::PerThreadDBPath("db_log_test"));
 const std::string AutoRollLoggerTest::kLogFile(
     test::PerThreadDBPath("db_log_test") + "/LOG");
-Env* AutoRollLoggerTest::default_env = Env::Default();
+std::shared_ptr<Env> AutoRollLoggerTest::default_env = Env::Default();
 
 void AutoRollLoggerTest::RollLogFileBySizeTest(AutoRollLogger* logger,
                                                size_t log_max_size,
@@ -154,7 +154,7 @@ void AutoRollLoggerTest::RollLogFileBySizeTest(AutoRollLogger* logger,
   ASSERT_TRUE(message_size == logger->GetLogFileSize());
 }
 
-void AutoRollLoggerTest::RollLogFileByTimeTest(Env* env, AutoRollLogger* logger,
+void AutoRollLoggerTest::RollLogFileByTimeTest(const std::shared_ptr<Env>& env, AutoRollLogger* logger,
                                                size_t time,
                                                const std::string& log_message) {
   uint64_t expected_ctime;
@@ -205,7 +205,7 @@ TEST_F(AutoRollLoggerTest, RollLogFileBySize) {
 }
 
 TEST_F(AutoRollLoggerTest, RollLogFileByTime) {
-  NoSleepEnv nse(Env::Default());
+  std::shared_ptr<NoSleepEnv> nse = std::make_shared<NoSleepEnv>(Env::Default());
 
   size_t time = 2;
   size_t log_size = 1024 * 5;
@@ -214,10 +214,10 @@ TEST_F(AutoRollLoggerTest, RollLogFileByTime) {
   InitTestDb();
   // -- Test the existence of file during the server restart.
   ASSERT_EQ(Status::NotFound(), default_env->FileExists(kLogFile));
-  AutoRollLogger logger(&nse, kTestDir, "", log_size, time, keep_log_file_num);
+  AutoRollLogger logger(nse, kTestDir, "", log_size, time, keep_log_file_num);
   ASSERT_OK(default_env->FileExists(kLogFile));
 
-  RollLogFileByTimeTest(&nse, &logger, time,
+  RollLogFileByTimeTest(nse, &logger, time,
                         kSampleMessage + ":RollLogFileByTime");
 }
 
@@ -252,8 +252,8 @@ TEST_F(AutoRollLoggerTest, CompositeRollByTimeAndSizeLogger) {
 
   InitTestDb();
 
-  NoSleepEnv nse(Env::Default());
-  AutoRollLogger logger(&nse, kTestDir, "", log_max_size, time,
+  std::shared_ptr<NoSleepEnv> nse = std::make_shared<NoSleepEnv>(Env::Default());
+  AutoRollLogger logger(nse, kTestDir, "", log_max_size, time,
                         keep_log_file_num);
 
   // Test the ability to roll by size
@@ -261,7 +261,7 @@ TEST_F(AutoRollLoggerTest, CompositeRollByTimeAndSizeLogger) {
                         kSampleMessage + ":CompositeRollByTimeAndSizeLogger");
 
   // Test the ability to roll by Time
-  RollLogFileByTimeTest(&nse, &logger, time,
+  RollLogFileByTimeTest(nse, &logger, time,
                         kSampleMessage + ":CompositeRollByTimeAndSizeLogger");
 }
 
@@ -270,7 +270,7 @@ TEST_F(AutoRollLoggerTest, CompositeRollByTimeAndSizeLogger) {
 // port
 TEST_F(AutoRollLoggerTest, CreateLoggerFromOptions) {
   DBOptions options;
-  NoSleepEnv nse(Env::Default());
+  std::shared_ptr<NoSleepEnv> nse = std::make_shared<NoSleepEnv>(Env::Default());
   std::shared_ptr<Logger> logger;
 
   // Normal logger
@@ -289,14 +289,14 @@ TEST_F(AutoRollLoggerTest, CreateLoggerFromOptions) {
       kSampleMessage + ":CreateLoggerFromOptions - size");
 
   // Only roll by Time
-  options.env = &nse;
+  options.env = nse;
   InitTestDb();
   options.max_log_file_size = 0;
   options.log_file_time_to_roll = 2;
   ASSERT_OK(CreateLoggerFromOptions(kTestDir, options, &logger));
   auto_roll_logger =
     dynamic_cast<AutoRollLogger*>(logger.get());
-  RollLogFileByTimeTest(&nse, auto_roll_logger, options.log_file_time_to_roll,
+  RollLogFileByTimeTest(nse, auto_roll_logger, options.log_file_time_to_roll,
                         kSampleMessage + ":CreateLoggerFromOptions - time");
 
   // roll by both Time and size
@@ -308,7 +308,7 @@ TEST_F(AutoRollLoggerTest, CreateLoggerFromOptions) {
     dynamic_cast<AutoRollLogger*>(logger.get());
   RollLogFileBySizeTest(auto_roll_logger, options.max_log_file_size,
                         kSampleMessage + ":CreateLoggerFromOptions - both");
-  RollLogFileByTimeTest(&nse, auto_roll_logger, options.log_file_time_to_roll,
+  RollLogFileByTimeTest(nse, auto_roll_logger, options.log_file_time_to_roll,
                         kSampleMessage + ":CreateLoggerFromOptions - both");
 
   // Set keep_log_file_num

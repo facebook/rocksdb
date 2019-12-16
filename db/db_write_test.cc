@@ -41,10 +41,9 @@ TEST_P(DBWriteTest, SyncAndDisableWAL) {
 
 TEST_P(DBWriteTest, IOErrorOnWALWritePropagateToWriteThreadFollower) {
   constexpr int kNumThreads = 5;
-  std::unique_ptr<FaultInjectionTestEnv> mock_env(
-      new FaultInjectionTestEnv(Env::Default()));
+  auto mock_env = FaultInjectionTestEnv::Get(Env::Default());
   Options options = GetOptions();
-  options.env = mock_env.get();
+  options.env = mock_env;
   Reopen(options);
   std::atomic<int> ready_count{0};
   std::atomic<int> leader_count{0};
@@ -110,10 +109,9 @@ TEST_P(DBWriteTest, ManualWalFlushInEffect) {
 }
 
 TEST_P(DBWriteTest, IOErrorOnWALWriteTriggersReadOnlyMode) {
-  std::unique_ptr<FaultInjectionTestEnv> mock_env(
-      new FaultInjectionTestEnv(Env::Default()));
+  auto mock_env = FaultInjectionTestEnv::Get(Env::Default());
   Options options = GetOptions();
-  options.env = mock_env.get();
+  options.env = mock_env;
   Reopen(options);
   for (int i = 0; i < 2; i++) {
     // Forcibly fail WAL write for the first Put only. Subsequent Puts should
@@ -142,10 +140,9 @@ TEST_P(DBWriteTest, IOErrorOnWALWriteTriggersReadOnlyMode) {
 
 TEST_P(DBWriteTest, IOErrorOnSwitchMemtable) {
   Random rnd(301);
-  std::unique_ptr<FaultInjectionTestEnv> mock_env(
-      new FaultInjectionTestEnv(Env::Default()));
+  auto mock_env = FaultInjectionTestEnv::Get(Env::Default());
   Options options = GetOptions();
-  options.env = mock_env.get();
+  options.env = mock_env;
   options.writable_file_max_buffer_size = 4 * 1024 * 1024;
   options.write_buffer_size = 3 * 512 * 1024;
   options.wal_bytes_per_sync = 256 * 1024;

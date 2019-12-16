@@ -556,7 +556,7 @@ inline std::string EncodeInt(uint64_t x) {
       std::string* contents_;
     };
 
-    explicit StringEnv(Env* t) : EnvWrapper(t) {}
+    explicit StringEnv(const std::shared_ptr<Env>& t) : EnvWrapper(t) {}
     ~StringEnv() override {}
 
     const std::string& GetContent(const std::string& f) { return files_[f]; }
@@ -760,9 +760,9 @@ TableFactory* RandomTableFactory(Random* rnd, int pre_defined = -1);
 
 std::string RandomName(Random* rnd, const size_t len);
 
-Status DestroyDir(Env* env, const std::string& dir);
+Status DestroyDir(const std::shared_ptr<Env>& env, const std::string& dir);
 
-bool IsDirectIOSupported(Env* env, const std::string& dir);
+bool IsDirectIOSupported(const std::shared_ptr<Env>& env, const std::string& dir);
 
 // Return the number of lines where a given pattern was found in a file.
 size_t GetLinesCount(const std::string& fname, const std::string& pattern);

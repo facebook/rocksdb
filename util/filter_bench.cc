@@ -303,7 +303,7 @@ void FilterBench::Go() {
   size_t total_memory_used = 0;
   size_t total_keys_added = 0;
 
-  rocksdb::StopWatchNano timer(rocksdb::Env::Default(), true);
+  rocksdb::StopWatchNano timer(rocksdb::Env::Default().get(), true);
 
   while (total_memory_used < 1024 * 1024 * FLAGS_working_mem_size_mb) {
     uint32_t filter_id = random_.Next();
@@ -501,7 +501,7 @@ double FilterBench::RandomQueryTest(uint32_t inside_threshold, bool dry_run,
     batch_slice_ptrs[i] = &batch_slices[i];
   }
 
-  rocksdb::StopWatchNano timer(rocksdb::Env::Default(), true);
+  rocksdb::StopWatchNano timer(rocksdb::Env::Default().get(), true);
 
   for (uint64_t q = 0; q < max_queries; q += batch_size) {
     bool inside_this_time = random_.Next() <= inside_threshold;

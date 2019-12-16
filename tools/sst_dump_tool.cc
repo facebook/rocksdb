@@ -155,8 +155,7 @@ Status SstFileDumper::VerifyChecksum() {
 
 Status SstFileDumper::DumpTable(const std::string& out_filename) {
   std::unique_ptr<WritableFile> out_file;
-  Env* env = options_.env;
-  env->NewWritableFile(out_filename, &out_file, soptions_);
+  options_.env->NewWritableFile(out_filename, &out_file, soptions_);
   Status s = table_reader_->DumpTable(out_file.get());
   out_file->Close();
   return s;
@@ -166,7 +165,7 @@ uint64_t SstFileDumper::CalculateCompressedTableSize(
     const TableBuilderOptions& tb_options, size_t block_size,
     uint64_t* num_data_blocks) {
   std::unique_ptr<WritableFile> out_file;
-  std::unique_ptr<Env> env(NewMemEnv(options_.env));
+  std::shared_ptr<Env> env = NewMemEnv(options_.env);
   env->NewWritableFile(testFileName, &out_file, soptions_);
   std::unique_ptr<WritableFileWriter> dest_writer;
   dest_writer.reset(
@@ -619,26 +618,23 @@ int SSTDumpTool::Run(int argc, char** argv, Options options) {
     exit(1);
   }
 
-  std::shared_ptr<rocksdb::Env> env_guard;
-
   // If caller of SSTDumpTool::Run(...) does not specify a different env other
   // than Env::Default(), then try to load custom env based on dir_or_file.
   // Otherwise, the caller is responsible for creating custom env.
   if (!options.env || options.env == rocksdb::Env::Default()) {
-    Env* env = Env::Default();
-    Status s = Env::LoadEnv(env_uri ? env_uri : "", &env, &env_guard);
+    auto env = Env::Default();
+    Status s = Env::LoadEnv(env_uri ? env_uri : "", &env);
     if (!s.ok() && !s.IsNotFound()) {
       fprintf(stderr, "LoadEnv: %s\n", s.ToString().c_str());
       exit(1);
     }
     options.env = env;
   } else {
-    fprintf(stdout, "options.env is %p\n", options.env);
+    fprintf(stdout, "options.env is %p\n", options.env.get());
   }
 
   std::vector<std::string> filenames;
-  rocksdb::Env* env = options.env;
-  rocksdb::Status st = env->GetChildren(dir_or_file, &filenames);
+  rocksdb::Status st = options.env->GetChildren(dir_or_file, &filenames);
   bool dir = true;
   if (!st.ok()) {
     filenames.clear();

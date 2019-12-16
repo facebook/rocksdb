@@ -154,7 +154,7 @@ class CacheBench {
   }
 
   bool Run() {
-    rocksdb::Env* env = rocksdb::Env::Default();
+    auto env = rocksdb::Env::Default();
 
     PrintEnv();
     SharedState shared(this);

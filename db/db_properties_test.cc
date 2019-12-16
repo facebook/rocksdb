@@ -1415,10 +1415,10 @@ TEST_F(DBPropertiesTest, EstimateNumKeysUnderflow) {
 }
 
 TEST_F(DBPropertiesTest, EstimateOldestKeyTime) {
-  std::unique_ptr<MockTimeEnv> mock_env(new MockTimeEnv(Env::Default()));
+  auto mock_env = MockTimeEnv::Get(Env::Default());
   uint64_t oldest_key_time = 0;
   Options options;
-  options.env = mock_env.get();
+  options.env = mock_env;
 
   // "rocksdb.estimate-oldest-key-time" only available to fifo compaction.
   mock_env->set_current_time(100);

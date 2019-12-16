@@ -207,7 +207,7 @@ TEST_F(EventListenerTest, OnSingleDBCompactionTest) {
 // This simple Listener can only handle one flush at a time.
 class TestFlushListener : public EventListener {
  public:
-  TestFlushListener(Env* env, EventListenerTest* test)
+  TestFlushListener(const std::shared_ptr<Env>& env, EventListenerTest* test)
       : slowdown_count(0), stop_count(0), db_closed(), env_(env), test_(test) {
     db_closed = false;
   }
@@ -296,7 +296,7 @@ class TestFlushListener : public EventListener {
   TableFileCreationInfo prev_fc_info_;
 
  protected:
-  Env* env_;
+  std::shared_ptr<Env> env_;
   EventListenerTest* test_;
 };
 
@@ -693,6 +693,7 @@ class TableFileCreationListener : public EventListener {
   };
 
   TableFileCreationListener() {
+    test_env = std::make_shared<TestEnv>();
     for (int i = 0; i < 2; i++) {
       started_[i] = finished_[i] = failure_[i] = 0;
     }
@@ -761,7 +762,7 @@ class TableFileCreationListener : public EventListener {
     }
   }
 
-  TestEnv test_env;
+  std::shared_ptr<TestEnv> test_env;
   int started_[2];
   int finished_[2];
   int failure_[2];
@@ -772,7 +773,7 @@ TEST_F(EventListenerTest, TableFileCreationListenersTest) {
   Options options;
   options.create_if_missing = true;
   options.listeners.push_back(listener);
-  options.env = &listener->test_env;
+  options.env = listener->test_env;
   DestroyAndReopen(options);
 
   ASSERT_OK(Put("foo", "aaa"));
@@ -783,10 +784,10 @@ TEST_F(EventListenerTest, TableFileCreationListenersTest) {
 
   ASSERT_OK(Put("foo", "aaa1"));
   ASSERT_OK(Put("bar", "bbb1"));
-  listener->test_env.SetStatus(Status::NotSupported("not supported"));
+  listener->test_env->SetStatus(Status::NotSupported("not supported"));
   ASSERT_NOK(Flush());
   listener->CheckAndResetCounters(1, 1, 1, 0, 0, 0);
-  listener->test_env.SetStatus(Status::OK());
+  listener->test_env->SetStatus(Status::OK());
 
   Reopen(options);
   ASSERT_OK(Put("foo", "aaa2"));
@@ -804,7 +805,7 @@ TEST_F(EventListenerTest, TableFileCreationListenersTest) {
   ASSERT_OK(Put("foo", "aaa3"));
   ASSERT_OK(Put("bar", "bbb3"));
   ASSERT_OK(Flush());
-  listener->test_env.SetStatus(Status::NotSupported("not supported"));
+  listener->test_env->SetStatus(Status::NotSupported("not supported"));
   dbfull()->CompactRange(CompactRangeOptions(), &kRangeStart, &kRangeEnd);
   dbfull()->TEST_WaitForCompact();
   listener->CheckAndResetCounters(1, 1, 0, 1, 1, 1);
@@ -879,11 +880,11 @@ TEST_F(EventListenerTest, ColumnFamilyHandleDeletionStartedListenerTest) {
 
 class BackgroundErrorListener : public EventListener {
  private:
-  SpecialEnv* env_;
+  std::shared_ptr<SpecialEnv> env_;
   int counter_;
 
  public:
-  BackgroundErrorListener(SpecialEnv* env) : env_(env), counter_(0) {}
+  BackgroundErrorListener(const std::shared_ptr<SpecialEnv>& env) : env_(env), counter_(0) {}
 
   void OnBackgroundError(BackgroundErrorReason /*reason*/,
                          Status* bg_error) override {

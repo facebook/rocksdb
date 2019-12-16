@@ -722,7 +722,7 @@ class RetriableLogTest : public ::testing::TestWithParam<int> {
   Slice contents_;
   std::unique_ptr<WritableFileWriter> dest_holder_;
   std::unique_ptr<Writer> log_writer_;
-  Env* env_;
+  std::shared_ptr<Env> env_;
   EnvOptions env_options_;
   const std::string test_dir_;
   const std::string log_file_;

@@ -34,7 +34,7 @@ struct BackupableDBOptions {
   // non-nullptr, backup's I/O will be performed using this object.
   // If you want to have backups on HDFS, use HDFS Env here!
   // Default: nullptr
-  Env* backup_env;
+  std::shared_ptr<Env> backup_env;
 
   // If share_table_files == true, backup will assume that table files with
   // same name have the same contents. This enables incremental backups and
@@ -118,7 +118,7 @@ struct BackupableDBOptions {
   void Dump(Logger* logger) const;
 
   explicit BackupableDBOptions(
-      const std::string& _backup_dir, Env* _backup_env = nullptr,
+      const std::string& _backup_dir, const std::shared_ptr<Env> & _backup_env = nullptr,
       bool _share_table_files = true, Logger* _info_log = nullptr,
       bool _sync = true, bool _destroy_old_data = false,
       bool _backup_log_files = true, uint64_t _backup_rate_limit = 0,
@@ -208,7 +208,8 @@ class BackupEngineReadOnly {
  public:
   virtual ~BackupEngineReadOnly() {}
 
-  static Status Open(Env* db_env, const BackupableDBOptions& options,
+  static Status Open(const std::shared_ptr<Env>& db_env,
+                     const BackupableDBOptions& options,
                      BackupEngineReadOnly** backup_engine_ptr);
 
   // Returns info about backups in backup_info
@@ -253,7 +254,7 @@ class BackupEngine {
 
   // BackupableDBOptions have to be the same as the ones used in previous
   // BackupEngines for the same backup directory.
-  static Status Open(Env* db_env, const BackupableDBOptions& options,
+  static Status Open(const std::shared_ptr<Env>& db_env, const BackupableDBOptions& options,
                      BackupEngine** backup_engine_ptr);
 
   // same as CreateNewBackup, but stores extra application metadata

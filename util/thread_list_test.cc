@@ -119,7 +119,7 @@ TEST_F(ThreadListTest, GlobalTables) {
 }
 
 TEST_F(ThreadListTest, SimpleColumnFamilyInfoTest) {
-  Env* env = Env::Default();
+  auto env = Env::Default();
   const int kHighPriorityThreads = 3;
   const int kLowPriorityThreads = 5;
   const int kSimulatedHighPriThreads = kHighPriorityThreads - 1;
@@ -140,7 +140,7 @@ TEST_F(ThreadListTest, SimpleColumnFamilyInfoTest) {
         &running_task, Env::Priority::LOW);
   }
   running_task.WaitUntilScheduled(
-      kSimulatedHighPriThreads + kSimulatedLowPriThreads, env);
+      kSimulatedHighPriThreads + kSimulatedLowPriThreads, env.get());
 
   std::vector<ThreadStatus> thread_list;
 
@@ -212,7 +212,7 @@ namespace {
 }  // namespace
 
 TEST_F(ThreadListTest, SimpleEventTest) {
-  Env* env = Env::Default();
+  auto env = Env::Default();
 
   // simulated tasks
   const int kFlushWriteTasks = 3;
@@ -256,25 +256,25 @@ TEST_F(ThreadListTest, SimpleEventTest) {
     env->Schedule(&SimulatedBackgroundTask::DoSimulatedTask,
         &flush_write_task, Env::Priority::HIGH);
   }
-  flush_write_task.WaitUntilScheduled(kFlushWriteTasks, env);
+  flush_write_task.WaitUntilScheduled(kFlushWriteTasks, env.get());
 
   for (int t = 0; t < kCompactionWriteTasks; ++t) {
     env->Schedule(&SimulatedBackgroundTask::DoSimulatedTask,
         &compaction_write_task, Env::Priority::LOW);
   }
-  compaction_write_task.WaitUntilScheduled(kCompactionWriteTasks, env);
+  compaction_write_task.WaitUntilScheduled(kCompactionWriteTasks, env.get());
 
   for (int t = 0; t < kCompactionReadTasks; ++t) {
     env->Schedule(&SimulatedBackgroundTask::DoSimulatedTask,
         &compaction_read_task, Env::Priority::LOW);
   }
-  compaction_read_task.WaitUntilScheduled(kCompactionReadTasks, env);
+  compaction_read_task.WaitUntilScheduled(kCompactionReadTasks, env.get());
 
   for (int t = 0; t < kCompactionWaitTasks; ++t) {
     env->Schedule(&SimulatedBackgroundTask::DoSimulatedTask,
         &compaction_wait_task, Env::Priority::LOW);
   }
-  compaction_wait_task.WaitUntilScheduled(kCompactionWaitTasks, env);
+  compaction_wait_task.WaitUntilScheduled(kCompactionWaitTasks, env.get());
 
   // verify the thread-status
   int operation_counts[ThreadStatus::NUM_OP_TYPES] = {0};

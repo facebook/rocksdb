@@ -103,7 +103,7 @@ Status DBWithTTL::Open(
   for (size_t i = 0; i < column_families_sanitized.size(); ++i) {
     DBWithTTLImpl::SanitizeOptions(
         ttls[i], &column_families_sanitized[i].options,
-        db_options.env == nullptr ? Env::Default() : db_options.env);
+        db_options.env == nullptr ? Env::Default().get() : db_options.env.get());
   }
   DB* db;
 

@@ -892,7 +892,7 @@ DEFINE_string(hdfs, "", "Name of hdfs environment. Mutually exclusive with"
 
 static std::shared_ptr<rocksdb::Env> env_guard;
 
-static rocksdb::Env* FLAGS_env = rocksdb::Env::Default();
+static std::shared_ptr<rocksdb::Env> FLAGS_env = rocksdb::Env::Default();
 
 DEFINE_int64(stats_interval, 0, "Stats are reported every N operations when "
              "this is greater than zero. When 0 the interval grows over time.");
@@ -1289,7 +1289,7 @@ struct ReportFileOpCounters {
 // A special Env to records and report file operations in db_bench
 class ReportFileOpEnv : public EnvWrapper {
  public:
-  explicit ReportFileOpEnv(Env* base) : EnvWrapper(base) { reset(); }
+  explicit ReportFileOpEnv(const std::shared_ptr<Env>& base) : EnvWrapper(base) { reset(); }
 
   void reset() {
     counters_.open_counter_ = 0;
@@ -1946,7 +1946,7 @@ class Stats {
       }
     }
     if (FLAGS_report_file_operations) {
-      ReportFileOpEnv* env = static_cast<ReportFileOpEnv*>(FLAGS_env);
+      ReportFileOpEnv* env = static_cast<ReportFileOpEnv*>(FLAGS_env.get());
       ReportFileOpCounters* counters = env->counters();
       fprintf(stdout, "Num files opened: %d\n",
               counters->open_counter_.load(std::memory_order_relaxed));
@@ -2502,7 +2502,7 @@ class Benchmark {
                 "at the same time");
         exit(1);
       }
-      FLAGS_env = new ReportFileOpEnv(FLAGS_env);
+      FLAGS_env = std::make_shared<ReportFileOpEnv>(FLAGS_env);
     }
 
     if (FLAGS_prefix_size > FLAGS_key_size) {
@@ -2973,7 +2973,7 @@ class Benchmark {
         // replay.
         if (FLAGS_trace_file != "" && name != "replay") {
           std::unique_ptr<TraceWriter> trace_writer;
-          Status s = NewFileTraceWriter(FLAGS_env, EnvOptions(),
+          Status s = NewFileTraceWriter(FLAGS_env.get(), EnvOptions(),
                                         FLAGS_trace_file, &trace_writer);
           if (!s.ok()) {
             fprintf(stderr, "Encountered an error starting a trace, %s\n",
@@ -3009,7 +3009,7 @@ class Benchmark {
           block_cache_trace_options_.sampling_frequency =
               FLAGS_block_cache_trace_sampling_frequency;
           std::unique_ptr<TraceWriter> block_cache_trace_writer;
-          Status s = NewFileTraceWriter(FLAGS_env, EnvOptions(),
+          Status s = NewFileTraceWriter(FLAGS_env.get(), EnvOptions(),
                                         FLAGS_block_cache_trace_file,
                                         &block_cache_trace_writer);
           if (!s.ok()) {
@@ -3163,7 +3163,7 @@ class Benchmark {
 
     std::unique_ptr<ReporterAgent> reporter_agent;
     if (FLAGS_report_interval_seconds > 0) {
-      reporter_agent.reset(new ReporterAgent(FLAGS_env, FLAGS_report_file,
+      reporter_agent.reset(new ReporterAgent(FLAGS_env.get(), FLAGS_report_file,
                                              FLAGS_report_interval_seconds));
     }
 
@@ -6707,7 +6707,7 @@ class Benchmark {
   void Replay(ThreadState* /*thread*/, DBWithColumnFamilies* db_with_cfh) {
     Status s;
     std::unique_ptr<TraceReader> trace_reader;
-    s = NewFileTraceReader(FLAGS_env, EnvOptions(), FLAGS_trace_file,
+    s = NewFileTraceReader(FLAGS_env.get(), EnvOptions(), FLAGS_trace_file,
                            &trace_reader);
     if (!s.ok()) {
       fprintf(
@@ -6787,7 +6787,7 @@ int db_bench_tool(int argc, char** argv) {
     fprintf(stderr, "Cannot provide both --hdfs and --env_uri.\n");
     exit(1);
   } else if (!FLAGS_env_uri.empty()) {
-    Status s = Env::LoadEnv(FLAGS_env_uri, &FLAGS_env, &env_guard);
+    Status s = Env::LoadEnv(FLAGS_env_uri, &FLAGS_env);
     if (FLAGS_env == nullptr) {
       fprintf(stderr, "No Env registered for URI: %s\n", FLAGS_env_uri.c_str());
       exit(1);
@@ -6802,7 +6802,7 @@ int db_bench_tool(int argc, char** argv) {
   }
 
   if (!FLAGS_hdfs.empty()) {
-    FLAGS_env  = new rocksdb::HdfsEnv(FLAGS_hdfs);
+    FLAGS_env.reset(new rocksdb::HdfsEnv(FLAGS_hdfs));
   }
 
   if (!strcasecmp(FLAGS_compaction_fadvice.c_str(), "NONE"))

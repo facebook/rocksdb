@@ -21,14 +21,15 @@ namespace rocksdb {
 class RepeatableThread {
  public:
   RepeatableThread(std::function<void()> function,
-                   const std::string& thread_name, Env* env, uint64_t delay_us,
+                   const std::string& thread_name,
+                   const std::shared_ptr<Env>& env, uint64_t delay_us,
                    uint64_t initial_delay_us = 0)
       : function_(function),
         thread_name_("rocksdb:" + thread_name),
         env_(env),
         delay_us_(delay_us),
         initial_delay_us_(initial_delay_us),
-        mutex_(env),
+        mutex_(env_.get()),
         cond_var_(&mutex_),
         running_(true),
 #ifndef NDEBUG
@@ -128,7 +129,7 @@ class RepeatableThread {
 
   const std::function<void()> function_;
   const std::string thread_name_;
-  Env* const env_;
+  std::shared_ptr<Env> env_;
   const uint64_t delay_us_;
   const uint64_t initial_delay_us_;
 

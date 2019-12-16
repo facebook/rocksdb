@@ -89,8 +89,7 @@ class WalManager {
 
   // ------- state from DBImpl ------
   const ImmutableDBOptions& db_options_;
-  const FileOptions file_options_;
-  Env* env_;
+  std::shared_ptr<Env> env_;
   FileSystem* fs_;
 
   // ------- WalManager state -------

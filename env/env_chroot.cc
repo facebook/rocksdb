@@ -22,7 +22,7 @@ namespace rocksdb {
 
 class ChrootEnv : public EnvWrapper {
  public:
-  ChrootEnv(Env* base_env, const std::string& chroot_dir)
+  ChrootEnv(const std::shared_ptr<Env> &base_env, const std::string& chroot_dir)
       : EnvWrapper(base_env) {
 #if defined(OS_AIX)
     char resolvedName[PATH_MAX];
@@ -309,11 +309,13 @@ class ChrootEnv : public EnvWrapper {
   std::string chroot_dir_;
 };
 
-Env* NewChrootEnv(Env* base_env, const std::string& chroot_dir) {
-  if (!base_env->FileExists(chroot_dir).ok()) {
-    return nullptr;
+std::shared_ptr<Env> NewChrootEnv(const std::shared_ptr<Env>& base_env,
+                                    const std::string& chroot_dir) {
+  std::shared_ptr<Env> result;
+  if (base_env->FileExists(chroot_dir).ok()) {
+    result.reset(new ChrootEnv(base_env, chroot_dir));
   }
-  return new ChrootEnv(base_env, chroot_dir);
+  return result;
 }
 
 }  // namespace rocksdb

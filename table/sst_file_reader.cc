@@ -70,7 +70,7 @@ Iterator* SstFileReader::NewIterator(const ReadOptions& options) {
   auto internal_iter = r->table_reader->NewIterator(
       options, r->moptions.prefix_extractor.get(), /*arena=*/nullptr,
       /*skip_filters=*/false, TableReaderCaller::kSSTFileReader);
-  return NewDBIterator(r->options.env, options, r->ioptions, r->moptions,
+  return NewDBIterator(r->options.env.get(), options, r->ioptions, r->moptions,
                        r->ioptions.user_comparator, internal_iter, sequence,
                        r->moptions.max_sequential_skip_in_iterations,
                        nullptr /* read_callback */);

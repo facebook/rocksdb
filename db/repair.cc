@@ -94,7 +94,7 @@ class Repairer {
            const ColumnFamilyOptions& default_cf_opts,
            const ColumnFamilyOptions& unknown_cf_opts, bool create_unknown_cfs)
       : dbname_(dbname),
-        env_(db_options.env),
+        env_(db_options.env.get()),
         env_options_(),
         db_options_(SanitizeOptions(dbname_, db_options)),
         immutable_db_options_(ImmutableDBOptions(db_options_)),
@@ -672,7 +672,7 @@ Status RepairDB(const std::string& dbname, const DBOptions& db_options,
 Status RepairDB(const std::string& dbname, const Options& options) {
   Options opts(options);
   if (opts.file_system == nullptr) {
-    opts.file_system.reset(new LegacyFileSystemWrapper(opts.env));
+    opts.file_system.reset(new LegacyFileSystemWrapper(opts.env.get()));
     ;
   }
 

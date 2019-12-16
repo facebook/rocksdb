@@ -149,7 +149,7 @@ class BlockCacheTracerTest : public testing::Test {
     }
   }
 
-  Env* env_;
+  std::shared_ptr<Env> env_;
   EnvOptions env_options_;
   std::string trace_file_path_;
   std::string test_path_;
@@ -159,7 +159,7 @@ TEST_F(BlockCacheTracerTest, AtomicWriteBeforeStartTrace) {
   BlockCacheTraceRecord record = GenerateAccessRecord();
   {
     std::unique_ptr<TraceWriter> trace_writer;
-    ASSERT_OK(NewFileTraceWriter(env_, env_options_, trace_file_path_,
+    ASSERT_OK(NewFileTraceWriter(env_.get(), env_options_, trace_file_path_,
                                  &trace_writer));
     BlockCacheTracer writer;
     // The record should be written to the trace_file since StartTrace is not
@@ -171,7 +171,7 @@ TEST_F(BlockCacheTracerTest, AtomicWriteBeforeStartTrace) {
   {
     // Verify trace file contains nothing.
     std::unique_ptr<TraceReader> trace_reader;
-    ASSERT_OK(NewFileTraceReader(env_, env_options_, trace_file_path_,
+    ASSERT_OK(NewFileTraceReader(env_.get(), env_options_, trace_file_path_,
                                  &trace_reader));
     BlockCacheTraceReader reader(std::move(trace_reader));
     BlockCacheTraceHeader header;
@@ -184,7 +184,7 @@ TEST_F(BlockCacheTracerTest, AtomicWrite) {
   {
     TraceOptions trace_opt;
     std::unique_ptr<TraceWriter> trace_writer;
-    ASSERT_OK(NewFileTraceWriter(env_, env_options_, trace_file_path_,
+    ASSERT_OK(NewFileTraceWriter(env_.get(), env_options_, trace_file_path_,
                                  &trace_writer));
     BlockCacheTracer writer;
     ASSERT_OK(writer.StartTrace(env_, trace_opt, std::move(trace_writer)));
@@ -195,7 +195,7 @@ TEST_F(BlockCacheTracerTest, AtomicWrite) {
   {
     // Verify trace file contains one record.
     std::unique_ptr<TraceReader> trace_reader;
-    ASSERT_OK(NewFileTraceReader(env_, env_options_, trace_file_path_,
+    ASSERT_OK(NewFileTraceReader(env_.get(), env_options_, trace_file_path_,
                                  &trace_reader));
     BlockCacheTraceReader reader(std::move(trace_reader));
     BlockCacheTraceHeader header;
@@ -211,7 +211,7 @@ TEST_F(BlockCacheTracerTest, ConsecutiveStartTrace) {
   TraceOptions trace_opt;
   std::unique_ptr<TraceWriter> trace_writer;
   ASSERT_OK(
-      NewFileTraceWriter(env_, env_options_, trace_file_path_, &trace_writer));
+      NewFileTraceWriter(env_.get(), env_options_, trace_file_path_, &trace_writer));
   BlockCacheTracer writer;
   ASSERT_OK(writer.StartTrace(env_, trace_opt, std::move(trace_writer)));
   ASSERT_NOK(writer.StartTrace(env_, trace_opt, std::move(trace_writer)));
@@ -223,7 +223,7 @@ TEST_F(BlockCacheTracerTest, AtomicNoWriteAfterEndTrace) {
   {
     TraceOptions trace_opt;
     std::unique_ptr<TraceWriter> trace_writer;
-    ASSERT_OK(NewFileTraceWriter(env_, env_options_, trace_file_path_,
+    ASSERT_OK(NewFileTraceWriter(env_.get(), env_options_, trace_file_path_,
                                  &trace_writer));
     BlockCacheTracer writer;
     ASSERT_OK(writer.StartTrace(env_, trace_opt, std::move(trace_writer)));
@@ -239,7 +239,7 @@ TEST_F(BlockCacheTracerTest, AtomicNoWriteAfterEndTrace) {
   {
     // Verify trace file contains one record.
     std::unique_ptr<TraceReader> trace_reader;
-    ASSERT_OK(NewFileTraceReader(env_, env_options_, trace_file_path_,
+    ASSERT_OK(NewFileTraceReader(env_.get(), env_options_, trace_file_path_,
                                  &trace_reader));
     BlockCacheTraceReader reader(std::move(trace_reader));
     BlockCacheTraceHeader header;
@@ -256,7 +256,7 @@ TEST_F(BlockCacheTracerTest, NextGetId) {
   {
     TraceOptions trace_opt;
     std::unique_ptr<TraceWriter> trace_writer;
-    ASSERT_OK(NewFileTraceWriter(env_, env_options_, trace_file_path_,
+    ASSERT_OK(NewFileTraceWriter(env_.get(), env_options_, trace_file_path_,
                                  &trace_writer));
     // next get id should always return 0 before we call StartTrace.
     ASSERT_EQ(0, writer.NextGetId());
@@ -273,7 +273,7 @@ TEST_F(BlockCacheTracerTest, NextGetId) {
   {
     TraceOptions trace_opt;
     std::unique_ptr<TraceWriter> trace_writer;
-    ASSERT_OK(NewFileTraceWriter(env_, env_options_, trace_file_path_,
+    ASSERT_OK(NewFileTraceWriter(env_.get(), env_options_, trace_file_path_,
                                  &trace_writer));
     ASSERT_OK(writer.StartTrace(env_, trace_opt, std::move(trace_writer)));
     ASSERT_EQ(1, writer.NextGetId());
@@ -285,7 +285,7 @@ TEST_F(BlockCacheTracerTest, MixedBlocks) {
     // Generate a trace file containing a mix of blocks.
     TraceOptions trace_opt;
     std::unique_ptr<TraceWriter> trace_writer;
-    ASSERT_OK(NewFileTraceWriter(env_, env_options_, trace_file_path_,
+    ASSERT_OK(NewFileTraceWriter(env_.get(), env_options_, trace_file_path_,
                                  &trace_writer));
     BlockCacheTraceWriter writer(env_, trace_opt, std::move(trace_writer));
     ASSERT_OK(writer.WriteHeader());
@@ -302,7 +302,7 @@ TEST_F(BlockCacheTracerTest, MixedBlocks) {
   {
     // Verify trace file is generated correctly.
     std::unique_ptr<TraceReader> trace_reader;
-    ASSERT_OK(NewFileTraceReader(env_, env_options_, trace_file_path_,
+    ASSERT_OK(NewFileTraceReader(env_.get(), env_options_, trace_file_path_,
                                  &trace_reader));
     BlockCacheTraceReader reader(std::move(trace_reader));
     BlockCacheTraceHeader header;
@@ -336,7 +336,7 @@ TEST_F(BlockCacheTracerTest, HumanReadableTrace) {
   {
     // Generate a human readable trace file.
     BlockCacheHumanReadableTraceWriter writer;
-    ASSERT_OK(writer.NewWritableFile(trace_file_path_, env_));
+    ASSERT_OK(writer.NewWritableFile(trace_file_path_, env_.get()));
     ASSERT_OK(writer.WriteHumanReadableTraceRecord(record, 1, 1));
     ASSERT_OK(env_->FileExists(trace_file_path_));
   }

@@ -58,9 +58,9 @@ class BlobDBTest : public testing::Test {
 
   BlobDBTest()
       : dbname_(test::PerThreadDBPath("blob_db_test")),
-        mock_env_(new MockTimeEnv(Env::Default())),
-        fault_injection_env_(new FaultInjectionTestEnv(Env::Default())),
         blob_db_(nullptr) {
+    mock_env_ = std::make_shared<MockTimeEnv>(Env::Default());
+    fault_injection_env_ = FaultInjectionTestEnv::Get(Env::Default());
     Status s = DestroyBlobDB(dbname_, Options(), BlobDBOptions());
     assert(s.ok());
   }
@@ -300,8 +300,8 @@ class BlobDBTest : public testing::Test {
   }
 
   const std::string dbname_;
-  std::unique_ptr<MockTimeEnv> mock_env_;
-  std::unique_ptr<FaultInjectionTestEnv> fault_injection_env_;
+  std::shared_ptr<MockTimeEnv> mock_env_;
+  std::shared_ptr<FaultInjectionTestEnv> fault_injection_env_;
   BlobDB *blob_db_;
 };  // class BlobDBTest
 
@@ -321,7 +321,7 @@ TEST_F(BlobDBTest, Put) {
 TEST_F(BlobDBTest, PutWithTTL) {
   Random rnd(301);
   Options options;
-  options.env = mock_env_.get();
+  options.env = mock_env_;
   BlobDBOptions bdb_options;
   bdb_options.ttl_range_secs = 1000;
   bdb_options.min_blob_size = 0;
@@ -351,7 +351,7 @@ TEST_F(BlobDBTest, PutWithTTL) {
 TEST_F(BlobDBTest, PutUntil) {
   Random rnd(301);
   Options options;
-  options.env = mock_env_.get();
+  options.env = mock_env_;
   BlobDBOptions bdb_options;
   bdb_options.ttl_range_secs = 1000;
   bdb_options.min_blob_size = 0;
@@ -403,7 +403,7 @@ TEST_F(BlobDBTest, StackableDBGet) {
 
 TEST_F(BlobDBTest, GetExpiration) {
   Options options;
-  options.env = mock_env_.get();
+  options.env = mock_env_;
   BlobDBOptions bdb_options;
   bdb_options.disable_background_tasks = true;
   mock_env_->set_current_time(100);
@@ -422,7 +422,7 @@ TEST_F(BlobDBTest, GetExpiration) {
 
 TEST_F(BlobDBTest, GetIOError) {
   Options options;
-  options.env = fault_injection_env_.get();
+  options.env = fault_injection_env_;
   BlobDBOptions bdb_options;
   bdb_options.min_blob_size = 0;  // Make sure value write to blob file
   bdb_options.disable_background_tasks = true;
@@ -439,7 +439,7 @@ TEST_F(BlobDBTest, GetIOError) {
 
 TEST_F(BlobDBTest, PutIOError) {
   Options options;
-  options.env = fault_injection_env_.get();
+  options.env = fault_injection_env_;
   BlobDBOptions bdb_options;
   bdb_options.min_blob_size = 0;  // Make sure value write to blob file
   bdb_options.disable_background_tasks = true;
@@ -660,7 +660,7 @@ TEST_F(BlobDBTest, GCRelocateKeyWhileOverwriting) {
 TEST_F(BlobDBTest, GCExpiredKeyWhileOverwriting) {
   Random rnd(301);
   Options options;
-  options.env = mock_env_.get();
+  options.env = mock_env_;
   BlobDBOptions bdb_options;
   bdb_options.min_blob_size = 0;
   bdb_options.disable_background_tasks = true;
@@ -719,7 +719,7 @@ TEST_F(BlobDBTest, NewFileGeneratedFromGCShouldMarkAsImmutable) {
 TEST_F(BlobDBTest, DISABLED_GCOldestSimpleBlobFileWhenOutOfSpace) {
   // Use mock env to stop wall clock.
   Options options;
-  options.env = mock_env_.get();
+  options.env = mock_env_;
   BlobDBOptions bdb_options;
   bdb_options.max_db_size = 100;
   bdb_options.blob_file_size = 100;
@@ -827,8 +827,7 @@ TEST_F(BlobDBTest, ReadWhileGC) {
 
 TEST_F(BlobDBTest, SstFileManager) {
   // run the same test for Get(), MultiGet() and Iterator each.
-  std::shared_ptr<SstFileManager> sst_file_manager(
-      NewSstFileManager(mock_env_.get()));
+  std::shared_ptr<SstFileManager> sst_file_manager(NewSstFileManager(mock_env_));
   sst_file_manager->SetDeleteRateBytesPerSecond(1);
   SstFileManagerImpl *sfm =
       static_cast<SstFileManagerImpl *>(sst_file_manager.get());
@@ -887,7 +886,7 @@ TEST_F(BlobDBTest, SstFileManagerRestart) {
 
   // run the same test for Get(), MultiGet() and Iterator each.
   std::shared_ptr<SstFileManager> sst_file_manager(
-      NewSstFileManager(mock_env_.get()));
+      NewSstFileManager(mock_env_));
   sst_file_manager->SetDeleteRateBytesPerSecond(1);
   SstFileManagerImpl *sfm =
       static_cast<SstFileManagerImpl *>(sst_file_manager.get());
@@ -905,7 +904,7 @@ TEST_F(BlobDBTest, SstFileManagerRestart) {
   Close();
 
   // Create 3 dummy trash files under the blob_dir
-  LegacyFileSystemWrapper fs(db_options.env);
+  LegacyFileSystemWrapper fs(db_options.env.get());
   CreateFile(&fs, blob_dir + "/000666.blob.trash", "", false);
   CreateFile(&fs, blob_dir + "/000888.blob.trash", "", true);
   CreateFile(&fs, blob_dir + "/something_not_match.trash", "", false);
@@ -1004,7 +1003,7 @@ TEST_F(BlobDBTest, SnapshotAndGarbageCollection) {
 
 TEST_F(BlobDBTest, ColumnFamilyNotSupported) {
   Options options;
-  options.env = mock_env_.get();
+  options.env = mock_env_;
   mock_env_->set_current_time(0);
   Open(BlobDBOptions(), options);
   ColumnFamilyHandle *default_handle = blob_db_->DefaultColumnFamily();
@@ -1120,7 +1119,7 @@ TEST_F(BlobDBTest, MigrateFromPlainRocksDB) {
 TEST_F(BlobDBTest, OutOfSpace) {
   // Use mock env to stop wall clock.
   Options options;
-  options.env = mock_env_.get();
+  options.env = mock_env_;
   BlobDBOptions bdb_options;
   bdb_options.max_db_size = 200;
   bdb_options.is_fifo = false;
@@ -1226,7 +1225,7 @@ TEST_F(BlobDBTest, FIFOEviction_NoEnoughBlobFilesToEvict) {
   bdb_options.disable_background_tasks = true;
   Options options;
   // Use mock env to stop wall clock.
-  options.env = mock_env_.get();
+  options.env = mock_env_;
   options.disable_auto_compactions = true;
   auto statistics = CreateDBStatistics();
   options.statistics = statistics;
@@ -1280,7 +1279,7 @@ TEST_F(BlobDBTest, FIFOEviction_TriggerOnSSTSizeChange) {
   bdb_options.disable_background_tasks = true;
   Options options;
   // Use mock env to stop wall clock.
-  options.env = mock_env_.get();
+  options.env = mock_env_;
   auto statistics = CreateDBStatistics();
   options.statistics = statistics;
   options.compression = kNoCompression;
@@ -1315,7 +1314,7 @@ TEST_F(BlobDBTest, InlineSmallValues) {
   bdb_options.blob_file_size = 256 * 1000 * 1000;
   bdb_options.disable_background_tasks = true;
   Options options;
-  options.env = mock_env_.get();
+  options.env = mock_env_;
   mock_env_->set_current_time(0);
   Open(bdb_options, options);
   std::map<std::string, std::string> data;
@@ -1395,7 +1394,7 @@ TEST_F(BlobDBTest, FilterExpiredBlobIndex) {
   bdb_options.min_blob_size = kMinBlobSize;
   bdb_options.disable_background_tasks = true;
   Options options;
-  options.env = mock_env_.get();
+  options.env = mock_env_;
   Open(bdb_options, options);
 
   std::map<std::string, std::string> data;
@@ -1519,7 +1518,7 @@ TEST_F(BlobDBTest, FilterForFIFOEviction) {
   Options options;
   // Use mock env to stop wall clock.
   mock_env_->set_current_time(0);
-  options.env = mock_env_.get();
+  options.env = mock_env_;
   auto statistics = CreateDBStatistics();
   options.statistics = statistics;
   options.disable_auto_compactions = true;
@@ -1620,7 +1619,7 @@ TEST_F(BlobDBTest, GarbageCollection) {
   bdb_options.disable_background_tasks = true;
 
   Options options;
-  options.env = mock_env_.get();
+  options.env = mock_env_;
 
   Open(bdb_options, options);
 
@@ -1781,7 +1780,7 @@ TEST_F(BlobDBTest, EvictExpiredFile) {
   bdb_options.min_blob_size = 0;
   bdb_options.disable_background_tasks = true;
   Options options;
-  options.env = mock_env_.get();
+  options.env = mock_env_;
   Open(bdb_options, options);
   mock_env_->set_current_time(50);
   std::map<std::string, std::string> data;
@@ -2115,7 +2114,7 @@ TEST_F(BlobDBTest, ShutdownWait) {
   bdb_options.min_blob_size = 0;
   bdb_options.disable_background_tasks = false;
   Options options;
-  options.env = mock_env_.get();
+  options.env = mock_env_;
 
   SyncPoint::GetInstance()->LoadDependency({
       {"BlobDBImpl::EvictExpiredFiles:0", "BlobDBTest.ShutdownWait:0"},

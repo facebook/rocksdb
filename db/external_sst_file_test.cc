@@ -19,7 +19,7 @@ namespace rocksdb {
 // A test environment that can be configured to fail the Link operation.
 class ExternalSSTTestEnv : public EnvWrapper {
  public:
-  ExternalSSTTestEnv(Env* t, bool fail_link)
+  ExternalSSTTestEnv(const std::shared_ptr<Env>& t, bool fail_link)
       : EnvWrapper(t), fail_link_(fail_link) {}
 
   Status LinkFile(const std::string& s, const std::string& t) override {
@@ -40,8 +40,8 @@ class ExternSSTFileLinkFailFallbackTest
       public ::testing::WithParamInterface<std::tuple<bool, bool>> {
  public:
   ExternSSTFileLinkFailFallbackTest()
-      : DBTestBase("/external_sst_file_test"),
-        test_env_(new ExternalSSTTestEnv(env_, true)) {
+    : DBTestBase("/external_sst_file_test") {
+    test_env_ = std::make_shared<ExternalSSTTestEnv>(env_, true);
     sst_files_dir_ = dbname_ + "/sst_files/";
     test::DestroyDir(env_, sst_files_dir_);
     env_->CreateDir(sst_files_dir_);
@@ -54,14 +54,12 @@ class ExternSSTFileLinkFailFallbackTest
     delete db_;
     db_ = nullptr;
     ASSERT_OK(DestroyDB(dbname_, options_));
-    delete test_env_;
-    test_env_ = nullptr;
   }
 
  protected:
   std::string sst_files_dir_;
   Options options_;
-  ExternalSSTTestEnv* test_env_;
+  std::shared_ptr<ExternalSSTTestEnv> test_env_;
 };
 
 class ExternalSSTFileTest
@@ -2392,10 +2390,9 @@ TEST_F(ExternalSSTFileTest, IngestFileWrittenWithCompressionDictionary) {
 }
 
 TEST_P(ExternalSSTFileTest, IngestFilesIntoMultipleColumnFamilies_Success) {
-  std::unique_ptr<FaultInjectionTestEnv> fault_injection_env(
-      new FaultInjectionTestEnv(env_));
+  auto fault_injection_env = FaultInjectionTestEnv::Get(env_);
   Options options = CurrentOptions();
-  options.env = fault_injection_env.get();
+  options.env = fault_injection_env;
   CreateAndReopenWithCF({"pikachu", "eevee"}, options);
   std::vector<ColumnFamilyHandle*> column_families;
   column_families.push_back(handles_[0]);
@@ -2442,8 +2439,7 @@ TEST_P(ExternalSSTFileTest, IngestFilesIntoMultipleColumnFamilies_Success) {
 
 TEST_P(ExternalSSTFileTest,
        IngestFilesIntoMultipleColumnFamilies_NoMixedStateWithSnapshot) {
-  std::unique_ptr<FaultInjectionTestEnv> fault_injection_env(
-      new FaultInjectionTestEnv(env_));
+  auto fault_injection_env = FaultInjectionTestEnv::Get(env_);
   SyncPoint::GetInstance()->DisableProcessing();
   SyncPoint::GetInstance()->ClearAllCallBacks();
   SyncPoint::GetInstance()->LoadDependency({
@@ -2457,7 +2453,7 @@ TEST_P(ExternalSSTFileTest,
   SyncPoint::GetInstance()->EnableProcessing();
 
   Options options = CurrentOptions();
-  options.env = fault_injection_env.get();
+  options.env = fault_injection_env;
   CreateAndReopenWithCF({"pikachu", "eevee"}, options);
   const std::vector<std::map<std::string, std::string>> data_before_ingestion =
       {{{"foo1", "fv1_0"}, {"foo2", "fv2_0"}, {"foo3", "fv3_0"}},
@@ -2563,10 +2559,9 @@ TEST_P(ExternalSSTFileTest,
 }
 
 TEST_P(ExternalSSTFileTest, IngestFilesIntoMultipleColumnFamilies_PrepareFail) {
-  std::unique_ptr<FaultInjectionTestEnv> fault_injection_env(
-      new FaultInjectionTestEnv(env_));
+  auto fault_injection_env = FaultInjectionTestEnv::Get(env_);
   Options options = CurrentOptions();
-  options.env = fault_injection_env.get();
+  options.env = fault_injection_env;
   SyncPoint::GetInstance()->DisableProcessing();
   SyncPoint::GetInstance()->ClearAllCallBacks();
   SyncPoint::GetInstance()->LoadDependency({
@@ -2634,10 +2629,9 @@ TEST_P(ExternalSSTFileTest, IngestFilesIntoMultipleColumnFamilies_PrepareFail) {
 }
 
 TEST_P(ExternalSSTFileTest, IngestFilesIntoMultipleColumnFamilies_CommitFail) {
-  std::unique_ptr<FaultInjectionTestEnv> fault_injection_env(
-      new FaultInjectionTestEnv(env_));
+  auto fault_injection_env = FaultInjectionTestEnv::Get(env_);
   Options options = CurrentOptions();
-  options.env = fault_injection_env.get();
+  options.env = fault_injection_env;
   SyncPoint::GetInstance()->DisableProcessing();
   SyncPoint::GetInstance()->ClearAllCallBacks();
   SyncPoint::GetInstance()->LoadDependency({
@@ -2705,10 +2699,9 @@ TEST_P(ExternalSSTFileTest, IngestFilesIntoMultipleColumnFamilies_CommitFail) {
 
 TEST_P(ExternalSSTFileTest,
        IngestFilesIntoMultipleColumnFamilies_PartialManifestWriteFail) {
-  std::unique_ptr<FaultInjectionTestEnv> fault_injection_env(
-      new FaultInjectionTestEnv(env_));
+  auto fault_injection_env = FaultInjectionTestEnv::Get(env_);
   Options options = CurrentOptions();
-  options.env = fault_injection_env.get();
+  options.env = fault_injection_env;
 
   CreateAndReopenWithCF({"pikachu", "eevee"}, options);
 

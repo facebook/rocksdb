@@ -40,7 +40,7 @@ static std::string MakeValue(int i) {
 }
 
 void createSST(const Options& opts, const std::string& file_name) {
-  Env* env = opts.env;
+  auto env = opts.env;
   EnvOptions env_options(opts);
   ReadOptions read_options;
   const ImmutableCFOptions imoptions(opts);
@@ -76,7 +76,7 @@ void createSST(const Options& opts, const std::string& file_name) {
 }
 
 void cleanup(const Options& opts, const std::string& file_name) {
-  Env* env = opts.env;
+  auto env = opts.env;
   env->DeleteFile(file_name);
   std::string outfile_name = file_name.substr(0, file_name.length() - 4);
   outfile_name.append("_dump.txt");
@@ -87,14 +87,13 @@ void cleanup(const Options& opts, const std::string& file_name) {
 // Test for sst dump tool "raw" mode
 class SSTDumpToolTest : public testing::Test {
   std::string test_dir_;
-  Env* env_;
-  std::shared_ptr<Env> env_guard_;
+  std::shared_ptr<Env> env_;
 
  public:
   SSTDumpToolTest() : env_(Env::Default()) {
     const char* test_env_uri = getenv("TEST_ENV_URI");
     if (test_env_uri) {
-      Env::LoadEnv(test_env_uri, &env_, &env_guard_);
+      Env::LoadEnv(test_env_uri, &env_);
     }
     test_dir_ = test::PerThreadDBPath(env_, "sst_dump_test_db");
     Status s = env_->CreateDirIfMissing(test_dir_);
@@ -109,7 +108,7 @@ class SSTDumpToolTest : public testing::Test {
     }
   }
 
-  Env* env() { return env_; }
+  const std::shared_ptr<Env> & env() const { return env_; }
 
   std::string MakeFilePath(const std::string& file_name) const {
     std::string path(test_dir_);
@@ -232,9 +231,9 @@ TEST_F(SSTDumpToolTest, CompressedSizes) {
 }
 
 TEST_F(SSTDumpToolTest, MemEnv) {
-  std::unique_ptr<Env> mem_env(NewMemEnv(env()));
+  std::shared_ptr<Env> mem_env = NewMemEnv(env());
   Options opts;
-  opts.env = mem_env.get();
+  opts.env = mem_env;
   std::string file_path = MakeFilePath("rocksdb_sst_test.sst");
   createSST(opts, file_path);
 

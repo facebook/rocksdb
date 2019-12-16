@@ -374,7 +374,8 @@ class EncryptedRandomRWFile : public RandomRWFile {
 // EncryptedEnv implements an Env wrapper that adds encryption to files stored on disk.
 class EncryptedEnv : public EnvWrapper {
  public:
-  EncryptedEnv(Env* base_env, EncryptionProvider *provider)
+  EncryptedEnv(const std::shared_ptr<Env>& base_env,
+               EncryptionProvider* provider)
       : EnvWrapper(base_env) {
     provider_ = provider;
   }
@@ -684,8 +685,11 @@ class EncryptedEnv : public EnvWrapper {
 
 // Returns an Env that encrypts data when stored on disk and decrypts data when
 // read from disk.
-Env* NewEncryptedEnv(Env* base_env, EncryptionProvider* provider) {
-  return new EncryptedEnv(base_env, provider);
+std::shared_ptr<Env> NewEncryptedEnv(const std::shared_ptr<Env>& base_env,
+                                     EncryptionProvider* provider) {
+  std::shared_ptr<Env> result;
+  result.reset(new EncryptedEnv(base_env, provider));
+  return result;
 }
 
 // Encrypt one or more (partial) blocks of data at the file offset.

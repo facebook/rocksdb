@@ -23,7 +23,7 @@ namespace rocksdb {
 // Rolls the log file by size and/or time
 class AutoRollLogger : public Logger {
  public:
-  AutoRollLogger(Env* env, const std::string& dbname,
+  AutoRollLogger(const std::shared_ptr<Env>& env, const std::string& dbname,
                  const std::string& db_log_dir, size_t log_max_size,
                  size_t log_file_time_to_roll, size_t keep_log_file_num,
                  const InfoLogLevel log_level = InfoLogLevel::INFO_LEVEL);
@@ -113,7 +113,7 @@ class AutoRollLogger : public Logger {
   std::string dbname_;
   std::string db_log_dir_;
   std::string db_absolute_path_;
-  Env* env_;
+  std::shared_ptr<Env> env_;
   std::shared_ptr<Logger> logger_;
   // current status of the logger
   Status status_;

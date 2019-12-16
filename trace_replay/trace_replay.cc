@@ -56,7 +56,7 @@ Status TracerHelper::DecodeTrace(const std::string& encoded_trace,
   return Status::OK();
 }
 
-Tracer::Tracer(Env* env, const TraceOptions& trace_options,
+Tracer::Tracer(const std::shared_ptr<Env>& env, const TraceOptions& trace_options,
                std::unique_ptr<TraceWriter>&& trace_writer)
     : env_(env),
       trace_options_(trace_options),
@@ -301,7 +301,7 @@ Status Replayer::MultiThreadReplay(uint32_t threads_num) {
   }
 
   ThreadPoolImpl thread_pool;
-  thread_pool.SetHostEnv(env_);
+  thread_pool.SetHostEnv(env_.get());
 
   if (threads_num > 1) {
     thread_pool.SetBackgroundThreads(static_cast<int>(threads_num));

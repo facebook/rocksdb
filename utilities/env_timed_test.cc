@@ -18,8 +18,8 @@ TEST_F(TimedEnvTest, BasicTest) {
   SetPerfLevel(PerfLevel::kEnableTime);
   ASSERT_EQ(0, get_perf_context()->env_new_writable_file_nanos);
 
-  std::unique_ptr<Env> mem_env(NewMemEnv(Env::Default()));
-  std::unique_ptr<Env> timed_env(NewTimedEnv(mem_env.get()));
+  std::shared_ptr<Env> mem_env = NewMemEnv(Env::Default());
+  std::shared_ptr<Env> timed_env = NewTimedEnv(mem_env);
   std::unique_ptr<WritableFile> writable_file;
   timed_env->NewWritableFile("f", &writable_file, EnvOptions());
 

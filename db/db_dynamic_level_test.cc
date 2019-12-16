@@ -27,7 +27,7 @@ TEST_F(DBTestDynamicLevel, DynamicLevelMaxBytesBase) {
     return;
   }
   // Use InMemoryEnv, or it would be too slow.
-  std::unique_ptr<Env> env(new MockEnv(env_));
+  std::shared_ptr<Env> env = std::make_shared<MockEnv>(env_);
 
   const int kNKeys = 1000;
   int keys[kNKeys];
@@ -55,7 +55,7 @@ TEST_F(DBTestDynamicLevel, DynamicLevelMaxBytesBase) {
     for (int max_background_compactions = 1; max_background_compactions < 4;
          max_background_compactions += 2) {
       Options options;
-      options.env = env.get();
+      options.env = env;
       options.create_if_missing = true;
       options.write_buffer_size = 2048;
       options.max_write_buffer_number = 2;

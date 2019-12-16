@@ -34,7 +34,7 @@ TransactionLogIteratorImpl::TransactionLogIteratorImpl(
   assert(files_ != nullptr);
   assert(versions_ != nullptr);
 
-  reporter_.env = options_->env;
+  reporter_.env = options_->env.get();
   reporter_.info_log = options_->info_log.get();
   SeekToStartSequence(); // Seek till starting sequence
 }

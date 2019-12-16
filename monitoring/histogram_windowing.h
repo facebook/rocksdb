@@ -54,7 +54,7 @@ private:
     return last_swap_time_.load(std::memory_order_relaxed);
   }
 
-  Env* env_;
+  std::shared_ptr<Env> env_;
   std::mutex mutex_;
 
   // Aggregated stats over windows_stats_, all the computation is done

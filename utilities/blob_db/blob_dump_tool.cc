@@ -32,7 +32,7 @@ Status BlobDumpTool::Run(const std::string& filename, DisplayType show_key,
                          bool show_summary) {
   constexpr size_t kReadaheadSize = 2 * 1024 * 1024;
   Status s;
-  Env* env = Env::Default();
+  auto env = Env::Default();
   s = env->FileExists(filename);
   if (!s.ok()) {
     return s;

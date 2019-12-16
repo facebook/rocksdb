@@ -15,18 +15,17 @@
 #include <gtest/gtest.h>
 #endif
 
-#include <string>
 #include "rocksdb/env.h"
 
 namespace rocksdb {
 namespace test {
 
 // Return the directory to use for temporary storage.
-std::string TmpDir(Env* env = Env::Default());
+std::string TmpDir(const std::shared_ptr<Env> & env = Env::Default());
 
 // A path unique within the thread
 std::string PerThreadDBPath(std::string name);
-std::string PerThreadDBPath(Env* env, std::string name);
+std::string PerThreadDBPath(const std::shared_ptr<Env>& env, std::string name);
 std::string PerThreadDBPath(std::string dir, std::string name);
 
 // Return a randomization seed for this run.  Typically returns the

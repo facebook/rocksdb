@@ -82,7 +82,7 @@ namespace rocksdb {
 // from queue
 struct PersistentCacheConfig {
   explicit PersistentCacheConfig(
-      Env* const _env, const std::string& _path, const uint64_t _cache_size,
+      const std::shared_ptr<Env>& _env, const std::string& _path, const uint64_t _cache_size,
       const std::shared_ptr<Logger>& _log,
       const uint32_t _write_buffer_size = 1 * 1024 * 1024 /*1MB*/) {
     env = _env;
@@ -126,7 +126,7 @@ struct PersistentCacheConfig {
   //
   // Env abstraction to use for systmer level operations
   //
-  Env* env;
+  std::shared_ptr<Env> env;
 
   //
   // Path for the block cache where blocks are persisted

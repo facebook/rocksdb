@@ -4615,7 +4615,7 @@ TEST_P(DBCompactionDirectIOTest, DirectIO) {
   options.create_if_missing = true;
   options.disable_auto_compactions = true;
   options.use_direct_io_for_flush_and_compaction = GetParam();
-  options.env = new MockEnv(Env::Default());
+  options.env = std::make_shared<MockEnv>(Env::Default());
   Reopen(options);
   bool readahead = false;
   SyncPoint::GetInstance()->SetCallBack(
@@ -4638,7 +4638,6 @@ TEST_P(DBCompactionDirectIOTest, DirectIO) {
   ASSERT_EQ(readahead, options.use_direct_reads);
   ASSERT_EQ("0,0,1", FilesPerLevel(1));
   Destroy(options);
-  delete options.env;
 }
 
 INSTANTIATE_TEST_CASE_P(DBCompactionDirectIOTest, DBCompactionDirectIOTest,
@@ -4742,11 +4741,10 @@ TEST_F(DBCompactionTest, ManualCompactionFailsInReadOnlyMode) {
   // Regression test for bug where manual compaction hangs forever when the DB
   // is in read-only mode. Verify it now at least returns, despite failing.
   const int kNumL0Files = 4;
-  std::unique_ptr<FaultInjectionTestEnv> mock_env(
-      new FaultInjectionTestEnv(Env::Default()));
+  auto mock_env = FaultInjectionTestEnv::Get(Env::Default());
   Options opts = CurrentOptions();
   opts.disable_auto_compactions = true;
-  opts.env = mock_env.get();
+  opts.env = mock_env;
   DestroyAndReopen(opts);
 
   Random rnd(301);

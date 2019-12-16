@@ -22,7 +22,7 @@ static FactoryFunc<Env> test_reg_a = ObjectLibrary::Default()->Register<Env>(
     [](const std::string& /*uri*/, std::unique_ptr<Env>* /*env_guard*/,
        std::string* /* errmsg */) {
       ++EnvRegistryTest::num_a;
-      return Env::Default();
+      return Env::Default().get();
     });
 
 static FactoryFunc<Env> test_reg_b = ObjectLibrary::Default()->Register<Env>(
@@ -67,12 +67,12 @@ TEST_F(EnvRegistryTest, LocalRegistry) {
   library->Register<Env>(
       "test-local",
       [](const std::string& /*uri*/, std::unique_ptr<Env>* /*guard */,
-         std::string* /* errmsg */) { return Env::Default(); });
+         std::string* /* errmsg */) { return Env::Default().get(); });
 
   ObjectLibrary::Default()->Register<Env>(
       "test-global",
       [](const std::string& /*uri*/, std::unique_ptr<Env>* /*guard */,
-         std::string* /* errmsg */) { return Env::Default(); });
+         std::string* /* errmsg */) { return Env::Default().get(); });
 
   ASSERT_EQ(
       ObjectRegistry::NewInstance()->NewObject<Env>("test-local", &guard, &msg),
@@ -92,7 +92,7 @@ TEST_F(EnvRegistryTest, CheckShared) {
   library->Register<Env>(
       "unguarded",
       [](const std::string& /*uri*/, std::unique_ptr<Env>* /*guard */,
-         std::string* /* errmsg */) { return Env::Default(); });
+         std::string* /* errmsg */) { return Env::Default().get(); });
 
   library->Register<Env>(
       "guarded", [](const std::string& /*uri*/, std::unique_ptr<Env>* guard,
@@ -116,7 +116,7 @@ TEST_F(EnvRegistryTest, CheckStatic) {
   library->Register<Env>(
       "unguarded",
       [](const std::string& /*uri*/, std::unique_ptr<Env>* /*guard */,
-         std::string* /* errmsg */) { return Env::Default(); });
+         std::string* /* errmsg */) { return Env::Default().get(); });
 
   library->Register<Env>(
       "guarded", [](const std::string& /*uri*/, std::unique_ptr<Env>* guard,
@@ -140,7 +140,7 @@ TEST_F(EnvRegistryTest, CheckUnique) {
   library->Register<Env>(
       "unguarded",
       [](const std::string& /*uri*/, std::unique_ptr<Env>* /*guard */,
-         std::string* /* errmsg */) { return Env::Default(); });
+         std::string* /* errmsg */) { return Env::Default().get(); });
 
   library->Register<Env>(
       "guarded", [](const std::string& /*uri*/, std::unique_ptr<Env>* guard,

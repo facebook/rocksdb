@@ -100,7 +100,7 @@ class PlainTableDBTest : public testing::Test,
  protected:
  private:
   std::string dbname_;
-  Env* env_;
+  std::shared_ptr<Env> env_;
   DB* db_;
 
   bool mmap_mode_;

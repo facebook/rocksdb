@@ -277,8 +277,8 @@ void LDBCommand::Run() {
   }
 
   if (!options_.env || options_.env == Env::Default()) {
-    Env* env = Env::Default();
-    Status s = Env::LoadEnv(env_uri_, &env, &env_guard_);
+    auto env = Env::Default();
+    Status s = Env::LoadEnv(env_uri_, &env);
     if (!s.ok() && !s.IsNotFound()) {
       fprintf(stderr, "LoadEnv: %s\n", s.ToString().c_str());
       exec_state_ = LDBCommandExecuteResult::Failed(s.ToString());
@@ -287,7 +287,7 @@ void LDBCommand::Run() {
     options_.env = env;
   }
 
-  options_.file_system.reset(new LegacyFileSystemWrapper(options_.env));
+  options_.file_system.reset(new LegacyFileSystemWrapper(options_.env.get()));
 
   if (db_ == nullptr && !NoDBOpen()) {
     OpenDB();
@@ -1810,7 +1810,7 @@ void ReduceDBLevelsCommand::DoCommand() {
   Status st;
   Options opt = PrepareOptionsForOpenDB();
   int old_level_num = -1;
-  opt.file_system.reset(new LegacyFileSystemWrapper(opt.env));
+  opt.file_system.reset(new LegacyFileSystemWrapper(opt.env.get()));
   ;
   st = GetOldNumOfLevels(opt, &old_level_num);
   if (!st.ok()) {
@@ -2089,7 +2089,7 @@ class InMemoryHandler : public WriteBatch::Handler {
 void DumpWalFile(Options options, std::string wal_file, bool print_header,
                  bool print_values, bool is_write_committed,
                  LDBCommandExecuteResult* exec_state) {
-  Env* env = options.env;
+  auto env = options.env;
   EnvOptions soptions(options);
   std::unique_ptr<SequentialFileReader> wal_file_reader;
 
@@ -2898,9 +2898,9 @@ void BackupCommand::DoCommand() {
     assert(GetExecuteState().IsFailed());
     return;
   }
-  fprintf(stdout, "open db OK\n");
-  Env* custom_env = nullptr;
-  Env::LoadEnv(backup_env_uri_, &custom_env, &backup_env_guard_);
+  printf("open db OK\n");
+  std::shared_ptr<Env> custom_env = nullptr;
+  Env::LoadEnv(backup_env_uri_, &custom_env);
   assert(custom_env != nullptr);
 
   BackupableDBOptions backup_options =
@@ -2936,8 +2936,8 @@ void RestoreCommand::Help(std::string& ret) {
 }
 
 void RestoreCommand::DoCommand() {
-  Env* custom_env = nullptr;
-  Env::LoadEnv(backup_env_uri_, &custom_env, &backup_env_guard_);
+  std::shared_ptr<Env> custom_env = nullptr;
+  Env::LoadEnv(backup_env_uri_, &custom_env);
   assert(custom_env != nullptr);
 
   std::unique_ptr<BackupEngineReadOnly> restore_engine;

@@ -22,7 +22,7 @@ void DumpDBFileSummary(const ImmutableDBOptions& options,
     return;
   }
 
-  auto* env = options.env;
+  auto env = options.env;
   uint64_t number = 0;
   FileType type = kInfoLogFile;
 

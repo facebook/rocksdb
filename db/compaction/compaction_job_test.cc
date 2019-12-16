@@ -72,7 +72,7 @@ class CompactionJobTest : public testing::Test {
  public:
   CompactionJobTest()
       : env_(Env::Default()),
-        fs_(std::make_shared<LegacyFileSystemWrapper>(env_)),
+        fs_(std::make_shared<LegacyFileSystemWrapper>(env_.get())),
         dbname_(test::PerThreadDBPath("compaction_job_test")),
         db_options_(),
         mutable_cf_options_(cf_options_),
@@ -182,7 +182,7 @@ class CompactionJobTest : public testing::Test {
 
     uint64_t file_number = versions_->NewFileNumber();
     EXPECT_OK(mock_table_factory_->CreateMockTable(
-        env_, GenerateFileName(file_number), std::move(contents)));
+        env_.get(), GenerateFileName(file_number), std::move(contents)));
 
     VersionEdit edit;
     edit.AddFile(level, file_number, 0, 10, smallest_key, largest_key,
@@ -252,7 +252,7 @@ class CompactionJobTest : public testing::Test {
                                    &write_controller_,
                                    /*block_cache_tracer=*/nullptr));
     compaction_job_stats_.Reset();
-    SetIdentityFile(env_, dbname_);
+    SetIdentityFile(env_.get(), dbname_);
 
     VersionEdit new_db;
     if (db_options_.write_dbid_to_manifest) {
@@ -280,7 +280,7 @@ class CompactionJobTest : public testing::Test {
     }
     ASSERT_OK(s);
     // Make "CURRENT" file that points to the new manifest file.
-    s = SetCurrentFile(env_, dbname_, 1, nullptr);
+    s = SetCurrentFile(env_.get(), dbname_, 1, nullptr);
 
     std::vector<ColumnFamilyDescriptor> column_families;
     cf_options_.table_factory = mock_table_factory_;
@@ -362,7 +362,7 @@ class CompactionJobTest : public testing::Test {
     }
   }
 
-  Env* env_;
+  std::shared_ptr<Env> env_;
   std::shared_ptr<FileSystem> fs_;
   std::string dbname_;
   EnvOptions env_options_;

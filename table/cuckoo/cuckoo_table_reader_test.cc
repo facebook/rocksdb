@@ -211,7 +211,7 @@ class CuckooReaderTest : public testing::Test {
   std::string fname;
   uint64_t file_size;
   Options options;
-  Env* env;
+  std::shared_ptr<Env> env;
   EnvOptions env_options;
 };
 
@@ -408,7 +408,7 @@ void WriteFile(const std::vector<std::string>& keys,
     const uint64_t num, double hash_ratio) {
   Options options;
   options.allow_mmap_reads = true;
-  Env* env = options.env;
+  auto env = options.env;
   EnvOptions env_options = EnvOptions(options);
   std::string fname = GetFileName(num);
 
@@ -461,7 +461,7 @@ void WriteFile(const std::vector<std::string>& keys,
 void ReadKeys(uint64_t num, uint32_t batch_size) {
   Options options;
   options.allow_mmap_reads = true;
-  Env* env = options.env;
+  auto env = options.env;
   EnvOptions env_options = EnvOptions(options);
   std::string fname = GetFileName(num);
 

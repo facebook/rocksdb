@@ -158,7 +158,7 @@ Status DBImplSecondary::MaybeInitLogReader(
 
     // Create the log reader.
     LogReaderContainer* log_reader_container = new LogReaderContainer(
-        env_, immutable_db_options_.info_log, std::move(fname),
+        env_.get(), immutable_db_options_.info_log, std::move(fname),
         std::move(file_reader), log_number);
     log_readers_.insert(std::make_pair(
         log_number, std::unique_ptr<LogReaderContainer>(log_reader_container)));
@@ -318,8 +318,8 @@ Status DBImplSecondary::GetImpl(const ReadOptions& read_options,
                                 ColumnFamilyHandle* column_family,
                                 const Slice& key, PinnableSlice* pinnable_val) {
   assert(pinnable_val != nullptr);
-  PERF_CPU_TIMER_GUARD(get_cpu_nanos, env_);
-  StopWatch sw(env_, stats_, DB_GET);
+  PERF_CPU_TIMER_GUARD(get_cpu_nanos, env_.get());
+  StopWatch sw(env_.get(), stats_, DB_GET);
   PERF_TIMER_GUARD(get_snapshot_time);
 
   auto cfh = static_cast<ColumnFamilyHandleImpl*>(column_family);
@@ -409,7 +409,7 @@ ArenaWrappedDBIter* DBImplSecondary::NewIteratorImpl(
   assert(nullptr != cfd);
   SuperVersion* super_version = cfd->GetReferencedSuperVersion(&mutex_);
   auto db_iter = NewArenaWrappedDbIterator(
-      env_, read_options, *cfd->ioptions(), super_version->mutable_cf_options,
+      env_.get(), read_options, *cfd->ioptions(), super_version->mutable_cf_options,
       snapshot,
       super_version->mutable_cf_options.max_sequential_skip_in_iterations,
       super_version->version_number, read_callback);

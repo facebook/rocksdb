@@ -413,8 +413,7 @@ struct rocksdb_dbpath_t {
 };
 
 struct rocksdb_env_t {
-  Env* rep;
-  bool is_default;
+  std::shared_ptr<Env> rep;
 };
 
 struct rocksdb_slicetransform_t : public SliceTransform {
@@ -3321,14 +3320,12 @@ void rocksdb_dbpath_destroy(rocksdb_dbpath_t* dbpath) {
 rocksdb_env_t* rocksdb_create_default_env() {
   rocksdb_env_t* result = new rocksdb_env_t;
   result->rep = Env::Default();
-  result->is_default = true;
   return result;
 }
 
 rocksdb_env_t* rocksdb_create_mem_env() {
   rocksdb_env_t* result = new rocksdb_env_t;
   result->rep = rocksdb::NewMemEnv(Env::Default());
-  result->is_default = false;
   return result;
 }
 
@@ -3361,7 +3358,6 @@ void rocksdb_env_lower_high_priority_thread_pool_cpu_priority(rocksdb_env_t* env
 }
 
 void rocksdb_env_destroy(rocksdb_env_t* env) {
-  if (!env->is_default) delete env->rep;
   delete env;
 }
 

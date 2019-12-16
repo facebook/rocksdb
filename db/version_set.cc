@@ -3517,7 +3517,7 @@ VersionSet::VersionSet(const std::string& dbname,
     : column_family_set_(new ColumnFamilySet(
           dbname, _db_options, storage_options, table_cache,
           write_buffer_manager, write_controller, block_cache_tracer)),
-      env_(_db_options->env),
+      env_(_db_options->env.get()),
       fs_(_db_options->fs.get()),
       dbname_(dbname),
       db_options_(_db_options),

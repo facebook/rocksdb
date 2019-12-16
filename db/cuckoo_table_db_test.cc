@@ -20,7 +20,7 @@ namespace rocksdb {
 class CuckooTableDBTest : public testing::Test {
  private:
   std::string dbname_;
-  Env* env_;
+  std::shared_ptr<Env> env_;
   DB* db_;
 
  public:

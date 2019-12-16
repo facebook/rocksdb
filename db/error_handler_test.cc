@@ -131,12 +131,11 @@ class ErrorHandlerListener : public EventListener {
 };
 
 TEST_F(DBErrorHandlingTest, FLushWriteError) {
-  std::unique_ptr<FaultInjectionTestEnv> fault_env(
-      new FaultInjectionTestEnv(Env::Default()));
+  auto fault_env = FaultInjectionTestEnv::Get(Env::Default());
   std::shared_ptr<ErrorHandlerListener> listener(new ErrorHandlerListener());
   Options options = GetDefaultOptions();
   options.create_if_missing = true;
-  options.env = fault_env.get();
+  options.env = fault_env;
   options.listeners.emplace_back(listener);
   Status s;
 
@@ -162,14 +161,13 @@ TEST_F(DBErrorHandlingTest, FLushWriteError) {
 }
 
 TEST_F(DBErrorHandlingTest, CompactionWriteError) {
-  std::unique_ptr<FaultInjectionTestEnv> fault_env(
-      new FaultInjectionTestEnv(Env::Default()));
+  auto fault_env = FaultInjectionTestEnv::Get(Env::Default());
   std::shared_ptr<ErrorHandlerListener> listener(new ErrorHandlerListener());
   Options options = GetDefaultOptions();
   options.create_if_missing = true;
   options.level0_file_num_compaction_trigger = 2;
   options.listeners.emplace_back(listener);
-  options.env = fault_env.get();
+  options.env = fault_env;
   Status s;
   DestroyAndReopen(options);
 
@@ -205,12 +203,11 @@ TEST_F(DBErrorHandlingTest, CompactionWriteError) {
 }
 
 TEST_F(DBErrorHandlingTest, CorruptionError) {
-  std::unique_ptr<FaultInjectionTestEnv> fault_env(
-      new FaultInjectionTestEnv(Env::Default()));
+  auto fault_env = FaultInjectionTestEnv::Get(Env::Default());
   Options options = GetDefaultOptions();
   options.create_if_missing = true;
   options.level0_file_num_compaction_trigger = 2;
-  options.env = fault_env.get();
+  options.env = fault_env;
   Status s;
   DestroyAndReopen(options);
 
@@ -242,12 +239,11 @@ TEST_F(DBErrorHandlingTest, CorruptionError) {
 }
 
 TEST_F(DBErrorHandlingTest, AutoRecoverFlushError) {
-  std::unique_ptr<FaultInjectionTestEnv> fault_env(
-      new FaultInjectionTestEnv(Env::Default()));
+  auto fault_env = FaultInjectionTestEnv::Get(Env::Default());
   std::shared_ptr<ErrorHandlerListener> listener(new ErrorHandlerListener());
   Options options = GetDefaultOptions();
   options.create_if_missing = true;
-  options.env = fault_env.get();
+  options.env = fault_env;
   options.listeners.emplace_back(listener);
   Status s;
 
@@ -275,12 +271,11 @@ TEST_F(DBErrorHandlingTest, AutoRecoverFlushError) {
 }
 
 TEST_F(DBErrorHandlingTest, FailRecoverFlushError) {
-  std::unique_ptr<FaultInjectionTestEnv> fault_env(
-      new FaultInjectionTestEnv(Env::Default()));
+  auto fault_env = FaultInjectionTestEnv::Get(Env::Default());
   std::shared_ptr<ErrorHandlerListener> listener(new ErrorHandlerListener());
   Options options = GetDefaultOptions();
   options.create_if_missing = true;
-  options.env = fault_env.get();
+  options.env = fault_env;
   options.listeners.emplace_back(listener);
   Status s;
 
@@ -301,13 +296,12 @@ TEST_F(DBErrorHandlingTest, FailRecoverFlushError) {
 }
 
 TEST_F(DBErrorHandlingTest, WALWriteError) {
-  std::unique_ptr<FaultInjectionTestEnv> fault_env(
-      new FaultInjectionTestEnv(Env::Default()));
+  auto fault_env = FaultInjectionTestEnv::Get(Env::Default());
   std::shared_ptr<ErrorHandlerListener> listener(new ErrorHandlerListener());
   Options options = GetDefaultOptions();
   options.create_if_missing = true;
   options.writable_file_max_buffer_size = 32768;
-  options.env = fault_env.get();
+  options.env = fault_env;
   options.listeners.emplace_back(listener);
   Status s;
   Random rnd(301);
@@ -369,13 +363,12 @@ TEST_F(DBErrorHandlingTest, WALWriteError) {
 }
 
 TEST_F(DBErrorHandlingTest, MultiCFWALWriteError) {
-  std::unique_ptr<FaultInjectionTestEnv> fault_env(
-      new FaultInjectionTestEnv(Env::Default()));
+  auto fault_env = FaultInjectionTestEnv::Get(Env::Default());
   std::shared_ptr<ErrorHandlerListener> listener(new ErrorHandlerListener());
   Options options = GetDefaultOptions();
   options.create_if_missing = true;
   options.writable_file_max_buffer_size = 32768;
-  options.env = fault_env.get();
+  options.env = fault_env;
   options.listeners.emplace_back(listener);
   Status s;
   Random rnd(301);
@@ -452,8 +445,8 @@ TEST_F(DBErrorHandlingTest, MultiCFWALWriteError) {
 }
 
 TEST_F(DBErrorHandlingTest, MultiDBCompactionError) {
-  FaultInjectionTestEnv* def_env = new FaultInjectionTestEnv(Env::Default());
-  std::vector<std::unique_ptr<FaultInjectionTestEnv>> fault_env;
+  auto def_env = FaultInjectionTestEnv::Get(Env::Default());
+  std::vector<std::shared_ptr<FaultInjectionTestEnv>> fault_env;
   std::vector<Options> options;
   std::vector<std::shared_ptr<ErrorHandlerListener>> listener;
   std::vector<DB*> db;
@@ -464,11 +457,11 @@ TEST_F(DBErrorHandlingTest, MultiDBCompactionError) {
   for (auto i = 0; i < kNumDbInstances; ++i) {
     listener.emplace_back(new ErrorHandlerListener());
     options.emplace_back(GetDefaultOptions());
-    fault_env.emplace_back(new FaultInjectionTestEnv(Env::Default()));
+    fault_env.emplace_back(FaultInjectionTestEnv::Get(Env::Default()));
     options[i].create_if_missing = true;
     options[i].level0_file_num_compaction_trigger = 2;
     options[i].writable_file_max_buffer_size = 32768;
-    options[i].env = fault_env[i].get();
+    options[i].env = fault_env[i];
     options[i].listeners.emplace_back(listener[i]);
     options[i].sst_file_manager = sfm;
     DB* dbptr;
@@ -544,12 +537,11 @@ TEST_F(DBErrorHandlingTest, MultiDBCompactionError) {
   }
   options.clear();
   sfm.reset();
-  delete def_env;
 }
 
 TEST_F(DBErrorHandlingTest, MultiDBVariousErrors) {
-  FaultInjectionTestEnv* def_env = new FaultInjectionTestEnv(Env::Default());
-  std::vector<std::unique_ptr<FaultInjectionTestEnv>> fault_env;
+  auto def_env = FaultInjectionTestEnv::Get(Env::Default());
+  std::vector<std::shared_ptr<FaultInjectionTestEnv>> fault_env;
   std::vector<Options> options;
   std::vector<std::shared_ptr<ErrorHandlerListener>> listener;
   std::vector<DB*> db;
@@ -560,11 +552,11 @@ TEST_F(DBErrorHandlingTest, MultiDBVariousErrors) {
   for (auto i = 0; i < kNumDbInstances; ++i) {
     listener.emplace_back(new ErrorHandlerListener());
     options.emplace_back(GetDefaultOptions());
-    fault_env.emplace_back(new FaultInjectionTestEnv(Env::Default()));
+    fault_env.emplace_back(FaultInjectionTestEnv::Get(Env::Default()));
     options[i].create_if_missing = true;
     options[i].level0_file_num_compaction_trigger = 2;
     options[i].writable_file_max_buffer_size = 32768;
-    options[i].env = fault_env[i].get();
+    options[i].env = fault_env[i];
     options[i].listeners.emplace_back(listener[i]);
     options[i].sst_file_manager = sfm;
     DB* dbptr;
@@ -671,7 +663,6 @@ TEST_F(DBErrorHandlingTest, MultiDBVariousErrors) {
     }
   }
   options.clear();
-  delete def_env;
 }
 
 }  // namespace rocksdb

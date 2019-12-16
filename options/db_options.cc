@@ -102,7 +102,7 @@ void ImmutableDBOptions::Dump(Logger* log) const {
   ROCKS_LOG_HEADER(log, "                        Options.paranoid_checks: %d",
                    paranoid_checks);
   ROCKS_LOG_HEADER(log, "                                    Options.env: %p",
-                   env);
+                   env.get());
   ROCKS_LOG_HEADER(log, "                                     Options.fs: %s",
                    fs->Name());
   ROCKS_LOG_HEADER(log, "                               Options.info_log: %p",

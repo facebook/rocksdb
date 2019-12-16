@@ -371,7 +371,7 @@ Status FlushJob::WriteLevel0Table() {
       meta_.file_creation_time = current_time;
 
       s = BuildTable(
-          dbname_, db_options_.env, db_options_.fs.get(), *cfd_->ioptions(),
+          dbname_, db_options_.env.get(), db_options_.fs.get(), *cfd_->ioptions(),
           mutable_cf_options_, file_options_, cfd_->table_cache(), iter.get(),
           std::move(range_del_iters), &meta_, cfd_->internal_comparator(),
           cfd_->int_tbl_prop_collector_factories(), cfd_->GetID(),

@@ -17,8 +17,9 @@ class EncryptionProvider;
 
 // Returns an Env that encrypts data when stored on disk and decrypts data when
 // read from disk.
-Env* NewEncryptedEnv(Env* base_env, EncryptionProvider* provider);
-
+std::shared_ptr<Env> NewEncryptedEnv(const std::shared_ptr<Env>& base_env,
+                                     EncryptionProvider* provider);
+  
 // BlockAccessCipherStream is the base class for any cipher stream that
 // supports random access at block level (without requiring data from other
 // blocks). E.g. CTR (Counter operation mode) supports this requirement.

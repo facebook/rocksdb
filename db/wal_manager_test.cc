@@ -31,7 +31,7 @@ namespace rocksdb {
 class WalManagerTest : public testing::Test {
  public:
   WalManagerTest()
-      : env_(new MockEnv(Env::Default())),
+    : env_(std::make_shared<MockEnv>(Env::Default())),
         dbname_(test::PerThreadDBPath("wal_manager_test")),
         db_options_(),
         table_cache_(NewLRUCache(50000, 16)),
@@ -46,7 +46,7 @@ class WalManagerTest : public testing::Test {
     db_options_.db_paths.emplace_back(dbname_,
                                       std::numeric_limits<uint64_t>::max());
     db_options_.wal_dir = dbname_;
-    db_options_.env = env_.get();
+    db_options_.env = env_;
     fs_.reset(new LegacyFileSystemWrapper(env_.get()));
     db_options_.fs = fs_;
 
@@ -104,7 +104,7 @@ class WalManagerTest : public testing::Test {
     return iter;
   }
 
-  std::unique_ptr<MockEnv> env_;
+  std::shared_ptr<MockEnv> env_;
   std::string dbname_;
   ImmutableDBOptions db_options_;
   WriteController write_controller_;

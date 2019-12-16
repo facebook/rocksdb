@@ -161,7 +161,7 @@ TEST_F(SimCacheTest, SimCacheLogging) {
   }
 
   std::string log_file = test::PerThreadDBPath(env_, "cache_log.txt");
-  ASSERT_OK(sim_cache->StartActivityLogging(log_file, env_));
+  ASSERT_OK(sim_cache->StartActivityLogging(log_file, env_.get()));
   for (int i = 0; i < num_block_entries; i++) {
     ASSERT_EQ(Get(Key(i)), "val");
   }
@@ -172,7 +172,7 @@ TEST_F(SimCacheTest, SimCacheLogging) {
   ASSERT_OK(sim_cache->GetActivityLoggingStatus());
 
   std::string file_contents = "";
-  ReadFileToString(env_, log_file, &file_contents);
+  ReadFileToString(env_.get(), log_file, &file_contents);
 
   int lookup_num = 0;
   int add_num = 0;
@@ -200,8 +200,8 @@ TEST_F(SimCacheTest, SimCacheLogging) {
 
   // Log things again but stop logging automatically after reaching 512 bytes
  // @lint-ignore TXT2 T25377293 Grandfathered in
-	int max_size = 512;
-  ASSERT_OK(sim_cache->StartActivityLogging(log_file, env_, max_size));
+  int max_size = 512;
+  ASSERT_OK(sim_cache->StartActivityLogging(log_file, env_.get(), max_size));
   for (int it = 0; it < 10; it++) {
     for (int i = 0; i < num_block_entries; i++) {
       ASSERT_EQ(Get(Key(i)), "val");

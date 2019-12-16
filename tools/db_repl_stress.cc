@@ -104,7 +104,7 @@ int main(int argc, const char** argv) {
       " --wal_size_limit_MB=<WAL_size_limit_MB>");
   ParseCommandLineFlags(&argc, const_cast<char***>(&argv), true);
 
-  Env* env = Env::Default();
+  auto env = Env::Default();
   std::string default_db_path;
   env->GetTestDirectory(&default_db_path);
   default_db_path += "db_repl_stress";

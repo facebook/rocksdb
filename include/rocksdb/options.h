@@ -393,7 +393,7 @@ struct DBOptions {
   // future, support for doing storage operations such as read/write files
   // through env will be deprecated in favor of file_system (see below)
   // Default: Env::Default()
-  Env* env = Env::Default();
+  std::shared_ptr<Env> env = Env::Default();
 
   // Use the specified object to interact with the storage to
   // read/write files. This is in addition to env. This option should be used

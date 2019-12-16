@@ -296,7 +296,7 @@ class CompositeEnvWrapper : public Env {
   ~CompositeEnvWrapper() {}
 
   // Return the target to which this Env forwards all calls
-  Env* env_target() const { return env_target_; }
+  const Env* env_target() const { return env_target_; }
 
   FileSystem* fs_env_target() const { return fs_env_target_; }
 

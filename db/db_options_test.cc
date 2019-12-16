@@ -545,10 +545,10 @@ static void assert_candidate_files_empty(DBImpl* dbfull, const bool empty) {
 }
 
 TEST_F(DBOptionsTest, DeleteObsoleteFilesPeriodChange) {
-  SpecialEnv env(env_);
-  env.time_elapse_only_sleep_ = true;
+  auto env = SpecialEnv::Get(env_);
+  env->time_elapse_only_sleep_ = true;
   Options options;
-  options.env = &env;
+  options.env = env;
   options.create_if_missing = true;
   ASSERT_OK(TryReopen(options));
 
@@ -567,17 +567,17 @@ TEST_F(DBOptionsTest, DeleteObsoleteFilesPeriodChange) {
 
   assert_candidate_files_empty(dbfull(), true);
 
-  env.addon_time_.store(20);
+  env->addon_time_.store(20);
   assert_candidate_files_empty(dbfull(), true);
 
-  env.addon_time_.store(21);
+  env->addon_time_.store(21);
   assert_candidate_files_empty(dbfull(), false);
 
   Close();
 }
 
 TEST_F(DBOptionsTest, MaxOpenFilesChange) {
-  SpecialEnv env(env_);
+  auto env = SpecialEnv::Get(env_);
   Options options;
   options.env = CurrentOptions().env;
   options.max_open_files = -1;
@@ -785,9 +785,8 @@ TEST_F(DBOptionsTest, SetFIFOCompactionOptions) {
 }
 
 TEST_F(DBOptionsTest, CompactionReadaheadSizeChange) {
-  SpecialEnv env(env_);
   Options options;
-  options.env = &env;
+  options.env = SpecialEnv::Get(env_);
 
   options.compaction_readahead_size = 0;
   options.new_table_reader_for_compaction_inputs = true;

@@ -32,16 +32,12 @@ class RandomAccessFileMirror;
 class WritableFileMirror;
 
 class EnvMirror : public EnvWrapper {
-  Env *a_, *b_;
-  bool free_a_, free_b_;
+  std::shared_ptr<Env> a_, b_;
 
  public:
-  EnvMirror(Env* a, Env* b, bool free_a = false, bool free_b = false)
-      : EnvWrapper(a), a_(a), b_(b), free_a_(free_a), free_b_(free_b) {}
-  ~EnvMirror() {
-    if (free_a_) delete a_;
-    if (free_b_) delete b_;
-  }
+  EnvMirror(const std::shared_ptr<Env> & a,
+            const std::shared_ptr<Env> & b)
+      : EnvWrapper(a), a_(a), b_(b)  {}
 
   Status NewSequentialFile(const std::string& f,
                            std::unique_ptr<SequentialFile>* r,

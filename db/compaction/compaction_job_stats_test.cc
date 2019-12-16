@@ -84,7 +84,7 @@ class CompactionJobStatsTest : public testing::Test,
  public:
   std::string dbname_;
   std::string alternative_wal_dir_;
-  Env* env_;
+  std::shared_ptr<Env> env_;
   DB* db_;
   std::vector<ColumnFamilyHandle*> handles_;
   uint32_t max_subcompactions_;

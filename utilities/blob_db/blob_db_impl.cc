@@ -77,7 +77,7 @@ BlobDBImpl::BlobDBImpl(const std::string& dbname,
     : BlobDB(),
       dbname_(dbname),
       db_impl_(nullptr),
-      env_(db_options.env),
+      env_(db_options.env.get()),
       bdb_options_(blob_db_options),
       db_options_(db_options),
       cf_options_(cf_options),
@@ -2271,7 +2271,7 @@ Iterator* BlobDBImpl::NewIterator(const ReadOptions& read_options) {
 Status DestroyBlobDB(const std::string& dbname, const Options& options,
                      const BlobDBOptions& bdb_options) {
   const ImmutableDBOptions soptions(SanitizeOptions(dbname, options));
-  Env* env = soptions.env;
+  auto env = soptions.env;
 
   Status status;
   std::string blobdir;

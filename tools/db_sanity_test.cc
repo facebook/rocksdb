@@ -78,7 +78,7 @@ class SanityTest {
   }
 
  private:
-  Env* env_;
+  std::shared_ptr<Env> env_;
   std::string const path_;
 };
 

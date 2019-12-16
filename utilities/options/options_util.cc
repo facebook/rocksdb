@@ -13,13 +13,14 @@
 #include "rocksdb/options.h"
 
 namespace rocksdb {
-Status LoadOptionsFromFile(const std::string& file_name, Env* env,
+Status LoadOptionsFromFile(const std::string& file_name,
+                           const std::shared_ptr<Env>& env,
                            DBOptions* db_options,
                            std::vector<ColumnFamilyDescriptor>* cf_descs,
                            bool ignore_unknown_options,
                            std::shared_ptr<Cache>* cache) {
   RocksDBOptionsParser parser;
-  LegacyFileSystemWrapper fs(env);
+  LegacyFileSystemWrapper fs(env.get());
   Status s = parser.Parse(file_name, &fs, ignore_unknown_options);
   if (!s.ok()) {
     return s;
@@ -44,7 +45,8 @@ Status LoadOptionsFromFile(const std::string& file_name, Env* env,
 }
 
 Status GetLatestOptionsFileName(const std::string& dbpath,
-                                Env* env, std::string* options_file_name) {
+                                const std::shared_ptr<Env>& env,
+                                std::string* options_file_name) {
   Status s;
   std::string latest_file_name;
   uint64_t latest_time_stamp = 0;
@@ -70,7 +72,8 @@ Status GetLatestOptionsFileName(const std::string& dbpath,
   return Status::OK();
 }
 
-Status LoadLatestOptions(const std::string& dbpath, Env* env,
+Status LoadLatestOptions(const std::string& dbpath,
+                         const std::shared_ptr<Env>& env,
                          DBOptions* db_options,
                          std::vector<ColumnFamilyDescriptor>* cf_descs,
                          bool ignore_unknown_options,
@@ -85,7 +88,8 @@ Status LoadLatestOptions(const std::string& dbpath, Env* env,
 }
 
 Status CheckOptionsCompatibility(
-    const std::string& dbpath, Env* env, const DBOptions& db_options,
+    const std::string& dbpath,
+    const std::shared_ptr<Env>& env, const DBOptions& db_options,
     const std::vector<ColumnFamilyDescriptor>& cf_descs,
     bool ignore_unknown_options) {
   std::string options_file_name;
@@ -102,7 +106,7 @@ Status CheckOptionsCompatibility(
   }
 
   const OptionsSanityCheckLevel kDefaultLevel = kSanityLevelLooselyCompatible;
-  LegacyFileSystemWrapper fs(env);
+  LegacyFileSystemWrapper fs(env.get());
 
   return RocksDBOptionsParser::VerifyRocksDBOptionsFromFile(
       db_options, cf_names, cf_opts, dbpath + "/" + options_file_name, &fs,

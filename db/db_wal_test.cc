@@ -33,7 +33,7 @@ class DBWALTest : public DBTestBase {
 // A SpecialEnv enriched to give more insight about deleted files
 class EnrichedSpecialEnv : public SpecialEnv {
  public:
-  explicit EnrichedSpecialEnv(Env* base) : SpecialEnv(base) {}
+  explicit EnrichedSpecialEnv(const std::shared_ptr<Env>& base) : SpecialEnv(base) {}
   Status NewSequentialFile(const std::string& f,
                            std::unique_ptr<SequentialFile>* r,
                            const EnvOptions& soptions) override {
@@ -87,18 +87,16 @@ class EnrichedSpecialEnv : public SpecialEnv {
 class DBWALTestWithEnrichedEnv : public DBTestBase {
  public:
   DBWALTestWithEnrichedEnv() : DBTestBase("/db_wal_test") {
-    enriched_env_ = new EnrichedSpecialEnv(env_->target());
+    enriched_env_ = std::make_shared<EnrichedSpecialEnv>(env_->target());
     auto options = CurrentOptions();
     options.env = enriched_env_;
     options.allow_2pc = true;
     Reopen(options);
-    delete env_;
-    // to be deleted by the parent class
     env_ = enriched_env_;
   }
 
  protected:
-  EnrichedSpecialEnv* enriched_env_;
+  std::shared_ptr<EnrichedSpecialEnv> enriched_env_;
 };
 
 // Test that the recovery would successfully avoid the gaps between the logs.
@@ -829,10 +827,9 @@ TEST_F(DBWALTest, SyncMultipleLogs) {
 // ignoring actual sequence id of the records. This is incorrect if some writes
 // come with WAL disabled.
 TEST_F(DBWALTest, PartOfWritesWithWALDisabled) {
-  std::unique_ptr<FaultInjectionTestEnv> fault_env(
-      new FaultInjectionTestEnv(env_));
+  auto fault_env = FaultInjectionTestEnv::Get(env_);
   Options options = CurrentOptions();
-  options.env = fault_env.get();
+  options.env = fault_env;
   options.disable_auto_compactions = true;
   WriteOptions wal_on, wal_off;
   wal_on.sync = true;
@@ -952,7 +949,7 @@ class RecoveryTestHelper {
   static void CorruptWAL(DBWALTest* test, const Options& options,
                          const double off, const double len,
                          const int wal_file_id, const bool trunc = false) {
-    Env* env = options.env;
+    auto env = options.env;
     std::string fname = LogFileName(test->dbname_, wal_file_id);
     uint64_t size;
     ASSERT_OK(env->GetFileSize(fname, &size));
@@ -1079,7 +1076,7 @@ TEST_F(DBWALTest, kPointInTimeRecoveryCFConsistency) {
   ASSERT_OK(Put(2, "key2", "val2"));
 
   // Record the offset at this point
-  Env* env = options.env;
+  auto env = options.env;
   uint64_t wal_file_id = dbfull()->TEST_LogfileNumber();
   std::string fname = LogFileName(dbname_, wal_file_id);
   uint64_t offset_to_corrupt;

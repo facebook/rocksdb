@@ -39,7 +39,7 @@ DBOptions SanitizeOptions(const std::string& dbname, const DBOptions& src) {
     if (result.env == Env::Default()) {
       result.file_system = FileSystem::Default();
     } else {
-      result.file_system.reset(new LegacyFileSystemWrapper(result.env));
+      result.file_system.reset(new LegacyFileSystemWrapper(result.env.get()));
     }
   } else {
     if (result.env == nullptr) {
@@ -162,7 +162,7 @@ DBOptions SanitizeOptions(const std::string& dbname, const DBOptions& src) {
   // was not used)
   auto sfm = static_cast<SstFileManagerImpl*>(result.sst_file_manager.get());
   for (size_t i = 0; i < result.db_paths.size(); i++) {
-    DeleteScheduler::CleanupDirectory(result.env, sfm, result.db_paths[i].path);
+    DeleteScheduler::CleanupDirectory(result.env.get(), sfm, result.db_paths[i].path);
   }
 
   // Create a default SstFileManager for purposes of tracking compaction size
@@ -251,7 +251,7 @@ Status DBImpl::ValidateOptions(const DBOptions& db_options) {
 
 Status DBImpl::NewDB() {
   VersionEdit new_db;
-  Status s = SetIdentityFile(env_, dbname_);
+  Status s = SetIdentityFile(env_.get(), dbname_);
   if (!s.ok()) {
     return s;
   }
@@ -276,19 +276,19 @@ Status DBImpl::NewDB() {
     file->SetPreallocationBlockSize(
         immutable_db_options_.manifest_preallocation_size);
     std::unique_ptr<WritableFileWriter> file_writer(new WritableFileWriter(
-        std::move(file), manifest, file_options, env_, nullptr /* stats */,
+        std::move(file), manifest, file_options, env_.get(), nullptr /* stats */,
         immutable_db_options_.listeners));
     log::Writer log(std::move(file_writer), 0, false);
     std::string record;
     new_db.EncodeTo(&record);
     s = log.AddRecord(record);
     if (s.ok()) {
-      s = SyncManifest(env_, &immutable_db_options_, log.file());
+      s = SyncManifest(env_.get(), &immutable_db_options_, log.file());
     }
   }
   if (s.ok()) {
     // Make "CURRENT" file that points to the new manifest file.
-    s = SetCurrentFile(env_, dbname_, 1, directories_.GetDbDir());
+    s = SetCurrentFile(env_.get(), dbname_, 1, directories_.GetDbDir());
   } else {
     fs_->DeleteFile(manifest, IOOptions(), nullptr);
   }
@@ -351,7 +351,7 @@ Status DBImpl::Recover(
   bool is_new_db = false;
   assert(db_lock_ == nullptr);
   if (!read_only) {
-    Status s = directories_.SetDirectories(env_, dbname_,
+    Status s = directories_.SetDirectories(env_.get(), dbname_,
                                            immutable_db_options_.wal_dir,
                                            immutable_db_options_.db_paths);
     if (!s.ok()) {
@@ -426,7 +426,7 @@ Status DBImpl::Recover(
     // it is no longer available then at this point DB ID is not in Identity
     // file or Manifest.
     if (s.IsNotFound()) {
-      s = SetIdentityFile(env_, dbname_);
+      s = SetIdentityFile(env_.get(), dbname_);
       if (!s.ok()) {
         return s;
       }
@@ -446,7 +446,7 @@ Status DBImpl::Recover(
                              false);
     }
   } else {
-    SetIdentityFile(env_, dbname_, db_id_);
+    SetIdentityFile(env_.get(), dbname_, db_id_);
   }
 
   if (immutable_db_options_.paranoid_checks && s.ok()) {
@@ -781,7 +781,7 @@ Status DBImpl::RecoverLogFiles(const std::vector<uint64_t>& log_numbers,
 
     // Create the log reader.
     LogReporter reporter;
-    reporter.env = env_;
+    reporter.env = env_.get();
     reporter.info_log = immutable_db_options_.info_log.get();
     reporter.fname = fname.c_str();
     if (!immutable_db_options_.paranoid_checks ||
@@ -1323,7 +1323,7 @@ Status DBImpl::CreateWAL(uint64_t log_file_num, uint64_t recycle_log_number,
     const auto& listeners = immutable_db_options_.listeners;
     std::unique_ptr<WritableFileWriter> file_writer(
         new WritableFileWriter(std::move(lfile), log_fname, opt_file_options,
-                               env_, nullptr /* stats */, listeners));
+                               env_.get(), nullptr /* stats */, listeners));
     *new_log = new log::Writer(std::move(file_writer), log_file_num,
                                immutable_db_options_.recycle_log_file_num > 0,
                                immutable_db_options_.manual_wal_flush);

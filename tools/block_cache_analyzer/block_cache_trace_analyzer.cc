@@ -1527,7 +1527,7 @@ Status BlockCacheTraceAnalyzer::Analyze() {
     reader.reset(new BlockCacheHumanReadableTraceReader(trace_file_path_));
   } else {
     std::unique_ptr<TraceReader> trace_reader;
-    s = NewFileTraceReader(env_, EnvOptions(), trace_file_path_, &trace_reader);
+    s = NewFileTraceReader(env_.get(), EnvOptions(), trace_file_path_, &trace_reader);
     if (!s.ok()) {
       return s;
     }
@@ -1539,7 +1539,7 @@ Status BlockCacheTraceAnalyzer::Analyze() {
   }
   if (!human_readable_trace_file_path_.empty()) {
     s = human_readable_trace_writer_.NewWritableFile(
-        human_readable_trace_file_path_, env_);
+        human_readable_trace_file_path_, env_.get());
     if (!s.ok()) {
       return s;
     }

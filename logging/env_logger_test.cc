@@ -30,7 +30,7 @@ void WriteLogs(std::shared_ptr<Logger> logger, const std::string& message,
 
 class EnvLoggerTest : public testing::Test {
  public:
-  Env* env_;
+  std::shared_ptr<Env> env_;
 
   EnvLoggerTest() : env_(Env::Default()) {}
 
@@ -38,7 +38,7 @@ class EnvLoggerTest : public testing::Test {
 
   std::shared_ptr<Logger> CreateLogger() {
     std::shared_ptr<Logger> result;
-    assert(NewEnvLogger(kLogFile, env_, &result).ok());
+    assert(NewEnvLogger(kLogFile, env_.get(), &result).ok());
     assert(result);
     result->SetInfoLogLevel(InfoLogLevel::INFO_LEVEL);
     return result;

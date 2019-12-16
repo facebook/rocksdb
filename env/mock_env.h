@@ -22,7 +22,7 @@ namespace rocksdb {
 class MemFile;
 class MockEnv : public EnvWrapper {
  public:
-  explicit MockEnv(Env* base_env);
+  explicit MockEnv(const std::shared_ptr<Env>& base_env);
 
   virtual ~MockEnv();
 

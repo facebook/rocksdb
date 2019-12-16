@@ -50,7 +50,7 @@ static std::string MakeKey(int i, int j, bool through_db) {
   return key.Encode().ToString();
 }
 
-uint64_t Now(Env* env, bool measured_by_nanosecond) {
+uint64_t Now(const std::shared_ptr<Env>& env, bool measured_by_nanosecond) {
   return measured_by_nanosecond ? env->NowNanos() : env->NowMicros();
 }
 }  // namespace
@@ -80,7 +80,7 @@ void TableReaderBenchmark(Options& opts, EnvOptions& env_options,
       test::PerThreadDBPath("rocksdb_table_reader_benchmark");
   std::string dbname = test::PerThreadDBPath("rocksdb_table_reader_bench_db");
   WriteOptions wo;
-  Env* env = Env::Default();
+  auto env = Env::Default();
   TableBuilder* tb = nullptr;
   DB* db = nullptr;
   Status s;
@@ -177,7 +177,7 @@ void TableReaderBenchmark(Options& opts, EnvOptions& env_options,
                                    ioptions.merge_operator, ioptions.info_log,
                                    ioptions.statistics, GetContext::kNotFound,
                                    Slice(key), &value, nullptr, &merge_context,
-                                   true, &max_covering_tombstone_seq, env);
+                                   true, &max_covering_tombstone_seq, env.get());
             s = table_reader->Get(read_options, key, &get_context, nullptr);
           } else {
             s = db->Get(read_options, key, &result);

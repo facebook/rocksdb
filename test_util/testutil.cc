@@ -391,7 +391,7 @@ void RandomInitCFOptions(ColumnFamilyOptions* cf_opt, DBOptions& db_options,
                               &cf_opt->compression_per_level, rnd);
 }
 
-Status DestroyDir(Env* env, const std::string& dir) {
+Status DestroyDir(const std::shared_ptr<Env>& env, const std::string& dir) {
   Status s;
   if (env->FileExists(dir).IsNotFound()) {
     return s;
@@ -416,7 +416,7 @@ Status DestroyDir(Env* env, const std::string& dir) {
   return s;
 }
 
-bool IsDirectIOSupported(Env* env, const std::string& dir) {
+bool IsDirectIOSupported(const std::shared_ptr<Env>& env, const std::string& dir) {
   EnvOptions env_options;
   env_options.use_mmap_writes = false;
   env_options.use_direct_writes = true;

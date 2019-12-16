@@ -199,7 +199,7 @@ class BlockCacheTracerTest : public testing::Test {
     ASSERT_EQ(0, rocksdb::block_cache_trace_analyzer_tool(argc, argv));
   }
 
-  Env* env_;
+  std::shared_ptr<Env> env_;
   EnvOptions env_options_;
   std::string block_cache_sim_config_path_;
   std::string trace_file_path_;
@@ -222,7 +222,7 @@ TEST_F(BlockCacheTracerTest, BlockCacheAnalyzer) {
     // Generate a trace file.
     TraceOptions trace_opt;
     std::unique_ptr<TraceWriter> trace_writer;
-    ASSERT_OK(NewFileTraceWriter(env_, env_options_, trace_file_path_,
+    ASSERT_OK(NewFileTraceWriter(env_.get(), env_options_, trace_file_path_,
                                  &trace_writer));
     BlockCacheTraceWriter writer(env_, trace_opt, std::move(trace_writer));
     ASSERT_OK(writer.WriteHeader());
@@ -609,7 +609,7 @@ TEST_F(BlockCacheTracerTest, MixedBlocks) {
     // kSSTStoringEvenKeys.
     TraceOptions trace_opt;
     std::unique_ptr<TraceWriter> trace_writer;
-    ASSERT_OK(NewFileTraceWriter(env_, env_options_, trace_file_path_,
+    ASSERT_OK(NewFileTraceWriter(env_.get(), env_options_, trace_file_path_,
                                  &trace_writer));
     BlockCacheTraceWriter writer(env_, trace_opt, std::move(trace_writer));
     ASSERT_OK(writer.WriteHeader());
@@ -626,7 +626,7 @@ TEST_F(BlockCacheTracerTest, MixedBlocks) {
   {
     // Verify trace file is generated correctly.
     std::unique_ptr<TraceReader> trace_reader;
-    ASSERT_OK(NewFileTraceReader(env_, env_options_, trace_file_path_,
+    ASSERT_OK(NewFileTraceReader(env_.get(), env_options_, trace_file_path_,
                                  &trace_reader));
     BlockCacheTraceReader reader(std::move(trace_reader));
     BlockCacheTraceHeader header;

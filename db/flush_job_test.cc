@@ -30,7 +30,7 @@ class FlushJobTest : public testing::Test {
  public:
   FlushJobTest()
       : env_(Env::Default()),
-        fs_(std::make_shared<LegacyFileSystemWrapper>(env_)),
+        fs_(std::make_shared<LegacyFileSystemWrapper>(env_.get())),
         dbname_(test::PerThreadDBPath("flush_job_test")),
         options_(),
         db_options_(options_),
@@ -61,7 +61,7 @@ class FlushJobTest : public testing::Test {
   }
 
   void NewDB() {
-    SetIdentityFile(env_, dbname_);
+    SetIdentityFile(env_.get(), dbname_);
     VersionEdit new_db;
     if (db_options_.write_dbid_to_manifest) {
       DBImpl* impl = new DBImpl(DBOptions(), dbname_);
@@ -108,10 +108,10 @@ class FlushJobTest : public testing::Test {
     }
     ASSERT_OK(s);
     // Make "CURRENT" file that points to the new manifest file.
-    s = SetCurrentFile(env_, dbname_, 1, nullptr);
+    s = SetCurrentFile(env_.get(), dbname_, 1, nullptr);
   }
 
-  Env* env_;
+  std::shared_ptr<Env> env_;
   std::shared_ptr<FileSystem> fs_;
   std::string dbname_;
   EnvOptions env_options_;

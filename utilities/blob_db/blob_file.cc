@@ -79,7 +79,7 @@ std::shared_ptr<Reader> BlobFile::OpenRandomAccessReader(
       NewLegacyRandomAccessFileWrapper(sfile), path_name));
 
   std::shared_ptr<Reader> log_reader = std::make_shared<Reader>(
-      std::move(sfile_reader), db_options.env, db_options.statistics.get());
+      std::move(sfile_reader), db_options.env.get(), db_options.statistics.get());
 
   return log_reader;
 }

@@ -35,7 +35,7 @@ class SharedState {
   // indicates a key should definitely be deleted
   static const uint32_t DELETION_SENTINEL;
 
-  SharedState(Env* env, StressTest* stress_test)
+  SharedState(const std::shared_ptr<Env>& env, StressTest* stress_test)
       : cv_(&mu_),
         seed_(static_cast<uint32_t>(FLAGS_seed)),
         max_key_(FLAGS_max_key),

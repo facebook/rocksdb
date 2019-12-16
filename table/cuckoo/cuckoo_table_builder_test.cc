@@ -156,7 +156,7 @@ class CuckooBuilderTest : public testing::Test {
   }
 
 
-  Env* env_;
+  std::shared_ptr<Env> env_;
   EnvOptions env_options_;
   std::string fname;
   const double kHashTableRatio = 0.9;

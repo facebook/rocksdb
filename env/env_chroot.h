@@ -15,7 +15,8 @@ namespace rocksdb {
 
 // Returns an Env that translates paths such that the root directory appears to
 // be chroot_dir. chroot_dir should refer to an existing directory.
-Env* NewChrootEnv(Env* base_env, const std::string& chroot_dir);
+std::shared_ptr<Env> NewChrootEnv(const std::shared_ptr<Env> & base_env,
+                                  const std::string& chroot_dir);
 
 }  // namespace rocksdb
 

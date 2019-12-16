@@ -33,7 +33,7 @@ namespace rocksdb {
 
 class DBIteratorStressTest : public testing::Test {
  public:
-  Env* env_;
+  std::shared_ptr<Env> env_;
 
   DBIteratorStressTest() : env_(Env::Default()) {}
 };
@@ -508,7 +508,7 @@ TEST_F(DBIteratorStressTest, StressTest) {
                       target_hidden_fraction;
                   internal_iter->trace = trace;
                   db_iter.reset(NewDBIterator(
-                      env_, ropt, ImmutableCFOptions(options),
+                      env_.get(), ropt, ImmutableCFOptions(options),
                       MutableCFOptions(options), BytewiseComparator(),
                       internal_iter, sequence,
                       options.max_sequential_skip_in_iterations,

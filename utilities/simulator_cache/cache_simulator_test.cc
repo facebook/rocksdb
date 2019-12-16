@@ -90,7 +90,7 @@ class CacheSimulatorTest : public testing::Test {
     }
   }
 
-  Env* env_;
+  std::shared_ptr<Env> env_;
 };
 
 TEST_F(CacheSimulatorTest, GhostCache) {

@@ -196,7 +196,7 @@ class TraceAnalyzer {
   std::vector<TypeUnit>& GetTaVector() { return ta_; }
 
  private:
-  rocksdb::Env* env_;
+  std::shared_ptr<rocksdb::Env> env_;
   EnvOptions env_options_;
   std::unique_ptr<TraceReader> trace_reader_;
   size_t offset_;

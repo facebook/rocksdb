@@ -948,7 +948,7 @@ class DBImpl : public DB {
   // Flag to check whether we allocated and own the info log file
   bool own_info_log_;
   const DBOptions initial_db_options_;
-  Env* const env_;
+  std::shared_ptr<Env> env_;
   std::shared_ptr<FileSystem> fs_;
   const ImmutableDBOptions immutable_db_options_;
   MutableDBOptions mutable_db_options_;

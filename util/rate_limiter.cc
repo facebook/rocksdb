@@ -46,7 +46,8 @@ struct GenericRateLimiter::Req {
 GenericRateLimiter::GenericRateLimiter(int64_t rate_bytes_per_sec,
                                        int64_t refill_period_us,
                                        int32_t fairness, RateLimiter::Mode mode,
-                                       Env* env, bool auto_tuned)
+                                       const std::shared_ptr<Env> &env,
+                                       bool auto_tuned)
     : RateLimiter(mode),
       refill_period_us_(refill_period_us),
       rate_bytes_per_sec_(auto_tuned ? rate_bytes_per_sec / 2

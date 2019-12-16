@@ -28,7 +28,7 @@ bool DbDumpTool::Run(const DumpOptions& dump_options,
   static const char* magicstr = "ROCKDUMP";
   static const char versionstr[8] = {0, 0, 0, 0, 0, 0, 0, 1};
 
-  rocksdb::Env* env = rocksdb::Env::Default();
+  auto env = rocksdb::Env::Default();
 
   // Open the database
   options.create_if_missing = false;
@@ -133,7 +133,6 @@ bool DbUndumpTool::Run(const UndumpOptions& undump_options,
                        rocksdb::Options options) {
   rocksdb::DB* dbptr;
   rocksdb::Status status;
-  rocksdb::Env* env;
   std::unique_ptr<rocksdb::SequentialFile> dumpfile;
   rocksdb::Slice slice;
   char scratch8[8];
@@ -141,7 +140,7 @@ bool DbUndumpTool::Run(const UndumpOptions& undump_options,
   static const char* magicstr = "ROCKDUMP";
   static const char versionstr[8] = {0, 0, 0, 0, 0, 0, 0, 1};
 
-  env = rocksdb::Env::Default();
+  auto env = rocksdb::Env::Default();
 
   status = env->NewSequentialFile(undump_options.dump_location, &dumpfile,
                                   rocksdb::EnvOptions());

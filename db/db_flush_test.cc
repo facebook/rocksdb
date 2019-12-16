@@ -71,11 +71,10 @@ TEST_F(DBFlushTest, FlushWhileWritingManifest) {
 // Disable this test temporarily on Travis as it fails intermittently.
 // Github issue: #4151
 TEST_F(DBFlushTest, SyncFail) {
-  std::unique_ptr<FaultInjectionTestEnv> fault_injection_env(
-      new FaultInjectionTestEnv(env_));
+  auto fault_injection_env = FaultInjectionTestEnv::Get(env_);
   Options options;
   options.disable_auto_compactions = true;
-  options.env = fault_injection_env.get();
+  options.env = fault_injection_env;
 
   SyncPoint::GetInstance()->LoadDependency(
       {{"DBFlushTest::SyncFail:GetVersionRefCount:1",
@@ -242,7 +241,7 @@ TEST_P(DBFlushDirectIOTest, DirectIO) {
   options.disable_auto_compactions = true;
   options.max_background_flushes = 2;
   options.use_direct_io_for_flush_and_compaction = GetParam();
-  options.env = new MockEnv(Env::Default());
+  options.env = std::make_shared<MockEnv>(Env::Default());
   SyncPoint::GetInstance()->SetCallBack(
       "BuildTable:create_file", [&](void* arg) {
         bool* use_direct_writes = static_cast<bool*>(arg);
@@ -257,18 +256,16 @@ TEST_P(DBFlushDirectIOTest, DirectIO) {
   flush_options.wait = true;
   ASSERT_OK(dbfull()->Flush(flush_options));
   Destroy(options);
-  delete options.env;
 }
 
 TEST_F(DBFlushTest, FlushError) {
   Options options;
-  std::unique_ptr<FaultInjectionTestEnv> fault_injection_env(
-      new FaultInjectionTestEnv(env_));
+  auto fault_injection_env = FaultInjectionTestEnv::Get(env_);
   options.write_buffer_size = 100;
   options.max_write_buffer_number = 4;
   options.min_write_buffer_number_to_merge = 3;
   options.disable_auto_compactions = true;
-  options.env = fault_injection_env.get();
+  options.env = fault_injection_env;
   Reopen(options);
 
   ASSERT_OK(Put("key1", "value1"));
@@ -284,9 +281,8 @@ TEST_F(DBFlushTest, ManualFlushFailsInReadOnlyMode) {
   // Regression test for bug where manual flush hangs forever when the DB
   // is in read-only mode. Verify it now at least returns, despite failing.
   Options options;
-  std::unique_ptr<FaultInjectionTestEnv> fault_injection_env(
-      new FaultInjectionTestEnv(env_));
-  options.env = fault_injection_env.get();
+  auto fault_injection_env = FaultInjectionTestEnv::Get(env_);
+  options.env = fault_injection_env;
   options.max_write_buffer_number = 2;
   Reopen(options);
 
@@ -519,12 +515,11 @@ TEST_P(DBAtomicFlushTest, AtomicFlushRollbackSomeJobs) {
   if (!atomic_flush) {
     return;
   }
-  std::unique_ptr<FaultInjectionTestEnv> fault_injection_env(
-      new FaultInjectionTestEnv(env_));
+  auto fault_injection_env = FaultInjectionTestEnv::Get(env_);
   Options options = CurrentOptions();
   options.create_if_missing = true;
   options.atomic_flush = atomic_flush;
-  options.env = fault_injection_env.get();
+  options.env = fault_injection_env;
   SyncPoint::GetInstance()->DisableProcessing();
   SyncPoint::GetInstance()->LoadDependency(
       {{"DBImpl::AtomicFlushMemTablesToOutputFiles:SomeFlushJobsComplete:1",

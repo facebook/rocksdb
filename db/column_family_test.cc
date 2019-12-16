@@ -45,7 +45,7 @@ std::string RandomString(Random* rnd, int len) {
 // counts how many operations were performed
 class EnvCounter : public EnvWrapper {
  public:
-  explicit EnvCounter(Env* base)
+  explicit EnvCounter(const std::shared_ptr<Env>& base)
       : EnvWrapper(base), num_new_writable_file_(0) {}
   int GetNumberOfNewWritableFileCalls() {
     return num_new_writable_file_;
@@ -63,19 +63,18 @@ class EnvCounter : public EnvWrapper {
 class ColumnFamilyTestBase : public testing::Test {
  public:
   explicit ColumnFamilyTestBase(uint32_t format) : rnd_(139), format_(format) {
-    Env* base_env = Env::Default();
+    std::shared_ptr<Env> base_env = Env::Default();
 #ifndef ROCKSDB_LITE
     const char* test_env_uri = getenv("TEST_ENV_URI");
     if (test_env_uri) {
       Status s = ObjectRegistry::NewInstance()->NewSharedObject(test_env_uri,
-                                                                &env_guard_);
-      base_env = env_guard_.get();
+                                                                &base_env);
       EXPECT_OK(s);
       EXPECT_NE(Env::Default(), base_env);
     }
 #endif  // !ROCKSDB_LITE
     EXPECT_NE(nullptr, base_env);
-    env_ = new EnvCounter(base_env);
+    env_ = std::make_shared<EnvCounter>(base_env);
     dbname_ = test::PerThreadDBPath("column_family_test");
     db_options_.create_if_missing = true;
     db_options_.fail_if_options_file_error = true;
@@ -93,7 +92,6 @@ class ColumnFamilyTestBase : public testing::Test {
     Close();
     rocksdb::SyncPoint::GetInstance()->DisableProcessing();
     Destroy(column_families);
-    delete env_;
   }
 
   BlockBasedTableOptions GetBlockBasedTableOptions() {
@@ -545,8 +543,7 @@ class ColumnFamilyTestBase : public testing::Test {
   DBOptions db_options_;
   std::string dbname_;
   DB* db_ = nullptr;
-  EnvCounter* env_;
-  std::shared_ptr<Env> env_guard_;
+  std::shared_ptr<EnvCounter> env_;
   Random rnd_;
   uint32_t format_;
 };
@@ -631,9 +628,8 @@ class FlushEmptyCFTestWithParam
 };
 
 TEST_P(FlushEmptyCFTestWithParam, FlushEmptyCFTest) {
-  std::unique_ptr<FaultInjectionTestEnv> fault_env(
-      new FaultInjectionTestEnv(env_));
-  db_options_.env = fault_env.get();
+  auto fault_env = FaultInjectionTestEnv::Get(env_);
+  db_options_.env = fault_env;
   db_options_.allow_2pc = allow_2pc_;
   Open();
   CreateColumnFamilies({"one", "two"});
@@ -687,9 +683,8 @@ TEST_P(FlushEmptyCFTestWithParam, FlushEmptyCFTest) {
 }
 
 TEST_P(FlushEmptyCFTestWithParam, FlushEmptyCFTest2) {
-  std::unique_ptr<FaultInjectionTestEnv> fault_env(
-      new FaultInjectionTestEnv(env_));
-  db_options_.env = fault_env.get();
+  auto fault_env = FaultInjectionTestEnv::Get(env_);
+  db_options_.env = fault_env;
   db_options_.allow_2pc = allow_2pc_;
   Open();
   CreateColumnFamilies({"one", "two"});
@@ -1078,9 +1073,8 @@ TEST_P(ColumnFamilyTest, LogDeletionTest) {
 #endif  // !ROCKSDB_LITE
 
 TEST_P(ColumnFamilyTest, CrashAfterFlush) {
-  std::unique_ptr<FaultInjectionTestEnv> fault_env(
-      new FaultInjectionTestEnv(env_));
-  db_options_.env = fault_env.get();
+  auto fault_env = FaultInjectionTestEnv::Get(env_);
+  db_options_.env = fault_env;
   Open();
   CreateColumnFamilies({"one"});
 
@@ -2933,8 +2927,8 @@ TEST_P(ColumnFamilyTest, CreateDropAndDestroyWithoutFileDeletion) {
 }
 
 TEST_P(ColumnFamilyTest, FlushCloseWALFiles) {
-  SpecialEnv env(Env::Default());
-  db_options_.env = &env;
+  auto env = SpecialEnv::Get(Env::Default());
+  db_options_.env = env;
   db_options_.max_background_flushes = 1;
   column_family_options_.memtable_factory.reset(new SpecialSkipListFactory(2));
   Open();
@@ -2957,13 +2951,13 @@ TEST_P(ColumnFamilyTest, FlushCloseWALFiles) {
   wo.sync = true;
   ASSERT_OK(db_->Put(wo, handles_[1], "fodor", "mirko"));
 
-  ASSERT_EQ(2, env.num_open_wal_file_.load());
+  ASSERT_EQ(2, env->num_open_wal_file_.load());
 
   sleeping_task.WakeUp();
   sleeping_task.WaitUntilDone();
   TEST_SYNC_POINT("FlushCloseWALFiles:0");
   rocksdb::SyncPoint::GetInstance()->DisableProcessing();
-  ASSERT_EQ(1, env.num_open_wal_file_.load());
+  ASSERT_EQ(1, env->num_open_wal_file_.load());
 
   Reopen();
   ASSERT_EQ("mirko", Get(0, "fodor"));
@@ -2975,8 +2969,8 @@ TEST_P(ColumnFamilyTest, FlushCloseWALFiles) {
 
 #ifndef ROCKSDB_LITE  // WaitForFlush() is not supported
 TEST_P(ColumnFamilyTest, IteratorCloseWALFile1) {
-  SpecialEnv env(Env::Default());
-  db_options_.env = &env;
+  auto env = SpecialEnv::Get(Env::Default());
+  db_options_.env = env;
   db_options_.max_background_flushes = 1;
   column_family_options_.memtable_factory.reset(new SpecialSkipListFactory(2));
   Open();
@@ -3002,11 +2996,11 @@ TEST_P(ColumnFamilyTest, IteratorCloseWALFile1) {
   wo.sync = true;
   ASSERT_OK(db_->Put(wo, handles_[1], "fodor", "mirko"));
 
-  ASSERT_EQ(2, env.num_open_wal_file_.load());
+  ASSERT_EQ(2, env->num_open_wal_file_.load());
   // Deleting the iterator will clear its super version, triggering
   // closing all files
   delete it;
-  ASSERT_EQ(1, env.num_open_wal_file_.load());
+  ASSERT_EQ(1, env->num_open_wal_file_.load());
 
   sleeping_task.WakeUp();
   sleeping_task.WaitUntilDone();
@@ -3020,10 +3014,10 @@ TEST_P(ColumnFamilyTest, IteratorCloseWALFile1) {
 }
 
 TEST_P(ColumnFamilyTest, IteratorCloseWALFile2) {
-  SpecialEnv env(Env::Default());
+  auto env = SpecialEnv::Get(Env::Default());
   // Allow both of flush and purge job to schedule.
-  env.SetBackgroundThreads(2, Env::HIGH);
-  db_options_.env = &env;
+  env->SetBackgroundThreads(2, Env::HIGH);
+  db_options_.env = env;
   db_options_.max_background_flushes = 1;
   column_family_options_.memtable_factory.reset(new SpecialSkipListFactory(2));
   Open();
@@ -3053,18 +3047,18 @@ TEST_P(ColumnFamilyTest, IteratorCloseWALFile2) {
   wo.sync = true;
   ASSERT_OK(db_->Put(wo, handles_[1], "fodor", "mirko"));
 
-  ASSERT_EQ(2, env.num_open_wal_file_.load());
+  ASSERT_EQ(2, env->num_open_wal_file_.load());
   // Deleting the iterator will clear its super version, triggering
   // closing all files
   delete it;
-  ASSERT_EQ(2, env.num_open_wal_file_.load());
+  ASSERT_EQ(2, env->num_open_wal_file_.load());
 
   TEST_SYNC_POINT("ColumnFamilyTest::IteratorCloseWALFile2:0");
   TEST_SYNC_POINT("ColumnFamilyTest::IteratorCloseWALFile2:1");
-  ASSERT_EQ(1, env.num_open_wal_file_.load());
+  ASSERT_EQ(1, env->num_open_wal_file_.load());
   TEST_SYNC_POINT("ColumnFamilyTest::IteratorCloseWALFile2:2");
   WaitForFlush(1);
-  ASSERT_EQ(1, env.num_open_wal_file_.load());
+  ASSERT_EQ(1, env->num_open_wal_file_.load());
   rocksdb::SyncPoint::GetInstance()->DisableProcessing();
 
   Reopen();
@@ -3077,10 +3071,10 @@ TEST_P(ColumnFamilyTest, IteratorCloseWALFile2) {
 
 #ifndef ROCKSDB_LITE  // TEST functions are not supported in lite
 TEST_P(ColumnFamilyTest, ForwardIteratorCloseWALFile) {
-  SpecialEnv env(Env::Default());
+  auto env = SpecialEnv::Get(Env::Default());
   // Allow both of flush and purge job to schedule.
-  env.SetBackgroundThreads(2, Env::HIGH);
-  db_options_.env = &env;
+  env->SetBackgroundThreads(2, Env::HIGH);
+  db_options_.env = env;
   db_options_.max_background_flushes = 1;
   column_family_options_.memtable_factory.reset(new SpecialSkipListFactory(3));
   column_family_options_.level0_file_num_compaction_trigger = 2;
@@ -3122,22 +3116,22 @@ TEST_P(ColumnFamilyTest, ForwardIteratorCloseWALFile) {
   wo.sync = true;
   ASSERT_OK(db_->Put(wo, handles_[1], "fodor", "mirko"));
 
-  env.delete_count_.store(0);
-  ASSERT_EQ(2, env.num_open_wal_file_.load());
+  env->delete_count_.store(0);
+  ASSERT_EQ(2, env->num_open_wal_file_.load());
   // Deleting the iterator will clear its super version, triggering
   // closing all files
   it->Seek("");
-  ASSERT_EQ(2, env.num_open_wal_file_.load());
-  ASSERT_EQ(0, env.delete_count_.load());
+  ASSERT_EQ(2, env->num_open_wal_file_.load());
+  ASSERT_EQ(0, env->delete_count_.load());
 
   TEST_SYNC_POINT("ColumnFamilyTest::IteratorCloseWALFile2:0");
   TEST_SYNC_POINT("ColumnFamilyTest::IteratorCloseWALFile2:1");
-  ASSERT_EQ(1, env.num_open_wal_file_.load());
-  ASSERT_EQ(1, env.delete_count_.load());
+  ASSERT_EQ(1, env->num_open_wal_file_.load());
+  ASSERT_EQ(1, env->delete_count_.load());
   TEST_SYNC_POINT("ColumnFamilyTest::IteratorCloseWALFile2:2");
   WaitForFlush(1);
-  ASSERT_EQ(1, env.num_open_wal_file_.load());
-  ASSERT_EQ(1, env.delete_count_.load());
+  ASSERT_EQ(1, env->num_open_wal_file_.load());
+  ASSERT_EQ(1, env->delete_count_.load());
 
   delete it;
   rocksdb::SyncPoint::GetInstance()->DisableProcessing();

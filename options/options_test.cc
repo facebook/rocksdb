@@ -775,15 +775,15 @@ TEST_F(OptionsTest, GetOptionsFromStringTest) {
   const static char* kCustomEnvName = "CustomEnv";
   class CustomEnv : public EnvWrapper {
    public:
-    explicit CustomEnv(Env* _target) : EnvWrapper(_target) {}
+    explicit CustomEnv(const std::shared_ptr<Env>& _target) : EnvWrapper(_target) {}
   };
 
   ObjectLibrary::Default()->Register<Env>(
       kCustomEnvName,
-      [](const std::string& /*name*/, std::unique_ptr<Env>* /*env_guard*/,
+      [](const std::string& /*name*/, std::unique_ptr<Env>* env_guard,
          std::string* /* errmsg */) {
-        static CustomEnv env(Env::Default());
-        return &env;
+        env_guard->reset(new CustomEnv(Env::Default()));
+        return env_guard->get();
       });
 
   ASSERT_OK(GetOptionsFromString(
@@ -822,9 +822,8 @@ TEST_F(OptionsTest, GetOptionsFromStringTest) {
   ASSERT_EQ(new_options.create_if_missing, true);
   ASSERT_EQ(new_options.max_open_files, 1);
   ASSERT_TRUE(new_options.rate_limiter.get() != nullptr);
-  Env* newEnv = new_options.env;
+  auto newEnv = new_options.env;
   ASSERT_OK(Env::LoadEnv(kCustomEnvName, &newEnv));
-  ASSERT_EQ(newEnv, new_options.env);
 }
 
 TEST_F(OptionsTest, DBOptionsSerialization) {
@@ -1113,12 +1112,12 @@ TEST_F(OptionsTest, ConvertOptionsTest) {
 class OptionsParserTest : public testing::Test {
  public:
   OptionsParserTest() {
-    env_.reset(new test::StringEnv(Env::Default()));
+    env_ = std::make_shared<test::StringEnv>(Env::Default());
     fs_.reset(new LegacyFileSystemWrapper(env_.get()));
   }
 
  protected:
-  std::unique_ptr<test::StringEnv> env_;
+  std::shared_ptr<test::StringEnv> env_;
   std::unique_ptr<LegacyFileSystemWrapper> fs_;
 };
 
