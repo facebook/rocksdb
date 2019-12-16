@@ -24,7 +24,7 @@ The public interface is in `include/`.  Callers should not include or
 rely on the details of any other header files in this package.  Those
 internal APIs may be changed without warning.
 
-Design discussions are conducted in https://www.facebook.com/groups/rocksdb.dev/
+Design discussions are conducted in https://www.facebook.com/groups/rocksdb.dev/ and https://rocksdb.slack.com/
 
 ## License
 
