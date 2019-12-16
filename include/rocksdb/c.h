@@ -994,6 +994,16 @@ extern ROCKSDB_LIBRARY_API void rocksdb_options_set_inplace_update_num_locks(
     rocksdb_options_t*, size_t);
 extern ROCKSDB_LIBRARY_API void rocksdb_options_set_report_bg_io_stats(
     rocksdb_options_t*, int);
+extern ROCKSDB_LIBRARY_API char*
+rocksdb_options_statistics_get_histogram_string(rocksdb_options_t* opt,
+                                                uint32_t type);
+extern ROCKSDB_LIBRARY_API unsigned char
+rocksdb_options_statistics_get_histogram(rocksdb_options_t* opt, uint32_t type,
+                                         double* median, double* percentile95,
+                                         double* percentile99,
+                                         double* percentile999, double* average,
+                                         double* standard_deviation,
+                                         double* max);
 
 enum {
   rocksdb_tolerate_corrupted_tail_records_recovery = 0,

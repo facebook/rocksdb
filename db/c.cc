@@ -46,40 +46,58 @@
 #include <unordered_set>
 #include <map>
 
+using rocksdb::BackupableDBOptions;
+using rocksdb::BackupEngine;
+using rocksdb::BackupID;
+using rocksdb::BackupInfo;
+using rocksdb::BatchResult;
+using rocksdb::BlockBasedTableOptions;
+using rocksdb::BottommostLevelCompaction;
 using rocksdb::BytewiseComparator;
 using rocksdb::Cache;
+using rocksdb::Checkpoint;
 using rocksdb::ColumnFamilyDescriptor;
 using rocksdb::ColumnFamilyHandle;
 using rocksdb::ColumnFamilyOptions;
 using rocksdb::CompactionFilter;
-using rocksdb::CompactionFilterFactory;
 using rocksdb::CompactionFilterContext;
+using rocksdb::CompactionFilterFactory;
 using rocksdb::CompactionOptionsFIFO;
+using rocksdb::CompactRangeOptions;
 using rocksdb::Comparator;
 using rocksdb::CompressionType;
-using rocksdb::WALRecoveryMode;
+using rocksdb::CuckooTableOptions;
 using rocksdb::DB;
 using rocksdb::DBOptions;
 using rocksdb::DbPath;
 using rocksdb::Env;
 using rocksdb::EnvOptions;
-using rocksdb::InfoLogLevel;
 using rocksdb::FileLock;
 using rocksdb::FilterPolicy;
 using rocksdb::FlushOptions;
+using rocksdb::HistogramData;
+using rocksdb::InfoLogLevel;
 using rocksdb::IngestExternalFileOptions;
 using rocksdb::Iterator;
+using rocksdb::LiveFileMetaData;
 using rocksdb::Logger;
+using rocksdb::MemoryUtil;
 using rocksdb::MergeOperator;
 using rocksdb::MergeOperators;
 using rocksdb::NewBloomFilterPolicy;
+using rocksdb::NewGenericRateLimiter;
 using rocksdb::NewLRUCache;
+using rocksdb::OptimisticTransactionDB;
+using rocksdb::OptimisticTransactionOptions;
 using rocksdb::Options;
-using rocksdb::BlockBasedTableOptions;
-using rocksdb::CuckooTableOptions;
+using rocksdb::PerfContext;
+using rocksdb::PerfLevel;
+using rocksdb::PinnableSlice;
 using rocksdb::RandomAccessFile;
 using rocksdb::Range;
+using rocksdb::RateLimiter;
 using rocksdb::ReadOptions;
+using rocksdb::RestoreOptions;
 using rocksdb::SequentialFile;
 using rocksdb::Slice;
 using rocksdb::SliceParts;
@@ -87,33 +105,16 @@ using rocksdb::SliceTransform;
 using rocksdb::Snapshot;
 using rocksdb::SstFileWriter;
 using rocksdb::Status;
+using rocksdb::Transaction;
+using rocksdb::TransactionDB;
+using rocksdb::TransactionDBOptions;
+using rocksdb::TransactionLogIterator;
+using rocksdb::TransactionOptions;
+using rocksdb::WALRecoveryMode;
 using rocksdb::WritableFile;
 using rocksdb::WriteBatch;
 using rocksdb::WriteBatchWithIndex;
 using rocksdb::WriteOptions;
-using rocksdb::LiveFileMetaData;
-using rocksdb::BackupEngine;
-using rocksdb::BackupableDBOptions;
-using rocksdb::BackupInfo;
-using rocksdb::BackupID;
-using rocksdb::RestoreOptions;
-using rocksdb::CompactRangeOptions;
-using rocksdb::BottommostLevelCompaction;
-using rocksdb::RateLimiter;
-using rocksdb::NewGenericRateLimiter;
-using rocksdb::PinnableSlice;
-using rocksdb::TransactionDBOptions;
-using rocksdb::TransactionDB;
-using rocksdb::TransactionOptions;
-using rocksdb::OptimisticTransactionDB;
-using rocksdb::OptimisticTransactionOptions;
-using rocksdb::Transaction;
-using rocksdb::Checkpoint;
-using rocksdb::TransactionLogIterator;
-using rocksdb::BatchResult;
-using rocksdb::PerfLevel;
-using rocksdb::PerfContext;
-using rocksdb::MemoryUtil;
 
 using std::shared_ptr;
 using std::vector;
@@ -162,6 +163,9 @@ struct rocksdb_column_family_handle_t  { ColumnFamilyHandle* rep; };
 struct rocksdb_envoptions_t      { EnvOptions        rep; };
 struct rocksdb_ingestexternalfileoptions_t  { IngestExternalFileOptions rep; };
 struct rocksdb_sstfilewriter_t   { SstFileWriter*    rep; };
+struct rocksdb_histogramdata_t {
+  HistogramData rep;
+};
 struct rocksdb_ratelimiter_t {
   std::shared_ptr<RateLimiter> rep;
 };
@@ -2695,6 +2699,35 @@ void rocksdb_options_set_inplace_update_num_locks(
 void rocksdb_options_set_report_bg_io_stats(
     rocksdb_options_t* opt, int v) {
   opt->rep.report_bg_io_stats = v;
+}
+
+char* rocksdb_options_statistics_get_histogram_string(rocksdb_options_t* opt,
+                                                      uint32_t type) {
+  if (opt->rep.statistics) {
+    rocksdb::Statistics* statistics = opt->rep.statistics.get();
+    return strdup(statistics->getHistogramString(type).c_str());
+  }
+  return nullptr;
+}
+
+unsigned char rocksdb_options_statistics_get_histogram(
+    rocksdb_options_t* opt, uint32_t type, double* median, double* percentile95,
+    double* percentile99, double* percentile999, double* average,
+    double* standard_deviation, double* max) {
+  if (opt->rep.statistics) {
+    rocksdb::Statistics* statistics = opt->rep.statistics.get();
+    rocksdb_histogramdata_t data;
+    statistics->histogramData(type, &data.rep);
+    *median = data.rep.median;
+    *percentile95 = data.rep.percentile95;
+    *percentile99 = data.rep.percentile99;
+    *percentile999 = data.rep.percentile999;
+    *average = data.rep.average;
+    *standard_deviation = data.rep.standard_deviation;
+    *max = data.rep.max;
+    return 1;
+  }
+  return 0;
 }
 
 void rocksdb_options_set_compaction_style(rocksdb_options_t *opt, int style) {

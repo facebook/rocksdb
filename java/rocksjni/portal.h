@@ -3081,7 +3081,7 @@ class HistogramDataJni : public JavaClass {
       return nullptr;
     }
 
-    static jmethodID mid = env->GetMethodID(jclazz, "<init>", "(DDDDDDJJD)V");
+    static jmethodID mid = env->GetMethodID(jclazz, "<init>", "(DDDDDDDJJD)V");
     assert(mid != nullptr);
     return mid;
   }
