@@ -8,6 +8,7 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
 #include <array>
+#include <deque>
 
 #include "rocksdb/filter_policy.h"
 
@@ -41,7 +42,7 @@ class FastLocalBloomBitsBuilder : public BuiltinFilterBitsBuilder {
 
   virtual void AddKey(const Slice& key) override {
     uint64_t hash = GetSliceHash64(key);
-    if (hash_entries_.size() == 0 || hash != hash_entries_.back()) {
+    if (hash_entries_.empty() || hash != hash_entries_.back()) {
       hash_entries_.push_back(hash);
     }
   }
@@ -71,7 +72,7 @@ class FastLocalBloomBitsBuilder : public BuiltinFilterBitsBuilder {
 
     const char* const_data = data;
     buf->reset(const_data);
-    hash_entries_.clear();
+    assert(hash_entries_.empty());
 
     return Slice(data, len_with_metadata);
   }
@@ -92,7 +93,7 @@ class FastLocalBloomBitsBuilder : public BuiltinFilterBitsBuilder {
   }
 
  private:
-  void AddAllEntries(char* data, uint32_t len) const {
+  void AddAllEntries(char* data, uint32_t len) {
     // Simple version without prefetching:
     //
     // for (auto h : hash_entries_) {
@@ -111,7 +112,8 @@ class FastLocalBloomBitsBuilder : public BuiltinFilterBitsBuilder {
     // Prime the buffer
     size_t i = 0;
     for (; i <= kBufferMask && i < num_entries; ++i) {
-      uint64_t h = hash_entries_[i];
+      uint64_t h = hash_entries_.front();
+      hash_entries_.pop_front();
       FastLocalBloomImpl::PrepareHash(Lower32of64(h), len, data,
                                       /*out*/ &byte_offsets[i]);
       hashes[i] = Upper32of64(h);
@@ -125,7 +127,8 @@ class FastLocalBloomBitsBuilder : public BuiltinFilterBitsBuilder {
       FastLocalBloomImpl::AddHashPrepared(hash_ref, num_probes_,
                                           data + byte_offset_ref);
       // And buffer
-      uint64_t h = hash_entries_[i];
+      uint64_t h = hash_entries_.front();
+      hash_entries_.pop_front();
       FastLocalBloomImpl::PrepareHash(Lower32of64(h), len, data,
                                       /*out*/ &byte_offset_ref);
       hash_ref = Upper32of64(h);
@@ -140,7 +143,9 @@ class FastLocalBloomBitsBuilder : public BuiltinFilterBitsBuilder {
 
   int millibits_per_key_;
   int num_probes_;
-  std::vector<uint64_t> hash_entries_;
+  // A deque avoids unnecessary copying of already-saved values
+  // and has near-minimal peak memory use.
+  std::deque<uint64_t> hash_entries_;
 };
 
 // See description in FastLocalBloomImpl
