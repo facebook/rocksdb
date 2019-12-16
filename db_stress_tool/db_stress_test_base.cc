@@ -1773,8 +1773,9 @@ void StressTest::Reopen(ThreadState* thread) {
 #ifndef ROCKSDB_LITE
   bool bg_canceled = false;
   if (thread->rand.OneIn(2)) {
-    CancelAllBackgroundWork(db_, static_cast<bool>(thread->rand.OneIn(2)));
-    bg_canceled = true;
+    const bool wait = static_cast<bool>(thread->rand.OneIn(2);
+    CancelAllBackgroundWork(db_, wait));
+    bg_canceled = wait;
   }
 #else
   (void) thread;
