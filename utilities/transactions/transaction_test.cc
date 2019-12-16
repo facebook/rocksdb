@@ -2823,6 +2823,12 @@ TEST_P(TransactionTest, MultiGetBatchedTest) {
   }
 }
 
+// This test calls WriteBatchWithIndex::MultiGetFromBatchAndDB with a large
+// number of keys, i.e greater than MultiGetContext::MAX_BATCH_SIZE, which is
+// is 32. This forces autovector allocations in the MultiGet code paths
+// to use std::vector in addition to stack allocations. The MultiGet keys
+// includes Merges, which are handled specially in MultiGetFromBatchAndDB by
+// allocating an autovector of MergeContexts
 TEST_P(TransactionTest, MultiGetLargeBatchedTest) {
   WriteOptions write_options;
   ReadOptions read_options, snapshot_read_options;
@@ -2861,7 +2867,7 @@ TEST_P(TransactionTest, MultiGetLargeBatchedTest) {
 
   // Write some data to the db
   WriteBatch batch;
-  for (int i = 0; i < 100; ++i) {
+  for (int i = 0; i < 3 * MultiGetContext::MAX_BATCH_SIZE; ++i) {
     std::string val = "val" + std::to_string(i);
     batch.Put(handles[1], key_str[i], val);
   }
@@ -2874,13 +2880,18 @@ TEST_P(TransactionTest, MultiGetLargeBatchedTest) {
   ASSERT_OK(s);
   s = wb.Put(handles[1], std::to_string(2), "new_val" + std::to_string(2));
   ASSERT_OK(s);
-  for (int i = 8; i < 56; ++i) {
+  // Write a lot of merges so when we call MultiGetFromBatchAndDB later on,
+  // it is forced to use std::vector in rocksdb::autovector to allocate
+  // MergeContexts. The number of merges needs to be >
+  // MultiGetContext::MAX_BATCH_SIZE
+  for (int i = 8; i < MultiGetContext::MAX_BATCH_SIZE + 24; ++i) {
     s = wb.Merge(handles[1], std::to_string(i), "merge");
     ASSERT_OK(s);
   }
 
+  // MultiGet a lot of keys in order to force std::vector reallocations
   std::vector<Slice> keys;
-  for (int i = 0; i < 64; ++i) {
+  for (int i = 0; i < MultiGetContext::MAX_BATCH_SIZE + 32; ++i) {
     keys.emplace_back(key_str[i]);
   }
   std::vector<PinnableSlice> values(keys.size());

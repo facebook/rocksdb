@@ -3,6 +3,7 @@
 ### Bug Fixes
 * Fix a bug that can cause unnecessary bg thread to be scheduled(#6104).
 * Fix a bug in which a snapshot read could be affected by a DeleteRange after the snapshot (#6062).
+* Fix a bug in WriteBatchWithIndex::MultiGetFromBatchAndDB, which is called by Transaction::MultiGet, that causes due to stale pointer access when the number of keys is > 32
 
 ## 6.6.0 (11/25/2019)
 ### Bug Fixes
