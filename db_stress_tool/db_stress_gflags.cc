@@ -560,4 +560,21 @@ DEFINE_bool(use_full_merge_v1, false,
 DEFINE_int32(sync_wal_one_in, 0,
              "If non-zero, then SyncWAL() will be called once for every N ops "
              "on average. 0 indicates that calls to SyncWAL() are disabled.");
+
+DEFINE_bool(avoid_unnecessary_blocking_io,
+            rocksdb::Options().avoid_unnecessary_blocking_io,
+            "If true, some expensive cleaning up operations will be moved from "
+            "user reads to high-pri background threads.");
+
+DEFINE_bool(write_dbid_to_manifest, rocksdb::Options().write_dbid_to_manifest,
+            "Write DB_ID to manifest");
+
+DEFINE_uint64(max_write_batch_group_size_bytes,
+              rocksdb::Options().max_write_batch_group_size_bytes,
+              "Max write batch group size");
+
+DEFINE_bool(level_compaction_dynamic_level_bytes,
+            rocksdb::Options().level_compaction_dynamic_level_bytes,
+            "Use dynamic level");
+
 #endif  // GFLAGS
