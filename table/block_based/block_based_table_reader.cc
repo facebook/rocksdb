@@ -2345,7 +2345,7 @@ void BlockBasedTable::RetrieveMultipleBlocks(
       // No compression or current block and previous one is not adjacent:
       // Step 1, create a new request for previous blocks
       if (prev_len != 0) {
-        ReadRequest req;
+        FSReadRequest req;
         req.offset = prev_offset;
         req.len = prev_len;
         if (scratch == nullptr) {
@@ -2354,7 +2354,7 @@ void BlockBasedTable::RetrieveMultipleBlocks(
           req.scratch = scratch + buf_offset;
           buf_offset += req.len;
         }
-        req.status = Status::OK();
+        req.status = IOStatus::OK();
         read_reqs.emplace_back(req);
       }
 
@@ -2367,7 +2367,7 @@ void BlockBasedTable::RetrieveMultipleBlocks(
   }
   // Handle the last block and process the pending last request
   if (prev_len != 0) {
-    ReadRequest req;
+    FSReadRequest req;
     req.offset = prev_offset;
     req.len = prev_len;
     if (scratch == nullptr) {
@@ -2376,7 +2376,7 @@ void BlockBasedTable::RetrieveMultipleBlocks(
       req.scratch = scratch + buf_offset;
       buf_offset += req.len;
     }
-    req.status = Status::OK();
+    req.status = IOStatus::OK();
     read_reqs.emplace_back(req);
   }
 
@@ -2398,7 +2398,7 @@ void BlockBasedTable::RetrieveMultipleBlocks(
     size_t& req_idx = req_idx_for_block[valid_batch_idx];
     size_t& req_offset = req_offset_for_block[valid_batch_idx];
     valid_batch_idx++;
-    ReadRequest& req = read_reqs[req_idx];
+    FSReadRequest& req = read_reqs[req_idx];
     Status s = req.status;
     if (s.ok()) {
       if (req.result.size() != req.len) {
