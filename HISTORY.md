@@ -1,5 +1,7 @@
 # Rocksdb Change Log
-## Unreleased
+## 6.5.3 (1/10/2020)
+### Bug Fixes
+* Fixed two performance issues related to memtable history trimming. First, a new SuperVersion is now created only if some memtables were actually trimmed. Second, trimming is only scheduled if there is at least one flushed memtable that is kept in memory for the purposes of transaction conflict checking.
 
 ## 6.5.2 (11/15/2019)
 ### Bug Fixes
