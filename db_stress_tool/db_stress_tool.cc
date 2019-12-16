@@ -190,6 +190,8 @@ int db_stress_tool(int argc, char** argv) {
   } else {
     stress.reset(CreateNonBatchedOpsStressTest());
   }
+  // Initialize the Zipfian pre-calculated array
+  InitializeHotKeyGenerator(FLAGS_hot_key_alpha);
   if (RunStressTest(stress.get())) {
     return 0;
   } else {
