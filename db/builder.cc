@@ -135,11 +135,11 @@ Status BuildTable(
           ioptions.sst_file_checksum != nullptr) {
         // Calculate the file checksum when do Append
         file_writer.reset(new WritableFileWriter(
-            std::move(file), fname, env_options, env, ioptions.statistics,
+            std::move(file), fname, file_options, env, ioptions.statistics,
             ioptions.listeners, ioptions.sst_file_checksum));
       } else {
         file_writer.reset(
-            new WritableFileWriter(std::move(file), fname, env_options, env,
+            new WritableFileWriter(std::move(file), fname, file_options, env,
                                    ioptions.statistics, ioptions.listeners));
       }
       builder = NewTableBuilder(

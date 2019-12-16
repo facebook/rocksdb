@@ -1243,7 +1243,7 @@ class FileChecksumHelper {
     assert(ioptions.enable_sst_file_checksum != false);
     cur_uniq_id_ = checksum_uniq_id_++;
     test::StringSink* ss_rw =
-        static_cast<test::StringSink*>(file_writer_->writable_file());
+        rocksdb::test::GetStringSinkFromLegacyWriter(file_writer_.get());
     file_reader_.reset(test::GetRandomAccessFileReader(
         new test::StringSource(ss_rw->contents())));
     std::cout << "ss_rw size: " << ss_rw->contents().size() << "\n";
