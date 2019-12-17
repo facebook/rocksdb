@@ -21,18 +21,29 @@ class DbStressListener : public EventListener {
         db_paths_(db_paths),
         column_families_(column_families),
         num_pending_file_creations_(0) {}
-  virtual ~DbStressListener() { assert(num_pending_file_creations_ == 0); }
+  ~DbStressListener() override { assert(num_pending_file_creations_ == 0); }
 #ifndef ROCKSDB_LITE
-  virtual void OnFlushCompleted(DB* /*db*/, const FlushJobInfo& info) override {
+  void OnFlushCompleted(DB* /*db*/, const FlushJobInfo& info) override {
     assert(IsValidColumnFamilyName(info.cf_name));
     VerifyFilePath(info.file_path);
     // pretending doing some work here
-    std::this_thread::sleep_for(
-        std::chrono::microseconds(Random::GetTLSInstance()->Uniform(5000)));
+    RandomSleep();
   }
 
-  virtual void OnCompactionCompleted(DB* /*db*/,
-                                     const CompactionJobInfo& ci) override {
+  void OnFlushBegin(DB* /*db*/,
+                    const FlushJobInfo& /*flush_job_info*/) override {
+    RandomSleep();
+  }
+
+  void OnTableFileDeleted(const TableFileDeletionInfo& /*info*/) override {
+    RandomSleep();
+  }
+
+  void OnCompactionBegin(DB* /*db*/, const CompactionJobInfo& /*ci*/) override {
+    RandomSleep();
+  }
+
+  void OnCompactionCompleted(DB* /*db*/, const CompactionJobInfo& ci) override {
     assert(IsValidColumnFamilyName(ci.cf_name));
     assert(ci.input_files.size() + ci.output_files.size() > 0U);
     for (const auto& file_path : ci.input_files) {
@@ -42,15 +53,15 @@ class DbStressListener : public EventListener {
       VerifyFilePath(file_path);
     }
     // pretending doing some work here
-    std::this_thread::sleep_for(
-        std::chrono::microseconds(Random::GetTLSInstance()->Uniform(5000)));
+    RandomSleep();
   }
 
-  virtual void OnTableFileCreationStarted(
+  void OnTableFileCreationStarted(
       const TableFileCreationBriefInfo& /*info*/) override {
     ++num_pending_file_creations_;
   }
-  virtual void OnTableFileCreated(const TableFileCreationInfo& info) override {
+
+  void OnTableFileCreated(const TableFileCreationInfo& info) override {
     assert(info.db_name == db_name_);
     assert(IsValidColumnFamilyName(info.cf_name));
     if (info.file_size) {
@@ -64,6 +75,70 @@ class DbStressListener : public EventListener {
       assert(info.table_properties.num_entries > 0);
     }
     --num_pending_file_creations_;
+  }
+
+  void OnMemTableSealed(const MemTableInfo& /*info*/) override {
+    RandomSleep();
+  }
+
+  void OnColumnFamilyHandleDeletionStarted(
+      ColumnFamilyHandle* /*handle*/) override {
+    RandomSleep();
+  }
+
+  void OnExternalFileIngested(
+      DB* /*db*/, const ExternalFileIngestionInfo& /*info*/) override {
+    RandomSleep();
+  }
+
+  void OnBackgroundError(BackgroundErrorReason /* reason */,
+                         Status* /* bg_error */) override {
+    RandomSleep();
+  }
+
+  void OnStallConditionsChanged(const WriteStallInfo& /*info*/) override {
+    RandomSleep();
+  }
+
+  void OnFileReadFinish(const FileOperationInfo& info) override {
+    // Even empty callback is valuable because sometimes some locks are
+    // released in order to make the callback.
+
+    // Sleep carefully here as it is a frequent operation and we don't want
+    // to slow down the tests. We always sleep when the read is large.
+    // When read is small, sleep in a small chance.
+    size_t length_read = info.length;
+    if (length_read >= 1000000 || Random::GetTLSInstance()->OneIn(1000)) {
+      RandomSleep();
+    }
+  }
+
+  void OnFileWriteFinish(const FileOperationInfo& info) override {
+    // Even empty callback is valuable because sometimes some locks are
+    // released in order to make the callback.
+
+    // Sleep carefully here as it is a frequent operation and we don't want
+    // to slow down the tests. When the write is large, always sleep.
+    // Otherwise, sleep in a relatively small chance.
+    size_t length_write = info.length;
+    if (length_write >= 1000000 || Random::GetTLSInstance()->OneIn(64)) {
+      RandomSleep();
+    }
+  }
+
+  bool ShouldBeNotifiedOnFileIO() override {
+    RandomSleep();
+    return static_cast<bool>(Random::GetTLSInstance()->OneIn(1));
+  }
+
+  void OnErrorRecoveryBegin(BackgroundErrorReason /* reason */,
+                            Status /* bg_error */,
+                            bool* /* auto_recovery */) override {
+    RandomSleep();
+  }
+
+  void OnErrorRecoveryCompleted(Status /* old_bg_error */) override {
+    RandomSleep();
   }
 
  protected:
@@ -129,6 +204,11 @@ class DbStressListener : public EventListener {
 #else
     (void)file_path;
 #endif  // !NDEBUG
+  }
+
+  void RandomSleep() {
+    std::this_thread::sleep_for(
+        std::chrono::microseconds(Random::GetTLSInstance()->Uniform(5000)));
   }
 #endif  // !ROCKSDB_LITE
 
