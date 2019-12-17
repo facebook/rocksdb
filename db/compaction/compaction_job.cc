@@ -1510,9 +1510,17 @@ Status CompactionJob::OpenCompactionOutputFile(
       sub_compact->compaction->OutputFilePreallocationSize()));
   const auto& listeners =
       sub_compact->compaction->immutable_cf_options()->listeners;
-  sub_compact->outfile.reset(
-      new WritableFileWriter(std::move(writable_file), fname, file_options_,
-                             env_, db_options_.statistics.get(), listeners));
+  if (db_options_.enable_sst_file_checksum &&
+      db_options_.sst_file_checksum != nullptr) {
+    sub_compact->outfile.reset(
+        new WritableFileWriter(std::move(writable_file), fname, file_options_,
+                               env_, db_options_.statistics.get(), listeners,
+                               db_options_.sst_file_checksum.get()));
+  } else {
+    sub_compact->outfile.reset(
+        new WritableFileWriter(std::move(writable_file), fname, file_options_,
+                               env_, db_options_.statistics.get(), listeners));
+  }
 
   // If the Column family flag is to only optimize filters for hits,
   // we can skip creating filters if this is the bottommost_level where

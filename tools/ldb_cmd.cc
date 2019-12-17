@@ -218,6 +218,10 @@ LDBCommand* LDBCommand::SelectCommand(const ParsedParams& parsed_params) {
     return new ManifestDumpCommand(parsed_params.cmd_params,
                                    parsed_params.option_map,
                                    parsed_params.flags);
+  } else if (parsed_params.cmd == FileChecksumDumpCommand::Name()) {
+      return new FileChecksumDumpCommand(parsed_params.cmd_params,
+                                   parsed_params.option_map,
+                                   parsed_params.flags);
   } else if (parsed_params.cmd == ListColumnFamiliesCommand::Name()) {
     return new ListColumnFamiliesCommand(parsed_params.cmd_params,
                                          parsed_params.option_map,
@@ -1138,6 +1142,105 @@ void ManifestDumpCommand::DoCommand() {
     fprintf(stdout, "Processing Manifest file %s done\n", manifestfile.c_str());
   }
 }
+
+
+const std::string FileChecksumDumpCommand::ARG_PATH = "path";
+
+void FileChecksumDumpCommand::Help(std::string& ret) {
+  ret.append("  ");
+  ret.append(FileChecksumDumpCommand::Name());
+  ret.append(" [--" + ARG_PATH + "=<path_to_manifest_file>]");
+  ret.append("\n");
+}
+
+FileChecksumDumpCommand::FileChecksumDumpCommand(
+    const std::vector<std::string>& /*params*/,
+    const std::map<std::string, std::string>& options,
+    const std::vector<std::string>& flags)
+    : LDBCommand(
+          options, flags, false,
+          BuildCmdLineOptions({ARG_PATH})),
+      path_("") {
+
+  std::map<std::string, std::string>::const_iterator itr =
+      options.find(ARG_PATH);
+  if (itr != options.end()) {
+    path_ = itr->second;
+    if (path_.empty()) {
+      exec_state_ = LDBCommandExecuteResult::Failed("--path: missing pathname");
+    }
+  }
+}
+
+void FileChecksumDumpCommand::DoCommand() {
+
+  std::string manifestfile;
+
+  if (!path_.empty()) {
+    manifestfile = path_;
+  } else {
+    // We need to find the manifest file by searching the directory
+    // containing the db for files of the form MANIFEST_[0-9]+
+
+    std::vector<std::string> files;
+    Status s = options_.env->GetChildren(db_path_, &files);
+    if (!s.ok()) {
+      std::string err_msg = s.ToString();
+      err_msg.append(": Failed to list the content of ");
+      err_msg.append(db_path_);
+      exec_state_ = LDBCommandExecuteResult::Failed(err_msg);
+      return;
+    }
+    const std::string kManifestNamePrefix = "MANIFEST-";
+    std::string matched_file;
+#ifdef OS_WIN
+    const char kPathDelim = '\\';
+#else
+    const char kPathDelim = '/';
+#endif
+    for (const auto& file_path : files) {
+      // Some Env::GetChildren() return absolute paths. Some directories' path
+      // end with path delim, e.g. '/' or '\\'.
+      size_t pos = file_path.find_last_of(kPathDelim);
+      if (pos == file_path.size() - 1) {
+        continue;
+      }
+      std::string fname;
+      if (pos != std::string::npos) {
+        // Absolute path.
+        fname.assign(file_path, pos + 1, file_path.size() - pos - 1);
+      } else {
+        fname = file_path;
+      }
+      uint64_t file_num = 0;
+      FileType file_type = kLogFile;  // Just for initialization
+      if (ParseFileName(fname, &file_num, &file_type) &&
+          file_type == kDescriptorFile) {
+        if (!matched_file.empty()) {
+          exec_state_ = LDBCommandExecuteResult::Failed(
+              "Multiple MANIFEST files found; use --path to select one");
+          return;
+        } else {
+          matched_file.swap(fname);
+        }
+      }
+    }
+    if (matched_file.empty()) {
+      std::string err_msg("No MANIFEST found in ");
+      err_msg.append(db_path_);
+      exec_state_ = LDBCommandExecuteResult::Failed(err_msg);
+      return;
+    }
+    if (db_path_[db_path_.length() - 1] != '/') {
+      db_path_.append("/");
+    }
+    manifestfile = db_path_ + matched_file;
+  }
+
+
+  DumpManifestFile(options_, manifestfile, false, false, false);
+}
+
 
 // ----------------------------------------------------------------------------
 
