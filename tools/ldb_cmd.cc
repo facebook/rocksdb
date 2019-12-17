@@ -17,6 +17,7 @@
 #include "file/filename.h"
 #include "port/port_dirent.h"
 #include "rocksdb/cache.h"
+#include "rocksdb/sst_file_checksum.h"
 #include "rocksdb/table_properties.h"
 #include "rocksdb/utilities/backupable_db.h"
 #include "rocksdb/utilities/checkpoint.h"
@@ -219,9 +220,9 @@ LDBCommand* LDBCommand::SelectCommand(const ParsedParams& parsed_params) {
                                    parsed_params.option_map,
                                    parsed_params.flags);
   } else if (parsed_params.cmd == FileChecksumDumpCommand::Name()) {
-      return new FileChecksumDumpCommand(parsed_params.cmd_params,
-                                   parsed_params.option_map,
-                                   parsed_params.flags);
+    return new FileChecksumDumpCommand(parsed_params.cmd_params,
+                                       parsed_params.option_map,
+                                       parsed_params.flags);
   } else if (parsed_params.cmd == ListColumnFamiliesCommand::Name()) {
     return new ListColumnFamiliesCommand(parsed_params.cmd_params,
                                          parsed_params.option_map,
@@ -1143,6 +1144,33 @@ void ManifestDumpCommand::DoCommand() {
   }
 }
 
+// ----------------------------------------------------------------------------
+namespace {
+
+void GetAllFileCheckSumInfoFromManifest(Options options, std::string file,
+                                        CFChecksumInfo& checksum_stats) {
+  EnvOptions sopt;
+  std::string dbname("dummy");
+  std::shared_ptr<Cache> tc(NewLRUCache(options.max_open_files - 10,
+                                        options.table_cache_numshardbits));
+  // Notice we are using the default options not through SanitizeOptions(),
+  // if VersionSet::GetAllFileCheckSumInfo depends on any option done by
+  // SanitizeOptions(), we need to initialize it manually.
+  options.db_paths.emplace_back("dummy", 0);
+  options.num_levels = 64;
+  WriteController wc(options.delayed_write_rate);
+  WriteBufferManager wb(options.db_write_buffer_size);
+  ImmutableDBOptions immutable_db_options(options);
+  VersionSet versions(dbname, &immutable_db_options, sopt, tc.get(), &wb, &wc,
+                      /*block_cache_tracer=*/nullptr);
+  Status s = versions.GetAllFileCheckSumInfo(options, file, checksum_stats);
+  if (!s.ok()) {
+    fprintf(stderr, "Error in processing file %s %s\n", file.c_str(),
+            s.ToString().c_str());
+  }
+}
+
+}  // namespace
 
 const std::string FileChecksumDumpCommand::ARG_PATH = "path";
 
@@ -1157,11 +1185,8 @@ FileChecksumDumpCommand::FileChecksumDumpCommand(
     const std::vector<std::string>& /*params*/,
     const std::map<std::string, std::string>& options,
     const std::vector<std::string>& flags)
-    : LDBCommand(
-          options, flags, false,
-          BuildCmdLineOptions({ARG_PATH})),
+    : LDBCommand(options, flags, false, BuildCmdLineOptions({ARG_PATH})),
       path_("") {
-
   std::map<std::string, std::string>::const_iterator itr =
       options.find(ARG_PATH);
   if (itr != options.end()) {
@@ -1173,7 +1198,6 @@ FileChecksumDumpCommand::FileChecksumDumpCommand(
 }
 
 void FileChecksumDumpCommand::DoCommand() {
-
   std::string manifestfile;
 
   if (!path_.empty()) {
@@ -1237,10 +1261,24 @@ void FileChecksumDumpCommand::DoCommand() {
     manifestfile = db_path_ + matched_file;
   }
 
+  // Start to read and process the MANIFEST and print out the checksum in the
+  // following format:
+  // column family i
+  //    sst file numer, checksum method name, checksum value
+  //    sst file numer, checksum method name, checksum value
+  //    ......
 
-  DumpManifestFile(options_, manifestfile, false, false, false);
+  CFChecksumInfo checksum_info;
+  GetAllFileCheckSumInfoFromManifest(options_, manifestfile, checksum_info);
+  for (auto checksum_stat : checksum_info.checksum_stats) {
+    printf("Column Family %d\n", checksum_stat.first);
+    for (auto it : checksum_stat.second.checksum_map) {
+      printf("       %" PRId64 ", %s, %u\n", it.first, it.second.second.c_str(),
+             it.second.first);
+    }
+  }
+  printf("\n Print SST file checksum list finished \n");
 }
-
 
 // ----------------------------------------------------------------------------
 
