@@ -2374,7 +2374,6 @@ void BlockBasedTable::RetrieveMultipleBlocks(
       req.scratch = new char[req.len];
     } else {
       req.scratch = scratch + buf_offset;
-      buf_offset += req.len;
     }
     req.status = IOStatus::OK();
     read_reqs.emplace_back(req);
