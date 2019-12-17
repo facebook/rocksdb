@@ -9,8 +9,10 @@
 #pragma once
 
 #include <cassert>
+#include <map>
 #include <memory>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 namespace rocksdb {
@@ -37,6 +39,33 @@ class SstFileChecksum {
 
   // Returns a name that identifies the current file checksum method.
   virtual const char* Name() const = 0;
+};
+
+struct ChecksumUnits {
+  std::unordered_map<uint64_t, std::pair<uint32_t, std::string>> checksum_map;
+
+  void AddChecksumUnit(uint64_t f_id, uint32_t checksum,
+                       std::string checksum_name) {
+    auto it = checksum_map.find(f_id);
+    if (it == checksum_map.end()) {
+      checksum_map.insert(
+          std::make_pair(f_id, std::make_pair(checksum, checksum_name)));
+    } else {
+      it->second.first = checksum;
+      it->second.second = checksum_name;
+    }
+  }
+
+  void RemoveChecksumUnit(uint64_t f_id) {
+    auto it = checksum_map.find(f_id);
+    if (it != checksum_map.end()) {
+      checksum_map.erase(it);
+    }
+  }
+};
+
+struct CFChecksumStats {
+  std::map<uint32_t, ChecksumUnits> checksum_stats;
 };
 
 }  // namespace rocksdb

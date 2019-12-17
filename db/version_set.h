@@ -44,6 +44,7 @@
 #include "options/db_options.h"
 #include "port/port.h"
 #include "rocksdb/env.h"
+#include "rocksdb/sst_file_checksum.h"
 #include "table/get_context.h"
 #include "table/multiget_context.h"
 #include "trace_replay/block_cache_tracer.h"
@@ -894,6 +895,11 @@ class VersionSet {
                                      const Options* options,
                                      const FileOptions& file_options,
                                      int new_levels);
+
+  // Get file checksum information of all SST files. For data correctness
+  // check usage.
+  Status GetAllFileCheckSumInfo(Options& options, std::string& dscname,
+                                std::unique_ptr<CFChecksumStats> checksum_info);
 
   // printf contents (for debugging)
   Status DumpManifest(Options& options, std::string& manifestFileName,

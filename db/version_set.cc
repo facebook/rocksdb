@@ -4695,6 +4695,91 @@ Status VersionSet::ReduceNumberOfLevels(const std::string& dbname,
       mutable_cf_options, &ve, &dummy_mutex, nullptr, true);
 }
 
+// Get the checksum information including the checksum and checksum method
+// name of all SST files of this Manifest. Separated by column families.
+// Store the information in a map.
+Status VersionSet::GetAllFileCheckSumInfo(
+    Options& options, std::string& dscname,
+    std::unique_ptr<CFChecksumStats> checksum_info) {
+  std::unique_ptr<SequentialFileReader> file_reader;
+  Status s;
+  {
+    std::unique_ptr<FSSequentialFile> file;
+    s = options.file_system->NewSequentialFile(
+        dscname, options.file_system->OptimizeForManifestRead(file_options_),
+        &file, nullptr);
+    if (!s.ok()) {
+      return s;
+    }
+    file_reader.reset(new SequentialFileReader(
+        std::move(file), dscname, db_options_->log_readahead_size));
+  }
+
+  checksum_info.reset(new CFChecksumStats);
+
+  // Add the default column family
+  ChecksumUnits cs_units;
+  checksum_info->checksum_stats.insert(std::make_pair(0, cs_units));
+  VersionSet::LogReporter reporter;
+  reporter.status = &s;
+  log::Reader reader(nullptr, std::move(file_reader), &reporter,
+                     true /* checksum */, 0 /* log_number */);
+  Slice record;
+  std::string scratch;
+  while (reader.ReadRecord(&record, &scratch) && s.ok()) {
+    VersionEdit edit;
+    s = edit.DecodeFrom(record);
+    if (!s.ok()) {
+      break;
+    }
+    // Step 1: check if this CF has already been added
+    bool cf_in_info =
+        (checksum_info->checksum_stats.find(edit.column_family_) !=
+         checksum_info->checksum_stats.end());
+
+    if (edit.is_column_family_add_) {
+      if (cf_in_info) {
+        s = Status::Corruption("Manifest adding the same column family twice");
+        break;
+      }
+      ChecksumUnits tmp_units;
+      checksum_info->checksum_stats.insert(
+          std::make_pair(edit.column_family_, tmp_units));
+    } else if (edit.is_column_family_drop_) {
+      if (!cf_in_info) {
+        s = Status::Corruption(
+            "Manifest - dropping non-existing column family");
+        break;
+      }
+      auto info_iter = checksum_info->checksum_stats.find(edit.column_family_);
+      checksum_info->checksum_stats.erase(info_iter);
+    } else {
+      if (!cf_in_info) {
+        s = Status::Corruption(
+            "Manifest record referencing unknown column family");
+        break;
+      }
+      auto info_iter = checksum_info->checksum_stats.find(edit.column_family_);
+      assert(info_iter != checksum_info->checksum_stats.end());
+
+      // Step 2: remove the deleted files from the info
+      const VersionEdit::DeletedFileSet& del = edit.GetDeletedFiles();
+      for (const auto& del_file : del) {
+        uint64_t f_id = static_cast<uint64_t>(del_file.second);
+        info_iter->second.RemoveChecksumUnit(f_id);
+      }
+
+      // Step 3: Add the new files to the info
+      for (const auto& new_file : edit.GetNewFiles()) {
+        FileMetaData* f = new FileMetaData(new_file.second);
+        info_iter->second.AddChecksumUnit(f->fd.GetNumber(), f->file_checksum,
+                                          f->file_checksum_name);
+      }
+    }
+  }
+  return s;
+}
+
 Status VersionSet::DumpManifest(Options& options, std::string& dscname,
                                 bool verbose, bool hex, bool json) {
   // Open the specified manifest file.
