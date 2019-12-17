@@ -647,8 +647,10 @@ void CompactionIterator::PrepareOutput() {
       if (blob_decision == CompactionFilter::BlobDecision::kCorruption) {
         status_ = Status::Corruption(
             "Corrupted blob reference encountered during GC");
+        valid_ = false;
       } else if (blob_decision == CompactionFilter::BlobDecision::kIOError) {
         status_ = Status::IOError("Could not relocate blob during GC");
+        valid_ = false;
       } else if (blob_decision ==
                  CompactionFilter::BlobDecision::kChangeValue) {
         value_ = compaction_filter_value_;
@@ -666,7 +668,8 @@ void CompactionIterator::PrepareOutput() {
     //
     // Can we do the same for levels above bottom level as long as
     // KeyNotExistsBeyondOutputLevel() return true?
-    if ((compaction_ != nullptr && !compaction_->allow_ingest_behind()) &&
+    if (valid_ && compaction_ != nullptr &&
+        !compaction_->allow_ingest_behind() &&
         ikeyNotNeededForIncrementalSnapshot() && bottommost_level_ &&
         IN_EARLIEST_SNAPSHOT(ikey_.sequence) && ikey_.type != kTypeMerge) {
       assert(ikey_.type != kTypeDeletion && ikey_.type != kTypeSingleDeletion);

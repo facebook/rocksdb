@@ -63,6 +63,9 @@ DEFINE_bool(use_plain_table_bloom, false,
             "Use PlainTableBloom structure and interface rather than "
             "FilterBitsReader/FullFilterBlockReader");
 
+DEFINE_bool(new_builder, false,
+            "Whether to create a new builder for each new filter");
+
 DEFINE_uint32(impl, 0,
               "Select filter implementation. Without -use_plain_table_bloom:"
               "0 = full filter, 1 = block-based filter. With "
@@ -278,11 +281,6 @@ void FilterBench::Go() {
     }
   }
 
-  std::unique_ptr<FilterBitsBuilder> builder;
-  if (!FLAGS_use_plain_table_bloom && FLAGS_impl != 1) {
-    builder.reset(GetBuilder());
-  }
-
   uint32_t variance_mask = 1;
   while (variance_mask * variance_mask * 4 < FLAGS_average_keys_per_filter) {
     variance_mask = variance_mask * 2 + 1;
@@ -299,6 +297,8 @@ void FilterBench::Go() {
   }
 
   std::cout << "Building..." << std::endl;
+
+  std::unique_ptr<FilterBitsBuilder> builder;
 
   size_t total_memory_used = 0;
   size_t total_keys_added = 0;
@@ -325,10 +325,16 @@ void FilterBench::Go() {
       }
       info.filter_ = info.plain_table_bloom_->GetRawData();
     } else {
+      if (!builder) {
+        builder.reset(GetBuilder());
+      }
       for (uint32_t i = 0; i < keys_to_add; ++i) {
         builder->AddKey(kms_[0].Get(filter_id, i));
       }
       info.filter_ = builder->Finish(&info.owner_);
+      if (FLAGS_new_builder) {
+        builder.reset();
+      }
       info.reader_.reset(
           table_options_.filter_policy->GetFilterBitsReader(info.filter_));
       CachableEntry<ParsedFullFilterBlock> block(

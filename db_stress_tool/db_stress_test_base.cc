@@ -38,7 +38,8 @@ StressTest::StressTest()
       }
     }
     Options options;
-    options.env = FLAGS_env;
+    // Remove files without preserving manfiest files
+    options.env = FLAGS_env->target();
     Status s = DestroyDB(FLAGS_db, options);
     if (!s.ok()) {
       fprintf(stderr, "Cannot destroy original db: %s\n", s.ToString().c_str());
@@ -682,9 +683,21 @@ void StressTest::OperateDb(ThreadState* thread) {
             snapshot, rand_column_family, column_family->GetName(),
             keystr,   status_at,          value_at,
             key_vec};
-        thread->snapshot_queue.emplace(
-            std::min(FLAGS_ops_per_thread - 1, i + FLAGS_snapshot_hold_ops),
-            snap_state);
+        uint64_t hold_for = FLAGS_snapshot_hold_ops;
+        if (FLAGS_long_running_snapshots) {
+          // Hold 10% of snapshots for 10x more
+          if (thread->rand.OneIn(10)) {
+            assert(hold_for < port::kMaxInt64 / 10);
+            hold_for *= 10;
+            // Hold 1% of snapshots for 100x more
+            if (thread->rand.OneIn(10)) {
+              assert(hold_for < port::kMaxInt64 / 10);
+              hold_for *= 10;
+            }
+          }
+        }
+        uint64_t release_at = std::min(FLAGS_ops_per_thread - 1, i + hold_for);
+        thread->snapshot_queue.emplace(release_at, snap_state);
       }
       while (!thread->snapshot_queue.empty() &&
              i >= thread->snapshot_queue.front().first) {
@@ -1208,7 +1221,10 @@ Status StressTest::TestCheckpoint(ThreadState* thread,
       FLAGS_db + "/.checkpoint" + ToString(thread->tid);
   Options tmp_opts(options_);
   tmp_opts.listeners.clear();
+  tmp_opts.env = FLAGS_env->target();
+
   DestroyDB(checkpoint_dir, tmp_opts);
+
   Checkpoint* checkpoint = nullptr;
   Status s = Checkpoint::Create(db_, &checkpoint);
   if (s.ok()) {
@@ -1264,7 +1280,9 @@ Status StressTest::TestCheckpoint(ThreadState* thread,
     delete checkpoint_db;
     checkpoint_db = nullptr;
   }
+
   DestroyDB(checkpoint_dir, tmp_opts);
+
   if (!s.ok()) {
     fprintf(stderr, "A checkpoint operation failed with: %s\n",
             s.ToString().c_str());
@@ -1442,6 +1460,14 @@ void StressTest::PrintEnv() const {
           FLAGS_periodic_compaction_seconds);
   fprintf(stdout, "Compaction TTL            : %" PRIu64 "\n",
           FLAGS_compaction_ttl);
+  fprintf(stdout, "Background Purge          : %d\n",
+          static_cast<int>(FLAGS_avoid_unnecessary_blocking_io));
+  fprintf(stdout, "Write DB ID to manifest   : %d\n",
+          static_cast<int>(FLAGS_write_dbid_to_manifest));
+  fprintf(stdout, "Max Write Batch Group Size: %" PRIu64 "\n",
+          FLAGS_max_write_batch_group_size_bytes);
+  fprintf(stdout, "Use dynamic level         : %d\n",
+          static_cast<int>(FLAGS_level_compaction_dynamic_level_bytes));
 
   fprintf(stdout, "------------------------------------------------\n");
 }
@@ -1535,6 +1561,13 @@ void StressTest::Open() {
     options_.compaction_options_universal.max_size_amplification_percent =
         FLAGS_universal_max_size_amplification_percent;
     options_.atomic_flush = FLAGS_atomic_flush;
+    options_.avoid_unnecessary_blocking_io =
+        FLAGS_avoid_unnecessary_blocking_io;
+    options_.write_dbid_to_manifest = FLAGS_write_dbid_to_manifest;
+    options_.max_write_batch_group_size_bytes =
+        FLAGS_max_write_batch_group_size_bytes;
+    options_.level_compaction_dynamic_level_bytes =
+        FLAGS_level_compaction_dynamic_level_bytes;
   } else {
 #ifdef ROCKSDB_LITE
     fprintf(stderr, "--options_file not supported in lite mode\n");
@@ -1544,7 +1577,7 @@ void StressTest::Open() {
     std::vector<ColumnFamilyDescriptor> cf_descriptors;
     Status s = LoadOptionsFromFile(FLAGS_options_file, FLAGS_env, &db_options,
                                    &cf_descriptors);
-    db_options.env = FLAGS_env;
+    db_options.env = new DbStressEnvWrapper(FLAGS_env);
     if (!s.ok()) {
       fprintf(stderr, "Unable to load options file %s --- %s\n",
               FLAGS_options_file.c_str(), s.ToString().c_str());
@@ -1761,8 +1794,9 @@ void StressTest::Reopen(ThreadState* thread) {
 #ifndef ROCKSDB_LITE
   bool bg_canceled = false;
   if (thread->rand.OneIn(2)) {
-    CancelAllBackgroundWork(db_, static_cast<bool>(thread->rand.OneIn(2)));
-    bg_canceled = true;
+    const bool wait = static_cast<bool>(thread->rand.OneIn(2));
+    CancelAllBackgroundWork(db_, wait);
+    bg_canceled = wait;
   }
 #else
   (void) thread;
