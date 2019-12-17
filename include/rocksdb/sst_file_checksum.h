@@ -64,8 +64,11 @@ struct ChecksumUnits {
   }
 };
 
-struct CFChecksumStats {
+struct CFChecksumInfo {
   std::map<uint32_t, ChecksumUnits> checksum_stats;
+  CFChecksumInfo(){};
+  CFChecksumInfo(const CFChecksumInfo&) = delete;
+  CFChecksumInfo& operator=(const CFChecksumInfo&) = delete;
 };
 
 }  // namespace rocksdb

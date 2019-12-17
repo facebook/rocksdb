@@ -4698,9 +4698,9 @@ Status VersionSet::ReduceNumberOfLevels(const std::string& dbname,
 // Get the checksum information including the checksum and checksum method
 // name of all SST files of this Manifest. Separated by column families.
 // Store the information in a map.
-Status VersionSet::GetAllFileCheckSumInfo(
-    Options& options, std::string& dscname,
-    std::unique_ptr<CFChecksumStats> checksum_info) {
+Status VersionSet::GetAllFileCheckSumInfo(Options& options,
+                                          std::string& dscname,
+                                          CFChecksumInfo& checksum_info) {
   std::unique_ptr<SequentialFileReader> file_reader;
   Status s;
   {
@@ -4715,11 +4715,9 @@ Status VersionSet::GetAllFileCheckSumInfo(
         std::move(file), dscname, db_options_->log_readahead_size));
   }
 
-  checksum_info.reset(new CFChecksumStats);
-
   // Add the default column family
   ChecksumUnits cs_units;
-  checksum_info->checksum_stats.insert(std::make_pair(0, cs_units));
+  checksum_info.checksum_stats.insert(std::make_pair(0, cs_units));
   VersionSet::LogReporter reporter;
   reporter.status = &s;
   log::Reader reader(nullptr, std::move(file_reader), &reporter,
@@ -4733,9 +4731,8 @@ Status VersionSet::GetAllFileCheckSumInfo(
       break;
     }
     // Step 1: check if this CF has already been added
-    bool cf_in_info =
-        (checksum_info->checksum_stats.find(edit.column_family_) !=
-         checksum_info->checksum_stats.end());
+    bool cf_in_info = (checksum_info.checksum_stats.find(edit.column_family_) !=
+                       checksum_info.checksum_stats.end());
 
     if (edit.is_column_family_add_) {
       if (cf_in_info) {
@@ -4743,7 +4740,7 @@ Status VersionSet::GetAllFileCheckSumInfo(
         break;
       }
       ChecksumUnits tmp_units;
-      checksum_info->checksum_stats.insert(
+      checksum_info.checksum_stats.insert(
           std::make_pair(edit.column_family_, tmp_units));
     } else if (edit.is_column_family_drop_) {
       if (!cf_in_info) {
@@ -4751,16 +4748,16 @@ Status VersionSet::GetAllFileCheckSumInfo(
             "Manifest - dropping non-existing column family");
         break;
       }
-      auto info_iter = checksum_info->checksum_stats.find(edit.column_family_);
-      checksum_info->checksum_stats.erase(info_iter);
+      auto info_iter = checksum_info.checksum_stats.find(edit.column_family_);
+      checksum_info.checksum_stats.erase(info_iter);
     } else {
       if (!cf_in_info) {
         s = Status::Corruption(
             "Manifest record referencing unknown column family");
         break;
       }
-      auto info_iter = checksum_info->checksum_stats.find(edit.column_family_);
-      assert(info_iter != checksum_info->checksum_stats.end());
+      auto info_iter = checksum_info.checksum_stats.find(edit.column_family_);
+      assert(info_iter != checksum_info.checksum_stats.end());
 
       // Step 2: remove the deleted files from the info
       const VersionEdit::DeletedFileSet& del = edit.GetDeletedFiles();

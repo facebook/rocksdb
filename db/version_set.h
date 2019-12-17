@@ -899,7 +899,7 @@ class VersionSet {
   // Get file checksum information of all SST files. For data correctness
   // check usage.
   Status GetAllFileCheckSumInfo(Options& options, std::string& dscname,
-                                std::unique_ptr<CFChecksumStats> checksum_info);
+                                CFChecksumInfo& checksum_info);
 
   // printf contents (for debugging)
   Status DumpManifest(Options& options, std::string& manifestFileName,
