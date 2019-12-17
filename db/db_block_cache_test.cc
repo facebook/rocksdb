@@ -10,6 +10,7 @@
 #include "cache/lru_cache.h"
 #include "db/db_test_util.h"
 #include "port/stack_trace.h"
+#include "util/compression.h"
 
 namespace rocksdb {
 
@@ -685,16 +686,18 @@ TEST_F(DBBlockCacheTest, CacheCompressionDict) {
 
   // Try all the available libraries that support dictionary compression
   std::vector<CompressionType> compression_types;
-#ifdef ZLIB
-  compression_types.push_back(kZlibCompression);
-#endif  // ZLIB
-#if LZ4_VERSION_NUMBER >= 10400
-  compression_types.push_back(kLZ4Compression);
-  compression_types.push_back(kLZ4HCCompression);
-#endif  // LZ4_VERSION_NUMBER >= 10400
-#if ZSTD_VERSION_NUMBER >= 500
-  compression_types.push_back(kZSTD);
-#endif  // ZSTD_VERSION_NUMBER >= 500
+  if (Zlib_Supported()) {
+    compression_types.push_back(kZlibCompression);
+  }
+  if (LZ4_Supported()) {
+    compression_types.push_back(kLZ4Compression);
+    compression_types.push_back(kLZ4HCCompression);
+  }
+  if (ZSTD_Supported()) {
+    compression_types.push_back(kZSTD);
+  } else if (ZSTDNotFinal_Supported()) {
+    compression_types.push_back(kZSTDNotFinalCompression);
+  }
   Random rnd(301);
   for (auto compression_type : compression_types) {
     Options options = CurrentOptions();
