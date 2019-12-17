@@ -963,6 +963,7 @@ void WriteBatchWithIndex::MultiGetFromBatchAndDB(
           ->immutable_db_options();
 
   autovector<KeyContext, MultiGetContext::MAX_BATCH_SIZE> key_context;
+  autovector<KeyContext*, MultiGetContext::MAX_BATCH_SIZE> sorted_keys;
   // To hold merges from the write batch
   autovector<std::pair<WriteBatchWithIndexInternal::Result, MergeContext>,
              MultiGetContext::MAX_BATCH_SIZE>
@@ -1002,14 +1003,17 @@ void WriteBatchWithIndex::MultiGetFromBatchAndDB(
 
     assert(result == WriteBatchWithIndexInternal::Result::kMergeInProgress ||
            result == WriteBatchWithIndexInternal::Result::kNotFound);
-    key_context.emplace_back(keys[i], &values[i], &statuses[i]);
+    key_context.emplace_back(column_family, keys[i], &values[i], &statuses[i]);
+    sorted_keys.emplace_back(&key_context.back());
     merges.emplace_back(result, std::move(merge_context));
   }
 
   // Did not find key in batch OR could not resolve Merges.  Try DB.
   static_cast_with_check<DBImpl, DB>(db->GetRootDB())
-      ->MultiGetImpl(read_options, column_family, key_context, sorted_input,
-                     callback);
+      ->PrepareMultiGetKeys(key_context.size(), sorted_input, &sorted_keys);
+  static_cast_with_check<DBImpl, DB>(db->GetRootDB())
+      ->MultiGetWithCallback(read_options, column_family, callback,
+                             &sorted_keys);
 
   ColumnFamilyHandleImpl* cfh =
       reinterpret_cast<ColumnFamilyHandleImpl*>(column_family);

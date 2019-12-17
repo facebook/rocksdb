@@ -48,6 +48,7 @@ class Slice;
 class Statistics;
 class InternalKeyComparator;
 class WalFilter;
+class FileSystem;
 
 // DB contents are stored in a set of blocks, each of which holds a
 // sequence of key,value pairs.  Each block may be compressed before
@@ -388,9 +389,16 @@ struct DBOptions {
   bool paranoid_checks = true;
 
   // Use the specified object to interact with the environment,
-  // e.g. to read/write files, schedule background work, etc.
+  // e.g. to read/write files, schedule background work, etc. In the near
+  // future, support for doing storage operations such as read/write files
+  // through env will be deprecated in favor of file_system (see below)
   // Default: Env::Default()
   Env* env = Env::Default();
+
+  // Use the specified object to interact with the storage to
+  // read/write files. This is in addition to env. This option should be used
+  // if the desired storage subsystem provides a FileSystem implementation.
+  std::shared_ptr<FileSystem> file_system = nullptr;
 
   // Use to control write rate of flush and compaction. Flush has higher
   // priority than compaction. Rate limiting is disabled if nullptr.
@@ -1181,7 +1189,7 @@ struct ReadOptions {
   // "iterate_upper_bound" defines the extent upto which the forward iterator
   // can returns entries. Once the bound is reached, Valid() will be false.
   // "iterate_upper_bound" is exclusive ie the bound value is
-  // not a valid entry.  If iterator_extractor is not null, the Seek target
+  // not a valid entry. If prefix_extractor is not null, the Seek target
   // and iterate_upper_bound need to have the same prefix.
   // This is because ordering is not guaranteed outside of prefix domain.
   //

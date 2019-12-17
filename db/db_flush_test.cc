@@ -212,6 +212,30 @@ TEST_F(DBFlushTest, ManualFlushWithMinWriteBufferNumberToMerge) {
   t.join();
 }
 
+TEST_F(DBFlushTest, ScheduleOnlyOneBgThread) {
+  Options options = CurrentOptions();
+  Reopen(options);
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+  int called = 0;
+  SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::MaybeScheduleFlushOrCompaction:AfterSchedule:0", [&](void* arg) {
+        ASSERT_NE(nullptr, arg);
+        auto unscheduled_flushes = *reinterpret_cast<int*>(arg);
+        ASSERT_EQ(0, unscheduled_flushes);
+        ++called;
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  ASSERT_OK(Put("a", "foo"));
+  FlushOptions flush_opts;
+  ASSERT_OK(dbfull()->Flush(flush_opts));
+  ASSERT_EQ(1, called);
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+}
+
 TEST_P(DBFlushDirectIOTest, DirectIO) {
   Options options;
   options.create_if_missing = true;

@@ -61,8 +61,8 @@ Status RandomAccessFileReader::Read(uint64_t offset, size_t n, Slice* result,
         }
         {
           IOSTATS_CPU_TIMER_GUARD(cpu_read_nanos, env_);
-          s = file_->Read(aligned_offset + buf.CurrentSize(), allowed, &tmp,
-                          buf.Destination());
+          s = file_->Read(aligned_offset + buf.CurrentSize(), allowed,
+                          IOOptions(), &tmp, buf.Destination(), nullptr);
         }
         if (ShouldNotifyListeners()) {
           auto finish_ts = std::chrono::system_clock::now();
@@ -110,7 +110,8 @@ Status RandomAccessFileReader::Read(uint64_t offset, size_t n, Slice* result,
 #endif
         {
           IOSTATS_CPU_TIMER_GUARD(cpu_read_nanos, env_);
-          s = file_->Read(offset + pos, allowed, &tmp_result, scratch + pos);
+          s = file_->Read(offset + pos, allowed, IOOptions(), &tmp_result,
+                          scratch + pos, nullptr);
         }
 #ifndef ROCKSDB_LITE
         if (ShouldNotifyListeners()) {
@@ -145,7 +146,7 @@ Status RandomAccessFileReader::Read(uint64_t offset, size_t n, Slice* result,
   return s;
 }
 
-Status RandomAccessFileReader::MultiRead(ReadRequest* read_reqs,
+Status RandomAccessFileReader::MultiRead(FSReadRequest* read_reqs,
                                          size_t num_reqs) const {
   Status s;
   uint64_t elapsed = 0;
@@ -165,7 +166,7 @@ Status RandomAccessFileReader::MultiRead(ReadRequest* read_reqs,
 #endif  // ROCKSDB_LITE
     {
       IOSTATS_CPU_TIMER_GUARD(cpu_read_nanos, env_);
-      s = file_->MultiRead(read_reqs, num_reqs);
+      s = file_->MultiRead(read_reqs, num_reqs, IOOptions(), nullptr);
     }
     for (size_t i = 0; i < num_reqs; ++i) {
 #ifndef ROCKSDB_LITE

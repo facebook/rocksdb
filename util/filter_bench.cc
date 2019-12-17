@@ -19,7 +19,7 @@ int main() {
 #include "memory/arena.h"
 #include "port/port.h"
 #include "port/stack_trace.h"
-#include "rocksdb/filter_policy.h"
+#include "table/block_based/filter_policy_internal.h"
 #include "table/block_based/full_filter_block.h"
 #include "table/block_based/mock_block_based_table.h"
 #include "table/plain/plain_table_bloom.h"
@@ -52,7 +52,7 @@ DEFINE_uint32(vary_key_size_log2_interval, 5,
 
 DEFINE_uint32(batch_size, 8, "Number of keys to group in each batch");
 
-DEFINE_uint32(bits_per_key, 10, "Bits per key setting for filters");
+DEFINE_double(bits_per_key, 10.0, "Bits per key setting for filters");
 
 DEFINE_double(m_queries, 200, "Millions of queries for each test mode");
 
@@ -62,6 +62,9 @@ DEFINE_bool(use_full_block_reader, false,
 DEFINE_bool(use_plain_table_bloom, false,
             "Use PlainTableBloom structure and interface rather than "
             "FilterBitsReader/FullFilterBlockReader");
+
+DEFINE_bool(new_builder, false,
+            "Whether to create a new builder for each new filter");
 
 DEFINE_uint32(impl, 0,
               "Select filter implementation. Without -use_plain_table_bloom:"
@@ -93,12 +96,14 @@ void _always_assert_fail(int line, const char *file, const char *expr) {
 
 using rocksdb::Arena;
 using rocksdb::BlockContents;
+using rocksdb::BloomFilterPolicy;
 using rocksdb::BloomHash;
 using rocksdb::CachableEntry;
 using rocksdb::EncodeFixed32;
 using rocksdb::fastrange32;
 using rocksdb::FilterBitsBuilder;
 using rocksdb::FilterBitsReader;
+using rocksdb::FilterBuildingContext;
 using rocksdb::FullFilterBlockReader;
 using rocksdb::GetSliceHash;
 using rocksdb::GetSliceHash64;
@@ -240,8 +245,9 @@ struct FilterBench : public MockBlockBasedTableTester {
   Arena arena_;
 
   FilterBench()
-      : MockBlockBasedTableTester(
-            rocksdb::NewBloomFilterPolicy(FLAGS_bits_per_key)),
+      : MockBlockBasedTableTester(new BloomFilterPolicy(
+            FLAGS_bits_per_key,
+            static_cast<BloomFilterPolicy::Mode>(FLAGS_impl))),
         random_(FLAGS_seed) {
     for (uint32_t i = 0; i < FLAGS_batch_size; ++i) {
       kms_.emplace_back(FLAGS_key_size < 8 ? 8 : FLAGS_key_size);
@@ -259,17 +265,20 @@ void FilterBench::Go() {
     throw std::runtime_error(
         "Can't combine -use_plain_table_bloom and -use_full_block_reader");
   }
-  if (FLAGS_impl > 1) {
-    throw std::runtime_error("-impl must currently be >= 0 and <= 1");
-  }
-  if (!FLAGS_use_plain_table_bloom && FLAGS_impl == 1) {
-    throw std::runtime_error(
-        "Block-based filter not currently supported by filter_bench");
-  }
-
-  std::unique_ptr<FilterBitsBuilder> builder;
-  if (!FLAGS_use_plain_table_bloom && FLAGS_impl != 1) {
-    builder.reset(table_options_.filter_policy->GetFilterBitsBuilder());
+  if (FLAGS_use_plain_table_bloom) {
+    if (FLAGS_impl > 1) {
+      throw std::runtime_error(
+          "-impl must currently be >= 0 and <= 1 for Plain table");
+    }
+  } else {
+    if (FLAGS_impl == 1) {
+      throw std::runtime_error(
+          "Block-based filter not currently supported by filter_bench");
+    }
+    if (FLAGS_impl > 2) {
+      throw std::runtime_error(
+          "-impl must currently be 0 or 2 for Block-based table");
+    }
   }
 
   uint32_t variance_mask = 1;
@@ -288,6 +297,8 @@ void FilterBench::Go() {
   }
 
   std::cout << "Building..." << std::endl;
+
+  std::unique_ptr<FilterBitsBuilder> builder;
 
   size_t total_memory_used = 0;
   size_t total_keys_added = 0;
@@ -314,10 +325,16 @@ void FilterBench::Go() {
       }
       info.filter_ = info.plain_table_bloom_->GetRawData();
     } else {
+      if (!builder) {
+        builder.reset(GetBuilder());
+      }
       for (uint32_t i = 0; i < keys_to_add; ++i) {
         builder->AddKey(kms_[0].Get(filter_id, i));
       }
       info.filter_ = builder->Finish(&info.owner_);
+      if (FLAGS_new_builder) {
+        builder.reset();
+      }
       info.reader_.reset(
           table_options_.filter_policy->GetFilterBitsReader(info.filter_));
       CachableEntry<ParsedFullFilterBlock> block(
@@ -350,7 +367,8 @@ void FilterBench::Go() {
     std::cout << "----------------------------" << std::endl;
     std::cout << "Verifying..." << std::endl;
 
-    uint32_t outside_q_per_f = 1000000 / infos_.size();
+    uint32_t outside_q_per_f =
+        static_cast<uint32_t>(FLAGS_m_queries * 1000000 / infos_.size());
     uint64_t fps = 0;
     for (uint32_t i = 0; i < infos_.size(); ++i) {
       FilterInfo &info = infos_[i];
@@ -594,7 +612,7 @@ double FilterBench::RandomQueryTest(uint32_t inside_threshold, bool dry_run,
   }
 
   if (!dry_run) {
-    fp_rate_report_ = std::ostringstream();
+    fp_rate_report_.str("");
     uint64_t q = 0;
     uint64_t fp = 0;
     double worst_fp_rate = 0.0;

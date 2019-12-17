@@ -198,6 +198,7 @@ class ColumnFamilyHandleInternal : public ColumnFamilyHandleImpl {
 struct SuperVersion {
   // Accessing members of this class is not thread-safe and requires external
   // synchronization (ie db mutex held or on write thread).
+  ColumnFamilyData* cfd;
   MemTable* mem;
   MemTableListVersion* imm;
   Version* current;
@@ -221,8 +222,8 @@ struct SuperVersion {
   // that needs to be deleted in to_delete vector. Unrefing those
   // objects needs to be done in the mutex
   void Cleanup();
-  void Init(MemTable* new_mem, MemTableListVersion* new_imm,
-            Version* new_current);
+  void Init(ColumnFamilyData* new_cfd, MemTable* new_mem,
+            MemTableListVersion* new_imm, Version* new_current);
 
   // The value of dummy is not actually used. kSVInUse takes its address as a
   // mark in the thread local storage to indicate the SuperVersion is in use
@@ -288,6 +289,11 @@ class ColumnFamilyData {
     return old_refs == 1;
   }
 
+  // UnrefAndTryDelete() decreases the reference count and do free if needed,
+  // return true if this is freed else false, UnrefAndTryDelete() can only
+  // be called while holding a DB mutex, or during single-threaded recovery.
+  bool UnrefAndTryDelete();
+
   // SetDropped() can only be called under following conditions:
   // 1) Holding a DB mutex,
   // 2) from single-threaded write thread, AND
@@ -318,7 +324,7 @@ class ColumnFamilyData {
   }
   FlushReason GetFlushReason() const { return flush_reason_; }
   // thread-safe
-  const EnvOptions* soptions() const;
+  const FileOptions* soptions() const;
   const ImmutableCFOptions* ioptions() const { return &ioptions_; }
   // REQUIRES: DB mutex held
   // This returns the MutableCFOptions used by current SuperVersion
@@ -504,7 +510,7 @@ class ColumnFamilyData {
                    WriteBufferManager* write_buffer_manager,
                    const ColumnFamilyOptions& options,
                    const ImmutableDBOptions& db_options,
-                   const EnvOptions& env_options,
+                   const FileOptions& file_options,
                    ColumnFamilySet* column_family_set,
                    BlockCacheTracer* const block_cache_tracer);
 
@@ -632,7 +638,7 @@ class ColumnFamilySet {
 
   ColumnFamilySet(const std::string& dbname,
                   const ImmutableDBOptions* db_options,
-                  const EnvOptions& env_options, Cache* table_cache,
+                  const FileOptions& file_options, Cache* table_cache,
                   WriteBufferManager* write_buffer_manager,
                   WriteController* write_controller,
                   BlockCacheTracer* const block_cache_tracer);
@@ -690,7 +696,7 @@ class ColumnFamilySet {
 
   const std::string db_name_;
   const ImmutableDBOptions* const db_options_;
-  const EnvOptions env_options_;
+  const FileOptions file_options_;
   Cache* table_cache_;
   WriteBufferManager* write_buffer_manager_;
   WriteController* write_controller_;

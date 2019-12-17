@@ -247,7 +247,8 @@ bool UniversalCompactionBuilder::IsInputFilesNonOverlapping(Compaction* c) {
 
     next.f = nullptr;
 
-    if (curr.level != 0 && curr.index < c->num_input_files(curr.level) - 1) {
+    if (c->level(curr.level) != 0 &&
+        curr.index < c->num_input_files(curr.level) - 1) {
       next.f = c->input(curr.level, curr.index + 1);
       next.level = curr.level;
       next.index = curr.index + 1;
@@ -277,7 +278,8 @@ bool UniversalCompactionPicker::NeedsCompaction(
 
 Compaction* UniversalCompactionPicker::PickCompaction(
     const std::string& cf_name, const MutableCFOptions& mutable_cf_options,
-    VersionStorageInfo* vstorage, LogBuffer* log_buffer) {
+    VersionStorageInfo* vstorage, LogBuffer* log_buffer,
+    SequenceNumber /* earliest_memtable_seqno */) {
   UniversalCompactionBuilder builder(ioptions_, icmp_, cf_name,
                                      mutable_cf_options, vstorage, this,
                                      log_buffer);

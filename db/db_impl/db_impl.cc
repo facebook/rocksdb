@@ -52,6 +52,7 @@
 #include "db/version_set.h"
 #include "db/write_batch_internal.h"
 #include "db/write_callback.h"
+#include "env/composite_env_wrapper.h"
 #include "file/file_util.h"
 #include "file/filename.h"
 #include "file/random_access_file_reader.h"
@@ -102,6 +103,7 @@
 #include "util/string_util.h"
 
 namespace rocksdb {
+
 const std::string kDefaultColumnFamilyName("default");
 const std::string kPersistentStatsColumnFamilyName(
     "___rocksdb_stats_history___");
@@ -141,16 +143,15 @@ void DumpSupportInfo(Logger* logger) {
   ROCKS_LOG_HEADER(logger, "Fast CRC32 supported: %s",
                    crc32c::IsFastCrc32Supported().c_str());
 }
-
-int64_t kDefaultLowPriThrottledRate = 2 * 1024 * 1024;
 }  // namespace
 
 DBImpl::DBImpl(const DBOptions& options, const std::string& dbname,
                const bool seq_per_batch, const bool batch_per_txn)
-    : env_(options.env),
-      dbname_(dbname),
+    : dbname_(dbname),
       own_info_log_(options.info_log == nullptr),
       initial_db_options_(SanitizeOptions(dbname, options)),
+      env_(initial_db_options_.env),
+      fs_(initial_db_options_.file_system),
       immutable_db_options_(initial_db_options_),
       mutable_db_options_(initial_db_options_),
       stats_(immutable_db_options_.statistics.get()),
@@ -158,9 +159,9 @@ DBImpl::DBImpl(const DBOptions& options, const std::string& dbname,
              immutable_db_options_.use_adaptive_mutex),
       default_cf_handle_(nullptr),
       max_total_in_memory_state_(0),
-      env_options_(BuildDBOptions(immutable_db_options_, mutable_db_options_)),
-      env_options_for_compaction_(env_->OptimizeForCompactionTableWrite(
-          env_options_, immutable_db_options_)),
+      file_options_(BuildDBOptions(immutable_db_options_, mutable_db_options_)),
+      file_options_for_compaction_(fs_->OptimizeForCompactionTableWrite(
+          file_options_, immutable_db_options_)),
       seq_per_batch_(seq_per_batch),
       batch_per_txn_(batch_per_txn),
       db_lock_(nullptr),
@@ -178,11 +179,6 @@ DBImpl::DBImpl(const DBOptions& options, const std::string& dbname,
       write_thread_(immutable_db_options_),
       nonmem_write_thread_(immutable_db_options_),
       write_controller_(mutable_db_options_.delayed_write_rate),
-      // Use delayed_write_rate as a base line to determine the initial
-      // low pri write rate limit. It may be adjusted later.
-      low_pri_write_rate_limiter_(NewGenericRateLimiter(std::min(
-          static_cast<int64_t>(mutable_db_options_.delayed_write_rate / 8),
-          kDefaultLowPriThrottledRate))),
       last_batch_group_size_(0),
       unscheduled_flushes_(0),
       unscheduled_compactions_(0),
@@ -201,7 +197,7 @@ DBImpl::DBImpl(const DBOptions& options, const std::string& dbname,
       unable_to_release_oldest_log_(false),
       num_running_ingest_file_(0),
 #ifndef ROCKSDB_LITE
-      wal_manager_(immutable_db_options_, env_options_, seq_per_batch),
+      wal_manager_(immutable_db_options_, file_options_, seq_per_batch),
 #endif  // ROCKSDB_LITE
       event_logger_(immutable_db_options_.info_log.get()),
       bg_work_paused_(0),
@@ -247,7 +243,7 @@ DBImpl::DBImpl(const DBOptions& options, const std::string& dbname,
   co.metadata_charge_policy = kDontChargeCacheMetadata;
   table_cache_ = NewLRUCache(co);
 
-  versions_.reset(new VersionSet(dbname_, &immutable_db_options_, env_options_,
+  versions_.reset(new VersionSet(dbname_, &immutable_db_options_, file_options_,
                                  table_cache_.get(), write_buffer_manager_,
                                  &write_controller_, &block_cache_tracer_));
   column_family_memtables_.reset(
@@ -337,7 +333,7 @@ Status DBImpl::ResumeImpl() {
         mutex_.Unlock();
         s = FlushMemTable(cfd, flush_opts, FlushReason::kErrorRecovery);
         mutex_.Lock();
-        cfd->Unref();
+        cfd->UnrefAndTryDelete();
         if (!s.ok()) {
           break;
         }
@@ -425,7 +421,7 @@ void DBImpl::CancelAllBackgroundWork(bool wait) {
           mutex_.Unlock();
           FlushMemTable(cfd, FlushOptions(), FlushReason::kShutDown);
           mutex_.Lock();
-          cfd->Unref();
+          cfd->UnrefAndTryDelete();
         }
       }
     }
@@ -482,17 +478,12 @@ Status DBImpl::CloseHelper() {
   while (!flush_queue_.empty()) {
     const FlushRequest& flush_req = PopFirstFromFlushQueue();
     for (const auto& iter : flush_req) {
-      ColumnFamilyData* cfd = iter.first;
-      if (cfd->Unref()) {
-        delete cfd;
-      }
+      iter.first->UnrefAndTryDelete();
     }
   }
   while (!compaction_queue_.empty()) {
     auto cfd = PopFirstFromCompactionQueue();
-    if (cfd->Unref()) {
-      delete cfd;
-    }
+    cfd->UnrefAndTryDelete();
   }
 
   if (default_cf_handle_ != nullptr || persist_stats_cf_handle_ != nullptr) {
@@ -599,6 +590,7 @@ Status DBImpl::CloseHelper() {
       ret = s;
     }
   }
+
   if (ret.IsAborted()) {
     // Reserve IsAborted() error for those where users didn't release
     // certain resource and they can release them and come back and
@@ -1060,14 +1052,14 @@ Status DBImpl::SetDBOptions(
       wal_changed = mutable_db_options_.wal_bytes_per_sync !=
                     new_options.wal_bytes_per_sync;
       mutable_db_options_ = new_options;
-      env_options_for_compaction_ = EnvOptions(new_db_options);
-      env_options_for_compaction_ = env_->OptimizeForCompactionTableWrite(
-          env_options_for_compaction_, immutable_db_options_);
-      versions_->ChangeEnvOptions(mutable_db_options_);
+      file_options_for_compaction_ = FileOptions(new_db_options);
+      file_options_for_compaction_ = fs_->OptimizeForCompactionTableWrite(
+          file_options_for_compaction_, immutable_db_options_);
+      versions_->ChangeFileOptions(mutable_db_options_);
       //TODO(xiez): clarify why apply optimize for read to write options
-      env_options_for_compaction_ = env_->OptimizeForCompactionTableRead(
-          env_options_for_compaction_, immutable_db_options_);
-      env_options_for_compaction_.compaction_readahead_size =
+      file_options_for_compaction_ = fs_->OptimizeForCompactionTableRead(
+          file_options_for_compaction_, immutable_db_options_);
+      file_options_for_compaction_.compaction_readahead_size =
           mutable_db_options_.compaction_readahead_size;
       WriteThread::Writer w;
       write_thread_.EnterUnbatched(&w, &mutex_);
@@ -1434,7 +1426,7 @@ InternalIterator* DBImpl::NewInternalIterator(const ReadOptions& read_options,
   if (s.ok()) {
     // Collect iterators for files in L0 - Ln
     if (read_options.read_tier != kMemtableTier) {
-      super_version->current->AddIterators(read_options, env_options_,
+      super_version->current->AddIterators(read_options, file_options_,
                                            &merge_iter_builder, range_del_agg);
     }
     internal_iter = merge_iter_builder.Finish();
@@ -1645,14 +1637,9 @@ std::vector<Status> DBImpl::MultiGet(
   StopWatch sw(env_, stats_, DB_MULTIGET);
   PERF_TIMER_GUARD(get_snapshot_time);
 
-  SequenceNumber snapshot;
+  SequenceNumber consistent_seqnum;
+  ;
 
-  struct MultiGetColumnFamilyData {
-    ColumnFamilyData* cfd;
-    SuperVersion* super_version;
-    MultiGetColumnFamilyData(ColumnFamilyData* cf, SuperVersion* sv)
-        : cfd(cf), super_version(sv) {}
-  };
   std::unordered_map<uint32_t, MultiGetColumnFamilyData> multiget_cf_data(
       column_family.size());
   for (auto cf : column_family) {
@@ -1660,86 +1647,20 @@ std::vector<Status> DBImpl::MultiGet(
     auto cfd = cfh->cfd();
     if (multiget_cf_data.find(cfd->GetID()) == multiget_cf_data.end()) {
       multiget_cf_data.emplace(cfd->GetID(),
-                               MultiGetColumnFamilyData(cfd, nullptr));
+                               MultiGetColumnFamilyData(cfh, nullptr));
     }
   }
 
-  bool last_try = false;
-  {
-    // If we end up with the same issue of memtable geting sealed during 2
-    // consecutive retries, it means the write rate is very high. In that case
-    // its probably ok to take the mutex on the 3rd try so we can succeed for
-    // sure
-    static const int num_retries = 3;
-    for (auto i = 0; i < num_retries; ++i) {
-      last_try = (i == num_retries - 1);
-      bool retry = false;
+  std::function<MultiGetColumnFamilyData*(
+      std::unordered_map<uint32_t, MultiGetColumnFamilyData>::iterator&)>
+      iter_deref_lambda =
+          [](std::unordered_map<uint32_t, MultiGetColumnFamilyData>::iterator&
+                 cf_iter) { return &cf_iter->second; };
 
-      if (i > 0) {
-        for (auto mgd_iter = multiget_cf_data.begin();
-             mgd_iter != multiget_cf_data.end(); ++mgd_iter) {
-          auto super_version = mgd_iter->second.super_version;
-          auto cfd = mgd_iter->second.cfd;
-          if (super_version != nullptr) {
-            ReturnAndCleanupSuperVersion(cfd, super_version);
-          }
-          mgd_iter->second.super_version = nullptr;
-        }
-      }
-
-      if (read_options.snapshot == nullptr) {
-        if (last_try) {
-          TEST_SYNC_POINT("DBImpl::MultiGet::LastTry");
-          // We're close to max number of retries. For the last retry,
-          // acquire the lock so we're sure to succeed
-          mutex_.Lock();
-        }
-        snapshot = last_seq_same_as_publish_seq_
-                       ? versions_->LastSequence()
-                       : versions_->LastPublishedSequence();
-      } else {
-        snapshot = reinterpret_cast<const SnapshotImpl*>(read_options.snapshot)
-                       ->number_;
-      }
-
-      for (auto mgd_iter = multiget_cf_data.begin();
-           mgd_iter != multiget_cf_data.end(); ++mgd_iter) {
-        if (!last_try) {
-          mgd_iter->second.super_version =
-              GetAndRefSuperVersion(mgd_iter->second.cfd);
-        } else {
-          mgd_iter->second.super_version =
-              mgd_iter->second.cfd->GetSuperVersion()->Ref();
-        }
-        TEST_SYNC_POINT("DBImpl::MultiGet::AfterRefSV");
-        if (read_options.snapshot != nullptr || last_try) {
-          // If user passed a snapshot, then we don't care if a memtable is
-          // sealed or compaction happens because the snapshot would ensure
-          // that older key versions are kept around. If this is the last
-          // retry, then we have the lock so nothing bad can happen
-          continue;
-        }
-        // We could get the earliest sequence number for the whole list of
-        // memtables, which will include immutable memtables as well, but that
-        // might be tricky to maintain in case we decide, in future, to do
-        // memtable compaction.
-        if (!last_try) {
-          auto seq =
-              mgd_iter->second.super_version->mem->GetEarliestSequenceNumber();
-          if (seq > snapshot) {
-            retry = true;
-            break;
-          }
-        }
-      }
-      if (!retry) {
-        if (last_try) {
-          mutex_.Unlock();
-        }
-        break;
-      }
-    }
-  }
+  bool unref_only =
+      MultiCFSnapshot<std::unordered_map<uint32_t, MultiGetColumnFamilyData>>(
+          read_options, nullptr, iter_deref_lambda, &multiget_cf_data,
+          &consistent_seqnum);
 
   // Contain a list of merge operations if merge occurs.
   MergeContext merge_context;
@@ -1763,7 +1684,7 @@ std::vector<Status> DBImpl::MultiGet(
     Status& s = stat_list[i];
     std::string* value = &(*values)[i];
 
-    LookupKey lkey(keys[i], snapshot);
+    LookupKey lkey(keys[i], consistent_seqnum);
     auto cfh = reinterpret_cast<ColumnFamilyHandleImpl*>(column_family[i]);
     SequenceNumber max_covering_tombstone_seq = 0;
     auto mgd_iter = multiget_cf_data.find(cfh->cfd()->GetID());
@@ -1807,7 +1728,7 @@ std::vector<Status> DBImpl::MultiGet(
 
   for (auto mgd_iter : multiget_cf_data) {
     auto mgd = mgd_iter.second;
-    if (!last_try) {
+    if (!unref_only) {
       ReturnAndCleanupSuperVersion(mgd.cfd, mgd.super_version);
     } else {
       mgd.cfd->GetSuperVersion()->Unref();
@@ -1824,125 +1745,333 @@ std::vector<Status> DBImpl::MultiGet(
   return stat_list;
 }
 
-// Order keys by CF ID, followed by key contents
-struct CompareKeyContext {
-  inline bool operator()(const KeyContext* lhs, const KeyContext* rhs) {
-    const Comparator* comparator = cfd->user_comparator();
-    int cmp = comparator->Compare(*(lhs->key), *(rhs->key));
-    if (cmp < 0) {
-      return true;
-    }
-    return false;
-  }
-  const ColumnFamilyData* cfd;
-};
-
-void DBImpl::MultiGet(const ReadOptions& read_options,
-                      ColumnFamilyHandle* column_family, const size_t num_keys,
-                      const Slice* keys, PinnableSlice* values,
-                      Status* statuses, const bool sorted_input) {
-  autovector<KeyContext, MultiGetContext::MAX_BATCH_SIZE> key_context;
-  for (size_t i = 0; i < num_keys; ++i) {
-    key_context.emplace_back(keys[i], &values[i], &statuses[i]);
-  }
-
-  MultiGetImpl(read_options, column_family, key_context, sorted_input, nullptr,
-               nullptr);
-}
-
-void DBImpl::MultiGetImpl(
-    const ReadOptions& read_options, ColumnFamilyHandle* column_family,
-    autovector<KeyContext, MultiGetContext::MAX_BATCH_SIZE>& key_context,
-    bool sorted_input, ReadCallback* callback, bool* is_blob_index) {
-  PERF_CPU_TIMER_GUARD(get_cpu_nanos, env_);
-  StopWatch sw(env_, stats_, DB_MULTIGET);
-  size_t num_keys = key_context.size();
-
+template <class T>
+bool DBImpl::MultiCFSnapshot(
+    const ReadOptions& read_options, ReadCallback* callback,
+    std::function<MultiGetColumnFamilyData*(typename T::iterator&)>&
+        iter_deref_func,
+    T* cf_list, SequenceNumber* snapshot) {
   PERF_TIMER_GUARD(get_snapshot_time);
 
-  ColumnFamilyHandleImpl* cfh =
-      reinterpret_cast<ColumnFamilyHandleImpl*>(column_family);
-  ColumnFamilyData* cfd = cfh->cfd();
-
-  autovector<KeyContext*, MultiGetContext::MAX_BATCH_SIZE> sorted_keys;
-  sorted_keys.resize(num_keys);
-  {
-    size_t index = 0;
-    for (KeyContext& key : key_context) {
-#ifndef NDEBUG
-      if (index > 0 && sorted_input) {
-        KeyContext* lhs = &key_context[index-1];
-        KeyContext* rhs = &key_context[index];
-        const Comparator* comparator = cfd->user_comparator();
-        int cmp = comparator->Compare(*(lhs->key), *(rhs->key));
-        assert(cmp <= 0);
+  bool last_try = false;
+  if (cf_list->size() == 1) {
+    // Fast path for a single column family. We can simply get the thread loca
+    // super version
+    auto cf_iter = cf_list->begin();
+    auto node = iter_deref_func(cf_iter);
+    node->super_version = GetAndRefSuperVersion(node->cfd);
+    if (read_options.snapshot != nullptr) {
+      // Note: In WritePrepared txns this is not necessary but not harmful
+      // either.  Because prep_seq > snapshot => commit_seq > snapshot so if
+      // a snapshot is specified we should be fine with skipping seq numbers
+      // that are greater than that.
+      //
+      // In WriteUnprepared, we cannot set snapshot in the lookup key because we
+      // may skip uncommitted data that should be visible to the transaction for
+      // reading own writes.
+      *snapshot =
+          static_cast<const SnapshotImpl*>(read_options.snapshot)->number_;
+      if (callback) {
+        *snapshot = std::max(*snapshot, callback->max_visible_seq());
       }
-#endif
-
-      sorted_keys[index] = &key;
-      index++;
+    } else {
+      // Since we get and reference the super version before getting
+      // the snapshot number, without a mutex protection, it is possible
+      // that a memtable switch happened in the middle and not all the
+      // data for this snapshot is available. But it will contain all
+      // the data available in the super version we have, which is also
+      // a valid snapshot to read from.
+      // We shouldn't get snapshot before finding and referencing the super
+      // version because a flush happening in between may compact away data for
+      // the snapshot, but the snapshot is earlier than the data overwriting it,
+      // so users may see wrong results.
+      *snapshot = last_seq_same_as_publish_seq_
+                      ? versions_->LastSequence()
+                      : versions_->LastPublishedSequence();
     }
-    if (!sorted_input) {
-      CompareKeyContext sort_comparator;
-      sort_comparator.cfd = cfd;
-      std::sort(sorted_keys.begin(), sorted_keys.begin() + index,
-                sort_comparator);
+  } else {
+    // If we end up with the same issue of memtable geting sealed during 2
+    // consecutive retries, it means the write rate is very high. In that case
+    // its probably ok to take the mutex on the 3rd try so we can succeed for
+    // sure
+    static const int num_retries = 3;
+    for (int i = 0; i < num_retries; ++i) {
+      last_try = (i == num_retries - 1);
+      bool retry = false;
+
+      if (i > 0) {
+        for (auto cf_iter = cf_list->begin(); cf_iter != cf_list->end();
+             ++cf_iter) {
+          auto node = iter_deref_func(cf_iter);
+          SuperVersion* super_version = node->super_version;
+          ColumnFamilyData* cfd = node->cfd;
+          if (super_version != nullptr) {
+            ReturnAndCleanupSuperVersion(cfd, super_version);
+          }
+          node->super_version = nullptr;
+        }
+      }
+      if (read_options.snapshot == nullptr) {
+        if (last_try) {
+          TEST_SYNC_POINT("DBImpl::MultiGet::LastTry");
+          // We're close to max number of retries. For the last retry,
+          // acquire the lock so we're sure to succeed
+          mutex_.Lock();
+        }
+        *snapshot = last_seq_same_as_publish_seq_
+                        ? versions_->LastSequence()
+                        : versions_->LastPublishedSequence();
+      } else {
+        *snapshot = reinterpret_cast<const SnapshotImpl*>(read_options.snapshot)
+                        ->number_;
+      }
+      for (auto cf_iter = cf_list->begin(); cf_iter != cf_list->end();
+           ++cf_iter) {
+        auto node = iter_deref_func(cf_iter);
+        if (!last_try) {
+          node->super_version = GetAndRefSuperVersion(node->cfd);
+        } else {
+          node->super_version = node->cfd->GetSuperVersion()->Ref();
+        }
+        TEST_SYNC_POINT("DBImpl::MultiGet::AfterRefSV");
+        if (read_options.snapshot != nullptr || last_try) {
+          // If user passed a snapshot, then we don't care if a memtable is
+          // sealed or compaction happens because the snapshot would ensure
+          // that older key versions are kept around. If this is the last
+          // retry, then we have the lock so nothing bad can happen
+          continue;
+        }
+        // We could get the earliest sequence number for the whole list of
+        // memtables, which will include immutable memtables as well, but that
+        // might be tricky to maintain in case we decide, in future, to do
+        // memtable compaction.
+        if (!last_try) {
+          SequenceNumber seq =
+              node->super_version->mem->GetEarliestSequenceNumber();
+          if (seq > *snapshot) {
+            retry = true;
+            break;
+          }
+        }
+      }
+      if (!retry) {
+        if (last_try) {
+          mutex_.Unlock();
+        }
+        break;
+      }
     }
   }
 
   // Keep track of bytes that we read for statistics-recording later
   PERF_TIMER_STOP(get_snapshot_time);
 
-  // Acquire SuperVersion
-  SuperVersion* super_version = GetAndRefSuperVersion(cfd);
-  SequenceNumber snapshot;
-  if (read_options.snapshot != nullptr) {
-    // Note: In WritePrepared txns this is not necessary but not harmful
-    // either.  Because prep_seq > snapshot => commit_seq > snapshot so if
-    // a snapshot is specified we should be fine with skipping seq numbers
-    // that are greater than that.
-    //
-    // In WriteUnprepared, we cannot set snapshot in the lookup key because we
-    // may skip uncommitted data that should be visible to the transaction for
-    // reading own writes.
-    snapshot =
-        reinterpret_cast<const SnapshotImpl*>(read_options.snapshot)->number_;
-    if (callback) {
-      snapshot = std::max(snapshot, callback->max_visible_seq());
-    }
-  } else {
-    // Since we get and reference the super version before getting
-    // the snapshot number, without a mutex protection, it is possible
-    // that a memtable switch happened in the middle and not all the
-    // data for this snapshot is available. But it will contain all
-    // the data available in the super version we have, which is also
-    // a valid snapshot to read from.
-    // We shouldn't get snapshot before finding and referencing the super
-    // version because a flush happening in between may compact away data for
-    // the snapshot, but the snapshot is earlier than the data overwriting it,
-    // so users may see wrong results.
-    snapshot = last_seq_same_as_publish_seq_
-                   ? versions_->LastSequence()
-                   : versions_->LastPublishedSequence();
-    if (callback) {
-      // The unprep_seqs are not published for write unprepared, so it could be
-      // that max_visible_seq is larger. Seek to the std::max of the two.
-      // However, we still want our callback to contain the actual snapshot so
-      // that it can do the correct visibility filtering.
-      callback->Refresh(snapshot);
+  return last_try;
+}
 
-      // Internally, WriteUnpreparedTxnReadCallback::Refresh would set
-      // max_visible_seq = max(max_visible_seq, snapshot)
-      //
-      // Currently, the commented out assert is broken by
-      // InvalidSnapshotReadCallback, but if write unprepared recovery followed
-      // the regular transaction flow, then this special read callback would not
-      // be needed.
-      //
-      // assert(callback->max_visible_seq() >= snapshot);
-      snapshot = callback->max_visible_seq();
+void DBImpl::MultiGet(const ReadOptions& read_options, const size_t num_keys,
+                      ColumnFamilyHandle** column_families, const Slice* keys,
+                      PinnableSlice* values, Status* statuses,
+                      const bool sorted_input) {
+  if (num_keys == 0) {
+    return;
+  }
+  autovector<KeyContext, MultiGetContext::MAX_BATCH_SIZE> key_context;
+  autovector<KeyContext*, MultiGetContext::MAX_BATCH_SIZE> sorted_keys;
+  sorted_keys.resize(num_keys);
+  for (size_t i = 0; i < num_keys; ++i) {
+    key_context.emplace_back(column_families[i], keys[i], &values[i],
+                             &statuses[i]);
+  }
+  for (size_t i = 0; i < num_keys; ++i) {
+    sorted_keys[i] = &key_context[i];
+  }
+  PrepareMultiGetKeys(num_keys, sorted_input, &sorted_keys);
+
+  autovector<MultiGetColumnFamilyData, MultiGetContext::MAX_BATCH_SIZE>
+      multiget_cf_data;
+  size_t cf_start = 0;
+  ColumnFamilyHandle* cf = sorted_keys[0]->column_family;
+  for (size_t i = 0; i < num_keys; ++i) {
+    KeyContext* key_ctx = sorted_keys[i];
+    if (key_ctx->column_family != cf) {
+      multiget_cf_data.emplace_back(
+          MultiGetColumnFamilyData(cf, cf_start, i - cf_start, nullptr));
+      cf_start = i;
+      cf = key_ctx->column_family;
     }
   }
+  {
+    // multiget_cf_data.emplace_back(
+    // MultiGetColumnFamilyData(cf, cf_start, num_keys - cf_start, nullptr));
+    multiget_cf_data.emplace_back(cf, cf_start, num_keys - cf_start, nullptr);
+  }
+  std::function<MultiGetColumnFamilyData*(
+      autovector<MultiGetColumnFamilyData,
+                 MultiGetContext::MAX_BATCH_SIZE>::iterator&)>
+      iter_deref_lambda =
+          [](autovector<MultiGetColumnFamilyData,
+                        MultiGetContext::MAX_BATCH_SIZE>::iterator& cf_iter) {
+            return &(*cf_iter);
+          };
+
+  SequenceNumber consistent_seqnum;
+  bool unref_only = MultiCFSnapshot<
+      autovector<MultiGetColumnFamilyData, MultiGetContext::MAX_BATCH_SIZE>>(
+      read_options, nullptr, iter_deref_lambda, &multiget_cf_data,
+      &consistent_seqnum);
+
+  for (auto cf_iter = multiget_cf_data.begin();
+       cf_iter != multiget_cf_data.end(); ++cf_iter) {
+    MultiGetImpl(read_options, cf_iter->start, cf_iter->num_keys, &sorted_keys,
+                 cf_iter->super_version, consistent_seqnum, nullptr, nullptr);
+    if (!unref_only) {
+      ReturnAndCleanupSuperVersion(cf_iter->cfd, cf_iter->super_version);
+    } else {
+      cf_iter->cfd->GetSuperVersion()->Unref();
+    }
+  }
+}
+
+namespace {
+// Order keys by CF ID, followed by key contents
+struct CompareKeyContext {
+  inline bool operator()(const KeyContext* lhs, const KeyContext* rhs) {
+    ColumnFamilyHandleImpl* cfh =
+        static_cast<ColumnFamilyHandleImpl*>(lhs->column_family);
+    uint32_t cfd_id1 = cfh->cfd()->GetID();
+    const Comparator* comparator = cfh->cfd()->user_comparator();
+    cfh = static_cast<ColumnFamilyHandleImpl*>(lhs->column_family);
+    uint32_t cfd_id2 = cfh->cfd()->GetID();
+
+    if (cfd_id1 < cfd_id2) {
+      return true;
+    } else if (cfd_id1 > cfd_id2) {
+      return false;
+    }
+
+    // Both keys are from the same column family
+    int cmp = comparator->Compare(*(lhs->key), *(rhs->key));
+    if (cmp < 0) {
+      return true;
+    }
+    return false;
+  }
+};
+
+}  // anonymous namespace
+
+void DBImpl::PrepareMultiGetKeys(
+    size_t num_keys, bool sorted_input,
+    autovector<KeyContext*, MultiGetContext::MAX_BATCH_SIZE>* sorted_keys) {
+#ifndef NDEBUG
+  if (sorted_input) {
+    for (size_t index = 0; index < sorted_keys->size(); ++index) {
+      if (index > 0) {
+        KeyContext* lhs = (*sorted_keys)[index - 1];
+        KeyContext* rhs = (*sorted_keys)[index];
+        ColumnFamilyHandleImpl* cfh =
+            reinterpret_cast<ColumnFamilyHandleImpl*>(lhs->column_family);
+        uint32_t cfd_id1 = cfh->cfd()->GetID();
+        const Comparator* comparator = cfh->cfd()->user_comparator();
+        cfh = reinterpret_cast<ColumnFamilyHandleImpl*>(lhs->column_family);
+        uint32_t cfd_id2 = cfh->cfd()->GetID();
+
+        assert(cfd_id1 <= cfd_id2);
+        if (cfd_id1 < cfd_id2) {
+          continue;
+        }
+
+        // Both keys are from the same column family
+        int cmp = comparator->Compare(*(lhs->key), *(rhs->key));
+        assert(cmp <= 0);
+      }
+      index++;
+    }
+  }
+#endif
+  if (!sorted_input) {
+    CompareKeyContext sort_comparator;
+    std::sort(sorted_keys->begin(), sorted_keys->begin() + num_keys,
+              sort_comparator);
+  }
+}
+
+void DBImpl::MultiGet(const ReadOptions& read_options,
+                      ColumnFamilyHandle* column_family, const size_t num_keys,
+                      const Slice* keys, PinnableSlice* values,
+                      Status* statuses, const bool sorted_input) {
+  autovector<KeyContext, MultiGetContext::MAX_BATCH_SIZE> key_context;
+  autovector<KeyContext*, MultiGetContext::MAX_BATCH_SIZE> sorted_keys;
+  sorted_keys.resize(num_keys);
+  for (size_t i = 0; i < num_keys; ++i) {
+    key_context.emplace_back(column_family, keys[i], &values[i], &statuses[i]);
+  }
+  for (size_t i = 0; i < num_keys; ++i) {
+    sorted_keys[i] = &key_context[i];
+  }
+  PrepareMultiGetKeys(num_keys, sorted_input, &sorted_keys);
+  MultiGetWithCallback(read_options, column_family, nullptr, &sorted_keys);
+}
+
+void DBImpl::MultiGetWithCallback(
+    const ReadOptions& read_options, ColumnFamilyHandle* column_family,
+    ReadCallback* callback,
+    autovector<KeyContext*, MultiGetContext::MAX_BATCH_SIZE>* sorted_keys) {
+  std::array<MultiGetColumnFamilyData, 1> multiget_cf_data;
+  multiget_cf_data[0] = MultiGetColumnFamilyData(column_family, nullptr);
+  std::function<MultiGetColumnFamilyData*(
+      std::array<MultiGetColumnFamilyData, 1>::iterator&)>
+      iter_deref_lambda =
+          [](std::array<MultiGetColumnFamilyData, 1>::iterator& cf_iter) {
+            return &(*cf_iter);
+          };
+
+  size_t num_keys = sorted_keys->size();
+  SequenceNumber consistent_seqnum;
+  bool unref_only = MultiCFSnapshot<std::array<MultiGetColumnFamilyData, 1>>(
+      read_options, callback, iter_deref_lambda, &multiget_cf_data,
+      &consistent_seqnum);
+#ifndef NDEBUG
+  assert(!unref_only);
+#else
+  // Silence unused variable warning
+  (void)unref_only;
+#endif  // NDEBUG
+
+  if (callback && read_options.snapshot == nullptr) {
+    // The unprep_seqs are not published for write unprepared, so it could be
+    // that max_visible_seq is larger. Seek to the std::max of the two.
+    // However, we still want our callback to contain the actual snapshot so
+    // that it can do the correct visibility filtering.
+    callback->Refresh(consistent_seqnum);
+
+    // Internally, WriteUnpreparedTxnReadCallback::Refresh would set
+    // max_visible_seq = max(max_visible_seq, snapshot)
+    //
+    // Currently, the commented out assert is broken by
+    // InvalidSnapshotReadCallback, but if write unprepared recovery followed
+    // the regular transaction flow, then this special read callback would not
+    // be needed.
+    //
+    // assert(callback->max_visible_seq() >= snapshot);
+    consistent_seqnum = callback->max_visible_seq();
+  }
+
+  MultiGetImpl(read_options, 0, num_keys, sorted_keys,
+               multiget_cf_data[0].super_version, consistent_seqnum, nullptr,
+               nullptr);
+  ReturnAndCleanupSuperVersion(multiget_cf_data[0].cfd,
+                               multiget_cf_data[0].super_version);
+}
+
+void DBImpl::MultiGetImpl(
+    const ReadOptions& read_options, size_t start_key, size_t num_keys,
+    autovector<KeyContext*, MultiGetContext::MAX_BATCH_SIZE>* sorted_keys,
+    SuperVersion* super_version, SequenceNumber snapshot,
+    ReadCallback* callback, bool* is_blob_index) {
+  PERF_CPU_TIMER_GUARD(get_cpu_nanos, env_);
+  StopWatch sw(env_, stats_, DB_MULTIGET);
 
   // For each of the given keys, apply the entire "get" process as follows:
   // First look in the memtable, then in the immutable memtable (if any).
@@ -1953,8 +2082,8 @@ void DBImpl::MultiGetImpl(
     size_t batch_size = (keys_left > MultiGetContext::MAX_BATCH_SIZE)
                             ? MultiGetContext::MAX_BATCH_SIZE
                             : keys_left;
-    MultiGetContext ctx(&sorted_keys[num_keys - keys_left], batch_size,
-                        snapshot);
+    MultiGetContext ctx(sorted_keys, start_key + num_keys - keys_left,
+                        batch_size, snapshot);
     MultiGetRange range = ctx.GetMultiGetRange();
     bool lookup_current = false;
 
@@ -1992,14 +2121,13 @@ void DBImpl::MultiGetImpl(
   PERF_TIMER_GUARD(get_post_process_time);
   size_t num_found = 0;
   uint64_t bytes_read = 0;
-  for (KeyContext& key : key_context) {
-    if (key.s->ok()) {
-      bytes_read += key.value->size();
+  for (size_t i = start_key; i < start_key + num_keys; ++i) {
+    KeyContext* key = (*sorted_keys)[i];
+    if (key->s->ok()) {
+      bytes_read += key->value->size();
       num_found++;
     }
   }
-
-  ReturnAndCleanupSuperVersion(cfd, super_version);
 
   RecordTick(stats_, NUMBER_MULTIGET_CALLS);
   RecordTick(stats_, NUMBER_MULTIGET_KEYS_READ, num_keys);
@@ -2593,6 +2721,15 @@ const std::string& DBImpl::GetName() const { return dbname_; }
 
 Env* DBImpl::GetEnv() const { return env_; }
 
+FileSystem* DB::GetFileSystem() const {
+  static LegacyFileSystemWrapper fs_wrap(GetEnv());
+  return &fs_wrap;
+}
+
+FileSystem* DBImpl::GetFileSystem() const {
+  return immutable_db_options_.fs.get();
+}
+
 Options DBImpl::GetOptions(ColumnFamilyHandle* column_family) const {
   InstrumentedMutexLock l(&mutex_);
   auto cfh = reinterpret_cast<ColumnFamilyHandleImpl*>(column_family);
@@ -3105,7 +3242,19 @@ void DBImpl::GetColumnFamilyMetaData(ColumnFamilyHandle* column_family,
   assert(column_family);
   auto* cfd = reinterpret_cast<ColumnFamilyHandleImpl*>(column_family)->cfd();
   auto* sv = GetAndRefSuperVersion(cfd);
-  sv->current->GetColumnFamilyMetaData(cf_meta);
+  {
+    // Without mutex, Version::GetColumnFamilyMetaData will have data race with
+    // Compaction::MarkFilesBeingCompacted. One solution is to use mutex, but
+    // this may cause regression. An alternative is to make
+    // FileMetaData::being_compacted atomic, but it will make FileMetaData
+    // non-copy-able. Another option is to separate these variables from
+    // original FileMetaData struct, and this requires re-organization of data
+    // structures. For now, we take the easy approach. If
+    // DB::GetColumnFamilyMetaData is not called frequently, the regression
+    // should not be big. We still need to keep an eye on it.
+    InstrumentedMutexLock l(&mutex_);
+    sv->current->GetColumnFamilyMetaData(cf_meta);
+  }
   ReturnAndCleanupSuperVersion(cfd, sv);
 }
 
@@ -3153,12 +3302,12 @@ Status DBImpl::GetDbIdentity(std::string& identity) const {
 
 Status DBImpl::GetDbIdentityFromIdentityFile(std::string* identity) const {
   std::string idfilename = IdentityFileName(dbname_);
-  const EnvOptions soptions;
+  const FileOptions soptions;
   std::unique_ptr<SequentialFileReader> id_file_reader;
   Status s;
   {
-    std::unique_ptr<SequentialFile> idfile;
-    s = env_->NewSequentialFile(idfilename, &idfile, soptions);
+    std::unique_ptr<FSSequentialFile> idfile;
+    s = fs_->NewSequentialFile(idfilename, soptions, &idfile, nullptr);
     if (!s.ok()) {
       return s;
     }
@@ -3167,7 +3316,7 @@ Status DBImpl::GetDbIdentityFromIdentityFile(std::string* identity) const {
   }
 
   uint64_t file_size;
-  s = env_->GetFileSize(idfilename, &file_size);
+  s = fs_->GetFileSize(idfilename, IOOptions(), &file_size, nullptr);
   if (!s.ok()) {
     return s;
   }
@@ -3241,7 +3390,12 @@ Status DBImpl::Close() {
 Status DB::ListColumnFamilies(const DBOptions& db_options,
                               const std::string& name,
                               std::vector<std::string>* column_families) {
-  return VersionSet::ListColumnFamilies(column_families, name, db_options.env);
+  FileSystem* fs = db_options.file_system.get();
+  LegacyFileSystemWrapper legacy_fs(db_options.env);
+  if (!fs) {
+    fs = &legacy_fs;
+  }
+  return VersionSet::ListColumnFamilies(column_families, name, fs);
 }
 
 Snapshot::~Snapshot() {}
@@ -3406,8 +3560,8 @@ Status DBImpl::WriteOptionsFile(bool need_mutex_lock,
 
   std::string file_name =
       TempOptionsFileName(GetName(), versions_->NewFileNumber());
-  Status s =
-      PersistRocksDBOptions(db_options, cf_names, cf_opts, file_name, GetEnv());
+  Status s = PersistRocksDBOptions(db_options, cf_names, cf_opts, file_name,
+                                   GetFileSystem());
 
   if (s.ok()) {
     s = RenameTempFileToOptionsFile(file_name);
@@ -3751,7 +3905,7 @@ Status DBImpl::IngestExternalFiles(
   for (const auto& arg : args) {
     auto* cfd = static_cast<ColumnFamilyHandleImpl*>(arg.column_family)->cfd();
     ingestion_jobs.emplace_back(
-        env_, versions_.get(), cfd, immutable_db_options_, env_options_,
+        env_, versions_.get(), cfd, immutable_db_options_, file_options_,
         &snapshots_, arg.options, &directories_, &event_logger_);
   }
   std::vector<std::pair<bool, Status>> exec_results;
@@ -3816,6 +3970,13 @@ Status DBImpl::IngestExternalFiles(
     if (two_write_queues_) {
       nonmem_write_thread_.EnterUnbatched(&nonmem_w, &mutex_);
     }
+
+    // When unordered_write is enabled, the keys are writing to memtable in an
+    // unordered way. If the ingestion job checks memtable key range before the
+    // key landing in memtable, the ingestion job may skip the necessary
+    // memtable flush.
+    // So wait here to ensure there is no pending write to memtable.
+    WaitForPendingWrites();
 
     num_running_ingest_file_ += static_cast<int>(num_cfs);
     TEST_SYNC_POINT("DBImpl::IngestExternalFile:AfterIncIngestFileCounter");
@@ -4008,7 +4169,7 @@ Status DBImpl::CreateColumnFamilyWithImport(
   auto cfh = reinterpret_cast<ColumnFamilyHandleImpl*>(*handle);
   auto cfd = cfh->cfd();
   ImportColumnFamilyJob import_job(env_, versions_.get(), cfd,
-                                   immutable_db_options_, env_options_,
+                                   immutable_db_options_, file_options_,
                                    import_options, metadata.files);
 
   SuperVersionContext dummy_sv_ctx(/* create_superversion */ true);
@@ -4138,7 +4299,7 @@ Status DBImpl::VerifyChecksum(const ReadOptions& read_options) {
         const auto& fd = vstorage->LevelFilesBrief(i).files[j].fd;
         std::string fname = TableFileName(cfd->ioptions()->cf_paths,
                                           fd.GetNumber(), fd.GetPathId());
-        s = rocksdb::VerifySstFileChecksum(opts, env_options_, read_options,
+        s = rocksdb::VerifySstFileChecksum(opts, file_options_, read_options,
                                            fname);
       }
     }
@@ -4155,7 +4316,7 @@ Status DBImpl::VerifyChecksum(const ReadOptions& read_options) {
       }
     }
     for (auto cfd : cfd_list) {
-      cfd->Unref();
+      cfd->UnrefAndTryDelete();
     }
   }
   return s;

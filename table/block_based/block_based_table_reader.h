@@ -51,7 +51,7 @@ class FullFilterBlockReader;
 class Footer;
 class InternalKeyComparator;
 class Iterator;
-class RandomAccessFile;
+class FSRandomAccessFile;
 class TableCache;
 class TableReader;
 class WritableFile;
@@ -446,9 +446,9 @@ class BlockBasedTable : public TableReader {
   static void SetupCacheKeyPrefix(Rep* rep);
 
   // Generate a cache key prefix from the file
-  static void GenerateCachePrefix(Cache* cc, RandomAccessFile* file,
+  static void GenerateCachePrefix(Cache* cc, FSRandomAccessFile* file,
                                   char* buffer, size_t* size);
-  static void GenerateCachePrefix(Cache* cc, WritableFile* file, char* buffer,
+  static void GenerateCachePrefix(Cache* cc, FSWritableFile* file, char* buffer,
                                   size_t* size);
 
   // Given an iterator return its offset in file.
@@ -461,8 +461,13 @@ class BlockBasedTable : public TableReader {
   void DumpKeyValue(const Slice& key, const Slice& value,
                     WritableFile* out_file);
 
+  // A cumulative data block file read in MultiGet lower than this size will
+  // use a stack buffer
+  static constexpr size_t kMultiGetReadStackBufSize = 8192;
+
   friend class PartitionedFilterBlockReader;
   friend class PartitionedFilterBlockTest;
+  friend class DBBasicTest_MultiGetIOBufferOverrun_Test;
 };
 
 // Maitaning state of a two-level iteration on a partitioned index structure.

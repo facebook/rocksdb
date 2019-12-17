@@ -323,7 +323,7 @@ void TransactionBaseImpl::MultiGet(const ReadOptions& read_options,
                                    ColumnFamilyHandle* column_family,
                                    const size_t num_keys, const Slice* keys,
                                    PinnableSlice* values, Status* statuses,
-                                   bool sorted_input) {
+                                   const bool sorted_input) {
   write_batch_.MultiGetFromBatchAndDB(db_, read_options, column_family,
                                       num_keys, keys, values, statuses,
                                       sorted_input);

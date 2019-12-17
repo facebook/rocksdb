@@ -407,6 +407,24 @@ public class DBOptionsTest {
   }
 
   @Test
+  public void statsPersistPeriodSec() {
+    try (final DBOptions opt = new DBOptions()) {
+      final int intValue = rand.nextInt();
+      opt.setStatsPersistPeriodSec(intValue);
+      assertThat(opt.statsPersistPeriodSec()).isEqualTo(intValue);
+    }
+  }
+
+  @Test
+  public void statsHistoryBufferSize() {
+    try (final DBOptions opt = new DBOptions()) {
+      final long longValue = rand.nextLong();
+      opt.setStatsHistoryBufferSize(longValue);
+      assertThat(opt.statsHistoryBufferSize()).isEqualTo(longValue);
+    }
+  }
+
+  @Test
   public void adviseRandomOnOpen() {
     try(final DBOptions opt = new DBOptions()) {
       final boolean boolValue = rand.nextBoolean();
@@ -513,6 +531,15 @@ public class DBOptionsTest {
       final long longValue = rand.nextLong();
       opt.setWalBytesPerSync(longValue);
       assertThat(opt.walBytesPerSync()).isEqualTo(longValue);
+    }
+  }
+
+  @Test
+  public void strictBytesPerSync() {
+    try (final DBOptions opt = new DBOptions()) {
+      assertThat(opt.strictBytesPerSync()).isFalse();
+      opt.setStrictBytesPerSync(true);
+      assertThat(opt.strictBytesPerSync()).isTrue();
     }
   }
 

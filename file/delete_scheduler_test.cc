@@ -93,8 +93,10 @@ class DeleteSchedulerTest : public testing::Test {
     // Tests in this file are for DeleteScheduler component and dont create any
     // DBs, so we need to set max_trash_db_ratio to 100% (instead of default
     // 25%)
+    std::shared_ptr<FileSystem>
+                fs(std::make_shared<LegacyFileSystemWrapper>(env_));
     sst_file_mgr_.reset(
-        new SstFileManagerImpl(env_, nullptr, rate_bytes_per_sec_,
+        new SstFileManagerImpl(env_, fs, nullptr, rate_bytes_per_sec_,
                                /* max_trash_db_ratio= */ 1.1, 128 * 1024));
     delete_scheduler_ = sst_file_mgr_->delete_scheduler();
   }

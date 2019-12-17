@@ -2032,6 +2032,17 @@ void rocksdb_block_based_options_set_index_type(
   options->rep.index_type = static_cast<BlockBasedTableOptions::IndexType>(v);
 }
 
+void rocksdb_block_based_options_set_data_block_index_type(
+    rocksdb_block_based_table_options_t* options, int v) {
+  options->rep.data_block_index_type =
+          static_cast<BlockBasedTableOptions::DataBlockIndexType>(v);
+}
+
+void rocksdb_block_based_options_set_data_block_hash_ratio(
+    rocksdb_block_based_table_options_t* options, double v) {
+  options->rep.data_block_hash_table_util_ratio = v;
+}
+
 void rocksdb_block_based_options_set_hash_index_allow_collision(
     rocksdb_block_based_table_options_t* options, unsigned char v) {
   options->rep.hash_index_allow_collision = v;
@@ -3037,7 +3048,16 @@ rocksdb_filterpolicy_t* rocksdb_filterpolicy_create_bloom_format(int bits_per_ke
     bool KeyMayMatch(const Slice& key, const Slice& filter) const override {
       return rep_->KeyMayMatch(key, filter);
     }
-    static void DoNothing(void*) { }
+    // No need to override GetFilterBitsBuilder if this one is overridden
+    rocksdb::FilterBitsBuilder* GetBuilderWithContext(
+        const rocksdb::FilterBuildingContext& context) const override {
+      return rep_->GetBuilderWithContext(context);
+    }
+    rocksdb::FilterBitsReader* GetFilterBitsReader(
+        const Slice& contents) const override {
+      return rep_->GetFilterBitsReader(contents);
+    }
+    static void DoNothing(void*) {}
   };
   Wrapper* wrapper = new Wrapper;
   wrapper->rep_ = NewBloomFilterPolicy(bits_per_key, original_format);

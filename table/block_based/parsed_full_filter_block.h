@@ -25,7 +25,7 @@ class ParsedFullFilterBlock {
     return filter_bits_reader_.get();
   }
 
-  // TODO: consider memory usage of FullFilterBitsReader
+  // TODO: consider memory usage of the FilterBitsReader
   size_t ApproximateMemoryUsage() const {
     return block_contents_.ApproximateMemoryUsage();
   }

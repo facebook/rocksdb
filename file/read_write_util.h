@@ -10,6 +10,7 @@
 #pragma once
 #include <atomic>
 #include "rocksdb/env.h"
+#include "rocksdb/file_system.h"
 
 namespace rocksdb {
 // Returns a WritableFile.
@@ -18,12 +19,12 @@ namespace rocksdb {
 // fname   : the file name.
 // result  : output arg. A WritableFile based on `fname` returned.
 // options : the Env Options.
-extern Status NewWritableFile(Env* env, const std::string& fname,
-                              std::unique_ptr<WritableFile>* result,
-                              const EnvOptions& options);
+extern IOStatus NewWritableFile(FileSystem* fs, const std::string& fname,
+                                std::unique_ptr<FSWritableFile>* result,
+                                const FileOptions& options);
 
 // Read a single line from a file.
-bool ReadOneLine(std::istringstream* iss, SequentialFile* seq_file,
+bool ReadOneLine(std::istringstream* iss, FSSequentialFile* seq_file,
                  std::string* output, bool* has_data, Status* result);
 
 #ifndef NDEBUG

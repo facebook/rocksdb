@@ -14,6 +14,7 @@
 #include <fstream>
 #include <iomanip>
 #include <iostream>
+#include <memory>
 #include <random>
 #include <sstream>
 
@@ -576,10 +577,11 @@ void BlockCacheTraceAnalyzer::WriteSkewness(
     pairs.push_back(itr);
   }
   // Sort in descending order.
-  sort(
-      pairs.begin(), pairs.end(),
-      [=](std::pair<std::string, uint64_t>& a,
-          std::pair<std::string, uint64_t>& b) { return b.second < a.second; });
+  sort(pairs.begin(), pairs.end(),
+       [=](const std::pair<std::string, uint64_t>& a,
+           const std::pair<std::string, uint64_t>& b) {
+         return b.second < a.second;
+       });
 
   size_t prev_start_index = 0;
   for (auto const& percent : percent_buckets) {
@@ -650,7 +652,7 @@ void BlockCacheTraceAnalyzer::WriteCorrelationFeaturesToFile(
     const std::map<std::string, Features>& label_features,
     const std::map<std::string, Predictions>& label_predictions,
     uint32_t max_number_of_values) const {
-  std::default_random_engine rand_engine(static_cast<unsigned int>(env_->NowMicros()));
+  std::default_random_engine rand_engine(static_cast<std::default_random_engine::result_type>(env_->NowMicros()));
   for (auto const& label_feature_vectors : label_features) {
     const Features& past = label_feature_vectors.second;
     auto it = label_predictions.find(label_feature_vectors.first);
@@ -1170,7 +1172,7 @@ void BlockCacheTraceAnalyzer::WriteReuseLifetime(
 }
 
 void BlockCacheTraceAnalyzer::WriteBlockReuseTimeline(
-    uint64_t reuse_window, bool user_access_only, TraceType block_type) const {
+    const uint64_t reuse_window, bool user_access_only, TraceType block_type) const {
   // A map from block key to an array of bools that states whether a block is
   // accessed in a time window.
   std::map<uint64_t, std::vector<bool>> block_accessed;
@@ -1209,11 +1211,11 @@ void BlockCacheTraceAnalyzer::WriteBlockReuseTimeline(
   TraverseBlocks(block_callback);
 
   // A cell is the number of blocks accessed in a reuse window.
-  uint64_t reuse_table[reuse_vector_size][reuse_vector_size];
+  std::unique_ptr<uint64_t[]> reuse_table(new uint64_t[reuse_vector_size * reuse_vector_size]);
   for (uint64_t start_time = 0; start_time < reuse_vector_size; start_time++) {
     // Initialize the reuse_table.
     for (uint64_t i = 0; i < reuse_vector_size; i++) {
-      reuse_table[start_time][i] = 0;
+      reuse_table[start_time * reuse_vector_size + i] = 0;
     }
     // Examine all blocks.
     for (auto const& block : block_accessed) {
@@ -1222,7 +1224,7 @@ void BlockCacheTraceAnalyzer::WriteBlockReuseTimeline(
           // This block is accessed at start time and at the current time. We
           // increment reuse_table[start_time][i] since it is reused at the ith
           // window.
-          reuse_table[start_time][i]++;
+          reuse_table[start_time * reuse_vector_size + i]++;
         }
       }
     }
@@ -1250,8 +1252,8 @@ void BlockCacheTraceAnalyzer::WriteBlockReuseTimeline(
       if (j < start_time) {
         row += "100.0";
       } else {
-        row += std::to_string(percent(reuse_table[start_time][j],
-                                      reuse_table[start_time][start_time]));
+        row += std::to_string(percent(reuse_table[start_time * reuse_vector_size + j],
+                                      reuse_table[start_time * reuse_vector_size + start_time]));
       }
     }
     out << row << std::endl;
@@ -1673,7 +1675,7 @@ void BlockCacheTraceAnalyzer::PrintAccessCountStats(bool user_access_only,
     if (bottom_k_index >= bottom_k) {
       break;
     }
-    std::map<TableReaderCaller, uint32_t> caller_naccesses;
+    std::map<TableReaderCaller, uint64_t> caller_naccesses;
     uint64_t naccesses = 0;
     for (auto const& block_id : naccess_it->second) {
       BlockAccessInfo* block = block_info_map_.find(block_id)->second;

@@ -120,26 +120,19 @@ class autovector {
     }
 
     // -- Reference
-    reference operator*() {
+    reference operator*() const {
       assert(vect_->size() >= index_);
       return (*vect_)[index_];
     }
 
-    const_reference operator*() const {
-      assert(vect_->size() >= index_);
-      return (*vect_)[index_];
-    }
-
-    pointer operator->() {
+    pointer operator->() const {
       assert(vect_->size() >= index_);
       return &(*vect_)[index_];
     }
 
-    const_pointer operator->() const {
-      assert(vect_->size() >= index_);
-      return &(*vect_)[index_];
+    reference operator[](difference_type len) const {
+      return *(*this + len);
     }
-
 
     // -- Logical Operators
     bool operator==(const self_type& other) const {

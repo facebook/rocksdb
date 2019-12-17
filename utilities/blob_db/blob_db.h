@@ -68,10 +68,14 @@ struct BlobDBOptions {
   // what compression to use for Blob's
   CompressionType compression = kNoCompression;
 
-  // If enabled, blob DB periodically cleanup stale data by rewriting remaining
-  // live data in blob files to new files. If garbage collection is not enabled,
-  // blob files will be cleanup based on TTL.
+  // If enabled, BlobDB cleans up stale blobs in non-TTL files during compaction
+  // by rewriting the remaining live blobs to new files.
   bool enable_garbage_collection = false;
+
+  // The cutoff in terms of blob file age for garbage collection. Blobs in
+  // the oldest N non-TTL blob files will be rewritten when encountered during
+  // compaction, where N = garbage_collection_cutoff * number_of_non_TTL_files.
+  double garbage_collection_cutoff = 0.25;
 
   // Disable all background job. Used for test only.
   bool disable_background_tasks = false;
@@ -202,6 +206,28 @@ class BlobDB : public StackableDB {
       return nullptr;
     }
     return NewIterator(options);
+  }
+
+  Status CompactFiles(
+      const CompactionOptions& compact_options,
+      const std::vector<std::string>& input_file_names, const int output_level,
+      const int output_path_id = -1,
+      std::vector<std::string>* const output_file_names = nullptr,
+      CompactionJobInfo* compaction_job_info = nullptr) override = 0;
+  Status CompactFiles(
+      const CompactionOptions& compact_options,
+      ColumnFamilyHandle* column_family,
+      const std::vector<std::string>& input_file_names, const int output_level,
+      const int output_path_id = -1,
+      std::vector<std::string>* const output_file_names = nullptr,
+      CompactionJobInfo* compaction_job_info = nullptr) override {
+    if (column_family != DefaultColumnFamily()) {
+      return Status::NotSupported(
+          "Blob DB doesn't support non-default column family.");
+    }
+
+    return CompactFiles(compact_options, input_file_names, output_level,
+                        output_path_id, output_file_names, compaction_job_info);
   }
 
   using rocksdb::StackableDB::Close;
