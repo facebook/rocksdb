@@ -407,7 +407,7 @@ ArenaWrappedDBIter* DBImplSecondary::NewIteratorImpl(
     const ReadOptions& read_options, ColumnFamilyData* cfd,
     SequenceNumber snapshot, ReadCallback* read_callback) {
   assert(nullptr != cfd);
-  SuperVersion* super_version = cfd->GetReferencedSuperVersion(&mutex_);
+  SuperVersion* super_version = cfd->GetReferencedSuperVersion(this);
   auto db_iter = NewArenaWrappedDbIterator(
       env_, read_options, *cfd->ioptions(), super_version->mutable_cf_options,
       snapshot,
