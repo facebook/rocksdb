@@ -798,6 +798,10 @@ class DBImpl : public DB {
     logs_to_free_queue_.push_back(log_writer);
   }
 
+  void AddSuperVersionsToFreeQueue(SuperVersion* sv) {
+    superversions_to_free_queue_.push_back(sv);
+  }
+
   void SetSnapshotChecker(SnapshotChecker* snapshot_checker);
 
   // Fill JobContext with snapshot information needed by flush and compaction.
@@ -1890,6 +1894,7 @@ class DBImpl : public DB {
 
   // A queue to store log writers to close
   std::deque<log::Writer*> logs_to_free_queue_;
+  std::deque<SuperVersion*> superversions_to_free_queue_;
   int unscheduled_flushes_;
   int unscheduled_compactions_;
 

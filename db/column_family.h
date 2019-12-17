@@ -430,11 +430,11 @@ class ColumnFamilyData {
   SuperVersion* GetSuperVersion() { return super_version_; }
   // thread-safe
   // Return a already referenced SuperVersion to be used safely.
-  SuperVersion* GetReferencedSuperVersion(InstrumentedMutex* db_mutex);
+  SuperVersion* GetReferencedSuperVersion(DBImpl* db);
   // thread-safe
   // Get SuperVersion stored in thread local storage. If it does not exist,
   // get a reference from a current SuperVersion.
-  SuperVersion* GetThreadLocalSuperVersion(InstrumentedMutex* db_mutex);
+  SuperVersion* GetThreadLocalSuperVersion(DBImpl* db);
   // Try to return SuperVersion back to thread local storage. Retrun true on
   // success and false on failure. It fails when the thread local storage
   // contains anything other than SuperVersion::kSVInUse flag.

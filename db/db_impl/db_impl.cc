@@ -879,7 +879,7 @@ Status DBImpl::TablesRangeTombstoneSummary(ColumnFamilyHandle* column_family,
           column_family);
   ColumnFamilyData* cfd = cfh->cfd();
 
-  SuperVersion* super_version = cfd->GetReferencedSuperVersion(&mutex_);
+  SuperVersion* super_version = cfd->GetReferencedSuperVersion(this);
   Version* version = super_version->current;
 
   Status s =
@@ -895,7 +895,6 @@ void DBImpl::ScheduleBgLogWriterClose(JobContext* job_context) {
       AddToLogsToFreeQueue(l);
     }
     job_context->logs_to_free.clear();
-    SchedulePurge();
   }
 }
 
@@ -1322,6 +1321,14 @@ void DBImpl::BackgroundCallPurge() {
     delete log_writer;
     mutex_.Lock();
   }
+  while (!superversions_to_free_queue_.empty()) {
+    assert(!superversions_to_free_queue_.empty());
+    SuperVersion* sv = superversions_to_free_queue_.front();
+    superversions_to_free_queue_.pop_front();
+    mutex_.Unlock();
+    delete sv;
+    mutex_.Lock();
+  }
   for (const auto& file : purge_files_) {
     const PurgeFileInfo& purge_file = file.second;
     const std::string& fname = purge_file.fname;
@@ -1374,10 +1381,14 @@ static void CleanupIteratorState(void* arg1, void* /*arg2*/) {
     state->db->FindObsoleteFiles(&job_context, false, true);
     if (state->background_purge) {
       state->db->ScheduleBgLogWriterClose(&job_context);
+      state->db->AddSuperVersionsToFreeQueue(state->super_version);
+      state->db->SchedulePurge();
     }
     state->mu->Unlock();
 
-    delete state->super_version;
+    if (!state->background_purge) {
+      delete state->super_version;
+    }
     if (job_context.HaveSomethingToDelete()) {
       if (state->background_purge) {
         // PurgeObsoleteFiles here does not delete files. Instead, it adds the
@@ -2452,7 +2463,7 @@ Iterator* DBImpl::NewIterator(const ReadOptions& read_options,
     result = nullptr;
 
 #else
-    SuperVersion* sv = cfd->GetReferencedSuperVersion(&mutex_);
+    SuperVersion* sv = cfd->GetReferencedSuperVersion(this);
     auto iter = new ForwardIterator(this, read_options, cfd, sv);
     result = NewDBIterator(
         env_, read_options, *cfd->ioptions(), sv->mutable_cf_options,
@@ -2478,7 +2489,7 @@ ArenaWrappedDBIter* DBImpl::NewIteratorImpl(const ReadOptions& read_options,
                                             ReadCallback* read_callback,
                                             bool allow_blob,
                                             bool allow_refresh) {
-  SuperVersion* sv = cfd->GetReferencedSuperVersion(&mutex_);
+  SuperVersion* sv = cfd->GetReferencedSuperVersion(this);
 
   // Try to generate a DB iterator tree in continuous memory area to be
   // cache friendly. Here is an example of result:
@@ -2557,7 +2568,7 @@ Status DBImpl::NewIterators(
 #else
     for (auto cfh : column_families) {
       auto cfd = reinterpret_cast<ColumnFamilyHandleImpl*>(cfh)->cfd();
-      SuperVersion* sv = cfd->GetReferencedSuperVersion(&mutex_);
+      SuperVersion* sv = cfd->GetReferencedSuperVersion(this);
       auto iter = new ForwardIterator(this, read_options, cfd, sv);
       iterators->push_back(NewDBIterator(
           env_, read_options, *cfd->ioptions(), sv->mutable_cf_options,
@@ -2884,7 +2895,7 @@ bool DBImpl::GetAggregatedIntProperty(const Slice& property,
 
 SuperVersion* DBImpl::GetAndRefSuperVersion(ColumnFamilyData* cfd) {
   // TODO(ljin): consider using GetReferencedSuperVersion() directly
-  return cfd->GetThreadLocalSuperVersion(&mutex_);
+  return cfd->GetThreadLocalSuperVersion(this);
 }
 
 // REQUIRED: this function should only be called on the write thread or if the
@@ -2902,11 +2913,19 @@ SuperVersion* DBImpl::GetAndRefSuperVersion(uint32_t column_family_id) {
 void DBImpl::CleanupSuperVersion(SuperVersion* sv) {
   // Release SuperVersion
   if (sv->Unref()) {
+    bool defer_purge =
+            immutable_db_options().avoid_unnecessary_blocking_io;
     {
       InstrumentedMutexLock l(&mutex_);
       sv->Cleanup();
+      if (defer_purge) {
+        AddSuperVersionsToFreeQueue(sv);
+        SchedulePurge();
+      }
     }
-    delete sv;
+    if (!defer_purge) {
+      delete sv;
+    }
     RecordTick(stats_, NUMBER_SUPERVERSION_CLEANUPS);
   }
   RecordTick(stats_, NUMBER_SUPERVERSION_RELEASES);
@@ -3912,7 +3931,7 @@ Status DBImpl::IngestExternalFiles(
     start_file_number += args[i - 1].external_files.size();
     auto* cfd =
         static_cast<ColumnFamilyHandleImpl*>(args[i].column_family)->cfd();
-    SuperVersion* super_version = cfd->GetReferencedSuperVersion(&mutex_);
+    SuperVersion* super_version = cfd->GetReferencedSuperVersion(this);
     exec_results[i].second = ingestion_jobs[i].Prepare(
         args[i].external_files, start_file_number, super_version);
     exec_results[i].first = true;
@@ -3923,7 +3942,7 @@ Status DBImpl::IngestExternalFiles(
   {
     auto* cfd =
         static_cast<ColumnFamilyHandleImpl*>(args[0].column_family)->cfd();
-    SuperVersion* super_version = cfd->GetReferencedSuperVersion(&mutex_);
+    SuperVersion* super_version = cfd->GetReferencedSuperVersion(this);
     exec_results[0].second = ingestion_jobs[0].Prepare(
         args[0].external_files, next_file_number, super_version);
     exec_results[0].first = true;
@@ -4192,7 +4211,7 @@ Status DBImpl::CreateColumnFamilyWithImport(
   dummy_sv_ctx.Clean();
 
   if (status.ok()) {
-    SuperVersion* sv = cfd->GetReferencedSuperVersion(&mutex_);
+    SuperVersion* sv = cfd->GetReferencedSuperVersion(this);
     status = import_job.Prepare(next_file_number, sv);
     CleanupSuperVersion(sv);
   }
@@ -4269,7 +4288,7 @@ Status DBImpl::VerifyChecksum(const ReadOptions& read_options) {
   }
   std::vector<SuperVersion*> sv_list;
   for (auto cfd : cfd_list) {
-    sv_list.push_back(cfd->GetReferencedSuperVersion(&mutex_));
+    sv_list.push_back(cfd->GetReferencedSuperVersion(this));
   }
   for (auto& sv : sv_list) {
     VersionStorageInfo* vstorage = sv->current->storage_info();
@@ -4294,13 +4313,22 @@ Status DBImpl::VerifyChecksum(const ReadOptions& read_options) {
       break;
     }
   }
+  bool defer_purge =
+          immutable_db_options().avoid_unnecessary_blocking_io;
   {
     InstrumentedMutexLock l(&mutex_);
     for (auto sv : sv_list) {
       if (sv && sv->Unref()) {
         sv->Cleanup();
-        delete sv;
+        if (defer_purge) {
+          AddSuperVersionsToFreeQueue(sv);
+        } else {
+          delete sv;
+        }
       }
+    }
+    if (defer_purge) {
+      SchedulePurge();
     }
     for (auto cfd : cfd_list) {
       cfd->Unref();
