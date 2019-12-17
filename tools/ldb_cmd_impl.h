@@ -171,6 +171,26 @@ class ManifestDumpCommand : public LDBCommand {
   static const std::string ARG_PATH;
 };
 
+class FileChecksumDumpCommand : public LDBCommand {
+ public:
+  static std::string Name() { return "file_checksum_dump"; }
+
+  FileChecksumDumpCommand(const std::vector<std::string>& params,
+                      const std::map<std::string, std::string>& options,
+                      const std::vector<std::string>& flags);
+
+  static void Help(std::string& ret);
+  virtual void DoCommand() override;
+
+  virtual bool NoDBOpen() override { return true; }
+
+ private:
+  std::string path_;
+
+  static const std::string ARG_PATH;
+};
+
+
 class ListColumnFamiliesCommand : public LDBCommand {
  public:
   static std::string Name() { return "list_column_families"; }
