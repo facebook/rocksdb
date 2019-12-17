@@ -1,4 +1,8 @@
 # Rocksdb Change Log
+## 6.6.1
+### Bug Fixes
+* Fix a bug in WriteBatchWithIndex::MultiGetFromBatchAndDB, which is called by Transaction::MultiGet, that causes due to stale pointer access when the number of keys is > 32
+
 ## 6.6.0 (11/25/2019)
 ### Bug Fixes
 * Fix data corruption casued by output of intra-L0 compaction on ingested file not being placed in correct order in L0.

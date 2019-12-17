@@ -1004,8 +1004,11 @@ void WriteBatchWithIndex::MultiGetFromBatchAndDB(
     assert(result == WriteBatchWithIndexInternal::Result::kMergeInProgress ||
            result == WriteBatchWithIndexInternal::Result::kNotFound);
     key_context.emplace_back(column_family, keys[i], &values[i], &statuses[i]);
-    sorted_keys.emplace_back(&key_context.back());
     merges.emplace_back(result, std::move(merge_context));
+  }
+
+  for (KeyContext& key : key_context) {
+    sorted_keys.emplace_back(&key);
   }
 
   // Did not find key in batch OR could not resolve Merges.  Try DB.
