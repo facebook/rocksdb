@@ -96,6 +96,8 @@ default_params = {
     "max_write_batch_group_size_bytes" : lambda: random.choice(
         [16, 64, 1024 * 1024, 16 * 1024 * 1024]),
     "level_compaction_dynamic_level_bytes" : True,
+        [t * 16384 if t < 3 else 1024 * 1024 * 1024 for t in range(1,30)]),
+    "verify_checksum_one_in": 1000000
 }
 
 _TEST_DIR_ENV_VAR = 'TEST_TMPDIR'
