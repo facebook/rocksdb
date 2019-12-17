@@ -639,28 +639,48 @@ void CompactionIterator::NextFromInput() {
 }
 
 void CompactionIterator::PrepareOutput() {
-  // Zeroing out the sequence number leads to better compression.
-  // If this is the bottommost level (no files in lower levels)
-  // and the earliest snapshot is larger than this seqno
-  // and the userkey differs from the last userkey in compaction
-  // then we can squash the seqno to zero.
-  //
-  // This is safe for TransactionDB write-conflict checking since transactions
-  // only care about sequence number larger than any active snapshots.
-  //
-  // Can we do the same for levels above bottom level as long as
-  // KeyNotExistsBeyondOutputLevel() return true?
-  if ((compaction_ != nullptr && !compaction_->allow_ingest_behind()) &&
-      ikeyNotNeededForIncrementalSnapshot() && bottommost_level_ && valid_ &&
-      IN_EARLIEST_SNAPSHOT(ikey_.sequence) && ikey_.type != kTypeMerge) {
-    assert(ikey_.type != kTypeDeletion && ikey_.type != kTypeSingleDeletion);
-    if (ikey_.type == kTypeDeletion || ikey_.type == kTypeSingleDeletion) {
-      ROCKS_LOG_FATAL(info_log_,
-                      "Unexpected key type %d for seq-zero optimization",
-                      ikey_.type);
+  if (valid_) {
+    if (compaction_filter_ && ikey_.type == kTypeBlobIndex) {
+      const auto blob_decision = compaction_filter_->PrepareBlobOutput(
+          user_key(), value_, &compaction_filter_value_);
+
+      if (blob_decision == CompactionFilter::BlobDecision::kCorruption) {
+        status_ = Status::Corruption(
+            "Corrupted blob reference encountered during GC");
+        valid_ = false;
+      } else if (blob_decision == CompactionFilter::BlobDecision::kIOError) {
+        status_ = Status::IOError("Could not relocate blob during GC");
+        valid_ = false;
+      } else if (blob_decision ==
+                 CompactionFilter::BlobDecision::kChangeValue) {
+        value_ = compaction_filter_value_;
+      }
     }
-    ikey_.sequence = 0;
-    current_key_.UpdateInternalKey(0, ikey_.type);
+
+    // Zeroing out the sequence number leads to better compression.
+    // If this is the bottommost level (no files in lower levels)
+    // and the earliest snapshot is larger than this seqno
+    // and the userkey differs from the last userkey in compaction
+    // then we can squash the seqno to zero.
+    //
+    // This is safe for TransactionDB write-conflict checking since transactions
+    // only care about sequence number larger than any active snapshots.
+    //
+    // Can we do the same for levels above bottom level as long as
+    // KeyNotExistsBeyondOutputLevel() return true?
+    if (valid_ && compaction_ != nullptr &&
+        !compaction_->allow_ingest_behind() &&
+        ikeyNotNeededForIncrementalSnapshot() && bottommost_level_ &&
+        IN_EARLIEST_SNAPSHOT(ikey_.sequence) && ikey_.type != kTypeMerge) {
+      assert(ikey_.type != kTypeDeletion && ikey_.type != kTypeSingleDeletion);
+      if (ikey_.type == kTypeDeletion || ikey_.type == kTypeSingleDeletion) {
+        ROCKS_LOG_FATAL(info_log_,
+                        "Unexpected key type %d for seq-zero optimization",
+                        ikey_.type);
+      }
+      ikey_.sequence = 0;
+      current_key_.UpdateInternalKey(0, ikey_.type);
+    }
   }
 }
 

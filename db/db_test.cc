@@ -1022,7 +1022,8 @@ TEST_F(DBTest, FailMoreDbPaths) {
 
 void CheckColumnFamilyMeta(
     const ColumnFamilyMetaData& cf_meta,
-    const std::vector<std::vector<FileMetaData>>& files_by_level) {
+    const std::vector<std::vector<FileMetaData>>& files_by_level,
+    uint64_t start_time, uint64_t end_time) {
   ASSERT_EQ(cf_meta.name, kDefaultColumnFamilyName);
   ASSERT_EQ(cf_meta.levels.size(), files_by_level.size());
 
@@ -1060,6 +1061,14 @@ void CheckColumnFamilyMeta(
                 file_meta_from_files.largest.user_key().ToString());
       ASSERT_EQ(file_meta_from_cf.oldest_blob_file_number,
                 file_meta_from_files.oldest_blob_file_number);
+      ASSERT_EQ(file_meta_from_cf.oldest_ancester_time,
+                file_meta_from_files.oldest_ancester_time);
+      ASSERT_EQ(file_meta_from_cf.file_creation_time,
+                file_meta_from_files.file_creation_time);
+      ASSERT_GE(file_meta_from_cf.file_creation_time, start_time);
+      ASSERT_LE(file_meta_from_cf.file_creation_time, end_time);
+      ASSERT_GE(file_meta_from_cf.oldest_ancester_time, start_time);
+      ASSERT_LE(file_meta_from_cf.oldest_ancester_time, end_time);
     }
 
     ASSERT_EQ(level_meta_from_cf.size, level_size);
@@ -1113,6 +1122,11 @@ TEST_F(DBTest, MetaDataTest) {
   Options options = CurrentOptions();
   options.create_if_missing = true;
   options.disable_auto_compactions = true;
+
+  int64_t temp_time = 0;
+  options.env->GetCurrentTime(&temp_time);
+  uint64_t start_time = static_cast<uint64_t>(temp_time);
+
   DestroyAndReopen(options);
 
   Random rnd(301);
@@ -1139,9 +1153,12 @@ TEST_F(DBTest, MetaDataTest) {
   std::vector<std::vector<FileMetaData>> files_by_level;
   dbfull()->TEST_GetFilesMetaData(db_->DefaultColumnFamily(), &files_by_level);
 
+  options.env->GetCurrentTime(&temp_time);
+  uint64_t end_time = static_cast<uint64_t>(temp_time);
+
   ColumnFamilyMetaData cf_meta;
   db_->GetColumnFamilyMetaData(&cf_meta);
-  CheckColumnFamilyMeta(cf_meta, files_by_level);
+  CheckColumnFamilyMeta(cf_meta, files_by_level, start_time, end_time);
 
   std::vector<LiveFileMetaData> live_file_meta;
   db_->GetLiveFilesMetaData(&live_file_meta);
@@ -3318,10 +3335,10 @@ TEST_F(DBTest, FIFOCompactionWithTTLAndMaxOpenFilesTest) {
   options.create_if_missing = true;
   options.ttl = 600;  // seconds
 
-  // Check that it is not supported with max_open_files != -1.
+  // TTL is now supported with max_open_files != -1.
   options.max_open_files = 100;
   options = CurrentOptions(options);
-  ASSERT_TRUE(TryReopen(options).IsNotSupported());
+  ASSERT_OK(TryReopen(options));
 
   options.max_open_files = -1;
   ASSERT_OK(TryReopen(options));
@@ -4828,6 +4845,7 @@ TEST_F(DBTest, DynamicCompactionOptions) {
 // Even more FIFOCompactionTests are at DBTest.FIFOCompaction* .
 TEST_F(DBTest, DynamicFIFOCompactionOptions) {
   Options options;
+  options.ttl = 0;
   options.create_if_missing = true;
   DestroyAndReopen(options);
 
@@ -6187,10 +6205,10 @@ TEST_F(DBTest, CreateColumnFamilyShouldFailOnIncompatibleOptions) {
   Reopen(options);
 
   ColumnFamilyOptions cf_options(options);
-  // ttl is only supported when max_open_files is -1.
+  // ttl is now supported when max_open_files is -1.
   cf_options.ttl = 3600;
   ColumnFamilyHandle* handle;
-  ASSERT_NOK(db_->CreateColumnFamily(cf_options, "pikachu", &handle));
+  ASSERT_OK(db_->CreateColumnFamily(cf_options, "pikachu", &handle));
   delete handle;
 }
 
@@ -6419,6 +6437,12 @@ TEST_F(DBTest, CreationTimeOfOldestFile) {
           }
         }
       });
+  // Set file creation time in manifest all to 0.
+  rocksdb::SyncPoint::GetInstance()->SetCallBack(
+      "FileMetaData::FileMetaData", [&](void* arg) {
+        FileMetaData* meta = static_cast<FileMetaData*>(arg);
+        meta->file_creation_time = 0;
+      });
   rocksdb::SyncPoint::GetInstance()->EnableProcessing();
 
   Random rnd(301);
@@ -6430,7 +6454,7 @@ TEST_F(DBTest, CreationTimeOfOldestFile) {
     Flush();
   }
 
-  // At this point there should be 2 files, oen with file_creation_time = 0 and
+  // At this point there should be 2 files, one with file_creation_time = 0 and
   // the other non-zero. GetCreationTimeOfOldestFile API should return 0.
   uint64_t creation_time;
   Status s1 = dbfull()->GetCreationTimeOfOldestFile(&creation_time);

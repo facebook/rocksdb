@@ -68,6 +68,8 @@ LIB_SOURCES =                                                   \
   env/env_encryption.cc                                         \
   env/env_hdfs.cc                                               \
   env/env_posix.cc                                              \
+  env/file_system.cc                                            \
+  env/fs_posix.cc                                           	\
   env/io_posix.cc                                               \
   env/mock_env.cc                                               \
   file/delete_scheduler.cc                                      \
@@ -265,7 +267,15 @@ BENCH_LIB_SOURCES =                                             \
   tools/db_bench_tool.cc                                        \
 
 STRESS_LIB_SOURCES =                                            \
-  tools/db_stress_tool.cc                                       \
+  db_stress_tool/batched_ops_stress.cc                         \
+  db_stress_tool/cf_consistency_stress.cc                      \
+  db_stress_tool/db_stress_common.cc                           \
+  db_stress_tool/db_stress_driver.cc                           \
+  db_stress_tool/db_stress_test_base.cc                        \
+  db_stress_tool/db_stress_gflags.cc                           \
+  db_stress_tool/db_stress_shared_state.cc                     \
+  db_stress_tool/db_stress_tool.cc                             \
+  db_stress_tool/no_batched_ops_stress.cc                      \
 
 TEST_LIB_SOURCES =                                              \
   db/db_test_util.cc                                            \
@@ -283,6 +293,7 @@ FOLLY_SOURCES = \
 MAIN_SOURCES =                                                          \
   cache/cache_bench.cc                                                  \
   cache/cache_test.cc                                                   \
+  db_stress_tool/db_stress.cc                                           \
   db/column_family_test.cc                                              \
   db/compact_files_test.cc                                              \
   db/compaction/compaction_iterator_test.cc                             \
@@ -398,7 +409,6 @@ MAIN_SOURCES =                                                          \
   tools/db_bench.cc                                                     \
   tools/db_bench_tool_test.cc                                           \
   tools/db_sanity_test.cc                                               \
-  tools/db_stress.cc                                                    \
   tools/ldb_cmd_test.cc                                                 \
   tools/reduce_levels_test.cc                                           \
   tools/sst_dump_test.cc                                                \
@@ -412,6 +422,7 @@ MAIN_SOURCES =                                                          \
   util/filelock_test.cc                                                 \
   util/log_write_bench.cc                                               \
   util/rate_limiter_test.cc                                             \
+  util/random_test.cc                                                   \
   util/repeatable_thread_test.cc                                        \
   util/slice_transform_test.cc                                          \
   util/timer_queue_test.cc                                              \

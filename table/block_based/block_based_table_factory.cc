@@ -218,7 +218,7 @@ TableBuilder* BlockBasedTableFactory::NewTableBuilder(
       table_builder_options.sample_for_compression,
       table_builder_options.compression_opts,
       table_builder_options.skip_filters,
-      table_builder_options.column_family_name,
+      table_builder_options.column_family_name, table_builder_options.level,
       table_builder_options.creation_time,
       table_builder_options.oldest_key_time,
       table_builder_options.target_file_size,
@@ -510,8 +510,8 @@ std::string ParseBlockBasedTableOption(const std::string& name,
       if (pos == std::string::npos) {
         return "Invalid filter policy config, missing bits_per_key";
       }
-      int bits_per_key =
-          ParseInt(trim(value.substr(kName.size(), pos - kName.size())));
+      double bits_per_key =
+          ParseDouble(trim(value.substr(kName.size(), pos - kName.size())));
       bool use_block_based_builder =
           ParseBoolean("use_block_based_builder", trim(value.substr(pos + 1)));
       new_options->filter_policy.reset(

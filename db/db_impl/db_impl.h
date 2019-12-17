@@ -306,6 +306,7 @@ class DBImpl : public DB {
       ColumnFamilyHandle* column_family) override;
   virtual const std::string& GetName() const override;
   virtual Env* GetEnv() const override;
+  virtual FileSystem* GetFileSystem() const override;
   using DB::GetOptions;
   virtual Options GetOptions(ColumnFamilyHandle* column_family) const override;
   using DB::GetDBOptions;
@@ -941,13 +942,14 @@ class DBImpl : public DB {
 #endif  // NDEBUG
 
  protected:
-  Env* const env_;
   const std::string dbname_;
   std::string db_id_;
   std::unique_ptr<VersionSet> versions_;
   // Flag to check whether we allocated and own the info log file
   bool own_info_log_;
   const DBOptions initial_db_options_;
+  Env* const env_;
+  std::shared_ptr<FileSystem> fs_;
   const ImmutableDBOptions immutable_db_options_;
   MutableDBOptions mutable_db_options_;
   Statistics* stats_;
@@ -975,10 +977,10 @@ class DBImpl : public DB {
   bool single_column_family_mode_;
 
   // The options to access storage files
-  const EnvOptions env_options_;
+  const FileOptions file_options_;
 
   // Additonal options for compaction and flush
-  EnvOptions env_options_for_compaction_;
+  FileOptions file_options_for_compaction_;
 
   std::unique_ptr<ColumnFamilyMemTablesImpl> column_family_memtables_;
 
@@ -1108,6 +1110,8 @@ class DBImpl : public DB {
       const std::vector<ColumnFamilyDescriptor>& column_families,
       bool read_only = false, bool error_if_log_file_exist = false,
       bool error_if_data_exists_in_logs = false);
+
+  virtual bool OwnTablesAndLogs() const { return true; }
 
  private:
   friend class DB;
@@ -1414,6 +1418,7 @@ class DBImpl : public DB {
 
   inline void WaitForPendingWrites() {
     mutex_.AssertHeld();
+    TEST_SYNC_POINT("DBImpl::WaitForPendingWrites:BeforeBlock");
     // In case of pipelined write is enabled, wait for all pending memtable
     // writers.
     if (immutable_db_options_.enable_pipelined_write) {
@@ -1828,8 +1833,6 @@ class DBImpl : public DB {
   WriteThread nonmem_write_thread_;
 
   WriteController write_controller_;
-
-  std::unique_ptr<RateLimiter> low_pri_write_rate_limiter_;
 
   // Size of the last batch group. In slowdown mode, next write needs to
   // sleep if it uses up the quota.

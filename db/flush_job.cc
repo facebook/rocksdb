@@ -86,7 +86,7 @@ FlushJob::FlushJob(const std::string& dbname, ColumnFamilyData* cfd,
                    const ImmutableDBOptions& db_options,
                    const MutableCFOptions& mutable_cf_options,
                    const uint64_t* max_memtable_id,
-                   const EnvOptions& env_options, VersionSet* versions,
+                   const FileOptions& file_options, VersionSet* versions,
                    InstrumentedMutex* db_mutex,
                    std::atomic<bool>* shutting_down,
                    std::vector<SequenceNumber> existing_snapshots,
@@ -103,7 +103,7 @@ FlushJob::FlushJob(const std::string& dbname, ColumnFamilyData* cfd,
       db_options_(db_options),
       mutable_cf_options_(mutable_cf_options),
       max_memtable_id_(max_memtable_id),
-      env_options_(env_options),
+      file_options_(file_options),
       versions_(versions),
       db_mutex_(db_mutex),
       shutting_down_(shutting_down),
@@ -365,9 +365,14 @@ Status FlushJob::WriteLevel0Table() {
       uint64_t oldest_key_time =
           mems_.front()->ApproximateOldestKeyTime();
 
+      // It's not clear whether oldest_key_time is always available. In case
+      // it is not available, use current_time.
+      meta_.oldest_ancester_time = std::min(current_time, oldest_key_time);
+      meta_.file_creation_time = current_time;
+
       s = BuildTable(
-          dbname_, db_options_.env, *cfd_->ioptions(), mutable_cf_options_,
-          env_options_, cfd_->table_cache(), iter.get(),
+          dbname_, db_options_.env, db_options_.fs.get(), *cfd_->ioptions(),
+          mutable_cf_options_, file_options_, cfd_->table_cache(), iter.get(),
           std::move(range_del_iters), &meta_, cfd_->internal_comparator(),
           cfd_->int_tbl_prop_collector_factories(), cfd_->GetID(),
           cfd_->GetName(), existing_snapshots_,
@@ -408,7 +413,8 @@ Status FlushJob::WriteLevel0Table() {
     edit_->AddFile(0 /* level */, meta_.fd.GetNumber(), meta_.fd.GetPathId(),
                    meta_.fd.GetFileSize(), meta_.smallest, meta_.largest,
                    meta_.fd.smallest_seqno, meta_.fd.largest_seqno,
-                   meta_.marked_for_compaction, meta_.oldest_blob_file_number);
+                   meta_.marked_for_compaction, meta_.oldest_blob_file_number,
+                   meta_.oldest_ancester_time, meta_.file_creation_time);
   }
 #ifndef ROCKSDB_LITE
   // Piggyback FlushJobInfo on the first first flushed memtable.

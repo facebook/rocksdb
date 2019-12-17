@@ -57,6 +57,8 @@ class CompactionPickerTest : public testing::Test {
         log_buffer_(InfoLogLevel::INFO_LEVEL, &logger_),
         file_num_(1),
         vstorage_(nullptr) {
+    mutable_cf_options_.ttl = 0;
+    mutable_cf_options_.periodic_compaction_seconds = 0;
     // ioptions_.compaction_pri = kMinOverlappingRatio has its own set of
     // tests to cover.
     ioptions_.compaction_pri = kByCompensatedSize;
@@ -92,7 +94,8 @@ class CompactionPickerTest : public testing::Test {
         file_number, path_id, file_size,
         InternalKey(smallest, smallest_seq, kTypeValue),
         InternalKey(largest, largest_seq, kTypeValue), smallest_seq,
-        largest_seq, /* marked_for_compact */ false, kInvalidBlobFileNumber);
+        largest_seq, /* marked_for_compact */ false, kInvalidBlobFileNumber,
+        kUnknownOldestAncesterTime, kUnknownFileCreationTime);
     f->compensated_file_size =
         (compensated_file_size != 0) ? compensated_file_size : file_size;
     vstorage_->AddFile(level, f);

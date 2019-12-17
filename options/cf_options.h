@@ -20,7 +20,6 @@ namespace rocksdb {
 // of DB. Raw pointers defined in this struct do not have ownership to the data
 // they point to. Options contains std::shared_ptr to these data.
 struct ImmutableCFOptions {
-  ImmutableCFOptions();
   explicit ImmutableCFOptions(const Options& options);
 
   ImmutableCFOptions(const ImmutableDBOptions& db_options,
@@ -61,6 +60,8 @@ struct ImmutableCFOptions {
   InfoLogLevel info_log_level;
 
   Env* env;
+
+  FileSystem* fs;
 
   // Allow the OS to mmap file for reading sst tables. Default: false
   bool allow_mmap_reads;

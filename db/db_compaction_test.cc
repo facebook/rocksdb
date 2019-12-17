@@ -1503,6 +1503,37 @@ TEST_F(DBCompactionTest, DISABLED_ManualPartialFill) {
   }
 }
 
+TEST_F(DBCompactionTest, ManualCompactionWithUnorderedWrite) {
+  rocksdb::SyncPoint::GetInstance()->LoadDependency(
+      {{"DBImpl::WriteImpl:UnorderedWriteAfterWriteWAL",
+        "DBCompactionTest::ManualCompactionWithUnorderedWrite:WaitWriteWAL"},
+       {"DBImpl::WaitForPendingWrites:BeforeBlock",
+        "DBImpl::WriteImpl:BeforeUnorderedWriteMemtable"}});
+
+  Options options = CurrentOptions();
+  options.unordered_write = true;
+  DestroyAndReopen(options);
+  Put("foo", "v1");
+  ASSERT_OK(Flush());
+
+  Put("bar", "v1");
+  rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+  port::Thread writer([&]() { Put("foo", "v2"); });
+
+  TEST_SYNC_POINT(
+      "DBCompactionTest::ManualCompactionWithUnorderedWrite:WaitWriteWAL");
+  ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
+
+  writer.join();
+  ASSERT_EQ(Get("foo"), "v2");
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+
+  Reopen(options);
+  ASSERT_EQ(Get("foo"), "v2");
+}
+
 TEST_F(DBCompactionTest, DeleteFileRange) {
   Options options = CurrentOptions();
   options.write_buffer_size = 10 * 1024 * 1024;
@@ -3525,88 +3556,131 @@ TEST_F(DBCompactionTest, LevelCompactExpiredTtlFiles) {
 TEST_F(DBCompactionTest, LevelTtlCascadingCompactions) {
   const int kValueSize = 100;
 
-  Options options = CurrentOptions();
-  options.compression = kNoCompression;
-  options.ttl = 24 * 60 * 60;  // 24 hours
-  options.max_open_files = -1;
-  env_->time_elapse_only_sleep_ = false;
-  options.env = env_;
+  for (bool if_restart : {false, true}) {
+    for (bool if_open_all_files : {false, true}) {
+      Options options = CurrentOptions();
+      options.compression = kNoCompression;
+      options.ttl = 24 * 60 * 60;  // 24 hours
+      if (if_open_all_files) {
+        options.max_open_files = -1;
+      } else {
+        options.max_open_files = 20;
+      }
+      // RocksDB sanitize max open files to at least 20. Modify it back.
+      rocksdb::SyncPoint::GetInstance()->SetCallBack(
+          "SanitizeOptions::AfterChangeMaxOpenFiles", [&](void* arg) {
+            int* max_open_files = static_cast<int*>(arg);
+            *max_open_files = 2;
+          });
+      // In the case where all files are opened and doing DB restart
+      // forcing the oldest ancester time in manifest file to be 0 to
+      // simulate the case of reading from an old version.
+      rocksdb::SyncPoint::GetInstance()->SetCallBack(
+          "VersionEdit::EncodeTo:VarintOldestAncesterTime", [&](void* arg) {
+            if (if_restart && if_open_all_files) {
+              std::string* encoded_fieled = static_cast<std::string*>(arg);
+              *encoded_fieled = "";
+              PutVarint64(encoded_fieled, 0);
+            }
+          });
 
-  env_->addon_time_.store(0);
-  DestroyAndReopen(options);
+      env_->time_elapse_only_sleep_ = false;
+      options.env = env_;
 
-  int ttl_compactions = 0;
-  rocksdb::SyncPoint::GetInstance()->SetCallBack(
-      "LevelCompactionPicker::PickCompaction:Return", [&](void* arg) {
-        Compaction* compaction = reinterpret_cast<Compaction*>(arg);
-        auto compaction_reason = compaction->compaction_reason();
-        if (compaction_reason == CompactionReason::kTtl) {
-          ttl_compactions++;
-        }
-      });
-  rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+      env_->addon_time_.store(0);
+      DestroyAndReopen(options);
 
-  // Add two L6 files with key ranges: [1 .. 100], [101 .. 200].
-  Random rnd(301);
-  for (int i = 1; i <= 100; ++i) {
-    ASSERT_OK(Put(Key(i), RandomString(&rnd, kValueSize)));
+      int ttl_compactions = 0;
+      rocksdb::SyncPoint::GetInstance()->SetCallBack(
+          "LevelCompactionPicker::PickCompaction:Return", [&](void* arg) {
+            Compaction* compaction = reinterpret_cast<Compaction*>(arg);
+            auto compaction_reason = compaction->compaction_reason();
+            if (compaction_reason == CompactionReason::kTtl) {
+              ttl_compactions++;
+            }
+          });
+      rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+
+      // Add two L6 files with key ranges: [1 .. 100], [101 .. 200].
+      Random rnd(301);
+      for (int i = 1; i <= 100; ++i) {
+        ASSERT_OK(Put(Key(i), RandomString(&rnd, kValueSize)));
+      }
+      Flush();
+      for (int i = 101; i <= 200; ++i) {
+        ASSERT_OK(Put(Key(i), RandomString(&rnd, kValueSize)));
+      }
+      Flush();
+      MoveFilesToLevel(6);
+      ASSERT_EQ("0,0,0,0,0,0,2", FilesPerLevel());
+
+      // Add two L4 files with key ranges: [1 .. 50], [51 .. 150].
+      for (int i = 1; i <= 50; ++i) {
+        ASSERT_OK(Put(Key(i), RandomString(&rnd, kValueSize)));
+      }
+      Flush();
+      for (int i = 51; i <= 150; ++i) {
+        ASSERT_OK(Put(Key(i), RandomString(&rnd, kValueSize)));
+      }
+      Flush();
+      MoveFilesToLevel(4);
+      ASSERT_EQ("0,0,0,0,2,0,2", FilesPerLevel());
+
+      // Add one L1 file with key range: [26, 75].
+      for (int i = 26; i <= 75; ++i) {
+        ASSERT_OK(Put(Key(i), RandomString(&rnd, kValueSize)));
+      }
+      Flush();
+      dbfull()->TEST_WaitForCompact();
+      MoveFilesToLevel(1);
+      ASSERT_EQ("0,1,0,0,2,0,2", FilesPerLevel());
+
+      // LSM tree:
+      // L1:         [26 .. 75]
+      // L4:     [1 .. 50][51 ..... 150]
+      // L6:     [1 ........ 100][101 .... 200]
+      //
+      // On TTL expiry, TTL compaction should be initiated on L1 file, and the
+      // compactions should keep going on until the key range hits bottom level.
+      // In other words: the compaction on this data range "cascasdes" until
+      // reaching the bottom level.
+      //
+      // Order of events on TTL expiry:
+      // 1. L1 file falls to L3 via 2 trivial moves which are initiated by the
+      // ttl
+      //    compaction.
+      // 2. A TTL compaction happens between L3 and L4 files. Output file in L4.
+      // 3. The new output file from L4 falls to L5 via 1 trival move initiated
+      //    by the ttl compaction.
+      // 4. A TTL compaction happens between L5 and L6 files. Ouptut in L6.
+
+      // Add 25 hours and do a write
+      env_->addon_time_.fetch_add(25 * 60 * 60);
+
+      ASSERT_OK(Put(Key(1), "1"));
+      if (if_restart) {
+        Reopen(options);
+      } else {
+        Flush();
+      }
+      dbfull()->TEST_WaitForCompact();
+      ASSERT_EQ("1,0,0,0,0,0,1", FilesPerLevel());
+      ASSERT_EQ(5, ttl_compactions);
+
+      env_->addon_time_.fetch_add(25 * 60 * 60);
+      ASSERT_OK(Put(Key(2), "1"));
+      if (if_restart) {
+        Reopen(options);
+      } else {
+        Flush();
+      }
+      dbfull()->TEST_WaitForCompact();
+      ASSERT_EQ("1,0,0,0,0,0,1", FilesPerLevel());
+      ASSERT_GE(ttl_compactions, 6);
+
+      rocksdb::SyncPoint::GetInstance()->DisableProcessing();
+    }
   }
-  Flush();
-  for (int i = 101; i <= 200; ++i) {
-    ASSERT_OK(Put(Key(i), RandomString(&rnd, kValueSize)));
-  }
-  Flush();
-  MoveFilesToLevel(6);
-  ASSERT_EQ("0,0,0,0,0,0,2", FilesPerLevel());
-
-  // Add two L4 files with key ranges: [1 .. 50], [51 .. 150].
-  for (int i = 1; i <= 50; ++i) {
-    ASSERT_OK(Put(Key(i), RandomString(&rnd, kValueSize)));
-  }
-  Flush();
-  for (int i = 51; i <= 150; ++i) {
-    ASSERT_OK(Put(Key(i), RandomString(&rnd, kValueSize)));
-  }
-  Flush();
-  MoveFilesToLevel(4);
-  ASSERT_EQ("0,0,0,0,2,0,2", FilesPerLevel());
-
-  // Add one L1 file with key range: [26, 75].
-  for (int i = 26; i <= 75; ++i) {
-    ASSERT_OK(Put(Key(i), RandomString(&rnd, kValueSize)));
-  }
-  Flush();
-  dbfull()->TEST_WaitForCompact();
-  MoveFilesToLevel(1);
-  ASSERT_EQ("0,1,0,0,2,0,2", FilesPerLevel());
-
-  // LSM tree:
-  // L1:         [26 .. 75]
-  // L4:     [1 .. 50][51 ..... 150]
-  // L6:     [1 ........ 100][101 .... 200]
-  //
-  // On TTL expiry, TTL compaction should be initiated on L1 file, and the
-  // compactions should keep going on until the key range hits bottom level.
-  // In other words: the compaction on this data range "cascasdes" until
-  // reaching the bottom level.
-  //
-  // Order of events on TTL expiry:
-  // 1. L1 file falls to L3 via 2 trivial moves which are initiated by the ttl
-  //    compaction.
-  // 2. A TTL compaction happens between L3 and L4 files. Output file in L4.
-  // 3. The new output file from L4 falls to L5 via 1 trival move initiated
-  //    by the ttl compaction.
-  // 4. A TTL compaction happens between L5 and L6 files. Ouptut in L6.
-
-  // Add 25 hours and do a write
-  env_->addon_time_.fetch_add(25 * 60 * 60);
-  ASSERT_OK(Put("a", "1"));
-  Flush();
-  dbfull()->TEST_WaitForCompact();
-  ASSERT_EQ("1,0,0,0,0,0,1", FilesPerLevel());
-  ASSERT_EQ(5, ttl_compactions);
-
-  rocksdb::SyncPoint::GetInstance()->DisableProcessing();
 }
 
 TEST_F(DBCompactionTest, LevelPeriodicCompaction) {
@@ -3614,71 +3688,103 @@ TEST_F(DBCompactionTest, LevelPeriodicCompaction) {
   const int kNumLevelFiles = 2;
   const int kValueSize = 100;
 
-  Options options = CurrentOptions();
-  options.periodic_compaction_seconds = 48 * 60 * 60;  // 2 days
-  options.max_open_files = -1;       // needed for ttl compaction
-  env_->time_elapse_only_sleep_ = false;
-  options.env = env_;
+  for (bool if_restart : {false, true}) {
+    for (bool if_open_all_files : {false, true}) {
+      Options options = CurrentOptions();
+      options.periodic_compaction_seconds = 48 * 60 * 60;  // 2 days
+      if (if_open_all_files) {
+        options.max_open_files = -1;  // needed for ttl compaction
+      } else {
+        options.max_open_files = 20;
+      }
+      // RocksDB sanitize max open files to at least 20. Modify it back.
+      rocksdb::SyncPoint::GetInstance()->SetCallBack(
+          "SanitizeOptions::AfterChangeMaxOpenFiles", [&](void* arg) {
+            int* max_open_files = static_cast<int*>(arg);
+            *max_open_files = 0;
+          });
+      // In the case where all files are opened and doing DB restart
+      // forcing the file creation time in manifest file to be 0 to
+      // simulate the case of reading from an old version.
+      rocksdb::SyncPoint::GetInstance()->SetCallBack(
+          "VersionEdit::EncodeTo:VarintFileCreationTime", [&](void* arg) {
+            if (if_restart && if_open_all_files) {
+              std::string* encoded_fieled = static_cast<std::string*>(arg);
+              *encoded_fieled = "";
+              PutVarint64(encoded_fieled, 0);
+            }
+          });
 
-  env_->addon_time_.store(0);
-  DestroyAndReopen(options);
+      env_->time_elapse_only_sleep_ = false;
+      options.env = env_;
 
-  int periodic_compactions = 0;
-  rocksdb::SyncPoint::GetInstance()->SetCallBack(
-      "LevelCompactionPicker::PickCompaction:Return", [&](void* arg) {
-        Compaction* compaction = reinterpret_cast<Compaction*>(arg);
-        auto compaction_reason = compaction->compaction_reason();
-        if (compaction_reason == CompactionReason::kPeriodicCompaction) {
-          periodic_compactions++;
+      env_->addon_time_.store(0);
+      DestroyAndReopen(options);
+
+      int periodic_compactions = 0;
+      rocksdb::SyncPoint::GetInstance()->SetCallBack(
+          "LevelCompactionPicker::PickCompaction:Return", [&](void* arg) {
+            Compaction* compaction = reinterpret_cast<Compaction*>(arg);
+            auto compaction_reason = compaction->compaction_reason();
+            if (compaction_reason == CompactionReason::kPeriodicCompaction) {
+              periodic_compactions++;
+            }
+          });
+      rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+
+      Random rnd(301);
+      for (int i = 0; i < kNumLevelFiles; ++i) {
+        for (int j = 0; j < kNumKeysPerFile; ++j) {
+          ASSERT_OK(Put(Key(i * kNumKeysPerFile + j),
+                        RandomString(&rnd, kValueSize)));
         }
-      });
-  rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+        Flush();
+      }
+      dbfull()->TEST_WaitForCompact();
 
-  Random rnd(301);
-  for (int i = 0; i < kNumLevelFiles; ++i) {
-    for (int j = 0; j < kNumKeysPerFile; ++j) {
-      ASSERT_OK(
-          Put(Key(i * kNumKeysPerFile + j), RandomString(&rnd, kValueSize)));
+      ASSERT_EQ("2", FilesPerLevel());
+      ASSERT_EQ(0, periodic_compactions);
+
+      // Add 50 hours and do a write
+      env_->addon_time_.fetch_add(50 * 60 * 60);
+      ASSERT_OK(Put("a", "1"));
+      Flush();
+      dbfull()->TEST_WaitForCompact();
+      // Assert that the files stay in the same level
+      ASSERT_EQ("3", FilesPerLevel());
+      // The two old files go through the periodic compaction process
+      ASSERT_EQ(2, periodic_compactions);
+
+      MoveFilesToLevel(1);
+      ASSERT_EQ("0,3", FilesPerLevel());
+
+      // Add another 50 hours and do another write
+      env_->addon_time_.fetch_add(50 * 60 * 60);
+      ASSERT_OK(Put("b", "2"));
+      if (if_restart) {
+        Reopen(options);
+      } else {
+        Flush();
+      }
+      dbfull()->TEST_WaitForCompact();
+      ASSERT_EQ("1,3", FilesPerLevel());
+      // The three old files now go through the periodic compaction process. 2
+      // + 3.
+      ASSERT_EQ(5, periodic_compactions);
+
+      // Add another 50 hours and do another write
+      env_->addon_time_.fetch_add(50 * 60 * 60);
+      ASSERT_OK(Put("c", "3"));
+      Flush();
+      dbfull()->TEST_WaitForCompact();
+      ASSERT_EQ("2,3", FilesPerLevel());
+      // The four old files now go through the periodic compaction process. 5
+      // + 4.
+      ASSERT_EQ(9, periodic_compactions);
+
+      rocksdb::SyncPoint::GetInstance()->DisableProcessing();
     }
-    Flush();
   }
-  dbfull()->TEST_WaitForCompact();
-
-  ASSERT_EQ("2", FilesPerLevel());
-  ASSERT_EQ(0, periodic_compactions);
-
-  // Add 50 hours and do a write
-  env_->addon_time_.fetch_add(50 * 60 * 60);
-  ASSERT_OK(Put("a", "1"));
-  Flush();
-  dbfull()->TEST_WaitForCompact();
-  // Assert that the files stay in the same level
-  ASSERT_EQ("3", FilesPerLevel());
-  // The two old files go through the periodic compaction process
-  ASSERT_EQ(2, periodic_compactions);
-
-  MoveFilesToLevel(1);
-  ASSERT_EQ("0,3", FilesPerLevel());
-
-  // Add another 50 hours and do another write
-  env_->addon_time_.fetch_add(50 * 60 * 60);
-  ASSERT_OK(Put("b", "2"));
-  Flush();
-  dbfull()->TEST_WaitForCompact();
-  ASSERT_EQ("1,3", FilesPerLevel());
-  // The three old files now go through the periodic compaction process. 2 + 3.
-  ASSERT_EQ(5, periodic_compactions);
-
-  // Add another 50 hours and do another write
-  env_->addon_time_.fetch_add(50 * 60 * 60);
-  ASSERT_OK(Put("c", "3"));
-  Flush();
-  dbfull()->TEST_WaitForCompact();
-  ASSERT_EQ("2,3", FilesPerLevel());
-  // The four old files now go through the periodic compaction process. 5 + 4.
-  ASSERT_EQ(9, periodic_compactions);
-
-  rocksdb::SyncPoint::GetInstance()->DisableProcessing();
 }
 
 TEST_F(DBCompactionTest, LevelPeriodicCompactionWithOldDB) {
@@ -3691,7 +3797,6 @@ TEST_F(DBCompactionTest, LevelPeriodicCompactionWithOldDB) {
   const int kValueSize = 100;
 
   Options options = CurrentOptions();
-  options.max_open_files = -1;  // needed for ttl compaction
   env_->time_elapse_only_sleep_ = false;
   options.env = env_;
 
@@ -3868,7 +3973,7 @@ TEST_F(DBCompactionTest, LevelPeriodicCompactionWithCompactionFilters) {
   for (CompactionFilterType comp_filter_type :
        {kUseCompactionFilter, kUseCompactionFilterFactory}) {
     // Assert that periodic compactions are not enabled.
-    ASSERT_EQ(port::kMaxUint64, options.periodic_compaction_seconds);
+    ASSERT_EQ(port::kMaxUint64 - 1, options.periodic_compaction_seconds);
 
     if (comp_filter_type == kUseCompactionFilter) {
       options.compaction_filter = &test_compaction_filter;

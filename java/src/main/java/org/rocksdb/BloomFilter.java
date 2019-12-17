@@ -20,7 +20,7 @@ package org.rocksdb;
  */
 public class BloomFilter extends Filter {
 
-  private static final int DEFAULT_BITS_PER_KEY = 10;
+  private static final double DEFAULT_BITS_PER_KEY = 10.0;
   private static final boolean DEFAULT_MODE = true;
 
   /**
@@ -39,7 +39,7 @@ public class BloomFilter extends Filter {
    *
    * <p>
    * bits_per_key: bits per key in bloom filter. A good value for bits_per_key
-   * is 10, which yields a filter with ~ 1% false positive rate.
+   * is 9.9, which yields a filter with ~ 1% false positive rate.
    * </p>
    * <p>
    * Callers must delete the result after any database that is using the
@@ -47,7 +47,7 @@ public class BloomFilter extends Filter {
    *
    * @param bitsPerKey number of bits to use
    */
-  public BloomFilter(final int bitsPerKey) {
+  public BloomFilter(final double bitsPerKey) {
     this(bitsPerKey, DEFAULT_MODE);
   }
 
@@ -70,10 +70,10 @@ public class BloomFilter extends Filter {
    * @param bitsPerKey number of bits to use
    * @param useBlockBasedMode use block based mode or full filter mode
    */
-  public BloomFilter(final int bitsPerKey, final boolean useBlockBasedMode) {
+  public BloomFilter(final double bitsPerKey, final boolean useBlockBasedMode) {
     super(createNewBloomFilter(bitsPerKey, useBlockBasedMode));
   }
 
-  private native static long createNewBloomFilter(final int bitsKeyKey,
+  private native static long createNewBloomFilter(final double bitsKeyKey,
       final boolean useBlockBasedMode);
 }

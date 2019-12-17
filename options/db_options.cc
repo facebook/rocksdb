@@ -11,6 +11,7 @@
 #include "port/port.h"
 #include "rocksdb/cache.h"
 #include "rocksdb/env.h"
+#include "rocksdb/file_system.h"
 #include "rocksdb/sst_file_manager.h"
 #include "rocksdb/wal_filter.h"
 
@@ -24,6 +25,7 @@ ImmutableDBOptions::ImmutableDBOptions(const DBOptions& options)
       error_if_exists(options.error_if_exists),
       paranoid_checks(options.paranoid_checks),
       env(options.env),
+      fs(options.file_system),
       rate_limiter(options.rate_limiter),
       sst_file_manager(options.sst_file_manager),
       info_log(options.info_log),
@@ -101,6 +103,8 @@ void ImmutableDBOptions::Dump(Logger* log) const {
                    paranoid_checks);
   ROCKS_LOG_HEADER(log, "                                    Options.env: %p",
                    env);
+  ROCKS_LOG_HEADER(log, "                                     Options.fs: %s",
+                   fs->Name());
   ROCKS_LOG_HEADER(log, "                               Options.info_log: %p",
                    info_log.get());
   ROCKS_LOG_HEADER(log, "               Options.max_file_opening_threads: %d",

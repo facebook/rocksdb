@@ -61,7 +61,7 @@ class FlushJob {
   FlushJob(const std::string& dbname, ColumnFamilyData* cfd,
            const ImmutableDBOptions& db_options,
            const MutableCFOptions& mutable_cf_options,
-           const uint64_t* max_memtable_id, const EnvOptions& env_options,
+           const uint64_t* max_memtable_id, const FileOptions& file_options,
            VersionSet* versions, InstrumentedMutex* db_mutex,
            std::atomic<bool>* shutting_down,
            std::vector<SequenceNumber> existing_snapshots,
@@ -108,7 +108,7 @@ class FlushJob {
   // equal to *max_memtable_id_ will be selected for flush. If null, then all
   // memtables in the column family will be selected.
   const uint64_t* max_memtable_id_;
-  const EnvOptions env_options_;
+  const FileOptions file_options_;
   VersionSet* versions_;
   InstrumentedMutex* db_mutex_;
   std::atomic<bool>* shutting_down_;

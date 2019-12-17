@@ -89,9 +89,12 @@ public class MutableDBOptions extends AbstractMutableOptions {
     max_total_wal_size(ValueType.LONG),
     delete_obsolete_files_period_micros(ValueType.LONG),
     stats_dump_period_sec(ValueType.INT),
+    stats_persist_period_sec(ValueType.INT),
+    stats_history_buffer_size(ValueType.LONG),
     max_open_files(ValueType.INT),
     bytes_per_sync(ValueType.LONG),
     wal_bytes_per_sync(ValueType.LONG),
+    strict_bytes_per_sync(ValueType.BOOLEAN),
     compaction_readahead_size(ValueType.LONG);
 
     private final ValueType valueType;
@@ -241,6 +244,28 @@ public class MutableDBOptions extends AbstractMutableOptions {
     }
 
     @Override
+    public MutableDBOptionsBuilder setStatsPersistPeriodSec(
+        final int statsPersistPeriodSec) {
+      return setInt(DBOption.stats_persist_period_sec, statsPersistPeriodSec);
+    }
+
+    @Override
+    public int statsPersistPeriodSec() {
+      return getInt(DBOption.stats_persist_period_sec);
+    }
+
+    @Override
+    public MutableDBOptionsBuilder setStatsHistoryBufferSize(
+        final long statsHistoryBufferSize) {
+      return setLong(DBOption.stats_history_buffer_size, statsHistoryBufferSize);
+    }
+
+    @Override
+    public long statsHistoryBufferSize() {
+      return getLong(DBOption.stats_history_buffer_size);
+    }
+
+    @Override
     public MutableDBOptionsBuilder setMaxOpenFiles(final int maxOpenFiles) {
       return setInt(DBOption.max_open_files, maxOpenFiles);
     }
@@ -269,6 +294,17 @@ public class MutableDBOptions extends AbstractMutableOptions {
     @Override
     public long walBytesPerSync() {
       return getLong(DBOption.wal_bytes_per_sync);
+    }
+
+    @Override
+    public MutableDBOptionsBuilder setStrictBytesPerSync(
+        final boolean strictBytesPerSync) {
+      return setBoolean(DBOption.strict_bytes_per_sync, strictBytesPerSync);
+    }
+
+    @Override
+    public boolean strictBytesPerSync() {
+      return getBoolean(DBOption.strict_bytes_per_sync);
     }
 
     @Override

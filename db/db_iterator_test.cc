@@ -1297,19 +1297,19 @@ class DBIteratorTestForPinnedData : public DBIteratorTest {
 
       // Insert data to true_data map and to DB
       true_data[k] = v;
-      if (rnd.OneIn(static_cast<int>(100.0 / merge_percentage))) {
+      if (rnd.PercentTrue(merge_percentage)) {
         ASSERT_OK(db_->Merge(WriteOptions(), k, v));
       } else {
         ASSERT_OK(Put(k, v));
       }
 
       // Pick random keys to be used to test Seek()
-      if (rnd.OneIn(static_cast<int>(100.0 / seeks_percentage))) {
+      if (rnd.PercentTrue(seeks_percentage)) {
         random_keys.push_back(k);
       }
 
       // Delete some random keys
-      if (rnd.OneIn(static_cast<int>(100.0 / delete_percentage))) {
+      if (rnd.PercentTrue(delete_percentage)) {
         deleted_keys.push_back(k);
         true_data.erase(k);
         ASSERT_OK(Delete(k));
@@ -1867,7 +1867,7 @@ TEST_P(DBIteratorTest, IterPrevKeyCrossingBlocksRandomized) {
   // make sure that we dont merge them while flushing but actually
   // merge them in the read path
   for (int i = 0; i < kNumKeys; i++) {
-    if (rnd.OneIn(static_cast<int>(100.0 / kNoMergeOpPercentage))) {
+    if (rnd.PercentTrue(kNoMergeOpPercentage)) {
       // Dont give merge operations for some keys
       continue;
     }
@@ -1883,7 +1883,7 @@ TEST_P(DBIteratorTest, IterPrevKeyCrossingBlocksRandomized) {
   ASSERT_OK(Flush());
 
   for (int i = 0; i < kNumKeys; i++) {
-    if (rnd.OneIn(static_cast<int>(100.0 / kDeletePercentage))) {
+    if (rnd.PercentTrue(kDeletePercentage)) {
       gen_key = Key(i);
 
       ASSERT_OK(Delete(gen_key));

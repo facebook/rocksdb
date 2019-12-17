@@ -26,6 +26,7 @@ ROCKSDB_EXTERNAL_DEPS = [
     ("lz4", None, "lz4"),
     ("zstd", None),
     ("tbb", None),
+    ("liburing", None, "uring"),
     ("googletest", None, "gtest"),
 ]
 
@@ -46,6 +47,7 @@ ROCKSDB_OS_PREPROCESSOR_FLAGS = [
             "-DROCKSDB_PTHREAD_ADAPTIVE_MUTEX",
             "-DROCKSDB_RANGESYNC_PRESENT",
             "-DROCKSDB_SCHED_GETCPU_PRESENT",
+            "-DROCKSDB_IOURING_PRESENT",
             "-DHAVE_SSE42",
             "-DNUMA",
         ],
@@ -70,6 +72,7 @@ ROCKSDB_PREPROCESSOR_FLAGS = [
     "-DZSTD_STATIC_LINKING_ONLY",
     "-DGFLAGS=gflags",
     "-DTBB",
+    "-DLIBURING",
 
     # Added missing flags from output of build_detect_platform
     "-DROCKSDB_BACKTRACE",
@@ -178,6 +181,8 @@ cpp_library(
         "env/env_encryption.cc",
         "env/env_hdfs.cc",
         "env/env_posix.cc",
+        "env/file_system.cc",
+        "env/fs_posix.cc",
         "env/io_posix.cc",
         "env/mock_env.cc",
         "file/delete_scheduler.cc",
@@ -399,9 +404,17 @@ cpp_library(
 cpp_library(
     name = "rocksdb_stress_lib",
     srcs = [
+        "db_stress_tool/batched_ops_stress.cc",
+        "db_stress_tool/cf_consistency_stress.cc",
+        "db_stress_tool/db_stress_common.cc",
+        "db_stress_tool/db_stress_driver.cc",
+        "db_stress_tool/db_stress_gflags.cc",
+        "db_stress_tool/db_stress_shared_state.cc",
+        "db_stress_tool/db_stress_test_base.cc",
+        "db_stress_tool/db_stress_tool.cc",
+        "db_stress_tool/no_batched_ops_stress.cc",
         "test_util/testutil.cc",
         "tools/block_cache_analyzer/block_cache_trace_analyzer.cc",
-        "tools/db_stress_tool.cc",
         "tools/trace_analyzer_tool.cc",
     ],
     auto_headers = AutoHeaders.RECURSIVE_GLOB,
@@ -1230,6 +1243,13 @@ ROCKS_TESTS = [
     [
         "prefix_test",
         "db/prefix_test.cc",
+        "serial",
+        [],
+        [],
+    ],
+    [
+        "random_test",
+        "util/random_test.cc",
         "serial",
         [],
         [],
