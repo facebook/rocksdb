@@ -32,7 +32,9 @@ default_params = {
     "cache_index_and_filter_blocks": lambda: random.randint(0, 1),
     "cache_size": 1048576,
     "checkpoint_one_in": 1000000,
-    "compression_type": "snappy",
+    "compression_type": lambda: random.choice(
+        ["snappy", "none", "zlib"]),
+    "checksum_type" : lambda: random.choice(["kCRC32c", "kxxHash", "kxxHash64"]),
     "compression_max_dict_bytes": lambda: 16384 * random.randint(0, 1),
     "compression_zstd_max_train_bytes": lambda: 65536 * random.randint(0, 1),
     "clear_column_family_one_in": 0,
@@ -61,6 +63,7 @@ default_params = {
     "recycle_log_file_num": lambda: random.randint(0, 1),
     "reopen": 20,
     "snapshot_hold_ops": 100000,
+    "long_running_snapshots": lambda: random.randint(0, 1),
     "subcompactions": lambda: random.randint(1, 4),
     "target_file_size_base": 2097152,
     "target_file_size_multiplier": 2,
@@ -80,7 +83,19 @@ default_params = {
     # Test small max_manifest_file_size in a smaller chance, as most of the
     # time we wnat manifest history to be preserved to help debug
     "max_manifest_file_size" : lambda : random.choice(
-        [t * 16384 if t < 3 else 1024 * 1024 * 1024 for t in range(1,30)])
+        [t * 16384 if t < 3 else 1024 * 1024 * 1024 for t in range(1, 30)]),
+    # Sync mode might make test runs slower so running it in a smaller chance
+    "sync" : lambda : random.choice(
+        [0 if t == 0 else 1 for t in range(1, 20)]),
+    "compaction_readahead_size" : lambda : random.choice(
+        [0, 0, 1024 * 1024]),
+    "db_write_buffer_size" : lambda: random.choice(
+        [0, 0, 0, 1024 * 1024, 8 * 1024 * 1024, 128 * 1024 * 1024]),
+    "avoid_unnecessary_blocking_io" : random.randint(0, 1),
+    "write_dbid_to_manifest" : random.randint(0, 1),
+    "max_write_batch_group_size_bytes" : lambda: random.choice(
+        [16, 64, 1024 * 1024, 16 * 1024 * 1024]),
+    "level_compaction_dynamic_level_bytes" : True,
 }
 
 _TEST_DIR_ENV_VAR = 'TEST_TMPDIR'
@@ -138,6 +153,7 @@ simple_default_params = {
     "target_file_size_multiplier": 1,
     "test_batches_snapshots": 0,
     "write_buffer_size": 32 * 1024 * 1024,
+    "level_compaction_dynamic_level_bytes": False,
 }
 
 blackbox_simple_default_params = {
@@ -161,6 +177,7 @@ txn_params = {
     "use_txn" : 1,
     # Avoid lambda to set it once for the entire test
     "txn_write_policy": random.randint(0, 2),
+    "unordered_write": random.randint(0, 1),
     "disable_wal": 0,
     # OpenReadOnly after checkpoint is not currnetly compatible with WritePrepared txns
     "checkpoint_one_in": 0,
@@ -185,6 +202,10 @@ def finalize_and_sanitize(src_params):
             dest_params.get("use_txn") == 1:
         dest_params["delpercent"] += dest_params["delrangepercent"]
         dest_params["delrangepercent"] = 0
+    # Only under WritePrepared txns, unordered_write would provide the same guarnatees as vanilla rocksdb
+    if dest_params.get("unordered_write", 0) == 1:
+        dest_params["txn_write_policy"] = 1
+        dest_params["allow_concurrent_memtable_write"] = 1
     if dest_params.get("disable_wal", 0) == 1:
         dest_params["atomic_flush"] = 1
     if dest_params.get("open_files", 1) != -1:

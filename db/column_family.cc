@@ -475,7 +475,7 @@ ColumnFamilyData::ColumnFamilyData(
     uint32_t id, const std::string& name, Version* _dummy_versions,
     Cache* _table_cache, WriteBufferManager* write_buffer_manager,
     const ColumnFamilyOptions& cf_options, const ImmutableDBOptions& db_options,
-    const EnvOptions& env_options, ColumnFamilySet* column_family_set,
+    const FileOptions& file_options, ColumnFamilySet* column_family_set,
     BlockCacheTracer* const block_cache_tracer)
     : id_(id),
       name_(name),
@@ -517,7 +517,7 @@ ColumnFamilyData::ColumnFamilyData(
   if (_dummy_versions != nullptr) {
     internal_stats_.reset(
         new InternalStats(ioptions_.num_levels, db_options.env, this));
-    table_cache_.reset(new TableCache(ioptions_, env_options, _table_cache,
+    table_cache_.reset(new TableCache(ioptions_, file_options, _table_cache,
                                       block_cache_tracer));
     if (ioptions_.compaction_style == kCompactionStyleLevel) {
       compaction_picker_.reset(
@@ -967,8 +967,8 @@ WriteStallCondition ColumnFamilyData::RecalculateWriteStallConditions(
   return write_stall_condition;
 }
 
-const EnvOptions* ColumnFamilyData::soptions() const {
-  return &(column_family_set_->env_options_);
+const FileOptions* ColumnFamilyData::soptions() const {
+  return &(column_family_set_->file_options_);
 }
 
 void ColumnFamilyData::SetCurrent(Version* current_version) {
@@ -1338,7 +1338,7 @@ Directory* ColumnFamilyData::GetDataDir(size_t path_id) const {
 
 ColumnFamilySet::ColumnFamilySet(const std::string& dbname,
                                  const ImmutableDBOptions* db_options,
-                                 const EnvOptions& env_options,
+                                 const FileOptions& file_options,
                                  Cache* table_cache,
                                  WriteBufferManager* write_buffer_manager,
                                  WriteController* write_controller,
@@ -1346,11 +1346,11 @@ ColumnFamilySet::ColumnFamilySet(const std::string& dbname,
     : max_column_family_(0),
       dummy_cfd_(new ColumnFamilyData(
           0, "", nullptr, nullptr, nullptr, ColumnFamilyOptions(), *db_options,
-          env_options, nullptr, block_cache_tracer)),
+          file_options, nullptr, block_cache_tracer)),
       default_cfd_cache_(nullptr),
       db_name_(dbname),
       db_options_(db_options),
-      env_options_(env_options),
+      file_options_(file_options),
       table_cache_(table_cache),
       write_buffer_manager_(write_buffer_manager),
       write_controller_(write_controller),
@@ -1420,7 +1420,7 @@ ColumnFamilyData* ColumnFamilySet::CreateColumnFamily(
   assert(column_families_.find(name) == column_families_.end());
   ColumnFamilyData* new_cfd = new ColumnFamilyData(
       id, name, dummy_versions, table_cache_, write_buffer_manager_, options,
-      *db_options_, env_options_, this, block_cache_tracer_);
+      *db_options_, file_options_, this, block_cache_tracer_);
   column_families_.insert({name, id});
   column_family_data_.insert({id, new_cfd});
   max_column_family_ = std::max(max_column_family_, id);

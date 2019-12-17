@@ -11,7 +11,6 @@
 
 #include <assert.h>
 #include <stdio.h>
-
 #include <list>
 #include <map>
 #include <memory>

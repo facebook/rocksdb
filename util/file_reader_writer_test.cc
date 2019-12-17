@@ -5,6 +5,7 @@
 //
 #include <algorithm>
 #include <vector>
+#include "env/composite_env_wrapper.h"
 #include "file/random_access_file_reader.h"
 #include "file/readahead_raf.h"
 #include "file/sequence_file_reader.h"
@@ -76,7 +77,8 @@ TEST_F(WritableFileWriterTest, RangeSync) {
   env_options.bytes_per_sync = kMb;
   std::unique_ptr<FakeWF> wf(new FakeWF);
   std::unique_ptr<WritableFileWriter> writer(
-      new WritableFileWriter(std::move(wf), "" /* don't care */, env_options));
+      new WritableFileWriter(NewLegacyWritableFileWrapper(std::move(wf)),
+                             "" /* don't care */, env_options));
   Random r(301);
   std::unique_ptr<char[]> large_buf(new char[10 * kMb]);
   for (int i = 0; i < 1000; i++) {
@@ -157,8 +159,9 @@ TEST_F(WritableFileWriterTest, IncrementalBuffer) {
                                           false,
 #endif
                                           no_flush));
-    std::unique_ptr<WritableFileWriter> writer(new WritableFileWriter(
-        std::move(wf), "" /* don't care */, env_options));
+    std::unique_ptr<WritableFileWriter> writer(
+        new WritableFileWriter(NewLegacyWritableFileWrapper(std::move(wf)),
+                               "" /* don't care */, env_options));
 
     std::string target;
     for (int i = 0; i < 20; i++) {
@@ -212,12 +215,15 @@ TEST_F(WritableFileWriterTest, AppendStatusReturn) {
   std::unique_ptr<FakeWF> wf(new FakeWF());
   wf->Setuse_direct_io(true);
   std::unique_ptr<WritableFileWriter> writer(
-      new WritableFileWriter(std::move(wf), "" /* don't care */, EnvOptions()));
+      new WritableFileWriter(NewLegacyWritableFileWrapper(std::move(wf)),
+                             "" /* don't care */, EnvOptions()));
 
   ASSERT_OK(writer->Append(std::string(2 * kMb, 'a')));
 
   // Next call to WritableFile::Append() should fail
-  dynamic_cast<FakeWF*>(writer->writable_file())->SetIOError(true);
+  LegacyWritableFileWrapper* file =
+      static_cast<LegacyWritableFileWrapper*>(writer->writable_file());
+  static_cast<FakeWF*>(file->target())->SetIOError(true);
   ASSERT_NOK(writer->Append(std::string(2 * kMb, 'b')));
 }
 #endif
@@ -345,8 +351,8 @@ class ReadaheadSequentialFileTest : public testing::Test,
   void ResetSourceStr(const std::string& str = "") {
     auto read_holder =
         std::unique_ptr<SequentialFile>(new test::SeqStringSource(str));
-    test_read_holder_.reset(new SequentialFileReader(std::move(read_holder),
-                                                     "test", readahead_size_));
+    test_read_holder_.reset(new SequentialFileReader(
+        NewLegacySequentialFileWrapper(read_holder), "test", readahead_size_));
   }
   size_t GetReadaheadSize() const { return readahead_size_; }
 

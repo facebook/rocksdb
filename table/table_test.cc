@@ -28,6 +28,7 @@
 #include "rocksdb/cache.h"
 #include "rocksdb/db.h"
 #include "rocksdb/env.h"
+#include "rocksdb/file_system.h"
 #include "rocksdb/iterator.h"
 #include "rocksdb/memtablerep.h"
 #include "rocksdb/perf_context.h"
@@ -426,7 +427,7 @@ class TableConstructor: public Constructor {
   bool ConvertToInternalKey() { return convert_to_internal_key_; }
 
   test::StringSink* TEST_GetSink() {
-    return static_cast<test::StringSink*>(file_writer_->writable_file());
+    return rocksdb::test::GetStringSinkFromLegacyWriter(file_writer_.get());
   }
 
   BlockCacheTracer block_cache_tracer_;
@@ -3067,7 +3068,7 @@ TEST_F(PlainTableTest, BasicPlainTableProperties) {
   file_writer->Flush();
 
   test::StringSink* ss =
-    static_cast<test::StringSink*>(file_writer->writable_file());
+      rocksdb::test::GetStringSinkFromLegacyWriter(file_writer.get());
   std::unique_ptr<RandomAccessFileReader> file_reader(
       test::GetRandomAccessFileReader(
           new test::StringSource(ss->contents(), 72242, true)));

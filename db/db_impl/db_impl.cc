@@ -52,6 +52,7 @@
 #include "db/version_set.h"
 #include "db/write_batch_internal.h"
 #include "db/write_callback.h"
+#include "env/composite_env_wrapper.h"
 #include "file/file_util.h"
 #include "file/filename.h"
 #include "file/random_access_file_reader.h"
@@ -102,6 +103,7 @@
 #include "util/string_util.h"
 
 namespace rocksdb {
+
 const std::string kDefaultColumnFamilyName("default");
 const std::string kPersistentStatsColumnFamilyName(
     "___rocksdb_stats_history___");
@@ -145,10 +147,11 @@ void DumpSupportInfo(Logger* logger) {
 
 DBImpl::DBImpl(const DBOptions& options, const std::string& dbname,
                const bool seq_per_batch, const bool batch_per_txn)
-    : env_(options.env),
-      dbname_(dbname),
+    : dbname_(dbname),
       own_info_log_(options.info_log == nullptr),
       initial_db_options_(SanitizeOptions(dbname, options)),
+      env_(initial_db_options_.env),
+      fs_(initial_db_options_.file_system),
       immutable_db_options_(initial_db_options_),
       mutable_db_options_(initial_db_options_),
       stats_(immutable_db_options_.statistics.get()),
@@ -156,9 +159,9 @@ DBImpl::DBImpl(const DBOptions& options, const std::string& dbname,
              immutable_db_options_.use_adaptive_mutex),
       default_cf_handle_(nullptr),
       max_total_in_memory_state_(0),
-      env_options_(BuildDBOptions(immutable_db_options_, mutable_db_options_)),
-      env_options_for_compaction_(env_->OptimizeForCompactionTableWrite(
-          env_options_, immutable_db_options_)),
+      file_options_(BuildDBOptions(immutable_db_options_, mutable_db_options_)),
+      file_options_for_compaction_(fs_->OptimizeForCompactionTableWrite(
+          file_options_, immutable_db_options_)),
       seq_per_batch_(seq_per_batch),
       batch_per_txn_(batch_per_txn),
       db_lock_(nullptr),
@@ -194,7 +197,7 @@ DBImpl::DBImpl(const DBOptions& options, const std::string& dbname,
       unable_to_release_oldest_log_(false),
       num_running_ingest_file_(0),
 #ifndef ROCKSDB_LITE
-      wal_manager_(immutable_db_options_, env_options_, seq_per_batch),
+      wal_manager_(immutable_db_options_, file_options_, seq_per_batch),
 #endif  // ROCKSDB_LITE
       event_logger_(immutable_db_options_.info_log.get()),
       bg_work_paused_(0),
@@ -240,7 +243,7 @@ DBImpl::DBImpl(const DBOptions& options, const std::string& dbname,
   co.metadata_charge_policy = kDontChargeCacheMetadata;
   table_cache_ = NewLRUCache(co);
 
-  versions_.reset(new VersionSet(dbname_, &immutable_db_options_, env_options_,
+  versions_.reset(new VersionSet(dbname_, &immutable_db_options_, file_options_,
                                  table_cache_.get(), write_buffer_manager_,
                                  &write_controller_, &block_cache_tracer_));
   column_family_memtables_.reset(
@@ -587,6 +590,7 @@ Status DBImpl::CloseHelper() {
       ret = s;
     }
   }
+
   if (ret.IsAborted()) {
     // Reserve IsAborted() error for those where users didn't release
     // certain resource and they can release them and come back and
@@ -1047,14 +1051,14 @@ Status DBImpl::SetDBOptions(
       wal_changed = mutable_db_options_.wal_bytes_per_sync !=
                     new_options.wal_bytes_per_sync;
       mutable_db_options_ = new_options;
-      env_options_for_compaction_ = EnvOptions(new_db_options);
-      env_options_for_compaction_ = env_->OptimizeForCompactionTableWrite(
-          env_options_for_compaction_, immutable_db_options_);
-      versions_->ChangeEnvOptions(mutable_db_options_);
+      file_options_for_compaction_ = FileOptions(new_db_options);
+      file_options_for_compaction_ = fs_->OptimizeForCompactionTableWrite(
+          file_options_for_compaction_, immutable_db_options_);
+      versions_->ChangeFileOptions(mutable_db_options_);
       //TODO(xiez): clarify why apply optimize for read to write options
-      env_options_for_compaction_ = env_->OptimizeForCompactionTableRead(
-          env_options_for_compaction_, immutable_db_options_);
-      env_options_for_compaction_.compaction_readahead_size =
+      file_options_for_compaction_ = fs_->OptimizeForCompactionTableRead(
+          file_options_for_compaction_, immutable_db_options_);
+      file_options_for_compaction_.compaction_readahead_size =
           mutable_db_options_.compaction_readahead_size;
       WriteThread::Writer w;
       write_thread_.EnterUnbatched(&w, &mutex_);
@@ -1433,7 +1437,7 @@ InternalIterator* DBImpl::NewInternalIterator(const ReadOptions& read_options,
   if (s.ok()) {
     // Collect iterators for files in L0 - Ln
     if (read_options.read_tier != kMemtableTier) {
-      super_version->current->AddIterators(read_options, env_options_,
+      super_version->current->AddIterators(read_options, file_options_,
                                            &merge_iter_builder, range_del_agg);
     }
     internal_iter = merge_iter_builder.Finish();
@@ -2728,6 +2732,15 @@ const std::string& DBImpl::GetName() const { return dbname_; }
 
 Env* DBImpl::GetEnv() const { return env_; }
 
+FileSystem* DB::GetFileSystem() const {
+  static LegacyFileSystemWrapper fs_wrap(GetEnv());
+  return &fs_wrap;
+}
+
+FileSystem* DBImpl::GetFileSystem() const {
+  return immutable_db_options_.fs.get();
+}
+
 Options DBImpl::GetOptions(ColumnFamilyHandle* column_family) const {
   InstrumentedMutexLock l(&mutex_);
   auto cfh = reinterpret_cast<ColumnFamilyHandleImpl*>(column_family);
@@ -3308,12 +3321,12 @@ Status DBImpl::GetDbIdentity(std::string& identity) const {
 
 Status DBImpl::GetDbIdentityFromIdentityFile(std::string* identity) const {
   std::string idfilename = IdentityFileName(dbname_);
-  const EnvOptions soptions;
+  const FileOptions soptions;
   std::unique_ptr<SequentialFileReader> id_file_reader;
   Status s;
   {
-    std::unique_ptr<SequentialFile> idfile;
-    s = env_->NewSequentialFile(idfilename, &idfile, soptions);
+    std::unique_ptr<FSSequentialFile> idfile;
+    s = fs_->NewSequentialFile(idfilename, soptions, &idfile, nullptr);
     if (!s.ok()) {
       return s;
     }
@@ -3322,7 +3335,7 @@ Status DBImpl::GetDbIdentityFromIdentityFile(std::string* identity) const {
   }
 
   uint64_t file_size;
-  s = env_->GetFileSize(idfilename, &file_size);
+  s = fs_->GetFileSize(idfilename, IOOptions(), &file_size, nullptr);
   if (!s.ok()) {
     return s;
   }
@@ -3396,7 +3409,12 @@ Status DBImpl::Close() {
 Status DB::ListColumnFamilies(const DBOptions& db_options,
                               const std::string& name,
                               std::vector<std::string>* column_families) {
-  return VersionSet::ListColumnFamilies(column_families, name, db_options.env);
+  FileSystem* fs = db_options.file_system.get();
+  LegacyFileSystemWrapper legacy_fs(db_options.env);
+  if (!fs) {
+    fs = &legacy_fs;
+  }
+  return VersionSet::ListColumnFamilies(column_families, name, fs);
 }
 
 Snapshot::~Snapshot() {}
@@ -3561,8 +3579,8 @@ Status DBImpl::WriteOptionsFile(bool need_mutex_lock,
 
   std::string file_name =
       TempOptionsFileName(GetName(), versions_->NewFileNumber());
-  Status s =
-      PersistRocksDBOptions(db_options, cf_names, cf_opts, file_name, GetEnv());
+  Status s = PersistRocksDBOptions(db_options, cf_names, cf_opts, file_name,
+                                   GetFileSystem());
 
   if (s.ok()) {
     s = RenameTempFileToOptionsFile(file_name);
@@ -3906,7 +3924,7 @@ Status DBImpl::IngestExternalFiles(
   for (const auto& arg : args) {
     auto* cfd = static_cast<ColumnFamilyHandleImpl*>(arg.column_family)->cfd();
     ingestion_jobs.emplace_back(
-        env_, versions_.get(), cfd, immutable_db_options_, env_options_,
+        env_, versions_.get(), cfd, immutable_db_options_, file_options_,
         &snapshots_, arg.options, &directories_, &event_logger_);
   }
   std::vector<std::pair<bool, Status>> exec_results;
@@ -4170,7 +4188,7 @@ Status DBImpl::CreateColumnFamilyWithImport(
   auto cfh = reinterpret_cast<ColumnFamilyHandleImpl*>(*handle);
   auto cfd = cfh->cfd();
   ImportColumnFamilyJob import_job(env_, versions_.get(), cfd,
-                                   immutable_db_options_, env_options_,
+                                   immutable_db_options_, file_options_,
                                    import_options, metadata.files);
 
   SuperVersionContext dummy_sv_ctx(/* create_superversion */ true);
@@ -4300,7 +4318,7 @@ Status DBImpl::VerifyChecksum(const ReadOptions& read_options) {
         const auto& fd = vstorage->LevelFilesBrief(i).files[j].fd;
         std::string fname = TableFileName(cfd->ioptions()->cf_paths,
                                           fd.GetNumber(), fd.GetPathId());
-        s = rocksdb::VerifySstFileChecksum(opts, env_options_, read_options,
+        s = rocksdb::VerifySstFileChecksum(opts, file_options_, read_options,
                                            fname);
       }
     }

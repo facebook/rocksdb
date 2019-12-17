@@ -12,6 +12,7 @@
 
 #include "db/builder.h"
 #include "db/error_handler.h"
+#include "env/composite_env_wrapper.h"
 #include "file/read_write_util.h"
 #include "file/sst_file_manager_impl.h"
 #include "file/writable_file_writer.h"
@@ -33,6 +34,18 @@ Options SanitizeOptions(const std::string& dbname, const Options& src) {
 
 DBOptions SanitizeOptions(const std::string& dbname, const DBOptions& src) {
   DBOptions result(src);
+
+  if (result.file_system == nullptr) {
+    if (result.env == Env::Default()) {
+      result.file_system = FileSystem::Default();
+    } else {
+      result.file_system.reset(new LegacyFileSystemWrapper(result.env));
+    }
+  } else {
+    if (result.env == nullptr) {
+      result.env = Env::Default();
+    }
+  }
 
   // result.max_open_files means an "infinite" open files.
   if (result.max_open_files != -1) {
@@ -254,16 +267,16 @@ Status DBImpl::NewDB() {
   ROCKS_LOG_INFO(immutable_db_options_.info_log, "Creating manifest 1 \n");
   const std::string manifest = DescriptorFileName(dbname_, 1);
   {
-    std::unique_ptr<WritableFile> file;
-    EnvOptions env_options = env_->OptimizeForManifestWrite(env_options_);
-    s = NewWritableFile(env_, manifest, &file, env_options);
+    std::unique_ptr<FSWritableFile> file;
+    FileOptions file_options = fs_->OptimizeForManifestWrite(file_options_);
+    s = NewWritableFile(fs_.get(), manifest, &file, file_options);
     if (!s.ok()) {
       return s;
     }
     file->SetPreallocationBlockSize(
         immutable_db_options_.manifest_preallocation_size);
     std::unique_ptr<WritableFileWriter> file_writer(new WritableFileWriter(
-        std::move(file), manifest, env_options, env_, nullptr /* stats */,
+        std::move(file), manifest, file_options, env_, nullptr /* stats */,
         immutable_db_options_.listeners));
     log::Writer log(std::move(file_writer), 0, false);
     std::string record;
@@ -277,7 +290,7 @@ Status DBImpl::NewDB() {
     // Make "CURRENT" file that points to the new manifest file.
     s = SetCurrentFile(env_, dbname_, 1, directories_.GetDbDir());
   } else {
-    env_->DeleteFile(manifest);
+    fs_->DeleteFile(manifest, IOOptions(), nullptr);
   }
   return s;
 }
@@ -375,20 +388,20 @@ Status DBImpl::Recover(
       assert(s.IsIOError());
       return s;
     }
-    // Verify compatibility of env_options_ and filesystem
+    // Verify compatibility of file_options_ and filesystem
     {
-      std::unique_ptr<RandomAccessFile> idfile;
-      EnvOptions customized_env(env_options_);
-      customized_env.use_direct_reads |=
+      std::unique_ptr<FSRandomAccessFile> idfile;
+      FileOptions customized_fs(file_options_);
+      customized_fs.use_direct_reads |=
           immutable_db_options_.use_direct_io_for_flush_and_compaction;
-      s = env_->NewRandomAccessFile(CurrentFileName(dbname_), &idfile,
-                                    customized_env);
+      s = fs_->NewRandomAccessFile(CurrentFileName(dbname_), customized_fs,
+                                   &idfile, nullptr);
       if (!s.ok()) {
         std::string error_str = s.ToString();
         // Check if unsupported Direct I/O is the root cause
-        customized_env.use_direct_reads = false;
-        s = env_->NewRandomAccessFile(CurrentFileName(dbname_), &idfile,
-                                      customized_env);
+        customized_fs.use_direct_reads = false;
+        s = fs_->NewRandomAccessFile(CurrentFileName(dbname_), customized_fs,
+                                     &idfile, nullptr);
         if (s.ok()) {
           return Status::InvalidArgument(
               "Direct I/O is not supported by the specified DB.");
@@ -408,7 +421,7 @@ Status DBImpl::Recover(
   // the very first time.
   if (db_id_.empty()) {
     // Check for the IDENTITY file and create it if not there.
-    s = env_->FileExists(IdentityFileName(dbname_));
+    s = fs_->FileExists(IdentityFileName(dbname_), IOOptions(), nullptr);
     // Typically Identity file is created in NewDB() and for some reason if
     // it is no longer available then at this point DB ID is not in Identity
     // file or Manifest.
@@ -748,9 +761,10 @@ Status DBImpl::RecoverLogFiles(const std::vector<uint64_t>& log_numbers,
 
     std::unique_ptr<SequentialFileReader> file_reader;
     {
-      std::unique_ptr<SequentialFile> file;
-      status = env_->NewSequentialFile(fname, &file,
-                                       env_->OptimizeForLogRead(env_options_));
+      std::unique_ptr<FSSequentialFile> file;
+      status = fs_->NewSequentialFile(fname,
+                                      fs_->OptimizeForLogRead(file_options_),
+                                      &file, nullptr);
       if (!status.ok()) {
         MaybeIgnoreError(&status);
         if (!status.ok()) {
@@ -1119,17 +1133,18 @@ Status DBImpl::RestoreAliveLogFiles(const std::vector<uint64_t>& log_numbers) {
     // preallocated space are not needed anymore. It is likely only the last
     // log has such preallocated space, so we only truncate for the last log.
     if (log_number == log_numbers.back()) {
-      std::unique_ptr<WritableFile> last_log;
-      Status truncate_status = env_->ReopenWritableFile(
-          fname, &last_log,
-          env_->OptimizeForLogWrite(
-              env_options_,
-              BuildDBOptions(immutable_db_options_, mutable_db_options_)));
+      std::unique_ptr<FSWritableFile> last_log;
+      Status truncate_status = fs_->ReopenWritableFile(
+          fname,
+          fs_->OptimizeForLogWrite(
+              file_options_,
+              BuildDBOptions(immutable_db_options_, mutable_db_options_)),
+          &last_log, nullptr);
       if (truncate_status.ok()) {
-        truncate_status = last_log->Truncate(log.size);
+        truncate_status = last_log->Truncate(log.size, IOOptions(), nullptr);
       }
       if (truncate_status.ok()) {
-        truncate_status = last_log->Close();
+        truncate_status = last_log->Close(IOOptions(), nullptr);
       }
       // Not a critical error if fail to truncate.
       if (!truncate_status.ok()) {
@@ -1196,8 +1211,8 @@ Status DBImpl::WriteLevel0TableForRecovery(int job_id, ColumnFamilyData* cfd,
         range_del_iters.emplace_back(range_del_iter);
       }
       s = BuildTable(
-          dbname_, env_, *cfd->ioptions(), mutable_cf_options,
-          env_options_for_compaction_, cfd->table_cache(), iter.get(),
+          dbname_, env_, fs_.get(), *cfd->ioptions(), mutable_cf_options,
+          file_options_for_compaction_, cfd->table_cache(), iter.get(),
           std::move(range_del_iters), &meta, cfd->internal_comparator(),
           cfd->int_tbl_prop_collector_factories(), cfd->GetID(), cfd->GetName(),
           snapshot_seqs, earliest_write_conflict_snapshot, snapshot_checker,
@@ -1280,12 +1295,12 @@ Status DB::Open(const DBOptions& db_options, const std::string& dbname,
 Status DBImpl::CreateWAL(uint64_t log_file_num, uint64_t recycle_log_number,
                          size_t preallocate_block_size, log::Writer** new_log) {
   Status s;
-  std::unique_ptr<WritableFile> lfile;
+  std::unique_ptr<FSWritableFile> lfile;
 
   DBOptions db_options =
       BuildDBOptions(immutable_db_options_, mutable_db_options_);
-  EnvOptions opt_env_options =
-      env_->OptimizeForLogWrite(env_options_, db_options);
+  FileOptions opt_file_options =
+      fs_->OptimizeForLogWrite(file_options_, db_options);
   std::string log_fname =
       LogFileName(immutable_db_options_.wal_dir, log_file_num);
 
@@ -1295,10 +1310,10 @@ Status DBImpl::CreateWAL(uint64_t log_file_num, uint64_t recycle_log_number,
                    recycle_log_number);
     std::string old_log_fname =
         LogFileName(immutable_db_options_.wal_dir, recycle_log_number);
-    s = env_->ReuseWritableFile(log_fname, old_log_fname, &lfile,
-                                opt_env_options);
+    s = fs_->ReuseWritableFile(log_fname, old_log_fname, opt_file_options,
+                               &lfile, /*dbg=*/nullptr);
   } else {
-    s = NewWritableFile(env_, log_fname, &lfile, opt_env_options);
+    s = NewWritableFile(fs_.get(), log_fname, &lfile, opt_file_options);
   }
 
   if (s.ok()) {
@@ -1307,7 +1322,7 @@ Status DBImpl::CreateWAL(uint64_t log_file_num, uint64_t recycle_log_number,
 
     const auto& listeners = immutable_db_options_.listeners;
     std::unique_ptr<WritableFileWriter> file_writer(
-        new WritableFileWriter(std::move(lfile), log_fname, opt_env_options,
+        new WritableFileWriter(std::move(lfile), log_fname, opt_file_options,
                                env_, nullptr /* stats */, listeners));
     *new_log = new log::Writer(std::move(file_writer), log_file_num,
                                immutable_db_options_.recycle_log_file_num > 0,
