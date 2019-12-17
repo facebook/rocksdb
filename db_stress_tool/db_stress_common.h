@@ -36,6 +36,7 @@
 
 #include "db/db_impl/db_impl.h"
 #include "db/version_set.h"
+#include "db_stress_tool/db_stress_env_wrapper.h"
 #include "db_stress_tool/db_stress_listener.h"
 #include "db_stress_tool/db_stress_shared_state.h"
 #include "db_stress_tool/db_stress_test_base.h"
@@ -79,6 +80,7 @@ using GFLAGS_NAMESPACE::SetUsageMessage;
 DECLARE_uint64(seed);
 DECLARE_bool(read_only);
 DECLARE_int64(max_key);
+DECLARE_double(hot_key_alpha);
 DECLARE_int32(column_families);
 DECLARE_string(options_file);
 DECLARE_int64(active_width);
@@ -175,6 +177,7 @@ DECLARE_int32(compact_range_width);
 DECLARE_int32(acquire_snapshot_one_in);
 DECLARE_bool(compare_full_db_state_snapshot);
 DECLARE_uint64(snapshot_hold_ops);
+DECLARE_bool(long_running_snapshots);
 DECLARE_bool(use_multiget);
 DECLARE_int32(readpercent);
 DECLARE_int32(prefixpercent);
@@ -200,13 +203,17 @@ DECLARE_int32(prefix_size);
 DECLARE_bool(use_merge);
 DECLARE_bool(use_full_merge_v1);
 DECLARE_int32(sync_wal_one_in);
+DECLARE_bool(avoid_unnecessary_blocking_io);
+DECLARE_bool(write_dbid_to_manifest);
+DECLARE_uint64(max_write_batch_group_size_bytes);
+DECLARE_bool(level_compaction_dynamic_level_bytes);
 
 const long KB = 1024;
 const int kRandomValueMaxFactor = 3;
 const int kValueMaxLen = 100;
 
-// posix or hdfs environment
-extern rocksdb::Env* FLAGS_env;
+// wrapped posix or hdfs environment
+extern rocksdb::DbStressEnvWrapper* FLAGS_env;
 
 extern enum rocksdb::CompressionType FLAGS_compression_type_e;
 extern enum rocksdb::ChecksumType FLAGS_checksum_type_e;
@@ -371,5 +378,7 @@ extern size_t GenerateValue(uint32_t rand, char* v, size_t max_sz);
 extern StressTest* CreateCfConsistencyStressTest();
 extern StressTest* CreateBatchedOpsStressTest();
 extern StressTest* CreateNonBatchedOpsStressTest();
+extern void InitializeHotKeyGenerator(double alpha);
+extern int64_t GetOneHotKeyID(double rand_seed, int64_t max_key);
 }  // namespace rocksdb
 #endif  // GFLAGS

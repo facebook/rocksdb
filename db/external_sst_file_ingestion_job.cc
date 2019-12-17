@@ -101,14 +101,15 @@ Status ExternalSstFileIngestionJob::Prepare(
         TableFileName(cfd_->ioptions()->cf_paths, f.fd.GetNumber(),
                       f.fd.GetPathId());
     if (ingestion_options_.move_files) {
-      status = env_->LinkFile(path_outside_db, path_inside_db);
+      status =
+          fs_->LinkFile(path_outside_db, path_inside_db, IOOptions(), nullptr);
       if (status.ok()) {
         // It is unsafe to assume application had sync the file and file
         // directory before ingest the file. For integrity of RocksDB we need
         // to sync the file.
-        std::unique_ptr<WritableFile> file_to_sync;
-        status = env_->ReopenWritableFile(path_inside_db, &file_to_sync,
-                                          env_options_);
+        std::unique_ptr<FSWritableFile> file_to_sync;
+        status = fs_->ReopenWritableFile(path_inside_db, env_options_,
+                                         &file_to_sync, nullptr);
         if (status.ok()) {
           TEST_SYNC_POINT(
               "ExternalSstFileIngestionJob::BeforeSyncIngestedFile");
@@ -133,7 +134,7 @@ Status ExternalSstFileIngestionJob::Prepare(
       TEST_SYNC_POINT_CALLBACK("ExternalSstFileIngestionJob::Prepare:CopyFile",
                                nullptr);
       // CopyFile also sync the new file.
-      status = CopyFile(env_, path_outside_db, path_inside_db, 0,
+      status = CopyFile(fs_, path_outside_db, path_inside_db, 0,
                         db_options_.use_fsync);
     }
     TEST_SYNC_POINT("ExternalSstFileIngestionJob::Prepare:FileAdded");
@@ -360,17 +361,19 @@ Status ExternalSstFileIngestionJob::GetIngestedFileInfo(
   file_to_ingest->external_file_path = external_file;
 
   // Get external file size
-  Status status = env_->GetFileSize(external_file, &file_to_ingest->file_size);
+  Status status = fs_->GetFileSize(external_file, IOOptions(),
+                                   &file_to_ingest->file_size, nullptr);
   if (!status.ok()) {
     return status;
   }
 
   // Create TableReader for external file
   std::unique_ptr<TableReader> table_reader;
-  std::unique_ptr<RandomAccessFile> sst_file;
+  std::unique_ptr<FSRandomAccessFile> sst_file;
   std::unique_ptr<RandomAccessFileReader> sst_file_reader;
 
-  status = env_->NewRandomAccessFile(external_file, &sst_file, env_options_);
+  status = fs_->NewRandomAccessFile(external_file, env_options_,
+                                    &sst_file, nullptr);
   if (!status.ok()) {
     return status;
   }
@@ -651,13 +654,15 @@ Status ExternalSstFileIngestionJob::AssignGlobalSeqnoForIngestedFile(
     // Determine if we can write global_seqno to a given offset of file.
     // If the file system does not support random write, then we should not.
     // Otherwise we should.
-    std::unique_ptr<RandomRWFile> rwfile;
-    Status status = env_->NewRandomRWFile(file_to_ingest->internal_file_path,
-                                          &rwfile, env_options_);
+    std::unique_ptr<FSRandomRWFile> rwfile;
+    Status status =
+        fs_->NewRandomRWFile(file_to_ingest->internal_file_path, env_options_,
+                             &rwfile, nullptr);
     if (status.ok()) {
       std::string seqno_val;
       PutFixed64(&seqno_val, seqno);
-      status = rwfile->Write(file_to_ingest->global_seqno_offset, seqno_val);
+      status = rwfile->Write(file_to_ingest->global_seqno_offset, seqno_val,
+                             IOOptions(), nullptr);
       if (status.ok()) {
         TEST_SYNC_POINT("ExternalSstFileIngestionJob::BeforeSyncGlobalSeqno");
         status = SyncIngestedFile(rwfile.get());
@@ -715,9 +720,9 @@ template <typename TWritableFile>
 Status ExternalSstFileIngestionJob::SyncIngestedFile(TWritableFile* file) {
   assert(file != nullptr);
   if (db_options_.use_fsync) {
-    return file->Fsync();
+    return file->Fsync(IOOptions(), nullptr);
   } else {
-    return file->Sync();
+    return file->Sync(IOOptions(), nullptr);
   }
 }
 

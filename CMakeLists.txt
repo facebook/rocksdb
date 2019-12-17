@@ -559,6 +559,7 @@ set(SOURCES
         env/env_chroot.cc
         env/env_encryption.cc
         env/env_hdfs.cc
+        env/file_system.cc
         env/mock_env.cc
         file/delete_scheduler.cc
         file/file_prefetch_buffer.cc
@@ -766,6 +767,7 @@ else()
   list(APPEND SOURCES
     port/port_posix.cc
     env/env_posix.cc
+    env/fs_posix.cc
     env/io_posix.cc)
 endif()
 
@@ -1028,6 +1030,7 @@ if(WITH_TESTS)
         util/filelock_test.cc
         util/hash_test.cc
         util/heap_test.cc
+        util/random_test.cc
         util/rate_limiter_test.cc
         util/repeatable_thread_test.cc
         util/slice_transform_test.cc

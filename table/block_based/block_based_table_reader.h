@@ -51,7 +51,7 @@ class FullFilterBlockReader;
 class Footer;
 class InternalKeyComparator;
 class Iterator;
-class RandomAccessFile;
+class FSRandomAccessFile;
 class TableCache;
 class TableReader;
 class WritableFile;
@@ -446,9 +446,9 @@ class BlockBasedTable : public TableReader {
   static void SetupCacheKeyPrefix(Rep* rep);
 
   // Generate a cache key prefix from the file
-  static void GenerateCachePrefix(Cache* cc, RandomAccessFile* file,
+  static void GenerateCachePrefix(Cache* cc, FSRandomAccessFile* file,
                                   char* buffer, size_t* size);
-  static void GenerateCachePrefix(Cache* cc, WritableFile* file, char* buffer,
+  static void GenerateCachePrefix(Cache* cc, FSWritableFile* file, char* buffer,
                                   size_t* size);
 
   // Given an iterator return its offset in file.

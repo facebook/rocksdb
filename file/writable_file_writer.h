@@ -12,13 +12,13 @@
 #include <string>
 #include "port/port.h"
 #include "rocksdb/env.h"
+#include "rocksdb/file_system.h"
 #include "rocksdb/listener.h"
 #include "rocksdb/rate_limiter.h"
 #include "test_util/sync_point.h"
 #include "util/aligned_buffer.h"
 
 namespace rocksdb {
-
 class Statistics;
 
 // WritableFileWriter is a wrapper on top of Env::WritableFile. It provides
@@ -48,7 +48,7 @@ class WritableFileWriter {
 
   bool ShouldNotifyListeners() const { return !listeners_.empty(); }
 
-  std::unique_ptr<WritableFile> writable_file_;
+  std::unique_ptr<FSWritableFile> writable_file_;
   std::string file_name_;
   Env* env_;
   AlignedBuffer buf_;
@@ -71,8 +71,8 @@ class WritableFileWriter {
 
  public:
   WritableFileWriter(
-      std::unique_ptr<WritableFile>&& file, const std::string& _file_name,
-      const EnvOptions& options, Env* env = nullptr,
+      std::unique_ptr<FSWritableFile>&& file, const std::string& _file_name,
+      const FileOptions& options, Env* env = nullptr,
       Statistics* stats = nullptr,
       const std::vector<std::shared_ptr<EventListener>>& listeners = {})
       : writable_file_(std::move(file)),
@@ -135,7 +135,7 @@ class WritableFileWriter {
     return writable_file_->InvalidateCache(offset, length);
   }
 
-  WritableFile* writable_file() const { return writable_file_.get(); }
+  FSWritableFile* writable_file() const { return writable_file_.get(); }
 
   bool use_direct_io() { return writable_file_->use_direct_io(); }
 

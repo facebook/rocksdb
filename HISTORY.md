@@ -1,8 +1,13 @@
 # Rocksdb Change Log
 ## Unreleased
+### Public API Change
+* Added a rocksdb::FileSystem class in include/rocksdb/file_system.h to encapsulate file creation/read/write operations, and an option DBOptions::file_system to allow a user to pass in an instance of rocksdb::FileSystem. If its a non-null value, this will take precendence over DBOptions::env for file operations. A new API rocksdb::FileSystem::Default() returns a platform default object. The DBOptions::env option and Env::Default() API will continue to be used for threading and other OS related functions, and where DBOptions::file_system is not specified, for file operations. For storage developers who are accustomed to rocksdb::Env, the interface in rocksdb::FileSystem is new and will probably undergo some changes as more storage systems are ported to it from rocksdb::Env. As of now, no env other than Posix has been ported to the new interface.
+* A new rocksdb::NewSstFileManager() API that allows the caller to pass in separate Env and FileSystem objects.
+
 ### Bug Fixes
 * Fix a bug that can cause unnecessary bg thread to be scheduled(#6104).
 * Fix a bug in which a snapshot read could be affected by a DeleteRange after the snapshot (#6062).
+* Fixed two performance issues related to memtable history trimming. First, a new SuperVersion is now created only if some memtables were actually trimmed. Second, trimming is only scheduled if there is at least one flushed memtable that is kept in memory for the purposes of transaction conflict checking.
 * Fix a bug in WriteBatchWithIndex::MultiGetFromBatchAndDB, which is called by Transaction::MultiGet, that causes due to stale pointer access when the number of keys is > 32
 
 ## 6.6.0 (11/25/2019)

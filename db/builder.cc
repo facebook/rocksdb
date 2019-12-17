@@ -66,8 +66,9 @@ TableBuilder* NewTableBuilder(
 }
 
 Status BuildTable(
-    const std::string& dbname, Env* env, const ImmutableCFOptions& ioptions,
-    const MutableCFOptions& mutable_cf_options, const EnvOptions& env_options,
+    const std::string& dbname, Env* env, FileSystem* fs,
+    const ImmutableCFOptions& ioptions,
+    const MutableCFOptions& mutable_cf_options, const FileOptions& file_options,
     TableCache* table_cache, InternalIterator* iter,
     std::vector<std::unique_ptr<FragmentedRangeTombstoneIterator>>
         range_del_iters,
@@ -115,12 +116,12 @@ Status BuildTable(
     compression_opts_for_flush.max_dict_bytes = 0;
     compression_opts_for_flush.zstd_max_train_bytes = 0;
     {
-      std::unique_ptr<WritableFile> file;
+      std::unique_ptr<FSWritableFile> file;
 #ifndef NDEBUG
-      bool use_direct_writes = env_options.use_direct_writes;
+      bool use_direct_writes = file_options.use_direct_writes;
       TEST_SYNC_POINT_CALLBACK("BuildTable:create_file", &use_direct_writes);
 #endif  // !NDEBUG
-      s = NewWritableFile(env, fname, &file, env_options);
+      s = NewWritableFile(fs, fname, &file, file_options);
       if (!s.ok()) {
         EventHelpers::LogAndNotifyTableFileCreationFinished(
             event_logger, ioptions.listeners, dbname, column_family_name, fname,
@@ -131,7 +132,7 @@ Status BuildTable(
       file->SetWriteLifeTimeHint(write_hint);
 
       file_writer.reset(
-          new WritableFileWriter(std::move(file), fname, env_options, env,
+          new WritableFileWriter(std::move(file), fname, file_options, env,
                                  ioptions.statistics, ioptions.listeners));
       builder = NewTableBuilder(
           ioptions, mutable_cf_options, internal_comparator,
@@ -218,7 +219,7 @@ Status BuildTable(
       // we will regrad this verification as user reads since the goal is
       // to cache it here for further user reads
       std::unique_ptr<InternalIterator> it(table_cache->NewIterator(
-          ReadOptions(), env_options, internal_comparator, *meta,
+          ReadOptions(), file_options, internal_comparator, *meta,
           nullptr /* range_del_agg */,
           mutable_cf_options.prefix_extractor.get(), nullptr,
           (internal_stats == nullptr) ? nullptr
@@ -241,7 +242,7 @@ Status BuildTable(
   }
 
   if (!s.ok() || meta->fd.GetFileSize() == 0) {
-    env->DeleteFile(fname);
+    fs->DeleteFile(fname, IOOptions(), nullptr);
   }
 
   if (meta->fd.GetFileSize() == 0) {

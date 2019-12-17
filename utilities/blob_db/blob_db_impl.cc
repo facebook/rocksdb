@@ -15,6 +15,7 @@
 #include "db/blob_index.h"
 #include "db/db_impl/db_impl.h"
 #include "db/write_batch_internal.h"
+#include "env/composite_env_wrapper.h"
 #include "file/file_util.h"
 #include "file/filename.h"
 #include "file/random_access_file_reader.h"
@@ -146,10 +147,6 @@ Status BlobDBImpl::Open(std::vector<ColumnFamilyHandle*>* handles) {
     return Status::InvalidArgument(
         "Garbage collection cutoff must be in the interval [0.0, 1.0]");
   }
-
-  // BlobDB does not support Periodic Compactions. So disable periodic
-  // compactions irrespective of the user set value.
-  cf_options_.periodic_compaction_seconds = 0;
 
   // Temporarily disable compactions in the base DB during open; save the user
   // defined value beforehand so we can restore it once BlobDB is initialized.
@@ -648,7 +645,8 @@ Status BlobDBImpl::CreateWriterLocked(const std::shared_ptr<BlobFile>& bfile) {
   }
 
   std::unique_ptr<WritableFileWriter> fwriter;
-  fwriter.reset(new WritableFileWriter(std::move(wfile), fpath, env_options_));
+  fwriter.reset(new WritableFileWriter(
+      NewLegacyWritableFileWrapper(std::move(wfile)), fpath, env_options_));
 
   uint64_t boffset = bfile->GetFileSize();
   if (debug_level_ >= 2 && boffset) {

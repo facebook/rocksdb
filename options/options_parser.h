@@ -35,7 +35,7 @@ static const std::string opt_section_titles[] = {
 Status PersistRocksDBOptions(const DBOptions& db_opt,
                              const std::vector<std::string>& cf_names,
                              const std::vector<ColumnFamilyOptions>& cf_opts,
-                             const std::string& file_name, Env* env);
+                             const std::string& file_name, FileSystem* fs);
 
 extern bool AreEqualOptions(
     const char* opt1, const char* opt2, const OptionTypeInfo& type_info,
@@ -48,7 +48,7 @@ class RocksDBOptionsParser {
   ~RocksDBOptionsParser() {}
   void Reset();
 
-  Status Parse(const std::string& file_name, Env* env,
+  Status Parse(const std::string& file_name, FileSystem* fs,
                bool ignore_unknown_options = false);
   static std::string TrimAndRemoveComment(const std::string& line,
                                           const bool trim_only = false);
@@ -72,7 +72,7 @@ class RocksDBOptionsParser {
   static Status VerifyRocksDBOptionsFromFile(
       const DBOptions& db_opt, const std::vector<std::string>& cf_names,
       const std::vector<ColumnFamilyOptions>& cf_opts,
-      const std::string& file_name, Env* env,
+      const std::string& file_name, FileSystem* fs,
       OptionsSanityCheckLevel sanity_check_level = kSanityLevelExactMatch,
       bool ignore_unknown_options = false);
 

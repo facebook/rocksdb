@@ -9,6 +9,7 @@
 
 #include "db/db_iter.h"
 #include "db/dbformat.h"
+#include "env/composite_env_wrapper.h"
 #include "file/random_access_file_reader.h"
 #include "options/cf_options.h"
 #include "table/get_context.h"
@@ -47,7 +48,8 @@ Status SstFileReader::Open(const std::string& file_path) {
     s = r->options.env->NewRandomAccessFile(file_path, &file, r->soptions);
   }
   if (s.ok()) {
-    file_reader.reset(new RandomAccessFileReader(std::move(file), file_path));
+    file_reader.reset(new RandomAccessFileReader(
+        NewLegacyRandomAccessFileWrapper(file), file_path));
   }
   if (s.ok()) {
     TableReaderOptions t_opt(r->ioptions, r->moptions.prefix_extractor.get(),

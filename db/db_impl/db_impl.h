@@ -306,6 +306,7 @@ class DBImpl : public DB {
       ColumnFamilyHandle* column_family) override;
   virtual const std::string& GetName() const override;
   virtual Env* GetEnv() const override;
+  virtual FileSystem* GetFileSystem() const override;
   using DB::GetOptions;
   virtual Options GetOptions(ColumnFamilyHandle* column_family) const override;
   using DB::GetDBOptions;
@@ -941,13 +942,14 @@ class DBImpl : public DB {
 #endif  // NDEBUG
 
  protected:
-  Env* const env_;
   const std::string dbname_;
   std::string db_id_;
   std::unique_ptr<VersionSet> versions_;
   // Flag to check whether we allocated and own the info log file
   bool own_info_log_;
   const DBOptions initial_db_options_;
+  Env* const env_;
+  std::shared_ptr<FileSystem> fs_;
   const ImmutableDBOptions immutable_db_options_;
   MutableDBOptions mutable_db_options_;
   Statistics* stats_;
@@ -975,10 +977,10 @@ class DBImpl : public DB {
   bool single_column_family_mode_;
 
   // The options to access storage files
-  const EnvOptions env_options_;
+  const FileOptions file_options_;
 
   // Additonal options for compaction and flush
-  EnvOptions env_options_for_compaction_;
+  FileOptions file_options_for_compaction_;
 
   std::unique_ptr<ColumnFamilyMemTablesImpl> column_family_memtables_;
 

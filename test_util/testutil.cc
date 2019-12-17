@@ -15,6 +15,7 @@
 #include <sstream>
 
 #include "db/memtable_list.h"
+#include "env/composite_env_wrapper.h"
 #include "file/random_access_file_reader.h"
 #include "file/sequence_file_reader.h"
 #include "file/writable_file_writer.h"
@@ -127,19 +128,20 @@ const Comparator* Uint64Comparator() {
 WritableFileWriter* GetWritableFileWriter(WritableFile* wf,
                                           const std::string& fname) {
   std::unique_ptr<WritableFile> file(wf);
-  return new WritableFileWriter(std::move(file), fname, EnvOptions());
+  return new WritableFileWriter(NewLegacyWritableFileWrapper(std::move(file)),
+                                fname, EnvOptions());
 }
 
 RandomAccessFileReader* GetRandomAccessFileReader(RandomAccessFile* raf) {
   std::unique_ptr<RandomAccessFile> file(raf);
-  return new RandomAccessFileReader(std::move(file),
+  return new RandomAccessFileReader(NewLegacyRandomAccessFileWrapper(file),
                                     "[test RandomAccessFileReader]");
 }
 
 SequentialFileReader* GetSequentialFileReader(SequentialFile* se,
                                               const std::string& fname) {
   std::unique_ptr<SequentialFile> file(se);
-  return new SequentialFileReader(std::move(file), fname);
+  return new SequentialFileReader(NewLegacySequentialFileWrapper(file), fname);
 }
 
 void CorruptKeyType(InternalKey* ikey) {

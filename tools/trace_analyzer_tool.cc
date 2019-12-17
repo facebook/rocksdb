@@ -26,6 +26,7 @@
 #include "db/db_impl/db_impl.h"
 #include "db/memtable.h"
 #include "db/write_batch_internal.h"
+#include "env/composite_env_wrapper.h"
 #include "file/read_write_util.h"
 #include "file/writable_file_writer.h"
 #include "options/cf_options.h"
@@ -1049,15 +1050,19 @@ Status TraceAnalyzer::ReProcessing() {
       std::vector<std::string> prefix(kTaTypeNum);
       std::istringstream iss;
       bool has_data = true;
-      s = env_->NewSequentialFile(whole_key_path, &wkey_input_f_, env_options_);
+      std::unique_ptr<SequentialFile> wkey_input_f;
+
+      s = env_->NewSequentialFile(whole_key_path, &wkey_input_f, env_options_);
       if (!s.ok()) {
         fprintf(stderr, "Cannot open the whole key space file of CF: %u\n",
                 cf_id);
-        wkey_input_f_.reset();
+        wkey_input_f.reset();
       }
-      if (wkey_input_f_) {
+      if (wkey_input_f) {
+        std::unique_ptr<FSSequentialFile> file;
+        file = NewLegacySequentialFileWrapper(wkey_input_f);
         for (cfs_[cf_id].w_count = 0;
-             ReadOneLine(&iss, wkey_input_f_.get(), &get_key, &has_data, &s);
+             ReadOneLine(&iss, file.get(), &get_key, &has_data, &s);
              ++cfs_[cf_id].w_count) {
           if (!s.ok()) {
             fprintf(stderr, "Read whole key space file failed\n");

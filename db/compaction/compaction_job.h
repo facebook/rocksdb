@@ -64,7 +64,7 @@ class CompactionJob {
  public:
   CompactionJob(int job_id, Compaction* compaction,
                 const ImmutableDBOptions& db_options,
-                const EnvOptions env_options, VersionSet* versions,
+                const FileOptions& file_options, VersionSet* versions,
                 const std::atomic<bool>* shutting_down,
                 const SequenceNumber preserve_deletes_seqnum,
                 LogBuffer* log_buffer, Directory* db_directory,
@@ -150,11 +150,12 @@ class CompactionJob {
   // DBImpl state
   const std::string& dbname_;
   const ImmutableDBOptions& db_options_;
-  const EnvOptions env_options_;
+  const FileOptions file_options_;
 
   Env* env_;
+  FileSystem* fs_;
   // env_option optimized for compaction table reads
-  EnvOptions env_options_for_read_;
+  FileOptions file_options_for_read_;
   VersionSet* versions_;
   const std::atomic<bool>* shutting_down_;
   const std::atomic<bool>* manual_compaction_paused_;
