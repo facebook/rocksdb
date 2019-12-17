@@ -1098,9 +1098,8 @@ Compaction* ColumnFamilyData::CompactRange(
   return result;
 }
 
-SuperVersion* ColumnFamilyData::GetReferencedSuperVersion(
-    InstrumentedMutex* db_mutex) {
-  SuperVersion* sv = GetThreadLocalSuperVersion(db_mutex);
+SuperVersion* ColumnFamilyData::GetReferencedSuperVersion(DBImpl* db) {
+  SuperVersion* sv = GetThreadLocalSuperVersion(db);
   sv->Ref();
   if (!ReturnThreadLocalSuperVersion(sv)) {
     // This Unref() corresponds to the Ref() in GetThreadLocalSuperVersion()
@@ -1112,8 +1111,7 @@ SuperVersion* ColumnFamilyData::GetReferencedSuperVersion(
   return sv;
 }
 
-SuperVersion* ColumnFamilyData::GetThreadLocalSuperVersion(
-    InstrumentedMutex* db_mutex) {
+SuperVersion* ColumnFamilyData::GetThreadLocalSuperVersion(DBImpl* db) {
   // The SuperVersion is cached in thread local storage to avoid acquiring
   // mutex when SuperVersion does not change since the last use. When a new
   // SuperVersion is installed, the compaction or flush thread cleans up
@@ -1140,16 +1138,21 @@ SuperVersion* ColumnFamilyData::GetThreadLocalSuperVersion(
 
     if (sv && sv->Unref()) {
       RecordTick(ioptions_.statistics, NUMBER_SUPERVERSION_CLEANUPS);
-      db_mutex->Lock();
+      db->mutex()->Lock();
       // NOTE: underlying resources held by superversion (sst files) might
       // not be released until the next background job.
       sv->Cleanup();
-      sv_to_delete = sv;
+      if (db->immutable_db_options().avoid_unnecessary_blocking_io) {
+        db->AddSuperVersionsToFreeQueue(sv);
+        db->SchedulePurge();
+      } else {
+        sv_to_delete = sv;
+      }
     } else {
-      db_mutex->Lock();
+      db->mutex()->Lock();
     }
     sv = super_version_->Ref();
-    db_mutex->Unlock();
+    db->mutex()->Unlock();
 
     delete sv_to_delete;
   }
