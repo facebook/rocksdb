@@ -1199,7 +1199,7 @@ class DBImpl : public DB {
   };
 
   // PurgeFileInfo is a structure to hold information of files to be deleted in
-  // purge_queue_
+  // purge_files_
   struct PurgeFileInfo {
     std::string fname;
     std::string dir_to_sync;

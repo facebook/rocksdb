@@ -1329,19 +1329,26 @@ void DBImpl::BackgroundCallPurge() {
     delete sv;
     mutex_.Lock();
   }
-  for (const auto& file : purge_files_) {
-    const PurgeFileInfo& purge_file = file.second;
+
+  // Can't use iterator to go over purge_files_ because inside the loop we're
+  // unlocking the mutex that protects purge_files_.
+  while (!purge_files_.empty()) {
+    auto it = purge_files_.begin();
+    // Need to make a copy of the PurgeFilesInfo before unlocking the mutex.
+    PurgeFileInfo purge_file = it->second;
+
     const std::string& fname = purge_file.fname;
     const std::string& dir_to_sync = purge_file.dir_to_sync;
     FileType type = purge_file.type;
     uint64_t number = purge_file.number;
     int job_id = purge_file.job_id;
 
+    purge_files_.erase(it);
+
     mutex_.Unlock();
     DeleteObsoleteFileImpl(job_id, fname, dir_to_sync, type, number);
     mutex_.Lock();
   }
-  purge_files_.clear();
 
   bg_purge_scheduled_--;
 
