@@ -577,4 +577,9 @@ DEFINE_bool(level_compaction_dynamic_level_bytes,
             rocksdb::Options().level_compaction_dynamic_level_bytes,
             "Use dynamic level");
 
+DEFINE_int32(verify_checksum_one_in, 0,
+             "If non-zero, then DB::VerifyChecksum() will be called to do"
+             " checksum verification of all the files in the database once for"
+             " every N ops on average. 0 indicates that calls to"
+             " VerifyChecksum() are disabled.");
 #endif  // GFLAGS

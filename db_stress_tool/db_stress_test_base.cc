@@ -625,6 +625,15 @@ void StressTest::OperateDb(ThreadState* thread) {
         }
       }
 
+#ifndef ROCKSDB_LITE
+      if (thread->rand.OneInOpt(FLAGS_verify_checksum_one_in)) {
+        Status status = db_->VerifyChecksum();
+        if (!status.ok()) {
+          VerificationAbort(shared, "VerifyChecksum status not OK", status);
+        }
+      }
+#endif
+
       std::vector<int64_t> rand_keys = GenerateKeys(rand_key);
 
       if (thread->rand.OneInOpt(FLAGS_ingest_external_file_one_in)) {
