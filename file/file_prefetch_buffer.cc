@@ -24,6 +24,9 @@ namespace rocksdb {
 Status FilePrefetchBuffer::Prefetch(RandomAccessFileReader* reader,
                                     uint64_t offset, size_t n,
                                     bool for_compaction) {
+  if (!enable_ || reader == nullptr) {
+    return Status::OK();
+  }
   size_t alignment = reader->file()->GetRequiredBufferAlignment();
   size_t offset_ = static_cast<size_t>(offset);
   uint64_t rounddown_offset = Rounddown(offset_, alignment);
