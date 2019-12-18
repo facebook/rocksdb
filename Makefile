@@ -939,6 +939,7 @@ check: all
 	fi
 	rm -rf $(TMPD)
 ifneq ($(PLATFORM), OS_AIX)
+	python tools/check_all_python.py
 ifeq ($(filter -DROCKSDB_LITE,$(OPT)),)
 	python tools/ldb_test.py
 	sh tools/rocksdb_dump_test.sh
@@ -2051,6 +2052,7 @@ jtest_run:
 
 jtest: rocksdbjava
 	cd java;$(MAKE) sample;$(MAKE) test;
+	python tools/check_all_python.py # TODO peterd: find a better place for this check in CI targets
 
 jdb_bench:
 	cd java;$(MAKE) db_bench;
