@@ -176,6 +176,11 @@ class StressTest {
 #ifndef ROCKSDB_LITE
   Status VerifyGetLiveAndWalFiles(ThreadState* thread);
 #endif    // !ROCKSDB_LITE
+  virtual Status TestApproximateSize(
+      ThreadState* thread, uint64_t iteration,
+      const std::vector<int>& rand_column_families,
+      const std::vector<int64_t>& rand_keys);
+
   void VerificationAbort(SharedState* shared, std::string msg, Status s) const;
 
   void VerificationAbort(SharedState* shared, std::string msg, int cf,

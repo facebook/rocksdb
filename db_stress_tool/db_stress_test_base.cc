@@ -632,6 +632,14 @@ void StressTest::OperateDb(ThreadState* thread) {
         }
       }
 
+      if (thread->rand.OneInOpt(FLAGS_approximate_size_one_in)) {
+        Status s =
+            TestApproximateSize(thread, i, rand_column_families, rand_keys);
+        if (!s.ok()) {
+          VerificationAbort(shared, "ApproximateSize Failed", s);
+        }
+      }
+
       if (thread->rand.OneInOpt(FLAGS_acquire_snapshot_one_in)) {
         TestAcquireSnapshot(thread, rand_column_family, keystr, i);
       }
@@ -1169,6 +1177,48 @@ Status StressTest::TestBackupRestore(
             s.ToString().c_str());
   }
   return s;
+}
+
+Status StressTest::TestApproximateSize(
+    ThreadState* thread, uint64_t iteration,
+    const std::vector<int>& rand_column_families,
+    const std::vector<int64_t>& rand_keys) {
+  // rand_keys likely only has one key. Just use the first one.
+  assert(!rand_keys.empty());
+  assert(!rand_column_families.empty());
+  int64_t key1 = rand_keys[0];
+  int64_t key2;
+  if (thread->rand.OneIn(2)) {
+    // Two totally random keys. This tends to cover large ranges.
+    key2 = GenerateOneKey(thread, iteration);
+    if (key2 < key1) {
+      std::swap(key1, key2);
+    }
+  } else {
+    // Unless users pass a very large FLAGS_max_key, it we should not worry
+    // about overflow. It is for testing, so we skip the overflow checking
+    // for simplicity.
+    key2 = key1 + static_cast<int64_t>(thread->rand.Uniform(1000));
+  }
+  std::string key1_str = Key(key1);
+  std::string key2_str = Key(key2);
+  Range range{Slice(key1_str), Slice(key2_str)};
+  SizeApproximationOptions sao;
+  sao.include_memtabtles = thread->rand.OneIn(2);
+  if (sao.include_memtabtles) {
+    sao.include_files = thread->rand.OneIn(2);
+  }
+  if (thread->rand.OneIn(2)) {
+    if (thread->rand.OneIn(2)) {
+      sao.files_size_error_margin = 0.0;
+    } else {
+      sao.files_size_error_margin =
+          static_cast<double>(thread->rand.Uniform(3));
+    }
+  }
+  uint64_t result;
+  return db_->GetApproximateSizes(
+      sao, column_families_[rand_column_families[0]], &range, 1, &result);
 }
 
 Status StressTest::TestCheckpoint(ThreadState* thread,

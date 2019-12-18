@@ -621,4 +621,8 @@ DEFINE_int32(verify_db_one_in, 0,
 DEFINE_int32(continuous_verification_interval, 1000,
              "While test is running, verify db every N milliseconds. 0 "
              "disables continuous verification.");
+
+DEFINE_int32(approximate_size_one_in, 64,
+             "If non-zero, DB::GetApproximateSizes() will be called against"
+             " random keys.");
 #endif  // GFLAGS
