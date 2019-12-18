@@ -4700,7 +4700,7 @@ Status VersionSet::ReduceNumberOfLevels(const std::string& dbname,
 // Store the information in a map.
 Status VersionSet::GetAllFileCheckSumInfo(Options& options,
                                           std::string& dscname,
-                                          CFChecksumInfo& checksum_info) {
+                                          FileChecksumList& checksum_list) {
   std::unique_ptr<SequentialFileReader> file_reader;
   Status s;
   {
@@ -4716,14 +4716,14 @@ Status VersionSet::GetAllFileCheckSumInfo(Options& options,
   }
 
   // Add the default column family
-  ChecksumUnits cs_units;
-  checksum_info.checksum_stats.insert(std::make_pair(0, cs_units));
   VersionSet::LogReporter reporter;
   reporter.status = &s;
   log::Reader reader(nullptr, std::move(file_reader), &reporter,
                      true /* checksum */, 0 /* log_number */);
   Slice record;
   std::string scratch;
+  std::set<uint32_t> cf_set;
+  cf_set.insert(0);
   while (reader.ReadRecord(&record, &scratch) && s.ok()) {
     VersionEdit edit;
     s = edit.DecodeFrom(record);
@@ -4731,46 +4731,43 @@ Status VersionSet::GetAllFileCheckSumInfo(Options& options,
       break;
     }
     // Step 1: check if this CF has already been added
-    bool cf_in_info = (checksum_info.checksum_stats.find(edit.column_family_) !=
-                       checksum_info.checksum_stats.end());
+    bool cf_in_info = (cf_set.find(edit.column_family_) != cf_set.end());
 
     if (edit.is_column_family_add_) {
       if (cf_in_info) {
         s = Status::Corruption("Manifest adding the same column family twice");
         break;
       }
-      ChecksumUnits tmp_units;
-      checksum_info.checksum_stats.insert(
-          std::make_pair(edit.column_family_, tmp_units));
+      cf_set.insert(edit.column_family_);
     } else if (edit.is_column_family_drop_) {
       if (!cf_in_info) {
         s = Status::Corruption(
             "Manifest - dropping non-existing column family");
         break;
       }
-      auto info_iter = checksum_info.checksum_stats.find(edit.column_family_);
-      checksum_info.checksum_stats.erase(info_iter);
+      auto cf_iter = cf_set.find(edit.column_family_);
+      cf_set.erase(cf_iter);
     } else {
       if (!cf_in_info) {
         s = Status::Corruption(
             "Manifest record referencing unknown column family");
         break;
       }
-      auto info_iter = checksum_info.checksum_stats.find(edit.column_family_);
-      assert(info_iter != checksum_info.checksum_stats.end());
+      auto cf_iter = cf_set.find(edit.column_family_);
+      assert(cf_iter != cf_set.end());
 
       // Step 2: remove the deleted files from the info
       const VersionEdit::DeletedFileSet& del = edit.GetDeletedFiles();
       for (const auto& del_file : del) {
         uint64_t f_id = static_cast<uint64_t>(del_file.second);
-        info_iter->second.RemoveChecksumUnit(f_id);
+        checksum_list.RemoveChecksumUnit(f_id);
       }
 
       // Step 3: Add the new files to the info
       for (const auto& new_file : edit.GetNewFiles()) {
         FileMetaData* f = new FileMetaData(new_file.second);
-        info_iter->second.AddChecksumUnit(f->fd.GetNumber(), f->file_checksum,
-                                          f->file_checksum_name);
+        checksum_list.AddChecksumUnit(f->fd.GetNumber(), f->file_checksum,
+                                      f->file_checksum_name);
       }
     }
   }

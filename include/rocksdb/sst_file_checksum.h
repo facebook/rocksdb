@@ -41,7 +41,7 @@ class SstFileChecksum {
   virtual const char* Name() const = 0;
 };
 
-struct ChecksumUnits {
+struct FileChecksumList {
   std::unordered_map<uint64_t, std::pair<uint32_t, std::string>> checksum_map;
 
   void AddChecksumUnit(uint64_t f_id, uint32_t checksum,
@@ -62,13 +62,6 @@ struct ChecksumUnits {
       checksum_map.erase(it);
     }
   }
-};
-
-struct CFChecksumInfo {
-  std::map<uint32_t, ChecksumUnits> checksum_stats;
-  CFChecksumInfo(){};
-  CFChecksumInfo(const CFChecksumInfo&) = delete;
-  CFChecksumInfo& operator=(const CFChecksumInfo&) = delete;
 };
 
 }  // namespace rocksdb

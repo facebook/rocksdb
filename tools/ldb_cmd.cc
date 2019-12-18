@@ -1148,7 +1148,7 @@ void ManifestDumpCommand::DoCommand() {
 namespace {
 
 void GetAllFileCheckSumInfoFromManifest(Options options, std::string file,
-                                        CFChecksumInfo& checksum_stats) {
+                                        FileChecksumList& checksum_list) {
   EnvOptions sopt;
   std::string dbname("dummy");
   std::shared_ptr<Cache> tc(NewLRUCache(options.max_open_files - 10,
@@ -1163,7 +1163,7 @@ void GetAllFileCheckSumInfoFromManifest(Options options, std::string file,
   ImmutableDBOptions immutable_db_options(options);
   VersionSet versions(dbname, &immutable_db_options, sopt, tc.get(), &wb, &wc,
                       /*block_cache_tracer=*/nullptr);
-  Status s = versions.GetAllFileCheckSumInfo(options, file, checksum_stats);
+  Status s = versions.GetAllFileCheckSumInfo(options, file, checksum_list);
   if (!s.ok()) {
     fprintf(stderr, "Error in processing file %s %s\n", file.c_str(),
             s.ToString().c_str());
@@ -1268,16 +1268,13 @@ void FileChecksumDumpCommand::DoCommand() {
   //    sst file numer, checksum method name, checksum value
   //    ......
 
-  CFChecksumInfo checksum_info;
-  GetAllFileCheckSumInfoFromManifest(options_, manifestfile, checksum_info);
-  for (auto checksum_stat : checksum_info.checksum_stats) {
-    printf("Column Family %d\n", checksum_stat.first);
-    for (auto it : checksum_stat.second.checksum_map) {
-      printf("       %" PRId64 ", %s, %u\n", it.first, it.second.second.c_str(),
-             it.second.first);
-    }
+  FileChecksumList checksum_list;
+  GetAllFileCheckSumInfoFromManifest(options_, manifestfile, checksum_list);
+  for (auto it : checksum_list.checksum_map) {
+    printf("%" PRId64 ", %s, %u\n", it.first, it.second.second.c_str(),
+           it.second.first);
   }
-  printf("\n Print SST file checksum list finished \n");
+  printf("Print SST file checksum list finished \n");
 }
 
 // ----------------------------------------------------------------------------
