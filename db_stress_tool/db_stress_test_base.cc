@@ -553,6 +553,32 @@ void StressTest::OperateDb(ThreadState* thread) {
         }
       }
 
+      // Every 1 in N do the following to get live files and wal files test
+      // to check if the status are ok.
+      if (thread->rand.OneInOpt(FLAGS_get_live_files_and_wal_files_one_in)) {
+        Status s;
+        std::vector<std::string> live_file;
+        uint64_t manifest_size;
+        s = db_->GetLiveFiles(live_file, &manifest_size);
+        if (!s.ok()) {
+          fprintf(stdout, "Get live files failed: %s\n", s.ToString().c_str());
+        }
+
+        VectorLogPtr log_ptr;
+        s = db_->GetSortedWalFiles(log_ptr);
+        if (!s.ok()) {
+          fprintf(stdout, "Get sorted Wal files failed: %s\n",
+                  s.ToString().c_str());
+        }
+
+        std::unique_ptr<LogFile> cur_wal_file;
+        s = db_->GetCurrentWalFile(&cur_wal_file);
+        if (!s.ok()) {
+          fprintf(stdout, "Get current Wal file failed: %s\n",
+                  s.ToString().c_str());
+        }
+      }
+
       if (thread->rand.OneInOpt(FLAGS_pause_background_one_in)) {
         Status status = TestPauseBackground(thread);
         if (!status.ok()) {

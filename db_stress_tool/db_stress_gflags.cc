@@ -239,6 +239,11 @@ DEFINE_int32(clear_column_family_one_in, 1000000,
              "it again. If N == 0, never drop/create column families. "
              "When test_batches_snapshots is true, this flag has no effect");
 
+DEFINE_int32(get_live_files_and_wal_files_one_in, 1000000,
+             "With a chance of 1/N, call GetLiveFiles, GetSortedWalFiles "
+             "and GetCurrentWalFile to verify if it returns correctly. If "
+             "N == 0, never call the three interfaces.");
+
 DEFINE_int32(set_options_one_in, 0,
              "With a chance of 1/N, change some random options");
 

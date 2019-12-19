@@ -46,6 +46,7 @@ default_params = {
     "enable_pipelined_write": lambda: random.randint(0, 1),
     "expected_values_path": expected_values_file.name,
     "flush_one_in": 1000000,
+    "get_live_files_and_wal_files_one_in": 1000000,
     # Temporarily disable hash index
     "index_type": lambda: random.choice([0,2]),
     "max_background_compactions": 20,
