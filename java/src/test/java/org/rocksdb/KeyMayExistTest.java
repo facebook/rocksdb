@@ -44,13 +44,14 @@ public class KeyMayExistTest {
             isEqualTo(2);
         db.put("key".getBytes(UTF_8), "value".getBytes(UTF_8));
         // Test without column family
-        KeyMayExistResult exists = db.keyMayExist("key".getBytes(UTF_8), true);
-        assertThat(exists).isNotNull();
-        assertThat(exists.value).isNotNull();
-        assertThat(new String(exists.value, UTF_8)).isEqualTo("value");
+        final Holder<byte[]> holder = new Holder<>();
+        boolean exists = db.keyMayExist("key".getBytes(UTF_8), holder);
+        assertThat(exists).isTrue();
+        assertThat(holder.getValue()).isNotNull();
+        assertThat(new String(holder.getValue(), UTF_8)).isEqualTo("value");
 
-        exists = db.keyMayExist("key".getBytes(UTF_8), false);
-        assertThat(exists).isSameAs(KeyMayExistResult.VALUE_NOT_SET);
+        exists = db.keyMayExist("key".getBytes(UTF_8), null);
+        assertThat(exists).isTrue();
 
         // Slice key
         final StringBuilder builder = new StringBuilder("prefix");
@@ -63,94 +64,96 @@ public class KeyMayExistTest {
         final byte[] sliceValue = "slice value 0".getBytes(UTF_8);
         db.put(sliceKey, offset, len, sliceValue, 0, sliceValue.length);
 
-        exists = db.keyMayExist(sliceKey, offset, len, true);
-        assertThat(exists).isNotNull();
-        assertThat(exists.value).isNotNull();
-        assertThat(exists.value).isEqualTo(sliceValue);
+        exists = db.keyMayExist(sliceKey, offset, len, holder);
+        assertThat(exists).isTrue();
+        assertThat(holder.getValue()).isNotNull();
+        assertThat(holder.getValue()).isEqualTo(sliceValue);
 
-        exists = db.keyMayExist(sliceKey, offset, len, false);
-        assertThat(exists).isSameAs(KeyMayExistResult.VALUE_NOT_SET);
+        exists = db.keyMayExist(sliceKey, offset, len, null);
+        assertThat(exists).isTrue();
 
         // Test without column family but with readOptions
         try (final ReadOptions readOptions = new ReadOptions()) {
-          exists = db.keyMayExist(readOptions, "key".getBytes(UTF_8), true);
-          assertThat(exists).isNotNull();
-          assertThat(exists.value).isNotNull();
-          assertThat(new String(exists.value, UTF_8)).isEqualTo("value");
+          exists = db.keyMayExist(readOptions, "key".getBytes(UTF_8), holder);
+          assertThat(exists).isTrue();
+          assertThat(holder.getValue()).isNotNull();
+          assertThat(new String(holder.getValue(), UTF_8)).isEqualTo("value");
 
-          exists = db.keyMayExist(readOptions, "key".getBytes(UTF_8), false);
-          assertThat(exists).isSameAs(KeyMayExistResult.VALUE_NOT_SET);
+          exists = db.keyMayExist(readOptions, "key".getBytes(UTF_8), null);
+          assertThat(exists).isTrue();
 
-          exists = db.keyMayExist(readOptions, sliceKey, offset, len, true);
-          assertThat(exists).isNotNull();
-          assertThat(exists.value).isNotNull();
-          assertThat(exists.value).isEqualTo(sliceValue);
+          exists = db.keyMayExist(readOptions, sliceKey, offset, len, holder);
+          assertThat(exists).isTrue();
+          assertThat(holder.getValue()).isNotNull();
+          assertThat(holder.getValue()).isEqualTo(sliceValue);
 
-          exists = db.keyMayExist(readOptions, sliceKey, offset, len, false);
-          assertThat(exists).isSameAs(KeyMayExistResult.VALUE_NOT_SET);
+          exists = db.keyMayExist(readOptions, sliceKey, offset, len, null);
+          assertThat(exists).isTrue();
         }
 
         // Test with column family
         exists = db.keyMayExist(columnFamilyHandleList.get(0), "key".getBytes(UTF_8),
-            true);
-        assertThat(exists).isNotNull();
-        assertThat(exists.value).isNotNull();
-        assertThat(new String(exists.value, UTF_8)).isEqualTo("value");
+            holder);
+        assertThat(exists).isTrue();
+        assertThat(holder.getValue()).isNotNull();
+        assertThat(new String(holder.getValue(), UTF_8)).isEqualTo("value");
 
         exists = db.keyMayExist(columnFamilyHandleList.get(0), "key".getBytes(UTF_8),
-            false);
-        assertThat(exists).isSameAs(KeyMayExistResult.VALUE_NOT_SET);
+            null);
+        assertThat(exists).isTrue();
 
         // Test slice sky with column family
         exists = db.keyMayExist(columnFamilyHandleList.get(0), sliceKey, offset, len,
-            true);
-        assertThat(exists).isNotNull();
-        assertThat(exists.value).isNotNull();
-        assertThat(exists.value).isEqualTo(sliceValue);
+            holder);
+        assertThat(exists).isTrue();
+        assertThat(holder.getValue()).isNotNull();
+        assertThat(holder.getValue()).isEqualTo(sliceValue);
 
         exists = db.keyMayExist(columnFamilyHandleList.get(0), sliceKey, offset, len,
-            false);
-        assertThat(exists).isSameAs(KeyMayExistResult.VALUE_NOT_SET);
+            null);
+        assertThat(exists).isTrue();
 
         // Test with column family and readOptions
         try (final ReadOptions readOptions = new ReadOptions()) {
           exists = db.keyMayExist(columnFamilyHandleList.get(0), readOptions,
-              "key".getBytes(UTF_8), true);
-          assertThat(exists).isNotNull();
-          assertThat(exists.value).isNotNull();
-          assertThat(new String(exists.value, UTF_8)).isEqualTo("value");
+              "key".getBytes(UTF_8), holder);
+          assertThat(exists).isTrue();
+          assertThat(holder.getValue()).isNotNull();
+          assertThat(new String(holder.getValue(), UTF_8)).isEqualTo("value");
 
           exists = db.keyMayExist(columnFamilyHandleList.get(0), readOptions,
-              "key".getBytes(UTF_8), false);
-          assertThat(exists).isSameAs(KeyMayExistResult.VALUE_NOT_SET);
+              "key".getBytes(UTF_8), null);
+          assertThat(exists).isTrue();
 
           // Test slice key with column family and read options
           exists = db.keyMayExist(columnFamilyHandleList.get(0), readOptions,
-              sliceKey, offset, len, true);
-          assertThat(exists).isNotNull();
-          assertThat(exists.value).isNotNull();
-          assertThat(exists.value).isEqualTo(sliceValue);
+              sliceKey, offset, len, holder);
+          assertThat(exists).isTrue();
+          assertThat(holder.getValue()).isNotNull();
+          assertThat(holder.getValue()).isEqualTo(sliceValue);
 
           exists = db.keyMayExist(columnFamilyHandleList.get(0), readOptions,
-              sliceKey, offset, len, false);
-          assertThat(exists).isSameAs(KeyMayExistResult.VALUE_NOT_SET);
+              sliceKey, offset, len, null);
+          assertThat(exists).isTrue();
         }
 
         // KeyMayExist in CF1 must return null value
         exists = db.keyMayExist(columnFamilyHandleList.get(1),
-            "key".getBytes(UTF_8), true);
-        assertThat(exists).isNull();
+            "key".getBytes(UTF_8), holder);
+        assertThat(exists).isFalse();
+        assertThat(holder.getValue()).isNull();
         exists = db.keyMayExist(columnFamilyHandleList.get(1),
-            "key".getBytes(UTF_8), false);
-        assertThat(exists).isNull();
+            "key".getBytes(UTF_8), null);
+        assertThat(exists).isFalse();
 
         // slice key
         exists = db.keyMayExist(columnFamilyHandleList.get(1),
-            sliceKey, 1, 3, true);
-        assertThat(exists).isNull();
+            sliceKey, 1, 3, holder);
+        assertThat(exists).isFalse();
+        assertThat(holder.getValue()).isNull();
         exists = db.keyMayExist(columnFamilyHandleList.get(1),
-            sliceKey, 1, 3, false);
-        assertThat(exists).isNull();
+            sliceKey, 1, 3, null);
+        assertThat(exists).isFalse();
       } finally {
         for (final ColumnFamilyHandle columnFamilyHandle :
             columnFamilyHandleList) {
@@ -176,13 +179,14 @@ public class KeyMayExistTest {
       assertThat(read).isEqualTo(1);
       assertThat(buf).startsWith(value);
 
-      KeyMayExistResult exists = db.keyMayExist("key".getBytes(UTF_8), true);
-      assertThat(exists).isNotNull();
-      assertThat(exists.value).isNotNull();
-      assertThat(exists.value).isEqualTo(value);
+      final Holder<byte[]> holder = new Holder<>();
+      boolean exists = db.keyMayExist("key".getBytes(UTF_8), holder);
+      assertThat(exists).isTrue();
+      assertThat(holder.getValue()).isNotNull();
+      assertThat(holder.getValue()).isEqualTo(value);
 
-      exists = db.keyMayExist("key".getBytes(UTF_8), false);
-      assertThat(exists).isSameAs(KeyMayExistResult.VALUE_NOT_SET);
+      exists = db.keyMayExist("key".getBytes(UTF_8), null);
+      assertThat(exists).isTrue();
     }
   }
 }

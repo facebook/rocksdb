@@ -2186,24 +2186,23 @@ public class RocksDB extends RocksObject {
    * returns null, else it returns an instance of KeyMayExistResult
    *
    * If the caller wants to obtain value when the key
-   * is found in memory, then {@code retrieveFoundValue} must be set.
+   * is found in memory, then {@code valueHolder} must be set.
    *
    * This check is potentially lighter-weight than invoking
    * {@link #get(byte[])}. One way to make this lighter weight is to avoid
    * doing any IOs.
    *
    * @param key byte array of a key to search for
-   * @param retrieveFoundValue true to retrieve the value if it is found
+   * @param valueHolder non-null to retrieve the value if it is found, or null
+   *     if the value is not needed. If non-null, upon return of the function,
+   *     the {@code value} will be set if it could be retrieved.
    *
-   * @return null if the key definitely does not exist in the database.
-   *     {@link KeyMayExistResult#VALUE_NOT_SET} is returned
-   *     if {@code retrieveFoundValue == false} or the value could
-   *     not be retrieved properly. Otherwise, an instance
-   *     of {@link KeyMayExistResult} is returned with a value.
+   * @return false if the key definitely does not exist in the database,
+   *     otherwise true.
    */
-  public /* @Nullable */ KeyMayExistResult keyMayExist(final byte[] key,
-      final boolean retrieveFoundValue) {
-    return keyMayExist(key, 0, key.length, retrieveFoundValue);
+  public boolean keyMayExist(final byte[] key,
+      /* @Nullable */ final Holder<byte[]> valueHolder) {
+    return keyMayExist(key, 0, key.length, valueHolder);
   }
 
   /**
@@ -2211,29 +2210,28 @@ public class RocksDB extends RocksObject {
    * returns null, else it returns an instance of KeyMayExistResult
    *
    * If the caller wants to obtain value when the key
-   * is found in memory, then {@code retrieveFoundValue} must be set.
+   * is found in memory, then {@code valueHolder} must be set.
    *
    * This check is potentially lighter-weight than invoking
-   * {@link #get(byte[], int, int)}. One way to make this lighter weight is to avoid
-   * doing any IOs.
+   * {@link #get(byte[], int, int)}. One way to make this lighter weight is to
+   * avoid doing any IOs.
    *
    * @param key byte array of a key to search for
    * @param offset the offset of the "key" array to be used, must be
    *     non-negative and no larger than "key".length
    * @param len the length of the "key" array to be used, must be non-negative
    *     and no larger than "key".length
-   * @param retrieveFoundValue true to retrieve the value if it is found
+   * @param valueHolder non-null to retrieve the value if it is found, or null
+   *     if the value is not needed. If non-null, upon return of the function,
+   *     the {@code value} will be set if it could be retrieved.
    *
-   * @return null if the key definitely does not exist in the database.
-   *     {@link KeyMayExistResult#VALUE_NOT_SET} is returned
-   *     if {@code retrieveFoundValue == false} or the value could
-   *     not be retrieved properly. Otherwise, an instance
-   *     of {@link KeyMayExistResult} is returned with a value.
+   * @return false if the key definitely does not exist in the database,
+   *     otherwise true.
    */
-  public /* @Nullable */ KeyMayExistResult keyMayExist(final byte[] key,
-      final int offset, final int len, final boolean retrieveFoundValue) {
-    return keyMayExist((ColumnFamilyHandle)null, key, offset, len,
-        retrieveFoundValue);
+  public boolean keyMayExist(final byte[] key,
+      final int offset, final int len,
+      /* @Nullable */ final Holder<byte[]> valueHolder) {
+    return keyMayExist((ColumnFamilyHandle)null, key, offset, len, valueHolder);
   }
 
   /**
@@ -2241,7 +2239,7 @@ public class RocksDB extends RocksObject {
    * returns null, else it returns an instance of KeyMayExistResult
    *
    * If the caller wants to obtain value when the key
-   * is found in memory, then {@code retrieveFoundValue} must be set.
+   * is found in memory, then {@code valueHolder} must be set.
    *
    * This check is potentially lighter-weight than invoking
    * {@link #get(ColumnFamilyHandle,byte[])}. One way to make this lighter
@@ -2249,19 +2247,18 @@ public class RocksDB extends RocksObject {
    *
    * @param columnFamilyHandle {@link ColumnFamilyHandle} instance
    * @param key byte array of a key to search for
-   * @param retrieveFoundValue true to retrieve the value if it is found
+   * @param valueHolder non-null to retrieve the value if it is found, or null
+   *     if the value is not needed. If non-null, upon return of the function,
+   *     the {@code value} will be set if it could be retrieved.
    *
-   * @return null if the key definitely does not exist in the database.
-   *     {@link KeyMayExistResult#VALUE_NOT_SET} is returned
-   *     if {@code retrieveFoundValue == false} or the value could
-   *     not be retrieved properly. Otherwise, an instance
-   *     of {@link KeyMayExistResult} is returned with a value.
+   * @return false if the key definitely does not exist in the database,
+   *     otherwise true.
    */
-  public /* @Nullable */ KeyMayExistResult keyMayExist(
+  public boolean keyMayExist(
       final ColumnFamilyHandle columnFamilyHandle, final byte[] key,
-      final boolean retrieveFoundValue) {
+      /* @Nullable */ final Holder<byte[]> valueHolder) {
     return keyMayExist(columnFamilyHandle, key, 0, key.length,
-        retrieveFoundValue);
+        valueHolder);
   }
 
   /**
@@ -2269,7 +2266,7 @@ public class RocksDB extends RocksObject {
    * returns null, else it returns an instance of KeyMayExistResult
    *
    * If the caller wants to obtain value when the key
-   * is found in memory, then {@code retrieveFoundValue} must be set.
+   * is found in memory, then {@code valueHolder} must be set.
    *
    * This check is potentially lighter-weight than invoking
    * {@link #get(ColumnFamilyHandle, byte[], int, int)}. One way to make this
@@ -2281,19 +2278,19 @@ public class RocksDB extends RocksObject {
    *    non-negative and no larger than "key".length
    * @param len the length of the "key" array to be used, must be non-negative
    *    and no larger than "key".length
-   * @param retrieveFoundValue true to retrieve the value if it is found
+   * @param valueHolder non-null to retrieve the value if it is found, or null
+   *     if the value is not needed. If non-null, upon return of the function,
+   *     the {@code value} will be set if it could be retrieved.
    *
-   * @return null if the key definitely does not exist in the database.
-   *     {@link KeyMayExistResult#VALUE_NOT_SET} is returned
-   *     if {@code retrieveFoundValue == false} or the value could
-   *     not be retrieved properly. Otherwise, an instance
-   *     of {@link KeyMayExistResult} is returned with a value.
+   * @return false if the key definitely does not exist in the database,
+   *     otherwise true.
    */
-  public /* @Nullable */ KeyMayExistResult keyMayExist(
+  public boolean keyMayExist(
       final ColumnFamilyHandle columnFamilyHandle,
-      final byte[] key, int offset, int len, final boolean retrieveFoundValue) {
+      final byte[] key, int offset, int len,
+      /* @Nullable */ final Holder<byte[]> valueHolder) {
     return keyMayExist(columnFamilyHandle, null, key, offset, len,
-        retrieveFoundValue);
+        valueHolder);
   }
 
   /**
@@ -2301,7 +2298,7 @@ public class RocksDB extends RocksObject {
    * returns null, else it returns an instance of KeyMayExistResult
    *
    * If the caller wants to obtain value when the key
-   * is found in memory, then {@code retrieveFoundValue} must be set.
+   * is found in memory, then {@code valueHolder} must be set.
    *
    * This check is potentially lighter-weight than invoking
    * {@link #get(ReadOptions, byte[])}. One way to make this
@@ -2309,19 +2306,18 @@ public class RocksDB extends RocksObject {
    *
    * @param readOptions {@link ReadOptions} instance
    * @param key byte array of a key to search for
-   * @param retrieveFoundValue true to retrieve the value if it is found
+   * @param valueHolder non-null to retrieve the value if it is found, or null
+   *     if the value is not needed. If non-null, upon return of the function,
+   *     the {@code value} will be set if it could be retrieved.
    *
-   * @return null if the key definitely does not exist in the database.
-   *     {@link KeyMayExistResult#VALUE_NOT_SET} is returned
-   *     if {@code retrieveFoundValue == false} or the value could
-   *     not be retrieved properly. Otherwise, an instance
-   *     of {@link KeyMayExistResult} is returned with a value.
+   * @return false if the key definitely does not exist in the database,
+   *     otherwise true.
    */
-  public /* @Nullable */ KeyMayExistResult keyMayExist(
+  public boolean keyMayExist(
       final ReadOptions readOptions, final byte[] key,
-      final boolean retrieveFoundValue) {
+      /* @Nullable */ final Holder<byte[]> valueHolder) {
     return keyMayExist(readOptions, key, 0, key.length,
-        retrieveFoundValue);
+        valueHolder);
   }
 
   /**
@@ -2329,7 +2325,7 @@ public class RocksDB extends RocksObject {
    * returns null, else it returns an instance of KeyMayExistResult
    *
    * If the caller wants to obtain value when the key
-   * is found in memory, then {@code retrieveFoundValue} must be set.
+   * is found in memory, then {@code valueHolder} must be set.
    *
    * This check is potentially lighter-weight than invoking
    * {@link #get(ReadOptions, byte[], int, int)}. One way to make this
@@ -2341,20 +2337,19 @@ public class RocksDB extends RocksObject {
    *     non-negative and no larger than "key".length
    * @param len the length of the "key" array to be used, must be non-negative
    *     and no larger than "key".length
-   * @param retrieveFoundValue true to retrieve the value if it is found
+   * @param valueHolder non-null to retrieve the value if it is found, or null
+   *     if the value is not needed. If non-null, upon return of the function,
+   *     the {@code value} will be set if it could be retrieved.
    *
-   * @return null if the key definitely does not exist in the database.
-   *     {@link KeyMayExistResult#VALUE_NOT_SET} is returned
-   *     if {@code retrieveFoundValue == false} or the value could
-   *     not be retrieved properly. Otherwise, an instance
-   *     of {@link KeyMayExistResult} is returned with a value.
+   * @return false if the key definitely does not exist in the database,
+   *     otherwise true.
    */
-  public /* @Nullable */ KeyMayExistResult keyMayExist(
+  public boolean keyMayExist(
       final ReadOptions readOptions,
       final byte[] key, final int offset, final int len,
-      final boolean retrieveFoundValue) {
+      /* @Nullable */ final Holder<byte[]> valueHolder) {
     return keyMayExist(null, readOptions,
-        key, offset, len, retrieveFoundValue);
+        key, offset, len, valueHolder);
   }
 
   /**
@@ -2362,7 +2357,7 @@ public class RocksDB extends RocksObject {
    * returns null, else it returns an instance of KeyMayExistResult
    *
    * If the caller wants to obtain value when the key
-   * is found in memory, then {@code retrieveFoundValue} must be set.
+   * is found in memory, then {@code valueHolder} must be set.
    *
    * This check is potentially lighter-weight than invoking
    * {@link #get(ColumnFamilyHandle, ReadOptions, byte[])}. One way to make this
@@ -2371,20 +2366,19 @@ public class RocksDB extends RocksObject {
    * @param columnFamilyHandle {@link ColumnFamilyHandle} instance
    * @param readOptions {@link ReadOptions} instance
    * @param key byte array of a key to search for
-   * @param retrieveFoundValue true to retrieve the value if it is found
+   * @param valueHolder non-null to retrieve the value if it is found, or null
+   *     if the value is not needed. If non-null, upon return of the function,
+   *     the {@code value} will be set if it could be retrieved.
    *
-   * @return null if the key definitely does not exist in the database.
-   *     {@link KeyMayExistResult#VALUE_NOT_SET} is returned
-   *     if {@code retrieveFoundValue == false} or the value could
-   *     not be retrieved properly. Otherwise, an instance
-   *     of {@link KeyMayExistResult} is returned with a value.
+   * @return false if the key definitely does not exist in the database,
+   *     otherwise true.
    */
-  public /* @Nullable */ KeyMayExistResult keyMayExist(
+  public boolean keyMayExist(
       final ColumnFamilyHandle columnFamilyHandle,
       final ReadOptions readOptions, final byte[] key,
-      final boolean retrieveFoundValue) {
+      /* @Nullable */ final Holder<byte[]> valueHolder) {
     return keyMayExist(columnFamilyHandle, readOptions,
-        key, 0, key.length, retrieveFoundValue);
+        key, 0, key.length, valueHolder);
   }
 
   /**
@@ -2392,7 +2386,7 @@ public class RocksDB extends RocksObject {
    * returns null, else it returns an instance of KeyMayExistResult
    *
    * If the caller wants to obtain value when the key
-   * is found in memory, then {@code retrieveFoundValue} must be set.
+   * is found in memory, then {@code valueHolder} must be set.
    *
    * This check is potentially lighter-weight than invoking
    * {@link #get(ColumnFamilyHandle, ReadOptions, byte[], int, int)}.
@@ -2405,26 +2399,24 @@ public class RocksDB extends RocksObject {
    *     non-negative and no larger than "key".length
    * @param len the length of the "key" array to be used, must be non-negative
    *     and no larger than "key".length
-   * @param retrieveFoundValue true to retrieve the value if it is found
+   * @param valueHolder non-null to retrieve the value if it is found, or null
+   *     if the value is not needed. If non-null, upon return of the function,
+   *     the {@code value} will be set if it could be retrieved.
    *
-   * @return null if the key definitely does not exist in the database.
-   *     {@link KeyMayExistResult#VALUE_NOT_SET} is returned
-   *     if {@code retrieveFoundValue == false} or the value could
-   *     not be retrieved properly. Otherwise, an instance
-   *     of {@link KeyMayExistResult} is returned with a value.
+   * @return false if the key definitely does not exist in the database,
+   *     otherwise true.
    */
-  public /* @Nullable */ KeyMayExistResult keyMayExist(
+  public boolean keyMayExist(
       final ColumnFamilyHandle columnFamilyHandle,
       final ReadOptions readOptions,
       final byte[] key, final int offset, final int len,
-      final boolean retrieveFoundValue) {
+      /* @Nullable */ final Holder<byte[]> valueHolder) {
     checkBounds(offset, len, key.length);
-    if (!retrieveFoundValue) {
+    if (valueHolder == null) {
       return keyMayExist(nativeHandle_,
           columnFamilyHandle == null ? 0 : columnFamilyHandle.nativeHandle_,
           readOptions == null ? 0 : readOptions.nativeHandle_,
-          key, offset, len)
-          ? KeyMayExistResult.VALUE_NOT_SET : null;
+          key, offset, len);
     } else {
       final byte[][] result = keyMayExistFoundValue(
           nativeHandle_,
@@ -2432,11 +2424,14 @@ public class RocksDB extends RocksObject {
           readOptions == null ? 0 : readOptions.nativeHandle_,
           key, offset, len);
       if (result[0][0] == 0x0) {
-        return null;
+        valueHolder.setValue(null);
+        return false;
       } else if (result[0][0] == 0x1) {
-        return KeyMayExistResult.VALUE_NOT_SET;
+        valueHolder.setValue(null);
+        return true;
       } else {
-        return new KeyMayExistResult(result[1]);
+        valueHolder.setValue(result[1]);
+        return true;
       }
     }
   }

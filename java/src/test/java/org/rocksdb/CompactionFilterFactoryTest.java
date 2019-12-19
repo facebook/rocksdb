@@ -55,8 +55,8 @@ public class CompactionFilterFactoryTest {
           rocksDb.compactRange(cfHandles.get(1));
 
           assertThat(rocksDb.get(cfHandles.get(1), key1)).isEqualTo(value1);
-          final KeyMayExistResult exists = rocksDb.keyMayExist(cfHandles.get(1), key2, false);
-          assertThat(exists).isNull();
+          final boolean exists = rocksDb.keyMayExist(cfHandles.get(1), key2, null);
+          assertThat(exists).isFalse();
         } finally {
           for (final ColumnFamilyHandle cfHandle : cfHandles) {
             cfHandle.close();
