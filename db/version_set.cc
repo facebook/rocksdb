@@ -4715,8 +4715,8 @@ Status VersionSet::ReduceNumberOfLevels(const std::string& dbname,
 }
 
 // Get the checksum information including the checksum and checksum method
-// name of all SST files of this Manifest. Separated by column families.
-// Store the information in a map.
+// name of all SST files of this Manifest. Store the information in
+// FileChecksumLis which contains a map from file id to its checksum info
 Status VersionSet::GetAllFileCheckSumInfo(Options& options,
                                           std::string& dscname,
                                           FileChecksumList& checksum_list) {
@@ -4784,9 +4784,9 @@ Status VersionSet::GetAllFileCheckSumInfo(Options& options,
 
       // Step 3: Add the new files to the info
       for (const auto& new_file : edit.GetNewFiles()) {
-        FileMetaData* f = new FileMetaData(new_file.second);
-        checksum_list.AddChecksumUnit(f->fd.GetNumber(), f->file_checksum,
-                                      f->file_checksum_name);
+        checksum_list.AddChecksumUnit(new_file.second.fd.GetNumber(),
+                                      new_file.second.file_checksum,
+                                      new_file.second.file_checksum_name);
       }
     }
   }

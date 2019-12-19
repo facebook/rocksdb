@@ -163,7 +163,7 @@ class MockTableBuilder : public TableBuilder {
   uint32_t id_;
   MockTableFileSystem* file_system_;
   stl_wrappers::KVMap table_;
-  uint32_t file_checksum_ = 0;
+  uint32_t file_checksum_ = kUnknownFileChecksum;
 };
 
 class MockTableFactory : public TableFactory {

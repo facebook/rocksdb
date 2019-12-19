@@ -10,6 +10,7 @@
 #pragma once
 #include <atomic>
 #include <string>
+#include "db/version_edit.h"
 #include "port/port.h"
 #include "rocksdb/env.h"
 #include "rocksdb/file_system.h"
@@ -71,7 +72,7 @@ class WritableFileWriter {
   Statistics* stats_;
   std::vector<std::shared_ptr<EventListener>> listeners_;
   SstFileChecksum* checksum_cal_;
-  uint32_t file_checksum_ = 0;
+  uint32_t file_checksum_ = kUnknownFileChecksum;
   bool is_first_checksum_ = true;
 
  public:

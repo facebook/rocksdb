@@ -41,6 +41,8 @@ class SstFileChecksum {
   virtual const char* Name() const = 0;
 };
 
+// The data structure that stores the mapping from file number to its checksum
+// It is used to store the file checksum from Manifest.
 struct FileChecksumList {
   std::unordered_map<uint64_t, std::pair<uint32_t, std::string>> checksum_map;
 

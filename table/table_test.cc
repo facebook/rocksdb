@@ -8,8 +8,6 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
 #include <stdio.h>
-#include <iostream>
-
 #include <algorithm>
 #include <iostream>
 #include <map>
@@ -1246,7 +1244,6 @@ class FileChecksumHelper {
         rocksdb::test::GetStringSinkFromLegacyWriter(file_writer_.get());
     file_reader_.reset(test::GetRandomAccessFileReader(
         new test::StringSource(ss_rw->contents())));
-    std::cout << "ss_rw size: " << ss_rw->contents().size() << "\n";
     size_t scratch_size = 2048;
     char scratch[scratch_size];
     Slice result;
@@ -3246,8 +3243,6 @@ TEST_P(BlockBasedTableTest, Crc32FileChecksum) {
   uint32_t checksum;
   ASSERT_OK(f.CalculateFileChecksum(ioptions, options.sst_file_checksum.get(),
                                     &checksum));
-  std::cout << "original: " << f.GetFileChecksum() << " "
-            << f.GetFileChecksumName() << " current:" << checksum << "\n";
   EXPECT_EQ(f.GetFileChecksum(), checksum);
 }
 
@@ -3378,8 +3373,6 @@ TEST_F(PlainTableTest, Crc32FileChecksum) {
   uint32_t checksum;
   ASSERT_OK(f.CalculateFileChecksum(ioptions, options.sst_file_checksum.get(),
                                     &checksum));
-  std::cout << "original: " << f.GetFileChecksum() << " "
-            << f.GetFileChecksumName() << " current:" << checksum << "\n";
   EXPECT_EQ(f.GetFileChecksum(), checksum);
 }
 

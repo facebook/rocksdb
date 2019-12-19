@@ -13,6 +13,9 @@
 
 namespace rocksdb {
 
+// This is the class to generate the SST file checksum. If user enables the
+// checksum in Options by enable_sst_file_checksum=true but does not provide
+// the checksum method instance, the following will be used.
 class SstFileChecksumCrc32c : public SstFileChecksum {
  public:
   uint32_t Extend(uint32_t init_checksum, const char* data, size_t n) override {

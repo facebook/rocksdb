@@ -19,7 +19,6 @@
 #include <utility>
 
 #include "db/dbformat.h"
-#include "db/version_edit.h"
 #include "index_builder.h"
 
 #include "rocksdb/cache.h"
