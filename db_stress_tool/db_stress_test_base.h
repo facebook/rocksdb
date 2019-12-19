@@ -173,6 +173,8 @@ class StressTest {
 
   Status MaybeReleaseSnapshots(ThreadState* thread, uint64_t i);
 
+  Status VerifyGetLiveAndWalFiles(ThreadState* thread);
+
   void VerificationAbort(SharedState* shared, std::string msg, Status s) const;
 
   void VerificationAbort(SharedState* shared, std::string msg, int cf,

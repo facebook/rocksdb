@@ -553,29 +553,14 @@ void StressTest::OperateDb(ThreadState* thread) {
         }
       }
 
-      // Every 1 in N do the following to get live files and wal files test
-      // to check if the status are ok.
+      // Every 1 in N verify the one of the following: 1) GetLiveFiles
+      // 2) GetSortedWalFiles 3) GetCurrentWalFile. Each time, randomly select
+      // one of them to run the test.
       if (thread->rand.OneInOpt(FLAGS_get_live_files_and_wal_files_one_in)) {
-        Status s;
-        std::vector<std::string> live_file;
-        uint64_t manifest_size;
-        s = db_->GetLiveFiles(live_file, &manifest_size);
-        if (!s.ok()) {
-          fprintf(stdout, "Get live files failed: %s\n", s.ToString().c_str());
-        }
-
-        VectorLogPtr log_ptr;
-        s = db_->GetSortedWalFiles(log_ptr);
-        if (!s.ok()) {
-          fprintf(stdout, "Get sorted Wal files failed: %s\n",
-                  s.ToString().c_str());
-        }
-
-        std::unique_ptr<LogFile> cur_wal_file;
-        s = db_->GetCurrentWalFile(&cur_wal_file);
-        if (!s.ok()) {
-          fprintf(stdout, "Get current Wal file failed: %s\n",
-                  s.ToString().c_str());
+        Status status = VerifyGetLiveAndWalFiles(thread);
+        if (!status.ok()) {
+            VerificationAbort(shared, "VerifyGetLiveAndWalFiles status not OK",
+                                    status);
         }
       }
 
@@ -886,6 +871,29 @@ Status StressTest::TestIterate(ThreadState* thread,
   db_->ReleaseSnapshot(snapshot);
 
   return s;
+}
+
+// Test the return status of GetLiveFiles, GetSortedWalFiles, and
+// GetCurrentWalFile. Each time, randomly select one of them to run
+// and return the status.
+Status StressTest::VerifyGetLiveAndWalFiles(ThreadState* thread) {
+  int case_num = thread->rand.Next() % 3;
+  if (case_num == 0) {
+    std::vector<std::string> live_file;
+    uint64_t manifest_size;
+    return db_->GetLiveFiles(live_file, &manifest_size);
+  }
+
+  if (case_num == 1) {
+    VectorLogPtr log_ptr;
+    return db_->GetSortedWalFiles(log_ptr);
+  }
+
+  if (case_num == 2) {
+    std::unique_ptr<LogFile> cur_wal_file;
+    return db_->GetCurrentWalFile(&cur_wal_file);
+  }
+  return Status::OK();
 }
 
 // Compare the two iterator, iter and cmp_iter are in the same position,
