@@ -93,7 +93,7 @@ class BlockBasedTableBuilder : public TableBuilder {
   TableProperties GetTableProperties() const override;
 
   // Get checksum value
-  uint32_t GetFileChecksum() const override { return file_checksum_; };
+  uint32_t GetFileChecksum() const override { return file_checksum_; }
 
   // Get checksum method name
   const char* GetFileChecksumName() const override;

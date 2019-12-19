@@ -157,7 +157,7 @@ class MockTableBuilder : public TableBuilder {
   uint32_t GetFileChecksum() const override { return file_checksum_; }
   const char* GetFileChecksumName() const override {
     return kUnknownFileChecksumName.c_str();
-  };
+  }
 
  private:
   uint32_t id_;
