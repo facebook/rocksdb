@@ -6,12 +6,17 @@ import glob
 # errors. This provides a minimal pre-/post-commit check for python file
 # modifications.
 
-count = 0
-# Clean this up when we finally upgrade to Python 3
-for filename in glob.glob("*.py") + glob.glob("*/*.py") + glob.glob("*/*/*.py") + glob.glob("*/*/*/*.py"):
+filenames = []
+# Avoid scanning all of ./ because there might be other external repos
+# linked in.
+for base in ["buckifier", "build_tools", "coverage", "tools"]:
+    # Clean this up when we finally upgrade to Python 3
+    for suff in ["*", "*/*", "*/*/*"]:
+        filenames += glob.glob(base + "/" + suff + ".py")
+
+for filename in filenames:
     source = open(filename, 'r').read() + '\n'
     # Parses and syntax checks the file, throwing on error. (No pyc written.)
     _ = compile(source, filename, 'exec')
-    count = count + 1
 
-print("No syntax errors in {0} .py files".format(count))
+print("No syntax errors in {0} .py files".format(len(filenames)))
