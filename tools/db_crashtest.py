@@ -268,12 +268,9 @@ def gen_cmd_params(args):
 
 def gen_cmd(params, unknown_params):
     finalzied_params = finalize_and_sanitize(params)
-    sorted_param_list = []
-    for k in sorted(finalzied_params):
-      sorted_param_list.append((k, finalzied_params[k]))
     cmd = ['./db_stress'] + [
         '--{0}={1}'.format(k, v)
-        for k, v in sorted_param_list
+        for k, v in [(k, finalzied_params[k]) for k in sorted(finalzied_params)]
         if k not in set(['test_type', 'simple', 'duration', 'interval',
                          'random_kill_odd', 'cf_consistency', 'txn'])
         and v is not None] + unknown_params
