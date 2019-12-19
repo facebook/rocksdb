@@ -9,6 +9,7 @@
 #include <stdint.h>
 #include <string>
 #include <vector>
+#include "db/version_edit.h"
 #include "rocksdb/options.h"
 #include "rocksdb/status.h"
 #include "rocksdb/table.h"
@@ -115,7 +116,7 @@ class PlainTableBuilder: public TableBuilder {
   const SliceTransform* prefix_extractor_;
 
   // Store checksum value. If checksum is disabled, its value is 0
-  uint32_t file_checksum_ = 0;
+  uint32_t file_checksum_ = kUnknownFileChecksum;
 
   Slice GetPrefix(const Slice& target) const {
     assert(target.size() >= 8);  // target is internal key

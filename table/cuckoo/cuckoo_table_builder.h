@@ -10,11 +10,12 @@
 #include <string>
 #include <utility>
 #include <vector>
+#include "db/version_edit.h"
 #include "port/port.h"
 #include "rocksdb/status.h"
-#include "table/table_builder.h"
 #include "rocksdb/table.h"
 #include "rocksdb/table_properties.h"
+#include "table/table_builder.h"
 #include "util/autovector.h"
 
 namespace rocksdb {
@@ -125,8 +126,9 @@ class CuckooTableBuilder: public TableBuilder {
   std::string smallest_user_key_ = "";
 
   bool closed_;  // Either Finish() or Abandon() has been called.
+
   // Store checksum value. If checksum is disabled, its value is 0
-  uint32_t file_checksum_ = 0;
+  uint32_t file_checksum_ = kUnknownFileChecksum;
 };
 
 }  // namespace rocksdb

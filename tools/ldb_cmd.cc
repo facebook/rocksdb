@@ -1263,10 +1263,9 @@ void FileChecksumDumpCommand::DoCommand() {
 
   // Start to read and process the MANIFEST and print out the checksum in the
   // following format:
-  // column family i
-  //    sst file numer, checksum method name, checksum value
-  //    sst file numer, checksum method name, checksum value
-  //    ......
+  //  sst file numer, checksum method name, checksum value
+  //  sst file numer, checksum method name, checksum value
+  //  ......
 
   FileChecksumList checksum_list;
   GetAllFileCheckSumInfoFromManifest(options_, manifestfile, checksum_list);

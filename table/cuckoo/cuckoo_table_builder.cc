@@ -13,7 +13,6 @@
 #include <vector>
 
 #include "db/dbformat.h"
-#include "db/version_edit.h"
 #include "file/writable_file_writer.h"
 #include "rocksdb/env.h"
 #include "rocksdb/table.h"

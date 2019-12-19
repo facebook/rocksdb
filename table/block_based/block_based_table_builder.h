@@ -14,6 +14,7 @@
 #include <utility>
 #include <vector>
 
+#include "db/version_edit.h"
 #include "rocksdb/flush_block_policy.h"
 #include "rocksdb/listener.h"
 #include "rocksdb/options.h"
@@ -144,7 +145,7 @@ class BlockBasedTableBuilder : public TableBuilder {
   const uint64_t kCompressionSizeLimit = std::numeric_limits<int>::max();
 
   // Store checksum value. If checksum is disabled, its value is 0
-  uint32_t file_checksum_ = 0;
+  uint32_t file_checksum_ = kUnknownFileChecksum;
 };
 
 Slice CompressBlock(const Slice& raw, const CompressionInfo& info,
