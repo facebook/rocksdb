@@ -384,9 +384,6 @@ class HdfsLogger : public Logger {
 
 // Finally, the hdfs environment
 
-const std::string HdfsEnv::kProto = "hdfs://";
-const std::string HdfsEnv::pathsep = "/";
-
 // open a file for sequential reading
 Status HdfsEnv::NewSequentialFile(const std::string& fname,
                                   std::unique_ptr<SequentialFile>* result,
