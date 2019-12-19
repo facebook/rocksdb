@@ -65,6 +65,7 @@
 #include "util/mutexlock.h"
 #include "util/random.h"
 #include "util/string_util.h"
+#include "utilities/blob_db/blob_db.h"
 // SyncPoint is not supported in Released Windows Mode.
 #if !(defined NDEBUG) || !defined(OS_WIN)
 #include "test_util/sync_point.h"
@@ -208,6 +209,19 @@ DECLARE_bool(write_dbid_to_manifest);
 DECLARE_uint64(max_write_batch_group_size_bytes);
 DECLARE_bool(level_compaction_dynamic_level_bytes);
 DECLARE_int32(verify_checksum_one_in);
+
+#ifndef ROCKSDB_LITE
+DECLARE_bool(use_blob_db);
+DECLARE_bool(blob_db_is_fifo);
+DECLARE_uint64(blob_db_max_db_size);
+DECLARE_uint64(blob_db_max_ttl_range);
+DECLARE_uint64(blob_db_ttl_range_secs);
+DECLARE_uint64(blob_db_min_blob_size);
+DECLARE_uint64(blob_db_bytes_per_sync);
+DECLARE_uint64(blob_db_file_size);
+DECLARE_bool(blob_db_enable_gc);
+DECLARE_double(blob_db_gc_cutoff);
+#endif  // !ROCKSDB_LITE
 
 const long KB = 1024;
 const int kRandomValueMaxFactor = 3;
