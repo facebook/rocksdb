@@ -1755,7 +1755,7 @@ void StressTest::Open() {
 
         blob_db::BlobDB* blob_db = nullptr;
         s = blob_db::BlobDB::Open(options_, blob_db_options, FLAGS_db,
-                                  &blob_db);
+                                  cf_descriptors, &column_families_, &blob_db);
         if (s.ok()) {
           db_ = blob_db;
         }
