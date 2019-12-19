@@ -20,7 +20,7 @@ public class DBOptionsTest {
       new RocksNativeLibraryResource();
 
   public static final Random rand = PlatformRandomHelper.
-      getPlatformSpecificRandomFactory();3
+      getPlatformSpecificRandomFactory();
 
   @Test
   public void copyConstructor() {
