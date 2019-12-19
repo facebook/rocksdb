@@ -130,8 +130,7 @@ class FileChecksumTestHelper {
     if (!s.ok()) {
       return s;
     }
-    size_t scratch_size = 2048;
-    char scratch[scratch_size];
+    char scratch[2048];
     bool first_read = true;
     Slice result;
     SstFileChecksum* file_checksum_cal = options_.sst_file_checksum.get();
@@ -141,7 +140,7 @@ class FileChecksumTestHelper {
       checksum_name = kUnknownFileChecksumName;
     } else {
       checksum_name = file_checksum_cal->Name();
-      s = file_reader->Read(scratch_size, &result, scratch);
+      s = file_reader->Read(2048, &result, scratch);
       if (!s.ok()) {
         return s;
       }
@@ -153,7 +152,7 @@ class FileChecksumTestHelper {
           cur_checksum =
               file_checksum_cal->Extend(cur_checksum, scratch, result.size());
         }
-        s = file_reader->Read(scratch_size, &result, scratch);
+        s = file_reader->Read(2048, &result, scratch);
         if (!s.ok()) {
           return s;
         }
