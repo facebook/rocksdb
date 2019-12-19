@@ -47,7 +47,7 @@ default_params = {
     "expected_values_path": expected_values_file.name,
     "flush_one_in": 1000000,
     # Temporarily disable hash index
-    "index_type": lambda: random.randint(0,2),
+    "index_type": lambda: random.choice([0,2]),
     "max_background_compactions": 20,
     "max_bytes_for_level_base": 10485760,
     "max_key": 100000000,
@@ -228,12 +228,6 @@ def finalize_and_sanitize(src_params):
             dest_params["partition_filters"] = 0
         else:
             dest_params["use_block_based_filter"] = 0
-    # kHashSearch is incompatible with index_block_restart_interval > 1
-    if dest_params["index_type"] == 1:
-        dest_params["index_block_restart_interval"] = 1;
-        # KHashSearch need prefix_extractor to be set
-        if dest_params.get("prefix_size", 0) < 1:
-             dest_params["prefix_size"] = 3;
     if dest_params.get("atomic_flush", 0) == 1:
         # disable pipelined write when atomic flush is used.
         dest_params["enable_pipelined_write"] = 0

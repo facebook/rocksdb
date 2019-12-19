@@ -157,8 +157,6 @@ size_t TailPrefetchStats::GetSuggestedPrefetchSize() {
   return std::min(kMaxPrefetchSize, max_qualified_size);
 }
 
-// TODO(myabandeh): We should return an error instead of silently changing the
-// options
 BlockBasedTableFactory::BlockBasedTableFactory(
     const BlockBasedTableOptions& _table_options)
     : table_options_(_table_options) {
@@ -184,11 +182,6 @@ BlockBasedTableFactory::BlockBasedTableFactory(
     table_options_.block_restart_interval = 1;
   }
   if (table_options_.index_block_restart_interval < 1) {
-    table_options_.index_block_restart_interval = 1;
-  }
-  if (table_options_.index_type == BlockBasedTableOptions::kHashSearch &&
-      table_options_.index_block_restart_interval != 1) {
-    // Currently kHashSearch is incompatible with index_block_restart_interval > 1
     table_options_.index_block_restart_interval = 1;
   }
   if (table_options_.partition_filters &&
