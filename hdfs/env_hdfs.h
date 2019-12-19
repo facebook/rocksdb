@@ -9,6 +9,7 @@
 #include <stdio.h>
 #include <time.h>
 #include <iostream>
+#include <sstream>
 #include "port/sys_time.h"
 #include "rocksdb/env.h"
 #include "rocksdb/status.h"
@@ -168,51 +169,35 @@ class HdfsEnv : public Env {
   uint64_t GetThreadID() const override { return HdfsEnv::gettid(); }
 
  private:
-  std::string fsname_;  // string of the form "hdfs://hostname:port/"
+  std::string fsname_;  // uri string
   hdfsFS fileSys_;      //  a single FileSystem object for all files
   Env*  posixEnv;       // This object is derived from Env, but not from
                         // posixEnv. We have posixnv as an encapsulated
                         // object here so that we can use posix timers,
                         // posix threads, etc.
-
-  static const std::string kProto;
-  static const std::string pathsep;
-
+  
   /**
-   * If the URI is specified of the form hdfs://server:port/path,
-   * then connect to the specified cluster
+   * If the URI is specified with a scheme, then connect to it
    * else connect to default.
    */
   hdfsFS connectToPath(const std::string& uri) {
-    if (uri.empty()) {
-      return nullptr;
+    hdfsFS fs = nullptr;
+    if (! uri.empty()) {
+      if (uri.find("://") != std::string::npos) { // uri contains a scheme
+        // note that parsing and validation of uri based on the scheme
+        // will be done in the following libhdfs call
+        fs = hdfsConnectNewInstance(uri.c_str(), 0);
+      } else { // need to pick up the default uri from Hadoop configuration file
+        fs = hdfsConnectNewInstance("default", 0);
+      }
+      if (fs == nullptr) {
+        int errorCode = errno; // save errno returned by hdfsConnectNewInstance()
+        std::ostringstream oss;
+        oss.str("");
+        oss << "Error connecting to " << uri << ".  Errno = " << errorCode;
+        throw HdfsFatalException(oss.str());
+      }
     }
-    if (uri.find(kProto) != 0) {
-      // uri doesn't start with hdfs:// -> use default:0, which is special
-      // to libhdfs.
-      return hdfsConnectNewInstance("default", 0);
-    }
-    const std::string hostport = uri.substr(kProto.length());
-
-    std::vector <std::string> parts;
-    split(hostport, ':', parts);
-    if (parts.size() != 2) {
-      throw HdfsFatalException("Bad uri for hdfs " + uri);
-    }
-    // parts[0] = hosts, parts[1] = port/xxx/yyy
-    std::string host(parts[0]);
-    std::string remaining(parts[1]);
-
-    int rem = static_cast<int>(remaining.find(pathsep));
-    std::string portStr = (rem == 0 ? remaining :
-                           remaining.substr(0, rem));
-
-    tPort port;
-    port = atoi(portStr.c_str());
-    if (port == 0) {
-      throw HdfsFatalException("Bad host-port for hdfs " + uri);
-    }
-    hdfsFS fs = hdfsConnectNewInstance(host.c_str(), port);
     return fs;
   }
 
