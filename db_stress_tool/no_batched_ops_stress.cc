@@ -52,12 +52,13 @@ class NonBatchedOpsStressTest : public StressTest {
           Slice k = keystr;
           Status s = iter->status();
           if (iter->Valid()) {
+            Slice iter_key = iter->key();
             if (iter->key().compare(k) > 0) {
               s = Status::NotFound(Slice());
             } else if (iter->key().compare(k) == 0) {
               from_db = iter->value().ToString();
               iter->Next();
-            } else if (iter->key().compare(k) < 0) {
+            } else if (iter_key.compare(k) < 0) {
               VerificationAbort(shared, "An out of range key was found",
                                 static_cast<int>(cf), i);
             }

@@ -103,6 +103,8 @@ default_params = {
     "verify_checksum_one_in": 1000000,
     "verify_db_one_in": 100000,
     "continuous_verification_interval" : 0
+    "max_key_len": 3,
+    "key_len_percent_dist": "1,30,69"
 }
 
 _TEST_DIR_ENV_VAR = 'TEST_TMPDIR'
