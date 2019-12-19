@@ -32,17 +32,15 @@ StressTest::StressTest()
       cmp_db_(nullptr) {
   if (FLAGS_destroy_db_initially) {
     std::vector<std::string> files;
-    FLAGS_env->GetChildren(FLAGS_db, &files);
+    db_stress_env->GetChildren(FLAGS_db, &files);
     for (unsigned int i = 0; i < files.size(); i++) {
       if (Slice(files[i]).starts_with("heap-")) {
-        FLAGS_env->DeleteFile(FLAGS_db + "/" + files[i]);
+        db_stress_env->DeleteFile(FLAGS_db + "/" + files[i]);
       }
     }
 
     Options options;
     // Remove files without preserving manfiest files
-    options.env = FLAGS_env->target();
-
 #ifndef ROCKSDB_LITE
     const Status s = !FLAGS_use_blob_db
                          ? DestroyDB(FLAGS_db, options)
@@ -187,28 +185,28 @@ bool StressTest::BuildOptionsTable() {
 }
 
 void StressTest::InitDb() {
-  uint64_t now = FLAGS_env->NowMicros();
+  uint64_t now = db_stress_env->NowMicros();
   fprintf(stdout, "%s Initializing db_stress\n",
-          FLAGS_env->TimeToString(now / 1000000).c_str());
+          db_stress_env->TimeToString(now / 1000000).c_str());
   PrintEnv();
   Open();
   BuildOptionsTable();
 }
 
 void StressTest::InitReadonlyDb(SharedState* shared) {
-  uint64_t now = FLAGS_env->NowMicros();
+  uint64_t now = db_stress_env->NowMicros();
   fprintf(stdout, "%s Preloading db with %" PRIu64 " KVs\n",
-          FLAGS_env->TimeToString(now / 1000000).c_str(), FLAGS_max_key);
+          db_stress_env->TimeToString(now / 1000000).c_str(), FLAGS_max_key);
   PreloadDbAndReopenAsReadOnly(FLAGS_max_key, shared);
 }
 
 bool StressTest::VerifySecondaries() {
 #ifndef ROCKSDB_LITE
   if (FLAGS_test_secondary) {
-    uint64_t now = FLAGS_env->NowMicros();
+    uint64_t now = db_stress_env->NowMicros();
     fprintf(
         stdout, "%s Start to verify secondaries against primary\n",
-        FLAGS_env->TimeToString(static_cast<uint64_t>(now) / 1000000).c_str());
+        db_stress_env->TimeToString(static_cast<uint64_t>(now) / 1000000).c_str());
   }
   for (size_t k = 0; k != secondaries_.size(); ++k) {
     Status s = secondaries_[k]->TryCatchUpWithPrimary();
@@ -250,10 +248,10 @@ bool StressTest::VerifySecondaries() {
     }
   }
   if (FLAGS_test_secondary) {
-    uint64_t now = FLAGS_env->NowMicros();
+    uint64_t now = db_stress_env->NowMicros();
     fprintf(
         stdout, "%s Verification of secondaries succeeded\n",
-        FLAGS_env->TimeToString(static_cast<uint64_t>(now) / 1000000).c_str());
+        db_stress_env->TimeToString(static_cast<uint64_t>(now) / 1000000).c_str());
   }
 #endif  // ROCKSDB_LITE
   return true;
@@ -410,9 +408,9 @@ void StressTest::PreloadDbAndReopenAsReadOnly(int64_t number_of_keys,
 #endif
 
     db_preload_finished_.store(true);
-    auto now = FLAGS_env->NowMicros();
+    auto now = db_stress_env->NowMicros();
     fprintf(stdout, "%s Reopening database in read-only\n",
-            FLAGS_env->TimeToString(now / 1000000).c_str());
+            db_stress_env->TimeToString(now / 1000000).c_str());
     // Reopen as read-only, can ignore all options related to updates
     Open();
   } else {
@@ -1098,14 +1096,14 @@ Status StressTest::TestBackupRestore(
   std::string restore_dir = FLAGS_db + "/.restore" + ToString(thread->tid);
   BackupableDBOptions backup_opts(backup_dir);
   BackupEngine* backup_engine = nullptr;
-  Status s = BackupEngine::Open(FLAGS_env, backup_opts, &backup_engine);
+  Status s = BackupEngine::Open(db_stress_env, backup_opts, &backup_engine);
   if (s.ok()) {
     s = backup_engine->CreateNewBackup(db_);
   }
   if (s.ok()) {
     delete backup_engine;
     backup_engine = nullptr;
-    s = BackupEngine::Open(FLAGS_env, backup_opts, &backup_engine);
+    s = BackupEngine::Open(db_stress_env, backup_opts, &backup_engine);
   }
   if (s.ok()) {
     s = backup_engine->RestoreDBFromLatestBackup(restore_dir /* db_dir */,
@@ -1182,7 +1180,7 @@ Status StressTest::TestCheckpoint(ThreadState* thread,
       FLAGS_db + "/.checkpoint" + ToString(thread->tid);
   Options tmp_opts(options_);
   tmp_opts.listeners.clear();
-  tmp_opts.env = FLAGS_env->target();
+  tmp_opts.env = db_stress_env->target();
 
   DestroyDB(checkpoint_dir, tmp_opts);
 
@@ -1537,9 +1535,13 @@ void StressTest::PrintEnv() const {
   fprintf(stdout, "Do update in place        : %d\n", FLAGS_in_place_update);
   fprintf(stdout, "Num keys per lock         : %d\n",
           1 << FLAGS_log2_keys_per_lock);
-  std::string compression = CompressionTypeToString(FLAGS_compression_type_e);
+  std::string compression = CompressionTypeToString(compression_type_e);
   fprintf(stdout, "Compression               : %s\n", compression.c_str());
-  std::string checksum = ChecksumTypeToString(FLAGS_checksum_type_e);
+  std::string bottommost_compression =
+      CompressionTypeToString(bottommost_compression_type_e);
+  fprintf(stdout, "Bottommost Compression    : %s\n",
+          bottommost_compression.c_str());
+  std::string checksum = ChecksumTypeToString(checksum_type_e);
   fprintf(stdout, "Checksum type             : %s\n", checksum.c_str());
   fprintf(stdout, "Bloom bits / key          : %s\n",
           FormatDoubleParam(FLAGS_bloom_bits).c_str());
@@ -1597,7 +1599,7 @@ void StressTest::Open() {
     block_based_options.cache_index_and_filter_blocks =
         FLAGS_cache_index_and_filter_blocks;
     block_based_options.block_cache_compressed = compressed_cache_;
-    block_based_options.checksum = FLAGS_checksum_type_e;
+    block_based_options.checksum = checksum_type_e;
     block_based_options.block_size = FLAGS_block_size;
     block_based_options.format_version =
         static_cast<uint32_t>(FLAGS_format_version);
@@ -1631,7 +1633,7 @@ void StressTest::Open() {
     }
     options_.max_open_files = FLAGS_open_files;
     options_.statistics = dbstats;
-    options_.env = FLAGS_env;
+    options_.env = db_stress_env;
     options_.use_fsync = FLAGS_use_fsync;
     options_.compaction_readahead_size = FLAGS_compaction_readahead_size;
     options_.allow_mmap_reads = FLAGS_mmap_read;
@@ -1651,7 +1653,8 @@ void StressTest::Open() {
         FLAGS_level0_slowdown_writes_trigger;
     options_.level0_file_num_compaction_trigger =
         FLAGS_level0_file_num_compaction_trigger;
-    options_.compression = FLAGS_compression_type_e;
+    options_.compression = compression_type_e;
+    options_.bottommost_compression = bottommost_compression_type_e;
     options_.compression_opts.max_dict_bytes = FLAGS_compression_max_dict_bytes;
     options_.compression_opts.zstd_max_train_bytes =
         FLAGS_compression_zstd_max_train_bytes;
@@ -1689,9 +1692,9 @@ void StressTest::Open() {
 #else
     DBOptions db_options;
     std::vector<ColumnFamilyDescriptor> cf_descriptors;
-    Status s = LoadOptionsFromFile(FLAGS_options_file, FLAGS_env, &db_options,
-                                   &cf_descriptors);
-    db_options.env = new DbStressEnvWrapper(FLAGS_env);
+    Status s = LoadOptionsFromFile(FLAGS_options_file, db_stress_env,
+                                   &db_options, &cf_descriptors);
+    db_options.env = new DbStressEnvWrapper(db_stress_env);
     if (!s.ok()) {
       fprintf(stderr, "Unable to load options file %s --- %s\n",
               FLAGS_options_file.c_str(), s.ToString().c_str());
@@ -1876,7 +1879,7 @@ void StressTest::Open() {
       // TODO(yanqin) support max_open_files != -1 for secondary instance.
       tmp_opts.max_open_files = -1;
       tmp_opts.statistics = dbstats_secondaries;
-      tmp_opts.env = FLAGS_env;
+      tmp_opts.env = db_stress_env;
       for (size_t i = 0; i != static_cast<size_t>(FLAGS_threads); ++i) {
         const std::string secondary_path =
             FLAGS_secondaries_base + "/" + std::to_string(i);
@@ -1984,9 +1987,10 @@ void StressTest::Reopen(ThreadState* thread) {
   secondaries_.clear();
 
   num_times_reopened_++;
-  auto now = FLAGS_env->NowMicros();
+  auto now = db_stress_env->NowMicros();
   fprintf(stdout, "%s Reopening database for the %dth time\n",
-          FLAGS_env->TimeToString(now / 1000000).c_str(), num_times_reopened_);
+          db_stress_env->TimeToString(now / 1000000).c_str(),
+          num_times_reopened_);
   Open();
 }
 }  // namespace rocksdb

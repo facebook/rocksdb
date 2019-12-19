@@ -540,6 +540,10 @@ DEFINE_int32(compression_zstd_max_train_bytes, 0,
              "Maximum size of training data passed to zstd's dictionary "
              "trainer.");
 
+DEFINE_string(bottommost_compression_type, "disable",
+              "Algorithm to use to compress bottommost level of the database. "
+              "\"disable\" means disabling the feature");
+
 DEFINE_string(checksum_type, "kCRC32c", "Algorithm to use to checksum blocks");
 
 DEFINE_string(hdfs, "", "Name of hdfs environment");
