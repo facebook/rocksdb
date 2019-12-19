@@ -4093,8 +4093,10 @@ uint64_t BlockBasedTable::ApproximateOffsetOf(const Slice& key,
                                               TableReaderCaller caller) {
   BlockCacheLookupContext context(caller);
   IndexBlockIter iiter_on_stack;
+  ReadOptions ro;
+  ro.total_order_seek = true;
   auto index_iter =
-      NewIndexIterator(ReadOptions(), /*disable_prefix_seek=*/false,
+      NewIndexIterator(ro, /*disable_prefix_seek=*/true,
                        /*input_iter=*/&iiter_on_stack, /*get_context=*/nullptr,
                        /*lookup_context=*/&context);
   std::unique_ptr<InternalIteratorBase<IndexValue>> iiter_unique_ptr;
@@ -4112,8 +4114,10 @@ uint64_t BlockBasedTable::ApproximateSize(const Slice& start, const Slice& end,
 
   BlockCacheLookupContext context(caller);
   IndexBlockIter iiter_on_stack;
+  ReadOptions ro;
+  ro.total_order_seek = true;
   auto index_iter =
-      NewIndexIterator(ReadOptions(), /*disable_prefix_seek=*/false,
+      NewIndexIterator(ro, /*disable_prefix_seek=*/true,
                        /*input_iter=*/&iiter_on_stack, /*get_context=*/nullptr,
                        /*lookup_context=*/&context);
   std::unique_ptr<InternalIteratorBase<IndexValue>> iiter_unique_ptr;
