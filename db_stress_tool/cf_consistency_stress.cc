@@ -496,10 +496,26 @@ class CfConsistencyStressTest : public StressTest {
 
 #ifndef ROCKSDB_LITE
   void ContinuouslyVerifyDb(ThreadState* thread) const override {
-    assert(cmp_db_ != nullptr);
-    Status s = cmp_db_->TryCatchUpWithPrimary();
-    ReadOptions ropts;
-    ropts.total_order_seek = true;
+    assert(thread);
+    Status status;
+
+    DB* db_ptr = cmp_db_ ? cmp_db_ : db_;
+    const auto& cfhs = cmp_db_ ? cmp_cfhs_ : column_families_;
+    const auto ss_deleter = [&](const Snapshot* ss) {
+      db_ptr->ReleaseSnapshot(ss);
+    };
+    std::unique_ptr<const Snapshot, decltype(ss_deleter)> snapshot_guard(
+        db_ptr->GetSnapshot(), ss_deleter);
+    if (cmp_db_) {
+      status = cmp_db_->TryCatchUpWithPrimary();
+    }
+    SharedState* shared = thread->shared;
+    assert(shared);
+    if (!status.ok()) {
+      shared->SetShouldStopTest();
+      return;
+    }
+    assert(cmp_db_ || snapshot_guard.get());
     const auto checksum_column_family = [](Iterator* iter,
                                            uint32_t* checksum) -> Status {
       assert(nullptr != checksum);
@@ -511,21 +527,22 @@ class CfConsistencyStressTest : public StressTest {
       *checksum = ret;
       return iter->status();
     };
-    SharedState* shared = thread->shared;
-    Status status;
+    ReadOptions ropts;
+    ropts.total_order_seek = true;
+    ropts.snapshot = snapshot_guard.get();
     uint32_t crc = 0;
     {
       // Compute crc for all key-values of default column family.
-      std::unique_ptr<Iterator> it(cmp_db_->NewIterator(ropts));
+      std::unique_ptr<Iterator> it(db_ptr->NewIterator(ropts));
       status = checksum_column_family(it.get(), &crc);
     }
     uint32_t tmp_crc = 0;
     if (status.ok()) {
-      for (ColumnFamilyHandle* cfh : cmp_cfhs_) {
-        if (cfh == cmp_db_->DefaultColumnFamily()) {
+      for (ColumnFamilyHandle* cfh : cfhs) {
+        if (cfh == db_ptr->DefaultColumnFamily()) {
           continue;
         }
-        std::unique_ptr<Iterator> it(cmp_db_->NewIterator(ropts, cfh));
+        std::unique_ptr<Iterator> it(db_ptr->NewIterator(ropts, cfh));
         status = checksum_column_family(it.get(), &tmp_crc);
         if (!status.ok() || tmp_crc != crc) {
           break;

@@ -100,6 +100,7 @@ default_params = {
     # BlockBasedTable::ApproximateSize
     # "level_compaction_dynamic_level_bytes" : True,
     "verify_checksum_one_in": 1000000,
+    "verify_db_one_in": 100000,
     "continuous_verification_interval" : 0
 }
 
