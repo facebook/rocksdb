@@ -283,8 +283,8 @@ public class RocksDB extends RocksObject {
     for (int i = 0; i < columnFamilyDescriptors.size(); i++) {
       final ColumnFamilyDescriptor cfDescriptor = columnFamilyDescriptors
           .get(i);
-      cfNames[i] = cfDescriptor.columnFamilyName();
-      cfOptionHandles[i] = cfDescriptor.columnFamilyOptions().nativeHandle_;
+      cfNames[i] = cfDescriptor.getName();
+      cfOptionHandles[i] = cfDescriptor.getOptions().nativeHandle_;
     }
 
     final long[] handles = open(options.nativeHandle_, path, cfNames,
@@ -407,8 +407,8 @@ public class RocksDB extends RocksObject {
     for (int i = 0; i < columnFamilyDescriptors.size(); i++) {
       final ColumnFamilyDescriptor cfDescriptor = columnFamilyDescriptors
           .get(i);
-      cfNames[i] = cfDescriptor.columnFamilyName();
-      cfOptionHandles[i] = cfDescriptor.columnFamilyOptions().nativeHandle_;
+      cfNames[i] = cfDescriptor.getName();
+      cfOptionHandles[i] = cfDescriptor.getOptions().nativeHandle_;
     }
 
     final long[] handles = openROnly(options.nativeHandle_, path, cfNames,
@@ -3105,13 +3105,15 @@ public class RocksDB extends RocksObject {
    * @throws RocksDBException thrown if an error occurs within the native
    *     part of the library.
    */
-  public void compactRange(final ColumnFamilyHandle columnFamilyHandle,
+  public void compactRange(
+      /* @Nullable */ final ColumnFamilyHandle columnFamilyHandle,
       final byte[] begin, final byte[] end,
       final CompactRangeOptions compactRangeOptions) throws RocksDBException {
     compactRange(nativeHandle_,
         begin, begin == null ? -1 : begin.length,
         end, end == null ? -1 : end.length,
-        compactRangeOptions.nativeHandle_, columnFamilyHandle.nativeHandle_);
+        compactRangeOptions.nativeHandle_,
+        columnFamilyHandle == null ? 0 : columnFamilyHandle.nativeHandle_);
   }
 
   /**
