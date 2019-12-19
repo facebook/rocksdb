@@ -9,7 +9,6 @@
 
 #include "db/version_edit.h"
 
-#include <iostream>
 #include "db/blob_index.h"
 #include "db/version_set.h"
 #include "logging/event_logger.h"

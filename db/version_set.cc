@@ -4753,8 +4753,7 @@ Status VersionSet::GetAllFileCheckSumInfo(Options& options,
             "Manifest record referencing unknown column family");
         break;
       }
-      auto cf_iter = cf_set.find(edit.column_family_);
-      assert(cf_iter != cf_set.end());
+      assert(cf_set.find(edit.column_family_) != cf_set.end());
 
       // Step 2: remove the deleted files from the info
       const VersionEdit::DeletedFileSet& del = edit.GetDeletedFiles();
