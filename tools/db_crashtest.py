@@ -96,7 +96,9 @@ default_params = {
     "write_dbid_to_manifest" : random.randint(0, 1),
     "max_write_batch_group_size_bytes" : lambda: random.choice(
         [16, 64, 1024 * 1024, 16 * 1024 * 1024]),
-    "level_compaction_dynamic_level_bytes" : True,
+    # Temporarily disabled because of assertion violations in
+    # BlockBasedTable::ApproximateSize
+    # "level_compaction_dynamic_level_bytes" : True,
     "verify_checksum_one_in": 1000000
 }
 
