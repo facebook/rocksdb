@@ -1244,14 +1244,13 @@ class FileChecksumHelper {
         rocksdb::test::GetStringSinkFromLegacyWriter(file_writer_.get());
     file_reader_.reset(test::GetRandomAccessFileReader(
         new test::StringSource(ss_rw->contents())));
-    size_t scratch_size = 2048;
-    char scratch[scratch_size];
+    char scratch[2048];
     Slice result;
     uint64_t offset = 0;
     uint32_t tmp_checksum = 0;
     bool first_read = true;
     Status s;
-    s = file_reader_->Read(offset, scratch_size, &result, scratch, false);
+    s = file_reader_->Read(offset, 2048, &result, scratch, false);
     if (!s.ok()) {
       return s;
     }
@@ -1264,7 +1263,7 @@ class FileChecksumHelper {
             file_checksum_cal->Extend(tmp_checksum, scratch, result.size());
       }
       offset += static_cast<uint64_t>(result.size());
-      s = file_reader_->Read(offset, scratch_size, &result, scratch, false);
+      s = file_reader_->Read(offset, 2048, &result, scratch, false);
       if (!s.ok()) {
         return s;
       }
