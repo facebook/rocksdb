@@ -37,10 +37,16 @@ StressTest::StressTest()
         FLAGS_env->DeleteFile(FLAGS_db + "/" + files[i]);
       }
     }
+
     Options options;
     // Remove files without preserving manfiest files
     options.env = FLAGS_env->target();
-    Status s = DestroyDB(FLAGS_db, options);
+
+    const Status s = !FLAGS_use_blob_db
+                         ? DestroyDB(FLAGS_db, options)
+                         : blob_db::DestroyBlobDB(FLAGS_db, options,
+                                                  blob_db::BlobDBOptions());
+
     if (!s.ok()) {
       fprintf(stderr, "Cannot destroy original db: %s\n", s.ToString().c_str());
       exit(1);
