@@ -162,6 +162,17 @@ class StressTest {
                                 const std::vector<int>& rand_column_families,
                                 const std::vector<int64_t>& rand_keys);
 
+  void TestCompactFiles(ThreadState* thread, ColumnFamilyHandle* column_family);
+
+  Status TestFlush(const std::vector<int>& rand_column_families);
+
+  Status TestPauseBackground(ThreadState* thread);
+
+  void TestAcquireSnapshot(ThreadState* thread, int rand_column_family,
+                           const std::string& keystr, uint64_t i);
+
+  Status MaybeReleaseSnapshots(ThreadState* thread, uint64_t i);
+
   void VerificationAbort(SharedState* shared, std::string msg, Status s) const;
 
   void VerificationAbort(SharedState* shared, std::string msg, int cf,
