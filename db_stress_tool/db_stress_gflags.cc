@@ -624,5 +624,5 @@ DEFINE_int32(continuous_verification_interval, 1000,
 
 DEFINE_int32(approximate_size_one_in, 64,
              "If non-zero, DB::GetApproximateSizes() will be called against"
-             " random keys.");
+             " random key ranges.");
 #endif  // GFLAGS
