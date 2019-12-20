@@ -279,7 +279,7 @@ inline enum rocksdb::CompressionType StringToCompressionType(
     ret_compression_type = rocksdb::kZSTD;
   } else {
     fprintf(stderr, "Cannot parse compression type '%s'\n", ctype);
-    ret_compression_type =  rocksdb::kSnappyCompression;  // default value
+    ret_compression_type = rocksdb::kSnappyCompression;  // default value
   }
   if (ret_compression_type != rocksdb::kDisableCompressionOption &&
       !CompressionTypeSupported(ret_compression_type)) {

@@ -77,8 +77,8 @@ bool RunStressTest(StressTest* stress) {
   }
   ThreadState continuous_verification_thread(0, &shared);
   if (FLAGS_continuous_verification_interval > 0) {
-    FLAGS_env->StartThread(DbVerificationThread,
-                           &continuous_verification_thread);
+    db_stress_env->StartThread(DbVerificationThread,
+                               &continuous_verification_thread);
   }
 
   // Each thread goes through the following states:

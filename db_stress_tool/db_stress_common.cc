@@ -133,7 +133,7 @@ void DbVerificationThread(void* v) {
     if (!shared->HasVerificationFailedYet()) {
       stress_test->ContinuouslyVerifyDb(thread);
     }
-    FLAGS_env->SleepForMicroseconds(
+    db_stress_env->SleepForMicroseconds(
         thread->rand.Next() % FLAGS_continuous_verification_interval * 1000 +
         1);
   }

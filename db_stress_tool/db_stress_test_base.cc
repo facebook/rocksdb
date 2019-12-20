@@ -1317,7 +1317,7 @@ Status StressTest::TestPauseBackground(ThreadState* thread) {
   // 1 chance in 625 of pausing full 16s.)
   int pwr2_micros =
       std::min(thread->rand.Uniform(25), thread->rand.Uniform(25));
-  FLAGS_env->SleepForMicroseconds(1 << pwr2_micros);
+  db_stress_env->SleepForMicroseconds(1 << pwr2_micros);
   return db_->ContinueBackgroundWork();
 }
 
@@ -1900,7 +1900,7 @@ void StressTest::Open() {
       Options tmp_opts;
       // TODO(yanqin) support max_open_files != -1 for secondary instance.
       tmp_opts.max_open_files = -1;
-      tmp_opts.env = FLAGS_env;
+      tmp_opts.env = db_stress_env;
       std::string secondary_path = FLAGS_secondaries_base + "/cmp_database";
       s = DB::OpenAsSecondary(tmp_opts, FLAGS_db, secondary_path,
                               cf_descriptors, &cmp_cfhs_, &cmp_db_);
