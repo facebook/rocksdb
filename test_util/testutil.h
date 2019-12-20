@@ -429,6 +429,32 @@ class SleepingBackgroundTask {
       bg_cv_.Wait();
     }
   }
+  // Return true if after a short wait, the task ends up with sleeping
+  bool ShortWaitForSleeping() {
+    MutexLock l(&mutex_);
+    // 1000us * 10000 = 10 sec max
+    for (int i = 0; i < 10000; i++) {
+      if (sleeping_) {
+        return true;
+      }
+      const uint64_t kWaitDurationMicros = 1000;
+      bg_cv_.TimedWait(Env::Default()->NowMicros() + kWaitDurationMicros);
+    }
+    return sleeping_;
+  }
+  // Return true if after a short wait, the task is woken up
+  bool ShortWaitForWokenUp() {
+    MutexLock l(&mutex_);
+    // 1000us * 10000 = 10 sec max
+    for (int i = 0; i < 10000; i++) {
+      if (!sleeping_) {
+        return true;
+      }
+      const uint64_t kWaitDurationMicros = 1000;
+      bg_cv_.TimedWait(Env::Default()->NowMicros() + kWaitDurationMicros);
+    }
+    return !sleeping_;
+  }
   void WakeUp() {
     MutexLock l(&mutex_);
     should_sleep_ = false;
