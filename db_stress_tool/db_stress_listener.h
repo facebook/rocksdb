@@ -21,8 +21,8 @@ class DbStressListener : public EventListener {
         db_paths_(db_paths),
         column_families_(column_families),
         num_pending_file_creations_(0) {}
-  ~DbStressListener() override { assert(num_pending_file_creations_ == 0); }
 #ifndef ROCKSDB_LITE
+  ~DbStressListener() override { assert(num_pending_file_creations_ == 0); }
   void OnFlushCompleted(DB* /*db*/, const FlushJobInfo& info) override {
     assert(IsValidColumnFamilyName(info.cf_name));
     VerifyFilePath(info.file_path);
