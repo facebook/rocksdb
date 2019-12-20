@@ -27,12 +27,17 @@
 namespace rocksdb {
 namespace {
 static std::shared_ptr<rocksdb::Env> env_guard;
+static std::shared_ptr<rocksdb::DbStressEnvWrapper> env_wrapper_guard;
 }  // namespace
 
 int db_stress_tool(int argc, char** argv) {
   SetUsageMessage(std::string("\nUSAGE:\n") + std::string(argv[0]) +
                   " [OPTIONS]...");
   ParseCommandLineFlags(&argc, &argv, true);
+
+  SanitizeDoubleParam(&FLAGS_bloom_bits);
+  SanitizeDoubleParam(&FLAGS_memtable_prefix_bloom_size_ratio);
+  SanitizeDoubleParam(&FLAGS_max_bytes_for_level_multiplier);
 
   if (FLAGS_statistics) {
     dbstats = rocksdb::CreateDBStatistics();
@@ -43,24 +48,33 @@ int db_stress_tool(int argc, char** argv) {
   FLAGS_compression_type_e =
       StringToCompressionType(FLAGS_compression_type.c_str());
   FLAGS_checksum_type_e = StringToChecksumType(FLAGS_checksum_type.c_str());
+
+  Env* raw_env;
+
   if (!FLAGS_hdfs.empty()) {
     if (!FLAGS_env_uri.empty()) {
       fprintf(stderr, "Cannot specify both --hdfs and --env_uri.\n");
       exit(1);
     }
-    FLAGS_env = new rocksdb::HdfsEnv(FLAGS_hdfs);
+    raw_env = new rocksdb::HdfsEnv(FLAGS_hdfs);
   } else if (!FLAGS_env_uri.empty()) {
-    Status s = Env::LoadEnv(FLAGS_env_uri, &FLAGS_env, &env_guard);
-    if (FLAGS_env == nullptr) {
+    Status s = Env::LoadEnv(FLAGS_env_uri, &raw_env, &env_guard);
+    if (raw_env == nullptr) {
       fprintf(stderr, "No Env registered for URI: %s\n", FLAGS_env_uri.c_str());
       exit(1);
     }
+  } else {
+    raw_env = Env::Default();
   }
+  env_wrapper_guard = std::make_shared<DbStressEnvWrapper>(raw_env);
+  FLAGS_env = env_wrapper_guard.get();
+
   FLAGS_rep_factory = StringToRepFactory(FLAGS_memtablerep.c_str());
 
   // The number of background threads should be at least as much the
   // max number of concurrent compactions.
-  FLAGS_env->SetBackgroundThreads(FLAGS_max_background_compactions);
+  FLAGS_env->SetBackgroundThreads(FLAGS_max_background_compactions,
+                                  rocksdb::Env::Priority::LOW);
   FLAGS_env->SetBackgroundThreads(FLAGS_num_bottom_pri_threads,
                                   rocksdb::Env::Priority::BOTTOM);
   if (FLAGS_prefixpercent > 0 && FLAGS_prefix_size < 0) {
@@ -186,6 +200,8 @@ int db_stress_tool(int argc, char** argv) {
   } else {
     stress.reset(CreateNonBatchedOpsStressTest());
   }
+  // Initialize the Zipfian pre-calculated array
+  InitializeHotKeyGenerator(FLAGS_hot_key_alpha);
   if (RunStressTest(stress.get())) {
     return 0;
   } else {

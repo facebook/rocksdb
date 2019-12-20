@@ -804,6 +804,50 @@ TEST_P(DBIteratorTest, IteratorPinsRef) {
   } while (ChangeCompactOptions());
 }
 
+TEST_P(DBIteratorTest, IteratorDeleteAfterCfDelete) {
+  CreateAndReopenWithCF({"pikachu"}, CurrentOptions());
+
+  Put(1, "foo", "delete-cf-then-delete-iter");
+  Put(1, "hello", "value2");
+
+  ColumnFamilyHandle* cf = handles_[1];
+  ReadOptions ro;
+
+  auto* iter = db_->NewIterator(ro, cf);
+  iter->SeekToFirst();
+  ASSERT_EQ(IterStatus(iter), "foo->delete-cf-then-delete-iter");
+
+  // delete CF handle
+  db_->DestroyColumnFamilyHandle(cf);
+  handles_.erase(std::begin(handles_) + 1);
+
+  // delete Iterator after CF handle is deleted
+  iter->Next();
+  ASSERT_EQ(IterStatus(iter), "hello->value2");
+  delete iter;
+}
+
+TEST_P(DBIteratorTest, IteratorDeleteAfterCfDrop) {
+  CreateAndReopenWithCF({"pikachu"}, CurrentOptions());
+
+  Put(1, "foo", "drop-cf-then-delete-iter");
+
+  ReadOptions ro;
+  ColumnFamilyHandle* cf = handles_[1];
+
+  auto* iter = db_->NewIterator(ro, cf);
+  iter->SeekToFirst();
+  ASSERT_EQ(IterStatus(iter), "foo->drop-cf-then-delete-iter");
+
+  // drop and delete CF
+  db_->DropColumnFamily(cf);
+  db_->DestroyColumnFamilyHandle(cf);
+  handles_.erase(std::begin(handles_) + 1);
+
+  // delete Iterator after CF handle is dropped
+  delete iter;
+}
+
 // SetOptions not defined in ROCKSDB LITE
 #ifndef ROCKSDB_LITE
 TEST_P(DBIteratorTest, DBIteratorBoundTest) {
@@ -1297,19 +1341,19 @@ class DBIteratorTestForPinnedData : public DBIteratorTest {
 
       // Insert data to true_data map and to DB
       true_data[k] = v;
-      if (rnd.OneIn(static_cast<int>(100.0 / merge_percentage))) {
+      if (rnd.PercentTrue(merge_percentage)) {
         ASSERT_OK(db_->Merge(WriteOptions(), k, v));
       } else {
         ASSERT_OK(Put(k, v));
       }
 
       // Pick random keys to be used to test Seek()
-      if (rnd.OneIn(static_cast<int>(100.0 / seeks_percentage))) {
+      if (rnd.PercentTrue(seeks_percentage)) {
         random_keys.push_back(k);
       }
 
       // Delete some random keys
-      if (rnd.OneIn(static_cast<int>(100.0 / delete_percentage))) {
+      if (rnd.PercentTrue(delete_percentage)) {
         deleted_keys.push_back(k);
         true_data.erase(k);
         ASSERT_OK(Delete(k));
@@ -1867,7 +1911,7 @@ TEST_P(DBIteratorTest, IterPrevKeyCrossingBlocksRandomized) {
   // make sure that we dont merge them while flushing but actually
   // merge them in the read path
   for (int i = 0; i < kNumKeys; i++) {
-    if (rnd.OneIn(static_cast<int>(100.0 / kNoMergeOpPercentage))) {
+    if (rnd.PercentTrue(kNoMergeOpPercentage)) {
       // Dont give merge operations for some keys
       continue;
     }
@@ -1883,7 +1927,7 @@ TEST_P(DBIteratorTest, IterPrevKeyCrossingBlocksRandomized) {
   ASSERT_OK(Flush());
 
   for (int i = 0; i < kNumKeys; i++) {
-    if (rnd.OneIn(static_cast<int>(100.0 / kDeletePercentage))) {
+    if (rnd.PercentTrue(kDeletePercentage)) {
       gen_key = Key(i);
 
       ASSERT_OK(Delete(gen_key));

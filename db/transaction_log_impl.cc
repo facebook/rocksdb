@@ -42,22 +42,23 @@ TransactionLogIteratorImpl::TransactionLogIteratorImpl(
 Status TransactionLogIteratorImpl::OpenLogFile(
     const LogFile* log_file,
     std::unique_ptr<SequentialFileReader>* file_reader) {
-  Env* env = options_->env;
-  std::unique_ptr<SequentialFile> file;
+  FileSystem* fs = options_->fs.get();
+  std::unique_ptr<FSSequentialFile> file;
   std::string fname;
   Status s;
-  EnvOptions optimized_env_options = env->OptimizeForLogRead(soptions_);
+  EnvOptions optimized_env_options = fs->OptimizeForLogRead(soptions_);
   if (log_file->Type() == kArchivedLogFile) {
     fname = ArchivedLogFileName(dir_, log_file->LogNumber());
-    s = env->NewSequentialFile(fname, &file, optimized_env_options);
+    s = fs->NewSequentialFile(fname, optimized_env_options, &file, nullptr);
   } else {
     fname = LogFileName(dir_, log_file->LogNumber());
-    s = env->NewSequentialFile(fname, &file, optimized_env_options);
+    s = fs->NewSequentialFile(fname, optimized_env_options, &file, nullptr);
     if (!s.ok()) {
       //  If cannot open file in DB directory.
       //  Try the archive dir, as it could have moved in the meanwhile.
       fname = ArchivedLogFileName(dir_, log_file->LogNumber());
-      s = env->NewSequentialFile(fname, &file, optimized_env_options);
+      s = fs->NewSequentialFile(fname, optimized_env_options,
+                                &file, nullptr);
     }
   }
   if (s.ok()) {

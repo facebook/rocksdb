@@ -25,6 +25,7 @@
 #include <unordered_set>
 #include <vector>
 
+#include "env/composite_env_wrapper.h"
 #include "file/filename.h"
 #include "file/sequence_file_reader.h"
 #include "file/writable_file_writer.h"
@@ -1297,12 +1298,13 @@ Status BackupEngineImpl::CopyOrCreateFile(
     return s;
   }
 
-  std::unique_ptr<WritableFileWriter> dest_writer(
-      new WritableFileWriter(std::move(dst_file), dst, dst_env_options));
+  std::unique_ptr<WritableFileWriter> dest_writer(new WritableFileWriter(
+      NewLegacyWritableFileWrapper(std::move(dst_file)), dst, dst_env_options));
   std::unique_ptr<SequentialFileReader> src_reader;
   std::unique_ptr<char[]> buf;
   if (!src.empty()) {
-    src_reader.reset(new SequentialFileReader(std::move(src_file), src));
+    src_reader.reset(new SequentialFileReader(
+        NewLegacySequentialFileWrapper(src_file), src));
     buf.reset(new char[copy_file_buffer_size_]);
   }
 
@@ -1499,7 +1501,7 @@ Status BackupEngineImpl::CalculateChecksum(const std::string& src, Env* src_env,
   }
 
   std::unique_ptr<SequentialFileReader> src_reader(
-      new SequentialFileReader(std::move(src_file), src));
+      new SequentialFileReader(NewLegacySequentialFileWrapper(src_file), src));
   std::unique_ptr<char[]> buf(new char[copy_file_buffer_size_]);
   Slice data;
 
@@ -1746,7 +1748,8 @@ Status BackupEngineImpl::BackupMeta::LoadFromFile(
   }
 
   std::unique_ptr<SequentialFileReader> backup_meta_reader(
-      new SequentialFileReader(std::move(backup_meta_file), meta_filename_));
+      new SequentialFileReader(NewLegacySequentialFileWrapper(backup_meta_file),
+                               meta_filename_));
   std::unique_ptr<char[]> buf(new char[max_backup_meta_file_size_ + 1]);
   Slice data;
   s = backup_meta_reader->Read(max_backup_meta_file_size_, &data, buf.get());

@@ -292,7 +292,12 @@ class CfConsistencyStressTest : public StressTest {
                         const std::vector<int64_t>& /* rand_keys */) override {
     std::string checkpoint_dir =
         FLAGS_db + "/.checkpoint" + ToString(thread->tid);
-    DestroyDB(checkpoint_dir, options_);
+
+    // We need to clear DB including manifest files, so make a copy
+    Options opt_copy = options_;
+    opt_copy.env = FLAGS_env->target();
+    DestroyDB(checkpoint_dir, opt_copy);
+
     Checkpoint* checkpoint = nullptr;
     Status s = Checkpoint::Create(db_, &checkpoint);
     if (s.ok()) {
@@ -326,7 +331,7 @@ class CfConsistencyStressTest : public StressTest {
       delete checkpoint_db;
       checkpoint_db = nullptr;
     }
-    DestroyDB(checkpoint_dir, options_);
+    DestroyDB(checkpoint_dir, opt_copy);
     if (!s.ok()) {
       fprintf(stderr, "A checkpoint operation failed with: %s\n",
               s.ToString().c_str());

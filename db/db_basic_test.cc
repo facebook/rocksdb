@@ -6,7 +6,6 @@
 // Copyright (c) 2011 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
-// #include <iostream>
 #include "db/db_test_util.h"
 #include "port/stack_trace.h"
 #include "rocksdb/perf_context.h"
@@ -1706,10 +1705,25 @@ class DBBasicTestWithParallelIO
       assert(Put(Key(i), values_[i]) == Status::OK());
     }
     Flush();
+
+    for (int i = 0; i < 100; ++i) {
+      // block cannot gain space by compression
+      uncompressable_values_.emplace_back(RandomString(&rnd, 256) + '\0');
+      std::string tmp_key = "a" + Key(i);
+      assert(Put(tmp_key, uncompressable_values_[i]) == Status::OK());
+    }
+    Flush();
   }
 
   bool CheckValue(int i, const std::string& value) {
     if (values_[i].compare(value) == 0) {
+      return true;
+    }
+    return false;
+  }
+
+  bool CheckUncompressableValue(int i, const std::string& value) {
+    if (uncompressable_values_[i].compare(value) == 0) {
       return true;
     }
     return false;
@@ -1864,6 +1878,7 @@ class DBBasicTestWithParallelIO
   std::shared_ptr<MyBlockCache> uncompressed_cache_;
   bool compression_enabled_;
   std::vector<std::string> values_;
+  std::vector<std::string> uncompressable_values_;
   bool fill_cache_;
 };
 
@@ -1928,8 +1943,66 @@ TEST_P(DBBasicTestWithParallelIO, MultiGet) {
     ASSERT_OK(statuses[i]);
     ASSERT_TRUE(CheckValue(key_ints[i], values[i].ToString()));
   }
-  expected_reads += (read_from_cache ? 2 : 4);
+  if (compression_enabled() && !has_compressed_cache()) {
+    expected_reads += (read_from_cache ? 2 : 3);
+  } else {
+    expected_reads += (read_from_cache ? 2 : 4);
+  }
   ASSERT_EQ(env_->random_read_counter_.Read(), expected_reads);
+
+  keys.resize(10);
+  statuses.resize(10);
+  std::vector<int> key_uncmp{1, 2, 15, 16, 55, 81, 82, 83, 84, 85};
+  for (size_t i = 0; i < key_uncmp.size(); ++i) {
+    key_data[i] = "a" + Key(key_uncmp[i]);
+    keys[i] = Slice(key_data[i]);
+    statuses[i] = Status::OK();
+    values[i].Reset();
+  }
+  dbfull()->MultiGet(ro, dbfull()->DefaultColumnFamily(), keys.size(),
+                     keys.data(), values.data(), statuses.data(), true);
+  for (size_t i = 0; i < key_uncmp.size(); ++i) {
+    ASSERT_OK(statuses[i]);
+    ASSERT_TRUE(CheckUncompressableValue(key_uncmp[i], values[i].ToString()));
+  }
+  if (compression_enabled() && !has_compressed_cache()) {
+    expected_reads += (read_from_cache ? 3 : 3);
+  } else {
+    expected_reads += (read_from_cache ? 4 : 4);
+  }
+  ASSERT_EQ(env_->random_read_counter_.Read(), expected_reads);
+
+  keys.resize(5);
+  statuses.resize(5);
+  std::vector<int> key_tr{1, 2, 15, 16, 55};
+  for (size_t i = 0; i < key_tr.size(); ++i) {
+    key_data[i] = "a" + Key(key_tr[i]);
+    keys[i] = Slice(key_data[i]);
+    statuses[i] = Status::OK();
+    values[i].Reset();
+  }
+  dbfull()->MultiGet(ro, dbfull()->DefaultColumnFamily(), keys.size(),
+                     keys.data(), values.data(), statuses.data(), true);
+  for (size_t i = 0; i < key_tr.size(); ++i) {
+    ASSERT_OK(statuses[i]);
+    ASSERT_TRUE(CheckUncompressableValue(key_tr[i], values[i].ToString()));
+  }
+  if (compression_enabled() && !has_compressed_cache()) {
+    expected_reads += (read_from_cache ? 0 : 2);
+    ASSERT_EQ(env_->random_read_counter_.Read(), expected_reads);
+  } else {
+    if (has_uncompressed_cache()) {
+      expected_reads += (read_from_cache ? 0 : 3);
+      ASSERT_EQ(env_->random_read_counter_.Read(), expected_reads);
+    } else {
+      // A rare case, even we enable the block compression but some of data
+      // blocks are not compressed due to content. If user only enable the
+      // compressed cache, the uncompressed blocks will not tbe cached, and
+      // block reads will be triggered. The number of reads is related to
+      // the compression algorithm.
+      ASSERT_TRUE(env_->random_read_counter_.Read() >= expected_reads);
+    }
+  }
 }
 
 INSTANTIATE_TEST_CASE_P(

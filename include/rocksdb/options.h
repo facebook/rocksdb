@@ -48,6 +48,7 @@ class Slice;
 class Statistics;
 class InternalKeyComparator;
 class WalFilter;
+class FileSystem;
 
 // DB contents are stored in a set of blocks, each of which holds a
 // sequence of key,value pairs.  Each block may be compressed before
@@ -388,9 +389,16 @@ struct DBOptions {
   bool paranoid_checks = true;
 
   // Use the specified object to interact with the environment,
-  // e.g. to read/write files, schedule background work, etc.
+  // e.g. to read/write files, schedule background work, etc. In the near
+  // future, support for doing storage operations such as read/write files
+  // through env will be deprecated in favor of file_system (see below)
   // Default: Env::Default()
   Env* env = Env::Default();
+
+  // Use the specified object to interact with the storage to
+  // read/write files. This is in addition to env. This option should be used
+  // if the desired storage subsystem provides a FileSystem implementation.
+  std::shared_ptr<FileSystem> file_system = nullptr;
 
   // Use to control write rate of flush and compaction. Flush has higher
   // priority than compaction. Rate limiting is disabled if nullptr.
@@ -1079,10 +1087,10 @@ struct DBOptions {
   // independently if the process crashes later and tries to recover.
   bool atomic_flush = false;
 
-  // If true, ColumnFamilyHandle's and Iterator's destructors won't delete
-  // obsolete files directly and will instead schedule a background job
-  // to do it. Use it if you're destroying iterators or ColumnFamilyHandle-s
-  // from latency-sensitive threads.
+  // If true, working thread may avoid doing unnecessary and long-latency
+  // operation (such as deleting obsolete files directly or deleting memtable)
+  // and will instead schedule a background job to do it.
+  // Use it if you're latency-sensitive.
   // If set to true, takes precedence over
   // ReadOptions::background_purge_on_iterator_cleanup.
   bool avoid_unnecessary_blocking_io = false;

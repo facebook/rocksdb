@@ -30,6 +30,16 @@ DEFINE_int64(max_key, 1 * KB * KB,
 
 DEFINE_int32(column_families, 10, "Number of column families");
 
+DEFINE_double(
+    hot_key_alpha, 0,
+    "Use Zipfian distribution to generate the key "
+    "distribution. If it is not specified, write path will use random "
+    "distribution to generate the keys. The parameter is [0, double_max]). "
+    "However, the larger alpha is, the more shewed will be. If alpha is "
+    "larger than 2, it is likely that only 1 key will be accessed. The "
+    "Recommended value is [0.8-1.5]. The distribution is also related to "
+    "max_key and total iterations of generating the hot key. ");
+
 DEFINE_string(
     options_file, "",
     "The path to a RocksDB options file.  If specified, then db_stress will "
@@ -275,9 +285,9 @@ DEFINE_int32(reopen, 10, "Number of times database reopens");
 static const bool FLAGS_reopen_dummy __attribute__((__unused__)) =
     RegisterFlagValidator(&FLAGS_reopen, &ValidateInt32Positive);
 
-DEFINE_int32(bloom_bits, 10,
-             "Bloom filter bits per key. "
-             "Negative means use default settings.");
+DEFINE_double(bloom_bits, 10,
+              "Bloom filter bits per key. "
+              "Negative means use default settings.");
 
 DEFINE_bool(use_block_based_filter, false,
             "use block based filter"
@@ -371,6 +381,16 @@ DEFINE_bool(use_txn, false,
             "Use TransactionDB. Currently the default write policy is "
             "TxnDBWritePolicy::WRITE_PREPARED");
 
+DEFINE_uint64(txn_write_policy, 0,
+              "The transaction write policy. Default is "
+              "TxnDBWritePolicy::WRITE_COMMITTED. Note that this should not be "
+              "changed accross crashes.");
+
+DEFINE_bool(unordered_write, false,
+            "Turn on the unordered_write feature. This options is currently "
+            "tested only in combination with use_txn=true and "
+            "txn_write_policy=TxnDBWritePolicy::WRITE_PREPARED.");
+
 DEFINE_int32(backup_one_in, 0,
              "If non-zero, then CreateNewBackup() will be called once for "
              "every N operations on average.  0 indicates CreateNewBackup() "
@@ -401,6 +421,10 @@ DEFINE_int32(flush_one_in, 0,
              "If non-zero, then Flush() will be called once for every N ops "
              "on average.  0 indicates calls to Flush() are disabled.");
 
+DEFINE_int32(pause_background_one_in, 0,
+             "If non-zero, then PauseBackgroundWork()+Continue will be called "
+             "once for every N ops on average.  0 disables.");
+
 DEFINE_int32(compact_range_width, 10000,
              "The width of the ranges passed to CompactRange().");
 
@@ -415,6 +439,9 @@ DEFINE_bool(compare_full_db_state_snapshot, false,
 DEFINE_uint64(snapshot_hold_ops, 0,
               "If non-zero, then releases snapshots N operations after they're "
               "acquired.");
+
+DEFINE_bool(long_running_snapshots, false,
+            "If set, hold on some some snapshots for much longer time.");
 
 DEFINE_bool(use_multiget, false,
             "If set, use the batched MultiGet API for reads");
@@ -529,4 +556,30 @@ DEFINE_bool(use_merge, false,
 DEFINE_bool(use_full_merge_v1, false,
             "On true, use a merge operator that implement the deprecated "
             "version of FullMerge");
+
+DEFINE_int32(sync_wal_one_in, 0,
+             "If non-zero, then SyncWAL() will be called once for every N ops "
+             "on average. 0 indicates that calls to SyncWAL() are disabled.");
+
+DEFINE_bool(avoid_unnecessary_blocking_io,
+            rocksdb::Options().avoid_unnecessary_blocking_io,
+            "If true, some expensive cleaning up operations will be moved from "
+            "user reads to high-pri background threads.");
+
+DEFINE_bool(write_dbid_to_manifest, rocksdb::Options().write_dbid_to_manifest,
+            "Write DB_ID to manifest");
+
+DEFINE_uint64(max_write_batch_group_size_bytes,
+              rocksdb::Options().max_write_batch_group_size_bytes,
+              "Max write batch group size");
+
+DEFINE_bool(level_compaction_dynamic_level_bytes,
+            rocksdb::Options().level_compaction_dynamic_level_bytes,
+            "Use dynamic level");
+
+DEFINE_int32(verify_checksum_one_in, 0,
+             "If non-zero, then DB::VerifyChecksum() will be called to do"
+             " checksum verification of all the files in the database once for"
+             " every N ops on average. 0 indicates that calls to"
+             " VerifyChecksum() are disabled.");
 #endif  // GFLAGS

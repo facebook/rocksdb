@@ -626,6 +626,24 @@ public class OptionsTest {
   }
 
   @Test
+  public void statsPersistPeriodSec() {
+    try (final Options opt = new Options()) {
+      final int intValue = rand.nextInt();
+      opt.setStatsPersistPeriodSec(intValue);
+      assertThat(opt.statsPersistPeriodSec()).isEqualTo(intValue);
+    }
+  }
+
+  @Test
+  public void statsHistoryBufferSize() {
+    try (final Options opt = new Options()) {
+      final long longValue = rand.nextLong();
+      opt.setStatsHistoryBufferSize(longValue);
+      assertThat(opt.statsHistoryBufferSize()).isEqualTo(longValue);
+    }
+  }
+
+  @Test
   public void adviseRandomOnOpen() {
     try (final Options opt = new Options()) {
       final boolean boolValue = rand.nextBoolean();
@@ -732,6 +750,15 @@ public class OptionsTest {
       final long longValue = rand.nextLong();
       opt.setWalBytesPerSync(longValue);
       assertThat(opt.walBytesPerSync()).isEqualTo(longValue);
+    }
+  }
+
+  @Test
+  public void strictBytesPerSync() {
+    try (final Options opt = new Options()) {
+      assertThat(opt.strictBytesPerSync()).isFalse();
+      opt.setStrictBytesPerSync(true);
+      assertThat(opt.strictBytesPerSync()).isTrue();
     }
   }
 

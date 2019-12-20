@@ -51,7 +51,7 @@ class FullFilterBlockReader;
 class Footer;
 class InternalKeyComparator;
 class Iterator;
-class RandomAccessFile;
+class FSRandomAccessFile;
 class TableCache;
 class TableReader;
 class WritableFile;
@@ -446,9 +446,9 @@ class BlockBasedTable : public TableReader {
   static void SetupCacheKeyPrefix(Rep* rep);
 
   // Generate a cache key prefix from the file
-  static void GenerateCachePrefix(Cache* cc, RandomAccessFile* file,
+  static void GenerateCachePrefix(Cache* cc, FSRandomAccessFile* file,
                                   char* buffer, size_t* size);
-  static void GenerateCachePrefix(Cache* cc, WritableFile* file, char* buffer,
+  static void GenerateCachePrefix(Cache* cc, FSWritableFile* file, char* buffer,
                                   size_t* size);
 
   // Given an iterator return its offset in file.
@@ -603,6 +603,13 @@ struct BlockBasedTable::Rep {
 
   uint64_t sst_number_for_tracing() const {
     return file ? TableFileNameToNumber(file->file_name()) : UINT64_MAX;
+  }
+  void CreateFilePrefetchBuffer(
+      size_t readahead_size, size_t max_readahead_size,
+      std::unique_ptr<FilePrefetchBuffer>* fpb) const {
+    fpb->reset(new FilePrefetchBuffer(file.get(), readahead_size,
+                                      max_readahead_size,
+                                      !ioptions.allow_mmap_reads /* enable */));
   }
 };
 

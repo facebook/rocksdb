@@ -7,7 +7,6 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 #include "table/block_based/block_based_table_reader.h"
-
 #include <algorithm>
 #include <array>
 #include <limits>
@@ -24,6 +23,7 @@
 #include "rocksdb/cache.h"
 #include "rocksdb/comparator.h"
 #include "rocksdb/env.h"
+#include "rocksdb/file_system.h"
 #include "rocksdb/filter_policy.h"
 #include "rocksdb/iterator.h"
 #include "rocksdb/options.h"
@@ -499,9 +499,8 @@ class PartitionIndexReader : public BlockBasedTable::IndexReaderCommon {
     uint64_t last_off = handle.offset() + block_size(handle);
     uint64_t prefetch_len = last_off - prefetch_off;
     std::unique_ptr<FilePrefetchBuffer> prefetch_buffer;
-    auto& file = rep->file;
-    prefetch_buffer.reset(new FilePrefetchBuffer());
-    s = prefetch_buffer->Prefetch(file.get(), prefetch_off,
+    rep->CreateFilePrefetchBuffer(0, 0, &prefetch_buffer);
+    s = prefetch_buffer->Prefetch(rep->file.get(), prefetch_off,
                                   static_cast<size_t>(prefetch_len));
 
     // After prefetch, read the partitions one by one
@@ -994,7 +993,7 @@ void BlockBasedTable::SetupCacheKeyPrefix(Rep* rep) {
   }
 }
 
-void BlockBasedTable::GenerateCachePrefix(Cache* cc, RandomAccessFile* file,
+void BlockBasedTable::GenerateCachePrefix(Cache* cc, FSRandomAccessFile* file,
                                           char* buffer, size_t* size) {
   // generate an id from the file
   *size = file->GetUniqueId(buffer, kMaxCacheKeyPrefixSize);
@@ -1007,7 +1006,7 @@ void BlockBasedTable::GenerateCachePrefix(Cache* cc, RandomAccessFile* file,
   }
 }
 
-void BlockBasedTable::GenerateCachePrefix(Cache* cc, WritableFile* file,
+void BlockBasedTable::GenerateCachePrefix(Cache* cc, FSWritableFile* file,
                                           char* buffer, size_t* size) {
   // generate an id from the file
   *size = file->GetUniqueId(buffer, kMaxCacheKeyPrefixSize);
@@ -1147,8 +1146,14 @@ Status BlockBasedTable::Open(
   const bool prefetch_all = prefetch_index_and_filter_in_cache || level == 0;
   const bool preload_all = !table_options.cache_index_and_filter_blocks;
 
-  s = PrefetchTail(file.get(), file_size, tail_prefetch_stats, prefetch_all,
-                   preload_all, &prefetch_buffer);
+  if (!ioptions.allow_mmap_reads) {
+    s = PrefetchTail(file.get(), file_size, tail_prefetch_stats, prefetch_all,
+                     preload_all, &prefetch_buffer);
+  } else {
+    // Should not prefetch for mmap mode.
+    prefetch_buffer.reset(new FilePrefetchBuffer(
+        nullptr, 0, 0, false /* enable */, true /* track_min_offset */));
+  }
 
   // Read in the following order:
   //    1. Footer
@@ -1274,10 +1279,12 @@ Status BlockBasedTable::PrefetchTail(
   Status s;
   // TODO should not have this special logic in the future.
   if (!file->use_direct_io()) {
-    prefetch_buffer->reset(new FilePrefetchBuffer(nullptr, 0, 0, false, true));
+    prefetch_buffer->reset(new FilePrefetchBuffer(
+        nullptr, 0, 0, false /* enable */, true /* track_min_offset */));
     s = file->Prefetch(prefetch_off, prefetch_len);
   } else {
-    prefetch_buffer->reset(new FilePrefetchBuffer(nullptr, 0, 0, true, true));
+    prefetch_buffer->reset(new FilePrefetchBuffer(
+        nullptr, 0, 0, true /* enable */, true /* track_min_offset */));
     s = (*prefetch_buffer)->Prefetch(file, prefetch_off, prefetch_len);
   }
   return s;
@@ -1603,13 +1610,13 @@ void BlockBasedTable::SetupForCompaction() {
     case Options::NONE:
       break;
     case Options::NORMAL:
-      rep_->file->file()->Hint(RandomAccessFile::NORMAL);
+      rep_->file->file()->Hint(FSRandomAccessFile::kNormal);
       break;
     case Options::SEQUENTIAL:
-      rep_->file->file()->Hint(RandomAccessFile::SEQUENTIAL);
+      rep_->file->file()->Hint(FSRandomAccessFile::kSequential);
       break;
     case Options::WILLNEED:
-      rep_->file->file()->Hint(RandomAccessFile::WILLNEED);
+      rep_->file->file()->Hint(FSRandomAccessFile::kWillNeed);
       break;
     default:
       assert(false);
@@ -2279,6 +2286,8 @@ Status BlockBasedTable::MaybeReadBlockAndLoadToCache(
 // false and scratch is non-null and the blocks are uncompressed, it copies
 // the buffers to heap. In any case, the CachableEntry<Block> returned will
 // own the data bytes.
+// If compression is enabled and also there is no compressed block cache,
+// the adjacent blocks are read out in one IO (combined read)
 // batch - A MultiGetRange with only those keys with unique data blocks not
 //         found in cache
 // handles - A vector of block handles. Some of them me be NULL handles
@@ -2316,9 +2325,14 @@ void BlockBasedTable::RetrieveMultipleBlocks(
     return;
   }
 
-  autovector<ReadRequest, MultiGetContext::MAX_BATCH_SIZE> read_reqs;
+  autovector<FSReadRequest, MultiGetContext::MAX_BATCH_SIZE> read_reqs;
   size_t buf_offset = 0;
   size_t idx_in_batch = 0;
+
+  uint64_t prev_offset = 0;
+  size_t prev_len = 0;
+  autovector<size_t, MultiGetContext::MAX_BATCH_SIZE> req_idx_for_block;
+  autovector<size_t, MultiGetContext::MAX_BATCH_SIZE> req_offset_for_block;
   for (auto mget_iter = batch->begin(); mget_iter != batch->end();
        ++mget_iter, ++idx_in_batch) {
     const BlockHandle& handle = (*handles)[idx_in_batch];
@@ -2326,23 +2340,56 @@ void BlockBasedTable::RetrieveMultipleBlocks(
       continue;
     }
 
-    ReadRequest req;
-    req.len = block_size(handle);
+    size_t prev_end = static_cast<size_t>(prev_offset) + prev_len;
+
+    // If current block is adjacent to the previous one, at the same time,
+    // compression is enabled and there is no compressed cache, we combine
+    // the two block read as one.
+    if (scratch != nullptr && prev_end == handle.offset()) {
+      req_offset_for_block.emplace_back(prev_len);
+      prev_len += block_size(handle);
+    } else {
+      // No compression or current block and previous one is not adjacent:
+      // Step 1, create a new request for previous blocks
+      if (prev_len != 0) {
+        FSReadRequest req;
+        req.offset = prev_offset;
+        req.len = prev_len;
+        if (scratch == nullptr) {
+          req.scratch = new char[req.len];
+        } else {
+          req.scratch = scratch + buf_offset;
+          buf_offset += req.len;
+        }
+        req.status = IOStatus::OK();
+        read_reqs.emplace_back(req);
+      }
+
+      // Step 2, remeber the previous block info
+      prev_offset = handle.offset();
+      prev_len = block_size(handle);
+      req_offset_for_block.emplace_back(0);
+    }
+    req_idx_for_block.emplace_back(read_reqs.size());
+  }
+  // Handle the last block and process the pending last request
+  if (prev_len != 0) {
+    FSReadRequest req;
+    req.offset = prev_offset;
+    req.len = prev_len;
     if (scratch == nullptr) {
       req.scratch = new char[req.len];
     } else {
       req.scratch = scratch + buf_offset;
-      buf_offset += req.len;
     }
-    req.offset = handle.offset();
-    req.status = Status::OK();
+    req.status = IOStatus::OK();
     read_reqs.emplace_back(req);
   }
 
   file->MultiRead(&read_reqs[0], read_reqs.size());
 
-  size_t read_req_idx = 0;
   idx_in_batch = 0;
+  size_t valid_batch_idx = 0;
   for (auto mget_iter = batch->begin(); mget_iter != batch->end();
        ++mget_iter, ++idx_in_batch) {
     const BlockHandle& handle = (*handles)[idx_in_batch];
@@ -2351,41 +2398,86 @@ void BlockBasedTable::RetrieveMultipleBlocks(
       continue;
     }
 
-    ReadRequest& req = read_reqs[read_req_idx++];
+    assert(valid_batch_idx < req_idx_for_block.size());
+    assert(valid_batch_idx < req_offset_for_block.size());
+    assert(req_idx_for_block[valid_batch_idx] < read_reqs.size());
+    size_t& req_idx = req_idx_for_block[valid_batch_idx];
+    size_t& req_offset = req_offset_for_block[valid_batch_idx];
+    valid_batch_idx++;
+    FSReadRequest& req = read_reqs[req_idx];
     Status s = req.status;
     if (s.ok()) {
       if (req.result.size() != req.len) {
-        s = Status::Corruption("truncated block read from " +
-                               rep_->file->file_name() + " offset " +
-                               ToString(handle.offset()) + ", expected " +
-                               ToString(req.len) +
-                               " bytes, got " + ToString(req.result.size()));
+        s = Status::Corruption(
+            "truncated block read from " + rep_->file->file_name() +
+            " offset " + ToString(handle.offset()) + ", expected " +
+            ToString(req.len) + " bytes, got " + ToString(req.result.size()));
       }
     }
 
     BlockContents raw_block_contents;
+    size_t cur_read_end = req_offset + block_size(handle);
+    if (cur_read_end > req.result.size()) {
+      s = Status::Corruption(
+          "truncated block read from " + rep_->file->file_name() + " offset " +
+          ToString(handle.offset()) + ", expected " + ToString(req.len) +
+          " bytes, got " + ToString(req.result.size()));
+    }
+
+    bool blocks_share_read_buffer = (req.result.size() != block_size(handle));
     if (s.ok()) {
-      if (scratch == nullptr) {
+      if (scratch == nullptr && !blocks_share_read_buffer) {
         // We allocated a buffer for this block. Give ownership of it to
         // BlockContents so it can free the memory
         assert(req.result.data() == req.scratch);
-        std::unique_ptr<char[]> raw_block(req.scratch);
+        std::unique_ptr<char[]> raw_block(req.scratch + req_offset);
         raw_block_contents = BlockContents(std::move(raw_block), handle.size());
       } else {
-        // We used the scratch buffer, so no need to free anything
-        raw_block_contents = BlockContents(Slice(req.scratch, handle.size()));
+        // We used the scratch buffer which are shared by the blocks.
+        // raw_block_contents does not have the ownership.
+        raw_block_contents =
+            BlockContents(Slice(req.scratch + req_offset, handle.size()));
       }
+
 #ifndef NDEBUG
       raw_block_contents.is_raw_block = true;
 #endif
       if (options.verify_checksums) {
         PERF_TIMER_GUARD(block_checksum_time);
         const char* data = req.result.data();
-        uint32_t expected = DecodeFixed32(data + handle.size() + 1);
-        s = rocksdb::VerifyChecksum(footer.checksum(), req.result.data(),
+        uint32_t expected =
+            DecodeFixed32(data + req_offset + handle.size() + 1);
+        // Since the scratch might be shared. the offset of the data block in
+        // the buffer might not be 0. req.result.data() only point to the
+        // begin address of each read request, we need to add the offset
+        // in each read request. Checksum is stored in the block trailer,
+        // which is handle.size() + 1.
+        s = rocksdb::VerifyChecksum(footer.checksum(),
+                                    req.result.data() + req_offset,
                                     handle.size() + 1, expected);
       }
     }
+
+    if (s.ok()) {
+      // It handles a rare case: compression is set and these is no compressed
+      // cache (enable combined read). In this case, the scratch != nullptr.
+      // At the same time, some blocks are actually not compressed,
+      // since its compression space saving is smaller than the threshold. In
+      // this case, if the block shares the scratch memory, we need to copy it
+      // to the heap such that it can be added to the regular block cache.
+      CompressionType compression_type =
+          raw_block_contents.get_compression_type();
+      if (scratch != nullptr && compression_type == kNoCompression) {
+        Slice raw = Slice(req.scratch + req_offset, block_size(handle));
+        raw_block_contents = BlockContents(
+            CopyBufferToHeap(GetMemoryAllocator(rep_->table_options), raw),
+            handle.size());
+#ifndef NDEBUG
+        raw_block_contents.is_raw_block = true;
+#endif
+      }
+    }
+
     if (s.ok()) {
       if (options.fill_cache) {
         BlockCacheLookupContext lookup_data_block_context(
@@ -2414,25 +2506,21 @@ void BlockBasedTable::RetrieveMultipleBlocks(
       if (compression_type != kNoCompression) {
         UncompressionContext context(compression_type);
         UncompressionInfo info(context, uncompression_dict, compression_type);
-        s = UncompressBlockContents(info, req.result.data(), handle.size(),
-                                    &contents, footer.version(),
+        s = UncompressBlockContents(info, req.result.data() + req_offset,
+                                    handle.size(), &contents, footer.version(),
                                     rep_->ioptions, memory_allocator);
       } else {
-        if (scratch != nullptr) {
-          // If we used the scratch buffer, then the contents need to be
-          // copied to heap
-          Slice raw = Slice(req.result.data(), handle.size());
-          contents = BlockContents(
-              CopyBufferToHeap(GetMemoryAllocator(rep_->table_options), raw),
-              handle.size());
-        } else {
-          contents = std::move(raw_block_contents);
-        }
+        // There are two cases here: 1) caller uses the scratch buffer; 2) we
+        // use the requst buffer. If scratch buffer is used, we ensure that
+        // all raw blocks are copyed to the heap as single blocks. If scratch
+        // buffer is not used, we also have no combined read, so the raw
+        // block can be used directly.
+        contents = std::move(raw_block_contents);
       }
       if (s.ok()) {
         (*results)[idx_in_batch].SetOwnedValue(
-            new Block(std::move(contents), global_seqno,
-                      read_amp_bytes_per_bit, ioptions.statistics));
+            new Block(std::move(contents), global_seqno, read_amp_bytes_per_bit,
+                      ioptions.statistics));
       }
     }
     (*statuses)[idx_in_batch] = s;
@@ -2935,23 +3023,23 @@ void BlockBasedTableIterator<TBlockIter, TValue>::InitDataBlock() {
           } else if (rep->file->use_direct_io() && !prefetch_buffer_) {
             // Direct I/O
             // Let FilePrefetchBuffer take care of the readahead.
-            prefetch_buffer_.reset(new FilePrefetchBuffer(
-                rep->file.get(), BlockBasedTable::kInitAutoReadaheadSize,
-                BlockBasedTable::kMaxAutoReadaheadSize));
+            rep->CreateFilePrefetchBuffer(
+                BlockBasedTable::kInitAutoReadaheadSize,
+                BlockBasedTable::kMaxAutoReadaheadSize, &prefetch_buffer_);
           }
         }
       } else if (!prefetch_buffer_) {
         // Explicit user requested readahead
         // The actual condition is:
         // if (read_options_.readahead_size != 0 && !prefetch_buffer_)
-        prefetch_buffer_.reset(new FilePrefetchBuffer(
-            rep->file.get(), read_options_.readahead_size,
-            read_options_.readahead_size));
+        rep->CreateFilePrefetchBuffer(read_options_.readahead_size,
+                                      read_options_.readahead_size,
+                                      &prefetch_buffer_);
       }
     } else if (!prefetch_buffer_) {
-      prefetch_buffer_.reset(
-          new FilePrefetchBuffer(rep->file.get(), compaction_readahead_size_,
-                                 compaction_readahead_size_));
+      rep->CreateFilePrefetchBuffer(compaction_readahead_size_,
+                                    compaction_readahead_size_,
+                                    &prefetch_buffer_);
     }
 
     Status s;
@@ -4005,8 +4093,10 @@ uint64_t BlockBasedTable::ApproximateOffsetOf(const Slice& key,
                                               TableReaderCaller caller) {
   BlockCacheLookupContext context(caller);
   IndexBlockIter iiter_on_stack;
+  ReadOptions ro;
+  ro.total_order_seek = true;
   auto index_iter =
-      NewIndexIterator(ReadOptions(), /*disable_prefix_seek=*/false,
+      NewIndexIterator(ro, /*disable_prefix_seek=*/true,
                        /*input_iter=*/&iiter_on_stack, /*get_context=*/nullptr,
                        /*lookup_context=*/&context);
   std::unique_ptr<InternalIteratorBase<IndexValue>> iiter_unique_ptr;
@@ -4024,8 +4114,10 @@ uint64_t BlockBasedTable::ApproximateSize(const Slice& start, const Slice& end,
 
   BlockCacheLookupContext context(caller);
   IndexBlockIter iiter_on_stack;
+  ReadOptions ro;
+  ro.total_order_seek = true;
   auto index_iter =
-      NewIndexIterator(ReadOptions(), /*disable_prefix_seek=*/false,
+      NewIndexIterator(ro, /*disable_prefix_seek=*/true,
                        /*input_iter=*/&iiter_on_stack, /*get_context=*/nullptr,
                        /*lookup_context=*/&context);
   std::unique_ptr<InternalIteratorBase<IndexValue>> iiter_unique_ptr;

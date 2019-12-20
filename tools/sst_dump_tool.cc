@@ -18,6 +18,7 @@
 #include "db/blob_index.h"
 #include "db/memtable.h"
 #include "db/write_batch_internal.h"
+#include "env/composite_env_wrapper.h"
 #include "options/cf_options.h"
 #include "rocksdb/db.h"
 #include "rocksdb/env.h"
@@ -91,7 +92,8 @@ Status SstFileDumper::GetTableReader(const std::string& file_path) {
     s = options_.env->GetFileSize(file_path, &file_size);
   }
 
-  file_.reset(new RandomAccessFileReader(std::move(file), file_path));
+  file_.reset(new RandomAccessFileReader(NewLegacyRandomAccessFileWrapper(file),
+                                         file_path));
 
   if (s.ok()) {
     s = ReadFooterFromFile(file_.get(), nullptr /* prefetch_buffer */,
@@ -106,7 +108,8 @@ Status SstFileDumper::GetTableReader(const std::string& file_path) {
         magic_number == kLegacyPlainTableMagicNumber) {
       soptions_.use_mmap_reads = true;
       options_.env->NewRandomAccessFile(file_path, &file, soptions_);
-      file_.reset(new RandomAccessFileReader(std::move(file), file_path));
+      file_.reset(new RandomAccessFileReader(
+          NewLegacyRandomAccessFileWrapper(file), file_path));
     }
     options_.comparator = &internal_comparator_;
     // For old sst format, ReadTableProperties might fail but file can be read
@@ -167,7 +170,8 @@ uint64_t SstFileDumper::CalculateCompressedTableSize(
   env->NewWritableFile(testFileName, &out_file, soptions_);
   std::unique_ptr<WritableFileWriter> dest_writer;
   dest_writer.reset(
-      new WritableFileWriter(std::move(out_file), testFileName, soptions_));
+      new WritableFileWriter(NewLegacyWritableFileWrapper(std::move(out_file)),
+                             testFileName, soptions_));
   BlockBasedTableOptions table_options;
   table_options.block_size = block_size;
   BlockBasedTableFactory block_based_tf(table_options);
