@@ -1466,7 +1466,7 @@ Status BlobDBImpl::Get(const ReadOptions& read_options,
 Status BlobDBImpl::GetImpl(const ReadOptions& read_options,
                            ColumnFamilyHandle* column_family, const Slice& key,
                            PinnableSlice* value, uint64_t* expiration) {
-  if (column_family != DefaultColumnFamily()) {
+  if (column_family->GetID() != DefaultColumnFamily()->GetID()) {
     return Status::NotSupported(
         "Blob DB doesn't support non-default column family.");
   }
