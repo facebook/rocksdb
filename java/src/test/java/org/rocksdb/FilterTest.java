@@ -11,8 +11,8 @@ import org.junit.Test;
 public class FilterTest {
 
   @ClassRule
-  public static final RocksMemoryResource rocksMemoryResource =
-      new RocksMemoryResource();
+  public static final RocksNativeLibraryResource ROCKS_NATIVE_LIBRARY_RESOURCE =
+      new RocksNativeLibraryResource();
 
   @Test
   public void filter() {
@@ -21,17 +21,17 @@ public class FilterTest {
     try(final Options options = new Options()) {
 
       try(final Filter bloomFilter = new BloomFilter()) {
-        blockConfig.setFilter(bloomFilter);
+        blockConfig.setFilterPolicy(bloomFilter);
         options.setTableFormatConfig(blockConfig);
       }
 
       try(final Filter bloomFilter = new BloomFilter(10)) {
-        blockConfig.setFilter(bloomFilter);
+        blockConfig.setFilterPolicy(bloomFilter);
         options.setTableFormatConfig(blockConfig);
       }
 
       try(final Filter bloomFilter = new BloomFilter(10, false)) {
-        blockConfig.setFilter(bloomFilter);
+        blockConfig.setFilterPolicy(bloomFilter);
         options.setTableFormatConfig(blockConfig);
       }
     }
