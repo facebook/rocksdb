@@ -270,6 +270,32 @@ DEFINE_bool(allow_concurrent_memtable_write, false,
 DEFINE_bool(enable_write_thread_adaptive_yield, true,
             "Use a yielding spin loop for brief writer thread waits.");
 
+#ifndef ROCKSDB_LITE
+// BlobDB Options
+DEFINE_bool(use_blob_db, false, "Use BlobDB.");
+
+DEFINE_uint64(blob_db_min_blob_size,
+              rocksdb::blob_db::BlobDBOptions().min_blob_size,
+              "Smallest blob to store in a file. Blobs smaller than this "
+              "will be inlined with the key in the LSM tree.");
+
+DEFINE_uint64(blob_db_bytes_per_sync,
+              rocksdb::blob_db::BlobDBOptions().bytes_per_sync,
+              "Sync blob files once per every N bytes written.");
+
+DEFINE_uint64(blob_db_file_size,
+              rocksdb::blob_db::BlobDBOptions().blob_file_size,
+              "Target size of each blob file.");
+
+DEFINE_bool(blob_db_enable_gc,
+            rocksdb::blob_db::BlobDBOptions().enable_garbage_collection,
+            "Enable BlobDB garbage collection.");
+
+DEFINE_double(blob_db_gc_cutoff,
+              rocksdb::blob_db::BlobDBOptions().garbage_collection_cutoff,
+              "Cutoff ratio for BlobDB garbage collection.");
+#endif  // !ROCKSDB_LITE
+
 static const bool FLAGS_subcompactions_dummy __attribute__((__unused__)) =
     RegisterFlagValidator(&FLAGS_subcompactions, &ValidateUint32Range);
 
