@@ -42,10 +42,14 @@ StressTest::StressTest()
     // Remove files without preserving manfiest files
     options.env = FLAGS_env->target();
 
+#ifndef ROCKSDB_LITE
     const Status s = !FLAGS_use_blob_db
                          ? DestroyDB(FLAGS_db, options)
                          : blob_db::DestroyBlobDB(FLAGS_db, options,
                                                   blob_db::BlobDBOptions());
+#else
+    const Status s = DestroyDB(FLAGS_db, options);
+#endif  // !ROCKSDB_LITE
 
     if (!s.ok()) {
       fprintf(stderr, "Cannot destroy original db: %s\n", s.ToString().c_str());
