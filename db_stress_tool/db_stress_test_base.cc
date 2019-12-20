@@ -553,6 +553,7 @@ void StressTest::OperateDb(ThreadState* thread) {
         }
       }
 
+#ifndef ROCKSDB_LITE
       // Every 1 in N verify the one of the following: 1) GetLiveFiles
       // 2) GetSortedWalFiles 3) GetCurrentWalFile. Each time, randomly select
       // one of them to run the test.
@@ -563,6 +564,7 @@ void StressTest::OperateDb(ThreadState* thread) {
                             status);
         }
       }
+#endif  // !ROCKSDB_LITE
 
       if (thread->rand.OneInOpt(FLAGS_pause_background_one_in)) {
         Status status = TestPauseBackground(thread);
@@ -873,6 +875,7 @@ Status StressTest::TestIterate(ThreadState* thread,
   return s;
 }
 
+#ifndef ROCKSDB_LITE
 // Test the return status of GetLiveFiles, GetSortedWalFiles, and
 // GetCurrentWalFile. Each time, randomly select one of them to run
 // and return the status.
@@ -896,6 +899,7 @@ Status StressTest::VerifyGetLiveAndWalFiles(ThreadState* thread) {
   assert(false);
   return Status::Corruption("Undefined case happens!");
 }
+#endif  // !ROCKSDB_LITE
 
 // Compare the two iterator, iter and cmp_iter are in the same position,
 // unless iter might be made invalidate or undefined because of
