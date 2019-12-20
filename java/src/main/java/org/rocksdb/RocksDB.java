@@ -283,8 +283,8 @@ public class RocksDB extends RocksObject {
     for (int i = 0; i < columnFamilyDescriptors.size(); i++) {
       final ColumnFamilyDescriptor cfDescriptor = columnFamilyDescriptors
           .get(i);
-      cfNames[i] = cfDescriptor.columnFamilyName();
-      cfOptionHandles[i] = cfDescriptor.columnFamilyOptions().nativeHandle_;
+      cfNames[i] = cfDescriptor.getName();
+      cfOptionHandles[i] = cfDescriptor.getOptions().nativeHandle_;
     }
 
     final long[] handles = open(options.nativeHandle_, path, cfNames,
@@ -407,8 +407,8 @@ public class RocksDB extends RocksObject {
     for (int i = 0; i < columnFamilyDescriptors.size(); i++) {
       final ColumnFamilyDescriptor cfDescriptor = columnFamilyDescriptors
           .get(i);
-      cfNames[i] = cfDescriptor.columnFamilyName();
-      cfOptionHandles[i] = cfDescriptor.columnFamilyOptions().nativeHandle_;
+      cfNames[i] = cfDescriptor.getName();
+      cfOptionHandles[i] = cfDescriptor.getOptions().nativeHandle_;
     }
 
     final long[] handles = openROnly(options.nativeHandle_, path, cfNames,
@@ -514,6 +514,9 @@ public class RocksDB extends RocksObject {
    * @param columnFamilyNames the names of the column families.
    *
    * @return the handles to the newly created column families.
+   *
+   * @throws RocksDBException if an error occurs whilst creating
+   *     the column families
    */
   public List<ColumnFamilyHandle> createColumnFamilies(
       final ColumnFamilyOptions columnFamilyOptions,
@@ -536,6 +539,9 @@ public class RocksDB extends RocksObject {
    * @param columnFamilyDescriptors the descriptions of the column families.
    *
    * @return the handles to the newly created column families.
+   *
+   * @throws RocksDBException if an error occurs whilst creating
+   *     the column families
    */
   public List<ColumnFamilyHandle> createColumnFamilies(
       final List<ColumnFamilyDescriptor> columnFamilyDescriptors)
@@ -2676,6 +2682,8 @@ public class RocksDB extends RocksObject {
    *
    * Note this doesn't reset {@link Options#statistics()} as it is not
    * owned by DB.
+   *
+   * @throws RocksDBException if an error occurs whilst reseting the stats
    */
   public void resetStats() throws RocksDBException {
     resetStats(nativeHandle_);
@@ -3105,13 +3113,15 @@ public class RocksDB extends RocksObject {
    * @throws RocksDBException thrown if an error occurs within the native
    *     part of the library.
    */
-  public void compactRange(final ColumnFamilyHandle columnFamilyHandle,
+  public void compactRange(
+      /* @Nullable */ final ColumnFamilyHandle columnFamilyHandle,
       final byte[] begin, final byte[] end,
       final CompactRangeOptions compactRangeOptions) throws RocksDBException {
     compactRange(nativeHandle_,
         begin, begin == null ? -1 : begin.length,
         end, end == null ? -1 : end.length,
-        compactRangeOptions.nativeHandle_, columnFamilyHandle.nativeHandle_);
+        compactRangeOptions.nativeHandle_,
+        columnFamilyHandle == null ? 0 : columnFamilyHandle.nativeHandle_);
   }
 
   /**
@@ -3120,6 +3130,8 @@ public class RocksDB extends RocksObject {
    * @param columnFamilyHandle {@link org.rocksdb.ColumnFamilyHandle}
    *     instance, or null for the default column family.
    * @param mutableColumnFamilyOptions the options.
+   *
+   * @throws RocksDBException if an error occurs whilst setting the options
    */
   public void setOptions(
       /* @Nullable */final ColumnFamilyHandle columnFamilyHandle,
@@ -3134,6 +3146,8 @@ public class RocksDB extends RocksObject {
    * Change the options for the default column family handle.
    *
    * @param mutableColumnFamilyOptions the options.
+   *
+   * @throws RocksDBException if an error occurs whilst setting the options
    */
   public void setOptions(
       final MutableColumnFamilyOptions mutableColumnFamilyOptions)
@@ -3145,6 +3159,8 @@ public class RocksDB extends RocksObject {
    * Set the options for the column family handle.
    *
    * @param mutableDBoptions the options.
+   *
+   * @throws RocksDBException if an error occurs whilst setting the options
    */
   public void setDBOptions(final MutableDBOptions mutableDBoptions)
       throws RocksDBException {
@@ -3154,7 +3170,7 @@ public class RocksDB extends RocksObject {
   }
 
   /**
-   * Takes nputs a list of files specified by file names and
+   * Takes a list of files specified by file names and
    * compacts them to the specified level.
    *
    * Note that the behavior is different from
@@ -3169,6 +3185,10 @@ public class RocksDB extends RocksObject {
    * @param compactionJobInfo the compaction job info, this parameter
    *     will be updated with the info from compacting the files,
    *     can just be null if you don't need it.
+   *
+   * @return the list of compacted files
+   *
+   * @throws RocksDBException if an error occurs during compaction
    */
   public List<String> compactFiles(
       final CompactionOptions compactionOptions,
@@ -3199,6 +3219,10 @@ public class RocksDB extends RocksObject {
    * @param compactionJobInfo the compaction job info, this parameter
    *     will be updated with the info from compacting the files,
    *     can just be null if you don't need it.
+   *
+   * @return the list of compacted files
+   *
+   * @throws RocksDBException if an error occurs during compaction
    */
   public List<String> compactFiles(
       final CompactionOptions compactionOptions,
@@ -3221,7 +3245,7 @@ public class RocksDB extends RocksObject {
    * finish. After it returns, no background process will be run until
    * {@link #continueBackgroundWork()} is called
    *
-   * @throws RocksDBException If an error occurs when pausing background work
+   * @throws RocksDBException if an error occurs when pausing background work
    */
   public void pauseBackgroundWork() throws RocksDBException {
     pauseBackgroundWork(nativeHandle_);
@@ -3231,7 +3255,7 @@ public class RocksDB extends RocksObject {
    * Resumes background work which was suspended by
    * previously calling {@link #pauseBackgroundWork()}
    *
-   * @throws RocksDBException If an error occurs when resuming background work
+   * @throws RocksDBException if an error occurs when resuming background work
    */
   public void continueBackgroundWork() throws RocksDBException {
     continueBackgroundWork(nativeHandle_);
@@ -3251,6 +3275,8 @@ public class RocksDB extends RocksObject {
    * parameter itself within the column family option.
    *
    * @param columnFamilyHandles the column family handles
+   *
+   * @throws RocksDBException if an error occurs whilst enabling auto-compaction
    */
   public void enableAutoCompaction(
       final List<ColumnFamilyHandle> columnFamilyHandles)
@@ -3284,6 +3310,8 @@ public class RocksDB extends RocksObject {
   /**
    * Maximum level to which a new compacted memtable is pushed if it
    * does not create overlap.
+   *
+   * @return the maximum level
    */
   public int maxMemCompactionLevel() {
     return maxMemCompactionLevel(null);
@@ -3294,15 +3322,19 @@ public class RocksDB extends RocksObject {
    * does not create overlap.
    *
    * @param columnFamilyHandle the column family handle
+   *
+   * @return the maximum level
    */
   public int maxMemCompactionLevel(
-      /* @Nullable */final ColumnFamilyHandle columnFamilyHandle) {
+      /* @Nullable */ final ColumnFamilyHandle columnFamilyHandle) {
       return maxMemCompactionLevel(nativeHandle_,
           columnFamilyHandle == null ? 0 : columnFamilyHandle.nativeHandle_);
   }
 
   /**
    * Number of files in level-0 that would stop writes.
+   *
+   * @return the number of files
    */
   public int level0StopWriteTrigger() {
     return level0StopWriteTrigger(null);
@@ -3312,6 +3344,8 @@ public class RocksDB extends RocksObject {
    * Number of files in level-0 that would stop writes.
    *
    * @param columnFamilyHandle the column family handle
+   *
+   * @return the number of files
    */
   public int level0StopWriteTrigger(
       /* @Nullable */final ColumnFamilyHandle columnFamilyHandle) {
@@ -3407,6 +3441,8 @@ public class RocksDB extends RocksObject {
    * it calls {@link #syncWal()} afterwards.
    *
    * @param sync true to also fsync to disk.
+   *
+   * @throws RocksDBException if an error occurs whilst flushing
    */
   public void flushWal(final boolean sync) throws RocksDBException {
     flushWal(nativeHandle_, sync);
@@ -3422,6 +3458,8 @@ public class RocksDB extends RocksObject {
    * won't be visible until the sync is done.
    *
    * Currently only works if {@link Options#allowMmapWrites()} is set to false.
+   *
+   * @throws RocksDBException if an error occurs whilst syncing
    */
   public void syncWal() throws RocksDBException {
     syncWal(nativeHandle_);
@@ -3519,6 +3557,9 @@ public class RocksDB extends RocksObject {
    * See {@link #getLiveFiles(boolean)}.
    *
    * @return the live files
+   *
+   * @throws RocksDBException if an error occurs whilst retrieving the list
+   *     of live files
    */
   public LiveFiles getLiveFiles() throws RocksDBException {
     return getLiveFiles(true);
@@ -3542,6 +3583,9 @@ public class RocksDB extends RocksObject {
    *     indeterminate time.
    *
    * @return the live files
+   *
+   * @throws RocksDBException if an error occurs whilst retrieving the list
+   *     of live files
    */
   public LiveFiles getLiveFiles(final boolean flushMemtable)
       throws RocksDBException {
@@ -3559,6 +3603,9 @@ public class RocksDB extends RocksObject {
    * Retrieve the sorted list of all wal files with earliest file first.
    *
    * @return the log files
+   *
+   * @throws RocksDBException if an error occurs whilst retrieving the list
+   *     of sorted WAL files
    */
   public List<LogFile> getSortedWalFiles() throws RocksDBException {
     final LogFile[] logFiles = getSortedWalFiles(nativeHandle_);
@@ -3594,6 +3641,8 @@ public class RocksDB extends RocksObject {
    * path relative to the db directory. eg. 000001.sst, /archive/000003.log
    *
    * @param name the file name
+   *
+   * @throws RocksDBException if an error occurs whilst deleting the file
    */
   public void deleteFile(final String name) throws RocksDBException {
     deleteFile(nativeHandle_, name);
@@ -3710,6 +3759,8 @@ public class RocksDB extends RocksObject {
    *     column family.
    *
    * @return the properties
+   *
+   * @throws RocksDBException if an error occurs whilst getting the properties
    */
   public Map<String, TableProperties> getPropertiesOfAllTables(
       /* @Nullable */final ColumnFamilyHandle columnFamilyHandle)
@@ -3722,6 +3773,8 @@ public class RocksDB extends RocksObject {
    * Get the properties of all tables in the default column family.
    *
    * @return the properties
+   *
+   * @throws RocksDBException if an error occurs whilst getting the properties
    */
   public Map<String, TableProperties> getPropertiesOfAllTables()
       throws RocksDBException {
@@ -3736,6 +3789,8 @@ public class RocksDB extends RocksObject {
    * @param ranges the ranges over which to get the table properties
    *
    * @return the properties
+   *
+   * @throws RocksDBException if an error occurs whilst getting the properties
    */
   public Map<String, TableProperties> getPropertiesOfTablesInRange(
       /* @Nullable */final ColumnFamilyHandle columnFamilyHandle,
@@ -3751,6 +3806,8 @@ public class RocksDB extends RocksObject {
    * @param ranges the ranges over which to get the table properties
    *
    * @return the properties
+   *
+   * @throws RocksDBException if an error occurs whilst getting the properties
    */
   public Map<String, TableProperties> getPropertiesOfTablesInRange(
       final List<Range> ranges) throws RocksDBException {
@@ -3764,6 +3821,8 @@ public class RocksDB extends RocksObject {
    *     column family.
    *
    * @return the suggested range.
+   *
+   * @throws RocksDBException if an error occurs whilst suggesting the range
    */
   public Range suggestCompactRange(
       /* @Nullable */final ColumnFamilyHandle columnFamilyHandle)
@@ -3778,6 +3837,8 @@ public class RocksDB extends RocksObject {
    * Suggest the range to compact for the default column family.
    *
    * @return the suggested range.
+   *
+   * @throws RocksDBException if an error occurs whilst suggesting the range
    */
   public Range suggestCompactRange()
       throws RocksDBException {
@@ -3789,6 +3850,9 @@ public class RocksDB extends RocksObject {
    *
    * @param columnFamilyHandle the column family handle,
    *     or null for the default column family.
+   * @param targetLevel the target level for L0
+   *
+   * @throws RocksDBException if an error occurs whilst promoting L0
    */
   public void promoteL0(
       /* @Nullable */final ColumnFamilyHandle columnFamilyHandle,
@@ -3800,6 +3864,10 @@ public class RocksDB extends RocksObject {
 
   /**
    * Promote L0 for the default column family.
+   *
+   * @param targetLevel the target level for L0
+   *
+   * @throws RocksDBException if an error occurs whilst promoting L0
    */
   public void promoteL0(final int targetLevel)
       throws RocksDBException {
@@ -3813,6 +3881,8 @@ public class RocksDB extends RocksObject {
    *
    * @param traceOptions the options
    * @param traceWriter the trace writer
+   *
+   * @throws RocksDBException if an error occurs whilst starting the trace
    */
   public void startTrace(final TraceOptions traceOptions,
       final AbstractTraceWriter traceWriter) throws RocksDBException {
@@ -3829,23 +3899,28 @@ public class RocksDB extends RocksObject {
    * Stop tracing DB operations.
    *
    * See {@link #startTrace(TraceOptions, AbstractTraceWriter)}
+   *
+   * @throws RocksDBException if an error occurs whilst ending the trace
    */
   public void endTrace() throws RocksDBException {
     endTrace(nativeHandle_);
   }
 
-  /*
-   * Delete files in multiple ranges at once
+  /**
+   * Delete files in multiple ranges at once.
    * Delete files in a lot of ranges one at a time can be slow, use this API for
    * better performance in that case.
+   *
    * @param columnFamily - The column family for operation (null for default)
    * @param includeEnd - Whether ranges should include end
    * @param ranges - pairs of ranges (from1, to1, from2, to2, ...)
+   *
    * @throws RocksDBException thrown if error happens in underlying
    *     native library.
    */
-  public void deleteFilesInRanges(final ColumnFamilyHandle columnFamily, final List<byte[]> ranges,
-      final boolean includeEnd) throws RocksDBException {
+  public void deleteFilesInRanges(final ColumnFamilyHandle columnFamily,
+      final List<byte[]> ranges, final boolean includeEnd)
+      throws RocksDBException {
     if (ranges.size() == 0) {
       return;
     }
