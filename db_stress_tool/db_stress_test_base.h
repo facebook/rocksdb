@@ -51,6 +51,8 @@ class StressTest {
   Status NewTxn(WriteOptions& write_opts, Transaction** txn);
 
   Status CommitTxn(Transaction* txn);
+
+  Status RollbackTxn(Transaction* txn);
 #endif
 
   virtual void MaybeClearOneColumnFamily(ThreadState* /* thread */) {}

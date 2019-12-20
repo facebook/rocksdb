@@ -454,6 +454,16 @@ Status StressTest::CommitTxn(Transaction* txn) {
   delete txn;
   return s;
 }
+
+Status StressTest::RollbackTxn(Transaction* txn) {
+  if (!FLAGS_use_txn) {
+    return Status::InvalidArgument("RollbackTxn when FLAGS_use_txn is not"
+                                   " set");
+  }
+  Status s = txn->Rollback();
+  delete txn;
+  return s;
+}
 #endif
 
 void StressTest::OperateDb(ThreadState* thread) {

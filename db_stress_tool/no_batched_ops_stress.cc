@@ -166,12 +166,64 @@ class NonBatchedOpsStressTest : public StressTest {
     std::vector<Status> statuses(num_keys);
     ColumnFamilyHandle* cfh = column_families_[rand_column_families[0]];
 
+    // Create a transaction in order to write some data. The purpose is to
+    // exercise WriteBatchWithIndex::MultiGetFromBatchAndDB. The transaction
+    // will be rolled back once MultiGet returns.
+#ifndef ROCKSDB_LITE
+    Transaction* txn = nullptr;
+    if (FLAGS_use_txn) {
+      WriteOptions wo;
+      NewTxn(wo, &txn);
+    }
+#endif
     for (size_t i = 0; i < num_keys; ++i) {
       key_str.emplace_back(Key(rand_keys[i]));
       keys.emplace_back(key_str.back());
+#ifndef ROCKSDB_LITE
+      if (FLAGS_use_txn) {
+        if (thread->rand.OneIn(10)) {
+          int op = thread->rand.Uniform(2);
+          Status s;
+          switch (op) {
+            case 0:
+            case 1:
+            {
+              uint32_t value_base = thread->rand.Next() %
+                                    thread->shared->UNKNOWN_SENTINEL;
+              char value[100];
+              size_t sz = GenerateValue(value_base, value, sizeof(value));
+              Slice v(value, sz);
+              if (op == 0) {
+                s = txn->Put(cfh, keys.back(), v);
+              } else {
+                s = txn->Merge(cfh, keys.back(), v);
+              }
+              break;
+            }
+            default:
+              assert(op == 2);
+              s = txn->Delete(cfh, keys.back());
+          }
+          if (!s.ok()) {
+            fprintf(stderr, "Transaction put: %s\n", s.ToString().c_str());
+            std::terminate();
+          }
+        }
+      }
+#endif
     }
-    db_->MultiGet(read_opts, cfh, num_keys, keys.data(), values.data(),
-                  statuses.data());
+
+    if (!FLAGS_use_txn) {
+      db_->MultiGet(read_opts, cfh, num_keys, keys.data(), values.data(),
+                    statuses.data());
+     } else {
+#ifndef ROCKSDB_LITE
+      txn->MultiGet(read_opts, cfh, num_keys, keys.data(), values.data(),
+                    statuses.data());
+      RollbackTxn(txn);
+#endif
+    }
+
     for (const auto& s : statuses) {
       if (s.ok()) {
         // found case
