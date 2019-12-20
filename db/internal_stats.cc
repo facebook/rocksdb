@@ -779,7 +779,7 @@ bool InternalStats::HandleOldestSnapshotTime(uint64_t* value, DBImpl* db,
 }
 
 bool InternalStats::HandleOldestSnapshotSequence(uint64_t* value, DBImpl* db,
-                                             Version* /*version*/) {
+                                                 Version* /*version*/) {
   *value = static_cast<uint64_t>(db->snapshots().GetOldestSnapshotSequence());
   return true;
 }

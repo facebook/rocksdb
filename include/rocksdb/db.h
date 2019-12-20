@@ -716,8 +716,8 @@ class DB {
     //      timestamp of oldest unreleased snapshot.
     static const std::string kOldestSnapshotTime;
 
-    //  "rocksdb.oldest-snapshot-sequence" - returns number representing sequence
-    //      number of oldest unreleased snapshot.
+    //  "rocksdb.oldest-snapshot-sequence" - returns number representing
+    //      sequence number of oldest unreleased snapshot.
     static const std::string kOldestSnapshotSequence;
 
     //  "rocksdb.num-live-versions" - returns number of live versions. `Version`
