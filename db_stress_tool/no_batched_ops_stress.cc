@@ -42,10 +42,9 @@ class NonBatchedOpsStressTest : public StressTest {
           if (thread->shared->HasVerificationFailedYet()) {
             break;
           }
-          // TODO(ljin): update "long" to uint64_t
           // Reseek when the prefix changes
           if (prefix_to_use > 0 &&
-              i % (static_cast<int64_t>(1) << 8 * (8 - prefix_to_use)) == 0) {
+              i % (static_cast<uint64_t>(1) << 8 * (8 - prefix_to_use)) == 0) {
             iter->Seek(Key(i));
           }
           std::string from_db;
@@ -65,7 +64,7 @@ class NonBatchedOpsStressTest : public StressTest {
           } else {
             // The iterator found no value for the key in question, so do not
             // move to the next item in the iterator
-            s = Status::NotFound(Slice());
+            s = Status::NotFound();
           }
           VerifyValue(static_cast<int>(cf), i, options, shared, from_db, s,
                       true);
@@ -506,7 +505,7 @@ class NonBatchedOpsStressTest : public StressTest {
 
   bool VerifyValue(int cf, int64_t key, const ReadOptions& /*opts*/,
                    SharedState* shared, const std::string& value_from_db,
-                   Status s, bool strict = false) const {
+                   const Status& s, bool strict = false) const {
     if (shared->HasVerificationFailedYet()) {
       return false;
     }

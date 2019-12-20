@@ -99,7 +99,9 @@ default_params = {
     # Temporarily disabled because of assertion violations in
     # BlockBasedTable::ApproximateSize
     # "level_compaction_dynamic_level_bytes" : True,
-    "verify_checksum_one_in": 1000000
+    "verify_checksum_one_in": 1000000,
+    "verify_db_one_in": 100000,
+    "continuous_verification_interval" : 0
 }
 
 _TEST_DIR_ENV_VAR = 'TEST_TMPDIR'

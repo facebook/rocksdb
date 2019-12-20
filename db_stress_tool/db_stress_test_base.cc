@@ -28,7 +28,8 @@ StressTest::StressTest()
 #endif
       new_column_family_name_(1),
       num_times_reopened_(0),
-      db_preload_finished_(false) {
+      db_preload_finished_(false),
+      cmp_db_(nullptr) {
   if (FLAGS_destroy_db_initially) {
     std::vector<std::string> files;
     FLAGS_env->GetChildren(FLAGS_db, &files);
@@ -65,6 +66,12 @@ StressTest::~StressTest() {
     delete secondaries_[i];
   }
   secondaries_.clear();
+
+  for (auto* cf : cmp_cfhs_) {
+    delete cf;
+  }
+  cmp_cfhs_.clear();
+  delete cmp_db_;
 }
 
 std::shared_ptr<Cache> StressTest::NewCache(size_t capacity) {
@@ -187,7 +194,7 @@ void StressTest::InitReadonlyDb(SharedState* shared) {
 
 bool StressTest::VerifySecondaries() {
 #ifndef ROCKSDB_LITE
-  if (FLAGS_enable_secondary) {
+  if (FLAGS_test_secondary) {
     uint64_t now = FLAGS_env->NowMicros();
     fprintf(
         stdout, "%s Start to verify secondaries against primary\n",
@@ -232,7 +239,7 @@ bool StressTest::VerifySecondaries() {
       return false;
     }
   }
-  if (FLAGS_enable_secondary) {
+  if (FLAGS_test_secondary) {
     uint64_t now = FLAGS_env->NowMicros();
     fprintf(
         stdout, "%s Verification of secondaries succeeded\n",
@@ -294,15 +301,16 @@ Status StressTest::AssertSame(DB* db, ColumnFamilyHandle* cf,
 
 void StressTest::VerificationAbort(SharedState* shared, std::string msg,
                                    Status s) const {
-  printf("Verification failed: %s. Status is %s\n", msg.c_str(),
-         s.ToString().c_str());
+  fprintf(stderr, "Verification failed: %s. Status is %s\n", msg.c_str(),
+          s.ToString().c_str());
   shared->SetVerificationFailure();
 }
 
 void StressTest::VerificationAbort(SharedState* shared, std::string msg, int cf,
                                    int64_t key) const {
-  printf("Verification failed for column family %d key %" PRIi64 ": %s\n", cf,
-         key, msg.c_str());
+  fprintf(stderr,
+          "Verification failed for column family %d key %" PRIi64 ": %s\n", cf,
+          key, msg.c_str());
   shared->SetVerificationFailure();
 }
 
@@ -466,15 +474,17 @@ void StressTest::OperateDb(ThreadState* thread) {
     write_opts.sync = true;
   }
   write_opts.disableWAL = FLAGS_disable_wal;
-  const int prefixBound = (int)FLAGS_readpercent + (int)FLAGS_prefixpercent;
-  const int writeBound = prefixBound + (int)FLAGS_writepercent;
-  const int delBound = writeBound + (int)FLAGS_delpercent;
-  const int delRangeBound = delBound + (int)FLAGS_delrangepercent;
+  const int prefixBound = static_cast<int>(FLAGS_readpercent) +
+                          static_cast<int>(FLAGS_prefixpercent);
+  const int writeBound = prefixBound + static_cast<int>(FLAGS_writepercent);
+  const int delBound = writeBound + static_cast<int>(FLAGS_delpercent);
+  const int delRangeBound = delBound + static_cast<int>(FLAGS_delrangepercent);
   const uint64_t ops_per_open = FLAGS_ops_per_thread / (FLAGS_reopen + 1);
 
   thread->stats.Start();
   for (int open_cnt = 0; open_cnt <= FLAGS_reopen; ++open_cnt) {
-    if (thread->shared->HasVerificationFailedYet()) {
+    if (thread->shared->HasVerificationFailedYet() ||
+        thread->shared->ShouldStopTest()) {
       break;
     }
     if (open_cnt != 0) {
@@ -510,12 +520,20 @@ void StressTest::OperateDb(ThreadState* thread) {
         options_.inplace_update_support ^= options_.inplace_update_support;
       }
 
+      if (thread->tid == 0 && FLAGS_verify_db_one_in > 0 &&
+          thread->rand.OneIn(FLAGS_verify_db_one_in)) {
+        ContinuouslyVerifyDb(thread);
+        if (thread->shared->ShouldStopTest()) {
+          break;
+        }
+      }
+
       MaybeClearOneColumnFamily(thread);
 
       if (thread->rand.OneInOpt(FLAGS_sync_wal_one_in)) {
         Status s = db_->SyncWAL();
         if (!s.ok() && !s.IsNotSupported()) {
-          fprintf(stdout, "SyncWAL() failed: %s\n", s.ToString().c_str());
+          fprintf(stderr, "SyncWAL() failed: %s\n", s.ToString().c_str());
         }
       }
 
@@ -606,7 +624,7 @@ void StressTest::OperateDb(ThreadState* thread) {
       // Reset this in case we pick something other than a read op. We don't
       // want to use a stale value when deciding at the beginning of the loop
       // whether to vote to reopen
-      if (prob_op < (int)FLAGS_readpercent) {
+      if (prob_op >= 0 && prob_op < static_cast<int>(FLAGS_readpercent)) {
         assert(0 <= prob_op);
         // OPERATION read
         if (FLAGS_use_multiget) {
@@ -625,7 +643,7 @@ void StressTest::OperateDb(ThreadState* thread) {
           TestGet(thread, read_opts, rand_column_families, rand_keys);
         }
       } else if (prob_op < prefixBound) {
-        assert((int)FLAGS_readpercent <= prob_op);
+        assert(static_cast<int>(FLAGS_readpercent) <= prob_op);
         // OPERATION prefix scan
         // keys are 8 bytes long, prefix size is FLAGS_prefix_size. There are
         // (8 - FLAGS_prefix_size) bytes besides the prefix. So there will
@@ -1098,8 +1116,8 @@ Status StressTest::TestBackupRestore(
     restored_db = nullptr;
   }
   if (!s.ok()) {
-    printf("A backup/restore operation failed with: %s\n",
-           s.ToString().c_str());
+    fprintf(stderr, "A backup/restore operation failed with: %s\n",
+            s.ToString().c_str());
   }
   return s;
 }
@@ -1372,7 +1390,8 @@ void StressTest::TestCompactRange(ThreadState* thread, int64_t rand_key,
   Status status = db_->CompactRange(cro, column_family, &start_key, &end_key);
 
   if (!status.ok()) {
-    printf("Unable to perform CompactRange(): %s\n", status.ToString().c_str());
+    fprintf(stdout, "Unable to perform CompactRange(): %s\n",
+            status.ToString().c_str());
   }
 
   if (pre_snapshot != nullptr) {
@@ -1699,16 +1718,16 @@ void StressTest::Open() {
                 existing_column_families.end());
       if (sorted_cfn != existing_column_families) {
         fprintf(stderr, "Expected column families differ from the existing:\n");
-        printf("Expected: {");
+        fprintf(stderr, "Expected: {");
         for (auto cf : sorted_cfn) {
-          printf("%s ", cf.c_str());
+          fprintf(stderr, "%s ", cf.c_str());
         }
-        printf("}\n");
-        printf("Existing: {");
+        fprintf(stderr, "}\n");
+        fprintf(stderr, "Existing: {");
         for (auto cf : existing_column_families) {
-          printf("%s ", cf.c_str());
+          fprintf(stderr, "%s ", cf.c_str());
         }
-        printf("}\n");
+        fprintf(stderr, "}\n");
       }
       assert(sorted_cfn == existing_column_families);
     }
@@ -1775,14 +1794,15 @@ void StressTest::Open() {
     assert(!s.ok() || column_families_.size() ==
                           static_cast<size_t>(FLAGS_column_families));
 
-    if (FLAGS_enable_secondary) {
+    if (FLAGS_test_secondary) {
 #ifndef ROCKSDB_LITE
       secondaries_.resize(FLAGS_threads);
       std::fill(secondaries_.begin(), secondaries_.end(), nullptr);
       secondary_cfh_lists_.clear();
       secondary_cfh_lists_.resize(FLAGS_threads);
       Options tmp_opts;
-      tmp_opts.max_open_files = FLAGS_open_files;
+      // TODO(yanqin) support max_open_files != -1 for secondary instance.
+      tmp_opts.max_open_files = -1;
       tmp_opts.statistics = dbstats_secondaries;
       tmp_opts.env = FLAGS_env;
       for (size_t i = 0; i != static_cast<size_t>(FLAGS_threads); ++i) {
@@ -1795,22 +1815,35 @@ void StressTest::Open() {
           break;
         }
       }
+      assert(s.ok());
 #else
       fprintf(stderr, "Secondary is not supported in RocksDBLite\n");
       exit(1);
 #endif
+    }
+    if (FLAGS_continuous_verification_interval > 0 && !cmp_db_) {
+      Options tmp_opts;
+      // TODO(yanqin) support max_open_files != -1 for secondary instance.
+      tmp_opts.max_open_files = -1;
+      tmp_opts.env = FLAGS_env;
+      std::string secondary_path = FLAGS_secondaries_base + "/cmp_database";
+      s = DB::OpenAsSecondary(tmp_opts, FLAGS_db, secondary_path,
+                              cf_descriptors, &cmp_cfhs_, &cmp_db_);
+      assert(!s.ok() ||
+             cmp_cfhs_.size() == static_cast<size_t>(FLAGS_column_families));
     }
   } else {
 #ifndef ROCKSDB_LITE
     DBWithTTL* db_with_ttl;
     s = DBWithTTL::Open(options_, FLAGS_db, &db_with_ttl, FLAGS_ttl);
     db_ = db_with_ttl;
-    if (FLAGS_enable_secondary) {
+    if (FLAGS_test_secondary) {
       secondaries_.resize(FLAGS_threads);
       std::fill(secondaries_.begin(), secondaries_.end(), nullptr);
       Options tmp_opts;
       tmp_opts.env = options_.env;
-      tmp_opts.max_open_files = FLAGS_open_files;
+      // TODO(yanqin) support max_open_files != -1 for secondary instance.
+      tmp_opts.max_open_files = -1;
       for (size_t i = 0; i != static_cast<size_t>(FLAGS_threads); ++i) {
         const std::string secondary_path =
             FLAGS_secondaries_base + "/" + std::to_string(i);

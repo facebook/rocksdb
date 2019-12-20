@@ -34,6 +34,7 @@ class StressTest {
 
   void OperateDb(ThreadState* thread);
   virtual void VerifyDb(ThreadState* thread) const = 0;
+  virtual void ContinuouslyVerifyDb(ThreadState* /*thread*/) const {}
 
   void PrintStatistics();
 
@@ -203,6 +204,10 @@ class StressTest {
   // Fields used for stress-testing secondary instance in the same process
   std::vector<DB*> secondaries_;
   std::vector<std::vector<ColumnFamilyHandle*>> secondary_cfh_lists_;
+
+  // Fields used for continuous verification from another thread
+  DB* cmp_db_;
+  std::vector<ColumnFamilyHandle*> cmp_cfhs_;
 };
 
 }  // namespace rocksdb
