@@ -829,7 +829,15 @@ Status StressTest::TestIterate(ThreadState* thread,
     }
   }
 
+  std::string op_logs;
+  const size_t kOpLogsLimit = 10000;
+
   for (const std::string& skey : key_str) {
+    if (op_logs.size() > kOpLogsLimit) {
+      // Shouldn't take too much memory for the history log. Clear it.
+      op_logs = "(cleared...)\n";
+    }
+
     Slice key = skey;
 
     if (readoptionscopy.iterate_upper_bound != nullptr &&
@@ -840,6 +848,24 @@ Status StressTest::TestIterate(ThreadState* thread,
       int64_t rand_upper_key = GenerateOneKey(thread, FLAGS_ops_per_thread);
       upper_bound_str = Key(rand_upper_key);
       upper_bound = Slice(upper_bound_str);
+    } else if (readoptionscopy.iterate_lower_bound != nullptr &&
+               thread->rand.OneIn(4)) {
+      // 1/4 chance, change the lower bound.
+      // It is possible that it is changed without first use, but there is no
+      // problem with that.
+      int64_t rand_lower_key = GenerateOneKey(thread, FLAGS_ops_per_thread);
+      lower_bound_str = Key(rand_lower_key);
+      lower_bound = Slice(lower_bound_str);
+    }
+
+    // Record some options to op_logs;
+    op_logs += "total_order_seek: ";
+    op_logs += (readoptionscopy.total_order_seek ? "1 " : "0 ");
+    if (readoptionscopy.iterate_upper_bound != nullptr) {
+      op_logs += "ub: " + upper_bound.ToString(true) + " ";
+    }
+    if (readoptionscopy.iterate_lower_bound != nullptr) {
+      op_logs += "lb: " + lower_bound.ToString(true) + " ";
     }
 
     // Set up an iterator and does the same without bounds and with total
@@ -855,18 +881,34 @@ Status StressTest::TestIterate(ThreadState* thread,
     std::unique_ptr<Iterator> cmp_iter(db_->NewIterator(cmp_ro, cmp_cfh));
     bool diverged = false;
 
+    bool support_seek_first_or_last =
+        (options_.prefix_extractor.get() != nullptr) ||
+        readoptionscopy.total_order_seek;
+
     LastIterateOp last_op;
-    if (thread->rand.OneIn(8)) {
+    if (support_seek_first_or_last && thread->rand.OneIn(100)) {
+      iter->SeekToFirst();
+      cmp_iter->SeekToFirst();
+      last_op = kLastOpSeekToFirst;
+      op_logs += "STF ";
+    } else if (support_seek_first_or_last && thread->rand.OneIn(100)) {
+      iter->SeekToLast();
+      cmp_iter->SeekToLast();
+      last_op = kLastOpSeekToLast;
+      op_logs += "STL ";
+    } else if (thread->rand.OneIn(8)) {
       iter->SeekForPrev(key);
       cmp_iter->SeekForPrev(key);
       last_op = kLastOpSeekForPrev;
+      op_logs += "SFP " + key.ToString(true) + " ";
     } else {
       iter->Seek(key);
       cmp_iter->Seek(key);
       last_op = kLastOpSeek;
+      op_logs += "S " + key.ToString(true) + " ";
     }
     VerifyIterator(thread, cmp_cfh, readoptionscopy, iter.get(), cmp_iter.get(),
-                   last_op, key, &diverged);
+                   last_op, key, op_logs, &diverged);
 
     bool no_reverse =
         (FLAGS_memtablerep == "prefix_hash" && !read_opts.total_order_seek &&
@@ -878,16 +920,18 @@ Status StressTest::TestIterate(ThreadState* thread,
           assert(cmp_iter->Valid());
           cmp_iter->Next();
         }
+        op_logs += "N";
       } else {
         iter->Prev();
         if (!diverged) {
           assert(cmp_iter->Valid());
           cmp_iter->Prev();
         }
+        op_logs += "P";
       }
       last_op = kLastOpNextOrPrev;
       VerifyIterator(thread, cmp_cfh, readoptionscopy, iter.get(),
-                     cmp_iter.get(), last_op, key, &diverged);
+                     cmp_iter.get(), last_op, key, op_logs, &diverged);
     }
 
     if (s.ok()) {
@@ -896,6 +940,8 @@ Status StressTest::TestIterate(ThreadState* thread,
       thread->stats.AddErrors(1);
       break;
     }
+
+    op_logs += "; ";
   }
 
   db_->ReleaseSnapshot(snapshot);
@@ -939,27 +985,36 @@ void StressTest::VerifyIterator(ThreadState* thread,
                                 ColumnFamilyHandle* cmp_cfh,
                                 const ReadOptions& ro, Iterator* iter,
                                 Iterator* cmp_iter, LastIterateOp op,
-                                const Slice& seek_key, bool* diverged) {
+                                const Slice& seek_key,
+                                const std::string& op_logs, bool* diverged) {
   if (*diverged) {
     return;
   }
 
-  if (op == kLastOpSeek && ro.iterate_lower_bound != nullptr &&
-      (options_.comparator->Compare(*ro.iterate_lower_bound, seek_key) >= 0 ||
-       (ro.iterate_upper_bound != nullptr &&
-        options_.comparator->Compare(*ro.iterate_lower_bound,
-                                     *ro.iterate_upper_bound) >= 0))) {
+  if (op == kLastOpSeekToFirst && ro.iterate_lower_bound != nullptr) {
+    // SeekToFirst() with lower bound is not well defined.
+    *diverged = true;
+    return;
+  } else if (op == kLastOpSeekToLast && ro.iterate_upper_bound != nullptr) {
+    // SeekToLast() with higher bound is not well defined.
+    *diverged = true;
+    return;
+  } else if (op == kLastOpSeek && ro.iterate_lower_bound != nullptr &&
+             (options_.comparator->Compare(*ro.iterate_lower_bound, seek_key) >=
+                  0 ||
+              (ro.iterate_upper_bound != nullptr &&
+               options_.comparator->Compare(*ro.iterate_lower_bound,
+                                            *ro.iterate_upper_bound) >= 0))) {
     // Lower bound behavior is not well defined if it is larger than
     // seek key or upper bound. Disable the check for now.
     *diverged = true;
     return;
-  }
-
-  if (op == kLastOpSeekForPrev && ro.iterate_upper_bound != nullptr &&
-      (options_.comparator->Compare(*ro.iterate_upper_bound, seek_key) <= 0 ||
-       (ro.iterate_lower_bound != nullptr &&
-        options_.comparator->Compare(*ro.iterate_lower_bound,
-                                     *ro.iterate_upper_bound) >= 0))) {
+  } else if (op == kLastOpSeekForPrev && ro.iterate_upper_bound != nullptr &&
+             (options_.comparator->Compare(*ro.iterate_upper_bound, seek_key) <=
+                  0 ||
+              (ro.iterate_lower_bound != nullptr &&
+               options_.comparator->Compare(*ro.iterate_lower_bound,
+                                            *ro.iterate_upper_bound) >= 0))) {
     // Uppder bound behavior is not well defined if it is smaller than
     // seek key or lower bound. Disable the check for now.
     *diverged = true;
@@ -968,18 +1023,9 @@ void StressTest::VerifyIterator(ThreadState* thread,
 
   if (iter->Valid() && !cmp_iter->Valid()) {
     fprintf(stderr,
-            "Control interator is invalid but iterator has key %s seek key "
+            "Control interator is invalid but iterator has key %s "
             "%s\n",
-            iter->key().ToString(true).c_str(),
-            seek_key.ToString(true).c_str());
-    if (ro.iterate_upper_bound != nullptr) {
-      fprintf(stderr, "upper bound %s\n",
-              ro.iterate_upper_bound->ToString(true).c_str());
-    }
-    if (ro.iterate_lower_bound != nullptr) {
-      fprintf(stderr, "lower bound %s\n",
-              ro.iterate_lower_bound->ToString(true).c_str());
-    }
+            iter->key().ToString(true).c_str(), op_logs.c_str());
 
     *diverged = true;
   } else if (cmp_iter->Valid()) {
@@ -1009,11 +1055,10 @@ void StressTest::VerifyIterator(ThreadState* thread,
           return;
         }
         fprintf(stderr,
-                "Iterator stays in prefix bug contol doesn't"
-                " seek key %s iterator key %s control iterator key %s\n",
-                seek_key.ToString(true).c_str(),
+                "Iterator stays in prefix but contol doesn't"
+                " iterator key %s control iterator key %s %s\n",
                 iter->key().ToString(true).c_str(),
-                cmp_iter->key().ToString(true).c_str());
+                cmp_iter->key().ToString(true).c_str(), op_logs.c_str());
       }
     }
     // Check upper or lower bounds.
@@ -1026,22 +1071,13 @@ void StressTest::VerifyIterator(ThreadState* thread,
             cmp->Compare(total_order_key, *ro.iterate_lower_bound) > 0))) {
         fprintf(stderr,
                 "Iterator diverged from control iterator which"
-                " has value %s seek key %s\n",
-                total_order_key.ToString(true).c_str(),
-                seek_key.ToString(true).c_str());
+                " has value %s %s\n",
+                total_order_key.ToString(true).c_str(), op_logs.c_str());
         if (iter->Valid()) {
           fprintf(stderr, "iterator has value %s\n",
                   iter->key().ToString(true).c_str());
         } else {
           fprintf(stderr, "iterator is not valid\n");
-        }
-        if (ro.iterate_upper_bound != nullptr) {
-          fprintf(stderr, "upper bound %s\n",
-                  ro.iterate_upper_bound->ToString(true).c_str());
-        }
-        if (ro.iterate_lower_bound != nullptr) {
-          fprintf(stderr, "lower bound %s\n",
-                  ro.iterate_lower_bound->ToString(true).c_str());
         }
         *diverged = true;
       }
