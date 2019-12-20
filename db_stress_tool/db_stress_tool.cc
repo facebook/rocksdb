@@ -192,13 +192,6 @@ int db_stress_tool(int argc, char** argv) {
     exit(1);
   }
 
-  if (!FLAGS_test_cf_consistency && FLAGS_verify_db_one_in > 0) {
-    fprintf(stderr,
-            "For non cf_consistency tests, VerifyDb() is called only before "
-            "and after test.\n");
-    exit(1);
-  }
-
   rocksdb_kill_odds = FLAGS_kill_random_test;
   rocksdb_kill_prefix_blacklist = SplitString(FLAGS_kill_prefix_blacklist);
 
