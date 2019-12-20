@@ -123,6 +123,7 @@ class EnvPosixTestWithParam
       }
       Env::Default()->SleepForMicroseconds(kCheckInterval);
     }
+    ASSERT_EQ(len, env_->GetThreadPoolQueueLen(pri));
   }
 
   ~EnvPosixTestWithParam() override { WaitThreadPoolsEmpty(); }
