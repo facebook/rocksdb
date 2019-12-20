@@ -1748,9 +1748,6 @@ void StressTest::Open() {
 #ifndef ROCKSDB_LITE
       if (FLAGS_use_blob_db) {
         blob_db::BlobDBOptions blob_db_options;
-        blob_db_options.is_fifo = FLAGS_blob_db_is_fifo;
-        blob_db_options.max_db_size = FLAGS_blob_db_max_db_size;
-        blob_db_options.ttl_range_secs = FLAGS_blob_db_ttl_range_secs;
         blob_db_options.min_blob_size = FLAGS_blob_db_min_blob_size;
         blob_db_options.bytes_per_sync = FLAGS_blob_db_bytes_per_sync;
         blob_db_options.blob_file_size = FLAGS_blob_db_file_size;

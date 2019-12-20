@@ -274,21 +274,6 @@ DEFINE_bool(enable_write_thread_adaptive_yield, true,
 // BlobDB Options
 DEFINE_bool(use_blob_db, false, "Use BlobDB.");
 
-DEFINE_bool(blob_db_is_fifo, rocksdb::blob_db::BlobDBOptions().is_fifo,
-            "Enable FIFO eviction in BlobDB.");
-
-DEFINE_uint64(blob_db_max_db_size,
-              rocksdb::blob_db::BlobDBOptions().max_db_size,
-              "Maximum size of the database when using BlobDB.");
-
-DEFINE_uint64(
-    blob_db_max_ttl_range, 0,
-    "TTL range in seconds when generating BlobDB data. 0 means no TTL.");
-
-DEFINE_uint64(blob_db_ttl_range_secs,
-              rocksdb::blob_db::BlobDBOptions().ttl_range_secs,
-              "TTL bucket size to use when creating blob files.");
-
 DEFINE_uint64(blob_db_min_blob_size,
               rocksdb::blob_db::BlobDBOptions().min_blob_size,
               "Smallest blob to store in a file. Blobs smaller than this "

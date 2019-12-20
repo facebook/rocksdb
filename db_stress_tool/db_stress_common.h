@@ -212,10 +212,6 @@ DECLARE_int32(verify_checksum_one_in);
 
 #ifndef ROCKSDB_LITE
 DECLARE_bool(use_blob_db);
-DECLARE_bool(blob_db_is_fifo);
-DECLARE_uint64(blob_db_max_db_size);
-DECLARE_uint64(blob_db_max_ttl_range);
-DECLARE_uint64(blob_db_ttl_range_secs);
 DECLARE_uint64(blob_db_min_blob_size);
 DECLARE_uint64(blob_db_bytes_per_sync);
 DECLARE_uint64(blob_db_file_size);
