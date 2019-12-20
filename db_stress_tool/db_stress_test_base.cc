@@ -559,8 +559,8 @@ void StressTest::OperateDb(ThreadState* thread) {
       if (thread->rand.OneInOpt(FLAGS_get_live_files_and_wal_files_one_in)) {
         Status status = VerifyGetLiveAndWalFiles(thread);
         if (!status.ok()) {
-            VerificationAbort(shared, "VerifyGetLiveAndWalFiles status not OK",
-                                    status);
+          VerificationAbort(shared, "VerifyGetLiveAndWalFiles status not OK",
+                            status);
         }
       }
 
@@ -877,7 +877,7 @@ Status StressTest::TestIterate(ThreadState* thread,
 // GetCurrentWalFile. Each time, randomly select one of them to run
 // and return the status.
 Status StressTest::VerifyGetLiveAndWalFiles(ThreadState* thread) {
-  int case_num = thread->rand.Next() % 3;
+  int case_num = thread->rand.Uniform(3);
   if (case_num == 0) {
     std::vector<std::string> live_file;
     uint64_t manifest_size;
@@ -893,7 +893,8 @@ Status StressTest::VerifyGetLiveAndWalFiles(ThreadState* thread) {
     std::unique_ptr<LogFile> cur_wal_file;
     return db_->GetCurrentWalFile(&cur_wal_file);
   }
-  return Status::OK();
+  assert(false);
+  return Status::Corruption("Undefined case happens!");
 }
 
 // Compare the two iterator, iter and cmp_iter are in the same position,
