@@ -173,7 +173,9 @@ class StressTest {
                            const std::string& keystr, uint64_t i);
 
   Status MaybeReleaseSnapshots(ThreadState* thread, uint64_t i);
-
+#ifndef ROCKSDB_LITE
+  Status VerifyGetLiveAndWalFiles(ThreadState* thread);
+#endif    // !ROCKSDB_LITE
   void VerificationAbort(SharedState* shared, std::string msg, Status s) const;
 
   void VerificationAbort(SharedState* shared, std::string msg, int cf,
