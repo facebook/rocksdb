@@ -745,7 +745,7 @@ endif  # PLATFORM_SHARED_EXT
 	dbg rocksdbjavastatic rocksdbjava install install-static install-shared uninstall \
 	analyze tools tools_lib \
 	blackbox_crash_test_with_atomic_flush whitebox_crash_test_with_atomic_flush  \
-	blackbox_crash_test_with_txn whitebox_crash_test_with_txn 
+	blackbox_crash_test_with_txn whitebox_crash_test_with_txn
 
 
 all: $(LIBRARY) $(BENCHMARKS) tools tools_lib test_libs $(TESTS)
