@@ -632,6 +632,7 @@ void StressTest::OperateDb(ThreadState* thread) {
         }
       }
 
+#ifndef ROCKSDB_LITE
       if (thread->rand.OneInOpt(FLAGS_approximate_size_one_in)) {
         Status s =
             TestApproximateSize(thread, i, rand_column_families, rand_keys);
@@ -639,7 +640,7 @@ void StressTest::OperateDb(ThreadState* thread) {
           VerificationAbort(shared, "ApproximateSize Failed", s);
         }
       }
-
+#endif  // !ROCKSDB_LITE
       if (thread->rand.OneInOpt(FLAGS_acquire_snapshot_one_in)) {
         TestAcquireSnapshot(thread, rand_column_family, keystr, i);
       }
@@ -1179,6 +1180,7 @@ Status StressTest::TestBackupRestore(
   return s;
 }
 
+#ifndef ROCKSDB_LITE
 Status StressTest::TestApproximateSize(
     ThreadState* thread, uint64_t iteration,
     const std::vector<int>& rand_column_families,
@@ -1220,6 +1222,7 @@ Status StressTest::TestApproximateSize(
   return db_->GetApproximateSizes(
       sao, column_families_[rand_column_families[0]], &range, 1, &result);
 }
+#endif  // ROCKSDB_LITE
 
 Status StressTest::TestCheckpoint(ThreadState* thread,
                                   const std::vector<int>& rand_column_families,
