@@ -225,6 +225,7 @@ DECLARE_uint64(blob_db_file_size);
 DECLARE_bool(blob_db_enable_gc);
 DECLARE_double(blob_db_gc_cutoff);
 #endif  // !ROCKSDB_LITE
+DECLARE_int32(approximate_size_one_in);
 
 const long KB = 1024;
 const int kRandomValueMaxFactor = 3;
