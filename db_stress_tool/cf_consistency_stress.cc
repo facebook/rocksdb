@@ -295,7 +295,7 @@ class CfConsistencyStressTest : public StressTest {
 
     // We need to clear DB including manifest files, so make a copy
     Options opt_copy = options_;
-    opt_copy.env = FLAGS_env->target();
+    opt_copy.env = db_stress_env->target();
     DestroyDB(checkpoint_dir, opt_copy);
 
     Checkpoint* checkpoint = nullptr;
