@@ -181,15 +181,17 @@ class NonBatchedOpsStressTest : public StressTest {
       keys.emplace_back(key_str.back());
 #ifndef ROCKSDB_LITE
       if (FLAGS_use_txn) {
+        // With a 1 in 10 probability, insert the just added key in the batch
+        // into the transaction. This will create an overlap with the MultiGet
+        // keys and exercise some corner cases in the code
         if (thread->rand.OneIn(10)) {
           int op = thread->rand.Uniform(2);
           Status s;
           switch (op) {
             case 0:
-            case 1:
-            {
-              uint32_t value_base = thread->rand.Next() %
-                                    thread->shared->UNKNOWN_SENTINEL;
+            case 1: {
+              uint32_t value_base =
+                  thread->rand.Next() % thread->shared->UNKNOWN_SENTINEL;
               char value[100];
               size_t sz = GenerateValue(value_base, value, sizeof(value));
               Slice v(value, sz);
@@ -200,9 +202,11 @@ class NonBatchedOpsStressTest : public StressTest {
               }
               break;
             }
-            default:
-              assert(op == 2);
+            case 2:
               s = txn->Delete(cfh, keys.back());
+              break;
+            default:
+              assert(false);
           }
           if (!s.ok()) {
             fprintf(stderr, "Transaction put: %s\n", s.ToString().c_str());
@@ -216,7 +220,7 @@ class NonBatchedOpsStressTest : public StressTest {
     if (!FLAGS_use_txn) {
       db_->MultiGet(read_opts, cfh, num_keys, keys.data(), values.data(),
                     statuses.data());
-     } else {
+    } else {
 #ifndef ROCKSDB_LITE
       txn->MultiGet(read_opts, cfh, num_keys, keys.data(), values.data(),
                     statuses.data());
