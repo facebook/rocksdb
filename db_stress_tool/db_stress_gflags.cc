@@ -28,6 +28,17 @@ DEFINE_bool(read_only, false, "True if open DB in read-only mode during tests");
 DEFINE_int64(max_key, 1 * KB * KB,
              "Max number of key/values to place in database");
 
+DEFINE_int32(max_key_len, 3, "Maximum length of a key in 8-byte units");
+
+DEFINE_string(key_len_percent_dist, "",
+              "Percentages of keys of various lengths. For example, 1,30,69 "
+              "means 1% of keys are 8 bytes, 30% are 16 bytes, and 69% are "
+              "24 bytes. If not specified, it will be evenly distributed");
+
+DEFINE_int32(key_window_scale_factor, 10,
+              "This value will be multiplied by 100 to come up with a window "
+              "size for varying the key length");
+
 DEFINE_int32(column_families, 10, "Number of column families");
 
 DEFINE_double(
