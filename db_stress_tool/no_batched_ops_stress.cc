@@ -446,10 +446,10 @@ class NonBatchedOpsStressTest : public StressTest {
     const std::string sst_filename =
         FLAGS_db + "/." + ToString(thread->tid) + ".sst";
     Status s;
-    if (FLAGS_env->FileExists(sst_filename).ok()) {
+    if (db_stress_env->FileExists(sst_filename).ok()) {
       // Maybe we terminated abnormally before, so cleanup to give this file
       // ingestion a clean slate
-      s = FLAGS_env->DeleteFile(sst_filename);
+      s = db_stress_env->DeleteFile(sst_filename);
     }
 
     SstFileWriter sst_file_writer(EnvOptions(options_), options_);

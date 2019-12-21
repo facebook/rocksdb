@@ -33,7 +33,12 @@ default_params = {
     "cache_size": 1048576,
     "checkpoint_one_in": 1000000,
     "compression_type": lambda: random.choice(
-        ["snappy", "none", "zlib"]),
+        ["none", "snappy", "zlib", "bzip2", "lz4", "lz4hc", "xpress", "zstd"]),
+    "bottommost_compression_type": lambda:
+        "disable" if random.randint(0, 1) == 0 else
+        random.choice(
+            ["none", "snappy", "zlib", "bzip2", "lz4", "lz4hc", "xpress",
+             "zstd"]),
     "checksum_type" : lambda: random.choice(["kCRC32c", "kxxHash", "kxxHash64"]),
     "compression_max_dict_bytes": lambda: 16384 * random.randint(0, 1),
     "compression_zstd_max_train_bytes": lambda: 65536 * random.randint(0, 1),
@@ -262,9 +267,10 @@ def gen_cmd_params(args):
 
 
 def gen_cmd(params, unknown_params):
+    finalzied_params = finalize_and_sanitize(params)
     cmd = ['./db_stress'] + [
         '--{0}={1}'.format(k, v)
-        for k, v in finalize_and_sanitize(params).items()
+        for k, v in [(k, finalzied_params[k]) for k in sorted(finalzied_params)]
         if k not in set(['test_type', 'simple', 'duration', 'interval',
                          'random_kill_odd', 'cf_consistency', 'txn'])
         and v is not None] + unknown_params
