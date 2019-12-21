@@ -446,8 +446,8 @@ extern inline bool GetIntVal(std::string big_endian_key, uint64_t* key_p) {
   return true;
 }
 
-extern inline uint64_t GetPrefixKeyCount(const std::string prefix,
-                                         const std::string ub) {
+extern inline uint64_t GetPrefixKeyCount(const std::string& prefix,
+                                         const std::string& ub) {
   uint64_t start = 0;
   uint64_t end = 0;
 
