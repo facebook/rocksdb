@@ -29,7 +29,8 @@ Transaction* OptimisticTransactionDBImpl::BeginTransaction(
   }
 }
 
-std::unique_lock<std::mutex> OptimisticTransactionDBImpl::LockBucket(size_t idx) {
+std::unique_lock<std::mutex> OptimisticTransactionDBImpl::LockBucket(
+    size_t idx) {
   assert(idx < bucketed_locks_.size());
   auto v = std::unique_lock<std::mutex>(*bucketed_locks_[idx]);
   return std::move(v);
@@ -60,6 +61,18 @@ Status OptimisticTransactionDB::Open(
     const std::vector<ColumnFamilyDescriptor>& column_families,
     std::vector<ColumnFamilyHandle*>* handles,
     OptimisticTransactionDB** dbptr) {
+  return OptimisticTransactionDB::Open(db_options,
+                                       OptimisticTransactionDBOptions(), dbname,
+                                       column_families, handles, dbptr);
+}
+
+Status OptimisticTransactionDB::Open(
+    const DBOptions& db_options,
+    const OptimisticTransactionDBOptions& occ_options,
+    const std::string& dbname,
+    const std::vector<ColumnFamilyDescriptor>& column_families,
+    std::vector<ColumnFamilyHandle*>* handles,
+    OptimisticTransactionDB** dbptr) {
   Status s;
   DB* db;
 
@@ -80,7 +93,7 @@ Status OptimisticTransactionDB::Open(
   s = DB::Open(db_options, dbname, column_families_copy, handles, &db);
 
   if (s.ok()) {
-    *dbptr = new OptimisticTransactionDBImpl(db);
+    *dbptr = new OptimisticTransactionDBImpl(db, occ_options);
   }
 
   return s;
