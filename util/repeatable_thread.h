@@ -10,11 +10,14 @@
 
 #include "port/port.h"
 #include "rocksdb/env.h"
-#include "util/mock_time_env.h"
+#include "test_util/mock_time_env.h"
 #include "util/mutexlock.h"
 
 namespace rocksdb {
 
+// Simple wrapper around port::Thread that supports calling a callback every
+// X seconds. If you pass in 0, then it will call your callback repeatedly
+// without delay.
 class RepeatableThread {
  public:
   RepeatableThread(std::function<void()> function,

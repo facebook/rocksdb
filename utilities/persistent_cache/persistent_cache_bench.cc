@@ -23,7 +23,7 @@ int main() { fprintf(stderr, "Please install gflags to run tools\n"); }
 
 #include "monitoring/histogram.h"
 #include "port/port.h"
-#include "table/block_builder.h"
+#include "table/block_based/block_builder.h"
 #include "util/gflags_compat.h"
 #include "util/mutexlock.h"
 #include "util/stop_watch.h"

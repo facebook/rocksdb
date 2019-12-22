@@ -10,10 +10,10 @@
 #include "db/log_writer.h"
 
 #include <stdint.h>
+#include "file/writable_file_writer.h"
 #include "rocksdb/env.h"
 #include "util/coding.h"
 #include "util/crc32c.h"
-#include "util/file_reader_writer.h"
 
 namespace rocksdb {
 namespace log {
@@ -102,6 +102,13 @@ Status Writer::AddRecord(const Slice& slice) {
     left -= fragment_length;
     begin = false;
   } while (s.ok() && left > 0);
+
+  if (s.ok()) {
+    if (!manual_flush_) {
+      s = dest_->Flush();
+    }
+  }
+
   return s;
 }
 
@@ -146,11 +153,6 @@ Status Writer::EmitPhysicalRecord(RecordType t, const char* ptr, size_t n) {
   Status s = dest_->Append(Slice(buf, header_size));
   if (s.ok()) {
     s = dest_->Append(Slice(ptr, n));
-    if (s.ok()) {
-      if (!manual_flush_) {
-        s = dest_->Flush();
-      }
-    }
   }
   block_offset_ += header_size + n;
   return s;

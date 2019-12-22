@@ -5,24 +5,20 @@
 
 #ifndef ROCKSDB_LITE
 
-#ifndef __STDC_FORMAT_MACROS
-#define __STDC_FORMAT_MACROS
-#endif
-
 #include "utilities/transactions/pessimistic_transaction_db.h"
 
-#include <inttypes.h>
+#include <cinttypes>
 #include <string>
 #include <unordered_set>
 #include <vector>
 
-#include "db/db_impl.h"
+#include "db/db_impl/db_impl.h"
 #include "rocksdb/db.h"
 #include "rocksdb/options.h"
 #include "rocksdb/utilities/transaction_db.h"
+#include "test_util/sync_point.h"
 #include "util/cast_util.h"
 #include "util/mutexlock.h"
-#include "util/sync_point.h"
 #include "utilities/transactions/pessimistic_transaction.h"
 #include "utilities/transactions/transaction_db_mutex_impl.h"
 #include "utilities/transactions/write_prepared_txn_db.h"
@@ -117,7 +113,7 @@ Status PessimisticTransactionDB::Initialize(
   Status s = EnableAutoCompaction(compaction_enabled_cf_handles);
 
   // create 'real' transactions from recovered shell transactions
-  auto dbimpl = reinterpret_cast<DBImpl*>(GetRootDB());
+  auto dbimpl = static_cast_with_check<DBImpl, DB>(GetRootDB());
   assert(dbimpl != nullptr);
   auto rtrxs = dbimpl->recovered_transactions();
 
@@ -232,6 +228,12 @@ Status TransactionDB::Open(
     return Status::NotSupported(
         "WRITE_UNPREPARED is currently incompatible with unordered_writes");
   }
+  if (txn_db_options.write_policy == WRITE_PREPARED &&
+      db_options.unordered_write && !db_options.two_write_queues) {
+    return Status::NotSupported(
+        "WRITE_PREPARED is incompatible with unordered_writes if "
+        "two_write_queues is not enabled.");
+  }
 
   std::vector<ColumnFamilyDescriptor> column_families_copy = column_families;
   std::vector<size_t> compaction_enabled_cf_indices;
@@ -269,9 +271,11 @@ void TransactionDB::PrepareWrap(
   for (size_t i = 0; i < column_families->size(); i++) {
     ColumnFamilyOptions* cf_options = &(*column_families)[i].options;
 
-    if (cf_options->max_write_buffer_number_to_maintain == 0) {
-      // Setting to -1 will set the History size to max_write_buffer_number.
-      cf_options->max_write_buffer_number_to_maintain = -1;
+    if (cf_options->max_write_buffer_size_to_maintain == 0 &&
+        cf_options->max_write_buffer_number_to_maintain == 0) {
+      // Setting to -1 will set the History size to
+      // max_write_buffer_number * write_buffer_size.
+      cf_options->max_write_buffer_size_to_maintain = -1;
     }
     if (!cf_options->disable_auto_compactions) {
       // Disable compactions momentarily to prevent race with DB::Open
@@ -516,23 +520,16 @@ Status PessimisticTransactionDB::Merge(const WriteOptions& options,
 
 Status PessimisticTransactionDB::Write(const WriteOptions& opts,
                                        WriteBatch* updates) {
-  // Need to lock all keys in this batch to prevent write conflicts with
-  // concurrent transactions.
-  Transaction* txn = BeginInternalTransaction(opts);
-  txn->DisableIndexing();
+  return WriteWithConcurrencyControl(opts, updates);
+}
 
-  auto txn_impl =
-      static_cast_with_check<PessimisticTransaction, Transaction>(txn);
-
-  // Since commitBatch sorts the keys before locking, concurrent Write()
-  // operations will not cause a deadlock.
-  // In order to avoid a deadlock with a concurrent Transaction, Transactions
-  // should use a lock timeout.
-  Status s = txn_impl->CommitBatch(updates);
-
-  delete txn;
-
-  return s;
+Status WriteCommittedTxnDB::Write(const WriteOptions& opts,
+                                  WriteBatch* updates) {
+  if (txn_db_options_.skip_concurrency_control) {
+    return db_impl_->Write(opts, updates);
+  } else {
+    return WriteWithConcurrencyControl(opts, updates);
+  }
 }
 
 Status WriteCommittedTxnDB::Write(
@@ -541,7 +538,7 @@ Status WriteCommittedTxnDB::Write(
   if (optimizations.skip_concurrency_control) {
     return db_impl_->Write(opts, updates);
   } else {
-    return Write(opts, updates);
+    return WriteWithConcurrencyControl(opts, updates);
   }
 }
 

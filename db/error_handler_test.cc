@@ -12,9 +12,9 @@
 #include "port/stack_trace.h"
 #include "rocksdb/perf_context.h"
 #include "rocksdb/sst_file_manager.h"
-#include "util/fault_injection_test_env.h"
+#include "test_util/fault_injection_test_env.h"
 #if !defined(ROCKSDB_LITE)
-#include "util/sync_point.h"
+#include "test_util/sync_point.h"
 #endif
 
 namespace rocksdb {
@@ -183,7 +183,8 @@ TEST_F(DBErrorHandlingTest, CompactionWriteError) {
       );
   listener->EnableAutoRecovery(false);
   rocksdb::SyncPoint::GetInstance()->LoadDependency(
-      {{"FlushMemTableFinished", "BackgroundCallCompaction:0"}});
+      {{"DBImpl::FlushMemTable:FlushMemTableFinished",
+        "BackgroundCallCompaction:0"}});
   rocksdb::SyncPoint::GetInstance()->SetCallBack(
       "BackgroundCallCompaction:0", [&](void *) {
       fault_env->SetFilesystemActive(false, Status::NoSpace("Out of space"));
@@ -219,7 +220,8 @@ TEST_F(DBErrorHandlingTest, CorruptionError) {
   ASSERT_EQ(s, Status::OK());
 
   rocksdb::SyncPoint::GetInstance()->LoadDependency(
-      {{"FlushMemTableFinished", "BackgroundCallCompaction:0"}});
+      {{"DBImpl::FlushMemTable:FlushMemTableFinished",
+        "BackgroundCallCompaction:0"}});
   rocksdb::SyncPoint::GetInstance()->SetCallBack(
       "BackgroundCallCompaction:0", [&](void *) {
       fault_env->SetFilesystemActive(false, Status::Corruption("Corruption"));

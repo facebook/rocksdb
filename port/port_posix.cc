@@ -18,11 +18,11 @@
 #include <signal.h>
 #include <stdio.h>
 #include <string.h>
-#include <sys/time.h>
 #include <sys/resource.h>
+#include <sys/time.h>
 #include <unistd.h>
 #include <cstdlib>
-#include "util/logging.h"
+#include "logging/logging.h"
 
 namespace rocksdb {
 
@@ -192,7 +192,8 @@ int GetMaxOpenFiles() {
     return -1;
   }
   // protect against overflow
-  if (no_files_limit.rlim_cur >= std::numeric_limits<int>::max()) {
+  if (static_cast<uintmax_t>(no_files_limit.rlim_cur) >=
+      static_cast<uintmax_t>(std::numeric_limits<int>::max())) {
     return std::numeric_limits<int>::max();
   }
   return static_cast<int>(no_files_limit.rlim_cur);

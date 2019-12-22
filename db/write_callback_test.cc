@@ -11,14 +11,14 @@
 #include <utility>
 #include <vector>
 
-#include "db/db_impl.h"
+#include "db/db_impl/db_impl.h"
 #include "db/write_callback.h"
+#include "port/port.h"
 #include "rocksdb/db.h"
 #include "rocksdb/write_batch.h"
-#include "port/port.h"
+#include "test_util/sync_point.h"
+#include "test_util/testharness.h"
 #include "util/random.h"
-#include "util/sync_point.h"
-#include "util/testharness.h"
 
 using std::string;
 
@@ -304,7 +304,8 @@ TEST_F(WriteCallbackTest, WriteWithCallbackTest) {
                     PublishSeqCallback(DBImpl* db_impl_in)
                         : db_impl_(db_impl_in) {}
                     Status Callback(SequenceNumber last_seq, bool /*not used*/,
-                                    uint64_t) override {
+                                    uint64_t, size_t /*index*/,
+                                    size_t /*total*/) override {
                       db_impl_->SetLastPublishedSequence(last_seq);
                       return Status::OK();
                     }

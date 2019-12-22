@@ -45,6 +45,8 @@ class CompactionFilter {
     kRemoveAndSkipUntil,
   };
 
+  enum class BlobDecision { kKeep, kChangeValue, kCorruption, kIOError };
+
   // Context information of a compaction run
   struct Context {
     // Does this compaction run include all data files
@@ -171,6 +173,13 @@ class CompactionFilter {
     }
     assert(false);
     return Decision::kKeep;
+  }
+
+  // Internal (BlobDB) use only. Do not override in application code.
+  virtual BlobDecision PrepareBlobOutput(const Slice& /* key */,
+                                         const Slice& /* existing_value */,
+                                         std::string* /* new_value */) const {
+    return BlobDecision::kKeep;
   }
 
   // This function is deprecated. Snapshots will always be ignored for

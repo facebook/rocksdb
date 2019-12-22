@@ -12,6 +12,7 @@
 #include <utility>
 #include <vector>
 
+#include "db/arena_wrapped_db_iter.h"
 #include "db/column_family.h"
 #include "db/db_iter.h"
 #include "db/db_test_util.h"
@@ -63,9 +64,11 @@ class DBBlobIndexTest : public DBTestBase {
     ReadOptions read_options;
     read_options.snapshot = snapshot;
     PinnableSlice value;
-    auto s = dbfull()->GetImpl(read_options, cfh(), key, &value,
-                               nullptr /*value_found*/, nullptr /*callback*/,
-                               is_blob_index);
+    DBImpl::GetImplOptions get_impl_options;
+    get_impl_options.column_family = cfh();
+    get_impl_options.value = &value;
+    get_impl_options.is_blob_index = is_blob_index;
+    auto s = dbfull()->GetImpl(read_options, key, get_impl_options);
     if (s.IsNotFound()) {
       return "NOT_FOUND";
     }
@@ -394,6 +397,29 @@ TEST_F(DBBlobIndexTest, Iterate) {
            create_blob_iterator, check_is_blob(false));
     verify(15, Status::kOk, get_value(16, 0), get_value(14, 0),
            create_blob_iterator, check_is_blob(false));
+
+#ifndef ROCKSDB_LITE
+    // Iterator with blob support and using seek.
+    ASSERT_OK(dbfull()->SetOptions(
+        cfh(), {{"max_sequential_skip_in_iterations", "0"}}));
+    verify(1, Status::kOk, get_value(1, 0), get_value(1, 0),
+           create_blob_iterator, check_is_blob(true));
+    verify(3, Status::kOk, get_value(3, 0), get_value(3, 0),
+           create_blob_iterator, check_is_blob(true));
+    verify(5, Status::kOk, get_value(5, 0), get_value(5, 0),
+           create_blob_iterator, check_is_blob(false));
+    verify(7, Status::kOk, get_value(8, 0), get_value(6, 0),
+           create_blob_iterator, check_is_blob(false));
+    verify(9, Status::kOk, get_value(10, 0), get_value(8, 0),
+           create_blob_iterator, check_is_blob(false));
+    verify(11, Status::kNotSupported, "", "", create_blob_iterator);
+    verify(13, Status::kOk,
+           get_value(13, 2) + "," + get_value(13, 1) + "," + get_value(13, 0),
+           get_value(13, 2) + "," + get_value(13, 1) + "," + get_value(13, 0),
+           create_blob_iterator, check_is_blob(false));
+    verify(15, Status::kOk, get_value(16, 0), get_value(14, 0),
+           create_blob_iterator, check_is_blob(false));
+#endif  // !ROCKSDB_LITE
 
     for (auto* snapshot : snapshots) {
       dbfull()->ReleaseSnapshot(snapshot);

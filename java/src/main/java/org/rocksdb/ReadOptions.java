@@ -476,7 +476,7 @@ public class ReadOptions extends RocksObject {
    *
    * The upper bound is exclusive i.e. the bound value is not a valid entry.
    *
-   * If iterator_extractor is not null, the Seek target and iterate_upper_bound
+   * If prefix_extractor is not null, the Seek target and iterate_upper_bound
    * need to have the same prefix. This is because ordering is not guaranteed
    * outside of prefix domain.
    *

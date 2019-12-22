@@ -4,11 +4,8 @@
 //  (found in the LICENSE.Apache file in the root directory).
 
 #ifndef ROCKSDB_LITE
-#ifndef __STDC_FORMAT_MACROS
-#define __STDC_FORMAT_MACROS
-#endif
 
-#include <inttypes.h>
+#include <cinttypes>
 
 #include <cctype>
 #include <unordered_map>
@@ -17,9 +14,9 @@
 #include "rocksdb/db.h"
 #include "rocksdb/table.h"
 #include "rocksdb/utilities/options_util.h"
+#include "test_util/testharness.h"
+#include "test_util/testutil.h"
 #include "util/random.h"
-#include "util/testharness.h"
-#include "util/testutil.h"
 
 #ifndef GFLAGS
 bool FLAGS_enable_print = false;
@@ -34,11 +31,13 @@ class OptionsUtilTest : public testing::Test {
  public:
   OptionsUtilTest() : rnd_(0xFB) {
     env_.reset(new test::StringEnv(Env::Default()));
+    fs_.reset(new LegacyFileSystemWrapper(env_.get()));
     dbname_ = test::PerThreadDBPath("options_util_test");
   }
 
  protected:
   std::unique_ptr<test::StringEnv> env_;
+  std::unique_ptr<LegacyFileSystemWrapper> fs_;
   std::string dbname_;
   Random rnd_;
 };
@@ -58,11 +57,11 @@ TEST_F(OptionsUtilTest, SaveAndLoad) {
     cf_names.push_back(i == 0 ? kDefaultColumnFamilyName
                               : test::RandomName(&rnd_, 10));
     cf_opts.emplace_back();
-    test::RandomInitCFOptions(&cf_opts.back(), &rnd_);
+    test::RandomInitCFOptions(&cf_opts.back(), db_opt, &rnd_);
   }
 
   const std::string kFileName = "OPTIONS-123456";
-  PersistRocksDBOptions(db_opt, cf_names, cf_opts, kFileName, env_.get());
+  PersistRocksDBOptions(db_opt, cf_names, cf_opts, kFileName, fs_.get());
 
   DBOptions loaded_db_opt;
   std::vector<ColumnFamilyDescriptor> loaded_cf_descs;
@@ -82,7 +81,7 @@ TEST_F(OptionsUtilTest, SaveAndLoad) {
           cf_opts[i].table_factory.get(),
           loaded_cf_descs[i].options.table_factory.get()));
     }
-    test::RandomInitCFOptions(&cf_opts[i], &rnd_);
+    test::RandomInitCFOptions(&cf_opts[i], db_opt, &rnd_);
     ASSERT_NOK(RocksDBOptionsParser::VerifyCFOptions(
         cf_opts[i], loaded_cf_descs[i].options));
   }
@@ -123,7 +122,7 @@ TEST_F(OptionsUtilTest, SaveAndLoadWithCacheCheck) {
   cf_names.push_back("cf_plain_table_sample");
   // Saving DB in file
   const std::string kFileName = "OPTIONS-LOAD_CACHE_123456";
-  PersistRocksDBOptions(db_opt, cf_names, cf_opts, kFileName, env_.get());
+  PersistRocksDBOptions(db_opt, cf_names, cf_opts, kFileName, fs_.get());
   DBOptions loaded_db_opt;
   std::vector<ColumnFamilyDescriptor> loaded_cf_descs;
   ASSERT_OK(LoadOptionsFromFile(kFileName, env_.get(), &loaded_db_opt,

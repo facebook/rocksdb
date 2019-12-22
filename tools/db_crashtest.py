@@ -1,4 +1,4 @@
-#! /usr/bin/env python
+#!/usr/bin/env python2
 # Copyright (c) Facebook, Inc. and its affiliates. All Rights Reserved.
 import os
 import sys
@@ -16,19 +16,30 @@ import argparse
 #       default_params < {blackbox,whitebox}_default_params <
 #       simple_default_params <
 #       {blackbox,whitebox}_simple_default_params < args
-#   for enable_atomic_flush:
+#   for cf_consistency:
 #       default_params < {blackbox,whitebox}_default_params <
-#       atomic_flush_params < args
+#       cf_consistency_params < args
+#   for txn:
+#       default_params < {blackbox,whitebox}_default_params < txn_params < args
 
 expected_values_file = tempfile.NamedTemporaryFile()
 
 default_params = {
     "acquire_snapshot_one_in": 10000,
     "block_size": 16384,
+    "bloom_bits": lambda: random.choice([random.randint(0,19),
+                                         random.lognormvariate(2.3, 1.3)]),
     "cache_index_and_filter_blocks": lambda: random.randint(0, 1),
     "cache_size": 1048576,
     "checkpoint_one_in": 1000000,
-    "compression_type": "snappy",
+    "compression_type": lambda: random.choice(
+        ["none", "snappy", "zlib", "bzip2", "lz4", "lz4hc", "xpress", "zstd"]),
+    "bottommost_compression_type": lambda:
+        "disable" if random.randint(0, 1) == 0 else
+        random.choice(
+            ["none", "snappy", "zlib", "bzip2", "lz4", "lz4hc", "xpress",
+             "zstd"]),
+    "checksum_type" : lambda: random.choice(["kCRC32c", "kxxHash", "kxxHash64"]),
     "compression_max_dict_bytes": lambda: 16384 * random.randint(0, 1),
     "compression_zstd_max_train_bytes": lambda: 65536 * random.randint(0, 1),
     "clear_column_family_one_in": 0,
@@ -40,19 +51,25 @@ default_params = {
     "enable_pipelined_write": lambda: random.randint(0, 1),
     "expected_values_path": expected_values_file.name,
     "flush_one_in": 1000000,
+    "get_live_files_and_wal_files_one_in": 1000000,
+    # Temporarily disable hash index
+    "index_type": lambda: random.choice([0,2]),
     "max_background_compactions": 20,
     "max_bytes_for_level_base": 10485760,
     "max_key": 100000000,
     "max_write_buffer_number": 3,
     "mmap_read": lambda: random.randint(0, 1),
     "nooverwritepercent": 1,
-    "open_files": 500000,
+    "open_files": lambda : random.choice([-1, 500000]),
+    "partition_filters": lambda: random.randint(0, 1),
+    "pause_background_one_in": 1000000,
     "prefixpercent": 5,
     "progress_reports": 0,
     "readpercent": 45,
     "recycle_log_file_num": lambda: random.randint(0, 1),
     "reopen": 20,
     "snapshot_hold_ops": 100000,
+    "long_running_snapshots": lambda: random.randint(0, 1),
     "subcompactions": lambda: random.randint(1, 4),
     "target_file_size_base": 2097152,
     "target_file_size_multiplier": 2,
@@ -63,9 +80,36 @@ default_params = {
     "verify_checksum": 1,
     "write_buffer_size": 4 * 1024 * 1024,
     "writepercent": 35,
-    "format_version": lambda: random.randint(2, 4),
+    "format_version": lambda: random.choice([2, 3, 4, 5, 5]),
     "index_block_restart_interval": lambda: random.choice(range(1, 16)),
     "use_multiget" : lambda: random.randint(0, 1),
+    "periodic_compaction_seconds" :
+        lambda: random.choice([0, 0, 1, 2, 10, 100, 1000]),
+    "compaction_ttl" : lambda: random.choice([0, 0, 1, 2, 10, 100, 1000]),
+    # Test small max_manifest_file_size in a smaller chance, as most of the
+    # time we wnat manifest history to be preserved to help debug
+    "max_manifest_file_size" : lambda : random.choice(
+        [t * 16384 if t < 3 else 1024 * 1024 * 1024 for t in range(1, 30)]),
+    # Sync mode might make test runs slower so running it in a smaller chance
+    "sync" : lambda : random.choice(
+        [0 if t == 0 else 1 for t in range(1, 20)]),
+    # Disable compation_readahead_size because the test is not passing.
+    #"compaction_readahead_size" : lambda : random.choice(
+    #    [0, 0, 1024 * 1024]),
+    "db_write_buffer_size" : lambda: random.choice(
+        [0, 0, 0, 1024 * 1024, 8 * 1024 * 1024, 128 * 1024 * 1024]),
+    "avoid_unnecessary_blocking_io" : random.randint(0, 1),
+    "write_dbid_to_manifest" : random.randint(0, 1),
+    "max_write_batch_group_size_bytes" : lambda: random.choice(
+        [16, 64, 1024 * 1024, 16 * 1024 * 1024]),
+    # Temporarily disabled because of assertion violations in
+    # BlockBasedTable::ApproximateSize
+    # "level_compaction_dynamic_level_bytes" : True,
+    "verify_checksum_one_in": 1000000,
+    "verify_db_one_in": 100000,
+    "continuous_verification_interval" : 0,
+    "max_key_len": 3,
+    "key_len_percent_dist": "1,30,69"
 }
 
 _TEST_DIR_ENV_VAR = 'TEST_TMPDIR'
@@ -116,12 +160,14 @@ simple_default_params = {
     "max_background_compactions": 1,
     "max_bytes_for_level_base": 67108864,
     "memtablerep": "skip_list",
-    "prefixpercent": 25,
-    "readpercent": 25,
+    "prefixpercent": 0,
+    "readpercent": 50,
+    "prefix_size" : -1,
     "target_file_size_base": 16777216,
     "target_file_size_multiplier": 1,
     "test_batches_snapshots": 0,
     "write_buffer_size": 32 * 1024 * 1024,
+    "level_compaction_dynamic_level_bytes": False,
 }
 
 blackbox_simple_default_params = {
@@ -131,17 +177,27 @@ blackbox_simple_default_params = {
 
 whitebox_simple_default_params = {}
 
-atomic_flush_params = {
-    "disable_wal": 1,
+cf_consistency_params = {
+    "disable_wal": lambda: random.randint(0, 1),
     "reopen": 0,
-    "test_atomic_flush": 1,
+    "test_cf_consistency": 1,
     # use small value for write_buffer_size so that RocksDB triggers flush
     # more frequently
     "write_buffer_size": 1024 * 1024,
-    # disable pipelined write when test_atomic_flush is true
-    "enable_pipelined_write": 0,
+    "enable_pipelined_write": lambda: random.randint(0, 1),
 }
 
+txn_params = {
+    "use_txn" : 1,
+    # Avoid lambda to set it once for the entire test
+    "txn_write_policy": random.randint(0, 2),
+    "unordered_write": random.randint(0, 1),
+    "disable_wal": 0,
+    # OpenReadOnly after checkpoint is not currnetly compatible with WritePrepared txns
+    "checkpoint_one_in": 0,
+    # pipeline write is not currnetly compatible with WritePrepared txns
+    "enable_pipelined_write": 0,
+}
 
 def finalize_and_sanitize(src_params):
     dest_params = dict([(k,  v() if callable(v) else v)
@@ -155,11 +211,37 @@ def finalize_and_sanitize(src_params):
             dest_params["db"]):
         dest_params["use_direct_io_for_flush_and_compaction"] = 0
         dest_params["use_direct_reads"] = 0
-    if dest_params.get("test_batches_snapshots") == 1:
+    # DeleteRange is not currnetly compatible with Txns
+    if dest_params.get("test_batches_snapshots") == 1 or \
+            dest_params.get("use_txn") == 1:
         dest_params["delpercent"] += dest_params["delrangepercent"]
         dest_params["delrangepercent"] = 0
+    # Only under WritePrepared txns, unordered_write would provide the same guarnatees as vanilla rocksdb
+    if dest_params.get("unordered_write", 0) == 1:
+        dest_params["txn_write_policy"] = 1
+        dest_params["allow_concurrent_memtable_write"] = 1
+    if dest_params.get("disable_wal", 0) == 1:
+        dest_params["atomic_flush"] = 1
+        dest_params["sync"] = 0
+    if dest_params.get("open_files", 1) != -1:
+        # Compaction TTL and periodic compactions are only compatible
+        # with open_files = -1
+        dest_params["compaction_ttl"] = 0
+        dest_params["periodic_compaction_seconds"] = 0
+    if dest_params.get("compaction_style", 0) == 2:
+        # Disable compaction TTL in FIFO compaction, because right
+        # now assertion failures are triggered.
+        dest_params["compaction_ttl"] = 0
+        dest_params["periodic_compaction_seconds"] = 0
+    if dest_params["partition_filters"] == 1:
+        if dest_params["index_type"] != 2:
+            dest_params["partition_filters"] = 0
+        else:
+            dest_params["use_block_based_filter"] = 0
+    if dest_params.get("atomic_flush", 0) == 1:
+        # disable pipelined write when atomic flush is used.
+        dest_params["enable_pipelined_write"] = 0
     return dest_params
-
 
 def gen_cmd_params(args):
     params = {}
@@ -175,8 +257,10 @@ def gen_cmd_params(args):
             params.update(blackbox_simple_default_params)
         if args.test_type == 'whitebox':
             params.update(whitebox_simple_default_params)
-    if args.enable_atomic_flush:
-        params.update(atomic_flush_params)
+    if args.cf_consistency:
+        params.update(cf_consistency_params)
+    if args.txn:
+        params.update(txn_params)
 
     for k, v in vars(args).items():
         if v is not None:
@@ -185,11 +269,12 @@ def gen_cmd_params(args):
 
 
 def gen_cmd(params, unknown_params):
+    finalzied_params = finalize_and_sanitize(params)
     cmd = ['./db_stress'] + [
         '--{0}={1}'.format(k, v)
-        for k, v in finalize_and_sanitize(params).items()
+        for k, v in [(k, finalzied_params[k]) for k in sorted(finalzied_params)]
         if k not in set(['test_type', 'simple', 'duration', 'interval',
-                         'random_kill_odd', 'enable_atomic_flush'])
+                         'random_kill_odd', 'cf_consistency', 'txn'])
         and v is not None] + unknown_params
     return cmd
 
@@ -286,8 +371,12 @@ def whitebox_crash_main(args, unknown_args):
                     "kill_random_test": kill_random_test,
                 })
             elif kill_mode == 1:
+                if cmd_params.get('disable_wal', 0) == 1:
+                    my_kill_odd = kill_random_test / 50 + 1
+                else:
+                    my_kill_odd = kill_random_test / 10 + 1
                 additional_opts.update({
-                    "kill_random_test": (kill_random_test / 10 + 1),
+                    "kill_random_test": my_kill_odd,
                     "kill_prefix_blacklist": "WritableFileWriter::Append,"
                     + "WritableFileWriter::WriteBuffered",
                 })
@@ -382,7 +471,8 @@ def main():
         db_stress multiple times")
     parser.add_argument("test_type", choices=["blackbox", "whitebox"])
     parser.add_argument("--simple", action="store_true")
-    parser.add_argument("--enable_atomic_flush", action='store_true')
+    parser.add_argument("--cf_consistency", action='store_true')
+    parser.add_argument("--txn", action='store_true')
 
     all_params = dict(default_params.items()
                       + blackbox_default_params.items()

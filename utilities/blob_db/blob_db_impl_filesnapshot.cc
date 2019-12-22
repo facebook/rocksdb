@@ -7,8 +7,8 @@
 
 #include "utilities/blob_db/blob_db_impl.h"
 
-#include "util/filename.h"
-#include "util/logging.h"
+#include "file/filename.h"
+#include "logging/logging.h"
 #include "util/mutexlock.h"
 
 // BlobDBImpl methods to get snapshot of files, e.g. for replication.
@@ -94,9 +94,10 @@ void BlobDBImpl::GetLiveFilesMetaData(std::vector<LiveFileMetaData>* metadata) {
     auto blob_file = bfile_pair.second;
     LiveFileMetaData filemetadata;
     filemetadata.size = static_cast<size_t>(blob_file->GetFileSize());
+    const uint64_t file_number = blob_file->BlobFileNumber();
     // Path should be relative to db_name, but begin with slash.
-    filemetadata.name =
-        BlobFileName("", bdb_options_.blob_dir, blob_file->BlobFileNumber());
+    filemetadata.name = BlobFileName("", bdb_options_.blob_dir, file_number);
+    filemetadata.file_number = file_number;
     auto cfh = reinterpret_cast<ColumnFamilyHandleImpl*>(DefaultColumnFamily());
     filemetadata.column_family_name = cfh->GetName();
     metadata->emplace_back(filemetadata);

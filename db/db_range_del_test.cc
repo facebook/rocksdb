@@ -5,7 +5,7 @@
 
 #include "db/db_test_util.h"
 #include "port/stack_trace.h"
-#include "util/testutil.h"
+#include "test_util/testutil.h"
 #include "utilities/merge_operators.h"
 
 namespace rocksdb {
@@ -488,6 +488,30 @@ TEST_F(DBRangeDelTest, CompactionRemovesCoveredMergeOperands) {
   Slice tmp2(actual);
   GetFixed64(&tmp2, &tmp);
   PutFixed64(&expected, 30);  // 6+7+8+9 (earlier operands covered by tombstone)
+  ASSERT_EQ(expected, actual);
+}
+
+TEST_F(DBRangeDelTest, PutDeleteRangeMergeFlush) {
+  // Test the sequence of operations: (1) Put, (2) DeleteRange, (3) Merge, (4)
+  // Flush. The `CompactionIterator` previously had a bug where we forgot to
+  // check for covering range tombstones when processing the (1) Put, causing
+  // it to reappear after the flush.
+  Options opts = CurrentOptions();
+  opts.merge_operator = MergeOperators::CreateUInt64AddOperator();
+  Reopen(opts);
+
+  std::string val;
+  PutFixed64(&val, 1);
+  ASSERT_OK(db_->Put(WriteOptions(), "key", val));
+  ASSERT_OK(db_->DeleteRange(WriteOptions(), db_->DefaultColumnFamily(),
+                             "key", "key_"));
+  ASSERT_OK(db_->Merge(WriteOptions(), "key", val));
+  ASSERT_OK(db_->Flush(FlushOptions()));
+
+  ReadOptions read_opts;
+  std::string expected, actual;
+  ASSERT_OK(db_->Get(read_opts, "key", &actual));
+  PutFixed64(&expected, 1);
   ASSERT_EQ(expected, actual);
 }
 
@@ -1403,6 +1427,47 @@ TEST_F(DBRangeDelTest, SnapshotPreventsDroppedKeys) {
   db_->ReleaseSnapshot(snapshot);
 }
 
+TEST_F(DBRangeDelTest, SnapshotPreventsDroppedKeysInImmMemTables) {
+  const int kFileBytes = 1 << 20;
+
+  Options options = CurrentOptions();
+  options.compression = kNoCompression;
+  options.disable_auto_compactions = true;
+  options.target_file_size_base = kFileBytes;
+  Reopen(options);
+
+  // block flush thread -> pin immtables in memory
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->LoadDependency({
+      {"SnapshotPreventsDroppedKeysInImmMemTables:AfterNewIterator",
+       "DBImpl::BGWorkFlush"},
+  });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  ASSERT_OK(Put(Key(0), "a"));
+  std::unique_ptr<const Snapshot, std::function<void(const Snapshot*)>>
+      snapshot(db_->GetSnapshot(),
+               [this](const Snapshot* s) { db_->ReleaseSnapshot(s); });
+
+  ASSERT_OK(db_->DeleteRange(WriteOptions(), db_->DefaultColumnFamily(), Key(0),
+                             Key(10)));
+
+  ASSERT_OK(dbfull()->TEST_SwitchMemtable());
+
+  ReadOptions read_opts;
+  read_opts.snapshot = snapshot.get();
+  std::unique_ptr<Iterator> iter(db_->NewIterator(read_opts));
+
+  TEST_SYNC_POINT("SnapshotPreventsDroppedKeysInImmMemTables:AfterNewIterator");
+
+  iter->SeekToFirst();
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_EQ(Key(0), iter->key());
+
+  iter->Next();
+  ASSERT_FALSE(iter->Valid());
+}
+
 TEST_F(DBRangeDelTest, RangeTombstoneWrittenToMinimalSsts) {
   // Adapted from
   // https://github.com/cockroachdb/cockroach/blob/de8b3ea603dd1592d9dc26443c2cc92c356fbc2f/pkg/storage/engine/rocksdb_test.go#L1267-L1398.
@@ -1495,6 +1560,84 @@ TEST_F(DBRangeDelTest, RangeTombstoneWrittenToMinimalSsts) {
     }
   }
   ASSERT_EQ(1, num_range_deletions);
+}
+
+TEST_F(DBRangeDelTest, OverlappedTombstones) {
+  const int kNumPerFile = 4, kNumFiles = 2;
+  Options options = CurrentOptions();
+  options.disable_auto_compactions = true;
+  options.max_compaction_bytes = 9 * 1024;
+  DestroyAndReopen(options);
+  Random rnd(301);
+  for (int i = 0; i < kNumFiles; ++i) {
+    std::vector<std::string> values;
+    // Write 12K (4 values, each 3K)
+    for (int j = 0; j < kNumPerFile; j++) {
+      values.push_back(RandomString(&rnd, 3 << 10));
+      ASSERT_OK(Put(Key(i * kNumPerFile + j), values[j]));
+    }
+  }
+  ASSERT_OK(db_->Flush(FlushOptions()));
+  ASSERT_EQ(1, NumTableFilesAtLevel(0));
+  MoveFilesToLevel(2);
+  ASSERT_EQ(2, NumTableFilesAtLevel(2));
+
+  ASSERT_OK(db_->DeleteRange(WriteOptions(), db_->DefaultColumnFamily(), Key(1),
+                             Key((kNumFiles)*kNumPerFile + 1)));
+  ASSERT_OK(db_->Flush(FlushOptions()));
+
+  ASSERT_EQ(1, NumTableFilesAtLevel(0));
+
+  dbfull()->TEST_CompactRange(0, nullptr, nullptr, nullptr,
+                              true /* disallow_trivial_move */);
+
+  // The tombstone range is not broken up into multiple SSTs which may incur a
+  // large compaction with L2.
+  ASSERT_EQ(1, NumTableFilesAtLevel(1));
+  std::vector<std::vector<FileMetaData>> files;
+  dbfull()->TEST_CompactRange(1, nullptr, nullptr, nullptr,
+                              true /* disallow_trivial_move */);
+  ASSERT_EQ(1, NumTableFilesAtLevel(2));
+  ASSERT_EQ(0, NumTableFilesAtLevel(1));
+}
+
+TEST_F(DBRangeDelTest, OverlappedKeys) {
+  const int kNumPerFile = 4, kNumFiles = 2;
+  Options options = CurrentOptions();
+  options.disable_auto_compactions = true;
+  options.max_compaction_bytes = 9 * 1024;
+  DestroyAndReopen(options);
+  Random rnd(301);
+  for (int i = 0; i < kNumFiles; ++i) {
+    std::vector<std::string> values;
+    // Write 12K (4 values, each 3K)
+    for (int j = 0; j < kNumPerFile; j++) {
+      values.push_back(RandomString(&rnd, 3 << 10));
+      ASSERT_OK(Put(Key(i * kNumPerFile + j), values[j]));
+    }
+  }
+  ASSERT_OK(db_->Flush(FlushOptions()));
+  ASSERT_EQ(1, NumTableFilesAtLevel(0));
+  MoveFilesToLevel(2);
+  ASSERT_EQ(2, NumTableFilesAtLevel(2));
+
+  for (int i = 1; i < kNumFiles * kNumPerFile + 1; i++) {
+    ASSERT_OK(Put(Key(i), "0x123"));
+  }
+  ASSERT_OK(db_->Flush(FlushOptions()));
+  ASSERT_EQ(1, NumTableFilesAtLevel(0));
+
+  // The key range is broken up into three SSTs to avoid a future big compaction
+  // with the grandparent
+  dbfull()->TEST_CompactRange(0, nullptr, nullptr, nullptr,
+                              true /* disallow_trivial_move */);
+  ASSERT_EQ(3, NumTableFilesAtLevel(1));
+
+  std::vector<std::vector<FileMetaData>> files;
+  dbfull()->TEST_CompactRange(1, nullptr, nullptr, nullptr,
+                              true /* disallow_trivial_move */);
+  ASSERT_EQ(1, NumTableFilesAtLevel(2));
+  ASSERT_EQ(0, NumTableFilesAtLevel(1));
 }
 
 #endif  // ROCKSDB_LITE

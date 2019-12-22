@@ -36,6 +36,13 @@ class Cache;
 
 extern const bool kDefaultToAdaptiveMutex;
 
+enum CacheMetadataChargePolicy {
+  kDontChargeCacheMetadata,
+  kFullChargeCacheMetadata
+};
+const CacheMetadataChargePolicy kDefaultCacheMetadataChargePolicy =
+    kFullChargeCacheMetadata;
+
 struct LRUCacheOptions {
   // Capacity of the cache.
   size_t capacity = 0;
@@ -59,7 +66,7 @@ struct LRUCacheOptions {
   //
   // See also
   // BlockBasedTableOptions::cache_index_and_filter_blocks_with_high_priority.
-  double high_pri_pool_ratio = 0.0;
+  double high_pri_pool_ratio = 0.5;
 
   // If non-nullptr will use this allocator instead of system allocator when
   // allocating memory for cache blocks. Call this method before you start using
@@ -76,17 +83,23 @@ struct LRUCacheOptions {
   // -DROCKSDB_DEFAULT_TO_ADAPTIVE_MUTEX, false otherwise.
   bool use_adaptive_mutex = kDefaultToAdaptiveMutex;
 
+  CacheMetadataChargePolicy metadata_charge_policy =
+      kDefaultCacheMetadataChargePolicy;
+
   LRUCacheOptions() {}
   LRUCacheOptions(size_t _capacity, int _num_shard_bits,
                   bool _strict_capacity_limit, double _high_pri_pool_ratio,
                   std::shared_ptr<MemoryAllocator> _memory_allocator = nullptr,
-                  bool _use_adaptive_mutex = kDefaultToAdaptiveMutex)
+                  bool _use_adaptive_mutex = kDefaultToAdaptiveMutex,
+                  CacheMetadataChargePolicy _metadata_charge_policy =
+                      kDefaultCacheMetadataChargePolicy)
       : capacity(_capacity),
         num_shard_bits(_num_shard_bits),
         strict_capacity_limit(_strict_capacity_limit),
         high_pri_pool_ratio(_high_pri_pool_ratio),
         memory_allocator(std::move(_memory_allocator)),
-        use_adaptive_mutex(_use_adaptive_mutex) {}
+        use_adaptive_mutex(_use_adaptive_mutex),
+        metadata_charge_policy(_metadata_charge_policy) {}
 };
 
 // Create a new cache with a fixed size capacity. The cache is sharded
@@ -99,9 +112,11 @@ struct LRUCacheOptions {
 // will be at least 512KB and number of shard bits will not exceed 6.
 extern std::shared_ptr<Cache> NewLRUCache(
     size_t capacity, int num_shard_bits = -1,
-    bool strict_capacity_limit = false, double high_pri_pool_ratio = 0.0,
+    bool strict_capacity_limit = false, double high_pri_pool_ratio = 0.5,
     std::shared_ptr<MemoryAllocator> memory_allocator = nullptr,
-    bool use_adaptive_mutex = kDefaultToAdaptiveMutex);
+    bool use_adaptive_mutex = kDefaultToAdaptiveMutex,
+    CacheMetadataChargePolicy metadata_charge_policy =
+        kDefaultCacheMetadataChargePolicy);
 
 extern std::shared_ptr<Cache> NewLRUCache(const LRUCacheOptions& cache_opts);
 
@@ -110,10 +125,11 @@ extern std::shared_ptr<Cache> NewLRUCache(const LRUCacheOptions& cache_opts);
 // more detail.
 //
 // Return nullptr if it is not supported.
-extern std::shared_ptr<Cache> NewClockCache(size_t capacity,
-                                            int num_shard_bits = -1,
-                                            bool strict_capacity_limit = false);
-
+extern std::shared_ptr<Cache> NewClockCache(
+    size_t capacity, int num_shard_bits = -1,
+    bool strict_capacity_limit = false,
+    CacheMetadataChargePolicy metadata_charge_policy =
+        kDefaultCacheMetadataChargePolicy);
 class Cache {
  public:
   // Depending on implementation, cache entries with high priority could be less
@@ -122,6 +138,9 @@ class Cache {
 
   Cache(std::shared_ptr<MemoryAllocator> allocator = nullptr)
       : memory_allocator_(std::move(allocator)) {}
+  // No copying allowed
+  Cache(const Cache&) = delete;
+  Cache& operator=(const Cache&) = delete;
 
   // Destroys all existing entries by calling the "deleter"
   // function that was passed via the Insert() function.
@@ -226,6 +245,9 @@ class Cache {
   // returns the memory size for the entries in use by the system
   virtual size_t GetPinnedUsage() const = 0;
 
+  // returns the charge for the specific entry in the cache.
+  virtual size_t GetCharge(Handle* handle) const = 0;
+
   // Call this on shutdown if you want to speed it up. Cache will disown
   // any underlying data and will not free it on delete. This call will leak
   // memory - call this only if you're shutting down the process.
@@ -247,18 +269,9 @@ class Cache {
 
   virtual std::string GetPrintableOptions() const { return ""; }
 
-  // Mark the last inserted object as being a raw data block. This will be used
-  // in tests. The default implementation does nothing.
-  virtual void TEST_mark_as_data_block(const Slice& /*key*/,
-                                       size_t /*charge*/) {}
-
   MemoryAllocator* memory_allocator() const { return memory_allocator_.get(); }
 
  private:
-  // No copying allowed
-  Cache(const Cache&);
-  Cache& operator=(const Cache&);
-
   std::shared_ptr<MemoryAllocator> memory_allocator_;
 };
 

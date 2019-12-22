@@ -10,14 +10,14 @@
 #include <memory>
 
 #include "db/column_family.h"
-#include "db/db_impl.h"
+#include "db/db_impl/db_impl.h"
 #include "db/merge_context.h"
 #include "db/merge_helper.h"
+#include "memory/arena.h"
 #include "memtable/skiplist.h"
 #include "options/db_options.h"
 #include "rocksdb/comparator.h"
 #include "rocksdb/iterator.h"
-#include "util/arena.h"
 #include "util/cast_util.h"
 #include "util/string_util.h"
 #include "utilities/write_batch_with_index/write_batch_with_index_internal.h"
@@ -33,14 +33,17 @@ namespace rocksdb {
 class BaseDeltaIterator : public Iterator {
  public:
   BaseDeltaIterator(Iterator* base_iterator, WBWIIterator* delta_iterator,
-                    const Comparator* comparator)
+                    const Comparator* comparator,
+                    const ReadOptions* read_options = nullptr)
       : forward_(true),
         current_at_base_(true),
         equal_keys_(false),
         status_(Status::OK()),
         base_iterator_(base_iterator),
         delta_iterator_(delta_iterator),
-        comparator_(comparator) {}
+        comparator_(comparator),
+        iterate_upper_bound_(read_options ? read_options->iterate_upper_bound
+                                          : nullptr) {}
 
   ~BaseDeltaIterator() override {}
 
@@ -279,6 +282,13 @@ class BaseDeltaIterator : public Iterator {
           // Finished
           return;
         }
+        if (iterate_upper_bound_) {
+          if (comparator_->Compare(delta_entry.key, *iterate_upper_bound_) >=
+              0) {
+            // out of upper bound -> finished.
+            return;
+          }
+        }
         if (delta_entry.type == kDeleteRecord ||
             delta_entry.type == kSingleDeleteRecord) {
           AdvanceDelta();
@@ -326,6 +336,7 @@ class BaseDeltaIterator : public Iterator {
   std::unique_ptr<Iterator> base_iterator_;
   std::unique_ptr<WBWIIterator> delta_iterator_;
   const Comparator* comparator_;  // not owned
+  const Slice* iterate_upper_bound_;
 };
 
 typedef SkipList<WriteBatchIndexEntry*, const WriteBatchEntryComparator&>
@@ -568,7 +579,7 @@ Status WriteBatchWithIndex::Rep::ReBuildIndex() {
   input.remove_prefix(offset);
 
   // Loop through all entries in Rep and add each one to the index
-  int found = 0;
+  uint32_t found = 0;
   while (s.ok() && !input.empty()) {
     Slice key, value, blob, xid;
     uint32_t column_family_id = 0;  // default
@@ -627,6 +638,11 @@ WriteBatchWithIndex::WriteBatchWithIndex(
 
 WriteBatchWithIndex::~WriteBatchWithIndex() {}
 
+WriteBatchWithIndex::WriteBatchWithIndex(WriteBatchWithIndex&&) = default;
+
+WriteBatchWithIndex& WriteBatchWithIndex::operator=(WriteBatchWithIndex&&) =
+    default;
+
 WriteBatch* WriteBatchWithIndex::GetWriteBatch() { return &rep->write_batch; }
 
 size_t WriteBatchWithIndex::SubBatchCnt() { return rep->sub_batch_cnt; }
@@ -642,13 +658,15 @@ WBWIIterator* WriteBatchWithIndex::NewIterator(
 }
 
 Iterator* WriteBatchWithIndex::NewIteratorWithBase(
-    ColumnFamilyHandle* column_family, Iterator* base_iterator) {
+    ColumnFamilyHandle* column_family, Iterator* base_iterator,
+    const ReadOptions* read_options) {
   if (rep->overwrite_key == false) {
     assert(false);
     return nullptr;
   }
   return new BaseDeltaIterator(base_iterator, NewIterator(column_family),
-                               GetColumnFamilyUserComparator(column_family));
+                               GetColumnFamilyUserComparator(column_family),
+                               read_options);
 }
 
 Iterator* WriteBatchWithIndex::NewIteratorWithBase(Iterator* base_iterator) {
@@ -886,9 +904,12 @@ Status WriteBatchWithIndex::GetFromBatchAndDB(
   if (!callback) {
     s = db->Get(read_options, column_family, key, pinnable_val);
   } else {
+    DBImpl::GetImplOptions get_impl_options;
+    get_impl_options.column_family = column_family;
+    get_impl_options.value = pinnable_val;
+    get_impl_options.callback = callback;
     s = static_cast_with_check<DBImpl, DB>(db->GetRootDB())
-            ->GetImpl(read_options, column_family, key, pinnable_val, nullptr,
-                      callback);
+            ->GetImpl(read_options, key, get_impl_options);
   }
 
   if (s.ok() || s.IsNotFound()) {  // DB Get Succeeded
@@ -909,9 +930,12 @@ Status WriteBatchWithIndex::GetFromBatchAndDB(
       }
 
       if (merge_operator) {
-        s = MergeHelper::TimedFullMerge(
-            merge_operator, key, merge_data, merge_context.GetOperands(),
-            pinnable_val->GetSelf(), logger, statistics, env);
+        std::string merge_result;
+        s = MergeHelper::TimedFullMerge(merge_operator, key, merge_data,
+                                        merge_context.GetOperands(),
+                                        &merge_result, logger, statistics, env);
+        pinnable_val->Reset();
+        *pinnable_val->GetSelf() = std::move(merge_result);
         pinnable_val->PinSelf();
       } else {
         s = Status::InvalidArgument("Options::merge_operator must be set");
@@ -939,6 +963,7 @@ void WriteBatchWithIndex::MultiGetFromBatchAndDB(
           ->immutable_db_options();
 
   autovector<KeyContext, MultiGetContext::MAX_BATCH_SIZE> key_context;
+  autovector<KeyContext*, MultiGetContext::MAX_BATCH_SIZE> sorted_keys;
   // To hold merges from the write batch
   autovector<std::pair<WriteBatchWithIndexInternal::Result, MergeContext>,
              MultiGetContext::MAX_BATCH_SIZE>
@@ -978,14 +1003,20 @@ void WriteBatchWithIndex::MultiGetFromBatchAndDB(
 
     assert(result == WriteBatchWithIndexInternal::Result::kMergeInProgress ||
            result == WriteBatchWithIndexInternal::Result::kNotFound);
-    key_context.emplace_back(keys[i], &values[i], &statuses[i]);
+    key_context.emplace_back(column_family, keys[i], &values[i], &statuses[i]);
     merges.emplace_back(result, std::move(merge_context));
+  }
+
+  for (KeyContext& key : key_context) {
+    sorted_keys.emplace_back(&key);
   }
 
   // Did not find key in batch OR could not resolve Merges.  Try DB.
   static_cast_with_check<DBImpl, DB>(db->GetRootDB())
-      ->MultiGetImpl(read_options, column_family, key_context, sorted_input,
-                     callback);
+      ->PrepareMultiGetKeys(key_context.size(), sorted_input, &sorted_keys);
+  static_cast_with_check<DBImpl, DB>(db->GetRootDB())
+      ->MultiGetWithCallback(read_options, column_family, callback,
+                             &sorted_keys);
 
   ColumnFamilyHandleImpl* cfh =
       reinterpret_cast<ColumnFamilyHandleImpl*>(column_family);

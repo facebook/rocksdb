@@ -5,23 +5,19 @@
 //
 #include "util/string_util.h"
 
-#ifndef __STDC_FORMAT_MACROS
-#define __STDC_FORMAT_MACROS
-#endif
-
 #include <errno.h>
-#include <inttypes.h>
 #include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <algorithm>
+#include <cinttypes>
 #include <cmath>
 #include <sstream>
 #include <string>
 #include <utility>
 #include <vector>
-#include "rocksdb/env.h"
 #include "port/port.h"
+#include "port/sys_time.h"
 #include "rocksdb/slice.h"
 
 namespace rocksdb {
@@ -141,6 +137,16 @@ std::string BytesToHumanString(uint64_t bytes) {
   char buf[20];
   snprintf(buf, sizeof(buf), "%.2f %s", final_size, size_name[size_idx]);
   return std::string(buf);
+}
+
+std::string TimeToHumanString(int unixtime) {
+  char time_buffer[80];
+  time_t rawtime = unixtime;
+  struct tm tInfo;
+  struct tm* timeinfo = localtime_r(&rawtime, &tInfo);
+  assert(timeinfo == &tInfo);
+  strftime(time_buffer, 80, "%c", timeinfo);
+  return std::string(time_buffer);
 }
 
 std::string EscapeString(const Slice& value) {

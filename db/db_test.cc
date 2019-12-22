@@ -24,13 +24,15 @@
 #endif
 
 #include "cache/lru_cache.h"
-#include "db/db_impl.h"
+#include "db/blob_index.h"
+#include "db/db_impl/db_impl.h"
 #include "db/db_test_util.h"
 #include "db/dbformat.h"
 #include "db/job_context.h"
 #include "db/version_set.h"
 #include "db/write_batch_internal.h"
 #include "env/mock_env.h"
+#include "file/filename.h"
 #include "memtable/hash_linklist_rep.h"
 #include "monitoring/thread_status_util.h"
 #include "port/port.h"
@@ -53,19 +55,17 @@
 #include "rocksdb/utilities/checkpoint.h"
 #include "rocksdb/utilities/optimistic_transaction_db.h"
 #include "rocksdb/utilities/write_batch_with_index.h"
-#include "table/block_based_table_factory.h"
+#include "table/block_based/block_based_table_factory.h"
 #include "table/mock_table.h"
-#include "table/plain_table_factory.h"
+#include "table/plain/plain_table_factory.h"
 #include "table/scoped_arena_iterator.h"
+#include "test_util/sync_point.h"
+#include "test_util/testharness.h"
+#include "test_util/testutil.h"
 #include "util/compression.h"
-#include "util/file_reader_writer.h"
-#include "util/filename.h"
 #include "util/mutexlock.h"
 #include "util/rate_limiter.h"
 #include "util/string_util.h"
-#include "util/sync_point.h"
-#include "util/testharness.h"
-#include "util/testutil.h"
 #include "utilities/merge_operators.h"
 
 namespace rocksdb {
@@ -883,7 +883,7 @@ TEST_F(DBTest, FlushMultipleMemtable) {
     writeOpt.disableWAL = true;
     options.max_write_buffer_number = 4;
     options.min_write_buffer_number_to_merge = 3;
-    options.max_write_buffer_number_to_maintain = -1;
+    options.max_write_buffer_size_to_maintain = -1;
     CreateAndReopenWithCF({"pikachu"}, options);
     ASSERT_OK(dbfull()->Put(writeOpt, handles_[1], "foo", "v1"));
     ASSERT_OK(Flush(1));
@@ -901,7 +901,8 @@ TEST_F(DBTest, FlushSchedule) {
   options.level0_stop_writes_trigger = 1 << 10;
   options.level0_slowdown_writes_trigger = 1 << 10;
   options.min_write_buffer_number_to_merge = 1;
-  options.max_write_buffer_number_to_maintain = 1;
+  options.max_write_buffer_size_to_maintain =
+      static_cast<int64_t>(options.write_buffer_size);
   options.max_write_buffer_number = 2;
   options.write_buffer_size = 120 * 1024;
   CreateAndReopenWithCF({"pikachu"}, options);
@@ -1019,39 +1020,149 @@ TEST_F(DBTest, FailMoreDbPaths) {
   ASSERT_TRUE(TryReopen(options).IsNotSupported());
 }
 
-void CheckColumnFamilyMeta(const ColumnFamilyMetaData& cf_meta) {
+void CheckColumnFamilyMeta(
+    const ColumnFamilyMetaData& cf_meta,
+    const std::vector<std::vector<FileMetaData>>& files_by_level,
+    uint64_t start_time, uint64_t end_time) {
+  ASSERT_EQ(cf_meta.name, kDefaultColumnFamilyName);
+  ASSERT_EQ(cf_meta.levels.size(), files_by_level.size());
+
   uint64_t cf_size = 0;
-  uint64_t cf_csize = 0;
   size_t file_count = 0;
-  for (auto level_meta : cf_meta.levels) {
+
+  for (size_t i = 0; i < cf_meta.levels.size(); ++i) {
+    const auto& level_meta_from_cf = cf_meta.levels[i];
+    const auto& level_meta_from_files = files_by_level[i];
+
+    ASSERT_EQ(level_meta_from_cf.level, i);
+    ASSERT_EQ(level_meta_from_cf.files.size(), level_meta_from_files.size());
+
+    file_count += level_meta_from_cf.files.size();
+
     uint64_t level_size = 0;
-    uint64_t level_csize = 0;
-    file_count += level_meta.files.size();
-    for (auto file_meta : level_meta.files) {
-      level_size += file_meta.size;
+    for (size_t j = 0; j < level_meta_from_cf.files.size(); ++j) {
+      const auto& file_meta_from_cf = level_meta_from_cf.files[j];
+      const auto& file_meta_from_files = level_meta_from_files[j];
+
+      level_size += file_meta_from_cf.size;
+
+      ASSERT_EQ(file_meta_from_cf.file_number,
+                file_meta_from_files.fd.GetNumber());
+      ASSERT_EQ(file_meta_from_cf.file_number,
+                TableFileNameToNumber(file_meta_from_cf.name));
+      ASSERT_EQ(file_meta_from_cf.size, file_meta_from_files.fd.file_size);
+      ASSERT_EQ(file_meta_from_cf.smallest_seqno,
+                file_meta_from_files.fd.smallest_seqno);
+      ASSERT_EQ(file_meta_from_cf.largest_seqno,
+                file_meta_from_files.fd.largest_seqno);
+      ASSERT_EQ(file_meta_from_cf.smallestkey,
+                file_meta_from_files.smallest.user_key().ToString());
+      ASSERT_EQ(file_meta_from_cf.largestkey,
+                file_meta_from_files.largest.user_key().ToString());
+      ASSERT_EQ(file_meta_from_cf.oldest_blob_file_number,
+                file_meta_from_files.oldest_blob_file_number);
+      ASSERT_EQ(file_meta_from_cf.oldest_ancester_time,
+                file_meta_from_files.oldest_ancester_time);
+      ASSERT_EQ(file_meta_from_cf.file_creation_time,
+                file_meta_from_files.file_creation_time);
+      ASSERT_GE(file_meta_from_cf.file_creation_time, start_time);
+      ASSERT_LE(file_meta_from_cf.file_creation_time, end_time);
+      ASSERT_GE(file_meta_from_cf.oldest_ancester_time, start_time);
+      ASSERT_LE(file_meta_from_cf.oldest_ancester_time, end_time);
     }
-    ASSERT_EQ(level_meta.size, level_size);
+
+    ASSERT_EQ(level_meta_from_cf.size, level_size);
     cf_size += level_size;
-    cf_csize += level_csize;
   }
+
   ASSERT_EQ(cf_meta.file_count, file_count);
   ASSERT_EQ(cf_meta.size, cf_size);
 }
 
+void CheckLiveFilesMeta(
+    const std::vector<LiveFileMetaData>& live_file_meta,
+    const std::vector<std::vector<FileMetaData>>& files_by_level) {
+  size_t total_file_count = 0;
+  for (const auto& f : files_by_level) {
+    total_file_count += f.size();
+  }
+
+  ASSERT_EQ(live_file_meta.size(), total_file_count);
+
+  int level = 0;
+  int i = 0;
+
+  for (const auto& meta : live_file_meta) {
+    if (level != meta.level) {
+      level = meta.level;
+      i = 0;
+    }
+
+    ASSERT_LT(i, files_by_level[level].size());
+
+    const auto& expected_meta = files_by_level[level][i];
+
+    ASSERT_EQ(meta.column_family_name, kDefaultColumnFamilyName);
+    ASSERT_EQ(meta.file_number, expected_meta.fd.GetNumber());
+    ASSERT_EQ(meta.file_number, TableFileNameToNumber(meta.name));
+    ASSERT_EQ(meta.size, expected_meta.fd.file_size);
+    ASSERT_EQ(meta.smallest_seqno, expected_meta.fd.smallest_seqno);
+    ASSERT_EQ(meta.largest_seqno, expected_meta.fd.largest_seqno);
+    ASSERT_EQ(meta.smallestkey, expected_meta.smallest.user_key().ToString());
+    ASSERT_EQ(meta.largestkey, expected_meta.largest.user_key().ToString());
+    ASSERT_EQ(meta.oldest_blob_file_number,
+              expected_meta.oldest_blob_file_number);
+
+    ++i;
+  }
+}
+
 #ifndef ROCKSDB_LITE
-TEST_F(DBTest, ColumnFamilyMetaDataTest) {
+TEST_F(DBTest, MetaDataTest) {
   Options options = CurrentOptions();
   options.create_if_missing = true;
+  options.disable_auto_compactions = true;
+
+  int64_t temp_time = 0;
+  options.env->GetCurrentTime(&temp_time);
+  uint64_t start_time = static_cast<uint64_t>(temp_time);
+
   DestroyAndReopen(options);
 
   Random rnd(301);
   int key_index = 0;
-  ColumnFamilyMetaData cf_meta;
   for (int i = 0; i < 100; ++i) {
-    GenerateNewFile(&rnd, &key_index);
-    db_->GetColumnFamilyMetaData(&cf_meta);
-    CheckColumnFamilyMeta(cf_meta);
+    // Add a single blob reference to each file
+    std::string blob_index;
+    BlobIndex::EncodeBlob(&blob_index, /* blob_file_number */ i + 1000,
+                          /* offset */ 1234, /* size */ 5678, kNoCompression);
+
+    WriteBatch batch;
+    ASSERT_OK(WriteBatchInternal::PutBlobIndex(&batch, 0, Key(key_index),
+                                               blob_index));
+    ASSERT_OK(dbfull()->Write(WriteOptions(), &batch));
+
+    ++key_index;
+
+    // Fill up the rest of the file with random values.
+    GenerateNewFile(&rnd, &key_index, /* nowait */ true);
+
+    Flush();
   }
+
+  std::vector<std::vector<FileMetaData>> files_by_level;
+  dbfull()->TEST_GetFilesMetaData(db_->DefaultColumnFamily(), &files_by_level);
+
+  options.env->GetCurrentTime(&temp_time);
+  uint64_t end_time = static_cast<uint64_t>(temp_time);
+
+  ColumnFamilyMetaData cf_meta;
+  db_->GetColumnFamilyMetaData(&cf_meta);
+  CheckColumnFamilyMeta(cf_meta, files_by_level, start_time, end_time);
+
+  std::vector<LiveFileMetaData> live_file_meta;
+  db_->GetLiveFilesMetaData(&live_file_meta);
+  CheckLiveFilesMeta(live_file_meta, files_by_level);
 }
 
 namespace {
@@ -1257,6 +1368,7 @@ TEST_F(DBTest, ApproximateSizesMemTable) {
   options.compression = kNoCompression;
   options.create_if_missing = true;
   DestroyAndReopen(options);
+  auto default_cf = db_->DefaultColumnFamily();
 
   const int N = 128;
   Random rnd(301);
@@ -1268,9 +1380,10 @@ TEST_F(DBTest, ApproximateSizesMemTable) {
   std::string start = Key(50);
   std::string end = Key(60);
   Range r(start, end);
-  uint8_t include_both = DB::SizeApproximationFlags::INCLUDE_FILES |
-                         DB::SizeApproximationFlags::INCLUDE_MEMTABLES;
-  db_->GetApproximateSizes(&r, 1, &size, include_both);
+  SizeApproximationOptions size_approx_options;
+  size_approx_options.include_memtabtles = true;
+  size_approx_options.include_files = true;
+  db_->GetApproximateSizes(size_approx_options, default_cf, &r, 1, &size);
   ASSERT_GT(size, 6000);
   ASSERT_LT(size, 204800);
   // Zero if not including mem table
@@ -1280,7 +1393,7 @@ TEST_F(DBTest, ApproximateSizesMemTable) {
   start = Key(500);
   end = Key(600);
   r = Range(start, end);
-  db_->GetApproximateSizes(&r, 1, &size, include_both);
+  db_->GetApproximateSizes(size_approx_options, default_cf, &r, 1, &size);
   ASSERT_EQ(size, 0);
 
   for (int i = 0; i < N; i++) {
@@ -1290,19 +1403,20 @@ TEST_F(DBTest, ApproximateSizesMemTable) {
   start = Key(500);
   end = Key(600);
   r = Range(start, end);
-  db_->GetApproximateSizes(&r, 1, &size, include_both);
+  db_->GetApproximateSizes(size_approx_options, default_cf, &r, 1, &size);
   ASSERT_EQ(size, 0);
 
   start = Key(100);
   end = Key(1020);
   r = Range(start, end);
-  db_->GetApproximateSizes(&r, 1, &size, include_both);
+  db_->GetApproximateSizes(size_approx_options, default_cf, &r, 1, &size);
   ASSERT_GT(size, 6000);
 
   options.max_write_buffer_number = 8;
   options.min_write_buffer_number_to_merge = 5;
   options.write_buffer_size = 1024 * N;  // Not very large
   DestroyAndReopen(options);
+  default_cf = db_->DefaultColumnFamily();
 
   int keys[N * 3];
   for (int i = 0; i < N; i++) {
@@ -1319,26 +1433,27 @@ TEST_F(DBTest, ApproximateSizesMemTable) {
   start = Key(100);
   end = Key(300);
   r = Range(start, end);
-  db_->GetApproximateSizes(&r, 1, &size, include_both);
+  db_->GetApproximateSizes(size_approx_options, default_cf, &r, 1, &size);
   ASSERT_EQ(size, 0);
 
   start = Key(1050);
   end = Key(1080);
   r = Range(start, end);
-  db_->GetApproximateSizes(&r, 1, &size, include_both);
+  db_->GetApproximateSizes(size_approx_options, default_cf, &r, 1, &size);
   ASSERT_GT(size, 6000);
 
   start = Key(2100);
   end = Key(2300);
   r = Range(start, end);
-  db_->GetApproximateSizes(&r, 1, &size, include_both);
+  db_->GetApproximateSizes(size_approx_options, default_cf, &r, 1, &size);
   ASSERT_EQ(size, 0);
 
   start = Key(1050);
   end = Key(1080);
   r = Range(start, end);
   uint64_t size_with_mt, size_without_mt;
-  db_->GetApproximateSizes(&r, 1, &size_with_mt, include_both);
+  db_->GetApproximateSizes(size_approx_options, default_cf, &r, 1,
+                           &size_with_mt);
   ASSERT_GT(size_with_mt, 6000);
   db_->GetApproximateSizes(&r, 1, &size_without_mt);
   ASSERT_EQ(size_without_mt, 0);
@@ -1352,10 +1467,80 @@ TEST_F(DBTest, ApproximateSizesMemTable) {
   start = Key(1050);
   end = Key(1080);
   r = Range(start, end);
-  db_->GetApproximateSizes(&r, 1, &size_with_mt, include_both);
+  db_->GetApproximateSizes(size_approx_options, default_cf, &r, 1,
+                           &size_with_mt);
   db_->GetApproximateSizes(&r, 1, &size_without_mt);
   ASSERT_GT(size_with_mt, size_without_mt);
   ASSERT_GT(size_without_mt, 6000);
+
+  // Check that include_memtabtles flag works as expected
+  size_approx_options.include_memtabtles = false;
+  db_->GetApproximateSizes(size_approx_options, default_cf, &r, 1, &size);
+  ASSERT_EQ(size, size_without_mt);
+
+  // Check that files_size_error_margin works as expected, when the heuristic
+  // conditions are not met
+  start = Key(1);
+  end = Key(1000 + N - 2);
+  r = Range(start, end);
+  size_approx_options.files_size_error_margin = -1.0;  // disabled
+  db_->GetApproximateSizes(size_approx_options, default_cf, &r, 1, &size);
+  uint64_t size2;
+  size_approx_options.files_size_error_margin = 0.5;  // enabled, but not used
+  db_->GetApproximateSizes(size_approx_options, default_cf, &r, 1, &size2);
+  ASSERT_EQ(size, size2);
+}
+
+TEST_F(DBTest, ApproximateSizesFilesWithErrorMargin) {
+  Options options = CurrentOptions();
+  options.write_buffer_size = 1024 * 1024;
+  options.compression = kNoCompression;
+  options.create_if_missing = true;
+  options.target_file_size_base = 1024 * 1024;
+  DestroyAndReopen(options);
+  const auto default_cf = db_->DefaultColumnFamily();
+
+  const int N = 64000;
+  Random rnd(301);
+  for (int i = 0; i < N; i++) {
+    ASSERT_OK(Put(Key(i), RandomString(&rnd, 1024)));
+  }
+  // Flush everything to files
+  Flush();
+  // Compact the entire key space into the next level
+  db_->CompactRange(CompactRangeOptions(), default_cf, nullptr, nullptr);
+
+  // Write more keys
+  for (int i = N; i < (N + N / 4); i++) {
+    ASSERT_OK(Put(Key(i), RandomString(&rnd, 1024)));
+  }
+  // Flush everything to files again
+  Flush();
+
+  // Wait for compaction to finish
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
+
+  const std::string start = Key(0);
+  const std::string end = Key(2 * N);
+  const Range r(start, end);
+
+  SizeApproximationOptions size_approx_options;
+  size_approx_options.include_memtabtles = false;
+  size_approx_options.include_files = true;
+  size_approx_options.files_size_error_margin = -1.0;  // disabled
+
+  // Get the precise size without any approximation heuristic
+  uint64_t size;
+  db_->GetApproximateSizes(size_approx_options, default_cf, &r, 1, &size);
+  ASSERT_NE(size, 0);
+
+  // Get the size with an approximation heuristic
+  uint64_t size2;
+  const double error_margin = 0.2;
+  size_approx_options.files_size_error_margin = error_margin;
+  db_->GetApproximateSizes(size_approx_options, default_cf, &r, 1, &size2);
+  ASSERT_LT(size2, size * (1 + error_margin));
+  ASSERT_GT(size2, size * (1 - error_margin));
 }
 
 TEST_F(DBTest, GetApproximateMemTableStats) {
@@ -2285,6 +2470,7 @@ class MultiThreadedDBTest
 };
 
 TEST_P(MultiThreadedDBTest, MultiThreaded) {
+  if (option_config_ == kPipelinedWrite) return;
   anon::OptionsOverride options_override;
   options_override.skip_policy = kSkipNoSnapshot;
   Options options = CurrentOptions(options_override);
@@ -2465,6 +2651,15 @@ class ModelDB : public DB {
     return Status::NotSupported(key);
   }
 
+  using DB::GetMergeOperands;
+  virtual Status GetMergeOperands(
+      const ReadOptions& /*options*/, ColumnFamilyHandle* /*column_family*/,
+      const Slice& key, PinnableSlice* /*slice*/,
+      GetMergeOperandsOptions* /*merge_operands_options*/,
+      int* /*number_of_operands*/) override {
+    return Status::NotSupported(key);
+  }
+
   using DB::MultiGet;
   std::vector<Status> MultiGet(
       const ReadOptions& /*options*/,
@@ -2491,7 +2686,18 @@ class ModelDB : public DB {
     return Status::NotSupported("Not implemented");
   }
 
-  Status VerifyChecksum() override {
+  using DB::CreateColumnFamilyWithImport;
+  virtual Status CreateColumnFamilyWithImport(
+      const ColumnFamilyOptions& /*options*/,
+      const std::string& /*column_family_name*/,
+      const ImportColumnFamilyOptions& /*import_options*/,
+      const ExportImportFilesMetaData& /*metadata*/,
+      ColumnFamilyHandle** /*handle*/) override {
+    return Status::NotSupported("Not implemented.");
+  }
+
+  using DB::VerifyChecksum;
+  Status VerifyChecksum(const ReadOptions&) override {
     return Status::NotSupported("Not implemented.");
   }
 
@@ -2587,13 +2793,14 @@ class ModelDB : public DB {
     return false;
   }
   using DB::GetApproximateSizes;
-  void GetApproximateSizes(ColumnFamilyHandle* /*column_family*/,
-                           const Range* /*range*/, int n, uint64_t* sizes,
-                           uint8_t /*include_flags*/
-                           = INCLUDE_FILES) override {
+  Status GetApproximateSizes(const SizeApproximationOptions& /*options*/,
+                             ColumnFamilyHandle* /*column_family*/,
+                             const Range* /*range*/, int n,
+                             uint64_t* sizes) override {
     for (int i = 0; i < n; i++) {
       sizes[i] = 0;
     }
+    return Status::OK();
   }
   using DB::GetApproximateMemTableStats;
   void GetApproximateMemTableStats(ColumnFamilyHandle* /*column_family*/,
@@ -2640,6 +2847,10 @@ class ModelDB : public DB {
       override {
     return Status::NotSupported("Not supported operation.");
   }
+
+  void EnableManualCompaction() override { return; }
+
+  void DisableManualCompaction() override { return; }
 
   using DB::NumberLevels;
   int NumberLevels(ColumnFamilyHandle* /*column_family*/) override { return 1; }
@@ -2691,6 +2902,16 @@ class ModelDB : public DB {
 
   Status GetSortedWalFiles(VectorLogPtr& /*files*/) override {
     return Status::OK();
+  }
+
+  Status GetCurrentWalFile(
+      std::unique_ptr<LogFile>* /*current_log_file*/) override {
+    return Status::OK();
+  }
+
+  virtual Status GetCreationTimeOfOldestFile(
+      uint64_t* /*creation_time*/) override {
+    return Status::NotSupported();
   }
 
   Status DeleteFile(std::string /*name*/) override { return Status::OK(); }
@@ -3114,10 +3335,10 @@ TEST_F(DBTest, FIFOCompactionWithTTLAndMaxOpenFilesTest) {
   options.create_if_missing = true;
   options.ttl = 600;  // seconds
 
-  // Check that it is not supported with max_open_files != -1.
+  // TTL is now supported with max_open_files != -1.
   options.max_open_files = 100;
   options = CurrentOptions(options);
-  ASSERT_TRUE(TryReopen(options).IsNotSupported());
+  ASSERT_OK(TryReopen(options));
 
   options.max_open_files = -1;
   ASSERT_OK(TryReopen(options));
@@ -4624,6 +4845,7 @@ TEST_F(DBTest, DynamicCompactionOptions) {
 // Even more FIFOCompactionTests are at DBTest.FIFOCompaction* .
 TEST_F(DBTest, DynamicFIFOCompactionOptions) {
   Options options;
+  options.ttl = 0;
   options.create_if_missing = true;
   DestroyAndReopen(options);
 
@@ -4689,15 +4911,15 @@ TEST_F(DBTest, DynamicUniversalCompactionOptions) {
   DestroyAndReopen(options);
 
   // Initial defaults
-  ASSERT_EQ(dbfull()->GetOptions().compaction_options_universal.size_ratio, 1);
+  ASSERT_EQ(dbfull()->GetOptions().compaction_options_universal.size_ratio, 1U);
   ASSERT_EQ(dbfull()->GetOptions().compaction_options_universal.min_merge_width,
-            2);
+            2u);
   ASSERT_EQ(dbfull()->GetOptions().compaction_options_universal.max_merge_width,
             UINT_MAX);
   ASSERT_EQ(dbfull()
                 ->GetOptions()
                 .compaction_options_universal.max_size_amplification_percent,
-            200);
+            200u);
   ASSERT_EQ(dbfull()
                 ->GetOptions()
                 .compaction_options_universal.compression_size_percent,
@@ -4710,15 +4932,15 @@ TEST_F(DBTest, DynamicUniversalCompactionOptions) {
 
   ASSERT_OK(dbfull()->SetOptions(
       {{"compaction_options_universal", "{size_ratio=7;}"}}));
-  ASSERT_EQ(dbfull()->GetOptions().compaction_options_universal.size_ratio, 7);
+  ASSERT_EQ(dbfull()->GetOptions().compaction_options_universal.size_ratio, 7u);
   ASSERT_EQ(dbfull()->GetOptions().compaction_options_universal.min_merge_width,
-            2);
+            2u);
   ASSERT_EQ(dbfull()->GetOptions().compaction_options_universal.max_merge_width,
             UINT_MAX);
   ASSERT_EQ(dbfull()
                 ->GetOptions()
                 .compaction_options_universal.max_size_amplification_percent,
-            200);
+            200u);
   ASSERT_EQ(dbfull()
                 ->GetOptions()
                 .compaction_options_universal.compression_size_percent,
@@ -4731,15 +4953,15 @@ TEST_F(DBTest, DynamicUniversalCompactionOptions) {
 
   ASSERT_OK(dbfull()->SetOptions(
       {{"compaction_options_universal", "{min_merge_width=11;}"}}));
-  ASSERT_EQ(dbfull()->GetOptions().compaction_options_universal.size_ratio, 7);
+  ASSERT_EQ(dbfull()->GetOptions().compaction_options_universal.size_ratio, 7u);
   ASSERT_EQ(dbfull()->GetOptions().compaction_options_universal.min_merge_width,
-            11);
+            11u);
   ASSERT_EQ(dbfull()->GetOptions().compaction_options_universal.max_merge_width,
             UINT_MAX);
   ASSERT_EQ(dbfull()
                 ->GetOptions()
                 .compaction_options_universal.max_size_amplification_percent,
-            200);
+            200u);
   ASSERT_EQ(dbfull()
                 ->GetOptions()
                 .compaction_options_universal.compression_size_percent,
@@ -4884,11 +5106,15 @@ TEST_F(DBTest, DynamicMiscOptions) {
   ASSERT_OK(dbfull()->TEST_GetLatestMutableCFOptions(handles_[0],
                                                      &mutable_cf_options));
   ASSERT_EQ(CompressionType::kNoCompression, mutable_cf_options.compression);
-  ASSERT_OK(dbfull()->SetOptions({{"compression", "kSnappyCompression"}}));
-  ASSERT_OK(dbfull()->TEST_GetLatestMutableCFOptions(handles_[0],
-                                                     &mutable_cf_options));
-  ASSERT_EQ(CompressionType::kSnappyCompression,
-            mutable_cf_options.compression);
+
+  if (Snappy_Supported()) {
+    ASSERT_OK(dbfull()->SetOptions({{"compression", "kSnappyCompression"}}));
+    ASSERT_OK(dbfull()->TEST_GetLatestMutableCFOptions(handles_[0],
+                                                       &mutable_cf_options));
+    ASSERT_EQ(CompressionType::kSnappyCompression,
+              mutable_cf_options.compression);
+  }
+
   // Test paranoid_file_checks already done in db_block_cache_test
   ASSERT_OK(
       dbfull()->SetOptions(handles_[1], {{"paranoid_file_checks", "true"}}));
@@ -5973,6 +6199,19 @@ TEST_F(DBTest, FailWhenCompressionNotSupportedTest) {
   }
 }
 
+TEST_F(DBTest, CreateColumnFamilyShouldFailOnIncompatibleOptions) {
+  Options options = CurrentOptions();
+  options.max_open_files = 100;
+  Reopen(options);
+
+  ColumnFamilyOptions cf_options(options);
+  // ttl is now supported when max_open_files is -1.
+  cf_options.ttl = 3600;
+  ColumnFamilyHandle* handle;
+  ASSERT_OK(db_->CreateColumnFamily(cf_options, "pikachu", &handle));
+  delete handle;
+}
+
 #ifndef ROCKSDB_LITE
 TEST_F(DBTest, RowCache) {
   Options options = CurrentOptions();
@@ -6138,10 +6377,140 @@ TEST_F(DBTest, ThreadLocalPtrDeadlock) {
   fprintf(stderr, "Done. Flushed %d times, destroyed %d threads\n",
           flushes_done.load(), threads_destroyed.load());
 }
+
+TEST_F(DBTest, LargeBlockSizeTest) {
+  Options options = CurrentOptions();
+  CreateAndReopenWithCF({"pikachu"}, options);
+  ASSERT_OK(Put(0, "foo", "bar"));
+  BlockBasedTableOptions table_options;
+  table_options.block_size = 8LL * 1024 * 1024 * 1024LL;
+  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+  ASSERT_NOK(TryReopenWithColumnFamilies({"default", "pikachu"}, options));
+}
+
+#ifndef ROCKSDB_LITE
+
+TEST_F(DBTest, CreationTimeOfOldestFile) {
+  const int kNumKeysPerFile = 32;
+  const int kNumLevelFiles = 2;
+  const int kValueSize = 100;
+
+  Options options = CurrentOptions();
+  options.max_open_files = -1;
+  env_->time_elapse_only_sleep_ = false;
+  options.env = env_;
+
+  env_->addon_time_.store(0);
+  DestroyAndReopen(options);
+
+  bool set_file_creation_time_to_zero = true;
+  int idx = 0;
+
+  int64_t time_1 = 0;
+  env_->GetCurrentTime(&time_1);
+  const uint64_t uint_time_1 = static_cast<uint64_t>(time_1);
+
+  // Add 50 hours
+  env_->addon_time_.fetch_add(50 * 60 * 60);
+
+  int64_t time_2 = 0;
+  env_->GetCurrentTime(&time_2);
+  const uint64_t uint_time_2 = static_cast<uint64_t>(time_2);
+
+  rocksdb::SyncPoint::GetInstance()->SetCallBack(
+      "PropertyBlockBuilder::AddTableProperty:Start", [&](void* arg) {
+        TableProperties* props = reinterpret_cast<TableProperties*>(arg);
+        if (set_file_creation_time_to_zero) {
+          if (idx == 0) {
+            props->file_creation_time = 0;
+            idx++;
+          } else if (idx == 1) {
+            props->file_creation_time = uint_time_1;
+            idx = 0;
+          }
+        } else {
+          if (idx == 0) {
+            props->file_creation_time = uint_time_1;
+            idx++;
+          } else if (idx == 1) {
+            props->file_creation_time = uint_time_2;
+          }
+        }
+      });
+  // Set file creation time in manifest all to 0.
+  rocksdb::SyncPoint::GetInstance()->SetCallBack(
+      "FileMetaData::FileMetaData", [&](void* arg) {
+        FileMetaData* meta = static_cast<FileMetaData*>(arg);
+        meta->file_creation_time = 0;
+      });
+  rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+
+  Random rnd(301);
+  for (int i = 0; i < kNumLevelFiles; ++i) {
+    for (int j = 0; j < kNumKeysPerFile; ++j) {
+      ASSERT_OK(
+          Put(Key(i * kNumKeysPerFile + j), RandomString(&rnd, kValueSize)));
+    }
+    Flush();
+  }
+
+  // At this point there should be 2 files, one with file_creation_time = 0 and
+  // the other non-zero. GetCreationTimeOfOldestFile API should return 0.
+  uint64_t creation_time;
+  Status s1 = dbfull()->GetCreationTimeOfOldestFile(&creation_time);
+  ASSERT_EQ(0, creation_time);
+  ASSERT_EQ(s1, Status::OK());
+
+  // Testing with non-zero file creation time.
+  set_file_creation_time_to_zero = false;
+  options = CurrentOptions();
+  options.max_open_files = -1;
+  env_->time_elapse_only_sleep_ = false;
+  options.env = env_;
+
+  env_->addon_time_.store(0);
+  DestroyAndReopen(options);
+
+  for (int i = 0; i < kNumLevelFiles; ++i) {
+    for (int j = 0; j < kNumKeysPerFile; ++j) {
+      ASSERT_OK(
+          Put(Key(i * kNumKeysPerFile + j), RandomString(&rnd, kValueSize)));
+    }
+    Flush();
+  }
+
+  // At this point there should be 2 files with non-zero file creation time.
+  // GetCreationTimeOfOldestFile API should return non-zero value.
+  uint64_t ctime;
+  Status s2 = dbfull()->GetCreationTimeOfOldestFile(&ctime);
+  ASSERT_EQ(uint_time_1, ctime);
+  ASSERT_EQ(s2, Status::OK());
+
+  // Testing with max_open_files != -1
+  options = CurrentOptions();
+  options.max_open_files = 10;
+  DestroyAndReopen(options);
+  Status s3 = dbfull()->GetCreationTimeOfOldestFile(&ctime);
+  ASSERT_EQ(s3, Status::NotSupported());
+
+  rocksdb::SyncPoint::GetInstance()->DisableProcessing();
+}
+
+#endif
+
 }  // namespace rocksdb
+
+#ifdef ROCKSDB_UNITTESTS_WITH_CUSTOM_OBJECTS_FROM_STATIC_LIBS
+extern "C" {
+void RegisterCustomObjects(int argc, char** argv);
+}
+#else
+void RegisterCustomObjects(int /*argc*/, char** /*argv*/) {}
+#endif  // !ROCKSDB_UNITTESTS_WITH_CUSTOM_OBJECTS_FROM_STATIC_LIBS
 
 int main(int argc, char** argv) {
   rocksdb::port::InstallStackTraceHandler();
   ::testing::InitGoogleTest(&argc, argv);
+  RegisterCustomObjects(argc, argv);
   return RUN_ALL_TESTS();
 }

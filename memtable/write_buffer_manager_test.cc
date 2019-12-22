@@ -8,7 +8,7 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
 #include "rocksdb/write_buffer_manager.h"
-#include "util/testharness.h"
+#include "test_util/testharness.h"
 
 namespace rocksdb {
 
@@ -51,8 +51,12 @@ TEST_F(WriteBufferManagerTest, ShouldFlush) {
 }
 
 TEST_F(WriteBufferManagerTest, CacheCost) {
+  LRUCacheOptions co;
   // 1GB cache
-  std::shared_ptr<Cache> cache = NewLRUCache(1024 * 1024 * 1024, 4);
+  co.capacity = 1024 * 1024 * 1024;
+  co.num_shard_bits = 4;
+  co.metadata_charge_policy = kDontChargeCacheMetadata;
+  std::shared_ptr<Cache> cache = NewLRUCache(co);
   // A write buffer manager of size 50MB
   std::unique_ptr<WriteBufferManager> wbf(
       new WriteBufferManager(50 * 1024 * 1024, cache));

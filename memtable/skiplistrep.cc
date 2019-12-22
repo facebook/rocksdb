@@ -3,10 +3,10 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 //
-#include "memtable/inlineskiplist.h"
 #include "db/memtable.h"
+#include "memory/arena.h"
+#include "memtable/inlineskiplist.h"
 #include "rocksdb/memtablerep.h"
-#include "util/arena.h"
 
 namespace rocksdb {
 namespace {
@@ -48,6 +48,15 @@ public:
 
  bool InsertKeyWithHint(KeyHandle handle, void** hint) override {
    return skip_list_.InsertWithHint(static_cast<char*>(handle), hint);
+ }
+
+ void InsertWithHintConcurrently(KeyHandle handle, void** hint) override {
+   skip_list_.InsertWithHintConcurrently(static_cast<char*>(handle), hint);
+ }
+
+ bool InsertKeyWithHintConcurrently(KeyHandle handle, void** hint) override {
+   return skip_list_.InsertWithHintConcurrently(static_cast<char*>(handle),
+                                                hint);
  }
 
  void InsertConcurrently(KeyHandle handle) override {
