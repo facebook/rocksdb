@@ -54,7 +54,8 @@ Status OptimisticTransaction::Prepare() {
 }
 
 Status OptimisticTransaction::Commit() {
-  auto txn_db_impl = dynamic_cast<OptimisticTransactionDBImpl*>(txn_db_);
+  auto txn_db_impl = static_cast_with_check<OptimisticTransactionDBImpl,
+                                            OptimisticTransactionDB>(txn_db_);
   assert(txn_db_impl);
   OccValidationPolicy policy = txn_db_impl->GetValidatePolicy();
   if (policy == OccValidationPolicy::VALIDATE_PARALLEL) {
@@ -86,7 +87,8 @@ Status OptimisticTransaction::CommitWithSerialValidate() {
 }
 
 Status OptimisticTransaction::CommitWithParallelValidate() {
-  auto txn_db_impl = dynamic_cast<OptimisticTransactionDBImpl*>(txn_db_);
+  auto txn_db_impl = static_cast_with_check<OptimisticTransactionDBImpl,
+                                            OptimisticTransactionDB>(txn_db_);
   assert(txn_db_impl);
   DBImpl* db_impl = static_cast_with_check<DBImpl, DB>(db_->GetRootDB());
   assert(db_impl);
