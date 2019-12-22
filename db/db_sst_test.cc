@@ -8,10 +8,10 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
 #include "db/db_test_util.h"
+#include "file/sst_file_manager_impl.h"
 #include "port/port.h"
 #include "port/stack_trace.h"
 #include "rocksdb/sst_file_manager.h"
-#include "util/sst_file_manager_impl.h"
 
 namespace rocksdb {
 
@@ -430,6 +430,7 @@ TEST_F(DBSSTTest, RateLimitedWALDelete) {
   env_->time_elapse_only_sleep_ = true;
   Options options = CurrentOptions();
   options.disable_auto_compactions = true;
+  options.compression = kNoCompression;
   options.env = env_;
 
   int64_t rate_bytes_per_sec = 1024 * 10;  // 10 Kbs / Sec
@@ -439,7 +440,7 @@ TEST_F(DBSSTTest, RateLimitedWALDelete) {
   ASSERT_OK(s);
   options.sst_file_manager->SetDeleteRateBytesPerSecond(rate_bytes_per_sec);
   auto sfm = static_cast<SstFileManagerImpl*>(options.sst_file_manager.get());
-  sfm->delete_scheduler()->SetMaxTrashDBRatio(2.1);
+  sfm->delete_scheduler()->SetMaxTrashDBRatio(3.1);
 
   ASSERT_OK(TryReopen(options));
   rocksdb::SyncPoint::GetInstance()->EnableProcessing();
@@ -468,6 +469,111 @@ TEST_F(DBSSTTest, RateLimitedWALDelete) {
 
   rocksdb::SyncPoint::GetInstance()->DisableProcessing();
 }
+
+class DBWALTestWithParam
+    : public DBSSTTest,
+      public testing::WithParamInterface<std::tuple<std::string, bool>> {
+ public:
+  DBWALTestWithParam() {
+    wal_dir_ = std::get<0>(GetParam());
+    wal_dir_same_as_dbname_ = std::get<1>(GetParam());
+  }
+
+  std::string wal_dir_;
+  bool wal_dir_same_as_dbname_;
+};
+
+TEST_P(DBWALTestWithParam, WALTrashCleanupOnOpen) {
+  class MyEnv : public EnvWrapper {
+   public:
+    MyEnv(Env* t) : EnvWrapper(t), fake_log_delete(false) {}
+
+    Status DeleteFile(const std::string& fname) {
+      if (fname.find(".log.trash") != std::string::npos && fake_log_delete) {
+        return Status::OK();
+      }
+
+      return target()->DeleteFile(fname);
+    }
+
+    void set_fake_log_delete(bool fake) { fake_log_delete = fake; }
+
+   private:
+    bool fake_log_delete;
+  };
+
+  std::unique_ptr<MyEnv> env(new MyEnv(Env::Default()));
+  Destroy(last_options_);
+
+  env->set_fake_log_delete(true);
+
+  Options options = CurrentOptions();
+  options.disable_auto_compactions = true;
+  options.compression = kNoCompression;
+  options.env = env.get();
+  options.wal_dir = dbname_ + wal_dir_;
+
+  int64_t rate_bytes_per_sec = 1024 * 10;  // 10 Kbs / Sec
+  Status s;
+  options.sst_file_manager.reset(
+      NewSstFileManager(env_, nullptr, "", 0, false, &s, 0));
+  ASSERT_OK(s);
+  options.sst_file_manager->SetDeleteRateBytesPerSecond(rate_bytes_per_sec);
+  auto sfm = static_cast<SstFileManagerImpl*>(options.sst_file_manager.get());
+  sfm->delete_scheduler()->SetMaxTrashDBRatio(3.1);
+
+  ASSERT_OK(TryReopen(options));
+
+  // Create 4 files in L0
+  for (char v = 'a'; v <= 'd'; v++) {
+    ASSERT_OK(Put("Key2", DummyString(1024, v)));
+    ASSERT_OK(Put("Key3", DummyString(1024, v)));
+    ASSERT_OK(Put("Key4", DummyString(1024, v)));
+    ASSERT_OK(Put("Key1", DummyString(1024, v)));
+    ASSERT_OK(Put("Key4", DummyString(1024, v)));
+    ASSERT_OK(Flush());
+  }
+  // We created 4 sst files in L0
+  ASSERT_EQ("4", FilesPerLevel(0));
+
+  Close();
+
+  options.sst_file_manager.reset();
+  std::vector<std::string> filenames;
+  int trash_log_count = 0;
+  if (!wal_dir_same_as_dbname_) {
+    // Forcibly create some trash log files
+    std::unique_ptr<WritableFile> result;
+    env->NewWritableFile(options.wal_dir + "/1000.log.trash", &result,
+                         EnvOptions());
+    result.reset();
+  }
+  env->GetChildren(options.wal_dir, &filenames);
+  for (const std::string& fname : filenames) {
+    if (fname.find(".log.trash") != std::string::npos) {
+      trash_log_count++;
+    }
+  }
+  ASSERT_GE(trash_log_count, 1);
+
+  env->set_fake_log_delete(false);
+  ASSERT_OK(TryReopen(options));
+
+  filenames.clear();
+  trash_log_count = 0;
+  env->GetChildren(options.wal_dir, &filenames);
+  for (const std::string& fname : filenames) {
+    if (fname.find(".log.trash") != std::string::npos) {
+      trash_log_count++;
+    }
+  }
+  ASSERT_EQ(trash_log_count, 0);
+  Close();
+}
+
+INSTANTIATE_TEST_CASE_P(DBWALTestWithParam, DBWALTestWithParam,
+                        ::testing::Values(std::make_tuple("", true),
+                                          std::make_tuple("_wal_dir", false)));
 
 TEST_F(DBSSTTest, OpenDBWithExistingTrash) {
   Options options = CurrentOptions();

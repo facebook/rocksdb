@@ -12,8 +12,8 @@
 #include <functional>
 #include <limits>
 #include <vector>
+#include "memory/arena.h"
 #include "port/port.h"
-#include "util/arena.h"
 #include "util/autovector.h"
 
 namespace rocksdb {

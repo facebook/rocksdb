@@ -13,15 +13,15 @@
 #include <vector>
 
 #include "db/column_family.h"
-#include "db/db_impl.h"
+#include "db/db_impl/db_impl.h"
 #include "rocksdb/comparator.h"
 #include "rocksdb/db.h"
 #include "rocksdb/snapshot.h"
 #include "rocksdb/status.h"
 #include "rocksdb/utilities/transaction_db.h"
+#include "test_util/sync_point.h"
 #include "util/cast_util.h"
 #include "util/string_util.h"
-#include "util/sync_point.h"
 #include "utilities/transactions/pessimistic_transaction_db.h"
 #include "utilities/transactions/transaction_util.h"
 
@@ -231,7 +231,8 @@ Status WriteCommittedTxn::PrepareInternal() {
       (void)two_write_queues_;  // to silence unused private field warning
     }
     virtual Status Callback(SequenceNumber, bool is_mem_disabled,
-                            uint64_t log_number) override {
+                            uint64_t log_number, size_t /*index*/,
+                            size_t /*total*/) override {
 #ifdef NDEBUG
       (void)is_mem_disabled;
 #endif
@@ -472,10 +473,11 @@ Status PessimisticTransaction::LockBatch(WriteBatch* batch,
     void RecordKey(uint32_t column_family_id, const Slice& key) {
       std::string key_str = key.ToString();
 
-      auto iter = (keys_)[column_family_id].find(key_str);
-      if (iter == (keys_)[column_family_id].end()) {
+      auto& cfh_keys = keys_[column_family_id];
+      auto iter = cfh_keys.find(key_str);
+      if (iter == cfh_keys.end()) {
         // key not yet seen, store it.
-        (keys_)[column_family_id].insert({std::move(key_str)});
+        cfh_keys.insert({std::move(key_str)});
       }
     }
 

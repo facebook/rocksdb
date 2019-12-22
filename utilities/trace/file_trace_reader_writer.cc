@@ -5,9 +5,11 @@
 
 #include "utilities/trace/file_trace_reader_writer.h"
 
+#include "env/composite_env_wrapper.h"
+#include "file/random_access_file_reader.h"
+#include "file/writable_file_writer.h"
+#include "trace_replay/trace_replay.h"
 #include "util/coding.h"
-#include "util/file_reader_writer.h"
-#include "util/trace_replay.h"
 
 namespace rocksdb {
 
@@ -95,8 +97,8 @@ Status NewFileTraceReader(Env* env, const EnvOptions& env_options,
   }
 
   std::unique_ptr<RandomAccessFileReader> file_reader;
-  file_reader.reset(
-      new RandomAccessFileReader(std::move(trace_file), trace_filename));
+  file_reader.reset(new RandomAccessFileReader(
+      NewLegacyRandomAccessFileWrapper(trace_file), trace_filename));
   trace_reader->reset(new FileTraceReader(std::move(file_reader)));
   return s;
 }
@@ -111,8 +113,9 @@ Status NewFileTraceWriter(Env* env, const EnvOptions& env_options,
   }
 
   std::unique_ptr<WritableFileWriter> file_writer;
-  file_writer.reset(new WritableFileWriter(std::move(trace_file),
-                                           trace_filename, env_options));
+  file_writer.reset(new WritableFileWriter(
+      NewLegacyWritableFileWrapper(std::move(trace_file)), trace_filename,
+      env_options));
   trace_writer->reset(new FileTraceWriter(std::move(file_writer)));
   return s;
 }

@@ -24,6 +24,7 @@ make_config.mk
 *.vcxproj.filters
 *.sln
 *.cmake
+.watchmanconfig
 CMakeCache.txt
 CMakeFiles/
 build/
@@ -32,6 +33,8 @@ ldb
 manifest_dump
 sst_dump
 blob_dump
+block_cache_trace_analyzer
+tools/block_cache_analyzer/*.pyc
 column_aware_encoding_exp
 util/build_version.cc
 build_tools/VALGRIND_LOGS/
@@ -47,6 +50,8 @@ rocksdb_undump
 db_test2
 trace_analyzer
 trace_analyzer_test
+block_cache_trace_analyzer
+.DS_Store
 
 java/out
 java/target
@@ -74,3 +79,4 @@ tp2/
 fbcode/
 fbcode
 buckifier/*.pyc
+buckifier/__pycache__

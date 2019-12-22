@@ -70,8 +70,8 @@ void EventHelpers::LogAndNotifyTableFileCreationFinished(
     const std::vector<std::shared_ptr<EventListener>>& listeners,
     const std::string& db_name, const std::string& cf_name,
     const std::string& file_path, int job_id, const FileDescriptor& fd,
-    const TableProperties& table_properties, TableFileCreationReason reason,
-    const Status& s) {
+    uint64_t oldest_blob_file_number, const TableProperties& table_properties,
+    TableFileCreationReason reason, const Status& s) {
   if (s.ok() && event_logger) {
     JSONWriter jwriter;
     AppendCurrentTime(&jwriter);
@@ -106,7 +106,7 @@ void EventHelpers::LogAndNotifyTableFileCreationFinished(
               << "num_entries" << table_properties.num_entries
               << "num_deletions" << table_properties.num_deletions
               << "num_merge_operands" << table_properties.num_merge_operands
-              << "num_range_deletions" << table_properties.num_merge_operands
+              << "num_range_deletions" << table_properties.num_range_deletions
               << "format_version" << table_properties.format_version
               << "fixed_key_len" << table_properties.fixed_key_len
               << "filter_policy" << table_properties.filter_policy_name
@@ -129,6 +129,11 @@ void EventHelpers::LogAndNotifyTableFileCreationFinished(
       }
       jwriter.EndObject();
     }
+
+    if (oldest_blob_file_number != kInvalidBlobFileNumber) {
+      jwriter << "oldest_blob_file_number" << oldest_blob_file_number;
+    }
+
     jwriter.EndObject();
 
     event_logger->Log(jwriter);

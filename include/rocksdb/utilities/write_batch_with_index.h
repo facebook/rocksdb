@@ -100,6 +100,8 @@ class WriteBatchWithIndex : public WriteBatchBase {
       size_t max_bytes = 0);
 
   ~WriteBatchWithIndex() override;
+  WriteBatchWithIndex(WriteBatchWithIndex&&);
+  WriteBatchWithIndex& operator=(WriteBatchWithIndex&&);
 
   using WriteBatchBase::Put;
   Status Put(ColumnFamilyHandle* column_family, const Slice& key,
@@ -163,7 +165,8 @@ class WriteBatchWithIndex : public WriteBatchBase {
   // the write batch update finishes. The state may recover after Next() is
   // called.
   Iterator* NewIteratorWithBase(ColumnFamilyHandle* column_family,
-                                Iterator* base_iterator);
+                                Iterator* base_iterator,
+                                const ReadOptions* opts = nullptr);
   // default column family
   Iterator* NewIteratorWithBase(Iterator* base_iterator);
 

@@ -6,12 +6,14 @@
 #include "rocksdb/sst_file_writer.h"
 
 #include <vector>
+
 #include "db/dbformat.h"
+#include "env/composite_env_wrapper.h"
+#include "file/writable_file_writer.h"
 #include "rocksdb/table.h"
-#include "table/block_based_table_builder.h"
+#include "table/block_based/block_based_table_builder.h"
 #include "table/sst_file_writer_collectors.h"
-#include "util/file_reader_writer.h"
-#include "util/sync_point.h"
+#include "test_util/sync_point.h"
 
 namespace rocksdb {
 
@@ -239,9 +241,10 @@ Status SstFileWriter::Open(const std::string& file_path) {
       &int_tbl_prop_collector_factories, compression_type,
       sample_for_compression, compression_opts, r->skip_filters,
       r->column_family_name, unknown_level);
-  r->file_writer.reset(new WritableFileWriter(
-      std::move(sst_file), file_path, r->env_options, r->ioptions.env,
-      nullptr /* stats */, r->ioptions.listeners));
+  r->file_writer.reset(
+      new WritableFileWriter(NewLegacyWritableFileWrapper(std::move(sst_file)),
+                             file_path, r->env_options, r->ioptions.env,
+                             nullptr /* stats */, r->ioptions.listeners));
 
   // TODO(tec) : If table_factory is using compressed block cache, we will
   // be adding the external sst file blocks into it, which is wasteful.

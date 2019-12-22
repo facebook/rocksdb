@@ -5,11 +5,11 @@
 
 #include <memory>
 
+#include "logging/logging.h"
 #include "rocksdb/env.h"
 #include "rocksdb/merge_operator.h"
 #include "rocksdb/slice.h"
 #include "util/coding.h"
-#include "util/logging.h"
 #include "utilities/merge_operators.h"
 
 using namespace rocksdb;

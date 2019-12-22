@@ -23,14 +23,15 @@ int main() {
 #include <thread>
 
 #include "db/db_test_util.h"
+#include "file/read_write_util.h"
 #include "rocksdb/db.h"
 #include "rocksdb/env.h"
 #include "rocksdb/status.h"
 #include "rocksdb/trace_reader_writer.h"
+#include "test_util/testharness.h"
+#include "test_util/testutil.h"
 #include "tools/trace_analyzer_tool.h"
-#include "util/testharness.h"
-#include "util/testutil.h"
-#include "util/trace_replay.h"
+#include "trace_replay/trace_replay.h"
 
 namespace rocksdb {
 
@@ -129,7 +130,9 @@ class TraceAnalyzerTest : public testing::Test {
     std::vector<std::string> result;
     uint32_t count;
     Status s;
-    for (count = 0; ReadOneLine(&iss, f_ptr.get(), &get_line, &has_data, &s);
+    std::unique_ptr<FSSequentialFile> file =
+        NewLegacySequentialFileWrapper(f_ptr);
+    for (count = 0; ReadOneLine(&iss, file.get(), &get_line, &has_data, &s);
          ++count) {
       ASSERT_OK(s);
       result.push_back(get_line);

@@ -9,7 +9,7 @@
 #include "rocksdb/utilities/env_librados.h"
 #include <rados/librados.hpp>
 #include "env/mock_env.h"
-#include "util/testharness.h"
+#include "test_util/testharness.h"
 
 #include "rocksdb/db.h"
 #include "rocksdb/slice.h"

@@ -20,8 +20,22 @@ class Slice;
 // from multiple threads.
 class Comparator {
  public:
+  Comparator() : timestamp_size_(0) {}
+
+  Comparator(size_t ts_sz) : timestamp_size_(ts_sz) {}
+
+  Comparator(const Comparator& orig) : timestamp_size_(orig.timestamp_size_) {}
+
+  Comparator& operator=(const Comparator& rhs) {
+    if (this != &rhs) {
+      timestamp_size_ = rhs.timestamp_size_;
+    }
+    return *this;
+  }
+
   virtual ~Comparator() {}
 
+  static const char* Type() { return "Comparator"; }
   // Three-way comparison.  Returns value:
   //   < 0 iff "a" < "b",
   //   == 0 iff "a" == "b",
@@ -78,6 +92,20 @@ class Comparator {
   // The major use case is to determine if DataBlockHashIndex is compatible
   // with the customized comparator.
   virtual bool CanKeysWithDifferentByteContentsBeEqual() const { return true; }
+
+  inline size_t timestamp_size() const { return timestamp_size_; }
+
+  virtual int CompareWithoutTimestamp(const Slice& a, const Slice& b) const {
+    return Compare(a, b);
+  }
+
+  virtual int CompareTimestamp(const Slice& /*ts1*/,
+                               const Slice& /*ts2*/) const {
+    return 0;
+  }
+
+ private:
+  size_t timestamp_size_;
 };
 
 // Return a builtin comparator that uses lexicographic byte-wise

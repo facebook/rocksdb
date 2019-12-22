@@ -5,15 +5,15 @@
 
 #ifndef ROCKSDB_LITE
 
-#include "db/db_impl.h"
+#include "db/db_impl/db_impl.h"
 #include "rocksdb/db.h"
 #include "rocksdb/env.h"
-#include "table/cuckoo_table_factory.h"
-#include "table/cuckoo_table_reader.h"
+#include "table/cuckoo/cuckoo_table_factory.h"
+#include "table/cuckoo/cuckoo_table_reader.h"
 #include "table/meta_blocks.h"
+#include "test_util/testharness.h"
+#include "test_util/testutil.h"
 #include "util/string_util.h"
-#include "util/testharness.h"
-#include "util/testutil.h"
 
 namespace rocksdb {
 
@@ -284,6 +284,9 @@ TEST_F(CuckooTableDBTest, SameKeyInsertedInTwoDifferentFilesAndCompacted) {
 
 TEST_F(CuckooTableDBTest, AdaptiveTable) {
   Options options = CurrentOptions();
+
+  // Ensure options compatible with PlainTable
+  options.prefix_extractor.reset(NewCappedPrefixTransform(8));
 
   // Write some keys using cuckoo table.
   options.table_factory.reset(NewCuckooTableFactory());

@@ -5,15 +5,15 @@
 
 #ifndef ROCKSDB_LITE
 
-#include "db/db_impl.h"
+#include "db/db_impl/db_impl.h"
 #include "rocksdb/cache.h"
 #include "rocksdb/table.h"
 #include "rocksdb/utilities/memory_util.h"
 #include "rocksdb/utilities/stackable_db.h"
-#include "table/block_based_table_factory.h"
+#include "table/block_based/block_based_table_factory.h"
+#include "test_util/testharness.h"
+#include "test_util/testutil.h"
 #include "util/string_util.h"
-#include "util/testharness.h"
-#include "util/testutil.h"
 
 namespace rocksdb {
 
@@ -57,6 +57,8 @@ class MemoryTest : public testing::Test {
     cache_set->clear();
 
     for (auto* db : dbs) {
+      assert(db);
+
       // Cache from DBImpl
       StackableDB* sdb = dynamic_cast<StackableDB*>(db);
       DBImpl* db_impl = dynamic_cast<DBImpl*>(sdb ? sdb->GetBaseDB() : db);

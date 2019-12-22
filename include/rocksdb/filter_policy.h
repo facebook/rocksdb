@@ -25,9 +25,12 @@
 #include <string>
 #include <vector>
 
+#include "rocksdb/advanced_options.h"
+
 namespace rocksdb {
 
 class Slice;
+struct BlockBasedTableOptions;
 
 // A class that takes a bunch of keys, then generates filter
 class FilterBitsBuilder {
@@ -44,12 +47,13 @@ class FilterBitsBuilder {
   // The ownership of actual data is set to buf
   virtual Slice Finish(std::unique_ptr<const char[]>* buf) = 0;
 
-  // Calculate num of entries fit into a space.
+  // Calculate num of keys that can be added and generate a filter
+  // <= the specified number of bytes.
 #if defined(_MSC_VER)
 #pragma warning(push)
 #pragma warning(disable : 4702)  // unreachable code
 #endif
-  virtual int CalculateNumEntry(const uint32_t /*space*/) {
+  virtual int CalculateNumEntry(const uint32_t /*bytes*/) {
 #ifndef ROCKSDB_LITE
     throw std::runtime_error("CalculateNumEntry not Implemented");
 #else
@@ -77,6 +81,26 @@ class FilterBitsReader {
       may_match[i] = MayMatch(*keys[i]);
     }
   }
+};
+
+// Contextual information passed to BloomFilterPolicy at filter building time.
+// Used in overriding FilterPolicy::GetBuilderWithContext().
+struct FilterBuildingContext {
+  // This constructor is for internal use only and subject to change.
+  FilterBuildingContext(const BlockBasedTableOptions& table_options);
+
+  // Options for the table being built
+  const BlockBasedTableOptions& table_options;
+
+  // Name of the column family for the table (or empty string if unknown)
+  std::string column_family_name;
+
+  // The compactions style in effect for the table
+  CompactionStyle compaction_style = kCompactionStyleLevel;
+
+  // The table level at time of constructing the SST file, or -1 if unknown.
+  // (The table file could later be used at a different level.)
+  int level_at_creation = -1;
 };
 
 // We add a new format of filter block called full filter block
@@ -119,13 +143,26 @@ class FilterPolicy {
   // list, but it should aim to return false with a high probability.
   virtual bool KeyMayMatch(const Slice& key, const Slice& filter) const = 0;
 
-  // Get the FilterBitsBuilder, which is ONLY used for full filter block
-  // It contains interface to take individual key, then generate filter
+  // Return a new FilterBitsBuilder for full or partitioned filter blocks, or
+  // nullptr if using block-based filter.
+  // NOTE: This function is only called by GetBuilderWithContext() below for
+  // custom FilterPolicy implementations. Thus, it is not necessary to
+  // override this function if overriding GetBuilderWithContext().
   virtual FilterBitsBuilder* GetFilterBitsBuilder() const { return nullptr; }
 
-  // Get the FilterBitsReader, which is ONLY used for full filter block
-  // It contains interface to tell if key can be in filter
-  // The input slice should NOT be deleted by FilterPolicy
+  // A newer variant of GetFilterBitsBuilder that allows a FilterPolicy
+  // to customize the builder for contextual constraints and hints.
+  // (Name changed to avoid triggering -Werror=overloaded-virtual.)
+  // If overriding GetFilterBitsBuilder() suffices, it is not necessary to
+  // override this function.
+  virtual FilterBitsBuilder* GetBuilderWithContext(
+      const FilterBuildingContext&) const {
+    return GetFilterBitsBuilder();
+  }
+
+  // Return a new FilterBitsReader for full or partitioned filter blocks, or
+  // nullptr if using block-based filter.
+  // As here, the input slice should NOT be deleted by FilterPolicy.
   virtual FilterBitsReader* GetFilterBitsReader(
       const Slice& /*contents*/) const {
     return nullptr;
@@ -135,10 +172,14 @@ class FilterPolicy {
 // Return a new filter policy that uses a bloom filter with approximately
 // the specified number of bits per key.
 //
-// bits_per_key: bits per key in bloom filter. A good value for bits_per_key
-// is 10, which yields a filter with ~ 1% false positive rate.
-// use_block_based_builder: use block based filter rather than full filter.
-// If you want to builder full filter, it needs to be set to false.
+// bits_per_key: average bits allocated per key in bloom filter. A good
+// choice is 9.9, which yields a filter with ~ 1% false positive rate.
+// When format_version < 5, the value will be rounded to the nearest
+// integer. Recommend using no more than three decimal digits after the
+// decimal point, as in 6.667.
+//
+// use_block_based_builder: use deprecated block based filter (true) rather
+// than full or partitioned filter (false).
 //
 // Callers must delete the result after any database that is using the
 // result has been closed.
@@ -151,5 +192,5 @@ class FilterPolicy {
 // FilterPolicy (like NewBloomFilterPolicy) that does not ignore
 // trailing spaces in keys.
 extern const FilterPolicy* NewBloomFilterPolicy(
-    int bits_per_key, bool use_block_based_builder = false);
+    double bits_per_key, bool use_block_based_builder = false);
 }  // namespace rocksdb

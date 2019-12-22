@@ -7,16 +7,12 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
-#ifndef __STDC_FORMAT_MACROS
-#define __STDC_FORMAT_MACROS
-#endif
-
 #include "monitoring/histogram.h"
 
-#include <inttypes.h>
-#include <cassert>
 #include <math.h>
 #include <stdio.h>
+#include <cassert>
+#include <cinttypes>
 
 #include "port/port.h"
 #include "util/cast_util.h"

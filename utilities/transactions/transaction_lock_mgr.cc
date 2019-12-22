@@ -5,13 +5,9 @@
 
 #ifndef ROCKSDB_LITE
 
-#ifndef __STDC_FORMAT_MACROS
-#define __STDC_FORMAT_MACROS
-#endif
-
 #include "utilities/transactions/transaction_lock_mgr.h"
 
-#include <inttypes.h>
+#include <cinttypes>
 
 #include <algorithm>
 #include <condition_variable>
@@ -23,9 +19,9 @@
 #include "monitoring/perf_context_imp.h"
 #include "rocksdb/slice.h"
 #include "rocksdb/utilities/transaction_db_mutex.h"
+#include "test_util/sync_point.h"
 #include "util/cast_util.h"
 #include "util/hash.h"
-#include "util/sync_point.h"
 #include "util/thread_local.h"
 #include "utilities/transactions/pessimistic_transaction_db.h"
 
@@ -183,8 +179,7 @@ TransactionLockMgr::~TransactionLockMgr() {}
 
 size_t LockMap::GetStripe(const std::string& key) const {
   assert(num_stripes_ > 0);
-  size_t stripe = static_cast<size_t>(GetSliceNPHash64(key)) % num_stripes_;
-  return stripe;
+  return fastrange64(GetSliceNPHash64(key), num_stripes_);
 }
 
 void TransactionLockMgr::AddColumnFamily(uint32_t column_family_id) {

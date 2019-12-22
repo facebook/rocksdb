@@ -5,26 +5,22 @@
 //
 #include "db/memtable_list.h"
 
-#ifndef __STDC_FORMAT_MACROS
-#define __STDC_FORMAT_MACROS
-#endif
-
-#include <inttypes.h>
+#include <cinttypes>
 #include <limits>
 #include <queue>
 #include <string>
-#include "db/db_impl.h"
+#include "db/db_impl/db_impl.h"
 #include "db/memtable.h"
 #include "db/range_tombstone_fragmenter.h"
 #include "db/version_set.h"
+#include "logging/log_buffer.h"
 #include "monitoring/thread_status_util.h"
 #include "rocksdb/db.h"
 #include "rocksdb/env.h"
 #include "rocksdb/iterator.h"
 #include "table/merging_iterator.h"
+#include "test_util/sync_point.h"
 #include "util/coding.h"
-#include "util/log_buffer.h"
-#include "util/sync_point.h"
 
 namespace rocksdb {
 
@@ -50,6 +46,8 @@ MemTableListVersion::MemTableListVersion(
     size_t* parent_memtable_list_memory_usage, MemTableListVersion* old)
     : max_write_buffer_number_to_maintain_(
           old->max_write_buffer_number_to_maintain_),
+      max_write_buffer_size_to_maintain_(
+          old->max_write_buffer_size_to_maintain_),
       parent_memtable_list_memory_usage_(parent_memtable_list_memory_usage) {
   if (old != nullptr) {
     memlist_ = old->memlist_;
@@ -66,8 +64,10 @@ MemTableListVersion::MemTableListVersion(
 
 MemTableListVersion::MemTableListVersion(
     size_t* parent_memtable_list_memory_usage,
-    int max_write_buffer_number_to_maintain)
+    int max_write_buffer_number_to_maintain,
+    int64_t max_write_buffer_size_to_maintain)
     : max_write_buffer_number_to_maintain_(max_write_buffer_number_to_maintain),
+      max_write_buffer_size_to_maintain_(max_write_buffer_size_to_maintain),
       parent_memtable_list_memory_usage_(parent_memtable_list_memory_usage) {}
 
 void MemTableListVersion::Ref() { ++refs_; }
@@ -111,6 +111,31 @@ bool MemTableListVersion::Get(const LookupKey& key, std::string* value,
   return GetFromList(&memlist_, key, value, s, merge_context,
                      max_covering_tombstone_seq, seq, read_opts, callback,
                      is_blob_index);
+}
+
+void MemTableListVersion::MultiGet(const ReadOptions& read_options,
+                                   MultiGetRange* range, ReadCallback* callback,
+                                   bool* is_blob) {
+  for (auto memtable : memlist_) {
+    memtable->MultiGet(read_options, range, callback, is_blob);
+    if (range->empty()) {
+      return;
+    }
+  }
+}
+
+bool MemTableListVersion::GetMergeOperands(
+    const LookupKey& key, Status* s, MergeContext* merge_context,
+    SequenceNumber* max_covering_tombstone_seq, const ReadOptions& read_opts) {
+  for (MemTable* memtable : memlist_) {
+    bool done = memtable->Get(key, nullptr, s, merge_context,
+                              max_covering_tombstone_seq, read_opts, nullptr,
+                              nullptr, false);
+    if (done) {
+      return true;
+    }
+  }
+  return false;
 }
 
 bool MemTableListVersion::GetFromHistory(
@@ -161,11 +186,14 @@ Status MemTableListVersion::AddRangeTombstoneIterators(
     const ReadOptions& read_opts, Arena* /*arena*/,
     RangeDelAggregator* range_del_agg) {
   assert(range_del_agg != nullptr);
+  // Except for snapshot read, using kMaxSequenceNumber is OK because these
+  // are immutable memtables.
+  SequenceNumber read_seq = read_opts.snapshot != nullptr
+                                ? read_opts.snapshot->GetSequenceNumber()
+                                : kMaxSequenceNumber;
   for (auto& m : memlist_) {
-    // Using kMaxSequenceNumber is OK because these are immutable memtables.
     std::unique_ptr<FragmentedRangeTombstoneIterator> range_del_iter(
-        m->NewRangeTombstoneIterator(read_opts,
-                                     kMaxSequenceNumber /* read_seq */));
+        m->NewRangeTombstoneIterator(read_opts, read_seq));
     range_del_agg->AddTombstones(std::move(range_del_iter));
   }
   return Status::OK();
@@ -230,7 +258,7 @@ void MemTableListVersion::Add(MemTable* m, autovector<MemTable*>* to_delete) {
   assert(refs_ == 1);  // only when refs_ == 1 is MemTableListVersion mutable
   AddMemTable(m);
 
-  TrimHistory(to_delete);
+  TrimHistory(to_delete, m->ApproximateMemoryUsage());
 }
 
 // Removes m from list of memtables not flushed.  Caller should NOT Unref m.
@@ -240,19 +268,51 @@ void MemTableListVersion::Remove(MemTable* m,
   memlist_.remove(m);
 
   m->MarkFlushed();
-  if (max_write_buffer_number_to_maintain_ > 0) {
+  if (max_write_buffer_size_to_maintain_ > 0 ||
+      max_write_buffer_number_to_maintain_ > 0) {
     memlist_history_.push_front(m);
-    TrimHistory(to_delete);
+    // Unable to get size of mutable memtable at this point, pass 0 to
+    // TrimHistory as a best effort.
+    TrimHistory(to_delete, 0);
   } else {
     UnrefMemTable(to_delete, m);
   }
 }
 
+// return the total memory usage assuming the oldest flushed memtable is dropped
+size_t MemTableListVersion::ApproximateMemoryUsageExcludingLast() const {
+  size_t total_memtable_size = 0;
+  for (auto& memtable : memlist_) {
+    total_memtable_size += memtable->ApproximateMemoryUsage();
+  }
+  for (auto& memtable : memlist_history_) {
+    total_memtable_size += memtable->ApproximateMemoryUsage();
+  }
+  if (!memlist_history_.empty()) {
+    total_memtable_size -= memlist_history_.back()->ApproximateMemoryUsage();
+  }
+  return total_memtable_size;
+}
+
+bool MemTableListVersion::MemtableLimitExceeded(size_t usage) {
+  if (max_write_buffer_size_to_maintain_ > 0) {
+    // calculate the total memory usage after dropping the oldest flushed
+    // memtable, compare with max_write_buffer_size_to_maintain_ to decide
+    // whether to trim history
+    return ApproximateMemoryUsageExcludingLast() + usage >=
+           static_cast<size_t>(max_write_buffer_size_to_maintain_);
+  } else if (max_write_buffer_number_to_maintain_ > 0) {
+    return memlist_.size() + memlist_history_.size() >
+           static_cast<size_t>(max_write_buffer_number_to_maintain_);
+  } else {
+    return false;
+  }
+}
+
 // Make sure we don't use up too much space in history
-void MemTableListVersion::TrimHistory(autovector<MemTable*>* to_delete) {
-  while (memlist_.size() + memlist_history_.size() >
-             static_cast<size_t>(max_write_buffer_number_to_maintain_) &&
-         !memlist_history_.empty()) {
+void MemTableListVersion::TrimHistory(autovector<MemTable*>* to_delete,
+                                      size_t usage) {
+  while (MemtableLimitExceeded(usage) && !memlist_history_.empty()) {
     MemTable* x = memlist_history_.back();
     memlist_history_.pop_back();
 
@@ -328,7 +388,8 @@ Status MemTableList::TryInstallMemtableFlushResults(
     const autovector<MemTable*>& mems, LogsWithPrepTracker* prep_tracker,
     VersionSet* vset, InstrumentedMutex* mu, uint64_t file_number,
     autovector<MemTable*>* to_delete, Directory* db_directory,
-    LogBuffer* log_buffer) {
+    LogBuffer* log_buffer,
+    std::list<std::unique_ptr<FlushJobInfo>>* committed_flush_jobs_info) {
   AutoThreadOperationStageUpdater stage_updater(
       ThreadStatus::STAGE_MEMTABLE_INSTALL_FLUSH_RESULTS);
   mu->AssertHeld();
@@ -386,6 +447,14 @@ Status MemTableList::TryInstallMemtableFlushResults(
                          cfd->GetName().c_str(), m->file_number_);
         edit_list.push_back(&m->edit_);
         memtables_to_flush.push_back(m);
+#ifndef ROCKSDB_LITE
+        std::unique_ptr<FlushJobInfo> info = m->ReleaseFlushJobInfo();
+        if (info != nullptr) {
+          committed_flush_jobs_info->push_back(std::move(info));
+        }
+#else
+        (void)committed_flush_jobs_info;
+#endif  // !ROCKSDB_LITE
       }
       batch_count++;
     }
@@ -434,6 +503,8 @@ Status MemTableList::TryInstallMemtableFlushResults(
                            cfd->GetName().c_str(), m->file_number_, mem_id);
           assert(m->file_number_ > 0);
           current_->Remove(m, to_delete);
+          UpdateCachedValuesFromMemTableListVersion();
+          ResetTrimHistoryNeeded();
           ++mem_id;
         }
       } else {
@@ -473,6 +544,15 @@ void MemTableList::Add(MemTable* m, autovector<MemTable*>* to_delete) {
   if (num_flush_not_started_ == 1) {
     imm_flush_needed.store(true, std::memory_order_release);
   }
+  UpdateCachedValuesFromMemTableListVersion();
+  ResetTrimHistoryNeeded();
+}
+
+void MemTableList::TrimHistory(autovector<MemTable*>* to_delete, size_t usage) {
+  InstallNewVersion();
+  current_->TrimHistory(to_delete, usage);
+  UpdateCachedValuesFromMemTableListVersion();
+  ResetTrimHistoryNeeded();
 }
 
 // Returns an estimate of the number of bytes of data in use.
@@ -485,6 +565,27 @@ size_t MemTableList::ApproximateUnflushedMemTablesMemoryUsage() {
 }
 
 size_t MemTableList::ApproximateMemoryUsage() { return current_memory_usage_; }
+
+size_t MemTableList::ApproximateMemoryUsageExcludingLast() const {
+  const size_t usage =
+      current_memory_usage_excluding_last_.load(std::memory_order_relaxed);
+  return usage;
+}
+
+bool MemTableList::HasHistory() const {
+  const bool has_history = current_has_history_.load(std::memory_order_relaxed);
+  return has_history;
+}
+
+void MemTableList::UpdateCachedValuesFromMemTableListVersion() {
+  const size_t total_memtable_size =
+      current_->ApproximateMemoryUsageExcludingLast();
+  current_memory_usage_excluding_last_.store(total_memtable_size,
+                                             std::memory_order_relaxed);
+
+  const bool has_history = current_->HasHistory();
+  current_has_history_.store(has_history, std::memory_order_relaxed);
+}
 
 uint64_t MemTableList::ApproximateOldestKeyTime() const {
   if (!current_->memlist_.empty()) {
@@ -598,7 +699,7 @@ Status InstallMemtableAtomicFlushResults(
     imm->InstallNewVersion();
   }
 
-  if (s.ok() || s.IsShutdownInProgress()) {
+  if (s.ok() || s.IsColumnFamilyDropped()) {
     for (size_t i = 0; i != cfds.size(); ++i) {
       if (cfds[i]->IsDropped()) {
         continue;
@@ -613,6 +714,8 @@ Status InstallMemtableAtomicFlushResults(
                          cfds[i]->GetName().c_str(), m->GetFileNumber(),
                          mem_id);
         imm->current_->Remove(m, to_delete);
+        imm->UpdateCachedValuesFromMemTableListVersion();
+        imm->ResetTrimHistoryNeeded();
       }
     }
   } else {
@@ -643,17 +746,26 @@ void MemTableList::RemoveOldMemTables(uint64_t log_number,
   assert(to_delete != nullptr);
   InstallNewVersion();
   auto& memlist = current_->memlist_;
+  autovector<MemTable*> old_memtables;
   for (auto it = memlist.rbegin(); it != memlist.rend(); ++it) {
     MemTable* mem = *it;
     if (mem->GetNextLogNumber() > log_number) {
       break;
     }
+    old_memtables.push_back(mem);
+  }
+
+  for (auto it = old_memtables.begin(); it != old_memtables.end(); ++it) {
+    MemTable* mem = *it;
     current_->Remove(mem, to_delete);
     --num_flush_not_started_;
     if (0 == num_flush_not_started_) {
       imm_flush_needed.store(false, std::memory_order_release);
     }
   }
+
+  UpdateCachedValuesFromMemTableListVersion();
+  ResetTrimHistoryNeeded();
 }
 
 }  // namespace rocksdb

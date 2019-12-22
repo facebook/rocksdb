@@ -66,7 +66,7 @@ public class ColumnFamilyOptions extends RocksObject
   /**
    * <p>Constructor to be used by
    * {@link #getColumnFamilyOptionsFromProps(java.util.Properties)},
-   * {@link ColumnFamilyDescriptor#columnFamilyOptions()}
+   * {@link ColumnFamilyDescriptor#getOptions()}
    * and also called via JNI.</p>
    *
    * @param handle native handle to ColumnFamilyOptions instance.

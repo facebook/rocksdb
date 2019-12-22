@@ -58,7 +58,9 @@ class Status {
     kBusy = 11,
     kExpired = 12,
     kTryAgain = 13,
-    kCompactionTooLarge = 14
+    kCompactionTooLarge = 14,
+    kColumnFamilyDropped = 15,
+    kMaxCode
   };
 
   Code code() const { return code_; }
@@ -74,6 +76,8 @@ class Status {
     kMemoryLimit = 7,
     kSpaceLimit = 8,
     kPathNotFound = 9,
+    KMergeOperandsInsufficientCapacity = 10,
+    kManualCompactionPaused = 11,
     kMaxSubCode
   };
 
@@ -184,6 +188,15 @@ class Status {
     return Status(kCompactionTooLarge, msg, msg2);
   }
 
+  static Status ColumnFamilyDropped(SubCode msg = kNone) {
+    return Status(kColumnFamilyDropped, msg);
+  }
+
+  static Status ColumnFamilyDropped(const Slice& msg,
+                                    const Slice& msg2 = Slice()) {
+    return Status(kColumnFamilyDropped, msg, msg2);
+  }
+
   static Status NoSpace() { return Status(kIOError, kNoSpace); }
   static Status NoSpace(const Slice& msg, const Slice& msg2 = Slice()) {
     return Status(kIOError, kNoSpace, msg, msg2);
@@ -256,6 +269,9 @@ class Status {
   // Returns true iff the status indicates the proposed compaction is too large
   bool IsCompactionTooLarge() const { return code() == kCompactionTooLarge; }
 
+  // Returns true iff the status indicates Column Family Dropped
+  bool IsColumnFamilyDropped() const { return code() == kColumnFamilyDropped; }
+
   // Returns true iff the status indicates a NoSpace error
   // This is caused by an I/O error returning the specific "out of space"
   // error condition. Stricto sensu, an NoSpace error is an I/O error
@@ -280,11 +296,17 @@ class Status {
     return (code() == kIOError) && (subcode() == kPathNotFound);
   }
 
+  // Returns true iff the status indicates manual compaction paused. This
+  // is caused by a call to PauseManualCompaction
+  bool IsManualCompactionPaused() const {
+    return (code() == kIncomplete) && (subcode() == kManualCompactionPaused);
+  }
+
   // Return a string representation of this status suitable for printing.
   // Returns the string "OK" for success.
   std::string ToString() const;
 
- private:
+ protected:
   // A nullptr state_ (which is always the case for OK) means the message
   // is empty.
   // of the following form:

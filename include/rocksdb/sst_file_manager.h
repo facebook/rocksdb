@@ -10,6 +10,7 @@
 #include <unordered_map>
 #include <vector>
 
+#include "rocksdb/file_system.h"
 #include "rocksdb/status.h"
 
 namespace rocksdb {
@@ -87,6 +88,7 @@ class SstFileManager {
 // there deletion rate.
 //
 // @param env: Pointer to Env object, please see "rocksdb/env.h".
+// @param fs: Pointer to FileSystem object (rocksdb/file_system.h"
 // @param info_log: If not nullptr, info_log will be used to log errors.
 //
 // == Deletion rate limiting specific arguments ==
@@ -110,6 +112,16 @@ class SstFileManager {
 //    `rate_bytes_per_sec` will be appreciated. NOTE that with this option,
 //    files already renamed as a trash may be partial, so users should not
 //    directly recover them without checking.
+extern SstFileManager* NewSstFileManager(
+    Env* env, std::shared_ptr<FileSystem> fs,
+    std::shared_ptr<Logger> info_log = nullptr,
+    const std::string& trash_dir = "", int64_t rate_bytes_per_sec = 0,
+    bool delete_existing_trash = true, Status* status = nullptr,
+    double max_trash_db_ratio = 0.25,
+    uint64_t bytes_max_delete_chunk = 64 * 1024 * 1024);
+
+// Same as above, but takes a pointer to a legacy Env object, instead of
+// Env and FileSystem objects
 extern SstFileManager* NewSstFileManager(
     Env* env, std::shared_ptr<Logger> info_log = nullptr,
     std::string trash_dir = "", int64_t rate_bytes_per_sec = 0,

@@ -7,23 +7,41 @@
 
 #include "rocksdb/utilities/debug.h"
 
-#include "db/db_impl.h"
+#include "db/db_impl/db_impl.h"
 
 namespace rocksdb {
 
 Status GetAllKeyVersions(DB* db, Slice begin_key, Slice end_key,
                          size_t max_num_ikeys,
                          std::vector<KeyVersion>* key_versions) {
-  assert(key_versions != nullptr);
+  if (nullptr == db) {
+    return Status::InvalidArgument("db cannot be null.");
+  }
+  return GetAllKeyVersions(db, db->DefaultColumnFamily(), begin_key, end_key,
+                           max_num_ikeys, key_versions);
+}
+
+Status GetAllKeyVersions(DB* db, ColumnFamilyHandle* cfh, Slice begin_key,
+                         Slice end_key, size_t max_num_ikeys,
+                         std::vector<KeyVersion>* key_versions) {
+  if (nullptr == db) {
+    return Status::InvalidArgument("db cannot be null.");
+  }
+  if (nullptr == cfh) {
+    return Status::InvalidArgument("Column family handle cannot be null.");
+  }
+  if (nullptr == key_versions) {
+    return Status::InvalidArgument("key_versions cannot be null.");
+  }
   key_versions->clear();
 
   DBImpl* idb = static_cast<DBImpl*>(db->GetRootDB());
-  auto icmp = InternalKeyComparator(idb->GetOptions().comparator);
+  auto icmp = InternalKeyComparator(idb->GetOptions(cfh).comparator);
   ReadRangeDelAggregator range_del_agg(&icmp,
                                        kMaxSequenceNumber /* upper_bound */);
   Arena arena;
-  ScopedArenaIterator iter(
-      idb->NewInternalIterator(&arena, &range_del_agg, kMaxSequenceNumber));
+  ScopedArenaIterator iter(idb->NewInternalIterator(&arena, &range_del_agg,
+                                                    kMaxSequenceNumber, cfh));
 
   if (!begin_key.empty()) {
     InternalKey ikey;

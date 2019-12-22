@@ -7,7 +7,7 @@
 
 #include "rocksdb/env.h"
 #include "rocksdb/perf_context.h"
-#include "util/testharness.h"
+#include "test_util/testharness.h"
 
 namespace rocksdb {
 

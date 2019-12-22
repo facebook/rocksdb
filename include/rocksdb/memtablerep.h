@@ -120,6 +120,28 @@ class MemTableRep {
     return true;
   }
 
+  // Same as ::InsertWithHint, but allow concurrnet write
+  //
+  // If hint points to nullptr, a new hint will be allocated on heap, otherwise
+  // the hint will be updated to reflect the last insert location. The hint is
+  // owned by the caller and it is the caller's responsibility to delete the
+  // hint later.
+  //
+  // Currently only skip-list based memtable implement the interface. Other
+  // implementations will fallback to InsertConcurrently() by default.
+  virtual void InsertWithHintConcurrently(KeyHandle handle, void** /*hint*/) {
+    // Ignore the hint by default.
+    InsertConcurrently(handle);
+  }
+
+  // Same as ::InsertWithHintConcurrently
+  // Returns false if MemTableRepFactory::CanHandleDuplicatedKey() is true and
+  // the <key, seq> already exists.
+  virtual bool InsertKeyWithHintConcurrently(KeyHandle handle, void** hint) {
+    InsertWithHintConcurrently(handle, hint);
+    return true;
+  }
+
   // Like Insert(handle), but may be called concurrent with other calls
   // to InsertConcurrently for other handles.
   //

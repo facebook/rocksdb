@@ -25,8 +25,12 @@ struct IterateResult {
 template <class TValue>
 class InternalIteratorBase : public Cleanable {
  public:
-  InternalIteratorBase() : is_mutable_(true) {}
-  InternalIteratorBase(bool _is_mutable) : is_mutable_(_is_mutable) {}
+  InternalIteratorBase() {}
+
+  // No copying allowed
+  InternalIteratorBase(const InternalIteratorBase&) = delete;
+  InternalIteratorBase& operator=(const InternalIteratorBase&) = delete;
+
   virtual ~InternalIteratorBase() {}
 
   // An iterator is either positioned at a key/value pair, or
@@ -104,8 +108,11 @@ class InternalIteratorBase : public Cleanable {
   // satisfied without doing some IO, then this returns Status::Incomplete().
   virtual Status status() const = 0;
 
-  // True if the iterator is invalidated because it is out of the iterator
-  // upper bound
+  // True if the iterator is invalidated because it reached a key that is above
+  // the iterator upper bound. Used by LevelIterator to decide whether it should
+  // stop or move on to the next file.
+  // Important: if iterator reached the end of the file without encountering any
+  // keys above the upper bound, IsOutOfBound() must return false.
   virtual bool IsOutOfBound() { return false; }
 
   // Keys return from this iterator can be smaller than iterate_lower_bound.
@@ -141,7 +148,6 @@ class InternalIteratorBase : public Cleanable {
   virtual Status GetProperty(std::string /*prop_name*/, std::string* /*prop*/) {
     return Status::NotSupported("");
   }
-  bool is_mutable() const { return is_mutable_; }
 
  protected:
   void SeekForPrevImpl(const Slice& target, const Comparator* cmp) {
@@ -153,12 +159,8 @@ class InternalIteratorBase : public Cleanable {
       Prev();
     }
   }
-  bool is_mutable_;
 
- private:
-  // No copying allowed
-  InternalIteratorBase(const InternalIteratorBase&) = delete;
-  InternalIteratorBase& operator=(const InternalIteratorBase&) = delete;
+  bool is_mutable_;
 };
 
 using InternalIterator = InternalIteratorBase<Slice>;

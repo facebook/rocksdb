@@ -5,16 +5,38 @@
 
 #pragma once
 
+#if defined(__clang__)
+// glibc's `posix_memalign()` declaration specifies `throw()` while clang's
+// declaration does not. There is a hack in clang to make its re-declaration
+// compatible with glibc's if they are declared consecutively. That hack breaks
+// if yet another `posix_memalign()` declaration comes between glibc's and
+// clang's declarations. Include "mm_malloc.h" here ensures glibc's and clang's
+// declarations both come before "jemalloc.h"'s `posix_memalign()` declaration.
+//
+// This problem could also be avoided if "jemalloc.h"'s `posix_memalign()`
+// declaration did not specify `throw()` when built with clang.
+#include <mm_malloc.h>
+#endif
+
 #ifdef ROCKSDB_JEMALLOC
 #ifdef __FreeBSD__
 #include <malloc_np.h>
 #else
+#define JEMALLOC_MANGLE
 #include <jemalloc/jemalloc.h>
 #endif
 
 #ifndef JEMALLOC_CXX_THROW
 #define JEMALLOC_CXX_THROW
 #endif
+
+#if defined(OS_WIN) && defined(_MSC_VER)
+
+// MSVC does not have weak symbol support. As long as ROCKSDB_JEMALLOC is
+// defined, Jemalloc memory allocator is used.
+static inline bool HasJemalloc() { return true; }
+
+#else
 
 // Declare non-standard jemalloc APIs as weak symbols. We can null-check these
 // symbols to detect whether jemalloc is linked with the binary.
@@ -49,5 +71,7 @@ static inline bool HasJemalloc() {
          mallctlnametomib != nullptr && mallctlbymib != nullptr &&
          malloc_stats_print != nullptr && malloc_usable_size != nullptr;
 }
+
+#endif
 
 #endif  // ROCKSDB_JEMALLOC

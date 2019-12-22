@@ -7,10 +7,6 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
-#ifndef __STDC_FORMAT_MACROS
-#define __STDC_FORMAT_MACROS
-#endif
-
 #ifdef GFLAGS
 #ifdef NUMA
 #include <numa.h>
@@ -20,12 +16,12 @@
 #include <unistd.h>
 #endif
 #include <fcntl.h>
-#include <inttypes.h>
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <sys/types.h>
 #include <atomic>
+#include <cinttypes>
 #include <condition_variable>
 #include <cstddef>
 #include <memory>
@@ -33,7 +29,7 @@
 #include <thread>
 #include <unordered_map>
 
-#include "db/db_impl.h"
+#include "db/db_impl/db_impl.h"
 #include "db/malloc_stats.h"
 #include "db/version_set.h"
 #include "hdfs/env_hdfs.h"
@@ -53,6 +49,7 @@
 #include "rocksdb/rate_limiter.h"
 #include "rocksdb/slice.h"
 #include "rocksdb/slice_transform.h"
+#include "rocksdb/stats_history.h"
 #include "rocksdb/utilities/object_registry.h"
 #include "rocksdb/utilities/optimistic_transaction_db.h"
 #include "rocksdb/utilities/options_util.h"
@@ -60,6 +57,8 @@
 #include "rocksdb/utilities/transaction.h"
 #include "rocksdb/utilities/transaction_db.h"
 #include "rocksdb/write_batch.h"
+#include "test_util/testutil.h"
+#include "test_util/transaction_test_util.h"
 #include "util/cast_util.h"
 #include "util/compression.h"
 #include "util/crc32c.h"
@@ -68,12 +67,11 @@
 #include "util/random.h"
 #include "util/stderr_logger.h"
 #include "util/string_util.h"
-#include "util/testutil.h"
-#include "util/transaction_test_util.h"
 #include "util/xxhash.h"
 #include "utilities/blob_db/blob_db.h"
 #include "utilities/merge_operators.h"
 #include "utilities/merge_operators/bytesxor.h"
+#include "utilities/merge_operators/sortlist.h"
 #include "utilities/persistent_cache/block_cache_tier.h"
 
 #ifdef OS_WIN
@@ -105,6 +103,7 @@ DEFINE_string(
     "multireadrandom,"
     "mixgraph,"
     "readseq,"
+    "readtorowcache,"
     "readtocache,"
     "readreverse,"
     "readwhilewriting,"
@@ -123,7 +122,8 @@ DEFINE_string(
     "fillseekseq,"
     "randomtransaction,"
     "randomreplacekeys,"
-    "timeseries",
+    "timeseries,"
+    "getmergeoperands",
 
     "Comma-separated list of operations to run in the specified"
     " order. Available benchmarks:\n"
@@ -193,7 +193,13 @@ DEFINE_string(
     "\tlevelstats  -- Print the number of files and bytes per level\n"
     "\tsstables    -- Print sstable info\n"
     "\theapprofile -- Dump a heap profile (if supported by this port)\n"
-    "\treplay      -- replay the trace file specified with trace_file\n");
+    "\treplay      -- replay the trace file specified with trace_file\n"
+    "\tgetmergeoperands -- Insert lots of merge records which are a list of "
+    "sorted ints for a key and then compare performance of lookup for another "
+    "key "
+    "by doing a Get followed by binary searching in the large sorted list vs "
+    "doing a GetMergeOperands and binary searching in the operands which are"
+    "sorted sub-lists. The MergeOperator used is sortlist.h\n");
 
 DEFINE_int64(num, 1000000, "Number of key/values to place in database");
 
@@ -324,6 +330,20 @@ DEFINE_int32(min_write_buffer_number_to_merge,
 DEFINE_int32(max_write_buffer_number_to_maintain,
              rocksdb::Options().max_write_buffer_number_to_maintain,
              "The total maximum number of write buffers to maintain in memory "
+             "including copies of buffers that have already been flushed. "
+             "Unlike max_write_buffer_number, this parameter does not affect "
+             "flushing. This controls the minimum amount of write history "
+             "that will be available in memory for conflict checking when "
+             "Transactions are used. If this value is too low, some "
+             "transactions may fail at commit time due to not being able to "
+             "determine whether there were any write conflicts. Setting this "
+             "value to 0 will cause write buffers to be freed immediately "
+             "after they are flushed.  If this value is set to -1, "
+             "'max_write_buffer_number' will be used.");
+
+DEFINE_int64(max_write_buffer_size_to_maintain,
+             rocksdb::Options().max_write_buffer_size_to_maintain,
+             "The total maximum size of write buffers to maintain in memory "
              "including copies of buffers that have already been flushed. "
              "Unlike max_write_buffer_number, this parameter does not affect "
              "flushing. This controls the minimum amount of write history "
@@ -730,27 +750,54 @@ DEFINE_bool(use_blob_db, false,
             "Open a BlobDB instance. "
             "Required for large value benchmark.");
 
-DEFINE_bool(blob_db_enable_gc, false, "Enable BlobDB garbage collection.");
+DEFINE_bool(blob_db_enable_gc,
+            rocksdb::blob_db::BlobDBOptions().enable_garbage_collection,
+            "Enable BlobDB garbage collection.");
 
-DEFINE_bool(blob_db_is_fifo, false, "Enable FIFO eviction strategy in BlobDB.");
+DEFINE_double(blob_db_gc_cutoff,
+              rocksdb::blob_db::BlobDBOptions().garbage_collection_cutoff,
+              "Cutoff ratio for BlobDB garbage collection.");
 
-DEFINE_uint64(blob_db_max_db_size, 0,
+DEFINE_bool(blob_db_is_fifo, rocksdb::blob_db::BlobDBOptions().is_fifo,
+            "Enable FIFO eviction strategy in BlobDB.");
+
+DEFINE_uint64(blob_db_max_db_size,
+              rocksdb::blob_db::BlobDBOptions().max_db_size,
               "Max size limit of the directory where blob files are stored.");
 
-DEFINE_uint64(blob_db_max_ttl_range, 86400,
-              "TTL range to generate BlobDB data (in seconds).");
+DEFINE_uint64(
+    blob_db_max_ttl_range, 0,
+    "TTL range to generate BlobDB data (in seconds). 0 means no TTL.");
 
-DEFINE_uint64(blob_db_ttl_range_secs, 3600,
+DEFINE_uint64(blob_db_ttl_range_secs,
+              rocksdb::blob_db::BlobDBOptions().ttl_range_secs,
               "TTL bucket size to use when creating blob files.");
 
-DEFINE_uint64(blob_db_min_blob_size, 0,
+DEFINE_uint64(blob_db_min_blob_size,
+              rocksdb::blob_db::BlobDBOptions().min_blob_size,
               "Smallest blob to store in a file. Blobs smaller than this "
               "will be inlined with the key in the LSM tree.");
 
-DEFINE_uint64(blob_db_bytes_per_sync, 0, "Bytes to sync blob file at.");
+DEFINE_uint64(blob_db_bytes_per_sync,
+              rocksdb::blob_db::BlobDBOptions().bytes_per_sync,
+              "Bytes to sync blob file at.");
 
-DEFINE_uint64(blob_db_file_size, 256 * 1024 * 1024,
+DEFINE_uint64(blob_db_file_size,
+              rocksdb::blob_db::BlobDBOptions().blob_file_size,
               "Target size of each blob file.");
+
+// Secondary DB instance Options
+DEFINE_bool(use_secondary_db, false,
+            "Open a RocksDB secondary instance. A primary instance can be "
+            "running in another db_bench process.");
+
+DEFINE_string(secondary_path, "",
+              "Path to a directory used by the secondary instance to store "
+              "private files, e.g. info log.");
+
+DEFINE_int32(secondary_update_interval, 5,
+             "Secondary instance attempts to catch up with the primary every "
+             "secondary_update_interval seconds.");
 
 #endif  // ROCKSDB_LITE
 
@@ -764,6 +811,18 @@ DEFINE_string(trace_file, "", "Trace workload to a file. ");
 
 DEFINE_int32(trace_replay_fast_forward, 1,
              "Fast forward trace replay, must >= 1. ");
+DEFINE_int32(block_cache_trace_sampling_frequency, 1,
+             "Block cache trace sampling frequency, termed s. It uses spatial "
+             "downsampling and samples accesses to one out of s blocks.");
+DEFINE_int64(
+    block_cache_trace_max_trace_file_size_in_bytes,
+    uint64_t{64} * 1024 * 1024 * 1024,
+    "The maximum block cache trace file size in bytes. Block cache accesses "
+    "will not be logged if the trace file size exceeds this threshold. Default "
+    "is 64 GB.");
+DEFINE_string(block_cache_trace_file, "", "Block cache trace file path.");
+DEFINE_int32(trace_replay_threads, 1,
+             "The number of threads to replay, must >=1.");
 
 static enum rocksdb::CompressionType StringToCompressionType(const char* ctype) {
   assert(ctype);
@@ -843,6 +902,9 @@ DEFINE_string(env_uri, "", "URI for registry Env lookup. Mutually exclusive"
 #endif  // ROCKSDB_LITE
 DEFINE_string(hdfs, "", "Name of hdfs environment. Mutually exclusive with"
               " --env_uri.");
+
+static std::shared_ptr<rocksdb::Env> env_guard;
+
 static rocksdb::Env* FLAGS_env = rocksdb::Env::Default();
 
 DEFINE_int64(stats_interval, 0, "Stats are reported every N operations when "
@@ -956,6 +1018,22 @@ DEFINE_uint64(
     "is the global rate in bytes/second.");
 
 // the parameters of mix_graph
+DEFINE_double(keyrange_dist_a, 0.0,
+              "The parameter 'a' of prefix average access distribution "
+              "f(x)=a*exp(b*x)+c*exp(d*x)");
+DEFINE_double(keyrange_dist_b, 0.0,
+              "The parameter 'b' of prefix average access distribution "
+              "f(x)=a*exp(b*x)+c*exp(d*x)");
+DEFINE_double(keyrange_dist_c, 0.0,
+              "The parameter 'c' of prefix average access distribution"
+              "f(x)=a*exp(b*x)+c*exp(d*x)");
+DEFINE_double(keyrange_dist_d, 0.0,
+              "The parameter 'd' of prefix average access distribution"
+              "f(x)=a*exp(b*x)+c*exp(d*x)");
+DEFINE_int64(keyrange_num, 1,
+             "The number of key ranges that are in the same prefix "
+             "group, each prefix range will have its key acccess "
+             "distribution");
 DEFINE_double(key_dist_a, 0.0,
               "The parameter 'a' of key access distribution model "
               "f(x)=a*x^b");
@@ -1126,6 +1204,8 @@ DEFINE_uint64(stats_dump_period_sec, rocksdb::Options().stats_dump_period_sec,
 DEFINE_uint64(stats_persist_period_sec,
               rocksdb::Options().stats_persist_period_sec,
               "Gap between persisting stats in seconds");
+DEFINE_bool(persist_stats_to_disk, rocksdb::Options().persist_stats_to_disk,
+            "whether to persist stats to disk");
 DEFINE_uint64(stats_history_buffer_size,
               rocksdb::Options().stats_history_buffer_size,
               "Max number of stats snapshots to keep in memory");
@@ -1525,7 +1605,6 @@ class ReporterAgent {
  private:
   std::string Header() const { return "secs_elapsed,interval_qps"; }
   void SleepAndReport() {
-    uint64_t kMicrosInSecond = 1000 * 1000;
     auto time_started = env_->NowMicros();
     while (true) {
       {
@@ -1691,7 +1770,7 @@ class Stats {
         "ElapsedTime", "Stage", "State", "OperationProperties");
 
     int64_t current_time = 0;
-    Env::Default()->GetCurrentTime(&current_time);
+    FLAGS_env->GetCurrentTime(&current_time);
     for (auto ts : thread_list) {
       fprintf(stderr, "%18" PRIu64 " %10s %12s %20s %13s %45s %12s",
           ts.thread_id,
@@ -2072,6 +2151,7 @@ class Benchmark {
   Options open_options_;  // keep options around to properly destroy db later
 #ifndef ROCKSDB_LITE
   TraceOptions trace_options_;
+  TraceOptions block_cache_trace_options_;
 #endif
   int64_t reads_;
   int64_t deletes_;
@@ -2374,16 +2454,17 @@ class Benchmark {
       return nullptr;
     }
     if (FLAGS_use_clock_cache) {
-      auto cache = NewClockCache((size_t)capacity, FLAGS_cache_numshardbits);
+      auto cache = NewClockCache(static_cast<size_t>(capacity),
+                                 FLAGS_cache_numshardbits);
       if (!cache) {
         fprintf(stderr, "Clock cache not supported.");
         exit(1);
       }
       return cache;
     } else {
-      return NewLRUCache((size_t)capacity, FLAGS_cache_numshardbits,
-                         false /*strict_capacity_limit*/,
-                         FLAGS_cache_high_pri_pool_ratio);
+      return NewLRUCache(
+          static_cast<size_t>(capacity), FLAGS_cache_numshardbits,
+          false /*strict_capacity_limit*/, FLAGS_cache_high_pri_pool_ratio);
     }
   }
 
@@ -2434,7 +2515,7 @@ class Benchmark {
                 "at the same time");
         exit(1);
       }
-      FLAGS_env = new ReportFileOpEnv(rocksdb::Env::Default());
+      FLAGS_env = new ReportFileOpEnv(FLAGS_env);
     }
 
     if (FLAGS_prefix_size > FLAGS_key_size) {
@@ -2451,6 +2532,7 @@ class Benchmark {
     }
     if (!FLAGS_use_existing_db) {
       Options options;
+      options.env = FLAGS_env;
       if (!FLAGS_wal_dir.empty()) {
         options.wal_dir = FLAGS_wal_dir;
       }
@@ -2571,36 +2653,38 @@ class Benchmark {
     return base_name + ToString(id);
   }
 
-void VerifyDBFromDB(std::string& truth_db_name) {
-  DBWithColumnFamilies truth_db;
-  auto s = DB::OpenForReadOnly(open_options_, truth_db_name, &truth_db.db);
-  if (!s.ok()) {
-    fprintf(stderr, "open error: %s\n", s.ToString().c_str());
-    exit(1);
-  }
-  ReadOptions ro;
-  ro.total_order_seek = true;
-  std::unique_ptr<Iterator> truth_iter(truth_db.db->NewIterator(ro));
-  std::unique_ptr<Iterator> db_iter(db_.db->NewIterator(ro));
-  // Verify that all the key/values in truth_db are retrivable in db with ::Get
-  fprintf(stderr, "Verifying db >= truth_db with ::Get...\n");
-  for (truth_iter->SeekToFirst(); truth_iter->Valid(); truth_iter->Next()) {
+  void VerifyDBFromDB(std::string& truth_db_name) {
+    DBWithColumnFamilies truth_db;
+    auto s = DB::OpenForReadOnly(open_options_, truth_db_name, &truth_db.db);
+    if (!s.ok()) {
+      fprintf(stderr, "open error: %s\n", s.ToString().c_str());
+      exit(1);
+    }
+    ReadOptions ro;
+    ro.total_order_seek = true;
+    std::unique_ptr<Iterator> truth_iter(truth_db.db->NewIterator(ro));
+    std::unique_ptr<Iterator> db_iter(db_.db->NewIterator(ro));
+    // Verify that all the key/values in truth_db are retrivable in db with
+    // ::Get
+    fprintf(stderr, "Verifying db >= truth_db with ::Get...\n");
+    for (truth_iter->SeekToFirst(); truth_iter->Valid(); truth_iter->Next()) {
       std::string value;
       s = db_.db->Get(ro, truth_iter->key(), &value);
       assert(s.ok());
       // TODO(myabandeh): provide debugging hints
       assert(Slice(value) == truth_iter->value());
+    }
+    // Verify that the db iterator does not give any extra key/value
+    fprintf(stderr, "Verifying db == truth_db...\n");
+    for (db_iter->SeekToFirst(), truth_iter->SeekToFirst(); db_iter->Valid();
+         db_iter->Next(), truth_iter->Next()) {
+      assert(truth_iter->Valid());
+      assert(truth_iter->value() == db_iter->value());
+    }
+    // No more key should be left unchecked in truth_db
+    assert(!truth_iter->Valid());
+    fprintf(stderr, "...Verified\n");
   }
-  // Verify that the db iterator does not give any extra key/value
-  fprintf(stderr, "Verifying db == truth_db...\n");
-  for (db_iter->SeekToFirst(), truth_iter->SeekToFirst(); db_iter->Valid(); db_iter->Next(), truth_iter->Next()) {
-    assert(truth_iter->Valid());
-    assert(truth_iter->value() == db_iter->value());
-  }
-  // No more key should be left unchecked in truth_db
-  assert(!truth_iter->Valid());
-  fprintf(stderr, "...Verified\n");
-}
 
   void Run() {
     if (!SanityCheck()) {
@@ -2723,6 +2807,14 @@ void VerifyDBFromDB(std::string& truth_db_name) {
         method = &Benchmark::WriteRandom;
       } else if (name == "readseq") {
         method = &Benchmark::ReadSequential;
+      } else if (name == "readtorowcache") {
+        if (!FLAGS_use_existing_keys || !FLAGS_row_cache_size) {
+          fprintf(stderr,
+                  "Please set use_existing_keys to true and specify a "
+                  "row cache size in readtorowcache benchmark\n");
+          exit(1);
+        }
+        method = &Benchmark::ReadToRowCache;
       } else if (name == "readtocache") {
         method = &Benchmark::ReadSequential;
         num_threads = 1;
@@ -2842,6 +2934,8 @@ void VerifyDBFromDB(std::string& truth_db_name) {
         PrintStats("rocksdb.levelstats");
       } else if (name == "sstables") {
         PrintStats("rocksdb.sstables");
+      } else if (name == "stats_history") {
+        PrintStatsHistory();
       } else if (name == "replay") {
         if (num_threads > 1) {
           fprintf(stderr, "Multi-threaded replay is not yet supported\n");
@@ -2852,6 +2946,8 @@ void VerifyDBFromDB(std::string& truth_db_name) {
           exit(1);
         }
         method = &Benchmark::Replay;
+      } else if (name == "getmergeoperands") {
+        method = &Benchmark::GetMergeOperands;
       } else if (!name.empty()) {  // No error message for empty name
         fprintf(stderr, "unknown benchmark '%s'\n", name.c_str());
         exit(1);
@@ -2906,6 +3002,47 @@ void VerifyDBFromDB(std::string& truth_db_name) {
           fprintf(stdout, "Tracing the workload to: [%s]\n",
                   FLAGS_trace_file.c_str());
         }
+        // Start block cache tracing.
+        if (!FLAGS_block_cache_trace_file.empty()) {
+          // Sanity checks.
+          if (FLAGS_block_cache_trace_sampling_frequency <= 0) {
+            fprintf(stderr,
+                    "Block cache trace sampling frequency must be higher than "
+                    "0.\n");
+            exit(1);
+          }
+          if (FLAGS_block_cache_trace_max_trace_file_size_in_bytes <= 0) {
+            fprintf(stderr,
+                    "The maximum file size for block cache tracing must be "
+                    "higher than 0.\n");
+            exit(1);
+          }
+          block_cache_trace_options_.max_trace_file_size =
+              FLAGS_block_cache_trace_max_trace_file_size_in_bytes;
+          block_cache_trace_options_.sampling_frequency =
+              FLAGS_block_cache_trace_sampling_frequency;
+          std::unique_ptr<TraceWriter> block_cache_trace_writer;
+          Status s = NewFileTraceWriter(FLAGS_env, EnvOptions(),
+                                        FLAGS_block_cache_trace_file,
+                                        &block_cache_trace_writer);
+          if (!s.ok()) {
+            fprintf(stderr,
+                    "Encountered an error when creating trace writer, %s\n",
+                    s.ToString().c_str());
+            exit(1);
+          }
+          s = db_.db->StartBlockCacheTrace(block_cache_trace_options_,
+                                           std::move(block_cache_trace_writer));
+          if (!s.ok()) {
+            fprintf(
+                stderr,
+                "Encountered an error when starting block cache tracing, %s\n",
+                s.ToString().c_str());
+            exit(1);
+          }
+          fprintf(stdout, "Tracing block cache accesses to: [%s]\n",
+                  FLAGS_block_cache_trace_file.c_str());
+        }
 #endif  // ROCKSDB_LITE
 
         if (num_warmup > 0) {
@@ -2934,11 +3071,25 @@ void VerifyDBFromDB(std::string& truth_db_name) {
       }
     }
 
+    if (secondary_update_thread_) {
+      secondary_update_stopped_.store(1, std::memory_order_relaxed);
+      secondary_update_thread_->join();
+      secondary_update_thread_.reset();
+    }
+
 #ifndef ROCKSDB_LITE
     if (name != "replay" && FLAGS_trace_file != "") {
       Status s = db_.db->EndTrace();
       if (!s.ok()) {
         fprintf(stderr, "Encountered an error ending the trace, %s\n",
+                s.ToString().c_str());
+      }
+    }
+    if (!FLAGS_block_cache_trace_file.empty()) {
+      Status s = db_.db->EndBlockCacheTrace();
+      if (!s.ok()) {
+        fprintf(stderr,
+                "Encountered an error ending the block cache tracing, %s\n",
                 s.ToString().c_str());
       }
     }
@@ -2953,11 +3104,22 @@ void VerifyDBFromDB(std::string& truth_db_name) {
                   ->ToString()
                   .c_str());
     }
+
+#ifndef ROCKSDB_LITE
+    if (FLAGS_use_secondary_db) {
+      fprintf(stdout, "Secondary instance updated  %" PRIu64 " times.\n",
+              secondary_db_updates_);
+    }
+#endif  // ROCKSDB_LITE
   }
 
  private:
   std::shared_ptr<TimestampEmulator> timestamp_emulator_;
-
+  std::unique_ptr<port::Thread> secondary_update_thread_;
+  std::atomic<int> secondary_update_stopped_{0};
+#ifndef ROCKSDB_LITE
+  uint64_t secondary_db_updates_ = 0;
+#endif  // ROCKSDB_LITE
   struct ThreadArg {
     Benchmark* bm;
     SharedState* shared;
@@ -3248,8 +3410,9 @@ void VerifyDBFromDB(std::string& truth_db_name) {
     DBOptions db_opts;
     std::vector<ColumnFamilyDescriptor> cf_descs;
     if (FLAGS_options_file != "") {
-      auto s = LoadOptionsFromFile(FLAGS_options_file, Env::Default(), &db_opts,
+      auto s = LoadOptionsFromFile(FLAGS_options_file, FLAGS_env, &db_opts,
                                    &cf_descs);
+      db_opts.env = FLAGS_env;
       if (s.ok()) {
         *opts = Options(db_opts, cf_descs[0].options);
         return true;
@@ -3270,6 +3433,7 @@ void VerifyDBFromDB(std::string& truth_db_name) {
 
     assert(db_.db == nullptr);
 
+    options.env = FLAGS_env;
     options.max_open_files = FLAGS_open_files;
     if (FLAGS_cost_write_buffer_to_cache || FLAGS_db_write_buffer_size != 0) {
       options.write_buffer_manager.reset(
@@ -3281,6 +3445,8 @@ void VerifyDBFromDB(std::string& truth_db_name) {
       FLAGS_min_write_buffer_number_to_merge;
     options.max_write_buffer_number_to_maintain =
         FLAGS_max_write_buffer_number_to_maintain;
+    options.max_write_buffer_size_to_maintain =
+        FLAGS_max_write_buffer_size_to_maintain;
     options.max_background_jobs = FLAGS_max_background_jobs;
     options.max_background_compactions = FLAGS_max_background_compactions;
     options.max_subcompactions = static_cast<uint32_t>(FLAGS_subcompactions);
@@ -3514,9 +3680,10 @@ void VerifyDBFromDB(std::string& truth_db_name) {
     }
     if (FLAGS_max_bytes_for_level_multiplier_additional_v.size() > 0) {
       if (FLAGS_max_bytes_for_level_multiplier_additional_v.size() !=
-          (unsigned int)FLAGS_num_levels) {
+          static_cast<unsigned int>(FLAGS_num_levels)) {
         fprintf(stderr, "Insufficient number of fanouts specified %d\n",
-                (int)FLAGS_max_bytes_for_level_multiplier_additional_v.size());
+                static_cast<int>(
+                    FLAGS_max_bytes_for_level_multiplier_additional_v.size()));
         exit(1);
       }
       options.max_bytes_for_level_multiplier_additional =
@@ -3618,6 +3785,11 @@ void VerifyDBFromDB(std::string& truth_db_name) {
       fprintf(stderr, "Cannot use readonly flag with transaction_db\n");
       exit(1);
     }
+    if (FLAGS_use_secondary_db &&
+        (FLAGS_transaction_db || FLAGS_optimistic_transaction_db)) {
+      fprintf(stderr, "Cannot use use_secondary_db flag with transaction_db\n");
+      exit(1);
+    }
 #endif  // ROCKSDB_LITE
 
   }
@@ -3634,6 +3806,7 @@ void VerifyDBFromDB(std::string& truth_db_name) {
         static_cast<unsigned int>(FLAGS_stats_dump_period_sec);
     options.stats_persist_period_sec =
         static_cast<unsigned int>(FLAGS_stats_persist_period_sec);
+    options.persist_stats_to_disk = FLAGS_persist_stats_to_disk;
     options.stats_history_buffer_size =
         static_cast<size_t>(FLAGS_stats_history_buffer_size);
 
@@ -3788,6 +3961,11 @@ void VerifyDBFromDB(std::string& truth_db_name) {
       } else if (FLAGS_transaction_db) {
         TransactionDB* ptr;
         TransactionDBOptions txn_db_options;
+        if (options.unordered_write) {
+          options.two_write_queues = true;
+          txn_db_options.skip_concurrency_control = true;
+          txn_db_options.write_policy = WRITE_PREPARED;
+        }
         s = TransactionDB::Open(options, txn_db_options, db_name,
                                 column_families, &db->cfh, &ptr);
         if (s.ok()) {
@@ -3814,6 +3992,11 @@ void VerifyDBFromDB(std::string& truth_db_name) {
     } else if (FLAGS_transaction_db) {
       TransactionDB* ptr = nullptr;
       TransactionDBOptions txn_db_options;
+      if (options.unordered_write) {
+        options.two_write_queues = true;
+        txn_db_options.skip_concurrency_control = true;
+        txn_db_options.write_policy = WRITE_PREPARED;
+      }
       s = CreateLoggerFromOptions(db_name, options, &options.info_log);
       if (s.ok()) {
         s = TransactionDB::Open(options, txn_db_options, db_name, &ptr);
@@ -3824,6 +4007,7 @@ void VerifyDBFromDB(std::string& truth_db_name) {
     } else if (FLAGS_use_blob_db) {
       blob_db::BlobDBOptions blob_db_options;
       blob_db_options.enable_garbage_collection = FLAGS_blob_db_enable_gc;
+      blob_db_options.garbage_collection_cutoff = FLAGS_blob_db_gc_cutoff;
       blob_db_options.is_fifo = FLAGS_blob_db_is_fifo;
       blob_db_options.max_db_size = FLAGS_blob_db_max_db_size;
       blob_db_options.ttl_range_secs = FLAGS_blob_db_ttl_range_secs;
@@ -3834,6 +4018,32 @@ void VerifyDBFromDB(std::string& truth_db_name) {
       s = blob_db::BlobDB::Open(options, blob_db_options, db_name, &ptr);
       if (s.ok()) {
         db->db = ptr;
+      }
+    } else if (FLAGS_use_secondary_db) {
+      if (FLAGS_secondary_path.empty()) {
+        std::string default_secondary_path;
+        FLAGS_env->GetTestDirectory(&default_secondary_path);
+        default_secondary_path += "/dbbench_secondary";
+        FLAGS_secondary_path = default_secondary_path;
+      }
+      s = DB::OpenAsSecondary(options, db_name, FLAGS_secondary_path, &db->db);
+      if (s.ok() && FLAGS_secondary_update_interval > 0) {
+        secondary_update_thread_.reset(new port::Thread(
+            [this](int interval, DBWithColumnFamilies* _db) {
+              while (0 == secondary_update_stopped_.load(
+                              std::memory_order_relaxed)) {
+                Status secondary_update_status =
+                    _db->db->TryCatchUpWithPrimary();
+                if (!secondary_update_status.ok()) {
+                  fprintf(stderr, "Failed to catch up with primary: %s\n",
+                          secondary_update_status.ToString().c_str());
+                  break;
+                }
+                ++secondary_db_updates_;
+                FLAGS_env->SleepForMicroseconds(interval * 1000000);
+              }
+            },
+            FLAGS_secondary_update_interval, db));
       }
 #endif  // ROCKSDB_LITE
     } else {
@@ -4016,10 +4226,14 @@ void VerifyDBFromDB(std::string& truth_db_name) {
         if (use_blob_db_) {
 #ifndef ROCKSDB_LITE
           Slice val = gen.Generate(value_size_);
-          int ttl = rand() % FLAGS_blob_db_max_ttl_range;
           blob_db::BlobDB* blobdb =
               static_cast<blob_db::BlobDB*>(db_with_cfh->db);
-          s = blobdb->PutWithTTL(write_options_, key, val, ttl);
+          if (FLAGS_blob_db_max_ttl_range > 0) {
+            int ttl = rand() % FLAGS_blob_db_max_ttl_range;
+            s = blobdb->PutWithTTL(write_options_, key, val, ttl);
+          } else {
+            s = blobdb->Put(write_options_, key, val);
+          }
 #endif  //  ROCKSDB_LITE
         } else if (FLAGS_num_column_families <= 1) {
           batch.Put(key, gen.Generate(value_size_));
@@ -4458,6 +4672,65 @@ void VerifyDBFromDB(std::string& truth_db_name) {
     }
   }
 
+  void ReadToRowCache(ThreadState* thread) {
+    int64_t read = 0;
+    int64_t found = 0;
+    int64_t bytes = 0;
+    int64_t key_rand = 0;
+    ReadOptions options(FLAGS_verify_checksum, true);
+    std::unique_ptr<const char[]> key_guard;
+    Slice key = AllocateKey(&key_guard);
+    PinnableSlice pinnable_val;
+
+    while (key_rand < FLAGS_num) {
+      DBWithColumnFamilies* db_with_cfh = SelectDBWithCfh(thread);
+      // We use same key_rand as seed for key and column family so that we can
+      // deterministically find the cfh corresponding to a particular key, as it
+      // is done in DoWrite method.
+      GenerateKeyFromInt(key_rand, FLAGS_num, &key);
+      key_rand++;
+      read++;
+      Status s;
+      if (FLAGS_num_column_families > 1) {
+        s = db_with_cfh->db->Get(options, db_with_cfh->GetCfh(key_rand), key,
+                                 &pinnable_val);
+      } else {
+        pinnable_val.Reset();
+        s = db_with_cfh->db->Get(options,
+                                 db_with_cfh->db->DefaultColumnFamily(), key,
+                                 &pinnable_val);
+      }
+
+      if (s.ok()) {
+        found++;
+        bytes += key.size() + pinnable_val.size();
+      } else if (!s.IsNotFound()) {
+        fprintf(stderr, "Get returned an error: %s\n", s.ToString().c_str());
+        abort();
+      }
+
+      if (thread->shared->read_rate_limiter.get() != nullptr &&
+          read % 256 == 255) {
+        thread->shared->read_rate_limiter->Request(
+            256, Env::IO_HIGH, nullptr /* stats */, RateLimiter::OpType::kRead);
+      }
+
+      thread->stats.FinishedOps(db_with_cfh, db_with_cfh->db, 1, kRead);
+    }
+
+    char msg[100];
+    snprintf(msg, sizeof(msg), "(%" PRIu64 " of %" PRIu64 " found)\n", found,
+             read);
+
+    thread->stats.AddBytes(bytes);
+    thread->stats.AddMessage(msg);
+
+    if (FLAGS_perf_level > rocksdb::PerfLevel::kDisable) {
+      thread->stats.AddMessage(std::string("PERF_CONTEXT:\n") +
+                               get_perf_context()->ToString());
+    }
+  }
+
   void ReadReverse(ThreadState* thread) {
     if (db_.db != nullptr) {
       ReadReverse(thread, db_.db);
@@ -4659,7 +4932,7 @@ void VerifyDBFromDB(std::string& truth_db_name) {
       if (FLAGS_multiread_stride) {
         int64_t key = GetRandomKey(&thread->rand);
         if ((key + (entries_per_batch_ - 1) * FLAGS_multiread_stride) >=
-            (int64_t)FLAGS_num) {
+            static_cast<int64_t>(FLAGS_num)) {
           key = FLAGS_num - entries_per_batch_ * FLAGS_multiread_stride;
         }
         for (int64_t i = 0; i < entries_per_batch_; ++i) {
@@ -4719,7 +4992,7 @@ void VerifyDBFromDB(std::string& truth_db_name) {
     thread->stats.AddMessage(msg);
   }
 
-  // THe reverse function of Pareto function
+  // The inverse function of Pareto distribution
   int64_t ParetoCdfInversion(double u, double theta, double k, double sigma) {
     double ret;
     if (k == 0.0) {
@@ -4729,7 +5002,7 @@ void VerifyDBFromDB(std::string& truth_db_name) {
     }
     return static_cast<int64_t>(ceil(ret));
   }
-  // inversion of y=ax^b
+  // The inverse function of power distribution (y=ax^b)
   int64_t PowerCdfInversion(double u, double a, double b) {
     double ret;
     ret = std::pow((u / a), (1 / b));
@@ -4750,7 +5023,7 @@ void VerifyDBFromDB(std::string& truth_db_name) {
     }
   }
 
-  // decide the query type
+  // Decide the ratio of different query types
   // 0 Get, 1 Put, 2 Seek, 3 SeekForPrev, 4 Delete, 5 SingleDelete, 6 merge
   class QueryDecider {
    public:
@@ -4791,7 +5064,157 @@ void VerifyDBFromDB(std::string& truth_db_name) {
     }
   };
 
-  // The graph wokrload mixed with Get, Put, Iterator
+  // KeyrangeUnit is the struct of a keyrange. It is used in a keyrange vector
+  // to transfer a random value to one keyrange based on the hotness.
+  struct KeyrangeUnit {
+    int64_t keyrange_start;
+    int64_t keyrange_access;
+    int64_t keyrange_keys;
+  };
+
+  // From our observations, the prefix hotness (key-range hotness) follows
+  // the two-term-exponential distribution: f(x) = a*exp(b*x) + c*exp(d*x).
+  // However, we cannot directly use the inverse function to decide a
+  // key-range from a random distribution. To achieve it, we create a list of
+  // KeyrangeUnit, each KeyrangeUnit occupies a range of integers whose size is
+  // decided based on the hotness of the key-range. When a random value is
+  // generated based on uniform distribution, we map it to the KeyrangeUnit Vec
+  // and one KeyrangeUnit is selected. The probability of a  KeyrangeUnit being
+  // selected is the same as the hotness of this KeyrangeUnit. After that, the
+  // key can be randomly allocated to the key-range of this KeyrangeUnit, or we
+  // can based on the power distribution (y=ax^b) to generate the offset of
+  // the key in the selected key-range. In this way, we generate the keyID
+  // based on the hotness of the prefix and also the key hotness distribution.
+  class GenerateTwoTermExpKeys {
+   public:
+    int64_t keyrange_rand_max_;
+    int64_t keyrange_size_;
+    int64_t keyrange_num_;
+    bool initiated_;
+    std::vector<KeyrangeUnit> keyrange_set_;
+
+    GenerateTwoTermExpKeys() {
+      keyrange_rand_max_ = FLAGS_num;
+      initiated_ = false;
+    }
+
+    ~GenerateTwoTermExpKeys() {}
+
+    // Initiate the KeyrangeUnit vector and calculate the size of each
+    // KeyrangeUnit.
+    Status InitiateExpDistribution(int64_t total_keys, double prefix_a,
+                                   double prefix_b, double prefix_c,
+                                   double prefix_d) {
+      int64_t amplify = 0;
+      int64_t keyrange_start = 0;
+      initiated_ = true;
+      if (FLAGS_keyrange_num <= 0) {
+        keyrange_num_ = 1;
+      } else {
+        keyrange_num_ = FLAGS_keyrange_num;
+      }
+      keyrange_size_ = total_keys / keyrange_num_;
+
+      // Calculate the key-range shares size based on the input parameters
+      for (int64_t pfx = keyrange_num_; pfx >= 1; pfx--) {
+        // Step 1. Calculate the probability that this key range will be
+        // accessed in a query. It is based on the two-term expoential
+        // distribution
+        double keyrange_p = prefix_a * std::exp(prefix_b * pfx) +
+                            prefix_c * std::exp(prefix_d * pfx);
+        if (keyrange_p < std::pow(10.0, -16.0)) {
+          keyrange_p = 0.0;
+        }
+        // Step 2. Calculate the amplify
+        // In order to allocate a query to a key-range based on the random
+        // number generated for this query, we need to extend the probability
+        // of each key range from [0,1] to [0, amplify]. Amplify is calculated
+        // by 1/(smallest key-range probability). In this way, we ensure that
+        // all key-ranges are assigned with an Integer that  >=0
+        if (amplify == 0 && keyrange_p > 0) {
+          amplify = static_cast<int64_t>(std::floor(1 / keyrange_p)) + 1;
+        }
+
+        // Step 3. For each key-range, we calculate its position in the
+        // [0, amplify] range, including the start, the size (keyrange_access)
+        KeyrangeUnit p_unit;
+        p_unit.keyrange_start = keyrange_start;
+        if (0.0 >= keyrange_p) {
+          p_unit.keyrange_access = 0;
+        } else {
+          p_unit.keyrange_access =
+              static_cast<int64_t>(std::floor(amplify * keyrange_p));
+        }
+        p_unit.keyrange_keys = keyrange_size_;
+        keyrange_set_.push_back(p_unit);
+        keyrange_start += p_unit.keyrange_access;
+      }
+      keyrange_rand_max_ = keyrange_start;
+
+      // Step 4. Shuffle the key-ranges randomly
+      // Since the access probability is calculated from small to large,
+      // If we do not re-allocate them, hot key-ranges are always at the end
+      // and cold key-ranges are at the begin of the key space. Therefore, the
+      // key-ranges are shuffled and the rand seed is only decide by the
+      // key-range hotness distribution. With the same distribution parameters
+      // the shuffle results are the same.
+      Random64 rand_loca(keyrange_rand_max_);
+      for (int64_t i = 0; i < FLAGS_keyrange_num; i++) {
+        int64_t pos = rand_loca.Next() % FLAGS_keyrange_num;
+        assert(i >= 0 && i < static_cast<int64_t>(keyrange_set_.size()) &&
+               pos >= 0 && pos < static_cast<int64_t>(keyrange_set_.size()));
+        std::swap(keyrange_set_[i], keyrange_set_[pos]);
+      }
+
+      // Step 5. Recalculate the prefix start postion after shuffling
+      int64_t offset = 0;
+      for (auto& p_unit : keyrange_set_) {
+        p_unit.keyrange_start = offset;
+        offset += p_unit.keyrange_access;
+      }
+
+      return Status::OK();
+    }
+
+    // Generate the Key ID according to the input ini_rand and key distribution
+    int64_t DistGetKeyID(int64_t ini_rand, double key_dist_a,
+                         double key_dist_b) {
+      int64_t keyrange_rand = ini_rand % keyrange_rand_max_;
+
+      // Calculate and select one key-range that contains the new key
+      int64_t start = 0, end = static_cast<int64_t>(keyrange_set_.size());
+      while (start + 1 < end) {
+        int64_t mid = start + (end - start) / 2;
+        assert(mid >= 0 && mid < static_cast<int64_t>(keyrange_set_.size()));
+        if (keyrange_rand < keyrange_set_[mid].keyrange_start) {
+          end = mid;
+        } else {
+          start = mid;
+        }
+      }
+      int64_t keyrange_id = start;
+
+      // Select one key in the key-range and compose the keyID
+      int64_t key_offset = 0, key_seed;
+      if (key_dist_a == 0.0 && key_dist_b == 0.0) {
+        key_offset = ini_rand % keyrange_size_;
+      } else {
+        key_seed = static_cast<int64_t>(
+            ceil(std::pow((ini_rand / key_dist_a), (1 / key_dist_b))));
+        Random64 rand_key(key_seed);
+        key_offset = static_cast<int64_t>(rand_key.Next()) % keyrange_size_;
+      }
+      return keyrange_size_ * keyrange_id + key_offset;
+    }
+  };
+
+  // The social graph wokrload mixed with Get, Put, Iterator queries.
+  // The value size and iterator length follow Pareto distribution.
+  // The overall key access follow power distribution. If user models the
+  // workload based on different key-ranges (or different prefixes), user
+  // can use two-term-exponential distribution to fit the workload. User
+  // needs to decides the ratio between Get, Put, Iterator queries before
+  // starting the benchmark.
   void MixGraph(ThreadState* thread) {
     int64_t read = 0;  // including single gets and Next of iterators
     int64_t gets = 0;
@@ -4805,6 +5228,8 @@ void VerifyDBFromDB(std::string& truth_db_name) {
     int64_t scan_len_max = FLAGS_mix_max_scan_len;
     double write_rate = 1000000.0;
     double read_rate = 1000000.0;
+    bool use_prefix_modeling = false;
+    GenerateTwoTermExpKeys gen_exp;
     std::vector<double> ratio{FLAGS_mix_get_ratio, FLAGS_mix_put_ratio,
                               FLAGS_mix_seek_ratio};
     char value_buffer[default_value_max];
@@ -4830,15 +5255,32 @@ void VerifyDBFromDB(std::string& truth_db_name) {
           NewGenericRateLimiter(static_cast<int64_t>(write_rate)));
     }
 
+    // Decide if user wants to use prefix based key generation
+    if (FLAGS_keyrange_dist_a != 0.0 || FLAGS_keyrange_dist_b != 0.0 ||
+        FLAGS_keyrange_dist_c != 0.0 || FLAGS_keyrange_dist_d != 0.0) {
+      use_prefix_modeling = true;
+      gen_exp.InitiateExpDistribution(
+          FLAGS_num, FLAGS_keyrange_dist_a, FLAGS_keyrange_dist_b,
+          FLAGS_keyrange_dist_c, FLAGS_keyrange_dist_d);
+    }
+
     Duration duration(FLAGS_duration, reads_);
     while (!duration.Done(1)) {
       DBWithColumnFamilies* db_with_cfh = SelectDBWithCfh(thread);
-      int64_t rand_v, key_rand, key_seed;
-      rand_v = GetRandomKey(&thread->rand) % FLAGS_num;
+      int64_t ini_rand, rand_v, key_rand, key_seed;
+      ini_rand = GetRandomKey(&thread->rand);
+      rand_v = ini_rand % FLAGS_num;
       double u = static_cast<double>(rand_v) / FLAGS_num;
-      key_seed = PowerCdfInversion(u, FLAGS_key_dist_a, FLAGS_key_dist_b);
-      Random64 rand(key_seed);
-      key_rand = static_cast<int64_t>(rand.Next()) % FLAGS_num;
+
+      // Generate the keyID based on the key hotness and prefix hotness
+      if (use_prefix_modeling) {
+        key_rand =
+            gen_exp.DistGetKeyID(ini_rand, FLAGS_key_dist_a, FLAGS_key_dist_b);
+      } else {
+        key_seed = PowerCdfInversion(u, FLAGS_key_dist_a, FLAGS_key_dist_b);
+        Random64 rand(key_seed);
+        key_rand = static_cast<int64_t>(rand.Next()) % FLAGS_num;
+      }
       GenerateKeyFromInt(key_rand, FLAGS_num, &key);
       int query_type = query.GetType(rand_v);
 
@@ -5029,9 +5471,10 @@ void VerifyDBFromDB(std::string& truth_db_name) {
               FLAGS_num, &lower_bound);
           options.iterate_lower_bound = &lower_bound;
         } else {
-          GenerateKeyFromInt(
-              (uint64_t)std::min(FLAGS_num, seek_pos + FLAGS_max_scan_distance),
-              FLAGS_num, &upper_bound);
+          auto min_num =
+              std::min(FLAGS_num, seek_pos + FLAGS_max_scan_distance);
+          GenerateKeyFromInt(static_cast<uint64_t>(min_num), FLAGS_num,
+                             &upper_bound);
           options.iterate_upper_bound = &upper_bound;
         }
       }
@@ -5199,7 +5642,7 @@ void VerifyDBFromDB(std::string& truth_db_name) {
             // Wait for the writes to be finished
             if (!hint_printed) {
               fprintf(stderr, "Reads are finished. Have %d more writes to do\n",
-                      (int)writes_ - written);
+                      static_cast<int>(writes_) - written);
               hint_printed = true;
             }
           } else {
@@ -5783,6 +6226,97 @@ void VerifyDBFromDB(std::string& truth_db_name) {
     }
   }
 
+  bool binary_search(std::vector<int>& data, int start, int end, int key) {
+    if (data.empty()) return false;
+    if (start > end) return false;
+    int mid = start + (end - start) / 2;
+    if (mid > static_cast<int>(data.size()) - 1) return false;
+    if (data[mid] == key) {
+      return true;
+    } else if (data[mid] > key) {
+      return binary_search(data, start, mid - 1, key);
+    } else {
+      return binary_search(data, mid + 1, end, key);
+    }
+  }
+
+  // Does a bunch of merge operations for a key(key1) where the merge operand
+  // is a sorted list. Next performance comparison is done between doing a Get
+  // for key1 followed by searching for another key(key2) in the large sorted
+  // list vs calling GetMergeOperands for key1 and then searching for the key2
+  // in all the sorted sub-lists. Later case is expected to be a lot faster.
+  void GetMergeOperands(ThreadState* thread) {
+    DB* db = SelectDB(thread);
+    const int kTotalValues = 100000;
+    const int kListSize = 100;
+    std::string key = "my_key";
+    std::string value;
+
+    for (int i = 1; i < kTotalValues; i++) {
+      if (i % kListSize == 0) {
+        // Remove trailing ','
+        value.pop_back();
+        db->Merge(WriteOptions(), key, value);
+        value.clear();
+      } else {
+        value.append(std::to_string(i)).append(",");
+      }
+    }
+
+    SortList s;
+    std::vector<int> data;
+    // This value can be experimented with and it will demonstrate the
+    // perf difference between doing a Get and searching for lookup_key in the
+    // resultant large sorted list vs doing GetMergeOperands and searching
+    // for lookup_key within this resultant sorted sub-lists.
+    int lookup_key = 1;
+
+    // Get API call
+    std::cout << "--- Get API call --- \n";
+    PinnableSlice p_slice;
+    uint64_t st = FLAGS_env->NowNanos();
+    db->Get(ReadOptions(), db->DefaultColumnFamily(), key, &p_slice);
+    s.MakeVector(data, p_slice);
+    bool found =
+        binary_search(data, 0, static_cast<int>(data.size() - 1), lookup_key);
+    std::cout << "Found key? " << std::to_string(found) << "\n";
+    uint64_t sp = FLAGS_env->NowNanos();
+    std::cout << "Get: " << (sp - st) / 1000000000.0 << " seconds\n";
+    std::string* dat_ = p_slice.GetSelf();
+    std::cout << "Sample data from Get API call: " << dat_->substr(0, 10)
+              << "\n";
+    data.clear();
+
+    // GetMergeOperands API call
+    std::cout << "--- GetMergeOperands API --- \n";
+    std::vector<PinnableSlice> a_slice((kTotalValues / kListSize) + 1);
+    st = FLAGS_env->NowNanos();
+    int number_of_operands = 0;
+    GetMergeOperandsOptions get_merge_operands_options;
+    get_merge_operands_options.expected_max_number_of_operands =
+        (kTotalValues / 100) + 1;
+    db->GetMergeOperands(ReadOptions(), db->DefaultColumnFamily(), key,
+                         a_slice.data(), &get_merge_operands_options,
+                         &number_of_operands);
+    for (PinnableSlice& psl : a_slice) {
+      s.MakeVector(data, psl);
+      found =
+          binary_search(data, 0, static_cast<int>(data.size() - 1), lookup_key);
+      data.clear();
+      if (found) break;
+    }
+    std::cout << "Found key? " << std::to_string(found) << "\n";
+    sp = FLAGS_env->NowNanos();
+    std::cout << "Get Merge operands: " << (sp - st) / 1000000000.0
+              << " seconds \n";
+    int to_print = 0;
+    std::cout << "Sample data from GetMergeOperands API call: ";
+    for (PinnableSlice& psl : a_slice) {
+      std::cout << "List: " << to_print << " : " << *psl.GetSelf() << "\n";
+      if (to_print++ > 2) break;
+    }
+  }
+
 #ifndef ROCKSDB_LITE
   // This benchmark stress tests Transactions.  For a given --duration (or
   // total number of --writes, a Transaction will perform a read-modify-write
@@ -6125,6 +6659,39 @@ void VerifyDBFromDB(std::string& truth_db_name) {
     }
   }
 
+  void PrintStatsHistory() {
+    if (db_.db != nullptr) {
+      PrintStatsHistoryImpl(db_.db, false);
+    }
+    for (const auto& db_with_cfh : multi_dbs_) {
+      PrintStatsHistoryImpl(db_with_cfh.db, true);
+    }
+  }
+
+  void PrintStatsHistoryImpl(DB* db, bool print_header) {
+    if (print_header) {
+      fprintf(stdout, "\n==== DB: %s ===\n", db->GetName().c_str());
+    }
+
+    std::unique_ptr<StatsHistoryIterator> shi;
+    Status s = db->GetStatsHistory(0, port::kMaxUint64, &shi);
+    if (!s.ok()) {
+      fprintf(stdout, "%s\n", s.ToString().c_str());
+      return;
+    }
+    assert(shi);
+    while (shi->Valid()) {
+      uint64_t stats_time = shi->GetStatsTime();
+      fprintf(stdout, "------ %s ------\n",
+              TimeToHumanString(static_cast<int>(stats_time)).c_str());
+      for (auto& entry : shi->GetStatsMap()) {
+        fprintf(stdout, " %" PRIu64 "   %s  %" PRIu64 "\n", stats_time,
+                entry.first.c_str(), entry.second);
+      }
+      shi->Next();
+    }
+  }
+
   void PrintStats(const char* key) {
     if (db_.db != nullptr) {
       PrintStats(db_.db, key, false);
@@ -6168,7 +6735,8 @@ void VerifyDBFromDB(std::string& truth_db_name) {
                       std::move(trace_reader));
     replayer.SetFastForward(
         static_cast<uint32_t>(FLAGS_trace_replay_fast_forward));
-    s = replayer.Replay();
+    s = replayer.MultiThreadReplay(
+        static_cast<uint32_t>(FLAGS_trace_replay_threads));
     if (s.ok()) {
       fprintf(stdout, "Replay started from trace_file: %s\n",
               FLAGS_trace_file.c_str());
@@ -6196,13 +6764,12 @@ int db_bench_tool(int argc, char** argv) {
     exit(1);
   }
   if (!FLAGS_statistics_string.empty()) {
-    std::unique_ptr<Statistics> custom_stats_guard;
-    dbstats.reset(NewCustomObject<Statistics>(FLAGS_statistics_string,
-                                              &custom_stats_guard));
-    custom_stats_guard.release();
+    Status s = ObjectRegistry::NewInstance()->NewSharedObject<Statistics>(
+        FLAGS_statistics_string, &dbstats);
     if (dbstats == nullptr) {
-      fprintf(stderr, "No Statistics registered matching string: %s\n",
-              FLAGS_statistics_string.c_str());
+      fprintf(stderr,
+              "No Statistics registered matching string: %s status=%s\n",
+              FLAGS_statistics_string.c_str(), s.ToString().c_str());
       exit(1);
     }
   }
@@ -6230,12 +6797,11 @@ int db_bench_tool(int argc, char** argv) {
     StringToCompressionType(FLAGS_compression_type.c_str());
 
 #ifndef ROCKSDB_LITE
-  std::unique_ptr<Env> custom_env_guard;
   if (!FLAGS_hdfs.empty() && !FLAGS_env_uri.empty()) {
     fprintf(stderr, "Cannot provide both --hdfs and --env_uri.\n");
     exit(1);
   } else if (!FLAGS_env_uri.empty()) {
-    FLAGS_env = NewCustomObject<Env>(FLAGS_env_uri, &custom_env_guard);
+    Status s = Env::LoadEnv(FLAGS_env_uri, &FLAGS_env, &env_guard);
     if (FLAGS_env == nullptr) {
       fprintf(stderr, "No Env registered for URI: %s\n", FLAGS_env_uri.c_str());
       exit(1);
@@ -6280,7 +6846,7 @@ int db_bench_tool(int argc, char** argv) {
   // Choose a location for the test database if none given with --db=<path>
   if (FLAGS_db.empty()) {
     std::string default_db_path;
-    rocksdb::Env::Default()->GetTestDirectory(&default_db_path);
+    FLAGS_env->GetTestDirectory(&default_db_path);
     default_db_path += "/dbbench";
     FLAGS_db = default_db_path;
   }

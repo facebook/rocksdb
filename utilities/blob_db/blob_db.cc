@@ -5,13 +5,9 @@
 //
 #ifndef ROCKSDB_LITE
 
-#ifndef __STDC_FORMAT_MACROS
-#define __STDC_FORMAT_MACROS
-#endif
-
 #include "utilities/blob_db/blob_db.h"
 
-#include <inttypes.h>
+#include <cinttypes>
 #include "utilities/blob_db/blob_db_impl.h"
 
 namespace rocksdb {
@@ -93,6 +89,9 @@ void BlobDBOptions::Dump(Logger* log) const {
   ROCKS_LOG_HEADER(
       log, "                 BlobDBOptions.enable_garbage_collection: %d",
       enable_garbage_collection);
+  ROCKS_LOG_HEADER(
+      log, "                 BlobDBOptions.garbage_collection_cutoff: %f",
+      garbage_collection_cutoff);
   ROCKS_LOG_HEADER(
       log, "                  BlobDBOptions.disable_background_tasks: %d",
       disable_background_tasks);
