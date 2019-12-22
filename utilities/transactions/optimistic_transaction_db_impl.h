@@ -16,12 +16,19 @@ namespace rocksdb {
 
 class OptimisticTransactionDBImpl : public OptimisticTransactionDB {
  public:
-  explicit OptimisticTransactionDBImpl(DB* db, bool take_ownership = true, size_t lock_bucket_size = 1024*1024)
-      : OptimisticTransactionDB(db), db_owner_(take_ownership) {
-    bucketed_locks_.reserve(lock_bucket_size);
-    for (size_t i = 0; i < lock_bucket_size; ++i) {
-      bucketed_locks_.emplace_back(
-	std::unique_ptr<std::mutex>(new std::mutex));
+  explicit OptimisticTransactionDBImpl(
+      DB* db, const OptimisticTransactionDBOptions& occ_options,
+      bool take_ownership = true)
+      : OptimisticTransactionDB(db),
+        db_owner_(take_ownership),
+        validate_policy_(occ_options.validate_policy) {
+    if (validate_policy_ == OccValidationPolicy::VALIDATE_PARALLEL) {
+      uint32_t bucket_size = std::max(16u, occ_options.occ_lock_buckets);
+      bucketed_locks_.reserve(bucket_size);
+      for (size_t i = 0; i < bucket_size; ++i) {
+        bucketed_locks_.emplace_back(
+            std::unique_ptr<std::mutex>(new std::mutex));
+      }
     }
   }
 
@@ -37,20 +44,20 @@ class OptimisticTransactionDBImpl : public OptimisticTransactionDB {
                                 const OptimisticTransactionOptions& txn_options,
                                 Transaction* old_txn) override;
 
-  size_t GetLockBucketsSize() const {
-    return bucketed_locks_.size();
-  }
+  size_t GetLockBucketsSize() const { return bucketed_locks_.size(); }
+
+  OccValidationPolicy GetValidatePolicy() const { return validate_policy_; }
 
   std::unique_lock<std::mutex> LockBucket(size_t idx);
 
  private:
-
   // NOTE(deyukong): used in validation phase. Each key is hashed into some
   // bucket. We then take the lock in the hash value order to avoid deadlock.
-  // TODO(deyukong): padding to avoid false sharing.
   std::vector<std::unique_ptr<std::mutex>> bucketed_locks_;
 
   bool db_owner_;
+
+  const OccValidationPolicy validate_policy_;
 
   void ReinitializeTransaction(Transaction* txn,
                                const WriteOptions& write_options,
