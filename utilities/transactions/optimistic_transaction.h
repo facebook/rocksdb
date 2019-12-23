@@ -74,6 +74,26 @@ class OptimisticTransaction : public TransactionBaseImpl {
                           const Slice& /* unused */) override {
     // Nothing to unlock.
   }
+
+  Status CommitWithSerialValidate();
+
+  Status CommitWithParallelValidate();
+};
+
+// Used at commit time to trigger transaction validation
+class OptimisticTransactionCallback : public WriteCallback {
+ public:
+  explicit OptimisticTransactionCallback(OptimisticTransaction* txn)
+      : txn_(txn) {}
+
+  Status Callback(DB* db) override {
+    return txn_->CheckTransactionForConflicts(db);
+  }
+
+  bool AllowWriteBatching() override { return false; }
+
+ private:
+  OptimisticTransaction* txn_;
 };
 
 // Used at commit time to trigger transaction validation
