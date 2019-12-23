@@ -96,22 +96,6 @@ class OptimisticTransactionCallback : public WriteCallback {
   OptimisticTransaction* txn_;
 };
 
-// Used at commit time to trigger transaction validation
-class OptimisticTransactionCallback : public WriteCallback {
- public:
-  explicit OptimisticTransactionCallback(OptimisticTransaction* txn)
-      : txn_(txn) {}
-
-  Status Callback(DB* db) override {
-    return txn_->CheckTransactionForConflicts(db);
-  }
-
-  bool AllowWriteBatching() override { return false; }
-
- private:
-  OptimisticTransaction* txn_;
-};
-
 }  // namespace rocksdb
 
 #endif  // ROCKSDB_LITE

@@ -6,6 +6,9 @@
 #pragma once
 #ifndef ROCKSDB_LITE
 
+#include <mutex>
+#include <vector>
+
 #include "rocksdb/db.h"
 #include "rocksdb/options.h"
 #include "rocksdb/utilities/optimistic_transaction_db.h"
