@@ -417,13 +417,12 @@ extern inline std::string Key(int64_t val) {
 
 // Given a string key, map it to an index into the expected values buffer
 extern inline bool GetIntVal(std::string big_endian_key, uint64_t* key_p) {
-  size_t levels = key_gen_ctx.weights.size();
   size_t size_key = big_endian_key.size();
   std::vector<uint64_t> prefixes;
 
   // Trim the key to multiple of 8 bytes
   size_key &= ~7;
-  assert(size_key <= levels * sizeof(uint64_t));
+  assert(size_key <= key_gen_ctx.weights.size() * sizeof(uint64_t));
 
   // Pad with zeros to make it a multiple of 8. This function may be called
   // with a prefix, in which case we return the first index that falls
