@@ -8,6 +8,7 @@
 
 #include <mutex>
 #include <vector>
+#include <algorithm>
 
 #include "rocksdb/db.h"
 #include "rocksdb/options.h"

@@ -32,8 +32,7 @@ Transaction* OptimisticTransactionDBImpl::BeginTransaction(
 std::unique_lock<std::mutex> OptimisticTransactionDBImpl::LockBucket(
     size_t idx) {
   assert(idx < bucketed_locks_.size());
-  auto v = std::unique_lock<std::mutex>(*bucketed_locks_[idx]);
-  return std::move(v);
+  return std::unique_lock<std::mutex>(*bucketed_locks_[idx]);
 }
 
 Status OptimisticTransactionDB::Open(const Options& options,
