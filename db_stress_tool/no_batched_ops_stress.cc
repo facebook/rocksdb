@@ -268,12 +268,7 @@ class NonBatchedOpsStressTest : public StressTest {
          iter->Next()) {
       ++count;
     }
-
-    // FIXME: This was an assertion but was failing on occasion
-    if (count > GetPrefixKeyCount(prefix.ToString(), upper_bound)) {
-      fprintf(stdout, "FIXME: count > GetPrefixKeyCount\n");
-    }
-
+    assert(count <= GetPrefixKeyCount(prefix.ToString(), upper_bound));
     Status s = iter->status();
     if (iter->status().ok()) {
       thread->stats.AddPrefixes(1, count);
