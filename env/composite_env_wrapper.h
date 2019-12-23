@@ -627,8 +627,9 @@ class CompositeEnvWrapper : public Env {
 
 class LegacySequentialFileWrapper : public FSSequentialFile {
  public:
-  explicit LegacySequentialFileWrapper(std::unique_ptr<SequentialFile>&& target)
-      : target_(std::move(target)) {}
+  explicit LegacySequentialFileWrapper(
+      std::unique_ptr<SequentialFile>&& _target)
+      : target_(std::move(_target)) {}
 
   IOStatus Read(size_t n, const IOOptions& /*options*/, Slice* result,
                 char* scratch, IODebugContext* /*dbg*/) override {
@@ -716,8 +717,8 @@ class LegacyRandomAccessFileWrapper : public FSRandomAccessFile {
 
 class LegacyWritableFileWrapper : public FSWritableFile {
  public:
-  explicit LegacyWritableFileWrapper(std::unique_ptr<WritableFile>&& target)
-      : target_(std::move(target)) {}
+  explicit LegacyWritableFileWrapper(std::unique_ptr<WritableFile>&& _target)
+      : target_(std::move(_target)) {}
 
   IOStatus Append(const Slice& data, const IOOptions& /*options*/,
                   IODebugContext* /*dbg*/) override {
