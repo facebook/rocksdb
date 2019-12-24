@@ -6,6 +6,9 @@
  */
 package org.rocksdb.util;
 
+import java.util.ArrayList;
+import java.util.List;
+
 import static java.nio.charset.StandardCharsets.UTF_8;
 
 public final class KVUtils {
@@ -34,5 +37,22 @@ public final class KVUtils {
    */
   public static String str(final byte[] bytes) {
     return new String(bytes, UTF_8);
+  }
+
+  /**
+   * Get a list of keys where the keys are named key1..key1+N
+   * in the range of {@code from} to {@code to} i.e. keyFrom..keyTo.
+   *
+   * @param from the first key
+   * @param to the last key
+   *
+   * @return the array of keys
+   */
+  public static List<byte[]> keys(final int from, final int to) {
+    final List<byte[]> keys = new ArrayList<>(to - from);
+    for (int i = from; i < to; i++) {
+      keys.add(ba("key" + i));
+    }
+    return keys;
   }
 }
