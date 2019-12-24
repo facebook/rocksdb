@@ -52,13 +52,12 @@ class NonBatchedOpsStressTest : public StressTest {
           Slice k = keystr;
           Status s = iter->status();
           if (iter->Valid()) {
-            Slice iter_key = iter->key();
             if (iter->key().compare(k) > 0) {
               s = Status::NotFound(Slice());
             } else if (iter->key().compare(k) == 0) {
               from_db = iter->value().ToString();
               iter->Next();
-            } else if (iter_key.compare(k) < 0) {
+            } else if (iter->key().compare(k) < 0) {
               VerificationAbort(shared, "An out of range key was found",
                                 static_cast<int>(cf), i);
             }
@@ -254,26 +253,19 @@ class NonBatchedOpsStressTest : public StressTest {
     std::string upper_bound;
     Slice ub_slice;
     ReadOptions ro_copy = read_opts;
-    // Get the next prefix first and then see if we want to set upper bound.
-    // We'll use the next prefix in an assertion later on
-    if (GetNextPrefix(prefix, &upper_bound) && thread->rand.OneIn(2)) {
+    if (thread->rand.OneIn(2) && GetNextPrefix(prefix, &upper_bound)) {
       // For half of the time, set the upper bound to the next prefix
       ub_slice = Slice(upper_bound);
       ro_copy.iterate_upper_bound = &ub_slice;
     }
 
     Iterator* iter = db_->NewIterator(ro_copy, cfh);
-    unsigned long count = 0;
+    long count = 0;
     for (iter->Seek(prefix); iter->Valid() && iter->key().starts_with(prefix);
          iter->Next()) {
       ++count;
     }
-
-    // FIXME: This was an assertion but was failing on occasion
-    if (count > GetPrefixKeyCount(prefix.ToString(), upper_bound)) {
-      fprintf(stdout, "FIXME: count > GetPrefixKeyCount\n");
-    }
-
+    assert(count <= (static_cast<long>(1) << ((8 - FLAGS_prefix_size) * 8)));
     Status s = iter->status();
     if (iter->status().ok()) {
       thread->stats.AddPrefixes(1, count);

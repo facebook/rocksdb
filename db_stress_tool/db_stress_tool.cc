@@ -30,8 +30,6 @@ static std::shared_ptr<rocksdb::Env> env_guard;
 static std::shared_ptr<rocksdb::DbStressEnvWrapper> env_wrapper_guard;
 }  // namespace
 
-KeyGenContext key_gen_ctx;
-
 int db_stress_tool(int argc, char** argv) {
   SetUsageMessage(std::string("\nUSAGE:\n") + std::string(argv[0]) +
                   " [OPTIONS]...");
@@ -198,38 +196,6 @@ int db_stress_tool(int argc, char** argv) {
 
   rocksdb_kill_odds = FLAGS_kill_random_test;
   rocksdb_kill_prefix_blacklist = SplitString(FLAGS_kill_prefix_blacklist);
-
-  unsigned int levels = FLAGS_max_key_len;
-  std::vector<std::string> weights;
-  uint64_t scale_factor = FLAGS_key_window_scale_factor;
-  key_gen_ctx.window = scale_factor * 100;
-  if (!FLAGS_key_len_percent_dist.empty()) {
-    weights = SplitString(FLAGS_key_len_percent_dist);
-    if (weights.size() != levels) {
-      fprintf(stderr,
-              "Number of weights in key_len_dist should be equal to"
-              " max_key_len");
-      exit(1);
-    }
-
-    uint64_t total_weight = 0;
-    for (std::string& weight : weights) {
-      uint64_t val = std::stoull(weight);
-      key_gen_ctx.weights.emplace_back(val * scale_factor);
-      total_weight += val;
-    }
-    if (total_weight != 100) {
-      fprintf(stderr, "Sum of all weights in key_len_dist should be 100");
-      exit(1);
-    }
-  } else {
-    uint64_t keys_per_level = key_gen_ctx.window / levels;
-    for (unsigned int level = 0; level < levels - 1; ++level) {
-      key_gen_ctx.weights.emplace_back(keys_per_level);
-    }
-    key_gen_ctx.weights.emplace_back(key_gen_ctx.window -
-                                     keys_per_level * (levels - 1));
-  }
 
   std::unique_ptr<rocksdb::StressTest> stress;
   if (FLAGS_test_cf_consistency) {
