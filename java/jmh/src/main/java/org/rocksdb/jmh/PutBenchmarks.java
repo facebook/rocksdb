@@ -41,7 +41,7 @@ public class PutBenchmarks {
   public void setup() throws IOException, RocksDBException {
     RocksDB.loadLibrary();
 
-    dbDir = Files.createTempDirectory("rocksjava-comparator-benchmarks");
+    dbDir = Files.createTempDirectory("rocksjava-put-benchmarks");
 
     options = new DBOptions()
         .setCreateIfMissing(true)
