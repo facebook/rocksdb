@@ -7,7 +7,6 @@
 package org.rocksdb.jmh;
 
 import org.openjdk.jmh.annotations.*;
-import org.openjdk.jmh.infra.Blackhole;
 import org.rocksdb.*;
 import org.rocksdb.util.FileUtils;
 
@@ -133,9 +132,8 @@ public class GetBenchmarks {
   }
 
   @Benchmark
-  public void get(final Blackhole blackhole) throws RocksDBException {
+  public byte[] get() throws RocksDBException {
     final int keyIdx = next();
-    final byte[] value = db.get(getColumnFamily(), ba("key" + keyIdx));
-    blackhole.consume(value);
+    return db.get(getColumnFamily(), ba("key" + keyIdx));
   }
 }

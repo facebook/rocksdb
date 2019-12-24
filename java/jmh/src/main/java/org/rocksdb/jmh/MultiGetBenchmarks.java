@@ -7,7 +7,6 @@
 package org.rocksdb.jmh;
 
 import org.openjdk.jmh.annotations.*;
-import org.openjdk.jmh.infra.Blackhole;
 import org.rocksdb.*;
 import org.rocksdb.util.FileUtils;
 
@@ -151,10 +150,9 @@ public class MultiGetBenchmarks {
   }
 
   @Benchmark
-  public void multiGet10(final Blackhole blackhole) throws RocksDBException {
+  public List<byte[]> multiGet10() throws RocksDBException {
     final int fromKeyIdx = next(multiGetSize, keyCount);
     final List<byte[]> keys = keys(fromKeyIdx, fromKeyIdx + multiGetSize);
-    final List<byte[]> values = db.multiGetAsList(keys);
-    blackhole.consume(values);
+    return db.multiGetAsList(keys);
   }
 }
