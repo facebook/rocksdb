@@ -175,7 +175,11 @@ class NonBatchedOpsStressTest : public StressTest {
     Transaction* txn = nullptr;
     if (use_txn) {
       WriteOptions wo;
-      NewTxn(wo, &txn);
+      Status s = NewTxn(wo, &txn);
+      if (!s.ok()) {
+        fprintf(stderr, "NewTxn: %s\n", s.ToString().c_str());
+        std::terminate();
+      }
     }
 #endif
     for (size_t i = 0; i < num_keys; ++i) {
