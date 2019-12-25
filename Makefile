@@ -1097,6 +1097,9 @@ parallel_check: $(TESTS)
 		TMPD=$(TMPD) J=$(J) db_test=0 parloop;
 
 analyze: clean
+	USE_CLANG=1 $(MAKE) analyze_incremental
+
+analyze_incremental:
 	$(CLANG_SCAN_BUILD) --use-analyzer=$(CLANG_ANALYZER) \
 		--use-c++=$(CXX) --use-cc=$(CC) --status-bugs \
 		-o $(CURDIR)/scan_build_report \

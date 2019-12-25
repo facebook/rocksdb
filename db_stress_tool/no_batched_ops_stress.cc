@@ -165,21 +165,28 @@ class NonBatchedOpsStressTest : public StressTest {
     std::vector<Status> statuses(num_keys);
     ColumnFamilyHandle* cfh = column_families_[rand_column_families[0]];
 
+    // To appease clang analyzer
+    const bool use_txn = FLAGS_use_txn;
+
     // Create a transaction in order to write some data. The purpose is to
     // exercise WriteBatchWithIndex::MultiGetFromBatchAndDB. The transaction
     // will be rolled back once MultiGet returns.
 #ifndef ROCKSDB_LITE
     Transaction* txn = nullptr;
-    if (FLAGS_use_txn) {
+    if (use_txn) {
       WriteOptions wo;
-      NewTxn(wo, &txn);
+      Status s = NewTxn(wo, &txn);
+      if (!s.ok()) {
+        fprintf(stderr, "NewTxn: %s\n", s.ToString().c_str());
+        std::terminate();
+      }
     }
 #endif
     for (size_t i = 0; i < num_keys; ++i) {
       key_str.emplace_back(Key(rand_keys[i]));
       keys.emplace_back(key_str.back());
 #ifndef ROCKSDB_LITE
-      if (FLAGS_use_txn) {
+      if (use_txn) {
         // With a 1 in 10 probability, insert the just added key in the batch
         // into the transaction. This will create an overlap with the MultiGet
         // keys and exercise some corner cases in the code
@@ -216,7 +223,7 @@ class NonBatchedOpsStressTest : public StressTest {
 #endif
     }
 
-    if (!FLAGS_use_txn) {
+    if (!use_txn) {
       db_->MultiGet(read_opts, cfh, num_keys, keys.data(), values.data(),
                     statuses.data());
     } else {
