@@ -2111,11 +2111,12 @@ class DBBasicTestWithTimestamp
  protected:
   class TestComparator : public TestComparatorBase {
    public:
+    const int tKeyPrefixLength = 3; // 3: length of "key" in generated keys ("key" + std::to_string(j))
     explicit TestComparator(size_t ts_sz) : TestComparatorBase(ts_sz) {}
 
     int CompareImpl(const Slice& a, const Slice& b) const override {
-      int n1 = atoi(a.data()+3);  // 3: length of "Key", to be skipped
-      int n2 = atoi(b.data()+3);
+      int n1 = atoi(std::string(a.data()+tKeyPrefixLength, a.size()-tKeyPrefixLength).c_str());  
+      int n2 = atoi(std::string(b.data()+tKeyPrefixLength, b.size()-tKeyPrefixLength).c_str());
       return (n1 < n2)? -1 : (n1 > n2)? 1 : 0;  
     }
   };
