@@ -4248,6 +4248,18 @@ TEST_F(DBTest2, BackgroundPurgeTest) {
   value = options.write_buffer_manager->memory_usage();
   ASSERT_EQ(base_value, value);
 }
+
+TEST_F(DBTest2, SwitchMemtableRaceWithNewManifest) {
+  Options options = CurrentOptions();
+  DestroyAndReopen(options);
+  options.max_manifest_file_size = 10;
+  options.create_if_missing = true;
+  CreateAndReopenWithCF({"pikachu"}, options);
+  ASSERT_OK(Put("foo", "value"));
+  port::Thread thread([&]() { ASSERT_OK(Flush()); });
+  ASSERT_OK(dbfull()->SetOptions({{"prefix_extractor", "fixed:5"}}));
+  thread.join();
+}
 }  // namespace rocksdb
 
 #ifdef ROCKSDB_UNITTESTS_WITH_CUSTOM_OBJECTS_FROM_STATIC_LIBS
