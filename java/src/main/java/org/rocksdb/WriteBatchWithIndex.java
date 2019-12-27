@@ -57,7 +57,7 @@ public class WriteBatchWithIndex extends AbstractWriteBatch {
    *   show two entries with the same key.
    */
   public WriteBatchWithIndex(
-      final AbstractComparator<? extends AbstractSlice<?>>
+      final AbstractComparator
           fallbackIndexComparator, final int reservedBytes,
       final boolean overwriteKey) {
     super(newWriteBatchWithIndex(fallbackIndexComparator.nativeHandle_,

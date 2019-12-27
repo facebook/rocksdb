@@ -17,16 +17,35 @@ public class ComparatorOptionsTest {
       new RocksNativeLibraryResource();
 
   @Test
-  public void comparatorOptions() {
+  public void useAdaptiveMutex() {
     try(final ComparatorOptions copt = new ComparatorOptions()) {
-
-      assertThat(copt).isNotNull();
-      // UseAdaptiveMutex test
       copt.setUseAdaptiveMutex(true);
       assertThat(copt.useAdaptiveMutex()).isTrue();
 
       copt.setUseAdaptiveMutex(false);
       assertThat(copt.useAdaptiveMutex()).isFalse();
+    }
+  }
+
+  @Test
+  public void useDirectBuffer() {
+    try(final ComparatorOptions copt = new ComparatorOptions()) {
+      copt.setUseDirectBuffer(true);
+      assertThat(copt.useDirectBuffer()).isTrue();
+
+      copt.setUseDirectBuffer(false);
+      assertThat(copt.useDirectBuffer()).isFalse();
+    }
+  }
+
+  @Test
+  public void maxReusedBufferSize() {
+    try(final ComparatorOptions copt = new ComparatorOptions()) {
+      copt.setMaxReusedBufferSize(12345);
+      assertThat(copt.maxReusedBufferSize()).isEqualTo(12345);
+
+      copt.setMaxReusedBufferSize(-1);
+      assertThat(copt.maxReusedBufferSize()).isEqualTo(-1);
     }
   }
 }

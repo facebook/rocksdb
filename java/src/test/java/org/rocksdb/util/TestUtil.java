@@ -58,15 +58,4 @@ public class TestUtil {
     random.nextBytes(str);
     return str;
   }
-
-  /**
-   * Convert a UTF-8 String to a byte array.
-   *
-   * @param str the string
-   *
-   * @return the byte array.
-   */
-  public static byte[] u(final String str) {
-    return str.getBytes(UTF_8);
-  }
 }

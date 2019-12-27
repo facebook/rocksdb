@@ -51,15 +51,8 @@ jlong Java_org_rocksdb_WriteBatchWithIndex_newWriteBatchWithIndex__JBIZ(
           jfallback_index_comparator_handle);
       break;
 
-    // JAVA_DIRECT_COMPARATOR
-    case 0x1:
-      fallback_comparator =
-          reinterpret_cast<rocksdb::DirectComparatorJniCallback*>(
-              jfallback_index_comparator_handle);
-      break;
-
     // JAVA_NATIVE_COMPARATOR_WRAPPER
-    case 0x2:
+    case 0x1:
       fallback_comparator = reinterpret_cast<rocksdb::Comparator*>(
           jfallback_index_comparator_handle);
       break;
