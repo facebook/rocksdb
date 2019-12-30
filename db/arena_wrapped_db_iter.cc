@@ -18,6 +18,33 @@
 
 namespace ROCKSDB_NAMESPACE {
 
+namespace {
+ReadOptions CreateReadOptions(const ReadOptions& read_opts, char* ptr,
+                              const Slice* iter_lb, const Slice* iter_ub,
+                              const Slice* ts) {
+  ReadOptions ret = read_opts;
+  const auto copy_iter_bounds_and_ts = [&ptr, ts](const Slice* bound) {
+    char* saved_addr = ptr;
+    ptr += sizeof(Slice);
+    char* buf = ptr;
+    memcpy(ptr, bound->data(), bound->size());
+    ptr += bound->size();
+    memcpy(ptr, ts->data(), ts->size());
+    ptr += ts->size();
+    Slice* bound_and_ts =
+        new (saved_addr) Slice(buf, bound->size() + ts->size());
+    return bound_and_ts;
+  };
+  if (iter_lb) {
+    ret.iterate_lower_bound = copy_iter_bounds_and_ts(iter_lb);
+  }
+  if (iter_ub) {
+    ret.iterate_upper_bound = copy_iter_bounds_and_ts(iter_ub);
+  }
+  return ret;
+}
+}  // namespace
+
 Status ArenaWrappedDBIter::GetProperty(std::string prop_name,
                                        std::string* prop) {
   if (prop_name == "rocksdb.iterator.super-version-number") {
@@ -39,11 +66,30 @@ void ArenaWrappedDBIter::Init(Env* env, const ReadOptions& read_options,
                               ReadCallback* read_callback, DBImpl* db_impl,
                               ColumnFamilyData* cfd, bool allow_blob,
                               bool allow_refresh) {
-  auto mem = arena_.AllocateAligned(sizeof(DBIter));
-  db_iter_ = new (mem) DBIter(env, read_options, cf_options, mutable_cf_options,
-                              cf_options.user_comparator, nullptr, sequence,
-                              true, max_sequential_skip_in_iteration,
-                              read_callback, db_impl, cfd, allow_blob);
+  size_t extra_bytes = 0;
+  const Slice* iter_lb = read_options.iterate_lower_bound;
+  const Slice* iter_ub = read_options.iterate_upper_bound;
+  const Slice* ts = read_options.timestamp;
+  if (ts) {
+    if (iter_lb) {
+      extra_bytes += (sizeof(Slice) + iter_lb->size() + ts->size());
+    }
+    if (iter_ub) {
+      extra_bytes += (sizeof(Slice) + iter_ub->size() + ts->size());
+    }
+  }
+  auto mem = arena_.AllocateAligned(sizeof(DBIter) + extra_bytes);
+  char* ptr = mem + sizeof(DBIter);
+  if (extra_bytes > 0) {
+    read_options_ = CreateReadOptions(read_options, ptr, iter_lb, iter_ub, ts);
+  } else {
+    read_options_ = read_options;
+  }
+  db_iter_ =
+      new (mem) DBIter(env, read_options_, cf_options, mutable_cf_options,
+                       cf_options.user_comparator, nullptr, sequence, true,
+                       max_sequential_skip_in_iteration, read_callback, db_impl,
+                       cfd, allow_blob);
   sv_number_ = version_number;
   allow_refresh_ = allow_refresh;
 }
@@ -96,8 +142,7 @@ ArenaWrappedDBIter* NewArenaWrappedDbIterator(
              max_sequential_skip_in_iterations, version_number, read_callback,
              db_impl, cfd, allow_blob, allow_refresh);
   if (db_impl != nullptr && cfd != nullptr && allow_refresh) {
-    iter->StoreRefreshInfo(read_options, db_impl, cfd, read_callback,
-                           allow_blob);
+    iter->StoreRefreshInfo(db_impl, cfd, read_callback, allow_blob);
   }
 
   return iter;

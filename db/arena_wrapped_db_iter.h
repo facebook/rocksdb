@@ -60,6 +60,7 @@ class ArenaWrappedDBIter : public Iterator {
   Slice key() const override { return db_iter_->key(); }
   Slice value() const override { return db_iter_->value(); }
   Status status() const override { return db_iter_->status(); }
+  Slice utimestamp() const override { return db_iter_->utimestamp(); }
   bool IsBlob() const { return db_iter_->IsBlob(); }
 
   Status GetProperty(std::string prop_name, std::string* prop) override;
@@ -76,15 +77,15 @@ class ArenaWrappedDBIter : public Iterator {
 
   // Store some parameters so we can refresh the iterator at a later point
   // with these same params
-  void StoreRefreshInfo(const ReadOptions& read_options, DBImpl* db_impl,
-                        ColumnFamilyData* cfd, ReadCallback* read_callback,
-                        bool allow_blob) {
-    read_options_ = read_options;
+  void StoreRefreshInfo(DBImpl* db_impl, ColumnFamilyData* cfd,
+                        ReadCallback* read_callback, bool allow_blob) {
     db_impl_ = db_impl;
     cfd_ = cfd;
     read_callback_ = read_callback;
     allow_blob_ = allow_blob;
   }
+
+  const ReadOptions& GetReadOptions() const { return read_options_; }
 
  private:
   DBIter* db_iter_;

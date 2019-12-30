@@ -69,7 +69,9 @@ DBIter::DBIter(Env* _env, const ReadOptions& read_options,
       range_del_agg_(&cf_options.internal_comparator, s),
       db_impl_(db_impl),
       cfd_(cfd),
-      start_seqnum_(read_options.iter_start_seqnum) {
+      start_seqnum_(read_options.iter_start_seqnum),
+      timestamp_ub_(read_options.timestamp),
+      timestamp_size_(timestamp_ub_ ? timestamp_ub_->size() : 0) {
   RecordTick(statistics_, NO_ITERATOR_CREATED);
   max_skip_ = max_sequential_skip_in_iterations;
   max_skippable_internal_keys_ = read_options.max_skippable_internal_keys;
@@ -79,6 +81,7 @@ DBIter::DBIter(Env* _env, const ReadOptions& read_options,
   if (iter_.iter()) {
     iter_.iter()->SetPinnedItersMgr(&pinned_iters_mgr_);
   }
+  assert(timestamp_size_ == user_comparator_.timestamp_size());
 }
 
 Status DBIter::GetProperty(std::string prop_name, std::string* prop) {
@@ -220,9 +223,11 @@ bool DBIter::FindNextUserEntryInternal(bool skipping_saved_key,
     is_key_seqnum_zero_ = (ikey_.sequence == 0);
 
     assert(iterate_upper_bound_ == nullptr || iter_.MayBeOutOfUpperBound() ||
-           user_comparator_.Compare(ikey_.user_key, *iterate_upper_bound_) < 0);
+           user_comparator_.CompareWithoutTimestamp(ikey_.user_key,
+                                                    *iterate_upper_bound_) < 0);
     if (iterate_upper_bound_ != nullptr && iter_.MayBeOutOfUpperBound() &&
-        user_comparator_.Compare(ikey_.user_key, *iterate_upper_bound_) >= 0) {
+        user_comparator_.CompareWithoutTimestamp(ikey_.user_key,
+                                                 *iterate_upper_bound_) >= 0) {
       break;
     }
 
@@ -237,20 +242,27 @@ bool DBIter::FindNextUserEntryInternal(bool skipping_saved_key,
       return false;
     }
 
-    if (IsVisible(ikey_.sequence)) {
+    assert(ikey_.user_key.size() >= timestamp_size_);
+    Slice ts;
+    if (timestamp_size_ > 0) {
+      ts =
+          Slice(ikey_.user_key.data() + ikey_.user_key.size() - timestamp_size_,
+                timestamp_size_);
+    }
+    if (IsVisible(ikey_.sequence, ts)) {
       // If the previous entry is of seqnum 0, the current entry will not
       // possibly be skipped. This condition can potentially be relaxed to
       // prev_key.seq <= ikey_.sequence. We are cautious because it will be more
       // prone to bugs causing the same user key with the same sequence number.
       if (!is_prev_key_seqnum_zero && skipping_saved_key &&
-          user_comparator_.Compare(ikey_.user_key, saved_key_.GetUserKey()) <=
-              0) {
+          user_comparator_.CompareWithoutTimestamp(
+              ikey_.user_key, saved_key_.GetUserKey()) <= 0) {
         num_skipped++;  // skip this entry
         PERF_COUNTER_ADD(internal_key_skipped_count, 1);
       } else {
         assert(!skipping_saved_key ||
-               user_comparator_.Compare(ikey_.user_key,
-                                        saved_key_.GetUserKey()) > 0);
+               user_comparator_.CompareWithoutTimestamp(
+                   ikey_.user_key, saved_key_.GetUserKey()) > 0);
         num_skipped = 0;
         reseek_done = false;
         switch (ikey_.type) {
@@ -356,8 +368,8 @@ bool DBIter::FindNextUserEntryInternal(bool skipping_saved_key,
       // This key was inserted after our snapshot was taken.
       // If this happens too many times in a row for the same user key, we want
       // to seek to the target sequence number.
-      int cmp =
-          user_comparator_.Compare(ikey_.user_key, saved_key_.GetUserKey());
+      int cmp = user_comparator_.CompareWithoutTimestamp(
+          ikey_.user_key, saved_key_.GetUserKey());
       if (cmp == 0 || (skipping_saved_key && cmp < 0)) {
         num_skipped++;
       } else {
@@ -697,7 +709,13 @@ bool DBIter::FindValueForCurrentKey() {
       return false;
     }
 
-    if (!IsVisible(ikey.sequence) ||
+    assert(ikey.user_key.size() >= timestamp_size_);
+    Slice ts;
+    if (timestamp_size_ > 0) {
+      ts = Slice(ikey.user_key.data() + ikey.user_key.size() - timestamp_size_,
+                 timestamp_size_);
+    }
+    if (!IsVisible(ikey.sequence, ts) ||
         !user_comparator_.Equal(ikey.user_key, saved_key_.GetUserKey())) {
       break;
     }
@@ -853,6 +871,13 @@ bool DBIter::FindValueForCurrentKeyUsingSeek() {
     if (!ParseKey(&ikey)) {
       return false;
     }
+    assert(ikey.user_key.size() >= timestamp_size_);
+    Slice ts;
+    if (timestamp_size_ > 0) {
+      ts = Slice(ikey.user_key.data() + ikey.user_key.size() - timestamp_size_,
+                 timestamp_size_);
+    }
+
     if (!user_comparator_.Equal(ikey.user_key, saved_key_.GetUserKey())) {
       // No visible values for this key, even though FindValueForCurrentKey()
       // has seen some. This is possible if we're using a tailing iterator, and
@@ -861,7 +886,7 @@ bool DBIter::FindValueForCurrentKeyUsingSeek() {
       return true;
     }
 
-    if (IsVisible(ikey.sequence)) {
+    if (IsVisible(ikey.sequence, ts)) {
       break;
     }
 
@@ -1001,7 +1026,13 @@ bool DBIter::FindUserKeyBeforeSavedKey() {
     }
 
     assert(ikey.sequence != kMaxSequenceNumber);
-    if (!IsVisible(ikey.sequence)) {
+    assert(ikey.user_key.size() >= timestamp_size_);
+    Slice ts;
+    if (timestamp_size_ > 0) {
+      ts = Slice(ikey.user_key.data() + ikey.user_key.size() - timestamp_size_,
+                 timestamp_size_);
+    }
+    if (!IsVisible(ikey.sequence, ts)) {
       PERF_COUNTER_ADD(internal_recent_skipped_count, 1);
     } else {
       PERF_COUNTER_ADD(internal_key_skipped_count, 1);
@@ -1046,10 +1077,20 @@ bool DBIter::TooManyInternalKeysSkipped(bool increment) {
   return false;
 }
 
-bool DBIter::IsVisible(SequenceNumber sequence) {
+bool DBIter::IsVisible(SequenceNumber sequence, const Slice& ts) {
+  int cmp_ts = timestamp_ub_ != nullptr
+                   ? user_comparator_.CompareTimestamp(ts, *timestamp_ub_)
+                   : 0;
+  if (cmp_ts < 0) {
+    return false;
+  } else if (cmp_ts > 0) {
+    assert(sequence <= sequence_);
+    return true;
+  }
   if (read_callback_ == nullptr) {
     return sequence <= sequence_;
   } else {
+    // TODO(yanqin): support timestamp in read_callback_.
     return read_callback_->IsVisible(sequence);
   }
 }
@@ -1058,11 +1099,11 @@ void DBIter::SetSavedKeyToSeekTarget(const Slice& target) {
   is_key_seqnum_zero_ = false;
   SequenceNumber seq = sequence_;
   saved_key_.Clear();
-  saved_key_.SetInternalKey(target, seq);
+  saved_key_.SetInternalKey(target, seq, kValueTypeForSeek, timestamp_ub_);
 
   if (iterate_lower_bound_ != nullptr &&
-      user_comparator_.Compare(saved_key_.GetUserKey(), *iterate_lower_bound_) <
-          0) {
+      user_comparator_.CompareWithoutTimestamp(saved_key_.GetUserKey(),
+                                               *iterate_lower_bound_) < 0) {
     // Seek key is smaller than the lower bound.
     saved_key_.Clear();
     saved_key_.SetInternalKey(*iterate_lower_bound_, seq);
@@ -1202,7 +1243,7 @@ void DBIter::SeekForPrev(const Slice& target) {
 
 void DBIter::SeekToFirst() {
   if (iterate_lower_bound_ != nullptr) {
-    Seek(*iterate_lower_bound_);
+    Seek(StripTimestampFromUserKey(*iterate_lower_bound_, timestamp_size_));
     return;
   }
   PERF_CPU_TIMER_GUARD(iter_seek_cpu_nanos, env_);

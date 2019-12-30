@@ -108,6 +108,11 @@ class Iterator : public Cleanable {
   //   Get the user-key portion of the internal key at which the iteration
   //   stopped.
   virtual Status GetProperty(std::string prop_name, std::string* prop);
+
+  virtual Slice utimestamp() const {
+    assert(false);
+    return Slice();
+  }
 };
 
 // Return an empty iterator (yields nothing).

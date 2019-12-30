@@ -146,7 +146,8 @@ class DBIter final : public Iterator {
     if (start_seqnum_ > 0) {
       return saved_key_.GetInternalKey();
     } else {
-      return saved_key_.GetUserKey();
+      const Slice ukey_and_ts = saved_key_.GetUserKey();
+      return Slice(ukey_and_ts.data(), ukey_and_ts.size() - timestamp_size_);
     }
   }
   Slice value() const override {
@@ -168,6 +169,14 @@ class DBIter final : public Iterator {
       assert(!valid_);
       return status_;
     }
+  }
+  Slice utimestamp() const override {
+    assert(valid_);
+    assert(timestamp_size_ > 0);
+    const Slice ukey_and_ts = saved_key_.GetUserKey();
+    assert(timestamp_size_ < ukey_and_ts.size());
+    return Slice(ukey_and_ts.data() + ukey_and_ts.size() - timestamp_size_,
+                 timestamp_size_);
   }
   bool IsBlob() const {
     assert(valid_ && (allow_blob_ || !is_blob_));
@@ -221,7 +230,7 @@ class DBIter final : public Iterator {
   // entry can be found within the prefix.
   void PrevInternal(const Slice* prefix);
   bool TooManyInternalKeysSkipped(bool increment = true);
-  bool IsVisible(SequenceNumber sequence);
+  bool IsVisible(SequenceNumber sequence, const Slice& ts);
 
   // Temporarily pin the blocks that we encounter until ReleaseTempPinnedData()
   // is called
@@ -327,6 +336,8 @@ class DBIter final : public Iterator {
   // for diff snapshots we want the lower bound on the seqnum;
   // if this value > 0 iterator will return internal keys
   SequenceNumber start_seqnum_;
+  const Slice* const timestamp_ub_;
+  const size_t timestamp_size_;
 };
 
 // Return a new iterator that converts internal keys (yielded by
