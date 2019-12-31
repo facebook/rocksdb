@@ -88,6 +88,7 @@ class ComparatorJniCallback : public JniCallback, public Comparator {
     // used for synchronisation in findShortSuccessor method
     const std::unique_ptr<port::Mutex> mtx_short;
     std::unique_ptr<const char[]> m_name;
+    jclass m_jbytebuffer_clazz;  // TODO(AR) we could cache this globally for the entire VM if we switch more APIs to use ByteBuffer
     jmethodID m_jcompare_mid;
     jmethodID m_jshortest_mid;
     jmethodID m_jshort_mid;

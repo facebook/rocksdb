@@ -39,6 +39,10 @@ ComparatorJniCallback::ComparatorJniCallback(
     return;
   }
 
+  // cache the ByteBuffer class as we will reuse it many times for each callback
+  m_jbytebuffer_clazz =
+      static_cast<jclass>(env->NewGlobalRef(ByteBufferJni::getJClass(env)));
+
   m_jcompare_mid = AbstractComparatorJni::getCompareInternalMethodId(env);
   if (m_jcompare_mid == nullptr) {
     // exception thrown: NoSuchMethodException or OutOfMemoryError
@@ -62,35 +66,40 @@ ComparatorJniCallback::ComparatorJniCallback(
   // do we need reusable buffers?
   if (m_options->max_reused_buffer_size > -1) {
     m_jcompare_buf_a = env->NewGlobalRef(ByteBufferJni::construct(
-        env, m_options->direct_buffer, m_options->max_reused_buffer_size));
+        env, m_options->direct_buffer, m_options->max_reused_buffer_size,
+        m_jbytebuffer_clazz));
     if (m_jcompare_buf_a == nullptr) {
       // exception thrown: OutOfMemoryError
       return;
     }
 
     m_jcompare_buf_b = env->NewGlobalRef(ByteBufferJni::construct(
-        env, m_options->direct_buffer, m_options->max_reused_buffer_size));
+        env, m_options->direct_buffer, m_options->max_reused_buffer_size,
+        m_jbytebuffer_clazz));
     if (m_jcompare_buf_b == nullptr) {
       // exception thrown: OutOfMemoryError
       return;
     }
 
     m_jshortest_buf_start = env->NewGlobalRef(ByteBufferJni::construct(
-        env, m_options->direct_buffer, m_options->max_reused_buffer_size));
+        env, m_options->direct_buffer, m_options->max_reused_buffer_size,
+        m_jbytebuffer_clazz));
     if (m_jshortest_buf_start == nullptr) {
       // exception thrown: OutOfMemoryError
       return;
     }
 
     m_jshortest_buf_limit = env->NewGlobalRef(ByteBufferJni::construct(
-        env, m_options->direct_buffer, m_options->max_reused_buffer_size));
+        env, m_options->direct_buffer, m_options->max_reused_buffer_size,
+        m_jbytebuffer_clazz));
     if (m_jshortest_buf_limit == nullptr) {
       // exception thrown: OutOfMemoryError
       return;
     }
 
     m_jshort_buf_key = env->NewGlobalRef(ByteBufferJni::construct(
-        env, m_options->direct_buffer, m_options->max_reused_buffer_size));
+        env, m_options->direct_buffer, m_options->max_reused_buffer_size,
+        m_jbytebuffer_clazz));
     if (m_jshort_buf_key == nullptr) {
       // exception thrown: OutOfMemoryError
       return;
@@ -108,6 +117,8 @@ ComparatorJniCallback::~ComparatorJniCallback() {
   jboolean attached_thread = JNI_FALSE;
   JNIEnv* env = getJniEnv(&attached_thread);
   assert(env != nullptr);
+
+  env->DeleteGlobalRef(m_jbytebuffer_clazz);
 
   if (m_jcompare_buf_a != nullptr) {
     if (m_options->direct_buffer) {
@@ -296,7 +307,8 @@ void ComparatorJniCallback::FindShortestSeparator(
     }
 
     if (copy_from_non_direct) {
-      jbyteArray jarray = ByteBufferJni::array(env, j_start_buf);
+      jbyteArray jarray = ByteBufferJni::array(env, j_start_buf,
+          m_jbytebuffer_clazz);
       if (jarray == nullptr) {
         env->ExceptionDescribe();  // print out exception to stderr
         if (!reuse_jbuf_start) {
@@ -408,7 +420,8 @@ void ComparatorJniCallback::FindShortSuccessor(
     }
 
     if (copy_from_non_direct) {
-      jbyteArray jarray = ByteBufferJni::array(env, j_key_buf);
+      jbyteArray jarray = ByteBufferJni::array(env, j_key_buf,
+          m_jbytebuffer_clazz);
       if (jarray == nullptr) {
         env->ExceptionDescribe();  // print out exception to stderr
         if (!reuse_jbuf_key) {
@@ -465,7 +478,8 @@ jobject ComparatorJniCallback::ReuseBuffer(
     memcpy(buf, src.data(), src.size());
   } else {
     // copy into non-direct buffer
-    const jbyteArray jarray = ByteBufferJni::array(env, jreuse_buffer);
+    const jbyteArray jarray = ByteBufferJni::array(env, jreuse_buffer,
+        m_jbytebuffer_clazz);
     if (jarray == nullptr) {
       // exception occurred
       return nullptr;
@@ -484,7 +498,8 @@ jobject ComparatorJniCallback::ReuseBuffer(
 
 jobject ComparatorJniCallback::NewBuffer(JNIEnv* env, const Slice& src) const {
   // we need a new buffer
-  jobject jbuf = ByteBufferJni::constructWith(env, m_options->direct_buffer, src.data(), src.size());
+  jobject jbuf = ByteBufferJni::constructWith(env, m_options->direct_buffer,
+      src.data(), src.size(), m_jbytebuffer_clazz);
   if (jbuf == nullptr) {
     // exception occurred
     return nullptr;

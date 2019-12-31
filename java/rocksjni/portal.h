@@ -1227,13 +1227,16 @@ class ByteBufferJni : public JavaClass {
    * Get the Java Method: ByteBuffer#allocate
    *
    * @param env A pointer to the Java environment
+   * @param jbytebuffer_clazz if you have a reference to a ByteBuffer class, or nullptr
    *
    * @return The Java Method ID or nullptr if the class or method id could not
    *     be retieved
    */
-  static jmethodID getAllocateMethodId(JNIEnv* env) {
-    jclass jclazz = getJClass(env);
-    if(jclazz == nullptr) {
+  static jmethodID getAllocateMethodId(JNIEnv* env,
+      jclass jbytebuffer_clazz = nullptr) {
+    const jclass jclazz =
+        jbytebuffer_clazz == nullptr ? getJClass(env) : jbytebuffer_clazz;
+    if (jclazz == nullptr) {
       // exception occurred accessing class
       return nullptr;
     }
@@ -1252,8 +1255,10 @@ class ByteBufferJni : public JavaClass {
    * @return The Java Method ID or nullptr if the class or method id could not
    *     be retieved
    */
-  static jmethodID getArrayMethodId(JNIEnv* env) {
-    jclass jclazz = getJClass(env);
+  static jmethodID getArrayMethodId(JNIEnv* env,
+      jclass jbytebuffer_clazz = nullptr) {
+    const jclass jclazz =
+        jbytebuffer_clazz == nullptr ? getJClass(env) : jbytebuffer_clazz;
     if(jclazz == nullptr) {
       // exception occurred accessing class
       return nullptr;
@@ -1265,12 +1270,14 @@ class ByteBufferJni : public JavaClass {
   }
 
   static jobject construct(
-      JNIEnv* env, const bool direct, const size_t capacity) {
-    return constructWith(env, direct, nullptr, capacity);
+      JNIEnv* env, const bool direct, const size_t capacity,
+      jclass jbytebuffer_clazz = nullptr) {
+    return constructWith(env, direct, nullptr, capacity, jbytebuffer_clazz);
   }
 
   static jobject constructWith(
-      JNIEnv* env, const bool direct, const char* buf, const size_t capacity) {
+      JNIEnv* env, const bool direct, const char* buf, const size_t capacity, 
+      jclass jbytebuffer_clazz = nullptr) {
     if (direct) {
       bool allocated = false;
       if (buf == nullptr) {
@@ -1287,12 +1294,13 @@ class ByteBufferJni : public JavaClass {
       }
       return jbuf;
     } else {
-      const jclass jclazz = getJClass(env);
+      const jclass jclazz =
+        jbytebuffer_clazz == nullptr ? getJClass(env) : jbytebuffer_clazz;
       if (jclazz == nullptr) {
         // exception occurred accessing class
         return nullptr;
       }
-      const jmethodID jmid_allocate = getAllocateMethodId(env);
+      const jmethodID jmid_allocate = getAllocateMethodId(env, jbytebuffer_clazz);
       if (jmid_allocate == nullptr) {
         // exception occurred accessing class, or NoSuchMethodException or OutOfMemoryError
         return nullptr;
@@ -1306,7 +1314,7 @@ class ByteBufferJni : public JavaClass {
 
       // set buffer data?
       if (buf != nullptr) {
-        jbyteArray jarray = array(env, jbuf);
+        jbyteArray jarray = array(env, jbuf, jbytebuffer_clazz);
         if (jarray == nullptr) {
           // exception occurred
           env->DeleteLocalRef(jbuf);
@@ -1327,8 +1335,9 @@ class ByteBufferJni : public JavaClass {
     }
   }
 
-  static jbyteArray array(JNIEnv* env, const jobject& jbyte_buffer) {
-    const jmethodID mid = getArrayMethodId(env);
+  static jbyteArray array(JNIEnv* env, const jobject& jbyte_buffer,
+      jclass jbytebuffer_clazz = nullptr) {
+    const jmethodID mid = getArrayMethodId(env, jbytebuffer_clazz);
     if (mid == nullptr) {
       // exception occurred accessing class, or NoSuchMethodException or OutOfMemoryError
       return nullptr;
