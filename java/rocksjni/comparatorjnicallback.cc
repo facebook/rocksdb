@@ -208,6 +208,12 @@ int ComparatorJniCallback::Compare(const Slice& a, const Slice& b) const {
       jcompare_buf_a, reuse_jbuf_a ? a.size() : -1,
       jcompare_buf_b, reuse_jbuf_b ? b.size() : -1);
 
+  if (env->ExceptionCheck()) {
+    // exception thrown from CallIntMethod
+    env->ExceptionDescribe(); // print out exception to stderr
+    result = 0; // we could not get a result from java callback so use 0
+  }
+
   if (!reuse_jbuf_a) {
     DeleteBuffer(env, jcompare_buf_a);
   }
@@ -217,12 +223,6 @@ int ComparatorJniCallback::Compare(const Slice& a, const Slice& b) const {
 
   if (reuse_jbuf_a || reuse_jbuf_b) {
     mtx_compare.get()->Unlock();
-  }
-
-  if(env->ExceptionCheck()) {
-    // exception thrown from CallIntMethod
-    env->ExceptionDescribe(); // print out exception to stderr
-    result = 0; // we could not get a result from java callback so use 0
   }
 
   releaseJniEnv(attached_thread);
@@ -276,8 +276,12 @@ void ComparatorJniCallback::FindShortestSeparator(
       j_start_buf, reuse_jbuf_start ? start->length() : -1,
       j_limit_buf, reuse_jbuf_limit ? limit.size() : -1);
 
-  // if start buffer has changed in Java, update `start` with the result
-  if (static_cast<size_t>(jstart_len) != start->length()) {
+  if(env->ExceptionCheck()) {
+    // exception thrown from CallIntMethod
+    env->ExceptionDescribe(); // print out exception to stderr
+
+  } else if (static_cast<size_t>(jstart_len) != start->length()) {
+    // start buffer has changed in Java, so update `start` with the result
     bool copy_from_non_direct = false;
     if (reuse_jbuf_start) {
         // reused a buffer
@@ -350,13 +354,6 @@ void ComparatorJniCallback::FindShortestSeparator(
     mtx_shortest.get()->Unlock();
   }
 
-  if(env->ExceptionCheck()) {
-    // exception thrown from CallObjectMethod
-    env->ExceptionDescribe();  // print out exception to stderr
-    releaseJniEnv(attached_thread);
-    return;
-  }
-
   releaseJniEnv(attached_thread);
 }
 
@@ -392,8 +389,13 @@ void ComparatorJniCallback::FindShortSuccessor(
   jint jkey_len = env->CallIntMethod(m_jcallback_obj, m_jshort_mid,
       j_key_buf, reuse_jbuf_key ? key->length() : -1);
 
-  // if key buffer has changed in Java, update `key` with the result
-  if (static_cast<size_t>(jkey_len) != key->length()) {
+  if (env->ExceptionCheck()) {
+    // exception thrown from CallObjectMethod
+    env->ExceptionDescribe();  // print out exception to stderr
+    releaseJniEnv(attached_thread);
+
+  } else if (static_cast<size_t>(jkey_len) != key->length()) {
+    // key buffer has changed in Java, so update `key` with the result
     bool copy_from_non_direct = false;
     if (reuse_jbuf_key) {
         // reused a buffer
@@ -452,13 +454,6 @@ void ComparatorJniCallback::FindShortSuccessor(
 
   if (reuse_jbuf_key) {
     mtx_short.get()->Unlock();
-  }
-
-  if(env->ExceptionCheck()) {
-    // exception thrown from CallObjectMethod
-    env->ExceptionDescribe();  // print out exception to stderr
-    releaseJniEnv(attached_thread);
-    return;
   }
 
   releaseJniEnv(attached_thread);
