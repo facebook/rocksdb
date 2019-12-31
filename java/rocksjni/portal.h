@@ -1549,7 +1549,7 @@ class JniUtil {
 
       JNIEnv *env;
       const jint env_rs = jvm->GetEnv(reinterpret_cast<void**>(&env),
-          JNI_VERSION_1_2);
+          JNI_VERSION_1_6);
 
       if(env_rs == JNI_OK) {
         // current thread is already attached, return the JNIEnv
@@ -1567,8 +1567,8 @@ class JniUtil {
           return nullptr;
         }
       } else if(env_rs == JNI_EVERSION) {
-        // error, JDK does not support JNI_VERSION_1_2+
-        std::cerr << "JniUtil::getJniEnv - Fatal: JDK does not support JNI_VERSION_1_2" << std::endl;
+        // error, JDK does not support JNI_VERSION_1_6+
+        std::cerr << "JniUtil::getJniEnv - Fatal: JDK does not support JNI_VERSION_1_6" << std::endl;
         return nullptr;
       } else {
         std::cerr << "JniUtil::getJniEnv - Fatal: Unknown error: env_rs=" << env_rs << std::endl;
