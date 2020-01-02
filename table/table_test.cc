@@ -1244,7 +1244,8 @@ class FileChecksumHelper {
         rocksdb::test::GetStringSinkFromLegacyWriter(file_writer_.get());
     file_reader_.reset(test::GetRandomAccessFileReader(
         new test::StringSource(ss_rw->contents())));
-    char scratch[2048];
+    char* scratch = nullptr;
+    scratch = new char[2048];
     Slice result;
     uint64_t offset = 0;
     uint32_t tmp_checksum = 0;
@@ -1268,6 +1269,7 @@ class FileChecksumHelper {
         return s;
       }
     }
+    delete scratch;
     EXPECT_EQ(offset, table_builder_->FileSize());
     *checksum = tmp_checksum;
     return Status::OK();
