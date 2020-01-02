@@ -1222,7 +1222,7 @@ class FileChecksumHelper {
     }
     Status s = table_builder_->Finish();
     file_writer_->Flush();
-    EXPECT_TRUE(s.ok()) << s.ToString();
+    EXPECT_TRUE(s.ok());
 
     EXPECT_EQ(sink_->contents().size(), table_builder_->FileSize());
     return s;
@@ -1270,7 +1270,7 @@ class FileChecksumHelper {
       }
     }
     delete scratch;
-    EXPECT_EQ(offset, table_builder_->FileSize());
+    EXPECT_EQ(offset, static_cast<uint64_t>(table_builder_->FileSize()));
     *checksum = tmp_checksum;
     return Status::OK();
   }
@@ -3198,7 +3198,8 @@ TEST_P(BlockBasedTableTest, NoFileChecksum) {
   f.AddKVtoKVMap(1000);
   f.WriteKVAndFlushTable();
   ASSERT_STREQ(f.GetFileChecksumName(), "None");
-  EXPECT_EQ(f.GetFileChecksum(), 0);
+  uint32_t exp_checksum = 0;
+  EXPECT_EQ(f.GetFileChecksum(), exp_checksum);
 }
 
 TEST_P(BlockBasedTableTest, Crc32FileChecksum) {
@@ -3334,7 +3335,8 @@ TEST_F(PlainTableTest, NoFileChecksum) {
   f.AddKVtoKVMap(1000);
   f.WriteKVAndFlushTable();
   ASSERT_STREQ(f.GetFileChecksumName(), "None");
-  EXPECT_EQ(f.GetFileChecksum(), 0);
+  uint32_t exp_checksum = 0;
+  EXPECT_EQ(f.GetFileChecksum(), exp_checksum);
 }
 
 TEST_F(PlainTableTest, Crc32FileChecksum) {
