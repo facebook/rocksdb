@@ -130,7 +130,8 @@ class FileChecksumTestHelper {
     if (!s.ok()) {
       return s;
     }
-    char scratch[2048];
+    char* scratch = nullptr;
+    scratch = new char[2048];
     bool first_read = true;
     Slice result;
     SstFileChecksum* file_checksum_cal = options_.sst_file_checksum.get();
@@ -158,6 +159,7 @@ class FileChecksumTestHelper {
         }
       }
     }
+    delete scratch;
 
     auto it = checksum_map.find(file_meta.file_number);
     if (it == checksum_map.end()) {

@@ -28,8 +28,8 @@ constexpr uint64_t kInvalidBlobFileNumber = 0;
 constexpr uint64_t kUnknownOldestAncesterTime = 0;
 constexpr uint64_t kUnknownFileCreationTime = 0;
 
-const uint32_t kUnknownFileChecksum = 0;
-const std::string kUnknownFileChecksumName = "None";
+constexpr uint32_t kUnknownFileChecksum = 0;
+static const std::string kUnknownFileChecksumName = "None";
 
 extern uint64_t PackFileNumberAndPathId(uint64_t number, uint64_t path_id);
 
