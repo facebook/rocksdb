@@ -1946,6 +1946,7 @@ void StressTest::Open() {
       }
       s = TransactionDB::Open(options_, txn_db_options, FLAGS_db,
                               cf_descriptors, &column_families_, &txn_db_);
+      assert(s.ok());
       db_ = txn_db_;
       // after a crash, rollback to commit recovered transactions
       std::vector<Transaction*> trans;
