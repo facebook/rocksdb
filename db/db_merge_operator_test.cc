@@ -150,6 +150,8 @@ TEST_F(DBMergeOperatorTest, MergeErrorOnWrite) {
   options.create_if_missing = true;
   options.merge_operator.reset(new TestPutOperator());
   options.max_successive_merges = 3;
+  // allow_concurrent_memtable_write is incompatible with max_successive_merges
+  options.allow_concurrent_memtable_write = false;
   options.env = env_;
   Reopen(options);
   ASSERT_OK(Merge("k1", "v1"));

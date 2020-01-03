@@ -351,7 +351,8 @@ void RandomInitCFOptions(ColumnFamilyOptions* cf_opt, DBOptions& db_options,
   // size_t options
   cf_opt->arena_block_size = rnd->Uniform(10000);
   cf_opt->inplace_update_num_locks = rnd->Uniform(10000);
-  cf_opt->max_successive_merges = rnd->Uniform(10000);
+  cf_opt->max_successive_merges =
+      db_options.allow_concurrent_memtable_write ? 0 : rnd->Uniform(10000);
   cf_opt->memtable_huge_page_size = rnd->Uniform(10000);
   cf_opt->write_buffer_size = rnd->Uniform(10000);
 
