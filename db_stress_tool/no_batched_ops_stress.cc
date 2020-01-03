@@ -147,6 +147,7 @@ class NonBatchedOpsStressTest : public StressTest {
       thread->stats.AddGets(1, 0);
     } else {
       // errors case
+      fprintf(stderr, "TestGet error: %s\n", s.ToString().c_str());
       thread->stats.AddErrors(1);
     }
     return s;
@@ -243,6 +244,7 @@ class NonBatchedOpsStressTest : public StressTest {
         thread->stats.AddGets(1, 0);
       } else {
         // errors case
+        fprintf(stderr, "MultiGet error: %s\n", s.ToString().c_str());
         thread->stats.AddErrors(1);
       }
     }
@@ -277,6 +279,7 @@ class NonBatchedOpsStressTest : public StressTest {
     if (iter->status().ok()) {
       thread->stats.AddPrefixes(1, count);
     } else {
+      fprintf(stderr, "TestPrefixScan error: %s\n", s.ToString().c_str());
       thread->stats.AddErrors(1);
     }
     delete iter;

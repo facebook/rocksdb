@@ -955,6 +955,7 @@ Status StressTest::TestIterate(ThreadState* thread,
     if (s.ok()) {
       thread->stats.AddIterations(1);
     } else {
+      fprintf(stderr, "TestIterate error: %s\n", s.ToString().c_str());
       thread->stats.AddErrors(1);
       break;
     }

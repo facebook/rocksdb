@@ -184,6 +184,7 @@ class CfConsistencyStressTest : public StressTest {
       db_->ReleaseSnapshot(snapshot);
     }
     if (!is_consistent) {
+      fprintf(stderr, "TestGet error: is_consistent is false\n");
       thread->stats.AddErrors(1);
       // Fail fast to preserve the DB state.
       thread->shared->SetVerificationFailure();
@@ -192,6 +193,7 @@ class CfConsistencyStressTest : public StressTest {
     } else if (s.IsNotFound()) {
       thread->stats.AddGets(1, 0);
     } else {
+      fprintf(stderr, "TestGet error: %s\n", s.ToString().c_str());
       thread->stats.AddErrors(1);
     }
     return s;
@@ -225,6 +227,7 @@ class CfConsistencyStressTest : public StressTest {
         thread->stats.AddGets(1, 0);
       } else {
         // errors case
+        fprintf(stderr, "MultiGet error: %s\n", s.ToString().c_str());
         thread->stats.AddErrors(1);
       }
     }
@@ -263,6 +266,7 @@ class CfConsistencyStressTest : public StressTest {
     if (s.ok()) {
       thread->stats.AddPrefixes(1, count);
     } else {
+      fprintf(stderr, "TestPrefixScan error: %s\n", s.ToString().c_str());
       thread->stats.AddErrors(1);
     }
     delete iter;
