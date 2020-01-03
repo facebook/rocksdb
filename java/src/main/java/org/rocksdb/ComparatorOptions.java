@@ -18,32 +18,32 @@ public class ComparatorOptions extends RocksObject {
   }
 
   /**
-   * Use adaptive mutex, which spins in the user space before resorting
-   * to kernel. This could reduce context switch when the mutex is not
-   * heavily contended. However, if the mutex is hot, we could end up
-   * wasting spin time. Only used if max_buffer_size &gt; 0.
-   * Default: false
+   * Get the synchronisation type used to guard the reused buffers.
+   * Only used if {@link #maxReusedBufferSize()} &gt; 0
+   * Default: {@link ReusedSynchronisationType#ADAPTIVE_MUTEX}
    *
-   * @return true if adaptive mutex is used.
+   * @return the synchronisation type
    */
-  public boolean useAdaptiveMutex() {
+  public ReusedSynchronisationType reusedSynchronisationType() {
     assert(isOwningHandle());
-    return useAdaptiveMutex(nativeHandle_);
+    return ReusedSynchronisationType.getReusedSynchronisationType(
+        reusedSynchronisationType(nativeHandle_));
   }
 
   /**
-   * Use adaptive mutex, which spins in the user space before resorting
-   * to kernel. This could reduce context switch when the mutex is not
-   * heavily contended. However, if the mutex is hot, we could end up
-   * wasting spin time. Only used if max_buffer_size &gt; 0.
-   * Default: false
+   * Set the synchronisation type used to guard the reused buffers.
+   * Only used if {@link #maxReusedBufferSize()} &gt; 0
+   * Default: {@link ReusedSynchronisationType#ADAPTIVE_MUTEX}
    *
-   * @param useAdaptiveMutex true if adaptive mutex is used.
+   * @param reusedSynchronisationType the synchronisation type
+   *
    * @return the reference to the current comparator options.
    */
-  public ComparatorOptions setUseAdaptiveMutex(final boolean useAdaptiveMutex) {
+  public ComparatorOptions setReusedSynchronisationType(
+      final ReusedSynchronisationType reusedSynchronisationType) {
     assert (isOwningHandle());
-    setUseAdaptiveMutex(nativeHandle_, useAdaptiveMutex);
+    setReusedSynchronisationType(nativeHandle_,
+        reusedSynchronisationType.getValue());
     return this;
   }
 
@@ -120,9 +120,9 @@ public class ComparatorOptions extends RocksObject {
   }
 
   private native static long newComparatorOptions();
-  private native boolean useAdaptiveMutex(final long handle);
-  private native void setUseAdaptiveMutex(final long handle,
-      final boolean useAdaptiveMutex);
+  private native byte reusedSynchronisationType(final long handle);
+  private native void setReusedSynchronisationType(final long handle,
+      final byte reusedSynchronisationType);
   private native boolean useDirectBuffer(final long handle);
   private native void setUseDirectBuffer(final long handle,
       final boolean useDirectBuffer);

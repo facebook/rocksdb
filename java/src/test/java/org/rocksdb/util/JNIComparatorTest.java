@@ -23,10 +23,10 @@ public class JNIComparatorTest {
   @Parameters(name = "{0}")
   public static Iterable<Object[]> parameters() {
     return Arrays.asList(new Object[][] {
-        { "bytewise-nondirect", BuiltinComparator.BYTEWISE_COMPARATOR, false },
-        { "bytewise-direct", BuiltinComparator.BYTEWISE_COMPARATOR, true },
-        { "reversebytewise-nondirect", BuiltinComparator.REVERSE_BYTEWISE_COMPARATOR, false },
-        { "reversebytewise-direct", BuiltinComparator.REVERSE_BYTEWISE_COMPARATOR, true },
+        { "bytewise_non-direct", BuiltinComparator.BYTEWISE_COMPARATOR, false },
+        { "bytewise_direct", BuiltinComparator.BYTEWISE_COMPARATOR, true },
+        { "reverse-bytewise_non-direct", BuiltinComparator.REVERSE_BYTEWISE_COMPARATOR, false },
+        { "reverse-bytewise_direct", BuiltinComparator.REVERSE_BYTEWISE_COMPARATOR, true },
     });
   }
 

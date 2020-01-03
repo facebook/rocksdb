@@ -17,13 +17,20 @@ public class ComparatorOptionsTest {
       new RocksNativeLibraryResource();
 
   @Test
-  public void useAdaptiveMutex() {
+  public void reusedSynchronisationType() {
     try(final ComparatorOptions copt = new ComparatorOptions()) {
-      copt.setUseAdaptiveMutex(true);
-      assertThat(copt.useAdaptiveMutex()).isTrue();
 
-      copt.setUseAdaptiveMutex(false);
-      assertThat(copt.useAdaptiveMutex()).isFalse();
+      copt.setReusedSynchronisationType(ReusedSynchronisationType.MUTEX);
+      assertThat(copt.reusedSynchronisationType())
+          .isEqualTo(ReusedSynchronisationType.MUTEX);
+
+      copt.setReusedSynchronisationType(ReusedSynchronisationType.ADAPTIVE_MUTEX);
+      assertThat(copt.reusedSynchronisationType())
+          .isEqualTo(ReusedSynchronisationType.ADAPTIVE_MUTEX);
+
+      copt.setReusedSynchronisationType(ReusedSynchronisationType.THREAD_LOCAL);
+      assertThat(copt.reusedSynchronisationType())
+          .isEqualTo(ReusedSynchronisationType.THREAD_LOCAL);
     }
   }
 

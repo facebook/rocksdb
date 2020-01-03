@@ -6857,24 +6857,28 @@ jlong Java_org_rocksdb_ComparatorOptions_newComparatorOptions(
 
 /*
  * Class:     org_rocksdb_ComparatorOptions
- * Method:    useAdaptiveMutex
- * Signature: (J)Z
+ * Method:    reusedSynchronisationType
+ * Signature: (J)B
  */
-jboolean Java_org_rocksdb_ComparatorOptions_useAdaptiveMutex(
-    JNIEnv*, jobject, jlong jhandle) {
-  return reinterpret_cast<rocksdb::ComparatorJniCallbackOptions*>(jhandle)
-      ->use_adaptive_mutex;
+jbyte Java_org_rocksdb_ComparatorOptions_reusedSynchronisationType(
+    JNIEnv *, jobject, jlong jhandle) {
+  auto* comparator_opt =
+      reinterpret_cast<rocksdb::ComparatorJniCallbackOptions*>(jhandle);
+  return rocksdb::ReusedSynchronisationTypeJni::toJavaReusedSynchronisationType(
+      comparator_opt->reused_synchronisation_type);
 }
 
 /*
  * Class:     org_rocksdb_ComparatorOptions
- * Method:    setUseAdaptiveMutex
- * Signature: (JZ)V
+ * Method:    setReusedSynchronisationType
+ * Signature: (JB)V
  */
-void Java_org_rocksdb_ComparatorOptions_setUseAdaptiveMutex(
-    JNIEnv*, jobject, jlong jhandle, jboolean juse_adaptive_mutex) {
-  reinterpret_cast<rocksdb::ComparatorJniCallbackOptions*>(jhandle)
-      ->use_adaptive_mutex = static_cast<bool>(juse_adaptive_mutex);
+void Java_org_rocksdb_ComparatorOptions_setReusedSynchronisationType(
+    JNIEnv*, jobject, jlong jhandle, jbyte jreused_synhcronisation_type) {
+  auto* comparator_opt =
+      reinterpret_cast<rocksdb::ComparatorJniCallbackOptions*>(jhandle);
+  comparator_opt->reused_synchronisation_type =
+      rocksdb::ReusedSynchronisationTypeJni::toCppReusedSynchronisationType(jreused_synhcronisation_type);
 }
 
 /*

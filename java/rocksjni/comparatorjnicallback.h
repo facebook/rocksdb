@@ -16,16 +16,37 @@
 #include "rocksdb/comparator.h"
 #include "rocksdb/slice.h"
 #include "port/port.h"
+#include "util/thread_local.h"
 
 namespace rocksdb {
 
+enum ReusedSynchronisationType {
+  /**
+   * Standard mutex.
+   */
+  MUTEX,
+
+  /**
+   * Use adaptive mutex, which spins in the user space before resorting
+   * to kernel. This could reduce context switch when the mutex is not
+   * heavily contended. However, if the mutex is hot, we could end up
+   * wasting spin time.
+   */
+  ADAPTIVE_MUTEX,
+
+  /**
+   * There is a reused buffer per-thread.
+   */
+  THREAD_LOCAL
+};
+
 struct ComparatorJniCallbackOptions {
-  // Use adaptive mutex, which spins in the user space before resorting
-  // to kernel. This could reduce context switch when the mutex is not
-  // heavily contended. However, if the mutex is hot, we could end up
-  // wasting spin time. Only used if max_buffer_size > 0.
-  // Default: false
-  bool use_adaptive_mutex = false;
+
+  // Set the synchronisation type used to guard the reused buffers.
+  // Only used if max_reused_buffer_size > 0.
+  // Default: ADAPTIVE_MUTEX
+  ReusedSynchronisationType reused_synchronisation_type =
+      ReusedSynchronisationType::ADAPTIVE_MUTEX;
 
   // Indicates if a direct byte buffer (i.e. outside of the normal
   // garbage-collected heap) is used for the callbacks to Java,
@@ -43,9 +64,6 @@ struct ComparatorJniCallbackOptions {
   // allocated just for that callback. -1 to disable.
   // Default: 64 bytes
   int32_t max_reused_buffer_size = 64;
-
-  ComparatorJniCallbackOptions() : use_adaptive_mutex(false) {
-  }
 };
 
 /**
@@ -77,16 +95,29 @@ class ComparatorJniCallback : public JniCallback, public Comparator {
     const ComparatorJniCallbackOptions* m_options;
 
  private:
+    struct ThreadLocalBuf {
+      ThreadLocalBuf(JavaVM* _jvm, bool _direct_buffer, jobject _jbuf) :
+          jvm(_jvm), direct_buffer(_direct_buffer), jbuf(_jbuf) {}
+      JavaVM* jvm;
+      bool direct_buffer;
+      jobject jbuf;
+    };
+    inline void MaybeLockForReuse(const std::unique_ptr<port::Mutex>& mutex,
+        const bool cond) const;
+    inline void MaybeUnlockForReuse(const std::unique_ptr<port::Mutex>& mutex,
+        const bool cond) const;
+    jobject GetBuffer(JNIEnv* env, const Slice& src, bool reuse_buffer,
+        ThreadLocalPtr* tl_buf, jobject jreuse_buffer) const;
     jobject ReuseBuffer(JNIEnv* env, const Slice& src,
         jobject jreuse_buffer) const;
     jobject NewBuffer(JNIEnv* env, const Slice& src) const;
     void DeleteBuffer(JNIEnv* env, jobject jbuffer) const;
     // used for synchronisation in compare method
-    const std::unique_ptr<port::Mutex> mtx_compare;
+    std::unique_ptr<port::Mutex> mtx_compare;
     // used for synchronisation in findShortestSeparator method
-    const std::unique_ptr<port::Mutex> mtx_shortest;
+    std::unique_ptr<port::Mutex> mtx_shortest;
     // used for synchronisation in findShortSuccessor method
-    const std::unique_ptr<port::Mutex> mtx_short;
+    std::unique_ptr<port::Mutex> mtx_short;
     std::unique_ptr<const char[]> m_name;
     jclass m_jbytebuffer_clazz;  // TODO(AR) we could cache this globally for the entire VM if we switch more APIs to use ByteBuffer
     jmethodID m_jcompare_mid;
@@ -97,6 +128,8 @@ class ComparatorJniCallback : public JniCallback, public Comparator {
     jobject m_jshortest_buf_start;
     jobject m_jshortest_buf_limit;
     jobject m_jshort_buf_key;
+    ThreadLocalPtr* m_tl_buf_a;
+    ThreadLocalPtr* m_tl_buf_b;
 };
 }  // namespace rocksdb
 

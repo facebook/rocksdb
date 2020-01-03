@@ -179,6 +179,7 @@ set(JAVA_MAIN_CLASSES
   src/main/java/org/rocksdb/ReadTier.java
   src/main/java/org/rocksdb/RemoveEmptyValueCompactionFilter.java
   src/main/java/org/rocksdb/RestoreOptions.java
+  src/main/java/org/rocksdb/ReusedSynchronisationType.java
   src/main/java/org/rocksdb/RocksCallbackObject.java
   src/main/java/org/rocksdb/RocksDBException.java
   src/main/java/org/rocksdb/RocksDB.java

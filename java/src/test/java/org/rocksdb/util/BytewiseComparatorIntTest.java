@@ -69,12 +69,14 @@ public class BytewiseComparatorIntTest {
   @Parameters(name = "{0}")
   public static Iterable<Object[]> parameters() {
     return Arrays.asList(new Object[][] {
-        { "nondirect-reused64-nonadaptive", false, 64, false },
-        { "direct-reused64-nonadaptive", true, 64, false },
-        { "nondirect-reused64-adaptive", false, 64, true },
-        { "direct-reused64-adaptive", true, 64, true },
-        { "nondirect-noreuse", false, -1, false },
-        { "direct-noreuse", true, -1, false }
+        { "non-direct_reused64_mutex", false, 64, ReusedSynchronisationType.MUTEX },
+        { "direct_reused64_mutex", true, 64, ReusedSynchronisationType.MUTEX },
+        { "non-direct_reused64_adaptive-mutex", false, 64, ReusedSynchronisationType.ADAPTIVE_MUTEX },
+        { "direct_reused64_adaptive-mutex", true, 64, ReusedSynchronisationType.ADAPTIVE_MUTEX },
+        { "non-direct_reused64_thread-local", false, 64, ReusedSynchronisationType.THREAD_LOCAL },
+        { "direct_reused64_thread-local", true, 64, ReusedSynchronisationType.THREAD_LOCAL },
+        { "non-direct_noreuse", false, -1, null },
+        { "direct_noreuse", true, -1, null }
     });
   }
 
@@ -88,7 +90,7 @@ public class BytewiseComparatorIntTest {
   public int maxReusedBufferSize;
 
   @Parameter(3)
-  public boolean useAdaptiveMutex;
+  public ReusedSynchronisationType reusedSynchronisationType;
 
   @ClassRule
   public static final RocksNativeLibraryResource ROCKS_NATIVE_LIBRARY_RESOURCE =
@@ -103,7 +105,8 @@ public class BytewiseComparatorIntTest {
     try (final ComparatorOptions options = new ComparatorOptions()
         .setUseDirectBuffer(useDirectBuffer)
         .setMaxReusedBufferSize(maxReusedBufferSize)
-        .setUseAdaptiveMutex(useAdaptiveMutex);
+        // if reusedSynchronisationType == null we assume that maxReusedBufferSize <= 0 and so we just set ADAPTIVE_MUTEX, even though it won't be used
+        .setReusedSynchronisationType(reusedSynchronisationType == null ? ReusedSynchronisationType.ADAPTIVE_MUTEX : reusedSynchronisationType);
         final BytewiseComparator comparator = new BytewiseComparator(options)) {
 
       // test the round-tripability of keys written and read with the Comparator
@@ -117,7 +120,8 @@ public class BytewiseComparatorIntTest {
     try (final ComparatorOptions options = new ComparatorOptions()
         .setUseDirectBuffer(useDirectBuffer)
         .setMaxReusedBufferSize(maxReusedBufferSize)
-        .setUseAdaptiveMutex(useAdaptiveMutex);
+        // if reusedSynchronisationType == null we assume that maxReusedBufferSize <= 0 and so we just set ADAPTIVE_MUTEX, even though it won't be used
+        .setReusedSynchronisationType(reusedSynchronisationType == null ? ReusedSynchronisationType.ADAPTIVE_MUTEX : reusedSynchronisationType);
       final BytewiseComparator comparator = new BytewiseComparator(options)) {
 
       // test the round-tripability of keys written and read with the Comparator

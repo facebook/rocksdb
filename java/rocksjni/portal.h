@@ -7253,5 +7253,42 @@ class WalProcessingOptionJni {
    }
  }
 };
+
+// The portal class for org.rocksdb.ReusedSynchronisationType
+class ReusedSynchronisationTypeJni {
+ public:
+  // Returns the equivalent org.rocksdb.ReusedSynchronisationType for the provided
+  // C++ rocksdb::ReusedSynchronisationType enum
+  static jbyte toJavaReusedSynchronisationType(
+      const rocksdb::ReusedSynchronisationType& reused_synchronisation_type) {
+    switch(reused_synchronisation_type) {
+      case rocksdb::ReusedSynchronisationType::MUTEX:
+        return 0x0;
+      case rocksdb::ReusedSynchronisationType::ADAPTIVE_MUTEX:
+        return 0x1;
+      case rocksdb::ReusedSynchronisationType::THREAD_LOCAL:
+        return 0x2;
+      default:
+        return 0x7F;  // undefined
+    }
+  }
+
+  // Returns the equivalent C++ rocksdb::ReusedSynchronisationType enum for the
+  // provided Java org.rocksdb.ReusedSynchronisationType
+  static rocksdb::ReusedSynchronisationType toCppReusedSynchronisationType(
+      jbyte reused_synchronisation_type) {
+    switch(reused_synchronisation_type) {
+      case 0x0:
+        return rocksdb::ReusedSynchronisationType::MUTEX;
+      case 0x1:
+        return rocksdb::ReusedSynchronisationType::ADAPTIVE_MUTEX;
+      case 0x2:
+        return rocksdb::ReusedSynchronisationType::THREAD_LOCAL;
+      default:
+        // undefined/default
+        return rocksdb::ReusedSynchronisationType::ADAPTIVE_MUTEX;
+    }
+  }
+};
 }  // namespace rocksdb
 #endif  // JAVA_ROCKSJNI_PORTAL_H_
