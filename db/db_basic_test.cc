@@ -2933,8 +2933,7 @@ TEST_P(DBBasicTestWithTimestampWithParam, PutDeleteGet) {
     wopts.timestamp = &ts;
     for (size_t i = 0; i != kNumL0Files; ++i) {
       for (int j = 0; j != kNumKeysPerFile; ++j) {
-        Slice key = Key(j);
-        ASSERT_OK(db_->Put(wopts, key, "value" + std::to_string(i)));
+        ASSERT_OK(db_->Put(wopts, Key(j), "value" + std::to_string(i)));
       }
       ASSERT_OK(db_->Flush(FlushOptions()));
     }
@@ -2943,7 +2942,8 @@ TEST_P(DBBasicTestWithTimestampWithParam, PutDeleteGet) {
     ts = EncodeTimestamp(3, 0, &ts_str);
     wopts.timestamp = &ts;
     for (int i = 0; i != kNumKeysPerFile; ++i) {
-      Slice key = Key(i);
+      std::string key_str = Key(i);
+      Slice key(key_str);
       if ((i % 3) == 0) {
         ASSERT_OK(db_->Delete(wopts, key));
       } else {
@@ -2955,7 +2955,8 @@ TEST_P(DBBasicTestWithTimestampWithParam, PutDeleteGet) {
     ts = EncodeTimestamp(5, 0, &ts_str);
     wopts.timestamp = &ts;
     for (int i = 0; i != kNumKeysPerFile; ++i) {
-      Slice key = Key(i);
+      std::string key_str = Key(i);
+      Slice key(key_str);
       if ((i % 3) == 1) {
         ASSERT_OK(db_->Delete(wopts, key));
       } else if ((i % 3) == 2) {
@@ -2968,9 +2969,8 @@ TEST_P(DBBasicTestWithTimestampWithParam, PutDeleteGet) {
     ReadOptions ropts;
     ropts.timestamp = &ts;
     for (uint64_t i = 0; i != static_cast<uint64_t>(kNumKeysPerFile); ++i) {
-      Slice key = Key(i);
       std::string value;
-      Status s = db_->Get(ropts, key, &value);
+      Status s = db_->Get(ropts, Key(i), &value);
       if ((i % 3) == 2) {
         ASSERT_OK(s);
         ASSERT_EQ("new_value_2", value);
