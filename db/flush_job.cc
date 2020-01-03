@@ -249,7 +249,7 @@ Status FlushJob::Run(LogsWithPrepTracker* prep_tracker,
   }
   RecordFlushIOStats();
 
-  auto stream = event_logger_->LogToBuffer(log_buffer_);
+  auto stream = event_logger_->LogToBuffer(log_buffer_, 1024);
   stream << "job" << job_context_->job_id << "event"
          << "flush_finished";
   stream << "output_compression"
