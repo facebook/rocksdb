@@ -242,6 +242,9 @@ class NonBatchedOpsStressTest : public StressTest {
       } else if (s.IsNotFound()) {
         // not found case
         thread->stats.AddGets(1, 0);
+      } else if (s.IsMergeInProgress() && use_txn) {
+        // With txn this is sometimes expected.
+        thread->stats.AddGets(1, 1);
       } else {
         // errors case
         fprintf(stderr, "MultiGet error: %s\n", s.ToString().c_str());
