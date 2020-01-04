@@ -183,9 +183,11 @@ class EventLogger {
 
   explicit EventLogger(Logger* logger) : logger_(logger) {}
   EventLoggerStream Log() { return EventLoggerStream(logger_); }
-  EventLoggerStream LogToBuffer(
-      LogBuffer* log_buffer,
-      const size_t max_log_size = LogBuffer::kDefaultMaxLogSize) {
+  EventLoggerStream LogToBuffer(LogBuffer* log_buffer) {
+    return EventLoggerStream(log_buffer, LogBuffer::kDefaultMaxLogSize);
+  }
+  EventLoggerStream LogToBuffer(LogBuffer* log_buffer,
+                                const size_t max_log_size) {
     return EventLoggerStream(log_buffer, max_log_size);
   }
   void Log(const JSONWriter& jwriter);
