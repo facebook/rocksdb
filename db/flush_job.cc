@@ -249,6 +249,7 @@ Status FlushJob::Run(LogsWithPrepTracker* prep_tracker,
   }
   RecordFlushIOStats();
 
+  // When measure_io_stats_ is true, the default 512 bytes is not enough.
   auto stream = event_logger_->LogToBuffer(log_buffer_, 1024);
   stream << "job" << job_context_->job_id << "event"
          << "flush_finished";
