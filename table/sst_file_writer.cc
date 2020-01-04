@@ -70,7 +70,8 @@ struct SstFileWriter::Rep {
       if (internal_comparator.user_comparator()->Compare(
               user_key, file_info.largest_key) <= 0) {
         // Make sure that keys are added in order
-        return Status::InvalidArgument("Keys must be added in order");
+        return Status::InvalidArgument(
+            "Keys must be added in strict ascending order.");
       }
     }
 
