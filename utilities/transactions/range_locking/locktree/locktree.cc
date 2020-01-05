@@ -356,7 +356,7 @@ static
 bool iterate_and_get_overlapping_row_locks2(const concurrent_tree::locked_keyrange *lkr,
                                             const DBT *left_key, const DBT *right_key,
                                             comparator *cmp,
-                                            TXNID txnid,
+                                            TXNID,
                                             GrowableArray<row_lock> *row_locks) {
     struct copy_fn_obj {
         GrowableArray<row_lock> *row_locks;
