@@ -378,8 +378,11 @@ Status TransactionBaseImpl::Put(ColumnFamilyHandle* column_family,
                                 const Slice& key, const Slice& value,
                                 const bool assume_tracked) {
   const bool do_validate = !assume_tracked;
-  Status s = TryLock(column_family, key, false /* read_only */,
-                     true /* exclusive */, do_validate, assume_tracked);
+  Status s;
+  if (do_key_tracking_) {
+    s = TryLock(column_family, key, false /* read_only */,
+                true /* exclusive */, do_validate, assume_tracked);
+  }
 
   if (s.ok()) {
     s = GetBatchForWrite()->Put(column_family, key, value);
@@ -395,8 +398,11 @@ Status TransactionBaseImpl::Put(ColumnFamilyHandle* column_family,
                                 const SliceParts& key, const SliceParts& value,
                                 const bool assume_tracked) {
   const bool do_validate = !assume_tracked;
-  Status s = TryLock(column_family, key, false /* read_only */,
-                     true /* exclusive */, do_validate, assume_tracked);
+  Status s;
+  if (do_key_tracking_) {
+    s = TryLock(column_family, key, false /* read_only */,
+                true /* exclusive */, do_validate, assume_tracked);
+  }
 
   if (s.ok()) {
     s = GetBatchForWrite()->Put(column_family, key, value);
@@ -429,8 +435,11 @@ Status TransactionBaseImpl::Delete(ColumnFamilyHandle* column_family,
                                    const Slice& key,
                                    const bool assume_tracked) {
   const bool do_validate = !assume_tracked;
-  Status s = TryLock(column_family, key, false /* read_only */,
-                     true /* exclusive */, do_validate, assume_tracked);
+  Status s;
+  if (do_key_tracking_) {
+    s = TryLock(column_family, key, false /* read_only */,
+                true /* exclusive */, do_validate, assume_tracked);
+  }
 
   if (s.ok()) {
     s = GetBatchForWrite()->Delete(column_family, key);
@@ -446,8 +455,11 @@ Status TransactionBaseImpl::Delete(ColumnFamilyHandle* column_family,
                                    const SliceParts& key,
                                    const bool assume_tracked) {
   const bool do_validate = !assume_tracked;
-  Status s = TryLock(column_family, key, false /* read_only */,
-                     true /* exclusive */, do_validate, assume_tracked);
+  Status s;
+  if (do_key_tracking_) {
+    s = TryLock(column_family, key, false /* read_only */,
+                true /* exclusive */, do_validate, assume_tracked);
+  }
 
   if (s.ok()) {
     s = GetBatchForWrite()->Delete(column_family, key);
@@ -463,8 +475,11 @@ Status TransactionBaseImpl::SingleDelete(ColumnFamilyHandle* column_family,
                                          const Slice& key,
                                          const bool assume_tracked) {
   const bool do_validate = !assume_tracked;
-  Status s = TryLock(column_family, key, false /* read_only */,
-                     true /* exclusive */, do_validate, assume_tracked);
+  Status s;
+  if (do_key_tracking_) {
+    s = TryLock(column_family, key, false /* read_only */,
+                true /* exclusive */, do_validate, assume_tracked);
+  }
 
   if (s.ok()) {
     s = GetBatchForWrite()->SingleDelete(column_family, key);
@@ -480,8 +495,11 @@ Status TransactionBaseImpl::SingleDelete(ColumnFamilyHandle* column_family,
                                          const SliceParts& key,
                                          const bool assume_tracked) {
   const bool do_validate = !assume_tracked;
-  Status s = TryLock(column_family, key, false /* read_only */,
-                     true /* exclusive */, do_validate, assume_tracked);
+  Status s;
+  if (do_key_tracking_) {
+    s = TryLock(column_family, key, false /* read_only */,
+                true /* exclusive */, do_validate, assume_tracked);
+  }
 
   if (s.ok()) {
     s = GetBatchForWrite()->SingleDelete(column_family, key);
