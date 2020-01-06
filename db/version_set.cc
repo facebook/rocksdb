@@ -3753,6 +3753,9 @@ Status VersionSet::ProcessManifestWrites(
     pending_manifest_file_number_ = manifest_file_number_;
   }
 
+  // Local cached copy of state variable(s). WriteCurrentStateToManifest()
+  // reads its content after releasing db mutex to avoid race with
+  // SwitchMemtable().
   std::unordered_map<uint32_t, MutableCFState> curr_state;
   if (new_descriptor_log) {
     // if we are writing out new snapshot make sure to persist max column
@@ -3763,7 +3766,7 @@ Status VersionSet::ProcessManifestWrites(
     }
     for (const auto* cfd : *column_family_set_) {
       assert(curr_state.find(cfd->GetID()) == curr_state.end());
-      curr_state[cfd->GetID()] = {cfd->GetLogNumber()};
+      curr_state.emplace(cfd->GetID(), cfd->GetLogNumber());
     }
   }
 
