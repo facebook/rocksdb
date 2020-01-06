@@ -15,6 +15,7 @@
 #include "rocksdb/file_system.h"
 #include "rocksdb/listener.h"
 #include "rocksdb/rate_limiter.h"
+#include "rocksdb/sst_file_checksum.h"
 #include "test_util/sync_point.h"
 #include "util/aligned_buffer.h"
 
@@ -47,6 +48,7 @@ class WritableFileWriter {
 #endif  // ROCKSDB_LITE
 
   bool ShouldNotifyListeners() const { return !listeners_.empty(); }
+  void CalculateFileChecksum(const Slice& data);
 
   std::unique_ptr<FSWritableFile> writable_file_;
   std::string file_name_;
@@ -68,13 +70,17 @@ class WritableFileWriter {
   RateLimiter* rate_limiter_;
   Statistics* stats_;
   std::vector<std::shared_ptr<EventListener>> listeners_;
+  SstFileChecksum* checksum_cal_;
+  uint32_t file_checksum_ = 0;
+  bool is_first_checksum_ = true;
 
  public:
   WritableFileWriter(
       std::unique_ptr<FSWritableFile>&& file, const std::string& _file_name,
       const FileOptions& options, Env* env = nullptr,
       Statistics* stats = nullptr,
-      const std::vector<std::shared_ptr<EventListener>>& listeners = {})
+      const std::vector<std::shared_ptr<EventListener>>& listeners = {},
+      SstFileChecksum* checksum_cal = nullptr)
       : writable_file_(std::move(file)),
         file_name_(_file_name),
         env_(env),
@@ -89,7 +95,8 @@ class WritableFileWriter {
         bytes_per_sync_(options.bytes_per_sync),
         rate_limiter_(options.rate_limiter),
         stats_(stats),
-        listeners_() {
+        listeners_(),
+        checksum_cal_(checksum_cal) {
     TEST_SYNC_POINT_CALLBACK("WritableFileWriter::WritableFileWriter:0",
                              reinterpret_cast<void*>(max_buffer_size_));
     buf_.Alignment(writable_file_->GetRequiredBufferAlignment());
@@ -140,6 +147,14 @@ class WritableFileWriter {
   bool use_direct_io() { return writable_file_->use_direct_io(); }
 
   bool TEST_BufferIsEmpty() { return buf_.CurrentSize() == 0; }
+
+  void SetFileChecksumMethod(SstFileChecksum* checksum_cal) {
+    checksum_cal_ = checksum_cal;
+  }
+
+  uint32_t GetFileChecksum() { return file_checksum_; }
+
+  const char* GetFileChecksumName() const;
 
  private:
   // Used when os buffering is OFF and we are writing

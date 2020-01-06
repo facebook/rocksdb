@@ -88,6 +88,7 @@ Status WritableFileWriter::Append(const Slice& data) {
   TEST_KILL_RANDOM("WritableFileWriter::Append:1", rocksdb_kill_odds);
   if (s.ok()) {
     filesize_ += data.size();
+    CalculateFileChecksum(data);
   }
   return s;
 }
@@ -214,6 +215,14 @@ Status WritableFileWriter::Flush() {
   return s;
 }
 
+const char* WritableFileWriter::GetFileChecksumName() const {
+  if (checksum_cal_ != nullptr) {
+    return checksum_cal_->Name();
+  } else {
+    return "None";
+  }
+}
+
 Status WritableFileWriter::Sync(bool use_fsync) {
   Status s = Flush();
   if (!s.ok()) {
@@ -319,6 +328,18 @@ Status WritableFileWriter::WriteBuffered(const char* data, size_t size) {
   }
   buf_.Size(0);
   return s;
+}
+
+void WritableFileWriter::CalculateFileChecksum(const Slice& data) {
+  if (checksum_cal_ != nullptr) {
+    if (is_first_checksum_) {
+      file_checksum_ = checksum_cal_->Value(data.data(), data.size());
+      is_first_checksum_ = false;
+    } else {
+      file_checksum_ =
+          checksum_cal_->Extend(file_checksum_, data.data(), data.size());
+    }
+  }
 }
 
 // This flushes the accumulated data in the buffer. We pad data with zeros if
