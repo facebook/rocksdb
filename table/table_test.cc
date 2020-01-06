@@ -1253,6 +1253,7 @@ class FileChecksumHelper {
     Status s;
     s = file_reader_->Read(offset, 2048, &result, scratch, false);
     if (!s.ok()) {
+      delete [] scratch;
       return s;
     }
     while (result.size() != 0) {
@@ -1266,10 +1267,11 @@ class FileChecksumHelper {
       offset += static_cast<uint64_t>(result.size());
       s = file_reader_->Read(offset, 2048, &result, scratch, false);
       if (!s.ok()) {
+        delete [] scratch;
         return s;
       }
     }
-    delete scratch;
+    delete [] scratch;
     EXPECT_EQ(offset, static_cast<uint64_t>(table_builder_->FileSize()));
     *checksum = tmp_checksum;
     return Status::OK();

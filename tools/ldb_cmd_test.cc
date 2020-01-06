@@ -143,6 +143,7 @@ class FileChecksumTestHelper {
       checksum_name = file_checksum_cal->Name();
       s = file_reader->Read(2048, &result, scratch);
       if (!s.ok()) {
+        delete [] scratch;
         return s;
       }
       while (result.size() != 0) {
@@ -155,11 +156,12 @@ class FileChecksumTestHelper {
         }
         s = file_reader->Read(2048, &result, scratch);
         if (!s.ok()) {
+          delete [] scratch;
           return s;
         }
       }
     }
-    delete scratch;
+    delete [] scratch;
 
     auto it = checksum_map.find(file_meta.file_number);
     if (it == checksum_map.end()) {

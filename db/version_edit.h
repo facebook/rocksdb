@@ -29,7 +29,7 @@ constexpr uint64_t kUnknownOldestAncesterTime = 0;
 constexpr uint64_t kUnknownFileCreationTime = 0;
 
 constexpr uint32_t kUnknownFileChecksum = 0;
-static const std::string kUnknownFileChecksumName = "None";
+extern const std::string kUnknownFileChecksumName;
 
 extern uint64_t PackFileNumberAndPathId(uint64_t number, uint64_t path_id);
 

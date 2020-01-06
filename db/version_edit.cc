@@ -18,7 +18,8 @@
 #include "util/string_util.h"
 
 namespace rocksdb {
-
+// The default checksum method name.
+const std::string kUnknownFileChecksumName("None");
 // Mask for an identified tag from the future which can be safely ignored.
 const uint32_t kTagSafeIgnoreMask = 1 << 13;
 
