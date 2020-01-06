@@ -4,6 +4,10 @@ public class Environment {
   private static String OS = System.getProperty("os.name").toLowerCase();
   private static String ARCH = System.getProperty("os.arch").toLowerCase();
 
+  public static boolean isAarch64() {
+    return ARCH.contains("aarch64");
+  }
+
   public static boolean isPowerPC() {
     return ARCH.contains("ppc");
   }
@@ -59,7 +63,7 @@ public class Environment {
   public static String getJniLibraryName(final String name) {
     if (isUnix()) {
       final String arch = is64Bit() ? "64" : "32";
-      if(isPowerPC()) {
+      if(isPowerPC() || isAarch64()) {
         return String.format("%sjni-linux-%s", name, ARCH);
       } else if(isS390x()) {
         return String.format("%sjni-linux%s", name, ARCH);

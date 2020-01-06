@@ -137,6 +137,12 @@ CFLAGS +=  -DHAVE_POWER8
 HAVE_POWER8=1
 endif
 
+ifeq (,$(shell $(CXX) -fsyntax-only -march=armv8-a+crc -xc /dev/null 2>&1))
+CXXFLAGS += -march=armv8-a+crc
+CFLAGS += -march=armv8-a+crc
+ARMCRC_SOURCE=1
+endif
+
 # if we're compiling for release, compile without debug code (-DNDEBUG)
 ifeq ($(DEBUG_LEVEL),0)
 OPT += -DNDEBUG
@@ -1635,7 +1641,7 @@ JAVA_INCLUDE = -I$(JAVA_HOME)/include/ -I$(JAVA_HOME)/include/linux
 ifeq ($(PLATFORM), OS_SOLARIS)
 	ARCH := $(shell isainfo -b)
 else ifeq ($(PLATFORM), OS_OPENBSD)
-	ifneq (,$(filter $(MACHINE), amd64 arm64 sparc64))
+	ifneq (,$(filter amd64 ppc64 ppc64le arm64 aarch64 sparc64, $(MACHINE)))
 		ARCH := 64
 	else
 		ARCH := 32
@@ -1644,10 +1650,10 @@ else
 	ARCH := $(shell getconf LONG_BIT)
 endif
 
-ifeq (,$(findstring ppc,$(MACHINE)))
-        ROCKSDBJNILIB = librocksdbjni-linux$(ARCH).so
+ifneq (,$(filter ppc% arm64 aarch64 sparc64, $(MACHINE)))
+	ROCKSDBJNILIB = librocksdbjni-linux-$(MACHINE).so
 else
-        ROCKSDBJNILIB = librocksdbjni-linux-$(MACHINE).so
+	ROCKSDBJNILIB = librocksdbjni-linux$(ARCH).so
 endif
 ROCKSDB_JAR = rocksdbjni-$(ROCKSDB_MAJOR).$(ROCKSDB_MINOR).$(ROCKSDB_PATCH)-linux$(ARCH).jar
 ROCKSDB_JAR_ALL = rocksdbjni-$(ROCKSDB_MAJOR).$(ROCKSDB_MINOR).$(ROCKSDB_PATCH).jar
@@ -1848,6 +1854,14 @@ rocksdbjavastaticdockerppc64le:
 		docker container create --attach stdin --attach stdout --attach stderr --volume `pwd`:/rocksdb-host --name rocksdb_linux_ppc64le-be evolvedbinary/rocksjava:centos7_ppc64le-be /rocksdb-host/java/crossbuild/docker-build-linux-centos.sh; \
 	fi
 	docker start -a rocksdb_linux_ppc64le-be
+
+rocksdbjavastaticdockerarm64v8:
+	mkdir -p java/target
+	DOCKER_LINUX_ARM64V8_CONTAINER=`docker ps -aqf name=rocksdb_linux_arm64v8-be`; \
+	if [ -z "$$DOCKER_LINUX_ARM64V8_CONTAINER" ]; then \
+		docker container create --attach stdin --attach stdout --attach stderr --volume `pwd`:/rocksdb-host --name rocksdb_linux_arm64v8-be evolvedbinary/rocksjava:centos7_arm64v8-be /rocksdb-host/java/crossbuild/docker-build-linux-centos.sh; \
+	fi
+	docker start -a rocksdb_linux_arm64v8-be
 
 rocksdbjavastaticpublish: rocksdbjavastaticrelease rocksdbjavastaticpublishcentral
 
