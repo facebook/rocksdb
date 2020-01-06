@@ -4695,6 +4695,7 @@ Status VersionSet::ReduceNumberOfLevels(const std::string& dbname,
       mutable_cf_options, &ve, &dummy_mutex, nullptr, true);
 }
 
+/*
 // Get the checksum information including the checksum and checksum method
 // name of all SST files of this Manifest. Store the information in
 // FileChecksumLis which contains a map from file id to its checksum info
@@ -4719,7 +4720,8 @@ Status VersionSet::GetAllFileCheckSumInfo(Options& options,
   VersionSet::LogReporter reporter;
   reporter.status = &s;
   log::Reader reader(nullptr, std::move(file_reader), &reporter,
-                     true /* checksum */, 0 /* log_number */);
+                     true , 0 );
+
   Slice record;
   std::string scratch;
   std::set<uint32_t> cf_set;
@@ -4772,6 +4774,7 @@ Status VersionSet::GetAllFileCheckSumInfo(Options& options,
   }
   return s;
 }
+*/
 
 Status VersionSet::DumpManifest(Options& options, std::string& dscname,
                                 bool verbose, bool hex, bool json) {
