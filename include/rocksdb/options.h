@@ -20,7 +20,6 @@
 #include "rocksdb/comparator.h"
 #include "rocksdb/env.h"
 #include "rocksdb/listener.h"
-#include "rocksdb/sst_file_checksum.h"
 #include "rocksdb/universal_compaction.h"
 #include "rocksdb/version.h"
 #include "rocksdb/write_buffer_manager.h"
@@ -1113,21 +1112,6 @@ struct DBOptions {
   //
   // Default: 0
   size_t log_readahead_size = 0;
-
-  // If true, user enable the SST file checksum. If user does not specify the
-  // checksum algorithm, the default crc32 will be used to calculate the
-  // checksum of each Sst file. The algorithm name and checksum results are
-  // stored in MANIFEST as part of the FileMetadata in Version_edit.
-  //
-  // Default: false
-  bool enable_sst_file_checksum = false;
-
-  // If user does not enable SST file checksum, the checksum method here will
-  // not be used. The single checksum instance are shared by all file writers
-  // Make sure the algorithm is thread safe.
-  //
-  // Default: nullptr
-  std::shared_ptr<SstFileChecksum> sst_file_checksum = nullptr;
 };
 
 // Options to control the behavior of a database (passed to DB::Open)

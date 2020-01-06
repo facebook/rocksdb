@@ -284,9 +284,6 @@ Status PlainTableBuilder::Finish() {
     offset_ += footer_encoding.size();
   }
 
-  if (file_ != nullptr) {
-    file_checksum_ = file_->GetFileChecksum();
-  }
   return s;
 }
 
@@ -300,14 +297,6 @@ uint64_t PlainTableBuilder::NumEntries() const {
 
 uint64_t PlainTableBuilder::FileSize() const {
   return offset_;
-}
-
-const char* PlainTableBuilder::GetFileChecksumName() const {
-  if (file_ != nullptr) {
-    return file_->GetFileChecksumName();
-  } else {
-    return kUnknownFileChecksumName.c_str();
-  }
 }
 
 }  // namespace rocksdb

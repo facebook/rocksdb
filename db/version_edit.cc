@@ -19,7 +19,7 @@
 
 namespace rocksdb {
 
-const std::string kUnknownFileChecksumName("None");
+const std::string kUnknownFileChecksumName("Non");
 // Mask for an identified tag from the future which can be safely ignored.
 const uint32_t kTagSafeIgnoreMask = 1 << 13;
 
@@ -64,8 +64,6 @@ enum CustomTag : uint32_t {
   kOldestBlobFileNumber = 4,
   kOldestAncesterTime = 5,
   kFileCreationTime = 6,
-  kFileChecksum = 7,
-  kFileChecksumName = 8,
   kPathId = 65,
 };
 // If this bit for the custom tag is set, opening DB should fail if
@@ -229,14 +227,6 @@ bool VersionEdit::EncodeTo(std::string* dst) const {
                              &varint_file_creation_time);
     PutLengthPrefixedSlice(dst, Slice(varint_file_creation_time));
 
-    PutVarint32(dst, CustomTag::kFileChecksum);
-    std::string varint_file_checksum;
-    PutVarint32(&varint_file_checksum, f.file_checksum);
-    PutLengthPrefixedSlice(dst, Slice(varint_file_checksum));
-
-    PutVarint32(dst, CustomTag::kFileChecksumName);
-    PutLengthPrefixedSlice(dst, Slice(f.file_checksum_name));
-
     if (f.fd.GetPathId() != 0) {
       PutVarint32(dst, CustomTag::kPathId);
       char p = static_cast<char>(f.fd.GetPathId());
@@ -359,14 +349,6 @@ const char* VersionEdit::DecodeNewFile4From(Slice* input) {
           if (!GetVarint64(&field, &f.file_creation_time)) {
             return "invalid file creation time";
           }
-          break;
-        case kFileChecksum:
-          if (!GetVarint32(&field, &f.file_checksum)) {
-            return "invalid file checksum";
-          }
-          break;
-        case kFileChecksumName:
-          f.file_checksum_name = field.ToString();
           break;
         case kNeedCompaction:
           if (field.size() != 1) {
@@ -695,10 +677,6 @@ std::string VersionEdit::DebugString(bool hex_key) const {
     AppendNumberTo(&r, f.oldest_ancester_time);
     r.append(" file_creation_time:");
     AppendNumberTo(&r, f.file_creation_time);
-    r.append(" file_checksum:");
-    AppendNumberTo(&r, f.file_checksum);
-    r.append(" file_checksum_name: ");
-    r.append(f.file_checksum_name);
   }
   r.append("\n  ColumnFamily: ");
   AppendNumberTo(&r, column_family_);

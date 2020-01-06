@@ -1461,8 +1461,7 @@ void Version::GetColumnFamilyMetaData(ColumnFamilyMetaData* cf_meta) {
           file->largest.user_key().ToString(),
           file->stats.num_reads_sampled.load(std::memory_order_relaxed),
           file->being_compacted, file->oldest_blob_file_number,
-          file->TryGetOldestAncesterTime(), file->TryGetFileCreationTime(),
-          file->file_checksum, file->file_checksum_name});
+          file->TryGetOldestAncesterTime(), file->TryGetFileCreationTime()});
       files.back().num_entries = file->num_entries;
       files.back().num_deletions = file->num_deletions;
       level_size += file->fd.GetFileSize();
@@ -4695,87 +4694,6 @@ Status VersionSet::ReduceNumberOfLevels(const std::string& dbname,
       mutable_cf_options, &ve, &dummy_mutex, nullptr, true);
 }
 
-/*
-// Get the checksum information including the checksum and checksum method
-// name of all SST files of this Manifest. Store the information in
-// FileChecksumLis which contains a map from file id to its checksum info
-Status VersionSet::GetAllFileCheckSumInfo(Options& options,
-                                          std::string& dscname,
-                                          FileChecksumList& checksum_list) {
-  std::unique_ptr<SequentialFileReader> file_reader;
-  Status s;
-  {
-    std::unique_ptr<FSSequentialFile> file;
-    s = options.file_system->NewSequentialFile(
-        dscname, options.file_system->OptimizeForManifestRead(file_options_),
-        &file, nullptr);
-    if (!s.ok()) {
-      return s;
-    }
-    file_reader.reset(new SequentialFileReader(
-        std::move(file), dscname, db_options_->log_readahead_size));
-  }
-
-  // Add the default column family
-  VersionSet::LogReporter reporter;
-  reporter.status = &s;
-  log::Reader reader(nullptr, std::move(file_reader), &reporter,
-                     true , 0 );
-
-  Slice record;
-  std::string scratch;
-  std::set<uint32_t> cf_set;
-  cf_set.insert(0);
-  while (reader.ReadRecord(&record, &scratch) && s.ok()) {
-    VersionEdit edit;
-    s = edit.DecodeFrom(record);
-    if (!s.ok()) {
-      break;
-    }
-    // Step 1: check if this CF has already been added
-    bool cf_in_info = (cf_set.find(edit.column_family_) != cf_set.end());
-
-    if (edit.is_column_family_add_) {
-      if (cf_in_info) {
-        s = Status::Corruption("Manifest adding the same column family twice");
-        break;
-      }
-      cf_set.insert(edit.column_family_);
-    } else if (edit.is_column_family_drop_) {
-      if (!cf_in_info) {
-        s = Status::Corruption(
-            "Manifest - dropping non-existing column family");
-        break;
-      }
-      auto cf_iter = cf_set.find(edit.column_family_);
-      cf_set.erase(cf_iter);
-    } else {
-      if (!cf_in_info) {
-        s = Status::Corruption(
-            "Manifest record referencing unknown column family");
-        break;
-      }
-      assert(cf_set.find(edit.column_family_) != cf_set.end());
-
-      // Step 2: remove the deleted files from the info
-      const VersionEdit::DeletedFileSet& del = edit.GetDeletedFiles();
-      for (const auto& del_file : del) {
-        uint64_t f_id = static_cast<uint64_t>(del_file.second);
-        checksum_list.RemoveChecksumUnit(f_id);
-      }
-
-      // Step 3: Add the new files to the info
-      for (const auto& new_file : edit.GetNewFiles()) {
-        checksum_list.AddChecksumUnit(new_file.second.fd.GetNumber(),
-                                      new_file.second.file_checksum,
-                                      new_file.second.file_checksum_name);
-      }
-    }
-  }
-  return s;
-}
-*/
-
 Status VersionSet::DumpManifest(Options& options, std::string& dscname,
                                 bool verbose, bool hex, bool json) {
   // Open the specified manifest file.
@@ -5063,8 +4981,7 @@ Status VersionSet::WriteCurrentStateToManifest(log::Writer* log) {
                        f->fd.GetFileSize(), f->smallest, f->largest,
                        f->fd.smallest_seqno, f->fd.largest_seqno,
                        f->marked_for_compaction, f->oldest_blob_file_number,
-                       f->oldest_ancester_time, f->file_creation_time,
-                       f->file_checksum, f->file_checksum_name);
+                       f->oldest_ancester_time, f->file_creation_time);
         }
       }
       edit.SetLogNumber(cfd->GetLogNumber());

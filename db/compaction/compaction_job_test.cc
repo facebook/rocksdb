@@ -187,8 +187,7 @@ class CompactionJobTest : public testing::Test {
     VersionEdit edit;
     edit.AddFile(level, file_number, 0, 10, smallest_key, largest_key,
                  smallest_seqno, largest_seqno, false, oldest_blob_file_number,
-                 kUnknownOldestAncesterTime, kUnknownFileCreationTime,
-                 kUnknownFileChecksum, kUnknownFileChecksumName);
+                 kUnknownOldestAncesterTime, kUnknownFileCreationTime);
 
     mutex_.Lock();
     versions_->LogAndApply(versions_->GetColumnFamilySet()->GetDefault(),

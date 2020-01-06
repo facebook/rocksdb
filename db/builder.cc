@@ -131,17 +131,9 @@ Status BuildTable(
       file->SetIOPriority(io_priority);
       file->SetWriteLifeTimeHint(write_hint);
 
-      if (ioptions.enable_sst_file_checksum &&
-          ioptions.sst_file_checksum != nullptr) {
-        // Calculate the file checksum when do Append
-        file_writer.reset(new WritableFileWriter(
-            std::move(file), fname, file_options, env, ioptions.statistics,
-            ioptions.listeners, ioptions.sst_file_checksum));
-      } else {
-        file_writer.reset(
-            new WritableFileWriter(std::move(file), fname, file_options, env,
-                                   ioptions.statistics, ioptions.listeners));
-      }
+      file_writer.reset(
+          new WritableFileWriter(std::move(file), fname, file_options, env,
+                                 ioptions.statistics, ioptions.listeners));
       builder = NewTableBuilder(
           ioptions, mutable_cf_options, internal_comparator,
           int_tbl_prop_collector_factories, column_family_id,
@@ -207,9 +199,6 @@ Status BuildTable(
       if (table_properties) {
         *table_properties = tp;
       }
-      // Add the checksum information to file metadata.
-      meta->file_checksum = builder->GetFileChecksum();
-      meta->file_checksum_name = builder->GetFileChecksumName();
     }
     delete builder;
 

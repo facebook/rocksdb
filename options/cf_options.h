@@ -125,10 +125,6 @@ struct ImmutableCFOptions {
   std::vector<DbPath> cf_paths;
 
   std::shared_ptr<ConcurrentTaskLimiter> compaction_thread_limiter;
-
-  bool enable_sst_file_checksum;
-
-  SstFileChecksum* sst_file_checksum;
 };
 
 struct MutableCFOptions {

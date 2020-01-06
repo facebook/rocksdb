@@ -12,7 +12,6 @@
 #include <string>
 #include <utility>
 
-#include "db/version_edit.h"
 #include "port/port.h"
 #include "rocksdb/comparator.h"
 #include "rocksdb/table.h"
@@ -154,16 +153,10 @@ class MockTableBuilder : public TableBuilder {
     return TableProperties();
   }
 
-  uint32_t GetFileChecksum() const override { return file_checksum_; }
-  const char* GetFileChecksumName() const override {
-    return kUnknownFileChecksumName.c_str();
-  }
-
  private:
   uint32_t id_;
   MockTableFileSystem* file_system_;
   stl_wrappers::KVMap table_;
-  uint32_t file_checksum_ = kUnknownFileChecksum;
 };
 
 class MockTableFactory : public TableFactory {

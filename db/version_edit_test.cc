@@ -37,7 +37,7 @@ TEST_F(VersionEditTest, EncodeDecode) {
                  InternalKey("foo", kBig + 500 + i, kTypeValue),
                  InternalKey("zoo", kBig + 600 + i, kTypeDeletion),
                  kBig + 500 + i, kBig + 600 + i, false, kInvalidBlobFileNumber,
-                 888, 678, 234, "crc32c");
+                 888, 678);
     edit.DeleteFile(4, kBig + 700 + i);
   }
 
@@ -55,22 +55,18 @@ TEST_F(VersionEditTest, EncodeDecodeNewFile4) {
   edit.AddFile(3, 300, 3, 100, InternalKey("foo", kBig + 500, kTypeValue),
                InternalKey("zoo", kBig + 600, kTypeDeletion), kBig + 500,
                kBig + 600, true, kInvalidBlobFileNumber,
-               kUnknownOldestAncesterTime, kUnknownFileCreationTime,
-               kUnknownFileChecksum, kUnknownFileChecksumName);
+               kUnknownOldestAncesterTime, kUnknownFileCreationTime);
   edit.AddFile(4, 301, 3, 100, InternalKey("foo", kBig + 501, kTypeValue),
                InternalKey("zoo", kBig + 601, kTypeDeletion), kBig + 501,
                kBig + 601, false, kInvalidBlobFileNumber,
-               kUnknownOldestAncesterTime, kUnknownFileCreationTime,
-               kUnknownFileChecksum, kUnknownFileChecksumName);
+               kUnknownOldestAncesterTime, kUnknownFileCreationTime);
   edit.AddFile(5, 302, 0, 100, InternalKey("foo", kBig + 502, kTypeValue),
                InternalKey("zoo", kBig + 602, kTypeDeletion), kBig + 502,
-               kBig + 602, true, kInvalidBlobFileNumber, 666, 888,
-               kUnknownFileChecksum, kUnknownFileChecksumName);
+               kBig + 602, true, kInvalidBlobFileNumber, 666, 888);
   edit.AddFile(5, 303, 0, 100, InternalKey("foo", kBig + 503, kTypeBlobIndex),
                InternalKey("zoo", kBig + 603, kTypeBlobIndex), kBig + 503,
                kBig + 603, true, 1001, kUnknownOldestAncesterTime,
-               kUnknownFileCreationTime, kUnknownFileChecksum,
-               kUnknownFileChecksumName);
+               kUnknownFileCreationTime);
   ;
 
   edit.DeleteFile(4, 700);
@@ -110,12 +106,10 @@ TEST_F(VersionEditTest, ForwardCompatibleNewFile4) {
   edit.AddFile(3, 300, 3, 100, InternalKey("foo", kBig + 500, kTypeValue),
                InternalKey("zoo", kBig + 600, kTypeDeletion), kBig + 500,
                kBig + 600, true, kInvalidBlobFileNumber,
-               kUnknownOldestAncesterTime, kUnknownFileCreationTime,
-               kUnknownFileChecksum, kUnknownFileChecksumName);
+               kUnknownOldestAncesterTime, kUnknownFileCreationTime);
   edit.AddFile(4, 301, 3, 100, InternalKey("foo", kBig + 501, kTypeValue),
                InternalKey("zoo", kBig + 601, kTypeDeletion), kBig + 501,
-               kBig + 601, false, kInvalidBlobFileNumber, 686, 868, 234,
-               "crc32c");
+               kBig + 601, false, kInvalidBlobFileNumber, 686, 868);
   edit.DeleteFile(4, 700);
 
   edit.SetComparatorName("foo");
@@ -162,8 +156,7 @@ TEST_F(VersionEditTest, NewFile4NotSupportedField) {
   edit.AddFile(3, 300, 3, 100, InternalKey("foo", kBig + 500, kTypeValue),
                InternalKey("zoo", kBig + 600, kTypeDeletion), kBig + 500,
                kBig + 600, true, kInvalidBlobFileNumber,
-               kUnknownOldestAncesterTime, kUnknownFileCreationTime,
-               kUnknownFileChecksum, kUnknownFileChecksumName);
+               kUnknownOldestAncesterTime, kUnknownFileCreationTime);
 
   edit.SetComparatorName("foo");
   edit.SetLogNumber(kBig + 100);
@@ -192,8 +185,7 @@ TEST_F(VersionEditTest, EncodeEmptyFile) {
   VersionEdit edit;
   edit.AddFile(0, 0, 0, 0, InternalKey(), InternalKey(), 0, 0, false,
                kInvalidBlobFileNumber, kUnknownOldestAncesterTime,
-               kUnknownFileCreationTime, kUnknownFileChecksum,
-               kUnknownFileChecksumName);
+               kUnknownFileCreationTime);
   std::string buffer;
   ASSERT_TRUE(!edit.EncodeTo(&buffer));
 }

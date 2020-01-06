@@ -387,10 +387,6 @@ Status CuckooTableBuilder::Finish() {
   std::string footer_encoding;
   footer.EncodeTo(&footer_encoding);
   s = file_->Append(footer_encoding);
-
-  if (file_ != nullptr) {
-    file_checksum_ = file_->GetFileChecksum();
-  }
   return s;
 }
 
@@ -514,14 +510,6 @@ bool CuckooTableBuilder::MakeSpaceForKey(
     *bucket_id = tree[bucket_to_replace_pos].bucket_id;
   }
   return null_found;
-}
-
-const char* CuckooTableBuilder::GetFileChecksumName() const {
-  if (file_ != nullptr) {
-    return file_->GetFileChecksumName();
-  } else {
-    return kUnknownFileChecksumName.c_str();
-  }
 }
 
 }  // namespace rocksdb
