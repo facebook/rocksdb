@@ -21,6 +21,7 @@ namespace rocksdb {
 class MemTable;
 class FlushScheduler;
 class ColumnFamilyData;
+class ColumnFamilySet;
 
 class ColumnFamilyMemTables {
  public:
@@ -115,6 +116,8 @@ class WriteBatchInternal {
   // Return the number of entries in the batch.
   static int Count(const WriteBatch* batch);
 
+  static int Count(const autovector<WriteBatch*> batch);
+
   // Set the count for the number of entries in the batch.
   static void SetCount(WriteBatch* batch, int n);
 
@@ -135,6 +138,14 @@ class WriteBatchInternal {
 
   static size_t ByteSize(const WriteBatch* batch) {
     return batch->rep_.size();
+  }
+
+  static size_t ByteSize(const autovector<WriteBatch*> batch) {
+    size_t count = 0;
+    for (auto w : batch) {
+      count += w->rep_.size();
+    }
+    return count;
   }
 
   static Status SetContents(WriteBatch* batch, const Slice& contents);
@@ -184,6 +195,13 @@ class WriteBatchInternal {
                            bool concurrent_memtable_writes = false,
                            bool seq_per_batch = false, size_t batch_cnt = 0,
                            bool batch_per_txn = true);
+
+  static void AsyncInsertInto(WriteThread::Writer* writer,
+                              SequenceNumber sequence,
+                              ColumnFamilySet* version_set,
+                              FlushScheduler* flush_scheduler,
+                              bool ignore_missing_column_families, DB* db,
+                              SafeQueue<std::function<void()>>* pool);
 
   static Status Append(WriteBatch* dst, const WriteBatch* src,
                        const bool WAL_only = false);

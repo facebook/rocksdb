@@ -185,10 +185,69 @@ TEST_P(DBWriteTest, LockWalInEffect) {
   ASSERT_OK(dbfull()->UnlockWAL());
 }
 
+TEST_P(DBWriteTest, MultiThreadWrite) {
+  Options options = GetOptions();
+  std::unique_ptr<FaultInjectionTestEnv> mock_env(
+      new FaultInjectionTestEnv(Env::Default()));
+  if (!options.enable_multi_thread_write) {
+    return;
+  }
+  constexpr int kNumThreads = 8;
+  options.env = mock_env.get();
+  options.write_buffer_size = 1024 * 128;
+  Reopen(options);
+  std::vector<port::Thread> threads;
+  for (int t = 0; t < kNumThreads; t++) {
+    threads.push_back(port::Thread(
+        [&](int index) {
+          WriteOptions opt;
+          for (int j = 0; j < 64; j++) {
+            std::vector<WriteBatch*> batches;
+            for (int i = 0; i < 4; i++) {
+              WriteBatch* batch = new WriteBatch;
+              for (int k = 0; k < 64; k++) {
+                batch->Put("key_" + ToString(index) + "_" + ToString(j) + "_" +
+                               ToString(i) + "_" + ToString(k),
+                           "value" + ToString(k));
+              }
+              batches.push_back(batch);
+            }
+            dbfull()->MultiThreadWrite(opt, batches);
+            for (auto b : batches) {
+              delete b;
+            }
+          }
+        },
+        t));
+  }
+  for (int i = 0; i < kNumThreads; i++) {
+    threads[i].join();
+  }
+  ReadOptions opt;
+  for (int t = 0; t < kNumThreads; t++) {
+    std::string value;
+    for (int i = 0; i < 64; i++) {
+      for (int j = 0; j < 4; j++) {
+        for (int k = 0; k < 64; k++) {
+          ASSERT_OK(dbfull()->Get(opt,
+                                  "key_" + ToString(t) + "_" + ToString(i) +
+                                      "_" + ToString(j) + "_" + ToString(k),
+                                  &value));
+          std::string expected_value = "value" + ToString(k);
+          ASSERT_EQ(expected_value, value);
+        }
+      }
+    }
+  }
+
+  Close();
+}
+
 INSTANTIATE_TEST_CASE_P(DBWriteTestInstance, DBWriteTest,
                         testing::Values(DBTestBase::kDefault,
                                         DBTestBase::kConcurrentWALWrites,
-                                        DBTestBase::kPipelinedWrite));
+                                        DBTestBase::kPipelinedWrite,
+                                        DBTestBase::kMultiThreadWrite));
 
 }  // namespace rocksdb
 
