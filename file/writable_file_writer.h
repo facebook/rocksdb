@@ -10,6 +10,7 @@
 #pragma once
 #include <atomic>
 #include <string>
+#include "db/version_edit.h"
 #include "port/port.h"
 #include "rocksdb/env.h"
 #include "rocksdb/file_system.h"
