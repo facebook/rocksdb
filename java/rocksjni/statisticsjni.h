@@ -14,10 +14,11 @@
 #include <string>
 #include "rocksdb/statistics.h"
 #include "monitoring/statistics.h"
+#include "monitoring/statistics_impl.h"
 
 namespace rocksdb {
 
-  class StatisticsJni : public StatisticsImpl {
+  class StatisticsJni : public StatisticsImpl<> {
    public:
      StatisticsJni(std::shared_ptr<Statistics> stats);
      StatisticsJni(std::shared_ptr<Statistics> stats,
