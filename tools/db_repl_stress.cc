@@ -20,6 +20,7 @@ int main() {
 #include "rocksdb/types.h"
 #include "test_util/testutil.h"
 #include "util/gflags_compat.h"
+#include "util/random.h"
 
 // Run a thread to perform Put's.
 // Another thread uses GetUpdatesSince API to keep getting the updates.

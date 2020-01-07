@@ -55,7 +55,7 @@ class OptimisticTransaction : public TransactionBaseImpl {
                  const bool assume_tracked = false) override;
 
  private:
-  ROCKSDB_FIELD_UNUSED OptimisticTransactionDB* const txn_db_;
+  OptimisticTransactionDB* const txn_db_;
 
   friend class OptimisticTransactionCallback;
 

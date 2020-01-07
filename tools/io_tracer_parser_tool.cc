@@ -8,6 +8,7 @@
 #include "tools/io_tracer_parser_tool.h"
 
 #include <cinttypes>
+#include <cmath>
 #include <cstdio>
 #include <iomanip>
 #include <memory>

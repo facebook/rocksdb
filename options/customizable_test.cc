@@ -15,6 +15,7 @@
 #include <unordered_map>
 
 #include "db/db_test_util.h"
+#include "monitoring/statistics_impl.h"
 #include "options/options_helper.h"
 #include "options/options_parser.h"
 #include "port/stack_trace.h"
@@ -1298,7 +1299,7 @@ class TestSecondaryCache : public SecondaryCache {
   std::string GetPrintableOptions() const override { return ""; }
 };
 
-class TestStatistics : public StatisticsImpl {
+class TestStatistics : public StatisticsImpl<> {
  public:
   TestStatistics() : StatisticsImpl(nullptr) {}
   const char* Name() const override { return kClassName(); }

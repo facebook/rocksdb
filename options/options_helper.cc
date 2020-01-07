@@ -6,6 +6,7 @@
 
 #include <cassert>
 #include <cctype>
+#include <cmath>
 #include <cstdlib>
 #include <set>
 #include <unordered_set>

@@ -20,6 +20,7 @@
 #include "rocksdb/slice_transform.h"
 #include "rocksdb/system_clock.h"
 #include "test_util/testharness.h"
+#include "util/random.h"
 #include "util/stop_watch.h"
 #include "util/string_util.h"
 #include "utilities/merge_operators.h"

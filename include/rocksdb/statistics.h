@@ -657,6 +657,8 @@ class Statistics : public Customizable {
 };
 
 // Create a concrete DBStatistics object
+template <uint32_t TICKER_MAX = TICKER_ENUM_MAX,
+          uint32_t HISTOGRAM_MAX = HISTOGRAM_ENUM_MAX>
 std::shared_ptr<Statistics> CreateDBStatistics();
 
 }  // namespace ROCKSDB_NAMESPACE

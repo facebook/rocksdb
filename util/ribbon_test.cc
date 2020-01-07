@@ -8,6 +8,7 @@
 #include "util/bloom_impl.h"
 #include "util/coding.h"
 #include "util/hash.h"
+#include "util/random.h"
 #include "util/ribbon_config.h"
 #include "util/ribbon_impl.h"
 #include "util/stop_watch.h"
