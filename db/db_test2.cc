@@ -4255,9 +4255,17 @@ TEST_F(DBTest2, SwitchMemtableRaceWithNewManifest) {
   options.max_manifest_file_size = 10;
   options.create_if_missing = true;
   CreateAndReopenWithCF({"pikachu"}, options);
+  ASSERT_EQ(2, handles_.size());
+
   ASSERT_OK(Put("foo", "value"));
+  const int kL0Files = options.level0_file_num_compaction_trigger;
+  for (int i = 0; i < kL0Files; ++i) {
+    ASSERT_OK(Put(/*cf=*/1, "a", std::to_string(i)));
+    ASSERT_OK(Flush(/*cf=*/1));
+  }
+
   port::Thread thread([&]() { ASSERT_OK(Flush()); });
-  ASSERT_OK(dbfull()->SetOptions({{"prefix_extractor", "fixed:5"}}));
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
   thread.join();
 }
 }  // namespace rocksdb
