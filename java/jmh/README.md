@@ -1,6 +1,6 @@
 # JMH Benchmarks for RocksJava
 
-These are micro-benchmarks for RocksJava functionality, using [JMH](Java Microbenchmark Harness - https://openjdk.java.net/projects/code-tools/jmh/).
+These are micro-benchmarks for RocksJava functionality, using [JMH (Java Microbenchmark Harness)](https://openjdk.java.net/projects/code-tools/jmh/).
 
 ## Compiling
 
