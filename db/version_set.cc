@@ -3766,7 +3766,7 @@ Status VersionSet::ProcessManifestWrites(
     }
     for (const auto* cfd : *column_family_set_) {
       assert(curr_state.find(cfd->GetID()) == curr_state.end());
-      curr_state.emplace(cfd->GetID(), cfd->GetLogNumber());
+      curr_state[cfd->GetID()] = {cfd->GetLogNumber()};
     }
   }
 

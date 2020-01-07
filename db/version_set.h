@@ -1076,7 +1076,6 @@ class VersionSet {
                            TableReaderCaller caller);
 
   struct MutableCFState {
-    explicit MutableCFState(uint64_t ln) : log_number(ln) {}
     uint64_t log_number;
   };
 
