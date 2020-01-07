@@ -6,25 +6,34 @@ os:
 compiler:
   - clang
   - gcc
-osx_image: xcode8.3
+osx_image: xcode9.4
 jdk:
   - openjdk7
 cache:
   - ccache
-  - apt
 
 addons:
   apt:
     sources:
       - ubuntu-toolchain-r-test
     packages:
-      - curl
-      - g++-8
-      - libbz2-dev
       - libgflags-dev
+      - libbz2-dev
+      - liblz4-dev
       - libsnappy-dev
-      - mingw-w64
+      - liblzma-dev  # xv
+      - libzstd-dev
       - zlib1g-dev
+  homebrew:
+    update: true
+    packages:
+      - ccache
+      - gflags
+      - lz4
+      - snappy
+      - xz
+      - zstd
+
 env:
   - TEST_GROUP=platform_dependent # 16-18 minutes
   - TEST_GROUP=1 # 33-35 minutes
@@ -60,14 +69,16 @@ matrix:
   - os : osx
     compiler: gcc
 
-# https://docs.travis-ci.com/user/caching/#ccache-cache
 install:
   - if [ "${TRAVIS_OS_NAME}" == osx ]; then
-      brew install ccache gflags zstd lz4 snappy xz;
       PATH=$PATH:/usr/local/opt/ccache/libexec;
     fi
   - if [ "${JOB_NAME}" == cmake-gcc8 ]; then
+      sudo apt-get install -y g++-8;
       CC=gcc-8 && CXX=g++-8;
+    fi
+  - if [ "${JOB_NAME}" == cmake-mingw ]; then
+      sudo apt-get install -y mingw-w64 ;
     fi
   - if [[ "${JOB_NAME}" == cmake* ]] && [ "${TRAVIS_OS_NAME}" == linux ]; then
       mkdir cmake-dist && curl -sfSL https://github.com/Kitware/CMake/releases/download/v3.14.5/cmake-3.14.5-Linux-x86_64.tar.gz | tar --strip-components=1 -C cmake-dist -xz && export PATH=$PWD/cmake-dist/bin:$PATH;

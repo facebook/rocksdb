@@ -18,8 +18,8 @@ import static org.junit.Assert.fail;
 public class RocksDBTest {
 
   @ClassRule
-  public static final RocksMemoryResource rocksMemoryResource =
-      new RocksMemoryResource();
+  public static final RocksNativeLibraryResource ROCKS_NATIVE_LIBRARY_RESOURCE =
+      new RocksNativeLibraryResource();
 
   @Rule
   public TemporaryFolder dbFolder = new TemporaryFolder();
@@ -352,8 +352,9 @@ public class RocksDBTest {
     }
   }
 
+  @SuppressWarnings("deprecated")
   @Test
-  public void multiGet() throws RocksDBException, InterruptedException {
+  public void multiGet() throws RocksDBException {
     try (final RocksDB db = RocksDB.open(dbFolder.getRoot().getAbsolutePath());
          final ReadOptions rOpt = new ReadOptions()) {
       db.put("key1".getBytes(), "value".getBytes());
@@ -392,7 +393,7 @@ public class RocksDBTest {
   }
 
   @Test
-  public void multiGetAsList() throws RocksDBException, InterruptedException {
+  public void multiGetAsList() throws RocksDBException {
     try (final RocksDB db = RocksDB.open(dbFolder.getRoot().getAbsolutePath());
          final ReadOptions rOpt = new ReadOptions()) {
       db.put("key1".getBytes(), "value".getBytes());
@@ -690,8 +691,13 @@ public class RocksDBTest {
         db.put((String.valueOf(i)).getBytes(), b);
       }
       db.flush(new FlushOptions().setWaitForFlush(true));
-      db.compactRange("0".getBytes(), "201".getBytes(),
-          true, -1, 0);
+      try (final CompactRangeOptions compactRangeOpts = new CompactRangeOptions()
+            .setChangeLevel(true)
+            .setTargetLevel(-1)
+            .setTargetPathId(0)) {
+        db.compactRange(null, "0".getBytes(), "201".getBytes(),
+            compactRangeOpts);
+      }
     }
   }
 
@@ -775,7 +781,10 @@ public class RocksDBTest {
           dbFolder.getRoot().getAbsolutePath(),
           columnFamilyDescriptors,
           columnFamilyHandles)) {
-        try {
+        try (final CompactRangeOptions compactRangeOpts = new CompactRangeOptions()
+            .setChangeLevel(true)
+            .setTargetLevel(-1)
+            .setTargetPathId(0)) {
           // fill database with key/value pairs
           byte[] b = new byte[10000];
           for (int i = 0; i < 200; i++) {
@@ -784,7 +793,7 @@ public class RocksDBTest {
                 String.valueOf(i).getBytes(), b);
           }
           db.compactRange(columnFamilyHandles.get(1), "0".getBytes(),
-              "201".getBytes(), true, -1, 0);
+              "201".getBytes(), compactRangeOpts);
         } finally {
           for (final ColumnFamilyHandle handle : columnFamilyHandles) {
             handle.close();

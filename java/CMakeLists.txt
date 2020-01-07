@@ -144,6 +144,7 @@ set(JAVA_MAIN_CLASSES
   src/main/java/org/rocksdb/HdfsEnv.java
   src/main/java/org/rocksdb/HistogramData.java
   src/main/java/org/rocksdb/HistogramType.java
+  src/main/java/org/rocksdb/Holder.java
   src/main/java/org/rocksdb/IndexType.java
   src/main/java/org/rocksdb/InfoLogLevel.java
   src/main/java/org/rocksdb/IngestExternalFileOptions.java
@@ -249,7 +250,7 @@ set(JAVA_TEST_CLASSES
   src/test/java/org/rocksdb/NativeComparatorWrapperTest.java
   src/test/java/org/rocksdb/PlatformRandomHelper.java
   src/test/java/org/rocksdb/RocksDBExceptionTest.java
-  src/test/java/org/rocksdb/RocksMemoryResource.java
+  src/test/java/org/rocksdb/RocksNativeLibraryResource.java
   src/test/java/org/rocksdb/SnapshotTest.java
   src/test/java/org/rocksdb/WriteBatchTest.java
   src/test/java/org/rocksdb/util/CapturingWriteBatchHandler.java

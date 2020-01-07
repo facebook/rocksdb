@@ -385,6 +385,7 @@ public class DBOptions extends RocksObject
   }
 
   @Override
+  @Deprecated
   public void setBaseBackgroundCompactions(
       final int baseBackgroundCompactions) {
     assert(isOwningHandle());
@@ -398,6 +399,7 @@ public class DBOptions extends RocksObject
   }
 
   @Override
+  @Deprecated
   public DBOptions setMaxBackgroundCompactions(
       final int maxBackgroundCompactions) {
     assert(isOwningHandle());
@@ -406,6 +408,7 @@ public class DBOptions extends RocksObject
   }
 
   @Override
+  @Deprecated
   public int maxBackgroundCompactions() {
     assert(isOwningHandle());
     return maxBackgroundCompactions(nativeHandle_);
@@ -425,6 +428,7 @@ public class DBOptions extends RocksObject
   }
 
   @Override
+  @Deprecated
   public DBOptions setMaxBackgroundFlushes(
       final int maxBackgroundFlushes) {
     assert(isOwningHandle());
@@ -433,6 +437,7 @@ public class DBOptions extends RocksObject
   }
 
   @Override
+  @Deprecated
   public int maxBackgroundFlushes() {
     assert(isOwningHandle());
     return maxBackgroundFlushes(nativeHandle_);

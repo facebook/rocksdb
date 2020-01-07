@@ -153,6 +153,8 @@ TEST_F(DBTest2, MaxSuccessiveMergesChangeWithDBRecovery) {
   options.create_if_missing = true;
   options.statistics = rocksdb::CreateDBStatistics();
   options.max_successive_merges = 3;
+  // allow_concurrent_memtable_write is incompatible with max_successive_merges
+  options.allow_concurrent_memtable_write = false;
   options.merge_operator = MergeOperators::CreatePutOperator();
   options.disable_auto_compactions = true;
   DestroyAndReopen(options);
@@ -4209,6 +4211,42 @@ TEST_F(DBTest2, SeekFileRangeDeleteTail) {
     ASSERT_EQ("x", iter->key().ToString());
   }
   db_->ReleaseSnapshot(s1);
+}
+
+TEST_F(DBTest2, BackgroundPurgeTest) {
+  Options options = CurrentOptions();
+  options.write_buffer_manager = std::make_shared<rocksdb::WriteBufferManager>(1 << 20);
+  options.avoid_unnecessary_blocking_io = true;
+  DestroyAndReopen(options);
+  size_t base_value = options.write_buffer_manager->memory_usage();
+
+  ASSERT_OK(Put("a", "a"));
+  Iterator* iter = db_->NewIterator(ReadOptions());
+  ASSERT_OK(Flush());
+  size_t value = options.write_buffer_manager->memory_usage();
+  ASSERT_GT(value, base_value);
+
+  db_->GetEnv()->SetBackgroundThreads(1, Env::Priority::HIGH);
+  test::SleepingBackgroundTask sleeping_task_after;
+  db_->GetEnv()->Schedule(&test::SleepingBackgroundTask::DoSleepTask,
+                          &sleeping_task_after, Env::Priority::HIGH);
+  delete iter;
+
+  Env::Default()->SleepForMicroseconds(100000);
+  value = options.write_buffer_manager->memory_usage();
+  ASSERT_GT(value, base_value);
+
+  sleeping_task_after.WakeUp();
+  sleeping_task_after.WaitUntilDone();
+
+  test::SleepingBackgroundTask sleeping_task_after2;
+  db_->GetEnv()->Schedule(&test::SleepingBackgroundTask::DoSleepTask,
+                          &sleeping_task_after2, Env::Priority::HIGH);
+  sleeping_task_after2.WakeUp();
+  sleeping_task_after2.WaitUntilDone();
+
+  value = options.write_buffer_manager->memory_usage();
+  ASSERT_EQ(base_value, value);
 }
 }  // namespace rocksdb
 

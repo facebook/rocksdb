@@ -745,7 +745,7 @@ endif  # PLATFORM_SHARED_EXT
 	dbg rocksdbjavastatic rocksdbjava install install-static install-shared uninstall \
 	analyze tools tools_lib \
 	blackbox_crash_test_with_atomic_flush whitebox_crash_test_with_atomic_flush  \
-	blackbox_crash_test_with_txn whitebox_crash_test_with_txn 
+	blackbox_crash_test_with_txn whitebox_crash_test_with_txn
 
 
 all: $(LIBRARY) $(BENCHMARKS) tools tools_lib test_libs $(TESTS)
@@ -939,6 +939,7 @@ check: all
 	fi
 	rm -rf $(TMPD)
 ifneq ($(PLATFORM), OS_AIX)
+	python tools/check_all_python.py
 ifeq ($(filter -DROCKSDB_LITE,$(OPT)),)
 	python tools/ldb_test.py
 	sh tools/rocksdb_dump_test.sh
@@ -1096,6 +1097,9 @@ parallel_check: $(TESTS)
 		TMPD=$(TMPD) J=$(J) db_test=0 parloop;
 
 analyze: clean
+	USE_CLANG=1 $(MAKE) analyze_incremental
+
+analyze_incremental:
 	$(CLANG_SCAN_BUILD) --use-analyzer=$(CLANG_ANALYZER) \
 		--use-c++=$(CXX) --use-cc=$(CC) --status-bugs \
 		-o $(CURDIR)/scan_build_report \
@@ -2051,6 +2055,7 @@ jtest_run:
 
 jtest: rocksdbjava
 	cd java;$(MAKE) sample;$(MAKE) test;
+	python tools/check_all_python.py # TODO peterd: find a better place for this check in CI targets
 
 jdb_bench:
 	cd java;$(MAKE) db_bench;

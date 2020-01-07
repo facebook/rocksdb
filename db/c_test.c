@@ -1244,6 +1244,15 @@ int main(int argc, char** argv) {
     rocksdb_put_cf(db, woptions, handles[1], "foo", 3, "hello", 5, &err);
     CheckNoError(err);
 
+    rocksdb_put_cf(db, woptions, handles[1], "foobar1", 7, "hello1", 6, &err);
+    CheckNoError(err);
+    rocksdb_put_cf(db, woptions, handles[1], "foobar2", 7, "hello2", 6, &err);
+    CheckNoError(err);
+    rocksdb_put_cf(db, woptions, handles[1], "foobar3", 7, "hello3", 6, &err);
+    CheckNoError(err);
+    rocksdb_put_cf(db, woptions, handles[1], "foobar4", 7, "hello4", 6, &err);
+    CheckNoError(err);
+
     rocksdb_flushoptions_t *flush_options = rocksdb_flushoptions_create();
     rocksdb_flushoptions_set_wait(flush_options, 1);
     rocksdb_flush_cf(db, flush_options, handles[1], &err);
@@ -1254,6 +1263,9 @@ int main(int argc, char** argv) {
     CheckPinGetCF(db, roptions, handles[1], "foo", "hello");
 
     rocksdb_delete_cf(db, woptions, handles[1], "foo", 3, &err);
+    CheckNoError(err);
+
+    rocksdb_delete_range_cf(db, woptions, handles[1], "foobar2", 7, "foobar4", 7, &err);
     CheckNoError(err);
 
     CheckGetCF(db, roptions, handles[1], "foo", NULL);
@@ -1308,7 +1320,7 @@ int main(int argc, char** argv) {
     for (i = 0; rocksdb_iter_valid(iter) != 0; rocksdb_iter_next(iter)) {
       i++;
     }
-    CheckCondition(i == 1);
+    CheckCondition(i == 3);
     rocksdb_iter_get_error(iter, &err);
     CheckNoError(err);
     rocksdb_iter_destroy(iter);
@@ -1332,7 +1344,7 @@ int main(int argc, char** argv) {
     for (i = 0; rocksdb_iter_valid(iter) != 0; rocksdb_iter_next(iter)) {
       i++;
     }
-    CheckCondition(i == 1);
+    CheckCondition(i == 3);
     rocksdb_iter_get_error(iter, &err);
     CheckNoError(err);
     rocksdb_iter_destroy(iter);

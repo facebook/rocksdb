@@ -41,13 +41,14 @@ int db_stress_tool(int argc, char** argv) {
 
   if (FLAGS_statistics) {
     dbstats = rocksdb::CreateDBStatistics();
-    if (FLAGS_enable_secondary) {
+    if (FLAGS_test_secondary) {
       dbstats_secondaries = rocksdb::CreateDBStatistics();
     }
   }
-  FLAGS_compression_type_e =
-      StringToCompressionType(FLAGS_compression_type.c_str());
-  FLAGS_checksum_type_e = StringToChecksumType(FLAGS_checksum_type.c_str());
+  compression_type_e = StringToCompressionType(FLAGS_compression_type.c_str());
+  bottommost_compression_type_e =
+      StringToCompressionType(FLAGS_bottommost_compression_type.c_str());
+  checksum_type_e = StringToChecksumType(FLAGS_checksum_type.c_str());
 
   Env* raw_env;
 
@@ -67,16 +68,16 @@ int db_stress_tool(int argc, char** argv) {
     raw_env = Env::Default();
   }
   env_wrapper_guard = std::make_shared<DbStressEnvWrapper>(raw_env);
-  FLAGS_env = env_wrapper_guard.get();
+  db_stress_env = env_wrapper_guard.get();
 
   FLAGS_rep_factory = StringToRepFactory(FLAGS_memtablerep.c_str());
 
   // The number of background threads should be at least as much the
   // max number of concurrent compactions.
-  FLAGS_env->SetBackgroundThreads(FLAGS_max_background_compactions,
-                                  rocksdb::Env::Priority::LOW);
-  FLAGS_env->SetBackgroundThreads(FLAGS_num_bottom_pri_threads,
-                                  rocksdb::Env::Priority::BOTTOM);
+  db_stress_env->SetBackgroundThreads(FLAGS_max_background_compactions,
+                                      rocksdb::Env::Priority::LOW);
+  db_stress_env->SetBackgroundThreads(FLAGS_num_bottom_pri_threads,
+                                      rocksdb::Env::Priority::BOTTOM);
   if (FLAGS_prefixpercent > 0 && FLAGS_prefix_size < 0) {
     fprintf(stderr,
             "Error: prefixpercent is non-zero while prefix_size is "
@@ -166,16 +167,18 @@ int db_stress_tool(int argc, char** argv) {
   // Choose a location for the test database if none given with --db=<path>
   if (FLAGS_db.empty()) {
     std::string default_db_path;
-    FLAGS_env->GetTestDirectory(&default_db_path);
+    db_stress_env->GetTestDirectory(&default_db_path);
     default_db_path += "/dbstress";
     FLAGS_db = default_db_path;
   }
 
-  if (FLAGS_enable_secondary && FLAGS_secondaries_base.empty()) {
+  if ((FLAGS_test_secondary || FLAGS_continuous_verification_interval > 0) &&
+      FLAGS_secondaries_base.empty()) {
     std::string default_secondaries_path;
-    FLAGS_env->GetTestDirectory(&default_secondaries_path);
+    db_stress_env->GetTestDirectory(&default_secondaries_path);
     default_secondaries_path += "/dbstress_secondaries";
-    rocksdb::Status s = FLAGS_env->CreateDirIfMissing(default_secondaries_path);
+    rocksdb::Status s =
+        db_stress_env->CreateDirIfMissing(default_secondaries_path);
     if (!s.ok()) {
       fprintf(stderr, "Failed to create directory %s: %s\n",
               default_secondaries_path.c_str(), s.ToString().c_str());
@@ -184,8 +187,10 @@ int db_stress_tool(int argc, char** argv) {
     FLAGS_secondaries_base = default_secondaries_path;
   }
 
-  if (!FLAGS_enable_secondary && FLAGS_secondary_catch_up_one_in > 0) {
-    fprintf(stderr, "Secondary instance is disabled.\n");
+  if (!FLAGS_test_secondary && FLAGS_secondary_catch_up_one_in > 0) {
+    fprintf(
+        stderr,
+        "Must set -test_secondary=true if secondary_catch_up_one_in > 0.\n");
     exit(1);
   }
 

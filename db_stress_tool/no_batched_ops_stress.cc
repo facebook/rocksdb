@@ -42,10 +42,9 @@ class NonBatchedOpsStressTest : public StressTest {
           if (thread->shared->HasVerificationFailedYet()) {
             break;
           }
-          // TODO(ljin): update "long" to uint64_t
           // Reseek when the prefix changes
           if (prefix_to_use > 0 &&
-              i % (static_cast<int64_t>(1) << 8 * (8 - prefix_to_use)) == 0) {
+              i % (static_cast<uint64_t>(1) << 8 * (8 - prefix_to_use)) == 0) {
             iter->Seek(Key(i));
           }
           std::string from_db;
@@ -65,7 +64,7 @@ class NonBatchedOpsStressTest : public StressTest {
           } else {
             // The iterator found no value for the key in question, so do not
             // move to the next item in the iterator
-            s = Status::NotFound(Slice());
+            s = Status::NotFound();
           }
           VerifyValue(static_cast<int>(cf), i, options, shared, from_db, s,
                       true);
@@ -148,6 +147,7 @@ class NonBatchedOpsStressTest : public StressTest {
       thread->stats.AddGets(1, 0);
     } else {
       // errors case
+      fprintf(stderr, "TestGet error: %s\n", s.ToString().c_str());
       thread->stats.AddErrors(1);
     }
     return s;
@@ -166,12 +166,75 @@ class NonBatchedOpsStressTest : public StressTest {
     std::vector<Status> statuses(num_keys);
     ColumnFamilyHandle* cfh = column_families_[rand_column_families[0]];
 
+    // To appease clang analyzer
+    const bool use_txn = FLAGS_use_txn;
+
+    // Create a transaction in order to write some data. The purpose is to
+    // exercise WriteBatchWithIndex::MultiGetFromBatchAndDB. The transaction
+    // will be rolled back once MultiGet returns.
+#ifndef ROCKSDB_LITE
+    Transaction* txn = nullptr;
+    if (use_txn) {
+      WriteOptions wo;
+      Status s = NewTxn(wo, &txn);
+      if (!s.ok()) {
+        fprintf(stderr, "NewTxn: %s\n", s.ToString().c_str());
+        std::terminate();
+      }
+    }
+#endif
     for (size_t i = 0; i < num_keys; ++i) {
       key_str.emplace_back(Key(rand_keys[i]));
       keys.emplace_back(key_str.back());
+#ifndef ROCKSDB_LITE
+      if (use_txn) {
+        // With a 1 in 10 probability, insert the just added key in the batch
+        // into the transaction. This will create an overlap with the MultiGet
+        // keys and exercise some corner cases in the code
+        if (thread->rand.OneIn(10)) {
+          int op = thread->rand.Uniform(2);
+          Status s;
+          switch (op) {
+            case 0:
+            case 1: {
+              uint32_t value_base =
+                  thread->rand.Next() % thread->shared->UNKNOWN_SENTINEL;
+              char value[100];
+              size_t sz = GenerateValue(value_base, value, sizeof(value));
+              Slice v(value, sz);
+              if (op == 0) {
+                s = txn->Put(cfh, keys.back(), v);
+              } else {
+                s = txn->Merge(cfh, keys.back(), v);
+              }
+              break;
+            }
+            case 2:
+              s = txn->Delete(cfh, keys.back());
+              break;
+            default:
+              assert(false);
+          }
+          if (!s.ok()) {
+            fprintf(stderr, "Transaction put: %s\n", s.ToString().c_str());
+            std::terminate();
+          }
+        }
+      }
+#endif
     }
-    db_->MultiGet(read_opts, cfh, num_keys, keys.data(), values.data(),
-                  statuses.data());
+
+    if (!use_txn) {
+      db_->MultiGet(read_opts, cfh, num_keys, keys.data(), values.data(),
+                    statuses.data());
+    } else {
+#ifndef ROCKSDB_LITE
+      txn->MultiGet(read_opts, cfh, num_keys, keys.data(), values.data(),
+                    statuses.data());
+      RollbackTxn(txn);
+#endif
+    }
+
     for (const auto& s : statuses) {
       if (s.ok()) {
         // found case
@@ -179,8 +242,12 @@ class NonBatchedOpsStressTest : public StressTest {
       } else if (s.IsNotFound()) {
         // not found case
         thread->stats.AddGets(1, 0);
+      } else if (s.IsMergeInProgress() && use_txn) {
+        // With txn this is sometimes expected.
+        thread->stats.AddGets(1, 1);
       } else {
         // errors case
+        fprintf(stderr, "MultiGet error: %s\n", s.ToString().c_str());
         thread->stats.AddErrors(1);
       }
     }
@@ -215,6 +282,7 @@ class NonBatchedOpsStressTest : public StressTest {
     if (iter->status().ok()) {
       thread->stats.AddPrefixes(1, count);
     } else {
+      fprintf(stderr, "TestPrefixScan error: %s\n", s.ToString().c_str());
       thread->stats.AddErrors(1);
     }
     delete iter;
@@ -447,10 +515,10 @@ class NonBatchedOpsStressTest : public StressTest {
     const std::string sst_filename =
         FLAGS_db + "/." + ToString(thread->tid) + ".sst";
     Status s;
-    if (FLAGS_env->FileExists(sst_filename).ok()) {
+    if (db_stress_env->FileExists(sst_filename).ok()) {
       // Maybe we terminated abnormally before, so cleanup to give this file
       // ingestion a clean slate
-      s = FLAGS_env->DeleteFile(sst_filename);
+      s = db_stress_env->DeleteFile(sst_filename);
     }
 
     SstFileWriter sst_file_writer(EnvOptions(options_), options_);
@@ -506,7 +574,7 @@ class NonBatchedOpsStressTest : public StressTest {
 
   bool VerifyValue(int cf, int64_t key, const ReadOptions& /*opts*/,
                    SharedState* shared, const std::string& value_from_db,
-                   Status s, bool strict = false) const {
+                   const Status& s, bool strict = false) const {
     if (shared->HasVerificationFailedYet()) {
       return false;
     }

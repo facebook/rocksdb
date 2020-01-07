@@ -15,7 +15,7 @@ class CfConsistencyStressTest : public StressTest {
  public:
   CfConsistencyStressTest() : batch_id_(0) {}
 
-  virtual ~CfConsistencyStressTest() {}
+  ~CfConsistencyStressTest() override {}
 
   Status TestPut(ThreadState* thread, WriteOptions& write_opts,
                  const ReadOptions& /* read_opts */,
@@ -184,6 +184,7 @@ class CfConsistencyStressTest : public StressTest {
       db_->ReleaseSnapshot(snapshot);
     }
     if (!is_consistent) {
+      fprintf(stderr, "TestGet error: is_consistent is false\n");
       thread->stats.AddErrors(1);
       // Fail fast to preserve the DB state.
       thread->shared->SetVerificationFailure();
@@ -192,6 +193,7 @@ class CfConsistencyStressTest : public StressTest {
     } else if (s.IsNotFound()) {
       thread->stats.AddGets(1, 0);
     } else {
+      fprintf(stderr, "TestGet error: %s\n", s.ToString().c_str());
       thread->stats.AddErrors(1);
     }
     return s;
@@ -225,6 +227,7 @@ class CfConsistencyStressTest : public StressTest {
         thread->stats.AddGets(1, 0);
       } else {
         // errors case
+        fprintf(stderr, "MultiGet error: %s\n", s.ToString().c_str());
         thread->stats.AddErrors(1);
       }
     }
@@ -263,6 +266,7 @@ class CfConsistencyStressTest : public StressTest {
     if (s.ok()) {
       thread->stats.AddPrefixes(1, count);
     } else {
+      fprintf(stderr, "TestPrefixScan error: %s\n", s.ToString().c_str());
       thread->stats.AddErrors(1);
     }
     delete iter;
@@ -295,7 +299,7 @@ class CfConsistencyStressTest : public StressTest {
 
     // We need to clear DB including manifest files, so make a copy
     Options opt_copy = options_;
-    opt_copy.env = FLAGS_env->target();
+    opt_copy.env = db_stress_env->target();
     DestroyDB(checkpoint_dir, opt_copy);
 
     Checkpoint* checkpoint = nullptr;
@@ -350,6 +354,12 @@ class CfConsistencyStressTest : public StressTest {
     // iterate the memtable using this iterator any more, although the memtable
     // contains the most up-to-date key-values.
     options.total_order_seek = true;
+    const auto ss_deleter = [this](const Snapshot* ss) {
+      db_->ReleaseSnapshot(ss);
+    };
+    std::unique_ptr<const Snapshot, decltype(ss_deleter)> snapshot_guard(
+        db_->GetSnapshot(), ss_deleter);
+    options.snapshot = snapshot_guard.get();
     assert(thread != nullptr);
     auto shared = thread->shared;
     std::vector<std::unique_ptr<Iterator>> iters(column_families_.size());
@@ -387,9 +397,6 @@ class CfConsistencyStressTest : public StressTest {
                     s.ToString().c_str());
             shared->SetVerificationFailure();
           }
-        }
-        if (status.ok()) {
-          fprintf(stdout, "Finished scanning all column families.\n");
         }
         break;
       } else if (valid_cnt != iters.size()) {
@@ -490,6 +497,67 @@ class CfConsistencyStressTest : public StressTest {
       }
     } while (true);
   }
+
+#ifndef ROCKSDB_LITE
+  void ContinuouslyVerifyDb(ThreadState* thread) const override {
+    assert(thread);
+    Status status;
+
+    DB* db_ptr = cmp_db_ ? cmp_db_ : db_;
+    const auto& cfhs = cmp_db_ ? cmp_cfhs_ : column_families_;
+    const auto ss_deleter = [&](const Snapshot* ss) {
+      db_ptr->ReleaseSnapshot(ss);
+    };
+    std::unique_ptr<const Snapshot, decltype(ss_deleter)> snapshot_guard(
+        db_ptr->GetSnapshot(), ss_deleter);
+    if (cmp_db_) {
+      status = cmp_db_->TryCatchUpWithPrimary();
+    }
+    SharedState* shared = thread->shared;
+    assert(shared);
+    if (!status.ok()) {
+      shared->SetShouldStopTest();
+      return;
+    }
+    assert(cmp_db_ || snapshot_guard.get());
+    const auto checksum_column_family = [](Iterator* iter,
+                                           uint32_t* checksum) -> Status {
+      assert(nullptr != checksum);
+      uint32_t ret = 0;
+      for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
+        ret = crc32c::Extend(ret, iter->key().data(), iter->key().size());
+        ret = crc32c::Extend(ret, iter->value().data(), iter->value().size());
+      }
+      *checksum = ret;
+      return iter->status();
+    };
+    ReadOptions ropts;
+    ropts.total_order_seek = true;
+    ropts.snapshot = snapshot_guard.get();
+    uint32_t crc = 0;
+    {
+      // Compute crc for all key-values of default column family.
+      std::unique_ptr<Iterator> it(db_ptr->NewIterator(ropts));
+      status = checksum_column_family(it.get(), &crc);
+    }
+    uint32_t tmp_crc = 0;
+    if (status.ok()) {
+      for (ColumnFamilyHandle* cfh : cfhs) {
+        if (cfh == db_ptr->DefaultColumnFamily()) {
+          continue;
+        }
+        std::unique_ptr<Iterator> it(db_ptr->NewIterator(ropts, cfh));
+        status = checksum_column_family(it.get(), &tmp_crc);
+        if (!status.ok() || tmp_crc != crc) {
+          break;
+        }
+      }
+    }
+    if (!status.ok() || tmp_crc != crc) {
+      shared->SetShouldStopTest();
+    }
+  }
+#endif  // !ROCKSDB_LITE
 
   std::vector<int> GenerateColumnFamilies(
       const int /* num_column_families */,
