@@ -24,7 +24,7 @@ class OptimisticTransactionDBImpl : public OptimisticTransactionDB {
       : OptimisticTransactionDB(db),
         db_owner_(take_ownership),
         validate_policy_(occ_options.validate_policy) {
-    if (validate_policy_ == OccValidationPolicy::VALIDATE_PARALLEL) {
+    if (validate_policy_ == OccValidationPolicy::kValidateParallel) {
       uint32_t bucket_size = std::max(16u, occ_options.occ_lock_buckets);
       bucketed_locks_.reserve(bucket_size);
       for (size_t i = 0; i < bucket_size; ++i) {
@@ -53,7 +53,7 @@ class OptimisticTransactionDBImpl : public OptimisticTransactionDB {
   std::unique_lock<std::mutex> LockBucket(size_t idx);
 
  private:
-  // NOTE(wolfkdy): used in validation phase. Each key is hashed into some
+  // NOTE: used in validation phase. Each key is hashed into some
   // bucket. We then take the lock in the hash value order to avoid deadlock.
   std::vector<std::unique_ptr<std::mutex>> bucketed_locks_;
 

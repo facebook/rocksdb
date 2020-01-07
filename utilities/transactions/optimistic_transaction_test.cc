@@ -1512,8 +1512,8 @@ TEST_P(OptimisticTransactionTest, SequenceNumberAfterRecoverTest) {
 
 INSTANTIATE_TEST_CASE_P(
     InstanceOccGroup, OptimisticTransactionTest,
-    testing::Values(OccValidationPolicy::VALIDATE_SERIAL,
-                    OccValidationPolicy::VALIDATE_PARALLEL));
+    testing::Values(OccValidationPolicy::kValidateSerial,
+                    OccValidationPolicy::kValidateParallel));
 
 }  // namespace rocksdb
 

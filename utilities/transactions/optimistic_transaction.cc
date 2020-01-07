@@ -60,9 +60,9 @@ Status OptimisticTransaction::Commit() {
                                             OptimisticTransactionDB>(txn_db_);
   assert(txn_db_impl);
   OccValidationPolicy policy = txn_db_impl->GetValidatePolicy();
-  if (policy == OccValidationPolicy::VALIDATE_PARALLEL) {
+  if (policy == OccValidationPolicy::kValidateParallel) {
     return CommitWithParallelValidate();
-  } else if (policy == OccValidationPolicy::VALIDATE_SERIAL) {
+  } else if (policy == OccValidationPolicy::kValidateSerial) {
     return CommitWithSerialValidate();
   } else {
     assert(0);
@@ -102,6 +102,9 @@ Status OptimisticTransaction::CommitWithParallelValidate() {
       lk_idxes.insert(fastrange64(GetSliceNPHash64(keyit.first), space));
     }
   }
+  // NOTE: in a single txn, all bucket-locks are taken in ascending order.
+  // In this way, txns from different threads all obey this rule so that
+  // deadlock can be avoided.
   for (auto v : lk_idxes) {
     lks.emplace_back(txn_db_impl->LockBucket(v));
   }

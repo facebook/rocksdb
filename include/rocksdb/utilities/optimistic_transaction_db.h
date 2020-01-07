@@ -37,19 +37,17 @@ enum class OccValidationPolicy {
   // write-group).
   // May suffer from high mutex contention, as per this link:
   // https://github.com/facebook/rocksdb/issues/4402
-  VALIDATE_SERIAL = 0,
+  kValidateSerial = 0,
   // Validate parallelly before commit stage, BEFORE entering the write-group to
-  // reduce mutex contention.
-  // Each txn acquires locks for its write-set records in some well-defined
-  // order.
-  VALIDATE_PARALLEL
+  // reduce mutex contention. Each txn acquires locks for its write-set
+  // records in some well-defined order.
+  kValidateParallel = 1
 };
 
 struct OptimisticTransactionDBOptions {
-  OccValidationPolicy validate_policy = OccValidationPolicy::VALIDATE_PARALLEL;
+  OccValidationPolicy validate_policy = OccValidationPolicy::kValidateParallel;
 
-  // NOTE(wolfkdy): works only if validate_policy ==
-  // OccValidationPolicy::VALIDATE_PARALLEL
+  // works only if validate_policy == OccValidationPolicy::kValidateParallel
   uint32_t occ_lock_buckets = (1 << 20);
 };
 
