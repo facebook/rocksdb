@@ -113,7 +113,8 @@ script:
       ;;
     cmake-mingw)
       sudo update-alternatives --set x86_64-w64-mingw32-g++ /usr/bin/x86_64-w64-mingw32-g++-posix;
-      mkdir build && cd build && cmake -DJNI=1 .. -DCMAKE_C_COMPILER=x86_64-w64-mingw32-gcc -DCMAKE_CXX_COMPILER=x86_64-w64-mingw32-g++ -DCMAKE_SYSTEM_NAME=Windows && make -j4 rocksdb rocksdbjni
+      # -DCMAKE_CXX_FLAGS=-fno-asynchronous-unwind-tables is a workaround to fix https://gcc.gnu.org/bugzilla/show_bug.cgi?id=65782
+      mkdir build && cd build && cmake -DJNI=1 .. -DCMAKE_CXX_FLAGS=-fno-asynchronous-unwind-tables -DCMAKE_C_COMPILER=x86_64-w64-mingw32-gcc -DCMAKE_CXX_COMPILER=x86_64-w64-mingw32-g++ -DCMAKE_SYSTEM_NAME=Windows && make -j4 rocksdb rocksdbjni
       ;;
     cmake*)
       mkdir build && cd build && cmake -DJNI=1 .. -DCMAKE_BUILD_TYPE=Release && make -j4 rocksdb rocksdbjni
