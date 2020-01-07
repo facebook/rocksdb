@@ -3753,12 +3753,20 @@ Status VersionSet::ProcessManifestWrites(
     pending_manifest_file_number_ = manifest_file_number_;
   }
 
+  // Local cached copy of state variable(s). WriteCurrentStateToManifest()
+  // reads its content after releasing db mutex to avoid race with
+  // SwitchMemtable().
+  std::unordered_map<uint32_t, MutableCFState> curr_state;
   if (new_descriptor_log) {
     // if we are writing out new snapshot make sure to persist max column
     // family.
     if (column_family_set_->GetMaxColumnFamily() > 0) {
       first_writer.edit_list.front()->SetMaxColumnFamily(
           column_family_set_->GetMaxColumnFamily());
+    }
+    for (const auto* cfd : *column_family_set_) {
+      assert(curr_state.find(cfd->GetID()) == curr_state.end());
+      curr_state[cfd->GetID()] = {cfd->GetLogNumber()};
     }
   }
 
@@ -3802,7 +3810,7 @@ Status VersionSet::ProcessManifestWrites(
             nullptr, db_options_->listeners));
         descriptor_log_.reset(
             new log::Writer(std::move(file_writer), 0, false));
-        s = WriteCurrentStateToManifest(descriptor_log_.get());
+        s = WriteCurrentStateToManifest(curr_state, descriptor_log_.get());
       }
     }
 
@@ -4918,7 +4926,9 @@ void VersionSet::MarkMinLogNumberToKeep2PC(uint64_t number) {
   }
 }
 
-Status VersionSet::WriteCurrentStateToManifest(log::Writer* log) {
+Status VersionSet::WriteCurrentStateToManifest(
+    const std::unordered_map<uint32_t, MutableCFState>& curr_state,
+    log::Writer* log) {
   // TODO: Break up into multiple records to reduce memory usage on recovery?
 
   // WARNING: This method doesn't hold a mutex!!
@@ -4984,7 +4994,10 @@ Status VersionSet::WriteCurrentStateToManifest(log::Writer* log) {
                        f->oldest_ancester_time, f->file_creation_time);
         }
       }
-      edit.SetLogNumber(cfd->GetLogNumber());
+      const auto iter = curr_state.find(cfd->GetID());
+      assert(iter != curr_state.end());
+      uint64_t log_number = iter->second.log_number;
+      edit.SetLogNumber(log_number);
       std::string record;
       if (!edit.EncodeTo(&record)) {
         return Status::Corruption(

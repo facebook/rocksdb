@@ -13,6 +13,7 @@
 * Fix a bug in WriteBatchWithIndex::MultiGetFromBatchAndDB, which is called by Transaction::MultiGet, that causes due to stale pointer access when the number of keys is > 32
 * BlobDB no longer updates the SST to blob file mapping upon failed compactions.
 * Fixed a bug where BlobDB was comparing the `ColumnFamilyHandle` pointers themselves instead of only the column family IDs when checking whether an API call uses the default column family or not.
+* Fix a race condition for cfd->log_number_ between manifest switch and memtable switch (PR 6249) when number of column families is greater than 1.
 
 ### New Features
 * It is now possible to enable periodic compactions for the base DB when using BlobDB.
