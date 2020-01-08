@@ -1040,7 +1040,26 @@ void StressTest::VerifyIterator(ThreadState* thread,
     return;
   }
 
+  const SliceTransform* pe =
+      ro.total_order_seek ? nullptr : options_.prefix_extractor.get();
+  const Comparator* cmp = options_.comparator;
+
   if (iter->Valid() && !cmp_iter->Valid()) {
+    if (pe != nullptr) {
+      if (!pe->InDomain(seek_key)) {
+        // Prefix seek a non-in-domain key is undefined. Skip checking for
+        // this scenario.
+        *diverged = true;
+        return;
+      } else if (!pe->InDomain(iter->key())) {
+        // out of range is iterator key is not in domain anymore.
+        *diverged = true;
+        return;
+      } else if (pe->Transform(iter->key()) != pe->Transform(seek_key)) {
+        *diverged = true;
+        return;
+      }
+    }
     fprintf(stderr,
             "Control interator is invalid but iterator has key %s "
             "%s\n",
@@ -1051,9 +1070,6 @@ void StressTest::VerifyIterator(ThreadState* thread,
     // Iterator is not valid. It can be legimate if it has already been
     // out of upper or lower bound, or filtered out by prefix iterator.
     const Slice& total_order_key = cmp_iter->key();
-    const SliceTransform* pe =
-        ro.total_order_seek ? nullptr : options_.prefix_extractor.get();
-    const Comparator* cmp = options_.comparator;
 
     if (pe != nullptr) {
       if (!pe->InDomain(seek_key)) {
