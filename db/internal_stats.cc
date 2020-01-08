@@ -663,7 +663,6 @@ bool InternalStats::HandleNumImmutableMemTableFlushed(uint64_t* value,
 
 bool InternalStats::HandleMemTableFlushPending(uint64_t* value, DBImpl* /*db*/,
                                                Version* /*version*/) {
-  // Return number of mem tables that are ready to flush (made immutable)
   *value = (cfd_->imm()->IsFlushPending() ? 1 : 0);
   return true;
 }
