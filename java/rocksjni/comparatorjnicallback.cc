@@ -342,13 +342,21 @@ void ComparatorJniCallback::FindShortestSeparator(
             return;
           }
           start->assign(static_cast<const char*>(start_buf), jstart_len);
+
         } else {
+
           // reused non-direct buffer
           copy_from_non_direct = true;
         }
     } else {
         // there was a new buffer
-        copy_from_non_direct = !m_options->direct_buffer;
+        if (m_options->direct_buffer) {
+          // it was direct... don't forget to potentially truncate the `start` string
+          start->resize(jstart_len);
+        } else {
+          // it was non-direct
+          copy_from_non_direct = true;
+        }
     }
 
     if (copy_from_non_direct) {
@@ -463,7 +471,13 @@ void ComparatorJniCallback::FindShortSuccessor(
         }
     } else {
         // there was a new buffer
-        copy_from_non_direct = !m_options->direct_buffer;
+        if (m_options->direct_buffer) {
+          // it was direct... don't forget to potentially truncate the `key` string
+          key->resize(jkey_len);
+        } else {
+          // it was non-direct
+          copy_from_non_direct = true;
+        }
     }
 
     if (copy_from_non_direct) {
