@@ -1320,14 +1320,21 @@ class ByteBufferJni : public JavaClass {
           env->DeleteLocalRef(jbuf);
           return nullptr;
         }
-        env->SetByteArrayRegion(
-            jarray, 0, static_cast<jsize>(capacity), reinterpret_cast<const jbyte*>(buf));
-        if (env->ExceptionCheck()) {
-           // exception occurred
+
+        jboolean is_copy = JNI_FALSE;
+        jbyte* ja = reinterpret_cast<jbyte*>(
+            env->GetPrimitiveArrayCritical(jarray, &is_copy));
+        if (ja == nullptr) {
+          // exception occurred
            env->DeleteLocalRef(jarray);
            env->DeleteLocalRef(jbuf);
-          return nullptr;
+           return nullptr;
         }
+
+        memcpy(ja, const_cast<char*>(buf), capacity);
+
+        env->ReleasePrimitiveArrayCritical(jarray, ja, 0);
+
         env->DeleteLocalRef(jarray);
       }
 
