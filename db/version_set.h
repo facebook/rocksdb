@@ -1075,8 +1075,14 @@ class VersionSet {
                            const Slice& start, const Slice& end,
                            TableReaderCaller caller);
 
+  struct MutableCFState {
+    uint64_t log_number;
+  };
+
   // Save current contents to *log
-  Status WriteCurrentStateToManifest(log::Writer* log);
+  Status WriteCurrentStateToManifest(
+      const std::unordered_map<uint32_t, MutableCFState>& curr_state,
+      log::Writer* log);
 
   void AppendVersion(ColumnFamilyData* column_family_data, Version* v);
 

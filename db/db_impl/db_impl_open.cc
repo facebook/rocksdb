@@ -363,7 +363,8 @@ Status DBImpl::Recover(
       return s;
     }
 
-    s = env_->FileExists(CurrentFileName(dbname_));
+    std::string current_fname = CurrentFileName(dbname_);
+    s = env_->FileExists(current_fname);
     if (s.IsNotFound()) {
       if (immutable_db_options_.create_if_missing) {
         // Has to be called only after Identity File creation is successful
@@ -376,7 +377,7 @@ Status DBImpl::Recover(
         }
       } else {
         return Status::InvalidArgument(
-            dbname_, "does not exist (create_if_missing is false)");
+            current_fname, "does not exist (create_if_missing is false)");
       }
     } else if (s.ok()) {
       if (immutable_db_options_.error_if_exists) {
@@ -394,14 +395,14 @@ Status DBImpl::Recover(
       FileOptions customized_fs(file_options_);
       customized_fs.use_direct_reads |=
           immutable_db_options_.use_direct_io_for_flush_and_compaction;
-      s = fs_->NewRandomAccessFile(CurrentFileName(dbname_), customized_fs,
-                                   &idfile, nullptr);
+      s = fs_->NewRandomAccessFile(current_fname, customized_fs, &idfile,
+                                   nullptr);
       if (!s.ok()) {
         std::string error_str = s.ToString();
         // Check if unsupported Direct I/O is the root cause
         customized_fs.use_direct_reads = false;
-        s = fs_->NewRandomAccessFile(CurrentFileName(dbname_), customized_fs,
-                                     &idfile, nullptr);
+        s = fs_->NewRandomAccessFile(current_fname, customized_fs, &idfile,
+                                     nullptr);
         if (s.ok()) {
           return Status::InvalidArgument(
               "Direct I/O is not supported by the specified DB.");

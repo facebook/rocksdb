@@ -269,9 +269,8 @@ extern ROCKSDB_LIBRARY_API void rocksdb_delete_cf(
 
 extern ROCKSDB_LIBRARY_API void rocksdb_delete_range_cf(
     rocksdb_t* db, const rocksdb_writeoptions_t* options,
-    rocksdb_column_family_handle_t* column_family,
-    const char* start_key, size_t start_key_len,
-    const char* end_key, size_t end_key_len,
+    rocksdb_column_family_handle_t* column_family, const char* start_key,
+    size_t start_key_len, const char* end_key, size_t end_key_len,
     char** errptr);
 
 extern ROCKSDB_LIBRARY_API void rocksdb_merge(

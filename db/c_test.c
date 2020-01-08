@@ -1265,7 +1265,8 @@ int main(int argc, char** argv) {
     rocksdb_delete_cf(db, woptions, handles[1], "foo", 3, &err);
     CheckNoError(err);
 
-    rocksdb_delete_range_cf(db, woptions, handles[1], "foobar2", 7, "foobar4", 7, &err);
+    rocksdb_delete_range_cf(db, woptions, handles[1], "foobar2", 7, "foobar4",
+                            7, &err);
     CheckNoError(err);
 
     CheckGetCF(db, roptions, handles[1], "foo", NULL);
