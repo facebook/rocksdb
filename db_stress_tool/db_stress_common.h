@@ -420,8 +420,6 @@ extern inline bool GetIntVal(std::string big_endian_key, uint64_t* key_p) {
   size_t size_key = big_endian_key.size();
   std::vector<uint64_t> prefixes;
 
-  // Trim the key to multiple of 8 bytes
-  size_key &= ~7;
   assert(size_key <= key_gen_ctx.weights.size() * sizeof(uint64_t));
 
   // Pad with zeros to make it a multiple of 8. This function may be called
@@ -431,18 +429,18 @@ extern inline bool GetIntVal(std::string big_endian_key, uint64_t* key_p) {
   unsigned int pad = sizeof(uint64_t) - (size_key % sizeof(uint64_t));
   if (pad < sizeof(uint64_t)) {
     big_endian_key.append(pad, '\0');
+    size_key += pad;
   }
 
   std::string little_endian_key;
   little_endian_key.resize(size_key);
-  for (size_t level = 0; level < size_key; level += sizeof(int64_t)) {
-    size_t start = level * sizeof(int64_t);
-    size_t end = (level + 1) * sizeof(int64_t);
-    for (size_t i = start; i < end; ++i) {
-      little_endian_key[i] = big_endian_key[end - 1 - i];
+  for (size_t start = 0; start < size_key; start += sizeof(uint64_t)) {
+    size_t end = start + sizeof(uint64_t);
+    for (size_t i = 0; i < sizeof(uint64_t); ++i) {
+      little_endian_key[start + i] = big_endian_key[end - 1 - i];
     }
     Slice little_endian_slice =
-        Slice(&little_endian_key[start], sizeof(int64_t));
+        Slice(&little_endian_key[start], sizeof(uint64_t));
     uint64_t pfx;
     if (!GetFixed64(&little_endian_slice, &pfx)) {
       return false;

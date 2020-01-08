@@ -35,21 +35,26 @@ class NonBatchedOpsStressTest : public StressTest {
       }
       if (!thread->rand.OneIn(2)) {
         // Use iterator to verify this range
+        Slice prefix;
+        std::string seek_key = Key(start);
         std::unique_ptr<Iterator> iter(
             db_->NewIterator(options, column_families_[cf]));
-        iter->Seek(Key(start));
+        iter->Seek(seek_key);
+        prefix = Slice(seek_key.data(), prefix_to_use);
         for (auto i = start; i < end; i++) {
           if (thread->shared->HasVerificationFailedYet()) {
             break;
           }
-          // Reseek when the prefix changes
-          if (prefix_to_use > 0 &&
-              i % (static_cast<uint64_t>(1) << 8 * (8 - prefix_to_use)) == 0) {
-            iter->Seek(Key(i));
-          }
           std::string from_db;
           std::string keystr = Key(i);
           Slice k = keystr;
+          Slice pfx = Slice(keystr.data(), prefix_to_use);
+          // Reseek when the prefix changes
+          if (prefix_to_use > 0 && prefix.compare(pfx) != 0) {
+            iter->Seek(k);
+            seek_key = keystr;
+            prefix = Slice(seek_key.data(), prefix_to_use);
+          }
           Status s = iter->status();
           if (iter->Valid()) {
             Slice iter_key = iter->key();
@@ -276,10 +281,7 @@ class NonBatchedOpsStressTest : public StressTest {
       ++count;
     }
 
-    // FIXME: This was an assertion but was failing on occasion
-    if (count > GetPrefixKeyCount(prefix.ToString(), upper_bound)) {
-      fprintf(stdout, "FIXME: count > GetPrefixKeyCount\n");
-    }
+    assert(count <= GetPrefixKeyCount(prefix.ToString(), upper_bound));
 
     Status s = iter->status();
     if (iter->status().ok()) {
