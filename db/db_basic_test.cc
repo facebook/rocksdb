@@ -2023,7 +2023,7 @@ INSTANTIATE_TEST_CASE_P(
 
 class DBBasicTestWithTimestampBase : public DBTestBase {
  public:
-  DBBasicTestWithTimestampBase(const std::string& dbname)
+  explicit DBBasicTestWithTimestampBase(const std::string& dbname)
       : DBTestBase(dbname) {}
 
  protected:
@@ -2103,7 +2103,8 @@ class DBBasicTestWithTimestampBase : public DBTestBase {
 
 class DBBasicTestWithTimestamp : public DBBasicTestWithTimestampBase {
  public:
-  DBBasicTestWithTimestamp() : DBBasicTestWithTimestampBase("/db_basic_test_with_timestamp") {}
+  DBBasicTestWithTimestamp()
+      : DBBasicTestWithTimestampBase("/db_basic_test_with_timestamp") {}
 
  protected:
   class TestComparator : public TestComparatorBase {
@@ -2119,16 +2120,18 @@ class DBBasicTestWithTimestamp : public DBBasicTestWithTimestampBase {
       int n2 = atoi(
           std::string(b.data() + kKeyPrefixLength, b.size() - kKeyPrefixLength)
               .c_str());
-      return (n1 < n2)? -1 : (n1 > n2)? 1 : 0;  
+      return (n1 < n2) ? -1 : (n1 > n2) ? 1 : 0;
     }
   };
 };
-      
+
 class DBBasicTestWithTimestampWithParam
     : public DBBasicTestWithTimestampBase,
       public testing::WithParamInterface<bool> {
  public:
-  DBBasicTestWithTimestampWithParam() : DBBasicTestWithTimestampBase("/db_basic_test_with_timestamp_with_param") {}
+  DBBasicTestWithTimestampWithParam()
+      : DBBasicTestWithTimestampBase(
+            "/db_basic_test_with_timestamp_with_param") {}
 
  protected:
   class TestComparator : public TestComparatorBase {
@@ -2306,8 +2309,8 @@ TEST_F(DBBasicTestWithTimestamp, PutAndGetWithCompaction) {
   std::vector<Slice> read_ts_list;
 
   for (size_t i = 0; i != kNumTimestamps; ++i) {
-      write_ts_list.emplace_back(EncodeTimestamp(i * 2, 0, &write_ts_strs[i]));
-      read_ts_list.emplace_back(EncodeTimestamp(1 + i * 2, 0, &read_ts_strs[i]));
+    write_ts_list.emplace_back(EncodeTimestamp(i * 2, 0, &write_ts_strs[i]));
+    read_ts_list.emplace_back(EncodeTimestamp(1 + i * 2, 0, &read_ts_strs[i]));
     const Slice& write_ts = write_ts_list.back();
     WriteOptions wopts;
     wopts.timestamp = &write_ts;
@@ -2321,7 +2324,7 @@ TEST_F(DBBasicTestWithTimestamp, PutAndGetWithCompaction) {
           // incremental positions such that lowerlevel[1].smallest.userkey ==
           // higherlevel[0].largest.userkey
           ASSERT_OK(Flush(cf));
-  
+
           // compact files (2 at each level) to a lower level such that all keys
           // with the same timestamp is at one level, with newer versions at
           // higher levels.
@@ -2329,8 +2332,8 @@ TEST_F(DBBasicTestWithTimestamp, PutAndGetWithCompaction) {
           compact_opt.compression = kNoCompression;
           db_->CompactFiles(compact_opt, handles_[cf],
                             collector->GetFlushedFiles(),
-                              static_cast<int>(kNumTimestamps - i));
-          collector->ClearFlushedFiles(); 
+                            static_cast<int>(kNumTimestamps - i));
+          collector->ClearFlushedFiles();
         }
       }
     }
@@ -2341,11 +2344,11 @@ TEST_F(DBBasicTestWithTimestamp, PutAndGetWithCompaction) {
       ropts.timestamp = &read_ts_list[i];
       for (int cf = 0; cf != static_cast<int>(num_cfs); ++cf) {
         ColumnFamilyHandle* cfh = handles_[cf];
-          for (size_t j = 0; j != kNumKeysPerTimestamp; ++j) {
-            std::string value;
-              ASSERT_OK(db_->Get(ropts, cfh, "key" + std::to_string(j), &value));
-            ASSERT_EQ("value_" + std::to_string(j) + "_" + std::to_string(i),
-                      value);
+        for (size_t j = 0; j != kNumKeysPerTimestamp; ++j) {
+          std::string value;
+          ASSERT_OK(db_->Get(ropts, cfh, "key" + std::to_string(j), &value));
+          ASSERT_EQ("value_" + std::to_string(j) + "_" + std::to_string(i),
+                    value);
         }
       }
     }
