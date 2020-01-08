@@ -2023,8 +2023,8 @@ INSTANTIATE_TEST_CASE_P(
 
 class DBBasicTestWithTimestampBase : public DBTestBase {
  public:
-  DBBasicTestWithTimestampBase()
-      : DBTestBase("/db_basic_test_with_timestamp") {}
+  DBBasicTestWithTimestampBase(const std::string& dbname)
+      : DBTestBase(dbname) {}
 
  protected:
   class TestComparatorBase : public Comparator {
@@ -2103,7 +2103,7 @@ class DBBasicTestWithTimestampBase : public DBTestBase {
 
 class DBBasicTestWithTimestamp : public DBBasicTestWithTimestampBase {
  public:
-  DBBasicTestWithTimestamp() {}
+  DBBasicTestWithTimestamp() : DBBasicTestWithTimestampBase("/db_basic_test_with_timestamp") {}
 
  protected:
   class TestComparator : public TestComparatorBase {
@@ -2128,7 +2128,7 @@ class DBBasicTestWithTimestampWithParam
     : public DBBasicTestWithTimestampBase,
       public testing::WithParamInterface<bool> {
  public:
-  DBBasicTestWithTimestampWithParam() {}
+  DBBasicTestWithTimestampWithParam() : DBBasicTestWithTimestampBase("/db_basic_test_with_timestamp_with_param") {}
 
  protected:
   class TestComparator : public TestComparatorBase {
