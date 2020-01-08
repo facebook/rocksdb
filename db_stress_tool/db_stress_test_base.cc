@@ -1948,7 +1948,7 @@ void StressTest::Open() {
       s = TransactionDB::Open(options_, txn_db_options, FLAGS_db,
                               cf_descriptors, &column_families_, &txn_db_);
       if (!s.ok()) {
-        fprintf(stdout, "Error in opening the TransactionDB [%s]\n",
+        fprintf(stderr, "Error in opening the TransactionDB [%s]\n",
                 s.ToString().c_str());
         fflush(stderr);
       }
