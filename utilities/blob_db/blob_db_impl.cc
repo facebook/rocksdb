@@ -940,7 +940,6 @@ Status BlobDBImpl::PutUntil(const WriteOptions& options, const Slice& key,
                             const Slice& value, uint64_t expiration) {
   StopWatch write_sw(env_, statistics_, BLOB_DB_WRITE_MICROS);
   RecordTick(statistics_, BLOB_DB_NUM_PUT);
-  TEST_SYNC_POINT("BlobDBImpl::PutUntil:Start");
   Status s;
   WriteBatch batch;
   {
@@ -953,7 +952,6 @@ Status BlobDBImpl::PutUntil(const WriteOptions& options, const Slice& key,
   if (s.ok()) {
     s = db_->Write(options, &batch);
   }
-  TEST_SYNC_POINT("BlobDBImpl::PutUntil:Finish");
   return s;
 }
 
@@ -1531,8 +1529,6 @@ Status BlobDBImpl::GetImpl(const ReadOptions& read_options,
   get_impl_options.value = &index_entry;
   get_impl_options.is_blob_index = &is_blob_index;
   s = db_impl_->GetImpl(ro, key, get_impl_options);
-  TEST_SYNC_POINT("BlobDBImpl::Get:AfterIndexEntryGet:1");
-  TEST_SYNC_POINT("BlobDBImpl::Get:AfterIndexEntryGet:2");
   if (expiration != nullptr) {
     *expiration = kNoExpiration;
   }
