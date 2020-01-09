@@ -860,6 +860,8 @@ class DBTestBase : public testing::Test {
 
   uint64_t GetTimeOldestSnapshots();
 
+  uint64_t GetSequenceOldestSnapshots();
+
   // Return a string that contains all key,value pairs in order,
   // formatted like "(k1->v1)(k2->v2)".
   std::string Contents(int cf = 0);
