@@ -116,9 +116,9 @@ class BlobIndexCompactionFilterGC : public BlobIndexCompactionFilterBase {
 // that creates non-GC filters.
 class BlobIndexCompactionFilterFactoryBase : public CompactionFilterFactory {
  public:
-  BlobIndexCompactionFilterFactoryBase(BlobDBImpl* blob_db_impl, Env* env,
-                                       Statistics* statistics)
-      : blob_db_impl_(blob_db_impl), env_(env), statistics_(statistics) {}
+  BlobIndexCompactionFilterFactoryBase(BlobDBImpl* _blob_db_impl, Env* _env,
+                                       Statistics* _statistics)
+      : blob_db_impl_(_blob_db_impl), env_(_env), statistics_(_statistics) {}
 
  protected:
   BlobDBImpl* blob_db_impl() const { return blob_db_impl_; }
@@ -134,9 +134,10 @@ class BlobIndexCompactionFilterFactoryBase : public CompactionFilterFactory {
 class BlobIndexCompactionFilterFactory
     : public BlobIndexCompactionFilterFactoryBase {
  public:
-  BlobIndexCompactionFilterFactory(BlobDBImpl* blob_db_impl, Env* env,
-                                   Statistics* statistics)
-      : BlobIndexCompactionFilterFactoryBase(blob_db_impl, env, statistics) {}
+  BlobIndexCompactionFilterFactory(BlobDBImpl* _blob_db_impl, Env* _env,
+                                   Statistics* _statistics)
+      : BlobIndexCompactionFilterFactoryBase(_blob_db_impl, _env, _statistics) {
+  }
 
   const char* Name() const override {
     return "BlobIndexCompactionFilterFactory";
@@ -149,9 +150,10 @@ class BlobIndexCompactionFilterFactory
 class BlobIndexCompactionFilterFactoryGC
     : public BlobIndexCompactionFilterFactoryBase {
  public:
-  BlobIndexCompactionFilterFactoryGC(BlobDBImpl* blob_db_impl, Env* env,
-                                     Statistics* statistics)
-      : BlobIndexCompactionFilterFactoryBase(blob_db_impl, env, statistics) {}
+  BlobIndexCompactionFilterFactoryGC(BlobDBImpl* _blob_db_impl, Env* _env,
+                                     Statistics* _statistics)
+      : BlobIndexCompactionFilterFactoryBase(_blob_db_impl, _env, _statistics) {
+  }
 
   const char* Name() const override {
     return "BlobIndexCompactionFilterFactoryGC";
