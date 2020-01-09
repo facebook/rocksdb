@@ -1201,7 +1201,7 @@ TEST_F(BlobDBTest, FilterExpiredBlobIndex) {
 }
 
 // Test compaction filter should remove any blob index where corresponding
-// blob file has been removed (either by FIFO or garbage collection).
+// blob file has been removed.
 TEST_F(BlobDBTest, FilterFileNotAvailable) {
   BlobDBOptions bdb_options;
   bdb_options.min_blob_size = 0;

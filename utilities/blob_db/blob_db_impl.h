@@ -71,9 +71,10 @@ struct GCStats {
 };
 
 /**
- * The implementation class for BlobDB. This manages the value
- * part in TTL aware sequentially written files. These files are
- * Garbage Collected.
+ * The implementation class for BlobDB. It manages the blob logs, which
+ * are sequentially written files. Blob logs can be of the TTL or non-TTL
+ * varieties; the former are cleaned up when they expire, while the latter
+ * are (optionally) garbage collected.
  */
 class BlobDBImpl : public BlobDB {
   friend class BlobFile;
@@ -220,7 +221,6 @@ class BlobDBImpl : public BlobDB {
 #endif  //  !NDEBUG
 
  private:
-  class GarbageCollectionWriteCallback;
   class BlobInserter;
 
   // Create a snapshot if there isn't one in read options.
@@ -289,9 +289,8 @@ class BlobDBImpl : public BlobDB {
   // periodic sanity check. Bunch of checks
   std::pair<bool, int64_t> SanityCheck(bool aborted);
 
-  // delete files which have been garbage collected and marked
-  // obsolete. Check whether any snapshots exist which refer to
-  // the same
+  // Delete files that have been marked obsolete (either because of TTL
+  // or GC). Check whether any snapshots exist which refer to the same.
   std::pair<bool, int64_t> DeleteObsoleteFiles(bool aborted);
 
   // periodically check if open blob files and their TTL's has expired
