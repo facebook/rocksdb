@@ -86,12 +86,6 @@ class BlobDBImpl : public BlobDB {
   // deletions check period
   static constexpr uint32_t kDeleteCheckPeriodMillisecs = 2 * 1000;
 
-  // gc percentage each check period
-  static constexpr uint32_t kGCFilePercentage = 100;
-
-  // gc period
-  static constexpr uint32_t kGCCheckPeriodMillisecs = 60 * 1000;
-
   // sanity check task
   static constexpr uint32_t kSanityCheckPeriodMillisecs = 20 * 60 * 1000;
 
@@ -208,11 +202,6 @@ class BlobDBImpl : public BlobDB {
                              SequenceNumber obsolete_seq = 0,
                              bool update_size = true);
 
-  Status TEST_GCFileAndUpdateLSM(std::shared_ptr<BlobFile>& bfile,
-                                 GCStats* gc_stats);
-
-  void TEST_RunGC();
-
   void TEST_EvictExpiredFiles();
 
   void TEST_DeleteObsoleteFiles();
@@ -305,9 +294,6 @@ class BlobDBImpl : public BlobDB {
   // the same
   std::pair<bool, int64_t> DeleteObsoleteFiles(bool aborted);
 
-  // Major task to garbage collect expired and deleted blobs
-  std::pair<bool, int64_t> RunGC(bool aborted);
-
   // periodically check if open blob files and their TTL's has expired
   // if expired, close the sequential writer and make the file immutable
   std::pair<bool, int64_t> EvictExpiredFiles(bool aborted);
@@ -397,12 +383,6 @@ class BlobDBImpl : public BlobDB {
   // already present, creates one. Needs Write Mutex to be held
   Status CheckOrCreateWriterLocked(const std::shared_ptr<BlobFile>& blob_file,
                                    std::shared_ptr<Writer>* writer);
-
-  // Iterate through keys and values on Blob and write into
-  // separate file the remaining blobs and delete/update pointers
-  // in LSM atomically
-  Status GCFileAndUpdateLSM(const std::shared_ptr<BlobFile>& bfptr,
-                            GCStats* gcstats);
 
   // checks if there is no snapshot which is referencing the
   // blobs
