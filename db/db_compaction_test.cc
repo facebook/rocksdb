@@ -3607,6 +3607,15 @@ TEST_F(DBCompactionTest, LevelTtlCascadingCompactions) {
         ASSERT_OK(Put(Key(i), RandomString(&rnd, kValueSize)));
       }
       Flush();
+      // Get the first file's creation time. This will be the oldest file in the
+      // DB. Compactions inolving this file's descendents should keep getting
+      // this time.
+      std::vector<std::vector<FileMetaData>> level_to_files;
+      dbfull()->TEST_GetFilesMetaData(dbfull()->DefaultColumnFamily(),
+                                      &level_to_files);
+      uint64_t oldest_time = level_to_files[0][0].oldest_ancester_time;
+      // Add 1 hour and do another flush.
+      env_->addon_time_.fetch_add(1 * 60 * 60);
       for (int i = 101; i <= 200; ++i) {
         ASSERT_OK(Put(Key(i), RandomString(&rnd, kValueSize)));
       }
@@ -3614,11 +3623,13 @@ TEST_F(DBCompactionTest, LevelTtlCascadingCompactions) {
       MoveFilesToLevel(6);
       ASSERT_EQ("0,0,0,0,0,0,2", FilesPerLevel());
 
+      env_->addon_time_.fetch_add(1 * 60 * 60);
       // Add two L4 files with key ranges: [1 .. 50], [51 .. 150].
       for (int i = 1; i <= 50; ++i) {
         ASSERT_OK(Put(Key(i), RandomString(&rnd, kValueSize)));
       }
       Flush();
+      env_->addon_time_.fetch_add(1 * 60 * 60);
       for (int i = 51; i <= 150; ++i) {
         ASSERT_OK(Put(Key(i), RandomString(&rnd, kValueSize)));
       }
@@ -3626,6 +3637,7 @@ TEST_F(DBCompactionTest, LevelTtlCascadingCompactions) {
       MoveFilesToLevel(4);
       ASSERT_EQ("0,0,0,0,2,0,2", FilesPerLevel());
 
+      env_->addon_time_.fetch_add(1 * 60 * 60);
       // Add one L1 file with key range: [26, 75].
       for (int i = 26; i <= 75; ++i) {
         ASSERT_OK(Put(Key(i), RandomString(&rnd, kValueSize)));
@@ -3666,6 +3678,10 @@ TEST_F(DBCompactionTest, LevelTtlCascadingCompactions) {
       dbfull()->TEST_WaitForCompact();
       ASSERT_EQ("1,0,0,0,0,0,1", FilesPerLevel());
       ASSERT_EQ(5, ttl_compactions);
+
+      dbfull()->TEST_GetFilesMetaData(dbfull()->DefaultColumnFamily(),
+                                      &level_to_files);
+      ASSERT_EQ(oldest_time, level_to_files[6][0].oldest_ancester_time);
 
       env_->addon_time_.fetch_add(25 * 60 * 60);
       ASSERT_OK(Put(Key(2), "1"));
