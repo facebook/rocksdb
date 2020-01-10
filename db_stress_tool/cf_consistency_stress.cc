@@ -247,7 +247,9 @@ class CfConsistencyStressTest : public StressTest {
     std::string upper_bound;
     Slice ub_slice;
     ReadOptions ro_copy = readoptions;
-    if (thread->rand.OneIn(2) && GetNextPrefix(prefix, &upper_bound)) {
+    // Get the next prefix first and then see if we want to set upper bound.
+    // We'll use the next prefix in an assertion later on
+    if (GetNextPrefix(prefix, &upper_bound) && thread->rand.OneIn(2)) {
       ub_slice = Slice(upper_bound);
       ro_copy.iterate_upper_bound = &ub_slice;
     }
@@ -255,13 +257,13 @@ class CfConsistencyStressTest : public StressTest {
         column_families_[rand_column_families[thread->rand.Next() %
                                               rand_column_families.size()]];
     Iterator* iter = db_->NewIterator(ro_copy, cfh);
-    long count = 0;
+    unsigned long count = 0;
     for (iter->Seek(prefix); iter->Valid() && iter->key().starts_with(prefix);
          iter->Next()) {
       ++count;
     }
     assert(prefix_to_use == 0 ||
-           count <= (static_cast<long>(1) << ((8 - prefix_to_use) * 8)));
+           count <= GetPrefixKeyCount(prefix.ToString(), upper_bound));
     Status s = iter->status();
     if (s.ok()) {
       thread->stats.AddPrefixes(1, count);

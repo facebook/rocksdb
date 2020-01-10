@@ -82,6 +82,9 @@ DECLARE_uint64(seed);
 DECLARE_bool(read_only);
 DECLARE_int64(max_key);
 DECLARE_double(hot_key_alpha);
+DECLARE_int32(max_key_len);
+DECLARE_string(key_len_percent_dist);
+DECLARE_int32(key_window_scale_factor);
 DECLARE_int32(column_families);
 DECLARE_string(options_file);
 DECLARE_int64(active_width);
@@ -352,7 +355,7 @@ inline bool GetNextPrefix(const rocksdb::Slice& src, std::string* v) {
 #endif
 
 // convert long to a big-endian slice key
-extern inline std::string Key(int64_t val) {
+extern inline std::string GetStringFromInt(int64_t val) {
   std::string little_endian_key;
   std::string big_endian_key;
   PutFixed64(&little_endian_key, val);
@@ -364,16 +367,107 @@ extern inline std::string Key(int64_t val) {
   return big_endian_key;
 }
 
+// A struct for maintaining the parameters for generating variable length keys
+struct KeyGenContext {
+  // Number of adjacent keys in one cycle of key lengths
+  uint64_t window;
+  // Number of keys of each possible length in a given window
+  std::vector<uint64_t> weights;
+};
+extern KeyGenContext key_gen_ctx;
+
+// Generate a variable length key string from the given int64 val. The
+// order of the keys is preserved. The key could be anywhere from 8 to
+// max_key_len * 8 bytes.
+// The algorithm picks the length based on the
+// offset of the val within a configured window and the distribution of the
+// number of keys of various lengths in that window. For example, if x, y, x are
+// the weights assigned to each possible key length, the keys generated would be
+// - {0}...{x-1}
+// {(x-1),0}..{(x-1),(y-1)},{(x-1),(y-1),0}..{(x-1),(y-1),(z-1)} and so on.
+// Additionally, a trailer of 0-7 bytes could be appended.
+extern inline std::string Key(int64_t val) {
+  uint64_t window = key_gen_ctx.window;
+  size_t levels = key_gen_ctx.weights.size();
+  std::string key;
+
+  for (size_t level = 0; level < levels; ++level) {
+    uint64_t weight = key_gen_ctx.weights[level];
+    uint64_t offset = static_cast<uint64_t>(val) % window;
+    uint64_t mult = static_cast<uint64_t>(val) / window;
+    uint64_t pfx = mult * weight + (offset >= weight ? weight - 1 : offset);
+    key.append(GetStringFromInt(pfx));
+    if (offset < weight) {
+      // Use the bottom 3 bits of offset as the number of trailing 'x's in the
+      // key. If the next key is going to be of the next level, then skip the
+      // trailer as it would break ordering. If the key length is already at max,
+      // skip the trailer.
+      if (offset < weight - 1 && level < levels - 1) {
+        size_t trailer_len = offset & 0x7;
+        key.append(trailer_len, 'x');
+      }
+      break;
+    }
+    val = offset - weight;
+    window -= weight;
+  }
+
+  return key;
+}
+
+// Given a string key, map it to an index into the expected values buffer
 extern inline bool GetIntVal(std::string big_endian_key, uint64_t* key_p) {
-  unsigned int size_key = sizeof(*key_p);
-  assert(big_endian_key.size() == size_key);
+  size_t size_key = big_endian_key.size();
+  std::vector<uint64_t> prefixes;
+
+  assert(size_key <= key_gen_ctx.weights.size() * sizeof(uint64_t));
+
+  // Pad with zeros to make it a multiple of 8. This function may be called
+  // with a prefix, in which case we return the first index that falls
+  // inside or outside that prefix, dependeing on whether the prefix is
+  // the start of upper bound of a scan
+  unsigned int pad = sizeof(uint64_t) - (size_key % sizeof(uint64_t));
+  if (pad < sizeof(uint64_t)) {
+    big_endian_key.append(pad, '\0');
+    size_key += pad;
+  }
+
   std::string little_endian_key;
   little_endian_key.resize(size_key);
-  for (size_t i = 0; i < size_key; ++i) {
-    little_endian_key[i] = big_endian_key[size_key - 1 - i];
+  for (size_t start = 0; start < size_key; start += sizeof(uint64_t)) {
+    size_t end = start + sizeof(uint64_t);
+    for (size_t i = 0; i < sizeof(uint64_t); ++i) {
+      little_endian_key[start + i] = big_endian_key[end - 1 - i];
+    }
+    Slice little_endian_slice =
+        Slice(&little_endian_key[start], sizeof(uint64_t));
+    uint64_t pfx;
+    if (!GetFixed64(&little_endian_slice, &pfx)) {
+      return false;
+    }
+    prefixes.emplace_back(pfx);
   }
-  Slice little_endian_slice = Slice(little_endian_key);
-  return GetFixed64(&little_endian_slice, key_p);
+
+  uint64_t key = 0;
+  for (size_t i = 0; i < prefixes.size(); ++i) {
+    uint64_t pfx = prefixes[i];
+    key += (pfx / key_gen_ctx.weights[i]) * key_gen_ctx.window +
+           pfx % key_gen_ctx.weights[i];
+  }
+  *key_p = key;
+  return true;
+}
+
+extern inline uint64_t GetPrefixKeyCount(const std::string& prefix,
+                                         const std::string& ub) {
+  uint64_t start = 0;
+  uint64_t end = 0;
+
+  if (!GetIntVal(prefix, &start) || !GetIntVal(ub, &end)) {
+    return 0;
+  }
+
+  return end - start;
 }
 
 extern inline std::string StringToHex(const std::string& str) {
