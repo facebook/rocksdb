@@ -5820,7 +5820,7 @@ TEST_P(TransactionTest, DuplicateKeys) {
     }    // do_rollback
   }      // do_prepare
 
-  if (!options.unordered_write && !options.allow_concurrent_memtable_write) {
+  if (!options.unordered_write) {
     // Also test with max_successive_merges > 0. max_successive_merges will not
     // affect our algorithm for duplicate key insertion but we add the test to
     // verify that.
