@@ -56,10 +56,17 @@ public abstract class AbstractComparator
   public abstract String name();
 
   /**
-   * Three-way key comparison
+   * Three-way key comparison. Implementations should provide a
+   * <a href="https://en.wikipedia.org/wiki/Total_order">total order</a>
+   * on keys that might be passed to it.
    *
-   * @param a buffer access to first key
-   * @param b buffer access to second key
+   * The implementation may modify the {@code ByteBuffer}s passed in, though
+   * it would be unconventional to modify the "limit" or any of the
+   * underlying bytes. As a callback, RocksJava will ensure that {@code a}
+   * is a different instance from {@code b}.
+   *
+   * @param a buffer containing the first key in its "remaining" elements
+   * @param b buffer containing the second key in its "remaining" elements
    *
    * @return Should return either:
    *    1) &lt; 0 if "a" &lt; "b"
