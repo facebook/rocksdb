@@ -16,10 +16,10 @@ namespace blob_db {
  */
 class BlobDBGarbageCollectionStats {
  public:
-   uint64_t AllBlobs() { return all_blobs_; }
-   uint64_t RelocatedBlobs() { return relocated_blobs_; }
-   uint64_t RelocatedBytes() { return relocated_bytes_; }
-   uint64_t NewFiles() { return new_files_; }
+   uint64_t AllBlobs() const { return all_blobs_; }
+   uint64_t RelocatedBlobs() const { return relocated_blobs_; }
+   uint64_t RelocatedBytes() const { return relocated_bytes_; }
+   uint64_t NewFiles() const { return new_files_; }
 
    void AddBlob() { ++all_blobs_; }
    void AddRelocatedBlob(uint64_t size) {
