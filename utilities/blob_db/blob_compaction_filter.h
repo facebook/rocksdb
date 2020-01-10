@@ -12,6 +12,7 @@
 #include "rocksdb/compaction_filter.h"
 #include "rocksdb/env.h"
 #include "utilities/blob_db/blob_db_impl.h"
+#include "utilities/blob_db/blob_db_gc_stats.h"
 
 namespace rocksdb {
 namespace blob_db {
@@ -52,6 +53,9 @@ class BlobIndexCompactionFilterBase : public CompactionFilter {
                     const Slice& value, std::string* /*new_value*/,
                     std::string* /*skip_until*/) const override;
 
+ protected:
+  Statistics* statistics() const { return statistics_; }
+
  private:
   BlobCompactionContext context_;
   const uint64_t current_time_;
@@ -87,6 +91,14 @@ class BlobIndexCompactionFilterGC : public BlobIndexCompactionFilterBase {
     if (blob_file_) {
       CloseAndRegisterNewBlobFile();
     }
+
+    if (gc_stats_.HasError()) {
+      RecordTick(statistics(), BLOB_DB_GC_FAILURES);
+    } else {
+      RecordTick(statistics(), BLOB_DB_GC_NUM_KEYS_RELOCATED, gc_stats_.RelocatedBlobs());
+      RecordTick(statistics(), BLOB_DB_GC_BYTES_RELOCATED, gc_stats_.RelocatedBytes());
+      RecordTick(statistics(), BLOB_DB_GC_NUM_NEW_FILES, gc_stats_.NewFiles());
+    }
   }
 
   const char* Name() const override { return "BlobIndexCompactionFilterGC"; }
@@ -109,6 +121,7 @@ class BlobIndexCompactionFilterGC : public BlobIndexCompactionFilterBase {
   BlobCompactionContextGC context_gc_;
   mutable std::shared_ptr<BlobFile> blob_file_;
   mutable std::shared_ptr<Writer> writer_;
+  mutable BlobDBGarbageCollectionStats gc_stats_;
 };
 
 // Compaction filter factory; similarly to the filters above, it comes
