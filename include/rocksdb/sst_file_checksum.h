@@ -17,10 +17,7 @@
 
 namespace rocksdb {
 
-class Slice;
-class SliceTransform;
-
-// SstFileChecksum generate the checksum for each SST file when the file is
+// SstFileChecksum generates the checksum for each SST file when the file is
 // written to the file system. The checksum is stored in the Manifest
 class SstFileChecksum {
  public:

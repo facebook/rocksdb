@@ -1148,7 +1148,7 @@ void ManifestDumpCommand::DoCommand() {
 namespace {
 
 void GetAllFileCheckSumInfoFromManifest(Options options, std::string file,
-                                        FileChecksumList& checksum_list) {
+                                        FileChecksumList* checksum_list) {
   EnvOptions sopt;
   std::string dbname("dummy");
   std::shared_ptr<Cache> tc(NewLRUCache(options.max_open_files - 10,
@@ -1267,13 +1267,16 @@ void FileChecksumDumpCommand::DoCommand() {
   //  sst file numer, checksum method name, checksum value
   //  ......
 
-  FileChecksumList checksum_list;
-  GetAllFileCheckSumInfoFromManifest(options_, manifestfile, checksum_list);
-  for (auto it : checksum_list.checksum_map) {
-    printf("%" PRId64 ", %s, %u\n", it.first, it.second.second.c_str(),
-           it.second.first);
+  std::unique_ptr<FileChecksumList> checksum_list(new FileChecksumList);
+  GetAllFileCheckSumInfoFromManifest(options_, manifestfile,
+                                     checksum_list.get());
+  if (checksum_list != nullptr) {
+    for (auto it : checksum_list->checksum_map) {
+      printf("%" PRId64 ", %s, %u\n", it.first, it.second.second.c_str(),
+             it.second.first);
+    }
+    printf("Print SST file checksum list finished \n");
   }
-  printf("Print SST file checksum list finished \n");
 }
 
 // ----------------------------------------------------------------------------

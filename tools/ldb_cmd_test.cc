@@ -143,7 +143,7 @@ class FileChecksumTestHelper {
       checksum_name = file_checksum_cal->Name();
       s = file_reader->Read(2048, &result, scratch);
       if (!s.ok()) {
-        delete [] scratch;
+        delete[] scratch;
         return s;
       }
       while (result.size() != 0) {
@@ -156,12 +156,12 @@ class FileChecksumTestHelper {
         }
         s = file_reader->Read(2048, &result, scratch);
         if (!s.ok()) {
-          delete [] scratch;
+          delete[] scratch;
           return s;
         }
       }
     }
-    delete [] scratch;
+    delete[] scratch;
 
     auto it = checksum_map.find(file_meta.file_number);
     if (it == checksum_map.end()) {
@@ -236,7 +236,7 @@ class FileChecksumTestHelper {
     manifestfile = dbname_ + matched_file;
 
     // Step 2, get the list of sst file checksum in checksum_info
-    FileChecksumList checksum_list;
+    std::unique_ptr<FileChecksumList> checksum_list(new FileChecksumList);
 
     EnvOptions sopt;
     std::shared_ptr<Cache> tc(NewLRUCache(options_.max_open_files - 10,
@@ -247,20 +247,25 @@ class FileChecksumTestHelper {
     VersionSet versions(dbname_, &immutable_db_options, sopt, tc.get(), &wb,
                         &wc,
                         /*block_cache_tracer=*/nullptr);
-    s = versions.GetAllFileCheckSumInfo(options_, manifestfile, checksum_list);
+    s = versions.GetAllFileCheckSumInfo(options_, manifestfile,
+                                        checksum_list.get());
     if (!s.ok()) {
       return s;
     }
 
     // Step 3, get the live file list and verify the checksum
+    if (checksum_list == nullptr) {
+      return Status::Corruption(
+          "Checksum_list construction failed or being deleted!");
+    }
     std::vector<LiveFileMetaData> live_file;
     db_->GetLiveFilesMetaData(&live_file);
-    if (live_file.size() != checksum_list.checksum_map.size()) {
+    if (live_file.size() != checksum_list->checksum_map.size()) {
       return Status::Corruption(
-          "Live file number does not match checksum list file number");
+          "Live file number does not match checksum list file number!");
     }
     for (auto a_file : live_file) {
-      Status cs = VerifyChecksum(a_file, checksum_list.checksum_map);
+      Status cs = VerifyChecksum(a_file, checksum_list->checksum_map);
     }
     return Status::OK();
   }
@@ -357,6 +362,88 @@ TEST_F(LdbCmdTest, DumpFileChecksumCRC32) {
   opts.create_if_missing = true;
   opts.enable_sst_file_checksum = true;
   opts.sst_file_checksum = std::move(file_checksum);
+  opts.file_system.reset(new LegacyFileSystemWrapper(opts.env));
+
+  DB* db = nullptr;
+  std::string dbname = test::TmpDir();
+  ASSERT_OK(DB::Open(opts, dbname, &db));
+
+  WriteOptions wopts;
+  FlushOptions fopts;
+  fopts.wait = true;
+  Random rnd(test::RandomSeed());
+  for (int i = 0; i < 100; i++) {
+    char buf[16];
+    snprintf(buf, sizeof(buf), "%08d", i);
+    std::string v;
+    test::RandomString(&rnd, 100, &v);
+    ASSERT_OK(db->Put(wopts, buf, v));
+  }
+  ASSERT_OK(db->Flush(fopts));
+  for (int i = 50; i < 150; i++) {
+    char buf[16];
+    snprintf(buf, sizeof(buf), "%08d", i);
+    std::string v;
+    test::RandomString(&rnd, 100, &v);
+    ASSERT_OK(db->Put(wopts, buf, v));
+  }
+  ASSERT_OK(db->Flush(fopts));
+  for (int i = 100; i < 200; i++) {
+    char buf[16];
+    snprintf(buf, sizeof(buf), "%08d", i);
+    std::string v;
+    test::RandomString(&rnd, 100, &v);
+    ASSERT_OK(db->Put(wopts, buf, v));
+  }
+  ASSERT_OK(db->Flush(fopts));
+  for (int i = 150; i < 250; i++) {
+    char buf[16];
+    snprintf(buf, sizeof(buf), "%08d", i);
+    std::string v;
+    test::RandomString(&rnd, 100, &v);
+    ASSERT_OK(db->Put(wopts, buf, v));
+  }
+  ASSERT_OK(db->Flush(fopts));
+
+  char arg1[] = "./ldb";
+  char arg2[1024];
+  snprintf(arg2, sizeof(arg2), "--db=%s", dbname.c_str());
+  char arg3[] = "file_checksum_dump";
+  char* argv[] = {arg1, arg2, arg3};
+
+  ASSERT_EQ(0,
+            LDBCommandRunner::RunCommand(3, argv, opts, LDBOptions(), nullptr));
+
+  // Verify each sst file checksum value and checksum name
+  FileChecksumTestHelper fct_helper(opts, db, dbname);
+  ASSERT_OK(fct_helper.VerifyEachFileChecksum());
+
+  // Manually trigger compaction
+  char b_buf[16];
+  snprintf(b_buf, sizeof(b_buf), "%08d", 0);
+  char e_buf[16];
+  snprintf(e_buf, sizeof(e_buf), "%08d", 249);
+  Slice begin(b_buf);
+  Slice end(e_buf);
+  CompactRangeOptions options;
+  ASSERT_OK(db->CompactRange(options, &begin, &end));
+  // Verify each sst file checksum after compaction
+  FileChecksumTestHelper fct_helper_ac(opts, db, dbname);
+  ASSERT_OK(fct_helper_ac.VerifyEachFileChecksum());
+
+  ASSERT_EQ(0,
+            LDBCommandRunner::RunCommand(3, argv, opts, LDBOptions(), nullptr));
+
+  delete db;
+}
+
+TEST_F(LdbCmdTest, DumpDefaultChecksumCrc32) {
+  Env* base_env = TryLoadCustomOrDefaultEnv();
+  std::unique_ptr<Env> env(NewMemEnv(base_env));
+  Options opts;
+  opts.env = env.get();
+  opts.create_if_missing = true;
+  opts.enable_sst_file_checksum = true;
   opts.file_system.reset(new LegacyFileSystemWrapper(opts.env));
 
   DB* db = nullptr;

@@ -4719,9 +4719,13 @@ Status VersionSet::ReduceNumberOfLevels(const std::string& dbname,
 // FileChecksumLis which contains a map from file id to its checksum info
 Status VersionSet::GetAllFileCheckSumInfo(Options& options,
                                           std::string& dscname,
-                                          FileChecksumList& checksum_list) {
-  std::unique_ptr<SequentialFileReader> file_reader;
+                                          FileChecksumList* checksum_list) {
   Status s;
+  if (checksum_list == nullptr) {
+    s = Status::Corruption("checsum_list is nullptr!");
+    return s;
+  }
+  std::unique_ptr<SequentialFileReader> file_reader;
   {
     std::unique_ptr<FSSequentialFile> file;
     s = options.file_system->NewSequentialFile(
@@ -4778,14 +4782,14 @@ Status VersionSet::GetAllFileCheckSumInfo(Options& options,
       const VersionEdit::DeletedFileSet& del = edit.GetDeletedFiles();
       for (const auto& del_file : del) {
         uint64_t f_id = static_cast<uint64_t>(del_file.second);
-        checksum_list.RemoveChecksumUnit(f_id);
+        checksum_list->RemoveChecksumUnit(f_id);
       }
 
       // Step 3: Add the new files to the info
       for (const auto& new_file : edit.GetNewFiles()) {
-        checksum_list.AddChecksumUnit(new_file.second.fd.GetNumber(),
-                                      new_file.second.file_checksum,
-                                      new_file.second.file_checksum_name);
+        checksum_list->AddChecksumUnit(new_file.second.fd.GetNumber(),
+                                       new_file.second.file_checksum,
+                                       new_file.second.file_checksum_name);
       }
     }
   }
@@ -5509,6 +5513,8 @@ void VersionSet::GetLiveFilesMetaData(std::vector<LiveFileMetaData>* metadata) {
         filemetadata.num_entries = file->num_entries;
         filemetadata.num_deletions = file->num_deletions;
         filemetadata.oldest_blob_file_number = file->oldest_blob_file_number;
+        filemetadata.file_checksum = file->file_checksum;
+        filemetadata.file_checksum_name = file->file_checksum_name;
         metadata->push_back(filemetadata);
       }
     }

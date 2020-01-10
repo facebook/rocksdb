@@ -217,8 +217,8 @@ Status WritableFileWriter::Flush() {
 }
 
 const char* WritableFileWriter::GetFileChecksumName() const {
-  if (checksum_cal_ != nullptr) {
-    return checksum_cal_->Name();
+  if (checksum_method_ != nullptr) {
+    return checksum_method_->Name();
   } else {
     return kUnknownFileChecksumName.c_str();
   }
@@ -332,13 +332,13 @@ Status WritableFileWriter::WriteBuffered(const char* data, size_t size) {
 }
 
 void WritableFileWriter::CalculateFileChecksum(const Slice& data) {
-  if (checksum_cal_ != nullptr) {
+  if (checksum_method_ != nullptr) {
     if (is_first_checksum_) {
-      file_checksum_ = checksum_cal_->Value(data.data(), data.size());
+      file_checksum_ = checksum_method_->Value(data.data(), data.size());
       is_first_checksum_ = false;
     } else {
       file_checksum_ =
-          checksum_cal_->Extend(file_checksum_, data.data(), data.size());
+          checksum_method_->Extend(file_checksum_, data.data(), data.size());
     }
   }
 }
