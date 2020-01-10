@@ -671,8 +671,8 @@ rocksdb_t* rocksdb_open_column_families(
     const rocksdb_options_t* db_options,
     const char* name,
     int num_column_families,
-    const char** column_family_names,
-    const rocksdb_options_t** column_family_options,
+    const char* const* column_family_names,
+    const rocksdb_options_t* const* column_family_options,
     rocksdb_column_family_handle_t** column_family_handles,
     char** errptr) {
   std::vector<ColumnFamilyDescriptor> column_families;
@@ -703,8 +703,8 @@ rocksdb_t* rocksdb_open_for_read_only_column_families(
     const rocksdb_options_t* db_options,
     const char* name,
     int num_column_families,
-    const char** column_family_names,
-    const rocksdb_options_t** column_family_options,
+    const char* const* column_family_names,
+    const rocksdb_options_t* const* column_family_options,
     rocksdb_column_family_handle_t** column_family_handles,
     unsigned char error_if_log_file_exist,
     char** errptr) {
@@ -735,8 +735,8 @@ rocksdb_t* rocksdb_open_for_read_only_column_families(
 rocksdb_t* rocksdb_open_as_secondary_column_families(
     const rocksdb_options_t* db_options, const char* name,
     const char* secondary_path, int num_column_families,
-    const char** column_family_names,
-    const rocksdb_options_t** column_family_options,
+    const char* const* column_family_names,
+    const rocksdb_options_t* const* column_family_options,
     rocksdb_column_family_handle_t** column_family_handles, char** errptr) {
   std::vector<ColumnFamilyDescriptor> column_families;
   for (int i = 0; i != num_column_families; ++i) {
@@ -3837,8 +3837,8 @@ rocksdb_transactiondb_t* rocksdb_transactiondb_open(
 rocksdb_transactiondb_t* rocksdb_transactiondb_open_column_families(
     const rocksdb_options_t* options,
     const rocksdb_transactiondb_options_t* txn_db_options, const char* name,
-    int num_column_families, const char** column_family_names,
-    const rocksdb_options_t** column_family_options,
+    int num_column_families, const char* const* column_family_names,
+    const rocksdb_options_t* const* column_family_options,
     rocksdb_column_family_handle_t** column_family_handles, char** errptr) {
   std::vector<ColumnFamilyDescriptor> column_families;
   for (int i = 0; i < num_column_families; i++) {
@@ -4215,8 +4215,8 @@ rocksdb_optimistictransactiondb_t* rocksdb_optimistictransactiondb_open(
 rocksdb_optimistictransactiondb_t*
 rocksdb_optimistictransactiondb_open_column_families(
     const rocksdb_options_t* db_options, const char* name,
-    int num_column_families, const char** column_family_names,
-    const rocksdb_options_t** column_family_options,
+    int num_column_families, const char* const* column_family_names,
+    const rocksdb_options_t* const* column_family_options,
     rocksdb_column_family_handle_t** column_family_handles, char** errptr) {
   std::vector<ColumnFamilyDescriptor> column_families;
   for (int i = 0; i < num_column_families; i++) {
