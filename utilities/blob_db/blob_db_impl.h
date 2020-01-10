@@ -60,16 +60,6 @@ struct BlobFileComparator {
                   const std::shared_ptr<BlobFile>& rhs) const;
 };
 
-struct GCStats {
-  uint64_t blob_count = 0;
-  uint64_t num_keys_overwritten = 0;
-  uint64_t num_keys_expired = 0;
-  uint64_t num_keys_relocated = 0;
-  uint64_t bytes_overwritten = 0;
-  uint64_t bytes_expired = 0;
-  uint64_t bytes_relocated = 0;
-};
-
 /**
  * The implementation class for BlobDB. It manages the blob logs, which
  * are sequentially written files. Blob logs can be of the TTL or non-TTL
