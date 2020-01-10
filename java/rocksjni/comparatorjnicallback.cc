@@ -79,7 +79,7 @@ ComparatorJniCallback::ComparatorJniCallback(
           JniUtil::releaseJniEnv(tlb->jvm, attached_thread);
         }
       };
-      
+
       m_tl_buf_a = new ThreadLocalPtr(unref);
       m_tl_buf_b = new ThreadLocalPtr(unref);
 
@@ -385,7 +385,7 @@ void ComparatorJniCallback::FindShortestSeparator(
         }
         if (!reuse_jbuf_limit) {
           DeleteBuffer(env, j_limit_buf);
-        } 
+        }
         env->ExceptionDescribe();  // print out exception to stderr
         MaybeUnlockForReuse(mtx_shortest, reuse_jbuf_start || reuse_jbuf_limit);
         releaseJniEnv(attached_thread);
@@ -399,7 +399,7 @@ void ComparatorJniCallback::FindShortestSeparator(
   }
   if (!reuse_jbuf_limit) {
     DeleteBuffer(env, j_limit_buf);
-  } 
+  }
 
   MaybeUnlockForReuse(mtx_shortest, reuse_jbuf_start || reuse_jbuf_limit);
 
@@ -445,7 +445,7 @@ void ComparatorJniCallback::FindShortSuccessor(
     return;
 
   }
-  
+
   if (static_cast<size_t>(jkey_len) != key->length()) {
     // key buffer has changed in Java, so update `key` with the result
     bool copy_from_non_direct = false;
@@ -484,7 +484,7 @@ void ComparatorJniCallback::FindShortSuccessor(
       jbyteArray jarray = ByteBufferJni::array(env, j_key_buf,
           m_jbytebuffer_clazz);
       if (jarray == nullptr) {
-        
+
         if (!reuse_jbuf_key) {
           DeleteBuffer(env, j_key_buf);
         }
@@ -542,7 +542,7 @@ jobject ComparatorJniCallback::GetBuffer(JNIEnv* env, const Slice& src,
   if (reuse_buffer) {
     if (m_options->reused_synchronisation_type
         == ReusedSynchronisationType::THREAD_LOCAL) {
-      
+
       // reuse thread-local bufffer
       ThreadLocalBuf* tlb = reinterpret_cast<ThreadLocalBuf*>(tl_buf->Get());
       if (tlb == nullptr) {

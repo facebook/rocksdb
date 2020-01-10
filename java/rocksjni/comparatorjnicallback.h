@@ -58,7 +58,7 @@ struct ComparatorJniCallbackOptions {
   // Maximum size of a buffer (in bytes) that will be reused.
   // Comparators will use 5 of these buffers,
   // so the retained memory size will be 5 * max_reused_buffer_size.
-  // When a buffer is needed for transferring data to a callback, 
+  // When a buffer is needed for transferring data to a callback,
   // if it requires less than max_reused_buffer_size, then an
   // existing buffer will be reused, else a new buffer will be
   // allocated just for that callback. -1 to disable.
