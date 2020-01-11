@@ -85,6 +85,11 @@ class CloudEnvWrapper : public CloudEnvImpl {
                            const EnvOptions& options) override {
     return base_env_->ReuseWritableFile(fname, old_fname, r, options);
   }
+  Status ReopenWritableFile(const std::string& fname,
+                            std::unique_ptr<WritableFile>* result,
+                            const EnvOptions& options) override {
+    return base_env_->ReopenWritableFile(fname, result, options);
+  }
   Status NewRandomRWFile(const std::string& fname,
                          std::unique_ptr<RandomRWFile>* result,
                          const EnvOptions& options) override {
