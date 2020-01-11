@@ -834,6 +834,16 @@ Status AwsEnv::NewWritableFile(const std::string& logical_fname,
   return s;
 }
 
+Status AwsEnv::ReopenWritableFile(const std::string& fname,
+                                  std::unique_ptr<WritableFile>* result,
+                                  const EnvOptions& options) {
+  // This is not accurately correct because there is no wasy way to open
+  // an S3 file in append mode. We still need to support this because
+  // rocksdb's ExternalSstFileIngestionJob invokes this api to reopen
+  // a pre-created file to flush/sync it.
+  return base_env_->ReopenWritableFile(fname, result, options);
+}
+
 class S3Directory : public Directory {
  public:
   explicit S3Directory(AwsEnv* env, const std::string name)
