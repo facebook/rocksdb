@@ -1,4 +1,8 @@
 # Rocksdb Change Log
+## 6.6.2 (01/13/2020)
+### Bug Fixes
+* Fixed a bug where non-L0 compaction input files were not considered to compute the `creation_time` of new compaction outputs.
+
 ## 6.6.1 (01/02/2020)
 ### Bug Fixes
 * Fix a bug in WriteBatchWithIndex::MultiGetFromBatchAndDB, which is called by Transaction::MultiGet, that causes due to stale pointer access when the number of keys is > 32
