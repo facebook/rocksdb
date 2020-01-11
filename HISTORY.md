@@ -7,6 +7,7 @@
 * A new `OptimisticTransactionDBOptions` Option that allows users to configure occ validation policy. The default policy changes from kValidateSerial to kValidateParallel to reduce mutex contention.
 
 ### Bug Fixes
+* Fixed a bug where non-L0 compaction input files were not considered to compute the `creation_time` of new compaction outputs.
 * Fix a bug that can cause unnecessary bg thread to be scheduled(#6104).
 * Fix a bug in which a snapshot read could be affected by a DeleteRange after the snapshot (#6062).
 * Fix crash caused by concurrent CF iterations and drops(#6147).
