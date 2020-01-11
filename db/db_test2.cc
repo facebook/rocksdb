@@ -153,8 +153,6 @@ TEST_F(DBTest2, MaxSuccessiveMergesChangeWithDBRecovery) {
   options.create_if_missing = true;
   options.statistics = rocksdb::CreateDBStatistics();
   options.max_successive_merges = 3;
-  // allow_concurrent_memtable_write is incompatible with max_successive_merges
-  options.allow_concurrent_memtable_write = false;
   options.merge_operator = MergeOperators::CreatePutOperator();
   options.disable_auto_compactions = true;
   DestroyAndReopen(options);

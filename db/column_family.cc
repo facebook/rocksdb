@@ -160,11 +160,6 @@ Status CheckConcurrentWritesSupported(const ColumnFamilyOptions& cf_options) {
     return Status::InvalidArgument(
         "Memtable doesn't concurrent writes (allow_concurrent_memtable_write)");
   }
-  if (cf_options.max_successive_merges != 0) {
-    return Status::InvalidArgument(
-        "max_successive_merges > 0 is incompatible "
-        "with concurrent writes (allow_concurrent_memtable_write)");
-  }
   return Status::OK();
 }
 
@@ -1251,6 +1246,11 @@ Status ColumnFamilyData::ValidateOptions(
   s = CheckCompressionSupported(cf_options);
   if (s.ok() && db_options.allow_concurrent_memtable_write) {
     s = CheckConcurrentWritesSupported(cf_options);
+  }
+  if (s.ok() && db_options.unordered_write &&
+      cf_options.max_successive_merges != 0) {
+    s = Status::InvalidArgument(
+        "max_successive_merges > 0 is incompatible with unordered_write");
   }
   if (s.ok()) {
     s = CheckCFPathsSupported(db_options, cf_options);
