@@ -157,7 +157,6 @@ void FileIndexer::CalculateLB(
     if (cmp == 0) {
       set_index(&index[upper_idx], lower_idx);
       ++upper_idx;
-      ++lower_idx;
     } else if (cmp > 0) {
       // Lower level's file (largest) is smaller, a key won't hit in that
       // file. Move to next lower file
@@ -195,7 +194,6 @@ void FileIndexer::CalculateRB(
     if (cmp == 0) {
       set_index(&index[upper_idx], lower_idx);
       --upper_idx;
-      --lower_idx;
     } else if (cmp < 0) {
       // Lower level's file (smallest) is larger, a key won't hit in that
       // file. Move to next lower file.
