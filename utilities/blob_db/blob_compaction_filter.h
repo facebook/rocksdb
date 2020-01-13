@@ -11,8 +11,8 @@
 #include "monitoring/statistics.h"
 #include "rocksdb/compaction_filter.h"
 #include "rocksdb/env.h"
-#include "utilities/blob_db/blob_db_impl.h"
 #include "utilities/blob_db/blob_db_gc_stats.h"
+#include "utilities/blob_db/blob_db_impl.h"
 
 namespace rocksdb {
 namespace blob_db {

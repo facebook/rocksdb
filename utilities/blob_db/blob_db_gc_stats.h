@@ -12,38 +12,39 @@ namespace rocksdb {
 namespace blob_db {
 
 /**
- * Statistics related to a single garbage collection pass (i.e. a single compaction).
+ * Statistics related to a single garbage collection pass (i.e. a single
+ * compaction).
  */
 class BlobDBGarbageCollectionStats {
  public:
-   uint64_t AllBlobs() const { return all_blobs_; }
-   uint64_t AllBytes() const { return all_bytes_; }
-   uint64_t RelocatedBlobs() const { return relocated_blobs_; }
-   uint64_t RelocatedBytes() const { return relocated_bytes_; }
-   uint64_t NewFiles() const { return new_files_; }
-   bool HasError() const { return error_; }
+  uint64_t AllBlobs() const { return all_blobs_; }
+  uint64_t AllBytes() const { return all_bytes_; }
+  uint64_t RelocatedBlobs() const { return relocated_blobs_; }
+  uint64_t RelocatedBytes() const { return relocated_bytes_; }
+  uint64_t NewFiles() const { return new_files_; }
+  bool HasError() const { return error_; }
 
-   void AddBlob(uint64_t size) {
-     ++all_blobs_;
-     all_bytes_ += size;
-   }
+  void AddBlob(uint64_t size) {
+    ++all_blobs_;
+    all_bytes_ += size;
+  }
 
-   void AddRelocatedBlob(uint64_t size) {
-     ++relocated_blobs_;
-     relocated_bytes_ += size;
-   }
+  void AddRelocatedBlob(uint64_t size) {
+    ++relocated_blobs_;
+    relocated_bytes_ += size;
+  }
 
-   void AddNewFile() { ++new_files_; }
+  void AddNewFile() { ++new_files_; }
 
-   void SetError() { error_ = true; }
+  void SetError() { error_ = true; }
 
  private:
-   uint64_t all_blobs_ = 0;
-   uint64_t all_bytes_ = 0;
-   uint64_t relocated_blobs_ = 0;
-   uint64_t relocated_bytes_ = 0;
-   uint64_t new_files_ = 0;
-   bool error_ = false;
+  uint64_t all_blobs_ = 0;
+  uint64_t all_bytes_ = 0;
+  uint64_t relocated_blobs_ = 0;
+  uint64_t relocated_bytes_ = 0;
+  uint64_t new_files_ = 0;
+  bool error_ = false;
 };
 
 }  // namespace blob_db

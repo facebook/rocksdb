@@ -1505,7 +1505,7 @@ TEST_F(BlobDBTest, GarbageCollection) {
 
   VerifyBaseDBBlobIndex(blob_index_versions);
 
-  const Statistics* const statistics = options.statistics.get();
+  const Statistics *const statistics = options.statistics.get();
   assert(statistics);
 
   ASSERT_EQ(statistics->getTickerCount(BLOB_DB_GC_NUM_FILES), cutoff);
