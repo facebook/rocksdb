@@ -54,6 +54,20 @@ CompactionFilter::Decision BlobIndexCompactionFilterBase::FilterV2(
   return Decision::kKeep;
 }
 
+BlobIndexCompactionFilterGC::~BlobIndexCompactionFilterGC() {
+  if (blob_file_) {
+    CloseAndRegisterNewBlobFile();
+  }
+
+  if (gc_stats_.HasError()) {
+    RecordTick(statistics(), BLOB_DB_GC_FAILURES);
+  } else {
+    RecordTick(statistics(), BLOB_DB_GC_NUM_KEYS_RELOCATED, gc_stats_.RelocatedBlobs());
+    RecordTick(statistics(), BLOB_DB_GC_BYTES_RELOCATED, gc_stats_.RelocatedBytes());
+    RecordTick(statistics(), BLOB_DB_GC_NUM_NEW_FILES, gc_stats_.NewFiles());
+  }
+}
+
 CompactionFilter::BlobDecision BlobIndexCompactionFilterGC::PrepareBlobOutput(
     const Slice& key, const Slice& existing_value,
     std::string* new_value) const {

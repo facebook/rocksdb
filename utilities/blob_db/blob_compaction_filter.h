@@ -87,19 +87,7 @@ class BlobIndexCompactionFilterGC : public BlobIndexCompactionFilterBase {
                                       statistics),
         context_gc_(std::move(context_gc)) {}
 
-  ~BlobIndexCompactionFilterGC() override {
-    if (blob_file_) {
-      CloseAndRegisterNewBlobFile();
-    }
-
-    if (gc_stats_.HasError()) {
-      RecordTick(statistics(), BLOB_DB_GC_FAILURES);
-    } else {
-      RecordTick(statistics(), BLOB_DB_GC_NUM_KEYS_RELOCATED, gc_stats_.RelocatedBlobs());
-      RecordTick(statistics(), BLOB_DB_GC_BYTES_RELOCATED, gc_stats_.RelocatedBytes());
-      RecordTick(statistics(), BLOB_DB_GC_NUM_NEW_FILES, gc_stats_.NewFiles());
-    }
-  }
+  ~BlobIndexCompactionFilterGC() override;
 
   const char* Name() const override { return "BlobIndexCompactionFilterGC"; }
 
