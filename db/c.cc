@@ -4195,6 +4195,54 @@ void rocksdb_transactiondb_close(rocksdb_transactiondb_t* txn_db) {
   delete txn_db;
 }
 
+char* rocksdb_transactiondb_property_value(
+    rocksdb_transactiondb_t* txn_db,
+    const char* propname) {
+  std::string tmp;
+  if (txn_db->rep->GetProperty(Slice(propname), &tmp)) {
+    // We use strdup() since we expect human readable output.
+    return strdup(tmp.c_str());
+  } else {
+    return nullptr;
+  }
+}
+
+int rocksdb_transactiondb_property_int(
+    rocksdb_transactiondb_t* txn_db,
+    const char* propname,
+    uint64_t *out_val) {
+  if (txn_db->rep->GetIntProperty(Slice(propname), out_val)) {
+    return 0;
+  } else {
+    return -1;
+  }
+}
+
+int rocksdb_transactiondb_property_int_cf(
+    rocksdb_transactiondb_t* txn_db,
+    rocksdb_column_family_handle_t* column_family,
+    const char* propname,
+    uint64_t *out_val) {
+  if (txn_db->rep->GetIntProperty(column_family->rep, Slice(propname), out_val)) {
+    return 0;
+  } else {
+    return -1;
+  }
+}
+
+char* rocksdb_transactiondb_property_value_cf(
+    rocksdb_transactiondb_t* txn_db,
+    rocksdb_column_family_handle_t* column_family,
+    const char* propname) {
+  std::string tmp;
+  if (txn_db->rep->GetProperty(column_family->rep, Slice(propname), &tmp)) {
+    // We use strdup() since we expect human readable output.
+    return strdup(tmp.c_str());
+  } else {
+    return nullptr;
+  }
+}
+
 rocksdb_checkpoint_t* rocksdb_transactiondb_checkpoint_object_create(
     rocksdb_transactiondb_t* txn_db, char** errptr) {
   Checkpoint* checkpoint;
