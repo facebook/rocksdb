@@ -1371,6 +1371,7 @@ TEST_F(BlobDBTest, GarbageCollection) {
 
   Options options;
   options.env = mock_env_.get();
+  options.statistics = CreateDBStatistics();
 
   Open(bdb_options, options);
 
@@ -1503,6 +1504,17 @@ TEST_F(BlobDBTest, GarbageCollection) {
   }
 
   VerifyBaseDBBlobIndex(blob_index_versions);
+
+  const Statistics* const statistics = options.statistics.get();
+  assert(statistics);
+
+  ASSERT_EQ(statistics->getTickerCount(BLOB_DB_GC_NUM_FILES), cutoff);
+  ASSERT_EQ(statistics->getTickerCount(BLOB_DB_GC_NUM_NEW_FILES), cutoff);
+  ASSERT_EQ(statistics->getTickerCount(BLOB_DB_GC_FAILURES), 0);
+  ASSERT_EQ(statistics->getTickerCount(BLOB_DB_GC_NUM_KEYS_RELOCATED),
+            cutoff * kBlobsPerFile);
+  ASSERT_EQ(statistics->getTickerCount(BLOB_DB_GC_BYTES_RELOCATED),
+            cutoff * kBlobsPerFile * kLargeValueSize);
 
   // At this point, we should have 128 immutable non-TTL files with file numbers
   // 33..128 and 130..161. (129 was taken by the TTL blob file.)
