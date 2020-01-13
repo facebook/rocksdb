@@ -8,6 +8,8 @@
 #include "utilities/blob_db/blob_compaction_filter.h"
 #include "db/dbformat.h"
 
+#include <cinttypes>
+
 namespace rocksdb {
 namespace blob_db {
 
@@ -62,8 +64,20 @@ BlobIndexCompactionFilterGC::~BlobIndexCompactionFilterGC() {
   if (gc_stats_.HasError()) {
     RecordTick(statistics(), BLOB_DB_GC_FAILURES);
   } else {
-    RecordTick(statistics(), BLOB_DB_GC_NUM_KEYS_RELOCATED, gc_stats_.RelocatedBlobs());
-    RecordTick(statistics(), BLOB_DB_GC_BYTES_RELOCATED, gc_stats_.RelocatedBytes());
+    assert(context_gc_.blob_db_impl);
+
+    ROCKS_LOG_INFO(
+        context_gc_.blob_db_impl->db_options_.info_log,
+        "GC pass finished successfully: encountered %" PRIu64 " blobs (%" PRIu64
+        " bytes), relocated %" PRIu64 " blobs (%" PRIu64
+        " bytes), created %" PRIu64 " new blob file(s)",
+        gc_stats_.AllBlobs(), gc_stats_.AllBytes(), gc_stats_.RelocatedBlobs(),
+        gc_stats_.RelocatedBytes(), gc_stats_.NewFiles());
+
+    RecordTick(statistics(), BLOB_DB_GC_NUM_KEYS_RELOCATED,
+               gc_stats_.RelocatedBlobs());
+    RecordTick(statistics(), BLOB_DB_GC_BYTES_RELOCATED,
+               gc_stats_.RelocatedBytes());
     RecordTick(statistics(), BLOB_DB_GC_NUM_NEW_FILES, gc_stats_.NewFiles());
   }
 }
