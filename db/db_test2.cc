@@ -4296,6 +4296,7 @@ TEST_F(DBTest2, SameSmallestInSameLevel) {
   ASSERT_OK(db_->Merge(WriteOptions(), "key", "8"));
   Flush();
   dbfull()->TEST_WaitForCompact(true);
+  ASSERT_EQ("0,4,1", FilesPerLevel());
 
   ASSERT_EQ("2,3,4,5,6,7,8", Get("key"));
 }
