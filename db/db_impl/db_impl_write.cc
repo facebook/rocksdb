@@ -945,6 +945,9 @@ WriteBatch* DBImpl::MergeBatch(const WriteThread::WriteGroup& write_group,
     // interface
     merged_batch = tmp_batch;
     for (auto writer : write_group) {
+      if(writer->disable_wal) {
+          continue;
+      }
       if (!writer->CallbackFailed()) {
         WriteBatchInternal::Append(merged_batch, writer->batch,
                                    /*WAL_only*/ true);
@@ -1009,6 +1012,9 @@ Status DBImpl::WriteToWAL(const WriteThread::WriteGroup& write_group,
     write_group.leader->log_used = logfile_number_;
   } else if (write_with_wal > 1) {
     for (auto writer : write_group) {
+      if(writer->disable_wal) {
+          continue;
+      }
       writer->log_used = logfile_number_;
     }
   }
@@ -1083,6 +1089,9 @@ Status DBImpl::ConcurrentWriteToWAL(const WriteThread::WriteGroup& write_group,
     write_group.leader->log_used = logfile_number_;
   } else if (write_with_wal > 1) {
     for (auto writer : write_group) {
+      if(writer->disable_wal) {
+          continue;
+      }
       writer->log_used = logfile_number_;
     }
   }
