@@ -539,18 +539,14 @@ class IndexBlockIter final : public BlockIter<IndexValue> {
     }
   }
 
+  // It could return invalid if prefix is enabled and yet the prefix of target
+  // does not exist.
   virtual void Seek(const Slice& target) override;
 
-  virtual void SeekForPrev(const Slice&) override {
-    assert(false);
-    current_ = restarts_;
-    restart_index_ = num_restarts_;
-    status_ = Status::InvalidArgument(
-        "RocksDB internal error: should never call SeekForPrev() on index "
-        "blocks");
-    key_.Clear();
-    value_.clear();
-  }
+  // Same as ::Seek execept that it returns the first key if prefix is enabled
+  // and yet the prefix of the target does not exist. This is useful in
+  // implementation of BlockBasedTableIterator::SeekForPrev.
+  virtual void SeekForPrev(const Slice&) override;
 
   virtual void Prev() override;
 
