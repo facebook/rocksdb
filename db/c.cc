@@ -4243,6 +4243,37 @@ char* rocksdb_transactiondb_property_value_cf(
   }
 }
 
+void rocksdb_transactiondb_approximate_sizes(
+    rocksdb_transactiondb_t* txn_db,
+    int num_ranges,
+    const char* const* range_start_key, const size_t* range_start_key_len,
+    const char* const* range_limit_key, const size_t* range_limit_key_len,
+    uint64_t* sizes) {
+  Range* ranges = new Range[num_ranges];
+  for (int i = 0; i < num_ranges; i++) {
+    ranges[i].start = Slice(range_start_key[i], range_start_key_len[i]);
+    ranges[i].limit = Slice(range_limit_key[i], range_limit_key_len[i]);
+  }
+  txn_db->rep->GetApproximateSizes(ranges, num_ranges, sizes);
+  delete[] ranges;
+}
+
+void rocksdb_transactiondb_approximate_sizes_cf(
+    rocksdb_transactiondb_t* txn_db,
+    rocksdb_column_family_handle_t* column_family,
+    int num_ranges,
+    const char* const* range_start_key, const size_t* range_start_key_len,
+    const char* const* range_limit_key, const size_t* range_limit_key_len,
+    uint64_t* sizes) {
+  Range* ranges = new Range[num_ranges];
+  for (int i = 0; i < num_ranges; i++) {
+    ranges[i].start = Slice(range_start_key[i], range_start_key_len[i]);
+    ranges[i].limit = Slice(range_limit_key[i], range_limit_key_len[i]);
+  }
+  txn_db->rep->GetApproximateSizes(column_family->rep, ranges, num_ranges, sizes);
+  delete[] ranges;
+}
+
 rocksdb_checkpoint_t* rocksdb_transactiondb_checkpoint_object_create(
     rocksdb_transactiondb_t* txn_db, char** errptr) {
   Checkpoint* checkpoint;

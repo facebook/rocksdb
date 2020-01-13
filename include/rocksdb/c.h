@@ -1673,6 +1673,17 @@ extern ROCKSDB_LIBRARY_API char* rocksdb_transactiondb_property_value_cf(
     rocksdb_transactiondb_t* txn_db, rocksdb_column_family_handle_t* column_family,
     const char* propname);
 
+extern ROCKSDB_LIBRARY_API void rocksdb_transactiondb_approximate_sizes(
+    rocksdb_transactiondb_t* txn_db, int num_ranges, const char* const* range_start_key,
+    const size_t* range_start_key_len, const char* const* range_limit_key,
+    const size_t* range_limit_key_len, uint64_t* sizes);
+
+extern ROCKSDB_LIBRARY_API void rocksdb_transactiondb_approximate_sizes_cf(
+    rocksdb_transactiondb_t* txn_db, rocksdb_column_family_handle_t* column_family,
+    int num_ranges, const char* const* range_start_key,
+    const size_t* range_start_key_len, const char* const* range_limit_key,
+    const size_t* range_limit_key_len, uint64_t* sizes);
+
 extern ROCKSDB_LIBRARY_API rocksdb_checkpoint_t*
 rocksdb_transactiondb_checkpoint_object_create(rocksdb_transactiondb_t* txn_db,
                                                char** errptr);
