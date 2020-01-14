@@ -32,8 +32,7 @@ CompactionFilter::Decision BlobIndexCompactionFilterBase::FilterV2(
   if (!blob_index.IsInlined() &&
       blob_index.file_number() < context_.next_file_number &&
       context_.current_blob_files.count(blob_index.file_number()) == 0) {
-    // Corresponding blob file gone. Could have been garbage collected or
-    // evicted by FIFO eviction.
+    // Corresponding blob file gone (most likely, evicted by FIFO eviction).
     evicted_count_++;
     evicted_size_ += key.size() + value.size();
     return Decision::kRemove;
