@@ -394,48 +394,11 @@ void IndexBlockIter::Seek(const Slice& target) {
   bool ok = false;
   if (prefix_index_) {
     ok = PrefixSeek(target, &index);
-  } else if (value_delta_encoded_) {
-    ok = BinarySeek<DecodeKeyV4>(seek_key, 0, num_restarts_ - 1, &index,
-                                 comparator_);
-  } else {
-    ok = BinarySeek<DecodeKey>(seek_key, 0, num_restarts_ - 1, &index,
-                               comparator_);
-  }
-
-  if (!ok) {
-    return;
-  }
-  SeekToRestartPoint(index);
-  // Linear search (within restart block) for first key >= target
-
-  while (true) {
-    if (!ParseNextIndexKey() || Compare(key_, seek_key) >= 0) {
-      return;
-    }
-  }
-}
-
-// This is a copy of IndexBlockIter::Seek except that for non-existing prefixes,
-// it returns the first key instead of invalid status.
-void IndexBlockIter::SeekForPrev(const Slice& target) {
-  TEST_SYNC_POINT("IndexBlockIter::Seek:0");
-  Slice seek_key = target;
-  if (!key_includes_seq_) {
-    seek_key = ExtractUserKey(target);
-  }
-  PERF_TIMER_GUARD(block_seek_nanos);
-  if (data_ == nullptr) {  // Not init yet
-    return;
-  }
-  uint32_t index = 0;
-  bool ok = false;
-  if (prefix_index_) {
-    ok = PrefixSeek(target, &index);
     if (!ok && !Valid()) {
-      // If the prefix does not exist, we can return any key as long as it is
-      // smaller than the target. For simplicity we return the first.
-      SeekToFirst();
-      ok = true;
+      // This is to let the caller to distinguish between non-existing prefix,
+      // and when key is larger than the last key, which both set Valid() to
+      // false.
+      status_ = Status::NotFound();
     }
   } else if (value_delta_encoded_) {
     ok = BinarySeek<DecodeKeyV4>(seek_key, 0, num_restarts_ - 1, &index,

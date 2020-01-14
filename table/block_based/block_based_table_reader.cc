@@ -2885,7 +2885,7 @@ void BlockBasedTableIterator<TBlockIter, TValue>::SeekForPrev(
 
   SavePrevIndexValue();
 
-  // Without prefix, SeekForPrev does the same as Seek in the index block since
+  // Call Seek() rather than SeekForPrev() in the index block, because the
   // target data block will likely to contain the position for `target`, the
   // same as Seek(), rather than than before.
   // For example, if we have three data blocks, each containing two keys:
@@ -2898,17 +2898,24 @@ void BlockBasedTableIterator<TBlockIter, TValue>::SeekForPrev(
   // first block, rather than the second. However, we don't have the information
   // to distinguish the two unless we read the second block. In this case, we'll
   // end up with reading two blocks.
-  // With prefix, SeekForPrev() returns the first block instead of invalid
-  // status when the prefix does not exist.
-  index_iter_->SeekForPrev(target);
+  index_iter_->Seek(target);
 
   if (!index_iter_->Valid()) {
-    if (!index_iter_->status().ok()) {
+    auto seek_status = index_iter_->status();
+    // Check for IO error
+    if (!seek_status.IsNotFound() && !seek_status.ok()) {
       ResetDataIter();
       return;
     }
 
-    index_iter_->SeekToLast();
+    // With prefix index, Seek() returns NotFound if the prefix doesn't exist
+    if (seek_status.IsNotFound()) {
+      // Any key less than the target is fine for prefix seek
+      index_iter_->SeekToFirst();
+    } else {
+      index_iter_->SeekToLast();
+    }
+    // Check for IO error
     if (!index_iter_->Valid()) {
       ResetDataIter();
       return;
