@@ -568,7 +568,7 @@ void BlobDBImpl::MarkUnreferencedBlobFilesObsoleteImpl(Functor mark_if_needed) {
 
   if (obsoleted_files > 0) {
     ROCKS_LOG_INFO(db_options_.info_log,
-                   "%" PRIu64 " blob files marked obsolete by GC",
+                   "%" PRIu64 " blob file(s) marked obsolete by GC",
                    obsoleted_files);
     RecordTick(statistics_, BLOB_DB_GC_NUM_FILES, obsoleted_files);
   }
