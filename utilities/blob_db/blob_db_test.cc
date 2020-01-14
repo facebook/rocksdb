@@ -1546,10 +1546,14 @@ TEST_F(BlobDBTest, GarbageCollectionFailure) {
 
   Open(bdb_options, db_options);
 
+  // Write a couple of valid blobs.
+  Put("foo", "bar");
+  Put("dead", "beef");
+
   // Write a fake blob reference into the base DB that cannot be parsed.
   WriteBatch batch;
   ASSERT_OK(WriteBatchInternal::PutBlobIndex(
-      &batch, blob_db_->DefaultColumnFamily()->GetID(), "foo",
+      &batch, blob_db_->DefaultColumnFamily()->GetID(), "key",
       "not a valid blob index"));
   ASSERT_OK(blob_db_->GetRootDB()->Write(WriteOptions(), &batch));
 
