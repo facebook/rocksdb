@@ -94,7 +94,6 @@ ImmutableDBOptions::ImmutableDBOptions(const DBOptions& options)
       persist_stats_to_disk(options.persist_stats_to_disk),
       write_dbid_to_manifest(options.write_dbid_to_manifest),
       log_readahead_size(options.log_readahead_size),
-      enable_sst_file_checksum(options.enable_sst_file_checksum),
       sst_file_checksum(options.sst_file_checksum) {
 }
 
@@ -246,8 +245,6 @@ void ImmutableDBOptions::Dump(Logger* log) const {
   ROCKS_LOG_HEADER(
       log, "                Options.log_readahead_size: %" ROCKSDB_PRIszt,
       log_readahead_size);
-  ROCKS_LOG_HEADER(log, "                Options.enable_sst_file_checksum: %d",
-                   enable_sst_file_checksum);
   ROCKS_LOG_HEADER(log, "                Options.sst_file_checksum: %s",
                    sst_file_checksum ? sst_file_checksum->Name() : "None");
 }

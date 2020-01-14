@@ -5,17 +5,13 @@
 
 #pragma once
 #include <cassert>
-#include <string>
-
 #include "rocksdb/sst_file_checksum.h"
-
 #include "util/crc32c.h"
 
 namespace rocksdb {
 
-// This is the class to generate the SST file checksum. If user enables the
-// checksum in Options by enable_sst_file_checksum=true but does not provide
-// the checksum method instance, the following will be used.
+// This is the class to generate the SST file checksum based on Crc32. It
+// will be used as the default checksum method for SST file checksum
 class SstFileChecksumCrc32c : public SstFileChecksum {
  public:
   uint32_t Extend(uint32_t init_checksum, const char* data, size_t n) override {
@@ -34,5 +30,4 @@ class SstFileChecksumCrc32c : public SstFileChecksum {
 
   const char* Name() const override { return "SstFileChecksumCrc32c"; }
 };
-
 }  // namespace rocksdb

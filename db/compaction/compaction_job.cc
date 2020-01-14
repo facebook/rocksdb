@@ -1510,8 +1510,7 @@ Status CompactionJob::OpenCompactionOutputFile(
       sub_compact->compaction->OutputFilePreallocationSize()));
   const auto& listeners =
       sub_compact->compaction->immutable_cf_options()->listeners;
-  if (db_options_.enable_sst_file_checksum &&
-      db_options_.sst_file_checksum != nullptr) {
+  if (db_options_.sst_file_checksum != nullptr) {
     sub_compact->outfile.reset(
         new WritableFileWriter(std::move(writable_file), fname, file_options_,
                                env_, db_options_.statistics.get(), listeners,

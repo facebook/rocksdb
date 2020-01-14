@@ -131,8 +131,7 @@ Status BuildTable(
       file->SetIOPriority(io_priority);
       file->SetWriteLifeTimeHint(write_hint);
 
-      if (ioptions.enable_sst_file_checksum &&
-          ioptions.sst_file_checksum != nullptr) {
+      if (ioptions.sst_file_checksum != nullptr) {
         // Calculate the file checksum when do Append
         file_writer.reset(new WritableFileWriter(
             std::move(file), fname, file_options, env, ioptions.statistics,

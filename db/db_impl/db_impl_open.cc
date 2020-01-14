@@ -20,7 +20,6 @@
 #include "options/options_helper.h"
 #include "rocksdb/wal_filter.h"
 #include "table/block_based/block_based_table_factory.h"
-#include "table/sst_file_checksum_crc32c.h"
 #include "test_util/sync_point.h"
 #include "util/rate_limiter.h"
 
@@ -134,10 +133,6 @@ DBOptions SanitizeOptions(const std::string& dbname, const DBOptions& src) {
   // make recovery complicated.
   if (result.allow_2pc) {
     result.avoid_flush_during_recovery = false;
-  }
-
-  if (result.enable_sst_file_checksum && !result.sst_file_checksum) {
-    result.sst_file_checksum.reset(new SstFileChecksumCrc32c());
   }
 
 #ifndef ROCKSDB_LITE

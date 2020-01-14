@@ -12,10 +12,10 @@
 #include "file/filename.h"
 #include "port/stack_trace.h"
 #include "rocksdb/sst_file_checksum.h"
-#include "table/sst_file_checksum_crc32c.h"
 #include "test_util/sync_point.h"
 #include "test_util/testharness.h"
 #include "test_util/testutil.h"
+#include "util/sst_file_checksum_crc32c.h"
 
 using std::string;
 using std::vector;
@@ -135,8 +135,7 @@ class FileChecksumTestHelper {
     bool first_read = true;
     Slice result;
     SstFileChecksum* file_checksum_cal = options_.sst_file_checksum.get();
-    if (options_.enable_sst_file_checksum == false ||
-        file_checksum_cal == nullptr) {
+    if (file_checksum_cal == nullptr) {
       cur_checksum = 0;
       checksum_name = kUnknownFileChecksumName;
     } else {
@@ -355,95 +354,10 @@ TEST_F(LdbCmdTest, DumpFileChecksumNoChecksum) {
 TEST_F(LdbCmdTest, DumpFileChecksumCRC32) {
   Env* base_env = TryLoadCustomOrDefaultEnv();
   std::unique_ptr<Env> env(NewMemEnv(base_env));
-  std::unique_ptr<SstFileChecksumCrc32c> file_checksum(
-      new SstFileChecksumCrc32c);
   Options opts;
   opts.env = env.get();
   opts.create_if_missing = true;
-  opts.enable_sst_file_checksum = true;
-  opts.sst_file_checksum = std::move(file_checksum);
-  opts.file_system.reset(new LegacyFileSystemWrapper(opts.env));
-
-  DB* db = nullptr;
-  std::string dbname = test::TmpDir();
-  ASSERT_OK(DB::Open(opts, dbname, &db));
-
-  WriteOptions wopts;
-  FlushOptions fopts;
-  fopts.wait = true;
-  Random rnd(test::RandomSeed());
-  for (int i = 0; i < 100; i++) {
-    char buf[16];
-    snprintf(buf, sizeof(buf), "%08d", i);
-    std::string v;
-    test::RandomString(&rnd, 100, &v);
-    ASSERT_OK(db->Put(wopts, buf, v));
-  }
-  ASSERT_OK(db->Flush(fopts));
-  for (int i = 50; i < 150; i++) {
-    char buf[16];
-    snprintf(buf, sizeof(buf), "%08d", i);
-    std::string v;
-    test::RandomString(&rnd, 100, &v);
-    ASSERT_OK(db->Put(wopts, buf, v));
-  }
-  ASSERT_OK(db->Flush(fopts));
-  for (int i = 100; i < 200; i++) {
-    char buf[16];
-    snprintf(buf, sizeof(buf), "%08d", i);
-    std::string v;
-    test::RandomString(&rnd, 100, &v);
-    ASSERT_OK(db->Put(wopts, buf, v));
-  }
-  ASSERT_OK(db->Flush(fopts));
-  for (int i = 150; i < 250; i++) {
-    char buf[16];
-    snprintf(buf, sizeof(buf), "%08d", i);
-    std::string v;
-    test::RandomString(&rnd, 100, &v);
-    ASSERT_OK(db->Put(wopts, buf, v));
-  }
-  ASSERT_OK(db->Flush(fopts));
-
-  char arg1[] = "./ldb";
-  char arg2[1024];
-  snprintf(arg2, sizeof(arg2), "--db=%s", dbname.c_str());
-  char arg3[] = "file_checksum_dump";
-  char* argv[] = {arg1, arg2, arg3};
-
-  ASSERT_EQ(0,
-            LDBCommandRunner::RunCommand(3, argv, opts, LDBOptions(), nullptr));
-
-  // Verify each sst file checksum value and checksum name
-  FileChecksumTestHelper fct_helper(opts, db, dbname);
-  ASSERT_OK(fct_helper.VerifyEachFileChecksum());
-
-  // Manually trigger compaction
-  char b_buf[16];
-  snprintf(b_buf, sizeof(b_buf), "%08d", 0);
-  char e_buf[16];
-  snprintf(e_buf, sizeof(e_buf), "%08d", 249);
-  Slice begin(b_buf);
-  Slice end(e_buf);
-  CompactRangeOptions options;
-  ASSERT_OK(db->CompactRange(options, &begin, &end));
-  // Verify each sst file checksum after compaction
-  FileChecksumTestHelper fct_helper_ac(opts, db, dbname);
-  ASSERT_OK(fct_helper_ac.VerifyEachFileChecksum());
-
-  ASSERT_EQ(0,
-            LDBCommandRunner::RunCommand(3, argv, opts, LDBOptions(), nullptr));
-
-  delete db;
-}
-
-TEST_F(LdbCmdTest, DumpDefaultChecksumCrc32) {
-  Env* base_env = TryLoadCustomOrDefaultEnv();
-  std::unique_ptr<Env> env(NewMemEnv(base_env));
-  Options opts;
-  opts.env = env.get();
-  opts.create_if_missing = true;
-  opts.enable_sst_file_checksum = true;
+  opts.sst_file_checksum = std::make_shared<SstFileChecksumCrc32c>();
   opts.file_system.reset(new LegacyFileSystemWrapper(opts.env));
 
   DB* db = nullptr;

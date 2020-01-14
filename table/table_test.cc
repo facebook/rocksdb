@@ -46,13 +46,13 @@
 #include "table/internal_iterator.h"
 #include "table/plain/plain_table_factory.h"
 #include "table/scoped_arena_iterator.h"
-#include "table/sst_file_checksum_crc32c.h"
 #include "table/sst_file_writer_collectors.h"
 #include "test_util/sync_point.h"
 #include "test_util/testharness.h"
 #include "test_util/testutil.h"
 #include "util/compression.h"
 #include "util/random.h"
+#include "util/sst_file_checksum_crc32c.h"
 #include "util/string_util.h"
 #include "utilities/merge_operators.h"
 
@@ -1234,11 +1234,9 @@ class FileChecksumHelper {
     return table_builder_->GetFileChecksumName();
   }
 
-  Status CalculateFileChecksum(const ImmutableCFOptions& ioptions,
-                               SstFileChecksum* file_checksum_cal,
+  Status CalculateFileChecksum(SstFileChecksum* file_checksum_cal,
                                uint32_t* checksum) {
     assert(file_checksum_cal != nullptr);
-    assert(ioptions.enable_sst_file_checksum != false);
     cur_uniq_id_ = checksum_uniq_id_++;
     test::StringSink* ss_rw =
         rocksdb::test::GetStringSinkFromLegacyWriter(file_writer_.get());
@@ -3205,11 +3203,8 @@ TEST_P(BlockBasedTableTest, NoFileChecksum) {
 }
 
 TEST_P(BlockBasedTableTest, Crc32FileChecksum) {
-  std::unique_ptr<SstFileChecksumCrc32c> file_checksum(
-      new SstFileChecksumCrc32c);
   Options options;
-  options.enable_sst_file_checksum = true;
-  options.sst_file_checksum = std::move(file_checksum);
+  options.sst_file_checksum = std::make_shared<SstFileChecksumCrc32c>();
   ImmutableCFOptions ioptions(options);
   MutableCFOptions moptions(options);
   BlockBasedTableOptions table_options = GetBlockBasedTableOptions();
@@ -3245,8 +3240,8 @@ TEST_P(BlockBasedTableTest, Crc32FileChecksum) {
   f.WriteKVAndFlushTable();
   ASSERT_STREQ(f.GetFileChecksumName(), "SstFileChecksumCrc32c");
   uint32_t checksum;
-  ASSERT_OK(f.CalculateFileChecksum(ioptions, options.sst_file_checksum.get(),
-                                    &checksum));
+  ASSERT_OK(
+      f.CalculateFileChecksum(options.sst_file_checksum.get(), &checksum));
   EXPECT_EQ(f.GetFileChecksum(), checksum);
 }
 
@@ -3342,8 +3337,6 @@ TEST_F(PlainTableTest, NoFileChecksum) {
 }
 
 TEST_F(PlainTableTest, Crc32FileChecksum) {
-  std::unique_ptr<SstFileChecksumCrc32c> file_checksum(
-      new SstFileChecksumCrc32c);
   PlainTableOptions plain_table_options;
   plain_table_options.user_key_len = 20;
   plain_table_options.bloom_bits_per_key = 8;
@@ -3351,8 +3344,7 @@ TEST_F(PlainTableTest, Crc32FileChecksum) {
   PlainTableFactory factory(plain_table_options);
 
   Options options;
-  options.enable_sst_file_checksum = true;
-  options.sst_file_checksum = std::move(file_checksum);
+  options.sst_file_checksum = std::make_shared<SstFileChecksumCrc32c>();
   const ImmutableCFOptions ioptions(options);
   const MutableCFOptions moptions(options);
   InternalKeyComparator ikc(options.comparator);
@@ -3376,8 +3368,8 @@ TEST_F(PlainTableTest, Crc32FileChecksum) {
   f.WriteKVAndFlushTable();
   ASSERT_STREQ(f.GetFileChecksumName(), "SstFileChecksumCrc32c");
   uint32_t checksum;
-  ASSERT_OK(f.CalculateFileChecksum(ioptions, options.sst_file_checksum.get(),
-                                    &checksum));
+  ASSERT_OK(
+      f.CalculateFileChecksum(options.sst_file_checksum.get(), &checksum));
   EXPECT_EQ(f.GetFileChecksum(), checksum);
 }
 
