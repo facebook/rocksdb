@@ -4266,6 +4266,38 @@ TEST_F(DBTest2, SwitchMemtableRaceWithNewManifest) {
   ASSERT_OK(dbfull()->TEST_WaitForCompact());
   thread.join();
 }
+
+TEST_F(DBTest2, SameSmallestInSameLevel) {
+  // This test validates fractional casacading logic when several files at one
+  // one level only contains the same user key.
+  Options options = CurrentOptions();
+  options.merge_operator = MergeOperators::CreateStringAppendOperator();
+  DestroyAndReopen(options);
+
+  ASSERT_OK(Put("key", "1"));
+  ASSERT_OK(Put("key", "2"));
+  ASSERT_OK(db_->Merge(WriteOptions(), "key", "3"));
+  ASSERT_OK(db_->Merge(WriteOptions(), "key", "4"));
+  Flush();
+  CompactRangeOptions cro;
+  cro.change_level = true;
+  cro.target_level = 2;
+  ASSERT_OK(dbfull()->CompactRange(cro, db_->DefaultColumnFamily(), nullptr,
+                                   nullptr));
+
+  ASSERT_OK(db_->Merge(WriteOptions(), "key", "5"));
+  Flush();
+  ASSERT_OK(db_->Merge(WriteOptions(), "key", "6"));
+  Flush();
+  ASSERT_OK(db_->Merge(WriteOptions(), "key", "7"));
+  Flush();
+  ASSERT_OK(db_->Merge(WriteOptions(), "key", "8"));
+  Flush();
+  dbfull()->TEST_WaitForCompact(true);
+  ASSERT_EQ("0,4,1", FilesPerLevel());
+
+  ASSERT_EQ("2,3,4,5,6,7,8", Get("key"));
+}
 }  // namespace rocksdb
 
 #ifdef ROCKSDB_UNITTESTS_WITH_CUSTOM_OBJECTS_FROM_STATIC_LIBS
