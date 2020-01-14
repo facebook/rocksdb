@@ -1822,6 +1822,9 @@ void TableTest::IndexTest(BlockBasedTableOptions table_options) {
   std::vector<std::string> prefixes = {"001", "003", "005", "007", "009"};
   std::vector<std::string> lower_bound = {keys[0], keys[1], keys[2],
                                           keys[7], keys[9], };
+  std::vector<std::string> prev_lower_bound = {keys[0], keys[1], keys[6],
+                                          keys[8], keys[9], };
+
 
   // find the lower bound of the prefix
   for (size_t i = 0; i < prefixes.size(); ++i) {
@@ -1855,8 +1858,8 @@ void TableTest::IndexTest(BlockBasedTableOptions table_options) {
   for (size_t i = 0; i < prefixes.size(); ++i) {
     // the key is greater than any existing keys.
     auto key = prefixes[i] + "9";
-    index_iter->Seek(InternalKey(key, 0, kTypeValue).Encode());
 
+    index_iter->Seek(InternalKey(key, 0, kTypeValue).Encode());
     ASSERT_TRUE(index_iter->status().ok() || index_iter->status().IsNotFound());
     ASSERT_TRUE(!index_iter->status().IsNotFound() || !index_iter->Valid());
     if (i == prefixes.size() - 1) {
@@ -1866,6 +1869,16 @@ void TableTest::IndexTest(BlockBasedTableOptions table_options) {
       ASSERT_TRUE(index_iter->Valid());
       // seek the first element in the block
       ASSERT_EQ(upper_bound[i], index_iter->key().ToString());
+      ASSERT_EQ("v", index_iter->value().ToString());
+    }
+
+    index_iter->SeekForPrev(InternalKey(key, 0, kTypeValue).Encode());
+    ASSERT_TRUE(index_iter->status().ok() || index_iter->status().IsNotFound());
+    ASSERT_TRUE(!index_iter->status().IsNotFound() || !index_iter->Valid());
+    {
+      ASSERT_TRUE(index_iter->Valid());
+      // seek the first element in the block
+      ASSERT_EQ( prev_lower_bound[i], index_iter->key().ToString());
       ASSERT_EQ("v", index_iter->value().ToString());
     }
   }
