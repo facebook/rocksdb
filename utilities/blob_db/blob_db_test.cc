@@ -1534,6 +1534,38 @@ TEST_F(BlobDBTest, GarbageCollection) {
   }
 }
 
+TEST_F(BlobDBTest, GarbageCollectionFailure) {
+  BlobDBOptions bdb_options;
+  bdb_options.min_blob_size = 0;
+  bdb_options.enable_garbage_collection = true;
+  bdb_options.garbage_collection_cutoff = 1.0;
+  bdb_options.disable_background_tasks = true;
+
+  Options db_options;
+  db_options.statistics = CreateDBStatistics();
+
+  Open(bdb_options, db_options);
+
+  // Write a fake blob reference into the base DB that cannot be parsed.
+  WriteBatch batch;
+  ASSERT_OK(WriteBatchInternal::PutBlobIndex(
+      &batch, blob_db_->DefaultColumnFamily()->GetID(), "foo",
+      "not a valid blob index"));
+  ASSERT_OK(blob_db_->GetRootDB()->Write(WriteOptions(), &batch));
+
+  ASSERT_TRUE(blob_db_->CompactRange(CompactRangeOptions(), nullptr, nullptr)
+                  .IsCorruption());
+
+  const Statistics *const statistics = db_options.statistics.get();
+  assert(statistics);
+
+  ASSERT_EQ(statistics->getTickerCount(BLOB_DB_GC_NUM_FILES), 0);
+  ASSERT_EQ(statistics->getTickerCount(BLOB_DB_GC_NUM_NEW_FILES), 0);
+  ASSERT_EQ(statistics->getTickerCount(BLOB_DB_GC_FAILURES), 1);
+  ASSERT_EQ(statistics->getTickerCount(BLOB_DB_GC_NUM_KEYS_RELOCATED), 0);
+  ASSERT_EQ(statistics->getTickerCount(BLOB_DB_GC_BYTES_RELOCATED), 0);
+}
+
 // File should be evicted after expiration.
 TEST_F(BlobDBTest, EvictExpiredFile) {
   BlobDBOptions bdb_options;
