@@ -140,6 +140,11 @@ public class WriteBatchWithIndexTest {
 
       try (final WriteBatchWithIndex wbwi = new WriteBatchWithIndex()) {
         wbwi.put(k1, v1);
+        assertThat(k1.position()).isEqualTo(4);
+        assertThat(k1.limit()).isEqualTo(4);
+        assertThat(v1.position()).isEqualTo(6);
+        assertThat(v1.limit()).isEqualTo(6);
+
         wbwi.put(k2, v2);
 
         db.write(new WriteOptions(), wbwi);
@@ -224,7 +229,10 @@ public class WriteBatchWithIndexTest {
           assertThat(entry).isEqualTo(expected[testOffset]);
 
           // Direct buffer seek
-          it.seek(expected[testOffset].getKey().data());
+          expected[testOffset].getKey().data().mark();
+          ByteBuffer db = expected[testOffset].getKey().data();
+          it.seek(db);
+          assertThat(db.position()).isEqualTo(key.length);
           assertThat(it.isValid()).isTrue();
         }
 

@@ -57,6 +57,10 @@ public class RocksIteratorTest {
         value = ByteBuffer.allocateDirect(12);
         assertThat(iterator.key(key)).isEqualTo(4);
         assertThat(iterator.value(value)).isEqualTo(6);
+        assertThat(key.position()).isEqualTo(0);
+        assertThat(key.limit()).isEqualTo(4);
+        assertThat(value.position()).isEqualTo(0);
+        assertThat(value.limit()).isEqualTo(6);
 
         tmp = new byte[4];
         key.get(tmp);
@@ -89,6 +93,8 @@ public class RocksIteratorTest {
         iterator.seek(key);
         assertThat(iterator.isValid()).isTrue();
         assertThat(iterator.value()).isEqualTo("value1".getBytes());
+        assertThat(key.position()).isEqualTo(4);
+        assertThat(key.limit()).isEqualTo(4);
 
         key.clear();
         key.put("key2".getBytes());
@@ -96,6 +102,8 @@ public class RocksIteratorTest {
         iterator.seekForPrev(key);
         assertThat(iterator.isValid()).isTrue();
         assertThat(iterator.value()).isEqualTo("value2".getBytes());
+        assertThat(key.position()).isEqualTo(4);
+        assertThat(key.limit()).isEqualTo(4);
       }
 
       try (final RocksIterator iterator = db.newIterator()) {

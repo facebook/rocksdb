@@ -781,6 +781,8 @@ public class RocksDB extends RocksObject {
     assert key.isDirect() && value.isDirect();
     putDirect(nativeHandle_, writeOpts.nativeHandle_, key, key.position(), key.remaining(), value,
         value.position(), value.remaining(), columnFamilyHandle.nativeHandle_);
+    key.position(key.limit());
+    value.position(value.limit());
   }
 
   /**
@@ -803,6 +805,8 @@ public class RocksDB extends RocksObject {
     assert key.isDirect() && value.isDirect();
     putDirect(nativeHandle_, writeOpts.nativeHandle_, key, key.position(), key.remaining(), value,
         value.position(), value.remaining(), 0);
+    key.position(key.limit());
+    value.position(value.limit());
   }
 
   /**
@@ -1094,6 +1098,7 @@ public class RocksDB extends RocksObject {
     if (result != NOT_FOUND) {
       value.limit(Math.min(value.limit(), value.position() + result));
     }
+    key.position(key.limit());
     return result;
   }
 
@@ -1126,6 +1131,7 @@ public class RocksDB extends RocksObject {
     if (result != NOT_FOUND) {
       value.limit(Math.min(value.limit(), value.position() + result));
     }
+    key.position(key.limit());
     return result;
   }
 
@@ -1488,6 +1494,7 @@ public class RocksDB extends RocksObject {
   public void delete(final WriteOptions writeOpt, final ByteBuffer key) throws RocksDBException {
     assert key.isDirect();
     deleteDirect(nativeHandle_, writeOpt.nativeHandle_, key, key.position(), key.remaining(), 0);
+    key.position(key.limit());
   }
 
   /**
@@ -1509,6 +1516,7 @@ public class RocksDB extends RocksObject {
     assert key.isDirect();
     deleteDirect(nativeHandle_, writeOpt.nativeHandle_, key, key.position(), key.remaining(),
         columnFamilyHandle.nativeHandle_);
+    key.position(key.limit());
   }
 
   /**

@@ -133,6 +133,8 @@ public class SstFileWriter extends RocksObject {
     assert key.isDirect() && value.isDirect();
     putDirect(nativeHandle_, key, key.position(), key.remaining(), value, value.position(),
         value.remaining());
+    key.position(key.limit());
+    value.position(value.limit());
   }
 
  /**

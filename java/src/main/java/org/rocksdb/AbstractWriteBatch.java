@@ -60,6 +60,8 @@ public abstract class AbstractWriteBatch extends RocksObject
     assert key.isDirect() && value.isDirect();
     putDirect(nativeHandle_, key, key.position(), key.remaining(), value, value.position(),
         value.remaining(), 0);
+    key.position(key.limit());
+    value.position(value.limit());
   }
 
   @Override
@@ -68,6 +70,8 @@ public abstract class AbstractWriteBatch extends RocksObject
     assert key.isDirect() && value.isDirect();
     putDirect(nativeHandle_, key, key.position(), key.remaining(), value, value.position(),
         value.remaining(), columnFamilyHandle.nativeHandle_);
+    key.position(key.limit());
+    value.position(value.limit());
   }
 
   @Override
@@ -108,6 +112,7 @@ public abstract class AbstractWriteBatch extends RocksObject
 
   public void remove(ByteBuffer key) throws RocksDBException {
     removeDirect(nativeHandle_, key, key.position(), key.remaining(), 0);
+    key.position(key.limit());
   }
 
   @Override
@@ -115,6 +120,7 @@ public abstract class AbstractWriteBatch extends RocksObject
       throws RocksDBException {
     removeDirect(
         nativeHandle_, key, key.position(), key.remaining(), columnFamilyHandle.nativeHandle_);
+    key.position(key.limit());
   }
 
   @Override

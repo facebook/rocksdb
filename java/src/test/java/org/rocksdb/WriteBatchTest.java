@@ -93,9 +93,17 @@ public class WriteBatchTest {
       key.put("foo".getBytes("US-ASCII")).flip();
       value.put("bar".getBytes("US-ASCII")).flip();
       batch.put(key, value);
+      assertThat(key.position()).isEqualTo(3);
+      assertThat(key.limit()).isEqualTo(3);
+      assertThat(value.position()).isEqualTo(3);
+      assertThat(value.limit()).isEqualTo(3);
+
       key.clear();
       key.put("box".getBytes("US-ASCII")).flip();
       batch.remove(key);
+      assertThat(key.position()).isEqualTo(3);
+      assertThat(key.limit()).isEqualTo(3);
+
       batch.put("baz".getBytes("US-ASCII"), "boo".getBytes("US-ASCII"));
 
       WriteBatchTestInternalHelper.setSequence(batch, 100);

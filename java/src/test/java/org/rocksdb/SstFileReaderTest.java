@@ -130,8 +130,10 @@ public class SstFileReaderTest {
       assertThat(iterator.value()).isEqualTo("value1".getBytes());
 
       ByteBuffer direct = ByteBuffer.allocateDirect(128);
-      direct.put("key1".getBytes());
+      direct.put("key1".getBytes()).flip();
       iterator.seek(direct);
+      assertThat(direct.position()).isEqualTo(4);
+      assertThat(direct.limit()).isEqualTo(4);
 
       assertThat(iterator.isValid()).isTrue();
       assertThat(iterator.key()).isEqualTo("key1".getBytes());

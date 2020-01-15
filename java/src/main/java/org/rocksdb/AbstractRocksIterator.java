@@ -70,12 +70,14 @@ public abstract class AbstractRocksIterator<P extends RocksObject>
  public void seek(ByteBuffer target) {
    assert (isOwningHandle() && target.isDirect());
    seekDirect0(nativeHandle_, target, target.position(), target.remaining());
+   target.position(target.limit());
  }
 
  @Override
  public void seekForPrev(ByteBuffer target) {
    assert (isOwningHandle() && target.isDirect());
    seekForPrevDirect0(nativeHandle_, target, target.position(), target.remaining());
+   target.position(target.limit());
  }
 
   @Override

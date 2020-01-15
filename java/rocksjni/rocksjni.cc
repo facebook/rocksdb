@@ -908,16 +908,36 @@ jint rocksdb_get_helper_direct(
   static const int kArgumentError = -3;
 
   char* key = reinterpret_cast<char*>(env->GetDirectBufferAddress(jkey));
-  if (key == nullptr ||
-      env->GetDirectBufferCapacity(jkey) < (jkey_off + jkey_len)) {
-    rocksdb::RocksDBExceptionJni::ThrowNew(env, "Invalid key argument");
+  if (key == nullptr) {
+    rocksdb::RocksDBExceptionJni::ThrowNew(
+        env,
+        "Invalid key argument (argument is not a valid direct ByteBuffer)");
     *has_exception = true;
     return kArgumentError;
   }
+  if (env->GetDirectBufferCapacity(jkey) < (jkey_off + jkey_len)) {
+    rocksdb::RocksDBExceptionJni::ThrowNew(
+        env,
+        "Invalid key argument. Capacity is less than requested region (offset "
+        "+ length).");
+    *has_exception = true;
+    return kArgumentError;
+  }
+
   char* value = reinterpret_cast<char*>(env->GetDirectBufferAddress(jval));
-  if (value == nullptr ||
-      env->GetDirectBufferCapacity(jval) < (jval_off + jval_len)) {
-    rocksdb::RocksDBExceptionJni::ThrowNew(env, "Invalid value argument");
+  if (value == nullptr) {
+    rocksdb::RocksDBExceptionJni::ThrowNew(
+        env,
+        "Invalid value argument (argument is not a valid direct ByteBuffer)");
+    *has_exception = true;
+    return kArgumentError;
+  }
+
+  if (env->GetDirectBufferCapacity(jval) < (jval_off + jval_len)) {
+    rocksdb::RocksDBExceptionJni::ThrowNew(
+        env,
+        "Invalid value argument. Capacity is less than requested region "
+        "(offset + length).");
     *has_exception = true;
     return kArgumentError;
   }

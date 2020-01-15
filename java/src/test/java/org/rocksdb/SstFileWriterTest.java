@@ -97,6 +97,10 @@ public class SstFileWriterTest {
             break;
           case PUT_DIRECT:
             sstFileWriter.put(keyDirect, valueDirect);
+            assertThat(keyDirect.position()).isEqualTo(keyBytes.length);
+            assertThat(keyDirect.limit()).isEqualTo(keyBytes.length);
+            assertThat(valueDirect.position()).isEqualTo(valueBytes.length);
+            assertThat(valueDirect.limit()).isEqualTo(valueBytes.length);
             break;
           case MERGE:
             sstFileWriter.merge(keySlice, valueSlice);

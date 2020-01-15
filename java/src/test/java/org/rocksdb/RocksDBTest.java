@@ -205,18 +205,33 @@ public class RocksDBTest {
 
       db.put(opt, key, value);
 
+      assertThat(key.position()).isEqualTo(8);
+      assertThat(key.limit()).isEqualTo(8);
+
+      assertThat(value.position()).isEqualTo(8);
+      assertThat(value.limit()).isEqualTo(8);
+
+      key.position(4);
+
       ByteBuffer result = ByteBuffer.allocateDirect(12);
       assertThat(db.get(optr, key, result)).isEqualTo(4);
       assertThat(result.position()).isEqualTo(0);
       assertThat(result.limit()).isEqualTo(4);
+      assertThat(key.position()).isEqualTo(8);
+      assertThat(key.limit()).isEqualTo(8);
+
       byte[] tmp = new byte[4];
       result.get(tmp);
       assertThat(tmp).isEqualTo("val3".getBytes());
+
+      key.position(4);
 
       result.clear().position(9);
       assertThat(db.get(optr, key, result)).isEqualTo(4);
       assertThat(result.position()).isEqualTo(9);
       assertThat(result.limit()).isEqualTo(12);
+      assertThat(key.position()).isEqualTo(8);
+      assertThat(key.limit()).isEqualTo(8);
       byte[] tmp2 = new byte[3];
       result.get(tmp2);
       assertThat(tmp2).isEqualTo("val".getBytes());
@@ -510,6 +525,9 @@ public class RocksDBTest {
       ByteBuffer key = ByteBuffer.allocateDirect(16);
       key.put("key3".getBytes()).flip();
       db.delete(wOpt, key);
+      assertThat(key.position()).isEqualTo(4);
+      assertThat(key.limit()).isEqualTo(4);
+
       assertThat(db.get("key1".getBytes())).isNull();
       assertThat(db.get("key2".getBytes())).isNull();
 
