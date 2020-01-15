@@ -6118,23 +6118,46 @@ TEST_P(TransactionTest, ReseekOptimization) {
 
 TEST_P(TransactionTest, CrashInRecovery) {
   const std::vector<std::string> sync_points = {
-      "DBImpl::RecoverLogFiles:BeforeFlushFinalMemtable"};
-      //"VersionSet::ProcessManifestWrites:BeforeWriteLastVersionEdit:0"};
+      //"DBImpl::RecoverLogFiles:BeforeFlushFinalMemtable",
+      "VersionSet::ProcessManifestWrites:BeforeWriteLastVersionEdit:0"};
   for (const auto& test_sync_point : sync_points) {
     // First destroy original db to ensure a clean start.
     ReOpen();
     options.create_if_missing = true;
     options.wal_recovery_mode = WALRecoveryMode::kPointInTimeRecovery;
     ReOpenNoDelete();
+  std::string cf_name = "two";
+  ColumnFamilyOptions cf_options;
+  ColumnFamilyHandle* cf_handle = nullptr;
+    ASSERT_OK(db->CreateColumnFamily(cf_options, cf_name, &cf_handle));
   WriteOptions write_options;
-    ASSERT_OK(db->Put(write_options, "foo", "bar"));
+
+  TransactionOptions txn_options;
+    Transaction* txn = db->BeginTransaction(write_options, txn_options);
+    ASSERT_OK(txn->SetName("xid"));
+    ASSERT_OK(txn->Put(Slice("foo-prepare"), Slice("bar-prepare")));
+    ASSERT_OK(txn->Prepare());
+
+    ASSERT_OK(db->Put(write_options, "foo", "bar1"));
   FlushOptions flush_ops;
   db->Flush(flush_ops);
-    ASSERT_OK(db->Put(write_options, "foo", "bar"));
+
+    ASSERT_OK(db->Put(write_options, "foo", "bar2"));
+  db->Flush(flush_ops);
+    ASSERT_OK(db->Put(write_options, "foo", "bar3"));
     // The value is large enough to be divided to two blocks.
     std::string large_value(400, ' ');
     ASSERT_OK(db->Put(write_options, "foo1", large_value));
     ASSERT_OK(db->Put(write_options, "foo2", large_value));
+
+    ASSERT_OK(db->Put(write_options, cf_handle, "foo2", large_value));
+  db->Flush(flush_ops, cf_handle);
+
+    ASSERT_OK(db->Put(write_options, "foo3", large_value));
+    ASSERT_OK(db->Put(write_options, "foo4", large_value));
+
+        db->FlushWAL(true);
+        delete cf_handle;
     delete db;
     db = nullptr;
 
@@ -6158,22 +6181,32 @@ TEST_P(TransactionTest, CrashInRecovery) {
     }
 
     // Reopen and freeze the file system after the first manifest write.
-    FaultInjectionTestEnv fit_env(options.env);
-    options.env = &fit_env;
-    rocksdb::SyncPoint::GetInstance()->ClearAllCallBacks();
-    rocksdb::SyncPoint::GetInstance()->SetCallBack(
-        test_sync_point,
-        [&](void* /*arg*/) { fit_env.SetFilesystemActive(false); });
-    rocksdb::SyncPoint::GetInstance()->EnableProcessing();
-    ASSERT_NOK(ReOpenNoDelete());
-    rocksdb::SyncPoint::GetInstance()->DisableProcessing();
+//   FaultInjectionTestEnv fit_env(options.env);
+//   options.env = &fit_env;
+//   rocksdb::SyncPoint::GetInstance()->ClearAllCallBacks();
+//   rocksdb::SyncPoint::GetInstance()->SetCallBack(
+//       test_sync_point,
+//       [&](void* ) { fit_env.SetFilesystemActive(false); });
+//   rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+  std::vector<ColumnFamilyHandle*> handles;
+  std::vector<ColumnFamilyDescriptor> column_families;
+  column_families.push_back(
+      ColumnFamilyDescriptor(kDefaultColumnFamilyName, ColumnFamilyOptions()));
+  column_families.push_back(
+      ColumnFamilyDescriptor("two", ColumnFamilyOptions()));
+    ASSERT_OK(ReOpenNoDelete(column_families, &handles));
+ //   rocksdb::SyncPoint::GetInstance()->DisableProcessing();
+ //   fit_env.SetFilesystemActive(true);
+ (void) test_sync_point;
 
-    fit_env.SetFilesystemActive(true);
     // If we continue using failure ingestion Env, it will conplain something
     // when renaming current file, which is not expected. Need to investigate
     // why.
     options.env = env_;
-    ASSERT_OK(ReOpenNoDelete());
+    ASSERT_OK(ReOpenNoDelete(column_families, &handles));
+  for (auto handle : handles) {
+    delete handle;
+  }
   }
 }
 

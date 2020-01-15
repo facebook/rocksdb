@@ -129,7 +129,7 @@ class TransactionTestBase : public ::testing::Test {
     } else {
       s = OpenWithStackableDB(cfs, handles);
     }
-    assert(db != nullptr);
+    //assert(db != nullptr);
     return s;
   }
 
