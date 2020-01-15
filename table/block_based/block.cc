@@ -729,6 +729,7 @@ bool IndexBlockIter::BinaryBlockIndexSeek(const Slice& target,
                                           uint32_t right, uint32_t* index,
                                           bool* prefix_may_exist) {
   assert(left <= right);
+  assert(index);
   assert(prefix_may_exist);
   *prefix_may_exist = true;
   uint32_t left_bound = left;
@@ -807,6 +808,7 @@ bool IndexBlockIter::BinaryBlockIndexSeek(const Slice& target,
 
 bool IndexBlockIter::PrefixSeek(const Slice& target, uint32_t* index,
                                 bool* prefix_may_exist) {
+  assert(index);
   assert(prefix_may_exist);
   assert(prefix_index_);
   *prefix_may_exist = true;
@@ -822,6 +824,7 @@ bool IndexBlockIter::PrefixSeek(const Slice& target, uint32_t* index,
     *prefix_may_exist = false;
     return false;
   } else {
+    assert(block_ids);
     return BinaryBlockIndexSeek(seek_key, block_ids, 0, num_blocks - 1, index,
                                 prefix_may_exist);
   }
