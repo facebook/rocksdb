@@ -188,21 +188,25 @@ TEST_P(DBWriteTest, LockWalInEffect) {
 
 TEST_P(DBWriteTest, ConcurrentlyDisabledWAL) {
     Options options = GetOptions();
+    options.statistics = rocksdb::CreateDBStatistics();
+    options.statistics->set_stats_level(StatsLevel::kAll);
     Reopen(options);
     std::string wal_key_prefix = "WAL_KEY_";
-    std::string no_wal_key_prefix = "KEY_";
-    std::string no_wal_value = "SPECIAL_NO_WAL";
+    std::string no_wal_key_prefix = "K_";
+    // 100 KB value each for NO-WAL operation
+    std::string no_wal_value(1024 * 100, 'X');
+    // 1B value each for WAL operation
+    std::string wal_value = "0";
     std::thread threads[10];
     for (int t = 0; t < 10; t++) {
-        threads[t] = std::thread([t, wal_key_prefix, no_wal_key_prefix, no_wal_value, this] {
-            for(int i = 0; i < 5; i++) {
+        threads[t] = std::thread([t, wal_key_prefix, wal_value, no_wal_key_prefix, no_wal_value, this] {
+            for(int i = 0; i < 10; i++) {
                 rocksdb::WriteOptions write_option_disable;
                 write_option_disable.disableWAL = true;
                 rocksdb::WriteOptions write_option_default;
                 std::string no_wal_key = no_wal_key_prefix + std::to_string(t) + "_" + std::to_string(i);
                 this->Put(no_wal_key, no_wal_value, write_option_disable);
                 std::string wal_key = wal_key_prefix + std::to_string(i) + "_" + std::to_string(i);
-                std::string wal_value = std::to_string(i);
                 this->Put(wal_key, wal_value, write_option_default);
                 dbfull()->SyncWAL();
             }
@@ -212,20 +216,9 @@ TEST_P(DBWriteTest, ConcurrentlyDisabledWAL) {
     for (auto& t: threads) {
         t.join();
     }
-    std::vector<std::string> all_db_files;
-    this->env_->GetChildren(this->dbname_, &all_db_files);
-    std::string root_db_path;
-    this->env_->GetAbsolutePath(this->dbname_, &root_db_path);
-    for(const std::string& filename : all_db_files) {
-        if(filename.find(".log") != std::string::npos) {
-           std::string absolute_path = root_db_path + "/" + filename;
-           std::ifstream myfile(absolute_path, std::ios::binary);
-           std::stringstream sstr;
-           sstr << myfile.rdbuf();
-           std::string ss = sstr.str();
-           ASSERT_TRUE(ss.find(no_wal_value) == std::string::npos);
-        }
-    }
+    uint32_t bytes_num = options.statistics->getTickerCount(rocksdb::Tickers::WAL_FILE_BYTES);
+    // written WAL size should less than 100KB (even included HEADER & FOOTER overhead)
+    ASSERT_LE(bytes_num, 1024 * 100);
 }
 
 INSTANTIATE_TEST_CASE_P(DBWriteTestInstance, DBWriteTest,
