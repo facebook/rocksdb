@@ -401,11 +401,7 @@ void IndexBlockIter::Seek(const Slice& target) {
       // false.
       current_ = restarts_;
       status_ = Status::NotFound();
-    } else if (ok) {
-      SeekToRestartPoint(index);
-      ParseNextIndexKey();
     }
-    return;
   } else if (value_delta_encoded_) {
     ok = BinarySeek<DecodeKeyV4>(seek_key, 0, num_restarts_ - 1, &index,
                                  comparator_);
