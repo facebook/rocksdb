@@ -19,6 +19,7 @@
 * Fix a bug on fractional cascading index when multiple files at the same level contain the same smallest user key, and those user keys are for merge operands. In this case, Get() the exact key may miss some merge operands.
 * Delcare kHashSearch index type feature-incompatible with index_block_restart_interval larger than 1.
 * Fix incorrect results while block-based table uses kHashSearch, together with Prev()/SeekForPrev().
+* Fixed an issue where the thread pools were not resized upon setting `max_background_jobs` dynamically through the `SetDBOptions` interface.
 
 ### New Features
 * It is now possible to enable periodic compactions for the base DB when using BlobDB.

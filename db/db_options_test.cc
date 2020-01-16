@@ -423,16 +423,22 @@ TEST_F(DBOptionsTest, SetBackgroundJobs) {
             std::to_string(options.max_background_jobs)}}));
     }
 
-    ASSERT_EQ(options.max_background_jobs / 4,
-              dbfull()->TEST_BGFlushesAllowed());
+    const int expected_max_flushes = options.max_background_jobs / 4;
+
+    ASSERT_EQ(expected_max_flushes, dbfull()->TEST_BGFlushesAllowed());
     ASSERT_EQ(1, dbfull()->TEST_BGCompactionsAllowed());
 
     auto stop_token = dbfull()->TEST_write_controler().GetStopToken();
 
-    ASSERT_EQ(options.max_background_jobs / 4,
-              dbfull()->TEST_BGFlushesAllowed());
-    ASSERT_EQ(3 * options.max_background_jobs / 4,
-              dbfull()->TEST_BGCompactionsAllowed());
+    const int expected_max_compactions = 3 * expected_max_flushes;
+
+    ASSERT_EQ(expected_max_flushes, dbfull()->TEST_BGFlushesAllowed());
+    ASSERT_EQ(expected_max_compactions, dbfull()->TEST_BGCompactionsAllowed());
+
+    ASSERT_EQ(expected_max_flushes,
+              env_->GetBackgroundThreads(Env::Priority::HIGH));
+    ASSERT_EQ(expected_max_compactions,
+              env_->GetBackgroundThreads(Env::Priority::LOW));
   }
 }
 
