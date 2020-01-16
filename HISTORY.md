@@ -4,6 +4,7 @@
 * When user uses options.force_consistency_check in RocksDb, instead of crashing the process, we now pass the error back to the users without killing the process.
 
 ### Bug Fixes
+* Fixed an issue where the thread pools were not resized upon setting `max_background_jobs` dynamically through the `SetDBOptions` interface.
 * Fix OnFlushCompleted fired before flush result persisted in MANIFEST when there's concurrent flush job. The bug exists since OnFlushCompleted was introduced in rocksdb 3.8.
 * Fix data corruption casued by output of intra-L0 compaction on ingested file not being placed in correct order in L0.
 * Fix a bug in DBIter that is_blob state isn't updated when iterating backward using seek.
