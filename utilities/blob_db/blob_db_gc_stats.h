@@ -13,7 +13,7 @@ namespace blob_db {
 
 /**
  * Statistics related to a single garbage collection pass (i.e. a single
- * compaction).
+ * (sub)compaction).
  */
 class BlobDBGarbageCollectionStats {
  public:
