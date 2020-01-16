@@ -61,25 +61,23 @@ BlobIndexCompactionFilterGC::~BlobIndexCompactionFilterGC() {
     CloseAndRegisterNewBlobFile();
   }
 
-  if (gc_stats_.HasError()) {
-    RecordTick(statistics(), BLOB_DB_GC_FAILURES);
-  } else {
-    assert(context_gc_.blob_db_impl);
+  assert(context_gc_.blob_db_impl);
 
-    ROCKS_LOG_INFO(
-        context_gc_.blob_db_impl->db_options_.info_log,
-        "GC pass finished successfully: encountered %" PRIu64 " blobs (%" PRIu64
-        " bytes), relocated %" PRIu64 " blobs (%" PRIu64
-        " bytes), created %" PRIu64 " new blob file(s)",
-        gc_stats_.AllBlobs(), gc_stats_.AllBytes(), gc_stats_.RelocatedBlobs(),
-        gc_stats_.RelocatedBytes(), gc_stats_.NewFiles());
+  ROCKS_LOG_INFO(context_gc_.blob_db_impl->db_options_.info_log,
+                 "GC pass finished %s: encountered %" PRIu64 " blobs (%" PRIu64
+                 " bytes), relocated %" PRIu64 " blobs (%" PRIu64
+                 " bytes), created %" PRIu64 " new blob file(s)",
+                 !gc_stats_.HasError() ? "successfully" : "with failure",
+                 gc_stats_.AllBlobs(), gc_stats_.AllBytes(),
+                 gc_stats_.RelocatedBlobs(), gc_stats_.RelocatedBytes(),
+                 gc_stats_.NewFiles());
 
-    RecordTick(statistics(), BLOB_DB_GC_NUM_KEYS_RELOCATED,
-               gc_stats_.RelocatedBlobs());
-    RecordTick(statistics(), BLOB_DB_GC_BYTES_RELOCATED,
-               gc_stats_.RelocatedBytes());
-    RecordTick(statistics(), BLOB_DB_GC_NUM_NEW_FILES, gc_stats_.NewFiles());
-  }
+  RecordTick(statistics(), BLOB_DB_GC_NUM_KEYS_RELOCATED,
+             gc_stats_.RelocatedBlobs());
+  RecordTick(statistics(), BLOB_DB_GC_BYTES_RELOCATED,
+             gc_stats_.RelocatedBytes());
+  RecordTick(statistics(), BLOB_DB_GC_NUM_NEW_FILES, gc_stats_.NewFiles());
+  RecordTick(statistics(), BLOB_DB_GC_FAILURES, gc_stats_.HasError());
 }
 
 CompactionFilter::BlobDecision BlobIndexCompactionFilterGC::PrepareBlobOutput(
