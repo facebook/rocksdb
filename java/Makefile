@@ -214,7 +214,7 @@ ifneq ($(DEBUG_LEVEL),0)
 endif
 
 SEARCH_REPO_URL?=http://search.maven.org/remotecontent?filepath=
-CENTRAL_REPO_URL?=http://central.maven.org/maven2/
+CENTRAL_REPO_URL?=https://repo1.maven.org/maven2/
 
 clean:
 	$(AM_V_at)rm -rf include/*
