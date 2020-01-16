@@ -1557,6 +1557,11 @@ TEST_F(BlobDBTest, GarbageCollectionFailure) {
       "not a valid blob index"));
   ASSERT_OK(blob_db_->GetRootDB()->Write(WriteOptions(), &batch));
 
+  auto blob_files = blob_db_impl()->TEST_GetBlobFiles();
+  ASSERT_EQ(blob_files.size(), 1);
+  auto blob_file = blob_files[0];
+  ASSERT_OK(blob_db_impl()->TEST_CloseBlobFile(blob_file));
+
   ASSERT_TRUE(blob_db_->CompactRange(CompactRangeOptions(), nullptr, nullptr)
                   .IsCorruption());
 
@@ -1564,10 +1569,10 @@ TEST_F(BlobDBTest, GarbageCollectionFailure) {
   assert(statistics);
 
   ASSERT_EQ(statistics->getTickerCount(BLOB_DB_GC_NUM_FILES), 0);
-  ASSERT_EQ(statistics->getTickerCount(BLOB_DB_GC_NUM_NEW_FILES), 0);
+  ASSERT_EQ(statistics->getTickerCount(BLOB_DB_GC_NUM_NEW_FILES), 1);
   ASSERT_EQ(statistics->getTickerCount(BLOB_DB_GC_FAILURES), 1);
-  ASSERT_EQ(statistics->getTickerCount(BLOB_DB_GC_NUM_KEYS_RELOCATED), 0);
-  ASSERT_EQ(statistics->getTickerCount(BLOB_DB_GC_BYTES_RELOCATED), 0);
+  ASSERT_EQ(statistics->getTickerCount(BLOB_DB_GC_NUM_KEYS_RELOCATED), 2);
+  ASSERT_EQ(statistics->getTickerCount(BLOB_DB_GC_BYTES_RELOCATED), 7);
 }
 
 // File should be evicted after expiration.
