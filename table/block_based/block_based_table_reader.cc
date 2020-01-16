@@ -3304,6 +3304,7 @@ Status BlockBasedTable::Get(const ReadOptions& read_options, const Slice& key,
   assert(get_context != nullptr);
   Status s;
   const bool no_io = read_options.read_tier == kBlockCacheTier;
+
   FilterBlockReader* const filter =
       !skip_filters ? rep_->filter.get() : nullptr;
 
