@@ -74,7 +74,8 @@ Status DeleteScheduler::DeleteFile(const std::string& file_path,
   s = MarkAsTrash(file_path, &trash_file);
 
   if (!s.ok()) {
-    ROCKS_LOG_ERROR(info_log_, "Failed to mark %s as trash", file_path.c_str());
+    ROCKS_LOG_ERROR(info_log_, "Failed to mark %s as trash -- %s",
+                    file_path.c_str(), s.ToString().c_str());
     s = fs_->DeleteFile(file_path, IOOptions(), nullptr);
     if (s.ok()) {
       sst_file_manager_->OnDeleteFile(file_path);

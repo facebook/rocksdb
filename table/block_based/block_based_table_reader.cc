@@ -499,9 +499,8 @@ class PartitionIndexReader : public BlockBasedTable::IndexReaderCommon {
     uint64_t last_off = handle.offset() + block_size(handle);
     uint64_t prefetch_len = last_off - prefetch_off;
     std::unique_ptr<FilePrefetchBuffer> prefetch_buffer;
-    auto& file = rep->file;
-    prefetch_buffer.reset(new FilePrefetchBuffer());
-    s = prefetch_buffer->Prefetch(file.get(), prefetch_off,
+    rep->CreateFilePrefetchBuffer(0, 0, &prefetch_buffer);
+    s = prefetch_buffer->Prefetch(rep->file.get(), prefetch_off,
                                   static_cast<size_t>(prefetch_len));
 
     // After prefetch, read the partitions one by one
@@ -1147,8 +1146,14 @@ Status BlockBasedTable::Open(
   const bool prefetch_all = prefetch_index_and_filter_in_cache || level == 0;
   const bool preload_all = !table_options.cache_index_and_filter_blocks;
 
-  s = PrefetchTail(file.get(), file_size, tail_prefetch_stats, prefetch_all,
-                   preload_all, &prefetch_buffer);
+  if (!ioptions.allow_mmap_reads) {
+    s = PrefetchTail(file.get(), file_size, tail_prefetch_stats, prefetch_all,
+                     preload_all, &prefetch_buffer);
+  } else {
+    // Should not prefetch for mmap mode.
+    prefetch_buffer.reset(new FilePrefetchBuffer(
+        nullptr, 0, 0, false /* enable */, true /* track_min_offset */));
+  }
 
   // Read in the following order:
   //    1. Footer
@@ -1274,10 +1279,12 @@ Status BlockBasedTable::PrefetchTail(
   Status s;
   // TODO should not have this special logic in the future.
   if (!file->use_direct_io()) {
-    prefetch_buffer->reset(new FilePrefetchBuffer(nullptr, 0, 0, false, true));
+    prefetch_buffer->reset(new FilePrefetchBuffer(
+        nullptr, 0, 0, false /* enable */, true /* track_min_offset */));
     s = file->Prefetch(prefetch_off, prefetch_len);
   } else {
-    prefetch_buffer->reset(new FilePrefetchBuffer(nullptr, 0, 0, true, true));
+    prefetch_buffer->reset(new FilePrefetchBuffer(
+        nullptr, 0, 0, true /* enable */, true /* track_min_offset */));
     s = (*prefetch_buffer)->Prefetch(file, prefetch_off, prefetch_len);
   }
   return s;
@@ -2374,7 +2381,6 @@ void BlockBasedTable::RetrieveMultipleBlocks(
       req.scratch = new char[req.len];
     } else {
       req.scratch = scratch + buf_offset;
-      buf_offset += req.len;
     }
     req.status = IOStatus::OK();
     read_reqs.emplace_back(req);
@@ -2895,12 +2901,22 @@ void BlockBasedTableIterator<TBlockIter, TValue>::SeekForPrev(
   index_iter_->Seek(target);
 
   if (!index_iter_->Valid()) {
-    if (!index_iter_->status().ok()) {
+    auto seek_status = index_iter_->status();
+    // Check for IO error
+    if (!seek_status.IsNotFound() && !seek_status.ok()) {
       ResetDataIter();
       return;
     }
 
-    index_iter_->SeekToLast();
+    // With prefix index, Seek() returns NotFound if the prefix doesn't exist
+    if (seek_status.IsNotFound()) {
+      // Any key less than the target is fine for prefix seek
+      ResetDataIter();
+      return;
+    } else {
+      index_iter_->SeekToLast();
+    }
+    // Check for IO error
     if (!index_iter_->Valid()) {
       ResetDataIter();
       return;
@@ -3017,23 +3033,23 @@ void BlockBasedTableIterator<TBlockIter, TValue>::InitDataBlock() {
           } else if (rep->file->use_direct_io() && !prefetch_buffer_) {
             // Direct I/O
             // Let FilePrefetchBuffer take care of the readahead.
-            prefetch_buffer_.reset(new FilePrefetchBuffer(
-                rep->file.get(), BlockBasedTable::kInitAutoReadaheadSize,
-                BlockBasedTable::kMaxAutoReadaheadSize));
+            rep->CreateFilePrefetchBuffer(
+                BlockBasedTable::kInitAutoReadaheadSize,
+                BlockBasedTable::kMaxAutoReadaheadSize, &prefetch_buffer_);
           }
         }
       } else if (!prefetch_buffer_) {
         // Explicit user requested readahead
         // The actual condition is:
         // if (read_options_.readahead_size != 0 && !prefetch_buffer_)
-        prefetch_buffer_.reset(new FilePrefetchBuffer(
-            rep->file.get(), read_options_.readahead_size,
-            read_options_.readahead_size));
+        rep->CreateFilePrefetchBuffer(read_options_.readahead_size,
+                                      read_options_.readahead_size,
+                                      &prefetch_buffer_);
       }
     } else if (!prefetch_buffer_) {
-      prefetch_buffer_.reset(
-          new FilePrefetchBuffer(rep->file.get(), compaction_readahead_size_,
-                                 compaction_readahead_size_));
+      rep->CreateFilePrefetchBuffer(compaction_readahead_size_,
+                                    compaction_readahead_size_,
+                                    &prefetch_buffer_);
     }
 
     Status s;
@@ -4087,8 +4103,10 @@ uint64_t BlockBasedTable::ApproximateOffsetOf(const Slice& key,
                                               TableReaderCaller caller) {
   BlockCacheLookupContext context(caller);
   IndexBlockIter iiter_on_stack;
+  ReadOptions ro;
+  ro.total_order_seek = true;
   auto index_iter =
-      NewIndexIterator(ReadOptions(), /*disable_prefix_seek=*/false,
+      NewIndexIterator(ro, /*disable_prefix_seek=*/true,
                        /*input_iter=*/&iiter_on_stack, /*get_context=*/nullptr,
                        /*lookup_context=*/&context);
   std::unique_ptr<InternalIteratorBase<IndexValue>> iiter_unique_ptr;
@@ -4106,8 +4124,10 @@ uint64_t BlockBasedTable::ApproximateSize(const Slice& start, const Slice& end,
 
   BlockCacheLookupContext context(caller);
   IndexBlockIter iiter_on_stack;
+  ReadOptions ro;
+  ro.total_order_seek = true;
   auto index_iter =
-      NewIndexIterator(ReadOptions(), /*disable_prefix_seek=*/false,
+      NewIndexIterator(ro, /*disable_prefix_seek=*/true,
                        /*input_iter=*/&iiter_on_stack, /*get_context=*/nullptr,
                        /*lookup_context=*/&context);
   std::unique_ptr<InternalIteratorBase<IndexValue>> iiter_unique_ptr;

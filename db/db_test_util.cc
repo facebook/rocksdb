@@ -867,6 +867,13 @@ uint64_t DBTestBase::GetTimeOldestSnapshots() {
   return int_num;
 }
 
+uint64_t DBTestBase::GetSequenceOldestSnapshots() {
+  uint64_t int_num;
+  EXPECT_TRUE(
+      dbfull()->GetIntProperty("rocksdb.oldest-snapshot-sequence", &int_num));
+  return int_num;
+}
+
 // Return a string that contains all key,value pairs in order,
 // formatted like "(k1->v1)(k2->v2)".
 std::string DBTestBase::Contents(int cf) {

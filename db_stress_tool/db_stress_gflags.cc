@@ -28,6 +28,17 @@ DEFINE_bool(read_only, false, "True if open DB in read-only mode during tests");
 DEFINE_int64(max_key, 1 * KB * KB,
              "Max number of key/values to place in database");
 
+DEFINE_int32(max_key_len, 3, "Maximum length of a key in 8-byte units");
+
+DEFINE_string(key_len_percent_dist, "",
+              "Percentages of keys of various lengths. For example, 1,30,69 "
+              "means 1% of keys are 8 bytes, 30% are 16 bytes, and 69% are "
+              "24 bytes. If not specified, it will be evenly distributed");
+
+DEFINE_int32(key_window_scale_factor, 10,
+              "This value will be multiplied by 100 to come up with a window "
+              "size for varying the key length");
+
 DEFINE_int32(column_families, 10, "Number of column families");
 
 DEFINE_double(
@@ -239,6 +250,11 @@ DEFINE_int32(clear_column_family_one_in, 1000000,
              "it again. If N == 0, never drop/create column families. "
              "When test_batches_snapshots is true, this flag has no effect");
 
+DEFINE_int32(get_live_files_and_wal_files_one_in, 1000000,
+             "With a chance of 1/N, call GetLiveFiles, GetSortedWalFiles "
+             "and GetCurrentWalFile to verify if it returns correctly. If "
+             "N == 0, never call the three interfaces.");
+
 DEFINE_int32(set_options_one_in, 0,
              "With a chance of 1/N, change some random options");
 
@@ -269,6 +285,32 @@ DEFINE_bool(allow_concurrent_memtable_write, false,
 
 DEFINE_bool(enable_write_thread_adaptive_yield, true,
             "Use a yielding spin loop for brief writer thread waits.");
+
+#ifndef ROCKSDB_LITE
+// BlobDB Options
+DEFINE_bool(use_blob_db, false, "Use BlobDB.");
+
+DEFINE_uint64(blob_db_min_blob_size,
+              rocksdb::blob_db::BlobDBOptions().min_blob_size,
+              "Smallest blob to store in a file. Blobs smaller than this "
+              "will be inlined with the key in the LSM tree.");
+
+DEFINE_uint64(blob_db_bytes_per_sync,
+              rocksdb::blob_db::BlobDBOptions().bytes_per_sync,
+              "Sync blob files once per every N bytes written.");
+
+DEFINE_uint64(blob_db_file_size,
+              rocksdb::blob_db::BlobDBOptions().blob_file_size,
+              "Target size of each blob file.");
+
+DEFINE_bool(blob_db_enable_gc,
+            rocksdb::blob_db::BlobDBOptions().enable_garbage_collection,
+            "Enable BlobDB garbage collection.");
+
+DEFINE_double(blob_db_gc_cutoff,
+              rocksdb::blob_db::BlobDBOptions().garbage_collection_cutoff,
+              "Cutoff ratio for BlobDB garbage collection.");
+#endif  // !ROCKSDB_LITE
 
 static const bool FLAGS_subcompactions_dummy __attribute__((__unused__)) =
     RegisterFlagValidator(&FLAGS_subcompactions, &ValidateUint32Range);
@@ -307,7 +349,7 @@ DEFINE_string(db, "", "Use the db with the following name.");
 DEFINE_string(secondaries_base, "",
               "Use this path as the base path for secondary instances.");
 
-DEFINE_bool(enable_secondary, false, "Enable secondary instance.");
+DEFINE_bool(test_secondary, false, "Test secondary instance.");
 
 DEFINE_string(
     expected_values_path, "",
@@ -509,6 +551,10 @@ DEFINE_int32(compression_zstd_max_train_bytes, 0,
              "Maximum size of training data passed to zstd's dictionary "
              "trainer.");
 
+DEFINE_string(bottommost_compression_type, "disable",
+              "Algorithm to use to compress bottommost level of the database. "
+              "\"disable\" means disabling the feature");
+
 DEFINE_string(checksum_type, "kCRC32c", "Algorithm to use to checksum blocks");
 
 DEFINE_string(hdfs, "", "Name of hdfs environment");
@@ -577,4 +623,21 @@ DEFINE_bool(level_compaction_dynamic_level_bytes,
             rocksdb::Options().level_compaction_dynamic_level_bytes,
             "Use dynamic level");
 
+DEFINE_int32(verify_checksum_one_in, 0,
+             "If non-zero, then DB::VerifyChecksum() will be called to do"
+             " checksum verification of all the files in the database once for"
+             " every N ops on average. 0 indicates that calls to"
+             " VerifyChecksum() are disabled.");
+DEFINE_int32(verify_db_one_in, 0,
+             "If non-zero, call VerifyDb() once for every N ops. 0 indicates "
+             "that VerifyDb() will not be called in OperateDb(). Note that "
+             "enabling this can slow down tests.");
+
+DEFINE_int32(continuous_verification_interval, 1000,
+             "While test is running, verify db every N milliseconds. 0 "
+             "disables continuous verification.");
+
+DEFINE_int32(approximate_size_one_in, 64,
+             "If non-zero, DB::GetApproximateSizes() will be called against"
+             " random key ranges.");
 #endif  // GFLAGS

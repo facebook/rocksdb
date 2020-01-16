@@ -418,7 +418,8 @@ bool SstFileManagerImpl::CancelErrorRecovery(ErrorHandler* handler) {
 Status SstFileManagerImpl::ScheduleFileDeletion(
     const std::string& file_path, const std::string& path_to_sync,
     const bool force_bg) {
-  TEST_SYNC_POINT("SstFileManagerImpl::ScheduleFileDeletion");
+  TEST_SYNC_POINT_CALLBACK("SstFileManagerImpl::ScheduleFileDeletion",
+                           const_cast<std::string*>(&file_path));
   return delete_scheduler_.DeleteFile(file_path, path_to_sync,
                                       force_bg);
 }

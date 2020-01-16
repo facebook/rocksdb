@@ -164,6 +164,12 @@ public:
   virtual Status GetAbsolutePath(const std::string& db_path,
                                  std::string* output_path);
 
+  // This seems to clash with a macro on Windows, so #undef it here
+#undef GetFreeSpace
+
+  // Get the amount of free disk space
+  virtual Status GetFreeSpace(const std::string& path, uint64_t* diskfree);
+
   virtual std::string TimeToString(uint64_t secondsSince1970);
 
   virtual EnvOptions OptimizeForLogWrite(const EnvOptions& env_options,
@@ -306,6 +312,12 @@ public:
   unsigned int GetThreadPoolQueueLen(Env::Priority pri) const override;
 
   uint64_t GetThreadID() const override;
+
+  // This seems to clash with a macro on Windows, so #undef it here
+#undef GetFreeSpace
+
+  // Get the amount of free disk space
+  Status GetFreeSpace(const std::string& path, uint64_t* diskfree) override;
 
   void SleepForMicroseconds(int micros) override;
 

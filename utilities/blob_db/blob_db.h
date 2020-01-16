@@ -20,8 +20,6 @@ namespace blob_db {
 
 // A wrapped database which puts values of KV pairs in a separate log
 // and store location to the log in the underlying DB.
-// It lacks lots of importatant functionalities, e.g. DB restarts,
-// garbage collection, iterators, etc.
 //
 // The factory needs to be moved to include/rocksdb/utilities to allow
 // users to use blob DB.
@@ -91,7 +89,7 @@ class BlobDB : public StackableDB {
   virtual Status Put(const WriteOptions& options,
                      ColumnFamilyHandle* column_family, const Slice& key,
                      const Slice& value) override {
-    if (column_family != DefaultColumnFamily()) {
+    if (column_family->GetID() != DefaultColumnFamily()->GetID()) {
       return Status::NotSupported(
           "Blob DB doesn't support non-default column family.");
     }
@@ -102,7 +100,7 @@ class BlobDB : public StackableDB {
   virtual Status Delete(const WriteOptions& options,
                         ColumnFamilyHandle* column_family,
                         const Slice& key) override {
-    if (column_family != DefaultColumnFamily()) {
+    if (column_family->GetID() != DefaultColumnFamily()->GetID()) {
       return Status::NotSupported(
           "Blob DB doesn't support non-default column family.");
     }
@@ -115,7 +113,7 @@ class BlobDB : public StackableDB {
   virtual Status PutWithTTL(const WriteOptions& options,
                             ColumnFamilyHandle* column_family, const Slice& key,
                             const Slice& value, uint64_t ttl) {
-    if (column_family != DefaultColumnFamily()) {
+    if (column_family->GetID() != DefaultColumnFamily()->GetID()) {
       return Status::NotSupported(
           "Blob DB doesn't support non-default column family.");
     }
@@ -129,7 +127,7 @@ class BlobDB : public StackableDB {
   virtual Status PutUntil(const WriteOptions& options,
                           ColumnFamilyHandle* column_family, const Slice& key,
                           const Slice& value, uint64_t expiration) {
-    if (column_family != DefaultColumnFamily()) {
+    if (column_family->GetID() != DefaultColumnFamily()->GetID()) {
       return Status::NotSupported(
           "Blob DB doesn't support non-default column family.");
     }
@@ -161,7 +159,7 @@ class BlobDB : public StackableDB {
       const std::vector<Slice>& keys,
       std::vector<std::string>* values) override {
     for (auto column_family : column_families) {
-      if (column_family != DefaultColumnFamily()) {
+      if (column_family->GetID() != DefaultColumnFamily()->GetID()) {
         return std::vector<Status>(
             column_families.size(),
             Status::NotSupported(
@@ -201,7 +199,7 @@ class BlobDB : public StackableDB {
   virtual Iterator* NewIterator(const ReadOptions& options) override = 0;
   virtual Iterator* NewIterator(const ReadOptions& options,
                                 ColumnFamilyHandle* column_family) override {
-    if (column_family != DefaultColumnFamily()) {
+    if (column_family->GetID() != DefaultColumnFamily()->GetID()) {
       // Blob DB doesn't support non-default column family.
       return nullptr;
     }
@@ -221,7 +219,7 @@ class BlobDB : public StackableDB {
       const int output_path_id = -1,
       std::vector<std::string>* const output_file_names = nullptr,
       CompactionJobInfo* compaction_job_info = nullptr) override {
-    if (column_family != DefaultColumnFamily()) {
+    if (column_family->GetID() != DefaultColumnFamily()->GetID()) {
       return Status::NotSupported(
           "Blob DB doesn't support non-default column family.");
     }

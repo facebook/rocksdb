@@ -604,6 +604,13 @@ struct BlockBasedTable::Rep {
   uint64_t sst_number_for_tracing() const {
     return file ? TableFileNameToNumber(file->file_name()) : UINT64_MAX;
   }
+  void CreateFilePrefetchBuffer(
+      size_t readahead_size, size_t max_readahead_size,
+      std::unique_ptr<FilePrefetchBuffer>* fpb) const {
+    fpb->reset(new FilePrefetchBuffer(file.get(), readahead_size,
+                                      max_readahead_size,
+                                      !ioptions.allow_mmap_reads /* enable */));
+  }
 };
 
 // Iterates over the contents of BlockBasedTable.
@@ -679,7 +686,8 @@ class BlockBasedTableIterator : public InternalIteratorBase<TValue> {
     return block_iter_.value();
   }
   Status status() const override {
-    if (!index_iter_->status().ok()) {
+    // Prefix index set status to NotFound when the prefix does not exist
+    if (!index_iter_->status().ok() && !index_iter_->status().IsNotFound()) {
       return index_iter_->status();
     } else if (block_iter_points_to_real_block_) {
       return block_iter_.status();

@@ -224,16 +224,19 @@ public class EnvironmentTest {
     setEnvironmentClassField(MUSL_LIBC_FIELD_NAME, INITIAL_MUSL_LIBC);
   }
 
+  @SuppressWarnings("unchecked")
   private static <T> T getEnvironmentClassField(String fieldName) {
     final Field field;
     try {
       field = Environment.class.getDeclaredField(fieldName);
       field.setAccessible(true);
+      /* Fails in JDK 13; and not needed unless fields are final
       final Field modifiersField = Field.class.getDeclaredField("modifiers");
       modifiersField.setAccessible(true);
       modifiersField.setInt(field, field.getModifiers() & ~Modifier.FINAL);
+      */
       return (T)field.get(null);
-    } catch (NoSuchFieldException | IllegalAccessException e) {
+    } catch (final NoSuchFieldException | IllegalAccessException e) {
       throw new RuntimeException(e);
     }
   }
@@ -243,11 +246,13 @@ public class EnvironmentTest {
     try {
       field = Environment.class.getDeclaredField(fieldName);
       field.setAccessible(true);
+      /* Fails in JDK 13; and not needed unless fields are final
       final Field modifiersField = Field.class.getDeclaredField("modifiers");
       modifiersField.setAccessible(true);
       modifiersField.setInt(field, field.getModifiers() & ~Modifier.FINAL);
+      */
       field.set(null, value);
-    } catch (NoSuchFieldException | IllegalAccessException e) {
+    } catch (final NoSuchFieldException | IllegalAccessException e) {
       throw new RuntimeException(e);
     }
   }

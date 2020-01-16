@@ -12,10 +12,11 @@
 #include "db_stress_tool/db_stress_common.h"
 #include <cmath>
 
-rocksdb::DbStressEnvWrapper* FLAGS_env = nullptr;
-enum rocksdb::CompressionType FLAGS_compression_type_e =
+rocksdb::DbStressEnvWrapper* db_stress_env = nullptr;
+enum rocksdb::CompressionType compression_type_e = rocksdb::kSnappyCompression;
+enum rocksdb::CompressionType bottommost_compression_type_e =
     rocksdb::kSnappyCompression;
-enum rocksdb::ChecksumType FLAGS_checksum_type_e = rocksdb::kCRC32c;
+enum rocksdb::ChecksumType checksum_type_e = rocksdb::kCRC32c;
 enum RepFactory FLAGS_rep_factory = kSkipList;
 std::vector<double> sum_probs(100001);
 int64_t zipf_sum_size = 100000;
@@ -85,9 +86,11 @@ void PoolSizeChangeThread(void* v) {
   while (true) {
     {
       MutexLock l(shared->GetMutex());
-      if (shared->ShoudStopBgThread()) {
-        shared->SetBgThreadFinish();
-        shared->GetCondVar()->SignalAll();
+      if (shared->ShouldStopBgThread()) {
+        shared->IncBgThreadsFinished();
+        if (shared->BgThreadsFinished()) {
+          shared->GetCondVar()->SignalAll();
+        }
         return;
       }
     }
@@ -100,12 +103,38 @@ void PoolSizeChangeThread(void* v) {
     if (new_thread_pool_size < 1) {
       new_thread_pool_size = 1;
     }
-    FLAGS_env->SetBackgroundThreads(new_thread_pool_size,
-                                    rocksdb::Env::Priority::LOW);
+    db_stress_env->SetBackgroundThreads(new_thread_pool_size,
+                                        rocksdb::Env::Priority::LOW);
     // Sleep up to 3 seconds
-    FLAGS_env->SleepForMicroseconds(
+    db_stress_env->SleepForMicroseconds(
         thread->rand.Next() % FLAGS_compaction_thread_pool_adjust_interval *
             1000 +
+        1);
+  }
+}
+
+void DbVerificationThread(void* v) {
+  assert(FLAGS_continuous_verification_interval > 0);
+  auto* thread = reinterpret_cast<ThreadState*>(v);
+  SharedState* shared = thread->shared;
+  StressTest* stress_test = shared->GetStressTest();
+  assert(stress_test != nullptr);
+  while (true) {
+    {
+      MutexLock l(shared->GetMutex());
+      if (shared->ShouldStopBgThread()) {
+        shared->IncBgThreadsFinished();
+        if (shared->BgThreadsFinished()) {
+          shared->GetCondVar()->SignalAll();
+        }
+        return;
+      }
+    }
+    if (!shared->HasVerificationFailedYet()) {
+      stress_test->ContinuouslyVerifyDb(thread);
+    }
+    db_stress_env->SleepForMicroseconds(
+        thread->rand.Next() % FLAGS_continuous_verification_interval * 1000 +
         1);
   }
 }
