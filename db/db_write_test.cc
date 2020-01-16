@@ -215,7 +215,7 @@ TEST_P(DBWriteTest, ConcurrentlyDisabledWAL) {
     for (auto& t: threads) {
         t.join();
     }
-    uint32_t bytes_num = options.statistics->getTickerCount(rocksdb::Tickers::WAL_FILE_BYTES);
+    uint64_t bytes_num = options.statistics->getTickerCount(rocksdb::Tickers::WAL_FILE_BYTES);
     // written WAL size should less than 100KB (even included HEADER & FOOTER overhead)
     ASSERT_LE(bytes_num, 1024 * 100);
 }
