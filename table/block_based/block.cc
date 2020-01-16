@@ -393,7 +393,15 @@ void IndexBlockIter::Seek(const Slice& target) {
   uint32_t index = 0;
   bool ok = false;
   if (prefix_index_) {
-    ok = PrefixSeek(target, &index);
+    bool prefix_may_exist = true;
+    ok = PrefixSeek(target, &index, &prefix_may_exist);
+    if (!prefix_may_exist) {
+      // This is to let the caller to distinguish between non-existing prefix,
+      // and when key is larger than the last key, which both set Valid() to
+      // false.
+      current_ = restarts_;
+      status_ = Status::NotFound();
+    }
   } else if (value_delta_encoded_) {
     ok = BinarySeek<DecodeKeyV4>(seek_key, 0, num_restarts_ - 1, &index,
                                  comparator_);
@@ -718,8 +726,12 @@ int IndexBlockIter::CompareBlockKey(uint32_t block_index, const Slice& target) {
 // with a key >= target
 bool IndexBlockIter::BinaryBlockIndexSeek(const Slice& target,
                                           uint32_t* block_ids, uint32_t left,
-                                          uint32_t right, uint32_t* index) {
+                                          uint32_t right, uint32_t* index,
+                                          bool* prefix_may_exist) {
   assert(left <= right);
+  assert(index);
+  assert(prefix_may_exist);
+  *prefix_may_exist = true;
   uint32_t left_bound = left;
 
   while (left <= right) {
@@ -753,6 +765,7 @@ bool IndexBlockIter::BinaryBlockIndexSeek(const Slice& target,
         (left == left_bound || block_ids[left - 1] != block_ids[left] - 1) &&
         CompareBlockKey(block_ids[left] - 1, target) > 0) {
       current_ = restarts_;
+      *prefix_may_exist = false;
       return false;
     }
 
@@ -760,14 +773,45 @@ bool IndexBlockIter::BinaryBlockIndexSeek(const Slice& target,
     return true;
   } else {
     assert(left > right);
+
+    // If the next block key is larger than seek key, it is possible that
+    // no key shares the prefix with `target`, or all keys with the same
+    // prefix as `target` are smaller than prefix. In the latter case,
+    // we are mandated to set the position the same as the total order.
+    // In the latter case, either:
+    // (1) `target` falls into the range of the next block. In this case,
+    //     we can place the iterator to the next block, or
+    // (2) `target` is larger than all block keys. In this case we can
+    //     keep the iterator invalidate without setting `prefix_may_exist`
+    //     to false.
+    // We might sometimes end up with setting the total order position
+    // while there is no key sharing the prefix as `target`, but it
+    // still follows the contract.
+    uint32_t right_index = block_ids[right];
+    assert(right_index + 1 <= num_restarts_);
+    if (right_index + 1 < num_restarts_) {
+      if (CompareBlockKey(right_index + 1, target) >= 0) {
+        *index = right_index + 1;
+        return true;
+      } else {
+        // We have to set the flag here because we are not positioning
+        // the iterator to the total order position.
+        *prefix_may_exist = false;
+      }
+    }
+
     // Mark iterator invalid
     current_ = restarts_;
     return false;
   }
 }
 
-bool IndexBlockIter::PrefixSeek(const Slice& target, uint32_t* index) {
+bool IndexBlockIter::PrefixSeek(const Slice& target, uint32_t* index,
+                                bool* prefix_may_exist) {
+  assert(index);
+  assert(prefix_may_exist);
   assert(prefix_index_);
+  *prefix_may_exist = true;
   Slice seek_key = target;
   if (!key_includes_seq_) {
     seek_key = ExtractUserKey(target);
@@ -777,9 +821,12 @@ bool IndexBlockIter::PrefixSeek(const Slice& target, uint32_t* index) {
 
   if (num_blocks == 0) {
     current_ = restarts_;
+    *prefix_may_exist = false;
     return false;
   } else {
-    return BinaryBlockIndexSeek(seek_key, block_ids, 0, num_blocks - 1, index);
+    assert(block_ids);
+    return BinaryBlockIndexSeek(seek_key, block_ids, 0, num_blocks - 1, index,
+                                prefix_may_exist);
   }
 }
 

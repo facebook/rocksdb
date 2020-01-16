@@ -318,7 +318,7 @@ if (DEFINED CUSTOM_REPO_URL)
   set(CENTRAL_REPO_URL ${CUSTOM_REPO_URL}/)
 else ()
   set(SEARCH_REPO_URL "http://search.maven.org/remotecontent?filepath=")
-  set(CENTRAL_REPO_URL "http://central.maven.org/maven2/")
+  set(CENTRAL_REPO_URL "https://repo1.maven.org/maven2/")
 endif()
 
 if(NOT EXISTS ${JAVA_JUNIT_JAR})
