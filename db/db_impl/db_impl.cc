@@ -3591,6 +3591,11 @@ Status DestroyDB(const std::string& dbname, const Options& options,
 
     env->UnlockFile(lock);  // Ignore error since state is already gone
     env->DeleteFile(lockname);
+
+    // sst_file_manager holds a ref to the logger. Make sure the logger is
+    // gone before trying to remove the directory.
+    soptions.sst_file_manager.reset();
+
     env->DeleteDir(dbname);  // Ignore error in case dir contains other files
   }
   return result;
