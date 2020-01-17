@@ -6156,6 +6156,7 @@ TEST_P(TransactionTest, CrashInRecovery) {
     ASSERT_OK(db->Put(write_options, "foo3", large_value));
     ASSERT_OK(db->Put(write_options, "foo4", large_value));
 
+  reinterpret_cast<PessimisticTransactionDB*>(db)->TEST_Crash();
         db->FlushWAL(true);
         delete cf_handle;
     delete db;
@@ -6194,16 +6195,23 @@ TEST_P(TransactionTest, CrashInRecovery) {
       ColumnFamilyDescriptor(kDefaultColumnFamilyName, ColumnFamilyOptions()));
   column_families.push_back(
       ColumnFamilyDescriptor("two", ColumnFamilyOptions()));
+  printf("open after corruption\n");
     ASSERT_OK(ReOpenNoDelete(column_families, &handles));
  //   rocksdb::SyncPoint::GetInstance()->DisableProcessing();
  //   fit_env.SetFilesystemActive(true);
  (void) test_sync_point;
 
+
+   ASSERT_OK(db->Put(write_options, "foo4", large_value));
+       db->FlushWAL(true);
+
     // If we continue using failure ingestion Env, it will conplain something
     // when renaming current file, which is not expected. Need to investigate
     // why.
     options.env = env_;
-    ASSERT_OK(ReOpenNoDelete(column_families, &handles));
+  printf("open again\n");
+    auto ss = ReOpenNoDelete(column_families, &handles);
+    ASSERT_OK(ss);
   for (auto handle : handles) {
     delete handle;
   }

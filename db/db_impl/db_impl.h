@@ -1113,7 +1113,7 @@ class DBImpl : public DB {
   virtual Status Recover(
       const std::vector<ColumnFamilyDescriptor>& column_families,
       bool read_only = false, bool error_if_log_file_exist = false,
-      bool error_if_data_exists_in_logs = false);
+      bool error_if_data_exists_in_logs = false, uint64_t* next_sequence_ptr = nullptr);
 
   virtual bool OwnTablesAndLogs() const { return true; }
 

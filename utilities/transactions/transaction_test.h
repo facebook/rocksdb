@@ -91,7 +91,7 @@ class TransactionTestBase : public ::testing::Test {
     // unlink-ed files. By using the default fs we simply ignore errors resulted
     // from attempting to delete such files in DestroyDB.
     options.env = Env::Default();
-    DestroyDB(dbname, options);
+  //  DestroyDB(dbname, options);
     delete env;
   }
 
