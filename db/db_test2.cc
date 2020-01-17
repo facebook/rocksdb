@@ -4362,6 +4362,48 @@ TEST_F(DBTest2, BlockBasedTablePrefixIndexSeekForPrev) {
   }
 }
 
+TEST_F(DBTest2, BlockBasedTablePrefixGetIndexNotFound) {
+  // create a DB with block prefix index
+  BlockBasedTableOptions table_options;
+  Options options = CurrentOptions();
+  table_options.block_size = 300;
+  table_options.index_type = BlockBasedTableOptions::kHashSearch;
+  table_options.index_shortening =
+      BlockBasedTableOptions::IndexShorteningMode::kNoShortening;
+  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+  options.prefix_extractor.reset(NewFixedPrefixTransform(1));
+  options.level0_file_num_compaction_trigger = 8;
+
+  Reopen(options);
+
+  ASSERT_OK(Put("b1", "ok"));
+  Flush();
+
+  // Flushing several files so that the chance that hash bucket
+  // is empty fo "b" in at least one of the files is high.
+  ASSERT_OK(Put("a1", ""));
+  ASSERT_OK(Put("c1", ""));
+  Flush();
+
+  ASSERT_OK(Put("a2", ""));
+  ASSERT_OK(Put("c2", ""));
+  Flush();
+
+  ASSERT_OK(Put("a3", ""));
+  ASSERT_OK(Put("c3", ""));
+  Flush();
+
+  ASSERT_OK(Put("a4", ""));
+  ASSERT_OK(Put("c4", ""));
+  Flush();
+
+  ASSERT_OK(Put("a5", ""));
+  ASSERT_OK(Put("c5", ""));
+  Flush();
+
+  ASSERT_EQ("ok", Get("b1"));
+}
+
 }  // namespace rocksdb
 
 #ifdef ROCKSDB_UNITTESTS_WITH_CUSTOM_OBJECTS_FROM_STATIC_LIBS
