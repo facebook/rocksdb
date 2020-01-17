@@ -86,39 +86,39 @@ struct LevelStat {
   std::string header_name;
 };
 
+enum class InternalCFStatsType {
+  L0_FILE_COUNT_LIMIT_SLOWDOWNS,
+  LOCKED_L0_FILE_COUNT_LIMIT_SLOWDOWNS,
+  MEMTABLE_LIMIT_STOPS,
+  MEMTABLE_LIMIT_SLOWDOWNS,
+  L0_FILE_COUNT_LIMIT_STOPS,
+  LOCKED_L0_FILE_COUNT_LIMIT_STOPS,
+  PENDING_COMPACTION_BYTES_LIMIT_SLOWDOWNS,
+  PENDING_COMPACTION_BYTES_LIMIT_STOPS,
+  WRITE_STALLS_ENUM_MAX,
+  BYTES_FLUSHED,
+  BYTES_INGESTED_ADD_FILE,
+  INGESTED_NUM_FILES_TOTAL,
+  INGESTED_LEVEL0_NUM_FILES_TOTAL,
+  INGESTED_NUM_KEYS_TOTAL,
+  ENUM_MAX,
+};
+
+enum class InternalDBStatsType {
+  WAL_FILE_BYTES,
+  WAL_FILE_SYNCED,
+  BYTES_WRITTEN,
+  NUMBER_KEYS_WRITTEN,
+  WRITE_DONE_BY_OTHER,
+  WRITE_DONE_BY_SELF,
+  WRITE_WITH_WAL,
+  WRITE_STALL_MICROS,
+  ENUM_MAX,
+};
+
 class InternalStats {
  public:
   static const std::map<LevelStatType, LevelStat> compaction_level_stats;
-
-  enum InternalCFStatsType {
-    L0_FILE_COUNT_LIMIT_SLOWDOWNS,
-    LOCKED_L0_FILE_COUNT_LIMIT_SLOWDOWNS,
-    MEMTABLE_LIMIT_STOPS,
-    MEMTABLE_LIMIT_SLOWDOWNS,
-    L0_FILE_COUNT_LIMIT_STOPS,
-    LOCKED_L0_FILE_COUNT_LIMIT_STOPS,
-    PENDING_COMPACTION_BYTES_LIMIT_SLOWDOWNS,
-    PENDING_COMPACTION_BYTES_LIMIT_STOPS,
-    WRITE_STALLS_ENUM_MAX,
-    BYTES_FLUSHED,
-    BYTES_INGESTED_ADD_FILE,
-    INGESTED_NUM_FILES_TOTAL,
-    INGESTED_LEVEL0_NUM_FILES_TOTAL,
-    INGESTED_NUM_KEYS_TOTAL,
-    INTERNAL_CF_STATS_ENUM_MAX,
-  };
-
-  enum InternalDBStatsType {
-    WAL_FILE_BYTES,
-    WAL_FILE_SYNCED,
-    BYTES_WRITTEN,
-    NUMBER_KEYS_WRITTEN,
-    WRITE_DONE_BY_OTHER,
-    WRITE_DONE_BY_SELF,
-    WRITE_WITH_WAL,
-    WRITE_STALL_MICROS,
-    INTERNAL_DB_STATS_ENUM_MAX,
-  };
 
   InternalStats(int num_levels, Env* env, ColumnFamilyData* cfd)
       : db_stats_{},
@@ -237,6 +237,8 @@ class InternalStats {
       }
     }
 
+    CompactionStats& operator=(const CompactionStats&) = default;
+
     void Clear() {
       this->micros = 0;
       this->cpu_micros = 0;
@@ -300,10 +302,10 @@ class InternalStats {
   };
 
   void Clear() {
-    for (int i = 0; i < INTERNAL_DB_STATS_ENUM_MAX; i++) {
+    for (int i = 0; i < static_cast<int>(InternalDBStatsType::ENUM_MAX); i++) {
       db_stats_[i].store(0);
     }
-    for (int i = 0; i < INTERNAL_CF_STATS_ENUM_MAX; i++) {
+    for (int i = 0; i < static_cast<int>(InternalCFStatsType::ENUM_MAX); i++) {
       cf_stats_count_[i] = 0;
       cf_stats_value_[i] = 0;
     }
@@ -330,13 +332,21 @@ class InternalStats {
   }
 
   void AddCFStats(InternalCFStatsType type, uint64_t value) {
-    cf_stats_value_[type] += value;
-    ++cf_stats_count_[type];
+    cf_stats_value_[static_cast<size_t>(type)] += value;
+    ++cf_stats_count_[static_cast<size_t>(type)];
+  }
+
+  uint64_t GetCFCountStats(InternalCFStatsType type) {
+    return cf_stats_count_[static_cast<size_t>(type)];
+  }
+
+  uint64_t GetCFValueStats(InternalCFStatsType type) {
+    return cf_stats_value_[static_cast<size_t>(type)];
   }
 
   void AddDBStats(InternalDBStatsType type, uint64_t value,
                   bool concurrent = false) {
-    auto& v = db_stats_[type];
+    auto& v = db_stats_[static_cast<size_t>(type)];
     if (concurrent) {
       v.fetch_add(value, std::memory_order_relaxed);
     } else {
@@ -346,7 +356,7 @@ class InternalStats {
   }
 
   uint64_t GetDBStats(InternalDBStatsType type) {
-    return db_stats_[type].load(std::memory_order_relaxed);
+    return db_stats_[static_cast<size_t>(type)].load(std::memory_order_relaxed);
   }
 
   HistogramImpl* GetFileReadHist(int level) {
@@ -394,10 +404,10 @@ class InternalStats {
   bool HandleBlockCacheStat(Cache** block_cache);
 
   // Per-DB stats
-  std::atomic<uint64_t> db_stats_[INTERNAL_DB_STATS_ENUM_MAX];
+  std::atomic<uint64_t> db_stats_[static_cast<size_t>(InternalDBStatsType::ENUM_MAX)];
   // Per-ColumnFamily stats
-  uint64_t cf_stats_value_[INTERNAL_CF_STATS_ENUM_MAX];
-  uint64_t cf_stats_count_[INTERNAL_CF_STATS_ENUM_MAX];
+  uint64_t cf_stats_value_[static_cast<size_t>(InternalCFStatsType::ENUM_MAX)];
+  uint64_t cf_stats_count_[static_cast<size_t>(InternalCFStatsType::ENUM_MAX)];
   // Per-ColumnFamily/level compaction stats
   std::vector<CompactionStats> comp_stats_;
   std::vector<CompactionStats> comp_stats_by_pri_;
@@ -574,36 +584,6 @@ class InternalStats {
 
 class InternalStats {
  public:
-  enum InternalCFStatsType {
-    L0_FILE_COUNT_LIMIT_SLOWDOWNS,
-    LOCKED_L0_FILE_COUNT_LIMIT_SLOWDOWNS,
-    MEMTABLE_LIMIT_STOPS,
-    MEMTABLE_LIMIT_SLOWDOWNS,
-    L0_FILE_COUNT_LIMIT_STOPS,
-    LOCKED_L0_FILE_COUNT_LIMIT_STOPS,
-    PENDING_COMPACTION_BYTES_LIMIT_SLOWDOWNS,
-    PENDING_COMPACTION_BYTES_LIMIT_STOPS,
-    WRITE_STALLS_ENUM_MAX,
-    BYTES_FLUSHED,
-    BYTES_INGESTED_ADD_FILE,
-    INGESTED_NUM_FILES_TOTAL,
-    INGESTED_LEVEL0_NUM_FILES_TOTAL,
-    INGESTED_NUM_KEYS_TOTAL,
-    INTERNAL_CF_STATS_ENUM_MAX,
-  };
-
-  enum InternalDBStatsType {
-    WAL_FILE_BYTES,
-    WAL_FILE_SYNCED,
-    BYTES_WRITTEN,
-    NUMBER_KEYS_WRITTEN,
-    WRITE_DONE_BY_OTHER,
-    WRITE_DONE_BY_SELF,
-    WRITE_WITH_WAL,
-    WRITE_STALL_MICROS,
-    INTERNAL_DB_STATS_ENUM_MAX,
-  };
-
   InternalStats(int /*num_levels*/, Env* /*env*/, ColumnFamilyData* /*cfd*/) {}
 
   struct CompactionStats {

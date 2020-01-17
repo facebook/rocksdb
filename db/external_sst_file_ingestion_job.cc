@@ -229,7 +229,7 @@ void ExternalSstFileIngestionJob::UpdateStats() {
     stats.num_output_files = 1;
     cfd_->internal_stats()->AddCompactionStats(f.picked_level,
                                                Env::Priority::USER, stats);
-    cfd_->internal_stats()->AddCFStats(InternalStats::BYTES_INGESTED_ADD_FILE,
+    cfd_->internal_stats()->AddCFStats(InternalCFStatsType::BYTES_INGESTED_ADD_FILE,
                                        f.fd.GetFileSize());
     total_keys += f.num_entries;
     if (f.picked_level == 0) {
@@ -242,12 +242,12 @@ void ExternalSstFileIngestionJob::UpdateStats() {
         f.external_file_path.c_str(), f.picked_level,
         f.internal_file_path.c_str(), f.assigned_seqno);
   }
-  cfd_->internal_stats()->AddCFStats(InternalStats::INGESTED_NUM_KEYS_TOTAL,
+  cfd_->internal_stats()->AddCFStats(InternalCFStatsType::INGESTED_NUM_KEYS_TOTAL,
                                      total_keys);
-  cfd_->internal_stats()->AddCFStats(InternalStats::INGESTED_NUM_FILES_TOTAL,
+  cfd_->internal_stats()->AddCFStats(InternalCFStatsType::INGESTED_NUM_FILES_TOTAL,
                                      files_to_ingest_.size());
   cfd_->internal_stats()->AddCFStats(
-      InternalStats::INGESTED_LEVEL0_NUM_FILES_TOTAL, total_l0_files);
+      InternalCFStatsType::INGESTED_LEVEL0_NUM_FILES_TOTAL, total_l0_files);
 }
 
 void ExternalSstFileIngestionJob::Cleanup(const Status& status) {
