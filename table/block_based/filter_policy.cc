@@ -542,7 +542,7 @@ FilterBitsBuilder* BloomFilterPolicy::GetBuilderWithContext(
               context.info_log,
               "Using legacy Bloom filter with high (%d) bits/key. "
               "%s filter space and/or accuracy improvement is available "
-              "with format_verion>=5.",
+              "with format_version>=5.",
               whole_bits_per_key_, adjective);
         }
         return new LegacyBloomBitsBuilder(whole_bits_per_key_);
