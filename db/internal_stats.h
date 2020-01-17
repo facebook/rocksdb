@@ -237,6 +237,8 @@ class InternalStats {
       }
     }
 
+    CompactionStats& operator=(const CompactionStats&) = default;
+
     void Clear() {
       this->micros = 0;
       this->cpu_micros = 0;

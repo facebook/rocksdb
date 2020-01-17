@@ -1065,7 +1065,7 @@ Status DBImpl::CompactFilesImpl(
   }
 
   if (output_file_names != nullptr) {
-    for (const auto newf : c->edit()->GetNewFiles()) {
+    for (const auto& newf : c->edit()->GetNewFiles()) {
       (*output_file_names)
           .push_back(TableFileName(c->immutable_cf_options()->cf_paths,
                                    newf.second.fd.GetNumber(),
@@ -1157,7 +1157,7 @@ void DBImpl::NotifyOnCompactionBegin(ColumnFamilyData* cfd, Compaction* c,
         }
       }
     }
-    for (const auto newf : c->edit()->GetNewFiles()) {
+    for (const auto& newf : c->edit()->GetNewFiles()) {
       info.output_files.push_back(TableFileName(
           c->immutable_cf_options()->cf_paths, newf.second.fd.GetNumber(),
           newf.second.fd.GetPathId()));

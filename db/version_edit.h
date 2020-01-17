@@ -41,6 +41,8 @@ struct FileDescriptor {
 
   FileDescriptor() : FileDescriptor(0, 0, 0) {}
 
+  FileDescriptor(const FileDescriptor& fd) = default;
+
   FileDescriptor(uint64_t number, uint32_t path_id, uint64_t _file_size)
       : FileDescriptor(number, path_id, _file_size, kMaxSequenceNumber, 0) {}
 
