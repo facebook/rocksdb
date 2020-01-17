@@ -52,8 +52,7 @@ default_params = {
     "expected_values_path": expected_values_file.name,
     "flush_one_in": 1000000,
     "get_live_files_and_wal_files_one_in": 1000000,
-    # Temporarily disable hash index
-    "index_type": lambda: random.choice([0,2]),
+    "index_type": lambda: random.choice([0,0,1,2,2]),
     "max_background_compactions": 20,
     "max_bytes_for_level_base": 10485760,
     "max_key": 100000000,
