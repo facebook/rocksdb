@@ -92,7 +92,7 @@ default_params = {
         [t * 16384 if t < 3 else 1024 * 1024 * 1024 for t in range(1, 30)]),
     # Sync mode might make test runs slower so running it in a smaller chance
     "sync" : lambda : random.choice(
-        [0 if t == 0 else 1 for t in range(1, 20)]),
+        [1 if t == 0 else 0 for t in range(0, 20)]),
     # Disable compation_readahead_size because the test is not passing.
     #"compaction_readahead_size" : lambda : random.choice(
     #    [0, 0, 1024 * 1024]),
