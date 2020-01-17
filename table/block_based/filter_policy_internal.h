@@ -8,6 +8,7 @@
 
 #pragma once
 
+#include <atomic>
 #include <memory>
 #include <string>
 #include <vector>
@@ -124,6 +125,10 @@ class BloomFilterPolicy : public FilterPolicy {
   // Selected mode (a specific implementation or way of selecting an
   // implementation) for building new SST filters.
   Mode mode_;
+
+  // Whether relevant warnings have been logged already. (Remember so we
+  // only report once per BloomFilterPolicy instance, to keep the noise down.)
+  mutable std::atomic<bool> warned_;
 
   // For newer Bloom filter implementation(s)
   FilterBitsReader* GetBloomBitsReader(const Slice& contents) const;

@@ -26,6 +26,7 @@ int main() {
 #include "util/gflags_compat.h"
 #include "util/hash.h"
 #include "util/random.h"
+#include "util/stderr_logger.h"
 #include "util/stop_watch.h"
 
 using GFLAGS_NAMESPACE::ParseCommandLineFlags;
@@ -112,6 +113,7 @@ using rocksdb::ParsedFullFilterBlock;
 using rocksdb::PlainTableBloomV1;
 using rocksdb::Random32;
 using rocksdb::Slice;
+using rocksdb::StderrLogger;
 using rocksdb::mock::MockBlockBasedTableTester;
 
 struct KeyMaker {
@@ -243,6 +245,7 @@ struct FilterBench : public MockBlockBasedTableTester {
   Random32 random_;
   std::ostringstream fp_rate_report_;
   Arena arena_;
+  StderrLogger stderr_logger_;
 
   FilterBench()
       : MockBlockBasedTableTester(new BloomFilterPolicy(
@@ -252,6 +255,7 @@ struct FilterBench : public MockBlockBasedTableTester {
     for (uint32_t i = 0; i < FLAGS_batch_size; ++i) {
       kms_.emplace_back(FLAGS_key_size < 8 ? 8 : FLAGS_key_size);
     }
+    ioptions_.info_log = &stderr_logger_;
   }
 
   void Go();
