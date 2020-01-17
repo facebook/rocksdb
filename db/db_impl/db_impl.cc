@@ -1005,12 +1005,36 @@ Status DBImpl::SetDBOptions(
       }
     }
     if (s.ok()) {
-      if (new_options.max_background_compactions >
-          mutable_db_options_.max_background_compactions) {
-        env_->IncBackgroundThreadsIfNeeded(
-            new_options.max_background_compactions, Env::Priority::LOW);
+      const BGJobLimits current_bg_job_limits =
+          GetBGJobLimits(immutable_db_options_.max_background_flushes,
+                         mutable_db_options_.max_background_compactions,
+                         mutable_db_options_.max_background_jobs,
+                         /* parallelize_compactions */ true);
+      const BGJobLimits new_bg_job_limits = GetBGJobLimits(
+          immutable_db_options_.max_background_flushes,
+          new_options.max_background_compactions,
+          new_options.max_background_jobs, /* parallelize_compactions */ true);
+
+      const bool max_flushes_increased =
+          new_bg_job_limits.max_flushes > current_bg_job_limits.max_flushes;
+      const bool max_compactions_increased =
+          new_bg_job_limits.max_compactions >
+          current_bg_job_limits.max_compactions;
+
+      if (max_flushes_increased || max_compactions_increased) {
+        if (max_flushes_increased) {
+          env_->IncBackgroundThreadsIfNeeded(new_bg_job_limits.max_flushes,
+                                             Env::Priority::HIGH);
+        }
+
+        if (max_compactions_increased) {
+          env_->IncBackgroundThreadsIfNeeded(new_bg_job_limits.max_compactions,
+                                             Env::Priority::LOW);
+        }
+
         MaybeScheduleFlushOrCompaction();
       }
+
       if (new_options.stats_dump_period_sec !=
           mutable_db_options_.stats_dump_period_sec) {
         if (thread_dump_stats_) {
