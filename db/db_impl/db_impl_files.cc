@@ -336,6 +336,12 @@ void DBImpl::PurgeObsoleteFiles(JobContext& state, bool schedule_only) {
     candidate_files.emplace_back(filename, dbname_);
   }
 
+  // release log handles so that logs can be deleted.
+  for (auto l : state.logs_to_free) {
+    delete l;
+  }
+  state.logs_to_free.clear();
+
   // dedup state.candidate_files so we don't try to delete the same
   // file twice
   std::sort(candidate_files.begin(), candidate_files.end(),
