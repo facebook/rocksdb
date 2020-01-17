@@ -34,20 +34,6 @@ class Compactor : public EventListener {
 
 // Example structure that describes a compaction task.
 struct CompactionTask {
-  CompactionTask(
-      DB* _db, Compactor* _compactor,
-      const std::string& _column_family_name,
-      const std::vector<std::string>& _input_file_names,
-      const int _output_level,
-      const CompactionOptions& _compact_options,
-      bool _retry_on_fail)
-          : db(_db),
-            compactor(_compactor),
-            column_family_name(_column_family_name),
-            input_file_names(_input_file_names),
-            output_level(_output_level),
-            compact_options(_compact_options),
-            retry_on_fail(_retry_on_fail) {}
   DB* db;
   Compactor* compactor;
   const std::string& column_family_name;
@@ -97,9 +83,11 @@ class FullCompactor : public Compactor {
         input_file_names.push_back(file.name);
       }
     }
-    return new CompactionTask(
-        db, this, cf_name, input_file_names,
-        options_.num_levels - 1, compact_options_, false);
+    return new CompactionTask{
+        .db = db, .compactor = this, .column_family_name = cf_name,
+        .input_file_names = input_file_names,
+        .output_level = options_.num_levels - 1,
+        .compact_options = compact_options_, .retry_on_fail = false);
   }
 
   // Schedule the specified compaction task in background.
