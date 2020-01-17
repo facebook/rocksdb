@@ -7,6 +7,7 @@
 * A new `OptimisticTransactionDBOptions` Option that allows users to configure occ validation policy. The default policy changes from kValidateSerial to kValidateParallel to reduce mutex contention.
 
 ### Bug Fixes
+* Fixed a bug where non-L0 compaction input files were not considered to compute the `creation_time` of new compaction outputs.
 * Fix a bug that can cause unnecessary bg thread to be scheduled(#6104).
 * Fix a bug in which a snapshot read could be affected by a DeleteRange after the snapshot (#6062).
 * Fix crash caused by concurrent CF iterations and drops(#6147).
@@ -15,6 +16,10 @@
 * BlobDB no longer updates the SST to blob file mapping upon failed compactions.
 * Fixed a bug where BlobDB was comparing the `ColumnFamilyHandle` pointers themselves instead of only the column family IDs when checking whether an API call uses the default column family or not.
 * Fix a race condition for cfd->log_number_ between manifest switch and memtable switch (PR 6249) when number of column families is greater than 1.
+* Fix a bug on fractional cascading index when multiple files at the same level contain the same smallest user key, and those user keys are for merge operands. In this case, Get() the exact key may miss some merge operands.
+* Delcare kHashSearch index type feature-incompatible with index_block_restart_interval larger than 1.
+* Fix incorrect results while block-based table uses kHashSearch, together with Prev()/SeekForPrev().
+* Fixed an issue where the thread pools were not resized upon setting `max_background_jobs` dynamically through the `SetDBOptions` interface.
 
 ### New Features
 * It is now possible to enable periodic compactions for the base DB when using BlobDB.

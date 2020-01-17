@@ -60,20 +60,11 @@ struct BlobFileComparator {
                   const std::shared_ptr<BlobFile>& rhs) const;
 };
 
-struct GCStats {
-  uint64_t blob_count = 0;
-  uint64_t num_keys_overwritten = 0;
-  uint64_t num_keys_expired = 0;
-  uint64_t num_keys_relocated = 0;
-  uint64_t bytes_overwritten = 0;
-  uint64_t bytes_expired = 0;
-  uint64_t bytes_relocated = 0;
-};
-
 /**
- * The implementation class for BlobDB. This manages the value
- * part in TTL aware sequentially written files. These files are
- * Garbage Collected.
+ * The implementation class for BlobDB. It manages the blob logs, which
+ * are sequentially written files. Blob logs can be of the TTL or non-TTL
+ * varieties; the former are cleaned up when they expire, while the latter
+ * are (optionally) garbage collected.
  */
 class BlobDBImpl : public BlobDB {
   friend class BlobFile;
@@ -85,12 +76,6 @@ class BlobDBImpl : public BlobDB {
  public:
   // deletions check period
   static constexpr uint32_t kDeleteCheckPeriodMillisecs = 2 * 1000;
-
-  // gc percentage each check period
-  static constexpr uint32_t kGCFilePercentage = 100;
-
-  // gc period
-  static constexpr uint32_t kGCCheckPeriodMillisecs = 60 * 1000;
 
   // sanity check task
   static constexpr uint32_t kSanityCheckPeriodMillisecs = 20 * 60 * 1000;
@@ -208,11 +193,6 @@ class BlobDBImpl : public BlobDB {
                              SequenceNumber obsolete_seq = 0,
                              bool update_size = true);
 
-  Status TEST_GCFileAndUpdateLSM(std::shared_ptr<BlobFile>& bfile,
-                                 GCStats* gc_stats);
-
-  void TEST_RunGC();
-
   void TEST_EvictExpiredFiles();
 
   void TEST_DeleteObsoleteFiles();
@@ -231,7 +211,6 @@ class BlobDBImpl : public BlobDB {
 #endif  //  !NDEBUG
 
  private:
-  class GarbageCollectionWriteCallback;
   class BlobInserter;
 
   // Create a snapshot if there isn't one in read options.
@@ -300,13 +279,9 @@ class BlobDBImpl : public BlobDB {
   // periodic sanity check. Bunch of checks
   std::pair<bool, int64_t> SanityCheck(bool aborted);
 
-  // delete files which have been garbage collected and marked
-  // obsolete. Check whether any snapshots exist which refer to
-  // the same
+  // Delete files that have been marked obsolete (either because of TTL
+  // or GC). Check whether any snapshots exist which refer to the same.
   std::pair<bool, int64_t> DeleteObsoleteFiles(bool aborted);
-
-  // Major task to garbage collect expired and deleted blobs
-  std::pair<bool, int64_t> RunGC(bool aborted);
 
   // periodically check if open blob files and their TTL's has expired
   // if expired, close the sequential writer and make the file immutable
@@ -397,12 +372,6 @@ class BlobDBImpl : public BlobDB {
   // already present, creates one. Needs Write Mutex to be held
   Status CheckOrCreateWriterLocked(const std::shared_ptr<BlobFile>& blob_file,
                                    std::shared_ptr<Writer>* writer);
-
-  // Iterate through keys and values on Blob and write into
-  // separate file the remaining blobs and delete/update pointers
-  // in LSM atomically
-  Status GCFileAndUpdateLSM(const std::shared_ptr<BlobFile>& bfptr,
-                            GCStats* gcstats);
 
   // checks if there is no snapshot which is referencing the
   // blobs
