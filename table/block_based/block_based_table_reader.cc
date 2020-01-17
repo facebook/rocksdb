@@ -3467,7 +3467,7 @@ Status BlockBasedTable::Get(const ReadOptions& read_options, const Slice& key,
       PERF_COUNTER_BY_LEVEL_ADD(bloom_filter_full_true_positive, 1,
                                 rep_->level);
     }
-    if (s.ok()) {
+    if (s.ok() && !iiter->status().IsNotFound()) {
       s = iiter->status();
     }
   }
