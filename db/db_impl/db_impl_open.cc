@@ -345,7 +345,8 @@ Status Directories::SetDirectories(Env* env, const std::string& dbname,
 
 Status DBImpl::Recover(
     const std::vector<ColumnFamilyDescriptor>& column_families, bool read_only,
-    bool error_if_log_file_exist, bool error_if_data_exists_in_logs, uint64_t* recovered_seq) {
+    bool error_if_log_file_exist, bool error_if_data_exists_in_logs,
+    uint64_t* recovered_seq) {
   mutex_.AssertHeld();
 
   bool is_new_db = false;
@@ -542,7 +543,8 @@ Status DBImpl::Recover(
       // Recover in the order in which the logs were generated
       std::sort(logs.begin(), logs.end());
       bool corrupted_log_found = false;
-      s = RecoverLogFiles(logs, &next_sequence, read_only, &corrupted_log_found);
+      s = RecoverLogFiles(logs, &next_sequence, read_only,
+                          &corrupted_log_found);
       if (corrupted_log_found && recovered_seq != nullptr) {
         *recovered_seq = next_sequence;
       }
@@ -675,7 +677,8 @@ Status DBImpl::InitPersistStatsColumnFamily() {
 
 // REQUIRES: log_numbers are sorted in ascending order
 Status DBImpl::RecoverLogFiles(const std::vector<uint64_t>& log_numbers,
-                               SequenceNumber* next_sequence, bool read_only, bool* corrupted_log_found) {
+                               SequenceNumber* next_sequence, bool read_only,
+                               bool* corrupted_log_found) {
   struct LogReporter : public log::Reader::Reporter {
     Env* env;
     Logger* info_log;
@@ -1467,7 +1470,11 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
       s = impl->directories_.GetDbDir()->Fsync();
     }
     if (s.ok()) {
-      // In WritePrepared there could be gap in sequence numbers. This breaks the trick we use in kPointInTimeRecovery which asssume the fiest seq in the log right after the corrupted log is one larger than the last seq we read from the logs. To let this trick keep working, we add a dummy entry with the expected seqeunce to the first log right after recovery.
+      // In WritePrepared there could be gap in sequence numbers. This breaks
+      // the trick we use in kPointInTimeRecovery which asssume the fiest seq in
+      // the log right after the corrupted log is one larger than the last seq
+      // we read from the logs. To let this trick keep working, we add a dummy
+      // entry with the expected seqeunce to the first log right after recovery.
       if (impl->seq_per_batch_ && recovered_seq != kMaxSequenceNumber) {
         WriteBatch empty_batch;
         WriteBatchInternal::SetSequence(&empty_batch, recovered_seq);

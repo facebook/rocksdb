@@ -6116,7 +6116,9 @@ TEST_P(TransactionTest, ReseekOptimization) {
   delete txn0;
 }
 
-// After recovery in kPointInTimeRecovery mode, the corrupted log file remains there. The new log files should be still read succesfully during recovery of the 2nd crash.
+// After recovery in kPointInTimeRecovery mode, the corrupted log file remains
+// there. The new log files should be still read succesfully during recovery of
+// the 2nd crash.
 TEST_P(TransactionTest, DoubleCrashInRecovery) {
   options.wal_recovery_mode = WALRecoveryMode::kPointInTimeRecovery;
   ReOpenNoDelete();

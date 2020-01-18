@@ -1110,11 +1110,13 @@ class DBImpl : public DB {
   // Recover the descriptor from persistent storage.  May do a significant
   // amount of work to recover recently logged updates.  Any changes to
   // be made to the descriptor are added to *edit.
-  // recovered_seq is set to less than kMaxSequenceNumber if the log's tail is skipped.
+  // recovered_seq is set to less than kMaxSequenceNumber if the log's tail is
+  // skipped.
   virtual Status Recover(
       const std::vector<ColumnFamilyDescriptor>& column_families,
       bool read_only = false, bool error_if_log_file_exist = false,
-      bool error_if_data_exists_in_logs = false, uint64_t* recovered_seq = nullptr);
+      bool error_if_data_exists_in_logs = false,
+      uint64_t* recovered_seq = nullptr);
 
   virtual bool OwnTablesAndLogs() const { return true; }
 
@@ -1358,7 +1360,8 @@ class DBImpl : public DB {
   // REQUIRES: log_numbers are sorted in ascending order
   // corrupted_log_found is set to true if we recover from a corrupted log file.
   Status RecoverLogFiles(const std::vector<uint64_t>& log_numbers,
-                         SequenceNumber* next_sequence, bool read_only, bool* corrupted_log_found = nullptr);
+                         SequenceNumber* next_sequence, bool read_only,
+                         bool* corrupted_log_found = nullptr);
 
   // The following two methods are used to flush a memtable to
   // storage. The first one is used at database RecoveryTime (when the
