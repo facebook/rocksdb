@@ -5,17 +5,20 @@
 
 #ifndef ROCKSDB_LITE
 
-#include <cinttypes>
 #include <algorithm>
 #include <array>
+#include <cinttypes>
 #include <map>
 #include <string>
 #include <tuple>
 
+#include "db/blob_index.h"
 #include "db/column_family.h"
 #include "db/compaction/compaction_job.h"
+#include "db/db_impl/db_impl.h"
 #include "db/error_handler.h"
 #include "db/version_set.h"
+#include "file/writable_file_writer.h"
 #include "rocksdb/cache.h"
 #include "rocksdb/db.h"
 #include "rocksdb/options.h"
@@ -23,7 +26,6 @@
 #include "table/mock_table.h"
 #include "test_util/testharness.h"
 #include "test_util/testutil.h"
-#include "util/file_reader_writer.h"
 #include "util/string_util.h"
 #include "utilities/merge_operators.h"
 
@@ -70,6 +72,7 @@ class CompactionJobTest : public testing::Test {
  public:
   CompactionJobTest()
       : env_(Env::Default()),
+        fs_(std::make_shared<LegacyFileSystemWrapper>(env_)),
         dbname_(test::PerThreadDBPath("compaction_job_test")),
         db_options_(),
         mutable_cf_options_(cf_options_),
@@ -84,6 +87,8 @@ class CompactionJobTest : public testing::Test {
         mock_table_factory_(new mock::MockTableFactory()),
         error_handler_(nullptr, db_options_, &mutex_) {
     EXPECT_OK(env_->CreateDirIfMissing(dbname_));
+    db_options_.env = env_;
+    db_options_.fs = fs_;
     db_options_.db_paths.emplace_back(dbname_,
                                       std::numeric_limits<uint64_t>::max());
   }
@@ -96,9 +101,32 @@ class CompactionJobTest : public testing::Test {
     return TableFileName(db_paths, meta.fd.GetNumber(), meta.fd.GetPathId());
   }
 
-  std::string KeyStr(const std::string& user_key, const SequenceNumber seq_num,
-      const ValueType t) {
+  static std::string KeyStr(const std::string& user_key,
+                            const SequenceNumber seq_num, const ValueType t) {
     return InternalKey(user_key, seq_num, t).Encode().ToString();
+  }
+
+  static std::string BlobStr(uint64_t blob_file_number, uint64_t offset,
+                             uint64_t size) {
+    std::string blob_index;
+    BlobIndex::EncodeBlob(&blob_index, blob_file_number, offset, size,
+                          kNoCompression);
+    return blob_index;
+  }
+
+  static std::string BlobStrTTL(uint64_t blob_file_number, uint64_t offset,
+                                uint64_t size, uint64_t expiration) {
+    std::string blob_index;
+    BlobIndex::EncodeBlobTTL(&blob_index, expiration, blob_file_number, offset,
+                             size, kNoCompression);
+    return blob_index;
+  }
+
+  static std::string BlobStrInlinedTTL(const Slice& value,
+                                       uint64_t expiration) {
+    std::string blob_index;
+    BlobIndex::EncodeInlinedTTL(&blob_index, expiration, value);
+    return blob_index;
   }
 
   void AddMockFile(const stl_wrappers::KVMap& contents, int level = 0) {
@@ -109,12 +137,13 @@ class CompactionJobTest : public testing::Test {
     InternalKey smallest_key, largest_key;
     SequenceNumber smallest_seqno = kMaxSequenceNumber;
     SequenceNumber largest_seqno = 0;
+    uint64_t oldest_blob_file_number = kInvalidBlobFileNumber;
     for (auto kv : contents) {
       ParsedInternalKey key;
       std::string skey;
       std::string value;
       std::tie(skey, value) = kv;
-      ParseInternalKey(skey, &key);
+      bool parsed = ParseInternalKey(skey, &key);
 
       smallest_seqno = std::min(smallest_seqno, key.sequence);
       largest_seqno = std::max(largest_seqno, key.sequence);
@@ -131,6 +160,24 @@ class CompactionJobTest : public testing::Test {
       }
 
       first_key = false;
+
+      if (parsed && key.type == kTypeBlobIndex) {
+        BlobIndex blob_index;
+        const Status s = blob_index.DecodeFrom(value);
+        if (!s.ok()) {
+          continue;
+        }
+
+        if (blob_index.IsInlined() || blob_index.HasTTL() ||
+            blob_index.file_number() == kInvalidBlobFileNumber) {
+          continue;
+        }
+
+        if (oldest_blob_file_number == kInvalidBlobFileNumber ||
+            oldest_blob_file_number > blob_index.file_number()) {
+          oldest_blob_file_number = blob_index.file_number();
+        }
+      }
     }
 
     uint64_t file_number = versions_->NewFileNumber();
@@ -139,7 +186,8 @@ class CompactionJobTest : public testing::Test {
 
     VersionEdit edit;
     edit.AddFile(level, file_number, 0, 10, smallest_key, largest_key,
-        smallest_seqno, largest_seqno, false);
+                 smallest_seqno, largest_seqno, false, oldest_blob_file_number,
+                 kUnknownOldestAncesterTime, kUnknownFileCreationTime);
 
     mutex_.Lock();
     versions_->LogAndApply(versions_->GetColumnFamilySet()->GetDefault(),
@@ -204,8 +252,15 @@ class CompactionJobTest : public testing::Test {
                                    &write_controller_,
                                    /*block_cache_tracer=*/nullptr));
     compaction_job_stats_.Reset();
+    SetIdentityFile(env_, dbname_);
 
     VersionEdit new_db;
+    if (db_options_.write_dbid_to_manifest) {
+      DBImpl* impl = new DBImpl(DBOptions(), dbname_);
+      std::string db_id;
+      impl->GetDbIdentityFromIdentityFile(&db_id);
+      new_db.SetDBId(db_id);
+    }
     new_db.SetLogNumber(0);
     new_db.SetNextFile(2);
     new_db.SetLastSequence(0);
@@ -215,8 +270,8 @@ class CompactionJobTest : public testing::Test {
     Status s = env_->NewWritableFile(
         manifest, &file, env_->OptimizeForManifestWrite(env_options_));
     ASSERT_OK(s);
-    std::unique_ptr<WritableFileWriter> file_writer(
-        new WritableFileWriter(std::move(file), manifest, env_options_));
+    std::unique_ptr<WritableFileWriter> file_writer(new WritableFileWriter(
+        NewLegacyWritableFileWrapper(std::move(file)), manifest, env_options_));
     {
       log::Writer log(std::move(file_writer), 0, false);
       std::string record;
@@ -243,8 +298,7 @@ class CompactionJobTest : public testing::Test {
       const std::vector<SequenceNumber>& snapshots = {},
       SequenceNumber earliest_write_conflict_snapshot = kMaxSequenceNumber,
       int output_level = 1, bool verify = true,
-      SnapshotListFetchCallback* snapshot_fetcher =
-          SnapshotListFetchCallback::kDisabled) {
+      uint64_t expected_oldest_blob_file_number = kInvalidBlobFileNumber) {
     auto cfd = versions_->GetColumnFamilySet()->GetDefault();
 
     size_t num_input_files = 0;
@@ -277,7 +331,7 @@ class CompactionJobTest : public testing::Test {
         nullptr, nullptr, &mutex_, &error_handler_, snapshots,
         earliest_write_conflict_snapshot, snapshot_checker, table_cache_,
         &event_logger, false, false, dbname_, &compaction_job_stats_,
-        Env::Priority::USER, snapshot_fetcher);
+        Env::Priority::USER);
     VerifyInitializationOfCompactionJobStats(compaction_job_stats_);
 
     compaction_job.Prepare();
@@ -290,20 +344,26 @@ class CompactionJobTest : public testing::Test {
     mutex_.Unlock();
 
     if (verify) {
-      if (expected_results.size() == 0) {
-        ASSERT_GE(compaction_job_stats_.elapsed_micros, 0U);
-        ASSERT_EQ(compaction_job_stats_.num_input_files, num_input_files);
+      ASSERT_GE(compaction_job_stats_.elapsed_micros, 0U);
+      ASSERT_EQ(compaction_job_stats_.num_input_files, num_input_files);
+
+      if (expected_results.empty()) {
         ASSERT_EQ(compaction_job_stats_.num_output_files, 0U);
       } else {
-        ASSERT_GE(compaction_job_stats_.elapsed_micros, 0U);
-        ASSERT_EQ(compaction_job_stats_.num_input_files, num_input_files);
         ASSERT_EQ(compaction_job_stats_.num_output_files, 1U);
         mock_table_factory_->AssertLatestFile(expected_results);
+
+        auto output_files =
+            cfd->current()->storage_info()->LevelFiles(output_level);
+        ASSERT_EQ(output_files.size(), 1);
+        ASSERT_EQ(output_files[0]->oldest_blob_file_number,
+                  expected_oldest_blob_file_number);
       }
     }
   }
 
   Env* env_;
+  std::shared_ptr<FileSystem> fs_;
   std::string dbname_;
   EnvOptions env_options_;
   ImmutableDBOptions db_options_;
@@ -954,103 +1014,52 @@ TEST_F(CompactionJobTest, CorruptionAfterDeletion) {
   RunCompaction({files}, expected_results);
 }
 
-// Test the snapshot fetcher in compaction
-TEST_F(CompactionJobTest, SnapshotRefresh) {
-  uint64_t time_seed = env_->NowMicros();
-  printf("time_seed is %" PRIu64 "\n", time_seed);  // would help to reproduce
-  Random64 rand(time_seed);
-  std::vector<SequenceNumber> db_snapshots;
-  class SnapshotListFetchCallbackTest : public SnapshotListFetchCallback {
-   public:
-    SnapshotListFetchCallbackTest(Env* env, Random64& rand,
-                                  std::vector<SequenceNumber>* snapshots)
-        : SnapshotListFetchCallback(env, 1 /*short time delay*/,
-                                    1 /*fetch after each key*/),
-          rand_(rand),
-          snapshots_(snapshots) {}
-    virtual void Refresh(std::vector<SequenceNumber>* snapshots,
-                         SequenceNumber) override {
-      assert(snapshots->size());
-      assert(snapshots_->size());
-      assert(snapshots_->size() == snapshots->size());
-      if (rand_.OneIn(2)) {
-        uint64_t release_index = rand_.Uniform(snapshots_->size());
-        snapshots_->erase(snapshots_->begin() + release_index);
-        *snapshots = *snapshots_;
-      }
-    }
-
-   private:
-    Random64 rand_;
-    std::vector<SequenceNumber>* snapshots_;
-  } snapshot_fetcher(env_, rand, &db_snapshots);
-
-  std::vector<std::pair<const std::string, std::string>> file1_kvs, file2_kvs;
-  std::array<ValueType, 4> types = {kTypeValue, kTypeDeletion,
-                                    kTypeSingleDeletion};
-  SequenceNumber last_seq = 0;
-  for (int i = 1; i < 100; i++) {
-    SequenceNumber seq = last_seq + 1;
-    last_seq = seq;
-    if (rand.OneIn(2)) {
-      auto type = types[rand.Uniform(types.size())];
-      file1_kvs.push_back(
-          {test::KeyStr("k" + ToString(i), seq, type), "v" + ToString(i)});
-    }
-  }
-  auto file1 = mock::MakeMockFile(file1_kvs);
-  for (int i = 1; i < 100; i++) {
-    SequenceNumber seq = last_seq + 1;
-    last_seq++;
-    if (rand.OneIn(2)) {
-      auto type = types[rand.Uniform(types.size())];
-      file2_kvs.push_back(
-          {test::KeyStr("k" + ToString(i), seq, type), "v" + ToString(i)});
-    }
-  }
-  auto file2 = mock::MakeMockFile(file2_kvs);
-  for (SequenceNumber i = 1; i < last_seq + 1; i++) {
-    if (rand.OneIn(5)) {
-      db_snapshots.push_back(i);
-    }
-  }
-
-  const bool kVerify = true;
-  const int output_level_0 = 0;
+TEST_F(CompactionJobTest, OldestBlobFileNumber) {
   NewDB();
+
+  // Note: blob1 is inlined TTL, so it will not be considered for the purposes
+  // of identifying the oldest referenced blob file. Similarly, blob6 will be
+  // ignored because it has TTL and hence refers to a TTL blob file.
+  const stl_wrappers::KVMap::value_type blob1(
+      KeyStr("a", 1U, kTypeBlobIndex), BlobStrInlinedTTL("foo", 1234567890ULL));
+  const stl_wrappers::KVMap::value_type blob2(KeyStr("b", 2U, kTypeBlobIndex),
+                                              BlobStr(59, 123456, 999));
+  const stl_wrappers::KVMap::value_type blob3(KeyStr("c", 3U, kTypeBlobIndex),
+                                              BlobStr(138, 1000, 1 << 8));
+  auto file1 = mock::MakeMockFile({blob1, blob2, blob3});
   AddMockFile(file1);
+
+  const stl_wrappers::KVMap::value_type blob4(KeyStr("d", 4U, kTypeBlobIndex),
+                                              BlobStr(199, 3 << 10, 1 << 20));
+  const stl_wrappers::KVMap::value_type blob5(KeyStr("e", 5U, kTypeBlobIndex),
+                                              BlobStr(19, 6789, 333));
+  const stl_wrappers::KVMap::value_type blob6(
+      KeyStr("f", 6U, kTypeBlobIndex),
+      BlobStrTTL(5, 2048, 1 << 7, 1234567890ULL));
+  auto file2 = mock::MakeMockFile({blob4, blob5, blob6});
   AddMockFile(file2);
-  SetLastSequence(last_seq);
+
+  const stl_wrappers::KVMap::value_type expected_blob1(
+      KeyStr("a", 0U, kTypeBlobIndex), blob1.second);
+  const stl_wrappers::KVMap::value_type expected_blob2(
+      KeyStr("b", 0U, kTypeBlobIndex), blob2.second);
+  const stl_wrappers::KVMap::value_type expected_blob3(
+      KeyStr("c", 0U, kTypeBlobIndex), blob3.second);
+  const stl_wrappers::KVMap::value_type expected_blob4(
+      KeyStr("d", 0U, kTypeBlobIndex), blob4.second);
+  const stl_wrappers::KVMap::value_type expected_blob5(
+      KeyStr("e", 0U, kTypeBlobIndex), blob5.second);
+  const stl_wrappers::KVMap::value_type expected_blob6(
+      KeyStr("f", 0U, kTypeBlobIndex), blob6.second);
+  auto expected_results =
+      mock::MakeMockFile({expected_blob1, expected_blob2, expected_blob3,
+                          expected_blob4, expected_blob5, expected_blob6});
+
+  SetLastSequence(6U);
   auto files = cfd_->current()->storage_info()->LevelFiles(0);
-  // put the output on L0 since it is easier to feed them again to the 2nd
-  // compaction
-  RunCompaction({files}, file1, db_snapshots, kMaxSequenceNumber,
-                output_level_0, !kVerify, &snapshot_fetcher);
-
-  // Now db_snapshots are changed. Run the compaction again without snapshot
-  // fetcher but with the updated snapshot list.
-  compaction_job_stats_.Reset();
-  files = cfd_->current()->storage_info()->LevelFiles(0);
-  RunCompaction({files}, file1, db_snapshots, kMaxSequenceNumber,
-                output_level_0 + 1, !kVerify);
-  // The result should be what we get if we run compaction without snapshot
-  // fetcher on the updated list of snapshots
-  auto expected = mock_table_factory_->output();
-
-  NewDB();
-  AddMockFile(file1);
-  AddMockFile(file2);
-  SetLastSequence(last_seq);
-  files = cfd_->current()->storage_info()->LevelFiles(0);
-  RunCompaction({files}, expected, db_snapshots, kMaxSequenceNumber,
-                output_level_0, !kVerify);
-  // The 2nd compaction above would get rid of useless delete markers. To get
-  // the output here exactly as what we got above after two compactions, we also
-  // run the compaction for 2nd time.
-  compaction_job_stats_.Reset();
-  files = cfd_->current()->storage_info()->LevelFiles(0);
-  RunCompaction({files}, expected, db_snapshots, kMaxSequenceNumber,
-                output_level_0 + 1, !kVerify);
+  RunCompaction({files}, expected_results, std::vector<SequenceNumber>(),
+                kMaxSequenceNumber, /* output_level */ 1, /* verify */ true,
+                /* expected_oldest_blob_file_number */ 19);
 }
 
 }  // namespace rocksdb

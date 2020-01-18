@@ -25,9 +25,7 @@ class TransactionDBMutexFactory;
 
 enum TxnDBWritePolicy {
   WRITE_COMMITTED = 0,  // write only the committed data
-  // TODO(myabandeh): Not implemented yet
   WRITE_PREPARED,  // write data after the prepare phase of 2pc
-  // TODO(myabandeh): Not implemented yet
   WRITE_UNPREPARED  // write data before the prepare phase of 2pc
 };
 
@@ -301,11 +299,9 @@ class TransactionDB : public StackableDB {
   // To Create an TransactionDB, call Open()
   // The ownership of db is transferred to the base StackableDB
   explicit TransactionDB(DB* db) : StackableDB(db) {}
-
- private:
   // No copying allowed
-  TransactionDB(const TransactionDB&);
-  void operator=(const TransactionDB&);
+  TransactionDB(const TransactionDB&) = delete;
+  void operator=(const TransactionDB&) = delete;
 };
 
 }  // namespace rocksdb

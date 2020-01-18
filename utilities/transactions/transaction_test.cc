@@ -290,7 +290,7 @@ TEST_P(TransactionTest, WaitingTxn) {
         ASSERT_EQ(key, "foo");
         ASSERT_EQ(wait.size(), 1);
         ASSERT_EQ(wait[0], id1);
-        ASSERT_EQ(cf_id, 0);
+        ASSERT_EQ(cf_id, 0U);
       });
 
   get_perf_context()->Reset();
@@ -568,7 +568,7 @@ TEST_P(TransactionTest, DeadlockCycleShared) {
     for (auto it = dlock_entry.rbegin(); it != dlock_entry.rend(); ++it) {
       auto dl_node = *it;
       ASSERT_EQ(dl_node.m_txn_id, offset_root + leaf_id);
-      ASSERT_EQ(dl_node.m_cf_id, 0);
+      ASSERT_EQ(dl_node.m_cf_id, 0U);
       ASSERT_EQ(dl_node.m_waiting_key, ToString(curr_waiting_key));
       ASSERT_EQ(dl_node.m_exclusive, true);
 
@@ -775,7 +775,7 @@ TEST_P(TransactionStressTest, DeadlockCycle) {
     for (auto it = dlock_entry.rbegin(); it != dlock_entry.rend(); ++it) {
       auto dl_node = *it;
       ASSERT_EQ(dl_node.m_txn_id, len + curr_txn_id - 1);
-      ASSERT_EQ(dl_node.m_cf_id, 0);
+      ASSERT_EQ(dl_node.m_cf_id, 0u);
       ASSERT_EQ(dl_node.m_waiting_key, ToString(curr_waiting_key));
       ASSERT_EQ(dl_node.m_exclusive, true);
 
@@ -2818,6 +2818,104 @@ TEST_P(TransactionTest, MultiGetBatchedTest) {
   ASSERT_TRUE(statuses[6].ok());
   ASSERT_EQ(values[6], "foo");
   delete txn;
+  for (auto handle : handles) {
+    delete handle;
+  }
+}
+
+// This test calls WriteBatchWithIndex::MultiGetFromBatchAndDB with a large
+// number of keys, i.e greater than MultiGetContext::MAX_BATCH_SIZE, which is
+// is 32. This forces autovector allocations in the MultiGet code paths
+// to use std::vector in addition to stack allocations. The MultiGet keys
+// includes Merges, which are handled specially in MultiGetFromBatchAndDB by
+// allocating an autovector of MergeContexts
+TEST_P(TransactionTest, MultiGetLargeBatchedTest) {
+  WriteOptions write_options;
+  ReadOptions read_options, snapshot_read_options;
+  string value;
+  Status s;
+
+  ColumnFamilyHandle* cf;
+  ColumnFamilyOptions cf_options;
+
+  std::vector<std::string> key_str;
+  for (int i = 0; i < 100; ++i) {
+    key_str.emplace_back(std::to_string(i));
+  }
+  // Create a new column families
+  s = db->CreateColumnFamily(cf_options, "CF", &cf);
+  ASSERT_OK(s);
+
+  delete cf;
+  delete db;
+  db = nullptr;
+
+  // open DB with three column families
+  std::vector<ColumnFamilyDescriptor> column_families;
+  // have to open default column family
+  column_families.push_back(
+      ColumnFamilyDescriptor(kDefaultColumnFamilyName, ColumnFamilyOptions()));
+  // open the new column families
+  cf_options.merge_operator = MergeOperators::CreateStringAppendOperator();
+  column_families.push_back(ColumnFamilyDescriptor("CF", cf_options));
+
+  std::vector<ColumnFamilyHandle*> handles;
+
+  options.merge_operator = MergeOperators::CreateStringAppendOperator();
+  ASSERT_OK(ReOpenNoDelete(column_families, &handles));
+  assert(db != nullptr);
+
+  // Write some data to the db
+  WriteBatch batch;
+  for (int i = 0; i < 3 * MultiGetContext::MAX_BATCH_SIZE; ++i) {
+    std::string val = "val" + std::to_string(i);
+    batch.Put(handles[1], key_str[i], val);
+  }
+  s = db->Write(write_options, &batch);
+  ASSERT_OK(s);
+
+  WriteBatchWithIndex wb;
+  // Write some data to the db
+  s = wb.Delete(handles[1], std::to_string(1));
+  ASSERT_OK(s);
+  s = wb.Put(handles[1], std::to_string(2), "new_val" + std::to_string(2));
+  ASSERT_OK(s);
+  // Write a lot of merges so when we call MultiGetFromBatchAndDB later on,
+  // it is forced to use std::vector in rocksdb::autovector to allocate
+  // MergeContexts. The number of merges needs to be >
+  // MultiGetContext::MAX_BATCH_SIZE
+  for (int i = 8; i < MultiGetContext::MAX_BATCH_SIZE + 24; ++i) {
+    s = wb.Merge(handles[1], std::to_string(i), "merge");
+    ASSERT_OK(s);
+  }
+
+  // MultiGet a lot of keys in order to force std::vector reallocations
+  std::vector<Slice> keys;
+  for (int i = 0; i < MultiGetContext::MAX_BATCH_SIZE + 32; ++i) {
+    keys.emplace_back(key_str[i]);
+  }
+  std::vector<PinnableSlice> values(keys.size());
+  std::vector<Status> statuses(keys.size());
+
+  wb.MultiGetFromBatchAndDB(db, snapshot_read_options, handles[1], keys.size(), keys.data(),
+                values.data(), statuses.data(), false);
+  for (size_t i =0; i < keys.size(); ++i) {
+    if (i == 1) {
+      ASSERT_TRUE(statuses[1].IsNotFound());
+    } else if (i == 2) {
+      ASSERT_TRUE(statuses[2].ok());
+      ASSERT_EQ(values[2], "new_val" + std::to_string(2));
+    } else if (i >= 8 && i < 56) {
+      ASSERT_TRUE(statuses[i].ok());
+      ASSERT_EQ(values[i], "val" + std::to_string(i) + ",merge");
+    } else {
+      ASSERT_TRUE(statuses[i].ok());
+      if (values[i] != "val" + std::to_string(i)) {
+        ASSERT_EQ(values[i], "val" + std::to_string(i));
+      }
+    }
+  }
+
   for (auto handle : handles) {
     delete handle;
   }
@@ -5967,6 +6065,55 @@ TEST_P(TransactionTest, DuplicateKeys) {
     delete db;
     db = nullptr;
   }
+}
+
+// Test that the reseek optimization in iterators will not result in an infinite
+// loop if there are too many uncommitted entries before the snapshot.
+TEST_P(TransactionTest, ReseekOptimization) {
+  WriteOptions write_options;
+  write_options.sync = true;
+  write_options.disableWAL = false;
+  ColumnFamilyDescriptor cfd;
+  db->DefaultColumnFamily()->GetDescriptor(&cfd);
+  auto max_skip = cfd.options.max_sequential_skip_in_iterations;
+
+  ASSERT_OK(db->Put(write_options, Slice("foo0"), Slice("initv")));
+
+  TransactionOptions txn_options;
+  Transaction* txn0 = db->BeginTransaction(write_options, txn_options);
+  ASSERT_OK(txn0->SetName("xid"));
+  // Duplicate keys will result into separate sequence numbers in WritePrepared
+  // and WriteUnPrepared
+  for (size_t i = 0; i < 2 * max_skip; i++) {
+    ASSERT_OK(txn0->Put(Slice("foo1"), Slice("bar")));
+  }
+  ASSERT_OK(txn0->Prepare());
+  ASSERT_OK(db->Put(write_options, Slice("foo2"), Slice("initv")));
+
+  ReadOptions read_options;
+  // To avoid loops
+  read_options.max_skippable_internal_keys = 10 * max_skip;
+  Iterator* iter = db->NewIterator(read_options);
+  ASSERT_OK(iter->status());
+  size_t cnt = 0;
+  iter->SeekToFirst();
+  while (iter->Valid()) {
+    iter->Next();
+    ASSERT_OK(iter->status());
+    cnt++;
+  }
+  ASSERT_EQ(cnt, 2);
+  cnt = 0;
+  iter->SeekToLast();
+  while (iter->Valid()) {
+    iter->Prev();
+    ASSERT_OK(iter->status());
+    cnt++;
+  }
+  ASSERT_EQ(cnt, 2);
+  delete iter;
+  txn0->Rollback();
+  delete txn0;
 }
 
 }  // namespace rocksdb

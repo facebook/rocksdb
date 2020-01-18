@@ -4,18 +4,21 @@
 //  (found in the LICENSE.Apache file in the root directory).
 
 #include <algorithm>
+#include <array>
 #include <map>
 #include <string>
 
+#include "db/blob_index.h"
 #include "db/column_family.h"
+#include "db/db_impl/db_impl.h"
 #include "db/flush_job.h"
 #include "db/version_set.h"
+#include "file/writable_file_writer.h"
 #include "rocksdb/cache.h"
 #include "rocksdb/write_buffer_manager.h"
 #include "table/mock_table.h"
 #include "test_util/testharness.h"
 #include "test_util/testutil.h"
-#include "util/file_reader_writer.h"
 #include "util/string_util.h"
 
 namespace rocksdb {
@@ -27,16 +30,13 @@ class FlushJobTest : public testing::Test {
  public:
   FlushJobTest()
       : env_(Env::Default()),
+        fs_(std::make_shared<LegacyFileSystemWrapper>(env_)),
         dbname_(test::PerThreadDBPath("flush_job_test")),
         options_(),
         db_options_(options_),
         column_family_names_({kDefaultColumnFamilyName, "foo", "bar"}),
         table_cache_(NewLRUCache(50000, 16)),
         write_buffer_manager_(db_options_.db_write_buffer_size),
-        versions_(new VersionSet(dbname_, &db_options_, env_options_,
-                                 table_cache_.get(), &write_buffer_manager_,
-                                 &write_controller_,
-                                 /*block_cache_tracer=*/nullptr)),
         shutting_down_(false),
         mock_table_factory_(new mock::MockTableFactory()) {
     EXPECT_OK(env_->CreateDirIfMissing(dbname_));
@@ -51,11 +51,24 @@ class FlushJobTest : public testing::Test {
       column_families.emplace_back(cf_name, cf_options_);
     }
 
+    db_options_.env = env_;
+    db_options_.fs = fs_;
+    versions_.reset(new VersionSet(dbname_, &db_options_, env_options_,
+                                   table_cache_.get(), &write_buffer_manager_,
+                                   &write_controller_,
+                                   /*block_cache_tracer=*/nullptr));
     EXPECT_OK(versions_->Recover(column_families, false));
   }
 
   void NewDB() {
+    SetIdentityFile(env_, dbname_);
     VersionEdit new_db;
+    if (db_options_.write_dbid_to_manifest) {
+      DBImpl* impl = new DBImpl(DBOptions(), dbname_);
+      std::string db_id;
+      impl->GetDbIdentityFromIdentityFile(&db_id);
+      new_db.SetDBId(db_id);
+    }
     new_db.SetLogNumber(0);
     new_db.SetNextFile(2);
     new_db.SetLastSequence(0);
@@ -78,8 +91,8 @@ class FlushJobTest : public testing::Test {
     Status s = env_->NewWritableFile(
         manifest, &file, env_->OptimizeForManifestWrite(env_options_));
     ASSERT_OK(s);
-    std::unique_ptr<WritableFileWriter> file_writer(
-        new WritableFileWriter(std::move(file), manifest, EnvOptions()));
+    std::unique_ptr<WritableFileWriter> file_writer(new WritableFileWriter(
+        NewLegacyWritableFileWrapper(std::move(file)), manifest, EnvOptions()));
     {
       log::Writer log(std::move(file_writer), 0, false);
       std::string record;
@@ -99,6 +112,7 @@ class FlushJobTest : public testing::Test {
   }
 
   Env* env_;
+  std::shared_ptr<FileSystem> fs_;
   std::string dbname_;
   EnvOptions env_options_;
   Options options_;
@@ -146,6 +160,7 @@ TEST_F(FlushJobTest, NonEmpty) {
   //   seqno [    1,    2 ... 8998, 8999, 9000, 9001, 9002 ... 9999 ]
   //   key   [ 1001, 1002 ... 9998, 9999,    0,    1,    2 ...  999 ]
   //   range-delete "9995" -> "9999" at seqno 10000
+  //   blob references with seqnos 10001..10006
   for (int i = 1; i < 10000; ++i) {
     std::string key(ToString((i + 1000) % 10000));
     std::string value("value" + key);
@@ -155,9 +170,43 @@ TEST_F(FlushJobTest, NonEmpty) {
       inserted_keys.insert({internal_key.Encode().ToString(), value});
     }
   }
-  new_mem->Add(SequenceNumber(10000), kTypeRangeDeletion, "9995", "9999a");
-  InternalKey internal_key("9995", SequenceNumber(10000), kTypeRangeDeletion);
-  inserted_keys.insert({internal_key.Encode().ToString(), "9999a"});
+
+  {
+    new_mem->Add(SequenceNumber(10000), kTypeRangeDeletion, "9995", "9999a");
+    InternalKey internal_key("9995", SequenceNumber(10000), kTypeRangeDeletion);
+    inserted_keys.insert({internal_key.Encode().ToString(), "9999a"});
+  }
+
+#ifndef ROCKSDB_LITE
+  // Note: the first two blob references will not be considered when resolving
+  // the oldest blob file referenced (the first one is inlined TTL, while the
+  // second one is TTL and thus points to a TTL blob file).
+  constexpr std::array<uint64_t, 6> blob_file_numbers{
+      kInvalidBlobFileNumber, 5, 103, 17, 102, 101};
+  for (size_t i = 0; i < blob_file_numbers.size(); ++i) {
+    std::string key(ToString(i + 10001));
+    std::string blob_index;
+    if (i == 0) {
+      BlobIndex::EncodeInlinedTTL(&blob_index, /* expiration */ 1234567890ULL,
+                                  "foo");
+    } else if (i == 1) {
+      BlobIndex::EncodeBlobTTL(&blob_index, /* expiration */ 1234567890ULL,
+                               blob_file_numbers[i], /* offset */ i << 10,
+                               /* size */ i << 20, kNoCompression);
+    } else {
+      BlobIndex::EncodeBlob(&blob_index, blob_file_numbers[i],
+                            /* offset */ i << 10, /* size */ i << 20,
+                            kNoCompression);
+    }
+
+    const SequenceNumber seq(i + 10001);
+    new_mem->Add(seq, kTypeBlobIndex, key, blob_index);
+
+    InternalKey internal_key(key, seq, kTypeBlobIndex);
+    inserted_keys.emplace_hint(inserted_keys.end(),
+                               internal_key.Encode().ToString(), blob_index);
+  }
+#endif
 
   autovector<MemTable*> to_delete;
   cfd->imm()->Add(new_mem, &to_delete);
@@ -186,11 +235,14 @@ TEST_F(FlushJobTest, NonEmpty) {
   ASSERT_GT(hist.average, 0.0);
 
   ASSERT_EQ(ToString(0), file_meta.smallest.user_key().ToString());
-  ASSERT_EQ(
-      "9999a",
-      file_meta.largest.user_key().ToString());  // range tombstone end key
+  ASSERT_EQ("9999a", file_meta.largest.user_key().ToString());
   ASSERT_EQ(1, file_meta.fd.smallest_seqno);
-  ASSERT_EQ(10000, file_meta.fd.largest_seqno);  // range tombstone seqnum 10000
+#ifndef ROCKSDB_LITE
+  ASSERT_EQ(10006, file_meta.fd.largest_seqno);
+  ASSERT_EQ(17, file_meta.oldest_blob_file_number);
+#else
+  ASSERT_EQ(10000, file_meta.fd.largest_seqno);
+#endif
   mock_table_factory_->AssertSingleFile(inserted_keys);
   job_context.Clean();
 }
@@ -253,6 +305,7 @@ TEST_F(FlushJobTest, FlushMemTablesSingleColumnFamily) {
   ASSERT_EQ(0, file_meta.fd.smallest_seqno);
   ASSERT_EQ(SequenceNumber(num_mems_to_flush * num_keys_per_table - 1),
             file_meta.fd.largest_seqno);
+  ASSERT_EQ(kInvalidBlobFileNumber, file_meta.oldest_blob_file_number);
 
   for (auto m : to_delete) {
     delete m;
@@ -298,18 +351,18 @@ TEST_F(FlushJobTest, FlushMemtablesMultipleColumnFamilies) {
 
   EventLogger event_logger(db_options_.info_log.get());
   SnapshotChecker* snapshot_checker = nullptr;  // not relevant
-  std::vector<FlushJob> flush_jobs;
+  std::vector<std::unique_ptr<FlushJob>> flush_jobs;
   k = 0;
   for (auto cfd : all_cfds) {
     std::vector<SequenceNumber> snapshot_seqs;
-    flush_jobs.emplace_back(
+    flush_jobs.emplace_back(new FlushJob(
         dbname_, cfd, db_options_, *cfd->GetLatestMutableCFOptions(),
         &memtable_ids[k], env_options_, versions_.get(), &mutex_,
         &shutting_down_, snapshot_seqs, kMaxSequenceNumber, snapshot_checker,
         &job_context, nullptr, nullptr, nullptr, kNoCompression,
         db_options_.statistics.get(), &event_logger, true,
         false /* sync_output_directory */, false /* write_manifest */,
-        Env::Priority::USER);
+        Env::Priority::USER));
     k++;
   }
   HistogramData hist;
@@ -318,12 +371,12 @@ TEST_F(FlushJobTest, FlushMemtablesMultipleColumnFamilies) {
   file_metas.reserve(flush_jobs.size());
   mutex_.Lock();
   for (auto& job : flush_jobs) {
-    job.PickMemTable();
+    job->PickMemTable();
   }
   for (auto& job : flush_jobs) {
     FileMetaData meta;
     // Run will release and re-acquire  mutex
-    ASSERT_OK(job.Run(nullptr /**/, &meta));
+    ASSERT_OK(job->Run(nullptr /**/, &meta));
     file_metas.emplace_back(meta);
   }
   autovector<FileMetaData*> file_meta_ptrs;
@@ -332,7 +385,7 @@ TEST_F(FlushJobTest, FlushMemtablesMultipleColumnFamilies) {
   }
   autovector<const autovector<MemTable*>*> mems_list;
   for (size_t i = 0; i != all_cfds.size(); ++i) {
-    const auto& mems = flush_jobs[i].GetMemTables();
+    const auto& mems = flush_jobs[i]->GetMemTables();
     mems_list.push_back(&mems);
   }
   autovector<const MutableCFOptions*> mutable_cf_options_list;

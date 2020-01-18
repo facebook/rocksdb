@@ -39,6 +39,7 @@
 #include <stack>
 #include <stdexcept>
 #include <type_traits>
+#include <unordered_map>
 #include <vector>
 
 #include "db/column_family.h"
@@ -333,9 +334,7 @@ void WriteBatch::Clear() {
   wal_term_point_.clear();
 }
 
-int WriteBatch::Count() const {
-  return WriteBatchInternal::Count(this);
-}
+uint32_t WriteBatch::Count() const { return WriteBatchInternal::Count(this); }
 
 uint32_t WriteBatch::ComputeContentFlags() const {
   auto rv = content_flags_.load(std::memory_order_relaxed);
@@ -538,7 +537,7 @@ Status WriteBatchInternal::Iterate(const WriteBatch* wb,
   // batches. We do that by checking whether the accumulated batch is empty
   // before seeing the next Noop.
   bool empty_batch = true;
-  int found = 0;
+  uint32_t found = 0;
   Status s;
   char tag = 0;
   uint32_t column_family = 0;  // default
@@ -733,11 +732,11 @@ void WriteBatchInternal::SetAsLastestPersistentState(WriteBatch* b) {
   b->is_latest_persistent_state_ = true;
 }
 
-int WriteBatchInternal::Count(const WriteBatch* b) {
+uint32_t WriteBatchInternal::Count(const WriteBatch* b) {
   return DecodeFixed32(b->rep_.data() + 8);
 }
 
-void WriteBatchInternal::SetCount(WriteBatch* b, int n) {
+void WriteBatchInternal::SetCount(WriteBatch* b, uint32_t n) {
   EncodeFixed32(&b->rep_[8], n);
 }
 
@@ -1149,7 +1148,7 @@ Status WriteBatch::RollbackToSavePoint() {
   save_points_->stack.pop();
 
   assert(savepoint.size <= rep_.size());
-  assert(savepoint.count <= Count());
+  assert(static_cast<uint32_t>(savepoint.count) <= Count());
 
   if (savepoint.size == rep_.size()) {
     // No changes to rollback
@@ -1225,6 +1224,22 @@ class MemTableInserter : public WriteBatch::Handler {
   DupDetector       duplicate_detector_;
   bool              dup_dectector_on_;
 
+  bool hint_per_batch_;
+  bool hint_created_;
+  // Hints for this batch
+  using HintMap = std::unordered_map<MemTable*, void*>;
+  using HintMapType = std::aligned_storage<sizeof(HintMap)>::type;
+  HintMapType hint_;
+
+  HintMap& GetHintMap() {
+    assert(hint_per_batch_);
+    if (!hint_created_) {
+      new (&hint_) HintMap();
+      hint_created_ = true;
+    }
+    return *reinterpret_cast<HintMap*>(&hint_);
+  }
+
   MemPostInfoMap& GetPostMap() {
     assert(concurrent_memtable_writes_);
     if(!post_info_created_) {
@@ -1258,7 +1273,7 @@ class MemTableInserter : public WriteBatch::Handler {
                    uint64_t recovering_log_number, DB* db,
                    bool concurrent_memtable_writes,
                    bool* has_valid_writes = nullptr, bool seq_per_batch = false,
-                   bool batch_per_txn = true)
+                   bool batch_per_txn = true, bool hint_per_batch = false)
       : sequence_(_sequence),
         cf_mems_(cf_mems),
         flush_scheduler_(flush_scheduler),
@@ -1282,7 +1297,9 @@ class MemTableInserter : public WriteBatch::Handler {
         write_before_prepare_(!batch_per_txn),
         unprepared_batch_(false),
         duplicate_detector_(),
-        dup_dectector_on_(false) {
+        dup_dectector_on_(false),
+        hint_per_batch_(hint_per_batch),
+        hint_created_(false) {
     assert(cf_mems_);
   }
 
@@ -1294,6 +1311,12 @@ class MemTableInserter : public WriteBatch::Handler {
     if (post_info_created_) {
       reinterpret_cast<MemPostInfoMap*>
         (&mem_post_info_map_)->~MemPostInfoMap();
+    }
+    if (hint_created_) {
+      for (auto iter : GetHintMap()) {
+        delete[] reinterpret_cast<char*>(iter.second);
+      }
+      reinterpret_cast<HintMap*>(&hint_)->~HintMap();
     }
     delete rebuilding_trx_;
   }
@@ -1404,7 +1427,8 @@ class MemTableInserter : public WriteBatch::Handler {
     if (!moptions->inplace_update_support) {
       bool mem_res =
           mem->Add(sequence_, value_type, key, value,
-                   concurrent_memtable_writes_, get_post_process_info(mem));
+                   concurrent_memtable_writes_, get_post_process_info(mem),
+                   hint_per_batch_ ? &GetHintMap()[mem] : nullptr);
       if (UNLIKELY(!mem_res)) {
         assert(seq_per_batch_);
         ret_status = Status::TryAgain("key+seq exists");
@@ -1487,7 +1511,8 @@ class MemTableInserter : public WriteBatch::Handler {
     MemTable* mem = cf_mems_->GetMemTable();
     bool mem_res =
         mem->Add(sequence_, delete_type, key, value,
-                 concurrent_memtable_writes_, get_post_process_info(mem));
+                 concurrent_memtable_writes_, get_post_process_info(mem),
+                 hint_per_batch_ ? &GetHintMap()[mem] : nullptr);
     if (UNLIKELY(!mem_res)) {
       assert(seq_per_batch_);
       ret_status = Status::TryAgain("key+seq exists");
@@ -1759,14 +1784,28 @@ class MemTableInserter : public WriteBatch::Handler {
     // check if memtable_list size exceeds max_write_buffer_size_to_maintain
     if (trim_history_scheduler_ != nullptr) {
       auto* cfd = cf_mems_->current();
-      assert(cfd != nullptr);
-      if (cfd->ioptions()->max_write_buffer_size_to_maintain > 0 &&
-          cfd->mem()->ApproximateMemoryUsageFast() +
-                  cfd->imm()->ApproximateMemoryUsageExcludingLast() >=
-              static_cast<size_t>(
-                  cfd->ioptions()->max_write_buffer_size_to_maintain) &&
-          cfd->imm()->MarkTrimHistoryNeeded()) {
-        trim_history_scheduler_->ScheduleWork(cfd);
+
+      assert(cfd);
+      assert(cfd->ioptions());
+
+      const size_t size_to_maintain = static_cast<size_t>(
+          cfd->ioptions()->max_write_buffer_size_to_maintain);
+
+      if (size_to_maintain > 0) {
+        MemTableList* const imm = cfd->imm();
+        assert(imm);
+
+        if (imm->HasHistory()) {
+          const MemTable* const mem = cfd->mem();
+          assert(mem);
+
+          if (mem->ApproximateMemoryUsageFast() +
+                      imm->ApproximateMemoryUsageExcludingLast() >=
+                  size_to_maintain &&
+              imm->MarkTrimHistoryNeeded()) {
+            trim_history_scheduler_->ScheduleWork(cfd);
+          }
+        }
       }
     }
   }
@@ -1962,7 +2001,7 @@ Status WriteBatchInternal::InsertInto(
     TrimHistoryScheduler* trim_history_scheduler,
     bool ignore_missing_column_families, uint64_t log_number, DB* db,
     bool concurrent_memtable_writes, bool seq_per_batch, size_t batch_cnt,
-    bool batch_per_txn) {
+    bool batch_per_txn, bool hint_per_batch) {
 #ifdef NDEBUG
   (void)batch_cnt;
 #endif
@@ -1971,7 +2010,7 @@ Status WriteBatchInternal::InsertInto(
       sequence, memtables, flush_scheduler, trim_history_scheduler,
       ignore_missing_column_families, log_number, db,
       concurrent_memtable_writes, nullptr /*has_valid_writes*/, seq_per_batch,
-      batch_per_txn);
+      batch_per_txn, hint_per_batch);
   SetSequence(writer->batch, sequence);
   inserter.set_log_number_ref(writer->log_ref);
   Status s = writer->batch->Iterate(&inserter);

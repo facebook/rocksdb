@@ -13,6 +13,7 @@
 #include <unordered_set>
 #include <vector>
 
+#include "db/arena_wrapped_db_iter.h"
 #include "db/db_impl/db_impl.h"
 #include "rocksdb/db.h"
 #include "rocksdb/options.h"
@@ -42,7 +43,7 @@ Status WritePreparedTxnDB::Initialize(
     ordered_seq_cnt[seq] = cnt;
   }
   // AddPrepared must be called in order
-  for (auto seq_cnt: ordered_seq_cnt) {
+  for (auto seq_cnt : ordered_seq_cnt) {
     auto seq = seq_cnt.first;
     auto cnt = seq_cnt.second;
     for (size_t i = 0; i < cnt; i++) {
@@ -969,7 +970,9 @@ WritePreparedTxnDB::~WritePreparedTxnDB() {
   // At this point there could be running compaction/flush holding a
   // SnapshotChecker, which holds a pointer back to WritePreparedTxnDB.
   // Make sure those jobs finished before destructing WritePreparedTxnDB.
-  db_impl_->CancelAllBackgroundWork(true /*wait*/);
+  if (!db_impl_->shutting_down_) {
+    db_impl_->CancelAllBackgroundWork(true /*wait*/);
+  }
 }
 
 void SubBatchCounter::InitWithComp(const uint32_t cf) {

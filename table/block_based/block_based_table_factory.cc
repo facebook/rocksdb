@@ -7,8 +7,8 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
-#include <cinttypes>
 #include <stdint.h>
+#include <cinttypes>
 
 #include <memory>
 #include <string>
@@ -157,6 +157,8 @@ size_t TailPrefetchStats::GetSuggestedPrefetchSize() {
   return std::min(kMaxPrefetchSize, max_qualified_size);
 }
 
+// TODO(myabandeh): We should return an error instead of silently changing the
+// options
 BlockBasedTableFactory::BlockBasedTableFactory(
     const BlockBasedTableOptions& _table_options)
     : table_options_(_table_options) {
@@ -182,6 +184,11 @@ BlockBasedTableFactory::BlockBasedTableFactory(
     table_options_.block_restart_interval = 1;
   }
   if (table_options_.index_block_restart_interval < 1) {
+    table_options_.index_block_restart_interval = 1;
+  }
+  if (table_options_.index_type == BlockBasedTableOptions::kHashSearch &&
+      table_options_.index_block_restart_interval != 1) {
+    // Currently kHashSearch is incompatible with index_block_restart_interval > 1
     table_options_.index_block_restart_interval = 1;
   }
   if (table_options_.partition_filters &&
@@ -218,7 +225,7 @@ TableBuilder* BlockBasedTableFactory::NewTableBuilder(
       table_builder_options.sample_for_compression,
       table_builder_options.compression_opts,
       table_builder_options.skip_filters,
-      table_builder_options.column_family_name,
+      table_builder_options.column_family_name, table_builder_options.level,
       table_builder_options.creation_time,
       table_builder_options.oldest_key_time,
       table_builder_options.target_file_size,
@@ -510,8 +517,8 @@ std::string ParseBlockBasedTableOption(const std::string& name,
       if (pos == std::string::npos) {
         return "Invalid filter policy config, missing bits_per_key";
       }
-      int bits_per_key =
-          ParseInt(trim(value.substr(kName.size(), pos - kName.size())));
+      double bits_per_key =
+          ParseDouble(trim(value.substr(kName.size(), pos - kName.size())));
       bool use_block_based_builder =
           ParseBoolean("use_block_based_builder", trim(value.substr(pos + 1)));
       new_options->filter_policy.reset(

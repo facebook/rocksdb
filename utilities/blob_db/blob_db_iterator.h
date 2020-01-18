@@ -6,6 +6,7 @@
 #pragma once
 #ifndef ROCKSDB_LITE
 
+#include "db/arena_wrapped_db_iter.h"
 #include "monitoring/statistics.h"
 #include "rocksdb/iterator.h"
 #include "util/stop_watch.h"
@@ -116,8 +117,6 @@ class BlobDBIterator : public Iterator {
  private:
   // Return true if caller should continue to next value.
   bool UpdateBlobValue() {
-    TEST_SYNC_POINT("BlobDBIterator::UpdateBlobValue:Start:1");
-    TEST_SYNC_POINT("BlobDBIterator::UpdateBlobValue:Start:2");
     value_.Reset();
     status_ = Status::OK();
     if (iter_->Valid() && iter_->status().ok() && iter_->IsBlob()) {

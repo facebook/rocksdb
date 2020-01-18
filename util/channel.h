@@ -60,7 +60,7 @@ class channel {
 
  private:
   std::condition_variable cv_;
-  std::mutex lock_;
+  mutable std::mutex lock_;
   std::queue<T> buffer_;
   bool eof_;
 };

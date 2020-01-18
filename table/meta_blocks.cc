@@ -9,6 +9,7 @@
 
 #include "block_fetcher.h"
 #include "db/table_properties_collector.h"
+#include "file/random_access_file_reader.h"
 #include "rocksdb/table.h"
 #include "rocksdb/table_properties.h"
 #include "table/block_based/block.h"
@@ -18,7 +19,6 @@
 #include "table/table_properties_internal.h"
 #include "test_util/sync_point.h"
 #include "util/coding.h"
-#include "util/file_reader_writer.h"
 
 namespace rocksdb {
 

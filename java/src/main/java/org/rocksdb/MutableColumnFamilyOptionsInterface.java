@@ -5,10 +5,9 @@
 
 package org.rocksdb;
 
-public interface MutableColumnFamilyOptionsInterface
-    <T extends MutableColumnFamilyOptionsInterface<T>>
-        extends AdvancedMutableColumnFamilyOptionsInterface<T> {
-
+public interface MutableColumnFamilyOptionsInterface<
+    T extends MutableColumnFamilyOptionsInterface<T>>
+    extends AdvancedMutableColumnFamilyOptionsInterface<T> {
   /**
    * Amount of data to build up in memory (backed by an unsorted log
    * on disk) before converting to a sorted on-disk file.
@@ -105,9 +104,9 @@ public interface MutableColumnFamilyOptionsInterface
    * (maxBytesForLevelBase) * (maxBytesForLevelMultiplier ^ (L-1))
    * For example, if maxBytesForLevelBase is 20MB, and if
    * max_bytes_for_level_multiplier is 10, total data size for level-1
-   * will be 20MB, total file size for level-2 will be 200MB,
-   * and total file size for level-3 will be 2GB.
-   * by default 'maxBytesForLevelBase' is 10MB.
+   * will be 200MB, total file size for level-2 will be 2GB,
+   * and total file size for level-3 will be 20GB.
+   * by default 'maxBytesForLevelBase' is 256MB.
    *
    * @param maxBytesForLevelBase maximum bytes for level base.
    *
@@ -124,9 +123,9 @@ public interface MutableColumnFamilyOptionsInterface
    * (maxBytesForLevelBase) * (maxBytesForLevelMultiplier ^ (L-1))
    * For example, if maxBytesForLevelBase is 20MB, and if
    * max_bytes_for_level_multiplier is 10, total data size for level-1
-   * will be 20MB, total file size for level-2 will be 200MB,
-   * and total file size for level-3 will be 2GB.
-   * by default 'maxBytesForLevelBase' is 10MB.
+   * will be 200MB, total file size for level-2 will be 2GB,
+   * and total file size for level-3 will be 20GB.
+   * by default 'maxBytesForLevelBase' is 256MB.
    *
    * @return the upper-bound of the total size of level-1 files
    *     in bytes.

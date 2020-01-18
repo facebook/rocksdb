@@ -141,6 +141,9 @@ class Env {
   };
 
   Env() : thread_status_updater_(nullptr) {}
+  // No copying allowed
+  Env(const Env&) = delete;
+  void operator=(const Env&) = delete;
 
   virtual ~Env();
 
@@ -148,6 +151,10 @@ class Env {
 
   // Loads the environment specified by the input value into the result
   static Status LoadEnv(const std::string& value, Env** result);
+
+  // Loads the environment specified by the input value into the result
+  static Status LoadEnv(const std::string& value, Env** result,
+                        std::shared_ptr<Env>* guard);
 
   // Return a default environment suitable for the current operating
   // system.  Sophisticated users may wish to provide their own Env
@@ -521,17 +528,14 @@ class Env {
     return Status::NotSupported();
   }
 
+  virtual void SanitizeEnvOptions(EnvOptions* /*env_opts*/) const {}
+
   // If you're adding methods here, remember to add them to EnvWrapper too.
 
  protected:
   // The pointer to an internal structure that will update the
   // status of each thread.
   ThreadStatusUpdater* thread_status_updater_;
-
- private:
-  // No copying allowed
-  Env(const Env&);
-  void operator=(const Env&);
 };
 
 // The factory function to construct a ThreadStatusUpdater.  Any Env
@@ -711,6 +715,9 @@ class WritableFile {
         io_priority_(Env::IO_TOTAL),
         write_hint_(Env::WLTH_NOT_SET),
         strict_bytes_per_sync_(options.strict_bytes_per_sync) {}
+  // No copying allowed
+  WritableFile(const WritableFile&) = delete;
+  void operator=(const WritableFile&) = delete;
 
   virtual ~WritableFile();
 
@@ -870,9 +877,6 @@ class WritableFile {
  private:
   size_t last_preallocated_block_;
   size_t preallocation_block_size_;
-  // No copying allowed
-  WritableFile(const WritableFile&);
-  void operator=(const WritableFile&);
 
  protected:
   Env::IOPriority io_priority_;
@@ -884,6 +888,10 @@ class WritableFile {
 class RandomRWFile {
  public:
   RandomRWFile() {}
+  // No copying allowed
+  RandomRWFile(const RandomRWFile&) = delete;
+  RandomRWFile& operator=(const RandomRWFile&) = delete;
+
   virtual ~RandomRWFile() {}
 
   // Indicates if the class makes use of direct I/O
@@ -914,10 +922,6 @@ class RandomRWFile {
 
   // If you're adding methods here, remember to add them to
   // RandomRWFileWrapper too.
-
-  // No copying allowed
-  RandomRWFile(const RandomRWFile&) = delete;
-  RandomRWFile& operator=(const RandomRWFile&) = delete;
 };
 
 // MemoryMappedFileBuffer object represents a memory-mapped file's raw buffer.
@@ -975,6 +979,10 @@ class Logger {
 
   explicit Logger(const InfoLogLevel log_level = InfoLogLevel::INFO_LEVEL)
       : closed_(false), log_level_(log_level) {}
+  // No copying allowed
+  Logger(const Logger&) = delete;
+  void operator=(const Logger&) = delete;
+
   virtual ~Logger();
 
   // Close the log file. Must be called before destructor. If the return
@@ -1016,9 +1024,6 @@ class Logger {
   bool closed_;
 
  private:
-  // No copying allowed
-  Logger(const Logger&);
-  void operator=(const Logger&);
   InfoLogLevel log_level_;
 };
 
@@ -1030,8 +1035,8 @@ class FileLock {
 
  private:
   // No copying allowed
-  FileLock(const FileLock&);
-  void operator=(const FileLock&);
+  FileLock(const FileLock&) = delete;
+  void operator=(const FileLock&) = delete;
 };
 
 class DynamicLibrary {
@@ -1359,6 +1364,9 @@ class EnvWrapper : public Env {
   }
   Status GetFreeSpace(const std::string& path, uint64_t* diskfree) override {
     return target_->GetFreeSpace(path, diskfree);
+  }
+  void SanitizeEnvOptions(EnvOptions* env_opts) const override {
+    target_->SanitizeEnvOptions(env_opts);
   }
 
  private:

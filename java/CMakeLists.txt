@@ -51,6 +51,8 @@ set(JNI_NATIVE_SOURCES
         rocksjni/snapshot.cc
         rocksjni/sst_file_manager.cc
         rocksjni/sst_file_writerjni.cc
+        rocksjni/sst_file_readerjni.cc
+        rocksjni/sst_file_reader_iterator.cc
         rocksjni/statistics.cc
         rocksjni/statisticsjni.cc
         rocksjni/table.cc
@@ -142,6 +144,7 @@ set(JAVA_MAIN_CLASSES
   src/main/java/org/rocksdb/HdfsEnv.java
   src/main/java/org/rocksdb/HistogramData.java
   src/main/java/org/rocksdb/HistogramType.java
+  src/main/java/org/rocksdb/Holder.java
   src/main/java/org/rocksdb/IndexType.java
   src/main/java/org/rocksdb/InfoLogLevel.java
   src/main/java/org/rocksdb/IngestExternalFileOptions.java
@@ -194,6 +197,8 @@ set(JAVA_MAIN_CLASSES
   src/main/java/org/rocksdb/SstFileManager.java
   src/main/java/org/rocksdb/SstFileMetaData.java
   src/main/java/org/rocksdb/SstFileWriter.java
+  src/main/java/org/rocksdb/SstFileReader.java
+  src/main/java/org/rocksdb/SstFileReaderIterator.java
   src/main/java/org/rocksdb/StateType.java
   src/main/java/org/rocksdb/StatisticsCollectorCallback.java
   src/main/java/org/rocksdb/StatisticsCollector.java
@@ -245,7 +250,7 @@ set(JAVA_TEST_CLASSES
   src/test/java/org/rocksdb/NativeComparatorWrapperTest.java
   src/test/java/org/rocksdb/PlatformRandomHelper.java
   src/test/java/org/rocksdb/RocksDBExceptionTest.java
-  src/test/java/org/rocksdb/RocksMemoryResource.java
+  src/test/java/org/rocksdb/RocksNativeLibraryResource.java
   src/test/java/org/rocksdb/SnapshotTest.java
   src/test/java/org/rocksdb/WriteBatchTest.java
   src/test/java/org/rocksdb/util/CapturingWriteBatchHandler.java
@@ -313,7 +318,7 @@ if (DEFINED CUSTOM_REPO_URL)
   set(CENTRAL_REPO_URL ${CUSTOM_REPO_URL}/)
 else ()
   set(SEARCH_REPO_URL "http://search.maven.org/remotecontent?filepath=")
-  set(CENTRAL_REPO_URL "http://central.maven.org/maven2/")
+  set(CENTRAL_REPO_URL "https://repo1.maven.org/maven2/")
 endif()
 
 if(NOT EXISTS ${JAVA_JUNIT_JAR})
@@ -436,6 +441,8 @@ if(${CMAKE_VERSION} VERSION_LESS "3.11.4" OR (${Java_VERSION_MINOR} STREQUAL "7"
           org.rocksdb.Snapshot
           org.rocksdb.SstFileManager
           org.rocksdb.SstFileWriter
+          org.rocksdb.SstFileReader
+          org.rocksdb.SstFileReaderIterator
           org.rocksdb.Statistics
           org.rocksdb.StringAppendOperator
           org.rocksdb.TableFormatConfig
@@ -478,13 +485,13 @@ endif()
 set(ROCKSDBJNI_STATIC_LIB rocksdbjni${ARTIFACT_SUFFIX})
 add_library(${ROCKSDBJNI_STATIC_LIB} ${JNI_NATIVE_SOURCES})
 add_dependencies(${ROCKSDBJNI_STATIC_LIB} rocksdbjni_headers)
-target_link_libraries(${ROCKSDBJNI_STATIC_LIB} ${ROCKSDB_STATIC_LIB} ${LIBS})
+target_link_libraries(${ROCKSDBJNI_STATIC_LIB} ${ROCKSDB_STATIC_LIB} ${ROCKSDB_LIB})
 
 if(NOT MINGW)
   set(ROCKSDBJNI_SHARED_LIB rocksdbjni-shared${ARTIFACT_SUFFIX})
   add_library(${ROCKSDBJNI_SHARED_LIB} SHARED ${JNI_NATIVE_SOURCES})
   add_dependencies(${ROCKSDBJNI_SHARED_LIB} rocksdbjni_headers)
-  target_link_libraries(${ROCKSDBJNI_SHARED_LIB} ${ROCKSDB_STATIC_LIB} ${LIBS})
+  target_link_libraries(${ROCKSDBJNI_SHARED_LIB} ${ROCKSDB_STATIC_LIB} ${ROCKSDB_LIB})
 
   set_target_properties(
     ${ROCKSDBJNI_SHARED_LIB}

@@ -57,6 +57,7 @@ class TraceWriter;
 #ifdef ROCKSDB_LITE
 class CompactionJobInfo;
 #endif
+class FileSystem;
 
 extern const std::string kDefaultColumnFamilyName;
 extern const std::string kPersistentStatsColumnFamilyName;
@@ -255,6 +256,10 @@ class DB {
                                    std::vector<std::string>* column_families);
 
   DB() {}
+  // No copying allowed
+  DB(const DB&) = delete;
+  void operator=(const DB&) = delete;
+
   virtual ~DB();
 
   // Create a column_family and return the handle of column family
@@ -486,6 +491,47 @@ class DB {
       values++;
     }
   }
+
+  // Overloaded MultiGet API that improves performance by batching operations
+  // in the read path for greater efficiency. Currently, only the block based
+  // table format with full filters are supported. Other table formats such
+  // as plain table, block based table with block based filters and
+  // partitioned indexes will still work, but will not get any performance
+  // benefits.
+  // Parameters -
+  // options - ReadOptions
+  // column_family - ColumnFamilyHandle* that the keys belong to. All the keys
+  //                 passed to the API are restricted to a single column family
+  // num_keys - Number of keys to lookup
+  // keys - Pointer to C style array of key Slices with num_keys elements
+  // values - Pointer to C style array of PinnableSlices with num_keys elements
+  // statuses - Pointer to C style array of Status with num_keys elements
+  // sorted_input - If true, it means the input keys are already sorted by key
+  //                order, so the MultiGet() API doesn't have to sort them
+  //                again. If false, the keys will be copied and sorted
+  //                internally by the API - the input array will not be
+  //                modified
+  virtual void MultiGet(const ReadOptions& options, const size_t num_keys,
+                        ColumnFamilyHandle** column_families, const Slice* keys,
+                        PinnableSlice* values, Status* statuses,
+                        const bool /*sorted_input*/ = false) {
+    std::vector<ColumnFamilyHandle*> cf;
+    std::vector<Slice> user_keys;
+    std::vector<Status> status;
+    std::vector<std::string> vals;
+
+    for (size_t i = 0; i < num_keys; ++i) {
+      cf.emplace_back(column_families[i]);
+      user_keys.emplace_back(keys[i]);
+    }
+    status = MultiGet(options, cf, user_keys, &vals);
+    std::copy(status.begin(), status.end(), statuses);
+    for (auto& value : vals) {
+      values->PinSelf(value);
+      values++;
+    }
+  }
+
   // If the key definitely does not exist in the database, then this method
   // returns false, else true. If the caller wants to obtain value when the key
   // is found in memory, a bool for 'value_found' must be passed. 'value_found'
@@ -669,6 +715,10 @@ class DB {
     //  "rocksdb.oldest-snapshot-time" - returns number representing unix
     //      timestamp of oldest unreleased snapshot.
     static const std::string kOldestSnapshotTime;
+
+    //  "rocksdb.oldest-snapshot-sequence" - returns number representing
+    //      sequence number of oldest unreleased snapshot.
+    static const std::string kOldestSnapshotSequence;
 
     //  "rocksdb.num-live-versions" - returns number of live versions. `Version`
     //      is an internal data structure. See version_set.h for details. More
@@ -995,6 +1045,9 @@ class DB {
   virtual Status EnableAutoCompaction(
       const std::vector<ColumnFamilyHandle*>& column_family_handles) = 0;
 
+  virtual void DisableManualCompaction() = 0;
+  virtual void EnableManualCompaction() = 0;
+
   // Number of levels used for this DB.
   virtual int NumberLevels(ColumnFamilyHandle* column_family) = 0;
   virtual int NumberLevels() { return NumberLevels(DefaultColumnFamily()); }
@@ -1018,6 +1071,8 @@ class DB {
 
   // Get Env object from the DB
   virtual Env* GetEnv() const = 0;
+
+  virtual FileSystem* GetFileSystem() const;
 
   // Get DB Options that we use.  During the process of opening the
   // column family, the options provided when calling DB::Open() or
@@ -1122,6 +1177,28 @@ class DB {
 
   // Retrieve the sorted list of all wal files with earliest file first
   virtual Status GetSortedWalFiles(VectorLogPtr& files) = 0;
+
+  // Retrieve information about the current wal file
+  //
+  // Note that the log might have rolled after this call in which case
+  // the current_log_file would not point to the current log file.
+  //
+  // Additionally, for the sake of optimization current_log_file->StartSequence
+  // would always be set to 0
+  virtual Status GetCurrentWalFile(
+      std::unique_ptr<LogFile>* current_log_file) = 0;
+
+  // Retrieves the creation time of the oldest file in the DB.
+  // This API only works if max_open_files = -1, if it is not then
+  // Status returned is Status::NotSupported()
+  // The file creation time is set using the env provided to the DB.
+  // If the DB was created from a very old release then its possible that
+  // the SST files might not have file_creation_time property and even after
+  // moving to a newer release its possible that some files never got compacted
+  // and may not have file_creation_time property. In both the cases
+  // file_creation_time is considered 0 which means this API will return
+  // creation_time = 0 as there wouldn't be a timestamp lower than 0.
+  virtual Status GetCreationTimeOfOldestFile(uint64_t* creation_time) = 0;
 
   // Note: this API is not yet consistent with WritePrepared transactions.
   // Sets iter to an iterator that is positioned at a write-batch containing
@@ -1412,11 +1489,6 @@ class DB {
     return Status::NotSupported("Supported only by secondary instance");
   }
 #endif  // !ROCKSDB_LITE
-
- private:
-  // No copying allowed
-  DB(const DB&);
-  void operator=(const DB&);
 };
 
 // Destroy the contents of the specified database.

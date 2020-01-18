@@ -9,24 +9,10 @@
 
 #ifndef ROCKSDB_LITE
 
-#include "rocksdb/utilities/backupable_db.h"
-#include "file/filename.h"
-#include "logging/logging.h"
-#include "port/port.h"
-#include "rocksdb/rate_limiter.h"
-#include "rocksdb/transaction_log.h"
-#include "test_util/sync_point.h"
-#include "util/channel.h"
-#include "util/coding.h"
-#include "util/crc32c.h"
-#include "util/file_reader_writer.h"
-#include "util/string_util.h"
-#include "utilities/checkpoint/checkpoint_impl.h"
-
-#include <cinttypes>
 #include <stdlib.h>
 #include <algorithm>
 #include <atomic>
+#include <cinttypes>
 #include <functional>
 #include <future>
 #include <limits>
@@ -38,6 +24,22 @@
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
+
+#include "env/composite_env_wrapper.h"
+#include "file/filename.h"
+#include "file/sequence_file_reader.h"
+#include "file/writable_file_writer.h"
+#include "logging/logging.h"
+#include "port/port.h"
+#include "rocksdb/rate_limiter.h"
+#include "rocksdb/transaction_log.h"
+#include "rocksdb/utilities/backupable_db.h"
+#include "test_util/sync_point.h"
+#include "util/channel.h"
+#include "util/coding.h"
+#include "util/crc32c.h"
+#include "util/string_util.h"
+#include "utilities/checkpoint/checkpoint_impl.h"
 
 namespace rocksdb {
 
@@ -120,6 +122,7 @@ class BackupEngineImpl : public BackupEngine {
 
  private:
   void DeleteChildren(const std::string& dir, uint32_t file_type_filter = 0);
+  Status DeleteBackupInternal(BackupID backup_id);
 
   // Extends the "result" map with pathname->size mappings for the contents of
   // "dir" in "env". Pathnames are prefixed with "dir".
@@ -456,6 +459,10 @@ class BackupEngineImpl : public BackupEngine {
   std::mutex byte_report_mutex_;
   channel<CopyOrCreateWorkItem> files_to_copy_or_create_;
   std::vector<port::Thread> threads_;
+  // Certain operations like PurgeOldBackups and DeleteBackup will trigger
+  // automatic GarbageCollect (true) unless we've already done one in this
+  // session and have not failed to delete backup files since then (false).
+  bool might_need_garbage_collect_ = true;
 
   // Adds a file to the backup work queue to be copied or created if it doesn't
   // already exist.
@@ -559,6 +566,17 @@ Status BackupEngineImpl::Initialize() {
   options_.Dump(options_.info_log);
 
   if (!read_only_) {
+    // we might need to clean up from previous crash or I/O errors
+    might_need_garbage_collect_ = true;
+
+    if (options_.max_valid_backups_to_open != port::kMaxInt32) {
+      options_.max_valid_backups_to_open = port::kMaxInt32;
+      ROCKS_LOG_WARN(
+          options_.info_log,
+          "`max_valid_backups_to_open` is not set to the default value. Ignoring "
+          "its value since BackupEngine is not read-only.");
+    }
+
     // gather the list of directories that we need to create
     std::vector<std::pair<std::string, std::unique_ptr<Directory>*>>
         directories;
@@ -755,7 +773,11 @@ Status BackupEngineImpl::CreateNewBackupWithMetadata(
   if (s.ok()) {
     // maybe last backup failed and left partial state behind, clean it up.
     // need to do this before updating backups_ such that a private dir
-    // named after new_backup_id will be cleaned up
+    // named after new_backup_id will be cleaned up.
+    // (If an incomplete new backup is followed by an incomplete delete
+    // of the latest full backup, then there could be more than one next
+    // id with a private dir, the last thing to be deleted in delete
+    // backup, but all will be cleaned up with a GarbageCollect.)
     s = GarbageCollect();
   } else if (s.IsNotFound()) {
     // normal case, the new backup's private dir doesn't exist yet
@@ -928,8 +950,8 @@ Status BackupEngineImpl::CreateNewBackupWithMetadata(
     ROCKS_LOG_INFO(options_.info_log, "Backup Statistics %s\n",
                    backup_statistics_.ToString().c_str());
     // delete files that we might have already written
+    might_need_garbage_collect_ = true;
     DeleteBackup(new_backup_id);
-    GarbageCollect();
     return s;
   }
 
@@ -957,6 +979,10 @@ Status BackupEngineImpl::CreateNewBackupWithMetadata(
 Status BackupEngineImpl::PurgeOldBackups(uint32_t num_backups_to_keep) {
   assert(initialized_);
   assert(!read_only_);
+
+  // Best effort deletion even with errors
+  Status overall_status = Status::OK();
+
   ROCKS_LOG_INFO(options_.info_log, "Purging old backups, keeping %u",
                  num_backups_to_keep);
   std::vector<BackupID> to_delete;
@@ -966,17 +992,44 @@ Status BackupEngineImpl::PurgeOldBackups(uint32_t num_backups_to_keep) {
     itr++;
   }
   for (auto backup_id : to_delete) {
-    auto s = DeleteBackup(backup_id);
+    auto s = DeleteBackupInternal(backup_id);
     if (!s.ok()) {
-      return s;
+      overall_status = s;
     }
   }
-  return Status::OK();
+  // Clean up after any incomplete backup deletion, potentially from
+  // earlier session.
+  if (might_need_garbage_collect_) {
+    auto s = GarbageCollect();
+    if (!s.ok() && overall_status.ok()) {
+      overall_status = s;
+    }
+  }
+  return overall_status;
 }
 
 Status BackupEngineImpl::DeleteBackup(BackupID backup_id) {
+  auto s1 = DeleteBackupInternal(backup_id);
+  auto s2 = Status::OK();
+
+  // Clean up after any incomplete backup deletion, potentially from
+  // earlier session.
+  if (might_need_garbage_collect_) {
+    s2 = GarbageCollect();
+  }
+
+  if (!s1.ok()) {
+    return s1;
+  } else {
+    return s2;
+  }
+}
+
+// Does not auto-GarbageCollect
+Status BackupEngineImpl::DeleteBackupInternal(BackupID backup_id) {
   assert(initialized_);
   assert(!read_only_);
+
   ROCKS_LOG_INFO(options_.info_log, "Deleting backup %u", backup_id);
   auto backup = backups_.find(backup_id);
   if (backup != backups_.end()) {
@@ -997,24 +1050,24 @@ Status BackupEngineImpl::DeleteBackup(BackupID backup_id) {
     corrupt_backups_.erase(corrupt);
   }
 
-  if (options_.max_valid_backups_to_open == port::kMaxInt32) {
-    std::vector<std::string> to_delete;
-    for (auto& itr : backuped_file_infos_) {
-      if (itr.second->refs == 0) {
-        Status s = backup_env_->DeleteFile(GetAbsolutePath(itr.first));
-        ROCKS_LOG_INFO(options_.info_log, "Deleting %s -- %s",
-                       itr.first.c_str(), s.ToString().c_str());
-        to_delete.push_back(itr.first);
+  // After removing meta file, best effort deletion even with errors.
+  // (Don't delete other files if we can't delete the meta file right
+  // now.)
+  std::vector<std::string> to_delete;
+  for (auto& itr : backuped_file_infos_) {
+    if (itr.second->refs == 0) {
+      Status s = backup_env_->DeleteFile(GetAbsolutePath(itr.first));
+      ROCKS_LOG_INFO(options_.info_log, "Deleting %s -- %s", itr.first.c_str(),
+                     s.ToString().c_str());
+      to_delete.push_back(itr.first);
+      if (!s.ok()) {
+        // Trying again later might work
+        might_need_garbage_collect_ = true;
       }
     }
-    for (auto& td : to_delete) {
-      backuped_file_infos_.erase(td);
-    }
-  } else {
-    ROCKS_LOG_WARN(
-        options_.info_log,
-        "DeleteBackup cleanup is limited since `max_valid_backups_to_open` "
-        "constrains how many backups the engine knows about");
+  }
+  for (auto& td : to_delete) {
+    backuped_file_infos_.erase(td);
   }
 
   // take care of private dirs -- GarbageCollect() will take care of them
@@ -1023,6 +1076,10 @@ Status BackupEngineImpl::DeleteBackup(BackupID backup_id) {
   Status s = backup_env_->DeleteDir(GetAbsolutePath(private_dir));
   ROCKS_LOG_INFO(options_.info_log, "Deleting private dir %s -- %s",
                  private_dir.c_str(), s.ToString().c_str());
+  if (!s.ok()) {
+    // Full gc or trying again later might work
+    might_need_garbage_collect_ = true;
+  }
   return Status::OK();
 }
 
@@ -1241,12 +1298,13 @@ Status BackupEngineImpl::CopyOrCreateFile(
     return s;
   }
 
-  std::unique_ptr<WritableFileWriter> dest_writer(
-      new WritableFileWriter(std::move(dst_file), dst, dst_env_options));
+  std::unique_ptr<WritableFileWriter> dest_writer(new WritableFileWriter(
+      NewLegacyWritableFileWrapper(std::move(dst_file)), dst, dst_env_options));
   std::unique_ptr<SequentialFileReader> src_reader;
   std::unique_ptr<char[]> buf;
   if (!src.empty()) {
-    src_reader.reset(new SequentialFileReader(std::move(src_file), src));
+    src_reader.reset(new SequentialFileReader(
+        NewLegacySequentialFileWrapper(src_file), src));
     buf.reset(new char[copy_file_buffer_size_]);
   }
 
@@ -1443,7 +1501,7 @@ Status BackupEngineImpl::CalculateChecksum(const std::string& src, Env* src_env,
   }
 
   std::unique_ptr<SequentialFileReader> src_reader(
-      new SequentialFileReader(std::move(src_file), src));
+      new SequentialFileReader(NewLegacySequentialFileWrapper(src_file), src));
   std::unique_ptr<char[]> buf(new char[copy_file_buffer_size_]);
   Slice data;
 
@@ -1505,23 +1563,21 @@ Status BackupEngineImpl::InsertPathnameToSizeBytes(
 
 Status BackupEngineImpl::GarbageCollect() {
   assert(!read_only_);
-  ROCKS_LOG_INFO(options_.info_log, "Starting garbage collection");
-  if (options_.max_valid_backups_to_open == port::kMaxInt32) {
-    ROCKS_LOG_WARN(
-        options_.info_log,
-        "Garbage collection is limited since `max_valid_backups_to_open` "
-        "constrains how many backups the engine knows about");
-  }
 
-  if (options_.share_table_files &&
-      options_.max_valid_backups_to_open == port::kMaxInt32) {
-    // delete obsolete shared files
-    // we cannot do this when BackupEngine has `max_valid_backups_to_open` set
-    // as those engines don't know about all shared files.
+  // We will make a best effort to remove all garbage even in the presence
+  // of inconsistencies or I/O failures that inhibit finding garbage.
+  Status overall_status = Status::OK();
+  // If all goes well, we don't need another auto-GC this session
+  might_need_garbage_collect_ = false;
+
+  ROCKS_LOG_INFO(options_.info_log, "Starting garbage collection");
+
+  // delete obsolete shared files
+  for (bool with_checksum : {false, true}) {
     std::vector<std::string> shared_children;
     {
       std::string shared_path;
-      if (options_.share_files_with_checksum) {
+      if (with_checksum) {
         shared_path = GetAbsolutePath(GetSharedFileWithChecksumRel());
       } else {
         shared_path = GetAbsolutePath(GetSharedFileRel());
@@ -1533,12 +1589,17 @@ Status BackupEngineImpl::GarbageCollect() {
         s = Status::OK();
       }
       if (!s.ok()) {
-        return s;
+        overall_status = s;
+        // Trying again later might work
+        might_need_garbage_collect_ = true;
       }
     }
     for (auto& child : shared_children) {
+      if (child == "." || child == "..") {
+        continue;
+      }
       std::string rel_fname;
-      if (options_.share_files_with_checksum) {
+      if (with_checksum) {
         rel_fname = GetSharedFileWithChecksumRel(child);
       } else {
         rel_fname = GetSharedFileRel(child);
@@ -1553,6 +1614,10 @@ Status BackupEngineImpl::GarbageCollect() {
         ROCKS_LOG_INFO(options_.info_log, "Deleting %s -- %s",
                        rel_fname.c_str(), s.ToString().c_str());
         backuped_file_infos_.erase(rel_fname);
+        if (!s.ok()) {
+          // Trying again later might work
+          might_need_garbage_collect_ = true;
+        }
       }
     }
   }
@@ -1563,12 +1628,16 @@ Status BackupEngineImpl::GarbageCollect() {
     auto s = backup_env_->GetChildren(GetAbsolutePath(GetPrivateDirRel()),
                                       &private_children);
     if (!s.ok()) {
-      return s;
+      overall_status = s;
+      // Trying again later might work
+      might_need_garbage_collect_ = true;
     }
   }
   for (auto& child : private_children) {
-    // it's ok to do this when BackupEngine has `max_valid_backups_to_open` set
-    // as the engine always knows all valid backup numbers.
+    if (child == "." || child == "..") {
+      continue;
+    }
+
     BackupID backup_id = 0;
     bool tmp_dir = child.find(".tmp") != std::string::npos;
     sscanf(child.c_str(), "%u", &backup_id);
@@ -1583,18 +1652,30 @@ Status BackupEngineImpl::GarbageCollect() {
     std::vector<std::string> subchildren;
     backup_env_->GetChildren(full_private_path, &subchildren);
     for (auto& subchild : subchildren) {
+      if (subchild == "." || subchild == "..") {
+        continue;
+      }
       Status s = backup_env_->DeleteFile(full_private_path + subchild);
       ROCKS_LOG_INFO(options_.info_log, "Deleting %s -- %s",
                      (full_private_path + subchild).c_str(),
                      s.ToString().c_str());
+      if (!s.ok()) {
+        // Trying again later might work
+        might_need_garbage_collect_ = true;
+      }
     }
     // finally delete the private dir
     Status s = backup_env_->DeleteDir(full_private_path);
     ROCKS_LOG_INFO(options_.info_log, "Deleting dir %s -- %s",
                    full_private_path.c_str(), s.ToString().c_str());
+    if (!s.ok()) {
+      // Trying again later might work
+      might_need_garbage_collect_ = true;
+    }
   }
 
-  return Status::OK();
+  assert(overall_status.ok() || might_need_garbage_collect_);
+  return overall_status;
 }
 
 // ------- BackupMeta class --------
@@ -1667,7 +1748,8 @@ Status BackupEngineImpl::BackupMeta::LoadFromFile(
   }
 
   std::unique_ptr<SequentialFileReader> backup_meta_reader(
-      new SequentialFileReader(std::move(backup_meta_file), meta_filename_));
+      new SequentialFileReader(NewLegacySequentialFileWrapper(backup_meta_file),
+                               meta_filename_));
   std::unique_ptr<char[]> buf(new char[max_backup_meta_file_size_ + 1]);
   Slice data;
   s = backup_meta_reader->Read(max_backup_meta_file_size_, &data, buf.get());

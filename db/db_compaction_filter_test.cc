@@ -720,7 +720,7 @@ TEST_F(DBTestCompactionFilter, CompactionFilterIgnoreSnapshot) {
   cfilter_count = 0;
   ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
   // The filter should delete 40 records.
-  ASSERT_EQ(40U, cfilter_count);
+  ASSERT_EQ(40, cfilter_count);
 
   {
     // Scan the entire database as of the snapshot to ensure

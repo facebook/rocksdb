@@ -8,6 +8,7 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
 #include "db/version_set.h"
+#include "db/db_impl/db_impl.h"
 #include "db/log_writer.h"
 #include "logging/logging.h"
 #include "table/mock_table.h"
@@ -34,10 +35,12 @@ class GenerateLevelFilesBriefTest : public testing::Test {
   void Add(const char* smallest, const char* largest,
            SequenceNumber smallest_seq = 100,
            SequenceNumber largest_seq = 100) {
-    FileMetaData* f = new FileMetaData;
-    f->fd = FileDescriptor(files_.size() + 1, 0, 0);
-    f->smallest = InternalKey(smallest, smallest_seq, kTypeValue);
-    f->largest = InternalKey(largest, largest_seq, kTypeValue);
+    FileMetaData* f = new FileMetaData(
+        files_.size() + 1, 0, 0,
+        InternalKey(smallest, smallest_seq, kTypeValue),
+        InternalKey(largest, largest_seq, kTypeValue), smallest_seq,
+        largest_seq, /* marked_for_compact */ false, kInvalidBlobFileNumber,
+        kUnknownOldestAncesterTime, kUnknownFileCreationTime);
     files_.push_back(f);
   }
 
@@ -128,28 +131,24 @@ class VersionStorageInfoTest : public testing::Test {
   void Add(int level, uint32_t file_number, const char* smallest,
            const char* largest, uint64_t file_size = 0) {
     assert(level < vstorage_.num_levels());
-    FileMetaData* f = new FileMetaData;
-    f->fd = FileDescriptor(file_number, 0, file_size);
-    f->smallest = GetInternalKey(smallest, 0);
-    f->largest = GetInternalKey(largest, 0);
+    FileMetaData* f = new FileMetaData(
+        file_number, 0, file_size, GetInternalKey(smallest, 0),
+        GetInternalKey(largest, 0), /* smallest_seq */ 0, /* largest_seq */ 0,
+        /* marked_for_compact */ false, kInvalidBlobFileNumber,
+        kUnknownOldestAncesterTime, kUnknownFileCreationTime);
     f->compensated_file_size = file_size;
-    f->refs = 0;
-    f->num_entries = 0;
-    f->num_deletions = 0;
     vstorage_.AddFile(level, f);
   }
 
   void Add(int level, uint32_t file_number, const InternalKey& smallest,
            const InternalKey& largest, uint64_t file_size = 0) {
     assert(level < vstorage_.num_levels());
-    FileMetaData* f = new FileMetaData;
-    f->fd = FileDescriptor(file_number, 0, file_size);
-    f->smallest = smallest;
-    f->largest = largest;
+    FileMetaData* f = new FileMetaData(
+        file_number, 0, file_size, smallest, largest, /* smallest_seq */ 0,
+        /* largest_seq */ 0, /* marked_for_compact */ false,
+        kInvalidBlobFileNumber, kUnknownOldestAncesterTime,
+        kUnknownFileCreationTime);
     f->compensated_file_size = file_size;
-    f->refs = 0;
-    f->num_entries = 0;
-    f->num_deletions = 0;
     vstorage_.AddFile(level, f);
   }
 
@@ -611,21 +610,25 @@ class VersionSetTestBase {
 
   VersionSetTestBase()
       : env_(Env::Default()),
+        fs_(std::make_shared<LegacyFileSystemWrapper>(env_)),
         dbname_(test::PerThreadDBPath("version_set_test")),
         db_options_(),
         mutable_cf_options_(cf_options_),
         table_cache_(NewLRUCache(50000, 16)),
         write_buffer_manager_(db_options_.db_write_buffer_size),
-        versions_(new VersionSet(dbname_, &db_options_, env_options_,
-                                 table_cache_.get(), &write_buffer_manager_,
-                                 &write_controller_,
-                                 /*block_cache_tracer=*/nullptr)),
-        reactive_versions_(std::make_shared<ReactiveVersionSet>(
-            dbname_, &db_options_, env_options_, table_cache_.get(),
-            &write_buffer_manager_, &write_controller_)),
         shutting_down_(false),
         mock_table_factory_(std::make_shared<mock::MockTableFactory>()) {
     EXPECT_OK(env_->CreateDirIfMissing(dbname_));
+
+    db_options_.env = env_;
+    db_options_.fs = fs_;
+    versions_.reset(new VersionSet(dbname_, &db_options_, env_options_,
+                                   table_cache_.get(), &write_buffer_manager_,
+                                   &write_controller_,
+                                   /*block_cache_tracer=*/nullptr)),
+        reactive_versions_ = std::make_shared<ReactiveVersionSet>(
+            dbname_, &db_options_, env_options_, table_cache_.get(),
+            &write_buffer_manager_, &write_controller_);
     db_options_.db_paths.emplace_back(dbname_,
                                       std::numeric_limits<uint64_t>::max());
   }
@@ -637,6 +640,12 @@ class VersionSetTestBase {
     assert(last_seqno != nullptr);
     assert(log_writer != nullptr);
     VersionEdit new_db;
+    if (db_options_.write_dbid_to_manifest) {
+      DBImpl* impl = new DBImpl(DBOptions(), dbname_);
+      std::string db_id;
+      impl->GetDbIdentityFromIdentityFile(&db_id);
+      new_db.SetDBId(db_id);
+    }
     new_db.SetLogNumber(0);
     new_db.SetNextFile(2);
     new_db.SetLastSequence(0);
@@ -664,8 +673,8 @@ class VersionSetTestBase {
     Status s = env_->NewWritableFile(
         manifest, &file, env_->OptimizeForManifestWrite(env_options_));
     ASSERT_OK(s);
-    std::unique_ptr<WritableFileWriter> file_writer(
-        new WritableFileWriter(std::move(file), manifest, env_options_));
+    std::unique_ptr<WritableFileWriter> file_writer(new WritableFileWriter(
+        NewLegacyWritableFileWrapper(std::move(file)), manifest, env_options_));
     {
       log_writer->reset(new log::Writer(std::move(file_writer), 0, false));
       std::string record;
@@ -691,7 +700,7 @@ class VersionSetTestBase {
     std::vector<ColumnFamilyDescriptor> column_families;
     SequenceNumber last_seqno;
     std::unique_ptr<log::Writer> log_writer;
-
+    SetIdentityFile(env_, dbname_);
     PrepareManifest(&column_families, &last_seqno, &log_writer);
     log_writer.reset();
     // Make "CURRENT" file point to the new manifest file.
@@ -704,6 +713,7 @@ class VersionSetTestBase {
   }
 
   Env* env_;
+  std::shared_ptr<FileSystem> fs_;
   const std::string dbname_;
   EnvOptions env_options_;
   ImmutableDBOptions db_options_;
@@ -752,7 +762,7 @@ TEST_F(VersionSetTest, SameColumnFamilyGroupCommit) {
   SyncPoint::GetInstance()->SetCallBack(
       "VersionSet::ProcessManifestWrites:SameColumnFamily", [&](void* arg) {
         uint32_t* cf_id = reinterpret_cast<uint32_t*>(arg);
-        EXPECT_EQ(0, *cf_id);
+        EXPECT_EQ(0u, *cf_id);
         ++count;
       });
   SyncPoint::GetInstance()->EnableProcessing();

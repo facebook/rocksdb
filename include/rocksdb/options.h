@@ -48,6 +48,7 @@ class Slice;
 class Statistics;
 class InternalKeyComparator;
 class WalFilter;
+class FileSystem;
 
 // DB contents are stored in a set of blocks, each of which holds a
 // sequence of key,value pairs.  Each block may be compressed before
@@ -269,17 +270,7 @@ struct ColumnFamilyOptions : public AdvancedColumnFamilyOptions {
   // Dynamically changeable through SetOptions() API
   uint64_t max_bytes_for_level_base = 256 * 1048576;
 
-  // If non-zero, compactions will periodically refresh the snapshot list. The
-  // delay for the first refresh is snap_refresh_nanos nano seconds and
-  // exponentially increases afterwards. When having many short-lived snapshots,
-  // this option helps reducing the cpu usage of long-running compactions. The
-  // feature is disabled when max_subcompactions is greater than one.
-  //
-  // NOTE: This feautre is currently incompatible with RangeDeletes.
-  //
-  // Default: 0
-  //
-  // Dynamically changeable through SetOptions() API
+  // Deprecated.
   uint64_t snap_refresh_nanos = 0;
 
   // Disable automatic compactions. Manual compactions can still
@@ -398,9 +389,16 @@ struct DBOptions {
   bool paranoid_checks = true;
 
   // Use the specified object to interact with the environment,
-  // e.g. to read/write files, schedule background work, etc.
+  // e.g. to read/write files, schedule background work, etc. In the near
+  // future, support for doing storage operations such as read/write files
+  // through env will be deprecated in favor of file_system (see below)
   // Default: Env::Default()
   Env* env = Env::Default();
+
+  // Use the specified object to interact with the storage to
+  // read/write files. This is in addition to env. This option should be used
+  // if the desired storage subsystem provides a FileSystem implementation.
+  std::shared_ptr<FileSystem> file_system = nullptr;
 
   // Use to control write rate of flush and compaction. Flush has higher
   // priority than compaction. Rate limiting is disabled if nullptr.
@@ -953,6 +951,13 @@ struct DBOptions {
   // Default: true
   bool enable_write_thread_adaptive_yield = true;
 
+  // The maximum limit of number of bytes that are written in a single batch
+  // of WAL or memtable write. It is followed when the leader write size
+  // is larger than 1/8 of this limit.
+  //
+  // Default: 1 MB
+  uint64_t max_write_batch_group_size_bytes = 1 << 20;
+
   // The maximum number of microseconds that a write operation will use
   // a yielding spin loop to coordinate with other write threads before
   // blocking on a mutex.  (Assuming write_thread_slow_yield_usec is
@@ -1082,13 +1087,24 @@ struct DBOptions {
   // independently if the process crashes later and tries to recover.
   bool atomic_flush = false;
 
-  // If true, ColumnFamilyHandle's and Iterator's destructors won't delete
-  // obsolete files directly and will instead schedule a background job
-  // to do it. Use it if you're destroying iterators or ColumnFamilyHandle-s
-  // from latency-sensitive threads.
+  // If true, working thread may avoid doing unnecessary and long-latency
+  // operation (such as deleting obsolete files directly or deleting memtable)
+  // and will instead schedule a background job to do it.
+  // Use it if you're latency-sensitive.
   // If set to true, takes precedence over
   // ReadOptions::background_purge_on_iterator_cleanup.
   bool avoid_unnecessary_blocking_io = false;
+
+  // Historically DB ID has always been stored in Identity File in DB folder.
+  // If this flag is true, the DB ID is written to Manifest file in addition
+  // to the Identity file. By doing this 2 problems are solved
+  // 1. We don't checksum the Identity file where as Manifest file is.
+  // 2. Since the source of truth for DB is Manifest file DB ID will sit with
+  //    the source of truth. Previously the Identity file could be copied
+  //    independent of Manifest and that can result in wrong DB ID.
+  // We recommend setting this flag to true.
+  // Default: false
+  bool write_dbid_to_manifest = false;
 
   // The number of bytes to prefetch when reading the log. This is mostly useful
   // for reading a remotely located log, as it can save the number of
@@ -1173,7 +1189,7 @@ struct ReadOptions {
   // "iterate_upper_bound" defines the extent upto which the forward iterator
   // can returns entries. Once the bound is reached, Valid() will be false.
   // "iterate_upper_bound" is exclusive ie the bound value is
-  // not a valid entry.  If iterator_extractor is not null, the Seek target
+  // not a valid entry. If prefix_extractor is not null, the Seek target
   // and iterate_upper_bound need to have the same prefix.
   // This is because ordering is not guaranteed outside of prefix domain.
   //
@@ -1338,6 +1354,15 @@ struct WriteOptions {
   // Default: false
   bool low_pri;
 
+  // If true, this writebatch will maintain the last insert positions of each
+  // memtable as hints in concurrent write. It can improve write performance
+  // in concurrent writes if keys in one writebatch are sequential. In
+  // non-concurrent writes (when concurrent_memtable_writes is false) this
+  // option will be ignored.
+  //
+  // Default: false
+  bool memtable_insert_hint_per_batch;
+
   // Timestamp of write operation, e.g. Put. All timestamps of the same
   // database must share the same length and format. The user is also
   // responsible for providing a customized compare function via Comparator to
@@ -1355,6 +1380,7 @@ struct WriteOptions {
         ignore_missing_column_families(false),
         no_slowdown(false),
         low_pri(false),
+        memtable_insert_hint_per_batch(false),
         timestamp(nullptr) {}
 };
 

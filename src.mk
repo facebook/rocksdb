@@ -3,6 +3,7 @@ LIB_SOURCES =                                                   \
   cache/clock_cache.cc                                          \
   cache/lru_cache.cc                                            \
   cache/sharded_cache.cc                                        \
+  db/arena_wrapped_db_iter.cc                                   \
   db/builder.cc                                                 \
   db/c.cc                                                       \
   db/column_family.cc                                           \
@@ -67,12 +68,20 @@ LIB_SOURCES =                                                   \
   env/env_encryption.cc                                         \
   env/env_hdfs.cc                                               \
   env/env_posix.cc                                              \
+  env/file_system.cc                                            \
+  env/fs_posix.cc                                           	\
   env/io_posix.cc                                               \
   env/mock_env.cc                                               \
   file/delete_scheduler.cc                                      \
+  file/file_prefetch_buffer.cc                                  \
   file/file_util.cc                                             \
   file/filename.cc                                              \
+  file/random_access_file_reader.cc                             \
+  file/read_write_util.cc                                       \
+  file/readahead_raf.cc                                         \
+  file/sequence_file_reader.cc                                  \
   file/sst_file_manager_impl.cc                                 \
+  file/writable_file_writer.cc                                  \
   logging/auto_roll_logger.cc                                   \
   logging/event_logger.cc                                       \
   logging/log_buffer.cc                                         \
@@ -118,13 +127,14 @@ LIB_SOURCES =                                                   \
   table/block_based/data_block_hash_index.cc                    \
   table/block_based/data_block_footer.cc                        \
   table/block_based/filter_block_reader_common.cc               \
+  table/block_based/filter_policy.cc                                                 \
   table/block_based/flush_block_policy.cc                       \
   table/block_based/full_filter_block.cc                        \
   table/block_based/index_builder.cc                            \
+  table/block_based/parsed_full_filter_block.cc                 \
   table/block_based/partitioned_filter_block.cc                 \
   table/block_based/uncompression_dict_reader.cc                \
   table/block_fetcher.cc                             		\
-  table/bloom_block.cc                               		\
   table/cuckoo/cuckoo_table_builder.cc                          \
   table/cuckoo/cuckoo_table_factory.cc                          \
   table/cuckoo/cuckoo_table_reader.cc                           \
@@ -134,6 +144,7 @@ LIB_SOURCES =                                                   \
   table/merging_iterator.cc                                     \
   table/meta_blocks.cc                                          \
   table/persistent_cache_helper.cc                              \
+  table/plain/plain_table_bloom.cc                              \
   table/plain/plain_table_builder.cc                            \
   table/plain/plain_table_factory.cc                            \
   table/plain/plain_table_index.cc                              \
@@ -149,7 +160,6 @@ LIB_SOURCES =                                                   \
   tools/dump/db_dump_tool.cc                                    \
   trace_replay/trace_replay.cc                                  \
   trace_replay/block_cache_tracer.cc                            \
-  util/bloom.cc                                                 \
   util/build_version.cc                                         \
   util/coding.cc                                                \
   util/compaction_job_stats_impl.cc                             \
@@ -158,8 +168,6 @@ LIB_SOURCES =                                                   \
   util/concurrent_task_limiter_impl.cc                          \
   util/crc32c.cc                                                \
   util/dynamic_bloom.cc                                         \
-  util/file_reader_writer.cc                                    \
-  util/filter_policy.cc                                         \
   util/hash.cc                                                  \
   util/murmurhash.cc                                            \
   util/random.cc                                                \
@@ -258,6 +266,17 @@ MOCK_LIB_SOURCES =                                              \
 BENCH_LIB_SOURCES =                                             \
   tools/db_bench_tool.cc                                        \
 
+STRESS_LIB_SOURCES =                                            \
+  db_stress_tool/batched_ops_stress.cc                         \
+  db_stress_tool/cf_consistency_stress.cc                      \
+  db_stress_tool/db_stress_common.cc                           \
+  db_stress_tool/db_stress_driver.cc                           \
+  db_stress_tool/db_stress_test_base.cc                        \
+  db_stress_tool/db_stress_gflags.cc                           \
+  db_stress_tool/db_stress_shared_state.cc                     \
+  db_stress_tool/db_stress_tool.cc                             \
+  db_stress_tool/no_batched_ops_stress.cc                      \
+
 TEST_LIB_SOURCES =                                              \
   db/db_test_util.cc                                            \
   test_util/testharness.cc                                      \
@@ -274,6 +293,7 @@ FOLLY_SOURCES = \
 MAIN_SOURCES =                                                          \
   cache/cache_bench.cc                                                  \
   cache/cache_test.cc                                                   \
+  db_stress_tool/db_stress.cc                                           \
   db/column_family_test.cc                                              \
   db/compact_files_test.cc                                              \
   db/compaction/compaction_iterator_test.cc                             \
@@ -402,6 +422,7 @@ MAIN_SOURCES =                                                          \
   util/filelock_test.cc                                                 \
   util/log_write_bench.cc                                               \
   util/rate_limiter_test.cc                                             \
+  util/random_test.cc                                                   \
   util/repeatable_thread_test.cc                                        \
   util/slice_transform_test.cc                                          \
   util/timer_queue_test.cc                                              \
@@ -476,6 +497,8 @@ JNI_NATIVE_SOURCES =                                          \
   java/rocksjni/snapshot.cc                                   \
   java/rocksjni/sst_file_manager.cc                           \
   java/rocksjni/sst_file_writerjni.cc                         \
+  java/rocksjni/sst_file_readerjni.cc                         \
+  java/rocksjni/sst_file_reader_iterator.cc                   \
   java/rocksjni/statistics.cc                                 \
   java/rocksjni/statisticsjni.cc                              \
   java/rocksjni/table.cc                                      \

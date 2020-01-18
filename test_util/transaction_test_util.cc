@@ -6,8 +6,8 @@
 
 #include "test_util/transaction_test_util.h"
 
-#include <cinttypes>
 #include <algorithm>
+#include <cinttypes>
 #include <numeric>
 #include <random>
 #include <string>

@@ -271,6 +271,13 @@ class StackableDB : public DB {
     return db_->EnableAutoCompaction(column_family_handles);
   }
 
+  virtual void EnableManualCompaction() override {
+    return db_->EnableManualCompaction();
+  }
+  virtual void DisableManualCompaction() override {
+    return db_->DisableManualCompaction();
+  }
+
   using DB::NumberLevels;
   virtual int NumberLevels(ColumnFamilyHandle* column_family) override {
     return db_->NumberLevels(column_family);
@@ -291,6 +298,10 @@ class StackableDB : public DB {
   virtual const std::string& GetName() const override { return db_->GetName(); }
 
   virtual Env* GetEnv() const override { return db_->GetEnv(); }
+
+  virtual FileSystem* GetFileSystem() const override {
+    return db_->GetFileSystem();
+  }
 
   using DB::GetOptions;
   virtual Options GetOptions(ColumnFamilyHandle* column_family) const override {
@@ -371,6 +382,16 @@ class StackableDB : public DB {
     return db_->GetSortedWalFiles(files);
   }
 
+  virtual Status GetCurrentWalFile(
+      std::unique_ptr<LogFile>* current_log_file) override {
+    return db_->GetCurrentWalFile(current_log_file);
+  }
+
+  virtual Status GetCreationTimeOfOldestFile(
+      uint64_t* creation_time) override {
+    return db_->GetCreationTimeOfOldestFile(creation_time);
+  }
+
   virtual Status DeleteFile(std::string name) override {
     return db_->DeleteFile(name);
   }
@@ -429,6 +450,12 @@ class StackableDB : public DB {
   virtual ColumnFamilyHandle* DefaultColumnFamily() const override {
     return db_->DefaultColumnFamily();
   }
+
+#ifndef ROCKSDB_LITE
+  Status TryCatchUpWithPrimary() override {
+    return db_->TryCatchUpWithPrimary();
+  }
+#endif  // ROCKSDB_LITE
 
  protected:
   DB* db_;

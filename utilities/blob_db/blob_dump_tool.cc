@@ -5,17 +5,19 @@
 #ifndef ROCKSDB_LITE
 
 #include "utilities/blob_db/blob_dump_tool.h"
-#include <cinttypes>
 #include <stdio.h>
+#include <cinttypes>
 #include <iostream>
 #include <memory>
 #include <string>
+#include "env/composite_env_wrapper.h"
+#include "file/random_access_file_reader.h"
+#include "file/readahead_raf.h"
 #include "port/port.h"
 #include "rocksdb/convenience.h"
 #include "rocksdb/env.h"
 #include "table/format.h"
 #include "util/coding.h"
-#include "util/file_reader_writer.h"
 #include "util/string_util.h"
 
 namespace rocksdb {
@@ -49,7 +51,8 @@ Status BlobDumpTool::Run(const std::string& filename, DisplayType show_key,
   if (file_size == 0) {
     return Status::Corruption("File is empty.");
   }
-  reader_.reset(new RandomAccessFileReader(std::move(file), filename));
+  reader_.reset(new RandomAccessFileReader(
+      NewLegacyRandomAccessFileWrapper(file), filename));
   uint64_t offset = 0;
   uint64_t footer_offset = 0;
   CompressionType compression = kNoCompression;

@@ -180,6 +180,9 @@ class Mutex {
 class RWMutex {
  public:
   RWMutex() { InitializeSRWLock(&srwLock_); }
+  // No copying allowed
+  RWMutex(const RWMutex&) = delete;
+  void operator=(const RWMutex&) = delete;
 
   void ReadLock() { AcquireSRWLockShared(&srwLock_); }
 
@@ -194,9 +197,6 @@ class RWMutex {
 
  private:
   SRWLOCK srwLock_;
-  // No copying allowed
-  RWMutex(const RWMutex&);
-  void operator=(const RWMutex&);
 };
 
 class CondVar {
@@ -363,6 +363,7 @@ std::wstring utf8_to_utf16(const std::string& utf8);
 #define RX_CreateHardLink CreateHardLinkW
 #define RX_PathIsRelative PathIsRelativeW
 #define RX_GetCurrentDirectory GetCurrentDirectoryW
+#define RX_GetDiskFreeSpaceEx GetDiskFreeSpaceExW
 
 #else
 
@@ -386,6 +387,7 @@ std::wstring utf8_to_utf16(const std::string& utf8);
 #define RX_CreateHardLink CreateHardLinkA
 #define RX_PathIsRelative PathIsRelativeA
 #define RX_GetCurrentDirectory GetCurrentDirectoryA
+#define RX_GetDiskFreeSpaceEx GetDiskFreeSpaceExA
 
 #endif
 

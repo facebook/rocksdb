@@ -45,8 +45,7 @@ class ImportColumnFamilyTest : public DBTestBase {
     test::DestroyDir(env_, export_files_dir_);
   }
 
-  LiveFileMetaData LiveFileMetaDataInit(std::string name,
-                                        std::string path,
+  LiveFileMetaData LiveFileMetaDataInit(std::string name, std::string path,
                                         int level,
                                         SequenceNumber smallest_seqno,
                                         SequenceNumber largest_seqno) {
@@ -64,7 +63,7 @@ class ImportColumnFamilyTest : public DBTestBase {
   std::string export_files_dir_;
   ColumnFamilyHandle* import_cfh_;
   ColumnFamilyHandle* import_cfh2_;
-  ExportImportFilesMetaData *metadata_ptr_;
+  ExportImportFilesMetaData* metadata_ptr_;
 };
 
 TEST_F(ImportColumnFamilyTest, ImportSSTFileWriterFiles) {
@@ -545,7 +544,6 @@ TEST_F(ImportColumnFamilyTest, ImportColumnFamilyNegativeTest) {
                                                 metadata, &import_cfh_));
     ASSERT_NE(import_cfh_, nullptr);
   }
-
 }
 
 }  // namespace rocksdb

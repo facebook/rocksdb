@@ -28,6 +28,7 @@
 #include "rocksdb/cache.h"
 #include "rocksdb/db.h"
 #include "rocksdb/env.h"
+#include "rocksdb/file_system.h"
 #include "rocksdb/iterator.h"
 #include "rocksdb/memtablerep.h"
 #include "rocksdb/perf_context.h"
@@ -426,7 +427,7 @@ class TableConstructor: public Constructor {
   bool ConvertToInternalKey() { return convert_to_internal_key_; }
 
   test::StringSink* TEST_GetSink() {
-    return static_cast<test::StringSink*>(file_writer_->writable_file());
+    return rocksdb::test::GetStringSinkFromLegacyWriter(file_writer_.get());
   }
 
   BlockCacheTracer block_cache_tracer_;
@@ -1856,7 +1857,8 @@ void TableTest::IndexTest(BlockBasedTableOptions table_options) {
     auto key = prefixes[i] + "9";
     index_iter->Seek(InternalKey(key, 0, kTypeValue).Encode());
 
-    ASSERT_OK(index_iter->status());
+    ASSERT_TRUE(index_iter->status().ok() || index_iter->status().IsNotFound());
+    ASSERT_TRUE(!index_iter->status().IsNotFound() || !index_iter->Valid());
     if (i == prefixes.size() - 1) {
       // last key
       ASSERT_TRUE(!index_iter->Valid());
@@ -1881,6 +1883,19 @@ void TableTest::IndexTest(BlockBasedTableOptions table_options) {
       Slice ukey = ExtractUserKey(index_iter->key());
       Slice ukey_prefix = options.prefix_extractor->Transform(ukey);
       ASSERT_TRUE(BytewiseComparator()->Compare(prefix, ukey_prefix) < 0);
+    }
+  }
+  for (const auto& prefix : non_exist_prefixes) {
+    index_iter->SeekForPrev(InternalKey(prefix, 0, kTypeValue).Encode());
+    // regular_iter->Seek(prefix);
+
+    ASSERT_OK(index_iter->status());
+    // Seek to non-existing prefixes should yield either invalid, or a
+    // key with prefix greater than the target.
+    if (index_iter->Valid()) {
+      Slice ukey = ExtractUserKey(index_iter->key());
+      Slice ukey_prefix = options.prefix_extractor->Transform(ukey);
+      ASSERT_TRUE(BytewiseComparator()->Compare(prefix, ukey_prefix) > 0);
     }
   }
   c.ResetTableReader();
@@ -2599,7 +2614,11 @@ TEST_P(BlockBasedTableTest, FilterBlockInBlockCache) {
 
   // Enable the cache for index/filter blocks
   BlockBasedTableOptions table_options = GetBlockBasedTableOptions();
-  table_options.block_cache = NewLRUCache(2048, 2);
+  LRUCacheOptions co;
+  co.capacity = 2048;
+  co.num_shard_bits = 2;
+  co.metadata_charge_policy = kDontChargeCacheMetadata;
+  table_options.block_cache = NewLRUCache(co);
   table_options.cache_index_and_filter_blocks = true;
   options.table_factory.reset(new BlockBasedTableFactory(table_options));
   std::vector<std::string> keys;
@@ -2629,7 +2648,7 @@ TEST_P(BlockBasedTableTest, FilterBlockInBlockCache) {
                       0, 0, 0);
     ASSERT_EQ(props.GetCacheBytesRead(), 0);
     ASSERT_EQ(props.GetCacheBytesWrite(),
-              table_options.block_cache->GetUsage());
+              static_cast<int64_t>(table_options.block_cache->GetUsage()));
     last_cache_bytes_read = props.GetCacheBytesRead();
   }
 
@@ -2645,7 +2664,7 @@ TEST_P(BlockBasedTableTest, FilterBlockInBlockCache) {
     // Cache hit, bytes read from cache should increase
     ASSERT_GT(props.GetCacheBytesRead(), last_cache_bytes_read);
     ASSERT_EQ(props.GetCacheBytesWrite(),
-              table_options.block_cache->GetUsage());
+              static_cast<int64_t>(table_options.block_cache->GetUsage()));
     last_cache_bytes_read = props.GetCacheBytesRead();
   }
 
@@ -2658,7 +2677,7 @@ TEST_P(BlockBasedTableTest, FilterBlockInBlockCache) {
     // Cache miss, Bytes read from cache should not change
     ASSERT_EQ(props.GetCacheBytesRead(), last_cache_bytes_read);
     ASSERT_EQ(props.GetCacheBytesWrite(),
-              table_options.block_cache->GetUsage());
+              static_cast<int64_t>(table_options.block_cache->GetUsage()));
     last_cache_bytes_read = props.GetCacheBytesRead();
   }
 
@@ -2672,7 +2691,7 @@ TEST_P(BlockBasedTableTest, FilterBlockInBlockCache) {
     // Cache hit, bytes read from cache should increase
     ASSERT_GT(props.GetCacheBytesRead(), last_cache_bytes_read);
     ASSERT_EQ(props.GetCacheBytesWrite(),
-              table_options.block_cache->GetUsage());
+              static_cast<int64_t>(table_options.block_cache->GetUsage()));
   }
   // release the iterator so that the block cache can reset correctly.
   iter.reset();
@@ -3063,7 +3082,7 @@ TEST_F(PlainTableTest, BasicPlainTableProperties) {
   file_writer->Flush();
 
   test::StringSink* ss =
-    static_cast<test::StringSink*>(file_writer->writable_file());
+      rocksdb::test::GetStringSinkFromLegacyWriter(file_writer.get());
   std::unique_ptr<RandomAccessFileReader> file_reader(
       test::GetRandomAccessFileReader(
           new test::StringSource(ss->contents(), 72242, true)));
@@ -3745,8 +3764,8 @@ TEST_P(BlockBasedTableTest, DISABLED_TableWithGlobalSeqno) {
   };
 
   GetVersionAndGlobalSeqno();
-  ASSERT_EQ(2, version);
-  ASSERT_EQ(0, global_seqno);
+  ASSERT_EQ(2u, version);
+  ASSERT_EQ(0u, global_seqno);
 
   InternalIterator* iter = GetTableInternalIter();
   char current_c = 'a';
@@ -3766,8 +3785,8 @@ TEST_P(BlockBasedTableTest, DISABLED_TableWithGlobalSeqno) {
   // Update global sequence number to 10
   SetGlobalSeqno(10);
   GetVersionAndGlobalSeqno();
-  ASSERT_EQ(2, version);
-  ASSERT_EQ(10, global_seqno);
+  ASSERT_EQ(2u, version);
+  ASSERT_EQ(10u, global_seqno);
 
   iter = GetTableInternalIter();
   current_c = 'a';
@@ -3803,8 +3822,8 @@ TEST_P(BlockBasedTableTest, DISABLED_TableWithGlobalSeqno) {
   // Update global sequence number to 3
   SetGlobalSeqno(3);
   GetVersionAndGlobalSeqno();
-  ASSERT_EQ(2, version);
-  ASSERT_EQ(3, global_seqno);
+  ASSERT_EQ(2u, version);
+  ASSERT_EQ(3u, global_seqno);
 
   iter = GetTableInternalIter();
   current_c = 'a';
@@ -4022,7 +4041,7 @@ TEST_P(BlockBasedTableTest, PropertiesBlockRestartPointTest) {
     Block properties_block(std::move(properties_contents),
                            kDisableGlobalSequenceNumber);
 
-    ASSERT_EQ(properties_block.NumRestarts(), 1);
+    ASSERT_EQ(properties_block.NumRestarts(), 1u);
   }
 }
 

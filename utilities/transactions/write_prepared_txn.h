@@ -42,6 +42,9 @@ class WritePreparedTxn : public PessimisticTransaction {
  public:
   WritePreparedTxn(WritePreparedTxnDB* db, const WriteOptions& write_options,
                    const TransactionOptions& txn_options);
+  // No copying allowed
+  WritePreparedTxn(const WritePreparedTxn&) = delete;
+  void operator=(const WritePreparedTxn&) = delete;
 
   virtual ~WritePreparedTxn() {}
 
@@ -58,7 +61,7 @@ class WritePreparedTxn : public PessimisticTransaction {
                         ColumnFamilyHandle* column_family,
                         const size_t num_keys, const Slice* keys,
                         PinnableSlice* values, Status* statuses,
-                        bool sorted_input = false) override;
+                        const bool sorted_input = false) override;
 
   // Note: The behavior is undefined in presence of interleaved writes to the
   // same transaction.
@@ -105,10 +108,6 @@ class WritePreparedTxn : public PessimisticTransaction {
                                   SequenceNumber* tracked_at_seq) override;
 
   virtual Status RebuildFromWriteBatch(WriteBatch* src_batch) override;
-
-  // No copying allowed
-  WritePreparedTxn(const WritePreparedTxn&);
-  void operator=(const WritePreparedTxn&);
 
   WritePreparedTxnDB* wpt_db_;
   // Number of sub-batches in prepare

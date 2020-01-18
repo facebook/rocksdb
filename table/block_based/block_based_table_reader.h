@@ -18,6 +18,7 @@
 
 #include "db/range_tombstone_fragmenter.h"
 #include "file/filename.h"
+#include "file/random_access_file_reader.h"
 #include "options/cf_options.h"
 #include "rocksdb/options.h"
 #include "rocksdb/persistent_cache.h"
@@ -39,7 +40,6 @@
 #include "table/two_level_iterator.h"
 #include "trace_replay/block_cache_tracer.h"
 #include "util/coding.h"
-#include "util/file_reader_writer.h"
 #include "util/user_comparator_wrapper.h"
 
 namespace rocksdb {
@@ -51,7 +51,7 @@ class FullFilterBlockReader;
 class Footer;
 class InternalKeyComparator;
 class Iterator;
-class RandomAccessFile;
+class FSRandomAccessFile;
 class TableCache;
 class TableReader;
 class WritableFile;
@@ -265,6 +265,9 @@ class BlockBasedTable : public TableReader {
   Rep* rep_;
   explicit BlockBasedTable(Rep* rep, BlockCacheTracer* const block_cache_tracer)
       : rep_(rep), block_cache_tracer_(block_cache_tracer) {}
+  // No copying allowed
+  explicit BlockBasedTable(const TableReader&) = delete;
+  void operator=(const TableReader&) = delete;
 
  private:
   friend class MockedBlockBasedTable;
@@ -410,9 +413,9 @@ class BlockBasedTable : public TableReader {
       TailPrefetchStats* tail_prefetch_stats, const bool prefetch_all,
       const bool preload_all,
       std::unique_ptr<FilePrefetchBuffer>* prefetch_buffer);
-  Status ReadMetaBlock(FilePrefetchBuffer* prefetch_buffer,
-                       std::unique_ptr<Block>* meta_block,
-                       std::unique_ptr<InternalIterator>* iter);
+  Status ReadMetaIndexBlock(FilePrefetchBuffer* prefetch_buffer,
+                            std::unique_ptr<Block>* metaindex_block,
+                            std::unique_ptr<InternalIterator>* iter);
   Status TryReadPropertiesWithGlobalSeqno(FilePrefetchBuffer* prefetch_buffer,
                                           const Slice& handle_value,
                                           TableProperties** table_properties);
@@ -443,9 +446,9 @@ class BlockBasedTable : public TableReader {
   static void SetupCacheKeyPrefix(Rep* rep);
 
   // Generate a cache key prefix from the file
-  static void GenerateCachePrefix(Cache* cc, RandomAccessFile* file,
+  static void GenerateCachePrefix(Cache* cc, FSRandomAccessFile* file,
                                   char* buffer, size_t* size);
-  static void GenerateCachePrefix(Cache* cc, WritableFile* file, char* buffer,
+  static void GenerateCachePrefix(Cache* cc, FSWritableFile* file, char* buffer,
                                   size_t* size);
 
   // Given an iterator return its offset in file.
@@ -458,12 +461,13 @@ class BlockBasedTable : public TableReader {
   void DumpKeyValue(const Slice& key, const Slice& value,
                     WritableFile* out_file);
 
-  // No copying allowed
-  explicit BlockBasedTable(const TableReader&) = delete;
-  void operator=(const TableReader&) = delete;
+  // A cumulative data block file read in MultiGet lower than this size will
+  // use a stack buffer
+  static constexpr size_t kMultiGetReadStackBufSize = 8192;
 
   friend class PartitionedFilterBlockReader;
   friend class PartitionedFilterBlockTest;
+  friend class DBBasicTest_MultiGetIOBufferOverrun_Test;
 };
 
 // Maitaning state of a two-level iteration on a partitioned index structure.
@@ -600,6 +604,13 @@ struct BlockBasedTable::Rep {
   uint64_t sst_number_for_tracing() const {
     return file ? TableFileNameToNumber(file->file_name()) : UINT64_MAX;
   }
+  void CreateFilePrefetchBuffer(
+      size_t readahead_size, size_t max_readahead_size,
+      std::unique_ptr<FilePrefetchBuffer>* fpb) const {
+    fpb->reset(new FilePrefetchBuffer(file.get(), readahead_size,
+                                      max_readahead_size,
+                                      !ioptions.allow_mmap_reads /* enable */));
+  }
 };
 
 // Iterates over the contents of BlockBasedTable.
@@ -616,8 +627,7 @@ class BlockBasedTableIterator : public InternalIteratorBase<TValue> {
                           const SliceTransform* prefix_extractor,
                           BlockType block_type, TableReaderCaller caller,
                           size_t compaction_readahead_size = 0)
-      : InternalIteratorBase<TValue>(false),
-        table_(table),
+      : table_(table),
         read_options_(read_options),
         icomp_(icomp),
         user_comparator_(icomp.user_comparator()),
@@ -676,7 +686,8 @@ class BlockBasedTableIterator : public InternalIteratorBase<TValue> {
     return block_iter_.value();
   }
   Status status() const override {
-    if (!index_iter_->status().ok()) {
+    // Prefix index set status to NotFound when the prefix does not exist
+    if (!index_iter_->status().ok() && !index_iter_->status().IsNotFound()) {
       return index_iter_->status();
     } else if (block_iter_points_to_real_block_) {
       return block_iter_.status();

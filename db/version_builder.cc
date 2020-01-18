@@ -9,9 +9,9 @@
 
 #include "db/version_builder.h"
 
-#include <cinttypes>
 #include <algorithm>
 #include <atomic>
+#include <cinttypes>
 #include <functional>
 #include <map>
 #include <set>
@@ -83,7 +83,7 @@ class VersionBuilder::Rep {
     std::unordered_map<uint64_t, FileMetaData*> added_files;
   };
 
-  const EnvOptions& env_options_;
+  const FileOptions& file_options_;
   Logger* info_log_;
   TableCache* table_cache_;
   VersionStorageInfo* base_vstorage_;
@@ -101,9 +101,10 @@ class VersionBuilder::Rep {
   FileComparator level_nonzero_cmp_;
 
  public:
-  Rep(const EnvOptions& env_options, Logger* info_log, TableCache* table_cache,
+  Rep(const FileOptions& file_options, Logger* info_log,
+      TableCache* table_cache,
       VersionStorageInfo* base_vstorage)
-      : env_options_(env_options),
+      : file_options_(file_options),
         info_log_(info_log),
         table_cache_(table_cache),
         base_vstorage_(base_vstorage),
@@ -173,14 +174,13 @@ class VersionBuilder::Rep {
                       " vs. file with global_seqno %" PRIu64 "\n",
                       f1->fd.smallest_seqno, f1->fd.largest_seqno,
                       external_file_seqno);
-              return Status::Corruption("L0 file with seqno " +
-                                        NumberToString(f1->fd.smallest_seqno) +
-                                        " " +
-                                        NumberToString(f1->fd.largest_seqno) +
-                                        " vs. file with global_seqno" +
-                                        NumberToString(external_file_seqno) +
-                                        " with fileNumber " +
-                                        NumberToString(f1->fd.GetNumber()));
+              return Status::Corruption(
+                  "L0 file with seqno " +
+                  NumberToString(f1->fd.smallest_seqno) + " " +
+                  NumberToString(f1->fd.largest_seqno) +
+                  " vs. file with global_seqno" +
+                  NumberToString(external_file_seqno) + " with fileNumber " +
+                  NumberToString(f1->fd.GetNumber()));
             }
           } else if (f1->fd.smallest_seqno <= f2->fd.smallest_seqno) {
             fprintf(stderr,
@@ -304,10 +304,7 @@ class VersionBuilder::Rep {
           levels_[level].added_files.erase(exising);
         }
       } else {
-        auto exising = invalid_levels_[level].find(number);
-        if (exising != invalid_levels_[level].end()) {
-          invalid_levels_[level].erase(exising);
-        } else {
+        if (invalid_levels_[level].erase(number) == 0) {
           // Deleting an non-existing file on invalid level.
           has_invalid_levels_ = true;
         }
@@ -327,8 +324,9 @@ class VersionBuilder::Rep {
         levels_[level].added_files[f->fd.GetNumber()] = f;
       } else {
         uint64_t number = new_file.second.fd.GetNumber();
-        if (invalid_levels_[level].count(number) == 0) {
-          invalid_levels_[level].insert(number);
+        auto& lvls = invalid_levels_[level];
+        if (lvls.count(number) == 0) {
+          lvls.insert(number);
         } else {
           // Creating an already existing file on invalid level.
           has_invalid_levels_ = true;
@@ -464,7 +462,7 @@ class VersionBuilder::Rep {
         auto* file_meta = files_meta[file_idx].first;
         int level = files_meta[file_idx].second;
         statuses[file_idx] = table_cache_->FindTable(
-            env_options_, *(base_vstorage_->InternalComparator()),
+            file_options_, *(base_vstorage_->InternalComparator()),
             file_meta->fd, &file_meta->table_reader_handle, prefix_extractor,
             false /*no_io */, true /* record_read_stats */,
             internal_stats->GetFileReadHist(level), false, level,
@@ -503,11 +501,11 @@ class VersionBuilder::Rep {
   }
 };
 
-VersionBuilder::VersionBuilder(const EnvOptions& env_options,
+VersionBuilder::VersionBuilder(const FileOptions& file_options,
                                TableCache* table_cache,
                                VersionStorageInfo* base_vstorage,
                                Logger* info_log)
-    : rep_(new Rep(env_options, info_log, table_cache, base_vstorage)) {}
+    : rep_(new Rep(file_options, info_log, table_cache, base_vstorage)) {}
 
 VersionBuilder::~VersionBuilder() { delete rep_; }
 

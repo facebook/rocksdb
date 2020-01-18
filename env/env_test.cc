@@ -11,13 +11,6 @@
 #include <sys/ioctl.h>
 #endif
 
-#ifdef ROCKSDB_MALLOC_USABLE_SIZE
-#ifdef OS_FREEBSD
-#include <malloc_np.h>
-#else
-#include <malloc.h>
-#endif
-#endif
 #include <sys/types.h>
 
 #include <iostream>
@@ -39,6 +32,7 @@
 
 #include "env/env_chroot.h"
 #include "logging/log_buffer.h"
+#include "port/malloc.h"
 #include "port/port.h"
 #include "rocksdb/env.h"
 #include "test_util/sync_point.h"
@@ -889,7 +883,9 @@ TEST_F(EnvPosixTest, PositionedAppend) {
 }
 #endif  // !ROCKSDB_LITE
 
-// Only works in linux platforms
+// `GetUniqueId()` temporarily returns zero on Windows. `BlockBasedTable` can
+// handle a return value of zero but this test case cannot.
+#ifndef OS_WIN
 TEST_P(EnvPosixTestWithParam, RandomAccessUniqueID) {
   // Create file.
   if (env_ == Env::Default()) {
@@ -932,6 +928,7 @@ TEST_P(EnvPosixTestWithParam, RandomAccessUniqueID) {
     env_->DeleteFile(fname);
   }
 }
+#endif  // !defined(OS_WIN)
 
 // only works in linux platforms
 #ifdef ROCKSDB_FALLOCATE_PRESENT
@@ -1022,7 +1019,9 @@ bool HasPrefix(const std::unordered_set<std::string>& ss) {
   return false;
 }
 
-// Only works in linux and WIN platforms
+// `GetUniqueId()` temporarily returns zero on Windows. `BlockBasedTable` can
+// handle a return value of zero but this test case cannot.
+#ifndef OS_WIN
 TEST_P(EnvPosixTestWithParam, RandomAccessUniqueIDConcurrent) {
   if (env_ == Env::Default()) {
     // Check whether a bunch of concurrently existing files have unique IDs.
@@ -1064,7 +1063,6 @@ TEST_P(EnvPosixTestWithParam, RandomAccessUniqueIDConcurrent) {
   }
 }
 
-// Only works in linux and WIN platforms
 TEST_P(EnvPosixTestWithParam, RandomAccessUniqueIDDeletes) {
   if (env_ == Env::Default()) {
     EnvOptions soptions;
@@ -1104,6 +1102,7 @@ TEST_P(EnvPosixTestWithParam, RandomAccessUniqueIDDeletes) {
     ASSERT_TRUE(!HasPrefix(ids));
   }
 }
+#endif  // !defined(OS_WIN)
 
 TEST_P(EnvPosixTestWithParam, MultiRead) {
   EnvOptions soptions;
@@ -1116,7 +1115,8 @@ TEST_P(EnvPosixTestWithParam, MultiRead) {
   // Create file.
   {
     std::unique_ptr<WritableFile> wfile;
-#if !defined(OS_MACOSX) && !defined(OS_WIN) && !defined(OS_SOLARIS) && !defined(OS_AIX)
+#if !defined(OS_MACOSX) && !defined(OS_WIN) && !defined(OS_SOLARIS) && \
+    !defined(OS_AIX)
     if (soptions.use_direct_writes) {
       soptions.use_direct_writes = false;
     }
@@ -1143,7 +1143,8 @@ TEST_P(EnvPosixTestWithParam, MultiRead) {
       data.emplace_back(NewAligned(kSectorSize, 0));
       reqs[i].scratch = data.back().get();
     }
-#if !defined(OS_MACOSX) && !defined(OS_WIN) && !defined(OS_SOLARIS) && !defined(OS_AIX)
+#if !defined(OS_MACOSX) && !defined(OS_WIN) && !defined(OS_SOLARIS) && \
+    !defined(OS_AIX)
     if (soptions.use_direct_reads) {
       soptions.use_direct_reads = false;
     }
@@ -1151,7 +1152,7 @@ TEST_P(EnvPosixTestWithParam, MultiRead) {
     ASSERT_OK(env_->NewRandomAccessFile(fname, &file, soptions));
     ASSERT_OK(file->MultiRead(reqs.data(), reqs.size()));
     for (size_t i = 0; i < reqs.size(); ++i) {
-      auto buf = NewAligned(kSectorSize * 8, static_cast<char>(i*2 + 1));
+      auto buf = NewAligned(kSectorSize * 8, static_cast<char>(i * 2 + 1));
       ASSERT_OK(reqs[i].status);
       ASSERT_EQ(memcmp(reqs[i].scratch, buf.get(), kSectorSize), 0);
     }

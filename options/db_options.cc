@@ -11,6 +11,7 @@
 #include "port/port.h"
 #include "rocksdb/cache.h"
 #include "rocksdb/env.h"
+#include "rocksdb/file_system.h"
 #include "rocksdb/sst_file_manager.h"
 #include "rocksdb/wal_filter.h"
 
@@ -24,6 +25,7 @@ ImmutableDBOptions::ImmutableDBOptions(const DBOptions& options)
       error_if_exists(options.error_if_exists),
       paranoid_checks(options.paranoid_checks),
       env(options.env),
+      fs(options.file_system),
       rate_limiter(options.rate_limiter),
       sst_file_manager(options.sst_file_manager),
       info_log(options.info_log),
@@ -44,6 +46,8 @@ ImmutableDBOptions::ImmutableDBOptions(const DBOptions& options)
       table_cache_numshardbits(options.table_cache_numshardbits),
       wal_ttl_seconds(options.WAL_ttl_seconds),
       wal_size_limit_mb(options.WAL_size_limit_MB),
+      max_write_batch_group_size_bytes(
+          options.max_write_batch_group_size_bytes),
       manifest_preallocation_size(options.manifest_preallocation_size),
       allow_mmap_reads(options.allow_mmap_reads),
       allow_mmap_writes(options.allow_mmap_writes),
@@ -86,6 +90,7 @@ ImmutableDBOptions::ImmutableDBOptions(const DBOptions& options)
       atomic_flush(options.atomic_flush),
       avoid_unnecessary_blocking_io(options.avoid_unnecessary_blocking_io),
       persist_stats_to_disk(options.persist_stats_to_disk),
+      write_dbid_to_manifest(options.write_dbid_to_manifest),
       log_readahead_size(options.log_readahead_size) {
 }
 
@@ -98,6 +103,8 @@ void ImmutableDBOptions::Dump(Logger* log) const {
                    paranoid_checks);
   ROCKS_LOG_HEADER(log, "                                    Options.env: %p",
                    env);
+  ROCKS_LOG_HEADER(log, "                                     Options.fs: %s",
+                   fs->Name());
   ROCKS_LOG_HEADER(log, "                               Options.info_log: %p",
                    info_log.get());
   ROCKS_LOG_HEADER(log, "               Options.max_file_opening_threads: %d",
@@ -152,6 +159,10 @@ void ImmutableDBOptions::Dump(Logger* log) const {
   ROCKS_LOG_HEADER(log,
                    "                      Options.WAL_size_limit_MB: %" PRIu64,
                    wal_size_limit_mb);
+  ROCKS_LOG_HEADER(log,
+                   "                       "
+                   "Options.max_write_batch_group_size_bytes: %" PRIu64,
+                   max_write_batch_group_size_bytes);
   ROCKS_LOG_HEADER(
       log, "            Options.manifest_preallocation_size: %" ROCKSDB_PRIszt,
       manifest_preallocation_size);
@@ -226,6 +237,8 @@ void ImmutableDBOptions::Dump(Logger* log) const {
                    avoid_unnecessary_blocking_io);
   ROCKS_LOG_HEADER(log, "                Options.persist_stats_to_disk: %u",
                    persist_stats_to_disk);
+  ROCKS_LOG_HEADER(log, "                Options.write_dbid_to_manifest: %d",
+                   write_dbid_to_manifest);
   ROCKS_LOG_HEADER(
       log, "                Options.log_readahead_size: %" ROCKSDB_PRIszt,
       log_readahead_size);

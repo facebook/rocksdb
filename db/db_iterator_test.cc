@@ -9,6 +9,7 @@
 
 #include <functional>
 
+#include "db/arena_wrapped_db_iter.h"
 #include "db/db_iter.h"
 #include "db/db_test_util.h"
 #include "port/port.h"
@@ -179,6 +180,33 @@ TEST_P(DBIteratorTest, IterSeekBeforePrev) {
   iter->Prev();
   iter->Seek(Slice("a"));
   iter->Prev();
+  delete iter;
+}
+
+TEST_P(DBIteratorTest, IterReseekNewUpperBound) {
+  Random rnd(301);
+  Options options = CurrentOptions();
+  BlockBasedTableOptions table_options;
+  table_options.block_size = 1024;
+  table_options.block_size_deviation = 50;
+  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+  options.compression = kNoCompression;
+  Reopen(options);
+
+  ASSERT_OK(Put("a", RandomString(&rnd, 400)));
+  ASSERT_OK(Put("aabb", RandomString(&rnd, 400)));
+  ASSERT_OK(Put("aaef", RandomString(&rnd, 400)));
+  ASSERT_OK(Put("b", RandomString(&rnd, 400)));
+  dbfull()->Flush(FlushOptions());
+  ReadOptions opts;
+  Slice ub = Slice("aa");
+  opts.iterate_upper_bound = &ub;
+  auto iter = NewIterator(opts);
+  iter->Seek(Slice("a"));
+  ub = Slice("b");
+  iter->Seek(Slice("aabc"));
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_EQ(iter->key().ToString(), "aaef");
   delete iter;
 }
 
@@ -776,6 +804,50 @@ TEST_P(DBIteratorTest, IteratorPinsRef) {
   } while (ChangeCompactOptions());
 }
 
+TEST_P(DBIteratorTest, IteratorDeleteAfterCfDelete) {
+  CreateAndReopenWithCF({"pikachu"}, CurrentOptions());
+
+  Put(1, "foo", "delete-cf-then-delete-iter");
+  Put(1, "hello", "value2");
+
+  ColumnFamilyHandle* cf = handles_[1];
+  ReadOptions ro;
+
+  auto* iter = db_->NewIterator(ro, cf);
+  iter->SeekToFirst();
+  ASSERT_EQ(IterStatus(iter), "foo->delete-cf-then-delete-iter");
+
+  // delete CF handle
+  db_->DestroyColumnFamilyHandle(cf);
+  handles_.erase(std::begin(handles_) + 1);
+
+  // delete Iterator after CF handle is deleted
+  iter->Next();
+  ASSERT_EQ(IterStatus(iter), "hello->value2");
+  delete iter;
+}
+
+TEST_P(DBIteratorTest, IteratorDeleteAfterCfDrop) {
+  CreateAndReopenWithCF({"pikachu"}, CurrentOptions());
+
+  Put(1, "foo", "drop-cf-then-delete-iter");
+
+  ReadOptions ro;
+  ColumnFamilyHandle* cf = handles_[1];
+
+  auto* iter = db_->NewIterator(ro, cf);
+  iter->SeekToFirst();
+  ASSERT_EQ(IterStatus(iter), "foo->drop-cf-then-delete-iter");
+
+  // drop and delete CF
+  db_->DropColumnFamily(cf);
+  db_->DestroyColumnFamilyHandle(cf);
+  handles_.erase(std::begin(handles_) + 1);
+
+  // delete Iterator after CF handle is dropped
+  delete iter;
+}
+
 // SetOptions not defined in ROCKSDB LITE
 #ifndef ROCKSDB_LITE
 TEST_P(DBIteratorTest, DBIteratorBoundTest) {
@@ -1069,7 +1141,8 @@ TEST_P(DBIteratorTest, IndexWithFirstKey) {
         BlockBasedTableOptions::IndexShorteningMode::kNoShortening;
     table_options.flush_block_policy_factory =
         std::make_shared<FlushBlockEveryKeyPolicyFactory>();
-    table_options.block_cache = NewLRUCache(1000);  // fits all blocks
+    table_options.block_cache =
+        NewLRUCache(8000);  // fits all blocks and their cache metadata overhead
     options.table_factory.reset(NewBlockBasedTableFactory(table_options));
 
     DestroyAndReopen(options);
@@ -1268,19 +1341,19 @@ class DBIteratorTestForPinnedData : public DBIteratorTest {
 
       // Insert data to true_data map and to DB
       true_data[k] = v;
-      if (rnd.OneIn(static_cast<int>(100.0 / merge_percentage))) {
+      if (rnd.PercentTrue(merge_percentage)) {
         ASSERT_OK(db_->Merge(WriteOptions(), k, v));
       } else {
         ASSERT_OK(Put(k, v));
       }
 
       // Pick random keys to be used to test Seek()
-      if (rnd.OneIn(static_cast<int>(100.0 / seeks_percentage))) {
+      if (rnd.PercentTrue(seeks_percentage)) {
         random_keys.push_back(k);
       }
 
       // Delete some random keys
-      if (rnd.OneIn(static_cast<int>(100.0 / delete_percentage))) {
+      if (rnd.PercentTrue(delete_percentage)) {
         deleted_keys.push_back(k);
         true_data.erase(k);
         ASSERT_OK(Delete(k));
@@ -1838,7 +1911,7 @@ TEST_P(DBIteratorTest, IterPrevKeyCrossingBlocksRandomized) {
   // make sure that we dont merge them while flushing but actually
   // merge them in the read path
   for (int i = 0; i < kNumKeys; i++) {
-    if (rnd.OneIn(static_cast<int>(100.0 / kNoMergeOpPercentage))) {
+    if (rnd.PercentTrue(kNoMergeOpPercentage)) {
       // Dont give merge operations for some keys
       continue;
     }
@@ -1854,7 +1927,7 @@ TEST_P(DBIteratorTest, IterPrevKeyCrossingBlocksRandomized) {
   ASSERT_OK(Flush());
 
   for (int i = 0; i < kNumKeys; i++) {
-    if (rnd.OneIn(static_cast<int>(100.0 / kDeletePercentage))) {
+    if (rnd.PercentTrue(kDeletePercentage)) {
       gen_key = Key(i);
 
       ASSERT_OK(Delete(gen_key));
@@ -2685,75 +2758,6 @@ TEST_P(DBIteratorTest, AvoidReseekLevelIterator) {
     ASSERT_TRUE(iter->Valid());
     ASSERT_EQ(3, num_find_file_in_level);
     ASSERT_EQ(6, num_idx_blk_seek);
-  }
-
-  SyncPoint::GetInstance()->DisableProcessing();
-}
-
-TEST_P(DBIteratorTest, AvoidReseekChildIterator) {
-  Options options = CurrentOptions();
-  options.compression = CompressionType::kNoCompression;
-  BlockBasedTableOptions table_options;
-  table_options.block_size = 800;
-  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
-  Reopen(options);
-
-  Random rnd(301);
-  std::string random_str = RandomString(&rnd, 180);
-
-  ASSERT_OK(Put("1", random_str));
-  ASSERT_OK(Put("2", random_str));
-  ASSERT_OK(Put("3", random_str));
-  ASSERT_OK(Put("4", random_str));
-  ASSERT_OK(Put("8", random_str));
-  ASSERT_OK(Put("9", random_str));
-  ASSERT_OK(Flush());
-  ASSERT_OK(Put("5", random_str));
-  ASSERT_OK(Put("6", random_str));
-  ASSERT_OK(Put("7", random_str));
-  ASSERT_OK(Flush());
-
-  // These two keys will be kept in memtable.
-  ASSERT_OK(Put("0", random_str));
-  ASSERT_OK(Put("8", random_str));
-
-  int num_iter_wrapper_seek = 0;
-  SyncPoint::GetInstance()->SetCallBack(
-      "IteratorWrapper::Seek:0",
-      [&](void* /*arg*/) { num_iter_wrapper_seek++; });
-  SyncPoint::GetInstance()->EnableProcessing();
-  {
-    std::unique_ptr<Iterator> iter(NewIterator(ReadOptions()));
-    iter->Seek("1");
-    ASSERT_TRUE(iter->Valid());
-    // DBIter always wraps internal iterator with IteratorWrapper,
-    // and in merging iterator each child iterator will be wrapped
-    // with IteratorWrapper.
-    ASSERT_EQ(4, num_iter_wrapper_seek);
-
-    // child position: 1 and 5
-    num_iter_wrapper_seek = 0;
-    iter->Seek("2");
-    ASSERT_TRUE(iter->Valid());
-    ASSERT_EQ(3, num_iter_wrapper_seek);
-
-    // child position: 2 and 5
-    num_iter_wrapper_seek = 0;
-    iter->Seek("6");
-    ASSERT_TRUE(iter->Valid());
-    ASSERT_EQ(4, num_iter_wrapper_seek);
-
-    // child position: 8 and 6
-    num_iter_wrapper_seek = 0;
-    iter->Seek("7");
-    ASSERT_TRUE(iter->Valid());
-    ASSERT_EQ(3, num_iter_wrapper_seek);
-
-    // child position: 8 and 7
-    num_iter_wrapper_seek = 0;
-    iter->Seek("5");
-    ASSERT_TRUE(iter->Valid());
-    ASSERT_EQ(4, num_iter_wrapper_seek);
   }
 
   SyncPoint::GetInstance()->DisableProcessing();

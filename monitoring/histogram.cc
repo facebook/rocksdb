@@ -9,10 +9,10 @@
 
 #include "monitoring/histogram.h"
 
-#include <cinttypes>
-#include <cassert>
 #include <math.h>
 #include <stdio.h>
+#include <cassert>
+#include <cinttypes>
 
 #include "port/port.h"
 #include "util/cast_util.h"

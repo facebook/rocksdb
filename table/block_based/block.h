@@ -12,16 +12,10 @@
 #include <stdint.h>
 #include <string>
 #include <vector>
-#ifdef ROCKSDB_MALLOC_USABLE_SIZE
-#ifdef OS_FREEBSD
-#include <malloc_np.h>
-#else
-#include <malloc.h>
-#endif
-#endif
 
 #include "db/dbformat.h"
 #include "db/pinned_iterators_manager.h"
+#include "port/malloc.h"
 #include "rocksdb/iterator.h"
 #include "rocksdb/options.h"
 #include "rocksdb/statistics.h"
@@ -141,11 +135,26 @@ class BlockReadAmpBitmap {
   uint32_t rnd_;
 };
 
+// This Block class is not for any old block: it is designed to hold only
+// uncompressed blocks containing sorted key-value pairs. It is thus
+// suitable for storing uncompressed data blocks, index blocks (including
+// partitions), range deletion blocks, properties blocks, metaindex blocks,
+// as well as the top level of the partitioned filter structure (which is
+// actually an index of the filter partitions). It is NOT suitable for
+// compressed blocks in general, filter blocks/partitions, or compression
+// dictionaries (since the latter do not contain sorted key-value pairs).
+// Use BlockContents directly for those.
+//
+// See https://github.com/facebook/rocksdb/wiki/Rocksdb-BlockBasedTable-Format
+// for details of the format and the various block types.
 class Block {
  public:
   // Initialize the block with the specified contents.
   explicit Block(BlockContents&& contents, size_t read_amp_bytes_per_bit = 0,
                  Statistics* statistics = nullptr);
+  // No copying allowed
+  Block(const Block&) = delete;
+  void operator=(const Block&) = delete;
 
   ~Block();
 
@@ -217,10 +226,6 @@ class Block {
   uint32_t num_restarts_;
   std::unique_ptr<BlockReadAmpBitmap> read_amp_bitmap_;
   DataBlockHashIndex data_block_hash_index_;
-
-  // No copying allowed
-  Block(const Block&) = delete;
-  void operator=(const Block&) = delete;
 };
 
 template <class TValue>
@@ -529,6 +534,13 @@ class IndexBlockIter final : public BlockIter<IndexValue> {
     }
   }
 
+  // IndexBlockIter follows a different contract for prefix iterator
+  // from data iterators.
+  // If prefix of the seek key `target` exists in the file, it must
+  // return the same result as total order seek.
+  // If the prefix of `target` doesn't exist in the file, it can either
+  // return the result of total order seek, or set both of Valid() = false
+  // and status() = NotFound().
   virtual void Seek(const Slice& target) override;
 
   virtual void SeekForPrev(const Slice&) override {
@@ -585,9 +597,16 @@ class IndexBlockIter final : public BlockIter<IndexValue> {
 
   std::unique_ptr<GlobalSeqnoState> global_seqno_state_;
 
-  bool PrefixSeek(const Slice& target, uint32_t* index);
+  // Set *prefix_may_exist to false if no key possibly share the same prefix
+  // as `target`. If not set, the result position should be the same as total
+  // order Seek.
+  bool PrefixSeek(const Slice& target, uint32_t* index, bool* prefix_may_exist);
+  // Set *prefix_may_exist to false if no key can possibly share the same
+  // prefix as `target`. If not set, the result position should be the same
+  // as total order seek.
   bool BinaryBlockIndexSeek(const Slice& target, uint32_t* block_ids,
-                            uint32_t left, uint32_t right, uint32_t* index);
+                            uint32_t left, uint32_t right, uint32_t* index,
+                            bool* prefix_may_exist);
   inline int CompareBlockKey(uint32_t block_index, const Slice& target);
 
   inline int Compare(const Slice& a, const Slice& b) const {

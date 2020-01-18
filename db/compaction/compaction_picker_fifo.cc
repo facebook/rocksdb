@@ -54,6 +54,15 @@ Compaction* FIFOCompactionPicker::PickTTLCompaction(
   }
   const uint64_t current_time = static_cast<uint64_t>(_current_time);
 
+  if (!level0_compactions_in_progress_.empty()) {
+    ROCKS_LOG_BUFFER(
+        log_buffer,
+        "[%s] FIFO compaction: Already executing compaction. No need "
+        "to run parallel compactions since compactions are very fast",
+        cf_name.c_str());
+    return nullptr;
+  }
+
   std::vector<CompactionInputFiles> inputs;
   inputs.emplace_back();
   inputs[0].level = 0;
@@ -193,7 +202,8 @@ Compaction* FIFOCompactionPicker::PickSizeCompaction(
 
 Compaction* FIFOCompactionPicker::PickCompaction(
     const std::string& cf_name, const MutableCFOptions& mutable_cf_options,
-    VersionStorageInfo* vstorage, LogBuffer* log_buffer) {
+    VersionStorageInfo* vstorage, LogBuffer* log_buffer,
+    SequenceNumber /*earliest_memtable_seqno*/) {
   assert(vstorage->num_levels() == 1);
 
   Compaction* c = nullptr;

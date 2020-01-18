@@ -60,6 +60,8 @@ NATIVE_JAVA_CLASSES = org.rocksdb.AbstractCompactionFilter\
 	org.rocksdb.Slice\
 	org.rocksdb.SstFileManager\
 	org.rocksdb.SstFileWriter\
+	org.rocksdb.SstFileReader\
+	org.rocksdb.SstFileReaderIterator\
 	org.rocksdb.Statistics\
 	org.rocksdb.ThreadStatus\
 	org.rocksdb.TimedEnv\
@@ -156,6 +158,7 @@ JAVA_TESTS = org.rocksdb.BackupableDBOptionsTest\
 	org.rocksdb.SnapshotTest\
 	org.rocksdb.SstFileManagerTest\
 	org.rocksdb.SstFileWriterTest\
+	org.rocksdb.SstFileReaderTest\
 	org.rocksdb.TableFilterTest\
 	org.rocksdb.TimedEnvTest\
 	org.rocksdb.TransactionTest\
@@ -211,7 +214,7 @@ ifneq ($(DEBUG_LEVEL),0)
 endif
 
 SEARCH_REPO_URL?=http://search.maven.org/remotecontent?filepath=
-CENTRAL_REPO_URL?=http://central.maven.org/maven2/
+CENTRAL_REPO_URL?=https://repo1.maven.org/maven2/
 
 clean:
 	$(AM_V_at)rm -rf include/*

@@ -18,10 +18,10 @@
 #include "db/version_set.h"
 #include "db/wal_manager.h"
 #include "env/mock_env.h"
+#include "file/writable_file_writer.h"
 #include "table/mock_table.h"
 #include "test_util/testharness.h"
 #include "test_util/testutil.h"
-#include "util/file_reader_writer.h"
 #include "util/string_util.h"
 
 namespace rocksdb {
@@ -47,6 +47,8 @@ class WalManagerTest : public testing::Test {
                                       std::numeric_limits<uint64_t>::max());
     db_options_.wal_dir = dbname_;
     db_options_.env = env_.get();
+    fs_.reset(new LegacyFileSystemWrapper(env_.get()));
+    db_options_.fs = fs_;
 
     versions_.reset(new VersionSet(dbname_, &db_options_, env_options_,
                                    table_cache_.get(), &write_buffer_manager_,
@@ -79,8 +81,8 @@ class WalManagerTest : public testing::Test {
     std::string fname = ArchivedLogFileName(dbname_, current_log_number_);
     std::unique_ptr<WritableFile> file;
     ASSERT_OK(env_->NewWritableFile(fname, &file, env_options_));
-    std::unique_ptr<WritableFileWriter> file_writer(
-        new WritableFileWriter(std::move(file), fname, env_options_));
+    std::unique_ptr<WritableFileWriter> file_writer(new WritableFileWriter(
+        NewLegacyWritableFileWrapper(std::move(file)), fname, env_options_));
     current_log_writer_.reset(new log::Writer(std::move(file_writer), 0, false));
   }
 
@@ -111,6 +113,7 @@ class WalManagerTest : public testing::Test {
   WriteBufferManager write_buffer_manager_;
   std::unique_ptr<VersionSet> versions_;
   std::unique_ptr<WalManager> wal_manager_;
+  std::shared_ptr<LegacyFileSystemWrapper> fs_;
 
   std::unique_ptr<log::Writer> current_log_writer_;
   uint64_t current_log_number_;
@@ -130,8 +133,8 @@ TEST_F(WalManagerTest, ReadFirstRecordCache) {
       wal_manager_->TEST_ReadFirstRecord(kAliveLogFile, 1 /* number */, &s));
   ASSERT_EQ(s, 0U);
 
-  std::unique_ptr<WritableFileWriter> file_writer(
-      new WritableFileWriter(std::move(file), path, EnvOptions()));
+  std::unique_ptr<WritableFileWriter> file_writer(new WritableFileWriter(
+      NewLegacyWritableFileWrapper(std::move(file)), path, EnvOptions()));
   log::Writer writer(std::move(file_writer), 1,
                      db_options_.recycle_log_file_num > 0);
   WriteBatch batch;
@@ -293,7 +296,7 @@ TEST_F(WalManagerTest, TransactionLogIteratorJustEmptyFile) {
   // Check that an empty iterator is returned
   ASSERT_TRUE(!iter->Valid());
 }
-  
+
 TEST_F(WalManagerTest, TransactionLogIteratorNewFileWhileScanning) {
   Init();
   CreateArchiveLogs(2, 100);
@@ -307,7 +310,7 @@ TEST_F(WalManagerTest, TransactionLogIteratorNewFileWhileScanning) {
   // A new log file was added after the iterator was created.
   // TryAgain indicates a new iterator is needed to fetch the new data
   ASSERT_TRUE(iter->status().IsTryAgain());
-  
+
   iter = OpenTransactionLogIter(0);
   i = 0;
   for (; iter->Valid(); iter->Next()) {

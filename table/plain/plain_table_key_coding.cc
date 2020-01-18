@@ -9,9 +9,9 @@
 #include <algorithm>
 #include <string>
 #include "db/dbformat.h"
+#include "file/writable_file_writer.h"
 #include "table/plain/plain_table_factory.h"
 #include "table/plain/plain_table_reader.h"
-#include "util/file_reader_writer.h"
 
 namespace rocksdb {
 
