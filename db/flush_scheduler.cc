@@ -60,9 +60,7 @@ ColumnFamilyData* FlushScheduler::TakeNextColumnFamily() {
     }
 
     // no longer relevant, retry
-    if (cfd->Unref()) {
-      delete cfd;
-    }
+    cfd->UnrefAndTryDelete();
   }
 }
 
@@ -80,9 +78,7 @@ bool FlushScheduler::Empty() {
 void FlushScheduler::Clear() {
   ColumnFamilyData* cfd;
   while ((cfd = TakeNextColumnFamily()) != nullptr) {
-    if (cfd->Unref()) {
-      delete cfd;
-    }
+    cfd->UnrefAndTryDelete();
   }
   assert(head_.load(std::memory_order_relaxed) == nullptr);
 }

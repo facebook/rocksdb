@@ -13,6 +13,7 @@ int main() {
 
 #include "db/db_impl/db_impl.h"
 #include "db/dbformat.h"
+#include "env/composite_env_wrapper.h"
 #include "file/random_access_file_reader.h"
 #include "monitoring/histogram.h"
 #include "rocksdb/db.h"
@@ -94,8 +95,8 @@ void TableReaderBenchmark(Options& opts, EnvOptions& env_options,
     std::vector<std::unique_ptr<IntTblPropCollectorFactory> >
         int_tbl_prop_collector_factories;
 
-    file_writer.reset(
-        new WritableFileWriter(std::move(file), file_name, env_options));
+    file_writer.reset(new WritableFileWriter(
+        NewLegacyWritableFileWrapper(std::move(file)), file_name, env_options));
     int unknown_level = -1;
     tb = opts.table_factory->NewTableBuilder(
         TableBuilderOptions(
@@ -138,7 +139,8 @@ void TableReaderBenchmark(Options& opts, EnvOptions& env_options,
     uint64_t file_size;
     env->GetFileSize(file_name, &file_size);
     std::unique_ptr<RandomAccessFileReader> file_reader(
-        new RandomAccessFileReader(std::move(raf), file_name));
+        new RandomAccessFileReader(NewLegacyRandomAccessFileWrapper(raf),
+                                   file_name));
     s = opts.table_factory->NewTableReader(
         TableReaderOptions(ioptions, moptions.prefix_extractor.get(),
                            env_options, ikc),

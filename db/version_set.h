@@ -312,6 +312,10 @@ class VersionStorageInfo {
     return files_marked_for_periodic_compaction_;
   }
 
+  void TEST_AddFileMarkedForPeriodicCompaction(int level, FileMetaData* f) {
+    files_marked_for_periodic_compaction_.emplace_back(level, f);
+  }
+
   // REQUIRES: This version has been saved (see VersionSet::SaveTo)
   // REQUIRES: DB mutex held during access
   const autovector<std::pair<int, FileMetaData*>>&
@@ -555,15 +559,15 @@ class Version {
   // Append to *iters a sequence of iterators that will
   // yield the contents of this Version when merged together.
   // REQUIRES: This version has been saved (see VersionSet::SaveTo)
-  void AddIterators(const ReadOptions&, const EnvOptions& soptions,
+  void AddIterators(const ReadOptions&, const FileOptions& soptions,
                     MergeIteratorBuilder* merger_iter_builder,
                     RangeDelAggregator* range_del_agg);
 
-  void AddIteratorsForLevel(const ReadOptions&, const EnvOptions& soptions,
+  void AddIteratorsForLevel(const ReadOptions&, const FileOptions& soptions,
                             MergeIteratorBuilder* merger_iter_builder,
                             int level, RangeDelAggregator* range_del_agg);
 
-  Status OverlapWithLevelIterator(const ReadOptions&, const EnvOptions&,
+  Status OverlapWithLevelIterator(const ReadOptions&, const FileOptions&,
                                   const Slice& smallest_user_key,
                                   const Slice& largest_user_key,
                                   int level, bool* overlap);
@@ -672,10 +676,15 @@ class Version {
 
   uint64_t GetSstFilesSize();
 
+  // Retrieves the file_creation_time of the oldest file in the DB.
+  // Prerequisite for this API is max_open_files = -1
+  void GetCreationTimeOfOldestFile(uint64_t* creation_time);
+
   const MutableCFOptions& GetMutableCFOptions() { return mutable_cf_options_; }
 
  private:
   Env* env_;
+  FileSystem* fs_;
   friend class ReactiveVersionSet;
   friend class VersionSet;
 
@@ -721,14 +730,14 @@ class Version {
   Version* next_;               // Next version in linked list
   Version* prev_;               // Previous version in linked list
   int refs_;                    // Number of live refs to this version
-  const EnvOptions env_options_;
+  const FileOptions file_options_;
   const MutableCFOptions mutable_cf_options_;
 
   // A version number that uniquely represents this version. This is
   // used for debugging and logging purposes only.
   uint64_t version_number_;
 
-  Version(ColumnFamilyData* cfd, VersionSet* vset, const EnvOptions& env_opt,
+  Version(ColumnFamilyData* cfd, VersionSet* vset, const FileOptions& file_opt,
           MutableCFOptions mutable_cf_options, uint64_t version_number = 0);
 
   ~Version();
@@ -793,7 +802,7 @@ class AtomicGroupReadBuffer {
 class VersionSet {
  public:
   VersionSet(const std::string& dbname, const ImmutableDBOptions* db_options,
-             const EnvOptions& env_options, Cache* table_cache,
+             const FileOptions& file_options, Cache* table_cache,
              WriteBufferManager* write_buffer_manager,
              WriteController* write_controller,
              BlockCacheTracer* const block_cache_tracer);
@@ -855,7 +864,8 @@ class VersionSet {
       bool new_descriptor_log = false,
       const ColumnFamilyOptions* new_cf_options = nullptr);
 
-  static Status GetCurrentManifestPath(const std::string& dbname, Env* env,
+  static Status GetCurrentManifestPath(const std::string& dbname,
+                                       FileSystem* fs,
                                        std::string* manifest_filename,
                                        uint64_t* manifest_file_number);
 
@@ -868,7 +878,7 @@ class VersionSet {
   // Reads a manifest file and returns a list of column families in
   // column_families.
   static Status ListColumnFamilies(std::vector<std::string>* column_families,
-                                   const std::string& dbname, Env* env);
+                                   const std::string& dbname, FileSystem* fs);
 
 #ifndef ROCKSDB_LITE
   // Try to reduce the number of levels. This call is valid when
@@ -882,7 +892,7 @@ class VersionSet {
   // among [4-6] contains files.
   static Status ReduceNumberOfLevels(const std::string& dbname,
                                      const Options* options,
-                                     const EnvOptions& env_options,
+                                     const FileOptions& file_options,
                                      int new_levels);
 
   // printf contents (for debugging)
@@ -996,7 +1006,7 @@ class VersionSet {
   // The caller should delete the iterator when no longer needed.
   InternalIterator* MakeInputIterator(
       const Compaction* c, RangeDelAggregator* range_del_agg,
-      const EnvOptions& env_options_compactions);
+      const FileOptions& file_options_compactions);
 
   // Add all files listed in any live version to *live.
   void AddLiveFiles(std::vector<FileDescriptor>* live_list);
@@ -1029,9 +1039,9 @@ class VersionSet {
                         uint64_t min_pending_output);
 
   ColumnFamilySet* GetColumnFamilySet() { return column_family_set_.get(); }
-  const EnvOptions& env_options() { return env_options_; }
-  void ChangeEnvOptions(const MutableDBOptions& new_options) {
-    env_options_.writable_file_max_buffer_size =
+  const FileOptions& file_options() { return file_options_; }
+  void ChangeFileOptions(const MutableDBOptions& new_options) {
+    file_options_.writable_file_max_buffer_size =
         new_options.writable_file_max_buffer_size;
   }
 
@@ -1065,8 +1075,14 @@ class VersionSet {
                            const Slice& start, const Slice& end,
                            TableReaderCaller caller);
 
+  struct MutableCFState {
+    uint64_t log_number;
+  };
+
   // Save current contents to *log
-  Status WriteCurrentStateToManifest(log::Writer* log);
+  Status WriteCurrentStateToManifest(
+      const std::unordered_map<uint32_t, MutableCFState>& curr_state,
+      log::Writer* log);
 
   void AppendVersion(ColumnFamilyData* column_family_data, Version* v);
 
@@ -1098,6 +1114,7 @@ class VersionSet {
   std::unique_ptr<ColumnFamilySet> column_family_set_;
 
   Env* const env_;
+  FileSystem* const fs_;
   const std::string dbname_;
   std::string db_id_;
   const ImmutableDBOptions* const db_options_;
@@ -1142,7 +1159,7 @@ class VersionSet {
   std::vector<std::string> obsolete_manifests_;
 
   // env options for all reads and writes except compactions
-  EnvOptions env_options_;
+  FileOptions file_options_;
 
   BlockCacheTracer* const block_cache_tracer_;
 
@@ -1166,7 +1183,7 @@ class ReactiveVersionSet : public VersionSet {
  public:
   ReactiveVersionSet(const std::string& dbname,
                      const ImmutableDBOptions* _db_options,
-                     const EnvOptions& _env_options, Cache* table_cache,
+                     const FileOptions& _file_options, Cache* table_cache,
                      WriteBufferManager* write_buffer_manager,
                      WriteController* write_controller);
 

@@ -444,8 +444,8 @@ size_t WriteThread::EnterAsBatchGroupLeader(Writer* leader,
       break;
     }
 
-    if (!w->disable_wal && leader->disable_wal) {
-      // Do not include a write that needs WAL into a batch that has
+    if (w->disable_wal != leader->disable_wal) {
+      // Do not mix writes that enable WAL with the ones whose
       // WAL disabled.
       break;
     }

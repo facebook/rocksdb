@@ -64,7 +64,7 @@ Status ArenaWrappedDBIter::Refresh() {
     arena_.~Arena();
     new (&arena_) Arena();
 
-    SuperVersion* sv = cfd_->GetReferencedSuperVersion(db_impl_->mutex());
+    SuperVersion* sv = cfd_->GetReferencedSuperVersion(db_impl_);
     if (read_callback_) {
       read_callback_->Refresh(latest_seq);
     }

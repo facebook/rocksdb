@@ -111,20 +111,21 @@ Status CheckpointImpl::CreateCheckpoint(const std::string& checkpoint_dir,
         [&](const std::string& src_dirname, const std::string& fname,
             FileType) {
           ROCKS_LOG_INFO(db_options.info_log, "Hard Linking %s", fname.c_str());
-          return db_->GetEnv()->LinkFile(src_dirname + fname,
-                                         full_private_path + fname);
+          return db_->GetFileSystem()->LinkFile(src_dirname + fname,
+                                                full_private_path + fname,
+                                                IOOptions(), nullptr);
         } /* link_file_cb */,
         [&](const std::string& src_dirname, const std::string& fname,
             uint64_t size_limit_bytes, FileType) {
           ROCKS_LOG_INFO(db_options.info_log, "Copying %s", fname.c_str());
-          return CopyFile(db_->GetEnv(), src_dirname + fname,
+          return CopyFile(db_->GetFileSystem(), src_dirname + fname,
                           full_private_path + fname, size_limit_bytes,
                           db_options.use_fsync);
         } /* copy_file_cb */,
         [&](const std::string& fname, const std::string& contents, FileType) {
           ROCKS_LOG_INFO(db_options.info_log, "Creating %s", fname.c_str());
-          return CreateFile(db_->GetEnv(), full_private_path + fname, contents,
-                            db_options.use_fsync);
+          return CreateFile(db_->GetFileSystem(), full_private_path + fname,
+                            contents, db_options.use_fsync);
         } /* create_file_cb */,
         &sequence_number, log_size_for_flush);
     // we copied all the files, enable file deletions
@@ -383,7 +384,7 @@ Status CheckpointImpl::ExportColumnFamily(
           [&](const std::string& src_dirname, const std::string& fname) {
             ROCKS_LOG_INFO(db_options.info_log, "[%s] Copying %s",
                            cf_name.c_str(), fname.c_str());
-            return CopyFile(db_->GetEnv(), src_dirname + fname,
+            return CopyFile(db_->GetFileSystem(), src_dirname + fname,
                             tmp_export_dir + fname, 0, db_options.use_fsync);
           } /*copy_file_cb*/);
 
@@ -420,11 +421,14 @@ Status CheckpointImpl::ExportColumnFamily(
         LiveFileMetaData live_file_metadata;
         live_file_metadata.size = file_metadata.size;
         live_file_metadata.name = std::move(file_metadata.name);
+        live_file_metadata.file_number = file_metadata.file_number;
         live_file_metadata.db_path = export_dir;
         live_file_metadata.smallest_seqno = file_metadata.smallest_seqno;
         live_file_metadata.largest_seqno = file_metadata.largest_seqno;
         live_file_metadata.smallestkey = std::move(file_metadata.smallestkey);
         live_file_metadata.largestkey = std::move(file_metadata.largestkey);
+        live_file_metadata.oldest_blob_file_number =
+            file_metadata.oldest_blob_file_number;
         live_file_metadata.level = level_metadata.level;
         result_metadata->files.push_back(live_file_metadata);
       }

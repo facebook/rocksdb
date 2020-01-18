@@ -10,8 +10,19 @@
 #include "db/db_test_util.h"
 #include "port/stack_trace.h"
 #include "rocksdb/perf_context.h"
+#include "table/block_based/filter_policy_internal.h"
 
 namespace rocksdb {
+
+namespace {
+using BFP = BloomFilterPolicy;
+
+namespace BFP2 {
+// Extends BFP::Mode with option to use Plain table
+using PseudoMode = int;
+static constexpr PseudoMode kPlainTable = -1;
+}  // namespace BFP2
+}  // namespace
 
 // DB tests related to bloom filter.
 
@@ -20,12 +31,12 @@ class DBBloomFilterTest : public DBTestBase {
   DBBloomFilterTest() : DBTestBase("/db_bloom_filter_test") {}
 };
 
-class DBBloomFilterTestWithParam
-    : public DBTestBase,
-      public testing::WithParamInterface<std::tuple<bool, bool, uint32_t>> {
+class DBBloomFilterTestWithParam : public DBTestBase,
+                                   public testing::WithParamInterface<
+                                       std::tuple<BFP::Mode, bool, uint32_t>> {
   //                             public testing::WithParamInterface<bool> {
  protected:
-  bool use_block_based_filter_;
+  BFP::Mode bfp_impl_;
   bool partition_filters_;
   uint32_t format_version_;
 
@@ -35,7 +46,7 @@ class DBBloomFilterTestWithParam
   ~DBBloomFilterTestWithParam() override {}
 
   void SetUp() override {
-    use_block_based_filter_ = std::get<0>(GetParam());
+    bfp_impl_ = std::get<0>(GetParam());
     partition_filters_ = std::get<1>(GetParam());
     format_version_ = std::get<2>(GetParam());
   }
@@ -71,8 +82,7 @@ TEST_P(DBBloomFilterTestDefFormatVersion, KeyMayExist) {
     ReadOptions ropts;
     std::string value;
     anon::OptionsOverride options_override;
-    options_override.filter_policy.reset(
-        NewBloomFilterPolicy(20, use_block_based_filter_));
+    options_override.filter_policy.reset(new BFP(20, bfp_impl_));
     options_override.partition_filters = partition_filters_;
     options_override.metadata_block_size = 32;
     Options options = CurrentOptions(options_override);
@@ -432,8 +442,7 @@ TEST_P(DBBloomFilterTestWithParam, BloomFilter) {
     // trigger reset of table_factory
     BlockBasedTableOptions table_options;
     table_options.no_block_cache = true;
-    table_options.filter_policy.reset(
-        NewBloomFilterPolicy(10, use_block_based_filter_));
+    table_options.filter_policy.reset(new BFP(10, bfp_impl_));
     table_options.partition_filters = partition_filters_;
     if (partition_filters_) {
       table_options.index_type =
@@ -502,24 +511,27 @@ TEST_P(DBBloomFilterTestWithParam, BloomFilter) {
 #ifndef ROCKSDB_VALGRIND_RUN
 INSTANTIATE_TEST_CASE_P(
     FormatDef, DBBloomFilterTestDefFormatVersion,
-    ::testing::Values(std::make_tuple(true, false, test::kDefaultFormatVersion),
-                      std::make_tuple(false, true, test::kDefaultFormatVersion),
-                      std::make_tuple(false, false,
-                                      test::kDefaultFormatVersion)));
+    ::testing::Values(
+        std::make_tuple(BFP::kDeprecatedBlock, false,
+                        test::kDefaultFormatVersion),
+        std::make_tuple(BFP::kAuto, true, test::kDefaultFormatVersion),
+        std::make_tuple(BFP::kAuto, false, test::kDefaultFormatVersion)));
 
 INSTANTIATE_TEST_CASE_P(
     FormatDef, DBBloomFilterTestWithParam,
-    ::testing::Values(std::make_tuple(true, false, test::kDefaultFormatVersion),
-                      std::make_tuple(false, true, test::kDefaultFormatVersion),
-                      std::make_tuple(false, false,
-                                      test::kDefaultFormatVersion)));
+    ::testing::Values(
+        std::make_tuple(BFP::kDeprecatedBlock, false,
+                        test::kDefaultFormatVersion),
+        std::make_tuple(BFP::kAuto, true, test::kDefaultFormatVersion),
+        std::make_tuple(BFP::kAuto, false, test::kDefaultFormatVersion)));
 
 INSTANTIATE_TEST_CASE_P(
     FormatLatest, DBBloomFilterTestWithParam,
-    ::testing::Values(std::make_tuple(true, false, test::kLatestFormatVersion),
-                      std::make_tuple(false, true, test::kLatestFormatVersion),
-                      std::make_tuple(false, false,
-                                      test::kLatestFormatVersion)));
+    ::testing::Values(
+        std::make_tuple(BFP::kDeprecatedBlock, false,
+                        test::kLatestFormatVersion),
+        std::make_tuple(BFP::kAuto, true, test::kLatestFormatVersion),
+        std::make_tuple(BFP::kAuto, false, test::kLatestFormatVersion)));
 #endif  // ROCKSDB_VALGRIND_RUN
 
 TEST_F(DBBloomFilterTest, BloomFilterRate) {
@@ -636,15 +648,17 @@ TEST_F(DBBloomFilterTest, BloomFilterReverseCompatibility) {
 }
 
 namespace {
-// A wrapped bloom over default FilterPolicy
-class WrappedBloom : public FilterPolicy {
+// A wrapped bloom over block-based FilterPolicy
+class TestingWrappedBlockBasedFilterPolicy : public FilterPolicy {
  public:
-  explicit WrappedBloom(int bits_per_key)
-      : filter_(NewBloomFilterPolicy(bits_per_key)), counter_(0) {}
+  explicit TestingWrappedBlockBasedFilterPolicy(int bits_per_key)
+      : filter_(NewBloomFilterPolicy(bits_per_key, true)), counter_(0) {}
 
-  ~WrappedBloom() override { delete filter_; }
+  ~TestingWrappedBlockBasedFilterPolicy() override { delete filter_; }
 
-  const char* Name() const override { return "WrappedRocksDbFilterPolicy"; }
+  const char* Name() const override {
+    return "TestingWrappedBlockBasedFilterPolicy";
+  }
 
   void CreateFilter(const rocksdb::Slice* keys, int n,
                     std::string* dst) const override {
@@ -671,12 +685,13 @@ class WrappedBloom : public FilterPolicy {
 };
 }  // namespace
 
-TEST_F(DBBloomFilterTest, BloomFilterWrapper) {
+TEST_F(DBBloomFilterTest, WrappedBlockBasedFilterPolicy) {
   Options options = CurrentOptions();
   options.statistics = rocksdb::CreateDBStatistics();
 
   BlockBasedTableOptions table_options;
-  WrappedBloom* policy = new WrappedBloom(10);
+  TestingWrappedBlockBasedFilterPolicy* policy =
+      new TestingWrappedBlockBasedFilterPolicy(10);
   table_options.filter_policy.reset(policy);
   options.table_factory.reset(NewBlockBasedTableFactory(table_options));
 
@@ -704,6 +719,166 @@ TEST_F(DBBloomFilterTest, BloomFilterWrapper) {
   }
   ASSERT_GE(TestGetTickerCount(options, BLOOM_FILTER_USEFUL), maxKey * 0.98);
   ASSERT_EQ(2U * maxKey, policy->GetCounter());
+}
+
+namespace {
+// NOTE: This class is referenced by HISTORY.md as a model for a wrapper
+// FilterPolicy selecting among configurations based on context.
+class LevelAndStyleCustomFilterPolicy : public FilterPolicy {
+ public:
+  explicit LevelAndStyleCustomFilterPolicy(int bpk_fifo, int bpk_l0_other,
+                                           int bpk_otherwise)
+      : policy_fifo_(NewBloomFilterPolicy(bpk_fifo)),
+        policy_l0_other_(NewBloomFilterPolicy(bpk_l0_other)),
+        policy_otherwise_(NewBloomFilterPolicy(bpk_otherwise)) {}
+
+  // OK to use built-in policy name because we are deferring to a
+  // built-in builder. We aren't changing the serialized format.
+  const char* Name() const override { return policy_fifo_->Name(); }
+
+  FilterBitsBuilder* GetBuilderWithContext(
+      const FilterBuildingContext& context) const override {
+    if (context.compaction_style == kCompactionStyleFIFO) {
+      return policy_fifo_->GetBuilderWithContext(context);
+    } else if (context.level_at_creation == 0) {
+      return policy_l0_other_->GetBuilderWithContext(context);
+    } else {
+      return policy_otherwise_->GetBuilderWithContext(context);
+    }
+  }
+
+  FilterBitsReader* GetFilterBitsReader(const Slice& contents) const override {
+    // OK to defer to any of them; they all can parse built-in filters
+    // from any settings.
+    return policy_fifo_->GetFilterBitsReader(contents);
+  }
+
+  // Defer just in case configuration uses block-based filter
+  void CreateFilter(const Slice* keys, int n, std::string* dst) const override {
+    policy_otherwise_->CreateFilter(keys, n, dst);
+  }
+  bool KeyMayMatch(const Slice& key, const Slice& filter) const override {
+    return policy_otherwise_->KeyMayMatch(key, filter);
+  }
+
+ private:
+  const std::unique_ptr<const FilterPolicy> policy_fifo_;
+  const std::unique_ptr<const FilterPolicy> policy_l0_other_;
+  const std::unique_ptr<const FilterPolicy> policy_otherwise_;
+};
+
+class TestingContextCustomFilterPolicy
+    : public LevelAndStyleCustomFilterPolicy {
+ public:
+  explicit TestingContextCustomFilterPolicy(int bpk_fifo, int bpk_l0_other,
+                                            int bpk_otherwise)
+      : LevelAndStyleCustomFilterPolicy(bpk_fifo, bpk_l0_other, bpk_otherwise) {
+  }
+
+  FilterBitsBuilder* GetBuilderWithContext(
+      const FilterBuildingContext& context) const override {
+    test_report_ += "cf=";
+    test_report_ += context.column_family_name;
+    test_report_ += ",cs=";
+    test_report_ +=
+        OptionsHelper::compaction_style_to_string[context.compaction_style];
+    test_report_ += ",lv=";
+    test_report_ += std::to_string(context.level_at_creation);
+    test_report_ += "\n";
+
+    return LevelAndStyleCustomFilterPolicy::GetBuilderWithContext(context);
+  }
+
+  std::string DumpTestReport() {
+    std::string rv;
+    std::swap(rv, test_report_);
+    return rv;
+  }
+
+ private:
+  mutable std::string test_report_;
+};
+}  // namespace
+
+TEST_F(DBBloomFilterTest, ContextCustomFilterPolicy) {
+  for (bool fifo : {true, false}) {
+    Options options = CurrentOptions();
+    options.statistics = rocksdb::CreateDBStatistics();
+    options.compaction_style =
+        fifo ? kCompactionStyleFIFO : kCompactionStyleLevel;
+
+    BlockBasedTableOptions table_options;
+    auto policy = std::make_shared<TestingContextCustomFilterPolicy>(15, 8, 5);
+    table_options.filter_policy = policy;
+    table_options.format_version = 5;
+    options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+
+    CreateAndReopenWithCF({fifo ? "abe" : "bob"}, options);
+
+    const int maxKey = 10000;
+    for (int i = 0; i < maxKey / 2; i++) {
+      ASSERT_OK(Put(1, Key(i), Key(i)));
+    }
+    // Add a large key to make the file contain wide range
+    ASSERT_OK(Put(1, Key(maxKey + 55555), Key(maxKey + 55555)));
+    Flush(1);
+    EXPECT_EQ(policy->DumpTestReport(),
+              fifo ? "cf=abe,cs=kCompactionStyleFIFO,lv=0\n"
+                   : "cf=bob,cs=kCompactionStyleLevel,lv=0\n");
+
+    for (int i = maxKey / 2; i < maxKey; i++) {
+      ASSERT_OK(Put(1, Key(i), Key(i)));
+    }
+    Flush(1);
+    EXPECT_EQ(policy->DumpTestReport(),
+              fifo ? "cf=abe,cs=kCompactionStyleFIFO,lv=0\n"
+                   : "cf=bob,cs=kCompactionStyleLevel,lv=0\n");
+
+    // Check that they can be found
+    for (int i = 0; i < maxKey; i++) {
+      ASSERT_EQ(Key(i), Get(1, Key(i)));
+    }
+    // Since we have two tables / two filters, we might have Bloom checks on
+    // our queries, but no more than one "useful" per query on a found key.
+    EXPECT_LE(TestGetAndResetTickerCount(options, BLOOM_FILTER_USEFUL), maxKey);
+
+    // Check that we have two filters, each about
+    // fifo: 0.12% FP rate (15 bits per key)
+    // level: 2.3% FP rate (8 bits per key)
+    for (int i = 0; i < maxKey; i++) {
+      ASSERT_EQ("NOT_FOUND", Get(1, Key(i + 33333)));
+    }
+    {
+      auto useful_count =
+          TestGetAndResetTickerCount(options, BLOOM_FILTER_USEFUL);
+      EXPECT_GE(useful_count, maxKey * 2 * (fifo ? 0.9980 : 0.975));
+      EXPECT_LE(useful_count, maxKey * 2 * (fifo ? 0.9995 : 0.98));
+    }
+
+    if (!fifo) {  // FIFO only has L0
+      // Full compaction
+      ASSERT_OK(db_->CompactRange(CompactRangeOptions(), handles_[1], nullptr,
+                                  nullptr));
+      EXPECT_EQ(policy->DumpTestReport(),
+                "cf=bob,cs=kCompactionStyleLevel,lv=1\n");
+
+      // Check that we now have one filter, about 9.2% FP rate (5 bits per key)
+      for (int i = 0; i < maxKey; i++) {
+        ASSERT_EQ("NOT_FOUND", Get(1, Key(i + 33333)));
+      }
+      {
+        auto useful_count =
+            TestGetAndResetTickerCount(options, BLOOM_FILTER_USEFUL);
+        EXPECT_GE(useful_count, maxKey * 0.90);
+        EXPECT_LE(useful_count, maxKey * 0.91);
+      }
+    }
+
+    // Destroy
+    ASSERT_OK(dbfull()->DropColumnFamily(handles_[1]));
+    dbfull()->DestroyColumnFamilyHandle(handles_[1]);
+    handles_[1] = nullptr;
+  }
 }
 
 class SliceTransformLimitedDomain : public SliceTransform {
@@ -858,33 +1033,32 @@ TEST_F(DBBloomFilterTest, MemtablePrefixBloomOutOfDomain) {
 #ifndef ROCKSDB_LITE
 class BloomStatsTestWithParam
     : public DBBloomFilterTest,
-      public testing::WithParamInterface<std::tuple<bool, bool, bool>> {
+      public testing::WithParamInterface<std::tuple<BFP2::PseudoMode, bool>> {
  public:
   BloomStatsTestWithParam() {
-    use_block_table_ = std::get<0>(GetParam());
-    use_block_based_builder_ = std::get<1>(GetParam());
-    partition_filters_ = std::get<2>(GetParam());
+    bfp_impl_ = std::get<0>(GetParam());
+    partition_filters_ = std::get<1>(GetParam());
 
     options_.create_if_missing = true;
     options_.prefix_extractor.reset(rocksdb::NewFixedPrefixTransform(4));
     options_.memtable_prefix_bloom_size_ratio =
         8.0 * 1024.0 / static_cast<double>(options_.write_buffer_size);
-    if (use_block_table_) {
+    if (bfp_impl_ == BFP2::kPlainTable) {
+      assert(!partition_filters_);  // not supported in plain table
+      PlainTableOptions table_options;
+      options_.table_factory.reset(NewPlainTableFactory(table_options));
+    } else {
       BlockBasedTableOptions table_options;
       table_options.hash_index_allow_collision = false;
       if (partition_filters_) {
-        assert(!use_block_based_builder_);
+        assert(bfp_impl_ != BFP::kDeprecatedBlock);
         table_options.partition_filters = partition_filters_;
         table_options.index_type =
             BlockBasedTableOptions::IndexType::kTwoLevelIndexSearch;
       }
       table_options.filter_policy.reset(
-          NewBloomFilterPolicy(10, use_block_based_builder_));
+          new BFP(10, static_cast<BFP::Mode>(bfp_impl_)));
       options_.table_factory.reset(NewBlockBasedTableFactory(table_options));
-    } else {
-      assert(!partition_filters_);  // not supported in plain table
-      PlainTableOptions table_options;
-      options_.table_factory.reset(NewPlainTableFactory(table_options));
     }
     options_.env = env_;
 
@@ -901,8 +1075,7 @@ class BloomStatsTestWithParam
   static void SetUpTestCase() {}
   static void TearDownTestCase() {}
 
-  bool use_block_table_;
-  bool use_block_based_builder_;
+  BFP2::PseudoMode bfp_impl_;
   bool partition_filters_;
   Options options_;
 };
@@ -1006,7 +1179,7 @@ TEST_P(BloomStatsTestWithParam, BloomStatsTestWithIter) {
   ASSERT_EQ(value3, iter->value().ToString());
   // The seek doesn't check block-based bloom filter because last index key
   // starts with the same prefix we're seeking to.
-  uint64_t expected_hits = use_block_based_builder_ ? 1 : 2;
+  uint64_t expected_hits = bfp_impl_ == BFP::kDeprecatedBlock ? 1 : 2;
   ASSERT_EQ(expected_hits, get_perf_context()->bloom_sst_hit_count);
 
   iter->Seek(key2);
@@ -1016,12 +1189,14 @@ TEST_P(BloomStatsTestWithParam, BloomStatsTestWithIter) {
   ASSERT_EQ(expected_hits, get_perf_context()->bloom_sst_hit_count);
 }
 
-INSTANTIATE_TEST_CASE_P(BloomStatsTestWithParam, BloomStatsTestWithParam,
-                        ::testing::Values(std::make_tuple(true, true, false),
-                                          std::make_tuple(true, false, false),
-                                          std::make_tuple(true, false, true),
-                                          std::make_tuple(false, false,
-                                                          false)));
+INSTANTIATE_TEST_CASE_P(
+    BloomStatsTestWithParam, BloomStatsTestWithParam,
+    ::testing::Values(std::make_tuple(BFP::kDeprecatedBlock, false),
+                      std::make_tuple(BFP::kLegacyBloom, false),
+                      std::make_tuple(BFP::kLegacyBloom, true),
+                      std::make_tuple(BFP::kFastLocalBloom, false),
+                      std::make_tuple(BFP::kFastLocalBloom, true),
+                      std::make_tuple(BFP2::kPlainTable, false)));
 
 namespace {
 void PrefixScanInit(DBBloomFilterTest* dbtest) {
@@ -1147,6 +1322,7 @@ TEST_F(DBBloomFilterTest, OptimizeFiltersForHits) {
   options.table_factory.reset(NewBlockBasedTableFactory(bbto));
   options.optimize_filters_for_hits = true;
   options.statistics = rocksdb::CreateDBStatistics();
+  get_perf_context()->Reset();
   get_perf_context()->EnablePerLevelPerfContext();
   CreateAndReopenWithCF({"mypikachu"}, options);
 
@@ -1328,8 +1504,8 @@ int CountIter(std::unique_ptr<Iterator>& iter, const Slice& key) {
 // into the same string, or 2) the transformed seek key is of the same length
 // as the upper bound and two keys are adjacent according to the comparator.
 TEST_F(DBBloomFilterTest, DynamicBloomFilterUpperBound) {
-  int iteration = 0;
-  for (bool use_block_based_builder : {true, false}) {
+  for (auto bfp_impl : BFP::kAllFixedImpls) {
+    int using_full_builder = bfp_impl != BFP::kDeprecatedBlock;
     Options options;
     options.create_if_missing = true;
     options.prefix_extractor.reset(NewCappedPrefixTransform(4));
@@ -1338,8 +1514,7 @@ TEST_F(DBBloomFilterTest, DynamicBloomFilterUpperBound) {
     // Enable prefix bloom for SST files
     BlockBasedTableOptions table_options;
     table_options.cache_index_and_filter_blocks = true;
-    table_options.filter_policy.reset(
-        NewBloomFilterPolicy(10, use_block_based_builder));
+    table_options.filter_policy.reset(new BFP(10, bfp_impl));
     table_options.index_shortening = BlockBasedTableOptions::
         IndexShorteningMode::kShortenSeparatorsAndSuccessor;
     options.table_factory.reset(NewBlockBasedTableFactory(table_options));
@@ -1382,7 +1557,7 @@ TEST_F(DBBloomFilterTest, DynamicBloomFilterUpperBound) {
       ASSERT_EQ(CountIter(iter, "abcdxx00"), 4);
       // should check bloom filter since upper bound meets requirement
       ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_PREFIX_CHECKED),
-                2 + iteration);
+                2 + using_full_builder);
       ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_PREFIX_USEFUL), 0);
     }
     {
@@ -1396,7 +1571,7 @@ TEST_F(DBBloomFilterTest, DynamicBloomFilterUpperBound) {
       ASSERT_EQ(CountIter(iter, "abcdxx01"), 4);
       // should skip bloom filter since upper bound is too long
       ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_PREFIX_CHECKED),
-                2 + iteration);
+                2 + using_full_builder);
       ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_PREFIX_USEFUL), 0);
     }
     {
@@ -1410,7 +1585,7 @@ TEST_F(DBBloomFilterTest, DynamicBloomFilterUpperBound) {
       // should check bloom filter since upper bound matches transformed seek
       // key
       ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_PREFIX_CHECKED),
-                2 + iteration * 2);
+                2 + using_full_builder * 2);
       ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_PREFIX_USEFUL), 0);
     }
     {
@@ -1424,7 +1599,7 @@ TEST_F(DBBloomFilterTest, DynamicBloomFilterUpperBound) {
       ASSERT_EQ(CountIter(iter, "aaaaaaaa"), 0);
       // should skip bloom filter since mismatch is found
       ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_PREFIX_CHECKED),
-                2 + iteration * 2);
+                2 + using_full_builder * 2);
       ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_PREFIX_USEFUL), 0);
     }
     ASSERT_OK(dbfull()->SetOptions({{"prefix_extractor", "fixed:3"}}));
@@ -1438,7 +1613,7 @@ TEST_F(DBBloomFilterTest, DynamicBloomFilterUpperBound) {
       std::unique_ptr<Iterator> iter(db_->NewIterator(read_options));
       ASSERT_EQ(CountIter(iter, "abc"), 4);
       ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_PREFIX_CHECKED),
-                2 + iteration * 2);
+                2 + using_full_builder * 2);
       ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_PREFIX_USEFUL), 0);
     }
     ASSERT_OK(dbfull()->SetOptions({{"prefix_extractor", "capped:4"}}));
@@ -1451,18 +1626,17 @@ TEST_F(DBBloomFilterTest, DynamicBloomFilterUpperBound) {
       std::unique_ptr<Iterator> iter(db_->NewIterator(read_options));
       ASSERT_EQ(CountIter(iter, "abc"), 0);
       ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_PREFIX_CHECKED),
-                3 + iteration * 2);
+                3 + using_full_builder * 2);
       ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_PREFIX_USEFUL), 1);
     }
-    iteration++;
   }
 }
 
 // Create multiple SST files each with a different prefix_extractor config,
 // verify iterators can read all SST files using the latest config.
 TEST_F(DBBloomFilterTest, DynamicBloomFilterMultipleSST) {
-  int iteration = 0;
-  for (bool use_block_based_builder : {true, false}) {
+  for (auto bfp_impl : BFP::kAllFixedImpls) {
+    int using_full_builder = bfp_impl != BFP::kDeprecatedBlock;
     Options options;
     options.create_if_missing = true;
     options.prefix_extractor.reset(NewFixedPrefixTransform(1));
@@ -1470,8 +1644,7 @@ TEST_F(DBBloomFilterTest, DynamicBloomFilterMultipleSST) {
     options.statistics = CreateDBStatistics();
     // Enable prefix bloom for SST files
     BlockBasedTableOptions table_options;
-    table_options.filter_policy.reset(
-        NewBloomFilterPolicy(10, use_block_based_builder));
+    table_options.filter_policy.reset(new BFP(10, bfp_impl));
     table_options.cache_index_and_filter_blocks = true;
     options.table_factory.reset(NewBlockBasedTableFactory(table_options));
     DestroyAndReopen(options);
@@ -1497,10 +1670,10 @@ TEST_F(DBBloomFilterTest, DynamicBloomFilterMultipleSST) {
     std::unique_ptr<Iterator> iter(db_->NewIterator(read_options));
     ASSERT_EQ(CountIter(iter, "foo"), 2);
     ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_PREFIX_CHECKED),
-              1 + iteration);
+              1 + using_full_builder);
     ASSERT_EQ(CountIter(iter, "gpk"), 0);
     ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_PREFIX_CHECKED),
-              1 + iteration);
+              1 + using_full_builder);
     ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_PREFIX_USEFUL), 0);
 
     // second SST with capped:3 BF
@@ -1514,13 +1687,13 @@ TEST_F(DBBloomFilterTest, DynamicBloomFilterMultipleSST) {
       std::unique_ptr<Iterator> iter_tmp(db_->NewIterator(read_options));
       ASSERT_EQ(CountIter(iter_tmp, "foo"), 4);
       ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_PREFIX_CHECKED),
-                2 + iteration * 2);
+                2 + using_full_builder * 2);
       ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_PREFIX_USEFUL), 0);
       ASSERT_EQ(CountIter(iter_tmp, "gpk"), 0);
       // both counters are incremented because BF is "not changed" for 1 of the
       // 2 SST files, so filter is checked once and found no match.
       ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_PREFIX_CHECKED),
-                3 + iteration * 2);
+                3 + using_full_builder * 2);
       ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_PREFIX_USEFUL), 1);
     }
 
@@ -1539,24 +1712,24 @@ TEST_F(DBBloomFilterTest, DynamicBloomFilterMultipleSST) {
       ASSERT_EQ(CountIter(iter_tmp, "foo"), 9);
       // the first and last BF are checked
       ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_PREFIX_CHECKED),
-                4 + iteration * 3);
+                4 + using_full_builder * 3);
       ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_PREFIX_USEFUL), 1);
       ASSERT_EQ(CountIter(iter_tmp, "gpk"), 0);
       // only last BF is checked and not found
       ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_PREFIX_CHECKED),
-                5 + iteration * 3);
+                5 + using_full_builder * 3);
       ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_PREFIX_USEFUL), 2);
     }
 
     // iter_old can only see the first SST, so checked plus 1
     ASSERT_EQ(CountIter(iter_old, "foo"), 4);
     ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_PREFIX_CHECKED),
-              6 + iteration * 3);
+              6 + using_full_builder * 3);
     // iter was created after the first setoptions call so only full filter
     // will check the filter
     ASSERT_EQ(CountIter(iter, "foo"), 2);
     ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_PREFIX_CHECKED),
-              6 + iteration * 4);
+              6 + using_full_builder * 4);
 
     {
       // keys in all three SSTs are visible to iterator
@@ -1565,11 +1738,11 @@ TEST_F(DBBloomFilterTest, DynamicBloomFilterMultipleSST) {
       std::unique_ptr<Iterator> iter_all(db_->NewIterator(read_options));
       ASSERT_EQ(CountIter(iter_all, "foo"), 9);
       ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_PREFIX_CHECKED),
-                7 + iteration * 5);
+                7 + using_full_builder * 5);
       ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_PREFIX_USEFUL), 2);
       ASSERT_EQ(CountIter(iter_all, "gpk"), 0);
       ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_PREFIX_CHECKED),
-                8 + iteration * 5);
+                8 + using_full_builder * 5);
       ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_PREFIX_USEFUL), 3);
     }
     ASSERT_OK(dbfull()->SetOptions({{"prefix_extractor", "capped:3"}}));
@@ -1581,15 +1754,14 @@ TEST_F(DBBloomFilterTest, DynamicBloomFilterMultipleSST) {
       // all three SST are checked because the current options has the same as
       // the remaining SST (capped:3)
       ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_PREFIX_CHECKED),
-                9 + iteration * 7);
+                9 + using_full_builder * 7);
       ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_PREFIX_USEFUL), 3);
       ASSERT_EQ(CountIter(iter_all, "gpk"), 0);
       ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_PREFIX_CHECKED),
-                10 + iteration * 7);
+                10 + using_full_builder * 7);
       ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_PREFIX_USEFUL), 4);
     }
     // TODO(Zhongyi): Maybe also need to add Get calls to test point look up?
-    iteration++;
   }
 }
 
@@ -1598,7 +1770,7 @@ TEST_F(DBBloomFilterTest, DynamicBloomFilterMultipleSST) {
 // as expected
 TEST_F(DBBloomFilterTest, DynamicBloomFilterNewColumnFamily) {
   int iteration = 0;
-  for (bool use_block_based_builder : {true, false}) {
+  for (auto bfp_impl : BFP::kAllFixedImpls) {
     Options options = CurrentOptions();
     options.create_if_missing = true;
     options.prefix_extractor.reset(NewFixedPrefixTransform(1));
@@ -1607,8 +1779,7 @@ TEST_F(DBBloomFilterTest, DynamicBloomFilterNewColumnFamily) {
     // Enable prefix bloom for SST files
     BlockBasedTableOptions table_options;
     table_options.cache_index_and_filter_blocks = true;
-    table_options.filter_policy.reset(
-        NewBloomFilterPolicy(10, use_block_based_builder));
+    table_options.filter_policy.reset(new BFP(10, bfp_impl));
     options.table_factory.reset(NewBlockBasedTableFactory(table_options));
     CreateAndReopenWithCF({"pikachu" + std::to_string(iteration)}, options);
     ReadOptions read_options;
@@ -1657,8 +1828,7 @@ TEST_F(DBBloomFilterTest, DynamicBloomFilterNewColumnFamily) {
 // Verify it's possible to change prefix_extractor at runtime and iterators
 // behaves as expected
 TEST_F(DBBloomFilterTest, DynamicBloomFilterOptions) {
-  int iteration = 0;
-  for (bool use_block_based_builder : {true, false}) {
+  for (auto bfp_impl : BFP::kAllFixedImpls) {
     Options options;
     options.create_if_missing = true;
     options.prefix_extractor.reset(NewFixedPrefixTransform(1));
@@ -1667,8 +1837,7 @@ TEST_F(DBBloomFilterTest, DynamicBloomFilterOptions) {
     // Enable prefix bloom for SST files
     BlockBasedTableOptions table_options;
     table_options.cache_index_and_filter_blocks = true;
-    table_options.filter_policy.reset(
-        NewBloomFilterPolicy(10, use_block_based_builder));
+    table_options.filter_policy.reset(new BFP(10, bfp_impl));
     options.table_factory.reset(NewBlockBasedTableFactory(table_options));
     DestroyAndReopen(options);
 
@@ -1719,7 +1888,6 @@ TEST_F(DBBloomFilterTest, DynamicBloomFilterOptions) {
     ASSERT_EQ(CountIter(iter_old, "abc"), 0);
     ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_PREFIX_CHECKED), 12);
     ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_PREFIX_USEFUL), 3);
-    iteration++;
   }
 }
 

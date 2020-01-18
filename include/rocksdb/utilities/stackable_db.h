@@ -299,6 +299,10 @@ class StackableDB : public DB {
 
   virtual Env* GetEnv() const override { return db_->GetEnv(); }
 
+  virtual FileSystem* GetFileSystem() const override {
+    return db_->GetFileSystem();
+  }
+
   using DB::GetOptions;
   virtual Options GetOptions(ColumnFamilyHandle* column_family) const override {
     return db_->GetOptions(column_family);
@@ -381,6 +385,11 @@ class StackableDB : public DB {
   virtual Status GetCurrentWalFile(
       std::unique_ptr<LogFile>* current_log_file) override {
     return db_->GetCurrentWalFile(current_log_file);
+  }
+
+  virtual Status GetCreationTimeOfOldestFile(
+      uint64_t* creation_time) override {
+    return db_->GetCreationTimeOfOldestFile(creation_time);
   }
 
   virtual Status DeleteFile(std::string name) override {

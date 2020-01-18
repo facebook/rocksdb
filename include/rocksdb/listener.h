@@ -170,6 +170,10 @@ struct FlushJobInfo {
   std::string cf_name;
   // the path to the newly created file
   std::string file_path;
+  // the file number of the newly created file
+  uint64_t file_number;
+  // the oldest blob file referenced by the newly created file
+  uint64_t oldest_blob_file_number;
   // the id of the thread that completed this flush job.
   uint64_t thread_id;
   // the job id, which is unique in the same thread.
@@ -194,11 +198,18 @@ struct FlushJobInfo {
   FlushReason flush_reason;
 };
 
-struct CompactionJobInfo {
-  CompactionJobInfo() = default;
-  explicit CompactionJobInfo(const CompactionJobStats& _stats)
-      : stats(_stats) {}
+struct CompactionFileInfo {
+  // The level of the file.
+  int level;
 
+  // The file number of the file.
+  uint64_t file_number;
+
+  // The file number of the oldest blob file this SST file references.
+  uint64_t oldest_blob_file_number;
+};
+
+struct CompactionJobInfo {
   // the id of the column family where the compaction happened.
   uint32_t cf_id;
   // the name of the column family where the compaction happened.
@@ -213,11 +224,25 @@ struct CompactionJobInfo {
   int base_input_level;
   // the output level of the compaction.
   int output_level;
-  // the names of the compaction input files.
+
+  // The following variables contain information about compaction inputs
+  // and outputs. A file may appear in both the input and output lists
+  // if it was simply moved to a different level. The order of elements
+  // is the same across input_files and input_file_infos; similarly, it is
+  // the same across output_files and output_file_infos.
+
+  // The names of the compaction input files.
   std::vector<std::string> input_files;
 
-  // the names of the compaction output files.
+  // Additional information about the compaction input files.
+  std::vector<CompactionFileInfo> input_file_infos;
+
+  // The names of the compaction output files.
   std::vector<std::string> output_files;
+
+  // Additional information about the compaction output files.
+  std::vector<CompactionFileInfo> output_file_infos;
+
   // Table properties for input and output tables.
   // The map is keyed by values from input_files and output_files.
   TablePropertiesCollection table_properties;
@@ -459,6 +484,7 @@ class EventListener {
 #else
 
 class EventListener {};
+struct FlushJobInfo {};
 
 #endif  // ROCKSDB_LITE
 

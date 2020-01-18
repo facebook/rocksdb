@@ -240,7 +240,7 @@ class BlockBasedFilterBlockTest : public mock::MockBlockBasedTableTester,
                                   public testing::Test {
  public:
   BlockBasedFilterBlockTest()
-      : mock::MockBlockBasedTableTester(NewBloomFilterPolicy(10)) {}
+      : mock::MockBlockBasedTableTester(NewBloomFilterPolicy(10, true)) {}
 };
 
 TEST_F(BlockBasedFilterBlockTest, BlockBasedEmptyBuilder) {

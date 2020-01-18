@@ -33,6 +33,8 @@ class InstrumentedMutex;
 class MergeIteratorBuilder;
 class MemTableList;
 
+struct FlushJobInfo;
+
 // keeps a list of immutable memtables in a vector. the list is immutable
 // if refcount is bigger than one. It is used as a state for Get() and
 // Iterator code paths
@@ -160,7 +162,11 @@ class MemTableListVersion {
   // excluding the last MemTable in memlist_history_. The reason for excluding
   // the last MemTable is to see if dropping the last MemTable will keep total
   // memory usage above or equal to max_write_buffer_size_to_maintain_
-  size_t ApproximateMemoryUsageExcludingLast();
+  size_t ApproximateMemoryUsageExcludingLast() const;
+
+  // Whether this version contains flushed memtables that are only kept around
+  // for transaction conflict checking.
+  bool HasHistory() const { return !memlist_history_.empty(); }
 
   bool MemtableLimitExceeded(size_t usage);
 
@@ -209,7 +215,8 @@ class MemTableList {
         commit_in_progress_(false),
         flush_requested_(false),
         current_memory_usage_(0),
-        current_memory_usage_excluding_last_(0) {
+        current_memory_usage_excluding_last_(0),
+        current_has_history_(false) {
     current_->Ref();
   }
 
@@ -254,7 +261,8 @@ class MemTableList {
       const autovector<MemTable*>& m, LogsWithPrepTracker* prep_tracker,
       VersionSet* vset, InstrumentedMutex* mu, uint64_t file_number,
       autovector<MemTable*>* to_delete, Directory* db_directory,
-      LogBuffer* log_buffer);
+      LogBuffer* log_buffer,
+      std::list<std::unique_ptr<FlushJobInfo>>* committed_flush_jobs_info);
 
   // New memtables are inserted at the front of the list.
   // Takes ownership of the referenced held on *m by the caller of Add().
@@ -263,11 +271,16 @@ class MemTableList {
   // Returns an estimate of the number of bytes of data in use.
   size_t ApproximateMemoryUsage();
 
-  // Returns the cached current_memory_usage_excluding_last_ value
-  size_t ApproximateMemoryUsageExcludingLast();
+  // Returns the cached current_memory_usage_excluding_last_ value.
+  size_t ApproximateMemoryUsageExcludingLast() const;
 
-  // Update current_memory_usage_excluding_last_ from MemtableListVersion
-  void UpdateMemoryUsageExcludingLast();
+  // Returns the cached current_has_history_ value.
+  bool HasHistory() const;
+
+  // Updates current_memory_usage_excluding_last_ and current_has_history_
+  // from MemTableListVersion. Must be called whenever InstallNewVersion is
+  // called.
+  void UpdateCachedValuesFromMemTableListVersion();
 
   // `usage` is the current size of the mutable Memtable. When
   // max_write_buffer_size_to_maintain is used, total size of mutable and
@@ -385,7 +398,11 @@ class MemTableList {
   // The current memory usage.
   size_t current_memory_usage_;
 
+  // Cached value of current_->ApproximateMemoryUsageExcludingLast().
   std::atomic<size_t> current_memory_usage_excluding_last_;
+
+  // Cached value of current_->HasHistory().
+  std::atomic<bool> current_has_history_;
 };
 
 // Installs memtable atomic flush results.

@@ -9,6 +9,7 @@
 
 #include "db/version_edit.h"
 
+#include "db/blob_index.h"
 #include "db/version_set.h"
 #include "logging/event_logger.h"
 #include "rocksdb/slice.h"
@@ -59,6 +60,9 @@ enum CustomTag : uint32_t {
   // kMinLogNumberToKeep as part of a CustomTag as a hack. This should be
   // removed when manifest becomes forward-comptabile.
   kMinLogNumberToKeepHack = 3,
+  kOldestBlobFileNumber = 4,
+  kOldestAncesterTime = 5,
+  kFileCreationTime = 6,
   kPathId = 65,
 };
 // If this bit for the custom tag is set, opening DB should fail if
@@ -68,6 +72,49 @@ uint32_t kCustomTagNonSafeIgnoreMask = 1 << 6;
 uint64_t PackFileNumberAndPathId(uint64_t number, uint64_t path_id) {
   assert(number <= kFileNumberMask);
   return number | (path_id * (kFileNumberMask + 1));
+}
+
+void FileMetaData::UpdateBoundaries(const Slice& key, const Slice& value,
+                                    SequenceNumber seqno,
+                                    ValueType value_type) {
+  if (smallest.size() == 0) {
+    smallest.DecodeFrom(key);
+  }
+  largest.DecodeFrom(key);
+  fd.smallest_seqno = std::min(fd.smallest_seqno, seqno);
+  fd.largest_seqno = std::max(fd.largest_seqno, seqno);
+
+#ifndef ROCKSDB_LITE
+  if (value_type == kTypeBlobIndex) {
+    BlobIndex blob_index;
+    const Status s = blob_index.DecodeFrom(value);
+    if (!s.ok()) {
+      return;
+    }
+
+    if (blob_index.IsInlined()) {
+      return;
+    }
+
+    if (blob_index.HasTTL()) {
+      return;
+    }
+
+    // Paranoid check: this should not happen because BlobDB numbers the blob
+    // files starting from 1.
+    if (blob_index.file_number() == kInvalidBlobFileNumber) {
+      return;
+    }
+
+    if (oldest_blob_file_number == kInvalidBlobFileNumber ||
+        oldest_blob_file_number > blob_index.file_number()) {
+      oldest_blob_file_number = blob_index.file_number();
+    }
+  }
+#else
+  (void)value;
+  (void)value_type;
+#endif
 }
 
 void VersionEdit::Clear() {
@@ -133,75 +180,79 @@ bool VersionEdit::EncodeTo(std::string* dst) const {
     if (!f.smallest.Valid() || !f.largest.Valid()) {
       return false;
     }
-    bool has_customized_fields = false;
-    if (f.marked_for_compaction || has_min_log_number_to_keep_) {
-      PutVarint32(dst, kNewFile4);
-      has_customized_fields = true;
-    } else if (f.fd.GetPathId() == 0) {
-      // Use older format to make sure user can roll back the build if they
-      // don't config multiple DB paths.
-      PutVarint32(dst, kNewFile2);
-    } else {
-      PutVarint32(dst, kNewFile3);
-    }
+    PutVarint32(dst, kNewFile4);
     PutVarint32Varint64(dst, new_files_[i].first /* level */, f.fd.GetNumber());
-    if (f.fd.GetPathId() != 0 && !has_customized_fields) {
-      // kNewFile3
-      PutVarint32(dst, f.fd.GetPathId());
-    }
     PutVarint64(dst, f.fd.GetFileSize());
     PutLengthPrefixedSlice(dst, f.smallest.Encode());
     PutLengthPrefixedSlice(dst, f.largest.Encode());
     PutVarint64Varint64(dst, f.fd.smallest_seqno, f.fd.largest_seqno);
-    if (has_customized_fields) {
-      // Customized fields' format:
-      // +-----------------------------+
-      // | 1st field's tag (varint32)  |
-      // +-----------------------------+
-      // | 1st field's size (varint32) |
-      // +-----------------------------+
-      // |    bytes for 1st field      |
-      // |  (based on size decoded)    |
-      // +-----------------------------+
-      // |                             |
-      // |          ......             |
-      // |                             |
-      // +-----------------------------+
-      // | last field's size (varint32)|
-      // +-----------------------------+
-      // |    bytes for last field     |
-      // |  (based on size decoded)    |
-      // +-----------------------------+
-      // | terminating tag (varint32)  |
-      // +-----------------------------+
-      //
-      // Customized encoding for fields:
-      //   tag kPathId: 1 byte as path_id
-      //   tag kNeedCompaction:
-      //        now only can take one char value 1 indicating need-compaction
-      //
-      if (f.fd.GetPathId() != 0) {
-        PutVarint32(dst, CustomTag::kPathId);
-        char p = static_cast<char>(f.fd.GetPathId());
-        PutLengthPrefixedSlice(dst, Slice(&p, 1));
-      }
-      if (f.marked_for_compaction) {
-        PutVarint32(dst, CustomTag::kNeedCompaction);
-        char p = static_cast<char>(1);
-        PutLengthPrefixedSlice(dst, Slice(&p, 1));
-      }
-      if (has_min_log_number_to_keep_ && !min_log_num_written) {
-        PutVarint32(dst, CustomTag::kMinLogNumberToKeepHack);
-        std::string varint_log_number;
-        PutFixed64(&varint_log_number, min_log_number_to_keep_);
-        PutLengthPrefixedSlice(dst, Slice(varint_log_number));
-        min_log_num_written = true;
-      }
-      TEST_SYNC_POINT_CALLBACK("VersionEdit::EncodeTo:NewFile4:CustomizeFields",
-                               dst);
+    // Customized fields' format:
+    // +-----------------------------+
+    // | 1st field's tag (varint32)  |
+    // +-----------------------------+
+    // | 1st field's size (varint32) |
+    // +-----------------------------+
+    // |    bytes for 1st field      |
+    // |  (based on size decoded)    |
+    // +-----------------------------+
+    // |                             |
+    // |          ......             |
+    // |                             |
+    // +-----------------------------+
+    // | last field's size (varint32)|
+    // +-----------------------------+
+    // |    bytes for last field     |
+    // |  (based on size decoded)    |
+    // +-----------------------------+
+    // | terminating tag (varint32)  |
+    // +-----------------------------+
+    //
+    // Customized encoding for fields:
+    //   tag kPathId: 1 byte as path_id
+    //   tag kNeedCompaction:
+    //        now only can take one char value 1 indicating need-compaction
+    //
+    PutVarint32(dst, CustomTag::kOldestAncesterTime);
+    std::string varint_oldest_ancester_time;
+    PutVarint64(&varint_oldest_ancester_time, f.oldest_ancester_time);
+    TEST_SYNC_POINT_CALLBACK("VersionEdit::EncodeTo:VarintOldestAncesterTime",
+                             &varint_oldest_ancester_time);
+    PutLengthPrefixedSlice(dst, Slice(varint_oldest_ancester_time));
 
-      PutVarint32(dst, CustomTag::kTerminate);
+    PutVarint32(dst, CustomTag::kFileCreationTime);
+    std::string varint_file_creation_time;
+    PutVarint64(&varint_file_creation_time, f.file_creation_time);
+    TEST_SYNC_POINT_CALLBACK("VersionEdit::EncodeTo:VarintFileCreationTime",
+                             &varint_file_creation_time);
+    PutLengthPrefixedSlice(dst, Slice(varint_file_creation_time));
+
+    if (f.fd.GetPathId() != 0) {
+      PutVarint32(dst, CustomTag::kPathId);
+      char p = static_cast<char>(f.fd.GetPathId());
+      PutLengthPrefixedSlice(dst, Slice(&p, 1));
     }
+    if (f.marked_for_compaction) {
+      PutVarint32(dst, CustomTag::kNeedCompaction);
+      char p = static_cast<char>(1);
+      PutLengthPrefixedSlice(dst, Slice(&p, 1));
+    }
+    if (has_min_log_number_to_keep_ && !min_log_num_written) {
+      PutVarint32(dst, CustomTag::kMinLogNumberToKeepHack);
+      std::string varint_log_number;
+      PutFixed64(&varint_log_number, min_log_number_to_keep_);
+      PutLengthPrefixedSlice(dst, Slice(varint_log_number));
+      min_log_num_written = true;
+    }
+    if (f.oldest_blob_file_number != kInvalidBlobFileNumber) {
+      PutVarint32(dst, CustomTag::kOldestBlobFileNumber);
+      std::string oldest_blob_file_number;
+      PutVarint64(&oldest_blob_file_number, f.oldest_blob_file_number);
+      PutLengthPrefixedSlice(dst, Slice(oldest_blob_file_number));
+    }
+    TEST_SYNC_POINT_CALLBACK("VersionEdit::EncodeTo:NewFile4:CustomizeFields",
+                             dst);
+
+    PutVarint32(dst, CustomTag::kTerminate);
   }
 
   // 0 is default and does not need to be explicitly written
@@ -288,6 +339,16 @@ const char* VersionEdit::DecodeNewFile4From(Slice* input) {
             return "path_id wrong vaue";
           }
           break;
+        case kOldestAncesterTime:
+          if (!GetVarint64(&field, &f.oldest_ancester_time)) {
+            return "invalid oldest ancester time";
+          }
+          break;
+        case kFileCreationTime:
+          if (!GetVarint64(&field, &f.file_creation_time)) {
+            return "invalid file creation time";
+          }
+          break;
         case kNeedCompaction:
           if (field.size() != 1) {
             return "need_compaction field wrong size";
@@ -301,6 +362,11 @@ const char* VersionEdit::DecodeNewFile4From(Slice* input) {
             return "deleted log number malformatted";
           }
           has_min_log_number_to_keep_ = true;
+          break;
+        case kOldestBlobFileNumber:
+          if (!GetVarint64(&field, &f.oldest_blob_file_number)) {
+            return "invalid oldest blob file number";
+          }
           break;
         default:
           if ((custom_tag & kCustomTagNonSafeIgnoreMask) != 0) {
@@ -602,6 +668,14 @@ std::string VersionEdit::DebugString(bool hex_key) const {
     r.append(f.smallest.DebugString(hex_key));
     r.append(" .. ");
     r.append(f.largest.DebugString(hex_key));
+    if (f.oldest_blob_file_number != kInvalidBlobFileNumber) {
+      r.append(" blob_file:");
+      AppendNumberTo(&r, f.oldest_blob_file_number);
+    }
+    r.append(" oldest_ancester_time:");
+    AppendNumberTo(&r, f.oldest_ancester_time);
+    r.append(" file_creation_time:");
+    AppendNumberTo(&r, f.file_creation_time);
   }
   r.append("\n  ColumnFamily: ");
   AppendNumberTo(&r, column_family_);
@@ -676,6 +750,9 @@ std::string VersionEdit::DebugJSON(int edit_num, bool hex_key) const {
       jw << "FileSize" << f.fd.GetFileSize();
       jw << "SmallestIKey" << f.smallest.DebugString(hex_key);
       jw << "LargestIKey" << f.largest.DebugString(hex_key);
+      if (f.oldest_blob_file_number != kInvalidBlobFileNumber) {
+        jw << "OldestBlobFile" << f.oldest_blob_file_number;
+      }
       jw.EndArrayedObject();
     }
 

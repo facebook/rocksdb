@@ -10,6 +10,7 @@
 #include "rocksdb/env.h"
 
 #include <thread>
+#include "env/composite_env_wrapper.h"
 #include "logging/env_logger.h"
 #include "memory/arena.h"
 #include "options/db_options.h"
@@ -420,6 +421,7 @@ void AssignEnvOptions(EnvOptions* env_options, const DBOptions& options) {
       options.writable_file_max_buffer_size;
   env_options->allow_fallocate = options.allow_fallocate;
   env_options->strict_bytes_per_sync = options.strict_bytes_per_sync;
+  options.env->SanitizeEnvOptions(env_options);
 }
 
 }
@@ -484,8 +486,9 @@ Status NewEnvLogger(const std::string& fname, Env* env,
     return status;
   }
 
-  *result = std::make_shared<EnvLogger>(std::move(writable_file), fname,
-                                        options, env);
+  *result = std::make_shared<EnvLogger>(
+      NewLegacyWritableFileWrapper(std::move(writable_file)), fname, options,
+      env);
   return Status::OK();
 }
 

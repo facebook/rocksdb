@@ -39,20 +39,41 @@ bool FindIntraL0Compaction(const std::vector<FileMetaData*>& level_files,
                            size_t min_files_to_compact,
                            uint64_t max_compact_bytes_per_del_file,
                            uint64_t max_compaction_bytes,
-                           CompactionInputFiles* comp_inputs) {
-  size_t compact_bytes = static_cast<size_t>(level_files[0]->fd.file_size);
-  uint64_t compensated_compact_bytes = level_files[0]->compensated_file_size;
+                           CompactionInputFiles* comp_inputs,
+                           SequenceNumber earliest_mem_seqno) {
+  // Do not pick ingested file when there is at least one memtable not flushed
+  // which of seqno is overlap with the sst.
+  TEST_SYNC_POINT("FindIntraL0Compaction");
+  size_t start = 0;
+  for (; start < level_files.size(); start++) {
+    if (level_files[start]->being_compacted) {
+      return false;
+    }
+    // If there is no data in memtable, the earliest sequence number would the
+    // largest sequence number in last memtable.
+    // Because all files are sorted in descending order by largest_seqno, so we
+    // only need to check the first one.
+    if (level_files[start]->fd.largest_seqno <= earliest_mem_seqno) {
+      break;
+    }
+  }
+  if (start >= level_files.size()) {
+    return false;
+  }
+  size_t compact_bytes = static_cast<size_t>(level_files[start]->fd.file_size);
+  uint64_t compensated_compact_bytes =
+      level_files[start]->compensated_file_size;
   size_t compact_bytes_per_del_file = port::kMaxSizet;
-  // Compaction range will be [0, span_len).
-  size_t span_len;
+  // Compaction range will be [start, limit).
+  size_t limit;
   // Pull in files until the amount of compaction work per deleted file begins
   // increasing or maximum total compaction size is reached.
   size_t new_compact_bytes_per_del_file = 0;
-  for (span_len = 1; span_len < level_files.size(); ++span_len) {
-    compact_bytes += static_cast<size_t>(level_files[span_len]->fd.file_size);
-    compensated_compact_bytes += level_files[span_len]->compensated_file_size;
-    new_compact_bytes_per_del_file = compact_bytes / span_len;
-    if (level_files[span_len]->being_compacted ||
+  for (limit = start + 1; limit < level_files.size(); ++limit) {
+    compact_bytes += static_cast<size_t>(level_files[limit]->fd.file_size);
+    compensated_compact_bytes += level_files[limit]->compensated_file_size;
+    new_compact_bytes_per_del_file = compact_bytes / (limit - start);
+    if (level_files[limit]->being_compacted ||
         new_compact_bytes_per_del_file > compact_bytes_per_del_file ||
         compensated_compact_bytes > max_compaction_bytes) {
       break;
@@ -60,11 +81,11 @@ bool FindIntraL0Compaction(const std::vector<FileMetaData*>& level_files,
     compact_bytes_per_del_file = new_compact_bytes_per_del_file;
   }
 
-  if (span_len >= min_files_to_compact &&
+  if ((limit - start) >= min_files_to_compact &&
       compact_bytes_per_del_file < max_compact_bytes_per_del_file) {
     assert(comp_inputs != nullptr);
     comp_inputs->level = 0;
-    for (size_t i = 0; i < span_len; ++i) {
+    for (size_t i = start; i < limit; ++i) {
       comp_inputs->files.push_back(level_files[i]);
     }
     return true;

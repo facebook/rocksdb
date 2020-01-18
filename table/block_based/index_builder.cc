@@ -39,6 +39,9 @@ IndexBuilder* IndexBuilder::CreateIndexBuilder(
           table_opt.index_shortening, /* include_first_key */ false);
     } break;
     case BlockBasedTableOptions::kHashSearch: {
+      // Currently kHashSearch is incompatible with index_block_restart_interval
+      // > 1
+      assert(table_opt.index_block_restart_interval == 1);
       result = new HashIndexBuilder(
           comparator, int_key_slice_transform,
           table_opt.index_block_restart_interval, table_opt.format_version,

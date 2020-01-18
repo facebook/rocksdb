@@ -7,6 +7,7 @@
 #include <memory>
 #include <thread>
 #include <vector>
+#include <fstream>
 #include "db/db_test_util.h"
 #include "db/write_batch_internal.h"
 #include "db/write_thread.h"
@@ -183,6 +184,41 @@ TEST_P(DBWriteTest, LockWalInEffect) {
   ASSERT_OK(dbfull()->LockWAL());
   ASSERT_TRUE(dbfull()->TEST_WALBufferIsEmpty(false));
   ASSERT_OK(dbfull()->UnlockWAL());
+}
+
+TEST_P(DBWriteTest, ConcurrentlyDisabledWAL) {
+    Options options = GetOptions();
+    options.statistics = rocksdb::CreateDBStatistics();
+    options.statistics->set_stats_level(StatsLevel::kAll);
+    Reopen(options);
+    std::string wal_key_prefix = "WAL_KEY_";
+    std::string no_wal_key_prefix = "K_";
+    // 100 KB value each for NO-WAL operation
+    std::string no_wal_value(1024 * 100, 'X');
+    // 1B value each for WAL operation
+    std::string wal_value = "0";
+    std::thread threads[10];
+    for (int t = 0; t < 10; t++) {
+        threads[t] = std::thread([t, wal_key_prefix, wal_value, no_wal_key_prefix, no_wal_value, this] {
+            for(int i = 0; i < 10; i++) {
+                rocksdb::WriteOptions write_option_disable;
+                write_option_disable.disableWAL = true;
+                rocksdb::WriteOptions write_option_default;
+                std::string no_wal_key = no_wal_key_prefix + std::to_string(t) + "_" + std::to_string(i);
+                this->Put(no_wal_key, no_wal_value, write_option_disable);
+                std::string wal_key = wal_key_prefix + std::to_string(i) + "_" + std::to_string(i);
+                this->Put(wal_key, wal_value, write_option_default);
+                dbfull()->SyncWAL();
+            }
+            return 0;
+        });
+    }
+    for (auto& t: threads) {
+        t.join();
+    }
+    uint64_t bytes_num = options.statistics->getTickerCount(rocksdb::Tickers::WAL_FILE_BYTES);
+    // written WAL size should less than 100KB (even included HEADER & FOOTER overhead)
+    ASSERT_LE(bytes_num, 1024 * 100);
 }
 
 INSTANTIATE_TEST_CASE_P(DBWriteTestInstance, DBWriteTest,

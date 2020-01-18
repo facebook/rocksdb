@@ -102,3 +102,7 @@ LzLabs is using RocksDB as a storage engine in their multi-database distributed 
  
 ## Crux
 [Crux](https://github.com/juxt/crux) is a document database that uses RocksDB for local [EAV](https://en.wikipedia.org/wiki/Entity%E2%80%93attribute%E2%80%93value_model) index storage to enable point-in-time bitemporal Datalog queries. The "unbundled" architecture uses Kafka to provide horizontal scalability.
+
+## Nebula Graph
+
+[Nebula Graph](https://github.com/vesoft-inc/nebula) is a distributed, scalable, lightning-fast, open source graph database capable of hosting super large scale graphs with dozens of billions of vertices (nodes) and trillions of edges, with milliseconds of latency.

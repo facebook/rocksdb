@@ -4029,6 +4029,40 @@ TEST_F(DBTest2, PrefixBloomReseek) {
   delete iter;
 }
 
+TEST_F(DBTest2, PrefixBloomFilteredOut) {
+  Options options = CurrentOptions();
+  options.create_if_missing = true;
+  options.prefix_extractor.reset(NewCappedPrefixTransform(3));
+  BlockBasedTableOptions bbto;
+  bbto.filter_policy.reset(NewBloomFilterPolicy(10, false));
+  bbto.whole_key_filtering = false;
+  options.table_factory.reset(NewBlockBasedTableFactory(bbto));
+  DestroyAndReopen(options);
+
+  // Construct two L1 files with keys:
+  // f1:[aaa1 ccc1] f2:[ddd0]
+  ASSERT_OK(Put("aaa1", ""));
+  ASSERT_OK(Put("ccc1", ""));
+  ASSERT_OK(Flush());
+  ASSERT_OK(Put("ddd0", ""));
+  ASSERT_OK(Flush());
+  CompactRangeOptions cro;
+  cro.bottommost_level_compaction = BottommostLevelCompaction::kSkip;
+  ASSERT_OK(db_->CompactRange(cro, nullptr, nullptr));
+
+  Iterator* iter = db_->NewIterator(ReadOptions());
+
+  // Bloom filter is filterd out by f1.
+  // This is just one of several valid position following the contract.
+  // Postioning to ccc1 or ddd0 is also valid. This is just to validate
+  // the behavior of the current implementation. If underlying implementation
+  // changes, the test might fail here.
+  iter->Seek("bbb1");
+  ASSERT_FALSE(iter->Valid());
+
+  delete iter;
+}
+
 #ifndef ROCKSDB_LITE
 TEST_F(DBTest2, RowCacheSnapshot) {
   Options options = CurrentOptions();
@@ -4075,64 +4109,301 @@ TEST_F(DBTest2, RowCacheSnapshot) {
 }
 #endif  // ROCKSDB_LITE
 
-// Disabled but the test is failing.
 // When DB is reopened with multiple column families, the manifest file
 // is written after the first CF is flushed, and it is written again
 // after each flush. If DB crashes between the flushes, the flushed CF
 // flushed will pass the latest log file, and now we require it not
 // to be corrupted, and triggering a corruption report.
 // We need to fix the bug and enable the test.
-TEST_F(DBTest2, DISABLED_CrashInRecoveryMultipleCF) {
-  Options options = CurrentOptions();
-  options.create_if_missing = true;
-  options.wal_recovery_mode = WALRecoveryMode::kPointInTimeRecovery;
-  CreateAndReopenWithCF({"pikachu"}, options);
-  ASSERT_OK(Put("foo", "bar"));
-  ASSERT_OK(Flush());
-  ASSERT_OK(Put(1, "foo", "bar"));
-  ASSERT_OK(Flush(1));
-  ASSERT_OK(Put("foo", "bar"));
-  ASSERT_OK(Put(1, "foo", "bar"));
-  // The value is large enough to be divided to two blocks.
-  std::string large_value(400, ' ');
-  ASSERT_OK(Put("foo1", large_value));
-  ASSERT_OK(Put("foo2", large_value));
-  Close();
+TEST_F(DBTest2, CrashInRecoveryMultipleCF) {
+  const std::vector<std::string> sync_points = {
+      "DBImpl::RecoverLogFiles:BeforeFlushFinalMemtable",
+      "VersionSet::ProcessManifestWrites:BeforeWriteLastVersionEdit:0"};
+  for (const auto& test_sync_point : sync_points) {
+    Options options = CurrentOptions();
+    // First destroy original db to ensure a clean start.
+    DestroyAndReopen(options);
+    options.create_if_missing = true;
+    options.wal_recovery_mode = WALRecoveryMode::kPointInTimeRecovery;
+    CreateAndReopenWithCF({"pikachu"}, options);
+    ASSERT_OK(Put("foo", "bar"));
+    ASSERT_OK(Flush());
+    ASSERT_OK(Put(1, "foo", "bar"));
+    ASSERT_OK(Flush(1));
+    ASSERT_OK(Put("foo", "bar"));
+    ASSERT_OK(Put(1, "foo", "bar"));
+    // The value is large enough to be divided to two blocks.
+    std::string large_value(400, ' ');
+    ASSERT_OK(Put("foo1", large_value));
+    ASSERT_OK(Put("foo2", large_value));
+    Close();
 
-  // Corrupt the log file in the middle, so that it is not corrupted
-  // in the tail.
-  std::vector<std::string> filenames;
-  ASSERT_OK(env_->GetChildren(dbname_, &filenames));
-  for (const auto& f : filenames) {
-    uint64_t number;
-    FileType type;
-    if (ParseFileName(f, &number, &type) && type == FileType::kLogFile) {
-      std::string fname = dbname_ + "/" + f;
-      std::string file_content;
-      ASSERT_OK(ReadFileToString(env_, fname, &file_content));
-      file_content[400] = 'h';
-      file_content[401] = 'a';
-      ASSERT_OK(WriteStringToFile(env_, file_content, fname));
-      break;
+    // Corrupt the log file in the middle, so that it is not corrupted
+    // in the tail.
+    std::vector<std::string> filenames;
+    ASSERT_OK(env_->GetChildren(dbname_, &filenames));
+    for (const auto& f : filenames) {
+      uint64_t number;
+      FileType type;
+      if (ParseFileName(f, &number, &type) && type == FileType::kLogFile) {
+        std::string fname = dbname_ + "/" + f;
+        std::string file_content;
+        ASSERT_OK(ReadFileToString(env_, fname, &file_content));
+        file_content[400] = 'h';
+        file_content[401] = 'a';
+        ASSERT_OK(WriteStringToFile(env_, file_content, fname));
+        break;
+      }
     }
+
+    // Reopen and freeze the file system after the first manifest write.
+    FaultInjectionTestEnv fit_env(options.env);
+    options.env = &fit_env;
+    rocksdb::SyncPoint::GetInstance()->ClearAllCallBacks();
+    rocksdb::SyncPoint::GetInstance()->SetCallBack(
+        test_sync_point,
+        [&](void* /*arg*/) { fit_env.SetFilesystemActive(false); });
+    rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+    ASSERT_NOK(TryReopenWithColumnFamilies(
+        {kDefaultColumnFamilyName, "pikachu"}, options));
+    rocksdb::SyncPoint::GetInstance()->DisableProcessing();
+
+    fit_env.SetFilesystemActive(true);
+    // If we continue using failure ingestion Env, it will conplain something
+    // when renaming current file, which is not expected. Need to investigate
+    // why.
+    options.env = env_;
+    ASSERT_OK(TryReopenWithColumnFamilies({kDefaultColumnFamilyName, "pikachu"},
+                                          options));
+  }
+}
+
+TEST_F(DBTest2, SeekFileRangeDeleteTail) {
+  Options options = CurrentOptions();
+  options.prefix_extractor.reset(NewCappedPrefixTransform(1));
+  options.num_levels = 3;
+  DestroyAndReopen(options);
+
+  ASSERT_OK(Put("a", "a"));
+  const Snapshot* s1 = db_->GetSnapshot();
+  ASSERT_OK(
+      db_->DeleteRange(WriteOptions(), db_->DefaultColumnFamily(), "a", "f"));
+  ASSERT_OK(Put("b", "a"));
+  ASSERT_OK(Flush());
+
+  ASSERT_OK(Put("x", "a"));
+  ASSERT_OK(Put("z", "a"));
+  ASSERT_OK(Flush());
+
+  CompactRangeOptions cro;
+  cro.change_level = true;
+  cro.target_level = 2;
+  ASSERT_OK(db_->CompactRange(cro, nullptr, nullptr));
+
+  {
+    ReadOptions ro;
+    ro.total_order_seek = true;
+    std::unique_ptr<Iterator> iter(db_->NewIterator(ro));
+    iter->Seek("e");
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_EQ("x", iter->key().ToString());
+  }
+  db_->ReleaseSnapshot(s1);
+}
+
+TEST_F(DBTest2, BackgroundPurgeTest) {
+  Options options = CurrentOptions();
+  options.write_buffer_manager = std::make_shared<rocksdb::WriteBufferManager>(1 << 20);
+  options.avoid_unnecessary_blocking_io = true;
+  DestroyAndReopen(options);
+  size_t base_value = options.write_buffer_manager->memory_usage();
+
+  ASSERT_OK(Put("a", "a"));
+  Iterator* iter = db_->NewIterator(ReadOptions());
+  ASSERT_OK(Flush());
+  size_t value = options.write_buffer_manager->memory_usage();
+  ASSERT_GT(value, base_value);
+
+  db_->GetEnv()->SetBackgroundThreads(1, Env::Priority::HIGH);
+  test::SleepingBackgroundTask sleeping_task_after;
+  db_->GetEnv()->Schedule(&test::SleepingBackgroundTask::DoSleepTask,
+                          &sleeping_task_after, Env::Priority::HIGH);
+  delete iter;
+
+  Env::Default()->SleepForMicroseconds(100000);
+  value = options.write_buffer_manager->memory_usage();
+  ASSERT_GT(value, base_value);
+
+  sleeping_task_after.WakeUp();
+  sleeping_task_after.WaitUntilDone();
+
+  test::SleepingBackgroundTask sleeping_task_after2;
+  db_->GetEnv()->Schedule(&test::SleepingBackgroundTask::DoSleepTask,
+                          &sleeping_task_after2, Env::Priority::HIGH);
+  sleeping_task_after2.WakeUp();
+  sleeping_task_after2.WaitUntilDone();
+
+  value = options.write_buffer_manager->memory_usage();
+  ASSERT_EQ(base_value, value);
+}
+
+TEST_F(DBTest2, SwitchMemtableRaceWithNewManifest) {
+  Options options = CurrentOptions();
+  DestroyAndReopen(options);
+  options.max_manifest_file_size = 10;
+  options.create_if_missing = true;
+  CreateAndReopenWithCF({"pikachu"}, options);
+  ASSERT_EQ(2, handles_.size());
+
+  ASSERT_OK(Put("foo", "value"));
+  const int kL0Files = options.level0_file_num_compaction_trigger;
+  for (int i = 0; i < kL0Files; ++i) {
+    ASSERT_OK(Put(/*cf=*/1, "a", std::to_string(i)));
+    ASSERT_OK(Flush(/*cf=*/1));
   }
 
-  // Reopen and freeze the file system after the first manifest write.
-  FaultInjectionTestEnv fit_env(options.env);
-  options.env = &fit_env;
-  rocksdb::SyncPoint::GetInstance()->SetCallBack(
-      "DBImpl::RecoverLogFiles:AfterLogAndApply",
-      [&](void* /*arg*/) { fit_env.SetFilesystemActive(false); });
-  rocksdb::SyncPoint::GetInstance()->EnableProcessing();
-  ASSERT_NOK(TryReopenWithColumnFamilies({"default", "pikachu"}, options));
-  rocksdb::SyncPoint::GetInstance()->DisableProcessing();
-
-  fit_env.SetFilesystemActive(true);
-  // If we continue using failure ingestion Env, it will conplain something
-  // when renaming current file, which is not expected. Need to investigate why.
-  options.env = env_;
-  ASSERT_OK(TryReopenWithColumnFamilies({"default", "pikachu"}, options));
+  port::Thread thread([&]() { ASSERT_OK(Flush()); });
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
+  thread.join();
 }
+
+TEST_F(DBTest2, SameSmallestInSameLevel) {
+  // This test validates fractional casacading logic when several files at one
+  // one level only contains the same user key.
+  Options options = CurrentOptions();
+  options.merge_operator = MergeOperators::CreateStringAppendOperator();
+  DestroyAndReopen(options);
+
+  ASSERT_OK(Put("key", "1"));
+  ASSERT_OK(Put("key", "2"));
+  ASSERT_OK(db_->Merge(WriteOptions(), "key", "3"));
+  ASSERT_OK(db_->Merge(WriteOptions(), "key", "4"));
+  Flush();
+  CompactRangeOptions cro;
+  cro.change_level = true;
+  cro.target_level = 2;
+  ASSERT_OK(dbfull()->CompactRange(cro, db_->DefaultColumnFamily(), nullptr,
+                                   nullptr));
+
+  ASSERT_OK(db_->Merge(WriteOptions(), "key", "5"));
+  Flush();
+  ASSERT_OK(db_->Merge(WriteOptions(), "key", "6"));
+  Flush();
+  ASSERT_OK(db_->Merge(WriteOptions(), "key", "7"));
+  Flush();
+  ASSERT_OK(db_->Merge(WriteOptions(), "key", "8"));
+  Flush();
+  dbfull()->TEST_WaitForCompact(true);
+#ifndef ROCKSDB_LITE
+  ASSERT_EQ("0,4,1", FilesPerLevel());
+#endif  // ROCKSDB_LITE
+
+  ASSERT_EQ("2,3,4,5,6,7,8", Get("key"));
+}
+
+TEST_F(DBTest2, BlockBasedTablePrefixIndexSeekForPrev) {
+  // create a DB with block prefix index
+  BlockBasedTableOptions table_options;
+  Options options = CurrentOptions();
+  table_options.block_size = 300;
+  table_options.index_type = BlockBasedTableOptions::kHashSearch;
+  table_options.index_shortening =
+      BlockBasedTableOptions::IndexShorteningMode::kNoShortening;
+  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+  options.prefix_extractor.reset(NewFixedPrefixTransform(1));
+
+  Reopen(options);
+
+  Random rnd(301);
+  std::string large_value = RandomString(&rnd, 500);
+
+  ASSERT_OK(Put("a1", large_value));
+  ASSERT_OK(Put("x1", large_value));
+  ASSERT_OK(Put("y1", large_value));
+  Flush();
+
+  {
+    std::unique_ptr<Iterator> iterator(db_->NewIterator(ReadOptions()));
+    iterator->SeekForPrev("x3");
+    ASSERT_TRUE(iterator->Valid());
+    ASSERT_EQ("x1", iterator->key().ToString());
+
+    iterator->SeekForPrev("a3");
+    ASSERT_TRUE(iterator->Valid());
+    ASSERT_EQ("a1", iterator->key().ToString());
+
+    iterator->SeekForPrev("y3");
+    ASSERT_TRUE(iterator->Valid());
+    ASSERT_EQ("y1", iterator->key().ToString());
+
+    // Query more than one non-existing prefix to cover the case both
+    // of empty hash bucket and hash bucket conflict.
+    iterator->SeekForPrev("b1");
+    // Result should be not valid or "a1".
+    if (iterator->Valid()) {
+      ASSERT_EQ("a1", iterator->key().ToString());
+    }
+
+    iterator->SeekForPrev("c1");
+    // Result should be not valid or "a1".
+    if (iterator->Valid()) {
+      ASSERT_EQ("a1", iterator->key().ToString());
+    }
+
+    iterator->SeekForPrev("d1");
+    // Result should be not valid or "a1".
+    if (iterator->Valid()) {
+      ASSERT_EQ("a1", iterator->key().ToString());
+    }
+
+    iterator->SeekForPrev("y3");
+    ASSERT_TRUE(iterator->Valid());
+    ASSERT_EQ("y1", iterator->key().ToString());
+  }
+}
+
+TEST_F(DBTest2, BlockBasedTablePrefixGetIndexNotFound) {
+  // create a DB with block prefix index
+  BlockBasedTableOptions table_options;
+  Options options = CurrentOptions();
+  table_options.block_size = 300;
+  table_options.index_type = BlockBasedTableOptions::kHashSearch;
+  table_options.index_shortening =
+      BlockBasedTableOptions::IndexShorteningMode::kNoShortening;
+  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+  options.prefix_extractor.reset(NewFixedPrefixTransform(1));
+  options.level0_file_num_compaction_trigger = 8;
+
+  Reopen(options);
+
+  ASSERT_OK(Put("b1", "ok"));
+  Flush();
+
+  // Flushing several files so that the chance that hash bucket
+  // is empty fo "b" in at least one of the files is high.
+  ASSERT_OK(Put("a1", ""));
+  ASSERT_OK(Put("c1", ""));
+  Flush();
+
+  ASSERT_OK(Put("a2", ""));
+  ASSERT_OK(Put("c2", ""));
+  Flush();
+
+  ASSERT_OK(Put("a3", ""));
+  ASSERT_OK(Put("c3", ""));
+  Flush();
+
+  ASSERT_OK(Put("a4", ""));
+  ASSERT_OK(Put("c4", ""));
+  Flush();
+
+  ASSERT_OK(Put("a5", ""));
+  ASSERT_OK(Put("c5", ""));
+  Flush();
+
+  ASSERT_EQ("ok", Get("b1"));
+}
+
 }  // namespace rocksdb
 
 #ifdef ROCKSDB_UNITTESTS_WITH_CUSTOM_OBJECTS_FROM_STATIC_LIBS

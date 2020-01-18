@@ -323,7 +323,7 @@ void TransactionBaseImpl::MultiGet(const ReadOptions& read_options,
                                    ColumnFamilyHandle* column_family,
                                    const size_t num_keys, const Slice* keys,
                                    PinnableSlice* values, Status* statuses,
-                                   bool sorted_input) {
+                                   const bool sorted_input) {
   write_batch_.MultiGetFromBatchAndDB(db_, read_options, column_family,
                                       num_keys, keys, values, statuses,
                                       sorted_input);
@@ -369,7 +369,8 @@ Iterator* TransactionBaseImpl::GetIterator(const ReadOptions& read_options,
   Iterator* db_iter = db_->NewIterator(read_options, column_family);
   assert(db_iter);
 
-  return write_batch_.NewIteratorWithBase(column_family, db_iter);
+  return write_batch_.NewIteratorWithBase(column_family, db_iter,
+                                          &read_options);
 }
 
 Status TransactionBaseImpl::Put(ColumnFamilyHandle* column_family,

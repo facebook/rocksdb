@@ -217,7 +217,7 @@ Status PartitionedFilterBlockReader::GetFilterPartitionBlock(
     FilePrefetchBuffer* prefetch_buffer, const BlockHandle& fltr_blk_handle,
     bool no_io, GetContext* get_context,
     BlockCacheLookupContext* lookup_context,
-    CachableEntry<BlockContents>* filter_block) const {
+    CachableEntry<ParsedFullFilterBlock>* filter_block) const {
   assert(table());
   assert(filter_block);
   assert(filter_block->IsEmpty());
@@ -267,7 +267,7 @@ bool PartitionedFilterBlockReader::MayMatch(
     return false;
   }
 
-  CachableEntry<BlockContents> filter_partition_block;
+  CachableEntry<ParsedFullFilterBlock> filter_partition_block;
   s = GetFilterPartitionBlock(nullptr /* prefetch_buffer */, filter_handle,
                               no_io, get_context, lookup_context,
                               &filter_partition_block);
@@ -346,7 +346,7 @@ void PartitionedFilterBlockReader::CacheDependencies(bool pin) {
   for (biter.SeekToFirst(); biter.Valid(); biter.Next()) {
     handle = biter.value().handle;
 
-    CachableEntry<BlockContents> block;
+    CachableEntry<ParsedFullFilterBlock> block;
     // TODO: Support counter batch update for partitioned index and
     // filter blocks
     s = table()->MaybeReadBlockAndLoadToCache(

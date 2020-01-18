@@ -291,7 +291,7 @@ class Compaction {
 
   uint32_t max_subcompactions() const { return max_subcompactions_; }
 
-  uint64_t MaxInputFileCreationTime() const;
+  uint64_t MinInputFileOldestAncesterTime() const;
 
  private:
   // mark (or clear) all files that are being compacted

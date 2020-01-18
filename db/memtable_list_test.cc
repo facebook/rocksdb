@@ -92,6 +92,7 @@ class MemTableListTest : public testing::Test {
     CreateDB();
     // Create a mock VersionSet
     DBOptions db_options;
+    db_options.file_system = FileSystem::Default();
     ImmutableDBOptions immutable_db_options(db_options);
     EnvOptions env_options;
     std::shared_ptr<Cache> table_cache(NewLRUCache(50000, 16));
@@ -117,9 +118,11 @@ class MemTableListTest : public testing::Test {
     // Create dummy mutex.
     InstrumentedMutex mutex;
     InstrumentedMutexLock l(&mutex);
-    return list->TryInstallMemtableFlushResults(
+    std::list<std::unique_ptr<FlushJobInfo>> flush_jobs_info;
+    Status s = list->TryInstallMemtableFlushResults(
         cfd, mutable_cf_options, m, &dummy_prep_tracker, &versions, &mutex,
-        file_num, to_delete, nullptr, &log_buffer);
+        file_num, to_delete, nullptr, &log_buffer, &flush_jobs_info);
+    return s;
   }
 
   // Calls MemTableList::InstallMemtableFlushResults() and sets up all
@@ -136,6 +139,8 @@ class MemTableListTest : public testing::Test {
     CreateDB();
     // Create a mock VersionSet
     DBOptions db_options;
+    db_options.file_system.reset(new LegacyFileSystemWrapper(db_options.env));
+
     ImmutableDBOptions immutable_db_options(db_options);
     EnvOptions env_options;
     std::shared_ptr<Cache> table_cache(NewLRUCache(50000, 16));

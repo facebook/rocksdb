@@ -18,8 +18,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 public class OptionsTest {
 
   @ClassRule
-  public static final RocksMemoryResource rocksMemoryResource =
-      new RocksMemoryResource();
+  public static final RocksNativeLibraryResource ROCKS_NATIVE_LIBRARY_RESOURCE =
+      new RocksNativeLibraryResource();
 
   public static final Random rand = PlatformRandomHelper.
       getPlatformSpecificRandomFactory();
@@ -428,6 +428,7 @@ public class OptionsTest {
     }
   }
 
+  @SuppressWarnings("deprecated")
   @Test
   public void baseBackgroundCompactions() {
     try (final Options opt = new Options()) {
@@ -438,6 +439,7 @@ public class OptionsTest {
     }
   }
 
+  @SuppressWarnings("deprecated")
   @Test
   public void maxBackgroundCompactions() {
     try (final Options opt = new Options()) {
@@ -458,6 +460,7 @@ public class OptionsTest {
     }
   }
 
+  @SuppressWarnings("deprecated")
   @Test
   public void maxBackgroundFlushes() {
     try (final Options opt = new Options()) {
@@ -626,6 +629,24 @@ public class OptionsTest {
   }
 
   @Test
+  public void statsPersistPeriodSec() {
+    try (final Options opt = new Options()) {
+      final int intValue = rand.nextInt();
+      opt.setStatsPersistPeriodSec(intValue);
+      assertThat(opt.statsPersistPeriodSec()).isEqualTo(intValue);
+    }
+  }
+
+  @Test
+  public void statsHistoryBufferSize() {
+    try (final Options opt = new Options()) {
+      final long longValue = rand.nextLong();
+      opt.setStatsHistoryBufferSize(longValue);
+      assertThat(opt.statsHistoryBufferSize()).isEqualTo(longValue);
+    }
+  }
+
+  @Test
   public void adviseRandomOnOpen() {
     try (final Options opt = new Options()) {
       final boolean boolValue = rand.nextBoolean();
@@ -732,6 +753,15 @@ public class OptionsTest {
       final long longValue = rand.nextLong();
       opt.setWalBytesPerSync(longValue);
       assertThat(opt.walBytesPerSync()).isEqualTo(longValue);
+    }
+  }
+
+  @Test
+  public void strictBytesPerSync() {
+    try (final Options opt = new Options()) {
+      assertThat(opt.strictBytesPerSync()).isFalse();
+      opt.setStrictBytesPerSync(true);
+      assertThat(opt.strictBytesPerSync()).isTrue();
     }
   }
 

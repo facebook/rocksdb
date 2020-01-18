@@ -53,9 +53,9 @@ DBTestBase::DBTestBase(const std::string path)
 #ifndef ROCKSDB_LITE
   const char* test_env_uri = getenv("TEST_ENV_URI");
   if (test_env_uri) {
-    Status s = ObjectRegistry::NewInstance()->NewSharedObject(test_env_uri,
-                                                              &env_guard_);
-    base_env = env_guard_.get();
+    Env* test_env = nullptr;
+    Status s = Env::LoadEnv(test_env_uri, &test_env, &env_guard_);
+    base_env = test_env;
     EXPECT_OK(s);
     EXPECT_NE(Env::Default(), base_env);
   }
@@ -777,7 +777,8 @@ std::string DBTestBase::Get(int cf, const std::string& k,
 
 std::vector<std::string> DBTestBase::MultiGet(std::vector<int> cfs,
                                               const std::vector<std::string>& k,
-                                              const Snapshot* snapshot) {
+                                              const Snapshot* snapshot,
+                                              const bool batched) {
   ReadOptions options;
   options.verify_checksums = true;
   options.snapshot = snapshot;
@@ -789,12 +790,30 @@ std::vector<std::string> DBTestBase::MultiGet(std::vector<int> cfs,
     handles.push_back(handles_[cfs[i]]);
     keys.push_back(k[i]);
   }
-  std::vector<Status> s = db_->MultiGet(options, handles, keys, &result);
-  for (unsigned int i = 0; i < s.size(); ++i) {
-    if (s[i].IsNotFound()) {
-      result[i] = "NOT_FOUND";
-    } else if (!s[i].ok()) {
-      result[i] = s[i].ToString();
+  std::vector<Status> s;
+  if (!batched) {
+    s = db_->MultiGet(options, handles, keys, &result);
+    for (unsigned int i = 0; i < s.size(); ++i) {
+      if (s[i].IsNotFound()) {
+        result[i] = "NOT_FOUND";
+      } else if (!s[i].ok()) {
+        result[i] = s[i].ToString();
+      }
+    }
+  } else {
+    std::vector<PinnableSlice> pin_values(cfs.size());
+    result.resize(cfs.size());
+    s.resize(cfs.size());
+    db_->MultiGet(options, cfs.size(), handles.data(), keys.data(),
+                  pin_values.data(), s.data());
+    for (unsigned int i = 0; i < s.size(); ++i) {
+      if (s[i].IsNotFound()) {
+        result[i] = "NOT_FOUND";
+      } else if (!s[i].ok()) {
+        result[i] = s[i].ToString();
+      } else {
+        result[i].assign(pin_values[i].data(), pin_values[i].size());
+      }
     }
   }
   return result;
@@ -845,6 +864,13 @@ uint64_t DBTestBase::GetTimeOldestSnapshots() {
   uint64_t int_num;
   EXPECT_TRUE(
       dbfull()->GetIntProperty("rocksdb.oldest-snapshot-time", &int_num));
+  return int_num;
+}
+
+uint64_t DBTestBase::GetSequenceOldestSnapshots() {
+  uint64_t int_num;
+  EXPECT_TRUE(
+      dbfull()->GetIntProperty("rocksdb.oldest-snapshot-sequence", &int_num));
   return int_num;
 }
 
