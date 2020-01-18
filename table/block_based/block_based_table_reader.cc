@@ -97,7 +97,6 @@ template <>
 class BlocklikeTraits<ParsedFullFilterBlock> {
  public:
   static ParsedFullFilterBlock* Create(BlockContents&& contents,
-                                       SequenceNumber /* global_seqno */,
                                        size_t /* read_amp_bytes_per_bit */,
                                        Statistics* /* statistics */,
                                        bool /* using_zstd */,
