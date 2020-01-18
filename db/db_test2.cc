@@ -4178,64 +4178,6 @@ TEST_F(DBTest2, CrashInRecoveryMultipleCF) {
   }
 }
 
-TEST_F(DBTest2, CrashInRecovery) {
-  const std::vector<std::string> sync_points = {
-      "DBImpl::RecoverLogFiles:BeforeFlushFinalMemtable"};
-      //"VersionSet::ProcessManifestWrites:BeforeWriteLastVersionEdit:0"};
-  for (const auto& test_sync_point : sync_points) {
-    Options options = CurrentOptions();
-    // First destroy original db to ensure a clean start.
-    DestroyAndReopen(options);
-    options.create_if_missing = true;
-    options.wal_recovery_mode = WALRecoveryMode::kPointInTimeRecovery;
-    Reopen(options);
-    ASSERT_OK(Put("foo", "bar"));
-    ASSERT_OK(Flush());
-    ASSERT_OK(Put("foo", "bar"));
-    // The value is large enough to be divided to two blocks.
-    std::string large_value(400, ' ');
-    ASSERT_OK(Put("foo1", large_value));
-    ASSERT_OK(Put("foo2", large_value));
-    Close();
-
-    // Corrupt the log file in the middle, so that it is not corrupted
-    // in the tail.
-    std::vector<std::string> filenames;
-    ASSERT_OK(env_->GetChildren(dbname_, &filenames));
-    for (const auto& f : filenames) {
-      uint64_t number;
-      FileType type;
-      if (ParseFileName(f, &number, &type) && type == FileType::kLogFile) {
-        std::string fname = dbname_ + "/" + f;
-        std::string file_content;
-        ASSERT_OK(ReadFileToString(env_, fname, &file_content));
-        file_content[400] = 'h';
-        file_content[401] = 'a';
-        ASSERT_OK(WriteStringToFile(env_, file_content, fname));
-        break;
-      }
-    }
-
-    // Reopen and freeze the file system after the first manifest write.
-    FaultInjectionTestEnv fit_env(options.env);
-    options.env = &fit_env;
-    rocksdb::SyncPoint::GetInstance()->ClearAllCallBacks();
-    rocksdb::SyncPoint::GetInstance()->SetCallBack(
-        test_sync_point,
-        [&](void* /*arg*/) { fit_env.SetFilesystemActive(false); });
-    rocksdb::SyncPoint::GetInstance()->EnableProcessing();
-    ASSERT_NOK(TryReopen(options));
-    rocksdb::SyncPoint::GetInstance()->DisableProcessing();
-
-    fit_env.SetFilesystemActive(true);
-    // If we continue using failure ingestion Env, it will conplain something
-    // when renaming current file, which is not expected. Need to investigate
-    // why.
-    options.env = env_;
-    ASSERT_OK(TryReopen(options));
-  }
-}
-
 TEST_F(DBTest2, SeekFileRangeDeleteTail) {
   Options options = CurrentOptions();
   options.prefix_extractor.reset(NewCappedPrefixTransform(1));

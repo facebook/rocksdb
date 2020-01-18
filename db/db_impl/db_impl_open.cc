@@ -345,7 +345,7 @@ Status Directories::SetDirectories(Env* env, const std::string& dbname,
 
 Status DBImpl::Recover(
     const std::vector<ColumnFamilyDescriptor>& column_families, bool read_only,
-    bool error_if_log_file_exist, bool error_if_data_exists_in_logs, uint64_t* next_sequence_ptr) {
+    bool error_if_log_file_exist, bool error_if_data_exists_in_logs, uint64_t* recovered_seq) {
   mutex_.AssertHeld();
 
   bool is_new_db = false;
@@ -476,9 +476,7 @@ Status DBImpl::Recover(
   }
 
   if (s.ok()) {
-    SequenceNumber tmp_ns;
-    SequenceNumber& next_sequence = next_sequence_ptr ? *next_sequence_ptr : tmp_ns;
-    next_sequence = kMaxSequenceNumber;
+    SequenceNumber next_sequence(kMaxSequenceNumber);
     default_cf_handle_ = new ColumnFamilyHandleImpl(
         versions_->GetColumnFamilySet()->GetDefault(), this, &mutex_);
     default_cf_internal_stats_ = default_cf_handle_->cfd()->internal_stats();
@@ -543,7 +541,11 @@ Status DBImpl::Recover(
     if (!logs.empty()) {
       // Recover in the order in which the logs were generated
       std::sort(logs.begin(), logs.end());
-      s = RecoverLogFiles(logs, &next_sequence, read_only);
+      bool corrupted_log_found = false;
+      s = RecoverLogFiles(logs, &next_sequence, read_only, &corrupted_log_found);
+      if (corrupted_log_found && recovered_seq != nullptr) {
+        *recovered_seq = next_sequence;
+      }
       if (!s.ok()) {
         // Clear memtables if recovery failed
         for (auto cfd : *versions_->GetColumnFamilySet()) {
@@ -673,7 +675,7 @@ Status DBImpl::InitPersistStatsColumnFamily() {
 
 // REQUIRES: log_numbers are sorted in ascending order
 Status DBImpl::RecoverLogFiles(const std::vector<uint64_t>& log_numbers,
-                               SequenceNumber* next_sequence, bool read_only) {
+                               SequenceNumber* next_sequence, bool read_only, bool* corrupted_log_found) {
   struct LogReporter : public log::Reader::Reporter {
     Env* env;
     Logger* info_log;
@@ -975,6 +977,9 @@ Status DBImpl::RecoverLogFiles(const std::vector<uint64_t>& log_numbers,
         status = Status::OK();
         stop_replay_for_corruption = true;
         corrupted_log_number = log_number;
+        if (corrupted_log_found != nullptr) {
+          *corrupted_log_found = true;
+        }
         ROCKS_LOG_INFO(immutable_db_options_.info_log,
                        "Point in time recovered to log #%" PRIu64
                        " seq #%" PRIu64,
@@ -1016,13 +1021,6 @@ Status DBImpl::RecoverLogFiles(const std::vector<uint64_t>& log_numbers,
         return Status::Corruption("SST file is ahead of WALs");
       }
     }
-  }
-
-  if (stop_replay_for_corruption == true) {
-  // WriteContext write_context;
-  // auto ss = SwitchWAL(&write_context);
-  // assert(ss.ok());
-
   }
 
   // True if there's any data in the WALs; if not, we can skip re-processing
@@ -1112,9 +1110,6 @@ Status DBImpl::RecoverLogFiles(const std::vector<uint64_t>& log_numbers,
   event_logger_.Log() << "job" << job_id << "event"
                       << "recovery_finished";
 
-  if (corrupted_log_number == kMaxSequenceNumber) {
-    *next_sequence = kMaxSequenceNumber;
-  }
   return status;
 }
 
@@ -1408,11 +1403,10 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
 
   impl->mutex_.Lock();
   // Handles create_if_missing, error_if_exists
-  uint64_t next_sequence;
-  s = impl->Recover(column_families, false, false, false, &next_sequence);
-    uint64_t new_log_number = 13333;
+  uint64_t recovered_seq(kMaxSequenceNumber);
+  s = impl->Recover(column_families, false, false, false, &recovered_seq);
   if (s.ok()) {
-    new_log_number = impl->versions_->NewFileNumber();
+    uint64_t new_log_number = impl->versions_->NewFileNumber();
     log::Writer* new_log = nullptr;
     const size_t preallocate_block_size =
         impl->GetWalPreallocateBlockSize(max_write_buffer_size);
@@ -1469,19 +1463,19 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
         impl->log_write_mutex_.Unlock();
       }
 
-    if (s.ok() && impl->seq_per_batch_ && next_sequence != kMaxSequenceNumber) {
-      WriteBatch empty_batch;
-      WriteBatchInternal::SetSequence(&empty_batch, next_sequence);
-      WriteOptions write_options;
-      uint64_t log_used;
-      uint64_t log_size;
-      log::Writer* log_writer = impl->logs_.back().writer;
-      auto sss =
-          impl->WriteToWAL(empty_batch, log_writer, &log_used, &log_size);
-      assert(sss.ok());
-    }
       impl->DeleteObsoleteFiles();
       s = impl->directories_.GetDbDir()->Fsync();
+    }
+    if (s.ok()) {
+      // In WritePrepared there could be gap in sequence numbers. This breaks the trick we use in kPointInTimeRecovery which asssume the fiest seq in the log right after the corrupted log is one larger than the last seq we read from the logs. To let this trick keep working, we add a dummy entry with the expected seqeunce to the first log right after recovery.
+      if (impl->seq_per_batch_ && recovered_seq != kMaxSequenceNumber) {
+        WriteBatch empty_batch;
+        WriteBatchInternal::SetSequence(&empty_batch, recovered_seq);
+        WriteOptions write_options;
+        uint64_t log_used, log_size;
+        log::Writer* log_writer = impl->logs_.back().writer;
+        s = impl->WriteToWAL(empty_batch, log_writer, &log_used, &log_size);
+      }
     }
   }
   if (s.ok() && impl->immutable_db_options_.persist_stats_to_disk) {
@@ -1531,7 +1525,6 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
     impl->MaybeScheduleFlushOrCompaction();
   }
   impl->mutex_.Unlock();
-
 
 #ifndef ROCKSDB_LITE
   auto sfm = static_cast<SstFileManagerImpl*>(

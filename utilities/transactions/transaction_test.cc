@@ -6116,105 +6116,85 @@ TEST_P(TransactionTest, ReseekOptimization) {
   delete txn0;
 }
 
-TEST_P(TransactionTest, CrashInRecovery) {
-  const std::vector<std::string> sync_points = {
-      //"DBImpl::RecoverLogFiles:BeforeFlushFinalMemtable",
-      "VersionSet::ProcessManifestWrites:BeforeWriteLastVersionEdit:0"};
-  for (const auto& test_sync_point : sync_points) {
-    // First destroy original db to ensure a clean start.
-    ReOpen();
-    options.create_if_missing = true;
-    options.wal_recovery_mode = WALRecoveryMode::kPointInTimeRecovery;
-    ReOpenNoDelete();
+// After recovery in kPointInTimeRecovery mode, the corrupted log file remains there. The new log files should be still read succesfully during recovery of the 2nd crash.
+TEST_P(TransactionTest, DoubleCrashInRecovery) {
+  options.wal_recovery_mode = WALRecoveryMode::kPointInTimeRecovery;
+  ReOpenNoDelete();
   std::string cf_name = "two";
   ColumnFamilyOptions cf_options;
   ColumnFamilyHandle* cf_handle = nullptr;
-    ASSERT_OK(db->CreateColumnFamily(cf_options, cf_name, &cf_handle));
+  ASSERT_OK(db->CreateColumnFamily(cf_options, cf_name, &cf_handle));
+
+  // Add a prepare entry to prevent the older logs from being deleted.
   WriteOptions write_options;
-
   TransactionOptions txn_options;
-    Transaction* txn = db->BeginTransaction(write_options, txn_options);
-    ASSERT_OK(txn->SetName("xid"));
-    ASSERT_OK(txn->Put(Slice("foo-prepare"), Slice("bar-prepare")));
-    ASSERT_OK(txn->Prepare());
+  Transaction* txn = db->BeginTransaction(write_options, txn_options);
+  ASSERT_OK(txn->SetName("xid"));
+  ASSERT_OK(txn->Put(Slice("foo-prepare"), Slice("bar-prepare")));
+  ASSERT_OK(txn->Prepare());
 
-    ASSERT_OK(db->Put(write_options, "foo", "bar1"));
+  ASSERT_OK(db->Put(write_options, "foo", "bar1"));
   FlushOptions flush_ops;
   db->Flush(flush_ops);
 
-    ASSERT_OK(db->Put(write_options, "foo", "bar2"));
+  ASSERT_OK(db->Put(write_options, "foo", "bar2"));
   db->Flush(flush_ops);
-    ASSERT_OK(db->Put(write_options, "foo", "bar3"));
-    // The value is large enough to be divided to two blocks.
-    std::string large_value(400, ' ');
-    ASSERT_OK(db->Put(write_options, "foo1", large_value));
-    ASSERT_OK(db->Put(write_options, "foo2", large_value));
 
-    ASSERT_OK(db->Put(write_options, cf_handle, "foo2", large_value));
+  // Write to both CFs in the next log
+  ASSERT_OK(db->Put(write_options, "foo", "bar3"));
+  // The value is large enough to be touched by the corruption we ingest below.
+  std::string large_value(400, ' ');
+  ASSERT_OK(db->Put(write_options, "foo1", large_value));
+  ASSERT_OK(db->Put(write_options, "foo2", large_value));
+  ASSERT_OK(db->Put(write_options, cf_handle, "foo2", large_value));
+  // Flush only the 2nd cf
   db->Flush(flush_ops, cf_handle);
 
-    ASSERT_OK(db->Put(write_options, "foo3", large_value));
-    ASSERT_OK(db->Put(write_options, "foo4", large_value));
+  ASSERT_OK(db->Put(write_options, "foo3", large_value));
+  ASSERT_OK(db->Put(write_options, "foo4", large_value));
 
   reinterpret_cast<PessimisticTransactionDB*>(db)->TEST_Crash();
-        db->FlushWAL(true);
-        delete cf_handle;
-    delete db;
-    db = nullptr;
+  db->FlushWAL(true);
+  delete cf_handle;
+  delete db;
+  db = nullptr;
 
-    // Corrupt the log file in the middle, so that it is not corrupted
-    // in the tail.
-    std::vector<std::string> filenames;
-    auto env_ = Env::Default();
-    ASSERT_OK(env_->GetChildren(dbname, &filenames));
-    for (const auto& f : filenames) {
-      uint64_t number;
-      FileType type;
-      if (ParseFileName(f, &number, &type) && type == FileType::kLogFile) {
-        std::string fname = dbname + "/" + f;
-        std::string file_content;
-        ASSERT_OK(ReadFileToString(env_, fname, &file_content));
-        file_content[400] = 'h';
-        file_content[401] = 'a';
-        ASSERT_OK(WriteStringToFile(env_, file_content, fname));
-        break;
-      }
+  // Corrupt the log file in the middle, so that it is not corrupted
+  // in the tail.
+  std::vector<std::string> filenames;
+  auto def_env = Env::Default();
+  ASSERT_OK(def_env->GetChildren(dbname, &filenames));
+  for (const auto& f : filenames) {
+    uint64_t number;
+    FileType type;
+    if (ParseFileName(f, &number, &type) && type == FileType::kLogFile) {
+      std::string fname = dbname + "/" + f;
+      std::string file_content;
+      ASSERT_OK(ReadFileToString(def_env, fname, &file_content));
+      file_content[400] = 'h';
+      file_content[401] = 'a';
+      ASSERT_OK(WriteStringToFile(def_env, file_content, fname));
+      break;
     }
+  }
 
-    // Reopen and freeze the file system after the first manifest write.
-//   FaultInjectionTestEnv fit_env(options.env);
-//   options.env = &fit_env;
-//   rocksdb::SyncPoint::GetInstance()->ClearAllCallBacks();
-//   rocksdb::SyncPoint::GetInstance()->SetCallBack(
-//       test_sync_point,
-//       [&](void* ) { fit_env.SetFilesystemActive(false); });
-//   rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+  // Recover from corruption
   std::vector<ColumnFamilyHandle*> handles;
   std::vector<ColumnFamilyDescriptor> column_families;
   column_families.push_back(
       ColumnFamilyDescriptor(kDefaultColumnFamilyName, ColumnFamilyOptions()));
   column_families.push_back(
       ColumnFamilyDescriptor("two", ColumnFamilyOptions()));
-  printf("open after corruption\n");
-    ASSERT_OK(ReOpenNoDelete(column_families, &handles));
- //   rocksdb::SyncPoint::GetInstance()->DisableProcessing();
- //   fit_env.SetFilesystemActive(true);
- (void) test_sync_point;
+  ASSERT_OK(ReOpenNoDelete(column_families, &handles));
 
+  // Write data to the log right after the corrupted log
+  ASSERT_OK(db->Put(write_options, "foo4", large_value));
+  db->FlushWAL(true);
 
-   ASSERT_OK(db->Put(write_options, "foo4", large_value));
-       db->FlushWAL(true);
-
-    // If we continue using failure ingestion Env, it will conplain something
-    // when renaming current file, which is not expected. Need to investigate
-    // why.
-    options.env = env_;
-  printf("open again\n");
-    auto ss = ReOpenNoDelete(column_families, &handles);
-    ASSERT_OK(ss);
+  // 2nd crash to recover while having a valid log after the corrupted one.
+  ASSERT_OK(ReOpenNoDelete(column_families, &handles));
   for (auto handle : handles) {
     delete handle;
-  }
   }
 }
 
