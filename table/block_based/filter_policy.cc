@@ -419,7 +419,7 @@ const std::vector<BloomFilterPolicy::Mode> BloomFilterPolicy::kAllUserModes = {
 };
 
 BloomFilterPolicy::BloomFilterPolicy(double bits_per_key, Mode mode)
-    : mode_(mode) {
+    : mode_(mode), warned_(false) {
   // Sanitize bits_per_key
   if (bits_per_key < 1.0) {
     bits_per_key = 1.0;
@@ -527,6 +527,24 @@ FilterBitsBuilder* BloomFilterPolicy::GetBuilderWithContext(
       case kFastLocalBloom:
         return new FastLocalBloomBitsBuilder(millibits_per_key_);
       case kLegacyBloom:
+        if (whole_bits_per_key_ >= 14 && context.info_log &&
+            !warned_.load(std::memory_order_relaxed)) {
+          warned_ = true;
+          const char* adjective;
+          if (whole_bits_per_key_ >= 20) {
+            adjective = "Dramatic";
+          } else {
+            adjective = "Significant";
+          }
+          // For more details, see
+          // https://github.com/facebook/rocksdb/wiki/RocksDB-Bloom-Filter
+          ROCKS_LOG_WARN(
+              context.info_log,
+              "Using legacy Bloom filter with high (%d) bits/key. "
+              "%s filter space and/or accuracy improvement is available "
+              "with format_version>=5.",
+              whole_bits_per_key_, adjective);
+        }
         return new LegacyBloomBitsBuilder(whole_bits_per_key_);
     }
   }
