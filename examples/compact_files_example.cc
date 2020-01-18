@@ -87,7 +87,7 @@ class FullCompactor : public Compactor {
         .db = db, .compactor = this, .column_family_name = cf_name,
         .input_file_names = input_file_names,
         .output_level = options_.num_levels - 1,
-        .compact_options = compact_options_, .retry_on_fail = false);
+        .compact_options = compact_options_, .retry_on_fail = false};
   }
 
   // Schedule the specified compaction task in background.
