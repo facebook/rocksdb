@@ -73,7 +73,9 @@ DBIter::DBIter(Env* _env, const ReadOptions& read_options,
                                 ? read_options.prefix_same_as_start
                                 : false),
       pin_thru_lifetime_(read_options.pin_data),
-      total_order_seek_(read_options.total_order_seek),
+      expect_total_order_inner_iter_(prefix_extractor_ == nullptr ||
+                                     read_options.total_order_seek ||
+                                     read_options.auto_prefix_mode),
       allow_blob_(allow_blob),
       is_blob_(false),
       arena_mode_(arena_mode),
@@ -567,7 +569,7 @@ bool DBIter::ReverseToForward() {
   // When moving backwards, iter_ is positioned on _previous_ key, which may
   // not exist or may have different prefix than the current key().
   // If that's the case, seek iter_ to current key.
-  if ((prefix_extractor_ != nullptr && !total_order_seek_) || !iter_.Valid()) {
+  if (!expect_total_order_inner_iter() || !iter_.Valid()) {
     IterKey last_key;
     last_key.SetInternalKey(ParsedInternalKey(
         saved_key_.GetUserKey(), kMaxSequenceNumber, kValueTypeForSeek));
@@ -603,15 +605,14 @@ bool DBIter::ReverseToBackward() {
   // key, which may not exist or may have prefix different from current.
   // If that's the case, seek to saved_key_.
   if (current_entry_is_merged_ &&
-      ((prefix_extractor_ != nullptr && !total_order_seek_) ||
-       !iter_.Valid())) {
+      (!expect_total_order_inner_iter() || !iter_.Valid())) {
     IterKey last_key;
     // Using kMaxSequenceNumber and kValueTypeForSeek
     // (not kValueTypeForSeekForPrev) to seek to a key strictly smaller
     // than saved_key_.
     last_key.SetInternalKey(ParsedInternalKey(
         saved_key_.GetUserKey(), kMaxSequenceNumber, kValueTypeForSeek));
-    if (prefix_extractor_ != nullptr && !total_order_seek_) {
+    if (!expect_total_order_inner_iter()) {
       iter_.SeekForPrev(last_key.GetInternalKey());
     } else {
       // Some iterators may not support SeekForPrev(), so we avoid using it
@@ -978,8 +979,8 @@ bool DBIter::FindValueForCurrentKeyUsingSeek() {
   // Make sure we leave iter_ in a good state. If it's valid and we don't care
   // about prefixes, that's already good enough. Otherwise it needs to be
   // seeked to the current key.
-  if ((prefix_extractor_ != nullptr && !total_order_seek_) || !iter_.Valid()) {
-    if (prefix_extractor_ != nullptr && !total_order_seek_) {
+  if (!expect_total_order_inner_iter() || !iter_.Valid()) {
+    if (!expect_total_order_inner_iter()) {
       iter_.SeekForPrev(last_key);
     } else {
       iter_.Seek(last_key);
@@ -1224,7 +1225,7 @@ void DBIter::SeekToFirst() {
   PERF_CPU_TIMER_GUARD(iter_seek_cpu_nanos, env_);
   // Don't use iter_::Seek() if we set a prefix extractor
   // because prefix seek will be used.
-  if (prefix_extractor_ != nullptr && !total_order_seek_) {
+  if (!expect_total_order_inner_iter()) {
     max_skip_ = std::numeric_limits<uint64_t>::max();
   }
   status_ = Status::OK();
@@ -1277,7 +1278,7 @@ void DBIter::SeekToLast() {
   PERF_CPU_TIMER_GUARD(iter_seek_cpu_nanos, env_);
   // Don't use iter_::Seek() if we set a prefix extractor
   // because prefix seek will be used.
-  if (prefix_extractor_ != nullptr && !total_order_seek_) {
+  if (!expect_total_order_inner_iter()) {
     max_skip_ = std::numeric_limits<uint64_t>::max();
   }
   status_ = Status::OK();

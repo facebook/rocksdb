@@ -205,7 +205,9 @@ InternalIterator* PlainTableReader::NewIterator(
   // Not necessarily used here, but make sure this has been initialized
   assert(table_properties_);
 
-  bool use_prefix_seek = !IsTotalOrderMode() && !options.total_order_seek;
+  // Auto prefix mode is not implemented in PlainTable.
+  bool use_prefix_seek = !IsTotalOrderMode() && !options.total_order_seek &&
+                         !options.auto_prefix_mode;
   if (arena == nullptr) {
     return new PlainTableIterator(this, use_prefix_seek);
   } else {
