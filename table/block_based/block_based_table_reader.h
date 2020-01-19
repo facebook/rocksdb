@@ -791,6 +791,32 @@ class BlockBasedTableIterator : public InternalIteratorBase<TValue> {
   int64_t num_file_reads_ = 0;
   std::unique_ptr<FilePrefetchBuffer> prefetch_buffer_;
 
+  class PipelinedLoadRep {
+   public:
+    InternalIteratorBase<IndexValue>* index_iter;
+    bool loader_started = false;
+
+    typedef WorkQueue<CachableEntry<Block>> BlockPipe;
+    // Blocks loaded by pipelined loader
+    BlockPipe block_pipe;
+
+    std::unique_ptr<port::Thread> load_thread;
+
+    PipelinedLoadRep(InternalIteratorBase<IndexValue>* _index_iter)
+        : index_iter(_index_iter), block_pipe(1) {}
+
+    inline bool IsStarted() { return loader_started; }
+
+    ~PipelinedLoadRep() {
+      if (IsStarted()) {
+        block_pipe.finish();
+        load_thread->join();
+      }
+      delete index_iter;
+    }
+  };
+  std::unique_ptr<PipelinedLoadRep> pl_rep_;
+
   // If `target` is null, seek to first.
   void SeekImpl(const Slice* target);
 
@@ -806,6 +832,12 @@ class BlockBasedTableIterator : public InternalIteratorBase<TValue> {
   // Note MyRocks may update iterate bounds between seek. To workaround it,
   // we need to check and update data_block_within_upper_bound_ accordingly.
   void CheckDataBlockWithinUpperBound();
+
+  // Start pipelined block loader
+  void StartPipelinedLoad(const Slice* target);
+
+  // Worker loop for pipelined block loading
+  void LoadBlocksPipelined();
 };
 
 }  // namespace rocksdb
