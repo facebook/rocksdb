@@ -142,6 +142,8 @@ DBOptions BuildDBOptions(const ImmutableDBOptions& immutable_db_options,
   options.avoid_unnecessary_blocking_io =
       immutable_db_options.avoid_unnecessary_blocking_io;
   options.log_readahead_size = immutable_db_options.log_readahead_size;
+  options.compaction_pipelined_load_enabled =
+      immutable_db_options.compaction_pipelined_load_enabled;
   return options;
 }
 
@@ -1686,6 +1688,11 @@ std::unordered_map<std::string, OptionTypeInfo>
         {"log_readahead_size",
          {offsetof(struct DBOptions, log_readahead_size), OptionType::kSizeT,
           OptionVerificationType::kNormal, false, 0}},
+        {"compaction_pipelined_load_enabled",
+         {offsetof(struct DBOptions, compaction_pipelined_load_enabled),
+          OptionType::kBoolean, OptionVerificationType::kNormal, false,
+          offsetof(struct ImmutableDBOptions,
+                   compaction_pipelined_load_enabled)}},
 };
 
 std::unordered_map<std::string, BlockBasedTableOptions::IndexType>
