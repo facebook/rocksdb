@@ -41,6 +41,7 @@
 #include "trace_replay/block_cache_tracer.h"
 #include "util/coding.h"
 #include "util/user_comparator_wrapper.h"
+#include "util/work_queue.h"
 
 namespace rocksdb {
 
@@ -307,6 +308,7 @@ class BlockBasedTable : public TableReader {
       GetContext* get_context, BlockCacheLookupContext* lookup_context,
       BlockContents* contents) const;
 
+ public:
   // Similar to the above, with one crucial difference: it will retrieve the
   // block from the file even if there are no caches configured (assuming the
   // read options allow I/O).
@@ -319,6 +321,7 @@ class BlockBasedTable : public TableReader {
                        BlockCacheLookupContext* lookup_context,
                        bool for_compaction, bool use_cache) const;
 
+ private:
   void RetrieveMultipleBlocks(
       const ReadOptions& options, const MultiGetRange* batch,
       const autovector<BlockHandle, MultiGetContext::MAX_BATCH_SIZE>* handles,
@@ -618,15 +621,18 @@ template <class TBlockIter, typename TValue = Slice>
 class BlockBasedTableIterator : public InternalIteratorBase<TValue> {
   // compaction_readahead_size: its value will only be used if for_compaction =
   // true
+  // index_iter_for_pipelined_load: its value will be non nullptr only if
+  // caller = kCompaction and
+  // read_options.compaction_pipelined_load_enabled = true
  public:
-  BlockBasedTableIterator(const BlockBasedTable* table,
-                          const ReadOptions& read_options,
-                          const InternalKeyComparator& icomp,
-                          InternalIteratorBase<IndexValue>* index_iter,
-                          bool check_filter, bool need_upper_bound_check,
-                          const SliceTransform* prefix_extractor,
-                          BlockType block_type, TableReaderCaller caller,
-                          size_t compaction_readahead_size = 0)
+  BlockBasedTableIterator(
+      const BlockBasedTable* table, const ReadOptions& read_options,
+      const InternalKeyComparator& icomp,
+      InternalIteratorBase<IndexValue>* index_iter, bool check_filter,
+      bool need_upper_bound_check, const SliceTransform* prefix_extractor,
+      BlockType block_type, TableReaderCaller caller,
+      size_t compaction_readahead_size = 0,
+      InternalIteratorBase<IndexValue>* index_iter_for_pipelined_load = nullptr)
       : table_(table),
         read_options_(read_options),
         icomp_(icomp),
@@ -639,7 +645,10 @@ class BlockBasedTableIterator : public InternalIteratorBase<TValue> {
         prefix_extractor_(prefix_extractor),
         block_type_(block_type),
         lookup_context_(caller),
-        compaction_readahead_size_(compaction_readahead_size) {}
+        compaction_readahead_size_(compaction_readahead_size),
+        pl_rep_(index_iter_for_pipelined_load == nullptr
+                    ? nullptr
+                    : new PipelinedLoadRep(index_iter_for_pipelined_load)) {}
 
   ~BlockBasedTableIterator() { delete index_iter_; }
 
