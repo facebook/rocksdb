@@ -299,12 +299,13 @@ struct BlockBasedTableBuilder::Rep {
   PartitionedIndexBuilder* p_index_builder_ = nullptr;
 
   std::string last_key;
+  const Slice* first_key_in_next_block_ptr = nullptr;
   CompressionType compression_type;
   uint64_t sample_for_compression;
   CompressionOptions compression_opts;
   std::unique_ptr<CompressionDict> compression_dict;
-  CompressionContext compression_ctx;
-  std::unique_ptr<UncompressionContext> verify_ctx;
+  std::vector<std::unique_ptr<CompressionContext>> compression_ctxs;
+  std::vector<std::unique_ptr<UncompressionContext>> verify_ctxs;
   std::unique_ptr<UncompressionDict> verify_dict;
 
   size_t data_begin_offset = 0;
@@ -354,6 +355,8 @@ struct BlockBasedTableBuilder::Rep {
   uint64_t file_creation_time = 0;
 
   std::vector<std::unique_ptr<IntTblPropCollector>> table_properties_collectors;
+
+  std::unique_ptr<ParallelCompressionRep> pc_rep;
 
   Rep(const ImmutableCFOptions& _ioptions, const MutableCFOptions& _moptions,
       const BlockBasedTableOptions& table_opt,
@@ -449,6 +452,105 @@ struct BlockBasedTableBuilder::Rep {
   Rep& operator=(const Rep&) = delete;
 
   ~Rep() {}
+};
+
+class BlockBasedTableBuilder::ParallelCompressionRep {
+ public:
+  // Keys is a wrapper of vector of strings avoiding
+  // releasing string memories during vector clear()
+  // in order to save memory allocation overhead
+  class Keys {
+   public:
+    Keys() : keys(kKeysInitSize), size(0) {}
+    void PushBack(const Slice& key) {
+      if (size == keys.size()) {
+        keys.emplace_back(key.data(), key.size());
+      } else {
+        keys[size].assign(key.data(), key.size());
+      }
+      size++;
+    }
+    void SwapAssign(std::vector<std::string>& keys_) {
+      size = keys_.size();
+      std::swap(keys, keys_);
+    }
+    void Clear() { size = 0; }
+    size_t Size() { return size; }
+    std::string& Back() { return keys[size - 1]; }
+    std::string& operator[](size_t idx) {
+      assert(idx < size);
+      return keys[idx];
+    }
+
+   private:
+    const size_t kKeysInitSize = 32;
+    std::vector<std::string> keys;
+    size_t size;
+  };
+  Keys* keys_ptr;
+
+  class BlockRepSlot;
+
+  // BlockRep instances are fetched from and recycled to
+  // block_rep_pool during parallel compression
+  struct BlockRep {
+    Slice contents;
+    std::string* data_ptr;
+    std::string* compressed_data_ptr;
+    CompressionType compression_type;
+    std::string* first_key_in_next_block_ptr;
+    Keys* keys_ptr;
+    BlockRepSlot* slot_ptr;
+  };
+  typedef WorkQueue<BlockRep> BlockRepPool;
+  BlockRepPool block_rep_pool;
+
+  // Use BlockRepSlot to keep block order in write thread
+  class BlockRepSlot {
+   public:
+    BlockRepSlot() : slot(1) {}
+    void Fill(BlockRep&& rep) { slot.push(std::forward<BlockRep>(rep)); };
+    void Take(BlockRep& rep) { slot.pop(rep); }
+
+   private:
+    WorkQueue<BlockRep> slot;
+  };
+
+  typedef WorkQueue<BlockRep> CompressQueue;
+  CompressQueue compress_queue;
+  std::vector<port::Thread> compress_thread_pool;
+
+  typedef WorkQueue<BlockRepSlot*> WriteQueue;
+  WriteQueue write_queue;
+  std::unique_ptr<port::Thread> write_thread;
+
+  ParallelCompressionRep(size_t block_rep_pool_size) {
+    for (size_t i = 0; i < block_rep_pool_size; i++) {
+      block_rep_pool.push({
+          Slice(),            // contents
+          new std::string(),  // data_ptr
+          new std::string(),  // compressed_data_ptr
+          CompressionType(),  // compression_type
+          new std::string(),  // first_key_in_next_block_ptr
+          new Keys(),         // keys_ptr
+          new BlockRepSlot()  // slot_ptr
+      });
+    }
+    keys_ptr = new Keys();
+  }
+
+  ~ParallelCompressionRep() {
+    delete keys_ptr;
+    BlockRep block_rep;
+    block_rep_pool.finish();
+    while (block_rep_pool.pop(block_rep)) {
+      delete block_rep.data_ptr;
+      delete block_rep.compressed_data_ptr;
+      delete block_rep.first_key_in_next_block_ptr;
+      delete block_rep.keys_ptr;
+      delete block_rep.slot_ptr;
+    }
+  }
 };
 
 BlockBasedTableBuilder::BlockBasedTableBuilder(

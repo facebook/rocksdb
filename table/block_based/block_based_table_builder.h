@@ -127,6 +127,8 @@ class BlockBasedTableBuilder : public TableBuilder {
   class BlockBasedTablePropertiesCollector;
   Rep* rep_;
 
+  class ParallelCompressionRep;
+
   // Advanced operation: flush any buffered key/value pairs to file.
   // Can be used to ensure that two adjacent entries never live in
   // the same data block.  Most clients should not need to use this method.
@@ -136,6 +138,24 @@ class BlockBasedTableBuilder : public TableBuilder {
   // Some compression libraries fail when the raw size is bigger than int. If
   // uncompressed size is bigger than kCompressionSizeLimit, don't compress it
   const uint64_t kCompressionSizeLimit = std::numeric_limits<int>::max();
+
+  // Get blocks from mem-table walking thread, compress them and
+  // pass them to the write thread. Used in parallel compression mode only
+  void WriteBlocks(CompressionContext& compression_ctx,
+                   UncompressionContext* verify_ctx);
+
+  // Given raw block content, try to compress it and return result and
+  // compression type
+  void CompressAndVerifyBlock(const Slice& raw_block_contents,
+                              bool is_data_block,
+                              CompressionContext& compression_ctx,
+                              UncompressionContext* verify_ctx,
+                              std::string& compressed_output,
+                              Slice& result_block_contents,
+                              CompressionType& result_compression_type);
+
+  // Get compressed blocks from WriteBlocks and write them into SST
+  void WriteRawBlocks();
 };
 
 Slice CompressBlock(const Slice& raw, const CompressionInfo& info,
