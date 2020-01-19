@@ -156,7 +156,7 @@ size_t S3ReadableFile::GetUniqueId(char* id, size_t max_size) const {
   WalFileType log_type;
   ParseFileName(RemoveEpoch(basename(fname_)), &file_number, &file_type,
                 &log_type);
-  if (max_size < kMaxVarint64Length && file_number > 0) {
+  if (max_size >= kMaxVarint64Length && file_number > 0) {
     char* rid = id;
     rid = EncodeVarint64(rid, file_number);
     return static_cast<size_t>(rid - id);
