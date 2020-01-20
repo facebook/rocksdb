@@ -339,14 +339,16 @@ void FilterBench::Go() {
       info.filter_ = info.plain_table_bloom_->GetRawData();
     } else {
       if (!builder) {
-        builder.reset(&dynamic_cast<BuiltinFilterBitsBuilder&>(*GetBuilder()));
+        builder.reset(&dynamic_cast<BuiltinFilterBitsBuilder &>(*GetBuilder()));
       }
       for (uint32_t i = 0; i < keys_to_add; ++i) {
         builder->AddKey(kms_[0].Get(filter_id, i));
       }
       info.filter_ = builder->Finish(&info.owner_);
 #ifdef PREDICT_FP_RATE
-      weighted_predicted_fp_rate += keys_to_add * builder->EstimatedFpRate(keys_to_add, info.filter_.size());
+      weighted_predicted_fp_rate +=
+          keys_to_add *
+          builder->EstimatedFpRate(keys_to_add, info.filter_.size());
 #endif
       if (FLAGS_new_builder) {
         builder.reset();
@@ -375,7 +377,8 @@ void FilterBench::Go() {
   double bpk = total_memory_used * 8.0 / total_keys_added;
   std::cout << "Bits/key actual: " << bpk << std::endl;
 #ifdef PREDICT_FP_RATE
-  std::cout << "Predicted FP rate %: " << 100.0 * (weighted_predicted_fp_rate / total_keys_added)
+  std::cout << "Predicted FP rate %: "
+            << 100.0 * (weighted_predicted_fp_rate / total_keys_added)
             << std::endl;
 #endif
   if (!FLAGS_quick && !FLAGS_best_case) {

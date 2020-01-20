@@ -8,9 +8,9 @@
 // supports concurrent write.)
 
 #pragma once
-#include <cmath>
 #include <stddef.h>
 #include <stdint.h>
+#include <cmath>
 
 #include "rocksdb/slice.h"
 #include "util/hash.h"
@@ -37,14 +37,17 @@ class BloomMath {
   // for given ratio of filter memory bits to added keys, number of probes per
   // operation (all within the given block or cache line size), and block or
   // cache line size.
-  static double CacheLocalFpRate(double bits_per_key, int num_probes, int cache_line_bits) {
+  static double CacheLocalFpRate(double bits_per_key, int num_probes,
+                                 int cache_line_bits) {
     double keys_per_cache_line = cache_line_bits / bits_per_key;
     // A reasonable estimate is the average of the FP rates for one standard
     // deviation above and below the mean bucket occupancy. See
     // https://github.com/facebook/rocksdb/wiki/RocksDB-Bloom-Filter#the-math
     double keys_stddev = std::sqrt(keys_per_cache_line);
-    double crowded_fp = StandardFpRate(cache_line_bits / (keys_per_cache_line + keys_stddev), num_probes);
-    double uncrowded_fp = StandardFpRate(cache_line_bits / (keys_per_cache_line - keys_stddev), num_probes);
+    double crowded_fp = StandardFpRate(
+        cache_line_bits / (keys_per_cache_line + keys_stddev), num_probes);
+    double uncrowded_fp = StandardFpRate(
+        cache_line_bits / (keys_per_cache_line - keys_stddev), num_probes);
     return (crowded_fp + uncrowded_fp) / 2;
   }
 
@@ -136,11 +139,12 @@ class FastLocalBloomImpl {
  public:
   // NOTE: this has only been validated to enough accuracy for producing
   // reasonable warnings / user feedback, not for making functional decisions.
-  static double EstimatedFpRate(size_t keys, size_t bytes, int num_probes, int hash_bits) {
+  static double EstimatedFpRate(size_t keys, size_t bytes, int num_probes,
+                                int hash_bits) {
     return BloomMath::IndependentProbabilitySum(
-      BloomMath::CacheLocalFpRate(8.0 * bytes / keys, num_probes, /*cache line bits*/ 512),
-      BloomMath::FingerprintFpRate(keys, hash_bits)
-    );
+        BloomMath::CacheLocalFpRate(8.0 * bytes / keys, num_probes,
+                                    /*cache line bits*/ 512),
+        BloomMath::FingerprintFpRate(keys, hash_bits));
   }
 
   static inline int ChooseNumProbes(int millibits_per_key) {
@@ -403,7 +407,8 @@ class LegacyLocalityBloomImpl {
   // reasonable warnings / user feedback, not for making functional decisions.
   static double EstimatedFpRate(size_t keys, size_t bytes, int num_probes) {
     double bits_per_key = 8.0 * bytes / keys;
-    double filter_rate = BloomMath::CacheLocalFpRate(bits_per_key, num_probes, /*cache line bits*/ 512);
+    double filter_rate = BloomMath::CacheLocalFpRate(bits_per_key, num_probes,
+                                                     /*cache line bits*/ 512);
     if (!ExtraRotates) {
       // Good estimate of impact of flaw in index computation.
       // Adds roughly 0.002 around 50 bits/key and 0.001 around 100 bits/key.

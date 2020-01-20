@@ -93,7 +93,8 @@ class FastLocalBloomBitsBuilder : public BuiltinFilterBitsBuilder {
   }
 
   double EstimatedFpRate(size_t keys, size_t bytes) override {
-    return FastLocalBloomImpl::EstimatedFpRate(keys, bytes - /*metadata*/ 5, num_probes_, /*hash bits*/ 64);
+    return FastLocalBloomImpl::EstimatedFpRate(keys, bytes - /*metadata*/ 5,
+                                               num_probes_, /*hash bits*/ 64);
   }
 
  private:
@@ -219,7 +220,8 @@ class LegacyBloomBitsBuilder : public BuiltinFilterBitsBuilder {
   }
 
   double EstimatedFpRate(size_t keys, size_t bytes) override {
-    return LegacyBloomImpl::EstimatedFpRate(keys, bytes - /*metadata*/ 5, num_probes_);
+    return LegacyBloomImpl::EstimatedFpRate(keys, bytes - /*metadata*/ 5,
+                                            num_probes_);
   }
 
  private:
@@ -243,7 +245,8 @@ class LegacyBloomBitsBuilder : public BuiltinFilterBitsBuilder {
   void AddHash(uint32_t h, char* data, uint32_t num_lines, uint32_t total_bits);
 };
 
-LegacyBloomBitsBuilder::LegacyBloomBitsBuilder(const int bits_per_key, Logger* info_log)
+LegacyBloomBitsBuilder::LegacyBloomBitsBuilder(const int bits_per_key,
+                                               Logger* info_log)
     : bits_per_key_(bits_per_key),
       num_probes_(LegacyNoLocalityBloomImpl::ChooseNumProbes(bits_per_key_)),
       info_log_(info_log) {
@@ -262,8 +265,8 @@ void LegacyBloomBitsBuilder::AddKey(const Slice& key) {
 Slice LegacyBloomBitsBuilder::Finish(std::unique_ptr<const char[]>* buf) {
   uint32_t total_bits, num_lines;
   size_t num_entries = hash_entries_.size();
-  char* data = ReserveSpace(static_cast<int>(num_entries), &total_bits,
-                            &num_lines);
+  char* data =
+      ReserveSpace(static_cast<int>(num_entries), &total_bits, &num_lines);
   assert(data);
 
   if (total_bits != 0 && num_lines != 0) {
@@ -277,8 +280,10 @@ Slice LegacyBloomBitsBuilder::Finish(std::unique_ptr<const char[]>* buf) {
       // is causing significant increase in FP rate by comparing current
       // estimated FP rate to what we would get with a normal number of
       // keys at same memory ratio.
-      double est_fp_rate = LegacyBloomImpl::EstimatedFpRate(num_entries, total_bits / 8, num_probes_);
-      double vs_fp_rate = LegacyBloomImpl::EstimatedFpRate(1U << 16, (1U << 16) * bits_per_key_ / 8, num_probes_);
+      double est_fp_rate = LegacyBloomImpl::EstimatedFpRate(
+          num_entries, total_bits / 8, num_probes_);
+      double vs_fp_rate = LegacyBloomImpl::EstimatedFpRate(
+          1U << 16, (1U << 16) * bits_per_key_ / 8, num_probes_);
 
       if (est_fp_rate >= 1.50 * vs_fp_rate) {
         // For more details, see
@@ -578,7 +583,8 @@ FilterBitsBuilder* BloomFilterPolicy::GetBuilderWithContext(
               "with format_version>=5.",
               whole_bits_per_key_, adjective);
         }
-        return new LegacyBloomBitsBuilder(whole_bits_per_key_, context.info_log);
+        return new LegacyBloomBitsBuilder(whole_bits_per_key_,
+                                          context.info_log);
     }
   }
   assert(false);
