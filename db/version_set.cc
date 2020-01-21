@@ -1211,17 +1211,29 @@ class BaseReferencedVersionBuilder {
       : version_builder_(new VersionBuilder(
             cfd->current()->version_set()->file_options(), cfd->table_cache(),
             cfd->current()->storage_info(), cfd->ioptions()->info_log)),
-        version_(cfd->current()) {
+        version_(cfd->current()),
+        should_ref_(true) {
     version_->Ref();
   }
+  BaseReferencedVersionBuilder(ColumnFamilyData* cfd, Version* v)
+      : version_builder_(new VersionBuilder(
+            cfd->current()->version_set()->file_options(), cfd->table_cache(),
+            v->storage_info(), cfd->ioptions()->info_log)),
+        version_(v),
+        should_ref_(false) {
+    assert(version_ != cfd->current());
+  }
   ~BaseReferencedVersionBuilder() {
-    version_->Unref();
+    if (should_ref_) {
+      version_->Unref();
+    }
   }
   VersionBuilder* version_builder() { return version_builder_.get(); }
 
  private:
   std::unique_ptr<VersionBuilder> version_builder_;
   Version* version_;
+  const bool should_ref_;
 };
 
 Status Version::GetTableProperties(std::shared_ptr<const TableProperties>* tp,
@@ -3570,6 +3582,33 @@ VersionSet::~VersionSet() {
   obsolete_files_.clear();
 }
 
+void VersionSet::Reset() {
+  if (column_family_set_) {
+    Cache* table_cache = column_family_set_->get_table_cache();
+    WriteBufferManager* wbm = column_family_set_->write_buffer_manager();
+    WriteController* wc = column_family_set_->write_controller();
+    column_family_set_.reset(new ColumnFamilySet(dbname_, db_options_,
+                                                 file_options_, table_cache,
+                                                 wbm, wc, block_cache_tracer_));
+  }
+  db_id_.clear();
+  next_file_number_.store(2);
+  min_log_number_to_keep_2pc_.store(0);
+  manifest_file_number_ = 0;
+  options_file_number_ = 0;
+  pending_manifest_file_number_ = 0;
+  last_sequence_.store(0);
+  last_allocated_sequence_.store(0);
+  last_published_sequence_.store(0);
+  prev_log_number_ = 0;
+  descriptor_log_.reset();
+  current_version_number_ = 0;
+  manifest_writers_.clear();
+  manifest_file_size_ = 0;
+  obsolete_files_.clear();
+  obsolete_manifests_.clear();
+}
+
 void VersionSet::AppendVersion(ColumnFamilyData* column_family_data,
                                Version* v) {
   // compute new compaction score
@@ -4578,6 +4617,410 @@ Status VersionSet::Recover(
     }
   }
 
+  return s;
+}
+
+namespace {
+class ManifestPicker {
+ public:
+  explicit ManifestPicker(const std::string& dbname, FileSystem* fs);
+  std::string GetNextManifest();
+  const Status& status() const { return status_; }
+
+ private:
+  // MANIFEST file(s)
+  std::vector<std::string> manifest_files_;
+  std::vector<std::string>::const_iterator manifest_file_iter_;
+  Status status_;
+};
+
+ManifestPicker::ManifestPicker(const std::string& dbname, FileSystem* fs) {
+  assert(fs != nullptr);
+  std::vector<std::string> children;
+  Status s = fs->GetChildren(dbname, IOOptions(), &children, /*dbg=*/nullptr);
+  if (!s.ok()) {
+    status_ = s;
+    return;
+  }
+  std::vector<std::string> manifest_fnames;
+  for (const auto& fname : children) {
+    uint64_t file_num = 0;
+    FileType file_type;
+    bool parse_ok = ParseFileName(fname, &file_num, &file_type);
+    if (parse_ok && file_type == kDescriptorFile) {
+      manifest_fnames.push_back(fname);
+    }
+  }
+  std::sort(manifest_fnames.begin(), manifest_fnames.end(),
+            [](const std::string& lhs, const std::string& rhs) {
+              uint64_t num1 = 0;
+              uint64_t num2 = 0;
+              FileType type1;
+              FileType type2;
+              bool parse_ok1 = ParseFileName(lhs, &num1, &type1);
+              bool parse_ok2 = ParseFileName(rhs, &num2, &type2);
+#ifndef NDEBUG
+              assert(parse_ok1);
+              assert(parse_ok2);
+#else
+              (void)parse_ok1;
+              (void)parse_ok2;
+#endif
+              return !(num1 <= num2);
+            });
+#ifdef OS_WIN
+  const char kPathSeparator = '\\';
+#else
+  const char kPathSeparator = '/';
+#endif
+  for (const auto& fname : manifest_fnames) {
+    std::string full_path(dbname);
+    if (full_path.back() != kPathSeparator) {
+      full_path.push_back(kPathSeparator);
+    }
+    full_path.append(fname);
+    manifest_files_.push_back(full_path);
+  }
+  manifest_file_iter_ = manifest_files_.begin();
+}
+
+std::string ManifestPicker::GetNextManifest() {
+  assert(status_.ok());
+  std::string ret;
+  if (manifest_file_iter_ != manifest_files_.end()) {
+    ret = *manifest_file_iter_;
+    ++manifest_file_iter_;
+  }
+  return ret;
+}
+}  // namespace
+
+Status VersionSet::TryRecover(
+    const std::vector<ColumnFamilyDescriptor>& column_families, bool read_only,
+    std::string* db_id) {
+  ManifestPicker manifest_picker(dbname_, fs_);
+  Status s = manifest_picker.status();
+  if (!s.ok()) {
+    return s;
+  }
+  std::string manifest_path = manifest_picker.GetNextManifest();
+  while (!manifest_path.empty()) {
+    s = TryRecoverFromOneManifest(manifest_path, column_families, read_only,
+                                  db_id);
+    if (s.ok()) {
+      break;
+    }
+    Reset();
+    manifest_path = manifest_picker.GetNextManifest();
+  }
+  if (s.ok()) {
+    // TODO load table readers.
+  }
+  return s;
+}
+
+// TODO Make this function shorter.
+// Also note that LoadTableHandlers should be called after we determine the
+// final version, thus may likely be outside this function.
+Status VersionSet::TryRecoverFromOneManifest(
+    const std::string& manifest_path,
+    const std::vector<ColumnFamilyDescriptor>& column_families, bool read_only,
+    std::string* db_id) {
+  ROCKS_LOG_INFO(db_options_->info_log, "Trying to recover from manifest: %s\n",
+                 manifest_path.c_str());
+  std::unique_ptr<SequentialFileReader> manifest_file_reader;
+  Status s;
+  {
+    std::unique_ptr<FSSequentialFile> manifest_file;
+    s = fs_->NewSequentialFile(manifest_path,
+                               fs_->OptimizeForManifestRead(file_options_),
+                               &manifest_file, nullptr);
+    if (!s.ok()) {
+      return s;
+    }
+    manifest_file_reader.reset(
+        new SequentialFileReader(std::move(manifest_file), manifest_path,
+                                 db_options_->log_readahead_size));
+  }
+  uint64_t current_manifest_file_size = 0;
+  s = fs_->GetFileSize(manifest_path, IOOptions(), &current_manifest_file_size,
+                       nullptr);
+  if (!s.ok()) {
+    return s;
+  }
+
+  const auto verify_file_metadata = [this](const std::string& fname,
+                                           const FileMetaData& meta) {
+    Status status = env_->FileExists(fname);
+    uint64_t fsize = 0;
+    if (status.ok()) {
+      status = fs_->GetFileSize(fname, IOOptions(), &fsize, nullptr);
+    }
+    if (status.ok()) {
+      if (fsize != meta.fd.GetFileSize()) {
+        status = Status::Corruption("File size mismatch: " + fname);
+      }
+    }
+    return status;
+  };
+
+  std::unordered_map<std::string, ColumnFamilyOptions> cf_name_to_options;
+  for (const auto& cf : column_families) {
+    cf_name_to_options.insert({cf.name, cf.options});
+  }
+
+  std::unordered_map<uint32_t, std::unique_ptr<BaseReferencedVersionBuilder>>
+      builders;
+  const auto default_cf_iter =
+      cf_name_to_options.find(kDefaultColumnFamilyName);
+  if (default_cf_iter == cf_name_to_options.end()) {
+    return Status::InvalidArgument("Default column family not specified");
+  }
+  VersionEdit default_cf_edit;
+  default_cf_edit.AddColumnFamily(kDefaultColumnFamilyName);
+  default_cf_edit.SetColumnFamily(0);
+  ColumnFamilyData* default_cfd =
+      CreateColumnFamily(default_cf_iter->second, &default_cf_edit);
+  default_cfd->set_initialized();
+  builders.insert(
+      std::make_pair(0, std::unique_ptr<BaseReferencedVersionBuilder>(
+                            new BaseReferencedVersionBuilder(default_cfd))));
+  std::unordered_map<uint32_t, std::string> column_families_not_found;
+  std::unordered_map<uint32_t, std::unordered_set<uint64_t>>
+      cf_to_missing_files;
+  cf_to_missing_files.insert(std::make_pair(0, std::unordered_set<uint64_t>()));
+  std::unordered_map<uint32_t, Version*> versions;
+  struct VersionsGuard {
+    explicit VersionsGuard(std::unordered_map<uint32_t, Version*>& _versions)
+        : versions(_versions) {}
+    ~VersionsGuard() {
+      for (auto& elem : versions) {
+        delete elem.second;
+      }
+    }
+    std::unordered_map<uint32_t, Version*>& versions;
+  };
+  VersionsGuard versions_guard(versions);
+  versions.insert(std::make_pair(0, nullptr));
+  VersionEditParams version_edit_params;
+  VersionSet::LogReporter reporter;
+  reporter.status = &s;
+  log::Reader reader(nullptr, std::move(manifest_file_reader), &reporter,
+                     /*checksum=*/true, /*log_number=*/0);
+  Slice record;
+  std::string scratch;
+
+  bool has_next_file_number = false;
+  bool has_log_number = false;
+  bool has_last_sequence = false;
+  while (s.ok() && reader.ReadRecord(&record, &scratch)) {
+    VersionEdit edit;
+    s = edit.DecodeFrom(record);
+    if (!s.ok()) {
+      break;
+    }
+    if (edit.has_db_id_) {
+      db_id_ = edit.GetDbId();
+      if (db_id) {
+        db_id->assign(db_id_);
+      }
+    }
+    bool cf_in_not_found =
+        column_families_not_found.find(edit.column_family_) !=
+        column_families_not_found.end();
+    bool cf_in_builders = builders.find(edit.column_family_) != builders.end();
+    assert(!(cf_in_not_found && cf_in_builders));
+    ColumnFamilyData* cfd = nullptr;
+    if (edit.is_column_family_add_) {
+      if (cf_in_builders || cf_in_not_found) {
+        s = Status::Corruption(
+            "Manifest adding the same column family twice: " +
+            edit.column_family_name_);
+        break;
+      }
+      auto cf_options_iter = cf_name_to_options.find(edit.column_family_name_);
+      bool is_persistent_stats_cf = edit.column_family_name_.compare(
+                                        kPersistentStatsColumnFamilyName) == 0;
+      if (cf_options_iter == cf_name_to_options.end() &&
+          !is_persistent_stats_cf) {
+        column_families_not_found.insert(
+            {edit.column_family_, edit.column_family_name_});
+      } else {
+        if (is_persistent_stats_cf) {
+          ColumnFamilyOptions cfo;
+          OptimizeForPersistentStats(&cfo);
+          cfd = CreateColumnFamily(cfo, &edit);
+        } else {
+          cfd = CreateColumnFamily(cf_options_iter->second, &edit);
+        }
+        cfd->set_initialized();
+        builders.insert(std::make_pair(
+            edit.column_family_, std::unique_ptr<BaseReferencedVersionBuilder>(
+                                     new BaseReferencedVersionBuilder(cfd))));
+        cf_to_missing_files.insert(std::make_pair(
+            edit.column_family_, std::unordered_set<uint64_t>()));
+      }
+    } else if (edit.is_column_family_drop_) {
+      if (cf_in_builders) {
+        auto builder_iter = builders.find(edit.column_family_);
+        assert(builder_iter != builders.end());
+        builders.erase(builder_iter);
+        auto missing_files_iter = cf_to_missing_files.find(edit.column_family_);
+        assert(missing_files_iter != cf_to_missing_files.end());
+        cf_to_missing_files.erase(missing_files_iter);
+        cfd = column_family_set_->GetColumnFamily(edit.column_family_);
+        assert(cfd != nullptr);
+        if (cfd->UnrefAndTryDelete()) {
+          cfd = nullptr;
+        } else {
+          assert(false);
+        }
+      } else if (cf_in_not_found) {
+        column_families_not_found.erase(edit.column_family_);
+      } else {
+        s = Status::Corruption(
+            "Manifest - dropping non-existing column family: " +
+            edit.column_family_name_);
+        break;
+      }
+    } else if (!cf_in_not_found) {
+      if (!cf_in_builders) {
+        s = Status::Corruption(
+            "Manifest record referencing unknown column family: " +
+            edit.column_family_name_);
+        break;
+      }
+      cfd = column_family_set_->GetColumnFamily(edit.column_family_);
+      assert(cfd != nullptr);
+      auto builder_iter = builders.find(edit.column_family_);
+      assert(builder_iter != builders.end());
+      VersionBuilder* builder = builder_iter->second->version_builder();
+      s = builder->Apply(&edit);
+      if (!s.ok()) {
+        break;
+      }
+    }
+    s = ExtractInfoFromVersionEdit(cfd, edit, &version_edit_params);
+    if (!s.ok()) {
+      break;
+    }
+    if (!version_edit_params.has_prev_log_number_) {
+      version_edit_params.SetPrevLogNumber(0);
+    }
+    if (version_edit_params.has_next_file_number_) {
+      has_next_file_number = true;
+    }
+    if (version_edit_params.has_log_number_) {
+      has_log_number = true;
+    }
+    if (version_edit_params.has_last_sequence_) {
+      has_last_sequence = true;
+    }
+    const bool has_necessary_info_to_recover =
+        version_edit_params.has_last_sequence_ &&
+        version_edit_params.has_log_number_ &&
+        version_edit_params.has_next_file_number_;
+    auto builder_iter = builders.find(edit.column_family_);
+    if (builder_iter != builders.end()) {
+      assert(nullptr != cfd);
+      assert(cfd->GetID() == edit.column_family_);
+      auto missing_files_iter = cf_to_missing_files.find(edit.column_family_);
+      assert(missing_files_iter != cf_to_missing_files.end());
+      std::unordered_set<uint64_t>& missing_files = missing_files_iter->second;
+
+      VersionBuilder* builder = builder_iter->second->version_builder();
+      for (const auto& file : edit.GetDeletedFiles()) {
+        uint64_t file_num = file.second;
+        auto fiter = missing_files.find(file_num);
+        if (fiter != missing_files.end()) {
+          missing_files.erase(fiter);
+        }
+      }
+      for (const auto& elem : edit.GetNewFiles()) {
+        const FileMetaData& meta = elem.second;
+        const FileDescriptor& fd = meta.fd;
+        uint64_t file_num = fd.GetNumber();
+        const std::string fname = MakeTableFileName(dbname_, file_num);
+        if (!verify_file_metadata(fname, meta).ok()) {
+          missing_files.insert(file_num);
+        }
+      }
+      if (has_necessary_info_to_recover && missing_files.empty()) {
+        Version* version = new Version(cfd, this, file_options_,
+                                       *cfd->GetLatestMutableCFOptions(),
+                                       current_version_number_++);
+        builder->SaveTo(version->storage_info());
+        version->PrepareApply(*cfd->GetLatestMutableCFOptions(),
+                              !db_options_->skip_stats_update_on_db_open);
+        version->storage_info()->ComputeCompactionScore(
+            *cfd->ioptions(), *cfd->GetLatestMutableCFOptions());
+        version->storage_info()->SetFinalized();
+        assert(0 == version->refs_);
+        assert(version != cfd->current());
+        auto v_iter = versions.find(edit.column_family_);
+        if (v_iter != versions.end()) {
+          delete v_iter->second;
+          versions.erase(v_iter);
+        }
+        versions.insert(std::make_pair(edit.column_family_, version));
+        builders.erase(builder_iter);
+        builders.insert(std::make_pair(
+            edit.column_family_,
+            std::unique_ptr<BaseReferencedVersionBuilder>(
+                new BaseReferencedVersionBuilder(cfd, version))));
+      }
+    }
+    manifest_file_size_ = current_manifest_file_size;
+    if (has_necessary_info_to_recover) {
+      next_file_number_.store(version_edit_params.next_file_number_ + 1);
+      last_allocated_sequence_ = version_edit_params.last_sequence_;
+      last_published_sequence_ = version_edit_params.last_sequence_;
+      last_sequence_ = version_edit_params.last_sequence_;
+      prev_log_number_ = version_edit_params.prev_log_number_;
+    }
+  }
+  if (!s.ok()) {
+    return s;
+  }
+
+  if (!has_log_number || !has_next_file_number || !has_last_sequence) {
+    std::string msg("no ");
+    if (!has_next_file_number) {
+      msg.append("next_file_number, ");
+    }
+    if (!has_log_number) {
+      msg.append("log_number, ");
+    }
+    if (!has_last_sequence) {
+      msg.append("last_sequence, ");
+    }
+    msg = msg.substr(0, msg.size() - 2);
+    msg.append(" entry in MANIFEST");
+    return Status::Corruption(msg);
+  }
+
+  if (!read_only && !column_families_not_found.empty()) {
+    std::string msg;
+    for (const auto& cf : column_families_not_found) {
+      msg += ", " + cf.second;
+    }
+    msg = msg.substr(2);
+    s = Status::InvalidArgument("Column families not opened: " + msg);
+  }
+  if (s.ok()) {
+    for (ColumnFamilyData* cfd : *column_family_set_) {
+      if (read_only) {
+        cfd->table_cache()->SetTablesAreImmortal();
+      }
+      assert(cfd->initialized());
+      auto v_iter = versions.find(cfd->GetID());
+      if (v_iter != versions.end()) {
+        assert(v_iter->second != nullptr);
+        AppendVersion(cfd, v_iter->second);
+        versions.erase(v_iter);
+      }
+    }
+  }
   return s;
 }
 

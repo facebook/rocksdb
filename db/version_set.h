@@ -876,6 +876,16 @@ class VersionSet {
   Status Recover(const std::vector<ColumnFamilyDescriptor>& column_families,
                  bool read_only = false, std::string* db_id = nullptr);
 
+  Status TryRecover(const std::vector<ColumnFamilyDescriptor>& column_families,
+                    bool read_only, std::string* db_id);
+
+  // Try to recover the version set to the most recent consistent state
+  // recorded in the specified manifest.
+  Status TryRecoverFromOneManifest(
+      const std::string& manifest_path,
+      const std::vector<ColumnFamilyDescriptor>& column_families,
+      bool read_only, std::string* db_id);
+
   // Reads a manifest file and returns a list of column families in
   // column_families.
   static Status ListColumnFamilies(std::vector<std::string>* column_families,
@@ -1069,6 +1079,8 @@ class VersionSet {
     }
   };
 
+  void Reset();
+
   // Returns approximated offset of a key in a file for a given version.
   uint64_t ApproximateOffsetOf(Version* v, const FdWithKeyRange& f,
                                const Slice& key, TableReaderCaller caller);
@@ -1116,7 +1128,6 @@ class VersionSet {
                                     VersionEditParams* version_edit_params);
 
   std::unique_ptr<ColumnFamilySet> column_family_set_;
-
   Env* const env_;
   FileSystem* const fs_;
   const std::string dbname_;
