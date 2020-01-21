@@ -436,6 +436,7 @@ TEST_F(DBCompactionTest, SkipStatsUpdateTest) {
 
   ASSERT_GT(update_acc_stats_called, 0);
 
+  SyncPoint::GetInstance()->ClearAllCallBacks();
   SyncPoint::GetInstance()->DisableProcessing();
 }
 
