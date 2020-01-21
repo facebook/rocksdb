@@ -28,6 +28,11 @@ class BuiltinFilterBitsBuilder : public FilterBitsBuilder {
   // metadata. Passing the result to CalculateNumEntry should
   // return >= the num_entry passed in.
   virtual uint32_t CalculateSpace(const int num_entry) = 0;
+
+  // Returns an estimate of the FP rate of the returned filter if
+  // `keys` keys are added and the filter returned by Finish is `bytes`
+  // bytes.
+  virtual double EstimatedFpRate(size_t keys, size_t bytes) = 0;
 };
 
 // RocksDB built-in filter policy for Bloom or Bloom-like filters.

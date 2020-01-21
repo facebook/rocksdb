@@ -92,6 +92,11 @@ class FastLocalBloomBitsBuilder : public BuiltinFilterBitsBuilder {
     return num_cache_lines * 64 + /*metadata*/ 5;
   }
 
+  double EstimatedFpRate(size_t keys, size_t bytes) override {
+    return FastLocalBloomImpl::EstimatedFpRate(keys, bytes - /*metadata*/ 5,
+                                               num_probes_, /*hash bits*/ 64);
+  }
+
  private:
   void AddAllEntries(char* data, uint32_t len) {
     // Simple version without prefetching:
@@ -194,7 +199,7 @@ using LegacyBloomImpl = LegacyLocalityBloomImpl</*ExtraRotates*/ false>;
 
 class LegacyBloomBitsBuilder : public BuiltinFilterBitsBuilder {
  public:
-  explicit LegacyBloomBitsBuilder(const int bits_per_key);
+  explicit LegacyBloomBitsBuilder(const int bits_per_key, Logger* info_log);
 
   // No Copy allowed
   LegacyBloomBitsBuilder(const LegacyBloomBitsBuilder&) = delete;
@@ -214,10 +219,16 @@ class LegacyBloomBitsBuilder : public BuiltinFilterBitsBuilder {
     return CalculateSpace(num_entry, &dont_care1, &dont_care2);
   }
 
+  double EstimatedFpRate(size_t keys, size_t bytes) override {
+    return LegacyBloomImpl::EstimatedFpRate(keys, bytes - /*metadata*/ 5,
+                                            num_probes_);
+  }
+
  private:
   int bits_per_key_;
   int num_probes_;
   std::vector<uint32_t> hash_entries_;
+  Logger* info_log_;
 
   // Get totalbits that optimized for cpu cache line
   uint32_t GetTotalBitsForLocality(uint32_t total_bits);
@@ -234,9 +245,11 @@ class LegacyBloomBitsBuilder : public BuiltinFilterBitsBuilder {
   void AddHash(uint32_t h, char* data, uint32_t num_lines, uint32_t total_bits);
 };
 
-LegacyBloomBitsBuilder::LegacyBloomBitsBuilder(const int bits_per_key)
+LegacyBloomBitsBuilder::LegacyBloomBitsBuilder(const int bits_per_key,
+                                               Logger* info_log)
     : bits_per_key_(bits_per_key),
-      num_probes_(LegacyNoLocalityBloomImpl::ChooseNumProbes(bits_per_key_)) {
+      num_probes_(LegacyNoLocalityBloomImpl::ChooseNumProbes(bits_per_key_)),
+      info_log_(info_log) {
   assert(bits_per_key_);
 }
 
@@ -251,13 +264,38 @@ void LegacyBloomBitsBuilder::AddKey(const Slice& key) {
 
 Slice LegacyBloomBitsBuilder::Finish(std::unique_ptr<const char[]>* buf) {
   uint32_t total_bits, num_lines;
-  char* data = ReserveSpace(static_cast<int>(hash_entries_.size()), &total_bits,
-                            &num_lines);
+  size_t num_entries = hash_entries_.size();
+  char* data =
+      ReserveSpace(static_cast<int>(num_entries), &total_bits, &num_lines);
   assert(data);
 
   if (total_bits != 0 && num_lines != 0) {
     for (auto h : hash_entries_) {
       AddHash(h, data, num_lines, total_bits);
+    }
+
+    // Check for excessive entries for 32-bit hash function
+    if (num_entries >= /* minimum of 3 million */ 3000000U) {
+      // More specifically, we can detect that the 32-bit hash function
+      // is causing significant increase in FP rate by comparing current
+      // estimated FP rate to what we would get with a normal number of
+      // keys at same memory ratio.
+      double est_fp_rate = LegacyBloomImpl::EstimatedFpRate(
+          num_entries, total_bits / 8, num_probes_);
+      double vs_fp_rate = LegacyBloomImpl::EstimatedFpRate(
+          1U << 16, (1U << 16) * bits_per_key_ / 8, num_probes_);
+
+      if (est_fp_rate >= 1.50 * vs_fp_rate) {
+        // For more details, see
+        // https://github.com/facebook/rocksdb/wiki/RocksDB-Bloom-Filter
+        ROCKS_LOG_WARN(
+            info_log_,
+            "Using legacy SST/BBT Bloom filter with excessive key count "
+            "(%.1fM @ %dbpk), causing estimated %.1fx higher filter FP rate. "
+            "Consider using new Bloom with format_version>=5, smaller SST "
+            "file size, or partitioned filters.",
+            num_entries / 1000000.0, bits_per_key_, est_fp_rate / vs_fp_rate);
+      }
     }
   }
   // See BloomFilterPolicy::GetFilterBitsReader for metadata
@@ -545,7 +583,8 @@ FilterBitsBuilder* BloomFilterPolicy::GetBuilderWithContext(
               "with format_version>=5.",
               whole_bits_per_key_, adjective);
         }
-        return new LegacyBloomBitsBuilder(whole_bits_per_key_);
+        return new LegacyBloomBitsBuilder(whole_bits_per_key_,
+                                          context.info_log);
     }
   }
   assert(false);

@@ -95,14 +95,20 @@ void _always_assert_fail(int line, const char *file, const char *expr) {
 #define ALWAYS_ASSERT(cond) \
   ((cond) ? (void)0 : ::_always_assert_fail(__LINE__, __FILE__, #cond))
 
+#ifndef NDEBUG
+// This could affect build times enough that we should not include it for
+// accurate speed tests
+#define PREDICT_FP_RATE
+#endif
+
 using rocksdb::Arena;
 using rocksdb::BlockContents;
 using rocksdb::BloomFilterPolicy;
 using rocksdb::BloomHash;
+using rocksdb::BuiltinFilterBitsBuilder;
 using rocksdb::CachableEntry;
 using rocksdb::EncodeFixed32;
 using rocksdb::fastrange32;
-using rocksdb::FilterBitsBuilder;
 using rocksdb::FilterBitsReader;
 using rocksdb::FilterBuildingContext;
 using rocksdb::FullFilterBlockReader;
@@ -302,10 +308,13 @@ void FilterBench::Go() {
 
   std::cout << "Building..." << std::endl;
 
-  std::unique_ptr<FilterBitsBuilder> builder;
+  std::unique_ptr<BuiltinFilterBitsBuilder> builder;
 
   size_t total_memory_used = 0;
   size_t total_keys_added = 0;
+#ifdef PREDICT_FP_RATE
+  double weighted_predicted_fp_rate = 0.0;
+#endif
 
   rocksdb::StopWatchNano timer(rocksdb::Env::Default(), true);
 
@@ -330,12 +339,17 @@ void FilterBench::Go() {
       info.filter_ = info.plain_table_bloom_->GetRawData();
     } else {
       if (!builder) {
-        builder.reset(GetBuilder());
+        builder.reset(&dynamic_cast<BuiltinFilterBitsBuilder &>(*GetBuilder()));
       }
       for (uint32_t i = 0; i < keys_to_add; ++i) {
         builder->AddKey(kms_[0].Get(filter_id, i));
       }
       info.filter_ = builder->Finish(&info.owner_);
+#ifdef PREDICT_FP_RATE
+      weighted_predicted_fp_rate +=
+          keys_to_add *
+          builder->EstimatedFpRate(keys_to_add, info.filter_.size());
+#endif
       if (FLAGS_new_builder) {
         builder.reset();
       }
@@ -362,6 +376,11 @@ void FilterBench::Go() {
 
   double bpk = total_memory_used * 8.0 / total_keys_added;
   std::cout << "Bits/key actual: " << bpk << std::endl;
+#ifdef PREDICT_FP_RATE
+  std::cout << "Predicted FP rate %: "
+            << 100.0 * (weighted_predicted_fp_rate / total_keys_added)
+            << std::endl;
+#endif
   if (!FLAGS_quick && !FLAGS_best_case) {
     double tolerable_rate = std::pow(2.0, -(bpk - 1.0) / (1.4 + bpk / 50.0));
     std::cout << "Best possible FP rate %: " << 100.0 * std::pow(2.0, -bpk)
