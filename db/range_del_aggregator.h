@@ -27,6 +27,7 @@
 #include "util/heap.h"
 #include "util/kv_map.h"
 
+
 namespace rocksdb {
 
 class TruncatedRangeDelIterator {
