@@ -52,7 +52,7 @@ default_params = {
     "expected_values_path": expected_values_file.name,
     "flush_one_in": 1000000,
     "get_live_files_and_wal_files_one_in": 1000000,
-    "index_type": lambda: random.choice([0,0,1,2,2]),
+    "index_type": lambda: random.choice([0, 0, 1, 2, 2]),
     "max_background_compactions": 20,
     "max_bytes_for_level_base": 10485760,
     "max_key": 100000000,
@@ -236,8 +236,8 @@ def finalize_and_sanitize(src_params):
         else:
             dest_params["use_block_based_filter"] = 0
     if dest_params["index_type"] == 1 and \
-       dest_params.get("prefix_size", 7) == -1:
-       dest_params["index_type"] = 0       
+        dest_params.get("prefix_size", 7) == -1:
+        dest_params["index_type"] = 0       
     if dest_params.get("atomic_flush", 0) == 1:
         # disable pipelined write when atomic flush is used.
         dest_params["enable_pipelined_write"] = 0
