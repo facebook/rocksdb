@@ -345,6 +345,7 @@ void WriteThread::BeginWriteStall() {
       w->status = Status::Incomplete("Write stall");
       SetState(w, STATE_COMPLETED);
       w = prev->link_older;
+      w->link_newer = (prev == &write_stall_dummy_) ? nullptr : prev;
     } else {
       prev = w;
       w = w->link_older;
