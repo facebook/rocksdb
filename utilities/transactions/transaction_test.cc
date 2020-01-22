@@ -6135,33 +6135,30 @@ TEST_P(TransactionTest, DoubleCrashInRecovery) {
   ASSERT_OK(txn->Put(Slice("foo-prepare"), Slice("bar-prepare")));
   ASSERT_OK(txn->Prepare());
 
-  ASSERT_OK(db->Put(write_options, "foo", "bar1"));
   FlushOptions flush_ops;
   db->Flush(flush_ops);
+  // Now we have a log that cannot be deleted
 
-  ASSERT_OK(db->Put(write_options, "foo", "bar2"));
-  db->Flush(flush_ops);
-
-  // Write to both CFs in the next log
-  ASSERT_OK(db->Put(write_options, "foo", "bar3"));
-  // The value is large enough to be touched by the corruption we ingest below.
-  std::string large_value(400, ' ');
-  ASSERT_OK(db->Put(write_options, "foo1", large_value));
-  ASSERT_OK(db->Put(write_options, "foo2", large_value));
-  ASSERT_OK(db->Put(write_options, cf_handle, "foo2", large_value));
+  ASSERT_OK(db->Put(write_options, cf_handle, "foo1", "bar1"));
   // Flush only the 2nd cf
   db->Flush(flush_ops, cf_handle);
 
+  // The value is large enough to be touched by the corruption we ingest below.
+  std::string large_value(400, ' ');
+  // key/value not touched by corruption
+  ASSERT_OK(db->Put(write_options, "foo2", "bar2"));
+  // key/value touched by corruption
   ASSERT_OK(db->Put(write_options, "foo3", large_value));
-  ASSERT_OK(db->Put(write_options, "foo4", large_value));
+  // key/value not touched by corruption
+  ASSERT_OK(db->Put(write_options, "foo4", "bar4"));
 
-  reinterpret_cast<PessimisticTransactionDB*>(db)->TEST_Crash();
   db->FlushWAL(true);
+  reinterpret_cast<PessimisticTransactionDB*>(db)->TEST_Crash();
   delete cf_handle;
   delete db;
   db = nullptr;
 
-  // Corrupt the log file in the middle, so that it is not corrupted
+  // Corrupt the last log file in the middle, so that it is not corrupted
   // in the tail.
   std::vector<std::string> filenames;
   auto def_env = Env::Default();
@@ -6190,9 +6187,10 @@ TEST_P(TransactionTest, DoubleCrashInRecovery) {
   ASSERT_OK(ReOpenNoDelete(column_families, &handles));
 
   // Write data to the log right after the corrupted log
-  ASSERT_OK(db->Put(write_options, "foo4", large_value));
-  db->FlushWAL(true);
+  ASSERT_OK(db->Put(write_options, "foo5", large_value));
 
+  // Persist data written to WAL during recovery or by the last Put
+  db->FlushWAL(true);
   // 2nd crash to recover while having a valid log after the corrupted one.
   ASSERT_OK(ReOpenNoDelete(column_families, &handles));
   for (auto handle : handles) {
