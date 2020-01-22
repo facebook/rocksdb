@@ -70,8 +70,8 @@ class CuckooTableBuilder: public TableBuilder {
   // Get the file checksum value
   uint32_t GetFileChecksum() const override { return file_checksum_; }
 
-  // Get the file checksum mathod name
-  const char* GetFileChecksumName() const override;
+  // Get the file checksum function name
+  const char* GetFileChecksumFuncName() const override;
 
  private:
   struct CuckooBucket {

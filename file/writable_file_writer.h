@@ -71,7 +71,7 @@ class WritableFileWriter {
   RateLimiter* rate_limiter_;
   Statistics* stats_;
   std::vector<std::shared_ptr<EventListener>> listeners_;
-  SstFileChecksum* checksum_method_;
+  SstFileChecksumFunc* checksum_func_;
   uint32_t file_checksum_ = kUnknownFileChecksum;
   bool is_first_checksum_ = true;
 
@@ -81,7 +81,7 @@ class WritableFileWriter {
       const FileOptions& options, Env* env = nullptr,
       Statistics* stats = nullptr,
       const std::vector<std::shared_ptr<EventListener>>& listeners = {},
-      SstFileChecksum* checksum_method = nullptr)
+      SstFileChecksumFunc* checksum_func = nullptr)
       : writable_file_(std::move(file)),
         file_name_(_file_name),
         env_(env),
@@ -97,7 +97,7 @@ class WritableFileWriter {
         rate_limiter_(options.rate_limiter),
         stats_(stats),
         listeners_(),
-        checksum_method_(checksum_method) {
+        checksum_func_(checksum_func) {
     TEST_SYNC_POINT_CALLBACK("WritableFileWriter::WritableFileWriter:0",
                              reinterpret_cast<void*>(max_buffer_size_));
     buf_.Alignment(writable_file_->GetRequiredBufferAlignment());
@@ -149,13 +149,13 @@ class WritableFileWriter {
 
   bool TEST_BufferIsEmpty() { return buf_.CurrentSize() == 0; }
 
-  void SetFileChecksumMethod(SstFileChecksum* checksum_method) {
-    checksum_method_ = checksum_method;
+  void TEST_SetFileChecksumFunc(SstFileChecksumFunc* checksum_func) {
+    checksum_func_ = checksum_func;
   }
 
   uint32_t GetFileChecksum() const { return file_checksum_; }
 
-  const char* GetFileChecksumName() const;
+  const char* GetFileChecksumFuncName() const;
 
  private:
   // Used when os buffering is OFF and we are writing

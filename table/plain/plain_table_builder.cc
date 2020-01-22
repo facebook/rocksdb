@@ -302,11 +302,11 @@ uint64_t PlainTableBuilder::FileSize() const {
   return offset_;
 }
 
-const char* PlainTableBuilder::GetFileChecksumName() const {
+const char* PlainTableBuilder::GetFileChecksumFuncName() const {
   if (file_ != nullptr) {
-    return file_->GetFileChecksumName();
+    return file_->GetFileChecksumFuncName();
   } else {
-    return kUnknownFileChecksumName.c_str();
+    return kUnknownFileChecksumFuncName.c_str();
   }
 }
 

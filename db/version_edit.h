@@ -29,7 +29,7 @@ constexpr uint64_t kUnknownOldestAncesterTime = 0;
 constexpr uint64_t kUnknownFileCreationTime = 0;
 
 constexpr uint32_t kUnknownFileChecksum = 0;
-extern const std::string kUnknownFileChecksumName;
+extern const std::string kUnknownFileChecksumFuncName;
 
 extern uint64_t PackFileNumberAndPathId(uint64_t number, uint64_t path_id);
 
@@ -140,8 +140,8 @@ struct FileMetaData {
   // File checksum value
   uint32_t file_checksum = kUnknownFileChecksum;
 
-  // File checksum algorithm name
-  std::string file_checksum_name = kUnknownFileChecksumName;
+  // File checksum function name
+  std::string file_checksum_func_name = kUnknownFileChecksumFuncName;
 
   FileMetaData() = default;
 
@@ -151,7 +151,7 @@ struct FileMetaData {
                const SequenceNumber& largest_seq, bool marked_for_compact,
                uint64_t oldest_blob_file, uint64_t _oldest_ancester_time,
                uint64_t _file_creation_time, uint32_t _file_checksum,
-               const std::string& _file_checksum_name)
+               const std::string& _file_checksum_func_name)
       : fd(file, file_path_id, file_size, smallest_seq, largest_seq),
         smallest(smallest_key),
         largest(largest_key),
@@ -160,7 +160,7 @@ struct FileMetaData {
         oldest_ancester_time(_oldest_ancester_time),
         file_creation_time(_file_creation_time),
         file_checksum(_file_checksum),
-        file_checksum_name(_file_checksum_name) {
+        file_checksum_func_name(_file_checksum_func_name) {
     TEST_SYNC_POINT_CALLBACK("FileMetaData::FileMetaData", this);
   }
 
@@ -327,14 +327,14 @@ class VersionEdit {
                const SequenceNumber& largest_seqno, bool marked_for_compaction,
                uint64_t oldest_blob_file_number, uint64_t oldest_ancester_time,
                uint64_t file_creation_time, uint32_t file_checksum,
-               const std::string& file_checksum_name) {
+               const std::string& file_checksum_func_name) {
     assert(smallest_seqno <= largest_seqno);
     new_files_.emplace_back(
         level,
         FileMetaData(file, file_path_id, file_size, smallest, largest,
                      smallest_seqno, largest_seqno, marked_for_compaction,
                      oldest_blob_file_number, oldest_ancester_time,
-                     file_creation_time, file_checksum, file_checksum_name));
+                     file_creation_time, file_checksum, file_checksum_func_name));
   }
 
   void AddFile(int level, const FileMetaData& f) {

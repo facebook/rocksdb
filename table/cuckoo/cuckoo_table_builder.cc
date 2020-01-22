@@ -516,11 +516,11 @@ bool CuckooTableBuilder::MakeSpaceForKey(
   return null_found;
 }
 
-const char* CuckooTableBuilder::GetFileChecksumName() const {
+const char* CuckooTableBuilder::GetFileChecksumFuncName() const {
   if (file_ != nullptr) {
-    return file_->GetFileChecksumName();
+    return file_->GetFileChecksumFuncName();
   } else {
-    return kUnknownFileChecksumName.c_str();
+    return kUnknownFileChecksumFuncName.c_str();
   }
 }
 

@@ -587,7 +587,7 @@ class Repairer {
             table->meta.fd.largest_seqno, table->meta.marked_for_compaction,
             table->meta.oldest_blob_file_number,
             table->meta.oldest_ancester_time, table->meta.file_creation_time,
-            table->meta.file_checksum, table->meta.file_checksum_name);
+            table->meta.file_checksum, table->meta.file_checksum_func_name);
       }
       assert(next_file_number_ > 0);
       vset_.MarkFileNumberUsed(next_file_number_ - 1);

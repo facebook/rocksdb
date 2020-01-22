@@ -120,7 +120,7 @@ class FileChecksumTestHelper {
       std::unordered_map<uint64_t, std::pair<uint32_t, std::string>>&
           checksum_map) {
     uint32_t cur_checksum = 0;
-    std::string checksum_name;
+    std::string checksum_func_name;
 
     Status s;
     EnvOptions soptions;
@@ -134,12 +134,12 @@ class FileChecksumTestHelper {
     scratch = new char[2048];
     bool first_read = true;
     Slice result;
-    SstFileChecksum* file_checksum_cal = options_.sst_file_checksum.get();
-    if (file_checksum_cal == nullptr) {
+    SstFileChecksumFunc* file_checksum_func = options_.sst_file_checksum_func.get();
+    if (file_checksum_func == nullptr) {
       cur_checksum = 0;
-      checksum_name = kUnknownFileChecksumName;
+      checksum_func_name = kUnknownFileChecksumFuncName;
     } else {
-      checksum_name = file_checksum_cal->Name();
+      checksum_func_name = file_checksum_func->Name();
       s = file_reader->Read(2048, &result, scratch);
       if (!s.ok()) {
         delete[] scratch;
@@ -148,10 +148,10 @@ class FileChecksumTestHelper {
       while (result.size() != 0) {
         if (first_read) {
           first_read = false;
-          cur_checksum = file_checksum_cal->Value(scratch, result.size());
+          cur_checksum = file_checksum_func->Value(scratch, result.size());
         } else {
           cur_checksum =
-              file_checksum_cal->Extend(cur_checksum, scratch, result.size());
+              file_checksum_func->Extend(cur_checksum, scratch, result.size());
         }
         s = file_reader->Read(2048, &result, scratch);
         if (!s.ok()) {
@@ -168,12 +168,12 @@ class FileChecksumTestHelper {
                                 " is not in the checksum map!");
     }
     if ((cur_checksum != it->second.first) ||
-        (checksum_name != it->second.second)) {
+        (checksum_func_name != it->second.second)) {
       return Status::Corruption(
           "Checksum does not match! The file: " + file_meta.name +
           ", checksum name: " + it->second.second + " and checksum " +
           ToString(it->second.first) + ". However, expected checksum name: " +
-          checksum_name + " and checksum " + ToString(cur_checksum));
+          checksum_func_name + " and checksum " + ToString(cur_checksum));
     }
     return Status::OK();
   }
@@ -357,7 +357,7 @@ TEST_F(LdbCmdTest, DumpFileChecksumCRC32) {
   Options opts;
   opts.env = env.get();
   opts.create_if_missing = true;
-  opts.sst_file_checksum = std::make_shared<SstFileChecksumCrc32c>();
+  opts.sst_file_checksum_func = std::make_shared<SstFileChecksumCrc32c>();
   opts.file_system.reset(new LegacyFileSystemWrapper(opts.env));
 
   DB* db = nullptr;

@@ -163,8 +163,8 @@ class TableBuilder {
   // Return the checksum of the file
   virtual uint32_t GetFileChecksum() const = 0;
 
-  // Return the checksum name
-  virtual const char* GetFileChecksumName() const = 0;
+  // Return the checksum functionname
+  virtual const char* GetFileChecksumFuncName() const = 0;
 };
 
 }  // namespace rocksdb

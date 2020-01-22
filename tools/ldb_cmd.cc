@@ -1272,10 +1272,10 @@ void FileChecksumDumpCommand::DoCommand() {
                                      checksum_list.get());
   if (checksum_list != nullptr) {
     for (auto it : checksum_list->checksum_map) {
-      printf("%" PRId64 ", %s, %u\n", it.first, it.second.second.c_str(),
+      fprintf(stdout, "%" PRId64 ", %s, %u\n", it.first, it.second.second.c_str(),
              it.second.first);
     }
-    printf("Print SST file checksum list finished \n");
+    fprintf(stdout, "Print SST file checksum list finished \n");
   }
 }
 

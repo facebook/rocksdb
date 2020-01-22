@@ -1465,7 +1465,7 @@ void Version::GetColumnFamilyMetaData(ColumnFamilyMetaData* cf_meta) {
           file->stats.num_reads_sampled.load(std::memory_order_relaxed),
           file->being_compacted, file->oldest_blob_file_number,
           file->TryGetOldestAncesterTime(), file->TryGetFileCreationTime(),
-          file->file_checksum, file->file_checksum_name});
+          file->file_checksum, file->file_checksum_func_name});
       files.back().num_entries = file->num_entries;
       files.back().num_deletions = file->num_deletions;
       level_size += file->fd.GetFileSize();
@@ -4717,12 +4717,12 @@ Status VersionSet::ReduceNumberOfLevels(const std::string& dbname,
 // Get the checksum information including the checksum and checksum method
 // name of all SST files of this Manifest. Store the information in
 // FileChecksumLis which contains a map from file id to its checksum info
-Status VersionSet::GetAllFileCheckSumInfo(Options& options,
+Status VersionSet::GetAllFileCheckSumInfo(const Options& options,
                                           std::string& dscname,
                                           FileChecksumList* checksum_list) {
   Status s;
   if (checksum_list == nullptr) {
-    s = Status::Corruption("checsum_list is nullptr!");
+    s = Status::InvalidArgument("checksum_list is nullptr");
     return s;
   }
   std::unique_ptr<SequentialFileReader> file_reader;
@@ -4745,8 +4745,7 @@ Status VersionSet::GetAllFileCheckSumInfo(Options& options,
                      true /* checksum */, 0 /* log_number */);
   Slice record;
   std::string scratch;
-  std::set<uint32_t> cf_set;
-  cf_set.insert(0);
+  std::unordered_set<uint32_t> cf_set = {0};
   while (reader.ReadRecord(&record, &scratch) && s.ok()) {
     VersionEdit edit;
     s = edit.DecodeFrom(record);
@@ -4765,7 +4764,7 @@ Status VersionSet::GetAllFileCheckSumInfo(Options& options,
     } else if (edit.is_column_family_drop_) {
       if (!cf_in_info) {
         s = Status::Corruption(
-            "Manifest - dropping non-existing column family");
+            "Manifest - dropping non-existing column family: "+ToString(edit.column_family_));
         break;
       }
       auto cf_iter = cf_set.find(edit.column_family_);
@@ -4773,23 +4772,23 @@ Status VersionSet::GetAllFileCheckSumInfo(Options& options,
     } else {
       if (!cf_in_info) {
         s = Status::Corruption(
-            "Manifest record referencing unknown column family");
+            "Manifest record referencing unknown column family: "+ToString(edit.column_family_));
         break;
       }
       assert(cf_set.find(edit.column_family_) != cf_set.end());
 
       // Step 2: remove the deleted files from the info
-      const VersionEdit::DeletedFileSet& del = edit.GetDeletedFiles();
-      for (const auto& del_file : del) {
-        uint64_t f_id = static_cast<uint64_t>(del_file.second);
-        checksum_list->RemoveChecksumUnit(f_id);
+      const VersionEdit::DeletedFileSet& deleted_files = edit.GetDeletedFiles();
+      for (const auto& deleted_file : deleted_files) {
+        uint64_t file_number = deleted_file.second;
+        checksum_list->RemoveChecksumUnit(file_number);
       }
 
       // Step 3: Add the new files to the info
       for (const auto& new_file : edit.GetNewFiles()) {
         checksum_list->AddChecksumUnit(new_file.second.fd.GetNumber(),
                                        new_file.second.file_checksum,
-                                       new_file.second.file_checksum_name);
+                                       new_file.second.file_checksum_func_name);
       }
     }
   }
@@ -5086,7 +5085,7 @@ Status VersionSet::WriteCurrentStateToManifest(
                        f->fd.smallest_seqno, f->fd.largest_seqno,
                        f->marked_for_compaction, f->oldest_blob_file_number,
                        f->oldest_ancester_time, f->file_creation_time,
-                       f->file_checksum, f->file_checksum_name);
+                       f->file_checksum, f->file_checksum_func_name);
         }
       }
       const auto iter = curr_state.find(cfd->GetID());
@@ -5514,7 +5513,7 @@ void VersionSet::GetLiveFilesMetaData(std::vector<LiveFileMetaData>* metadata) {
         filemetadata.num_deletions = file->num_deletions;
         filemetadata.oldest_blob_file_number = file->oldest_blob_file_number;
         filemetadata.file_checksum = file->file_checksum;
-        filemetadata.file_checksum_name = file->file_checksum_name;
+        filemetadata.file_checksum_func_name = file->file_checksum_func_name;
         metadata->push_back(filemetadata);
       }
     }

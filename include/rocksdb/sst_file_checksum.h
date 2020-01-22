@@ -17,11 +17,12 @@
 
 namespace rocksdb {
 
-// SstFileChecksum generates the checksum for each SST file when the file is
-// written to the file system. The checksum is stored in the Manifest
-class SstFileChecksum {
+// SstFileChecksumFunc is the function class to generates the checksum value
+// for each SST file when the file is written to the file system. The checksum
+// is stored in VersionSet as well as MANIFEST.
+class SstFileChecksumFunc {
  public:
-  virtual ~SstFileChecksum() {}
+  virtual ~SstFileChecksumFunc() {}
   // Return the checksum of concat (A, data[0,n-1]) where init_checksum is the
   // returned value of some string A. It is used to maintain the checksum of a
   // stream of data
@@ -34,7 +35,7 @@ class SstFileChecksum {
   // Return a processed value of the checksum for store in somewhere
   virtual uint32_t ProcessChecksum(const uint32_t checksum) = 0;
 
-  // Returns a name that identifies the current file checksum method.
+  // Returns a name that identifies the current file checksum function.
   virtual const char* Name() const = 0;
 };
 
@@ -43,20 +44,20 @@ class SstFileChecksum {
 struct FileChecksumList {
   std::unordered_map<uint64_t, std::pair<uint32_t, std::string>> checksum_map;
 
-  void AddChecksumUnit(uint64_t f_id, uint32_t checksum,
-                       std::string checksum_name) {
-    auto it = checksum_map.find(f_id);
+  void AddChecksumUnit(uint64_t file_number, uint32_t checksum,
+                       std::string checksum_func_name) {
+    auto it = checksum_map.find(file_number);
     if (it == checksum_map.end()) {
       checksum_map.insert(
-          std::make_pair(f_id, std::make_pair(checksum, checksum_name)));
+          std::make_pair(file_number, std::make_pair(checksum, checksum_func_name)));
     } else {
       it->second.first = checksum;
-      it->second.second = checksum_name;
+      it->second.second = checksum_func_name;
     }
   }
 
-  void RemoveChecksumUnit(uint64_t f_id) {
-    auto it = checksum_map.find(f_id);
+  void RemoveChecksumUnit(uint64_t file_number) {
+    auto it = checksum_map.find(file_number);
     if (it != checksum_map.end()) {
       checksum_map.erase(it);
     }

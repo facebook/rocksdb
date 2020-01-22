@@ -199,8 +199,8 @@ TEST_F(OptionsSettableTest, DBOptionsAllFieldsSettable) {
        sizeof(std::vector<std::shared_ptr<EventListener>>)},
       {offsetof(struct DBOptions, row_cache), sizeof(std::shared_ptr<Cache>)},
       {offsetof(struct DBOptions, wal_filter), sizeof(const WalFilter*)},
-      {offsetof(struct DBOptions, sst_file_checksum),
-       sizeof(std::shared_ptr<SstFileChecksum>)},
+      {offsetof(struct DBOptions, sst_file_checksum_func),
+       sizeof(std::shared_ptr<SstFileChecksumFunc>)},
   };
 
   char* options_ptr = new char[sizeof(DBOptions)];
@@ -303,7 +303,7 @@ TEST_F(OptionsSettableTest, DBOptionsAllFieldsSettable) {
                              "atomic_flush=false;"
                              "avoid_unnecessary_blocking_io=false;"
                              "log_readahead_size=0;"
-                             "write_dbid_to_manifest=false;",
+                             "write_dbid_to_manifest=false",
                              new_options));
 
   ASSERT_EQ(unset_bytes_base, NumUnsetBytes(new_options_ptr, sizeof(DBOptions),

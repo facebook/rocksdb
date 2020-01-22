@@ -1124,12 +1124,12 @@ struct DBOptions {
   // Default: 0
   size_t log_readahead_size = 0;
 
-  // If user does NOT provide SST file checksum method, the SST file checksum
+  // If user does NOT provide SST file checksum function, the SST file checksum
   // will NOT be used. The single checksum instance are shared by options and
   // file writers. Make sure the algorithm is thread safe.
   //
   // Default: nullptr
-  std::shared_ptr<SstFileChecksum> sst_file_checksum = nullptr;
+  std::shared_ptr<SstFileChecksumFunc> sst_file_checksum_func = nullptr;
 };
 
 // Options to control the behavior of a database (passed to DB::Open)

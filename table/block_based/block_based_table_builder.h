@@ -95,8 +95,8 @@ class BlockBasedTableBuilder : public TableBuilder {
   // Get checksum value
   uint32_t GetFileChecksum() const override { return file_checksum_; }
 
-  // Get checksum method name
-  const char* GetFileChecksumName() const override;
+  // Get checksum function name
+  const char* GetFileChecksumFuncName() const override;
 
  private:
   bool ok() const { return status().ok(); }

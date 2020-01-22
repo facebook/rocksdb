@@ -1173,21 +1173,21 @@ class TablePropertyTest : public testing::Test {};
 class BBTTailPrefetchTest : public TableTest {};
 
 // The helper class to test the file checksum
-class FileChecksumHelper {
+class FileChecksumTestHelper {
  public:
-  FileChecksumHelper(bool convert_to_internal_key = false)
+  FileChecksumTestHelper(bool convert_to_internal_key = false)
       : convert_to_internal_key_(convert_to_internal_key) {
     sink_ = new test::StringSink();
   }
-  ~FileChecksumHelper() {}
+  ~FileChecksumTestHelper() {}
 
   void CreateWriteableFile() {
     file_writer_.reset(test::GetWritableFileWriter(sink_, "" /* don't care */));
   }
 
-  void SetFileChecksumMethod(SstFileChecksum* checksum_cal) {
+  void SetFileChecksumFunc(SstFileChecksumFunc* checksum_func) {
     if (file_writer_ != nullptr) {
-      file_writer_->SetFileChecksumMethod(checksum_cal);
+      file_writer_->TEST_SetFileChecksumFunc(checksum_func);
     }
   }
 
@@ -1230,13 +1230,13 @@ class FileChecksumHelper {
 
   uint32_t GetFileChecksum() { return table_builder_->GetFileChecksum(); }
 
-  const char* GetFileChecksumName() {
-    return table_builder_->GetFileChecksumName();
+  const char* GetFileChecksumFuncName() {
+    return table_builder_->GetFileChecksumFuncName();
   }
 
-  Status CalculateFileChecksum(SstFileChecksum* file_checksum_cal,
+  Status CalculateFileChecksum(SstFileChecksumFunc* file_checksum_func,
                                uint32_t* checksum) {
-    assert(file_checksum_cal != nullptr);
+    assert(file_checksum_func != nullptr);
     cur_uniq_id_ = checksum_uniq_id_++;
     test::StringSink* ss_rw =
         rocksdb::test::GetStringSinkFromLegacyWriter(file_writer_.get());
@@ -1257,10 +1257,10 @@ class FileChecksumHelper {
     while (result.size() != 0) {
       if (first_read) {
         first_read = false;
-        tmp_checksum = file_checksum_cal->Value(scratch, result.size());
+        tmp_checksum = file_checksum_func->Value(scratch, result.size());
       } else {
         tmp_checksum =
-            file_checksum_cal->Extend(tmp_checksum, scratch, result.size());
+            file_checksum_func->Extend(tmp_checksum, scratch, result.size());
       }
       offset += static_cast<uint64_t>(result.size());
       s = file_reader_->Read(offset, 2048, &result, scratch, false);
@@ -1287,7 +1287,7 @@ class FileChecksumHelper {
   static uint64_t checksum_uniq_id_;
 };
 
-uint64_t FileChecksumHelper::checksum_uniq_id_ = 1;
+uint64_t FileChecksumTestHelper::checksum_uniq_id_ = 1;
 
 INSTANTIATE_TEST_CASE_P(FormatDef, BlockBasedTableTest,
                         testing::Values(test::kDefaultFormatVersion));
@@ -3183,7 +3183,7 @@ TEST_P(BlockBasedTableTest, NoFileChecksum) {
   }
   std::string column_family_name;
 
-  FileChecksumHelper f(true);
+  FileChecksumTestHelper f(true);
   f.CreateWriteableFile();
   std::unique_ptr<TableBuilder> builder;
   builder.reset(ioptions.table_factory->NewTableBuilder(
@@ -3197,14 +3197,14 @@ TEST_P(BlockBasedTableTest, NoFileChecksum) {
   f.ResetTableBuilder(std::move(builder));
   f.AddKVtoKVMap(1000);
   f.WriteKVAndFlushTable();
-  ASSERT_STREQ(f.GetFileChecksumName(), "None");
+  ASSERT_STREQ(f.GetFileChecksumFuncName(), kUnknownFileChecksumFuncName.c_str());
   uint32_t exp_checksum = 0;
   EXPECT_EQ(f.GetFileChecksum(), exp_checksum);
 }
 
 TEST_P(BlockBasedTableTest, Crc32FileChecksum) {
   Options options;
-  options.sst_file_checksum = std::make_shared<SstFileChecksumCrc32c>();
+  options.sst_file_checksum_func = std::make_shared<SstFileChecksumCrc32c>();
   ImmutableCFOptions ioptions(options);
   MutableCFOptions moptions(options);
   BlockBasedTableOptions table_options = GetBlockBasedTableOptions();
@@ -3223,9 +3223,9 @@ TEST_P(BlockBasedTableTest, Crc32FileChecksum) {
   }
   std::string column_family_name;
 
-  FileChecksumHelper f(true);
+  FileChecksumTestHelper f(true);
   f.CreateWriteableFile();
-  f.SetFileChecksumMethod(options.sst_file_checksum.get());
+  f.SetFileChecksumFunc(options.sst_file_checksum_func.get());
   std::unique_ptr<TableBuilder> builder;
   builder.reset(ioptions.table_factory->NewTableBuilder(
       TableBuilderOptions(ioptions, moptions, *comparator,
@@ -3238,10 +3238,10 @@ TEST_P(BlockBasedTableTest, Crc32FileChecksum) {
   f.ResetTableBuilder(std::move(builder));
   f.AddKVtoKVMap(1000);
   f.WriteKVAndFlushTable();
-  ASSERT_STREQ(f.GetFileChecksumName(), "SstFileChecksumCrc32c");
+  ASSERT_STREQ(f.GetFileChecksumFuncName(), "SstFileChecksumCrc32c");
   uint32_t checksum;
   ASSERT_OK(
-      f.CalculateFileChecksum(options.sst_file_checksum.get(), &checksum));
+      f.CalculateFileChecksum(options.sst_file_checksum_func.get(), &checksum));
   EXPECT_EQ(f.GetFileChecksum(), checksum);
 }
 
@@ -3318,7 +3318,7 @@ TEST_F(PlainTableTest, NoFileChecksum) {
       int_tbl_prop_collector_factories;
   std::string column_family_name;
   int unknown_level = -1;
-  FileChecksumHelper f(true);
+  FileChecksumTestHelper f(true);
   f.CreateWriteableFile();
 
   std::unique_ptr<TableBuilder> builder(factory.NewTableBuilder(
@@ -3331,7 +3331,7 @@ TEST_F(PlainTableTest, NoFileChecksum) {
   f.ResetTableBuilder(std::move(builder));
   f.AddKVtoKVMap(1000);
   f.WriteKVAndFlushTable();
-  ASSERT_STREQ(f.GetFileChecksumName(), "None");
+  ASSERT_STREQ(f.GetFileChecksumFuncName(), kUnknownFileChecksumFuncName.c_str());
   uint32_t exp_checksum = 0;
   EXPECT_EQ(f.GetFileChecksum(), exp_checksum);
 }
@@ -3344,7 +3344,7 @@ TEST_F(PlainTableTest, Crc32FileChecksum) {
   PlainTableFactory factory(plain_table_options);
 
   Options options;
-  options.sst_file_checksum = std::make_shared<SstFileChecksumCrc32c>();
+  options.sst_file_checksum_func = std::make_shared<SstFileChecksumCrc32c>();
   const ImmutableCFOptions ioptions(options);
   const MutableCFOptions moptions(options);
   InternalKeyComparator ikc(options.comparator);
@@ -3352,9 +3352,9 @@ TEST_F(PlainTableTest, Crc32FileChecksum) {
       int_tbl_prop_collector_factories;
   std::string column_family_name;
   int unknown_level = -1;
-  FileChecksumHelper f(true);
+  FileChecksumTestHelper f(true);
   f.CreateWriteableFile();
-  f.SetFileChecksumMethod(options.sst_file_checksum.get());
+  f.SetFileChecksumFunc(options.sst_file_checksum_func.get());
 
   std::unique_ptr<TableBuilder> builder(factory.NewTableBuilder(
       TableBuilderOptions(
@@ -3366,10 +3366,10 @@ TEST_F(PlainTableTest, Crc32FileChecksum) {
   f.ResetTableBuilder(std::move(builder));
   f.AddKVtoKVMap(1000);
   f.WriteKVAndFlushTable();
-  ASSERT_STREQ(f.GetFileChecksumName(), "SstFileChecksumCrc32c");
+  ASSERT_STREQ(f.GetFileChecksumFuncName(), "SstFileChecksumCrc32c");
   uint32_t checksum;
   ASSERT_OK(
-      f.CalculateFileChecksum(options.sst_file_checksum.get(), &checksum));
+      f.CalculateFileChecksum(options.sst_file_checksum_func.get(), &checksum));
   EXPECT_EQ(f.GetFileChecksum(), checksum);
 }
 

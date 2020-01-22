@@ -87,8 +87,8 @@ class PlainTableBuilder: public TableBuilder {
   // Get the checksum of the file
   uint32_t GetFileChecksum() const override { return file_checksum_; }
 
-  // Get the checksum method name
-  const char* GetFileChecksumName() const override;
+  // Get the checksum function name
+  const char* GetFileChecksumFuncName() const override;
 
  private:
   Arena arena_;

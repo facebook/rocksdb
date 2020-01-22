@@ -1202,11 +1202,11 @@ TableProperties BlockBasedTableBuilder::GetTableProperties() const {
   return ret;
 }
 
-const char* BlockBasedTableBuilder::GetFileChecksumName() const {
+const char* BlockBasedTableBuilder::GetFileChecksumFuncName() const {
   if (rep_->file != nullptr) {
-    return rep_->file->GetFileChecksumName();
+    return rep_->file->GetFileChecksumFuncName();
   } else {
-    return kUnknownFileChecksumName.c_str();
+    return kUnknownFileChecksumFuncName.c_str();
   }
 }
 

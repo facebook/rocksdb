@@ -18,8 +18,8 @@
 #include "util/string_util.h"
 
 namespace rocksdb {
-// The default checksum method name.
-const std::string kUnknownFileChecksumName("None");
+// The default sst file checksum function name.
+const std::string kUnknownFileChecksumFuncName("Unknown");
 // Mask for an identified tag from the future which can be safely ignored.
 const uint32_t kTagSafeIgnoreMask = 1 << 13;
 
@@ -65,7 +65,7 @@ enum CustomTag : uint32_t {
   kOldestAncesterTime = 5,
   kFileCreationTime = 6,
   kFileChecksum = 7,
-  kFileChecksumName = 8,
+  kFileChecksumFuncName = 8,
   kPathId = 65,
 };
 // If this bit for the custom tag is set, opening DB should fail if
@@ -234,8 +234,8 @@ bool VersionEdit::EncodeTo(std::string* dst) const {
     PutVarint32(&varint_file_checksum, f.file_checksum);
     PutLengthPrefixedSlice(dst, Slice(varint_file_checksum));
 
-    PutVarint32(dst, CustomTag::kFileChecksumName);
-    PutLengthPrefixedSlice(dst, Slice(f.file_checksum_name));
+    PutVarint32(dst, CustomTag::kFileChecksumFuncName);
+    PutLengthPrefixedSlice(dst, Slice(f.file_checksum_func_name));
 
     if (f.fd.GetPathId() != 0) {
       PutVarint32(dst, CustomTag::kPathId);
@@ -365,8 +365,8 @@ const char* VersionEdit::DecodeNewFile4From(Slice* input) {
             return "invalid file checksum";
           }
           break;
-        case kFileChecksumName:
-          f.file_checksum_name = field.ToString();
+        case kFileChecksumFuncName:
+          f.file_checksum_func_name = field.ToString();
           break;
         case kNeedCompaction:
           if (field.size() != 1) {
@@ -699,8 +699,8 @@ std::string VersionEdit::DebugString(bool hex_key) const {
     AppendNumberTo(&r, f.file_creation_time);
     r.append(" file_checksum:");
     AppendNumberTo(&r, f.file_checksum);
-    r.append(" file_checksum_name: ");
-    r.append(f.file_checksum_name);
+    r.append(" file_checksum_func_name: ");
+    r.append(f.file_checksum_func_name);
   }
   r.append("\n  ColumnFamily: ");
   AppendNumberTo(&r, column_family_);

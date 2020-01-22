@@ -8,6 +8,7 @@
 #include <cinttypes>
 
 #include "logging/logging.h"
+#include "db/version_edit.h"
 #include "port/port.h"
 #include "rocksdb/cache.h"
 #include "rocksdb/env.h"
@@ -94,7 +95,7 @@ ImmutableDBOptions::ImmutableDBOptions(const DBOptions& options)
       persist_stats_to_disk(options.persist_stats_to_disk),
       write_dbid_to_manifest(options.write_dbid_to_manifest),
       log_readahead_size(options.log_readahead_size),
-      sst_file_checksum(options.sst_file_checksum) {
+      sst_file_checksum_func(options.sst_file_checksum_func) {
 }
 
 void ImmutableDBOptions::Dump(Logger* log) const {
@@ -245,8 +246,8 @@ void ImmutableDBOptions::Dump(Logger* log) const {
   ROCKS_LOG_HEADER(
       log, "                Options.log_readahead_size: %" ROCKSDB_PRIszt,
       log_readahead_size);
-  ROCKS_LOG_HEADER(log, "                Options.sst_file_checksum: %s",
-                   sst_file_checksum ? sst_file_checksum->Name() : "None");
+  ROCKS_LOG_HEADER(log, "                Options.sst_file_checksum_func: %s",
+                   sst_file_checksum_func ? sst_file_checksum_func->Name() : kUnknownFileChecksumFuncName.c_str());
 }
 
 MutableDBOptions::MutableDBOptions()
