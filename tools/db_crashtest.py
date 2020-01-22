@@ -238,6 +238,9 @@ def finalize_and_sanitize(src_params):
     if dest_params["index_type"] == 1 and \
         dest_params.get("prefix_size", 7) == -1:
         dest_params["index_type"] = 0       
+    # kHashSearch is incompatible with index_block_restart_interval > 1
+    if dest_params["index_type"] == 1:
+        dest_params["index_block_restart_interval"] = 1;
     if dest_params.get("atomic_flush", 0) == 1:
         # disable pipelined write when atomic flush is used.
         dest_params["enable_pipelined_write"] = 0
