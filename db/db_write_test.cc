@@ -85,7 +85,6 @@ TEST_P(DBWriteTest, WriteThreadHangOnWriteStall) {
       "DBImpl::WriteImpl:BeforeLeaderEnters"},
      // Make compaction start wait for the write stall to be detected and
      // implemented by a write group leader
-     //{"DBImpl::DelayWrite:Wait",
      {"DBWriteTest::WriteThreadHangOnWriteStall:3",
       "BackgroundCallCompaction:0"}});
   rocksdb::SyncPoint::GetInstance()->EnableProcessing();
@@ -103,20 +102,15 @@ TEST_P(DBWriteTest, WriteThreadHangOnWriteStall) {
   // First leader
   threads.emplace_back(write_slowdown_func);
   cv.Wait();
-  //mutex.Lock();
   // Second leader. Will stall writes
   threads.emplace_back(write_slowdown_func);
   cv.Wait();
-  //mutex.Lock();
   threads.emplace_back(write_no_slowdown_func);
   cv.Wait();
-  //mutex.Lock();
   threads.emplace_back(write_slowdown_func);
   cv.Wait();
-  //mutex.Lock();
   threads.emplace_back(write_no_slowdown_func);
   cv.Wait();
-  //mutex.Lock();
   threads.emplace_back(write_slowdown_func);
   cv.Wait();
   mutex.Unlock();

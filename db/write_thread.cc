@@ -361,6 +361,7 @@ void WriteThread::EndWriteStall() {
   // Unlink write_stall_dummy_ from the write queue. This will unblock
   // pending write threads to enqueue themselves
   assert(newest_writer_.load(std::memory_order_relaxed) == &write_stall_dummy_);
+  assert(write_stall_dummy_.link_older != nullptr);
   if (write_stall_dummy_.link_older) {
     write_stall_dummy_.link_older->link_newer = write_stall_dummy_.link_newer;
   }
