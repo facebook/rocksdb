@@ -1013,6 +1013,9 @@ Status DBImpl::RecoverLogFiles(const std::vector<uint64_t>& log_numbers,
   // the corrupted log number, which means CF contains data beyond the point of
   // corruption. This could during PIT recovery when the WAL is corrupted and
   // some (but not all) CFs are flushed
+  // Exclude the PIT case where no log is dropped after the corruption point.
+  // This is to cover the case for empty logs after corrupted log, in which we
+  // don't reset stop_replay_for_corruption.
   if (stop_replay_for_corruption == true &&
       ((immutable_db_options_.wal_recovery_mode ==
             WALRecoveryMode::kPointInTimeRecovery &&
