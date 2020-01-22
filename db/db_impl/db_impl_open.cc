@@ -734,7 +734,6 @@ Status DBImpl::RecoverLogFiles(const std::vector<uint64_t>& log_numbers,
   bool stop_replay_by_wal_filter = false;
   bool stop_replay_for_corruption = false;
   bool flushed = false;
-  bool log_file_dropped = false;
   uint64_t corrupted_log_number = kMaxSequenceNumber;
   uint64_t min_log_number = MinLogNumberToKeep();
   for (auto log_number : log_numbers) {
@@ -755,8 +754,7 @@ Status DBImpl::RecoverLogFiles(const std::vector<uint64_t>& log_numbers,
     ROCKS_LOG_INFO(immutable_db_options_.info_log,
                    "Recovering log #%" PRIu64 " mode %d", log_number,
                    static_cast<int>(immutable_db_options_.wal_recovery_mode));
-    auto logFileDropped = [this, &fname, &log_file_dropped]() {
-      log_file_dropped = true;
+    auto logFileDropped = [this, &fname]() {
       uint64_t bytes;
       if (env_->GetFileSize(fname, &bytes).ok()) {
         auto info_log = immutable_db_options_.info_log.get();
@@ -1017,9 +1015,8 @@ Status DBImpl::RecoverLogFiles(const std::vector<uint64_t>& log_numbers,
   // This is to cover the case for empty logs after corrupted log, in which we
   // don't reset stop_replay_for_corruption.
   if (stop_replay_for_corruption == true &&
-      ((immutable_db_options_.wal_recovery_mode ==
-            WALRecoveryMode::kPointInTimeRecovery &&
-        log_file_dropped) ||
+      (immutable_db_options_.wal_recovery_mode ==
+           WALRecoveryMode::kPointInTimeRecovery ||
        immutable_db_options_.wal_recovery_mode ==
            WALRecoveryMode::kTolerateCorruptedTailRecords)) {
     for (auto cfd : *versions_->GetColumnFamilySet()) {
@@ -1477,11 +1474,15 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
     }
     if (s.ok()) {
       // In WritePrepared there could be gap in sequence numbers. This breaks
-      // the trick we use in kPointInTimeRecovery which asssume the fiest seq in
+      // the trick we use in kPointInTimeRecovery which assumes the first seq in
       // the log right after the corrupted log is one larger than the last seq
       // we read from the logs. To let this trick keep working, we add a dummy
-      // entry with the expected seqeunce to the first log right after recovery.
-      if (impl->seq_per_batch_ && recovered_seq != kMaxSequenceNumber) {
+      // entry with the expected sequence to the first log right after recovery.
+      // In non-WritePrepared case also the new log after recovery could be
+      // empty, and thus missing the consecutive seq hint to distinguish
+      // middle-log corruption to corrupted-log-remained-after-recovery. This
+      // case also will be addressed by a dummy write.
+      if (recovered_seq != kMaxSequenceNumber) {
         WriteBatch empty_batch;
         WriteBatchInternal::SetSequence(&empty_batch, recovered_seq);
         WriteOptions write_options;
