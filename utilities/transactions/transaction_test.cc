@@ -6120,8 +6120,9 @@ TEST_P(TransactionTest, ReseekOptimization) {
 // there. The new log files should be still read succesfully during recovery of
 // the 2nd crash.
 TEST_P(TransactionTest, DoubleCrashInRecovery) {
+  for (const bool write_after_recovery: {true, false}) {
   options.wal_recovery_mode = WALRecoveryMode::kPointInTimeRecovery;
-  ReOpenNoDelete();
+  ReOpen();
   std::string cf_name = "two";
   ColumnFamilyOptions cf_options;
   ColumnFamilyHandle* cf_handle = nullptr;
@@ -6186,8 +6187,10 @@ TEST_P(TransactionTest, DoubleCrashInRecovery) {
       ColumnFamilyDescriptor("two", ColumnFamilyOptions()));
   ASSERT_OK(ReOpenNoDelete(column_families, &handles));
 
+  if (write_after_recovery) {
   // Write data to the log right after the corrupted log
   ASSERT_OK(db->Put(write_options, "foo5", large_value));
+  }
 
   // Persist data written to WAL during recovery or by the last Put
   db->FlushWAL(true);
@@ -6195,6 +6198,7 @@ TEST_P(TransactionTest, DoubleCrashInRecovery) {
   ASSERT_OK(ReOpenNoDelete(column_families, &handles));
   for (auto handle : handles) {
     delete handle;
+  }
   }
 }
 

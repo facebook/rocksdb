@@ -734,6 +734,7 @@ Status DBImpl::RecoverLogFiles(const std::vector<uint64_t>& log_numbers,
   bool stop_replay_by_wal_filter = false;
   bool stop_replay_for_corruption = false;
   bool flushed = false;
+  bool log_file_dropped = false;
   uint64_t corrupted_log_number = kMaxSequenceNumber;
   uint64_t min_log_number = MinLogNumberToKeep();
   for (auto log_number : log_numbers) {
@@ -754,7 +755,8 @@ Status DBImpl::RecoverLogFiles(const std::vector<uint64_t>& log_numbers,
     ROCKS_LOG_INFO(immutable_db_options_.info_log,
                    "Recovering log #%" PRIu64 " mode %d", log_number,
                    static_cast<int>(immutable_db_options_.wal_recovery_mode));
-    auto logFileDropped = [this, &fname]() {
+    auto logFileDropped = [this, &fname, &log_file_dropped]() {
+      log_file_dropped = true;
       uint64_t bytes;
       if (env_->GetFileSize(fname, &bytes).ok()) {
         auto info_log = immutable_db_options_.info_log.get();
@@ -1012,8 +1014,9 @@ Status DBImpl::RecoverLogFiles(const std::vector<uint64_t>& log_numbers,
   // corruption. This could during PIT recovery when the WAL is corrupted and
   // some (but not all) CFs are flushed
   if (stop_replay_for_corruption == true &&
-      (immutable_db_options_.wal_recovery_mode ==
-           WALRecoveryMode::kPointInTimeRecovery ||
+      ((immutable_db_options_.wal_recovery_mode ==
+            WALRecoveryMode::kPointInTimeRecovery &&
+        log_file_dropped) ||
        immutable_db_options_.wal_recovery_mode ==
            WALRecoveryMode::kTolerateCorruptedTailRecords)) {
     for (auto cfd : *versions_->GetColumnFamilySet()) {
