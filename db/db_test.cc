@@ -3174,6 +3174,57 @@ TEST_F(DBTest, BlockBasedTablePrefixIndexTest) {
   ASSERT_EQ("v2", Get("k2"));
 }
 
+TEST_F(DBTest, BlockBasedTablePrefixIndexTotalOrderSeek) {
+  // create a DB with block prefix index
+  BlockBasedTableOptions table_options;
+  Options options = CurrentOptions();
+  options.max_open_files = 10;
+  table_options.index_type = BlockBasedTableOptions::kHashSearch;
+  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+  options.prefix_extractor.reset(NewFixedPrefixTransform(1));
+
+  // RocksDB sanitize max open files to at least 20. Modify it back.
+  rocksdb::SyncPoint::GetInstance()->SetCallBack(
+      "SanitizeOptions::AfterChangeMaxOpenFiles", [&](void* arg) {
+        int* max_open_files = static_cast<int*>(arg);
+        *max_open_files = 11;
+      });
+  rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+
+  Reopen(options);
+  ASSERT_OK(Put("k1", "v1"));
+  Flush();
+
+  CompactRangeOptions cro;
+  cro.change_level = true;
+  cro.target_level = 1;
+  ASSERT_OK(db_->CompactRange(cro, nullptr, nullptr));
+
+  // Force evict tables
+  dbfull()->TEST_table_cache()->SetCapacity(0);
+  // Make table cache to keep one entry.
+  dbfull()->TEST_table_cache()->SetCapacity(1);
+
+  ReadOptions read_options;
+  read_options.total_order_seek = true;
+  {
+    std::unique_ptr<Iterator> iter(db_->NewIterator(read_options));
+    iter->Seek("k1");
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_EQ("k1", iter->key().ToString());
+  }
+
+  // After total order seek, prefix index should still be used.
+  read_options.total_order_seek = false;
+  {
+    std::unique_ptr<Iterator> iter(db_->NewIterator(read_options));
+    iter->Seek("k1");
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_EQ("k1", iter->key().ToString());
+  }
+  rocksdb::SyncPoint::GetInstance()->DisableProcessing();
+}
+
 TEST_F(DBTest, ChecksumTest) {
   BlockBasedTableOptions table_options;
   Options options = CurrentOptions();
