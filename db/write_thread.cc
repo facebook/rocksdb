@@ -362,9 +362,7 @@ void WriteThread::EndWriteStall() {
   // pending write threads to enqueue themselves
   assert(newest_writer_.load(std::memory_order_relaxed) == &write_stall_dummy_);
   assert(write_stall_dummy_.link_older != nullptr);
-  if (write_stall_dummy_.link_older) {
-    write_stall_dummy_.link_older->link_newer = write_stall_dummy_.link_newer;
-  }
+  write_stall_dummy_.link_older->link_newer = write_stall_dummy_.link_newer;
   newest_writer_.exchange(write_stall_dummy_.link_older);
 
   // Wake up writers
