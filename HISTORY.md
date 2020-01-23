@@ -20,6 +20,7 @@
 * Delcare kHashSearch index type feature-incompatible with index_block_restart_interval larger than 1.
 * Fix incorrect results while block-based table uses kHashSearch, together with Prev()/SeekForPrev().
 * Fixed an issue where the thread pools were not resized upon setting `max_background_jobs` dynamically through the `SetDBOptions` interface.
+* Fix a bug that can cause write threads to hang when a slowdown/stall happens and there is a mix of writers with WriteOptions::no_slowdown set/unset.
 
 ### New Features
 * It is now possible to enable periodic compactions for the base DB when using BlobDB.
