@@ -344,6 +344,9 @@ void WriteThread::BeginWriteStall() {
       prev->link_older = w->link_older;
       w->status = Status::Incomplete("Write stall");
       SetState(w, STATE_COMPLETED);
+      if (prev->link_older) {
+        prev->link_older->link_newer = prev;
+      }
       w = prev->link_older;
     } else {
       prev = w;
@@ -355,7 +358,11 @@ void WriteThread::BeginWriteStall() {
 void WriteThread::EndWriteStall() {
   MutexLock lock(&stall_mu_);
 
+  // Unlink write_stall_dummy_ from the write queue. This will unblock
+  // pending write threads to enqueue themselves
   assert(newest_writer_.load(std::memory_order_relaxed) == &write_stall_dummy_);
+  assert(write_stall_dummy_.link_older != nullptr);
+  write_stall_dummy_.link_older->link_newer = write_stall_dummy_.link_newer;
   newest_writer_.exchange(write_stall_dummy_.link_older);
 
   // Wake up writers

@@ -1,4 +1,8 @@
 # Rocksdb Change Log
+## 6.6.3 (01/24/2020)
+### Bug Fixes
+* Fix a bug that can cause write threads to hang when a slowdown/stall happens and there is a mix of writers with WriteOptions::no_slowdown set/unset.
+
 ## 6.6.2 (01/13/2020)
 ### Bug Fixes
 * Fixed a bug where non-L0 compaction input files were not considered to compute the `creation_time` of new compaction outputs.
