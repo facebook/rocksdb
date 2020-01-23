@@ -86,16 +86,11 @@ install:
   - if [[ "${JOB_NAME}" == java_test ]]; then
       java -version && echo "JAVA_HOME=${JAVA_HOME}";
     fi
-  - sudo apt-get install -y gdb  # install gdb
 
 before_script:
   # Increase the maximum number of open file descriptors, since some tests use
   # more FDs than the default limit.
-  - ulimit -c unlimited -S       # enable core dumps
-
-after_failure:
-  - COREFILE=$(find . -maxdepth 1 -name "core*" | head -n 1) # find core file
-  - if [[ -f "$COREFILE" ]]; then gdb -c "$COREFILE" transaction_test -ex "thread apply all bt" -ex "set pagination 0" -batch; fi
+  - ulimit -n 8192
 
 script:
   - ${CXX} --version
