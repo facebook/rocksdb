@@ -1242,34 +1242,30 @@ class FileChecksumTestHelper {
         rocksdb::test::GetStringSinkFromLegacyWriter(file_writer_.get());
     file_reader_.reset(test::GetRandomAccessFileReader(
         new test::StringSource(ss_rw->contents())));
-    char* scratch = nullptr;
-    scratch = new char[2048];
+    std::unique_ptr<char[]> scratch(new char[2048]);
     Slice result;
     uint64_t offset = 0;
     uint32_t tmp_checksum = 0;
     bool first_read = true;
     Status s;
-    s = file_reader_->Read(offset, 2048, &result, scratch, false);
+    s = file_reader_->Read(offset, 2048, &result, scratch.get(), false);
     if (!s.ok()) {
-      delete[] scratch;
       return s;
     }
     while (result.size() != 0) {
       if (first_read) {
         first_read = false;
-        tmp_checksum = file_checksum_func->Value(scratch, result.size());
+        tmp_checksum = file_checksum_func->Value(scratch.get(), result.size());
       } else {
-        tmp_checksum =
-            file_checksum_func->Extend(tmp_checksum, scratch, result.size());
+        tmp_checksum = file_checksum_func->Extend(tmp_checksum, scratch.get(),
+                                                  result.size());
       }
       offset += static_cast<uint64_t>(result.size());
-      s = file_reader_->Read(offset, 2048, &result, scratch, false);
+      s = file_reader_->Read(offset, 2048, &result, scratch.get(), false);
       if (!s.ok()) {
-        delete[] scratch;
         return s;
       }
     }
-    delete[] scratch;
     EXPECT_EQ(offset, static_cast<uint64_t>(table_builder_->FileSize()));
     *checksum = tmp_checksum;
     return Status::OK();

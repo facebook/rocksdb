@@ -128,8 +128,7 @@ class FileChecksumTestHelper {
     if (!s.ok()) {
       return s;
     }
-    char* scratch = nullptr;
-    scratch = new char[2048];
+    std::unique_ptr<char[]> scratch(new char[2048]);
     bool first_read = true;
     Slice result;
     SstFileChecksumFunc* file_checksum_func =
@@ -139,27 +138,25 @@ class FileChecksumTestHelper {
       checksum_func_name = kUnknownFileChecksumFuncName;
     } else {
       checksum_func_name = file_checksum_func->Name();
-      s = file_reader->Read(2048, &result, scratch);
+      s = file_reader->Read(2048, &result, scratch.get());
       if (!s.ok()) {
-        delete[] scratch;
         return s;
       }
       while (result.size() != 0) {
         if (first_read) {
           first_read = false;
-          cur_checksum = file_checksum_func->Value(scratch, result.size());
-        } else {
           cur_checksum =
-              file_checksum_func->Extend(cur_checksum, scratch, result.size());
+              file_checksum_func->Value(scratch.get(), result.size());
+        } else {
+          cur_checksum = file_checksum_func->Extend(cur_checksum, scratch.get(),
+                                                    result.size());
         }
-        s = file_reader->Read(2048, &result, scratch);
+        s = file_reader->Read(2048, &result, scratch.get());
         if (!s.ok()) {
-          delete[] scratch;
           return s;
         }
       }
     }
-    delete[] scratch;
 
     uint32_t stored_checksum = 0;
     std::string stored_checksum_func_name = "";
