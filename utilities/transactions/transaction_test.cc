@@ -6156,6 +6156,7 @@ TEST_P(TransactionTest, DoubleCrashInRecovery) {
 
     db->FlushWAL(true);
     reinterpret_cast<PessimisticTransactionDB*>(db)->TEST_Crash();
+    delete txn;
     delete cf_handle;
     delete db;
     db = nullptr;
