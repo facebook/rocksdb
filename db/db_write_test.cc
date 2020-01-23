@@ -64,7 +64,9 @@ TEST_P(DBWriteTest, WriteThreadHangOnWriteStall) {
     dbfull()->Put(wo, key, "bar");
   };
   std::function<void(void *)> unblock_main_thread_func = [&](void *) {
+    mutex.Lock();
     cv.SignalAll();
+    mutex.Unlock();
   };
 
   // Create 3 L0 files and schedule 4th without waiting
