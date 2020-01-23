@@ -6120,6 +6120,8 @@ TEST_P(TransactionTest, ReseekOptimization) {
 // there. The new log files should be still read succesfully during recovery of
 // the 2nd crash.
 TEST_P(TransactionTest, DoubleCrashInRecovery) {
+  auto def_env = Env::Default();
+  options.env = def_env;
   for (const bool write_after_recovery : {true, false}) {
     options.wal_recovery_mode = WALRecoveryMode::kPointInTimeRecovery;
     ReOpen();
@@ -6164,7 +6166,6 @@ TEST_P(TransactionTest, DoubleCrashInRecovery) {
     // Corrupt the last log file in the middle, so that it is not corrupted
     // in the tail.
     std::vector<std::string> filenames;
-    auto def_env = Env::Default();
     ASSERT_OK(def_env->GetChildren(dbname, &filenames));
     for (const auto& f : filenames) {
       uint64_t number;
