@@ -5,7 +5,9 @@
 
 #pragma once
 #include <cassert>
+#include <unordered_map>
 #include "rocksdb/sst_file_checksum.h"
+#include "rocksdb/status.h"
 #include "util/crc32c.h"
 
 namespace rocksdb {
@@ -30,4 +32,30 @@ class SstFileChecksumCrc32c : public SstFileChecksumFunc {
 
   const char* Name() const override { return "SstFileChecksumCrc32c"; }
 };
+
+// The default implementaion of FileChecksumList
+class FileChecksumListImpl : public FileChecksumList {
+ public:
+  FileChecksumListImpl() {}
+  void reset() override;
+
+  size_t size() override;
+
+  Status GetAllFileChecksums(
+      std::vector<uint64_t>* file_numbers, std::vector<uint32_t>* checksums,
+      std::vector<std::string>* checksum_func_names) override;
+
+  Status SearchOneFileChecksum(const uint64_t file_number, uint32_t* checksum,
+                               std::string* checksum_func_name) override;
+
+  Status InsertOneFileChecksum(const uint64_t file_number,
+                               const uint32_t checksum,
+                               const std::string checksum_func_name) override;
+
+  Status RemoveOneFileChecksum(const uint64_t file_number) override;
+
+ private:
+  std::unordered_map<uint64_t, std::pair<uint32_t, std::string>> checksum_map_;
+};
+
 }  // namespace rocksdb

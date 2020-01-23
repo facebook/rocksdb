@@ -330,11 +330,11 @@ class VersionEdit {
                const std::string& file_checksum_func_name) {
     assert(smallest_seqno <= largest_seqno);
     new_files_.emplace_back(
-        level,
-        FileMetaData(file, file_path_id, file_size, smallest, largest,
-                     smallest_seqno, largest_seqno, marked_for_compaction,
-                     oldest_blob_file_number, oldest_ancester_time,
-                     file_creation_time, file_checksum, file_checksum_func_name));
+        level, FileMetaData(file, file_path_id, file_size, smallest, largest,
+                            smallest_seqno, largest_seqno,
+                            marked_for_compaction, oldest_blob_file_number,
+                            oldest_ancester_time, file_creation_time,
+                            file_checksum, file_checksum_func_name));
   }
 
   void AddFile(int level, const FileMetaData& f) {

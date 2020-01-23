@@ -2665,12 +2665,13 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
       for (size_t i = 0; i < c->num_input_files(l); i++) {
         FileMetaData* f = c->input(l, i);
         c->edit()->DeleteFile(c->level(l), f->fd.GetNumber());
-        c->edit()->AddFile(
-            c->output_level(), f->fd.GetNumber(), f->fd.GetPathId(),
-            f->fd.GetFileSize(), f->smallest, f->largest, f->fd.smallest_seqno,
-            f->fd.largest_seqno, f->marked_for_compaction,
-            f->oldest_blob_file_number, f->oldest_ancester_time,
-            f->file_creation_time, f->file_checksum, f->file_checksum_func_name);
+        c->edit()->AddFile(c->output_level(), f->fd.GetNumber(),
+                           f->fd.GetPathId(), f->fd.GetFileSize(), f->smallest,
+                           f->largest, f->fd.smallest_seqno,
+                           f->fd.largest_seqno, f->marked_for_compaction,
+                           f->oldest_blob_file_number, f->oldest_ancester_time,
+                           f->file_creation_time, f->file_checksum,
+                           f->file_checksum_func_name);
 
         ROCKS_LOG_BUFFER(
             log_buffer,

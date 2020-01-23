@@ -1267,13 +1267,23 @@ void FileChecksumDumpCommand::DoCommand() {
   //  sst file numer, checksum method name, checksum value
   //  ......
 
-  std::unique_ptr<FileChecksumList> checksum_list(new FileChecksumList);
+  std::unique_ptr<FileChecksumList> checksum_list(NewFileChecksumList());
   GetAllFileCheckSumInfoFromManifest(options_, manifestfile,
                                      checksum_list.get());
   if (checksum_list != nullptr) {
-    for (auto it : checksum_list->checksum_map) {
-      fprintf(stdout, "%" PRId64 ", %s, %u\n", it.first, it.second.second.c_str(),
-             it.second.first);
+    std::vector<uint64_t> file_numbers;
+    std::vector<uint32_t> checksums;
+    std::vector<std::string> checksum_func_names;
+    Status s = checksum_list->GetAllFileChecksums(&file_numbers, &checksums,
+                                                  &checksum_func_names);
+    if (s.ok()) {
+      for (size_t i = 0; i < file_numbers.size(); i++) {
+        assert(i < file_numbers.size());
+        assert(i < checksums.size());
+        assert(i < checksum_func_names.size());
+        fprintf(stdout, "%" PRId64 ", %s, %u\n", file_numbers[i],
+                checksum_func_names[i].c_str(), checksums[i]);
+      }
     }
     fprintf(stdout, "Print SST file checksum list finished \n");
   }

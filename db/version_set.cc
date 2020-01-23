@@ -4725,6 +4725,9 @@ Status VersionSet::GetAllFileCheckSumInfo(const Options& options,
     s = Status::InvalidArgument("checksum_list is nullptr");
     return s;
   }
+  // Clean the previously stored checksum information if any.
+  checksum_list->reset();
+
   std::unique_ptr<SequentialFileReader> file_reader;
   {
     std::unique_ptr<FSSequentialFile> file;
@@ -4764,7 +4767,8 @@ Status VersionSet::GetAllFileCheckSumInfo(const Options& options,
     } else if (edit.is_column_family_drop_) {
       if (!cf_in_info) {
         s = Status::Corruption(
-            "Manifest - dropping non-existing column family: "+ToString(edit.column_family_));
+            "Manifest - dropping non-existing column family: " +
+            ToString(edit.column_family_));
         break;
       }
       auto cf_iter = cf_set.find(edit.column_family_);
@@ -4772,7 +4776,8 @@ Status VersionSet::GetAllFileCheckSumInfo(const Options& options,
     } else {
       if (!cf_in_info) {
         s = Status::Corruption(
-            "Manifest record referencing unknown column family: "+ToString(edit.column_family_));
+            "Manifest record referencing unknown column family: " +
+            ToString(edit.column_family_));
         break;
       }
       assert(cf_set.find(edit.column_family_) != cf_set.end());
@@ -4781,14 +4786,14 @@ Status VersionSet::GetAllFileCheckSumInfo(const Options& options,
       const VersionEdit::DeletedFileSet& deleted_files = edit.GetDeletedFiles();
       for (const auto& deleted_file : deleted_files) {
         uint64_t file_number = deleted_file.second;
-        checksum_list->RemoveChecksumUnit(file_number);
+        checksum_list->RemoveOneFileChecksum(file_number);
       }
 
       // Step 3: Add the new files to the info
       for (const auto& new_file : edit.GetNewFiles()) {
-        checksum_list->AddChecksumUnit(new_file.second.fd.GetNumber(),
-                                       new_file.second.file_checksum,
-                                       new_file.second.file_checksum_func_name);
+        checksum_list->InsertOneFileChecksum(
+            new_file.second.fd.GetNumber(), new_file.second.file_checksum,
+            new_file.second.file_checksum_func_name);
       }
     }
   }

@@ -52,7 +52,7 @@
 #include "test_util/testutil.h"
 #include "util/compression.h"
 #include "util/random.h"
-#include "util/sst_file_checksum_crc32c.h"
+#include "util/sst_file_checksum_helper.h"
 #include "util/string_util.h"
 #include "utilities/merge_operators.h"
 
@@ -3197,7 +3197,8 @@ TEST_P(BlockBasedTableTest, NoFileChecksum) {
   f.ResetTableBuilder(std::move(builder));
   f.AddKVtoKVMap(1000);
   f.WriteKVAndFlushTable();
-  ASSERT_STREQ(f.GetFileChecksumFuncName(), kUnknownFileChecksumFuncName.c_str());
+  ASSERT_STREQ(f.GetFileChecksumFuncName(),
+               kUnknownFileChecksumFuncName.c_str());
   uint32_t exp_checksum = 0;
   EXPECT_EQ(f.GetFileChecksum(), exp_checksum);
 }
@@ -3331,7 +3332,8 @@ TEST_F(PlainTableTest, NoFileChecksum) {
   f.ResetTableBuilder(std::move(builder));
   f.AddKVtoKVMap(1000);
   f.WriteKVAndFlushTable();
-  ASSERT_STREQ(f.GetFileChecksumFuncName(), kUnknownFileChecksumFuncName.c_str());
+  ASSERT_STREQ(f.GetFileChecksumFuncName(),
+               kUnknownFileChecksumFuncName.c_str());
   uint32_t exp_checksum = 0;
   EXPECT_EQ(f.GetFileChecksum(), exp_checksum);
 }

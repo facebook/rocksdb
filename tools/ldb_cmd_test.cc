@@ -15,7 +15,7 @@
 #include "test_util/sync_point.h"
 #include "test_util/testharness.h"
 #include "test_util/testutil.h"
-#include "util/sst_file_checksum_crc32c.h"
+#include "util/sst_file_checksum_helper.h"
 
 using std::string;
 using std::vector;
@@ -115,10 +115,8 @@ class FileChecksumTestHelper {
   DB* db_;
   std::string dbname_;
 
-  Status VerifyChecksum(
-      LiveFileMetaData& file_meta,
-      std::unordered_map<uint64_t, std::pair<uint32_t, std::string>>&
-          checksum_map) {
+  Status VerifyChecksum(LiveFileMetaData& file_meta,
+                        FileChecksumList* checksum_list) {
     uint32_t cur_checksum = 0;
     std::string checksum_func_name;
 
@@ -134,7 +132,8 @@ class FileChecksumTestHelper {
     scratch = new char[2048];
     bool first_read = true;
     Slice result;
-    SstFileChecksumFunc* file_checksum_func = options_.sst_file_checksum_func.get();
+    SstFileChecksumFunc* file_checksum_func =
+        options_.sst_file_checksum_func.get();
     if (file_checksum_func == nullptr) {
       cur_checksum = 0;
       checksum_func_name = kUnknownFileChecksumFuncName;
@@ -162,17 +161,20 @@ class FileChecksumTestHelper {
     }
     delete[] scratch;
 
-    auto it = checksum_map.find(file_meta.file_number);
-    if (it == checksum_map.end()) {
+    uint32_t stored_checksum = 0;
+    std::string stored_checksum_func_name = "";
+    s = checksum_list->SearchOneFileChecksum(
+        file_meta.file_number, &stored_checksum, &stored_checksum_func_name);
+    if (!s.ok()) {
       return Status::Corruption("the file: " + file_meta.name +
                                 " is not in the checksum map!");
     }
-    if ((cur_checksum != it->second.first) ||
-        (checksum_func_name != it->second.second)) {
+    if ((cur_checksum != stored_checksum) ||
+        (checksum_func_name != stored_checksum_func_name)) {
       return Status::Corruption(
           "Checksum does not match! The file: " + file_meta.name +
-          ", checksum name: " + it->second.second + " and checksum " +
-          ToString(it->second.first) + ". However, expected checksum name: " +
+          ", checksum name: " + stored_checksum_func_name + " and checksum " +
+          ToString(stored_checksum) + ". However, expected checksum name: " +
           checksum_func_name + " and checksum " + ToString(cur_checksum));
     }
     return Status::OK();
@@ -235,7 +237,7 @@ class FileChecksumTestHelper {
     manifestfile = dbname_ + matched_file;
 
     // Step 2, get the list of sst file checksum in checksum_info
-    std::unique_ptr<FileChecksumList> checksum_list(new FileChecksumList);
+    std::unique_ptr<FileChecksumList> checksum_list(NewFileChecksumList());
 
     EnvOptions sopt;
     std::shared_ptr<Cache> tc(NewLRUCache(options_.max_open_files - 10,
@@ -259,12 +261,12 @@ class FileChecksumTestHelper {
     }
     std::vector<LiveFileMetaData> live_file;
     db_->GetLiveFilesMetaData(&live_file);
-    if (live_file.size() != checksum_list->checksum_map.size()) {
+    if (live_file.size() != checksum_list->size()) {
       return Status::Corruption(
           "Live file number does not match checksum list file number!");
     }
     for (auto a_file : live_file) {
-      Status cs = VerifyChecksum(a_file, checksum_list->checksum_map);
+      Status cs = VerifyChecksum(a_file, checksum_list.get());
     }
     return Status::OK();
   }
