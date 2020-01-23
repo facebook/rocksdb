@@ -6120,7 +6120,7 @@ TEST_P(TransactionTest, ReseekOptimization) {
 // there. The new log files should be still read succesfully during recovery of
 // the 2nd crash.
 TEST_P(TransactionTest, DoubleCrashInRecovery) {
-  auto def_env = Env::Default();
+  auto def_env = env;
   options.env = def_env;
   const bool write_after_recovery  = true;
   //for (const bool write_after_recovery : {true, false}) {
@@ -6177,6 +6177,7 @@ TEST_P(TransactionTest, DoubleCrashInRecovery) {
         ASSERT_OK(ReadFileToString(def_env, fname, &file_content));
         file_content[400] = 'h';
         file_content[401] = 'a';
+        ASSERT_OK(def_env->DeleteFile(fname));
         ASSERT_OK(WriteStringToFile(def_env, file_content, fname));
         break;
       }
@@ -6207,7 +6208,7 @@ TEST_P(TransactionTest, DoubleCrashInRecovery) {
 }
 
 TEST_P(TransactionTest, DoubleCrashInRecovery2) {
-  auto def_env = Env::Default();
+  auto def_env = env;//Env::Default();
   options.env = def_env;
   const bool write_after_recovery  = false;
   //for (const bool write_after_recovery : {true, false}) {
@@ -6264,6 +6265,7 @@ TEST_P(TransactionTest, DoubleCrashInRecovery2) {
         ASSERT_OK(ReadFileToString(def_env, fname, &file_content));
         file_content[400] = 'h';
         file_content[401] = 'a';
+        ASSERT_OK(def_env->DeleteFile(fname));
         ASSERT_OK(WriteStringToFile(def_env, file_content, fname));
         break;
       }
