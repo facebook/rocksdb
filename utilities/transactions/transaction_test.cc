@@ -6200,6 +6200,7 @@ TEST_P(TransactionTest, DoubleCrashInRecoveryWithWrite) {
     ASSERT_OK(ReOpenNoDelete(column_families, &handles));
     assert(db != nullptr);
     txn = db->GetTransactionByName("xid");
+    ASSERT_TRUE(txn != nullptr);
     ASSERT_OK(txn->Commit());
     delete txn;
     for (auto handle : handles) {
@@ -6288,6 +6289,7 @@ TEST_P(TransactionTest, DoubleCrashInRecoveryWithoutWrite) {
     ASSERT_OK(ReOpenNoDelete(column_families, &handles));
     assert(db != nullptr);
     txn = db->GetTransactionByName("xid");
+    ASSERT_TRUE(txn != nullptr);
     ASSERT_OK(txn->Commit());
     delete txn;
     for (auto handle : handles) {
