@@ -255,7 +255,7 @@ class Cache {
   // Always delete the DB object before calling this method!
   virtual void DisownData(){
       // default implementation is noop
-  };
+  }
 
   // Apply callback to all entries in the cache
   // If thread_safe is true, it will also lock the accesses. Otherwise, it will
