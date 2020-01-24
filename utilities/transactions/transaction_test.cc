@@ -6157,6 +6157,9 @@ TEST_P(TransactionTest, DoubleCrashInRecoveryWithWrite) {
     ASSERT_OK(db->Put(write_options, "foo4", "bar4"));
 
     db->FlushWAL(true);
+    DBImpl* db_impl = reinterpret_cast<DBImpl*>(db->GetRootDB());
+    uint64_t wal_file_id = db_impl->TEST_LogfileNumber();
+    std::string fname = LogFileName(dbname, wal_file_id);
     reinterpret_cast<PessimisticTransactionDB*>(db)->TEST_Crash();
     delete txn;
     delete cf_handle;
@@ -6165,22 +6168,12 @@ TEST_P(TransactionTest, DoubleCrashInRecoveryWithWrite) {
 
     // Corrupt the last log file in the middle, so that it is not corrupted
     // in the tail.
-    std::vector<std::string> filenames;
-    ASSERT_OK(env->GetChildren(dbname, &filenames));
-    for (const auto& f : filenames) {
-      uint64_t number;
-      FileType type;
-      if (ParseFileName(f, &number, &type) && type == FileType::kLogFile) {
-        std::string fname = dbname + "/" + f;
         std::string file_content;
         ASSERT_OK(ReadFileToString(env, fname, &file_content));
         file_content[400] = 'h';
         file_content[401] = 'a';
         ASSERT_OK(env->DeleteFile(fname));
         ASSERT_OK(WriteStringToFile(env, file_content, fname));
-        break;
-      }
-    }
 
     // Recover from corruption
     std::vector<ColumnFamilyHandle*> handles;
@@ -6247,6 +6240,9 @@ TEST_P(TransactionTest, DoubleCrashInRecoveryWithoutWrite) {
     ASSERT_OK(db->Put(write_options, "foo4", "bar4"));
 
     db->FlushWAL(true);
+    DBImpl* db_impl = reinterpret_cast<DBImpl*>(db->GetRootDB());
+    uint64_t wal_file_id = db_impl->TEST_LogfileNumber();
+    std::string fname = LogFileName(dbname, wal_file_id);
     reinterpret_cast<PessimisticTransactionDB*>(db)->TEST_Crash();
     delete txn;
     delete cf_handle;
@@ -6255,22 +6251,12 @@ TEST_P(TransactionTest, DoubleCrashInRecoveryWithoutWrite) {
 
     // Corrupt the last log file in the middle, so that it is not corrupted
     // in the tail.
-    std::vector<std::string> filenames;
-    ASSERT_OK(env->GetChildren(dbname, &filenames));
-    for (const auto& f : filenames) {
-      uint64_t number;
-      FileType type;
-      if (ParseFileName(f, &number, &type) && type == FileType::kLogFile) {
-        std::string fname = dbname + "/" + f;
         std::string file_content;
         ASSERT_OK(ReadFileToString(env, fname, &file_content));
         file_content[400] = 'h';
         file_content[401] = 'a';
         ASSERT_OK(env->DeleteFile(fname));
         ASSERT_OK(WriteStringToFile(env, file_content, fname));
-        break;
-      }
-    }
 
     // Recover from corruption
     std::vector<ColumnFamilyHandle*> handles;
