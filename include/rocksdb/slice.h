@@ -195,8 +195,15 @@ class PinnableSlice : public Slice, public Cleanable {
     }
   }
 
-  void remove_prefix(size_t /*n*/) {
-    assert(0);  // Not implemented
+  void remove_prefix(size_t n) {
+    assert(n <= size());
+    if (pinned_) {
+      data_ += n;
+      size_ -= n;
+    } else {
+      buf_->erase(0, n);
+      PinSelf();
+    }
   }
 
   void Reset() {
