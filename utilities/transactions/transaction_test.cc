@@ -12,6 +12,7 @@
 #include <string>
 #include <thread>
 
+#include "util/stderr_logger.h"
 #include "db/db_impl/db_impl.h"
 #include "rocksdb/db.h"
 #include "rocksdb/options.h"
@@ -6121,6 +6122,7 @@ TEST_P(TransactionTest, ReseekOptimization) {
 // the 2nd crash.
 TEST_P(TransactionTest, DoubleCrashInRecoveryWithWrite) {
   const bool write_after_recovery  = true;
+    options.info_log.reset(new StderrLogger());
     options.wal_recovery_mode = WALRecoveryMode::kPointInTimeRecovery;
     ReOpen();
     std::string cf_name = "two";
@@ -6211,6 +6213,7 @@ TEST_P(TransactionTest, DoubleCrashInRecoveryWithWrite) {
 TEST_P(TransactionTest, DoubleCrashInRecoveryWithoutWrite) {
   const bool write_after_recovery  = false;
     options.wal_recovery_mode = WALRecoveryMode::kPointInTimeRecovery;
+    options.info_log.reset(new StderrLogger());
     ReOpen();
     std::string cf_name = "two";
     ColumnFamilyOptions cf_options;
