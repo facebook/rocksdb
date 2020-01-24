@@ -523,7 +523,7 @@ class Statistics {
   virtual bool getTickerMap(std::map<std::string, uint64_t>*) const {
     // Do nothing by default
     return false;
-  };
+  }
 
   // Override this function to disable particular histogram collection
   virtual bool HistEnabledForType(uint32_t type) const {
