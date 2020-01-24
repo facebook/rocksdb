@@ -6198,6 +6198,10 @@ TEST_P(TransactionTest, DoubleCrashInRecoveryWithWrite) {
     db->FlushWAL(true);
     // 2nd crash to recover while having a valid log after the corrupted one.
     ASSERT_OK(ReOpenNoDelete(column_families, &handles));
+    assert(db != nullptr);
+    txn = db->GetTransactionByName("xid");
+    ASSERT_OK(txn->Commit());
+    delete txn;
     for (auto handle : handles) {
       delete handle;
     }
@@ -6282,6 +6286,10 @@ TEST_P(TransactionTest, DoubleCrashInRecoveryWithoutWrite) {
     db->FlushWAL(true);
     // 2nd crash to recover while having a valid log after the corrupted one.
     ASSERT_OK(ReOpenNoDelete(column_families, &handles));
+    assert(db != nullptr);
+    txn = db->GetTransactionByName("xid");
+    ASSERT_OK(txn->Commit());
+    delete txn;
     for (auto handle : handles) {
       delete handle;
     }
