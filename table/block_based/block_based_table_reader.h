@@ -548,6 +548,7 @@ struct BlockBasedTable::Rep {
   // module should not be relying on db module. However to make things easier
   // and compatible with existing code, we introduce a wrapper that allows
   // block to extract prefix without knowing if a key is internal or not.
+  // null if no prefix_extractor is passed in when opening the table reader.
   std::unique_ptr<SliceTransform> internal_prefix_transform;
   std::shared_ptr<const SliceTransform> table_prefix_extractor;
 

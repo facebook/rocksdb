@@ -4053,7 +4053,7 @@ Status BlockBasedTable::CreateIndexReader(
       std::unique_ptr<InternalIterator> metaindex_iter_guard;
       auto meta_index_iter = preloaded_meta_index_iter;
       bool should_fallback = false;
-      if (!rep_->internal_prefix_transform) {
+      if (rep_->internal_prefix_transform.get() == nullptr) {
         ROCKS_LOG_WARN(rep_->ioptions.info_log,
                        "No prefix extractor passed in. Fall back to binary"
                        " search index.");
