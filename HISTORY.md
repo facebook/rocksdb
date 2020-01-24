@@ -1,5 +1,7 @@
 # Rocksdb Change Log
 ## Unreleased
+
+## 6.7.0 (01/21/2020)
 ### Public API Change
 * Added a rocksdb::FileSystem class in include/rocksdb/file_system.h to encapsulate file creation/read/write operations, and an option DBOptions::file_system to allow a user to pass in an instance of rocksdb::FileSystem. If its a non-null value, this will take precendence over DBOptions::env for file operations. A new API rocksdb::FileSystem::Default() returns a platform default object. The DBOptions::env option and Env::Default() API will continue to be used for threading and other OS related functions, and where DBOptions::file_system is not specified, for file operations. For storage developers who are accustomed to rocksdb::Env, the interface in rocksdb::FileSystem is new and will probably undergo some changes as more storage systems are ported to it from rocksdb::Env. As of now, no env other than Posix has been ported to the new interface.
 * A new rocksdb::NewSstFileManager() API that allows the caller to pass in separate Env and FileSystem objects.
@@ -7,14 +9,8 @@
 * A new `OptimisticTransactionDBOptions` Option that allows users to configure occ validation policy. The default policy changes from kValidateSerial to kValidateParallel to reduce mutex contention.
 
 ### Bug Fixes
-* Fixed a bug where non-L0 compaction input files were not considered to compute the `creation_time` of new compaction outputs.
 * Fix a bug that can cause unnecessary bg thread to be scheduled(#6104).
-* Fix a bug in which a snapshot read could be affected by a DeleteRange after the snapshot (#6062).
 * Fix crash caused by concurrent CF iterations and drops(#6147).
-* Fixed two performance issues related to memtable history trimming. First, a new SuperVersion is now created only if some memtables were actually trimmed. Second, trimming is only scheduled if there is at least one flushed memtable that is kept in memory for the purposes of transaction conflict checking.
-* Fix a bug in WriteBatchWithIndex::MultiGetFromBatchAndDB, which is called by Transaction::MultiGet, that causes due to stale pointer access when the number of keys is > 32
-* BlobDB no longer updates the SST to blob file mapping upon failed compactions.
-* Fixed a bug where BlobDB was comparing the `ColumnFamilyHandle` pointers themselves instead of only the column family IDs when checking whether an API call uses the default column family or not.
 * Fix a race condition for cfd->log_number_ between manifest switch and memtable switch (PR 6249) when number of column families is greater than 1.
 * Fix a bug on fractional cascading index when multiple files at the same level contain the same smallest user key, and those user keys are for merge operands. In this case, Get() the exact key may miss some merge operands.
 * Delcare kHashSearch index type feature-incompatible with index_block_restart_interval larger than 1.
@@ -27,6 +23,20 @@
 * It is now possible to enable periodic compactions for the base DB when using BlobDB.
 * BlobDB now garbage collects non-TTL blobs when `enable_garbage_collection` is set to `true` in `BlobDBOptions`. Garbage collection is performed during compaction: any valid blobs located in the oldest N files (where N is the number of non-TTL blob files multiplied by the value of `BlobDBOptions::garbage_collection_cutoff`) encountered during compaction get relocated to new blob files, and old blob files are dropped once they are no longer needed. Note: we recommend enabling periodic compactions for the base DB when using this feature to deal with the case when some old blob files are kept alive by SSTs that otherwise do not get picked for compaction.
 * `db_bench` now supports the `garbage_collection_cutoff` option for BlobDB.
+
+## 6.6.2 (01/13/2020)
+### Bug Fixes
+* Fixed a bug where non-L0 compaction input files were not considered to compute the `creation_time` of new compaction outputs.
+
+## 6.6.1 (01/02/2020)
+### Bug Fixes
+* Fix a bug in WriteBatchWithIndex::MultiGetFromBatchAndDB, which is called by Transaction::MultiGet, that causes due to stale pointer access when the number of keys is > 32
+* Fixed two performance issues related to memtable history trimming. First, a new SuperVersion is now created only if some memtables were actually trimmed. Second, trimming is only scheduled if there is at least one flushed memtable that is kept in memory for the purposes of transaction conflict checking.
+* BlobDB no longer updates the SST to blob file mapping upon failed compactions.
+* Fix a bug in which a snapshot read through an iterator could be affected by a DeleteRange after the snapshot (#6062).
+* Fixed a bug where BlobDB was comparing the `ColumnFamilyHandle` pointers themselves instead of only the column family IDs when checking whether an API call uses the default column family or not.
+* Delete superversions in BackgroundCallPurge.
+* Fix use-after-free and double-deleting files in BackgroundCallPurge().
 
 ## 6.6.0 (11/25/2019)
 ### Bug Fixes
