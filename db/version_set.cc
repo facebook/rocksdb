@@ -3956,12 +3956,15 @@ Status VersionSet::ProcessManifestWrites(
     for (auto v : versions) {
       delete v;
     }
+    // If manifest append failed for whatever reason, the file could be
+    // corrupted. So we need to force the next version update to start a
+    // new manifest file.
+    descriptor_log_.reset();
     if (new_descriptor_log) {
       ROCKS_LOG_INFO(db_options_->info_log,
                      "Deleting manifest %" PRIu64 " current manifest %" PRIu64
                      "\n",
                      manifest_file_number_, pending_manifest_file_number_);
-      descriptor_log_.reset();
       env_->DeleteFile(
           DescriptorFileName(dbname_, pending_manifest_file_number_));
     }

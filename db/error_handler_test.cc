@@ -161,6 +161,205 @@ TEST_F(DBErrorHandlingTest, FLushWriteError) {
   Destroy(options);
 }
 
+TEST_F(DBErrorHandlingTest, ManifestWriteError) {
+  std::unique_ptr<FaultInjectionTestEnv> fault_env(
+      new FaultInjectionTestEnv(Env::Default()));
+  std::shared_ptr<ErrorHandlerListener> listener(new ErrorHandlerListener());
+  Options options = GetDefaultOptions();
+  options.create_if_missing = true;
+  options.env = fault_env.get();
+  options.listeners.emplace_back(listener);
+  Status s;
+  std::vector<std::string> live_files;
+  std::string old_manifest;
+  std::string new_manifest;
+  uint64_t manifest_size;
+
+  listener->EnableAutoRecovery(false);
+  DestroyAndReopen(options);
+  ASSERT_OK(dbfull()->GetLiveFiles(live_files, &manifest_size, false));
+  for (auto& file : live_files) {
+    if (file.find("MANIFEST") != std::string::npos) {
+      old_manifest = file;
+      break;
+    }
+  }
+
+  Put(Key(0), "val");
+  Flush();
+  Put(Key(1), "val");
+  SyncPoint::GetInstance()->SetCallBack(
+      "VersionSet::LogAndApply:WriteManifest", [&](void *) {
+    fault_env->SetFilesystemActive(false, Status::NoSpace("Out of space"));
+  });
+  SyncPoint::GetInstance()->EnableProcessing();
+  s = Flush();
+  ASSERT_EQ(s.severity(), rocksdb::Status::Severity::kHardError);
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+  SyncPoint::GetInstance()->DisableProcessing();
+  fault_env->SetFilesystemActive(true);
+  s = dbfull()->Resume();
+  ASSERT_EQ(s, Status::OK());
+  ASSERT_OK(dbfull()->GetLiveFiles(live_files, &manifest_size, false));
+  for (auto& file : live_files) {
+    if (file.find("MANIFEST") != std::string::npos) {
+      new_manifest = file;
+      break;
+    }
+  }
+  ASSERT_NE(new_manifest, old_manifest);
+
+  Reopen(options);
+  ASSERT_EQ("val", Get(Key(0)));
+  Destroy(options);
+}
+
+TEST_F(DBErrorHandlingTest, DoubleManifestWriteError) {
+  std::unique_ptr<FaultInjectionTestEnv> fault_env(
+      new FaultInjectionTestEnv(Env::Default()));
+  std::shared_ptr<ErrorHandlerListener> listener(new ErrorHandlerListener());
+  Options options = GetDefaultOptions();
+  options.create_if_missing = true;
+  options.env = fault_env.get();
+  options.listeners.emplace_back(listener);
+  Status s;
+  std::vector<std::string> live_files;
+  std::string old_manifest;
+  std::string new_manifest;
+  uint64_t manifest_size;
+
+  listener->EnableAutoRecovery(false);
+  DestroyAndReopen(options);
+  ASSERT_OK(dbfull()->GetLiveFiles(live_files, &manifest_size, false));
+  for (auto& file : live_files) {
+    if (file.find("MANIFEST") != std::string::npos) {
+      old_manifest = file;
+      break;
+    }
+  }
+
+  Put(Key(0), "val");
+  Flush();
+  Put(Key(1), "val");
+  SyncPoint::GetInstance()->SetCallBack(
+      "VersionSet::LogAndApply:WriteManifest", [&](void *) {
+    fault_env->SetFilesystemActive(false, Status::NoSpace("Out of space"));
+  });
+  SyncPoint::GetInstance()->EnableProcessing();
+  s = Flush();
+  ASSERT_EQ(s.severity(), rocksdb::Status::Severity::kHardError);
+  fault_env->SetFilesystemActive(true);
+
+  // This Resume() will attempt to create a new manifest file and fail again
+  s = dbfull()->Resume();
+  ASSERT_EQ(s.severity(), rocksdb::Status::Severity::kHardError);
+  fault_env->SetFilesystemActive(true);
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+  SyncPoint::GetInstance()->DisableProcessing();
+
+  // A successful Resume() will create a new manifest file
+  s = dbfull()->Resume();
+  ASSERT_EQ(s, Status::OK());
+  ASSERT_OK(dbfull()->GetLiveFiles(live_files, &manifest_size, false));
+  for (auto& file : live_files) {
+    if (file.find("MANIFEST") != std::string::npos) {
+      new_manifest = file;
+      break;
+    }
+  }
+  ASSERT_NE(new_manifest, old_manifest);
+
+  Reopen(options);
+  ASSERT_EQ("val", Get(Key(0)));
+  Destroy(options);
+}
+
+TEST_F(DBErrorHandlingTest, CompactionManifestWriteError) {
+  std::unique_ptr<FaultInjectionTestEnv> fault_env(
+      new FaultInjectionTestEnv(Env::Default()));
+  std::shared_ptr<ErrorHandlerListener> listener(new ErrorHandlerListener());
+  Options options = GetDefaultOptions();
+  options.create_if_missing = true;
+  options.level0_file_num_compaction_trigger = 2;
+  options.listeners.emplace_back(listener);
+  options.env = fault_env.get();
+  Status s;
+  std::vector<std::string> live_files;
+  std::string old_manifest;
+  std::string new_manifest;
+  uint64_t manifest_size;
+  std::atomic<bool> fail_manifest(false);
+  DestroyAndReopen(options);
+
+  ASSERT_OK(dbfull()->GetLiveFiles(live_files, &manifest_size, false));
+  for (auto& file : live_files) {
+    if (file.find("MANIFEST") != std::string::npos) {
+      old_manifest = file;
+      break;
+    }
+  }
+
+  Put(Key(0), "val");
+  Put(Key(2), "val");
+  s = Flush();
+  ASSERT_EQ(s, Status::OK());
+
+  rocksdb::SyncPoint::GetInstance()->LoadDependency(
+      // Wait for flush of 2nd L0 file before starting compaction
+      {{"DBImpl::FlushMemTable:FlushMemTableFinished",
+        "BackgroundCallCompaction:0"},
+      // Wait for compaction to detect manifest write error
+       {"BackgroundCallCompaction:1",
+        "CompactionManifestWriteError:0"},
+      // Make compaction thread wait for error to be cleared
+       {"CompactionManifestWriteError:1",
+        "DBImpl::BackgroundCallCompaction:FoundObsoleteFiles"},
+      // Wait for DB instance to clear bg_error before calling
+      // TEST_WaitForCompact
+       {"SstFileManagerImpl::ClearError",
+        "CompactionManifestWriteError:2"}});
+  // trigger manifest write failure in compaction thread
+  rocksdb::SyncPoint::GetInstance()->SetCallBack(
+      "BackgroundCallCompaction:0", [&](void *) {
+      fail_manifest.store(true);
+      });
+  rocksdb::SyncPoint::GetInstance()->SetCallBack(
+      "VersionSet::LogAndApply:WriteManifest", [&](void *) {
+      if (fail_manifest.load()) {
+        fault_env->SetFilesystemActive(false, Status::NoSpace("Out of space"));
+      }
+      });
+  rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+
+  Put(Key(1), "val");
+  // This Flush will trigger a compaction, which will fail when appending to
+  // the manifest
+  s = Flush();
+  ASSERT_EQ(s, Status::OK());
+
+  TEST_SYNC_POINT("CompactionManifestWriteError:0");
+  // Clear all errors so when the compaction is retried, it will succeed
+  fault_env->SetFilesystemActive(true);
+  rocksdb::SyncPoint::GetInstance()->ClearAllCallBacks();
+  TEST_SYNC_POINT("CompactionManifestWriteError:1");
+  TEST_SYNC_POINT("CompactionManifestWriteError:2");
+
+  s = dbfull()->TEST_WaitForCompact();
+  rocksdb::SyncPoint::GetInstance()->DisableProcessing();
+  ASSERT_EQ(s, Status::OK());
+  ASSERT_OK(dbfull()->GetLiveFiles(live_files, &manifest_size, false));
+  for (auto& file : live_files) {
+    if (file.find("MANIFEST") != std::string::npos) {
+      new_manifest = file;
+      break;
+    }
+  }
+  ASSERT_NE(new_manifest, old_manifest);
+  Reopen(options);
+  ASSERT_EQ("val", Get(Key(0)));
+  Destroy(options);
+}
+
 TEST_F(DBErrorHandlingTest, CompactionWriteError) {
   std::unique_ptr<FaultInjectionTestEnv> fault_env(
       new FaultInjectionTestEnv(Env::Default()));
