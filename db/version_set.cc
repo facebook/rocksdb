@@ -5267,6 +5267,8 @@ InternalIterator* VersionSet::MakeInputIterator(
   // (a) concurrent compactions,
   // (b) CompactionFilter::Decision::kRemoveAndSkipUntil.
   read_options.total_order_seek = true;
+  read_options.compaction_pipelined_load_enabled =
+      file_options_compactions.compaction_pipelined_load_enabled;
 
   // Level-0 files have to be merged together.  For other levels,
   // we will make a concatenating iterator per level.

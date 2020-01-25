@@ -1112,6 +1112,9 @@ struct DBOptions {
   //
   // Default: 0
   size_t log_readahead_size = 0;
+
+  // If true, enable pipelined block loading for compaction.
+  bool compaction_pipelined_load_enabled = false;
 };
 
 // Options to control the behavior of a database (passed to DB::Open)
@@ -1301,6 +1304,10 @@ struct ReadOptions {
   // The user-specified timestamp feature is still under active development,
   // and the API is subject to change.
   const Slice* timestamp;
+
+  // If true, enable pipelined block loading for compaction.
+  // Default: false
+  bool compaction_pipelined_load_enabled;
 
   ReadOptions();
   ReadOptions(bool cksum, bool cache);

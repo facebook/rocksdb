@@ -463,6 +463,8 @@ EnvOptions Env::OptimizeForCompactionTableRead(
     const EnvOptions& env_options, const ImmutableDBOptions& db_options) const {
   EnvOptions optimized_env_options(env_options);
   optimized_env_options.use_direct_reads = db_options.use_direct_reads;
+  optimized_env_options.compaction_pipelined_load_enabled =
+      db_options.compaction_pipelined_load_enabled;
   return optimized_env_options;
 }
 

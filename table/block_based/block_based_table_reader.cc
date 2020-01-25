@@ -1623,6 +1623,55 @@ void BlockBasedTable::SetupForCompaction() {
   }
 }
 
+template <class TBlockIter, typename TValue>
+void BlockBasedTableIterator<TBlockIter, TValue>::StartPipelinedLoad(
+    const Slice* target) {
+  if (target) {
+    pl_rep_->index_iter->Seek(*target);
+  } else {
+    pl_rep_->index_iter->SeekToFirst();
+  }
+  pl_rep_->load_thread.reset(new port::Thread([=] { LoadBlocksPipelined(); }));
+  pl_rep_->loader_started = true;
+}
+
+template <class TBlockIter, typename TValue>
+void BlockBasedTableIterator<TBlockIter, TValue>::LoadBlocksPipelined() {
+  Status s;
+
+  CachableEntry<UncompressionDict> uncompression_dict;
+  if (table_->get_rep()->uncompression_dict_reader) {
+    const bool no_io = (read_options_.read_tier == kBlockCacheTier);
+    s = table_->get_rep()
+            ->uncompression_dict_reader->GetOrReadUncompressionDictionary(
+                prefetch_buffer_.get(), no_io,
+                /*get_context=*/nullptr, &lookup_context_, &uncompression_dict);
+    assert(s.ok());
+  }
+
+  const UncompressionDict& dict = uncompression_dict.GetValue()
+                                      ? *uncompression_dict.GetValue()
+                                      : UncompressionDict::GetEmptyDict();
+
+  while (pl_rep_->index_iter->Valid()) {
+    // get current block handle
+    BlockHandle block_handle = pl_rep_->index_iter->value().handle;
+    CachableEntry<Block> block;
+    s = table_->RetrieveBlock(prefetch_buffer_.get(), read_options_,
+                              block_handle, dict, &block, block_type_,
+                              /*get_context=*/nullptr, &lookup_context_,
+                              /*for_compaction=*/lookup_context_.caller ==
+                                  TableReaderCaller::kCompaction,
+                              /* use_cache */ true);
+    assert(s.ok());
+    // whether queue has been finished
+    if (!pl_rep_->block_pipe.push(std::move(block))) {
+      break;
+    }
+    pl_rep_->index_iter->Next();
+  }
+}
+
 std::shared_ptr<const TableProperties> BlockBasedTable::GetTableProperties()
     const {
   return rep_->table_properties;
@@ -2824,6 +2873,10 @@ void BlockBasedTableIterator<TBlockIter, TValue>::SeekImpl(
       ResetDataIter();
       return;
     }
+
+    if (pl_rep_ != nullptr && !pl_rep_->IsStarted()) {
+      StartPipelinedLoad(target);
+    }
   }
 
   IndexValue v = index_iter_->value();
@@ -3053,11 +3106,18 @@ void BlockBasedTableIterator<TBlockIter, TValue>::InitDataBlock() {
     }
 
     Status s;
-    table_->NewDataBlockIterator<TBlockIter>(
-        read_options_, data_block_handle, &block_iter_, block_type_,
-        /*get_context=*/nullptr, &lookup_context_, s, prefetch_buffer_.get(),
-        /*for_compaction=*/lookup_context_.caller ==
-            TableReaderCaller::kCompaction);
+    if (pl_rep_ != nullptr) {
+      CachableEntry<Block> block;
+      pl_rep_->block_pipe.pop(block);
+      table_->NewDataBlockIterator<TBlockIter>(read_options_, block,
+                                               &block_iter_, s);
+    } else {
+      table_->NewDataBlockIterator<TBlockIter>(
+          read_options_, data_block_handle, &block_iter_, block_type_,
+          /*get_context=*/nullptr, &lookup_context_, s, prefetch_buffer_.get(),
+          /*for_compaction=*/lookup_context_.caller ==
+              TableReaderCaller::kCompaction);
+    }
     block_iter_points_to_real_block_ = true;
     CheckDataBlockWithinUpperBound();
   }
@@ -3211,7 +3271,16 @@ InternalIterator* BlockBasedTable::NewIterator(
         !skip_filters && !read_options.total_order_seek &&
             prefix_extractor != nullptr,
         need_upper_bound_check, prefix_extractor, BlockType::kData, caller,
-        compaction_readahead_size);
+        compaction_readahead_size,
+        caller == TableReaderCaller::kCompaction &&
+                read_options.compaction_pipelined_load_enabled
+            ? NewIndexIterator(
+                  read_options,
+                  need_upper_bound_check &&
+                      rep_->index_type == BlockBasedTableOptions::kHashSearch,
+                  /*input_iter=*/nullptr, /*get_context=*/nullptr,
+                  &lookup_context)
+            : nullptr);
   } else {
     auto* mem =
         arena->AllocateAligned(sizeof(BlockBasedTableIterator<DataBlockIter>));
@@ -3225,7 +3294,16 @@ InternalIterator* BlockBasedTable::NewIterator(
         !skip_filters && !read_options.total_order_seek &&
             prefix_extractor != nullptr,
         need_upper_bound_check, prefix_extractor, BlockType::kData, caller,
-        compaction_readahead_size);
+        compaction_readahead_size,
+        caller == TableReaderCaller::kCompaction &&
+                read_options.compaction_pipelined_load_enabled
+            ? NewIndexIterator(
+                  read_options,
+                  need_upper_bound_check &&
+                      rep_->index_type == BlockBasedTableOptions::kHashSearch,
+                  /*input_iter=*/nullptr, /*get_context=*/nullptr,
+                  &lookup_context)
+            : nullptr);
   }
 }
 

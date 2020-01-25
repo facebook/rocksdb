@@ -128,6 +128,9 @@ struct EnvOptions {
 
   // If not nullptr, write rate limiting is enabled for flush and compaction
   RateLimiter* rate_limiter = nullptr;
+
+  // If true, enable pipelined block loading for compaction.
+  bool compaction_pipelined_load_enabled = false;
 };
 
 class Env {

@@ -142,6 +142,8 @@ DBOptions BuildDBOptions(const ImmutableDBOptions& immutable_db_options,
   options.avoid_unnecessary_blocking_io =
       immutable_db_options.avoid_unnecessary_blocking_io;
   options.log_readahead_size = immutable_db_options.log_readahead_size;
+  options.compaction_pipelined_load_enabled =
+      immutable_db_options.compaction_pipelined_load_enabled;
   return options;
 }
 
@@ -971,6 +973,17 @@ Status ParseCompressionOptions(const std::string& value, const std::string& name
         ParseInt(value.substr(start, value.size() - start));
     end = value.find(':', start);
   }
+  // parallel_threads is optional for backwards compatibility
+  if (end != std::string::npos) {
+    start = end + 1;
+    if (start >= value.size()) {
+      return Status::InvalidArgument(
+          "unable to parse the specified CF option " + name);
+    }
+    compression_opts.parallel_threads =
+        ParseInt(value.substr(start, value.size() - start));
+    end = value.find(':', start);
+  }
   // enabled is optional for backwards compatibility
   if (end != std::string::npos) {
     start = end + 1;
@@ -1675,6 +1688,11 @@ std::unordered_map<std::string, OptionTypeInfo>
         {"log_readahead_size",
          {offsetof(struct DBOptions, log_readahead_size), OptionType::kSizeT,
           OptionVerificationType::kNormal, false, 0}},
+        {"compaction_pipelined_load_enabled",
+         {offsetof(struct DBOptions, compaction_pipelined_load_enabled),
+          OptionType::kBoolean, OptionVerificationType::kNormal, false,
+          offsetof(struct ImmutableDBOptions,
+                   compaction_pipelined_load_enabled)}},
 };
 
 std::unordered_map<std::string, BlockBasedTableOptions::IndexType>

@@ -183,6 +183,11 @@ void ColumnFamilyOptions::Dump(Logger* log) const {
         "%" PRIu32,
         bottommost_compression_opts.zstd_max_train_bytes);
     ROCKS_LOG_HEADER(
+        log,
+        "        Options.bottommost_compression_opts.parallel_threads: "
+        "%" PRIu32,
+        bottommost_compression_opts.parallel_threads);
+    ROCKS_LOG_HEADER(
         log, "                 Options.bottommost_compression_opts.enabled: %s",
         bottommost_compression_opts.enabled ? "true" : "false");
     ROCKS_LOG_HEADER(log, "           Options.compression_opts.window_bits: %d",
@@ -199,6 +204,10 @@ void ColumnFamilyOptions::Dump(Logger* log) const {
                      "        Options.compression_opts.zstd_max_train_bytes: "
                      "%" PRIu32,
                      compression_opts.zstd_max_train_bytes);
+    ROCKS_LOG_HEADER(log,
+                     "        Options.compression_opts.parallel_threads: "
+                     "%" PRIu32,
+                     compression_opts.parallel_threads);
     ROCKS_LOG_HEADER(log,
                      "                 Options.compression_opts.enabled: %s",
                      compression_opts.enabled ? "true" : "false");
@@ -597,7 +606,8 @@ ReadOptions::ReadOptions()
       background_purge_on_iterator_cleanup(false),
       ignore_range_deletions(false),
       iter_start_seqnum(0),
-      timestamp(nullptr) {}
+      timestamp(nullptr),
+      compaction_pipelined_load_enabled(false) {}
 
 ReadOptions::ReadOptions(bool cksum, bool cache)
     : snapshot(nullptr),
@@ -616,6 +626,7 @@ ReadOptions::ReadOptions(bool cksum, bool cache)
       background_purge_on_iterator_cleanup(false),
       ignore_range_deletions(false),
       iter_start_seqnum(0),
-      timestamp(nullptr) {}
+      timestamp(nullptr),
+      compaction_pipelined_load_enabled(false) {}
 
 }  // namespace rocksdb

@@ -386,6 +386,9 @@ static const bool FLAGS_subcompactions_dummy
     __attribute__((__unused__)) = RegisterFlagValidator(&FLAGS_subcompactions,
                                                     &ValidateUint32Range);
 
+DEFINE_bool(compaction_pipelined_load_enabled, false,
+            "Whether to enable pipelined block loading for compaction.");
+
 DEFINE_int32(max_background_flushes,
              rocksdb::Options().max_background_flushes,
              "The maximum number of concurrent background flushes"
@@ -884,6 +887,9 @@ DEFINE_int32(min_level_to_compress, -1, "If non-negative, compression starts"
              " from this level. Levels with number < min_level_to_compress are"
              " not compressed. Otherwise, apply compression_type to "
              "all levels.");
+
+DEFINE_int32(compression_threads, 1,
+             "Number of concurrent compression threads to run.");
 
 static bool ValidateTableCacheNumshardbits(const char* flagname,
                                            int32_t value) {
@@ -3450,6 +3456,8 @@ class Benchmark {
     options.max_background_jobs = FLAGS_max_background_jobs;
     options.max_background_compactions = FLAGS_max_background_compactions;
     options.max_subcompactions = static_cast<uint32_t>(FLAGS_subcompactions);
+    options.compaction_pipelined_load_enabled =
+        FLAGS_compaction_pipelined_load_enabled;
     options.max_background_flushes = FLAGS_max_background_flushes;
     options.compaction_style = FLAGS_compaction_style_e;
     options.compaction_pri = FLAGS_compaction_pri_e;
@@ -3814,6 +3822,7 @@ class Benchmark {
     options.compression_opts.max_dict_bytes = FLAGS_compression_max_dict_bytes;
     options.compression_opts.zstd_max_train_bytes =
         FLAGS_compression_zstd_max_train_bytes;
+    options.compression_opts.parallel_threads = FLAGS_compression_threads;
     // If this is a block based table, set some related options
     if (options.table_factory->Name() == BlockBasedTableFactory::kName &&
         options.table_factory->GetOptions() != nullptr) {
