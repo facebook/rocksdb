@@ -169,7 +169,7 @@ public abstract class AbstractComparator
     return key.remaining();
   }
 
-  public boolean usingDirectBuffers() {
+  public final boolean usingDirectBuffers() {
     return usingDirectBuffers(nativeHandle_);
   }
 
