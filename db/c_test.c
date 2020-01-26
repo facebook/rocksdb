@@ -1649,6 +1649,13 @@ int main(int argc, char** argv) {
     CheckTxnDBGet(txn_db, roptions, "foo1", "hi1");
     CheckTxnDBGet(txn_db, roptions, "foo2", NULL);
 
+    // properties
+    char* prop = rocksdb_transactiondb_property_value(txn_db, "nosuchprop");
+    CheckCondition(prop == NULL);
+    prop = rocksdb_transactiondb_property_value(txn_db, "rocksdb.stats");
+    CheckCondition(prop != NULL);
+    Free(&prop);
+
     // Column families.
     rocksdb_column_family_handle_t* cfh;
     cfh = rocksdb_transactiondb_create_column_family(txn_db, options,
@@ -1664,7 +1671,40 @@ int main(int argc, char** argv) {
     CheckNoError(err);
     CheckTxnDBGetCF(txn_db, roptions, cfh, "cf_foo", NULL);
 
+    char* prop_cf = rocksdb_transactiondb_property_value_cf(txn_db, cfh, "nosuchprop");
+    CheckCondition(prop_cf == NULL);
+    prop_cf = rocksdb_transactiondb_property_value_cf(txn_db, cfh, "rocksdb.stats");
+    CheckCondition(prop_cf != NULL);
+    Free(&prop_cf);
+
+    rocksdb_transactiondb_drop_column_family(txn_db, cfh, &err);
+    CheckNoError(err);
+
     rocksdb_column_family_handle_destroy(cfh);
+
+    // approximate_sizes
+    {
+      int i;
+      int n = 20000;
+      char keybuf[100];
+      char valbuf[100];
+      uint64_t sizes[2];
+      const char* start[2] = { "a", "k00000000000000010000" };
+      size_t start_len[2] = { 1, 21 };
+      const char* limit[2] = { "k00000000000000010000", "z" };
+      size_t limit_len[2] = { 21, 1 };
+      rocksdb_writeoptions_set_sync(woptions, 0);
+      for (i = 0; i < n; i++) {
+        snprintf(keybuf, sizeof(keybuf), "k%020d", i);
+        snprintf(valbuf, sizeof(valbuf), "v%020d", i);
+        rocksdb_transactiondb_put(txn_db, woptions, keybuf, strlen(keybuf), valbuf, strlen(valbuf),
+                    &err);
+        CheckNoError(err);
+      }
+      rocksdb_transactiondb_approximate_sizes(txn_db, 2, start, start_len, limit, limit_len, sizes);
+      CheckCondition(sizes[0] > 0);
+      CheckCondition(sizes[1] > 0);
+    }
 
     // close and destroy
     rocksdb_transaction_destroy(txn);
