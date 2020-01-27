@@ -76,39 +76,6 @@ public abstract class AbstractComparator
   public abstract int compare(final ByteBuffer a, final ByteBuffer b);
 
   /**
-   * Called from JNI.
-   *
-   * @param a buffer access to first key
-   * @param aLen the length of a, may be smaller than the buffer {@code a}
-   * @param b buffer access to second key
-   * @param bLen the length of b, may be smaller than the buffer {@code b}
-   *
-   * @return the result of the comparison
-   */
-  private int compareInternal(final ByteBuffer a, final int aLen,
-      final ByteBuffer b, final int bLen) {
-    if (aLen != -1) {
-      a.mark();
-      a.limit(aLen);
-    }
-    if (bLen != -1) {
-      b.mark();
-      b.limit(bLen);
-    }
-
-    final int c = compare(a, b);
-
-    if (aLen != -1) {
-      a.reset();
-    }
-    if (bLen != -1) {
-      b.reset();
-    }
-
-    return c;
-  }
-
-  /**
    * <p>Used to reduce the space requirements
    * for internal data structures like index blocks.</p>
    *
@@ -130,19 +97,6 @@ public abstract class AbstractComparator
     // no-op
   }
 
-  private int findShortestSeparatorInternal(
-      final ByteBuffer start, final int startLen,
-      final ByteBuffer limit, final int limitLen) {
-    if (startLen != -1) {
-      start.limit(startLen);
-    }
-    if (limitLen != -1) {
-      limit.limit(limitLen);
-    }
-    findShortestSeparator(start, limit);
-    return start.remaining();
-  }
-
   /**
    * <p>Used to reduce the space requirements
    * for internal data structures like index blocks.</p>
@@ -158,15 +112,6 @@ public abstract class AbstractComparator
    */
   public void findShortSuccessor(final ByteBuffer key) {
     // no-op
-  }
-
-  private int findShortSuccessorInternal(
-      final ByteBuffer key, final int keyLen) {
-    if (keyLen != -1) {
-      key.limit(keyLen);
-    }
-    findShortSuccessor(key);
-    return key.remaining();
   }
 
   public final boolean usingDirectBuffers() {

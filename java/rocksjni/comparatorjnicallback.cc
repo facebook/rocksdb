@@ -16,6 +16,10 @@ ComparatorJniCallback::ComparatorJniCallback(
     : JniCallback(env, jcomparator),
     m_options(options) {
 
+  // cache the AbstractComparatorJniBridge class as we will reuse it many times for each callback
+  m_abstract_comparator_jni_bridge_clazz =
+      static_cast<jclass>(env->NewGlobalRef(AbstractComparatorJniBridge::getJClass(env)));
+
   // Note: The name of a Comparator will not change during it's lifetime,
   // so we cache it in a global var
   jmethodID jname_mid = AbstractComparatorJni::getNameMethodId(env);
@@ -40,21 +44,24 @@ ComparatorJniCallback::ComparatorJniCallback(
   m_jbytebuffer_clazz =
       static_cast<jclass>(env->NewGlobalRef(ByteBufferJni::getJClass(env)));
 
-  m_jcompare_mid = AbstractComparatorJni::getCompareInternalMethodId(env);
+  m_jcompare_mid = AbstractComparatorJniBridge::getCompareInternalMethodId(
+      env, m_abstract_comparator_jni_bridge_clazz);
   if (m_jcompare_mid == nullptr) {
     // exception thrown: NoSuchMethodException or OutOfMemoryError
     return;
   }
 
   m_jshortest_mid =
-    AbstractComparatorJni::getFindShortestSeparatorInternalMethodId(env);
+    AbstractComparatorJniBridge::getFindShortestSeparatorInternalMethodId(
+        env, m_abstract_comparator_jni_bridge_clazz);
   if (m_jshortest_mid == nullptr) {
     // exception thrown: NoSuchMethodException or OutOfMemoryError
     return;
   }
 
   m_jshort_mid =
-    AbstractComparatorJni::getFindShortSuccessorInternalMethodId(env);
+    AbstractComparatorJniBridge::getFindShortSuccessorInternalMethodId(env,
+        m_abstract_comparator_jni_bridge_clazz);
   if (m_jshort_mid == nullptr) {
     // exception thrown: NoSuchMethodException or OutOfMemoryError
     return;
@@ -158,6 +165,8 @@ ComparatorJniCallback::~ComparatorJniCallback() {
   JNIEnv* env = getJniEnv(&attached_thread);
   assert(env != nullptr);
 
+  env->DeleteGlobalRef(m_abstract_comparator_jni_bridge_clazz);
+
   env->DeleteGlobalRef(m_jbytebuffer_clazz);
 
   if (m_jcompare_buf_a != nullptr) {
@@ -249,7 +258,9 @@ int ComparatorJniCallback::Compare(const Slice& a, const Slice& b) const {
   }
 
   jint result =
-    env->CallIntMethod(m_jcallback_obj, m_jcompare_mid,
+    env->CallStaticIntMethod(
+      m_abstract_comparator_jni_bridge_clazz, m_jcompare_mid,
+      m_jcallback_obj,
       jcompare_buf_a, reuse_jbuf_a ? a.size() : -1,
       jcompare_buf_b, reuse_jbuf_b ? b.size() : -1);
 
@@ -312,7 +323,9 @@ void ComparatorJniCallback::FindShortestSeparator(
     return;
   }
 
-  jint jstart_len = env->CallIntMethod(m_jcallback_obj, m_jshortest_mid,
+  jint jstart_len = env->CallStaticIntMethod(
+      m_abstract_comparator_jni_bridge_clazz, m_jshortest_mid,
+      m_jcallback_obj,
       j_start_buf, reuse_jbuf_start ? start->length() : -1,
       j_limit_buf, reuse_jbuf_limit ? limit.size() : -1);
 
@@ -431,7 +444,9 @@ void ComparatorJniCallback::FindShortSuccessor(
     return;
   }
 
-  jint jkey_len = env->CallIntMethod(m_jcallback_obj, m_jshort_mid,
+  jint jkey_len = env->CallStaticIntMethod(
+      m_abstract_comparator_jni_bridge_clazz, m_jshort_mid,
+      m_jcallback_obj,
       j_key_buf, reuse_jbuf_key ? key->length() : -1);
 
   if (env->ExceptionCheck()) {

@@ -3454,6 +3454,75 @@ class AbstractTransactionNotifierJni : public RocksDBNativeClass<
   }
 };
 
+// The portal class for org.rocksdb.AbstractComparatorJniBridge
+class AbstractComparatorJniBridge : public JavaClass {
+ public:
+  /**
+   * Get the Java Class org.rocksdb.AbstractComparatorJniBridge
+   *
+   * @param env A pointer to the Java environment
+   *
+   * @return The Java Class or nullptr if one of the
+   *     ClassFormatError, ClassCircularityError, NoClassDefFoundError,
+   *     OutOfMemoryError or ExceptionInInitializerError exceptions is thrown
+   */
+  static jclass getJClass(JNIEnv* env) {
+    return JavaClass::getJClass(env,
+        "org/rocksdb/AbstractComparatorJniBridge");
+  }
+
+  /**
+   * Get the Java Method: Comparator#compareInternal
+   *
+   * @param env A pointer to the Java environment
+   * @param jclazz the AbstractComparatorJniBridge class
+   *
+   * @return The Java Method ID or nullptr if the class or method id could not
+   *     be retieved
+   */
+  static jmethodID getCompareInternalMethodId(JNIEnv* env, jclass jclazz) {
+    static jmethodID mid =
+        env->GetStaticMethodID(jclazz, "compareInternal",
+            "(Lorg/rocksdb/AbstractComparator;Ljava/nio/ByteBuffer;ILjava/nio/ByteBuffer;I)I");
+    assert(mid != nullptr);
+    return mid;
+  }
+
+  /**
+   * Get the Java Method: Comparator#findShortestSeparatorInternal
+   *
+   * @param env A pointer to the Java environment
+   * @param jclazz the AbstractComparatorJniBridge class
+   *
+   * @return The Java Method ID or nullptr if the class or method id could not
+   *     be retieved
+   */
+  static jmethodID getFindShortestSeparatorInternalMethodId(JNIEnv* env, jclass jclazz) {
+    static jmethodID mid =
+        env->GetStaticMethodID(jclazz, "findShortestSeparatorInternal",
+            "(Lorg/rocksdb/AbstractComparator;Ljava/nio/ByteBuffer;ILjava/nio/ByteBuffer;I)I");
+    assert(mid != nullptr);
+    return mid;
+  }
+
+  /**
+   * Get the Java Method: Comparator#findShortSuccessorInternal
+   *
+   * @param env A pointer to the Java environment
+   * @param jclazz the AbstractComparatorJniBridge class
+   *
+   * @return The Java Method ID or nullptr if the class or method id could not
+   *     be retieved
+   */
+  static jmethodID getFindShortSuccessorInternalMethodId(JNIEnv* env, jclass jclazz) {
+    static jmethodID mid =
+        env->GetStaticMethodID(jclazz, "findShortSuccessorInternal",
+            "(Lorg/rocksdb/AbstractComparator;Ljava/nio/ByteBuffer;I)I");
+    assert(mid != nullptr);
+    return mid;
+  }
+};
+
 // The portal class for org.rocksdb.AbstractComparator
 class AbstractComparatorJni : public RocksDBNativeClass<
     const rocksdb::ComparatorJniCallback*,
@@ -3490,72 +3559,6 @@ class AbstractComparatorJni : public RocksDBNativeClass<
 
     static jmethodID mid =
         env->GetMethodID(jclazz, "name", "()Ljava/lang/String;");
-    assert(mid != nullptr);
-    return mid;
-  }
-
-  /**
-   * Get the Java Method: Comparator#compareInternal
-   *
-   * @param env A pointer to the Java environment
-   *
-   * @return The Java Method ID or nullptr if the class or method id could not
-   *     be retieved
-   */
-  static jmethodID getCompareInternalMethodId(JNIEnv* env) {
-    jclass jclazz = getJClass(env);
-    if(jclazz == nullptr) {
-      // exception occurred accessing class
-      return nullptr;
-    }
-
-    static jmethodID mid =
-        env->GetMethodID(jclazz, "compareInternal",
-            "(Ljava/nio/ByteBuffer;ILjava/nio/ByteBuffer;I)I");
-    assert(mid != nullptr);
-    return mid;
-  }
-
-  /**
-   * Get the Java Method: Comparator#findShortestSeparatorInternal
-   *
-   * @param env A pointer to the Java environment
-   *
-   * @return The Java Method ID or nullptr if the class or method id could not
-   *     be retieved
-   */
-  static jmethodID getFindShortestSeparatorInternalMethodId(JNIEnv* env) {
-    jclass jclazz = getJClass(env);
-    if(jclazz == nullptr) {
-      // exception occurred accessing class
-      return nullptr;
-    }
-
-    static jmethodID mid =
-        env->GetMethodID(jclazz, "findShortestSeparatorInternal",
-            "(Ljava/nio/ByteBuffer;ILjava/nio/ByteBuffer;I)I");
-    assert(mid != nullptr);
-    return mid;
-  }
-
-  /**
-   * Get the Java Method: Comparator#findShortSuccessorInternal
-   *
-   * @param env A pointer to the Java environment
-   *
-   * @return The Java Method ID or nullptr if the class or method id could not
-   *     be retieved
-   */
-  static jmethodID getFindShortSuccessorInternalMethodId(JNIEnv* env) {
-    jclass jclazz = getJClass(env);
-    if(jclazz == nullptr) {
-      // exception occurred accessing class
-      return nullptr;
-    }
-
-    static jmethodID mid =
-        env->GetMethodID(jclazz, "findShortSuccessorInternal",
-            "(Ljava/nio/ByteBuffer;I)I");
     assert(mid != nullptr);
     return mid;
   }

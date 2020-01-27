@@ -119,10 +119,11 @@ class ComparatorJniCallback : public JniCallback, public Comparator {
     // used for synchronisation in findShortSuccessor method
     std::unique_ptr<port::Mutex> mtx_short;
     std::unique_ptr<const char[]> m_name;
-    jclass m_jbytebuffer_clazz;  // TODO(AR) we could cache this globally for the entire VM if we switch more APIs to use ByteBuffer
-    jmethodID m_jcompare_mid;
-    jmethodID m_jshortest_mid;
-    jmethodID m_jshort_mid;
+    jclass m_abstract_comparator_jni_bridge_clazz;  // TODO(AR) could we make this static somehow?
+    jclass m_jbytebuffer_clazz;  // TODO(AR) we could cache this globally for the entire VM if we switch more APIs to use ByteBuffer // TODO(AR) could we make this static somehow?
+    jmethodID m_jcompare_mid;  // TODO(AR) could we make this static somehow?
+    jmethodID m_jshortest_mid;  // TODO(AR) could we make this static somehow?
+    jmethodID m_jshort_mid;  // TODO(AR) could we make this static somehow?
     jobject m_jcompare_buf_a;
     jobject m_jcompare_buf_b;
     jobject m_jshortest_buf_start;
