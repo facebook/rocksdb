@@ -34,8 +34,6 @@ class PartitionedFilterBlockBuilder : public FullFilterBlockBuilder {
   void AddKey(const Slice& key) override;
   void Add(const Slice& key) override;
 
-  size_t NumAdded() const override { return num_added_; }
-
   virtual Slice Finish(const BlockHandle& last_partition_block_handle,
                        Status* status) override;
 
@@ -60,12 +58,10 @@ class PartitionedFilterBlockBuilder : public FullFilterBlockBuilder {
   // optimizations did not realize we can use different number of partitions and
   // eliminate p_index_builder_
   PartitionedIndexBuilder* const p_index_builder_;
-  // The desired number of filters per partition
-  uint32_t filters_per_partition_;
-  // The current number of filters in the last partition
-  uint32_t filters_in_partition_;
-  // Number of keys added
-  size_t num_added_;
+  // The desired number of keys per partition
+  uint32_t keys_per_partition_;
+  // The number of keys added to the last partition so far
+  uint32_t keys_added_to_partition_;
   BlockHandle last_encoded_handle_;
 };
 
