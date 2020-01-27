@@ -18,6 +18,7 @@
 * Fixed an issue where the thread pools were not resized upon setting `max_background_jobs` dynamically through the `SetDBOptions` interface.
 * Fix a bug that can cause write threads to hang when a slowdown/stall happens and there is a mix of writers with WriteOptions::no_slowdown set/unset.
 * Fixed an issue where an incorrect "number of input records" value was used to compute the "records dropped" statistics for compactions.
+* Fix a regression bug that causes segfault when hash is used, max_open_files != -1 and total order seek is used and switched back.
 
 ### New Features
 * It is now possible to enable periodic compactions for the base DB when using BlobDB.

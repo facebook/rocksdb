@@ -718,6 +718,7 @@ class HashIndexReader : public BlockBasedTable::IndexReaderCommon {
     }
 
     BlockPrefixIndex* prefix_index = nullptr;
+    assert(rep->internal_prefix_transform.get() != nullptr);
     s = BlockPrefixIndex::Create(rep->internal_prefix_transform.get(),
                                  prefixes_contents.data,
                                  prefixes_meta_contents.data, &prefix_index);
@@ -1187,8 +1188,10 @@ Status BlockBasedTable::Open(
   rep->hash_index_allow_collision = table_options.hash_index_allow_collision;
   // We need to wrap data with internal_prefix_transform to make sure it can
   // handle prefix correctly.
-  rep->internal_prefix_transform.reset(
-      new InternalKeySliceTransform(prefix_extractor));
+  if (prefix_extractor != nullptr) {
+    rep->internal_prefix_transform.reset(
+        new InternalKeySliceTransform(prefix_extractor));
+  }
   SetupCacheKeyPrefix(rep);
   std::unique_ptr<BlockBasedTable> new_table(
       new BlockBasedTable(rep, block_cache_tracer));
@@ -4049,7 +4052,13 @@ Status BlockBasedTable::CreateIndexReader(
       std::unique_ptr<Block> metaindex_guard;
       std::unique_ptr<InternalIterator> metaindex_iter_guard;
       auto meta_index_iter = preloaded_meta_index_iter;
-      if (meta_index_iter == nullptr) {
+      bool should_fallback = false;
+      if (rep_->internal_prefix_transform.get() == nullptr) {
+        ROCKS_LOG_WARN(rep_->ioptions.info_log,
+                       "No prefix extractor passed in. Fall back to binary"
+                       " search index.");
+        should_fallback = true;
+      } else if (meta_index_iter == nullptr) {
         auto s = ReadMetaIndexBlock(prefetch_buffer, &metaindex_guard,
                                     &metaindex_iter_guard);
         if (!s.ok()) {
@@ -4058,16 +4067,20 @@ Status BlockBasedTable::CreateIndexReader(
           ROCKS_LOG_WARN(rep_->ioptions.info_log,
                          "Unable to read the metaindex block."
                          " Fall back to binary search index.");
-          return BinarySearchIndexReader::Create(this, prefetch_buffer,
-                                                 use_cache, prefetch, pin,
-                                                 lookup_context, index_reader);
+          should_fallback = true;
         }
         meta_index_iter = metaindex_iter_guard.get();
       }
 
-      return HashIndexReader::Create(this, prefetch_buffer, meta_index_iter,
-                                     use_cache, prefetch, pin, lookup_context,
-                                     index_reader);
+      if (should_fallback) {
+        return BinarySearchIndexReader::Create(this, prefetch_buffer, use_cache,
+                                               prefetch, pin, lookup_context,
+                                               index_reader);
+      } else {
+        return HashIndexReader::Create(this, prefetch_buffer, meta_index_iter,
+                                       use_cache, prefetch, pin, lookup_context,
+                                       index_reader);
+      }
     }
     default: {
       std::string error_message =

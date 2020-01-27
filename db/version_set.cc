@@ -867,8 +867,7 @@ class LevelIterator final : public InternalIterator {
         icomparator_(icomparator),
         user_comparator_(icomparator.user_comparator()),
         flevel_(flevel),
-        prefix_extractor_(read_options.total_order_seek ? nullptr
-                                                        : prefix_extractor),
+        prefix_extractor_(prefix_extractor),
         file_read_hist_(file_read_hist),
         should_sample_(should_sample),
         caller_(caller),
@@ -1003,6 +1002,9 @@ class LevelIterator final : public InternalIterator {
   const UserComparatorWrapper user_comparator_;
   const LevelFilesBrief* flevel_;
   mutable FileDescriptor current_value_;
+  // `prefix_extractor_` may be non-null even for total order seek. Checking
+  // this variable is not the right way to identify whether prefix iterator
+  // is used.
   const SliceTransform* prefix_extractor_;
 
   HistogramImpl* file_read_hist_;
@@ -1045,7 +1047,8 @@ void LevelIterator::Seek(const Slice& target) {
     file_iter_.Seek(target);
   }
   if (SkipEmptyFileForward() && prefix_extractor_ != nullptr &&
-      file_iter_.iter() != nullptr && file_iter_.Valid()) {
+      !read_options_.total_order_seek && file_iter_.iter() != nullptr &&
+      file_iter_.Valid()) {
     // We've skipped the file we initially positioned to. In the prefix
     // seek case, it is likely that the file is skipped because of
     // prefix bloom or hash, where more keys are skipped. We then check
