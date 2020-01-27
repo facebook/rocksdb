@@ -4506,23 +4506,31 @@ Status VersionSet::Recover(
 
       // unlimited table cache. Pre-load table handle now.
       // Need to do it out of the mutex.
-      builder->LoadTableHandlers(
+      s = builder->LoadTableHandlers(
           cfd->internal_stats(), db_options_->max_file_opening_threads,
           false /* prefetch_index_and_filter_in_cache */,
           true /* is_initial_load */,
           cfd->GetLatestMutableCFOptions()->prefix_extractor.get());
+      if (!s.ok()) {
+        break;
+      }
 
       Version* v = new Version(cfd, this, file_options_,
                                *cfd->GetLatestMutableCFOptions(),
                                current_version_number_++);
-      builder->SaveTo(v->storage_info());
+      s = builder->SaveTo(v->storage_info());
+      if (!s.ok()) {
+        break;
+      }
 
       // Install recovered version
       v->PrepareApply(*cfd->GetLatestMutableCFOptions(),
           !(db_options_->skip_stats_update_on_db_open));
       AppendVersion(cfd, v);
     }
+  }
 
+  if (s.ok()) {
     manifest_file_size_ = current_manifest_file_size;
     next_file_number_.store(version_edit_params.next_file_number_ + 1);
     last_allocated_sequence_ = version_edit_params.last_sequence_;
