@@ -2901,22 +2901,12 @@ void BlockBasedTableIterator<TBlockIter, TValue>::SeekForPrev(
   index_iter_->Seek(target);
 
   if (!index_iter_->Valid()) {
-    auto seek_status = index_iter_->status();
-    // Check for IO error
-    if (!seek_status.IsNotFound() && !seek_status.ok()) {
+    if (!index_iter_->status().ok()) {
       ResetDataIter();
       return;
     }
 
-    // With prefix index, Seek() returns NotFound if the prefix doesn't exist
-    if (seek_status.IsNotFound()) {
-      // Any key less than the target is fine for prefix seek
-      ResetDataIter();
-      return;
-    } else {
-      index_iter_->SeekToLast();
-    }
-    // Check for IO error
+    index_iter_->SeekToLast();
     if (!index_iter_->Valid()) {
       ResetDataIter();
       return;

@@ -539,13 +539,6 @@ class IndexBlockIter final : public BlockIter<IndexValue> {
     }
   }
 
-  // IndexBlockIter follows a different contract for prefix iterator
-  // from data iterators.
-  // If prefix of the seek key `target` exists in the file, it must
-  // return the same result as total order seek.
-  // If the prefix of `target` doesn't exist in the file, it can either
-  // return the result of total order seek, or set both of Valid() = false
-  // and status() = NotFound().
   virtual void Seek(const Slice& target) override;
 
   virtual void SeekForPrev(const Slice&) override {
@@ -602,16 +595,9 @@ class IndexBlockIter final : public BlockIter<IndexValue> {
 
   std::unique_ptr<GlobalSeqnoState> global_seqno_state_;
 
-  // Set *prefix_may_exist to false if no key possibly share the same prefix
-  // as `target`. If not set, the result position should be the same as total
-  // order Seek.
-  bool PrefixSeek(const Slice& target, uint32_t* index, bool* prefix_may_exist);
-  // Set *prefix_may_exist to false if no key can possibly share the same
-  // prefix as `target`. If not set, the result position should be the same
-  // as total order seek.
+  bool PrefixSeek(const Slice& target, uint32_t* index);
   bool BinaryBlockIndexSeek(const Slice& target, uint32_t* block_ids,
-                            uint32_t left, uint32_t right, uint32_t* index,
-                            bool* prefix_may_exist);
+                            uint32_t left, uint32_t right, uint32_t* index);
   inline int CompareBlockKey(uint32_t block_index, const Slice& target);
 
   inline int Compare(const Slice& a, const Slice& b) const {

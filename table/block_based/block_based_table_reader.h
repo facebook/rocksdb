@@ -686,8 +686,7 @@ class BlockBasedTableIterator : public InternalIteratorBase<TValue> {
     return block_iter_.value();
   }
   Status status() const override {
-    // Prefix index set status to NotFound when the prefix does not exist
-    if (!index_iter_->status().ok() && !index_iter_->status().IsNotFound()) {
+    if (!index_iter_->status().ok()) {
       return index_iter_->status();
     } else if (block_iter_points_to_real_block_) {
       return block_iter_.status();

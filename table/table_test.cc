@@ -1857,8 +1857,7 @@ void TableTest::IndexTest(BlockBasedTableOptions table_options) {
     auto key = prefixes[i] + "9";
     index_iter->Seek(InternalKey(key, 0, kTypeValue).Encode());
 
-    ASSERT_TRUE(index_iter->status().ok() || index_iter->status().IsNotFound());
-    ASSERT_TRUE(!index_iter->status().IsNotFound() || !index_iter->Valid());
+    ASSERT_OK(index_iter->status());
     if (i == prefixes.size() - 1) {
       // last key
       ASSERT_TRUE(!index_iter->Valid());
@@ -1883,19 +1882,6 @@ void TableTest::IndexTest(BlockBasedTableOptions table_options) {
       Slice ukey = ExtractUserKey(index_iter->key());
       Slice ukey_prefix = options.prefix_extractor->Transform(ukey);
       ASSERT_TRUE(BytewiseComparator()->Compare(prefix, ukey_prefix) < 0);
-    }
-  }
-  for (const auto& prefix : non_exist_prefixes) {
-    index_iter->SeekForPrev(InternalKey(prefix, 0, kTypeValue).Encode());
-    // regular_iter->Seek(prefix);
-
-    ASSERT_OK(index_iter->status());
-    // Seek to non-existing prefixes should yield either invalid, or a
-    // key with prefix greater than the target.
-    if (index_iter->Valid()) {
-      Slice ukey = ExtractUserKey(index_iter->key());
-      Slice ukey_prefix = options.prefix_extractor->Transform(ukey);
-      ASSERT_TRUE(BytewiseComparator()->Compare(prefix, ukey_prefix) > 0);
     }
   }
   c.ResetTableReader();
