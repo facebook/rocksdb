@@ -4355,10 +4355,6 @@ TEST_F(DBTest2, BlockBasedTablePrefixIndexSeekForPrev) {
     if (iterator->Valid()) {
       ASSERT_EQ("a1", iterator->key().ToString());
     }
-
-    iterator->SeekForPrev("y3");
-    ASSERT_TRUE(iterator->Valid());
-    ASSERT_EQ("y1", iterator->key().ToString());
   }
 }
 

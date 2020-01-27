@@ -390,7 +390,6 @@ void IndexBlockIter::Seek(const Slice& target) {
   if (data_ == nullptr) {  // Not init yet
     return;
   }
-  status_ = Status::OK();
   uint32_t index = 0;
   bool ok = false;
   if (prefix_index_) {
@@ -471,7 +470,6 @@ void IndexBlockIter::SeekToFirst() {
   if (data_ == nullptr) {  // Not init yet
     return;
   }
-  status_ = Status::OK();
   SeekToRestartPoint(0);
   ParseNextIndexKey();
 }
@@ -490,7 +488,6 @@ void IndexBlockIter::SeekToLast() {
   if (data_ == nullptr) {  // Not init yet
     return;
   }
-  status_ = Status::OK();
   SeekToRestartPoint(num_restarts_ - 1);
   while (ParseNextIndexKey() && NextEntryOffset() < restarts_) {
     // Keep skipping
