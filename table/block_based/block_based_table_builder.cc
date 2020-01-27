@@ -425,6 +425,7 @@ struct BlockBasedTableBuilder::Rep {
       context.column_family_name = column_family_name;
       context.compaction_style = ioptions.compaction_style;
       context.level_at_creation = level_at_creation;
+      context.info_log = ioptions.info_log;
       filter_builder.reset(CreateFilterBlockBuilder(
           ioptions, moptions, context, use_delta_encoding_for_index_values,
           p_index_builder_));
