@@ -1,5 +1,7 @@
 # Rocksdb Change Log
 ## Unreleased
+### Bug Fixes
+* Fix incorrect results while block-based table uses kHashSearch, together with Prev()/SeekForPrev().
 
 ## 6.7.0 (01/21/2020)
 ### Public API Change
@@ -14,7 +16,6 @@
 * Fix a race condition for cfd->log_number_ between manifest switch and memtable switch (PR 6249) when number of column families is greater than 1.
 * Fix a bug on fractional cascading index when multiple files at the same level contain the same smallest user key, and those user keys are for merge operands. In this case, Get() the exact key may miss some merge operands.
 * Delcare kHashSearch index type feature-incompatible with index_block_restart_interval larger than 1.
-* Fix incorrect results while block-based table uses kHashSearch, together with Prev()/SeekForPrev().
 * Fixed an issue where the thread pools were not resized upon setting `max_background_jobs` dynamically through the `SetDBOptions` interface.
 * Fix a bug that can cause write threads to hang when a slowdown/stall happens and there is a mix of writers with WriteOptions::no_slowdown set/unset.
 * Fixed an issue where an incorrect "number of input records" value was used to compute the "records dropped" statistics for compactions.
