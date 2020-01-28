@@ -1857,6 +1857,48 @@ TEST_F(BlobDBTest, MaintainBlobFileToSstMapping) {
   }
 }
 
+TEST_F(BlobDBTest, MaintainBlobFileToSstMappingRace) {
+  BlobDBOptions bdb_options;
+  bdb_options.enable_garbage_collection = true;
+  bdb_options.disable_background_tasks = true;
+  Open(bdb_options);
+
+  // Register a dummy blob file.
+  blob_db_impl()->TEST_AddDummyBlobFile(1, /* immutable_sequence */ 200);
+
+  auto blob_files = blob_db_impl()->TEST_GetBlobFiles();
+  ASSERT_EQ(blob_files.size(), 1);
+
+  auto blob_file = blob_files[0];
+
+  // Simulate the case when we receive the notification for a compaction
+  // that removes an SST <-> blob file link before the notification for the
+  // flush that establishes the link.
+  {
+    CompactionJobInfo info{};
+    info.input_file_infos.emplace_back(CompactionFileInfo{1, 10, 1});
+    info.output_file_infos.emplace_back(CompactionFileInfo{2, 10, 1});
+
+    blob_db_impl()->TEST_ProcessCompactionJobInfo(info);
+
+    ASSERT_EQ(blob_file->GetLinkedSstFiles(), std::unordered_set<uint64_t>{});
+    ASSERT_FALSE(blob_file->Obsolete());
+  }
+
+  {
+    FlushJobInfo info{};
+    info.file_number = 10;
+    info.oldest_blob_file_number = 1;
+    info.smallest_seqno = 101;
+    info.largest_seqno = 200;
+
+    blob_db_impl()->TEST_ProcessFlushJobInfo(info);
+
+    ASSERT_EQ(blob_file->GetLinkedSstFiles(), std::unordered_set<uint64_t>{});
+    ASSERT_TRUE(blob_file->Obsolete());
+  }
+}
+
 TEST_F(BlobDBTest, ShutdownWait) {
   BlobDBOptions bdb_options;
   bdb_options.ttl_range_secs = 100;
