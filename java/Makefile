@@ -219,13 +219,13 @@ CENTRAL_REPO_URL?=https://repo1.maven.org/maven2/
 clean: clean-not-downloaded clean-downloaded
 
 clean-not-downloaded:
-	$(AM_V_at)rm -rf include/*
+	$(AM_V_at)rm -rf $(NATIVE_INCLUDE)
 	$(AM_V_at)rm -rf $(OUTPUT)
 	$(AM_V_at)rm -rf $(BENCHMARK_OUTPUT)
 	$(AM_V_at)rm -rf $(SAMPLES_OUTPUT)
 
 clean-downloaded:
-	$(AM_V_at)rm -rf test-libs/
+	$(AM_V_at)rm -rf $(JAVA_TEST_LIBDIR)
 
 
 javadocs: java

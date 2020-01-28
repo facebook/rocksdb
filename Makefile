@@ -1139,10 +1139,10 @@ clean-rocks:
 	$(FIND) . -type f -regex ".*\.\(\(gcda\)\|\(gcno\)\)" -exec rm {} \;
 
 clean-rocksjava:
-	cd java; $(MAKE) clean
+	cd java && $(MAKE) clean
 
 clean-not-downloaded-rocksjava:
-	cd java; $(MAKE) clean-not-downloaded
+	cd java && $(MAKE) clean-not-downloaded
 
 clean-ext-libraries-all:
 	rm -rf bzip2* snappy* zlib* lz4* zstd*
