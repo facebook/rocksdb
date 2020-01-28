@@ -1047,8 +1047,8 @@ void LevelIterator::Seek(const Slice& target) {
     file_iter_.Seek(target);
   }
   if (SkipEmptyFileForward() && prefix_extractor_ != nullptr &&
-      !read_options_.total_order_seek && file_iter_.iter() != nullptr &&
-      file_iter_.Valid()) {
+      !read_options_.total_order_seek && !read_options_.auto_prefix_mode &&
+      file_iter_.iter() != nullptr && file_iter_.Valid()) {
     // We've skipped the file we initially positioned to. In the prefix
     // seek case, it is likely that the file is skipped because of
     // prefix bloom or hash, where more keys are skipped. We then check

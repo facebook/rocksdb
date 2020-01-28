@@ -2788,7 +2788,7 @@ void BlockBasedTableIterator<TBlockIter, TValue>::SeekImpl(
     const Slice* target) {
   is_out_of_bound_ = false;
   is_at_first_key_from_index_ = false;
-  if (target && !CheckPrefixMayMatch(*target)) {
+  if (target && !CheckPrefixMayMatch(*target, IterDirection::kForward)) {
     ResetDataIter();
     return;
   }
@@ -2881,7 +2881,9 @@ void BlockBasedTableIterator<TBlockIter, TValue>::SeekForPrev(
     const Slice& target) {
   is_out_of_bound_ = false;
   is_at_first_key_from_index_ = false;
-  if (!CheckPrefixMayMatch(target)) {
+  // For now totally disable prefix seek in auto prefix mode because we don't
+  // have logic
+  if (!CheckPrefixMayMatch(target, IterDirection::kBackward)) {
     ResetDataIter();
     return;
   }
@@ -3202,6 +3204,7 @@ InternalIterator* BlockBasedTable::NewIterator(
     size_t compaction_readahead_size) {
   BlockCacheLookupContext lookup_context{caller};
   bool need_upper_bound_check =
+      read_options.auto_prefix_mode ||
       PrefixExtractorChanged(rep_->table_properties.get(), prefix_extractor);
   if (arena == nullptr) {
     return new BlockBasedTableIterator<DataBlockIter>(

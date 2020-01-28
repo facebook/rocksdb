@@ -288,7 +288,9 @@ class MemTableIterator : public InternalIterator {
             !mem.GetImmutableMemTableOptions()->inplace_update_support) {
     if (use_range_del_table) {
       iter_ = mem.range_del_table_->GetIterator(arena);
-    } else if (prefix_extractor_ != nullptr && !read_options.total_order_seek) {
+    } else if (prefix_extractor_ != nullptr && !read_options.total_order_seek &&
+               !read_options.auto_prefix_mode) {
+      // Auto prefix mode is not implemented in memtable yet.
       bloom_ = mem.bloom_filter_.get();
       iter_ = mem.table_->GetDynamicPrefixIterator(arena);
     } else {
