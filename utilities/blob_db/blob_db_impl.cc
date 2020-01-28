@@ -519,7 +519,8 @@ bool BlobDBImpl::MarkBlobFileObsoleteIfNeeded(
   // blob file obsolete if there are still unflushed memtables from before
   // the time the blob file was closed.
   if (blob_file->GetImmutableSequence() > flush_sequence_ ||
-      !blob_file->GetLinkedSstFiles().empty()) {
+      !blob_file->GetLinkedSstFiles().empty() ||
+      !blob_file->GetUnlinkedSstFiles().empty()) {
     return false;
   }
 

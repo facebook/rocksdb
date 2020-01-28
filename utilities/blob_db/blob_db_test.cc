@@ -1655,6 +1655,7 @@ TEST_F(BlobDBTest, MaintainBlobFileToSstMapping) {
     for (size_t i = 0; i < 5; ++i) {
       const auto &blob_file = blob_files[i];
       ASSERT_EQ(blob_file->GetLinkedSstFiles(), expected_sst_files[i]);
+      ASSERT_TRUE(blob_file->GetUnlinkedSstFiles().empty());
       ASSERT_EQ(blob_file->Obsolete(), expected_obsolete[i]);
     }
 
@@ -1683,6 +1684,7 @@ TEST_F(BlobDBTest, MaintainBlobFileToSstMapping) {
     for (size_t i = 0; i < 5; ++i) {
       const auto &blob_file = blob_files[i];
       ASSERT_EQ(blob_file->GetLinkedSstFiles(), expected_sst_files[i]);
+      ASSERT_TRUE(blob_file->GetUnlinkedSstFiles().empty());
       ASSERT_EQ(blob_file->Obsolete(), expected_obsolete[i]);
     }
 
@@ -1712,6 +1714,7 @@ TEST_F(BlobDBTest, MaintainBlobFileToSstMapping) {
     for (size_t i = 0; i < 5; ++i) {
       const auto &blob_file = blob_files[i];
       ASSERT_EQ(blob_file->GetLinkedSstFiles(), expected_sst_files[i]);
+      ASSERT_TRUE(blob_file->GetUnlinkedSstFiles().empty());
       ASSERT_EQ(blob_file->Obsolete(), expected_obsolete[i]);
     }
 
@@ -1750,6 +1753,7 @@ TEST_F(BlobDBTest, MaintainBlobFileToSstMapping) {
     for (size_t i = 0; i < 5; ++i) {
       const auto &blob_file = blob_files[i];
       ASSERT_EQ(blob_file->GetLinkedSstFiles(), expected_sst_files[i]);
+      ASSERT_TRUE(blob_file->GetUnlinkedSstFiles().empty());
       ASSERT_EQ(blob_file->Obsolete(), expected_obsolete[i]);
     }
 
@@ -1780,6 +1784,7 @@ TEST_F(BlobDBTest, MaintainBlobFileToSstMapping) {
     for (size_t i = 0; i < 5; ++i) {
       const auto &blob_file = blob_files[i];
       ASSERT_EQ(blob_file->GetLinkedSstFiles(), expected_sst_files[i]);
+      ASSERT_TRUE(blob_file->GetUnlinkedSstFiles().empty());
       ASSERT_EQ(blob_file->Obsolete(), expected_obsolete[i]);
     }
 
@@ -1811,6 +1816,7 @@ TEST_F(BlobDBTest, MaintainBlobFileToSstMapping) {
     for (size_t i = 0; i < 5; ++i) {
       const auto &blob_file = blob_files[i];
       ASSERT_EQ(blob_file->GetLinkedSstFiles(), expected_sst_files[i]);
+      ASSERT_TRUE(blob_file->GetUnlinkedSstFiles().empty());
       ASSERT_EQ(blob_file->Obsolete(), expected_obsolete[i]);
     }
 
@@ -1841,6 +1847,7 @@ TEST_F(BlobDBTest, MaintainBlobFileToSstMapping) {
     for (size_t i = 0; i < 5; ++i) {
       const auto &blob_file = blob_files[i];
       ASSERT_EQ(blob_file->GetLinkedSstFiles(), expected_sst_files[i]);
+      ASSERT_TRUE(blob_file->GetUnlinkedSstFiles().empty());
       ASSERT_EQ(blob_file->Obsolete(), expected_obsolete[i]);
     }
 
@@ -1877,11 +1884,12 @@ TEST_F(BlobDBTest, MaintainBlobFileToSstMappingRace) {
   {
     CompactionJobInfo info{};
     info.input_file_infos.emplace_back(CompactionFileInfo{1, 10, 1});
-    info.output_file_infos.emplace_back(CompactionFileInfo{2, 10, 1});
 
     blob_db_impl()->TEST_ProcessCompactionJobInfo(info);
 
-    ASSERT_EQ(blob_file->GetLinkedSstFiles(), std::unordered_set<uint64_t>{});
+    ASSERT_TRUE(blob_file->GetLinkedSstFiles().empty());
+    ASSERT_EQ(blob_file->GetUnlinkedSstFiles(),
+              std::unordered_set<uint64_t>{10});
     ASSERT_FALSE(blob_file->Obsolete());
   }
 
@@ -1894,7 +1902,8 @@ TEST_F(BlobDBTest, MaintainBlobFileToSstMappingRace) {
 
     blob_db_impl()->TEST_ProcessFlushJobInfo(info);
 
-    ASSERT_EQ(blob_file->GetLinkedSstFiles(), std::unordered_set<uint64_t>{});
+    ASSERT_TRUE(blob_file->GetLinkedSstFiles().empty());
+    ASSERT_TRUE(blob_file->GetUnlinkedSstFiles().empty());
     ASSERT_TRUE(blob_file->Obsolete());
   }
 }

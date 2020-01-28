@@ -41,9 +41,13 @@ class BlobFile {
   // after that
   uint64_t file_number_{0};
 
-  // The file numbers of the SST files whose oldest blob file reference
-  // points to this blob file.
+  // The file numbers of the SST files that have been linked to/unlinked from
+  // this blob file, respectively. Note that it is possible for the compaction
+  // notification that removes an SST <-> blob file link to arrive before the
+  // flush notification that establishes said link, hence the need for
+  // tracking these separately.
   std::unordered_set<uint64_t> linked_sst_files_;
+  std::unordered_set<uint64_t> unlinked_sst_files_;
 
   // Info log.
   Logger* info_log_{nullptr};
@@ -126,23 +130,50 @@ class BlobFile {
   // once the file is created, this never changes
   uint64_t BlobFileNumber() const { return file_number_; }
 
-  // Get the set of SST files whose oldest blob file reference points to
-  // this file.
+  // Get the set of SST files that have been linked to/unlinked from this
+  // blob file, respectively.
   const std::unordered_set<uint64_t>& GetLinkedSstFiles() const {
     return linked_sst_files_;
+  }
+
+  const std::unordered_set<uint64_t>& GetUnlinkedSstFiles() const {
+    return unlinked_sst_files_;
   }
 
   // Link an SST file whose oldest blob file reference points to this file.
   void LinkSstFile(uint64_t sst_file_number) {
     assert(linked_sst_files_.find(sst_file_number) == linked_sst_files_.end());
+
+    // Note: it is possible for an SST to be unlinked before it is linked due
+    // to OnFlushCompleted/OnCompactionCompleted notifications arriving out of
+    // order. If that happens, we simply remove the SST from the unlinked set
+    // here.
+
+    auto it = unlinked_sst_files_.find(sst_file_number);
+    if (it != unlinked_sst_files_.end()) {
+      unlinked_sst_files_.erase(it);
+      return;
+    }
+
     linked_sst_files_.insert(sst_file_number);
   }
 
   // Unlink an SST file whose oldest blob file reference points to this file.
   void UnlinkSstFile(uint64_t sst_file_number) {
+    assert(unlinked_sst_files_.find(sst_file_number) ==
+           unlinked_sst_files_.end());
+
+    // Note: it is possible for an SST to be unlinked before it is linked due
+    // to OnFlushCompleted/OnCompactionCompleted notifications arriving out of
+    // order. If that happens, we simply add the SST to the unlinked set here.
+
     auto it = linked_sst_files_.find(sst_file_number);
-    assert(it != linked_sst_files_.end());
-    linked_sst_files_.erase(it);
+    if (it != linked_sst_files_.end()) {
+      linked_sst_files_.erase(it);
+      return;
+    }
+
+    unlinked_sst_files_.insert(sst_file_number);
   }
 
   // the following functions are atomic, and don't need
