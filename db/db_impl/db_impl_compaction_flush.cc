@@ -3057,6 +3057,8 @@ void DBImpl::InstallSuperVersionAndScheduleWork(
     // may temporarily unlock and lock the mutex.
     NotifyOnFlushCompleted(cfd, mutable_cf_options, flush_jobs_info);
   }
+#else
+  (void)flush_jobs_info;
 #endif  // ROCKSDB_LITE
 
   // There may be a small data race here. The snapshot tricking bottommost
