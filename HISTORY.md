@@ -3,6 +3,7 @@
 ### Bug Fixes
 * Fix incorrect results while block-based table uses kHashSearch, together with Prev()/SeekForPrev().
 * Fix a bug that prevents opening a DB after two consecutive crash with TransactionDB, where the first crash recovers from a corrupted WAL with kPointInTimeRecovery but the second cannot.
+* Fixed issue #6316 that can cause a corruption of the MANIFEST file in the middle when writing to it fails due to no disk space.
 
 ## 6.7.0 (01/21/2020)
 ### Public API Change
