@@ -102,6 +102,13 @@ Status TableCache::GetTableReader(
                                                nullptr);
 
   RecordTick(ioptions_.statistics, NO_FILE_OPENS);
+  // LevelDB file
+  if (s.IsPathNotFound()) {
+    std::string leveldb_fname = Rocks2LevelTableFileName(fname);
+    s = ioptions_.fs->NewRandomAccessFile(leveldb_fname, file_options, &file,
+                                          nullptr);
+    RecordTick(ioptions_.statistics, NO_FILE_OPENS);
+  }
   if (s.ok()) {
     if (!sequential_mode && ioptions_.advise_random_on_open) {
       file->Hint(FSRandomAccessFile::kRandom);

@@ -3788,17 +3788,20 @@ Status VersionSet::ProcessManifestWrites(
         assert(!mutable_cf_options_ptrs.empty() &&
                builder_guards.size() == versions.size());
         ColumnFamilyData* cfd = versions[i]->cfd_;
-        builder_guards[i]->version_builder()->LoadTableHandlers(
+        s = builder_guards[i]->version_builder()->LoadTableHandlers(
             cfd->internal_stats(), cfd->ioptions()->optimize_filters_for_hits,
             true /* prefetch_index_and_filter_in_cache */,
             false /* is_initial_load */,
             mutable_cf_options_ptrs[i]->prefix_extractor.get());
+        if (!s.ok()) {
+          break;
+        }
       }
     }
 
     // This is fine because everything inside of this block is serialized --
     // only one thread can be here at the same time
-    if (new_descriptor_log) {
+    if (s.ok() && new_descriptor_log) {
       // create new manifest file
       ROCKS_LOG_INFO(db_options_->info_log, "Creating manifest %" PRIu64 "\n",
                      pending_manifest_file_number_);

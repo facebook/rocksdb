@@ -282,7 +282,7 @@ TEST_F(CuckooTableDBTest, SameKeyInsertedInTwoDifferentFilesAndCompacted) {
   }
 }
 
-TEST_F(CuckooTableDBTest, AdaptiveTable) {
+TEST_F(CuckooTableDBTest, DISABLED_AdaptiveTable) {
   Options options = CurrentOptions();
 
   // Ensure options compatible with PlainTable

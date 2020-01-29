@@ -401,19 +401,21 @@ TEST_P(PlainTableDBTest, BadOptions1) {
   // Bad attempt to re-open without a prefix extractor
   Options options = CurrentOptions();
   options.prefix_extractor.reset();
-  Reopen(&options);
+  Status s = TryReopen(&options);
+  ASSERT_TRUE(s.IsInvalidArgument());
   ASSERT_EQ(
       "Invalid argument: Prefix extractor is missing when opening a PlainTable "
       "built using a prefix extractor",
-      Get("1000000000000foo"));
+      s.ToString());
 
   // Bad attempt to re-open with different prefix extractor
   options.prefix_extractor.reset(NewFixedPrefixTransform(6));
-  Reopen(&options);
+  s = TryReopen(&options);
+  ASSERT_TRUE(s.IsInvalidArgument());
   ASSERT_EQ(
       "Invalid argument: Prefix extractor given doesn't match the one used to "
       "build PlainTable",
-      Get("1000000000000foo"));
+      s.ToString());
 
   // Correct prefix extractor
   options.prefix_extractor.reset(NewFixedPrefixTransform(8));
@@ -1310,7 +1312,7 @@ TEST_P(PlainTableDBTest, CompactionTrigger) {
   ASSERT_EQ(NumTableFilesAtLevel(1), 1);
 }
 
-TEST_P(PlainTableDBTest, AdaptiveTable) {
+TEST_P(PlainTableDBTest, DISABLED_AdaptiveTable) {
   Options options = CurrentOptions();
   options.create_if_missing = true;
 
