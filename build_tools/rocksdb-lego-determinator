@@ -414,7 +414,8 @@ STRESS_CRASH_TEST_COMMANDS="[
                 'shell':'$SHM $DEBUG $NON_TSAN_CRASH make J=1 crash_test || $CONTRUN_NAME=crash_test $TASK_CREATION_TOOL',
                 'user':'root',
                 $PARSER
-            }
+            },
+            $UPLOAD_DB_DIR,
         ],
         $REPORT
     }
@@ -542,6 +543,7 @@ ASAN_CRASH_TEST_COMMANDS="[
                 'user':'root',
                 $PARSER
             },
+            $UPLOAD_DB_DIR,
         ],
         $REPORT
     }
@@ -634,6 +636,7 @@ UBSAN_CRASH_TEST_COMMANDS="[
                 'user':'root',
                 $PARSER
             },
+            $UPLOAD_DB_DIR,
         ],
         $REPORT
     }
@@ -751,6 +754,7 @@ TSAN_CRASH_TEST_COMMANDS="[
                 'user':'root',
                 $PARSER
             },
+            $UPLOAD_DB_DIR,
         ],
         $REPORT
     }
@@ -1059,5 +1063,6 @@ case $1 in
     ;;
   *)
     echo "Invalid determinator command"
+    exit 1
     ;;
 esac
