@@ -34,10 +34,10 @@ struct BlobCompactionContextGC {
 class BlobIndexCompactionFilterBase : public CompactionFilter {
  public:
   BlobIndexCompactionFilterBase(BlobCompactionContext&& context,
-                                uint64_t current_time, Statistics* statistics)
+                                uint64_t current_time, Statistics* stats)
       : context_(std::move(context)),
         current_time_(current_time),
-        statistics_(statistics) {}
+        statistics_(stats) {}
 
   ~BlobIndexCompactionFilterBase() override {
     RecordTick(statistics_, BLOB_DB_BLOB_INDEX_EXPIRED_COUNT, expired_count_);
@@ -71,9 +71,9 @@ class BlobIndexCompactionFilterBase : public CompactionFilter {
 class BlobIndexCompactionFilter : public BlobIndexCompactionFilterBase {
  public:
   BlobIndexCompactionFilter(BlobCompactionContext&& context,
-                            uint64_t current_time, Statistics* statistics)
-      : BlobIndexCompactionFilterBase(std::move(context), current_time,
-                                      statistics) {}
+                            uint64_t current_time, Statistics* stats)
+      : BlobIndexCompactionFilterBase(std::move(context), current_time, stats) {
+  }
 
   const char* Name() const override { return "BlobIndexCompactionFilter"; }
 };
@@ -82,9 +82,8 @@ class BlobIndexCompactionFilterGC : public BlobIndexCompactionFilterBase {
  public:
   BlobIndexCompactionFilterGC(BlobCompactionContext&& context,
                               BlobCompactionContextGC&& context_gc,
-                              uint64_t current_time, Statistics* statistics)
-      : BlobIndexCompactionFilterBase(std::move(context), current_time,
-                                      statistics),
+                              uint64_t current_time, Statistics* stats)
+      : BlobIndexCompactionFilterBase(std::move(context), current_time, stats),
         context_gc_(std::move(context_gc)) {}
 
   ~BlobIndexCompactionFilterGC() override;
