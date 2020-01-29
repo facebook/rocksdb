@@ -207,7 +207,6 @@ Status ErrorHandler::SetBGError(const Status& bg_err, BackgroundErrorReason reas
   bool auto_recovery = auto_recovery_;
   if (new_bg_err.severity() >= Status::Severity::kFatalError && auto_recovery) {
     auto_recovery = false;
-    ;
   }
 
   // Allow some error specific overrides

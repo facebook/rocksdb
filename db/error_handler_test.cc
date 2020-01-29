@@ -22,6 +22,21 @@ namespace rocksdb {
 class DBErrorHandlingTest : public DBTestBase {
  public:
   DBErrorHandlingTest() : DBTestBase("/db_error_handling_test") {}
+
+  std::string GetManifestNameFromLiveFiles() {
+    std::vector<std::string> live_files;
+    uint64_t manifest_size;
+
+    dbfull()->GetLiveFiles(live_files, &manifest_size, false);
+    for (auto& file : live_files) {
+      uint64_t num = 0;
+      FileType type;
+      if (ParseFileName(file, &num, &type) && type == kDescriptorFile) {
+        return file;
+      }
+    }
+    return "";
+  }
 };
 
 class DBErrorHandlingEnv : public EnvWrapper {
@@ -170,20 +185,12 @@ TEST_F(DBErrorHandlingTest, ManifestWriteError) {
   options.env = fault_env.get();
   options.listeners.emplace_back(listener);
   Status s;
-  std::vector<std::string> live_files;
   std::string old_manifest;
   std::string new_manifest;
-  uint64_t manifest_size;
 
   listener->EnableAutoRecovery(false);
   DestroyAndReopen(options);
-  ASSERT_OK(dbfull()->GetLiveFiles(live_files, &manifest_size, false));
-  for (auto& file : live_files) {
-    if (file.find("MANIFEST") != std::string::npos) {
-      old_manifest = file;
-      break;
-    }
-  }
+  old_manifest = GetManifestNameFromLiveFiles();
 
   Put(Key(0), "val");
   Flush();
@@ -200,18 +207,14 @@ TEST_F(DBErrorHandlingTest, ManifestWriteError) {
   fault_env->SetFilesystemActive(true);
   s = dbfull()->Resume();
   ASSERT_EQ(s, Status::OK());
-  ASSERT_OK(dbfull()->GetLiveFiles(live_files, &manifest_size, false));
-  for (auto& file : live_files) {
-    if (file.find("MANIFEST") != std::string::npos) {
-      new_manifest = file;
-      break;
-    }
-  }
+
+  new_manifest = GetManifestNameFromLiveFiles();
   ASSERT_NE(new_manifest, old_manifest);
 
   Reopen(options);
   ASSERT_EQ("val", Get(Key(0)));
-  Destroy(options);
+  ASSERT_EQ("val", Get(Key(1)));
+  Close();
 }
 
 TEST_F(DBErrorHandlingTest, DoubleManifestWriteError) {
@@ -223,20 +226,12 @@ TEST_F(DBErrorHandlingTest, DoubleManifestWriteError) {
   options.env = fault_env.get();
   options.listeners.emplace_back(listener);
   Status s;
-  std::vector<std::string> live_files;
   std::string old_manifest;
   std::string new_manifest;
-  uint64_t manifest_size;
 
   listener->EnableAutoRecovery(false);
   DestroyAndReopen(options);
-  ASSERT_OK(dbfull()->GetLiveFiles(live_files, &manifest_size, false));
-  for (auto& file : live_files) {
-    if (file.find("MANIFEST") != std::string::npos) {
-      old_manifest = file;
-      break;
-    }
-  }
+  old_manifest = GetManifestNameFromLiveFiles();
 
   Put(Key(0), "val");
   Flush();
@@ -260,18 +255,14 @@ TEST_F(DBErrorHandlingTest, DoubleManifestWriteError) {
   // A successful Resume() will create a new manifest file
   s = dbfull()->Resume();
   ASSERT_EQ(s, Status::OK());
-  ASSERT_OK(dbfull()->GetLiveFiles(live_files, &manifest_size, false));
-  for (auto& file : live_files) {
-    if (file.find("MANIFEST") != std::string::npos) {
-      new_manifest = file;
-      break;
-    }
-  }
+
+  new_manifest = GetManifestNameFromLiveFiles();
   ASSERT_NE(new_manifest, old_manifest);
 
   Reopen(options);
   ASSERT_EQ("val", Get(Key(0)));
-  Destroy(options);
+  ASSERT_EQ("val", Get(Key(1)));
+  Close();
 }
 
 TEST_F(DBErrorHandlingTest, CompactionManifestWriteError) {
@@ -284,20 +275,11 @@ TEST_F(DBErrorHandlingTest, CompactionManifestWriteError) {
   options.listeners.emplace_back(listener);
   options.env = fault_env.get();
   Status s;
-  std::vector<std::string> live_files;
   std::string old_manifest;
   std::string new_manifest;
-  uint64_t manifest_size;
   std::atomic<bool> fail_manifest(false);
   DestroyAndReopen(options);
-
-  ASSERT_OK(dbfull()->GetLiveFiles(live_files, &manifest_size, false));
-  for (auto& file : live_files) {
-    if (file.find("MANIFEST") != std::string::npos) {
-      old_manifest = file;
-      break;
-    }
-  }
+  old_manifest = GetManifestNameFromLiveFiles();
 
   Put(Key(0), "val");
   Put(Key(2), "val");
@@ -347,17 +329,14 @@ TEST_F(DBErrorHandlingTest, CompactionManifestWriteError) {
   s = dbfull()->TEST_WaitForCompact();
   rocksdb::SyncPoint::GetInstance()->DisableProcessing();
   ASSERT_EQ(s, Status::OK());
-  ASSERT_OK(dbfull()->GetLiveFiles(live_files, &manifest_size, false));
-  for (auto& file : live_files) {
-    if (file.find("MANIFEST") != std::string::npos) {
-      new_manifest = file;
-      break;
-    }
-  }
+
+  new_manifest = GetManifestNameFromLiveFiles();
   ASSERT_NE(new_manifest, old_manifest);
   Reopen(options);
   ASSERT_EQ("val", Get(Key(0)));
-  Destroy(options);
+  ASSERT_EQ("val", Get(Key(1)));
+  ASSERT_EQ("val", Get(Key(2)));
+  Close();
 }
 
 TEST_F(DBErrorHandlingTest, CompactionWriteError) {
