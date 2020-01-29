@@ -932,7 +932,8 @@ Status DBImpl::SetOptions(
       // Trigger possible flush/compactions. This has to be before we persist
       // options to file, otherwise there will be a deadlock with writer
       // thread.
-      InstallSuperVersionAndScheduleWork(cfd, &sv_context, new_options);
+      InstallSuperVersionAndScheduleWork(cfd, &sv_context, new_options,
+                                         nullptr);
 
       persist_options_status = WriteOptionsFile(
           false /*need_mutex_lock*/, true /*need_enter_write_thread*/);
@@ -2309,7 +2310,8 @@ Status DBImpl::CreateColumnFamilyImpl(const ColumnFamilyOptions& cf_options,
           versions_->GetColumnFamilySet()->GetColumnFamily(column_family_name);
       assert(cfd != nullptr);
       InstallSuperVersionAndScheduleWork(cfd, &sv_context,
-                                         *cfd->GetLatestMutableCFOptions());
+                                         *cfd->GetLatestMutableCFOptions(),
+                                         nullptr);
 
       if (!cfd->mem()->IsSnapshotSupported()) {
         is_snapshot_supported_ = false;
@@ -3178,7 +3180,8 @@ Status DBImpl::DeleteFile(std::string name) {
     if (status.ok()) {
       InstallSuperVersionAndScheduleWork(cfd,
                                          &job_context.superversion_contexts[0],
-                                         *cfd->GetLatestMutableCFOptions());
+                                         *cfd->GetLatestMutableCFOptions(),
+                                         nullptr);
     }
     FindObsoleteFiles(&job_context, false);
   }  // lock released here
@@ -3263,7 +3266,8 @@ Status DBImpl::DeleteFilesInRanges(ColumnFamilyHandle* column_family,
     if (status.ok()) {
       InstallSuperVersionAndScheduleWork(cfd,
                                          &job_context.superversion_contexts[0],
-                                         *cfd->GetLatestMutableCFOptions());
+                                         *cfd->GetLatestMutableCFOptions(),
+                                         nullptr);
     }
     for (auto* deleted_file : deleted_files) {
       deleted_file->being_compacted = false;
@@ -4146,7 +4150,8 @@ Status DBImpl::IngestExternalFiles(
             static_cast<ColumnFamilyHandleImpl*>(args[i].column_family)->cfd();
         if (!cfd->IsDropped()) {
           InstallSuperVersionAndScheduleWork(cfd, &sv_ctxs[i],
-                                             *cfd->GetLatestMutableCFOptions());
+                                             *cfd->GetLatestMutableCFOptions(),
+                                             nullptr);
 #ifndef NDEBUG
           if (0 == i && num_cfs > 1) {
             TEST_SYNC_POINT(
@@ -4248,7 +4253,8 @@ Status DBImpl::CreateColumnFamilyWithImport(
       status = versions_->LogAndApply(cfd, *cf_options, &dummy_edit, &mutex_,
                                       directories_.GetDbDir());
       if (status.ok()) {
-        InstallSuperVersionAndScheduleWork(cfd, &dummy_sv_ctx, *cf_options);
+        InstallSuperVersionAndScheduleWork(cfd, &dummy_sv_ctx, *cf_options,
+                                           nullptr);
       }
     }
   }
@@ -4284,7 +4290,8 @@ Status DBImpl::CreateColumnFamilyWithImport(
         status = versions_->LogAndApply(cfd, *cf_options, import_job.edit(),
                                         &mutex_, directories_.GetDbDir());
         if (status.ok()) {
-          InstallSuperVersionAndScheduleWork(cfd, &sv_context, *cf_options);
+          InstallSuperVersionAndScheduleWork(cfd, &sv_context, *cf_options,
+                                             nullptr);
         }
       }
 
@@ -4485,7 +4492,8 @@ Status DBImpl::ReserveFileNumbersBeforeIngestion(
   s = versions_->LogAndApply(cfd, *cf_options, &dummy_edit, &mutex_,
                              directories_.GetDbDir());
   if (s.ok()) {
-    InstallSuperVersionAndScheduleWork(cfd, &dummy_sv_ctx, *cf_options);
+    InstallSuperVersionAndScheduleWork(cfd, &dummy_sv_ctx, *cf_options,
+                                       nullptr);
   }
   dummy_sv_ctx.Clean();
   return s;

@@ -137,7 +137,8 @@ Status DBImpl::PromoteL0(ColumnFamilyHandle* column_family, int target_level) {
     if (status.ok()) {
       InstallSuperVersionAndScheduleWork(cfd,
                                          &job_context.superversion_contexts[0],
-                                         *cfd->GetLatestMutableCFOptions());
+                                         *cfd->GetLatestMutableCFOptions(),
+                                         nullptr);
     }
   }  // lock released here
   LogFlush(immutable_db_options_.info_log);

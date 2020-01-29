@@ -194,8 +194,15 @@ Status DBImpl::FlushMemTableToOutputFile(
   }
 
   if (s.ok()) {
+#ifndef ROCKSDB_LITE
     InstallSuperVersionAndScheduleWork(cfd, superversion_context,
-                                       mutable_cf_options);
+                                       mutable_cf_options,
+                                       flush_job.GetCommittedFlushJobsInfo());
+#else
+    InstallSuperVersionAndScheduleWork(cfd, superversion_context,
+                                       mutable_cf_options,
+                                       nullptr);
+#endif  // ROCKSDB_LITE
     if (made_progress) {
       *made_progress = true;
     }
@@ -211,9 +218,6 @@ Status DBImpl::FlushMemTableToOutputFile(
   }
   if (s.ok()) {
 #ifndef ROCKSDB_LITE
-    // may temporarily unlock and lock the mutex.
-    NotifyOnFlushCompleted(cfd, mutable_cf_options,
-                           flush_job.GetCommittedFlushJobsInfo());
     auto sfm = static_cast<SstFileManagerImpl*>(
         immutable_db_options_.sst_file_manager.get());
     if (sfm) {
@@ -489,9 +493,17 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
       if (cfds[i]->IsDropped()) {
         continue;
       }
+#ifndef ROCKSDB_LITE
       InstallSuperVersionAndScheduleWork(cfds[i],
                                          &job_context->superversion_contexts[i],
-                                         all_mutable_cf_options[i]);
+                                         all_mutable_cf_options[i],
+                                         jobs[i]->GetCommittedFlushJobsInfo());
+#else
+      InstallSuperVersionAndScheduleWork(cfds[i],
+                                         &job_context->superversion_contexts[i],
+                                         all_mutable_cf_options[i],
+                                         nullptr);
+#endif  // ROCKSDB_LITE
       VersionStorageInfo::LevelSummaryStorage tmp;
       ROCKS_LOG_BUFFER(log_buffer, "[%s] Level summary: %s\n",
                        cfds[i]->GetName().c_str(),
@@ -508,8 +520,6 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
       if (cfds[i]->IsDropped()) {
         continue;
       }
-      NotifyOnFlushCompleted(cfds[i], all_mutable_cf_options[i],
-                             jobs[i]->GetCommittedFlushJobsInfo());
       if (sfm) {
         std::string file_path = MakeTableFileName(
             cfds[i]->ioptions()->cf_paths[0].path, file_meta[i].fd.GetNumber());
@@ -998,7 +1008,7 @@ Status DBImpl::CompactFilesImpl(
   if (status.ok()) {
     InstallSuperVersionAndScheduleWork(c->column_family_data(),
                                        &job_context->superversion_contexts[0],
-                                       *c->mutable_cf_options());
+                                       *c->mutable_cf_options(), nullptr);
   }
   c->ReleaseCompactionFiles(s);
 #ifndef ROCKSDB_LITE
@@ -1265,7 +1275,8 @@ Status DBImpl::ReFitLevel(ColumnFamilyData* cfd, int level, int target_level) {
 
     status = versions_->LogAndApply(cfd, mutable_cf_options, &edit, &mutex_,
                                     directories_.GetDbDir());
-    InstallSuperVersionAndScheduleWork(cfd, &sv_context, mutable_cf_options);
+    InstallSuperVersionAndScheduleWork(cfd, &sv_context, mutable_cf_options,
+                                       nullptr);
 
     ROCKS_LOG_DEBUG(immutable_db_options_.info_log, "[%s] LogAndApply: %s\n",
                     cfd->GetName().c_str(), status.ToString().data());
@@ -2630,7 +2641,7 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
                                     &mutex_, directories_.GetDbDir());
     InstallSuperVersionAndScheduleWork(c->column_family_data(),
                                        &job_context->superversion_contexts[0],
-                                       *c->mutable_cf_options());
+                                       *c->mutable_cf_options(), nullptr);
     ROCKS_LOG_BUFFER(log_buffer, "[%s] Deleted %d files\n",
                      c->column_family_data()->GetName().c_str(),
                      c->num_input_files(0));
@@ -2686,7 +2697,7 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
     // Use latest MutableCFOptions
     InstallSuperVersionAndScheduleWork(c->column_family_data(),
                                        &job_context->superversion_contexts[0],
-                                       *c->mutable_cf_options());
+                                       *c->mutable_cf_options(), nullptr);
 
     VersionStorageInfo::LevelSummaryStorage tmp;
     c->column_family_data()->internal_stats()->IncBytesMoved(c->output_level(),
@@ -2772,7 +2783,7 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
     if (status.ok()) {
       InstallSuperVersionAndScheduleWork(c->column_family_data(),
                                          &job_context->superversion_contexts[0],
-                                         *c->mutable_cf_options());
+                                         *c->mutable_cf_options(), nullptr);
     }
     *made_progress = true;
     TEST_SYNC_POINT_CALLBACK("DBImpl::BackgroundCompaction:AfterCompaction",
@@ -3019,7 +3030,8 @@ void DBImpl::BuildCompactionJobInfo(
 
 void DBImpl::InstallSuperVersionAndScheduleWork(
     ColumnFamilyData* cfd, SuperVersionContext* sv_context,
-    const MutableCFOptions& mutable_cf_options) {
+    const MutableCFOptions& mutable_cf_options,
+    std::list<std::unique_ptr<FlushJobInfo>>* flush_jobs_info) {
   mutex_.AssertHeld();
 
   // Update max_total_in_memory_state_
@@ -3035,6 +3047,17 @@ void DBImpl::InstallSuperVersionAndScheduleWork(
     sv_context->NewSuperVersion();
   }
   cfd->InstallSuperVersion(sv_context, &mutex_, mutable_cf_options);
+
+#ifndef ROCKSDB_LITE
+  // Notify flush completed before triggering compactions.
+  // Make sure OnFlushCompleted for a sst file is called before involving in
+  // any compaction, which guarantees OnCompactionBegin/Completed is called
+  // subsequently.
+  if (flush_jobs_info) {
+    // may temporarily unlock and lock the mutex.
+    NotifyOnFlushCompleted(cfd, mutable_cf_options, flush_jobs_info);
+  }
+#endif  // ROCKSDB_LITE
 
   // There may be a small data race here. The snapshot tricking bottommost
   // compaction may already be released here. But assuming there will always be

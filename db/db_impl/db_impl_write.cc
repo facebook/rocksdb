@@ -1734,7 +1734,7 @@ Status DBImpl::SwitchMemtable(ColumnFamilyData* cfd, WriteContext* context) {
   new_mem->Ref();
   cfd->SetMemtable(new_mem);
   InstallSuperVersionAndScheduleWork(cfd, &context->superversion_context,
-                                     mutable_cf_options);
+                                     mutable_cf_options, nullptr);
 #ifndef ROCKSDB_LITE
   mutex_.Unlock();
   // Notify client that memtable is sealed, now that we have successfully

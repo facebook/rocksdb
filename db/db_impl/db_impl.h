@@ -1608,7 +1608,8 @@ class DBImpl : public DB {
   // state needs flush or compaction.
   void InstallSuperVersionAndScheduleWork(
       ColumnFamilyData* cfd, SuperVersionContext* sv_context,
-      const MutableCFOptions& mutable_cf_options);
+      const MutableCFOptions& mutable_cf_options,
+      std::list<std::unique_ptr<FlushJobInfo>>* flush_jobs_info);
 
   bool GetIntPropertyInternal(ColumnFamilyData* cfd,
                               const DBPropertyInfo& property_info,

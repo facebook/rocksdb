@@ -1443,7 +1443,7 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
       SuperVersionContext sv_context(/* create_superversion */ true);
       for (auto cfd : *impl->versions_->GetColumnFamilySet()) {
         impl->InstallSuperVersionAndScheduleWork(
-            cfd, &sv_context, *cfd->GetLatestMutableCFOptions());
+            cfd, &sv_context, *cfd->GetLatestMutableCFOptions(), nullptr);
       }
       sv_context.Clean();
       if (impl->two_write_queues_) {
