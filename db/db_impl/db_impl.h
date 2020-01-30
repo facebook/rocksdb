@@ -1609,7 +1609,7 @@ class DBImpl : public DB {
   void InstallSuperVersionAndScheduleWork(
       ColumnFamilyData* cfd, SuperVersionContext* sv_context,
       const MutableCFOptions& mutable_cf_options,
-      std::list<std::unique_ptr<FlushJobInfo>>* flush_jobs_info);
+      std::function<void()> completion_callback);
 
   bool GetIntPropertyInternal(ColumnFamilyData* cfd,
                               const DBPropertyInfo& property_info,
@@ -2064,6 +2064,15 @@ class DBImpl : public DB {
   InstrumentedCondVar atomic_flush_install_cv_;
 
   bool wal_in_db_path_;
+
+  // Next notification id for completion listeners.
+  uint64_t next_notification_id_;
+  // Completion listeners queue.
+  std::deque<uint64_t> notification_queue_;
+  // Completion listener needs to wait on this cv until its turn.
+  std::condition_variable notification_cv_;
+  // The mutex is used by notification_cv_ and protecting notification_queue_.
+  std::mutex notification_mutex_;
 };
 
 extern Options SanitizeOptions(const std::string& db, const Options& src);

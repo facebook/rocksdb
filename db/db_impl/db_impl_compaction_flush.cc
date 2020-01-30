@@ -194,15 +194,13 @@ Status DBImpl::FlushMemTableToOutputFile(
   }
 
   if (s.ok()) {
+    std::function<void()> callback = nullptr;
 #ifndef ROCKSDB_LITE
-    InstallSuperVersionAndScheduleWork(cfd, superversion_context,
-                                       mutable_cf_options,
-                                       flush_job.GetCommittedFlushJobsInfo());
-#else
-    InstallSuperVersionAndScheduleWork(cfd, superversion_context,
-                                       mutable_cf_options,
-                                       nullptr);
+    callback = std::bind(&DBImpl::NotifyOnFlushCompleted, this, cfd,
+        mutable_cf_options, flush_job.GetCommittedFlushJobsInfo());
 #endif  // ROCKSDB_LITE
+    InstallSuperVersionAndScheduleWork(cfd, superversion_context,
+                                       mutable_cf_options, callback);
     if (made_progress) {
       *made_progress = true;
     }
@@ -493,17 +491,15 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
       if (cfds[i]->IsDropped()) {
         continue;
       }
+      std::function<void()> callback = nullptr;
 #ifndef ROCKSDB_LITE
-      InstallSuperVersionAndScheduleWork(cfds[i],
-                                         &job_context->superversion_contexts[i],
-                                         all_mutable_cf_options[i],
-                                         jobs[i]->GetCommittedFlushJobsInfo());
-#else
-      InstallSuperVersionAndScheduleWork(cfds[i],
-                                         &job_context->superversion_contexts[i],
-                                         all_mutable_cf_options[i],
-                                         nullptr);
+      callback = std::bind(&DBImpl::NotifyOnFlushCompleted, this, cfds[i],
+          all_mutable_cf_options[i], jobs[i]->GetCommittedFlushJobsInfo());
 #endif  // ROCKSDB_LITE
+      InstallSuperVersionAndScheduleWork(cfds[i],
+                                         &job_context->superversion_contexts[i],
+                                         all_mutable_cf_options[i],
+                                         callback);
       VersionStorageInfo::LevelSummaryStorage tmp;
       ROCKS_LOG_BUFFER(log_buffer, "[%s] Level summary: %s\n",
                        cfds[i]->GetName().c_str(),
@@ -629,18 +625,30 @@ void DBImpl::NotifyOnFlushCompleted(
   bool triggered_writes_stop =
       (cfd->current()->storage_info()->NumLevelFiles(0) >=
        mutable_cf_options.level0_stop_writes_trigger);
-  // release lock while notifying events
-  mutex_.Unlock();
   {
-    for (auto& info : *flush_jobs_info) {
-      info->triggered_writes_slowdown = triggered_writes_slowdown;
-      info->triggered_writes_stop = triggered_writes_stop;
-      for (auto listener : immutable_db_options_.listeners) {
-        listener->OnFlushCompleted(this, *info);
+    std::unique_lock<std::mutex> nlock(notification_mutex_);
+    uint64_t nid = next_notification_id_++;
+    notification_queue_.push_back(nid);
+    // release lock while notifying events
+    mutex_.Unlock();
+    // triggers completion notifications in turn
+    notification_cv_.wait(nlock,
+          [this, nid] { return *notification_queue_.begin() == nid; });
+    nlock.unlock();
+    {
+      for (auto& info : *flush_jobs_info) {
+        info->triggered_writes_slowdown = triggered_writes_slowdown;
+        info->triggered_writes_stop = triggered_writes_stop;
+        for (auto listener : immutable_db_options_.listeners) {
+          listener->OnFlushCompleted(this, *info);
+        }
       }
+      flush_jobs_info->clear();
     }
-    flush_jobs_info->clear();
+    nlock.lock();
+    notification_queue_.pop_front();
   }
+  notification_cv_.notify_all();
   mutex_.Lock();
   // no need to signal bg_cv_ as it will be signaled at the end of the
   // flush process.
@@ -1187,17 +1195,29 @@ void DBImpl::NotifyOnCompactionCompleted(
   }
   Version* current = cfd->current();
   current->Ref();
-  // release lock while notifying events
-  mutex_.Unlock();
-  TEST_SYNC_POINT("DBImpl::NotifyOnCompactionCompleted::UnlockMutex");
   {
-    CompactionJobInfo info{};
-    BuildCompactionJobInfo(cfd, c, st, compaction_job_stats, job_id, current,
-                           &info);
-    for (auto listener : immutable_db_options_.listeners) {
-      listener->OnCompactionCompleted(this, info);
+    std::unique_lock<std::mutex> nlock(notification_mutex_);
+    uint64_t nid = next_notification_id_++;
+    notification_queue_.push_back(nid);
+    // release lock while notifying events
+    mutex_.Unlock();
+    TEST_SYNC_POINT("DBImpl::NotifyOnCompactionCompleted::UnlockMutex");
+    // triggers completion notifications in turn
+    notification_cv_.wait(nlock,
+          [this, nid] { return *notification_queue_.begin() == nid; });
+    nlock.unlock();
+    {
+      CompactionJobInfo info{};
+      BuildCompactionJobInfo(cfd, c, st, compaction_job_stats, job_id, current,
+                             &info);
+      for (auto listener : immutable_db_options_.listeners) {
+        listener->OnCompactionCompleted(this, info);
+      }
     }
+    nlock.lock();
+    notification_queue_.pop_front();
   }
+  notification_cv_.notify_all();
   mutex_.Lock();
   current->Unref();
   // no need to signal bg_cv_ as it will be signaled at the end of the
@@ -2639,9 +2659,12 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
     status = versions_->LogAndApply(c->column_family_data(),
                                     *c->mutable_cf_options(), c->edit(),
                                     &mutex_, directories_.GetDbDir());
+    auto callback = std::bind(&DBImpl::NotifyOnCompactionCompleted, this,
+        c->column_family_data(), c.get(), status, compaction_job_stats,
+        job_context->job_id);
     InstallSuperVersionAndScheduleWork(c->column_family_data(),
                                        &job_context->superversion_contexts[0],
-                                       *c->mutable_cf_options(), nullptr);
+                                       *c->mutable_cf_options(), callback);
     ROCKS_LOG_BUFFER(log_buffer, "[%s] Deleted %d files\n",
                      c->column_family_data()->GetName().c_str(),
                      c->num_input_files(0));
@@ -2694,10 +2717,13 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
     status = versions_->LogAndApply(c->column_family_data(),
                                     *c->mutable_cf_options(), c->edit(),
                                     &mutex_, directories_.GetDbDir());
+    auto callback = std::bind(&DBImpl::NotifyOnCompactionCompleted, this,
+        c->column_family_data(), c.get(), status, compaction_job_stats,
+        job_context->job_id);
     // Use latest MutableCFOptions
     InstallSuperVersionAndScheduleWork(c->column_family_data(),
                                        &job_context->superversion_contexts[0],
-                                       *c->mutable_cf_options(), nullptr);
+                                       *c->mutable_cf_options(), callback);
 
     VersionStorageInfo::LevelSummaryStorage tmp;
     c->column_family_data()->internal_stats()->IncBytesMoved(c->output_level(),
@@ -2780,10 +2806,15 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
     mutex_.Lock();
 
     status = compaction_job.Install(*c->mutable_cf_options());
+    auto callback = std::bind(&DBImpl::NotifyOnCompactionCompleted, this,
+        c->column_family_data(), c.get(), status, compaction_job_stats,
+        job_context->job_id);
     if (status.ok()) {
       InstallSuperVersionAndScheduleWork(c->column_family_data(),
                                          &job_context->superversion_contexts[0],
-                                         *c->mutable_cf_options(), nullptr);
+                                         *c->mutable_cf_options(), callback);
+    } else {
+      callback();
     }
     *made_progress = true;
     TEST_SYNC_POINT_CALLBACK("DBImpl::BackgroundCompaction:AfterCompaction",
@@ -2801,9 +2832,6 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
       sfm->OnCompactionCompletion(c.get());
     }
 #endif  // ROCKSDB_LITE
-
-    NotifyOnCompactionCompleted(c->column_family_data(), c.get(), status,
-                                compaction_job_stats, job_context->job_id);
   }
 
   if (status.ok() || status.IsCompactionTooLarge() ||
@@ -3031,7 +3059,7 @@ void DBImpl::BuildCompactionJobInfo(
 void DBImpl::InstallSuperVersionAndScheduleWork(
     ColumnFamilyData* cfd, SuperVersionContext* sv_context,
     const MutableCFOptions& mutable_cf_options,
-    std::list<std::unique_ptr<FlushJobInfo>>* flush_jobs_info) {
+    std::function<void()> completion_callback) {
   mutex_.AssertHeld();
 
   // Update max_total_in_memory_state_
@@ -3048,18 +3076,12 @@ void DBImpl::InstallSuperVersionAndScheduleWork(
   }
   cfd->InstallSuperVersion(sv_context, &mutex_, mutable_cf_options);
 
-#ifndef ROCKSDB_LITE
-  // Notify flush completed before triggering compactions.
-  // Make sure OnFlushCompleted for a sst file is called before involving in
-  // any compaction, which guarantees OnCompactionBegin/Completed is called
-  // subsequently.
-  if (flush_jobs_info) {
-    // may temporarily unlock and lock the mutex.
-    NotifyOnFlushCompleted(cfd, mutable_cf_options, flush_jobs_info);
+  // Install super version compaction callback for notifying OnFlushCompleted
+  // or OnCompactionCompleted. Notification triggers before scheduling any new
+  // compaction.
+  if (completion_callback) {
+    completion_callback();
   }
-#else
-  (void)flush_jobs_info;
-#endif  // ROCKSDB_LITE
 
   // There may be a small data race here. The snapshot tricking bottommost
   // compaction may already be released here. But assuming there will always be
