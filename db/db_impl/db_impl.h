@@ -1124,6 +1124,8 @@ class DBImpl : public DB {
 
   virtual bool OwnTablesAndLogs() const { return true; }
 
+  Status CleanupFilesAfterRecovery();
+
  private:
   friend class DB;
   friend class ErrorHandler;

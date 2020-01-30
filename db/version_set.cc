@@ -4668,15 +4668,10 @@ ManifestPicker::ManifestPicker(const std::string& dbname, FileSystem* fs) {
 #endif
               return !(num1 <= num2);
             });
-#ifdef OS_WIN
-  const char kPathSeparator = '\\';
-#else
-  const char kPathSeparator = '/';
-#endif
   for (const auto& fname : manifest_fnames) {
     std::string full_path(dbname);
-    if (full_path.back() != kPathSeparator) {
-      full_path.push_back(kPathSeparator);
+    if (full_path.back() != kFilePathSeparator) {
+      full_path.push_back(kFilePathSeparator);
     }
     full_path.append(fname);
     manifest_files_.push_back(full_path);
@@ -4714,7 +4709,18 @@ Status VersionSet::TryRecover(
     manifest_path = manifest_picker.GetNextManifest();
   }
   if (s.ok()) {
-    // TODO load table readers.
+    for (ColumnFamilyData* cfd : *column_family_set_) {
+      std::unique_ptr<BaseReferencedVersionBuilder> builder(
+          new BaseReferencedVersionBuilder(cfd));
+      s = builder->version_builder()->LoadTableHandlers(
+          cfd->internal_stats(), db_options_->max_file_opening_threads,
+          /*prefetch_index_and_filter_in_cache=*/false,
+          /*is_initial_load=*/true,
+          cfd->GetLatestMutableCFOptions()->prefix_extractor.get());
+      if (!s.ok()) {
+        break;
+      }
+    }
   }
   return s;
 }
