@@ -213,8 +213,11 @@ ifneq ($(DEBUG_LEVEL),0)
 	JAVAC_ARGS = -Xlint:deprecation -Xlint:unchecked
 endif
 
-SEARCH_REPO_URL?=http://search.maven.org/remotecontent?filepath=
-CENTRAL_REPO_URL?=https://repo1.maven.org/maven2/
+# This is a URL for artifacts from a "fake" release on pdillinger's fork,
+# so as not to put binaries in git (ew). We should move to hosting these
+# under the facebook account on github, or something else more reliable
+# than maven.org, which has been failing frequently from Travis.
+DEPS_URL?=https://github.com/pdillinger/rocksdb/releases/download/v6.6.x-java-deps
 
 clean: clean-not-downloaded clean-downloaded
 
@@ -283,11 +286,11 @@ optimistic_transaction_sample: java
 
 resolve_test_deps:
 	test -d "$(JAVA_TEST_LIBDIR)" || mkdir -p "$(JAVA_TEST_LIBDIR)"
-	test -s "$(JAVA_JUNIT_JAR)" || cp $(MVN_LOCAL)/junit/junit/4.12/junit-4.12.jar $(JAVA_TEST_LIBDIR) || curl -k -L -o $(JAVA_JUNIT_JAR) $(SEARCH_REPO_URL)junit/junit/4.12/junit-4.12.jar
-	test -s "$(JAVA_HAMCR_JAR)" || cp $(MVN_LOCAL)/org/hamcrest/hamcrest-core/1.3/hamcrest-core-1.3.jar $(JAVA_TEST_LIBDIR) || curl -k -L -o $(JAVA_HAMCR_JAR) $(SEARCH_REPO_URL)org/hamcrest/hamcrest-core/1.3/hamcrest-core-1.3.jar
-	test -s "$(JAVA_MOCKITO_JAR)" || cp $(MVN_LOCAL)/org/mockito/mockito-all/1.10.19/mockito-all-1.10.19.jar $(JAVA_TEST_LIBDIR) || curl -k -L -o "$(JAVA_MOCKITO_JAR)" $(SEARCH_REPO_URL)org/mockito/mockito-all/1.10.19/mockito-all-1.10.19.jar
-	test -s "$(JAVA_CGLIB_JAR)" || cp $(MVN_LOCAL)/cglib/cglib/2.2.2/cglib-2.2.2.jar $(JAVA_TEST_LIBDIR) || curl -k -L -o "$(JAVA_CGLIB_JAR)" $(SEARCH_REPO_URL)cglib/cglib/2.2.2/cglib-2.2.2.jar
-	test -s "$(JAVA_ASSERTJ_JAR)" || cp $(MVN_LOCAL)/org/assertj/assertj-core/1.7.1/assertj-core-1.7.1.jar $(JAVA_TEST_LIBDIR) || curl -k -L -o "$(JAVA_ASSERTJ_JAR)" $(CENTRAL_REPO_URL)org/assertj/assertj-core/1.7.1/assertj-core-1.7.1.jar
+	test -s "$(JAVA_JUNIT_JAR)" || cp $(MVN_LOCAL)/junit/junit/4.12/junit-4.12.jar $(JAVA_TEST_LIBDIR) || curl --fail --insecure --output $(JAVA_JUNIT_JAR) --location $(DEPS_URL)/junit-4.12.jar
+	test -s "$(JAVA_HAMCR_JAR)" || cp $(MVN_LOCAL)/org/hamcrest/hamcrest-core/1.3/hamcrest-core-1.3.jar $(JAVA_TEST_LIBDIR) || curl --fail --insecure --output $(JAVA_HAMCR_JAR) --location $(DEPS_URL)/hamcrest-core-1.3.jar
+	test -s "$(JAVA_MOCKITO_JAR)" || cp $(MVN_LOCAL)/org/mockito/mockito-all/1.10.19/mockito-all-1.10.19.jar $(JAVA_TEST_LIBDIR) || curl --fail --insecure --output "$(JAVA_MOCKITO_JAR)" --location $(DEPS_URL)/mockito-all-1.10.19.jar
+	test -s "$(JAVA_CGLIB_JAR)" || cp $(MVN_LOCAL)/cglib/cglib/2.2.2/cglib-2.2.2.jar $(JAVA_TEST_LIBDIR) || curl --fail --insecure --output "$(JAVA_CGLIB_JAR)" --location $(DEPS_URL)/cglib-2.2.2.jar
+	test -s "$(JAVA_ASSERTJ_JAR)" || cp $(MVN_LOCAL)/org/assertj/assertj-core/1.7.1/assertj-core-1.7.1.jar $(JAVA_TEST_LIBDIR) || curl --fail --insecure --output "$(JAVA_ASSERTJ_JAR)" --location $(DEPS_URL)/assertj-core-1.7.1.jar
 
 java_test: java resolve_test_deps
 	$(AM_V_GEN)mkdir -p $(TEST_CLASSES)
