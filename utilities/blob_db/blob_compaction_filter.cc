@@ -8,6 +8,8 @@
 #include "utilities/blob_db/blob_compaction_filter.h"
 #include "db/dbformat.h"
 
+#include <cinttypes>
+
 namespace rocksdb {
 namespace blob_db {
 
@@ -54,6 +56,30 @@ CompactionFilter::Decision BlobIndexCompactionFilterBase::FilterV2(
   return Decision::kKeep;
 }
 
+BlobIndexCompactionFilterGC::~BlobIndexCompactionFilterGC() {
+  if (blob_file_) {
+    CloseAndRegisterNewBlobFile();
+  }
+
+  assert(context_gc_.blob_db_impl);
+
+  ROCKS_LOG_INFO(context_gc_.blob_db_impl->db_options_.info_log,
+                 "GC pass finished %s: encountered %" PRIu64 " blobs (%" PRIu64
+                 " bytes), relocated %" PRIu64 " blobs (%" PRIu64
+                 " bytes), created %" PRIu64 " new blob file(s)",
+                 !gc_stats_.HasError() ? "successfully" : "with failure",
+                 gc_stats_.AllBlobs(), gc_stats_.AllBytes(),
+                 gc_stats_.RelocatedBlobs(), gc_stats_.RelocatedBytes(),
+                 gc_stats_.NewFiles());
+
+  RecordTick(statistics(), BLOB_DB_GC_NUM_KEYS_RELOCATED,
+             gc_stats_.RelocatedBlobs());
+  RecordTick(statistics(), BLOB_DB_GC_BYTES_RELOCATED,
+             gc_stats_.RelocatedBytes());
+  RecordTick(statistics(), BLOB_DB_GC_NUM_NEW_FILES, gc_stats_.NewFiles());
+  RecordTick(statistics(), BLOB_DB_GC_FAILURES, gc_stats_.HasError());
+}
+
 CompactionFilter::BlobDecision BlobIndexCompactionFilterGC::PrepareBlobOutput(
     const Slice& key, const Slice& existing_value,
     std::string* new_value) const {
@@ -68,12 +94,17 @@ CompactionFilter::BlobDecision BlobIndexCompactionFilterGC::PrepareBlobOutput(
   BlobIndex blob_index;
   const Status s = blob_index.DecodeFrom(existing_value);
   if (!s.ok()) {
+    gc_stats_.SetError();
     return BlobDecision::kCorruption;
   }
 
   if (blob_index.IsInlined()) {
+    gc_stats_.AddBlob(blob_index.value().size());
+
     return BlobDecision::kKeep;
   }
+
+  gc_stats_.AddBlob(blob_index.size());
 
   if (blob_index.HasTTL()) {
     return BlobDecision::kKeep;
@@ -88,27 +119,33 @@ CompactionFilter::BlobDecision BlobIndexCompactionFilterGC::PrepareBlobOutput(
   // is bounded though (determined by the number of compactions and the blob
   // file size option).
   if (!OpenNewBlobFileIfNeeded()) {
+    gc_stats_.SetError();
     return BlobDecision::kIOError;
   }
 
   PinnableSlice blob;
   CompressionType compression_type = kNoCompression;
   if (!ReadBlobFromOldFile(key, blob_index, &blob, &compression_type)) {
+    gc_stats_.SetError();
     return BlobDecision::kIOError;
   }
 
   uint64_t new_blob_file_number = 0;
   uint64_t new_blob_offset = 0;
   if (!WriteBlobToNewFile(key, blob, &new_blob_file_number, &new_blob_offset)) {
+    gc_stats_.SetError();
     return BlobDecision::kIOError;
   }
 
   if (!CloseAndRegisterNewBlobFileIfNeeded()) {
+    gc_stats_.SetError();
     return BlobDecision::kIOError;
   }
 
   BlobIndex::EncodeBlob(new_value, new_blob_file_number, new_blob_offset,
                         blob.size(), compression_type);
+
+  gc_stats_.AddRelocatedBlob(blob_index.size());
 
   return BlobDecision::kChangeValue;
 }
@@ -134,6 +171,8 @@ bool BlobIndexCompactionFilterGC::OpenNewBlobFileIfNeeded() const {
 
   assert(blob_file_);
   assert(writer_);
+
+  gc_stats_.AddNewFile();
 
   return true;
 }

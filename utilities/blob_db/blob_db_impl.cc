@@ -540,6 +540,8 @@ void BlobDBImpl::MarkUnreferencedBlobFilesObsoleteImpl(Functor mark_if_needed) {
   // Note: we need to stop as soon as we find a blob file that has any
   // linked SSTs (or one potentially referenced by memtables).
 
+  uint64_t obsoleted_files = 0;
+
   auto it = live_imm_non_ttl_blob_files_.begin();
   while (it != live_imm_non_ttl_blob_files_.end()) {
     const auto& blob_file = it->second;
@@ -560,6 +562,15 @@ void BlobDBImpl::MarkUnreferencedBlobFilesObsoleteImpl(Functor mark_if_needed) {
     }
 
     it = live_imm_non_ttl_blob_files_.erase(it);
+
+    ++obsoleted_files;
+  }
+
+  if (obsoleted_files > 0) {
+    ROCKS_LOG_INFO(db_options_.info_log,
+                   "%" PRIu64 " blob file(s) marked obsolete by GC",
+                   obsoleted_files);
+    RecordTick(statistics_, BLOB_DB_GC_NUM_FILES, obsoleted_files);
   }
 }
 
