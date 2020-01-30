@@ -2,7 +2,12 @@
 ## Unreleased
 ### Bug Fixes
 * Fix incorrect results while block-based table uses kHashSearch, together with Prev()/SeekForPrev().
-* Fix BlobDB crash for maintaining mapping between SSTs and blob files when enabling garbage collection, by keeping flush and compaction completion notifications in sequence.
+* Fix a bug that prevents opening a DB after two consecutive crash with TransactionDB, where the first crash recovers from a corrupted WAL with kPointInTimeRecovery but the second cannot.
+* Fixed issue #6316 that can cause a corruption of the MANIFEST file in the middle when writing to it fails due to no disk space.
+* Fix BlobDB crash #6338 for maintaining mapping between SSTs and blob files when enabling garbage collection, by keeping flush and compaction completion notifications in sequence.
+
+### Public API Change
+* The BlobDB garbage collector now emits the statistics `BLOB_DB_GC_NUM_FILES` (number of blob files obsoleted during GC), `BLOB_DB_GC_NUM_NEW_FILES` (number of new blob files generated during GC), `BLOB_DB_GC_FAILURES` (number of failed GC passes), `BLOB_DB_GC_NUM_KEYS_RELOCATED` (number of blobs relocated during GC), and `BLOB_DB_GC_BYTES_RELOCATED` (total size of blobs relocated during GC). On the other hand, the following statistics, which are not relevant for the new GC implementation, are now deprecated: `BLOB_DB_GC_NUM_KEYS_OVERWRITTEN`, `BLOB_DB_GC_NUM_KEYS_EXPIRED`, `BLOB_DB_GC_BYTES_OVERWRITTEN`, `BLOB_DB_GC_BYTES_EXPIRED`, and `BLOB_DB_GC_MICROS`.
 
 ## 6.7.0 (01/21/2020)
 ### Public API Change

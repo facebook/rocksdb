@@ -4404,6 +4404,7 @@ TEST_F(DBTest2, BlockBasedTablePrefixGetIndexNotFound) {
   ASSERT_EQ("ok", Get("b1"));
 }
 
+#ifndef ROCKSDB_LITE
 TEST_F(DBTest2, AutoPrefixMode1) {
   // create a DB with block prefix index
   BlockBasedTableOptions table_options;
@@ -4510,6 +4511,7 @@ TEST_F(DBTest2, AutoPrefixMode1) {
     ASSERT_EQ("a1", iterator->key().ToString());
   }
 }
+#endif  // ROCKSDB_LITE
 }  // namespace rocksdb
 
 #ifdef ROCKSDB_UNITTESTS_WITH_CUSTOM_OBJECTS_FROM_STATIC_LIBS

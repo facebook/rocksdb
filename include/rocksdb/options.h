@@ -1254,6 +1254,8 @@ struct ReadOptions {
   // When true, by default use total_order_seek = true, and RocksDB can
   // selectively enable prefix seek mode if won't generate a different result
   // from total_order_seek, based on seek key, and iterator upper bound.
+  // Not suppported in ROCKSDB_LITE mode, in the way that even with value true
+  // prefix mode is not used.
   bool auto_prefix_mode;
 
   // Enforce that the iterator only iterates over the same prefix as the seek.
