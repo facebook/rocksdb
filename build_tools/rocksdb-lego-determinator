@@ -884,7 +884,7 @@ run_regression()
 
   # parameters: $1 -- key, $2 -- value
   function send_size_to_ods {
-    curl -s "https://www.intern.facebook.com/intern/agent/ods_set.php?entity=rocksdb_build&key=rocksdb.build_size.$1&value=$2" \
+    curl --silent "https://www.intern.facebook.com/intern/agent/ods_set.php?entity=rocksdb_build&key=rocksdb.build_size.$1&value=$2" \
       --connect-timeout 60
   }
 
