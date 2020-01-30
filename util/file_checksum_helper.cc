@@ -32,8 +32,7 @@ Status FileChecksumListImpl::GetAllFileChecksums(
 }
 
 Status FileChecksumListImpl::SearchOneFileChecksum(
-    uint64_t file_number, uint32_t* checksum,
-    std::string* checksum_func_name) {
+    uint64_t file_number, uint32_t* checksum, std::string* checksum_func_name) {
   if (checksum == nullptr || checksum_func_name == nullptr) {
     return Status::InvalidArgument("Pointer has not been initiated");
   }
@@ -49,8 +48,7 @@ Status FileChecksumListImpl::SearchOneFileChecksum(
 }
 
 Status FileChecksumListImpl::InsertOneFileChecksum(
-    uint64_t file_number, uint32_t checksum,
-    std::string checksum_func_name) {
+    uint64_t file_number, uint32_t checksum, std::string checksum_func_name) {
   auto it = checksum_map_.find(file_number);
   if (it == checksum_map_.end()) {
     checksum_map_.insert(std::make_pair(
