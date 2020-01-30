@@ -7,7 +7,7 @@ import static java.nio.charset.StandardCharsets.UTF_8;
 public class ByteUtil {
 
   /**
-   * Convert a UTF-8 String to a byte array.
+   * Convert a String to a UTF-8 byte array.
    *
    * @param str the string
    *

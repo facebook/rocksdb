@@ -14,6 +14,10 @@ import java.nio.ByteBuffer;
  * This is a Java implementation of a Comparator for Java int
  * keys.
  *
+ * This comparator assumes keys are (at least) four bytes, so
+ * the caller must guarantee that in accessing other APIs in
+ * combination with this comparator.
+ *
  * The performance of Comparators implemented in Java is always
  * less than their C++ counterparts due to the bridging overhead,
  * as such you likely don't want to use this apart from benchmarking
