@@ -7,13 +7,13 @@
 //  Use of this source code is governed by a BSD-style license that can be
 //  found in the LICENSE file. See the AUTHORS file for names of contributors.
 
-#include "util/sst_file_checksum_helper.h"
+#include "util/file_checksum_helper.h"
 
 namespace rocksdb {
 
 void FileChecksumListImpl::reset() { checksum_map_.clear(); }
 
-size_t FileChecksumListImpl::size() { return checksum_map_.size(); }
+size_t FileChecksumListImpl::size() const { return checksum_map_.size(); }
 
 Status FileChecksumListImpl::GetAllFileChecksums(
     std::vector<uint64_t>* file_numbers, std::vector<uint32_t>* checksums,
@@ -32,7 +32,7 @@ Status FileChecksumListImpl::GetAllFileChecksums(
 }
 
 Status FileChecksumListImpl::SearchOneFileChecksum(
-    const uint64_t file_number, uint32_t* checksum,
+    uint64_t file_number, uint32_t* checksum,
     std::string* checksum_func_name) {
   if (checksum == nullptr || checksum_func_name == nullptr) {
     return Status::InvalidArgument("Pointer has not been initiated");
@@ -49,8 +49,8 @@ Status FileChecksumListImpl::SearchOneFileChecksum(
 }
 
 Status FileChecksumListImpl::InsertOneFileChecksum(
-    const uint64_t file_number, const uint32_t checksum,
-    const std::string checksum_func_name) {
+    uint64_t file_number, uint32_t checksum,
+    std::string checksum_func_name) {
   auto it = checksum_map_.find(file_number);
   if (it == checksum_map_.end()) {
     checksum_map_.insert(std::make_pair(
@@ -62,7 +62,7 @@ Status FileChecksumListImpl::InsertOneFileChecksum(
   return Status::OK();
 }
 
-Status FileChecksumListImpl::RemoveOneFileChecksum(const uint64_t file_number) {
+Status FileChecksumListImpl::RemoveOneFileChecksum(uint64_t file_number) {
   auto it = checksum_map_.find(file_number);
   if (it == checksum_map_.end()) {
     return Status::NotFound();
@@ -75,6 +75,11 @@ Status FileChecksumListImpl::RemoveOneFileChecksum(const uint64_t file_number) {
 FileChecksumList* NewFileChecksumList() {
   FileChecksumListImpl* checksum_list = new FileChecksumListImpl();
   return checksum_list;
+}
+
+FileChecksumFunc* NewDefaultFileChecksumFuncCrc32c() {
+  FileChecksumFunc* file_checksum_crc32c = new FileChecksumFuncCrc32c();
+  return file_checksum_crc32c;
 }
 
 }  // namespace rocksdb

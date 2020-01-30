@@ -19,8 +19,8 @@
 #include "rocksdb/advanced_options.h"
 #include "rocksdb/comparator.h"
 #include "rocksdb/env.h"
+#include "rocksdb/file_checksum.h"
 #include "rocksdb/listener.h"
-#include "rocksdb/sst_file_checksum.h"
 #include "rocksdb/universal_compaction.h"
 #include "rocksdb/version.h"
 #include "rocksdb/write_buffer_manager.h"
@@ -1129,7 +1129,7 @@ struct DBOptions {
   // file writers. Make sure the algorithm is thread safe.
   //
   // Default: nullptr
-  std::shared_ptr<SstFileChecksumFunc> sst_file_checksum_func = nullptr;
+  std::shared_ptr<FileChecksumFunc> sst_file_checksum_func = nullptr;
 };
 
 // Options to control the behavior of a database (passed to DB::Open)

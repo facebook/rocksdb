@@ -13,10 +13,10 @@
 #include "db/version_edit.h"
 #include "port/port.h"
 #include "rocksdb/env.h"
+#include "rocksdb/file_checksum.h"
 #include "rocksdb/file_system.h"
 #include "rocksdb/listener.h"
 #include "rocksdb/rate_limiter.h"
-#include "rocksdb/sst_file_checksum.h"
 #include "test_util/sync_point.h"
 #include "util/aligned_buffer.h"
 
@@ -71,7 +71,7 @@ class WritableFileWriter {
   RateLimiter* rate_limiter_;
   Statistics* stats_;
   std::vector<std::shared_ptr<EventListener>> listeners_;
-  SstFileChecksumFunc* checksum_func_;
+  FileChecksumFunc* checksum_func_;
   uint32_t file_checksum_ = kUnknownFileChecksum;
   bool is_first_checksum_ = true;
 
@@ -81,7 +81,7 @@ class WritableFileWriter {
       const FileOptions& options, Env* env = nullptr,
       Statistics* stats = nullptr,
       const std::vector<std::shared_ptr<EventListener>>& listeners = {},
-      SstFileChecksumFunc* checksum_func = nullptr)
+      FileChecksumFunc* checksum_func = nullptr)
       : writable_file_(std::move(file)),
         file_name_(_file_name),
         env_(env),
@@ -149,7 +149,7 @@ class WritableFileWriter {
 
   bool TEST_BufferIsEmpty() { return buf_.CurrentSize() == 0; }
 
-  void TEST_SetFileChecksumFunc(SstFileChecksumFunc* checksum_func) {
+  void TEST_SetFileChecksumFunc(FileChecksumFunc* checksum_func) {
     checksum_func_ = checksum_func;
   }
 

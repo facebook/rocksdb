@@ -17,7 +17,7 @@
 #include "file/filename.h"
 #include "port/port_dirent.h"
 #include "rocksdb/cache.h"
-#include "rocksdb/sst_file_checksum.h"
+#include "rocksdb/file_checksum.h"
 #include "rocksdb/table_properties.h"
 #include "rocksdb/utilities/backupable_db.h"
 #include "rocksdb/utilities/checkpoint.h"

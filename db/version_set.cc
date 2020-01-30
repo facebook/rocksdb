@@ -4714,11 +4714,11 @@ Status VersionSet::ReduceNumberOfLevels(const std::string& dbname,
       mutable_cf_options, &ve, &dummy_mutex, nullptr, true);
 }
 
-// Get the checksum information including the checksum and checksum method
-// name of all SST files of this Manifest. Store the information in
-// FileChecksumLis which contains a map from file id to its checksum info
+// Get the checksum information including the checksum and checksum function
+// name of all SST files in this Manifest. Store the information in
+// FileChecksumList which contains a map from file number to its checksum info.
 Status VersionSet::GetAllFileCheckSumInfo(const Options& options,
-                                          std::string& dscname,
+                                          const std::string& dscname,
                                           FileChecksumList* checksum_list) {
   Status s;
   if (checksum_list == nullptr) {

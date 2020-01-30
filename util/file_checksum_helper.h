@@ -6,15 +6,15 @@
 #pragma once
 #include <cassert>
 #include <unordered_map>
-#include "rocksdb/sst_file_checksum.h"
+#include "rocksdb/file_checksum.h"
 #include "rocksdb/status.h"
 #include "util/crc32c.h"
 
 namespace rocksdb {
 
-// This is the class to generate the SST file checksum based on Crc32. It
+// This is the class to generate the file checksum based on Crc32. It
 // will be used as the default checksum method for SST file checksum
-class SstFileChecksumCrc32c : public SstFileChecksumFunc {
+class FileChecksumFuncCrc32c : public FileChecksumFunc {
  public:
   uint32_t Extend(uint32_t init_checksum, const char* data, size_t n) override {
     assert(data != nullptr);
@@ -30,7 +30,7 @@ class SstFileChecksumCrc32c : public SstFileChecksumFunc {
     return crc32c::Mask(checksum);
   }
 
-  const char* Name() const override { return "SstFileChecksumCrc32c"; }
+  const char* Name() const override { return "FileChecksumCrc32c"; }
 };
 
 // The default implementaion of FileChecksumList
@@ -39,20 +39,19 @@ class FileChecksumListImpl : public FileChecksumList {
   FileChecksumListImpl() {}
   void reset() override;
 
-  size_t size() override;
+  size_t size() const override;
 
   Status GetAllFileChecksums(
       std::vector<uint64_t>* file_numbers, std::vector<uint32_t>* checksums,
       std::vector<std::string>* checksum_func_names) override;
 
-  Status SearchOneFileChecksum(const uint64_t file_number, uint32_t* checksum,
+  Status SearchOneFileChecksum(uint64_t file_number, uint32_t* checksum,
                                std::string* checksum_func_name) override;
 
-  Status InsertOneFileChecksum(const uint64_t file_number,
-                               const uint32_t checksum,
-                               const std::string checksum_func_name) override;
+  Status InsertOneFileChecksum(uint64_t file_number, uint32_t checksum,
+                               std::string checksum_func_name) override;
 
-  Status RemoveOneFileChecksum(const uint64_t file_number) override;
+  Status RemoveOneFileChecksum(uint64_t file_number) override;
 
  private:
   std::unordered_map<uint64_t, std::pair<uint32_t, std::string>> checksum_map_;

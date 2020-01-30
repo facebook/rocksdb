@@ -21,7 +21,7 @@ using std::unique_ptr;
 namespace rocksdb {
 namespace {
 
-static const Comparator* kTestComparator;
+static const Comparator* kTestComparator = nullptr;
 
 class KVIter : public Iterator {
  public:

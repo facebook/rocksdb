@@ -11,11 +11,11 @@
 #include "env/composite_env_wrapper.h"
 #include "file/filename.h"
 #include "port/stack_trace.h"
-#include "rocksdb/sst_file_checksum.h"
+#include "rocksdb/file_checksum.h"
 #include "test_util/sync_point.h"
 #include "test_util/testharness.h"
 #include "test_util/testutil.h"
-#include "util/sst_file_checksum_helper.h"
+#include "util/file_checksum_helper.h"
 
 using std::string;
 using std::vector;
@@ -131,7 +131,7 @@ class FileChecksumTestHelper {
     std::unique_ptr<char[]> scratch(new char[2048]);
     bool first_read = true;
     Slice result;
-    SstFileChecksumFunc* file_checksum_func =
+    FileChecksumFunc* file_checksum_func =
         options_.sst_file_checksum_func.get();
     if (file_checksum_func == nullptr) {
       cur_checksum = 0;
@@ -356,7 +356,8 @@ TEST_F(LdbCmdTest, DumpFileChecksumCRC32) {
   Options opts;
   opts.env = env.get();
   opts.create_if_missing = true;
-  opts.sst_file_checksum_func = std::make_shared<SstFileChecksumCrc32c>();
+  opts.sst_file_checksum_func =
+      std::shared_ptr<FileChecksumFunc>(NewDefaultFileChecksumFuncCrc32c());
   opts.file_system.reset(new LegacyFileSystemWrapper(opts.env));
 
   DB* db = nullptr;

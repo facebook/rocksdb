@@ -27,12 +27,12 @@
 #include "rocksdb/cache.h"
 #include "rocksdb/db.h"
 #include "rocksdb/env.h"
+#include "rocksdb/file_checksum.h"
 #include "rocksdb/file_system.h"
 #include "rocksdb/iterator.h"
 #include "rocksdb/memtablerep.h"
 #include "rocksdb/perf_context.h"
 #include "rocksdb/slice_transform.h"
-#include "rocksdb/sst_file_checksum.h"
 #include "rocksdb/statistics.h"
 #include "rocksdb/write_buffer_manager.h"
 #include "table/block_based/block.h"
@@ -51,8 +51,8 @@
 #include "test_util/testharness.h"
 #include "test_util/testutil.h"
 #include "util/compression.h"
+#include "util/file_checksum_helper.h"
 #include "util/random.h"
-#include "util/sst_file_checksum_helper.h"
 #include "util/string_util.h"
 #include "utilities/merge_operators.h"
 
@@ -1185,7 +1185,7 @@ class FileChecksumTestHelper {
     file_writer_.reset(test::GetWritableFileWriter(sink_, "" /* don't care */));
   }
 
-  void SetFileChecksumFunc(SstFileChecksumFunc* checksum_func) {
+  void SetFileChecksumFunc(FileChecksumFunc* checksum_func) {
     if (file_writer_ != nullptr) {
       file_writer_->TEST_SetFileChecksumFunc(checksum_func);
     }
@@ -1193,7 +1193,7 @@ class FileChecksumTestHelper {
 
   WritableFileWriter* GetFileWriter() { return file_writer_.get(); }
 
-  Status ResetTableBuilder(std::unique_ptr<TableBuilder> builder) {
+  Status ResetTableBuilder(std::unique_ptr<TableBuilder>&& builder) {
     assert(builder != nullptr);
     table_builder_ = std::move(builder);
     return Status::OK();
@@ -1234,7 +1234,7 @@ class FileChecksumTestHelper {
     return table_builder_->GetFileChecksumFuncName();
   }
 
-  Status CalculateFileChecksum(SstFileChecksumFunc* file_checksum_func,
+  Status CalculateFileChecksum(FileChecksumFunc* file_checksum_func,
                                uint32_t* checksum) {
     assert(file_checksum_func != nullptr);
     cur_uniq_id_ = checksum_uniq_id_++;
@@ -3201,7 +3201,8 @@ TEST_P(BlockBasedTableTest, NoFileChecksum) {
 
 TEST_P(BlockBasedTableTest, Crc32FileChecksum) {
   Options options;
-  options.sst_file_checksum_func = std::make_shared<SstFileChecksumCrc32c>();
+  options.sst_file_checksum_func =
+      std::shared_ptr<FileChecksumFunc>(NewDefaultFileChecksumFuncCrc32c());
   ImmutableCFOptions ioptions(options);
   MutableCFOptions moptions(options);
   BlockBasedTableOptions table_options = GetBlockBasedTableOptions();
@@ -3235,7 +3236,7 @@ TEST_P(BlockBasedTableTest, Crc32FileChecksum) {
   f.ResetTableBuilder(std::move(builder));
   f.AddKVtoKVMap(1000);
   f.WriteKVAndFlushTable();
-  ASSERT_STREQ(f.GetFileChecksumFuncName(), "SstFileChecksumCrc32c");
+  ASSERT_STREQ(f.GetFileChecksumFuncName(), "FileChecksumCrc32c");
   uint32_t checksum;
   ASSERT_OK(
       f.CalculateFileChecksum(options.sst_file_checksum_func.get(), &checksum));
@@ -3342,7 +3343,8 @@ TEST_F(PlainTableTest, Crc32FileChecksum) {
   PlainTableFactory factory(plain_table_options);
 
   Options options;
-  options.sst_file_checksum_func = std::make_shared<SstFileChecksumCrc32c>();
+  options.sst_file_checksum_func =
+      std::shared_ptr<FileChecksumFunc>(NewDefaultFileChecksumFuncCrc32c());
   const ImmutableCFOptions ioptions(options);
   const MutableCFOptions moptions(options);
   InternalKeyComparator ikc(options.comparator);
@@ -3364,7 +3366,7 @@ TEST_F(PlainTableTest, Crc32FileChecksum) {
   f.ResetTableBuilder(std::move(builder));
   f.AddKVtoKVMap(1000);
   f.WriteKVAndFlushTable();
-  ASSERT_STREQ(f.GetFileChecksumFuncName(), "SstFileChecksumCrc32c");
+  ASSERT_STREQ(f.GetFileChecksumFuncName(), "FileChecksumCrc32c");
   uint32_t checksum;
   ASSERT_OK(
       f.CalculateFileChecksum(options.sst_file_checksum_func.get(), &checksum));
