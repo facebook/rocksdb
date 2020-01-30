@@ -2065,13 +2065,7 @@ class DBImpl : public DB {
 
   bool wal_in_db_path_;
 
-  // Next notification id for completion listeners.
-  uint64_t next_notification_id_;
-  // Completion listeners queue.
-  std::deque<uint64_t> notification_queue_;
-  // Completion listener needs to wait on this cv until its turn.
-  std::condition_variable notification_cv_;
-  // The mutex is used by notification_cv_ and protecting notification_queue_.
+  // The mutex is for ordering flush and compaction completion notifications.
   std::mutex notification_mutex_;
 };
 

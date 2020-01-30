@@ -2,6 +2,7 @@
 ## Unreleased
 ### Bug Fixes
 * Fix incorrect results while block-based table uses kHashSearch, together with Prev()/SeekForPrev().
+* Fix BlobDB crash for maintaining mapping between SSTs and blob files when enabling garbage collection, by keeping flush and compaction completion notifications in sequence.
 
 ## 6.7.0 (01/21/2020)
 ### Public API Change

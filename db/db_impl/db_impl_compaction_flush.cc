@@ -194,7 +194,7 @@ Status DBImpl::FlushMemTableToOutputFile(
   }
 
   if (s.ok()) {
-    std::function<void()> callback = nullptr;
+    std::function<void()> callback;
 #ifndef ROCKSDB_LITE
     callback = std::bind(&DBImpl::NotifyOnFlushCompleted, this, cfd,
         mutable_cf_options, flush_job.GetCommittedFlushJobsInfo());
@@ -491,7 +491,7 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
       if (cfds[i]->IsDropped()) {
         continue;
       }
-      std::function<void()> callback = nullptr;
+      std::function<void()> callback;
 #ifndef ROCKSDB_LITE
       callback = std::bind(&DBImpl::NotifyOnFlushCompleted, this, cfds[i],
           all_mutable_cf_options[i], jobs[i]->GetCommittedFlushJobsInfo());
@@ -626,15 +626,10 @@ void DBImpl::NotifyOnFlushCompleted(
       (cfd->current()->storage_info()->NumLevelFiles(0) >=
        mutable_cf_options.level0_stop_writes_trigger);
   {
+    // triggers completion notifications in turn
     std::unique_lock<std::mutex> nlock(notification_mutex_);
-    uint64_t nid = next_notification_id_++;
-    notification_queue_.push_back(nid);
     // release lock while notifying events
     mutex_.Unlock();
-    // triggers completion notifications in turn
-    notification_cv_.wait(nlock,
-          [this, nid] { return *notification_queue_.begin() == nid; });
-    nlock.unlock();
     {
       for (auto& info : *flush_jobs_info) {
         info->triggered_writes_slowdown = triggered_writes_slowdown;
@@ -645,10 +640,7 @@ void DBImpl::NotifyOnFlushCompleted(
       }
       flush_jobs_info->clear();
     }
-    nlock.lock();
-    notification_queue_.pop_front();
   }
-  notification_cv_.notify_all();
   mutex_.Lock();
   // no need to signal bg_cv_ as it will be signaled at the end of the
   // flush process.
@@ -1196,16 +1188,11 @@ void DBImpl::NotifyOnCompactionCompleted(
   Version* current = cfd->current();
   current->Ref();
   {
+    // triggers completion notifications in turn
     std::unique_lock<std::mutex> nlock(notification_mutex_);
-    uint64_t nid = next_notification_id_++;
-    notification_queue_.push_back(nid);
     // release lock while notifying events
     mutex_.Unlock();
     TEST_SYNC_POINT("DBImpl::NotifyOnCompactionCompleted::UnlockMutex");
-    // triggers completion notifications in turn
-    notification_cv_.wait(nlock,
-          [this, nid] { return *notification_queue_.begin() == nid; });
-    nlock.unlock();
     {
       CompactionJobInfo info{};
       BuildCompactionJobInfo(cfd, c, st, compaction_job_stats, job_id, current,
@@ -1214,10 +1201,7 @@ void DBImpl::NotifyOnCompactionCompleted(
         listener->OnCompactionCompleted(this, info);
       }
     }
-    nlock.lock();
-    notification_queue_.pop_front();
   }
-  notification_cv_.notify_all();
   mutex_.Lock();
   current->Unref();
   // no need to signal bg_cv_ as it will be signaled at the end of the
