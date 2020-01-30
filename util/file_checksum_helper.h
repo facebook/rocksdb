@@ -49,7 +49,7 @@ class FileChecksumListImpl : public FileChecksumList {
                                std::string* checksum_func_name) override;
 
   Status InsertOneFileChecksum(uint64_t file_number, uint32_t checksum,
-                               std::string checksum_func_name) override;
+                               const std::string& checksum_func_name) override;
 
   Status RemoveOneFileChecksum(uint64_t file_number) override;
 

@@ -68,8 +68,9 @@ class FileChecksumList {
                                        std::string* checksum_func_name) = 0;
 
   // Insert the checksum information of one file to the FileChecksumList.
-  virtual Status InsertOneFileChecksum(uint64_t file_number, uint32_t checksum,
-                                       std::string checksum_func_name) = 0;
+  virtual Status InsertOneFileChecksum(
+      uint64_t file_number, uint32_t checksum,
+      const std::string& checksum_func_name) = 0;
 
   // Remove the checksum information of one SST file.
   virtual Status RemoveOneFileChecksum(uint64_t file_number) = 0;
