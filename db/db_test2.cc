@@ -4362,6 +4362,159 @@ TEST_F(DBTest2, BlockBasedTablePrefixIndexSeekForPrev) {
   }
 }
 
+TEST_F(DBTest2, ChangePrefixExtractor) {
+  for (bool use_partitioned_filter : {true, false}) {
+    // create a DB with block prefix index
+    BlockBasedTableOptions table_options;
+    Options options = CurrentOptions();
+
+    table_options.partition_filters = use_partitioned_filter;
+    if (use_partitioned_filter) {
+      table_options.index_type =
+          BlockBasedTableOptions::IndexType::kTwoLevelIndexSearch;
+    }
+    table_options.filter_policy.reset(NewBloomFilterPolicy(10, false));
+
+    options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+    options.statistics = CreateDBStatistics();
+
+    options.prefix_extractor.reset(NewFixedPrefixTransform(2));
+    DestroyAndReopen(options);
+
+    Random rnd(301);
+
+    ASSERT_OK(Put("aa", ""));
+    ASSERT_OK(Put("xb", ""));
+    ASSERT_OK(Put("xx1", ""));
+    ASSERT_OK(Put("xz1", ""));
+    ASSERT_OK(Put("zz", ""));
+    Flush();
+
+    // After reopening DB with prefix size 2 => 1, prefix extractor
+    // won't take effective unless it won't change results based
+    // on upper bound and seek key.
+    options.prefix_extractor.reset(NewFixedPrefixTransform(1));
+    Reopen(options);
+
+    {
+      std::unique_ptr<Iterator> iterator(db_->NewIterator(ReadOptions()));
+      iterator->Seek("xa");
+      ASSERT_TRUE(iterator->Valid());
+      ASSERT_EQ("xb", iterator->key().ToString());
+      // It's a bug that the counter BLOOM_FILTER_PREFIX_CHECKED is not
+      // correct in this case. So don't check counters in this case.
+      if (!use_partitioned_filter) {
+        ASSERT_EQ(0, TestGetTickerCount(options, BLOOM_FILTER_PREFIX_CHECKED));
+      }
+
+      iterator->Seek("xz");
+      ASSERT_TRUE(iterator->Valid());
+      ASSERT_EQ("xz1", iterator->key().ToString());
+      if (!use_partitioned_filter) {
+        ASSERT_EQ(0, TestGetTickerCount(options, BLOOM_FILTER_PREFIX_CHECKED));
+      }
+    }
+
+    std::string ub_str = "xg9";
+    Slice ub(ub_str);
+    ReadOptions ro;
+    ro.iterate_upper_bound = &ub;
+
+    {
+      std::unique_ptr<Iterator> iterator(db_->NewIterator(ro));
+
+      // SeekForPrev() never uses prefix bloom if it is changed.
+      iterator->SeekForPrev("xg0");
+      ASSERT_TRUE(iterator->Valid());
+      ASSERT_EQ("xb", iterator->key().ToString());
+      if (!use_partitioned_filter) {
+        ASSERT_EQ(0, TestGetTickerCount(options, BLOOM_FILTER_PREFIX_CHECKED));
+      }
+    }
+
+    ub_str = "xx9";
+    ub = Slice(ub_str);
+    {
+      std::unique_ptr<Iterator> iterator(db_->NewIterator(ro));
+
+      iterator->Seek("x");
+      ASSERT_TRUE(iterator->Valid());
+      ASSERT_EQ("xb", iterator->key().ToString());
+      if (!use_partitioned_filter) {
+        ASSERT_EQ(0, TestGetTickerCount(options, BLOOM_FILTER_PREFIX_CHECKED));
+      }
+
+      iterator->Seek("xx0");
+      ASSERT_TRUE(iterator->Valid());
+      ASSERT_EQ("xx1", iterator->key().ToString());
+      if (!use_partitioned_filter) {
+        ASSERT_EQ(1, TestGetTickerCount(options, BLOOM_FILTER_PREFIX_CHECKED));
+      }
+    }
+
+    CompactRangeOptions compact_range_opts;
+    compact_range_opts.bottommost_level_compaction =
+        BottommostLevelCompaction::kForce;
+    ASSERT_OK(db_->CompactRange(compact_range_opts, nullptr, nullptr));
+    ASSERT_OK(db_->CompactRange(compact_range_opts, nullptr, nullptr));
+
+    // Re-execute similar queries after a full compaction
+    {
+      std::unique_ptr<Iterator> iterator(db_->NewIterator(ReadOptions()));
+
+      iterator->Seek("x");
+      ASSERT_TRUE(iterator->Valid());
+      ASSERT_EQ("xb", iterator->key().ToString());
+      if (!use_partitioned_filter) {
+        ASSERT_EQ(2, TestGetTickerCount(options, BLOOM_FILTER_PREFIX_CHECKED));
+      }
+
+      iterator->Seek("xg");
+      ASSERT_TRUE(iterator->Valid());
+      ASSERT_EQ("xx1", iterator->key().ToString());
+      if (!use_partitioned_filter) {
+        ASSERT_EQ(3, TestGetTickerCount(options, BLOOM_FILTER_PREFIX_CHECKED));
+      }
+
+      iterator->Seek("xz");
+      ASSERT_TRUE(iterator->Valid());
+      ASSERT_EQ("xz1", iterator->key().ToString());
+      if (!use_partitioned_filter) {
+        ASSERT_EQ(4, TestGetTickerCount(options, BLOOM_FILTER_PREFIX_CHECKED));
+      }
+    }
+    {
+      std::unique_ptr<Iterator> iterator(db_->NewIterator(ro));
+
+      iterator->SeekForPrev("xx0");
+      ASSERT_TRUE(iterator->Valid());
+      ASSERT_EQ("xb", iterator->key().ToString());
+      if (!use_partitioned_filter) {
+        ASSERT_EQ(5, TestGetTickerCount(options, BLOOM_FILTER_PREFIX_CHECKED));
+      }
+
+      iterator->Seek("xx0");
+      ASSERT_TRUE(iterator->Valid());
+      ASSERT_EQ("xx1", iterator->key().ToString());
+      if (!use_partitioned_filter) {
+        ASSERT_EQ(6, TestGetTickerCount(options, BLOOM_FILTER_PREFIX_CHECKED));
+      }
+    }
+
+    ub_str = "xg9";
+    ub = Slice(ub_str);
+    {
+      std::unique_ptr<Iterator> iterator(db_->NewIterator(ro));
+      iterator->SeekForPrev("xg0");
+      ASSERT_TRUE(iterator->Valid());
+      ASSERT_EQ("xb", iterator->key().ToString());
+      if (!use_partitioned_filter) {
+        ASSERT_EQ(7, TestGetTickerCount(options, BLOOM_FILTER_PREFIX_CHECKED));
+      }
+    }
+  }
+}
+
 TEST_F(DBTest2, BlockBasedTablePrefixGetIndexNotFound) {
   // create a DB with block prefix index
   BlockBasedTableOptions table_options;
