@@ -771,7 +771,7 @@ std::vector<std::string> StressTest::GetWhiteBoxKeys(ThreadState* thread,
           k[i] = static_cast<char>(cur - 1);
           break;
         } else if (i > 0) {
-          k[i] = 0xFF;
+          k[i] = 0xFFu;
         }
       }
     } else if (thread->rand.OneIn(2)) {
@@ -1550,7 +1550,7 @@ void StressTest::TestCompactRange(ThreadState* thread, int64_t rand_key,
   cro.max_subcompactions = static_cast<uint32_t>(thread->rand.Next() % 4);
 
   const Snapshot* pre_snapshot = nullptr;
-  uint32_t pre_hash;
+  uint32_t pre_hash = 0;
   if (thread->rand.OneIn(2)) {
     // Do some validation by declaring a snapshot and compare the data before
     // and after the compaction

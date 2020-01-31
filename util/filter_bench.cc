@@ -330,8 +330,8 @@ void FilterBench::Go() {
     if (FLAGS_use_plain_table_bloom) {
       info.plain_table_bloom_.reset(new PlainTableBloomV1());
       info.plain_table_bloom_->SetTotalBits(
-          &arena_, keys_to_add * FLAGS_bits_per_key, FLAGS_impl,
-          0 /*huge_page*/, nullptr /*logger*/);
+          &arena_, static_cast<uint32_t>(keys_to_add * FLAGS_bits_per_key),
+          FLAGS_impl, 0 /*huge_page*/, nullptr /*logger*/);
       for (uint32_t i = 0; i < keys_to_add; ++i) {
         uint32_t hash = GetSliceHash(kms_[0].Get(filter_id, i));
         info.plain_table_bloom_->AddHash(hash);
