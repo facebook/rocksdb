@@ -2073,12 +2073,18 @@ void StressTest::Open() {
 
 void StressTest::Reopen(ThreadState* thread) {
 #ifndef ROCKSDB_LITE
+  // BG jobs in WritePrepared must be canceled first because i) they can access
+  // the db via a callbac ii) they hold on to a snapshot and the upcoming
+  // ::Close would complain about it.
+  const bool write_prepared = FLAGS_use_txn && FLAGS_txn_write_policy != 0;
   bool bg_canceled = false;
-  if (thread->rand.OneIn(2)) {
-    const bool wait = static_cast<bool>(thread->rand.OneIn(2));
+  if (write_prepared || thread->rand.OneIn(2)) {
+    const bool wait =
+        write_prepared || static_cast<bool>(thread->rand.OneIn(2));
     CancelAllBackgroundWork(db_, wait);
     bg_canceled = wait;
   }
+  assert(!write_prepared || bg_canceled);
 #else
   (void) thread;
 #endif
@@ -2089,9 +2095,7 @@ void StressTest::Reopen(ThreadState* thread) {
   column_families_.clear();
 
 #ifndef ROCKSDB_LITE
-  // BG jobs in WritePrepared hold on to a snapshot
-  const bool write_prepared = FLAGS_use_txn && FLAGS_txn_write_policy != 0;
-  if (thread->rand.OneIn(2) && (!write_prepared || bg_canceled)) {
+  if (thread->rand.OneIn(2)) {
     Status s = db_->Close();
     if (!s.ok()) {
       fprintf(stderr, "Non-ok close status: %s\n", s.ToString().c_str());
