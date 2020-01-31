@@ -2079,7 +2079,8 @@ void StressTest::Reopen(ThreadState* thread) {
   const bool write_prepared = FLAGS_use_txn && FLAGS_txn_write_policy != 0;
   bool bg_canceled = false;
   if (write_prepared || thread->rand.OneIn(2)) {
-    const bool wait = write_prepared || static_cast<bool>(thread->rand.OneIn(2));
+    const bool wait =
+        write_prepared || static_cast<bool>(thread->rand.OneIn(2));
     CancelAllBackgroundWork(db_, wait);
     bg_canceled = wait;
   }
