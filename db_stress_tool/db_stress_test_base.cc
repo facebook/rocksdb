@@ -2085,6 +2085,7 @@ void StressTest::Reopen(ThreadState* thread) {
     bg_canceled = wait;
   }
   assert(!write_prepared || bg_canceled);
+  (void) bg_canceled;
 #else
   (void) thread;
 #endif
