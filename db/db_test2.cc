@@ -4363,9 +4363,7 @@ TEST_F(DBTest2, BlockBasedTablePrefixIndexSeekForPrev) {
 }
 
 TEST_F(DBTest2, ChangePrefixExtractor) {
-  // Comment out the partitioned filter because the test is not passing
-  // due to a bug.
-  for (bool use_partitioned_filter : {/*true, */ false}) {
+  for (bool use_partitioned_filter : {true, false}) {
     // create a DB with block prefix index
     BlockBasedTableOptions table_options;
     Options options = CurrentOptions();
@@ -4403,12 +4401,18 @@ TEST_F(DBTest2, ChangePrefixExtractor) {
       iterator->Seek("xa");
       ASSERT_TRUE(iterator->Valid());
       ASSERT_EQ("xb", iterator->key().ToString());
-      ASSERT_EQ(0, TestGetTickerCount(options, BLOOM_FILTER_PREFIX_CHECKED));
+      // It's a bug that the counter BLOOM_FILTER_PREFIX_CHECKED is not
+      // correct in this case. So don't check counters in this case.
+      if (!use_partitioned_filter) {
+        ASSERT_EQ(0, TestGetTickerCount(options, BLOOM_FILTER_PREFIX_CHECKED));
+      }
 
       iterator->Seek("xz");
       ASSERT_TRUE(iterator->Valid());
       ASSERT_EQ("xz1", iterator->key().ToString());
-      ASSERT_EQ(0, TestGetTickerCount(options, BLOOM_FILTER_PREFIX_CHECKED));
+      if (!use_partitioned_filter) {
+        ASSERT_EQ(0, TestGetTickerCount(options, BLOOM_FILTER_PREFIX_CHECKED));
+      }
     }
 
     std::string ub_str = "xg9";
@@ -4419,13 +4423,13 @@ TEST_F(DBTest2, ChangePrefixExtractor) {
     {
       std::unique_ptr<Iterator> iterator(db_->NewIterator(ro));
 
-      // Following checking is disabled because they are not passing due
-      // to a bug.
-      // // SeekForPrev() never uses prefix bloom if it is changed.
-      // iterator->SeekForPrev("xg0");
-      // ASSERT_TRUE(iterator->Valid());
-      // ASSERT_EQ("xb", iterator->key().ToString());
-      // ASSERT_EQ(0, TestGetTickerCount(options, BLOOM_FILTER_PREFIX_CHECKED));
+      // SeekForPrev() never uses prefix bloom if it is changed.
+      iterator->SeekForPrev("xg0");
+      ASSERT_TRUE(iterator->Valid());
+      ASSERT_EQ("xb", iterator->key().ToString());
+      if (!use_partitioned_filter) {
+        ASSERT_EQ(0, TestGetTickerCount(options, BLOOM_FILTER_PREFIX_CHECKED));
+      }
     }
 
     ub_str = "xx9";
@@ -4436,12 +4440,16 @@ TEST_F(DBTest2, ChangePrefixExtractor) {
       iterator->Seek("x");
       ASSERT_TRUE(iterator->Valid());
       ASSERT_EQ("xb", iterator->key().ToString());
-      ASSERT_EQ(0, TestGetTickerCount(options, BLOOM_FILTER_PREFIX_CHECKED));
+      if (!use_partitioned_filter) {
+        ASSERT_EQ(0, TestGetTickerCount(options, BLOOM_FILTER_PREFIX_CHECKED));
+      }
 
       iterator->Seek("xx0");
       ASSERT_TRUE(iterator->Valid());
       ASSERT_EQ("xx1", iterator->key().ToString());
-      ASSERT_EQ(1, TestGetTickerCount(options, BLOOM_FILTER_PREFIX_CHECKED));
+      if (!use_partitioned_filter) {
+        ASSERT_EQ(1, TestGetTickerCount(options, BLOOM_FILTER_PREFIX_CHECKED));
+      }
     }
 
     CompactRangeOptions compact_range_opts;
@@ -4457,17 +4465,23 @@ TEST_F(DBTest2, ChangePrefixExtractor) {
       iterator->Seek("x");
       ASSERT_TRUE(iterator->Valid());
       ASSERT_EQ("xb", iterator->key().ToString());
-      ASSERT_EQ(2, TestGetTickerCount(options, BLOOM_FILTER_PREFIX_CHECKED));
+      if (!use_partitioned_filter) {
+        ASSERT_EQ(2, TestGetTickerCount(options, BLOOM_FILTER_PREFIX_CHECKED));
+      }
 
       iterator->Seek("xg");
       ASSERT_TRUE(iterator->Valid());
       ASSERT_EQ("xx1", iterator->key().ToString());
-      ASSERT_EQ(3, TestGetTickerCount(options, BLOOM_FILTER_PREFIX_CHECKED));
+      if (!use_partitioned_filter) {
+        ASSERT_EQ(3, TestGetTickerCount(options, BLOOM_FILTER_PREFIX_CHECKED));
+      }
 
       iterator->Seek("xz");
       ASSERT_TRUE(iterator->Valid());
       ASSERT_EQ("xz1", iterator->key().ToString());
-      ASSERT_EQ(4, TestGetTickerCount(options, BLOOM_FILTER_PREFIX_CHECKED));
+      if (!use_partitioned_filter) {
+        ASSERT_EQ(4, TestGetTickerCount(options, BLOOM_FILTER_PREFIX_CHECKED));
+      }
     }
     {
       std::unique_ptr<Iterator> iterator(db_->NewIterator(ro));
@@ -4475,12 +4489,16 @@ TEST_F(DBTest2, ChangePrefixExtractor) {
       iterator->SeekForPrev("xx0");
       ASSERT_TRUE(iterator->Valid());
       ASSERT_EQ("xb", iterator->key().ToString());
-      ASSERT_EQ(5, TestGetTickerCount(options, BLOOM_FILTER_PREFIX_CHECKED));
+      if (!use_partitioned_filter) {
+        ASSERT_EQ(5, TestGetTickerCount(options, BLOOM_FILTER_PREFIX_CHECKED));
+      }
 
       iterator->Seek("xx0");
       ASSERT_TRUE(iterator->Valid());
       ASSERT_EQ("xx1", iterator->key().ToString());
-      ASSERT_EQ(6, TestGetTickerCount(options, BLOOM_FILTER_PREFIX_CHECKED));
+      if (!use_partitioned_filter) {
+        ASSERT_EQ(6, TestGetTickerCount(options, BLOOM_FILTER_PREFIX_CHECKED));
+      }
     }
 
     ub_str = "xg9";
@@ -4490,7 +4508,9 @@ TEST_F(DBTest2, ChangePrefixExtractor) {
       iterator->SeekForPrev("xg0");
       ASSERT_TRUE(iterator->Valid());
       ASSERT_EQ("xb", iterator->key().ToString());
-      ASSERT_EQ(7, TestGetTickerCount(options, BLOOM_FILTER_PREFIX_CHECKED));
+      if (!use_partitioned_filter) {
+        ASSERT_EQ(7, TestGetTickerCount(options, BLOOM_FILTER_PREFIX_CHECKED));
+      }
     }
   }
 }
