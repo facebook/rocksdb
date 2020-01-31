@@ -1410,9 +1410,8 @@ class DB {
 
 #endif  // ROCKSDB_LITE
 
-  // Sets the globally unique ID created at database creation time by invoking
-  // Env::GenerateUniqueId(), in identity. Returns Status::OK if identity could
-  // be set properly
+  // Reads the IDENTITY file and stores the id in the identity variable.
+  // Returns Status::OK if identity could be set properly
   virtual Status GetDbIdentity(std::string& identity) const = 0;
 
   // Returns default column family handle
