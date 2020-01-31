@@ -1,5 +1,7 @@
 # Rocksdb Change Log
 ## Unreleased
+
+## 6.6.4 (1/31/2020)
 ### Bug Fixes
 * Fixed issue #6316 that can cause a corruption of the MANIFEST file in the middle when writing to it fails due to no disk space.
 
