@@ -124,6 +124,20 @@ TEST_F(DBSSTTest, SSTsWithLdbSuffixHandling) {
   Destroy(options);
 }
 
+// Check that we don't crash when opening DB with
+// DBOptions::skip_checking_sst_file_sizes_on_db_open = true.
+TEST_F(DBSSTTest, SkipCheckingSSTFileSizesOnDBOpen) {
+  ASSERT_OK(Put("pika", "choo"));
+  ASSERT_OK(Flush());
+
+  // Just open the DB with the option set to true and check that we don't crash.
+  Options options;
+  options.skip_checking_sst_file_sizes_on_db_open = true;
+  Reopen(options);
+
+  ASSERT_EQ("choo", Get("pika"));
+}
+
 #ifndef ROCKSDB_LITE
 TEST_F(DBSSTTest, DontDeleteMovedFile) {
   // This test triggers move compaction and verifies that the file is not
