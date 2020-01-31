@@ -76,7 +76,7 @@ FileChecksumList* NewFileChecksumList() {
   return checksum_list;
 }
 
-FileChecksumFunc* NewDefaultFileChecksumFuncCrc32c() {
+FileChecksumFunc* CreateFileChecksumFuncCrc32c() {
   FileChecksumFunc* file_checksum_crc32c = new FileChecksumFuncCrc32c();
   return file_checksum_crc32c;
 }

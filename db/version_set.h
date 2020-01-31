@@ -898,7 +898,7 @@ class VersionSet {
 
   // Get file checksum information of all SST files. For data correctness
   // check usage.
-  Status GetAllFileCheckSumInfo(const Options& options,
+  Status GetAllFileChecksumInfo(const Options& options,
                                 const std::string& dscname,
                                 FileChecksumList* checksum_list);
 

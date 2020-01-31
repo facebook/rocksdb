@@ -3202,7 +3202,7 @@ TEST_P(BlockBasedTableTest, NoFileChecksum) {
 TEST_P(BlockBasedTableTest, Crc32FileChecksum) {
   Options options;
   options.sst_file_checksum_func =
-      std::shared_ptr<FileChecksumFunc>(NewDefaultFileChecksumFuncCrc32c());
+      std::shared_ptr<FileChecksumFunc>(CreateFileChecksumFuncCrc32c());
   ImmutableCFOptions ioptions(options);
   MutableCFOptions moptions(options);
   BlockBasedTableOptions table_options = GetBlockBasedTableOptions();
@@ -3344,7 +3344,7 @@ TEST_F(PlainTableTest, Crc32FileChecksum) {
 
   Options options;
   options.sst_file_checksum_func =
-      std::shared_ptr<FileChecksumFunc>(NewDefaultFileChecksumFuncCrc32c());
+      std::shared_ptr<FileChecksumFunc>(CreateFileChecksumFuncCrc32c());
   const ImmutableCFOptions ioptions(options);
   const MutableCFOptions moptions(options);
   InternalKeyComparator ikc(options.comparator);

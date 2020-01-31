@@ -1147,14 +1147,14 @@ void ManifestDumpCommand::DoCommand() {
 // ----------------------------------------------------------------------------
 namespace {
 
-void GetAllFileCheckSumInfoFromManifest(Options options, std::string file,
+void GetAllFileChecksumInfoFromManifest(Options options, std::string file,
                                         FileChecksumList* checksum_list) {
   EnvOptions sopt;
   std::string dbname("dummy");
   std::shared_ptr<Cache> tc(NewLRUCache(options.max_open_files - 10,
                                         options.table_cache_numshardbits));
   // Notice we are using the default options not through SanitizeOptions(),
-  // if VersionSet::GetAllFileCheckSumInfo depends on any option done by
+  // if VersionSet::GetAllFileChecksumInfo depends on any option done by
   // SanitizeOptions(), we need to initialize it manually.
   options.db_paths.emplace_back("dummy", 0);
   options.num_levels = 64;
@@ -1163,7 +1163,7 @@ void GetAllFileCheckSumInfoFromManifest(Options options, std::string file,
   ImmutableDBOptions immutable_db_options(options);
   VersionSet versions(dbname, &immutable_db_options, sopt, tc.get(), &wb, &wc,
                       /*block_cache_tracer=*/nullptr);
-  Status s = versions.GetAllFileCheckSumInfo(options, file, checksum_list);
+  Status s = versions.GetAllFileChecksumInfo(options, file, checksum_list);
   if (!s.ok()) {
     fprintf(stderr, "Error in processing file %s %s\n", file.c_str(),
             s.ToString().c_str());
@@ -1268,7 +1268,7 @@ void FileChecksumDumpCommand::DoCommand() {
   //  ......
 
   std::unique_ptr<FileChecksumList> checksum_list(NewFileChecksumList());
-  GetAllFileCheckSumInfoFromManifest(options_, manifestfile,
+  GetAllFileChecksumInfoFromManifest(options_, manifestfile,
                                      checksum_list.get());
   if (checksum_list != nullptr) {
     std::vector<uint64_t> file_numbers;

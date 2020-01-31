@@ -80,6 +80,6 @@ class FileChecksumList {
 extern FileChecksumList* NewFileChecksumList();
 
 // Create a Crc32c based file checksum function
-extern FileChecksumFunc* NewDefaultFileChecksumFuncCrc32c();
+extern FileChecksumFunc* CreateFileChecksumFuncCrc32c();
 
 }  // namespace rocksdb

@@ -245,7 +245,7 @@ class FileChecksumTestHelper {
     VersionSet versions(dbname_, &immutable_db_options, sopt, tc.get(), &wb,
                         &wc,
                         /*block_cache_tracer=*/nullptr);
-    s = versions.GetAllFileCheckSumInfo(options_, manifestfile,
+    s = versions.GetAllFileChecksumInfo(options_, manifestfile,
                                         checksum_list.get());
     if (!s.ok()) {
       return s;
@@ -357,7 +357,7 @@ TEST_F(LdbCmdTest, DumpFileChecksumCRC32) {
   opts.env = env.get();
   opts.create_if_missing = true;
   opts.sst_file_checksum_func =
-      std::shared_ptr<FileChecksumFunc>(NewDefaultFileChecksumFuncCrc32c());
+      std::shared_ptr<FileChecksumFunc>(CreateFileChecksumFuncCrc32c());
   opts.file_system.reset(new LegacyFileSystemWrapper(opts.env));
 
   DB* db = nullptr;
