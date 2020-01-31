@@ -288,7 +288,7 @@ TEST_F(DBErrorHandlingTest, CompactionManifestWriteError) {
 
   rocksdb::SyncPoint::GetInstance()->LoadDependency(
       // Wait for flush of 2nd L0 file before starting compaction
-      {{"DBImpl::FlushMemTable:FlushMemTableFinished",
+      {{"FlushMemTableFinished",
         "BackgroundCallCompaction:0"},
       // Wait for compaction to detect manifest write error
        {"BackgroundCallCompaction:1",
