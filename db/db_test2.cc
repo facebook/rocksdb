@@ -4368,6 +4368,13 @@ TEST_F(DBTest2, ChangePrefixExtractor) {
     BlockBasedTableOptions table_options;
     Options options = CurrentOptions();
 
+    // Sometimes filter is checked based on upper bound. Assert counters
+    // for that case. Otherwise, only check data correctness.
+#ifndef ROCKSDB_LITE
+    bool expect_filter_check = !use_partitioned_filter;
+#else
+    bool expect_filter_check = false;
+#endif
     table_options.partition_filters = use_partitioned_filter;
     if (use_partitioned_filter) {
       table_options.index_type =
@@ -4403,14 +4410,14 @@ TEST_F(DBTest2, ChangePrefixExtractor) {
       ASSERT_EQ("xb", iterator->key().ToString());
       // It's a bug that the counter BLOOM_FILTER_PREFIX_CHECKED is not
       // correct in this case. So don't check counters in this case.
-      if (!use_partitioned_filter) {
+      if (expect_filter_check) {
         ASSERT_EQ(0, TestGetTickerCount(options, BLOOM_FILTER_PREFIX_CHECKED));
       }
 
       iterator->Seek("xz");
       ASSERT_TRUE(iterator->Valid());
       ASSERT_EQ("xz1", iterator->key().ToString());
-      if (!use_partitioned_filter) {
+      if (expect_filter_check) {
         ASSERT_EQ(0, TestGetTickerCount(options, BLOOM_FILTER_PREFIX_CHECKED));
       }
     }
@@ -4427,7 +4434,7 @@ TEST_F(DBTest2, ChangePrefixExtractor) {
       iterator->SeekForPrev("xg0");
       ASSERT_TRUE(iterator->Valid());
       ASSERT_EQ("xb", iterator->key().ToString());
-      if (!use_partitioned_filter) {
+      if (expect_filter_check) {
         ASSERT_EQ(0, TestGetTickerCount(options, BLOOM_FILTER_PREFIX_CHECKED));
       }
     }
@@ -4440,14 +4447,14 @@ TEST_F(DBTest2, ChangePrefixExtractor) {
       iterator->Seek("x");
       ASSERT_TRUE(iterator->Valid());
       ASSERT_EQ("xb", iterator->key().ToString());
-      if (!use_partitioned_filter) {
+      if (expect_filter_check) {
         ASSERT_EQ(0, TestGetTickerCount(options, BLOOM_FILTER_PREFIX_CHECKED));
       }
 
       iterator->Seek("xx0");
       ASSERT_TRUE(iterator->Valid());
       ASSERT_EQ("xx1", iterator->key().ToString());
-      if (!use_partitioned_filter) {
+      if (expect_filter_check) {
         ASSERT_EQ(1, TestGetTickerCount(options, BLOOM_FILTER_PREFIX_CHECKED));
       }
     }
@@ -4465,21 +4472,21 @@ TEST_F(DBTest2, ChangePrefixExtractor) {
       iterator->Seek("x");
       ASSERT_TRUE(iterator->Valid());
       ASSERT_EQ("xb", iterator->key().ToString());
-      if (!use_partitioned_filter) {
+      if (expect_filter_check) {
         ASSERT_EQ(2, TestGetTickerCount(options, BLOOM_FILTER_PREFIX_CHECKED));
       }
 
       iterator->Seek("xg");
       ASSERT_TRUE(iterator->Valid());
       ASSERT_EQ("xx1", iterator->key().ToString());
-      if (!use_partitioned_filter) {
+      if (expect_filter_check) {
         ASSERT_EQ(3, TestGetTickerCount(options, BLOOM_FILTER_PREFIX_CHECKED));
       }
 
       iterator->Seek("xz");
       ASSERT_TRUE(iterator->Valid());
       ASSERT_EQ("xz1", iterator->key().ToString());
-      if (!use_partitioned_filter) {
+      if (expect_filter_check) {
         ASSERT_EQ(4, TestGetTickerCount(options, BLOOM_FILTER_PREFIX_CHECKED));
       }
     }
@@ -4489,14 +4496,14 @@ TEST_F(DBTest2, ChangePrefixExtractor) {
       iterator->SeekForPrev("xx0");
       ASSERT_TRUE(iterator->Valid());
       ASSERT_EQ("xb", iterator->key().ToString());
-      if (!use_partitioned_filter) {
+      if (expect_filter_check) {
         ASSERT_EQ(5, TestGetTickerCount(options, BLOOM_FILTER_PREFIX_CHECKED));
       }
 
       iterator->Seek("xx0");
       ASSERT_TRUE(iterator->Valid());
       ASSERT_EQ("xx1", iterator->key().ToString());
-      if (!use_partitioned_filter) {
+      if (expect_filter_check) {
         ASSERT_EQ(6, TestGetTickerCount(options, BLOOM_FILTER_PREFIX_CHECKED));
       }
     }
@@ -4508,7 +4515,7 @@ TEST_F(DBTest2, ChangePrefixExtractor) {
       iterator->SeekForPrev("xg0");
       ASSERT_TRUE(iterator->Valid());
       ASSERT_EQ("xb", iterator->key().ToString());
-      if (!use_partitioned_filter) {
+      if (expect_filter_check) {
         ASSERT_EQ(7, TestGetTickerCount(options, BLOOM_FILTER_PREFIX_CHECKED));
       }
     }
