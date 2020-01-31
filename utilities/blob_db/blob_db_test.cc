@@ -1371,6 +1371,7 @@ TEST_F(BlobDBTest, GarbageCollection) {
 
   Options options;
   options.env = mock_env_.get();
+  options.statistics = CreateDBStatistics();
 
   Open(bdb_options, options);
 
@@ -1504,6 +1505,17 @@ TEST_F(BlobDBTest, GarbageCollection) {
 
   VerifyBaseDBBlobIndex(blob_index_versions);
 
+  const Statistics *const statistics = options.statistics.get();
+  assert(statistics);
+
+  ASSERT_EQ(statistics->getTickerCount(BLOB_DB_GC_NUM_FILES), cutoff);
+  ASSERT_EQ(statistics->getTickerCount(BLOB_DB_GC_NUM_NEW_FILES), cutoff);
+  ASSERT_EQ(statistics->getTickerCount(BLOB_DB_GC_FAILURES), 0);
+  ASSERT_EQ(statistics->getTickerCount(BLOB_DB_GC_NUM_KEYS_RELOCATED),
+            cutoff * kBlobsPerFile);
+  ASSERT_EQ(statistics->getTickerCount(BLOB_DB_GC_BYTES_RELOCATED),
+            cutoff * kBlobsPerFile * kLargeValueSize);
+
   // At this point, we should have 128 immutable non-TTL files with file numbers
   // 33..128 and 130..161. (129 was taken by the TTL blob file.)
   {
@@ -1520,6 +1532,47 @@ TEST_F(BlobDBTest, GarbageCollection) {
                 kBlobFileSize + BlobLogFooter::kSize);
     }
   }
+}
+
+TEST_F(BlobDBTest, GarbageCollectionFailure) {
+  BlobDBOptions bdb_options;
+  bdb_options.min_blob_size = 0;
+  bdb_options.enable_garbage_collection = true;
+  bdb_options.garbage_collection_cutoff = 1.0;
+  bdb_options.disable_background_tasks = true;
+
+  Options db_options;
+  db_options.statistics = CreateDBStatistics();
+
+  Open(bdb_options, db_options);
+
+  // Write a couple of valid blobs.
+  Put("foo", "bar");
+  Put("dead", "beef");
+
+  // Write a fake blob reference into the base DB that cannot be parsed.
+  WriteBatch batch;
+  ASSERT_OK(WriteBatchInternal::PutBlobIndex(
+      &batch, blob_db_->DefaultColumnFamily()->GetID(), "key",
+      "not a valid blob index"));
+  ASSERT_OK(blob_db_->GetRootDB()->Write(WriteOptions(), &batch));
+
+  auto blob_files = blob_db_impl()->TEST_GetBlobFiles();
+  ASSERT_EQ(blob_files.size(), 1);
+  auto blob_file = blob_files[0];
+  ASSERT_OK(blob_db_impl()->TEST_CloseBlobFile(blob_file));
+
+  ASSERT_TRUE(blob_db_->CompactRange(CompactRangeOptions(), nullptr, nullptr)
+                  .IsCorruption());
+
+  const Statistics *const statistics = db_options.statistics.get();
+  assert(statistics);
+
+  ASSERT_EQ(statistics->getTickerCount(BLOB_DB_GC_NUM_FILES), 0);
+  ASSERT_EQ(statistics->getTickerCount(BLOB_DB_GC_NUM_NEW_FILES), 1);
+  ASSERT_EQ(statistics->getTickerCount(BLOB_DB_GC_FAILURES), 1);
+  ASSERT_EQ(statistics->getTickerCount(BLOB_DB_GC_NUM_KEYS_RELOCATED), 2);
+  ASSERT_EQ(statistics->getTickerCount(BLOB_DB_GC_BYTES_RELOCATED), 7);
 }
 
 // File should be evicted after expiration.

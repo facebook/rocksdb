@@ -16,12 +16,6 @@ namespace rocksdb {
 
 namespace {
 using BFP = BloomFilterPolicy;
-
-namespace BFP2 {
-// Extends BFP::Mode with option to use Plain table
-using PseudoMode = int;
-static constexpr PseudoMode kPlainTable = -1;
-}  // namespace BFP2
 }  // namespace
 
 // DB tests related to bloom filter.
@@ -1031,6 +1025,14 @@ TEST_F(DBBloomFilterTest, MemtablePrefixBloomOutOfDomain) {
 }
 
 #ifndef ROCKSDB_LITE
+namespace {
+namespace BFP2 {
+// Extends BFP::Mode with option to use Plain table
+using PseudoMode = int;
+static constexpr PseudoMode kPlainTable = -1;
+}  // namespace BFP2
+}  // namespace
+
 class BloomStatsTestWithParam
     : public DBBloomFilterTest,
       public testing::WithParamInterface<std::tuple<BFP2::PseudoMode, bool>> {
