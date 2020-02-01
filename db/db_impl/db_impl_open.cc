@@ -295,17 +295,20 @@ Status DBImpl::NewDB() {
 }
 
 Status DBImpl::CreateAndNewDirectory(Env* env, const std::string& dirname,
+                                     bool known_already_exist,
                                      std::unique_ptr<Directory>* directory) {
-  // We call CreateDirIfMissing() as the directory may already exist (if we
-  // are reopening a DB), when this happens we don't want creating the
-  // directory to cause an error. However, we need to check if creating the
-  // directory fails or else we may get an obscure message about the lock
-  // file not existing. One real-world example of this occurring is if
-  // env->CreateDirIfMissing() doesn't create intermediate directories, e.g.
-  // when dbname_ is "dir/db" but when "dir" doesn't exist.
-  Status s = env->CreateDirIfMissing(dirname);
-  if (!s.ok()) {
-    return s;
+  if (known_already_exist) {
+    // We call CreateDirIfMissing() as the directory may already exist (if we
+    // are reopening a DB), when this happens we don't want creating the
+    // directory to cause an error. However, we need to check if creating the
+    // directory fails or else we may get an obscure message about the lock
+    // file not existing. One real-world example of this occurring is if
+    // env->CreateDirIfMissing() doesn't create intermediate directories, e.g.
+    // when dbname_ is "dir/db" but when "dir" doesn't exist.
+    Status s = env->CreateDirIfMissing(dirname);
+    if (!s.ok()) {
+      return s;
+    }
   }
   return env->NewDirectory(dirname, directory);
 }
@@ -313,12 +316,14 @@ Status DBImpl::CreateAndNewDirectory(Env* env, const std::string& dirname,
 Status Directories::SetDirectories(Env* env, const std::string& dbname,
                                    const std::string& wal_dir,
                                    const std::vector<DbPath>& data_paths) {
-  Status s = DBImpl::CreateAndNewDirectory(env, dbname, &db_dir_);
+  Status s = DBImpl::CreateAndNewDirectory(
+      env, dbname, false /* known_already_exist */, &db_dir_);
   if (!s.ok()) {
     return s;
   }
   if (!wal_dir.empty() && dbname != wal_dir) {
-    s = DBImpl::CreateAndNewDirectory(env, wal_dir, &wal_dir_);
+    s = DBImpl::CreateAndNewDirectory(
+        env, wal_dir, false /* known_already_exist */, &wal_dir_);
     if (!s.ok()) {
       return s;
     }
@@ -331,7 +336,8 @@ Status Directories::SetDirectories(Env* env, const std::string& dbname,
       data_dirs_.emplace_back(nullptr);
     } else {
       std::unique_ptr<Directory> path_directory;
-      s = DBImpl::CreateAndNewDirectory(env, db_path, &path_directory);
+      s = DBImpl::CreateAndNewDirectory(
+          env, db_path, false /* known_already_exist */, &path_directory);
       if (!s.ok()) {
         return s;
       }
@@ -453,9 +459,10 @@ Status DBImpl::Recover(
   if (immutable_db_options_.paranoid_checks && s.ok()) {
     s = CheckConsistency();
   }
+  std::map<std::string, std::shared_ptr<Directory>> created_dirs;
   if (s.ok() && !read_only) {
     for (auto cfd : *versions_->GetColumnFamilySet()) {
-      s = cfd->AddDirectories();
+      s = cfd->AddDirectories(&created_dirs);
       if (!s.ok()) {
         return s;
       }
