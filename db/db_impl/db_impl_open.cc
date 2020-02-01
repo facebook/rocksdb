@@ -331,7 +331,7 @@ Status Directories::SetDirectories(Env* env, const std::string& dbname,
       data_dirs_.emplace_back(nullptr);
     } else {
       std::unique_ptr<Directory> path_directory;
-      s = DBImpl::CreateAndNewDirectory(env, db_path, , &path_directory);
+      s = DBImpl::CreateAndNewDirectory(env, db_path, &path_directory);
       if (!s.ok()) {
         return s;
       }
