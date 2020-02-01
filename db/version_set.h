@@ -1127,6 +1127,9 @@ class VersionSet {
                                     const VersionEdit& from_edit,
                                     VersionEditParams* version_edit_params);
 
+  Status VerifyFileMetadata(const std::string& fpath,
+                            const FileMetaData& meta) const;
+
   std::unique_ptr<ColumnFamilySet> column_family_set_;
   Env* const env_;
   FileSystem* const fs_;

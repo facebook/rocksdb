@@ -4624,34 +4624,39 @@ namespace {
 class ManifestPicker {
  public:
   explicit ManifestPicker(const std::string& dbname, FileSystem* fs);
-  std::string GetNextManifest();
+  void SeekToFirstManifest();
+  std::string GetNextManifest(uint64_t* file_number, std::string* file_name);
   const Status& status() const { return status_; }
 
  private:
-  // MANIFEST file(s)
+  const std::string& dbname_;
+  FileSystem* const fs_;
+  // MANIFEST file names(s)
   std::vector<std::string> manifest_files_;
   std::vector<std::string>::const_iterator manifest_file_iter_;
   Status status_;
 };
 
-ManifestPicker::ManifestPicker(const std::string& dbname, FileSystem* fs) {
-  assert(fs != nullptr);
+ManifestPicker::ManifestPicker(const std::string& dbname, FileSystem* fs)
+    : dbname_(dbname), fs_(fs) {}
+
+void ManifestPicker::SeekToFirstManifest() {
+  assert(fs_ != nullptr);
   std::vector<std::string> children;
-  Status s = fs->GetChildren(dbname, IOOptions(), &children, /*dbg=*/nullptr);
+  Status s = fs_->GetChildren(dbname_, IOOptions(), &children, /*dbg=*/nullptr);
   if (!s.ok()) {
     status_ = s;
     return;
   }
-  std::vector<std::string> manifest_fnames;
   for (const auto& fname : children) {
     uint64_t file_num = 0;
     FileType file_type;
     bool parse_ok = ParseFileName(fname, &file_num, &file_type);
     if (parse_ok && file_type == kDescriptorFile) {
-      manifest_fnames.push_back(fname);
+      manifest_files_.push_back(fname);
     }
   }
-  std::sort(manifest_fnames.begin(), manifest_fnames.end(),
+  std::sort(manifest_files_.begin(), manifest_files_.end(),
             [](const std::string& lhs, const std::string& rhs) {
               uint64_t num1 = 0;
               uint64_t num2 = 0;
@@ -4666,24 +4671,34 @@ ManifestPicker::ManifestPicker(const std::string& dbname, FileSystem* fs) {
               (void)parse_ok1;
               (void)parse_ok2;
 #endif
-              return !(num1 <= num2);
+              return !(num1 < num2);
             });
-  for (const auto& fname : manifest_fnames) {
-    std::string full_path(dbname);
-    if (full_path.back() != kFilePathSeparator) {
-      full_path.push_back(kFilePathSeparator);
-    }
-    full_path.append(fname);
-    manifest_files_.push_back(full_path);
-  }
   manifest_file_iter_ = manifest_files_.begin();
 }
 
-std::string ManifestPicker::GetNextManifest() {
+std::string ManifestPicker::GetNextManifest(uint64_t* number,
+                                            std::string* file_name) {
   assert(status_.ok());
   std::string ret;
   if (manifest_file_iter_ != manifest_files_.end()) {
-    ret = *manifest_file_iter_;
+    ret.assign(dbname_);
+    if (ret.back() != kFilePathSeparator) {
+      ret.push_back(kFilePathSeparator);
+    }
+    ret.append(*manifest_file_iter_);
+    if (number) {
+      FileType type;
+      bool parse = ParseFileName(*manifest_file_iter_, number, &type);
+      assert(type == kDescriptorFile);
+#ifndef NDEBUG
+      assert(parse);
+#else
+      (void)parse;
+#endif
+    }
+    if (file_name) {
+      *file_name = *manifest_file_iter_;
+    }
     ++manifest_file_iter_;
   }
   return ret;
@@ -4694,11 +4709,13 @@ Status VersionSet::TryRecover(
     const std::vector<ColumnFamilyDescriptor>& column_families, bool read_only,
     std::string* db_id) {
   ManifestPicker manifest_picker(dbname_, fs_);
+  manifest_picker.SeekToFirstManifest();
   Status s = manifest_picker.status();
   if (!s.ok()) {
     return s;
   }
-  std::string manifest_path = manifest_picker.GetNextManifest();
+  std::string manifest_path =
+      manifest_picker.GetNextManifest(&manifest_file_number_, nullptr);
   while (!manifest_path.empty()) {
     s = TryRecoverFromOneManifest(manifest_path, column_families, read_only,
                                   db_id);
@@ -4706,7 +4723,8 @@ Status VersionSet::TryRecover(
       break;
     }
     Reset();
-    manifest_path = manifest_picker.GetNextManifest();
+    manifest_path =
+        manifest_picker.GetNextManifest(&manifest_file_number_, nullptr);
   }
   if (s.ok()) {
     for (ColumnFamilyData* cfd : *column_family_set_) {
@@ -4755,46 +4773,21 @@ Status VersionSet::TryRecoverFromOneManifest(
     return s;
   }
 
-  const auto verify_file_metadata = [this](const std::string& fname,
-                                           const FileMetaData& meta) {
-    Status status = env_->FileExists(fname);
-    uint64_t fsize = 0;
-    if (status.ok()) {
-      status = fs_->GetFileSize(fname, IOOptions(), &fsize, nullptr);
-    }
-    if (status.ok()) {
-      if (fsize != meta.fd.GetFileSize()) {
-        status = Status::Corruption("File size mismatch: " + fname);
-      }
-    }
-    return status;
-  };
-
   std::unordered_map<std::string, ColumnFamilyOptions> cf_name_to_options;
   for (const auto& cf : column_families) {
     cf_name_to_options.insert({cf.name, cf.options});
   }
-
-  std::unordered_map<uint32_t, std::unique_ptr<BaseReferencedVersionBuilder>>
-      builders;
   const auto default_cf_iter =
       cf_name_to_options.find(kDefaultColumnFamilyName);
   if (default_cf_iter == cf_name_to_options.end()) {
     return Status::InvalidArgument("Default column family not specified");
   }
-  VersionEdit default_cf_edit;
-  default_cf_edit.AddColumnFamily(kDefaultColumnFamilyName);
-  default_cf_edit.SetColumnFamily(0);
-  ColumnFamilyData* default_cfd =
-      CreateColumnFamily(default_cf_iter->second, &default_cf_edit);
-  default_cfd->set_initialized();
-  builders.insert(
-      std::make_pair(0, std::unique_ptr<BaseReferencedVersionBuilder>(
-                            new BaseReferencedVersionBuilder(default_cfd))));
+
+  std::unordered_map<uint32_t, std::unique_ptr<BaseReferencedVersionBuilder>>
+      builders;
   std::unordered_map<uint32_t, std::string> column_families_not_found;
   std::unordered_map<uint32_t, std::unordered_set<uint64_t>>
       cf_to_missing_files;
-  cf_to_missing_files.insert(std::make_pair(0, std::unordered_set<uint64_t>()));
   std::unordered_map<uint32_t, Version*> versions;
   struct VersionsGuard {
     explicit VersionsGuard(std::unordered_map<uint32_t, Version*>& _versions)
@@ -4807,7 +4800,36 @@ Status VersionSet::TryRecoverFromOneManifest(
     std::unordered_map<uint32_t, Version*>& versions;
   };
   VersionsGuard versions_guard(versions);
-  versions.insert(std::make_pair(0, nullptr));
+  const auto create_cf_and_init = [&](const ColumnFamilyOptions& cf_opts,
+                                      VersionEdit& edit) -> ColumnFamilyData* {
+    ColumnFamilyData* ret_cfd = CreateColumnFamily(cf_opts, &edit);
+    ret_cfd->set_initialized();
+    auto* init_version = new Version(ret_cfd, this, file_options_,
+                                     *ret_cfd->GetLatestMutableCFOptions(),
+                                     current_version_number_++);
+    init_version->PrepareApply(*ret_cfd->GetLatestMutableCFOptions(),
+                               !db_options_->skip_stats_update_on_db_open);
+    init_version->storage_info()->ComputeCompactionScore(
+        *ret_cfd->ioptions(), *ret_cfd->GetLatestMutableCFOptions());
+    init_version->storage_info()->SetFinalized();
+    assert(0 == init_version->refs_);
+    assert(init_version != ret_cfd->current());
+    assert(versions.find(edit.column_family_) == versions.end());
+    versions.insert(std::make_pair(edit.column_family_, init_version));
+    builders.insert(std::make_pair(
+        edit.column_family_,
+        std::unique_ptr<BaseReferencedVersionBuilder>(
+            new BaseReferencedVersionBuilder(ret_cfd, init_version))));
+    cf_to_missing_files.insert(
+        std::make_pair(edit.column_family_, std::unordered_set<uint64_t>()));
+    return ret_cfd;
+  };
+
+  VersionEdit default_cf_edit;
+  default_cf_edit.AddColumnFamily(kDefaultColumnFamilyName);
+  default_cf_edit.SetColumnFamily(0);
+  create_cf_and_init(default_cf_iter->second, default_cf_edit);
+
   VersionEditParams version_edit_params;
   VersionSet::LogReporter reporter;
   reporter.status = &s;
@@ -4855,16 +4877,10 @@ Status VersionSet::TryRecoverFromOneManifest(
         if (is_persistent_stats_cf) {
           ColumnFamilyOptions cfo;
           OptimizeForPersistentStats(&cfo);
-          cfd = CreateColumnFamily(cfo, &edit);
+          cfd = create_cf_and_init(cfo, edit);
         } else {
-          cfd = CreateColumnFamily(cf_options_iter->second, &edit);
+          cfd = create_cf_and_init(cf_options_iter->second, edit);
         }
-        cfd->set_initialized();
-        builders.insert(std::make_pair(
-            edit.column_family_, std::unique_ptr<BaseReferencedVersionBuilder>(
-                                     new BaseReferencedVersionBuilder(cfd))));
-        cf_to_missing_files.insert(std::make_pair(
-            edit.column_family_, std::unordered_set<uint64_t>()));
       }
     } else if (edit.is_column_family_drop_) {
       if (cf_in_builders) {
@@ -4881,6 +4897,10 @@ Status VersionSet::TryRecoverFromOneManifest(
         } else {
           assert(false);
         }
+        auto v_iter = versions.find(edit.column_family_);
+        assert(v_iter != versions.end());
+        delete v_iter->second;
+        versions.erase(v_iter);
       } else if (cf_in_not_found) {
         column_families_not_found.erase(edit.column_family_);
       } else {
@@ -4946,8 +4966,8 @@ Status VersionSet::TryRecoverFromOneManifest(
         const FileMetaData& meta = elem.second;
         const FileDescriptor& fd = meta.fd;
         uint64_t file_num = fd.GetNumber();
-        const std::string fname = MakeTableFileName(dbname_, file_num);
-        if (!verify_file_metadata(fname, meta).ok()) {
+        const std::string fpath = MakeTableFileName(dbname_, file_num);
+        if (!VerifyFileMetadata(fpath, meta).ok()) {
           missing_files.insert(file_num);
         }
       }
@@ -4966,14 +4986,12 @@ Status VersionSet::TryRecoverFromOneManifest(
         auto v_iter = versions.find(edit.column_family_);
         if (v_iter != versions.end()) {
           delete v_iter->second;
-          versions.erase(v_iter);
+          v_iter->second = version;
+        } else {
+          versions.insert(std::make_pair(edit.column_family_, version));
         }
-        versions.insert(std::make_pair(edit.column_family_, version));
-        builders.erase(builder_iter);
-        builders.insert(std::make_pair(
-            edit.column_family_,
-            std::unique_ptr<BaseReferencedVersionBuilder>(
-                new BaseReferencedVersionBuilder(cfd, version))));
+        builder_iter->second = std::unique_ptr<BaseReferencedVersionBuilder>(
+            new BaseReferencedVersionBuilder(cfd, version));
       }
     }
     manifest_file_size_ = current_manifest_file_size;
@@ -6020,6 +6038,21 @@ uint64_t VersionSet::GetTotalSstFilesSize(Version* dummy_versions) {
     }
   }
   return total_files_size;
+}
+
+Status VersionSet::VerifyFileMetadata(const std::string& fpath,
+                                      const FileMetaData& meta) const {
+  Status status = env_->FileExists(fpath);
+  uint64_t fsize = 0;
+  if (status.ok()) {
+    status = fs_->GetFileSize(fpath, IOOptions(), &fsize, nullptr);
+  }
+  if (status.ok()) {
+    if (fsize != meta.fd.GetFileSize()) {
+      status = Status::Corruption("File size mismatch: " + fpath);
+    }
+  }
+  return status;
 }
 
 ReactiveVersionSet::ReactiveVersionSet(const std::string& dbname,

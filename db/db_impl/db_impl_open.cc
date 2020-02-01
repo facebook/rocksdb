@@ -419,7 +419,15 @@ Status DBImpl::Recover(
     }
   }
   assert(db_id_.empty());
-  Status s = versions_->Recover(column_families, read_only, &db_id_);
+  Status s;
+  if (!immutable_db_options_.incremental_recovery) {
+    s = versions_->Recover(column_families, read_only, &db_id_);
+  } else {
+    s = versions_->TryRecover(column_families, read_only, &db_id_);
+    if (s.ok()) {
+      s = CleanupFilesAfterRecovery();
+    }
+  }
   if (!s.ok()) {
     return s;
   }

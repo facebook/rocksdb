@@ -1734,6 +1734,38 @@ TEST_F(DBBasicTest, MultiGetIOBufferOverrun) {
                      keys.data(), values.data(), statuses.data(), true);
 }
 
+TEST_F(DBBasicTest, IncrementalRecoveryNoCorrupt) {
+  Options options = CurrentOptions();
+  DestroyAndReopen(options);
+  CreateAndReopenWithCF({"pikachu", "eevee"}, options);
+  size_t num_cfs = handles_.size();
+  ASSERT_EQ(3, num_cfs);
+  for (size_t cf = 0; cf != num_cfs; ++cf) {
+    for (size_t i = 0; i != 10000; ++i) {
+      std::string key_str = Key(static_cast<int>(i));
+      std::string value_str = std::to_string(cf) + "_" + std::to_string(i);
+      ASSERT_OK(Put(static_cast<int>(cf), key_str, value_str));
+      if (0 == (i % 1000)) {
+        ASSERT_OK(Flush(static_cast<int>(cf)));
+      }
+    }
+  }
+  Close();
+  options.incremental_recovery = true;
+  ReopenWithColumnFamilies({kDefaultColumnFamilyName, "pikachu", "eevee"},
+                           options);
+  num_cfs = handles_.size();
+  ASSERT_EQ(3, num_cfs);
+  for (size_t cf = 0; cf != num_cfs; ++cf) {
+    for (int i = 0; i != 10000; ++i) {
+      std::string key_str = Key(static_cast<int>(i));
+      std::string expected_value_str =
+          std::to_string(cf) + "_" + std::to_string(i);
+      ASSERT_EQ(expected_value_str, Get(static_cast<int>(cf), key_str));
+    }
+  }
+}
+
 class DBBasicTestWithParallelIO
     : public DBTestBase,
       public testing::WithParamInterface<std::tuple<bool, bool, bool, bool>> {

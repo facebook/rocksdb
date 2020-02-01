@@ -1130,6 +1130,8 @@ struct DBOptions {
   //
   // Default: nullptr
   std::shared_ptr<FileChecksumFunc> sst_file_checksum_func = nullptr;
+
+  bool incremental_recovery = false;
 };
 
 // Options to control the behavior of a database (passed to DB::Open)

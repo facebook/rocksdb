@@ -1332,6 +1332,66 @@ INSTANTIATE_TEST_CASE_P(
                     VersionSetTestBase::kColumnFamilyName2,
                     VersionSetTestBase::kColumnFamilyName3));
 
+class EmptyDefaultCfNewManifest : public VersionSetTestBase,
+                                  public testing::Test {
+ public:
+  EmptyDefaultCfNewManifest() : VersionSetTestBase("version_set_new_db_test") {}
+  // Emulate DBImpl::NewDB()
+  void PrepareManifest(std::vector<ColumnFamilyDescriptor>* /*column_families*/,
+                       SequenceNumber* /*last_seqno*/,
+                       std::unique_ptr<log::Writer>* log_writer) override {
+    assert(log_writer != nullptr);
+    VersionEdit new_db;
+    new_db.SetLogNumber(0);
+    std::unique_ptr<WritableFile> file;
+    const std::string manifest_path = DescriptorFileName(dbname_, 1);
+    Status s = env_->NewWritableFile(
+        manifest_path, &file, env_->OptimizeForManifestWrite(env_options_));
+    ASSERT_OK(s);
+    std::unique_ptr<WritableFileWriter> file_writer(
+        new WritableFileWriter(NewLegacyWritableFileWrapper(std::move(file)),
+                               manifest_path, env_options_));
+    log_writer->reset(new log::Writer(std::move(file_writer), 0, true));
+    std::string record;
+    ASSERT_TRUE(new_db.EncodeTo(&record));
+    s = (*log_writer)->AddRecord(record);
+    ASSERT_OK(s);
+    // Create new column family
+    VersionEdit new_cf;
+    new_cf.AddColumnFamily(VersionSetTestBase::kColumnFamilyName1);
+    new_cf.SetColumnFamily(1);
+    new_cf.SetLastSequence(2);
+    new_cf.SetNextFile(2);
+    record.clear();
+    ASSERT_TRUE(new_cf.EncodeTo(&record));
+    s = (*log_writer)->AddRecord(record);
+    ASSERT_OK(s);
+  }
+
+ protected:
+  bool write_dbid_to_manifest_ = false;
+  std::unique_ptr<log::Writer> log_writer_;
+};
+
+// Create db, create column family. Cf creation will switch to a new MANIFEST.
+// Then reopen db, trying to recover.
+TEST_F(EmptyDefaultCfNewManifest, Recover) {
+  PrepareManifest(nullptr, nullptr, &log_writer_);
+  log_writer_.reset();
+  Status s = SetCurrentFile(env_, dbname_, 1, /*dir_to_fsync=*/nullptr);
+  ASSERT_OK(s);
+  std::string manifest_path;
+  VerifyManifest(&manifest_path);
+  std::vector<ColumnFamilyDescriptor> column_families;
+  column_families.emplace_back(kDefaultColumnFamilyName, cf_options_);
+  column_families.emplace_back(VersionSetTestBase::kColumnFamilyName1,
+                               cf_options_);
+  std::string db_id;
+  s = versions_->TryRecoverFromOneManifest(manifest_path, column_families,
+                                           false, &db_id);
+  ASSERT_OK(s);
+}
+
 class VersionSetTestEmptyDb
     : public VersionSetTestBase,
       public testing::TestWithParam<
