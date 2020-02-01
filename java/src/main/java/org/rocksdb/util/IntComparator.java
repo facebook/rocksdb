@@ -53,7 +53,7 @@ public final class IntComparator extends AbstractComparator {
     final int iB = b.getInt();
 
     // protect against int key calculation overflow
-    final double diff = (double)iA - iB;
+    final long diff = (long)iA - iB;
     final int result;
     if (diff < Integer.MIN_VALUE) {
       result = Integer.MIN_VALUE;

@@ -629,13 +629,6 @@ jobject ComparatorJniCallback::NewBuffer(JNIEnv* env, const Slice& src) const {
 }
 
 void ComparatorJniCallback::DeleteBuffer(JNIEnv* env, jobject jbuffer) const {
-  // if direct then free delete the underlying array too
-  // if (m_options->direct_buffer) {
-  //   void* buf = env->GetDirectBufferAddress(jbuffer);
-  //   if (buf != nullptr) {
-  //     delete[] static_cast<const char*>(buf);
-  //   }
-  // }
   env->DeleteLocalRef(jbuffer);
 }
 
