@@ -8,7 +8,9 @@
 #if defined(__linux__) && defined(HAVE_ARM64_CRC)
 
 #include <asm/hwcap.h>
+#ifdef ROCKSDB_AUXV_GETAUXVAL_PRESENT
 #include <sys/auxv.h>
+#endif
 #ifndef HWCAP_CRC32
 #define HWCAP_CRC32 (1 << 7)
 #endif
@@ -34,8 +36,12 @@
 #endif
 
 uint32_t crc32c_runtime_check(void) {
+#ifdef ROCKSDB_AUXV_GETAUXVAL_PRESENT
   uint64_t auxv = getauxval(AT_HWCAP);
   return (auxv & HWCAP_CRC32) != 0;
+#else
+  return 0;
+#endif
 }
 
 uint32_t crc32c_arm64(uint32_t crc, unsigned char const *data,
