@@ -459,8 +459,8 @@ Status DBImpl::Recover(
   if (immutable_db_options_.paranoid_checks && s.ok()) {
     s = CheckConsistency();
   }
-  std::map<std::string, std::shared_ptr<Directory>> created_dirs;
   if (s.ok() && !read_only) {
+    std::map<std::string, std::shared_ptr<Directory>> created_dirs;
     for (auto cfd : *versions_->GetColumnFamilySet()) {
       s = cfd->AddDirectories(&created_dirs);
       if (!s.ok()) {
