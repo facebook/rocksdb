@@ -1331,8 +1331,6 @@ Status ColumnFamilyData::AddDirectories(
       std::unique_ptr<Directory> path_directory;
       s = DBImpl::CreateAndNewDirectory(
           ioptions_.env, p.path,
-          created_dirs->find(p.path) == created_dirs->end()
-          /* known_already_exist */,
           &path_directory);
       if (!s.ok()) {
         return s;

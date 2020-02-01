@@ -826,10 +826,7 @@ class DBImpl : public DB {
                      std::vector<ColumnFamilyHandle*>* handles, DB** dbptr,
                      const bool seq_per_batch, const bool batch_per_txn);
 
-  // If `known_already_exist` = true, no need to create the directory.
-  // The directory might still exist if it is false.
   static Status CreateAndNewDirectory(Env* env, const std::string& dirname,
-                                      bool known_already_exist,
                                       std::unique_ptr<Directory>* directory);
 
   // find stats map from stats_history_ with smallest timestamp in
