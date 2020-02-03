@@ -701,6 +701,8 @@ TEST_F(DBErrorHandlingTest, MultiDBCompactionError) {
   for (auto i = 0; i < kNumDbInstances; ++i) {
     std::string prop;
     ASSERT_EQ(listener[i]->WaitForRecovery(5000000), true);
+    ASSERT_EQ(static_cast<DBImpl*>(db[i])->TEST_WaitForCompact(true),
+              Status::OK());
     EXPECT_TRUE(db[i]->GetProperty(
         "rocksdb.num-files-at-level" + NumberToString(0), &prop));
     EXPECT_EQ(atoi(prop.c_str()), 0);
