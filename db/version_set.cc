@@ -3788,11 +3788,17 @@ Status VersionSet::ProcessManifestWrites(
         assert(!mutable_cf_options_ptrs.empty() &&
                builder_guards.size() == versions.size());
         ColumnFamilyData* cfd = versions[i]->cfd_;
-        builder_guards[i]->version_builder()->LoadTableHandlers(
+        s = builder_guards[i]->version_builder()->LoadTableHandlers(
             cfd->internal_stats(), cfd->ioptions()->optimize_filters_for_hits,
             true /* prefetch_index_and_filter_in_cache */,
             false /* is_initial_load */,
             mutable_cf_options_ptrs[i]->prefix_extractor.get());
+        if (!s.ok()) {
+          if (db_options_->paranoid_checks) {
+            return s;
+          }
+          s = Status::OK();
+        }
       }
     }
 
@@ -4371,8 +4377,8 @@ Status VersionSet::Recover(
     const std::vector<ColumnFamilyDescriptor>& column_families, bool read_only,
     std::string* db_id) {
   std::unordered_map<std::string, ColumnFamilyOptions> cf_name_to_options;
-  for (auto cf : column_families) {
-    cf_name_to_options.insert({cf.name, cf.options});
+  for (const auto& cf : column_families) {
+    cf_name_to_options.emplace(cf.name, cf.options);
   }
   // keeps track of column families in manifest that were not found in
   // column families parameters. if those column families are not dropped
@@ -4506,11 +4512,17 @@ Status VersionSet::Recover(
 
       // unlimited table cache. Pre-load table handle now.
       // Need to do it out of the mutex.
-      builder->LoadTableHandlers(
+      s = builder->LoadTableHandlers(
           cfd->internal_stats(), db_options_->max_file_opening_threads,
           false /* prefetch_index_and_filter_in_cache */,
           true /* is_initial_load */,
           cfd->GetLatestMutableCFOptions()->prefix_extractor.get());
+      if (!s.ok()) {
+        if (db_options_->paranoid_checks) {
+          return s;
+        }
+        s = Status::OK();
+      }
 
       Version* v = new Version(cfd, this, file_options_,
                                *cfd->GetLatestMutableCFOptions(),
