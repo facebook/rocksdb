@@ -173,14 +173,8 @@ void Java_org_rocksdb_Options_setComparatorHandle__JJB(
           reinterpret_cast<rocksdb::ComparatorJniCallback*>(jcomparator_handle);
       break;
 
-    // JAVA_DIRECT_COMPARATOR
-    case 0x1:
-      comparator = reinterpret_cast<rocksdb::DirectComparatorJniCallback*>(
-          jcomparator_handle);
-      break;
-
     // JAVA_NATIVE_COMPARATOR_WRAPPER
-    case 0x2:
+    case 0x1:
       comparator = reinterpret_cast<rocksdb::Comparator*>(jcomparator_handle);
       break;
   }
@@ -3301,14 +3295,8 @@ void Java_org_rocksdb_ColumnFamilyOptions_setComparatorHandle__JJB(
           reinterpret_cast<rocksdb::ComparatorJniCallback*>(jcomparator_handle);
       break;
 
-    // JAVA_DIRECT_COMPARATOR
-    case 0x1:
-      comparator = reinterpret_cast<rocksdb::DirectComparatorJniCallback*>(
-          jcomparator_handle);
-      break;
-
     // JAVA_NATIVE_COMPARATOR_WRAPPER
-    case 0x2:
+    case 0x1:
       comparator = reinterpret_cast<rocksdb::Comparator*>(jcomparator_handle);
       break;
   }
@@ -6869,24 +6857,75 @@ jlong Java_org_rocksdb_ComparatorOptions_newComparatorOptions(
 
 /*
  * Class:     org_rocksdb_ComparatorOptions
- * Method:    useAdaptiveMutex
- * Signature: (J)Z
+ * Method:    reusedSynchronisationType
+ * Signature: (J)B
  */
-jboolean Java_org_rocksdb_ComparatorOptions_useAdaptiveMutex(
-    JNIEnv*, jobject, jlong jhandle) {
-  return reinterpret_cast<rocksdb::ComparatorJniCallbackOptions*>(jhandle)
-      ->use_adaptive_mutex;
+jbyte Java_org_rocksdb_ComparatorOptions_reusedSynchronisationType(
+    JNIEnv *, jobject, jlong jhandle) {
+  auto* comparator_opt =
+      reinterpret_cast<rocksdb::ComparatorJniCallbackOptions*>(jhandle);
+  return rocksdb::ReusedSynchronisationTypeJni::toJavaReusedSynchronisationType(
+      comparator_opt->reused_synchronisation_type);
 }
 
 /*
  * Class:     org_rocksdb_ComparatorOptions
- * Method:    setUseAdaptiveMutex
+ * Method:    setReusedSynchronisationType
+ * Signature: (JB)V
+ */
+void Java_org_rocksdb_ComparatorOptions_setReusedSynchronisationType(
+    JNIEnv*, jobject, jlong jhandle, jbyte jreused_synhcronisation_type) {
+  auto* comparator_opt =
+      reinterpret_cast<rocksdb::ComparatorJniCallbackOptions*>(jhandle);
+  comparator_opt->reused_synchronisation_type =
+      rocksdb::ReusedSynchronisationTypeJni::toCppReusedSynchronisationType(jreused_synhcronisation_type);
+}
+
+/*
+ * Class:     org_rocksdb_ComparatorOptions
+ * Method:    useDirectBuffer
+ * Signature: (J)Z
+ */
+jboolean Java_org_rocksdb_ComparatorOptions_useDirectBuffer(
+    JNIEnv*, jobject, jlong jhandle) {
+  return static_cast<jboolean>(
+      reinterpret_cast<rocksdb::ComparatorJniCallbackOptions*>(jhandle)
+          ->direct_buffer);
+}
+
+/*
+ * Class:     org_rocksdb_ComparatorOptions
+ * Method:    setUseDirectBuffer
  * Signature: (JZ)V
  */
-void Java_org_rocksdb_ComparatorOptions_setUseAdaptiveMutex(
-    JNIEnv*, jobject, jlong jhandle, jboolean juse_adaptive_mutex) {
+void Java_org_rocksdb_ComparatorOptions_setUseDirectBuffer(
+    JNIEnv*, jobject, jlong jhandle, jboolean jdirect_buffer) {
   reinterpret_cast<rocksdb::ComparatorJniCallbackOptions*>(jhandle)
-      ->use_adaptive_mutex = static_cast<bool>(juse_adaptive_mutex);
+     ->direct_buffer = jdirect_buffer == JNI_TRUE;
+}
+
+/*
+ * Class:     org_rocksdb_ComparatorOptions
+ * Method:    maxReusedBufferSize
+ * Signature: (J)I
+ */
+jint Java_org_rocksdb_ComparatorOptions_maxReusedBufferSize(
+    JNIEnv*, jobject, jlong jhandle) {
+  return static_cast<jint>(
+      reinterpret_cast<rocksdb::ComparatorJniCallbackOptions*>(jhandle)
+        ->max_reused_buffer_size);
+}
+
+/*
+ * Class:     org_rocksdb_ComparatorOptions
+ * Method:    setMaxReusedBufferSize
+ * Signature: (JI)V
+ */
+void Java_org_rocksdb_ComparatorOptions_setMaxReusedBufferSize(
+    JNIEnv*, jobject, jlong jhandle, jint jmax_reused_buffer_size) {
+  reinterpret_cast<rocksdb::ComparatorJniCallbackOptions*>(jhandle)
+      ->max_reused_buffer_size
+          = static_cast<int32_t>(jmax_reused_buffer_size);
 }
 
 /*

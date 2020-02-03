@@ -12,42 +12,33 @@
 #include <functional>
 #include <string>
 
-#include "include/org_rocksdb_Comparator.h"
-#include "include/org_rocksdb_DirectComparator.h"
+#include "include/org_rocksdb_AbstractComparator.h"
 #include "include/org_rocksdb_NativeComparatorWrapper.h"
 #include "rocksjni/comparatorjnicallback.h"
 #include "rocksjni/portal.h"
 
-// <editor-fold desc="org.rocksdb.Comparator>
-
 /*
- * Class:     org_rocksdb_Comparator
- * Method:    createNewComparator0
- * Signature: ()J
+ * Class:     org_rocksdb_AbstractComparator
+ * Method:    createNewComparator
+ * Signature: (J)J
  */
-jlong Java_org_rocksdb_Comparator_createNewComparator0(JNIEnv* env,
-                                                       jobject jobj,
-                                                       jlong copt_handle) {
+jlong Java_org_rocksdb_AbstractComparator_createNewComparator(
+    JNIEnv* env, jobject jcomparator, jlong copt_handle) {
   auto* copt =
       reinterpret_cast<rocksdb::ComparatorJniCallbackOptions*>(copt_handle);
-  auto* c = new rocksdb::ComparatorJniCallback(env, jobj, copt);
+  auto* c = new rocksdb::ComparatorJniCallback(env, jcomparator, copt);
   return reinterpret_cast<jlong>(c);
 }
-// </editor-fold>
-
-// <editor-fold desc="org.rocksdb.DirectComparator>
 
 /*
- * Class:     org_rocksdb_DirectComparator
- * Method:    createNewDirectComparator0
- * Signature: ()J
+ * Class:     org_rocksdb_AbstractComparator
+ * Method:    usingDirectBuffers
+ * Signature: (J)Z
  */
-jlong Java_org_rocksdb_DirectComparator_createNewDirectComparator0(
-    JNIEnv* env, jobject jobj, jlong copt_handle) {
-  auto* copt =
-      reinterpret_cast<rocksdb::ComparatorJniCallbackOptions*>(copt_handle);
-  auto* c = new rocksdb::DirectComparatorJniCallback(env, jobj, copt);
-  return reinterpret_cast<jlong>(c);
+jboolean Java_org_rocksdb_AbstractComparator_usingDirectBuffers(
+    JNIEnv*, jobject, jlong jhandle) {
+  auto* c = reinterpret_cast<rocksdb::ComparatorJniCallback*>(jhandle);
+  return static_cast<jboolean>(c->m_options->direct_buffer);
 }
 
 /*
@@ -60,4 +51,3 @@ void Java_org_rocksdb_NativeComparatorWrapper_disposeInternal(
   auto* comparator = reinterpret_cast<rocksdb::Comparator*>(jcomparator_handle);
   delete comparator;
 }
-// </editor-fold>

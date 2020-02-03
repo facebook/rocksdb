@@ -1,5 +1,8 @@
 # Rocksdb Change Log
 ## Unreleased
+### Public API Change
+* Major breaking changes to Java comparators, toward standardizing on ByteBuffer for performant, locale-neutral operations on keys (#6252).
+
 ### Bug Fixes
 * Fix incorrect results while block-based table uses kHashSearch, together with Prev()/SeekForPrev().
 * Fix a bug that prevents opening a DB after two consecutive crash with TransactionDB, where the first crash recovers from a corrupted WAL with kPointInTimeRecovery but the second cannot.
