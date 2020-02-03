@@ -26,6 +26,7 @@ int main() {
 #include "util/gflags_compat.h"
 #include "util/hash.h"
 #include "util/random.h"
+#include "util/stderr_logger.h"
 #include "util/stop_watch.h"
 
 using GFLAGS_NAMESPACE::ParseCommandLineFlags;
@@ -94,14 +95,20 @@ void _always_assert_fail(int line, const char *file, const char *expr) {
 #define ALWAYS_ASSERT(cond) \
   ((cond) ? (void)0 : ::_always_assert_fail(__LINE__, __FILE__, #cond))
 
+#ifndef NDEBUG
+// This could affect build times enough that we should not include it for
+// accurate speed tests
+#define PREDICT_FP_RATE
+#endif
+
 using rocksdb::Arena;
 using rocksdb::BlockContents;
 using rocksdb::BloomFilterPolicy;
 using rocksdb::BloomHash;
+using rocksdb::BuiltinFilterBitsBuilder;
 using rocksdb::CachableEntry;
 using rocksdb::EncodeFixed32;
 using rocksdb::fastrange32;
-using rocksdb::FilterBitsBuilder;
 using rocksdb::FilterBitsReader;
 using rocksdb::FilterBuildingContext;
 using rocksdb::FullFilterBlockReader;
@@ -112,6 +119,7 @@ using rocksdb::ParsedFullFilterBlock;
 using rocksdb::PlainTableBloomV1;
 using rocksdb::Random32;
 using rocksdb::Slice;
+using rocksdb::StderrLogger;
 using rocksdb::mock::MockBlockBasedTableTester;
 
 struct KeyMaker {
@@ -243,6 +251,7 @@ struct FilterBench : public MockBlockBasedTableTester {
   Random32 random_;
   std::ostringstream fp_rate_report_;
   Arena arena_;
+  StderrLogger stderr_logger_;
 
   FilterBench()
       : MockBlockBasedTableTester(new BloomFilterPolicy(
@@ -252,6 +261,7 @@ struct FilterBench : public MockBlockBasedTableTester {
     for (uint32_t i = 0; i < FLAGS_batch_size; ++i) {
       kms_.emplace_back(FLAGS_key_size < 8 ? 8 : FLAGS_key_size);
     }
+    ioptions_.info_log = &stderr_logger_;
   }
 
   void Go();
@@ -298,10 +308,13 @@ void FilterBench::Go() {
 
   std::cout << "Building..." << std::endl;
 
-  std::unique_ptr<FilterBitsBuilder> builder;
+  std::unique_ptr<BuiltinFilterBitsBuilder> builder;
 
   size_t total_memory_used = 0;
   size_t total_keys_added = 0;
+#ifdef PREDICT_FP_RATE
+  double weighted_predicted_fp_rate = 0.0;
+#endif
 
   rocksdb::StopWatchNano timer(rocksdb::Env::Default(), true);
 
@@ -317,8 +330,8 @@ void FilterBench::Go() {
     if (FLAGS_use_plain_table_bloom) {
       info.plain_table_bloom_.reset(new PlainTableBloomV1());
       info.plain_table_bloom_->SetTotalBits(
-          &arena_, keys_to_add * FLAGS_bits_per_key, FLAGS_impl,
-          0 /*huge_page*/, nullptr /*logger*/);
+          &arena_, static_cast<uint32_t>(keys_to_add * FLAGS_bits_per_key),
+          FLAGS_impl, 0 /*huge_page*/, nullptr /*logger*/);
       for (uint32_t i = 0; i < keys_to_add; ++i) {
         uint32_t hash = GetSliceHash(kms_[0].Get(filter_id, i));
         info.plain_table_bloom_->AddHash(hash);
@@ -326,12 +339,17 @@ void FilterBench::Go() {
       info.filter_ = info.plain_table_bloom_->GetRawData();
     } else {
       if (!builder) {
-        builder.reset(GetBuilder());
+        builder.reset(&dynamic_cast<BuiltinFilterBitsBuilder &>(*GetBuilder()));
       }
       for (uint32_t i = 0; i < keys_to_add; ++i) {
         builder->AddKey(kms_[0].Get(filter_id, i));
       }
       info.filter_ = builder->Finish(&info.owner_);
+#ifdef PREDICT_FP_RATE
+      weighted_predicted_fp_rate +=
+          keys_to_add *
+          builder->EstimatedFpRate(keys_to_add, info.filter_.size());
+#endif
       if (FLAGS_new_builder) {
         builder.reset();
       }
@@ -358,6 +376,11 @@ void FilterBench::Go() {
 
   double bpk = total_memory_used * 8.0 / total_keys_added;
   std::cout << "Bits/key actual: " << bpk << std::endl;
+#ifdef PREDICT_FP_RATE
+  std::cout << "Predicted FP rate %: "
+            << 100.0 * (weighted_predicted_fp_rate / total_keys_added)
+            << std::endl;
+#endif
   if (!FLAGS_quick && !FLAGS_best_case) {
     double tolerable_rate = std::pow(2.0, -(bpk - 1.0) / (1.4 + bpk / 50.0));
     std::cout << "Best possible FP rate %: " << 100.0 * std::pow(2.0, -bpk)

@@ -771,7 +771,7 @@ std::vector<std::string> StressTest::GetWhiteBoxKeys(ThreadState* thread,
           k[i] = static_cast<char>(cur - 1);
           break;
         } else if (i > 0) {
-          k[i] = 0xFF;
+          k[i] = 0xFFu;
         }
       }
     } else if (thread->rand.OneIn(2)) {
@@ -803,9 +803,17 @@ Status StressTest::TestIterate(ThreadState* thread,
   ReadOptions readoptionscopy = read_opts;
   readoptionscopy.snapshot = snapshot;
 
+  bool expect_total_order = false;
   if (thread->rand.OneIn(16)) {
     // When prefix extractor is used, it's useful to cover total order seek.
     readoptionscopy.total_order_seek = true;
+    expect_total_order = true;
+  } else if (thread->rand.OneIn(4)) {
+    readoptionscopy.total_order_seek = false;
+    readoptionscopy.auto_prefix_mode = true;
+    expect_total_order = true;
+  } else if (options_.prefix_extractor.get() == nullptr) {
+    expect_total_order = true;
   }
 
   std::string upper_bound_str;
@@ -879,6 +887,8 @@ Status StressTest::TestIterate(ThreadState* thread,
     // Record some options to op_logs;
     op_logs += "total_order_seek: ";
     op_logs += (readoptionscopy.total_order_seek ? "1 " : "0 ");
+    op_logs += "auto_prefix_mode: ";
+    op_logs += (readoptionscopy.auto_prefix_mode ? "1 " : "0 ");
     if (readoptionscopy.iterate_upper_bound != nullptr) {
       op_logs += "ub: " + upper_bound.ToString(true) + " ";
     }
@@ -899,9 +909,7 @@ Status StressTest::TestIterate(ThreadState* thread,
     std::unique_ptr<Iterator> cmp_iter(db_->NewIterator(cmp_ro, cmp_cfh));
     bool diverged = false;
 
-    bool support_seek_first_or_last =
-        (options_.prefix_extractor.get() != nullptr) ||
-        readoptionscopy.total_order_seek;
+    bool support_seek_first_or_last = expect_total_order;
 
     LastIterateOp last_op;
     if (support_seek_first_or_last && thread->rand.OneIn(100)) {
@@ -929,8 +937,7 @@ Status StressTest::TestIterate(ThreadState* thread,
                    last_op, key, op_logs, &diverged);
 
     bool no_reverse =
-        (FLAGS_memtablerep == "prefix_hash" && !read_opts.total_order_seek &&
-         options_.prefix_extractor.get() != nullptr);
+        (FLAGS_memtablerep == "prefix_hash" && !expect_total_order);
     for (uint64_t i = 0; i < FLAGS_num_iterations && iter->Valid(); i++) {
       if (no_reverse || thread->rand.OneIn(2)) {
         iter->Next();
@@ -1040,8 +1047,9 @@ void StressTest::VerifyIterator(ThreadState* thread,
     return;
   }
 
-  const SliceTransform* pe =
-      ro.total_order_seek ? nullptr : options_.prefix_extractor.get();
+  const SliceTransform* pe = (ro.total_order_seek || ro.auto_prefix_mode)
+                                 ? nullptr
+                                 : options_.prefix_extractor.get();
   const Comparator* cmp = options_.comparator;
 
   if (iter->Valid() && !cmp_iter->Valid()) {
@@ -1542,7 +1550,7 @@ void StressTest::TestCompactRange(ThreadState* thread, int64_t rand_key,
   cro.max_subcompactions = static_cast<uint32_t>(thread->rand.Next() % 4);
 
   const Snapshot* pre_snapshot = nullptr;
-  uint32_t pre_hash;
+  uint32_t pre_hash = 0;
   if (thread->rand.OneIn(2)) {
     // Do some validation by declaring a snapshot and compare the data before
     // and after the compaction
@@ -2065,12 +2073,19 @@ void StressTest::Open() {
 
 void StressTest::Reopen(ThreadState* thread) {
 #ifndef ROCKSDB_LITE
+  // BG jobs in WritePrepared must be canceled first because i) they can access
+  // the db via a callbac ii) they hold on to a snapshot and the upcoming
+  // ::Close would complain about it.
+  const bool write_prepared = FLAGS_use_txn && FLAGS_txn_write_policy != 0;
   bool bg_canceled = false;
-  if (thread->rand.OneIn(2)) {
-    const bool wait = static_cast<bool>(thread->rand.OneIn(2));
+  if (write_prepared || thread->rand.OneIn(2)) {
+    const bool wait =
+        write_prepared || static_cast<bool>(thread->rand.OneIn(2));
     CancelAllBackgroundWork(db_, wait);
     bg_canceled = wait;
   }
+  assert(!write_prepared || bg_canceled);
+  (void) bg_canceled;
 #else
   (void) thread;
 #endif
@@ -2081,9 +2096,7 @@ void StressTest::Reopen(ThreadState* thread) {
   column_families_.clear();
 
 #ifndef ROCKSDB_LITE
-  // BG jobs in WritePrepared hold on to a snapshot
-  const bool write_prepared = FLAGS_use_txn && FLAGS_txn_write_policy != 0;
-  if (thread->rand.OneIn(2) && (!write_prepared || bg_canceled)) {
+  if (thread->rand.OneIn(2)) {
     Status s = db_->Close();
     if (!s.ok()) {
       fprintf(stderr, "Non-ok close status: %s\n", s.ToString().c_str());

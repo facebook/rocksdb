@@ -400,6 +400,7 @@ TEST_F(DBCompactionTest, SkipStatsUpdateTest) {
   // The test will need to be updated if the internal behavior changes.
 
   Options options = DeletionTriggerOptions(CurrentOptions());
+  options.disable_auto_compactions = true;
   options.env = env_;
   DestroyAndReopen(options);
   Random rnd(301);
@@ -410,31 +411,33 @@ TEST_F(DBCompactionTest, SkipStatsUpdateTest) {
     values.push_back(RandomString(&rnd, kCDTValueSize));
     ASSERT_OK(Put(Key(k), values[k]));
   }
-  dbfull()->TEST_WaitForFlushMemTable();
-  dbfull()->TEST_WaitForCompact();
+
+  ASSERT_OK(Flush());
+
+  Close();
+
+  int update_acc_stats_called = 0;
+  rocksdb::SyncPoint::GetInstance()->SetCallBack(
+      "VersionStorageInfo::UpdateAccumulatedStats",
+      [&](void* /* arg */) { ++update_acc_stats_called; });
+  SyncPoint::GetInstance()->EnableProcessing();
 
   // Reopen the DB with stats-update disabled
   options.skip_stats_update_on_db_open = true;
   options.max_open_files = 20;
-  env_->random_file_open_counter_.store(0);
   Reopen(options);
 
-  // As stats-update is disabled, we expect a very low number of
-  // random file open.
-  // Note that this number must be changed accordingly if we change
-  // the number of files needed to be opened in the DB::Open process.
-  const int kMaxFileOpenCount = 10;
-  ASSERT_LT(env_->random_file_open_counter_.load(), kMaxFileOpenCount);
+  ASSERT_EQ(update_acc_stats_called, 0);
 
   // Repeat the reopen process, but this time we enable
   // stats-update.
   options.skip_stats_update_on_db_open = false;
-  env_->random_file_open_counter_.store(0);
   Reopen(options);
 
-  // Since we do a normal stats update on db-open, there
-  // will be more random open files.
-  ASSERT_GT(env_->random_file_open_counter_.load(), kMaxFileOpenCount);
+  ASSERT_GT(update_acc_stats_called, 0);
+
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+  SyncPoint::GetInstance()->DisableProcessing();
 }
 
 TEST_F(DBCompactionTest, TestTableReaderForCompaction) {

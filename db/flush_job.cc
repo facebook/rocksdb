@@ -382,8 +382,9 @@ Status FlushJob::WriteLevel0Table() {
           cfd_->ioptions()->compression_opts,
           mutable_cf_options_.paranoid_file_checks, cfd_->internal_stats(),
           TableFileCreationReason::kFlush, event_logger_, job_context_->job_id,
-          Env::IO_HIGH, &table_properties_, 0 /* level */, current_time,
-          oldest_key_time, write_hint, current_time);
+          Env::IO_HIGH, &table_properties_, 0 /* level */,
+          meta_.oldest_ancester_time, oldest_key_time, write_hint,
+          current_time);
       LogFlush(db_options_.info_log);
     }
     ROCKS_LOG_INFO(db_options_.info_log,

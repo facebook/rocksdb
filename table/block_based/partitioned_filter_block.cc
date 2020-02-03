@@ -32,9 +32,8 @@ PartitionedFilterBlockBuilder::PartitionedFilterBlockBuilder(
                                                  true /*use_delta_encoding*/,
                                                  use_value_delta_encoding),
       p_index_builder_(p_index_builder),
-      filters_in_partition_(0),
-      num_added_(0) {
-  filters_per_partition_ =
+      keys_added_to_partition_(0) {
+  keys_per_partition_ =
       filter_bits_builder_->CalculateNumEntry(partition_size);
 }
 
@@ -43,7 +42,7 @@ PartitionedFilterBlockBuilder::~PartitionedFilterBlockBuilder() {}
 void PartitionedFilterBlockBuilder::MaybeCutAFilterBlock(
     const Slice* next_key) {
   // Use == to send the request only once
-  if (filters_in_partition_ == filters_per_partition_) {
+  if (keys_added_to_partition_ == keys_per_partition_) {
     // Currently only index builder is in charge of cutting a partition. We keep
     // requesting until it is granted.
     p_index_builder_->RequestPartitionCut();
@@ -65,7 +64,7 @@ void PartitionedFilterBlockBuilder::MaybeCutAFilterBlock(
   Slice filter = filter_bits_builder_->Finish(&filter_gc.back());
   std::string& index_key = p_index_builder_->GetPartitionKey();
   filters.push_back({index_key, filter});
-  filters_in_partition_ = 0;
+  keys_added_to_partition_ = 0;
   Reset();
 }
 
@@ -75,9 +74,8 @@ void PartitionedFilterBlockBuilder::Add(const Slice& key) {
 }
 
 void PartitionedFilterBlockBuilder::AddKey(const Slice& key) {
-  filter_bits_builder_->AddKey(key);
-  filters_in_partition_++;
-  num_added_++;
+  FullFilterBlockBuilder::AddKey(key);
+  keys_added_to_partition_++;
 }
 
 Slice PartitionedFilterBlockBuilder::Finish(
