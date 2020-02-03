@@ -454,8 +454,9 @@ Status DBImpl::Recover(
     s = CheckConsistency();
   }
   if (s.ok() && !read_only) {
+    std::map<std::string, std::shared_ptr<Directory>> created_dirs;
     for (auto cfd : *versions_->GetColumnFamilySet()) {
-      s = cfd->AddDirectories();
+      s = cfd->AddDirectories(&created_dirs);
       if (!s.ok()) {
         return s;
       }

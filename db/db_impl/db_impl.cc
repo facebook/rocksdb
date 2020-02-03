@@ -2301,7 +2301,8 @@ Status DBImpl::CreateColumnFamilyImpl(const ColumnFamilyOptions& cf_options,
       auto* cfd =
           versions_->GetColumnFamilySet()->GetColumnFamily(column_family_name);
       assert(cfd != nullptr);
-      s = cfd->AddDirectories();
+      std::map<std::string, std::shared_ptr<Directory>> dummy_created_dirs;
+      s = cfd->AddDirectories(&dummy_created_dirs);
     }
     if (s.ok()) {
       single_column_family_mode_ = false;
