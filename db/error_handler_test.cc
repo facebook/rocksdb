@@ -298,7 +298,7 @@ TEST_F(DBErrorHandlingTest, CompactionManifestWriteError) {
         "DBImpl::BackgroundCallCompaction:FoundObsoleteFiles"},
       // Wait for DB instance to clear bg_error before calling
       // TEST_WaitForCompact
-       {"SstFileManagerImpl::ClearError",
+       {"SstFileManagerImpl::ErrorCleared",
         "CompactionManifestWriteError:2"}});
   // trigger manifest write failure in compaction thread
   rocksdb::SyncPoint::GetInstance()->SetCallBack(
