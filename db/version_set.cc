@@ -4403,12 +4403,6 @@ Status VersionSet::Recover(
         new SequentialFileReader(std::move(manifest_file), manifest_path,
                                  db_options_->log_readahead_size));
   }
-  uint64_t current_manifest_file_size;
-  s = fs_->GetFileSize(manifest_path, IOOptions(), &current_manifest_file_size,
-                       nullptr);
-  if (!s.ok()) {
-    return s;
-  }
 
   std::unordered_map<uint32_t, std::unique_ptr<BaseReferencedVersionBuilder>>
       builders;
@@ -4429,6 +4423,7 @@ Status VersionSet::Recover(
   builders.insert(
       std::make_pair(0, std::unique_ptr<BaseReferencedVersionBuilder>(
                             new BaseReferencedVersionBuilder(default_cfd))));
+  uint64_t current_manifest_file_size = 0;
   VersionEditParams version_edit_params;
   {
     VersionSet::LogReporter reporter;
@@ -4441,6 +4436,8 @@ Status VersionSet::Recover(
     s = ReadAndRecover(&reader, &read_buffer, cf_name_to_options,
                        column_families_not_found, builders,
                        &version_edit_params, db_id);
+    current_manifest_file_size = reader.GetReadOffset();
+    assert(current_manifest_file_size != 0);
   }
 
   if (s.ok()) {
