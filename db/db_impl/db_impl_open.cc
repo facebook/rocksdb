@@ -1553,6 +1553,27 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
   if (s.ok() && sfm) {
     // Notify SstFileManager about all sst files that already exist in
     // db_paths[0] and cf_paths[0] when the DB is opened.
+
+    // SstFileManagerImpl needs to know sizes of the files. For files whose size
+    // we already know (sst files that appear in manifest - typically that's the
+    // vast majority of all files), we'll pass the size to SstFileManager.
+    // For all other files SstFileManager will query the size from filesystem.
+
+    std::vector<LiveFileMetaData> metadata;
+
+    impl->mutex_.Lock();
+    impl->versions_->GetLiveFilesMetaData(&metadata);
+    impl->mutex_.Unlock();
+
+    std::unordered_map<std::string, uint64_t> known_file_sizes;
+    for (const auto& md : metadata) {
+      std::string name = md.name;
+      if (!name.empty() && name[0] == '/') {
+        name = name.substr(1);
+      }
+      known_file_sizes[name] = md.size;
+    }
+
     std::vector<std::string> paths;
     paths.emplace_back(impl->immutable_db_options_.db_paths[0].path);
     for (auto& cf : column_families) {
@@ -1572,7 +1593,14 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
         std::string file_path = path + "/" + file_name;
         if (ParseFileName(file_name, &file_number, &file_type) &&
             file_type == kTableFile) {
-          sfm->OnAddFile(file_path);
+          if (known_file_sizes.count(file_name)) {
+            // We're assuming that each sst file name exists in at most one of
+            // the paths.
+            sfm->OnAddFile(file_path, known_file_sizes.at(file_name),
+                           /* compaction */ false);
+          } else {
+            sfm->OnAddFile(file_path);
+          }
         }
       }
     }

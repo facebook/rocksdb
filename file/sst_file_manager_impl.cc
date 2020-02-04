@@ -71,6 +71,14 @@ Status SstFileManagerImpl::OnAddFile(const std::string& file_path,
   return s;
 }
 
+Status SstFileManagerImpl::OnAddFile(const std::string& file_path,
+                                     uint64_t file_size, bool compaction) {
+  MutexLock l(&mu_);
+  OnAddFileImpl(file_path, file_size, compaction);
+  TEST_SYNC_POINT("SstFileManagerImpl::OnAddFile");
+  return Status::OK();
+}
+
 Status SstFileManagerImpl::OnDeleteFile(const std::string& file_path) {
   {
     MutexLock l(&mu_);
