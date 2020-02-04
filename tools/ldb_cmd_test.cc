@@ -115,8 +115,7 @@ class FileChecksumTestHelper {
   DB* db_;
   std::string dbname_;
 
-  Status VerifyChecksum(LiveFileMetaData& file_meta,
-                        FileChecksumList* checksum_list) {
+  Status VerifyChecksum(LiveFileMetaData& file_meta) {
     uint32_t cur_checksum = 0;
     std::string checksum_func_name;
 
@@ -158,14 +157,8 @@ class FileChecksumTestHelper {
       }
     }
 
-    uint32_t stored_checksum = 0;
-    std::string stored_checksum_func_name = "";
-    s = checksum_list->SearchOneFileChecksum(
-        file_meta.file_number, &stored_checksum, &stored_checksum_func_name);
-    if (!s.ok()) {
-      return Status::Corruption("the file: " + file_meta.name +
-                                " is not in the checksum map!");
-    }
+    uint32_t stored_checksum = file_meta.file_checksum;
+    std::string stored_checksum_func_name = file_meta.file_checksum_func_name;
     if ((cur_checksum != stored_checksum) ||
         (checksum_func_name != stored_checksum_func_name)) {
       return Status::Corruption(
@@ -182,88 +175,83 @@ class FileChecksumTestHelper {
       : options_(options), db_(db), dbname_(db_name) {}
   ~FileChecksumTestHelper() {}
 
-  Status VerifyEachFileChecksum() {
-    std::string manifestfile;
-    if (db_ == nullptr) {
-      return Status::Corruption("db is nullptr!");
-    }
-
-    // Step 1: verify if MANIFEST is there and dbname_ is correct
-    // get the absolute path of MANIFEST
-    std::vector<std::string> files;
-    Status s = options_.env->GetChildren(dbname_, &files);
-    if (!s.ok()) {
-      return s;
-    }
-    const std::string kManifestNamePrefix = "MANIFEST-";
-    std::string matched_file;
-
-#ifdef OS_WIN
-    const char kPathDelim = '\\';
-#else
-    const char kPathDelim = '/';
-#endif
-    for (const auto& file_path : files) {
-      size_t pos = file_path.find_last_of(kPathDelim);
-      if (pos == file_path.size() - 1) {
-        continue;
-      }
-      std::string fname;
-      if (pos != std::string::npos) {
-        fname.assign(file_path, pos + 1, file_path.size() - pos - 1);
-      } else {
-        fname = file_path;
-      }
-      uint64_t file_num = 0;
-      FileType file_type = kLogFile;  // Just for initialization
-      if (ParseFileName(fname, &file_num, &file_type) &&
-          file_type == kDescriptorFile) {
-        if (!matched_file.empty()) {
-          return Status::Corruption("Multiple MANIFEST files found");
-        } else {
-          matched_file.swap(fname);
-        }
-      }
-    }
-    if (matched_file.empty()) {
-      return Status::Corruption("No MANIFEST found in " + dbname_);
-    }
+  // Verify the checksum information in Manifest.
+  Status VerifyChecksumInManifest(
+      const std::vector<LiveFileMetaData>& live_files) {
+    // Step 1: verify if the dbname_ is correct
     if (dbname_[dbname_.length() - 1] != '/') {
       dbname_.append("/");
     }
-    manifestfile = dbname_ + matched_file;
 
-    // Step 2, get the list of sst file checksum in checksum_info
+    // Step 2, get the the checksum information by recovering the VersionSet
+    // from Manifest.
     std::unique_ptr<FileChecksumList> checksum_list(NewFileChecksumList());
-
     EnvOptions sopt;
     std::shared_ptr<Cache> tc(NewLRUCache(options_.max_open_files - 10,
                                           options_.table_cache_numshardbits));
+    options_.db_paths.emplace_back(dbname_, 0);
+    options_.num_levels = 64;
     WriteController wc(options_.delayed_write_rate);
     WriteBufferManager wb(options_.db_write_buffer_size);
     ImmutableDBOptions immutable_db_options(options_);
     VersionSet versions(dbname_, &immutable_db_options, sopt, tc.get(), &wb,
-                        &wc,
-                        /*block_cache_tracer=*/nullptr);
-    s = versions.GetAllFileChecksumInfo(options_, manifestfile,
-                                        checksum_list.get());
-    if (!s.ok()) {
+                        &wc, nullptr);
+    std::vector<std::string> cf_name_list;
+    Status s;
+    s = versions.ListColumnFamilies(&cf_name_list, dbname_,
+                                    options_.file_system.get());
+    if (s.ok()) {
+      std::vector<ColumnFamilyDescriptor> cf_list;
+      for (const auto& name : cf_name_list) {
+        fprintf(stdout, "cf_name: %s", name.c_str());
+        cf_list.emplace_back(name, ColumnFamilyOptions(options_));
+      }
+      s = versions.Recover(cf_list, true);
+    }
+    if (s.ok()) {
+      versions.GetLiveFilesChecksumInfo(checksum_list.get());
+    } else {
       return s;
     }
 
-    // Step 3, get the live file list and verify the checksum
-    if (checksum_list == nullptr) {
-      return Status::Corruption(
-          "Checksum_list construction failed or being deleted!");
+    // Step 3 verify the checksum
+    if (live_files.size() != checksum_list->size()) {
+      return Status::Corruption("The number of files does not match!");
     }
-    std::vector<LiveFileMetaData> live_file;
-    db_->GetLiveFilesMetaData(&live_file);
-    if (live_file.size() != checksum_list->size()) {
-      return Status::Corruption(
-          "Live file number does not match checksum list file number!");
+    for (size_t i = 0; i < live_files.size(); i++) {
+      uint32_t stored_checksum = 0;
+      std::string stored_func_name = "";
+      s = checksum_list->SearchOneFileChecksum(
+          live_files[i].file_number, &stored_checksum, &stored_func_name);
+      if (s.IsNotFound()) {
+        return s;
+      }
+      if (live_files[i].file_checksum != stored_checksum ||
+          live_files[i].file_checksum_func_name != stored_func_name) {
+        return Status::Corruption(
+            "Checksum does not match! The file: " +
+            ToString(live_files[i].file_number) +
+            ". In Manifest, checksum name: " + stored_func_name +
+            " and checksum " + ToString(stored_checksum) +
+            ". However, expected checksum name: " +
+            live_files[i].file_checksum_func_name + " and checksum " +
+            ToString(live_files[i].file_checksum));
+      }
     }
-    for (auto a_file : live_file) {
-      Status cs = VerifyChecksum(a_file, checksum_list.get());
+    return Status::OK();
+  }
+
+  // Verify the checksum of each file by recalculting the checksum and
+  // comparing it with the one being generated when a SST file is created.
+  Status VerifyEachFileChecksum() {
+    assert(db_ != nullptr);
+    std::vector<LiveFileMetaData> live_files;
+    db_->GetLiveFilesMetaData(&live_files);
+    for (auto a_file : live_files) {
+      Status cs = VerifyChecksum(a_file);
+      if (!cs.ok()) {
+        return cs;
+      }
     }
     return Status::OK();
   }
@@ -347,7 +335,12 @@ TEST_F(LdbCmdTest, DumpFileChecksumNoChecksum) {
   ASSERT_EQ(0,
             LDBCommandRunner::RunCommand(3, argv, opts, LDBOptions(), nullptr));
 
+  // Verify the checksum information in memory is the same as that in Manifest;
+  std::vector<LiveFileMetaData> live_files;
+  db->GetLiveFilesMetaData(&live_files);
+  db->Close();
   delete db;
+  ASSERT_OK(fct_helper_ac.VerifyChecksumInManifest(live_files));
 }
 
 TEST_F(LdbCmdTest, DumpFileChecksumCRC32) {
@@ -430,7 +423,12 @@ TEST_F(LdbCmdTest, DumpFileChecksumCRC32) {
   ASSERT_EQ(0,
             LDBCommandRunner::RunCommand(3, argv, opts, LDBOptions(), nullptr));
 
+  // Verify the checksum information in memory is the same as that in Manifest;
+  std::vector<LiveFileMetaData> live_files;
+  db->GetLiveFilesMetaData(&live_files);
+  db->Close();
   delete db;
+  ASSERT_OK(fct_helper_ac.VerifyChecksumInManifest(live_files));
 }
 
 TEST_F(LdbCmdTest, OptionParsing) {

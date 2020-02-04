@@ -896,11 +896,8 @@ class VersionSet {
                                      const FileOptions& file_options,
                                      int new_levels);
 
-  // Get file checksum information of all SST files. For data correctness
-  // check usage.
-  Status GetAllFileChecksumInfo(const Options& options,
-                                const std::string& dscname,
-                                FileChecksumList* checksum_list);
+  // Get the checksum information of all live files
+  void GetLiveFilesChecksumInfo(FileChecksumList* checksum_list);
 
   // printf contents (for debugging)
   Status DumpManifest(Options& options, std::string& manifestFileName,

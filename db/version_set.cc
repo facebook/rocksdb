@@ -4715,89 +4715,27 @@ Status VersionSet::ReduceNumberOfLevels(const std::string& dbname,
 }
 
 // Get the checksum information including the checksum and checksum function
-// name of all SST files in this Manifest. Store the information in
+// name of all SST files in VersionSet. Store the information in
 // FileChecksumList which contains a map from file number to its checksum info.
-Status VersionSet::GetAllFileChecksumInfo(const Options& options,
-                                          const std::string& dscname,
-                                          FileChecksumList* checksum_list) {
-  Status s;
-  if (checksum_list == nullptr) {
-    s = Status::InvalidArgument("checksum_list is nullptr");
-    return s;
-  }
+// If DB is not running, make sure call VersionSet::Recover() to load the file
+// metadata from Manifest to VersionSet before calling this function.
+void VersionSet::GetLiveFilesChecksumInfo(FileChecksumList* checksum_list) {
   // Clean the previously stored checksum information if any.
   checksum_list->reset();
 
-  std::unique_ptr<SequentialFileReader> file_reader;
-  {
-    std::unique_ptr<FSSequentialFile> file;
-    s = options.file_system->NewSequentialFile(
-        dscname, options.file_system->OptimizeForManifestRead(file_options_),
-        &file, nullptr);
-    if (!s.ok()) {
-      return s;
+  for (auto cfd : *column_family_set_) {
+    if (cfd->IsDropped() || !cfd->initialized()) {
+      continue;
     }
-    file_reader.reset(new SequentialFileReader(
-        std::move(file), dscname, db_options_->log_readahead_size));
-  }
-
-  // Add the default column family
-  VersionSet::LogReporter reporter;
-  reporter.status = &s;
-  log::Reader reader(nullptr, std::move(file_reader), &reporter,
-                     true /* checksum */, 0 /* log_number */);
-  Slice record;
-  std::string scratch;
-  std::unordered_set<uint32_t> cf_set = {0};
-  while (reader.ReadRecord(&record, &scratch) && s.ok()) {
-    VersionEdit edit;
-    s = edit.DecodeFrom(record);
-    if (!s.ok()) {
-      break;
-    }
-    // Step 1: check if this CF has already been added
-    bool cf_in_info = (cf_set.find(edit.column_family_) != cf_set.end());
-
-    if (edit.is_column_family_add_) {
-      if (cf_in_info) {
-        s = Status::Corruption("Manifest adding the same column family twice");
-        break;
-      }
-      cf_set.insert(edit.column_family_);
-    } else if (edit.is_column_family_drop_) {
-      if (!cf_in_info) {
-        s = Status::Corruption(
-            "Manifest - dropping non-existing column family: " +
-            ToString(edit.column_family_));
-        break;
-      }
-      auto cf_iter = cf_set.find(edit.column_family_);
-      cf_set.erase(cf_iter);
-    } else {
-      if (!cf_in_info) {
-        s = Status::Corruption(
-            "Manifest record referencing unknown column family: " +
-            ToString(edit.column_family_));
-        break;
-      }
-      assert(cf_set.find(edit.column_family_) != cf_set.end());
-
-      // Step 2: remove the deleted files from the info
-      const VersionEdit::DeletedFileSet& deleted_files = edit.GetDeletedFiles();
-      for (const auto& deleted_file : deleted_files) {
-        uint64_t file_number = deleted_file.second;
-        checksum_list->RemoveOneFileChecksum(file_number);
-      }
-
-      // Step 3: Add the new files to the info
-      for (const auto& new_file : edit.GetNewFiles()) {
-        checksum_list->InsertOneFileChecksum(
-            new_file.second.fd.GetNumber(), new_file.second.file_checksum,
-            new_file.second.file_checksum_func_name);
+    for (int level = 0; level < cfd->NumberLevels(); level++) {
+      for (const auto& file :
+           cfd->current()->storage_info()->LevelFiles(level)) {
+        checksum_list->InsertOneFileChecksum(file->fd.GetNumber(),
+                                             file->file_checksum,
+                                             file->file_checksum_func_name);
       }
     }
   }
-  return s;
 }
 
 Status VersionSet::DumpManifest(Options& options, std::string& dscname,

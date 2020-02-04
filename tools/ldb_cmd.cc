@@ -1147,26 +1147,39 @@ void ManifestDumpCommand::DoCommand() {
 // ----------------------------------------------------------------------------
 namespace {
 
-void GetAllFileChecksumInfoFromManifest(Options options, std::string file,
-                                        FileChecksumList* checksum_list) {
+void GetLiveFilesChecksumInfoFromVersionSet(Options options,
+                                            const std::string& db_path,
+                                            FileChecksumList* checksum_list) {
   EnvOptions sopt;
-  std::string dbname("dummy");
+  Status s;
+  std::string dbname(db_path);
   std::shared_ptr<Cache> tc(NewLRUCache(options.max_open_files - 10,
                                         options.table_cache_numshardbits));
   // Notice we are using the default options not through SanitizeOptions(),
-  // if VersionSet::GetAllFileChecksumInfo depends on any option done by
+  // if VersionSet::GetLiveFilesChecksumInfo depends on any option done by
   // SanitizeOptions(), we need to initialize it manually.
-  options.db_paths.emplace_back("dummy", 0);
+  options.db_paths.emplace_back(db_path, 0);
   options.num_levels = 64;
   WriteController wc(options.delayed_write_rate);
   WriteBufferManager wb(options.db_write_buffer_size);
   ImmutableDBOptions immutable_db_options(options);
   VersionSet versions(dbname, &immutable_db_options, sopt, tc.get(), &wb, &wc,
                       /*block_cache_tracer=*/nullptr);
-  Status s = versions.GetAllFileChecksumInfo(options, file, checksum_list);
+  std::vector<std::string> cf_name_list;
+  s = versions.ListColumnFamilies(&cf_name_list, db_path,
+                                  options.file_system.get());
+  if (s.ok()) {
+    std::vector<ColumnFamilyDescriptor> cf_list;
+    for (const auto& name : cf_name_list) {
+      cf_list.emplace_back(name, ColumnFamilyOptions(options));
+    }
+    s = versions.Recover(cf_list, true);
+  }
+  if (s.ok()) {
+    versions.GetLiveFilesChecksumInfo(checksum_list);
+  }
   if (!s.ok()) {
-    fprintf(stderr, "Error in processing file %s %s\n", file.c_str(),
-            s.ToString().c_str());
+    fprintf(stderr, "Error Status: %s", s.ToString().c_str());
   }
 }
 
@@ -1198,78 +1211,14 @@ FileChecksumDumpCommand::FileChecksumDumpCommand(
 }
 
 void FileChecksumDumpCommand::DoCommand() {
-  std::string manifestfile;
-
-  if (!path_.empty()) {
-    manifestfile = path_;
-  } else {
-    // We need to find the manifest file by searching the directory
-    // containing the db for files of the form MANIFEST_[0-9]+
-
-    std::vector<std::string> files;
-    Status s = options_.env->GetChildren(db_path_, &files);
-    if (!s.ok()) {
-      std::string err_msg = s.ToString();
-      err_msg.append(": Failed to list the content of ");
-      err_msg.append(db_path_);
-      exec_state_ = LDBCommandExecuteResult::Failed(err_msg);
-      return;
-    }
-    const std::string kManifestNamePrefix = "MANIFEST-";
-    std::string matched_file;
-#ifdef OS_WIN
-    const char kPathDelim = '\\';
-#else
-    const char kPathDelim = '/';
-#endif
-    for (const auto& file_path : files) {
-      // Some Env::GetChildren() return absolute paths. Some directories' path
-      // end with path delim, e.g. '/' or '\\'.
-      size_t pos = file_path.find_last_of(kPathDelim);
-      if (pos == file_path.size() - 1) {
-        continue;
-      }
-      std::string fname;
-      if (pos != std::string::npos) {
-        // Absolute path.
-        fname.assign(file_path, pos + 1, file_path.size() - pos - 1);
-      } else {
-        fname = file_path;
-      }
-      uint64_t file_num = 0;
-      FileType file_type = kLogFile;  // Just for initialization
-      if (ParseFileName(fname, &file_num, &file_type) &&
-          file_type == kDescriptorFile) {
-        if (!matched_file.empty()) {
-          exec_state_ = LDBCommandExecuteResult::Failed(
-              "Multiple MANIFEST files found; use --path to select one");
-          return;
-        } else {
-          matched_file.swap(fname);
-        }
-      }
-    }
-    if (matched_file.empty()) {
-      std::string err_msg("No MANIFEST found in ");
-      err_msg.append(db_path_);
-      exec_state_ = LDBCommandExecuteResult::Failed(err_msg);
-      return;
-    }
-    if (db_path_[db_path_.length() - 1] != '/') {
-      db_path_.append("/");
-    }
-    manifestfile = db_path_ + matched_file;
-  }
-
-  // Start to read and process the MANIFEST and print out the checksum in the
-  // following format:
-  //  sst file numer, checksum method name, checksum value
-  //  sst file numer, checksum method name, checksum value
+  // print out the checksum information in the following format:
+  //  sst file number, checksum function name, checksum value
+  //  sst file number, checksum function name, checksum value
   //  ......
 
   std::unique_ptr<FileChecksumList> checksum_list(NewFileChecksumList());
-  GetAllFileChecksumInfoFromManifest(options_, manifestfile,
-                                     checksum_list.get());
+  GetLiveFilesChecksumInfoFromVersionSet(options_, db_path_,
+                                         checksum_list.get());
   if (checksum_list != nullptr) {
     std::vector<uint64_t> file_numbers;
     std::vector<uint32_t> checksums;
@@ -1285,7 +1234,7 @@ void FileChecksumDumpCommand::DoCommand() {
                 checksum_func_names[i].c_str(), checksums[i]);
       }
     }
-    fprintf(stdout, "Print SST file checksum list finished \n");
+    fprintf(stdout, "Print SST file checksum information finished \n");
   }
 }
 
