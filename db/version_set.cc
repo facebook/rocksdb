@@ -3795,6 +3795,9 @@ Status VersionSet::ProcessManifestWrites(
             mutable_cf_options_ptrs[i]->prefix_extractor.get());
         if (!s.ok()) {
           if (db_options_->paranoid_checks) {
+            for (auto v : versions) {
+              delete v;
+            }
             mu->Lock();
             return s;
           }
