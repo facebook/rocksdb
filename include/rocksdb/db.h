@@ -1410,7 +1410,8 @@ class DB {
 
 #endif  // ROCKSDB_LITE
 
-  // Reads the IDENTITY file and stores the id in the identity variable.
+  // Returns the unique ID which is read from IDENTITY file during the opening
+  // of database by setting in the identity variable
   // Returns Status::OK if identity could be set properly
   virtual Status GetDbIdentity(std::string& identity) const = 0;
 
