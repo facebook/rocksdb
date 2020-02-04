@@ -3795,6 +3795,7 @@ Status VersionSet::ProcessManifestWrites(
             mutable_cf_options_ptrs[i]->prefix_extractor.get());
         if (!s.ok()) {
           if (db_options_->paranoid_checks) {
+            mu->Lock();
             return s;
           }
           s = Status::OK();
