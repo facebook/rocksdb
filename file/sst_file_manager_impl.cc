@@ -308,8 +308,8 @@ void SstFileManagerImpl::ClearError() {
       // since the ErrorHandler::recovery_in_prog_ flag would be true
       cur_instance_ = error_handler;
       mu_.Unlock();
-      TEST_SYNC_POINT("SstFileManagerImpl::ClearError");
       s = error_handler->RecoverFromBGError();
+      TEST_SYNC_POINT("SstFileManagerImpl::ErrorCleared");
       mu_.Lock();
       // The DB instance might have been deleted while we were
       // waiting for the mutex, so check cur_instance_ to make sure its
