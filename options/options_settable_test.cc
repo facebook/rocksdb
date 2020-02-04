@@ -248,6 +248,7 @@ TEST_F(OptionsSettableTest, DBOptionsAllFieldsSettable) {
                              "new_table_reader_for_compaction_inputs=false;"
                              "keep_log_file_num=4890;"
                              "skip_stats_update_on_db_open=false;"
+                             "skip_checking_sst_file_sizes_on_db_open=false;"
                              "max_manifest_file_size=4295009941;"
                              "db_log_dir=path/to/db_log_dir;"
                              "skip_log_error_on_recovery=true;"

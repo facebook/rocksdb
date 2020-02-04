@@ -3318,27 +3318,67 @@ Status DBImpl::CheckConsistency() {
   TEST_SYNC_POINT("DBImpl::CheckConsistency:AfterGetLiveFilesMetaData");
 
   std::string corruption_messages;
-  for (const auto& md : metadata) {
-    // md.name has a leading "/".
-    std::string file_path = md.db_path + md.name;
 
-    uint64_t fsize = 0;
-    TEST_SYNC_POINT("DBImpl::CheckConsistency:BeforeGetFileSize");
-    Status s = env_->GetFileSize(file_path, &fsize);
-    if (!s.ok() &&
-        env_->GetFileSize(Rocks2LevelTableFileName(file_path), &fsize).ok()) {
-      s = Status::OK();
+  if (immutable_db_options_.skip_checking_sst_file_sizes_on_db_open) {
+    // Instead of calling GetFileSize() for each expected file, call
+    // GetChildren() for the DB directory and check that all expected files
+    // are listed, without checking their sizes.
+    // Since sst files might be in different directories, do it for each
+    // directory separately.
+    std::map<std::string, std::vector<std::string>> files_by_directory;
+    for (const auto& md : metadata) {
+      // md.name has a leading "/". Remove it.
+      std::string fname = md.name;
+      if (!fname.empty() && fname[0] == '/') {
+        fname = fname.substr(1);
+      }
+      files_by_directory[md.db_path].push_back(fname);
     }
-    if (!s.ok()) {
-      corruption_messages +=
-          "Can't access " + md.name + ": " + s.ToString() + "\n";
-    } else if (fsize != md.size) {
-      corruption_messages += "Sst file size mismatch: " + file_path +
-                             ". Size recorded in manifest " +
-                             ToString(md.size) + ", actual size " +
-                             ToString(fsize) + "\n";
+    for (const auto& dir_files : files_by_directory) {
+      std::string directory = dir_files.first;
+      std::vector<std::string> existing_files;
+      Status s = env_->GetChildren(directory, &existing_files);
+      if (!s.ok()) {
+        corruption_messages +=
+            "Can't list files in " + directory + ": " + s.ToString() + "\n";
+        continue;
+      }
+      std::sort(existing_files.begin(), existing_files.end());
+
+      for (const std::string& fname : dir_files.second) {
+        if (!std::binary_search(existing_files.begin(), existing_files.end(),
+                                fname) &&
+            !std::binary_search(existing_files.begin(), existing_files.end(),
+                                Rocks2LevelTableFileName(fname))) {
+          corruption_messages +=
+              "Missing sst file " + fname + " in " + directory + "\n";
+        }
+      }
+    }
+  } else {
+    for (const auto& md : metadata) {
+      // md.name has a leading "/".
+      std::string file_path = md.db_path + md.name;
+
+      uint64_t fsize = 0;
+      TEST_SYNC_POINT("DBImpl::CheckConsistency:BeforeGetFileSize");
+      Status s = env_->GetFileSize(file_path, &fsize);
+      if (!s.ok() &&
+          env_->GetFileSize(Rocks2LevelTableFileName(file_path), &fsize).ok()) {
+        s = Status::OK();
+      }
+      if (!s.ok()) {
+        corruption_messages +=
+            "Can't access " + md.name + ": " + s.ToString() + "\n";
+      } else if (fsize != md.size) {
+        corruption_messages += "Sst file size mismatch: " + file_path +
+                               ". Size recorded in manifest " +
+                               ToString(md.size) + ", actual size " +
+                               ToString(fsize) + "\n";
+      }
     }
   }
+
   if (corruption_messages.size() == 0) {
     return Status::OK();
   } else {

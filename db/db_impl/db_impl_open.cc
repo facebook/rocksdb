@@ -172,6 +172,13 @@ DBOptions SanitizeOptions(const std::string& dbname, const DBOptions& src) {
     result.sst_file_manager = sst_file_manager;
   }
 #endif
+
+  if (!result.paranoid_checks) {
+    result.skip_checking_sst_file_sizes_on_db_open = true;
+    ROCKS_LOG_INFO(result.info_log,
+                   "file size check will be skipped during open.");
+  }
+
   return result;
 }
 
