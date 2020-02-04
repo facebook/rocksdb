@@ -2071,7 +2071,7 @@ class DBImpl : public DB {
   bool wal_in_db_path_;
 
   // The mutex is for ordering flush and compaction completion notifications.
-  std::mutex notification_mutex_;
+  InstrumentedMutex notification_mutex_;
 };
 
 extern Options SanitizeOptions(const std::string& db, const Options& src);

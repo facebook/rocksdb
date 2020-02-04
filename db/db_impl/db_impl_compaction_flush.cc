@@ -627,7 +627,7 @@ void DBImpl::NotifyOnFlushCompleted(
        mutable_cf_options.level0_stop_writes_trigger);
   {
     // triggers completion notifications in turn
-    std::lock_guard<std::mutex> nlock(notification_mutex_);
+    InstrumentedMutexLock l(&notification_mutex_);
     // release lock while notifying events
     mutex_.Unlock();
     {
@@ -1189,7 +1189,7 @@ void DBImpl::NotifyOnCompactionCompleted(
   current->Ref();
   {
     // triggers completion notifications in turn
-    std::lock_guard<std::mutex>  nlock(notification_mutex_);
+    InstrumentedMutexLock l(&notification_mutex_);
     // release lock while notifying events
     mutex_.Unlock();
     TEST_SYNC_POINT("DBImpl::NotifyOnCompactionCompleted::UnlockMutex");
