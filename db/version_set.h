@@ -877,14 +877,15 @@ class VersionSet {
                  bool read_only = false, std::string* db_id = nullptr);
 
   Status TryRecover(const std::vector<ColumnFamilyDescriptor>& column_families,
-                    bool read_only, std::string* db_id);
+                    bool read_only, std::string* db_id,
+                    bool* has_missing_table_file);
 
   // Try to recover the version set to the most recent consistent state
   // recorded in the specified manifest.
   Status TryRecoverFromOneManifest(
       const std::string& manifest_path,
       const std::vector<ColumnFamilyDescriptor>& column_families,
-      bool read_only, std::string* db_id);
+      bool read_only, std::string* db_id, bool* has_missing_table_file);
 
   // Reads a manifest file and returns a list of column families in
   // column_families.

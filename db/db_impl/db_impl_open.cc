@@ -420,10 +420,12 @@ Status DBImpl::Recover(
   }
   assert(db_id_.empty());
   Status s;
+  bool missing_table_file = false;
   if (!immutable_db_options_.incremental_recovery) {
     s = versions_->Recover(column_families, read_only, &db_id_);
   } else {
-    s = versions_->TryRecover(column_families, read_only, &db_id_);
+    s = versions_->TryRecover(column_families, read_only, &db_id_,
+                              &missing_table_file);
     if (s.ok()) {
       s = CleanupFilesAfterRecovery();
     }
@@ -552,7 +554,7 @@ Status DBImpl::Recover(
       }
     }
 
-    if (!logs.empty()) {
+    if (!logs.empty() && !missing_table_file) {
       // Recover in the order in which the logs were generated
       std::sort(logs.begin(), logs.end());
       bool corrupted_log_found = false;

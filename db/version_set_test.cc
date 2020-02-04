@@ -1387,9 +1387,11 @@ TEST_F(EmptyDefaultCfNewManifest, Recover) {
   column_families.emplace_back(VersionSetTestBase::kColumnFamilyName1,
                                cf_options_);
   std::string db_id;
-  s = versions_->TryRecoverFromOneManifest(manifest_path, column_families,
-                                           false, &db_id);
+  bool has_missing_table_file = false;
+  s = versions_->TryRecoverFromOneManifest(
+      manifest_path, column_families, false, &db_id, &has_missing_table_file);
   ASSERT_OK(s);
+  ASSERT_FALSE(has_missing_table_file);
 }
 
 class VersionSetTestEmptyDb
@@ -1453,8 +1455,10 @@ TEST_P(VersionSetTestEmptyDb, OpenFromIncompleteManifest0) {
   }
 
   std::string db_id;
+  bool has_missing_table_file = false;
   s = versions_->TryRecoverFromOneManifest(manifest_path, column_families,
-                                           read_only, &db_id);
+                                           read_only, &db_id,
+                                           &has_missing_table_file);
   auto iter =
       std::find(cf_names.begin(), cf_names.end(), kDefaultColumnFamilyName);
   if (iter == cf_names.end()) {
@@ -1492,8 +1496,10 @@ TEST_P(VersionSetTestEmptyDb, OpenFromIncompleteManifest1) {
     column_families.emplace_back(cf_name, cf_options_);
   }
   std::string db_id;
+  bool has_missing_table_file = false;
   s = versions_->TryRecoverFromOneManifest(manifest_path, column_families,
-                                           read_only, &db_id);
+                                           read_only, &db_id,
+                                           &has_missing_table_file);
   auto iter =
       std::find(cf_names.begin(), cf_names.end(), kDefaultColumnFamilyName);
   if (iter == cf_names.end()) {
@@ -1536,8 +1542,10 @@ TEST_P(VersionSetTestEmptyDb, OpenFromInCompleteManifest2) {
     column_families.emplace_back(cf_name, cf_options_);
   }
   std::string db_id;
+  bool has_missing_table_file = false;
   s = versions_->TryRecoverFromOneManifest(manifest_path, column_families,
-                                           read_only, &db_id);
+                                           read_only, &db_id,
+                                           &has_missing_table_file);
   auto iter =
       std::find(cf_names.begin(), cf_names.end(), kDefaultColumnFamilyName);
   if (iter == cf_names.end()) {
@@ -1591,8 +1599,10 @@ TEST_P(VersionSetTestEmptyDb, OpenManifestWithUnknownCF) {
     column_families.emplace_back(cf_name, cf_options_);
   }
   std::string db_id;
+  bool has_missing_table_file = false;
   s = versions_->TryRecoverFromOneManifest(manifest_path, column_families,
-                                           read_only, &db_id);
+                                           read_only, &db_id,
+                                           &has_missing_table_file);
   auto iter =
       std::find(cf_names.begin(), cf_names.end(), kDefaultColumnFamilyName);
   if (iter == cf_names.end()) {
@@ -1645,20 +1655,25 @@ TEST_P(VersionSetTestEmptyDb, OpenCompleteManifest) {
     column_families.emplace_back(cf_name, cf_options_);
   }
   std::string db_id;
+  bool has_missing_table_file = false;
   s = versions_->TryRecoverFromOneManifest(manifest_path, column_families,
-                                           read_only, &db_id);
+                                           read_only, &db_id,
+                                           &has_missing_table_file);
   auto iter =
       std::find(cf_names.begin(), cf_names.end(), kDefaultColumnFamilyName);
   if (iter == cf_names.end()) {
     ASSERT_TRUE(s.IsInvalidArgument());
   } else if (read_only) {
     ASSERT_OK(s);
+    ASSERT_FALSE(has_missing_table_file);
   } else if (cf_names.size() == all_cf_names.size()) {
     ASSERT_OK(s);
+    ASSERT_FALSE(has_missing_table_file);
   } else if (cf_names.size() < all_cf_names.size()) {
     ASSERT_TRUE(s.IsInvalidArgument());
   } else {
     ASSERT_OK(s);
+    ASSERT_FALSE(has_missing_table_file);
     ColumnFamilyData* cfd = versions_->GetColumnFamilySet()->GetColumnFamily(
         kUnknownColumnFamilyName);
     ASSERT_EQ(nullptr, cfd);
@@ -1887,9 +1902,12 @@ TEST_F(VersionSetTestMissingFiles, ManifestFarBehindSst) {
   std::string manifest_path;
   VerifyManifest(&manifest_path);
   std::string db_id;
+  bool has_missing_table_file = false;
   s = versions_->TryRecoverFromOneManifest(manifest_path, column_families_,
-                                           /*read_only=*/false, &db_id);
+                                           /*read_only=*/false, &db_id,
+                                           &has_missing_table_file);
   ASSERT_OK(s);
+  ASSERT_TRUE(has_missing_table_file);
   for (ColumnFamilyData* cfd : *(versions_->GetColumnFamilySet())) {
     VersionStorageInfo* vstorage = cfd->current()->storage_info();
     const std::vector<FileMetaData*>& files = vstorage->LevelFiles(0);
@@ -1934,9 +1952,12 @@ TEST_F(VersionSetTestMissingFiles, ManifestAheadofSst) {
   std::string manifest_path;
   VerifyManifest(&manifest_path);
   std::string db_id;
+  bool has_missing_table_file = false;
   s = versions_->TryRecoverFromOneManifest(manifest_path, column_families_,
-                                           /*read_only=*/false, &db_id);
+                                           /*read_only=*/false, &db_id,
+                                           &has_missing_table_file);
   ASSERT_OK(s);
+  ASSERT_TRUE(has_missing_table_file);
   for (ColumnFamilyData* cfd : *(versions_->GetColumnFamilySet())) {
     VersionStorageInfo* vstorage = cfd->current()->storage_info();
     const std::vector<FileMetaData*>& files = vstorage->LevelFiles(0);
@@ -1971,7 +1992,7 @@ TEST_F(VersionSetTestMissingFiles, NoFileMissing) {
   WriteFileAdditionAndDeletionToManifest(
       /*cf=*/0, added_files, std::vector<std::pair<int, uint64_t>>());
   std::vector<std::pair<int, uint64_t>> deleted_files;
-  deleted_files.emplace_back(0, 100);
+  deleted_files.emplace_back(/*level=*/0, 100);
   WriteFileAdditionAndDeletionToManifest(
       /*cf=*/0, std::vector<std::pair<int, FileMetaData>>(), deleted_files);
   log_writer_.reset();
@@ -1980,9 +2001,12 @@ TEST_F(VersionSetTestMissingFiles, NoFileMissing) {
   std::string manifest_path;
   VerifyManifest(&manifest_path);
   std::string db_id;
+  bool has_missing_table_file = false;
   s = versions_->TryRecoverFromOneManifest(manifest_path, column_families_,
-                                           /*read_only=*/false, &db_id);
+                                           /*read_only=*/false, &db_id,
+                                           &has_missing_table_file);
   ASSERT_OK(s);
+  ASSERT_FALSE(has_missing_table_file);
   for (ColumnFamilyData* cfd : *(versions_->GetColumnFamilySet())) {
     VersionStorageInfo* vstorage = cfd->current()->storage_info();
     const std::vector<FileMetaData*>& files = vstorage->LevelFiles(0);

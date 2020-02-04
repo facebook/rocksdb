@@ -4707,7 +4707,7 @@ std::string ManifestPicker::GetNextManifest(uint64_t* number,
 
 Status VersionSet::TryRecover(
     const std::vector<ColumnFamilyDescriptor>& column_families, bool read_only,
-    std::string* db_id) {
+    std::string* db_id, bool* has_missing_table_file) {
   ManifestPicker manifest_picker(dbname_, fs_);
   manifest_picker.SeekToFirstManifest();
   Status s = manifest_picker.status();
@@ -4718,7 +4718,7 @@ Status VersionSet::TryRecover(
       manifest_picker.GetNextManifest(&manifest_file_number_, nullptr);
   while (!manifest_path.empty()) {
     s = TryRecoverFromOneManifest(manifest_path, column_families, read_only,
-                                  db_id);
+                                  db_id, has_missing_table_file);
     if (s.ok()) {
       break;
     }
@@ -4749,7 +4749,7 @@ Status VersionSet::TryRecover(
 Status VersionSet::TryRecoverFromOneManifest(
     const std::string& manifest_path,
     const std::vector<ColumnFamilyDescriptor>& column_families, bool read_only,
-    std::string* db_id) {
+    std::string* db_id, bool* has_missing_table_file) {
   ROCKS_LOG_INFO(db_options_->info_log, "Trying to recover from manifest: %s\n",
                  manifest_path.c_str());
   std::unique_ptr<SequentialFileReader> manifest_file_reader;
@@ -4766,12 +4766,8 @@ Status VersionSet::TryRecoverFromOneManifest(
         new SequentialFileReader(std::move(manifest_file), manifest_path,
                                  db_options_->log_readahead_size));
   }
-  uint64_t current_manifest_file_size = 0;
-  s = fs_->GetFileSize(manifest_path, IOOptions(), &current_manifest_file_size,
-                       nullptr);
-  if (!s.ok()) {
-    return s;
-  }
+  assert(nullptr != has_missing_table_file);
+  *has_missing_table_file = true;
 
   std::unordered_map<std::string, ColumnFamilyOptions> cf_name_to_options;
   for (const auto& cf : column_families) {
@@ -4788,18 +4784,14 @@ Status VersionSet::TryRecoverFromOneManifest(
   std::unordered_map<uint32_t, std::string> column_families_not_found;
   std::unordered_map<uint32_t, std::unordered_set<uint64_t>>
       cf_to_missing_files;
-  std::unordered_map<uint32_t, Version*> versions;
-  struct VersionsGuard {
-    explicit VersionsGuard(std::unordered_map<uint32_t, Version*>& _versions)
-        : versions(_versions) {}
-    ~VersionsGuard() {
-      for (auto& elem : versions) {
-        delete elem.second;
-      }
-    }
-    std::unordered_map<uint32_t, Version*>& versions;
+
+  std::function<void(Version*)> version_deleter = [](Version* version_ptr) {
+    delete version_ptr;
   };
-  VersionsGuard versions_guard(versions);
+  std::unordered_map<uint32_t,
+                     std::unique_ptr<Version, decltype(version_deleter)>>
+      versions;
+
   const auto create_cf_and_init = [&](const ColumnFamilyOptions& cf_opts,
                                       VersionEdit& edit) -> ColumnFamilyData* {
     ColumnFamilyData* ret_cfd = CreateColumnFamily(cf_opts, &edit);
@@ -4815,7 +4807,9 @@ Status VersionSet::TryRecoverFromOneManifest(
     assert(0 == init_version->refs_);
     assert(init_version != ret_cfd->current());
     assert(versions.find(edit.column_family_) == versions.end());
-    versions.insert(std::make_pair(edit.column_family_, init_version));
+    versions[edit.column_family_] =
+        std::unique_ptr<Version, decltype(version_deleter)>(init_version,
+                                                            version_deleter);
     builders.insert(std::make_pair(
         edit.column_family_,
         std::unique_ptr<BaseReferencedVersionBuilder>(
@@ -4838,9 +4832,6 @@ Status VersionSet::TryRecoverFromOneManifest(
   Slice record;
   std::string scratch;
 
-  bool has_next_file_number = false;
-  bool has_log_number = false;
-  bool has_last_sequence = false;
   while (s.ok() && reader.ReadRecord(&record, &scratch)) {
     VersionEdit edit;
     s = edit.DecodeFrom(record);
@@ -4899,7 +4890,6 @@ Status VersionSet::TryRecoverFromOneManifest(
         }
         auto v_iter = versions.find(edit.column_family_);
         assert(v_iter != versions.end());
-        delete v_iter->second;
         versions.erase(v_iter);
       } else if (cf_in_not_found) {
         column_families_not_found.erase(edit.column_family_);
@@ -4920,8 +4910,7 @@ Status VersionSet::TryRecoverFromOneManifest(
       assert(cfd != nullptr);
       auto builder_iter = builders.find(edit.column_family_);
       assert(builder_iter != builders.end());
-      VersionBuilder* builder = builder_iter->second->version_builder();
-      s = builder->Apply(&edit);
+      s = builder_iter->second->version_builder()->Apply(&edit);
       if (!s.ok()) {
         break;
       }
@@ -4932,15 +4921,6 @@ Status VersionSet::TryRecoverFromOneManifest(
     }
     if (!version_edit_params.has_prev_log_number_) {
       version_edit_params.SetPrevLogNumber(0);
-    }
-    if (version_edit_params.has_next_file_number_) {
-      has_next_file_number = true;
-    }
-    if (version_edit_params.has_log_number_) {
-      has_log_number = true;
-    }
-    if (version_edit_params.has_last_sequence_) {
-      has_last_sequence = true;
     }
     const bool has_necessary_info_to_recover =
         version_edit_params.has_last_sequence_ &&
@@ -4954,7 +4934,6 @@ Status VersionSet::TryRecoverFromOneManifest(
       assert(missing_files_iter != cf_to_missing_files.end());
       std::unordered_set<uint64_t>& missing_files = missing_files_iter->second;
 
-      VersionBuilder* builder = builder_iter->second->version_builder();
       for (const auto& file : edit.GetDeletedFiles()) {
         uint64_t file_num = file.second;
         auto fiter = missing_files.find(file_num);
@@ -4975,7 +4954,8 @@ Status VersionSet::TryRecoverFromOneManifest(
         Version* version = new Version(cfd, this, file_options_,
                                        *cfd->GetLatestMutableCFOptions(),
                                        current_version_number_++);
-        builder->SaveTo(version->storage_info());
+        builder_iter->second->version_builder()->SaveTo(
+            version->storage_info());
         version->PrepareApply(*cfd->GetLatestMutableCFOptions(),
                               !db_options_->skip_stats_update_on_db_open);
         version->storage_info()->ComputeCompactionScore(
@@ -4984,17 +4964,13 @@ Status VersionSet::TryRecoverFromOneManifest(
         assert(0 == version->refs_);
         assert(version != cfd->current());
         auto v_iter = versions.find(edit.column_family_);
-        if (v_iter != versions.end()) {
-          delete v_iter->second;
-          v_iter->second = version;
-        } else {
-          versions.insert(std::make_pair(edit.column_family_, version));
-        }
+        assert(v_iter != versions.end());
+        v_iter->second = std::unique_ptr<Version, decltype(version_deleter)>(
+            version, version_deleter);
         builder_iter->second = std::unique_ptr<BaseReferencedVersionBuilder>(
             new BaseReferencedVersionBuilder(cfd, version));
       }
     }
-    manifest_file_size_ = current_manifest_file_size;
     if (has_necessary_info_to_recover) {
       next_file_number_.store(version_edit_params.next_file_number_ + 1);
       last_allocated_sequence_ = version_edit_params.last_sequence_;
@@ -5006,16 +4982,27 @@ Status VersionSet::TryRecoverFromOneManifest(
   if (!s.ok()) {
     return s;
   }
+  bool has_missing_files = false;
+  for (const auto& missing_files : cf_to_missing_files) {
+    if (!missing_files.second.empty()) {
+      has_missing_files = true;
+      break;
+    }
+  }
+  *has_missing_table_file = has_missing_files;
 
-  if (!has_log_number || !has_next_file_number || !has_last_sequence) {
+  manifest_file_size_ = reader.GetReadOffset();
+  if (!version_edit_params.has_log_number_ ||
+      !version_edit_params.has_next_file_number_ ||
+      !version_edit_params.has_last_sequence_) {
     std::string msg("no ");
-    if (!has_next_file_number) {
+    if (!version_edit_params.has_next_file_number_) {
       msg.append("next_file_number, ");
     }
-    if (!has_log_number) {
+    if (!version_edit_params.has_log_number_) {
       msg.append("log_number, ");
     }
-    if (!has_last_sequence) {
+    if (!version_edit_params.has_last_sequence_) {
       msg.append("last_sequence, ");
     }
     msg = msg.substr(0, msg.size() - 2);
@@ -5038,9 +5025,10 @@ Status VersionSet::TryRecoverFromOneManifest(
       }
       assert(cfd->initialized());
       auto v_iter = versions.find(cfd->GetID());
+      assert(v_iter != versions.end());
       if (v_iter != versions.end()) {
         assert(v_iter->second != nullptr);
-        AppendVersion(cfd, v_iter->second);
+        AppendVersion(cfd, v_iter->second.release());
         versions.erase(v_iter);
       }
     }
