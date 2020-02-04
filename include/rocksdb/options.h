@@ -985,6 +985,16 @@ struct DBOptions {
   // Default: false
   bool skip_stats_update_on_db_open = false;
 
+  // If true, then DB::Open() will not fetch and check sizes of all sst files.
+  // This may significantly speed up startup if there are many sst files,
+  // especially when using non-default Env with expensive GetFileSize().
+  // We'll still check that all required sst files exist.
+  // If paranoid_checks is false, this option is ignored, and sst files are
+  // not checked at all.
+  //
+  // Default: false
+  bool skip_checking_sst_file_sizes_on_db_open = false;
+
   // Recovery mode to control the consistency while replaying WAL
   // Default: kPointInTimeRecovery
   WALRecoveryMode wal_recovery_mode = WALRecoveryMode::kPointInTimeRecovery;

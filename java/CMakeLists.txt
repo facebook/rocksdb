@@ -122,7 +122,6 @@ set(JAVA_MAIN_CLASSES
   src/main/java/org/rocksdb/CompactRangeOptions.java
   src/main/java/org/rocksdb/CompactionStopStyle.java
   src/main/java/org/rocksdb/CompactionStyle.java
-  src/main/java/org/rocksdb/Comparator.java
   src/main/java/org/rocksdb/ComparatorOptions.java
   src/main/java/org/rocksdb/ComparatorType.java
   src/main/java/org/rocksdb/CompressionOptions.java
@@ -131,7 +130,6 @@ set(JAVA_MAIN_CLASSES
   src/main/java/org/rocksdb/DBOptionsInterface.java
   src/main/java/org/rocksdb/DBOptions.java
   src/main/java/org/rocksdb/DbPath.java
-  src/main/java/org/rocksdb/DirectComparator.java
   src/main/java/org/rocksdb/DirectSlice.java
   src/main/java/org/rocksdb/EncodingType.java
   src/main/java/org/rocksdb/Env.java
@@ -181,6 +179,7 @@ set(JAVA_MAIN_CLASSES
   src/main/java/org/rocksdb/ReadTier.java
   src/main/java/org/rocksdb/RemoveEmptyValueCompactionFilter.java
   src/main/java/org/rocksdb/RestoreOptions.java
+  src/main/java/org/rocksdb/ReusedSynchronisationType.java
   src/main/java/org/rocksdb/RocksCallbackObject.java
   src/main/java/org/rocksdb/RocksDBException.java
   src/main/java/org/rocksdb/RocksDB.java
@@ -236,9 +235,10 @@ set(JAVA_MAIN_CLASSES
   src/main/java/org/rocksdb/WriteBatchWithIndex.java
   src/main/java/org/rocksdb/WriteOptions.java
   src/main/java/org/rocksdb/WriteBufferManager.java
+  src/main/java/org/rocksdb/util/ByteUtil.java
   src/main/java/org/rocksdb/util/BytewiseComparator.java
-  src/main/java/org/rocksdb/util/DirectBytewiseComparator.java
   src/main/java/org/rocksdb/util/Environment.java
+  src/main/java/org/rocksdb/util/IntComparator.java
   src/main/java/org/rocksdb/util/ReverseBytewiseComparator.java
   src/main/java/org/rocksdb/util/SizeUnit.java
   src/main/java/org/rocksdb/UInt64AddOperator.java
@@ -400,11 +400,9 @@ if(${CMAKE_VERSION} VERSION_LESS "3.11.4" OR (${Java_VERSION_MINOR} STREQUAL "7"
           org.rocksdb.CompactionOptionsFIFO
           org.rocksdb.CompactionOptionsUniversal
           org.rocksdb.CompactRangeOptions
-          org.rocksdb.Comparator
           org.rocksdb.ComparatorOptions
           org.rocksdb.CompressionOptions
           org.rocksdb.DBOptions
-          org.rocksdb.DirectComparator
           org.rocksdb.DirectSlice
           org.rocksdb.Env
           org.rocksdb.EnvOptions

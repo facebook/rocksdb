@@ -2277,6 +2277,41 @@ TEST_F(DBTest, SnapshotFiles) {
     dbfull()->DisableFileDeletions();
   } while (ChangeCompactOptions());
 }
+
+TEST_F(DBTest, ReadonlyDBGetLiveManifestSize) {
+  do {
+    Options options = CurrentOptions();
+    options.level0_file_num_compaction_trigger = 2;
+    DestroyAndReopen(options);
+
+    ASSERT_OK(Put("foo", "bar"));
+    ASSERT_OK(Flush());
+    ASSERT_OK(Put("foo", "bar"));
+    ASSERT_OK(Flush());
+    ASSERT_OK(dbfull()->TEST_WaitForCompact());
+
+    Close();
+    ASSERT_OK(ReadOnlyReopen(options));
+
+    uint64_t manifest_size = 0;
+    std::vector<std::string> files;
+    dbfull()->GetLiveFiles(files, &manifest_size);
+
+    for (const std::string& f : files) {
+      uint64_t number = 0;
+      FileType type;
+      if (ParseFileName(f.substr(1), &number, &type)) {
+        if (type == kDescriptorFile) {
+          uint64_t size_on_disk;
+          env_->GetFileSize(dbname_ + "/" + f, &size_on_disk);
+          ASSERT_EQ(manifest_size, size_on_disk);
+          break;
+        }
+      }
+    }
+    Close();
+  } while (ChangeCompactOptions());
+}
 #endif
 
 TEST_F(DBTest, PurgeInfoLogs) {

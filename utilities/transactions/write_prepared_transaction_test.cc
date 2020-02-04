@@ -582,7 +582,7 @@ class SeqAdvanceConcurrentTest
 };
 
 INSTANTIATE_TEST_CASE_P(
-    WritePreparedTransactionTest, WritePreparedTransactionTest,
+    WritePreparedTransaction, WritePreparedTransactionTest,
     ::testing::Values(
         std::make_tuple(false, false, WRITE_PREPARED, kOrderedWrite),
         std::make_tuple(false, true, WRITE_PREPARED, kOrderedWrite),
@@ -697,7 +697,7 @@ INSTANTIATE_TEST_CASE_P(
         std::make_tuple(false, false, WRITE_PREPARED, kOrderedWrite, 9, 10)));
 #endif  // ROCKSDB_VALGRIND_RUN
 
-TEST_P(WritePreparedTransactionTest, CommitMapTest) {
+TEST_P(WritePreparedTransactionTest, CommitMap) {
   WritePreparedTxnDB* wp_db = dynamic_cast<WritePreparedTxnDB*>(db);
   assert(wp_db);
   assert(wp_db->db_impl_);
@@ -1081,7 +1081,7 @@ TEST_P(WritePreparedTransactionTest, OldCommitMapGC) {
   }
 }
 
-TEST_P(WritePreparedTransactionTest, CheckAgainstSnapshotsTest) {
+TEST_P(WritePreparedTransactionTest, CheckAgainstSnapshots) {
   std::vector<SequenceNumber> snapshots = {100l, 200l, 300l, 400l, 500l,
                                            600l, 700l, 800l, 900l};
   const size_t snapshot_cache_bits = 2;
@@ -1172,7 +1172,7 @@ TEST_P(WritePreparedTransactionTest, CheckAgainstSnapshotsTest) {
 #ifndef ROCKSDB_VALGRIND_RUN
 // Test that CheckAgainstSnapshots will not miss a live snapshot if it is run in
 // parallel with UpdateSnapshots.
-TEST_P(SnapshotConcurrentAccessTest, SnapshotConcurrentAccessTest) {
+TEST_P(SnapshotConcurrentAccessTest, SnapshotConcurrentAccess) {
   // We have a sync point in the method under test after checking each snapshot.
   // If you increase the max number of snapshots in this test, more sync points
   // in the methods must also be added.
@@ -1253,7 +1253,7 @@ TEST_P(SnapshotConcurrentAccessTest, SnapshotConcurrentAccessTest) {
 #endif  // TRAVIS
 
 // This test clarifies the contract of AdvanceMaxEvictedSeq method
-TEST_P(WritePreparedTransactionTest, AdvanceMaxEvictedSeqBasicTest) {
+TEST_P(WritePreparedTransactionTest, AdvanceMaxEvictedSeqBasic) {
   DBImpl* mock_db = new DBImpl(options, dbname);
   std::unique_ptr<WritePreparedTxnDBMock> wp_db(
       new WritePreparedTxnDBMock(mock_db, txn_db_options));
@@ -1541,7 +1541,7 @@ TEST_P(WritePreparedTransactionTest, TxnInitialize) {
 // is advancing their prepared sequence numbers. This will not be the case if
 // for example the txn does not add the prepared seq for the second sub-batch to
 // the PreparedHeap structure.
-TEST_P(WritePreparedTransactionTest, AdvanceMaxEvictedSeqWithDuplicatesTest) {
+TEST_P(WritePreparedTransactionTest, AdvanceMaxEvictedSeqWithDuplicates) {
   const size_t snapshot_cache_bits = 7;  // same as default
   const size_t commit_cache_bits = 1;    // disable commit cache
   UpdateTransactionDBOptions(snapshot_cache_bits, commit_cache_bits);
@@ -1642,7 +1642,7 @@ TEST_P(WritePreparedTransactionTest, SmallestUnCommittedSeq) {
 }
 #endif  // ROCKSDB_VALGRIND_RUN
 
-TEST_P(SeqAdvanceConcurrentTest, SeqAdvanceConcurrentTest) {
+TEST_P(SeqAdvanceConcurrentTest, SeqAdvanceConcurrent) {
   // Given the sequential run of txns, with this timeout we should never see a
   // deadlock nor a timeout unless we have a key conflict, which should be
   // almost infeasible.
@@ -1787,7 +1787,7 @@ TEST_P(SeqAdvanceConcurrentTest, SeqAdvanceConcurrentTest) {
 // Run a couple of different txns among them some uncommitted. Restart the db at
 // a couple points to check whether the list of uncommitted txns are recovered
 // properly.
-TEST_P(WritePreparedTransactionTest, BasicRecoveryTest) {
+TEST_P(WritePreparedTransactionTest, BasicRecovery) {
   options.disable_auto_compactions = true;
   ReOpen();
   WritePreparedTxnDB* wp_db = dynamic_cast<WritePreparedTxnDB*>(db);
@@ -1927,7 +1927,7 @@ TEST_P(WritePreparedTransactionTest, BasicRecoveryTest) {
 // After recovery the commit map is empty while the max is set. The code would
 // go through a different path which requires a separate test. Test that the
 // committed data before the restart is visible to all snapshots.
-TEST_P(WritePreparedTransactionTest, IsInSnapshotEmptyMapTest) {
+TEST_P(WritePreparedTransactionTest, IsInSnapshotEmptyMap) {
   for (bool end_with_prepare : {false, true}) {
     ReOpen();
     WriteOptions woptions;
@@ -2061,7 +2061,7 @@ TEST_P(WritePreparedTransactionTest, IsInSnapshotReleased) {
 
 // Test WritePreparedTxnDB's IsInSnapshot against different ordering of
 // snapshot, max_committed_seq_, prepared, and commit entries.
-TEST_P(WritePreparedTransactionTest, IsInSnapshotTest) {
+TEST_P(WritePreparedTransactionTest, IsInSnapshot) {
   WriteOptions wo;
   // Use small commit cache to trigger lots of eviction and fast advance of
   // max_evicted_seq_
@@ -2212,7 +2212,7 @@ void ASSERT_SAME(TransactionDB* db, Status exp_s, PinnableSlice& exp_v,
   ASSERT_SAME(ReadOptions(), db, exp_s, exp_v, key);
 }
 
-TEST_P(WritePreparedTransactionTest, RollbackTest) {
+TEST_P(WritePreparedTransactionTest, Rollback) {
   ReadOptions roptions;
   WriteOptions woptions;
   TransactionOptions txn_options;
@@ -2322,7 +2322,7 @@ TEST_P(WritePreparedTransactionTest, RollbackTest) {
   }
 }
 
-TEST_P(WritePreparedTransactionTest, DisableGCDuringRecoveryTest) {
+TEST_P(WritePreparedTransactionTest, DisableGCDuringRecovery) {
   // Use large buffer to avoid memtable flush after 1024 insertions
   options.write_buffer_size = 1024 * 1024;
   ReOpen();
@@ -2349,7 +2349,7 @@ TEST_P(WritePreparedTransactionTest, DisableGCDuringRecoveryTest) {
   VerifyInternalKeys(versions);
 }
 
-TEST_P(WritePreparedTransactionTest, SequenceNumberZeroTest) {
+TEST_P(WritePreparedTransactionTest, SequenceNumberZero) {
   ASSERT_OK(db->Put(WriteOptions(), "foo", "bar"));
   VerifyKeys({{"foo", "bar"}});
   const Snapshot* snapshot = db->GetSnapshot();
@@ -2780,7 +2780,7 @@ TEST_P(WritePreparedTransactionTest, ReleaseEarliestSnapshotDuringCompaction) {
 // A more complex test to verify compaction/flush should keep keys visible
 // to snapshots.
 TEST_P(WritePreparedTransactionTest,
-       CompactionShouldKeepSnapshotVisibleKeysRandomized) {
+       CompactionKeepSnapshotVisibleKeysRandomized) {
   constexpr size_t kNumTransactions = 10;
   constexpr size_t kNumIterations = 1000;
 
