@@ -26,14 +26,14 @@ class FileChecksumFunc {
   // Return the checksum of concat (A, data[0,n-1]) where init_checksum is the
   // returned value of some string A. It is used to maintain the checksum of a
   // stream of data
-  virtual uint32_t Extend(uint32_t init_checksum, const char* data,
-                          size_t n) = 0;
+  virtual std::string Extend(const std::string& init_checksum, const char* data,
+                             size_t n) = 0;
 
   // Return the checksum value of data[0,n-1]
-  virtual uint32_t Value(const char* data, size_t n) = 0;
+  virtual std::string Value(const char* data, size_t n) = 0;
 
   // Return a processed value of the checksum for store in somewhere
-  virtual uint32_t ProcessChecksum(const uint32_t checksum) = 0;
+  virtual std::string ProcessChecksum(const std::string& checksum) = 0;
 
   // Returns a name that identifies the current file checksum function.
   virtual const char* Name() const = 0;
@@ -59,17 +59,18 @@ class FileChecksumList {
   // File_number is the key, the first part of the value is checksum value,
   // and the second part of the value is checksum function name.
   virtual Status GetAllFileChecksums(
-      std::vector<uint64_t>* file_numbers, std::vector<uint32_t>* checksums,
+      std::vector<uint64_t>* file_numbers, std::vector<std::string>* checksums,
       std::vector<std::string>* checksum_func_names) = 0;
 
   // Given the file_number, it searches if the file checksum information is
   // stored.
-  virtual Status SearchOneFileChecksum(uint64_t file_number, uint32_t* checksum,
+  virtual Status SearchOneFileChecksum(uint64_t file_number,
+                                       std::string* checksum,
                                        std::string* checksum_func_name) = 0;
 
   // Insert the checksum information of one file to the FileChecksumList.
   virtual Status InsertOneFileChecksum(
-      uint64_t file_number, uint32_t checksum,
+      uint64_t file_number, const std::string& checksum,
       const std::string& checksum_func_name) = 0;
 
   // Remove the checksum information of one SST file.

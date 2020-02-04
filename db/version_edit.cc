@@ -18,7 +18,9 @@
 #include "util/string_util.h"
 
 namespace rocksdb {
-// The default sst file checksum function name.
+// The unknown file checksum.
+const std::string kUnknownFileChecksum("0");
+// The unknown sst file checksum function name.
 const std::string kUnknownFileChecksumFuncName("Unknown");
 // Mask for an identified tag from the future which can be safely ignored.
 const uint32_t kTagSafeIgnoreMask = 1 << 13;
@@ -230,9 +232,7 @@ bool VersionEdit::EncodeTo(std::string* dst) const {
     PutLengthPrefixedSlice(dst, Slice(varint_file_creation_time));
 
     PutVarint32(dst, CustomTag::kFileChecksum);
-    std::string varint_file_checksum;
-    PutVarint32(&varint_file_checksum, f.file_checksum);
-    PutLengthPrefixedSlice(dst, Slice(varint_file_checksum));
+    PutLengthPrefixedSlice(dst, Slice(f.file_checksum));
 
     PutVarint32(dst, CustomTag::kFileChecksumFuncName);
     PutLengthPrefixedSlice(dst, Slice(f.file_checksum_func_name));
@@ -361,9 +361,7 @@ const char* VersionEdit::DecodeNewFile4From(Slice* input) {
           }
           break;
         case kFileChecksum:
-          if (!GetVarint32(&field, &f.file_checksum)) {
-            return "invalid file checksum";
-          }
+          f.file_checksum = field.ToString();
           break;
         case kFileChecksumFuncName:
           f.file_checksum_func_name = field.ToString();
@@ -698,7 +696,7 @@ std::string VersionEdit::DebugString(bool hex_key) const {
     r.append(" file_creation_time:");
     AppendNumberTo(&r, f.file_creation_time);
     r.append(" file_checksum:");
-    AppendNumberTo(&r, f.file_checksum);
+    r.append(f.file_checksum);
     r.append(" file_checksum_func_name: ");
     r.append(f.file_checksum_func_name);
   }

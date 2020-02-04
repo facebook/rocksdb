@@ -9,6 +9,7 @@
 #include "rocksdb/file_checksum.h"
 #include "rocksdb/status.h"
 #include "util/crc32c.h"
+#include "util/string_util.h"
 
 namespace rocksdb {
 
@@ -16,18 +17,21 @@ namespace rocksdb {
 // will be used as the default checksum method for SST file checksum
 class FileChecksumFuncCrc32c : public FileChecksumFunc {
  public:
-  uint32_t Extend(uint32_t init_checksum, const char* data, size_t n) override {
+  std::string Extend(const std::string& init_checksum, const char* data,
+                     size_t n) override {
     assert(data != nullptr);
-    return crc32c::Extend(init_checksum, data, n);
+    uint32_t checksum_value = ParseUint32(init_checksum);
+    return ToString(crc32c::Extend(checksum_value, data, n));
   }
 
-  uint32_t Value(const char* data, size_t n) override {
+  std::string Value(const char* data, size_t n) override {
     assert(data != nullptr);
-    return crc32c::Value(data, n);
+    return ToString(crc32c::Value(data, n));
   }
 
-  uint32_t ProcessChecksum(const uint32_t checksum) override {
-    return crc32c::Mask(checksum);
+  std::string ProcessChecksum(const std::string& checksum) override {
+    uint32_t checksum_value = ParseUint32(checksum);
+    return ToString(crc32c::Mask(checksum_value));
   }
 
   const char* Name() const override { return "FileChecksumCrc32c"; }
@@ -42,19 +46,23 @@ class FileChecksumListImpl : public FileChecksumList {
   size_t size() const override;
 
   Status GetAllFileChecksums(
-      std::vector<uint64_t>* file_numbers, std::vector<uint32_t>* checksums,
+      std::vector<uint64_t>* file_numbers, std::vector<std::string>* checksums,
       std::vector<std::string>* checksum_func_names) override;
 
-  Status SearchOneFileChecksum(uint64_t file_number, uint32_t* checksum,
+  Status SearchOneFileChecksum(uint64_t file_number, std::string* checksum,
                                std::string* checksum_func_name) override;
 
-  Status InsertOneFileChecksum(uint64_t file_number, uint32_t checksum,
+  Status InsertOneFileChecksum(uint64_t file_number,
+                               const std::string& checksum,
                                const std::string& checksum_func_name) override;
 
   Status RemoveOneFileChecksum(uint64_t file_number) override;
 
  private:
-  std::unordered_map<uint64_t, std::pair<uint32_t, std::string>> checksum_map_;
+  // Key is the file number, the first portion of the value is checksum, the
+  // second portion of the value is checksum function name.
+  std::unordered_map<uint64_t, std::pair<std::string, std::string>>
+      checksum_map_;
 };
 
 }  // namespace rocksdb

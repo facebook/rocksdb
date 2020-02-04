@@ -116,7 +116,7 @@ class FileChecksumTestHelper {
   std::string dbname_;
 
   Status VerifyChecksum(LiveFileMetaData& file_meta) {
-    uint32_t cur_checksum = 0;
+    std::string cur_checksum;
     std::string checksum_func_name;
 
     Status s;
@@ -133,7 +133,7 @@ class FileChecksumTestHelper {
     FileChecksumFunc* file_checksum_func =
         options_.sst_file_checksum_func.get();
     if (file_checksum_func == nullptr) {
-      cur_checksum = 0;
+      cur_checksum = kUnknownFileChecksum;
       checksum_func_name = kUnknownFileChecksumFuncName;
     } else {
       checksum_func_name = file_checksum_func->Name();
@@ -157,15 +157,15 @@ class FileChecksumTestHelper {
       }
     }
 
-    uint32_t stored_checksum = file_meta.file_checksum;
+    std::string stored_checksum = file_meta.file_checksum;
     std::string stored_checksum_func_name = file_meta.file_checksum_func_name;
     if ((cur_checksum != stored_checksum) ||
         (checksum_func_name != stored_checksum_func_name)) {
       return Status::Corruption(
           "Checksum does not match! The file: " + file_meta.name +
           ", checksum name: " + stored_checksum_func_name + " and checksum " +
-          ToString(stored_checksum) + ". However, expected checksum name: " +
-          checksum_func_name + " and checksum " + ToString(cur_checksum));
+          stored_checksum + ". However, expected checksum name: " +
+          checksum_func_name + " and checksum " + cur_checksum);
     }
     return Status::OK();
   }
@@ -219,7 +219,7 @@ class FileChecksumTestHelper {
       return Status::Corruption("The number of files does not match!");
     }
     for (size_t i = 0; i < live_files.size(); i++) {
-      uint32_t stored_checksum = 0;
+      std::string stored_checksum = "";
       std::string stored_func_name = "";
       s = checksum_list->SearchOneFileChecksum(
           live_files[i].file_number, &stored_checksum, &stored_func_name);
@@ -232,10 +232,10 @@ class FileChecksumTestHelper {
             "Checksum does not match! The file: " +
             ToString(live_files[i].file_number) +
             ". In Manifest, checksum name: " + stored_func_name +
-            " and checksum " + ToString(stored_checksum) +
+            " and checksum " + stored_checksum +
             ". However, expected checksum name: " +
             live_files[i].file_checksum_func_name + " and checksum " +
-            ToString(live_files[i].file_checksum));
+            live_files[i].file_checksum);
       }
     }
     return Status::OK();

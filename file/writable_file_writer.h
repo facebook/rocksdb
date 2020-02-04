@@ -72,7 +72,7 @@ class WritableFileWriter {
   Statistics* stats_;
   std::vector<std::shared_ptr<EventListener>> listeners_;
   FileChecksumFunc* checksum_func_;
-  uint32_t file_checksum_ = kUnknownFileChecksum;
+  std::string file_checksum_ = kUnknownFileChecksum;
   bool is_first_checksum_ = true;
 
  public:
@@ -153,7 +153,7 @@ class WritableFileWriter {
     checksum_func_ = checksum_func;
   }
 
-  uint32_t GetFileChecksum() const { return file_checksum_; }
+  std::string GetFileChecksum() const { return file_checksum_; }
 
   const char* GetFileChecksumFuncName() const;
 

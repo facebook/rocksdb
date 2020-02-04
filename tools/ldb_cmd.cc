@@ -1221,7 +1221,7 @@ void FileChecksumDumpCommand::DoCommand() {
                                          checksum_list.get());
   if (checksum_list != nullptr) {
     std::vector<uint64_t> file_numbers;
-    std::vector<uint32_t> checksums;
+    std::vector<std::string> checksums;
     std::vector<std::string> checksum_func_names;
     Status s = checksum_list->GetAllFileChecksums(&file_numbers, &checksums,
                                                   &checksum_func_names);
@@ -1230,8 +1230,8 @@ void FileChecksumDumpCommand::DoCommand() {
         assert(i < file_numbers.size());
         assert(i < checksums.size());
         assert(i < checksum_func_names.size());
-        fprintf(stdout, "%" PRId64 ", %s, %u\n", file_numbers[i],
-                checksum_func_names[i].c_str(), checksums[i]);
+        fprintf(stdout, "%" PRId64 ", %s, %s\n", file_numbers[i],
+                checksum_func_names[i].c_str(), checksums[i].c_str());
       }
     }
     fprintf(stdout, "Print SST file checksum information finished \n");

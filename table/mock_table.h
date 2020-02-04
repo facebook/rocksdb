@@ -154,7 +154,9 @@ class MockTableBuilder : public TableBuilder {
     return TableProperties();
   }
 
-  uint32_t GetFileChecksum() const override { return file_checksum_; }
+  // Get file checksum
+  std::string GetFileChecksum() const override { return file_checksum_; }
+  // Get file checksum function name
   const char* GetFileChecksumFuncName() const override {
     return kUnknownFileChecksumFuncName.c_str();
   }
@@ -163,7 +165,7 @@ class MockTableBuilder : public TableBuilder {
   uint32_t id_;
   MockTableFileSystem* file_system_;
   stl_wrappers::KVMap table_;
-  uint32_t file_checksum_ = kUnknownFileChecksum;
+  std::string file_checksum_ = kUnknownFileChecksum;
 };
 
 class MockTableFactory : public TableFactory {

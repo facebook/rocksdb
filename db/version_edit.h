@@ -28,7 +28,7 @@ constexpr uint64_t kInvalidBlobFileNumber = 0;
 constexpr uint64_t kUnknownOldestAncesterTime = 0;
 constexpr uint64_t kUnknownFileCreationTime = 0;
 
-constexpr uint32_t kUnknownFileChecksum = 0;
+extern const std::string kUnknownFileChecksum;
 extern const std::string kUnknownFileChecksumFuncName;
 
 extern uint64_t PackFileNumberAndPathId(uint64_t number, uint64_t path_id);
@@ -137,8 +137,8 @@ struct FileMetaData {
   // Unix time when the SST file is created.
   uint64_t file_creation_time = kUnknownFileCreationTime;
 
-  // File checksum value
-  uint32_t file_checksum = kUnknownFileChecksum;
+  // File checksum
+  std::string file_checksum = kUnknownFileChecksum;
 
   // File checksum function name
   std::string file_checksum_func_name = kUnknownFileChecksumFuncName;
@@ -150,7 +150,7 @@ struct FileMetaData {
                const SequenceNumber& smallest_seq,
                const SequenceNumber& largest_seq, bool marked_for_compact,
                uint64_t oldest_blob_file, uint64_t _oldest_ancester_time,
-               uint64_t _file_creation_time, uint32_t _file_checksum,
+               uint64_t _file_creation_time, const std::string& _file_checksum,
                const std::string& _file_checksum_func_name)
       : fd(file, file_path_id, file_size, smallest_seq, largest_seq),
         smallest(smallest_key),
@@ -326,7 +326,7 @@ class VersionEdit {
                const InternalKey& largest, const SequenceNumber& smallest_seqno,
                const SequenceNumber& largest_seqno, bool marked_for_compaction,
                uint64_t oldest_blob_file_number, uint64_t oldest_ancester_time,
-               uint64_t file_creation_time, uint32_t file_checksum,
+               uint64_t file_creation_time, const std::string& file_checksum,
                const std::string& file_checksum_func_name) {
     assert(smallest_seqno <= largest_seqno);
     new_files_.emplace_back(

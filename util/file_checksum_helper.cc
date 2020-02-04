@@ -16,7 +16,7 @@ void FileChecksumListImpl::reset() { checksum_map_.clear(); }
 size_t FileChecksumListImpl::size() const { return checksum_map_.size(); }
 
 Status FileChecksumListImpl::GetAllFileChecksums(
-    std::vector<uint64_t>* file_numbers, std::vector<uint32_t>* checksums,
+    std::vector<uint64_t>* file_numbers, std::vector<std::string>* checksums,
     std::vector<std::string>* checksum_func_names) {
   if (file_numbers == nullptr || checksums == nullptr ||
       checksum_func_names == nullptr) {
@@ -32,7 +32,8 @@ Status FileChecksumListImpl::GetAllFileChecksums(
 }
 
 Status FileChecksumListImpl::SearchOneFileChecksum(
-    uint64_t file_number, uint32_t* checksum, std::string* checksum_func_name) {
+    uint64_t file_number, std::string* checksum,
+    std::string* checksum_func_name) {
   if (checksum == nullptr || checksum_func_name == nullptr) {
     return Status::InvalidArgument("Pointer has not been initiated");
   }
@@ -48,7 +49,7 @@ Status FileChecksumListImpl::SearchOneFileChecksum(
 }
 
 Status FileChecksumListImpl::InsertOneFileChecksum(
-    uint64_t file_number, uint32_t checksum,
+    uint64_t file_number, const std::string& checksum,
     const std::string& checksum_func_name) {
   auto it = checksum_map_.find(file_number);
   if (it == checksum_map_.end()) {

@@ -1228,14 +1228,14 @@ class FileChecksumTestHelper {
     return s;
   }
 
-  uint32_t GetFileChecksum() { return table_builder_->GetFileChecksum(); }
+  std::string GetFileChecksum() { return table_builder_->GetFileChecksum(); }
 
   const char* GetFileChecksumFuncName() {
     return table_builder_->GetFileChecksumFuncName();
   }
 
   Status CalculateFileChecksum(FileChecksumFunc* file_checksum_func,
-                               uint32_t* checksum) {
+                               std::string* checksum) {
     assert(file_checksum_func != nullptr);
     cur_uniq_id_ = checksum_uniq_id_++;
     test::StringSink* ss_rw =
@@ -1245,7 +1245,7 @@ class FileChecksumTestHelper {
     std::unique_ptr<char[]> scratch(new char[2048]);
     Slice result;
     uint64_t offset = 0;
-    uint32_t tmp_checksum = 0;
+    std::string tmp_checksum;
     bool first_read = true;
     Status s;
     s = file_reader_->Read(offset, 2048, &result, scratch.get(), false);
@@ -3195,8 +3195,7 @@ TEST_P(BlockBasedTableTest, NoFileChecksum) {
   f.WriteKVAndFlushTable();
   ASSERT_STREQ(f.GetFileChecksumFuncName(),
                kUnknownFileChecksumFuncName.c_str());
-  uint32_t exp_checksum = 0;
-  EXPECT_EQ(f.GetFileChecksum(), exp_checksum);
+  ASSERT_STREQ(f.GetFileChecksum().c_str(), kUnknownFileChecksum.c_str());
 }
 
 TEST_P(BlockBasedTableTest, Crc32FileChecksum) {
@@ -3237,10 +3236,10 @@ TEST_P(BlockBasedTableTest, Crc32FileChecksum) {
   f.AddKVtoKVMap(1000);
   f.WriteKVAndFlushTable();
   ASSERT_STREQ(f.GetFileChecksumFuncName(), "FileChecksumCrc32c");
-  uint32_t checksum;
+  std::string checksum;
   ASSERT_OK(
       f.CalculateFileChecksum(options.sst_file_checksum_func.get(), &checksum));
-  EXPECT_EQ(f.GetFileChecksum(), checksum);
+  ASSERT_STREQ(f.GetFileChecksum().c_str(), checksum.c_str());
 }
 
 // Plain table is not supported in ROCKSDB_LITE
@@ -3331,8 +3330,7 @@ TEST_F(PlainTableTest, NoFileChecksum) {
   f.WriteKVAndFlushTable();
   ASSERT_STREQ(f.GetFileChecksumFuncName(),
                kUnknownFileChecksumFuncName.c_str());
-  uint32_t exp_checksum = 0;
-  EXPECT_EQ(f.GetFileChecksum(), exp_checksum);
+  EXPECT_EQ(f.GetFileChecksum(), kUnknownFileChecksum.c_str());
 }
 
 TEST_F(PlainTableTest, Crc32FileChecksum) {
@@ -3367,10 +3365,10 @@ TEST_F(PlainTableTest, Crc32FileChecksum) {
   f.AddKVtoKVMap(1000);
   f.WriteKVAndFlushTable();
   ASSERT_STREQ(f.GetFileChecksumFuncName(), "FileChecksumCrc32c");
-  uint32_t checksum;
+  std::string checksum;
   ASSERT_OK(
       f.CalculateFileChecksum(options.sst_file_checksum_func.get(), &checksum));
-  EXPECT_EQ(f.GetFileChecksum(), checksum);
+  EXPECT_STREQ(f.GetFileChecksum().c_str(), checksum.c_str());
 }
 
 #endif  // !ROCKSDB_LITE

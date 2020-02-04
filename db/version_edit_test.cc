@@ -37,7 +37,7 @@ TEST_F(VersionEditTest, EncodeDecode) {
                  InternalKey("foo", kBig + 500 + i, kTypeValue),
                  InternalKey("zoo", kBig + 600 + i, kTypeDeletion),
                  kBig + 500 + i, kBig + 600 + i, false, kInvalidBlobFileNumber,
-                 888, 678, 234, "crc32c");
+                 888, 678, "234", "crc32c");
     edit.DeleteFile(4, kBig + 700 + i);
   }
 
@@ -114,7 +114,7 @@ TEST_F(VersionEditTest, ForwardCompatibleNewFile4) {
                kUnknownFileChecksum, kUnknownFileChecksumFuncName);
   edit.AddFile(4, 301, 3, 100, InternalKey("foo", kBig + 501, kTypeValue),
                InternalKey("zoo", kBig + 601, kTypeDeletion), kBig + 501,
-               kBig + 601, false, kInvalidBlobFileNumber, 686, 868, 234,
+               kBig + 601, false, kInvalidBlobFileNumber, 686, 868, "234",
                "crc32c");
   edit.DeleteFile(4, 700);
 
