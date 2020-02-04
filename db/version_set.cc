@@ -4423,7 +4423,7 @@ Status VersionSet::Recover(
   builders.insert(
       std::make_pair(0, std::unique_ptr<BaseReferencedVersionBuilder>(
                             new BaseReferencedVersionBuilder(default_cfd))));
-  uint64_t current_manifest_file_size;
+  uint64_t current_manifest_file_size = 0;
   VersionEditParams version_edit_params;
   {
     VersionSet::LogReporter reporter;
@@ -4436,7 +4436,8 @@ Status VersionSet::Recover(
     s = ReadAndRecover(&reader, &read_buffer, cf_name_to_options,
                        column_families_not_found, builders,
                        &version_edit_params, db_id);
-    current_manifest_file_size = reader.end_of_buffer_offset();
+    current_manifest_file_size = reader.GetReadOffset();
+    assert(current_manifest_file_size != 0);
   }
 
   if (s.ok()) {

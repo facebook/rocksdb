@@ -93,7 +93,7 @@ class Reader {
 
   uint64_t GetLogNumber() const { return log_number_; }
 
-  size_t end_of_buffer_offset() const {
+  size_t GetReadOffset() const {
     return static_cast<size_t>(end_of_buffer_offset_);
   }
 
