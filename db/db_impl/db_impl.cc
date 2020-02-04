@@ -3354,31 +3354,12 @@ Status DBImpl::GetDbIdentity(std::string& identity) const {
 Status DBImpl::GetDbIdentityFromIdentityFile(std::string* identity) const {
   std::string idfilename = IdentityFileName(dbname_);
   const FileOptions soptions;
-  std::unique_ptr<SequentialFileReader> id_file_reader;
-  Status s;
-  {
-    std::unique_ptr<FSSequentialFile> idfile;
-    s = fs_->NewSequentialFile(idfilename, soptions, &idfile, nullptr);
-    if (!s.ok()) {
-      return s;
-    }
-    id_file_reader.reset(
-        new SequentialFileReader(std::move(idfile), idfilename));
+
+  Status s = ReadFileToString(fs_.get(), idfilename, identity);
+  if (!s.ok()) {
+    return s;
   }
 
-  uint64_t file_size;
-  s = fs_->GetFileSize(idfilename, IOOptions(), &file_size, nullptr);
-  if (!s.ok()) {
-    return s;
-  }
-  char* buffer =
-      reinterpret_cast<char*>(alloca(static_cast<size_t>(file_size)));
-  Slice id;
-  s = id_file_reader->Read(static_cast<size_t>(file_size), &id, buffer);
-  if (!s.ok()) {
-    return s;
-  }
-  identity->assign(id.ToString());
   // If last character is '\n' remove it from identity
   if (identity->size() > 0 && identity->back() == '\n') {
     identity->pop_back();
