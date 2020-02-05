@@ -32,7 +32,7 @@ ROCKSDB_EXTERNAL_DEPS = [
 ROCKSDB_OS_DEPS = [
     (
         "linux",
-        ["third-party//numa:numa", "third-party//liburing:uring],
+        ["third-party//numa:numa", "third-party//liburing:uring"],
     ),
 ]
 
