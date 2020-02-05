@@ -319,8 +319,8 @@ void ThreadPoolImpl::Impl::SetBackgroundThreadsInternal(int num,
   if (num > total_threads_limit_ ||
       (num < total_threads_limit_ && allow_reduce)) {
     total_threads_limit_ = std::max(0, num);
-    WakeUpAllThreads();
     StartBGThreads();
+    WakeUpAllThreads();
   }
 }
 
