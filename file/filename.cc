@@ -414,7 +414,7 @@ Status SetIdentityFile(Env* env, const std::string& dbname,
   return s;
 }
 
-Status SyncManifest(Env* env, const ImmutableDBOptions* db_options,
+IOStatus SyncManifest(Env* env, const ImmutableDBOptions* db_options,
                     WritableFileWriter* file) {
   TEST_KILL_RANDOM("SyncManifest:0", rocksdb_kill_odds * REDUCE_ODDS2);
   StopWatch sw(env, db_options->statistics.get(), MANIFEST_FILE_SYNC_MICROS);

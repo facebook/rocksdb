@@ -21,6 +21,7 @@
 #include "rocksdb/options.h"
 #include "rocksdb/slice.h"
 #include "rocksdb/status.h"
+#include "rocksdb/io_status.h"
 #include "rocksdb/transaction_log.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -178,7 +179,7 @@ extern Status SetIdentityFile(Env* env, const std::string& dbname,
                               const std::string& db_id = {});
 
 // Sync manifest file `file`.
-extern Status SyncManifest(Env* env, const ImmutableDBOptions* db_options,
+extern IOStatus SyncManifest(Env* env, const ImmutableDBOptions* db_options,
                            WritableFileWriter* file);
 
 // Return list of file names of info logs in `file_names`.
