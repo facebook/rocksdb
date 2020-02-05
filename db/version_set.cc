@@ -3795,44 +3795,42 @@ Status VersionSet::ProcessManifestWrites(
             mutable_cf_options_ptrs[i]->prefix_extractor.get());
         if (!s.ok()) {
           if (db_options_->paranoid_checks) {
-            for (auto v : versions) {
-              delete v;
-            }
-            mu->Lock();
-            return s;
+            break;
           }
           s = Status::OK();
         }
       }
     }
 
-    // This is fine because everything inside of this block is serialized --
-    // only one thread can be here at the same time
-    if (new_descriptor_log) {
-      // create new manifest file
-      ROCKS_LOG_INFO(db_options_->info_log, "Creating manifest %" PRIu64 "\n",
-                     pending_manifest_file_number_);
-      std::string descriptor_fname =
-          DescriptorFileName(dbname_, pending_manifest_file_number_);
-      std::unique_ptr<FSWritableFile> descriptor_file;
-      s = NewWritableFile(fs_, descriptor_fname, &descriptor_file,
-                          opt_file_opts);
-      if (s.ok()) {
-        descriptor_file->SetPreallocationBlockSize(
-            db_options_->manifest_preallocation_size);
+    if (s.ok()) {
+      // This is fine because everything inside of this block is serialized --
+      // only one thread can be here at the same time
+      if (new_descriptor_log) {
+        // create new manifest file
+        ROCKS_LOG_INFO(db_options_->info_log, "Creating manifest %" PRIu64 "\n",
+                      pending_manifest_file_number_);
+        std::string descriptor_fname =
+            DescriptorFileName(dbname_, pending_manifest_file_number_);
+        std::unique_ptr<FSWritableFile> descriptor_file;
+        s = NewWritableFile(fs_, descriptor_fname, &descriptor_file,
+                            opt_file_opts);
+        if (s.ok()) {
+          descriptor_file->SetPreallocationBlockSize(
+              db_options_->manifest_preallocation_size);
 
-        std::unique_ptr<WritableFileWriter> file_writer(new WritableFileWriter(
-            std::move(descriptor_file), descriptor_fname, opt_file_opts, env_,
-            nullptr, db_options_->listeners));
-        descriptor_log_.reset(
-            new log::Writer(std::move(file_writer), 0, false));
-        s = WriteCurrentStateToManifest(curr_state, descriptor_log_.get());
+          std::unique_ptr<WritableFileWriter> file_writer(new WritableFileWriter(
+              std::move(descriptor_file), descriptor_fname, opt_file_opts, env_,
+              nullptr, db_options_->listeners));
+          descriptor_log_.reset(
+              new log::Writer(std::move(file_writer), 0, false));
+          s = WriteCurrentStateToManifest(curr_state, descriptor_log_.get());
+        }
       }
-    }
 
-    if (!first_writer.edit_list.front()->IsColumnFamilyManipulation()) {
-      for (int i = 0; i < static_cast<int>(versions.size()); ++i) {
-        versions[i]->PrepareApply(*mutable_cf_options_ptrs[i], true);
+      if (!first_writer.edit_list.front()->IsColumnFamilyManipulation()) {
+        for (int i = 0; i < static_cast<int>(versions.size()); ++i) {
+          versions[i]->PrepareApply(*mutable_cf_options_ptrs[i], true);
+        }
       }
     }
 
