@@ -368,7 +368,7 @@ bool ParseFileName(const std::string& fname, uint64_t* number,
   return true;
 }
 
-Status SetCurrentFile(Env* env, const std::string& dbname,
+IOStatus SetCurrentFile(FileSystem* fs, const std::string& dbname,
                       uint64_t descriptor_number,
                       FSDirectory* directory_to_fsync) {
   // Remove leading "dbname/" and add newline to manifest file name
@@ -377,10 +377,10 @@ Status SetCurrentFile(Env* env, const std::string& dbname,
   assert(contents.starts_with(dbname + "/"));
   contents.remove_prefix(dbname.size() + 1);
   std::string tmp = TempFileName(dbname, descriptor_number);
-  Status s = WriteStringToFile(env, contents.ToString() + "\n", tmp, true);
+  IOStatus s = WriteStringToFile(fs, contents.ToString() + "\n", tmp, true);
   if (s.ok()) {
     TEST_KILL_RANDOM("SetCurrentFile:0", rocksdb_kill_odds * REDUCE_ODDS2);
-    s = env->RenameFile(tmp, CurrentFileName(dbname));
+    s = fs->RenameFile(tmp, CurrentFileName(dbname), IOOptions(), nullptr);
     TEST_KILL_RANDOM("SetCurrentFile:1", rocksdb_kill_odds * REDUCE_ODDS2);
   }
   if (s.ok()) {
@@ -388,7 +388,7 @@ Status SetCurrentFile(Env* env, const std::string& dbname,
       s = directory_to_fsync->Fsync(IOOptions(), nullptr);
     }
   } else {
-    env->DeleteFile(tmp);
+    fs->DeleteFile(tmp, IOOptions(), nullptr);
   }
   return s;
 }

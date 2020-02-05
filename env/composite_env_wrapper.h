@@ -20,22 +20,6 @@ namespace ROCKSDB_NAMESPACE {
 // Options::env only, whereas in the latter case, the user will specify
 // Options::env and Options::file_system.
 
-inline IOStatus status_to_io_status(Status&& status) {
-  if (status.ok()) {
-    // Fast path
-    return IOStatus::OK();
-  } else {
-    const char* state = status.getState();
-    if (state) {
-      return IOStatus(status.code(), status.subcode(),
-                      Slice(state, strlen(status.getState()) + 1),
-                      Slice());
-    } else {
-      return IOStatus(status.code(), status.subcode());
-    }
-  }
-}
-
 class CompositeSequentialFileWrapper : public SequentialFile {
  public:
   explicit CompositeSequentialFileWrapper(

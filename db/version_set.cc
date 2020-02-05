@@ -3796,6 +3796,7 @@ Status VersionSet::ProcessManifestWrites(
 
   uint64_t new_manifest_file_size = 0;
   Status s;
+  IOStatus io_s;
 
   assert(pending_manifest_file_number_ == 0);
   if (!descriptor_log_ ||
@@ -3906,7 +3907,6 @@ Status VersionSet::ProcessManifestWrites(
         }
         ++idx;
 #endif /* !NDEBUG */
-        IOStatus io_s;
         io_s = descriptor_log_->AddRecord(record);
         if (!io_s.ok()) {
           io_status_ = io_s;
@@ -3914,7 +3914,6 @@ Status VersionSet::ProcessManifestWrites(
           break;
         }
       }
-      IOStatus io_s;
       if (s.ok()) {
         io_s = SyncManifest(env_, db_options_, descriptor_log_->file());
       }
@@ -3929,8 +3928,12 @@ Status VersionSet::ProcessManifestWrites(
     // If we just created a new descriptor file, install it by writing a
     // new CURRENT file that points to it.
     if (s.ok() && new_descriptor_log) {
-      s = SetCurrentFile(env_, dbname_, pending_manifest_file_number_,
+      io_s = SetCurrentFile(fs_, dbname_, pending_manifest_file_number_,
                          db_directory);
+      if (!io_s.ok()) {
+        io_status_ = io_s;
+        s = io_s;
+      }
       TEST_SYNC_POINT("VersionSet::ProcessManifestWrites:AfterNewManifest");
     }
 
