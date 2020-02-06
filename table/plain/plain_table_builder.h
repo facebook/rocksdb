@@ -59,7 +59,10 @@ class PlainTableBuilder: public TableBuilder {
   void Add(const Slice& key, const Slice& value) override;
 
   // Return non-ok iff some error has been detected.
-  Status status() const override;
+  Status status() const override {return status_; }
+
+  // Return non-ok iff some error happens during IO.
+  IOStatus io_status() const override { return io_status_; }
 
   // Finish building the table.  Stops using the file passed to the
   // constructor after this function returns.
@@ -105,6 +108,7 @@ class PlainTableBuilder: public TableBuilder {
   uint32_t bloom_bits_per_key_;
   size_t huge_page_tlb_size_;
   Status status_;
+  IOStatus io_status_;
   TableProperties properties_;
   PlainTableKeyEncoder encoder_;
 

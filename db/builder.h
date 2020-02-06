@@ -77,7 +77,7 @@ extern Status BuildTable(
     SnapshotChecker* snapshot_checker, const CompressionType compression,
     const uint64_t sample_for_compression,
     const CompressionOptions& compression_opts, bool paranoid_file_checks,
-    InternalStats* internal_stats, TableFileCreationReason reason,
+    InternalStats* internal_stats, TableFileCreationReason reason, IOStatus* io_status,
     EventLogger* event_logger = nullptr, int job_id = 0,
     const Env::IOPriority io_priority = Env::IO_HIGH,
     TableProperties* table_properties = nullptr, int level = -1,

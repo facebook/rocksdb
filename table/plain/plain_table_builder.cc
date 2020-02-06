@@ -36,16 +36,16 @@ namespace {
 // a utility that helps writing block content to the file
 //   @offset will advance if @block_contents was successfully written.
 //   @block_handle the block handle this particular block.
-Status WriteBlock(const Slice& block_contents, WritableFileWriter* file,
+IOStatus WriteBlock(const Slice& block_contents, WritableFileWriter* file,
                   uint64_t* offset, BlockHandle* block_handle) {
   block_handle->set_offset(*offset);
   block_handle->set_size(block_contents.size());
-  Status s = file->Append(block_contents);
+  IOStatus io_s = file->Append(block_contents);
 
-  if (s.ok()) {
+  if (io_s.ok()) {
     *offset += block_contents.size();
   }
-  return s;
+  return io_s;
 }
 
 }  // namespace
@@ -145,7 +145,7 @@ void PlainTableBuilder::Add(const Slice& key, const Slice& value) {
   assert(offset_ <= std::numeric_limits<uint32_t>::max());
   auto prev_offset = static_cast<uint32_t>(offset_);
   // Write out the key
-  encoder_.AppendKey(key, file_, &offset_, meta_bytes_buf,
+  io_status_ = encoder_.AppendKey(key, file_, &offset_, meta_bytes_buf,
                      &meta_bytes_buf_size);
   if (SaveIndexInFile()) {
     index_builder_->AddKeyPrefix(GetPrefix(internal_key), prev_offset);
@@ -153,32 +153,37 @@ void PlainTableBuilder::Add(const Slice& key, const Slice& value) {
 
   // Write value length
   uint32_t value_size = static_cast<uint32_t>(value.size());
-  char* end_ptr =
-      EncodeVarint32(meta_bytes_buf + meta_bytes_buf_size, value_size);
-  assert(end_ptr <= meta_bytes_buf + sizeof(meta_bytes_buf));
-  meta_bytes_buf_size = end_ptr - meta_bytes_buf;
-  file_->Append(Slice(meta_bytes_buf, meta_bytes_buf_size));
+  if (io_status_.ok()) {
+    char* end_ptr =
+        EncodeVarint32(meta_bytes_buf + meta_bytes_buf_size, value_size);
+    assert(end_ptr <= meta_bytes_buf + sizeof(meta_bytes_buf));
+    meta_bytes_buf_size = end_ptr - meta_bytes_buf;
+    io_status_ = file_->Append(Slice(meta_bytes_buf, meta_bytes_buf_size));
+  }
 
   // Write value
-  file_->Append(value);
-  offset_ += value_size + meta_bytes_buf_size;
+  if (io_status_.ok()) {
+    io_status_ = file_->Append(value);
+    offset_ += value_size + meta_bytes_buf_size;
+  }
 
-  properties_.num_entries++;
-  properties_.raw_key_size += key.size();
-  properties_.raw_value_size += value.size();
-  if (internal_key.type == kTypeDeletion ||
-      internal_key.type == kTypeSingleDeletion) {
-    properties_.num_deletions++;
-  } else if (internal_key.type == kTypeMerge) {
-    properties_.num_merge_operands++;
+  if (io_status_.ok()) {
+    properties_.num_entries++;
+    properties_.raw_key_size += key.size();
+    properties_.raw_value_size += value.size();
+    if (internal_key.type == kTypeDeletion ||
+        internal_key.type == kTypeSingleDeletion) {
+      properties_.num_deletions++;
+    } else if (internal_key.type == kTypeMerge) {
+      properties_.num_merge_operands++;
+    }
   }
 
   // notify property collectors
   NotifyCollectTableCollectorsOnAdd(
       key, value, offset_, table_properties_collectors_, ioptions_.info_log);
+  status_ = io_status_;
 }
-
-Status PlainTableBuilder::status() const { return status_; }
 
 Status PlainTableBuilder::Finish() {
   assert(!closed_);
@@ -214,10 +219,11 @@ Status PlainTableBuilder::Finish() {
       Slice bloom_finish_result = bloom_block_.Finish();
 
       properties_.filter_size = bloom_finish_result.size();
-      s = WriteBlock(bloom_finish_result, file_, &offset_, &bloom_block_handle);
+      io_status_ = WriteBlock(bloom_finish_result, file_, &offset_, &bloom_block_handle);
 
-      if (!s.ok()) {
-        return s;
+      if (!io_status_.ok()) {
+        status_ = io_status_;
+        return status_;
       }
       meta_index_builer.Add(BloomBlockBuilder::kBloomBlock, bloom_block_handle);
     }
@@ -225,10 +231,11 @@ Status PlainTableBuilder::Finish() {
     Slice index_finish_result = index_builder_->Finish();
 
     properties_.index_size = index_finish_result.size();
-    s = WriteBlock(index_finish_result, file_, &offset_, &index_block_handle);
+    io_status_ = WriteBlock(index_finish_result, file_, &offset_, &index_block_handle);
 
-    if (!s.ok()) {
-      return s;
+    if (!io_status_.ok()) {
+      status_ = io_status_;
+      return status_;
     }
 
     meta_index_builer.Add(PlainTableIndexBuilder::kPlainTableIndexBlock,
@@ -262,14 +269,15 @@ Status PlainTableBuilder::Finish() {
 
   // -- write metaindex block
   BlockHandle metaindex_block_handle;
-  s = WriteBlock(
+  io_status_ = WriteBlock(
       meta_index_builer.Finish(),
       file_,
       &offset_,
       &metaindex_block_handle
   );
-  if (!s.ok()) {
-    return s;
+  if (!io_status_.ok()) {
+    status_ = io_status_;
+    return status_;
   }
 
   // Write Footer
@@ -279,15 +287,16 @@ Status PlainTableBuilder::Finish() {
   footer.set_index_handle(BlockHandle::NullBlockHandle());
   std::string footer_encoding;
   footer.EncodeTo(&footer_encoding);
-  s = file_->Append(footer_encoding);
-  if (s.ok()) {
+  io_status_ = file_->Append(footer_encoding);
+  if (io_status_.ok()) {
     offset_ += footer_encoding.size();
   }
 
   if (file_ != nullptr) {
     file_checksum_ = file_->GetFileChecksum();
   }
-  return s;
+  status_ = io_status_;
+  return status_;
 }
 
 void PlainTableBuilder::Abandon() {

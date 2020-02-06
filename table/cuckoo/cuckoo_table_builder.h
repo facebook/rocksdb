@@ -46,6 +46,9 @@ class CuckooTableBuilder: public TableBuilder {
   // Return non-ok iff some error has been detected.
   Status status() const override { return status_; }
 
+  // Return non-ok iff some error happens during IO.
+  IOStatus io_status() const override { return io_status_; }
+
   // Finish building the table.  Stops using the file passed to the
   // constructor after this function returns.
   // REQUIRES: Finish(), Abandon() have not been called
@@ -116,6 +119,7 @@ class CuckooTableBuilder: public TableBuilder {
   // Number of keys that contain value (non-deletion op)
   uint64_t num_values_;
   Status status_;
+  IOStatus io_status_;
   TableProperties properties_;
   const Comparator* ucomp_;
   bool use_module_hash_;
