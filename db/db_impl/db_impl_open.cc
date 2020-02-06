@@ -374,9 +374,6 @@ Status DBImpl::Recover(
     s = env_->FileExists(current_fname);
     if (s.IsNotFound()) {
       if (immutable_db_options_.create_if_missing) {
-        // Has to be called only after Identity File creation is successful
-        // because DB ID is stored in Manifest if
-        // immutable_db_options_.write_dbid_to_manifest = true
         s = NewDB();
         is_new_db = true;
         if (!s.ok()) {
