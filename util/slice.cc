@@ -232,8 +232,10 @@ PinnableSlice& PinnableSlice::operator=(PinnableSlice&& other) {
         data_ = other.data_;
       }
     }
-    other.size_ = 0;
+    other.self_space_.clear();
+    other.buf_ = &other.self_space_;
     other.pinned_ = false;
+    other.PinSelf();
   }
   return *this;
 }
