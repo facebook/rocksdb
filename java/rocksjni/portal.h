@@ -1207,6 +1207,157 @@ class ByteJni : public JavaClass {
 
 };
 
+// The portal class for java.nio.ByteBuffer
+class ByteBufferJni : public JavaClass {
+ public:
+  /**
+   * Get the Java Class java.nio.ByteBuffer
+   *
+   * @param env A pointer to the Java environment
+   *
+   * @return The Java Class or nullptr if one of the
+   *     ClassFormatError, ClassCircularityError, NoClassDefFoundError,
+   *     OutOfMemoryError or ExceptionInInitializerError exceptions is thrown
+   */
+  static jclass getJClass(JNIEnv* env) {
+    return JavaClass::getJClass(env, "java/nio/ByteBuffer");
+  }
+
+  /**
+   * Get the Java Method: ByteBuffer#allocate
+   *
+   * @param env A pointer to the Java environment
+   * @param jbytebuffer_clazz if you have a reference to a ByteBuffer class, or nullptr
+   *
+   * @return The Java Method ID or nullptr if the class or method id could not
+   *     be retieved
+   */
+  static jmethodID getAllocateMethodId(JNIEnv* env,
+      jclass jbytebuffer_clazz = nullptr) {
+    const jclass jclazz =
+        jbytebuffer_clazz == nullptr ? getJClass(env) : jbytebuffer_clazz;
+    if (jclazz == nullptr) {
+      // exception occurred accessing class
+      return nullptr;
+    }
+
+    static jmethodID mid = env->GetStaticMethodID(
+        jclazz, "allocate", "(I)Ljava/nio/ByteBuffer;");
+    assert(mid != nullptr);
+    return mid;
+  }
+
+  /**
+   * Get the Java Method: ByteBuffer#array
+   *
+   * @param env A pointer to the Java environment
+   *
+   * @return The Java Method ID or nullptr if the class or method id could not
+   *     be retieved
+   */
+  static jmethodID getArrayMethodId(JNIEnv* env,
+      jclass jbytebuffer_clazz = nullptr) {
+    const jclass jclazz =
+        jbytebuffer_clazz == nullptr ? getJClass(env) : jbytebuffer_clazz;
+    if(jclazz == nullptr) {
+      // exception occurred accessing class
+      return nullptr;
+    }
+
+    static jmethodID mid = env->GetMethodID(jclazz, "array", "()[B");
+    assert(mid != nullptr);
+    return mid;
+  }
+
+  static jobject construct(
+      JNIEnv* env, const bool direct, const size_t capacity,
+      jclass jbytebuffer_clazz = nullptr) {
+    return constructWith(env, direct, nullptr, capacity, jbytebuffer_clazz);
+  }
+
+  static jobject constructWith(
+      JNIEnv* env, const bool direct, const char* buf, const size_t capacity, 
+      jclass jbytebuffer_clazz = nullptr) {
+    if (direct) {
+      bool allocated = false;
+      if (buf == nullptr) {
+        buf = new char[capacity];
+        allocated = true;
+      }
+      jobject jbuf = env->NewDirectByteBuffer(const_cast<char*>(buf), static_cast<jlong>(capacity));
+      if (jbuf == nullptr) {
+        // exception occurred
+        if (allocated) {
+          delete[] static_cast<const char*>(buf);
+        }
+        return nullptr;
+      }
+      return jbuf;
+    } else {
+      const jclass jclazz =
+        jbytebuffer_clazz == nullptr ? getJClass(env) : jbytebuffer_clazz;
+      if (jclazz == nullptr) {
+        // exception occurred accessing class
+        return nullptr;
+      }
+      const jmethodID jmid_allocate = getAllocateMethodId(env, jbytebuffer_clazz);
+      if (jmid_allocate == nullptr) {
+        // exception occurred accessing class, or NoSuchMethodException or OutOfMemoryError
+        return nullptr;
+      }
+      const jobject jbuf = env->CallStaticObjectMethod(
+          jclazz, jmid_allocate, static_cast<jint>(capacity));
+      if (env->ExceptionCheck()) {
+        // exception occurred
+        return nullptr;
+      }
+
+      // set buffer data?
+      if (buf != nullptr) {
+        jbyteArray jarray = array(env, jbuf, jbytebuffer_clazz);
+        if (jarray == nullptr) {
+          // exception occurred
+          env->DeleteLocalRef(jbuf);
+          return nullptr;
+        }
+
+        jboolean is_copy = JNI_FALSE;
+        jbyte* ja = reinterpret_cast<jbyte*>(
+            env->GetPrimitiveArrayCritical(jarray, &is_copy));
+        if (ja == nullptr) {
+          // exception occurred
+           env->DeleteLocalRef(jarray);
+           env->DeleteLocalRef(jbuf);
+           return nullptr;
+        }
+
+        memcpy(ja, const_cast<char*>(buf), capacity);
+
+        env->ReleasePrimitiveArrayCritical(jarray, ja, 0);
+
+        env->DeleteLocalRef(jarray);
+      }
+
+      return jbuf;
+    }
+  }
+
+  static jbyteArray array(JNIEnv* env, const jobject& jbyte_buffer,
+      jclass jbytebuffer_clazz = nullptr) {
+    const jmethodID mid = getArrayMethodId(env, jbytebuffer_clazz);
+    if (mid == nullptr) {
+      // exception occurred accessing class, or NoSuchMethodException or OutOfMemoryError
+      return nullptr;
+    }
+    const jobject jarray = env->CallObjectMethod(jbyte_buffer, mid);
+    if (env->ExceptionCheck()) {
+      // exception occurred
+      return nullptr;
+    }
+    return static_cast<jbyteArray>(jarray);
+  }
+};
+
 // The portal class for java.lang.Integer
 class IntegerJni : public JavaClass {
  public:
@@ -1405,7 +1556,7 @@ class JniUtil {
 
       JNIEnv *env;
       const jint env_rs = jvm->GetEnv(reinterpret_cast<void**>(&env),
-          JNI_VERSION_1_2);
+          JNI_VERSION_1_6);
 
       if(env_rs == JNI_OK) {
         // current thread is already attached, return the JNIEnv
@@ -1423,8 +1574,8 @@ class JniUtil {
           return nullptr;
         }
       } else if(env_rs == JNI_EVERSION) {
-        // error, JDK does not support JNI_VERSION_1_2+
-        std::cerr << "JniUtil::getJniEnv - Fatal: JDK does not support JNI_VERSION_1_2" << std::endl;
+        // error, JDK does not support JNI_VERSION_1_6+
+        std::cerr << "JniUtil::getJniEnv - Fatal: JDK does not support JNI_VERSION_1_6" << std::endl;
         return nullptr;
       } else {
         std::cerr << "JniUtil::getJniEnv - Fatal: Unknown error: env_rs=" << env_rs << std::endl;
@@ -3303,9 +3454,78 @@ class AbstractTransactionNotifierJni : public RocksDBNativeClass<
   }
 };
 
+// The portal class for org.rocksdb.AbstractComparatorJniBridge
+class AbstractComparatorJniBridge : public JavaClass {
+ public:
+  /**
+   * Get the Java Class org.rocksdb.AbstractComparatorJniBridge
+   *
+   * @param env A pointer to the Java environment
+   *
+   * @return The Java Class or nullptr if one of the
+   *     ClassFormatError, ClassCircularityError, NoClassDefFoundError,
+   *     OutOfMemoryError or ExceptionInInitializerError exceptions is thrown
+   */
+  static jclass getJClass(JNIEnv* env) {
+    return JavaClass::getJClass(env,
+        "org/rocksdb/AbstractComparatorJniBridge");
+  }
+
+  /**
+   * Get the Java Method: Comparator#compareInternal
+   *
+   * @param env A pointer to the Java environment
+   * @param jclazz the AbstractComparatorJniBridge class
+   *
+   * @return The Java Method ID or nullptr if the class or method id could not
+   *     be retieved
+   */
+  static jmethodID getCompareInternalMethodId(JNIEnv* env, jclass jclazz) {
+    static jmethodID mid =
+        env->GetStaticMethodID(jclazz, "compareInternal",
+            "(Lorg/rocksdb/AbstractComparator;Ljava/nio/ByteBuffer;ILjava/nio/ByteBuffer;I)I");
+    assert(mid != nullptr);
+    return mid;
+  }
+
+  /**
+   * Get the Java Method: Comparator#findShortestSeparatorInternal
+   *
+   * @param env A pointer to the Java environment
+   * @param jclazz the AbstractComparatorJniBridge class
+   *
+   * @return The Java Method ID or nullptr if the class or method id could not
+   *     be retieved
+   */
+  static jmethodID getFindShortestSeparatorInternalMethodId(JNIEnv* env, jclass jclazz) {
+    static jmethodID mid =
+        env->GetStaticMethodID(jclazz, "findShortestSeparatorInternal",
+            "(Lorg/rocksdb/AbstractComparator;Ljava/nio/ByteBuffer;ILjava/nio/ByteBuffer;I)I");
+    assert(mid != nullptr);
+    return mid;
+  }
+
+  /**
+   * Get the Java Method: Comparator#findShortSuccessorInternal
+   *
+   * @param env A pointer to the Java environment
+   * @param jclazz the AbstractComparatorJniBridge class
+   *
+   * @return The Java Method ID or nullptr if the class or method id could not
+   *     be retieved
+   */
+  static jmethodID getFindShortSuccessorInternalMethodId(JNIEnv* env, jclass jclazz) {
+    static jmethodID mid =
+        env->GetStaticMethodID(jclazz, "findShortSuccessorInternal",
+            "(Lorg/rocksdb/AbstractComparator;Ljava/nio/ByteBuffer;I)I");
+    assert(mid != nullptr);
+    return mid;
+  }
+};
+
 // The portal class for org.rocksdb.AbstractComparator
 class AbstractComparatorJni : public RocksDBNativeClass<
-    const rocksdb::BaseComparatorJniCallback*,
+    const rocksdb::ComparatorJniCallback*,
     AbstractComparatorJni> {
  public:
   /**
@@ -3339,72 +3559,6 @@ class AbstractComparatorJni : public RocksDBNativeClass<
 
     static jmethodID mid =
         env->GetMethodID(jclazz, "name", "()Ljava/lang/String;");
-    assert(mid != nullptr);
-    return mid;
-  }
-
-  /**
-   * Get the Java Method: Comparator#compare
-   *
-   * @param env A pointer to the Java environment
-   *
-   * @return The Java Method ID or nullptr if the class or method id could not
-   *     be retieved
-   */
-  static jmethodID getCompareMethodId(JNIEnv* env) {
-    jclass jclazz = getJClass(env);
-    if(jclazz == nullptr) {
-      // exception occurred accessing class
-      return nullptr;
-    }
-
-    static jmethodID mid =
-        env->GetMethodID(jclazz, "compare",
-            "(Lorg/rocksdb/AbstractSlice;Lorg/rocksdb/AbstractSlice;)I");
-    assert(mid != nullptr);
-    return mid;
-  }
-
-  /**
-   * Get the Java Method: Comparator#findShortestSeparator
-   *
-   * @param env A pointer to the Java environment
-   *
-   * @return The Java Method ID or nullptr if the class or method id could not
-   *     be retieved
-   */
-  static jmethodID getFindShortestSeparatorMethodId(JNIEnv* env) {
-    jclass jclazz = getJClass(env);
-    if(jclazz == nullptr) {
-      // exception occurred accessing class
-      return nullptr;
-    }
-
-    static jmethodID mid =
-        env->GetMethodID(jclazz, "findShortestSeparator",
-            "(Ljava/lang/String;Lorg/rocksdb/AbstractSlice;)Ljava/lang/String;");
-    assert(mid != nullptr);
-    return mid;
-  }
-
-  /**
-   * Get the Java Method: Comparator#findShortSuccessor
-   *
-   * @param env A pointer to the Java environment
-   *
-   * @return The Java Method ID or nullptr if the class or method id could not
-   *     be retieved
-   */
-  static jmethodID getFindShortSuccessorMethodId(JNIEnv* env) {
-    jclass jclazz = getJClass(env);
-    if(jclazz == nullptr) {
-      // exception occurred accessing class
-      return nullptr;
-    }
-
-    static jmethodID mid =
-        env->GetMethodID(jclazz, "findShortSuccessor",
-            "(Ljava/lang/String;)Ljava/lang/String;");
     assert(mid != nullptr);
     return mid;
   }
@@ -7108,6 +7262,43 @@ class WalProcessingOptionJni {
        return rocksdb::WalFilter::WalProcessingOption::kCorruptedRecord;
    }
  }
+};
+
+// The portal class for org.rocksdb.ReusedSynchronisationType
+class ReusedSynchronisationTypeJni {
+ public:
+  // Returns the equivalent org.rocksdb.ReusedSynchronisationType for the provided
+  // C++ rocksdb::ReusedSynchronisationType enum
+  static jbyte toJavaReusedSynchronisationType(
+      const rocksdb::ReusedSynchronisationType& reused_synchronisation_type) {
+    switch(reused_synchronisation_type) {
+      case rocksdb::ReusedSynchronisationType::MUTEX:
+        return 0x0;
+      case rocksdb::ReusedSynchronisationType::ADAPTIVE_MUTEX:
+        return 0x1;
+      case rocksdb::ReusedSynchronisationType::THREAD_LOCAL:
+        return 0x2;
+      default:
+        return 0x7F;  // undefined
+    }
+  }
+
+  // Returns the equivalent C++ rocksdb::ReusedSynchronisationType enum for the
+  // provided Java org.rocksdb.ReusedSynchronisationType
+  static rocksdb::ReusedSynchronisationType toCppReusedSynchronisationType(
+      jbyte reused_synchronisation_type) {
+    switch(reused_synchronisation_type) {
+      case 0x0:
+        return rocksdb::ReusedSynchronisationType::MUTEX;
+      case 0x1:
+        return rocksdb::ReusedSynchronisationType::ADAPTIVE_MUTEX;
+      case 0x2:
+        return rocksdb::ReusedSynchronisationType::THREAD_LOCAL;
+      default:
+        // undefined/default
+        return rocksdb::ReusedSynchronisationType::ADAPTIVE_MUTEX;
+    }
+  }
 };
 }  // namespace rocksdb
 #endif  // JAVA_ROCKSJNI_PORTAL_H_

@@ -28,7 +28,7 @@ public class SstFileWriter extends RocksObject {
    */
   @Deprecated
   public SstFileWriter(final EnvOptions envOptions, final Options options,
-      final AbstractComparator<? extends AbstractSlice<?>> comparator) {
+      final AbstractComparator comparator) {
     super(newSstFileWriter(
         envOptions.nativeHandle_, options.nativeHandle_, comparator.nativeHandle_,
         comparator.getComparatorType().getValue()));

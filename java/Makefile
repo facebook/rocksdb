@@ -1,5 +1,7 @@
-NATIVE_JAVA_CLASSES = org.rocksdb.AbstractCompactionFilter\
+NATIVE_JAVA_CLASSES = \
+	org.rocksdb.AbstractCompactionFilter\
 	org.rocksdb.AbstractCompactionFilterFactory\
+	org.rocksdb.AbstractComparator\
 	org.rocksdb.AbstractSlice\
 	org.rocksdb.AbstractTableFilter\
 	org.rocksdb.AbstractTraceWriter\
@@ -21,11 +23,9 @@ NATIVE_JAVA_CLASSES = org.rocksdb.AbstractCompactionFilter\
 	org.rocksdb.CompactionOptionsFIFO\
 	org.rocksdb.CompactionOptionsUniversal\
 	org.rocksdb.CompactRangeOptions\
-	org.rocksdb.Comparator\
 	org.rocksdb.ComparatorOptions\
 	org.rocksdb.CompressionOptions\
 	org.rocksdb.DBOptions\
-	org.rocksdb.DirectComparator\
 	org.rocksdb.DirectSlice\
 	org.rocksdb.Env\
 	org.rocksdb.EnvOptions\
@@ -98,10 +98,13 @@ ifeq ($(PLATFORM), OS_MACOSX)
 ROCKSDB_JAR = rocksdbjni-$(ROCKSDB_MAJOR).$(ROCKSDB_MINOR).$(ROCKSDB_PATCH)-osx.jar
 endif
 
-JAVA_TESTS = org.rocksdb.BackupableDBOptionsTest\
+JAVA_TESTS = \
+	org.rocksdb.BackupableDBOptionsTest\
 	org.rocksdb.BackupEngineTest\
 	org.rocksdb.BlockBasedTableConfigTest\
+	org.rocksdb.BuiltinComparatorTest\
 	org.rocksdb.util.BytewiseComparatorTest\
+	org.rocksdb.util.BytewiseComparatorIntTest\
 	org.rocksdb.CheckPointTest\
 	org.rocksdb.ClockCacheTest\
 	org.rocksdb.ColumnFamilyOptionsTest\
@@ -115,16 +118,16 @@ JAVA_TESTS = org.rocksdb.BackupableDBOptionsTest\
 	org.rocksdb.CompactionPriorityTest\
 	org.rocksdb.CompactionStopStyleTest\
 	org.rocksdb.ComparatorOptionsTest\
-	org.rocksdb.ComparatorTest\
 	org.rocksdb.CompressionOptionsTest\
 	org.rocksdb.CompressionTypesTest\
 	org.rocksdb.DBOptionsTest\
-	org.rocksdb.DirectComparatorTest\
 	org.rocksdb.DirectSliceTest\
+	org.rocksdb.util.EnvironmentTest\
 	org.rocksdb.EnvOptionsTest\
 	org.rocksdb.HdfsEnvTest\
 	org.rocksdb.IngestExternalFileOptionsTest\
-	org.rocksdb.util.EnvironmentTest\
+	org.rocksdb.util.IntComparatorTest\
+	org.rocksdb.util.JNIComparatorTest\
 	org.rocksdb.FilterTest\
 	org.rocksdb.FlushTest\
 	org.rocksdb.InfoLogLevelTest\
@@ -148,6 +151,7 @@ JAVA_TESTS = org.rocksdb.BackupableDBOptionsTest\
 	org.rocksdb.RateLimiterTest\
 	org.rocksdb.ReadOnlyTest\
 	org.rocksdb.ReadOptionsTest\
+	org.rocksdb.util.ReverseBytewiseComparatorIntTest\
 	org.rocksdb.RocksDBTest\
 	org.rocksdb.RocksDBExceptionTest\
 	org.rocksdb.DefaultEnvTest\
