@@ -474,16 +474,16 @@ Status DBImpl::Recover(
     s = InitPersistStatsColumnFamily();
   }
 
-  // Initial max_total_in_memory_state_ before recovery logs. Log recovery
-  // may check this value to decide whether to flush.
-  max_total_in_memory_state_ = 0;
-  for (auto cfd : *versions_->GetColumnFamilySet()) {
-    auto* mutable_cf_options = cfd->GetLatestMutableCFOptions();
-    max_total_in_memory_state_ += mutable_cf_options->write_buffer_size *
-                                  mutable_cf_options->max_write_buffer_number;
-  }
-
   if (s.ok()) {
+    // Initial max_total_in_memory_state_ before recovery logs. Log recovery
+    // may check this value to decide whether to flush.
+    max_total_in_memory_state_ = 0;
+    for (auto cfd : *versions_->GetColumnFamilySet()) {
+      auto* mutable_cf_options = cfd->GetLatestMutableCFOptions();
+      max_total_in_memory_state_ += mutable_cf_options->write_buffer_size *
+                                    mutable_cf_options->max_write_buffer_number;
+    }
+
     SequenceNumber next_sequence(kMaxSequenceNumber);
     default_cf_handle_ = new ColumnFamilyHandleImpl(
         versions_->GetColumnFamilySet()->GetDefault(), this, &mutex_);
