@@ -456,11 +456,8 @@ Status DBImpl::Recover(
   } else {
     s = SetIdentityFile(env_, dbname_, db_id_);
   }
-  if (!s.ok()) {
-    return s;
-  }
 
-  if (immutable_db_options_.paranoid_checks) {
+  if (immutable_db_options_.paranoid_checks && s.ok()) {
     s = CheckConsistency();
   }
   if (s.ok() && !read_only) {
