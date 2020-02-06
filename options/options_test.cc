@@ -1528,6 +1528,52 @@ void VerifyCFPointerTypedOptions(
   }
 }
 
+TEST_F(OptionsParserTest, Readahead) {
+  DBOptions base_db_opt;
+  std::vector<ColumnFamilyOptions> base_cf_opts;
+  base_cf_opts.emplace_back();
+  base_cf_opts.emplace_back();
+
+  std::string one_mb_string = std::string(1024 * 1024, 'x');
+  std::vector<std::string> cf_names = {"default", one_mb_string};
+  const std::string kOptionsFileName = "test-persisted-options.ini";
+
+  ASSERT_OK(PersistRocksDBOptions(base_db_opt, cf_names, base_cf_opts,
+                                  kOptionsFileName, fs_.get()));
+
+  uint64_t file_size;
+  ASSERT_OK(env_->GetFileSize(kOptionsFileName, &file_size));
+
+  RocksDBOptionsParser parser;
+
+  env_->num_seq_file_read_ = 0;
+  size_t readahead_size = 128 * 1024;
+
+  ASSERT_OK(parser.Parse(kOptionsFileName, fs_.get(), false, readahead_size));
+  ASSERT_EQ(env_->num_seq_file_read_.load(),
+            (file_size - 1) / readahead_size + 1);
+
+  env_->num_seq_file_read_.store(0);
+  readahead_size = 1024 * 1024;
+  ASSERT_OK(parser.Parse(kOptionsFileName, fs_.get(), false, readahead_size));
+  ASSERT_EQ(env_->num_seq_file_read_.load(),
+            (file_size - 1) / readahead_size + 1);
+
+  // Tiny readahead. 8 KB is read each time.
+  env_->num_seq_file_read_.store(0);
+  ASSERT_OK(
+      parser.Parse(kOptionsFileName, fs_.get(), false, 1 /* readahead_size */));
+  ASSERT_GE(env_->num_seq_file_read_.load(), file_size / (8 * 1024));
+  ASSERT_LT(env_->num_seq_file_read_.load(), file_size / (8 * 1024) * 2);
+
+  // Disable readahead means 512KB readahead.
+  env_->num_seq_file_read_.store(0);
+  ASSERT_OK(
+      parser.Parse(kOptionsFileName, fs_.get(), false, 0 /* readahead_size */));
+  ASSERT_GE(env_->num_seq_file_read_.load(),
+            (file_size - 1) / (512 * 1024) + 1);
+}
+
 TEST_F(OptionsParserTest, DumpAndParse) {
   DBOptions base_db_opt;
   std::vector<ColumnFamilyOptions> base_cf_opts;
