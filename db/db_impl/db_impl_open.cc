@@ -442,22 +442,25 @@ Status DBImpl::Recover(
       assert(s.IsIOError());
       return s;
     }
-    GetDbIdentityFromIdentityFile(&db_id_);
-    if (immutable_db_options_.write_dbid_to_manifest) {
+    s = GetDbIdentityFromIdentityFile(&db_id_);
+    if (immutable_db_options_.write_dbid_to_manifest && s.ok()) {
       VersionEdit edit;
       edit.SetDBId(db_id_);
       Options options;
       MutableCFOptions mutable_cf_options(options);
       versions_->db_id_ = db_id_;
-      versions_->LogAndApply(versions_->GetColumnFamilySet()->GetDefault(),
+      s = versions_->LogAndApply(versions_->GetColumnFamilySet()->GetDefault(),
                              mutable_cf_options, &edit, &mutex_, nullptr,
                              false);
     }
   } else {
-    SetIdentityFile(env_, dbname_, db_id_);
+    s = SetIdentityFile(env_, dbname_, db_id_);
+  }
+  if (!s.ok()) {
+    return s;
   }
 
-  if (immutable_db_options_.paranoid_checks && s.ok()) {
+  if (immutable_db_options_.paranoid_checks) {
     s = CheckConsistency();
   }
   if (s.ok() && !read_only) {
