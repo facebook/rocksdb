@@ -5875,7 +5875,7 @@ Status ReactiveVersionSet::ApplyOneVersionEditToBuilder(
     // Some other error has occurred during LoadTableHandlers.
   }
 
-  if (version_edit->has_next_file_number()) {
+  if (version_edit->HasNextFile()) {
     next_file_number_.store(version_edit->next_file_number_ + 1);
   }
   if (version_edit->has_last_sequence_) {
