@@ -74,6 +74,8 @@ ImmutableDBOptions::ImmutableDBOptions(const DBOptions& options)
       write_thread_max_yield_usec(options.write_thread_max_yield_usec),
       write_thread_slow_yield_usec(options.write_thread_slow_yield_usec),
       skip_stats_update_on_db_open(options.skip_stats_update_on_db_open),
+      skip_checking_sst_file_sizes_on_db_open(
+          options.skip_checking_sst_file_sizes_on_db_open),
       wal_recovery_mode(options.wal_recovery_mode),
       allow_2pc(options.allow_2pc),
       row_cache(options.row_cache),

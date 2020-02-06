@@ -298,7 +298,7 @@ TEST_F(DBErrorHandlingTest, CompactionManifestWriteError) {
         "DBImpl::BackgroundCallCompaction:FoundObsoleteFiles"},
       // Wait for DB instance to clear bg_error before calling
       // TEST_WaitForCompact
-       {"SstFileManagerImpl::ClearError",
+       {"SstFileManagerImpl::ErrorCleared",
         "CompactionManifestWriteError:2"}});
   // trigger manifest write failure in compaction thread
   rocksdb::SyncPoint::GetInstance()->SetCallBack(
@@ -701,6 +701,8 @@ TEST_F(DBErrorHandlingTest, MultiDBCompactionError) {
   for (auto i = 0; i < kNumDbInstances; ++i) {
     std::string prop;
     ASSERT_EQ(listener[i]->WaitForRecovery(5000000), true);
+    ASSERT_EQ(static_cast<DBImpl*>(db[i])->TEST_WaitForCompact(true),
+              Status::OK());
     EXPECT_TRUE(db[i]->GetProperty(
         "rocksdb.num-files-at-level" + NumberToString(0), &prop));
     EXPECT_EQ(atoi(prop.c_str()), 0);

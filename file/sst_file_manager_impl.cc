@@ -71,6 +71,14 @@ Status SstFileManagerImpl::OnAddFile(const std::string& file_path,
   return s;
 }
 
+Status SstFileManagerImpl::OnAddFile(const std::string& file_path,
+                                     uint64_t file_size, bool compaction) {
+  MutexLock l(&mu_);
+  OnAddFileImpl(file_path, file_size, compaction);
+  TEST_SYNC_POINT("SstFileManagerImpl::OnAddFile");
+  return Status::OK();
+}
+
 Status SstFileManagerImpl::OnDeleteFile(const std::string& file_path) {
   {
     MutexLock l(&mu_);
@@ -308,8 +316,8 @@ void SstFileManagerImpl::ClearError() {
       // since the ErrorHandler::recovery_in_prog_ flag would be true
       cur_instance_ = error_handler;
       mu_.Unlock();
-      TEST_SYNC_POINT("SstFileManagerImpl::ClearError");
       s = error_handler->RecoverFromBGError();
+      TEST_SYNC_POINT("SstFileManagerImpl::ErrorCleared");
       mu_.Lock();
       // The DB instance might have been deleted while we were
       // waiting for the mutex, so check cur_instance_ to make sure its

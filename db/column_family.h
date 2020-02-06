@@ -497,7 +497,10 @@ class ColumnFamilyData {
 
   Env::WriteLifeTimeHint CalculateSSTWriteHint(int level);
 
-  Status AddDirectories();
+  // created_dirs remembers directory created, so that we don't need to call
+  // the same data creation operation again.
+  Status AddDirectories(
+      std::map<std::string, std::shared_ptr<Directory>>* created_dirs);
 
   Directory* GetDataDir(size_t path_id) const;
 
@@ -589,7 +592,7 @@ class ColumnFamilyData {
   std::atomic<uint64_t> last_memtable_id_;
 
   // Directories corresponding to cf_paths.
-  std::vector<std::unique_ptr<Directory>> data_dirs_;
+  std::vector<std::shared_ptr<Directory>> data_dirs_;
 };
 
 // ColumnFamilySet has interesting thread-safety requirements
