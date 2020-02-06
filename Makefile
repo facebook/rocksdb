@@ -595,6 +595,7 @@ TESTS = \
 	db_secondary_test \
 	block_cache_tracer_test \
 	block_cache_trace_analyzer_test \
+	defer_test \
 
 ifeq ($(USE_FOLLY_DISTRIBUTED_MUTEX),1)
 	TESTS += folly_synchronization_distributed_mutex_test
@@ -1708,6 +1709,9 @@ block_cache_tracer_test: trace_replay/block_cache_tracer_test.o trace_replay/blo
 	$(AM_LINK)
 
 block_cache_trace_analyzer_test: tools/block_cache_analyzer/block_cache_trace_analyzer_test.o tools/block_cache_analyzer/block_cache_trace_analyzer.o $(LIBOBJECTS) $(TESTHARNESS)
+	$(AM_LINK)
+
+defer_test: util/defer_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
 #-------------------------------------------------
