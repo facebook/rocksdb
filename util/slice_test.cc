@@ -11,6 +11,13 @@
 
 namespace rocksdb {
 
+// Use this to keep track of the cleanups that were actually performed
+void Multiplier(void* arg1, void* arg2) {
+  int* res = reinterpret_cast<int*>(arg1);
+  int* num = reinterpret_cast<int*>(arg2);
+  *res *= *num;
+}
+
 class PinnableSliceTest : public testing::Test {
  public:
   void AssertEmpty(const PinnableSlice& slice) {
@@ -43,13 +50,6 @@ class PinnableSliceTest : public testing::Test {
     ASSERT_EQ(2, res);
   }
 };
-
-// Use this to keep track of the cleanups that were actually performed
-void Multiplier(void* arg1, void* arg2) {
-  int* res = reinterpret_cast<int*>(arg1);
-  int* num = reinterpret_cast<int*>(arg2);
-  *res *= *num;
-}
 
 TEST_F(PinnableSliceTest, Move) {
   int n2 = 2;
