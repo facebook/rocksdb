@@ -905,6 +905,13 @@ ROCKS_TESTS = [
         [],
     ],
     [
+        "defer_test",
+        "util/defer_test.cc",
+        "serial",
+        [],
+        [],
+    ],
+    [
         "delete_scheduler_test",
         "file/delete_scheduler_test.cc",
         "serial",
