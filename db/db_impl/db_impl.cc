@@ -1726,7 +1726,7 @@ std::vector<Status> DBImpl::MultiGet(
     Status& s = stat_list[i];
     std::string* value = &(*values)[i];
 
-    LookupKey lkey(keys[i], consistent_seqnum);
+    LookupKey lkey(keys[i], consistent_seqnum, read_options.timestamp);
     auto cfh = reinterpret_cast<ColumnFamilyHandleImpl*>(column_family[i]);
     SequenceNumber max_covering_tombstone_seq = 0;
     auto mgd_iter = multiget_cf_data.find(cfh->cfd()->GetID());
