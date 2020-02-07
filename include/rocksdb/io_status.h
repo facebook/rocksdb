@@ -235,8 +235,7 @@ inline IOStatus status_to_io_status(Status&& status) {
     const char* state = status.getState();
     if (state) {
       return IOStatus(status.code(), status.subcode(),
-                      Slice(state, strlen(status.getState()) + 1),
-                      Slice());
+                      Slice(state, strlen(status.getState()) + 1), Slice());
     } else {
       return IOStatus(status.code(), status.subcode());
     }

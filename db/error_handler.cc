@@ -238,6 +238,27 @@ Status ErrorHandler::SetBGError(const Status& bg_err, BackgroundErrorReason reas
   return bg_error_;
 }
 
+Status ErrorHandler::SetBGError(const IOStatus& bg_io_err,
+                                BackgroundErrorReason reason) {
+  db_mutex_->AssertHeld();
+  if (bg_io_err.ok()) {
+    return Status::OK();
+  }
+  if (recovery_in_prog_ && recovery_error_.ok()) {
+    recovery_error_ = bg_io_err;
+  }
+  Status new_bg_io_err = bg_io_err;
+
+  // First, check if the error is a retryable IO error or not.
+  if (bg_io_err.GetRetryable()) {
+    // In current stage, treat retryable error as HardError.
+    Status bg_err(new_bg_io_err, Status::Severity::kHardError);
+    return SetBGError(bg_err, reason);
+  } else {
+    return SetBGError(new_bg_io_err, reason);
+  }
+}
+
 Status ErrorHandler::OverrideNoSpaceError(Status bg_error,
                                           bool* auto_recovery) {
 #ifndef ROCKSDB_LITE

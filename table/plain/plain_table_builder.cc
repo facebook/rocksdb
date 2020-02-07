@@ -37,7 +37,7 @@ namespace {
 //   @offset will advance if @block_contents was successfully written.
 //   @block_handle the block handle this particular block.
 IOStatus WriteBlock(const Slice& block_contents, WritableFileWriter* file,
-                  uint64_t* offset, BlockHandle* block_handle) {
+                    uint64_t* offset, BlockHandle* block_handle) {
   block_handle->set_offset(*offset);
   block_handle->set_size(block_contents.size());
   IOStatus io_s = file->Append(block_contents);
@@ -146,7 +146,7 @@ void PlainTableBuilder::Add(const Slice& key, const Slice& value) {
   auto prev_offset = static_cast<uint32_t>(offset_);
   // Write out the key
   io_status_ = encoder_.AppendKey(key, file_, &offset_, meta_bytes_buf,
-                     &meta_bytes_buf_size);
+                                  &meta_bytes_buf_size);
   if (SaveIndexInFile()) {
     index_builder_->AddKeyPrefix(GetPrefix(internal_key), prev_offset);
   }
@@ -219,7 +219,8 @@ Status PlainTableBuilder::Finish() {
       Slice bloom_finish_result = bloom_block_.Finish();
 
       properties_.filter_size = bloom_finish_result.size();
-      io_status_ = WriteBlock(bloom_finish_result, file_, &offset_, &bloom_block_handle);
+      io_status_ =
+          WriteBlock(bloom_finish_result, file_, &offset_, &bloom_block_handle);
 
       if (!io_status_.ok()) {
         status_ = io_status_;
@@ -231,7 +232,8 @@ Status PlainTableBuilder::Finish() {
     Slice index_finish_result = index_builder_->Finish();
 
     properties_.index_size = index_finish_result.size();
-    io_status_ = WriteBlock(index_finish_result, file_, &offset_, &index_block_handle);
+    io_status_ =
+        WriteBlock(index_finish_result, file_, &offset_, &index_block_handle);
 
     if (!io_status_.ok()) {
       status_ = io_status_;
@@ -269,12 +271,8 @@ Status PlainTableBuilder::Finish() {
 
   // -- write metaindex block
   BlockHandle metaindex_block_handle;
-  io_status_ = WriteBlock(
-      meta_index_builer.Finish(),
-      file_,
-      &offset_,
-      &metaindex_block_handle
-  );
+  io_status_ = WriteBlock(meta_index_builer.Finish(), file_, &offset_,
+                          &metaindex_block_handle);
   if (!io_status_.ok()) {
     status_ = io_status_;
     return status_;

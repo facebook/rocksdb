@@ -81,10 +81,11 @@ Status BuildTable(
     SnapshotChecker* snapshot_checker, const CompressionType compression,
     uint64_t sample_for_compression, const CompressionOptions& compression_opts,
     bool paranoid_file_checks, InternalStats* internal_stats,
-    TableFileCreationReason reason, IOStatus* io_status, EventLogger* event_logger, int job_id,
-    const Env::IOPriority io_priority, TableProperties* table_properties,
-    int level, const uint64_t creation_time, const uint64_t oldest_key_time,
-    Env::WriteLifeTimeHint write_hint, const uint64_t file_creation_time) {
+    TableFileCreationReason reason, IOStatus* io_status,
+    EventLogger* event_logger, int job_id, const Env::IOPriority io_priority,
+    TableProperties* table_properties, int level, const uint64_t creation_time,
+    const uint64_t oldest_key_time, Env::WriteLifeTimeHint write_hint,
+    const uint64_t file_creation_time) {
   assert((column_family_id ==
           TablePropertiesCollectorFactory::Context::kUnknownColumnFamily) ==
          column_family_name.empty());

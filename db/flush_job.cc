@@ -238,10 +238,14 @@ Status FlushJob::Run(LogsWithPrepTracker* prep_tracker,
   } else if (write_manifest_) {
     TEST_SYNC_POINT("FlushJob::InstallResults");
     // Replace immutable memtable with the generated Table
+    versions_->SetIOStatusOK();
     s = cfd_->imm()->TryInstallMemtableFlushResults(
         cfd_, mutable_cf_options_, mems_, prep_tracker, versions_, db_mutex_,
         meta_.fd.GetNumber(), &job_context_->memtables_to_free, db_directory_,
         log_buffer_, &committed_flush_jobs_info_);
+    if (!versions_->io_status().ok()) {
+      io_status_ = versions_->io_status();
+    }
   }
 
   if (s.ok() && file_meta != nullptr) {
@@ -382,10 +386,13 @@ Status FlushJob::WriteLevel0Table() {
           output_compression_, mutable_cf_options_.sample_for_compression,
           cfd_->ioptions()->compression_opts,
           mutable_cf_options_.paranoid_file_checks, cfd_->internal_stats(),
-          TableFileCreationReason::kFlush, &io_s, event_logger_, job_context_->job_id,
-          Env::IO_HIGH, &table_properties_, 0 /* level */,
+          TableFileCreationReason::kFlush, &io_s, event_logger_,
+          job_context_->job_id, Env::IO_HIGH, &table_properties_, 0 /* level */,
           meta_.oldest_ancester_time, oldest_key_time, write_hint,
           current_time);
+      if (!io_s.ok()) {
+        io_status_ = io_s;
+      }
       LogFlush(db_options_.info_log);
     }
     ROCKS_LOG_INFO(db_options_.info_log,

@@ -15,6 +15,7 @@
 #include "db/version_edit.h"
 #include "port/port.h"
 #include "rocksdb/comparator.h"
+#include "rocksdb/io_status.h"
 #include "rocksdb/table.h"
 #include "table/internal_iterator.h"
 #include "table/table_builder.h"
@@ -23,7 +24,6 @@
 #include "test_util/testutil.h"
 #include "util/kv_map.h"
 #include "util/mutexlock.h"
-#include "rocksdb/io_status.h"
 
 namespace ROCKSDB_NAMESPACE {
 namespace mock {

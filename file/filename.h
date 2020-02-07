@@ -17,11 +17,14 @@
 
 #include "options/db_options.h"
 #include "port/port.h"
+<<<<<<< HEAD
 #include "rocksdb/file_system.h"
+=======
+#include "rocksdb/io_status.h"
+>>>>>>> Changed the partial of compaction and flush logic, to be continue
 #include "rocksdb/options.h"
 #include "rocksdb/slice.h"
 #include "rocksdb/status.h"
-#include "rocksdb/io_status.h"
 #include "rocksdb/transaction_log.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -180,7 +183,7 @@ extern Status SetIdentityFile(Env* env, const std::string& dbname,
 
 // Sync manifest file `file`.
 extern IOStatus SyncManifest(Env* env, const ImmutableDBOptions* db_options,
-                           WritableFileWriter* file);
+                             WritableFileWriter* file);
 
 // Return list of file names of info logs in `file_names`.
 // The list only contains file name. The parent directory name is stored

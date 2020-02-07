@@ -83,8 +83,8 @@ FileOptions FileSystem::OptimizeForCompactionTableRead(
   return optimized_file_options;
 }
 
-IOStatus WriteStringToFile(FileSystem* fs, const Slice& data, const std::string& fname,
-                             bool should_sync) {
+IOStatus WriteStringToFile(FileSystem* fs, const Slice& data,
+                           const std::string& fname, bool should_sync) {
   std::unique_ptr<FSWritableFile> file;
   EnvOptions soptions;
   IOStatus s = fs->NewWritableFile(fname, soptions, &file, nullptr);
@@ -102,11 +102,12 @@ IOStatus WriteStringToFile(FileSystem* fs, const Slice& data, const std::string&
 }
 
 IOStatus ReadFileToString(FileSystem* fs, const std::string& fname,
-                        std::string* data) {
+                          std::string* data) {
   FileOptions soptions;
   data->clear();
   std::unique_ptr<FSSequentialFile> file;
-  IOStatus s = status_to_io_status(fs->NewSequentialFile(fname, soptions, &file, nullptr));
+  IOStatus s = status_to_io_status(
+      fs->NewSequentialFile(fname, soptions, &file, nullptr));
   if (!s.ok()) {
     return s;
   }

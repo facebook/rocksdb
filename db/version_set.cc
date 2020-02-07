@@ -3929,7 +3929,7 @@ Status VersionSet::ProcessManifestWrites(
     // new CURRENT file that points to it.
     if (s.ok() && new_descriptor_log) {
       io_s = SetCurrentFile(fs_, dbname_, pending_manifest_file_number_,
-                         db_directory);
+                            db_directory);
       if (!io_s.ok()) {
         io_status_ = io_s;
         s = io_s;

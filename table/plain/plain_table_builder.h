@@ -59,7 +59,7 @@ class PlainTableBuilder: public TableBuilder {
   void Add(const Slice& key, const Slice& value) override;
 
   // Return non-ok iff some error has been detected.
-  Status status() const override {return status_; }
+  Status status() const override { return status_; }
 
   // Return non-ok iff some error happens during IO.
   IOStatus io_status() const override { return io_status_; }
