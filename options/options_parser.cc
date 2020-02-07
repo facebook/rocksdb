@@ -327,7 +327,7 @@ Status RocksDBOptionsParser::ParseVersionNumber(const std::string& ver_name,
   for (int i = 0; i < max_count; ++i) {
     version[i] = 0;
   }
-  static const int kBufferSize = 200;
+  constexpr int kBufferSize = 200;
   char buffer[kBufferSize];
   for (size_t i = 0; i < ver_string.size(); ++i) {
     if (ver_string[i] == '.') {
@@ -736,7 +736,7 @@ Status RocksDBOptionsParser::VerifyDBOptions(
       if (!AreEqualOptions(reinterpret_cast<const char*>(&base_opt),
                            reinterpret_cast<const char*>(&persisted_opt),
                            pair.second, pair.first, nullptr)) {
-        static const size_t kBufferSize = 2048;
+        constexpr size_t kBufferSize = 2048;
         char buffer[kBufferSize];
         std::string base_value;
         std::string persisted_value;
@@ -774,7 +774,7 @@ Status RocksDBOptionsParser::VerifyCFOptions(
       if (!AreEqualOptions(reinterpret_cast<const char*>(&base_opt),
                            reinterpret_cast<const char*>(&persisted_opt),
                            pair.second, pair.first, persisted_opt_map)) {
-        static const size_t kBufferSize = 2048;
+        constexpr size_t kBufferSize = 2048;
         char buffer[kBufferSize];
         std::string base_value;
         std::string persisted_value;
