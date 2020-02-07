@@ -4625,7 +4625,9 @@ class ManifestPicker {
  public:
   explicit ManifestPicker(const std::string& dbname, FileSystem* fs);
   void SeekToFirstManifest();
+  // REQUIRES Valid() == true
   std::string GetNextManifest(uint64_t* file_number, std::string* file_name);
+  bool Valid() const { return manifest_file_iter_ != manifest_files_.end(); }
   const Status& status() const { return status_; }
 
  private:
@@ -4671,7 +4673,7 @@ void ManifestPicker::SeekToFirstManifest() {
               (void)parse_ok1;
               (void)parse_ok2;
 #endif
-              return !(num1 < num2);
+              return num1 > num2;
             });
   manifest_file_iter_ = manifest_files_.begin();
 }
@@ -4679,6 +4681,7 @@ void ManifestPicker::SeekToFirstManifest() {
 std::string ManifestPicker::GetNextManifest(uint64_t* number,
                                             std::string* file_name) {
   assert(status_.ok());
+  assert(Valid());
   std::string ret;
   if (manifest_file_iter_ != manifest_files_.end()) {
     ret.assign(dbname_);
@@ -4714,12 +4717,15 @@ Status VersionSet::TryRecover(
   if (!s.ok()) {
     return s;
   }
+  if (!manifest_picker.Valid()) {
+    return Status::Corruption("Cannot locate MANIFEST file in " + dbname_);
+  }
   std::string manifest_path =
       manifest_picker.GetNextManifest(&manifest_file_number_, nullptr);
   while (!manifest_path.empty()) {
     s = TryRecoverFromOneManifest(manifest_path, column_families, read_only,
                                   db_id, has_missing_table_file);
-    if (s.ok()) {
+    if (s.ok() || !manifest_picker.Valid()) {
       break;
     }
     Reset();
