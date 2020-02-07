@@ -153,7 +153,7 @@ class WritableFileWriter {
     checksum_func_ = checksum_func;
   }
 
-  std::string GetFileChecksum() const { return file_checksum_; }
+  const std::string& GetFileChecksum() const { return file_checksum_; }
 
   const char* GetFileChecksumFuncName() const;
 

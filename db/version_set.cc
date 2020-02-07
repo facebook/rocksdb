@@ -4719,8 +4719,11 @@ Status VersionSet::ReduceNumberOfLevels(const std::string& dbname,
 // FileChecksumList which contains a map from file number to its checksum info.
 // If DB is not running, make sure call VersionSet::Recover() to load the file
 // metadata from Manifest to VersionSet before calling this function.
-void VersionSet::GetLiveFilesChecksumInfo(FileChecksumList* checksum_list) {
+Status VersionSet::GetLiveFilesChecksumInfo(FileChecksumList* checksum_list) {
   // Clean the previously stored checksum information if any.
+  if (checksum_list == nullptr) {
+    return Status::InvalidArgument("checksum_list is nullptr");
+  }
   checksum_list->reset();
 
   for (auto cfd : *column_family_set_) {
@@ -4736,6 +4739,7 @@ void VersionSet::GetLiveFilesChecksumInfo(FileChecksumList* checksum_list) {
       }
     }
   }
+  return Status::OK();
 }
 
 Status VersionSet::DumpManifest(Options& options, std::string& dscname,

@@ -209,8 +209,9 @@ class FileChecksumTestHelper {
       s = versions.Recover(cf_list, true);
     }
     if (s.ok()) {
-      versions.GetLiveFilesChecksumInfo(checksum_list.get());
-    } else {
+      s = versions.GetLiveFilesChecksumInfo(checksum_list.get());
+    }
+    if (!s.ok()) {
       return s;
     }
 
@@ -338,7 +339,6 @@ TEST_F(LdbCmdTest, DumpFileChecksumNoChecksum) {
   // Verify the checksum information in memory is the same as that in Manifest;
   std::vector<LiveFileMetaData> live_files;
   db->GetLiveFilesMetaData(&live_files);
-  db->Close();
   delete db;
   ASSERT_OK(fct_helper_ac.VerifyChecksumInManifest(live_files));
 }
@@ -426,7 +426,6 @@ TEST_F(LdbCmdTest, DumpFileChecksumCRC32) {
   // Verify the checksum information in memory is the same as that in Manifest;
   std::vector<LiveFileMetaData> live_files;
   db->GetLiveFilesMetaData(&live_files);
-  db->Close();
   delete db;
   ASSERT_OK(fct_helper_ac.VerifyChecksumInManifest(live_files));
 }

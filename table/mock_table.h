@@ -155,7 +155,7 @@ class MockTableBuilder : public TableBuilder {
   }
 
   // Get file checksum
-  std::string GetFileChecksum() const override { return file_checksum_; }
+  const std::string& GetFileChecksum() const override { return file_checksum_; }
   // Get file checksum function name
   const char* GetFileChecksumFuncName() const override {
     return kUnknownFileChecksumFuncName.c_str();

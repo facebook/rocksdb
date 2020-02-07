@@ -19,7 +19,7 @@
 
 namespace rocksdb {
 // The unknown file checksum.
-const std::string kUnknownFileChecksum("0");
+const std::string kUnknownFileChecksum("");
 // The unknown sst file checksum function name.
 const std::string kUnknownFileChecksumFuncName("Unknown");
 // Mask for an identified tag from the future which can be safely ignored.

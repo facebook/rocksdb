@@ -30,6 +30,7 @@
 #include "tools/sst_dump_tool_imp.h"
 #include "util/cast_util.h"
 #include "util/coding.h"
+#include "util/file_checksum_helper.h"
 #include "util/stderr_logger.h"
 #include "util/string_util.h"
 #include "utilities/merge_operators.h"
@@ -46,6 +47,8 @@
 #include <string>
 
 namespace rocksdb {
+
+class FileChecksumFuncCrc32c;
 
 const std::string LDBCommand::ARG_ENV_URI = "env_uri";
 const std::string LDBCommand::ARG_DB = "db";
@@ -1176,7 +1179,7 @@ void GetLiveFilesChecksumInfoFromVersionSet(Options options,
     s = versions.Recover(cf_list, true);
   }
   if (s.ok()) {
-    versions.GetLiveFilesChecksumInfo(checksum_list);
+    s = versions.GetLiveFilesChecksumInfo(checksum_list);
   }
   if (!s.ok()) {
     fprintf(stderr, "Error Status: %s", s.ToString().c_str());

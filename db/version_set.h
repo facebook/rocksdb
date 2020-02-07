@@ -897,7 +897,7 @@ class VersionSet {
                                      int new_levels);
 
   // Get the checksum information of all live files
-  void GetLiveFilesChecksumInfo(FileChecksumList* checksum_list);
+  Status GetLiveFilesChecksumInfo(FileChecksumList* checksum_list);
 
   // printf contents (for debugging)
   Status DumpManifest(Options& options, std::string& manifestFileName,
