@@ -297,7 +297,7 @@ class VersionEdit {
 
   // Delete the specified "file" from the specified "level".
   void DeleteFile(int level, uint64_t file) {
-    deleted_files_.insert({level, file});
+    deleted_files_.emplace(level, file);
   }
 
   // Retrieve the files deleted as well as their associated levels.
