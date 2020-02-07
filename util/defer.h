@@ -36,7 +36,7 @@ namespace rocksdb {
 //
 // With the help of Defer, you can centralize the cleanup logic inside the
 // lambda passed to Defer, and you can return immediately on failure when necessary.
-class Defer {
+class Defer final {
  public:
   Defer(std::function<void()>&& fn) : fn_(std::move(fn)) {}
   ~Defer() { fn_(); }
