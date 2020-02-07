@@ -757,6 +757,7 @@ TEST_P(DBAtomicFlushTest, RollbackAfterFailToInstallResults) {
     ASSERT_OK(Put(static_cast<int>(cf), "a", "value"));
   }
   SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
   SyncPoint::GetInstance()->SetCallBack(
       "VersionSet::ProcessManifestWrites:BeforeWriteLastVersionEdit:0",
       [&](void* /*arg*/) { fault_injection_env->SetFilesystemActive(false); });
@@ -766,6 +767,7 @@ TEST_P(DBAtomicFlushTest, RollbackAfterFailToInstallResults) {
   ASSERT_NOK(s);
   fault_injection_env->SetFilesystemActive(true);
   Close();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
 }
 
 INSTANTIATE_TEST_CASE_P(DBFlushDirectIOTest, DBFlushDirectIOTest,
