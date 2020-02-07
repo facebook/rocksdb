@@ -43,10 +43,10 @@ class PinnableSliceTest : public testing::Test {
 
     int res = 1;
     int n2 = 2;
-    {
-      pinnable.PinSlice(slice, Multiplier, &res, &n2);
-      AssertSameData(slice.ToString(), pinnable);
-    }
+    pinnable.PinSlice(slice, Multiplier, &res, &n2);
+    AssertSameData(slice.ToString(), pinnable);
+    ASSERT_EQ(1, res);
+    pinnable.Reset();
     ASSERT_EQ(2, res);
   }
 };
