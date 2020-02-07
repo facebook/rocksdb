@@ -4828,7 +4828,7 @@ Status VersionSet::TryRecoverFromOneManifest(
   VersionSet::LogReporter reporter;
   reporter.status = &s;
   log::Reader reader(nullptr, std::move(manifest_file_reader), &reporter,
-                     /*checksum=*/true, /*log_number=*/0);
+                     /*checksum=*/true, /*log_num=*/0);
   Slice record;
   std::string scratch;
 

@@ -612,7 +612,7 @@ class VersionSetTestBase {
   const static std::string kColumnFamilyName3;
   int num_initial_edits_;
 
-  VersionSetTestBase(const std::string& name)
+  explicit VersionSetTestBase(const std::string& name)
       : mem_env_(nullptr),
         env_(nullptr),
         env_guard_(),
@@ -1378,7 +1378,7 @@ class EmptyDefaultCfNewManifest : public VersionSetTestBase,
 TEST_F(EmptyDefaultCfNewManifest, Recover) {
   PrepareManifest(nullptr, nullptr, &log_writer_);
   log_writer_.reset();
-  Status s = SetCurrentFile(env_, dbname_, 1, /*dir_to_fsync=*/nullptr);
+  Status s = SetCurrentFile(env_, dbname_, 1, /*directory_to_fsync=*/nullptr);
   ASSERT_OK(s);
   std::string manifest_path;
   VerifyManifest(&manifest_path);
@@ -1440,7 +1440,7 @@ TEST_P(VersionSetTestEmptyDb, OpenFromIncompleteManifest0) {
   db_options_.write_dbid_to_manifest = std::get<0>(GetParam());
   PrepareManifest(nullptr, nullptr, &log_writer_);
   log_writer_.reset();
-  Status s = SetCurrentFile(env_, dbname_, 1, /*dir_to_fsync=*/nullptr);
+  Status s = SetCurrentFile(env_, dbname_, 1, /*directory_to_fsync=*/nullptr);
   ASSERT_OK(s);
 
   std::string manifest_path;
@@ -1483,7 +1483,7 @@ TEST_P(VersionSetTestEmptyDb, OpenFromIncompleteManifest1) {
     ASSERT_OK(s);
   }
   log_writer_.reset();
-  s = SetCurrentFile(env_, dbname_, 1, /*dir_to_fsync=*/nullptr);
+  s = SetCurrentFile(env_, dbname_, 1, /*directory_to_fsync=*/nullptr);
   ASSERT_OK(s);
 
   std::string manifest_path;
@@ -1529,7 +1529,7 @@ TEST_P(VersionSetTestEmptyDb, OpenFromInCompleteManifest2) {
     ASSERT_OK(s);
   }
   log_writer_.reset();
-  s = SetCurrentFile(env_, dbname_, 1, /*dir_to_fsync=*/nullptr);
+  s = SetCurrentFile(env_, dbname_, 1, /*directory_to_fsync=*/nullptr);
   ASSERT_OK(s);
 
   std::string manifest_path;
@@ -1586,7 +1586,7 @@ TEST_P(VersionSetTestEmptyDb, OpenManifestWithUnknownCF) {
     ASSERT_OK(s);
   }
   log_writer_.reset();
-  s = SetCurrentFile(env_, dbname_, 1, /*dir_to_fsync=*/nullptr);
+  s = SetCurrentFile(env_, dbname_, 1, /*directory_to_fsync=*/nullptr);
   ASSERT_OK(s);
 
   std::string manifest_path;
@@ -1642,7 +1642,7 @@ TEST_P(VersionSetTestEmptyDb, OpenCompleteManifest) {
     ASSERT_OK(s);
   }
   log_writer_.reset();
-  s = SetCurrentFile(env_, dbname_, 1, /*dir_to_fsync=*/nullptr);
+  s = SetCurrentFile(env_, dbname_, 1, /*directory_to_fsync=*/nullptr);
   ASSERT_OK(s);
 
   std::string manifest_path;
@@ -1818,8 +1818,8 @@ class VersionSetTestMissingFiles : public VersionSetTestBase,
           TableBuilderOptions(
               immutable_cf_options_, mutable_cf_options_, *internal_comparator_,
               &int_tbl_prop_collector_factories, kNoCompression,
-              /*sample_for_compression=*/0, CompressionOptions(),
-              /*skip_filters=*/false, info.column_family, info.level),
+              /*_sample_for_compression=*/0, CompressionOptions(),
+              /*_skip_filters=*/false, info.column_family, info.level),
           TablePropertiesCollectorFactory::Context::kUnknownColumnFamily,
           fwriter.get()));
       InternalKey ikey(info.key, 0, ValueType::kTypeValue);
@@ -1831,8 +1831,8 @@ class VersionSetTestMissingFiles : public VersionSetTestBase,
       ASSERT_OK(s);
       ASSERT_NE(0, file_size);
       FileMetaData meta;
-      meta = FileMetaData(file_num, /*path_id=*/0, file_size, ikey, ikey, 0, 0,
-                          false, 0, 0, 0);
+      meta = FileMetaData(file_num, /*file_path_id=*/0, file_size, ikey, ikey,
+                          0, 0, false, 0, 0, 0);
       file_metas->emplace_back(meta);
     }
   }
@@ -1886,8 +1886,8 @@ TEST_F(VersionSetTestMissingFiles, ManifestFarBehindSst) {
     InternalKey smallest_ikey(smallest_ukey, 1, ValueType::kTypeValue);
     InternalKey largest_ikey(largest_ukey, 1, ValueType::kTypeValue);
     FileMetaData meta =
-        FileMetaData(file_num, /*path_id=*/0, /*size=*/12, smallest_ikey,
-                     largest_ikey, 0, 0, false, 0, 0, 0);
+        FileMetaData(file_num, /*file_path_id=*/0, /*file_size=*/12,
+                     smallest_ikey, largest_ikey, 0, 0, false, 0, 0, 0);
     added_files.emplace_back(0, meta);
   }
   WriteFileAdditionAndDeletionToManifest(
@@ -1940,8 +1940,8 @@ TEST_F(VersionSetTestMissingFiles, ManifestAheadofSst) {
     InternalKey smallest_ikey(smallest_ukey, 1, ValueType::kTypeValue);
     InternalKey largest_ikey(largest_ukey, 1, ValueType::kTypeValue);
     FileMetaData meta =
-        FileMetaData(file_num, /*path_id=*/0, /*size=*/12, smallest_ikey,
-                     largest_ikey, 0, 0, false, 0, 0, 0);
+        FileMetaData(file_num, /*file_path_id=*/0, /*file_size=*/12,
+                     smallest_ikey, largest_ikey, 0, 0, false, 0, 0, 0);
     added_files.emplace_back(0, meta);
   }
   WriteFileAdditionAndDeletionToManifest(
