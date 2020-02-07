@@ -687,14 +687,11 @@ Status CloudEnvImpl::SanitizeDirectory(const DBOptions& options,
   // = -1
   if (!HasDestBucket()) {
     if (options.max_open_files != -1) {
-      Log(InfoLogLevel::ERROR_LEVEL, info_log_,
-          "[cloud_env_impl] SanitizeDirectory error.  "
-          " No destination bucket specified. Set options.max_open_files = -1 "
-          " to copy in all sst files from src bucket %s into local dir %s",
+      Log(InfoLogLevel::INFO_LEVEL, info_log_,
+          "[cloud_env_impl] SanitizeDirectory info.  "
+          " No destination bucket specified and options.max_open_files != -1 "
+          " so sst files from src bucket %s are not copied into local dir %s at startup",
           GetSrcObjectPath().c_str(), local_name.c_str());
-      return Status::InvalidArgument(
-          "No destination bucket. "
-          "Set options.max_open_files = -1");
     }
     if (!cloud_env_options.keep_local_sst_files && !read_only) {
       Log(InfoLogLevel::ERROR_LEVEL, info_log_,
