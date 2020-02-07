@@ -254,10 +254,10 @@ TEST_F(VersionEditTest, IgnorableField) {
 
   ASSERT_OK(ve.DecodeFrom(encoded));
 
-  ASSERT_TRUE(ve.has_log_number());
-  ASSERT_TRUE(ve.has_next_file_number());
-  ASSERT_EQ(66, ve.log_number());
-  ASSERT_EQ(88, ve.next_file_number());
+  ASSERT_TRUE(ve.HasLogNumber());
+  ASSERT_TRUE(ve.HasNextFile());
+  ASSERT_EQ(66, ve.GetLogNumber());
+  ASSERT_EQ(88, ve.GetNextFile());
 }
 
 TEST_F(VersionEditTest, DbId) {
