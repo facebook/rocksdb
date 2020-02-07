@@ -1310,6 +1310,13 @@ ROCKS_TESTS = [
         [],
     ],
     [
+        "slice_test",
+        "util/slice_test.cc",
+        "serial",
+        [],
+        [],
+    ],
+    [
         "slice_transform_test",
         "util/slice_transform_test.cc",
         "serial",

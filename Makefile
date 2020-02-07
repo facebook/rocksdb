@@ -503,6 +503,7 @@ TESTS = \
 	data_block_hash_index_test \
 	cache_test \
 	corruption_test \
+	slice_test \
 	slice_transform_test \
 	dbformat_test \
 	fault_injection_test \
@@ -1289,6 +1290,9 @@ corruption_test: db/corruption_test.o db/db_test_util.o $(LIBOBJECTS) $(TESTHARN
 	$(AM_LINK)
 
 crc32c_test: util/crc32c_test.o $(LIBOBJECTS) $(TESTHARNESS)
+	$(AM_LINK)
+
+slice_test: util/slice_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
 slice_transform_test: util/slice_transform_test.o $(LIBOBJECTS) $(TESTHARNESS)

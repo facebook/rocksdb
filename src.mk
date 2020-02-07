@@ -29,7 +29,7 @@ LIB_SOURCES =                                                   \
   db/db_info_dumper.cc                                          \
   db/db_iter.cc                                                 \
   db/dbformat.cc                                                \
-  db/error_handler.cc						\
+  db/error_handler.cc						                                \
   db/event_helpers.cc                                           \
   db/experimental.cc                                            \
   db/external_sst_file_ingestion_job.cc                         \
@@ -69,7 +69,7 @@ LIB_SOURCES =                                                   \
   env/env_hdfs.cc                                               \
   env/env_posix.cc                                              \
   env/file_system.cc                                            \
-  env/fs_posix.cc                                           	\
+  env/fs_posix.cc                                           	  \
   env/io_posix.cc                                               \
   env/mock_env.cc                                               \
   file/delete_scheduler.cc                                      \
@@ -127,14 +127,14 @@ LIB_SOURCES =                                                   \
   table/block_based/data_block_hash_index.cc                    \
   table/block_based/data_block_footer.cc                        \
   table/block_based/filter_block_reader_common.cc               \
-  table/block_based/filter_policy.cc                                                 \
+  table/block_based/filter_policy.cc                            \
   table/block_based/flush_block_policy.cc                       \
   table/block_based/full_filter_block.cc                        \
   table/block_based/index_builder.cc                            \
   table/block_based/parsed_full_filter_block.cc                 \
   table/block_based/partitioned_filter_block.cc                 \
   table/block_based/uncompression_dict_reader.cc                \
-  table/block_fetcher.cc                             		\
+  table/block_fetcher.cc                             		        \
   table/cuckoo/cuckoo_table_builder.cc                          \
   table/cuckoo/cuckoo_table_factory.cc                          \
   table/cuckoo/cuckoo_table_reader.cc                           \
@@ -200,7 +200,7 @@ LIB_SOURCES =                                                   \
   utilities/memory/memory_util.cc                               \
   utilities/merge_operators/max.cc                              \
   utilities/merge_operators/put.cc                              \
-  utilities/merge_operators/sortlist.cc                  		\
+  utilities/merge_operators/sortlist.cc                  		    \
   utilities/merge_operators/string_append/stringappend.cc       \
   utilities/merge_operators/string_append/stringappend2.cc      \
   utilities/merge_operators/uint64add.cc                        \
@@ -355,7 +355,7 @@ MAIN_SOURCES =                                                          \
   db/memtable_list_test.cc                                              \
   db/merge_helper_test.cc                                               \
   db/merge_test.cc                                                      \
-  db/obsolete_files_test.cc						\
+  db/obsolete_files_test.cc						                                  \
   db/options_settable_test.cc                                           \
   db/options_file_test.cc                                               \
   db/perf_context_test.cc                                               \
@@ -412,7 +412,7 @@ MAIN_SOURCES =                                                          \
   tools/ldb_cmd_test.cc                                                 \
   tools/reduce_levels_test.cc                                           \
   tools/sst_dump_test.cc                                                \
-  tools/trace_analyzer_test.cc				             	\
+  tools/trace_analyzer_test.cc				             	                    \
   trace_replay/block_cache_tracer_test.cc                               \
   util/autovector_test.cc                                               \
   util/bloom_test.cc                                                    \
@@ -424,6 +424,7 @@ MAIN_SOURCES =                                                          \
   util/rate_limiter_test.cc                                             \
   util/random_test.cc                                                   \
   util/repeatable_thread_test.cc                                        \
+  util/slice_test.cc                                                    \
   util/slice_transform_test.cc                                          \
   util/timer_queue_test.cc                                              \
   util/thread_list_test.cc                                              \
