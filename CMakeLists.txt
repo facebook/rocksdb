@@ -906,15 +906,15 @@ if(NOT WIN32 OR ROCKSDB_INSTALL_ON_WINDOWS)
   )
 endif()
 
-add_subdirectory(third-party/gtest-1.8.1/fused-src/gtest)
-add_library(testharness STATIC
-  test_util/testharness.cc)
-target_link_libraries(testharness gtest)
-
 # Tests are excluded from Release builds
 CMAKE_DEPENDENT_OPTION(WITH_TESTS "build with tests" ON
   "CMAKE_BUILD_TYPE STREQUAL Debug" OFF)
 if(WITH_TESTS)
+  add_subdirectory(third-party/gtest-1.8.1/fused-src/gtest)
+  add_library(testharness STATIC
+  test_util/testharness.cc)
+  target_link_libraries(testharness gtest)
+
   set(TESTS
         cache/cache_test.cc
         cache/lru_cache_test.cc
