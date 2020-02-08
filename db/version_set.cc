@@ -3831,6 +3831,7 @@ Status VersionSet::ProcessManifestWrites(
         for (int i = 0; i < static_cast<int>(versions.size()); ++i) {
           versions[i]->PrepareApply(*mutable_cf_options_ptrs[i], true);
         }
+      }
 
       // Write new records to MANIFEST log
 #ifndef NDEBUG
