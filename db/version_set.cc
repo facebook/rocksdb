@@ -1966,6 +1966,11 @@ void Version::MultiGet(const ReadOptions& read_options, MultiGetRange* range,
     for (auto iter = file_range.begin(); iter != file_range.end(); ++iter) {
       GetContext& get_context = *iter->get_context;
       Status* status = iter->s;
+      // The Status in the KeyContext takes precedence over GetContext state
+      if (!status->ok()) {
+        file_range.MarkKeyDone(iter);
+        continue;
+      }
 
       if (get_context.sample()) {
         sample_file_read_inc(f->file_metadata);
@@ -5872,7 +5877,7 @@ Status ReactiveVersionSet::ApplyOneVersionEditToBuilder(
     // Some other error has occurred during LoadTableHandlers.
   }
 
-  if (version_edit->has_next_file_number()) {
+  if (version_edit->HasNextFile()) {
     next_file_number_.store(version_edit->next_file_number_ + 1);
   }
   if (version_edit->has_last_sequence_) {

@@ -476,25 +476,69 @@ void BlobDBImpl::ProcessCompactionJobInfo(const CompactionJobInfo& info) {
   }
 
   // Note: the same SST file may appear in both the input and the output
-  // file list in case of a trivial move. We process the inputs first
-  // to ensure the blob file still has a link after processing all updates.
+  // file list in case of a trivial move. We walk through the two lists
+  // below in a fashion that's similar to merge sort to detect this.
+
+  auto cmp = [](const CompactionFileInfo& lhs, const CompactionFileInfo& rhs) {
+    return lhs.file_number < rhs.file_number;
+  };
+
+  auto inputs = info.input_file_infos;
+  auto iit = inputs.begin();
+  const auto iit_end = inputs.end();
+
+  std::sort(iit, iit_end, cmp);
+
+  auto outputs = info.output_file_infos;
+  auto oit = outputs.begin();
+  const auto oit_end = outputs.end();
+
+  std::sort(oit, oit_end, cmp);
 
   WriteLock lock(&mutex_);
 
-  for (const auto& input : info.input_file_infos) {
-    if (input.oldest_blob_file_number == kInvalidBlobFileNumber) {
-      continue;
-    }
+  while (iit != iit_end && oit != oit_end) {
+    const auto& input = *iit;
+    const auto& output = *oit;
 
-    UnlinkSstFromBlobFile(input.file_number, input.oldest_blob_file_number);
+    if (input.file_number == output.file_number) {
+      ++iit;
+      ++oit;
+    } else if (input.file_number < output.file_number) {
+      if (input.oldest_blob_file_number != kInvalidBlobFileNumber) {
+        UnlinkSstFromBlobFile(input.file_number, input.oldest_blob_file_number);
+      }
+
+      ++iit;
+    } else {
+      assert(output.file_number < input.file_number);
+
+      if (output.oldest_blob_file_number != kInvalidBlobFileNumber) {
+        LinkSstToBlobFile(output.file_number, output.oldest_blob_file_number);
+      }
+
+      ++oit;
+    }
   }
 
-  for (const auto& output : info.output_file_infos) {
-    if (output.oldest_blob_file_number == kInvalidBlobFileNumber) {
-      continue;
+  while (iit != iit_end) {
+    const auto& input = *iit;
+
+    if (input.oldest_blob_file_number != kInvalidBlobFileNumber) {
+      UnlinkSstFromBlobFile(input.file_number, input.oldest_blob_file_number);
     }
 
-    LinkSstToBlobFile(output.file_number, output.oldest_blob_file_number);
+    ++iit;
+  }
+
+  while (oit != oit_end) {
+    const auto& output = *oit;
+
+    if (output.oldest_blob_file_number != kInvalidBlobFileNumber) {
+      LinkSstToBlobFile(output.file_number, output.oldest_blob_file_number);
+    }
+
+    ++oit;
   }
 
   MarkUnreferencedBlobFilesObsolete();

@@ -1034,6 +1034,7 @@ if(WITH_TESTS)
         util/random_test.cc
         util/rate_limiter_test.cc
         util/repeatable_thread_test.cc
+        util/slice_test.cc
         util/slice_transform_test.cc
         util/timer_queue_test.cc
         util/thread_list_test.cc
