@@ -26,6 +26,8 @@
 #include "rocksdb/types.h"
 #include "rocksdb/version.h"
 
+#include "lemma.h"
+
 #ifdef _WIN32
 // Windows API macro interference
 #undef DeleteFile
@@ -139,6 +141,10 @@ class DB {
   // Caller should delete *dbptr when it is no longer needed.
   static Status Open(const Options& options, const std::string& name,
                      DB** dbptr);
+
+#if RANDOM_PATH
+		static Status Open(const Options& options, const std::string& name, DB** dbptr, std::vector<DbPath> cf_paths);
+#endif
 
   // Open the database for read only. All DB interfaces
   // that modify data, like put/delete, will return error.

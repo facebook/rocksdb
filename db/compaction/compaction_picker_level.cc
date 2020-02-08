@@ -15,6 +15,8 @@
 #include "logging/log_buffer.h"
 #include "test_util/sync_point.h"
 
+#include "lemma.h"
+
 namespace rocksdb {
 
 bool LevelCompactionPicker::NeedsCompaction(
@@ -410,6 +412,12 @@ uint32_t LevelCompactionBuilder::GetPathId(
     const MutableCFOptions& mutable_cf_options, int level) {
   uint32_t p = 0;
   assert(!ioptions.cf_paths.empty());
+
+#if RANDOM_PATH
+	p = level + 1;
+	return p;
+#endif
+
 
   // size remaining in the most recent path
   uint64_t current_path_size = ioptions.cf_paths[0].target_size;

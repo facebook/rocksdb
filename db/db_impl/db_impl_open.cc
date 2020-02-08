@@ -23,6 +23,8 @@
 #include "test_util/sync_point.h"
 #include "util/rate_limiter.h"
 
+#include "lemma.h"
+
 namespace rocksdb {
 Options SanitizeOptions(const std::string& dbname, const Options& src) {
   auto db_options = SanitizeOptions(dbname, DBOptions(src));
@@ -1275,6 +1277,32 @@ Status DBImpl::WriteLevel0TableForRecovery(int job_id, ColumnFamilyData* cfd,
   RecordTick(stats_, COMPACT_WRITE_BYTES, meta.fd.GetFileSize());
   return s;
 }
+
+#if RANDOM_PATH
+Status DB::Open(const Options& options, const std::string& dbname, DB** dbptr, std::vector<DbPath> cf_paths) {
+	DBOptions db_options(options);
+	ColumnFamilyOptions cf_options(options);
+	if (cf_options.cf_paths.size() == 0)
+		cf_options.cf_paths = cf_paths;
+	std::vector<ColumnFamilyDescriptor> column_families;
+	column_families.push_back(ColumnFamilyDescriptor(kDefaultColumnFamilyName, cf_options));
+	if (db_options.persist_stats_to_disk)
+		column_families.push_back(ColumnFamilyDescriptor(kPersistentStatsColumnFamilyName, cf_options));
+	std::vector<ColumnFamilyHandle*> handles;
+	
+	Status s = DB::Open(db_options, dbname, column_families, &handles, dbptr);
+	
+	if (s.ok()) {
+		if (db_options.persist_stats_to_disk) assert(handles.size() == 2);
+		else assert(handles.size() == 1);
+		
+		if (db_options.persist_stats_to_disk && handles[1] != nullptr)
+			delete handles[1];
+		delete handles[0];
+	}
+	return s;
+}
+#endif
 
 Status DB::Open(const Options& options, const std::string& dbname, DB** dbptr) {
   DBOptions db_options(options);

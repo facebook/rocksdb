@@ -19,11 +19,17 @@
 #include "table/table_reader.h"
 #include "util/autovector.h"
 
+#include "lemma.h"
+
 namespace rocksdb {
 
 class VersionSet;
 
+#if RANDOM_PATH
+constexpr uint64_t kFileNumberMask = 0x1FFFFFFFFFFFFFFF;
+#else
 constexpr uint64_t kFileNumberMask = 0x3FFFFFFFFFFFFFFF;
+#endif
 constexpr uint64_t kInvalidBlobFileNumber = 0;
 constexpr uint64_t kUnknownOldestAncesterTime = 0;
 constexpr uint64_t kUnknownFileCreationTime = 0;

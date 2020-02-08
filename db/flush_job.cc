@@ -49,6 +49,8 @@
 #include "util/mutexlock.h"
 #include "util/stop_watch.h"
 
+#include "lemma.h"
+
 namespace rocksdb {
 
 const char* GetFlushReasonString (FlushReason flush_reason) {
@@ -183,8 +185,13 @@ void FlushJob::PickMemTable() {
   edit_->SetLogNumber(mems_.back()->GetNextLogNumber());
   edit_->SetColumnFamily(cfd_->GetID());
 
-  // path 0 for level 0 file.
-  meta_.fd = FileDescriptor(versions_->NewFileNumber(), 0, 0);
+#if RANDOM_PATH
+	uint64_t new_number = versions_->NewFileNumber();
+	meta_.fd = FileDescriptor(new_number, new_number%2, 0);
+#else
+ 	// path 0 for level 0 file.
+	meta_.fd = FileDescriptor(versions_->NewFileNumber(), 0, 0);
+#endif
 
   base_ = cfd_->current();
   base_->Ref();  // it is likely that we do not need this reference

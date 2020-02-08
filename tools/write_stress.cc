@@ -71,6 +71,8 @@ int main() {
 #include "rocksdb/slice.h"
 #include "util/gflags_compat.h"
 
+#include "lemma.h"
+
 using GFLAGS_NAMESPACE::ParseCommandLineFlags;
 using GFLAGS_NAMESPACE::RegisterFlagValidator;
 using GFLAGS_NAMESPACE::SetUsageMessage;
@@ -145,7 +147,20 @@ class WriteStress {
 
     // open DB
     DB* db;
+#if RANDOM_PATH
+		std::vector<DbPath> cf_paths;
+		cf_paths.push_back(DbPath({"/rocksdb_tests/path_test/path1", 10llu<<30}));
+		cf_paths.push_back(DbPath({"/rocksdb_tests/path_test/path2", 10llu<<30}));
+		cf_paths.push_back(DbPath({"/rocksdb_tests/path_test/path/level1", 10llu<<30}));
+		cf_paths.push_back(DbPath({"/rocksdb_tests/path_test/path/level2", 10llu<<30}));
+		cf_paths.push_back(DbPath({"/rocksdb_tests/path_test/path/level3", 10llu<<30}));
+		cf_paths.push_back(DbPath({"/rocksdb_tests/path_test/path/level4", 10llu<<30}));
+		cf_paths.push_back(DbPath({"/rocksdb_tests/path_test/path/level5", 10llu<<30}));
+		cf_paths.push_back(DbPath({"/rocksdb_tests/path_test/path/level6", 10llu<<30}));
+		Status s = DB::Open(options, FLAGS_db, &db, cf_paths);
+#else
     Status s = DB::Open(options, FLAGS_db, &db);
+#endif
     if (!s.ok()) {
       fprintf(stderr, "Can't open database: %s\n", s.ToString().c_str());
       std::abort();

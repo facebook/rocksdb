@@ -4046,9 +4046,18 @@ class Benchmark {
             FLAGS_secondary_update_interval, db));
       }
 #endif  // ROCKSDB_LITE
+#if RANDOM_PATH
+		} else {
+			std::vector<DbPath> cf_paths;
+			cf_paths.push_back(DbPath({"/rocksdb_tests/path_test/path1", 10llu<<30}));
+			cf_paths.push_back(DbPath({"/rocksdb_tests/path_test/path2", 10llu<<30}));
+			s = DB::Open(options, db_name, &db->db, cf_paths);
+		}
+#else
     } else {
       s = DB::Open(options, db_name, &db->db);
     }
+#endif
     if (!s.ok()) {
       fprintf(stderr, "open error: %s\n", s.ToString().c_str());
       exit(1);
@@ -6846,8 +6855,9 @@ int db_bench_tool(int argc, char** argv) {
   // Choose a location for the test database if none given with --db=<path>
   if (FLAGS_db.empty()) {
     std::string default_db_path;
-    FLAGS_env->GetTestDirectory(&default_db_path);
-    default_db_path += "/dbbench";
+    //FLAGS_env->GetTestDirectory(&default_db_path);
+    //default_db_path += "/dbbench";
+		default_db_path = "/rocksdb_tests/path_test/";
     FLAGS_db = default_db_path;
   }
 

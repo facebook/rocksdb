@@ -37,6 +37,9 @@
 #include "test_util/sync_point.h"
 #include "util/stop_watch.h"
 
+#include <stdio.h>
+#include "lemma.h"
+
 namespace rocksdb {
 
 class TableFactory;
@@ -101,6 +104,11 @@ Status BuildTable(
 
   std::string fname = TableFileName(ioptions.cf_paths, meta->fd.GetNumber(),
                                     meta->fd.GetPathId());
+
+#if DEBUG_PRINT
+	printf("fname: %s, meta_Number: %lu, meta_PathId: %d\n", fname.c_str(), meta->fd.GetNumber(), meta->fd.GetPathId());
+#endif
+
 #ifndef ROCKSDB_LITE
   EventHelpers::NotifyTableFileCreationStarted(
       ioptions.listeners, dbname, column_family_name, fname, job_id, reason);
