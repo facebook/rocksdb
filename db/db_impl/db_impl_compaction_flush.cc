@@ -409,7 +409,7 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
     s = Status::OK();
   }
 
-  if (s.ok() || s.IsShutdownInProgress() || s.IsColumnFamilyDropped()) {
+  if (s.ok() || s.IsShutdownInProgress()) {
     // Sync on all distinct output directories.
     for (auto dir : distinct_output_dirs) {
       if (dir != nullptr) {
@@ -418,6 +418,23 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
           s = error_status;
           break;
         }
+      }
+    }
+  } else {
+    // Need to undo atomic flush if something went wrong, i.e. s is not OK and
+    // it is not because of CF drop.
+    // Have to cancel the flush jobs that have NOT executed because we need to
+    // unref the versions.
+    for (int i = 0; i != num_cfs; ++i) {
+      if (!exec_status[i].first) {
+        jobs[i]->Cancel();
+      }
+    }
+    for (int i = 0; i != num_cfs; ++i) {
+      if (exec_status[i].first && exec_status[i].second.ok()) {
+        auto& mems = jobs[i]->GetMemTables();
+        cfds[i]->imm()->RollbackMemtableFlush(mems,
+                                              file_meta[i].fd.GetNumber());
       }
     }
   }
@@ -526,23 +543,7 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
 #endif  // ROCKSDB_LITE
   }
 
-  // Need to undo atomic flush if something went wrong, i.e. s is not OK and
-  // it is not because of CF drop.
-  if (!s.ok() && !s.IsColumnFamilyDropped()) {
-    // Have to cancel the flush jobs that have NOT executed because we need to
-    // unref the versions.
-    for (int i = 0; i != num_cfs; ++i) {
-      if (!exec_status[i].first) {
-        jobs[i]->Cancel();
-      }
-    }
-    for (int i = 0; i != num_cfs; ++i) {
-      if (exec_status[i].first && exec_status[i].second.ok()) {
-        auto& mems = jobs[i]->GetMemTables();
-        cfds[i]->imm()->RollbackMemtableFlush(mems,
-                                              file_meta[i].fd.GetNumber());
-      }
-    }
+  if (!s.ok() && !s.IsShutdownInProgress()) {
     Status new_bg_error = s;
     error_handler_.SetBGError(new_bg_error, BackgroundErrorReason::kFlush);
   }

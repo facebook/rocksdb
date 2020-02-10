@@ -7,8 +7,7 @@ package org.rocksdb;
 
 enum ComparatorType {
   JAVA_COMPARATOR((byte)0x0),
-  JAVA_DIRECT_COMPARATOR((byte)0x1),
-  JAVA_NATIVE_COMPARATOR_WRAPPER((byte)0x2);
+  JAVA_NATIVE_COMPARATOR_WRAPPER((byte)0x1);
 
   private final byte value;
 
