@@ -1458,7 +1458,7 @@ Status DBImpl::ThrottleLowPriWritesIfNeeded(const WriteOptions& write_options,
       return Status::OK();
     }
     if (write_options.no_slowdown) {
-      return Status::Incomplete();
+      return Status::Incomplete("Low priority write stall");
     } else {
       assert(my_batch != nullptr);
       // Rate limit those writes. The reason that we don't completely wait
