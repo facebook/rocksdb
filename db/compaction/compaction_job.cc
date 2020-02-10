@@ -1296,6 +1296,7 @@ Status CompactionJob::FinishCompactionOutputFile(
     sub_compact->builder->Abandon();
   }
   io_s = sub_compact->builder->io_status();
+  s = io_s;
   const uint64_t current_bytes = sub_compact->builder->FileSize();
   if (s.ok()) {
     // Add the checksum information to file metadata.
@@ -1311,16 +1312,17 @@ Status CompactionJob::FinishCompactionOutputFile(
   // Finish and check for file errors
   if (s.ok()) {
     StopWatch sw(env_, stats_, COMPACTION_OUTFILE_SYNC_MICROS);
-    io_s = sub_compact->outfile->Sync(db_options_.use_fsync);
+    s = sub_compact->outfile->Sync(db_options_.use_fsync);
   }
-  if (io_s.ok()) {
-    io_s = sub_compact->outfile->Close();
+  if (s.ok()) {
+    s = sub_compact->outfile->Close();
   }
+  /*
   if (!io_s.ok()) {
     InstrumentedMutexLock l(db_mutex_);
     s = db_error_handler_->SetBGError(io_s, BackgroundErrorReason::kCompaction);
   }
-
+  */
   sub_compact->outfile.reset();
 
   TableProperties tp;

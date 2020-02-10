@@ -978,12 +978,13 @@ Status DBImpl::WriteToWAL(const WriteBatch& merged_batch,
   if (UNLIKELY(needs_locking)) {
     log_write_mutex_.Lock();
   }
-  Status status;
-  IOStatus io_s = log_writer->AddRecord(log_entry);
+  Status status = log_writer->AddRecord(log_entry);
+  /*
   if (!io_s.ok()) {
     status = io_s;
     error_handler_.SetBGError(io_s, BackgroundErrorReason::kMemTable);
   }
+  */
   if (UNLIKELY(needs_locking)) {
     log_write_mutex_.Unlock();
   }
@@ -1036,17 +1037,18 @@ Status DBImpl::WriteToWAL(const WriteThread::WriteGroup& write_group,
     //    writer thread, so no one will push to logs_,
     //  - as long as other threads don't modify it, it's safe to read
     //    from std::deque from multiple threads concurrently.
-    IOStatus io_s;
     for (auto& log : logs_) {
-      io_s = log.writer->file()->Sync(immutable_db_options_.use_fsync);
-      if (!io_s.ok()) {
+      status = log.writer->file()->Sync(immutable_db_options_.use_fsync);
+      if (!status.ok()) {
         break;
       }
     }
+    /*
     if (!io_s.ok()) {
       status = io_s;
       error_handler_.SetBGError(io_s, BackgroundErrorReason::kMemTable);
     }
+    */
     if (status.ok() && need_log_dir_sync) {
       // We only sync WAL directory the first time WAL syncing is
       // requested, so that in case users never turn on WAL sync,

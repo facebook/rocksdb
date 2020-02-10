@@ -97,7 +97,6 @@ Status DBImpl::SyncClosedLogs(JobContext* job_context) {
   }
 
   Status s;
-  IOStatus io_s;
   if (!logs_to_sync.empty()) {
     mutex_.Unlock();
 
@@ -105,19 +104,18 @@ Status DBImpl::SyncClosedLogs(JobContext* job_context) {
       ROCKS_LOG_INFO(immutable_db_options_.info_log,
                      "[JOB %d] Syncing log #%" PRIu64, job_context->job_id,
                      log->get_log_number());
-      io_s = log->file()->Sync(immutable_db_options_.use_fsync);
-      if (!io_s.ok()) {
+      s = log->file()->Sync(immutable_db_options_.use_fsync);
+      if (!s.ok()) {
         break;
       }
 
       if (immutable_db_options_.recycle_log_file_num > 0) {
-        io_s = log->Close();
-        if (!io_s.ok()) {
+        s = log->Close();
+        if (!s.ok()) {
           break;
         }
       }
     }
-    s = io_s;
     if (s.ok()) {
       s = directories_.GetWalDir()->Fsync(IOOptions(), nullptr);
     }
@@ -128,12 +126,8 @@ Status DBImpl::SyncClosedLogs(JobContext* job_context) {
     // "number < current_log_number".
     MarkLogsSynced(current_log_number - 1, true, s);
     if (!s.ok()) {
-      if (!io_s.ok()) {
-        error_handler_.SetBGError(io_s, BackgroundErrorReason::kFlush);
-      } else {
         error_handler_.SetBGError(s, BackgroundErrorReason::kFlush);
         TEST_SYNC_POINT("DBImpl::SyncClosedLogs:Failed");
-      }
       return s;
     }
   }
@@ -198,8 +192,6 @@ Status DBImpl::FlushMemTableToOutputFile(
   } else {
     flush_job.Cancel();
   }
-  IOStatus io_s = flush_job.io_status();
-  s = io_s;
 
   if (s.ok()) {
     InstallSuperVersionAndScheduleWork(cfd, superversion_context,
@@ -214,12 +206,8 @@ Status DBImpl::FlushMemTableToOutputFile(
   }
 
   if (!s.ok() && !s.IsShutdownInProgress() && !s.IsColumnFamilyDropped()) {
-    if (!io_s.ok()) {
-      error_handler_.SetBGError(io_s, BackgroundErrorReason::kFlush);
-    } else {
       Status new_bg_error = s;
       error_handler_.SetBGError(new_bg_error, BackgroundErrorReason::kFlush);
-    }
   }
   if (s.ok()) {
 #ifndef ROCKSDB_LITE
@@ -420,6 +408,7 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
 
     s = error_status.ok() ? s : error_status;
   }
+  /*
   IOStatus io_error = IOStatus::OK();
   for (int i = 0; i != num_cfs; i++) {
     if (!io_status[i].ok() && !exec_status[i].second.IsShutdownInProgress() &&
@@ -428,7 +417,7 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
       break;
     }
   }
-
+  */
   if (s.IsColumnFamilyDropped()) {
     s = Status::OK();
   }
@@ -584,13 +573,8 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
                                               file_meta[i].fd.GetNumber());
       }
     }
-    if (!io_error.ok()) {
-      s = io_error;
-      error_handler_.SetBGError(io_error, BackgroundErrorReason::kFlush);
-    } else {
-      Status new_bg_error = s;
-      error_handler_.SetBGError(new_bg_error, BackgroundErrorReason::kFlush);
-    }
+    Status new_bg_error = s;
+    error_handler_.SetBGError(new_bg_error, BackgroundErrorReason::kFlush);
   }
 
   return s;
