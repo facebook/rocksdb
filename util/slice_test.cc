@@ -20,11 +20,6 @@ void Multiplier(void* arg1, void* arg2) {
 
 class PinnableSliceTest : public testing::Test {
  public:
-  void AssertEmpty(const PinnableSlice& slice) {
-    ASSERT_EQ(0, slice.size());
-    ASSERT_FALSE(slice.IsPinned());
-  }
-
   void AssertSameData(const std::string& expected,
                       const PinnableSlice& slice) {
     std::string got;
@@ -36,8 +31,6 @@ class PinnableSliceTest : public testing::Test {
   // another PinnableSlice.
   // It asserts by trying to pin the slice.
   void AssertCleanState(PinnableSlice& pinnable, const Slice& slice) {
-    AssertEmpty(pinnable);
-
     pinnable.PinSelf(slice);
     AssertSameData(slice.ToString(), pinnable);
 
