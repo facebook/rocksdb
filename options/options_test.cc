@@ -1541,9 +1541,10 @@ TEST_F(OptionsParserTest, Readahead) {
   ASSERT_OK(PersistRocksDBOptions(base_db_opt, cf_names, base_cf_opts,
                                   kOptionsFileName, fs_.get()));
 
-  uint64_t file_size;
+  uint64_t file_size = 0;
   ASSERT_OK(env_->GetFileSize(kOptionsFileName, &file_size));
-
+  assert(file_size > 0);
+  
   RocksDBOptionsParser parser;
 
   env_->num_seq_file_read_ = 0;
