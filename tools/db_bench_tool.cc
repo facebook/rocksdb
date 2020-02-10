@@ -245,7 +245,7 @@ DEFINE_int32(threads, 1, "Number of concurrent threads to run.");
 DEFINE_int32(duration, 0, "Time in seconds for the random-ops tests to run."
              " When 0 then num & reads determine the test duration");
 
-DEFINE_string(distribution_type, "fixed",
+DEFINE_string(value_size_distribution_type, "fixed",
               "Value size distribution type: fixed, uniform, normal");
 
 DEFINE_int32(value_size, 100, "Size of each value in fixed distribution");
@@ -1435,7 +1435,7 @@ enum DistributionType : unsigned char {
   kNormal
 };
 
-static enum DistributionType FLAGS_distribution_type_e = kFixed;
+static enum DistributionType FLAGS_value_size_distribution_type_e = kFixed;
 
 static enum DistributionType StringToDistributionType(const char* ctype) {
   assert(ctype);
@@ -1455,12 +1455,11 @@ class BaseDistribution {
  public:
   BaseDistribution(unsigned int min, unsigned int max) :
     min_value_size_(min),
-    max_value_size_(max),
-    gen_(rd_()) {}
+    max_value_size_(max) {}
   virtual ~BaseDistribution() {}
 
   unsigned int Generate() {
-    auto val = Get(gen_);
+    auto val = Get();
     if (NeedTruncate()) {
       val = std::max(min_value_size_, val);
       val = std::min(max_value_size_, val);
@@ -1468,14 +1467,12 @@ class BaseDistribution {
     return val;
   }
  private:
-  virtual unsigned int Get(std::mt19937&) = 0;
+  virtual unsigned int Get() = 0;
   virtual bool NeedTruncate() {
     return false;
   }
   unsigned int min_value_size_;
   unsigned int max_value_size_;
-  std::random_device rd_;
-  std::mt19937 gen_;
 };
 
 class FixedDistribution : public BaseDistribution
@@ -1485,10 +1482,10 @@ class FixedDistribution : public BaseDistribution
     BaseDistribution(size, size),
     size_(size) {}
  private:
-  virtual unsigned int Get(std::mt19937&) {
+  virtual unsigned int Get() {
     return size_;
   }
-    unsigned int size_;
+  unsigned int size_;
 };
 
 class NormalDistribution
@@ -1498,14 +1495,17 @@ class NormalDistribution
     BaseDistribution(min, max),
     // 99.7% values within the range [min, max].
     std::normal_distribution<double>((double)(min + max) / 2.0 /*mean*/,
-                                     (double)(max - min) / 6.0 /*stddev*/) {}
+                                     (double)(max - min) / 6.0 /*stddev*/),
+    gen_(rd_()) {}
  private:
-  virtual unsigned int Get(std::mt19937& gen) override {
-    return static_cast<unsigned int>((*this)(gen));
+  virtual unsigned int Get() override {
+    return static_cast<unsigned int>((*this)(gen_));
   }
   virtual bool NeedTruncate() override {
     return true;
   }
+  std::random_device rd_;
+  std::mt19937 gen_;
 };
 
 class UniformDistribution
@@ -1514,11 +1514,14 @@ class UniformDistribution
  public:
   UniformDistribution(unsigned int min, unsigned int max) :
     BaseDistribution(min, max),
-    std::uniform_int_distribution<unsigned int>(min, max) {}
+    std::uniform_int_distribution<unsigned int>(min, max),
+    gen_(rd_()) {}
  private:
-  virtual unsigned int Get(std::mt19937& gen) override {
-    return (*this)(gen);
+  virtual unsigned int Get() override {
+    return (*this)(gen_);
   }
+  std::random_device rd_;
+  std::mt19937 gen_;
 };
 
 // Helper for quickly generating random data.
@@ -1532,13 +1535,13 @@ class RandomGenerator {
 
   RandomGenerator() {
     auto max_value_size = FLAGS_value_size_max;
-    if (FLAGS_distribution_type_e == kFixed) {
+    if (FLAGS_value_size_distribution_type_e == kFixed) {
       dist_.reset(new FixedDistribution(value_size));
       max_value_size = value_size;
-    } else if (FLAGS_distribution_type_e == kUniform) {
+    } else if (FLAGS_value_size_distribution_type_e == kUniform) {
       dist_.reset(new UniformDistribution(FLAGS_value_size_min,
                                           FLAGS_value_size_max));
-    } else if (FLAGS_distribution_type_e == kNormal) {
+    } else if (FLAGS_value_size_distribution_type_e == kNormal) {
       dist_.reset(new NormalDistribution(FLAGS_value_size_min,
                                          FLAGS_value_size_max));
     }
@@ -2378,7 +2381,7 @@ class Benchmark {
     PrintEnvironment();
     fprintf(stdout, "Keys:       %d bytes each\n", FLAGS_key_size);
     auto avg_value_size = FLAGS_value_size;
-    if (FLAGS_distribution_type_e == kFixed) {
+    if (FLAGS_value_size_distribution_type_e == kFixed) {
       fprintf(stdout, "Values:     %d bytes each (%d bytes after compression)\n",
               avg_value_size,
               static_cast<int>(avg_value_size * FLAGS_compression_ratio + 0.5));
@@ -2388,7 +2391,7 @@ class Benchmark {
               avg_value_size,
               static_cast<int>(avg_value_size * FLAGS_compression_ratio + 0.5));
       fprintf(stdout, "Values Distribution: %s (min: %d, max: %d)\n",
-              FLAGS_distribution_type.c_str(),
+              FLAGS_value_size_distribution_type.c_str(),
               FLAGS_value_size_min, FLAGS_value_size_max);
     }
     fprintf(stdout, "Entries:    %" PRIu64 "\n", num_);
@@ -6963,8 +6966,8 @@ int db_bench_tool(int argc, char** argv) {
             FLAGS_compaction_fadvice.c_str());
   }
 
-  FLAGS_distribution_type_e =
-    StringToDistributionType(FLAGS_distribution_type.c_str());
+  FLAGS_value_size_distribution_type_e =
+    StringToDistributionType(FLAGS_value_size_distribution_type.c_str());
 
   FLAGS_rep_factory = StringToRepFactory(FLAGS_memtablerep.c_str());
 
