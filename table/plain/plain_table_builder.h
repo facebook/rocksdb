@@ -9,6 +9,7 @@
 #include <stdint.h>
 #include <string>
 #include <vector>
+#include "db/version_edit.h"
 #include "rocksdb/options.h"
 #include "rocksdb/status.h"
 #include "rocksdb/table.h"
@@ -83,6 +84,12 @@ class PlainTableBuilder: public TableBuilder {
 
   bool SaveIndexInFile() const { return store_index_in_file_; }
 
+  // Get file checksum
+  const std::string& GetFileChecksum() const override { return file_checksum_; }
+
+  // Get file checksum function name
+  const char* GetFileChecksumFuncName() const override;
+
  private:
   Arena arena_;
   const ImmutableCFOptions& ioptions_;
@@ -107,6 +114,9 @@ class PlainTableBuilder: public TableBuilder {
   bool closed_ = false;  // Either Finish() or Abandon() has been called.
 
   const SliceTransform* prefix_extractor_;
+
+  // Store file checksum. If checksum is disabled, its value is "0".
+  std::string file_checksum_ = kUnknownFileChecksum;
 
   Slice GetPrefix(const Slice& target) const {
     assert(target.size() >= 8);  // target is internal key

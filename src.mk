@@ -173,6 +173,7 @@ LIB_SOURCES =                                                   \
   util/random.cc                                                \
   util/rate_limiter.cc                                          \
   util/slice.cc                                                 \
+  util/file_checksum_helper.cc      				\
   util/status.cc                                                \
   util/string_util.cc                                           \
   util/thread_local.cc                                          \

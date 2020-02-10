@@ -19,6 +19,7 @@
 #include "rocksdb/advanced_options.h"
 #include "rocksdb/comparator.h"
 #include "rocksdb/env.h"
+#include "rocksdb/file_checksum.h"
 #include "rocksdb/listener.h"
 #include "rocksdb/universal_compaction.h"
 #include "rocksdb/version.h"
@@ -1122,6 +1123,13 @@ struct DBOptions {
   //
   // Default: 0
   size_t log_readahead_size = 0;
+
+  // If user does NOT provide SST file checksum function, the SST file checksum
+  // will NOT be used. The single checksum instance are shared by options and
+  // file writers. Make sure the algorithm is thread safe.
+  //
+  // Default: nullptr
+  std::shared_ptr<FileChecksumFunc> sst_file_checksum_func = nullptr;
 };
 
 // Options to control the behavior of a database (passed to DB::Open)

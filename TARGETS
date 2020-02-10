@@ -283,6 +283,7 @@ cpp_library(
         "util/concurrent_task_limiter_impl.cc",
         "util/crc32c.cc",
         "util/dynamic_bloom.cc",
+        "util/file_checksum_helper.cc",
         "util/hash.cc",
         "util/murmurhash.cc",
         "util/random.cc",

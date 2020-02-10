@@ -144,6 +144,7 @@ DBOptions BuildDBOptions(const ImmutableDBOptions& immutable_db_options,
   options.avoid_unnecessary_blocking_io =
       immutable_db_options.avoid_unnecessary_blocking_io;
   options.log_readahead_size = immutable_db_options.log_readahead_size;
+  options.sst_file_checksum_func = immutable_db_options.sst_file_checksum_func;
   return options;
 }
 

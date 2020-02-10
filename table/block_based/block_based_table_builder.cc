@@ -1164,6 +1164,9 @@ Status BlockBasedTableBuilder::Finish() {
   if (ok()) {
     WriteFooter(metaindex_block_handle, index_block_handle);
   }
+  if (r->file != nullptr) {
+    file_checksum_ = r->file->GetFileChecksum();
+  }
   r->state = Rep::State::kClosed;
   return r->status;
 }
@@ -1197,6 +1200,14 @@ TableProperties BlockBasedTableBuilder::GetTableProperties() const {
     collector->Finish(&ret.user_collected_properties);
   }
   return ret;
+}
+
+const char* BlockBasedTableBuilder::GetFileChecksumFuncName() const {
+  if (rep_->file != nullptr) {
+    return rep_->file->GetFileChecksumFuncName();
+  } else {
+    return kUnknownFileChecksumFuncName.c_str();
+  }
 }
 
 const std::string BlockBasedTable::kFilterBlockPrefix = "filter.";

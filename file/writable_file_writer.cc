@@ -12,6 +12,7 @@
 #include <algorithm>
 #include <mutex>
 
+#include "db/version_edit.h"
 #include "monitoring/histogram.h"
 #include "monitoring/iostats_context_imp.h"
 #include "port/port.h"
@@ -88,6 +89,7 @@ Status WritableFileWriter::Append(const Slice& data) {
   TEST_KILL_RANDOM("WritableFileWriter::Append:1", rocksdb_kill_odds);
   if (s.ok()) {
     filesize_ += data.size();
+    CalculateFileChecksum(data);
   }
   return s;
 }
@@ -214,6 +216,14 @@ Status WritableFileWriter::Flush() {
   return s;
 }
 
+const char* WritableFileWriter::GetFileChecksumFuncName() const {
+  if (checksum_func_ != nullptr) {
+    return checksum_func_->Name();
+  } else {
+    return kUnknownFileChecksumFuncName.c_str();
+  }
+}
+
 Status WritableFileWriter::Sync(bool use_fsync) {
   Status s = Flush();
   if (!s.ok()) {
@@ -319,6 +329,18 @@ Status WritableFileWriter::WriteBuffered(const char* data, size_t size) {
   }
   buf_.Size(0);
   return s;
+}
+
+void WritableFileWriter::CalculateFileChecksum(const Slice& data) {
+  if (checksum_func_ != nullptr) {
+    if (is_first_checksum_) {
+      file_checksum_ = checksum_func_->Value(data.data(), data.size());
+      is_first_checksum_ = false;
+    } else {
+      file_checksum_ =
+          checksum_func_->Extend(file_checksum_, data.data(), data.size());
+    }
+  }
 }
 
 // This flushes the accumulated data in the buffer. We pad data with zeros if
