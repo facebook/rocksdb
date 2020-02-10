@@ -3807,7 +3807,7 @@ Status VersionSet::ProcessManifestWrites(
       // only one thread can be here at the same time
       // create new manifest file
       ROCKS_LOG_INFO(db_options_->info_log, "Creating manifest %" PRIu64 "\n",
-                    pending_manifest_file_number_);
+                     pending_manifest_file_number_);
       std::string descriptor_fname =
           DescriptorFileName(dbname_, pending_manifest_file_number_);
       std::unique_ptr<FSWritableFile> descriptor_file;
