@@ -44,6 +44,23 @@ class PinnableSliceTest : public testing::Test {
   }
 };
 
+// Test that the external buffer is moved instead of being copied.
+TEST_F(PinnableSliceTest, MoveExternalBuffer) {
+  Slice s("123");
+  std::string buf;
+  PinnableSlice v1(&buf);
+  v1.PinSelf(s);
+
+  PinnableSlice v2(std::move(v1));
+  ASSERT_EQ(buf.data(), v2.data());
+  ASSERT_EQ(&buf, v2.GetSelf());
+
+  PinnableSlice v3;
+  v3 = std::move(v2);
+  ASSERT_EQ(buf.data(), v3.data());
+  ASSERT_EQ(&buf, v3.GetSelf());
+}
+
 TEST_F(PinnableSliceTest, Move) {
   int n2 = 2;
   int res = 1;
