@@ -1832,7 +1832,8 @@ class VersionSetTestMissingFiles : public VersionSetTestBase,
       ASSERT_NE(0, file_size);
       FileMetaData meta;
       meta = FileMetaData(file_num, /*file_path_id=*/0, file_size, ikey, ikey,
-                          0, 0, false, 0, 0, 0);
+                          0, 0, false, 0, 0, 0, kUnknownFileChecksum,
+                          kUnknownFileChecksumFuncName);
       file_metas->emplace_back(meta);
     }
   }
@@ -1887,7 +1888,8 @@ TEST_F(VersionSetTestMissingFiles, ManifestFarBehindSst) {
     InternalKey largest_ikey(largest_ukey, 1, ValueType::kTypeValue);
     FileMetaData meta =
         FileMetaData(file_num, /*file_path_id=*/0, /*file_size=*/12,
-                     smallest_ikey, largest_ikey, 0, 0, false, 0, 0, 0);
+                     smallest_ikey, largest_ikey, 0, 0, false, 0, 0, 0,
+                     kUnknownFileChecksum, kUnknownFileChecksumFuncName);
     added_files.emplace_back(0, meta);
   }
   WriteFileAdditionAndDeletionToManifest(
@@ -1941,7 +1943,8 @@ TEST_F(VersionSetTestMissingFiles, ManifestAheadofSst) {
     InternalKey largest_ikey(largest_ukey, 1, ValueType::kTypeValue);
     FileMetaData meta =
         FileMetaData(file_num, /*file_path_id=*/0, /*file_size=*/12,
-                     smallest_ikey, largest_ikey, 0, 0, false, 0, 0, 0);
+                     smallest_ikey, largest_ikey, 0, 0, false, 0, 0, 0,
+                     kUnknownFileChecksum, kUnknownFileChecksumFuncName);
     added_files.emplace_back(0, meta);
   }
   WriteFileAdditionAndDeletionToManifest(
