@@ -9,17 +9,15 @@
 
 package org.rocksdb;
 
+import static java.nio.charset.StandardCharsets.UTF_8;
+import static org.assertj.core.api.Assertions.assertThat;
+
+import java.nio.ByteBuffer;
+import java.util.Arrays;
 import org.junit.ClassRule;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.TemporaryFolder;
-
-import java.nio.ByteBuffer;
-import java.util.Arrays;
-
-import static org.assertj.core.api.Assertions.assertThat;
-import static java.nio.charset.StandardCharsets.UTF_8;
-
 
 public class WriteBatchWithIndexTest {
 
@@ -128,6 +126,36 @@ public class WriteBatchWithIndexTest {
   }
 
   @Test
+  public void write_writeBatchWithIndexDirect() throws RocksDBException {
+    try (final Options options = new Options().setCreateIfMissing(true);
+         final RocksDB db = RocksDB.open(options, dbFolder.getRoot().getAbsolutePath())) {
+      ByteBuffer k1 = ByteBuffer.allocateDirect(16);
+      ByteBuffer v1 = ByteBuffer.allocateDirect(16);
+      ByteBuffer k2 = ByteBuffer.allocateDirect(16);
+      ByteBuffer v2 = ByteBuffer.allocateDirect(16);
+      k1.put("key1".getBytes()).flip();
+      v1.put("value1".getBytes()).flip();
+      k2.put("key2".getBytes()).flip();
+      v2.put("value2".getBytes()).flip();
+
+      try (final WriteBatchWithIndex wbwi = new WriteBatchWithIndex()) {
+        wbwi.put(k1, v1);
+        assertThat(k1.position()).isEqualTo(4);
+        assertThat(k1.limit()).isEqualTo(4);
+        assertThat(v1.position()).isEqualTo(6);
+        assertThat(v1.limit()).isEqualTo(6);
+
+        wbwi.put(k2, v2);
+
+        db.write(new WriteOptions(), wbwi);
+      }
+
+      assertThat(db.get("key1".getBytes())).isEqualTo("value1".getBytes());
+      assertThat(db.get("key2".getBytes())).isEqualTo("value2".getBytes());
+    }
+  }
+
+  @Test
   public void iterator() throws RocksDBException {
     try (final WriteBatchWithIndex wbwi = new WriteBatchWithIndex(true)) {
 
@@ -199,6 +227,13 @@ public class WriteBatchWithIndexTest {
 
           final WBWIRocksIterator.WriteEntry entry = it.entry();
           assertThat(entry).isEqualTo(expected[testOffset]);
+
+          // Direct buffer seek
+          expected[testOffset].getKey().data().mark();
+          ByteBuffer db = expected[testOffset].getKey().data();
+          it.seek(db);
+          assertThat(db.position()).isEqualTo(key.length);
+          assertThat(it.isValid()).isTrue();
         }
 
         //forward iterative access

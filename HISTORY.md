@@ -1,7 +1,8 @@
 # Rocksdb Change Log
 ## Unreleased
-### Public API Change
+### Java API Changes
 * Major breaking changes to Java comparators, toward standardizing on ByteBuffer for performant, locale-neutral operations on keys (#6252).
+* Added overloads of common API methods using direct ByteBuffers for keys and values (#2283).
 
 ### Bug Fixes
 * Fix incorrect results while block-based table uses kHashSearch, together with Prev()/SeekForPrev().
