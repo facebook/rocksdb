@@ -65,7 +65,7 @@ public class SstFileWriterTest {
     ComparatorOptions comparatorOptions = null;
     BytewiseComparator comparator = null;
     if (useJavaBytewiseComparator) {
-      comparatorOptions = new ComparatorOptions();
+      comparatorOptions = new ComparatorOptions().setUseDirectBuffer(false);
       comparator = new BytewiseComparator(comparatorOptions);
       options.setComparator(comparator);
       sstFileWriter = new SstFileWriter(envOptions, options);

@@ -102,6 +102,14 @@ TEST_F(DBSSTTest, SSTsWithLdbSuffixHandling) {
   int const num_files = GetSstFileCount(dbname_);
   ASSERT_GT(num_files, 0);
 
+  Reopen(options);
+  std::vector<std::string> values;
+  values.reserve(key_id);
+  for (int k = 0; k < key_id; ++k) {
+    values.push_back(Get(Key(k)));
+  }
+  Close();
+
   std::vector<std::string> filenames;
   GetSstFiles(env_, dbname_, &filenames);
   int num_ldb_files = 0;
@@ -119,9 +127,23 @@ TEST_F(DBSSTTest, SSTsWithLdbSuffixHandling) {
 
   Reopen(options);
   for (int k = 0; k < key_id; ++k) {
-    ASSERT_NE("NOT_FOUND", Get(Key(k)));
+    ASSERT_EQ(values[k], Get(Key(k)));
   }
   Destroy(options);
+}
+
+// Check that we don't crash when opening DB with
+// DBOptions::skip_checking_sst_file_sizes_on_db_open = true.
+TEST_F(DBSSTTest, SkipCheckingSSTFileSizesOnDBOpen) {
+  ASSERT_OK(Put("pika", "choo"));
+  ASSERT_OK(Flush());
+
+  // Just open the DB with the option set to true and check that we don't crash.
+  Options options;
+  options.skip_checking_sst_file_sizes_on_db_open = true;
+  Reopen(options);
+
+  ASSERT_EQ("choo", Get("pika"));
 }
 
 #ifndef ROCKSDB_LITE

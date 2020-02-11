@@ -1058,11 +1058,16 @@ Status TraceAnalyzer::ReProcessing() {
                 cf_id);
         wkey_input_f.reset();
       }
+
       if (wkey_input_f) {
         std::unique_ptr<FSSequentialFile> file;
         file = NewLegacySequentialFileWrapper(wkey_input_f);
+        size_t kTraceFileReadaheadSize = 2 * 1024 * 1024;
+        SequentialFileReader sf_reader(
+            std::move(file), whole_key_path,
+            kTraceFileReadaheadSize /* filereadahead_size */);
         for (cfs_[cf_id].w_count = 0;
-             ReadOneLine(&iss, file.get(), &get_key, &has_data, &s);
+             ReadOneLine(&iss, &sf_reader, &get_key, &has_data, &s);
              ++cfs_[cf_id].w_count) {
           if (!s.ok()) {
             fprintf(stderr, "Read whole key space file failed\n");

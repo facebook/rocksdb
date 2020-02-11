@@ -62,7 +62,7 @@ void InitializeHotKeyGenerator(double alpha) {
 int64_t GetOneHotKeyID(double rand_seed, int64_t max_key) {
   int64_t low = 1, mid, high = zipf_sum_size, zipf = 0;
   while (low <= high) {
-    mid = std::floor((low + high) / 2);
+    mid = (low + high) / 2;
     if (sum_probs[mid] >= rand_seed && sum_probs[mid - 1] < rand_seed) {
       zipf = mid;
       break;
@@ -72,8 +72,7 @@ int64_t GetOneHotKeyID(double rand_seed, int64_t max_key) {
       low = mid + 1;
     }
   }
-  int64_t tmp_zipf_seed = static_cast<int64_t>(
-      std::floor(zipf * max_key / (static_cast<double>(zipf_sum_size))));
+  int64_t tmp_zipf_seed = zipf * max_key / zipf_sum_size;
   Random64 rand_local(tmp_zipf_seed);
   return rand_local.Next() % max_key;
 }

@@ -122,7 +122,6 @@ set(JAVA_MAIN_CLASSES
   src/main/java/org/rocksdb/CompactRangeOptions.java
   src/main/java/org/rocksdb/CompactionStopStyle.java
   src/main/java/org/rocksdb/CompactionStyle.java
-  src/main/java/org/rocksdb/Comparator.java
   src/main/java/org/rocksdb/ComparatorOptions.java
   src/main/java/org/rocksdb/ComparatorType.java
   src/main/java/org/rocksdb/CompressionOptions.java
@@ -131,7 +130,6 @@ set(JAVA_MAIN_CLASSES
   src/main/java/org/rocksdb/DBOptionsInterface.java
   src/main/java/org/rocksdb/DBOptions.java
   src/main/java/org/rocksdb/DbPath.java
-  src/main/java/org/rocksdb/DirectComparator.java
   src/main/java/org/rocksdb/DirectSlice.java
   src/main/java/org/rocksdb/EncodingType.java
   src/main/java/org/rocksdb/Env.java
@@ -181,6 +179,7 @@ set(JAVA_MAIN_CLASSES
   src/main/java/org/rocksdb/ReadTier.java
   src/main/java/org/rocksdb/RemoveEmptyValueCompactionFilter.java
   src/main/java/org/rocksdb/RestoreOptions.java
+  src/main/java/org/rocksdb/ReusedSynchronisationType.java
   src/main/java/org/rocksdb/RocksCallbackObject.java
   src/main/java/org/rocksdb/RocksDBException.java
   src/main/java/org/rocksdb/RocksDB.java
@@ -236,9 +235,10 @@ set(JAVA_MAIN_CLASSES
   src/main/java/org/rocksdb/WriteBatchWithIndex.java
   src/main/java/org/rocksdb/WriteOptions.java
   src/main/java/org/rocksdb/WriteBufferManager.java
+  src/main/java/org/rocksdb/util/ByteUtil.java
   src/main/java/org/rocksdb/util/BytewiseComparator.java
-  src/main/java/org/rocksdb/util/DirectBytewiseComparator.java
   src/main/java/org/rocksdb/util/Environment.java
+  src/main/java/org/rocksdb/util/IntComparator.java
   src/main/java/org/rocksdb/util/ReverseBytewiseComparator.java
   src/main/java/org/rocksdb/util/SizeUnit.java
   src/main/java/org/rocksdb/UInt64AddOperator.java
@@ -313,17 +313,19 @@ if(NOT EXISTS ${JAVA_TEST_LIBDIR})
   file(MAKE_DIRECTORY mkdir ${JAVA_TEST_LIBDIR})
 endif()
 
-if (DEFINED CUSTOM_REPO_URL)
-  set(SEARCH_REPO_URL ${CUSTOM_REPO_URL}/)
-  set(CENTRAL_REPO_URL ${CUSTOM_REPO_URL}/)
+if (DEFINED CUSTOM_DEPS_URL)
+  set(DEPS_URL ${CUSTOM_DEPS_URL}/)
 else ()
-  set(SEARCH_REPO_URL "http://search.maven.org/remotecontent?filepath=")
-  set(CENTRAL_REPO_URL "http://central.maven.org/maven2/")
+  # This is a URL for artifacts from a "fake" release on pdillinger's fork,
+  # so as not to put binaries in git (ew). We should move to hosting these
+  # under the facebook account on github, or something else more reliable
+  # than maven.org, which has been failing frequently from Travis.
+  set(DEPS_URL "https://github.com/pdillinger/rocksdb/releases/download/v6.6.x-java-deps")
 endif()
 
 if(NOT EXISTS ${JAVA_JUNIT_JAR})
   message("Downloading ${JAVA_JUNIT_JAR}")
-  file(DOWNLOAD ${SEARCH_REPO_URL}junit/junit/4.12/junit-4.12.jar ${JAVA_TMP_JAR} STATUS downloadStatus)
+  file(DOWNLOAD ${DEPS_URL}/junit-4.12.jar ${JAVA_TMP_JAR} STATUS downloadStatus)
   list(GET downloadStatus 0 error_code)
   if(NOT error_code EQUAL 0)
     message(FATAL_ERROR "Failed downloading ${JAVA_JUNIT_JAR}")
@@ -332,7 +334,7 @@ if(NOT EXISTS ${JAVA_JUNIT_JAR})
 endif()
 if(NOT EXISTS ${JAVA_HAMCR_JAR})
   message("Downloading ${JAVA_HAMCR_JAR}")
-  file(DOWNLOAD ${SEARCH_REPO_URL}org/hamcrest/hamcrest-core/1.3/hamcrest-core-1.3.jar ${JAVA_TMP_JAR} STATUS downloadStatus)
+  file(DOWNLOAD ${DEPS_URL}/hamcrest-core-1.3.jar ${JAVA_TMP_JAR} STATUS downloadStatus)
   list(GET downloadStatus 0 error_code)
   if(NOT error_code EQUAL 0)
     message(FATAL_ERROR "Failed downloading ${JAVA_HAMCR_JAR}")
@@ -341,7 +343,7 @@ if(NOT EXISTS ${JAVA_HAMCR_JAR})
 endif()
 if(NOT EXISTS ${JAVA_MOCKITO_JAR})
   message("Downloading ${JAVA_MOCKITO_JAR}")
-  file(DOWNLOAD ${SEARCH_REPO_URL}org/mockito/mockito-all/1.10.19/mockito-all-1.10.19.jar ${JAVA_TMP_JAR} STATUS downloadStatus)
+  file(DOWNLOAD ${DEPS_URL}/mockito-all-1.10.19.jar ${JAVA_TMP_JAR} STATUS downloadStatus)
   list(GET downloadStatus 0 error_code)
   if(NOT error_code EQUAL 0)
     message(FATAL_ERROR "Failed downloading ${JAVA_MOCKITO_JAR}")
@@ -350,7 +352,7 @@ if(NOT EXISTS ${JAVA_MOCKITO_JAR})
 endif()
 if(NOT EXISTS ${JAVA_CGLIB_JAR})
   message("Downloading ${JAVA_CGLIB_JAR}")
-  file(DOWNLOAD ${SEARCH_REPO_URL}cglib/cglib/2.2.2/cglib-2.2.2.jar ${JAVA_TMP_JAR} STATUS downloadStatus)
+  file(DOWNLOAD ${DEPS_URL}/cglib-2.2.2.jar ${JAVA_TMP_JAR} STATUS downloadStatus)
   list(GET downloadStatus 0 error_code)
   if(NOT error_code EQUAL 0)
     message(FATAL_ERROR "Failed downloading ${JAVA_CGLIB_JAR}")
@@ -359,7 +361,7 @@ if(NOT EXISTS ${JAVA_CGLIB_JAR})
 endif()
 if(NOT EXISTS ${JAVA_ASSERTJ_JAR})
   message("Downloading ${JAVA_ASSERTJ_JAR}")
-  file(DOWNLOAD ${CENTRAL_REPO_URL}org/assertj/assertj-core/1.7.1/assertj-core-1.7.1.jar ${JAVA_TMP_JAR} STATUS downloadStatus)
+  file(DOWNLOAD ${DEPS_URL}/assertj-core-1.7.1.jar ${JAVA_TMP_JAR} STATUS downloadStatus)
   list(GET downloadStatus 0 error_code)
   if(NOT error_code EQUAL 0)
     message(FATAL_ERROR "Failed downloading ${JAVA_ASSERTJ_JAR}")
@@ -398,11 +400,9 @@ if(${CMAKE_VERSION} VERSION_LESS "3.11.4" OR (${Java_VERSION_MINOR} STREQUAL "7"
           org.rocksdb.CompactionOptionsFIFO
           org.rocksdb.CompactionOptionsUniversal
           org.rocksdb.CompactRangeOptions
-          org.rocksdb.Comparator
           org.rocksdb.ComparatorOptions
           org.rocksdb.CompressionOptions
           org.rocksdb.DBOptions
-          org.rocksdb.DirectComparator
           org.rocksdb.DirectSlice
           org.rocksdb.Env
           org.rocksdb.EnvOptions

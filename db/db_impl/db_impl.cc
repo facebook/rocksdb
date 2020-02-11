@@ -1005,12 +1005,36 @@ Status DBImpl::SetDBOptions(
       }
     }
     if (s.ok()) {
-      if (new_options.max_background_compactions >
-          mutable_db_options_.max_background_compactions) {
-        env_->IncBackgroundThreadsIfNeeded(
-            new_options.max_background_compactions, Env::Priority::LOW);
+      const BGJobLimits current_bg_job_limits =
+          GetBGJobLimits(immutable_db_options_.max_background_flushes,
+                         mutable_db_options_.max_background_compactions,
+                         mutable_db_options_.max_background_jobs,
+                         /* parallelize_compactions */ true);
+      const BGJobLimits new_bg_job_limits = GetBGJobLimits(
+          immutable_db_options_.max_background_flushes,
+          new_options.max_background_compactions,
+          new_options.max_background_jobs, /* parallelize_compactions */ true);
+
+      const bool max_flushes_increased =
+          new_bg_job_limits.max_flushes > current_bg_job_limits.max_flushes;
+      const bool max_compactions_increased =
+          new_bg_job_limits.max_compactions >
+          current_bg_job_limits.max_compactions;
+
+      if (max_flushes_increased || max_compactions_increased) {
+        if (max_flushes_increased) {
+          env_->IncBackgroundThreadsIfNeeded(new_bg_job_limits.max_flushes,
+                                             Env::Priority::HIGH);
+        }
+
+        if (max_compactions_increased) {
+          env_->IncBackgroundThreadsIfNeeded(new_bg_job_limits.max_compactions,
+                                             Env::Priority::LOW);
+        }
+
         MaybeScheduleFlushOrCompaction();
       }
+
       if (new_options.stats_dump_period_sec !=
           mutable_db_options_.stats_dump_period_sec) {
         if (thread_dump_stats_) {
@@ -2277,7 +2301,8 @@ Status DBImpl::CreateColumnFamilyImpl(const ColumnFamilyOptions& cf_options,
       auto* cfd =
           versions_->GetColumnFamilySet()->GetColumnFamily(column_family_name);
       assert(cfd != nullptr);
-      s = cfd->AddDirectories();
+      std::map<std::string, std::shared_ptr<Directory>> dummy_created_dirs;
+      s = cfd->AddDirectories(&dummy_created_dirs);
     }
     if (s.ok()) {
       single_column_family_mode_ = false;
@@ -3293,27 +3318,67 @@ Status DBImpl::CheckConsistency() {
   TEST_SYNC_POINT("DBImpl::CheckConsistency:AfterGetLiveFilesMetaData");
 
   std::string corruption_messages;
-  for (const auto& md : metadata) {
-    // md.name has a leading "/".
-    std::string file_path = md.db_path + md.name;
 
-    uint64_t fsize = 0;
-    TEST_SYNC_POINT("DBImpl::CheckConsistency:BeforeGetFileSize");
-    Status s = env_->GetFileSize(file_path, &fsize);
-    if (!s.ok() &&
-        env_->GetFileSize(Rocks2LevelTableFileName(file_path), &fsize).ok()) {
-      s = Status::OK();
+  if (immutable_db_options_.skip_checking_sst_file_sizes_on_db_open) {
+    // Instead of calling GetFileSize() for each expected file, call
+    // GetChildren() for the DB directory and check that all expected files
+    // are listed, without checking their sizes.
+    // Since sst files might be in different directories, do it for each
+    // directory separately.
+    std::map<std::string, std::vector<std::string>> files_by_directory;
+    for (const auto& md : metadata) {
+      // md.name has a leading "/". Remove it.
+      std::string fname = md.name;
+      if (!fname.empty() && fname[0] == '/') {
+        fname = fname.substr(1);
+      }
+      files_by_directory[md.db_path].push_back(fname);
     }
-    if (!s.ok()) {
-      corruption_messages +=
-          "Can't access " + md.name + ": " + s.ToString() + "\n";
-    } else if (fsize != md.size) {
-      corruption_messages += "Sst file size mismatch: " + file_path +
-                             ". Size recorded in manifest " +
-                             ToString(md.size) + ", actual size " +
-                             ToString(fsize) + "\n";
+    for (const auto& dir_files : files_by_directory) {
+      std::string directory = dir_files.first;
+      std::vector<std::string> existing_files;
+      Status s = env_->GetChildren(directory, &existing_files);
+      if (!s.ok()) {
+        corruption_messages +=
+            "Can't list files in " + directory + ": " + s.ToString() + "\n";
+        continue;
+      }
+      std::sort(existing_files.begin(), existing_files.end());
+
+      for (const std::string& fname : dir_files.second) {
+        if (!std::binary_search(existing_files.begin(), existing_files.end(),
+                                fname) &&
+            !std::binary_search(existing_files.begin(), existing_files.end(),
+                                Rocks2LevelTableFileName(fname))) {
+          corruption_messages +=
+              "Missing sst file " + fname + " in " + directory + "\n";
+        }
+      }
+    }
+  } else {
+    for (const auto& md : metadata) {
+      // md.name has a leading "/".
+      std::string file_path = md.db_path + md.name;
+
+      uint64_t fsize = 0;
+      TEST_SYNC_POINT("DBImpl::CheckConsistency:BeforeGetFileSize");
+      Status s = env_->GetFileSize(file_path, &fsize);
+      if (!s.ok() &&
+          env_->GetFileSize(Rocks2LevelTableFileName(file_path), &fsize).ok()) {
+        s = Status::OK();
+      }
+      if (!s.ok()) {
+        corruption_messages +=
+            "Can't access " + md.name + ": " + s.ToString() + "\n";
+      } else if (fsize != md.size) {
+        corruption_messages += "Sst file size mismatch: " + file_path +
+                               ". Size recorded in manifest " +
+                               ToString(md.size) + ", actual size " +
+                               ToString(fsize) + "\n";
+      }
     }
   }
+
   if (corruption_messages.size() == 0) {
     return Status::OK();
   } else {
@@ -3329,31 +3394,12 @@ Status DBImpl::GetDbIdentity(std::string& identity) const {
 Status DBImpl::GetDbIdentityFromIdentityFile(std::string* identity) const {
   std::string idfilename = IdentityFileName(dbname_);
   const FileOptions soptions;
-  std::unique_ptr<SequentialFileReader> id_file_reader;
-  Status s;
-  {
-    std::unique_ptr<FSSequentialFile> idfile;
-    s = fs_->NewSequentialFile(idfilename, soptions, &idfile, nullptr);
-    if (!s.ok()) {
-      return s;
-    }
-    id_file_reader.reset(
-        new SequentialFileReader(std::move(idfile), idfilename));
+
+  Status s = ReadFileToString(fs_.get(), idfilename, identity);
+  if (!s.ok()) {
+    return s;
   }
 
-  uint64_t file_size;
-  s = fs_->GetFileSize(idfilename, IOOptions(), &file_size, nullptr);
-  if (!s.ok()) {
-    return s;
-  }
-  char* buffer =
-      reinterpret_cast<char*>(alloca(static_cast<size_t>(file_size)));
-  Slice id;
-  s = id_file_reader->Read(static_cast<size_t>(file_size), &id, buffer);
-  if (!s.ok()) {
-    return s;
-  }
-  identity->assign(id.ToString());
   // If last character is '\n' remove it from identity
   if (identity->size() > 0 && identity->back() == '\n') {
     identity->pop_back();

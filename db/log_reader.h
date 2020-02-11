@@ -93,6 +93,10 @@ class Reader {
 
   uint64_t GetLogNumber() const { return log_number_; }
 
+  size_t GetReadOffset() const {
+    return static_cast<size_t>(end_of_buffer_offset_);
+  }
+
  protected:
   std::shared_ptr<Logger> info_log_;
   const std::unique_ptr<SequentialFileReader> file_;

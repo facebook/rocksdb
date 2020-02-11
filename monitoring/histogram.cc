@@ -9,10 +9,10 @@
 
 #include "monitoring/histogram.h"
 
-#include <math.h>
 #include <stdio.h>
 #include <cassert>
 #include <cinttypes>
+#include <cmath>
 
 #include "port/port.h"
 #include "util/cast_util.h"
@@ -177,7 +177,7 @@ double HistogramStat::StandardDeviation() const {
   double variance =
       static_cast<double>(cur_sum_squares * cur_num - cur_sum * cur_sum) /
       static_cast<double>(cur_num * cur_num);
-  return sqrt(variance);
+  return std::sqrt(variance);
 }
 std::string HistogramStat::ToString() const {
   uint64_t cur_num = num();

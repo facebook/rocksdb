@@ -44,6 +44,7 @@
 #include "options/db_options.h"
 #include "port/port.h"
 #include "rocksdb/env.h"
+#include "rocksdb/file_checksum.h"
 #include "table/get_context.h"
 #include "table/multiget_context.h"
 #include "trace_replay/block_cache_tracer.h"
@@ -894,6 +895,9 @@ class VersionSet {
                                      const Options* options,
                                      const FileOptions& file_options,
                                      int new_levels);
+
+  // Get the checksum information of all live files
+  Status GetLiveFilesChecksumInfo(FileChecksumList* checksum_list);
 
   // printf contents (for debugging)
   Status DumpManifest(Options& options, std::string& manifestFileName,

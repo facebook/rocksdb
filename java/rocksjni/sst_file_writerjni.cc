@@ -33,14 +33,8 @@ jlong Java_org_rocksdb_SstFileWriter_newSstFileWriter__JJJB(
           jcomparator_handle);
       break;
 
-    // JAVA_DIRECT_COMPARATOR
-    case 0x1:
-      comparator = reinterpret_cast<rocksdb::DirectComparatorJniCallback *>(
-          jcomparator_handle);
-      break;
-
     // JAVA_NATIVE_COMPARATOR_WRAPPER
-    case 0x2:
+    case 0x1:
       comparator = reinterpret_cast<rocksdb::Comparator *>(jcomparator_handle);
       break;
   }

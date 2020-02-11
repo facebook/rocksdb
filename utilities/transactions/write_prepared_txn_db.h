@@ -470,26 +470,25 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
   friend class PreparedHeap_BasicsTest_Test;
   friend class PreparedHeap_Concurrent_Test;
   friend class PreparedHeap_EmptyAtTheEnd_Test;
-  friend class SnapshotConcurrentAccessTest_SnapshotConcurrentAccessTest_Test;
+  friend class SnapshotConcurrentAccessTest_SnapshotConcurrentAccess_Test;
   friend class WritePreparedCommitEntryPreReleaseCallback;
   friend class WritePreparedTransactionTestBase;
   friend class WritePreparedTxn;
   friend class WritePreparedTxnDBMock;
   friend class WritePreparedTransactionTest_AddPreparedBeforeMax_Test;
-  friend class WritePreparedTransactionTest_AdvanceMaxEvictedSeqBasicTest_Test;
+  friend class WritePreparedTransactionTest_AdvanceMaxEvictedSeqBasic_Test;
   friend class
-      WritePreparedTransactionTest_AdvanceMaxEvictedSeqWithDuplicatesTest_Test;
+      WritePreparedTransactionTest_AdvanceMaxEvictedSeqWithDuplicates_Test;
   friend class WritePreparedTransactionTest_AdvanceSeqByOne_Test;
-  friend class WritePreparedTransactionTest_BasicRecoveryTest_Test;
-  friend class WritePreparedTransactionTest_CheckAgainstSnapshotsTest_Test;
+  friend class WritePreparedTransactionTest_BasicRecovery_Test;
+  friend class WritePreparedTransactionTest_CheckAgainstSnapshots_Test;
   friend class WritePreparedTransactionTest_CleanupSnapshotEqualToMax_Test;
-  friend class
-      WritePreparedTransactionTest_ConflictDetectionAfterRecoveryTest_Test;
-  friend class WritePreparedTransactionTest_CommitMapTest_Test;
+  friend class WritePreparedTransactionTest_ConflictDetectionAfterRecovery_Test;
+  friend class WritePreparedTransactionTest_CommitMap_Test;
   friend class WritePreparedTransactionTest_DoubleSnapshot_Test;
-  friend class WritePreparedTransactionTest_IsInSnapshotEmptyMapTest_Test;
+  friend class WritePreparedTransactionTest_IsInSnapshotEmptyMap_Test;
   friend class WritePreparedTransactionTest_IsInSnapshotReleased_Test;
-  friend class WritePreparedTransactionTest_IsInSnapshotTest_Test;
+  friend class WritePreparedTransactionTest_IsInSnapshot_Test;
   friend class WritePreparedTransactionTest_NewSnapshotLargerThanMax_Test;
   friend class WritePreparedTransactionTest_MaxCatchupWithNewSnapshot_Test;
   friend class WritePreparedTransactionTest_MaxCatchupWithUnbackedSnapshot_Test;
@@ -499,7 +498,7 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
       WritePreparedTransactionTest_NonAtomicUpdateOfDelayedPrepared_Test;
   friend class WritePreparedTransactionTest_NonAtomicUpdateOfMaxEvictedSeq_Test;
   friend class WritePreparedTransactionTest_OldCommitMapGC_Test;
-  friend class WritePreparedTransactionTest_RollbackTest_Test;
+  friend class WritePreparedTransactionTest_Rollback_Test;
   friend class WritePreparedTransactionTest_SmallestUnCommittedSeq_Test;
   friend class WriteUnpreparedTxn;
   friend class WriteUnpreparedTxnDB;
