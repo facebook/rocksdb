@@ -1554,9 +1554,6 @@ class RandomGenerator {
         dist_.reset(new FixedDistribution(value_size));
         max_value_size = value_size;
     }
-    return ok;
-  }
-
     // We use a limited amount of data over and over again and ensure
     // that it is larger than the compression window (32KB), and also
     // large enough to serve all typical value sizes we want to write.
