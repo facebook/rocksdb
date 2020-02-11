@@ -1312,17 +1312,15 @@ Status CompactionJob::FinishCompactionOutputFile(
   // Finish and check for file errors
   if (s.ok()) {
     StopWatch sw(env_, stats_, COMPACTION_OUTFILE_SYNC_MICROS);
-    s = sub_compact->outfile->Sync(db_options_.use_fsync);
+    io_s = sub_compact->outfile->Sync(db_options_.use_fsync);
   }
-  if (s.ok()) {
-    s = sub_compact->outfile->Close();
+  if (io_s.ok()) {
+    io_s = sub_compact->outfile->Close();
   }
-  /*
   if (!io_s.ok()) {
     InstrumentedMutexLock l(db_mutex_);
     s = db_error_handler_->SetBGError(io_s, BackgroundErrorReason::kCompaction);
   }
-  */
   sub_compact->outfile.reset();
 
   TableProperties tp;

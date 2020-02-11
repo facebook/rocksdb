@@ -257,7 +257,6 @@ Status ErrorHandler::SetBGError(const IOStatus& bg_io_err,
   } else {
     s = SetBGError(new_bg_io_err, reason);
   }
-  bg_error_ = Status::OK();
   return s;
 }
 
