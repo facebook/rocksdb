@@ -20,36 +20,30 @@ void Multiplier(void* arg1, void* arg2) {
 
 class PinnableSliceTest : public testing::Test {
  public:
-  void AssertEmpty(const PinnableSlice& slice) {
-    ASSERT_EQ(0, slice.size());
-    ASSERT_FALSE(slice.IsPinned());
-  }
-
   void AssertSameData(const std::string& expected,
                       const PinnableSlice& slice) {
     std::string got;
     got.assign(slice.data(), slice.size());
     ASSERT_EQ(expected, got);
   }
-
-  // Asserts that pinnable is in a clean state after being moved to
-  // another PinnableSlice.
-  // It asserts by trying to pin the slice.
-  void AssertCleanState(PinnableSlice& pinnable, const Slice& slice) {
-    AssertEmpty(pinnable);
-
-    pinnable.PinSelf(slice);
-    AssertSameData(slice.ToString(), pinnable);
-
-    int res = 1;
-    int n2 = 2;
-    pinnable.PinSlice(slice, Multiplier, &res, &n2);
-    AssertSameData(slice.ToString(), pinnable);
-    ASSERT_EQ(1, res);
-    pinnable.Reset();
-    ASSERT_EQ(2, res);
-  }
 };
+
+// Test that the external buffer is moved instead of being copied.
+TEST_F(PinnableSliceTest, MoveExternalBuffer) {
+  Slice s("123");
+  std::string buf;
+  PinnableSlice v1(&buf);
+  v1.PinSelf(s);
+
+  PinnableSlice v2(std::move(v1));
+  ASSERT_EQ(buf.data(), v2.data());
+  ASSERT_EQ(&buf, v2.GetSelf());
+
+  PinnableSlice v3;
+  v3 = std::move(v2);
+  ASSERT_EQ(buf.data(), v3.data());
+  ASSERT_EQ(&buf, v3.GetSelf());
+}
 
 TEST_F(PinnableSliceTest, Move) {
   int n2 = 2;
@@ -72,7 +66,6 @@ TEST_F(PinnableSliceTest, Move) {
     ASSERT_EQ(1, res);
 
     AssertSameData(const_str1, v2);
-    AssertCleanState(v1, slice2);
   }
   // v2 is cleaned up.
   ASSERT_EQ(2, res);
@@ -84,7 +77,6 @@ TEST_F(PinnableSliceTest, Move) {
     PinnableSlice v2(std::move(v1));
 
     AssertSameData(const_str1, v2);
-    AssertCleanState(v1, slice2);
   }
 
   {
@@ -106,7 +98,6 @@ TEST_F(PinnableSliceTest, Move) {
     ASSERT_EQ(2, res);
 
     AssertSameData(const_str1, v2);
-    AssertCleanState(v1, slice2);
   }
   // The Cleanable moved from v1 to v2 will be Reset.
   ASSERT_EQ(4, res);
@@ -127,7 +118,6 @@ TEST_F(PinnableSliceTest, Move) {
     ASSERT_EQ(1, res);
 
     AssertSameData(const_str1, v2);
-    AssertCleanState(v1, slice2);
   }
   // The Cleanable moved from v1 to v2 will be Reset.
   ASSERT_EQ(2, res);
@@ -142,7 +132,6 @@ TEST_F(PinnableSliceTest, Move) {
     v2 = std::move(v1);
 
     AssertSameData(const_str1, v2);
-    AssertCleanState(v1, slice2);
   }
 
   {
@@ -160,7 +149,6 @@ TEST_F(PinnableSliceTest, Move) {
     ASSERT_EQ(2, res);
 
     AssertSameData(const_str1, v2);
-    AssertCleanState(v1, slice2);
   }
   // No Cleanable is moved from v1 to v2, so no more cleanup.
   ASSERT_EQ(2, res);
