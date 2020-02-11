@@ -20,8 +20,6 @@ namespace blob_db {
 
 // A wrapped database which puts values of KV pairs in a separate log
 // and store location to the log in the underlying DB.
-// It lacks lots of importatant functionalities, e.g. DB restarts,
-// garbage collection, iterators, etc.
 //
 // The factory needs to be moved to include/rocksdb/utilities to allow
 // users to use blob DB.

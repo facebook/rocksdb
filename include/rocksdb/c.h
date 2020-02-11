@@ -210,23 +210,23 @@ extern ROCKSDB_LIBRARY_API void rocksdb_checkpoint_object_destroy(
 
 extern ROCKSDB_LIBRARY_API rocksdb_t* rocksdb_open_column_families(
     const rocksdb_options_t* options, const char* name, int num_column_families,
-    const char** column_family_names,
-    const rocksdb_options_t** column_family_options,
+    const char* const* column_family_names,
+    const rocksdb_options_t* const* column_family_options,
     rocksdb_column_family_handle_t** column_family_handles, char** errptr);
 
 extern ROCKSDB_LIBRARY_API rocksdb_t*
 rocksdb_open_for_read_only_column_families(
     const rocksdb_options_t* options, const char* name, int num_column_families,
-    const char** column_family_names,
-    const rocksdb_options_t** column_family_options,
+    const char* const* column_family_names,
+    const rocksdb_options_t* const* column_family_options,
     rocksdb_column_family_handle_t** column_family_handles,
     unsigned char error_if_log_file_exist, char** errptr);
 
 extern ROCKSDB_LIBRARY_API rocksdb_t* rocksdb_open_as_secondary_column_families(
     const rocksdb_options_t* options, const char* name,
     const char* secondary_path, int num_column_families,
-    const char** column_family_names,
-    const rocksdb_options_t** column_family_options,
+    const char* const* column_family_names,
+    const rocksdb_options_t* const* column_family_options,
     rocksdb_column_family_handle_t** colummn_family_handles, char** errptr);
 
 extern ROCKSDB_LIBRARY_API char** rocksdb_list_column_families(
@@ -266,6 +266,12 @@ extern ROCKSDB_LIBRARY_API void rocksdb_delete_cf(
     rocksdb_t* db, const rocksdb_writeoptions_t* options,
     rocksdb_column_family_handle_t* column_family, const char* key,
     size_t keylen, char** errptr);
+
+extern ROCKSDB_LIBRARY_API void rocksdb_delete_range_cf(
+    rocksdb_t* db, const rocksdb_writeoptions_t* options,
+    rocksdb_column_family_handle_t* column_family, const char* start_key,
+    size_t start_key_len, const char* end_key, size_t end_key_len,
+    char** errptr);
 
 extern ROCKSDB_LIBRARY_API void rocksdb_merge(
     rocksdb_t* db, const rocksdb_writeoptions_t* options, const char* key,
@@ -848,6 +854,9 @@ extern ROCKSDB_LIBRARY_API void rocksdb_options_enable_statistics(
 extern ROCKSDB_LIBRARY_API void
 rocksdb_options_set_skip_stats_update_on_db_open(rocksdb_options_t* opt,
                                                  unsigned char val);
+extern ROCKSDB_LIBRARY_API void
+rocksdb_options_set_skip_checking_sst_file_sizes_on_db_open(
+    rocksdb_options_t* opt, unsigned char val);
 
 /* returns a pointer to a malloc()-ed, null terminated string */
 extern ROCKSDB_LIBRARY_API char* rocksdb_options_statistics_get_string(
@@ -1031,6 +1040,8 @@ extern ROCKSDB_LIBRARY_API void rocksdb_options_set_fifo_compaction_options(
     rocksdb_options_t* opt, rocksdb_fifo_compaction_options_t* fifo);
 extern ROCKSDB_LIBRARY_API void rocksdb_options_set_ratelimiter(
     rocksdb_options_t* opt, rocksdb_ratelimiter_t* limiter);
+extern ROCKSDB_LIBRARY_API void rocksdb_options_set_atomic_flush(
+    rocksdb_options_t* opt, unsigned char);
 
 /* RateLimiter */
 extern ROCKSDB_LIBRARY_API rocksdb_ratelimiter_t* rocksdb_ratelimiter_create(
@@ -1506,8 +1517,8 @@ extern ROCKSDB_LIBRARY_API rocksdb_transactiondb_t* rocksdb_transactiondb_open(
 rocksdb_transactiondb_t* rocksdb_transactiondb_open_column_families(
     const rocksdb_options_t* options,
     const rocksdb_transactiondb_options_t* txn_db_options, const char* name,
-    int num_column_families, const char** column_family_names,
-    const rocksdb_options_t** column_family_options,
+    int num_column_families, const char* const* column_family_names,
+    const rocksdb_options_t* const* column_family_options,
     rocksdb_column_family_handle_t** column_family_handles, char** errptr);
 
 extern ROCKSDB_LIBRARY_API const rocksdb_snapshot_t*
@@ -1655,8 +1666,8 @@ rocksdb_optimistictransactiondb_open(const rocksdb_options_t* options,
 extern ROCKSDB_LIBRARY_API rocksdb_optimistictransactiondb_t*
 rocksdb_optimistictransactiondb_open_column_families(
     const rocksdb_options_t* options, const char* name, int num_column_families,
-    const char** column_family_names,
-    const rocksdb_options_t** column_family_options,
+    const char* const* column_family_names,
+    const rocksdb_options_t* const* column_family_options,
     rocksdb_column_family_handle_t** column_family_handles, char** errptr);
 
 extern ROCKSDB_LIBRARY_API rocksdb_t*

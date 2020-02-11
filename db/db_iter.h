@@ -257,6 +257,11 @@ class DBIter final : public Iterator {
     num_internal_keys_skipped_ = 0;
   }
 
+  bool expect_total_order_inner_iter() {
+    assert(expect_total_order_inner_iter_ || prefix_extractor_ != nullptr);
+    return expect_total_order_inner_iter_;
+  }
+
   const SliceTransform* prefix_extractor_;
   Env* const env_;
   Logger* logger_;
@@ -302,7 +307,9 @@ class DBIter final : public Iterator {
   // Means that we will pin all data blocks we read as long the Iterator
   // is not deleted, will be true if ReadOptions::pin_data is true
   const bool pin_thru_lifetime_;
-  const bool total_order_seek_;
+  // Expect the inner iterator to maintain a total order.
+  // prefix_extractor_ must be non-NULL if the value is false.
+  const bool expect_total_order_inner_iter_;
   bool allow_blob_;
   bool is_blob_;
   bool arena_mode_;

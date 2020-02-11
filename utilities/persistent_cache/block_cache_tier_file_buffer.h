@@ -8,7 +8,7 @@
 #include <memory>
 #include <string>
 
-#include "include/rocksdb/comparator.h"
+#include "rocksdb/comparator.h"
 #include "memory/arena.h"
 #include "util/mutexlock.h"
 

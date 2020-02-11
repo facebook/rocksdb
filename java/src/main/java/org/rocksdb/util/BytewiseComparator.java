@@ -9,6 +9,8 @@ import org.rocksdb.*;
 
 import java.nio.ByteBuffer;
 
+import static org.rocksdb.util.ByteUtil.memcmp;
+
 /**
  * This is a Java Native implementation of the C++
  * equivalent BytewiseComparatorImpl using {@link Slice}
@@ -19,7 +21,7 @@ import java.nio.ByteBuffer;
  * and you most likely instead wanted
  * {@link org.rocksdb.BuiltinComparator#BYTEWISE_COMPARATOR}
  */
-public class BytewiseComparator extends Comparator {
+public final class BytewiseComparator extends AbstractComparator {
 
   public BytewiseComparator(final ComparatorOptions copt) {
     super(copt);
@@ -31,61 +33,89 @@ public class BytewiseComparator extends Comparator {
   }
 
   @Override
-  public int compare(final Slice a, final Slice b) {
-    return compare(a.data(), b.data());
+  public int compare(final ByteBuffer a, final ByteBuffer b) {
+    return _compare(a, b);
   }
 
-  @Override
-  public String findShortestSeparator(final String start,
-                                      final Slice limit) {
-    final byte[] startBytes = start.getBytes();
-    final byte[] limitBytes = limit.data();
-
-    // Find length of common prefix
-    final int min_length = Math.min(startBytes.length, limit.size());
-    int diff_index = 0;
-    while ((diff_index < min_length) &&
-        (startBytes[diff_index] == limitBytes[diff_index])) {
-      diff_index++;
-    }
-
-    if (diff_index >= min_length) {
-      // Do not shorten if one string is a prefix of the other
-    } else {
-      final byte diff_byte = startBytes[diff_index];
-      if(diff_byte < 0xff && diff_byte + 1 < limitBytes[diff_index]) {
-        final byte shortest[] = new byte[diff_index + 1];
-        System.arraycopy(startBytes, 0, shortest, 0, diff_index + 1);
-        shortest[diff_index]++;
-        assert(compare(shortest, limitBytes) < 0);
-        return new String(shortest);
+  static int _compare(final ByteBuffer a, final ByteBuffer b) {
+    assert(a != null && b != null);
+    final int minLen = a.remaining() < b.remaining() ?
+        a.remaining() : b.remaining();
+    int r = memcmp(a, b, minLen);
+    if (r == 0) {
+      if (a.remaining() < b.remaining()) {
+        r = -1;
+      } else if (a.remaining() > b.remaining()) {
+        r = +1;
       }
     }
-
-    return null;
-  }
-
-  private static int compare(final byte[] a, final byte[] b) {
-    return ByteBuffer.wrap(a).compareTo(ByteBuffer.wrap(b));
+    return r;
   }
 
   @Override
-  public String findShortSuccessor(final String key) {
-    final byte[] keyBytes = key.getBytes();
+  public void findShortestSeparator(final ByteBuffer start,
+      final ByteBuffer limit) {
+    // Find length of common prefix
+    final int minLength = Math.min(start.remaining(), limit.remaining());
+    int diffIndex = 0;
+    while (diffIndex < minLength &&
+        start.get(diffIndex) == limit.get(diffIndex)) {
+      diffIndex++;
+    }
 
+    if (diffIndex >= minLength) {
+      // Do not shorten if one string is a prefix of the other
+    } else {
+      final int startByte = start.get(diffIndex) & 0xff;
+      final int limitByte = limit.get(diffIndex) & 0xff;
+      if (startByte >= limitByte) {
+        // Cannot shorten since limit is smaller than start or start is
+        // already the shortest possible.
+        return;
+      }
+      assert(startByte < limitByte);
+
+      if (diffIndex < limit.remaining() - 1 || startByte + 1 < limitByte) {
+        start.put(diffIndex, (byte)((start.get(diffIndex) & 0xff) + 1));
+        start.limit(diffIndex + 1);
+      } else {
+        //     v
+        // A A 1 A A A
+        // A A 2
+        //
+        // Incrementing the current byte will make start bigger than limit, we
+        // will skip this byte, and find the first non 0xFF byte in start and
+        // increment it.
+        diffIndex++;
+
+        while (diffIndex < start.remaining()) {
+          // Keep moving until we find the first non 0xFF byte to
+          // increment it
+          if ((start.get(diffIndex) & 0xff) <
+              0xff) {
+            start.put(diffIndex, (byte)((start.get(diffIndex) & 0xff) + 1));
+            start.limit(diffIndex + 1);
+            break;
+          }
+          diffIndex++;
+        }
+      }
+      assert(compare(start.duplicate(), limit.duplicate()) < 0);
+    }
+  }
+
+  @Override
+  public void findShortSuccessor(final ByteBuffer key) {
     // Find first character that can be incremented
-    final int n = keyBytes.length;
+    final int n = key.remaining();
     for (int i = 0; i < n; i++) {
-      final byte byt = keyBytes[i];
+      final int byt = key.get(i) & 0xff;
       if (byt != 0xff) {
-        final byte shortSuccessor[] = new byte[i + 1];
-        System.arraycopy(keyBytes, 0, shortSuccessor, 0, i + 1);
-        shortSuccessor[i]++;
-        return new String(shortSuccessor);
+        key.put(i, (byte)(byt + 1));
+        key.limit(i+1);
+        return;
       }
     }
     // *key is a run of 0xffs.  Leave it alone.
-
-    return null;
   }
 }

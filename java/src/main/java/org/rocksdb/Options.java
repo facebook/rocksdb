@@ -193,7 +193,7 @@ public class Options extends RocksObject
 
   @Override
   public Options setComparator(
-      final AbstractComparator<? extends AbstractSlice<?>> comparator) {
+      final AbstractComparator comparator) {
     assert(isOwningHandle());
     setComparatorHandle(nativeHandle_, comparator.nativeHandle_,
             comparator.getComparatorType().getValue());
@@ -429,6 +429,7 @@ public class Options extends RocksObject
   }
 
   @Override
+  @Deprecated
   public int maxBackgroundCompactions() {
     assert(isOwningHandle());
     return maxBackgroundCompactions(nativeHandle_);
@@ -453,6 +454,7 @@ public class Options extends RocksObject
   }
 
   @Override
+  @Deprecated
   public void setBaseBackgroundCompactions(
       final int baseBackgroundCompactions) {
     assert(isOwningHandle());
@@ -466,6 +468,7 @@ public class Options extends RocksObject
   }
 
   @Override
+  @Deprecated
   public Options setMaxBackgroundCompactions(
       final int maxBackgroundCompactions) {
     assert(isOwningHandle());
@@ -487,12 +490,14 @@ public class Options extends RocksObject
   }
 
   @Override
+  @Deprecated
   public int maxBackgroundFlushes() {
     assert(isOwningHandle());
     return maxBackgroundFlushes(nativeHandle_);
   }
 
   @Override
+  @Deprecated
   public Options setMaxBackgroundFlushes(
       final int maxBackgroundFlushes) {
     assert(isOwningHandle());
@@ -2164,7 +2169,7 @@ public class Options extends RocksObject
   private MemTableConfig memTableConfig_;
   private TableFormatConfig tableFormatConfig_;
   private RateLimiter rateLimiter_;
-  private AbstractComparator<? extends AbstractSlice<?>> comparator_;
+  private AbstractComparator comparator_;
   private AbstractCompactionFilter<? extends AbstractSlice<?>> compactionFilter_;
   private AbstractCompactionFilterFactory<? extends AbstractCompactionFilter<?>>
           compactionFilterFactory_;

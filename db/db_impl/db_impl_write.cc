@@ -1292,7 +1292,7 @@ Status DBImpl::HandleWriteBufferFull(WriteContext* write_context) {
   // suboptimal but still correct.
   ROCKS_LOG_INFO(
       immutable_db_options_.info_log,
-      "Flushing column family with largest mem table size. Write buffer is "
+      "Flushing column family with oldest memtable entry. Write buffer is "
       "using %" ROCKSDB_PRIszt " bytes out of a total of %" ROCKSDB_PRIszt ".",
       write_buffer_manager_->memory_usage(),
       write_buffer_manager_->buffer_size());
@@ -1458,7 +1458,7 @@ Status DBImpl::ThrottleLowPriWritesIfNeeded(const WriteOptions& write_options,
       return Status::OK();
     }
     if (write_options.no_slowdown) {
-      return Status::Incomplete();
+      return Status::Incomplete("Low priority write stall");
     } else {
       assert(my_batch != nullptr);
       // Rate limit those writes. The reason that we don't completely wait

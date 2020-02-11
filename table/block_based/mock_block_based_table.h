@@ -47,6 +47,7 @@ class MockBlockBasedTableTester {
     context.column_family_name = "mock_cf";
     context.compaction_style = ioptions_.compaction_style;
     context.level_at_creation = kMockLevel;
+    context.info_log = ioptions_.info_log;
     return BloomFilterPolicy::GetBuilderFromContext(context);
   }
 };

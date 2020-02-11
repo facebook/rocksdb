@@ -76,7 +76,7 @@ class BlobFile {
   // The latest sequence number when the file was closed/made immutable.
   SequenceNumber immutable_sequence_{0};
 
-  // has a pass of garbage collection successfully finished on this file
+  // Whether the file was marked obsolete (due to either TTL or GC).
   // obsolete_ still needs to do iterator/snapshot checks
   std::atomic<bool> obsolete_{false};
 
@@ -168,13 +168,13 @@ class BlobFile {
     return immutable_sequence_;
   }
 
-  // if the file has gone through GC and blobs have been relocated
+  // Whether the file was marked obsolete (due to either TTL or GC).
   bool Obsolete() const {
     assert(Immutable() || !obsolete_.load());
     return obsolete_.load();
   }
 
-  // Mark file as obsolete by garbage collection. The file is not visible to
+  // Mark file as obsolete (due to either TTL or GC). The file is not visible to
   // snapshots with sequence greater or equal to the given sequence.
   void MarkObsolete(SequenceNumber sequence);
 

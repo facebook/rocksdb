@@ -13,20 +13,46 @@ import static org.assertj.core.api.Assertions.assertThat;
 public class ComparatorOptionsTest {
 
   @ClassRule
-  public static final RocksMemoryResource rocksMemoryResource =
-      new RocksMemoryResource();
+  public static final RocksNativeLibraryResource ROCKS_NATIVE_LIBRARY_RESOURCE =
+      new RocksNativeLibraryResource();
 
   @Test
-  public void comparatorOptions() {
+  public void reusedSynchronisationType() {
     try(final ComparatorOptions copt = new ComparatorOptions()) {
 
-      assertThat(copt).isNotNull();
-      // UseAdaptiveMutex test
-      copt.setUseAdaptiveMutex(true);
-      assertThat(copt.useAdaptiveMutex()).isTrue();
+      copt.setReusedSynchronisationType(ReusedSynchronisationType.MUTEX);
+      assertThat(copt.reusedSynchronisationType())
+          .isEqualTo(ReusedSynchronisationType.MUTEX);
 
-      copt.setUseAdaptiveMutex(false);
-      assertThat(copt.useAdaptiveMutex()).isFalse();
+      copt.setReusedSynchronisationType(ReusedSynchronisationType.ADAPTIVE_MUTEX);
+      assertThat(copt.reusedSynchronisationType())
+          .isEqualTo(ReusedSynchronisationType.ADAPTIVE_MUTEX);
+
+      copt.setReusedSynchronisationType(ReusedSynchronisationType.THREAD_LOCAL);
+      assertThat(copt.reusedSynchronisationType())
+          .isEqualTo(ReusedSynchronisationType.THREAD_LOCAL);
+    }
+  }
+
+  @Test
+  public void useDirectBuffer() {
+    try(final ComparatorOptions copt = new ComparatorOptions()) {
+      copt.setUseDirectBuffer(true);
+      assertThat(copt.useDirectBuffer()).isTrue();
+
+      copt.setUseDirectBuffer(false);
+      assertThat(copt.useDirectBuffer()).isFalse();
+    }
+  }
+
+  @Test
+  public void maxReusedBufferSize() {
+    try(final ComparatorOptions copt = new ComparatorOptions()) {
+      copt.setMaxReusedBufferSize(12345);
+      assertThat(copt.maxReusedBufferSize()).isEqualTo(12345);
+
+      copt.setMaxReusedBufferSize(-1);
+      assertThat(copt.maxReusedBufferSize()).isEqualTo(-1);
     }
   }
 }

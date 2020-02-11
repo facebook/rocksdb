@@ -50,6 +50,7 @@
 #include "table/two_level_iterator.h"
 #include "test_util/sync_point.h"
 #include "util/coding.h"
+#include "util/defer.h"
 #include "util/stop_watch.h"
 #include "util/string_util.h"
 #include "util/user_comparator_wrapper.h"
@@ -867,8 +868,7 @@ class LevelIterator final : public InternalIterator {
         icomparator_(icomparator),
         user_comparator_(icomparator.user_comparator()),
         flevel_(flevel),
-        prefix_extractor_(read_options.total_order_seek ? nullptr
-                                                        : prefix_extractor),
+        prefix_extractor_(prefix_extractor),
         file_read_hist_(file_read_hist),
         should_sample_(should_sample),
         caller_(caller),
@@ -1003,6 +1003,9 @@ class LevelIterator final : public InternalIterator {
   const UserComparatorWrapper user_comparator_;
   const LevelFilesBrief* flevel_;
   mutable FileDescriptor current_value_;
+  // `prefix_extractor_` may be non-null even for total order seek. Checking
+  // this variable is not the right way to identify whether prefix iterator
+  // is used.
   const SliceTransform* prefix_extractor_;
 
   HistogramImpl* file_read_hist_;
@@ -1045,6 +1048,7 @@ void LevelIterator::Seek(const Slice& target) {
     file_iter_.Seek(target);
   }
   if (SkipEmptyFileForward() && prefix_extractor_ != nullptr &&
+      !read_options_.total_order_seek && !read_options_.auto_prefix_mode &&
       file_iter_.iter() != nullptr && file_iter_.Valid()) {
     // We've skipped the file we initially positioned to. In the prefix
     // seek case, it is likely that the file is skipped because of
@@ -1461,7 +1465,8 @@ void Version::GetColumnFamilyMetaData(ColumnFamilyMetaData* cf_meta) {
           file->largest.user_key().ToString(),
           file->stats.num_reads_sampled.load(std::memory_order_relaxed),
           file->being_compacted, file->oldest_blob_file_number,
-          file->TryGetOldestAncesterTime(), file->TryGetFileCreationTime()});
+          file->TryGetOldestAncesterTime(), file->TryGetFileCreationTime(),
+          file->file_checksum, file->file_checksum_func_name});
       files.back().num_entries = file->num_entries;
       files.back().num_deletions = file->num_deletions;
       level_size += file->fd.GetFileSize();
@@ -2112,6 +2117,9 @@ bool Version::MaybeInitializeFileMetaData(FileMetaData* file_meta) {
 }
 
 void VersionStorageInfo::UpdateAccumulatedStats(FileMetaData* file_meta) {
+  TEST_SYNC_POINT_CALLBACK("VersionStorageInfo::UpdateAccumulatedStats",
+                           nullptr);
+
   assert(file_meta->init_stats_from_file);
   accumulated_file_size_ += file_meta->fd.GetFileSize();
   accumulated_raw_key_size_ += file_meta->raw_key_size;
@@ -3479,7 +3487,7 @@ Status AtomicGroupReadBuffer::AddEdit(VersionEdit* edit) {
           "AtomicGroupReadBuffer::AddEdit:IncorrectAtomicGroupSize", edit);
       return Status::Corruption("corrupted atomic group");
     }
-    replay_buffer_[read_edits_in_atomic_group_ - 1] = std::move(*edit);
+    replay_buffer_[read_edits_in_atomic_group_ - 1] = *edit;
     if (read_edits_in_atomic_group_ == replay_buffer_.size()) {
       TEST_SYNC_POINT_CALLBACK(
           "AtomicGroupReadBuffer::AddEdit:LastInAtomicGroup", edit);
@@ -3592,6 +3600,14 @@ Status VersionSet::ProcessManifestWrites(
   autovector<Version*> versions;
   autovector<const MutableCFOptions*> mutable_cf_options_ptrs;
   std::vector<std::unique_ptr<BaseReferencedVersionBuilder>> builder_guards;
+  Status s;
+  Defer defer([&s, &versions]() {
+    if (!s.ok()) {
+      for (auto v : versions) {
+        delete v;
+      }
+    }
+  });
 
   if (first_writer.edit_list.front()->IsColumnFamilyManipulation()) {
     // No group commits for column family add or drop
@@ -3677,12 +3693,8 @@ Status VersionSet::ProcessManifestWrites(
         } else if (group_start != std::numeric_limits<size_t>::max()) {
           group_start = std::numeric_limits<size_t>::max();
         }
-        Status s = LogAndApplyHelper(last_writer->cfd, builder, e, mu);
+        s = LogAndApplyHelper(last_writer->cfd, builder, e, mu);
         if (!s.ok()) {
-          // free up the allocated memory
-          for (auto v : versions) {
-            delete v;
-          }
           return s;
         }
         batch_edits.push_back(e);
@@ -3692,12 +3704,8 @@ Status VersionSet::ProcessManifestWrites(
       assert(!builder_guards.empty() &&
              builder_guards.size() == versions.size());
       auto* builder = builder_guards[i]->version_builder();
-      Status s = builder->SaveTo(versions[i]->storage_info());
+      s = builder->SaveTo(versions[i]->storage_info());
       if (!s.ok()) {
-        // free up the allocated memory
-        for (auto v : versions) {
-          delete v;
-        }
         return s;
       }
     }
@@ -3740,7 +3748,6 @@ Status VersionSet::ProcessManifestWrites(
 #endif  // NDEBUG
 
   uint64_t new_manifest_file_size = 0;
-  Status s;
 
   assert(pending_manifest_file_number_ == 0);
   if (!descriptor_log_ ||
@@ -3753,12 +3760,20 @@ Status VersionSet::ProcessManifestWrites(
     pending_manifest_file_number_ = manifest_file_number_;
   }
 
+  // Local cached copy of state variable(s). WriteCurrentStateToManifest()
+  // reads its content after releasing db mutex to avoid race with
+  // SwitchMemtable().
+  std::unordered_map<uint32_t, MutableCFState> curr_state;
   if (new_descriptor_log) {
     // if we are writing out new snapshot make sure to persist max column
     // family.
     if (column_family_set_->GetMaxColumnFamily() > 0) {
       first_writer.edit_list.front()->SetMaxColumnFamily(
           column_family_set_->GetMaxColumnFamily());
+    }
+    for (const auto* cfd : *column_family_set_) {
+      assert(curr_state.find(cfd->GetID()) == curr_state.end());
+      curr_state[cfd->GetID()] = {cfd->GetLogNumber()};
     }
   }
 
@@ -3802,7 +3817,7 @@ Status VersionSet::ProcessManifestWrites(
             nullptr, db_options_->listeners));
         descriptor_log_.reset(
             new log::Writer(std::move(file_writer), 0, false));
-        s = WriteCurrentStateToManifest(descriptor_log_.get());
+        s = WriteCurrentStateToManifest(curr_state, descriptor_log_.get());
       }
     }
 
@@ -3939,15 +3954,15 @@ Status VersionSet::ProcessManifestWrites(
     ROCKS_LOG_ERROR(db_options_->info_log,
                     "Error in committing version edit to MANIFEST: %s",
                     version_edits.c_str());
-    for (auto v : versions) {
-      delete v;
-    }
+    // If manifest append failed for whatever reason, the file could be
+    // corrupted. So we need to force the next version update to start a
+    // new manifest file.
+    descriptor_log_.reset();
     if (new_descriptor_log) {
       ROCKS_LOG_INFO(db_options_->info_log,
                      "Deleting manifest %" PRIu64 " current manifest %" PRIu64
                      "\n",
                      manifest_file_number_, pending_manifest_file_number_);
-      descriptor_log_.reset();
       env_->DeleteFile(
           DescriptorFileName(dbname_, pending_manifest_file_number_));
     }
@@ -4386,12 +4401,6 @@ Status VersionSet::Recover(
         new SequentialFileReader(std::move(manifest_file), manifest_path,
                                  db_options_->log_readahead_size));
   }
-  uint64_t current_manifest_file_size;
-  s = fs_->GetFileSize(manifest_path, IOOptions(), &current_manifest_file_size,
-                       nullptr);
-  if (!s.ok()) {
-    return s;
-  }
 
   std::unordered_map<uint32_t, std::unique_ptr<BaseReferencedVersionBuilder>>
       builders;
@@ -4412,6 +4421,7 @@ Status VersionSet::Recover(
   builders.insert(
       std::make_pair(0, std::unique_ptr<BaseReferencedVersionBuilder>(
                             new BaseReferencedVersionBuilder(default_cfd))));
+  uint64_t current_manifest_file_size = 0;
   VersionEditParams version_edit_params;
   {
     VersionSet::LogReporter reporter;
@@ -4424,6 +4434,8 @@ Status VersionSet::Recover(
     s = ReadAndRecover(&reader, &read_buffer, cf_name_to_options,
                        column_families_not_found, builders,
                        &version_edit_params, db_id);
+    current_manifest_file_size = reader.GetReadOffset();
+    assert(current_manifest_file_size != 0);
   }
 
   if (s.ok()) {
@@ -4694,6 +4706,34 @@ Status VersionSet::ReduceNumberOfLevels(const std::string& dbname,
       mutable_cf_options, &ve, &dummy_mutex, nullptr, true);
 }
 
+// Get the checksum information including the checksum and checksum function
+// name of all SST files in VersionSet. Store the information in
+// FileChecksumList which contains a map from file number to its checksum info.
+// If DB is not running, make sure call VersionSet::Recover() to load the file
+// metadata from Manifest to VersionSet before calling this function.
+Status VersionSet::GetLiveFilesChecksumInfo(FileChecksumList* checksum_list) {
+  // Clean the previously stored checksum information if any.
+  if (checksum_list == nullptr) {
+    return Status::InvalidArgument("checksum_list is nullptr");
+  }
+  checksum_list->reset();
+
+  for (auto cfd : *column_family_set_) {
+    if (cfd->IsDropped() || !cfd->initialized()) {
+      continue;
+    }
+    for (int level = 0; level < cfd->NumberLevels(); level++) {
+      for (const auto& file :
+           cfd->current()->storage_info()->LevelFiles(level)) {
+        checksum_list->InsertOneFileChecksum(file->fd.GetNumber(),
+                                             file->file_checksum,
+                                             file->file_checksum_func_name);
+      }
+    }
+  }
+  return Status::OK();
+}
+
 Status VersionSet::DumpManifest(Options& options, std::string& dscname,
                                 bool verbose, bool hex, bool json) {
   // Open the specified manifest file.
@@ -4918,7 +4958,9 @@ void VersionSet::MarkMinLogNumberToKeep2PC(uint64_t number) {
   }
 }
 
-Status VersionSet::WriteCurrentStateToManifest(log::Writer* log) {
+Status VersionSet::WriteCurrentStateToManifest(
+    const std::unordered_map<uint32_t, MutableCFState>& curr_state,
+    log::Writer* log) {
   // TODO: Break up into multiple records to reduce memory usage on recovery?
 
   // WARNING: This method doesn't hold a mutex!!
@@ -4981,10 +5023,14 @@ Status VersionSet::WriteCurrentStateToManifest(log::Writer* log) {
                        f->fd.GetFileSize(), f->smallest, f->largest,
                        f->fd.smallest_seqno, f->fd.largest_seqno,
                        f->marked_for_compaction, f->oldest_blob_file_number,
-                       f->oldest_ancester_time, f->file_creation_time);
+                       f->oldest_ancester_time, f->file_creation_time,
+                       f->file_checksum, f->file_checksum_func_name);
         }
       }
-      edit.SetLogNumber(cfd->GetLogNumber());
+      const auto iter = curr_state.find(cfd->GetID());
+      assert(iter != curr_state.end());
+      uint64_t log_number = iter->second.log_number;
+      edit.SetLogNumber(log_number);
       std::string record;
       if (!edit.EncodeTo(&record)) {
         return Status::Corruption(
@@ -5405,6 +5451,8 @@ void VersionSet::GetLiveFilesMetaData(std::vector<LiveFileMetaData>* metadata) {
         filemetadata.num_entries = file->num_entries;
         filemetadata.num_deletions = file->num_deletions;
         filemetadata.oldest_blob_file_number = file->oldest_blob_file_number;
+        filemetadata.file_checksum = file->file_checksum;
+        filemetadata.file_checksum_func_name = file->file_checksum_func_name;
         metadata->push_back(filemetadata);
       }
     }
@@ -5856,7 +5904,7 @@ Status ReactiveVersionSet::ApplyOneVersionEditToBuilder(
     // Some other error has occurred during LoadTableHandlers.
   }
 
-  if (version_edit->has_next_file_number()) {
+  if (version_edit->HasNextFile()) {
     next_file_number_.store(version_edit->next_file_number_ + 1);
   }
   if (version_edit->has_last_sequence_) {

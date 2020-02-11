@@ -1247,6 +1247,11 @@ Status ColumnFamilyData::ValidateOptions(
   if (s.ok() && db_options.allow_concurrent_memtable_write) {
     s = CheckConcurrentWritesSupported(cf_options);
   }
+  if (s.ok() && db_options.unordered_write &&
+      cf_options.max_successive_merges != 0) {
+    s = Status::InvalidArgument(
+        "max_successive_merges > 0 is incompatible with unordered_write");
+  }
   if (s.ok()) {
     s = CheckCFPathsSupported(db_options, cf_options);
   }
@@ -1315,17 +1320,26 @@ Env::WriteLifeTimeHint ColumnFamilyData::CalculateSSTWriteHint(int level) {
                             static_cast<int>(Env::WLTH_MEDIUM));
 }
 
-Status ColumnFamilyData::AddDirectories() {
+Status ColumnFamilyData::AddDirectories(
+    std::map<std::string, std::shared_ptr<Directory>>* created_dirs) {
   Status s;
+  assert(created_dirs != nullptr);
   assert(data_dirs_.empty());
   for (auto& p : ioptions_.cf_paths) {
-    std::unique_ptr<Directory> path_directory;
-    s = DBImpl::CreateAndNewDirectory(ioptions_.env, p.path, &path_directory);
-    if (!s.ok()) {
-      return s;
+    auto existing_dir = created_dirs->find(p.path);
+
+    if (existing_dir == created_dirs->end()) {
+      std::unique_ptr<Directory> path_directory;
+      s = DBImpl::CreateAndNewDirectory(ioptions_.env, p.path, &path_directory);
+      if (!s.ok()) {
+        return s;
+      }
+      assert(path_directory != nullptr);
+      data_dirs_.emplace_back(path_directory.release());
+      (*created_dirs)[p.path] = data_dirs_.back();
+    } else {
+      data_dirs_.emplace_back(existing_dir->second);
     }
-    assert(path_directory != nullptr);
-    data_dirs_.emplace_back(path_directory.release());
   }
   assert(data_dirs_.size() == ioptions_.cf_paths.size());
   return s;

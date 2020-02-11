@@ -400,6 +400,7 @@ TEST_F(DBCompactionTest, SkipStatsUpdateTest) {
   // The test will need to be updated if the internal behavior changes.
 
   Options options = DeletionTriggerOptions(CurrentOptions());
+  options.disable_auto_compactions = true;
   options.env = env_;
   DestroyAndReopen(options);
   Random rnd(301);
@@ -410,31 +411,33 @@ TEST_F(DBCompactionTest, SkipStatsUpdateTest) {
     values.push_back(RandomString(&rnd, kCDTValueSize));
     ASSERT_OK(Put(Key(k), values[k]));
   }
-  dbfull()->TEST_WaitForFlushMemTable();
-  dbfull()->TEST_WaitForCompact();
+
+  ASSERT_OK(Flush());
+
+  Close();
+
+  int update_acc_stats_called = 0;
+  rocksdb::SyncPoint::GetInstance()->SetCallBack(
+      "VersionStorageInfo::UpdateAccumulatedStats",
+      [&](void* /* arg */) { ++update_acc_stats_called; });
+  SyncPoint::GetInstance()->EnableProcessing();
 
   // Reopen the DB with stats-update disabled
   options.skip_stats_update_on_db_open = true;
   options.max_open_files = 20;
-  env_->random_file_open_counter_.store(0);
   Reopen(options);
 
-  // As stats-update is disabled, we expect a very low number of
-  // random file open.
-  // Note that this number must be changed accordingly if we change
-  // the number of files needed to be opened in the DB::Open process.
-  const int kMaxFileOpenCount = 10;
-  ASSERT_LT(env_->random_file_open_counter_.load(), kMaxFileOpenCount);
+  ASSERT_EQ(update_acc_stats_called, 0);
 
   // Repeat the reopen process, but this time we enable
   // stats-update.
   options.skip_stats_update_on_db_open = false;
-  env_->random_file_open_counter_.store(0);
   Reopen(options);
 
-  // Since we do a normal stats update on db-open, there
-  // will be more random open files.
-  ASSERT_GT(env_->random_file_open_counter_.load(), kMaxFileOpenCount);
+  ASSERT_GT(update_acc_stats_called, 0);
+
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+  SyncPoint::GetInstance()->DisableProcessing();
 }
 
 TEST_F(DBCompactionTest, TestTableReaderForCompaction) {
@@ -3607,6 +3610,15 @@ TEST_F(DBCompactionTest, LevelTtlCascadingCompactions) {
         ASSERT_OK(Put(Key(i), RandomString(&rnd, kValueSize)));
       }
       Flush();
+      // Get the first file's creation time. This will be the oldest file in the
+      // DB. Compactions inolving this file's descendents should keep getting
+      // this time.
+      std::vector<std::vector<FileMetaData>> level_to_files;
+      dbfull()->TEST_GetFilesMetaData(dbfull()->DefaultColumnFamily(),
+                                      &level_to_files);
+      uint64_t oldest_time = level_to_files[0][0].oldest_ancester_time;
+      // Add 1 hour and do another flush.
+      env_->addon_time_.fetch_add(1 * 60 * 60);
       for (int i = 101; i <= 200; ++i) {
         ASSERT_OK(Put(Key(i), RandomString(&rnd, kValueSize)));
       }
@@ -3614,11 +3626,13 @@ TEST_F(DBCompactionTest, LevelTtlCascadingCompactions) {
       MoveFilesToLevel(6);
       ASSERT_EQ("0,0,0,0,0,0,2", FilesPerLevel());
 
+      env_->addon_time_.fetch_add(1 * 60 * 60);
       // Add two L4 files with key ranges: [1 .. 50], [51 .. 150].
       for (int i = 1; i <= 50; ++i) {
         ASSERT_OK(Put(Key(i), RandomString(&rnd, kValueSize)));
       }
       Flush();
+      env_->addon_time_.fetch_add(1 * 60 * 60);
       for (int i = 51; i <= 150; ++i) {
         ASSERT_OK(Put(Key(i), RandomString(&rnd, kValueSize)));
       }
@@ -3626,6 +3640,7 @@ TEST_F(DBCompactionTest, LevelTtlCascadingCompactions) {
       MoveFilesToLevel(4);
       ASSERT_EQ("0,0,0,0,2,0,2", FilesPerLevel());
 
+      env_->addon_time_.fetch_add(1 * 60 * 60);
       // Add one L1 file with key range: [26, 75].
       for (int i = 26; i <= 75; ++i) {
         ASSERT_OK(Put(Key(i), RandomString(&rnd, kValueSize)));
@@ -3666,6 +3681,10 @@ TEST_F(DBCompactionTest, LevelTtlCascadingCompactions) {
       dbfull()->TEST_WaitForCompact();
       ASSERT_EQ("1,0,0,0,0,0,1", FilesPerLevel());
       ASSERT_EQ(5, ttl_compactions);
+
+      dbfull()->TEST_GetFilesMetaData(dbfull()->DefaultColumnFamily(),
+                                      &level_to_files);
+      ASSERT_EQ(oldest_time, level_to_files[6][0].oldest_ancester_time);
 
       env_->addon_time_.fetch_add(25 * 60 * 60);
       ASSERT_OK(Put(Key(2), "1"));

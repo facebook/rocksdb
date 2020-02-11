@@ -44,6 +44,7 @@
 #include "options/db_options.h"
 #include "port/port.h"
 #include "rocksdb/env.h"
+#include "rocksdb/file_checksum.h"
 #include "table/get_context.h"
 #include "table/multiget_context.h"
 #include "trace_replay/block_cache_tracer.h"
@@ -895,6 +896,9 @@ class VersionSet {
                                      const FileOptions& file_options,
                                      int new_levels);
 
+  // Get the checksum information of all live files
+  Status GetLiveFilesChecksumInfo(FileChecksumList* checksum_list);
+
   // printf contents (for debugging)
   Status DumpManifest(Options& options, std::string& manifestFileName,
                       bool verbose, bool hex = false, bool json = false);
@@ -1075,8 +1079,14 @@ class VersionSet {
                            const Slice& start, const Slice& end,
                            TableReaderCaller caller);
 
+  struct MutableCFState {
+    uint64_t log_number;
+  };
+
   // Save current contents to *log
-  Status WriteCurrentStateToManifest(log::Writer* log);
+  Status WriteCurrentStateToManifest(
+      const std::unordered_map<uint32_t, MutableCFState>& curr_state,
+      log::Writer* log);
 
   void AppendVersion(ColumnFamilyData* column_family_data, Version* v);
 

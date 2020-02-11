@@ -425,6 +425,7 @@ struct BlockBasedTableBuilder::Rep {
       context.column_family_name = column_family_name;
       context.compaction_style = ioptions.compaction_style;
       context.level_at_creation = level_at_creation;
+      context.info_log = ioptions.info_log;
       filter_builder.reset(CreateFilterBlockBuilder(
           ioptions, moptions, context, use_delta_encoding_for_index_values,
           p_index_builder_));
@@ -1163,6 +1164,9 @@ Status BlockBasedTableBuilder::Finish() {
   if (ok()) {
     WriteFooter(metaindex_block_handle, index_block_handle);
   }
+  if (r->file != nullptr) {
+    file_checksum_ = r->file->GetFileChecksum();
+  }
   r->state = Rep::State::kClosed;
   return r->status;
 }
@@ -1196,6 +1200,14 @@ TableProperties BlockBasedTableBuilder::GetTableProperties() const {
     collector->Finish(&ret.user_collected_properties);
   }
   return ret;
+}
+
+const char* BlockBasedTableBuilder::GetFileChecksumFuncName() const {
+  if (rep_->file != nullptr) {
+    return rep_->file->GetFileChecksumFuncName();
+  } else {
+    return kUnknownFileChecksumFuncName.c_str();
+  }
 }
 
 const std::string BlockBasedTable::kFilterBlockPrefix = "filter.";

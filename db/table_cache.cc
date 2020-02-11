@@ -100,8 +100,13 @@ Status TableCache::GetTableReader(
   std::unique_ptr<FSRandomAccessFile> file;
   Status s = ioptions_.fs->NewRandomAccessFile(fname, file_options, &file,
                                                nullptr);
-
   RecordTick(ioptions_.statistics, NO_FILE_OPENS);
+  if (s.IsPathNotFound()) {
+    fname = Rocks2LevelTableFileName(fname);
+    s = ioptions_.fs->NewRandomAccessFile(fname, file_options, &file, nullptr);
+    RecordTick(ioptions_.statistics, NO_FILE_OPENS);
+  }
+
   if (s.ok()) {
     if (!sequential_mode && ioptions_.advise_random_on_open) {
       file->Hint(FSRandomAccessFile::kRandom);

@@ -100,12 +100,11 @@ DBOptions SanitizeOptions(const std::string& dbname, const DBOptions& src) {
   if (result.recycle_log_file_num &&
       (result.wal_recovery_mode == WALRecoveryMode::kPointInTimeRecovery ||
        result.wal_recovery_mode == WALRecoveryMode::kAbsoluteConsistency)) {
-    // kPointInTimeRecovery is indistinguishable from
-    // kTolerateCorruptedTailRecords in recycle mode since we define
-    // the "end" of the log as the first corrupt record we encounter.
+    // kPointInTimeRecovery is inconsistent with recycle log file feature since
+    // we define the "end" of the log as the first corrupt record we encounter.
     // kAbsoluteConsistency doesn't make sense because even a clean
     // shutdown leaves old junk at the end of the log file.
-    result.wal_recovery_mode = WALRecoveryMode::kTolerateCorruptedTailRecords;
+    result.recycle_log_file_num = 0;
   }
 
   if (result.wal_dir.empty()) {
@@ -173,6 +172,13 @@ DBOptions SanitizeOptions(const std::string& dbname, const DBOptions& src) {
     result.sst_file_manager = sst_file_manager;
   }
 #endif
+
+  if (!result.paranoid_checks) {
+    result.skip_checking_sst_file_sizes_on_db_open = true;
+    ROCKS_LOG_INFO(result.info_log,
+                   "file size check will be skipped during open.");
+  }
+
   return result;
 }
 
@@ -345,7 +351,8 @@ Status Directories::SetDirectories(Env* env, const std::string& dbname,
 
 Status DBImpl::Recover(
     const std::vector<ColumnFamilyDescriptor>& column_families, bool read_only,
-    bool error_if_log_file_exist, bool error_if_data_exists_in_logs) {
+    bool error_if_log_file_exist, bool error_if_data_exists_in_logs,
+    uint64_t* recovered_seq) {
   mutex_.AssertHeld();
 
   bool is_new_db = false;
@@ -363,12 +370,10 @@ Status DBImpl::Recover(
       return s;
     }
 
-    s = env_->FileExists(CurrentFileName(dbname_));
+    std::string current_fname = CurrentFileName(dbname_);
+    s = env_->FileExists(current_fname);
     if (s.IsNotFound()) {
       if (immutable_db_options_.create_if_missing) {
-        // Has to be called only after Identity File creation is successful
-        // because DB ID is stored in Manifest if
-        // immutable_db_options_.write_dbid_to_manifest = true
         s = NewDB();
         is_new_db = true;
         if (!s.ok()) {
@@ -376,7 +381,7 @@ Status DBImpl::Recover(
         }
       } else {
         return Status::InvalidArgument(
-            dbname_, "does not exist (create_if_missing is false)");
+            current_fname, "does not exist (create_if_missing is false)");
       }
     } else if (s.ok()) {
       if (immutable_db_options_.error_if_exists) {
@@ -394,14 +399,14 @@ Status DBImpl::Recover(
       FileOptions customized_fs(file_options_);
       customized_fs.use_direct_reads |=
           immutable_db_options_.use_direct_io_for_flush_and_compaction;
-      s = fs_->NewRandomAccessFile(CurrentFileName(dbname_), customized_fs,
-                                   &idfile, nullptr);
+      s = fs_->NewRandomAccessFile(current_fname, customized_fs, &idfile,
+                                   nullptr);
       if (!s.ok()) {
         std::string error_str = s.ToString();
         // Check if unsupported Direct I/O is the root cause
         customized_fs.use_direct_reads = false;
-        s = fs_->NewRandomAccessFile(CurrentFileName(dbname_), customized_fs,
-                                     &idfile, nullptr);
+        s = fs_->NewRandomAccessFile(current_fname, customized_fs, &idfile,
+                                     nullptr);
         if (s.ok()) {
           return Status::InvalidArgument(
               "Direct I/O is not supported by the specified DB.");
@@ -434,27 +439,28 @@ Status DBImpl::Recover(
       assert(s.IsIOError());
       return s;
     }
-    GetDbIdentityFromIdentityFile(&db_id_);
-    if (immutable_db_options_.write_dbid_to_manifest) {
+    s = GetDbIdentityFromIdentityFile(&db_id_);
+    if (immutable_db_options_.write_dbid_to_manifest && s.ok()) {
       VersionEdit edit;
       edit.SetDBId(db_id_);
       Options options;
       MutableCFOptions mutable_cf_options(options);
       versions_->db_id_ = db_id_;
-      versions_->LogAndApply(versions_->GetColumnFamilySet()->GetDefault(),
+      s = versions_->LogAndApply(versions_->GetColumnFamilySet()->GetDefault(),
                              mutable_cf_options, &edit, &mutex_, nullptr,
                              false);
     }
   } else {
-    SetIdentityFile(env_, dbname_, db_id_);
+    s = SetIdentityFile(env_, dbname_, db_id_);
   }
 
   if (immutable_db_options_.paranoid_checks && s.ok()) {
     s = CheckConsistency();
   }
   if (s.ok() && !read_only) {
+    std::map<std::string, std::shared_ptr<Directory>> created_dirs;
     for (auto cfd : *versions_->GetColumnFamilySet()) {
-      s = cfd->AddDirectories();
+      s = cfd->AddDirectories(&created_dirs);
       if (!s.ok()) {
         return s;
       }
@@ -465,16 +471,16 @@ Status DBImpl::Recover(
     s = InitPersistStatsColumnFamily();
   }
 
-  // Initial max_total_in_memory_state_ before recovery logs. Log recovery
-  // may check this value to decide whether to flush.
-  max_total_in_memory_state_ = 0;
-  for (auto cfd : *versions_->GetColumnFamilySet()) {
-    auto* mutable_cf_options = cfd->GetLatestMutableCFOptions();
-    max_total_in_memory_state_ += mutable_cf_options->write_buffer_size *
-                                  mutable_cf_options->max_write_buffer_number;
-  }
-
   if (s.ok()) {
+    // Initial max_total_in_memory_state_ before recovery logs. Log recovery
+    // may check this value to decide whether to flush.
+    max_total_in_memory_state_ = 0;
+    for (auto cfd : *versions_->GetColumnFamilySet()) {
+      auto* mutable_cf_options = cfd->GetLatestMutableCFOptions();
+      max_total_in_memory_state_ += mutable_cf_options->write_buffer_size *
+                                    mutable_cf_options->max_write_buffer_number;
+    }
+
     SequenceNumber next_sequence(kMaxSequenceNumber);
     default_cf_handle_ = new ColumnFamilyHandleImpl(
         versions_->GetColumnFamilySet()->GetDefault(), this, &mutex_);
@@ -540,7 +546,12 @@ Status DBImpl::Recover(
     if (!logs.empty()) {
       // Recover in the order in which the logs were generated
       std::sort(logs.begin(), logs.end());
-      s = RecoverLogFiles(logs, &next_sequence, read_only);
+      bool corrupted_log_found = false;
+      s = RecoverLogFiles(logs, &next_sequence, read_only,
+                          &corrupted_log_found);
+      if (corrupted_log_found && recovered_seq != nullptr) {
+        *recovered_seq = next_sequence;
+      }
       if (!s.ok()) {
         // Clear memtables if recovery failed
         for (auto cfd : *versions_->GetColumnFamilySet()) {
@@ -670,7 +681,8 @@ Status DBImpl::InitPersistStatsColumnFamily() {
 
 // REQUIRES: log_numbers are sorted in ascending order
 Status DBImpl::RecoverLogFiles(const std::vector<uint64_t>& log_numbers,
-                               SequenceNumber* next_sequence, bool read_only) {
+                               SequenceNumber* next_sequence, bool read_only,
+                               bool* corrupted_log_found) {
   struct LogReporter : public log::Reader::Reporter {
     Env* env;
     Logger* info_log;
@@ -972,6 +984,9 @@ Status DBImpl::RecoverLogFiles(const std::vector<uint64_t>& log_numbers,
         status = Status::OK();
         stop_replay_for_corruption = true;
         corrupted_log_number = log_number;
+        if (corrupted_log_found != nullptr) {
+          *corrupted_log_found = true;
+        }
         ROCKS_LOG_INFO(immutable_db_options_.info_log,
                        "Point in time recovered to log #%" PRIu64
                        " seq #%" PRIu64,
@@ -1000,6 +1015,9 @@ Status DBImpl::RecoverLogFiles(const std::vector<uint64_t>& log_numbers,
   // the corrupted log number, which means CF contains data beyond the point of
   // corruption. This could during PIT recovery when the WAL is corrupted and
   // some (but not all) CFs are flushed
+  // Exclude the PIT case where no log is dropped after the corruption point.
+  // This is to cover the case for empty logs after corrupted log, in which we
+  // don't reset stop_replay_for_corruption.
   if (stop_replay_for_corruption == true &&
       (immutable_db_options_.wal_recovery_mode ==
            WALRecoveryMode::kPointInTimeRecovery ||
@@ -1241,7 +1259,8 @@ Status DBImpl::WriteLevel0TableForRecovery(int job_id, ColumnFamilyData* cfd,
                   meta.fd.GetFileSize(), meta.smallest, meta.largest,
                   meta.fd.smallest_seqno, meta.fd.largest_seqno,
                   meta.marked_for_compaction, meta.oldest_blob_file_number,
-                  meta.oldest_ancester_time, meta.file_creation_time);
+                  meta.oldest_ancester_time, meta.file_creation_time,
+                  meta.file_checksum, meta.file_checksum_func_name);
   }
 
   InternalStats::CompactionStats stats(CompactionReason::kFlush, 1);
@@ -1395,7 +1414,8 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
 
   impl->mutex_.Lock();
   // Handles create_if_missing, error_if_exists
-  s = impl->Recover(column_families);
+  uint64_t recovered_seq(kMaxSequenceNumber);
+  s = impl->Recover(column_families, false, false, false, &recovered_seq);
   if (s.ok()) {
     uint64_t new_log_number = impl->versions_->NewFileNumber();
     log::Writer* new_log = nullptr;
@@ -1453,8 +1473,28 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
       if (impl->two_write_queues_) {
         impl->log_write_mutex_.Unlock();
       }
+
       impl->DeleteObsoleteFiles();
       s = impl->directories_.GetDbDir()->Fsync();
+    }
+    if (s.ok()) {
+      // In WritePrepared there could be gap in sequence numbers. This breaks
+      // the trick we use in kPointInTimeRecovery which assumes the first seq in
+      // the log right after the corrupted log is one larger than the last seq
+      // we read from the logs. To let this trick keep working, we add a dummy
+      // entry with the expected sequence to the first log right after recovery.
+      // In non-WritePrepared case also the new log after recovery could be
+      // empty, and thus missing the consecutive seq hint to distinguish
+      // middle-log corruption to corrupted-log-remained-after-recovery. This
+      // case also will be addressed by a dummy write.
+      if (recovered_seq != kMaxSequenceNumber) {
+        WriteBatch empty_batch;
+        WriteBatchInternal::SetSequence(&empty_batch, recovered_seq);
+        WriteOptions write_options;
+        uint64_t log_used, log_size;
+        log::Writer* log_writer = impl->logs_.back().writer;
+        s = impl->WriteToWAL(empty_batch, log_writer, &log_used, &log_size);
+      }
     }
   }
   if (s.ok() && impl->immutable_db_options_.persist_stats_to_disk) {
@@ -1511,6 +1551,27 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
   if (s.ok() && sfm) {
     // Notify SstFileManager about all sst files that already exist in
     // db_paths[0] and cf_paths[0] when the DB is opened.
+
+    // SstFileManagerImpl needs to know sizes of the files. For files whose size
+    // we already know (sst files that appear in manifest - typically that's the
+    // vast majority of all files), we'll pass the size to SstFileManager.
+    // For all other files SstFileManager will query the size from filesystem.
+
+    std::vector<LiveFileMetaData> metadata;
+
+    impl->mutex_.Lock();
+    impl->versions_->GetLiveFilesMetaData(&metadata);
+    impl->mutex_.Unlock();
+
+    std::unordered_map<std::string, uint64_t> known_file_sizes;
+    for (const auto& md : metadata) {
+      std::string name = md.name;
+      if (!name.empty() && name[0] == '/') {
+        name = name.substr(1);
+      }
+      known_file_sizes[name] = md.size;
+    }
+
     std::vector<std::string> paths;
     paths.emplace_back(impl->immutable_db_options_.db_paths[0].path);
     for (auto& cf : column_families) {
@@ -1530,7 +1591,14 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
         std::string file_path = path + "/" + file_name;
         if (ParseFileName(file_name, &file_number, &file_type) &&
             file_type == kTableFile) {
-          sfm->OnAddFile(file_path);
+          if (known_file_sizes.count(file_name)) {
+            // We're assuming that each sst file name exists in at most one of
+            // the paths.
+            sfm->OnAddFile(file_path, known_file_sizes.at(file_name),
+                           /* compaction */ false);
+          } else {
+            sfm->OnAddFile(file_path);
+          }
         }
       }
     }

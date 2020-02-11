@@ -71,6 +71,14 @@ Status SstFileManagerImpl::OnAddFile(const std::string& file_path,
   return s;
 }
 
+Status SstFileManagerImpl::OnAddFile(const std::string& file_path,
+                                     uint64_t file_size, bool compaction) {
+  MutexLock l(&mu_);
+  OnAddFileImpl(file_path, file_size, compaction);
+  TEST_SYNC_POINT("SstFileManagerImpl::OnAddFile");
+  return Status::OK();
+}
+
 Status SstFileManagerImpl::OnDeleteFile(const std::string& file_path) {
   {
     MutexLock l(&mu_);
@@ -309,6 +317,7 @@ void SstFileManagerImpl::ClearError() {
       cur_instance_ = error_handler;
       mu_.Unlock();
       s = error_handler->RecoverFromBGError();
+      TEST_SYNC_POINT("SstFileManagerImpl::ErrorCleared");
       mu_.Lock();
       // The DB instance might have been deleted while we were
       // waiting for the mutex, so check cur_instance_ to make sure its
@@ -418,7 +427,8 @@ bool SstFileManagerImpl::CancelErrorRecovery(ErrorHandler* handler) {
 Status SstFileManagerImpl::ScheduleFileDeletion(
     const std::string& file_path, const std::string& path_to_sync,
     const bool force_bg) {
-  TEST_SYNC_POINT("SstFileManagerImpl::ScheduleFileDeletion");
+  TEST_SYNC_POINT_CALLBACK("SstFileManagerImpl::ScheduleFileDeletion",
+                           const_cast<std::string*>(&file_path));
   return delete_scheduler_.DeleteFile(file_path, path_to_sync,
                                       force_bg);
 }

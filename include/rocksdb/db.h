@@ -716,6 +716,10 @@ class DB {
     //      timestamp of oldest unreleased snapshot.
     static const std::string kOldestSnapshotTime;
 
+    //  "rocksdb.oldest-snapshot-sequence" - returns number representing
+    //      sequence number of oldest unreleased snapshot.
+    static const std::string kOldestSnapshotSequence;
+
     //  "rocksdb.num-live-versions" - returns number of live versions. `Version`
     //      is an internal data structure. See version_set.h for details. More
     //      live versions often mean more SST files are held from being deleted,
@@ -1406,9 +1410,9 @@ class DB {
 
 #endif  // ROCKSDB_LITE
 
-  // Sets the globally unique ID created at database creation time by invoking
-  // Env::GenerateUniqueId(), in identity. Returns Status::OK if identity could
-  // be set properly
+  // Returns the unique ID which is read from IDENTITY file during the opening
+  // of database by setting in the identity variable
+  // Returns Status::OK if identity could be set properly
   virtual Status GetDbIdentity(std::string& identity) const = 0;
 
   // Returns default column family handle

@@ -34,6 +34,7 @@ class StressTest {
 
   void OperateDb(ThreadState* thread);
   virtual void VerifyDb(ThreadState* thread) const = 0;
+  virtual void ContinuouslyVerifyDb(ThreadState* /*thread*/) const {}
 
   void PrintStatistics();
 
@@ -51,6 +52,8 @@ class StressTest {
   Status NewTxn(WriteOptions& write_opts, Transaction** txn);
 
   Status CommitTxn(Transaction* txn);
+
+  Status RollbackTxn(Transaction* txn);
 #endif
 
   virtual void MaybeClearOneColumnFamily(ThreadState* /* thread */) {}
@@ -142,7 +145,13 @@ class StressTest {
                              const std::vector<int64_t>& rand_keys);
 
   // Enum used by VerifyIterator() to identify the mode to validate.
-  enum LastIterateOp { kLastOpSeek, kLastOpSeekForPrev, kLastOpNextOrPrev };
+  enum LastIterateOp {
+    kLastOpSeek,
+    kLastOpSeekForPrev,
+    kLastOpNextOrPrev,
+    kLastOpSeekToFirst,
+    kLastOpSeekToLast
+  };
 
   // Compare the two iterator, iter and cmp_iter are in the same position,
   // unless iter might be made invalidate or undefined because of
@@ -150,9 +159,11 @@ class StressTest {
   // Will flag failure if the verification fails.
   // diverged = true if the two iterator is already diverged.
   // True if verification passed, false if not.
+  // op_logs is the information to print when validation fails.
   void VerifyIterator(ThreadState* thread, ColumnFamilyHandle* cmp_cfh,
                       const ReadOptions& ro, Iterator* iter, Iterator* cmp_iter,
-                      LastIterateOp op, const Slice& seek_key, bool* diverged);
+                      LastIterateOp op, const Slice& seek_key,
+                      const std::string& op_logs, bool* diverged);
 
   virtual Status TestBackupRestore(ThreadState* thread,
                                    const std::vector<int>& rand_column_families,
@@ -172,6 +183,13 @@ class StressTest {
                            const std::string& keystr, uint64_t i);
 
   Status MaybeReleaseSnapshots(ThreadState* thread, uint64_t i);
+#ifndef ROCKSDB_LITE
+  Status VerifyGetLiveAndWalFiles(ThreadState* thread);
+  virtual Status TestApproximateSize(
+      ThreadState* thread, uint64_t iteration,
+      const std::vector<int>& rand_column_families,
+      const std::vector<int64_t>& rand_keys);
+#endif  // !ROCKSDB_LITE
 
   void VerificationAbort(SharedState* shared, std::string msg, Status s) const;
 
@@ -203,6 +221,10 @@ class StressTest {
   // Fields used for stress-testing secondary instance in the same process
   std::vector<DB*> secondaries_;
   std::vector<std::vector<ColumnFamilyHandle*>> secondary_cfh_lists_;
+
+  // Fields used for continuous verification from another thread
+  DB* cmp_db_;
+  std::vector<ColumnFamilyHandle*> cmp_cfhs_;
 };
 
 }  // namespace rocksdb

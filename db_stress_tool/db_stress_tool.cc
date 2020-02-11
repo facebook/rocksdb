@@ -30,6 +30,8 @@ static std::shared_ptr<rocksdb::Env> env_guard;
 static std::shared_ptr<rocksdb::DbStressEnvWrapper> env_wrapper_guard;
 }  // namespace
 
+KeyGenContext key_gen_ctx;
+
 int db_stress_tool(int argc, char** argv) {
   SetUsageMessage(std::string("\nUSAGE:\n") + std::string(argv[0]) +
                   " [OPTIONS]...");
@@ -41,13 +43,14 @@ int db_stress_tool(int argc, char** argv) {
 
   if (FLAGS_statistics) {
     dbstats = rocksdb::CreateDBStatistics();
-    if (FLAGS_enable_secondary) {
+    if (FLAGS_test_secondary) {
       dbstats_secondaries = rocksdb::CreateDBStatistics();
     }
   }
-  FLAGS_compression_type_e =
-      StringToCompressionType(FLAGS_compression_type.c_str());
-  FLAGS_checksum_type_e = StringToChecksumType(FLAGS_checksum_type.c_str());
+  compression_type_e = StringToCompressionType(FLAGS_compression_type.c_str());
+  bottommost_compression_type_e =
+      StringToCompressionType(FLAGS_bottommost_compression_type.c_str());
+  checksum_type_e = StringToChecksumType(FLAGS_checksum_type.c_str());
 
   Env* raw_env;
 
@@ -67,16 +70,16 @@ int db_stress_tool(int argc, char** argv) {
     raw_env = Env::Default();
   }
   env_wrapper_guard = std::make_shared<DbStressEnvWrapper>(raw_env);
-  FLAGS_env = env_wrapper_guard.get();
+  db_stress_env = env_wrapper_guard.get();
 
   FLAGS_rep_factory = StringToRepFactory(FLAGS_memtablerep.c_str());
 
   // The number of background threads should be at least as much the
   // max number of concurrent compactions.
-  FLAGS_env->SetBackgroundThreads(FLAGS_max_background_compactions,
-                                  rocksdb::Env::Priority::LOW);
-  FLAGS_env->SetBackgroundThreads(FLAGS_num_bottom_pri_threads,
-                                  rocksdb::Env::Priority::BOTTOM);
+  db_stress_env->SetBackgroundThreads(FLAGS_max_background_compactions,
+                                      rocksdb::Env::Priority::LOW);
+  db_stress_env->SetBackgroundThreads(FLAGS_num_bottom_pri_threads,
+                                      rocksdb::Env::Priority::BOTTOM);
   if (FLAGS_prefixpercent > 0 && FLAGS_prefix_size < 0) {
     fprintf(stderr,
             "Error: prefixpercent is non-zero while prefix_size is "
@@ -166,16 +169,18 @@ int db_stress_tool(int argc, char** argv) {
   // Choose a location for the test database if none given with --db=<path>
   if (FLAGS_db.empty()) {
     std::string default_db_path;
-    FLAGS_env->GetTestDirectory(&default_db_path);
+    db_stress_env->GetTestDirectory(&default_db_path);
     default_db_path += "/dbstress";
     FLAGS_db = default_db_path;
   }
 
-  if (FLAGS_enable_secondary && FLAGS_secondaries_base.empty()) {
+  if ((FLAGS_test_secondary || FLAGS_continuous_verification_interval > 0) &&
+      FLAGS_secondaries_base.empty()) {
     std::string default_secondaries_path;
-    FLAGS_env->GetTestDirectory(&default_secondaries_path);
+    db_stress_env->GetTestDirectory(&default_secondaries_path);
     default_secondaries_path += "/dbstress_secondaries";
-    rocksdb::Status s = FLAGS_env->CreateDirIfMissing(default_secondaries_path);
+    rocksdb::Status s =
+        db_stress_env->CreateDirIfMissing(default_secondaries_path);
     if (!s.ok()) {
       fprintf(stderr, "Failed to create directory %s: %s\n",
               default_secondaries_path.c_str(), s.ToString().c_str());
@@ -184,13 +189,47 @@ int db_stress_tool(int argc, char** argv) {
     FLAGS_secondaries_base = default_secondaries_path;
   }
 
-  if (!FLAGS_enable_secondary && FLAGS_secondary_catch_up_one_in > 0) {
-    fprintf(stderr, "Secondary instance is disabled.\n");
+  if (!FLAGS_test_secondary && FLAGS_secondary_catch_up_one_in > 0) {
+    fprintf(
+        stderr,
+        "Must set -test_secondary=true if secondary_catch_up_one_in > 0.\n");
     exit(1);
   }
 
   rocksdb_kill_odds = FLAGS_kill_random_test;
   rocksdb_kill_prefix_blacklist = SplitString(FLAGS_kill_prefix_blacklist);
+
+  unsigned int levels = FLAGS_max_key_len;
+  std::vector<std::string> weights;
+  uint64_t scale_factor = FLAGS_key_window_scale_factor;
+  key_gen_ctx.window = scale_factor * 100;
+  if (!FLAGS_key_len_percent_dist.empty()) {
+    weights = SplitString(FLAGS_key_len_percent_dist);
+    if (weights.size() != levels) {
+      fprintf(stderr,
+              "Number of weights in key_len_dist should be equal to"
+              " max_key_len");
+      exit(1);
+    }
+
+    uint64_t total_weight = 0;
+    for (std::string& weight : weights) {
+      uint64_t val = std::stoull(weight);
+      key_gen_ctx.weights.emplace_back(val * scale_factor);
+      total_weight += val;
+    }
+    if (total_weight != 100) {
+      fprintf(stderr, "Sum of all weights in key_len_dist should be 100");
+      exit(1);
+    }
+  } else {
+    uint64_t keys_per_level = key_gen_ctx.window / levels;
+    for (unsigned int level = 0; level < levels - 1; ++level) {
+      key_gen_ctx.weights.emplace_back(keys_per_level);
+    }
+    key_gen_ctx.weights.emplace_back(key_gen_ctx.window -
+                                     keys_per_level * (levels - 1));
+  }
 
   std::unique_ptr<rocksdb::StressTest> stress;
   if (FLAGS_test_cf_consistency) {

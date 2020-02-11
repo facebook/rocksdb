@@ -65,6 +65,7 @@
 #include "util/mutexlock.h"
 #include "util/random.h"
 #include "util/string_util.h"
+#include "utilities/blob_db/blob_db.h"
 // SyncPoint is not supported in Released Windows Mode.
 #if !(defined NDEBUG) || !defined(OS_WIN)
 #include "test_util/sync_point.h"
@@ -81,6 +82,9 @@ DECLARE_uint64(seed);
 DECLARE_bool(read_only);
 DECLARE_int64(max_key);
 DECLARE_double(hot_key_alpha);
+DECLARE_int32(max_key_len);
+DECLARE_string(key_len_percent_dist);
+DECLARE_int32(key_window_scale_factor);
 DECLARE_int32(column_families);
 DECLARE_string(options_file);
 DECLARE_int64(active_width);
@@ -124,6 +128,7 @@ DECLARE_int32(universal_min_merge_width);
 DECLARE_int32(universal_max_merge_width);
 DECLARE_int32(universal_max_size_amplification_percent);
 DECLARE_int32(clear_column_family_one_in);
+DECLARE_int32(get_live_files_and_wal_files_one_in);
 DECLARE_int32(set_options_one_in);
 DECLARE_int32(set_in_place_one_in);
 DECLARE_int64(cache_size);
@@ -141,7 +146,7 @@ DECLARE_bool(partition_filters);
 DECLARE_int32(index_type);
 DECLARE_string(db);
 DECLARE_string(secondaries_base);
-DECLARE_bool(enable_secondary);
+DECLARE_bool(test_secondary);
 DECLARE_string(expected_values_path);
 DECLARE_bool(verify_checksum);
 DECLARE_bool(mmap_read);
@@ -188,6 +193,7 @@ DECLARE_int32(nooverwritepercent);
 DECLARE_int32(iterpercent);
 DECLARE_uint64(num_iterations);
 DECLARE_string(compression_type);
+DECLARE_string(bottommost_compression_type);
 DECLARE_int32(compression_max_dict_bytes);
 DECLARE_int32(compression_zstd_max_train_bytes);
 DECLARE_string(checksum_type);
@@ -208,16 +214,29 @@ DECLARE_bool(write_dbid_to_manifest);
 DECLARE_uint64(max_write_batch_group_size_bytes);
 DECLARE_bool(level_compaction_dynamic_level_bytes);
 DECLARE_int32(verify_checksum_one_in);
+DECLARE_int32(verify_db_one_in);
+DECLARE_int32(continuous_verification_interval);
+
+#ifndef ROCKSDB_LITE
+DECLARE_bool(use_blob_db);
+DECLARE_uint64(blob_db_min_blob_size);
+DECLARE_uint64(blob_db_bytes_per_sync);
+DECLARE_uint64(blob_db_file_size);
+DECLARE_bool(blob_db_enable_gc);
+DECLARE_double(blob_db_gc_cutoff);
+#endif  // !ROCKSDB_LITE
+DECLARE_int32(approximate_size_one_in);
 
 const long KB = 1024;
 const int kRandomValueMaxFactor = 3;
 const int kValueMaxLen = 100;
 
 // wrapped posix or hdfs environment
-extern rocksdb::DbStressEnvWrapper* FLAGS_env;
+extern rocksdb::DbStressEnvWrapper* db_stress_env;
 
-extern enum rocksdb::CompressionType FLAGS_compression_type_e;
-extern enum rocksdb::ChecksumType FLAGS_checksum_type_e;
+extern enum rocksdb::CompressionType compression_type_e;
+extern enum rocksdb::CompressionType bottommost_compression_type_e;
+extern enum rocksdb::ChecksumType checksum_type_e;
 
 enum RepFactory { kSkipList, kHashSkipList, kVectorRep };
 
@@ -242,25 +261,37 @@ inline enum rocksdb::CompressionType StringToCompressionType(
     const char* ctype) {
   assert(ctype);
 
-  if (!strcasecmp(ctype, "none"))
-    return rocksdb::kNoCompression;
-  else if (!strcasecmp(ctype, "snappy"))
-    return rocksdb::kSnappyCompression;
-  else if (!strcasecmp(ctype, "zlib"))
-    return rocksdb::kZlibCompression;
-  else if (!strcasecmp(ctype, "bzip2"))
-    return rocksdb::kBZip2Compression;
-  else if (!strcasecmp(ctype, "lz4"))
-    return rocksdb::kLZ4Compression;
-  else if (!strcasecmp(ctype, "lz4hc"))
-    return rocksdb::kLZ4HCCompression;
-  else if (!strcasecmp(ctype, "xpress"))
-    return rocksdb::kXpressCompression;
-  else if (!strcasecmp(ctype, "zstd"))
-    return rocksdb::kZSTD;
+  rocksdb::CompressionType ret_compression_type;
 
-  fprintf(stderr, "Cannot parse compression type '%s'\n", ctype);
-  return rocksdb::kSnappyCompression;  // default value
+  if (!strcasecmp(ctype, "disable")) {
+    ret_compression_type = rocksdb::kDisableCompressionOption;
+  } else if (!strcasecmp(ctype, "none")) {
+    ret_compression_type = rocksdb::kNoCompression;
+  } else if (!strcasecmp(ctype, "snappy")) {
+    ret_compression_type = rocksdb::kSnappyCompression;
+  } else if (!strcasecmp(ctype, "zlib")) {
+    ret_compression_type = rocksdb::kZlibCompression;
+  } else if (!strcasecmp(ctype, "bzip2")) {
+    ret_compression_type = rocksdb::kBZip2Compression;
+  } else if (!strcasecmp(ctype, "lz4")) {
+    ret_compression_type = rocksdb::kLZ4Compression;
+  } else if (!strcasecmp(ctype, "lz4hc")) {
+    ret_compression_type = rocksdb::kLZ4HCCompression;
+  } else if (!strcasecmp(ctype, "xpress")) {
+    ret_compression_type = rocksdb::kXpressCompression;
+  } else if (!strcasecmp(ctype, "zstd")) {
+    ret_compression_type = rocksdb::kZSTD;
+  } else {
+    fprintf(stderr, "Cannot parse compression type '%s'\n", ctype);
+    ret_compression_type = rocksdb::kSnappyCompression;  // default value
+  }
+  if (ret_compression_type != rocksdb::kDisableCompressionOption &&
+      !CompressionTypeSupported(ret_compression_type)) {
+    // Use no compression will be more portable but considering this is
+    // only a stress test and snappy is widely available. Use snappy here.
+    ret_compression_type = rocksdb::kSnappyCompression;
+  }
+  return ret_compression_type;
 }
 
 inline enum rocksdb::ChecksumType StringToChecksumType(const char* ctype) {
@@ -324,7 +355,7 @@ inline bool GetNextPrefix(const rocksdb::Slice& src, std::string* v) {
 #endif
 
 // convert long to a big-endian slice key
-extern inline std::string Key(int64_t val) {
+extern inline std::string GetStringFromInt(int64_t val) {
   std::string little_endian_key;
   std::string big_endian_key;
   PutFixed64(&little_endian_key, val);
@@ -336,16 +367,107 @@ extern inline std::string Key(int64_t val) {
   return big_endian_key;
 }
 
+// A struct for maintaining the parameters for generating variable length keys
+struct KeyGenContext {
+  // Number of adjacent keys in one cycle of key lengths
+  uint64_t window;
+  // Number of keys of each possible length in a given window
+  std::vector<uint64_t> weights;
+};
+extern KeyGenContext key_gen_ctx;
+
+// Generate a variable length key string from the given int64 val. The
+// order of the keys is preserved. The key could be anywhere from 8 to
+// max_key_len * 8 bytes.
+// The algorithm picks the length based on the
+// offset of the val within a configured window and the distribution of the
+// number of keys of various lengths in that window. For example, if x, y, x are
+// the weights assigned to each possible key length, the keys generated would be
+// - {0}...{x-1}
+// {(x-1),0}..{(x-1),(y-1)},{(x-1),(y-1),0}..{(x-1),(y-1),(z-1)} and so on.
+// Additionally, a trailer of 0-7 bytes could be appended.
+extern inline std::string Key(int64_t val) {
+  uint64_t window = key_gen_ctx.window;
+  size_t levels = key_gen_ctx.weights.size();
+  std::string key;
+
+  for (size_t level = 0; level < levels; ++level) {
+    uint64_t weight = key_gen_ctx.weights[level];
+    uint64_t offset = static_cast<uint64_t>(val) % window;
+    uint64_t mult = static_cast<uint64_t>(val) / window;
+    uint64_t pfx = mult * weight + (offset >= weight ? weight - 1 : offset);
+    key.append(GetStringFromInt(pfx));
+    if (offset < weight) {
+      // Use the bottom 3 bits of offset as the number of trailing 'x's in the
+      // key. If the next key is going to be of the next level, then skip the
+      // trailer as it would break ordering. If the key length is already at max,
+      // skip the trailer.
+      if (offset < weight - 1 && level < levels - 1) {
+        size_t trailer_len = offset & 0x7;
+        key.append(trailer_len, 'x');
+      }
+      break;
+    }
+    val = offset - weight;
+    window -= weight;
+  }
+
+  return key;
+}
+
+// Given a string key, map it to an index into the expected values buffer
 extern inline bool GetIntVal(std::string big_endian_key, uint64_t* key_p) {
-  unsigned int size_key = sizeof(*key_p);
-  assert(big_endian_key.size() == size_key);
+  size_t size_key = big_endian_key.size();
+  std::vector<uint64_t> prefixes;
+
+  assert(size_key <= key_gen_ctx.weights.size() * sizeof(uint64_t));
+
+  // Pad with zeros to make it a multiple of 8. This function may be called
+  // with a prefix, in which case we return the first index that falls
+  // inside or outside that prefix, dependeing on whether the prefix is
+  // the start of upper bound of a scan
+  unsigned int pad = sizeof(uint64_t) - (size_key % sizeof(uint64_t));
+  if (pad < sizeof(uint64_t)) {
+    big_endian_key.append(pad, '\0');
+    size_key += pad;
+  }
+
   std::string little_endian_key;
   little_endian_key.resize(size_key);
-  for (size_t i = 0; i < size_key; ++i) {
-    little_endian_key[i] = big_endian_key[size_key - 1 - i];
+  for (size_t start = 0; start < size_key; start += sizeof(uint64_t)) {
+    size_t end = start + sizeof(uint64_t);
+    for (size_t i = 0; i < sizeof(uint64_t); ++i) {
+      little_endian_key[start + i] = big_endian_key[end - 1 - i];
+    }
+    Slice little_endian_slice =
+        Slice(&little_endian_key[start], sizeof(uint64_t));
+    uint64_t pfx;
+    if (!GetFixed64(&little_endian_slice, &pfx)) {
+      return false;
+    }
+    prefixes.emplace_back(pfx);
   }
-  Slice little_endian_slice = Slice(little_endian_key);
-  return GetFixed64(&little_endian_slice, key_p);
+
+  uint64_t key = 0;
+  for (size_t i = 0; i < prefixes.size(); ++i) {
+    uint64_t pfx = prefixes[i];
+    key += (pfx / key_gen_ctx.weights[i]) * key_gen_ctx.window +
+           pfx % key_gen_ctx.weights[i];
+  }
+  *key_p = key;
+  return true;
+}
+
+extern inline uint64_t GetPrefixKeyCount(const std::string& prefix,
+                                         const std::string& ub) {
+  uint64_t start = 0;
+  uint64_t end = 0;
+
+  if (!GetIntVal(prefix, &start) || !GetIntVal(ub, &end)) {
+    return 0;
+  }
+
+  return end - start;
 }
 
 extern inline std::string StringToHex(const std::string& str) {
@@ -366,6 +488,8 @@ extern inline void SanitizeDoubleParam(double* param) {
 }
 
 extern void PoolSizeChangeThread(void* v);
+
+extern void DbVerificationThread(void* v);
 
 extern void PrintKeyValue(int cf, uint64_t key, const char* value, size_t sz);
 
