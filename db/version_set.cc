@@ -3491,7 +3491,7 @@ Status AtomicGroupReadBuffer::AddEdit(VersionEdit* edit) {
           "AtomicGroupReadBuffer::AddEdit:IncorrectAtomicGroupSize", edit);
       return Status::Corruption("corrupted atomic group");
     }
-    replay_buffer_[read_edits_in_atomic_group_ - 1] = std::move(*edit);
+    replay_buffer_[read_edits_in_atomic_group_ - 1] = *edit;
     if (read_edits_in_atomic_group_ == replay_buffer_.size()) {
       TEST_SYNC_POINT_CALLBACK(
           "AtomicGroupReadBuffer::AddEdit:LastInAtomicGroup", edit);
