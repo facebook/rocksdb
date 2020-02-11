@@ -348,8 +348,8 @@ class ReadaheadSequentialFileTest : public testing::Test,
   }
   void Skip(size_t n) { test_read_holder_->Skip(n); }
   void ResetSourceStr(const std::string& str = "") {
-    auto read_holder =
-        std::unique_ptr<SequentialFile>(new test::SeqStringSource(str));
+    auto read_holder = std::unique_ptr<SequentialFile>(
+        new test::SeqStringSource(str, &seq_read_count_));
     test_read_holder_.reset(new SequentialFileReader(
         NewLegacySequentialFileWrapper(read_holder), "test", readahead_size_));
   }
@@ -359,6 +359,7 @@ class ReadaheadSequentialFileTest : public testing::Test,
   size_t readahead_size_;
   std::unique_ptr<SequentialFileReader> test_read_holder_;
   std::unique_ptr<char[]> scratch_;
+  std::atomic<int> seq_read_count_;
 };
 
 TEST_P(ReadaheadSequentialFileTest, EmptySourceStr) {

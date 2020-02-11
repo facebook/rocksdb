@@ -290,7 +290,7 @@ class VersionBuilder::Rep {
     }
 
     // Delete files
-    const VersionEdit::DeletedFileSet& del = edit->GetDeletedFiles();
+    const auto& del = edit->GetDeletedFiles();
     for (const auto& del_file : del) {
       const auto level = del_file.first;
       const auto number = del_file.second;

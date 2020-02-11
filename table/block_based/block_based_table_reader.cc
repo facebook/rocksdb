@@ -2458,6 +2458,7 @@ void BlockBasedTable::RetrieveMultipleBlocks(
         s = rocksdb::VerifyChecksum(footer.checksum(),
                                     req.result.data() + req_offset,
                                     handle.size() + 1, expected);
+        TEST_SYNC_POINT_CALLBACK("RetrieveMultipleBlocks:VerifyChecksum", &s);
       }
     }
 

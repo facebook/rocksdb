@@ -665,6 +665,7 @@ set(SOURCES
         util/random.cc
         util/rate_limiter.cc
         util/slice.cc
+        util/file_checksum_helper.cc
         util/status.cc
         util/string_util.cc
         util/thread_local.cc
@@ -906,15 +907,15 @@ if(NOT WIN32 OR ROCKSDB_INSTALL_ON_WINDOWS)
   )
 endif()
 
-add_subdirectory(third-party/gtest-1.8.1/fused-src/gtest)
-add_library(testharness STATIC
-  test_util/testharness.cc)
-target_link_libraries(testharness gtest)
-
 # Tests are excluded from Release builds
 CMAKE_DEPENDENT_OPTION(WITH_TESTS "build with tests" ON
   "CMAKE_BUILD_TYPE STREQUAL Debug" OFF)
 if(WITH_TESTS)
+  add_subdirectory(third-party/gtest-1.8.1/fused-src/gtest)
+  add_library(testharness STATIC
+  test_util/testharness.cc)
+  target_link_libraries(testharness gtest)
+
   set(TESTS
         cache/cache_test.cc
         cache/lru_cache_test.cc
@@ -1033,6 +1034,7 @@ if(WITH_TESTS)
         util/random_test.cc
         util/rate_limiter_test.cc
         util/repeatable_thread_test.cc
+        util/slice_test.cc
         util/slice_transform_test.cc
         util/timer_queue_test.cc
         util/thread_list_test.cc

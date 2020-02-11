@@ -132,7 +132,10 @@ class TraceAnalyzerTest : public testing::Test {
     Status s;
     std::unique_ptr<FSSequentialFile> file =
         NewLegacySequentialFileWrapper(f_ptr);
-    for (count = 0; ReadOneLine(&iss, file.get(), &get_line, &has_data, &s);
+    SequentialFileReader sf_reader(std::move(file), file_path,
+                                   4096 /* filereadahead_size */);
+
+    for (count = 0; ReadOneLine(&iss, &sf_reader, &get_line, &has_data, &s);
          ++count) {
       ASSERT_OK(s);
       result.push_back(get_line);

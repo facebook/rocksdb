@@ -530,6 +530,8 @@ DEFINE_bool(new_table_reader_for_compaction_inputs, true,
 
 DEFINE_int32(compaction_readahead_size, 0, "Compaction readahead size");
 
+DEFINE_int32(log_readahead_size, 0, "WAL and manifest readahead size");
+
 DEFINE_int32(random_access_max_buffer_size, 1024 * 1024,
              "Maximum windows randomaccess buffer size");
 
@@ -1469,7 +1471,7 @@ class BaseDistribution {
  private:
   virtual unsigned int Get() = 0;
   virtual bool NeedTruncate() {
-    return false;
+    return true;
   }
   unsigned int min_value_size_;
   unsigned int max_value_size_;
@@ -1484,6 +1486,9 @@ class FixedDistribution : public BaseDistribution
  private:
   virtual unsigned int Get() {
     return size_;
+  }
+  virtual bool NeedTruncate() override {
+    return false;
   }
   unsigned int size_;
 };
@@ -1501,9 +1506,6 @@ class NormalDistribution
   virtual unsigned int Get() override {
     return static_cast<unsigned int>((*this)(gen_));
   }
-  virtual bool NeedTruncate() override {
-    return true;
-  }
   std::random_device rd_;
   std::mt19937 gen_;
 };
@@ -1520,6 +1522,9 @@ class UniformDistribution
   virtual unsigned int Get() override {
     return (*this)(gen_);
   }
+  virtual bool NeedTruncate() override {
+    return false;
+  }
   std::random_device rd_;
   std::mt19937 gen_;
 };
@@ -1535,16 +1540,22 @@ class RandomGenerator {
 
   RandomGenerator() {
     auto max_value_size = FLAGS_value_size_max;
-    if (FLAGS_value_size_distribution_type_e == kFixed) {
-      dist_.reset(new FixedDistribution(value_size));
-      max_value_size = value_size;
-    } else if (FLAGS_value_size_distribution_type_e == kUniform) {
-      dist_.reset(new UniformDistribution(FLAGS_value_size_min,
-                                          FLAGS_value_size_max));
-    } else if (FLAGS_value_size_distribution_type_e == kNormal) {
-      dist_.reset(new NormalDistribution(FLAGS_value_size_min,
-                                         FLAGS_value_size_max));
+    switch (FLAGS_value_size_distribution_type_e) {
+      case kUniform:
+        dist_.reset(new UniformDistribution(FLAGS_value_size_min,
+                                            FLAGS_value_size_max));
+        break;
+      case kNormal:
+        dist_.reset(new NormalDistribution(FLAGS_value_size_min,
+                                           FLAGS_value_size_max));
+        break;
+      case kFixed:
+      default:
+        dist_.reset(new FixedDistribution(value_size));
+        max_value_size = value_size;
     }
+    return ok;
+  }
 
     // We use a limited amount of data over and over again and ensure
     // that it is larger than the compression window (32KB), and also
@@ -3617,6 +3628,7 @@ class Benchmark {
     options.new_table_reader_for_compaction_inputs =
         FLAGS_new_table_reader_for_compaction_inputs;
     options.compaction_readahead_size = FLAGS_compaction_readahead_size;
+    options.log_readahead_size = FLAGS_log_readahead_size;
     options.random_access_max_buffer_size = FLAGS_random_access_max_buffer_size;
     options.writable_file_max_buffer_size = FLAGS_writable_file_max_buffer_size;
     options.use_fsync = FLAGS_use_fsync;
@@ -5472,16 +5484,16 @@ class Benchmark {
       } else if (query_type == 1) {
         // the Put query
         puts++;
-        int64_t size = ParetoCdfInversion(
+        int64_t val_size = ParetoCdfInversion(
             u, FLAGS_value_theta, FLAGS_value_k, FLAGS_value_sigma);
-        if (size < 0) {
-          size = 10;
-        } else if (size > value_max) {
-          size = size % value_max;
+        if (val_size < 0) {
+          val_size = 10;
+        } else if (val_size > value_max) {
+          val_size = val_size % value_max;
         }
         s = db_with_cfh->db->Put(
             write_options_, key,
-            gen.Generate(static_cast<unsigned int>(size)));
+            gen.Generate(static_cast<unsigned int>(val_size)));
         if (!s.ok()) {
           fprintf(stderr, "put error: %s\n", s.ToString().c_str());
           exit(1);
@@ -5489,7 +5501,7 @@ class Benchmark {
 
         if (thread->shared->write_rate_limiter) {
           thread->shared->write_rate_limiter->Request(
-              key.size() + size, Env::IO_HIGH, nullptr /*stats*/,
+              key.size() + val_size, Env::IO_HIGH, nullptr /*stats*/,
               RateLimiter::OpType::kWrite);
         }
         thread->stats.FinishedOps(db_with_cfh, db_with_cfh->db, 1, kWrite);
@@ -5783,7 +5795,7 @@ class Benchmark {
       GenerateKeyFromInt(thread->rand.Next() % FLAGS_num, FLAGS_num, &key);
       Status s;
 
-      auto val = gen.Generate();
+      Slice val = gen.Generate();
       if (write_merge == kWrite) {
         s = db->Put(write_options_, key, val);
       } else {
@@ -6090,7 +6102,7 @@ class Benchmark {
             RateLimiter::OpType::kWrite);
       }
 
-      auto val = gen.Generate();
+      Slice val = gen.Generate();
       Status s = db->Put(write_options_, key, val);
       if (!s.ok()) {
         fprintf(stderr, "put error: %s\n", s.ToString().c_str());
@@ -6237,7 +6249,7 @@ class Benchmark {
       GenerateKeyFromInt(key_rand, merge_keys_, &key);
 
       Status s;
-      auto val = gen.Generate();
+      Slice val = gen.Generate();
       if (FLAGS_num_column_families > 1) {
         s = db_with_cfh->db->Merge(write_options_,
                                    db_with_cfh->GetCfh(key_rand), key,
@@ -6733,7 +6745,7 @@ class Benchmark {
       timestamp_emulator_->Inc();
 
       Status s;
-      auto val = gen.Generate();
+      Slice val = gen.Generate();
       s = db->Put(write_options_, key, val);
 
       if (!s.ok()) {
