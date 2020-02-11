@@ -713,8 +713,16 @@ Status CompactionJob::Install(const MutableCFOptions& mutable_cf_options) {
   cfd->internal_stats()->AddCompactionStats(
       compact_->compaction->output_level(), thread_pri_, compaction_stats_);
 
+  versions_->SetIOStatusOK();
   if (status.ok()) {
     status = InstallCompactionResults(mutable_cf_options);
+  }
+  IOStatus io_s;
+  if (!versions_->io_status().ok()) {
+    io_s = versions_->io_status();
+  }
+  if (!io_s.ok()) {
+    db_error_handler_->SetBGError(io_s, BackgroundErrorReason::kCompaction);
   }
   VersionStorageInfo::LevelSummaryStorage tmp;
   auto vstorage = cfd->current()->storage_info();
@@ -1296,7 +1304,9 @@ Status CompactionJob::FinishCompactionOutputFile(
     sub_compact->builder->Abandon();
   }
   io_s = sub_compact->builder->io_status();
-  s = io_s;
+  if (!io_s.ok()) {
+    s = io_s;
+  }
   const uint64_t current_bytes = sub_compact->builder->FileSize();
   if (s.ok()) {
     // Add the checksum information to file metadata.
@@ -1318,8 +1328,9 @@ Status CompactionJob::FinishCompactionOutputFile(
     io_s = sub_compact->outfile->Close();
   }
   if (!io_s.ok()) {
+    s = io_s;
     InstrumentedMutexLock l(db_mutex_);
-    s = db_error_handler_->SetBGError(io_s, BackgroundErrorReason::kCompaction);
+    db_error_handler_->SetBGError(io_s, BackgroundErrorReason::kCompaction);
   }
   sub_compact->outfile.reset();
 
