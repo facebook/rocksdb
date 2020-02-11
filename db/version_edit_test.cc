@@ -278,6 +278,23 @@ TEST_F(VersionEditTest, DbId) {
   TestEncodeDecode(edit);
 }
 
+TEST_F(VersionEditTest, BlobFileState) {
+  VersionEdit edit;
+
+  for (uint64_t blob_file_number = 1; blob_file_number <= 10;
+       ++blob_file_number) {
+    const uint64_t total_blob_count = blob_file_number << 10;
+    const uint64_t total_blob_bytes = blob_file_number << 20;
+    const uint64_t garbage_blob_count = total_blob_count >> 2;
+    const uint64_t garbage_blob_bytes = total_blob_bytes >> 1;
+
+    edit.AddBlobFileState(blob_file_number, total_blob_count, total_blob_bytes,
+                          garbage_blob_count, garbage_blob_bytes);
+  }
+
+  TestEncodeDecode(edit);
+}
+
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {

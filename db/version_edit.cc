@@ -22,8 +22,6 @@ namespace ROCKSDB_NAMESPACE {
 const std::string kUnknownFileChecksum("");
 // The unknown sst file checksum function name.
 const std::string kUnknownFileChecksumFuncName("Unknown");
-// Mask for an identified tag from the future which can be safely ignored.
-const uint32_t kTagSafeIgnoreMask = 1 << 13;
 
 // Tag numbers for serialized VersionEdit.  These numbers are written to
 // disk and should not be changed. The number should be forward compatible so
@@ -40,8 +38,6 @@ enum Tag : uint32_t {
   // 8 was used for large value refs
   kPrevLogNumber = 9,
   kMinLogNumberToKeep = 10,
-  // Ignore-able field
-  kDbId = kTagSafeIgnoreMask + 1,
 
   // these are new formats divergent from open source leveldb
   kNewFile2 = 100,
@@ -53,6 +49,13 @@ enum Tag : uint32_t {
   kMaxColumnFamily = 203,
 
   kInAtomicGroup = 300,
+
+  // Mask for an unidentified tag from the future which can be safely ignored.
+  kTagSafeIgnoreMask = 1 << 13,
+
+  // Forward compatible (aka ignorable) fields
+  kDbId,
+  kBlobFileState,
 };
 
 enum CustomTag : uint32_t {
@@ -68,11 +71,14 @@ enum CustomTag : uint32_t {
   kFileCreationTime = 6,
   kFileChecksum = 7,
   kFileChecksumFuncName = 8,
-  kPathId = 65,
+
+  // If this bit for the custom tag is set, opening DB should fail if
+  // we don't know this field.
+  kCustomTagNonSafeIgnoreMask = 1 << 6,
+
+  // Forward incompatible (aka unignorable) fields
+  kPathId,
 };
-// If this bit for the custom tag is set, opening DB should fail if
-// we don't know this field.
-uint32_t kCustomTagNonSafeIgnoreMask = 1 << 6;
 
 uint64_t PackFileNumberAndPathId(uint64_t number, uint64_t path_id) {
   assert(number <= kFileNumberMask);
@@ -142,6 +148,7 @@ void VersionEdit::Clear() {
   has_last_sequence_ = false;
   deleted_files_.clear();
   new_files_.clear();
+  blob_file_states_.clear();
   column_family_ = 0;
   is_column_family_add_ = false;
   is_column_family_drop_ = false;
@@ -264,6 +271,11 @@ bool VersionEdit::EncodeTo(std::string* dst) const {
                              dst);
 
     PutVarint32(dst, CustomTag::kTerminate);
+  }
+
+  for (const auto& blob_file_state : blob_file_states_) {
+    PutVarint32(dst, kBlobFileState);
+    blob_file_state.EncodeTo(dst);
   }
 
   // 0 is default and does not need to be explicitly written
@@ -571,6 +583,17 @@ Status VersionEdit::DecodeFrom(const Slice& src) {
         break;
       }
 
+      case kBlobFileState: {
+        BlobFileState blob_file_state;
+        const Status s = blob_file_state.DecodeFrom(&input);
+        if (!s.ok()) {
+          return s;
+        }
+
+        blob_file_states_.emplace_back(blob_file_state);
+        break;
+      }
+
       case kColumnFamily:
         if (!GetVarint32(&input, &column_family_)) {
           if (!msg) {
@@ -700,6 +723,12 @@ std::string VersionEdit::DebugString(bool hex_key) const {
     r.append(" file_checksum_func_name: ");
     r.append(f.file_checksum_func_name);
   }
+
+  for (const auto& blob_file_state : blob_file_states_) {
+    r.append("\n  BlobFileState: ");
+    r.append(blob_file_state.DebugString());
+  }
+
   r.append("\n  ColumnFamily: ");
   AppendNumberTo(&r, column_family_);
   if (is_column_family_add_) {
@@ -776,6 +805,20 @@ std::string VersionEdit::DebugJSON(int edit_num, bool hex_key) const {
       if (f.oldest_blob_file_number != kInvalidBlobFileNumber) {
         jw << "OldestBlobFile" << f.oldest_blob_file_number;
       }
+      jw.EndArrayedObject();
+    }
+
+    jw.EndArray();
+  }
+
+  if (!blob_file_states_.empty()) {
+    jw << "BlobFileStates";
+
+    jw.StartArray();
+
+    for (const auto& blob_file_state : blob_file_states_) {
+      jw.StartArrayedObject();
+      jw << blob_file_state.DebugJSON();
       jw.EndArrayedObject();
     }
 
