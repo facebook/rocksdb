@@ -454,6 +454,18 @@ class SleepingBackgroundTask {
       bg_cv_.Wait();
     }
   }
+  // Similar to TimedWaitUntilSleeping.
+  // Waits until the task is done.
+  bool TimedWaitUntilDone(uint64_t wait_time) {
+    auto abs_time = Env::Default()->NowMicros() + wait_time;
+    MutexLock l(&mutex_);
+    while (!done_with_sleep_) {
+      if (bg_cv_.TimedWait(abs_time)) {
+        return true;
+      }
+    }
+    return false;
+  }
   bool WokenUp() {
     MutexLock l(&mutex_);
     return should_sleep_ == false;
