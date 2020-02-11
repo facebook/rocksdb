@@ -1669,13 +1669,18 @@ void CompactionJob::LogCompaction() {
 
 // Install the results of a remote compaction into this job's data
 void CompactionJob::RunRemote(PluggableCompactionService* service) {
+  AutoThreadOperationStageUpdater stage_updater(
+      ThreadStatus::STAGE_COMPACTION_RUN);
+  TEST_SYNC_POINT("CompactionJob::Run():Start");
+  log_buffer_->FlushBufferToLog();
+  LogCompaction();
 
-  Compaction *c = compact_->compaction;
+  Compaction* c = compact_->compaction;
   const uint64_t start_micros = env_->NowMicros();
 
   // prevent any subcompactions.
   // check that this has only one subcompaction
-  assert (compact_->sub_compact_states.size() == 1);
+  assert(compact_->sub_compact_states.size() == 1);
 
   PluggableCompactionParam param;
   PluggableCompactionResult result;
@@ -1691,7 +1696,8 @@ void CompactionJob::RunRemote(PluggableCompactionService* service) {
       compact_->compaction->max_subcompactions();
 
   // create input parameters
-  param.column_family_name = compact_->compaction->column_family_data()->GetName();
+  param.column_family_name =
+      compact_->compaction->column_family_data()->GetName();
   param.existing_snapshots = existing_snapshots_;
   param.output_level = compact_->compaction->output_level();
   for (CompactionInputFiles f : *(c->inputs())) {
@@ -1700,117 +1706,114 @@ void CompactionJob::RunRemote(PluggableCompactionService* service) {
     for (size_t i = 0; i < f.size(); i++) {
       uint64_t fileno = f[i]->fd.GetNumber();
       uint64_t pathid = f[i]->fd.GetPathId();
-      files_in_one_level.files.push_back(TableFileName(
-                          c->immutable_cf_options()->cf_paths, fileno, pathid));
+      files_in_one_level.files.push_back(
+          TableFileName(c->immutable_cf_options()->cf_paths, fileno, pathid));
     }
     param.input_files.push_back(files_in_one_level);
+  }
 
-    // make the RPC
-    status = service->Run(param, &result);
+  // make the RPC
+  status = service->Run(param, &result);
 
-    // update compaction stats
-    compaction_stats_.micros = env_->NowMicros() - start_micros;
-    compaction_stats_.cpu_micros = 0;
-    for (size_t i = 0; i < compact_->sub_compact_states.size(); i++) {
-      compaction_stats_.cpu_micros +=
-          compact_->sub_compact_states[i].compaction_job_stats.cpu_micros;
-    }
+  // update compaction stats
+  compaction_stats_.micros = env_->NowMicros() - start_micros;
+  compaction_stats_.cpu_micros = 0;
+  for (size_t i = 0; i < compact_->sub_compact_states.size(); i++) {
+    compaction_stats_.cpu_micros +=
+        compact_->sub_compact_states[i].compaction_job_stats.cpu_micros;
+  }
 
-    RecordTimeToHistogram(stats_, COMPACTION_TIME, compaction_stats_.micros);
-    RecordTimeToHistogram(stats_, COMPACTION_CPU_TIME,
-                          compaction_stats_.cpu_micros);
+  RecordTimeToHistogram(stats_, COMPACTION_TIME, compaction_stats_.micros);
+  RecordTimeToHistogram(stats_, COMPACTION_CPU_TIME,
+                        compaction_stats_.cpu_micros);
 
-    // If pluggable compaction encountered an error, return immediately
+  // If pluggable compaction encountered an error, return immediately
+  if (!status.ok()) {
+    compact_->status = status;
+    return;
+  }
+
+  assert(compact_->sub_compact_states.size() == 1);
+  SubcompactionState* sub = &compact_->sub_compact_states[0];
+
+  std::vector<uint64_t> file_numbers;
+
+  // Iterate through all output files
+  for (const auto& result_file : result.output_files) {
+    // Generate a new file number
+    uint64_t file_number = versions_->NewFileNumber();
+    file_numbers.push_back(file_number);
+
+    // Generate a path name where an externally compacted file can
+    // be copied into.  Do not read into block cache.
+    std::string destination =
+        TableFileName(sub->compaction->immutable_cf_options()->cf_paths,
+                      file_number, sub->compaction->output_path_id());
+
+    ROCKS_LOG_INFO(db_options_.info_log, "Going to install file %s to %s",
+                   result_file.pathname.c_str(), destination.c_str());
+
+    // Install the output files into this db
+    status = service->InstallFile(result_file.pathname, destination,
+                                  env_options_, env_);
+
     if (!status.ok()) {
       compact_->status = status;
+      ROCKS_LOG_INFO(db_options_.info_log,
+                     "Unable to InstallFile %s to %s. Status %s",
+                     result_file.pathname.c_str(), destination.c_str(),
+                     status.ToString().c_str());
       return;
     }
 
-    assert(compact_->sub_compact_states.size() == 1);
-    SubcompactionState* sub = &compact_->sub_compact_states[0];
+    // create new output file data structure
+    CompactionJob::SubcompactionState::Output outf;
 
-    std::vector<uint64_t> file_numbers;
+    outf.finished = true;
+    outf.meta.num_entries = result_file.num_entries;
+    outf.meta.num_deletions = result_file.num_deletions;
+    outf.meta.raw_key_size = result_file.raw_key_size;
+    outf.meta.raw_value_size = result_file.raw_value_size;
+    outf.meta.fd =
+        FileDescriptor(file_number, c->output_path_id(), result_file.file_size,
+                       result_file.smallest_seqno, result_file.largest_seqno);
 
-    // Iterate through all output files
-    for (const auto& result_file : result.output_files) {
+    // set smallest and largest keys in FileMetaData
+    outf.meta.smallest.DecodeFrom(result_file.smallest_internal_key);
+    outf.meta.largest.DecodeFrom(result_file.largest_internal_key);
 
-        // Generate a new file number
-        uint64_t file_number = versions_->NewFileNumber();
-        file_numbers.push_back(file_number);
-
-        // Generate a path name where an externally compacted file can
-        // be copied into.  Do not read into block cache.
-        std::string destination = TableFileName(
-            sub->compaction->immutable_cf_options()->cf_paths,
-            file_number,
-            sub->compaction->output_path_id());
-
-        ROCKS_LOG_INFO(
-          db_options_.info_log, "Going to install file %s to %s",
-          result_file.pathname.c_str(),
-          destination.c_str());
-
-        // Install the output files into this db
-        status = service->InstallFile(result_file.pathname, destination,
-                    env_options_, env_);
-
-        if (!status.ok()) {
-          compact_->status = status;
-          ROCKS_LOG_INFO(
-            db_options_.info_log, "Unable to InstallFile %s to %s. Status %s",
-            result_file.pathname.c_str(),
-            destination.c_str(),
-            status.ToString().c_str());
-          return;
-        }
-
-        // create new output file data structure
-        CompactionJob::SubcompactionState::Output outf;
-
-        outf.finished = true;
-        outf.meta.num_entries = result_file.num_entries;
-        outf.meta.num_deletions = result_file.num_deletions;
-        outf.meta.raw_key_size = result_file.raw_key_size;
-        outf.meta.raw_value_size = result_file.raw_value_size;
-        outf.meta.fd = FileDescriptor(file_number, c->output_path_id(),
-                         result_file.file_size,
-                         result_file.smallest_seqno, result_file.largest_seqno);
-
-        // set smallest and largest keys in FileMetaData
-        outf.meta.smallest.DecodeFrom(result_file.smallest_internal_key);
-        outf.meta.largest.DecodeFrom(result_file.largest_internal_key);
-
-        // push this file into sub compact outputs
-        sub->outputs.push_back(std::move(outf));
-    }
-
-    // set table properties 
-    TablePropertiesCollection tp;
-    for (const auto& state : compact_->sub_compact_states) {
-      for (const auto& output : state.outputs) {
-        auto fn =
-            TableFileName(state.compaction->immutable_cf_options()->cf_paths,
-                          output.meta.fd.GetNumber(), output.meta.fd.GetPathId());
-        tp[fn] = output.table_properties;
-      }
-    }
-    compact_->compaction->SetOutputTableProperties(std::move(tp));
-
-    sub->total_bytes = result.total_bytes;
-    sub->num_input_records = result.num_input_records;
-    sub->num_output_records = result.num_output_records;
-    sub->status = Status::OK();
-
-    AggregateStatistics();
-    UpdateCompactionStats();
+    // push this file into sub compact outputs
+    sub->outputs.push_back(std::move(outf));
   }
+
+  // set table properties
+  TablePropertiesCollection tp;
+  for (const auto& state : compact_->sub_compact_states) {
+    for (const auto& output : state.outputs) {
+      auto fn =
+          TableFileName(state.compaction->immutable_cf_options()->cf_paths,
+                        output.meta.fd.GetNumber(), output.meta.fd.GetPathId());
+      tp[fn] = output.table_properties;
+    }
+  }
+  compact_->compaction->SetOutputTableProperties(std::move(tp));
+
+  sub->total_bytes = result.total_bytes;
+  sub->num_input_records = result.num_input_records;
+  sub->num_output_records = result.num_output_records;
+  sub->status = Status::OK();
+
+  AggregateStatistics();
+  UpdateCompactionStats();
+  LogFlush(db_options_.info_log);
+  TEST_SYNC_POINT("CompactionJob::Run():End");
 }
 
 //
 // Returns the output files of a compaction and clean it up.
 //
-void CompactionJob::RetrieveResultsAndCleanup(PluggableCompactionResult* result) {
-
+void CompactionJob::RetrieveResultsAndCleanup(
+    PluggableCompactionResult* result) {
   // fill up input statistics for this compaction
   result->total_bytes = compact_->total_bytes;
   result->num_input_records = compact_->num_input_records;
@@ -1821,8 +1824,7 @@ void CompactionJob::RetrieveResultsAndCleanup(PluggableCompactionResult* result)
     for (const auto& out : sub_compact.outputs) {
       std::string path = TableFileName(
           sub_compact.compaction->immutable_cf_options()->cf_paths,
-          out.meta.fd.GetNumber(),
-          out.meta.fd.GetPathId());
+          out.meta.fd.GetNumber(), out.meta.fd.GetPathId());
 
       OutputFile file;
       file.pathname = path;
@@ -1839,7 +1841,7 @@ void CompactionJob::RetrieveResultsAndCleanup(PluggableCompactionResult* result)
 
       result->output_files.push_back(file);
     }
-  }  
+  }
   CleanupCompaction();
 }
 
