@@ -2011,6 +2011,90 @@ TEST_P(DBBasicTestWithParallelIO, MultiGet) {
   }
 }
 
+TEST_P(DBBasicTestWithParallelIO, MultiGetWithChecksumMismatch) {
+  std::vector<std::string> key_data(10);
+  std::vector<Slice> keys;
+  // We cannot resize a PinnableSlice vector, so just set initial size to
+  // largest we think we will need
+  std::vector<PinnableSlice> values(10);
+  std::vector<Status> statuses;
+  int read_count = 0;
+  ReadOptions ro;
+  ro.fill_cache = fill_cache();
+
+  SyncPoint::GetInstance()->SetCallBack(
+      "RetrieveMultipleBlocks:VerifyChecksum", [&](void *status) {
+      Status* s = static_cast<Status*>(status);
+      read_count++;
+      if (read_count == 2) {
+        *s = Status::Corruption();
+      }
+    });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  // Warm up the cache first
+  key_data.emplace_back(Key(0));
+  keys.emplace_back(Slice(key_data.back()));
+  key_data.emplace_back(Key(50));
+  keys.emplace_back(Slice(key_data.back()));
+  statuses.resize(keys.size());
+
+  dbfull()->MultiGet(ro, dbfull()->DefaultColumnFamily(), keys.size(),
+                     keys.data(), values.data(), statuses.data(), true);
+  ASSERT_TRUE(CheckValue(0, values[0].ToString()));
+  //ASSERT_TRUE(CheckValue(50, values[1].ToString()));
+  ASSERT_EQ(statuses[0], Status::OK());
+  ASSERT_EQ(statuses[1], Status::Corruption());
+
+  SyncPoint::GetInstance()->DisableProcessing();
+}
+
+TEST_P(DBBasicTestWithParallelIO, MultiGetWithMissingFile) {
+  std::vector<std::string> key_data(10);
+  std::vector<Slice> keys;
+  // We cannot resize a PinnableSlice vector, so just set initial size to
+  // largest we think we will need
+  std::vector<PinnableSlice> values(10);
+  std::vector<Status> statuses;
+  ReadOptions ro;
+  ro.fill_cache = fill_cache();
+
+  SyncPoint::GetInstance()->SetCallBack(
+      "TableCache::MultiGet:FindTable", [&](void *status) {
+      Status* s = static_cast<Status*>(status);
+      *s = Status::IOError();
+    });
+  // DB open will create table readers unless we reduce the table cache
+  // capacity.
+  // SanitizeOptions will set max_open_files to minimum of 20. Table cache
+  // is allocated with max_open_files - 10 as capacity. So override
+  // max_open_files to 11 so table cache capacity will become 1. This will
+  // prevent file open during DB open and force the file to be opened
+  // during MultiGet
+  SyncPoint::GetInstance()->SetCallBack(
+      "SanitizeOptions::AfterChangeMaxOpenFiles", [&](void *arg) {
+      int* max_open_files = (int*)arg;
+      *max_open_files = 11;
+    });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  Reopen(CurrentOptions());
+
+  // Warm up the cache first
+  key_data.emplace_back(Key(0));
+  keys.emplace_back(Slice(key_data.back()));
+  key_data.emplace_back(Key(50));
+  keys.emplace_back(Slice(key_data.back()));
+  statuses.resize(keys.size());
+
+  dbfull()->MultiGet(ro, dbfull()->DefaultColumnFamily(), keys.size(),
+                     keys.data(), values.data(), statuses.data(), true);
+  ASSERT_EQ(statuses[0], Status::IOError());
+  ASSERT_EQ(statuses[1], Status::IOError());
+
+  SyncPoint::GetInstance()->DisableProcessing();
+}
+
 INSTANTIATE_TEST_CASE_P(
     ParallelIO, DBBasicTestWithParallelIO,
     // Params are as follows -

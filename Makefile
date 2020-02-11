@@ -503,6 +503,7 @@ TESTS = \
 	data_block_hash_index_test \
 	cache_test \
 	corruption_test \
+	slice_test \
 	slice_transform_test \
 	dbformat_test \
 	fault_injection_test \
@@ -595,6 +596,7 @@ TESTS = \
 	db_secondary_test \
 	block_cache_tracer_test \
 	block_cache_trace_analyzer_test \
+	defer_test \
 
 ifeq ($(USE_FOLLY_DISTRIBUTED_MUTEX),1)
 	TESTS += folly_synchronization_distributed_mutex_test
@@ -1291,6 +1293,9 @@ corruption_test: db/corruption_test.o db/db_test_util.o $(LIBOBJECTS) $(TESTHARN
 crc32c_test: util/crc32c_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
+slice_test: util/slice_test.o $(LIBOBJECTS) $(TESTHARNESS)
+	$(AM_LINK)
+
 slice_transform_test: util/slice_transform_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
@@ -1708,6 +1713,9 @@ block_cache_tracer_test: trace_replay/block_cache_tracer_test.o trace_replay/blo
 	$(AM_LINK)
 
 block_cache_trace_analyzer_test: tools/block_cache_analyzer/block_cache_trace_analyzer_test.o tools/block_cache_analyzer/block_cache_trace_analyzer.o $(LIBOBJECTS) $(TESTHARNESS)
+	$(AM_LINK)
+
+defer_test: util/defer_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
 #-------------------------------------------------

@@ -50,6 +50,7 @@
 #include "table/two_level_iterator.h"
 #include "test_util/sync_point.h"
 #include "util/coding.h"
+#include "util/defer.h"
 #include "util/stop_watch.h"
 #include "util/string_util.h"
 #include "util/user_comparator_wrapper.h"
@@ -1464,7 +1465,8 @@ void Version::GetColumnFamilyMetaData(ColumnFamilyMetaData* cf_meta) {
           file->largest.user_key().ToString(),
           file->stats.num_reads_sampled.load(std::memory_order_relaxed),
           file->being_compacted, file->oldest_blob_file_number,
-          file->TryGetOldestAncesterTime(), file->TryGetFileCreationTime()});
+          file->TryGetOldestAncesterTime(), file->TryGetFileCreationTime(),
+          file->file_checksum, file->file_checksum_func_name});
       files.back().num_entries = file->num_entries;
       files.back().num_deletions = file->num_deletions;
       level_size += file->fd.GetFileSize();
@@ -1965,6 +1967,11 @@ void Version::MultiGet(const ReadOptions& read_options, MultiGetRange* range,
     for (auto iter = file_range.begin(); iter != file_range.end(); ++iter) {
       GetContext& get_context = *iter->get_context;
       Status* status = iter->s;
+      // The Status in the KeyContext takes precedence over GetContext state
+      if (!status->ok()) {
+        file_range.MarkKeyDone(iter);
+        continue;
+      }
 
       if (get_context.sample()) {
         sample_file_read_inc(f->file_metadata);
@@ -3485,7 +3492,7 @@ Status AtomicGroupReadBuffer::AddEdit(VersionEdit* edit) {
           "AtomicGroupReadBuffer::AddEdit:IncorrectAtomicGroupSize", edit);
       return Status::Corruption("corrupted atomic group");
     }
-    replay_buffer_[read_edits_in_atomic_group_ - 1] = std::move(*edit);
+    replay_buffer_[read_edits_in_atomic_group_ - 1] = *edit;
     if (read_edits_in_atomic_group_ == replay_buffer_.size()) {
       TEST_SYNC_POINT_CALLBACK(
           "AtomicGroupReadBuffer::AddEdit:LastInAtomicGroup", edit);
@@ -3598,6 +3605,14 @@ Status VersionSet::ProcessManifestWrites(
   autovector<Version*> versions;
   autovector<const MutableCFOptions*> mutable_cf_options_ptrs;
   std::vector<std::unique_ptr<BaseReferencedVersionBuilder>> builder_guards;
+  Status s;
+  Defer defer([&s, &versions]() {
+    if (!s.ok()) {
+      for (auto v : versions) {
+        delete v;
+      }
+    }
+  });
 
   if (first_writer.edit_list.front()->IsColumnFamilyManipulation()) {
     // No group commits for column family add or drop
@@ -3683,12 +3698,8 @@ Status VersionSet::ProcessManifestWrites(
         } else if (group_start != std::numeric_limits<size_t>::max()) {
           group_start = std::numeric_limits<size_t>::max();
         }
-        Status s = LogAndApplyHelper(last_writer->cfd, builder, e, mu);
+        s = LogAndApplyHelper(last_writer->cfd, builder, e, mu);
         if (!s.ok()) {
-          // free up the allocated memory
-          for (auto v : versions) {
-            delete v;
-          }
           return s;
         }
         batch_edits.push_back(e);
@@ -3698,12 +3709,8 @@ Status VersionSet::ProcessManifestWrites(
       assert(!builder_guards.empty() &&
              builder_guards.size() == versions.size());
       auto* builder = builder_guards[i]->version_builder();
-      Status s = builder->SaveTo(versions[i]->storage_info());
+      s = builder->SaveTo(versions[i]->storage_info());
       if (!s.ok()) {
-        // free up the allocated memory
-        for (auto v : versions) {
-          delete v;
-        }
         return s;
       }
     }
@@ -3746,7 +3753,6 @@ Status VersionSet::ProcessManifestWrites(
 #endif  // NDEBUG
 
   uint64_t new_manifest_file_size = 0;
-  Status s;
 
   assert(pending_manifest_file_number_ == 0);
   if (!descriptor_log_ ||
@@ -3959,9 +3965,6 @@ Status VersionSet::ProcessManifestWrites(
     ROCKS_LOG_ERROR(db_options_->info_log,
                     "Error in committing version edit to MANIFEST: %s",
                     version_edits.c_str());
-    for (auto v : versions) {
-      delete v;
-    }
     // If manifest append failed for whatever reason, the file could be
     // corrupted. So we need to force the next version update to start a
     // new manifest file.
@@ -4720,6 +4723,34 @@ Status VersionSet::ReduceNumberOfLevels(const std::string& dbname,
       mutable_cf_options, &ve, &dummy_mutex, nullptr, true);
 }
 
+// Get the checksum information including the checksum and checksum function
+// name of all SST files in VersionSet. Store the information in
+// FileChecksumList which contains a map from file number to its checksum info.
+// If DB is not running, make sure call VersionSet::Recover() to load the file
+// metadata from Manifest to VersionSet before calling this function.
+Status VersionSet::GetLiveFilesChecksumInfo(FileChecksumList* checksum_list) {
+  // Clean the previously stored checksum information if any.
+  if (checksum_list == nullptr) {
+    return Status::InvalidArgument("checksum_list is nullptr");
+  }
+  checksum_list->reset();
+
+  for (auto cfd : *column_family_set_) {
+    if (cfd->IsDropped() || !cfd->initialized()) {
+      continue;
+    }
+    for (int level = 0; level < cfd->NumberLevels(); level++) {
+      for (const auto& file :
+           cfd->current()->storage_info()->LevelFiles(level)) {
+        checksum_list->InsertOneFileChecksum(file->fd.GetNumber(),
+                                             file->file_checksum,
+                                             file->file_checksum_func_name);
+      }
+    }
+  }
+  return Status::OK();
+}
+
 Status VersionSet::DumpManifest(Options& options, std::string& dscname,
                                 bool verbose, bool hex, bool json) {
   // Open the specified manifest file.
@@ -5009,7 +5040,8 @@ Status VersionSet::WriteCurrentStateToManifest(
                        f->fd.GetFileSize(), f->smallest, f->largest,
                        f->fd.smallest_seqno, f->fd.largest_seqno,
                        f->marked_for_compaction, f->oldest_blob_file_number,
-                       f->oldest_ancester_time, f->file_creation_time);
+                       f->oldest_ancester_time, f->file_creation_time,
+                       f->file_checksum, f->file_checksum_func_name);
         }
       }
       const auto iter = curr_state.find(cfd->GetID());
@@ -5436,6 +5468,8 @@ void VersionSet::GetLiveFilesMetaData(std::vector<LiveFileMetaData>* metadata) {
         filemetadata.num_entries = file->num_entries;
         filemetadata.num_deletions = file->num_deletions;
         filemetadata.oldest_blob_file_number = file->oldest_blob_file_number;
+        filemetadata.file_checksum = file->file_checksum;
+        filemetadata.file_checksum_func_name = file->file_checksum_func_name;
         metadata->push_back(filemetadata);
       }
     }
@@ -5887,7 +5921,7 @@ Status ReactiveVersionSet::ApplyOneVersionEditToBuilder(
     // Some other error has occurred during LoadTableHandlers.
   }
 
-  if (version_edit->has_next_file_number()) {
+  if (version_edit->HasNextFile()) {
     next_file_number_.store(version_edit->next_file_number_ + 1);
   }
   if (version_edit->has_last_sequence_) {

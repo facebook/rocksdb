@@ -48,8 +48,10 @@ class RocksDBOptionsParser {
   ~RocksDBOptionsParser() {}
   void Reset();
 
+  // `file_readahead_size` is used for readahead for the option file.
+  // If 0 is given, a default value will be used.
   Status Parse(const std::string& file_name, FileSystem* fs,
-               bool ignore_unknown_options = false);
+               bool ignore_unknown_options, size_t file_readahead_size);
   static std::string TrimAndRemoveComment(const std::string& line,
                                           const bool trim_only = false);
 
