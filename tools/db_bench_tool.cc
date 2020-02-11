@@ -1484,7 +1484,7 @@ class FixedDistribution : public BaseDistribution
     BaseDistribution(size, size),
     size_(size) {}
  private:
-  virtual unsigned int Get() {
+  virtual unsigned int Get() override {
     return size_;
   }
   virtual bool NeedTruncate() override {
