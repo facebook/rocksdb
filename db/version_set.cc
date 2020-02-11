@@ -1967,11 +1967,6 @@ void Version::MultiGet(const ReadOptions& read_options, MultiGetRange* range,
     for (auto iter = file_range.begin(); iter != file_range.end(); ++iter) {
       GetContext& get_context = *iter->get_context;
       Status* status = iter->s;
-      // The Status in the KeyContext takes precedence over GetContext state
-      if (!status->ok()) {
-        file_range.MarkKeyDone(iter);
-        continue;
-      }
 
       if (get_context.sample()) {
         sample_file_read_inc(f->file_metadata);
