@@ -490,6 +490,7 @@ Status TableCache::MultiGet(const ReadOptions& options,
           file_options_, internal_comparator, fd, &handle, prefix_extractor,
           options.read_tier == kBlockCacheTier /* no_io */,
           true /* record_read_stats */, file_read_hist, skip_filters, level);
+      TEST_SYNC_POINT_CALLBACK("TableCache::MultiGet:FindTable", &s);
       if (s.ok()) {
         t = GetTableReaderFromHandle(handle);
         assert(t);

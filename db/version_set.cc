@@ -1923,6 +1923,11 @@ void Version::MultiGet(const ReadOptions& read_options, MultiGetRange* range,
         &iter->max_covering_tombstone_seq, this->env_, nullptr,
         merge_operator_ ? &pinned_iters_mgr : nullptr, callback, is_blob,
         tracing_mget_id);
+    // MergeInProgress status, if set, has been transferred to the get_context
+    // state, so we set status to ok here. From now on, the iter status will
+    // be used for IO errors, and get_context state will be used for any
+    // key level errors
+    *(iter->s) = Status::OK();
   }
   int get_ctx_index = 0;
   for (auto iter = range->begin(); iter != range->end();
@@ -1967,6 +1972,15 @@ void Version::MultiGet(const ReadOptions& read_options, MultiGetRange* range,
     for (auto iter = file_range.begin(); iter != file_range.end(); ++iter) {
       GetContext& get_context = *iter->get_context;
       Status* status = iter->s;
+      // The Status in the KeyContext takes precedence over GetContext state
+      // Status may be an error if there were any IO errors in the table
+      // reader. We never expect Status to be NotFound(), as that is
+      // determined by get_context
+      assert(!status->IsNotFound());
+      if (!status->ok()) {
+        file_range.MarkKeyDone(iter);
+        continue;
+      }
 
       if (get_context.sample()) {
         sample_file_read_inc(f->file_metadata);
