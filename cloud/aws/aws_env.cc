@@ -12,7 +12,6 @@
 
 #include "rocksdb/env.h"
 #include "rocksdb/status.h"
-#include "util/random.h"
 #include "util/stderr_logger.h"
 #include "util/string_util.h"
 
@@ -394,7 +393,8 @@ Aws::S3::Model::HeadObjectOutcome AwsS3ClientWrapper::HeadObject(
 //
 AwsEnv::AwsEnv(Env* underlying_env, const CloudEnvOptions& _cloud_env_options,
                const std::shared_ptr<Logger>& info_log)
-  : CloudEnvImpl(_cloud_env_options, underlying_env, info_log) {
+    : CloudEnvImpl(_cloud_env_options, underlying_env, info_log),
+      rng_(time(nullptr)) {
   Aws::InitAPI(Aws::SDKOptions());
   if (cloud_env_options.src_bucket.GetRegion().empty() ||
       cloud_env_options.dest_bucket.GetRegion().empty()) {
@@ -1800,9 +1800,8 @@ Status AwsEnv::GetObject(const std::string& bucket_name,
                          const std::string& object_path,
                          const std::string& local_destination) {
   Env* localenv = GetBaseEnv();
-  Random64 rng(time(nullptr));
   std::string tmp_destination =
-      local_destination + ".tmp" + std::to_string(rng.Next());
+      local_destination + ".tmp-" + std::to_string(rng_.Next());
 
   GetObjectResult result;
   if (cloud_env_options.use_aws_transfer_manager) {
