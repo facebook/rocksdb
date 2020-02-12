@@ -623,6 +623,9 @@ Status DBImpl::PersistentStatsProcessFormatVersion() {
     wo.no_slowdown = true;
     wo.sync = false;
     s = Write(wo, &batch);
+    if (immutable_db_options_.manual_wal_flush) {
+      FlushWAL(false);
+    }
   }
   mutex_.Lock();
   return s;
