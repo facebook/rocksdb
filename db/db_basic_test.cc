@@ -1405,6 +1405,91 @@ TEST_F(DBBasicTest, MultiGetBatchedMultiLevel) {
   }
 }
 
+TEST_F(DBBasicTest, MultiGetBatchedMultiLevelMerge) {
+  Options options = CurrentOptions();
+  options.disable_auto_compactions = true;
+  options.merge_operator = MergeOperators::CreateStringAppendOperator();
+  BlockBasedTableOptions bbto;
+  bbto.filter_policy.reset(NewBloomFilterPolicy(10, false));
+  options.table_factory.reset(NewBlockBasedTableFactory(bbto));
+  Reopen(options);
+  int num_keys = 0;
+
+  for (int i = 0; i < 128; ++i) {
+    ASSERT_OK(Put("key_" + std::to_string(i), "val_l2_" + std::to_string(i)));
+    num_keys++;
+    if (num_keys == 8) {
+      Flush();
+      num_keys = 0;
+    }
+  }
+  if (num_keys > 0) {
+    Flush();
+    num_keys = 0;
+  }
+  MoveFilesToLevel(2);
+
+  for (int i = 0; i < 128; i += 3) {
+    ASSERT_OK(Merge("key_" + std::to_string(i), "val_l1_" + std::to_string(i)));
+    num_keys++;
+    if (num_keys == 8) {
+      Flush();
+      num_keys = 0;
+    }
+  }
+  if (num_keys > 0) {
+    Flush();
+    num_keys = 0;
+  }
+  MoveFilesToLevel(1);
+
+  for (int i = 0; i < 128; i += 5) {
+    ASSERT_OK(Merge("key_" + std::to_string(i), "val_l0_" + std::to_string(i)));
+    num_keys++;
+    if (num_keys == 8) {
+      Flush();
+      num_keys = 0;
+    }
+  }
+  if (num_keys > 0) {
+    Flush();
+    num_keys = 0;
+  }
+  ASSERT_EQ(0, num_keys);
+
+  for (int i = 0; i < 128; i += 9) {
+    ASSERT_OK(Merge("key_" + std::to_string(i), "val_mem_" + std::to_string(i)));
+  }
+
+  std::vector<std::string> keys;
+  std::vector<std::string> values;
+
+  for (int i = 32; i < 80; ++i) {
+    keys.push_back("key_" + std::to_string(i));
+  }
+
+  values = MultiGet(keys, nullptr);
+  ASSERT_EQ(values.size(), keys.size());
+  for (unsigned int j = 0; j < 48; ++j) {
+    int key = j + 32;
+    std::string value;
+    value.append("val_l2_" + std::to_string(key));
+    if (key % 3 == 0) {
+      value.append(",");
+      value.append("val_l1_" + std::to_string(key));
+    }
+    if (key % 5 == 0) {
+      value.append(",");
+      value.append("val_l0_" + std::to_string(key));
+    }
+    if (key % 9 == 0) {
+      value.append(",");
+      value.append("val_mem_" + std::to_string(key));
+    }
+    ASSERT_EQ(values[j], value);
+  }
+}
+
 // Test class for batched MultiGet with prefix extractor
 // Param bool - If true, use partitioned filters
 //              If false, use full filter block
@@ -2009,6 +2094,90 @@ TEST_P(DBBasicTestWithParallelIO, MultiGet) {
       ASSERT_TRUE(env_->random_read_counter_.Read() >= expected_reads);
     }
   }
+}
+
+TEST_P(DBBasicTestWithParallelIO, MultiGetWithChecksumMismatch) {
+  std::vector<std::string> key_data(10);
+  std::vector<Slice> keys;
+  // We cannot resize a PinnableSlice vector, so just set initial size to
+  // largest we think we will need
+  std::vector<PinnableSlice> values(10);
+  std::vector<Status> statuses;
+  int read_count = 0;
+  ReadOptions ro;
+  ro.fill_cache = fill_cache();
+
+  SyncPoint::GetInstance()->SetCallBack(
+      "RetrieveMultipleBlocks:VerifyChecksum", [&](void *status) {
+      Status* s = static_cast<Status*>(status);
+      read_count++;
+      if (read_count == 2) {
+        *s = Status::Corruption();
+      }
+    });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  // Warm up the cache first
+  key_data.emplace_back(Key(0));
+  keys.emplace_back(Slice(key_data.back()));
+  key_data.emplace_back(Key(50));
+  keys.emplace_back(Slice(key_data.back()));
+  statuses.resize(keys.size());
+
+  dbfull()->MultiGet(ro, dbfull()->DefaultColumnFamily(), keys.size(),
+                     keys.data(), values.data(), statuses.data(), true);
+  ASSERT_TRUE(CheckValue(0, values[0].ToString()));
+  //ASSERT_TRUE(CheckValue(50, values[1].ToString()));
+  ASSERT_EQ(statuses[0], Status::OK());
+  ASSERT_EQ(statuses[1], Status::Corruption());
+
+  SyncPoint::GetInstance()->DisableProcessing();
+}
+
+TEST_P(DBBasicTestWithParallelIO, MultiGetWithMissingFile) {
+  std::vector<std::string> key_data(10);
+  std::vector<Slice> keys;
+  // We cannot resize a PinnableSlice vector, so just set initial size to
+  // largest we think we will need
+  std::vector<PinnableSlice> values(10);
+  std::vector<Status> statuses;
+  ReadOptions ro;
+  ro.fill_cache = fill_cache();
+
+  SyncPoint::GetInstance()->SetCallBack(
+      "TableCache::MultiGet:FindTable", [&](void *status) {
+      Status* s = static_cast<Status*>(status);
+      *s = Status::IOError();
+    });
+  // DB open will create table readers unless we reduce the table cache
+  // capacity.
+  // SanitizeOptions will set max_open_files to minimum of 20. Table cache
+  // is allocated with max_open_files - 10 as capacity. So override
+  // max_open_files to 11 so table cache capacity will become 1. This will
+  // prevent file open during DB open and force the file to be opened
+  // during MultiGet
+  SyncPoint::GetInstance()->SetCallBack(
+      "SanitizeOptions::AfterChangeMaxOpenFiles", [&](void *arg) {
+      int* max_open_files = (int*)arg;
+      *max_open_files = 11;
+    });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  Reopen(CurrentOptions());
+
+  // Warm up the cache first
+  key_data.emplace_back(Key(0));
+  keys.emplace_back(Slice(key_data.back()));
+  key_data.emplace_back(Key(50));
+  keys.emplace_back(Slice(key_data.back()));
+  statuses.resize(keys.size());
+
+  dbfull()->MultiGet(ro, dbfull()->DefaultColumnFamily(), keys.size(),
+                     keys.data(), values.data(), statuses.data(), true);
+  ASSERT_EQ(statuses[0], Status::IOError());
+  ASSERT_EQ(statuses[1], Status::IOError());
+
+  SyncPoint::GetInstance()->DisableProcessing();
 }
 
 INSTANTIATE_TEST_CASE_P(
