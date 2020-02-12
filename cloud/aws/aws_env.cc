@@ -12,6 +12,7 @@
 
 #include "rocksdb/env.h"
 #include "rocksdb/status.h"
+#include "util/random.h"
 #include "util/stderr_logger.h"
 #include "util/string_util.h"
 
@@ -1799,7 +1800,9 @@ Status AwsEnv::GetObject(const std::string& bucket_name,
                          const std::string& object_path,
                          const std::string& local_destination) {
   Env* localenv = GetBaseEnv();
-  std::string tmp_destination = local_destination + ".tmp";
+  Random64 rng(time(nullptr));
+  std::string tmp_destination =
+      local_destination + ".tmp" + std::to_string(rng.Next());
 
   GetObjectResult result;
   if (cloud_env_options.use_aws_transfer_manager) {
