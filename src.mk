@@ -263,6 +263,7 @@ ANALYZER_LIB_SOURCES =                                          \
 
 MOCK_LIB_SOURCES =                                              \
   table/mock_table.cc                                           \
+  test_util/fault_injection_test_fs.cc				\
   test_util/fault_injection_test_env.cc
 
 BENCH_LIB_SOURCES =                                             \
