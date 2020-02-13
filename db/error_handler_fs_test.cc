@@ -21,9 +21,9 @@
 
 namespace rocksdb {
 
-class DBErrorHandlingTest : public DBTestBase {
+class DBErrorHandlingFSTest : public DBTestBase {
  public:
-  DBErrorHandlingTest() : DBTestBase("/db_error_handling_test") {}
+  DBErrorHandlingFSTest() : DBTestBase("/db_error_handling_fs_test") {}
 
   std::string GetManifestNameFromLiveFiles() {
     std::vector<std::string> live_files;
@@ -56,9 +56,9 @@ class DBErrorHandlingFS : public FileSystemWrapper {
   bool trig_io_error;
 };
 
-class ErrorHandlerListener : public EventListener {
+class ErrorHandlerFSListener : public EventListener {
  public:
-  ErrorHandlerListener()
+  ErrorHandlerFSListener()
       : mutex_(),
         cv_(&mutex_),
         no_auto_recovery_(false),
@@ -149,10 +149,11 @@ class ErrorHandlerListener : public EventListener {
   FaultInjectionTestFS* fault_fs_;
 };
 
-TEST_F(DBErrorHandlingTest, FLushWriteError) {
+TEST_F(DBErrorHandlingFSTest, FLushWriteError) {
   FaultInjectionTestFS* fault_fs =
       new FaultInjectionTestFS(FileSystem::Default().get());
-  std::shared_ptr<ErrorHandlerListener> listener(new ErrorHandlerListener());
+  std::shared_ptr<ErrorHandlerFSListener> listener(
+      new ErrorHandlerFSListener());
   Options options = GetDefaultOptions();
   options.file_system.reset(fault_fs);
   options.create_if_missing = true;
@@ -179,10 +180,11 @@ TEST_F(DBErrorHandlingTest, FLushWriteError) {
   Destroy(options);
 }
 
-TEST_F(DBErrorHandlingTest, ManifestWriteError) {
+TEST_F(DBErrorHandlingFSTest, ManifestWriteError) {
   FaultInjectionTestFS* fault_fs =
       new FaultInjectionTestFS(FileSystem::Default().get());
-  std::shared_ptr<ErrorHandlerListener> listener(new ErrorHandlerListener());
+  std::shared_ptr<ErrorHandlerFSListener> listener(
+      new ErrorHandlerFSListener());
   Options options = GetDefaultOptions();
   options.file_system.reset(fault_fs);
   options.create_if_missing = true;
@@ -220,10 +222,11 @@ TEST_F(DBErrorHandlingTest, ManifestWriteError) {
   Close();
 }
 
-TEST_F(DBErrorHandlingTest, DoubleManifestWriteError) {
+TEST_F(DBErrorHandlingFSTest, DoubleManifestWriteError) {
   FaultInjectionTestFS* fault_fs =
       new FaultInjectionTestFS(FileSystem::Default().get());
-  std::shared_ptr<ErrorHandlerListener> listener(new ErrorHandlerListener());
+  std::shared_ptr<ErrorHandlerFSListener> listener(
+      new ErrorHandlerFSListener());
   Options options = GetDefaultOptions();
   options.file_system.reset(fault_fs);
   options.create_if_missing = true;
@@ -268,10 +271,11 @@ TEST_F(DBErrorHandlingTest, DoubleManifestWriteError) {
   Close();
 }
 
-TEST_F(DBErrorHandlingTest, CompactionManifestWriteError) {
+TEST_F(DBErrorHandlingFSTest, CompactionManifestWriteError) {
   FaultInjectionTestFS* fault_fs =
       new FaultInjectionTestFS(FileSystem::Default().get());
-  std::shared_ptr<ErrorHandlerListener> listener(new ErrorHandlerListener());
+  std::shared_ptr<ErrorHandlerFSListener> listener(
+      new ErrorHandlerFSListener());
   Options options = GetDefaultOptions();
   options.file_system.reset(fault_fs);
   options.create_if_missing = true;
@@ -339,10 +343,11 @@ TEST_F(DBErrorHandlingTest, CompactionManifestWriteError) {
   Close();
 }
 
-TEST_F(DBErrorHandlingTest, CompactionWriteError) {
+TEST_F(DBErrorHandlingFSTest, CompactionWriteError) {
   FaultInjectionTestFS* fault_fs =
       new FaultInjectionTestFS(FileSystem::Default().get());
-  std::shared_ptr<ErrorHandlerListener> listener(new ErrorHandlerListener());
+  std::shared_ptr<ErrorHandlerFSListener> listener(
+      new ErrorHandlerFSListener());
   Options options = GetDefaultOptions();
   options.file_system.reset(fault_fs);
   options.create_if_missing = true;
@@ -381,7 +386,7 @@ TEST_F(DBErrorHandlingTest, CompactionWriteError) {
   Destroy(options);
 }
 
-TEST_F(DBErrorHandlingTest, CorruptionError) {
+TEST_F(DBErrorHandlingFSTest, CorruptionError) {
   FaultInjectionTestFS* fault_fs =
       new FaultInjectionTestFS(FileSystem::Default().get());
   Options options = GetDefaultOptions();
@@ -419,10 +424,11 @@ TEST_F(DBErrorHandlingTest, CorruptionError) {
   Destroy(options);
 }
 
-TEST_F(DBErrorHandlingTest, AutoRecoverFlushError) {
+TEST_F(DBErrorHandlingFSTest, AutoRecoverFlushError) {
   FaultInjectionTestFS* fault_fs =
       new FaultInjectionTestFS(FileSystem::Default().get());
-  std::shared_ptr<ErrorHandlerListener> listener(new ErrorHandlerListener());
+  std::shared_ptr<ErrorHandlerFSListener> listener(
+      new ErrorHandlerFSListener());
   Options options = GetDefaultOptions();
   options.file_system.reset(fault_fs);
   options.create_if_missing = true;
@@ -452,10 +458,11 @@ TEST_F(DBErrorHandlingTest, AutoRecoverFlushError) {
   Destroy(options);
 }
 
-TEST_F(DBErrorHandlingTest, FailRecoverFlushError) {
+TEST_F(DBErrorHandlingFSTest, FailRecoverFlushError) {
   FaultInjectionTestFS* fault_fs =
       new FaultInjectionTestFS(FileSystem::Default().get());
-  std::shared_ptr<ErrorHandlerListener> listener(new ErrorHandlerListener());
+  std::shared_ptr<ErrorHandlerFSListener> listener(
+      new ErrorHandlerFSListener());
   Options options = GetDefaultOptions();
   options.file_system.reset(fault_fs);
   options.create_if_missing = true;
@@ -478,10 +485,11 @@ TEST_F(DBErrorHandlingTest, FailRecoverFlushError) {
   DestroyDB(dbname_, options);
 }
 
-TEST_F(DBErrorHandlingTest, WALWriteError) {
+TEST_F(DBErrorHandlingFSTest, WALWriteError) {
   FaultInjectionTestFS* fault_fs =
       new FaultInjectionTestFS(FileSystem::Default().get());
-  std::shared_ptr<ErrorHandlerListener> listener(new ErrorHandlerListener());
+  std::shared_ptr<ErrorHandlerFSListener> listener(
+      new ErrorHandlerFSListener());
   Options options = GetDefaultOptions();
   options.file_system.reset(fault_fs);
   options.create_if_missing = true;
@@ -548,10 +556,11 @@ TEST_F(DBErrorHandlingTest, WALWriteError) {
   Close();
 }
 
-TEST_F(DBErrorHandlingTest, MultiCFWALWriteError) {
+TEST_F(DBErrorHandlingFSTest, MultiCFWALWriteError) {
   FaultInjectionTestFS* fault_fs =
       new FaultInjectionTestFS(FileSystem::Default().get());
-  std::shared_ptr<ErrorHandlerListener> listener(new ErrorHandlerListener());
+  std::shared_ptr<ErrorHandlerFSListener> listener(
+      new ErrorHandlerFSListener());
   Options options = GetDefaultOptions();
   options.file_system.reset(fault_fs);
   options.create_if_missing = true;
