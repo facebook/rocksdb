@@ -7,12 +7,14 @@
 
 #include <cassert>
 #include <cstdint>
+#include <iosfwd>
 #include <string>
 
 namespace rocksdb {
 
 constexpr uint64_t kInvalidBlobFileNumber = 0;
 
+class JSONWriter;
 class Slice;
 class Status;
 
@@ -83,5 +85,9 @@ class BlobFileState {
   uint64_t garbage_blob_count_ = 0;
   uint64_t garbage_blob_bytes_ = 0;
 };
+
+std::ostream& operator<<(std::ostream& os,
+                         const BlobFileState& blob_file_state);
+JSONWriter& operator<<(JSONWriter& jw, const BlobFileState& blob_file_state);
 
 }  // namespace rocksdb

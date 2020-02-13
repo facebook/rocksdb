@@ -818,7 +818,7 @@ std::string VersionEdit::DebugJSON(int edit_num, bool hex_key) const {
 
     for (const auto& blob_file_state : blob_file_states_) {
       jw.StartArrayedObject();
-      jw << blob_file_state.DebugJSON();
+      jw << blob_file_state;
       jw.EndArrayedObject();
     }
 

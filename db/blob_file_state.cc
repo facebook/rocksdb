@@ -11,6 +11,7 @@
 #include "test_util/sync_point.h"
 #include "util/coding.h"
 
+#include <ostream>
 #include <sstream>
 
 namespace rocksdb {
@@ -101,11 +102,7 @@ Status BlobFileState::DecodeFrom(Slice* input) {
 std::string BlobFileState::DebugString() const {
   std::ostringstream oss;
 
-  oss << "blob_file_number: " << blob_file_number_
-      << " total_blob_count: " << total_blob_count_
-      << " total_blob_bytes: " << total_blob_bytes_
-      << " garbage_blob_count: " << garbage_blob_count_
-      << " garbage_blob_bytes: " << garbage_blob_bytes_;
+  oss << *this;
 
   return oss.str();
 }
@@ -113,14 +110,32 @@ std::string BlobFileState::DebugString() const {
 std::string BlobFileState::DebugJSON() const {
   JSONWriter jw;
 
-  jw << "BlobFileNumber" << blob_file_number_ << "TotalBlobCount"
-     << total_blob_count_ << "TotalBlobBytes" << total_blob_bytes_
-     << "GarbageBlobCount" << garbage_blob_count_ << "GarbageBlobBytes"
-     << garbage_blob_bytes_;
+  jw << *this;
 
   jw.EndObject();
 
   return jw.Get();
+}
+
+std::ostream& operator<<(std::ostream& os,
+                         const BlobFileState& blob_file_state) {
+  os << "blob_file_number: " << blob_file_state.GetBlobFileNumber()
+     << " total_blob_count: " << blob_file_state.GetTotalBlobCount()
+     << " total_blob_bytes: " << blob_file_state.GetTotalBlobBytes()
+     << " garbage_blob_count: " << blob_file_state.GetGarbageBlobCount()
+     << " garbage_blob_bytes: " << blob_file_state.GetGarbageBlobBytes();
+
+  return os;
+}
+
+JSONWriter& operator<<(JSONWriter& jw, const BlobFileState& blob_file_state) {
+  jw << "BlobFileNumber" << blob_file_state.GetBlobFileNumber()
+     << "TotalBlobCount" << blob_file_state.GetTotalBlobCount()
+     << "TotalBlobBytes" << blob_file_state.GetTotalBlobBytes()
+     << "GarbageBlobCount" << blob_file_state.GetGarbageBlobCount()
+     << "GarbageBlobBytes" << blob_file_state.GetGarbageBlobBytes();
+
+  return jw;
 }
 
 }  // namespace rocksdb
