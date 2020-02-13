@@ -667,17 +667,20 @@ uint64_t PrecomputeMinLogNumberToKeep(
 
 Status DBImpl::CleanupFilesAfterRecovery() {
   mutex_.AssertHeld();
-  std::set<std::string> paths;
+  std::vector<std::string> paths;
+  paths.push_back(dbname_);
   for (const auto& db_path : immutable_db_options_.db_paths) {
-    paths.insert(db_path.path);
+    paths.push_back(db_path.path);
   }
   for (const auto* cfd : *versions_->GetColumnFamilySet()) {
     for (const auto& cf_path : cfd->ioptions()->cf_paths) {
-      if (paths.find(cf_path.path) == paths.end()) {
-        paths.insert(cf_path.path);
-      }
+      paths.push_back(cf_path.path);
     }
   }
+  // Dedup paths
+  std::sort(paths.begin(), paths.end());
+  paths.erase(std::unique(paths.begin(), paths.end()), paths.end());
+
   uint64_t next_file_number = versions_->current_next_file_number();
   uint64_t largest_file_number = next_file_number;
   std::set<std::string> files_to_delete;
