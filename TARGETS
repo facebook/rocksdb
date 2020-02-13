@@ -171,6 +171,7 @@ cpp_library(
         "db/trim_history_scheduler.cc",
         "db/version_builder.cc",
         "db/version_edit.cc",
+        "db/version_edit_handler.cc",
         "db/version_set.cc",
         "db/wal_manager.cc",
         "db/write_batch.cc",

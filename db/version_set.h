@@ -688,6 +688,8 @@ class Version {
   FileSystem* fs_;
   friend class ReactiveVersionSet;
   friend class VersionSet;
+  friend class VersionEditHandler;
+  friend class VersionEditHandlerPointInTime;
 
   const InternalKeyComparator* internal_comparator() const {
     return storage_info_.internal_comparator_;
@@ -1070,6 +1072,8 @@ class VersionSet {
   struct ManifestWriter;
 
   friend class Version;
+  friend class VersionEditHandler;
+  friend class VersionEditHandlerPointInTime;
   friend class DBImpl;
   friend class DBImplReadOnly;
 
@@ -1104,7 +1108,7 @@ class VersionSet {
   void AppendVersion(ColumnFamilyData* column_family_data, Version* v);
 
   ColumnFamilyData* CreateColumnFamily(const ColumnFamilyOptions& cf_options,
-                                       VersionEdit* edit);
+                                       const VersionEdit* edit);
 
   Status ReadAndRecover(
       log::Reader* reader, AtomicGroupReadBuffer* read_buffer,

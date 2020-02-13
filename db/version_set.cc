@@ -1202,40 +1202,6 @@ void LevelIterator::InitFileIterator(size_t new_file_index) {
 }
 }  // anonymous namespace
 
-// A wrapper of version builder which references the current version in
-// constructor and unref it in the destructor.
-// Both of the constructor and destructor need to be called inside DB Mutex.
-class BaseReferencedVersionBuilder {
- public:
-  explicit BaseReferencedVersionBuilder(ColumnFamilyData* cfd)
-      : version_builder_(new VersionBuilder(
-            cfd->current()->version_set()->file_options(), cfd->table_cache(),
-            cfd->current()->storage_info(), cfd->ioptions()->info_log)),
-        version_(cfd->current()),
-        should_ref_(true) {
-    version_->Ref();
-  }
-  BaseReferencedVersionBuilder(ColumnFamilyData* cfd, Version* v)
-      : version_builder_(new VersionBuilder(
-            cfd->current()->version_set()->file_options(), cfd->table_cache(),
-            v->storage_info(), cfd->ioptions()->info_log)),
-        version_(v),
-        should_ref_(false) {
-    assert(version_ != cfd->current());
-  }
-  ~BaseReferencedVersionBuilder() {
-    if (should_ref_) {
-      version_->Unref();
-    }
-  }
-  VersionBuilder* version_builder() { return version_builder_.get(); }
-
- private:
-  std::unique_ptr<VersionBuilder> version_builder_;
-  Version* version_;
-  const bool should_ref_;
-};
-
 Status Version::GetTableProperties(std::shared_ptr<const TableProperties>* tp,
                                    const FileMetaData* file_meta,
                                    const std::string* fname) const {
@@ -4491,8 +4457,6 @@ Status VersionSet::Recover(
     reporter.status = &s;
     log::Reader reader(nullptr, std::move(manifest_file_reader), &reporter,
                        true /* checksum */, 0 /* log_number */);
-    Slice record;
-    std::string scratch;
     AtomicGroupReadBuffer read_buffer;
     s = ReadAndRecover(&reader, &read_buffer, cf_name_to_options,
                        column_families_not_found, builders,
@@ -4793,28 +4757,14 @@ Status VersionSet::TryRecoverFromOneManifest(
 
   std::unordered_map<uint32_t, Version*> versions;
 
-  const auto create_cf_and_init = [this, &versions, &builders,
-                                   &cf_to_missing_files](
+  const auto create_cf_and_init = [this, &builders, &cf_to_missing_files](
                                       const ColumnFamilyOptions& cf_opts,
                                       VersionEdit& edit) -> ColumnFamilyData* {
     ColumnFamilyData* ret_cfd = CreateColumnFamily(cf_opts, &edit);
     ret_cfd->set_initialized();
-    auto* init_version = new Version(ret_cfd, this, file_options_,
-                                     *ret_cfd->GetLatestMutableCFOptions(),
-                                     current_version_number_++);
-    init_version->PrepareApply(*ret_cfd->GetLatestMutableCFOptions(),
-                               !db_options_->skip_stats_update_on_db_open);
-    init_version->storage_info()->ComputeCompactionScore(
-        *ret_cfd->ioptions(), *ret_cfd->GetLatestMutableCFOptions());
-    init_version->storage_info()->SetFinalized();
-    assert(0 == init_version->refs_);
-    assert(init_version != ret_cfd->current());
-    assert(versions.find(edit.column_family_) == versions.end());
-    versions[edit.column_family_] = init_version;
-    builders.emplace(
-        edit.column_family_,
-        std::unique_ptr<BaseReferencedVersionBuilder>(
-            new BaseReferencedVersionBuilder(ret_cfd, init_version)));
+    builders.emplace(edit.column_family_,
+                     std::unique_ptr<BaseReferencedVersionBuilder>(
+                         new BaseReferencedVersionBuilder(ret_cfd)));
     cf_to_missing_files.emplace(edit.column_family_,
                                 std::unordered_set<uint64_t>());
     return ret_cfd;
@@ -4883,9 +4833,10 @@ Status VersionSet::TryRecoverFromOneManifest(
         assert(missing_files_iter != cf_to_missing_files.end());
         cf_to_missing_files.erase(missing_files_iter);
         auto v_iter = versions.find(edit.column_family_);
-        assert(v_iter != versions.end());
-        delete v_iter->second;
-        versions.erase(v_iter);
+        if (v_iter != versions.end()) {
+          delete v_iter->second;
+          versions.erase(v_iter);
+        }
         cfd = column_family_set_->GetColumnFamily(edit.column_family_);
         assert(cfd != nullptr);
         if (cfd->UnrefAndTryDelete()) {
@@ -4960,15 +4911,13 @@ Status VersionSet::TryRecoverFromOneManifest(
             version->storage_info());
         version->PrepareApply(*cfd->GetLatestMutableCFOptions(),
                               !db_options_->skip_stats_update_on_db_open);
-        version->storage_info()->ComputeCompactionScore(
-            *cfd->ioptions(), *cfd->GetLatestMutableCFOptions());
-        version->storage_info()->SetFinalized();
-        assert(0 == version->refs_);
-        assert(version != cfd->current());
         auto v_iter = versions.find(edit.column_family_);
-        assert(v_iter != versions.end());
-        delete v_iter->second;
-        v_iter->second = version;
+        if (v_iter != versions.end()) {
+          delete v_iter->second;
+          v_iter->second = version;
+        } else {
+          versions.emplace(edit.column_family_, version);
+        }
         builder_iter->second = std::unique_ptr<BaseReferencedVersionBuilder>(
             new BaseReferencedVersionBuilder(cfd, version));
       }
@@ -5025,7 +4974,6 @@ Status VersionSet::TryRecoverFromOneManifest(
       }
       assert(cfd->initialized());
       auto v_iter = versions.find(cfd->GetID());
-      assert(v_iter != versions.end());
       if (v_iter != versions.end()) {
         assert(v_iter->second != nullptr);
         AppendVersion(cfd, v_iter->second);
@@ -5978,7 +5926,7 @@ void VersionSet::GetObsoleteFiles(std::vector<ObsoleteFileInfo>* files,
 }
 
 ColumnFamilyData* VersionSet::CreateColumnFamily(
-    const ColumnFamilyOptions& cf_options, VersionEdit* edit) {
+    const ColumnFamilyOptions& cf_options, const VersionEdit* edit) {
   assert(edit->is_column_family_add_);
 
   MutableCFOptions dummy_cf_options;
