@@ -157,12 +157,11 @@ IOStatus TestFSWritableFile::Close(const IOOptions& options,
   return io_s;
 }
 
-IOStatus TestFSWritableFile::Flush(const IOOptions& options,
-                                   IODebugContext* dbg) {
+IOStatus TestFSWritableFile::Flush(const IOOptions&, IODebugContext*) {
   if (!fs_->IsFilesystemActive()) {
     return fs_->GetError();
   }
-  IOStatus io_s = target_->Flush(options, dbg);
+  IOStatus io_s;
   if (io_s.ok() && fs_->IsFilesystemActive()) {
     state_.pos_at_last_flush_ = state_.pos_;
   }

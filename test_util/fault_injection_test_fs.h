@@ -73,8 +73,7 @@ class TestFSWritableFile : public FSWritableFile {
   }
   virtual IOStatus Close(const IOOptions& options,
                          IODebugContext* dbg) override;
-  virtual IOStatus Flush(const IOOptions& options,
-                         IODebugContext* dbg) override;
+  virtual IOStatus Flush(const IOOptions&, IODebugContext*) override;
   virtual IOStatus Sync(const IOOptions& options, IODebugContext* dbg) override;
   virtual bool IsSyncThreadSafe() const override { return true; }
   virtual IOStatus PositionedAppend(const Slice& data, uint64_t offset,
@@ -141,6 +140,8 @@ class FaultInjectionTestFS : public FileSystemWrapper {
   explicit FaultInjectionTestFS(FileSystem* base)
       : FileSystemWrapper(base), filesystem_active_(true) {}
   virtual ~FaultInjectionTestFS() {}
+
+  const char* Name() const override { return "FaultInjectionTestFS"; }
 
   IOStatus NewDirectory(const std::string& name, const IOOptions& options,
                         std::unique_ptr<FSDirectory>* result,

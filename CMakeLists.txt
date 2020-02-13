@@ -963,6 +963,7 @@ if(WITH_TESTS)
         db/dbformat_test.cc
         db/deletefile_test.cc
         db/error_handler_test.cc
+        db/error_handler_fs_test.cc
         db/obsolete_files_test.cc
         db/external_sst_file_basic_test.cc
         db/external_sst_file_test.cc

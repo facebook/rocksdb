@@ -970,6 +970,13 @@ ROCKS_TESTS = [
         [],
     ],
     [
+        "error_handler_fs_test",
+        "db/error_handler_fs_test.cc",
+        "serial",
+        [],
+        [],
+    ],
+    [
         "error_handler_test",
         "db/error_handler_test.cc",
         "serial",
