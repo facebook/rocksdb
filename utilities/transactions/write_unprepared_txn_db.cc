@@ -21,10 +21,23 @@ Status WriteUnpreparedTxnDB::RollbackRecoveredTransaction(
   assert(rtxn->unprepared_);
   auto cf_map_shared_ptr = WritePreparedTxnDB::GetCFHandleMap();
   auto cf_comp_map_shared_ptr = WritePreparedTxnDB::GetCFComparatorMap();
+  // In theory we could write with disableWAL = true during recovery, and
+  // assume that if we crash again during recovery, we can just replay from
+  // the very beginning. Unfortunately, the XIDs from the application may not
+  // necessarily be unique across restarts, potentially leading to situations
+  // like this:
+  //
+  // BEGIN_PREPARE(unprepared) Put(a) END_PREPARE(xid = 1)
+  // -- crash and recover with Put(a) rolled back as it was not prepared
+  // BEGIN_PREPARE(prepared) Put(b) END_PREPARE(xid = 1)
+  // COMMIT(xid = 1)
+  // -- crash and recover with both a, b
+  //
+  // We could just write the rollback marker, but then we would have to extend
+  // MemTableInserter during recovery to actually do writes into the DB
+  // instead of just dropping the in-memory write batch.
+  //
   WriteOptions w_options;
-  // If we crash during recovery, we can just recalculate and rewrite the
-  // rollback batch.
-  w_options.disableWAL = true;
 
   class InvalidSnapshotReadCallback : public ReadCallback {
    public:
