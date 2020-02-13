@@ -150,18 +150,20 @@ case "$TARGET_OS" in
             PLATFORM_LDFLAGS="$PLATFORM_LDFLAGS -latomic"
         fi
         PLATFORM_LDFLAGS="$PLATFORM_LDFLAGS -lpthread -lrt"
-        # check for liburing
-        $CXX $CFLAGS -x c++ - -luring -o /dev/null 2>/dev/null  <<EOF
-          #include <liburing.h>
-          int main() {
-            struct io_uring ring;
-            io_uring_queue_init(1, &ring, 0);
-            return 0;
-          }
+        if test $ROCKSDB_USE_IO_URING; then
+            # check for liburing
+            $CXX $CFLAGS -x c++ - -luring -o /dev/null 2>/dev/null  <<EOF
+              #include <liburing.h>
+              int main() {
+                struct io_uring ring;
+                io_uring_queue_init(1, &ring, 0);
+                return 0;
+              }
 EOF
-        if [ "$?" = 0 ]; then
-          PLATFORM_LDFLAGS="$PLATFORM_LDFLAGS -luring"
-          COMMON_FLAGS="$COMMON_FLAGS -DROCKSDB_IOURING_PRESENT"
+            if [ "$?" = 0 ]; then
+                PLATFORM_LDFLAGS="$PLATFORM_LDFLAGS -luring"
+                COMMON_FLAGS="$COMMON_FLAGS -DROCKSDB_IOURING_PRESENT"
+            fi
         fi
         if test -z "$USE_FOLLY_DISTRIBUTED_MUTEX"; then
           USE_FOLLY_DISTRIBUTED_MUTEX=1

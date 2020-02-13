@@ -575,6 +575,36 @@ void Java_org_rocksdb_RocksDB_put__JJ_3BII_3BIIJ(
   }
 }
 
+/*
+ * Class:     org_rocksdb_RocksDB
+ * Method:    putDirect
+ * Signature: (JJLjava/nio/ByteBuffer;IILjava/nio/ByteBuffer;IIJ)V
+ */
+void Java_org_rocksdb_RocksDB_putDirect(
+    JNIEnv* env, jobject /*jdb*/, jlong jdb_handle, jlong jwrite_options_handle,
+    jobject jkey, jint jkey_off, jint jkey_len, jobject jval, jint jval_off,
+    jint jval_len, jlong jcf_handle) {
+  auto* db = reinterpret_cast<rocksdb::DB*>(jdb_handle);
+  auto* write_options =
+      reinterpret_cast<rocksdb::WriteOptions*>(jwrite_options_handle);
+  auto* cf_handle = reinterpret_cast<rocksdb::ColumnFamilyHandle*>(jcf_handle);
+  auto put = [&env, &db, &cf_handle, &write_options](rocksdb::Slice& key,
+                                                     rocksdb::Slice& value) {
+    rocksdb::Status s;
+    if (cf_handle == nullptr) {
+      s = db->Put(*write_options, key, value);
+    } else {
+      s = db->Put(*write_options, cf_handle, key, value);
+    }
+    if (s.ok()) {
+      return;
+    }
+    rocksdb::RocksDBExceptionJni::ThrowNew(env, s);
+  };
+  rocksdb::JniUtil::kv_op_direct(put, env, jkey, jkey_off, jkey_len, jval,
+                                 jval_off, jval_len);
+}
+
 //////////////////////////////////////////////////////////////////////////////
 // rocksdb::DB::Delete()
 
@@ -868,6 +898,92 @@ void Java_org_rocksdb_RocksDB_deleteRange__J_3BII_3BII(
       jend_key, jend_key_off, jend_key_len);
 }
 
+jint rocksdb_get_helper_direct(
+    JNIEnv* env, rocksdb::DB* db, const rocksdb::ReadOptions& read_options,
+    rocksdb::ColumnFamilyHandle* column_family_handle, jobject jkey,
+    jint jkey_off, jint jkey_len, jobject jval, jint jval_off, jint jval_len,
+    bool* has_exception) {
+  static const int kNotFound = -1;
+  static const int kStatusError = -2;
+  static const int kArgumentError = -3;
+
+  char* key = reinterpret_cast<char*>(env->GetDirectBufferAddress(jkey));
+  if (key == nullptr) {
+    rocksdb::RocksDBExceptionJni::ThrowNew(
+        env,
+        "Invalid key argument (argument is not a valid direct ByteBuffer)");
+    *has_exception = true;
+    return kArgumentError;
+  }
+  if (env->GetDirectBufferCapacity(jkey) < (jkey_off + jkey_len)) {
+    rocksdb::RocksDBExceptionJni::ThrowNew(
+        env,
+        "Invalid key argument. Capacity is less than requested region (offset "
+        "+ length).");
+    *has_exception = true;
+    return kArgumentError;
+  }
+
+  char* value = reinterpret_cast<char*>(env->GetDirectBufferAddress(jval));
+  if (value == nullptr) {
+    rocksdb::RocksDBExceptionJni::ThrowNew(
+        env,
+        "Invalid value argument (argument is not a valid direct ByteBuffer)");
+    *has_exception = true;
+    return kArgumentError;
+  }
+
+  if (env->GetDirectBufferCapacity(jval) < (jval_off + jval_len)) {
+    rocksdb::RocksDBExceptionJni::ThrowNew(
+        env,
+        "Invalid value argument. Capacity is less than requested region "
+        "(offset + length).");
+    *has_exception = true;
+    return kArgumentError;
+  }
+
+  key += jkey_off;
+  value += jval_off;
+
+  rocksdb::Slice key_slice(key, jkey_len);
+
+  // TODO(yhchiang): we might save one memory allocation here by adding
+  // a DB::Get() function which takes preallocated jbyte* as input.
+  std::string cvalue;
+  rocksdb::Status s;
+  if (column_family_handle != nullptr) {
+    s = db->Get(read_options, column_family_handle, key_slice, &cvalue);
+  } else {
+    // backwards compatibility
+    s = db->Get(read_options, key_slice, &cvalue);
+  }
+
+  if (s.IsNotFound()) {
+    *has_exception = false;
+    return kNotFound;
+  } else if (!s.ok()) {
+    *has_exception = true;
+    // Here since we are throwing a Java exception from c++ side.
+    // As a result, c++ does not know calling this function will in fact
+    // throwing an exception.  As a result, the execution flow will
+    // not stop here, and codes after this throw will still be
+    // executed.
+    rocksdb::RocksDBExceptionJni::ThrowNew(env, s);
+
+    // Return a dummy const value to avoid compilation error, although
+    // java side might not have a chance to get the return value :)
+    return kStatusError;
+  }
+
+  const jint cvalue_len = static_cast<jint>(cvalue.size());
+  const jint length = std::min(jval_len, cvalue_len);
+
+  memcpy(value, cvalue.c_str(), length);
+
+  *has_exception = false;
+  return cvalue_len;
+}
+
 /*
  * Class:     org_rocksdb_RocksDB
  * Method:    deleteRange
@@ -931,6 +1047,27 @@ void Java_org_rocksdb_RocksDB_deleteRange__JJ_3BII_3BIIJ(
     rocksdb::RocksDBExceptionJni::ThrowNew(
         env, rocksdb::Status::InvalidArgument("Invalid ColumnFamilyHandle."));
   }
+}
+
+/*
+ * Class:     org_rocksdb_RocksDB
+ * Method:    getDirect
+ * Signature: (JJLjava/nio/ByteBuffer;IILjava/nio/ByteBuffer;IIJ)I
+ */
+jint Java_org_rocksdb_RocksDB_getDirect(JNIEnv* env, jobject /*jdb*/,
+                                        jlong jdb_handle, jlong jropt_handle,
+                                        jobject jkey, jint jkey_off,
+                                        jint jkey_len, jobject jval,
+                                        jint jval_off, jint jval_len,
+                                        jlong jcf_handle) {
+  auto* db_handle = reinterpret_cast<rocksdb::DB*>(jdb_handle);
+  auto* ro_opt = reinterpret_cast<rocksdb::ReadOptions*>(jropt_handle);
+  auto* cf_handle = reinterpret_cast<rocksdb::ColumnFamilyHandle*>(jcf_handle);
+  bool has_exception = false;
+  return rocksdb_get_helper_direct(
+      env, db_handle, ro_opt == nullptr ? rocksdb::ReadOptions() : *ro_opt,
+      cf_handle, jkey, jkey_off, jkey_len, jval, jval_off, jval_len,
+      &has_exception);
 }
 
 //////////////////////////////////////////////////////////////////////////////
@@ -1069,6 +1206,35 @@ jlong rocksdb_iterator_helper(rocksdb::DB* db,
     iterator = db->NewIterator(read_options);
   }
   return reinterpret_cast<jlong>(iterator);
+}
+
+/*
+ * Class:     org_rocksdb_RocksDB
+ * Method:    deleteDirect
+ * Signature: (JJLjava/nio/ByteBuffer;IIJ)V
+ */
+void Java_org_rocksdb_RocksDB_deleteDirect(JNIEnv* env, jobject /*jdb*/,
+                                           jlong jdb_handle,
+                                           jlong jwrite_options, jobject jkey,
+                                           jint jkey_offset, jint jkey_len,
+                                           jlong jcf_handle) {
+  auto* db = reinterpret_cast<rocksdb::DB*>(jdb_handle);
+  auto* write_options =
+      reinterpret_cast<rocksdb::WriteOptions*>(jwrite_options);
+  auto* cf_handle = reinterpret_cast<rocksdb::ColumnFamilyHandle*>(jcf_handle);
+  auto remove = [&env, &db, &write_options, &cf_handle](rocksdb::Slice& key) {
+    rocksdb::Status s;
+    if (cf_handle == nullptr) {
+      s = db->Delete(*write_options, key);
+    } else {
+      s = db->Delete(*write_options, cf_handle, key);
+    }
+    if (s.ok()) {
+      return;
+    }
+    rocksdb::RocksDBExceptionJni::ThrowNew(env, s);
+  };
+  rocksdb::JniUtil::k_op_direct(remove, env, jkey, jkey_offset, jkey_len);
 }
 
 //////////////////////////////////////////////////////////////////////////////

@@ -186,7 +186,7 @@ public class RocksDBTest {
   @Test
   public void put() throws RocksDBException {
     try (final RocksDB db = RocksDB.open(dbFolder.getRoot().getAbsolutePath());
-         final WriteOptions opt = new WriteOptions()) {
+         final WriteOptions opt = new WriteOptions(); final ReadOptions optr = new ReadOptions()) {
       db.put("key1".getBytes(), "value".getBytes());
       db.put(opt, "key2".getBytes(), "12345678".getBytes());
       assertThat(db.get("key1".getBytes())).isEqualTo(
@@ -194,6 +194,47 @@ public class RocksDBTest {
       assertThat(db.get("key2".getBytes())).isEqualTo(
           "12345678".getBytes());
 
+      ByteBuffer key = ByteBuffer.allocateDirect(12);
+      ByteBuffer value = ByteBuffer.allocateDirect(12);
+      key.position(4);
+      key.put("key3".getBytes());
+      key.position(4).limit(8);
+      value.position(4);
+      value.put("val3".getBytes());
+      value.position(4).limit(8);
+
+      db.put(opt, key, value);
+
+      assertThat(key.position()).isEqualTo(8);
+      assertThat(key.limit()).isEqualTo(8);
+
+      assertThat(value.position()).isEqualTo(8);
+      assertThat(value.limit()).isEqualTo(8);
+
+      key.position(4);
+
+      ByteBuffer result = ByteBuffer.allocateDirect(12);
+      assertThat(db.get(optr, key, result)).isEqualTo(4);
+      assertThat(result.position()).isEqualTo(0);
+      assertThat(result.limit()).isEqualTo(4);
+      assertThat(key.position()).isEqualTo(8);
+      assertThat(key.limit()).isEqualTo(8);
+
+      byte[] tmp = new byte[4];
+      result.get(tmp);
+      assertThat(tmp).isEqualTo("val3".getBytes());
+
+      key.position(4);
+
+      result.clear().position(9);
+      assertThat(db.get(optr, key, result)).isEqualTo(4);
+      assertThat(result.position()).isEqualTo(9);
+      assertThat(result.limit()).isEqualTo(12);
+      assertThat(key.position()).isEqualTo(8);
+      assertThat(key.limit()).isEqualTo(8);
+      byte[] tmp2 = new byte[3];
+      result.get(tmp2);
+      assertThat(tmp2).isEqualTo("val".getBytes());
 
       // put
       Segment key3 = sliceSegment("key3");
@@ -473,15 +514,22 @@ public class RocksDBTest {
          final WriteOptions wOpt = new WriteOptions()) {
       db.put("key1".getBytes(), "value".getBytes());
       db.put("key2".getBytes(), "12345678".getBytes());
+      db.put("key3".getBytes(), "33".getBytes());
       assertThat(db.get("key1".getBytes())).isEqualTo(
           "value".getBytes());
       assertThat(db.get("key2".getBytes())).isEqualTo(
           "12345678".getBytes());
+      assertThat(db.get("key3".getBytes())).isEqualTo("33".getBytes());
       db.delete("key1".getBytes());
       db.delete(wOpt, "key2".getBytes());
+      ByteBuffer key = ByteBuffer.allocateDirect(16);
+      key.put("key3".getBytes()).flip();
+      db.delete(wOpt, key);
+      assertThat(key.position()).isEqualTo(4);
+      assertThat(key.limit()).isEqualTo(4);
+
       assertThat(db.get("key1".getBytes())).isNull();
       assertThat(db.get("key2".getBytes())).isNull();
-
 
       Segment key3 = sliceSegment("key3");
       Segment key4 = sliceSegment("key4");
@@ -1103,9 +1151,11 @@ public class RocksDBTest {
       try (final RocksDB db = RocksDB.open(options, dbPath)) {
         db.put("key1".getBytes(), "value".getBytes());
       }
-      assertThat(dbFolder.getRoot().exists()).isTrue();
+      assertThat(dbFolder.getRoot().exists() && dbFolder.getRoot().listFiles().length != 0)
+          .isTrue();
       RocksDB.destroyDB(dbPath, options);
-      assertThat(dbFolder.getRoot().exists()).isFalse();
+      assertThat(dbFolder.getRoot().exists() && dbFolder.getRoot().listFiles().length != 0)
+          .isFalse();
     }
   }
 

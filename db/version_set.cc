@@ -50,7 +50,6 @@
 #include "table/two_level_iterator.h"
 #include "test_util/sync_point.h"
 #include "util/coding.h"
-#include "util/defer.h"
 #include "util/stop_watch.h"
 #include "util/string_util.h"
 #include "util/user_comparator_wrapper.h"
@@ -1923,6 +1922,11 @@ void Version::MultiGet(const ReadOptions& read_options, MultiGetRange* range,
         &iter->max_covering_tombstone_seq, this->env_, nullptr,
         merge_operator_ ? &pinned_iters_mgr : nullptr, callback, is_blob,
         tracing_mget_id);
+    // MergeInProgress status, if set, has been transferred to the get_context
+    // state, so we set status to ok here. From now on, the iter status will
+    // be used for IO errors, and get_context state will be used for any
+    // key level errors
+    *(iter->s) = Status::OK();
   }
   int get_ctx_index = 0;
   for (auto iter = range->begin(); iter != range->end();
@@ -1968,6 +1972,10 @@ void Version::MultiGet(const ReadOptions& read_options, MultiGetRange* range,
       GetContext& get_context = *iter->get_context;
       Status* status = iter->s;
       // The Status in the KeyContext takes precedence over GetContext state
+      // Status may be an error if there were any IO errors in the table
+      // reader. We never expect Status to be NotFound(), as that is
+      // determined by get_context
+      assert(!status->IsNotFound());
       if (!status->ok()) {
         file_range.MarkKeyDone(iter);
         continue;
@@ -3605,14 +3613,6 @@ Status VersionSet::ProcessManifestWrites(
   autovector<Version*> versions;
   autovector<const MutableCFOptions*> mutable_cf_options_ptrs;
   std::vector<std::unique_ptr<BaseReferencedVersionBuilder>> builder_guards;
-  Status s;
-  Defer defer([&s, &versions]() {
-    if (!s.ok()) {
-      for (auto v : versions) {
-        delete v;
-      }
-    }
-  });
 
   if (first_writer.edit_list.front()->IsColumnFamilyManipulation()) {
     // No group commits for column family add or drop
@@ -3698,8 +3698,12 @@ Status VersionSet::ProcessManifestWrites(
         } else if (group_start != std::numeric_limits<size_t>::max()) {
           group_start = std::numeric_limits<size_t>::max();
         }
-        s = LogAndApplyHelper(last_writer->cfd, builder, e, mu);
+        Status s = LogAndApplyHelper(last_writer->cfd, builder, e, mu);
         if (!s.ok()) {
+          // free up the allocated memory
+          for (auto v : versions) {
+            delete v;
+          }
           return s;
         }
         batch_edits.push_back(e);
@@ -3709,8 +3713,12 @@ Status VersionSet::ProcessManifestWrites(
       assert(!builder_guards.empty() &&
              builder_guards.size() == versions.size());
       auto* builder = builder_guards[i]->version_builder();
-      s = builder->SaveTo(versions[i]->storage_info());
+      Status s = builder->SaveTo(versions[i]->storage_info());
       if (!s.ok()) {
+        // free up the allocated memory
+        for (auto v : versions) {
+          delete v;
+        }
         return s;
       }
     }
@@ -3753,6 +3761,7 @@ Status VersionSet::ProcessManifestWrites(
 #endif  // NDEBUG
 
   uint64_t new_manifest_file_size = 0;
+  Status s;
 
   assert(pending_manifest_file_number_ == 0);
   if (!descriptor_log_ ||
@@ -3965,6 +3974,9 @@ Status VersionSet::ProcessManifestWrites(
     ROCKS_LOG_ERROR(db_options_->info_log,
                     "Error in committing version edit to MANIFEST: %s",
                     version_edits.c_str());
+    for (auto v : versions) {
+      delete v;
+    }
     // If manifest append failed for whatever reason, the file could be
     // corrupted. So we need to force the next version update to start a
     // new manifest file.
