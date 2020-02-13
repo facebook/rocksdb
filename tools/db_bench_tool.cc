@@ -6936,10 +6936,10 @@ int db_bench_tool(int argc, char** argv) {
   FLAGS_compression_type_e =
     StringToCompressionType(FLAGS_compression_type.c_str());
 
+#ifndef ROCKSDB_LITE
   FLAGS_blob_db_compression_type_e =
     StringToCompressionType(FLAGS_blob_db_compression_type.c_str());
 
-#ifndef ROCKSDB_LITE
   if (!FLAGS_hdfs.empty() && !FLAGS_env_uri.empty()) {
     fprintf(stderr, "Cannot provide both --hdfs and --env_uri.\n");
     exit(1);
