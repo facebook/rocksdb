@@ -1296,6 +1296,11 @@ Status CompactionJob::FinishCompactionOutputFile(
   }
   const uint64_t current_bytes = sub_compact->builder->FileSize();
   if (s.ok()) {
+    // Add the checksum information to file metadata.
+    meta->file_checksum = sub_compact->builder->GetFileChecksum();
+    meta->file_checksum_func_name =
+        sub_compact->builder->GetFileChecksumFuncName();
+
     meta->fd.file_size = current_bytes;
   }
   sub_compact->current_output()->finished = true;
@@ -1508,7 +1513,8 @@ Status CompactionJob::OpenCompactionOutputFile(
       sub_compact->compaction->immutable_cf_options()->listeners;
   sub_compact->outfile.reset(
       new WritableFileWriter(std::move(writable_file), fname, file_options_,
-                             env_, db_options_.statistics.get(), listeners));
+                             env_, db_options_.statistics.get(), listeners,
+                             db_options_.sst_file_checksum_func.get()));
 
   // If the Column family flag is to only optimize filters for hits,
   // we can skip creating filters if this is the bottommost_level where

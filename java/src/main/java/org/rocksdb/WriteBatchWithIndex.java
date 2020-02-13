@@ -5,6 +5,8 @@
 
 package org.rocksdb;
 
+import java.nio.ByteBuffer;
+
 /**
  * Similar to {@link org.rocksdb.WriteBatch} but with a binary searchable
  * index built for all the keys inserted.
@@ -255,6 +257,10 @@ public class WriteBatchWithIndex extends AbstractWriteBatch {
   @Override final native void put(final long handle, final byte[] key,
       final int keyLen, final byte[] value, final int valueLen,
       final long cfHandle);
+  @Override
+  final native void putDirect(final long handle, final ByteBuffer key, final int keyOffset,
+      final int keyLength, final ByteBuffer value, final int valueOffset, final int valueLength,
+      final long cfHandle);
   @Override final native void merge(final long handle, final byte[] key,
       final int keyLen, final byte[] value, final int valueLen);
   @Override final native void merge(final long handle, final byte[] key,
@@ -268,6 +274,9 @@ public class WriteBatchWithIndex extends AbstractWriteBatch {
       final int keyLen) throws RocksDBException;
   @Override final native void singleDelete(final long handle, final byte[] key,
       final int keyLen, final long cfHandle) throws RocksDBException;
+  @Override
+  final native void removeDirect(final long handle, final ByteBuffer key, final int keyOffset,
+      final int keyLength, final long cfHandle) throws RocksDBException;
   @Override
   final native void deleteRange(final long handle, final byte[] beginKey, final int beginKeyLen,
       final byte[] endKey, final int endKeyLen);

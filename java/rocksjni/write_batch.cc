@@ -194,6 +194,30 @@ void Java_org_rocksdb_WriteBatch_put__J_3BI_3BIJ(
 
 /*
  * Class:     org_rocksdb_WriteBatch
+ * Method:    putDirect
+ * Signature: (JLjava/nio/ByteBuffer;IILjava/nio/ByteBuffer;IIJ)V
+ */
+void Java_org_rocksdb_WriteBatch_putDirect(JNIEnv* env, jobject /*jobj*/,
+                                           jlong jwb_handle, jobject jkey,
+                                           jint jkey_offset, jint jkey_len,
+                                           jobject jval, jint jval_offset,
+                                           jint jval_len, jlong jcf_handle) {
+  auto* wb = reinterpret_cast<rocksdb::WriteBatch*>(jwb_handle);
+  assert(wb != nullptr);
+  auto* cf_handle = reinterpret_cast<rocksdb::ColumnFamilyHandle*>(jcf_handle);
+  auto put = [&wb, &cf_handle](rocksdb::Slice& key, rocksdb::Slice& value) {
+    if (cf_handle == nullptr) {
+      wb->Put(key, value);
+    } else {
+      wb->Put(cf_handle, key, value);
+    }
+  };
+  rocksdb::JniUtil::kv_op_direct(put, env, jkey, jkey_offset, jkey_len, jval,
+                                 jval_offset, jval_len);
+}
+
+/*
+ * Class:     org_rocksdb_WriteBatch
  * Method:    merge
  * Signature: (J[BI[BI)V
  */
@@ -318,6 +342,28 @@ void Java_org_rocksdb_WriteBatch_singleDelete__J_3BIJ(JNIEnv* env, jobject jobj,
   if (status != nullptr && !status->ok()) {
     rocksdb::RocksDBExceptionJni::ThrowNew(env, status);
   }
+}
+
+/*
+ * Class:     org_rocksdb_WriteBatch
+ * Method:    removeDirect
+ * Signature: (JLjava/nio/ByteBuffer;IIJ)V
+ */
+void Java_org_rocksdb_WriteBatch_removeDirect(JNIEnv* env, jobject /*jobj*/,
+                                              jlong jwb_handle, jobject jkey,
+                                              jint jkey_offset, jint jkey_len,
+                                              jlong jcf_handle) {
+  auto* wb = reinterpret_cast<rocksdb::WriteBatch*>(jwb_handle);
+  assert(wb != nullptr);
+  auto* cf_handle = reinterpret_cast<rocksdb::ColumnFamilyHandle*>(jcf_handle);
+  auto remove = [&wb, &cf_handle](rocksdb::Slice& key) {
+    if (cf_handle == nullptr) {
+      wb->Delete(key);
+    } else {
+      wb->Delete(cf_handle, key);
+    }
+  };
+  rocksdb::JniUtil::k_op_direct(remove, env, jkey, jkey_offset, jkey_len);
 }
 
 /*

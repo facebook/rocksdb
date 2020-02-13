@@ -132,6 +132,9 @@ void AutoRollLoggerTest::RollLogFileBySizeTest(AutoRollLogger* logger,
                                                size_t log_max_size,
                                                const std::string& log_message) {
   logger->SetInfoLogLevel(InfoLogLevel::INFO_LEVEL);
+  ASSERT_EQ(InfoLogLevel::INFO_LEVEL, logger->GetInfoLogLevel());
+  ASSERT_EQ(InfoLogLevel::INFO_LEVEL,
+            logger->TEST_inner_logger()->GetInfoLogLevel());
   // measure the size of each message, which is supposed
   // to be equal or greater than log_message.size()
   LogMessage(logger, log_message.c_str());
@@ -219,6 +222,25 @@ TEST_F(AutoRollLoggerTest, RollLogFileByTime) {
 
   RollLogFileByTimeTest(&nse, &logger, time,
                         kSampleMessage + ":RollLogFileByTime");
+}
+
+TEST_F(AutoRollLoggerTest, SetInfoLogLevel) {
+  InitTestDb();
+  Options options;
+  options.info_log_level = InfoLogLevel::FATAL_LEVEL;
+  options.max_log_file_size = 1024;
+  std::shared_ptr<Logger> logger;
+  ASSERT_OK(CreateLoggerFromOptions(kTestDir, options, &logger));
+  auto* auto_roll_logger = dynamic_cast<AutoRollLogger*>(logger.get());
+  ASSERT_NE(nullptr, auto_roll_logger);
+  ASSERT_EQ(InfoLogLevel::FATAL_LEVEL, auto_roll_logger->GetInfoLogLevel());
+  ASSERT_EQ(InfoLogLevel::FATAL_LEVEL,
+            auto_roll_logger->TEST_inner_logger()->GetInfoLogLevel());
+  auto_roll_logger->SetInfoLogLevel(InfoLogLevel::DEBUG_LEVEL);
+  ASSERT_EQ(InfoLogLevel::DEBUG_LEVEL, auto_roll_logger->GetInfoLogLevel());
+  ASSERT_EQ(InfoLogLevel::DEBUG_LEVEL, logger->GetInfoLogLevel());
+  ASSERT_EQ(InfoLogLevel::DEBUG_LEVEL,
+            auto_roll_logger->TEST_inner_logger()->GetInfoLogLevel());
 }
 
 TEST_F(AutoRollLoggerTest, OpenLogFilesMultipleTimesWithOptionLog_max_size) {

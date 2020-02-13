@@ -1464,7 +1464,8 @@ void Version::GetColumnFamilyMetaData(ColumnFamilyMetaData* cf_meta) {
           file->largest.user_key().ToString(),
           file->stats.num_reads_sampled.load(std::memory_order_relaxed),
           file->being_compacted, file->oldest_blob_file_number,
-          file->TryGetOldestAncesterTime(), file->TryGetFileCreationTime()});
+          file->TryGetOldestAncesterTime(), file->TryGetFileCreationTime(),
+          file->file_checksum, file->file_checksum_func_name});
       files.back().num_entries = file->num_entries;
       files.back().num_deletions = file->num_deletions;
       level_size += file->fd.GetFileSize();
@@ -1921,6 +1922,11 @@ void Version::MultiGet(const ReadOptions& read_options, MultiGetRange* range,
         &iter->max_covering_tombstone_seq, this->env_, nullptr,
         merge_operator_ ? &pinned_iters_mgr : nullptr, callback, is_blob,
         tracing_mget_id);
+    // MergeInProgress status, if set, has been transferred to the get_context
+    // state, so we set status to ok here. From now on, the iter status will
+    // be used for IO errors, and get_context state will be used for any
+    // key level errors
+    *(iter->s) = Status::OK();
   }
   int get_ctx_index = 0;
   for (auto iter = range->begin(); iter != range->end();
@@ -1966,6 +1972,10 @@ void Version::MultiGet(const ReadOptions& read_options, MultiGetRange* range,
       GetContext& get_context = *iter->get_context;
       Status* status = iter->s;
       // The Status in the KeyContext takes precedence over GetContext state
+      // Status may be an error if there were any IO errors in the table
+      // reader. We never expect Status to be NotFound(), as that is
+      // determined by get_context
+      assert(!status->IsNotFound());
       if (!status->ok()) {
         file_range.MarkKeyDone(iter);
         continue;
@@ -3490,7 +3500,7 @@ Status AtomicGroupReadBuffer::AddEdit(VersionEdit* edit) {
           "AtomicGroupReadBuffer::AddEdit:IncorrectAtomicGroupSize", edit);
       return Status::Corruption("corrupted atomic group");
     }
-    replay_buffer_[read_edits_in_atomic_group_ - 1] = std::move(*edit);
+    replay_buffer_[read_edits_in_atomic_group_ - 1] = *edit;
     if (read_edits_in_atomic_group_ == replay_buffer_.size()) {
       TEST_SYNC_POINT_CALLBACK(
           "AtomicGroupReadBuffer::AddEdit:LastInAtomicGroup", edit);
@@ -4713,6 +4723,34 @@ Status VersionSet::ReduceNumberOfLevels(const std::string& dbname,
       mutable_cf_options, &ve, &dummy_mutex, nullptr, true);
 }
 
+// Get the checksum information including the checksum and checksum function
+// name of all SST files in VersionSet. Store the information in
+// FileChecksumList which contains a map from file number to its checksum info.
+// If DB is not running, make sure call VersionSet::Recover() to load the file
+// metadata from Manifest to VersionSet before calling this function.
+Status VersionSet::GetLiveFilesChecksumInfo(FileChecksumList* checksum_list) {
+  // Clean the previously stored checksum information if any.
+  if (checksum_list == nullptr) {
+    return Status::InvalidArgument("checksum_list is nullptr");
+  }
+  checksum_list->reset();
+
+  for (auto cfd : *column_family_set_) {
+    if (cfd->IsDropped() || !cfd->initialized()) {
+      continue;
+    }
+    for (int level = 0; level < cfd->NumberLevels(); level++) {
+      for (const auto& file :
+           cfd->current()->storage_info()->LevelFiles(level)) {
+        checksum_list->InsertOneFileChecksum(file->fd.GetNumber(),
+                                             file->file_checksum,
+                                             file->file_checksum_func_name);
+      }
+    }
+  }
+  return Status::OK();
+}
+
 Status VersionSet::DumpManifest(Options& options, std::string& dscname,
                                 bool verbose, bool hex, bool json) {
   // Open the specified manifest file.
@@ -5002,7 +5040,8 @@ Status VersionSet::WriteCurrentStateToManifest(
                        f->fd.GetFileSize(), f->smallest, f->largest,
                        f->fd.smallest_seqno, f->fd.largest_seqno,
                        f->marked_for_compaction, f->oldest_blob_file_number,
-                       f->oldest_ancester_time, f->file_creation_time);
+                       f->oldest_ancester_time, f->file_creation_time,
+                       f->file_checksum, f->file_checksum_func_name);
         }
       }
       const auto iter = curr_state.find(cfd->GetID());
@@ -5429,6 +5468,8 @@ void VersionSet::GetLiveFilesMetaData(std::vector<LiveFileMetaData>* metadata) {
         filemetadata.num_entries = file->num_entries;
         filemetadata.num_deletions = file->num_deletions;
         filemetadata.oldest_blob_file_number = file->oldest_blob_file_number;
+        filemetadata.file_checksum = file->file_checksum;
+        filemetadata.file_checksum_func_name = file->file_checksum_func_name;
         metadata->push_back(filemetadata);
       }
     }

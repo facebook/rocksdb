@@ -173,6 +173,7 @@ LIB_SOURCES =                                                   \
   util/random.cc                                                \
   util/rate_limiter.cc                                          \
   util/slice.cc                                                 \
+  util/file_checksum_helper.cc      				\
   util/status.cc                                                \
   util/string_util.cc                                           \
   util/thread_local.cc                                          \
@@ -418,6 +419,7 @@ MAIN_SOURCES =                                                          \
   util/bloom_test.cc                                                    \
   util/coding_test.cc                                                   \
   util/crc32c_test.cc                                                   \
+  util/defer_test.cc                                                    \
   util/dynamic_bloom_test.cc                                            \
   util/filelock_test.cc                                                 \
   util/log_write_bench.cc                                               \

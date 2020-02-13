@@ -139,6 +139,39 @@ void Java_org_rocksdb_SstFileWriter_put__J_3B_3B(JNIEnv *env, jobject /*jobj*/,
 
 /*
  * Class:     org_rocksdb_SstFileWriter
+ * Method:    putDirect
+ * Signature: (JLjava/nio/ByteBuffer;IILjava/nio/ByteBuffer;II)V
+ */
+void Java_org_rocksdb_SstFileWriter_putDirect(JNIEnv *env, jobject /*jdb*/,
+                                              jlong jdb_handle, jobject jkey,
+                                              jint jkey_off, jint jkey_len,
+                                              jobject jval, jint jval_off,
+                                              jint jval_len) {
+  auto *writer = reinterpret_cast<rocksdb::SstFileWriter *>(jdb_handle);
+  auto put = [&env, &writer](rocksdb::Slice &key, rocksdb::Slice &value) {
+    rocksdb::Status s = writer->Put(key, value);
+    if (s.ok()) {
+      return;
+    }
+    rocksdb::RocksDBExceptionJni::ThrowNew(env, s);
+  };
+  rocksdb::JniUtil::kv_op_direct(put, env, jkey, jkey_off, jkey_len, jval,
+                                 jval_off, jval_len);
+}
+
+/*
+ * Class:     org_rocksdb_SstFileWriter
+ * Method:    fileSize
+ * Signature: (J)J
+ */
+jlong Java_org_rocksdb_SstFileWriter_fileSize(JNIEnv * /*env*/, jobject /*jdb*/,
+                                              jlong jdb_handle) {
+  auto *writer = reinterpret_cast<rocksdb::SstFileWriter *>(jdb_handle);
+  return static_cast<jlong>(writer->FileSize());
+}
+
+/*
+ * Class:     org_rocksdb_SstFileWriter
  * Method:    merge
  * Signature: (JJJ)V
  */

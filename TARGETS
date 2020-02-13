@@ -283,6 +283,7 @@ cpp_library(
         "util/concurrent_task_limiter_impl.cc",
         "util/crc32c.cc",
         "util/dynamic_bloom.cc",
+        "util/file_checksum_helper.cc",
         "util/hash.cc",
         "util/murmurhash.cc",
         "util/random.cc",
@@ -899,6 +900,13 @@ ROCKS_TESTS = [
     [
         "dbformat_test",
         "db/dbformat_test.cc",
+        "serial",
+        [],
+        [],
+    ],
+    [
+        "defer_test",
+        "util/defer_test.cc",
         "serial",
         [],
         [],

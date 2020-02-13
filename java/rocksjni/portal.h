@@ -2233,6 +2233,85 @@ class JniUtil {
 
       return jpointers;
     }
+
+    /*
+     * Helper for operations on a key and value
+     * for example WriteBatch->Put
+     *
+     * TODO(AR) could be extended to cover returning rocksdb::Status
+     * from `op` and used for RocksDB->Put etc.
+     */
+    static void kv_op_direct(
+        std::function<void(rocksdb::Slice&, rocksdb::Slice&)> op, JNIEnv* env,
+        jobject jkey, jint jkey_off, jint jkey_len, jobject jval, jint jval_off,
+        jint jval_len) {
+      char* key = reinterpret_cast<char*>(env->GetDirectBufferAddress(jkey));
+      if (key == nullptr ||
+          env->GetDirectBufferCapacity(jkey) < (jkey_off + jkey_len)) {
+        rocksdb::RocksDBExceptionJni::ThrowNew(env, "Invalid key argument");
+        return;
+      }
+
+      char* value = reinterpret_cast<char*>(env->GetDirectBufferAddress(jval));
+      if (value == nullptr ||
+          env->GetDirectBufferCapacity(jval) < (jval_off + jval_len)) {
+        rocksdb::RocksDBExceptionJni::ThrowNew(env, "Invalid value argument");
+        return;
+      }
+
+      key += jkey_off;
+      value += jval_off;
+
+      rocksdb::Slice key_slice(key, jkey_len);
+      rocksdb::Slice value_slice(value, jval_len);
+
+      op(key_slice, value_slice);
+    }
+
+    /*
+     * Helper for operations on a key and value
+     * for example WriteBatch->Delete
+     *
+     * TODO(AR) could be extended to cover returning rocksdb::Status
+     * from `op` and used for RocksDB->Delete etc.
+     */
+    static void k_op_direct(std::function<void(rocksdb::Slice&)> op,
+                            JNIEnv* env, jobject jkey, jint jkey_off,
+                            jint jkey_len) {
+      char* key = reinterpret_cast<char*>(env->GetDirectBufferAddress(jkey));
+      if (key == nullptr ||
+          env->GetDirectBufferCapacity(jkey) < (jkey_off + jkey_len)) {
+        rocksdb::RocksDBExceptionJni::ThrowNew(env, "Invalid key argument");
+        return;
+      }
+
+      key += jkey_off;
+
+      rocksdb::Slice key_slice(key, jkey_len);
+
+      return op(key_slice);
+    }
+
+    template <class T>
+    static jint copyToDirect(JNIEnv* env, T& source, jobject jtarget,
+                             jint jtarget_off, jint jtarget_len) {
+      char* target =
+          reinterpret_cast<char*>(env->GetDirectBufferAddress(jtarget));
+      if (target == nullptr ||
+          env->GetDirectBufferCapacity(jtarget) < (jtarget_off + jtarget_len)) {
+        rocksdb::RocksDBExceptionJni::ThrowNew(env, "Invalid target argument");
+        return 0;
+      }
+
+      target += jtarget_off;
+
+      const jint cvalue_len = static_cast<jint>(source.size());
+      const jint length = std::min(jtarget_len, cvalue_len);
+
+      memcpy(target, source.data(), length);
+
+      return cvalue_len;
+    }
 };
 
 class MapJni : public JavaClass {

@@ -5,10 +5,14 @@
 
 package org.rocksdb;
 
-import java.util.*;
 import java.io.IOException;
+import java.nio.ByteBuffer;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
 import java.util.concurrent.atomic.AtomicReference;
-
 import org.rocksdb.util.Environment;
 
 /**
@@ -761,6 +765,57 @@ public class RocksDB extends RocksObject {
    * @param columnFamilyHandle {@link org.rocksdb.ColumnFamilyHandle}
    *     instance
    * @param writeOpts {@link org.rocksdb.WriteOptions} instance.
+   * @param key the specified key to be inserted. Position and limit is used.
+   *     Supports direct buffer only.
+   * @param value the value associated with the specified key. Position and limit is used.
+   *     Supports direct buffer only.
+   *
+   * throws IllegalArgumentException if column family is not present
+   *
+   * @throws RocksDBException thrown if error happens in underlying
+   *    native library.
+   * @see IllegalArgumentException
+   */
+  public void put(final ColumnFamilyHandle columnFamilyHandle, final WriteOptions writeOpts,
+      final ByteBuffer key, final ByteBuffer value) throws RocksDBException {
+    assert key.isDirect() && value.isDirect();
+    putDirect(nativeHandle_, writeOpts.nativeHandle_, key, key.position(), key.remaining(), value,
+        value.position(), value.remaining(), columnFamilyHandle.nativeHandle_);
+    key.position(key.limit());
+    value.position(value.limit());
+  }
+
+  /**
+   * Set the database entry for "key" to "value".
+   *
+   * @param writeOpts {@link org.rocksdb.WriteOptions} instance.
+   * @param key the specified key to be inserted. Position and limit is used.
+   *     Supports direct buffer only.
+   * @param value the value associated with the specified key. Position and limit is used.
+   *     Supports direct buffer only.
+   *
+   * throws IllegalArgumentException if column family is not present
+   *
+   * @throws RocksDBException thrown if error happens in underlying
+   *    native library.
+   * @see IllegalArgumentException
+   */
+  public void put(final WriteOptions writeOpts, final ByteBuffer key, final ByteBuffer value)
+      throws RocksDBException {
+    assert key.isDirect() && value.isDirect();
+    putDirect(nativeHandle_, writeOpts.nativeHandle_, key, key.position(), key.remaining(), value,
+        value.position(), value.remaining(), 0);
+    key.position(key.limit());
+    value.position(value.limit());
+  }
+
+  /**
+   * Set the database entry for "key" to "value" for the specified
+   * column family.
+   *
+   * @param columnFamilyHandle {@link org.rocksdb.ColumnFamilyHandle}
+   *     instance
+   * @param writeOpts {@link org.rocksdb.WriteOptions} instance.
    * @param key The specified key to be inserted
    * @param offset the offset of the "key" array to be used, must be
    *     non-negative and no larger than "key".length
@@ -1014,6 +1069,70 @@ public class RocksDB extends RocksObject {
       final int len)  throws RocksDBException {
     delete(nativeHandle_, writeOpt.nativeHandle_, key, offset, len,
         columnFamilyHandle.nativeHandle_);
+  }
+
+  /**
+   * Get the value associated with the specified key within column family.
+   *
+   * @param opt {@link org.rocksdb.ReadOptions} instance.
+   * @param key the key to retrieve the value. It is using position and limit.
+   *     Supports direct buffer only.
+   * @param value the out-value to receive the retrieved value.
+   *     It is using position and limit. Limit is set according to value size.
+   *     Supports direct buffer only.
+   * @return The size of the actual value that matches the specified
+   *     {@code key} in byte.  If the return value is greater than the
+   *     length of {@code value}, then it indicates that the size of the
+   *     input buffer {@code value} is insufficient and partial result will
+   *     be returned.  RocksDB.NOT_FOUND will be returned if the value not
+   *     found.
+   *
+   * @throws RocksDBException thrown if error happens in underlying
+   *    native library.
+   */
+  public int get(final ReadOptions opt, final ByteBuffer key, final ByteBuffer value)
+      throws RocksDBException {
+    assert key.isDirect() && value.isDirect();
+    int result = getDirect(nativeHandle_, opt.nativeHandle_, key, key.position(), key.remaining(),
+        value, value.position(), value.remaining(), 0);
+    if (result != NOT_FOUND) {
+      value.limit(Math.min(value.limit(), value.position() + result));
+    }
+    key.position(key.limit());
+    return result;
+  }
+
+  /**
+   * Get the value associated with the specified key within column family.
+   *
+   * @param columnFamilyHandle {@link org.rocksdb.ColumnFamilyHandle}
+   *     instance
+   * @param opt {@link org.rocksdb.ReadOptions} instance.
+   * @param key the key to retrieve the value. It is using position and limit.
+   *     Supports direct buffer only.
+   * @param value the out-value to receive the retrieved value.
+   *     It is using position and limit. Limit is set according to value size.
+   *     Supports direct buffer only.
+   * @return The size of the actual value that matches the specified
+   *     {@code key} in byte.  If the return value is greater than the
+   *     length of {@code value}, then it indicates that the size of the
+   *     input buffer {@code value} is insufficient and partial result will
+   *     be returned.  RocksDB.NOT_FOUND will be returned if the value not
+   *     found.
+   *
+   * @throws RocksDBException thrown if error happens in underlying
+   *    native library.
+   */
+  public int get(final ColumnFamilyHandle columnFamilyHandle, final ReadOptions opt,
+      final ByteBuffer key, final ByteBuffer value) throws RocksDBException {
+    assert key.isDirect() && value.isDirect();
+    int result = getDirect(nativeHandle_, opt.nativeHandle_, key, key.position(), key.remaining(),
+        value, value.position(), value.remaining(), columnFamilyHandle.nativeHandle_);
+    if (result != NOT_FOUND) {
+      value.limit(Math.min(value.limit(), value.position() + result));
+    }
+    key.position(key.limit());
+    return result;
   }
 
   /**
@@ -1358,6 +1477,46 @@ public class RocksDB extends RocksObject {
     checkBounds(vOffset, vLen, value.length);
     merge(nativeHandle_, writeOpts.nativeHandle_,
         key, offset, len, value, vOffset, vLen);
+  }
+
+  /**
+   * Delete the database entry (if any) for "key".  Returns OK on
+   * success, and a non-OK status on error.  It is not an error if "key"
+   * did not exist in the database.
+   *
+   * @param writeOpt WriteOptions to be used with delete operation
+   * @param key Key to delete within database. It is using position and limit.
+   *     Supports direct buffer only.
+   *
+   * @throws RocksDBException thrown if error happens in underlying
+   *    native library.
+   */
+  public void delete(final WriteOptions writeOpt, final ByteBuffer key) throws RocksDBException {
+    assert key.isDirect();
+    deleteDirect(nativeHandle_, writeOpt.nativeHandle_, key, key.position(), key.remaining(), 0);
+    key.position(key.limit());
+  }
+
+  /**
+   * Delete the database entry (if any) for "key".  Returns OK on
+   * success, and a non-OK status on error.  It is not an error if "key"
+   * did not exist in the database.
+   *
+   * @param columnFamilyHandle {@link org.rocksdb.ColumnFamilyHandle}
+   *     instance
+   * @param writeOpt WriteOptions to be used with delete operation
+   * @param key Key to delete within database. It is using position and limit.
+   *     Supports direct buffer only.
+   *
+   * @throws RocksDBException thrown if error happens in underlying
+   *    native library.
+   */
+  public void delete(final ColumnFamilyHandle columnFamilyHandle, final WriteOptions writeOpt,
+      final ByteBuffer key) throws RocksDBException {
+    assert key.isDirect();
+    deleteDirect(nativeHandle_, writeOpt.nativeHandle_, key, key.position(), key.remaining(),
+        columnFamilyHandle.nativeHandle_);
+    key.position(key.limit());
   }
 
   /**
@@ -4244,6 +4403,9 @@ public class RocksDB extends RocksObject {
   private native byte[][] keyMayExistFoundValue(
       final long handle, final long cfHandle, final long readOptHandle,
       final byte[] key, final int keyOffset, final int keyLength);
+  private native void putDirect(long handle, long writeOptHandle, ByteBuffer key, int keyOffset,
+      int keyLength, ByteBuffer value, int valueOffset, int valueLength, long cfHandle)
+      throws RocksDBException;
   private native long iterator(final long handle);
   private native long iterator(final long handle, final long readOptHandle);
   private native long iteratorCF(final long handle, final long cfHandle);
@@ -4261,6 +4423,11 @@ public class RocksDB extends RocksObject {
   private native Map<String, String> getMapProperty(final long nativeHandle,
       final long cfHandle, final String property, final int propertyLength)
       throws RocksDBException;
+  private native int getDirect(long handle, long readOptHandle, ByteBuffer key, int keyOffset,
+      int keyLength, ByteBuffer value, int valueOffset, int valueLength, long cfHandle)
+      throws RocksDBException;
+  private native void deleteDirect(long handle, long optHandle, ByteBuffer key, int keyOffset,
+      int keyLength, long cfHandle) throws RocksDBException;
   private native long getLongProperty(final long nativeHandle,
       final long cfHandle, final String property, final int propertyLength)
       throws RocksDBException;

@@ -59,6 +59,8 @@ Status AutoRollLogger::ResetLogger() {
   if (!status_.ok()) {
     return status_;
   }
+  assert(logger_);
+  logger_->SetInfoLogLevel(Logger::GetInfoLogLevel());
 
   if (logger_->GetLogFileSize() == Logger::kDoNotSupportGetLogFileSize) {
     status_ = Status::NotSupported(

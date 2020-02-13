@@ -87,6 +87,7 @@ struct ImmutableDBOptions {
   bool persist_stats_to_disk;
   bool write_dbid_to_manifest;
   size_t log_readahead_size;
+  std::shared_ptr<FileChecksumFunc> sst_file_checksum_func;
 };
 
 struct MutableDBOptions {

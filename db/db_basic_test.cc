@@ -1405,6 +1405,91 @@ TEST_F(DBBasicTest, MultiGetBatchedMultiLevel) {
   }
 }
 
+TEST_F(DBBasicTest, MultiGetBatchedMultiLevelMerge) {
+  Options options = CurrentOptions();
+  options.disable_auto_compactions = true;
+  options.merge_operator = MergeOperators::CreateStringAppendOperator();
+  BlockBasedTableOptions bbto;
+  bbto.filter_policy.reset(NewBloomFilterPolicy(10, false));
+  options.table_factory.reset(NewBlockBasedTableFactory(bbto));
+  Reopen(options);
+  int num_keys = 0;
+
+  for (int i = 0; i < 128; ++i) {
+    ASSERT_OK(Put("key_" + std::to_string(i), "val_l2_" + std::to_string(i)));
+    num_keys++;
+    if (num_keys == 8) {
+      Flush();
+      num_keys = 0;
+    }
+  }
+  if (num_keys > 0) {
+    Flush();
+    num_keys = 0;
+  }
+  MoveFilesToLevel(2);
+
+  for (int i = 0; i < 128; i += 3) {
+    ASSERT_OK(Merge("key_" + std::to_string(i), "val_l1_" + std::to_string(i)));
+    num_keys++;
+    if (num_keys == 8) {
+      Flush();
+      num_keys = 0;
+    }
+  }
+  if (num_keys > 0) {
+    Flush();
+    num_keys = 0;
+  }
+  MoveFilesToLevel(1);
+
+  for (int i = 0; i < 128; i += 5) {
+    ASSERT_OK(Merge("key_" + std::to_string(i), "val_l0_" + std::to_string(i)));
+    num_keys++;
+    if (num_keys == 8) {
+      Flush();
+      num_keys = 0;
+    }
+  }
+  if (num_keys > 0) {
+    Flush();
+    num_keys = 0;
+  }
+  ASSERT_EQ(0, num_keys);
+
+  for (int i = 0; i < 128; i += 9) {
+    ASSERT_OK(Merge("key_" + std::to_string(i), "val_mem_" + std::to_string(i)));
+  }
+
+  std::vector<std::string> keys;
+  std::vector<std::string> values;
+
+  for (int i = 32; i < 80; ++i) {
+    keys.push_back("key_" + std::to_string(i));
+  }
+
+  values = MultiGet(keys, nullptr);
+  ASSERT_EQ(values.size(), keys.size());
+  for (unsigned int j = 0; j < 48; ++j) {
+    int key = j + 32;
+    std::string value;
+    value.append("val_l2_" + std::to_string(key));
+    if (key % 3 == 0) {
+      value.append(",");
+      value.append("val_l1_" + std::to_string(key));
+    }
+    if (key % 5 == 0) {
+      value.append(",");
+      value.append("val_l0_" + std::to_string(key));
+    }
+    if (key % 9 == 0) {
+      value.append(",");
+      value.append("val_mem_" + std::to_string(key));
+    }
+    ASSERT_EQ(values[j], value);
+  }
+}
+
 // Test class for batched MultiGet with prefix extractor
 // Param bool - If true, use partitioned filters
 //              If false, use full filter block
