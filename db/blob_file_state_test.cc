@@ -180,7 +180,9 @@ TEST_F(BlobFileStateTest, ForwardCompatibleCustomField) {
       "BlobFileState::EncodeTo::CustomFields", [&](void* arg) {
         std::string* output = static_cast<std::string*>(arg);
 
-        PutVarint32(output, 2);
+        constexpr uint32_t forward_compatible_tag = 2;
+        PutVarint32(output, forward_compatible_tag);
+
         PutLengthPrefixedSlice(output, "deadbeef");
       });
   SyncPoint::GetInstance()->EnableProcessing();
@@ -206,7 +208,9 @@ TEST_F(BlobFileStateTest, ForwardIncompatibleCustomField) {
       "BlobFileState::EncodeTo::CustomFields", [&](void* arg) {
         std::string* output = static_cast<std::string*>(arg);
 
-        PutVarint32(output, (1 << 6) + 1);
+        constexpr uint32_t forward_incompatible_tag = (1 << 6) + 1;
+        PutVarint32(output, forward_incompatible_tag);
+
         PutLengthPrefixedSlice(output, "foobar");
       });
   SyncPoint::GetInstance()->EnableProcessing();
