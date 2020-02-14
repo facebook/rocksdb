@@ -393,12 +393,16 @@ TEST_F(CorruptionTest, TableFileIndexData) {
 
   // corrupt an index block of an entire file
   Corrupt(kTableFile, -2000, 500);
-  Reopen();
+  options.paranoid_checks = false;
+  Reopen(&options);
   dbi = reinterpret_cast<DBImpl*>(db_);
   // one full file may be readable, since only one was corrupted
   // the other file should be fully non-readable, since index was corrupted
   Check(0, 5000);
   ASSERT_NOK(dbi->VerifyChecksum());
+
+  // In paranoid mode, the db cannot be opened due to the corrupted file.
+  ASSERT_TRUE(TryReopen().IsCorruption());
 }
 
 TEST_F(CorruptionTest, MissingDescriptor) {
@@ -554,13 +558,7 @@ TEST_F(CorruptionTest, RangeDeletionCorrupted) {
 
   ASSERT_OK(TryReopen());
   CorruptFile(filename, static_cast<int>(range_del_handle.offset()), 1);
-  // The test case does not fail on TryReopen because failure to preload table
-  // handlers is not considered critical.
-  ASSERT_OK(TryReopen());
-  std::string val;
-  // However, it does fail on any read involving that file since that file
-  // cannot be opened with a corrupt range deletion meta-block.
-  ASSERT_TRUE(db_->Get(ReadOptions(), "a", &val).IsCorruption());
+  ASSERT_TRUE(TryReopen().IsCorruption());
 }
 
 TEST_F(CorruptionTest, FileSystemStateCorrupted) {
@@ -585,14 +583,15 @@ TEST_F(CorruptionTest, FileSystemStateCorrupted) {
       env_.NewWritableFile(filename, &file, EnvOptions());
       file->Append(Slice("corrupted sst"));
       file.reset();
+      Status x = TryReopen(&options);
+      ASSERT_TRUE(x.IsCorruption());
     } else {  // delete the file
       env_.DeleteFile(filename);
+      Status x = TryReopen(&options);
+      ASSERT_TRUE(x.IsPathNotFound());
     }
 
-    Status x = TryReopen(&options);
-    ASSERT_TRUE(x.IsCorruption());
     DestroyDB(dbname_, options_);
-    Reopen(&options);
   }
 }
 
