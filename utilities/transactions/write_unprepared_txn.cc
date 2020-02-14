@@ -95,6 +95,7 @@ void WriteUnpreparedTxn::Initialize(const TransactionOptions& txn_options) {
   largest_validated_seq_ = 0;
   assert(active_iterators_.empty());
   active_iterators_.clear();
+  untracked_keys_.clear();
 }
 
 Status WriteUnpreparedTxn::HandleWrite(std::function<Status()> do_write) {
@@ -286,6 +287,65 @@ Status WriteUnpreparedTxn::FlushWriteBatchToDBInternal(bool prepared) {
     }
   }
 
+  struct UntrackedKeyHandler : public WriteBatch::Handler {
+    WriteUnpreparedTxn* txn_;
+    bool rollback_merge_operands_;
+
+    UntrackedKeyHandler(WriteUnpreparedTxn* txn, bool rollback_merge_operands)
+        : txn_(txn), rollback_merge_operands_(rollback_merge_operands) {}
+
+    Status AddUntrackedKey(uint32_t cf, const Slice& key) {
+      auto str = key.ToString();
+      if (txn_->tracked_keys_[cf].count(str) == 0) {
+        txn_->untracked_keys_[cf].push_back(str);
+      }
+      return Status::OK();
+    }
+
+    Status PutCF(uint32_t cf, const Slice& key, const Slice&) override {
+      return AddUntrackedKey(cf, key);
+    }
+
+    Status DeleteCF(uint32_t cf, const Slice& key) override {
+      return AddUntrackedKey(cf, key);
+    }
+
+    Status SingleDeleteCF(uint32_t cf, const Slice& key) override {
+      return AddUntrackedKey(cf, key);
+    }
+
+    Status MergeCF(uint32_t cf, const Slice& key, const Slice&) override {
+      if (rollback_merge_operands_) {
+        return AddUntrackedKey(cf, key);
+      }
+      return Status::OK();
+    }
+
+    // The only expected 2PC marker is the initial Noop marker.
+    Status MarkNoop(bool empty_batch) override {
+      return empty_batch ? Status::OK() : Status::InvalidArgument();
+    }
+
+    Status MarkBeginPrepare(bool) override { return Status::InvalidArgument(); }
+
+    Status MarkEndPrepare(const Slice&) override {
+      return Status::InvalidArgument();
+    }
+
+    Status MarkCommit(const Slice&) override {
+      return Status::InvalidArgument();
+    }
+
+    Status MarkRollback(const Slice&) override {
+      return Status::InvalidArgument();
+    }
+  };
+
+  UntrackedKeyHandler handler(
+      this, wupt_db_->txn_db_options_.rollback_merge_operands);
+  auto s = GetWriteBatch()->GetWriteBatch()->Iterate(&handler);
+  assert(s.ok());
+
   // TODO(lth): Reduce duplicate code with WritePrepared prepare logic.
   WriteOptions write_options = write_options_;
   write_options.disableWAL = false;
@@ -311,11 +371,10 @@ Status WriteUnpreparedTxn::FlushWriteBatchToDBInternal(bool prepared) {
   // from the current transaction. This means that if log_number_ is set,
   // WriteImpl should not overwrite that value, so set log_used to nullptr if
   // log_number_ is already set.
-  auto s =
-      db_impl_->WriteImpl(write_options, GetWriteBatch()->GetWriteBatch(),
-                          /*callback*/ nullptr, &last_log_number_, /*log ref*/
-                          0, !DISABLE_MEMTABLE, &seq_used, prepare_batch_cnt_,
-                          &add_prepared_callback);
+  s = db_impl_->WriteImpl(write_options, GetWriteBatch()->GetWriteBatch(),
+                          /*callback*/ nullptr, &last_log_number_,
+                          /*log ref*/ 0, !DISABLE_MEMTABLE, &seq_used,
+                          prepare_batch_cnt_, &add_prepared_callback);
   if (log_number_ == 0) {
     log_number_ = last_log_number_;
   }
@@ -577,6 +636,59 @@ Status WriteUnpreparedTxn::CommitInternal() {
   return s;
 }
 
+Status WriteUnpreparedTxn::WriteRollbackKeys(
+    const TransactionKeyMap& tracked_keys, WriteBatchWithIndex* rollback_batch,
+    ReadCallback* callback, const ReadOptions& roptions) {
+  const auto& cf_map = *wupt_db_->GetCFHandleMap();
+  auto WriteRollbackKey = [&](const std::string& key, uint32_t cfid) {
+    const auto& cf_handle = cf_map.at(cfid);
+    PinnableSlice pinnable_val;
+    bool not_used;
+    DBImpl::GetImplOptions get_impl_options;
+    get_impl_options.column_family = cf_handle;
+    get_impl_options.value = &pinnable_val;
+    get_impl_options.value_found = &not_used;
+    get_impl_options.callback = callback;
+    auto s = db_impl_->GetImpl(roptions, key, get_impl_options);
+
+    if (s.ok()) {
+      s = rollback_batch->Put(cf_handle, key, pinnable_val);
+      assert(s.ok());
+    } else if (s.IsNotFound()) {
+      s = rollback_batch->Delete(cf_handle, key);
+      assert(s.ok());
+    } else {
+      return s;
+    }
+
+    return Status::OK();
+  };
+
+  for (const auto& cfkey : tracked_keys) {
+    const auto cfid = cfkey.first;
+    const auto& keys = cfkey.second;
+    for (const auto& pair : keys) {
+      auto s = WriteRollbackKey(pair.first, cfid);
+      if (!s.ok()) {
+        return s;
+      }
+    }
+  }
+
+  for (const auto& cfkey : untracked_keys_) {
+    const auto cfid = cfkey.first;
+    const auto& keys = cfkey.second;
+    for (const auto& key : keys) {
+      auto s = WriteRollbackKey(key, cfid);
+      if (!s.ok()) {
+        return s;
+      }
+    }
+  }
+
+  return Status::OK();
+}
+
 Status WriteUnpreparedTxn::RollbackInternal() {
   // TODO(lth): Reduce duplicate code with WritePrepared rollback logic.
   WriteBatchWithIndex rollback_batch(
@@ -584,7 +696,6 @@ Status WriteUnpreparedTxn::RollbackInternal() {
   assert(GetId() != kMaxSequenceNumber);
   assert(GetId() > 0);
   Status s;
-  const auto& cf_map = *wupt_db_->GetCFHandleMap();
   auto read_at_seq = kMaxSequenceNumber;
   ReadOptions roptions;
   // to prevent callback's seq to be overrriden inside DBImpk::Get
@@ -592,34 +703,8 @@ Status WriteUnpreparedTxn::RollbackInternal() {
   // Note that we do not use WriteUnpreparedTxnReadCallback because we do not
   // need to read our own writes when reading prior versions of the key for
   // rollback.
-  const auto& tracked_keys = GetTrackedKeys();
   WritePreparedTxnReadCallback callback(wpt_db_, read_at_seq);
-  for (const auto& cfkey : tracked_keys) {
-    const auto cfid = cfkey.first;
-    const auto& keys = cfkey.second;
-    for (const auto& pair : keys) {
-      const auto& key = pair.first;
-      const auto& cf_handle = cf_map.at(cfid);
-      PinnableSlice pinnable_val;
-      bool not_used;
-      DBImpl::GetImplOptions get_impl_options;
-      get_impl_options.column_family = cf_handle;
-      get_impl_options.value = &pinnable_val;
-      get_impl_options.value_found = &not_used;
-      get_impl_options.callback = &callback;
-      s = db_impl_->GetImpl(roptions, key, get_impl_options);
-
-      if (s.ok()) {
-        s = rollback_batch.Put(cf_handle, key, pinnable_val);
-        assert(s.ok());
-      } else if (s.IsNotFound()) {
-        s = rollback_batch.Delete(cf_handle, key);
-        assert(s.ok());
-      } else {
-        return s;
-      }
-    }
-  }
+  WriteRollbackKeys(GetTrackedKeys(), &rollback_batch, &callback, roptions);
 
   // The Rollback marker will be used as a batch separator
   WriteBatchInternal::MarkRollback(rollback_batch.GetWriteBatch(), name_);
@@ -701,6 +786,7 @@ void WriteUnpreparedTxn::Clear() {
   largest_validated_seq_ = 0;
   assert(active_iterators_.empty());
   active_iterators_.clear();
+  untracked_keys_.clear();
   TransactionBaseImpl::Clear();
 }
 
@@ -745,7 +831,6 @@ Status WriteUnpreparedTxn::RollbackToSavePointInternal() {
   assert(save_points_ != nullptr && save_points_->size() > 0);
   const TransactionKeyMap& tracked_keys = save_points_->top().new_keys_;
 
-  // TODO(lth): Reduce duplicate code with RollbackInternal logic.
   ReadOptions roptions;
   roptions.snapshot = top.snapshot_->snapshot();
   SequenceNumber min_uncommitted =
@@ -756,34 +841,7 @@ Status WriteUnpreparedTxn::RollbackToSavePointInternal() {
   WriteUnpreparedTxnReadCallback callback(wupt_db_, snap_seq, min_uncommitted,
                                           top.unprep_seqs_,
                                           kBackedByDBSnapshot);
-  const auto& cf_map = *wupt_db_->GetCFHandleMap();
-  for (const auto& cfkey : tracked_keys) {
-    const auto cfid = cfkey.first;
-    const auto& keys = cfkey.second;
-
-    for (const auto& pair : keys) {
-      const auto& key = pair.first;
-      const auto& cf_handle = cf_map.at(cfid);
-      PinnableSlice pinnable_val;
-      bool not_used;
-      DBImpl::GetImplOptions get_impl_options;
-      get_impl_options.column_family = cf_handle;
-      get_impl_options.value = &pinnable_val;
-      get_impl_options.value_found = &not_used;
-      get_impl_options.callback = &callback;
-      s = db_impl_->GetImpl(roptions, key, get_impl_options);
-
-      if (s.ok()) {
-        s = write_batch_.Put(cf_handle, key, pinnable_val);
-        assert(s.ok());
-      } else if (s.IsNotFound()) {
-        s = write_batch_.Delete(cf_handle, key);
-        assert(s.ok());
-      } else {
-        return s;
-      }
-    }
-  }
+  WriteRollbackKeys(tracked_keys, &write_batch_, &callback, roptions);
 
   const bool kPrepared = true;
   s = FlushWriteBatchToDBInternal(!kPrepared);
