@@ -59,13 +59,13 @@ Status OptimisticTransaction::Commit() {
   auto txn_db_impl = static_cast_with_check<OptimisticTransactionDBImpl,
                                             OptimisticTransactionDB>(txn_db_);
   assert(txn_db_impl);
-  OccValidationPolicy policy = txn_db_impl->GetValidatePolicy();
-  if (policy == OccValidationPolicy::kValidateParallel) {
-    return CommitWithParallelValidate();
-  } else if (policy == OccValidationPolicy::kValidateSerial) {
-    return CommitWithSerialValidate();
-  } else {
-    assert(0);
+  switch (txn_db_impl->GetValidatePolicy()) {
+    case OccValidationPolicy::kValidateParallel:
+      return CommitWithParallelValidate();
+    case OccValidationPolicy::kValidateSerial:
+      return CommitWithSerialValidate();
+    default:
+      assert(0);
   }
   // unreachable, just void compiler complain
   return Status::OK();
