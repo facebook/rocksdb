@@ -1828,8 +1828,9 @@ class MemTableInserter : public WriteBatch::Handler {
       // we are now iterating through a prepared section
       rebuilding_trx_ = new WriteBatch();
       rebuilding_trx_seq_ = sequence_;
-      // We only call MarkBeginPrepare once per batch, and unprepared_batch_
-      // is initialized to false by default.
+      // Verify that we have matching MarkBeginPrepare/MarkEndPrepare markers.
+      // unprepared_batch_ should be false because it is false by default, and
+      // gets reset to false in MarkEndPrepare.
       assert(!unprepared_batch_);
       unprepared_batch_ = unprepare;
 
@@ -1854,6 +1855,7 @@ class MemTableInserter : public WriteBatch::Handler {
       db_->InsertRecoveredTransaction(recovering_log_number_, name.ToString(),
                                       rebuilding_trx_, rebuilding_trx_seq_,
                                       batch_cnt, unprepared_batch_);
+      unprepared_batch_ = false;
       rebuilding_trx_ = nullptr;
     } else {
       assert(rebuilding_trx_ == nullptr);
