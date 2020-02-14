@@ -429,6 +429,20 @@ class SleepingBackgroundTask {
       bg_cv_.Wait();
     }
   }
+  // Waits for the status to change to sleeping,
+  // otherwise times out.
+  // wait_time is in microseconds.
+  // Returns true when times out, false otherwise.
+  bool TimedWaitUntilSleeping(uint64_t wait_time) {
+    auto abs_time = Env::Default()->NowMicros() + wait_time;
+    MutexLock l(&mutex_);
+    while (!sleeping_ || !should_sleep_) {
+      if (bg_cv_.TimedWait(abs_time)) {
+        return true;
+      }
+    }
+    return false;
+  }
   void WakeUp() {
     MutexLock l(&mutex_);
     should_sleep_ = false;
@@ -439,6 +453,18 @@ class SleepingBackgroundTask {
     while (!done_with_sleep_) {
       bg_cv_.Wait();
     }
+  }
+  // Similar to TimedWaitUntilSleeping.
+  // Waits until the task is done.
+  bool TimedWaitUntilDone(uint64_t wait_time) {
+    auto abs_time = Env::Default()->NowMicros() + wait_time;
+    MutexLock l(&mutex_);
+    while (!done_with_sleep_) {
+      if (bg_cv_.TimedWait(abs_time)) {
+        return true;
+      }
+    }
+    return false;
   }
   bool WokenUp() {
     MutexLock l(&mutex_);
