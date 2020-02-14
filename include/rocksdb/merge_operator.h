@@ -74,18 +74,28 @@ class MergeOperator {
     return false;
   }
 
+  enum MergeValueType : unsigned char {
+    kDeletion = 0x0,
+    kValue = 0x1,
+    kBlobIndex = 0x2,
+  };
+
   struct MergeOperationInput {
-    explicit MergeOperationInput(const Slice& _key,
+    explicit MergeOperationInput(const Slice& _key, MergeValueType _value_type,
                                  const Slice* _existing_value,
                                  const std::vector<Slice>& _operand_list,
                                  Logger* _logger)
         : key(_key),
+          value_type(_value_type),
           existing_value(_existing_value),
           operand_list(_operand_list),
           logger(_logger) {}
 
     // The key associated with the merge operation.
     const Slice& key;
+    // The value type associated with the existing_value, ignore this field
+    // if existing_value is nullptr.
+    const MergeValueType value_type;
     // The existing value of the current key, nullptr means that the
     // value doesn't exist.
     const Slice* existing_value;
@@ -107,6 +117,8 @@ class MergeOperator {
     // client can set this field to the operand (or existing_value) instead of
     // using new_value.
     Slice& existing_operand;
+    // new value type of merge result.
+    MergeValueType new_type{kValue};
   };
 
   // This function applies a stack of merge operands in chrionological order
