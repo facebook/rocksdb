@@ -1368,7 +1368,7 @@ Status CompactionJob::FinishCompactionOutputFile(
 #ifndef ROCKSDB_LITE
   // Report new file to SstFileManagerImpl
   auto sfm =
-      static_cast<SstFileManagerImpl*>(db_options_.sst_file_manager.get());
+      dynamic_cast<SstFileManagerImpl*>(db_options_.sst_file_manager.get());
   if (sfm && meta != nullptr && meta->fd.GetPathId() == 0) {
     sfm->OnAddFile(fname);
     if (sfm->IsMaxAllowedSpaceReached()) {

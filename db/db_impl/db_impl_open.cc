@@ -159,7 +159,7 @@ DBOptions SanitizeOptions(const std::string& dbname, const DBOptions& src) {
   // were not deleted yet, when we open the DB we will find these .trash files
   // and schedule them to be deleted (or delete immediately if SstFileManager
   // was not used)
-  auto sfm = static_cast<SstFileManagerImpl*>(result.sst_file_manager.get());
+  auto sfm = dynamic_cast<SstFileManagerImpl*>(result.sst_file_manager.get());
   for (size_t i = 0; i < result.db_paths.size(); i++) {
     DeleteScheduler::CleanupDirectory(result.env, sfm, result.db_paths[i].path);
   }
@@ -1553,7 +1553,7 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
   impl->mutex_.Unlock();
 
 #ifndef ROCKSDB_LITE
-  auto sfm = static_cast<SstFileManagerImpl*>(
+  auto sfm = dynamic_cast<SstFileManagerImpl*>(
       impl->immutable_db_options_.sst_file_manager.get());
   if (s.ok() && sfm) {
     // Notify SstFileManager about all sst files that already exist in

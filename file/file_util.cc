@@ -94,7 +94,7 @@ Status DeleteDBFile(const ImmutableDBOptions* db_options,
                     const bool force_bg, const bool force_fg) {
 #ifndef ROCKSDB_LITE
   SstFileManagerImpl* sfm =
-      static_cast<SstFileManagerImpl*>(db_options->sst_file_manager.get());
+      dynamic_cast<SstFileManagerImpl*>(db_options->sst_file_manager.get());
   if (sfm && !force_fg) {
     return sfm->ScheduleFileDeletion(fname, dir_to_sync, force_bg);
   } else {

@@ -578,9 +578,10 @@ Status DBImpl::CloseHelper() {
   // Close() on it before closing the info_log. Otherwise, background thread
   // in SstFileManagerImpl might try to log something
   if (immutable_db_options_.sst_file_manager && own_sfm_) {
-    auto sfm = static_cast<SstFileManagerImpl*>(
-        immutable_db_options_.sst_file_manager.get());
-    sfm->Close();
+    if (auto sfm = dynamic_cast<SstFileManagerImpl*>(
+            immutable_db_options_.sst_file_manager.get())) {
+      sfm->Close();
+    }
   }
 #endif  // ROCKSDB_LITE
 

@@ -30,7 +30,7 @@ bool DBImpl::EnoughRoomForCompaction(
   // Check if we have enough room to do the compaction
   bool enough_room = true;
 #ifndef ROCKSDB_LITE
-  auto sfm = static_cast<SstFileManagerImpl*>(
+  auto sfm = dynamic_cast<SstFileManagerImpl*>(
       immutable_db_options_.sst_file_manager.get());
   if (sfm) {
     // Pass the current bg_error_ to SFM so it can decide what checks to
@@ -214,7 +214,7 @@ Status DBImpl::FlushMemTableToOutputFile(
     // may temporarily unlock and lock the mutex.
     NotifyOnFlushCompleted(cfd, mutable_cf_options,
                            flush_job.GetCommittedFlushJobsInfo());
-    auto sfm = static_cast<SstFileManagerImpl*>(
+    auto sfm = dynamic_cast<SstFileManagerImpl*>(
         immutable_db_options_.sst_file_manager.get());
     if (sfm) {
       // Notify sst_file_manager that a new file was added
@@ -518,7 +518,7 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
       *made_progress = true;
     }
 #ifndef ROCKSDB_LITE
-    auto sfm = static_cast<SstFileManagerImpl*>(
+    auto sfm = dynamic_cast<SstFileManagerImpl*>(
         immutable_db_options_.sst_file_manager.get());
     assert(all_mutable_cf_options.size() == static_cast<size_t>(num_cfs));
     for (int i = 0; i != num_cfs; ++i) {
@@ -1004,7 +1004,7 @@ Status DBImpl::CompactFilesImpl(
   c->ReleaseCompactionFiles(s);
 #ifndef ROCKSDB_LITE
   // Need to make sure SstFileManager does its bookkeeping
-  auto sfm = static_cast<SstFileManagerImpl*>(
+  auto sfm = dynamic_cast<SstFileManagerImpl*>(
       immutable_db_options_.sst_file_manager.get());
   if (sfm && sfm_reserved_compact_space) {
     sfm->OnCompactionCompletion(c.get());
@@ -2787,7 +2787,7 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
 
 #ifndef ROCKSDB_LITE
     // Need to make sure SstFileManager does its bookkeeping
-    auto sfm = static_cast<SstFileManagerImpl*>(
+    auto sfm = dynamic_cast<SstFileManagerImpl*>(
         immutable_db_options_.sst_file_manager.get());
     if (sfm && sfm_reserved_compact_space) {
       sfm->OnCompactionCompletion(c.get());

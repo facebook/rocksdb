@@ -234,7 +234,7 @@ Status BlobDBImpl::Open(std::vector<ColumnFamilyHandle*>* handles) {
   }
 
   // Add trash files in blob dir to file delete scheduler.
-  SstFileManagerImpl* sfm = static_cast<SstFileManagerImpl*>(
+  SstFileManagerImpl* sfm = dynamic_cast<SstFileManagerImpl*>(
       db_impl_->immutable_db_options().sst_file_manager.get());
   DeleteScheduler::CleanupDirectory(env_, sfm, blob_dir_);
 
