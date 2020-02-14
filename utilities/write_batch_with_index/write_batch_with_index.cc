@@ -736,27 +736,6 @@ Status WriteBatchWithIndex::SingleDelete(const Slice& key) {
   return s;
 }
 
-Status WriteBatchWithIndex::DeleteRange(ColumnFamilyHandle* column_family,
-                                        const Slice& begin_key,
-                                        const Slice& end_key) {
-  rep->SetLastEntryOffset();
-  auto s = rep->write_batch.DeleteRange(column_family, begin_key, end_key);
-  if (s.ok()) {
-    rep->AddOrUpdateIndex(column_family, begin_key);
-  }
-  return s;
-}
-
-Status WriteBatchWithIndex::DeleteRange(const Slice& begin_key,
-                                        const Slice& end_key) {
-  rep->SetLastEntryOffset();
-  auto s = rep->write_batch.DeleteRange(begin_key, end_key);
-  if (s.ok()) {
-    rep->AddOrUpdateIndex(begin_key);
-  }
-  return s;
-}
-
 Status WriteBatchWithIndex::Merge(ColumnFamilyHandle* column_family,
                                   const Slice& key, const Slice& value) {
   rep->SetLastEntryOffset();
