@@ -274,13 +274,14 @@ class TtlMergeOperator : public MergeOperator {
       Slice existing_value_without_ts(merge_in.existing_value->data(),
                                       merge_in.existing_value->size() - ts_len);
       good = user_merge_op_->FullMergeV2(
-          MergeOperationInput(merge_in.key, &existing_value_without_ts,
-                              operands_without_ts, merge_in.logger),
+          MergeOperationInput(merge_in.key, merge_in.value_type,
+                              &existing_value_without_ts, operands_without_ts,
+                              merge_in.logger),
           &user_merge_out);
     } else {
       good = user_merge_op_->FullMergeV2(
-          MergeOperationInput(merge_in.key, nullptr, operands_without_ts,
-                              merge_in.logger),
+          MergeOperationInput(merge_in.key, merge_in.value_type, nullptr,
+                              operands_without_ts, merge_in.logger),
           &user_merge_out);
     }
 

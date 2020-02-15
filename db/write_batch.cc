@@ -1696,7 +1696,7 @@ class MemTableInserter : public WriteBatch::Handler {
 
     if (perform_merge) {
       // 1) Get the existing value
-      std::string get_value;
+      PinnableSlice get_value_slice;
 
       // Pass in the sequence number so that we also include previous merge
       // operations in the same batch.
@@ -1709,32 +1709,46 @@ class MemTableInserter : public WriteBatch::Handler {
       if (cf_handle == nullptr) {
         cf_handle = db_->DefaultColumnFamily();
       }
-      db_->Get(read_options, cf_handle, key, &get_value);
-      Slice get_value_slice = Slice(get_value);
-
-      // 2) Apply this merge
-      auto merge_operator = moptions->merge_operator;
-      assert(merge_operator);
-
-      std::string new_value;
-
-      Status merge_status = MergeHelper::TimedFullMerge(
-          merge_operator, key, &get_value_slice, {value}, &new_value,
-          moptions->info_log, moptions->statistics, Env::Default());
-
-      if (!merge_status.ok()) {
-        // Failed to merge!
-        // Store the delta in memtable
+      bool is_blob_index = false;
+      DBImpl::GetImplOptions get_impl_options;
+      get_impl_options.column_family = cf_handle;
+      get_impl_options.value = &get_value_slice;
+      get_impl_options.is_blob_index = &is_blob_index;
+      auto db_impl = reinterpret_cast<DBImpl*>(db_->GetRootDB());
+      Status get_status = db_impl->GetImpl(
+          read_options, key, get_impl_options);
+      if (!get_status.ok()) {
+        // Failed to get!
         perform_merge = false;
       } else {
-        // 3) Add value to memtable
-        assert(!concurrent_memtable_writes_);
-        bool mem_res = mem->Add(sequence_, kTypeValue, key, new_value);
-        if (UNLIKELY(!mem_res)) {
-          assert(seq_per_batch_);
-          ret_status = Status::TryAgain("key+seq exists");
-          const bool BATCH_BOUNDRY = true;
-          MaybeAdvanceSeq(BATCH_BOUNDRY);
+        ValueType value_type = is_blob_index ? kTypeBlobIndex : kTypeValue;
+
+        // 2) Apply this merge
+        auto merge_operator = moptions->merge_operator;
+        assert(merge_operator);
+
+        std::string new_value;
+
+        Status merge_status = MergeHelper::TimedFullMerge(
+            merge_operator, key, value_type, &get_value_slice, {value},
+            &value_type, &new_value, moptions->info_log, moptions->statistics,
+            Env::Default());
+
+        if (!merge_status.ok()) {
+          // Failed to merge!
+          // Store the delta in memtable
+          perform_merge = false;
+        } else {
+          // 3) Add value to memtable
+          assert(!concurrent_memtable_writes_);
+          bool mem_res;
+          mem_res = mem->Add(sequence_, value_type, key, new_value);
+          if (UNLIKELY(!mem_res)) {
+            assert(seq_per_batch_);
+            ret_status = Status::TryAgain("key+seq exists");
+            const bool BATCH_BOUNDRY = true;
+            MaybeAdvanceSeq(BATCH_BOUNDRY);
+          }
         }
       }
     }

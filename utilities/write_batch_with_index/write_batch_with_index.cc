@@ -923,17 +923,26 @@ Status WriteBatchWithIndex::GetFromBatchAndDB(
       Logger* logger = immuable_db_options.info_log.get();
 
       Slice* merge_data;
+      ValueType value_type;
       if (s.ok()) {
         merge_data = pinnable_val;
+        value_type = kTypeValue;
       } else {  // Key not present in db (s.IsNotFound())
         merge_data = nullptr;
+        value_type = kTypeDeletion;
       }
 
       if (merge_operator) {
         std::string merge_result;
-        s = MergeHelper::TimedFullMerge(merge_operator, key, merge_data,
-                                        merge_context.GetOperands(),
-                                        &merge_result, logger, statistics, env);
+        s = MergeHelper::TimedFullMerge(merge_operator, key, value_type,
+                                        merge_data, merge_context.GetOperands(),
+                                        &value_type, &merge_result,
+                                        logger, statistics, env);
+        if (value_type == kTypeBlobIndex) {
+          s = Status::NotSupported(
+              "Encounter unsupported blob value. Please open DB with "
+              "rocksdb::blob_db::BlobDB instead.");
+        }
         pinnable_val->Reset();
         *pinnable_val->GetSelf() = std::move(merge_result);
         pinnable_val->PinSelf();
@@ -1035,17 +1044,25 @@ void WriteBatchWithIndex::MultiGetFromBatchAndDB(
         Logger* logger = immuable_db_options.info_log.get();
 
         Slice* merge_data;
+        ValueType value_type;
         if (key.s->ok()) {
           merge_data = iter->value;
+          value_type = kTypeValue;
         } else {  // Key not present in db (s.IsNotFound())
           merge_data = nullptr;
+          value_type = kTypeDeletion;
         }
 
         if (merge_operator) {
           *key.s = MergeHelper::TimedFullMerge(
-              merge_operator, *key.key, merge_data,
-              merge_result.second.GetOperands(), key.value->GetSelf(), logger,
-              statistics, env);
+              merge_operator, *key.key, value_type, merge_data,
+              merge_result.second.GetOperands(), &value_type,
+              key.value->GetSelf(), logger, statistics, env);
+          if (value_type == kTypeBlobIndex) {
+            *key.s = Status::NotSupported(
+                "Encounter unsupported blob value. Please open DB with "
+                "rocksdb::blob_db::BlobDB instead.");
+          }
           key.value->PinSelf();
         } else {
           *key.s =

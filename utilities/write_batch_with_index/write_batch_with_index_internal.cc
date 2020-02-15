@@ -260,15 +260,32 @@ WriteBatchWithIndexInternal::Result WriteBatchWithIndexInternal::GetFromBatch(
         Env* env = immuable_db_options.env;
         Logger* logger = immuable_db_options.info_log.get();
 
+        ValueType value_type;
+        Slice* merge_data;
+        if (result == WriteBatchWithIndexInternal::Result::kFound) {
+          value_type = kTypeValue;
+          merge_data = &entry_value;
+        } else {  // Key not presend. (result == kDeleted)
+          value_type = kTypeDeletion;
+          merge_data = nullptr;
+        }
         if (merge_operator) {
-          *s = MergeHelper::TimedFullMerge(merge_operator, key, &entry_value,
-                                           merge_context->GetOperands(), value,
-                                           logger, statistics, env);
+          *s = MergeHelper::TimedFullMerge(
+              merge_operator, key, value_type, merge_data,
+              merge_context->GetOperands(), &value_type, value, logger,
+              statistics, env);
+          if (value_type == kTypeBlobIndex) {
+            *s = Status::NotSupported(
+                "Encounter unsupported blob value. Please open DB with "
+                "rocksdb::blob_db::BlobDB instead.");
+          }
         } else {
           *s = Status::InvalidArgument("Options::merge_operator must be set");
         }
         if ((*s).ok()) {
           result = WriteBatchWithIndexInternal::Result::kFound;
+        } else if ((*s).IsNotFound()) {
+          result = WriteBatchWithIndexInternal::Result::kDeleted;
         } else {
           result = WriteBatchWithIndexInternal::Result::kError;
         }

@@ -235,18 +235,25 @@ bool GetContext::SaveValue(const ParsedInternalKey& parsed_key,
             // merge_context_->operand_list
             push_operand(value, value_pinner);
           }
+          if (is_blob_index_) {
+            *is_blob_index_ = (type == kTypeBlobIndex);
+          }
         } else if (kMerge == state_) {
           assert(merge_operator_ != nullptr);
           state_ = kFound;
           if (do_merge_) {
             if (LIKELY(pinnable_val_ != nullptr)) {
               Status merge_status = MergeHelper::TimedFullMerge(
-                  merge_operator_, user_key_, &value,
-                  merge_context_->GetOperands(), pinnable_val_->GetSelf(),
+                  merge_operator_, user_key_, type, &value,
+                  merge_context_->GetOperands(), &type, pinnable_val_->GetSelf(),
                   logger_, statistics_, env_);
               pinnable_val_->PinSelf();
               if (!merge_status.ok()) {
                 state_ = kCorrupt;
+              } else if (is_blob_index_ != nullptr) {
+                *is_blob_index_ = (type == kTypeBlobIndex);
+              } else if (type == kTypeBlobIndex) {
+                state_ = kBlobIndex;
               }
             }
           } else {
@@ -255,9 +262,6 @@ bool GetContext::SaveValue(const ParsedInternalKey& parsed_key,
             // merge_context_->operand_list
             push_operand(value, value_pinner);
           }
-        }
-        if (is_blob_index_ != nullptr) {
-          *is_blob_index_ = (type == kTypeBlobIndex);
         }
         return false;
 
@@ -274,13 +278,18 @@ bool GetContext::SaveValue(const ParsedInternalKey& parsed_key,
           if (LIKELY(pinnable_val_ != nullptr)) {
             if (do_merge_) {
               Status merge_status = MergeHelper::TimedFullMerge(
-                  merge_operator_, user_key_, nullptr,
-                  merge_context_->GetOperands(), pinnable_val_->GetSelf(),
+                  merge_operator_, user_key_, type, nullptr,
+                  merge_context_->GetOperands(), &type, pinnable_val_->GetSelf(),
                   logger_, statistics_, env_);
               pinnable_val_->PinSelf();
               if (!merge_status.ok()) {
                 state_ = kCorrupt;
               }
+              if (is_blob_index_ != nullptr) {
+                *is_blob_index_ = (type == kTypeBlobIndex);
+              } else if (type == kTypeBlobIndex) {
+                state_ = kBlobIndex;
+              }  
             }
             // If do_merge_ = false then the current value shouldn't be part of
             // merge_context_->operand_list
@@ -302,12 +311,16 @@ bool GetContext::SaveValue(const ParsedInternalKey& parsed_key,
             // as part of DB Get API hence merge operators should be merged.
             if (do_merge_) {
               Status merge_status = MergeHelper::TimedFullMerge(
-                  merge_operator_, user_key_, nullptr,
-                  merge_context_->GetOperands(), pinnable_val_->GetSelf(),
+                  merge_operator_, user_key_, type, nullptr,
+                  merge_context_->GetOperands(), &type, pinnable_val_->GetSelf(),
                   logger_, statistics_, env_);
               pinnable_val_->PinSelf();
               if (!merge_status.ok()) {
                 state_ = kCorrupt;
+              } else if (is_blob_index_ != nullptr) {
+                *is_blob_index_ = (type == kTypeBlobIndex);
+              } else if (type == kTypeBlobIndex) {
+                state_ = kBlobIndex;
               }
             }
           }

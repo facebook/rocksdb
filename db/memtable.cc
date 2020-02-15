@@ -669,15 +669,13 @@ static bool SaveValue(void* arg, const char* entry) {
           *(s->status) = Status::NotSupported(
               "Encounter unsupported blob value. Please open DB with "
               "rocksdb::blob_db::BlobDB instead.");
-        } else if (*(s->merge_in_progress)) {
-          *(s->status) =
-              Status::NotSupported("Blob DB does not support merge operator.");
         }
         if (!s->status->ok()) {
           *(s->found_final_value) = true;
           return false;
         }
         FALLTHROUGH_INTENDED;
+      // continue as normal value
       case kTypeValue: {
         if (s->inplace_update_support) {
           s->mem->GetLock(s->key->user_key())->ReadLock();
@@ -688,8 +686,8 @@ static bool SaveValue(void* arg, const char* entry) {
           if (s->do_merge) {
             if (s->value != nullptr) {
               *(s->status) = MergeHelper::TimedFullMerge(
-                  merge_operator, s->key->user_key(), &v,
-                  merge_context->GetOperands(), s->value, s->logger,
+                  merge_operator, s->key->user_key(), type, &v,
+                  merge_context->GetOperands(), &type, s->value, s->logger,
                   s->statistics, s->env_, nullptr /* result_operand */, true);
             }
           } else {
@@ -721,14 +719,17 @@ static bool SaveValue(void* arg, const char* entry) {
         if (*(s->merge_in_progress)) {
           if (s->value != nullptr) {
             *(s->status) = MergeHelper::TimedFullMerge(
-                merge_operator, s->key->user_key(), nullptr,
-                merge_context->GetOperands(), s->value, s->logger,
+                merge_operator, s->key->user_key(), type, nullptr,
+                merge_context->GetOperands(), &type, s->value, s->logger,
                 s->statistics, s->env_, nullptr /* result_operand */, true);
           }
         } else {
           *(s->status) = Status::NotFound();
         }
         *(s->found_final_value) = true;
+        if (s->is_blob_index != nullptr) {
+          *(s->is_blob_index) = (type == kTypeBlobIndex);
+        }
         return false;
       }
       case kTypeMerge: {
@@ -749,10 +750,13 @@ static bool SaveValue(void* arg, const char* entry) {
         if (s->do_merge && merge_operator->ShouldMerge(
                                merge_context->GetOperandsDirectionBackward())) {
           *(s->status) = MergeHelper::TimedFullMerge(
-              merge_operator, s->key->user_key(), nullptr,
-              merge_context->GetOperands(), s->value, s->logger, s->statistics,
-              s->env_, nullptr /* result_operand */, true);
+              merge_operator, s->key->user_key(), type, nullptr,
+              merge_context->GetOperands(), &type, s->value, s->logger,
+              s->statistics, s->env_, nullptr /* result_operand */, true);
           *(s->found_final_value) = true;
+          if (s->is_blob_index != nullptr) {
+            *(s->is_blob_index) = (type == kTypeBlobIndex);
+          }
           return false;
         }
         return true;

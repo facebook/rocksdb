@@ -390,7 +390,12 @@ TEST_F(DBBlobIndexTest, Iterate) {
            create_blob_iterator, check_is_blob(false));
     verify(9, Status::kOk, get_value(10, 0), get_value(8, 0),
            create_blob_iterator, check_is_blob(false));
-    verify(11, Status::kNotSupported, "", "", create_blob_iterator);
+    verify(11, Status::kOk,
+           get_value(11, 3) + "," + get_value(11, 2) + "," + get_value(11, 1) +
+               "," + get_value(11, 0),
+           get_value(11, 3) + "," + get_value(11, 2) + "," + get_value(11, 1) +
+               "," + get_value(11, 0),
+           create_blob_iterator, check_is_blob(false));
     verify(13, Status::kOk,
            get_value(13, 2) + "," + get_value(13, 1) + "," + get_value(13, 0),
            get_value(13, 2) + "," + get_value(13, 1) + "," + get_value(13, 0),
