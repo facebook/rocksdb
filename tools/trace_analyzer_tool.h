@@ -215,6 +215,8 @@ class TraceAnalyzer {
   uint64_t time_series_start_;
   uint32_t sample_max_;
   uint32_t cur_time_sec_;
+  int trace_file_version_;
+  int db_version_;
   std::unique_ptr<rocksdb::WritableFile> trace_sequence_f_;  // readable trace
   std::unique_ptr<rocksdb::WritableFile> qps_f_;             // overall qps
   std::unique_ptr<rocksdb::WritableFile> cf_qps_f_;  // The qps of each CF>

@@ -46,6 +46,12 @@ enum TraceType : char {
   kBlockTraceDataBlock = 9,
   kBlockTraceUncompressionDictBlock = 10,
   kBlockTraceRangeDeletionBlock = 11,
+
+  // Trace record that are collected when query is finished
+  kTraceWriteAtEnd = 12,
+  kTraceGetAtEnd = 13,
+  kTraceIteratorSeekAtEnd = 14,
+  kTraceIteratorSeekForPrevAtEnd = 15,
   // All trace types should be added before kTraceMax
   kTraceMax,
 };
@@ -66,12 +72,40 @@ struct Trace {
   }
 };
 
+// Decode or encode the trace  payload and record
+class TraceCodingHelper {
+ public:
+  static void EncodeCFAndKey(std::string* dst, uint32_t cf_id,
+                             const Slice& key);
+  static void DecodeCFAndKey(std::string& buffer, uint32_t* cf_id, Slice* key);
+  static void EncodeGuidCFAndKey(std::string* dst, uint64_t record_guid,
+                                 uint32_t cf_id, const Slice& key);
+  static void DecodeGuidCFAndKey(std::string& buffer, uint64_t* record_guid,
+                                 uint32_t* cf_id, Slice* key);
+  static void EncodeGuidAndWriteBatchData(std::string* dst,
+                                          uint64_t record_guid,
+                                          WriteBatch* write_batch);
+  static void DecodeGuidAndWriteBatchData(std::string& buffer,
+                                          uint64_t* record_guid, Slice* data);
+  static void EncodeGuidAndLatency(std::string* dst, uint64_t record_guid,
+                                   uint64_t latency);
+  static void DecodeGuidAndLatency(std::string& buffer, uint64_t* record_guid,
+                                   uint64_t* latency);
+};
+
 class TracerHelper {
  public:
+  // Parse the string with major and minor version only
+  static Status ParseVersionStr(std::string& v_string, int* v_num);
+
+  // Parse the trace file version and db version in trace header
+  static Status ParseTraceHeader(const Trace& header, int* trace_version,
+                                 int* db_version);
+
   // Encode a trace object into the given string.
   static void EncodeTrace(const Trace& trace, std::string* encoded_trace);
 
-  // Decode a string into the given trace object.
+  // Decode a string into the given trace object from trace file v 0.1
   static Status DecodeTrace(const std::string& encoded_trace, Trace* trace);
 };
 
@@ -85,18 +119,36 @@ class Tracer {
   ~Tracer();
 
   // Trace all write operations -- Put, Merge, Delete, SingleDelete, Write
-  Status Write(WriteBatch* write_batch);
+  // when write batch is called
+  Status Write(WriteBatch* write_batch, uint64_t* record_guid);
 
-  // Trace Get operations.
-  Status Get(ColumnFamilyHandle* cfname, const Slice& key);
+  // Trace the latency of finishing the write batch
+  Status WriteAtEnd(const uint64_t& record_guid, const uint64_t& latency);
 
-  // Trace Iterators.
-  Status IteratorSeek(const uint32_t& cf_id, const Slice& key);
-  Status IteratorSeekForPrev(const uint32_t& cf_id, const Slice& key);
+  // Trace Get operations when Get is called
+  Status Get(ColumnFamilyHandle* cfname, const Slice& key,
+             uint64_t* record_guid);
+
+  // Trace the latency of finishing Get operations.
+  Status GetAtEnd(const uint64_t& record_guid, const uint64_t& latency);
+
+  // Trace Iterators when the query is called
+  Status IteratorSeek(const uint32_t& cf_id, const Slice& key,
+                      uint64_t* record_guid);
+  Status IteratorSeekForPrev(const uint32_t& cf_id, const Slice& key,
+                             uint64_t* record_guid);
+
+  // Trace the latency of finishing IteratorSeek/IteratorSeekForPrev
+  Status IteratorSeekAtEnd(const uint64_t& record_guid,
+                           const uint64_t& latency);
+  Status IteratorSeekForPrevAtEnd(const uint64_t& record_guid,
+                                  const uint64_t& latency);
 
   // Returns true if the trace is over the configured max trace file limit.
   // False otherwise.
   bool IsTraceFileOverMax();
+
+  bool IsTraceAtEnd();
 
   // Writes a trace footer at the end of the tracing
   Status Close();
@@ -118,10 +170,17 @@ class Tracer {
   // Returns true if a trace should be skipped, false otherwise.
   bool ShouldSkipTrace(const TraceType& type);
 
+  // The record_guid is get for each tracer function when query is first called,
+  // then, it increases the counter
+  uint64_t GetAndIncreaseRecordGuid();
+
   Env* env_;
   TraceOptions trace_options_;
   std::unique_ptr<TraceWriter> trace_writer_;
   uint64_t trace_request_count_;
+  // Each query being traced is paired with a global unique ID. The trace record
+  // at the begin and at the end have the same record_guid
+  uint64_t record_guid_counter_;
 };
 
 // Replayer helps to replay the captured RocksDB operations, using a user
@@ -149,6 +208,9 @@ class Replayer {
   //   If > 1, speed up the replay by this amount.
   Status SetFastForward(uint32_t fast_forward);
 
+  // Return the trace file version after the trace head is processed
+  int GetTraceFileVersion();
+
  private:
   Status ReadHeader(Trace* header);
   Status ReadFooter(Trace* footer);
@@ -174,7 +236,12 @@ class Replayer {
   Env* env_;
   std::unique_ptr<TraceReader> trace_reader_;
   std::unordered_map<uint32_t, ColumnFamilyHandle*> cf_map_;
+  // If user want to speed up the replay, user can specify it
   uint32_t fast_forward_;
+  // When reading the trace header, the trace file version can be parsed.
+  // Replayer will use different decode method to get the trace content based
+  // on different trace file version.
+  int trace_file_version_;
 };
 
 // The passin arg of MultiThreadRepkay for each trace record.
@@ -184,6 +251,7 @@ struct ReplayerWorkerArg {
   std::unordered_map<uint32_t, ColumnFamilyHandle*>* cf_map;
   WriteOptions woptions;
   ReadOptions roptions;
+  int trace_file_version;
 };
 
 }  // namespace rocksdb
