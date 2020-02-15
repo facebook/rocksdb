@@ -2355,7 +2355,6 @@ TEST_F(DBBasicTestWithTimestamp, PutAndGetWithCompaction) {
   std::vector<std::string> read_ts_strs(kNumTimestamps);
   std::vector<Slice> write_ts_list;
   std::vector<Slice> read_ts_list;
-  std::string expected_timestamp;
 
   const auto& verify_record_func = [&](size_t i, size_t k,
                                        ColumnFamilyHandle* cfh) {
@@ -2364,7 +2363,7 @@ TEST_F(DBBasicTestWithTimestamp, PutAndGetWithCompaction) {
 
     ReadOptions ropts;
     ropts.timestamp = &read_ts_list[i];
-    expected_timestamp =
+    std::string expected_timestamp =
         std::string(write_ts_list[i].data(), write_ts_list[i].size());
 
     ASSERT_OK(
