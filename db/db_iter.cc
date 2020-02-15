@@ -240,7 +240,8 @@ bool DBIter::FindNextUserEntryInternal(bool skipping_saved_key,
 
     assert(prefix == nullptr || prefix_extractor_ != nullptr);
     if (prefix != nullptr &&
-        prefix_extractor_->Transform(ikey_.user_key).compare(*prefix) != 0) {
+        (!prefix_extractor_->InDomain(ikey_.user_key) ||
+         prefix_extractor_->Transform(ikey_.user_key).compare(*prefix) != 0)) {
       assert(prefix_same_as_start_);
       break;
     }
@@ -638,8 +639,9 @@ void DBIter::PrevInternal(const Slice* prefix) {
 
     assert(prefix == nullptr || prefix_extractor_ != nullptr);
     if (prefix != nullptr &&
-        prefix_extractor_->Transform(saved_key_.GetUserKey())
-                .compare(*prefix) != 0) {
+        (!prefix_extractor_->InDomain(saved_key_.GetUserKey()) ||
+         prefix_extractor_->Transform(saved_key_.GetUserKey())
+                 .compare(*prefix) != 0)) {
       assert(prefix_same_as_start_);
       // Current key does not have the same prefix as start
       valid_ = false;
@@ -1132,10 +1134,10 @@ void DBIter::Seek(const Slice& target) {
   // we need to find out the next key that is visible to the user.
   //
   ClearSavedValue();
-  if (prefix_same_as_start_) {
+  assert(!prefix_same_as_start_ || prefix_extractor_ != nullptr);
+  if (prefix_same_as_start_ && prefix_extractor_->InDomain(target)) {
     // The case where the iterator needs to be invalidated if it has exausted
     // keys within the same prefix of the seek key.
-    assert(prefix_extractor_ != nullptr);
     Slice target_prefix;
     target_prefix = prefix_extractor_->Transform(target);
     FindNextUserEntry(false /* not skipping saved_key */,
@@ -1193,10 +1195,10 @@ void DBIter::SeekForPrev(const Slice& target) {
   // we need to find out the first key that is visible to the user in the
   // backward direction.
   ClearSavedValue();
-  if (prefix_same_as_start_) {
+  assert(!prefix_same_as_start_ || prefix_extractor_ != nullptr);
+  if (prefix_same_as_start_ && prefix_extractor_->InDomain(target)) {
     // The case where the iterator needs to be invalidated if it has exausted
     // keys within the same prefix of the seek key.
-    assert(prefix_extractor_ != nullptr);
     Slice target_prefix;
     target_prefix = prefix_extractor_->Transform(target);
     PrevInternal(&target_prefix);
@@ -1258,8 +1260,9 @@ void DBIter::SeekToFirst() {
   } else {
     valid_ = false;
   }
-  if (valid_ && prefix_same_as_start_) {
-    assert(prefix_extractor_ != nullptr);
+  assert(!prefix_same_as_start_ || prefix_extractor_ != nullptr);
+  if (valid_ && prefix_same_as_start_ &&
+      prefix_extractor_->InDomain(saved_key_.GetUserKey())) {
     prefix_.SetUserKey(prefix_extractor_->Transform(saved_key_.GetUserKey()));
   }
 }
@@ -1302,8 +1305,9 @@ void DBIter::SeekToLast() {
       PERF_COUNTER_ADD(iter_read_bytes, key().size() + value().size());
     }
   }
-  if (valid_ && prefix_same_as_start_) {
-    assert(prefix_extractor_ != nullptr);
+  assert(!prefix_same_as_start_ || prefix_extractor_ != nullptr);
+  if (valid_ && prefix_same_as_start_ &&
+      prefix_extractor_->InDomain(saved_key_.GetUserKey())) {
     prefix_.SetUserKey(prefix_extractor_->Transform(saved_key_.GetUserKey()));
   }
 }
