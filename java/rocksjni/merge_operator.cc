@@ -39,6 +39,28 @@ jlong Java_org_rocksdb_StringAppendOperator_newSharedStringAppendOperator(
 
 /*
  * Class:     org_rocksdb_StringAppendOperator
+ * Method:    newSharedStringAppendTESTOperator
+ * Signature: ([B)J
+ */
+jlong Java_org_rocksdb_StringAppendOperator_newSharedStringAppendTESTOperator(
+        JNIEnv* env, jclass, jbyteArray jdelim) {
+  jboolean has_exception = JNI_FALSE;
+  std::string delim = rocksdb::JniUtil::byteString<std::string>(
+          env, jdelim,
+          [](const char* str, const size_t len) { return std::string(str, len); },
+          &has_exception);
+  if (has_exception == JNI_TRUE) {
+    // exception occurred
+    return 0;
+  }
+
+  auto* sptr_string_append_test_op = new std::shared_ptr<rocksdb::MergeOperator>(
+          rocksdb::MergeOperators::CreateStringAppendTESTOperator(delim));
+  return reinterpret_cast<jlong>(sptr_string_append_test_op);
+}
+
+/*
+ * Class:     org_rocksdb_StringAppendOperator
  * Method:    disposeInternal
  * Signature: (J)V
  */

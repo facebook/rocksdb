@@ -15,11 +15,6 @@
 
 namespace rocksdb {
 
-// Constructor: also specify the delimiter character.
-StringAppendTESTOperator::StringAppendTESTOperator(char delim_char)
-    : delim_(delim_char) {
-}
-
 // Implementation for the merge operation (concatenates two strings)
 bool StringAppendTESTOperator::FullMergeV2(
     const MergeOperationInput& merge_in,
@@ -37,7 +32,7 @@ bool StringAppendTESTOperator::FullMergeV2(
   size_t numBytes = 0;
   for (auto it = merge_in.operand_list.begin();
        it != merge_in.operand_list.end(); ++it) {
-    numBytes += it->size() + 1;   // Plus 1 for the delimiter
+    numBytes += it->size() + delim_.size();   // Plus one delimiter
   }
 
   // Only print the delimiter after the first entry has been printed
@@ -48,20 +43,20 @@ bool StringAppendTESTOperator::FullMergeV2(
     merge_out->new_value.reserve(numBytes + merge_in.existing_value->size());
     merge_out->new_value.append(merge_in.existing_value->data(),
                                 merge_in.existing_value->size());
-    printDelim = true;
+    printDelim = !delim_.empty();
   } else if (numBytes) {
     merge_out->new_value.reserve(
-        numBytes - 1);  // Minus 1 since we have one less delimiter
+        numBytes - delim_.size());  // Minus 1 delimiter since we have one less delimiter
   }
 
   // Concatenate the sequence of strings (and add a delimiter between each)
   for (auto it = merge_in.operand_list.begin();
        it != merge_in.operand_list.end(); ++it) {
     if (printDelim) {
-      merge_out->new_value.append(1, delim_);
+      merge_out->new_value.append(delim_);
     }
     merge_out->new_value.append(it->data(), it->size());
-    printDelim = true;
+    printDelim = !delim_.empty();
   }
 
   return true;
@@ -87,17 +82,17 @@ bool StringAppendTESTOperator::_AssocPartialMergeMulti(
   // Determine and reserve correct size for *new_value.
   size_t size = 0;
   for (const auto& operand : operand_list) {
-    size += operand.size();
+    size += operand.size() + delim_.size();
   }
-  size += operand_list.size() - 1;  // Delimiters
+  size -= delim_.size();  // since we have one less delimiter
   new_value->reserve(size);
 
   // Apply concatenation
   new_value->assign(operand_list.front().data(), operand_list.front().size());
 
-  for (std::deque<Slice>::const_iterator it = operand_list.begin() + 1;
+  for (auto it = operand_list.begin() + 1;
        it != operand_list.end(); ++it) {
-    new_value->append(1, delim_);
+    new_value->append(delim_);
     new_value->append(it->data(), it->size());
   }
 
@@ -112,6 +107,11 @@ const char* StringAppendTESTOperator::Name() const  {
 std::shared_ptr<MergeOperator>
 MergeOperators::CreateStringAppendTESTOperator() {
   return std::make_shared<StringAppendTESTOperator>(',');
+}
+
+std::shared_ptr<MergeOperator>
+MergeOperators::CreateStringAppendTESTOperator(std::string delim) {
+  return std::make_shared<StringAppendTESTOperator>(delim);
 }
 
 } // namespace rocksdb

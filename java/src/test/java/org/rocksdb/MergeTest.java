@@ -15,6 +15,7 @@ import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.TemporaryFolder;
 
+import static java.nio.charset.StandardCharsets.UTF_8;
 import static org.assertj.core.api.Assertions.assertThat;
 
 public class MergeTest {
@@ -180,6 +181,35 @@ public class MergeTest {
       final String strValue = new String(value);
 
       assertThat(strValue).isEqualTo("aa,bb");
+    }
+  }
+
+  @Test
+  public void emptyStringDelimiter() throws RocksDBException {
+    stringDelimiter("");
+  }
+
+  @Test
+  public void stringDelimiter() throws RocksDBException {
+    stringDelimiter("DELIM");
+  }
+
+  private void stringDelimiter(String delim) throws RocksDBException {
+    try (final StringAppendOperator stringAppendOperator = new StringAppendOperator(delim.getBytes(UTF_8));
+         final Options opt = new Options()
+                 .setCreateIfMissing(true)
+                 .setMergeOperator(stringAppendOperator);
+         final RocksDB db = RocksDB.open(opt, dbFolder.getRoot().getAbsolutePath())) {
+      // Writing aa under key
+      db.put("key".getBytes(UTF_8), "aa".getBytes(UTF_8));
+
+      // Writing bb under key
+      db.merge("key".getBytes(UTF_8), "bb".getBytes(UTF_8));
+
+      final byte[] value = db.get("key".getBytes(UTF_8));
+      final String strValue = new String(value, UTF_8);
+
+      assertThat(strValue).isEqualTo("aa" + delim + "bb");
     }
   }
 
