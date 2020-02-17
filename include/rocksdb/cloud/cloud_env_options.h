@@ -266,6 +266,11 @@ private:
   // Default: false
   bool use_aws_transfer_manager;
 
+  // The number of object's metadata that are fetched in every iteration when listing
+  // the results of a directory
+  // Default: 5000
+  int number_objects_listed_in_one_iteration;
+
   CloudEnvOptions(
       CloudType _cloud_type = CloudType::kCloudAws,
       LogType _log_type = LogType::kLogKafka,
@@ -277,7 +282,8 @@ private:
       bool _create_bucket_if_missing = true, uint64_t _request_timeout_ms = 0,
       bool _run_purger = false, bool _ephemeral_resync_on_open = false,
       bool _skip_dbid_verification = false,
-      bool _use_aws_transfer_manager = false)
+      bool _use_aws_transfer_manager = false,
+      int _number_objects_listed_in_one_iteration = 5000)
       : cloud_type(_cloud_type),
         log_type(_log_type),
         keep_local_sst_files(_keep_local_sst_files),
@@ -292,7 +298,8 @@ private:
         run_purger(_run_purger),
         ephemeral_resync_on_open(_ephemeral_resync_on_open),
         skip_dbid_verification(_skip_dbid_verification),
-        use_aws_transfer_manager(_use_aws_transfer_manager) {}
+        use_aws_transfer_manager(_use_aws_transfer_manager),
+        number_objects_listed_in_one_iteration(_number_objects_listed_in_one_iteration)	{}
 
   // print out all options to the log
   void Dump(Logger* log) const;

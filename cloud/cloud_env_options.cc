@@ -30,6 +30,8 @@ void CloudEnvOptions::Dump(Logger* log) const {
          skip_dbid_verification ? "true" : "false");
   Header(log, "           COptions.use_aws_transfer_manager: %s",
          use_aws_transfer_manager ? "true" : "false");
+  Header(log, "           COptions.number_objects_listed_in_one_iteration: %d",
+         number_objects_listed_in_one_iteration);
 }
 
 }  // namespace rocksdb

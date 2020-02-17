@@ -964,7 +964,7 @@ Status AwsEnv::GetChildrenFromS3(const std::string& path,
   while (loop) {
     Aws::S3::Model::ListObjectsRequest request;
     request.SetBucket(ToAwsString(bucket));
-    request.SetMaxKeys(50);
+    request.SetMaxKeys(cloud_env_options.number_objects_listed_in_one_iteration);
     request.SetPrefix(ToAwsString(prefix));
     request.SetMarker(marker);
 
