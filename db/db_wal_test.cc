@@ -557,6 +557,46 @@ TEST_F(DBWALTest, FullPurgePreservesRecycledLog) {
   }
 }
 
+TEST_F(DBWALTest, FullPurgePreservesLogPendingReuse) {
+  // Ensures full purge cannot delete a WAL while it's in the process of being
+  // recycled. In particular, we force the full purge after a file has been
+  // chosen for reuse, but before it has been renamed.
+  for (int i = 0; i < 2; ++i) {
+    Options options = CurrentOptions();
+    options.recycle_log_file_num = 1;
+    if (i != 0) {
+      options.wal_dir = alternative_wal_dir_;
+    }
+    DestroyAndReopen(options);
+
+    // The first flush creates a second log so writes can continue before the
+    // flush finishes.
+    ASSERT_OK(Put("foo", "bar"));
+    ASSERT_OK(Flush());
+
+    // The second flush can recycle the first log. Sync points enforce the
+    // full purge happens after choosing the log to recycle and before it is
+    // renamed.
+    rocksdb::SyncPoint::GetInstance()->LoadDependency({
+        {"DBImpl::CreateWAL:BeforeReuseWritableFile1",
+         "DBWALTest::FullPurgePreservesLogPendingReuse:PreFullPurge"},
+        {"DBWALTest::FullPurgePreservesLogPendingReuse:PostFullPurge",
+         "DBImpl::CreateWAL:BeforeReuseWritableFile2"},
+    });
+    rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+    rocksdb::port::Thread thread([&]() {
+        TEST_SYNC_POINT(
+            "DBWALTest::FullPurgePreservesLogPendingReuse:PreFullPurge");
+        ASSERT_OK(db_->EnableFileDeletions(true));
+        TEST_SYNC_POINT(
+            "DBWALTest::FullPurgePreservesLogPendingReuse:PostFullPurge");
+    });
+    ASSERT_OK(Put("foo", "bar"));
+    ASSERT_OK(Flush());
+    thread.join();
+  }
+}
+
 TEST_F(DBWALTest, GetSortedWalFiles) {
   do {
     CreateAndReopenWithCF({"pikachu"}, CurrentOptions());
