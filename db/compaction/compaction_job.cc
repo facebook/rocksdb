@@ -1736,35 +1736,42 @@ void CompactionJob::RunRemote(PluggableCompactionService* service) {
   assert(compact_->sub_compact_states.size() == 1);
   SubcompactionState* sub = &compact_->sub_compact_states[0];
 
+  // Path of remotely compacted files.
+  std::vector<std::string> sources;
+  // Path of local files.
+  std::vector<std::string> destinations;
   std::vector<uint64_t> file_numbers;
 
   // Iterate through all output files
   for (const auto& result_file : result.output_files) {
     // Generate a new file number
-    uint64_t file_number = versions_->NewFileNumber();
-    file_numbers.push_back(file_number);
-
+    file_numbers.push_back(versions_->NewFileNumber());
+    sources.push_back(result_file.pathname);
     // Generate a path name where an externally compacted file can
     // be copied into.  Do not read into block cache.
-    std::string destination =
+    destinations.push_back(
         TableFileName(sub->compaction->immutable_cf_options()->cf_paths,
-                      file_number, sub->compaction->output_path_id());
+                      file_numbers.back(), sub->compaction->output_path_id()));
 
     ROCKS_LOG_INFO(db_options_.info_log, "Going to install file %s to %s",
-                   result_file.pathname.c_str(), destination.c_str());
+                   sources.back().c_str(), destinations.back().c_str());
+  }
 
-    // Install the output files into this db
-    status = service->InstallFile(result_file.pathname, destination,
-                                  env_options_, env_);
+  // Install all remotely compacted file into local files.
+  auto statuses =
+      service->InstallFiles(sources, destinations, env_options_, env_);
 
-    if (!status.ok()) {
-      compact_->status = status;
+  for (uint32_t i = 0; i < statuses.size(); ++i) {
+    if (!statuses[i].ok()) {
+      compact_->status = statuses[i];
       ROCKS_LOG_INFO(db_options_.info_log,
                      "Unable to InstallFile %s to %s. Status %s",
-                     result_file.pathname.c_str(), destination.c_str(),
-                     status.ToString().c_str());
+                     sources[i].c_str(), destinations[i].c_str(),
+                     statuses[i].ToString().c_str());
       return;
     }
+
+    const auto& result_file = result.output_files[i];
 
     // create new output file data structure
     CompactionJob::SubcompactionState::Output outf;
@@ -1774,9 +1781,9 @@ void CompactionJob::RunRemote(PluggableCompactionService* service) {
     outf.meta.num_deletions = result_file.num_deletions;
     outf.meta.raw_key_size = result_file.raw_key_size;
     outf.meta.raw_value_size = result_file.raw_value_size;
-    outf.meta.fd =
-        FileDescriptor(file_number, c->output_path_id(), result_file.file_size,
-                       result_file.smallest_seqno, result_file.largest_seqno);
+    outf.meta.fd = FileDescriptor(
+        file_numbers[i], c->output_path_id(), result_file.file_size,
+        result_file.smallest_seqno, result_file.largest_seqno);
 
     // set smallest and largest keys in FileMetaData
     outf.meta.smallest.DecodeFrom(result_file.smallest_internal_key);

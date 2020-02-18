@@ -230,10 +230,24 @@ class RemoteCompactionTest : public testing::Test {
       return clone->ExecuteRemoteCompactionRequest(job, result, false);
     }
 
+    std::vector<Status> InstallFiles(
+        const std::vector<std::string>& remote_paths,
+        const std::vector<std::string>& local_paths,
+        const EnvOptions& env_options, Env* local_env) override {
+      assert(remote_paths.size() == local_paths.size());
+      std::vector<Status> statuses;
+      for (uint32_t i = 0; i < remote_paths.size(); ++i) {
+        statuses.push_back(InstallFile(remote_paths[i], local_paths[i],
+                                       env_options, local_env));
+      }
+
+      return statuses;
+    }
+
     // Install the remote file into the local db
     Status InstallFile(const std::string& remote_path,
                        const std::string& destination_path,
-                       const EnvOptions& env_options, Env* local_env) override {
+                       const EnvOptions& env_options, Env* local_env) {
       // create destination file
       std::unique_ptr<WritableFile> writable_file;
       Status status = local_env->NewWritableFile(destination_path,
