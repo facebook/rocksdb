@@ -1730,6 +1730,7 @@ Status AwsEnv::CopyObject(const std::string& bucket_name_src,
   request.SetCopySource(src_url);
   request.SetBucket(dest_bucket);
   request.SetKey(dest_object);
+  SetEncryptionParameters(cloud_env_options, request);
 
   // execute request
   Aws::S3::Model::CopyObjectOutcome outcome = s3client_->CopyObject(request);
