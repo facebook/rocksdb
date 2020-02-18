@@ -655,7 +655,6 @@ TEST_F(WriteBatchTest, ColumnFamiliesBatchWithIndexTest) {
   batch.Put(&eight, Slice("eightfoo"), Slice("bar8"));
   batch.Delete(&eight, Slice("eightfoo"));
   batch.SingleDelete(&two, Slice("twofoo"));
-  batch.DeleteRange(&two, Slice("twofoo"), Slice("threefoo"));
   batch.Merge(&three, Slice("threethree"), Slice("3three"));
   batch.Put(&zero, Slice("foo"), Slice("bar"));
   batch.Merge(Slice("omom"), Slice("nom"));
@@ -693,13 +692,6 @@ TEST_F(WriteBatchTest, ColumnFamiliesBatchWithIndexTest) {
   ASSERT_TRUE(iter->Valid());
   ASSERT_EQ(WriteType::kSingleDeleteRecord, iter->Entry().type);
   ASSERT_EQ("twofoo", iter->Entry().key.ToString());
-
-  iter->Next();
-  ASSERT_OK(iter->status());
-  ASSERT_TRUE(iter->Valid());
-  ASSERT_EQ(WriteType::kDeleteRangeRecord, iter->Entry().type);
-  ASSERT_EQ("twofoo", iter->Entry().key.ToString());
-  ASSERT_EQ("threefoo", iter->Entry().value.ToString());
 
   iter->Next();
   ASSERT_OK(iter->status());
@@ -751,7 +743,6 @@ TEST_F(WriteBatchTest, ColumnFamiliesBatchWithIndexTest) {
       "PutCF(8, eightfoo, bar8)"
       "DeleteCF(8, eightfoo)"
       "SingleDeleteCF(2, twofoo)"
-      "DeleteRangeCF(2, twofoo, threefoo)"
       "MergeCF(3, threethree, 3three)"
       "Put(foo, bar)"
       "Merge(omom, nom)",

@@ -125,9 +125,17 @@ class WriteBatchWithIndex : public WriteBatchBase {
   Status SingleDelete(const Slice& key) override;
 
   using WriteBatchBase::DeleteRange;
-  Status DeleteRange(ColumnFamilyHandle* column_family, const Slice& begin_key,
-                     const Slice& end_key) override;
-  Status DeleteRange(const Slice& begin_key, const Slice& end_key) override;
+  Status DeleteRange(ColumnFamilyHandle* /* column_family */,
+                     const Slice& /* begin_key */,
+                     const Slice& /* end_key */) override {
+    return Status::NotSupported(
+        "DeleteRange unsupported in WriteBatchWithIndex");
+  }
+  Status DeleteRange(const Slice& /* begin_key */,
+                     const Slice& /* end_key */) override {
+    return Status::NotSupported(
+        "DeleteRange unsupported in WriteBatchWithIndex");
+  }
 
   using WriteBatchBase::PutLogData;
   Status PutLogData(const Slice& blob) override;

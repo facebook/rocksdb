@@ -5,6 +5,7 @@
 
 #include "db/db_test_util.h"
 #include "port/stack_trace.h"
+#include "rocksdb/utilities/write_batch_with_index.h"
 #include "test_util/testutil.h"
 #include "utilities/merge_operators.h"
 
@@ -23,8 +24,8 @@ class DBRangeDelTest : public DBTestBase {
   }
 };
 
-// PlainTableFactory and NumTableFilesAtLevel() are not supported in
-// ROCKSDB_LITE
+// PlainTableFactory, WriteBatchWithIndex, and NumTableFilesAtLevel() are not
+// supported in ROCKSDB_LITE
 #ifndef ROCKSDB_LITE
 TEST_F(DBRangeDelTest, NonBlockBasedTableNotSupported) {
   // TODO: figure out why MmapReads trips the iterator pinning assertion in
@@ -37,6 +38,13 @@ TEST_F(DBRangeDelTest, NonBlockBasedTableNotSupported) {
                                  "dr1", "dr1")
                     .IsNotSupported());
   }
+}
+
+TEST_F(DBRangeDelTest, WriteBatchWithIndexNotSupported) {
+  WriteBatchWithIndex indexedBatch{};
+  ASSERT_TRUE(indexedBatch.DeleteRange(db_->DefaultColumnFamily(), "dr1", "dr1")
+                  .IsNotSupported());
+  ASSERT_TRUE(indexedBatch.DeleteRange("dr1", "dr1").IsNotSupported());
 }
 
 TEST_F(DBRangeDelTest, FlushOutputHasOnlyRangeTombstones) {
