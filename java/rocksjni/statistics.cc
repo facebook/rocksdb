@@ -196,9 +196,9 @@ jobject Java_org_rocksdb_Statistics_getHistogramData(
   }
 
   return env->NewObject(jclazz, mid, data.median, data.percentile95,
-                        data.percentile99, data.average,
-                        data.standard_deviation, data.max, data.count,
-                        data.sum, data.min);
+                        data.percentile99, data.percentile999, data.average,
+                        data.standard_deviation, data.max, data.count, data.sum,
+                        data.min);
 }
 
 /*

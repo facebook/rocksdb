@@ -35,6 +35,7 @@ void BasicOperation(Histogram& histogram) {
   histogram.Data(&data);
 
   ASSERT_LE(fabs(histogram.Percentile(100.0) - 110.0), kIota);
+  ASSERT_LE(fabs(data.percentile999 - 109.89), kIota);  // 99.9 * 110 / 100
   ASSERT_LE(fabs(data.percentile99 - 108.9), kIota);  // 99 * 110 / 100
   ASSERT_LE(fabs(data.percentile95 - 104.5), kIota);  // 95 * 110 / 100
   ASSERT_LE(fabs(data.median - 55.0), kIota);  // 50 * 110 / 100
@@ -50,6 +51,7 @@ void MergeHistogram(Histogram& histogram, Histogram& other) {
   histogram.Data(&data);
 
   ASSERT_LE(fabs(histogram.Percentile(100.0) - 250.0), kIota);
+  ASSERT_LE(fabs(data.percentile999 - 249.75), kIota);  // 999 * 250 / 100
   ASSERT_LE(fabs(data.percentile99 - 247.5), kIota);  // 99 * 250 / 100
   ASSERT_LE(fabs(data.percentile95 - 237.5), kIota);  // 95 * 250 / 100
   ASSERT_LE(fabs(data.median - 125.0), kIota);  // 50 * 250 / 100
