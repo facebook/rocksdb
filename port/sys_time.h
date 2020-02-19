@@ -16,7 +16,7 @@
 
 #include <time.h>
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 namespace port {
 
@@ -37,7 +37,7 @@ inline struct tm* localtime_r(const time_t* timep, struct tm* result) {
 using port::timeval;
 using port::gettimeofday;
 using port::localtime_r;
-}
+}  // namespace ROCKSDB_NAMESPACE
 
 #else
 #include <time.h>

@@ -10,7 +10,7 @@
 #include "rocksdb/slice.h"
 #include "utilities/compaction_filters/remove_emptyvalue_compactionfilter.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 const char* RemoveEmptyValueCompactionFilter::Name() const {
   return "RemoveEmptyValueCompactionFilter";
@@ -25,5 +25,5 @@ bool RemoveEmptyValueCompactionFilter::Filter(int /*level*/,
   return existing_value.empty();
 }
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE
 #endif  // !ROCKSDB_LITE

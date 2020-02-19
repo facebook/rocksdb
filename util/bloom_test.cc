@@ -32,7 +32,7 @@ using GFLAGS_NAMESPACE::ParseCommandLineFlags;
 
 DEFINE_int32(bits_per_key, 10, "");
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 static const int kVerbose = 1;
 
@@ -900,7 +900,7 @@ INSTANTIATE_TEST_CASE_P(Full, FullBloomTest,
                         testing::Values(BloomFilterPolicy::kLegacyBloom,
                                         BloomFilterPolicy::kFastLocalBloom));
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
   ::testing::InitGoogleTest(&argc, argv);

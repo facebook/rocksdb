@@ -11,7 +11,7 @@
 
 #include <string>
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 namespace port {
 namespace xpress {
 
@@ -22,5 +22,4 @@ char* Decompress(const char* input_data, size_t input_length,
 
 }
 }
-}
-
+}  // namespace ROCKSDB_NAMESPACE

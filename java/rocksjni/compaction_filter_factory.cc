@@ -4,7 +4,7 @@
 //  (found in the LICENSE.Apache file in the root directory).
 //
 // This file implements the "bridge" between Java and C++ for
-// rocksdb::CompactionFilterFactory.
+// ROCKSDB_NAMESPACE::CompactionFilterFactory.
 
 #include <jni.h>
 #include <memory>
@@ -19,9 +19,10 @@
  */
 jlong Java_org_rocksdb_AbstractCompactionFilterFactory_createNewCompactionFilterFactory0(
     JNIEnv* env, jobject jobj) {
-  auto* cff = new rocksdb::CompactionFilterFactoryJniCallback(env, jobj);
-  auto* ptr_sptr_cff =
-      new std::shared_ptr<rocksdb::CompactionFilterFactoryJniCallback>(cff);
+  auto* cff =
+      new ROCKSDB_NAMESPACE::CompactionFilterFactoryJniCallback(env, jobj);
+  auto* ptr_sptr_cff = new std::shared_ptr<
+      ROCKSDB_NAMESPACE::CompactionFilterFactoryJniCallback>(cff);
   return reinterpret_cast<jlong>(ptr_sptr_cff);
 }
 
@@ -33,6 +34,7 @@ jlong Java_org_rocksdb_AbstractCompactionFilterFactory_createNewCompactionFilter
 void Java_org_rocksdb_AbstractCompactionFilterFactory_disposeInternal(
     JNIEnv*, jobject, jlong jhandle) {
   auto* ptr_sptr_cff = reinterpret_cast<
-      std::shared_ptr<rocksdb::CompactionFilterFactoryJniCallback>*>(jhandle);
+      std::shared_ptr<ROCKSDB_NAMESPACE::CompactionFilterFactoryJniCallback>*>(
+      jhandle);
   delete ptr_sptr_cff;
 }

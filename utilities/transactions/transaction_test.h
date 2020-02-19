@@ -31,7 +31,7 @@
 
 #include "port/port.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 // Return true if the ith bit is set in combination represented by comb
 bool IsInCombination(size_t i, size_t comb) { return comb & (size_t(1) << i); }
@@ -514,4 +514,4 @@ class MySQLStyleTransactionTest
   const bool with_slow_threads_;
 };
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

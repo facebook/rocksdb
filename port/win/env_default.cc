@@ -15,7 +15,7 @@
 #include "util/compression_context_cache.h"
 #include "util/thread_local.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 namespace port {
 
 // We choose not to destroy the env because joining the threads from the
@@ -38,4 +38,4 @@ Env* Env::Default() {
   return envptr;
 }
 
-}
+}  // namespace ROCKSDB_NAMESPACE

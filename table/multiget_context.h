@@ -14,7 +14,7 @@
 #include "rocksdb/types.h"
 #include "util/autovector.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 class GetContext;
 
 struct KeyContext {
@@ -256,4 +256,4 @@ class MultiGetContext {
   Range GetMultiGetRange() { return Range(this, num_keys_); }
 };
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

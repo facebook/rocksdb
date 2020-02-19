@@ -39,7 +39,7 @@
 
 #endif
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 namespace crc32c {
 
 #if defined(HAVE_POWER8) && defined(HAS_ALTIVEC)
@@ -1252,4 +1252,4 @@ uint32_t Extend(uint32_t crc, const char* buf, size_t size) {
 
 
 }  // namespace crc32c
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

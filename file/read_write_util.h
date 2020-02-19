@@ -13,7 +13,7 @@
 #include "rocksdb/env.h"
 #include "rocksdb/file_system.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 // Returns a WritableFile.
 //
 // env     : the Env.
@@ -31,4 +31,4 @@ bool ReadOneLine(std::istringstream* iss, SequentialFileReader* seq_file_reader,
 #ifndef NDEBUG
 bool IsFileSectorAligned(const size_t off, size_t sector_size);
 #endif  // NDEBUG
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

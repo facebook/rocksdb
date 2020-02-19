@@ -10,7 +10,7 @@
 
 #include "rocksdb/options.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 struct ImmutableDBOptions {
   ImmutableDBOptions();
@@ -115,4 +115,4 @@ struct MutableDBOptions {
   size_t compaction_readahead_size;
 };
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

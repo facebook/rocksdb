@@ -24,7 +24,7 @@
 #include "test_util/sync_point.h"
 #include "util/stop_watch.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 Status ExternalSstFileIngestionJob::Prepare(
     const std::vector<std::string>& external_files_paths,
@@ -726,6 +726,6 @@ Status ExternalSstFileIngestionJob::SyncIngestedFile(TWritableFile* file) {
   }
 }
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE
 
 #endif  // !ROCKSDB_LITE

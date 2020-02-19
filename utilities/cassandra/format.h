@@ -62,7 +62,7 @@
 #include "rocksdb/slice.h"
 #include "test_util/testharness.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 namespace cassandra {
 
 // Identify the type of the column.
@@ -194,4 +194,4 @@ private:
 };
 
 } // namepsace cassandrda
-} // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

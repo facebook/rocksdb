@@ -13,7 +13,7 @@
 #include "table/block_based/block_based_table_reader.h"
 #include "util/coding.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 FullFilterBlockBuilder::FullFilterBlockBuilder(
     const SliceTransform* _prefix_extractor, bool whole_key_filtering,
@@ -335,4 +335,4 @@ bool FullFilterBlockReader::IsFilterCompatible(
   }
 }
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

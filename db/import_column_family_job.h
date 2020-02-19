@@ -14,7 +14,7 @@
 #include "rocksdb/sst_file_writer.h"
 #include "util/autovector.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 // Imports a set of sst files as is into a new column family. Logic is similar
 // to ExternalSstFileIngestionJob.
@@ -69,4 +69,4 @@ class ImportColumnFamilyJob {
   std::vector<LiveFileMetaData> metadata_;
 };
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

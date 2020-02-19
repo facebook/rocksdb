@@ -7,7 +7,7 @@
 #include "table/block_based/block_based_table_reader.h"
 #include "table/format.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 void PersistentCacheHelper::InsertRawPage(
     const PersistentCacheOptions& cache_options, const BlockHandle& handle,
@@ -110,4 +110,4 @@ Status PersistentCacheHelper::LookupUncompressedPage(
   return Status::OK();
 }
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

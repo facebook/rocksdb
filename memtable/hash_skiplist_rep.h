@@ -11,7 +11,7 @@
 #include "rocksdb/slice_transform.h"
 #include "rocksdb/memtablerep.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 class HashSkipListRepFactory : public MemTableRepFactory {
  public:
@@ -40,5 +40,5 @@ class HashSkipListRepFactory : public MemTableRepFactory {
   const int32_t skiplist_branching_factor_;
 };
 
-}
+}  // namespace ROCKSDB_NAMESPACE
 #endif  // ROCKSDB_LITE

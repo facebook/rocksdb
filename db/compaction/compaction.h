@@ -13,7 +13,7 @@
 #include "options/cf_options.h"
 #include "util/autovector.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 // The file contains class Compaction, as well as some helper functions
 // and data structures used by the class.
 
@@ -381,4 +381,4 @@ class Compaction {
 // Return sum of sizes of all files in `files`.
 extern uint64_t TotalFileSize(const std::vector<FileMetaData*>& files);
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

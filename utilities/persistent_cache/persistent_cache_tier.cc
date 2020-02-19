@@ -11,7 +11,7 @@
 #include <sstream>
 #include <string>
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 std::string PersistentCacheConfig::ToString() const {
   std::string ret;
@@ -158,6 +158,6 @@ bool PersistentTieredCache::IsCompressed() {
   return tiers_.front()->IsCompressed();
 }
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE
 
 #endif

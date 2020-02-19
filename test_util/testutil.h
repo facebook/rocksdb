@@ -28,7 +28,7 @@
 #include "util/mutexlock.h"
 #include "util/random.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 class SequentialFile;
 class SequentialFileReader;
 
@@ -496,8 +496,8 @@ class FilterNumber : public CompactionFilter {
 
   std::string last_merge_operand_key() { return last_merge_operand_key_; }
 
-  bool Filter(int /*level*/, const rocksdb::Slice& /*key*/,
-              const rocksdb::Slice& value, std::string* /*new_value*/,
+  bool Filter(int /*level*/, const ROCKSDB_NAMESPACE::Slice& /*key*/,
+              const ROCKSDB_NAMESPACE::Slice& value, std::string* /*new_value*/,
               bool* /*value_changed*/) const override {
     if (value.size() == sizeof(uint64_t)) {
       return num_ == DecodeFixed64(value.data());
@@ -505,8 +505,9 @@ class FilterNumber : public CompactionFilter {
     return true;
   }
 
-  bool FilterMergeOperand(int /*level*/, const rocksdb::Slice& key,
-                          const rocksdb::Slice& value) const override {
+  bool FilterMergeOperand(
+      int /*level*/, const ROCKSDB_NAMESPACE::Slice& key,
+      const ROCKSDB_NAMESPACE::Slice& value) const override {
     last_merge_operand_key_ = key.ToString();
     if (value.size() == sizeof(uint64_t)) {
       return num_ == DecodeFixed64(value.data());
@@ -798,4 +799,4 @@ bool IsDirectIOSupported(Env* env, const std::string& dir);
 size_t GetLinesCount(const std::string& fname, const std::string& pattern);
 
 }  // namespace test
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

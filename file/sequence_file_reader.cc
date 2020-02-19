@@ -21,7 +21,7 @@
 #include "util/random.h"
 #include "util/rate_limiter.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 Status SequentialFileReader::Read(size_t n, Slice* result, char* scratch) {
   Status s;
   if (use_direct_io()) {
@@ -234,4 +234,4 @@ SequentialFileReader::NewReadaheadSequentialFile(
       new ReadaheadSequentialFile(std::move(file), readahead_size));
   return result;
 }
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

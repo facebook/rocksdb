@@ -22,7 +22,7 @@
 #include "rocksdb/status.h"
 #include "rocksdb/transaction_log.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 class Env;
 class Directory;
@@ -182,4 +182,4 @@ extern Status GetInfoLogFiles(Env* env, const std::string& db_log_dir,
                               const std::string& dbname,
                               std::string* parent_dir,
                               std::vector<std::string>* file_names);
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

@@ -29,7 +29,7 @@
 #include "util/coding.h"
 #include "util/stop_watch.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 namespace {
 
@@ -665,4 +665,4 @@ uint64_t TableCache::ApproximateSize(
 
   return result;
 }
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

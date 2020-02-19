@@ -24,10 +24,10 @@
 #include "db_stress_tool/db_stress_common.h"
 #include "db_stress_tool/db_stress_driver.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 namespace {
-static std::shared_ptr<rocksdb::Env> env_guard;
-static std::shared_ptr<rocksdb::DbStressEnvWrapper> env_wrapper_guard;
+static std::shared_ptr<ROCKSDB_NAMESPACE::Env> env_guard;
+static std::shared_ptr<ROCKSDB_NAMESPACE::DbStressEnvWrapper> env_wrapper_guard;
 }  // namespace
 
 KeyGenContext key_gen_ctx;
@@ -42,9 +42,9 @@ int db_stress_tool(int argc, char** argv) {
   SanitizeDoubleParam(&FLAGS_max_bytes_for_level_multiplier);
 
   if (FLAGS_statistics) {
-    dbstats = rocksdb::CreateDBStatistics();
+    dbstats = ROCKSDB_NAMESPACE::CreateDBStatistics();
     if (FLAGS_test_secondary) {
-      dbstats_secondaries = rocksdb::CreateDBStatistics();
+      dbstats_secondaries = ROCKSDB_NAMESPACE::CreateDBStatistics();
     }
   }
   compression_type_e = StringToCompressionType(FLAGS_compression_type.c_str());
@@ -59,7 +59,7 @@ int db_stress_tool(int argc, char** argv) {
       fprintf(stderr, "Cannot specify both --hdfs and --env_uri.\n");
       exit(1);
     }
-    raw_env = new rocksdb::HdfsEnv(FLAGS_hdfs);
+    raw_env = new ROCKSDB_NAMESPACE::HdfsEnv(FLAGS_hdfs);
   } else if (!FLAGS_env_uri.empty()) {
     Status s = Env::LoadEnv(FLAGS_env_uri, &raw_env, &env_guard);
     if (raw_env == nullptr) {
@@ -77,9 +77,9 @@ int db_stress_tool(int argc, char** argv) {
   // The number of background threads should be at least as much the
   // max number of concurrent compactions.
   db_stress_env->SetBackgroundThreads(FLAGS_max_background_compactions,
-                                      rocksdb::Env::Priority::LOW);
+                                      ROCKSDB_NAMESPACE::Env::Priority::LOW);
   db_stress_env->SetBackgroundThreads(FLAGS_num_bottom_pri_threads,
-                                      rocksdb::Env::Priority::BOTTOM);
+                                      ROCKSDB_NAMESPACE::Env::Priority::BOTTOM);
   if (FLAGS_prefixpercent > 0 && FLAGS_prefix_size < 0) {
     fprintf(stderr,
             "Error: prefixpercent is non-zero while prefix_size is "
@@ -179,7 +179,7 @@ int db_stress_tool(int argc, char** argv) {
     std::string default_secondaries_path;
     db_stress_env->GetTestDirectory(&default_secondaries_path);
     default_secondaries_path += "/dbstress_secondaries";
-    rocksdb::Status s =
+    ROCKSDB_NAMESPACE::Status s =
         db_stress_env->CreateDirIfMissing(default_secondaries_path);
     if (!s.ok()) {
       fprintf(stderr, "Failed to create directory %s: %s\n",
@@ -231,7 +231,7 @@ int db_stress_tool(int argc, char** argv) {
                                      keys_per_level * (levels - 1));
   }
 
-  std::unique_ptr<rocksdb::StressTest> stress;
+  std::unique_ptr<ROCKSDB_NAMESPACE::StressTest> stress;
   if (FLAGS_test_cf_consistency) {
     stress.reset(CreateCfConsistencyStressTest());
   } else if (FLAGS_test_batches_snapshots) {
@@ -248,5 +248,5 @@ int db_stress_tool(int argc, char** argv) {
   }
 }
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE
 #endif  // GFLAGS

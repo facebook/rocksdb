@@ -56,7 +56,7 @@
 #include "util/string_util.h"
 #include "util/xxhash.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 extern const uint64_t kBlockBasedTableMagicNumber;
 extern const std::string kHashIndexPrefixesBlock;
@@ -1349,8 +1349,8 @@ Status BlockBasedTable::TryReadPropertiesWithGlobalSeqno(
           tmp_buf.get() + global_seqno_offset - props_block_handle.offset(), 0);
     }
     uint32_t value = DecodeFixed32(tmp_buf.get() + block_size + 1);
-    s = rocksdb::VerifyChecksum(rep_->footer.checksum(), tmp_buf.get(),
-                                block_size + 1, value);
+    s = ROCKSDB_NAMESPACE::VerifyChecksum(rep_->footer.checksum(),
+                                          tmp_buf.get(), block_size + 1, value);
   }
   return s;
 }
@@ -2455,9 +2455,9 @@ void BlockBasedTable::RetrieveMultipleBlocks(
         // begin address of each read request, we need to add the offset
         // in each read request. Checksum is stored in the block trailer,
         // which is handle.size() + 1.
-        s = rocksdb::VerifyChecksum(footer.checksum(),
-                                    req.result.data() + req_offset,
-                                    handle.size() + 1, expected);
+        s = ROCKSDB_NAMESPACE::VerifyChecksum(footer.checksum(),
+                                              req.result.data() + req_offset,
+                                              handle.size() + 1, expected);
         TEST_SYNC_POINT_CALLBACK("RetrieveMultipleBlocks:VerifyChecksum", &s);
       }
     }
@@ -4251,11 +4251,12 @@ Status BlockBasedTable::DumpTable(WritableFile* out_file) {
       if (!s.ok()) {
         return s;
       }
-      if (metaindex_iter->key() == rocksdb::kPropertiesBlock) {
+      if (metaindex_iter->key() == ROCKSDB_NAMESPACE::kPropertiesBlock) {
         out_file->Append("  Properties block handle: ");
         out_file->Append(metaindex_iter->value().ToString(true).c_str());
         out_file->Append("\n");
-      } else if (metaindex_iter->key() == rocksdb::kCompressionDictBlock) {
+      } else if (metaindex_iter->key() ==
+                 ROCKSDB_NAMESPACE::kCompressionDictBlock) {
         out_file->Append("  Compression dictionary block handle: ");
         out_file->Append(metaindex_iter->value().ToString(true).c_str());
         out_file->Append("\n");
@@ -4264,7 +4265,7 @@ Status BlockBasedTable::DumpTable(WritableFile* out_file) {
         out_file->Append("  Filter block handle: ");
         out_file->Append(metaindex_iter->value().ToString(true).c_str());
         out_file->Append("\n");
-      } else if (metaindex_iter->key() == rocksdb::kRangeDelBlock) {
+      } else if (metaindex_iter->key() == ROCKSDB_NAMESPACE::kRangeDelBlock) {
         out_file->Append("  Range deletion block handle: ");
         out_file->Append(metaindex_iter->value().ToString(true).c_str());
         out_file->Append("\n");
@@ -4276,7 +4277,7 @@ Status BlockBasedTable::DumpTable(WritableFile* out_file) {
   }
 
   // Output TableProperties
-  const rocksdb::TableProperties* table_properties;
+  const ROCKSDB_NAMESPACE::TableProperties* table_properties;
   table_properties = rep_->table_properties.get();
 
   if (table_properties != nullptr) {
@@ -4321,7 +4322,7 @@ Status BlockBasedTable::DumpTable(WritableFile* out_file) {
         "Compression Dictionary:\n"
         "--------------------------------------\n");
     out_file->Append("  size (bytes): ");
-    out_file->Append(rocksdb::ToString(raw_dict.size()));
+    out_file->Append(ROCKSDB_NAMESPACE::ToString(raw_dict.size()));
     out_file->Append("\n\n");
     out_file->Append("  HEX    ");
     out_file->Append(raw_dict.ToString(true).c_str());
@@ -4435,7 +4436,7 @@ Status BlockBasedTable::DumpDataBlocks(WritableFile* out_file) {
     datablock_size_sum += datablock_size;
 
     out_file->Append("Data Block # ");
-    out_file->Append(rocksdb::ToString(block_id));
+    out_file->Append(ROCKSDB_NAMESPACE::ToString(block_id));
     out_file->Append(" @ ");
     out_file->Append(blockhandles_iter->value().handle.ToString(true).c_str());
     out_file->Append("\n");
@@ -4473,13 +4474,13 @@ Status BlockBasedTable::DumpDataBlocks(WritableFile* out_file) {
     out_file->Append("Data Block Summary:\n");
     out_file->Append("--------------------------------------");
     out_file->Append("\n  # data blocks: ");
-    out_file->Append(rocksdb::ToString(num_datablocks));
+    out_file->Append(ROCKSDB_NAMESPACE::ToString(num_datablocks));
     out_file->Append("\n  min data block size: ");
-    out_file->Append(rocksdb::ToString(datablock_size_min));
+    out_file->Append(ROCKSDB_NAMESPACE::ToString(datablock_size_min));
     out_file->Append("\n  max data block size: ");
-    out_file->Append(rocksdb::ToString(datablock_size_max));
+    out_file->Append(ROCKSDB_NAMESPACE::ToString(datablock_size_max));
     out_file->Append("\n  avg data block size: ");
-    out_file->Append(rocksdb::ToString(datablock_size_avg));
+    out_file->Append(ROCKSDB_NAMESPACE::ToString(datablock_size_avg));
     out_file->Append("\n");
   }
 
@@ -4525,4 +4526,4 @@ void BlockBasedTable::DumpKeyValue(const Slice& key, const Slice& value,
   out_file->Append("\n  ------\n");
 }
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

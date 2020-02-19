@@ -42,7 +42,7 @@
 #include "util/coding.h"
 #include "util/user_comparator_wrapper.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 class Cache;
 class FilterBlockReader;
@@ -590,9 +590,10 @@ struct BlockBasedTable::Rep {
   }
 
   uint64_t cf_id_for_tracing() const {
-    return table_properties ? table_properties->column_family_id
-                            : rocksdb::TablePropertiesCollectorFactory::
-                                  Context::kUnknownColumnFamily;
+    return table_properties
+               ? table_properties->column_family_id
+               : ROCKSDB_NAMESPACE::TablePropertiesCollectorFactory::Context::
+                     kUnknownColumnFamily;
   }
 
   Slice cf_name_for_tracing() const {
@@ -820,4 +821,4 @@ class BlockBasedTableIterator : public InternalIteratorBase<TValue> {
   }
 };
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

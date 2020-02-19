@@ -5,7 +5,7 @@
 
 #include "rocksdb/compaction_job_stats.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 #ifndef ROCKSDB_LITE
 
@@ -88,4 +88,4 @@ void CompactionJobStats::Add(const CompactionJobStats& /*stats*/) {}
 
 #endif  // !ROCKSDB_LITE
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

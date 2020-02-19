@@ -9,7 +9,7 @@
 #include "test_util/testutil.h"
 #include "utilities/merge_operators.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 class DBRangeDelTest : public DBTestBase {
  public:
@@ -925,7 +925,8 @@ TEST_F(DBRangeDelTest, MemtableBloomFilter) {
   Options options = CurrentOptions();
   options.memtable_prefix_bloom_size_ratio =
       static_cast<double>(kMemtablePrefixFilterSize) / kMemtableSize;
-  options.prefix_extractor.reset(rocksdb::NewFixedPrefixTransform(kPrefixLen));
+  options.prefix_extractor.reset(
+      ROCKSDB_NAMESPACE::NewFixedPrefixTransform(kPrefixLen));
   options.write_buffer_size = kMemtableSize;
   Reopen(options);
 
@@ -1078,7 +1079,7 @@ TEST_F(DBRangeDelTest, RangeTombstoneEndKeyAsSstableUpperBound) {
     // endpoint (key000002#6,1) to disappear.
     ASSERT_EQ(value, Get(Key(2)));
     auto begin_str = Key(3);
-    const rocksdb::Slice begin = begin_str;
+    const ROCKSDB_NAMESPACE::Slice begin = begin_str;
     dbfull()->TEST_CompactRange(1, &begin, nullptr);
     ASSERT_EQ(1, NumTableFilesAtLevel(1));
     ASSERT_EQ(2, NumTableFilesAtLevel(2));
@@ -1097,7 +1098,7 @@ TEST_F(DBRangeDelTest, RangeTombstoneEndKeyAsSstableUpperBound) {
     //     [key000001#5,1, key000002#72057594037927935,15]
     //     [key000002#6,1, key000004#72057594037927935,15]
     auto begin_str = Key(0);
-    const rocksdb::Slice begin = begin_str;
+    const ROCKSDB_NAMESPACE::Slice begin = begin_str;
     dbfull()->TEST_CompactRange(1, &begin, &begin);
     ASSERT_EQ(0, NumTableFilesAtLevel(1));
     ASSERT_EQ(3, NumTableFilesAtLevel(2));
@@ -1650,10 +1651,10 @@ TEST_F(DBRangeDelTest, OverlappedKeys) {
 
 #endif  // ROCKSDB_LITE
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
-  rocksdb::port::InstallStackTraceHandler();
+  ROCKSDB_NAMESPACE::port::InstallStackTraceHandler();
   ::testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();
 }

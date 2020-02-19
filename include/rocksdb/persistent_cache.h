@@ -16,7 +16,7 @@
 #include "rocksdb/statistics.h"
 #include "rocksdb/status.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 // PersistentCache
 //
@@ -64,4 +64,4 @@ Status NewPersistentCache(Env* const env, const std::string& path,
                           const std::shared_ptr<Logger>& log,
                           const bool optimized_for_nvm,
                           std::shared_ptr<PersistentCache>* cache);
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

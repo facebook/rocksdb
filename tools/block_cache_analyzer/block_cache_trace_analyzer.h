@@ -15,7 +15,7 @@
 #include "trace_replay/block_cache_tracer.h"
 #include "utilities/simulator_cache/cache_simulator.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 // Statistics of a key refereneced by a Get.
 struct GetKeyInfo {
@@ -366,7 +366,7 @@ class BlockCacheTraceAnalyzer {
       const std::map<std::string, Predictions>& label_predictions,
       uint32_t max_number_of_values) const;
 
-  rocksdb::Env* env_;
+  ROCKSDB_NAMESPACE::Env* env_;
   const std::string trace_file_path_;
   const std::string output_dir_;
   std::string human_readable_trace_file_path_;
@@ -390,4 +390,4 @@ class BlockCacheTraceAnalyzer {
 
 int block_cache_trace_analyzer_tool(int argc, char** argv);
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

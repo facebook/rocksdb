@@ -10,7 +10,7 @@
 
 #include <cinttypes>
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 namespace blob_db {
 
 CompactionFilter::Decision BlobIndexCompactionFilterBase::FilterV2(
@@ -325,5 +325,5 @@ BlobIndexCompactionFilterFactoryGC::CreateCompactionFilter(
 }
 
 }  // namespace blob_db
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE
 #endif  // ROCKSDB_LITE

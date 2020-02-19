@@ -11,7 +11,7 @@
 
 #include "memory/allocator.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 namespace {
 
@@ -75,4 +75,4 @@ void BloomBlockBuilder::AddKeysHashes(
 Slice BloomBlockBuilder::Finish() { return bloom_.GetRawData(); }
 
 const std::string BloomBlockBuilder::kBloomBlock = "kBloomBlock";
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

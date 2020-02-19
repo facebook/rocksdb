@@ -24,7 +24,7 @@
 #include "utilities/transactions/transaction_lock_mgr.h"
 #include "utilities/transactions/write_prepared_txn.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 class PessimisticTransactionDB : public TransactionDB {
  public:
@@ -216,5 +216,5 @@ class WriteCommittedTxnDB : public PessimisticTransactionDB {
   virtual Status Write(const WriteOptions& opts, WriteBatch* updates) override;
 };
 
-}  //  namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE
 #endif  // ROCKSDB_LITE

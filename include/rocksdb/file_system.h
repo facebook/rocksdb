@@ -30,7 +30,7 @@
 #include "rocksdb/options.h"
 #include "rocksdb/thread_status.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 class FileLock;
 class FSDirectory;
@@ -944,14 +944,16 @@ class FSDirectory {
 // Useful when wrapping the default implementations.
 // Typical usage is to inherit your wrapper from *Wrapper, e.g.:
 //
-// class MySequentialFileWrapper : public rocksdb::FSSequentialFileWrapper {
+// class MySequentialFileWrapper : public
+// ROCKSDB_NAMESPACE::FSSequentialFileWrapper {
 //  public:
-//   MySequentialFileWrapper(rocksdb::FSSequentialFile* target):
-//     rocksdb::FSSequentialFileWrapper(target) {}
+//   MySequentialFileWrapper(ROCKSDB_NAMESPACE::FSSequentialFile* target):
+//     ROCKSDB_NAMESPACE::FSSequentialFileWrapper(target) {}
 //   Status Read(size_t n, FileSystem::IOOptions& options, Slice* result,
 //               char* scratch, FileSystem::IODebugContext* dbg) override {
 //     cout << "Doing a read of size " << n << "!" << endl;
-//     return rocksdb::FSSequentialFileWrapper::Read(n, options, result,
+//     return ROCKSDB_NAMESPACE::FSSequentialFileWrapper::Read(n, options,
+//     result,
 //                                                 scratch, dbg);
 //   }
 //   // All other methods are forwarded to target_ automatically.
@@ -1353,4 +1355,4 @@ class FSDirectoryWrapper : public FSDirectory {
 extern Status ReadFileToString(FileSystem* fs, const std::string& fname,
                                std::string* data);
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

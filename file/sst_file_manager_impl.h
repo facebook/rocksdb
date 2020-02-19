@@ -17,7 +17,7 @@
 #include "rocksdb/file_system.h"
 #include "rocksdb/sst_file_manager.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 class Env;
 class Logger;
@@ -192,6 +192,6 @@ class SstFileManagerImpl : public SstFileManager {
   ErrorHandler* cur_instance_;
 };
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE
 
 #endif  // ROCKSDB_LITE

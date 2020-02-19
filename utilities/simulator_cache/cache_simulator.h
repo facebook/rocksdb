@@ -10,7 +10,7 @@
 #include "cache/lru_cache.h"
 #include "trace_replay/block_cache_tracer.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 // A cache configuration provided by user.
 struct CacheConfiguration {
@@ -228,4 +228,4 @@ class BlockCacheTraceSimulator {
   uint64_t trace_start_time_ = 0;
 };
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

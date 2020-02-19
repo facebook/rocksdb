@@ -23,7 +23,7 @@
 
 #include "rocksdb/slice.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 // Stable/persistent 64-bit hash. Higher quality and generally faster than
 // Hash(), especially for inputs > 24 bytes.
@@ -117,4 +117,4 @@ inline size_t fastrange64(uint64_t hash, size_t range) {
 #endif
 }
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

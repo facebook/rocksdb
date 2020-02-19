@@ -102,7 +102,7 @@
 #include "util/stop_watch.h"
 #include "util/string_util.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 const std::string kDefaultColumnFamilyName("default");
 const std::string kPersistentStatsColumnFamilyName(
@@ -644,7 +644,7 @@ void DBImpl::StartTimedTasks() {
     stats_dump_period_sec = mutable_db_options_.stats_dump_period_sec;
     if (stats_dump_period_sec > 0) {
       if (!thread_dump_stats_) {
-        thread_dump_stats_.reset(new rocksdb::RepeatableThread(
+        thread_dump_stats_.reset(new ROCKSDB_NAMESPACE::RepeatableThread(
             [this]() { DBImpl::DumpStats(); }, "dump_st", env_,
             static_cast<uint64_t>(stats_dump_period_sec) * kMicrosInSecond));
       }
@@ -652,7 +652,7 @@ void DBImpl::StartTimedTasks() {
     stats_persist_period_sec = mutable_db_options_.stats_persist_period_sec;
     if (stats_persist_period_sec > 0) {
       if (!thread_persist_stats_) {
-        thread_persist_stats_.reset(new rocksdb::RepeatableThread(
+        thread_persist_stats_.reset(new ROCKSDB_NAMESPACE::RepeatableThread(
             [this]() { DBImpl::PersistStats(); }, "pst_st", env_,
             static_cast<uint64_t>(stats_persist_period_sec) * kMicrosInSecond));
       }
@@ -1043,7 +1043,7 @@ Status DBImpl::SetDBOptions(
           mutex_.Lock();
         }
         if (new_options.stats_dump_period_sec > 0) {
-          thread_dump_stats_.reset(new rocksdb::RepeatableThread(
+          thread_dump_stats_.reset(new ROCKSDB_NAMESPACE::RepeatableThread(
               [this]() { DBImpl::DumpStats(); }, "dump_st", env_,
               static_cast<uint64_t>(new_options.stats_dump_period_sec) *
                   kMicrosInSecond));
@@ -1059,7 +1059,7 @@ Status DBImpl::SetDBOptions(
           mutex_.Lock();
         }
         if (new_options.stats_persist_period_sec > 0) {
-          thread_persist_stats_.reset(new rocksdb::RepeatableThread(
+          thread_persist_stats_.reset(new ROCKSDB_NAMESPACE::RepeatableThread(
               [this]() { DBImpl::PersistStats(); }, "pst_st", env_,
               static_cast<uint64_t>(new_options.stats_persist_period_sec) *
                   kMicrosInSecond));
@@ -4376,8 +4376,8 @@ Status DBImpl::VerifyChecksum(const ReadOptions& read_options) {
         const auto& fd = vstorage->LevelFilesBrief(i).files[j].fd;
         std::string fname = TableFileName(cfd->ioptions()->cf_paths,
                                           fd.GetNumber(), fd.GetPathId());
-        s = rocksdb::VerifySstFileChecksum(opts, file_options_, read_options,
-                                           fname);
+        s = ROCKSDB_NAMESPACE::VerifySstFileChecksum(opts, file_options_,
+                                                     read_options, fname);
       }
     }
     if (!s.ok()) {
@@ -4539,4 +4539,4 @@ Status DBImpl::GetCreationTimeOfOldestFile(uint64_t* creation_time) {
 }
 #endif  // ROCKSDB_LITE
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

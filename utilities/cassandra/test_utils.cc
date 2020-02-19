@@ -5,7 +5,7 @@
 
 #include "test_utils.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 namespace cassandra {
 const char kData[] = {'d', 'a', 't', 'a'};
 const char kExpiringData[] = {'e', 'd', 'a', 't', 'a'};
@@ -72,4 +72,4 @@ int32_t ToSeconds(int64_t microseconds) {
   return (int32_t)(microseconds / (int64_t)1000000);
 }
 }
-}
+}  // namespace ROCKSDB_NAMESPACE

@@ -16,7 +16,7 @@
 #include <cstddef>
 #include "rocksdb/cache.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 class WriteBufferManager {
  public:
@@ -99,4 +99,4 @@ class WriteBufferManager {
   void ReserveMemWithCache(size_t mem);
   void FreeMemWithCache(size_t mem);
 };
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

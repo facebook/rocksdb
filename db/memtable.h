@@ -30,7 +30,7 @@
 #include "util/dynamic_bloom.h"
 #include "util/hash.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 struct FlushJobInfo;
 class Mutex;
@@ -539,4 +539,4 @@ class MemTable {
 
 extern const char* EncodeKey(std::string* scratch, const Slice& target);
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

@@ -14,7 +14,7 @@
 #include "rocksdb/env.h"
 #include "rocksdb/file_system.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 // SequentialFileReader is a wrapper on top of Env::SequentialFile. It handles
 // Buffered (i.e when page cache is enabled) and Direct (with O_DIRECT / page
@@ -64,4 +64,4 @@ class SequentialFileReader {
   static std::unique_ptr<FSSequentialFile> NewReadaheadSequentialFile(
       std::unique_ptr<FSSequentialFile>&& file, size_t readahead_size);
 };
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

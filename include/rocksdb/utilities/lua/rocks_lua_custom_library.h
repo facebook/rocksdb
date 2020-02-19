@@ -13,7 +13,7 @@ extern "C" {
 #include <lualib.h>
 }
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 namespace lua {
 // A class that used to define custom C Library that is callable
 // from Lua script
@@ -39,5 +39,5 @@ class RocksLuaCustomLibrary {
   virtual void CustomSetup(lua_State* /*L*/) const {}
 };
 }  // namespace lua
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE
 #endif  // LUA

@@ -20,6 +20,6 @@
 jlong Java_org_rocksdb_AbstractTableFilter_createNewTableFilter(
     JNIEnv* env, jobject jtable_filter) {
   auto* table_filter_jnicallback =
-      new rocksdb::TableFilterJniCallback(env, jtable_filter);
+      new ROCKSDB_NAMESPACE::TableFilterJniCallback(env, jtable_filter);
   return reinterpret_cast<jlong>(table_filter_jnicallback);
 }

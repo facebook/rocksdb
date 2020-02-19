@@ -33,7 +33,7 @@
 #include "trace_replay/block_cache_tracer.h"
 #include "util/hash.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 const uint64_t kNotValid = ULLONG_MAX;
 class FilterPolicy;
@@ -173,4 +173,4 @@ class FilterBlockReader {
   }
 };
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

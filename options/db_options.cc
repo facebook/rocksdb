@@ -16,7 +16,7 @@
 #include "rocksdb/sst_file_manager.h"
 #include "rocksdb/wal_filter.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 ImmutableDBOptions::ImmutableDBOptions() : ImmutableDBOptions(Options()) {}
 
@@ -330,4 +330,4 @@ void MutableDBOptions::Dump(Logger* log) const {
                    compaction_readahead_size);
 }
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

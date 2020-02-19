@@ -22,7 +22,7 @@
 #include "util/cast_util.h"
 #include "util/concurrent_task_limiter_impl.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 bool DBImpl::EnoughRoomForCompaction(
     ColumnFamilyData* cfd, const std::vector<CompactionInputFiles>& inputs,
@@ -3113,4 +3113,4 @@ void DBImpl::GetSnapshotContext(
   }
   *snapshot_seqs = snapshots_.GetAll(earliest_write_conflict_snapshot);
 }
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

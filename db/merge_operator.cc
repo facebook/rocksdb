@@ -9,7 +9,7 @@
 
 #include "rocksdb/merge_operator.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 bool MergeOperator::FullMergeV2(const MergeOperationInput& merge_in,
                                 MergeOperationOutput* merge_out) const {
@@ -83,4 +83,4 @@ bool AssociativeMergeOperator::PartialMerge(
   return Merge(key, &left_operand, right_operand, new_value, logger);
 }
 
-} // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE
