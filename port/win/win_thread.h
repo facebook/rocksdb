@@ -13,6 +13,8 @@
 #include <functional>
 #include <type_traits>
 
+#include "rocksdb/rocksdb_namespace.h"
+
 namespace ROCKSDB_NAMESPACE {
 namespace port {
 
