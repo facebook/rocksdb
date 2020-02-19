@@ -93,7 +93,7 @@ TEST_F(BlockTest, SimpleTest) {
   // create block reader
   BlockContents contents;
   contents.data = rawblock;
-  Block reader(std::move(contents), kDisableGlobalSequenceNumber);
+  Block reader(std::move(contents));
 
   // read contents of block sequentially
   int count = 0;
@@ -152,8 +152,8 @@ void CheckBlockContents(BlockContents contents, const int max_key,
   const size_t prefix_size = 6;
   // create block reader
   BlockContents contents_ref(contents.data);
-  Block reader1(std::move(contents), kDisableGlobalSequenceNumber);
-  Block reader2(std::move(contents_ref), kDisableGlobalSequenceNumber);
+  Block reader1(std::move(contents));
+  Block reader2(std::move(contents_ref));
 
   std::unique_ptr<const SliceTransform> prefix_extractor(
       NewFixedPrefixTransform(prefix_size));
@@ -565,7 +565,7 @@ TEST_P(IndexBlockTest, IndexValueEncodingTest) {
   // create block reader
   BlockContents contents;
   contents.data = rawblock;
-  Block reader(std::move(contents), kDisableGlobalSequenceNumber);
+  Block reader(std::move(contents));
 
   const bool kTotalOrderSeek = true;
   const bool kIncludesSeq = true;

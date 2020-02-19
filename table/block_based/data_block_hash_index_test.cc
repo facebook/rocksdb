@@ -284,7 +284,7 @@ TEST(DataBlockHashIndex, BlockRestartIndexExceedMax) {
     // create block reader
     BlockContents contents;
     contents.data = rawblock;
-    Block reader(std::move(contents), kDisableGlobalSequenceNumber);
+    Block reader(std::move(contents));
 
     ASSERT_EQ(reader.IndexType(),
               BlockBasedTableOptions::kDataBlockBinaryAndHash);
@@ -306,7 +306,7 @@ TEST(DataBlockHashIndex, BlockRestartIndexExceedMax) {
     // create block reader
     BlockContents contents;
     contents.data = rawblock;
-    Block reader(std::move(contents), kDisableGlobalSequenceNumber);
+    Block reader(std::move(contents));
 
     ASSERT_EQ(reader.IndexType(),
               BlockBasedTableOptions::kDataBlockBinarySearch);
@@ -337,7 +337,7 @@ TEST(DataBlockHashIndex, BlockSizeExceedMax) {
     // create block reader
     BlockContents contents;
     contents.data = rawblock;
-    Block reader(std::move(contents), kDisableGlobalSequenceNumber);
+    Block reader(std::move(contents));
 
     ASSERT_EQ(reader.IndexType(),
               BlockBasedTableOptions::kDataBlockBinaryAndHash);
@@ -361,7 +361,7 @@ TEST(DataBlockHashIndex, BlockSizeExceedMax) {
     // create block reader
     BlockContents contents;
     contents.data = rawblock;
-    Block reader(std::move(contents), kDisableGlobalSequenceNumber);
+    Block reader(std::move(contents));
 
     // the index type have fallen back to binary when build finish.
     ASSERT_EQ(reader.IndexType(),

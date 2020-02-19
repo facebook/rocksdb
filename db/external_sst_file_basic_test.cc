@@ -812,8 +812,7 @@ TEST_F(ExternalSSTFileBasicTest, IngestRangeDeletionTombstoneWithGlobalSeqno) {
   ASSERT_OK(sst_file_writer.Open(file));
   ASSERT_OK(sst_file_writer.DeleteRange(Key(0), Key(30)));
   ExternalSstFileInfo file_info;
-  Status s = sst_file_writer.Finish(&file_info);
-  ASSERT_TRUE(s.ok()) << s.ToString();
+  ASSERT_OK(sst_file_writer.Finish(&file_info));
   ASSERT_EQ(file_info.file_path, file);
   ASSERT_EQ(file_info.num_entries, 0);
   ASSERT_EQ(file_info.smallest_key, "");
@@ -828,11 +827,11 @@ TEST_F(ExternalSSTFileBasicTest, IngestRangeDeletionTombstoneWithGlobalSeqno) {
   ifo.allow_global_seqno = true;
   ifo.write_global_seqno = true;
   ifo.verify_checksums_before_ingest = false;
-  s = db_->IngestExternalFile({file}, ifo);
+  ASSERT_OK(db_->IngestExternalFile({file}, ifo));
 
-  ASSERT_OK(s);
   for (int i = 5; i < 25; i++) {
-    ASSERT_EQ(Get(Key(i)), "NOT_FOUND");
+    std::string res;
+    ASSERT_TRUE(db_->Get(ReadOptions(), Key(i), &res).IsNotFound());
   }
 }
 

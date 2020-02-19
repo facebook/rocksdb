@@ -4315,8 +4315,7 @@ TEST_P(BlockBasedTableTest, PropertiesBlockRestartPointTest) {
 
     BlockFetchHelper(properties_handle, BlockType::kProperties,
                      &properties_contents);
-    Block properties_block(std::move(properties_contents),
-                           kDisableGlobalSequenceNumber);
+    Block properties_block(std::move(properties_contents));
 
     ASSERT_EQ(properties_block.NumRestarts(), 1u);
   }
