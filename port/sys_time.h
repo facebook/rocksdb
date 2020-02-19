@@ -16,6 +16,8 @@
 
 #include <time.h>
 
+#include "rocksdb/rocksdb_namespace.h"
+
 namespace ROCKSDB_NAMESPACE {
 
 namespace port {
