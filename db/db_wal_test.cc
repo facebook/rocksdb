@@ -1527,6 +1527,26 @@ TEST_F(DBWALTest, TruncateLastLogAfterRecoverWithoutFlush) {
   constexpr size_t kKB = 1024;
   Options options = CurrentOptions();
   options.avoid_flush_during_recovery = true;
+  // Test fallocate support of running file system.
+  // Skip this test if fallocate is not supported.
+  std::string fname_test_fallocate = dbname_ + "/preallocate_testfile";
+  int fd = -1;
+  do {
+    fd = open(fname_test_fallocate.c_str(), O_CREAT | O_RDWR | O_TRUNC, 0644);
+  } while (fd < 0 && errno == EINTR);
+  ASSERT_GT(fd, 0);
+  int err_number = 0;
+  int alloc_status = fallocate(fd, 0, 0, 1);
+  if (alloc_status != 0) {
+    err_number = errno;
+  }
+  close(fd);
+  ASSERT_OK(options.env->DeleteFile(fname_test_fallocate));
+  if (alloc_status != 0) {
+    fprintf(stderr, "             Skipped preallocated space check: %s\n", strerror(err_number));
+    return;
+  }
+
   DestroyAndReopen(options);
   size_t preallocated_size =
       dbfull()->TEST_GetWalPreallocateBlockSize(options.write_buffer_size);
