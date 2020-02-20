@@ -96,20 +96,40 @@ public class ColumnFamilyOptions extends RocksObject
    */
   public static ColumnFamilyOptions getColumnFamilyOptionsFromProps(
       final Properties properties) {
-    if (properties == null || properties.size() == 0) {
-      throw new IllegalArgumentException(
-          "Properties value must contain at least one value.");
-    }
     ColumnFamilyOptions columnFamilyOptions = null;
-    StringBuilder stringBuilder = new StringBuilder();
-    for (final String name : properties.stringPropertyNames()){
-      stringBuilder.append(name);
-      stringBuilder.append("=");
-      stringBuilder.append(properties.getProperty(name));
-      stringBuilder.append(";");
+    final long handle =
+        getColumnFamilyOptionsFromProps(Options.getOptionStringFromProps(properties));
+    if (handle != 0) {
+      columnFamilyOptions = new ColumnFamilyOptions(handle);
     }
-    long handle = getColumnFamilyOptionsFromProps(
-        stringBuilder.toString());
+    return columnFamilyOptions;
+  }
+
+  /**
+   * <p>Method to get a options instance by using pre-configured
+   * property values. If one or many values are undefined in
+   * the context of RocksDB the method will return a null
+   * value.</p>
+   *
+   * <p><strong>Note</strong>: Property keys can be derived from
+   * getter methods within the options class. Example: the method
+   * {@code writeBufferSize()} has a property key:
+   * {@code write_buffer_size}.</p>
+   *
+   * @param cfgOpts  ConfigOptions controlling how the properties are parsed.
+   * @param properties {@link java.util.Properties} instance.
+   *
+   * @return {@link org.rocksdb.ColumnFamilyOptions instance}
+   *     or null.
+   *
+   * @throws java.lang.IllegalArgumentException if null or empty
+   *     {@link Properties} instance is passed to the method call.
+   */
+  public static ColumnFamilyOptions getColumnFamilyOptionsFromProps(
+      final ConfigOptions cfgOpts, final Properties properties) {
+    ColumnFamilyOptions columnFamilyOptions = null;
+    final long handle = getColumnFamilyOptionsFromProps(
+        cfgOpts.nativeHandle_, Options.getOptionStringFromProps(properties));
     if (handle != 0){
       columnFamilyOptions = new ColumnFamilyOptions(handle);
     }
@@ -825,7 +845,8 @@ public class ColumnFamilyOptions extends RocksObject
   }
 
   private static native long getColumnFamilyOptionsFromProps(
-      String optString);
+      final long cfgHandle, String optString);
+  private static native long getColumnFamilyOptionsFromProps(final String optString);
 
   private static native long newColumnFamilyOptions();
   private static native long copyColumnFamilyOptions(final long handle);

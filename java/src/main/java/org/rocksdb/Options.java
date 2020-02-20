@@ -6,10 +6,7 @@
 package org.rocksdb;
 
 import java.nio.file.Paths;
-import java.util.ArrayList;
-import java.util.Collection;
-import java.util.Collections;
-import java.util.List;
+import java.util.*;
 
 /**
  * Options to control the behavior of a database.  It will be used
@@ -25,6 +22,25 @@ public class Options extends RocksObject
     MutableColumnFamilyOptionsInterface<Options> {
   static {
     RocksDB.loadLibrary();
+  }
+
+  /**
+   * Converts the input properties into a Options-style formatted string
+   * @param properties   The set of properties to convert
+   * @return The Options-style representation of those properties.
+   */
+  public static String getOptionStringFromProps(final Properties properties) {
+    if (properties == null || properties.size() == 0) {
+      throw new IllegalArgumentException("Properties value must contain at least one value.");
+    }
+    StringBuilder stringBuilder = new StringBuilder();
+    for (final String name : properties.stringPropertyNames()) {
+      stringBuilder.append(name);
+      stringBuilder.append("=");
+      stringBuilder.append(properties.getProperty(name));
+      stringBuilder.append(";");
+    }
+    return stringBuilder.toString();
   }
 
   /**

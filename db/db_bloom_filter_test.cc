@@ -8,6 +8,7 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
 #include "db/db_test_util.h"
+#include "options/options_helper.h"
 #include "port/stack_trace.h"
 #include "rocksdb/perf_context.h"
 #include "table/block_based/filter_policy_internal.h"

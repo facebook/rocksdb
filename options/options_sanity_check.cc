@@ -10,25 +10,26 @@
 namespace ROCKSDB_NAMESPACE {
 
 namespace {
-OptionsSanityCheckLevel SanityCheckLevelHelper(
-    const std::unordered_map<std::string, OptionsSanityCheckLevel>& smap,
+ConfigOptions::SanityLevel SanityCheckLevelHelper(
+    const std::unordered_map<std::string, ConfigOptions::SanityLevel>& smap,
     const std::string& name) {
   auto iter = smap.find(name);
-  return iter != smap.end() ? iter->second : kSanityLevelExactMatch;
+  return iter != smap.end() ? iter->second
+                            : ConfigOptions::kSanityLevelExactMatch;
 }
 }
 
-OptionsSanityCheckLevel DBOptionSanityCheckLevel(
+ConfigOptions::SanityLevel DBOptionSanityCheckLevel(
     const std::string& option_name) {
   return SanityCheckLevelHelper(sanity_level_db_options, option_name);
 }
 
-OptionsSanityCheckLevel CFOptionSanityCheckLevel(
+ConfigOptions::SanityLevel CFOptionSanityCheckLevel(
     const std::string& option_name) {
   return SanityCheckLevelHelper(sanity_level_cf_options, option_name);
 }
 
-OptionsSanityCheckLevel BBTOptionSanityCheckLevel(
+ConfigOptions::SanityLevel BBTOptionSanityCheckLevel(
     const std::string& option_name) {
   return SanityCheckLevelHelper(sanity_level_bbt_options, option_name);
 }

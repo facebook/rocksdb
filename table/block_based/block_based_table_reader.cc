@@ -7,6 +7,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 #include "table/block_based/block_based_table_reader.h"
+
 #include <algorithm>
 #include <array>
 #include <limits>
@@ -16,10 +17,10 @@
 
 #include "db/dbformat.h"
 #include "db/pinned_iterators_manager.h"
-
 #include "file/file_prefetch_buffer.h"
 #include "file/random_access_file_reader.h"
-
+#include "monitoring/perf_context_imp.h"
+#include "options/options_helper.h"
 #include "rocksdb/cache.h"
 #include "rocksdb/comparator.h"
 #include "rocksdb/env.h"
@@ -30,7 +31,6 @@
 #include "rocksdb/statistics.h"
 #include "rocksdb/table.h"
 #include "rocksdb/table_properties.h"
-
 #include "table/block_based/binary_search_index_reader.h"
 #include "table/block_based/block.h"
 #include "table/block_based/block_based_filter_block.h"
