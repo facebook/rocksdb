@@ -7,7 +7,9 @@
 #include "table/plain/plain_table_factory.h"
 
 #include <stdint.h>
+
 #include <memory>
+
 #include "db/dbformat.h"
 #include "options/options_helper.h"
 #include "port/port.h"
@@ -117,12 +119,24 @@ const PlainTableOptions& PlainTableFactory::table_options() const {
 Status GetPlainTableOptionsFromString(const PlainTableOptions& table_options,
                                       const std::string& opts_str,
                                       PlainTableOptions* new_table_options) {
+  ConfigOptions options;
+  options.input_strings_escaped = false;
+  options.ignore_unknown_options = false;
+  return GetPlainTableOptionsFromString(table_options, opts_str, options,
+                                        new_table_options);
+}
+
+Status GetPlainTableOptionsFromString(const PlainTableOptions& table_options,
+                                      const std::string& opts_str,
+                                      const ConfigOptions& options,
+                                      PlainTableOptions* new_table_options) {
   std::unordered_map<std::string, std::string> opts_map;
   Status s = StringToMap(opts_str, &opts_map);
   if (!s.ok()) {
     return s;
   }
-  return GetPlainTableOptionsFromMap(table_options, opts_map,
+
+  return GetPlainTableOptionsFromMap(table_options, opts_map, options,
                                      new_table_options);
 }
 
@@ -192,14 +206,14 @@ Status GetMemTableRepFactoryFromString(
 
 std::string ParsePlainTableOptions(const std::string& name,
                                    const std::string& org_value,
-                                   PlainTableOptions* new_options,
-                                   bool input_strings_escaped = false,
-                                   bool ignore_unknown_options = false) {
-  const std::string& value =
-      input_strings_escaped ? UnescapeOptionString(org_value) : org_value;
+                                   const ConfigOptions& options,
+                                   PlainTableOptions* new_options) {
+  const std::string& value = options.input_strings_escaped
+                                 ? UnescapeOptionString(org_value)
+                                 : org_value;
   const auto iter = plain_table_type_info.find(name);
   if (iter == plain_table_type_info.end()) {
-    if (ignore_unknown_options) {
+    if (options.ignore_unknown_options) {
       return "";
     } else {
       return "Unrecognized option";
@@ -218,18 +232,29 @@ Status GetPlainTableOptionsFromMap(
     const PlainTableOptions& table_options,
     const std::unordered_map<std::string, std::string>& opts_map,
     PlainTableOptions* new_table_options, bool input_strings_escaped,
-    bool /*ignore_unknown_options*/) {
+    bool ignore_unknown_options) {
+  ConfigOptions options;
+  options.input_strings_escaped = input_strings_escaped;
+  options.ignore_unknown_options = ignore_unknown_options;
+  return GetPlainTableOptionsFromMap(table_options, opts_map, options,
+                                     new_table_options);
+}
+
+Status GetPlainTableOptionsFromMap(
+    const PlainTableOptions& table_options,
+    const std::unordered_map<std::string, std::string>& opts_map,
+    const ConfigOptions& options, PlainTableOptions* new_table_options) {
   assert(new_table_options);
   *new_table_options = table_options;
   for (const auto& o : opts_map) {
-    auto error_message = ParsePlainTableOptions(
-        o.first, o.second, new_table_options, input_strings_escaped);
+    auto error_message =
+        ParsePlainTableOptions(o.first, o.second, options, new_table_options);
     if (error_message != "") {
       const auto iter = plain_table_type_info.find(o.first);
       if (iter == plain_table_type_info.end() ||
-          !input_strings_escaped ||  // !input_strings_escaped indicates
-                                     // the old API, where everything is
-                                     // parsable.
+          !options.input_strings_escaped ||  // !input_strings_escaped indicates
+                                             // the old API, where everything is
+                                             // parsable.
           (!iter->second.IsByName() && !iter->second.IsDeprecated())) {
         // Restore "new_options" to the default "base_options".
         *new_table_options = table_options;

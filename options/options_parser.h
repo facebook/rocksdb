@@ -9,14 +9,15 @@
 #include <string>
 #include <vector>
 
-#include "options/options_sanity_check.h"
 #include "rocksdb/env.h"
 #include "rocksdb/options.h"
-#include "table/block_based/block_based_table_factory.h"
 
 namespace ROCKSDB_NAMESPACE {
 
 #ifndef ROCKSDB_LITE
+struct ConfigOptions;
+class OptionTypeInfo;
+class TableFactory;
 
 #define ROCKSDB_OPTION_FILE_MAJOR 1
 #define ROCKSDB_OPTION_FILE_MINOR 1
@@ -36,6 +37,11 @@ Status PersistRocksDBOptions(const DBOptions& db_opt,
                              const std::vector<std::string>& cf_names,
                              const std::vector<ColumnFamilyOptions>& cf_opts,
                              const std::string& file_name, FileSystem* fs);
+Status PersistRocksDBOptions(const DBOptions& db_opt,
+                             const std::vector<std::string>& cf_names,
+                             const std::vector<ColumnFamilyOptions>& cf_opts,
+                             const std::string& file_name, FileSystem* fs,
+                             const ConfigOptions& options);
 
 extern bool AreEqualOptions(
     const char* opt1, const char* opt2, const OptionTypeInfo& type_info,
@@ -52,6 +58,10 @@ class RocksDBOptionsParser {
   // If 0 is given, a default value will be used.
   Status Parse(const std::string& file_name, FileSystem* fs,
                bool ignore_unknown_options, size_t file_readahead_size);
+
+  Status Parse(const std::string& file_name, FileSystem* fs,
+               const ConfigOptions& options);
+
   static std::string TrimAndRemoveComment(const std::string& line,
                                           const bool trim_only = false);
 
@@ -70,27 +80,26 @@ class RocksDBOptionsParser {
     return GetCFOptionsImpl(name);
   }
   size_t NumColumnFamilies() { return cf_opts_.size(); }
-
   static Status VerifyRocksDBOptionsFromFile(
       const DBOptions& db_opt, const std::vector<std::string>& cf_names,
       const std::vector<ColumnFamilyOptions>& cf_opts,
       const std::string& file_name, FileSystem* fs,
-      OptionsSanityCheckLevel sanity_check_level = kSanityLevelExactMatch,
-      bool ignore_unknown_options = false);
-
+      const ConfigOptions& options);
   static Status VerifyDBOptions(
       const DBOptions& base_opt, const DBOptions& new_opt,
-      const std::unordered_map<std::string, std::string>* new_opt_map = nullptr,
-      OptionsSanityCheckLevel sanity_check_level = kSanityLevelExactMatch);
+      const ConfigOptions& parser_opts,
+      const std::unordered_map<std::string, std::string>* new_opt_map =
+          nullptr);
 
   static Status VerifyCFOptions(
       const ColumnFamilyOptions& base_opt, const ColumnFamilyOptions& new_opt,
-      const std::unordered_map<std::string, std::string>* new_opt_map = nullptr,
-      OptionsSanityCheckLevel sanity_check_level = kSanityLevelExactMatch);
+      const ConfigOptions& parser_opts,
+      const std::unordered_map<std::string, std::string>* new_opt_map =
+          nullptr);
 
-  static Status VerifyTableFactory(
-      const TableFactory* base_tf, const TableFactory* file_tf,
-      OptionsSanityCheckLevel sanity_check_level = kSanityLevelExactMatch);
+  static Status VerifyTableFactory(const TableFactory* base_tf,
+                                   const TableFactory* file_tf,
+                                   const ConfigOptions& options);
 
   static Status ExtraParserCheck(const RocksDBOptionsParser& input_parser);
 
@@ -109,7 +118,7 @@ class RocksDBOptionsParser {
   Status EndSection(const OptionSection section, const std::string& title,
                     const std::string& section_arg,
                     const std::unordered_map<std::string, std::string>& opt_map,
-                    bool ignore_unknown_options);
+                    const ConfigOptions& options);
 
   Status ValidityCheck();
 

@@ -33,7 +33,9 @@ class DBOptionsTest : public DBTestBase {
   std::unordered_map<std::string, std::string> GetMutableDBOptionsMap(
       const DBOptions& options) {
     std::string options_str;
-    GetStringFromDBOptions(&options_str, options);
+    ConfigOptions cfg_opts;
+    cfg_opts.delimiter = "; ";
+    GetStringFromDBOptions(options, cfg_opts, &options_str);
     std::unordered_map<std::string, std::string> options_map;
     StringToMap(options_str, &options_map);
     std::unordered_map<std::string, std::string> mutable_map;
@@ -48,7 +50,10 @@ class DBOptionsTest : public DBTestBase {
   std::unordered_map<std::string, std::string> GetMutableCFOptionsMap(
       const ColumnFamilyOptions& options) {
     std::string options_str;
-    GetStringFromColumnFamilyOptions(&options_str, options);
+    ConfigOptions cfg_opts;
+    cfg_opts.delimiter = "; ";
+
+    GetStringFromColumnFamilyOptions(options, cfg_opts, &options_str);
     std::unordered_map<std::string, std::string> options_map;
     StringToMap(options_str, &options_map);
     std::unordered_map<std::string, std::string> mutable_map;

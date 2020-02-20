@@ -8,6 +8,7 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
 #include "db/db_test_util.h"
+#include "options/options_helper.h"
 #include "port/stack_trace.h"
 #include "rocksdb/perf_context.h"
 #include "table/block_based/filter_policy_internal.h"
@@ -16,6 +17,14 @@ namespace ROCKSDB_NAMESPACE {
 
 namespace {
 using BFP = BloomFilterPolicy;
+
+#ifndef ROCKSDB_LITE
+namespace BFP2 {
+// Extends BFP::Mode with option to use Plain table
+using PseudoMode = int;
+static constexpr PseudoMode kPlainTable = -1;
+}  // namespace BFP2
+#endif
 }  // namespace
 
 // DB tests related to bloom filter.
@@ -1030,14 +1039,6 @@ TEST_F(DBBloomFilterTest, MemtablePrefixBloomOutOfDomain) {
 }
 
 #ifndef ROCKSDB_LITE
-namespace {
-namespace BFP2 {
-// Extends BFP::Mode with option to use Plain table
-using PseudoMode = int;
-static constexpr PseudoMode kPlainTable = -1;
-}  // namespace BFP2
-}  // namespace
-
 class BloomStatsTestWithParam
     : public DBBloomFilterTest,
       public testing::WithParamInterface<std::tuple<BFP2::PseudoMode, bool>> {

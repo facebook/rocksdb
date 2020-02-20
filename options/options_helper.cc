@@ -10,6 +10,7 @@
 #include <unordered_set>
 #include <vector>
 
+#include "options/options_type.h"
 #include "rocksdb/cache.h"
 #include "rocksdb/compaction_filter.h"
 #include "rocksdb/convenience.h"
@@ -353,10 +354,13 @@ bool FIFOCompactionOptionsSpecialCase(const std::string& opt_str,
 }
 
 static bool SerializeStruct(
-    const void* const options, std::string* value,
+    const void* const opt_ptr, std::string* value,
     const std::unordered_map<std::string, OptionTypeInfo>& type_info_map) {
+  ConfigOptions options;
+  options.delimiter = ";";
+
   std::string opt_str;
-  Status s = GetStringFromStruct(&opt_str, options, type_info_map, ";");
+  Status s = GetStringFromStruct(opt_ptr, type_info_map, options, &opt_str);
   if (!s.ok()) {
     return false;
   }
@@ -1010,9 +1014,9 @@ Status StringToMap(const std::string& opts_str,
 }
 
 Status GetStringFromStruct(
-    std::string* opt_string, const void* const options,
+    const void* const opt_ptr,
     const std::unordered_map<std::string, OptionTypeInfo>& type_info,
-    const std::string& delimiter) {
+    const ConfigOptions& options, std::string* opt_string) {
   assert(opt_string);
   opt_string->clear();
   for (const auto iter : type_info) {
@@ -1023,12 +1027,12 @@ Status GetStringFromStruct(
       continue;
     }
     const char* opt_address =
-        reinterpret_cast<const char*>(options) + opt_info.offset;
+        reinterpret_cast<const char*>(opt_ptr) + opt_info.offset;
     std::string value;
     bool result =
         SerializeSingleOptionHelper(opt_address, opt_info.type, &value);
     if (result) {
-      opt_string->append(iter.first + "=" + value + delimiter);
+      opt_string->append(iter.first + "=" + value + options.delimiter);
     } else {
       return Status::InvalidArgument("failed to serialize %s\n",
                                      iter.first.c_str());
@@ -1040,15 +1044,31 @@ Status GetStringFromStruct(
 Status GetStringFromDBOptions(std::string* opt_string,
                               const DBOptions& db_options,
                               const std::string& delimiter) {
-  return GetStringFromStruct(opt_string, &db_options, db_options_type_info,
-                             delimiter);
+  ConfigOptions options;
+  options.delimiter = delimiter;
+  return GetStringFromDBOptions(db_options, options, opt_string);
+}
+
+Status GetStringFromDBOptions(const DBOptions& db_options,
+                              const ConfigOptions& options,
+                              std::string* opt_string) {
+  return GetStringFromStruct(&db_options, db_options_type_info, options,
+                             opt_string);
 }
 
 Status GetStringFromColumnFamilyOptions(std::string* opt_string,
                                         const ColumnFamilyOptions& cf_options,
                                         const std::string& delimiter) {
-  return GetStringFromStruct(opt_string, &cf_options, cf_options_type_info,
-                             delimiter);
+  ConfigOptions options;
+  options.delimiter = delimiter;
+  return GetStringFromColumnFamilyOptions(cf_options, options, opt_string);
+}
+
+Status GetStringFromColumnFamilyOptions(const ColumnFamilyOptions& cf_options,
+                                        const ConfigOptions& options,
+                                        std::string* opt_string) {
+  return GetStringFromStruct(&cf_options, cf_options_type_info, options,
+                             opt_string);
 }
 
 Status GetStringFromCompressionType(std::string* compression_str,
@@ -1073,12 +1093,11 @@ std::vector<CompressionType> GetSupportedCompressions() {
   return supported_compressions;
 }
 
-Status ParseDBOption(const std::string& name,
-                     const std::string& org_value,
-                     DBOptions* new_options,
-                     bool input_strings_escaped = false) {
-  const std::string& value =
-      input_strings_escaped ? UnescapeOptionString(org_value) : org_value;
+Status ParseDBOption(const std::string& name, const std::string& org_value,
+                     const ConfigOptions& cfg_options, DBOptions* new_options) {
+  const std::string& value = cfg_options.input_strings_escaped
+                                 ? UnescapeOptionString(org_value)
+                                 : org_value;
   try {
     if (name == "rate_limiter_bytes_per_sec") {
       new_options->rate_limiter.reset(
@@ -1121,25 +1140,34 @@ Status GetColumnFamilyOptionsFromMap(
     const std::unordered_map<std::string, std::string>& opts_map,
     ColumnFamilyOptions* new_options, bool input_strings_escaped,
     bool ignore_unknown_options) {
+  ConfigOptions cfg_options;
+  cfg_options.ignore_unknown_options = ignore_unknown_options;
+  cfg_options.input_strings_escaped = input_strings_escaped;
+  return GetColumnFamilyOptionsFromMap(base_options, opts_map, cfg_options,
+                                       new_options);
+}
+
+Status GetColumnFamilyOptionsFromMap(
+    const ColumnFamilyOptions& base_options,
+    const std::unordered_map<std::string, std::string>& opts_map,
+    const ConfigOptions& cfg_options, ColumnFamilyOptions* new_options) {
   return GetColumnFamilyOptionsFromMapInternal(
-      base_options, opts_map, new_options, input_strings_escaped, nullptr,
-      ignore_unknown_options);
+      base_options, opts_map, cfg_options, new_options, nullptr);
 }
 
 Status GetColumnFamilyOptionsFromMapInternal(
     const ColumnFamilyOptions& base_options,
     const std::unordered_map<std::string, std::string>& opts_map,
-    ColumnFamilyOptions* new_options, bool input_strings_escaped,
-    std::vector<std::string>* unsupported_options_names,
-    bool ignore_unknown_options) {
+    const ConfigOptions& cfg_options, ColumnFamilyOptions* new_options,
+    std::vector<std::string>* unsupported_options_names) {
   assert(new_options);
   *new_options = base_options;
   if (unsupported_options_names) {
     unsupported_options_names->clear();
   }
   for (const auto& o : opts_map) {
-    auto s = ParseColumnFamilyOption(o.first, o.second, new_options,
-                                 input_strings_escaped);
+    auto s =
+        ParseColumnFamilyOption(o.first, o.second, cfg_options, new_options);
     if (!s.ok()) {
       if (s.IsNotSupported()) {
         // If the deserialization of the specified option is not supported
@@ -1151,7 +1179,7 @@ Status GetColumnFamilyOptionsFromMapInternal(
         // Note that we still return Status::OK in such case to maintain
         // the backward compatibility in the old public API defined in
         // rocksdb/convenience.h
-      } else if (s.IsInvalidArgument() && ignore_unknown_options) {
+      } else if (s.IsInvalidArgument() && cfg_options.ignore_unknown_options) {
         continue;
       } else {
         // Restore "new_options" to the default "base_options".
@@ -1167,13 +1195,25 @@ Status GetColumnFamilyOptionsFromString(
     const ColumnFamilyOptions& base_options,
     const std::string& opts_str,
     ColumnFamilyOptions* new_options) {
+  ConfigOptions cfg_options;
+  cfg_options.input_strings_escaped = false;
+  cfg_options.ignore_unknown_options = false;
+  return GetColumnFamilyOptionsFromString(base_options, opts_str, cfg_options,
+                                          new_options);
+}
+
+Status GetColumnFamilyOptionsFromString(const ColumnFamilyOptions& base_options,
+                                        const std::string& opts_str,
+                                        const ConfigOptions& cfg_options,
+                                        ColumnFamilyOptions* new_options) {
   std::unordered_map<std::string, std::string> opts_map;
   Status s = StringToMap(opts_str, &opts_map);
   if (!s.ok()) {
     *new_options = base_options;
     return s;
   }
-  return GetColumnFamilyOptionsFromMap(base_options, opts_map, new_options);
+  return GetColumnFamilyOptionsFromMap(base_options, opts_map, cfg_options,
+                                       new_options);
 }
 
 Status GetDBOptionsFromMap(
@@ -1181,25 +1221,32 @@ Status GetDBOptionsFromMap(
     const std::unordered_map<std::string, std::string>& opts_map,
     DBOptions* new_options, bool input_strings_escaped,
     bool ignore_unknown_options) {
-  return GetDBOptionsFromMapInternal(base_options, opts_map, new_options,
-                                     input_strings_escaped, nullptr,
-                                     ignore_unknown_options);
+  ConfigOptions cfg_options;
+  cfg_options.input_strings_escaped = input_strings_escaped;
+  cfg_options.ignore_unknown_options = ignore_unknown_options;
+  return GetDBOptionsFromMap(base_options, opts_map, cfg_options, new_options);
+}
+
+Status GetDBOptionsFromMap(
+    const DBOptions& base_options,
+    const std::unordered_map<std::string, std::string>& opts_map,
+    const ConfigOptions& cfg_options, DBOptions* new_options) {
+  return GetDBOptionsFromMapInternal(base_options, opts_map, cfg_options,
+                                     new_options, nullptr);
 }
 
 Status GetDBOptionsFromMapInternal(
     const DBOptions& base_options,
     const std::unordered_map<std::string, std::string>& opts_map,
-    DBOptions* new_options, bool input_strings_escaped,
-    std::vector<std::string>* unsupported_options_names,
-    bool ignore_unknown_options) {
+    const ConfigOptions& cfg_options, DBOptions* new_options,
+    std::vector<std::string>* unsupported_options_names) {
   assert(new_options);
   *new_options = base_options;
   if (unsupported_options_names) {
     unsupported_options_names->clear();
   }
   for (const auto& o : opts_map) {
-    auto s = ParseDBOption(o.first, o.second,
-                           new_options, input_strings_escaped);
+    auto s = ParseDBOption(o.first, o.second, cfg_options, new_options);
     if (!s.ok()) {
       if (s.IsNotSupported()) {
         // If the deserialization of the specified option is not supported
@@ -1211,7 +1258,7 @@ Status GetDBOptionsFromMapInternal(
         // Note that we still return Status::OK in such case to maintain
         // the backward compatibility in the old public API defined in
         // rocksdb/convenience.h
-      } else if (s.IsInvalidArgument() && ignore_unknown_options) {
+      } else if (s.IsInvalidArgument() && cfg_options.ignore_unknown_options) {
         continue;
       } else {
         // Restore "new_options" to the default "base_options".
@@ -1223,21 +1270,43 @@ Status GetDBOptionsFromMapInternal(
   return Status::OK();
 }
 
-Status GetDBOptionsFromString(
-    const DBOptions& base_options,
-    const std::string& opts_str,
-    DBOptions* new_options) {
+Status GetDBOptionsFromString(const DBOptions& base_options,
+                              const std::string& opts_str,
+                              DBOptions* new_options) {
+  ConfigOptions cfg_options;
+  cfg_options.input_strings_escaped = false;
+  cfg_options.ignore_unknown_options = false;
+
+  return GetDBOptionsFromString(base_options, opts_str, cfg_options,
+                                new_options);
+}
+
+Status GetDBOptionsFromString(const DBOptions& base_options,
+                              const std::string& opts_str,
+                              const ConfigOptions& cfg_options,
+                              DBOptions* new_options) {
   std::unordered_map<std::string, std::string> opts_map;
   Status s = StringToMap(opts_str, &opts_map);
   if (!s.ok()) {
     *new_options = base_options;
     return s;
   }
-  return GetDBOptionsFromMap(base_options, opts_map, new_options);
+  return GetDBOptionsFromMap(base_options, opts_map, cfg_options, new_options);
 }
 
 Status GetOptionsFromString(const Options& base_options,
                             const std::string& opts_str, Options* new_options) {
+  ConfigOptions cfg_options;
+  cfg_options.input_strings_escaped = false;
+  cfg_options.ignore_unknown_options = false;
+
+  return GetOptionsFromString(base_options, opts_str, cfg_options, new_options);
+}
+
+Status GetOptionsFromString(const Options& base_options,
+                            const std::string& opts_str,
+                            const ConfigOptions& cfg_options,
+                            Options* new_options) {
   std::unordered_map<std::string, std::string> opts_map;
   Status s = StringToMap(opts_str, &opts_map);
   if (!s.ok()) {
@@ -1246,9 +1315,10 @@ Status GetOptionsFromString(const Options& base_options,
   DBOptions new_db_options(base_options);
   ColumnFamilyOptions new_cf_options(base_options);
   for (const auto& o : opts_map) {
-    if (ParseDBOption(o.first, o.second, &new_db_options).ok()) {
-    } else if (ParseColumnFamilyOption(
-        o.first, o.second, &new_cf_options).ok()) {
+    if (ParseDBOption(o.first, o.second, cfg_options, &new_db_options).ok()) {
+    } else if (ParseColumnFamilyOption(o.first, o.second, cfg_options,
+                                       &new_cf_options)
+                   .ok()) {
     } else {
       return Status::InvalidArgument("Can't parse option " + o.first);
     }
@@ -1261,13 +1331,21 @@ Status GetTableFactoryFromMap(
     const std::string& factory_name,
     const std::unordered_map<std::string, std::string>& opt_map,
     std::shared_ptr<TableFactory>* table_factory, bool ignore_unknown_options) {
+  ConfigOptions options;  // Use default for escaped(true) and check (exact)
+  options.ignore_unknown_options = ignore_unknown_options;
+  return GetTableFactoryFromMap(factory_name, opt_map, options, table_factory);
+}
+
+Status GetTableFactoryFromMap(
+    const std::string& factory_name,
+    const std::unordered_map<std::string, std::string>& opt_map,
+    const ConfigOptions& options,
+    std::shared_ptr<TableFactory>* table_factory) {
   Status s;
   if (factory_name == BlockBasedTableFactory().Name()) {
     BlockBasedTableOptions bbt_opt;
     s = GetBlockBasedTableOptionsFromMap(BlockBasedTableOptions(), opt_map,
-                                         &bbt_opt,
-                                         true, /* input_strings_escaped */
-                                         ignore_unknown_options);
+                                         options, &bbt_opt);
     if (!s.ok()) {
       return s;
     }
@@ -1275,9 +1353,8 @@ Status GetTableFactoryFromMap(
     return Status::OK();
   } else if (factory_name == PlainTableFactory().Name()) {
     PlainTableOptions pt_opt;
-    s = GetPlainTableOptionsFromMap(PlainTableOptions(), opt_map, &pt_opt,
-                                    true, /* input_strings_escaped */
-                                    ignore_unknown_options);
+    s = GetPlainTableOptionsFromMap(PlainTableOptions(), opt_map, options,
+                                    &pt_opt);
     if (!s.ok()) {
       return s;
     }

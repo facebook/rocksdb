@@ -96,6 +96,11 @@ public class ColumnFamilyOptions extends RocksObject
    */
   public static ColumnFamilyOptions getColumnFamilyOptionsFromProps(
       final Properties properties) {
+    return getColumnFamilyOptionsFromProps(new ConfigOptions(), properties);
+  }
+
+  public static ColumnFamilyOptions getColumnFamilyOptionsFromProps(
+      final ConfigOptions cfgOpts, final Properties properties) {
     if (properties == null || properties.size() == 0) {
       throw new IllegalArgumentException(
           "Properties value must contain at least one value.");
@@ -108,8 +113,7 @@ public class ColumnFamilyOptions extends RocksObject
       stringBuilder.append(properties.getProperty(name));
       stringBuilder.append(";");
     }
-    long handle = getColumnFamilyOptionsFromProps(
-        stringBuilder.toString());
+    long handle = getColumnFamilyOptionsFromProps(cfgOpts.nativeHandle_, stringBuilder.toString());
     if (handle != 0){
       columnFamilyOptions = new ColumnFamilyOptions(handle);
     }
@@ -825,7 +829,7 @@ public class ColumnFamilyOptions extends RocksObject
   }
 
   private static native long getColumnFamilyOptionsFromProps(
-      String optString);
+      final long cfgHandle, String optString);
 
   private static native long newColumnFamilyOptions();
   private static native long copyColumnFamilyOptions(final long handle);

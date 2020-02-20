@@ -128,6 +128,7 @@ set(JAVA_MAIN_CLASSES
   src/main/java/org/rocksdb/ComparatorType.java
   src/main/java/org/rocksdb/CompressionOptions.java
   src/main/java/org/rocksdb/CompressionType.java
+  src/main/java/org/rocksdb/ConfigOptions.java
   src/main/java/org/rocksdb/DataBlockIndexType.java
   src/main/java/org/rocksdb/DBOptionsInterface.java
   src/main/java/org/rocksdb/DBOptions.java

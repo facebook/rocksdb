@@ -7,19 +7,22 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
-#include <stdint.h>
-#include <cinttypes>
+#include "table/block_based/block_based_table_factory.h"
 
+#include <stdint.h>
+
+#include <cinttypes>
 #include <memory>
 #include <string>
 
 #include "options/options_helper.h"
+#include "options/options_parser.h"
+#include "options/options_sanity_check.h"
 #include "port/port.h"
 #include "rocksdb/cache.h"
 #include "rocksdb/convenience.h"
 #include "rocksdb/flush_block_policy.h"
 #include "table/block_based/block_based_table_builder.h"
-#include "table/block_based/block_based_table_factory.h"
 #include "table/block_based/block_based_table_reader.h"
 #include "table/format.h"
 #include "util/mutexlock.h"
@@ -536,17 +539,16 @@ std::string BlockBasedTableFactory::GetPrintableTableOptions() const {
 }
 
 #ifndef ROCKSDB_LITE
-
-Status BlockBasedTableFactory::GetOptionString(
-    std::string* opt_string, const std::string& delimiter) const {
+Status BlockBasedTableFactory::GetOptionString(const ConfigOptions& options,
+                                               std::string* opt_string) const {
   assert(opt_string);
   opt_string->clear();
-  return GetStringFromStruct(opt_string, &table_options_,
-                             block_based_table_type_info, delimiter);
+  return GetStringFromStruct(&table_options_, block_based_table_type_info,
+                             options, opt_string);
 }
 #else
 Status BlockBasedTableFactory::GetOptionString(
-    std::string* /*opt_string*/, const std::string& /*delimiter*/) const {
+    const ConfigOptions& /*opts*/, std::string* /*opt_string*/) const {
   return Status::OK();
 }
 #endif  // !ROCKSDB_LITE
@@ -559,12 +561,12 @@ const BlockBasedTableOptions& BlockBasedTableFactory::table_options() const {
 namespace {
 std::string ParseBlockBasedTableOption(const std::string& name,
                                        const std::string& org_value,
-                                       BlockBasedTableOptions* new_options,
-                                       bool input_strings_escaped = false,
-                                       bool ignore_unknown_options = false) {
-  const std::string& value =
-      input_strings_escaped ? UnescapeOptionString(org_value) : org_value;
-  if (!input_strings_escaped) {
+                                       const ConfigOptions& options,
+                                       BlockBasedTableOptions* new_options) {
+  const std::string& value = options.input_strings_escaped
+                                 ? UnescapeOptionString(org_value)
+                                 : org_value;
+  if (!options.input_strings_escaped) {
     // if the input string is not escaped, it means this function is
     // invoked from SetOptions, which takes the old format.
     if (name == "block_cache" || name == "block_cache_compressed") {
@@ -615,7 +617,7 @@ std::string ParseBlockBasedTableOption(const std::string& name,
   }
   const auto iter = block_based_table_type_info.find(name);
   if (iter == block_based_table_type_info.end()) {
-    if (ignore_unknown_options) {
+    if (options.ignore_unknown_options) {
       return "";
     } else {
       return "Unrecognized option";
@@ -634,13 +636,21 @@ std::string ParseBlockBasedTableOption(const std::string& name,
 Status GetBlockBasedTableOptionsFromString(
     const BlockBasedTableOptions& table_options, const std::string& opts_str,
     BlockBasedTableOptions* new_table_options) {
+  ConfigOptions options;
+  options.input_strings_escaped = false;
+  options.ignore_unknown_options = false;
+  return GetBlockBasedTableOptionsFromString(table_options, opts_str, options,
+                                             new_table_options);
+}
+Status GetBlockBasedTableOptionsFromString(
+    const BlockBasedTableOptions& table_options, const std::string& opts_str,
+    const ConfigOptions& options, BlockBasedTableOptions* new_table_options) {
   std::unordered_map<std::string, std::string> opts_map;
   Status s = StringToMap(opts_str, &opts_map);
   if (!s.ok()) {
     return s;
   }
-
-  return GetBlockBasedTableOptionsFromMap(table_options, opts_map,
+  return GetBlockBasedTableOptionsFromMap(table_options, opts_map, options,
                                           new_table_options);
 }
 
@@ -649,18 +659,29 @@ Status GetBlockBasedTableOptionsFromMap(
     const std::unordered_map<std::string, std::string>& opts_map,
     BlockBasedTableOptions* new_table_options, bool input_strings_escaped,
     bool ignore_unknown_options) {
+  ConfigOptions options;
+  options.input_strings_escaped = input_strings_escaped;
+  options.ignore_unknown_options = ignore_unknown_options;
+
+  return GetBlockBasedTableOptionsFromMap(table_options, opts_map, options,
+                                          new_table_options);
+}
+
+Status GetBlockBasedTableOptionsFromMap(
+    const BlockBasedTableOptions& table_options,
+    const std::unordered_map<std::string, std::string>& opts_map,
+    const ConfigOptions& options, BlockBasedTableOptions* new_table_options) {
   assert(new_table_options);
   *new_table_options = table_options;
   for (const auto& o : opts_map) {
-    auto error_message = ParseBlockBasedTableOption(
-        o.first, o.second, new_table_options, input_strings_escaped,
-        ignore_unknown_options);
+    auto error_message = ParseBlockBasedTableOption(o.first, o.second, options,
+                                                    new_table_options);
     if (error_message != "") {
       const auto iter = block_based_table_type_info.find(o.first);
       if (iter == block_based_table_type_info.end() ||
-          !input_strings_escaped ||  // !input_strings_escaped indicates
-                                     // the old API, where everything is
-                                     // parsable.
+          !options.input_strings_escaped ||  // !input_strings_escaped indicates
+                                             // the old API, where everything is
+                                             // parsable.
           (!iter->second.IsByName() && !iter->second.IsDeprecated())) {
         // Restore "new_options" to the default "base_options".
         *new_table_options = table_options;
@@ -672,12 +693,11 @@ Status GetBlockBasedTableOptionsFromMap(
   return Status::OK();
 }
 
-Status VerifyBlockBasedTableFactory(
-    const BlockBasedTableFactory* base_tf,
-    const BlockBasedTableFactory* file_tf,
-    OptionsSanityCheckLevel sanity_check_level) {
+Status VerifyBlockBasedTableFactory(const BlockBasedTableFactory* base_tf,
+                                    const BlockBasedTableFactory* file_tf,
+                                    const ConfigOptions& options) {
   if ((base_tf != nullptr) != (file_tf != nullptr) &&
-      sanity_check_level > OptionsSanityCheckLevel::kSanityLevelNone) {
+      options.sanity_level > ConfigOptions::kSanityLevelNone) {
     return Status::Corruption(
         "[RocksDBOptionsParser]: Inconsistent TableFactory class type");
   }
@@ -695,7 +715,7 @@ Status VerifyBlockBasedTableFactory(
       // contain random values since they might not be initialized
       continue;
     }
-    if (BBTOptionSanityCheckLevel(pair.first) <= sanity_check_level) {
+    if (BBTOptionSanityCheckLevel(pair.first) <= options.sanity_level) {
       if (!AreEqualOptions(reinterpret_cast<const char*>(&base_opt),
                            reinterpret_cast<const char*>(&file_opt),
                            pair.second, pair.first, nullptr)) {

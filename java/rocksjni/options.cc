@@ -3280,17 +3280,20 @@ jlong Java_org_rocksdb_ColumnFamilyOptions_newColumnFamilyOptionsFromOptions(
  * Signature: (Ljava/util/String;)J
  */
 jlong Java_org_rocksdb_ColumnFamilyOptions_getColumnFamilyOptionsFromProps(
-    JNIEnv* env, jclass, jstring jopt_string) {
+    JNIEnv* env, jclass, jlong cfg_handle, jstring jopt_string) {
   const char* opt_string = env->GetStringUTFChars(jopt_string, nullptr);
   if (opt_string == nullptr) {
     // exception thrown: OutOfMemoryError
     return 0;
   }
 
+  auto* cfg_opts =
+      reinterpret_cast<ROCKSDB_NAMESPACE::ConfigOptions*>(cfg_handle);
   auto* cf_options = new ROCKSDB_NAMESPACE::ColumnFamilyOptions();
   ROCKSDB_NAMESPACE::Status status =
       ROCKSDB_NAMESPACE::GetColumnFamilyOptionsFromString(
-          ROCKSDB_NAMESPACE::ColumnFamilyOptions(), opt_string, cf_options);
+          ROCKSDB_NAMESPACE::ColumnFamilyOptions(), opt_string, *cfg_opts,
+          cf_options);
 
   env->ReleaseStringUTFChars(jopt_string, opt_string);
 

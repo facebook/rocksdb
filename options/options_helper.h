@@ -19,6 +19,7 @@
 #include "rocksdb/universal_compaction.h"
 
 namespace ROCKSDB_NAMESPACE {
+struct ConfigOptions;
 
 DBOptions BuildDBOptions(const ImmutableDBOptions& immutable_db_options,
                          const MutableDBOptions& mutable_db_options);
@@ -28,11 +29,15 @@ ColumnFamilyOptions BuildColumnFamilyOptions(
     const MutableCFOptions& mutable_cf_options);
 
 #ifndef ROCKSDB_LITE
+Status GetStringFromStruct(
+    const void* const opt_ptr,
+    const std::unordered_map<std::string, OptionTypeInfo>& type_info,
+    const ConfigOptions& options, std::string* opt_string);
 
 Status ParseColumnFamilyOption(const std::string& name,
                                const std::string& org_value,
-                               ColumnFamilyOptions* new_options,
-                               bool input_strings_escaped = false);
+                               const ConfigOptions& cfg_opts,
+                               ColumnFamilyOptions* new_options);
 
 Status GetMutableOptionsFromStrings(
     const MutableCFOptions& base_options,
@@ -54,6 +59,11 @@ Status ParseCompressionOptions(const std::string& value,
                                const std::string& name,
                                CompressionOptions& compression_opts);
 
+Status GetTableFactoryFromMap(
+    const std::string& factory_name,
+    const std::unordered_map<std::string, std::string>& opt_map,
+    const ConfigOptions& options, std::shared_ptr<TableFactory>* table_factory);
+
 // A helper function that converts "opt_address" to a std::string
 // based on the specified OptionType.
 bool SerializeSingleOptionHelper(const char* opt_address,
@@ -65,9 +75,8 @@ bool SerializeSingleOptionHelper(const char* opt_address,
 Status GetDBOptionsFromMapInternal(
     const DBOptions& base_options,
     const std::unordered_map<std::string, std::string>& opts_map,
-    DBOptions* new_options, bool input_strings_escaped,
-    std::vector<std::string>* unsupported_options_names = nullptr,
-    bool ignore_unknown_options = false);
+    const ConfigOptions& parse_options, DBOptions* new_options,
+    std::vector<std::string>* unsupported_options_names = nullptr);
 
 // In addition to its public version defined in rocksdb/convenience.h,
 // this further takes an optional output vector "unsupported_options_names",
@@ -75,9 +84,8 @@ Status GetDBOptionsFromMapInternal(
 Status GetColumnFamilyOptionsFromMapInternal(
     const ColumnFamilyOptions& base_options,
     const std::unordered_map<std::string, std::string>& opts_map,
-    ColumnFamilyOptions* new_options, bool input_strings_escaped,
-    std::vector<std::string>* unsupported_options_names = nullptr,
-    bool ignore_unknown_options = false);
+    const ConfigOptions& parse_options, ColumnFamilyOptions* new_options,
+    std::vector<std::string>* unsupported_options_names = nullptr);
 
 bool ParseSliceTransform(
     const std::string& value,
@@ -89,10 +97,6 @@ extern Status StringToMap(
 
 extern bool ParseOptionHelper(char* opt_address, const OptionType& opt_type,
                               const std::string& value);
-Status GetStringFromStruct(
-    std::string* opt_string, const void* const options,
-    const std::unordered_map<std::string, OptionTypeInfo>& type_info,
-    const std::string& delimiter);
 #endif  // !ROCKSDB_LITE
 
 struct OptionsHelper {

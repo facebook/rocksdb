@@ -17,6 +17,7 @@
 #include "rocksdb/status.h"
 
 namespace ROCKSDB_NAMESPACE {
+struct ConfigOptions;
 // Constructs the DBOptions and ColumnFamilyDescriptors by loading the
 // latest RocksDB options file stored in the specified rocksdb database.
 //
@@ -67,6 +68,10 @@ Status LoadLatestOptions(const std::string& dbpath, Env* env,
                          std::vector<ColumnFamilyDescriptor>* cf_descs,
                          bool ignore_unknown_options = false,
                          std::shared_ptr<Cache>* cache = {});
+Status LoadLatestOptions(const std::string& dbpath, Env* env,
+                         const ConfigOptions& options, DBOptions* db_options,
+                         std::vector<ColumnFamilyDescriptor>* cf_descs,
+                         std::shared_ptr<Cache>* cache = {});
 
 // Similar to LoadLatestOptions, this function constructs the DBOptions
 // and ColumnFamilyDescriptors based on the specified RocksDB Options file.
@@ -76,6 +81,10 @@ Status LoadOptionsFromFile(const std::string& options_file_name, Env* env,
                            DBOptions* db_options,
                            std::vector<ColumnFamilyDescriptor>* cf_descs,
                            bool ignore_unknown_options = false,
+                           std::shared_ptr<Cache>* cache = {});
+Status LoadOptionsFromFile(const std::string& options_file_name, Env* env,
+                           const ConfigOptions& options, DBOptions* db_options,
+                           std::vector<ColumnFamilyDescriptor>* cf_descs,
                            std::shared_ptr<Cache>* cache = {});
 
 // Returns the latest options file name under the specified db path.
@@ -97,6 +106,10 @@ Status CheckOptionsCompatibility(
     const std::string& dbpath, Env* env, const DBOptions& db_options,
     const std::vector<ColumnFamilyDescriptor>& cf_descs,
     bool ignore_unknown_options = false);
+Status CheckOptionsCompatibility(
+    const std::string& dbpath, Env* env, const DBOptions& db_options,
+    const std::vector<ColumnFamilyDescriptor>& cf_descs,
+    const ConfigOptions& options);
 
 }  // namespace ROCKSDB_NAMESPACE
 #endif  // !ROCKSDB_LITE

@@ -16,13 +16,14 @@
 #include "file/read_write_util.h"
 #include "file/writable_file_writer.h"
 #include "options/options_helper.h"
+#include "options/options_sanity_check.h"
+#include "port/port.h"
 #include "rocksdb/convenience.h"
 #include "rocksdb/db.h"
+#include "table/block_based/block_based_table_factory.h"
 #include "test_util/sync_point.h"
 #include "util/cast_util.h"
 #include "util/string_util.h"
-
-#include "port/port.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -38,6 +39,24 @@ Status PersistRocksDBOptions(const DBOptions& db_opt,
                              const std::vector<std::string>& cf_names,
                              const std::vector<ColumnFamilyOptions>& cf_opts,
                              const std::string& file_name, FileSystem* fs) {
+  ConfigOptions options;  // Use default for escaped(true) and check (exact)
+  options.delimiter = "\n  ";
+  // If a readahead size was set in the input options, use it
+  if (db_opt.log_readahead_size > 0) {
+    options.file_readahead_size = db_opt.log_readahead_size;
+  }
+  return PersistRocksDBOptions(db_opt, cf_names, cf_opts, file_name, fs,
+                               options);
+}
+
+Status PersistRocksDBOptions(const DBOptions& db_opt,
+                             const std::vector<std::string>& cf_names,
+                             const std::vector<ColumnFamilyOptions>& cf_opts,
+                             const std::string& file_name, FileSystem* fs,
+                             const ConfigOptions& cfg_opt) {
+  ConfigOptions options = cfg_opt;
+  options.delimiter = "\n  ";  // Override the default to nl
+
   TEST_SYNC_POINT("PersistRocksDBOptions:start");
   if (cf_names.size() != cf_opts.size()) {
     return Status::InvalidArgument(
@@ -68,7 +87,7 @@ Status PersistRocksDBOptions(const DBOptions& db_opt,
   writable->Append("\n[" + opt_section_titles[kOptionSectionDBOptions] +
                    "]\n  ");
 
-  s = GetStringFromDBOptions(&options_file_content, db_opt, "\n  ");
+  s = GetStringFromDBOptions(db_opt, options, &options_file_content);
   if (!s.ok()) {
     writable->Close();
     return s;
@@ -79,8 +98,8 @@ Status PersistRocksDBOptions(const DBOptions& db_opt,
     // CFOptions section
     writable->Append("\n[" + opt_section_titles[kOptionSectionCFOptions] +
                      " \"" + EscapeOptionString(cf_names[i]) + "\"]\n  ");
-    s = GetStringFromColumnFamilyOptions(&options_file_content, cf_opts[i],
-                                         "\n  ");
+    s = GetStringFromColumnFamilyOptions(cf_opts[i], options,
+                                         &options_file_content);
     if (!s.ok()) {
       writable->Close();
       return s;
@@ -93,7 +112,7 @@ Status PersistRocksDBOptions(const DBOptions& db_opt,
                        tf->Name() + " \"" + EscapeOptionString(cf_names[i]) +
                        "\"]\n  ");
       options_file_content.clear();
-      s = tf->GetOptionString(&options_file_content, "\n  ");
+      s = tf->GetOptionString(options, &options_file_content);
       if (!s.ok()) {
         return s;
       }
@@ -104,7 +123,7 @@ Status PersistRocksDBOptions(const DBOptions& db_opt,
   writable->Close();
 
   return RocksDBOptionsParser::VerifyRocksDBOptionsFromFile(
-      db_opt, cf_names, cf_opts, file_name, fs);
+      db_opt, cf_names, cf_opts, file_name, fs, options);
 }
 
 RocksDBOptionsParser::RocksDBOptionsParser() { Reset(); }
@@ -205,7 +224,18 @@ Status RocksDBOptionsParser::ParseStatement(std::string* name,
 Status RocksDBOptionsParser::Parse(const std::string& file_name, FileSystem* fs,
                                    bool ignore_unknown_options,
                                    size_t file_readahead_size) {
+  ConfigOptions options;  // Use default for escaped(true) and check (exact)
+  options.ignore_unknown_options = ignore_unknown_options;
+  if (file_readahead_size > 0) {
+    options.file_readahead_size = file_readahead_size;
+  }
+  return Parse(file_name, fs, options);
+}
+
+Status RocksDBOptionsParser::Parse(const std::string& file_name, FileSystem* fs,
+                                   const ConfigOptions& cfg_options) {
   Reset();
+  ConfigOptions options = cfg_options;
 
   std::unique_ptr<FSSequentialFile> seq_file;
   Status s = fs->NewSequentialFile(file_name, FileOptions(), &seq_file,
@@ -213,9 +243,8 @@ Status RocksDBOptionsParser::Parse(const std::string& file_name, FileSystem* fs,
   if (!s.ok()) {
     return s;
   }
-
   SequentialFileReader sf_reader(std::move(seq_file), file_name,
-                                 file_readahead_size);
+                                 options.file_readahead_size);
 
   OptionSection section = kOptionSectionUnknown;
   std::string title;
@@ -235,7 +264,7 @@ Status RocksDBOptionsParser::Parse(const std::string& file_name, FileSystem* fs,
       continue;
     }
     if (IsSection(line)) {
-      s = EndSection(section, title, argument, opt_map, ignore_unknown_options);
+      s = EndSection(section, title, argument, opt_map, options);
       opt_map.clear();
       if (!s.ok()) {
         return s;
@@ -243,10 +272,10 @@ Status RocksDBOptionsParser::Parse(const std::string& file_name, FileSystem* fs,
 
       // If the option file is not generated by a higher minor version,
       // there shouldn't be any unknown option.
-      if (ignore_unknown_options && section == kOptionSectionVersion) {
+      if (options.ignore_unknown_options && section == kOptionSectionVersion) {
         if (db_version[0] < ROCKSDB_MAJOR || (db_version[0] == ROCKSDB_MAJOR &&
                                               db_version[1] <= ROCKSDB_MINOR)) {
-          ignore_unknown_options = false;
+          options.ignore_unknown_options = false;
         }
       }
 
@@ -265,7 +294,7 @@ Status RocksDBOptionsParser::Parse(const std::string& file_name, FileSystem* fs,
     }
   }
 
-  s = EndSection(section, title, argument, opt_map, ignore_unknown_options);
+  s = EndSection(section, title, argument, opt_map, options);
   opt_map.clear();
   if (!s.ok()) {
     return s;
@@ -375,11 +404,10 @@ Status RocksDBOptionsParser::EndSection(
     const OptionSection section, const std::string& section_title,
     const std::string& section_arg,
     const std::unordered_map<std::string, std::string>& opt_map,
-    bool ignore_unknown_options) {
+    const ConfigOptions& options) {
   Status s;
   if (section == kOptionSectionDBOptions) {
-    s = GetDBOptionsFromMap(DBOptions(), opt_map, &db_opt_, true,
-                            ignore_unknown_options);
+    s = GetDBOptionsFromMap(DBOptions(), opt_map, options, &db_opt_);
     if (!s.ok()) {
       return s;
     }
@@ -390,9 +418,8 @@ Status RocksDBOptionsParser::EndSection(
     assert(GetCFOptions(section_arg) == nullptr);
     cf_names_.emplace_back(section_arg);
     cf_opts_.emplace_back();
-    s = GetColumnFamilyOptionsFromMap(ColumnFamilyOptions(), opt_map,
-                                      &cf_opts_.back(), true,
-                                      ignore_unknown_options);
+    s = GetColumnFamilyOptionsFromMap(ColumnFamilyOptions(), opt_map, options,
+                                      &cf_opts_.back());
     if (!s.ok()) {
       return s;
     }
@@ -411,7 +438,7 @@ Status RocksDBOptionsParser::EndSection(
     s = GetTableFactoryFromMap(
         section_title.substr(
             opt_section_titles[kOptionSectionTableOptions].size()),
-        opt_map, &(cf_opt->table_factory), ignore_unknown_options);
+        opt_map, options, &(cf_opt->table_factory));
     if (!s.ok()) {
       return s;
     }
@@ -655,33 +682,22 @@ Status RocksDBOptionsParser::VerifyRocksDBOptionsFromFile(
     const DBOptions& db_opt, const std::vector<std::string>& cf_names,
     const std::vector<ColumnFamilyOptions>& cf_opts,
     const std::string& file_name, FileSystem* fs,
-    OptionsSanityCheckLevel sanity_check_level, bool ignore_unknown_options) {
-  // We infer option file readhead size from log readahead size.
-  // If it is not given, use 512KB.
-  size_t file_readahead_size = db_opt.log_readahead_size;
-  if (file_readahead_size == 0) {
-    const size_t kDefaultOptionFileReadAheadSize = 512 * 1024;
-    file_readahead_size = kDefaultOptionFileReadAheadSize;
-  }
-
+    const ConfigOptions& options) {
   RocksDBOptionsParser parser;
-  Status s =
-      parser.Parse(file_name, fs, ignore_unknown_options, file_readahead_size);
+  Status s = parser.Parse(file_name, fs, options);
   if (!s.ok()) {
     return s;
   }
 
   // Verify DBOptions
-  s = VerifyDBOptions(db_opt, *parser.db_opt(), parser.db_opt_map(),
-                      sanity_check_level);
+  s = VerifyDBOptions(db_opt, *parser.db_opt(), options, parser.db_opt_map());
   if (!s.ok()) {
     return s;
   }
 
   // Verify ColumnFamily Name
   if (cf_names.size() != parser.cf_names()->size()) {
-    if (sanity_check_level >=
-        OptionsSanityCheckLevel::kSanityLevelLooselyCompatible) {
+    if (options.sanity_level >= ConfigOptions::kSanityLevelLooselyCompatible) {
       return Status::InvalidArgument(
           "[RocksDBOptionParser Error] The persisted options does not have "
           "the same number of column family names as the db instance.");
@@ -703,8 +719,7 @@ Status RocksDBOptionsParser::VerifyRocksDBOptionsFromFile(
 
   // Verify Column Family Options
   if (cf_opts.size() != parser.cf_opts()->size()) {
-    if (sanity_check_level >=
-        OptionsSanityCheckLevel::kSanityLevelLooselyCompatible) {
+    if (options.sanity_level >= ConfigOptions::kSanityLevelLooselyCompatible) {
       return Status::InvalidArgument(
           "[RocksDBOptionsParser Error]",
           "The persisted options does not have the same number of "
@@ -717,14 +732,14 @@ Status RocksDBOptionsParser::VerifyRocksDBOptionsFromFile(
     }
   }
   for (size_t i = 0; i < cf_opts.size(); ++i) {
-    s = VerifyCFOptions(cf_opts[i], parser.cf_opts()->at(i),
-                        &(parser.cf_opt_maps()->at(i)), sanity_check_level);
+    s = VerifyCFOptions(cf_opts[i], parser.cf_opts()->at(i), options,
+                        &(parser.cf_opt_maps()->at(i)));
     if (!s.ok()) {
       return s;
     }
     s = VerifyTableFactory(cf_opts[i].table_factory.get(),
                            parser.cf_opts()->at(i).table_factory.get(),
-                           sanity_check_level);
+                           options);
     if (!s.ok()) {
       return s;
     }
@@ -735,15 +750,15 @@ Status RocksDBOptionsParser::VerifyRocksDBOptionsFromFile(
 
 Status RocksDBOptionsParser::VerifyDBOptions(
     const DBOptions& base_opt, const DBOptions& persisted_opt,
-    const std::unordered_map<std::string, std::string>* /*opt_map*/,
-    OptionsSanityCheckLevel sanity_check_level) {
+    const ConfigOptions& options,
+    const std::unordered_map<std::string, std::string>* /*opt_map*/) {
   for (const auto& pair : db_options_type_info) {
     if (pair.second.IsDeprecated()) {
       // We skip checking deprecated variables as they might
       // contain random values since they might not be initialized
       continue;
     }
-    if (DBOptionSanityCheckLevel(pair.first) <= sanity_check_level) {
+    if (DBOptionSanityCheckLevel(pair.first) <= options.sanity_level) {
       if (!AreEqualOptions(reinterpret_cast<const char*>(&base_opt),
                            reinterpret_cast<const char*>(&persisted_opt),
                            pair.second, pair.first, nullptr)) {
@@ -772,16 +787,15 @@ Status RocksDBOptionsParser::VerifyDBOptions(
 
 Status RocksDBOptionsParser::VerifyCFOptions(
     const ColumnFamilyOptions& base_opt,
-    const ColumnFamilyOptions& persisted_opt,
-    const std::unordered_map<std::string, std::string>* persisted_opt_map,
-    OptionsSanityCheckLevel sanity_check_level) {
+    const ColumnFamilyOptions& persisted_opt, const ConfigOptions& options,
+    const std::unordered_map<std::string, std::string>* persisted_opt_map) {
   for (const auto& pair : cf_options_type_info) {
     if (pair.second.IsDeprecated()) {
       // We skip checking deprecated variables as they might
       // contain random values since they might not be initialized
       continue;
     }
-    if (CFOptionSanityCheckLevel(pair.first) <= sanity_check_level) {
+    if (CFOptionSanityCheckLevel(pair.first) <= options.sanity_level) {
       if (!AreEqualOptions(reinterpret_cast<const char*>(&base_opt),
                            reinterpret_cast<const char*>(&persisted_opt),
                            pair.second, pair.first, persisted_opt_map)) {
@@ -808,11 +822,11 @@ Status RocksDBOptionsParser::VerifyCFOptions(
   return Status::OK();
 }
 
-Status RocksDBOptionsParser::VerifyTableFactory(
-    const TableFactory* base_tf, const TableFactory* file_tf,
-    OptionsSanityCheckLevel sanity_check_level) {
+Status RocksDBOptionsParser::VerifyTableFactory(const TableFactory* base_tf,
+                                                const TableFactory* file_tf,
+                                                const ConfigOptions& options) {
   if (base_tf && file_tf) {
-    if (sanity_check_level > OptionsSanityCheckLevel::kSanityLevelNone &&
+    if (options.sanity_level > ConfigOptions::kSanityLevelNone &&
         std::string(base_tf->Name()) != std::string(file_tf->Name())) {
       return Status::Corruption(
           "[RocksDBOptionsParser]: "
@@ -824,7 +838,7 @@ Status RocksDBOptionsParser::VerifyTableFactory(
                                  const TableFactory>(base_tf),
           static_cast_with_check<const BlockBasedTableFactory,
                                  const TableFactory>(file_tf),
-          sanity_check_level);
+          options);
     }
     // TODO(yhchiang): add checks for other table factory types
   } else {
