@@ -2708,6 +2708,39 @@ class BuiltinComparatorJni {
   }
 };
 
+// The portal class for org.rocksdb.CollectionMergeOperator.UniqueConstraint
+class UniqueConstraintJni {
+ public:
+  // Returns the equivalent org.rocksdb.CollectionMergeOperator.UniqueConstraint
+  // for the provided C++ rocksdb::UniqueConstraint enum
+  static jbyte toJavaUniqueConstraint(
+      const ROCKSDB_NAMESPACE::UniqueConstraint& unique_constraint) {
+    switch(unique_constraint) {
+      case ROCKSDB_NAMESPACE::UniqueConstraint::kMakeUnique:
+        return 0x0;
+      case ROCKSDB_NAMESPACE::UniqueConstraint::kEnforceUnique:
+        return 0x1;
+      case ROCKSDB_NAMESPACE::UniqueConstraint::kNone:
+      default:
+        return 0x2;
+    }
+  }
+
+  // Returns the equivalent C++ rocksdb::UniqueConstraint enum for the
+  // provided Java org.rocksdb.CollectionMergeOperator.UniqueConstraint
+  static ROCKSDB_NAMESPACE::UniqueConstraint toCppUniqueConstraint(jbyte junique_constraint) {
+    switch(junique_constraint) {
+      case 0x0:
+        return ROCKSDB_NAMESPACE::UniqueConstraint::kMakeUnique;
+      case 0x1:
+        return ROCKSDB_NAMESPACE::UniqueConstraint::kEnforceUnique;
+      case 0x2:
+      default:
+        return ROCKSDB_NAMESPACE::UniqueConstraint::kNone;
+    }
+  }
+};
+
 // The portal class for org.rocksdb.RocksDB
 class RocksDBJni
     : public RocksDBNativeClass<ROCKSDB_NAMESPACE::DB*, RocksDBJni> {

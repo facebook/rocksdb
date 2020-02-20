@@ -21,7 +21,7 @@
 #include "rocksdb/merge_operator.h"
 #include "rocksdb/slice.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 /**
  * A constraint on the uniqueness of items within a Collection.
@@ -211,4 +211,4 @@ class CollectionMergeOperator : public MergeOperator {
   void trace_exit(const char* const msg, const bool success) const;
 
 };
-}  // end rocksdb namespace
+}  // end ROCKSDB_NAMESPACE namespace

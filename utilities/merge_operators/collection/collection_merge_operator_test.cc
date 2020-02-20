@@ -13,7 +13,7 @@
 #include "util/coding.h"
 #include "test_util/testharness.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 const uint16_t DEFAULT_TEST_RECORD_SIZE = 4;
 
@@ -206,7 +206,7 @@ TEST(FullMergeV2, Add_Ordered) {
     Add("6000")
   };
 
-  auto* comparator = rocksdb::BytewiseComparator();
+  auto* comparator = ROCKSDB_NAMESPACE::BytewiseComparator();
 
   auto merge_out = EmptyMergeOut();
 
@@ -227,7 +227,7 @@ TEST(FullMergeV2, Add_Ordered_uint32) {
     Add(6000)
   };
 
-  auto* comparator = rocksdb::BytewiseComparator();
+  auto* comparator = ROCKSDB_NAMESPACE::BytewiseComparator();
 
   auto merge_out = EmptyMergeOut();
 
@@ -247,7 +247,7 @@ TEST(FullMergeV2, Add_Existing_Ordered) {
     Add("1000")
   };
   Slice existing_value("2000");
-  auto* comparator = rocksdb::BytewiseComparator();
+  auto* comparator = ROCKSDB_NAMESPACE::BytewiseComparator();
 
   auto merge_out = EmptyMergeOut();
 
@@ -263,7 +263,7 @@ TEST(FullMergeV2, Add_Existing_Ordered_Reverse) {
     Add("1000")
   };
   Slice existing_value("2000");
-  auto* comparator = rocksdb::ReverseBytewiseComparator();
+  auto* comparator = ROCKSDB_NAMESPACE::ReverseBytewiseComparator();
 
   auto merge_out = EmptyMergeOut();
 
@@ -407,7 +407,7 @@ TEST(FullMergeV2, AddMany_Ordered) {
       "2000"
     })
   };
-  auto* comparator = rocksdb::BytewiseComparator();
+  auto* comparator = ROCKSDB_NAMESPACE::BytewiseComparator();
 
   auto merge_out = EmptyMergeOut();
 
@@ -428,7 +428,7 @@ TEST(FullMergeV2, AddMany_Ordered_Reverse) {
       "2000"
     })
   };
-  auto* comparator = rocksdb::ReverseBytewiseComparator();
+  auto* comparator = ROCKSDB_NAMESPACE::ReverseBytewiseComparator();
 
   auto merge_out = EmptyMergeOut();
 
@@ -447,7 +447,7 @@ TEST(FullMergeV2, AddMany_Operands_Ordered) {
     Add("6000"),
     Add("2000")
   };
-  auto* comparator = rocksdb::BytewiseComparator();
+  auto* comparator = ROCKSDB_NAMESPACE::BytewiseComparator();
 
   auto merge_out = EmptyMergeOut();
 
@@ -466,7 +466,7 @@ TEST(FullMergeV2, AddMany_Operands_Ordered_Reverse) {
     Add("6000"),
     Add("2000")
   };
-  auto* comparator = rocksdb::ReverseBytewiseComparator();
+  auto* comparator = ROCKSDB_NAMESPACE::ReverseBytewiseComparator();
 
   auto merge_out = EmptyMergeOut();
 
@@ -488,7 +488,7 @@ TEST(FullMergeV2, AddMany_ExistingValue_Ordered) {
     })
   };
   Slice existing_value("5000");
-  auto* comparator = rocksdb::BytewiseComparator();
+  auto* comparator = ROCKSDB_NAMESPACE::BytewiseComparator();
 
   auto merge_out = EmptyMergeOut();
 
@@ -510,7 +510,7 @@ TEST(FullMergeV2, AddMany_ExistingValue_Ordered_Reverse) {
     })
   };
   Slice existing_value("5000");
-  auto* comparator = rocksdb::ReverseBytewiseComparator();
+  auto* comparator = ROCKSDB_NAMESPACE::ReverseBytewiseComparator();
 
   auto merge_out = EmptyMergeOut();
 
@@ -530,7 +530,7 @@ TEST(FullMergeV2, AddMany_Operands_ExistingValue_Ordered) {
     Add("9000")
   };
   Slice existing_value("5000");
-  auto* comparator = rocksdb::BytewiseComparator();
+  auto* comparator = ROCKSDB_NAMESPACE::BytewiseComparator();
 
   auto merge_out = EmptyMergeOut();
 
@@ -550,7 +550,7 @@ TEST(FullMergeV2, AddMany_Operands_ExistingValue_Ordered_Reverse) {
     Add("9000")
   };
   Slice existing_value("5000");
-  auto* comparator = rocksdb::ReverseBytewiseComparator();
+  auto* comparator = ROCKSDB_NAMESPACE::ReverseBytewiseComparator();
 
   auto merge_out = EmptyMergeOut();
 
@@ -1041,7 +1041,7 @@ TEST(FullMergeV2, Multi_RemoveAdd_Existing_NoMatch_Ordered) {
     })
   };
   Slice existing_value("2000");
-  auto* comparator = rocksdb::BytewiseComparator();
+  auto* comparator = ROCKSDB_NAMESPACE::BytewiseComparator();
 
   auto merge_out = EmptyMergeOut();
 
@@ -1125,7 +1125,7 @@ TEST(FullMergeV2, Multi_RemoveRemoveAdd_Existing_NoMatch_Ordered) {
     })
   };
   Slice existing_value("2000");
-  auto* comparator = rocksdb::BytewiseComparator();
+  auto* comparator = ROCKSDB_NAMESPACE::BytewiseComparator();
 
   auto merge_out = EmptyMergeOut();
 
@@ -1314,7 +1314,7 @@ TEST(FullMergeV2, Multi_Mixed_1_Existing_Match_5_Ordered) {
     }),
   };
   Slice existing_value("1000500090009999");
-  auto* comparator = rocksdb::BytewiseComparator();
+  auto* comparator = ROCKSDB_NAMESPACE::BytewiseComparator();
 
   auto merge_out = EmptyMergeOut();
 
@@ -3238,7 +3238,7 @@ TEST(PartialMergeMulti, Complex1_uint32_EnforceUnique) {
   ASSERT_TRUE(result);
 }
 
-}  // end rocksdb namespace
+}  // end ROCKSDB_NAMESPACE namespace
 
 int main(int argc, char** argv) {
   ::testing::InitGoogleTest(&argc, argv);

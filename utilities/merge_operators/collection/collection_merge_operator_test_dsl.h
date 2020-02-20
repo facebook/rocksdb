@@ -23,7 +23,7 @@
  * to simplify testing the CollectionMergeOperator.
  */
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 std::string Clear() {
   std::string str_clear;
@@ -137,7 +137,7 @@ std::string toString(std::initializer_list<std::string>& records) {
   return result;
 }
 
-class TestLogger : public rocksdb::Logger {
+class TestLogger : public ROCKSDB_NAMESPACE::Logger {
  public:
   virtual ~TestLogger() { }
 
@@ -153,4 +153,4 @@ class TestLogger : public rocksdb::Logger {
   }
 };
 
-}  // end rocksdb namespace
+}  // end ROCKSDB_NAMESPACE namespace

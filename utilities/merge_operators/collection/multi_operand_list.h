@@ -14,7 +14,7 @@
 #include "rocksdb/slice.h"
 #include "util/coding.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 /**
  * An iterator which iterates over a operand list,
@@ -444,4 +444,4 @@ class MultiOperandList {
   }
 };
 
-}  // end rocksdb namespace
+}  // end ROCKSDB_NAMESPACE namespace

@@ -13,7 +13,7 @@
 #include "util/coding.h"
 #include "utilities/merge_operators.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 // TODO(AR) consider optimising memory use in PartialMergeMulti, replace Operations and OperationsIndex with a pointers approach
 // TODO(AR) consider implementing Collection Operations for kRemoveAll, kReplace, and kReplaceAll
@@ -982,4 +982,4 @@ void CollectionMergeOperator::trace_exit(const char* const msg, const bool succe
   trace_file.close();
 }
 
-}  // end rocksdb namespace
+}  // end ROCKSDB_NAMESPACE namespace

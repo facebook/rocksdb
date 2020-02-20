@@ -43,7 +43,7 @@ public class CollectionMergeOperator extends MergeOperator {
    * @param fixedRecordLen the fixed size of each record.
    */
   public CollectionMergeOperator(final short fixedRecordLen) {
-    this(fixedRecordLen, (Comparator)null);
+    this(fixedRecordLen, (AbstractComparator)null);
   }
 
   /**
@@ -56,7 +56,7 @@ public class CollectionMergeOperator extends MergeOperator {
    * @param comparator if records should be ordered, a comparator to order them.
    */
   public CollectionMergeOperator(final short fixedRecordLen,
-      final Comparator comparator) {
+      final AbstractComparator comparator) {
     this(fixedRecordLen, comparator, UniqueConstraint.NONE);
   }
 
@@ -84,7 +84,7 @@ public class CollectionMergeOperator extends MergeOperator {
    */
   public CollectionMergeOperator(final short fixedRecordLen,
       final UniqueConstraint uniqueConstraint) {
-    this(fixedRecordLen, (Comparator)null, uniqueConstraint);
+    this(fixedRecordLen, (AbstractComparator)null, uniqueConstraint);
   }
 
   /**
@@ -113,7 +113,7 @@ public class CollectionMergeOperator extends MergeOperator {
    *     or not, controls Set vs Vector behaviour.
    */
   public CollectionMergeOperator(final short fixedRecordLen,
-      final Comparator comparator, final UniqueConstraint uniqueConstraint) {
+      final AbstractComparator comparator, final UniqueConstraint uniqueConstraint) {
     super(newCollectionMergeOperator(fixedRecordLen,
         comparator  == null ? 0 : comparator.nativeHandle_,
         comparator == null ? ComparatorType.JAVA_NATIVE_COMPARATOR_WRAPPER.getValue() : comparator.getComparatorType().getValue(),
