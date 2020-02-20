@@ -14,7 +14,7 @@
 #include "rocksdb/utilities/db_ttl.h"
 #include "util/coding.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 void DBWithTTLImpl::SanitizeOptions(int32_t ttl, ColumnFamilyOptions* options,
                                     Env* env) {
@@ -331,5 +331,5 @@ void DBWithTTLImpl::SetTtl(ColumnFamilyHandle *h, int32_t ttl) {
   filter->SetTtl(ttl);
 }
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE
 #endif  // ROCKSDB_LITE

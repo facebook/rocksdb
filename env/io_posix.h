@@ -30,7 +30,7 @@
 #define POSIX_FADV_DONTNEED 4   /* [MC1] dont need these pages */
 #endif
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 static std::string IOErrorMsg(const std::string& context,
                               const std::string& file_name) {
   if (file_name.empty()) {
@@ -323,4 +323,4 @@ class PosixDirectory : public FSDirectory {
   int fd_;
 };
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

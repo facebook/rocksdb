@@ -22,7 +22,7 @@
 #include "util/string_util.h"
 #include "utilities/write_batch_with_index/write_batch_with_index_internal.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 // when direction == forward
 // * current_at_base_ <=> base_iterator > delta_iterator
@@ -1061,5 +1061,5 @@ size_t WriteBatchWithIndex::GetDataSize() const {
   return rep->write_batch.GetDataSize();
 }
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE
 #endif  // !ROCKSDB_LITE

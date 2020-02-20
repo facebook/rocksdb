@@ -38,7 +38,7 @@
 #include "util/mutexlock.h"
 #include "util/util.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 ImmutableMemTableOptions::ImmutableMemTableOptions(
     const ImmutableCFOptions& ioptions,
@@ -127,10 +127,10 @@ MemTable::~MemTable() {
 }
 
 size_t MemTable::ApproximateMemoryUsage() {
-  autovector<size_t> usages = {arena_.ApproximateMemoryUsage(),
-                               table_->ApproximateMemoryUsage(),
-                               range_del_table_->ApproximateMemoryUsage(),
-                               rocksdb::ApproximateMemoryUsage(insert_hints_)};
+  autovector<size_t> usages = {
+      arena_.ApproximateMemoryUsage(), table_->ApproximateMemoryUsage(),
+      range_del_table_->ApproximateMemoryUsage(),
+      ROCKSDB_NAMESPACE::ApproximateMemoryUsage(insert_hints_)};
   size_t total_usage = 0;
   for (size_t usage : usages) {
     // If usage + total_usage >= kMaxSizet, return kMaxSizet.
@@ -668,7 +668,7 @@ static bool SaveValue(void* arg, const char* entry) {
           ROCKS_LOG_ERROR(s->logger, "Encounter unexpected blob index.");
           *(s->status) = Status::NotSupported(
               "Encounter unsupported blob value. Please open DB with "
-              "rocksdb::blob_db::BlobDB instead.");
+              "ROCKSDB_NAMESPACE::blob_db::BlobDB instead.");
         } else if (*(s->merge_in_progress)) {
           *(s->status) =
               Status::NotSupported("Blob DB does not support merge operator.");
@@ -1119,4 +1119,4 @@ uint64_t MemTable::GetMinLogContainingPrepSection() {
   return min_prep_log_referenced_.load();
 }
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

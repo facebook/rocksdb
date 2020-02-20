@@ -32,7 +32,7 @@
 #undef DeleteFile
 #undef GetTickCount
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 namespace port {
 
 // Currently not designed for inheritance but rather a replacement
@@ -344,4 +344,4 @@ private:
 };
 
 } // namespace port
-} // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

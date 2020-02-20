@@ -17,7 +17,7 @@
 #include "util/coding.h"
 #include "util/string_util.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 // The unknown file checksum.
 const std::string kUnknownFileChecksum("");
 // The unknown sst file checksum function name.
@@ -799,4 +799,4 @@ std::string VersionEdit::DebugJSON(int edit_num, bool hex_key) const {
   return jw.Get();
 }
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

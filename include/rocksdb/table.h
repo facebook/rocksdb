@@ -28,7 +28,7 @@
 #include "rocksdb/options.h"
 #include "rocksdb/status.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 // -- Block-based Table
 class FlushBlockPolicyFactory;
@@ -604,4 +604,4 @@ extern TableFactory* NewAdaptiveTableFactory(
 
 #endif  // ROCKSDB_LITE
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

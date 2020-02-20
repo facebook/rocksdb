@@ -8,7 +8,7 @@
 #include "db/event_helpers.h"
 #include "file/sst_file_manager_impl.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 // Maps to help decide the severity of an error based on the
 // BackgroundErrorReason, Code, SubCode and whether db_options.paranoid_checks
@@ -341,4 +341,4 @@ Status ErrorHandler::RecoverFromBGError(bool is_manual) {
   return bg_error_;
 #endif
 }
-}
+}  // namespace ROCKSDB_NAMESPACE

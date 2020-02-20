@@ -12,7 +12,7 @@
 #include "port/port.h"
 #include "util/string_util.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 #ifdef ROCKSDB_JEMALLOC_NODUMP_ALLOCATOR
 
@@ -203,4 +203,4 @@ Status NewJemallocNodumpAllocator(
 #endif  // ROCKSDB_JEMALLOC_NODUMP_ALLOCATOR
 }
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

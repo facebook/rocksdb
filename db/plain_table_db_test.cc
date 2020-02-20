@@ -39,7 +39,7 @@
 
 using std::unique_ptr;
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 class PlainTableKeyDecoderTest : public testing::Test {};
 
 TEST_F(PlainTableKeyDecoderTest, ReadNonMmap) {
@@ -653,9 +653,9 @@ TEST_P(PlainTableDBTest, Immortal) {
     dbfull()->TEST_FlushMemTable();
 
     int copied = 0;
-    rocksdb::SyncPoint::GetInstance()->SetCallBack(
+    ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
         "GetContext::SaveValue::PinSelf", [&](void* /*arg*/) { copied++; });
-    rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+    ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
     ASSERT_EQ("b", Get("0000000000000bar"));
     ASSERT_EQ("v1", Get("1000000000000foo"));
     ASSERT_EQ(2, copied);
@@ -672,7 +672,7 @@ TEST_P(PlainTableDBTest, Immortal) {
     } else {
       ASSERT_EQ(2, copied);
     }
-    rocksdb::SyncPoint::GetInstance()->DisableProcessing();
+    ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
   }
 }
 
@@ -1357,7 +1357,7 @@ TEST_P(PlainTableDBTest, AdaptiveTable) {
 
 INSTANTIATE_TEST_CASE_P(PlainTableDBTest, PlainTableDBTest, ::testing::Bool());
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
   ::testing::InitGoogleTest(&argc, argv);

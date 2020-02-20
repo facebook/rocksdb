@@ -20,7 +20,7 @@
 #include "test_util/sync_point.h"
 #include "util/aligned_buffer.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 class Statistics;
 
 // WritableFileWriter is a wrapper on top of Env::WritableFile. It provides
@@ -168,4 +168,4 @@ class WritableFileWriter {
   Status RangeSync(uint64_t offset, uint64_t nbytes);
   Status SyncInternal(bool use_fsync);
 };
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

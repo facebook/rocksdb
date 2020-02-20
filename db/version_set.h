@@ -49,7 +49,7 @@
 #include "table/multiget_context.h"
 #include "trace_replay/block_cache_tracer.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 namespace log {
 class Writer;
@@ -279,7 +279,7 @@ class VersionStorageInfo {
     return files_[level];
   }
 
-  const rocksdb::LevelFilesBrief& LevelFilesBrief(int level) const {
+  const ROCKSDB_NAMESPACE::LevelFilesBrief& LevelFilesBrief(int level) const {
     assert(level < static_cast<int>(level_files_brief_.size()));
     return level_files_brief_[level];
   }
@@ -443,7 +443,7 @@ class VersionStorageInfo {
   std::vector<uint64_t> level_max_bytes_;
 
   // A short brief metadata of files per level
-  autovector<rocksdb::LevelFilesBrief> level_files_brief_;
+  autovector<ROCKSDB_NAMESPACE::LevelFilesBrief> level_files_brief_;
   FileIndexer file_indexer_;
   Arena arena_;  // Used to allocate space for file_levels_
 
@@ -1248,4 +1248,4 @@ class ReactiveVersionSet : public VersionSet {
   ReactiveVersionSet& operator=(const ReactiveVersionSet&);
 };
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

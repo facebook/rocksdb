@@ -29,7 +29,7 @@
 #include "table/table_reader.h"
 #include "util/string_util.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 bool NewestFirstBySeqNo(FileMetaData* a, FileMetaData* b) {
   if (a->fd.largest_seqno != b->fd.largest_seqno) {
@@ -542,4 +542,4 @@ void VersionBuilder::MaybeAddFile(VersionStorageInfo* vstorage, int level,
   rep_->MaybeAddFile(vstorage, level, f);
 }
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

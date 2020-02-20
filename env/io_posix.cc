@@ -43,7 +43,7 @@
 #define F_SET_RW_HINT (F_LINUX_SPECIFIC_BASE + 12)
 #endif
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 // A wrapper for fadvise, if the platform doesn't support fadvise,
 // it will simply return 0.
@@ -1314,5 +1314,5 @@ IOStatus PosixDirectory::Fsync(const IOOptions& /*opts*/,
 #endif
   return IOStatus::OK();
 }
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE
 #endif

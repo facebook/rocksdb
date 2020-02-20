@@ -14,7 +14,7 @@
 #include "rocksdb/listener.h"
 #include "rocksdb/table_properties.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 class EventHelpers {
  public:
@@ -52,4 +52,4 @@ class EventHelpers {
       const FileDescriptor& fd, const TableFileCreationInfo& info);
 };
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

@@ -21,7 +21,7 @@
 #include "test_util/testharness.h"
 #include "util/string_util.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 static std::string PrintContents(WriteBatch* b) {
   InternalKeyComparator cmp(BytewiseComparator());
@@ -880,7 +880,7 @@ TEST_F(WriteBatchTest, MemoryLimitTest) {
   ASSERT_TRUE(s.IsMemoryLimit());
 }
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
   ::testing::InitGoogleTest(&argc, argv);

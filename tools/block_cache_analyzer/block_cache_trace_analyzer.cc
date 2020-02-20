@@ -150,7 +150,7 @@ DEFINE_int32(analyze_correlation_coefficients_max_number_of_values, 1000000,
 DEFINE_string(human_readable_trace_file_path, "",
               "The filt path that saves human readable access records.");
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 namespace {
 
 const std::string kMissRatioCurveFileName = "mrc";
@@ -1440,7 +1440,7 @@ BlockCacheTraceAnalyzer::BlockCacheTraceAnalyzer(
     bool compute_reuse_distance, bool mrc_only,
     bool is_human_readable_trace_file,
     std::unique_ptr<BlockCacheTraceSimulator>&& cache_simulator)
-    : env_(rocksdb::Env::Default()),
+    : env_(ROCKSDB_NAMESPACE::Env::Default()),
       trace_file_path_(trace_file_path),
       output_dir_(output_dir),
       human_readable_trace_file_path_(human_readable_trace_file_path),
@@ -2302,7 +2302,7 @@ int block_cache_trace_analyzer_tool(int argc, char** argv) {
   return 0;
 }
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE
 
 #endif  // GFLAGS
 #endif  // ROCKSDB_LITE

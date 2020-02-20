@@ -21,7 +21,7 @@
 #include "test_util/sync_point.h"
 #include "util/mutexlock.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 Status DBImpl::DisableFileDeletions() {
   InstrumentedMutexLock l(&mutex_);
@@ -172,6 +172,6 @@ Status DBImpl::GetCurrentWalFile(std::unique_ptr<LogFile>* current_log_file) {
 
   return wal_manager_.GetLiveWalFile(current_logfile_number, current_log_file);
 }
-}
+}  // namespace ROCKSDB_NAMESPACE
 
 #endif  // ROCKSDB_LITE

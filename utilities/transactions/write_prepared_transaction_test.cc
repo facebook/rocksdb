@@ -40,7 +40,7 @@
 
 using std::string;
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 using CommitEntry = WritePreparedTxnDB::CommitEntry;
 using CommitEntry64b = WritePreparedTxnDB::CommitEntry64b;
@@ -157,14 +157,14 @@ TEST(PreparedHeap, EmptyAtTheEnd) {
 // successfully emptied at the end.
 TEST(PreparedHeap, Concurrent) {
   const size_t t_cnt = 10;
-  rocksdb::port::Thread t[t_cnt + 1];
+  ROCKSDB_NAMESPACE::port::Thread t[t_cnt + 1];
   WritePreparedTxnDB::PreparedHeap heap;
   port::RWMutex prepared_mutex;
   std::atomic<size_t> last;
 
   for (size_t n = 0; n < 100; n++) {
     last = 0;
-    t[0] = rocksdb::port::Thread([&]() {
+    t[0] = ROCKSDB_NAMESPACE::port::Thread([&]() {
       Random rnd(1103);
       for (size_t seq = 1; seq <= t_cnt; seq++) {
         // This is not recommended usage but we should be resilient against it.
@@ -178,14 +178,15 @@ TEST(PreparedHeap, Concurrent) {
       }
     });
     for (size_t i = 1; i <= t_cnt; i++) {
-      t[i] = rocksdb::port::Thread([&heap, &prepared_mutex, &last, i]() {
-        auto seq = i;
-        do {
-          std::this_thread::yield();
-        } while (last.load() < seq);
-        WriteLock wl(&prepared_mutex);
-        heap.erase(seq);
-      });
+      t[i] =
+          ROCKSDB_NAMESPACE::port::Thread([&heap, &prepared_mutex, &last, i]() {
+            auto seq = i;
+            do {
+              std::this_thread::yield();
+            } while (last.load() < seq);
+            WriteLock wl(&prepared_mutex);
+            heap.erase(seq);
+          });
     }
     for (size_t i = 0; i <= t_cnt; i++) {
       t[i].join();
@@ -421,7 +422,7 @@ class WritePreparedTransactionTestBase : public TransactionTestBase {
     wp_db->UpdateSnapshots(old_snapshots, ++version);
 
     // Starting from the first thread, cut each thread at two points
-    rocksdb::SyncPoint::GetInstance()->LoadDependency({
+    ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->LoadDependency({
         {"WritePreparedTxnDB::CheckAgainstSnapshots:p:" + std::to_string(a1),
          "WritePreparedTxnDB::UpdateSnapshots:s:start"},
         {"WritePreparedTxnDB::UpdateSnapshots:p:" + std::to_string(b1),
@@ -433,23 +434,24 @@ class WritePreparedTransactionTestBase : public TransactionTestBase {
         {"WritePreparedTxnDB::CheckAgainstSnapshots:p:end",
          "WritePreparedTxnDB::UpdateSnapshots:s:" + std::to_string(b2)},
     });
-    rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+    ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
     {
       ASSERT_TRUE(wp_db->old_commit_map_empty_);
-      rocksdb::port::Thread t1(
+      ROCKSDB_NAMESPACE::port::Thread t1(
           [&]() { wp_db->UpdateSnapshots(new_snapshots, version); });
-      rocksdb::port::Thread t2([&]() { wp_db->CheckAgainstSnapshots(entry); });
+      ROCKSDB_NAMESPACE::port::Thread t2(
+          [&]() { wp_db->CheckAgainstSnapshots(entry); });
       t1.join();
       t2.join();
       ASSERT_FALSE(wp_db->old_commit_map_empty_);
     }
-    rocksdb::SyncPoint::GetInstance()->DisableProcessing();
+    ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
 
     wp_db->old_commit_map_empty_ = true;
     wp_db->UpdateSnapshots(empty_snapshots, ++version);
     wp_db->UpdateSnapshots(old_snapshots, ++version);
     // Starting from the second thread, cut each thread at two points
-    rocksdb::SyncPoint::GetInstance()->LoadDependency({
+    ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->LoadDependency({
         {"WritePreparedTxnDB::UpdateSnapshots:p:" + std::to_string(a1),
          "WritePreparedTxnDB::CheckAgainstSnapshots:s:start"},
         {"WritePreparedTxnDB::CheckAgainstSnapshots:p:" + std::to_string(b1),
@@ -461,17 +463,18 @@ class WritePreparedTransactionTestBase : public TransactionTestBase {
         {"WritePreparedTxnDB::UpdateSnapshots:p:end",
          "WritePreparedTxnDB::CheckAgainstSnapshots:s:" + std::to_string(b2)},
     });
-    rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+    ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
     {
       ASSERT_TRUE(wp_db->old_commit_map_empty_);
-      rocksdb::port::Thread t1(
+      ROCKSDB_NAMESPACE::port::Thread t1(
           [&]() { wp_db->UpdateSnapshots(new_snapshots, version); });
-      rocksdb::port::Thread t2([&]() { wp_db->CheckAgainstSnapshots(entry); });
+      ROCKSDB_NAMESPACE::port::Thread t2(
+          [&]() { wp_db->CheckAgainstSnapshots(entry); });
       t1.join();
       t2.join();
       ASSERT_FALSE(wp_db->old_commit_map_empty_);
     }
-    rocksdb::SyncPoint::GetInstance()->DisableProcessing();
+    ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
   }
 
   // Verify value of keys.
@@ -827,10 +830,10 @@ TEST_P(WritePreparedTransactionTest, CheckKeySkipOldMemtable) {
       // For the second attempt, hold flush from beginning. The memtable
       // will be switched to immutable after calling TEST_SwitchMemtable()
       // while CheckKey() is called.
-      rocksdb::SyncPoint::GetInstance()->LoadDependency(
+      ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->LoadDependency(
           {{"WritePreparedTransactionTest.CheckKeySkipOldMemtable",
             "FlushJob::Start"}});
-      rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+      ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
     }
 
     // force a memtable flush. The memtable should still be kept
@@ -915,7 +918,7 @@ TEST_P(WritePreparedTransactionTest, CheckKeySkipOldMemtable) {
     ASSERT_OK(txn4->Commit());
 
     TEST_SYNC_POINT("WritePreparedTransactionTest.CheckKeySkipOldMemtable");
-    rocksdb::SyncPoint::GetInstance()->DisableProcessing();
+    ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
 
     SetPerfLevel(PerfLevel::kDisable);
 
@@ -1368,7 +1371,7 @@ TEST_P(WritePreparedTransactionTest, MaxCatchupWithNewSnapshot) {
 
   const int writes = 50;
   const int batch_cnt = 4;
-  rocksdb::port::Thread t1([&]() {
+  ROCKSDB_NAMESPACE::port::Thread t1([&]() {
     for (int i = 0; i < writes; i++) {
       WriteBatch batch;
       // For duplicate keys cause 4 commit entries, each evicting an entry that
@@ -1381,7 +1384,7 @@ TEST_P(WritePreparedTransactionTest, MaxCatchupWithNewSnapshot) {
     }
   });
 
-  rocksdb::port::Thread t2([&]() {
+  ROCKSDB_NAMESPACE::port::Thread t2([&]() {
     while (wp_db->max_evicted_seq_ == 0) {  // wait for insert thread
       std::this_thread::yield();
     }
@@ -1417,7 +1420,7 @@ TEST_P(WritePreparedTransactionTest, MaxCatchupWithUnbackedSnapshot) {
   WritePreparedTxnDB* wp_db = dynamic_cast<WritePreparedTxnDB*>(db);
 
   const int writes = 50;
-  rocksdb::port::Thread t1([&]() {
+  ROCKSDB_NAMESPACE::port::Thread t1([&]() {
     for (int i = 0; i < writes; i++) {
       WriteBatch batch;
       batch.Put("key", "foo");
@@ -1425,7 +1428,7 @@ TEST_P(WritePreparedTransactionTest, MaxCatchupWithUnbackedSnapshot) {
     }
   });
 
-  rocksdb::port::Thread t2([&]() {
+  ROCKSDB_NAMESPACE::port::Thread t2([&]() {
     while (wp_db->max_evicted_seq_ == 0) {  // wait for insert thread
       std::this_thread::yield();
     }
@@ -1607,7 +1610,7 @@ TEST_P(WritePreparedTransactionTest, SmallestUnCommittedSeq) {
 
   port::Mutex mutex;
   Random rnd(1103);
-  rocksdb::port::Thread commit_thread([&]() {
+  ROCKSDB_NAMESPACE::port::Thread commit_thread([&]() {
     for (int i = 0; i < cnt; i++) {
       uint32_t index = rnd.Uniform(cnt - i);
       Transaction* txn;
@@ -1623,7 +1626,7 @@ TEST_P(WritePreparedTransactionTest, SmallestUnCommittedSeq) {
       committed_txns.push_back(txn);
     }
   });
-  rocksdb::port::Thread read_thread([&]() {
+  ROCKSDB_NAMESPACE::port::Thread read_thread([&]() {
     while (1) {
       MutexLock l(&mutex);
       if (txns.empty()) {
@@ -1686,10 +1689,10 @@ TEST_P(SeqAdvanceConcurrentTest, SeqAdvanceConcurrent) {
 
     linked = 0;
     std::atomic<bool> batch_formed(false);
-    rocksdb::SyncPoint::GetInstance()->SetCallBack(
+    ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
         "WriteThread::EnterAsBatchGroupLeader:End",
         [&](void* /*arg*/) { batch_formed = true; });
-    rocksdb::SyncPoint::GetInstance()->SetCallBack(
+    ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
         "WriteThread::JoinBatchGroup:Wait", [&](void* /*arg*/) {
           linked++;
           if (linked == 1) {
@@ -1707,7 +1710,7 @@ TEST_P(SeqAdvanceConcurrentTest, SeqAdvanceConcurrent) {
           // but it should be tolerable.
         });
 
-    rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+    ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
     for (size_t bi = 0; bi < txn_cnt; bi++) {
       // get the bi-th digit in number system based on type_cnt
       size_t d = (n % base[bi + 1]) / base[bi];
@@ -1758,8 +1761,8 @@ TEST_P(SeqAdvanceConcurrentTest, SeqAdvanceConcurrent) {
     seq = db_impl->TEST_GetLastVisibleSequence();
     ASSERT_EQ(exp_seq, seq);
 
-    rocksdb::SyncPoint::GetInstance()->DisableProcessing();
-    rocksdb::SyncPoint::GetInstance()->ClearAllCallBacks();
+    ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
+    ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearAllCallBacks();
 
     // Check if recovery preserves the last sequence number
     db_impl->FlushWAL(true);
@@ -3039,14 +3042,14 @@ TEST_P(WritePreparedTransactionTest, NonAtomicCommitOfDelayedPrepared) {
       if (split_read) {
         if (split_before_mutex) {
           // split before acquiring prepare_mutex_
-          rocksdb::SyncPoint::GetInstance()->LoadDependency(
+          ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->LoadDependency(
               {{"WritePreparedTxnDB::IsInSnapshot:prepared_mutex_:pause",
                 "AtomicCommitOfDelayedPrepared:Commit:before"},
                {"AtomicCommitOfDelayedPrepared:Commit:after",
                 "WritePreparedTxnDB::IsInSnapshot:prepared_mutex_:resume"}});
         } else {
           // split right after reading from the commit cache
-          rocksdb::SyncPoint::GetInstance()->LoadDependency(
+          ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->LoadDependency(
               {{"WritePreparedTxnDB::IsInSnapshot:GetCommitEntry:pause",
                 "AtomicCommitOfDelayedPrepared:Commit:before"},
                {"AtomicCommitOfDelayedPrepared:Commit:after",
@@ -3054,7 +3057,7 @@ TEST_P(WritePreparedTransactionTest, NonAtomicCommitOfDelayedPrepared) {
         }
       } else {  // split commit
         // split right before removing from delayed_prepared_
-        rocksdb::SyncPoint::GetInstance()->LoadDependency(
+        ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->LoadDependency(
             {{"WritePreparedTxnDB::RemovePrepared:pause",
               "AtomicCommitOfDelayedPrepared:Read:before"},
              {"AtomicCommitOfDelayedPrepared:Read:after",
@@ -3062,7 +3065,7 @@ TEST_P(WritePreparedTransactionTest, NonAtomicCommitOfDelayedPrepared) {
       }
       SyncPoint::GetInstance()->EnableProcessing();
 
-      rocksdb::port::Thread commit_thread([&]() {
+      ROCKSDB_NAMESPACE::port::Thread commit_thread([&]() {
         TEST_SYNC_POINT("AtomicCommitOfDelayedPrepared:Commit:before");
         ASSERT_OK(txn->Commit());
         if (split_before_mutex) {
@@ -3081,7 +3084,7 @@ TEST_P(WritePreparedTransactionTest, NonAtomicCommitOfDelayedPrepared) {
         delete txn;
       });
 
-      rocksdb::port::Thread read_thread([&]() {
+      ROCKSDB_NAMESPACE::port::Thread read_thread([&]() {
         TEST_SYNC_POINT("AtomicCommitOfDelayedPrepared:Read:before");
         ReadOptions roptions;
         roptions.snapshot = snap;
@@ -3096,8 +3099,8 @@ TEST_P(WritePreparedTransactionTest, NonAtomicCommitOfDelayedPrepared) {
 
       read_thread.join();
       commit_thread.join();
-      rocksdb::SyncPoint::GetInstance()->DisableProcessing();
-      rocksdb::SyncPoint::GetInstance()->ClearAllCallBacks();
+      ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
+      ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearAllCallBacks();
     }  // for split_before_mutex
   }    // for split_read
 }
@@ -3132,14 +3135,14 @@ TEST_P(WritePreparedTransactionTest, NonAtomicUpdateOfDelayedPrepared) {
   ASSERT_LT(txn->GetId(), snap->GetSequenceNumber());
 
   // split right after reading delayed_prepared_empty_
-  rocksdb::SyncPoint::GetInstance()->LoadDependency(
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->LoadDependency(
       {{"WritePreparedTxnDB::IsInSnapshot:delayed_prepared_empty_:pause",
         "AtomicUpdateOfDelayedPrepared:before"},
        {"AtomicUpdateOfDelayedPrepared:after",
         "WritePreparedTxnDB::IsInSnapshot:delayed_prepared_empty_:resume"}});
   SyncPoint::GetInstance()->EnableProcessing();
 
-  rocksdb::port::Thread commit_thread([&]() {
+  ROCKSDB_NAMESPACE::port::Thread commit_thread([&]() {
     TEST_SYNC_POINT("AtomicUpdateOfDelayedPrepared:before");
     // Commit a bunch of entries to advance max evicted seq and make the
     // prepared a delayed prepared
@@ -3154,7 +3157,7 @@ TEST_P(WritePreparedTransactionTest, NonAtomicUpdateOfDelayedPrepared) {
     TEST_SYNC_POINT("AtomicUpdateOfDelayedPrepared:after");
   });
 
-  rocksdb::port::Thread read_thread([&]() {
+  ROCKSDB_NAMESPACE::port::Thread read_thread([&]() {
     ReadOptions roptions;
     roptions.snapshot = snap;
     PinnableSlice value;
@@ -3169,8 +3172,8 @@ TEST_P(WritePreparedTransactionTest, NonAtomicUpdateOfDelayedPrepared) {
   commit_thread.join();
   ASSERT_OK(txn->Commit());
   delete txn;
-  rocksdb::SyncPoint::GetInstance()->DisableProcessing();
-  rocksdb::SyncPoint::GetInstance()->ClearAllCallBacks();
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearAllCallBacks();
 }
 
 // Eviction from commit cache and update of max evicted seq are two non-atomic
@@ -3210,14 +3213,14 @@ TEST_P(WritePreparedTransactionTest, NonAtomicUpdateOfMaxEvictedSeq) {
   ASSERT_LE(txn->GetId(), snap->GetSequenceNumber());
 
   // split right after reading max_evicted_seq_
-  rocksdb::SyncPoint::GetInstance()->LoadDependency(
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->LoadDependency(
       {{"WritePreparedTxnDB::IsInSnapshot:max_evicted_seq_:pause",
         "NonAtomicUpdateOfMaxEvictedSeq:before"},
        {"NonAtomicUpdateOfMaxEvictedSeq:after",
         "WritePreparedTxnDB::IsInSnapshot:max_evicted_seq_:resume"}});
   SyncPoint::GetInstance()->EnableProcessing();
 
-  rocksdb::port::Thread commit_thread([&]() {
+  ROCKSDB_NAMESPACE::port::Thread commit_thread([&]() {
     TEST_SYNC_POINT("NonAtomicUpdateOfMaxEvictedSeq:before");
     // Commit a bunch of entries to advance max evicted seq beyond txn->GetId()
     size_t tries = 0;
@@ -3231,7 +3234,7 @@ TEST_P(WritePreparedTransactionTest, NonAtomicUpdateOfMaxEvictedSeq) {
     TEST_SYNC_POINT("NonAtomicUpdateOfMaxEvictedSeq:after");
   });
 
-  rocksdb::port::Thread read_thread([&]() {
+  ROCKSDB_NAMESPACE::port::Thread read_thread([&]() {
     ReadOptions roptions;
     roptions.snapshot = snap;
     PinnableSlice value;
@@ -3247,8 +3250,8 @@ TEST_P(WritePreparedTransactionTest, NonAtomicUpdateOfMaxEvictedSeq) {
   delete txn;
   txn1->Commit();
   delete txn1;
-  rocksdb::SyncPoint::GetInstance()->DisableProcessing();
-  rocksdb::SyncPoint::GetInstance()->ClearAllCallBacks();
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearAllCallBacks();
 }
 
 // Test when we add a prepared seq when the max_evicted_seq_ already goes beyond
@@ -3287,7 +3290,7 @@ TEST_P(WritePreparedTransactionTest, AddPreparedBeforeMax) {
   // t1) Insert prepared entry, t2) commit other entries to advance max
   // evicted sec and finish checking the existing prepared entries, t1)
   // AddPrepared, t2) update max_evicted_seq_
-  rocksdb::SyncPoint::GetInstance()->LoadDependency({
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->LoadDependency({
       {"AddPreparedCallback::AddPrepared::begin:pause",
        "AddPreparedBeforeMax::read_thread:start"},
       {"AdvanceMaxEvictedSeq::update_max:pause",
@@ -3297,13 +3300,13 @@ TEST_P(WritePreparedTransactionTest, AddPreparedBeforeMax) {
   });
   SyncPoint::GetInstance()->EnableProcessing();
 
-  rocksdb::port::Thread write_thread([&]() {
+  ROCKSDB_NAMESPACE::port::Thread write_thread([&]() {
     txn_mutex_.Lock();
     ASSERT_OK(txn->Prepare());
     txn_mutex_.Unlock();
   });
 
-  rocksdb::port::Thread read_thread([&]() {
+  ROCKSDB_NAMESPACE::port::Thread read_thread([&]() {
     TEST_SYNC_POINT("AddPreparedBeforeMax::read_thread:start");
     // Publish seq number with a commit
     ASSERT_OK(txn1->Commit());
@@ -3332,8 +3335,8 @@ TEST_P(WritePreparedTransactionTest, AddPreparedBeforeMax) {
   delete txn2;
   ASSERT_OK(txn->Commit());
   delete txn;
-  rocksdb::SyncPoint::GetInstance()->DisableProcessing();
-  rocksdb::SyncPoint::GetInstance()->ClearAllCallBacks();
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearAllCallBacks();
 }
 
 // When an old prepared entry gets committed, there is a gap between the time
@@ -3347,7 +3350,7 @@ TEST_P(WritePreparedTransactionTest, CommitOfDelayedPrepared) {
       ReOpen();
       std::atomic<const Snapshot*> snap = {nullptr};
       std::atomic<SequenceNumber> exp_prepare = {0};
-      rocksdb::port::Thread callback_thread;
+      ROCKSDB_NAMESPACE::port::Thread callback_thread;
       // Value is synchronized via snap
       PinnableSlice value;
       // Take a snapshot after publish and before RemovePrepared:Start
@@ -3365,27 +3368,27 @@ TEST_P(WritePreparedTransactionTest, CommitOfDelayedPrepared) {
           // We need to spawn a thread to avoid deadlock since getting a
           // snpashot might end up calling AdvanceSeqByOne which needs joining
           // the write queue.
-          callback_thread = rocksdb::port::Thread(snap_callback);
+          callback_thread = ROCKSDB_NAMESPACE::port::Thread(snap_callback);
           TEST_SYNC_POINT("callback:end");
         }
       };
       // Wait for the first snapshot be taken in GetSnapshotInternal. Although
       // it might be updated before GetSnapshotInternal finishes but this should
       // cover most of the cases.
-      rocksdb::SyncPoint::GetInstance()->LoadDependency({
+      ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->LoadDependency({
           {"WritePreparedTxnDB::GetSnapshotInternal:first", "callback:end"},
       });
       SyncPoint::GetInstance()->SetCallBack("RemovePrepared:Start", callback);
       SyncPoint::GetInstance()->EnableProcessing();
       // Thread to cause frequent evictions
-      rocksdb::port::Thread eviction_thread([&]() {
+      ROCKSDB_NAMESPACE::port::Thread eviction_thread([&]() {
         // Too many txns might cause commit_seq - prepare_seq in another thread
         // to go beyond DELTA_UPPERBOUND
         for (int i = 0; i < 25 * (1 << commit_cache_bits); i++) {
           db->Put(WriteOptions(), Slice("key1"), Slice("value1"));
         }
       });
-      rocksdb::port::Thread write_thread([&]() {
+      ROCKSDB_NAMESPACE::port::Thread write_thread([&]() {
         for (int i = 0; i < 25 * (1 << commit_cache_bits); i++) {
           Transaction* txn =
               db->BeginTransaction(WriteOptions(), TransactionOptions());
@@ -3424,8 +3427,8 @@ TEST_P(WritePreparedTransactionTest, CommitOfDelayedPrepared) {
       });
       write_thread.join();
       eviction_thread.join();
-      rocksdb::SyncPoint::GetInstance()->DisableProcessing();
-      rocksdb::SyncPoint::GetInstance()->ClearAllCallBacks();
+      ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
+      ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearAllCallBacks();
     }
   }
 }
@@ -3433,7 +3436,7 @@ TEST_P(WritePreparedTransactionTest, CommitOfDelayedPrepared) {
 // Test that updating the commit map will not affect the existing snapshots
 TEST_P(WritePreparedTransactionTest, AtomicCommit) {
   for (bool skip_prepare : {true, false}) {
-    rocksdb::SyncPoint::GetInstance()->LoadDependency({
+    ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->LoadDependency({
         {"WritePreparedTxnDB::AddCommitted:start",
          "AtomicCommit::GetSnapshot:start"},
         {"AtomicCommit::Get:end",
@@ -3442,8 +3445,8 @@ TEST_P(WritePreparedTransactionTest, AtomicCommit) {
         {"AtomicCommit::Get2:end",
          "WritePreparedTxnDB::AddCommitted:end:pause:"},
     });
-    rocksdb::SyncPoint::GetInstance()->EnableProcessing();
-    rocksdb::port::Thread write_thread([&]() {
+    ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+    ROCKSDB_NAMESPACE::port::Thread write_thread([&]() {
       if (skip_prepare) {
         db->Put(WriteOptions(), Slice("key"), Slice("value"));
       } else {
@@ -3456,7 +3459,7 @@ TEST_P(WritePreparedTransactionTest, AtomicCommit) {
         delete txn;
       }
     });
-    rocksdb::port::Thread read_thread([&]() {
+    ROCKSDB_NAMESPACE::port::Thread read_thread([&]() {
       ReadOptions roptions;
       TEST_SYNC_POINT("AtomicCommit::GetSnapshot:start");
       roptions.snapshot = db->GetSnapshot();
@@ -3470,7 +3473,7 @@ TEST_P(WritePreparedTransactionTest, AtomicCommit) {
     });
     read_thread.join();
     write_thread.join();
-    rocksdb::SyncPoint::GetInstance()->DisableProcessing();
+    ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
   }
 }
 
@@ -3502,7 +3505,7 @@ TEST_P(WritePreparedTransactionTest, WC_WP_WALForwardIncompatibility) {
   CrossCompatibilityTest(WRITE_PREPARED, WRITE_COMMITTED, !empty_wal);
 }
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
   ::testing::InitGoogleTest(&argc, argv);

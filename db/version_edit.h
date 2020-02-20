@@ -19,7 +19,7 @@
 #include "table/table_reader.h"
 #include "util/autovector.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 class VersionSet;
 
@@ -435,4 +435,4 @@ class VersionEdit {
   uint32_t remaining_entries_ = 0;
 };
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

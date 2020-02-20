@@ -9,7 +9,7 @@
 #include "test_util/testharness.h"
 #include "test_util/testutil.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 namespace {
 // In this test we only want to Log some simple log message with
@@ -154,7 +154,7 @@ TEST_F(EnvLoggerTest, ConcurrentLogging) {
   DeleteLogFile();
 }
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
   ::testing::InitGoogleTest(&argc, argv);

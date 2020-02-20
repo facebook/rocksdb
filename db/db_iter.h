@@ -20,7 +20,7 @@
 #include "table/iterator_wrapper.h"
 #include "util/autovector.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 // This file declares the factory functions of DBIter, in its original form
 // or a wrapped form with class ArenaWrappedDBIter, which is defined here.
@@ -342,4 +342,4 @@ extern Iterator* NewDBIterator(
     ReadCallback* read_callback, DBImpl* db_impl = nullptr,
     ColumnFamilyData* cfd = nullptr, bool allow_blob = false);
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

@@ -31,7 +31,7 @@
 #include "util/string_util.h"
 #include "util/user_comparator_wrapper.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 #if 0
 static void DumpInternalIter(Iterator* iter) {
@@ -325,7 +325,7 @@ bool DBIter::FindNextUserEntryInternal(bool skipping_saved_key,
                   ROCKS_LOG_ERROR(logger_, "Encounter unexpected blob index.");
                   status_ = Status::NotSupported(
                       "Encounter unexpected blob index. Please open DB with "
-                      "rocksdb::blob_db::BlobDB instead.");
+                      "ROCKSDB_NAMESPACE::blob_db::BlobDB instead.");
                   valid_ = false;
                   return false;
                 }
@@ -497,7 +497,7 @@ bool DBIter::MergeValuesNewToOld() {
         ROCKS_LOG_ERROR(logger_, "Encounter unexpected blob index.");
         status_ = Status::NotSupported(
             "Encounter unexpected blob index. Please open DB with "
-            "rocksdb::blob_db::BlobDB instead.");
+            "ROCKSDB_NAMESPACE::blob_db::BlobDB instead.");
       } else {
         status_ =
             Status::NotSupported("Blob DB does not support merge operator.");
@@ -798,7 +798,7 @@ bool DBIter::FindValueForCurrentKey() {
           ROCKS_LOG_ERROR(logger_, "Encounter unexpected blob index.");
           status_ = Status::NotSupported(
               "Encounter unexpected blob index. Please open DB with "
-              "rocksdb::blob_db::BlobDB instead.");
+              "ROCKSDB_NAMESPACE::blob_db::BlobDB instead.");
         } else {
           status_ =
               Status::NotSupported("Blob DB does not support merge operator.");
@@ -821,7 +821,7 @@ bool DBIter::FindValueForCurrentKey() {
         ROCKS_LOG_ERROR(logger_, "Encounter unexpected blob index.");
         status_ = Status::NotSupported(
             "Encounter unexpected blob index. Please open DB with "
-            "rocksdb::blob_db::BlobDB instead.");
+            "ROCKSDB_NAMESPACE::blob_db::BlobDB instead.");
         valid_ = false;
         return false;
       }
@@ -892,7 +892,7 @@ bool DBIter::FindValueForCurrentKeyUsingSeek() {
     ROCKS_LOG_ERROR(logger_, "Encounter unexpected blob index.");
     status_ = Status::NotSupported(
         "Encounter unexpected blob index. Please open DB with "
-        "rocksdb::blob_db::BlobDB instead.");
+        "ROCKSDB_NAMESPACE::blob_db::BlobDB instead.");
     valid_ = false;
     return false;
   }
@@ -954,7 +954,7 @@ bool DBIter::FindValueForCurrentKeyUsingSeek() {
         ROCKS_LOG_ERROR(logger_, "Encounter unexpected blob index.");
         status_ = Status::NotSupported(
             "Encounter unexpected blob index. Please open DB with "
-            "rocksdb::blob_db::BlobDB instead.");
+            "ROCKSDB_NAMESPACE::blob_db::BlobDB instead.");
       } else {
         status_ =
             Status::NotSupported("Blob DB does not support merge operator.");
@@ -1324,4 +1324,4 @@ Iterator* NewDBIterator(Env* env, const ReadOptions& read_options,
   return db_iter;
 }
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE
