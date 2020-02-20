@@ -3767,8 +3767,6 @@ Status VersionSet::ProcessManifestWrites(
   if (!descriptor_log_ ||
       manifest_file_size_ > db_options_->max_manifest_file_size) {
     TEST_SYNC_POINT("VersionSet::ProcessManifestWrites:BeforeNewManifest");
-    pending_manifest_file_number_ = NewFileNumber();
-    batch_edits.back()->SetNextFile(next_file_number_.load());
     new_descriptor_log = true;
   } else {
     pending_manifest_file_number_ = manifest_file_number_;
@@ -3779,6 +3777,9 @@ Status VersionSet::ProcessManifestWrites(
   // SwitchMemtable().
   std::unordered_map<uint32_t, MutableCFState> curr_state;
   if (new_descriptor_log) {
+    pending_manifest_file_number_ = NewFileNumber();
+    batch_edits.back()->SetNextFile(next_file_number_.load());
+
     // if we are writing out new snapshot make sure to persist max column
     // family.
     if (column_family_set_->GetMaxColumnFamily() > 0) {
