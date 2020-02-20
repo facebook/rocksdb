@@ -1200,7 +1200,7 @@ void BlockCacheTraceAnalyzer::WriteBlockReuseTimeline(
         const uint64_t timestamp = timeline.first;
         const uint64_t elapsed_time =
             timestamp - trace_start_timestamp_in_seconds_;
-        if (!user_access_only || (user_access_only && is_user_access(caller))) {
+        if (!user_access_only || is_user_access(caller)) {
           uint64_t index =
               std::min(elapsed_time / reuse_window, reuse_vector_size - 1);
           block_accessed[block_id][index] = true;
@@ -1412,8 +1412,7 @@ void BlockCacheTraceAnalyzer::WriteAccessCountSummaryStats(
         }
         uint64_t naccesses = 0;
         for (auto const& caller_access : block.caller_num_access_map) {
-          if (!user_access_only ||
-              (user_access_only && is_user_access(caller_access.first))) {
+          if (!user_access_only || is_user_access(caller_access.first)) {
             naccesses += caller_access.second;
           }
         }
@@ -1648,8 +1647,7 @@ void BlockCacheTraceAnalyzer::PrintAccessCountStats(bool user_access_only,
                             const BlockAccessInfo& block) {
     uint64_t naccesses = 0;
     for (auto const& caller_access : block.caller_num_access_map) {
-      if (!user_access_only ||
-          (user_access_only && is_user_access(caller_access.first))) {
+      if (!user_access_only || is_user_access(caller_access.first)) {
         naccesses += caller_access.second;
       }
     }
@@ -1680,8 +1678,7 @@ void BlockCacheTraceAnalyzer::PrintAccessCountStats(bool user_access_only,
     for (auto const& block_id : naccess_it->second) {
       BlockAccessInfo* block = block_info_map_.find(block_id)->second;
       for (auto const& caller_access : block->caller_num_access_map) {
-        if (!user_access_only ||
-            (user_access_only && is_user_access(caller_access.first))) {
+        if (!user_access_only || is_user_access(caller_access.first)) {
           caller_naccesses[caller_access.first] += caller_access.second;
           naccesses += caller_access.second;
         }
@@ -1714,15 +1711,13 @@ void BlockCacheTraceAnalyzer::PrintAccessCountStats(bool user_access_only,
       std::string statistics("Caller:");
       uint64_t naccesses = 0;
       for (auto const& caller_access : block->caller_num_access_map) {
-        if (!user_access_only ||
-            (user_access_only && is_user_access(caller_access.first))) {
+        if (!user_access_only || is_user_access(caller_access.first)) {
           naccesses += caller_access.second;
         }
       }
       assert(naccesses > 0);
       for (auto const& caller_access : block->caller_num_access_map) {
-        if (!user_access_only ||
-            (user_access_only && is_user_access(caller_access.first))) {
+        if (!user_access_only || is_user_access(caller_access.first)) {
           statistics += ",";
           statistics += caller_to_string(caller_access.first);
           statistics += ":";
@@ -1734,8 +1729,7 @@ void BlockCacheTraceAnalyzer::PrintAccessCountStats(bool user_access_only,
       uint64_t ref_keys_does_not_exist_accesses = 0;
       for (auto const& ref_key_caller_access : block->key_num_access_map) {
         for (auto const& caller_access : ref_key_caller_access.second) {
-          if (!user_access_only ||
-              (user_access_only && is_user_access(caller_access.first))) {
+          if (!user_access_only || is_user_access(caller_access.first)) {
             ref_keys_accesses += caller_access.second;
           }
         }
@@ -1743,8 +1737,7 @@ void BlockCacheTraceAnalyzer::PrintAccessCountStats(bool user_access_only,
       for (auto const& ref_key_caller_access :
            block->non_exist_key_num_access_map) {
         for (auto const& caller_access : ref_key_caller_access.second) {
-          if (!user_access_only ||
-              (user_access_only && is_user_access(caller_access.first))) {
+          if (!user_access_only || is_user_access(caller_access.first)) {
             ref_keys_does_not_exist_accesses += caller_access.second;
           }
         }
