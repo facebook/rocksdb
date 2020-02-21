@@ -2765,6 +2765,12 @@ void rocksdb_ratelimiter_destroy(rocksdb_ratelimiter_t *limiter) {
   delete limiter;
 }
 
+void rocksdb_options_set_row_cache(rocksdb_options_t* opt, rocksdb_cache_t* cache) {
+  if(cache) {
+    opt->rep.row_cache = cache->rep;
+  }
+}
+
 void rocksdb_set_perf_level(int v) {
   PerfLevel level = static_cast<PerfLevel>(v);
   SetPerfLevel(level);
