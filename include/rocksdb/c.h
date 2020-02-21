@@ -1047,6 +1047,10 @@ extern ROCKSDB_LIBRARY_API void rocksdb_options_set_ratelimiter(
 extern ROCKSDB_LIBRARY_API void rocksdb_options_set_atomic_flush(
     rocksdb_options_t* opt, unsigned char);
 
+extern ROCKSDB_LIBRARY_API void rocksdb_options_set_row_cache(
+    rocksdb_options_t* opt, rocksdb_cache_t* cache
+);
+
 /* RateLimiter */
 extern ROCKSDB_LIBRARY_API rocksdb_ratelimiter_t* rocksdb_ratelimiter_create(
     int64_t rate_bytes_per_sec, int64_t refill_period_us, int32_t fairness);
