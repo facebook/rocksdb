@@ -558,31 +558,37 @@ IOStatus PosixRandomAccessFile::MultiRead(FSReadRequest* reqs,
       // of our initial wait not reaping all completions
       ret = io_uring_wait_cqe(iu, &cqe);
       assert(!ret);
+
       req_wrap = static_cast<WrappedReadRequest*>(io_uring_cqe_get_data(cqe));
       FSReadRequest* req = req_wrap->req;
-      size_t bytes_read = static_cast<size_t>(cqe->res);
-      TEST_SYNC_POINT_CALLBACK(
-          "PosixRandomAccessFile::MultiRead:io_uring_result", &bytes_read);
-
-      if (bytes_read == req_wrap->iov.iov_len) {
-        req->result = Slice(req->scratch, req->len);
-        req->status = IOStatus::OK();
-      } else if (cqe->res >= 0 && bytes_read < req_wrap->iov.iov_len) {
-        // cqe->res == 0 can means EOF, or can mean partial  results. See
-        // comment
-        // https://github.com/facebook/rocksdb/pull/6441#issuecomment-589843435
-        // Right now, MultiRead() is never used by RocksDB to reach EOF. To
-        // simply the implementation, for now, we always treat it as partial
-        // reads. If we have a need to handle EOF case in the future, we need
-        // to retry for cqe->res == 0 case at most once, and treat the second
-        // value as EOF.
-        assert(bytes_read < req_wrap->iov.iov_len);
-        assert(bytes_read + req_wrap->finished_len < req_wrap->iov.iov_len);
-        req_wrap->finished_len += bytes_read;
-        incomplete_rq_list.push_back(req_wrap);
-      } else {
+      if (cqe->res < 0) {
         req->result = Slice(req->scratch, 0);
         req->status = IOError("Req failed", filename_, cqe->res);
+      } else {
+        size_t bytes_read = static_cast<size_t>(cqe->res);
+        TEST_SYNC_POINT_CALLBACK(
+            "PosixRandomAccessFile::MultiRead:io_uring_result", &bytes_read);
+        if (bytes_read == req_wrap->iov.iov_len) {
+          req->result = Slice(req->scratch, req->len);
+          req->status = IOStatus::OK();
+        } else if (bytes_read == 0) {
+          // cqe->res == 0 can means EOF, or can mean partial results. See
+          // comment
+          // https://github.com/facebook/rocksdb/pull/6441#issuecomment-589843435
+          // Fall back to pread in this case.
+          Slice tmp_slice;
+          req->status =
+              Read(req->offset + req_wrap->finished_len,
+                   req->len - req_wrap->finished_len, options, &tmp_slice,
+                   req->scratch + req_wrap->finished_len, dbg);
+          req->result =
+              Slice(req->scratch, req_wrap->finished_len + tmp_slice.size());
+        } else if (bytes_read > 0 && bytes_read < req_wrap->iov.iov_len) {
+          assert(bytes_read < req_wrap->iov.iov_len);
+          assert(bytes_read + req_wrap->finished_len < req->len);
+          req_wrap->finished_len += bytes_read;
+          incomplete_rq_list.push_back(req_wrap);
+        }
       }
       io_uring_cqe_seen(iu, cqe);
     }

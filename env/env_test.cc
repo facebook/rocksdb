@@ -1137,14 +1137,18 @@ TEST_P(EnvPosixTestWithParam, MultiRead) {
     ASSERT_OK(wfile->Close());
   }
 
-  // Random Read
-  Random rnd(301);
-  for (bool random_io_uring_partial_result : {false, true}) {
+  // More attempts to simulate more partial result sequences.
+  for (uint32_t attempt = 0; attempt < 20; attempt++) {
+    // Random Read
+    Random rnd(301 + attempt);
     ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
         "PosixRandomAccessFile::MultiRead:io_uring_result", [&](void* arg) {
-          if (random_io_uring_partial_result) {
+          if (attempt > 0) {
+            // No failure in the first attempt.
             size_t& bytes_read = *static_cast<size_t*>(arg);
-            if (rnd.OneIn(2)) {
+            if (rnd.OneIn(4)) {
+              bytes_read = 0;
+            } else if (rnd.OneIn(3)) {
               bytes_read = static_cast<size_t>(
                   rnd.Uniform(static_cast<int>(bytes_read)));
             }
@@ -1152,8 +1156,6 @@ TEST_P(EnvPosixTestWithParam, MultiRead) {
         });
     ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
 
-    if (random_io_uring_partial_result) {
-    }
     std::unique_ptr<RandomAccessFile> file;
     std::vector<ReadRequest> reqs(3);
     std::vector<std::unique_ptr<char, Deleter>> data;
