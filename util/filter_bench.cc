@@ -322,7 +322,7 @@ void FilterBench::Go() {
                       : FLAGS_quick ? quickTestModes : allTestModes;
 
   m_queries_ = FLAGS_m_queries;
-  uint32_t working_mem_size_mb = FLAGS_working_mem_size_mb;
+  double working_mem_size_mb = FLAGS_working_mem_size_mb;
   if (FLAGS_quick) {
     m_queries_ /= 7.0;
   } else if (FLAGS_best_case) {
@@ -342,7 +342,7 @@ void FilterBench::Go() {
   size_t max_total_keys;
   size_t max_mem;
   if (FLAGS_m_keys_total_max > 0) {
-    max_total_keys = size_t{1000000} * FLAGS_m_keys_total_max;
+    max_total_keys = static_cast<size_t>(1000000 * FLAGS_m_keys_total_max);
     max_mem = SIZE_MAX;
   } else {
     max_total_keys = SIZE_MAX;
