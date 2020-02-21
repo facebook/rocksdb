@@ -590,7 +590,7 @@ IOStatus PosixRandomAccessFile::MultiRead(FSReadRequest* reqs,
           incomplete_rq_list.push_back(req_wrap);
         } else {
           req->result = Slice(req->scratch, 0);
-          req->status = IOError("Req retruned more bytes than requested",
+          req->status = IOError("Req returned more bytes than requested",
                                 filename_, cqe->res);
         }
       }
