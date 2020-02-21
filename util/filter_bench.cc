@@ -36,10 +36,15 @@ using GFLAGS_NAMESPACE::SetUsageMessage;
 DEFINE_uint32(seed, 0, "Seed for random number generators");
 
 DEFINE_double(working_mem_size_mb, 200,
-              "MB of memory to get up to among all filters");
+              "MB of memory to get up to among all filters, unless "
+              "m_keys_total_max is specified.");
 
 DEFINE_uint32(average_keys_per_filter, 10000,
               "Average number of keys per filter");
+
+DEFINE_double(vary_key_count_ratio, 0.4,
+              "Vary number of keys by up to +/- vary_key_count_ratio * "
+              "average_keys_per_filter.");
 
 DEFINE_uint32(key_size, 24, "Average number of bytes for each key");
 
@@ -56,6 +61,11 @@ DEFINE_uint32(batch_size, 8, "Number of keys to group in each batch");
 DEFINE_double(bits_per_key, 10.0, "Bits per key setting for filters");
 
 DEFINE_double(m_queries, 200, "Millions of queries for each test mode");
+
+DEFINE_double(m_keys_total_max, 0,
+              "Maximum total keys added to filters, in millions. "
+              "0 (default) disables. Non-zero overrides working_mem_size_mb "
+              "option.");
 
 DEFINE_bool(use_full_block_reader, false,
             "Use FullFilterBlockReader interface rather than FilterBitsReader");
@@ -86,6 +96,8 @@ DEFINE_bool(allow_bad_fp_rate, false, "Continue even if FP rate is bad");
 DEFINE_bool(legend, false,
             "Print more information about interpreting results instead of "
             "running tests");
+
+DEFINE_uint32(runs, 1, "Number of times to rebuild and run benchmark tests");
 
 void _always_assert_fail(int line, const char *file, const char *expr) {
   fprintf(stderr, "%s: %d: Assertion %s failed\n", file, line, expr);
@@ -252,12 +264,14 @@ struct FilterBench : public MockBlockBasedTableTester {
   std::ostringstream fp_rate_report_;
   Arena arena_;
   StderrLogger stderr_logger_;
+  double m_queries_;
 
   FilterBench()
       : MockBlockBasedTableTester(new BloomFilterPolicy(
             FLAGS_bits_per_key,
             static_cast<BloomFilterPolicy::Mode>(FLAGS_impl))),
-        random_(FLAGS_seed) {
+        random_(FLAGS_seed),
+        m_queries_(0) {
     for (uint32_t i = 0; i < FLAGS_batch_size; ++i) {
       kms_.emplace_back(FLAGS_key_size < 8 ? 8 : FLAGS_key_size);
     }
@@ -291,19 +305,29 @@ void FilterBench::Go() {
     }
   }
 
-  uint32_t variance_mask = 1;
-  while (variance_mask * variance_mask * 4 < FLAGS_average_keys_per_filter) {
-    variance_mask = variance_mask * 2 + 1;
+  if (FLAGS_vary_key_count_ratio < 0.0 || FLAGS_vary_key_count_ratio > 1.0) {
+    throw std::runtime_error("-vary_key_count_ratio must be >= 0.0 and <= 1.0");
   }
+
+  // For example, average_keys_per_filter = 100, vary_key_count_ratio = 0.1.
+  // Varys up to +/- 10 keys. variance_range = 21 (generating value 0..20).
+  // variance_offset = 10, so value - offset average value is always 0.
+  const uint32_t variance_range =
+      1 + 2 * static_cast<uint32_t>(FLAGS_vary_key_count_ratio *
+                                    FLAGS_average_keys_per_filter);
+  const uint32_t variance_offset = variance_range / 2;
 
   const std::vector<TestMode> &testModes =
       FLAGS_best_case ? bestCaseTestModes
                       : FLAGS_quick ? quickTestModes : allTestModes;
+
+  m_queries_ = FLAGS_m_queries;
+  double working_mem_size_mb = FLAGS_working_mem_size_mb;
   if (FLAGS_quick) {
-    FLAGS_m_queries /= 7.0;
+    m_queries_ /= 7.0;
   } else if (FLAGS_best_case) {
-    FLAGS_m_queries /= 3.0;
-    FLAGS_working_mem_size_mb /= 10.0;
+    m_queries_ /= 3.0;
+    working_mem_size_mb /= 10.0;
   }
 
   std::cout << "Building..." << std::endl;
@@ -315,15 +339,29 @@ void FilterBench::Go() {
 #ifdef PREDICT_FP_RATE
   double weighted_predicted_fp_rate = 0.0;
 #endif
+  size_t max_total_keys;
+  size_t max_mem;
+  if (FLAGS_m_keys_total_max > 0) {
+    max_total_keys = static_cast<size_t>(1000000 * FLAGS_m_keys_total_max);
+    max_mem = SIZE_MAX;
+  } else {
+    max_total_keys = SIZE_MAX;
+    max_mem = static_cast<size_t>(1024 * 1024 * working_mem_size_mb);
+  }
 
   ROCKSDB_NAMESPACE::StopWatchNano timer(ROCKSDB_NAMESPACE::Env::Default(),
                                          true);
 
-  while (total_memory_used < 1024 * 1024 * FLAGS_working_mem_size_mb) {
+  infos_.clear();
+  while ((working_mem_size_mb == 0 || total_memory_used < max_mem) &&
+         total_keys_added < max_total_keys) {
     uint32_t filter_id = random_.Next();
     uint32_t keys_to_add = FLAGS_average_keys_per_filter +
-                           (random_.Next() & variance_mask) -
-                           (variance_mask / 2);
+                           fastrange32(random_.Next(), variance_range) -
+                           variance_offset;
+    if (max_total_keys - total_keys_added < keys_to_add) {
+      keys_to_add = static_cast<uint32_t>(max_total_keys - total_keys_added);
+    }
     infos_.emplace_back();
     FilterInfo &info = infos_.back();
     info.filter_id_ = filter_id;
@@ -392,7 +430,7 @@ void FilterBench::Go() {
     std::cout << "Verifying..." << std::endl;
 
     uint32_t outside_q_per_f =
-        static_cast<uint32_t>(FLAGS_m_queries * 1000000 / infos_.size());
+        static_cast<uint32_t>(m_queries_ * 1000000 / infos_.size());
     uint64_t fps = 0;
     for (uint32_t i = 0; i < infos_.size(); ++i) {
       FilterInfo &info = infos_[i];
@@ -491,8 +529,7 @@ double FilterBench::RandomQueryTest(uint32_t inside_threshold, bool dry_run,
 
   uint32_t num_infos = static_cast<uint32_t>(infos_.size());
   uint32_t dry_run_hash = 0;
-  uint64_t max_queries =
-      static_cast<uint64_t>(FLAGS_m_queries * 1000000 + 0.50);
+  uint64_t max_queries = static_cast<uint64_t>(m_queries_ * 1000000 + 0.50);
   // Some filters may be considered secondary in order to implement skewed
   // queries. num_primary_filters is the number that are to be treated as
   // equal, and any remainder will be treated as secondary.
@@ -701,7 +738,11 @@ int main(int argc, char **argv) {
         << "\n      of queries." << std::endl;
   } else {
     FilterBench b;
-    b.Go();
+    for (uint32_t i = 0; i < FLAGS_runs; ++i) {
+      b.Go();
+      FLAGS_seed += 100;
+      b.random_.Seed(FLAGS_seed);
+    }
   }
 
   return 0;
