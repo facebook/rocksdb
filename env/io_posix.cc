@@ -583,11 +583,15 @@ IOStatus PosixRandomAccessFile::MultiRead(FSReadRequest* reqs,
                    req->scratch + req_wrap->finished_len, dbg);
           req->result =
               Slice(req->scratch, req_wrap->finished_len + tmp_slice.size());
-        } else if (bytes_read > 0 && bytes_read < req_wrap->iov.iov_len) {
-          assert(bytes_read < req_wrap->iov.iov_len);
+        } else if (bytes_read < req_wrap->iov.iov_len) {
+          assert(bytes_read > 0);
           assert(bytes_read + req_wrap->finished_len < req->len);
           req_wrap->finished_len += bytes_read;
           incomplete_rq_list.push_back(req_wrap);
+        } else {
+          req->result = Slice(req->scratch, 0);
+          req->status = IOError("Req retruned more bytes than requested",
+                                filename_, cqe->res);
         }
       }
       io_uring_cqe_seen(iu, cqe);
