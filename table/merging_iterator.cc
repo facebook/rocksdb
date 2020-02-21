@@ -167,7 +167,6 @@ class MergingIterator : public InternalIterator {
       SwitchToForward();
       // The loop advanced all non-current children to be > key() so current_
       // should still be strictly the smallest key.
-      assert(current_ == CurrentForward());
     }
 
     // For the heap modifications below to be correct, current_ must be the
