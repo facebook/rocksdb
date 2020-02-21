@@ -144,7 +144,16 @@ class NonBatchedOpsStressTest : public StressTest {
     std::string key_str = Key(rand_keys[0]);
     Slice key = key_str;
     std::string from_db;
-    Status s = db_->Get(read_opts, cfh, key, &from_db);
+    ReadOptions read_opts_copy = read_opts;
+    read_opts_copy.fill_cache = thread->rand.OneIn(3);
+
+    Status s = db_->Get(read_opts_copy, cfh, key, &from_db);
+    if (s.ok() && thread->rand.OneIn(3)) {
+      // Repeat the query to test caching or no caching scenario.
+      read_opts_copy.fill_cache = thread->rand.OneIn(2);
+      s = db_->Get(read_opts_copy, cfh, key, &from_db);
+    }
+
     if (s.ok()) {
       // found case
       thread->stats.AddGets(1, 1);
@@ -171,6 +180,8 @@ class NonBatchedOpsStressTest : public StressTest {
     std::vector<PinnableSlice> values(num_keys);
     std::vector<Status> statuses(num_keys);
     ColumnFamilyHandle* cfh = column_families_[rand_column_families[0]];
+    ReadOptions readoptionscopy = read_opts;
+    readoptionscopy.fill_cache = thread->rand.OneIn(2);
 
     // To appease clang analyzer
     const bool use_txn = FLAGS_use_txn;
@@ -231,11 +242,27 @@ class NonBatchedOpsStressTest : public StressTest {
     }
 
     if (!use_txn) {
-      db_->MultiGet(read_opts, cfh, num_keys, keys.data(), values.data(),
+      db_->MultiGet(readoptionscopy, cfh, num_keys, keys.data(), values.data(),
                     statuses.data());
+      bool no_error = true;
+      for (auto s : statuses) {
+        if (!s.ok() && !s.IsNotFound()) {
+          no_error = false;
+          break;
+        }
+      }
+      if (no_error && thread->rand.OneIn(3)) {
+        // Repeat the query to test caching or no caching scenario.
+        readoptionscopy.fill_cache = thread->rand.OneIn(2);
+        for (PinnableSlice& v : values) {
+          v.Reset();
+        }
+        db_->MultiGet(readoptionscopy, cfh, num_keys, keys.data(),
+                      values.data(), statuses.data());
+      }
     } else {
 #ifndef ROCKSDB_LITE
-      txn->MultiGet(read_opts, cfh, num_keys, keys.data(), values.data(),
+      txn->MultiGet(readoptionscopy, cfh, num_keys, keys.data(), values.data(),
                     statuses.data());
       RollbackTxn(txn);
 #endif

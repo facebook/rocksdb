@@ -121,23 +121,48 @@ class CfConsistencyStressTest : public StressTest {
     Status s;
     bool is_consistent = true;
 
+    ReadOptions readoptionscopy = readoptions;
+    readoptionscopy.fill_cache = thread->rand.OneIn(2);
+
     if (thread->rand.OneIn(2)) {
       // 1/2 chance, does a random read from random CF
       auto cfh =
           column_families_[rand_column_families[thread->rand.Next() %
                                                 rand_column_families.size()]];
       std::string from_db;
-      s = db_->Get(readoptions, cfh, key, &from_db);
+      s = db_->Get(readoptionscopy, cfh, key, &from_db);
+      if (s.ok() && thread->rand.OneIn(3)) {
+        // Repeat the query to test caching or no caching scenario.
+        readoptionscopy.fill_cache = thread->rand.OneIn(2);
+        s = db_->Get(readoptionscopy, cfh, key, &from_db);
+      }
     } else {
       // 1/2 chance, comparing one key is the same across all CFs
       const Snapshot* snapshot = db_->GetSnapshot();
-      ReadOptions readoptionscopy = readoptions;
       readoptionscopy.snapshot = snapshot;
 
       std::string value0;
       s = db_->Get(readoptionscopy, column_families_[rand_column_families[0]],
                    key, &value0);
       if (s.ok() || s.IsNotFound()) {
+        if (s.ok() && thread->rand.OneIn(3)) {
+          std::string value00;
+          readoptionscopy.fill_cache = thread->rand.OneIn(2);
+          s = db_->Get(readoptionscopy,
+                       column_families_[rand_column_families[0]], key,
+                       &value00);
+          if (!s.ok()) {
+            fprintf(stderr, "TestGet error: %s\n", s.ToString().c_str());
+            thread->stats.AddErrors(1);
+          } else if (value0 != value00) {
+            fprintf(
+                stderr,
+                "TestGet repeat Get() return different results with key %s\n",
+                Slice(key_str).ToString(true).c_str());
+            thread->stats.AddErrors(1);
+          }
+        }
+
         bool found = s.ok();
         for (size_t i = 1; i < rand_column_families.size(); i++) {
           std::string value1;
@@ -211,13 +236,31 @@ class CfConsistencyStressTest : public StressTest {
     std::vector<PinnableSlice> values(num_keys);
     std::vector<Status> statuses(num_keys);
     ColumnFamilyHandle* cfh = column_families_[rand_column_families[0]];
+    ReadOptions readoptionscopy = read_opts;
+    readoptionscopy.fill_cache = thread->rand.OneIn(2);
 
     for (size_t i = 0; i < num_keys; ++i) {
       key_str.emplace_back(Key(rand_keys[i]));
       keys.emplace_back(key_str.back());
     }
-    db_->MultiGet(read_opts, cfh, num_keys, keys.data(), values.data(),
+    db_->MultiGet(readoptionscopy, cfh, num_keys, keys.data(), values.data(),
                   statuses.data());
+    bool no_error = true;
+    for (auto s : statuses) {
+      if (!s.ok() && !s.IsNotFound()) {
+        no_error = false;
+        break;
+      }
+    }
+    if (no_error && thread->rand.OneIn(3)) {
+      // Repeat the query to test caching or no caching scenario.
+      readoptionscopy.fill_cache = thread->rand.OneIn(2);
+      for (PinnableSlice& v : values) {
+        v.Reset();
+      }
+      db_->MultiGet(readoptionscopy, cfh, num_keys, keys.data(), values.data(),
+                    statuses.data());
+    }
     for (auto s : statuses) {
       if (s.ok()) {
         // found case
