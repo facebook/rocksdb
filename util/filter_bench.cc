@@ -264,7 +264,7 @@ struct FilterBench : public MockBlockBasedTableTester {
   std::ostringstream fp_rate_report_;
   Arena arena_;
   StderrLogger stderr_logger_;
-  uint32_t m_queries_;
+  double m_queries_;
 
   FilterBench()
       : MockBlockBasedTableTester(new BloomFilterPolicy(
