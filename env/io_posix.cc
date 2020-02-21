@@ -482,9 +482,6 @@ IOStatus PosixRandomAccessFile::MultiRead(FSReadRequest* reqs,
                                           const IOOptions& options,
                                           IODebugContext* dbg) {
 #if defined(ROCKSDB_IOURING_PRESENT)
-  size_t reqs_off;
-  ssize_t ret __attribute__((__unused__));
-
   struct io_uring* iu = nullptr;
   if (thread_local_io_urings_) {
     iu = static_cast<struct io_uring*>(thread_local_io_urings_->Get());
@@ -516,23 +513,20 @@ IOStatus PosixRandomAccessFile::MultiRead(FSReadRequest* reqs,
     req_wraps.emplace_back(&reqs[i]);
   }
 
-  reqs_off = 0;
-  while (num_reqs || !incomplete_rq_list.empty()) {
-    size_t this_reqs = num_reqs + incomplete_rq_list.size();
+  size_t reqs_off = 0;
+  while (num_reqs > reqs_off || !incomplete_rq_list.empty()) {
+    size_t this_reqs = (num_reqs - reqs_off) + incomplete_rq_list.size();
 
     // If requests exceed depth, split it into batches
     if (this_reqs > kIoUringDepth) this_reqs = kIoUringDepth;
 
     assert(incomplete_rq_list.size() <= this_reqs);
-    size_t index = reqs_off;
     for (size_t i = 0; i < this_reqs; i++) {
       WrappedReadRequest* rep_to_submit;
       if (i < incomplete_rq_list.size()) {
         rep_to_submit = incomplete_rq_list[i];
       } else {
-        rep_to_submit = &req_wraps[index++];
-        num_reqs--;
-        reqs_off++;
+        rep_to_submit = &req_wraps[reqs_off++];
       }
       assert(rep_to_submit->req->len > rep_to_submit->finished_len);
       rep_to_submit->iov.iov_base =
@@ -541,7 +535,6 @@ IOStatus PosixRandomAccessFile::MultiRead(FSReadRequest* reqs,
           rep_to_submit->req->len - rep_to_submit->finished_len;
 
       struct io_uring_sqe* sqe;
-
       sqe = io_uring_get_sqe(iu);
       io_uring_prep_readv(
           sqe, fd_, &rep_to_submit->iov, 1,
@@ -550,7 +543,8 @@ IOStatus PosixRandomAccessFile::MultiRead(FSReadRequest* reqs,
     }
     incomplete_rq_list.clear();
 
-    ret = io_uring_submit_and_wait(iu, static_cast<unsigned int>(this_reqs));
+    ssize_t ret =
+        io_uring_submit_and_wait(iu, static_cast<unsigned int>(this_reqs));
     if (static_cast<size_t>(ret) != this_reqs) {
       fprintf(stderr, "ret = %ld this_reqs: %ld\n", (long)ret, (long)this_reqs);
     }
@@ -574,6 +568,14 @@ IOStatus PosixRandomAccessFile::MultiRead(FSReadRequest* reqs,
         req->result = Slice(req->scratch, req->len);
         req->status = IOStatus::OK();
       } else if (cqe->res >= 0 && bytes_read < req_wrap->iov.iov_len) {
+        // cqe->res == 0 can means EOF, or can mean partial  results. See
+        // comment
+        // https://github.com/facebook/rocksdb/pull/6441#issuecomment-589843435
+        // Right now, MultiRead() is never used by RocksDB to reach EOF. To
+        // simply the implementation, for now, we always treat it as partial
+        // reads. If we have a need to handle EOF case in the future, we need
+        // to retry for cqe->res == 0 case at most once, and treat the second
+        // value as EOF.
         assert(bytes_read < req_wrap->iov.iov_len);
         assert(bytes_read + req_wrap->finished_len < req_wrap->iov.iov_len);
         req_wrap->finished_len += bytes_read;
