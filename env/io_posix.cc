@@ -505,33 +505,50 @@ IOStatus PosixRandomAccessFile::MultiRead(FSReadRequest* reqs,
   struct WrappedReadRequest {
     FSReadRequest* req;
     struct iovec iov;
-    explicit WrappedReadRequest(FSReadRequest* r) : req(r) {}
+    size_t finished_len;
+    explicit WrappedReadRequest(FSReadRequest* r) : req(r), finished_len(0) {}
   };
 
   autovector<WrappedReadRequest, 32> req_wraps;
+  autovector<WrappedReadRequest*, 4> incomplete_rq_list;
 
   for (size_t i = 0; i < num_reqs; i++) {
     req_wraps.emplace_back(&reqs[i]);
   }
 
   reqs_off = 0;
-  while (num_reqs) {
-    size_t this_reqs = num_reqs;
+  while (num_reqs || !incomplete_rq_list.empty()) {
+    size_t this_reqs = num_reqs + incomplete_rq_list.size();
 
     // If requests exceed depth, split it into batches
     if (this_reqs > kIoUringDepth) this_reqs = kIoUringDepth;
 
+    assert(incomplete_rq_list.size() <= this_reqs);
+    size_t index = reqs_off;
     for (size_t i = 0; i < this_reqs; i++) {
-      size_t index = i + reqs_off;
+      WrappedReadRequest* rep_to_submit;
+      if (i < incomplete_rq_list.size()) {
+        rep_to_submit = incomplete_rq_list[i];
+      } else {
+        rep_to_submit = &req_wraps[index++];
+        num_reqs--;
+        reqs_off++;
+      }
+      assert(rep_to_submit->req->len > rep_to_submit->finished_len);
+      rep_to_submit->iov.iov_base =
+          rep_to_submit->req->scratch + rep_to_submit->finished_len;
+      rep_to_submit->iov.iov_len =
+          rep_to_submit->req->len - rep_to_submit->finished_len;
+
       struct io_uring_sqe* sqe;
 
       sqe = io_uring_get_sqe(iu);
-      req_wraps[index].iov.iov_base = reqs[index].scratch;
-      req_wraps[index].iov.iov_len = reqs[index].len;
-      io_uring_prep_readv(sqe, fd_, &req_wraps[index].iov, 1,
-                          reqs[index].offset);
-      io_uring_sqe_set_data(sqe, &req_wraps[index]);
+      io_uring_prep_readv(
+          sqe, fd_, &rep_to_submit->iov, 1,
+          rep_to_submit->req->offset + rep_to_submit->finished_len);
+      io_uring_sqe_set_data(sqe, rep_to_submit);
     }
+    incomplete_rq_list.clear();
 
     ret = io_uring_submit_and_wait(iu, static_cast<unsigned int>(this_reqs));
     if (static_cast<size_t>(ret) != this_reqs) {
@@ -549,19 +566,24 @@ IOStatus PosixRandomAccessFile::MultiRead(FSReadRequest* reqs,
       assert(!ret);
       req_wrap = static_cast<WrappedReadRequest*>(io_uring_cqe_get_data(cqe));
       FSReadRequest* req = req_wrap->req;
-      if (static_cast<size_t>(cqe->res) == req_wrap->iov.iov_len) {
-        req->result = Slice(req->scratch, cqe->res);
+      size_t bytes_read = static_cast<size_t>(cqe->res);
+      TEST_SYNC_POINT_CALLBACK(
+          "PosixRandomAccessFile::MultiRead:io_uring_result", &bytes_read);
+
+      if (bytes_read == req_wrap->iov.iov_len) {
+        req->result = Slice(req->scratch, req->len);
         req->status = IOStatus::OK();
-      } else if (cqe->res >= 0) {
-        req->result = Slice(req->scratch, req_wrap->iov.iov_len - cqe->res);
+      } else if (cqe->res >= 0 && bytes_read < req_wrap->iov.iov_len) {
+        assert(bytes_read < req_wrap->iov.iov_len);
+        assert(bytes_read + req_wrap->finished_len < req_wrap->iov.iov_len);
+        req_wrap->finished_len += bytes_read;
+        incomplete_rq_list.push_back(req_wrap);
       } else {
         req->result = Slice(req->scratch, 0);
         req->status = IOError("Req failed", filename_, cqe->res);
       }
       io_uring_cqe_seen(iu, cqe);
     }
-    num_reqs -= this_reqs;
-    reqs_off += this_reqs;
   }
   return IOStatus::OK();
 #else
