@@ -27,7 +27,7 @@
 
 #include "rocksdb/advanced_options.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 class Slice;
 struct BlockBasedTableOptions;
@@ -196,4 +196,4 @@ class FilterPolicy {
 // trailing spaces in keys.
 extern const FilterPolicy* NewBloomFilterPolicy(
     double bits_per_key, bool use_block_based_builder = false);
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

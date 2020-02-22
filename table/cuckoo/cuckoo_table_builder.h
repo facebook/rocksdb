@@ -18,7 +18,7 @@
 #include "table/table_builder.h"
 #include "util/autovector.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 class CuckooTableBuilder: public TableBuilder {
  public:
@@ -131,6 +131,6 @@ class CuckooTableBuilder: public TableBuilder {
   std::string file_checksum_ = kUnknownFileChecksum;
 };
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE
 
 #endif  // ROCKSDB_LITE

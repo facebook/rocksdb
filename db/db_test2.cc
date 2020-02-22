@@ -18,7 +18,7 @@
 #include "rocksdb/wal_filter.h"
 #include "test_util/fault_injection_test_env.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 class DBTest2 : public DBTestBase {
  public:
@@ -40,7 +40,7 @@ TEST_P(PrefixFullBloomWithReverseComparator,
   Options options = last_options_;
   options.comparator = ReverseBytewiseComparator();
   options.prefix_extractor.reset(NewCappedPrefixTransform(3));
-  options.statistics = rocksdb::CreateDBStatistics();
+  options.statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
   BlockBasedTableOptions bbto;
   if (if_cache_filter_) {
     bbto.no_block_cache = false;
@@ -132,7 +132,7 @@ TEST_F(DBTest2, IteratorPropertyVersionNumber) {
 TEST_F(DBTest2, CacheIndexAndFilterWithDBRestart) {
   Options options = CurrentOptions();
   options.create_if_missing = true;
-  options.statistics = rocksdb::CreateDBStatistics();
+  options.statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
   BlockBasedTableOptions table_options;
   table_options.cache_index_and_filter_blocks = true;
   table_options.filter_policy.reset(NewBloomFilterPolicy(20));
@@ -151,7 +151,7 @@ TEST_F(DBTest2, CacheIndexAndFilterWithDBRestart) {
 TEST_F(DBTest2, MaxSuccessiveMergesChangeWithDBRecovery) {
   Options options = CurrentOptions();
   options.create_if_missing = true;
-  options.statistics = rocksdb::CreateDBStatistics();
+  options.statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
   options.max_successive_merges = 3;
   options.merge_operator = MergeOperators::CreatePutOperator();
   options.disable_auto_compactions = true;
@@ -185,19 +185,19 @@ TEST_P(DBTestSharedWriteBufferAcrossCFs, SharedWriteBufferAcrossCFs) {
 
   // Avoid undeterministic value by malloc_usable_size();
   // Force arena block size to 1
-  rocksdb::SyncPoint::GetInstance()->SetCallBack(
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
       "Arena::Arena:0", [&](void* arg) {
         size_t* block_size = static_cast<size_t*>(arg);
         *block_size = 1;
       });
 
-  rocksdb::SyncPoint::GetInstance()->SetCallBack(
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
       "Arena::AllocateNewBlock:0", [&](void* arg) {
         std::pair<size_t*, size_t*>* pair =
             static_cast<std::pair<size_t*, size_t*>*>(arg);
         *std::get<0>(*pair) = *std::get<1>(*pair);
       });
-  rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
 
   // The total soft write buffer size is about 105000
   std::shared_ptr<Cache> cache = NewLRUCache(4 * 1024 * 1024, 2);
@@ -346,7 +346,7 @@ TEST_P(DBTestSharedWriteBufferAcrossCFs, SharedWriteBufferAcrossCFs) {
     last_options_.write_buffer_manager.reset();
     ASSERT_LT(cache->GetUsage(), 256 * 1024);
   }
-  rocksdb::SyncPoint::GetInstance()->DisableProcessing();
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
 }
 
 INSTANTIATE_TEST_CASE_P(DBTestSharedWriteBufferAcrossCFs,
@@ -361,19 +361,19 @@ TEST_F(DBTest2, SharedWriteBufferLimitAcrossDB) {
   options.arena_block_size = 4096;
   // Avoid undeterministic value by malloc_usable_size();
   // Force arena block size to 1
-  rocksdb::SyncPoint::GetInstance()->SetCallBack(
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
       "Arena::Arena:0", [&](void* arg) {
         size_t* block_size = static_cast<size_t*>(arg);
         *block_size = 1;
       });
 
-  rocksdb::SyncPoint::GetInstance()->SetCallBack(
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
       "Arena::AllocateNewBlock:0", [&](void* arg) {
         std::pair<size_t*, size_t*>* pair =
             static_cast<std::pair<size_t*, size_t*>*>(arg);
         *std::get<0>(*pair) = *std::get<1>(*pair);
       });
-  rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
 
   options.write_buffer_size = 500000;  // this is never hit
   // Use a write buffer total size so that the soft limit is about
@@ -453,7 +453,7 @@ TEST_F(DBTest2, SharedWriteBufferLimitAcrossDB) {
   delete db2;
   ASSERT_OK(DestroyDB(dbname2, options));
 
-  rocksdb::SyncPoint::GetInstance()->DisableProcessing();
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
 }
 
 TEST_F(DBTest2, TestWriteBufferNoLimitWithCache) {
@@ -1114,7 +1114,7 @@ TEST_F(DBTest2, PresetCompressionDict) {
           assert(false);
       }
 
-      options.statistics = rocksdb::CreateDBStatistics();
+      options.statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
       options.table_factory.reset(NewBlockBasedTableFactory(table_options));
       CreateAndReopenWithCF({"pikachu"}, options);
       Random rnd(301);
@@ -1185,7 +1185,7 @@ TEST_F(DBTest2, PresetCompressionDictLocality) {
   options.compression = kZSTD;
   options.compression_opts.max_dict_bytes = 1 << 14;        // 16KB
   options.compression_opts.zstd_max_train_bytes = 1 << 18;  // 256KB
-  options.statistics = rocksdb::CreateDBStatistics();
+  options.statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
   options.target_file_size_base = kNumEntriesPerFile * kNumBytesPerEntry;
   BlockBasedTableOptions table_options;
   table_options.cache_index_and_filter_blocks = true;
@@ -1205,12 +1205,12 @@ TEST_F(DBTest2, PresetCompressionDictLocality) {
 
   // Store all the dictionaries generated during a full compaction.
   std::vector<std::string> compression_dicts;
-  rocksdb::SyncPoint::GetInstance()->SetCallBack(
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
       "BlockBasedTableBuilder::WriteCompressionDictBlock:RawDict",
       [&](void* arg) {
         compression_dicts.emplace_back(static_cast<Slice*>(arg)->ToString());
       });
-  rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
   CompactRangeOptions compact_range_opts;
   compact_range_opts.bottommost_level_compaction =
       BottommostLevelCompaction::kForceOptimized;
@@ -1351,14 +1351,14 @@ class CompactionStallTestListener : public EventListener {
 };
 
 TEST_F(DBTest2, CompactionStall) {
-  rocksdb::SyncPoint::GetInstance()->LoadDependency(
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->LoadDependency(
       {{"DBImpl::BGWorkCompaction", "DBTest2::CompactionStall:0"},
        {"DBImpl::BGWorkCompaction", "DBTest2::CompactionStall:1"},
        {"DBTest2::CompactionStall:2",
         "DBImpl::NotifyOnCompactionBegin::UnlockMutex"},
        {"DBTest2::CompactionStall:3",
         "DBImpl::NotifyOnCompactionCompleted::UnlockMutex"}});
-  rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
 
   Options options = CurrentOptions();
   options.level0_file_num_compaction_trigger = 4;
@@ -1385,7 +1385,7 @@ TEST_F(DBTest2, CompactionStall) {
 
   // Clear "DBImpl::BGWorkCompaction" SYNC_POINT since we want to hold it again
   // at DBTest2::CompactionStall::1
-  rocksdb::SyncPoint::GetInstance()->ClearTrace();
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearTrace();
 
   // Another 6 L0 files to trigger compaction again
   for (int i = 0; i < 6; i++) {
@@ -1411,7 +1411,7 @@ TEST_F(DBTest2, CompactionStall) {
             10 - options.level0_file_num_compaction_trigger);
   ASSERT_EQ(listener->compacting_files_cnt_.load(), listener->compacted_files_cnt_.load());
 
-  rocksdb::SyncPoint::GetInstance()->DisableProcessing();
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
 }
 
 #endif  // ROCKSDB_LITE
@@ -1480,7 +1480,7 @@ class PinL0IndexAndFilterBlocksTest
       options->max_open_files = -1;
     }
     options->create_if_missing = true;
-    options->statistics = rocksdb::CreateDBStatistics();
+    options->statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
     BlockBasedTableOptions table_options;
     table_options.cache_index_and_filter_blocks = true;
     table_options.pin_l0_filter_and_index_blocks_in_cache = true;
@@ -1520,7 +1520,7 @@ TEST_P(PinL0IndexAndFilterBlocksTest,
     options.max_open_files = -1;
   }
   options.create_if_missing = true;
-  options.statistics = rocksdb::CreateDBStatistics();
+  options.statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
   BlockBasedTableOptions table_options;
   table_options.cache_index_and_filter_blocks = true;
   table_options.pin_l0_filter_and_index_blocks_in_cache = true;
@@ -1606,20 +1606,20 @@ TEST_P(PinL0IndexAndFilterBlocksTest, DisablePrefetchingNonL0IndexAndFilter) {
     // so that preloading SST files won't happen.
     options.max_open_files = 13;
     // RocksDB sanitize max open files to at least 20. Modify it back.
-    rocksdb::SyncPoint::GetInstance()->SetCallBack(
+    ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
         "SanitizeOptions::AfterChangeMaxOpenFiles", [&](void* arg) {
           int* max_open_files = static_cast<int*>(arg);
           *max_open_files = 13;
         });
   }
-  rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
 
   // Reopen database. If max_open_files is set as -1, table readers will be
   // preloaded. This will trigger a BlockBasedTable::Open() and prefetch
   // L0 index and filter. Level 1's prefetching is disabled in DB::Open()
   TryReopenWithColumnFamilies({"default", "pikachu"}, options);
 
-  rocksdb::SyncPoint::GetInstance()->DisableProcessing();
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
 
   if (!disallow_preload_) {
     // After reopen, cache miss are increased by one because we read (and only
@@ -1759,8 +1759,8 @@ static void UniqueIdCallback(void* arg) {
     *result = 0;
   }
 
-  rocksdb::SyncPoint::GetInstance()->ClearTrace();
-  rocksdb::SyncPoint::GetInstance()->SetCallBack(
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearTrace();
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
       "GetUniqueIdFromFile:FS_IOC_GETVERSION", UniqueIdCallback);
 }
 
@@ -1768,8 +1768,8 @@ class MockPersistentCache : public PersistentCache {
  public:
   explicit MockPersistentCache(const bool is_compressed, const size_t max_size)
       : is_compressed_(is_compressed), max_size_(max_size) {
-    rocksdb::SyncPoint::GetInstance()->EnableProcessing();
-    rocksdb::SyncPoint::GetInstance()->SetCallBack(
+    ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+    ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
         "GetUniqueIdFromFile:FS_IOC_GETVERSION", UniqueIdCallback);
   }
 
@@ -1841,10 +1841,10 @@ TEST_F(DBTest2, TestPerfContextGetCpuTime) {
   uint64_t kDummyAddonTime = uint64_t{1000000000000};
 
   // Add time to NowNanos() reading.
-  rocksdb::SyncPoint::GetInstance()->SetCallBack(
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
       "TableCache::FindTable:0",
       [&](void* /*arg*/) { env_->addon_time_.fetch_add(kDummyAddonTime); });
-  rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
 
   SetPerfLevel(PerfLevel::kEnableTimeAndCPUTimeExceptForMutex);
   ASSERT_EQ("bar", Get("foo"));
@@ -1853,7 +1853,7 @@ TEST_F(DBTest2, TestPerfContextGetCpuTime) {
   ASSERT_GT(get_perf_context()->find_table_nanos, kDummyAddonTime);
 
   SetPerfLevel(PerfLevel::kDisable);
-  rocksdb::SyncPoint::GetInstance()->DisableProcessing();
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
 }
 
 TEST_F(DBTest2, TestPerfContextIterCpuTime) {
@@ -1903,10 +1903,10 @@ TEST_F(DBTest2, TestPerfContextIterCpuTime) {
   uint64_t kDummyAddonTime = uint64_t{1000000000000};
 
   // Add time to NowNanos() reading.
-  rocksdb::SyncPoint::GetInstance()->SetCallBack(
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
       "TableCache::FindTable:0",
       [&](void* /*arg*/) { env_->addon_time_.fetch_add(kDummyAddonTime); });
-  rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
 
   SetPerfLevel(PerfLevel::kEnableTimeAndCPUTimeExceptForMutex);
   iter = db_->NewIterator(ReadOptions());
@@ -1937,7 +1937,7 @@ TEST_F(DBTest2, TestPerfContextIterCpuTime) {
   ASSERT_GT(get_perf_context()->find_table_nanos, kDummyAddonTime);
 
   SetPerfLevel(PerfLevel::kDisable);
-  rocksdb::SyncPoint::GetInstance()->DisableProcessing();
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
   delete iter;
 }
 #endif  // OS_LINUX
@@ -1951,7 +1951,7 @@ TEST_F(DBTest2, PersistentCache) {
 
   Options options;
   options.write_buffer_size = 64 * 1024;  // small write buffer
-  options.statistics = rocksdb::CreateDBStatistics();
+  options.statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
   options = CurrentOptions(options);
 
   auto bsizes = {/*no block cache*/ 0, /*1M*/ 1 * 1024 * 1024};
@@ -2019,7 +2019,7 @@ void CountSyncPoint() {
 
 TEST_F(DBTest2, SyncPointMarker) {
   std::atomic<int> sync_point_called(0);
-  rocksdb::SyncPoint::GetInstance()->SetCallBack(
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
       "DBTest2::MarkedPoint",
       [&](void* /*arg*/) { sync_point_called.fetch_add(1); });
 
@@ -2031,11 +2031,11 @@ TEST_F(DBTest2, SyncPointMarker) {
   // |  MarkedPoint  |             |
   // | Thread1First  |             |
   // |               | MarkedPoint |
-  rocksdb::SyncPoint::GetInstance()->LoadDependencyAndMarkers(
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->LoadDependencyAndMarkers(
       {{"DBTest2::SyncPointMarker:Thread1First", "DBTest2::MarkedPoint"}},
       {{"DBTest2::SyncPointMarker:Marker", "DBTest2::MarkedPoint"}});
 
-  rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
 
   std::function<void()> func1 = [&]() {
     CountSyncPoint();
@@ -2054,7 +2054,7 @@ TEST_F(DBTest2, SyncPointMarker) {
 
   // Callback is only executed once
   ASSERT_EQ(sync_point_called.load(), 1);
-  rocksdb::SyncPoint::GetInstance()->DisableProcessing();
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
 }
 #endif
 
@@ -2079,7 +2079,7 @@ TEST_F(DBTest2, ReadAmpBitmap) {
     bbto.block_cache = NewLRUCache(1024 * 1024 * 1024);
     bbto.read_amp_bytes_per_bit = bytes_per_bit[k];
     options.table_factory.reset(NewBlockBasedTableFactory(bbto));
-    options.statistics = rocksdb::CreateDBStatistics();
+    options.statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
     DestroyAndReopen(options);
 
     const size_t kNumEntries = 10000;
@@ -2176,7 +2176,7 @@ TEST_F(DBTest2, ReadAmpBitmapLiveInCacheAfterDBClose) {
   uint32_t bytes_per_bit[2] = {1, 16};
   for (size_t k = 0; k < 2; k++) {
     std::shared_ptr<Cache> lru_cache = NewLRUCache(1024 * 1024 * 1024);
-    std::shared_ptr<Statistics> stats = rocksdb::CreateDBStatistics();
+    std::shared_ptr<Statistics> stats = ROCKSDB_NAMESPACE::CreateDBStatistics();
 
     Options options = CurrentOptions();
     BlockBasedTableOptions bbto;
@@ -2223,7 +2223,8 @@ TEST_F(DBTest2, ReadAmpBitmapLiveInCacheAfterDBClose) {
         options.statistics->getTickerCount(READ_AMP_TOTAL_READ_BYTES);
 
     Close();
-    std::shared_ptr<Statistics> new_statistics = rocksdb::CreateDBStatistics();
+    std::shared_ptr<Statistics> new_statistics =
+        ROCKSDB_NAMESPACE::CreateDBStatistics();
     // Destroy old statistics obj that the blocks in lru_cache are pointing to
     options.statistics.reset();
     // Use the statistics object that we just created
@@ -2307,7 +2308,7 @@ TEST_F(DBTest2, AutomaticCompactionOverlapManualCompaction) {
   // While the compaction is running, we will create 2 new files that
   // can fit in L2, these 2 files will be moved to L2 and overlap with
   // the running compaction and break the LSM consistency.
-  rocksdb::SyncPoint::GetInstance()->SetCallBack(
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
       "CompactionJob::Run():Start", [&](void* /*arg*/) {
         ASSERT_OK(
             dbfull()->SetOptions({{"level0_file_num_compaction_trigger", "2"},
@@ -2320,7 +2321,7 @@ TEST_F(DBTest2, AutomaticCompactionOverlapManualCompaction) {
         ASSERT_OK(Put(Key(9), "a"));
         ASSERT_OK(Flush());
       });
-  rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
 
   // Run a manual compaction that will compact the 2 files in L2
   // into 1 file in L2
@@ -2328,7 +2329,7 @@ TEST_F(DBTest2, AutomaticCompactionOverlapManualCompaction) {
   cro.bottommost_level_compaction = BottommostLevelCompaction::kForceOptimized;
   ASSERT_OK(db_->CompactRange(cro, nullptr, nullptr));
 
-  rocksdb::SyncPoint::GetInstance()->DisableProcessing();
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
 
   // Test that the stats GetMapProperty API reporting 1 file in L2
   {
@@ -2367,13 +2368,13 @@ TEST_F(DBTest2, ManualCompactionOverlapManualCompaction) {
     cro.exclusive_manual_compaction = false;
     ASSERT_OK(db_->CompactRange(cro, &k1s, &k2s));
   };
-  rocksdb::port::Thread bg_thread;
+  ROCKSDB_NAMESPACE::port::Thread bg_thread;
 
   // While the compaction is running, we will create 2 new files that
   // can fit in L1, these 2 files will be moved to L1 and overlap with
   // the running compaction and break the LSM consistency.
   std::atomic<bool> flag(false);
-  rocksdb::SyncPoint::GetInstance()->SetCallBack(
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
       "CompactionJob::Run():Start", [&](void* /*arg*/) {
         if (flag.exchange(true)) {
           // We want to make sure to call this callback only once
@@ -2393,7 +2394,7 @@ TEST_F(DBTest2, ManualCompactionOverlapManualCompaction) {
         // so it should wait until the first compaction finish
         env_->SleepForMicroseconds(1000000);
       });
-  rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
 
   // Run a manual compaction that will compact the 2 files in L1
   // into 1 file in L1
@@ -2403,7 +2404,7 @@ TEST_F(DBTest2, ManualCompactionOverlapManualCompaction) {
   ASSERT_OK(db_->CompactRange(cro, nullptr, nullptr));
   bg_thread.join();
 
-  rocksdb::SyncPoint::GetInstance()->DisableProcessing();
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
 }
 
 TEST_F(DBTest2, PausingManualCompaction1) {
@@ -2426,14 +2427,14 @@ TEST_F(DBTest2, PausingManualCompaction1) {
   ASSERT_OK(Flush());
 
   int manual_compactions_paused = 0;
-  rocksdb::SyncPoint::GetInstance()->SetCallBack(
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
       "CompactionJob::Run():PausingManualCompaction:1", [&](void* arg) {
         auto paused = reinterpret_cast<std::atomic<bool>*>(arg);
         ASSERT_FALSE(paused->load(std::memory_order_acquire));
         paused->store(true, std::memory_order_release);
         manual_compactions_paused += 1;
       });
-  rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
 
   std::vector<std::string> files_before_compact, files_after_compact;
   // Remember file name before compaction is triggered
@@ -2462,7 +2463,8 @@ TEST_F(DBTest2, PausingManualCompaction1) {
 
   manual_compactions_paused = 0;
   // Now make sure CompactFiles also not run
-  dbfull()->CompactFiles(rocksdb::CompactionOptions(), files_before_compact, 0);
+  dbfull()->CompactFiles(ROCKSDB_NAMESPACE::CompactionOptions(),
+                         files_before_compact, 0);
   // Wait for manual compaction to get scheduled and finish
   dbfull()->TEST_WaitForCompact(true);
 
@@ -2477,7 +2479,7 @@ TEST_F(DBTest2, PausingManualCompaction1) {
   // CompactFiles returns at entry point
   ASSERT_EQ(manual_compactions_paused, 0);
 
-  rocksdb::SyncPoint::GetInstance()->DisableProcessing();
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
 }
 
 // PausingManualCompaction does not affect auto compaction
@@ -2532,10 +2534,10 @@ TEST_F(DBTest2, PausingManualCompaction3) {
   ASSERT_EQ("2,3,4,5,6,7,8", FilesPerLevel());
 #endif  // !ROCKSDB_LITE
   int run_manual_compactions = 0;
-  rocksdb::SyncPoint::GetInstance()->SetCallBack(
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
       "CompactionJob::Run():PausingManualCompaction:1",
       [&](void* /*arg*/) { run_manual_compactions++; });
-  rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
 
   dbfull()->DisableManualCompaction();
   dbfull()->CompactRange(compact_options, nullptr, nullptr);
@@ -2546,7 +2548,7 @@ TEST_F(DBTest2, PausingManualCompaction3) {
   ASSERT_EQ("2,3,4,5,6,7,8", FilesPerLevel());
 #endif  // !ROCKSDB_LITE
 
-  rocksdb::SyncPoint::GetInstance()->ClearCallBack(
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearCallBack(
       "CompactionJob::Run():PausingManualCompaction:1");
   dbfull()->EnableManualCompaction();
   dbfull()->CompactRange(compact_options, nullptr, nullptr);
@@ -2555,7 +2557,7 @@ TEST_F(DBTest2, PausingManualCompaction3) {
   ASSERT_EQ("0,0,0,0,0,0,2", FilesPerLevel());
 #endif  // !ROCKSDB_LITE
 
-  rocksdb::SyncPoint::GetInstance()->DisableProcessing();
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
 }
 
 TEST_F(DBTest2, PausingManualCompaction4) {
@@ -2586,14 +2588,14 @@ TEST_F(DBTest2, PausingManualCompaction4) {
   ASSERT_EQ("2,3,4,5,6,7,8", FilesPerLevel());
 #endif  // !ROCKSDB_LITE
   int run_manual_compactions = 0;
-  rocksdb::SyncPoint::GetInstance()->SetCallBack(
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
       "CompactionJob::Run():PausingManualCompaction:2", [&](void* arg) {
         auto paused = reinterpret_cast<std::atomic<bool>*>(arg);
         ASSERT_FALSE(paused->load(std::memory_order_acquire));
         paused->store(true, std::memory_order_release);
         run_manual_compactions++;
       });
-  rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
 
   dbfull()->EnableManualCompaction();
   dbfull()->CompactRange(compact_options, nullptr, nullptr);
@@ -2603,7 +2605,7 @@ TEST_F(DBTest2, PausingManualCompaction4) {
   ASSERT_EQ("2,3,4,5,6,7,8", FilesPerLevel());
 #endif  // !ROCKSDB_LITE
 
-  rocksdb::SyncPoint::GetInstance()->ClearCallBack(
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearCallBack(
       "CompactionJob::Run():PausingManualCompaction:2");
   dbfull()->EnableManualCompaction();
   dbfull()->CompactRange(compact_options, nullptr, nullptr);
@@ -2612,7 +2614,7 @@ TEST_F(DBTest2, PausingManualCompaction4) {
   ASSERT_EQ("0,0,0,0,0,0,2", FilesPerLevel());
 #endif  // !ROCKSDB_LITE
 
-  rocksdb::SyncPoint::GetInstance()->DisableProcessing();
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
 }
 
 TEST_F(DBTest2, OptimizeForPointLookup) {
@@ -2667,13 +2669,13 @@ TEST_F(DBTest2, OptimizeForSmallDB) {
 TEST_F(DBTest2, GetRaceFlush1) {
   ASSERT_OK(Put("foo", "v1"));
 
-  rocksdb::SyncPoint::GetInstance()->LoadDependency(
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->LoadDependency(
       {{"DBImpl::GetImpl:1", "DBTest2::GetRaceFlush:1"},
        {"DBTest2::GetRaceFlush:2", "DBImpl::GetImpl:2"}});
 
-  rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
 
-  rocksdb::port::Thread t1([&] {
+  ROCKSDB_NAMESPACE::port::Thread t1([&] {
     TEST_SYNC_POINT("DBTest2::GetRaceFlush:1");
     ASSERT_OK(Put("foo", "v2"));
     Flush();
@@ -2684,17 +2686,17 @@ TEST_F(DBTest2, GetRaceFlush1) {
   // "v1" or "v2".
   ASSERT_NE("NOT_FOUND", Get("foo"));
   t1.join();
-  rocksdb::SyncPoint::GetInstance()->DisableProcessing();
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
 }
 
 TEST_F(DBTest2, GetRaceFlush2) {
   ASSERT_OK(Put("foo", "v1"));
 
-  rocksdb::SyncPoint::GetInstance()->LoadDependency(
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->LoadDependency(
       {{"DBImpl::GetImpl:3", "DBTest2::GetRaceFlush:1"},
        {"DBTest2::GetRaceFlush:2", "DBImpl::GetImpl:4"}});
 
-  rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
 
   port::Thread t1([&] {
     TEST_SYNC_POINT("DBTest2::GetRaceFlush:1");
@@ -2707,7 +2709,7 @@ TEST_F(DBTest2, GetRaceFlush2) {
   // "v1" or "v2".
   ASSERT_NE("NOT_FOUND", Get("foo"));
   t1.join();
-  rocksdb::SyncPoint::GetInstance()->DisableProcessing();
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
 }
 
 TEST_F(DBTest2, DirectIO) {
@@ -2807,17 +2809,17 @@ TEST_F(DBTest2, LowPriWrite) {
 
   std::atomic<int> rate_limit_count(0);
 
-  rocksdb::SyncPoint::GetInstance()->SetCallBack(
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
       "GenericRateLimiter::Request:1", [&](void* arg) {
         rate_limit_count.fetch_add(1);
         int64_t* rate_bytes_per_sec = static_cast<int64_t*>(arg);
         ASSERT_EQ(1024 * 1024, *rate_bytes_per_sec);
       });
   // Block compaction
-  rocksdb::SyncPoint::GetInstance()->LoadDependency({
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->LoadDependency({
       {"DBTest.LowPriWrite:0", "DBImpl::BGWorkCompaction"},
   });
-  rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
   WriteOptions wo;
   for (int i = 0; i < 6; i++) {
     wo.low_pri = false;
@@ -2835,7 +2837,7 @@ TEST_F(DBTest2, LowPriWrite) {
   ASSERT_EQ(1, rate_limit_count.load());
 
   TEST_SYNC_POINT("DBTest.LowPriWrite:0");
-  rocksdb::SyncPoint::GetInstance()->DisableProcessing();
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
 
   dbfull()->TEST_WaitForCompact();
   wo.low_pri = true;
@@ -3050,16 +3052,16 @@ TEST_F(DBTest2, LiveFilesOmitObsoleteFiles) {
   // Instead, if we sleep for a second between Find and Purge, and ensure the
   // read attempt happens after purge, then the sequence of events will almost
   // certainly happen on the old code.
-  rocksdb::SyncPoint::GetInstance()->LoadDependency({
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->LoadDependency({
       {"DBImpl::BackgroundCallFlush:FilesFound",
        "DBTest2::LiveFilesOmitObsoleteFiles:FlushTriggered"},
       {"DBImpl::PurgeObsoleteFiles:End",
        "DBTest2::LiveFilesOmitObsoleteFiles:LiveFilesCaptured"},
   });
-  rocksdb::SyncPoint::GetInstance()->SetCallBack(
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
       "DBImpl::PurgeObsoleteFiles:Begin",
       [&](void* /*arg*/) { env_->SleepForMicroseconds(1000000); });
-  rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
 
   Put("key", "val");
   FlushOptions flush_opts;
@@ -3076,7 +3078,7 @@ TEST_F(DBTest2, LiveFilesOmitObsoleteFiles) {
   }
 
   db_->EnableFileDeletions();
-  rocksdb::SyncPoint::GetInstance()->DisableProcessing();
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
 }
 
 TEST_F(DBTest2, TestNumPread) {
@@ -3598,7 +3600,7 @@ TEST_F(DBTest2, PinnableSliceAndMmapReads) {
 TEST_F(DBTest2, DISABLED_IteratorPinnedMemory) {
   Options options = CurrentOptions();
   options.create_if_missing = true;
-  options.statistics = rocksdb::CreateDBStatistics();
+  options.statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
   BlockBasedTableOptions bbto;
   bbto.no_block_cache = false;
   bbto.cache_index_and_filter_blocks = false;
@@ -3665,7 +3667,7 @@ TEST_F(DBTest2, DISABLED_IteratorPinnedMemory) {
   std::atomic<bool> finished(false);
   std::atomic<int> block_newed(0);
   std::atomic<int> block_destroyed(0);
-  rocksdb::SyncPoint::GetInstance()->SetCallBack(
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
       "Block::Block:0", [&](void* /*arg*/) {
         if (finished) {
           return;
@@ -3675,7 +3677,7 @@ TEST_F(DBTest2, DISABLED_IteratorPinnedMemory) {
         EXPECT_LE(block_newed.load(), block_destroyed.load() + 1);
         block_newed.fetch_add(1);
       });
-  rocksdb::SyncPoint::GetInstance()->SetCallBack(
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
       "Block::~Block", [&](void* /*arg*/) {
         if (finished) {
           return;
@@ -3685,10 +3687,10 @@ TEST_F(DBTest2, DISABLED_IteratorPinnedMemory) {
         EXPECT_LE(block_newed.load(), block_destroyed.load() + 2);
         block_destroyed.fetch_add(1);
       });
-  rocksdb::SyncPoint::GetInstance()->SetCallBack(
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
       "CompactionJob::Run:BeforeVerify",
       [&](void* /*arg*/) { finished = true; });
-  rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
 
   ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
 
@@ -3696,21 +3698,21 @@ TEST_F(DBTest2, DISABLED_IteratorPinnedMemory) {
   ASSERT_EQ(8, block_newed.load());
   ASSERT_EQ(8, block_destroyed.load());
 
-  rocksdb::SyncPoint::GetInstance()->DisableProcessing();
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
 }
 
 TEST_F(DBTest2, TestBBTTailPrefetch) {
   std::atomic<bool> called(false);
   size_t expected_lower_bound = 512 * 1024;
   size_t expected_higher_bound = 512 * 1024;
-  rocksdb::SyncPoint::GetInstance()->SetCallBack(
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
       "BlockBasedTable::Open::TailPrefetchLen", [&](void* arg) {
         size_t* prefetch_size = static_cast<size_t*>(arg);
         EXPECT_LE(expected_lower_bound, *prefetch_size);
         EXPECT_GE(expected_higher_bound, *prefetch_size);
         called = true;
       });
-  rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
 
   Put("1", "1");
   Put("9", "1");
@@ -3733,11 +3735,11 @@ TEST_F(DBTest2, TestBBTTailPrefetch) {
   ASSERT_TRUE(called.load());
   called = false;
 
-  rocksdb::SyncPoint::GetInstance()->DisableProcessing();
-  rocksdb::SyncPoint::GetInstance()->ClearAllCallBacks();
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearAllCallBacks();
 
   std::atomic<bool> first_call(true);
-  rocksdb::SyncPoint::GetInstance()->SetCallBack(
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
       "BlockBasedTable::Open::TailPrefetchLen", [&](void* arg) {
         size_t* prefetch_size = static_cast<size_t*>(arg);
         if (first_call) {
@@ -3748,7 +3750,7 @@ TEST_F(DBTest2, TestBBTTailPrefetch) {
         }
         called = true;
       });
-  rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
 
   Options options = CurrentOptions();
   options.max_file_opening_threads = 1;  // one thread
@@ -3777,19 +3779,19 @@ TEST_F(DBTest2, TestBBTTailPrefetch) {
 
   ASSERT_TRUE(called.load());
 
-  rocksdb::SyncPoint::GetInstance()->DisableProcessing();
-  rocksdb::SyncPoint::GetInstance()->ClearAllCallBacks();
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearAllCallBacks();
 }
 
 TEST_F(DBTest2, TestGetColumnFamilyHandleUnlocked) {
   // Setup sync point dependency to reproduce the race condition of
   // DBImpl::GetColumnFamilyHandleUnlocked
-  rocksdb::SyncPoint::GetInstance()->LoadDependency(
-      { {"TestGetColumnFamilyHandleUnlocked::GetColumnFamilyHandleUnlocked1",
-         "TestGetColumnFamilyHandleUnlocked::PreGetColumnFamilyHandleUnlocked2"},
-        {"TestGetColumnFamilyHandleUnlocked::GetColumnFamilyHandleUnlocked2",
-         "TestGetColumnFamilyHandleUnlocked::ReadColumnFamilyHandle1"},
-      });
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->LoadDependency({
+      {"TestGetColumnFamilyHandleUnlocked::GetColumnFamilyHandleUnlocked1",
+       "TestGetColumnFamilyHandleUnlocked::PreGetColumnFamilyHandleUnlocked2"},
+      {"TestGetColumnFamilyHandleUnlocked::GetColumnFamilyHandleUnlocked2",
+       "TestGetColumnFamilyHandleUnlocked::ReadColumnFamilyHandle1"},
+  });
   SyncPoint::GetInstance()->EnableProcessing();
 
   CreateColumnFamilies({"test1", "test2"}, Options());
@@ -3815,15 +3817,15 @@ TEST_F(DBTest2, TestGetColumnFamilyHandleUnlocked) {
   user_thread1.join();
   user_thread2.join();
 
-  rocksdb::SyncPoint::GetInstance()->DisableProcessing();
-  rocksdb::SyncPoint::GetInstance()->ClearAllCallBacks();
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearAllCallBacks();
 }
 
 #ifndef ROCKSDB_LITE
 TEST_F(DBTest2, TestCompactFiles) {
   // Setup sync point dependency to reproduce the race condition of
   // DBImpl::GetColumnFamilyHandleUnlocked
-  rocksdb::SyncPoint::GetInstance()->LoadDependency({
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->LoadDependency({
       {"TestCompactFiles::IngestExternalFile1",
        "TestCompactFiles::IngestExternalFile2"},
   });
@@ -3836,7 +3838,8 @@ TEST_F(DBTest2, TestCompactFiles) {
   auto* handle = db_->DefaultColumnFamily();
   ASSERT_EQ(db_->NumberLevels(handle), 2);
 
-  rocksdb::SstFileWriter sst_file_writer{rocksdb::EnvOptions(), options};
+  ROCKSDB_NAMESPACE::SstFileWriter sst_file_writer{
+      ROCKSDB_NAMESPACE::EnvOptions(), options};
   std::string external_file1 = dbname_ + "/test_compact_files1.sst_t";
   std::string external_file2 = dbname_ + "/test_compact_files2.sst_t";
   std::string external_file3 = dbname_ + "/test_compact_files3.sst_t";
@@ -3875,8 +3878,8 @@ TEST_F(DBTest2, TestCompactFiles) {
   user_thread1.join();
   user_thread2.join();
 
-  rocksdb::SyncPoint::GetInstance()->DisableProcessing();
-  rocksdb::SyncPoint::GetInstance()->ClearAllCallBacks();
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearAllCallBacks();
 }
 #endif  // ROCKSDB_LITE
 
@@ -3945,8 +3948,9 @@ class DummyOldStats : public Statistics {
   void measureTime(uint32_t /*histogram_type*/, uint64_t /*count*/) override {
     num_mt++;
   }
-  void histogramData(uint32_t /*histogram_type*/,
-                     rocksdb::HistogramData* const /*data*/) const override {}
+  void histogramData(
+      uint32_t /*histogram_type*/,
+      ROCKSDB_NAMESPACE::HistogramData* const /*data*/) const override {}
   std::string getHistogramString(uint32_t /*type*/) const override {
     return "";
   }
@@ -4066,7 +4070,7 @@ TEST_F(DBTest2, PrefixBloomFilteredOut) {
 #ifndef ROCKSDB_LITE
 TEST_F(DBTest2, RowCacheSnapshot) {
   Options options = CurrentOptions();
-  options.statistics = rocksdb::CreateDBStatistics();
+  options.statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
   options.row_cache = NewLRUCache(8 * 8192);
   DestroyAndReopen(options);
 
@@ -4159,14 +4163,14 @@ TEST_F(DBTest2, CrashInRecoveryMultipleCF) {
     // Reopen and freeze the file system after the first manifest write.
     FaultInjectionTestEnv fit_env(options.env);
     options.env = &fit_env;
-    rocksdb::SyncPoint::GetInstance()->ClearAllCallBacks();
-    rocksdb::SyncPoint::GetInstance()->SetCallBack(
+    ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearAllCallBacks();
+    ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
         test_sync_point,
         [&](void* /*arg*/) { fit_env.SetFilesystemActive(false); });
-    rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+    ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
     ASSERT_NOK(TryReopenWithColumnFamilies(
         {kDefaultColumnFamilyName, "pikachu"}, options));
-    rocksdb::SyncPoint::GetInstance()->DisableProcessing();
+    ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
 
     fit_env.SetFilesystemActive(true);
     // If we continue using failure ingestion Env, it will conplain something
@@ -4213,7 +4217,8 @@ TEST_F(DBTest2, SeekFileRangeDeleteTail) {
 
 TEST_F(DBTest2, BackgroundPurgeTest) {
   Options options = CurrentOptions();
-  options.write_buffer_manager = std::make_shared<rocksdb::WriteBufferManager>(1 << 20);
+  options.write_buffer_manager =
+      std::make_shared<ROCKSDB_NAMESPACE::WriteBufferManager>(1 << 20);
   options.avoid_unnecessary_blocking_io = true;
   DestroyAndReopen(options);
   size_t base_value = options.write_buffer_manager->memory_usage();
@@ -4672,7 +4677,7 @@ TEST_F(DBTest2, AutoPrefixMode1) {
   }
 }
 #endif  // ROCKSDB_LITE
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE
 
 #ifdef ROCKSDB_UNITTESTS_WITH_CUSTOM_OBJECTS_FROM_STATIC_LIBS
 extern "C" {
@@ -4683,7 +4688,7 @@ void RegisterCustomObjects(int /*argc*/, char** /*argv*/) {}
 #endif  // !ROCKSDB_UNITTESTS_WITH_CUSTOM_OBJECTS_FROM_STATIC_LIBS
 
 int main(int argc, char** argv) {
-  rocksdb::port::InstallStackTraceHandler();
+  ROCKSDB_NAMESPACE::port::InstallStackTraceHandler();
   ::testing::InitGoogleTest(&argc, argv);
   RegisterCustomObjects(argc, argv);
   return RUN_ALL_TESTS();

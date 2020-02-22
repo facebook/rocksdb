@@ -20,7 +20,7 @@
 #include "util/random.h"
 #include "util/rate_limiter.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 Status WritableFileWriter::Append(const Slice& data) {
   const char* src = data.data();
   size_t left = data.size();
@@ -426,4 +426,4 @@ Status WritableFileWriter::WriteDirect() {
   return s;
 }
 #endif  // !ROCKSDB_LITE
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

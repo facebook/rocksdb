@@ -17,7 +17,7 @@
 #include "logging/log_buffer.h"
 #include "util/string_util.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 namespace {
 uint64_t GetTotalFilesSize(const std::vector<FileMetaData*>& files) {
   uint64_t total_size = 0;
@@ -238,5 +238,5 @@ Compaction* FIFOCompactionPicker::CompactRange(
   return c;
 }
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE
 #endif  // !ROCKSDB_LITE

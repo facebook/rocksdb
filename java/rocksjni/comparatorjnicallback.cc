@@ -4,12 +4,12 @@
 //  (found in the LICENSE.Apache file in the root directory).
 //
 // This file implements the callback "bridge" between Java and C++ for
-// rocksdb::Comparator.
+// ROCKSDB_NAMESPACE::Comparator.
 
 #include "rocksjni/comparatorjnicallback.h"
 #include "rocksjni/portal.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 ComparatorJniCallback::ComparatorJniCallback(
     JNIEnv* env, jobject jcomparator,
     const ComparatorJniCallbackOptions* options)
@@ -349,7 +349,8 @@ void ComparatorJniCallback::FindShortestSeparator(
               DeleteBuffer(env, j_limit_buf);
             }
             MaybeUnlockForReuse(mtx_shortest, reuse_jbuf_start || reuse_jbuf_limit);
-            rocksdb::RocksDBExceptionJni::ThrowNew(env, "Unable to get Direct Buffer Address");
+            ROCKSDB_NAMESPACE::RocksDBExceptionJni::ThrowNew(
+                env, "Unable to get Direct Buffer Address");
             env->ExceptionDescribe();  // print out exception to stderr
             releaseJniEnv(attached_thread);
             return;
@@ -470,7 +471,8 @@ void ComparatorJniCallback::FindShortSuccessor(
           // reused direct buffer
           void* key_buf = env->GetDirectBufferAddress(j_key_buf);
           if (key_buf == nullptr) {
-            rocksdb::RocksDBExceptionJni::ThrowNew(env, "Unable to get Direct Buffer Address");
+            ROCKSDB_NAMESPACE::RocksDBExceptionJni::ThrowNew(
+                env, "Unable to get Direct Buffer Address");
             if (!reuse_jbuf_key) {
               DeleteBuffer(env, j_key_buf);
             }
@@ -593,7 +595,8 @@ jobject ComparatorJniCallback::ReuseBuffer(
     void* buf = env->GetDirectBufferAddress(jreuse_buffer);
     if (buf == nullptr) {
       // either memory region is undefined, given object is not a direct java.nio.Buffer, or JNI access to direct buffers is not supported by this virtual machine.
-      rocksdb::RocksDBExceptionJni::ThrowNew(env, "Unable to get Direct Buffer Address");
+      ROCKSDB_NAMESPACE::RocksDBExceptionJni::ThrowNew(
+          env, "Unable to get Direct Buffer Address");
       return nullptr;
     }
     memcpy(buf, src.data(), src.size());
@@ -632,4 +635,4 @@ void ComparatorJniCallback::DeleteBuffer(JNIEnv* env, jobject jbuffer) const {
   env->DeleteLocalRef(jbuffer);
 }
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

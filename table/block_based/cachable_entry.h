@@ -14,7 +14,7 @@
 #include "rocksdb/cache.h"
 #include "rocksdb/cleanable.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 // CachableEntry is a handle to an object that may or may not be in the block
 // cache. It is used in a variety of ways:
@@ -217,4 +217,4 @@ private:
   bool own_value_ = false;
 };
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

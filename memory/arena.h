@@ -23,7 +23,7 @@
 #include "memory/allocator.h"
 #include "util/mutexlock.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 class Arena : public Allocator {
  public:
@@ -138,4 +138,4 @@ inline char* Arena::Allocate(size_t bytes) {
 //  2. the multiple of align unit.
 extern size_t OptimizeBlockSize(size_t block_size);
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

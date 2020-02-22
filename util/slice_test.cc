@@ -9,7 +9,7 @@
 #include "test_util/testharness.h"
 #include "test_util/testutil.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 // Use this to keep track of the cleanups that were actually performed
 void Multiplier(void* arg1, void* arg2) {
@@ -154,10 +154,10 @@ TEST_F(PinnableSliceTest, Move) {
   ASSERT_EQ(2, res);
 }
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
-  rocksdb::port::InstallStackTraceHandler();
+  ROCKSDB_NAMESPACE::port::InstallStackTraceHandler();
   ::testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();
 }

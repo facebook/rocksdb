@@ -8,7 +8,7 @@
 #include "monitoring/thread_status_util.h"
 #include "test_util/sync_point.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 namespace {
 Statistics* stats_for_report(Env* env, Statistics* stats) {
   if (env != nullptr && stats != nullptr &&
@@ -66,4 +66,4 @@ bool InstrumentedCondVar::TimedWaitInternal(uint64_t abs_time_us) {
   return cond_.TimedWait(abs_time_us);
 }
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

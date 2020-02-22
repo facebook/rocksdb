@@ -80,7 +80,7 @@
 #define EXT4_SUPER_MAGIC 0xEF53
 #endif
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 #if defined(OS_WIN)
 static const std::string kSharedLibExt = ".dll";
 static const char kPathSeparator = ';';
@@ -524,4 +524,4 @@ Env* Env::Default() {
   return &composite_env;
 }
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

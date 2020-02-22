@@ -11,7 +11,7 @@
 #include "rocksdb/file_system.h"
 #include "rocksdb/slice_transform.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 class TableCache;
 class VersionStorageInfo;
@@ -45,4 +45,4 @@ class VersionBuilder {
 };
 
 extern bool NewestFirstBySeqNo(FileMetaData* a, FileMetaData* b);
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

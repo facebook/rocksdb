@@ -20,7 +20,7 @@
 #include "rocksdb/utilities/object_registry.h"
 #include "util/autovector.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 Env::~Env() {
 }
@@ -472,4 +472,4 @@ Status NewEnvLogger(const std::string& fname, Env* env,
   return Status::OK();
 }
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

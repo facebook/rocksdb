@@ -7,7 +7,7 @@
 
 #include <functional>
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 // Defers the execution of the provided function until the Defer
 // object goes out of scope.
@@ -49,4 +49,4 @@ class Defer final {
   std::function<void()> fn_;
 };
 
-} // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

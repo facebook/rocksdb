@@ -22,7 +22,7 @@
 #include "util/string_util.h"
 #include "utilities/write_batch_with_index/write_batch_with_index_internal.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 // when direction == forward
 // * current_at_base_ <=> base_iterator > delta_iterator
@@ -736,27 +736,6 @@ Status WriteBatchWithIndex::SingleDelete(const Slice& key) {
   return s;
 }
 
-Status WriteBatchWithIndex::DeleteRange(ColumnFamilyHandle* column_family,
-                                        const Slice& begin_key,
-                                        const Slice& end_key) {
-  rep->SetLastEntryOffset();
-  auto s = rep->write_batch.DeleteRange(column_family, begin_key, end_key);
-  if (s.ok()) {
-    rep->AddOrUpdateIndex(column_family, begin_key);
-  }
-  return s;
-}
-
-Status WriteBatchWithIndex::DeleteRange(const Slice& begin_key,
-                                        const Slice& end_key) {
-  rep->SetLastEntryOffset();
-  auto s = rep->write_batch.DeleteRange(begin_key, end_key);
-  if (s.ok()) {
-    rep->AddOrUpdateIndex(begin_key);
-  }
-  return s;
-}
-
 Status WriteBatchWithIndex::Merge(ColumnFamilyHandle* column_family,
                                   const Slice& key, const Slice& value) {
   rep->SetLastEntryOffset();
@@ -941,7 +920,7 @@ Status WriteBatchWithIndex::GetFromBatchAndDB(
         if (value_type == kTypeBlobIndex) {
           s = Status::NotSupported(
               "Encounter unsupported blob value. Please open DB with "
-              "rocksdb::blob_db::BlobDB instead.");
+              "ROCKSDB_NAMESPACE::blob_db::BlobDB instead.");
         }
         pinnable_val->Reset();
         *pinnable_val->GetSelf() = std::move(merge_result);
@@ -1061,7 +1040,7 @@ void WriteBatchWithIndex::MultiGetFromBatchAndDB(
           if (value_type == kTypeBlobIndex) {
             *key.s = Status::NotSupported(
                 "Encounter unsupported blob value. Please open DB with "
-                "rocksdb::blob_db::BlobDB instead.");
+                "ROCKSDB_NAMESPACE::blob_db::BlobDB instead.");
           }
           key.value->PinSelf();
         } else {
@@ -1099,5 +1078,5 @@ size_t WriteBatchWithIndex::GetDataSize() const {
   return rep->write_batch.GetDataSize();
 }
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE
 #endif  // !ROCKSDB_LITE

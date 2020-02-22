@@ -6,7 +6,7 @@
 #include <mutex>
 #include <cstdlib>
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 /* GLOBAL DIFINE */
 // #define DEBUG
 #ifdef DEBUG
@@ -1494,4 +1494,4 @@ EnvLibrados* EnvLibrados::Default() {
   return &default_env;
 }
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

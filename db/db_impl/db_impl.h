@@ -62,7 +62,7 @@
 #include "util/stop_watch.h"
 #include "util/thread_local.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 class Arena;
 class ArenaWrappedDBIter;
@@ -1383,6 +1383,7 @@ class DBImpl : public DB {
   Status ThrottleLowPriWritesIfNeeded(const WriteOptions& write_options,
                                       WriteBatch* my_batch);
 
+  // REQUIRES: mutex locked and in write thread.
   Status ScheduleFlushes(WriteContext* context);
 
   void MaybeFlushStatsCF(autovector<ColumnFamilyData*>* cfds);
@@ -1454,10 +1455,10 @@ class DBImpl : public DB {
   // REQUIRES: mutex locked and in write thread.
   void AssignAtomicFlushSeq(const autovector<ColumnFamilyData*>& cfds);
 
-  // REQUIRES: mutex locked
+  // REQUIRES: mutex locked and in write thread.
   Status SwitchWAL(WriteContext* write_context);
 
-  // REQUIRES: mutex locked
+  // REQUIRES: mutex locked and in write thread.
   Status HandleWriteBufferFull(WriteContext* write_context);
 
   // REQUIRES: mutex locked
@@ -2014,11 +2015,11 @@ class DBImpl : public DB {
 
   // handle for scheduling stats dumping at fixed intervals
   // REQUIRES: mutex locked
-  std::unique_ptr<rocksdb::RepeatableThread> thread_dump_stats_;
+  std::unique_ptr<ROCKSDB_NAMESPACE::RepeatableThread> thread_dump_stats_;
 
   // handle for scheduling stats snapshoting at fixed intervals
   // REQUIRES: mutex locked
-  std::unique_ptr<rocksdb::RepeatableThread> thread_persist_stats_;
+  std::unique_ptr<ROCKSDB_NAMESPACE::RepeatableThread> thread_persist_stats_;
 
   // When set, we use a separate queue for writes that dont write to memtable.
   // In 2PC these are the writes at Prepare phase.
@@ -2103,4 +2104,4 @@ static void ClipToRange(T* ptr, V minvalue, V maxvalue) {
   if (static_cast<V>(*ptr) < minvalue) *ptr = minvalue;
 }
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

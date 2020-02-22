@@ -13,7 +13,7 @@
 #include "rocksdb/status.h"
 #include "table/format.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 class PinnedIteratorsManager;
 
@@ -179,4 +179,4 @@ template <class TValue = Slice>
 extern InternalIteratorBase<TValue>* NewErrorInternalIterator(
     const Status& status, Arena* arena);
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

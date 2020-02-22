@@ -12,16 +12,18 @@
 #include "db_stress_tool/db_stress_common.h"
 #include <cmath>
 
-rocksdb::DbStressEnvWrapper* db_stress_env = nullptr;
-enum rocksdb::CompressionType compression_type_e = rocksdb::kSnappyCompression;
-enum rocksdb::CompressionType bottommost_compression_type_e =
-    rocksdb::kSnappyCompression;
-enum rocksdb::ChecksumType checksum_type_e = rocksdb::kCRC32c;
+ROCKSDB_NAMESPACE::DbStressEnvWrapper* db_stress_env = nullptr;
+enum ROCKSDB_NAMESPACE::CompressionType compression_type_e =
+    ROCKSDB_NAMESPACE::kSnappyCompression;
+enum ROCKSDB_NAMESPACE::CompressionType bottommost_compression_type_e =
+    ROCKSDB_NAMESPACE::kSnappyCompression;
+enum ROCKSDB_NAMESPACE::ChecksumType checksum_type_e =
+    ROCKSDB_NAMESPACE::kCRC32c;
 enum RepFactory FLAGS_rep_factory = kSkipList;
 std::vector<double> sum_probs(100001);
 int64_t zipf_sum_size = 100000;
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 // Zipfian distribution is generated based on a pre-calculated array.
 // It should be used before start the stress test.
@@ -103,7 +105,7 @@ void PoolSizeChangeThread(void* v) {
       new_thread_pool_size = 1;
     }
     db_stress_env->SetBackgroundThreads(new_thread_pool_size,
-                                        rocksdb::Env::Priority::LOW);
+                                        ROCKSDB_NAMESPACE::Env::Priority::LOW);
     // Sleep up to 3 seconds
     db_stress_env->SleepForMicroseconds(
         thread->rand.Next() % FLAGS_compaction_thread_pool_adjust_interval *
@@ -219,5 +221,5 @@ size_t GenerateValue(uint32_t rand, char* v, size_t max_sz) {
   v[value_sz] = '\0';
   return value_sz;  // the size of the value set.
 }
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE
 #endif  // GFLAGS

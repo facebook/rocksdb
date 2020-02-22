@@ -31,20 +31,7 @@
 #include "util/string_util.h"
 #include "util/user_comparator_wrapper.h"
 
-namespace rocksdb {
-
-#if 0
-static void DumpInternalIter(Iterator* iter) {
-  for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
-    ParsedInternalKey k;
-    if (!ParseInternalKey(iter->key(), &k)) {
-      fprintf(stderr, "Corrupt '%s'\n", EscapeString(iter->key()).c_str());
-    } else {
-      fprintf(stderr, "@ '%s'\n", k.DebugString().c_str());
-    }
-  }
-}
-#endif
+namespace ROCKSDB_NAMESPACE {
 
 DBIter::DBIter(Env* _env, const ReadOptions& read_options,
                const ImmutableCFOptions& cf_options,
@@ -183,7 +170,7 @@ void DBIter::Next() {
 //       a delete marker or a sequence number higher than sequence_
 //       saved_key_ MUST have a proper user_key before calling this function
 //
-// The prefix parameter, if not null, indicates that we need to iterator
+// The prefix parameter, if not null, indicates that we need to iterate
 // within the prefix, and the iterator needs to be made invalid, if no
 // more entry for the prefix can be found.
 bool DBIter::FindNextUserEntry(bool skipping_saved_key, const Slice* prefix) {
@@ -204,13 +191,14 @@ bool DBIter::FindNextUserEntryInternal(bool skipping_saved_key,
   // or equal to saved_key_. We could skip these entries either because
   // sequence numbers were too high or because skipping_saved_key = true.
   // What saved_key_ contains throughout this method:
-  //  - if skipping_saved_key        : saved_key_ contains the key that we need
-  //  to skip,
-  //                         and we haven't seen any keys greater than that,
-  //  - if num_skipped > 0 : saved_key_ contains the key that we have skipped
-  //                         num_skipped times, and we haven't seen any keys
-  //                         greater than that,
-  //  - none of the above  : saved_key_ can contain anything, it doesn't matter.
+  //  - if skipping_saved_key : saved_key_ contains the key that we need
+  //                            to skip, and we haven't seen any keys greater
+  //                            than that,
+  //  - if num_skipped > 0    : saved_key_ contains the key that we have skipped
+  //                            num_skipped times, and we haven't seen any keys
+  //                            greater than that,
+  //  - none of the above     : saved_key_ can contain anything, it doesn't
+  //                            matter.
   uint64_t num_skipped = 0;
   // For write unprepared, the target sequence number in reseek could be larger
   // than the snapshot, and thus needs to be skipped again. This could result in
@@ -292,9 +280,7 @@ bool DBIter::FindNextUserEntryInternal(bool skipping_saved_key,
             if (start_seqnum_ > 0) {
               // we are taking incremental snapshot here
               // incremental snapshots aren't supported on DB with range deletes
-              assert(!(
-                (ikey_.type == kTypeBlobIndex) && (start_seqnum_ > 0)
-              ));
+              assert(ikey_.type != kTypeBlobIndex);
               if (ikey_.sequence >= start_seqnum_) {
                 saved_key_.SetInternalKey(ikey_);
                 valid_ = true;
@@ -325,7 +311,7 @@ bool DBIter::FindNextUserEntryInternal(bool skipping_saved_key,
                   ROCKS_LOG_ERROR(logger_, "Encounter unexpected blob index.");
                   status_ = Status::NotSupported(
                       "Encounter unexpected blob index. Please open DB with "
-                      "rocksdb::blob_db::BlobDB instead.");
+                      "ROCKSDB_NAMESPACE::blob_db::BlobDB instead.");
                   valid_ = false;
                   return false;
                 }
@@ -372,7 +358,7 @@ bool DBIter::FindNextUserEntryInternal(bool skipping_saved_key,
       // to seek to the target sequence number.
       int cmp =
           user_comparator_.Compare(ikey_.user_key, saved_key_.GetUserKey());
-      if (cmp == 0 || (skipping_saved_key && cmp <= 0)) {
+      if (cmp == 0 || (skipping_saved_key && cmp < 0)) {
         num_skipped++;
       } else {
         saved_key_.SetUserKey(
@@ -391,7 +377,7 @@ bool DBIter::FindNextUserEntryInternal(bool skipping_saved_key,
     // reseek previously.
     //
     // TODO(lth): If we reseek to sequence number greater than ikey_.sequence,
-    // than it does not make sense to reseek as we would actually land further
+    // then it does not make sense to reseek as we would actually land further
     // away from the desired key. There is opportunity for optimization here.
     if (num_skipped > max_skip_ && !reseek_done) {
       is_key_seqnum_zero_ = false;
@@ -474,7 +460,7 @@ bool DBIter::MergeValuesNewToOld() {
         ROCKS_LOG_ERROR(logger_, "Encounter unexpected blob index.");
         status_ = Status::NotSupported(
             "Encounter unexpected blob index. Please open DB with "
-            "rocksdb::blob_db::BlobDB instead.");
+            "ROCKSDB_NAMESPACE::blob_db::BlobDB instead.");
         valid_ = false;
         return false;
       }
@@ -501,7 +487,7 @@ bool DBIter::MergeValuesNewToOld() {
           ROCKS_LOG_ERROR(logger_, "Encounter unexpected blob index from merge.");
           status_ = Status::NotSupported(
               "Encounter unexpected blob index from merge. Please open DB "
-              "with rocksdb::blob_db::BlobDB instead.");
+              "with ROCKSDB_NAMESPACE::blob_db::BlobDB instead.");
           valid_ = false;
           return false;
         }
@@ -542,7 +528,7 @@ bool DBIter::MergeValuesNewToOld() {
       ROCKS_LOG_ERROR(logger_, "Encounter unexpected blob index from merge.");
       status_ = Status::NotSupported(
           "Encounter unexpected blob index from merge. Please open DB "
-          "with rocksdb::blob_db::BlobDB instead.");
+          "with ROCKSDB_NAMESPACE::blob_db::BlobDB instead.");
       valid_ = false;
       return false;
     }
@@ -819,7 +805,7 @@ bool DBIter::FindValueForCurrentKey() {
             ROCKS_LOG_ERROR(logger_, "Encounter unexpected blob index from merge.");
             status_ = Status::NotSupported(
                 "Encounter unexpected blob index from merge. Please open DB "
-                "with rocksdb::blob_db::BlobDB instead.");
+                "with ROCKSDB_NAMESPACE::blob_db::BlobDB instead.");
             valid_ = false;
             return false;
           }
@@ -832,7 +818,7 @@ bool DBIter::FindValueForCurrentKey() {
           ROCKS_LOG_ERROR(logger_, "Encounter unexpected blob index.");
           status_ = Status::NotSupported(
               "Encounter unexpected blob index. Please open DB with "
-              "rocksdb::blob_db::BlobDB instead.");
+              "ROCKSDB_NAMESPACE::blob_db::BlobDB instead.");
           valid_ = false;
           return false;
         }
@@ -845,7 +831,7 @@ bool DBIter::FindValueForCurrentKey() {
             ROCKS_LOG_ERROR(logger_, "Encounter unexpected blob index from merge.");
             status_ = Status::NotSupported(
                 "Encounter unexpected blob index from merge. Please open DB "
-                "with rocksdb::blob_db::BlobDB instead.");
+                "with ROCKSDB_NAMESPACE::blob_db::BlobDB instead.");
             valid_ = false;
             return false;
           }
@@ -861,7 +847,7 @@ bool DBIter::FindValueForCurrentKey() {
         ROCKS_LOG_ERROR(logger_, "Encounter unexpected blob index.");
         status_ = Status::NotSupported(
             "Encounter unexpected blob index. Please open DB with "
-            "rocksdb::blob_db::BlobDB instead.");
+            "ROCKSDB_NAMESPACE::blob_db::BlobDB instead.");
         valid_ = false;
         return false;
       }
@@ -932,7 +918,7 @@ bool DBIter::FindValueForCurrentKeyUsingSeek() {
     ROCKS_LOG_ERROR(logger_, "Encounter unexpected blob index.");
     status_ = Status::NotSupported(
         "Encounter unexpected blob index. Please open DB with "
-        "rocksdb::blob_db::BlobDB instead.");
+        "ROCKSDB_NAMESPACE::blob_db::BlobDB instead.");
     valid_ = false;
     return false;
   }
@@ -979,7 +965,7 @@ bool DBIter::FindValueForCurrentKeyUsingSeek() {
         ROCKS_LOG_ERROR(logger_, "Encounter unexpected blob index.");
         status_ = Status::NotSupported(
             "Encounter unexpected blob index. Please open DB with "
-            "rocksdb::blob_db::BlobDB instead.");
+            "ROCKSDB_NAMESPACE::blob_db::BlobDB instead.");
         valid_ = false;
         return false;
       }
@@ -998,7 +984,7 @@ bool DBIter::FindValueForCurrentKeyUsingSeek() {
           ROCKS_LOG_ERROR(logger_, "Encounter unexpected blob index from merge.");
           status_ = Status::NotSupported(
               "Encounter unexpected blob index from merge. Please open DB "
-              "with rocksdb::blob_db::BlobDB instead.");
+              "with ROCKSDB_NAMESPACE::blob_db::BlobDB instead.");
           valid_ = false;
           return false;
         }
@@ -1029,7 +1015,7 @@ bool DBIter::FindValueForCurrentKeyUsingSeek() {
       ROCKS_LOG_ERROR(logger_, "Encounter unexpected blob index from merge.");
       status_ = Status::NotSupported(
           "Encounter unexpected blob index from merge. Please open DB "
-          "with rocksdb::blob_db::BlobDB instead.");
+          "with ROCKSDB_NAMESPACE::blob_db::BlobDB instead.");
       valid_ = false;
       return false;
     }
@@ -1190,18 +1176,16 @@ void DBIter::Seek(const Slice& target) {
 
   // Now the inner iterator is placed to the target position. From there,
   // we need to find out the next key that is visible to the user.
-  //
   ClearSavedValue();
   if (prefix_same_as_start_) {
     // The case where the iterator needs to be invalidated if it has exausted
     // keys within the same prefix of the seek key.
     assert(prefix_extractor_ != nullptr);
-    Slice target_prefix;
-    target_prefix = prefix_extractor_->Transform(target);
+    Slice target_prefix = prefix_extractor_->Transform(target);
     FindNextUserEntry(false /* not skipping saved_key */,
                       &target_prefix /* prefix */);
     if (valid_) {
-      // Remember the prefix of the seek key for the future Prev() call to
+      // Remember the prefix of the seek key for the future Next() call to
       // check.
       prefix_.SetUserKey(target_prefix);
     }
@@ -1257,8 +1241,7 @@ void DBIter::SeekForPrev(const Slice& target) {
     // The case where the iterator needs to be invalidated if it has exausted
     // keys within the same prefix of the seek key.
     assert(prefix_extractor_ != nullptr);
-    Slice target_prefix;
-    target_prefix = prefix_extractor_->Transform(target);
+    Slice target_prefix = prefix_extractor_->Transform(target);
     PrevInternal(&target_prefix);
     if (valid_) {
       // Remember the prefix of the seek key for the future Prev() call to
@@ -1384,4 +1367,4 @@ Iterator* NewDBIterator(Env* env, const ReadOptions& read_options,
   return db_iter;
 }
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

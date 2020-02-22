@@ -13,7 +13,7 @@
 #include "db_stress_tool/db_stress_driver.h"
 #include "rocksdb/convenience.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 StressTest::StressTest()
     : cache_(NewCache(FLAGS_cache_size)),
       compressed_cache_(NewLRUCache(FLAGS_compressed_cache_size)),
@@ -1376,7 +1376,7 @@ Status StressTest::TestCheckpoint(ThreadState* thread,
 
 void StressTest::TestCompactFiles(ThreadState* thread,
                                   ColumnFamilyHandle* column_family) {
-  rocksdb::ColumnFamilyMetaData cf_meta_data;
+  ROCKSDB_NAMESPACE::ColumnFamilyMetaData cf_meta_data;
   db_->GetColumnFamilyMetaData(column_family, &cf_meta_data);
 
   // Randomly compact up to three consecutive files from a level
@@ -1751,7 +1751,7 @@ void StressTest::Open() {
     options_.max_background_compactions = FLAGS_max_background_compactions;
     options_.max_background_flushes = FLAGS_max_background_flushes;
     options_.compaction_style =
-        static_cast<rocksdb::CompactionStyle>(FLAGS_compaction_style);
+        static_cast<ROCKSDB_NAMESPACE::CompactionStyle>(FLAGS_compaction_style);
     if (FLAGS_prefix_size >= 0) {
       options_.prefix_extractor.reset(
           NewFixedPrefixTransform(FLAGS_prefix_size));
@@ -2129,5 +2129,5 @@ void StressTest::Reopen(ThreadState* thread) {
           num_times_reopened_);
   Open();
 }
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE
 #endif  // GFLAGS

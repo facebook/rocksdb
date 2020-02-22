@@ -46,7 +46,7 @@
 #include <stdexcept>
 #include <string>
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 class FileChecksumFuncCrc32c;
 
@@ -1843,7 +1843,8 @@ std::vector<std::string> ReduceDBLevelsCommand::PrepareArgs(
   std::vector<std::string> ret;
   ret.push_back("reduce_levels");
   ret.push_back("--" + ARG_DB + "=" + db_path);
-  ret.push_back("--" + ARG_NEW_LEVELS + "=" + rocksdb::ToString(new_levels));
+  ret.push_back("--" + ARG_NEW_LEVELS + "=" +
+                ROCKSDB_NAMESPACE::ToString(new_levels));
   if(print_old_level) {
     ret.push_back("--" + ARG_PRINT_OLD_LEVELS);
   }
@@ -3081,8 +3082,9 @@ void DumpSstFile(Options options, std::string filename, bool output_hex,
   }
   // no verification
   // TODO: add support for decoding blob indexes in ldb as well
-  rocksdb::SstFileDumper dumper(options, filename, /* verify_checksum */ false,
-                                output_hex, /* decode_blob_index */ false);
+  ROCKSDB_NAMESPACE::SstFileDumper dumper(
+      options, filename, /* verify_checksum */ false, output_hex,
+      /* decode_blob_index */ false);
   Status st = dumper.ReadSequential(true, std::numeric_limits<uint64_t>::max(),
                                     false,            // has_from
                                     from_key, false,  // has_to
@@ -3094,9 +3096,9 @@ void DumpSstFile(Options options, std::string filename, bool output_hex,
   }
 
   if (show_properties) {
-    const rocksdb::TableProperties* table_properties;
+    const ROCKSDB_NAMESPACE::TableProperties* table_properties;
 
-    std::shared_ptr<const rocksdb::TableProperties>
+    std::shared_ptr<const ROCKSDB_NAMESPACE::TableProperties>
         table_properties_from_reader;
     st = dumper.ReadTableProperties(&table_properties_from_reader);
     if (!st.ok()) {
@@ -3166,7 +3168,7 @@ void DBFileDumperCommand::DoCommand() {
 
   std::cout << "Write Ahead Log Files" << std::endl;
   std::cout << "==============================" << std::endl;
-  rocksdb::VectorLogPtr wal_files;
+  ROCKSDB_NAMESPACE::VectorLogPtr wal_files;
   s = db_->GetSortedWalFiles(wal_files);
   if (!s.ok()) {
     std::cerr << "Error when getting WAL files" << std::endl;
@@ -3431,5 +3433,5 @@ void ListFileRangeDeletesCommand::DoCommand() {
   }
 }
 
-}   // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE
 #endif  // ROCKSDB_LITE

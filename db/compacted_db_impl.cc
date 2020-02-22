@@ -9,7 +9,7 @@
 #include "db/version_set.h"
 #include "table/get_context.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 extern void MarkKeyMayExist(void* arg);
 extern bool SaveValue(void* arg, const ParsedInternalKey& parsed_key,
@@ -156,5 +156,5 @@ Status CompactedDBImpl::Open(const Options& options,
   return s;
 }
 
-}   // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE
 #endif  // ROCKSDB_LITE

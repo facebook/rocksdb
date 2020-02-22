@@ -20,7 +20,7 @@
 #include "test_util/sync_point.h"
 #include "util/coding.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 MetaIndexBuilder::MetaIndexBuilder()
     : meta_index_block_(new BlockBuilder(1 /* restart interval */)) {}
@@ -341,7 +341,8 @@ Status ReadProperties(const Slice& handle_value, RandomAccessFileReader* file,
     }
     if (verification_buf != nullptr) {
       size_t len = static_cast<size_t>(handle.size() + kBlockTrailerSize);
-      *verification_buf = rocksdb::AllocateBlock(len, memory_allocator);
+      *verification_buf =
+          ROCKSDB_NAMESPACE::AllocateBlock(len, memory_allocator);
       if (verification_buf->get() != nullptr) {
         memcpy(verification_buf->get(), block_contents.data.data(), len);
       }
@@ -521,4 +522,4 @@ Status ReadMetaBlock(RandomAccessFileReader* file,
   return block_fetcher2.ReadBlockContents();
 }
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

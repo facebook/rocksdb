@@ -44,7 +44,7 @@
 #include "util/stop_watch.h"
 #include "util/thread_local.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 class Arena;
 class ErrorHandler;
@@ -195,4 +195,4 @@ class CompactionJob {
   Env::Priority thread_pri_;
 };
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

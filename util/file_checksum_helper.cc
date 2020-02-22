@@ -9,7 +9,7 @@
 
 #include "util/file_checksum_helper.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 void FileChecksumListImpl::reset() { checksum_map_.clear(); }
 
@@ -82,4 +82,4 @@ FileChecksumFunc* CreateFileChecksumFuncCrc32c() {
   return file_checksum_crc32c;
 }
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

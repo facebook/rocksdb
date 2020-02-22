@@ -193,9 +193,6 @@ public class WriteBatchWithIndexTest {
       // add a single deletion record
       wbwi.singleDelete(k5b);
 
-      // add a delete range record
-      wbwi.deleteRange(k6b, k7b);
-
       // add a log record
       wbwi.putLogData(v8b);
 
@@ -210,13 +207,11 @@ public class WriteBatchWithIndexTest {
               new DirectSlice(k4), DirectSlice.NONE),
           new WBWIRocksIterator.WriteEntry(WBWIRocksIterator.WriteType.SINGLE_DELETE,
               new DirectSlice(k5), DirectSlice.NONE),
-          new WBWIRocksIterator.WriteEntry(WBWIRocksIterator.WriteType.DELETE_RANGE,
-              new DirectSlice(k6), new DirectSlice(k7)),
       };
 
       try (final WBWIRocksIterator it = wbwi.newIterator()) {
         //direct access - seek to key offsets
-        final int[] testOffsets = {2, 0, 3, 4, 1, 5};
+        final int[] testOffsets = {2, 0, 3, 4, 1};
 
         for (int i = 0; i < testOffsets.length; i++) {
           final int testOffset = testOffsets[i];

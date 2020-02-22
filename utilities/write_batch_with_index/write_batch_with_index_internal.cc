@@ -16,7 +16,7 @@
 #include "util/coding.h"
 #include "util/string_util.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 class Env;
 class Logger;
@@ -277,7 +277,7 @@ WriteBatchWithIndexInternal::Result WriteBatchWithIndexInternal::GetFromBatch(
           if (value_type == kTypeBlobIndex) {
             *s = Status::NotSupported(
                 "Encounter unsupported blob value. Please open DB with "
-                "rocksdb::blob_db::BlobDB instead.");
+                "ROCKSDB_NAMESPACE::blob_db::BlobDB instead.");
           }
         } else {
           *s = Status::InvalidArgument("Options::merge_operator must be set");
@@ -300,6 +300,6 @@ WriteBatchWithIndexInternal::Result WriteBatchWithIndexInternal::GetFromBatch(
   return result;
 }
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE
 
 #endif  // !ROCKSDB_LITE

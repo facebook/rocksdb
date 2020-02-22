@@ -12,7 +12,7 @@
 #include "util/crc32c.h"
 #include "util/string_util.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 // This is the class to generate the file checksum based on Crc32. It
 // will be used as the default checksum method for SST file checksum
@@ -114,4 +114,4 @@ class FileChecksumListImpl : public FileChecksumList {
       checksum_map_;
 };
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

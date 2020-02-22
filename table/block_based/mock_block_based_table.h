@@ -9,7 +9,7 @@
 #include "table/block_based/block_based_table_reader.h"
 #include "table/block_based/filter_policy_internal.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 namespace mock {
 
 class MockBlockBasedTable : public BlockBasedTable {
@@ -53,4 +53,4 @@ class MockBlockBasedTableTester {
 };
 
 }  // namespace mock
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

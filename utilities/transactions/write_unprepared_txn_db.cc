@@ -10,7 +10,7 @@
 #include "rocksdb/utilities/transaction_db.h"
 #include "util/cast_util.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 // Instead of reconstructing a Transaction object, and calling rollback on it,
 // we can be more efficient with RollbackRecoveredTransaction by skipping
@@ -464,5 +464,5 @@ Iterator* WriteUnpreparedTxnDB::NewIterator(const ReadOptions& options,
   return db_iter;
 }
 
-}  //  namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE
 #endif  // ROCKSDB_LITE

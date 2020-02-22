@@ -16,7 +16,7 @@
 #include "rocksdb/env.h"
 #include "util/aligned_buffer.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 // FilePrefetchBuffer is a smart buffer to store and read data from a file.
 class FilePrefetchBuffer {
@@ -94,4 +94,4 @@ class FilePrefetchBuffer {
   // can be fetched from min_offset_read().
   bool track_min_offset_;
 };
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

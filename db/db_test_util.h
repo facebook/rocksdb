@@ -52,7 +52,7 @@
 #include "util/string_util.h"
 #include "utilities/merge_operators.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 namespace anon {
 class AtomicCounter {
@@ -997,4 +997,4 @@ class DBTestBase : public testing::Test {
   }
 };
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

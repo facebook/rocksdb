@@ -17,7 +17,7 @@
 #include "file/sst_file_manager_impl.h"
 #include "util/autovector.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 uint64_t DBImpl::MinLogNumberToKeep() {
   if (allow_2pc()) {
@@ -664,4 +664,4 @@ uint64_t PrecomputeMinLogNumberToKeep(
   return min_log_number_to_keep;
 }
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

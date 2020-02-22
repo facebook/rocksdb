@@ -35,7 +35,7 @@
 #include "util/crc32c.h"
 #include "util/mutexlock.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 //
 // Block cache tier implementation
@@ -141,7 +141,7 @@ class BlockCacheTier : public PersistentCacheTier {
   port::RWMutex lock_;                          // Synchronization
   const PersistentCacheConfig opt_;             // BlockCache options
   BoundedQueue<InsertOp> insert_ops_;           // Ops waiting for insert
-  rocksdb::port::Thread insert_th_;                       // Insert thread
+  ROCKSDB_NAMESPACE::port::Thread insert_th_;   // Insert thread
   uint32_t writer_cache_id_ = 0;                // Current cache file identifier
   WriteableCacheFile* cache_file_ = nullptr;    // Current cache file reference
   CacheWriteBufferAllocator buffer_allocator_;  // Buffer provider
@@ -151,6 +151,6 @@ class BlockCacheTier : public PersistentCacheTier {
   Statistics stats_;                                 // Statistics
 };
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE
 
 #endif

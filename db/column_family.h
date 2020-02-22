@@ -27,7 +27,7 @@
 #include "trace_replay/block_cache_tracer.h"
 #include "util/thread_local.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 class Version;
 class VersionSet;
@@ -754,4 +754,4 @@ extern uint32_t GetColumnFamilyID(ColumnFamilyHandle* column_family);
 extern const Comparator* GetColumnFamilyUserComparator(
     ColumnFamilyHandle* column_family);
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

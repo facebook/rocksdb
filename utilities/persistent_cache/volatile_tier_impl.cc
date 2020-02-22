@@ -9,7 +9,7 @@
 
 #include <string>
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 void VolatileCacheTier::DeleteCacheData(VolatileCacheTier::CacheData* data) {
   assert(data);
@@ -133,6 +133,6 @@ bool VolatileCacheTier::Evict() {
   return true;
 }
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE
 
 #endif

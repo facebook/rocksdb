@@ -15,7 +15,7 @@
 #include "port/port.h"
 #include "rocksdb/slice.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 namespace {
 class BytewiseComparatorImpl : public Comparator {
@@ -213,4 +213,4 @@ const Comparator* ReverseBytewiseComparator() {
   return &rbytewise;
 }
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

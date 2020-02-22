@@ -23,7 +23,7 @@
 #include "test_util/sync_point.h"
 #include "util/rate_limiter.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 Options SanitizeOptions(const std::string& dbname, const Options& src) {
   auto db_options = SanitizeOptions(dbname, DBOptions(src));
   ImmutableDBOptions immutable_db_options(db_options);
@@ -1329,6 +1329,8 @@ Status DBImpl::CreateWAL(uint64_t log_file_num, uint64_t recycle_log_number,
                    recycle_log_number);
     std::string old_log_fname =
         LogFileName(immutable_db_options_.wal_dir, recycle_log_number);
+    TEST_SYNC_POINT("DBImpl::CreateWAL:BeforeReuseWritableFile1");
+    TEST_SYNC_POINT("DBImpl::CreateWAL:BeforeReuseWritableFile2");
     s = fs_->ReuseWritableFile(log_fname, old_log_fname, opt_file_options,
                                &lfile, /*dbg=*/nullptr);
   } else {
@@ -1646,4 +1648,4 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
   }
   return s;
 }
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

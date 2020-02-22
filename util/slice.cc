@@ -13,7 +13,7 @@
 #include "util/string_util.h"
 #include <stdio.h>
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 namespace {
 
@@ -240,4 +240,4 @@ PinnableSlice& PinnableSlice::operator=(PinnableSlice&& other) {
   return *this;
 }
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

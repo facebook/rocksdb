@@ -14,13 +14,13 @@
 #include "util/coding.h"
 #include "util/hash.h"
 
-using rocksdb::EncodeFixed32;
-using rocksdb::GetSliceHash64;
-using rocksdb::Hash;
-using rocksdb::Hash64;
-using rocksdb::Lower32of64;
-using rocksdb::Upper32of64;
-using rocksdb::Slice;
+using ROCKSDB_NAMESPACE::EncodeFixed32;
+using ROCKSDB_NAMESPACE::GetSliceHash64;
+using ROCKSDB_NAMESPACE::Hash;
+using ROCKSDB_NAMESPACE::Hash64;
+using ROCKSDB_NAMESPACE::Lower32of64;
+using ROCKSDB_NAMESPACE::Slice;
+using ROCKSDB_NAMESPACE::Upper32of64;
 
 // The hash algorithm is part of the file format, for example for the Bloom
 // filters. Test that the hash values are stable for a set of random strings of
@@ -266,7 +266,7 @@ TEST(HashTest, Hash64LargeValueSchema) {
 }
 
 TEST(Fastrange32Test, Values) {
-  using rocksdb::fastrange32;
+  using ROCKSDB_NAMESPACE::fastrange32;
   // Zero range
   EXPECT_EQ(fastrange32(0, 0), 0U);
   EXPECT_EQ(fastrange32(123, 0), 0U);
@@ -304,7 +304,7 @@ TEST(Fastrange32Test, Values) {
 }
 
 TEST(Fastrange64Test, Values) {
-  using rocksdb::fastrange64;
+  using ROCKSDB_NAMESPACE::fastrange64;
   // Zero range
   EXPECT_EQ(fastrange64(0, 0), 0U);
   EXPECT_EQ(fastrange64(123, 0), 0U);
@@ -362,12 +362,12 @@ TEST(Fastrange64Test, Values) {
 
 // for inspection of disassembly
 uint32_t fastrange32(uint32_t hash, uint32_t range) {
-  return rocksdb::fastrange32(hash, range);
+  return ROCKSDB_NAMESPACE::fastrange32(hash, range);
 }
 
 // for inspection of disassembly
 size_t fastrange64(uint64_t hash, size_t range) {
-  return rocksdb::fastrange64(hash, range);
+  return ROCKSDB_NAMESPACE::fastrange64(hash, range);
 }
 
 int main(int argc, char** argv) {

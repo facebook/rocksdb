@@ -8,7 +8,7 @@
 #include "port/sys_time.h"
 #include "port/port.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 LogBuffer::LogBuffer(const InfoLogLevel log_level,
                      Logger*info_log)
@@ -89,4 +89,4 @@ void LogToBuffer(LogBuffer* log_buffer, const char* format, ...) {
   }
 }
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

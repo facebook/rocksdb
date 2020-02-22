@@ -13,7 +13,7 @@
 #include "rocksdb/memtablerep.h"
 #include "rocksdb/universal_compaction.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 class Slice;
 class SliceTransform;
@@ -730,4 +730,4 @@ struct AdvancedColumnFamilyOptions {
   bool purge_redundant_kvs_while_flush = true;
 };
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

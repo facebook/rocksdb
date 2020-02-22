@@ -34,7 +34,7 @@
 
 using std::string;
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 INSTANTIATE_TEST_CASE_P(
     DBAsBaseDB, TransactionTest,
@@ -282,7 +282,7 @@ TEST_P(TransactionTest, WaitingTxn) {
   ASSERT_TRUE(txn1);
   ASSERT_TRUE(txn2);
 
-  rocksdb::SyncPoint::GetInstance()->SetCallBack(
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
       "TransactionLockMgr::AcquireWithTimeout:WaitingTxn", [&](void* /*arg*/) {
         std::string key;
         uint32_t cf_id;
@@ -335,7 +335,7 @@ TEST_P(TransactionTest, WaitingTxn) {
   ASSERT_EQ(cf_iterator->second.ids.size(), 1);
   ASSERT_EQ(cf_iterator->second.ids[0], txn1->GetID());
 
-  rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
 
   s = txn2->GetForUpdate(read_options, "foo", &value);
   ASSERT_TRUE(s.IsTimedOut());
@@ -343,8 +343,8 @@ TEST_P(TransactionTest, WaitingTxn) {
   ASSERT_EQ(get_perf_context()->key_lock_wait_count, 1);
   ASSERT_GE(get_perf_context()->key_lock_wait_time, 0);
 
-  rocksdb::SyncPoint::GetInstance()->DisableProcessing();
-  rocksdb::SyncPoint::GetInstance()->ClearAllCallBacks();
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearAllCallBacks();
 
   delete cfa;
   delete txn1;
@@ -508,10 +508,10 @@ TEST_P(TransactionTest, DeadlockCycleShared) {
   }
 
   std::atomic<uint32_t> checkpoints(0);
-  rocksdb::SyncPoint::GetInstance()->SetCallBack(
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
       "TransactionLockMgr::AcquireWithTimeout:WaitingTxn",
       [&](void* /*arg*/) { checkpoints.fetch_add(1); });
-  rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
 
   // We want the leaf transactions to block and hold everyone back.
   std::vector<port::Thread> threads;
@@ -531,8 +531,8 @@ TEST_P(TransactionTest, DeadlockCycleShared) {
     /* sleep override */
     std::this_thread::sleep_for(std::chrono::milliseconds(100));
   }
-  rocksdb::SyncPoint::GetInstance()->DisableProcessing();
-  rocksdb::SyncPoint::GetInstance()->ClearAllCallBacks();
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearAllCallBacks();
 
   // Complete the cycle T[16 - 31] -> T1
   for (uint32_t i = 15; i < 31; i++) {
@@ -641,10 +641,10 @@ TEST_P(TransactionTest, DeadlockCycleShared) {
   }
 
   std::atomic<uint32_t> checkpoints_shared(0);
-  rocksdb::SyncPoint::GetInstance()->SetCallBack(
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
       "TransactionLockMgr::AcquireWithTimeout:WaitingTxn",
       [&](void* /*arg*/) { checkpoints_shared.fetch_add(1); });
-  rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
 
   std::vector<port::Thread> threads_shared;
   for (uint32_t i = 0; i < 1; i++) {
@@ -663,8 +663,8 @@ TEST_P(TransactionTest, DeadlockCycleShared) {
     /* sleep override */
     std::this_thread::sleep_for(std::chrono::milliseconds(100));
   }
-  rocksdb::SyncPoint::GetInstance()->DisableProcessing();
-  rocksdb::SyncPoint::GetInstance()->ClearAllCallBacks();
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearAllCallBacks();
 
   // Complete the cycle T2 -> T1 with a shared lock.
   auto s = txns_shared[1]->GetForUpdate(read_options, "0", nullptr, false);
@@ -714,10 +714,10 @@ TEST_P(TransactionStressTest, DeadlockCycle) {
     }
 
     std::atomic<uint32_t> checkpoints(0);
-    rocksdb::SyncPoint::GetInstance()->SetCallBack(
+    ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
         "TransactionLockMgr::AcquireWithTimeout:WaitingTxn",
         [&](void* /*arg*/) { checkpoints.fetch_add(1); });
-    rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+    ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
 
     // We want the last transaction in the chain to block and hold everyone
     // back.
@@ -737,8 +737,8 @@ TEST_P(TransactionStressTest, DeadlockCycle) {
       /* sleep override */
       std::this_thread::sleep_for(std::chrono::milliseconds(100));
     }
-    rocksdb::SyncPoint::GetInstance()->DisableProcessing();
-    rocksdb::SyncPoint::GetInstance()->ClearAllCallBacks();
+    ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
+    ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearAllCallBacks();
 
     // Complete the cycle Tlen -> T1
     auto s = txns[len - 1]->GetForUpdate(read_options, "0", nullptr);
@@ -1453,7 +1453,7 @@ TEST_P(TransactionTest, DISABLED_TwoPhaseMultiThreadTest) {
   std::atomic<uint32_t> t_wait_on_prepare(0);
   std::atomic<uint32_t> t_wait_on_commit(0);
 
-  rocksdb::SyncPoint::GetInstance()->SetCallBack(
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
       "WriteThread::JoinBatchGroup:Wait", [&](void* arg) {
         auto* writer = reinterpret_cast<WriteThread::Writer*>(arg);
 
@@ -1474,7 +1474,7 @@ TEST_P(TransactionTest, DISABLED_TwoPhaseMultiThreadTest) {
         }
       });
 
-  rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
 
   // do all the writes
   std::vector<port::Thread> threads;
@@ -1485,8 +1485,8 @@ TEST_P(TransactionTest, DISABLED_TwoPhaseMultiThreadTest) {
     t.join();
   }
 
-  rocksdb::SyncPoint::GetInstance()->DisableProcessing();
-  rocksdb::SyncPoint::GetInstance()->ClearAllCallBacks();
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearAllCallBacks();
 
   ReadOptions read_options;
   std::string value;
@@ -2881,8 +2881,8 @@ TEST_P(TransactionTest, MultiGetLargeBatchedTest) {
   s = wb.Put(handles[1], std::to_string(2), "new_val" + std::to_string(2));
   ASSERT_OK(s);
   // Write a lot of merges so when we call MultiGetFromBatchAndDB later on,
-  // it is forced to use std::vector in rocksdb::autovector to allocate
-  // MergeContexts. The number of merges needs to be >
+  // it is forced to use std::vector in ROCKSDB_NAMESPACE::autovector to
+  // allocate MergeContexts. The number of merges needs to be >
   // MultiGetContext::MAX_BATCH_SIZE
   for (int i = 8; i < MultiGetContext::MAX_BATCH_SIZE + 24; ++i) {
     s = wb.Merge(handles[1], std::to_string(i), "merge");
@@ -5208,9 +5208,9 @@ TEST_P(TransactionTest, ToggleAutoCompactionTest) {
 TEST_P(TransactionStressTest, ExpiredTransactionDataRace1) {
   // In this test, txn1 should succeed committing,
   // as the callback is called after txn1 starts committing.
-  rocksdb::SyncPoint::GetInstance()->LoadDependency(
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->LoadDependency(
       {{"TransactionTest::ExpirableTransactionDataRace:1"}});
-  rocksdb::SyncPoint::GetInstance()->SetCallBack(
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
       "TransactionTest::ExpirableTransactionDataRace:1", [&](void* /*arg*/) {
         WriteOptions write_options;
         TransactionOptions txn_options;
@@ -5228,7 +5228,7 @@ TEST_P(TransactionStressTest, ExpiredTransactionDataRace1) {
         delete txn2;
       });
 
-  rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
 
   WriteOptions write_options;
   TransactionOptions txn_options;
@@ -5248,7 +5248,7 @@ TEST_P(TransactionStressTest, ExpiredTransactionDataRace1) {
   ASSERT_EQ("1", value);
 
   delete txn1;
-  rocksdb::SyncPoint::GetInstance()->DisableProcessing();
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
 }
 
 #ifndef ROCKSDB_VALGRIND_RUN
@@ -5593,7 +5593,7 @@ TEST_P(TransactionTest, GetWithoutSnapshot) {
   WriteOptions write_options;
   std::atomic<bool> finish = {false};
   db->Put(write_options, "key", "value");
-  rocksdb::port::Thread commit_thread([&]() {
+  ROCKSDB_NAMESPACE::port::Thread commit_thread([&]() {
     for (int i = 0; i < 100; i++) {
       TransactionOptions txn_options;
       Transaction* txn = db->BeginTransaction(write_options, txn_options);
@@ -5606,7 +5606,7 @@ TEST_P(TransactionTest, GetWithoutSnapshot) {
     }
     finish = true;
   });
-  rocksdb::port::Thread read_thread([&]() {
+  ROCKSDB_NAMESPACE::port::Thread read_thread([&]() {
     while (!finish) {
       ReadOptions ropt;
       PinnableSlice pinnable_val;
@@ -6205,7 +6205,7 @@ TEST_P(TransactionTest, DoubleCrashInRecovery) {
   }
 }
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
   ::testing::InitGoogleTest(&argc, argv);

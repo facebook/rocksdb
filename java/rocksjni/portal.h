@@ -45,7 +45,7 @@
 #undef DELETE
 #endif
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 class JavaClass {
  public:
@@ -275,34 +275,36 @@ class SubCodeJni : public JavaClass {
     return mid;
   }
 
-  static rocksdb::Status::SubCode toCppSubCode(const jbyte jsub_code) {
+  static ROCKSDB_NAMESPACE::Status::SubCode toCppSubCode(
+      const jbyte jsub_code) {
     switch (jsub_code) {
       case 0x0:
-        return rocksdb::Status::SubCode::kNone;
+        return ROCKSDB_NAMESPACE::Status::SubCode::kNone;
       case 0x1:
-        return rocksdb::Status::SubCode::kMutexTimeout;
+        return ROCKSDB_NAMESPACE::Status::SubCode::kMutexTimeout;
       case 0x2:
-        return rocksdb::Status::SubCode::kLockTimeout;
+        return ROCKSDB_NAMESPACE::Status::SubCode::kLockTimeout;
       case 0x3:
-        return rocksdb::Status::SubCode::kLockLimit;
+        return ROCKSDB_NAMESPACE::Status::SubCode::kLockLimit;
       case 0x4:
-        return rocksdb::Status::SubCode::kNoSpace;
+        return ROCKSDB_NAMESPACE::Status::SubCode::kNoSpace;
       case 0x5:
-        return rocksdb::Status::SubCode::kDeadlock;
+        return ROCKSDB_NAMESPACE::Status::SubCode::kDeadlock;
       case 0x6:
-        return rocksdb::Status::SubCode::kStaleFile;
+        return ROCKSDB_NAMESPACE::Status::SubCode::kStaleFile;
       case 0x7:
-        return rocksdb::Status::SubCode::kMemoryLimit;
+        return ROCKSDB_NAMESPACE::Status::SubCode::kMemoryLimit;
 
       case 0x7F:
       default:
-        return rocksdb::Status::SubCode::kNone;
+        return ROCKSDB_NAMESPACE::Status::SubCode::kNone;
     }
   }
 };
 
 // The portal class for org.rocksdb.Status
-class StatusJni : public RocksDBNativeClass<rocksdb::Status*, StatusJni> {
+class StatusJni
+    : public RocksDBNativeClass<ROCKSDB_NAMESPACE::Status*, StatusJni> {
  public:
   /**
    * Get the Java Class org.rocksdb.Status
@@ -382,10 +384,10 @@ class StatusJni : public RocksDBNativeClass<rocksdb::Status*, StatusJni> {
 
   /**
    * Create a new Java org.rocksdb.Status object with the same properties as
-   * the provided C++ rocksdb::Status object
+   * the provided C++ ROCKSDB_NAMESPACE::Status object
    *
    * @param env A pointer to the Java environment
-   * @param status The rocksdb::Status object
+   * @param status The ROCKSDB_NAMESPACE::Status object
    *
    * @return A reference to a Java org.rocksdb.Status object, or nullptr
    *     if an an exception occurs
@@ -436,38 +438,38 @@ class StatusJni : public RocksDBNativeClass<rocksdb::Status*, StatusJni> {
   }
 
   // Returns the equivalent org.rocksdb.Status.Code for the provided
-  // C++ rocksdb::Status::Code enum
-  static jbyte toJavaStatusCode(const rocksdb::Status::Code& code) {
+  // C++ ROCKSDB_NAMESPACE::Status::Code enum
+  static jbyte toJavaStatusCode(const ROCKSDB_NAMESPACE::Status::Code& code) {
     switch (code) {
-      case rocksdb::Status::Code::kOk:
+      case ROCKSDB_NAMESPACE::Status::Code::kOk:
         return 0x0;
-      case rocksdb::Status::Code::kNotFound:
+      case ROCKSDB_NAMESPACE::Status::Code::kNotFound:
         return 0x1;
-      case rocksdb::Status::Code::kCorruption:
+      case ROCKSDB_NAMESPACE::Status::Code::kCorruption:
         return 0x2;
-      case rocksdb::Status::Code::kNotSupported:
+      case ROCKSDB_NAMESPACE::Status::Code::kNotSupported:
         return 0x3;
-      case rocksdb::Status::Code::kInvalidArgument:
+      case ROCKSDB_NAMESPACE::Status::Code::kInvalidArgument:
         return 0x4;
-      case rocksdb::Status::Code::kIOError:
+      case ROCKSDB_NAMESPACE::Status::Code::kIOError:
         return 0x5;
-      case rocksdb::Status::Code::kMergeInProgress:
+      case ROCKSDB_NAMESPACE::Status::Code::kMergeInProgress:
         return 0x6;
-      case rocksdb::Status::Code::kIncomplete:
+      case ROCKSDB_NAMESPACE::Status::Code::kIncomplete:
         return 0x7;
-      case rocksdb::Status::Code::kShutdownInProgress:
+      case ROCKSDB_NAMESPACE::Status::Code::kShutdownInProgress:
         return 0x8;
-      case rocksdb::Status::Code::kTimedOut:
+      case ROCKSDB_NAMESPACE::Status::Code::kTimedOut:
         return 0x9;
-      case rocksdb::Status::Code::kAborted:
+      case ROCKSDB_NAMESPACE::Status::Code::kAborted:
         return 0xA;
-      case rocksdb::Status::Code::kBusy:
+      case ROCKSDB_NAMESPACE::Status::Code::kBusy:
         return 0xB;
-      case rocksdb::Status::Code::kExpired:
+      case ROCKSDB_NAMESPACE::Status::Code::kExpired:
         return 0xC;
-      case rocksdb::Status::Code::kTryAgain:
+      case ROCKSDB_NAMESPACE::Status::Code::kTryAgain:
         return 0xD;
-      case rocksdb::Status::Code::kColumnFamilyDropped:
+      case ROCKSDB_NAMESPACE::Status::Code::kColumnFamilyDropped:
         return 0xE;
       default:
         return 0x7F;  // undefined
@@ -475,122 +477,133 @@ class StatusJni : public RocksDBNativeClass<rocksdb::Status*, StatusJni> {
   }
 
   // Returns the equivalent org.rocksdb.Status.SubCode for the provided
-  // C++ rocksdb::Status::SubCode enum
-  static jbyte toJavaStatusSubCode(const rocksdb::Status::SubCode& subCode) {
+  // C++ ROCKSDB_NAMESPACE::Status::SubCode enum
+  static jbyte toJavaStatusSubCode(
+      const ROCKSDB_NAMESPACE::Status::SubCode& subCode) {
     switch (subCode) {
-      case rocksdb::Status::SubCode::kNone:
+      case ROCKSDB_NAMESPACE::Status::SubCode::kNone:
         return 0x0;
-      case rocksdb::Status::SubCode::kMutexTimeout:
+      case ROCKSDB_NAMESPACE::Status::SubCode::kMutexTimeout:
         return 0x1;
-      case rocksdb::Status::SubCode::kLockTimeout:
+      case ROCKSDB_NAMESPACE::Status::SubCode::kLockTimeout:
         return 0x2;
-      case rocksdb::Status::SubCode::kLockLimit:
+      case ROCKSDB_NAMESPACE::Status::SubCode::kLockLimit:
         return 0x3;
-      case rocksdb::Status::SubCode::kNoSpace:
+      case ROCKSDB_NAMESPACE::Status::SubCode::kNoSpace:
         return 0x4;
-      case rocksdb::Status::SubCode::kDeadlock:
+      case ROCKSDB_NAMESPACE::Status::SubCode::kDeadlock:
         return 0x5;
-      case rocksdb::Status::SubCode::kStaleFile:
+      case ROCKSDB_NAMESPACE::Status::SubCode::kStaleFile:
         return 0x6;
-      case rocksdb::Status::SubCode::kMemoryLimit:
+      case ROCKSDB_NAMESPACE::Status::SubCode::kMemoryLimit:
         return 0x7;
       default:
         return 0x7F;  // undefined
     }
   }
 
-  static std::unique_ptr<rocksdb::Status> toCppStatus(
+  static std::unique_ptr<ROCKSDB_NAMESPACE::Status> toCppStatus(
       const jbyte jcode_value, const jbyte jsub_code_value) {
-    std::unique_ptr<rocksdb::Status> status;
+    std::unique_ptr<ROCKSDB_NAMESPACE::Status> status;
     switch (jcode_value) {
       case 0x0:
         //Ok
-        status = std::unique_ptr<rocksdb::Status>(
-            new rocksdb::Status(rocksdb::Status::OK()));
+        status = std::unique_ptr<ROCKSDB_NAMESPACE::Status>(
+            new ROCKSDB_NAMESPACE::Status(ROCKSDB_NAMESPACE::Status::OK()));
         break;
       case 0x1:
         //NotFound
-        status = std::unique_ptr<rocksdb::Status>(
-            new rocksdb::Status(rocksdb::Status::NotFound(
-              rocksdb::SubCodeJni::toCppSubCode(jsub_code_value))));
+        status = std::unique_ptr<ROCKSDB_NAMESPACE::Status>(
+            new ROCKSDB_NAMESPACE::Status(ROCKSDB_NAMESPACE::Status::NotFound(
+                ROCKSDB_NAMESPACE::SubCodeJni::toCppSubCode(jsub_code_value))));
         break;
       case 0x2:
         //Corruption
-        status = std::unique_ptr<rocksdb::Status>(
-            new rocksdb::Status(rocksdb::Status::Corruption(
-              rocksdb::SubCodeJni::toCppSubCode(jsub_code_value))));
+        status = std::unique_ptr<ROCKSDB_NAMESPACE::Status>(
+            new ROCKSDB_NAMESPACE::Status(ROCKSDB_NAMESPACE::Status::Corruption(
+                ROCKSDB_NAMESPACE::SubCodeJni::toCppSubCode(jsub_code_value))));
         break;
       case 0x3:
         //NotSupported
-        status = std::unique_ptr<rocksdb::Status>(
-            new rocksdb::Status(rocksdb::Status::NotSupported(
-                rocksdb::SubCodeJni::toCppSubCode(jsub_code_value))));
+        status = std::unique_ptr<ROCKSDB_NAMESPACE::Status>(
+            new ROCKSDB_NAMESPACE::Status(
+                ROCKSDB_NAMESPACE::Status::NotSupported(
+                    ROCKSDB_NAMESPACE::SubCodeJni::toCppSubCode(
+                        jsub_code_value))));
         break;
       case 0x4:
         //InvalidArgument
-        status = std::unique_ptr<rocksdb::Status>(
-            new rocksdb::Status(rocksdb::Status::InvalidArgument(
-              rocksdb::SubCodeJni::toCppSubCode(jsub_code_value))));
+        status = std::unique_ptr<ROCKSDB_NAMESPACE::Status>(
+            new ROCKSDB_NAMESPACE::Status(
+                ROCKSDB_NAMESPACE::Status::InvalidArgument(
+                    ROCKSDB_NAMESPACE::SubCodeJni::toCppSubCode(
+                        jsub_code_value))));
         break;
       case 0x5:
         //IOError
-        status = std::unique_ptr<rocksdb::Status>(
-            new rocksdb::Status(rocksdb::Status::IOError(
-              rocksdb::SubCodeJni::toCppSubCode(jsub_code_value))));
+        status = std::unique_ptr<ROCKSDB_NAMESPACE::Status>(
+            new ROCKSDB_NAMESPACE::Status(ROCKSDB_NAMESPACE::Status::IOError(
+                ROCKSDB_NAMESPACE::SubCodeJni::toCppSubCode(jsub_code_value))));
         break;
       case 0x6:
         //MergeInProgress
-        status = std::unique_ptr<rocksdb::Status>(
-            new rocksdb::Status(rocksdb::Status::MergeInProgress(
-              rocksdb::SubCodeJni::toCppSubCode(jsub_code_value))));
+        status = std::unique_ptr<ROCKSDB_NAMESPACE::Status>(
+            new ROCKSDB_NAMESPACE::Status(
+                ROCKSDB_NAMESPACE::Status::MergeInProgress(
+                    ROCKSDB_NAMESPACE::SubCodeJni::toCppSubCode(
+                        jsub_code_value))));
         break;
       case 0x7:
         //Incomplete
-        status = std::unique_ptr<rocksdb::Status>(
-            new rocksdb::Status(rocksdb::Status::Incomplete(
-              rocksdb::SubCodeJni::toCppSubCode(jsub_code_value))));
+        status = std::unique_ptr<ROCKSDB_NAMESPACE::Status>(
+            new ROCKSDB_NAMESPACE::Status(ROCKSDB_NAMESPACE::Status::Incomplete(
+                ROCKSDB_NAMESPACE::SubCodeJni::toCppSubCode(jsub_code_value))));
         break;
       case 0x8:
         //ShutdownInProgress
-        status = std::unique_ptr<rocksdb::Status>(
-            new rocksdb::Status(rocksdb::Status::ShutdownInProgress(
-              rocksdb::SubCodeJni::toCppSubCode(jsub_code_value))));
+        status = std::unique_ptr<ROCKSDB_NAMESPACE::Status>(
+            new ROCKSDB_NAMESPACE::Status(
+                ROCKSDB_NAMESPACE::Status::ShutdownInProgress(
+                    ROCKSDB_NAMESPACE::SubCodeJni::toCppSubCode(
+                        jsub_code_value))));
         break;
       case 0x9:
         //TimedOut
-        status = std::unique_ptr<rocksdb::Status>(
-            new rocksdb::Status(rocksdb::Status::TimedOut(
-              rocksdb::SubCodeJni::toCppSubCode(jsub_code_value))));
+        status = std::unique_ptr<ROCKSDB_NAMESPACE::Status>(
+            new ROCKSDB_NAMESPACE::Status(ROCKSDB_NAMESPACE::Status::TimedOut(
+                ROCKSDB_NAMESPACE::SubCodeJni::toCppSubCode(jsub_code_value))));
         break;
       case 0xA:
         //Aborted
-        status = std::unique_ptr<rocksdb::Status>(
-            new rocksdb::Status(rocksdb::Status::Aborted(
-              rocksdb::SubCodeJni::toCppSubCode(jsub_code_value))));
+        status = std::unique_ptr<ROCKSDB_NAMESPACE::Status>(
+            new ROCKSDB_NAMESPACE::Status(ROCKSDB_NAMESPACE::Status::Aborted(
+                ROCKSDB_NAMESPACE::SubCodeJni::toCppSubCode(jsub_code_value))));
         break;
       case 0xB:
         //Busy
-        status = std::unique_ptr<rocksdb::Status>(
-            new rocksdb::Status(rocksdb::Status::Busy(
-              rocksdb::SubCodeJni::toCppSubCode(jsub_code_value))));
+        status = std::unique_ptr<ROCKSDB_NAMESPACE::Status>(
+            new ROCKSDB_NAMESPACE::Status(ROCKSDB_NAMESPACE::Status::Busy(
+                ROCKSDB_NAMESPACE::SubCodeJni::toCppSubCode(jsub_code_value))));
         break;
       case 0xC:
         //Expired
-        status = std::unique_ptr<rocksdb::Status>(
-            new rocksdb::Status(rocksdb::Status::Expired(
-              rocksdb::SubCodeJni::toCppSubCode(jsub_code_value))));
+        status = std::unique_ptr<ROCKSDB_NAMESPACE::Status>(
+            new ROCKSDB_NAMESPACE::Status(ROCKSDB_NAMESPACE::Status::Expired(
+                ROCKSDB_NAMESPACE::SubCodeJni::toCppSubCode(jsub_code_value))));
         break;
       case 0xD:
         //TryAgain
-        status = std::unique_ptr<rocksdb::Status>(
-            new rocksdb::Status(rocksdb::Status::TryAgain(
-              rocksdb::SubCodeJni::toCppSubCode(jsub_code_value))));
+        status = std::unique_ptr<ROCKSDB_NAMESPACE::Status>(
+            new ROCKSDB_NAMESPACE::Status(ROCKSDB_NAMESPACE::Status::TryAgain(
+                ROCKSDB_NAMESPACE::SubCodeJni::toCppSubCode(jsub_code_value))));
         break;
       case 0xE:
         // ColumnFamilyDropped
-        status = std::unique_ptr<rocksdb::Status>(
-            new rocksdb::Status(rocksdb::Status::ColumnFamilyDropped(
-                rocksdb::SubCodeJni::toCppSubCode(jsub_code_value))));
+        status = std::unique_ptr<ROCKSDB_NAMESPACE::Status>(
+            new ROCKSDB_NAMESPACE::Status(
+                ROCKSDB_NAMESPACE::Status::ColumnFamilyDropped(
+                    ROCKSDB_NAMESPACE::SubCodeJni::toCppSubCode(
+                        jsub_code_value))));
         break;
       case 0x7F:
       default:
@@ -599,8 +612,10 @@ class StatusJni : public RocksDBNativeClass<rocksdb::Status*, StatusJni> {
     return status;
   }
 
-  // Returns the equivalent rocksdb::Status for the Java org.rocksdb.Status
-  static std::unique_ptr<rocksdb::Status> toCppStatus(JNIEnv* env, const jobject jstatus) {
+  // Returns the equivalent ROCKSDB_NAMESPACE::Status for the Java
+  // org.rocksdb.Status
+  static std::unique_ptr<ROCKSDB_NAMESPACE::Status> toCppStatus(
+      JNIEnv* env, const jobject jstatus) {
     jmethodID mid_code = getCodeMethod(env);
     if (mid_code == nullptr) {
       // exception occurred
@@ -612,7 +627,7 @@ class StatusJni : public RocksDBNativeClass<rocksdb::Status*, StatusJni> {
       return nullptr;
     }
 
-    jmethodID mid_code_value = rocksdb::CodeJni::getValueMethod(env);
+    jmethodID mid_code_value = ROCKSDB_NAMESPACE::CodeJni::getValueMethod(env);
     if (mid_code_value == nullptr) {
       // exception occurred
       return nullptr;
@@ -642,7 +657,8 @@ class StatusJni : public RocksDBNativeClass<rocksdb::Status*, StatusJni> {
 
     jbyte jsub_code_value = 0x0;  // None
     if (jsubCode != nullptr) {
-      jmethodID mid_subCode_value = rocksdb::SubCodeJni::getValueMethod(env);
+      jmethodID mid_subCode_value =
+          ROCKSDB_NAMESPACE::SubCodeJni::getValueMethod(env);
       if (mid_subCode_value == nullptr) {
         // exception occurred
         return nullptr;
@@ -674,7 +690,7 @@ class StatusJni : public RocksDBNativeClass<rocksdb::Status*, StatusJni> {
       return nullptr;
     }
 
-    std::unique_ptr<rocksdb::Status> status =
+    std::unique_ptr<ROCKSDB_NAMESPACE::Status> status =
         toCppStatus(jcode_value, jsub_code_value);
 
     // delete all local refs
@@ -732,7 +748,7 @@ class RocksDBExceptionJni :
    * @return true if an exception was thrown, false otherwise
    */
   static bool ThrowNew(JNIEnv* env, std::unique_ptr<Status>& s) {
-    return rocksdb::RocksDBExceptionJni::ThrowNew(env, *(s.get()));
+    return ROCKSDB_NAMESPACE::RocksDBExceptionJni::ThrowNew(env, *(s.get()));
   }
 
   /**
@@ -932,7 +948,7 @@ class RocksDBExceptionJni :
     return mid;
   }
 
-  static std::unique_ptr<rocksdb::Status> toCppStatus(
+  static std::unique_ptr<ROCKSDB_NAMESPACE::Status> toCppStatus(
       JNIEnv* env, jthrowable jrocksdb_exception) {
     if(!env->IsInstanceOf(jrocksdb_exception, getJClass(env))) {
       // not an instance of RocksDBException
@@ -956,7 +972,7 @@ class RocksDBExceptionJni :
       return nullptr;   // no status available
     }
 
-    return rocksdb::StatusJni::toCppStatus(env, jstatus);
+    return ROCKSDB_NAMESPACE::StatusJni::toCppStatus(env, jstatus);
   }
 };
 
@@ -1617,8 +1633,8 @@ class JniUtil {
      */
     static std::vector<std::string> copyStrings(JNIEnv* env,
         jobjectArray jss, jboolean* has_exception) {
-          return rocksdb::JniUtil::copyStrings(env, jss,
-              env->GetArrayLength(jss), has_exception);
+      return ROCKSDB_NAMESPACE::JniUtil::copyStrings(
+          env, jss, env->GetArrayLength(jss), has_exception);
     }
 
     /**
@@ -1944,7 +1960,7 @@ class JniUtil {
 
       for (jsize i = 0; i < len; i++) {
         const std::string *str = &((*strings)[i]);
-        jstring js = rocksdb::JniUtil::toJavaString(env, str);
+        jstring js = ROCKSDB_NAMESPACE::JniUtil::toJavaString(env, str);
         if (js == nullptr) {
           env->DeleteLocalRef(jstrings);
           return nullptr;
@@ -2006,7 +2022,8 @@ class JniUtil {
       // OutOfMemoryError("Requested array size exceeds VM limit") coming from VM
       static const size_t MAX_JARRAY_SIZE = (static_cast<size_t>(1)) << 31;
       if(size > MAX_JARRAY_SIZE) {
-        rocksdb::RocksDBExceptionJni::ThrowNew(env, "Requested array size exceeds VM limit");
+        ROCKSDB_NAMESPACE::RocksDBExceptionJni::ThrowNew(
+            env, "Requested array size exceeds VM limit");
         return nullptr;
       }
 
@@ -2029,7 +2046,7 @@ class JniUtil {
     }
 
     /**
-     * Copies bytes from a rocksdb::Slice to a jByteArray
+     * Copies bytes from a ROCKSDB_NAMESPACE::Slice to a jByteArray
      *
      * @param env A pointer to the java environment
      * @param bytes The bytes to copy
@@ -2037,7 +2054,8 @@ class JniUtil {
      * @return the Java byte[] or nullptr if an exception occurs
      *
      * @throws RocksDBException thrown
-     *   if memory size to copy exceeds general java specific array size limitation.
+     *   if memory size to copy exceeds general java specific array size
+     * limitation.
      */
     static jbyteArray copyBytes(JNIEnv* env, const Slice& bytes) {
       return createJavaByteArrayWithSizeCheck(env, bytes.data(), bytes.size());
@@ -2049,10 +2067,11 @@ class JniUtil {
      *
      * TODO(AR) could be used for RocksDB->Put etc.
      */
-    static std::unique_ptr<rocksdb::Status> kv_op(
-        std::function<rocksdb::Status(rocksdb::Slice, rocksdb::Slice)> op,
-        JNIEnv* env, jobject /*jobj*/,
-        jbyteArray jkey, jint jkey_len,
+    static std::unique_ptr<ROCKSDB_NAMESPACE::Status> kv_op(
+        std::function<ROCKSDB_NAMESPACE::Status(ROCKSDB_NAMESPACE::Slice,
+                                                ROCKSDB_NAMESPACE::Slice)>
+            op,
+        JNIEnv* env, jobject /*jobj*/, jbyteArray jkey, jint jkey_len,
         jbyteArray jvalue, jint jvalue_len) {
       jbyte* key = env->GetByteArrayElements(jkey, nullptr);
       if(env->ExceptionCheck()) {
@@ -2069,9 +2088,10 @@ class JniUtil {
         return nullptr;
       }
 
-      rocksdb::Slice key_slice(reinterpret_cast<char*>(key), jkey_len);
-      rocksdb::Slice value_slice(reinterpret_cast<char*>(value),
-          jvalue_len);
+      ROCKSDB_NAMESPACE::Slice key_slice(reinterpret_cast<char*>(key),
+                                         jkey_len);
+      ROCKSDB_NAMESPACE::Slice value_slice(reinterpret_cast<char*>(value),
+                                           jvalue_len);
 
       auto status = op(key_slice, value_slice);
 
@@ -2082,7 +2102,8 @@ class JniUtil {
         env->ReleaseByteArrayElements(jkey, key, JNI_ABORT);
       }
 
-      return std::unique_ptr<rocksdb::Status>(new rocksdb::Status(status));
+      return std::unique_ptr<ROCKSDB_NAMESPACE::Status>(
+          new ROCKSDB_NAMESPACE::Status(status));
     }
 
     /*
@@ -2091,17 +2112,17 @@ class JniUtil {
      *
      * TODO(AR) could be used for RocksDB->Delete etc.
      */
-    static std::unique_ptr<rocksdb::Status> k_op(
-        std::function<rocksdb::Status(rocksdb::Slice)> op,
-        JNIEnv* env, jobject /*jobj*/,
-        jbyteArray jkey, jint jkey_len) {
+    static std::unique_ptr<ROCKSDB_NAMESPACE::Status> k_op(
+        std::function<ROCKSDB_NAMESPACE::Status(ROCKSDB_NAMESPACE::Slice)> op,
+        JNIEnv* env, jobject /*jobj*/, jbyteArray jkey, jint jkey_len) {
       jbyte* key = env->GetByteArrayElements(jkey, nullptr);
       if(env->ExceptionCheck()) {
         // exception thrown: OutOfMemoryError
         return nullptr;
       }
 
-      rocksdb::Slice key_slice(reinterpret_cast<char*>(key), jkey_len);
+      ROCKSDB_NAMESPACE::Slice key_slice(reinterpret_cast<char*>(key),
+                                         jkey_len);
 
       auto status = op(key_slice);
 
@@ -2109,26 +2130,29 @@ class JniUtil {
         env->ReleaseByteArrayElements(jkey, key, JNI_ABORT);
       }
 
-      return std::unique_ptr<rocksdb::Status>(new rocksdb::Status(status));
+      return std::unique_ptr<ROCKSDB_NAMESPACE::Status>(
+          new ROCKSDB_NAMESPACE::Status(status));
     }
 
     /*
      * Helper for operations on a value
      * for example WriteBatchWithIndex->GetFromBatch
      */
-    static jbyteArray v_op(
-        std::function<rocksdb::Status(rocksdb::Slice, std::string*)> op,
-        JNIEnv* env, jbyteArray jkey, jint jkey_len) {
+    static jbyteArray v_op(std::function<ROCKSDB_NAMESPACE::Status(
+                               ROCKSDB_NAMESPACE::Slice, std::string*)>
+                               op,
+                           JNIEnv* env, jbyteArray jkey, jint jkey_len) {
       jbyte* key = env->GetByteArrayElements(jkey, nullptr);
       if(env->ExceptionCheck()) {
         // exception thrown: OutOfMemoryError
         return nullptr;
       }
 
-      rocksdb::Slice key_slice(reinterpret_cast<char*>(key), jkey_len);
+      ROCKSDB_NAMESPACE::Slice key_slice(reinterpret_cast<char*>(key),
+                                         jkey_len);
 
       std::string value;
-      rocksdb::Status s = op(key_slice, &value);
+      ROCKSDB_NAMESPACE::Status s = op(key_slice, &value);
 
       if(key != nullptr) {
         env->ReleaseByteArrayElements(jkey, key, JNI_ABORT);
@@ -2159,7 +2183,7 @@ class JniUtil {
         return jret_value;
       }
 
-      rocksdb::RocksDBExceptionJni::ThrowNew(env, s);
+      ROCKSDB_NAMESPACE::RocksDBExceptionJni::ThrowNew(env, s);
       return nullptr;
     }
 
@@ -2238,32 +2262,36 @@ class JniUtil {
      * Helper for operations on a key and value
      * for example WriteBatch->Put
      *
-     * TODO(AR) could be extended to cover returning rocksdb::Status
+     * TODO(AR) could be extended to cover returning ROCKSDB_NAMESPACE::Status
      * from `op` and used for RocksDB->Put etc.
      */
-    static void kv_op_direct(
-        std::function<void(rocksdb::Slice&, rocksdb::Slice&)> op, JNIEnv* env,
-        jobject jkey, jint jkey_off, jint jkey_len, jobject jval, jint jval_off,
-        jint jval_len) {
+    static void kv_op_direct(std::function<void(ROCKSDB_NAMESPACE::Slice&,
+                                                ROCKSDB_NAMESPACE::Slice&)>
+                                 op,
+                             JNIEnv* env, jobject jkey, jint jkey_off,
+                             jint jkey_len, jobject jval, jint jval_off,
+                             jint jval_len) {
       char* key = reinterpret_cast<char*>(env->GetDirectBufferAddress(jkey));
       if (key == nullptr ||
           env->GetDirectBufferCapacity(jkey) < (jkey_off + jkey_len)) {
-        rocksdb::RocksDBExceptionJni::ThrowNew(env, "Invalid key argument");
+        ROCKSDB_NAMESPACE::RocksDBExceptionJni::ThrowNew(
+            env, "Invalid key argument");
         return;
       }
 
       char* value = reinterpret_cast<char*>(env->GetDirectBufferAddress(jval));
       if (value == nullptr ||
           env->GetDirectBufferCapacity(jval) < (jval_off + jval_len)) {
-        rocksdb::RocksDBExceptionJni::ThrowNew(env, "Invalid value argument");
+        ROCKSDB_NAMESPACE::RocksDBExceptionJni::ThrowNew(
+            env, "Invalid value argument");
         return;
       }
 
       key += jkey_off;
       value += jval_off;
 
-      rocksdb::Slice key_slice(key, jkey_len);
-      rocksdb::Slice value_slice(value, jval_len);
+      ROCKSDB_NAMESPACE::Slice key_slice(key, jkey_len);
+      ROCKSDB_NAMESPACE::Slice value_slice(value, jval_len);
 
       op(key_slice, value_slice);
     }
@@ -2272,22 +2300,23 @@ class JniUtil {
      * Helper for operations on a key and value
      * for example WriteBatch->Delete
      *
-     * TODO(AR) could be extended to cover returning rocksdb::Status
+     * TODO(AR) could be extended to cover returning ROCKSDB_NAMESPACE::Status
      * from `op` and used for RocksDB->Delete etc.
      */
-    static void k_op_direct(std::function<void(rocksdb::Slice&)> op,
+    static void k_op_direct(std::function<void(ROCKSDB_NAMESPACE::Slice&)> op,
                             JNIEnv* env, jobject jkey, jint jkey_off,
                             jint jkey_len) {
       char* key = reinterpret_cast<char*>(env->GetDirectBufferAddress(jkey));
       if (key == nullptr ||
           env->GetDirectBufferCapacity(jkey) < (jkey_off + jkey_len)) {
-        rocksdb::RocksDBExceptionJni::ThrowNew(env, "Invalid key argument");
+        ROCKSDB_NAMESPACE::RocksDBExceptionJni::ThrowNew(
+            env, "Invalid key argument");
         return;
       }
 
       key += jkey_off;
 
-      rocksdb::Slice key_slice(key, jkey_len);
+      ROCKSDB_NAMESPACE::Slice key_slice(key, jkey_len);
 
       return op(key_slice);
     }
@@ -2299,7 +2328,8 @@ class JniUtil {
           reinterpret_cast<char*>(env->GetDirectBufferAddress(jtarget));
       if (target == nullptr ||
           env->GetDirectBufferCapacity(jtarget) < (jtarget_off + jtarget_len)) {
-        rocksdb::RocksDBExceptionJni::ThrowNew(env, "Invalid target argument");
+        ROCKSDB_NAMESPACE::RocksDBExceptionJni::ThrowNew(
+            env, "Invalid target argument");
         return 0;
       }
 
@@ -2411,7 +2441,8 @@ class HashMapJni : public JavaClass {
    */
   template<class iterator_type, typename K, typename V>
   static bool putAll(JNIEnv* env, const jobject jhash_map, iterator_type iterator, iterator_type end, const FnMapKV<K, V, jobject, jobject> &fn_map_kv) {
-    const jmethodID jmid_put = rocksdb::MapJni::getMapPutMethodId(env);
+    const jmethodID jmid_put =
+        ROCKSDB_NAMESPACE::MapJni::getMapPutMethodId(env);
     if (jmid_put == nullptr) {
       return false;
     }
@@ -2457,23 +2488,30 @@ class HashMapJni : public JavaClass {
       return nullptr;
     }
 
-    const rocksdb::HashMapJni::FnMapKV<const std::string, const std::string, jobject, jobject> fn_map_kv =
-        [env](const std::pair<const std::string, const std::string>& kv) {
-      jstring jkey = rocksdb::JniUtil::toJavaString(env, &(kv.first), false);
-      if (env->ExceptionCheck()) {
-        // an error occurred
-        return std::unique_ptr<std::pair<jobject, jobject>>(nullptr);
-      }
+    const ROCKSDB_NAMESPACE::HashMapJni::FnMapKV<
+        const std::string, const std::string, jobject, jobject>
+        fn_map_kv =
+            [env](const std::pair<const std::string, const std::string>& kv) {
+              jstring jkey = ROCKSDB_NAMESPACE::JniUtil::toJavaString(
+                  env, &(kv.first), false);
+              if (env->ExceptionCheck()) {
+                // an error occurred
+                return std::unique_ptr<std::pair<jobject, jobject>>(nullptr);
+              }
 
-      jstring jvalue = rocksdb::JniUtil::toJavaString(env, &(kv.second), true);
-      if (env->ExceptionCheck()) {
-        // an error occurred
-        env->DeleteLocalRef(jkey);
-        return std::unique_ptr<std::pair<jobject, jobject>>(nullptr);
-      }
+              jstring jvalue = ROCKSDB_NAMESPACE::JniUtil::toJavaString(
+                  env, &(kv.second), true);
+              if (env->ExceptionCheck()) {
+                // an error occurred
+                env->DeleteLocalRef(jkey);
+                return std::unique_ptr<std::pair<jobject, jobject>>(nullptr);
+              }
 
-      return std::unique_ptr<std::pair<jobject, jobject>>(new std::pair<jobject, jobject>(static_cast<jobject>(jkey), static_cast<jobject>(jvalue)));
-    };
+              return std::unique_ptr<std::pair<jobject, jobject>>(
+                  new std::pair<jobject, jobject>(
+                      static_cast<jobject>(jkey),
+                      static_cast<jobject>(jvalue)));
+            };
 
     if (!putAll(env, jhash_map, map->begin(), map->end(), fn_map_kv)) {
       // exception occurred
@@ -2506,23 +2544,29 @@ class HashMapJni : public JavaClass {
       return nullptr;
     }
 
-    const rocksdb::HashMapJni::FnMapKV<const std::string, const uint32_t, jobject, jobject> fn_map_kv =
-        [env](const std::pair<const std::string, const uint32_t>& kv) {
-      jstring jkey = rocksdb::JniUtil::toJavaString(env, &(kv.first), false);
-      if (env->ExceptionCheck()) {
-        // an error occurred
-        return std::unique_ptr<std::pair<jobject, jobject>>(nullptr);
-      }
+    const ROCKSDB_NAMESPACE::HashMapJni::FnMapKV<
+        const std::string, const uint32_t, jobject, jobject>
+        fn_map_kv =
+            [env](const std::pair<const std::string, const uint32_t>& kv) {
+              jstring jkey = ROCKSDB_NAMESPACE::JniUtil::toJavaString(
+                  env, &(kv.first), false);
+              if (env->ExceptionCheck()) {
+                // an error occurred
+                return std::unique_ptr<std::pair<jobject, jobject>>(nullptr);
+              }
 
-      jobject jvalue = rocksdb::IntegerJni::valueOf(env, static_cast<jint>(kv.second));
-      if (env->ExceptionCheck()) {
-        // an error occurred
-        env->DeleteLocalRef(jkey);
-        return std::unique_ptr<std::pair<jobject, jobject>>(nullptr);
-      }
+              jobject jvalue = ROCKSDB_NAMESPACE::IntegerJni::valueOf(
+                  env, static_cast<jint>(kv.second));
+              if (env->ExceptionCheck()) {
+                // an error occurred
+                env->DeleteLocalRef(jkey);
+                return std::unique_ptr<std::pair<jobject, jobject>>(nullptr);
+              }
 
-      return std::unique_ptr<std::pair<jobject, jobject>>(new std::pair<jobject, jobject>(static_cast<jobject>(jkey), jvalue));
-    };
+              return std::unique_ptr<std::pair<jobject, jobject>>(
+                  new std::pair<jobject, jobject>(static_cast<jobject>(jkey),
+                                                  jvalue));
+            };
 
     if (!putAll(env, jhash_map, map->begin(), map->end(), fn_map_kv)) {
       // exception occurred
@@ -2551,23 +2595,29 @@ class HashMapJni : public JavaClass {
       return nullptr;
     }
 
-    const rocksdb::HashMapJni::FnMapKV<const std::string, const uint64_t, jobject, jobject> fn_map_kv =
-        [env](const std::pair<const std::string, const uint64_t>& kv) {
-      jstring jkey = rocksdb::JniUtil::toJavaString(env, &(kv.first), false);
-      if (env->ExceptionCheck()) {
-        // an error occurred
-        return std::unique_ptr<std::pair<jobject, jobject>>(nullptr);
-      }
+    const ROCKSDB_NAMESPACE::HashMapJni::FnMapKV<
+        const std::string, const uint64_t, jobject, jobject>
+        fn_map_kv =
+            [env](const std::pair<const std::string, const uint64_t>& kv) {
+              jstring jkey = ROCKSDB_NAMESPACE::JniUtil::toJavaString(
+                  env, &(kv.first), false);
+              if (env->ExceptionCheck()) {
+                // an error occurred
+                return std::unique_ptr<std::pair<jobject, jobject>>(nullptr);
+              }
 
-      jobject jvalue = rocksdb::LongJni::valueOf(env, static_cast<jlong>(kv.second));
-      if (env->ExceptionCheck()) {
-        // an error occurred
-        env->DeleteLocalRef(jkey);
-        return std::unique_ptr<std::pair<jobject, jobject>>(nullptr);
-      }
+              jobject jvalue = ROCKSDB_NAMESPACE::LongJni::valueOf(
+                  env, static_cast<jlong>(kv.second));
+              if (env->ExceptionCheck()) {
+                // an error occurred
+                env->DeleteLocalRef(jkey);
+                return std::unique_ptr<std::pair<jobject, jobject>>(nullptr);
+              }
 
-      return std::unique_ptr<std::pair<jobject, jobject>>(new std::pair<jobject, jobject>(static_cast<jobject>(jkey), jvalue));
-    };
+              return std::unique_ptr<std::pair<jobject, jobject>>(
+                  new std::pair<jobject, jobject>(static_cast<jobject>(jkey),
+                                                  jvalue));
+            };
 
     if (!putAll(env, jhash_map, map->begin(), map->end(), fn_map_kv)) {
       // exception occurred
@@ -2596,23 +2646,28 @@ class HashMapJni : public JavaClass {
       return nullptr;
     }
 
-    const rocksdb::HashMapJni::FnMapKV<const uint32_t, const uint64_t, jobject, jobject> fn_map_kv =
-        [env](const std::pair<const uint32_t, const uint64_t>& kv) {
-      jobject jkey = rocksdb::IntegerJni::valueOf(env, static_cast<jint>(kv.first));
-      if (env->ExceptionCheck()) {
-        // an error occurred
-        return std::unique_ptr<std::pair<jobject, jobject>>(nullptr);
-      }
+    const ROCKSDB_NAMESPACE::HashMapJni::FnMapKV<const uint32_t, const uint64_t,
+                                                 jobject, jobject>
+        fn_map_kv = [env](const std::pair<const uint32_t, const uint64_t>& kv) {
+          jobject jkey = ROCKSDB_NAMESPACE::IntegerJni::valueOf(
+              env, static_cast<jint>(kv.first));
+          if (env->ExceptionCheck()) {
+            // an error occurred
+            return std::unique_ptr<std::pair<jobject, jobject>>(nullptr);
+          }
 
-      jobject jvalue = rocksdb::LongJni::valueOf(env, static_cast<jlong>(kv.second));
-      if (env->ExceptionCheck()) {
-        // an error occurred
-        env->DeleteLocalRef(jkey);
-        return std::unique_ptr<std::pair<jobject, jobject>>(nullptr);
-      }
+          jobject jvalue = ROCKSDB_NAMESPACE::LongJni::valueOf(
+              env, static_cast<jlong>(kv.second));
+          if (env->ExceptionCheck()) {
+            // an error occurred
+            env->DeleteLocalRef(jkey);
+            return std::unique_ptr<std::pair<jobject, jobject>>(nullptr);
+          }
 
-      return std::unique_ptr<std::pair<jobject, jobject>>(new std::pair<jobject, jobject>(static_cast<jobject>(jkey), jvalue));
-    };
+          return std::unique_ptr<std::pair<jobject, jobject>>(
+              new std::pair<jobject, jobject>(static_cast<jobject>(jkey),
+                                              jvalue));
+        };
 
     if (!putAll(env, jhash_map, map->begin(), map->end(), fn_map_kv)) {
       // exception occurred
@@ -2624,7 +2679,8 @@ class HashMapJni : public JavaClass {
 };
 
 // The portal class for org.rocksdb.RocksDB
-class RocksDBJni : public RocksDBNativeClass<rocksdb::DB*, RocksDBJni> {
+class RocksDBJni
+    : public RocksDBNativeClass<ROCKSDB_NAMESPACE::DB*, RocksDBJni> {
  public:
   /**
    * Get the Java Class org.rocksdb.RocksDB
@@ -2641,8 +2697,8 @@ class RocksDBJni : public RocksDBNativeClass<rocksdb::DB*, RocksDBJni> {
 };
 
 // The portal class for org.rocksdb.Options
-class OptionsJni : public RocksDBNativeClass<
-    rocksdb::Options*, OptionsJni> {
+class OptionsJni
+    : public RocksDBNativeClass<ROCKSDB_NAMESPACE::Options*, OptionsJni> {
  public:
   /**
    * Get the Java Class org.rocksdb.Options
@@ -2659,8 +2715,8 @@ class OptionsJni : public RocksDBNativeClass<
 };
 
 // The portal class for org.rocksdb.DBOptions
-class DBOptionsJni : public RocksDBNativeClass<
-    rocksdb::DBOptions*, DBOptionsJni> {
+class DBOptionsJni
+    : public RocksDBNativeClass<ROCKSDB_NAMESPACE::DBOptions*, DBOptionsJni> {
  public:
   /**
    * Get the Java Class org.rocksdb.DBOptions
@@ -2678,7 +2734,7 @@ class DBOptionsJni : public RocksDBNativeClass<
 
 // The portal class for org.rocksdb.ColumnFamilyOptions
 class ColumnFamilyOptionsJni
-    : public RocksDBNativeClass<rocksdb::ColumnFamilyOptions*,
+    : public RocksDBNativeClass<ROCKSDB_NAMESPACE::ColumnFamilyOptions*,
                                 ColumnFamilyOptionsJni> {
  public:
   /**
@@ -2697,16 +2753,17 @@ class ColumnFamilyOptionsJni
 
   /**
    * Create a new Java org.rocksdb.ColumnFamilyOptions object with the same
-   * properties as the provided C++ rocksdb::ColumnFamilyOptions object
+   * properties as the provided C++ ROCKSDB_NAMESPACE::ColumnFamilyOptions
+   * object
    *
    * @param env A pointer to the Java environment
-   * @param cfoptions A pointer to rocksdb::ColumnFamilyOptions object
+   * @param cfoptions A pointer to ROCKSDB_NAMESPACE::ColumnFamilyOptions object
    *
    * @return A reference to a Java org.rocksdb.ColumnFamilyOptions object, or
    * nullptr if an an exception occurs
    */
   static jobject construct(JNIEnv* env, const ColumnFamilyOptions* cfoptions) {
-    auto* cfo = new rocksdb::ColumnFamilyOptions(*cfoptions);
+    auto* cfo = new ROCKSDB_NAMESPACE::ColumnFamilyOptions(*cfoptions);
     jclass jclazz = getJClass(env);
     if(jclazz == nullptr) {
       // exception occurred accessing class
@@ -2729,8 +2786,9 @@ class ColumnFamilyOptionsJni
 };
 
 // The portal class for org.rocksdb.WriteOptions
-class WriteOptionsJni : public RocksDBNativeClass<
-    rocksdb::WriteOptions*, WriteOptionsJni> {
+class WriteOptionsJni
+    : public RocksDBNativeClass<ROCKSDB_NAMESPACE::WriteOptions*,
+                                WriteOptionsJni> {
  public:
   /**
    * Get the Java Class org.rocksdb.WriteOptions
@@ -2747,8 +2805,9 @@ class WriteOptionsJni : public RocksDBNativeClass<
 };
 
 // The portal class for org.rocksdb.ReadOptions
-class ReadOptionsJni : public RocksDBNativeClass<
-    rocksdb::ReadOptions*, ReadOptionsJni> {
+class ReadOptionsJni
+    : public RocksDBNativeClass<ROCKSDB_NAMESPACE::ReadOptions*,
+                                ReadOptionsJni> {
  public:
   /**
    * Get the Java Class org.rocksdb.ReadOptions
@@ -2765,8 +2824,8 @@ class ReadOptionsJni : public RocksDBNativeClass<
 };
 
 // The portal class for org.rocksdb.WriteBatch
-class WriteBatchJni : public RocksDBNativeClass<
-    rocksdb::WriteBatch*, WriteBatchJni> {
+class WriteBatchJni
+    : public RocksDBNativeClass<ROCKSDB_NAMESPACE::WriteBatch*, WriteBatchJni> {
  public:
   /**
    * Get the Java Class org.rocksdb.WriteBatch
@@ -2785,7 +2844,7 @@ class WriteBatchJni : public RocksDBNativeClass<
    * Create a new Java org.rocksdb.WriteBatch object
    *
    * @param env A pointer to the Java environment
-   * @param wb A pointer to rocksdb::WriteBatch object
+   * @param wb A pointer to ROCKSDB_NAMESPACE::WriteBatch object
    *
    * @return A reference to a Java org.rocksdb.WriteBatch object, or
    * nullptr if an an exception occurs
@@ -2813,9 +2872,10 @@ class WriteBatchJni : public RocksDBNativeClass<
 };
 
 // The portal class for org.rocksdb.WriteBatch.Handler
-class WriteBatchHandlerJni : public RocksDBNativeClass<
-    const rocksdb::WriteBatchHandlerJniCallback*,
-    WriteBatchHandlerJni> {
+class WriteBatchHandlerJni
+    : public RocksDBNativeClass<
+          const ROCKSDB_NAMESPACE::WriteBatchHandlerJniCallback*,
+          WriteBatchHandlerJni> {
  public:
   /**
    * Get the Java Class org.rocksdb.WriteBatch.Handler
@@ -3231,7 +3291,8 @@ class WriteBatchSavePointJni : public JavaClass {
    * Create a new Java org.rocksdb.WriteBatch.SavePoint object
    *
    * @param env A pointer to the Java environment
-   * @param savePoint A pointer to rocksdb::WriteBatch::SavePoint object
+   * @param savePoint A pointer to ROCKSDB_NAMESPACE::WriteBatch::SavePoint
+   * object
    *
    * @return A reference to a Java org.rocksdb.WriteBatch.SavePoint object, or
    * nullptr if an an exception occurs
@@ -3262,8 +3323,9 @@ class WriteBatchSavePointJni : public JavaClass {
 };
 
 // The portal class for org.rocksdb.WriteBatchWithIndex
-class WriteBatchWithIndexJni : public RocksDBNativeClass<
-    rocksdb::WriteBatchWithIndex*, WriteBatchWithIndexJni> {
+class WriteBatchWithIndexJni
+    : public RocksDBNativeClass<ROCKSDB_NAMESPACE::WriteBatchWithIndex*,
+                                WriteBatchWithIndexJni> {
  public:
   /**
    * Get the Java Class org.rocksdb.WriteBatchWithIndex
@@ -3318,8 +3380,9 @@ class HistogramDataJni : public JavaClass {
 };
 
 // The portal class for org.rocksdb.BackupableDBOptions
-class BackupableDBOptionsJni : public RocksDBNativeClass<
-    rocksdb::BackupableDBOptions*, BackupableDBOptionsJni> {
+class BackupableDBOptionsJni
+    : public RocksDBNativeClass<ROCKSDB_NAMESPACE::BackupableDBOptions*,
+                                BackupableDBOptionsJni> {
  public:
   /**
    * Get the Java Class org.rocksdb.BackupableDBOptions
@@ -3337,8 +3400,9 @@ class BackupableDBOptionsJni : public RocksDBNativeClass<
 };
 
 // The portal class for org.rocksdb.BackupEngine
-class BackupEngineJni : public RocksDBNativeClass<
-    rocksdb::BackupEngine*, BackupEngineJni> {
+class BackupEngineJni
+    : public RocksDBNativeClass<ROCKSDB_NAMESPACE::BackupEngine*,
+                                BackupEngineJni> {
  public:
   /**
    * Get the Java Class org.rocksdb.BackupableEngine
@@ -3355,8 +3419,8 @@ class BackupEngineJni : public RocksDBNativeClass<
 };
 
 // The portal class for org.rocksdb.RocksIterator
-class IteratorJni : public RocksDBNativeClass<
-    rocksdb::Iterator*, IteratorJni> {
+class IteratorJni
+    : public RocksDBNativeClass<ROCKSDB_NAMESPACE::Iterator*, IteratorJni> {
  public:
   /**
    * Get the Java Class org.rocksdb.RocksIterator
@@ -3373,8 +3437,9 @@ class IteratorJni : public RocksDBNativeClass<
 };
 
 // The portal class for org.rocksdb.Filter
-class FilterJni : public RocksDBNativeClass<
-    std::shared_ptr<rocksdb::FilterPolicy>*, FilterJni> {
+class FilterJni
+    : public RocksDBNativeClass<
+          std::shared_ptr<ROCKSDB_NAMESPACE::FilterPolicy>*, FilterJni> {
  public:
   /**
    * Get the Java Class org.rocksdb.Filter
@@ -3391,8 +3456,9 @@ class FilterJni : public RocksDBNativeClass<
 };
 
 // The portal class for org.rocksdb.ColumnFamilyHandle
-class ColumnFamilyHandleJni : public RocksDBNativeClass<
-    rocksdb::ColumnFamilyHandle*, ColumnFamilyHandleJni> {
+class ColumnFamilyHandleJni
+    : public RocksDBNativeClass<ROCKSDB_NAMESPACE::ColumnFamilyHandle*,
+                                ColumnFamilyHandleJni> {
  public:
   /**
    * Get the Java Class org.rocksdb.ColumnFamilyHandle
@@ -3410,8 +3476,9 @@ class ColumnFamilyHandleJni : public RocksDBNativeClass<
 };
 
 // The portal class for org.rocksdb.FlushOptions
-class FlushOptionsJni : public RocksDBNativeClass<
-    rocksdb::FlushOptions*, FlushOptionsJni> {
+class FlushOptionsJni
+    : public RocksDBNativeClass<ROCKSDB_NAMESPACE::FlushOptions*,
+                                FlushOptionsJni> {
  public:
   /**
    * Get the Java Class org.rocksdb.FlushOptions
@@ -3428,8 +3495,10 @@ class FlushOptionsJni : public RocksDBNativeClass<
 };
 
 // The portal class for org.rocksdb.ComparatorOptions
-class ComparatorOptionsJni : public RocksDBNativeClass<
-    rocksdb::ComparatorJniCallbackOptions*, ComparatorOptionsJni> {
+class ComparatorOptionsJni
+    : public RocksDBNativeClass<
+          ROCKSDB_NAMESPACE::ComparatorJniCallbackOptions*,
+          ComparatorOptionsJni> {
  public:
   /**
    * Get the Java Class org.rocksdb.ComparatorOptions
@@ -3446,9 +3515,10 @@ class ComparatorOptionsJni : public RocksDBNativeClass<
 };
 
 // The portal class for org.rocksdb.AbstractCompactionFilterFactory
-class AbstractCompactionFilterFactoryJni : public RocksDBNativeClass<
-    const rocksdb::CompactionFilterFactoryJniCallback*,
-    AbstractCompactionFilterFactoryJni> {
+class AbstractCompactionFilterFactoryJni
+    : public RocksDBNativeClass<
+          const ROCKSDB_NAMESPACE::CompactionFilterFactoryJniCallback*,
+          AbstractCompactionFilterFactoryJni> {
  public:
   /**
    * Get the Java Class org.rocksdb.AbstractCompactionFilterFactory
@@ -3509,9 +3579,10 @@ class AbstractCompactionFilterFactoryJni : public RocksDBNativeClass<
 };
 
 // The portal class for org.rocksdb.AbstractTransactionNotifier
-class AbstractTransactionNotifierJni : public RocksDBNativeClass<
-    const rocksdb::TransactionNotifierJniCallback*,
-    AbstractTransactionNotifierJni> {
+class AbstractTransactionNotifierJni
+    : public RocksDBNativeClass<
+          const ROCKSDB_NAMESPACE::TransactionNotifierJniCallback*,
+          AbstractTransactionNotifierJni> {
  public:
   static jclass getJClass(JNIEnv* env) {
     return RocksDBNativeClass::getJClass(env,
@@ -3603,9 +3674,9 @@ class AbstractComparatorJniBridge : public JavaClass {
 };
 
 // The portal class for org.rocksdb.AbstractComparator
-class AbstractComparatorJni : public RocksDBNativeClass<
-    const rocksdb::ComparatorJniCallback*,
-    AbstractComparatorJni> {
+class AbstractComparatorJni
+    : public RocksDBNativeClass<const ROCKSDB_NAMESPACE::ComparatorJniCallback*,
+                                AbstractComparatorJni> {
  public:
   /**
    * Get the Java Class org.rocksdb.AbstractComparator
@@ -3644,8 +3715,9 @@ class AbstractComparatorJni : public RocksDBNativeClass<
 };
 
 // The portal class for org.rocksdb.AbstractSlice
-class AbstractSliceJni : public NativeRocksMutableObject<
-    const rocksdb::Slice*, AbstractSliceJni> {
+class AbstractSliceJni
+    : public NativeRocksMutableObject<const ROCKSDB_NAMESPACE::Slice*,
+                                      AbstractSliceJni> {
  public:
   /**
    * Get the Java Class org.rocksdb.AbstractSlice
@@ -3662,8 +3734,9 @@ class AbstractSliceJni : public NativeRocksMutableObject<
 };
 
 // The portal class for org.rocksdb.Slice
-class SliceJni : public NativeRocksMutableObject<
-    const rocksdb::Slice*, AbstractSliceJni> {
+class SliceJni
+    : public NativeRocksMutableObject<const ROCKSDB_NAMESPACE::Slice*,
+                                      AbstractSliceJni> {
  public:
   /**
    * Get the Java Class org.rocksdb.Slice
@@ -3709,8 +3782,9 @@ class SliceJni : public NativeRocksMutableObject<
 };
 
 // The portal class for org.rocksdb.DirectSlice
-class DirectSliceJni : public NativeRocksMutableObject<
-    const rocksdb::Slice*, AbstractSliceJni> {
+class DirectSliceJni
+    : public NativeRocksMutableObject<const ROCKSDB_NAMESPACE::Slice*,
+                                      AbstractSliceJni> {
  public:
   /**
    * Get the Java Class org.rocksdb.DirectSlice
@@ -3834,19 +3908,21 @@ class BackupInfoListJni {
    */
   static jobject getBackupInfo(JNIEnv* env,
       std::vector<BackupInfo> backup_infos) {
-    jclass jarray_list_clazz = rocksdb::ListJni::getArrayListClass(env);
+    jclass jarray_list_clazz =
+        ROCKSDB_NAMESPACE::ListJni::getArrayListClass(env);
     if(jarray_list_clazz == nullptr) {
       // exception occurred accessing class
       return nullptr;
     }
 
-    jmethodID cstr_mid = rocksdb::ListJni::getArrayListConstructorMethodId(env);
+    jmethodID cstr_mid =
+        ROCKSDB_NAMESPACE::ListJni::getArrayListConstructorMethodId(env);
     if(cstr_mid == nullptr) {
       // exception occurred accessing method
       return nullptr;
     }
 
-    jmethodID add_mid = rocksdb::ListJni::getListAddMethodId(env);
+    jmethodID add_mid = ROCKSDB_NAMESPACE::ListJni::getListAddMethodId(env);
     if(add_mid == nullptr) {
       // exception occurred accessing method
       return nullptr;
@@ -3865,7 +3941,7 @@ class BackupInfoListJni {
     for (auto it = backup_infos.begin(); it != end; ++it) {
       auto backup_info = *it;
 
-      jobject obj = rocksdb::BackupInfoJni::construct0(
+      jobject obj = ROCKSDB_NAMESPACE::BackupInfoJni::construct0(
           env, backup_info.backup_id, backup_info.timestamp, backup_info.size,
           backup_info.number_files, backup_info.app_metadata);
       if(env->ExceptionCheck()) {
@@ -4011,22 +4087,22 @@ class WriteTypeJni : public JavaClass {
   }
 
   // Returns the equivalent org.rocksdb.WBWIRocksIterator.WriteType for the
-  // provided C++ rocksdb::WriteType enum
-  static jbyte toJavaWriteType(const rocksdb::WriteType& writeType) {
+  // provided C++ ROCKSDB_NAMESPACE::WriteType enum
+  static jbyte toJavaWriteType(const ROCKSDB_NAMESPACE::WriteType& writeType) {
     switch (writeType) {
-      case rocksdb::WriteType::kPutRecord:
+      case ROCKSDB_NAMESPACE::WriteType::kPutRecord:
         return 0x0;
-      case rocksdb::WriteType::kMergeRecord:
+      case ROCKSDB_NAMESPACE::WriteType::kMergeRecord:
         return 0x1;
-      case rocksdb::WriteType::kDeleteRecord:
+      case ROCKSDB_NAMESPACE::WriteType::kDeleteRecord:
         return 0x2;
-      case rocksdb::WriteType::kSingleDeleteRecord:
+      case ROCKSDB_NAMESPACE::WriteType::kSingleDeleteRecord:
         return 0x3;
-      case rocksdb::WriteType::kDeleteRangeRecord:
+      case ROCKSDB_NAMESPACE::WriteType::kDeleteRangeRecord:
         return 0x4;
-      case rocksdb::WriteType::kLogDataRecord:
+      case ROCKSDB_NAMESPACE::WriteType::kLogDataRecord:
         return 0x5;
-      case rocksdb::WriteType::kXIDRecord:
+      case ROCKSDB_NAMESPACE::WriteType::kXIDRecord:
         return 0x6;
       default:
         return 0x7F;  // undefined
@@ -4217,8 +4293,9 @@ class InfoLogLevelJni : public JavaClass {
 };
 
 // The portal class for org.rocksdb.Logger
-class LoggerJni : public RocksDBNativeClass<
-    std::shared_ptr<rocksdb::LoggerJniCallback>*, LoggerJni> {
+class LoggerJni
+    : public RocksDBNativeClass<
+          std::shared_ptr<ROCKSDB_NAMESPACE::LoggerJniCallback>*, LoggerJni> {
  public:
   /**
    * Get the Java Class org/rocksdb/Logger
@@ -4275,17 +4352,18 @@ class BatchResultJni : public JavaClass {
 
   /**
    * Create a new Java org.rocksdb.TransactionLogIterator.BatchResult object
-   * with the same properties as the provided C++ rocksdb::BatchResult object
+   * with the same properties as the provided C++ ROCKSDB_NAMESPACE::BatchResult
+   * object
    *
    * @param env A pointer to the Java environment
-   * @param batch_result The rocksdb::BatchResult object
+   * @param batch_result The ROCKSDB_NAMESPACE::BatchResult object
    *
    * @return A reference to a Java
    *     org.rocksdb.TransactionLogIterator.BatchResult object,
    *     or nullptr if an an exception occurs
    */
   static jobject construct(JNIEnv* env,
-      rocksdb::BatchResult& batch_result) {
+                           ROCKSDB_NAMESPACE::BatchResult& batch_result) {
     jclass jclazz = getJClass(env);
     if(jclazz == nullptr) {
       // exception occurred accessing class
@@ -4314,40 +4392,44 @@ class BatchResultJni : public JavaClass {
 // The portal class for org.rocksdb.BottommostLevelCompaction
 class BottommostLevelCompactionJni {
  public:
-  // Returns the equivalent org.rocksdb.BottommostLevelCompaction for the provided
-  // C++ rocksdb::BottommostLevelCompaction enum
+  // Returns the equivalent org.rocksdb.BottommostLevelCompaction for the
+  // provided C++ ROCKSDB_NAMESPACE::BottommostLevelCompaction enum
   static jint toJavaBottommostLevelCompaction(
-      const rocksdb::BottommostLevelCompaction& bottommost_level_compaction) {
+      const ROCKSDB_NAMESPACE::BottommostLevelCompaction&
+          bottommost_level_compaction) {
     switch(bottommost_level_compaction) {
-      case rocksdb::BottommostLevelCompaction::kSkip:
+      case ROCKSDB_NAMESPACE::BottommostLevelCompaction::kSkip:
         return 0x0;
-      case rocksdb::BottommostLevelCompaction::kIfHaveCompactionFilter:
+      case ROCKSDB_NAMESPACE::BottommostLevelCompaction::
+          kIfHaveCompactionFilter:
         return 0x1;
-      case rocksdb::BottommostLevelCompaction::kForce:
+      case ROCKSDB_NAMESPACE::BottommostLevelCompaction::kForce:
         return 0x2;
-      case rocksdb::BottommostLevelCompaction::kForceOptimized:
+      case ROCKSDB_NAMESPACE::BottommostLevelCompaction::kForceOptimized:
         return 0x3;
       default:
         return 0x7F;  // undefined
     }
   }
 
-  // Returns the equivalent C++ rocksdb::BottommostLevelCompaction enum for the
-  // provided Java org.rocksdb.BottommostLevelCompaction
-  static rocksdb::BottommostLevelCompaction toCppBottommostLevelCompaction(
-      jint bottommost_level_compaction) {
+  // Returns the equivalent C++ ROCKSDB_NAMESPACE::BottommostLevelCompaction
+  // enum for the provided Java org.rocksdb.BottommostLevelCompaction
+  static ROCKSDB_NAMESPACE::BottommostLevelCompaction
+  toCppBottommostLevelCompaction(jint bottommost_level_compaction) {
     switch(bottommost_level_compaction) {
       case 0x0:
-        return rocksdb::BottommostLevelCompaction::kSkip;
+        return ROCKSDB_NAMESPACE::BottommostLevelCompaction::kSkip;
       case 0x1:
-        return rocksdb::BottommostLevelCompaction::kIfHaveCompactionFilter;
+        return ROCKSDB_NAMESPACE::BottommostLevelCompaction::
+            kIfHaveCompactionFilter;
       case 0x2:
-        return rocksdb::BottommostLevelCompaction::kForce;
+        return ROCKSDB_NAMESPACE::BottommostLevelCompaction::kForce;
       case 0x3:
-        return rocksdb::BottommostLevelCompaction::kForceOptimized;
+        return ROCKSDB_NAMESPACE::BottommostLevelCompaction::kForceOptimized;
       default:
         // undefined/default
-        return rocksdb::BottommostLevelCompaction::kIfHaveCompactionFilter;
+        return ROCKSDB_NAMESPACE::BottommostLevelCompaction::
+            kIfHaveCompactionFilter;
     }
   }
 };
@@ -4356,31 +4438,36 @@ class BottommostLevelCompactionJni {
 class CompactionStopStyleJni {
  public:
   // Returns the equivalent org.rocksdb.CompactionStopStyle for the provided
-  // C++ rocksdb::CompactionStopStyle enum
+  // C++ ROCKSDB_NAMESPACE::CompactionStopStyle enum
   static jbyte toJavaCompactionStopStyle(
-      const rocksdb::CompactionStopStyle& compaction_stop_style) {
+      const ROCKSDB_NAMESPACE::CompactionStopStyle& compaction_stop_style) {
     switch(compaction_stop_style) {
-      case rocksdb::CompactionStopStyle::kCompactionStopStyleSimilarSize:
+      case ROCKSDB_NAMESPACE::CompactionStopStyle::
+          kCompactionStopStyleSimilarSize:
         return 0x0;
-      case rocksdb::CompactionStopStyle::kCompactionStopStyleTotalSize:
+      case ROCKSDB_NAMESPACE::CompactionStopStyle::
+          kCompactionStopStyleTotalSize:
         return 0x1;
       default:
         return 0x7F;  // undefined
     }
   }
 
-  // Returns the equivalent C++ rocksdb::CompactionStopStyle enum for the
-  // provided Java org.rocksdb.CompactionStopStyle
-  static rocksdb::CompactionStopStyle toCppCompactionStopStyle(
+  // Returns the equivalent C++ ROCKSDB_NAMESPACE::CompactionStopStyle enum for
+  // the provided Java org.rocksdb.CompactionStopStyle
+  static ROCKSDB_NAMESPACE::CompactionStopStyle toCppCompactionStopStyle(
       jbyte jcompaction_stop_style) {
     switch(jcompaction_stop_style) {
       case 0x0:
-        return rocksdb::CompactionStopStyle::kCompactionStopStyleSimilarSize;
+        return ROCKSDB_NAMESPACE::CompactionStopStyle::
+            kCompactionStopStyleSimilarSize;
       case 0x1:
-        return rocksdb::CompactionStopStyle::kCompactionStopStyleTotalSize;
+        return ROCKSDB_NAMESPACE::CompactionStopStyle::
+            kCompactionStopStyleTotalSize;
       default:
         // undefined/default
-        return rocksdb::CompactionStopStyle::kCompactionStopStyleSimilarSize;
+        return ROCKSDB_NAMESPACE::CompactionStopStyle::
+            kCompactionStopStyleSimilarSize;
     }
   }
 };
@@ -4389,56 +4476,56 @@ class CompactionStopStyleJni {
 class CompressionTypeJni {
  public:
   // Returns the equivalent org.rocksdb.CompressionType for the provided
-  // C++ rocksdb::CompressionType enum
+  // C++ ROCKSDB_NAMESPACE::CompressionType enum
   static jbyte toJavaCompressionType(
-      const rocksdb::CompressionType& compression_type) {
+      const ROCKSDB_NAMESPACE::CompressionType& compression_type) {
     switch(compression_type) {
-      case rocksdb::CompressionType::kNoCompression:
+      case ROCKSDB_NAMESPACE::CompressionType::kNoCompression:
         return 0x0;
-      case rocksdb::CompressionType::kSnappyCompression:
+      case ROCKSDB_NAMESPACE::CompressionType::kSnappyCompression:
         return 0x1;
-      case rocksdb::CompressionType::kZlibCompression:
+      case ROCKSDB_NAMESPACE::CompressionType::kZlibCompression:
         return 0x2;
-      case rocksdb::CompressionType::kBZip2Compression:
+      case ROCKSDB_NAMESPACE::CompressionType::kBZip2Compression:
         return 0x3;
-      case rocksdb::CompressionType::kLZ4Compression:
+      case ROCKSDB_NAMESPACE::CompressionType::kLZ4Compression:
         return 0x4;
-      case rocksdb::CompressionType::kLZ4HCCompression:
+      case ROCKSDB_NAMESPACE::CompressionType::kLZ4HCCompression:
         return 0x5;
-      case rocksdb::CompressionType::kXpressCompression:
+      case ROCKSDB_NAMESPACE::CompressionType::kXpressCompression:
         return 0x6;
-      case rocksdb::CompressionType::kZSTD:
+      case ROCKSDB_NAMESPACE::CompressionType::kZSTD:
         return 0x7;
-      case rocksdb::CompressionType::kDisableCompressionOption:
+      case ROCKSDB_NAMESPACE::CompressionType::kDisableCompressionOption:
       default:
         return 0x7F;
     }
   }
 
-  // Returns the equivalent C++ rocksdb::CompressionType enum for the
+  // Returns the equivalent C++ ROCKSDB_NAMESPACE::CompressionType enum for the
   // provided Java org.rocksdb.CompressionType
-  static rocksdb::CompressionType toCppCompressionType(
+  static ROCKSDB_NAMESPACE::CompressionType toCppCompressionType(
       jbyte jcompression_type) {
     switch(jcompression_type) {
       case 0x0:
-        return rocksdb::CompressionType::kNoCompression;
+        return ROCKSDB_NAMESPACE::CompressionType::kNoCompression;
       case 0x1:
-        return rocksdb::CompressionType::kSnappyCompression;
+        return ROCKSDB_NAMESPACE::CompressionType::kSnappyCompression;
       case 0x2:
-        return rocksdb::CompressionType::kZlibCompression;
+        return ROCKSDB_NAMESPACE::CompressionType::kZlibCompression;
       case 0x3:
-        return rocksdb::CompressionType::kBZip2Compression;
+        return ROCKSDB_NAMESPACE::CompressionType::kBZip2Compression;
       case 0x4:
-        return rocksdb::CompressionType::kLZ4Compression;
+        return ROCKSDB_NAMESPACE::CompressionType::kLZ4Compression;
       case 0x5:
-        return rocksdb::CompressionType::kLZ4HCCompression;
+        return ROCKSDB_NAMESPACE::CompressionType::kLZ4HCCompression;
       case 0x6:
-        return rocksdb::CompressionType::kXpressCompression;
+        return ROCKSDB_NAMESPACE::CompressionType::kXpressCompression;
       case 0x7:
-        return rocksdb::CompressionType::kZSTD;
+        return ROCKSDB_NAMESPACE::CompressionType::kZSTD;
       case 0x7F:
       default:
-        return rocksdb::CompressionType::kDisableCompressionOption;
+        return ROCKSDB_NAMESPACE::CompressionType::kDisableCompressionOption;
     }
   }
 };
@@ -4447,39 +4534,39 @@ class CompressionTypeJni {
 class CompactionPriorityJni {
  public:
   // Returns the equivalent org.rocksdb.CompactionPriority for the provided
-  // C++ rocksdb::CompactionPri enum
+  // C++ ROCKSDB_NAMESPACE::CompactionPri enum
   static jbyte toJavaCompactionPriority(
-      const rocksdb::CompactionPri& compaction_priority) {
+      const ROCKSDB_NAMESPACE::CompactionPri& compaction_priority) {
     switch(compaction_priority) {
-      case rocksdb::CompactionPri::kByCompensatedSize:
+      case ROCKSDB_NAMESPACE::CompactionPri::kByCompensatedSize:
         return 0x0;
-      case rocksdb::CompactionPri::kOldestLargestSeqFirst:
+      case ROCKSDB_NAMESPACE::CompactionPri::kOldestLargestSeqFirst:
         return 0x1;
-      case rocksdb::CompactionPri::kOldestSmallestSeqFirst:
+      case ROCKSDB_NAMESPACE::CompactionPri::kOldestSmallestSeqFirst:
         return 0x2;
-      case rocksdb::CompactionPri::kMinOverlappingRatio:
+      case ROCKSDB_NAMESPACE::CompactionPri::kMinOverlappingRatio:
         return 0x3;
       default:
         return 0x0;  // undefined
     }
   }
 
-  // Returns the equivalent C++ rocksdb::CompactionPri enum for the
+  // Returns the equivalent C++ ROCKSDB_NAMESPACE::CompactionPri enum for the
   // provided Java org.rocksdb.CompactionPriority
-  static rocksdb::CompactionPri toCppCompactionPriority(
+  static ROCKSDB_NAMESPACE::CompactionPri toCppCompactionPriority(
       jbyte jcompaction_priority) {
     switch(jcompaction_priority) {
       case 0x0:
-        return rocksdb::CompactionPri::kByCompensatedSize;
+        return ROCKSDB_NAMESPACE::CompactionPri::kByCompensatedSize;
       case 0x1:
-        return rocksdb::CompactionPri::kOldestLargestSeqFirst;
+        return ROCKSDB_NAMESPACE::CompactionPri::kOldestLargestSeqFirst;
       case 0x2:
-        return rocksdb::CompactionPri::kOldestSmallestSeqFirst;
+        return ROCKSDB_NAMESPACE::CompactionPri::kOldestSmallestSeqFirst;
       case 0x3:
-        return rocksdb::CompactionPri::kMinOverlappingRatio;
+        return ROCKSDB_NAMESPACE::CompactionPri::kMinOverlappingRatio;
       default:
         // undefined/default
-        return rocksdb::CompactionPri::kByCompensatedSize;
+        return ROCKSDB_NAMESPACE::CompactionPri::kByCompensatedSize;
     }
   }
 };
@@ -4488,17 +4575,17 @@ class CompactionPriorityJni {
 class AccessHintJni {
  public:
   // Returns the equivalent org.rocksdb.AccessHint for the provided
-  // C++ rocksdb::DBOptions::AccessHint enum
+  // C++ ROCKSDB_NAMESPACE::DBOptions::AccessHint enum
   static jbyte toJavaAccessHint(
-      const rocksdb::DBOptions::AccessHint& access_hint) {
+      const ROCKSDB_NAMESPACE::DBOptions::AccessHint& access_hint) {
     switch(access_hint) {
-      case rocksdb::DBOptions::AccessHint::NONE:
+      case ROCKSDB_NAMESPACE::DBOptions::AccessHint::NONE:
         return 0x0;
-      case rocksdb::DBOptions::AccessHint::NORMAL:
+      case ROCKSDB_NAMESPACE::DBOptions::AccessHint::NORMAL:
         return 0x1;
-      case rocksdb::DBOptions::AccessHint::SEQUENTIAL:
+      case ROCKSDB_NAMESPACE::DBOptions::AccessHint::SEQUENTIAL:
         return 0x2;
-      case rocksdb::DBOptions::AccessHint::WILLNEED:
+      case ROCKSDB_NAMESPACE::DBOptions::AccessHint::WILLNEED:
         return 0x3;
       default:
         // undefined/default
@@ -4506,21 +4593,22 @@ class AccessHintJni {
     }
   }
 
-  // Returns the equivalent C++ rocksdb::DBOptions::AccessHint enum for the
-  // provided Java org.rocksdb.AccessHint
-  static rocksdb::DBOptions::AccessHint toCppAccessHint(jbyte jaccess_hint) {
+  // Returns the equivalent C++ ROCKSDB_NAMESPACE::DBOptions::AccessHint enum
+  // for the provided Java org.rocksdb.AccessHint
+  static ROCKSDB_NAMESPACE::DBOptions::AccessHint toCppAccessHint(
+      jbyte jaccess_hint) {
     switch(jaccess_hint) {
       case 0x0:
-        return rocksdb::DBOptions::AccessHint::NONE;
+        return ROCKSDB_NAMESPACE::DBOptions::AccessHint::NONE;
       case 0x1:
-        return rocksdb::DBOptions::AccessHint::NORMAL;
+        return ROCKSDB_NAMESPACE::DBOptions::AccessHint::NORMAL;
       case 0x2:
-        return rocksdb::DBOptions::AccessHint::SEQUENTIAL;
+        return ROCKSDB_NAMESPACE::DBOptions::AccessHint::SEQUENTIAL;
       case 0x3:
-        return rocksdb::DBOptions::AccessHint::WILLNEED;
+        return ROCKSDB_NAMESPACE::DBOptions::AccessHint::WILLNEED;
       default:
         // undefined/default
-        return rocksdb::DBOptions::AccessHint::NORMAL;
+        return ROCKSDB_NAMESPACE::DBOptions::AccessHint::NORMAL;
     }
   }
 };
@@ -4529,17 +4617,17 @@ class AccessHintJni {
 class WALRecoveryModeJni {
  public:
   // Returns the equivalent org.rocksdb.WALRecoveryMode for the provided
-  // C++ rocksdb::WALRecoveryMode enum
+  // C++ ROCKSDB_NAMESPACE::WALRecoveryMode enum
   static jbyte toJavaWALRecoveryMode(
-      const rocksdb::WALRecoveryMode& wal_recovery_mode) {
+      const ROCKSDB_NAMESPACE::WALRecoveryMode& wal_recovery_mode) {
     switch(wal_recovery_mode) {
-      case rocksdb::WALRecoveryMode::kTolerateCorruptedTailRecords:
+      case ROCKSDB_NAMESPACE::WALRecoveryMode::kTolerateCorruptedTailRecords:
         return 0x0;
-      case rocksdb::WALRecoveryMode::kAbsoluteConsistency:
+      case ROCKSDB_NAMESPACE::WALRecoveryMode::kAbsoluteConsistency:
         return 0x1;
-      case rocksdb::WALRecoveryMode::kPointInTimeRecovery:
+      case ROCKSDB_NAMESPACE::WALRecoveryMode::kPointInTimeRecovery:
         return 0x2;
-      case rocksdb::WALRecoveryMode::kSkipAnyCorruptedRecords:
+      case ROCKSDB_NAMESPACE::WALRecoveryMode::kSkipAnyCorruptedRecords:
         return 0x3;
       default:
         // undefined/default
@@ -4547,21 +4635,23 @@ class WALRecoveryModeJni {
     }
   }
 
-  // Returns the equivalent C++ rocksdb::WALRecoveryMode enum for the
+  // Returns the equivalent C++ ROCKSDB_NAMESPACE::WALRecoveryMode enum for the
   // provided Java org.rocksdb.WALRecoveryMode
-  static rocksdb::WALRecoveryMode toCppWALRecoveryMode(jbyte jwal_recovery_mode) {
+  static ROCKSDB_NAMESPACE::WALRecoveryMode toCppWALRecoveryMode(
+      jbyte jwal_recovery_mode) {
     switch(jwal_recovery_mode) {
       case 0x0:
-        return rocksdb::WALRecoveryMode::kTolerateCorruptedTailRecords;
+        return ROCKSDB_NAMESPACE::WALRecoveryMode::
+            kTolerateCorruptedTailRecords;
       case 0x1:
-        return rocksdb::WALRecoveryMode::kAbsoluteConsistency;
+        return ROCKSDB_NAMESPACE::WALRecoveryMode::kAbsoluteConsistency;
       case 0x2:
-        return rocksdb::WALRecoveryMode::kPointInTimeRecovery;
+        return ROCKSDB_NAMESPACE::WALRecoveryMode::kPointInTimeRecovery;
       case 0x3:
-        return rocksdb::WALRecoveryMode::kSkipAnyCorruptedRecords;
+        return ROCKSDB_NAMESPACE::WALRecoveryMode::kSkipAnyCorruptedRecords;
       default:
         // undefined/default
-        return rocksdb::WALRecoveryMode::kPointInTimeRecovery;
+        return ROCKSDB_NAMESPACE::WALRecoveryMode::kPointInTimeRecovery;
     }
   }
 };
@@ -4570,292 +4660,291 @@ class WALRecoveryModeJni {
 class TickerTypeJni {
  public:
   // Returns the equivalent org.rocksdb.TickerType for the provided
-  // C++ rocksdb::Tickers enum
-  static jbyte toJavaTickerType(
-      const rocksdb::Tickers& tickers) {
+  // C++ ROCKSDB_NAMESPACE::Tickers enum
+  static jbyte toJavaTickerType(const ROCKSDB_NAMESPACE::Tickers& tickers) {
     switch(tickers) {
-      case rocksdb::Tickers::BLOCK_CACHE_MISS:
+      case ROCKSDB_NAMESPACE::Tickers::BLOCK_CACHE_MISS:
         return 0x0;
-      case rocksdb::Tickers::BLOCK_CACHE_HIT:
+      case ROCKSDB_NAMESPACE::Tickers::BLOCK_CACHE_HIT:
         return 0x1;
-      case rocksdb::Tickers::BLOCK_CACHE_ADD:
+      case ROCKSDB_NAMESPACE::Tickers::BLOCK_CACHE_ADD:
         return 0x2;
-      case rocksdb::Tickers::BLOCK_CACHE_ADD_FAILURES:
+      case ROCKSDB_NAMESPACE::Tickers::BLOCK_CACHE_ADD_FAILURES:
         return 0x3;
-      case rocksdb::Tickers::BLOCK_CACHE_INDEX_MISS:
+      case ROCKSDB_NAMESPACE::Tickers::BLOCK_CACHE_INDEX_MISS:
         return 0x4;
-      case rocksdb::Tickers::BLOCK_CACHE_INDEX_HIT:
+      case ROCKSDB_NAMESPACE::Tickers::BLOCK_CACHE_INDEX_HIT:
         return 0x5;
-      case rocksdb::Tickers::BLOCK_CACHE_INDEX_ADD:
+      case ROCKSDB_NAMESPACE::Tickers::BLOCK_CACHE_INDEX_ADD:
         return 0x6;
-      case rocksdb::Tickers::BLOCK_CACHE_INDEX_BYTES_INSERT:
+      case ROCKSDB_NAMESPACE::Tickers::BLOCK_CACHE_INDEX_BYTES_INSERT:
         return 0x7;
-      case rocksdb::Tickers::BLOCK_CACHE_INDEX_BYTES_EVICT:
+      case ROCKSDB_NAMESPACE::Tickers::BLOCK_CACHE_INDEX_BYTES_EVICT:
         return 0x8;
-      case rocksdb::Tickers::BLOCK_CACHE_FILTER_MISS:
+      case ROCKSDB_NAMESPACE::Tickers::BLOCK_CACHE_FILTER_MISS:
         return 0x9;
-      case rocksdb::Tickers::BLOCK_CACHE_FILTER_HIT:
+      case ROCKSDB_NAMESPACE::Tickers::BLOCK_CACHE_FILTER_HIT:
         return 0xA;
-      case rocksdb::Tickers::BLOCK_CACHE_FILTER_ADD:
+      case ROCKSDB_NAMESPACE::Tickers::BLOCK_CACHE_FILTER_ADD:
         return 0xB;
-      case rocksdb::Tickers::BLOCK_CACHE_FILTER_BYTES_INSERT:
+      case ROCKSDB_NAMESPACE::Tickers::BLOCK_CACHE_FILTER_BYTES_INSERT:
         return 0xC;
-      case rocksdb::Tickers::BLOCK_CACHE_FILTER_BYTES_EVICT:
+      case ROCKSDB_NAMESPACE::Tickers::BLOCK_CACHE_FILTER_BYTES_EVICT:
         return 0xD;
-      case rocksdb::Tickers::BLOCK_CACHE_DATA_MISS:
+      case ROCKSDB_NAMESPACE::Tickers::BLOCK_CACHE_DATA_MISS:
         return 0xE;
-      case rocksdb::Tickers::BLOCK_CACHE_DATA_HIT:
+      case ROCKSDB_NAMESPACE::Tickers::BLOCK_CACHE_DATA_HIT:
         return 0xF;
-      case rocksdb::Tickers::BLOCK_CACHE_DATA_ADD:
+      case ROCKSDB_NAMESPACE::Tickers::BLOCK_CACHE_DATA_ADD:
         return 0x10;
-      case rocksdb::Tickers::BLOCK_CACHE_DATA_BYTES_INSERT:
+      case ROCKSDB_NAMESPACE::Tickers::BLOCK_CACHE_DATA_BYTES_INSERT:
         return 0x11;
-      case rocksdb::Tickers::BLOCK_CACHE_BYTES_READ:
+      case ROCKSDB_NAMESPACE::Tickers::BLOCK_CACHE_BYTES_READ:
         return 0x12;
-      case rocksdb::Tickers::BLOCK_CACHE_BYTES_WRITE:
+      case ROCKSDB_NAMESPACE::Tickers::BLOCK_CACHE_BYTES_WRITE:
         return 0x13;
-      case rocksdb::Tickers::BLOOM_FILTER_USEFUL:
+      case ROCKSDB_NAMESPACE::Tickers::BLOOM_FILTER_USEFUL:
         return 0x14;
-      case rocksdb::Tickers::PERSISTENT_CACHE_HIT:
+      case ROCKSDB_NAMESPACE::Tickers::PERSISTENT_CACHE_HIT:
         return 0x15;
-      case rocksdb::Tickers::PERSISTENT_CACHE_MISS:
+      case ROCKSDB_NAMESPACE::Tickers::PERSISTENT_CACHE_MISS:
         return 0x16;
-      case rocksdb::Tickers::SIM_BLOCK_CACHE_HIT:
+      case ROCKSDB_NAMESPACE::Tickers::SIM_BLOCK_CACHE_HIT:
         return 0x17;
-      case rocksdb::Tickers::SIM_BLOCK_CACHE_MISS:
+      case ROCKSDB_NAMESPACE::Tickers::SIM_BLOCK_CACHE_MISS:
         return 0x18;
-      case rocksdb::Tickers::MEMTABLE_HIT:
+      case ROCKSDB_NAMESPACE::Tickers::MEMTABLE_HIT:
         return 0x19;
-      case rocksdb::Tickers::MEMTABLE_MISS:
+      case ROCKSDB_NAMESPACE::Tickers::MEMTABLE_MISS:
         return 0x1A;
-      case rocksdb::Tickers::GET_HIT_L0:
+      case ROCKSDB_NAMESPACE::Tickers::GET_HIT_L0:
         return 0x1B;
-      case rocksdb::Tickers::GET_HIT_L1:
+      case ROCKSDB_NAMESPACE::Tickers::GET_HIT_L1:
         return 0x1C;
-      case rocksdb::Tickers::GET_HIT_L2_AND_UP:
+      case ROCKSDB_NAMESPACE::Tickers::GET_HIT_L2_AND_UP:
         return 0x1D;
-      case rocksdb::Tickers::COMPACTION_KEY_DROP_NEWER_ENTRY:
+      case ROCKSDB_NAMESPACE::Tickers::COMPACTION_KEY_DROP_NEWER_ENTRY:
         return 0x1E;
-      case rocksdb::Tickers::COMPACTION_KEY_DROP_OBSOLETE:
+      case ROCKSDB_NAMESPACE::Tickers::COMPACTION_KEY_DROP_OBSOLETE:
         return 0x1F;
-      case rocksdb::Tickers::COMPACTION_KEY_DROP_RANGE_DEL:
+      case ROCKSDB_NAMESPACE::Tickers::COMPACTION_KEY_DROP_RANGE_DEL:
         return 0x20;
-      case rocksdb::Tickers::COMPACTION_KEY_DROP_USER:
+      case ROCKSDB_NAMESPACE::Tickers::COMPACTION_KEY_DROP_USER:
         return 0x21;
-      case rocksdb::Tickers::COMPACTION_RANGE_DEL_DROP_OBSOLETE:
+      case ROCKSDB_NAMESPACE::Tickers::COMPACTION_RANGE_DEL_DROP_OBSOLETE:
         return 0x22;
-      case rocksdb::Tickers::NUMBER_KEYS_WRITTEN:
+      case ROCKSDB_NAMESPACE::Tickers::NUMBER_KEYS_WRITTEN:
         return 0x23;
-      case rocksdb::Tickers::NUMBER_KEYS_READ:
+      case ROCKSDB_NAMESPACE::Tickers::NUMBER_KEYS_READ:
         return 0x24;
-      case rocksdb::Tickers::NUMBER_KEYS_UPDATED:
+      case ROCKSDB_NAMESPACE::Tickers::NUMBER_KEYS_UPDATED:
         return 0x25;
-      case rocksdb::Tickers::BYTES_WRITTEN:
+      case ROCKSDB_NAMESPACE::Tickers::BYTES_WRITTEN:
         return 0x26;
-      case rocksdb::Tickers::BYTES_READ:
+      case ROCKSDB_NAMESPACE::Tickers::BYTES_READ:
         return 0x27;
-      case rocksdb::Tickers::NUMBER_DB_SEEK:
+      case ROCKSDB_NAMESPACE::Tickers::NUMBER_DB_SEEK:
         return 0x28;
-      case rocksdb::Tickers::NUMBER_DB_NEXT:
+      case ROCKSDB_NAMESPACE::Tickers::NUMBER_DB_NEXT:
         return 0x29;
-      case rocksdb::Tickers::NUMBER_DB_PREV:
+      case ROCKSDB_NAMESPACE::Tickers::NUMBER_DB_PREV:
         return 0x2A;
-      case rocksdb::Tickers::NUMBER_DB_SEEK_FOUND:
+      case ROCKSDB_NAMESPACE::Tickers::NUMBER_DB_SEEK_FOUND:
         return 0x2B;
-      case rocksdb::Tickers::NUMBER_DB_NEXT_FOUND:
+      case ROCKSDB_NAMESPACE::Tickers::NUMBER_DB_NEXT_FOUND:
         return 0x2C;
-      case rocksdb::Tickers::NUMBER_DB_PREV_FOUND:
+      case ROCKSDB_NAMESPACE::Tickers::NUMBER_DB_PREV_FOUND:
         return 0x2D;
-      case rocksdb::Tickers::ITER_BYTES_READ:
+      case ROCKSDB_NAMESPACE::Tickers::ITER_BYTES_READ:
         return 0x2E;
-      case rocksdb::Tickers::NO_FILE_CLOSES:
+      case ROCKSDB_NAMESPACE::Tickers::NO_FILE_CLOSES:
         return 0x2F;
-      case rocksdb::Tickers::NO_FILE_OPENS:
+      case ROCKSDB_NAMESPACE::Tickers::NO_FILE_OPENS:
         return 0x30;
-      case rocksdb::Tickers::NO_FILE_ERRORS:
+      case ROCKSDB_NAMESPACE::Tickers::NO_FILE_ERRORS:
         return 0x31;
-      case rocksdb::Tickers::STALL_L0_SLOWDOWN_MICROS:
+      case ROCKSDB_NAMESPACE::Tickers::STALL_L0_SLOWDOWN_MICROS:
         return 0x32;
-      case rocksdb::Tickers::STALL_MEMTABLE_COMPACTION_MICROS:
+      case ROCKSDB_NAMESPACE::Tickers::STALL_MEMTABLE_COMPACTION_MICROS:
         return 0x33;
-      case rocksdb::Tickers::STALL_L0_NUM_FILES_MICROS:
+      case ROCKSDB_NAMESPACE::Tickers::STALL_L0_NUM_FILES_MICROS:
         return 0x34;
-      case rocksdb::Tickers::STALL_MICROS:
+      case ROCKSDB_NAMESPACE::Tickers::STALL_MICROS:
         return 0x35;
-      case rocksdb::Tickers::DB_MUTEX_WAIT_MICROS:
+      case ROCKSDB_NAMESPACE::Tickers::DB_MUTEX_WAIT_MICROS:
         return 0x36;
-      case rocksdb::Tickers::RATE_LIMIT_DELAY_MILLIS:
+      case ROCKSDB_NAMESPACE::Tickers::RATE_LIMIT_DELAY_MILLIS:
         return 0x37;
-      case rocksdb::Tickers::NO_ITERATORS:
+      case ROCKSDB_NAMESPACE::Tickers::NO_ITERATORS:
         return 0x38;
-      case rocksdb::Tickers::NUMBER_MULTIGET_CALLS:
+      case ROCKSDB_NAMESPACE::Tickers::NUMBER_MULTIGET_CALLS:
         return 0x39;
-      case rocksdb::Tickers::NUMBER_MULTIGET_KEYS_READ:
+      case ROCKSDB_NAMESPACE::Tickers::NUMBER_MULTIGET_KEYS_READ:
         return 0x3A;
-      case rocksdb::Tickers::NUMBER_MULTIGET_BYTES_READ:
+      case ROCKSDB_NAMESPACE::Tickers::NUMBER_MULTIGET_BYTES_READ:
         return 0x3B;
-      case rocksdb::Tickers::NUMBER_FILTERED_DELETES:
+      case ROCKSDB_NAMESPACE::Tickers::NUMBER_FILTERED_DELETES:
         return 0x3C;
-      case rocksdb::Tickers::NUMBER_MERGE_FAILURES:
+      case ROCKSDB_NAMESPACE::Tickers::NUMBER_MERGE_FAILURES:
         return 0x3D;
-      case rocksdb::Tickers::BLOOM_FILTER_PREFIX_CHECKED:
+      case ROCKSDB_NAMESPACE::Tickers::BLOOM_FILTER_PREFIX_CHECKED:
         return 0x3E;
-      case rocksdb::Tickers::BLOOM_FILTER_PREFIX_USEFUL:
+      case ROCKSDB_NAMESPACE::Tickers::BLOOM_FILTER_PREFIX_USEFUL:
         return 0x3F;
-      case rocksdb::Tickers::NUMBER_OF_RESEEKS_IN_ITERATION:
+      case ROCKSDB_NAMESPACE::Tickers::NUMBER_OF_RESEEKS_IN_ITERATION:
         return 0x40;
-      case rocksdb::Tickers::GET_UPDATES_SINCE_CALLS:
+      case ROCKSDB_NAMESPACE::Tickers::GET_UPDATES_SINCE_CALLS:
         return 0x41;
-      case rocksdb::Tickers::BLOCK_CACHE_COMPRESSED_MISS:
+      case ROCKSDB_NAMESPACE::Tickers::BLOCK_CACHE_COMPRESSED_MISS:
         return 0x42;
-      case rocksdb::Tickers::BLOCK_CACHE_COMPRESSED_HIT:
+      case ROCKSDB_NAMESPACE::Tickers::BLOCK_CACHE_COMPRESSED_HIT:
         return 0x43;
-      case rocksdb::Tickers::BLOCK_CACHE_COMPRESSED_ADD:
+      case ROCKSDB_NAMESPACE::Tickers::BLOCK_CACHE_COMPRESSED_ADD:
         return 0x44;
-      case rocksdb::Tickers::BLOCK_CACHE_COMPRESSED_ADD_FAILURES:
+      case ROCKSDB_NAMESPACE::Tickers::BLOCK_CACHE_COMPRESSED_ADD_FAILURES:
         return 0x45;
-      case rocksdb::Tickers::WAL_FILE_SYNCED:
+      case ROCKSDB_NAMESPACE::Tickers::WAL_FILE_SYNCED:
         return 0x46;
-      case rocksdb::Tickers::WAL_FILE_BYTES:
+      case ROCKSDB_NAMESPACE::Tickers::WAL_FILE_BYTES:
         return 0x47;
-      case rocksdb::Tickers::WRITE_DONE_BY_SELF:
+      case ROCKSDB_NAMESPACE::Tickers::WRITE_DONE_BY_SELF:
         return 0x48;
-      case rocksdb::Tickers::WRITE_DONE_BY_OTHER:
+      case ROCKSDB_NAMESPACE::Tickers::WRITE_DONE_BY_OTHER:
         return 0x49;
-      case rocksdb::Tickers::WRITE_TIMEDOUT:
+      case ROCKSDB_NAMESPACE::Tickers::WRITE_TIMEDOUT:
         return 0x4A;
-      case rocksdb::Tickers::WRITE_WITH_WAL:
+      case ROCKSDB_NAMESPACE::Tickers::WRITE_WITH_WAL:
         return 0x4B;
-      case rocksdb::Tickers::COMPACT_READ_BYTES:
+      case ROCKSDB_NAMESPACE::Tickers::COMPACT_READ_BYTES:
         return 0x4C;
-      case rocksdb::Tickers::COMPACT_WRITE_BYTES:
+      case ROCKSDB_NAMESPACE::Tickers::COMPACT_WRITE_BYTES:
         return 0x4D;
-      case rocksdb::Tickers::FLUSH_WRITE_BYTES:
+      case ROCKSDB_NAMESPACE::Tickers::FLUSH_WRITE_BYTES:
         return 0x4E;
-      case rocksdb::Tickers::NUMBER_DIRECT_LOAD_TABLE_PROPERTIES:
+      case ROCKSDB_NAMESPACE::Tickers::NUMBER_DIRECT_LOAD_TABLE_PROPERTIES:
         return 0x4F;
-      case rocksdb::Tickers::NUMBER_SUPERVERSION_ACQUIRES:
+      case ROCKSDB_NAMESPACE::Tickers::NUMBER_SUPERVERSION_ACQUIRES:
         return 0x50;
-      case rocksdb::Tickers::NUMBER_SUPERVERSION_RELEASES:
+      case ROCKSDB_NAMESPACE::Tickers::NUMBER_SUPERVERSION_RELEASES:
         return 0x51;
-      case rocksdb::Tickers::NUMBER_SUPERVERSION_CLEANUPS:
+      case ROCKSDB_NAMESPACE::Tickers::NUMBER_SUPERVERSION_CLEANUPS:
         return 0x52;
-      case rocksdb::Tickers::NUMBER_BLOCK_COMPRESSED:
+      case ROCKSDB_NAMESPACE::Tickers::NUMBER_BLOCK_COMPRESSED:
         return 0x53;
-      case rocksdb::Tickers::NUMBER_BLOCK_DECOMPRESSED:
+      case ROCKSDB_NAMESPACE::Tickers::NUMBER_BLOCK_DECOMPRESSED:
         return 0x54;
-      case rocksdb::Tickers::NUMBER_BLOCK_NOT_COMPRESSED:
+      case ROCKSDB_NAMESPACE::Tickers::NUMBER_BLOCK_NOT_COMPRESSED:
         return 0x55;
-      case rocksdb::Tickers::MERGE_OPERATION_TOTAL_TIME:
+      case ROCKSDB_NAMESPACE::Tickers::MERGE_OPERATION_TOTAL_TIME:
         return 0x56;
-      case rocksdb::Tickers::FILTER_OPERATION_TOTAL_TIME:
+      case ROCKSDB_NAMESPACE::Tickers::FILTER_OPERATION_TOTAL_TIME:
         return 0x57;
-      case rocksdb::Tickers::ROW_CACHE_HIT:
+      case ROCKSDB_NAMESPACE::Tickers::ROW_CACHE_HIT:
         return 0x58;
-      case rocksdb::Tickers::ROW_CACHE_MISS:
+      case ROCKSDB_NAMESPACE::Tickers::ROW_CACHE_MISS:
         return 0x59;
-      case rocksdb::Tickers::READ_AMP_ESTIMATE_USEFUL_BYTES:
+      case ROCKSDB_NAMESPACE::Tickers::READ_AMP_ESTIMATE_USEFUL_BYTES:
         return 0x5A;
-      case rocksdb::Tickers::READ_AMP_TOTAL_READ_BYTES:
+      case ROCKSDB_NAMESPACE::Tickers::READ_AMP_TOTAL_READ_BYTES:
         return 0x5B;
-      case rocksdb::Tickers::NUMBER_RATE_LIMITER_DRAINS:
+      case ROCKSDB_NAMESPACE::Tickers::NUMBER_RATE_LIMITER_DRAINS:
         return 0x5C;
-      case rocksdb::Tickers::NUMBER_ITER_SKIP:
+      case ROCKSDB_NAMESPACE::Tickers::NUMBER_ITER_SKIP:
         return 0x5D;
-      case rocksdb::Tickers::NUMBER_MULTIGET_KEYS_FOUND:
+      case ROCKSDB_NAMESPACE::Tickers::NUMBER_MULTIGET_KEYS_FOUND:
         return 0x5E;
-      case rocksdb::Tickers::NO_ITERATOR_CREATED:
+      case ROCKSDB_NAMESPACE::Tickers::NO_ITERATOR_CREATED:
         // -0x01 to fixate the new value that incorrectly changed TICKER_ENUM_MAX.
         return -0x01;
-      case rocksdb::Tickers::NO_ITERATOR_DELETED:
+      case ROCKSDB_NAMESPACE::Tickers::NO_ITERATOR_DELETED:
         return 0x60;
-      case rocksdb::Tickers::COMPACTION_OPTIMIZED_DEL_DROP_OBSOLETE:
+      case ROCKSDB_NAMESPACE::Tickers::COMPACTION_OPTIMIZED_DEL_DROP_OBSOLETE:
         return 0x61;
-      case rocksdb::Tickers::COMPACTION_CANCELLED:
+      case ROCKSDB_NAMESPACE::Tickers::COMPACTION_CANCELLED:
         return 0x62;
-      case rocksdb::Tickers::BLOOM_FILTER_FULL_POSITIVE:
+      case ROCKSDB_NAMESPACE::Tickers::BLOOM_FILTER_FULL_POSITIVE:
         return 0x63;
-      case rocksdb::Tickers::BLOOM_FILTER_FULL_TRUE_POSITIVE:
+      case ROCKSDB_NAMESPACE::Tickers::BLOOM_FILTER_FULL_TRUE_POSITIVE:
         return 0x64;
-      case rocksdb::Tickers::BLOB_DB_NUM_PUT:
+      case ROCKSDB_NAMESPACE::Tickers::BLOB_DB_NUM_PUT:
         return 0x65;
-      case rocksdb::Tickers::BLOB_DB_NUM_WRITE:
+      case ROCKSDB_NAMESPACE::Tickers::BLOB_DB_NUM_WRITE:
         return 0x66;
-      case rocksdb::Tickers::BLOB_DB_NUM_GET:
+      case ROCKSDB_NAMESPACE::Tickers::BLOB_DB_NUM_GET:
         return 0x67;
-      case rocksdb::Tickers::BLOB_DB_NUM_MULTIGET:
+      case ROCKSDB_NAMESPACE::Tickers::BLOB_DB_NUM_MULTIGET:
         return 0x68;
-      case rocksdb::Tickers::BLOB_DB_NUM_SEEK:
+      case ROCKSDB_NAMESPACE::Tickers::BLOB_DB_NUM_SEEK:
         return 0x69;
-      case rocksdb::Tickers::BLOB_DB_NUM_NEXT:
+      case ROCKSDB_NAMESPACE::Tickers::BLOB_DB_NUM_NEXT:
         return 0x6A;
-      case rocksdb::Tickers::BLOB_DB_NUM_PREV:
+      case ROCKSDB_NAMESPACE::Tickers::BLOB_DB_NUM_PREV:
         return 0x6B;
-      case rocksdb::Tickers::BLOB_DB_NUM_KEYS_WRITTEN:
+      case ROCKSDB_NAMESPACE::Tickers::BLOB_DB_NUM_KEYS_WRITTEN:
         return 0x6C;
-      case rocksdb::Tickers::BLOB_DB_NUM_KEYS_READ:
+      case ROCKSDB_NAMESPACE::Tickers::BLOB_DB_NUM_KEYS_READ:
         return 0x6D;
-      case rocksdb::Tickers::BLOB_DB_BYTES_WRITTEN:
+      case ROCKSDB_NAMESPACE::Tickers::BLOB_DB_BYTES_WRITTEN:
         return 0x6E;
-      case rocksdb::Tickers::BLOB_DB_BYTES_READ:
+      case ROCKSDB_NAMESPACE::Tickers::BLOB_DB_BYTES_READ:
         return 0x6F;
-      case rocksdb::Tickers::BLOB_DB_WRITE_INLINED:
+      case ROCKSDB_NAMESPACE::Tickers::BLOB_DB_WRITE_INLINED:
         return 0x70;
-      case rocksdb::Tickers::BLOB_DB_WRITE_INLINED_TTL:
+      case ROCKSDB_NAMESPACE::Tickers::BLOB_DB_WRITE_INLINED_TTL:
         return 0x71;
-      case rocksdb::Tickers::BLOB_DB_WRITE_BLOB:
+      case ROCKSDB_NAMESPACE::Tickers::BLOB_DB_WRITE_BLOB:
         return 0x72;
-      case rocksdb::Tickers::BLOB_DB_WRITE_BLOB_TTL:
+      case ROCKSDB_NAMESPACE::Tickers::BLOB_DB_WRITE_BLOB_TTL:
         return 0x73;
-      case rocksdb::Tickers::BLOB_DB_BLOB_FILE_BYTES_WRITTEN:
+      case ROCKSDB_NAMESPACE::Tickers::BLOB_DB_BLOB_FILE_BYTES_WRITTEN:
         return 0x74;
-      case rocksdb::Tickers::BLOB_DB_BLOB_FILE_BYTES_READ:
+      case ROCKSDB_NAMESPACE::Tickers::BLOB_DB_BLOB_FILE_BYTES_READ:
         return 0x75;
-      case rocksdb::Tickers::BLOB_DB_BLOB_FILE_SYNCED:
+      case ROCKSDB_NAMESPACE::Tickers::BLOB_DB_BLOB_FILE_SYNCED:
         return 0x76;
-      case rocksdb::Tickers::BLOB_DB_BLOB_INDEX_EXPIRED_COUNT:
+      case ROCKSDB_NAMESPACE::Tickers::BLOB_DB_BLOB_INDEX_EXPIRED_COUNT:
         return 0x77;
-      case rocksdb::Tickers::BLOB_DB_BLOB_INDEX_EXPIRED_SIZE:
+      case ROCKSDB_NAMESPACE::Tickers::BLOB_DB_BLOB_INDEX_EXPIRED_SIZE:
         return 0x78;
-      case rocksdb::Tickers::BLOB_DB_BLOB_INDEX_EVICTED_COUNT:
+      case ROCKSDB_NAMESPACE::Tickers::BLOB_DB_BLOB_INDEX_EVICTED_COUNT:
         return 0x79;
-      case rocksdb::Tickers::BLOB_DB_BLOB_INDEX_EVICTED_SIZE:
+      case ROCKSDB_NAMESPACE::Tickers::BLOB_DB_BLOB_INDEX_EVICTED_SIZE:
         return 0x7A;
-      case rocksdb::Tickers::BLOB_DB_GC_NUM_FILES:
+      case ROCKSDB_NAMESPACE::Tickers::BLOB_DB_GC_NUM_FILES:
         return 0x7B;
-      case rocksdb::Tickers::BLOB_DB_GC_NUM_NEW_FILES:
+      case ROCKSDB_NAMESPACE::Tickers::BLOB_DB_GC_NUM_NEW_FILES:
         return 0x7C;
-      case rocksdb::Tickers::BLOB_DB_GC_FAILURES:
+      case ROCKSDB_NAMESPACE::Tickers::BLOB_DB_GC_FAILURES:
         return 0x7D;
-      case rocksdb::Tickers::BLOB_DB_GC_NUM_KEYS_OVERWRITTEN:
+      case ROCKSDB_NAMESPACE::Tickers::BLOB_DB_GC_NUM_KEYS_OVERWRITTEN:
         return 0x7E;
-      case rocksdb::Tickers::BLOB_DB_GC_NUM_KEYS_EXPIRED:
+      case ROCKSDB_NAMESPACE::Tickers::BLOB_DB_GC_NUM_KEYS_EXPIRED:
         return 0x7F;
-      case rocksdb::Tickers::BLOB_DB_GC_NUM_KEYS_RELOCATED:
+      case ROCKSDB_NAMESPACE::Tickers::BLOB_DB_GC_NUM_KEYS_RELOCATED:
         return -0x02;
-      case rocksdb::Tickers::BLOB_DB_GC_BYTES_OVERWRITTEN:
+      case ROCKSDB_NAMESPACE::Tickers::BLOB_DB_GC_BYTES_OVERWRITTEN:
         return -0x03;
-      case rocksdb::Tickers::BLOB_DB_GC_BYTES_EXPIRED:
+      case ROCKSDB_NAMESPACE::Tickers::BLOB_DB_GC_BYTES_EXPIRED:
         return -0x04;
-      case rocksdb::Tickers::BLOB_DB_GC_BYTES_RELOCATED:
+      case ROCKSDB_NAMESPACE::Tickers::BLOB_DB_GC_BYTES_RELOCATED:
         return -0x05;
-      case rocksdb::Tickers::BLOB_DB_FIFO_NUM_FILES_EVICTED:
+      case ROCKSDB_NAMESPACE::Tickers::BLOB_DB_FIFO_NUM_FILES_EVICTED:
         return -0x06;
-      case rocksdb::Tickers::BLOB_DB_FIFO_NUM_KEYS_EVICTED:
+      case ROCKSDB_NAMESPACE::Tickers::BLOB_DB_FIFO_NUM_KEYS_EVICTED:
         return -0x07;
-      case rocksdb::Tickers::BLOB_DB_FIFO_BYTES_EVICTED:
+      case ROCKSDB_NAMESPACE::Tickers::BLOB_DB_FIFO_BYTES_EVICTED:
         return -0x08;
-      case rocksdb::Tickers::TXN_PREPARE_MUTEX_OVERHEAD:
+      case ROCKSDB_NAMESPACE::Tickers::TXN_PREPARE_MUTEX_OVERHEAD:
         return -0x09;
-      case rocksdb::Tickers::TXN_OLD_COMMIT_MAP_MUTEX_OVERHEAD:
+      case ROCKSDB_NAMESPACE::Tickers::TXN_OLD_COMMIT_MAP_MUTEX_OVERHEAD:
         return -0x0A;
-      case rocksdb::Tickers::TXN_DUPLICATE_KEY_OVERHEAD:
+      case ROCKSDB_NAMESPACE::Tickers::TXN_DUPLICATE_KEY_OVERHEAD:
         return -0x0B;
-      case rocksdb::Tickers::TXN_SNAPSHOT_MUTEX_OVERHEAD:
+      case ROCKSDB_NAMESPACE::Tickers::TXN_SNAPSHOT_MUTEX_OVERHEAD:
         return -0x0C;
-      case rocksdb::Tickers::TXN_GET_TRY_AGAIN:
+      case ROCKSDB_NAMESPACE::Tickers::TXN_GET_TRY_AGAIN:
         return -0x0D;
-      case rocksdb::Tickers::TICKER_ENUM_MAX:
+      case ROCKSDB_NAMESPACE::Tickers::TICKER_ENUM_MAX:
         // 0x5F for backwards compatibility on current minor version.
         return 0x5F;
       default:
@@ -4864,298 +4953,299 @@ class TickerTypeJni {
     }
   }
 
-  // Returns the equivalent C++ rocksdb::Tickers enum for the
+  // Returns the equivalent C++ ROCKSDB_NAMESPACE::Tickers enum for the
   // provided Java org.rocksdb.TickerType
-  static rocksdb::Tickers toCppTickers(jbyte jticker_type) {
+  static ROCKSDB_NAMESPACE::Tickers toCppTickers(jbyte jticker_type) {
     switch(jticker_type) {
       case 0x0:
-        return rocksdb::Tickers::BLOCK_CACHE_MISS;
+        return ROCKSDB_NAMESPACE::Tickers::BLOCK_CACHE_MISS;
       case 0x1:
-        return rocksdb::Tickers::BLOCK_CACHE_HIT;
+        return ROCKSDB_NAMESPACE::Tickers::BLOCK_CACHE_HIT;
       case 0x2:
-        return rocksdb::Tickers::BLOCK_CACHE_ADD;
+        return ROCKSDB_NAMESPACE::Tickers::BLOCK_CACHE_ADD;
       case 0x3:
-        return rocksdb::Tickers::BLOCK_CACHE_ADD_FAILURES;
+        return ROCKSDB_NAMESPACE::Tickers::BLOCK_CACHE_ADD_FAILURES;
       case 0x4:
-        return rocksdb::Tickers::BLOCK_CACHE_INDEX_MISS;
+        return ROCKSDB_NAMESPACE::Tickers::BLOCK_CACHE_INDEX_MISS;
       case 0x5:
-        return rocksdb::Tickers::BLOCK_CACHE_INDEX_HIT;
+        return ROCKSDB_NAMESPACE::Tickers::BLOCK_CACHE_INDEX_HIT;
       case 0x6:
-        return rocksdb::Tickers::BLOCK_CACHE_INDEX_ADD;
+        return ROCKSDB_NAMESPACE::Tickers::BLOCK_CACHE_INDEX_ADD;
       case 0x7:
-        return rocksdb::Tickers::BLOCK_CACHE_INDEX_BYTES_INSERT;
+        return ROCKSDB_NAMESPACE::Tickers::BLOCK_CACHE_INDEX_BYTES_INSERT;
       case 0x8:
-        return rocksdb::Tickers::BLOCK_CACHE_INDEX_BYTES_EVICT;
+        return ROCKSDB_NAMESPACE::Tickers::BLOCK_CACHE_INDEX_BYTES_EVICT;
       case 0x9:
-        return rocksdb::Tickers::BLOCK_CACHE_FILTER_MISS;
+        return ROCKSDB_NAMESPACE::Tickers::BLOCK_CACHE_FILTER_MISS;
       case 0xA:
-        return rocksdb::Tickers::BLOCK_CACHE_FILTER_HIT;
+        return ROCKSDB_NAMESPACE::Tickers::BLOCK_CACHE_FILTER_HIT;
       case 0xB:
-        return rocksdb::Tickers::BLOCK_CACHE_FILTER_ADD;
+        return ROCKSDB_NAMESPACE::Tickers::BLOCK_CACHE_FILTER_ADD;
       case 0xC:
-        return rocksdb::Tickers::BLOCK_CACHE_FILTER_BYTES_INSERT;
+        return ROCKSDB_NAMESPACE::Tickers::BLOCK_CACHE_FILTER_BYTES_INSERT;
       case 0xD:
-        return rocksdb::Tickers::BLOCK_CACHE_FILTER_BYTES_EVICT;
+        return ROCKSDB_NAMESPACE::Tickers::BLOCK_CACHE_FILTER_BYTES_EVICT;
       case 0xE:
-        return rocksdb::Tickers::BLOCK_CACHE_DATA_MISS;
+        return ROCKSDB_NAMESPACE::Tickers::BLOCK_CACHE_DATA_MISS;
       case 0xF:
-        return rocksdb::Tickers::BLOCK_CACHE_DATA_HIT;
+        return ROCKSDB_NAMESPACE::Tickers::BLOCK_CACHE_DATA_HIT;
       case 0x10:
-        return rocksdb::Tickers::BLOCK_CACHE_DATA_ADD;
+        return ROCKSDB_NAMESPACE::Tickers::BLOCK_CACHE_DATA_ADD;
       case 0x11:
-        return rocksdb::Tickers::BLOCK_CACHE_DATA_BYTES_INSERT;
+        return ROCKSDB_NAMESPACE::Tickers::BLOCK_CACHE_DATA_BYTES_INSERT;
       case 0x12:
-        return rocksdb::Tickers::BLOCK_CACHE_BYTES_READ;
+        return ROCKSDB_NAMESPACE::Tickers::BLOCK_CACHE_BYTES_READ;
       case 0x13:
-        return rocksdb::Tickers::BLOCK_CACHE_BYTES_WRITE;
+        return ROCKSDB_NAMESPACE::Tickers::BLOCK_CACHE_BYTES_WRITE;
       case 0x14:
-        return rocksdb::Tickers::BLOOM_FILTER_USEFUL;
+        return ROCKSDB_NAMESPACE::Tickers::BLOOM_FILTER_USEFUL;
       case 0x15:
-        return rocksdb::Tickers::PERSISTENT_CACHE_HIT;
+        return ROCKSDB_NAMESPACE::Tickers::PERSISTENT_CACHE_HIT;
       case 0x16:
-        return rocksdb::Tickers::PERSISTENT_CACHE_MISS;
+        return ROCKSDB_NAMESPACE::Tickers::PERSISTENT_CACHE_MISS;
       case 0x17:
-        return rocksdb::Tickers::SIM_BLOCK_CACHE_HIT;
+        return ROCKSDB_NAMESPACE::Tickers::SIM_BLOCK_CACHE_HIT;
       case 0x18:
-        return rocksdb::Tickers::SIM_BLOCK_CACHE_MISS;
+        return ROCKSDB_NAMESPACE::Tickers::SIM_BLOCK_CACHE_MISS;
       case 0x19:
-        return rocksdb::Tickers::MEMTABLE_HIT;
+        return ROCKSDB_NAMESPACE::Tickers::MEMTABLE_HIT;
       case 0x1A:
-        return rocksdb::Tickers::MEMTABLE_MISS;
+        return ROCKSDB_NAMESPACE::Tickers::MEMTABLE_MISS;
       case 0x1B:
-        return rocksdb::Tickers::GET_HIT_L0;
+        return ROCKSDB_NAMESPACE::Tickers::GET_HIT_L0;
       case 0x1C:
-        return rocksdb::Tickers::GET_HIT_L1;
+        return ROCKSDB_NAMESPACE::Tickers::GET_HIT_L1;
       case 0x1D:
-        return rocksdb::Tickers::GET_HIT_L2_AND_UP;
+        return ROCKSDB_NAMESPACE::Tickers::GET_HIT_L2_AND_UP;
       case 0x1E:
-        return rocksdb::Tickers::COMPACTION_KEY_DROP_NEWER_ENTRY;
+        return ROCKSDB_NAMESPACE::Tickers::COMPACTION_KEY_DROP_NEWER_ENTRY;
       case 0x1F:
-        return rocksdb::Tickers::COMPACTION_KEY_DROP_OBSOLETE;
+        return ROCKSDB_NAMESPACE::Tickers::COMPACTION_KEY_DROP_OBSOLETE;
       case 0x20:
-        return rocksdb::Tickers::COMPACTION_KEY_DROP_RANGE_DEL;
+        return ROCKSDB_NAMESPACE::Tickers::COMPACTION_KEY_DROP_RANGE_DEL;
       case 0x21:
-        return rocksdb::Tickers::COMPACTION_KEY_DROP_USER;
+        return ROCKSDB_NAMESPACE::Tickers::COMPACTION_KEY_DROP_USER;
       case 0x22:
-        return rocksdb::Tickers::COMPACTION_RANGE_DEL_DROP_OBSOLETE;
+        return ROCKSDB_NAMESPACE::Tickers::COMPACTION_RANGE_DEL_DROP_OBSOLETE;
       case 0x23:
-        return rocksdb::Tickers::NUMBER_KEYS_WRITTEN;
+        return ROCKSDB_NAMESPACE::Tickers::NUMBER_KEYS_WRITTEN;
       case 0x24:
-        return rocksdb::Tickers::NUMBER_KEYS_READ;
+        return ROCKSDB_NAMESPACE::Tickers::NUMBER_KEYS_READ;
       case 0x25:
-        return rocksdb::Tickers::NUMBER_KEYS_UPDATED;
+        return ROCKSDB_NAMESPACE::Tickers::NUMBER_KEYS_UPDATED;
       case 0x26:
-        return rocksdb::Tickers::BYTES_WRITTEN;
+        return ROCKSDB_NAMESPACE::Tickers::BYTES_WRITTEN;
       case 0x27:
-        return rocksdb::Tickers::BYTES_READ;
+        return ROCKSDB_NAMESPACE::Tickers::BYTES_READ;
       case 0x28:
-        return rocksdb::Tickers::NUMBER_DB_SEEK;
+        return ROCKSDB_NAMESPACE::Tickers::NUMBER_DB_SEEK;
       case 0x29:
-        return rocksdb::Tickers::NUMBER_DB_NEXT;
+        return ROCKSDB_NAMESPACE::Tickers::NUMBER_DB_NEXT;
       case 0x2A:
-        return rocksdb::Tickers::NUMBER_DB_PREV;
+        return ROCKSDB_NAMESPACE::Tickers::NUMBER_DB_PREV;
       case 0x2B:
-        return rocksdb::Tickers::NUMBER_DB_SEEK_FOUND;
+        return ROCKSDB_NAMESPACE::Tickers::NUMBER_DB_SEEK_FOUND;
       case 0x2C:
-        return rocksdb::Tickers::NUMBER_DB_NEXT_FOUND;
+        return ROCKSDB_NAMESPACE::Tickers::NUMBER_DB_NEXT_FOUND;
       case 0x2D:
-        return rocksdb::Tickers::NUMBER_DB_PREV_FOUND;
+        return ROCKSDB_NAMESPACE::Tickers::NUMBER_DB_PREV_FOUND;
       case 0x2E:
-        return rocksdb::Tickers::ITER_BYTES_READ;
+        return ROCKSDB_NAMESPACE::Tickers::ITER_BYTES_READ;
       case 0x2F:
-        return rocksdb::Tickers::NO_FILE_CLOSES;
+        return ROCKSDB_NAMESPACE::Tickers::NO_FILE_CLOSES;
       case 0x30:
-        return rocksdb::Tickers::NO_FILE_OPENS;
+        return ROCKSDB_NAMESPACE::Tickers::NO_FILE_OPENS;
       case 0x31:
-        return rocksdb::Tickers::NO_FILE_ERRORS;
+        return ROCKSDB_NAMESPACE::Tickers::NO_FILE_ERRORS;
       case 0x32:
-        return rocksdb::Tickers::STALL_L0_SLOWDOWN_MICROS;
+        return ROCKSDB_NAMESPACE::Tickers::STALL_L0_SLOWDOWN_MICROS;
       case 0x33:
-        return rocksdb::Tickers::STALL_MEMTABLE_COMPACTION_MICROS;
+        return ROCKSDB_NAMESPACE::Tickers::STALL_MEMTABLE_COMPACTION_MICROS;
       case 0x34:
-        return rocksdb::Tickers::STALL_L0_NUM_FILES_MICROS;
+        return ROCKSDB_NAMESPACE::Tickers::STALL_L0_NUM_FILES_MICROS;
       case 0x35:
-        return rocksdb::Tickers::STALL_MICROS;
+        return ROCKSDB_NAMESPACE::Tickers::STALL_MICROS;
       case 0x36:
-        return rocksdb::Tickers::DB_MUTEX_WAIT_MICROS;
+        return ROCKSDB_NAMESPACE::Tickers::DB_MUTEX_WAIT_MICROS;
       case 0x37:
-        return rocksdb::Tickers::RATE_LIMIT_DELAY_MILLIS;
+        return ROCKSDB_NAMESPACE::Tickers::RATE_LIMIT_DELAY_MILLIS;
       case 0x38:
-        return rocksdb::Tickers::NO_ITERATORS;
+        return ROCKSDB_NAMESPACE::Tickers::NO_ITERATORS;
       case 0x39:
-        return rocksdb::Tickers::NUMBER_MULTIGET_CALLS;
+        return ROCKSDB_NAMESPACE::Tickers::NUMBER_MULTIGET_CALLS;
       case 0x3A:
-        return rocksdb::Tickers::NUMBER_MULTIGET_KEYS_READ;
+        return ROCKSDB_NAMESPACE::Tickers::NUMBER_MULTIGET_KEYS_READ;
       case 0x3B:
-        return rocksdb::Tickers::NUMBER_MULTIGET_BYTES_READ;
+        return ROCKSDB_NAMESPACE::Tickers::NUMBER_MULTIGET_BYTES_READ;
       case 0x3C:
-        return rocksdb::Tickers::NUMBER_FILTERED_DELETES;
+        return ROCKSDB_NAMESPACE::Tickers::NUMBER_FILTERED_DELETES;
       case 0x3D:
-        return rocksdb::Tickers::NUMBER_MERGE_FAILURES;
+        return ROCKSDB_NAMESPACE::Tickers::NUMBER_MERGE_FAILURES;
       case 0x3E:
-        return rocksdb::Tickers::BLOOM_FILTER_PREFIX_CHECKED;
+        return ROCKSDB_NAMESPACE::Tickers::BLOOM_FILTER_PREFIX_CHECKED;
       case 0x3F:
-        return rocksdb::Tickers::BLOOM_FILTER_PREFIX_USEFUL;
+        return ROCKSDB_NAMESPACE::Tickers::BLOOM_FILTER_PREFIX_USEFUL;
       case 0x40:
-        return rocksdb::Tickers::NUMBER_OF_RESEEKS_IN_ITERATION;
+        return ROCKSDB_NAMESPACE::Tickers::NUMBER_OF_RESEEKS_IN_ITERATION;
       case 0x41:
-        return rocksdb::Tickers::GET_UPDATES_SINCE_CALLS;
+        return ROCKSDB_NAMESPACE::Tickers::GET_UPDATES_SINCE_CALLS;
       case 0x42:
-        return rocksdb::Tickers::BLOCK_CACHE_COMPRESSED_MISS;
+        return ROCKSDB_NAMESPACE::Tickers::BLOCK_CACHE_COMPRESSED_MISS;
       case 0x43:
-        return rocksdb::Tickers::BLOCK_CACHE_COMPRESSED_HIT;
+        return ROCKSDB_NAMESPACE::Tickers::BLOCK_CACHE_COMPRESSED_HIT;
       case 0x44:
-        return rocksdb::Tickers::BLOCK_CACHE_COMPRESSED_ADD;
+        return ROCKSDB_NAMESPACE::Tickers::BLOCK_CACHE_COMPRESSED_ADD;
       case 0x45:
-        return rocksdb::Tickers::BLOCK_CACHE_COMPRESSED_ADD_FAILURES;
+        return ROCKSDB_NAMESPACE::Tickers::BLOCK_CACHE_COMPRESSED_ADD_FAILURES;
       case 0x46:
-        return rocksdb::Tickers::WAL_FILE_SYNCED;
+        return ROCKSDB_NAMESPACE::Tickers::WAL_FILE_SYNCED;
       case 0x47:
-        return rocksdb::Tickers::WAL_FILE_BYTES;
+        return ROCKSDB_NAMESPACE::Tickers::WAL_FILE_BYTES;
       case 0x48:
-        return rocksdb::Tickers::WRITE_DONE_BY_SELF;
+        return ROCKSDB_NAMESPACE::Tickers::WRITE_DONE_BY_SELF;
       case 0x49:
-        return rocksdb::Tickers::WRITE_DONE_BY_OTHER;
+        return ROCKSDB_NAMESPACE::Tickers::WRITE_DONE_BY_OTHER;
       case 0x4A:
-        return rocksdb::Tickers::WRITE_TIMEDOUT;
+        return ROCKSDB_NAMESPACE::Tickers::WRITE_TIMEDOUT;
       case 0x4B:
-        return rocksdb::Tickers::WRITE_WITH_WAL;
+        return ROCKSDB_NAMESPACE::Tickers::WRITE_WITH_WAL;
       case 0x4C:
-        return rocksdb::Tickers::COMPACT_READ_BYTES;
+        return ROCKSDB_NAMESPACE::Tickers::COMPACT_READ_BYTES;
       case 0x4D:
-        return rocksdb::Tickers::COMPACT_WRITE_BYTES;
+        return ROCKSDB_NAMESPACE::Tickers::COMPACT_WRITE_BYTES;
       case 0x4E:
-        return rocksdb::Tickers::FLUSH_WRITE_BYTES;
+        return ROCKSDB_NAMESPACE::Tickers::FLUSH_WRITE_BYTES;
       case 0x4F:
-        return rocksdb::Tickers::NUMBER_DIRECT_LOAD_TABLE_PROPERTIES;
+        return ROCKSDB_NAMESPACE::Tickers::NUMBER_DIRECT_LOAD_TABLE_PROPERTIES;
       case 0x50:
-        return rocksdb::Tickers::NUMBER_SUPERVERSION_ACQUIRES;
+        return ROCKSDB_NAMESPACE::Tickers::NUMBER_SUPERVERSION_ACQUIRES;
       case 0x51:
-        return rocksdb::Tickers::NUMBER_SUPERVERSION_RELEASES;
+        return ROCKSDB_NAMESPACE::Tickers::NUMBER_SUPERVERSION_RELEASES;
       case 0x52:
-        return rocksdb::Tickers::NUMBER_SUPERVERSION_CLEANUPS;
+        return ROCKSDB_NAMESPACE::Tickers::NUMBER_SUPERVERSION_CLEANUPS;
       case 0x53:
-        return rocksdb::Tickers::NUMBER_BLOCK_COMPRESSED;
+        return ROCKSDB_NAMESPACE::Tickers::NUMBER_BLOCK_COMPRESSED;
       case 0x54:
-        return rocksdb::Tickers::NUMBER_BLOCK_DECOMPRESSED;
+        return ROCKSDB_NAMESPACE::Tickers::NUMBER_BLOCK_DECOMPRESSED;
       case 0x55:
-        return rocksdb::Tickers::NUMBER_BLOCK_NOT_COMPRESSED;
+        return ROCKSDB_NAMESPACE::Tickers::NUMBER_BLOCK_NOT_COMPRESSED;
       case 0x56:
-        return rocksdb::Tickers::MERGE_OPERATION_TOTAL_TIME;
+        return ROCKSDB_NAMESPACE::Tickers::MERGE_OPERATION_TOTAL_TIME;
       case 0x57:
-        return rocksdb::Tickers::FILTER_OPERATION_TOTAL_TIME;
+        return ROCKSDB_NAMESPACE::Tickers::FILTER_OPERATION_TOTAL_TIME;
       case 0x58:
-        return rocksdb::Tickers::ROW_CACHE_HIT;
+        return ROCKSDB_NAMESPACE::Tickers::ROW_CACHE_HIT;
       case 0x59:
-        return rocksdb::Tickers::ROW_CACHE_MISS;
+        return ROCKSDB_NAMESPACE::Tickers::ROW_CACHE_MISS;
       case 0x5A:
-        return rocksdb::Tickers::READ_AMP_ESTIMATE_USEFUL_BYTES;
+        return ROCKSDB_NAMESPACE::Tickers::READ_AMP_ESTIMATE_USEFUL_BYTES;
       case 0x5B:
-        return rocksdb::Tickers::READ_AMP_TOTAL_READ_BYTES;
+        return ROCKSDB_NAMESPACE::Tickers::READ_AMP_TOTAL_READ_BYTES;
       case 0x5C:
-        return rocksdb::Tickers::NUMBER_RATE_LIMITER_DRAINS;
+        return ROCKSDB_NAMESPACE::Tickers::NUMBER_RATE_LIMITER_DRAINS;
       case 0x5D:
-        return rocksdb::Tickers::NUMBER_ITER_SKIP;
+        return ROCKSDB_NAMESPACE::Tickers::NUMBER_ITER_SKIP;
       case 0x5E:
-        return rocksdb::Tickers::NUMBER_MULTIGET_KEYS_FOUND;
+        return ROCKSDB_NAMESPACE::Tickers::NUMBER_MULTIGET_KEYS_FOUND;
       case -0x01:
         // -0x01 to fixate the new value that incorrectly changed TICKER_ENUM_MAX.
-        return rocksdb::Tickers::NO_ITERATOR_CREATED;
+        return ROCKSDB_NAMESPACE::Tickers::NO_ITERATOR_CREATED;
       case 0x60:
-        return rocksdb::Tickers::NO_ITERATOR_DELETED;
+        return ROCKSDB_NAMESPACE::Tickers::NO_ITERATOR_DELETED;
       case 0x61:
-        return rocksdb::Tickers::COMPACTION_OPTIMIZED_DEL_DROP_OBSOLETE;
+        return ROCKSDB_NAMESPACE::Tickers::
+            COMPACTION_OPTIMIZED_DEL_DROP_OBSOLETE;
       case 0x62:
-        return rocksdb::Tickers::COMPACTION_CANCELLED;
+        return ROCKSDB_NAMESPACE::Tickers::COMPACTION_CANCELLED;
       case 0x63:
-        return rocksdb::Tickers::BLOOM_FILTER_FULL_POSITIVE;
+        return ROCKSDB_NAMESPACE::Tickers::BLOOM_FILTER_FULL_POSITIVE;
       case 0x64:
-        return rocksdb::Tickers::BLOOM_FILTER_FULL_TRUE_POSITIVE;
+        return ROCKSDB_NAMESPACE::Tickers::BLOOM_FILTER_FULL_TRUE_POSITIVE;
       case 0x65:
-        return rocksdb::Tickers::BLOB_DB_NUM_PUT;
+        return ROCKSDB_NAMESPACE::Tickers::BLOB_DB_NUM_PUT;
       case 0x66:
-        return rocksdb::Tickers::BLOB_DB_NUM_WRITE;
+        return ROCKSDB_NAMESPACE::Tickers::BLOB_DB_NUM_WRITE;
       case 0x67:
-        return rocksdb::Tickers::BLOB_DB_NUM_GET;
+        return ROCKSDB_NAMESPACE::Tickers::BLOB_DB_NUM_GET;
       case 0x68:
-        return rocksdb::Tickers::BLOB_DB_NUM_MULTIGET;
+        return ROCKSDB_NAMESPACE::Tickers::BLOB_DB_NUM_MULTIGET;
       case 0x69:
-        return rocksdb::Tickers::BLOB_DB_NUM_SEEK;
+        return ROCKSDB_NAMESPACE::Tickers::BLOB_DB_NUM_SEEK;
       case 0x6A:
-        return rocksdb::Tickers::BLOB_DB_NUM_NEXT;
+        return ROCKSDB_NAMESPACE::Tickers::BLOB_DB_NUM_NEXT;
       case 0x6B:
-        return rocksdb::Tickers::BLOB_DB_NUM_PREV;
+        return ROCKSDB_NAMESPACE::Tickers::BLOB_DB_NUM_PREV;
       case 0x6C:
-        return rocksdb::Tickers::BLOB_DB_NUM_KEYS_WRITTEN;
+        return ROCKSDB_NAMESPACE::Tickers::BLOB_DB_NUM_KEYS_WRITTEN;
       case 0x6D:
-        return rocksdb::Tickers::BLOB_DB_NUM_KEYS_READ;
+        return ROCKSDB_NAMESPACE::Tickers::BLOB_DB_NUM_KEYS_READ;
       case 0x6E:
-        return rocksdb::Tickers::BLOB_DB_BYTES_WRITTEN;
+        return ROCKSDB_NAMESPACE::Tickers::BLOB_DB_BYTES_WRITTEN;
       case 0x6F:
-        return rocksdb::Tickers::BLOB_DB_BYTES_READ;
+        return ROCKSDB_NAMESPACE::Tickers::BLOB_DB_BYTES_READ;
       case 0x70:
-        return rocksdb::Tickers::BLOB_DB_WRITE_INLINED;
+        return ROCKSDB_NAMESPACE::Tickers::BLOB_DB_WRITE_INLINED;
       case 0x71:
-        return rocksdb::Tickers::BLOB_DB_WRITE_INLINED_TTL;
+        return ROCKSDB_NAMESPACE::Tickers::BLOB_DB_WRITE_INLINED_TTL;
       case 0x72:
-        return rocksdb::Tickers::BLOB_DB_WRITE_BLOB;
+        return ROCKSDB_NAMESPACE::Tickers::BLOB_DB_WRITE_BLOB;
       case 0x73:
-        return rocksdb::Tickers::BLOB_DB_WRITE_BLOB_TTL;
+        return ROCKSDB_NAMESPACE::Tickers::BLOB_DB_WRITE_BLOB_TTL;
       case 0x74:
-        return rocksdb::Tickers::BLOB_DB_BLOB_FILE_BYTES_WRITTEN;
+        return ROCKSDB_NAMESPACE::Tickers::BLOB_DB_BLOB_FILE_BYTES_WRITTEN;
       case 0x75:
-        return rocksdb::Tickers::BLOB_DB_BLOB_FILE_BYTES_READ;
+        return ROCKSDB_NAMESPACE::Tickers::BLOB_DB_BLOB_FILE_BYTES_READ;
       case 0x76:
-        return rocksdb::Tickers::BLOB_DB_BLOB_FILE_SYNCED;
+        return ROCKSDB_NAMESPACE::Tickers::BLOB_DB_BLOB_FILE_SYNCED;
       case 0x77:
-        return rocksdb::Tickers::BLOB_DB_BLOB_INDEX_EXPIRED_COUNT;
+        return ROCKSDB_NAMESPACE::Tickers::BLOB_DB_BLOB_INDEX_EXPIRED_COUNT;
       case 0x78:
-        return rocksdb::Tickers::BLOB_DB_BLOB_INDEX_EXPIRED_SIZE;
+        return ROCKSDB_NAMESPACE::Tickers::BLOB_DB_BLOB_INDEX_EXPIRED_SIZE;
       case 0x79:
-        return rocksdb::Tickers::BLOB_DB_BLOB_INDEX_EVICTED_COUNT;
+        return ROCKSDB_NAMESPACE::Tickers::BLOB_DB_BLOB_INDEX_EVICTED_COUNT;
       case 0x7A:
-        return rocksdb::Tickers::BLOB_DB_BLOB_INDEX_EVICTED_SIZE;
+        return ROCKSDB_NAMESPACE::Tickers::BLOB_DB_BLOB_INDEX_EVICTED_SIZE;
       case 0x7B:
-        return rocksdb::Tickers::BLOB_DB_GC_NUM_FILES;
+        return ROCKSDB_NAMESPACE::Tickers::BLOB_DB_GC_NUM_FILES;
       case 0x7C:
-        return rocksdb::Tickers::BLOB_DB_GC_NUM_NEW_FILES;
+        return ROCKSDB_NAMESPACE::Tickers::BLOB_DB_GC_NUM_NEW_FILES;
       case 0x7D:
-        return rocksdb::Tickers::BLOB_DB_GC_FAILURES;
+        return ROCKSDB_NAMESPACE::Tickers::BLOB_DB_GC_FAILURES;
       case 0x7E:
-        return rocksdb::Tickers::BLOB_DB_GC_NUM_KEYS_OVERWRITTEN;
+        return ROCKSDB_NAMESPACE::Tickers::BLOB_DB_GC_NUM_KEYS_OVERWRITTEN;
       case 0x7F:
-        return rocksdb::Tickers::BLOB_DB_GC_NUM_KEYS_EXPIRED;
+        return ROCKSDB_NAMESPACE::Tickers::BLOB_DB_GC_NUM_KEYS_EXPIRED;
       case -0x02:
-        return rocksdb::Tickers::BLOB_DB_GC_NUM_KEYS_RELOCATED;
+        return ROCKSDB_NAMESPACE::Tickers::BLOB_DB_GC_NUM_KEYS_RELOCATED;
       case -0x03:
-        return rocksdb::Tickers::BLOB_DB_GC_BYTES_OVERWRITTEN;
+        return ROCKSDB_NAMESPACE::Tickers::BLOB_DB_GC_BYTES_OVERWRITTEN;
       case -0x04:
-        return rocksdb::Tickers::BLOB_DB_GC_BYTES_EXPIRED;
+        return ROCKSDB_NAMESPACE::Tickers::BLOB_DB_GC_BYTES_EXPIRED;
       case -0x05:
-        return rocksdb::Tickers::BLOB_DB_GC_BYTES_RELOCATED;
+        return ROCKSDB_NAMESPACE::Tickers::BLOB_DB_GC_BYTES_RELOCATED;
       case -0x06:
-        return rocksdb::Tickers::BLOB_DB_FIFO_NUM_FILES_EVICTED;
+        return ROCKSDB_NAMESPACE::Tickers::BLOB_DB_FIFO_NUM_FILES_EVICTED;
       case -0x07:
-        return rocksdb::Tickers::BLOB_DB_FIFO_NUM_KEYS_EVICTED;
+        return ROCKSDB_NAMESPACE::Tickers::BLOB_DB_FIFO_NUM_KEYS_EVICTED;
       case -0x08:
-        return rocksdb::Tickers::BLOB_DB_FIFO_BYTES_EVICTED;
+        return ROCKSDB_NAMESPACE::Tickers::BLOB_DB_FIFO_BYTES_EVICTED;
       case -0x09:
-        return rocksdb::Tickers::TXN_PREPARE_MUTEX_OVERHEAD;
+        return ROCKSDB_NAMESPACE::Tickers::TXN_PREPARE_MUTEX_OVERHEAD;
       case -0x0A:
-        return rocksdb::Tickers::TXN_OLD_COMMIT_MAP_MUTEX_OVERHEAD;
+        return ROCKSDB_NAMESPACE::Tickers::TXN_OLD_COMMIT_MAP_MUTEX_OVERHEAD;
       case -0x0B:
-        return rocksdb::Tickers::TXN_DUPLICATE_KEY_OVERHEAD;
+        return ROCKSDB_NAMESPACE::Tickers::TXN_DUPLICATE_KEY_OVERHEAD;
       case -0x0C:
-        return rocksdb::Tickers::TXN_SNAPSHOT_MUTEX_OVERHEAD;
+        return ROCKSDB_NAMESPACE::Tickers::TXN_SNAPSHOT_MUTEX_OVERHEAD;
       case -0x0D:
-        return rocksdb::Tickers::TXN_GET_TRY_AGAIN;
+        return ROCKSDB_NAMESPACE::Tickers::TXN_GET_TRY_AGAIN;
       case 0x5F:
         // 0x5F for backwards compatibility on current minor version.
-        return rocksdb::Tickers::TICKER_ENUM_MAX;
+        return ROCKSDB_NAMESPACE::Tickers::TICKER_ENUM_MAX;
 
       default:
         // undefined/default
-        return rocksdb::Tickers::BLOCK_CACHE_MISS;
+        return ROCKSDB_NAMESPACE::Tickers::BLOCK_CACHE_MISS;
     }
   }
 };
@@ -5164,104 +5254,104 @@ class TickerTypeJni {
 class HistogramTypeJni {
  public:
   // Returns the equivalent org.rocksdb.HistogramType for the provided
-  // C++ rocksdb::Histograms enum
+  // C++ ROCKSDB_NAMESPACE::Histograms enum
   static jbyte toJavaHistogramsType(
-      const rocksdb::Histograms& histograms) {
+      const ROCKSDB_NAMESPACE::Histograms& histograms) {
     switch(histograms) {
-      case rocksdb::Histograms::DB_GET:
+      case ROCKSDB_NAMESPACE::Histograms::DB_GET:
         return 0x0;
-      case rocksdb::Histograms::DB_WRITE:
+      case ROCKSDB_NAMESPACE::Histograms::DB_WRITE:
         return 0x1;
-      case rocksdb::Histograms::COMPACTION_TIME:
+      case ROCKSDB_NAMESPACE::Histograms::COMPACTION_TIME:
         return 0x2;
-      case rocksdb::Histograms::SUBCOMPACTION_SETUP_TIME:
+      case ROCKSDB_NAMESPACE::Histograms::SUBCOMPACTION_SETUP_TIME:
         return 0x3;
-      case rocksdb::Histograms::TABLE_SYNC_MICROS:
+      case ROCKSDB_NAMESPACE::Histograms::TABLE_SYNC_MICROS:
         return 0x4;
-      case rocksdb::Histograms::COMPACTION_OUTFILE_SYNC_MICROS:
+      case ROCKSDB_NAMESPACE::Histograms::COMPACTION_OUTFILE_SYNC_MICROS:
         return 0x5;
-      case rocksdb::Histograms::WAL_FILE_SYNC_MICROS:
+      case ROCKSDB_NAMESPACE::Histograms::WAL_FILE_SYNC_MICROS:
         return 0x6;
-      case rocksdb::Histograms::MANIFEST_FILE_SYNC_MICROS:
+      case ROCKSDB_NAMESPACE::Histograms::MANIFEST_FILE_SYNC_MICROS:
         return 0x7;
-      case rocksdb::Histograms::TABLE_OPEN_IO_MICROS:
+      case ROCKSDB_NAMESPACE::Histograms::TABLE_OPEN_IO_MICROS:
         return 0x8;
-      case rocksdb::Histograms::DB_MULTIGET:
+      case ROCKSDB_NAMESPACE::Histograms::DB_MULTIGET:
         return 0x9;
-      case rocksdb::Histograms::READ_BLOCK_COMPACTION_MICROS:
+      case ROCKSDB_NAMESPACE::Histograms::READ_BLOCK_COMPACTION_MICROS:
         return 0xA;
-      case rocksdb::Histograms::READ_BLOCK_GET_MICROS:
+      case ROCKSDB_NAMESPACE::Histograms::READ_BLOCK_GET_MICROS:
         return 0xB;
-      case rocksdb::Histograms::WRITE_RAW_BLOCK_MICROS:
+      case ROCKSDB_NAMESPACE::Histograms::WRITE_RAW_BLOCK_MICROS:
         return 0xC;
-      case rocksdb::Histograms::STALL_L0_SLOWDOWN_COUNT:
+      case ROCKSDB_NAMESPACE::Histograms::STALL_L0_SLOWDOWN_COUNT:
         return 0xD;
-      case rocksdb::Histograms::STALL_MEMTABLE_COMPACTION_COUNT:
+      case ROCKSDB_NAMESPACE::Histograms::STALL_MEMTABLE_COMPACTION_COUNT:
         return 0xE;
-      case rocksdb::Histograms::STALL_L0_NUM_FILES_COUNT:
+      case ROCKSDB_NAMESPACE::Histograms::STALL_L0_NUM_FILES_COUNT:
         return 0xF;
-      case rocksdb::Histograms::HARD_RATE_LIMIT_DELAY_COUNT:
+      case ROCKSDB_NAMESPACE::Histograms::HARD_RATE_LIMIT_DELAY_COUNT:
         return 0x10;
-      case rocksdb::Histograms::SOFT_RATE_LIMIT_DELAY_COUNT:
+      case ROCKSDB_NAMESPACE::Histograms::SOFT_RATE_LIMIT_DELAY_COUNT:
         return 0x11;
-      case rocksdb::Histograms::NUM_FILES_IN_SINGLE_COMPACTION:
+      case ROCKSDB_NAMESPACE::Histograms::NUM_FILES_IN_SINGLE_COMPACTION:
         return 0x12;
-      case rocksdb::Histograms::DB_SEEK:
+      case ROCKSDB_NAMESPACE::Histograms::DB_SEEK:
         return 0x13;
-      case rocksdb::Histograms::WRITE_STALL:
+      case ROCKSDB_NAMESPACE::Histograms::WRITE_STALL:
         return 0x14;
-      case rocksdb::Histograms::SST_READ_MICROS:
+      case ROCKSDB_NAMESPACE::Histograms::SST_READ_MICROS:
         return 0x15;
-      case rocksdb::Histograms::NUM_SUBCOMPACTIONS_SCHEDULED:
+      case ROCKSDB_NAMESPACE::Histograms::NUM_SUBCOMPACTIONS_SCHEDULED:
         return 0x16;
-      case rocksdb::Histograms::BYTES_PER_READ:
+      case ROCKSDB_NAMESPACE::Histograms::BYTES_PER_READ:
         return 0x17;
-      case rocksdb::Histograms::BYTES_PER_WRITE:
+      case ROCKSDB_NAMESPACE::Histograms::BYTES_PER_WRITE:
         return 0x18;
-      case rocksdb::Histograms::BYTES_PER_MULTIGET:
+      case ROCKSDB_NAMESPACE::Histograms::BYTES_PER_MULTIGET:
         return 0x19;
-      case rocksdb::Histograms::BYTES_COMPRESSED:
+      case ROCKSDB_NAMESPACE::Histograms::BYTES_COMPRESSED:
         return 0x1A;
-      case rocksdb::Histograms::BYTES_DECOMPRESSED:
+      case ROCKSDB_NAMESPACE::Histograms::BYTES_DECOMPRESSED:
         return 0x1B;
-      case rocksdb::Histograms::COMPRESSION_TIMES_NANOS:
+      case ROCKSDB_NAMESPACE::Histograms::COMPRESSION_TIMES_NANOS:
         return 0x1C;
-      case rocksdb::Histograms::DECOMPRESSION_TIMES_NANOS:
+      case ROCKSDB_NAMESPACE::Histograms::DECOMPRESSION_TIMES_NANOS:
         return 0x1D;
-      case rocksdb::Histograms::READ_NUM_MERGE_OPERANDS:
+      case ROCKSDB_NAMESPACE::Histograms::READ_NUM_MERGE_OPERANDS:
         return 0x1E;
       // 0x20 to skip 0x1F so TICKER_ENUM_MAX remains unchanged for minor version compatibility.
-      case rocksdb::Histograms::FLUSH_TIME:
+      case ROCKSDB_NAMESPACE::Histograms::FLUSH_TIME:
         return 0x20;
-      case rocksdb::Histograms::BLOB_DB_KEY_SIZE:
+      case ROCKSDB_NAMESPACE::Histograms::BLOB_DB_KEY_SIZE:
         return 0x21;
-      case rocksdb::Histograms::BLOB_DB_VALUE_SIZE:
+      case ROCKSDB_NAMESPACE::Histograms::BLOB_DB_VALUE_SIZE:
         return 0x22;
-      case rocksdb::Histograms::BLOB_DB_WRITE_MICROS:
+      case ROCKSDB_NAMESPACE::Histograms::BLOB_DB_WRITE_MICROS:
         return 0x23;
-      case rocksdb::Histograms::BLOB_DB_GET_MICROS:
+      case ROCKSDB_NAMESPACE::Histograms::BLOB_DB_GET_MICROS:
         return 0x24;
-      case rocksdb::Histograms::BLOB_DB_MULTIGET_MICROS:
+      case ROCKSDB_NAMESPACE::Histograms::BLOB_DB_MULTIGET_MICROS:
         return 0x25;
-      case rocksdb::Histograms::BLOB_DB_SEEK_MICROS:
+      case ROCKSDB_NAMESPACE::Histograms::BLOB_DB_SEEK_MICROS:
         return 0x26;
-      case rocksdb::Histograms::BLOB_DB_NEXT_MICROS:
+      case ROCKSDB_NAMESPACE::Histograms::BLOB_DB_NEXT_MICROS:
         return 0x27;
-      case rocksdb::Histograms::BLOB_DB_PREV_MICROS:
+      case ROCKSDB_NAMESPACE::Histograms::BLOB_DB_PREV_MICROS:
         return 0x28;
-      case rocksdb::Histograms::BLOB_DB_BLOB_FILE_WRITE_MICROS:
+      case ROCKSDB_NAMESPACE::Histograms::BLOB_DB_BLOB_FILE_WRITE_MICROS:
         return 0x29;
-      case rocksdb::Histograms::BLOB_DB_BLOB_FILE_READ_MICROS:
+      case ROCKSDB_NAMESPACE::Histograms::BLOB_DB_BLOB_FILE_READ_MICROS:
         return 0x2A;
-      case rocksdb::Histograms::BLOB_DB_BLOB_FILE_SYNC_MICROS:
+      case ROCKSDB_NAMESPACE::Histograms::BLOB_DB_BLOB_FILE_SYNC_MICROS:
         return 0x2B;
-      case rocksdb::Histograms::BLOB_DB_GC_MICROS:
+      case ROCKSDB_NAMESPACE::Histograms::BLOB_DB_GC_MICROS:
         return 0x2C;
-      case rocksdb::Histograms::BLOB_DB_COMPRESSION_MICROS:
+      case ROCKSDB_NAMESPACE::Histograms::BLOB_DB_COMPRESSION_MICROS:
         return 0x2D;
-      case rocksdb::Histograms::BLOB_DB_DECOMPRESSION_MICROS:
+      case ROCKSDB_NAMESPACE::Histograms::BLOB_DB_DECOMPRESSION_MICROS:
         return 0x2E;
-      case rocksdb::Histograms::HISTOGRAM_ENUM_MAX:
+      case ROCKSDB_NAMESPACE::Histograms::HISTOGRAM_ENUM_MAX:
         // 0x1F for backwards compatibility on current minor version.
         return 0x1F;
 
@@ -5271,110 +5361,110 @@ class HistogramTypeJni {
     }
   }
 
-  // Returns the equivalent C++ rocksdb::Histograms enum for the
+  // Returns the equivalent C++ ROCKSDB_NAMESPACE::Histograms enum for the
   // provided Java org.rocksdb.HistogramsType
-  static rocksdb::Histograms toCppHistograms(jbyte jhistograms_type) {
+  static ROCKSDB_NAMESPACE::Histograms toCppHistograms(jbyte jhistograms_type) {
     switch(jhistograms_type) {
       case 0x0:
-        return rocksdb::Histograms::DB_GET;
+        return ROCKSDB_NAMESPACE::Histograms::DB_GET;
       case 0x1:
-        return rocksdb::Histograms::DB_WRITE;
+        return ROCKSDB_NAMESPACE::Histograms::DB_WRITE;
       case 0x2:
-        return rocksdb::Histograms::COMPACTION_TIME;
+        return ROCKSDB_NAMESPACE::Histograms::COMPACTION_TIME;
       case 0x3:
-        return rocksdb::Histograms::SUBCOMPACTION_SETUP_TIME;
+        return ROCKSDB_NAMESPACE::Histograms::SUBCOMPACTION_SETUP_TIME;
       case 0x4:
-        return rocksdb::Histograms::TABLE_SYNC_MICROS;
+        return ROCKSDB_NAMESPACE::Histograms::TABLE_SYNC_MICROS;
       case 0x5:
-        return rocksdb::Histograms::COMPACTION_OUTFILE_SYNC_MICROS;
+        return ROCKSDB_NAMESPACE::Histograms::COMPACTION_OUTFILE_SYNC_MICROS;
       case 0x6:
-        return rocksdb::Histograms::WAL_FILE_SYNC_MICROS;
+        return ROCKSDB_NAMESPACE::Histograms::WAL_FILE_SYNC_MICROS;
       case 0x7:
-        return rocksdb::Histograms::MANIFEST_FILE_SYNC_MICROS;
+        return ROCKSDB_NAMESPACE::Histograms::MANIFEST_FILE_SYNC_MICROS;
       case 0x8:
-        return rocksdb::Histograms::TABLE_OPEN_IO_MICROS;
+        return ROCKSDB_NAMESPACE::Histograms::TABLE_OPEN_IO_MICROS;
       case 0x9:
-        return rocksdb::Histograms::DB_MULTIGET;
+        return ROCKSDB_NAMESPACE::Histograms::DB_MULTIGET;
       case 0xA:
-        return rocksdb::Histograms::READ_BLOCK_COMPACTION_MICROS;
+        return ROCKSDB_NAMESPACE::Histograms::READ_BLOCK_COMPACTION_MICROS;
       case 0xB:
-        return rocksdb::Histograms::READ_BLOCK_GET_MICROS;
+        return ROCKSDB_NAMESPACE::Histograms::READ_BLOCK_GET_MICROS;
       case 0xC:
-        return rocksdb::Histograms::WRITE_RAW_BLOCK_MICROS;
+        return ROCKSDB_NAMESPACE::Histograms::WRITE_RAW_BLOCK_MICROS;
       case 0xD:
-        return rocksdb::Histograms::STALL_L0_SLOWDOWN_COUNT;
+        return ROCKSDB_NAMESPACE::Histograms::STALL_L0_SLOWDOWN_COUNT;
       case 0xE:
-        return rocksdb::Histograms::STALL_MEMTABLE_COMPACTION_COUNT;
+        return ROCKSDB_NAMESPACE::Histograms::STALL_MEMTABLE_COMPACTION_COUNT;
       case 0xF:
-        return rocksdb::Histograms::STALL_L0_NUM_FILES_COUNT;
+        return ROCKSDB_NAMESPACE::Histograms::STALL_L0_NUM_FILES_COUNT;
       case 0x10:
-        return rocksdb::Histograms::HARD_RATE_LIMIT_DELAY_COUNT;
+        return ROCKSDB_NAMESPACE::Histograms::HARD_RATE_LIMIT_DELAY_COUNT;
       case 0x11:
-        return rocksdb::Histograms::SOFT_RATE_LIMIT_DELAY_COUNT;
+        return ROCKSDB_NAMESPACE::Histograms::SOFT_RATE_LIMIT_DELAY_COUNT;
       case 0x12:
-        return rocksdb::Histograms::NUM_FILES_IN_SINGLE_COMPACTION;
+        return ROCKSDB_NAMESPACE::Histograms::NUM_FILES_IN_SINGLE_COMPACTION;
       case 0x13:
-        return rocksdb::Histograms::DB_SEEK;
+        return ROCKSDB_NAMESPACE::Histograms::DB_SEEK;
       case 0x14:
-        return rocksdb::Histograms::WRITE_STALL;
+        return ROCKSDB_NAMESPACE::Histograms::WRITE_STALL;
       case 0x15:
-        return rocksdb::Histograms::SST_READ_MICROS;
+        return ROCKSDB_NAMESPACE::Histograms::SST_READ_MICROS;
       case 0x16:
-        return rocksdb::Histograms::NUM_SUBCOMPACTIONS_SCHEDULED;
+        return ROCKSDB_NAMESPACE::Histograms::NUM_SUBCOMPACTIONS_SCHEDULED;
       case 0x17:
-        return rocksdb::Histograms::BYTES_PER_READ;
+        return ROCKSDB_NAMESPACE::Histograms::BYTES_PER_READ;
       case 0x18:
-        return rocksdb::Histograms::BYTES_PER_WRITE;
+        return ROCKSDB_NAMESPACE::Histograms::BYTES_PER_WRITE;
       case 0x19:
-        return rocksdb::Histograms::BYTES_PER_MULTIGET;
+        return ROCKSDB_NAMESPACE::Histograms::BYTES_PER_MULTIGET;
       case 0x1A:
-        return rocksdb::Histograms::BYTES_COMPRESSED;
+        return ROCKSDB_NAMESPACE::Histograms::BYTES_COMPRESSED;
       case 0x1B:
-        return rocksdb::Histograms::BYTES_DECOMPRESSED;
+        return ROCKSDB_NAMESPACE::Histograms::BYTES_DECOMPRESSED;
       case 0x1C:
-        return rocksdb::Histograms::COMPRESSION_TIMES_NANOS;
+        return ROCKSDB_NAMESPACE::Histograms::COMPRESSION_TIMES_NANOS;
       case 0x1D:
-        return rocksdb::Histograms::DECOMPRESSION_TIMES_NANOS;
+        return ROCKSDB_NAMESPACE::Histograms::DECOMPRESSION_TIMES_NANOS;
       case 0x1E:
-        return rocksdb::Histograms::READ_NUM_MERGE_OPERANDS;
+        return ROCKSDB_NAMESPACE::Histograms::READ_NUM_MERGE_OPERANDS;
       // 0x20 to skip 0x1F so TICKER_ENUM_MAX remains unchanged for minor version compatibility.
       case 0x20:
-        return rocksdb::Histograms::FLUSH_TIME;
+        return ROCKSDB_NAMESPACE::Histograms::FLUSH_TIME;
       case 0x21:
-        return rocksdb::Histograms::BLOB_DB_KEY_SIZE;
+        return ROCKSDB_NAMESPACE::Histograms::BLOB_DB_KEY_SIZE;
       case 0x22:
-        return rocksdb::Histograms::BLOB_DB_VALUE_SIZE;
+        return ROCKSDB_NAMESPACE::Histograms::BLOB_DB_VALUE_SIZE;
       case 0x23:
-        return rocksdb::Histograms::BLOB_DB_WRITE_MICROS;
+        return ROCKSDB_NAMESPACE::Histograms::BLOB_DB_WRITE_MICROS;
       case 0x24:
-        return rocksdb::Histograms::BLOB_DB_GET_MICROS;
+        return ROCKSDB_NAMESPACE::Histograms::BLOB_DB_GET_MICROS;
       case 0x25:
-        return rocksdb::Histograms::BLOB_DB_MULTIGET_MICROS;
+        return ROCKSDB_NAMESPACE::Histograms::BLOB_DB_MULTIGET_MICROS;
       case 0x26:
-        return rocksdb::Histograms::BLOB_DB_SEEK_MICROS;
+        return ROCKSDB_NAMESPACE::Histograms::BLOB_DB_SEEK_MICROS;
       case 0x27:
-        return rocksdb::Histograms::BLOB_DB_NEXT_MICROS;
+        return ROCKSDB_NAMESPACE::Histograms::BLOB_DB_NEXT_MICROS;
       case 0x28:
-        return rocksdb::Histograms::BLOB_DB_PREV_MICROS;
+        return ROCKSDB_NAMESPACE::Histograms::BLOB_DB_PREV_MICROS;
       case 0x29:
-        return rocksdb::Histograms::BLOB_DB_BLOB_FILE_WRITE_MICROS;
+        return ROCKSDB_NAMESPACE::Histograms::BLOB_DB_BLOB_FILE_WRITE_MICROS;
       case 0x2A:
-        return rocksdb::Histograms::BLOB_DB_BLOB_FILE_READ_MICROS;
+        return ROCKSDB_NAMESPACE::Histograms::BLOB_DB_BLOB_FILE_READ_MICROS;
       case 0x2B:
-        return rocksdb::Histograms::BLOB_DB_BLOB_FILE_SYNC_MICROS;
+        return ROCKSDB_NAMESPACE::Histograms::BLOB_DB_BLOB_FILE_SYNC_MICROS;
       case 0x2C:
-        return rocksdb::Histograms::BLOB_DB_GC_MICROS;
+        return ROCKSDB_NAMESPACE::Histograms::BLOB_DB_GC_MICROS;
       case 0x2D:
-        return rocksdb::Histograms::BLOB_DB_COMPRESSION_MICROS;
+        return ROCKSDB_NAMESPACE::Histograms::BLOB_DB_COMPRESSION_MICROS;
       case 0x2E:
-        return rocksdb::Histograms::BLOB_DB_DECOMPRESSION_MICROS;
+        return ROCKSDB_NAMESPACE::Histograms::BLOB_DB_DECOMPRESSION_MICROS;
       case 0x1F:
         // 0x1F for backwards compatibility on current minor version.
-        return rocksdb::Histograms::HISTOGRAM_ENUM_MAX;
+        return ROCKSDB_NAMESPACE::Histograms::HISTOGRAM_ENUM_MAX;
 
       default:
         // undefined/default
-        return rocksdb::Histograms::DB_GET;
+        return ROCKSDB_NAMESPACE::Histograms::DB_GET;
     }
   }
 };
@@ -5383,15 +5473,15 @@ class HistogramTypeJni {
 class StatsLevelJni {
  public:
   // Returns the equivalent org.rocksdb.StatsLevel for the provided
-  // C++ rocksdb::StatsLevel enum
+  // C++ ROCKSDB_NAMESPACE::StatsLevel enum
   static jbyte toJavaStatsLevel(
-      const rocksdb::StatsLevel& stats_level) {
+      const ROCKSDB_NAMESPACE::StatsLevel& stats_level) {
     switch(stats_level) {
-      case rocksdb::StatsLevel::kExceptDetailedTimers:
+      case ROCKSDB_NAMESPACE::StatsLevel::kExceptDetailedTimers:
         return 0x0;
-      case rocksdb::StatsLevel::kExceptTimeForMutex:
+      case ROCKSDB_NAMESPACE::StatsLevel::kExceptTimeForMutex:
         return 0x1;
-      case rocksdb::StatsLevel::kAll:
+      case ROCKSDB_NAMESPACE::StatsLevel::kAll:
         return 0x2;
 
       default:
@@ -5400,20 +5490,20 @@ class StatsLevelJni {
     }
   }
 
-  // Returns the equivalent C++ rocksdb::StatsLevel enum for the
+  // Returns the equivalent C++ ROCKSDB_NAMESPACE::StatsLevel enum for the
   // provided Java org.rocksdb.StatsLevel
-  static rocksdb::StatsLevel toCppStatsLevel(jbyte jstats_level) {
+  static ROCKSDB_NAMESPACE::StatsLevel toCppStatsLevel(jbyte jstats_level) {
     switch(jstats_level) {
       case 0x0:
-        return rocksdb::StatsLevel::kExceptDetailedTimers;
+        return ROCKSDB_NAMESPACE::StatsLevel::kExceptDetailedTimers;
       case 0x1:
-        return rocksdb::StatsLevel::kExceptTimeForMutex;
+        return ROCKSDB_NAMESPACE::StatsLevel::kExceptTimeForMutex;
       case 0x2:
-        return rocksdb::StatsLevel::kAll;
+        return ROCKSDB_NAMESPACE::StatsLevel::kAll;
 
       default:
         // undefined/default
-        return rocksdb::StatsLevel::kExceptDetailedTimers;
+        return ROCKSDB_NAMESPACE::StatsLevel::kExceptDetailedTimers;
     }
   }
 };
@@ -5422,15 +5512,15 @@ class StatsLevelJni {
 class RateLimiterModeJni {
  public:
   // Returns the equivalent org.rocksdb.RateLimiterMode for the provided
-  // C++ rocksdb::RateLimiter::Mode enum
+  // C++ ROCKSDB_NAMESPACE::RateLimiter::Mode enum
   static jbyte toJavaRateLimiterMode(
-      const rocksdb::RateLimiter::Mode& rate_limiter_mode) {
+      const ROCKSDB_NAMESPACE::RateLimiter::Mode& rate_limiter_mode) {
     switch(rate_limiter_mode) {
-      case rocksdb::RateLimiter::Mode::kReadsOnly:
+      case ROCKSDB_NAMESPACE::RateLimiter::Mode::kReadsOnly:
         return 0x0;
-      case rocksdb::RateLimiter::Mode::kWritesOnly:
+      case ROCKSDB_NAMESPACE::RateLimiter::Mode::kWritesOnly:
         return 0x1;
-      case rocksdb::RateLimiter::Mode::kAllIo:
+      case ROCKSDB_NAMESPACE::RateLimiter::Mode::kAllIo:
         return 0x2;
 
       default:
@@ -5439,20 +5529,21 @@ class RateLimiterModeJni {
     }
   }
 
-  // Returns the equivalent C++ rocksdb::RateLimiter::Mode enum for the
-  // provided Java org.rocksdb.RateLimiterMode
-  static rocksdb::RateLimiter::Mode toCppRateLimiterMode(jbyte jrate_limiter_mode) {
+  // Returns the equivalent C++ ROCKSDB_NAMESPACE::RateLimiter::Mode enum for
+  // the provided Java org.rocksdb.RateLimiterMode
+  static ROCKSDB_NAMESPACE::RateLimiter::Mode toCppRateLimiterMode(
+      jbyte jrate_limiter_mode) {
     switch(jrate_limiter_mode) {
       case 0x0:
-        return rocksdb::RateLimiter::Mode::kReadsOnly;
+        return ROCKSDB_NAMESPACE::RateLimiter::Mode::kReadsOnly;
       case 0x1:
-        return rocksdb::RateLimiter::Mode::kWritesOnly;
+        return ROCKSDB_NAMESPACE::RateLimiter::Mode::kWritesOnly;
       case 0x2:
-        return rocksdb::RateLimiter::Mode::kAllIo;
+        return ROCKSDB_NAMESPACE::RateLimiter::Mode::kAllIo;
 
       default:
         // undefined/default
-        return rocksdb::RateLimiter::Mode::kWritesOnly;
+        return ROCKSDB_NAMESPACE::RateLimiter::Mode::kWritesOnly;
     }
   }
 };
@@ -5460,43 +5551,43 @@ class RateLimiterModeJni {
 // The portal class for org.rocksdb.MemoryUsageType
 class MemoryUsageTypeJni {
 public:
-  // Returns the equivalent org.rocksdb.MemoryUsageType for the provided
-  // C++ rocksdb::MemoryUtil::UsageType enum
-  static jbyte toJavaMemoryUsageType(
-      const rocksdb::MemoryUtil::UsageType& usage_type) {
-    switch(usage_type) {
-      case rocksdb::MemoryUtil::UsageType::kMemTableTotal:
-        return 0x0;
-      case rocksdb::MemoryUtil::UsageType::kMemTableUnFlushed:
-        return 0x1;
-      case rocksdb::MemoryUtil::UsageType::kTableReadersTotal:
-        return 0x2;
-      case rocksdb::MemoryUtil::UsageType::kCacheTotal:
-        return 0x3;
-      default:
-        // undefined: use kNumUsageTypes
-        return 0x4;
-    }
-  }
+ // Returns the equivalent org.rocksdb.MemoryUsageType for the provided
+ // C++ ROCKSDB_NAMESPACE::MemoryUtil::UsageType enum
+ static jbyte toJavaMemoryUsageType(
+     const ROCKSDB_NAMESPACE::MemoryUtil::UsageType& usage_type) {
+   switch (usage_type) {
+     case ROCKSDB_NAMESPACE::MemoryUtil::UsageType::kMemTableTotal:
+       return 0x0;
+     case ROCKSDB_NAMESPACE::MemoryUtil::UsageType::kMemTableUnFlushed:
+       return 0x1;
+     case ROCKSDB_NAMESPACE::MemoryUtil::UsageType::kTableReadersTotal:
+       return 0x2;
+     case ROCKSDB_NAMESPACE::MemoryUtil::UsageType::kCacheTotal:
+       return 0x3;
+     default:
+       // undefined: use kNumUsageTypes
+       return 0x4;
+   }
+ }
 
-  // Returns the equivalent C++ rocksdb::MemoryUtil::UsageType enum for the
-  // provided Java org.rocksdb.MemoryUsageType
-  static rocksdb::MemoryUtil::UsageType toCppMemoryUsageType(
-      jbyte usage_type) {
-    switch(usage_type) {
-      case 0x0:
-        return rocksdb::MemoryUtil::UsageType::kMemTableTotal;
-      case 0x1:
-        return rocksdb::MemoryUtil::UsageType::kMemTableUnFlushed;
-      case 0x2:
-        return rocksdb::MemoryUtil::UsageType::kTableReadersTotal;
-      case 0x3:
-        return rocksdb::MemoryUtil::UsageType::kCacheTotal;
-      default:
-        // undefined/default: use kNumUsageTypes
-        return rocksdb::MemoryUtil::UsageType::kNumUsageTypes;
-    }
-  }
+ // Returns the equivalent C++ ROCKSDB_NAMESPACE::MemoryUtil::UsageType enum for
+ // the provided Java org.rocksdb.MemoryUsageType
+ static ROCKSDB_NAMESPACE::MemoryUtil::UsageType toCppMemoryUsageType(
+     jbyte usage_type) {
+   switch (usage_type) {
+     case 0x0:
+       return ROCKSDB_NAMESPACE::MemoryUtil::UsageType::kMemTableTotal;
+     case 0x1:
+       return ROCKSDB_NAMESPACE::MemoryUtil::UsageType::kMemTableUnFlushed;
+     case 0x2:
+       return ROCKSDB_NAMESPACE::MemoryUtil::UsageType::kTableReadersTotal;
+     case 0x3:
+       return ROCKSDB_NAMESPACE::MemoryUtil::UsageType::kCacheTotal;
+     default:
+       // undefined/default: use kNumUsageTypes
+       return ROCKSDB_NAMESPACE::MemoryUtil::UsageType::kNumUsageTypes;
+   }
+ }
 };
 
 // The portal class for org.rocksdb.Transaction
@@ -5614,9 +5705,10 @@ class TransactionDBJni : public JavaClass {
    *     org.rocksdb.Transaction.WaitingTransactions object,
    *     or nullptr if an an exception occurs
    */
-  static jobject newDeadlockInfo(JNIEnv* env, jobject jtransaction_db,
-      const rocksdb::TransactionID transaction_id,
-      const uint32_t column_family_id, const std::string &waiting_key,
+  static jobject newDeadlockInfo(
+      JNIEnv* env, jobject jtransaction_db,
+      const ROCKSDB_NAMESPACE::TransactionID transaction_id,
+      const uint32_t column_family_id, const std::string& waiting_key,
       const bool exclusive) {
     jclass jclazz = getJClass(env);
     if(jclazz == nullptr) {
@@ -5654,38 +5746,38 @@ class TransactionDBJni : public JavaClass {
 // The portal class for org.rocksdb.TxnDBWritePolicy
 class TxnDBWritePolicyJni {
  public:
- // Returns the equivalent org.rocksdb.TxnDBWritePolicy for the provided
- // C++ rocksdb::TxnDBWritePolicy enum
- static jbyte toJavaTxnDBWritePolicy(
-     const rocksdb::TxnDBWritePolicy& txndb_write_policy) {
-   switch(txndb_write_policy) {
-     case rocksdb::TxnDBWritePolicy::WRITE_COMMITTED:
-       return 0x0;
-     case rocksdb::TxnDBWritePolicy::WRITE_PREPARED:
-       return 0x1;
-    case rocksdb::TxnDBWritePolicy::WRITE_UNPREPARED:
-       return 0x2;
-     default:
-       return 0x7F;  // undefined
-   }
- }
+  // Returns the equivalent org.rocksdb.TxnDBWritePolicy for the provided
+  // C++ ROCKSDB_NAMESPACE::TxnDBWritePolicy enum
+  static jbyte toJavaTxnDBWritePolicy(
+      const ROCKSDB_NAMESPACE::TxnDBWritePolicy& txndb_write_policy) {
+    switch (txndb_write_policy) {
+      case ROCKSDB_NAMESPACE::TxnDBWritePolicy::WRITE_COMMITTED:
+        return 0x0;
+      case ROCKSDB_NAMESPACE::TxnDBWritePolicy::WRITE_PREPARED:
+        return 0x1;
+      case ROCKSDB_NAMESPACE::TxnDBWritePolicy::WRITE_UNPREPARED:
+        return 0x2;
+      default:
+        return 0x7F;  // undefined
+    }
+  }
 
- // Returns the equivalent C++ rocksdb::TxnDBWritePolicy enum for the
- // provided Java org.rocksdb.TxnDBWritePolicy
- static rocksdb::TxnDBWritePolicy toCppTxnDBWritePolicy(
-     jbyte jtxndb_write_policy) {
-   switch(jtxndb_write_policy) {
-     case 0x0:
-       return rocksdb::TxnDBWritePolicy::WRITE_COMMITTED;
-     case 0x1:
-       return rocksdb::TxnDBWritePolicy::WRITE_PREPARED;
-     case 0x2:
-       return rocksdb::TxnDBWritePolicy::WRITE_UNPREPARED;
-     default:
-       // undefined/default
-       return rocksdb::TxnDBWritePolicy::WRITE_COMMITTED;
-   }
- }
+  // Returns the equivalent C++ ROCKSDB_NAMESPACE::TxnDBWritePolicy enum for the
+  // provided Java org.rocksdb.TxnDBWritePolicy
+  static ROCKSDB_NAMESPACE::TxnDBWritePolicy toCppTxnDBWritePolicy(
+      jbyte jtxndb_write_policy) {
+    switch (jtxndb_write_policy) {
+      case 0x0:
+        return ROCKSDB_NAMESPACE::TxnDBWritePolicy::WRITE_COMMITTED;
+      case 0x1:
+        return ROCKSDB_NAMESPACE::TxnDBWritePolicy::WRITE_PREPARED;
+      case 0x2:
+        return ROCKSDB_NAMESPACE::TxnDBWritePolicy::WRITE_UNPREPARED;
+      default:
+        // undefined/default
+        return ROCKSDB_NAMESPACE::TxnDBWritePolicy::WRITE_COMMITTED;
+    }
+  }
 };
 
 // The portal class for org.rocksdb.TransactionDB.KeyLockInfo
@@ -5707,17 +5799,18 @@ class KeyLockInfoJni : public JavaClass {
 
   /**
    * Create a new Java org.rocksdb.TransactionDB.KeyLockInfo object
-   * with the same properties as the provided C++ rocksdb::KeyLockInfo object
+   * with the same properties as the provided C++ ROCKSDB_NAMESPACE::KeyLockInfo
+   * object
    *
    * @param env A pointer to the Java environment
-   * @param key_lock_info The rocksdb::KeyLockInfo object
+   * @param key_lock_info The ROCKSDB_NAMESPACE::KeyLockInfo object
    *
    * @return A reference to a Java
    *     org.rocksdb.TransactionDB.KeyLockInfo object,
    *     or nullptr if an an exception occurs
    */
-  static jobject construct(JNIEnv* env,
-      const rocksdb::KeyLockInfo& key_lock_info) {
+  static jobject construct(
+      JNIEnv* env, const ROCKSDB_NAMESPACE::KeyLockInfo& key_lock_info) {
     jclass jclazz = getJClass(env);
     if(jclazz == nullptr) {
       // exception occurred accessing class
@@ -5827,7 +5920,10 @@ class DeadlockPathJni : public JavaClass {
   }
 };
 
-class AbstractTableFilterJni : public RocksDBNativeClass<const rocksdb::TableFilterJniCallback*, AbstractTableFilterJni> {
+class AbstractTableFilterJni
+    : public RocksDBNativeClass<
+          const ROCKSDB_NAMESPACE::TableFilterJniCallback*,
+          AbstractTableFilterJni> {
  public:
   /**
    * Get the Java Method: TableFilter#filter(TableProperties)
@@ -5867,7 +5963,8 @@ class TablePropertiesJni : public JavaClass {
    * @return A reference to a Java org.rocksdb.TableProperties object, or
    * nullptr if an an exception occurs
    */
-  static jobject fromCppTableProperties(JNIEnv* env, const rocksdb::TableProperties& table_properties) {
+  static jobject fromCppTableProperties(
+      JNIEnv* env, const ROCKSDB_NAMESPACE::TableProperties& table_properties) {
     jclass jclazz = getJClass(env);
     if (jclazz == nullptr) {
       // exception occurred accessing class
@@ -5880,20 +5977,23 @@ class TablePropertiesJni : public JavaClass {
       return nullptr;
     }
 
-    jbyteArray jcolumn_family_name = rocksdb::JniUtil::copyBytes(env, table_properties.column_family_name);
+    jbyteArray jcolumn_family_name = ROCKSDB_NAMESPACE::JniUtil::copyBytes(
+        env, table_properties.column_family_name);
     if (jcolumn_family_name == nullptr) {
       // exception occurred creating java string
       return nullptr;
     }
 
-    jstring jfilter_policy_name = rocksdb::JniUtil::toJavaString(env, &table_properties.filter_policy_name, true);
+    jstring jfilter_policy_name = ROCKSDB_NAMESPACE::JniUtil::toJavaString(
+        env, &table_properties.filter_policy_name, true);
     if (env->ExceptionCheck()) {
       // exception occurred creating java string
       env->DeleteLocalRef(jcolumn_family_name);
       return nullptr;
     }
 
-    jstring jcomparator_name = rocksdb::JniUtil::toJavaString(env, &table_properties.comparator_name, true);
+    jstring jcomparator_name = ROCKSDB_NAMESPACE::JniUtil::toJavaString(
+        env, &table_properties.comparator_name, true);
     if (env->ExceptionCheck()) {
       // exception occurred creating java string
       env->DeleteLocalRef(jcolumn_family_name);
@@ -5901,7 +6001,8 @@ class TablePropertiesJni : public JavaClass {
       return nullptr;
     }
 
-    jstring jmerge_operator_name = rocksdb::JniUtil::toJavaString(env, &table_properties.merge_operator_name, true);
+    jstring jmerge_operator_name = ROCKSDB_NAMESPACE::JniUtil::toJavaString(
+        env, &table_properties.merge_operator_name, true);
     if (env->ExceptionCheck()) {
       // exception occurred creating java string
       env->DeleteLocalRef(jcolumn_family_name);
@@ -5910,7 +6011,8 @@ class TablePropertiesJni : public JavaClass {
       return nullptr;
     }
 
-    jstring jprefix_extractor_name = rocksdb::JniUtil::toJavaString(env, &table_properties.prefix_extractor_name, true);
+    jstring jprefix_extractor_name = ROCKSDB_NAMESPACE::JniUtil::toJavaString(
+        env, &table_properties.prefix_extractor_name, true);
     if (env->ExceptionCheck()) {
       // exception occurred creating java string
       env->DeleteLocalRef(jcolumn_family_name);
@@ -5920,7 +6022,9 @@ class TablePropertiesJni : public JavaClass {
       return nullptr;
     }
 
-    jstring jproperty_collectors_names = rocksdb::JniUtil::toJavaString(env, &table_properties.property_collectors_names, true);
+    jstring jproperty_collectors_names =
+        ROCKSDB_NAMESPACE::JniUtil::toJavaString(
+            env, &table_properties.property_collectors_names, true);
     if (env->ExceptionCheck()) {
       // exception occurred creating java string
       env->DeleteLocalRef(jcolumn_family_name);
@@ -5931,7 +6035,8 @@ class TablePropertiesJni : public JavaClass {
       return nullptr;
     }
 
-    jstring jcompression_name = rocksdb::JniUtil::toJavaString(env, &table_properties.compression_name, true);
+    jstring jcompression_name = ROCKSDB_NAMESPACE::JniUtil::toJavaString(
+        env, &table_properties.compression_name, true);
     if (env->ExceptionCheck()) {
       // exception occurred creating java string
       env->DeleteLocalRef(jcolumn_family_name);
@@ -5944,7 +6049,9 @@ class TablePropertiesJni : public JavaClass {
     }
 
     // Map<String, String>
-    jobject juser_collected_properties = rocksdb::HashMapJni::fromCppMap(env, &table_properties.user_collected_properties);
+    jobject juser_collected_properties =
+        ROCKSDB_NAMESPACE::HashMapJni::fromCppMap(
+            env, &table_properties.user_collected_properties);
     if (env->ExceptionCheck()) {
       // exception occurred creating java map
       env->DeleteLocalRef(jcolumn_family_name);
@@ -5958,7 +6065,8 @@ class TablePropertiesJni : public JavaClass {
     }
 
     // Map<String, String>
-    jobject jreadable_properties = rocksdb::HashMapJni::fromCppMap(env, &table_properties.readable_properties);
+    jobject jreadable_properties = ROCKSDB_NAMESPACE::HashMapJni::fromCppMap(
+        env, &table_properties.readable_properties);
     if (env->ExceptionCheck()) {
       // exception occurred creating java map
       env->DeleteLocalRef(jcolumn_family_name);
@@ -5973,7 +6081,8 @@ class TablePropertiesJni : public JavaClass {
     }
 
     // Map<String, Long>
-    jobject jproperties_offsets = rocksdb::HashMapJni::fromCppMap(env, &table_properties.properties_offsets);
+    jobject jproperties_offsets = ROCKSDB_NAMESPACE::HashMapJni::fromCppMap(
+        env, &table_properties.properties_offsets);
     if (env->ExceptionCheck()) {
       // exception occurred creating java map
       env->DeleteLocalRef(jcolumn_family_name);
@@ -6050,10 +6159,11 @@ class ColumnFamilyDescriptorJni : public JavaClass {
 
   /**
    * Create a new Java org.rocksdb.ColumnFamilyDescriptor object with the same
-   * properties as the provided C++ rocksdb::ColumnFamilyDescriptor object
+   * properties as the provided C++ ROCKSDB_NAMESPACE::ColumnFamilyDescriptor
+   * object
    *
    * @param env A pointer to the Java environment
-   * @param cfd A pointer to rocksdb::ColumnFamilyDescriptor object
+   * @param cfd A pointer to ROCKSDB_NAMESPACE::ColumnFamilyDescriptor object
    *
    * @return A reference to a Java org.rocksdb.ColumnFamilyDescriptor object, or
    * nullptr if an an exception occurs
@@ -6130,338 +6240,367 @@ class ColumnFamilyDescriptorJni : public JavaClass {
 // The portal class for org.rocksdb.IndexType
 class IndexTypeJni {
  public:
- // Returns the equivalent org.rocksdb.IndexType for the provided
- // C++ rocksdb::IndexType enum
- static jbyte toJavaIndexType(
-     const rocksdb::BlockBasedTableOptions::IndexType& index_type) {
-   switch(index_type) {
-     case rocksdb::BlockBasedTableOptions::IndexType::kBinarySearch:
-       return 0x0;
-     case rocksdb::BlockBasedTableOptions::IndexType::kHashSearch:
-       return 0x1;
-     case rocksdb::BlockBasedTableOptions::IndexType::kTwoLevelIndexSearch:
-       return 0x2;
-     case rocksdb::BlockBasedTableOptions::IndexType::kBinarySearchWithFirstKey:
-       return 0x3;
-     default:
-       return 0x7F;  // undefined
-   }
- }
+  // Returns the equivalent org.rocksdb.IndexType for the provided
+  // C++ ROCKSDB_NAMESPACE::IndexType enum
+  static jbyte toJavaIndexType(
+      const ROCKSDB_NAMESPACE::BlockBasedTableOptions::IndexType& index_type) {
+    switch (index_type) {
+      case ROCKSDB_NAMESPACE::BlockBasedTableOptions::IndexType::kBinarySearch:
+        return 0x0;
+      case ROCKSDB_NAMESPACE::BlockBasedTableOptions::IndexType::kHashSearch:
+        return 0x1;
+      case ROCKSDB_NAMESPACE::BlockBasedTableOptions::IndexType::
+          kTwoLevelIndexSearch:
+        return 0x2;
+      case ROCKSDB_NAMESPACE::BlockBasedTableOptions::IndexType::
+          kBinarySearchWithFirstKey:
+        return 0x3;
+      default:
+        return 0x7F;  // undefined
+    }
+  }
 
- // Returns the equivalent C++ rocksdb::IndexType enum for the
- // provided Java org.rocksdb.IndexType
- static rocksdb::BlockBasedTableOptions::IndexType toCppIndexType(
-     jbyte jindex_type) {
-   switch(jindex_type) {
-     case 0x0:
-       return rocksdb::BlockBasedTableOptions::IndexType::kBinarySearch;
-     case 0x1:
-       return rocksdb::BlockBasedTableOptions::IndexType::kHashSearch;
-     case 0x2:
-       return rocksdb::BlockBasedTableOptions::IndexType::kTwoLevelIndexSearch;
-     case 0x3:
-       return rocksdb::BlockBasedTableOptions::IndexType::
-           kBinarySearchWithFirstKey;
-     default:
-       // undefined/default
-       return rocksdb::BlockBasedTableOptions::IndexType::kBinarySearch;
-   }
- }
+  // Returns the equivalent C++ ROCKSDB_NAMESPACE::IndexType enum for the
+  // provided Java org.rocksdb.IndexType
+  static ROCKSDB_NAMESPACE::BlockBasedTableOptions::IndexType toCppIndexType(
+      jbyte jindex_type) {
+    switch (jindex_type) {
+      case 0x0:
+        return ROCKSDB_NAMESPACE::BlockBasedTableOptions::IndexType::
+            kBinarySearch;
+      case 0x1:
+        return ROCKSDB_NAMESPACE::BlockBasedTableOptions::IndexType::
+            kHashSearch;
+      case 0x2:
+        return ROCKSDB_NAMESPACE::BlockBasedTableOptions::IndexType::
+            kTwoLevelIndexSearch;
+      case 0x3:
+        return ROCKSDB_NAMESPACE::BlockBasedTableOptions::IndexType::
+            kBinarySearchWithFirstKey;
+      default:
+        // undefined/default
+        return ROCKSDB_NAMESPACE::BlockBasedTableOptions::IndexType::
+            kBinarySearch;
+    }
+  }
 };
 
 // The portal class for org.rocksdb.DataBlockIndexType
 class DataBlockIndexTypeJni {
  public:
- // Returns the equivalent org.rocksdb.DataBlockIndexType for the provided
- // C++ rocksdb::DataBlockIndexType enum
- static jbyte toJavaDataBlockIndexType(
-     const rocksdb::BlockBasedTableOptions::DataBlockIndexType& index_type) {
-   switch(index_type) {
-     case rocksdb::BlockBasedTableOptions::DataBlockIndexType::kDataBlockBinarySearch:
-       return 0x0;
-     case rocksdb::BlockBasedTableOptions::DataBlockIndexType::kDataBlockBinaryAndHash:
-       return 0x1;
-     default:
-       return 0x7F;  // undefined
-   }
- }
+  // Returns the equivalent org.rocksdb.DataBlockIndexType for the provided
+  // C++ ROCKSDB_NAMESPACE::DataBlockIndexType enum
+  static jbyte toJavaDataBlockIndexType(
+      const ROCKSDB_NAMESPACE::BlockBasedTableOptions::DataBlockIndexType&
+          index_type) {
+    switch (index_type) {
+      case ROCKSDB_NAMESPACE::BlockBasedTableOptions::DataBlockIndexType::
+          kDataBlockBinarySearch:
+        return 0x0;
+      case ROCKSDB_NAMESPACE::BlockBasedTableOptions::DataBlockIndexType::
+          kDataBlockBinaryAndHash:
+        return 0x1;
+      default:
+        return 0x7F;  // undefined
+    }
+  }
 
- // Returns the equivalent C++ rocksdb::DataBlockIndexType enum for the
- // provided Java org.rocksdb.DataBlockIndexType
- static rocksdb::BlockBasedTableOptions::DataBlockIndexType toCppDataBlockIndexType(
-     jbyte jindex_type) {
-   switch(jindex_type) {
-     case 0x0:
-       return rocksdb::BlockBasedTableOptions::DataBlockIndexType::kDataBlockBinarySearch;
-     case 0x1:
-       return rocksdb::BlockBasedTableOptions::DataBlockIndexType::kDataBlockBinaryAndHash;
-     default:
-       // undefined/default
-       return rocksdb::BlockBasedTableOptions::DataBlockIndexType::kDataBlockBinarySearch;
-   }
- }
+  // Returns the equivalent C++ ROCKSDB_NAMESPACE::DataBlockIndexType enum for
+  // the provided Java org.rocksdb.DataBlockIndexType
+  static ROCKSDB_NAMESPACE::BlockBasedTableOptions::DataBlockIndexType
+  toCppDataBlockIndexType(jbyte jindex_type) {
+    switch (jindex_type) {
+      case 0x0:
+        return ROCKSDB_NAMESPACE::BlockBasedTableOptions::DataBlockIndexType::
+            kDataBlockBinarySearch;
+      case 0x1:
+        return ROCKSDB_NAMESPACE::BlockBasedTableOptions::DataBlockIndexType::
+            kDataBlockBinaryAndHash;
+      default:
+        // undefined/default
+        return ROCKSDB_NAMESPACE::BlockBasedTableOptions::DataBlockIndexType::
+            kDataBlockBinarySearch;
+    }
+  }
 };
 
 // The portal class for org.rocksdb.ChecksumType
 class ChecksumTypeJni {
  public:
- // Returns the equivalent org.rocksdb.ChecksumType for the provided
- // C++ rocksdb::ChecksumType enum
- static jbyte toJavaChecksumType(
-     const rocksdb::ChecksumType& checksum_type) {
-   switch(checksum_type) {
-     case rocksdb::ChecksumType::kNoChecksum:
-       return 0x0;
-     case rocksdb::ChecksumType::kCRC32c:
-       return 0x1;
-     case rocksdb::ChecksumType::kxxHash:
-       return 0x2;
-     case rocksdb::ChecksumType::kxxHash64:
-       return 0x3;
-     default:
-       return 0x7F;  // undefined
-   }
- }
+  // Returns the equivalent org.rocksdb.ChecksumType for the provided
+  // C++ ROCKSDB_NAMESPACE::ChecksumType enum
+  static jbyte toJavaChecksumType(
+      const ROCKSDB_NAMESPACE::ChecksumType& checksum_type) {
+    switch (checksum_type) {
+      case ROCKSDB_NAMESPACE::ChecksumType::kNoChecksum:
+        return 0x0;
+      case ROCKSDB_NAMESPACE::ChecksumType::kCRC32c:
+        return 0x1;
+      case ROCKSDB_NAMESPACE::ChecksumType::kxxHash:
+        return 0x2;
+      case ROCKSDB_NAMESPACE::ChecksumType::kxxHash64:
+        return 0x3;
+      default:
+        return 0x7F;  // undefined
+    }
+  }
 
- // Returns the equivalent C++ rocksdb::ChecksumType enum for the
- // provided Java org.rocksdb.ChecksumType
- static rocksdb::ChecksumType toCppChecksumType(
-     jbyte jchecksum_type) {
-   switch(jchecksum_type) {
-     case 0x0:
-       return rocksdb::ChecksumType::kNoChecksum;
-     case 0x1:
-       return rocksdb::ChecksumType::kCRC32c;
-     case 0x2:
-       return rocksdb::ChecksumType::kxxHash;
-     case 0x3:
-       return rocksdb::ChecksumType::kxxHash64;
-     default:
-       // undefined/default
-       return rocksdb::ChecksumType::kCRC32c;
-   }
- }
+  // Returns the equivalent C++ ROCKSDB_NAMESPACE::ChecksumType enum for the
+  // provided Java org.rocksdb.ChecksumType
+  static ROCKSDB_NAMESPACE::ChecksumType toCppChecksumType(
+      jbyte jchecksum_type) {
+    switch (jchecksum_type) {
+      case 0x0:
+        return ROCKSDB_NAMESPACE::ChecksumType::kNoChecksum;
+      case 0x1:
+        return ROCKSDB_NAMESPACE::ChecksumType::kCRC32c;
+      case 0x2:
+        return ROCKSDB_NAMESPACE::ChecksumType::kxxHash;
+      case 0x3:
+        return ROCKSDB_NAMESPACE::ChecksumType::kxxHash64;
+      default:
+        // undefined/default
+        return ROCKSDB_NAMESPACE::ChecksumType::kCRC32c;
+    }
+  }
 };
 
 // The portal class for org.rocksdb.Priority
 class PriorityJni {
  public:
- // Returns the equivalent org.rocksdb.Priority for the provided
- // C++ rocksdb::Env::Priority enum
- static jbyte toJavaPriority(
-     const rocksdb::Env::Priority& priority) {
-   switch(priority) {
-     case rocksdb::Env::Priority::BOTTOM:
-       return 0x0;
-     case rocksdb::Env::Priority::LOW:
-       return 0x1;
-     case rocksdb::Env::Priority::HIGH:
-       return 0x2;
-     case rocksdb::Env::Priority::TOTAL:
-       return 0x3;
-     default:
-       return 0x7F;  // undefined
-   }
- }
+  // Returns the equivalent org.rocksdb.Priority for the provided
+  // C++ ROCKSDB_NAMESPACE::Env::Priority enum
+  static jbyte toJavaPriority(
+      const ROCKSDB_NAMESPACE::Env::Priority& priority) {
+    switch (priority) {
+      case ROCKSDB_NAMESPACE::Env::Priority::BOTTOM:
+        return 0x0;
+      case ROCKSDB_NAMESPACE::Env::Priority::LOW:
+        return 0x1;
+      case ROCKSDB_NAMESPACE::Env::Priority::HIGH:
+        return 0x2;
+      case ROCKSDB_NAMESPACE::Env::Priority::TOTAL:
+        return 0x3;
+      default:
+        return 0x7F;  // undefined
+    }
+  }
 
- // Returns the equivalent C++ rocksdb::env::Priority enum for the
- // provided Java org.rocksdb.Priority
- static rocksdb::Env::Priority toCppPriority(
-     jbyte jpriority) {
-   switch(jpriority) {
-     case 0x0:
-       return rocksdb::Env::Priority::BOTTOM;
-     case 0x1:
-       return rocksdb::Env::Priority::LOW;
-     case 0x2:
-       return rocksdb::Env::Priority::HIGH;
-     case 0x3:
-       return rocksdb::Env::Priority::TOTAL;
-     default:
-       // undefined/default
-       return rocksdb::Env::Priority::LOW;
-   }
- }
+  // Returns the equivalent C++ ROCKSDB_NAMESPACE::env::Priority enum for the
+  // provided Java org.rocksdb.Priority
+  static ROCKSDB_NAMESPACE::Env::Priority toCppPriority(jbyte jpriority) {
+    switch (jpriority) {
+      case 0x0:
+        return ROCKSDB_NAMESPACE::Env::Priority::BOTTOM;
+      case 0x1:
+        return ROCKSDB_NAMESPACE::Env::Priority::LOW;
+      case 0x2:
+        return ROCKSDB_NAMESPACE::Env::Priority::HIGH;
+      case 0x3:
+        return ROCKSDB_NAMESPACE::Env::Priority::TOTAL;
+      default:
+        // undefined/default
+        return ROCKSDB_NAMESPACE::Env::Priority::LOW;
+    }
+  }
 };
 
 // The portal class for org.rocksdb.ThreadType
 class ThreadTypeJni {
  public:
- // Returns the equivalent org.rocksdb.ThreadType for the provided
- // C++ rocksdb::ThreadStatus::ThreadType enum
- static jbyte toJavaThreadType(
-     const rocksdb::ThreadStatus::ThreadType& thread_type) {
-   switch(thread_type) {
-     case rocksdb::ThreadStatus::ThreadType::HIGH_PRIORITY:
-       return 0x0;
-     case rocksdb::ThreadStatus::ThreadType::LOW_PRIORITY:
-       return 0x1;
-     case rocksdb::ThreadStatus::ThreadType::USER:
-       return 0x2;
-     case rocksdb::ThreadStatus::ThreadType::BOTTOM_PRIORITY:
-       return 0x3;
-     default:
-       return 0x7F;  // undefined
-   }
- }
+  // Returns the equivalent org.rocksdb.ThreadType for the provided
+  // C++ ROCKSDB_NAMESPACE::ThreadStatus::ThreadType enum
+  static jbyte toJavaThreadType(
+      const ROCKSDB_NAMESPACE::ThreadStatus::ThreadType& thread_type) {
+    switch (thread_type) {
+      case ROCKSDB_NAMESPACE::ThreadStatus::ThreadType::HIGH_PRIORITY:
+        return 0x0;
+      case ROCKSDB_NAMESPACE::ThreadStatus::ThreadType::LOW_PRIORITY:
+        return 0x1;
+      case ROCKSDB_NAMESPACE::ThreadStatus::ThreadType::USER:
+        return 0x2;
+      case ROCKSDB_NAMESPACE::ThreadStatus::ThreadType::BOTTOM_PRIORITY:
+        return 0x3;
+      default:
+        return 0x7F;  // undefined
+    }
+  }
 
- // Returns the equivalent C++ rocksdb::ThreadStatus::ThreadType enum for the
- // provided Java org.rocksdb.ThreadType
- static rocksdb::ThreadStatus::ThreadType toCppThreadType(
-     jbyte jthread_type) {
-   switch(jthread_type) {
-     case 0x0:
-       return rocksdb::ThreadStatus::ThreadType::HIGH_PRIORITY;
-     case 0x1:
-       return rocksdb::ThreadStatus::ThreadType::LOW_PRIORITY;
-     case 0x2:
-       return ThreadStatus::ThreadType::USER;
-     case 0x3:
-       return rocksdb::ThreadStatus::ThreadType::BOTTOM_PRIORITY;
-     default:
-       // undefined/default
-       return rocksdb::ThreadStatus::ThreadType::LOW_PRIORITY;
-   }
- }
+  // Returns the equivalent C++ ROCKSDB_NAMESPACE::ThreadStatus::ThreadType enum
+  // for the provided Java org.rocksdb.ThreadType
+  static ROCKSDB_NAMESPACE::ThreadStatus::ThreadType toCppThreadType(
+      jbyte jthread_type) {
+    switch (jthread_type) {
+      case 0x0:
+        return ROCKSDB_NAMESPACE::ThreadStatus::ThreadType::HIGH_PRIORITY;
+      case 0x1:
+        return ROCKSDB_NAMESPACE::ThreadStatus::ThreadType::LOW_PRIORITY;
+      case 0x2:
+        return ThreadStatus::ThreadType::USER;
+      case 0x3:
+        return ROCKSDB_NAMESPACE::ThreadStatus::ThreadType::BOTTOM_PRIORITY;
+      default:
+        // undefined/default
+        return ROCKSDB_NAMESPACE::ThreadStatus::ThreadType::LOW_PRIORITY;
+    }
+  }
 };
 
 // The portal class for org.rocksdb.OperationType
 class OperationTypeJni {
  public:
- // Returns the equivalent org.rocksdb.OperationType for the provided
- // C++ rocksdb::ThreadStatus::OperationType enum
- static jbyte toJavaOperationType(
-     const rocksdb::ThreadStatus::OperationType& operation_type) {
-   switch(operation_type) {
-     case rocksdb::ThreadStatus::OperationType::OP_UNKNOWN:
-       return 0x0;
-     case rocksdb::ThreadStatus::OperationType::OP_COMPACTION:
-       return 0x1;
-     case rocksdb::ThreadStatus::OperationType::OP_FLUSH:
-       return 0x2;
-     default:
-       return 0x7F;  // undefined
-   }
- }
+  // Returns the equivalent org.rocksdb.OperationType for the provided
+  // C++ ROCKSDB_NAMESPACE::ThreadStatus::OperationType enum
+  static jbyte toJavaOperationType(
+      const ROCKSDB_NAMESPACE::ThreadStatus::OperationType& operation_type) {
+    switch (operation_type) {
+      case ROCKSDB_NAMESPACE::ThreadStatus::OperationType::OP_UNKNOWN:
+        return 0x0;
+      case ROCKSDB_NAMESPACE::ThreadStatus::OperationType::OP_COMPACTION:
+        return 0x1;
+      case ROCKSDB_NAMESPACE::ThreadStatus::OperationType::OP_FLUSH:
+        return 0x2;
+      default:
+        return 0x7F;  // undefined
+    }
+  }
 
- // Returns the equivalent C++ rocksdb::ThreadStatus::OperationType enum for the
- // provided Java org.rocksdb.OperationType
- static rocksdb::ThreadStatus::OperationType toCppOperationType(
-     jbyte joperation_type) {
-   switch(joperation_type) {
-     case 0x0:
-       return rocksdb::ThreadStatus::OperationType::OP_UNKNOWN;
-     case 0x1:
-       return rocksdb::ThreadStatus::OperationType::OP_COMPACTION;
-     case 0x2:
-       return rocksdb::ThreadStatus::OperationType::OP_FLUSH;
-     default:
-       // undefined/default
-       return rocksdb::ThreadStatus::OperationType::OP_UNKNOWN;
-   }
- }
+  // Returns the equivalent C++ ROCKSDB_NAMESPACE::ThreadStatus::OperationType
+  // enum for the provided Java org.rocksdb.OperationType
+  static ROCKSDB_NAMESPACE::ThreadStatus::OperationType toCppOperationType(
+      jbyte joperation_type) {
+    switch (joperation_type) {
+      case 0x0:
+        return ROCKSDB_NAMESPACE::ThreadStatus::OperationType::OP_UNKNOWN;
+      case 0x1:
+        return ROCKSDB_NAMESPACE::ThreadStatus::OperationType::OP_COMPACTION;
+      case 0x2:
+        return ROCKSDB_NAMESPACE::ThreadStatus::OperationType::OP_FLUSH;
+      default:
+        // undefined/default
+        return ROCKSDB_NAMESPACE::ThreadStatus::OperationType::OP_UNKNOWN;
+    }
+  }
 };
 
 // The portal class for org.rocksdb.OperationStage
 class OperationStageJni {
  public:
- // Returns the equivalent org.rocksdb.OperationStage for the provided
- // C++ rocksdb::ThreadStatus::OperationStage enum
- static jbyte toJavaOperationStage(
-     const rocksdb::ThreadStatus::OperationStage& operation_stage) {
-   switch(operation_stage) {
-     case rocksdb::ThreadStatus::OperationStage::STAGE_UNKNOWN:
-       return 0x0;
-     case rocksdb::ThreadStatus::OperationStage::STAGE_FLUSH_RUN:
-       return 0x1;
-     case rocksdb::ThreadStatus::OperationStage::STAGE_FLUSH_WRITE_L0:
-       return 0x2;
-     case rocksdb::ThreadStatus::OperationStage::STAGE_COMPACTION_PREPARE:
-       return 0x3;
-     case rocksdb::ThreadStatus::OperationStage::STAGE_COMPACTION_RUN:
-       return 0x4;
-     case rocksdb::ThreadStatus::OperationStage::STAGE_COMPACTION_PROCESS_KV:
-       return 0x5;
-     case rocksdb::ThreadStatus::OperationStage::STAGE_COMPACTION_INSTALL:
-       return 0x6;
-     case rocksdb::ThreadStatus::OperationStage::STAGE_COMPACTION_SYNC_FILE:
-       return 0x7;
-     case rocksdb::ThreadStatus::OperationStage::STAGE_PICK_MEMTABLES_TO_FLUSH:
-       return 0x8;
-     case rocksdb::ThreadStatus::OperationStage::STAGE_MEMTABLE_ROLLBACK:
-       return 0x9;
-     case rocksdb::ThreadStatus::OperationStage::STAGE_MEMTABLE_INSTALL_FLUSH_RESULTS:
-       return 0xA;
-     default:
-       return 0x7F;  // undefined
-   }
- }
+  // Returns the equivalent org.rocksdb.OperationStage for the provided
+  // C++ ROCKSDB_NAMESPACE::ThreadStatus::OperationStage enum
+  static jbyte toJavaOperationStage(
+      const ROCKSDB_NAMESPACE::ThreadStatus::OperationStage& operation_stage) {
+    switch (operation_stage) {
+      case ROCKSDB_NAMESPACE::ThreadStatus::OperationStage::STAGE_UNKNOWN:
+        return 0x0;
+      case ROCKSDB_NAMESPACE::ThreadStatus::OperationStage::STAGE_FLUSH_RUN:
+        return 0x1;
+      case ROCKSDB_NAMESPACE::ThreadStatus::OperationStage::
+          STAGE_FLUSH_WRITE_L0:
+        return 0x2;
+      case ROCKSDB_NAMESPACE::ThreadStatus::OperationStage::
+          STAGE_COMPACTION_PREPARE:
+        return 0x3;
+      case ROCKSDB_NAMESPACE::ThreadStatus::OperationStage::
+          STAGE_COMPACTION_RUN:
+        return 0x4;
+      case ROCKSDB_NAMESPACE::ThreadStatus::OperationStage::
+          STAGE_COMPACTION_PROCESS_KV:
+        return 0x5;
+      case ROCKSDB_NAMESPACE::ThreadStatus::OperationStage::
+          STAGE_COMPACTION_INSTALL:
+        return 0x6;
+      case ROCKSDB_NAMESPACE::ThreadStatus::OperationStage::
+          STAGE_COMPACTION_SYNC_FILE:
+        return 0x7;
+      case ROCKSDB_NAMESPACE::ThreadStatus::OperationStage::
+          STAGE_PICK_MEMTABLES_TO_FLUSH:
+        return 0x8;
+      case ROCKSDB_NAMESPACE::ThreadStatus::OperationStage::
+          STAGE_MEMTABLE_ROLLBACK:
+        return 0x9;
+      case ROCKSDB_NAMESPACE::ThreadStatus::OperationStage::
+          STAGE_MEMTABLE_INSTALL_FLUSH_RESULTS:
+        return 0xA;
+      default:
+        return 0x7F;  // undefined
+    }
+  }
 
- // Returns the equivalent C++ rocksdb::ThreadStatus::OperationStage enum for the
- // provided Java org.rocksdb.OperationStage
- static rocksdb::ThreadStatus::OperationStage toCppOperationStage(
-     jbyte joperation_stage) {
-   switch(joperation_stage) {
-     case 0x0:
-       return rocksdb::ThreadStatus::OperationStage::STAGE_UNKNOWN;
-     case 0x1:
-       return rocksdb::ThreadStatus::OperationStage::STAGE_FLUSH_RUN;
-     case 0x2:
-       return rocksdb::ThreadStatus::OperationStage::STAGE_FLUSH_WRITE_L0;
-     case 0x3:
-       return rocksdb::ThreadStatus::OperationStage::STAGE_COMPACTION_PREPARE;
-     case 0x4:
-       return rocksdb::ThreadStatus::OperationStage::STAGE_COMPACTION_RUN;
-     case 0x5:
-       return rocksdb::ThreadStatus::OperationStage::STAGE_COMPACTION_PROCESS_KV;
-     case 0x6:
-       return rocksdb::ThreadStatus::OperationStage::STAGE_COMPACTION_INSTALL;
-     case 0x7:
-       return rocksdb::ThreadStatus::OperationStage::STAGE_COMPACTION_SYNC_FILE;
-     case 0x8:
-       return rocksdb::ThreadStatus::OperationStage::STAGE_PICK_MEMTABLES_TO_FLUSH;
-     case 0x9:
-       return rocksdb::ThreadStatus::OperationStage::STAGE_MEMTABLE_ROLLBACK;
-     case 0xA:
-       return rocksdb::ThreadStatus::OperationStage::STAGE_MEMTABLE_INSTALL_FLUSH_RESULTS;
-     default:
-       // undefined/default
-       return rocksdb::ThreadStatus::OperationStage::STAGE_UNKNOWN;
-   }
- }
+  // Returns the equivalent C++ ROCKSDB_NAMESPACE::ThreadStatus::OperationStage
+  // enum for the provided Java org.rocksdb.OperationStage
+  static ROCKSDB_NAMESPACE::ThreadStatus::OperationStage toCppOperationStage(
+      jbyte joperation_stage) {
+    switch (joperation_stage) {
+      case 0x0:
+        return ROCKSDB_NAMESPACE::ThreadStatus::OperationStage::STAGE_UNKNOWN;
+      case 0x1:
+        return ROCKSDB_NAMESPACE::ThreadStatus::OperationStage::STAGE_FLUSH_RUN;
+      case 0x2:
+        return ROCKSDB_NAMESPACE::ThreadStatus::OperationStage::
+            STAGE_FLUSH_WRITE_L0;
+      case 0x3:
+        return ROCKSDB_NAMESPACE::ThreadStatus::OperationStage::
+            STAGE_COMPACTION_PREPARE;
+      case 0x4:
+        return ROCKSDB_NAMESPACE::ThreadStatus::OperationStage::
+            STAGE_COMPACTION_RUN;
+      case 0x5:
+        return ROCKSDB_NAMESPACE::ThreadStatus::OperationStage::
+            STAGE_COMPACTION_PROCESS_KV;
+      case 0x6:
+        return ROCKSDB_NAMESPACE::ThreadStatus::OperationStage::
+            STAGE_COMPACTION_INSTALL;
+      case 0x7:
+        return ROCKSDB_NAMESPACE::ThreadStatus::OperationStage::
+            STAGE_COMPACTION_SYNC_FILE;
+      case 0x8:
+        return ROCKSDB_NAMESPACE::ThreadStatus::OperationStage::
+            STAGE_PICK_MEMTABLES_TO_FLUSH;
+      case 0x9:
+        return ROCKSDB_NAMESPACE::ThreadStatus::OperationStage::
+            STAGE_MEMTABLE_ROLLBACK;
+      case 0xA:
+        return ROCKSDB_NAMESPACE::ThreadStatus::OperationStage::
+            STAGE_MEMTABLE_INSTALL_FLUSH_RESULTS;
+      default:
+        // undefined/default
+        return ROCKSDB_NAMESPACE::ThreadStatus::OperationStage::STAGE_UNKNOWN;
+    }
+  }
 };
 
 // The portal class for org.rocksdb.StateType
 class StateTypeJni {
  public:
- // Returns the equivalent org.rocksdb.StateType for the provided
- // C++ rocksdb::ThreadStatus::StateType enum
- static jbyte toJavaStateType(
-     const rocksdb::ThreadStatus::StateType& state_type) {
-   switch(state_type) {
-     case rocksdb::ThreadStatus::StateType::STATE_UNKNOWN:
-       return 0x0;
-     case rocksdb::ThreadStatus::StateType::STATE_MUTEX_WAIT:
-       return 0x1;
-     default:
-       return 0x7F;  // undefined
-   }
- }
+  // Returns the equivalent org.rocksdb.StateType for the provided
+  // C++ ROCKSDB_NAMESPACE::ThreadStatus::StateType enum
+  static jbyte toJavaStateType(
+      const ROCKSDB_NAMESPACE::ThreadStatus::StateType& state_type) {
+    switch (state_type) {
+      case ROCKSDB_NAMESPACE::ThreadStatus::StateType::STATE_UNKNOWN:
+        return 0x0;
+      case ROCKSDB_NAMESPACE::ThreadStatus::StateType::STATE_MUTEX_WAIT:
+        return 0x1;
+      default:
+        return 0x7F;  // undefined
+    }
+  }
 
- // Returns the equivalent C++ rocksdb::ThreadStatus::StateType enum for the
- // provided Java org.rocksdb.StateType
- static rocksdb::ThreadStatus::StateType toCppStateType(
-     jbyte jstate_type) {
-   switch(jstate_type) {
-     case 0x0:
-       return rocksdb::ThreadStatus::StateType::STATE_UNKNOWN;
-     case 0x1:
-       return rocksdb::ThreadStatus::StateType::STATE_MUTEX_WAIT;
-     default:
-       // undefined/default
-       return rocksdb::ThreadStatus::StateType::STATE_UNKNOWN;
-   }
- }
+  // Returns the equivalent C++ ROCKSDB_NAMESPACE::ThreadStatus::StateType enum
+  // for the provided Java org.rocksdb.StateType
+  static ROCKSDB_NAMESPACE::ThreadStatus::StateType toCppStateType(
+      jbyte jstate_type) {
+    switch (jstate_type) {
+      case 0x0:
+        return ROCKSDB_NAMESPACE::ThreadStatus::StateType::STATE_UNKNOWN;
+      case 0x1:
+        return ROCKSDB_NAMESPACE::ThreadStatus::StateType::STATE_MUTEX_WAIT;
+      default:
+        // undefined/default
+        return ROCKSDB_NAMESPACE::ThreadStatus::StateType::STATE_UNKNOWN;
+    }
+  }
 };
 
 // The portal class for org.rocksdb.ThreadStatus
@@ -6483,16 +6622,16 @@ class ThreadStatusJni : public JavaClass {
 
   /**
    * Create a new Java org.rocksdb.ThreadStatus object with the same
-   * properties as the provided C++ rocksdb::ThreadStatus object
+   * properties as the provided C++ ROCKSDB_NAMESPACE::ThreadStatus object
    *
    * @param env A pointer to the Java environment
-   * @param thread_status A pointer to rocksdb::ThreadStatus object
+   * @param thread_status A pointer to ROCKSDB_NAMESPACE::ThreadStatus object
    *
    * @return A reference to a Java org.rocksdb.ColumnFamilyOptions object, or
    * nullptr if an an exception occurs
    */
-  static jobject construct(JNIEnv* env,
-      const rocksdb::ThreadStatus* thread_status) {
+  static jobject construct(
+      JNIEnv* env, const ROCKSDB_NAMESPACE::ThreadStatus* thread_status) {
     jclass jclazz = getJClass(env);
     if(jclazz == nullptr) {
       // exception occurred accessing class
@@ -6521,7 +6660,8 @@ class ThreadStatusJni : public JavaClass {
     }
 
     // long[]
-    const jsize len = static_cast<jsize>(rocksdb::ThreadStatus::kNumOperationProperties);
+    const jsize len = static_cast<jsize>(
+        ROCKSDB_NAMESPACE::ThreadStatus::kNumOperationProperties);
     jlongArray joperation_properties =
         env->NewLongArray(len);
     if (joperation_properties == nullptr) {
@@ -6573,160 +6713,159 @@ class ThreadStatusJni : public JavaClass {
 // The portal class for org.rocksdb.CompactionStyle
 class CompactionStyleJni {
  public:
- // Returns the equivalent org.rocksdb.CompactionStyle for the provided
- // C++ rocksdb::CompactionStyle enum
- static jbyte toJavaCompactionStyle(
-     const rocksdb::CompactionStyle& compaction_style) {
-   switch(compaction_style) {
-     case rocksdb::CompactionStyle::kCompactionStyleLevel:
-       return 0x0;
-     case rocksdb::CompactionStyle::kCompactionStyleUniversal:
-       return 0x1;
-     case rocksdb::CompactionStyle::kCompactionStyleFIFO:
-       return 0x2;
-     case rocksdb::CompactionStyle::kCompactionStyleNone:
-       return 0x3;
-     default:
-       return 0x7F;  // undefined
-   }
- }
+  // Returns the equivalent org.rocksdb.CompactionStyle for the provided
+  // C++ ROCKSDB_NAMESPACE::CompactionStyle enum
+  static jbyte toJavaCompactionStyle(
+      const ROCKSDB_NAMESPACE::CompactionStyle& compaction_style) {
+    switch (compaction_style) {
+      case ROCKSDB_NAMESPACE::CompactionStyle::kCompactionStyleLevel:
+        return 0x0;
+      case ROCKSDB_NAMESPACE::CompactionStyle::kCompactionStyleUniversal:
+        return 0x1;
+      case ROCKSDB_NAMESPACE::CompactionStyle::kCompactionStyleFIFO:
+        return 0x2;
+      case ROCKSDB_NAMESPACE::CompactionStyle::kCompactionStyleNone:
+        return 0x3;
+      default:
+        return 0x7F;  // undefined
+    }
+  }
 
- // Returns the equivalent C++ rocksdb::CompactionStyle enum for the
- // provided Java org.rocksdb.CompactionStyle
- static rocksdb::CompactionStyle toCppCompactionStyle(
-     jbyte jcompaction_style) {
-   switch(jcompaction_style) {
-     case 0x0:
-       return rocksdb::CompactionStyle::kCompactionStyleLevel;
-     case 0x1:
-       return rocksdb::CompactionStyle::kCompactionStyleUniversal;
-     case 0x2:
-       return rocksdb::CompactionStyle::kCompactionStyleFIFO;
-     case 0x3:
-       return rocksdb::CompactionStyle::kCompactionStyleNone;
-     default:
-       // undefined/default
-       return rocksdb::CompactionStyle::kCompactionStyleLevel;
-   }
- }
+  // Returns the equivalent C++ ROCKSDB_NAMESPACE::CompactionStyle enum for the
+  // provided Java org.rocksdb.CompactionStyle
+  static ROCKSDB_NAMESPACE::CompactionStyle toCppCompactionStyle(
+      jbyte jcompaction_style) {
+    switch (jcompaction_style) {
+      case 0x0:
+        return ROCKSDB_NAMESPACE::CompactionStyle::kCompactionStyleLevel;
+      case 0x1:
+        return ROCKSDB_NAMESPACE::CompactionStyle::kCompactionStyleUniversal;
+      case 0x2:
+        return ROCKSDB_NAMESPACE::CompactionStyle::kCompactionStyleFIFO;
+      case 0x3:
+        return ROCKSDB_NAMESPACE::CompactionStyle::kCompactionStyleNone;
+      default:
+        // undefined/default
+        return ROCKSDB_NAMESPACE::CompactionStyle::kCompactionStyleLevel;
+    }
+  }
 };
 
 // The portal class for org.rocksdb.CompactionReason
 class CompactionReasonJni {
  public:
- // Returns the equivalent org.rocksdb.CompactionReason for the provided
- // C++ rocksdb::CompactionReason enum
- static jbyte toJavaCompactionReason(
-     const rocksdb::CompactionReason& compaction_reason) {
-   switch(compaction_reason) {
-     case rocksdb::CompactionReason::kUnknown:
-       return 0x0;
-     case rocksdb::CompactionReason::kLevelL0FilesNum:
-       return 0x1;
-     case rocksdb::CompactionReason::kLevelMaxLevelSize:
-       return 0x2;
-     case rocksdb::CompactionReason::kUniversalSizeAmplification:
-       return 0x3;
-     case rocksdb::CompactionReason::kUniversalSizeRatio:
-       return 0x4;
-     case rocksdb::CompactionReason::kUniversalSortedRunNum:
-       return 0x5;
-     case rocksdb::CompactionReason::kFIFOMaxSize:
-       return 0x6;
-     case rocksdb::CompactionReason::kFIFOReduceNumFiles:
-       return 0x7;
-     case rocksdb::CompactionReason::kFIFOTtl:
-       return 0x8;
-     case rocksdb::CompactionReason::kManualCompaction:
-       return 0x9;
-     case rocksdb::CompactionReason::kFilesMarkedForCompaction:
-       return 0x10;
-     case rocksdb::CompactionReason::kBottommostFiles:
-       return 0x0A;
-     case rocksdb::CompactionReason::kTtl:
-       return 0x0B;
-     case rocksdb::CompactionReason::kFlush:
-       return 0x0C;
-     case rocksdb::CompactionReason::kExternalSstIngestion:
-       return 0x0D;
-     default:
-       return 0x7F;  // undefined
-   }
- }
+  // Returns the equivalent org.rocksdb.CompactionReason for the provided
+  // C++ ROCKSDB_NAMESPACE::CompactionReason enum
+  static jbyte toJavaCompactionReason(
+      const ROCKSDB_NAMESPACE::CompactionReason& compaction_reason) {
+    switch (compaction_reason) {
+      case ROCKSDB_NAMESPACE::CompactionReason::kUnknown:
+        return 0x0;
+      case ROCKSDB_NAMESPACE::CompactionReason::kLevelL0FilesNum:
+        return 0x1;
+      case ROCKSDB_NAMESPACE::CompactionReason::kLevelMaxLevelSize:
+        return 0x2;
+      case ROCKSDB_NAMESPACE::CompactionReason::kUniversalSizeAmplification:
+        return 0x3;
+      case ROCKSDB_NAMESPACE::CompactionReason::kUniversalSizeRatio:
+        return 0x4;
+      case ROCKSDB_NAMESPACE::CompactionReason::kUniversalSortedRunNum:
+        return 0x5;
+      case ROCKSDB_NAMESPACE::CompactionReason::kFIFOMaxSize:
+        return 0x6;
+      case ROCKSDB_NAMESPACE::CompactionReason::kFIFOReduceNumFiles:
+        return 0x7;
+      case ROCKSDB_NAMESPACE::CompactionReason::kFIFOTtl:
+        return 0x8;
+      case ROCKSDB_NAMESPACE::CompactionReason::kManualCompaction:
+        return 0x9;
+      case ROCKSDB_NAMESPACE::CompactionReason::kFilesMarkedForCompaction:
+        return 0x10;
+      case ROCKSDB_NAMESPACE::CompactionReason::kBottommostFiles:
+        return 0x0A;
+      case ROCKSDB_NAMESPACE::CompactionReason::kTtl:
+        return 0x0B;
+      case ROCKSDB_NAMESPACE::CompactionReason::kFlush:
+        return 0x0C;
+      case ROCKSDB_NAMESPACE::CompactionReason::kExternalSstIngestion:
+        return 0x0D;
+      default:
+        return 0x7F;  // undefined
+    }
+  }
 
- // Returns the equivalent C++ rocksdb::CompactionReason enum for the
- // provided Java org.rocksdb.CompactionReason
- static rocksdb::CompactionReason toCppCompactionReason(
-     jbyte jcompaction_reason) {
-   switch(jcompaction_reason) {
-     case 0x0:
-       return rocksdb::CompactionReason::kUnknown;
-     case 0x1:
-       return rocksdb::CompactionReason::kLevelL0FilesNum;
-     case 0x2:
-       return rocksdb::CompactionReason::kLevelMaxLevelSize;
-     case 0x3:
-       return rocksdb::CompactionReason::kUniversalSizeAmplification;
-     case 0x4:
-       return rocksdb::CompactionReason::kUniversalSizeRatio;
-     case 0x5:
-       return rocksdb::CompactionReason::kUniversalSortedRunNum;
-     case 0x6:
-       return rocksdb::CompactionReason::kFIFOMaxSize;
-     case 0x7:
-       return rocksdb::CompactionReason::kFIFOReduceNumFiles;
-     case 0x8:
-       return rocksdb::CompactionReason::kFIFOTtl;
-     case 0x9:
-       return rocksdb::CompactionReason::kManualCompaction;
-     case 0x10:
-       return rocksdb::CompactionReason::kFilesMarkedForCompaction;
-     case 0x0A:
-       return rocksdb::CompactionReason::kBottommostFiles;
-     case 0x0B:
-       return rocksdb::CompactionReason::kTtl;
-     case 0x0C:
-       return rocksdb::CompactionReason::kFlush;
-     case 0x0D:
-       return rocksdb::CompactionReason::kExternalSstIngestion;
-     default:
-       // undefined/default
-       return rocksdb::CompactionReason::kUnknown;
-   }
- }
+  // Returns the equivalent C++ ROCKSDB_NAMESPACE::CompactionReason enum for the
+  // provided Java org.rocksdb.CompactionReason
+  static ROCKSDB_NAMESPACE::CompactionReason toCppCompactionReason(
+      jbyte jcompaction_reason) {
+    switch (jcompaction_reason) {
+      case 0x0:
+        return ROCKSDB_NAMESPACE::CompactionReason::kUnknown;
+      case 0x1:
+        return ROCKSDB_NAMESPACE::CompactionReason::kLevelL0FilesNum;
+      case 0x2:
+        return ROCKSDB_NAMESPACE::CompactionReason::kLevelMaxLevelSize;
+      case 0x3:
+        return ROCKSDB_NAMESPACE::CompactionReason::kUniversalSizeAmplification;
+      case 0x4:
+        return ROCKSDB_NAMESPACE::CompactionReason::kUniversalSizeRatio;
+      case 0x5:
+        return ROCKSDB_NAMESPACE::CompactionReason::kUniversalSortedRunNum;
+      case 0x6:
+        return ROCKSDB_NAMESPACE::CompactionReason::kFIFOMaxSize;
+      case 0x7:
+        return ROCKSDB_NAMESPACE::CompactionReason::kFIFOReduceNumFiles;
+      case 0x8:
+        return ROCKSDB_NAMESPACE::CompactionReason::kFIFOTtl;
+      case 0x9:
+        return ROCKSDB_NAMESPACE::CompactionReason::kManualCompaction;
+      case 0x10:
+        return ROCKSDB_NAMESPACE::CompactionReason::kFilesMarkedForCompaction;
+      case 0x0A:
+        return ROCKSDB_NAMESPACE::CompactionReason::kBottommostFiles;
+      case 0x0B:
+        return ROCKSDB_NAMESPACE::CompactionReason::kTtl;
+      case 0x0C:
+        return ROCKSDB_NAMESPACE::CompactionReason::kFlush;
+      case 0x0D:
+        return ROCKSDB_NAMESPACE::CompactionReason::kExternalSstIngestion;
+      default:
+        // undefined/default
+        return ROCKSDB_NAMESPACE::CompactionReason::kUnknown;
+    }
+  }
 };
 
 // The portal class for org.rocksdb.WalFileType
 class WalFileTypeJni {
  public:
- // Returns the equivalent org.rocksdb.WalFileType for the provided
- // C++ rocksdb::WalFileType enum
- static jbyte toJavaWalFileType(
-     const rocksdb::WalFileType& wal_file_type) {
-   switch(wal_file_type) {
-     case rocksdb::WalFileType::kArchivedLogFile:
-       return 0x0;
-     case rocksdb::WalFileType::kAliveLogFile:
-       return 0x1;
-     default:
-       return 0x7F;  // undefined
-   }
- }
+  // Returns the equivalent org.rocksdb.WalFileType for the provided
+  // C++ ROCKSDB_NAMESPACE::WalFileType enum
+  static jbyte toJavaWalFileType(
+      const ROCKSDB_NAMESPACE::WalFileType& wal_file_type) {
+    switch (wal_file_type) {
+      case ROCKSDB_NAMESPACE::WalFileType::kArchivedLogFile:
+        return 0x0;
+      case ROCKSDB_NAMESPACE::WalFileType::kAliveLogFile:
+        return 0x1;
+      default:
+        return 0x7F;  // undefined
+    }
+  }
 
- // Returns the equivalent C++ rocksdb::WalFileType enum for the
- // provided Java org.rocksdb.WalFileType
- static rocksdb::WalFileType toCppWalFileType(
-     jbyte jwal_file_type) {
-   switch(jwal_file_type) {
-     case 0x0:
-       return rocksdb::WalFileType::kArchivedLogFile;
-     case 0x1:
-       return rocksdb::WalFileType::kAliveLogFile;
-     default:
-       // undefined/default
-       return rocksdb::WalFileType::kAliveLogFile;
-   }
- }
+  // Returns the equivalent C++ ROCKSDB_NAMESPACE::WalFileType enum for the
+  // provided Java org.rocksdb.WalFileType
+  static ROCKSDB_NAMESPACE::WalFileType toCppWalFileType(jbyte jwal_file_type) {
+    switch (jwal_file_type) {
+      case 0x0:
+        return ROCKSDB_NAMESPACE::WalFileType::kArchivedLogFile;
+      case 0x1:
+        return ROCKSDB_NAMESPACE::WalFileType::kAliveLogFile;
+      default:
+        // undefined/default
+        return ROCKSDB_NAMESPACE::WalFileType::kAliveLogFile;
+    }
+  }
 };
 
 class LogFileJni : public JavaClass {
@@ -6740,7 +6879,8 @@ class LogFileJni : public JavaClass {
    * @return A reference to a Java org.rocksdb.LogFile object, or
    * nullptr if an an exception occurs
    */
-  static jobject fromCppLogFile(JNIEnv* env, rocksdb::LogFile* log_file) {
+  static jobject fromCppLogFile(JNIEnv* env,
+                                ROCKSDB_NAMESPACE::LogFile* log_file) {
     jclass jclazz = getJClass(env);
     if (jclazz == nullptr) {
       // exception occurred accessing class
@@ -6754,19 +6894,18 @@ class LogFileJni : public JavaClass {
     }
 
     std::string path_name = log_file->PathName();
-    jstring jpath_name = rocksdb::JniUtil::toJavaString(env, &path_name, true);
+    jstring jpath_name =
+        ROCKSDB_NAMESPACE::JniUtil::toJavaString(env, &path_name, true);
     if (env->ExceptionCheck()) {
       // exception occurred creating java string
       return nullptr;
     }
 
-    jobject jlog_file = env->NewObject(jclazz, mid,
-        jpath_name,
-        static_cast<jlong>(log_file->LogNumber()),
-        rocksdb::WalFileTypeJni::toJavaWalFileType(log_file->Type()),
+    jobject jlog_file = env->NewObject(
+        jclazz, mid, jpath_name, static_cast<jlong>(log_file->LogNumber()),
+        ROCKSDB_NAMESPACE::WalFileTypeJni::toJavaWalFileType(log_file->Type()),
         static_cast<jlong>(log_file->StartSequence()),
-        static_cast<jlong>(log_file->SizeFileBytes())
-    );
+        static_cast<jlong>(log_file->SizeFileBytes()));
 
     if (env->ExceptionCheck()) {
       env->DeleteLocalRef(jpath_name);
@@ -6795,8 +6934,8 @@ class LiveFileMetaDataJni : public JavaClass {
    * @return A reference to a Java org.rocksdb.LiveFileMetaData object, or
    * nullptr if an an exception occurs
    */
-  static jobject fromCppLiveFileMetaData(JNIEnv* env,
-      rocksdb::LiveFileMetaData* live_file_meta_data) {
+  static jobject fromCppLiveFileMetaData(
+      JNIEnv* env, ROCKSDB_NAMESPACE::LiveFileMetaData* live_file_meta_data) {
     jclass jclazz = getJClass(env);
     if (jclazz == nullptr) {
       // exception occurred accessing class
@@ -6809,14 +6948,14 @@ class LiveFileMetaDataJni : public JavaClass {
       return nullptr;
     }
 
-    jbyteArray jcolumn_family_name = rocksdb::JniUtil::copyBytes(
+    jbyteArray jcolumn_family_name = ROCKSDB_NAMESPACE::JniUtil::copyBytes(
         env, live_file_meta_data->column_family_name);
     if (jcolumn_family_name == nullptr) {
       // exception occurred creating java byte array
       return nullptr;
     }
 
-    jstring jfile_name = rocksdb::JniUtil::toJavaString(
+    jstring jfile_name = ROCKSDB_NAMESPACE::JniUtil::toJavaString(
         env, &live_file_meta_data->name, true);
     if (env->ExceptionCheck()) {
       // exception occurred creating java string
@@ -6824,7 +6963,7 @@ class LiveFileMetaDataJni : public JavaClass {
       return nullptr;
     }
 
-    jstring jpath = rocksdb::JniUtil::toJavaString(
+    jstring jpath = ROCKSDB_NAMESPACE::JniUtil::toJavaString(
         env, &live_file_meta_data->db_path, true);
     if (env->ExceptionCheck()) {
       // exception occurred creating java string
@@ -6833,7 +6972,7 @@ class LiveFileMetaDataJni : public JavaClass {
       return nullptr;
     }
 
-    jbyteArray jsmallest_key = rocksdb::JniUtil::copyBytes(
+    jbyteArray jsmallest_key = ROCKSDB_NAMESPACE::JniUtil::copyBytes(
         env, live_file_meta_data->smallestkey);
     if (jsmallest_key == nullptr) {
       // exception occurred creating java byte array
@@ -6843,7 +6982,7 @@ class LiveFileMetaDataJni : public JavaClass {
       return nullptr;
     }
 
-    jbyteArray jlargest_key = rocksdb::JniUtil::copyBytes(
+    jbyteArray jlargest_key = ROCKSDB_NAMESPACE::JniUtil::copyBytes(
         env, live_file_meta_data->largestkey);
     if (jlargest_key == nullptr) {
       // exception occurred creating java byte array
@@ -6905,8 +7044,9 @@ class SstFileMetaDataJni : public JavaClass {
    * @return A reference to a Java org.rocksdb.SstFileMetaData object, or
    * nullptr if an an exception occurs
    */
-  static jobject fromCppSstFileMetaData(JNIEnv* env,
-      const rocksdb::SstFileMetaData* sst_file_meta_data) {
+  static jobject fromCppSstFileMetaData(
+      JNIEnv* env,
+      const ROCKSDB_NAMESPACE::SstFileMetaData* sst_file_meta_data) {
     jclass jclazz = getJClass(env);
     if (jclazz == nullptr) {
       // exception occurred accessing class
@@ -6919,14 +7059,14 @@ class SstFileMetaDataJni : public JavaClass {
       return nullptr;
     }
 
-    jstring jfile_name = rocksdb::JniUtil::toJavaString(
+    jstring jfile_name = ROCKSDB_NAMESPACE::JniUtil::toJavaString(
         env, &sst_file_meta_data->name, true);
     if (jfile_name == nullptr) {
       // exception occurred creating java byte array
       return nullptr;
     }
 
-    jstring jpath = rocksdb::JniUtil::toJavaString(
+    jstring jpath = ROCKSDB_NAMESPACE::JniUtil::toJavaString(
         env, &sst_file_meta_data->db_path, true);
     if (jpath == nullptr) {
       // exception occurred creating java byte array
@@ -6934,7 +7074,7 @@ class SstFileMetaDataJni : public JavaClass {
       return nullptr;
     }
 
-    jbyteArray jsmallest_key = rocksdb::JniUtil::copyBytes(
+    jbyteArray jsmallest_key = ROCKSDB_NAMESPACE::JniUtil::copyBytes(
         env, sst_file_meta_data->smallestkey);
     if (jsmallest_key == nullptr) {
       // exception occurred creating java byte array
@@ -6943,7 +7083,7 @@ class SstFileMetaDataJni : public JavaClass {
       return nullptr;
     }
 
-    jbyteArray jlargest_key = rocksdb::JniUtil::copyBytes(
+    jbyteArray jlargest_key = ROCKSDB_NAMESPACE::JniUtil::copyBytes(
         env, sst_file_meta_data->largestkey);
     if (jlargest_key == nullptr) {
       // exception occurred creating java byte array
@@ -7000,8 +7140,8 @@ class LevelMetaDataJni : public JavaClass {
    * @return A reference to a Java org.rocksdb.LevelMetaData object, or
    * nullptr if an an exception occurs
    */
-  static jobject fromCppLevelMetaData(JNIEnv* env,
-      const rocksdb::LevelMetaData* level_meta_data) {
+  static jobject fromCppLevelMetaData(
+      JNIEnv* env, const ROCKSDB_NAMESPACE::LevelMetaData* level_meta_data) {
     jclass jclazz = getJClass(env);
     if (jclazz == nullptr) {
       // exception occurred accessing class
@@ -7067,8 +7207,9 @@ class ColumnFamilyMetaDataJni : public JavaClass {
    * @return A reference to a Java org.rocksdb.ColumnFamilyMetaData object, or
    * nullptr if an an exception occurs
    */
-  static jobject fromCppColumnFamilyMetaData(JNIEnv* env,
-      const rocksdb::ColumnFamilyMetaData* column_famly_meta_data) {
+  static jobject fromCppColumnFamilyMetaData(
+      JNIEnv* env,
+      const ROCKSDB_NAMESPACE::ColumnFamilyMetaData* column_famly_meta_data) {
     jclass jclazz = getJClass(env);
     if (jclazz == nullptr) {
       // exception occurred accessing class
@@ -7081,7 +7222,7 @@ class ColumnFamilyMetaDataJni : public JavaClass {
       return nullptr;
     }
 
-    jbyteArray jname = rocksdb::JniUtil::copyBytes(
+    jbyteArray jname = ROCKSDB_NAMESPACE::JniUtil::copyBytes(
         env, column_famly_meta_data->name);
     if (jname == nullptr) {
       // exception occurred creating java byte array
@@ -7136,9 +7277,10 @@ class ColumnFamilyMetaDataJni : public JavaClass {
 };
 
 // The portal class for org.rocksdb.AbstractTraceWriter
-class AbstractTraceWriterJni : public RocksDBNativeClass<
-    const rocksdb::TraceWriterJniCallback*,
-    AbstractTraceWriterJni> {
+class AbstractTraceWriterJni
+    : public RocksDBNativeClass<
+          const ROCKSDB_NAMESPACE::TraceWriterJniCallback*,
+          AbstractTraceWriterJni> {
  public:
   /**
    * Get the Java Class org.rocksdb.AbstractTraceWriter
@@ -7219,9 +7361,9 @@ class AbstractTraceWriterJni : public RocksDBNativeClass<
 };
 
 // The portal class for org.rocksdb.AbstractWalFilter
-class AbstractWalFilterJni : public RocksDBNativeClass<
-    const rocksdb::WalFilterJniCallback*,
-    AbstractWalFilterJni> {
+class AbstractWalFilterJni
+    : public RocksDBNativeClass<const ROCKSDB_NAMESPACE::WalFilterJniCallback*,
+                                AbstractWalFilterJni> {
  public:
   /**
    * Get the Java Class org.rocksdb.AbstractWalFilter
@@ -7305,79 +7447,88 @@ class AbstractWalFilterJni : public RocksDBNativeClass<
 // The portal class for org.rocksdb.WalProcessingOption
 class WalProcessingOptionJni {
  public:
- // Returns the equivalent org.rocksdb.WalProcessingOption for the provided
- // C++ rocksdb::WalFilter::WalProcessingOption enum
- static jbyte toJavaWalProcessingOption(
-     const rocksdb::WalFilter::WalProcessingOption& wal_processing_option) {
-   switch(wal_processing_option) {
-     case rocksdb::WalFilter::WalProcessingOption::kContinueProcessing:
-       return 0x0;
-     case rocksdb::WalFilter::WalProcessingOption::kIgnoreCurrentRecord:
-       return 0x1;
-     case rocksdb::WalFilter::WalProcessingOption::kStopReplay:
-       return 0x2;
-     case rocksdb::WalFilter::WalProcessingOption::kCorruptedRecord:
-       return 0x3;
-     default:
-       return 0x7F;  // undefined
-   }
- }
+  // Returns the equivalent org.rocksdb.WalProcessingOption for the provided
+  // C++ ROCKSDB_NAMESPACE::WalFilter::WalProcessingOption enum
+  static jbyte toJavaWalProcessingOption(
+      const ROCKSDB_NAMESPACE::WalFilter::WalProcessingOption&
+          wal_processing_option) {
+    switch (wal_processing_option) {
+      case ROCKSDB_NAMESPACE::WalFilter::WalProcessingOption::
+          kContinueProcessing:
+        return 0x0;
+      case ROCKSDB_NAMESPACE::WalFilter::WalProcessingOption::
+          kIgnoreCurrentRecord:
+        return 0x1;
+      case ROCKSDB_NAMESPACE::WalFilter::WalProcessingOption::kStopReplay:
+        return 0x2;
+      case ROCKSDB_NAMESPACE::WalFilter::WalProcessingOption::kCorruptedRecord:
+        return 0x3;
+      default:
+        return 0x7F;  // undefined
+    }
+  }
 
- // Returns the equivalent C++ rocksdb::WalFilter::WalProcessingOption enum for
- // the provided Java org.rocksdb.WalProcessingOption
- static rocksdb::WalFilter::WalProcessingOption toCppWalProcessingOption(
-     jbyte jwal_processing_option) {
-   switch(jwal_processing_option) {
-     case 0x0:
-       return rocksdb::WalFilter::WalProcessingOption::kContinueProcessing;
-     case 0x1:
-       return rocksdb::WalFilter::WalProcessingOption::kIgnoreCurrentRecord;
-     case 0x2:
-       return rocksdb::WalFilter::WalProcessingOption::kStopReplay;
-     case 0x3:
-       return rocksdb::WalFilter::WalProcessingOption::kCorruptedRecord;
-     default:
-       // undefined/default
-       return rocksdb::WalFilter::WalProcessingOption::kCorruptedRecord;
-   }
- }
+  // Returns the equivalent C++
+  // ROCKSDB_NAMESPACE::WalFilter::WalProcessingOption enum for the provided
+  // Java org.rocksdb.WalProcessingOption
+  static ROCKSDB_NAMESPACE::WalFilter::WalProcessingOption
+  toCppWalProcessingOption(jbyte jwal_processing_option) {
+    switch (jwal_processing_option) {
+      case 0x0:
+        return ROCKSDB_NAMESPACE::WalFilter::WalProcessingOption::
+            kContinueProcessing;
+      case 0x1:
+        return ROCKSDB_NAMESPACE::WalFilter::WalProcessingOption::
+            kIgnoreCurrentRecord;
+      case 0x2:
+        return ROCKSDB_NAMESPACE::WalFilter::WalProcessingOption::kStopReplay;
+      case 0x3:
+        return ROCKSDB_NAMESPACE::WalFilter::WalProcessingOption::
+            kCorruptedRecord;
+      default:
+        // undefined/default
+        return ROCKSDB_NAMESPACE::WalFilter::WalProcessingOption::
+            kCorruptedRecord;
+    }
+  }
 };
 
 // The portal class for org.rocksdb.ReusedSynchronisationType
 class ReusedSynchronisationTypeJni {
  public:
-  // Returns the equivalent org.rocksdb.ReusedSynchronisationType for the provided
-  // C++ rocksdb::ReusedSynchronisationType enum
+  // Returns the equivalent org.rocksdb.ReusedSynchronisationType for the
+  // provided C++ ROCKSDB_NAMESPACE::ReusedSynchronisationType enum
   static jbyte toJavaReusedSynchronisationType(
-      const rocksdb::ReusedSynchronisationType& reused_synchronisation_type) {
+      const ROCKSDB_NAMESPACE::ReusedSynchronisationType&
+          reused_synchronisation_type) {
     switch(reused_synchronisation_type) {
-      case rocksdb::ReusedSynchronisationType::MUTEX:
+      case ROCKSDB_NAMESPACE::ReusedSynchronisationType::MUTEX:
         return 0x0;
-      case rocksdb::ReusedSynchronisationType::ADAPTIVE_MUTEX:
+      case ROCKSDB_NAMESPACE::ReusedSynchronisationType::ADAPTIVE_MUTEX:
         return 0x1;
-      case rocksdb::ReusedSynchronisationType::THREAD_LOCAL:
+      case ROCKSDB_NAMESPACE::ReusedSynchronisationType::THREAD_LOCAL:
         return 0x2;
       default:
         return 0x7F;  // undefined
     }
   }
 
-  // Returns the equivalent C++ rocksdb::ReusedSynchronisationType enum for the
-  // provided Java org.rocksdb.ReusedSynchronisationType
-  static rocksdb::ReusedSynchronisationType toCppReusedSynchronisationType(
-      jbyte reused_synchronisation_type) {
+  // Returns the equivalent C++ ROCKSDB_NAMESPACE::ReusedSynchronisationType
+  // enum for the provided Java org.rocksdb.ReusedSynchronisationType
+  static ROCKSDB_NAMESPACE::ReusedSynchronisationType
+  toCppReusedSynchronisationType(jbyte reused_synchronisation_type) {
     switch(reused_synchronisation_type) {
       case 0x0:
-        return rocksdb::ReusedSynchronisationType::MUTEX;
+        return ROCKSDB_NAMESPACE::ReusedSynchronisationType::MUTEX;
       case 0x1:
-        return rocksdb::ReusedSynchronisationType::ADAPTIVE_MUTEX;
+        return ROCKSDB_NAMESPACE::ReusedSynchronisationType::ADAPTIVE_MUTEX;
       case 0x2:
-        return rocksdb::ReusedSynchronisationType::THREAD_LOCAL;
+        return ROCKSDB_NAMESPACE::ReusedSynchronisationType::THREAD_LOCAL;
       default:
         // undefined/default
-        return rocksdb::ReusedSynchronisationType::ADAPTIVE_MUTEX;
+        return ROCKSDB_NAMESPACE::ReusedSynchronisationType::ADAPTIVE_MUTEX;
     }
   }
 };
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE
 #endif  // JAVA_ROCKSJNI_PORTAL_H_

@@ -7,7 +7,7 @@
 
 #include "rocksdb/env.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 // Allow custom implementations of TraceWriter and TraceReader.
 // By default, RocksDB provides a way to capture the traces to a file using the
@@ -45,4 +45,4 @@ Status NewFileTraceWriter(Env* env, const EnvOptions& env_options,
 Status NewFileTraceReader(Env* env, const EnvOptions& env_options,
                           const std::string& trace_filename,
                           std::unique_ptr<TraceReader>* trace_reader);
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

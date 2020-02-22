@@ -15,7 +15,7 @@
 
 #include "rocksdb/status.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 /**
  * Keep adding ticker's here.
@@ -475,7 +475,7 @@ enum StatsLevel : uint8_t {
 // Analyze the performance of a db by providing cumulative stats over time.
 // Usage:
 //  Options options;
-//  options.statistics = rocksdb::CreateDBStatistics();
+//  options.statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
 //  Status s = DB::Open(options, kDBPath, &db);
 //  ...
 //  options.statistics->getTickerCount(NUMBER_BLOCK_COMPRESSED);
@@ -545,4 +545,4 @@ class Statistics {
 // Create a concrete DBStatistics object
 std::shared_ptr<Statistics> CreateDBStatistics();
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

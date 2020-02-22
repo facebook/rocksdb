@@ -29,7 +29,7 @@
 #undef max
 #endif
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 class Cache;
 class CompactionFilter;
@@ -1584,4 +1584,4 @@ struct SizeApproximationOptions {
   double files_size_error_margin = -1.0;
 };
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

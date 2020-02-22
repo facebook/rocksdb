@@ -18,9 +18,9 @@
 #include "utilities/merge_operators/string_append/stringappend.h"
 #include "utilities/merge_operators/string_append/stringappend2.h"
 
-using namespace rocksdb;
+using namespace ROCKSDB_NAMESPACE;
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 // Path to the database on file system
 const std::string kDbName = test::PerThreadDBPath("stringappend_test");
@@ -142,7 +142,8 @@ TEST_F(StringAppendOperatorTest, IteratorTest) {
   slists.Append("k2", "a3");
 
   std::string res;
-  std::unique_ptr<rocksdb::Iterator> it(db_->NewIterator(ReadOptions()));
+  std::unique_ptr<ROCKSDB_NAMESPACE::Iterator> it(
+      db_->NewIterator(ReadOptions()));
   std::string k1("k1");
   std::string k2("k2");
   bool first = true;
@@ -466,7 +467,7 @@ TEST_F(StringAppendOperatorTest, PersistentFlushAndCompaction) {
 
     // Append, Flush, Get
     slists.Append("c", "asdasd");
-    db->Flush(rocksdb::FlushOptions());
+    db->Flush(ROCKSDB_NAMESPACE::FlushOptions());
     success = slists.Get("c", &c);
     ASSERT_TRUE(success);
     ASSERT_EQ(c, "asdasd");
@@ -474,7 +475,7 @@ TEST_F(StringAppendOperatorTest, PersistentFlushAndCompaction) {
     // Append, Flush, Append, Get
     slists.Append("a", "x");
     slists.Append("b", "y");
-    db->Flush(rocksdb::FlushOptions());
+    db->Flush(ROCKSDB_NAMESPACE::FlushOptions());
     slists.Append("a", "t");
     slists.Append("a", "r");
     slists.Append("b", "2");
@@ -545,7 +546,7 @@ TEST_F(StringAppendOperatorTest, PersistentFlushAndCompaction) {
 
     // Append, Flush, Compact, Get
     slists.Append("b", "afcg");
-    db->Flush(rocksdb::FlushOptions());
+    db->Flush(ROCKSDB_NAMESPACE::FlushOptions());
     db->CompactRange(CompactRangeOptions(), nullptr, nullptr);
     slists.Get("b", &b);
     ASSERT_EQ(b, "y\n2\nmonkey\ndf\nl;\nafcg");
@@ -575,7 +576,7 @@ TEST_F(StringAppendOperatorTest, SimpleTestNullDelimiter) {
   ASSERT_EQ(res, checker);
 }
 
-} // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
   ::testing::InitGoogleTest(&argc, argv);
