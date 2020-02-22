@@ -22,11 +22,12 @@ namespace ROCKSDB_NAMESPACE {
 namespace test {
 
 // Return the directory to use for temporary storage.
-std::string TmpDir(Env* env = Env::Default());
+std::string TmpDir(Env* env = Env::Default(), bool ignore_env = false);
 
 // A path unique within the thread
-std::string PerThreadDBPath(std::string name);
-std::string PerThreadDBPath(Env* env, std::string name);
+std::string PerThreadDBPath(std::string name, bool ignore_env = false);
+std::string PerThreadDBPath(Env* env, std::string name,
+                            bool ignore_env = false);
 std::string PerThreadDBPath(std::string dir, std::string name);
 
 // Return a randomization seed for this run.  Typically returns the

@@ -887,12 +887,12 @@ Status WinEnvIO::UnlockFile(FileLock* lock) {
   return result;
 }
 
-Status WinEnvIO::GetTestDirectory(std::string* result) {
+Status WinEnvIO::GetTestDirectory(std::string* result, bool ignore_env) {
 
   std::string output;
 
   const char* env = getenv("TEST_TMPDIR");
-  if (env && env[0] != '\0') {
+  if (!ignore_env && env && env[0] != '\0') {
     output = env;
   } else {
     env = getenv("TMP");
@@ -1424,8 +1424,8 @@ Status WinEnv::UnlockFile(FileLock* lock) {
   return winenv_io_.UnlockFile(lock);
 }
 
-Status  WinEnv::GetTestDirectory(std::string* result) {
-  return winenv_io_.GetTestDirectory(result);
+Status WinEnv::GetTestDirectory(std::string* result, bool ignore_env) {
+  return winenv_io_.GetTestDirectory(result, ignore_env);
 }
 
 Status WinEnv::NewLogger(const std::string& fname,

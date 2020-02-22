@@ -22,6 +22,8 @@ namespace ROCKSDB_NAMESPACE {
 class Statistics;
 class HistogramImpl;
 
+using AlignedBuffers = std::vector<std::unique_ptr<const char[]>>;
+
 // RandomAccessFileReader is a wrapper on top of Env::RnadomAccessFile. It is
 // responsible for:
 // - Handling Buffered and Direct reads appropriately.
@@ -59,7 +61,7 @@ class RandomAccessFileReader {
 
  public:
   explicit RandomAccessFileReader(
-      std::unique_ptr<FSRandomAccessFile>&& raf, std::string _file_name,
+      std::unique_ptr<FSRandomAccessFile>&& raf, const std::string& _file_name,
       Env* env = nullptr, Statistics* stats = nullptr, uint32_t hist_type = 0,
       HistogramImpl* file_read_hist = nullptr,
       RateLimiter* rate_limiter = nullptr,
@@ -105,7 +107,13 @@ class RandomAccessFileReader {
   Status Read(uint64_t offset, size_t n, Slice* result, char* scratch,
               bool for_compaction = false) const;
 
-  Status MultiRead(FSReadRequest* reqs, size_t num_reqs) const;
+  // REQUIRES:
+  // num_reqs > 0, reqs do not overlap, and offsets in reqs are increasing.
+  // In non-direct IO mode, aligned_bufs should be null;
+  // In direct IO mode, aligned_bufs stores the aligned buffers allocated inside
+  // MultiRead, the result Slices in reqs refer to aligned_bufs.
+  Status MultiRead(FSReadRequest* reqs, size_t num_reqs,
+                   AlignedBuffers* aligned_bufs) const;
 
   Status Prefetch(uint64_t offset, size_t n) const {
     return file_->Prefetch(offset, n, IOOptions(), nullptr);

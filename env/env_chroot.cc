@@ -222,7 +222,7 @@ class ChrootEnv : public EnvWrapper {
     return EnvWrapper::LockFile(status_and_enc_path.second, lock);
   }
 
-  Status GetTestDirectory(std::string* path) override {
+  Status GetTestDirectory(std::string* path, bool /*ignore_env*/ = false) override {
     // Adapted from PosixEnv's implementation since it doesn't provide a way to
     // create directory in the chroot.
     char buf[256];

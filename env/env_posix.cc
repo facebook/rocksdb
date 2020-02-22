@@ -220,9 +220,9 @@ class PosixEnv : public CompositeEnvWrapper {
 
   unsigned int GetThreadPoolQueueLen(Priority pri = LOW) const override;
 
-  Status GetTestDirectory(std::string* result) override {
+  Status GetTestDirectory(std::string* result, bool ignore_env) override {
     const char* env = getenv("TEST_TMPDIR");
-    if (env && env[0] != '\0') {
+    if (!ignore_env && env && env[0] != '\0') {
       *result = env;
     } else {
       char buf[100];

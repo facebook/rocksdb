@@ -405,7 +405,7 @@ class Env {
   // or many not have just been created. The directory may or may not differ
   // between runs of the same process, but subsequent calls will return the
   // same directory.
-  virtual Status GetTestDirectory(std::string* path) = 0;
+  virtual Status GetTestDirectory(std::string* path, bool ignore_env=false) = 0;
 
   // Create and returns a default logger (an instance of EnvLogger) for storing
   // informational messages. Derived classes can overide to provide custom
@@ -1274,8 +1274,8 @@ class EnvWrapper : public Env {
   unsigned int GetThreadPoolQueueLen(Priority pri = LOW) const override {
     return target_->GetThreadPoolQueueLen(pri);
   }
-  Status GetTestDirectory(std::string* path) override {
-    return target_->GetTestDirectory(path);
+  Status GetTestDirectory(std::string* path, bool ignore_env = false) override {
+    return target_->GetTestDirectory(path, ignore_env);
   }
   Status NewLogger(const std::string& fname,
                    std::shared_ptr<Logger>* result) override {
