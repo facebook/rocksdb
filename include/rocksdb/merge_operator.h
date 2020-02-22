@@ -117,7 +117,7 @@ class MergeOperator {
     // client can set this field to the operand (or existing_value) instead of
     // using new_value.
     Slice& existing_operand;
-    // new value type of merge result.
+    // New value type of merge result.
     MergeValueType new_type{kValue};
   };
 
