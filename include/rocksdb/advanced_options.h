@@ -151,7 +151,6 @@ enum UpdateStatus {    // Return status For inplace update callback
   UPDATED         = 2, // No inplace update. Merged value set
 };
 
-
 struct AdvancedColumnFamilyOptions {
   // The maximum number of write buffers that are built up in memory.
   // The default and the minimum number is 2, so that when 1 write buffer
@@ -330,10 +329,9 @@ struct AdvancedColumnFamilyOptions {
   std::shared_ptr<const SliceTransform>
       memtable_insert_with_hint_prefix_extractor = nullptr;
 
-  // Control locality of bloom filter probes to improve cache miss rate.
-  // This option only applies to memtable prefix bloom and plaintable
-  // prefix bloom. It essentially limits every bloom checking to one cache line.
-  // This optimization is turned off when set to 0, and positive number to turn
+  // Control locality of bloom filter probes to improve CPU cache hit rate.
+  // This option now only applies to plaintable prefix bloom. This
+  // optimization is turned off when set to 0, and positive number to turn
   // it on.
   // Default: 0
   uint32_t bloom_locality = 0;
