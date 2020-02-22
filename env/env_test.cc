@@ -1137,8 +1137,25 @@ TEST_P(EnvPosixTestWithParam, MultiRead) {
     ASSERT_OK(wfile->Close());
   }
 
-  // Random Read
-  {
+  // More attempts to simulate more partial result sequences.
+  for (uint32_t attempt = 0; attempt < 20; attempt++) {
+    // Random Read
+    Random rnd(301 + attempt);
+    ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+        "PosixRandomAccessFile::MultiRead:io_uring_result", [&](void* arg) {
+          if (attempt > 0) {
+            // No failure in the first attempt.
+            size_t& bytes_read = *static_cast<size_t*>(arg);
+            if (rnd.OneIn(4)) {
+              bytes_read = 0;
+            } else if (rnd.OneIn(3)) {
+              bytes_read = static_cast<size_t>(
+                  rnd.Uniform(static_cast<int>(bytes_read)));
+            }
+          }
+        });
+    ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+
     std::unique_ptr<RandomAccessFile> file;
     std::vector<ReadRequest> reqs(3);
     std::vector<std::unique_ptr<char, Deleter>> data;
@@ -1163,6 +1180,7 @@ TEST_P(EnvPosixTestWithParam, MultiRead) {
       ASSERT_OK(reqs[i].status);
       ASSERT_EQ(memcmp(reqs[i].scratch, buf.get(), kSectorSize), 0);
     }
+    ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
   }
 }
 
@@ -1193,7 +1211,7 @@ TEST_P(EnvPosixTestWithParam, InvalidateCache) {
       ASSERT_OK(wfile->Append(slice));
       ASSERT_OK(wfile->InvalidateCache(0, 0));
       ASSERT_OK(wfile->Close());
-    }
+  }
 
     // Random Read
     {
@@ -1437,7 +1455,7 @@ TEST_P(EnvPosixTestWithParam, ConsistentChildrenAttributes) {
       Slice buf(buf_ptr.get(), data.size());
       file->Append(buf);
       data.append(std::string(4096, 'T'));
-    }
+  }
 
     std::vector<Env::FileAttributes> file_attrs;
     ASSERT_OK(env_->GetChildrenFileAttributes(test::TmpDir(env_), &file_attrs));
