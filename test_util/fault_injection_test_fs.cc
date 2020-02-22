@@ -15,7 +15,7 @@
 #include <functional>
 #include <utility>
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 // Assume a filename, and not a directory name like "/foo/bar/"
 std::string TestFSGetDirName(const std::string filename) {
@@ -25,49 +25,6 @@ std::string TestFSGetDirName(const std::string filename) {
   } else {
     return filename.substr(0, found);
   }
-}
-
-// A basic file truncation function suitable for this test.
-IOStatus TestFSTruncate(FileSystem* fs, const std::string& filename,
-                        uint64_t length, const IOOptions& opts,
-                        const FileOptions& file_opts, IODebugContext* dbg) {
-  std::unique_ptr<FSSequentialFile> orig_file;
-  const FileOptions soptions;
-  IOStatus io_s =
-      fs->NewSequentialFile(filename, soptions, &orig_file, nullptr);
-  if (!io_s.ok()) {
-    fprintf(stderr, "Cannot open file %s for truncation: %s\n",
-            filename.c_str(), io_s.ToString().c_str());
-    return io_s;
-  }
-
-  std::unique_ptr<char[]> scratch(new char[length]);
-  rocksdb::Slice result;
-  io_s = orig_file->Read(length, opts, &result, scratch.get(), dbg);
-#ifdef OS_WIN
-  orig_file.reset();
-#endif
-  if (io_s.ok()) {
-    std::string tmp_name = TestFSGetDirName(filename) + "/truncate.tmp";
-    std::unique_ptr<FSWritableFile> tmp_file;
-    io_s = fs->NewWritableFile(tmp_name, file_opts, &tmp_file, dbg);
-    if (io_s.ok()) {
-      io_s = tmp_file->Append(result, opts, dbg);
-      if (io_s.ok()) {
-        io_s = fs->RenameFile(tmp_name, filename, opts, dbg);
-      } else {
-        fprintf(stderr, "Cannot rename file %s to %s: %s\n", tmp_name.c_str(),
-                filename.c_str(), io_s.ToString().c_str());
-        fs->DeleteFile(tmp_name, opts, dbg);
-      }
-    }
-  }
-  if (!io_s.ok()) {
-    fprintf(stderr, "Cannot truncate file %s: %s\n", filename.c_str(),
-            io_s.ToString().c_str());
-  }
-
-  return io_s;
 }
 
 // Trim the tailing "/" in the end of `str`
@@ -87,23 +44,16 @@ std::pair<std::string, std::string> TestFSGetDirAndName(
   return std::make_pair(dirname, fname);
 }
 
-IOStatus FSFileState::DropUnsyncedData(FileSystem* fs, const IOOptions& opts,
-                                       const FileOptions& file_opts,
-                                       IODebugContext* dbg) const {
-  ssize_t sync_pos = pos_at_last_sync_ == -1 ? 0 : pos_at_last_sync_;
-  return TestFSTruncate(fs, filename_, sync_pos, opts, file_opts, dbg);
+IOStatus FSFileState::DropUnsyncedData() {
+  buffer_.resize(0);
+  return IOStatus::OK();
 }
 
-IOStatus FSFileState::DropRandomUnsyncedData(FileSystem* fs, Random* rand,
-                                             const IOOptions& opts,
-                                             const FileOptions& file_opts,
-                                             IODebugContext* dbg) const {
-  ssize_t sync_pos = pos_at_last_sync_ == -1 ? 0 : pos_at_last_sync_;
-  assert(pos_ >= sync_pos);
-  int range = static_cast<int>(pos_ - sync_pos);
-  uint64_t truncated_size =
-      static_cast<uint64_t>(sync_pos) + rand->Uniform(range);
-  return TestFSTruncate(fs, filename_, truncated_size, opts, file_opts, dbg);
+IOStatus FSFileState::DropRandomUnsyncedData(Random* rand) {
+  int range = static_cast<int>(buffer_.size());
+  size_t truncated_size = static_cast<size_t>(rand->Uniform(range));
+  buffer_.resize(truncated_size);
+  return IOStatus::OK();
 }
 
 IOStatus TestFSDirectory::Fsync(const IOOptions& options, IODebugContext* dbg) {
@@ -131,17 +81,16 @@ TestFSWritableFile::~TestFSWritableFile() {
   }
 }
 
-IOStatus TestFSWritableFile::Append(const Slice& data, const IOOptions& options,
-                                    IODebugContext* dbg) {
+IOStatus TestFSWritableFile::Append(const Slice& data, const IOOptions&,
+                                    IODebugContext*) {
+  MutexLock l(&mutex_);
   if (!fs_->IsFilesystemActive()) {
     return fs_->GetError();
   }
-  IOStatus io_s = target_->Append(data, options, dbg);
-  if (io_s.ok()) {
-    state_.pos_ += data.size();
-    fs_->WritableFileAppended(state_);
-  }
-  return io_s;
+  state_.buffer_.append(data.data(), data.size());
+  state_.pos_ += data.size();
+  fs_->WritableFileAppended(state_);
+  return IOStatus::OK();
 }
 
 IOStatus TestFSWritableFile::Close(const IOOptions& options,
@@ -150,7 +99,13 @@ IOStatus TestFSWritableFile::Close(const IOOptions& options,
     return fs_->GetError();
   }
   writable_file_opened_ = false;
-  IOStatus io_s = target_->Close(options, dbg);
+  IOStatus io_s;
+  io_s = target_->Append(state_.buffer_, options, dbg);
+  if (io_s.ok()) {
+    state_.buffer_.resize(0);
+    target_->Sync(options, dbg);
+    io_s = target_->Close(options, dbg);
+  }
   if (io_s.ok()) {
     fs_->WritableFileClosed(state_);
   }
@@ -173,10 +128,12 @@ IOStatus TestFSWritableFile::Sync(const IOOptions& options,
   if (!fs_->IsFilesystemActive()) {
     return fs_->GetError();
   }
+  IOStatus io_s = target_->Append(state_.buffer_, options, dbg);
+  state_.buffer_.resize(0);
   target_->Sync(options, dbg);
   state_.pos_at_last_sync_ = state_.pos_;
   fs_->WritableFileSynced(state_);
-  return IOStatus::OK();
+  return io_s;
 }
 
 TestFSRandomRWFile::TestFSRandomRWFile(const std::string& /*fname*/,
@@ -404,6 +361,31 @@ void FaultInjectionTestFS::WritableFileAppended(const FSFileState& state) {
   }
 }
 
+IOStatus FaultInjectionTestFS::DropUnsyncedFileData() {
+  IOStatus io_s;
+  MutexLock l(&mutex_);
+  for (std::map<std::string, FSFileState>::iterator it = db_file_state_.begin();
+       io_s.ok() && it != db_file_state_.end(); ++it) {
+    FSFileState& fs_state = it->second;
+    if (!fs_state.IsFullySynced()) {
+      io_s = fs_state.DropUnsyncedData();
+    }
+  }
+  return io_s;
+}
+
+IOStatus FaultInjectionTestFS::DropRandomUnsyncedFileData(Random* rnd) {
+  IOStatus io_s;
+  MutexLock l(&mutex_);
+  for (std::map<std::string, FSFileState>::iterator it = db_file_state_.begin();
+       io_s.ok() && it != db_file_state_.end(); ++it) {
+    FSFileState& fs_state = it->second;
+    if (!fs_state.IsFullySynced()) {
+      io_s = fs_state.DropRandomUnsyncedData(rnd);
+    }
+  }
+  return io_s;
+}
 IOStatus FaultInjectionTestFS::DeleteFilesCreatedAfterLastDirSync(
     const IOOptions& options, IODebugContext* dbg) {
   // Because DeleteFile access this container make a copy to avoid deadlock
@@ -439,4 +421,4 @@ void FaultInjectionTestFS::UntrackFile(const std::string& f) {
   db_file_state_.erase(f);
   open_files_.erase(f);
 }
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

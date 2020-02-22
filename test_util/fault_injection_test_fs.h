@@ -26,7 +26,7 @@
 #include "util/mutexlock.h"
 #include "util/random.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 class TestFSWritableFile;
 class FaultInjectionTestFS;
@@ -36,6 +36,7 @@ struct FSFileState {
   ssize_t pos_;
   ssize_t pos_at_last_sync_;
   ssize_t pos_at_last_flush_;
+  std::string buffer_;
 
   explicit FSFileState(const std::string& filename)
       : filename_(filename),
@@ -47,14 +48,9 @@ struct FSFileState {
 
   bool IsFullySynced() const { return pos_ <= 0 || pos_ == pos_at_last_sync_; }
 
-  IOStatus DropUnsyncedData(FileSystem* fs, const IOOptions& opts,
-                            const FileOptions& file_opts,
-                            IODebugContext* dbg) const;
+  IOStatus DropUnsyncedData();
 
-  IOStatus DropRandomUnsyncedData(FileSystem* fs, Random* rand,
-                                  const IOOptions& opts,
-                                  const FileOptions& file_opts,
-                                  IODebugContext* dbg) const;
+  IOStatus DropRandomUnsyncedData(Random* rand);
 };
 
 // A wrapper around WritableFileWriter* file
@@ -65,8 +61,8 @@ class TestFSWritableFile : public FSWritableFile {
                               std::unique_ptr<FSWritableFile>&& f,
                               FaultInjectionTestFS* fs);
   virtual ~TestFSWritableFile();
-  virtual IOStatus Append(const Slice& data, const IOOptions& options,
-                          IODebugContext* dbg) override;
+  virtual IOStatus Append(const Slice& data, const IOOptions&,
+                          IODebugContext*) override;
   virtual IOStatus Truncate(uint64_t size, const IOOptions& options,
                             IODebugContext* dbg) override {
     return target_->Truncate(size, options, dbg);
@@ -90,6 +86,7 @@ class TestFSWritableFile : public FSWritableFile {
   std::unique_ptr<FSWritableFile> target_;
   bool writable_file_opened_;
   FaultInjectionTestFS* fs_;
+  port::Mutex mutex_;
 };
 
 // A wrapper around WritableFileWriter* file
@@ -193,6 +190,10 @@ class FaultInjectionTestFS : public FileSystemWrapper {
 
   void WritableFileAppended(const FSFileState& state);
 
+  IOStatus DropUnsyncedFileData();
+
+  IOStatus DropRandomUnsyncedFileData(Random* rnd);
+
   IOStatus DeleteFilesCreatedAfterLastDirSync(const IOOptions& options,
                                               IODebugContext* dbg);
 
@@ -244,4 +245,4 @@ class FaultInjectionTestFS : public FileSystemWrapper {
   IOStatus error_;
 };
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE
