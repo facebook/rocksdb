@@ -24,20 +24,19 @@ class VersionEditHandler {
   explicit VersionEditHandler(
       bool read_only,
       const std::vector<ColumnFamilyDescriptor>& column_families,
-      VersionSet* version_set, bool create_version_for_each_edit,
-      bool load_tables_for_each_edit);
+      VersionSet* version_set, bool track_missing_files,
+      bool ignore_missing_files);
   virtual ~VersionEditHandler() {}
 
-  Status Iterate(bool prefetch_index_and_filter_in_cache, bool is_initial_load,
-                 log::Reader& reader, std::string* db_id);
-  Status ApplyOneVersionEditToBuilder(bool prefetch_index_and_filter_in_cache,
-                                      bool is_initial_load, VersionEdit& edit,
+  Status Iterate(log::Reader& reader, std::string* db_id);
+  Status ApplyOneVersionEditToBuilder(VersionEdit& edit,
                                       ColumnFamilyData** cfd);
   Status OnColumnFamilyAdd(VersionEdit& edit, ColumnFamilyData** cfd);
   Status OnColumnFamilyDrop(VersionEdit& edit, ColumnFamilyData** cfd);
   Status OnNonCfOperation(VersionEdit& edit, ColumnFamilyData** cfd);
 
   const Status& status() const { return status_; }
+  bool HasMissingFiles() const;
 
  protected:
   Status Initialize();
@@ -48,11 +47,11 @@ class VersionEditHandler {
   virtual ColumnFamilyData* CreateCfAndInit(
       const ColumnFamilyOptions& cf_options, const VersionEdit& edit);
   virtual ColumnFamilyData* DestroyCfAndCleanup(const VersionEdit& edit);
-  virtual Status CreateVersion(const VersionEdit& edit, ColumnFamilyData* cfd);
-  virtual Status LoadTables(ColumnFamilyData* cfd,
-                            bool prefetch_index_and_filter_in_cache,
-                            bool is_initial_load);
-  virtual bool ShouldRetry(Status* /*s*/) { return false; }
+  virtual Status CreateVersion(const VersionEdit& edit, ColumnFamilyData* cfd,
+                               bool force_create_version);
+  Status LoadTables(ColumnFamilyData* cfd,
+                    bool prefetch_index_and_filter_in_cache,
+                    bool is_initial_load);
 
   const bool read_only_;
   const std::vector<ColumnFamilyDescriptor>& column_families_;
@@ -63,8 +62,10 @@ class VersionEditHandler {
   std::unordered_map<std::string, ColumnFamilyOptions> name_to_options_;
   std::unordered_map<uint32_t, std::string> column_families_not_found_;
   VersionEditParams version_edit_params_;
-  const bool create_version_for_each_edit_;
-  const bool load_tables_for_each_edit_;
+  const bool track_missing_files_;
+  std::unordered_map<uint32_t, std::unordered_set<uint64_t>>
+      cf_to_missing_files_;
+  bool ignore_missing_files_;
 
  private:
   Status ExtractInfoFromVersionEdit(ColumnFamilyData* cfd,
@@ -79,18 +80,16 @@ class VersionEditHandlerPointInTime : public VersionEditHandler {
       const std::vector<ColumnFamilyDescriptor>& column_families,
       VersionSet* version_set);
   ~VersionEditHandlerPointInTime() override;
-  bool HasMissingFiles() const;
 
  protected:
   void CheckIterateResult(const log::Reader& reader, Status* s) override;
   ColumnFamilyData* CreateCfAndInit(const ColumnFamilyOptions& cf_options,
                                     const VersionEdit& edit) override;
   ColumnFamilyData* DestroyCfAndCleanup(const VersionEdit& edit) override;
-  Status CreateVersion(const VersionEdit& edit, ColumnFamilyData* cfd) override;
+  Status CreateVersion(const VersionEdit& edit, ColumnFamilyData* cfd,
+                       bool force_create_version) override;
 
  private:
-  std::unordered_map<uint32_t, std::unordered_set<uint64_t>>
-      cf_to_missing_files_;
   std::unordered_map<uint32_t, Version*> versions_;
 };
 
