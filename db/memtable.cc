@@ -600,7 +600,7 @@ struct Saver {
   bool* merge_in_progress;
   std::string* value;
   SequenceNumber seq;
-  std::string timestamp;
+  std::string* timestamp;
   const MergeOperator* merge_operator;
   // the merge operations encountered;
   MergeContext* merge_context;
@@ -717,9 +717,9 @@ static bool SaveValue(void* arg, const char* entry) {
           *(s->is_blob_index) = (type == kTypeBlobIndex);
         }
 
-        if (ts_sz > 0) {
+        if (ts_sz > 0 && s->timestamp != nullptr) {
           Slice ts = ExtractTimestampFromUserKey(user_key_slice, ts_sz);
-          s->timestamp.assign(ts.data(), ts.size());
+          s->timestamp->assign(ts.data(), ts.size());
         }
         return false;
       }
@@ -850,6 +850,7 @@ void MemTable::GetFromTable(const LookupKey& key,
   saver.merge_in_progress = merge_in_progress;
   saver.key = &key;
   saver.value = value;
+  saver.timestamp = timestamp;
   saver.seq = kMaxSequenceNumber;
   saver.mem = this;
   saver.merge_context = merge_context;
@@ -864,9 +865,6 @@ void MemTable::GetFromTable(const LookupKey& key,
   saver.do_merge = do_merge;
   table_->Get(key, &saver, SaveValue);
   *seq = saver.seq;
-  if (timestamp) {
-    *timestamp = saver.timestamp;
-  }
 }
 
 void MemTable::MultiGet(const ReadOptions& read_options, MultiGetRange* range,

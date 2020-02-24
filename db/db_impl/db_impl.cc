@@ -1505,10 +1505,8 @@ Status DBImpl::Get(const ReadOptions& read_options,
   GetImplOptions get_impl_options;
   get_impl_options.column_family = column_family;
   get_impl_options.value = value;
+  get_impl_options.timestamp = timestamp;
   Status s = GetImpl(read_options, key, get_impl_options);
-  if (timestamp && s.ok()) {
-    *timestamp = get_impl_options.timestamp;
-  }
   return s;
 }
 
@@ -1596,7 +1594,7 @@ Status DBImpl::GetImpl(const ReadOptions& read_options, const Slice& key,
   const Comparator* comparator =
       get_impl_options.column_family->GetComparator();
   size_t ts_sz = comparator->timestamp_size();
-  std::string* timestamp = ts_sz > 0 ? &get_impl_options.timestamp : nullptr;
+  std::string* timestamp = ts_sz > 0 ? get_impl_options.timestamp : nullptr;
   if (!skip_memtable) {
     // Get value associated with key
     if (get_impl_options.get_value) {
@@ -2466,11 +2464,9 @@ bool DBImpl::KeyMayExist(const ReadOptions& read_options,
   get_impl_options.column_family = column_family;
   get_impl_options.value = &pinnable_val;
   get_impl_options.value_found = value_found;
+  get_impl_options.timestamp = timestamp;
   auto s = GetImpl(roptions, key, get_impl_options);
   value->assign(pinnable_val.data(), pinnable_val.size());
-  if (timestamp != nullptr) {
-    *timestamp = get_impl_options.timestamp;
-  }
 
   // If block_cache is enabled and the index block of the table didn't
   // not present in block_cache, the return value will be Status::Incomplete.
