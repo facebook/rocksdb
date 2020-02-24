@@ -23,6 +23,8 @@ const std::string kUnknownFileChecksum("");
 // The unknown sst file checksum function name.
 const std::string kUnknownFileChecksumFuncName("Unknown");
 
+namespace {
+
 // Tag numbers for serialized VersionEdit.  These numbers are written to
 // disk and should not be changed. The number should be forward compatible so
 // users can down-grade RocksDB safely. A future Tag is ignored by doing '&'
@@ -53,18 +55,17 @@ enum Tag : uint32_t {
   // Mask for an unidentified tag from the future which can be safely ignored.
   kTagSafeIgnoreMask = 1 << 13,
 
-  // Forward compatible (aka ignorable) fields
+  // Forward compatible (aka ignorable) records
   kDbId,
   kBlobFileState,
 };
 
-enum CustomTag : uint32_t {
+enum NewFileCustomTag : uint32_t {
   kTerminate = 1,  // The end of customized fields
   kNeedCompaction = 2,
-  // Since Manifest is not entirely currently forward-compatible, and the only
-  // forward-compatible part is the CutsomtTag of kNewFile, we currently encode
-  // kMinLogNumberToKeep as part of a CustomTag as a hack. This should be
-  // removed when manifest becomes forward-comptabile.
+  // Since Manifest is not entirely forward-compatible, we currently encode
+  // kMinLogNumberToKeep as part of NewFile as a hack. This should be removed
+  // when manifest becomes forward-comptabile.
   kMinLogNumberToKeepHack = 3,
   kOldestBlobFileNumber = 4,
   kOldestAncesterTime = 5,
@@ -79,6 +80,8 @@ enum CustomTag : uint32_t {
   // Forward incompatible (aka unignorable) fields
   kPathId,
 };
+
+}  // anonymous namespace
 
 uint64_t PackFileNumberAndPathId(uint64_t number, uint64_t path_id) {
   assert(number <= kFileNumberMask);
@@ -224,45 +227,45 @@ bool VersionEdit::EncodeTo(std::string* dst) const {
     //   tag kNeedCompaction:
     //        now only can take one char value 1 indicating need-compaction
     //
-    PutVarint32(dst, CustomTag::kOldestAncesterTime);
+    PutVarint32(dst, NewFileCustomTag::kOldestAncesterTime);
     std::string varint_oldest_ancester_time;
     PutVarint64(&varint_oldest_ancester_time, f.oldest_ancester_time);
     TEST_SYNC_POINT_CALLBACK("VersionEdit::EncodeTo:VarintOldestAncesterTime",
                              &varint_oldest_ancester_time);
     PutLengthPrefixedSlice(dst, Slice(varint_oldest_ancester_time));
 
-    PutVarint32(dst, CustomTag::kFileCreationTime);
+    PutVarint32(dst, NewFileCustomTag::kFileCreationTime);
     std::string varint_file_creation_time;
     PutVarint64(&varint_file_creation_time, f.file_creation_time);
     TEST_SYNC_POINT_CALLBACK("VersionEdit::EncodeTo:VarintFileCreationTime",
                              &varint_file_creation_time);
     PutLengthPrefixedSlice(dst, Slice(varint_file_creation_time));
 
-    PutVarint32(dst, CustomTag::kFileChecksum);
+    PutVarint32(dst, NewFileCustomTag::kFileChecksum);
     PutLengthPrefixedSlice(dst, Slice(f.file_checksum));
 
-    PutVarint32(dst, CustomTag::kFileChecksumFuncName);
+    PutVarint32(dst, NewFileCustomTag::kFileChecksumFuncName);
     PutLengthPrefixedSlice(dst, Slice(f.file_checksum_func_name));
 
     if (f.fd.GetPathId() != 0) {
-      PutVarint32(dst, CustomTag::kPathId);
+      PutVarint32(dst, NewFileCustomTag::kPathId);
       char p = static_cast<char>(f.fd.GetPathId());
       PutLengthPrefixedSlice(dst, Slice(&p, 1));
     }
     if (f.marked_for_compaction) {
-      PutVarint32(dst, CustomTag::kNeedCompaction);
+      PutVarint32(dst, NewFileCustomTag::kNeedCompaction);
       char p = static_cast<char>(1);
       PutLengthPrefixedSlice(dst, Slice(&p, 1));
     }
     if (has_min_log_number_to_keep_ && !min_log_num_written) {
-      PutVarint32(dst, CustomTag::kMinLogNumberToKeepHack);
+      PutVarint32(dst, NewFileCustomTag::kMinLogNumberToKeepHack);
       std::string varint_log_number;
       PutFixed64(&varint_log_number, min_log_number_to_keep_);
       PutLengthPrefixedSlice(dst, Slice(varint_log_number));
       min_log_num_written = true;
     }
     if (f.oldest_blob_file_number != kInvalidBlobFileNumber) {
-      PutVarint32(dst, CustomTag::kOldestBlobFileNumber);
+      PutVarint32(dst, NewFileCustomTag::kOldestBlobFileNumber);
       std::string oldest_blob_file_number;
       PutVarint64(&oldest_blob_file_number, f.oldest_blob_file_number);
       PutLengthPrefixedSlice(dst, Slice(oldest_blob_file_number));
@@ -270,7 +273,7 @@ bool VersionEdit::EncodeTo(std::string* dst) const {
     TEST_SYNC_POINT_CALLBACK("VersionEdit::EncodeTo:NewFile4:CustomizeFields",
                              dst);
 
-    PutVarint32(dst, CustomTag::kTerminate);
+    PutVarint32(dst, NewFileCustomTag::kTerminate);
   }
 
   for (const auto& blob_file_state : blob_file_states_) {
@@ -331,9 +334,6 @@ const char* VersionEdit::DecodeNewFile4From(Slice* input) {
   uint64_t file_size = 0;
   SequenceNumber smallest_seqno = 0;
   SequenceNumber largest_seqno = kMaxSequenceNumber;
-  // Since this is the only forward-compatible part of the code, we hack new
-  // extension into this record. When we do, we set this boolean to distinguish
-  // the record from the normal NewFile records.
   if (GetLevel(input, &level, &msg) && GetVarint64(input, &number) &&
       GetVarint64(input, &file_size) && GetInternalKey(input, &f.smallest) &&
       GetInternalKey(input, &f.largest) &&
