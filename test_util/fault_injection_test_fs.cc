@@ -386,6 +386,7 @@ IOStatus FaultInjectionTestFS::DropRandomUnsyncedFileData(Random* rnd) {
   }
   return io_s;
 }
+
 IOStatus FaultInjectionTestFS::DeleteFilesCreatedAfterLastDirSync(
     const IOOptions& options, IODebugContext* dbg) {
   // Because DeleteFile access this container make a copy to avoid deadlock
@@ -406,6 +407,7 @@ IOStatus FaultInjectionTestFS::DeleteFilesCreatedAfterLastDirSync(
   }
   return IOStatus::OK();
 }
+
 void FaultInjectionTestFS::ResetState() {
   MutexLock l(&mutex_);
   db_file_state_.clear();
@@ -421,4 +423,5 @@ void FaultInjectionTestFS::UntrackFile(const std::string& f) {
   db_file_state_.erase(f);
   open_files_.erase(f);
 }
+
 }  // namespace ROCKSDB_NAMESPACE

@@ -19,7 +19,7 @@
 #include "test_util/sync_point.h"
 #endif
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 class DBErrorHandlingFSTest : public DBTestBase {
  public:
@@ -640,7 +640,7 @@ TEST_F(DBErrorHandlingFSTest, MultiCFWALWriteError) {
   Close();
 }
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
   rocksdb::port::InstallStackTraceHandler();

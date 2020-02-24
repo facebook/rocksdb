@@ -492,7 +492,6 @@ TESTS = \
 	db_table_properties_test \
 	db_statistics_test \
 	db_write_test \
-	error_handler_test \
 	error_handler_fs_test \
 	autovector_test \
 	blob_db_test \
@@ -1365,9 +1364,6 @@ db_statistics_test: db/db_statistics_test.o db/db_test_util.o $(LIBOBJECTS) $(TE
 	$(AM_LINK)
 
 db_write_test: db/db_write_test.o db/db_test_util.o $(LIBOBJECTS) $(TESTHARNESS)
-	$(AM_LINK)
-
-error_handler_test: db/error_handler_test.o db/db_test_util.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
 error_handler_fs_test: db/error_handler_fs_test.o db/db_test_util.o $(LIBOBJECTS) $(TESTHARNESS)

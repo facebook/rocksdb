@@ -977,13 +977,6 @@ ROCKS_TESTS = [
         [],
     ],
     [
-        "error_handler_test",
-        "db/error_handler_test.cc",
-        "serial",
-        [],
-        [],
-    ],
-    [
         "event_logger_test",
         "logging/event_logger_test.cc",
         "serial",
