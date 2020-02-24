@@ -307,16 +307,16 @@ class VersionEdit {
   bool HasLastSequence() const { return has_last_sequence_; }
   SequenceNumber GetLastSequence() const { return last_sequence_; }
 
-  // Delete the specified SST file from the specified level.
+  // Delete the specified table file from the specified level.
   void DeleteFile(int level, uint64_t file) {
     deleted_files_.emplace(level, file);
   }
 
-  // Retrieve the SST files deleted as well as their associated levels.
+  // Retrieve the table files deleted as well as their associated levels.
   using DeletedFiles = std::set<std::pair<int, uint64_t>>;
   const DeletedFiles& GetDeletedFiles() const { return deleted_files_; }
 
-  // Add the specified SST file at the specified level.
+  // Add the specified table file at the specified level.
   // REQUIRES: This version has not been saved (see VersionSet::SaveTo)
   // REQUIRES: "smallest" and "largest" are smallest and largest keys in file
   // REQUIRES: "oldest_blob_file_number" is the number of the oldest blob file
@@ -342,7 +342,7 @@ class VersionEdit {
     new_files_.emplace_back(level, f);
   }
 
-  // Retrieve the SST files added as well as their associated levels.
+  // Retrieve the table files added as well as their associated levels.
   using NewFiles = std::vector<std::pair<int, FileMetaData>>;
   const NewFiles& GetNewFiles() const { return new_files_; }
 
