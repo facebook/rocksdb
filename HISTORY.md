@@ -1,5 +1,5 @@
 # Rocksdb Change Log
-## Unreleased
+## 6.8.0 (02/24/2020)
 ### Java API Changes
 * Major breaking changes to Java comparators, toward standardizing on ByteBuffer for performant, locale-neutral operations on keys (#6252).
 * Added overloads of common API methods using direct ByteBuffers for keys and values (#2283).
