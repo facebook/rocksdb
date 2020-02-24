@@ -68,16 +68,6 @@ class BlobFileState {
   std::string DebugString() const;
   std::string DebugJSON() const;
 
-  bool operator==(const BlobFileState& rhs) const {
-    return blob_file_number_ == rhs.blob_file_number_ &&
-           total_blob_count_ == rhs.total_blob_count_ &&
-           total_blob_bytes_ == rhs.total_blob_bytes_ &&
-           garbage_blob_count_ == rhs.garbage_blob_count_ &&
-           garbage_blob_bytes_ == rhs.garbage_blob_bytes_;
-  }
-
-  bool operator!=(const BlobFileState& rhs) const { return !(*this == rhs); }
-
  private:
   uint64_t blob_file_number_ = kInvalidBlobFileNumber;
   uint64_t total_blob_count_ = 0;
@@ -85,6 +75,9 @@ class BlobFileState {
   uint64_t garbage_blob_count_ = 0;
   uint64_t garbage_blob_bytes_ = 0;
 };
+
+bool operator==(const BlobFileState& lhs, const BlobFileState& rhs);
+bool operator!=(const BlobFileState& lhs, const BlobFileState& rhs);
 
 std::ostream& operator<<(std::ostream& os,
                          const BlobFileState& blob_file_state);

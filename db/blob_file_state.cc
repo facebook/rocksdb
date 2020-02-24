@@ -117,6 +117,18 @@ std::string BlobFileState::DebugJSON() const {
   return jw.Get();
 }
 
+bool operator==(const BlobFileState& lhs, const BlobFileState& rhs) {
+  return lhs.GetBlobFileNumber() == rhs.GetBlobFileNumber() &&
+         lhs.GetTotalBlobCount() == rhs.GetTotalBlobCount() &&
+         lhs.GetTotalBlobBytes() == rhs.GetTotalBlobBytes() &&
+         lhs.GetGarbageBlobCount() == rhs.GetGarbageBlobCount() &&
+         lhs.GetGarbageBlobBytes() == rhs.GetGarbageBlobBytes();
+}
+
+bool operator!=(const BlobFileState& lhs, const BlobFileState& rhs) {
+  return !(lhs == rhs);
+}
+
 std::ostream& operator<<(std::ostream& os,
                          const BlobFileState& blob_file_state) {
   os << "blob_file_number: " << blob_file_state.GetBlobFileNumber()
