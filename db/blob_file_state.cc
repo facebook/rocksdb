@@ -40,6 +40,8 @@ void BlobFileState::EncodeTo(std::string* output) const {
   PutVarint64(output, total_blob_bytes_);
   PutVarint64(output, garbage_blob_count_);
   PutVarint64(output, garbage_blob_bytes_);
+  PutLengthPrefixedSlice(output, checksum_method_);
+  PutLengthPrefixedSlice(output, checksum_value_);
 
   // Encode any custom fields here. The format to use is a Varint32 tag (see
   // CustomFieldTags above) followed by a length prefixed slice. Unknown custom
@@ -73,6 +75,18 @@ Status BlobFileState::DecodeFrom(Slice* input) {
   if (!GetVarint64(input, &garbage_blob_bytes_)) {
     return Status::Corruption(class_name, "Error decoding garbage blob bytes");
   }
+
+  Slice checksum_method;
+  if (!GetLengthPrefixedSlice(input, &checksum_method)) {
+    return Status::Corruption(class_name, "Error decoding checksum method");
+  }
+  checksum_method_ = checksum_method.ToString();
+
+  Slice checksum_value;
+  if (!GetLengthPrefixedSlice(input, &checksum_value)) {
+    return Status::Corruption(class_name, "Error decoding checksum value");
+  }
+  checksum_value_ = checksum_value.ToString();
 
   while (true) {
     uint32_t custom_field_tag = 0;
@@ -122,7 +136,9 @@ bool operator==(const BlobFileState& lhs, const BlobFileState& rhs) {
          lhs.GetTotalBlobCount() == rhs.GetTotalBlobCount() &&
          lhs.GetTotalBlobBytes() == rhs.GetTotalBlobBytes() &&
          lhs.GetGarbageBlobCount() == rhs.GetGarbageBlobCount() &&
-         lhs.GetGarbageBlobBytes() == rhs.GetGarbageBlobBytes();
+         lhs.GetGarbageBlobBytes() == rhs.GetGarbageBlobBytes() &&
+         lhs.GetChecksumMethod() == rhs.GetChecksumMethod() &&
+         lhs.GetChecksumValue() == rhs.GetChecksumValue();
 }
 
 bool operator!=(const BlobFileState& lhs, const BlobFileState& rhs) {
@@ -135,7 +151,9 @@ std::ostream& operator<<(std::ostream& os,
      << " total_blob_count: " << blob_file_state.GetTotalBlobCount()
      << " total_blob_bytes: " << blob_file_state.GetTotalBlobBytes()
      << " garbage_blob_count: " << blob_file_state.GetGarbageBlobCount()
-     << " garbage_blob_bytes: " << blob_file_state.GetGarbageBlobBytes();
+     << " garbage_blob_bytes: " << blob_file_state.GetGarbageBlobBytes()
+     << " checksum_method: " << blob_file_state.GetChecksumMethod()
+     << " checksum_value: " << blob_file_state.GetChecksumValue();
 
   return os;
 }
@@ -145,7 +163,9 @@ JSONWriter& operator<<(JSONWriter& jw, const BlobFileState& blob_file_state) {
      << "TotalBlobCount" << blob_file_state.GetTotalBlobCount()
      << "TotalBlobBytes" << blob_file_state.GetTotalBlobBytes()
      << "GarbageBlobCount" << blob_file_state.GetGarbageBlobCount()
-     << "GarbageBlobBytes" << blob_file_state.GetGarbageBlobBytes();
+     << "GarbageBlobBytes" << blob_file_state.GetGarbageBlobBytes()
+     << "ChecksumMethod" << blob_file_state.GetChecksumMethod()
+     << "ChecksumValue" << blob_file_state.GetChecksumValue();
 
   return jw;
 }

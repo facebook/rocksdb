@@ -349,10 +349,13 @@ class VersionEdit {
   // Add blob file state for the specified file.
   void AddBlobFileState(uint64_t blob_file_number, uint64_t total_blob_count,
                         uint64_t total_blob_bytes, uint64_t garbage_blob_count,
-                        uint64_t garbage_blob_bytes) {
-    blob_file_states_.emplace_back(blob_file_number, total_blob_count,
-                                   total_blob_bytes, garbage_blob_count,
-                                   garbage_blob_bytes);
+                        uint64_t garbage_blob_bytes,
+                        std::string checksum_method,
+                        std::string checksum_value) {
+    blob_file_states_.emplace_back(
+        blob_file_number, total_blob_count, total_blob_bytes,
+        garbage_blob_count, garbage_blob_bytes, std::move(checksum_method),
+        std::move(checksum_value));
   }
 
   // Retrieve all the blob file states added.
