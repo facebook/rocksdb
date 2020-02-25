@@ -13,6 +13,7 @@
 #include <string>
 #include <utility>
 #include <vector>
+#include "db/blob_file_state.h"
 #include "db/dbformat.h"
 #include "memory/arena.h"
 #include "rocksdb/cache.h"
@@ -24,7 +25,6 @@ namespace ROCKSDB_NAMESPACE {
 class VersionSet;
 
 constexpr uint64_t kFileNumberMask = 0x3FFFFFFFFFFFFFFF;
-constexpr uint64_t kInvalidBlobFileNumber = 0;
 constexpr uint64_t kUnknownOldestAncesterTime = 0;
 constexpr uint64_t kUnknownFileCreationTime = 0;
 
@@ -307,16 +307,16 @@ class VersionEdit {
   bool HasLastSequence() const { return has_last_sequence_; }
   SequenceNumber GetLastSequence() const { return last_sequence_; }
 
-  // Delete the specified "file" from the specified "level".
+  // Delete the specified table file from the specified level.
   void DeleteFile(int level, uint64_t file) {
     deleted_files_.emplace(level, file);
   }
 
-  // Retrieve the files deleted as well as their associated levels.
+  // Retrieve the table files deleted as well as their associated levels.
   using DeletedFiles = std::set<std::pair<int, uint64_t>>;
   const DeletedFiles& GetDeletedFiles() const { return deleted_files_; }
 
-  // Add the specified file at the specified level.
+  // Add the specified table file at the specified level.
   // REQUIRES: This version has not been saved (see VersionSet::SaveTo)
   // REQUIRES: "smallest" and "largest" are smallest and largest keys in file
   // REQUIRES: "oldest_blob_file_number" is the number of the oldest blob file
@@ -342,12 +342,30 @@ class VersionEdit {
     new_files_.emplace_back(level, f);
   }
 
-  // Retrieve the files added as well as their associated levels.
+  // Retrieve the table files added as well as their associated levels.
   using NewFiles = std::vector<std::pair<int, FileMetaData>>;
   const NewFiles& GetNewFiles() const { return new_files_; }
 
+  // Add blob file state for the specified file.
+  void AddBlobFileState(uint64_t blob_file_number, uint64_t total_blob_count,
+                        uint64_t total_blob_bytes, uint64_t garbage_blob_count,
+                        uint64_t garbage_blob_bytes,
+                        std::string checksum_method,
+                        std::string checksum_value) {
+    blob_file_states_.emplace_back(
+        blob_file_number, total_blob_count, total_blob_bytes,
+        garbage_blob_count, garbage_blob_bytes, std::move(checksum_method),
+        std::move(checksum_value));
+  }
+
+  // Retrieve all the blob file states added.
+  using BlobFileStates = std::vector<BlobFileState>;
+  const BlobFileStates& GetBlobFileStates() const { return blob_file_states_; }
+
   // Number of edits
-  size_t NumEntries() const { return new_files_.size() + deleted_files_.size(); }
+  size_t NumEntries() const {
+    return new_files_.size() + deleted_files_.size() + blob_file_states_.size();
+  }
 
   void SetColumnFamily(uint32_t column_family_id) {
     column_family_ = column_family_id;
@@ -420,6 +438,8 @@ class VersionEdit {
 
   DeletedFiles deleted_files_;
   NewFiles new_files_;
+
+  BlobFileStates blob_file_states_;
 
   // Each version edit record should have column_family_ set
   // If it's not set, it is default (0)

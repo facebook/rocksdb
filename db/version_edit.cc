@@ -22,8 +22,8 @@ namespace ROCKSDB_NAMESPACE {
 const std::string kUnknownFileChecksum("");
 // The unknown sst file checksum function name.
 const std::string kUnknownFileChecksumFuncName("Unknown");
-// Mask for an identified tag from the future which can be safely ignored.
-const uint32_t kTagSafeIgnoreMask = 1 << 13;
+
+namespace {
 
 // Tag numbers for serialized VersionEdit.  These numbers are written to
 // disk and should not be changed. The number should be forward compatible so
@@ -40,8 +40,6 @@ enum Tag : uint32_t {
   // 8 was used for large value refs
   kPrevLogNumber = 9,
   kMinLogNumberToKeep = 10,
-  // Ignore-able field
-  kDbId = kTagSafeIgnoreMask + 1,
 
   // these are new formats divergent from open source leveldb
   kNewFile2 = 100,
@@ -53,26 +51,37 @@ enum Tag : uint32_t {
   kMaxColumnFamily = 203,
 
   kInAtomicGroup = 300,
+
+  // Mask for an unidentified tag from the future which can be safely ignored.
+  kTagSafeIgnoreMask = 1 << 13,
+
+  // Forward compatible (aka ignorable) records
+  kDbId,
+  kBlobFileState,
 };
 
-enum CustomTag : uint32_t {
+enum NewFileCustomTag : uint32_t {
   kTerminate = 1,  // The end of customized fields
   kNeedCompaction = 2,
-  // Since Manifest is not entirely currently forward-compatible, and the only
-  // forward-compatible part is the CutsomtTag of kNewFile, we currently encode
-  // kMinLogNumberToKeep as part of a CustomTag as a hack. This should be
-  // removed when manifest becomes forward-comptabile.
+  // Since Manifest is not entirely forward-compatible, we currently encode
+  // kMinLogNumberToKeep as part of NewFile as a hack. This should be removed
+  // when manifest becomes forward-comptabile.
   kMinLogNumberToKeepHack = 3,
   kOldestBlobFileNumber = 4,
   kOldestAncesterTime = 5,
   kFileCreationTime = 6,
   kFileChecksum = 7,
   kFileChecksumFuncName = 8,
-  kPathId = 65,
+
+  // If this bit for the custom tag is set, opening DB should fail if
+  // we don't know this field.
+  kCustomTagNonSafeIgnoreMask = 1 << 6,
+
+  // Forward incompatible (aka unignorable) fields
+  kPathId,
 };
-// If this bit for the custom tag is set, opening DB should fail if
-// we don't know this field.
-uint32_t kCustomTagNonSafeIgnoreMask = 1 << 6;
+
+}  // anonymous namespace
 
 uint64_t PackFileNumberAndPathId(uint64_t number, uint64_t path_id) {
   assert(number <= kFileNumberMask);
@@ -142,6 +151,7 @@ void VersionEdit::Clear() {
   has_last_sequence_ = false;
   deleted_files_.clear();
   new_files_.clear();
+  blob_file_states_.clear();
   column_family_ = 0;
   is_column_family_add_ = false;
   is_column_family_drop_ = false;
@@ -217,45 +227,45 @@ bool VersionEdit::EncodeTo(std::string* dst) const {
     //   tag kNeedCompaction:
     //        now only can take one char value 1 indicating need-compaction
     //
-    PutVarint32(dst, CustomTag::kOldestAncesterTime);
+    PutVarint32(dst, NewFileCustomTag::kOldestAncesterTime);
     std::string varint_oldest_ancester_time;
     PutVarint64(&varint_oldest_ancester_time, f.oldest_ancester_time);
     TEST_SYNC_POINT_CALLBACK("VersionEdit::EncodeTo:VarintOldestAncesterTime",
                              &varint_oldest_ancester_time);
     PutLengthPrefixedSlice(dst, Slice(varint_oldest_ancester_time));
 
-    PutVarint32(dst, CustomTag::kFileCreationTime);
+    PutVarint32(dst, NewFileCustomTag::kFileCreationTime);
     std::string varint_file_creation_time;
     PutVarint64(&varint_file_creation_time, f.file_creation_time);
     TEST_SYNC_POINT_CALLBACK("VersionEdit::EncodeTo:VarintFileCreationTime",
                              &varint_file_creation_time);
     PutLengthPrefixedSlice(dst, Slice(varint_file_creation_time));
 
-    PutVarint32(dst, CustomTag::kFileChecksum);
+    PutVarint32(dst, NewFileCustomTag::kFileChecksum);
     PutLengthPrefixedSlice(dst, Slice(f.file_checksum));
 
-    PutVarint32(dst, CustomTag::kFileChecksumFuncName);
+    PutVarint32(dst, NewFileCustomTag::kFileChecksumFuncName);
     PutLengthPrefixedSlice(dst, Slice(f.file_checksum_func_name));
 
     if (f.fd.GetPathId() != 0) {
-      PutVarint32(dst, CustomTag::kPathId);
+      PutVarint32(dst, NewFileCustomTag::kPathId);
       char p = static_cast<char>(f.fd.GetPathId());
       PutLengthPrefixedSlice(dst, Slice(&p, 1));
     }
     if (f.marked_for_compaction) {
-      PutVarint32(dst, CustomTag::kNeedCompaction);
+      PutVarint32(dst, NewFileCustomTag::kNeedCompaction);
       char p = static_cast<char>(1);
       PutLengthPrefixedSlice(dst, Slice(&p, 1));
     }
     if (has_min_log_number_to_keep_ && !min_log_num_written) {
-      PutVarint32(dst, CustomTag::kMinLogNumberToKeepHack);
+      PutVarint32(dst, NewFileCustomTag::kMinLogNumberToKeepHack);
       std::string varint_log_number;
       PutFixed64(&varint_log_number, min_log_number_to_keep_);
       PutLengthPrefixedSlice(dst, Slice(varint_log_number));
       min_log_num_written = true;
     }
     if (f.oldest_blob_file_number != kInvalidBlobFileNumber) {
-      PutVarint32(dst, CustomTag::kOldestBlobFileNumber);
+      PutVarint32(dst, NewFileCustomTag::kOldestBlobFileNumber);
       std::string oldest_blob_file_number;
       PutVarint64(&oldest_blob_file_number, f.oldest_blob_file_number);
       PutLengthPrefixedSlice(dst, Slice(oldest_blob_file_number));
@@ -263,7 +273,12 @@ bool VersionEdit::EncodeTo(std::string* dst) const {
     TEST_SYNC_POINT_CALLBACK("VersionEdit::EncodeTo:NewFile4:CustomizeFields",
                              dst);
 
-    PutVarint32(dst, CustomTag::kTerminate);
+    PutVarint32(dst, NewFileCustomTag::kTerminate);
+  }
+
+  for (const auto& blob_file_state : blob_file_states_) {
+    PutVarint32(dst, kBlobFileState);
+    blob_file_state.EncodeTo(dst);
   }
 
   // 0 is default and does not need to be explicitly written
@@ -319,9 +334,6 @@ const char* VersionEdit::DecodeNewFile4From(Slice* input) {
   uint64_t file_size = 0;
   SequenceNumber smallest_seqno = 0;
   SequenceNumber largest_seqno = kMaxSequenceNumber;
-  // Since this is the only forward-compatible part of the code, we hack new
-  // extension into this record. When we do, we set this boolean to distinguish
-  // the record from the normal NewFile records.
   if (GetLevel(input, &level, &msg) && GetVarint64(input, &number) &&
       GetVarint64(input, &file_size) && GetInternalKey(input, &f.smallest) &&
       GetInternalKey(input, &f.largest) &&
@@ -571,6 +583,17 @@ Status VersionEdit::DecodeFrom(const Slice& src) {
         break;
       }
 
+      case kBlobFileState: {
+        BlobFileState blob_file_state;
+        const Status s = blob_file_state.DecodeFrom(&input);
+        if (!s.ok()) {
+          return s;
+        }
+
+        blob_file_states_.emplace_back(blob_file_state);
+        break;
+      }
+
       case kColumnFamily:
         if (!GetVarint32(&input, &column_family_)) {
           if (!msg) {
@@ -700,6 +723,12 @@ std::string VersionEdit::DebugString(bool hex_key) const {
     r.append(" file_checksum_func_name: ");
     r.append(f.file_checksum_func_name);
   }
+
+  for (const auto& blob_file_state : blob_file_states_) {
+    r.append("\n  BlobFileState: ");
+    r.append(blob_file_state.DebugString());
+  }
+
   r.append("\n  ColumnFamily: ");
   AppendNumberTo(&r, column_family_);
   if (is_column_family_add_) {
@@ -776,6 +805,20 @@ std::string VersionEdit::DebugJSON(int edit_num, bool hex_key) const {
       if (f.oldest_blob_file_number != kInvalidBlobFileNumber) {
         jw << "OldestBlobFile" << f.oldest_blob_file_number;
       }
+      jw.EndArrayedObject();
+    }
+
+    jw.EndArray();
+  }
+
+  if (!blob_file_states_.empty()) {
+    jw << "BlobFileStates";
+
+    jw.StartArray();
+
+    for (const auto& blob_file_state : blob_file_states_) {
+      jw.StartArrayedObject();
+      jw << blob_file_state;
       jw.EndArrayedObject();
     }
 

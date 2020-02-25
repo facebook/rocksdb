@@ -116,6 +116,7 @@ cpp_library(
         "cache/lru_cache.cc",
         "cache/sharded_cache.cc",
         "db/arena_wrapped_db_iter.cc",
+        "db/blob_file_state.cc",
         "db/builder.cc",
         "db/c.cc",
         "db/column_family.cc",
@@ -473,6 +474,13 @@ ROCKS_TESTS = [
     [
         "blob_db_test",
         "utilities/blob_db/blob_db_test.cc",
+        "serial",
+        [],
+        [],
+    ],
+    [
+        "blob_file_state_test",
+        "db/blob_file_state_test.cc",
         "serial",
         [],
         [],
