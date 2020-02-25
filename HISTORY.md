@@ -1,4 +1,8 @@
 # Rocksdb Change Log
+## 6.7.2 (02/24/2020)
+### Bug Fixes
+* Fixed a bug of IO Uring partial result handling introduced in 6.7.0.
+
 ## 6.7.1 (02/13/2020)
 ### Bug Fixes
 * Fixed issue #6316 that can cause a corruption of the MANIFEST file in the middle when writing to it fails due to no disk space.
