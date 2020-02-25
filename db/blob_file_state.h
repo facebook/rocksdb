@@ -5,6 +5,8 @@
 
 #pragma once
 
+#include "rocksdb/rocksdb_namespace.h"
+
 #include <cassert>
 #include <cstdint>
 #include <iosfwd>
