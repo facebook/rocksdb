@@ -14,7 +14,7 @@
 #include <ostream>
 #include <sstream>
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 namespace {
 
@@ -170,4 +170,4 @@ JSONWriter& operator<<(JSONWriter& jw, const BlobFileState& blob_file_state) {
   return jw;
 }
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

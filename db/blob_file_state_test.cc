@@ -12,7 +12,7 @@
 #include <cstring>
 #include <string>
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 class BlobFileStateTest : public testing::Test {
  public:
@@ -276,7 +276,7 @@ TEST_F(BlobFileStateTest, ForwardIncompatibleCustomField) {
   SyncPoint::GetInstance()->ClearAllCallBacks();
 }
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
   ::testing::InitGoogleTest(&argc, argv);

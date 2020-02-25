@@ -10,7 +10,7 @@
 #include <iosfwd>
 #include <string>
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 constexpr uint64_t kInvalidBlobFileNumber = 0;
 
@@ -97,4 +97,4 @@ std::ostream& operator<<(std::ostream& os,
                          const BlobFileState& blob_file_state);
 JSONWriter& operator<<(JSONWriter& jw, const BlobFileState& blob_file_state);
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE
