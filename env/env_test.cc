@@ -1134,7 +1134,7 @@ TEST_P(EnvPosixTestWithParam, MultiRead) {
   for (uint32_t attempt = 0; attempt < 20; attempt++) {
     // Random Read
     Random rnd(301 + attempt);
-    ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+    rocksdb::SyncPoint::GetInstance()->SetCallBack(
         "PosixRandomAccessFile::MultiRead:io_uring_result", [&](void* arg) {
           if (attempt > 0) {
             // No failure in the first attempt.
@@ -1147,7 +1147,7 @@ TEST_P(EnvPosixTestWithParam, MultiRead) {
             }
           }
         });
-    ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+    rocksdb::SyncPoint::GetInstance()->EnableProcessing();
 
     std::unique_ptr<RandomAccessFile> file;
     std::vector<ReadRequest> reqs(3);
@@ -1173,7 +1173,7 @@ TEST_P(EnvPosixTestWithParam, MultiRead) {
       ASSERT_OK(reqs[i].status);
       ASSERT_EQ(memcmp(reqs[i].scratch, buf.get(), kSectorSize), 0);
     }
-    ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
+    rocksdb::SyncPoint::GetInstance()->DisableProcessing();
   }
 }
 
