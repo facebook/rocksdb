@@ -174,14 +174,16 @@ Status DBImpl::ExecuteRemoteCompactionRequest(
   LogBuffer log_buffer(InfoLogLevel::INFO_LEVEL,
                        immutable_db_options_.info_log.get());
 
-  // support only the default column family for now.
-  ColumnFamilyHandle* cfh = DefaultColumnFamily();
-  assert(cfh->GetName() == input.column_family_name);
-
-  auto cfd = reinterpret_cast<ColumnFamilyHandleImpl*>(cfh)->cfd();
-  assert(cfd);
+  ColumnFamilyData* cfd = nullptr;
   {
     InstrumentedMutexLock l(&mutex_);
+    cfd = versions_->GetColumnFamilySet()->GetColumnFamily(
+        input.column_family_name);
+    if (!cfd) {
+      s = Status::InvalidArgument("Invalid column family: " +
+                                  input.column_family_name);
+      return s;
+    }
 
     // get a referece on the version
     auto* current = cfd->current();
