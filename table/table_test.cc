@@ -1250,7 +1250,8 @@ class FileChecksumTestHelper {
     std::string tmp_checksum;
     bool first_read = true;
     Status s;
-    s = file_reader_->Read(offset, 2048, &result, scratch.get(), false);
+    s = file_reader_->Read(offset, 2048, &result, scratch.get(), nullptr,
+                           false);
     if (!s.ok()) {
       return s;
     }
@@ -1263,7 +1264,8 @@ class FileChecksumTestHelper {
                                                   result.size());
       }
       offset += static_cast<uint64_t>(result.size());
-      s = file_reader_->Read(offset, 2048, &result, scratch.get(), false);
+      s = file_reader_->Read(offset, 2048, &result, scratch.get(), nullptr,
+                             false);
       if (!s.ok()) {
         return s;
       }

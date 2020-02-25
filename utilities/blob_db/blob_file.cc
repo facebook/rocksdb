@@ -138,9 +138,17 @@ Status BlobFile::ReadFooter(BlobLogFooter* bf) {
   assert(ra_file_reader_);
 
   Slice result;
-  char scratch[BlobLogFooter::kSize + 10];
-  Status s = ra_file_reader_->Read(footer_offset, BlobLogFooter::kSize, &result,
-                                   scratch);
+  std::string buf;
+  std::unique_ptr<const char[]> internal_buf;
+  Status s;
+  if (ra_file_reader_->use_direct_io()) {
+    s = ra_file_reader_->Read(footer_offset, BlobLogFooter::kSize, &result,
+                              nullptr, &internal_buf);
+  } else {
+    buf.reserve(BlobLogFooter::kSize + 10);
+    s = ra_file_reader_->Read(footer_offset, BlobLogFooter::kSize, &result,
+                              &buf[0], nullptr);
+  }
   if (!s.ok()) return s;
   if (result.size() != BlobLogFooter::kSize) {
     // should not happen
@@ -254,9 +262,17 @@ Status BlobFile::ReadMetadata(Env* env, const EnvOptions& env_options) {
                                  PathName()));
 
   // Read file header.
-  char header_buf[BlobLogHeader::kSize];
+  std::string header_buf;
+  std::unique_ptr<const char[]> internal_buf;
   Slice header_slice;
-  s = file_reader->Read(0, BlobLogHeader::kSize, &header_slice, header_buf);
+  if (file_reader->use_direct_io()) {
+    s = file_reader->Read(0, BlobLogHeader::kSize, &header_slice, nullptr,
+                          &internal_buf);
+  } else {
+    header_buf.reserve(BlobLogHeader::kSize);
+    s = file_reader->Read(0, BlobLogHeader::kSize, &header_slice,
+                          &header_buf[0], nullptr);
+  }
   if (!s.ok()) {
     ROCKS_LOG_ERROR(info_log_,
                     "Failed to read header of blob file %" PRIu64
@@ -287,10 +303,16 @@ Status BlobFile::ReadMetadata(Env* env, const EnvOptions& env_options) {
     assert(!footer_valid_);
     return Status::OK();
   }
-  char footer_buf[BlobLogFooter::kSize];
+  std::string footer_buf;
   Slice footer_slice;
-  s = file_reader->Read(file_size - BlobLogFooter::kSize, BlobLogFooter::kSize,
-                        &footer_slice, footer_buf);
+  if (file_reader->use_direct_io()) {
+    s = file_reader->Read(file_size - BlobLogFooter::kSize, BlobLogFooter::kSize,
+                          &footer_slice, nullptr, &internal_buf);
+  } else {
+    footer_buf.reserve(BlobLogFooter::kSize);
+    s = file_reader->Read(file_size - BlobLogFooter::kSize, BlobLogFooter::kSize,
+                          &footer_slice, &footer_buf[0], nullptr);
+  }
   if (!s.ok()) {
     ROCKS_LOG_ERROR(info_log_,
                     "Failed to read footer of blob file %" PRIu64

@@ -114,7 +114,7 @@ class CuckooBuilderTest : public testing::Test {
     for (uint32_t i = 0; i < table_size + cuckoo_block_size - 1; ++i) {
       Slice read_slice;
       ASSERT_OK(file_reader->Read(i * bucket_size, bucket_size, &read_slice,
-                                  nullptr));
+                                  nullptr, nullptr));
       size_t key_idx =
           std::find(expected_locations.begin(), expected_locations.end(), i) -
           expected_locations.begin();
