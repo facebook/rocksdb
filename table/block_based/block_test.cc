@@ -93,12 +93,12 @@ TEST_F(BlockTest, SimpleTest) {
   // create block reader
   BlockContents contents;
   contents.data = rawblock;
-  Block reader(std::move(contents), kDisableGlobalSequenceNumber);
+  Block reader(std::move(contents));
 
   // read contents of block sequentially
   int count = 0;
-  InternalIterator *iter =
-      reader.NewDataIterator(options.comparator, options.comparator);
+  InternalIterator *iter = reader.NewDataIterator(
+      options.comparator, options.comparator, kDisableGlobalSequenceNumber);
   for (iter->SeekToFirst(); iter->Valid(); count++, iter->Next()) {
     // read kv from block
     Slice k = iter->key();
@@ -111,7 +111,8 @@ TEST_F(BlockTest, SimpleTest) {
   delete iter;
 
   // read block contents randomly
-  iter = reader.NewDataIterator(options.comparator, options.comparator);
+  iter = reader.NewDataIterator(options.comparator, options.comparator,
+                                kDisableGlobalSequenceNumber);
   for (int i = 0; i < num_records; i++) {
     // find a random key in the lookaside array
     int index = rnd.Uniform(num_records);
@@ -151,14 +152,15 @@ void CheckBlockContents(BlockContents contents, const int max_key,
   const size_t prefix_size = 6;
   // create block reader
   BlockContents contents_ref(contents.data);
-  Block reader1(std::move(contents), kDisableGlobalSequenceNumber);
-  Block reader2(std::move(contents_ref), kDisableGlobalSequenceNumber);
+  Block reader1(std::move(contents));
+  Block reader2(std::move(contents_ref));
 
   std::unique_ptr<const SliceTransform> prefix_extractor(
       NewFixedPrefixTransform(prefix_size));
 
   std::unique_ptr<InternalIterator> regular_iter(
-      reader2.NewDataIterator(BytewiseComparator(), BytewiseComparator()));
+      reader2.NewDataIterator(BytewiseComparator(), BytewiseComparator(),
+                              kDisableGlobalSequenceNumber));
 
   // Seek existent keys
   for (size_t i = 0; i < keys.size(); i++) {
@@ -375,13 +377,13 @@ TEST_F(BlockTest, BlockWithReadAmpBitmap) {
     // create block reader
     BlockContents contents;
     contents.data = rawblock;
-    Block reader(std::move(contents), kDisableGlobalSequenceNumber,
-                 kBytesPerBit, stats.get());
+    Block reader(std::move(contents), kBytesPerBit, stats.get());
 
     // read contents of block sequentially
     size_t read_bytes = 0;
     DataBlockIter *iter = reader.NewDataIterator(
-        options.comparator, options.comparator, nullptr, stats.get());
+        options.comparator, options.comparator, kDisableGlobalSequenceNumber,
+        nullptr, stats.get());
     for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
       iter->value();
       read_bytes += iter->TEST_CurrentEntrySize();
@@ -408,12 +410,12 @@ TEST_F(BlockTest, BlockWithReadAmpBitmap) {
     // create block reader
     BlockContents contents;
     contents.data = rawblock;
-    Block reader(std::move(contents), kDisableGlobalSequenceNumber,
-                 kBytesPerBit, stats.get());
+    Block reader(std::move(contents), kBytesPerBit, stats.get());
 
     size_t read_bytes = 0;
     DataBlockIter *iter = reader.NewDataIterator(
-        options.comparator, options.comparator, nullptr, stats.get());
+        options.comparator, options.comparator, kDisableGlobalSequenceNumber,
+        nullptr, stats.get());
     for (int i = 0; i < num_records; i++) {
       Slice k(keys[i]);
 
@@ -443,12 +445,12 @@ TEST_F(BlockTest, BlockWithReadAmpBitmap) {
     // create block reader
     BlockContents contents;
     contents.data = rawblock;
-    Block reader(std::move(contents), kDisableGlobalSequenceNumber,
-                 kBytesPerBit, stats.get());
+    Block reader(std::move(contents), kBytesPerBit, stats.get());
 
     size_t read_bytes = 0;
     DataBlockIter *iter = reader.NewDataIterator(
-        options.comparator, options.comparator, nullptr, stats.get());
+        options.comparator, options.comparator, kDisableGlobalSequenceNumber,
+        nullptr, stats.get());
     std::unordered_set<int> read_keys;
     for (int i = 0; i < num_records; i++) {
       int index = rnd.Uniform(num_records);
@@ -563,7 +565,7 @@ TEST_P(IndexBlockTest, IndexValueEncodingTest) {
   // create block reader
   BlockContents contents;
   contents.data = rawblock;
-  Block reader(std::move(contents), kDisableGlobalSequenceNumber);
+  Block reader(std::move(contents));
 
   const bool kTotalOrderSeek = true;
   const bool kIncludesSeq = true;
@@ -572,8 +574,9 @@ TEST_P(IndexBlockTest, IndexValueEncodingTest) {
   Statistics *kNullStats = nullptr;
   // read contents of block sequentially
   InternalIteratorBase<IndexValue> *iter = reader.NewIndexIterator(
-      options.comparator, options.comparator, kNullIter, kNullStats,
-      kTotalOrderSeek, includeFirstKey(), kIncludesSeq, kValueIsFull);
+      options.comparator, options.comparator, kDisableGlobalSequenceNumber,
+      kNullIter, kNullStats, kTotalOrderSeek, includeFirstKey(), kIncludesSeq,
+      kValueIsFull);
   iter->SeekToFirst();
   for (int index = 0; index < num_records; ++index) {
     ASSERT_TRUE(iter->Valid());
@@ -593,8 +596,9 @@ TEST_P(IndexBlockTest, IndexValueEncodingTest) {
 
   // read block contents randomly
   iter = reader.NewIndexIterator(options.comparator, options.comparator,
-                                 kNullIter, kNullStats, kTotalOrderSeek,
-                                 includeFirstKey(), kIncludesSeq, kValueIsFull);
+                                 kDisableGlobalSequenceNumber, kNullIter,
+                                 kNullStats, kTotalOrderSeek, includeFirstKey(),
+                                 kIncludesSeq, kValueIsFull);
   for (int i = 0; i < num_records * 2; i++) {
     // find a random key in the lookaside array
     int index = rnd.Uniform(num_records);

@@ -235,12 +235,13 @@ class BlockConstructor: public Constructor {
     data_ = builder.Finish().ToString();
     BlockContents contents;
     contents.data = data_;
-    block_ = new Block(std::move(contents), kDisableGlobalSequenceNumber);
+    block_ = new Block(std::move(contents));
     return Status::OK();
   }
   InternalIterator* NewIterator(
       const SliceTransform* /*prefix_extractor*/) const override {
-    return block_->NewDataIterator(comparator_, comparator_);
+    return block_->NewDataIterator(comparator_, comparator_,
+                                   kDisableGlobalSequenceNumber);
   }
 
  private:
@@ -4297,11 +4298,11 @@ TEST_P(BlockBasedTableTest, PropertiesBlockRestartPointTest) {
 
     BlockFetchHelper(metaindex_handle, BlockType::kMetaIndex,
                      &metaindex_contents);
-    Block metaindex_block(std::move(metaindex_contents),
-                          kDisableGlobalSequenceNumber);
+    Block metaindex_block(std::move(metaindex_contents));
 
     std::unique_ptr<InternalIterator> meta_iter(metaindex_block.NewDataIterator(
-        BytewiseComparator(), BytewiseComparator()));
+        BytewiseComparator(), BytewiseComparator(),
+        kDisableGlobalSequenceNumber));
     bool found_properties_block = true;
     ASSERT_OK(SeekToPropertiesBlock(meta_iter.get(), &found_properties_block));
     ASSERT_TRUE(found_properties_block);
@@ -4314,8 +4315,7 @@ TEST_P(BlockBasedTableTest, PropertiesBlockRestartPointTest) {
 
     BlockFetchHelper(properties_handle, BlockType::kProperties,
                      &properties_contents);
-    Block properties_block(std::move(properties_contents),
-                           kDisableGlobalSequenceNumber);
+    Block properties_block(std::move(properties_contents));
 
     ASSERT_EQ(properties_block.NumRestarts(), 1u);
   }
@@ -4376,12 +4376,12 @@ TEST_P(BlockBasedTableTest, PropertiesMetaBlockLast) {
       UncompressionDict::GetEmptyDict(), pcache_opts,
       nullptr /*memory_allocator*/);
   ASSERT_OK(block_fetcher.ReadBlockContents());
-  Block metaindex_block(std::move(metaindex_contents),
-                        kDisableGlobalSequenceNumber);
+  Block metaindex_block(std::move(metaindex_contents));
 
   // verify properties block comes last
   std::unique_ptr<InternalIterator> metaindex_iter{
-      metaindex_block.NewDataIterator(options.comparator, options.comparator)};
+      metaindex_block.NewDataIterator(options.comparator, options.comparator,
+                                      kDisableGlobalSequenceNumber)};
   uint64_t max_offset = 0;
   std::string key_at_max_offset;
   for (metaindex_iter->SeekToFirst(); metaindex_iter->Valid();

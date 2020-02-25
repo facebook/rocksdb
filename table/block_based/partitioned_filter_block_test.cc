@@ -151,8 +151,7 @@ class PartitionedFilterBlockTest
         pib));
     BlockContents contents(slice);
     CachableEntry<Block> block(
-        new Block(std::move(contents), kDisableGlobalSequenceNumber,
-                  0 /* read_amp_bytes_per_bit */, nullptr),
+        new Block(std::move(contents), 0 /* read_amp_bytes_per_bit */, nullptr),
         nullptr /* cache */, nullptr /* cache_handle */, true /* own_value */);
     auto reader =
         new MyPartitionedFilterBlockReader(table_.get(), std::move(block));

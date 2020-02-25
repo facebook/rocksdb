@@ -284,7 +284,7 @@ TEST(DataBlockHashIndex, BlockRestartIndexExceedMax) {
     // create block reader
     BlockContents contents;
     contents.data = rawblock;
-    Block reader(std::move(contents), kDisableGlobalSequenceNumber);
+    Block reader(std::move(contents));
 
     ASSERT_EQ(reader.IndexType(),
               BlockBasedTableOptions::kDataBlockBinaryAndHash);
@@ -306,7 +306,7 @@ TEST(DataBlockHashIndex, BlockRestartIndexExceedMax) {
     // create block reader
     BlockContents contents;
     contents.data = rawblock;
-    Block reader(std::move(contents), kDisableGlobalSequenceNumber);
+    Block reader(std::move(contents));
 
     ASSERT_EQ(reader.IndexType(),
               BlockBasedTableOptions::kDataBlockBinarySearch);
@@ -337,7 +337,7 @@ TEST(DataBlockHashIndex, BlockSizeExceedMax) {
     // create block reader
     BlockContents contents;
     contents.data = rawblock;
-    Block reader(std::move(contents), kDisableGlobalSequenceNumber);
+    Block reader(std::move(contents));
 
     ASSERT_EQ(reader.IndexType(),
               BlockBasedTableOptions::kDataBlockBinaryAndHash);
@@ -361,7 +361,7 @@ TEST(DataBlockHashIndex, BlockSizeExceedMax) {
     // create block reader
     BlockContents contents;
     contents.data = rawblock;
-    Block reader(std::move(contents), kDisableGlobalSequenceNumber);
+    Block reader(std::move(contents));
 
     // the index type have fallen back to binary when build finish.
     ASSERT_EQ(reader.IndexType(),
@@ -388,10 +388,11 @@ TEST(DataBlockHashIndex, BlockTestSingleKey) {
   // create block reader
   BlockContents contents;
   contents.data = rawblock;
-  Block reader(std::move(contents), kDisableGlobalSequenceNumber);
+  Block reader(std::move(contents));
 
   const InternalKeyComparator icmp(BytewiseComparator());
-  auto iter = reader.NewDataIterator(&icmp, icmp.user_comparator());
+  auto iter = reader.NewDataIterator(&icmp, icmp.user_comparator(),
+                                     kDisableGlobalSequenceNumber);
   bool may_exist;
   // search in block for the key just inserted
   {
@@ -469,12 +470,13 @@ TEST(DataBlockHashIndex, BlockTestLarge) {
   // create block reader
   BlockContents contents;
   contents.data = rawblock;
-  Block reader(std::move(contents), kDisableGlobalSequenceNumber);
+  Block reader(std::move(contents));
   const InternalKeyComparator icmp(BytewiseComparator());
 
   // random seek existent keys
   for (int i = 0; i < num_records; i++) {
-    auto iter = reader.NewDataIterator(&icmp, icmp.user_comparator());
+    auto iter = reader.NewDataIterator(&icmp, icmp.user_comparator(),
+                                       kDisableGlobalSequenceNumber);
     // find a random key in the lookaside array
     int index = rnd.Uniform(num_records);
     std::string ukey(keys[index] + "1" /* existing key marker */);
@@ -511,7 +513,8 @@ TEST(DataBlockHashIndex, BlockTestLarge) {
   //     C         true          false
 
   for (int i = 0; i < num_records; i++) {
-    auto iter = reader.NewDataIterator(&icmp, icmp.user_comparator());
+    auto iter = reader.NewDataIterator(&icmp, icmp.user_comparator(),
+                                       kDisableGlobalSequenceNumber);
     // find a random key in the lookaside array
     int index = rnd.Uniform(num_records);
     std::string ukey(keys[index] + "0" /* non-existing key marker */);
