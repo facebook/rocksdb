@@ -178,7 +178,9 @@ class PosixFileSystem : public FileSystem {
                        errno);
       }
     }
-    result->reset(new PosixSequentialFile(fname, file, fd, options));
+    result->reset(new PosixSequentialFile(fname, file, fd,
+                                          logical_buffer_size(fname, fd),
+                                          options));
     return IOStatus::OK();
   }
 
@@ -237,7 +239,9 @@ class PosixFileSystem : public FileSystem {
         }
 #endif
       }
-      result->reset(new PosixRandomAccessFile(fname, fd, options
+      result->reset(new PosixRandomAccessFile(fname, fd,
+                                              logical_buffer_size(fname, fd),
+                                              options
 #if defined(ROCKSDB_IOURING_PRESENT)
                                               ,
                                               thread_local_io_urings_.get()
@@ -323,12 +327,16 @@ class PosixFileSystem : public FileSystem {
         }
       }
 #endif
-      result->reset(new PosixWritableFile(fname, fd, options));
+      result->reset(new PosixWritableFile(fname, fd,
+                                          logical_buffer_size(fname, fd),
+                                          options));
     } else {
       // disable mmap writes
       EnvOptions no_mmap_writes_options = options;
       no_mmap_writes_options.use_mmap_writes = false;
-      result->reset(new PosixWritableFile(fname, fd, no_mmap_writes_options));
+      result->reset(new PosixWritableFile(fname, fd,
+                                          logical_buffer_size(fname, fd),
+                                          no_mmap_writes_options));
     }
     return s;
   }
@@ -423,12 +431,16 @@ class PosixFileSystem : public FileSystem {
         }
       }
 #endif
-      result->reset(new PosixWritableFile(fname, fd, options));
+      result->reset(new PosixWritableFile(fname, fd,
+                                          logical_buffer_size(fname, fd),
+                                          options));
     } else {
       // disable mmap writes
       FileOptions no_mmap_writes_options = options;
       no_mmap_writes_options.use_mmap_writes = false;
-      result->reset(new PosixWritableFile(fname, fd, no_mmap_writes_options));
+      result->reset(new PosixWritableFile(fname, fd,
+                                          logical_buffer_size(fname, fd),
+                                          no_mmap_writes_options));
     }
     return s;
   }
@@ -833,7 +845,12 @@ class PosixFileSystem : public FileSystem {
     optimized.fallocate_with_keep_size = true;
     return optimized;
   }
-
+#ifdef OS_LINUX
+  Status HintDbPaths(const std::unordered_set<std::string>& paths) override {
+    logical_buffer_size_cache_.Init(paths);
+    return Status::OK();
+  }
+#endif
  private:
   bool checkedDiskForMmap_;
   bool forceMmapOff_;  // do we override Env options?
@@ -879,7 +896,25 @@ class PosixFileSystem : public FileSystem {
   // If true, allow non owner read access for db files. Otherwise, non-owner
   //  has no access to db files.
   bool allow_non_owner_access_;
+
+#ifdef OS_LINUX
+  static LogicalBufferSizeCache logical_buffer_size_cache_;
+#endif
+  static size_t logical_buffer_size(const std::string& fname, int fd);
 };
+
+#ifdef OS_LINUX
+LogicalBufferSizeCache PosixFileSystem::logical_buffer_size_cache_;
+#endif
+
+size_t PosixFileSystem::logical_buffer_size(const std::string& fname, int fd) {
+#ifdef OS_LINUX
+  return logical_buffer_size_cache_.size(fname, fd);
+#else
+  (void) fname;
+  return PosixHelper::GetLogicalBufferSize(fd);
+#endif
+}
 
 PosixFileSystem::PosixFileSystem()
     : checkedDiskForMmap_(false),

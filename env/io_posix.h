@@ -14,7 +14,10 @@
 #endif
 #include <unistd.h>
 #include <atomic>
+#include <mutex>
 #include <string>
+#include <unordered_map>
+#include <unordered_set>
 #include "rocksdb/env.h"
 #include "util/thread_local.h"
 #include "rocksdb/file_system.h"
@@ -63,7 +66,71 @@ static IOStatus IOError(const std::string& context,
 class PosixHelper {
  public:
   static size_t GetUniqueIdFromFile(int fd, char* id, size_t max_size);
+  static size_t GetLogicalBufferSize(int fd);
 };
+
+#ifdef OS_LINUX
+// Files under a specific directory have the same logical buffer size.
+// This class caches the logical buffer size for the specified directories to
+// save the CPU cost of computing the size.
+// Safe for concurrent access from multiple threads without any external
+// synchronization.
+class LogicalBufferSizeCache {
+ public:
+  // Logical buffer size of files under each specified directory is cached.
+  // Must be called only in one thread and before other methods.
+  void Init(const std::unordered_set<std::string>& directories) {
+    for (const auto& d : directories) {
+      auto& s = cache_[d]; // construct value with default constructor in place
+      (void) s;
+    }
+  }
+
+  // Returns the logical buffer size for the file.
+  // If the file is under a specified directory, then the size is cached.
+  // Otherwise, the size is always computed by GetLogicalBufferSize.
+  size_t size(const std::string& fname, int fd) {
+    std::string dir = fname.substr(0, fname.find_last_of("/"));
+    if (cache_.find(dir) == cache_.end()) {
+      return PosixHelper::GetLogicalBufferSize(fd);
+    }
+    return cache_[dir].size(fd);
+  }
+
+ private:
+  // Cached size for a path.
+  class Size {
+   public:
+    // Internal size is 0, which means the logical buffer size is unknown.
+    Size() : size_(0) {}
+
+    // If logical buffer size has been cached, return the cached value.
+    //
+    // Otherwise, call GetLogicalBufferSize(fd) and cache the result.
+    // If multiple threads try to call GetLogicalBufferSize concurrently,
+    // only one active thread will do the actual work, other threads will return
+    // when the active thread returns and see the size cached by the active
+    // thread.
+    size_t size(int fd) {
+      size_t s = size_.load(std::memory_order_acquire);
+      if (s > 0) {
+        return s;
+      }
+      std::call_once(once_, [&]() {
+        size_.store(PosixHelper::GetLogicalBufferSize(fd),
+                    std::memory_order_release);
+      });
+      return size_.load(std::memory_order_acquire);
+    }
+
+   private:
+    std::atomic_size_t size_;
+    std::once_flag once_;
+  };
+
+  std::unordered_map<std::string, Size> cache_;
+};
+#endif
 
 class PosixSequentialFile : public FSSequentialFile {
  private:
@@ -75,6 +142,7 @@ class PosixSequentialFile : public FSSequentialFile {
 
  public:
   PosixSequentialFile(const std::string& fname, FILE* file, int fd,
+                      size_t logical_buffer_size,
                       const EnvOptions& options);
   virtual ~PosixSequentialFile();
 
@@ -123,6 +191,7 @@ class PosixRandomAccessFile : public FSRandomAccessFile {
 
  public:
   PosixRandomAccessFile(const std::string& fname, int fd,
+                        size_t logical_buffer_size,
                         const EnvOptions& options
 #if defined(ROCKSDB_IOURING_PRESENT)
                         ,
@@ -172,6 +241,7 @@ class PosixWritableFile : public FSWritableFile {
 
  public:
   explicit PosixWritableFile(const std::string& fname, int fd,
+                             size_t logical_buffer_size,
                              const EnvOptions& options);
   virtual ~PosixWritableFile();
 
