@@ -192,7 +192,8 @@ class InternalKeyComparator
 
  public:
   explicit InternalKeyComparator(const Comparator* c)
-      : user_comparator_(c),
+      : Comparator(c->timestamp_size()),
+        user_comparator_(c),
         name_("rocksdb.InternalKeyComparator:" +
               std::string(user_comparator_.Name())) {}
   virtual ~InternalKeyComparator() {}

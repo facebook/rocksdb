@@ -2238,17 +2238,14 @@ class DBBasicTestWithTimestampBase : public DBTestBase {
       if (r != 0 || 0 == timestamp_size()) {
         return r;
       }
-      return CompareTimestamp(
+      return -CompareTimestamp(
           Slice(a.data() + a.size() - timestamp_size(), timestamp_size()),
           Slice(b.data() + b.size() - timestamp_size(), timestamp_size()));
     }
 
-    int CompareWithoutTimestamp(const Slice& a, const Slice& b) const override {
-      return CompareWithoutTimestamp(a, b, true, true);
-    }
-
-    int CompareWithoutTimestamp(const Slice& a, const Slice& b, bool a_has_ts,
-                                bool b_has_ts) const {
+    using Comparator::CompareWithoutTimestamp;
+    int CompareWithoutTimestamp(const Slice& a, bool a_has_ts, const Slice& b,
+                                bool b_has_ts) const override {
       if (a_has_ts) {
         assert(a.size() >= timestamp_size());
       }
@@ -2287,14 +2284,14 @@ class DBBasicTestWithTimestampBase : public DBTestBase {
         assert(false);
       }
       if (high1 < high2) {
-        return 1;
-      } else if (high1 > high2) {
         return -1;
+      } else if (high1 > high2) {
+        return 1;
       }
       if (low1 < low2) {
-        return 1;
-      } else if (low1 > low2) {
         return -1;
+      } else if (low1 > low2) {
+        return 1;
       }
       return 0;
     }

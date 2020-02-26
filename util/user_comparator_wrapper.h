@@ -18,7 +18,7 @@ namespace ROCKSDB_NAMESPACE {
 class UserComparatorWrapper final : public Comparator {
  public:
   explicit UserComparatorWrapper(const Comparator* const user_cmp)
-      : user_comparator_(user_cmp) {}
+      : Comparator(user_cmp->timestamp_size()), user_comparator_(user_cmp) {}
 
   ~UserComparatorWrapper() = default;
 
@@ -58,14 +58,14 @@ class UserComparatorWrapper final : public Comparator {
     return user_comparator_->CanKeysWithDifferentByteContentsBeEqual();
   }
 
-  size_t timestamp_size() const { return user_comparator_->timestamp_size(); }
-
-  int CompareWithoutTimestamp(const Slice& a, const Slice& b) const override {
-    return user_comparator_->CompareWithoutTimestamp(a, b);
-  }
-
   int CompareTimestamp(const Slice& ts1, const Slice& ts2) const override {
     return user_comparator_->CompareTimestamp(ts1, ts2);
+  }
+
+  using Comparator::CompareWithoutTimestamp;
+  int CompareWithoutTimestamp(const Slice& a, bool a_has_ts, const Slice& b,
+                              bool b_has_ts) const override {
+    return user_comparator_->CompareWithoutTimestamp(a, a_has_ts, b, b_has_ts);
   }
 
  private:

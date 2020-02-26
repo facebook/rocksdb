@@ -223,11 +223,13 @@ bool DBIter::FindNextUserEntryInternal(bool skipping_saved_key,
     is_key_seqnum_zero_ = (ikey_.sequence == 0);
 
     assert(iterate_upper_bound_ == nullptr || iter_.MayBeOutOfUpperBound() ||
-           user_comparator_.CompareWithoutTimestamp(ikey_.user_key,
-                                                    *iterate_upper_bound_) < 0);
+           user_comparator_.CompareWithoutTimestamp(
+               ikey_.user_key, /*a_has_ts=*/true, *iterate_upper_bound_,
+               /*b_has_ts=*/false) < 0);
     if (iterate_upper_bound_ != nullptr && iter_.MayBeOutOfUpperBound() &&
-        user_comparator_.CompareWithoutTimestamp(ikey_.user_key,
-                                                 *iterate_upper_bound_) >= 0) {
+        user_comparator_.CompareWithoutTimestamp(
+            ikey_.user_key, /*a_has_ts=*/true, *iterate_upper_bound_,
+            /*b_has_ts=*/false) >= 0) {
       break;
     }
 
@@ -1078,14 +1080,15 @@ bool DBIter::TooManyInternalKeysSkipped(bool increment) {
 }
 
 bool DBIter::IsVisible(SequenceNumber sequence, const Slice& ts) {
+  // Remember that comparator orders preceding timestamp as larger.
   int cmp_ts = timestamp_ub_ != nullptr
                    ? user_comparator_.CompareTimestamp(ts, *timestamp_ub_)
                    : 0;
   if (cmp_ts < 0) {
-    return false;
-  } else if (cmp_ts > 0) {
     assert(sequence <= sequence_);
     return true;
+  } else if (cmp_ts > 0) {
+    return false;
   }
   if (read_callback_ == nullptr) {
     return sequence <= sequence_;
@@ -1102,11 +1105,13 @@ void DBIter::SetSavedKeyToSeekTarget(const Slice& target) {
   saved_key_.SetInternalKey(target, seq, kValueTypeForSeek, timestamp_ub_);
 
   if (iterate_lower_bound_ != nullptr &&
-      user_comparator_.CompareWithoutTimestamp(saved_key_.GetUserKey(),
-                                               *iterate_lower_bound_) < 0) {
+      user_comparator_.CompareWithoutTimestamp(
+          saved_key_.GetUserKey(), /*a_has_ts=*/true, *iterate_lower_bound_,
+          /*b_has_ts=*/false) < 0) {
     // Seek key is smaller than the lower bound.
     saved_key_.Clear();
-    saved_key_.SetInternalKey(*iterate_lower_bound_, seq);
+    saved_key_.SetInternalKey(*iterate_lower_bound_, seq, kValueTypeForSeek,
+                              timestamp_ub_);
   }
 }
 
@@ -1243,7 +1248,7 @@ void DBIter::SeekForPrev(const Slice& target) {
 
 void DBIter::SeekToFirst() {
   if (iterate_lower_bound_ != nullptr) {
-    Seek(StripTimestampFromUserKey(*iterate_lower_bound_, timestamp_size_));
+    Seek(*iterate_lower_bound_);
     return;
   }
   PERF_CPU_TIMER_GUARD(iter_seek_cpu_nanos, env_);
