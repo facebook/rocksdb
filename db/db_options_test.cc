@@ -598,7 +598,7 @@ TEST_F(DBOptionsTest, MaxOpenFilesChange) {
 }
 
 TEST_F(DBOptionsTest, SanitizeDelayedWriteRate) {
-  Options options;
+  Options options = CurrentOptions();
   options.delayed_write_rate = 0;
   Reopen(options);
   ASSERT_EQ(16 * 1024 * 1024, dbfull()->GetDBOptions().delayed_write_rate);
@@ -814,10 +814,11 @@ TEST_F(DBOptionsTest, CompactionReadaheadSizeChange) {
 }
 
 TEST_F(DBOptionsTest, FIFOTtlBackwardCompatible) {
-  Options options;
+  Options options = CurrentOptions();
   options.compaction_style = kCompactionStyleFIFO;
   options.write_buffer_size = 10 << 10;  // 10KB
   options.create_if_missing = true;
+  options.max_open_files = -1;
 
   ASSERT_OK(TryReopen(options));
 
