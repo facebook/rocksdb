@@ -25,6 +25,7 @@
 #include <sstream>
 #include <string>
 #include <vector>
+#include <unordered_set>
 #include "rocksdb/env.h"
 #include "rocksdb/io_status.h"
 #include "rocksdb/options.h"
@@ -170,6 +171,14 @@ class FileSystem {
   //
   // The result of Default() belongs to rocksdb and must never be deleted.
   static std::shared_ptr<FileSystem> Default();
+
+  // Gives the filesystem a hint on the database paths.
+  // Different filesystem implementations may take different actions regarding
+  // to the hint.
+  // By default, the hint is ignored.
+  virtual Status HintDbPaths(const std::unordered_set<std::string>& /*paths*/) {
+    return Status::OK();
+  }
 
   // Create a brand new sequentially-readable file with the specified name.
   // On success, stores a pointer to the new file in *result and returns OK.
