@@ -430,6 +430,14 @@ DEFINE_uint64(rate_limiter_bytes_per_sec, 0, "Set options.rate_limiter value.");
 DEFINE_bool(rate_limit_bg_reads, false,
             "Use options.rate_limiter on compaction reads");
 
+DEFINE_uint64(sst_file_manager_bytes_per_sec, 0,
+              "Set `Options::sst_file_manager` to delete at this rate. By "
+              "default the deletion rate is unbounded.");
+
+DEFINE_uint64(sst_file_manager_bytes_per_truncate, 0,
+              "Set `Options::sst_file_manager` to delete in chunks of this "
+              "many bytes. By default whole files will be deleted.");
+
 DEFINE_bool(use_txn, false,
             "Use TransactionDB. Currently the default write policy is "
             "TxnDBWritePolicy::WRITE_PREPARED");
