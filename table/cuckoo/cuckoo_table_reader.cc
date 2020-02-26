@@ -54,6 +54,7 @@ CuckooTableReader::CuckooTableReader(
       get_slice_hash_(get_slice_hash) {
   if (!ioptions.allow_mmap_reads) {
     status_ = Status::InvalidArgument("File is not mmaped");
+    return;
   }
   TableProperties* props = nullptr;
   status_ = ReadTableProperties(file_.get(), file_size, kCuckooTableMagicNumber,
