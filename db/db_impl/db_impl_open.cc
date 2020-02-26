@@ -255,6 +255,23 @@ Status DBImpl::ValidateOptions(const DBOptions& db_options) {
   return Status::OK();
 }
 
+std::unordered_set<std::string> DbPaths(
+    const std::string& dbname,
+    const DBOptions& opt,
+    const std::vector<ColumnFamilyDescriptor>& cfds) {
+  std::unordered_set<std::string> paths;
+  paths.insert(dbname);
+  for (const auto& p : opt.db_paths) {
+    paths.insert(p.path);
+  }
+  for (const auto& cfd : cfds) {
+    for (const auto& p : cfd.options.cf_paths) {
+      paths.insert(p.path);
+    }
+  }
+  return paths;
+}
+
 Status DBImpl::NewDB() {
   VersionEdit new_db;
   Status s = SetIdentityFile(env_, dbname_);
@@ -1362,6 +1379,12 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
   }
 
   s = ValidateOptions(db_options, column_families);
+  if (!s.ok()) {
+    return s;
+  }
+
+  auto db_paths = DbPaths(dbname, db_options, column_families);
+  s = FileSystem::Default()->HintDbPaths(db_paths);
   if (!s.ok()) {
     return s;
   }

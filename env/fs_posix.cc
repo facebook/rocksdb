@@ -847,7 +847,7 @@ class PosixFileSystem : public FileSystem {
   }
 #ifdef OS_LINUX
   Status HintDbPaths(const std::unordered_set<std::string>& paths) override {
-    logical_buffer_size_cache_.Init(paths);
+    logical_buffer_size_cache_.AddCacheDirectories(paths);
     return Status::OK();
   }
 #endif
