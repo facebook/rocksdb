@@ -14,14 +14,15 @@
 #endif
 #include <unistd.h>
 #include <atomic>
-#include <mutex>
 #include <string>
 #include <unordered_map>
 #include <unordered_set>
 #include "rocksdb/env.h"
-#include "util/thread_local.h"
 #include "rocksdb/file_system.h"
 #include "rocksdb/io_status.h"
+#include "port/port.h"
+#include "util/thread_local.h"
+#include "util/mutexlock.h"
 
 // For non linux platform, the following macros are used only as place
 // holder.
@@ -77,11 +78,13 @@ class PosixHelper {
 // synchronization.
 class LogicalBufferSizeCache {
  public:
-  // Logical buffer size of files under each specified directory is cached.
-  // Must be called only in one thread and before other methods.
-  void Init(const std::unordered_set<std::string>& directories) {
+  // Logical buffer size of files under each specified directory will be cached.
+  // If the logical buffer size for a directory has been cached, the original
+  // cached size will keep being used.
+  void AddCacheDirectories(const std::unordered_set<std::string>& directories) {
+    WriteLock lock(&cache_mutex_);
     for (const auto& d : directories) {
-      auto& s = cache_[d]; // construct value with default constructor in place
+      auto& s = cache_[d];
       (void) s;
     }
   }
@@ -90,6 +93,7 @@ class LogicalBufferSizeCache {
   // If the file is under a specified directory, then the size is cached.
   // Otherwise, the size is always computed by GetLogicalBufferSize.
   size_t size(const std::string& fname, int fd) {
+    ReadLock lock(&cache_mutex_);
     std::string dir = fname.substr(0, fname.find_last_of("/"));
     if (cache_.find(dir) == cache_.end()) {
       return PosixHelper::GetLogicalBufferSize(fd);
@@ -129,6 +133,7 @@ class LogicalBufferSizeCache {
   };
 
   std::unordered_map<std::string, Size> cache_;
+  port::RWMutex cache_mutex_;
 };
 #endif
 
