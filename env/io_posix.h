@@ -14,15 +14,16 @@
 #endif
 #include <unistd.h>
 #include <atomic>
+#include <functional>
 #include <string>
 #include <unordered_map>
 #include <unordered_set>
+#include "port/port.h"
 #include "rocksdb/env.h"
 #include "rocksdb/file_system.h"
 #include "rocksdb/io_status.h"
-#include "port/port.h"
-#include "util/thread_local.h"
 #include "util/mutexlock.h"
+#include "util/thread_local.h"
 
 // For non linux platform, the following macros are used only as place
 // holder.
@@ -35,34 +36,11 @@
 #endif
 
 namespace ROCKSDB_NAMESPACE {
-static std::string IOErrorMsg(const std::string& context,
-                              const std::string& file_name) {
-  if (file_name.empty()) {
-    return context;
-  }
-  return context + ": " + file_name;
-}
-
+std::string IOErrorMsg(const std::string& context,
+                       const std::string& file_name);
 // file_name can be left empty if it is not unkown.
-static IOStatus IOError(const std::string& context,
-                        const std::string& file_name, int err_number) {
-  switch (err_number) {
-    case ENOSPC: {
-      IOStatus s = IOStatus::NoSpace(IOErrorMsg(context, file_name),
-                                     strerror(err_number));
-      s.SetRetryable(true);
-      return s;
-    }
-  case ESTALE:
-    return IOStatus::IOError(IOStatus::kStaleFile);
-  case ENOENT:
-    return IOStatus::PathNotFound(IOErrorMsg(context, file_name),
-                                  strerror(err_number));
-  default:
-    return IOStatus::IOError(IOErrorMsg(context, file_name),
-                             strerror(err_number));
-  }
-}
+IOStatus IOError(const std::string& context, const std::string& file_name,
+                 int err_number);
 
 class PosixHelper {
  public:
@@ -78,6 +56,10 @@ class PosixHelper {
 // synchronization.
 class LogicalBufferSizeCache {
  public:
+  LogicalBufferSizeCache(std::function<size_t(int)> get_logical_buffer_size =
+                             PosixHelper::GetLogicalBufferSize)
+      : get_logical_buffer_size_(get_logical_buffer_size) {}
+
   // Logical buffer size of files under each specified directory will be cached.
   // If the logical buffer size for a directory has been cached, the original
   // cached size will keep being used.
@@ -90,49 +72,42 @@ class LogicalBufferSizeCache {
   }
 
   // Returns the logical buffer size for the file.
-  // If the file is under a specified directory, then the size is cached.
-  // Otherwise, the size is always computed by GetLogicalBufferSize.
+  //
+  // 1. The file is under a specified directory. If size is cached, return the
+  // result, otherwise, call GetLogicalBufferSize(fd) and cache the result.
+  // If multiple threads try to call GetLogicalBufferSize concurrently,
+  // only one active thread will do the actual work, other threads will return
+  // when the active thread returns and see the size cached by the active
+  // thread.
+  //
+  // 2. The file is not under any specified directory, the size is always
+  // computed by GetLogicalBufferSize.
   size_t size(const std::string& fname, int fd) {
     ReadLock lock(&cache_mutex_);
     std::string dir = fname.substr(0, fname.find_last_of("/"));
     if (cache_.find(dir) == cache_.end()) {
-      return PosixHelper::GetLogicalBufferSize(fd);
+      return get_logical_buffer_size_(fd);
     }
-    return cache_[dir].size(fd);
+    auto& value = cache_[dir];
+    size_t s = value.size.load(std::memory_order_acquire);
+    if (s > 0) {
+      return s;
+    }
+    std::call_once(value.once, [&]() {
+      value.size.store(get_logical_buffer_size_(fd), std::memory_order_release);
+    });
+    return value.size.load(std::memory_order_acquire);
   }
 
  private:
-  // Cached size for a path.
-  class Size {
-   public:
-    // Internal size is 0, which means the logical buffer size is unknown.
-    Size() : size_(0) {}
+  std::function<size_t(int)> get_logical_buffer_size_;
 
-    // If logical buffer size has been cached, return the cached value.
-    //
-    // Otherwise, call GetLogicalBufferSize(fd) and cache the result.
-    // If multiple threads try to call GetLogicalBufferSize concurrently,
-    // only one active thread will do the actual work, other threads will return
-    // when the active thread returns and see the size cached by the active
-    // thread.
-    size_t size(int fd) {
-      size_t s = size_.load(std::memory_order_acquire);
-      if (s > 0) {
-        return s;
-      }
-      std::call_once(once_, [&]() {
-        size_.store(PosixHelper::GetLogicalBufferSize(fd),
-                    std::memory_order_release);
-      });
-      return size_.load(std::memory_order_acquire);
-    }
-
-   private:
-    std::atomic_size_t size_;
-    std::once_flag once_;
+  struct Value {
+    std::atomic_size_t size;
+    std::once_flag once;
   };
 
-  std::unordered_map<std::string, Size> cache_;
+  std::unordered_map<std::string, Value> cache_;
   port::RWMutex cache_mutex_;
 };
 #endif

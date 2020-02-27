@@ -45,6 +45,35 @@
 
 namespace ROCKSDB_NAMESPACE {
 
+std::string IOErrorMsg(const std::string& context,
+                       const std::string& file_name) {
+  if (file_name.empty()) {
+    return context;
+  }
+  return context + ": " + file_name;
+}
+
+// file_name can be left empty if it is not unkown.
+IOStatus IOError(const std::string& context, const std::string& file_name,
+                 int err_number) {
+  switch (err_number) {
+    case ENOSPC: {
+      IOStatus s = IOStatus::NoSpace(IOErrorMsg(context, file_name),
+                                     strerror(err_number));
+      s.SetRetryable(true);
+      return s;
+    }
+    case ESTALE:
+      return IOStatus::IOError(IOStatus::kStaleFile);
+    case ENOENT:
+      return IOStatus::PathNotFound(IOErrorMsg(context, file_name),
+                                    strerror(err_number));
+    default:
+      return IOStatus::IOError(IOErrorMsg(context, file_name),
+                               strerror(err_number));
+  }
+}
+
 // A wrapper for fadvise, if the platform doesn't support fadvise,
 // it will simply return 0.
 int Fadvise(int fd, off_t offset, size_t len, int advice) {

@@ -1088,6 +1088,13 @@ ROCKS_TESTS = [
         [],
     ],
     [
+        "io_posix_test",
+        "env/io_posix_test.cc",
+        "serial",
+        [],
+        [],
+    ],
+    [
         "iostats_context_test",
         "monitoring/iostats_context_test.cc",
         "serial",

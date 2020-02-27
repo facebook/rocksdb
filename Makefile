@@ -459,6 +459,7 @@ TESTS = \
 	env_basic_test \
 	env_test \
 	env_logger_test \
+	io_posix_test \
 	hash_test \
 	random_test \
 	thread_local_test \
@@ -1477,6 +1478,9 @@ env_basic_test: env/env_basic_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
 env_test: env/env_test.o $(LIBOBJECTS) $(TESTHARNESS)
+	$(AM_LINK)
+
+io_posix_test: env/io_posix_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
 fault_injection_test: db/fault_injection_test.o $(LIBOBJECTS) $(TESTHARNESS)
