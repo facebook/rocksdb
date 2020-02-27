@@ -847,7 +847,15 @@ class PosixFileSystem : public FileSystem {
   }
 #ifdef OS_LINUX
   Status HintDbPaths(const std::unordered_set<std::string>& paths) override {
-    logical_buffer_size_cache_.AddCacheDirectories(paths);
+    std::set<std::pair<std::string, int>> fname_fds;
+    for (auto& path : paths) {
+      int fd = open(path.c_str(), O_DIRECTORY | O_RDONLY);
+      if (fd == -1) {
+        return Status::IOError("Cannot open directory " + path);
+      }
+      fname_fds.emplace(path, fd);
+    }
+    logical_buffer_size_cache_.CacheLogicalBufferSize(fname_fds);
     return Status::OK();
   }
 #endif
@@ -909,7 +917,7 @@ LogicalBufferSizeCache PosixFileSystem::logical_buffer_size_cache_;
 
 size_t PosixFileSystem::logical_buffer_size(const std::string& fname, int fd) {
 #ifdef OS_LINUX
-  return logical_buffer_size_cache_.size(fname, fd);
+  return logical_buffer_size_cache_.GetLogicalBufferSize(fname, fd);
 #else
   (void) fname;
   return PosixHelper::GetLogicalBufferSize(fd);

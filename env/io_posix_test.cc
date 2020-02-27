@@ -15,35 +15,40 @@ TEST_F(LogicalBufferSizeCacheTest, CacheBehavior) {
   int ncall = 0;
   LogicalBufferSizeCache cache([&](int fd) {
     ncall++;
-    return fd * 2;
+    return fd;
   });
   ASSERT_EQ(0, ncall);
 
-  ASSERT_EQ(2, cache.size("/db/sst1", 1));
+  ASSERT_EQ(7, cache.GetLogicalBufferSize("/db/sst1", 7));
   ASSERT_EQ(1, ncall);
-  ASSERT_EQ(4, cache.size("/db/sst2", 2));
+  ASSERT_EQ(8, cache.GetLogicalBufferSize("/db/sst2", 8));
   ASSERT_EQ(2, ncall);
 
-  cache.AddCacheDirectories({"/db1", "/db2"});
-  ASSERT_EQ(2, cache.size("/db/sst", 1));
-  ASSERT_EQ(3, ncall);
-  ASSERT_EQ(4, cache.size("/db1/sst1", 2));
+  cache.CacheLogicalBufferSize({{"/db1", 1}, {"/db2", 2}});
   ASSERT_EQ(4, ncall);
+  // No cached size for /db.
+  ASSERT_EQ(7, cache.GetLogicalBufferSize("/db/sst1", 7));
+  ASSERT_EQ(5, ncall);
+  ASSERT_EQ(8, cache.GetLogicalBufferSize("/db/sst2", 8));
+  ASSERT_EQ(6, ncall);
   // Buffer size for /db1 is cached.
-  ASSERT_EQ(4, cache.size("/db1/sst2", 1));
-  ASSERT_EQ(4, ncall);
-  ASSERT_EQ(6, cache.size("/db2/sst1", 3));
-  ASSERT_EQ(5, ncall);
+  ASSERT_EQ(1, cache.GetLogicalBufferSize("/db1/sst1", 4));
+  ASSERT_EQ(6, ncall);
+  ASSERT_EQ(1, cache.GetLogicalBufferSize("/db1/sst2", 5));
+  ASSERT_EQ(6, ncall);
   // Buffer size for /db2 is cached.
-  ASSERT_EQ(6, cache.size("/db2/sst2", 2));
-  ASSERT_EQ(5, ncall);
+  ASSERT_EQ(2, cache.GetLogicalBufferSize("/db2/sst1", 6));
+  ASSERT_EQ(6, ncall);
+  ASSERT_EQ(2, cache.GetLogicalBufferSize("/db2/sst2", 7));
+  ASSERT_EQ(6, ncall);
 
-  cache.AddCacheDirectories({"/db"});
-  ASSERT_EQ(8, cache.size("/db/sst1", 4));
-  ASSERT_EQ(6, ncall);
+  cache.CacheLogicalBufferSize({{"/db", 3}});
+  ASSERT_EQ(7, ncall);
   // Buffer size for /db is cached.
-  ASSERT_EQ(8, cache.size("/db/sst2", 1));
-  ASSERT_EQ(6, ncall);
+  ASSERT_EQ(3, cache.GetLogicalBufferSize("/db/sst1", 7));
+  ASSERT_EQ(7, ncall);
+  ASSERT_EQ(3, cache.GetLogicalBufferSize("/db/sst2", 8));
+  ASSERT_EQ(7, ncall);
 }
 #endif
 

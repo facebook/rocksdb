@@ -15,9 +15,11 @@
 #include <unistd.h>
 #include <atomic>
 #include <functional>
+#include <set>
 #include <string>
 #include <unordered_map>
 #include <unordered_set>
+#include <utility>
 #include "port/port.h"
 #include "rocksdb/env.h"
 #include "rocksdb/file_system.h"
@@ -63,51 +65,24 @@ class LogicalBufferSizeCache {
   // Logical buffer size of files under each specified directory will be cached.
   // If the logical buffer size for a directory has been cached, the original
   // cached size will keep being used.
-  void AddCacheDirectories(const std::unordered_set<std::string>& directories) {
-    WriteLock lock(&cache_mutex_);
-    for (const auto& d : directories) {
-      auto& s = cache_[d];
-      (void) s;
-    }
-  }
+  // NOTE: directory must not have trailing slash.
+  // directories is a set of <fname, fd> pairs.
+  void CacheLogicalBufferSize(
+      const std::set<std::pair<std::string, int>>& directories);
+
+  void RemoveCachedLogicalBufferSize(
+      const std::unordered_set<std::string>& directories);
 
   // Returns the logical buffer size for the file.
   //
-  // 1. The file is under a specified directory. If size is cached, return the
-  // result, otherwise, call GetLogicalBufferSize(fd) and cache the result.
-  // If multiple threads try to call GetLogicalBufferSize concurrently,
-  // only one active thread will do the actual work, other threads will return
-  // when the active thread returns and see the size cached by the active
-  // thread.
-  //
-  // 2. The file is not under any specified directory, the size is always
-  // computed by GetLogicalBufferSize.
-  size_t size(const std::string& fname, int fd) {
-    ReadLock lock(&cache_mutex_);
-    std::string dir = fname.substr(0, fname.find_last_of("/"));
-    if (cache_.find(dir) == cache_.end()) {
-      return get_logical_buffer_size_(fd);
-    }
-    auto& value = cache_[dir];
-    size_t s = value.size.load(std::memory_order_acquire);
-    if (s > 0) {
-      return s;
-    }
-    std::call_once(value.once, [&]() {
-      value.size.store(get_logical_buffer_size_(fd), std::memory_order_release);
-    });
-    return value.size.load(std::memory_order_acquire);
-  }
+  // If the file is under a specified directory, return the cached size.
+  // Otherwise, the size is always computed.
+  size_t GetLogicalBufferSize(const std::string& fname, int fd);
 
  private:
   std::function<size_t(int)> get_logical_buffer_size_;
 
-  struct Value {
-    std::atomic_size_t size;
-    std::once_flag once;
-  };
-
-  std::unordered_map<std::string, Value> cache_;
+  std::unordered_map<std::string, size_t> cache_;
   port::RWMutex cache_mutex_;
 };
 #endif
