@@ -170,7 +170,7 @@ class DBIter final : public Iterator {
       return status_;
     }
   }
-  Slice utimestamp() const override {
+  Slice timestamp() const override {
     assert(valid_);
     assert(timestamp_size_ > 0);
     const Slice ukey_and_ts = saved_key_.GetUserKey();

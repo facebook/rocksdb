@@ -65,6 +65,7 @@ class UserComparatorWrapper final : public Comparator {
   using Comparator::CompareWithoutTimestamp;
   int CompareWithoutTimestamp(const Slice& a, bool a_has_ts, const Slice& b,
                               bool b_has_ts) const override {
+    PERF_COUNTER_ADD(user_key_comparison_count, 1);
     return user_comparator_->CompareWithoutTimestamp(a, a_has_ts, b, b_has_ts);
   }
 

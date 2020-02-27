@@ -392,7 +392,7 @@ TEST_F(DBBasicTest, FlushEmptyColumnFamily) {
   sleeping_task_low.WaitUntilDone();
 }
 
-TEST_F(DBBasicTest, FLUSH) {
+TEST_F(DBBasicTest, Flush) {
   do {
     CreateAndReopenWithCF({"pikachu"}, CurrentOptions());
     WriteOptions writeOpt = WriteOptions();
@@ -2311,7 +2311,7 @@ class DBBasicTestWithTimestampBase : public DBTestBase {
     ASSERT_OK(it->status());
     ASSERT_EQ(expected_key, it->key());
     ASSERT_EQ(expected_value, it->value());
-    ASSERT_EQ(expected_ts, it->utimestamp());
+    ASSERT_EQ(expected_ts, it->timestamp());
   }
 
   void CheckIterEntry(const Iterator* it, const Slice& expected_ukey,
@@ -2329,7 +2329,7 @@ class DBBasicTestWithTimestampBase : public DBTestBase {
     if (expected_val_type == kTypeValue) {
       ASSERT_EQ(expected_value, it->value());
     }
-    ASSERT_EQ(expected_ts, it->utimestamp());
+    ASSERT_EQ(expected_ts, it->timestamp());
   }
 };
 
@@ -2635,8 +2635,7 @@ TEST_P(DBBasicTestWithTimestampCompressionSettings, PutAndGetWithCompaction) {
     std::string expected_timestamp =
         std::string(write_ts_list[i].data(), write_ts_list[i].size());
 
-    ASSERT_OK(
-        db_->Get(ropts, cfh, Key1(k), &value, &timestamp));
+    ASSERT_OK(db_->Get(ropts, cfh, Key1(k), &value, &timestamp));
     ASSERT_EQ("value_" + std::to_string(k) + "_" + std::to_string(i), value);
     ASSERT_EQ(expected_timestamp, timestamp);
   };
