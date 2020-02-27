@@ -255,7 +255,6 @@ Status DBImpl::ValidateOptions(const DBOptions& db_options) {
   return Status::OK();
 }
 
-#ifdef OS_LINUX
 std::unordered_set<std::string> DbPaths(
     const std::string& dbname,
     const DBOptions& opt,
@@ -272,7 +271,6 @@ std::unordered_set<std::string> DbPaths(
   }
   return paths;
 }
-#endif
 
 Status DBImpl::NewDB() {
   VersionEdit new_db;
@@ -1385,14 +1383,6 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
     return s;
   }
 
-#ifdef OS_LINUX
-  auto db_paths = DbPaths(dbname, db_options, column_families);
-  s = FileSystem::Default()->HintDbPaths(db_paths);
-  if (!s.ok()) {
-    return s;
-  }
-#endif
-
   *dbptr = nullptr;
   handles->clear();
 
@@ -1434,6 +1424,13 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
   }
 
   s = impl->CreateArchivalDirectory();
+  if (!s.ok()) {
+    delete impl;
+    return s;
+  }
+
+  auto db_paths = DbPaths(dbname, db_options, column_families);
+  s = impl->env_->HintDbPaths(db_paths);
   if (!s.ok()) {
     delete impl;
     return s;

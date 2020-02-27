@@ -22,6 +22,7 @@
 #include <limits>
 #include <memory>
 #include <string>
+#include <unordered_set>
 #include <vector>
 #include "rocksdb/status.h"
 #include "rocksdb/thread_status.h"
@@ -162,6 +163,13 @@ class Env {
   //
   // The result of Default() belongs to rocksdb and must never be deleted.
   static Env* Default();
+
+  // Gives the env a hint on the database paths.
+  // Different implementations may take different actions regarding to the hint.
+  // By default, the hint is ignored.
+  virtual Status HintDbPaths(const std::unordered_set<std::string>& /*paths*/) {
+    return Status::OK();
+  }
 
   // Create a brand new sequentially-readable file with the specified name.
   // On success, stores a pointer to the new file in *result and returns OK.
