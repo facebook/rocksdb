@@ -49,7 +49,7 @@ class CloudEnvImpl : public CloudEnv {
   // For example, it will map 00010.sst to 00010.sst-[epoch] where [epoch] is
   // an epoch during which that file was created.
   // Files both in S3 and in the local directory have this [epoch] suffix.
-  std::string RemapFilename(const std::string& logical_path) const;
+  std::string RemapFilename(const std::string& logical_path) const override;
 
   // This will delete all files in dest bucket and locally whose epochs are
   // invalid. For example, if we find 00010.sst-[epochX], but the real mapping

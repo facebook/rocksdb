@@ -437,6 +437,13 @@ public:
   // Deletes file from a destination bucket.
   virtual Status DeleteCloudFileFromDest(const std::string& fname) = 0;
 
+  // Transfers the filename from RocksDB's domain to the physical domain, based
+  // on information stored in CLOUDMANIFEST.
+  // For example, it will map 00010.sst to 00010.sst-[epoch] where [epoch] is
+  // an epoch during which that file was created.
+  // Files both in S3 and in the local directory have this [epoch] suffix.
+  virtual std::string RemapFilename(const std::string& logical_name) const = 0;
+
   // Create a new AWS env.
   // src_bucket_name: bucket name suffix where db data is read from
   // src_object_prefix: all db objects in source bucket are prepended with this
