@@ -82,7 +82,6 @@ template <>
 class BlocklikeTraits<BlockContents> {
  public:
   static BlockContents* Create(BlockContents&& contents,
-                               SequenceNumber /* global_seqno */,
                                size_t /* read_amp_bytes_per_bit */,
                                Statistics* /* statistics */,
                                bool /* using_zstd */,
@@ -99,7 +98,6 @@ template <>
 class BlocklikeTraits<ParsedFullFilterBlock> {
  public:
   static ParsedFullFilterBlock* Create(BlockContents&& contents,
-                                       SequenceNumber /* global_seqno */,
                                        size_t /* read_amp_bytes_per_bit */,
                                        Statistics* /* statistics */,
                                        bool /* using_zstd */,
@@ -115,12 +113,10 @@ class BlocklikeTraits<ParsedFullFilterBlock> {
 template <>
 class BlocklikeTraits<Block> {
  public:
-  static Block* Create(BlockContents&& contents, SequenceNumber global_seqno,
-                       size_t read_amp_bytes_per_bit, Statistics* statistics,
-                       bool /* using_zstd */,
+  static Block* Create(BlockContents&& contents, size_t read_amp_bytes_per_bit,
+                       Statistics* statistics, bool /* using_zstd */,
                        const FilterPolicy* /* filter_policy */) {
-    return new Block(std::move(contents), global_seqno, read_amp_bytes_per_bit,
-                     statistics);
+    return new Block(std::move(contents), read_amp_bytes_per_bit, statistics);
   }
 
   static uint32_t GetNumRestarts(const Block& block) {
@@ -132,7 +128,6 @@ template <>
 class BlocklikeTraits<UncompressionDict> {
  public:
   static UncompressionDict* Create(BlockContents&& contents,
-                                   SequenceNumber /* global_seqno */,
                                    size_t /* read_amp_bytes_per_bit */,
                                    Statistics* /* statistics */,
                                    bool using_zstd,
@@ -160,9 +155,9 @@ Status ReadBlockFromFile(
     std::unique_ptr<TBlocklike>* result, const ImmutableCFOptions& ioptions,
     bool do_uncompress, bool maybe_compressed, BlockType block_type,
     const UncompressionDict& uncompression_dict,
-    const PersistentCacheOptions& cache_options, SequenceNumber global_seqno,
-    size_t read_amp_bytes_per_bit, MemoryAllocator* memory_allocator,
-    bool for_compaction, bool using_zstd, const FilterPolicy* filter_policy) {
+    const PersistentCacheOptions& cache_options, size_t read_amp_bytes_per_bit,
+    MemoryAllocator* memory_allocator, bool for_compaction, bool using_zstd,
+    const FilterPolicy* filter_policy) {
   assert(result);
 
   BlockContents contents;
@@ -173,8 +168,8 @@ Status ReadBlockFromFile(
   Status s = block_fetcher.ReadBlockContents();
   if (s.ok()) {
     result->reset(BlocklikeTraits<TBlocklike>::Create(
-        std::move(contents), global_seqno, read_amp_bytes_per_bit,
-        ioptions.statistics, using_zstd, filter_policy));
+        std::move(contents), read_amp_bytes_per_bit, ioptions.statistics,
+        using_zstd, filter_policy));
   }
 
   return s;
@@ -414,6 +409,7 @@ class PartitionIndexReader : public BlockBasedTable::IndexReaderCommon {
       return NewErrorInternalIterator<IndexValue>(s);
     }
 
+    const BlockBasedTable::Rep* rep = table()->rep_;
     InternalIteratorBase<IndexValue>* it = nullptr;
 
     Statistics* kNullStats = nullptr;
@@ -426,8 +422,9 @@ class PartitionIndexReader : public BlockBasedTable::IndexReaderCommon {
                                                              &partition_map_),
           index_block.GetValue()->NewIndexIterator(
               internal_comparator(), internal_comparator()->user_comparator(),
-              nullptr, kNullStats, true, index_has_first_key(),
-              index_key_includes_seq(), index_value_is_full()));
+              rep->get_global_seqno(BlockType::kIndex), nullptr, kNullStats,
+              true, index_has_first_key(), index_key_includes_seq(),
+              index_value_is_full()));
     } else {
       ReadOptions ro;
       ro.fill_cache = read_options.fill_cache;
@@ -437,8 +434,9 @@ class PartitionIndexReader : public BlockBasedTable::IndexReaderCommon {
           table(), ro, *internal_comparator(),
           index_block.GetValue()->NewIndexIterator(
               internal_comparator(), internal_comparator()->user_comparator(),
-              nullptr, kNullStats, true, index_has_first_key(),
-              index_key_includes_seq(), index_value_is_full()),
+              rep->get_global_seqno(BlockType::kIndex), nullptr, kNullStats,
+              true, index_has_first_key(), index_key_includes_seq(),
+              index_value_is_full()),
           false, true, /* prefix_extractor */ nullptr, BlockType::kIndex,
           lookup_context ? lookup_context->caller
                          : TableReaderCaller::kUncategorized);
@@ -477,9 +475,9 @@ class PartitionIndexReader : public BlockBasedTable::IndexReaderCommon {
     // We don't return pinned data from index blocks, so no need
     // to set `block_contents_pinned`.
     index_block.GetValue()->NewIndexIterator(
-        internal_comparator(), internal_comparator()->user_comparator(), &biter,
-        kNullStats, true, index_has_first_key(), index_key_includes_seq(),
-        index_value_is_full());
+        internal_comparator(), internal_comparator()->user_comparator(),
+        rep->get_global_seqno(BlockType::kIndex), &biter, kNullStats, true,
+        index_has_first_key(), index_key_includes_seq(), index_value_is_full());
     // Index partitions are assumed to be consecuitive. Prefetch them all.
     // Read the first block offset
     biter.SeekToFirst();
@@ -590,6 +588,7 @@ class BinarySearchIndexReader : public BlockBasedTable::IndexReaderCommon {
       const ReadOptions& read_options, bool /* disable_prefix_seek */,
       IndexBlockIter* iter, GetContext* get_context,
       BlockCacheLookupContext* lookup_context) override {
+    const BlockBasedTable::Rep* rep = table()->get_rep();
     const bool no_io = (read_options.read_tier == kBlockCacheTier);
     CachableEntry<Block> index_block;
     const Status s =
@@ -607,9 +606,9 @@ class BinarySearchIndexReader : public BlockBasedTable::IndexReaderCommon {
     // We don't return pinned data from index blocks, so no need
     // to set `block_contents_pinned`.
     auto it = index_block.GetValue()->NewIndexIterator(
-        internal_comparator(), internal_comparator()->user_comparator(), iter,
-        kNullStats, true, index_has_first_key(), index_key_includes_seq(),
-        index_value_is_full());
+        internal_comparator(), internal_comparator()->user_comparator(),
+        rep->get_global_seqno(BlockType::kIndex), iter, kNullStats, true,
+        index_has_first_key(), index_key_includes_seq(), index_value_is_full());
 
     assert(it != nullptr);
     index_block.TransferTo(it);
@@ -737,6 +736,7 @@ class HashIndexReader : public BlockBasedTable::IndexReaderCommon {
       const ReadOptions& read_options, bool disable_prefix_seek,
       IndexBlockIter* iter, GetContext* get_context,
       BlockCacheLookupContext* lookup_context) override {
+    const BlockBasedTable::Rep* rep = table()->get_rep();
     const bool no_io = (read_options.read_tier == kBlockCacheTier);
     CachableEntry<Block> index_block;
     const Status s =
@@ -756,10 +756,11 @@ class HashIndexReader : public BlockBasedTable::IndexReaderCommon {
     // We don't return pinned data from index blocks, so no need
     // to set `block_contents_pinned`.
     auto it = index_block.GetValue()->NewIndexIterator(
-        internal_comparator(), internal_comparator()->user_comparator(), iter,
-        kNullStats, total_order_seek, index_has_first_key(),
-        index_key_includes_seq(), index_value_is_full(),
-        false /* block_contents_pinned */, prefix_index_.get());
+        internal_comparator(), internal_comparator()->user_comparator(),
+        rep->get_global_seqno(BlockType::kIndex), iter, kNullStats,
+        total_order_seek, index_has_first_key(), index_key_includes_seq(),
+        index_value_is_full(), false /* block_contents_pinned */,
+        prefix_index_.get());
 
     assert(it != nullptr);
     index_block.TransferTo(it);
@@ -1661,9 +1662,9 @@ Status BlockBasedTable::ReadMetaIndexBlock(
       rep_->footer.metaindex_handle(), &metaindex, rep_->ioptions,
       true /* decompress */, true /*maybe_compressed*/, BlockType::kMetaIndex,
       UncompressionDict::GetEmptyDict(), rep_->persistent_cache_options,
-      kDisableGlobalSequenceNumber, 0 /* read_amp_bytes_per_bit */,
-      GetMemoryAllocator(rep_->table_options), false /* for_compaction */,
-      rep_->blocks_definitely_zstd_compressed, nullptr /* filter_policy */);
+      0 /* read_amp_bytes_per_bit */, GetMemoryAllocator(rep_->table_options),
+      false /* for_compaction */, rep_->blocks_definitely_zstd_compressed,
+      nullptr /* filter_policy */);
 
   if (!s.ok()) {
     ROCKS_LOG_ERROR(rep_->ioptions.info_log,
@@ -1675,8 +1676,9 @@ Status BlockBasedTable::ReadMetaIndexBlock(
 
   *metaindex_block = std::move(metaindex);
   // meta block uses bytewise comparator.
-  iter->reset(metaindex_block->get()->NewDataIterator(BytewiseComparator(),
-                                                      BytewiseComparator()));
+  iter->reset(metaindex_block->get()->NewDataIterator(
+      BytewiseComparator(), BytewiseComparator(),
+      kDisableGlobalSequenceNumber));
   return Status::OK();
 }
 
@@ -1750,8 +1752,7 @@ Status BlockBasedTable::GetDataBlockFromCache(
   if (s.ok()) {
     std::unique_ptr<TBlocklike> block_holder(
         BlocklikeTraits<TBlocklike>::Create(
-            std::move(contents), rep_->get_global_seqno(block_type),
-            read_amp_bytes_per_bit, statistics,
+            std::move(contents), read_amp_bytes_per_bit, statistics,
             rep_->blocks_definitely_zstd_compressed,
             rep_->table_options.filter_policy.get()));  // uncompressed block
 
@@ -1786,7 +1787,7 @@ Status BlockBasedTable::PutDataBlockToCache(
     Cache* block_cache, Cache* block_cache_compressed,
     CachableEntry<TBlocklike>* cached_block, BlockContents* raw_block_contents,
     CompressionType raw_block_comp_type,
-    const UncompressionDict& uncompression_dict, SequenceNumber seq_no,
+    const UncompressionDict& uncompression_dict,
     MemoryAllocator* memory_allocator, BlockType block_type,
     GetContext* get_context) const {
   const ImmutableCFOptions& ioptions = rep_->ioptions;
@@ -1823,13 +1824,13 @@ Status BlockBasedTable::PutDataBlockToCache(
     }
 
     block_holder.reset(BlocklikeTraits<TBlocklike>::Create(
-        std::move(uncompressed_block_contents), seq_no, read_amp_bytes_per_bit,
+        std::move(uncompressed_block_contents), read_amp_bytes_per_bit,
         statistics, rep_->blocks_definitely_zstd_compressed,
         rep_->table_options.filter_policy.get()));
   } else {
     block_holder.reset(BlocklikeTraits<TBlocklike>::Create(
-        std::move(*raw_block_contents), seq_no, read_amp_bytes_per_bit,
-        statistics, rep_->blocks_definitely_zstd_compressed,
+        std::move(*raw_block_contents), read_amp_bytes_per_bit, statistics,
+        rep_->blocks_definitely_zstd_compressed,
         rep_->table_options.filter_policy.get()));
   }
 
@@ -1987,7 +1988,7 @@ TBlockIter* BlockBasedTable::NewDataBlockIterator(
   const bool block_contents_pinned =
       block.IsCached() ||
       (!block.GetValue()->own_bytes() && rep_->immortal_table);
-  iter = InitBlockIterator<TBlockIter>(rep_, block.GetValue(), iter,
+  iter = InitBlockIterator<TBlockIter>(rep_, block.GetValue(), block_type, iter,
                                        block_contents_pinned);
 
   if (!block.IsCached()) {
@@ -2033,22 +2034,24 @@ TBlockIter* BlockBasedTable::NewDataBlockIterator(
 
 template <>
 DataBlockIter* BlockBasedTable::InitBlockIterator<DataBlockIter>(
-    const Rep* rep, Block* block, DataBlockIter* input_iter,
-    bool block_contents_pinned) {
+    const Rep* rep, Block* block, BlockType block_type,
+    DataBlockIter* input_iter, bool block_contents_pinned) {
   return block->NewDataIterator(
       &rep->internal_comparator, rep->internal_comparator.user_comparator(),
-      input_iter, rep->ioptions.statistics, block_contents_pinned);
+      rep->get_global_seqno(block_type), input_iter, rep->ioptions.statistics,
+      block_contents_pinned);
 }
 
 template <>
 IndexBlockIter* BlockBasedTable::InitBlockIterator<IndexBlockIter>(
-    const Rep* rep, Block* block, IndexBlockIter* input_iter,
-    bool block_contents_pinned) {
+    const Rep* rep, Block* block, BlockType block_type,
+    IndexBlockIter* input_iter, bool block_contents_pinned) {
   return block->NewIndexIterator(
       &rep->internal_comparator, rep->internal_comparator.user_comparator(),
-      input_iter, rep->ioptions.statistics, /* total_order_seek */ true,
-      rep->index_has_first_key, rep->index_key_includes_seq,
-      rep->index_value_is_full, block_contents_pinned);
+      rep->get_global_seqno(block_type), input_iter, rep->ioptions.statistics,
+      /* total_order_seek */ true, rep->index_has_first_key,
+      rep->index_key_includes_seq, rep->index_value_is_full,
+      block_contents_pinned);
 }
 
 // Convert an uncompressed data block (i.e CachableEntry<Block>)
@@ -2079,8 +2082,8 @@ TBlockIter* BlockBasedTable::NewDataBlockIterator(const ReadOptions& ro,
   const bool block_contents_pinned =
       block.IsCached() ||
       (!block.GetValue()->own_bytes() && rep_->immortal_table);
-  iter = InitBlockIterator<TBlockIter>(rep_, block.GetValue(), iter,
-                                       block_contents_pinned);
+  iter = InitBlockIterator<TBlockIter>(rep_, block.GetValue(), BlockType::kData,
+                                       iter, block_contents_pinned);
 
   if (!block.IsCached()) {
     if (!ro.fill_cache && rep_->cache_key_prefix_size != 0) {
@@ -2202,12 +2205,11 @@ Status BlockBasedTable::MaybeReadBlockAndLoadToCache(
       }
 
       if (s.ok()) {
-        SequenceNumber seq_no = rep_->get_global_seqno(block_type);
         // If filling cache is allowed and a cache is configured, try to put the
         // block to the cache.
         s = PutDataBlockToCache(
             key, ckey, block_cache, block_cache_compressed, block_entry,
-            contents, raw_block_comp_type, uncompression_dict, seq_no,
+            contents, raw_block_comp_type, uncompression_dict,
             GetMemoryAllocator(rep_->table_options), block_type, get_context);
       }
     }
@@ -2305,7 +2307,6 @@ void BlockBasedTable::RetrieveMultipleBlocks(
   RandomAccessFileReader* file = rep_->file.get();
   const Footer& footer = rep_->footer;
   const ImmutableCFOptions& ioptions = rep_->ioptions;
-  SequenceNumber global_seqno = rep_->get_global_seqno(BlockType::kData);
   size_t read_amp_bytes_per_bit = rep_->table_options.read_amp_bytes_per_bit;
   MemoryAllocator* memory_allocator = GetMemoryAllocator(rep_->table_options);
 
@@ -2523,9 +2524,8 @@ void BlockBasedTable::RetrieveMultipleBlocks(
         contents = std::move(raw_block_contents);
       }
       if (s.ok()) {
-        (*results)[idx_in_batch].SetOwnedValue(
-            new Block(std::move(contents), global_seqno, read_amp_bytes_per_bit,
-                      ioptions.statistics));
+        (*results)[idx_in_batch].SetOwnedValue(new Block(
+            std::move(contents), read_amp_bytes_per_bit, ioptions.statistics));
       }
     }
     (*statuses)[idx_in_batch] = s;
@@ -2580,7 +2580,6 @@ Status BlockBasedTable::RetrieveBlock(
         rep_->file.get(), prefetch_buffer, rep_->footer, ro, handle, &block,
         rep_->ioptions, do_uncompress, maybe_compressed, block_type,
         uncompression_dict, rep_->persistent_cache_options,
-        rep_->get_global_seqno(block_type),
         block_type == BlockType::kData
             ? rep_->table_options.read_amp_bytes_per_bit
             : 0,
@@ -2650,8 +2649,9 @@ BlockBasedTable::PartitionedIndexIteratorState::NewSecondaryIterator(
     // to set `block_contents_pinned`.
     return block->second.GetValue()->NewIndexIterator(
         &rep->internal_comparator, rep->internal_comparator.user_comparator(),
-        nullptr, kNullStats, true, rep->index_has_first_key,
-        rep->index_key_includes_seq, rep->index_value_is_full);
+        rep->get_global_seqno(BlockType::kIndex), nullptr, kNullStats, true,
+        rep->index_has_first_key, rep->index_key_includes_seq,
+        rep->index_value_is_full);
   }
   // Create an empty iterator
   return new IndexBlockIter();

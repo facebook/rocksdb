@@ -11,6 +11,7 @@
 #include "test_util/sync_point.h"
 #include "test_util/testharness.h"
 #include "util/coding.h"
+#include "util/string_util.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -275,6 +276,33 @@ TEST_F(VersionEditTest, DbId) {
 
   edit.Clear();
   edit.SetDBId("34ba-cd12-435f-er01");
+  TestEncodeDecode(edit);
+}
+
+TEST_F(VersionEditTest, BlobFileState) {
+  VersionEdit edit;
+
+  const std::string checksum_method_prefix = "Hash";
+  const std::string checksum_value_prefix = "Value";
+
+  for (uint64_t blob_file_number = 1; blob_file_number <= 10;
+       ++blob_file_number) {
+    const uint64_t total_blob_count = blob_file_number << 10;
+    const uint64_t total_blob_bytes = blob_file_number << 20;
+    const uint64_t garbage_blob_count = total_blob_count >> 2;
+    const uint64_t garbage_blob_bytes = total_blob_bytes >> 1;
+
+    std::string checksum_method(checksum_method_prefix);
+    AppendNumberTo(&checksum_method, blob_file_number);
+
+    std::string checksum_value(checksum_value_prefix);
+    AppendNumberTo(&checksum_value, blob_file_number);
+
+    edit.AddBlobFileState(blob_file_number, total_blob_count, total_blob_bytes,
+                          garbage_blob_count, garbage_blob_bytes,
+                          checksum_method, checksum_value);
+  }
+
   TestEncodeDecode(edit);
 }
 
