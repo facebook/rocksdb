@@ -846,8 +846,7 @@ class PosixFileSystem : public FileSystem {
     return optimized;
   }
 #ifdef OS_LINUX
-  Status HintDbPathsAdded(
-      const std::unordered_set<std::string>& paths) override {
+  Status OnDbPathsAdded(const std::set<std::string>& paths) override {
     std::set<std::pair<std::string, int>> fname_fds;
     for (auto& path : paths) {
       int fd = open(path.c_str(), O_DIRECTORY | O_RDONLY);
@@ -859,8 +858,7 @@ class PosixFileSystem : public FileSystem {
     logical_buffer_size_cache_.CacheLogicalBufferSize(fname_fds);
     return Status::OK();
   }
-  Status HintDbPathsRemoved(
-      const std::unordered_set<std::string>& paths) override {
+  Status OnDbPathsRemoved(const std::set<std::string>& paths) override {
     logical_buffer_size_cache_.RemoveCachedLogicalBufferSize(paths);
     return Status::OK();
   }

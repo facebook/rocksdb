@@ -15,10 +15,9 @@
 #include <unistd.h>
 #include <atomic>
 #include <functional>
+#include <map>
 #include <set>
 #include <string>
-#include <unordered_map>
-#include <unordered_set>
 #include <utility>
 #include "port/port.h"
 #include "rocksdb/env.h"
@@ -64,14 +63,13 @@ class LogicalBufferSizeCache {
 
   // Logical buffer size of files under each specified directory will be cached.
   // If the logical buffer size for a directory has been cached, the original
-  // cached size will keep being used.
+  // cached size will be overwritten.
   // NOTE: directory must not have trailing slash.
   // directories is a set of <fname, fd> pairs.
   void CacheLogicalBufferSize(
       const std::set<std::pair<std::string, int>>& directories);
 
-  void RemoveCachedLogicalBufferSize(
-      const std::unordered_set<std::string>& directories);
+  void RemoveCachedLogicalBufferSize(const std::set<std::string>& directories);
 
   // Returns the logical buffer size for the file.
   //
@@ -82,7 +80,7 @@ class LogicalBufferSizeCache {
  private:
   std::function<size_t(int)> get_logical_buffer_size_;
 
-  std::unordered_map<std::string, size_t> cache_;
+  std::map<std::string, size_t> cache_;
   port::RWMutex cache_mutex_;
 };
 #endif

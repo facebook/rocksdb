@@ -22,10 +22,10 @@
 #include <functional>
 #include <limits>
 #include <memory>
+#include <set>
 #include <sstream>
 #include <string>
 #include <vector>
-#include <unordered_set>
 #include "rocksdb/env.h"
 #include "rocksdb/io_status.h"
 #include "rocksdb/options.h"
@@ -172,20 +172,16 @@ class FileSystem {
   // The result of Default() belongs to rocksdb and must never be deleted.
   static std::shared_ptr<FileSystem> Default();
 
-  // Gives the filesystem a hint on the added database paths.
-  // Different filesystem implementations may take different actions regarding
-  // to the hint.
-  // By default, the hint is ignored.
-  virtual Status HintDbPathsAdded(
-      const std::unordered_set<std::string>& /*paths*/) {
+  // Handles the event when database paths are added.
+  // Different implementations may take different actions.
+  // By default, it's a no-op.
+  virtual Status OnDbPathsAdded(const std::set<std::string>& /*paths*/) {
     return Status::OK();
   }
-  // Gives the filesystem a hint on the removed database paths.
-  // Different filesystem implementations may take different actions regarding
-  // to the hint.
-  // By default, the hint is ignored.
-  virtual Status HintDbPathsRemoved(
-      const std::unordered_set<std::string>& /*paths*/) {
+  // Handles the event when database paths are added.
+  // Different implementations may take different actions.
+  // By default, it's a no-op.
+  virtual Status OnDbPathsRemoved(const std::set<std::string>& /*paths*/) {
     return Status::OK();
   }
 

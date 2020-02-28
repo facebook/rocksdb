@@ -21,8 +21,8 @@
 #include <functional>
 #include <limits>
 #include <memory>
+#include <set>
 #include <string>
-#include <unordered_set>
 #include <vector>
 #include "rocksdb/status.h"
 #include "rocksdb/thread_status.h"
@@ -164,18 +164,16 @@ class Env {
   // The result of Default() belongs to rocksdb and must never be deleted.
   static Env* Default();
 
-  // Gives the env a hint on the added database paths.
-  // Different implementations may take different actions regarding to the hint.
-  // By default, the hint is ignored.
-  virtual Status HintDbPathsAdded(
-      const std::unordered_set<std::string>& /*paths*/) {
+  // Handles the event when database paths are added.
+  // Different implementations may take different actions.
+  // By default, it's a no-op.
+  virtual Status OnDbPathsAdded(const std::set<std::string>& /*paths*/) {
     return Status::OK();
   }
-  // Gives the env a hint on the removed database paths.
-  // Different implementations may take different actions regarding to the hint.
-  // By default, the hint is ignored.
-  virtual Status HintDbPathsRemoved(
-      const std::unordered_set<std::string>& /*paths*/) {
+  // Handles the event when database paths are removed.
+  // Different implementations may take different actions.
+  // By default, it's a no-op.
+  virtual Status OnDbPathsRemoved(const std::set<std::string>& /*paths*/) {
     return Status::OK();
   }
 

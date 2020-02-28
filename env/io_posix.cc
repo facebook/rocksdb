@@ -374,14 +374,22 @@ size_t PosixHelper::GetUniqueIdFromFile(int fd, char* id, size_t max_size) {
 #ifdef OS_LINUX
 void LogicalBufferSizeCache::CacheLogicalBufferSize(
     const std::set<std::pair<std::string, int>>& directories) {
-  WriteLock lock(&cache_mutex_);
-  for (auto& dir : directories) {
-    cache_.emplace(dir.first, get_logical_buffer_size_(dir.second));
+  std::map<std::string, size_t> sizes;
+  {
+    ReadLock lock(&cache_mutex_);
+    for (auto& fname_fd : directories) {
+      auto it = cache_.find(fname_fd.first);
+      if (it == cache_.end()) {
+        sizes[fname_fd.first] = get_logical_buffer_size_(fname_fd.second);
+      }
+    }
   }
+  WriteLock lock(&cache_mutex_);
+  cache_.insert(sizes.begin(), sizes.end());
 }
 
 void LogicalBufferSizeCache::RemoveCachedLogicalBufferSize(
-    const std::unordered_set<std::string>& directories) {
+    const std::set<std::string>& directories) {
   WriteLock lock(&cache_mutex_);
   for (auto& dir : directories) {
     cache_.erase(dir);
@@ -390,10 +398,13 @@ void LogicalBufferSizeCache::RemoveCachedLogicalBufferSize(
 
 size_t LogicalBufferSizeCache::GetLogicalBufferSize(const std::string& fname,
                                                     int fd) {
-  ReadLock lock(&cache_mutex_);
   std::string dir = fname.substr(0, fname.find_last_of("/"));
-  if (cache_.find(dir) != cache_.end()) {
-    return cache_[dir];
+  {
+    ReadLock lock(&cache_mutex_);
+    auto it = cache_.find(dir);
+    if (it != cache_.end()) {
+      return it->second;
+    }
   }
   return get_logical_buffer_size_(fd);
 }

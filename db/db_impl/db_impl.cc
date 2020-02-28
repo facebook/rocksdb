@@ -21,7 +21,6 @@
 #include <stdexcept>
 #include <string>
 #include <unordered_map>
-#include <unordered_set>
 #include <utility>
 #include <vector>
 
@@ -562,14 +561,14 @@ Status DBImpl::CloseHelper() {
     delete txn_entry.second;
   }
 
-  std::unordered_set<std::string> db_paths;
+  std::set<std::string> db_paths;
   db_paths.insert(dbname_);
-  for (auto& db_path : initial_db_options_.db_paths) {
+  for (const DbPath& db_path : initial_db_options_.db_paths) {
     db_paths.insert(db_path.path);
   }
-  auto cfs = versions_->GetColumnFamilySet();
-  for (auto it = cfs->begin(); it != cfs->end(); ++it) {
-    for (auto& cf_path : (*it)->ioptions()->cf_paths) {
+  ColumnFamilySet* cfs = versions_->GetColumnFamilySet();
+  for (ColumnFamilySet::iterator it = cfs->begin(); it != cfs->end(); ++it) {
+    for (const DbPath& cf_path : (*it)->ioptions()->cf_paths) {
       db_paths.insert(cf_path.path);
     }
   }
@@ -603,8 +602,8 @@ Status DBImpl::CloseHelper() {
     }
   }
 
-  // The hint is given as a best effort, ignore errors.
-  env_->HintDbPathsRemoved(db_paths);
+  // Do it at best effort, ignore errors.
+  env_->OnDbPathsRemoved(db_paths);
 
   if (ret.IsAborted()) {
     // Reserve IsAborted() error for those where users didn't release
@@ -2274,15 +2273,15 @@ Status DBImpl::CreateColumnFamilyImpl(const ColumnFamilyOptions& cf_options,
       BuildDBOptions(immutable_db_options_, mutable_db_options_);
   s = ColumnFamilyData::ValidateOptions(db_options, cf_options);
   if (s.ok()) {
-    std::unordered_set<std::string> paths;
-    for (auto& cf_path : cf_options.cf_paths) {
+    std::set<std::string> paths;
+    for (const DbPath& cf_path : cf_options.cf_paths) {
       s = env_->CreateDirIfMissing(cf_path.path);
       if (!s.ok()) {
         break;
       }
       paths.insert(cf_path.path);
     }
-    s = env_->HintDbPathsAdded(paths);
+    s = env_->OnDbPathsAdded(paths);
   }
   if (!s.ok()) {
     return s;
@@ -2442,11 +2441,6 @@ Status DBImpl::DropColumnFamilyImpl(ColumnFamilyHandle* column_family) {
     assert(cfd->IsDropped());
     ROCKS_LOG_INFO(immutable_db_options_.info_log,
                    "Dropped column family with id %u\n", cfd->GetID());
-    std::unordered_set<std::string> paths;
-    for (auto& cf_path : cfd->ioptions()->cf_paths) {
-      paths.insert(cf_path.path);
-    }
-    s = env_->HintDbPathsRemoved(paths);
   } else {
     ROCKS_LOG_ERROR(immutable_db_options_.info_log,
                     "Dropping column family with id %u FAILED -- %s\n",
@@ -3533,13 +3527,13 @@ Status DestroyDB(const std::string& dbname, const Options& options,
       }
     }
 
-    std::unordered_set<std::string> paths;
-    for (const auto& path : options.db_paths) {
-      paths.insert(path.path);
+    std::set<std::string> paths;
+    for (const DbPath& db_path : options.db_paths) {
+      paths.insert(db_path.path);
     }
-    for (const auto& cf : column_families) {
-      for (const auto& path : cf.options.cf_paths) {
-        paths.insert(path.path);
+    for (const ColumnFamilyDescriptor& cf : column_families) {
+      for (const DbPath& cf_path : cf.options.cf_paths) {
+        paths.insert(cf_path.path);
       }
     }
     for (const auto& path : paths) {
@@ -3612,8 +3606,8 @@ Status DestroyDB(const std::string& dbname, const Options& options,
     env->DeleteDir(dbname);  // Ignore error in case dir contains other files
 
     paths.insert(dbname);
-    // The hint is given as a best effort, ignore errors.
-    env->HintDbPathsRemoved(paths);
+    // Do it at best effort, ignore errors.
+    env->OnDbPathsRemoved(paths);
   }
   return result;
 }

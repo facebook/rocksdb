@@ -581,6 +581,7 @@ Status DB::OpenAsSecondary(const Options& options, const std::string& dbname,
   return s;
 }
 
+// TODO(cc): consider supporting Env::OnDbPathsAdded.
 Status DB::OpenAsSecondary(
     const DBOptions& db_options, const std::string& dbname,
     const std::string& secondary_path,

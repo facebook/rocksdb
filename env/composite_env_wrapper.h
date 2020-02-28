@@ -300,13 +300,11 @@ class CompositeEnvWrapper : public Env {
 
   FileSystem* fs_env_target() const { return fs_env_target_; }
 
-  Status HintDbPathsAdded(
-      const std::unordered_set<std::string>& paths) override {
-    return fs_env_target_->HintDbPathsAdded(paths);
+  Status OnDbPathsAdded(const std::set<std::string>& paths) override {
+    return fs_env_target_->OnDbPathsAdded(paths);
   }
-  Status HintDbPathsRemoved(
-      const std::unordered_set<std::string>& paths) override {
-    return fs_env_target_->HintDbPathsRemoved(paths);
+  Status OnDbPathsRemoved(const std::set<std::string>& paths) override {
+    return fs_env_target_->OnDbPathsRemoved(paths);
   }
 
   // The following text is boilerplate that forwards all methods to target()

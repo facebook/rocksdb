@@ -255,23 +255,6 @@ Status DBImpl::ValidateOptions(const DBOptions& db_options) {
   return Status::OK();
 }
 
-std::unordered_set<std::string> DbPaths(
-    const std::string& dbname,
-    const DBOptions& opt,
-    const std::vector<ColumnFamilyDescriptor>& cfds) {
-  std::unordered_set<std::string> paths;
-  paths.insert(dbname);
-  for (const auto& p : opt.db_paths) {
-    paths.insert(p.path);
-  }
-  for (const auto& cfd : cfds) {
-    for (const auto& p : cfd.options.cf_paths) {
-      paths.insert(p.path);
-    }
-  }
-  return paths;
-}
-
 Status DBImpl::NewDB() {
   VersionEdit new_db;
   Status s = SetIdentityFile(env_, dbname_);
@@ -1395,7 +1378,7 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
   DBImpl* impl = new DBImpl(db_options, dbname, seq_per_batch, batch_per_txn);
   s = impl->env_->CreateDirIfMissing(impl->immutable_db_options_.wal_dir);
   if (s.ok()) {
-    std::unordered_set<std::string> paths;
+    std::set<std::string> paths;
     for (auto& db_path : impl->immutable_db_options_.db_paths) {
       paths.insert(db_path.path);
     }
@@ -1418,7 +1401,7 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
     }
 
     paths.insert(dbname);
-    s = impl->env_->HintDbPathsAdded(paths);
+    s = impl->env_->OnDbPathsAdded(paths);
   }
   if (s.ok()) {
     s = impl->CreateArchivalDirectory();
