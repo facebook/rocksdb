@@ -164,10 +164,18 @@ class Env {
   // The result of Default() belongs to rocksdb and must never be deleted.
   static Env* Default();
 
-  // Gives the env a hint on the database paths.
+  // Gives the env a hint on the added database paths.
   // Different implementations may take different actions regarding to the hint.
   // By default, the hint is ignored.
-  virtual Status HintDbPaths(const std::unordered_set<std::string>& /*paths*/) {
+  virtual Status HintDbPathsAdded(
+      const std::unordered_set<std::string>& /*paths*/) {
+    return Status::OK();
+  }
+  // Gives the env a hint on the removed database paths.
+  // Different implementations may take different actions regarding to the hint.
+  // By default, the hint is ignored.
+  virtual Status HintDbPathsRemoved(
+      const std::unordered_set<std::string>& /*paths*/) {
     return Status::OK();
   }
 

@@ -562,6 +562,19 @@ Status DBImpl::CloseHelper() {
     delete txn_entry.second;
   }
 
+  std::unordered_set<std::string> db_paths;
+  db_paths.insert(dbname_);
+  for (auto& db_path : initial_db_options_.db_paths) {
+    db_paths.insert(db_path.path);
+  }
+  auto cfs = versions_->GetColumnFamilySet();
+  for (auto it = cfs->begin(); it != cfs->end(); ++it) {
+    for (auto& cf_path : (*it)->ioptions()->cf_paths) {
+      db_paths.insert(cf_path.path);
+    }
+  }
+  env_->HintDbPathsRemoved(db_paths);
+
   // versions need to be destroyed before table_cache since it can hold
   // references to table_cache.
   versions_.reset();
@@ -2259,12 +2272,15 @@ Status DBImpl::CreateColumnFamilyImpl(const ColumnFamilyOptions& cf_options,
       BuildDBOptions(immutable_db_options_, mutable_db_options_);
   s = ColumnFamilyData::ValidateOptions(db_options, cf_options);
   if (s.ok()) {
+    std::unordered_set<std::string> paths;
     for (auto& cf_path : cf_options.cf_paths) {
       s = env_->CreateDirIfMissing(cf_path.path);
       if (!s.ok()) {
         break;
       }
+      paths.insert(cf_path.path);
     }
+    s = env_->HintDbPathsAdded(paths);
   }
   if (!s.ok()) {
     return s;
@@ -2375,8 +2391,9 @@ Status DBImpl::DropColumnFamilyImpl(ColumnFamilyHandle* column_family) {
   if (cfd->GetID() == 0) {
     return Status::InvalidArgument("Can't drop default column family");
   }
-
-  bool cf_support_snapshot = cfd->mem()->IsSnapshotSupported();
+  if (cfd->IsDropped()) {
+    return Status::InvalidArgument("Column family already dropped!\n");
+  }
 
   VersionEdit edit;
   edit.DropColumnFamily();
@@ -2385,9 +2402,6 @@ Status DBImpl::DropColumnFamilyImpl(ColumnFamilyHandle* column_family) {
   Status s;
   {
     InstrumentedMutexLock l(&mutex_);
-    if (cfd->IsDropped()) {
-      s = Status::InvalidArgument("Column family already dropped!\n");
-    }
     if (s.ok()) {
       // we drop column family from a single write thread
       WriteThread::Writer w;
@@ -2402,6 +2416,7 @@ Status DBImpl::DropColumnFamilyImpl(ColumnFamilyHandle* column_family) {
                                     mutable_cf_options->max_write_buffer_number;
     }
 
+    bool cf_support_snapshot = cfd->mem()->IsSnapshotSupported();
     if (!cf_support_snapshot) {
       // Dropped Column Family doesn't support snapshot. Need to recalculate
       // is_snapshot_supported_.
@@ -2425,6 +2440,11 @@ Status DBImpl::DropColumnFamilyImpl(ColumnFamilyHandle* column_family) {
     assert(cfd->IsDropped());
     ROCKS_LOG_INFO(immutable_db_options_.info_log,
                    "Dropped column family with id %u\n", cfd->GetID());
+    std::unordered_set<std::string> paths;
+    for (auto& cf_path : cfd->ioptions()->cf_paths) {
+      paths.insert(cf_path.path);
+    }
+    s = env_->HintDbPathsRemoved(paths);
   } else {
     ROCKS_LOG_ERROR(immutable_db_options_.info_log,
                     "Dropping column family with id %u FAILED -- %s\n",

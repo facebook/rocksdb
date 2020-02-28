@@ -1395,13 +1395,13 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
   DBImpl* impl = new DBImpl(db_options, dbname, seq_per_batch, batch_per_txn);
   s = impl->env_->CreateDirIfMissing(impl->immutable_db_options_.wal_dir);
   if (s.ok()) {
-    std::vector<std::string> paths;
+    std::unordered_set<std::string> paths;
     for (auto& db_path : impl->immutable_db_options_.db_paths) {
-      paths.emplace_back(db_path.path);
+      paths.insert(db_path.path);
     }
     for (auto& cf : column_families) {
       for (auto& cf_path : cf.options.cf_paths) {
-        paths.emplace_back(cf_path.path);
+        paths.insert(cf_path.path);
       }
     }
     for (auto& path : paths) {
@@ -1416,21 +1416,13 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
     if (paths.size() <= 1) {
       impl->error_handler_.EnableAutoRecovery();
     }
-  }
 
-  if (!s.ok()) {
-    delete impl;
-    return s;
+    paths.insert(dbname);
+    s = impl->env_->HintDbPathsAdded(paths);
   }
-
-  s = impl->CreateArchivalDirectory();
-  if (!s.ok()) {
-    delete impl;
-    return s;
+  if (s.ok()) {
+    s = impl->CreateArchivalDirectory();
   }
-
-  auto db_paths = DbPaths(dbname, db_options, column_families);
-  s = impl->env_->HintDbPaths(db_paths);
   if (!s.ok()) {
     delete impl;
     return s;

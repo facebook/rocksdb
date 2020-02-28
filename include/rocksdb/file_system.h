@@ -172,11 +172,20 @@ class FileSystem {
   // The result of Default() belongs to rocksdb and must never be deleted.
   static std::shared_ptr<FileSystem> Default();
 
-  // Gives the filesystem a hint on the database paths.
+  // Gives the filesystem a hint on the added database paths.
   // Different filesystem implementations may take different actions regarding
   // to the hint.
   // By default, the hint is ignored.
-  virtual Status HintDbPaths(const std::unordered_set<std::string>& /*paths*/) {
+  virtual Status HintDbPathsAdded(
+      const std::unordered_set<std::string>& /*paths*/) {
+    return Status::OK();
+  }
+  // Gives the filesystem a hint on the removed database paths.
+  // Different filesystem implementations may take different actions regarding
+  // to the hint.
+  // By default, the hint is ignored.
+  virtual Status HintDbPathsRemoved(
+      const std::unordered_set<std::string>& /*paths*/) {
     return Status::OK();
   }
 
