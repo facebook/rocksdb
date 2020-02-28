@@ -5575,7 +5575,7 @@ class ThreeBytewiseComparator : public Comparator {
     Slice nb = Slice(b.data(), b.size() < 3 ? b.size() : 3);
     return na == nb;
   }
-  // This methods below dont seem relevant to this test. Implement them if
+  // These methods below don't seem relevant to this test. Implement them if
   // proven othersize.
   void FindShortestSeparator(std::string* start,
                              const Slice& limit) const override {

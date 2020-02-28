@@ -464,7 +464,7 @@ size_t WriteThread::EnterAsBatchGroupLeader(Writer* leader,
     }
 
     if (w->callback != nullptr && !w->callback->AllowWriteBatching()) {
-      // dont batch writes that don't want to be batched
+      // don't batch writes that don't want to be batched
       break;
     }
 

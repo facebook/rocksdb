@@ -216,7 +216,7 @@ void DeleteScheduler::BackgroundEmptyTrash() {
       const FileAndDir& fad = queue_.front();
       std::string path_in_trash = fad.fname;
 
-      // We dont need to hold the lock while deleting the file
+      // We don't need to hold the lock while deleting the file
       mu_.Unlock();
       uint64_t deleted_bytes = 0;
       bool is_complete = true;

@@ -216,7 +216,7 @@ missing_make_config_paths := $(shell				\
 	done | sort | uniq)
 
 $(foreach path, $(missing_make_config_paths), \
-	$(warning Warning: $(path) dont exist))
+	$(warning Warning: $(path) does not exist))
 
 ifeq ($(PLATFORM), OS_AIX)
 # no debug info
