@@ -5,12 +5,12 @@
 
 #include "cloud/cloud_env_impl.h"
 #include "cloud/cloud_env_wrapper.h"
-#include "cloud/cloud_log_controller.h"
 #include "cloud/filename.h"
 #include "cloud/manifest_reader.h"
 #include "file/filename.h"
 #include "file/file_util.h"
 #include "port/likely.h"
+#include "rocksdb/cloud/cloud_log_controller.h"
 #include "rocksdb/db.h"
 #include "rocksdb/env.h"
 #include "rocksdb/options.h"
@@ -24,8 +24,8 @@ namespace rocksdb {
     : CloudEnv(opts, base, l), purger_is_running_(true) {}
 
 CloudEnvImpl::~CloudEnvImpl() {
-  if (cloud_log_controller_) {
-    cloud_log_controller_->StopTailingStream();
+  if (cloud_env_options.cloud_log_controller) {
+    cloud_env_options.cloud_log_controller->StopTailingStream();
   }
   StopPurger();
 }
