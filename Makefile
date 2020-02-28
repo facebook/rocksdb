@@ -727,19 +727,19 @@ ifeq ($(HAVE_POWER8),1)
 shared-ppc-objects = $(SHARED_C_LIBOBJECTS) $(SHARED_ASM_LIBOBJECTS)
 
 shared-objects/util/crc32c_ppc.o: util/crc32c_ppc.c
-	$(AM_V_CC)$(CC) $(CFLAGS) -c $< -o $@
+	$(AM_V_CC)$(CC) $(CPPFLAGS) $(CFLAGS) -c $< -o $@
 
 shared-objects/util/crc32c_ppc_asm.o: util/crc32c_ppc_asm.S
-	$(AM_V_CC)$(CC) $(CFLAGS) -c $< -o $@
+	$(AM_V_CC)$(CC) $(CPPFLAGS) $(CFLAGS) -c $< -o $@
 endif
 $(shared_libobjects): shared-objects/%.o: %.cc
-	$(AM_V_CC)mkdir -p $(@D) && $(CXX) $(CXXFLAGS) $(PLATFORM_SHARED_CFLAGS) -c $< -o $@
+	$(AM_V_CC)mkdir -p $(@D) && $(CXX) $(CPPFLAGS) $(CXXFLAGS) $(PLATFORM_SHARED_CFLAGS) -c $< -o $@
 
 ifeq ($(HAVE_POWER8),1)
 shared_all_libobjects = $(shared_libobjects) $(shared-ppc-objects)
 endif
 $(SHARED4): $(shared_all_libobjects)
-	$(CXX) $(PLATFORM_SHARED_LDFLAGS)$(SHARED3) $(CXXFLAGS) $(PLATFORM_SHARED_CFLAGS) $(shared_all_libobjects) $(LDFLAGS) -o $@
+	$(CXX) $(CPPFLAGS) $(PLATFORM_SHARED_LDFLAGS)$(SHARED3) $(CXXFLAGS) $(PLATFORM_SHARED_CFLAGS) $(shared_all_libobjects) $(LDFLAGS) -o $@
 
 endif  # PLATFORM_SHARED_EXT
 
@@ -1415,10 +1415,10 @@ table_reader_bench: table/table_reader_bench.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK) $(PROFILING_FLAGS)
 
 perf_context_test: db/perf_context_test.o $(LIBOBJECTS) $(TESTHARNESS)
-	$(AM_V_CCLD)$(CXX) $^ $(EXEC_LDFLAGS) -o $@ $(LDFLAGS)
+	$(AM_V_CCLD)$(CXX) $(CPPFLAGS) $^ $(EXEC_LDFLAGS) -o $@ $(LDFLAGS)
 
 prefix_test: db/prefix_test.o $(LIBOBJECTS) $(TESTHARNESS)
-	$(AM_V_CCLD)$(CXX) $^ $(EXEC_LDFLAGS) -o $@ $(LDFLAGS)
+	$(AM_V_CCLD)$(CXX) $(CPPFLAGS) $^ $(EXEC_LDFLAGS) -o $@ $(LDFLAGS)
 
 backupable_db_test: utilities/backupable/backupable_db_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
@@ -1440,7 +1440,7 @@ env_timed_test: utilities/env_timed_test.o $(LIBOBJECTS) $(TESTHARNESS)
 
 ifdef ROCKSDB_USE_LIBRADOS
 env_librados_test: utilities/env_librados_test.o $(LIBOBJECTS) $(TESTHARNESS)
-	$(AM_V_CCLD)$(CXX) $^ $(EXEC_LDFLAGS) -o $@ $(LDFLAGS) $(COVERAGEFLAGS)
+	$(AM_V_CCLD)$(CXX) $(CPPFLAGS) $^ $(EXEC_LDFLAGS) -o $@ $(LDFLAGS) $(COVERAGEFLAGS)
 endif
 
 object_registry_test: utilities/object_registry_test.o $(LIBOBJECTS) $(TESTHARNESS)
@@ -1675,7 +1675,7 @@ ldb: tools/ldb.o $(LIBOBJECTS)
 	$(AM_LINK)
 
 iostats_context_test: monitoring/iostats_context_test.o $(LIBOBJECTS) $(TESTHARNESS)
-	$(AM_V_CCLD)$(CXX) $^ $(EXEC_LDFLAGS) -o $@ $(LDFLAGS)
+	$(AM_V_CCLD)$(CXX) $(CPPFLAGS) $^ $(EXEC_LDFLAGS) -o $@ $(LDFLAGS)
 
 persistent_cache_test: utilities/persistent_cache/persistent_cache_test.o  db/db_test_util.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
@@ -1938,21 +1938,21 @@ JAVA_STATIC_ASM_LIBOBJECTS = $(patsubst %.S.o,jls/%.S.o,$(LIB_SOURCES_ASM:.S=.o)
 java_static_ppc_libobjects = $(JAVA_STATIC_C_LIBOBJECTS) $(JAVA_STATIC_ASM_LIBOBJECTS)
 
 jls/util/crc32c_ppc.o: util/crc32c_ppc.c
-	$(AM_V_CC)$(CC) $(CFLAGS) $(JAVA_STATIC_FLAGS) $(JAVA_STATIC_INCLUDES) -c $< -o $@
+	$(AM_V_CC)$(CC) $(CPPFLAGS) $(CFLAGS) $(JAVA_STATIC_FLAGS) $(JAVA_STATIC_INCLUDES) -c $< -o $@
 
 jls/util/crc32c_ppc_asm.o: util/crc32c_ppc_asm.S
-	$(AM_V_CC)$(CC) $(CFLAGS) $(JAVA_STATIC_FLAGS) $(JAVA_STATIC_INCLUDES) -c $< -o $@
+	$(AM_V_CC)$(CC) $(CPPFLAGS) $(CFLAGS) $(JAVA_STATIC_FLAGS) $(JAVA_STATIC_INCLUDES) -c $< -o $@
 
 java_static_all_libobjects += $(java_static_ppc_libobjects)
 endif
 
 $(java_static_libobjects): jls/%.o: %.cc $(JAVA_COMPRESSIONS)
-	$(AM_V_CC)mkdir -p $(@D) && $(CXX) $(CXXFLAGS) $(JAVA_STATIC_FLAGS) $(JAVA_STATIC_INCLUDES) -fPIC -c $< -o $@ $(COVERAGEFLAGS)
+	$(AM_V_CC)mkdir -p $(@D) && $(CXX) $(CPPFLAGS) $(CXXFLAGS) $(JAVA_STATIC_FLAGS) $(JAVA_STATIC_INCLUDES) -fPIC -c $< -o $@ $(COVERAGEFLAGS)
 
 rocksdbjavastatic: $(java_static_all_libobjects)
 	cd java;$(MAKE) javalib;
 	rm -f ./java/target/$(ROCKSDBJNILIB)
-	$(CXX) $(CXXFLAGS) -I./java/. $(JAVA_INCLUDE) -shared -fPIC \
+	$(CXX) $(CPPFLAGS) $(CXXFLAGS) -I./java/. $(JAVA_INCLUDE) -shared -fPIC \
 	  -o ./java/target/$(ROCKSDBJNILIB) $(JNI_NATIVE_SOURCES) \
 	  $(java_static_all_libobjects) $(COVERAGEFLAGS) \
 	  $(JAVA_COMPRESSIONS) $(JAVA_STATIC_LDFLAGS)
@@ -2041,22 +2041,22 @@ ifeq ($(HAVE_POWER8),1)
 java_ppc_libobjects = $(JAVA_C_LIBOBJECTS) $(JAVA_ASM_LIBOBJECTS)
 
 jl/crc32c_ppc.o: util/crc32c_ppc.c
-	$(AM_V_CC)$(CC) $(CFLAGS) -c $< -o $@
+	$(AM_V_CC)$(CC) $(CPPFLAGS) $(CFLAGS) -c $< -o $@
 
 jl/crc32c_ppc_asm.o: util/crc32c_ppc_asm.S
-	$(AM_V_CC)$(CC) $(CFLAGS) -c $< -o $@
+	$(AM_V_CC)$(CC) $(CPPFLAGS) $(CFLAGS) -c $< -o $@
 java_all_libobjects += $(java_ppc_libobjects)
 endif
 
 $(java_libobjects): jl/%.o: %.cc
-	$(AM_V_CC)mkdir -p $(@D) && $(CXX) $(CXXFLAGS) -fPIC -c $< -o $@ $(COVERAGEFLAGS)
+	$(AM_V_CC)mkdir -p $(@D) && $(CXX) $(CPPFLAGS) $(CXXFLAGS) -fPIC -c $< -o $@ $(COVERAGEFLAGS)
 
 
 
 rocksdbjava: $(java_all_libobjects)
 	$(AM_V_GEN)cd java;$(MAKE) javalib;
 	$(AM_V_at)rm -f ./java/target/$(ROCKSDBJNILIB)
-	$(AM_V_at)$(CXX) $(CXXFLAGS) -I./java/. $(JAVA_INCLUDE) -shared -fPIC -o ./java/target/$(ROCKSDBJNILIB) $(JNI_NATIVE_SOURCES) $(java_all_libobjects) $(JAVA_LDFLAGS) $(COVERAGEFLAGS)
+	$(AM_V_at)$(CXX) $(CPPFLAGS) $(CXXFLAGS) -I./java/. $(JAVA_INCLUDE) -shared -fPIC -o ./java/target/$(ROCKSDBJNILIB) $(JNI_NATIVE_SOURCES) $(java_all_libobjects) $(JAVA_LDFLAGS) $(COVERAGEFLAGS)
 	$(AM_V_at)cd java;jar -cf target/$(ROCKSDB_JAR) HISTORY*.md
 	$(AM_V_at)cd java/target;jar -uf $(ROCKSDB_JAR) $(ROCKSDBJNILIB)
 	$(AM_V_at)cd java/target/classes;jar -uf ../$(ROCKSDB_JAR) org/rocksdb/*.class org/rocksdb/util/*.class
@@ -2097,14 +2097,14 @@ IOSVERSION=$(shell defaults read $(PLATFORMSROOT)/iPhoneOS.platform/version CFBu
 
 .cc.o:
 	mkdir -p ios-x86/$(dir $@)
-	$(CXX) $(CXXFLAGS) -isysroot $(SIMULATORROOT)/SDKs/iPhoneSimulator$(IOSVERSION).sdk -arch i686 -arch x86_64 -c $< -o ios-x86/$@
+	$(CXX) $(CPPFLAGS) $(CXXFLAGS) -isysroot $(SIMULATORROOT)/SDKs/iPhoneSimulator$(IOSVERSION).sdk -arch i686 -arch x86_64 -c $< -o ios-x86/$@
 	mkdir -p ios-arm/$(dir $@)
 	xcrun -sdk iphoneos $(CXX) $(CXXFLAGS) -isysroot $(DEVICEROOT)/SDKs/iPhoneOS$(IOSVERSION).sdk -arch armv6 -arch armv7 -arch armv7s -arch arm64 -c $< -o ios-arm/$@
 	lipo ios-x86/$@ ios-arm/$@ -create -output $@
 
 .c.o:
 	mkdir -p ios-x86/$(dir $@)
-	$(CC) $(CFLAGS) -isysroot $(SIMULATORROOT)/SDKs/iPhoneSimulator$(IOSVERSION).sdk -arch i686 -arch x86_64 -c $< -o ios-x86/$@
+	$(CC) $(CPPFLAGS) $(CFLAGS) -isysroot $(SIMULATORROOT)/SDKs/iPhoneSimulator$(IOSVERSION).sdk -arch i686 -arch x86_64 -c $< -o ios-x86/$@
 	mkdir -p ios-arm/$(dir $@)
 	xcrun -sdk iphoneos $(CC) $(CFLAGS) -isysroot $(DEVICEROOT)/SDKs/iPhoneOS$(IOSVERSION).sdk -arch armv6 -arch armv7 -arch armv7s -arch arm64 -c $< -o ios-arm/$@
 	lipo ios-x86/$@ ios-arm/$@ -create -output $@
@@ -2112,10 +2112,10 @@ IOSVERSION=$(shell defaults read $(PLATFORMSROOT)/iPhoneOS.platform/version CFBu
 else
 ifeq ($(HAVE_POWER8),1)
 util/crc32c_ppc.o: util/crc32c_ppc.c
-	$(AM_V_CC)$(CC) $(CFLAGS) -c $< -o $@
+	$(AM_V_CC)$(CC) $(CPPFLAGS) $(CFLAGS) -c $< -o $@
 
 util/crc32c_ppc_asm.o: util/crc32c_ppc_asm.S
-	$(AM_V_CC)$(CC) $(CFLAGS) -c $< -o $@
+	$(AM_V_CC)$(CC) $(CPPFLAGS) $(CFLAGS) -c $< -o $@
 endif
 .cc.o:
 	$(AM_V_CC)$(CXX) $(CXXFLAGS) -c $< -o $@ $(COVERAGEFLAGS)
