@@ -30,7 +30,6 @@
 #include <sys/syscall.h>
 #include <sys/sysmacros.h>
 #endif
-#include <iostream>
 #include "monitoring/iostats_context_imp.h"
 #include "port/port.h"
 #include "rocksdb/slice.h"
@@ -463,7 +462,6 @@ size_t PosixHelper::GetLogicalBufferSize(int __attribute__((__unused__)) fd) {
     fclose(fp);
   }
   if (size != 0 && (size & (size - 1)) == 0) {
-    std::cout << "logical block size: " << size << std::endl;
     return size;
   }
 #endif
