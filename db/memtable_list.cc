@@ -129,9 +129,9 @@ bool MemTableListVersion::GetMergeOperands(
     const LookupKey& key, Status* s, MergeContext* merge_context,
     SequenceNumber* max_covering_tombstone_seq, const ReadOptions& read_opts) {
   for (MemTable* memtable : memlist_) {
-    bool done = memtable->Get(key, nullptr, nullptr, s, merge_context,
-                              max_covering_tombstone_seq, read_opts, nullptr,
-                              nullptr, false);
+    bool done = memtable->Get(key, /*value*/ nullptr, /*timestamp*/ nullptr, s,
+                              merge_context, max_covering_tombstone_seq,
+                              read_opts, nullptr, nullptr, false);
     if (done) {
       return true;
     }

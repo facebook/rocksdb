@@ -1553,7 +1553,7 @@ Status BlobDBImpl::Get(const ReadOptions& read_options,
                        ColumnFamilyHandle* column_family, const Slice& key,
                        PinnableSlice* value) {
   return Get(read_options, column_family, key, value,
-             (uint64_t*)nullptr /*expiration*/);
+             static_cast<uint64_t*>(nullptr) /*expiration*/);
 }
 
 Status BlobDBImpl::Get(const ReadOptions& read_options,
