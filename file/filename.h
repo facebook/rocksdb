@@ -17,11 +17,7 @@
 
 #include "options/db_options.h"
 #include "port/port.h"
-<<<<<<< HEAD
 #include "rocksdb/file_system.h"
-=======
-#include "rocksdb/io_status.h"
->>>>>>> Changed the partial of compaction and flush logic, to be continue
 #include "rocksdb/options.h"
 #include "rocksdb/slice.h"
 #include "rocksdb/status.h"

@@ -365,7 +365,7 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
   if (logfile_number_ > 0) {
     // TODO (yanqin) investigate whether we should sync the closed logs for
     // single column family case.
-    io_s = SyncClosedLogs(job_context);
+    s = SyncClosedLogs(job_context);
     s = io_s;
   }
 
@@ -572,20 +572,6 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
   // Need to undo atomic flush if something went wrong, i.e. s is not OK and
   // it is not because of CF drop.
   if (!s.ok() && !s.IsColumnFamilyDropped()) {
-    // Have to cancel the flush jobs that have NOT executed because we need to
-    // unref the versions.
-    for (int i = 0; i != num_cfs; ++i) {
-      if (!exec_status[i].first) {
-        jobs[i]->Cancel();
-      }
-    }
-    for (int i = 0; i != num_cfs; ++i) {
-      if (exec_status[i].first && exec_status[i].second.ok()) {
-        auto& mems = jobs[i]->GetMemTables();
-        cfds[i]->imm()->RollbackMemtableFlush(mems,
-                                              file_meta[i].fd.GetNumber());
-      }
-    }
     if (!io_s.ok()) {
       error_handler_.SetBGError(io_s, BackgroundErrorReason::kFlush);
     } else {

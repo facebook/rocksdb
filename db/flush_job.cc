@@ -238,13 +238,13 @@ Status FlushJob::Run(LogsWithPrepTracker* prep_tracker,
   } else if (write_manifest_) {
     TEST_SYNC_POINT("FlushJob::InstallResults");
     // Replace immutable memtable with the generated Table
-    versions_->SetIOStatusOK();
+    IOStatus tmp_io_s;
     s = cfd_->imm()->TryInstallMemtableFlushResults(
         cfd_, mutable_cf_options_, mems_, prep_tracker, versions_, db_mutex_,
         meta_.fd.GetNumber(), &job_context_->memtables_to_free, db_directory_,
-        log_buffer_, &committed_flush_jobs_info_);
-    if (!versions_->io_status().ok()) {
-      io_status_ = versions_->io_status();
+        log_buffer_, &committed_flush_jobs_info_, &tmp_io_s);
+    if (!tmp_io_s.ok()) {
+      io_status_ = tmp_io_s;
     }
   }
 
