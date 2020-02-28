@@ -252,6 +252,12 @@ Status DBImpl::ValidateOptions(const DBOptions& db_options) {
         "atomic_flush is incompatible with enable_pipelined_write");
   }
 
+  // TODO remove this restriction
+  if (db_options.atomic_flush && db_options.incremental_recovery) {
+    return Status::InvalidArgument(
+        "atomic_flush is currently incompatible with incremental recovery");
+  }
+
   return Status::OK();
 }
 
@@ -509,7 +515,9 @@ Status DBImpl::Recover(
     // attention to it in case we are recovering a database
     // produced by an older version of rocksdb.
     std::vector<std::string> filenames;
-    s = env_->GetChildren(immutable_db_options_.wal_dir, &filenames);
+    if (!immutable_db_options_.incremental_recovery) {
+      s = env_->GetChildren(immutable_db_options_.wal_dir, &filenames);
+    }
     if (s.IsNotFound()) {
       return Status::InvalidArgument("wal_dir not found",
                                      immutable_db_options_.wal_dir);
@@ -554,7 +562,7 @@ Status DBImpl::Recover(
       }
     }
 
-    if (!logs.empty() && !missing_table_file) {
+    if (!logs.empty()) {
       // Recover in the order in which the logs were generated
       std::sort(logs.begin(), logs.end());
       bool corrupted_log_found = false;

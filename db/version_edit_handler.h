@@ -17,6 +17,17 @@ namespace ROCKSDB_NAMESPACE {
 
 typedef std::unique_ptr<BaseReferencedVersionBuilder> VersionBuilderUPtr;
 
+// A class used for scanning MANIFEST file.
+// VersionEditHandler reads a MANIFEST file, parses the version edits, and
+// builds the version set's in-memory state, e.g. the version storage info for
+// the versions of column families.
+// To use this class and its subclasses,
+// 1. Create an object of VersionEditHandler or its subclasses.
+//    VersionEditHandler handler(read_only, column_families, version_set,
+//                               track_missing_files, ignore_missing_files);
+// 2. Status s = handler.Iterate(reader, &db_id);
+// 3. Check s and handle possible errors.
+//
 // Not thread-safe, external synchronization is necessary if an object of
 // VersionEditHandler is shared by multiple threads.
 class VersionEditHandler {
@@ -42,7 +53,7 @@ class VersionEditHandler {
   Status Initialize();
   void CheckColumnFamilyId(const VersionEdit& edit, bool* cf_in_not_found,
                            bool* cf_in_builders) const;
-  virtual void CheckIterateResult(const log::Reader& reader, Status* s);
+  virtual void CheckIterationResult(const log::Reader& reader, Status* s);
 
   virtual ColumnFamilyData* CreateCfAndInit(
       const ColumnFamilyOptions& cf_options, const VersionEdit& edit);
@@ -73,6 +84,12 @@ class VersionEditHandler {
   bool initialized_;
 };
 
+// A class similar to its base class, i.e. VersionEditHandler.
+// VersionEditHandlerPointInTime restores the versions to the most recent point
+// in time such that at this point, the version does not have missing files.
+//
+// Not thread-safe, external synchronization is necessary if an object of
+// VersionEditHandlerPointInTime is shared by multiple threads.
 class VersionEditHandlerPointInTime : public VersionEditHandler {
  public:
   VersionEditHandlerPointInTime(
@@ -82,7 +99,7 @@ class VersionEditHandlerPointInTime : public VersionEditHandler {
   ~VersionEditHandlerPointInTime() override;
 
  protected:
-  void CheckIterateResult(const log::Reader& reader, Status* s) override;
+  void CheckIterationResult(const log::Reader& reader, Status* s) override;
   ColumnFamilyData* CreateCfAndInit(const ColumnFamilyOptions& cf_options,
                                     const VersionEdit& edit) override;
   ColumnFamilyData* DestroyCfAndCleanup(const VersionEdit& edit) override;

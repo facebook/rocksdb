@@ -1740,15 +1740,21 @@ TEST_F(DBBasicTest, IncrementalRecoveryNoCorrupt) {
   CreateAndReopenWithCF({"pikachu", "eevee"}, options);
   size_t num_cfs = handles_.size();
   ASSERT_EQ(3, num_cfs);
+  WriteOptions write_opts;
+  write_opts.disableWAL = true;
   for (size_t cf = 0; cf != num_cfs; ++cf) {
     for (size_t i = 0; i != 10000; ++i) {
       std::string key_str = Key(static_cast<int>(i));
       std::string value_str = std::to_string(cf) + "_" + std::to_string(i);
+
       ASSERT_OK(Put(static_cast<int>(cf), key_str, value_str));
       if (0 == (i % 1000)) {
         ASSERT_OK(Flush(static_cast<int>(cf)));
       }
     }
+  }
+  for (size_t cf = 0; cf != num_cfs; ++cf) {
+    ASSERT_OK(Flush(static_cast<int>(cf)));
   }
   Close();
   options.incremental_recovery = true;

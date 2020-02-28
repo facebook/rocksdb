@@ -71,7 +71,7 @@ Status VersionEditHandler::Iterate(log::Reader& reader, std::string* db_id) {
     }
   }
 
-  CheckIterateResult(reader, &s);
+  CheckIterationResult(reader, &s);
 
   if (!s.ok()) {
     status_ = s;
@@ -255,8 +255,8 @@ void VersionEditHandler::CheckColumnFamilyId(const VersionEdit& edit,
   *cf_in_builders = in_builders;
 }
 
-void VersionEditHandler::CheckIterateResult(const log::Reader& reader,
-                                            Status* s) {
+void VersionEditHandler::CheckIterationResult(const log::Reader& reader,
+                                              Status* s) {
   assert(s != nullptr);
   if (!s->ok()) {
     read_buffer_.Clear();
@@ -491,9 +491,9 @@ VersionEditHandlerPointInTime::~VersionEditHandlerPointInTime() {
   versions_.clear();
 }
 
-void VersionEditHandlerPointInTime::CheckIterateResult(
+void VersionEditHandlerPointInTime::CheckIterationResult(
     const log::Reader& reader, Status* s) {
-  VersionEditHandler::CheckIterateResult(reader, s);
+  VersionEditHandler::CheckIterationResult(reader, s);
   assert(s != nullptr);
   if (s->ok()) {
     for (auto* cfd : *(version_set_->column_family_set_)) {

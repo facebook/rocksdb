@@ -561,11 +561,6 @@ Options DBTestBase::GetOptions(
       break;
     }
 
-    case kIncrementalRecovery: {
-      options.incremental_recovery = true;
-      break;
-    }
-
     default:
       break;
   }
