@@ -573,7 +573,6 @@ Status DBImpl::CloseHelper() {
       db_paths.insert(cf_path.path);
     }
   }
-  env_->HintDbPathsRemoved(db_paths);
 
   // versions need to be destroyed before table_cache since it can hold
   // references to table_cache.
@@ -603,6 +602,9 @@ Status DBImpl::CloseHelper() {
       ret = s;
     }
   }
+
+  // The hint is given as a best effort, ignore errors.
+  env_->HintDbPathsRemoved(db_paths);
 
   if (ret.IsAborted()) {
     // Reserve IsAborted() error for those where users didn't release
@@ -3531,24 +3533,15 @@ Status DestroyDB(const std::string& dbname, const Options& options,
       }
     }
 
-    std::vector<std::string> paths;
-
+    std::unordered_set<std::string> paths;
     for (const auto& path : options.db_paths) {
-      paths.emplace_back(path.path);
+      paths.insert(path.path);
     }
     for (const auto& cf : column_families) {
       for (const auto& path : cf.options.cf_paths) {
-        paths.emplace_back(path.path);
+        paths.insert(path.path);
       }
     }
-
-    // Remove duplicate paths.
-    // Note that we compare only the actual paths but not path ids.
-    // This reason is that same path can appear at different path_ids
-    // for different column families.
-    std::sort(paths.begin(), paths.end());
-    paths.erase(std::unique(paths.begin(), paths.end()), paths.end());
-
     for (const auto& path : paths) {
       if (env->GetChildren(path, &filenames).ok()) {
         for (const auto& fname : filenames) {
@@ -3617,6 +3610,10 @@ Status DestroyDB(const std::string& dbname, const Options& options,
     soptions.sst_file_manager.reset();
 
     env->DeleteDir(dbname);  // Ignore error in case dir contains other files
+
+    paths.insert(dbname);
+    // The hint is given as a best effort, ignore errors.
+    env->HintDbPathsRemoved(paths);
   }
   return result;
 }
