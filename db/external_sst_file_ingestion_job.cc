@@ -46,7 +46,7 @@ Status ExternalSstFileIngestionJob::Prepare(
             TablePropertiesCollectorFactory::Context::kUnknownColumnFamily &&
         f.cf_id != cfd_->GetID()) {
       return Status::InvalidArgument(
-          "External file column family id dont match");
+          "External file column family id don't match");
     }
   }
 
@@ -55,7 +55,7 @@ Status ExternalSstFileIngestionJob::Prepare(
   if (num_files == 0) {
     return Status::InvalidArgument("The list of files is empty");
   } else if (num_files > 1) {
-    // Verify that passed files dont have overlapping ranges
+    // Verify that passed files don't have overlapping ranges
     autovector<const IngestedFileInfo*> sorted_files;
     for (size_t i = 0; i < num_files; i++) {
       sorted_files.push_back(&files_to_ingest_[i]);
@@ -212,7 +212,7 @@ Status ExternalSstFileIngestionJob::Run() {
 
   if (ingestion_options_.snapshot_consistency && !db_snapshots_->empty()) {
     // We need to assign a global sequence number to all the files even
-    // if the dont overlap with any ranges since we have snapshots
+    // if the don't overlap with any ranges since we have snapshots
     force_global_seqno = true;
   }
   // It is safe to use this instead of LastAllocatedSequence since we are
@@ -588,7 +588,7 @@ Status ExternalSstFileIngestionJob::AssignLevelAndSeqnoForIngestedFile(
       continue;
     }
 
-    // We dont overlap with any keys in this level, but we still need to check
+    // We don't overlap with any keys in this level, but we still need to check
     // if our file can fit in it
     if (IngestedFileFitInLevel(file_to_ingest, lvl)) {
       target_level = lvl;
@@ -646,7 +646,7 @@ Status ExternalSstFileIngestionJob::AssignGlobalSeqnoForIngestedFile(
     return Status::InvalidArgument("Global seqno is required, but disabled");
   } else if (file_to_ingest->global_seqno_offset == 0) {
     return Status::InvalidArgument(
-        "Trying to set global seqno for a file that dont have a global seqno "
+        "Trying to set global seqno for a file that don't have a global seqno "
         "field");
   }
 

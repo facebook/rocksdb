@@ -2021,7 +2021,7 @@ class DBImpl : public DB {
   // REQUIRES: mutex locked
   std::unique_ptr<ROCKSDB_NAMESPACE::RepeatableThread> thread_persist_stats_;
 
-  // When set, we use a separate queue for writes that dont write to memtable.
+  // When set, we use a separate queue for writes that don't write to memtable.
   // In 2PC these are the writes at Prepare phase.
   const bool two_write_queues_;
   const bool manual_wal_flush_;

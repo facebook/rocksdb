@@ -520,8 +520,8 @@ bool DataBlockIter::ParseNextDataKey(const char* limit) {
     return false;
   } else {
     if (shared == 0) {
-      // If this key dont share any bytes with prev key then we dont need
-      // to decode it and can use it's address in the block directly.
+      // If this key doesn't share any bytes with prev key then we don't need
+      // to decode it and can use its address in the block directly.
       key_.SetKey(Slice(p, non_shared), false /* copy */);
       key_pinned_ = true;
     } else {
@@ -592,8 +592,8 @@ bool IndexBlockIter::ParseNextIndexKey() {
     return false;
   }
   if (shared == 0) {
-    // If this key dont share any bytes with prev key then we dont need
-    // to decode it and can use it's address in the block directly.
+    // If this key doesn't share any bytes with prev key then we don't need
+    // to decode it and can use its address in the block directly.
     key_.SetKey(Slice(p, non_shared), false /* copy */);
     key_pinned_ = true;
   } else {

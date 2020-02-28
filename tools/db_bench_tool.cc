@@ -1061,7 +1061,7 @@ DEFINE_double(keyrange_dist_d, 0.0,
               "f(x)=a*exp(b*x)+c*exp(d*x)");
 DEFINE_int64(keyrange_num, 1,
              "The number of key ranges that are in the same prefix "
-             "group, each prefix range will have its key acccess "
+             "group, each prefix range will have its key access "
              "distribution");
 DEFINE_double(key_dist_a, 0.0,
               "The parameter 'a' of key access distribution model "

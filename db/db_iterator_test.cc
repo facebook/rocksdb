@@ -1873,7 +1873,7 @@ TEST_P(DBIteratorTest, IterPrevKeyCrossingBlocksRandomized) {
   DestroyAndReopen(options);
 
   const int kNumKeys = 500;
-  // Small number of merge operands to make sure that DBIter::Prev() dont
+  // Small number of merge operands to make sure that DBIter::Prev() don't
   // fall back to Seek()
   const int kNumMergeOperands = 3;
   // Use value size that will make sure that every block contain 1 key
@@ -1908,7 +1908,7 @@ TEST_P(DBIteratorTest, IterPrevKeyCrossingBlocksRandomized) {
   ASSERT_OK(Flush());
 
   // Separate values and merge operands in different file so that we
-  // make sure that we dont merge them while flushing but actually
+  // make sure that we don't merge them while flushing but actually
   // merge them in the read path
   for (int i = 0; i < kNumKeys; i++) {
     if (rnd.PercentTrue(kNoMergeOpPercentage)) {

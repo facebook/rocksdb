@@ -90,7 +90,7 @@ class DeleteSchedulerTest : public testing::Test {
   }
 
   void NewDeleteScheduler() {
-    // Tests in this file are for DeleteScheduler component and dont create any
+    // Tests in this file are for DeleteScheduler component and don't create any
     // DBs, so we need to set max_trash_db_ratio to 100% (instead of default
     // 25%)
     std::shared_ptr<FileSystem>
@@ -306,7 +306,7 @@ TEST_F(DeleteSchedulerTest, RateLimitingMultiThreaded) {
 }
 
 // Disable rate limiting by setting rate_bytes_per_sec_ to 0 and make sure
-// that when DeleteScheduler delete a file it delete it immediately and dont
+// that when DeleteScheduler delete a file it delete it immediately and don't
 // move it to trash
 TEST_F(DeleteSchedulerTest, DisableRateLimiting) {
   int bg_delete_file = 0;
