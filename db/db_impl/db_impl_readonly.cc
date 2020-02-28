@@ -162,9 +162,22 @@ Status DB::OpenForReadOnly(
 
   SuperVersionContext sv_context(/* create_superversion */ true);
   DBImplReadOnly* impl = new DBImplReadOnly(db_options, dbname);
+
+  std::unordered_set<std::string> paths;
+  paths.insert(dbname);
+  for (auto& db_path : db_options.db_paths) {
+    paths.isnert(db_path.path);
+  }
+  for (auto& cfd : column_families) {
+    for (auto& cf_path : cfd.options.cf_paths) {
+      paths.insert(cf_path.path);
+    }
+  }
+  Status s = impl->env_->HintDbPathsAdded(paths);
+
   impl->mutex_.Lock();
-  Status s = impl->Recover(column_families, true /* read only */,
-                           error_if_log_file_exist);
+  s = impl->Recover(column_families, true /* read only */,
+                    error_if_log_file_exist);
   if (s.ok()) {
     // set column family handles
     for (auto cf : column_families) {
