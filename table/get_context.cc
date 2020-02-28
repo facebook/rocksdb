@@ -74,18 +74,16 @@ GetContext::GetContext(
 GetContext::GetContext(
     const Comparator* ucmp, const MergeOperator* merge_operator, Logger* logger,
     Statistics* statistics, GetState init_state, const Slice& user_key,
-    PinnableSlice* pinnable_val, bool* value_found,
-    MergeContext* merge_context, bool do_merge,
-    SequenceNumber* _max_covering_tombstone_seq, Env* env, SequenceNumber* seq,
-    PinnedIteratorsManager* _pinned_iters_mgr, ReadCallback* callback,
-    bool* is_blob_index, uint64_t tracing_get_id)
-    : GetContext(ucmp, merge_operator, logger, statistics, init_state, user_key, 
-                 pinnable_val, nullptr, value_found, merge_context, do_merge, 
-                 _max_covering_tombstone_seq, env, seq, _pinned_iters_mgr, callback, 
-                 is_blob_index, tracing_get_id)
-{}
+    PinnableSlice* pinnable_val, bool* value_found, MergeContext* merge_context,
+    bool do_merge, SequenceNumber* _max_covering_tombstone_seq, Env* env,
+    SequenceNumber* seq, PinnedIteratorsManager* _pinned_iters_mgr,
+    ReadCallback* callback, bool* is_blob_index, uint64_t tracing_get_id)
+    : GetContext(ucmp, merge_operator, logger, statistics, init_state, user_key,
+                 pinnable_val, nullptr, value_found, merge_context, do_merge,
+                 _max_covering_tombstone_seq, env, seq, _pinned_iters_mgr,
+                 callback, is_blob_index, tracing_get_id) {}
 
-    // Called from TableCache::Get and Table::Get when file/block in which
+// Called from TableCache::Get and Table::Get when file/block in which
 // key may exist are not there in TableCache/BlockCache respectively. In this
 // case we can't guarantee that key does not exist and are not permitted to do
 // IO to be certain.Set the status=kFound and value_found=false to let the

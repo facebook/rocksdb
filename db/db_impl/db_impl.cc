@@ -1496,7 +1496,7 @@ ColumnFamilyHandle* DBImpl::PersistentStatsColumnFamily() const {
 Status DBImpl::Get(const ReadOptions& read_options,
                    ColumnFamilyHandle* column_family, const Slice& key,
                    PinnableSlice* value) {
-  return Get(read_options, column_family, key, value, nullptr);
+  return Get(read_options, column_family, key, value, /*timestamp=*/nullptr);
 }
 
 Status DBImpl::Get(const ReadOptions& read_options,
@@ -1618,9 +1618,9 @@ Status DBImpl::GetImpl(const ReadOptions& read_options, const Slice& key,
     } else {
       // Get Merge Operands associated with key, Merge Operands should not be
       // merged and raw values should be returned to the user.
-      if (sv->mem->Get(lkey, nullptr, nullptr, &s, &merge_context,
-                       &max_covering_tombstone_seq, read_options, nullptr,
-                       nullptr, false)) {
+      if (sv->mem->Get(lkey, /*value*/ nullptr, /*timestamp=*/nullptr, &s,
+                       &merge_context, &max_covering_tombstone_seq,
+                       read_options, nullptr, nullptr, false)) {
         done = true;
         RecordTick(stats_, MEMTABLE_HIT);
       } else if ((s.ok() || s.IsMergeInProgress()) &&
@@ -1751,8 +1751,9 @@ std::vector<Status> DBImpl::MultiGet(
          has_unpersisted_data_.load(std::memory_order_relaxed));
     bool done = false;
     if (!skip_memtable) {
-      if (super_version->mem->Get(lkey, value, nullptr, &s, &merge_context,
-                                  &max_covering_tombstone_seq, read_options)) {
+      if (super_version->mem->Get(lkey, value, /*timestamp=*/nullptr, &s,
+                                  &merge_context, &max_covering_tombstone_seq,
+                                  read_options)) {
         done = true;
         RecordTick(stats_, MEMTABLE_HIT);
       } else if (super_version->imm->Get(
@@ -1765,8 +1766,8 @@ std::vector<Status> DBImpl::MultiGet(
     if (!done) {
       PinnableSlice pinnable_val;
       PERF_TIMER_GUARD(get_from_output_files_time);
-      super_version->current->Get(read_options, lkey, &pinnable_val, nullptr,
-                                  &s, &merge_context,
+      super_version->current->Get(read_options, lkey, &pinnable_val,
+                                  /*timestamp=*/nullptr, &s, &merge_context,
                                   &max_covering_tombstone_seq);
       value->assign(pinnable_val.data(), pinnable_val.size());
       RecordTick(stats_, MEMTABLE_MISS);

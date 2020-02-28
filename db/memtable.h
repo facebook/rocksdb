@@ -213,7 +213,7 @@ class MemTable {
            SequenceNumber* max_covering_tombstone_seq, SequenceNumber* seq,
            const ReadOptions& read_opts, ReadCallback* callback = nullptr,
            bool* is_blob_index = nullptr, bool do_merge = true) {
-    return Get(key, value, nullptr, s, merge_context,
+    return Get(key, value, /*timestamp=*/nullptr, s, merge_context,
                max_covering_tombstone_seq, seq, read_opts, callback,
                is_blob_index, do_merge);
   }

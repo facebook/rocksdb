@@ -582,8 +582,8 @@ class DB {
   virtual bool KeyMayExist(const ReadOptions& options,
                            ColumnFamilyHandle* column_family, const Slice& key,
                            std::string* value, bool* value_found = nullptr) {
-    return KeyMayExist(options, column_family, key, value, nullptr,
-                       value_found);
+    return KeyMayExist(options, column_family, key, value,
+                       /*timestamp=*/nullptr, value_found);
   }
 
   virtual bool KeyMayExist(const ReadOptions& options, const Slice& key,
