@@ -380,6 +380,7 @@ MAIN_SOURCES =                                                          \
   db/write_controller_test.cc                                           \
   env/env_basic_test.cc                                                 \
   env/env_test.cc                                                       \
+  env/io_posix_test.cc                                                  \
   env/mock_env_test.cc                                                  \
   logging/auto_roll_logger_test.cc                                      \
   logging/env_logger_test.cc                                            \
