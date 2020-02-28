@@ -566,9 +566,8 @@ Status DBImpl::CloseHelper() {
   for (const DbPath& db_path : initial_db_options_.db_paths) {
     db_paths.insert(db_path.path);
   }
-  ColumnFamilySet* cfs = versions_->GetColumnFamilySet();
-  for (ColumnFamilySet::iterator it = cfs->begin(); it != cfs->end(); ++it) {
-    for (const DbPath& cf_path : (*it)->ioptions()->cf_paths) {
+  for (ColumnFamilyData* cf : *versions_->GetColumnFamilySet()) {
+    for (const DbPath& cf_path : cf->ioptions()->cf_paths) {
       db_paths.insert(cf_path.path);
     }
   }
