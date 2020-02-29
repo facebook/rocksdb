@@ -117,7 +117,7 @@ Status DBImpl::SyncClosedLogs(JobContext* job_context) {
       }
     }
     if (s.ok()) {
-      s = directories_.GetWalDir()->Fsync();
+      s = directories_.GetWalDir()->Fsync(IOOptions(), nullptr);
     }
 
     mutex_.Lock();
@@ -301,7 +301,7 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
   GetSnapshotContext(job_context, &snapshot_seqs,
                      &earliest_write_conflict_snapshot, &snapshot_checker);
 
-  autovector<Directory*> distinct_output_dirs;
+  autovector<FSDirectory*> distinct_output_dirs;
   autovector<std::string> distinct_output_dir_paths;
   std::vector<std::unique_ptr<FlushJob>> jobs;
   std::vector<MutableCFOptions> all_mutable_cf_options;
@@ -309,7 +309,7 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
   all_mutable_cf_options.reserve(num_cfs);
   for (int i = 0; i < num_cfs; ++i) {
     auto cfd = cfds[i];
-    Directory* data_dir = GetDataDir(cfd, 0U);
+    FSDirectory* data_dir = GetDataDir(cfd, 0U);
     const std::string& curr_path = cfd->ioptions()->cf_paths[0].path;
 
     // Add to distinct output directories if eligible. Use linear search. Since
@@ -413,7 +413,7 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
     // Sync on all distinct output directories.
     for (auto dir : distinct_output_dirs) {
       if (dir != nullptr) {
-        Status error_status = dir->Fsync();
+        Status error_status = dir->Fsync(IOOptions(), nullptr);
         if (!error_status.ok()) {
           s = error_status;
           break;

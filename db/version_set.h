@@ -822,7 +822,7 @@ class VersionSet {
   Status LogAndApply(
       ColumnFamilyData* column_family_data,
       const MutableCFOptions& mutable_cf_options, VersionEdit* edit,
-      InstrumentedMutex* mu, Directory* db_directory = nullptr,
+      InstrumentedMutex* mu, FSDirectory* db_directory = nullptr,
       bool new_descriptor_log = false,
       const ColumnFamilyOptions* column_family_options = nullptr) {
     autovector<ColumnFamilyData*> cfds;
@@ -842,7 +842,7 @@ class VersionSet {
       ColumnFamilyData* column_family_data,
       const MutableCFOptions& mutable_cf_options,
       const autovector<VersionEdit*>& edit_list, InstrumentedMutex* mu,
-      Directory* db_directory = nullptr, bool new_descriptor_log = false,
+      FSDirectory* db_directory = nullptr, bool new_descriptor_log = false,
       const ColumnFamilyOptions* column_family_options = nullptr) {
     autovector<ColumnFamilyData*> cfds;
     cfds.emplace_back(column_family_data);
@@ -861,7 +861,7 @@ class VersionSet {
       const autovector<ColumnFamilyData*>& cfds,
       const autovector<const MutableCFOptions*>& mutable_cf_options_list,
       const autovector<autovector<VersionEdit*>>& edit_lists,
-      InstrumentedMutex* mu, Directory* db_directory = nullptr,
+      InstrumentedMutex* mu, FSDirectory* db_directory = nullptr,
       bool new_descriptor_log = false,
       const ColumnFamilyOptions* new_cf_options = nullptr);
 
@@ -1170,7 +1170,7 @@ class VersionSet {
  private:
   // REQUIRES db mutex at beginning. may release and re-acquire db mutex
   Status ProcessManifestWrites(std::deque<ManifestWriter>& writers,
-                               InstrumentedMutex* mu, Directory* db_directory,
+                               InstrumentedMutex* mu, FSDirectory* db_directory,
                                bool new_descriptor_log,
                                const ColumnFamilyOptions* new_cf_options);
 
@@ -1237,7 +1237,7 @@ class ReactiveVersionSet : public VersionSet {
       const autovector<ColumnFamilyData*>& /*cfds*/,
       const autovector<const MutableCFOptions*>& /*mutable_cf_options_list*/,
       const autovector<autovector<VersionEdit*>>& /*edit_lists*/,
-      InstrumentedMutex* /*mu*/, Directory* /*db_directory*/,
+      InstrumentedMutex* /*mu*/, FSDirectory* /*db_directory*/,
       bool /*new_descriptor_log*/,
       const ColumnFamilyOptions* /*new_cf_option*/) override {
     return Status::NotSupported("not supported in reactive mode");
