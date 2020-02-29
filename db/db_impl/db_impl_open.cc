@@ -253,9 +253,9 @@ Status DBImpl::ValidateOptions(const DBOptions& db_options) {
   }
 
   // TODO remove this restriction
-  if (db_options.atomic_flush && db_options.incremental_recovery) {
+  if (db_options.atomic_flush && db_options.best_efforts_recovery) {
     return Status::InvalidArgument(
-        "atomic_flush is currently incompatible with incremental recovery");
+        "atomic_flush is currently incompatible with best-efforts recovery");
   }
 
   return Status::OK();
@@ -427,7 +427,7 @@ Status DBImpl::Recover(
   assert(db_id_.empty());
   Status s;
   bool missing_table_file = false;
-  if (!immutable_db_options_.incremental_recovery) {
+  if (!immutable_db_options_.best_efforts_recovery) {
     s = versions_->Recover(column_families, read_only, &db_id_);
   } else {
     s = versions_->TryRecover(column_families, read_only, &db_id_,
@@ -515,7 +515,7 @@ Status DBImpl::Recover(
     // attention to it in case we are recovering a database
     // produced by an older version of rocksdb.
     std::vector<std::string> filenames;
-    if (!immutable_db_options_.incremental_recovery) {
+    if (!immutable_db_options_.best_efforts_recovery) {
       s = env_->GetChildren(immutable_db_options_.wal_dir, &filenames);
     }
     if (s.IsNotFound()) {

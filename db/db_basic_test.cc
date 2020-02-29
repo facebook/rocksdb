@@ -1757,7 +1757,7 @@ TEST_F(DBBasicTest, IncrementalRecoveryNoCorrupt) {
     ASSERT_OK(Flush(static_cast<int>(cf)));
   }
   Close();
-  options.incremental_recovery = true;
+  options.best_efforts_recovery = true;
   ReopenWithColumnFamilies({kDefaultColumnFamilyName, "pikachu", "eevee"},
                            options);
   num_cfs = handles_.size();
@@ -1820,7 +1820,7 @@ TEST_F(DBBasicTest, RecoverWithMissingFiles) {
       ASSERT_OK(env_->DeleteFile(files[j]));
     }
   }
-  options.incremental_recovery = true;
+  options.best_efforts_recovery = true;
   ReopenWithColumnFamilies(all_cf_names, options);
   // Verify data
   ReadOptions read_opts;
@@ -1870,7 +1870,7 @@ TEST_F(DBBasicTest, SkipWALIfMissingTableFiles) {
       ASSERT_OK(env_->DeleteFile(files[j]));
     }
   }
-  options.incremental_recovery = true;
+  options.best_efforts_recovery = true;
   ReopenWithColumnFamilies(kAllCfNames, options);
   // Verify WAL is not applied
   ReadOptions read_opts;

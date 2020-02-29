@@ -1127,9 +1127,9 @@ class DBImpl : public DB {
   // REQUIRES: db mutex held when calling this function, but the db mutex can
   // be released and re-acquired. Db mutex will be held when the function
   // returns.
-  // Currently, this function should be called only in incremental recovery
+  // Currently, this function should be called only in best-efforts recovery
   // mode.
-  // After incremental recovery, there may be SST files in db/cf paths that are
+  // After best-efforts recovery, there may be SST files in db/cf paths that are
   // not referenced in the MANIFEST. We delete these SST files. In the
   // meantime, we find out the largest file number present in the paths, and
   // bump up the version set's next_file_number_ to be 1 + largest_file_number.

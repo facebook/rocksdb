@@ -96,7 +96,7 @@ ImmutableDBOptions::ImmutableDBOptions(const DBOptions& options)
       write_dbid_to_manifest(options.write_dbid_to_manifest),
       log_readahead_size(options.log_readahead_size),
       sst_file_checksum_func(options.sst_file_checksum_func),
-      incremental_recovery(options.incremental_recovery) {
+      best_efforts_recovery(options.best_efforts_recovery) {
 }
 
 void ImmutableDBOptions::Dump(Logger* log) const {
@@ -251,8 +251,8 @@ void ImmutableDBOptions::Dump(Logger* log) const {
                    sst_file_checksum_func
                        ? sst_file_checksum_func->Name()
                        : kUnknownFileChecksumFuncName.c_str());
-  ROCKS_LOG_HEADER(log, "                Options.incremental_recovery: %d",
-                   static_cast<int>(incremental_recovery));
+  ROCKS_LOG_HEADER(log, "                Options.best_efforts_recovery: %d",
+                   static_cast<int>(best_efforts_recovery));
 }
 
 MutableDBOptions::MutableDBOptions()
