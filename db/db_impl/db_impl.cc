@@ -601,8 +601,12 @@ Status DBImpl::CloseHelper() {
     }
   }
 
-  // Do it at best effort, ignore errors.
-  env_->OnDbPathsRemoved(db_paths);
+  Status s = env_->OnDbPathsUnregistered(db_paths);
+  if (!s.ok()) {
+    ROCKS_LOG_ERROR(immutable_db_options_.info_log,
+                    "Failed to unregister data paths of DB %s from env",
+                    dbname_.c_str());
+  }
 
   if (ret.IsAborted()) {
     // Reserve IsAborted() error for those where users didn't release
@@ -2280,7 +2284,9 @@ Status DBImpl::CreateColumnFamilyImpl(const ColumnFamilyOptions& cf_options,
       }
       paths.insert(cf_path.path);
     }
-    s = env_->OnDbPathsAdded(paths);
+    if (s.ok()) {
+      s = env_->OnDbPathsRegistered(paths);
+    }
   }
   if (!s.ok()) {
     return s;
@@ -3605,8 +3611,12 @@ Status DestroyDB(const std::string& dbname, const Options& options,
     env->DeleteDir(dbname);  // Ignore error in case dir contains other files
 
     paths.insert(dbname);
-    // Do it at best effort, ignore errors.
-    env->OnDbPathsRemoved(paths);
+    Status s = env->OnDbPathsUnregistered(paths);
+    if (!s.ok()) {
+      ROCKS_LOG_ERROR(soptions.info_log,
+                      "Failed to unregister data paths of DB %s from env",
+                      dbname.c_str());
+    }
   }
   return result;
 }

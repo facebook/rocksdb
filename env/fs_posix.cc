@@ -846,20 +846,24 @@ class PosixFileSystem : public FileSystem {
     return optimized;
   }
 #ifdef OS_LINUX
-  Status OnDbPathsAdded(const std::set<std::string>& paths) override {
+  Status OnDbPathsRegistered(const std::set<std::string>& paths) override {
     std::set<std::pair<std::string, int>> fname_fds;
-    for (auto& path : paths) {
+    for (auto path : paths) {
+      // Remove trailing slash.
+      if (path.size() > 1 && path.back() == '/') {
+        path.pop_back();
+      }
       int fd = open(path.c_str(), O_DIRECTORY | O_RDONLY);
       if (fd == -1) {
         return Status::IOError("Cannot open directory " + path);
       }
       fname_fds.emplace(path, fd);
     }
-    logical_buffer_size_cache_.CacheLogicalBufferSize(fname_fds);
+    logical_buffer_size_cache_.RefAndCacheLogicalBufferSize(fname_fds);
     return Status::OK();
   }
-  Status OnDbPathsRemoved(const std::set<std::string>& paths) override {
-    logical_buffer_size_cache_.RemoveCachedLogicalBufferSize(paths);
+  Status OnDbPathsUnregistered(const std::set<std::string>& paths) override {
+    logical_buffer_size_cache_.UnrefAndTryRemoveCachedLogicalBufferSize(paths);
     return Status::OK();
   }
 #endif

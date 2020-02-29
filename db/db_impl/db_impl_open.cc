@@ -1401,7 +1401,7 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
     }
 
     paths.insert(dbname);
-    s = impl->env_->OnDbPathsAdded(paths);
+    s = impl->env_->OnDbPathsRegistered(paths);
   }
   if (s.ok()) {
     s = impl->CreateArchivalDirectory();

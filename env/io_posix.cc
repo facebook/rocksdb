@@ -372,27 +372,39 @@ size_t PosixHelper::GetUniqueIdFromFile(int fd, char* id, size_t max_size) {
 #endif
 
 #ifdef OS_LINUX
-void LogicalBufferSizeCache::CacheLogicalBufferSize(
+void LogicalBufferSizeCache::RefAndCacheLogicalBufferSize(
     const std::set<std::pair<std::string, int>>& directories) {
-  std::map<std::string, size_t> sizes;
+  std::map<int, size_t> fd_sizes;
   {
     ReadLock lock(&cache_mutex_);
     for (auto& fname_fd : directories) {
-      auto it = cache_.find(fname_fd.first);
-      if (it == cache_.end()) {
-        sizes[fname_fd.first] = get_logical_buffer_size_(fname_fd.second);
+      if (cache_.find(fname_fd.first) == cache_.end()) {
+        fd_sizes.emplace(fname_fd.second, 0);
       }
     }
   }
+  for (auto& fd_size : fd_sizes) {
+    fd_size.second = get_logical_buffer_size_(fd_size.first);
+  }
   WriteLock lock(&cache_mutex_);
-  cache_.insert(sizes.begin(), sizes.end());
+  for (auto& fname_fd : directories) {
+    auto& v = cache_[fname_fd.first];
+    v.ref++;
+    auto fd_size = fd_sizes.find(fname_fd.second);
+    if (fd_size != fd_sizes.end()) {
+      v.size = fd_size->second;
+    }
+  }
 }
 
-void LogicalBufferSizeCache::RemoveCachedLogicalBufferSize(
+void LogicalBufferSizeCache::UnrefAndTryRemoveCachedLogicalBufferSize(
     const std::set<std::string>& directories) {
   WriteLock lock(&cache_mutex_);
   for (auto& dir : directories) {
-    cache_.erase(dir);
+    auto it = cache_.find(dir);
+    if (it != cache_.end() && !(--it->second.ref)) {
+      cache_.erase(it);
+    }
   }
 }
 
@@ -403,7 +415,7 @@ size_t LogicalBufferSizeCache::GetLogicalBufferSize(const std::string& fname,
     ReadLock lock(&cache_mutex_);
     auto it = cache_.find(dir);
     if (it != cache_.end()) {
-      return it->second;
+      return it->second.size;
     }
   }
   return get_logical_buffer_size_(fd);

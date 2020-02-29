@@ -61,26 +61,42 @@ class LogicalBufferSizeCache {
                              PosixHelper::GetLogicalBufferSize)
       : get_logical_buffer_size_(get_logical_buffer_size) {}
 
-  // Logical buffer size of files under each specified directory will be cached.
-  // If the logical buffer size for a directory has been cached, the original
-  // cached size will be overwritten.
+  // Takes the following actions:
+  // 1. Increases reference count of the directories;
+  // 2. If the directory's logical buffer size is not cached,
+  //    compute the buffer size and cache the result.
   // NOTE: directory must not have trailing slash.
   // directories is a set of <fname, fd> pairs.
-  void CacheLogicalBufferSize(
+  void RefAndCacheLogicalBufferSize(
       const std::set<std::pair<std::string, int>>& directories);
 
-  void RemoveCachedLogicalBufferSize(const std::set<std::string>& directories);
+  // Takes the following actions:
+  // 1. Decreases reference count of the directories;
+  // 2. If the reference count of a directory reaches 0, remove the directory
+  //    from the cache.
+  // NOTE: directory must not have trailing slash.
+  void UnrefAndTryRemoveCachedLogicalBufferSize(
+      const std::set<std::string>& directories);
 
   // Returns the logical buffer size for the file.
   //
-  // If the file is under a specified directory, return the cached size.
-  // Otherwise, the size is always computed.
+  // If the file is under a cached directory, return the cached size.
+  // Otherwise, the size is computed.
   size_t GetLogicalBufferSize(const std::string& fname, int fd);
 
  private:
+  struct CacheValue {
+    CacheValue() : size(0), ref(0) {}
+
+    // Logical buffer size of the directory.
+    size_t size;
+    // Reference count of the directory.
+    int ref;
+  };
+
   std::function<size_t(int)> get_logical_buffer_size_;
 
-  std::map<std::string, size_t> cache_;
+  std::map<std::string, CacheValue> cache_;
   port::RWMutex cache_mutex_;
 };
 #endif

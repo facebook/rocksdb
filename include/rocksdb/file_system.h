@@ -172,16 +172,12 @@ class FileSystem {
   // The result of Default() belongs to rocksdb and must never be deleted.
   static std::shared_ptr<FileSystem> Default();
 
-  // Handles the event when database paths are added.
-  // Different implementations may take different actions.
-  // By default, it's a no-op.
-  virtual Status OnDbPathsAdded(const std::set<std::string>& /*paths*/) {
+  // See Env::OnDbPathsRegistered.
+  virtual Status OnDbPathsRegistered(const std::set<std::string>& /*paths*/) {
     return Status::OK();
   }
-  // Handles the event when database paths are added.
-  // Different implementations may take different actions.
-  // By default, it's a no-op.
-  virtual Status OnDbPathsRemoved(const std::set<std::string>& /*paths*/) {
+  // See Env::OnDbPathsUnregistered.
+  virtual Status OnDbPathsUnregistered(const std::set<std::string>& /*paths*/) {
     return Status::OK();
   }
 

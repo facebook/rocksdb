@@ -164,16 +164,30 @@ class Env {
   // The result of Default() belongs to rocksdb and must never be deleted.
   static Env* Default();
 
-  // Handles the event when database paths are added.
+  // Handles the event when a new DB or a new ColumnFamily starts using the
+  // specified data paths.
+  //
+  // The data paths might be shared by different DBs or ColumnFamilies,
+  // so OnDbPathsRegistered might be called with the same data paths.
+  // For example, when CreateColumnFamily is called multiple times with the same
+  // data path, OnDbPathsRegistered will also be called with the same data path.
+  //
+  // When a path is called in OnDbPathsRegistered, it must be correspondingly
+  // called in OnDbPathsUnregistered.
+  //
   // Different implementations may take different actions.
   // By default, it's a no-op.
-  virtual Status OnDbPathsAdded(const std::set<std::string>& /*paths*/) {
+  virtual Status OnDbPathsRegistered(const std::set<std::string>& /*paths*/) {
     return Status::OK();
   }
-  // Handles the event when database paths are removed.
+  // Handles the event a DB or a ColumnFamily stops using the specified data
+  // paths.
+  //
+  // It should be called corresponding to each OnDbPathsRegistered.
+  //
   // Different implementations may take different actions.
   // By default, it's a no-op.
-  virtual Status OnDbPathsRemoved(const std::set<std::string>& /*paths*/) {
+  virtual Status OnDbPathsUnregistered(const std::set<std::string>& /*paths*/) {
     return Status::OK();
   }
 

@@ -601,6 +601,18 @@ ColumnFamilyData::~ColumnFamilyData() {
   for (MemTable* m : to_delete) {
     delete m;
   }
+
+  std::set<std::string> paths;
+  for (const DbPath& cf_path : ioptions_.cf_paths) {
+    paths.insert(cf_path.path);
+  }
+  Status s = ioptions_.env->OnDbPathsUnregistered(paths);
+  if (!s.ok()) {
+    ROCKS_LOG_ERROR(
+        ioptions_.info_log,
+        "Failed to unregister data paths of column family %s from env",
+        name_.c_str());
+  }
 }
 
 bool ColumnFamilyData::UnrefAndTryDelete() {
