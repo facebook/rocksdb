@@ -457,6 +457,13 @@ DEFINE_bool(partition_index_and_filters, false,
 
 DEFINE_bool(partition_index, false, "Partition index blocks");
 
+DEFINE_bool(index_with_first_key, false, "Include first key in the index");
+
+DEFINE_int64(
+    index_shortening_mode, 2,
+    "mode to shorten index: 0 for no shortening; 1 for only shortening "
+    "separaters; 2 for shortening shortening and successor");
+
 DEFINE_int64(metadata_block_size,
              ROCKSDB_NAMESPACE::BlockBasedTableOptions().metadata_block_size,
              "Max partition size when partitioning index/filters");
@@ -3745,6 +3752,11 @@ class Benchmark {
         block_based_options.index_type = BlockBasedTableOptions::kBinarySearch;
       }
       if (FLAGS_partition_index_and_filters || FLAGS_partition_index) {
+        if (FLAGS_index_with_first_key) {
+          fprintf(stderr,
+                  "--index_with_first_key is not compatible with"
+                  " partition index.");
+        }
         if (FLAGS_use_hash_search) {
           fprintf(stderr,
                   "use_hash_search is incompatible with "
@@ -3756,7 +3768,29 @@ class Benchmark {
         if (FLAGS_partition_index_and_filters) {
           block_based_options.partition_filters = true;
         }
+      } else if (FLAGS_index_with_first_key) {
+        block_based_options.index_type =
+            BlockBasedTableOptions::kBinarySearchWithFirstKey;
       }
+      BlockBasedTableOptions::IndexShorteningMode index_shortening =
+          block_based_options.index_shortening;
+      switch (FLAGS_index_shortening_mode) {
+        case 0:
+          index_shortening =
+              BlockBasedTableOptions::IndexShorteningMode::kNoShortening;
+          break;
+        case 1:
+          index_shortening =
+              BlockBasedTableOptions::IndexShorteningMode::kShortenSeparators;
+          break;
+        case 2:
+          index_shortening = BlockBasedTableOptions::IndexShorteningMode::
+              kShortenSeparatorsAndSuccessor;
+          break;
+        default:
+          fprintf(stderr, "Unknown key shortening mode\n");
+      }
+      block_based_options.index_shortening = index_shortening;
       if (cache_ == nullptr) {
         block_based_options.no_block_cache = true;
       }
