@@ -163,6 +163,9 @@ class DBImpl : public DB {
   virtual Status Get(const ReadOptions& options,
                      ColumnFamilyHandle* column_family, const Slice& key,
                      PinnableSlice* value) override;
+  virtual Status Get(const ReadOptions& options,
+                     ColumnFamilyHandle* column_family, const Slice& key,
+                     PinnableSlice* value, std::string* timestamp) override;
 
   using DB::GetMergeOperands;
   Status GetMergeOperands(const ReadOptions& options,
@@ -230,7 +233,7 @@ class DBImpl : public DB {
   using DB::KeyMayExist;
   virtual bool KeyMayExist(const ReadOptions& options,
                            ColumnFamilyHandle* column_family, const Slice& key,
-                           std::string* value,
+                           std::string* value, std::string* timestamp,
                            bool* value_found = nullptr) override;
 
   using DB::NewIterator;
@@ -433,6 +436,7 @@ class DBImpl : public DB {
   struct GetImplOptions {
     ColumnFamilyHandle* column_family = nullptr;
     PinnableSlice* value = nullptr;
+    std::string* timestamp = nullptr;
     bool* value_found = nullptr;
     ReadCallback* callback = nullptr;
     bool* is_blob_index = nullptr;
@@ -455,7 +459,7 @@ class DBImpl : public DB {
   // If get_impl_options.get_value = false get merge operands associated with
   // get_impl_options.key via get_impl_options.merge_operands
   Status GetImpl(const ReadOptions& options, const Slice& key,
-                 GetImplOptions get_impl_options);
+                 GetImplOptions& get_impl_options);
 
   ArenaWrappedDBIter* NewIteratorImpl(const ReadOptions& options,
                                       ColumnFamilyData* cfd,

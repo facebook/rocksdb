@@ -1754,7 +1754,7 @@ Version::Version(ColumnFamilyData* column_family_data, VersionSet* vset,
       version_number_(version_number) {}
 
 void Version::Get(const ReadOptions& read_options, const LookupKey& k,
-                  PinnableSlice* value, Status* status,
+                  PinnableSlice* value, std::string* timestamp, Status* status,
                   MergeContext* merge_context,
                   SequenceNumber* max_covering_tombstone_seq, bool* value_found,
                   bool* key_exists, SequenceNumber* seq, ReadCallback* callback,
@@ -1778,8 +1778,8 @@ void Version::Get(const ReadOptions& read_options, const LookupKey& k,
   GetContext get_context(
       user_comparator(), merge_operator_, info_log_, db_statistics_,
       status->ok() ? GetContext::kNotFound : GetContext::kMerge, user_key,
-      do_merge ? value : nullptr, value_found, merge_context, do_merge,
-      max_covering_tombstone_seq, this->env_, seq,
+      do_merge ? value : nullptr, do_merge ? timestamp : nullptr, value_found,
+      merge_context, do_merge, max_covering_tombstone_seq, this->env_, seq,
       merge_operator_ ? &pinned_iters_mgr : nullptr, callback, is_blob,
       tracing_get_id);
 
@@ -1918,8 +1918,8 @@ void Version::MultiGet(const ReadOptions& read_options, MultiGetRange* range,
     get_ctx.emplace_back(
         user_comparator(), merge_operator_, info_log_, db_statistics_,
         iter->s->ok() ? GetContext::kNotFound : GetContext::kMerge, iter->ukey,
-        iter->value, nullptr, &(iter->merge_context), true,
-        &iter->max_covering_tombstone_seq, this->env_, nullptr,
+        iter->value, /*timestamp*/ nullptr, nullptr, &(iter->merge_context),
+        true, &iter->max_covering_tombstone_seq, this->env_, nullptr,
         merge_operator_ ? &pinned_iters_mgr : nullptr, callback, is_blob,
         tracing_mget_id);
     // MergeInProgress status, if set, has been transferred to the get_context

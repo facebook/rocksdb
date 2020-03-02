@@ -48,14 +48,16 @@ Status DBImplReadOnly::Get(const ReadOptions& read_options,
   SequenceNumber max_covering_tombstone_seq = 0;
   LookupKey lkey(key, snapshot);
   PERF_TIMER_STOP(get_snapshot_time);
-  if (super_version->mem->Get(lkey, pinnable_val->GetSelf(), &s, &merge_context,
+  if (super_version->mem->Get(lkey, pinnable_val->GetSelf(),
+                              /*timestamp=*/nullptr, &s, &merge_context,
                               &max_covering_tombstone_seq, read_options)) {
     pinnable_val->PinSelf();
     RecordTick(stats_, MEMTABLE_HIT);
   } else {
     PERF_TIMER_GUARD(get_from_output_files_time);
-    super_version->current->Get(read_options, lkey, pinnable_val, &s,
-                                &merge_context, &max_covering_tombstone_seq);
+    super_version->current->Get(read_options, lkey, pinnable_val,
+                                /*timestamp=*/nullptr, &s, &merge_context,
+                                &max_covering_tombstone_seq);
     RecordTick(stats_, MEMTABLE_MISS);
   }
   RecordTick(stats_, NUMBER_KEYS_READ);

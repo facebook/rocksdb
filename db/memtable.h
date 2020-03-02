@@ -212,16 +212,27 @@ class MemTable {
            MergeContext* merge_context,
            SequenceNumber* max_covering_tombstone_seq, SequenceNumber* seq,
            const ReadOptions& read_opts, ReadCallback* callback = nullptr,
+           bool* is_blob_index = nullptr, bool do_merge = true) {
+    return Get(key, value, /*timestamp=*/nullptr, s, merge_context,
+               max_covering_tombstone_seq, seq, read_opts, callback,
+               is_blob_index, do_merge);
+  }
+
+  bool Get(const LookupKey& key, std::string* value, std::string* timestamp,
+           Status* s, MergeContext* merge_context,
+           SequenceNumber* max_covering_tombstone_seq, SequenceNumber* seq,
+           const ReadOptions& read_opts, ReadCallback* callback = nullptr,
            bool* is_blob_index = nullptr, bool do_merge = true);
 
-  bool Get(const LookupKey& key, std::string* value, Status* s,
-           MergeContext* merge_context,
+  bool Get(const LookupKey& key, std::string* value, std::string* timestamp,
+           Status* s, MergeContext* merge_context,
            SequenceNumber* max_covering_tombstone_seq,
            const ReadOptions& read_opts, ReadCallback* callback = nullptr,
            bool* is_blob_index = nullptr, bool do_merge = true) {
     SequenceNumber seq;
-    return Get(key, value, s, merge_context, max_covering_tombstone_seq, &seq,
-               read_opts, callback, is_blob_index, do_merge);
+    return Get(key, value, timestamp, s, merge_context,
+               max_covering_tombstone_seq, &seq, read_opts, callback,
+               is_blob_index, do_merge);
   }
 
   void MultiGet(const ReadOptions& read_options, MultiGetRange* range,
@@ -532,9 +543,9 @@ class MemTable {
   void GetFromTable(const LookupKey& key,
                     SequenceNumber max_covering_tombstone_seq, bool do_merge,
                     ReadCallback* callback, bool* is_blob_index,
-                    std::string* value, Status* s, MergeContext* merge_context,
-                    SequenceNumber* seq, bool* found_final_value,
-                    bool* merge_in_progress);
+                    std::string* value, std::string* timestamp, Status* s,
+                    MergeContext* merge_context, SequenceNumber* seq,
+                    bool* found_final_value, bool* merge_in_progress);
 };
 
 extern const char* EncodeKey(std::string* scratch, const Slice& target);
