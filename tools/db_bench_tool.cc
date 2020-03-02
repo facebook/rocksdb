@@ -991,8 +991,10 @@ DEFINE_uint64(delayed_write_rate, 8388608u,
 DEFINE_bool(enable_pipelined_write, true,
             "Allow WAL and memtable writes to be pipelined");
 
-DEFINE_bool(unordered_write, false,
-            "Allow WAL and memtable writes to be pipelined");
+DEFINE_bool(
+    unordered_write, false,
+    "Enable the unordered write feature, which provides higher throughput but "
+    "relaxes the guarantees around atomic reads and immutable snapshots");
 
 DEFINE_bool(allow_concurrent_memtable_write, true,
             "Allow multi-writers to update mem tables in parallel.");
