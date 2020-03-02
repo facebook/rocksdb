@@ -82,3 +82,5 @@ fbcode/
 fbcode
 buckifier/*.pyc
 buckifier/__pycache__
+
+compile_commands.json
