@@ -587,6 +587,7 @@ Status MockEnv::Truncate(const std::string& fname, size_t size) {
 
 Status MockEnv::CreateDir(const std::string& dirname) {
   auto dn = NormalizePath(dirname);
+  MutexLock lock(&mutex_);
   if (file_map_.find(dn) == file_map_.end()) {
     MemFile* file = new MemFile(this, dn, false);
     file->Ref();
