@@ -1705,7 +1705,7 @@ void CompactionJob::RunRemote(PluggableCompactionService* service) {
     files_in_one_level.level = f.level;
     for (size_t i = 0; i < f.size(); i++) {
       uint64_t fileno = f[i]->fd.GetNumber();
-      uint64_t pathid = f[i]->fd.GetPathId();
+      uint32_t pathid = f[i]->fd.GetPathId();
       files_in_one_level.files.push_back(
           TableFileName(c->immutable_cf_options()->cf_paths, fileno, pathid));
     }

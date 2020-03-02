@@ -135,7 +135,7 @@ class AwsEnv : public CloudEnvImpl {
 
   virtual Status ReopenWritableFile(const std::string& /*fname*/,
                                     std::unique_ptr<WritableFile>* /*result*/,
-                                    const EnvOptions& /*options*/);
+                                    const EnvOptions& /*options*/) override;
 
   virtual Status NewDirectory(const std::string& name,
                               std::unique_ptr<Directory>* result) override;
