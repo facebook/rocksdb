@@ -890,9 +890,9 @@ void DBImpl::ScheduleBgLogWriterClose(JobContext* job_context) {
   }
 }
 
-Directory* DBImpl::GetDataDir(ColumnFamilyData* cfd, size_t path_id) const {
+FSDirectory* DBImpl::GetDataDir(ColumnFamilyData* cfd, size_t path_id) const {
   assert(cfd);
-  Directory* ret_dir = cfd->GetDataDir(path_id);
+  FSDirectory* ret_dir = cfd->GetDataDir(path_id);
   if (ret_dir == nullptr) {
     return directories_.GetDataDir(path_id);
   }
@@ -1224,7 +1224,7 @@ Status DBImpl::SyncWAL() {
     }
   }
   if (status.ok() && need_log_dir_sync) {
-    status = directories_.GetWalDir()->Fsync();
+    status = directories_.GetWalDir()->Fsync(IOOptions(), nullptr);
   }
   TEST_SYNC_POINT("DBWALTest::SyncWALNotWaitWrite:2");
 
@@ -2316,7 +2316,7 @@ Status DBImpl::CreateColumnFamilyImpl(const ColumnFamilyOptions& cf_options,
       auto* cfd =
           versions_->GetColumnFamilySet()->GetColumnFamily(column_family_name);
       assert(cfd != nullptr);
-      std::map<std::string, std::shared_ptr<Directory>> dummy_created_dirs;
+      std::map<std::string, std::shared_ptr<FSDirectory>> dummy_created_dirs;
       s = cfd->AddDirectories(&dummy_created_dirs);
     }
     if (s.ok()) {
@@ -4541,13 +4541,21 @@ Status DBImpl::GetCreationTimeOfOldestFile(uint64_t* creation_time) {
   if (mutable_db_options_.max_open_files == -1) {
     uint64_t oldest_time = port::kMaxUint64;
     for (auto cfd : *versions_->GetColumnFamilySet()) {
-      uint64_t ctime;
-      cfd->current()->GetCreationTimeOfOldestFile(&ctime);
-      if (ctime < oldest_time) {
-        oldest_time = ctime;
-      }
-      if (oldest_time == 0) {
-        break;
+      if (!cfd->IsDropped()) {
+        uint64_t ctime;
+        {
+          SuperVersion* sv = GetAndRefSuperVersion(cfd);
+          Version* version = sv->current;
+          version->GetCreationTimeOfOldestFile(&ctime);
+          ReturnAndCleanupSuperVersion(cfd, sv);
+        }
+
+        if (ctime < oldest_time) {
+          oldest_time = ctime;
+        }
+        if (oldest_time == 0) {
+          break;
+        }
       }
     }
     *creation_time = oldest_time;

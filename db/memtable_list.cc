@@ -388,7 +388,7 @@ Status MemTableList::TryInstallMemtableFlushResults(
     ColumnFamilyData* cfd, const MutableCFOptions& mutable_cf_options,
     const autovector<MemTable*>& mems, LogsWithPrepTracker* prep_tracker,
     VersionSet* vset, InstrumentedMutex* mu, uint64_t file_number,
-    autovector<MemTable*>* to_delete, Directory* db_directory,
+    autovector<MemTable*>* to_delete, FSDirectory* db_directory,
     LogBuffer* log_buffer,
     std::list<std::unique_ptr<FlushJobInfo>>* committed_flush_jobs_info) {
   AutoThreadOperationStageUpdater stage_updater(
@@ -642,7 +642,7 @@ Status InstallMemtableAtomicFlushResults(
     const autovector<const MutableCFOptions*>& mutable_cf_options_list,
     const autovector<const autovector<MemTable*>*>& mems_list, VersionSet* vset,
     InstrumentedMutex* mu, const autovector<FileMetaData*>& file_metas,
-    autovector<MemTable*>* to_delete, Directory* db_directory,
+    autovector<MemTable*>* to_delete, FSDirectory* db_directory,
     LogBuffer* log_buffer) {
   AutoThreadOperationStageUpdater stage_updater(
       ThreadStatus::STAGE_MEMTABLE_INSTALL_FLUSH_RESULTS);

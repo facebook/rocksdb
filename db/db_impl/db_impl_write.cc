@@ -1041,7 +1041,7 @@ Status DBImpl::WriteToWAL(const WriteThread::WriteGroup& write_group,
       // We only sync WAL directory the first time WAL syncing is
       // requested, so that in case users never turn on WAL sync,
       // we can avoid the disk I/O in the write code path.
-      status = directories_.GetWalDir()->Fsync();
+      status = directories_.GetWalDir()->Fsync(IOOptions(), nullptr);
     }
   }
 
