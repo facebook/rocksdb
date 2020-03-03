@@ -686,6 +686,7 @@ Status DBImpl::CompactRange(const CompactRangeOptions& options,
     }
   }
 
+  int first_overlapped_level = -1;
   int max_level_with_files = 0;
   // max_file_num_to_ignore can be used to filter out newly created SST files,
   // useful for bottom level compaction in a manual compaction
@@ -697,6 +698,9 @@ Status DBImpl::CompactRange(const CompactRangeOptions& options,
     for (int level = 1; level < base->storage_info()->num_non_empty_levels();
          level++) {
       if (base->storage_info()->OverlapInLevel(level, begin, end)) {
+        if (first_overlapped_level == -1) {
+          first_overlapped_level = level;
+        }
         max_level_with_files = level;
       }
     }
@@ -717,7 +721,8 @@ Status DBImpl::CompactRange(const CompactRangeOptions& options,
                             final_output_level, options, begin, end, exclusive,
                             false, max_file_num_to_ignore);
   } else {
-    for (int level = 0; level <= max_level_with_files; level++) {
+    for (int level = std::max(0, first_overlapped_level);
+         level <= max_level_with_files; level++) {
       int output_level;
       // in case the compaction is universal or if we're compacting the
       // bottom-most level, the output level will be the same as input one.
