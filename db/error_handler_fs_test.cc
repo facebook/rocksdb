@@ -169,7 +169,7 @@ TEST_F(DBErrorHandlingFSTest, FLushWriteError) {
   });
   SyncPoint::GetInstance()->EnableProcessing();
   s = Flush();
-  ASSERT_EQ(s.severity(), rocksdb::Status::Severity::kHardError);
+  ASSERT_EQ(s.severity(), ROCKSDB_NAMESPACE::Status::Severity::kHardError);
   SyncPoint::GetInstance()->DisableProcessing();
   fault_fs->SetFilesystemActive(true);
   s = dbfull()->Resume();
@@ -206,7 +206,7 @@ TEST_F(DBErrorHandlingFSTest, ManifestWriteError) {
       });
   SyncPoint::GetInstance()->EnableProcessing();
   s = Flush();
-  ASSERT_EQ(s.severity(), rocksdb::Status::Severity::kHardError);
+  ASSERT_EQ(s.severity(), ROCKSDB_NAMESPACE::Status::Severity::kHardError);
   SyncPoint::GetInstance()->ClearAllCallBacks();
   SyncPoint::GetInstance()->DisableProcessing();
   fault_fs->SetFilesystemActive(true);
@@ -248,12 +248,12 @@ TEST_F(DBErrorHandlingFSTest, DoubleManifestWriteError) {
       });
   SyncPoint::GetInstance()->EnableProcessing();
   s = Flush();
-  ASSERT_EQ(s.severity(), rocksdb::Status::Severity::kHardError);
+  ASSERT_EQ(s.severity(), ROCKSDB_NAMESPACE::Status::Severity::kHardError);
   fault_fs->SetFilesystemActive(true);
 
   // This Resume() will attempt to create a new manifest file and fail again
   s = dbfull()->Resume();
-  ASSERT_EQ(s.severity(), rocksdb::Status::Severity::kHardError);
+  ASSERT_EQ(s.severity(), ROCKSDB_NAMESPACE::Status::Severity::kHardError);
   fault_fs->SetFilesystemActive(true);
   SyncPoint::GetInstance()->ClearAllCallBacks();
   SyncPoint::GetInstance()->DisableProcessing();
@@ -293,7 +293,7 @@ TEST_F(DBErrorHandlingFSTest, CompactionManifestWriteError) {
   s = Flush();
   ASSERT_EQ(s, Status::OK());
 
-  rocksdb::SyncPoint::GetInstance()->LoadDependency(
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->LoadDependency(
       // Wait for flush of 2nd L0 file before starting compaction
       {{"DBImpl::FlushMemTable:FlushMemTableFinished",
         "BackgroundCallCompaction:0"},
@@ -306,16 +306,16 @@ TEST_F(DBErrorHandlingFSTest, CompactionManifestWriteError) {
        // TEST_WaitForCompact
        {"SstFileManagerImpl::ErrorCleared", "CompactionManifestWriteError:2"}});
   // trigger manifest write failure in compaction thread
-  rocksdb::SyncPoint::GetInstance()->SetCallBack(
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
       "BackgroundCallCompaction:0", [&](void*) { fail_manifest.store(true); });
-  rocksdb::SyncPoint::GetInstance()->SetCallBack(
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
       "VersionSet::LogAndApply:WriteManifest", [&](void*) {
         if (fail_manifest.load()) {
           fault_fs->SetFilesystemActive(false,
                                         IOStatus::NoSpace("Out of space"));
         }
       });
-  rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
 
   Put(Key(1), "val");
   // This Flush will trigger a compaction, which will fail when appending to
@@ -326,12 +326,12 @@ TEST_F(DBErrorHandlingFSTest, CompactionManifestWriteError) {
   TEST_SYNC_POINT("CompactionManifestWriteError:0");
   // Clear all errors so when the compaction is retried, it will succeed
   fault_fs->SetFilesystemActive(true);
-  rocksdb::SyncPoint::GetInstance()->ClearAllCallBacks();
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearAllCallBacks();
   TEST_SYNC_POINT("CompactionManifestWriteError:1");
   TEST_SYNC_POINT("CompactionManifestWriteError:2");
 
   s = dbfull()->TEST_WaitForCompact();
-  rocksdb::SyncPoint::GetInstance()->DisableProcessing();
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
   ASSERT_EQ(s, Status::OK());
 
   new_manifest = GetManifestNameFromLiveFiles();
@@ -364,21 +364,21 @@ TEST_F(DBErrorHandlingFSTest, CompactionWriteError) {
   listener->OverrideBGError(
       Status(Status::NoSpace(), Status::Severity::kHardError));
   listener->EnableAutoRecovery(false);
-  rocksdb::SyncPoint::GetInstance()->LoadDependency(
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->LoadDependency(
       {{"DBImpl::FlushMemTable:FlushMemTableFinished",
         "BackgroundCallCompaction:0"}});
-  rocksdb::SyncPoint::GetInstance()->SetCallBack(
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
       "BackgroundCallCompaction:0", [&](void*) {
         fault_fs->SetFilesystemActive(false, IOStatus::NoSpace("Out of space"));
       });
-  rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
 
   Put(Key(1), "val");
   s = Flush();
   ASSERT_EQ(s, Status::OK());
 
   s = dbfull()->TEST_WaitForCompact();
-  ASSERT_EQ(s.severity(), rocksdb::Status::Severity::kHardError);
+  ASSERT_EQ(s.severity(), ROCKSDB_NAMESPACE::Status::Severity::kHardError);
 
   fault_fs->SetFilesystemActive(true);
   s = dbfull()->Resume();
@@ -401,22 +401,23 @@ TEST_F(DBErrorHandlingFSTest, CorruptionError) {
   s = Flush();
   ASSERT_EQ(s, Status::OK());
 
-  rocksdb::SyncPoint::GetInstance()->LoadDependency(
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->LoadDependency(
       {{"DBImpl::FlushMemTable:FlushMemTableFinished",
         "BackgroundCallCompaction:0"}});
-  rocksdb::SyncPoint::GetInstance()->SetCallBack(
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
       "BackgroundCallCompaction:0", [&](void*) {
         fault_fs->SetFilesystemActive(false,
                                       IOStatus::Corruption("Corruption"));
       });
-  rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
 
   Put(Key(1), "val");
   s = Flush();
   ASSERT_EQ(s, Status::OK());
 
   s = dbfull()->TEST_WaitForCompact();
-  ASSERT_EQ(s.severity(), rocksdb::Status::Severity::kUnrecoverableError);
+  ASSERT_EQ(s.severity(),
+            ROCKSDB_NAMESPACE::Status::Severity::kUnrecoverableError);
 
   fault_fs->SetFilesystemActive(true);
   s = dbfull()->Resume();
@@ -444,7 +445,7 @@ TEST_F(DBErrorHandlingFSTest, AutoRecoverFlushError) {
   });
   SyncPoint::GetInstance()->EnableProcessing();
   s = Flush();
-  ASSERT_EQ(s.severity(), rocksdb::Status::Severity::kHardError);
+  ASSERT_EQ(s.severity(), ROCKSDB_NAMESPACE::Status::Severity::kHardError);
   SyncPoint::GetInstance()->DisableProcessing();
   fault_fs->SetFilesystemActive(true);
   ASSERT_EQ(listener->WaitForRecovery(5000000), true);
@@ -478,7 +479,7 @@ TEST_F(DBErrorHandlingFSTest, FailRecoverFlushError) {
   });
   SyncPoint::GetInstance()->EnableProcessing();
   s = Flush();
-  ASSERT_EQ(s.severity(), rocksdb::Status::Severity::kHardError);
+  ASSERT_EQ(s.severity(), ROCKSDB_NAMESPACE::Status::Severity::kHardError);
   // We should be able to shutdown the database while auto recovery is going
   // on in the background
   Close();
@@ -643,7 +644,7 @@ TEST_F(DBErrorHandlingFSTest, MultiCFWALWriteError) {
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
-  rocksdb::port::InstallStackTraceHandler();
+  ROCKSDB_NAMESPACE::port::InstallStackTraceHandler();
   ::testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();
 }
