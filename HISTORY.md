@@ -1,7 +1,12 @@
 # Rocksdb Change Log
+## Unreleased
+### Bug Fixes
+* Fix a data race that might cause crash when calling DB::GetCreationTimeOfOldestFile() by a small chance. The bug was introduced in 6.6 Release.
+
 ## 6.7.2 (02/24/2020)
 ### Bug Fixes
 * Fixed a bug of IO Uring partial result handling introduced in 6.7.0.
+
 
 ## 6.7.1 (02/13/2020)
 ### Bug Fixes
