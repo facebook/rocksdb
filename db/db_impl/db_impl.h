@@ -825,16 +825,16 @@ class DBImpl : public DB {
   virtual Status ExecuteRemoteCompactionRequest(
       const PluggableCompactionParam& inputParams,
       PluggableCompactionResult* result,
-      bool sanitize);
+      bool sanitize) override;
 
   // This registered service will be called to do a remote compaction
-  virtual Status RegisterPluggableCompactionService(std::unique_ptr<PluggableCompactionService> rservice) {
+  virtual Status RegisterPluggableCompactionService(std::unique_ptr<PluggableCompactionService> rservice) override {
     remote_compaction_service_ = std::move(rservice);
     return Status::OK();
   }
 
   // Clearoff any registered pluggable compaction service
-  virtual void UnRegisterPluggableCompactionService() {
+  virtual void UnRegisterPluggableCompactionService() override {
     remote_compaction_service_.reset(nullptr);
   }
 

@@ -47,17 +47,24 @@ Status CloudEnvImpl::LoadLocalCloudManifest(const std::string& dbname) {
   if (cloud_manifest_) {
     cloud_manifest_.reset();
   }
+  return CloudEnvImpl::LoadLocalCloudManifest(dbname, GetBaseEnv(),
+                                              &cloud_manifest_);
+}
+
+Status CloudEnvImpl::LoadLocalCloudManifest(
+    const std::string& dbname, Env* base_env,
+    std::unique_ptr<CloudManifest>* cloud_manifest) {
   std::unique_ptr<SequentialFile> file;
-  auto cloudManifestFile = CloudManifestFile(dbname);
-  auto s =
-      GetBaseEnv()->NewSequentialFile(cloudManifestFile, &file, EnvOptions());
+  auto cloud_manifest_file_name = CloudManifestFile(dbname);
+  auto s = base_env->NewSequentialFile(cloud_manifest_file_name, &file,
+                                       EnvOptions());
   if (!s.ok()) {
     return s;
   }
   return CloudManifest::LoadFromLog(
-    std::unique_ptr<SequentialFileReader>(
-          new SequentialFileReader(std::move(file), cloudManifestFile)),
-      &cloud_manifest_);
+      std::unique_ptr<SequentialFileReader>(
+          new SequentialFileReader(std::move(file), cloud_manifest_file_name)),
+      cloud_manifest);
 }
 
 std::string CloudEnvImpl::RemapFilename(const std::string& logical_path) const {
@@ -438,6 +445,7 @@ Status CloudEnvImpl::NeedsReinitialization(const std::string& local_dir,
   }
 
   // We found a local dbid but we did not find this dbid in bucket registry.
+  // This is an ephemeral clone.
   if (src_object_path.empty() && dest_object_path.empty()) {
     Log(InfoLogLevel::ERROR_LEVEL, info_log_,
         "[cloud_env_impl] NeedsReinitialization: "
@@ -445,7 +453,31 @@ Status CloudEnvImpl::NeedsReinitialization(const std::string& local_dir,
         "src bucket %s or dest bucket %s",
         local_dbid.c_str(), src_bucket.c_str(), dest_bucket.c_str());
 
-    // This is an ephemeral clone. Resync all files from cloud.
+    // The local CLOUDMANIFEST on ephemeral clone is by definition out-of-sync
+    // with the CLOUDMANIFEST in the cloud. That means we need to make sure the
+    // local MANIFEST is compatible with the local CLOUDMANIFEST. Otherwise
+    // there is no way we can recover since all MANIFEST files on the cloud are
+    // only compatible with CLOUDMANIFEST on the cloud.
+    //
+    // If the local MANIFEST is not compatible with local CLOUDMANIFEST, we will
+    // need to reinitialize the entire directory.
+    std::unique_ptr<CloudManifest> cloud_manifest;
+    Env* base_env = GetBaseEnv();
+    Status load_status =
+        LoadLocalCloudManifest(local_dir, base_env, &cloud_manifest);
+    if (load_status.ok()) {
+      std::string current_epoch = cloud_manifest->GetCurrentEpoch().ToString();
+      Status local_manifest_exists =
+          base_env->FileExists(ManifestFileWithEpoch(local_dir, current_epoch));
+      if (!local_manifest_exists.ok()) {
+        Log(InfoLogLevel::WARN_LEVEL, info_log_,
+            "[cloud_env_impl] NeedsReinitialization: CLOUDMANIFEST exists "
+            "locally, but no local MANIFEST is compatible");
+        return Status::OK();
+      }
+    }
+
+    // Resync all files from cloud.
     // If the  resycn failed, then return success to indicate that
     // the local directory needs to be completely removed and recreated.
     st = ResyncDir(local_dir);

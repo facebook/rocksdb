@@ -437,16 +437,16 @@ class StackableDB : public DB {
   virtual Status ExecuteRemoteCompactionRequest(
       const PluggableCompactionParam& inputParams,
       PluggableCompactionResult* result,
-      bool sanitize) {
+      bool sanitize) override {
     return db_->ExecuteRemoteCompactionRequest(inputParams, result, sanitize);
   }
 
   virtual Status RegisterPluggableCompactionService(
-      std::unique_ptr<PluggableCompactionService> rservice) {
+      std::unique_ptr<PluggableCompactionService> rservice) override {
     return db_->RegisterPluggableCompactionService(std::move(rservice));
   }
 
-  virtual void UnRegisterPluggableCompactionService() {
+  virtual void UnRegisterPluggableCompactionService() override {
     db_->UnRegisterPluggableCompactionService();
   }
 
