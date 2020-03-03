@@ -4541,13 +4541,21 @@ Status DBImpl::GetCreationTimeOfOldestFile(uint64_t* creation_time) {
   if (mutable_db_options_.max_open_files == -1) {
     uint64_t oldest_time = port::kMaxUint64;
     for (auto cfd : *versions_->GetColumnFamilySet()) {
-      uint64_t ctime;
-      cfd->current()->GetCreationTimeOfOldestFile(&ctime);
-      if (ctime < oldest_time) {
-        oldest_time = ctime;
-      }
-      if (oldest_time == 0) {
-        break;
+      if (!cfd->IsDropped()) {
+        uint64_t ctime;
+        {
+          SuperVersion* sv = GetAndRefSuperVersion(cfd);
+          Version* version = sv->current;
+          version->GetCreationTimeOfOldestFile(&ctime);
+          ReturnAndCleanupSuperVersion(cfd, sv);
+        }
+
+        if (ctime < oldest_time) {
+          oldest_time = ctime;
+        }
+        if (oldest_time == 0) {
+          break;
+        }
       }
     }
     *creation_time = oldest_time;
