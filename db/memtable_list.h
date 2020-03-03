@@ -140,7 +140,7 @@ class MemTableListVersion {
       const autovector<const autovector<MemTable*>*>& mems_list,
       VersionSet* vset, InstrumentedMutex* mu,
       const autovector<FileMetaData*>& file_meta,
-      autovector<MemTable*>* to_delete, Directory* db_directory,
+      autovector<MemTable*>* to_delete, FSDirectory* db_directory,
       LogBuffer* log_buffer);
 
   // REQUIRE: m is an immutable memtable
@@ -264,7 +264,7 @@ class MemTableList {
       ColumnFamilyData* cfd, const MutableCFOptions& mutable_cf_options,
       const autovector<MemTable*>& m, LogsWithPrepTracker* prep_tracker,
       VersionSet* vset, InstrumentedMutex* mu, uint64_t file_number,
-      autovector<MemTable*>* to_delete, Directory* db_directory,
+      autovector<MemTable*>* to_delete, FSDirectory* db_directory,
       LogBuffer* log_buffer,
       std::list<std::unique_ptr<FlushJobInfo>>* committed_flush_jobs_info);
 
@@ -379,7 +379,7 @@ class MemTableList {
       const autovector<const autovector<MemTable*>*>& mems_list,
       VersionSet* vset, InstrumentedMutex* mu,
       const autovector<FileMetaData*>& file_meta,
-      autovector<MemTable*>* to_delete, Directory* db_directory,
+      autovector<MemTable*>* to_delete, FSDirectory* db_directory,
       LogBuffer* log_buffer);
 
   // DB mutex held
@@ -421,6 +421,6 @@ extern Status InstallMemtableAtomicFlushResults(
     const autovector<const MutableCFOptions*>& mutable_cf_options_list,
     const autovector<const autovector<MemTable*>*>& mems_list, VersionSet* vset,
     InstrumentedMutex* mu, const autovector<FileMetaData*>& file_meta,
-    autovector<MemTable*>* to_delete, Directory* db_directory,
+    autovector<MemTable*>* to_delete, FSDirectory* db_directory,
     LogBuffer* log_buffer);
 }  // namespace ROCKSDB_NAMESPACE

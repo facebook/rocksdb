@@ -301,8 +301,9 @@ Status DBImpl::NewDB() {
   return s;
 }
 
-Status DBImpl::CreateAndNewDirectory(Env* env, const std::string& dirname,
-                                     std::unique_ptr<Directory>* directory) {
+IOStatus DBImpl::CreateAndNewDirectory(
+    FileSystem* fs, const std::string& dirname,
+    std::unique_ptr<FSDirectory>* directory) {
   // We call CreateDirIfMissing() as the directory may already exist (if we
   // are reopening a DB), when this happens we don't want creating the
   // directory to cause an error. However, we need to check if creating the
@@ -310,24 +311,24 @@ Status DBImpl::CreateAndNewDirectory(Env* env, const std::string& dirname,
   // file not existing. One real-world example of this occurring is if
   // env->CreateDirIfMissing() doesn't create intermediate directories, e.g.
   // when dbname_ is "dir/db" but when "dir" doesn't exist.
-  Status s = env->CreateDirIfMissing(dirname);
-  if (!s.ok()) {
-    return s;
+  IOStatus io_s = fs->CreateDirIfMissing(dirname, IOOptions(), nullptr);
+  if (!io_s.ok()) {
+    return io_s;
   }
-  return env->NewDirectory(dirname, directory);
+  return fs->NewDirectory(dirname, IOOptions(), directory, nullptr);
 }
 
-Status Directories::SetDirectories(Env* env, const std::string& dbname,
-                                   const std::string& wal_dir,
-                                   const std::vector<DbPath>& data_paths) {
-  Status s = DBImpl::CreateAndNewDirectory(env, dbname, &db_dir_);
-  if (!s.ok()) {
-    return s;
+IOStatus Directories::SetDirectories(FileSystem* fs, const std::string& dbname,
+                                     const std::string& wal_dir,
+                                     const std::vector<DbPath>& data_paths) {
+  IOStatus io_s = DBImpl::CreateAndNewDirectory(fs, dbname, &db_dir_);
+  if (!io_s.ok()) {
+    return io_s;
   }
   if (!wal_dir.empty() && dbname != wal_dir) {
-    s = DBImpl::CreateAndNewDirectory(env, wal_dir, &wal_dir_);
-    if (!s.ok()) {
-      return s;
+    io_s = DBImpl::CreateAndNewDirectory(fs, wal_dir, &wal_dir_);
+    if (!io_s.ok()) {
+      return io_s;
     }
   }
 
@@ -337,16 +338,16 @@ Status Directories::SetDirectories(Env* env, const std::string& dbname,
     if (db_path == dbname) {
       data_dirs_.emplace_back(nullptr);
     } else {
-      std::unique_ptr<Directory> path_directory;
-      s = DBImpl::CreateAndNewDirectory(env, db_path, &path_directory);
-      if (!s.ok()) {
-        return s;
+      std::unique_ptr<FSDirectory> path_directory;
+      io_s = DBImpl::CreateAndNewDirectory(fs, db_path, &path_directory);
+      if (!io_s.ok()) {
+        return io_s;
       }
       data_dirs_.emplace_back(path_directory.release());
     }
   }
   assert(data_dirs_.size() == data_paths.size());
-  return Status::OK();
+  return IOStatus::OK();
 }
 
 Status DBImpl::Recover(
@@ -358,7 +359,7 @@ Status DBImpl::Recover(
   bool is_new_db = false;
   assert(db_lock_ == nullptr);
   if (!read_only) {
-    Status s = directories_.SetDirectories(env_, dbname_,
+    Status s = directories_.SetDirectories(fs_.get(), dbname_,
                                            immutable_db_options_.wal_dir,
                                            immutable_db_options_.db_paths);
     if (!s.ok()) {
@@ -458,7 +459,7 @@ Status DBImpl::Recover(
     s = CheckConsistency();
   }
   if (s.ok() && !read_only) {
-    std::map<std::string, std::shared_ptr<Directory>> created_dirs;
+    std::map<std::string, std::shared_ptr<FSDirectory>> created_dirs;
     for (auto cfd : *versions_->GetColumnFamilySet()) {
       s = cfd->AddDirectories(&created_dirs);
       if (!s.ok()) {
@@ -1477,7 +1478,7 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
       }
 
       impl->DeleteObsoleteFiles();
-      s = impl->directories_.GetDbDir()->Fsync();
+      s = impl->directories_.GetDbDir()->Fsync(IOOptions(), nullptr);
     }
     if (s.ok()) {
       // In WritePrepared there could be gap in sequence numbers. This breaks
