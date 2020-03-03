@@ -27,7 +27,9 @@ addons:
 env:
   - TEST_GROUP=db_test_part_1
   - TEST_GROUP=db_test_part_2
-  - TEST_GROUP=db_test2
+  - TEST_GROUP=db_test_part_3
+  - TEST_GROUP=db_test_part_4
+  - TEST_GROUP=db_test_part_5
   - TEST_GROUP=cloud_tests
 
 before_script:
@@ -47,8 +49,11 @@ script:
     - if [ "${TEST_GROUP}" == 'db_test_part_1' ]; then OPT=-DTRAVIS V=1 USE_AWS=1 USE_KAFKA=1 make -j4 db_test && LD_LIBRARY_PATH=/usr/local/lib ./db_test --gtest_filter=-DBTest.MergeTestTime:DBTest.UnsupportedManualSync:DBTest.ApproximateSizes*:DBTest.HiddenValuesAreRemoved:DBTest.UnremovableSingleDelete:DBTest.OverlapInLevel0:MultiThreaded/MultiThreadedDBTest*:DBTest.SingleDeleteFlush:DBTest.GetLevel0Ordering:DBTest.GetPicksCorrectFile; fi
 
   # some test that make the above run of db_test exceed the travis limit of 50 minutes are moved to this job
-    - if [ "${TEST_GROUP}" == 'db_test_part_2' ]; then OPT=-DTRAVIS V=1 USE_AWS=1 USE_KAFKA=1 make -j4 db_test && LD_LIBRARY_PATH=/usr/local/lib ./db_test --gtest_filter=DBTest.HiddenValuesAreRemoved:DBTest.UnremovableSingleDelete:DBTest.OverlapInLevel0:MultiThreaded/MultiThreadedDBTest*:DBTest.SingleDeleteFlush:DBTest.GetLevel0Ordering:DBTest.GetPicksCorrectFile; fi
-  #
+    - if [ "${TEST_GROUP}" == 'db_test_part_2' ]; then OPT=-DTRAVIS V=1 USE_AWS=1 USE_KAFKA=1 make -j4 db_test && LD_LIBRARY_PATH=/usr/local/lib ./db_test --gtest_filter=DBTest.SingleDeleteFlush:DBTest.GetLevel0Ordering:DBTest.GetPicksCorrectFile; fi
+    - if [ "${TEST_GROUP}" == 'db_test_part_3' ]; then OPT=-DTRAVIS V=1 USE_AWS=1 USE_KAFKA=1 make -j4 db_test && LD_LIBRARY_PATH=/usr/local/lib ./db_test --gtest_filter=DBTest.HiddenValuesAreRemoved; fi
+    - if [ "${TEST_GROUP}" == 'db_test_part_4' ]; then OPT=-DTRAVIS V=1 USE_AWS=1 USE_KAFKA=1 make -j4 db_test && LD_LIBRARY_PATH=/usr/local/lib ./db_test --gtest_filter=DBTest.UnremovableSingleDelete; fi
+    - if [ "${TEST_GROUP}" == 'db_test_part_5' ]; then OPT=-DTRAVIS V=1 USE_AWS=1 USE_KAFKA=1 make -j4 db_test && LD_LIBRARY_PATH=/usr/local/lib ./db_test --gtest_filter=MultiThreaded/MultiThreadedDBTest*; fi  #
+
   # The basic tests use an S3 bucket for unit testing. Do not run the CompactBetweenSnapshots
   # because it takes really really long to run on S3.
     - if [ "${TEST_GROUP}" == 'db_test2' ]; then OPT=-DTRAVIS V=1 USE_AWS=1 USE_KAFKA=1 make -j4 db_test2 db_basic_test env_basic_test && LD_LIBRARY_PATH=/usr/local/lib ./db_test2 && LD_LIBRARY_PATH=/usr/local/lib ./db_basic_test --gtest_filter=-DBBasicTest.CompactBetweenSnapshots && LD_LIBRARY_PATH=/usr/local/lib ./env_basic_test; fi

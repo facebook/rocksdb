@@ -34,7 +34,7 @@ class CloudTest : public testing::Test {
     base_env_ = Env::Default();
     dbname_ = test::TmpDir() + "/db_cloud";
     clone_dir_ = test::TmpDir() + "/ctest";
-    cloud_env_options_.TEST_Initialize("dbcloud.", dbname_);
+    cloud_env_options_.TEST_Initialize("dbcloudtest.", dbname_);
 
     options_.create_if_missing = true;
     persistent_cache_path_ = "";
@@ -94,7 +94,18 @@ class CloudTest : public testing::Test {
     ASSERT_EQ(rc, 0);
   }
 
-  virtual ~CloudTest() { CloseDB(); }
+  virtual ~CloudTest() { 
+    // Cleanup the cloud bucket
+    CloudEnv* aenv;
+    Status st = CloudEnv::NewAwsEnv(base_env_, cloud_env_options_,
+                                    options_.info_log, &aenv);
+    if (st.ok()) {
+      aenv->EmptyBucket(aenv->GetSrcBucketName(), "");
+      delete aenv;
+    }
+
+    CloseDB(); 
+  }
 
   void CreateAwsEnv() {
     CloudEnv* aenv;
