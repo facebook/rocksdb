@@ -1,14 +1,15 @@
 // Copyright (c) 2017 Rockset.
 #ifndef ROCKSDB_LITE
 
+#include "cloud/cloud_env_impl.h"
+
 #include <cinttypes>
 
-#include "cloud/cloud_env_impl.h"
 #include "cloud/cloud_env_wrapper.h"
 #include "cloud/filename.h"
 #include "cloud/manifest_reader.h"
-#include "file/filename.h"
 #include "file/file_util.h"
+#include "file/filename.h"
 #include "port/likely.h"
 #include "rocksdb/cloud/cloud_log_controller.h"
 #include "rocksdb/db.h"

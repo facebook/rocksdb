@@ -16,7 +16,8 @@ class CloudEnvOptions;
 //
 class CloudLogWritableFile : public WritableFile {
  public:
-  CloudLogWritableFile(CloudEnv* env, const std::string& fname, const EnvOptions& options);
+  CloudLogWritableFile(CloudEnv* env, const std::string& fname,
+                       const EnvOptions& options);
   virtual ~CloudLogWritableFile();
 
   virtual Status Flush() {
@@ -61,17 +62,17 @@ class CloudLogController {
   virtual Status TailStream() = 0;
 
   // Creates a new cloud log writable file.
-  virtual CloudLogWritableFile* CreateWritableFile(const std::string& fname,
-                                                   const EnvOptions& options) = 0;
+  virtual CloudLogWritableFile* CreateWritableFile(
+      const std::string& fname, const EnvOptions& options) = 0;
 
   // Returns name of the cloud log type (Kinesis, etc.).
-  virtual const char *Name() const { return "cloudlog"; }
+  virtual const char* Name() const { return "cloudlog"; }
 
   // Directory where files are cached locally.
-  virtual const std::string & GetCacheDir() const = 0;
+  virtual const std::string& GetCacheDir() const = 0;
   virtual Status const status() const = 0;
 
-  virtual Status StartTailingStream(const std::string & topic) = 0;
+  virtual Status StartTailingStream(const std::string& topic) = 0;
   virtual void StopTailingStream() = 0;
   virtual Status GetFileModificationTime(const std::string& fname,
                                          uint64_t* time) = 0;
@@ -82,10 +83,8 @@ class CloudLogController {
                                      std::unique_ptr<RandomAccessFile>* result,
                                      const EnvOptions& options) = 0;
   virtual Status FileExists(const std::string& fname) = 0;
-  virtual Status GetFileSize(const std::string& logical_fname, uint64_t* size) = 0;
+  virtual Status GetFileSize(const std::string& logical_fname,
+                             uint64_t* size) = 0;
 };
 
-Status CreateKinesisController(CloudEnv* env, std::shared_ptr<CloudLogController> * result);
-Status CreateKafkaController(CloudEnv* env, std::shared_ptr<CloudLogController> * result);
-} // namespace rocksdb
-
+}  // namespace rocksdb

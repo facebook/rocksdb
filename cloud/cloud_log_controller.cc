@@ -26,14 +26,12 @@ CloudLogWritableFile::CloudLogWritableFile(
 CloudLogWritableFile::~CloudLogWritableFile() {}
 
 const std::chrono::microseconds CloudLogControllerImpl::kRetryPeriod =
-  std::chrono::seconds(30);
+    std::chrono::seconds(30);
 
-CloudLogController::~CloudLogController() {
-}
+CloudLogController::~CloudLogController() {}
 
 CloudLogControllerImpl::CloudLogControllerImpl(CloudEnv* env)
-  : env_(env), running_(false) {
-
+    : env_(env), running_(false) {
   // Create a random number for the cache directory.
   const std::string uid = trim(env_->GetBaseEnv()->GenerateUniqueId());
 
@@ -63,15 +61,15 @@ CloudLogControllerImpl::~CloudLogControllerImpl() {
       "[%s] CloudLogController closed.", Name());
 }
 
-std::string CloudLogControllerImpl::GetCachePath(const Slice& original_pathname) const {
+std::string CloudLogControllerImpl::GetCachePath(
+    const Slice& original_pathname) const {
   const std::string & cache_dir = GetCacheDir();
   return cache_dir + pathsep + basename(original_pathname.ToString());
 }
 
-bool CloudLogControllerImpl::ExtractLogRecord(const Slice& input, uint32_t* operation, Slice* filename,
-                                              uint64_t* offset_in_file,
-                                              uint64_t* file_size, Slice* data) {
-  
+bool CloudLogControllerImpl::ExtractLogRecord(
+    const Slice& input, uint32_t* operation, Slice* filename,
+    uint64_t* offset_in_file, uint64_t* file_size, Slice* data) {
   Slice in = input;
   if (in.size() < 1) {
     return false;
@@ -206,7 +204,9 @@ Status CloudLogControllerImpl::Apply(const Slice& in) {
 }
 
 void CloudLogControllerImpl::SerializeLogRecordAppend(const Slice& filename,
-    const Slice& data, uint64_t offset, std::string* out) {
+                                                      const Slice& data,
+                                                      uint64_t offset,
+                                                      std::string* out) {
   // write the operation type
   PutVarint32(out, kAppend);
 
@@ -220,8 +220,9 @@ void CloudLogControllerImpl::SerializeLogRecordAppend(const Slice& filename,
   PutLengthPrefixedSlice(out, data);
 }
 
-void CloudLogControllerImpl::SerializeLogRecordClosed(
-    const Slice& filename, uint64_t file_size, std::string* out) {
+void CloudLogControllerImpl::SerializeLogRecordClosed(const Slice& filename,
+                                                      uint64_t file_size,
+                                                      std::string* out) {
   // write the operation type
   PutVarint32(out, kClosed);
 
@@ -288,7 +289,7 @@ Status CloudLogControllerImpl::Retry(RetryType func) {
   }
   return stat;
 }
-  
+
 Status CloudLogControllerImpl::GetFileModificationTime(const std::string& fname,
                                                        uint64_t* time) {
   Status st = status();
@@ -298,18 +299,18 @@ Status CloudLogControllerImpl::GetFileModificationTime(const std::string& fname,
     Log(InfoLogLevel::DEBUG_LEVEL, env_->info_log_,
         "[kinesis] GetFileModificationTime logfile %s %s", pathname.c_str(),
         "ok");
-    
+
     auto lambda = [this, pathname, time]() -> Status {
-                    return env_->GetBaseEnv()->GetFileModificationTime(pathname, time);
+      return env_->GetBaseEnv()->GetFileModificationTime(pathname, time);
     };
     st = Retry(lambda);
   }
   return st;
 }
-  
-Status CloudLogControllerImpl::NewSequentialFile(const std::string& fname,
-                                                 std::unique_ptr<SequentialFile>* result,
-                                                 const EnvOptions& options) {
+
+Status CloudLogControllerImpl::NewSequentialFile(
+    const std::string& fname, std::unique_ptr<SequentialFile>* result,
+    const EnvOptions& options) {
   // read from Kinesis
   Status st = status();
   if (st.ok()) {
@@ -319,16 +320,16 @@ Status CloudLogControllerImpl::NewSequentialFile(const std::string& fname,
         "[%s] NewSequentialFile logfile %s %s", Name(), pathname.c_str(), "ok");
 
     auto lambda = [this, pathname, &result, options]() -> Status {
-         return env_->GetBaseEnv()->NewSequentialFile(pathname, result, options);
+      return env_->GetBaseEnv()->NewSequentialFile(pathname, result, options);
     };
     st = Retry(lambda);
   }
   return st;
 }
 
-Status CloudLogControllerImpl::NewRandomAccessFile(const std::string& fname,
-                                                   std::unique_ptr<RandomAccessFile>* result,
-                                                   const EnvOptions& options) {
+Status CloudLogControllerImpl::NewRandomAccessFile(
+    const std::string& fname, std::unique_ptr<RandomAccessFile>* result,
+    const EnvOptions& options) {
   Status st = status();
   if (st.ok()) {
     // map  pathname to cache dir
@@ -336,22 +337,22 @@ Status CloudLogControllerImpl::NewRandomAccessFile(const std::string& fname,
     Log(InfoLogLevel::DEBUG_LEVEL, env_->info_log_,
         "[%s] NewRandomAccessFile logfile %s %s", Name(), pathname.c_str(),
         "ok");
-    
+
     auto lambda = [this, pathname, &result, options]() -> Status {
-           return env_->GetBaseEnv()->NewRandomAccessFile(pathname, result, options);
-      };
+      return env_->GetBaseEnv()->NewRandomAccessFile(pathname, result, options);
+    };
     st = Retry(lambda);
   }
   return st;
 }
-  
+
 Status CloudLogControllerImpl::FileExists(const std::string& fname) {
   Status st = status();
   if (st.ok()) {
     // map  pathname to cache dir
     std::string pathname = GetCachePath(Slice(fname));
     Log(InfoLogLevel::DEBUG_LEVEL, env_->info_log_,
-          "[%s] FileExists logfile %s %s", Name(), pathname.c_str(), "ok");
+        "[%s] FileExists logfile %s %s", Name(), pathname.c_str(), "ok");
 
     auto lambda = [this, pathname]() -> Status {
       return env_->GetBaseEnv()->FileExists(pathname);
@@ -360,8 +361,9 @@ Status CloudLogControllerImpl::FileExists(const std::string& fname) {
   }
   return st;
 }
-  
-Status CloudLogControllerImpl::GetFileSize(const std::string& fname, uint64_t* size) {
+
+Status CloudLogControllerImpl::GetFileSize(const std::string& fname,
+                                           uint64_t* size) {
   Status st = status();
   if (st.ok()) {
     // map  pathname to cache dir
@@ -370,7 +372,7 @@ Status CloudLogControllerImpl::GetFileSize(const std::string& fname, uint64_t* s
         "[%s] GetFileSize logfile %s %s", Name(), pathname.c_str(), "ok");
 
     auto lambda = [this, pathname, size]() -> Status {
-       return env_->GetBaseEnv()->GetFileSize(pathname, size);
+      return env_->GetBaseEnv()->GetFileSize(pathname, size);
     };
     st = Retry(lambda);
   }

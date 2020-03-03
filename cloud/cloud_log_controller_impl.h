@@ -1,6 +1,7 @@
 //  Copyright (c) 2016-present, Rockset, Inc.  All rights reserved.
 //
 #pragma once
+
 #include <atomic>
 #include <thread>
 
@@ -10,8 +11,7 @@ namespace rocksdb {
 class CloudEnv;
 class CloudEnvOptions;
 
-
-class CloudLogControllerImpl :  public CloudLogController {
+class CloudLogControllerImpl : public CloudLogController {
  public:
   static constexpr const char* kCacheDir = "/tmp/ROCKSET";
   // Delay in Cloud Log stream: writes to read visibility
@@ -21,11 +21,15 @@ class CloudLogControllerImpl :  public CloudLogController {
   static const uint32_t kDelete = 0x2;  // delete a log file
   static const uint32_t kClosed = 0x4;  // closing a file
 
-  CloudLogControllerImpl(CloudEnv *env);
+  CloudLogControllerImpl(CloudEnv* env);
   virtual ~CloudLogControllerImpl();
+  static Status CreateKinesisController(
+      CloudEnv* env, std::shared_ptr<CloudLogController>* result);
+  static Status CreateKafkaController(
+      CloudEnv* env, std::shared_ptr<CloudLogController>* result);
 
   // Directory where files are cached locally.
-  const std::string & GetCacheDir() const override { return cache_dir_; }
+  const std::string& GetCacheDir() const override { return cache_dir_; }
   Status const status() const override { return status_; }
   virtual Status StartTailingStream(const std::string& topic) override;
   void StopTailingStream() override;
@@ -46,6 +50,7 @@ class CloudLogControllerImpl :  public CloudLogController {
                              const EnvOptions& options) override;
   Status FileExists(const std::string& fname) override;
   Status GetFileSize(const std::string& logical_fname, uint64_t* size) override;
+
  protected:
   // Converts an original pathname to a pathname in the cache.
   std::string GetCachePath(const Slice& original_pathname) const;
@@ -65,10 +70,10 @@ class CloudLogControllerImpl :  public CloudLogController {
 
   Status Apply(const Slice& data);
   bool IsRunning() const { return running_; }
-private:
+
+ private:
   // Background thread to tail stream
   std::unique_ptr<std::thread> tid_;
   std::atomic<bool> running_;
 };
-} // namespace rocksdb
-
+}  // namespace rocksdb

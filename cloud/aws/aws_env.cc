@@ -10,6 +10,7 @@
 #include <iostream>
 #include <memory>
 
+#include "cloud/cloud_log_controller_impl.h"
 #include "rocksdb/cloud/cloud_log_controller.h"
 #include "rocksdb/env.h"
 #include "rocksdb/status.h"
@@ -516,10 +517,12 @@ AwsEnv::AwsEnv(Env* underlying_env, const CloudEnvOptions& _cloud_env_options,
   // create cloud log client for storing/reading logs
   if (create_bucket_status_.ok() && !cloud_env_options.keep_local_log_files) {
     if (cloud_env_options.log_type == kLogKinesis) {
-      create_bucket_status_ = CreateKinesisController(this, &cloud_env_options.cloud_log_controller);
+      create_bucket_status_ = CloudLogControllerImpl::CreateKinesisController(
+          this, &cloud_env_options.cloud_log_controller);
     } else if (cloud_env_options.log_type == kLogKafka) {
 #ifdef USE_KAFKA
-      create_bucket_status_ = CreateKafkaController(this, &cloud_env_options.cloud_log_controller);
+      create_bucket_status_ = CloudLogControllerImpl::CreateKafkaController(
+          this, &cloud_env_options.cloud_log_controller);
 #else
       create_bucket_status_ = Status::NotSupported(
           "In order to use Kafka, make sure you're compiling with "
@@ -542,7 +545,8 @@ AwsEnv::AwsEnv(Env* underlying_env, const CloudEnvOptions& _cloud_env_options,
     // Create Kinesis stream and wait for it to be ready
     if (create_bucket_status_.ok()) {
       create_bucket_status_ =
-          cloud_env_options.cloud_log_controller->StartTailingStream(GetSrcBucketName());
+          cloud_env_options.cloud_log_controller->StartTailingStream(
+              GetSrcBucketName());
       if (!create_bucket_status_.ok()) {
         Log(InfoLogLevel::ERROR_LEVEL, info_log,
             "[aws] NewAwsEnv Unable to create stream %s",
@@ -656,7 +660,8 @@ Status AwsEnv::NewSequentialFile(const std::string& logical_fname,
     return st;
 
   } else if (logfile && !cloud_env_options.keep_local_log_files) {
-    return cloud_env_options.cloud_log_controller->NewSequentialFile(fname, result, options);
+    return cloud_env_options.cloud_log_controller->NewSequentialFile(
+        fname, result, options);
   }
 
   // This is neither a sst file or a log file. Read from default env.
@@ -757,8 +762,8 @@ Status AwsEnv::NewRandomAccessFile(const std::string& logical_fname,
 
   } else if (logfile && !cloud_env_options.keep_local_log_files) {
     // read from Kinesis
-    st = cloud_env_options.cloud_log_controller->NewRandomAccessFile(fname, result, options);
-    return st;
+    return cloud_env_options.cloud_log_controller->NewRandomAccessFile(
+        fname, result, options);
   }
 
   // This is neither a sst file or a log file. Read from default env.
@@ -795,7 +800,8 @@ Status AwsEnv::NewWritableFile(const std::string& logical_fname,
     result->reset(dynamic_cast<WritableFile*>(f.release()));
   } else if (logfile && !cloud_env_options.keep_local_log_files) {
     std::unique_ptr<CloudLogWritableFile> f(
-        cloud_env_options.cloud_log_controller->CreateWritableFile(fname, options));
+        cloud_env_options.cloud_log_controller->CreateWritableFile(fname,
+                                                                   options));
     if (!f || !f->status().ok()) {
       s = Status::IOError("[aws] NewWritableFile", fname.c_str());
       Log(InfoLogLevel::ERROR_LEVEL, info_log_,
@@ -1194,7 +1200,8 @@ Status AwsEnv::DeleteFile(const std::string& logical_fname) {
     if (st.ok()) {
       // Log a Delete record to kinesis stream
       std::unique_ptr<CloudLogWritableFile> f(
-          cloud_env_options.cloud_log_controller->CreateWritableFile(fname, EnvOptions()));
+          cloud_env_options.cloud_log_controller->CreateWritableFile(
+              fname, EnvOptions()));
       if (!f || !f->status().ok()) {
         st = Status::IOError("[Kinesis] DeleteFile", fname.c_str());
       } else {
@@ -1394,7 +1401,8 @@ Status AwsEnv::GetFileModificationTime(const std::string& logical_fname,
       }
     }
   } else if (logfile && !cloud_env_options.keep_local_log_files) {
-    st = cloud_env_options.cloud_log_controller->GetFileModificationTime(fname, time);
+    st = cloud_env_options.cloud_log_controller->GetFileModificationTime(fname,
+                                                                         time);
   } else {
     st = base_env_->GetFileModificationTime(fname, time);
   }

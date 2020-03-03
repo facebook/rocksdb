@@ -99,8 +99,8 @@ Status KafkaWritableFile::ProduceRaw(const std::string& operation_name,
 
 Status KafkaWritableFile::Append(const Slice& data) {
   std::string serialized_data;
-  CloudLogControllerImpl::SerializeLogRecordAppend(fname_, data, current_offset_,
-                                                   &serialized_data);
+  CloudLogControllerImpl::SerializeLogRecordAppend(
+      fname_, data, current_offset_, &serialized_data);
 
   return ProduceRaw("Append", serialized_data);
 }
@@ -175,13 +175,11 @@ Status KafkaWritableFile::LogDelete() {
 //
 class KafkaController : public CloudLogControllerImpl {
  public:
-  
-  KafkaController(CloudEnv* env, 
-                  std::unique_ptr<RdKafka::Producer> producer,
+  KafkaController(CloudEnv* env, std::unique_ptr<RdKafka::Producer> producer,
                   std::unique_ptr<RdKafka::Consumer> consumer)
-    : CloudLogControllerImpl(env),
-      producer_(std::move(producer)),
-      consumer_(std::move(consumer)) {
+      : CloudLogControllerImpl(env),
+        producer_(std::move(producer)),
+        consumer_(std::move(consumer)) {
     const std::string topic_name = env_->GetSrcBucketName();
     
     Log(InfoLogLevel::DEBUG_LEVEL, env_->info_log_,
@@ -394,14 +392,14 @@ CloudLogWritableFile* KafkaController::CreateWritableFile(
 
 namespace rocksdb {
 #ifndef USE_KAFKA
-Status CreateKafkaController(CloudEnv *,
-                             std::shared_ptr<CloudLogController> *) {
+Status CloudLogControllerImpl::CreateKafkaController(
+    CloudEnv*, std::shared_ptr<CloudLogController>*) {
   return Status::NotSupported("In order to use Kafka, make sure you're compiling with "
                               "USE_KAFKA=1");
 }
 #else
-Status CreateKafkaController(CloudEnv *env,
-                             std::shared_ptr<CloudLogController> *output) {
+Status CloudLogControllerImpl::CreateKafkaController(
+    CloudEnv* env, std::shared_ptr<CloudLogController>* output) {
   Status st = Status::OK();
   std::string conf_errstr, producer_errstr, consumer_errstr;
   const auto& kconf = env->GetCloudEnvOptions().kafka_log_options.client_config_params;

@@ -173,6 +173,7 @@ private:
   // If keep_local_log_files is false, this specifies what service to use
   // for storage of write-ahead log.
   LogType log_type;
+  // The implementation of the LogController for storage of the write-ahead log.
   std::shared_ptr<CloudLogController> cloud_log_controller;
 
   // Access credentials
