@@ -1,4 +1,7 @@
 # Rocksdb Change Log
+## 5.18.4 (3/3/2020)
+* Various fixes for ARM64 support (#6250)
+
 ## 5.18.3 (2/11/2019)
 ### Bug Fixes
 * Fix possible LSM corruption when both range deletions and subcompactions are used. The symptom of this corruption is L1+ files overlapping in the user key space.
