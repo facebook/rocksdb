@@ -43,7 +43,14 @@ class CloudEnvImpl : public CloudEnv {
                         const DbidList& dbid_list, DbidParents* parents);
   virtual Status PreloadCloudManifest(const std::string& local_dbname) override;
 
+  // Load CLOUDMANIFEST if exists in local disk to current env.
   Status LoadLocalCloudManifest(const std::string& dbname);
+
+  // Local CLOUDMANIFEST from `base_env` into `cloud_manifest`.
+  static Status LoadLocalCloudManifest(
+      const std::string& dbname, Env* base_env,
+      std::unique_ptr<CloudManifest>* cloud_manifest);
+
   // Transfers the filename from RocksDB's domain to the physical domain, based
   // on information stored in CLOUDMANIFEST.
   // For example, it will map 00010.sst to 00010.sst-[epoch] where [epoch] is

@@ -6,15 +6,16 @@
 
 #include "rocksdb/cloud/db_cloud.h"
 
-#include <cinttypes>
 #include <algorithm>
 #include <chrono>
+#include <cinttypes>
 
 #include "cloud/aws/aws_env.h"
 #include "cloud/aws/aws_file.h"
 #include "cloud/db_cloud_impl.h"
 #include "cloud/filename.h"
 #include "cloud/manifest_reader.h"
+#include "logging/logging.h"
 #include "rocksdb/options.h"
 #include "rocksdb/status.h"
 #include "rocksdb/table.h"
@@ -133,11 +134,11 @@ class CloudTest : public testing::Test {
   }
 
   // Creates and Opens a clone
-  void CloneDB(const std::string& clone_name,
-               const std::string& dest_bucket_name,
-               const std::string& dest_object_path,
-               std::unique_ptr<DBCloud>* cloud_db,
-               std::unique_ptr<CloudEnv>* cloud_env) {
+  Status CloneDB(const std::string& clone_name,
+                 const std::string& dest_bucket_name,
+                 const std::string& dest_object_path,
+                 std::unique_ptr<DBCloud>* cloud_db,
+                 std::unique_ptr<CloudEnv>* cloud_env) {
     // The local directory where the clone resides
     std::string cname = clone_dir_ + "/" + clone_name;
 
@@ -153,11 +154,15 @@ class CloudTest : public testing::Test {
       copt.dest_bucket.SetBucketName(dest_bucket_name);
     }
     copt.dest_bucket.SetObjectPath(dest_object_path);
-    if (! copt.dest_bucket.IsValid()) {
+    if (!copt.dest_bucket.IsValid()) {
       copt.keep_local_sst_files = true;
     }
     // Create new AWS env
-    ASSERT_OK(CloudEnv::NewAwsEnv(base_env_, copt, options_.info_log, &cenv));
+    Status st = CloudEnv::NewAwsEnv(base_env_, copt, options_.info_log, &cenv);
+    if (!st.ok()) {
+      return st;
+    }
+
     // To catch any possible file deletion bugs, we set file deletion delay to
     // smallest possible
     ((AwsEnv*)cenv)->TEST_SetFileDeletionDelay(std::chrono::seconds(0));
@@ -175,15 +180,20 @@ class CloudTest : public testing::Test {
         ColumnFamilyDescriptor(kDefaultColumnFamilyName, cfopt));
     std::vector<ColumnFamilyHandle*> handles;
 
-    ASSERT_OK(DBCloud::Open(options_, cname, column_families,
-                            persistent_cache_path_, persistent_cache_size_gb_,
-                            &handles, &clone_db));
+    st = DBCloud::Open(options_, cname, column_families, persistent_cache_path_,
+                       persistent_cache_size_gb_, &handles, &clone_db);
+    if (!st.ok()) {
+      return st;
+    }
+
     cloud_db->reset(clone_db);
 
     // Delete the handle for the default column family because the DBImpl
     // always holds a reference to it.
-    ASSERT_TRUE(handles.size() > 0);
+    assert(handles.size() > 0);
     delete handles[0];
+
+    return st;
   }
 
   void CloseDB() {
@@ -1163,6 +1173,60 @@ TEST_F(CloudTest, Ephemeral) {
     ASSERT_NOK(cloud_db->Get(ReadOptions(), "Key1", &value));
     ASSERT_NOK(cloud_db->Get(ReadOptions(), "Key2", &value));
   }
+}
+
+// This test is performed in a rare race condition where ephemral clone is
+// started after durable clone upload its CLOUDMANIFEST but before it uploads
+// one of the MANIFEST. In this case, we want to verify that ephemeral clone is
+// able to reinitialize instead of crash looping.
+TEST_F(CloudTest, EphemeralOnCorruptedDB) {
+  cloud_env_options_.keep_local_sst_files = true;
+  options_.level0_file_num_compaction_trigger = 100;  // never compact
+
+  OpenDB();
+
+  std::vector<std::string> files;
+  base_env_->GetChildren(dbname_, &files);
+
+  // Get the MANIFEST file
+  std::string manifest_file_name;
+  for (const auto& file_name : files) {
+    if (file_name.rfind("MANIFEST", 0) == 0) {
+      manifest_file_name = file_name;
+      break;
+    }
+  }
+
+  ASSERT_FALSE(manifest_file_name.empty());
+
+  // Delete MANIFEST file from S3 bucket.
+  // This is to simulate the scenario where CLOUDMANIFEST is uploaded, but
+  // MANIFEST is not yet uploaded from the durable shard.
+  auto aws_env = dynamic_cast<AwsEnv*>(aenv_.get());
+  ASSERT_TRUE(aws_env != nullptr);
+  aws_env->TEST_DeletePathInS3(
+      aws_env->GetSrcBucketName(),
+      aws_env->GetSrcObjectPath() + "/" + manifest_file_name);
+
+  // Ephemeral clone should fail.
+  std::unique_ptr<DBCloud> clone_db;
+  std::unique_ptr<CloudEnv> cenv;
+  Status st = CloneDB("clone1", "", "", &clone_db, &cenv);
+  ASSERT_NOK(st);
+
+  // Put the MANIFEST file back
+  aws_env->PutObject(dbname_ + "/" + manifest_file_name,
+                     aws_env->GetSrcBucketName(),
+                     aws_env->GetSrcObjectPath() + "/" + manifest_file_name);
+
+  // Try one more time. This time it should succeed.
+  clone_db.reset();
+  cenv.reset();
+  st = CloneDB("clone1", "", "", &clone_db, &cenv);
+  ASSERT_OK(st);
+
+  clone_db->Close();
+  CloseDB();
 }
 
 //
