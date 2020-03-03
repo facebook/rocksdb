@@ -139,7 +139,7 @@ TEST_F(DBSSTTest, SkipCheckingSSTFileSizesOnDBOpen) {
   ASSERT_OK(Flush());
 
   // Just open the DB with the option set to true and check that we don't crash.
-  Options options;
+  Options options = CurrentOptions();
   options.skip_checking_sst_file_sizes_on_db_open = true;
   Reopen(options);
 

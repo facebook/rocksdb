@@ -49,6 +49,7 @@ env:
   - JOB_NAME=cmake # 3-5 minutes
   - JOB_NAME=cmake-gcc8 # 3-5 minutes
   - JOB_NAME=cmake-mingw # 3 minutes
+  - JOB_NAME=encrypted_env # 16-18 minutes
 
 matrix:
   exclude:
@@ -128,6 +129,9 @@ script:
       ;;
     cmake*)
       mkdir build && cd build && cmake -DJNI=1 .. -DCMAKE_BUILD_TYPE=Release && make -j4 rocksdb rocksdbjni
+      ;;
+    encrypted_env)
+      OPT=-DTRAVIS V=1 ROCKSDBTESTS_END=db_block_cache_test ENCRYPTED_ENV=1 make -j4 all_but_some_tests check_some
       ;;
     esac
 notifications:

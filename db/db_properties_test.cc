@@ -1404,7 +1404,7 @@ TEST_F(DBPropertiesTest, NeedCompactHintPersistentTest) {
 }
 
 TEST_F(DBPropertiesTest, EstimateNumKeysUnderflow) {
-  Options options;
+  Options options = CurrentOptions();
   Reopen(options);
   Put("foo", "bar");
   Delete("foo");
@@ -1415,7 +1415,7 @@ TEST_F(DBPropertiesTest, EstimateNumKeysUnderflow) {
 }
 
 TEST_F(DBPropertiesTest, EstimateOldestKeyTime) {
-  std::unique_ptr<MockTimeEnv> mock_env(new MockTimeEnv(Env::Default()));
+  std::unique_ptr<MockTimeEnv> mock_env(new MockTimeEnv(env_));
   uint64_t oldest_key_time = 0;
   Options options;
   options.env = mock_env.get();
@@ -1515,7 +1515,7 @@ TEST_F(DBPropertiesTest, SstFilesSize) {
   };
   std::shared_ptr<TestListener> listener = std::make_shared<TestListener>();
 
-  Options options;
+  Options options = CurrentOptions();
   options.disable_auto_compactions = true;
   options.listeners.push_back(listener);
   Reopen(options);
@@ -1597,7 +1597,7 @@ TEST_F(DBPropertiesTest, MinObsoleteSstNumberToKeep) {
 }
 
 TEST_F(DBPropertiesTest, BlockCacheProperties) {
-  Options options;
+  Options options = CurrentOptions();
   uint64_t value;
 
   // Block cache properties are not available for tables other than

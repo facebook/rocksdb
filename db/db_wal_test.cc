@@ -1040,6 +1040,9 @@ class RecoveryTestHelper {
 // at the end of any of the logs
 // - We do not expect to open the data store for corruption
 TEST_F(DBWALTest, kTolerateCorruptedTailRecords) {
+  if (getenv("ENCRYPTED_ENV")) {
+    return;
+  }
   const int jstart = RecoveryTestHelper::kWALFileOffset;
   const int jend = jstart + RecoveryTestHelper::kWALFilesCount;
 
@@ -1111,6 +1114,9 @@ TEST_F(DBWALTest, kAbsoluteConsistency) {
 // We don't expect the data store to be opened if there is any inconsistency
 // between WAL and SST files
 TEST_F(DBWALTest, kPointInTimeRecoveryCFConsistency) {
+  if (getenv("ENCRYPTED_ENV")) {
+    return;
+  }
   Options options = CurrentOptions();
   options.avoid_flush_during_recovery = true;
 
@@ -1144,6 +1150,9 @@ TEST_F(DBWALTest, kPointInTimeRecoveryCFConsistency) {
 // - We expect to open data store under all circumstances
 // - We expect only data upto the point where the first error was encountered
 TEST_F(DBWALTest, kPointInTimeRecovery) {
+  if (getenv("ENCRYPTED_ENV")) {
+    return;
+  }
   const int jstart = RecoveryTestHelper::kWALFileOffset;
   const int jend = jstart + RecoveryTestHelper::kWALFilesCount;
   const int maxkeys =
@@ -1195,6 +1204,9 @@ TEST_F(DBWALTest, kPointInTimeRecovery) {
 // - We expect to open the data store under all scenarios
 // - We expect to have recovered records past the corruption zone
 TEST_F(DBWALTest, kSkipAnyCorruptedRecords) {
+  if (getenv("ENCRYPTED_ENV")) {
+    return;
+  }
   const int jstart = RecoveryTestHelper::kWALFileOffset;
   const int jend = jstart + RecoveryTestHelper::kWALFilesCount;
 
@@ -1402,6 +1414,9 @@ TEST_F(DBWALTest, RecoverWithoutFlushMultipleCF) {
 //   3. Append more data without flushing, which creates new WAL log.
 //   4. Open again. See if it can correctly handle previous corruption.
 TEST_F(DBWALTest, RecoverFromCorruptedWALWithoutFlush) {
+  if (getenv("ENCRYPTED_ENV")) {
+    return;
+  }
   const int jstart = RecoveryTestHelper::kWALFileOffset;
   const int jend = jstart + RecoveryTestHelper::kWALFilesCount;
   const int kAppendKeys = 100;

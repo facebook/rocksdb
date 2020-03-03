@@ -2149,6 +2149,9 @@ TEST_F(DBTest2, ReadAmpBitmap) {
 
 #ifndef OS_SOLARIS // GetUniqueIdFromFile is not implemented
 TEST_F(DBTest2, ReadAmpBitmapLiveInCacheAfterDBClose) {
+  if (getenv("ENCRYPTED_ENV")) {
+    return;
+  }
   {
     const int kIdBufLen = 100;
     char id_buf[kIdBufLen];
@@ -2921,7 +2924,7 @@ TEST_F(DBTest2, RateLimitedCompactionReads) {
 // Make sure DB can be reopen with reduced number of levels, given no file
 // is on levels higher than the new num_levels.
 TEST_F(DBTest2, ReduceLevel) {
-  Options options;
+  Options options = CurrentOptions();
   options.disable_auto_compactions = true;
   options.num_levels = 7;
   Reopen(options);
@@ -2947,7 +2950,7 @@ TEST_F(DBTest2, ReduceLevel) {
 
 // Test that ReadCallback is actually used in both memtbale and sst tables
 TEST_F(DBTest2, ReadCallbackTest) {
-  Options options;
+  Options options = CurrentOptions();
   options.disable_auto_compactions = true;
   options.num_levels = 7;
   Reopen(options);
@@ -3209,7 +3212,8 @@ TEST_F(DBTest2, TraceAndReplay) {
   column_families.push_back(
       ColumnFamilyDescriptor("pikachu", ColumnFamilyOptions()));
   std::vector<ColumnFamilyHandle*> handles;
-  ASSERT_OK(DB::Open(DBOptions(), dbname2, column_families, &handles, &db2));
+  ASSERT_OK(
+      DB::Open(CurrentOptions(), dbname2, column_families, &handles, &db2));
 
   env_->SleepForMicroseconds(100);
   // Verify that the keys don't already exist
@@ -3284,7 +3288,8 @@ TEST_F(DBTest2, TraceWithLimit) {
   column_families.push_back(
       ColumnFamilyDescriptor("pikachu", ColumnFamilyOptions()));
   std::vector<ColumnFamilyHandle*> handles;
-  ASSERT_OK(DB::Open(DBOptions(), dbname2, column_families, &handles, &db2));
+  ASSERT_OK(
+      DB::Open(CurrentOptions(), dbname2, column_families, &handles, &db2));
 
   env_->SleepForMicroseconds(100);
   // Verify that the keys don't already exist
@@ -3352,7 +3357,8 @@ TEST_F(DBTest2, TraceWithSampling) {
   column_families.push_back(
       ColumnFamilyDescriptor("pikachu", ColumnFamilyOptions()));
   std::vector<ColumnFamilyHandle*> handles;
-  ASSERT_OK(DB::Open(DBOptions(), dbname2, column_families, &handles, &db2));
+  ASSERT_OK(
+      DB::Open(CurrentOptions(), dbname2, column_families, &handles, &db2));
 
   env_->SleepForMicroseconds(100);
   ASSERT_TRUE(db2->Get(ro, handles[0], "a", &value).IsNotFound());
@@ -3452,7 +3458,8 @@ TEST_F(DBTest2, TraceWithFilter) {
   column_families.push_back(
       ColumnFamilyDescriptor("pikachu", ColumnFamilyOptions()));
   std::vector<ColumnFamilyHandle*> handles;
-  ASSERT_OK(DB::Open(DBOptions(), dbname2, column_families, &handles, &db2));
+  ASSERT_OK(
+      DB::Open(CurrentOptions(), dbname2, column_families, &handles, &db2));
 
   env_->SleepForMicroseconds(100);
   // Verify that the keys don't already exist
@@ -3498,7 +3505,8 @@ TEST_F(DBTest2, TraceWithFilter) {
   handles.clear();
 
   DB* db3 =  nullptr;
-  ASSERT_OK(DB::Open(DBOptions(), dbname3, column_families, &handles, &db3));
+  ASSERT_OK(
+      DB::Open(CurrentOptions(), dbname3, column_families, &handles, &db3));
 
   env_->SleepForMicroseconds(100);
   // Verify that the keys don't already exist
@@ -3553,6 +3561,9 @@ TEST_F(DBTest2, TraceWithFilter) {
 #endif  // ROCKSDB_LITE
 
 TEST_F(DBTest2, PinnableSliceAndMmapReads) {
+  if (getenv("ENCRYPTED_ENV")) {
+    return;
+  }
   Options options = CurrentOptions();
   options.allow_mmap_reads = true;
   options.max_open_files = 100;
@@ -3831,7 +3842,7 @@ TEST_F(DBTest2, TestCompactFiles) {
   });
   SyncPoint::GetInstance()->EnableProcessing();
 
-  Options options;
+  Options options = CurrentOptions();
   options.num_levels = 2;
   options.disable_auto_compactions = true;
   Reopen(options);
