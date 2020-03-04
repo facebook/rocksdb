@@ -44,7 +44,6 @@ void ArenaWrappedDBIter::Init(Env* env, const ReadOptions& read_options,
                               cf_options.user_comparator, nullptr, sequence,
                               true, max_sequential_skip_in_iteration,
                               read_callback, db_impl, cfd, allow_blob);
-  read_options_ = read_options;
   sv_number_ = version_number;
   allow_refresh_ = allow_refresh;
 }
@@ -97,7 +96,8 @@ ArenaWrappedDBIter* NewArenaWrappedDbIterator(
              max_sequential_skip_in_iterations, version_number, read_callback,
              db_impl, cfd, allow_blob, allow_refresh);
   if (db_impl != nullptr && cfd != nullptr && allow_refresh) {
-    iter->StoreRefreshInfo(db_impl, cfd, read_callback, allow_blob);
+    iter->StoreRefreshInfo(read_options, db_impl, cfd, read_callback,
+                           allow_blob);
   }
 
   return iter;

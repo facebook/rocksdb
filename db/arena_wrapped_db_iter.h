@@ -77,15 +77,15 @@ class ArenaWrappedDBIter : public Iterator {
 
   // Store some parameters so we can refresh the iterator at a later point
   // with these same params
-  void StoreRefreshInfo(DBImpl* db_impl, ColumnFamilyData* cfd,
-                        ReadCallback* read_callback, bool allow_blob) {
+  void StoreRefreshInfo(const ReadOptions& read_options, DBImpl* db_impl,
+                        ColumnFamilyData* cfd, ReadCallback* read_callback,
+                        bool allow_blob) {
+    read_options_ = read_options;
     db_impl_ = db_impl;
     cfd_ = cfd;
     read_callback_ = read_callback;
     allow_blob_ = allow_blob;
   }
-
-  const ReadOptions& GetReadOptions() const { return read_options_; }
 
  private:
   DBIter* db_iter_;
