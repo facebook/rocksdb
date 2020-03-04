@@ -17,12 +17,13 @@
 #include "rocksdb/listener.h"
 #include "rocksdb/rate_limiter.h"
 #include "util/aligned_buffer.h"
+#include "util/autovector.h"
 
 namespace ROCKSDB_NAMESPACE {
 class Statistics;
 class HistogramImpl;
 
-using AlignedBuffers = std::vector<std::unique_ptr<const char[]>>;
+using AlignedBuffers = autovector<std::unique_ptr<const char[]>>;
 
 // RandomAccessFileReader is a wrapper on top of Env::RnadomAccessFile. It is
 // responsible for:

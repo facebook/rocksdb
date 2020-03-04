@@ -72,7 +72,7 @@ class RandomAccessFileReaderTest : public testing::Test {
   }
 
   std::unordered_set<const char*> SharedBuffers(
-      const std::vector<std::unique_ptr<const char[]>>& aligned_bufs) {
+      const AlignedBuffers& aligned_bufs) {
     std::unordered_set<const char*> bufs;
     for (const auto& buf : aligned_bufs) {
       bufs.insert(buf.get());
