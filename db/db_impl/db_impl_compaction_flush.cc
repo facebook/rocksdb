@@ -701,24 +701,25 @@ Status DBImpl::CompactRange(const CompactRangeOptions& options,
   } else {
     int first_overlapped_level = kInvalidLevel;
     int max_overlapped_level = kInvalidLevel;
-    // max_file_num_to_ignore can be used to filter out newly created SST files,
-    // useful for bottom level compaction in a manual compaction
-    uint64_t max_file_num_to_ignore = port::kMaxUint64;
-    uint64_t next_file_number = port::kMaxUint64;
     {
-      InstrumentedMutexLock l(&mutex_);
-      Version* base = cfd->current();
-      for (int level = 0; level < base->storage_info()->num_non_empty_levels();
+      SuperVersion* super_version = cfd->GetReferencedSuperVersion(this);
+      Version* current_version = super_version->current;
+      ReadOptions ro;
+      ro.total_order_seek = true;
+      bool overlap;
+      for (int level = 0;
+           level < current_version->storage_info()->num_non_empty_levels();
            level++) {
-        bool overlap = true;
+        overlap = true;
         if (begin != nullptr && end != nullptr) {
-          s = base->OverlapWithLevelIterator(ReadOptions(), file_options_,
-                                             *begin, *end, level, &overlap);
+          s = current_version->OverlapWithLevelIterator(
+              ro, file_options_, *begin, *end, level, &overlap);
           if (!s.ok()) {
             break;
           }
         } else {
-          overlap = base->storage_info()->OverlapInLevel(level, begin, end);
+          overlap = current_version->storage_info()->OverlapInLevel(level,
+                                                                    begin, end);
         }
         if (overlap) {
           if (first_overlapped_level == kInvalidLevel) {
@@ -727,13 +728,17 @@ Status DBImpl::CompactRange(const CompactRangeOptions& options,
           max_overlapped_level = level;
         }
       }
-      next_file_number = versions_->current_next_file_number();
+      CleanupSuperVersion(super_version);
     }
     if (s.ok() && first_overlapped_level != kInvalidLevel) {
+      // max_file_num_to_ignore can be used to filter out newly created SST
+      // files, useful for bottom level compaction in a manual compaction
+      uint64_t max_file_num_to_ignore = port::kMaxUint64;
+      uint64_t next_file_number = versions_->current_next_file_number();
       final_output_level = max_overlapped_level;
+      int output_level;
       for (int level = first_overlapped_level; level <= max_overlapped_level;
            level++) {
-        int output_level;
         // in case the compaction is universal or if we're compacting the
         // bottom-most level, the output level will be the same as input one.
         // level 0 can never be the bottommost level (i.e. if all files are in
