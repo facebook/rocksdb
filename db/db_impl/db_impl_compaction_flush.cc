@@ -695,9 +695,20 @@ Status DBImpl::CompactRange(const CompactRangeOptions& options,
   {
     InstrumentedMutexLock l(&mutex_);
     Version* base = cfd->current();
-    for (int level = 1; level < base->storage_info()->num_non_empty_levels();
+    for (int level = 0; level < base->storage_info()->num_non_empty_levels();
          level++) {
-      if (base->storage_info()->OverlapInLevel(level, begin, end)) {
+      bool overlap = true;
+      if (begin != nullptr && end != nullptr) {
+        s = base->OverlapWithLevelIterator(ReadOptions(), file_options_, *begin,
+                                           *end, level, &overlap);
+        if (!s.ok()) {
+          LogFlush(immutable_db_options_.info_log);
+          return s;
+        }
+      } else {
+        overlap = base->storage_info()->OverlapInLevel(level, begin, end);
+      }
+      if (overlap) {
         if (first_overlapped_level == -1) {
           first_overlapped_level = level;
         }
