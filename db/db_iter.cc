@@ -247,9 +247,7 @@ bool DBIter::FindNextUserEntryInternal(bool skipping_saved_key,
     assert(ikey_.user_key.size() >= timestamp_size_);
     Slice ts;
     if (timestamp_size_ > 0) {
-      ts =
-          Slice(ikey_.user_key.data() + ikey_.user_key.size() - timestamp_size_,
-                timestamp_size_);
+      ts = ExtractTimestampFromUserKey(ikey_.user_key, timestamp_size_);
     }
     if (IsVisible(ikey_.sequence, ts)) {
       // If the previous entry is of seqnum 0, the current entry will not
@@ -402,8 +400,17 @@ bool DBIter::FindNextUserEntryInternal(bool skipping_saved_key,
         // We're looking for the next user-key but all we see are the same
         // user-key with decreasing sequence numbers. Fast forward to
         // sequence number 0 and type deletion (the smallest type).
-        AppendInternalKey(&last_key, ParsedInternalKey(saved_key_.GetUserKey(),
-                                                       0, kTypeDeletion));
+        if (timestamp_size_ == 0) {
+          AppendInternalKey(
+              &last_key,
+              ParsedInternalKey(saved_key_.GetUserKey(), 0, kTypeDeletion));
+        } else {
+          std::string min_ts(timestamp_size_, static_cast<char>(0));
+          AppendInternalKeyWithDifferentTimestamp(
+              &last_key,
+              ParsedInternalKey(saved_key_.GetUserKey(), 0, kTypeDeletion),
+              min_ts);
+        }
         // Don't set skipping_saved_key = false because we may still see more
         // user-keys equal to saved_key_.
       } else {
@@ -412,9 +419,17 @@ bool DBIter::FindNextUserEntryInternal(bool skipping_saved_key,
         // Note that this only covers a case when a higher key was overwritten
         // many times since our snapshot was taken, not the case when a lot of
         // different keys were inserted after our snapshot was taken.
-        AppendInternalKey(&last_key,
-                          ParsedInternalKey(saved_key_.GetUserKey(), sequence_,
-                                            kValueTypeForSeek));
+        if (timestamp_size_ == 0) {
+          AppendInternalKey(
+              &last_key, ParsedInternalKey(saved_key_.GetUserKey(), sequence_,
+                                           kValueTypeForSeek));
+        } else {
+          AppendInternalKeyWithDifferentTimestamp(
+              &last_key,
+              ParsedInternalKey(saved_key_.GetUserKey(), sequence_,
+                                kValueTypeForSeek),
+              *timestamp_ub_);
+        }
       }
       iter_.Seek(last_key);
       RecordTick(statistics_, NUMBER_OF_RESEEKS_IN_ITERATION);

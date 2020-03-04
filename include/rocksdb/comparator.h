@@ -109,6 +109,8 @@ class Comparator {
   // < 0  iff t1 < t2
   // == 0 iff t1 == t2
   // > 0  iff t1 > t2
+  // Note that an all-zero byte array will be the smallest (oldest) timestamp
+  // of the same length.
   virtual int CompareTimestamp(const Slice& /*ts1*/,
                                const Slice& /*ts2*/) const {
     return 0;

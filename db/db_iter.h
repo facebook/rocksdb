@@ -187,6 +187,8 @@ class DBIter final : public Iterator {
 
   void Next() final override;
   void Prev() final override;
+  // 'target' does not contain timestamp, even if user timestamp feature is
+  // enabled.
   void Seek(const Slice& target) final override;
   void SeekForPrev(const Slice& target) final override;
   void SeekToFirst() final override;

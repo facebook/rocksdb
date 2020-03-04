@@ -104,6 +104,7 @@ struct ParsedInternalKey {
   ParsedInternalKey()
       : sequence(kMaxSequenceNumber)  // Make code analyzer happy
   {}  // Intentionally left uninitialized (for speed)
+  // u contains timestamp if user timestamp feature is enabled.
   ParsedInternalKey(const Slice& u, const SequenceNumber& seq, ValueType t)
       : user_key(u), sequence(seq), type(t) {}
   std::string DebugString(bool hex = false) const;
@@ -132,6 +133,12 @@ EntryType GetEntryType(ValueType value_type);
 // Append the serialization of "key" to *result.
 extern void AppendInternalKey(std::string* result,
                               const ParsedInternalKey& key);
+
+// Append the serialization of "key" to *result, replacing the original
+// timestamp with argument ts.
+extern void AppendInternalKeyWithDifferentTimestamp(
+    std::string* result, const ParsedInternalKey& key, const Slice& ts);
+
 // Serialized internal key consists of user key followed by footer.
 // This function appends the footer to *result, assuming that *result already
 // contains the user key at the end.
