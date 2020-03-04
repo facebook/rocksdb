@@ -2717,7 +2717,7 @@ class DBBasicTestWithTimestampPrefixSeek
 };
 
 TEST_P(DBBasicTestWithTimestampPrefixSeek, ForwardIterateWithPrefix) {
-  const size_t kNumKeysPerFile = 4096;
+  const size_t kNumKeysPerFile = 1024;
   Options options = CurrentOptions();
   options.env = env_;
   options.create_if_missing = true;
@@ -2734,7 +2734,7 @@ TEST_P(DBBasicTestWithTimestampPrefixSeek, ForwardIterateWithPrefix) {
   DestroyAndReopen(options);
 
   const uint64_t kMaxKey = 0xffffffffffffffff;
-  const uint64_t kMinKey = 0xffffffffffff8000;
+  const uint64_t kMinKey = 0xffffffffffffc000;
   const std::vector<std::string> write_ts_list = {Timestamp(3, 0xffffffff),
                                                   Timestamp(6, 0xffffffff)};
   WriteOptions write_opts;
