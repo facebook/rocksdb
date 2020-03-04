@@ -202,16 +202,19 @@ TEST_F(ManualCompactionTest, SkipLevel) {
   options.compaction_filter = filter;
   ASSERT_OK(DB::Open(options, dbname_, &db));
 
-  // Keys: 1, 2, 4, 8
-  // Each key is flushed to a new SST file in L0
-  for (int k = 1; k <= 8; k <<= 1) {
-    db->Put(WriteOptions(), std::to_string(k), "");
-    db->Flush(FlushOptions());
-  }
+  WriteOptions wo;
+  FlushOptions fo;
+  db->Put(wo, "1", "");
+  db->Flush(fo);
+  db->Put(wo, "2", "");
+  db->Flush(fo);
+  db->Put(wo, "4", "");
+  db->Put(wo, "8", "");
+  db->Flush(fo);
 
   {
-    // L0: 1, 2, 4, 8
-    // [5, 7] has no overlap with any file in any level.
+    // L0: 1, 2, [4, 8]
+    // no file has keys in range [5, 7]
     Slice start("5");
     Slice end("7");
     filter->Reset();
@@ -220,44 +223,32 @@ TEST_F(ManualCompactionTest, SkipLevel) {
   }
 
   {
-    // L0: 1, 2, 4, 8
+    // L0: 1, 2, [4, 8]
     // [3, 7] overlaps with 4 in L0
     Slice start("3");
     Slice end("7");
     filter->Reset();
     db->CompactRange(CompactRangeOptions(), &start, &end);
-    AssertCompacted(filter, {{"4", 0}});
-  }
-
-  {
-    // L0: 1, 2, 8
-    // L1: 4
-    // [7, inf) overlaps with 8 in L0
-    Slice start("7");
-    filter->Reset();
-    db->CompactRange(CompactRangeOptions(), &start, nullptr);
-    AssertCompacted(filter, {{"8", 0}});
-  }
-
-  {
-    // L0: 1, 2
-    // L1: 4, 8
-    // [3, 9] overlaps with 4, 8 in L1
-    Slice start("3");
-    Slice end("9");
-    filter->Reset();
-    db->CompactRange(CompactRangeOptions(), &start, &end);
-    AssertCompacted(filter, {{"4", 1}, {"8", 1}});
+    AssertCompacted(filter, {{"4", 0}, {"8", 0}});
   }
 
   {
     // L0: 1, 2
     // L1: [4, 8]
-    // [5, 7] has no overlapped key in any file
-    Slice start("5");
-    Slice end("7");
+    // no file has keys in range (-inf, 0]
+    Slice end("0");
     filter->Reset();
-    db->CompactRange(CompactRangeOptions(), &start, &end);
+    db->CompactRange(CompactRangeOptions(), nullptr, &end);
+    AssertCompacted(filter, {});
+  }
+
+  {
+    // L0: 1, 2
+    // L1: [4, 8]
+    // no file has keys in range [9, inf)
+    Slice start("9");
+    filter->Reset();
+    db->CompactRange(CompactRangeOptions(), &start, nullptr);
     AssertCompacted(filter, {});
   }
 
