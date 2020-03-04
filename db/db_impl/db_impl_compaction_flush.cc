@@ -718,8 +718,7 @@ Status DBImpl::CompactRange(const CompactRangeOptions& options,
     next_file_number = versions_->current_next_file_number();
   }
 
-  int final_output_level = 0;
-
+  int final_output_level = max_level_with_files;
   if (cfd->ioptions()->compaction_style == kCompactionStyleUniversal &&
       cfd->NumberLevels() > 1) {
     // Always compact all files together.
