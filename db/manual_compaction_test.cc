@@ -250,7 +250,7 @@ TEST_F(ManualCompactionTest, SkipLevel) {
 
   {
     // L0: 1, 2
-    // L1: (4, 8)
+    // L1: [4, 8]
     // [5, 7] has no overlapped key in any file
     Slice start("5");
     Slice end("7");
@@ -261,8 +261,8 @@ TEST_F(ManualCompactionTest, SkipLevel) {
 
   {
     // L0: 1, 2
-    // L1: (4, 8)
-    // [-inf, 3] overlaps with 1, 2 in L0
+    // L1: [4, 8]
+    // (-inf, 3] overlaps with 1, 2 in L0
     Slice end("3");
     filter->Reset();
     db->CompactRange(CompactRangeOptions(), nullptr, &end);
@@ -275,8 +275,8 @@ TEST_F(ManualCompactionTest, SkipLevel) {
 
   {
     // L0:
-    // L1: (1, 2), (4, 8)
-    // [2, 5] overlaps with (1, 2) and (4, 8)
+    // L1: [1, 2], [4, 8]
+    // [2, 5] overlaps with [1, 2] and [4, 8)
     Slice start("2");
     Slice end("5");
     filter->Reset();
