@@ -34,6 +34,17 @@ std::string Key2(int i) {
   return Key1(i) + "_xxx";
 }
 
+class ManualCompactionTest : public testing::Test {
+ public:
+  ManualCompactionTest() {
+    // Get rid of any state from an old run.
+    dbname_ = test::PerThreadDBPath("rocksdb_manual_compaction_test");
+    DestroyDB(dbname_, Options());
+  }
+
+  std::string dbname_;
+};
+
 class DestroyAllCompactionFilter : public CompactionFilter {
  public:
   DestroyAllCompactionFilter() {}
@@ -62,10 +73,6 @@ class LogCompactionFilter : public CompactionFilter {
 
   int NumKeys() const { return key_level_.size(); }
 
-  bool KeyExists(const Slice& key) {
-    return key_level_.find(key.ToString()) != key_level_.end();
-  }
-
   int KeyLevel(const Slice& key) {
     auto it = key_level_.find(key.ToString());
     if (it == key_level_.end()) {
@@ -76,27 +83,6 @@ class LogCompactionFilter : public CompactionFilter {
 
  private:
   mutable std::map<std::string, int> key_level_;
-};
-
-class ManualCompactionTest : public testing::Test {
- public:
-  ManualCompactionTest() {
-    // Get rid of any state from an old run.
-    dbname_ = test::PerThreadDBPath("rocksdb_manual_compaction_test");
-    DestroyDB(dbname_, Options());
-  }
-
-  void AssertCompacted(
-      LogCompactionFilter* filter,
-      const std::vector<std::pair<std::string, int>>& key_levels) {
-    ASSERT_EQ(key_levels.size(), filter->NumKeys());
-    for (auto& key_level : key_levels) {
-      ASSERT_TRUE(filter->KeyExists(key_level.first));
-      ASSERT_EQ(key_level.second, filter->KeyLevel(key_level.first));
-    }
-  }
-
-  std::string dbname_;
 };
 
 TEST_F(ManualCompactionTest, CompactTouchesAllKeys) {
@@ -194,7 +180,8 @@ TEST_F(ManualCompactionTest, SkipLevel) {
   DB* db;
   Options options;
   options.num_levels = 3;
-  options.level0_file_num_compaction_trigger = INT_MAX;
+  // Initially, flushed L0 files won't exceed 100.
+  options.level0_file_num_compaction_trigger = 100;
   options.compaction_style = kCompactionStyleLevel;
   options.create_if_missing = true;
   options.compression = kNoCompression;
@@ -204,13 +191,13 @@ TEST_F(ManualCompactionTest, SkipLevel) {
 
   WriteOptions wo;
   FlushOptions fo;
-  db->Put(wo, "1", "");
-  db->Flush(fo);
-  db->Put(wo, "2", "");
-  db->Flush(fo);
-  db->Put(wo, "4", "");
-  db->Put(wo, "8", "");
-  db->Flush(fo);
+  ASSERT_OK(db->Put(wo, "1", ""));
+  ASSERT_OK(db->Flush(fo));
+  ASSERT_OK(db->Put(wo, "2", ""));
+  ASSERT_OK(db->Flush(fo));
+  ASSERT_OK(db->Put(wo, "4", ""));
+  ASSERT_OK(db->Put(wo, "8", ""));
+  ASSERT_OK(db->Flush(fo));
 
   {
     // L0: 1, 2, [4, 8]
@@ -219,7 +206,7 @@ TEST_F(ManualCompactionTest, SkipLevel) {
     Slice end("7");
     filter->Reset();
     db->CompactRange(CompactRangeOptions(), &start, &end);
-    AssertCompacted(filter, {});
+    ASSERT_EQ(0, filter->NumKeys());
   }
 
   {
@@ -229,7 +216,9 @@ TEST_F(ManualCompactionTest, SkipLevel) {
     Slice end("7");
     filter->Reset();
     db->CompactRange(CompactRangeOptions(), &start, &end);
-    AssertCompacted(filter, {{"4", 0}, {"8", 0}});
+    ASSERT_EQ(2, filter->NumKeys());
+    ASSERT_EQ(0, filter->KeyLevel("4"));
+    ASSERT_EQ(0, filter->KeyLevel("8"));
   }
 
   {
@@ -239,7 +228,7 @@ TEST_F(ManualCompactionTest, SkipLevel) {
     Slice end("0");
     filter->Reset();
     db->CompactRange(CompactRangeOptions(), nullptr, &end);
-    AssertCompacted(filter, {});
+    ASSERT_EQ(0, filter->NumKeys());
   }
 
   {
@@ -249,28 +238,49 @@ TEST_F(ManualCompactionTest, SkipLevel) {
     Slice start("9");
     filter->Reset();
     db->CompactRange(CompactRangeOptions(), &start, nullptr);
-    AssertCompacted(filter, {});
+    ASSERT_EQ(0, filter->NumKeys());
   }
 
   {
     // L0: 1, 2
     // L1: [4, 8]
-    // (-inf, 3] overlaps with 1, 2 in L0
-    Slice end("3");
+    // [2, 2] overlaps with 2 in L0
+    Slice start("2");
+    Slice end("2");
     filter->Reset();
-    db->CompactRange(CompactRangeOptions(), nullptr, &end);
-    AssertCompacted(filter, {{"1", 0}, {"2", 0}});
+    db->CompactRange(CompactRangeOptions(), &start, &end);
+    ASSERT_EQ(1, filter->NumKeys());
+    ASSERT_EQ(0, filter->KeyLevel("2"));
   }
 
   {
-    // L0:
-    // L1: [1, 2], [4, 8]
-    // [2, 5] overlaps with [1, 2] and [4, 8)
+    // L0: 1
+    // L1: 2, [4, 8]
+    // [2, 5] overlaps with 2 and [4, 8) in L1, skip L0
     Slice start("2");
     Slice end("5");
     filter->Reset();
     db->CompactRange(CompactRangeOptions(), &start, &end);
-    AssertCompacted(filter, {{"1", 1}, {"2", 1}, {"4", 1}, {"8", 1}});
+    ASSERT_EQ(3, filter->NumKeys());
+    ASSERT_EQ(1, filter->KeyLevel("2"));
+    ASSERT_EQ(1, filter->KeyLevel("4"));
+    ASSERT_EQ(1, filter->KeyLevel("8"));
+  }
+
+  {
+    // L0: 1
+    // L1: [2, 4, 8]
+    // [0, inf) overlaps all files
+    Slice start("0");
+    filter->Reset();
+    db->CompactRange(CompactRangeOptions(), &start, nullptr);
+    ASSERT_EQ(4, filter->NumKeys());
+    // 1 is first compacted to L1 and then further compacted into [2, 4, 8],
+    // so finally the logged level for 1 is L1.
+    ASSERT_EQ(1, filter->KeyLevel("1"));
+    ASSERT_EQ(1, filter->KeyLevel("2"));
+    ASSERT_EQ(1, filter->KeyLevel("4"));
+    ASSERT_EQ(1, filter->KeyLevel("8"));
   }
 
   delete filter;
