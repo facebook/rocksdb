@@ -34,17 +34,6 @@ std::string Key2(int i) {
   return Key1(i) + "_xxx";
 }
 
-class ManualCompactionTest : public testing::Test {
- public:
-  ManualCompactionTest() {
-    // Get rid of any state from an old run.
-    dbname_ = test::PerThreadDBPath("rocksdb_manual_compaction_test");
-    DestroyDB(dbname_, Options());
-  }
-
-  std::string dbname_;
-};
-
 class DestroyAllCompactionFilter : public CompactionFilter {
  public:
   DestroyAllCompactionFilter() {}
@@ -87,6 +76,27 @@ class LogCompactionFilter : public CompactionFilter {
 
  private:
   mutable std::map<std::string, int> key_level_;
+};
+
+class ManualCompactionTest : public testing::Test {
+ public:
+  ManualCompactionTest() {
+    // Get rid of any state from an old run.
+    dbname_ = test::PerThreadDBPath("rocksdb_manual_compaction_test");
+    DestroyDB(dbname_, Options());
+  }
+
+  void AssertCompacted(
+      LogCompactionFilter* filter,
+      const std::vector<std::pair<std::string, int>>& key_levels) {
+    ASSERT_EQ(key_levels.size(), filter->NumKeys());
+    for (auto& key_level : key_levels) {
+      ASSERT_TRUE(filter->KeyExists(key_level.first));
+      ASSERT_EQ(key_level.second, filter->KeyLevel(key_level.first));
+    }
+  }
+
+  std::string dbname_;
 };
 
 TEST_F(ManualCompactionTest, CompactTouchesAllKeys) {
@@ -206,7 +216,7 @@ TEST_F(ManualCompactionTest, SkipLevel) {
     Slice end("7");
     filter->Reset();
     db->CompactRange(CompactRangeOptions(), &start, &end);
-    ASSERT_EQ(0, filter->NumKeys());
+    AssertCompacted(filter, {});
   }
 
   {
@@ -216,9 +226,7 @@ TEST_F(ManualCompactionTest, SkipLevel) {
     Slice end("7");
     filter->Reset();
     db->CompactRange(CompactRangeOptions(), &start, &end);
-    ASSERT_EQ(1, filter->NumKeys());
-    ASSERT_TRUE(filter->KeyExists("4"));
-    ASSERT_EQ(0, filter->KeyLevel("4"));
+    AssertCompacted(filter, {{"4", 0}});
   }
 
   {
@@ -228,9 +236,7 @@ TEST_F(ManualCompactionTest, SkipLevel) {
     Slice start("7");
     filter->Reset();
     db->CompactRange(CompactRangeOptions(), &start, nullptr);
-    ASSERT_EQ(1, filter->NumKeys());
-    ASSERT_TRUE(filter->KeyExists("8"));
-    ASSERT_EQ(0, filter->KeyLevel("8"));
+    AssertCompacted(filter, {{"8", 0}});
   }
 
   {
@@ -241,11 +247,7 @@ TEST_F(ManualCompactionTest, SkipLevel) {
     Slice end("9");
     filter->Reset();
     db->CompactRange(CompactRangeOptions(), &start, &end);
-    ASSERT_EQ(2, filter->NumKeys());
-    ASSERT_TRUE(filter->KeyExists("4"));
-    ASSERT_EQ(1, filter->KeyLevel("4"));
-    ASSERT_TRUE(filter->KeyExists("8"));
-    ASSERT_EQ(1, filter->KeyLevel("8"));
+    AssertCompacted(filter, {{"4", 1}, {"8", 1}});
   }
 
   {
@@ -256,7 +258,7 @@ TEST_F(ManualCompactionTest, SkipLevel) {
     Slice end("7");
     filter->Reset();
     db->CompactRange(CompactRangeOptions(), &start, &end);
-    ASSERT_EQ(0, filter->NumKeys());
+    AssertCompacted(filter, {});
   }
 
   {
@@ -266,11 +268,7 @@ TEST_F(ManualCompactionTest, SkipLevel) {
     Slice end("3");
     filter->Reset();
     db->CompactRange(CompactRangeOptions(), nullptr, &end);
-    ASSERT_EQ(2, filter->NumKeys());
-    ASSERT_TRUE(filter->KeyExists("1"));
-    ASSERT_EQ(0, filter->KeyLevel("1"));
-    ASSERT_TRUE(filter->KeyExists("2"));
-    ASSERT_EQ(0, filter->KeyLevel("2"));
+    AssertCompacted(filter, {{"1", 0}, {"2", 0}});
   }
 
   {
@@ -281,12 +279,7 @@ TEST_F(ManualCompactionTest, SkipLevel) {
     Slice end("5");
     filter->Reset();
     db->CompactRange(CompactRangeOptions(), &start, &end);
-    ASSERT_EQ(4, filter->NumKeys());
-    for (int k = 1; k <= 8; k <<= 1) {
-      auto key = std::to_string(k);
-      ASSERT_TRUE(filter->KeyExists(key));
-      ASSERT_EQ(1, filter->KeyLevel(key));
-    }
+    AssertCompacted(filter, {{"1", 1}, {"2", 1}, {"4", 1}, {"8", 1}});
   }
 
   delete filter;
