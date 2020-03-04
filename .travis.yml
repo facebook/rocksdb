@@ -10,8 +10,6 @@ compiler:
   - clang
   - gcc
 osx_image: xcode9.4
-jdk:
-  - openjdk7
 cache:
   - ccache
 
@@ -27,6 +25,7 @@ addons:
       - liblzma-dev  # xv
       - libzstd-dev
       - zlib1g-dev
+      - openjdk-8-jdk
   homebrew:
     update: true
     packages:
@@ -79,9 +78,6 @@ install:
   - if [ "${TRAVIS_OS_NAME}" == osx ]; then
       PATH=$PATH:/usr/local/opt/ccache/libexec;
     fi
-  - if [ "aarch64" == "$(uname -m)" ]; then
-      export JAVA_HOME=$(readlink -f `which javac` | sed "s:bin/javac::");
-    fi
   - if [ "${JOB_NAME}" == cmake-gcc8 ]; then
       sudo apt-get install -y g++-8;
       CC=gcc-8 && CXX=g++-8;
@@ -108,6 +104,11 @@ before_script:
   # Increase the maximum number of open file descriptors, since some tests use
   # more FDs than the default limit.
   - ulimit -n 8192
+
+  # Setup JDK
+  - export PATH=/usr/lib/jvm/java-8-openjdk-$(dpkg --print-architecture)/bin:$PATH
+  - export JAVA_HOME=/usr/lib/jvm/java-8-openjdk-$(dpkg --print-architecture)
+  - echo $JAVA_HOME
 
 script:
   - ${CXX} --version
