@@ -1091,9 +1091,7 @@ bool DBIter::IsVisible(SequenceNumber sequence, const Slice& ts) {
   int cmp_ts = timestamp_ub_ != nullptr
                    ? user_comparator_.CompareTimestamp(ts, *timestamp_ub_)
                    : 0;
-  if (cmp_ts < 0) {
-    return true;
-  } else if (cmp_ts > 0) {
+  if (cmp_ts > 0) {
     return false;
   }
   if (read_callback_ == nullptr) {
