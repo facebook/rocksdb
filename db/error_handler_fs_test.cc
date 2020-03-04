@@ -641,6 +641,232 @@ TEST_F(DBErrorHandlingFSTest, MultiCFWALWriteError) {
   Close();
 }
 
+TEST_F(DBErrorHandlingFSTest, MultiDBCompactionError) {
+  FaultInjectionTestEnv* def_env = new FaultInjectionTestEnv(Env::Default());
+  std::vector<FaultInjectionTestFS*> fault_fs;
+  std::vector<Options> options;
+  std::vector<std::shared_ptr<ErrorHandlerFSListener>> listener;
+  std::vector<DB*> db;
+  std::shared_ptr<SstFileManager> sfm(NewSstFileManager(def_env));
+  int kNumDbInstances = 3;
+  Random rnd(301);
+
+  for (auto i = 0; i < kNumDbInstances; ++i) {
+    listener.emplace_back(new ErrorHandlerFSListener());
+    options.emplace_back(GetDefaultOptions());
+    fault_fs.emplace_back(
+        new FaultInjectionTestFS(FileSystem::Default().get()));
+    options[i].create_if_missing = true;
+    options[i].level0_file_num_compaction_trigger = 2;
+    options[i].writable_file_max_buffer_size = 32768;
+    options[i].file_system.reset(fault_fs[i]);
+    options[i].listeners.emplace_back(listener[i]);
+    options[i].sst_file_manager = sfm;
+    DB* dbptr;
+    char buf[16];
+
+    listener[i]->EnableAutoRecovery();
+    // Setup for returning error for the 3rd SST, which would be level 1
+    listener[i]->InjectFileCreationError(fault_fs[i], 3,
+                                         IOStatus::NoSpace("Out of space"));
+    snprintf(buf, sizeof(buf), "_%d", i);
+    DestroyDB(dbname_ + std::string(buf), options[i]);
+    ASSERT_EQ(DB::Open(options[i], dbname_ + std::string(buf), &dbptr),
+              Status::OK());
+    db.emplace_back(dbptr);
+  }
+
+  for (auto i = 0; i < kNumDbInstances; ++i) {
+    WriteBatch batch;
+
+    for (auto j = 0; j <= 100; ++j) {
+      batch.Put(Key(j), RandomString(&rnd, 1024));
+    }
+
+    WriteOptions wopts;
+    wopts.sync = true;
+    ASSERT_EQ(db[i]->Write(wopts, &batch), Status::OK());
+    ASSERT_EQ(db[i]->Flush(FlushOptions()), Status::OK());
+  }
+
+  def_env->SetFilesystemActive(false, Status::NoSpace("Out of space"));
+  for (auto i = 0; i < kNumDbInstances; ++i) {
+    WriteBatch batch;
+
+    // Write to one CF
+    for (auto j = 100; j < 199; ++j) {
+      batch.Put(Key(j), RandomString(&rnd, 1024));
+    }
+
+    WriteOptions wopts;
+    wopts.sync = true;
+    ASSERT_EQ(db[i]->Write(wopts, &batch), Status::OK());
+    ASSERT_EQ(db[i]->Flush(FlushOptions()), Status::OK());
+  }
+
+  for (auto i = 0; i < kNumDbInstances; ++i) {
+    Status s = static_cast<DBImpl*>(db[i])->TEST_WaitForCompact(true);
+    ASSERT_EQ(s.severity(), Status::Severity::kSoftError);
+    fault_fs[i]->SetFilesystemActive(true);
+  }
+
+  def_env->SetFilesystemActive(true);
+  for (auto i = 0; i < kNumDbInstances; ++i) {
+    std::string prop;
+    ASSERT_EQ(listener[i]->WaitForRecovery(5000000), true);
+    ASSERT_EQ(static_cast<DBImpl*>(db[i])->TEST_WaitForCompact(true),
+              Status::OK());
+    EXPECT_TRUE(db[i]->GetProperty(
+        "rocksdb.num-files-at-level" + NumberToString(0), &prop));
+    EXPECT_EQ(atoi(prop.c_str()), 0);
+    EXPECT_TRUE(db[i]->GetProperty(
+        "rocksdb.num-files-at-level" + NumberToString(1), &prop));
+    EXPECT_EQ(atoi(prop.c_str()), 1);
+  }
+
+  for (auto i = 0; i < kNumDbInstances; ++i) {
+    char buf[16];
+    snprintf(buf, sizeof(buf), "_%d", i);
+    delete db[i];
+    fault_fs[i]->SetFilesystemActive(true);
+    if (getenv("KEEP_DB")) {
+      printf("DB is still at %s%s\n", dbname_.c_str(), buf);
+    } else {
+      Status s = DestroyDB(dbname_ + std::string(buf), options[i]);
+    }
+  }
+  options.clear();
+  sfm.reset();
+  delete def_env;
+}
+
+TEST_F(DBErrorHandlingFSTest, MultiDBVariousErrors) {
+  FaultInjectionTestEnv* def_env = new FaultInjectionTestEnv(Env::Default());
+  std::vector<FaultInjectionTestFS*> fault_fs;
+  std::vector<Options> options;
+  std::vector<std::shared_ptr<ErrorHandlerFSListener>> listener;
+  std::vector<DB*> db;
+  std::shared_ptr<SstFileManager> sfm(NewSstFileManager(def_env));
+  int kNumDbInstances = 3;
+  Random rnd(301);
+
+  for (auto i = 0; i < kNumDbInstances; ++i) {
+    listener.emplace_back(new ErrorHandlerFSListener());
+    options.emplace_back(GetDefaultOptions());
+    fault_fs.emplace_back(
+        new FaultInjectionTestFS(FileSystem::Default().get()));
+    options[i].create_if_missing = true;
+    options[i].level0_file_num_compaction_trigger = 2;
+    options[i].writable_file_max_buffer_size = 32768;
+    options[i].file_system.reset(fault_fs[i]);
+    options[i].listeners.emplace_back(listener[i]);
+    options[i].sst_file_manager = sfm;
+    DB* dbptr;
+    char buf[16];
+
+    listener[i]->EnableAutoRecovery();
+    switch (i) {
+      case 0:
+        // Setup for returning error for the 3rd SST, which would be level 1
+        listener[i]->InjectFileCreationError(fault_fs[i], 3,
+                                             IOStatus::NoSpace("Out of space"));
+        break;
+      case 1:
+        // Setup for returning error after the 1st SST, which would result
+        // in a hard error
+        listener[i]->InjectFileCreationError(fault_fs[i], 2,
+                                             IOStatus::NoSpace("Out of space"));
+        break;
+      default:
+        break;
+    }
+    snprintf(buf, sizeof(buf), "_%d", i);
+    DestroyDB(dbname_ + std::string(buf), options[i]);
+    ASSERT_EQ(DB::Open(options[i], dbname_ + std::string(buf), &dbptr),
+              Status::OK());
+    db.emplace_back(dbptr);
+  }
+
+  for (auto i = 0; i < kNumDbInstances; ++i) {
+    WriteBatch batch;
+
+    for (auto j = 0; j <= 100; ++j) {
+      batch.Put(Key(j), RandomString(&rnd, 1024));
+    }
+
+    WriteOptions wopts;
+    wopts.sync = true;
+    ASSERT_EQ(db[i]->Write(wopts, &batch), Status::OK());
+    ASSERT_EQ(db[i]->Flush(FlushOptions()), Status::OK());
+  }
+
+  def_env->SetFilesystemActive(false, Status::NoSpace("Out of space"));
+  for (auto i = 0; i < kNumDbInstances; ++i) {
+    WriteBatch batch;
+
+    // Write to one CF
+    for (auto j = 100; j < 199; ++j) {
+      batch.Put(Key(j), RandomString(&rnd, 1024));
+    }
+
+    WriteOptions wopts;
+    wopts.sync = true;
+    ASSERT_EQ(db[i]->Write(wopts, &batch), Status::OK());
+    if (i != 1) {
+      ASSERT_EQ(db[i]->Flush(FlushOptions()), Status::OK());
+    } else {
+      ASSERT_EQ(db[i]->Flush(FlushOptions()), Status::NoSpace());
+    }
+  }
+
+  for (auto i = 0; i < kNumDbInstances; ++i) {
+    Status s = static_cast<DBImpl*>(db[i])->TEST_WaitForCompact(true);
+    switch (i) {
+      case 0:
+        ASSERT_EQ(s.severity(), Status::Severity::kSoftError);
+        break;
+      case 1:
+        ASSERT_EQ(s.severity(), Status::Severity::kHardError);
+        break;
+      case 2:
+        ASSERT_EQ(s, Status::OK());
+        break;
+    }
+    fault_fs[i]->SetFilesystemActive(true);
+  }
+
+  def_env->SetFilesystemActive(true);
+  for (auto i = 0; i < kNumDbInstances; ++i) {
+    std::string prop;
+    if (i < 2) {
+      ASSERT_EQ(listener[i]->WaitForRecovery(5000000), true);
+    }
+    if (i == 1) {
+      ASSERT_EQ(static_cast<DBImpl*>(db[i])->TEST_WaitForCompact(true),
+                Status::OK());
+    }
+    EXPECT_TRUE(db[i]->GetProperty(
+        "rocksdb.num-files-at-level" + NumberToString(0), &prop));
+    EXPECT_EQ(atoi(prop.c_str()), 0);
+    EXPECT_TRUE(db[i]->GetProperty(
+        "rocksdb.num-files-at-level" + NumberToString(1), &prop));
+    EXPECT_EQ(atoi(prop.c_str()), 1);
+  }
+
+  for (auto i = 0; i < kNumDbInstances; ++i) {
+    char buf[16];
+    snprintf(buf, sizeof(buf), "_%d", i);
+    fault_fs[i]->SetFilesystemActive(true);
+    delete db[i];
+    if (getenv("KEEP_DB")) {
+      printf("DB is still at %s%s\n", dbname_.c_str(), buf);
+    } else {
+      DestroyDB(dbname_ + std::string(buf), options[i]);
+    }
+  }
+  options.clear();
+  delete def_env;
+}
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
