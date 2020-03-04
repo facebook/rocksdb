@@ -967,7 +967,7 @@ if(WITH_TESTS)
         db/db_write_test.cc
         db/dbformat_test.cc
         db/deletefile_test.cc
-        db/error_handler_test.cc
+        db/error_handler_fs_test.cc
         db/obsolete_files_test.cc
         db/external_sst_file_basic_test.cc
         db/external_sst_file_test.cc
@@ -1084,6 +1084,7 @@ if(WITH_TESTS)
       monitoring/thread_status_updater_debug.cc
       table/mock_table.cc
       test_util/fault_injection_test_env.cc
+      test_util/fault_injection_test_fs.cc
       utilities/cassandra/test_utils.cc
   )
   enable_testing()
