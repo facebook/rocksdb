@@ -23,9 +23,9 @@ namespace test {
   }
 }
 
-std::string TmpDir(Env* env, bool ignore_env) {
+std::string TmpDir(Env* env) {
   std::string dir;
-  Status s = env->GetTestDirectory(&dir, ignore_env);
+  Status s = env->GetTestDirectory(&dir);
   EXPECT_TRUE(s.ok()) << s.ToString();
   return dir;
 }
@@ -35,12 +35,12 @@ std::string PerThreadDBPath(std::string dir, std::string name) {
   return dir + "/" + name + "_" + std::to_string(tid);
 }
 
-std::string PerThreadDBPath(std::string name, bool ignore_env) {
-  return PerThreadDBPath(test::TmpDir(Env::Default(), ignore_env), name);
+std::string PerThreadDBPath(std::string name) {
+  return PerThreadDBPath(test::TmpDir(Env::Default()), name);
 }
 
-std::string PerThreadDBPath(Env* env, std::string name, bool ignore_env) {
-  return PerThreadDBPath(test::TmpDir(env, ignore_env), name);
+std::string PerThreadDBPath(Env* env, std::string name) {
+  return PerThreadDBPath(test::TmpDir(env), name);
 }
 
 int RandomSeed() {

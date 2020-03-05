@@ -121,8 +121,8 @@ class HdfsEnv : public Env {
     return posixEnv->GetThreadPoolQueueLen(pri);
   }
 
-  Status GetTestDirectory(std::string* path, bool ignore_env=false) override {
-    return posixEnv->GetTestDirectory(path, ignore_env);
+  Status GetTestDirectory(std::string* path) override {
+    return posixEnv->GetTestDirectory(path);
   }
 
   uint64_t NowMicros() override { return posixEnv->NowMicros(); }
@@ -345,8 +345,7 @@ class HdfsEnv : public Env {
     return 0;
   }
 
-  virtual Status GetTestDirectory(std::string* /*path*/,
-                                  bool /*ignore_env*/ = false) override {
+  virtual Status GetTestDirectory(std::string* /*path*/) override {
     return notsup;
   }
 

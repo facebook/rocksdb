@@ -521,8 +521,8 @@ class CompositeEnvWrapper : public Env {
   unsigned int GetThreadPoolQueueLen(Priority pri = LOW) const override {
     return env_target_->GetThreadPoolQueueLen(pri);
   }
-  Status GetTestDirectory(std::string* path, bool ignore_env = false) override {
-    return env_target_->GetTestDirectory(path, ignore_env);
+  Status GetTestDirectory(std::string* path) override {
+    return env_target_->GetTestDirectory(path);
   }
   Status NewLogger(const std::string& fname,
                    std::shared_ptr<Logger>* result) override {

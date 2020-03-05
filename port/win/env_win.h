@@ -150,7 +150,7 @@ public:
 
   virtual Status UnlockFile(FileLock* lock);
 
-  virtual Status GetTestDirectory(std::string* result, bool ignore_env = false);
+  virtual Status GetTestDirectory(std::string* result);
 
   virtual Status NewLogger(const std::string& fname,
                            std::shared_ptr<Logger>* result);
@@ -282,8 +282,7 @@ public:
 
   Status UnlockFile(FileLock* lock) override;
 
-  Status GetTestDirectory(std::string* result,
-                          bool ignore_env = false) override;
+  Status GetTestDirectory(std::string* result) override;
 
   Status NewLogger(const std::string& fname,
                    std::shared_ptr<Logger>* result) override;

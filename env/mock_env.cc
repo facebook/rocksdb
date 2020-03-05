@@ -714,8 +714,7 @@ Status MockEnv::UnlockFile(FileLock* flock) {
   return Status::OK();
 }
 
-Status MockEnv::GetTestDirectory(std::string* path,
-                                 bool /*ignore_env*/) {
+Status MockEnv::GetTestDirectory(std::string* path) {
   *path = "/test";
   return Status::OK();
 }

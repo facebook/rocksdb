@@ -16,9 +16,12 @@ namespace ROCKSDB_NAMESPACE {
 class RandomAccessFileReaderTest : public testing::Test {
  public:
   void SetUp() override {
+    // TEST_TMPDIR may be set to /dev/shm in Makefile,
+    // but /dev/shm does not support direct IO.
+    unsetenv("TEST_TMPDIR");
     env_ = Env::Default();
     fs_ = FileSystem::Default();
-    test_dir_ = test::PerThreadDBPath("random_access_file_reader_test", true);
+    test_dir_ = test::PerThreadDBPath("random_access_file_reader_test");
     ASSERT_OK(fs_->CreateDir(test_dir_, IOOptions(), nullptr));
     alignment_ = GetAlignment();
   }

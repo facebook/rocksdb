@@ -87,8 +87,7 @@ class MockEnv : public EnvWrapper {
 
   virtual Status UnlockFile(FileLock* flock) override;
 
-  virtual Status GetTestDirectory(std::string* path,
-                                  bool ignore_env = false) override;
+  virtual Status GetTestDirectory(std::string* path) override;
 
   // Results of these can be affected by FakeSleepForMicroseconds()
   virtual Status GetCurrentTime(int64_t* unix_time) override;
