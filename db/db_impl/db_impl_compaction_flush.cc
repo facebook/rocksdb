@@ -652,8 +652,6 @@ Status DBImpl::CompactRange(const CompactRangeOptions& options,
     return Status::InvalidArgument("Invalid target path ID");
   }
 
-  bool exclusive = options.exclusive_manual_compaction;
-
   bool flush_needed = true;
   if (begin != nullptr && end != nullptr) {
     // TODO(ajkr): We could also optimize away the flush in certain cases where
@@ -686,25 +684,9 @@ Status DBImpl::CompactRange(const CompactRangeOptions& options,
     }
   }
 
-  int max_level_with_files = 0;
-  // max_file_num_to_ignore can be used to filter out newly created SST files,
-  // useful for bottom level compaction in a manual compaction
-  uint64_t max_file_num_to_ignore = port::kMaxUint64;
-  uint64_t next_file_number = port::kMaxUint64;
-  {
-    InstrumentedMutexLock l(&mutex_);
-    Version* base = cfd->current();
-    for (int level = 1; level < base->storage_info()->num_non_empty_levels();
-         level++) {
-      if (base->storage_info()->OverlapInLevel(level, begin, end)) {
-        max_level_with_files = level;
-      }
-    }
-    next_file_number = versions_->current_next_file_number();
-  }
-
-  int final_output_level = 0;
-
+  constexpr int kInvalidLevel = -1;
+  int final_output_level = kInvalidLevel;
+  bool exclusive = options.exclusive_manual_compaction;
   if (cfd->ioptions()->compaction_style == kCompactionStyleUniversal &&
       cfd->NumberLevels() > 1) {
     // Always compact all files together.
@@ -715,58 +697,98 @@ Status DBImpl::CompactRange(const CompactRangeOptions& options,
     }
     s = RunManualCompaction(cfd, ColumnFamilyData::kCompactAllLevels,
                             final_output_level, options, begin, end, exclusive,
-                            false, max_file_num_to_ignore);
+                            false, port::kMaxUint64);
   } else {
-    for (int level = 0; level <= max_level_with_files; level++) {
+    int first_overlapped_level = kInvalidLevel;
+    int max_overlapped_level = kInvalidLevel;
+    {
+      SuperVersion* super_version = cfd->GetReferencedSuperVersion(this);
+      Version* current_version = super_version->current;
+      ReadOptions ro;
+      ro.total_order_seek = true;
+      bool overlap;
+      for (int level = 0;
+           level < current_version->storage_info()->num_non_empty_levels();
+           level++) {
+        overlap = true;
+        if (begin != nullptr && end != nullptr) {
+          Status status = current_version->OverlapWithLevelIterator(
+              ro, file_options_, *begin, *end, level, &overlap);
+          if (!status.ok()) {
+            overlap = current_version->storage_info()->OverlapInLevel(
+                level, begin, end);
+          }
+        } else {
+          overlap = current_version->storage_info()->OverlapInLevel(level,
+                                                                    begin, end);
+        }
+        if (overlap) {
+          if (first_overlapped_level == kInvalidLevel) {
+            first_overlapped_level = level;
+          }
+          max_overlapped_level = level;
+        }
+      }
+      CleanupSuperVersion(super_version);
+    }
+    if (s.ok() && first_overlapped_level != kInvalidLevel) {
+      // max_file_num_to_ignore can be used to filter out newly created SST
+      // files, useful for bottom level compaction in a manual compaction
+      uint64_t max_file_num_to_ignore = port::kMaxUint64;
+      uint64_t next_file_number = versions_->current_next_file_number();
+      final_output_level = max_overlapped_level;
       int output_level;
-      // in case the compaction is universal or if we're compacting the
-      // bottom-most level, the output level will be the same as input one.
-      // level 0 can never be the bottommost level (i.e. if all files are in
-      // level 0, we will compact to level 1)
-      if (cfd->ioptions()->compaction_style == kCompactionStyleUniversal ||
-          cfd->ioptions()->compaction_style == kCompactionStyleFIFO) {
-        output_level = level;
-      } else if (level == max_level_with_files && level > 0) {
-        if (options.bottommost_level_compaction ==
-            BottommostLevelCompaction::kSkip) {
-          // Skip bottommost level compaction
-          continue;
-        } else if (options.bottommost_level_compaction ==
-                       BottommostLevelCompaction::kIfHaveCompactionFilter &&
-                   cfd->ioptions()->compaction_filter == nullptr &&
-                   cfd->ioptions()->compaction_filter_factory == nullptr) {
-          // Skip bottommost level compaction since we don't have a compaction
-          // filter
-          continue;
+      for (int level = first_overlapped_level; level <= max_overlapped_level;
+           level++) {
+        // in case the compaction is universal or if we're compacting the
+        // bottom-most level, the output level will be the same as input one.
+        // level 0 can never be the bottommost level (i.e. if all files are in
+        // level 0, we will compact to level 1)
+        if (cfd->ioptions()->compaction_style == kCompactionStyleUniversal ||
+            cfd->ioptions()->compaction_style == kCompactionStyleFIFO) {
+          output_level = level;
+        } else if (level == max_overlapped_level && level > 0) {
+          if (options.bottommost_level_compaction ==
+              BottommostLevelCompaction::kSkip) {
+            // Skip bottommost level compaction
+            continue;
+          } else if (options.bottommost_level_compaction ==
+                         BottommostLevelCompaction::kIfHaveCompactionFilter &&
+                     cfd->ioptions()->compaction_filter == nullptr &&
+                     cfd->ioptions()->compaction_filter_factory == nullptr) {
+            // Skip bottommost level compaction since we don't have a compaction
+            // filter
+            continue;
+          }
+          output_level = level;
+          // update max_file_num_to_ignore only for bottom level compaction
+          // because data in newly compacted files in middle levels may still
+          // need to be pushed down
+          max_file_num_to_ignore = next_file_number;
+        } else {
+          output_level = level + 1;
+          if (cfd->ioptions()->compaction_style == kCompactionStyleLevel &&
+              cfd->ioptions()->level_compaction_dynamic_level_bytes &&
+              level == 0) {
+            output_level = ColumnFamilyData::kCompactToBaseLevel;
+          }
         }
-        output_level = level;
-        // update max_file_num_to_ignore only for bottom level compaction
-        // because data in newly compacted files in middle levels may still need
-        // to be pushed down
-        max_file_num_to_ignore = next_file_number;
-      } else {
-        output_level = level + 1;
-        if (cfd->ioptions()->compaction_style == kCompactionStyleLevel &&
-            cfd->ioptions()->level_compaction_dynamic_level_bytes &&
-            level == 0) {
-          output_level = ColumnFamilyData::kCompactToBaseLevel;
+        s = RunManualCompaction(cfd, level, output_level, options, begin, end,
+                                exclusive, false, max_file_num_to_ignore);
+        if (!s.ok()) {
+          break;
         }
+        if (output_level == ColumnFamilyData::kCompactToBaseLevel) {
+          final_output_level = cfd->NumberLevels() - 1;
+        } else if (output_level > final_output_level) {
+          final_output_level = output_level;
+        }
+        TEST_SYNC_POINT("DBImpl::RunManualCompaction()::1");
+        TEST_SYNC_POINT("DBImpl::RunManualCompaction()::2");
       }
-      s = RunManualCompaction(cfd, level, output_level, options, begin, end,
-                              exclusive, false, max_file_num_to_ignore);
-      if (!s.ok()) {
-        break;
-      }
-      if (output_level == ColumnFamilyData::kCompactToBaseLevel) {
-        final_output_level = cfd->NumberLevels() - 1;
-      } else if (output_level > final_output_level) {
-        final_output_level = output_level;
-      }
-      TEST_SYNC_POINT("DBImpl::RunManualCompaction()::1");
-      TEST_SYNC_POINT("DBImpl::RunManualCompaction()::2");
     }
   }
-  if (!s.ok()) {
+  if (!s.ok() || final_output_level == kInvalidLevel) {
     LogFlush(immutable_db_options_.info_log);
     return s;
   }
