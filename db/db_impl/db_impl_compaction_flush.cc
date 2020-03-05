@@ -712,10 +712,11 @@ Status DBImpl::CompactRange(const CompactRangeOptions& options,
            level++) {
         overlap = true;
         if (begin != nullptr && end != nullptr) {
-          s = current_version->OverlapWithLevelIterator(
+          Status status = current_version->OverlapWithLevelIterator(
               ro, file_options_, *begin, *end, level, &overlap);
-          if (!s.ok()) {
-            break;
+          if (!status.ok()) {
+            overlap = current_version->storage_info()->OverlapInLevel(
+                level, begin, end);
           }
         } else {
           overlap = current_version->storage_info()->OverlapInLevel(level,

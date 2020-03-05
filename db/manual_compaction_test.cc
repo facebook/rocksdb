@@ -71,7 +71,7 @@ class LogCompactionFilter : public CompactionFilter {
 
   void Reset() { key_level_.clear(); }
 
-  int NumKeys() const { return key_level_.size(); }
+  size_t NumKeys() const { return key_level_.size(); }
 
   int KeyLevel(const Slice& key) {
     auto it = key_level_.find(key.ToString());
