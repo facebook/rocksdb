@@ -239,10 +239,14 @@ Status RandomAccessFileReader::MultiRead(
           aligned_i++;
         }
         const auto& fs_r = fs_reqs[aligned_i];
-        uint64_t offset = r.offset - fs_r.offset;
-        size_t len = std::min(r.len, static_cast<size_t>(fs_r.len - offset));
-        r.result = Slice(fs_r.scratch + offset, len);
         r.status = fs_r.status;
+        if (r.status.ok()) {
+          uint64_t offset = r.offset - fs_r.offset;
+          size_t len = std::min(r.len, static_cast<size_t>(fs_r.len - offset));
+          r.result = Slice(fs_r.scratch + offset, len);
+        } else {
+          r.result = Slice();
+        }
       }
     }
 #endif  // ROCKSDB_LITE
