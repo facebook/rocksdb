@@ -175,8 +175,7 @@ class DBIter final : public Iterator {
     assert(timestamp_size_ > 0);
     const Slice ukey_and_ts = saved_key_.GetUserKey();
     assert(timestamp_size_ < ukey_and_ts.size());
-    return Slice(ukey_and_ts.data() + ukey_and_ts.size() - timestamp_size_,
-                 timestamp_size_);
+    return ExtractTimestampFromUserKey(ukey_and_ts, timestamp_size_);
   }
   bool IsBlob() const {
     assert(valid_ && (allow_blob_ || !is_blob_));

@@ -2534,16 +2534,57 @@ TEST_F(DBBasicTestWithTimestamp, ReseekToNextUserKey) {
     s = db_->Write(write_opts, &batch);
     ASSERT_OK(s);
   }
-  ReadOptions read_opts;
-  std::string ts_str = Timestamp(static_cast<uint64_t>(kNumKeys + 1), 0);
-  Slice ts = ts_str;
-  read_opts.timestamp = &ts;
-  std::unique_ptr<Iterator> iter(db_->NewIterator(read_opts));
-  iter->Seek("a");
-  iter->Next();
-  CheckIterUserEntry(iter.get(), "b", "new_value", ts_str);
-  ASSERT_EQ(1,
-            options.statistics->getTickerCount(NUMBER_OF_RESEEKS_IN_ITERATION));
+  {
+    ReadOptions read_opts;
+    std::string ts_str = Timestamp(static_cast<uint64_t>(kNumKeys + 1), 0);
+    Slice ts = ts_str;
+    read_opts.timestamp = &ts;
+    std::unique_ptr<Iterator> iter(db_->NewIterator(read_opts));
+    iter->Seek("a");
+    iter->Next();
+    CheckIterUserEntry(iter.get(), "b", "new_value", ts_str);
+    ASSERT_EQ(
+        1, options.statistics->getTickerCount(NUMBER_OF_RESEEKS_IN_ITERATION));
+  }
+  Close();
+}
+
+TEST_F(DBBasicTestWithTimestamp, MaxKeysSkipped) {
+  Options options = CurrentOptions();
+  options.env = env_;
+  options.create_if_missing = true;
+  const size_t kTimestampSize = Timestamp(0, 0).size();
+  TestComparator test_cmp(kTimestampSize);
+  options.comparator = &test_cmp;
+  DestroyAndReopen(options);
+  constexpr size_t max_skippable_internal_keys = 2;
+  const size_t kNumKeys = max_skippable_internal_keys + 2;
+  WriteOptions write_opts;
+  Status s;
+  {
+    std::string ts_str = Timestamp(1, 0);
+    Slice ts = ts_str;
+    write_opts.timestamp = &ts;
+    ASSERT_OK(db_->Put(write_opts, "a", "value"));
+  }
+  for (size_t i = 0; i < kNumKeys; ++i) {
+    std::string ts_str = Timestamp(static_cast<uint64_t>(i + 1), 0);
+    Slice ts = ts_str;
+    write_opts.timestamp = &ts;
+    s = db_->Put(write_opts, "b", "value" + std::to_string(i));
+    ASSERT_OK(s);
+  }
+  {
+    ReadOptions read_opts;
+    read_opts.max_skippable_internal_keys = max_skippable_internal_keys;
+    std::string ts_str = Timestamp(1, 0);
+    Slice ts = ts_str;
+    read_opts.timestamp = &ts;
+    std::unique_ptr<Iterator> iter(db_->NewIterator(read_opts));
+    iter->SeekToFirst();
+    iter->Next();
+    ASSERT_TRUE(iter->status().IsIncomplete());
+  }
   Close();
 }
 
