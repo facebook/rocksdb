@@ -36,7 +36,7 @@ std::string PerThreadDBPath(std::string dir, std::string name) {
 }
 
 std::string PerThreadDBPath(std::string name) {
-  return PerThreadDBPath(test::TmpDir(Env::Default()), name);
+  return PerThreadDBPath(test::TmpDir(), name);
 }
 
 std::string PerThreadDBPath(Env* env, std::string name) {
