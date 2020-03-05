@@ -17,6 +17,7 @@
 #include "cloud/manifest_reader.h"
 #include "logging/logging.h"
 #include "rocksdb/options.h"
+#include "rocksdb/sst_file_manager.h"
 #include "rocksdb/status.h"
 #include "rocksdb/table.h"
 #include "test_util/testharness.h"
@@ -1373,6 +1374,37 @@ TEST_F(CloudTest, CheckpointToCloud) {
   ASSERT_EQ(value, "b");
   ASSERT_OK(db_->Get(ReadOptions(), "c", &value));
   ASSERT_EQ(value, "d");
+  CloseDB();
+}
+
+TEST_F(CloudTest, ConstantSstFileManager) {
+  // This test open the main DB, and flush 2 SST files into disk and cloud.
+  // These 2 SST files are very small in size.
+  // We then open a clone with constant_sst_file_size_in_sst_file_manager =
+  // 1024. The SST File Manager in the clone DB should reports the total
+  // SST file size of 2048 bytes.
+  cloud_env_options_.keep_local_sst_files = true;
+  options_.level0_file_num_compaction_trigger = 100; // never compact
+
+  // Open main DB
+  OpenDB();
+  ASSERT_OK(db_->Put(WriteOptions(), "a", "b"));
+  ASSERT_OK(db_->Flush(FlushOptions()));
+  ASSERT_OK(db_->Put(WriteOptions(), "c", "d"));
+  ASSERT_OK(db_->Flush(FlushOptions()));
+
+  // There should be 2 SST Files now
+  auto files = GetSSTFiles(dbname_);
+  ASSERT_EQ(2, files.size());
+  ASSERT_EQ(2, db_->GetDBOptions().sst_file_manager->GetTotalSize());
+
+  // Clone a DB with constant sized sst files
+  std::unique_ptr<DBCloud> clone_db;
+  std::unique_ptr<CloudEnv> cenv;
+  cloud_env_options_.constant_sst_file_size_in_sst_file_manager = 1024;
+  ASSERT_OK(CloneDB("clone1", "", "", &clone_db, &cenv));
+  ASSERT_EQ(2048, clone_db->GetDBOptions().sst_file_manager->GetTotalSize());
+  clone_db->Close();
   CloseDB();
 }
 

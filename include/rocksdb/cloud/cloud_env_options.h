@@ -271,6 +271,18 @@ private:
   // Default: 5000
   int number_objects_listed_in_one_iteration;
 
+  // During opening, we get the size of all SST files currently in the
+  // folder/bucket for bookkeeping. This operation might be expensive,
+  // especially if the bucket is in the cloud. This option allows to use a
+  // constant size instead. Non-negative value means use this option.
+  //
+  // NOTE: If users already passes an SST File Manager through
+  // Options.sst_file_manager, constant_sst_file_size_in_sst_file_manager is
+  // ignored.
+  //
+  // Default: -1, means don't use this option.
+  int64_t constant_sst_file_size_in_sst_file_manager;
+
   CloudEnvOptions(
       CloudType _cloud_type = CloudType::kCloudAws,
       LogType _log_type = LogType::kLogKafka,
@@ -283,7 +295,8 @@ private:
       bool _run_purger = false, bool _ephemeral_resync_on_open = false,
       bool _skip_dbid_verification = false,
       bool _use_aws_transfer_manager = false,
-      int _number_objects_listed_in_one_iteration = 5000)
+      int _number_objects_listed_in_one_iteration = 5000,
+      bool _constant_sst_file_size_in_sst_file_manager = -1)
       : cloud_type(_cloud_type),
         log_type(_log_type),
         keep_local_sst_files(_keep_local_sst_files),
@@ -299,7 +312,10 @@ private:
         ephemeral_resync_on_open(_ephemeral_resync_on_open),
         skip_dbid_verification(_skip_dbid_verification),
         use_aws_transfer_manager(_use_aws_transfer_manager),
-        number_objects_listed_in_one_iteration(_number_objects_listed_in_one_iteration)	{}
+        number_objects_listed_in_one_iteration(
+            _number_objects_listed_in_one_iteration),
+        constant_sst_file_size_in_sst_file_manager(
+            _constant_sst_file_size_in_sst_file_manager) {}
 
   // print out all options to the log
   void Dump(Logger* log) const;

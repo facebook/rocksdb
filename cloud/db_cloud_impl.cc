@@ -13,6 +13,7 @@
 #include "cloud/filename.h"
 #include "cloud/manifest_reader.h"
 #include "file/file_util.h"
+#include "file/sst_file_manager_impl.h"
 #include "logging/auto_roll_logger.h"
 #include "rocksdb/db.h"
 #include "rocksdb/env.h"
@@ -23,6 +24,33 @@
 #include "util/xxhash.h"
 
 namespace rocksdb {
+
+namespace {
+/**
+ * This ConstantSstFileManager uses the same size for every sst files added.
+ */
+class ConstantSizeSstFileManager : public SstFileManagerImpl {
+ public:
+  ConstantSizeSstFileManager(int64_t constant_file_size, Env* env,
+                             std::shared_ptr<Logger> logger,
+                             int64_t rate_bytes_per_sec,
+                             double max_trash_db_ratio,
+                             uint64_t bytes_max_delete_chunk)
+      : SstFileManagerImpl(env, std::move(logger), rate_bytes_per_sec,
+                           max_trash_db_ratio, bytes_max_delete_chunk),
+        constant_file_size_(constant_file_size) {
+    assert(constant_file_size_ >= 0);
+  }
+
+  Status OnAddFile(const std::string& file_path, bool compaction) override {
+    return SstFileManagerImpl::OnAddFile(
+        file_path, uint64_t(constant_file_size_), compaction);
+  }
+
+ private:
+  const int64_t constant_file_size_;
+};
+}  // namespace
 
 DBCloudImpl::DBCloudImpl(DB* db) : DBCloud(db), cenv_(nullptr) {}
 
@@ -51,9 +79,6 @@ Status DBCloud::Open(const Options& options, const std::string& dbname,
   return s;
 }
 
-
-
-
 Status DBCloud::Open(const Options& opt, const std::string& local_dbname,
                      const std::vector<ColumnFamilyDescriptor>& column_families,
                      const std::string& persistent_cache_path,
@@ -72,6 +97,23 @@ Status DBCloud::Open(const Options& opt, const std::string& local_dbname,
   if (!cenv->info_log_) {
     cenv->info_log_ = options.info_log;
   }
+
+  // Use a constant sized SST File Manager if necesary.
+  // NOTE: if user already passes in an SST File Manager, we will respect user's
+  // SST File Manager instead.
+  auto constant_sst_file_size =
+      cenv->GetCloudEnvOptions().constant_sst_file_size_in_sst_file_manager;
+  if (constant_sst_file_size >= 0 && options.sst_file_manager == nullptr) {
+    // rate_bytes_per_sec, max_trash_db_ratio, bytes_max_delete_chunk are
+    // default values in NewSstFileManager.
+    // If users don't use Options.sst_file_manager, then these values are used
+    // currently when creating an SST File Manager.
+    options.sst_file_manager = std::make_shared<ConstantSizeSstFileManager>(
+        constant_sst_file_size, options.env, options.info_log,
+        0 /* rate_bytes_per_sec */, 0.25 /* max_trash_db_ratio */,
+        64 * 1024 * 1024 /* bytes_max_delete_chunk */);
+  }
+
   Env* local_env = cenv->GetBaseEnv();
   if (!read_only) {
     local_env->CreateDirIfMissing(
