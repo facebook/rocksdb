@@ -1535,17 +1535,15 @@ TEST_F(DBWALTest, TruncateLastLogAfterRecoverWithoutFlush) {
     fd = open(fname_test_fallocate.c_str(), O_CREAT | O_RDWR | O_TRUNC, 0644);
   } while (fd < 0 && errno == EINTR);
   ASSERT_GT(fd, 0);
-  int err_number = 0;
   int alloc_status = fallocate(fd, 0, 0, 1);
-  if (alloc_status != 0) {
-    err_number = errno;
-  }
+  int err_number = errno;
   close(fd);
   ASSERT_OK(options.env->DeleteFile(fname_test_fallocate));
-  if (alloc_status != 0) {
-    fprintf(stderr, "             Skipped preallocated space check: %s\n", strerror(err_number));
+  if (err_number == ENOSYS || err_number == EOPNOTSUPP) {
+    fprintf(stderr, "Skipped preallocated space check: %s\n", strerror(err_number));
     return;
   }
+  ASSERT_EQ(0, alloc_status);
 
   DestroyAndReopen(options);
   size_t preallocated_size =
