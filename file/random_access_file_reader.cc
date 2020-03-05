@@ -196,6 +196,7 @@ Status RandomAccessFileReader::MultiRead(
     size_t num_fs_reqs = num_reqs;
 #ifndef ROCKSDB_LITE
     std::vector<FSReadRequest> aligned_reqs;
+    aligned_reqs.reserve(num_reqs);
     if (use_direct_io()) {
       // Align and merge the read requests.
       size_t alignment = file_->GetRequiredBufferAlignment();
