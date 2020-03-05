@@ -2403,6 +2403,7 @@ TEST_F(DBBasicTestWithTimestamp, SimpleForwardIterate) {
       r -= (kMaxKey / 100);
     }
   }
+  Close();
 }
 
 TEST_F(DBBasicTestWithTimestamp, ForwardIterateStartSeqnum) {
@@ -2460,6 +2461,7 @@ TEST_F(DBBasicTestWithTimestamp, ForwardIterateStartSeqnum) {
       ++expected_seq;
     }
   }
+  Close();
 }
 
 TEST_F(DBBasicTestWithTimestamp, ReseekToTargetTimestamp) {
@@ -2496,6 +2498,7 @@ TEST_F(DBBasicTestWithTimestamp, ReseekToTargetTimestamp) {
     ASSERT_EQ(
         1, options.statistics->getTickerCount(NUMBER_OF_RESEEKS_IN_ITERATION));
   }
+  Close();
 }
 
 TEST_F(DBBasicTestWithTimestamp, ReseekToNextUserKey) {
@@ -2541,6 +2544,7 @@ TEST_F(DBBasicTestWithTimestamp, ReseekToNextUserKey) {
   CheckIterUserEntry(iter.get(), "b", "new_value", ts_str);
   ASSERT_EQ(1,
             options.statistics->getTickerCount(NUMBER_OF_RESEEKS_IN_ITERATION));
+  Close();
 }
 
 class DBBasicTestWithTimestampCompressionSettings
@@ -2625,6 +2629,7 @@ TEST_P(DBBasicTestWithTimestampCompressionSettings, PutAndGet) {
     }
   };
   verify_db_func();
+  Close();
 }
 
 #ifndef ROCKSDB_LITE
@@ -2773,6 +2778,7 @@ TEST_P(DBBasicTestWithTimestampCompressionSettings, PutAndGetWithCompaction) {
     }
   };
   verify_db_func();
+  Close();
 }
 #endif  // !ROCKSDB_LITE
 
@@ -2798,7 +2804,7 @@ class DBBasicTestWithTimestampPrefixSeek
 };
 
 TEST_P(DBBasicTestWithTimestampPrefixSeek, ForwardIterateWithPrefix) {
-  const size_t kNumKeysPerFile = 512;
+  const size_t kNumKeysPerFile = 4096;
   Options options = CurrentOptions();
   options.env = env_;
   options.create_if_missing = true;
@@ -2815,7 +2821,7 @@ TEST_P(DBBasicTestWithTimestampPrefixSeek, ForwardIterateWithPrefix) {
   DestroyAndReopen(options);
 
   const uint64_t kMaxKey = 0xffffffffffffffff;
-  const uint64_t kMinKey = 0xfffffffffffff000;
+  const uint64_t kMinKey = 0xffffffffffff8000;
   const std::vector<std::string> write_ts_list = {Timestamp(3, 0xffffffff),
                                                   Timestamp(6, 0xffffffff)};
   WriteOptions write_opts;
@@ -2895,6 +2901,7 @@ TEST_P(DBBasicTestWithTimestampPrefixSeek, ForwardIterateWithPrefix) {
       }
     }
   }
+  Close();
 }
 
 // TODO(yanqin): consider handling non-fixed-length prefix extractors, e.g.

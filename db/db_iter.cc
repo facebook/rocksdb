@@ -49,6 +49,8 @@ DBIter::DBIter(Env* _env, const ReadOptions& read_options,
       read_callback_(read_callback),
       sequence_(s),
       statistics_(cf_options.statistics),
+      max_skip_(max_sequential_skip_in_iterations),
+      max_skippable_internal_keys_(read_options.max_skippable_internal_keys),
       num_internal_keys_skipped_(0),
       iterate_lower_bound_(read_options.iterate_lower_bound),
       iterate_upper_bound_(read_options.iterate_upper_bound),
@@ -73,8 +75,6 @@ DBIter::DBIter(Env* _env, const ReadOptions& read_options,
       timestamp_ub_(read_options.timestamp),
       timestamp_size_(timestamp_ub_ ? timestamp_ub_->size() : 0) {
   RecordTick(statistics_, NO_ITERATOR_CREATED);
-  max_skip_ = max_sequential_skip_in_iterations;
-  max_skippable_internal_keys_ = read_options.max_skippable_internal_keys;
   if (pin_thru_lifetime_) {
     pinned_iters_mgr_.StartPinning();
   }
