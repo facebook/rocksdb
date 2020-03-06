@@ -637,7 +637,7 @@ XXH3p_accumulate_512(      void* XXH_RESTRICT acc,
         }
     }
 
-#elif (XXH_VECTOR == XXH_VSX)
+#elif (XXH_VECTOR == XXH_VSX) && /* work around a compiler bug */ (__GNUC__ > 5)
           U64x2* const xacc =        (U64x2*) acc;    /* presumed aligned */
     U64x2 const* const xinput = (U64x2 const*) input;   /* no alignment restriction */
     U64x2 const* const xsecret  = (U64x2 const*) secret;    /* no alignment restriction */
