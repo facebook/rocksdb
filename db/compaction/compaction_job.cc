@@ -613,8 +613,13 @@ Status CompactionJob::Run() {
     }
   }
 
+  IOStatus io_s;
   if (status.ok() && output_directory_) {
-    status = output_directory_->Fsync(IOOptions(), nullptr);
+    io_s = output_directory_->Fsync(IOOptions(), nullptr);
+  }
+  if (!io_s.ok()) {
+    io_status_ = io_s;
+    status = io_s;
   }
 
   if (status.ok()) {
@@ -717,12 +722,8 @@ Status CompactionJob::Install(const MutableCFOptions& mutable_cf_options) {
   if (status.ok()) {
     status = InstallCompactionResults(mutable_cf_options);
   }
-  IOStatus io_s;
   if (!versions_->io_status().ok()) {
-    io_s = versions_->io_status();
-  }
-  if (!io_s.ok()) {
-    db_error_handler_->SetBGError(io_s, BackgroundErrorReason::kCompaction);
+    io_status_ = versions_->io_status();
   }
   VersionStorageInfo::LevelSummaryStorage tmp;
   auto vstorage = cfd->current()->storage_info();
@@ -1297,15 +1298,14 @@ Status CompactionJob::FinishCompactionOutputFile(
     meta->marked_for_compaction = sub_compact->builder->NeedCompact();
   }
   const uint64_t current_entries = sub_compact->builder->NumEntries();
-  IOStatus io_s;
   if (s.ok()) {
     s = sub_compact->builder->Finish();
   } else {
     sub_compact->builder->Abandon();
   }
-  io_s = sub_compact->builder->io_status();
-  if (!io_s.ok()) {
-    s = io_s;
+  if (!sub_compact->builder->io_status().ok()) {
+    io_status_ = sub_compact->builder->io_status();
+    s = io_status_;
   }
   const uint64_t current_bytes = sub_compact->builder->FileSize();
   if (s.ok()) {
@@ -1320,6 +1320,7 @@ Status CompactionJob::FinishCompactionOutputFile(
   sub_compact->total_bytes += current_bytes;
 
   // Finish and check for file errors
+  IOStatus io_s;
   if (s.ok()) {
     StopWatch sw(env_, stats_, COMPACTION_OUTFILE_SYNC_MICROS);
     io_s = sub_compact->outfile->Sync(db_options_.use_fsync);
@@ -1328,9 +1329,8 @@ Status CompactionJob::FinishCompactionOutputFile(
     io_s = sub_compact->outfile->Close();
   }
   if (!io_s.ok()) {
+    io_status_ = io_s;
     s = io_s;
-    InstrumentedMutexLock l(db_mutex_);
-    db_error_handler_->SetBGError(io_s, BackgroundErrorReason::kCompaction);
   }
   sub_compact->outfile.reset();
 

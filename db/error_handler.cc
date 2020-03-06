@@ -251,9 +251,14 @@ Status ErrorHandler::SetBGError(const IOStatus& bg_io_err,
   Status s;
   // First, check if the error is a retryable IO error or not.
   if (bg_io_err.GetRetryable()) {
-    // In current stage, treat retryable error as HardError.
+    // In current stage, treat retryable error as HardError. No automatic
+    // recovery.
+    bool auto_recovery = false;
     Status bg_err(new_bg_io_err, Status::Severity::kHardError);
-    s = SetBGError(bg_err, reason);
+    bg_error_ = bg_err;
+    EventHelpers::NotifyOnBackgroundError(db_options_.listeners, reason, &s,
+                                          db_mutex_, &auto_recovery);
+    return bg_error_;
   } else {
     s = SetBGError(new_bg_io_err, reason);
   }
