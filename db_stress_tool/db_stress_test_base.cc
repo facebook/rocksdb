@@ -593,14 +593,11 @@ void StressTest::OperateDb(ThreadState* thread) {
       }
 
 #ifndef ROCKSDB_LITE
-      // Every 1 in N verify the one of the following: 1) GetLiveFiles
-      // 2) GetSortedWalFiles 3) GetCurrentWalFile. Each time, randomly select
-      // one of them to run the test.
-      if (thread->rand.OneInOpt(FLAGS_get_live_files_and_wal_files_one_in)) {
-        Status status = VerifyGetLiveAndWalFiles(thread);
+      // Verify GetLiveFiles with a 1 in N chance.
+      if (thread->rand.OneInOpt(FLAGS_get_live_files_one_in)) {
+        Status status = VerifyGetLiveFiles();
         if (!status.ok()) {
-          VerificationAbort(shared, "VerifyGetLiveAndWalFiles status not OK",
-                            status);
+          VerificationAbort(shared, "VerifyGetLiveFiles status not OK", status);
         }
       }
 #endif  // !ROCKSDB_LITE
@@ -978,28 +975,11 @@ Status StressTest::TestIterate(ThreadState* thread,
 }
 
 #ifndef ROCKSDB_LITE
-// Test the return status of GetLiveFiles, GetSortedWalFiles, and
-// GetCurrentWalFile. Each time, randomly select one of them to run
-// and return the status.
-Status StressTest::VerifyGetLiveAndWalFiles(ThreadState* thread) {
-  int case_num = thread->rand.Uniform(3);
-  if (case_num == 0) {
-    std::vector<std::string> live_file;
-    uint64_t manifest_size;
-    return db_->GetLiveFiles(live_file, &manifest_size);
-  }
-
-  if (case_num == 1) {
-    VectorLogPtr log_ptr;
-    return db_->GetSortedWalFiles(log_ptr);
-  }
-
-  if (case_num == 2) {
-    std::unique_ptr<LogFile> cur_wal_file;
-    return db_->GetCurrentWalFile(&cur_wal_file);
-  }
-  assert(false);
-  return Status::Corruption("Undefined case happens!");
+// Test the return status of GetLiveFiles.
+Status StressTest::VerifyGetLiveFiles() {
+  std::vector<std::string> live_file;
+  uint64_t manifest_size = 0;
+  return db_->GetLiveFiles(live_file, &manifest_size);
 }
 #endif  // !ROCKSDB_LITE
 

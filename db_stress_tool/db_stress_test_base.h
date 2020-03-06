@@ -184,7 +184,7 @@ class StressTest {
 
   Status MaybeReleaseSnapshots(ThreadState* thread, uint64_t i);
 #ifndef ROCKSDB_LITE
-  Status VerifyGetLiveAndWalFiles(ThreadState* thread);
+  Status VerifyGetLiveFiles();
   virtual Status TestApproximateSize(
       ThreadState* thread, uint64_t iteration,
       const std::vector<int>& rand_column_families,
