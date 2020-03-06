@@ -5,6 +5,4 @@
 
 #include "db/blob_file_meta.h"
 
-namespace ROCKSDB_NAMESPACE {
-
-}  // namespace ROCKSDB_NAMESPACE
+namespace ROCKSDB_NAMESPACE {}  // namespace ROCKSDB_NAMESPACE

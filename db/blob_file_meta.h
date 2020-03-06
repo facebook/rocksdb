@@ -12,11 +12,11 @@
 
 namespace ROCKSDB_NAMESPACE {
 
-class ImmutableBlobFileMetaData {
+class SharedBlobFileMetaData {
  public:
-  ImmutableBlobFileMetaData(uint64_t blob_file_number, uint64_t total_blob_count,
-                uint64_t total_blob_bytes, std::string checksum_method,
-                std::string checksum_value)
+  SharedBlobFileMetaData(uint64_t blob_file_number, uint64_t total_blob_count,
+                         uint64_t total_blob_bytes, std::string checksum_method,
+                         std::string checksum_value)
       : blob_file_number_(blob_file_number),
         total_blob_count_(total_blob_count),
         total_blob_bytes_(total_blob_bytes),
@@ -25,10 +25,11 @@ class ImmutableBlobFileMetaData {
     assert(checksum_method_.empty() == checksum_value_.empty());
   }
 
-  ~ImmutableBlobFileMetaData() {} // TODO: this is when a blob file becomes obsolete
+  ~SharedBlobFileMetaData() {
+  }  // TODO: this is when a blob file becomes obsolete
 
-  ImmutableBlobFileMetaData(const ImmutableBlobFileMetaData&) = delete;
-  ImmutableBlobFileMetaData& operator=(const ImmutableBlobFileMetaData&) = delete;
+  SharedBlobFileMetaData(const SharedBlobFileMetaData&) = delete;
+  SharedBlobFileMetaData& operator=(const SharedBlobFileMetaData&) = delete;
 
   uint64_t GetBlobFileNumber() const { return blob_file_number_; }
   uint64_t GetTotalBlobCount() const { return total_blob_count_; }
@@ -46,30 +47,30 @@ class ImmutableBlobFileMetaData {
 
 class BlobFileMetaData {
  public:
-  BlobFileMetaData(std::shared_ptr<ImmutableBlobFileMetaData> immutable_meta,
+  BlobFileMetaData(std::shared_ptr<SharedBlobFileMetaData> shared_meta,
                    uint64_t garbage_blob_count, uint64_t garbage_blob_bytes)
-      : immutable_meta_(std::move(immutable_meta)),
+      : shared_meta_(std::move(shared_meta)),
         garbage_blob_count_(garbage_blob_count),
         garbage_blob_bytes_(garbage_blob_bytes) {
-          assert(immutable_meta_);
-          assert(garbage_blob_count_ <= immutable_meta_->GetTotalBlobCount());
-          assert(garbage_blob_bytes_ <= immutable_meta_->GetTotalBlobBytes());
-        }
+    assert(shared_meta_);
+    assert(garbage_blob_count_ <= shared_meta_->GetTotalBlobCount());
+    assert(garbage_blob_bytes_ <= shared_meta_->GetTotalBlobBytes());
+  }
 
   ~BlobFileMetaData() {}
 
   BlobFileMetaData(const BlobFileMetaData&) = delete;
   BlobFileMetaData& operator=(const BlobFileMetaData&) = delete;
 
-  const std::shared_ptr<ImmutableBlobFileMetaData>& GetImmutableMeta() const {
-    return immutable_meta_;
+  const std::shared_ptr<SharedBlobFileMetaData>& GetSharedMeta() const {
+    return shared_meta_;
   }
 
   uint64_t GetGarbageBlobCount() const { return garbage_blob_count_; }
   uint64_t GetGarbageBlobBytes() const { return garbage_blob_bytes_; }
 
  private:
-  std::shared_ptr<ImmutableBlobFileMetaData> immutable_meta_;
+  std::shared_ptr<SharedBlobFileMetaData> shared_meta_;
   uint64_t garbage_blob_count_;
   uint64_t garbage_blob_bytes_;
 };
