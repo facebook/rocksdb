@@ -102,7 +102,18 @@ class RandomAccessFileReader {
   RandomAccessFileReader(const RandomAccessFileReader&) = delete;
   RandomAccessFileReader& operator=(const RandomAccessFileReader&) = delete;
 
+  // In non-direct IO mode,
+  // 1. if using mmap, result is stored in a buffer other than scratch;
+  // 2. if not using mmap, result is stored in the buffer starting from scratch.
+  //
+  // In direct IO mode, an internal aligned buffer is allocated.
+  // 1. If internal_buf is null, then results are copied to the buffer
+  // starting from scratch;
+  // 2. Otherwise, scratch is not used and can be null, the internal_buf owns
+  // the internally allocated buffer on return, and the result refers to a
+  // region in internal_buf.
   Status Read(uint64_t offset, size_t n, Slice* result, char* scratch,
+              std::unique_ptr<const char[]>* internal_buf,
               bool for_compaction = false) const;
 
   Status MultiRead(FSReadRequest* reqs, size_t num_reqs) const;

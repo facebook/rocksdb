@@ -114,7 +114,7 @@ uint32_t MockTableFactory::GetAndWriteNextID(WritableFileWriter* file) const {
 uint32_t MockTableFactory::GetIDFromFile(RandomAccessFileReader* file) const {
   char buf[4];
   Slice result;
-  file->Read(0, 4, &result, buf);
+  file->Read(0, 4, &result, buf, nullptr);
   assert(result.size() == 4);
   return DecodeFixed32(buf);
 }
