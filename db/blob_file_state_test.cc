@@ -16,115 +16,79 @@ namespace ROCKSDB_NAMESPACE {
 
 class BlobFileStateTest : public testing::Test {
  public:
-  static void TestEncodeDecode(const BlobFileState& blob_file_state) {
+  template <class T>
+  static void TestEncodeDecode(const T& t) {
     std::string encoded;
-    blob_file_state.EncodeTo(&encoded);
+    t.EncodeTo(&encoded);
 
-    BlobFileState decoded;
+    T decoded;
     Slice input(encoded);
     ASSERT_OK(decoded.DecodeFrom(&input));
 
-    ASSERT_EQ(blob_file_state, decoded);
+    ASSERT_EQ(t, decoded);
   }
 };
 
 TEST_F(BlobFileStateTest, Empty) {
-  BlobFileState blob_file_state;
+  BlobFileAddition blob_file_addition;
 
-  ASSERT_EQ(blob_file_state.GetBlobFileNumber(), kInvalidBlobFileNumber);
-  ASSERT_EQ(blob_file_state.GetTotalBlobCount(), 0);
-  ASSERT_EQ(blob_file_state.GetTotalBlobBytes(), 0);
-  ASSERT_EQ(blob_file_state.GetGarbageBlobCount(), 0);
-  ASSERT_EQ(blob_file_state.GetGarbageBlobBytes(), 0);
-  ASSERT_TRUE(blob_file_state.IsObsolete());
-  ASSERT_TRUE(blob_file_state.GetChecksumMethod().empty());
-  ASSERT_TRUE(blob_file_state.GetChecksumValue().empty());
+  ASSERT_EQ(blob_file_addition.GetBlobFileNumber(), kInvalidBlobFileNumber);
+  ASSERT_EQ(blob_file_addition.GetTotalBlobCount(), 0);
+  ASSERT_EQ(blob_file_addition.GetTotalBlobBytes(), 0);
+  ASSERT_TRUE(blob_file_addition.GetChecksumMethod().empty());
+  ASSERT_TRUE(blob_file_addition.GetChecksumValue().empty());
 
-  TestEncodeDecode(blob_file_state);
+  TestEncodeDecode(blob_file_addition);
+
+  BlobFileGarbage blob_file_garbage;
+
+  ASSERT_EQ(blob_file_garbage.GetBlobFileNumber(), kInvalidBlobFileNumber);
+  ASSERT_EQ(blob_file_garbage.GetGarbageBlobCount(), 0);
+  ASSERT_EQ(blob_file_garbage.GetGarbageBlobBytes(), 0);
+
+  TestEncodeDecode(blob_file_garbage);
 }
 
 TEST_F(BlobFileStateTest, NonEmpty) {
   constexpr uint64_t blob_file_number = 123;
   constexpr uint64_t total_blob_count = 2;
   constexpr uint64_t total_blob_bytes = 123456;
-  constexpr uint64_t garbage_blob_count = 1;
-  constexpr uint64_t garbage_blob_bytes = 9876;
   const std::string checksum_method("SHA1");
   const std::string checksum_value("bdb7f34a59dfa1592ce7f52e99f98c570c525cbd");
 
-  BlobFileState blob_file_state(
-      blob_file_number, total_blob_count, total_blob_bytes, garbage_blob_count,
-      garbage_blob_bytes, checksum_method, checksum_value);
+  BlobFileAddition blob_file_addition(blob_file_number, total_blob_count,
+                                      total_blob_bytes, checksum_method,
+                                      checksum_value);
 
-  ASSERT_EQ(blob_file_state.GetBlobFileNumber(), blob_file_number);
-  ASSERT_EQ(blob_file_state.GetTotalBlobCount(), total_blob_count);
-  ASSERT_EQ(blob_file_state.GetTotalBlobBytes(), total_blob_bytes);
-  ASSERT_EQ(blob_file_state.GetGarbageBlobCount(), garbage_blob_count);
-  ASSERT_EQ(blob_file_state.GetGarbageBlobBytes(), garbage_blob_bytes);
-  ASSERT_FALSE(blob_file_state.IsObsolete());
-  ASSERT_EQ(blob_file_state.GetChecksumMethod(), checksum_method);
-  ASSERT_EQ(blob_file_state.GetChecksumValue(), checksum_value);
+  ASSERT_EQ(blob_file_addition.GetBlobFileNumber(), blob_file_number);
+  ASSERT_EQ(blob_file_addition.GetTotalBlobCount(), total_blob_count);
+  ASSERT_EQ(blob_file_addition.GetTotalBlobBytes(), total_blob_bytes);
+  ASSERT_EQ(blob_file_addition.GetChecksumMethod(), checksum_method);
+  ASSERT_EQ(blob_file_addition.GetChecksumValue(), checksum_value);
 
-  TestEncodeDecode(blob_file_state);
-}
+  TestEncodeDecode(blob_file_addition);
 
-TEST_F(BlobFileStateTest, AddGarbageBlob) {
-  constexpr uint64_t blob_file_number = 123;
-  constexpr uint64_t total_blob_count = 2;
-  constexpr uint64_t total_blob_bytes = 123456;
-  const std::string checksum_method("MD5");
-  const std::string checksum_value("d8f72233c67a68c5ec2bd51c6be7556e");
+  constexpr uint64_t garbage_blob_count = 1;
+  constexpr uint64_t garbage_blob_bytes = 9876;
 
-  BlobFileState blob_file_state(blob_file_number, total_blob_count,
-                                total_blob_bytes, checksum_method,
-                                checksum_value);
+  BlobFileGarbage blob_file_garbage(blob_file_number, garbage_blob_count,
+                                    garbage_blob_bytes);
 
-  ASSERT_EQ(blob_file_state.GetBlobFileNumber(), blob_file_number);
-  ASSERT_EQ(blob_file_state.GetTotalBlobCount(), total_blob_count);
-  ASSERT_EQ(blob_file_state.GetTotalBlobBytes(), total_blob_bytes);
-  ASSERT_EQ(blob_file_state.GetGarbageBlobCount(), 0);
-  ASSERT_EQ(blob_file_state.GetGarbageBlobBytes(), 0);
-  ASSERT_FALSE(blob_file_state.IsObsolete());
-  ASSERT_EQ(blob_file_state.GetChecksumMethod(), checksum_method);
-  ASSERT_EQ(blob_file_state.GetChecksumValue(), checksum_value);
+  ASSERT_EQ(blob_file_garbage.GetBlobFileNumber(), blob_file_number);
+  ASSERT_EQ(blob_file_garbage.GetGarbageBlobCount(), garbage_blob_count);
+  ASSERT_EQ(blob_file_garbage.GetGarbageBlobBytes(), garbage_blob_bytes);
 
-  TestEncodeDecode(blob_file_state);
-
-  blob_file_state.AddGarbageBlob(123000);
-
-  ASSERT_EQ(blob_file_state.GetBlobFileNumber(), blob_file_number);
-  ASSERT_EQ(blob_file_state.GetTotalBlobCount(), total_blob_count);
-  ASSERT_EQ(blob_file_state.GetTotalBlobBytes(), total_blob_bytes);
-  ASSERT_EQ(blob_file_state.GetGarbageBlobCount(), 1);
-  ASSERT_EQ(blob_file_state.GetGarbageBlobBytes(), 123000);
-  ASSERT_FALSE(blob_file_state.IsObsolete());
-  ASSERT_EQ(blob_file_state.GetChecksumMethod(), checksum_method);
-  ASSERT_EQ(blob_file_state.GetChecksumValue(), checksum_value);
-
-  TestEncodeDecode(blob_file_state);
-
-  blob_file_state.AddGarbageBlob(456);
-
-  ASSERT_EQ(blob_file_state.GetBlobFileNumber(), blob_file_number);
-  ASSERT_EQ(blob_file_state.GetTotalBlobCount(), total_blob_count);
-  ASSERT_EQ(blob_file_state.GetTotalBlobBytes(), total_blob_bytes);
-  ASSERT_EQ(blob_file_state.GetGarbageBlobCount(), total_blob_count);
-  ASSERT_EQ(blob_file_state.GetGarbageBlobBytes(), total_blob_bytes);
-  ASSERT_TRUE(blob_file_state.IsObsolete());
-  ASSERT_EQ(blob_file_state.GetChecksumMethod(), checksum_method);
-  ASSERT_EQ(blob_file_state.GetChecksumValue(), checksum_value);
-
-  TestEncodeDecode(blob_file_state);
+  TestEncodeDecode(blob_file_garbage);
 }
 
 TEST_F(BlobFileStateTest, DecodeErrors) {
   std::string str;
   Slice slice(str);
 
-  BlobFileState blob_file_state;
+  BlobFileAddition blob_file_addition;
 
   {
-    const Status s = blob_file_state.DecodeFrom(&slice);
+    const Status s = blob_file_addition.DecodeFrom(&slice);
     ASSERT_TRUE(s.IsCorruption());
     ASSERT_TRUE(std::strstr(s.getState(), "blob file number"));
   }
@@ -134,7 +98,7 @@ TEST_F(BlobFileStateTest, DecodeErrors) {
   slice = str;
 
   {
-    const Status s = blob_file_state.DecodeFrom(&slice);
+    const Status s = blob_file_addition.DecodeFrom(&slice);
     ASSERT_TRUE(s.IsCorruption());
     ASSERT_TRUE(std::strstr(s.getState(), "total blob count"));
   }
@@ -144,7 +108,7 @@ TEST_F(BlobFileStateTest, DecodeErrors) {
   slice = str;
 
   {
-    const Status s = blob_file_state.DecodeFrom(&slice);
+    const Status s = blob_file_addition.DecodeFrom(&slice);
     ASSERT_TRUE(s.IsCorruption());
     ASSERT_TRUE(std::strstr(s.getState(), "total blob bytes"));
   }
@@ -154,27 +118,7 @@ TEST_F(BlobFileStateTest, DecodeErrors) {
   slice = str;
 
   {
-    const Status s = blob_file_state.DecodeFrom(&slice);
-    ASSERT_TRUE(s.IsCorruption());
-    ASSERT_TRUE(std::strstr(s.getState(), "garbage blob count"));
-  }
-
-  constexpr uint64_t garbage_blob_count = 1234;
-  PutVarint64(&str, garbage_blob_count);
-  slice = str;
-
-  {
-    const Status s = blob_file_state.DecodeFrom(&slice);
-    ASSERT_TRUE(s.IsCorruption());
-    ASSERT_TRUE(std::strstr(s.getState(), "garbage blob bytes"));
-  }
-
-  constexpr uint64_t garbage_blob_bytes = 5678;
-  PutVarint64(&str, garbage_blob_bytes);
-  slice = str;
-
-  {
-    const Status s = blob_file_state.DecodeFrom(&slice);
+    const Status s = blob_file_addition.DecodeFrom(&slice);
     ASSERT_TRUE(s.IsCorruption());
     ASSERT_TRUE(std::strstr(s.getState(), "checksum method"));
   }
@@ -184,7 +128,7 @@ TEST_F(BlobFileStateTest, DecodeErrors) {
   slice = str;
 
   {
-    const Status s = blob_file_state.DecodeFrom(&slice);
+    const Status s = blob_file_addition.DecodeFrom(&slice);
     ASSERT_TRUE(s.IsCorruption());
     ASSERT_TRUE(std::strstr(s.getState(), "checksum value"));
   }
@@ -194,7 +138,7 @@ TEST_F(BlobFileStateTest, DecodeErrors) {
   slice = str;
 
   {
-    const Status s = blob_file_state.DecodeFrom(&slice);
+    const Status s = blob_file_addition.DecodeFrom(&slice);
     ASSERT_TRUE(s.IsCorruption());
     ASSERT_TRUE(std::strstr(s.getState(), "custom field tag"));
   }
@@ -204,7 +148,7 @@ TEST_F(BlobFileStateTest, DecodeErrors) {
   slice = str;
 
   {
-    const Status s = blob_file_state.DecodeFrom(&slice);
+    const Status s = blob_file_addition.DecodeFrom(&slice);
     ASSERT_TRUE(s.IsCorruption());
     ASSERT_TRUE(std::strstr(s.getState(), "custom field value"));
   }
@@ -212,7 +156,7 @@ TEST_F(BlobFileStateTest, DecodeErrors) {
 
 TEST_F(BlobFileStateTest, ForwardCompatibleCustomField) {
   SyncPoint::GetInstance()->SetCallBack(
-      "BlobFileState::EncodeTo::CustomFields", [&](void* arg) {
+      "BlobFileAddition::EncodeTo::CustomFields", [&](void* arg) {
         std::string* output = static_cast<std::string*>(arg);
 
         constexpr uint32_t forward_compatible_tag = 2;
@@ -225,16 +169,14 @@ TEST_F(BlobFileStateTest, ForwardCompatibleCustomField) {
   constexpr uint64_t blob_file_number = 678;
   constexpr uint64_t total_blob_count = 9999;
   constexpr uint64_t total_blob_bytes = 100000000;
-  constexpr uint64_t garbage_blob_count = 3333;
-  constexpr uint64_t garbage_blob_bytes = 2500000;
   const std::string checksum_method("CRC32");
   const std::string checksum_value("3d87ff57");
 
-  BlobFileState blob_file_state(
-      blob_file_number, total_blob_count, total_blob_bytes, garbage_blob_count,
-      garbage_blob_bytes, checksum_method, checksum_value);
+  BlobFileAddition blob_file_addition(blob_file_number, total_blob_count,
+                                      total_blob_bytes, checksum_method,
+                                      checksum_value);
 
-  TestEncodeDecode(blob_file_state);
+  TestEncodeDecode(blob_file_addition);
 
   SyncPoint::GetInstance()->DisableProcessing();
   SyncPoint::GetInstance()->ClearAllCallBacks();
@@ -242,7 +184,7 @@ TEST_F(BlobFileStateTest, ForwardCompatibleCustomField) {
 
 TEST_F(BlobFileStateTest, ForwardIncompatibleCustomField) {
   SyncPoint::GetInstance()->SetCallBack(
-      "BlobFileState::EncodeTo::CustomFields", [&](void* arg) {
+      "BlobFileAddition::EncodeTo::CustomFields", [&](void* arg) {
         std::string* output = static_cast<std::string*>(arg);
 
         constexpr uint32_t forward_incompatible_tag = (1 << 6) + 1;
@@ -258,16 +200,16 @@ TEST_F(BlobFileStateTest, ForwardIncompatibleCustomField) {
   const std::string checksum_method("CRC32B");
   const std::string checksum_value("6dbdf23a");
 
-  BlobFileState blob_file_state(blob_file_number, total_blob_count,
-                                total_blob_bytes, checksum_method,
-                                checksum_value);
+  BlobFileAddition blob_file_addition(blob_file_number, total_blob_count,
+                                      total_blob_bytes, checksum_method,
+                                      checksum_value);
 
   std::string encoded;
-  blob_file_state.EncodeTo(&encoded);
+  blob_file_addition.EncodeTo(&encoded);
 
-  BlobFileState decoded_blob_file_state;
+  BlobFileAddition decoded_blob_file_addition;
   Slice input(encoded);
-  const Status s = decoded_blob_file_state.DecodeFrom(&input);
+  const Status s = decoded_blob_file_addition.DecodeFrom(&input);
 
   ASSERT_TRUE(s.IsCorruption());
   ASSERT_TRUE(std::strstr(s.getState(), "Forward incompatible"));

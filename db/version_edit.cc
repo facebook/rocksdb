@@ -57,7 +57,7 @@ enum Tag : uint32_t {
 
   // Forward compatible (aka ignorable) records
   kDbId,
-  kBlobFileState,
+  kNewBlobFile,
 };
 
 enum NewFileCustomTag : uint32_t {
@@ -151,7 +151,7 @@ void VersionEdit::Clear() {
   has_last_sequence_ = false;
   deleted_files_.clear();
   new_files_.clear();
-  blob_file_states_.clear();
+  new_blob_files_.clear();
   column_family_ = 0;
   is_column_family_add_ = false;
   is_column_family_drop_ = false;
@@ -276,9 +276,9 @@ bool VersionEdit::EncodeTo(std::string* dst) const {
     PutVarint32(dst, NewFileCustomTag::kTerminate);
   }
 
-  for (const auto& blob_file_state : blob_file_states_) {
-    PutVarint32(dst, kBlobFileState);
-    blob_file_state.EncodeTo(dst);
+  for (const auto& new_blob_file : new_blob_files_) {
+    PutVarint32(dst, kNewBlobFile);
+    new_blob_file.EncodeTo(dst);
   }
 
   // 0 is default and does not need to be explicitly written
@@ -583,14 +583,14 @@ Status VersionEdit::DecodeFrom(const Slice& src) {
         break;
       }
 
-      case kBlobFileState: {
-        BlobFileState blob_file_state;
-        const Status s = blob_file_state.DecodeFrom(&input);
+      case kNewBlobFile: {
+        BlobFileAddition new_blob_file;
+        const Status s = new_blob_file.DecodeFrom(&input);
         if (!s.ok()) {
           return s;
         }
 
-        blob_file_states_.emplace_back(blob_file_state);
+        new_blob_files_.emplace_back(new_blob_file);
         break;
       }
 
@@ -724,9 +724,9 @@ std::string VersionEdit::DebugString(bool hex_key) const {
     r.append(f.file_checksum_func_name);
   }
 
-  for (const auto& blob_file_state : blob_file_states_) {
-    r.append("\n  BlobFileState: ");
-    r.append(blob_file_state.DebugString());
+  for (const auto& new_blob_file : new_blob_files_) {
+    r.append("\n  AddBlobFile: ");
+    r.append(new_blob_file.DebugString());
   }
 
   r.append("\n  ColumnFamily: ");
@@ -811,14 +811,14 @@ std::string VersionEdit::DebugJSON(int edit_num, bool hex_key) const {
     jw.EndArray();
   }
 
-  if (!blob_file_states_.empty()) {
-    jw << "BlobFileStates";
+  if (!new_blob_files_.empty()) {
+    jw << "AddedBlobFiles";
 
     jw.StartArray();
 
-    for (const auto& blob_file_state : blob_file_states_) {
+    for (const auto& new_blob_file : new_blob_files_) {
       jw.StartArrayedObject();
-      jw << blob_file_state;
+      jw << new_blob_file;
       jw.EndArrayedObject();
     }
 

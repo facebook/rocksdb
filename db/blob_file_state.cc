@@ -34,12 +34,10 @@ enum CustomFieldTags : uint32_t {
 
 }  // anonymous namespace
 
-void BlobFileState::EncodeTo(std::string* output) const {
+void BlobFileAddition::EncodeTo(std::string* output) const {
   PutVarint64(output, blob_file_number_);
   PutVarint64(output, total_blob_count_);
   PutVarint64(output, total_blob_bytes_);
-  PutVarint64(output, garbage_blob_count_);
-  PutVarint64(output, garbage_blob_bytes_);
   PutLengthPrefixedSlice(output, checksum_method_);
   PutLengthPrefixedSlice(output, checksum_value_);
 
@@ -48,13 +46,13 @@ void BlobFileState::EncodeTo(std::string* output) const {
   // fields will be ignored during decoding unless they're in the forward
   // incompatible range.
 
-  TEST_SYNC_POINT_CALLBACK("BlobFileState::EncodeTo::CustomFields", output);
+  TEST_SYNC_POINT_CALLBACK("BlobFileAddition::EncodeTo::CustomFields", output);
 
   PutVarint32(output, kEndMarker);
 }
 
-Status BlobFileState::DecodeFrom(Slice* input) {
-  constexpr char class_name[] = "BlobFileState";
+Status BlobFileAddition::DecodeFrom(Slice* input) {
+  constexpr char class_name[] = "BlobFileAddition";
 
   if (!GetVarint64(input, &blob_file_number_)) {
     return Status::Corruption(class_name, "Error decoding blob file number");
@@ -66,14 +64,6 @@ Status BlobFileState::DecodeFrom(Slice* input) {
 
   if (!GetVarint64(input, &total_blob_bytes_)) {
     return Status::Corruption(class_name, "Error decoding total blob bytes");
-  }
-
-  if (!GetVarint64(input, &garbage_blob_count_)) {
-    return Status::Corruption(class_name, "Error decoding garbage blob count");
-  }
-
-  if (!GetVarint64(input, &garbage_blob_bytes_)) {
-    return Status::Corruption(class_name, "Error decoding garbage blob bytes");
   }
 
   Slice checksum_method;
@@ -113,7 +103,7 @@ Status BlobFileState::DecodeFrom(Slice* input) {
   return Status::OK();
 }
 
-std::string BlobFileState::DebugString() const {
+std::string BlobFileAddition::DebugString() const {
   std::ostringstream oss;
 
   oss << *this;
@@ -121,7 +111,7 @@ std::string BlobFileState::DebugString() const {
   return oss.str();
 }
 
-std::string BlobFileState::DebugJSON() const {
+std::string BlobFileAddition::DebugJSON() const {
   JSONWriter jw;
 
   jw << *this;
@@ -131,41 +121,137 @@ std::string BlobFileState::DebugJSON() const {
   return jw.Get();
 }
 
-bool operator==(const BlobFileState& lhs, const BlobFileState& rhs) {
+bool operator==(const BlobFileAddition& lhs, const BlobFileAddition& rhs) {
   return lhs.GetBlobFileNumber() == rhs.GetBlobFileNumber() &&
          lhs.GetTotalBlobCount() == rhs.GetTotalBlobCount() &&
          lhs.GetTotalBlobBytes() == rhs.GetTotalBlobBytes() &&
-         lhs.GetGarbageBlobCount() == rhs.GetGarbageBlobCount() &&
-         lhs.GetGarbageBlobBytes() == rhs.GetGarbageBlobBytes() &&
          lhs.GetChecksumMethod() == rhs.GetChecksumMethod() &&
          lhs.GetChecksumValue() == rhs.GetChecksumValue();
 }
 
-bool operator!=(const BlobFileState& lhs, const BlobFileState& rhs) {
+bool operator!=(const BlobFileAddition& lhs, const BlobFileAddition& rhs) {
   return !(lhs == rhs);
 }
 
 std::ostream& operator<<(std::ostream& os,
-                         const BlobFileState& blob_file_state) {
-  os << "blob_file_number: " << blob_file_state.GetBlobFileNumber()
-     << " total_blob_count: " << blob_file_state.GetTotalBlobCount()
-     << " total_blob_bytes: " << blob_file_state.GetTotalBlobBytes()
-     << " garbage_blob_count: " << blob_file_state.GetGarbageBlobCount()
-     << " garbage_blob_bytes: " << blob_file_state.GetGarbageBlobBytes()
-     << " checksum_method: " << blob_file_state.GetChecksumMethod()
-     << " checksum_value: " << blob_file_state.GetChecksumValue();
+                         const BlobFileAddition& blob_file_addition) {
+  os << "blob_file_number: " << blob_file_addition.GetBlobFileNumber()
+     << " total_blob_count: " << blob_file_addition.GetTotalBlobCount()
+     << " total_blob_bytes: " << blob_file_addition.GetTotalBlobBytes()
+     << " checksum_method: " << blob_file_addition.GetChecksumMethod()
+     << " checksum_value: " << blob_file_addition.GetChecksumValue();
 
   return os;
 }
 
-JSONWriter& operator<<(JSONWriter& jw, const BlobFileState& blob_file_state) {
-  jw << "BlobFileNumber" << blob_file_state.GetBlobFileNumber()
-     << "TotalBlobCount" << blob_file_state.GetTotalBlobCount()
-     << "TotalBlobBytes" << blob_file_state.GetTotalBlobBytes()
-     << "GarbageBlobCount" << blob_file_state.GetGarbageBlobCount()
-     << "GarbageBlobBytes" << blob_file_state.GetGarbageBlobBytes()
-     << "ChecksumMethod" << blob_file_state.GetChecksumMethod()
-     << "ChecksumValue" << blob_file_state.GetChecksumValue();
+JSONWriter& operator<<(JSONWriter& jw,
+                       const BlobFileAddition& blob_file_addition) {
+  jw << "BlobFileNumber" << blob_file_addition.GetBlobFileNumber()
+     << "TotalBlobCount" << blob_file_addition.GetTotalBlobCount()
+     << "TotalBlobBytes" << blob_file_addition.GetTotalBlobBytes()
+     << "ChecksumMethod" << blob_file_addition.GetChecksumMethod()
+     << "ChecksumValue" << blob_file_addition.GetChecksumValue();
+
+  return jw;
+}
+
+void BlobFileGarbage::EncodeTo(std::string* output) const {
+  PutVarint64(output, blob_file_number_);
+  PutVarint64(output, garbage_blob_count_);
+  PutVarint64(output, garbage_blob_bytes_);
+
+  // Encode any custom fields here. The format to use is a Varint32 tag (see
+  // CustomFieldTags above) followed by a length prefixed slice. Unknown custom
+  // fields will be ignored during decoding unless they're in the forward
+  // incompatible range.
+
+  TEST_SYNC_POINT_CALLBACK("BlobFileGarbage::EncodeTo::CustomFields", output);
+
+  PutVarint32(output, kEndMarker);
+}
+
+Status BlobFileGarbage::DecodeFrom(Slice* input) {
+  constexpr char class_name[] = "BlobFileGarbage";
+
+  if (!GetVarint64(input, &blob_file_number_)) {
+    return Status::Corruption(class_name, "Error decoding blob file number");
+  }
+
+  if (!GetVarint64(input, &garbage_blob_count_)) {
+    return Status::Corruption(class_name, "Error decoding garbage blob count");
+  }
+
+  if (!GetVarint64(input, &garbage_blob_bytes_)) {
+    return Status::Corruption(class_name, "Error decoding garbage blob bytes");
+  }
+
+  while (true) {
+    uint32_t custom_field_tag = 0;
+    if (!GetVarint32(input, &custom_field_tag)) {
+      return Status::Corruption(class_name, "Error decoding custom field tag");
+    }
+
+    if (custom_field_tag == kEndMarker) {
+      break;
+    }
+
+    if (custom_field_tag & kForwardIncompatibleMask) {
+      return Status::Corruption(
+          class_name, "Forward incompatible custom field encountered");
+    }
+
+    Slice custom_field_value;
+    if (!GetLengthPrefixedSlice(input, &custom_field_value)) {
+      return Status::Corruption(class_name,
+                                "Error decoding custom field value");
+    }
+  }
+
+  return Status::OK();
+}
+
+std::string BlobFileGarbage::DebugString() const {
+  std::ostringstream oss;
+
+  oss << *this;
+
+  return oss.str();
+}
+
+std::string BlobFileGarbage::DebugJSON() const {
+  JSONWriter jw;
+
+  jw << *this;
+
+  jw.EndObject();
+
+  return jw.Get();
+}
+
+bool operator==(const BlobFileGarbage& lhs, const BlobFileGarbage& rhs) {
+  return lhs.GetBlobFileNumber() == rhs.GetBlobFileNumber() &&
+         lhs.GetGarbageBlobCount() == rhs.GetGarbageBlobCount() &&
+         lhs.GetGarbageBlobBytes() == rhs.GetGarbageBlobBytes();
+}
+
+bool operator!=(const BlobFileGarbage& lhs, const BlobFileGarbage& rhs) {
+  return !(lhs == rhs);
+}
+
+std::ostream& operator<<(std::ostream& os,
+                         const BlobFileGarbage& blob_file_garbage) {
+  os << "blob_file_number: " << blob_file_garbage.GetBlobFileNumber()
+     << " garbage_blob_count: " << blob_file_garbage.GetGarbageBlobCount()
+     << " garbage_blob_bytes: " << blob_file_garbage.GetGarbageBlobBytes();
+
+  return os;
+}
+
+JSONWriter& operator<<(JSONWriter& jw,
+                       const BlobFileGarbage& blob_file_garbage) {
+  jw << "BlobFileNumber" << blob_file_garbage.GetBlobFileNumber()
+     << "GarbageBlobCount" << blob_file_garbage.GetGarbageBlobCount()
+     << "GarbageBlobBytes" << blob_file_garbage.GetGarbageBlobBytes();
 
   return jw;
 }

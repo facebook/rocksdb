@@ -20,59 +20,24 @@ class JSONWriter;
 class Slice;
 class Status;
 
-class BlobFileState {
+class BlobFileAddition {
  public:
-  BlobFileState() = default;
+  BlobFileAddition() = default;
 
-  BlobFileState(uint64_t blob_file_number, uint64_t total_blob_count,
-                uint64_t total_blob_bytes, std::string checksum_method,
-                std::string checksum_value)
+  BlobFileAddition(uint64_t blob_file_number, uint64_t total_blob_count,
+                   uint64_t total_blob_bytes, std::string checksum_method,
+                   std::string checksum_value)
       : blob_file_number_(blob_file_number),
         total_blob_count_(total_blob_count),
         total_blob_bytes_(total_blob_bytes),
         checksum_method_(std::move(checksum_method)),
         checksum_value_(std::move(checksum_value)) {
     assert(checksum_method_.empty() == checksum_value_.empty());
-  }
-
-  BlobFileState(uint64_t blob_file_number, uint64_t total_blob_count,
-                uint64_t total_blob_bytes, uint64_t garbage_blob_count,
-                uint64_t garbage_blob_bytes, std::string checksum_method,
-                std::string checksum_value)
-      : blob_file_number_(blob_file_number),
-        total_blob_count_(total_blob_count),
-        total_blob_bytes_(total_blob_bytes),
-        garbage_blob_count_(garbage_blob_count),
-        garbage_blob_bytes_(garbage_blob_bytes),
-        checksum_method_(std::move(checksum_method)),
-        checksum_value_(std::move(checksum_value)) {
-    assert(checksum_method_.empty() == checksum_value_.empty());
-    assert(garbage_blob_count_ <= total_blob_count_);
-    assert(garbage_blob_bytes_ <= total_blob_bytes_);
   }
 
   uint64_t GetBlobFileNumber() const { return blob_file_number_; }
-
   uint64_t GetTotalBlobCount() const { return total_blob_count_; }
   uint64_t GetTotalBlobBytes() const { return total_blob_bytes_; }
-
-  void AddGarbageBlob(uint64_t size) {
-    assert(garbage_blob_count_ < total_blob_count_);
-    assert(garbage_blob_bytes_ + size <= total_blob_bytes_);
-
-    ++garbage_blob_count_;
-    garbage_blob_bytes_ += size;
-  }
-
-  uint64_t GetGarbageBlobCount() const { return garbage_blob_count_; }
-  uint64_t GetGarbageBlobBytes() const { return garbage_blob_bytes_; }
-
-  bool IsObsolete() const {
-    assert(garbage_blob_count_ <= total_blob_count_);
-
-    return !(garbage_blob_count_ < total_blob_count_);
-  }
-
   const std::string& GetChecksumMethod() const { return checksum_method_; }
   const std::string& GetChecksumValue() const { return checksum_value_; }
 
@@ -86,17 +51,50 @@ class BlobFileState {
   uint64_t blob_file_number_ = kInvalidBlobFileNumber;
   uint64_t total_blob_count_ = 0;
   uint64_t total_blob_bytes_ = 0;
-  uint64_t garbage_blob_count_ = 0;
-  uint64_t garbage_blob_bytes_ = 0;
   std::string checksum_method_;
   std::string checksum_value_;
 };
 
-bool operator==(const BlobFileState& lhs, const BlobFileState& rhs);
-bool operator!=(const BlobFileState& lhs, const BlobFileState& rhs);
+bool operator==(const BlobFileAddition& lhs, const BlobFileAddition& rhs);
+bool operator!=(const BlobFileAddition& lhs, const BlobFileAddition& rhs);
 
 std::ostream& operator<<(std::ostream& os,
-                         const BlobFileState& blob_file_state);
-JSONWriter& operator<<(JSONWriter& jw, const BlobFileState& blob_file_state);
+                         const BlobFileAddition& blob_file_addition);
+JSONWriter& operator<<(JSONWriter& jw,
+                       const BlobFileAddition& blob_file_addition);
+
+class BlobFileGarbage {
+ public:
+  BlobFileGarbage() = default;
+
+  BlobFileGarbage(uint64_t blob_file_number, uint64_t garbage_blob_count,
+                  uint64_t garbage_blob_bytes)
+      : blob_file_number_(blob_file_number),
+        garbage_blob_count_(garbage_blob_count),
+        garbage_blob_bytes_(garbage_blob_bytes) {}
+
+  uint64_t GetBlobFileNumber() const { return blob_file_number_; }
+  uint64_t GetGarbageBlobCount() const { return garbage_blob_count_; }
+  uint64_t GetGarbageBlobBytes() const { return garbage_blob_bytes_; }
+
+  void EncodeTo(std::string* output) const;
+  Status DecodeFrom(Slice* input);
+
+  std::string DebugString() const;
+  std::string DebugJSON() const;
+
+ private:
+  uint64_t blob_file_number_ = kInvalidBlobFileNumber;
+  uint64_t garbage_blob_count_ = 0;
+  uint64_t garbage_blob_bytes_ = 0;
+};
+
+bool operator==(const BlobFileGarbage& lhs, const BlobFileGarbage& rhs);
+bool operator!=(const BlobFileGarbage& lhs, const BlobFileGarbage& rhs);
+
+std::ostream& operator<<(std::ostream& os,
+                         const BlobFileGarbage& blob_file_garbage);
+JSONWriter& operator<<(JSONWriter& jw,
+                       const BlobFileGarbage& blob_file_garbage);
 
 }  // namespace ROCKSDB_NAMESPACE
