@@ -782,7 +782,7 @@ XXH3p_scrambleAcc(void* XXH_RESTRICT acc, const void* XXH_RESTRICT secret)
             xacc[i] = vmlal_u32(xacc[i], shuffled.val[0], prime);
     }   }
 
-#elif (XXH_VECTOR == XXH_VSX)
+#elif (XXH_VECTOR == XXH_VSX) && /* work around a compiler bug */ (__GNUC__ > 5)
 
           U64x2* const xacc =       (U64x2*) acc;
     const U64x2* const xsecret = (const U64x2*) secret;
