@@ -82,7 +82,7 @@ Status RandomAccessFileReader::Read(uint64_t offset, size_t n, Slice* result,
       if (s.ok() && offset_advance < buf.CurrentSize()) {
         res_len = std::min(buf.CurrentSize() - offset_advance, n);
         if (internal_buf == nullptr) {
-          assert(res_len == buf.Read(scratch, offset_advance, res_len));
+          buf.Read(scratch, offset_advance, res_len);
         } else {
           scratch = buf.BufferStart();
           internal_buf->reset(buf.Release());
