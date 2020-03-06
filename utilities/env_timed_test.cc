@@ -9,7 +9,7 @@
 #include "rocksdb/perf_context.h"
 #include "test_util/testharness.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 class TimedEnvTest : public testing::Test {
 };
@@ -26,7 +26,7 @@ TEST_F(TimedEnvTest, BasicTest) {
   ASSERT_GT(get_perf_context()->env_new_writable_file_nanos, 0);
 }
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
   ::testing::InitGoogleTest(&argc, argv);

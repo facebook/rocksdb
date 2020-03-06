@@ -15,7 +15,7 @@
 #include "options/options_helper.h"
 #include "test_util/sync_point.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 // Convenience methods
 Status DBImpl::Put(const WriteOptions& o, ColumnFamilyHandle* column_family,
                    const Slice& key, const Slice& val) {
@@ -1041,7 +1041,7 @@ Status DBImpl::WriteToWAL(const WriteThread::WriteGroup& write_group,
       // We only sync WAL directory the first time WAL syncing is
       // requested, so that in case users never turn on WAL sync,
       // we can avoid the disk I/O in the write code path.
-      status = directories_.GetWalDir()->Fsync();
+      status = directories_.GetWalDir()->Fsync(IOOptions(), nullptr);
     }
   }
 
@@ -1836,4 +1836,4 @@ Status DB::Merge(const WriteOptions& opt, ColumnFamilyHandle* column_family,
   }
   return Write(opt, &batch);
 }
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

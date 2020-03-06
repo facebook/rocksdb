@@ -4,7 +4,7 @@
 //  (found in the LICENSE.Apache file in the root directory).
 //
 // This file implements the callback "bridge" between Java and C++ for
-// rocksdb::Comparator
+// ROCKSDB_NAMESPACE::Comparator
 
 #ifndef JAVA_ROCKSJNI_COMPARATORJNICALLBACK_H_
 #define JAVA_ROCKSJNI_COMPARATORJNICALLBACK_H_
@@ -18,7 +18,7 @@
 #include "port/port.h"
 #include "util/thread_local.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 enum ReusedSynchronisationType {
   /**
@@ -132,6 +132,6 @@ class ComparatorJniCallback : public JniCallback, public Comparator {
     ThreadLocalPtr* m_tl_buf_a;
     ThreadLocalPtr* m_tl_buf_b;
 };
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE
 
 #endif  // JAVA_ROCKSJNI_COMPARATORJNICALLBACK_H_

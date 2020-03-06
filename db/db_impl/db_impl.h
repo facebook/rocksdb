@@ -62,7 +62,7 @@
 #include "util/stop_watch.h"
 #include "util/thread_local.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 class Arena;
 class ArenaWrappedDBIter;
@@ -82,13 +82,13 @@ struct MemTableInfo;
 // Class to maintain directories for all database paths other than main one.
 class Directories {
  public:
-  Status SetDirectories(Env* env, const std::string& dbname,
-                        const std::string& wal_dir,
-                        const std::vector<DbPath>& data_paths);
+  IOStatus SetDirectories(FileSystem* fs, const std::string& dbname,
+                          const std::string& wal_dir,
+                          const std::vector<DbPath>& data_paths);
 
-  Directory* GetDataDir(size_t path_id) const {
+  FSDirectory* GetDataDir(size_t path_id) const {
     assert(path_id < data_dirs_.size());
-    Directory* ret_dir = data_dirs_[path_id].get();
+    FSDirectory* ret_dir = data_dirs_[path_id].get();
     if (ret_dir == nullptr) {
       // Should use db_dir_
       return db_dir_.get();
@@ -96,19 +96,19 @@ class Directories {
     return ret_dir;
   }
 
-  Directory* GetWalDir() {
+  FSDirectory* GetWalDir() {
     if (wal_dir_) {
       return wal_dir_.get();
     }
     return db_dir_.get();
   }
 
-  Directory* GetDbDir() { return db_dir_.get(); }
+  FSDirectory* GetDbDir() { return db_dir_.get(); }
 
  private:
-  std::unique_ptr<Directory> db_dir_;
-  std::vector<std::unique_ptr<Directory>> data_dirs_;
-  std::unique_ptr<Directory> wal_dir_;
+  std::unique_ptr<FSDirectory> db_dir_;
+  std::vector<std::unique_ptr<FSDirectory>> data_dirs_;
+  std::unique_ptr<FSDirectory> wal_dir_;
 };
 
 // While DB is the public interface of RocksDB, and DBImpl is the actual
@@ -163,6 +163,9 @@ class DBImpl : public DB {
   virtual Status Get(const ReadOptions& options,
                      ColumnFamilyHandle* column_family, const Slice& key,
                      PinnableSlice* value) override;
+  virtual Status Get(const ReadOptions& options,
+                     ColumnFamilyHandle* column_family, const Slice& key,
+                     PinnableSlice* value, std::string* timestamp) override;
 
   using DB::GetMergeOperands;
   Status GetMergeOperands(const ReadOptions& options,
@@ -230,7 +233,7 @@ class DBImpl : public DB {
   using DB::KeyMayExist;
   virtual bool KeyMayExist(const ReadOptions& options,
                            ColumnFamilyHandle* column_family, const Slice& key,
-                           std::string* value,
+                           std::string* value, std::string* timestamp,
                            bool* value_found = nullptr) override;
 
   using DB::NewIterator;
@@ -433,6 +436,7 @@ class DBImpl : public DB {
   struct GetImplOptions {
     ColumnFamilyHandle* column_family = nullptr;
     PinnableSlice* value = nullptr;
+    std::string* timestamp = nullptr;
     bool* value_found = nullptr;
     ReadCallback* callback = nullptr;
     bool* is_blob_index = nullptr;
@@ -455,7 +459,7 @@ class DBImpl : public DB {
   // If get_impl_options.get_value = false get merge operands associated with
   // get_impl_options.key via get_impl_options.merge_operands
   Status GetImpl(const ReadOptions& options, const Slice& key,
-                 GetImplOptions get_impl_options);
+                 GetImplOptions& get_impl_options);
 
   ArenaWrappedDBIter* NewIteratorImpl(const ReadOptions& options,
                                       ColumnFamilyData* cfd,
@@ -826,8 +830,9 @@ class DBImpl : public DB {
                      std::vector<ColumnFamilyHandle*>* handles, DB** dbptr,
                      const bool seq_per_batch, const bool batch_per_txn);
 
-  static Status CreateAndNewDirectory(Env* env, const std::string& dirname,
-                                      std::unique_ptr<Directory>* directory);
+  static IOStatus CreateAndNewDirectory(
+      FileSystem* fs, const std::string& dirname,
+      std::unique_ptr<FSDirectory>* directory);
 
   // find stats map from stats_history_ with smallest timestamp in
   // the range of [start_time, end_time)
@@ -1598,7 +1603,7 @@ class DBImpl : public DB {
 
   uint64_t GetMaxTotalWalSize() const;
 
-  Directory* GetDataDir(ColumnFamilyData* cfd, size_t path_id) const;
+  FSDirectory* GetDataDir(ColumnFamilyData* cfd, size_t path_id) const;
 
   Status CloseHelper();
 
@@ -2015,13 +2020,13 @@ class DBImpl : public DB {
 
   // handle for scheduling stats dumping at fixed intervals
   // REQUIRES: mutex locked
-  std::unique_ptr<rocksdb::RepeatableThread> thread_dump_stats_;
+  std::unique_ptr<ROCKSDB_NAMESPACE::RepeatableThread> thread_dump_stats_;
 
   // handle for scheduling stats snapshoting at fixed intervals
   // REQUIRES: mutex locked
-  std::unique_ptr<rocksdb::RepeatableThread> thread_persist_stats_;
+  std::unique_ptr<ROCKSDB_NAMESPACE::RepeatableThread> thread_persist_stats_;
 
-  // When set, we use a separate queue for writes that dont write to memtable.
+  // When set, we use a separate queue for writes that don't write to memtable.
   // In 2PC these are the writes at Prepare phase.
   const bool two_write_queues_;
   const bool manual_wal_flush_;
@@ -2104,4 +2109,4 @@ static void ClipToRange(T* ptr, V minvalue, V maxvalue) {
   if (static_cast<V>(*ptr) < minvalue) *ptr = minvalue;
 }
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

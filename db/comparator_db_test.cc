@@ -18,7 +18,7 @@
 
 using std::unique_ptr;
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 namespace {
 
 static const Comparator* kTestComparator = nullptr;
@@ -268,7 +268,7 @@ class ComparatorDBTest
     BlockBasedTableOptions toptions;
     toptions.format_version = GetParam();
     last_options_.table_factory.reset(
-        rocksdb::NewBlockBasedTableFactory(toptions));
+        ROCKSDB_NAMESPACE::NewBlockBasedTableFactory(toptions));
     EXPECT_OK(DestroyDB(dbname_, last_options_));
   }
 
@@ -652,7 +652,7 @@ TEST_P(ComparatorDBTest, SeparatorSuccessorRandomizeTest) {
   }
 }
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
   ::testing::InitGoogleTest(&argc, argv);

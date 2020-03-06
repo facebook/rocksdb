@@ -17,7 +17,7 @@
 #include "test_util/sync_point.h"
 #include "util/mutexlock.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 #ifndef ROCKSDB_LITE
 // Rolls the log file by size and/or time
@@ -161,4 +161,4 @@ Status CreateLoggerFromOptions(const std::string& dbname,
                                const DBOptions& options,
                                std::shared_ptr<Logger>* logger);
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

@@ -28,7 +28,7 @@
   ((seq) <= earliest_snapshot_ && \
    (snapshot_checker_ == nullptr || LIKELY(IsInEarliestSnapshot(seq))))
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 CompactionIterator::CompactionIterator(
     InternalIterator* input, const Comparator* cmp, MergeHelper* merge_helper,
@@ -771,4 +771,4 @@ bool CompactionIterator::IsInEarliestSnapshot(SequenceNumber sequence) {
   return in_snapshot == SnapshotCheckerResult::kInSnapshot;
 }
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

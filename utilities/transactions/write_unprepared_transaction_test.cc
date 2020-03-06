@@ -9,7 +9,7 @@
 #include "utilities/transactions/write_unprepared_txn.h"
 #include "utilities/transactions/write_unprepared_txn_db.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 class WriteUnpreparedTransactionTestBase : public TransactionTestBase {
  public:
@@ -708,8 +708,7 @@ TEST_P(WriteUnpreparedTransactionTest, UntrackedKeys) {
   delete txn;
 }
 
-
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
   ::testing::InitGoogleTest(&argc, argv);

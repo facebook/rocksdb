@@ -10,7 +10,7 @@
 #include "test_util/testharness.h"
 #include "test_util/testutil.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 class MergerTest : public testing::Test {
  public:
@@ -172,7 +172,7 @@ TEST_F(MergerTest, SeekToLastTest) {
   }
 }
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
   ::testing::InitGoogleTest(&argc, argv);

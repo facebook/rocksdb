@@ -42,13 +42,9 @@
 #include "util/mutexlock.h"
 #include "util/string_util.h"
 
-#ifdef OS_LINUX
-static const size_t kPageSize = sysconf(_SC_PAGESIZE);
-#else
-static const size_t kPageSize = 4 * 1024;
-#endif
+namespace ROCKSDB_NAMESPACE {
 
-namespace rocksdb {
+using port::kPageSize;
 
 static const int kDelayMicros = 100000;
 
@@ -881,9 +877,10 @@ TEST_F(EnvPosixTest, PositionedAppend) {
   // Verify the above
   std::unique_ptr<SequentialFile> seq_file;
   ASSERT_OK(env_->NewSequentialFile(ift.name() + "/f", &seq_file, options));
-  char scratch[kPageSize * 2];
+  size_t scratch_len = kPageSize * 2;
+  std::unique_ptr<char[]> scratch(new char[scratch_len]);
   Slice result;
-  ASSERT_OK(seq_file->Read(sizeof(scratch), &result, scratch));
+  ASSERT_OK(seq_file->Read(scratch_len, &result, scratch.get()));
   ASSERT_EQ(kPageSize + kBlockSize, result.size());
   ASSERT_EQ('a', result[kBlockSize - 1]);
   ASSERT_EQ('b', result[kBlockSize]);
@@ -977,7 +974,6 @@ TEST_P(EnvPosixTestWithParam, AllocateTest) {
     // allocate 100 MB
     size_t kPreallocateSize = 100 * 1024 * 1024;
     size_t kBlockSize = 512;
-    size_t kPageSize = 4096;
     size_t kDataSize = 1024 * 1024;
     auto data_ptr = NewAligned(kDataSize, 'A');
     Slice data(data_ptr.get(), kDataSize);
@@ -1137,8 +1133,25 @@ TEST_P(EnvPosixTestWithParam, MultiRead) {
     ASSERT_OK(wfile->Close());
   }
 
-  // Random Read
-  {
+  // More attempts to simulate more partial result sequences.
+  for (uint32_t attempt = 0; attempt < 20; attempt++) {
+    // Random Read
+    Random rnd(301 + attempt);
+    ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+        "PosixRandomAccessFile::MultiRead:io_uring_result", [&](void* arg) {
+          if (attempt > 0) {
+            // No failure in the first attempt.
+            size_t& bytes_read = *static_cast<size_t*>(arg);
+            if (rnd.OneIn(4)) {
+              bytes_read = 0;
+            } else if (rnd.OneIn(3)) {
+              bytes_read = static_cast<size_t>(
+                  rnd.Uniform(static_cast<int>(bytes_read)));
+            }
+          }
+        });
+    ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+
     std::unique_ptr<RandomAccessFile> file;
     std::vector<ReadRequest> reqs(3);
     std::vector<std::unique_ptr<char, Deleter>> data;
@@ -1163,27 +1176,121 @@ TEST_P(EnvPosixTestWithParam, MultiRead) {
       ASSERT_OK(reqs[i].status);
       ASSERT_EQ(memcmp(reqs[i].scratch, buf.get(), kSectorSize), 0);
     }
+    ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
   }
 }
 
+TEST_F(EnvPosixTest, MultiReadNonAlignedLargeNum) {
+  // In this test we don't do aligned read, wo it doesn't work for
+  // direct I/O case.
+  EnvOptions soptions;
+  soptions.use_direct_reads = soptions.use_direct_writes = false;
+  std::string fname = test::PerThreadDBPath(env_, "testfile");
+
+  const size_t kTotalSize = 81920;
+  std::string expected_data;
+  Random rnd(301);
+  test::RandomString(&rnd, kTotalSize, &expected_data);
+
+  // Create file.
+  {
+    std::unique_ptr<WritableFile> wfile;
+    ASSERT_OK(env_->NewWritableFile(fname, &wfile, soptions));
+    ASSERT_OK(wfile->Append(expected_data));
+    ASSERT_OK(wfile->Close());
+  }
+
+  // More attempts to simulate more partial result sequences.
+  for (uint32_t attempt = 0; attempt < 25; attempt++) {
+    // Right now kIoUringDepth is hard coded as 256, so we need very large
+    // number of keys to cover the case of multiple rounds of submissions.
+    // Right now the test latency is still acceptable. If it ends up with
+    // too long, we can modify the io uring depth with SyncPoint here.
+    const int num_reads = rnd.Uniform(512) + 1;
+
+    ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+        "PosixRandomAccessFile::MultiRead:io_uring_result", [&](void* arg) {
+          if (attempt > 5) {
+            // Improve partial result rates in second half of the run to
+            // cover the case of repeated partial results.
+            int odd = (attempt < 15) ? num_reads / 2 : 4;
+            // No failure in first several attempts.
+            size_t& bytes_read = *static_cast<size_t*>(arg);
+            if (rnd.OneIn(odd)) {
+              bytes_read = 0;
+            } else if (rnd.OneIn(odd / 2)) {
+              bytes_read = static_cast<size_t>(
+                  rnd.Uniform(static_cast<int>(bytes_read)));
+            }
+          }
+        });
+    ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+
+    // Generate (offset, len) pairs
+    std::set<int> start_offsets;
+    for (int i = 0; i < num_reads; i++) {
+      int rnd_off;
+      // No repeat offsets.
+      while (start_offsets.find(rnd_off = rnd.Uniform(81920)) != start_offsets.end()) {}
+      start_offsets.insert(rnd_off);
+    }
+    std::vector<size_t> offsets;
+    std::vector<size_t> lens;
+    // std::set already sorted the offsets.
+    for (int so: start_offsets) {
+      offsets.push_back(so);
+    }
+    for (size_t i = 0; i < offsets.size() - 1; i++) {
+      lens.push_back(static_cast<size_t>(rnd.Uniform(static_cast<int>(offsets[i + 1] - offsets[i])) + 1));
+    }
+    lens.push_back(static_cast<size_t>(rnd.Uniform(static_cast<int>(kTotalSize - offsets.back())) + 1));
+    ASSERT_EQ(num_reads, lens.size());
+
+    // Create requests
+    std::vector<std::string> scratches;
+    scratches.reserve(num_reads);
+    std::vector<ReadRequest> reqs(num_reads);
+    for (size_t i = 0; i < reqs.size(); ++i) {
+      reqs[i].offset = offsets[i];
+      reqs[i].len = lens[i];
+      scratches.emplace_back(reqs[i].len, ' ');
+      reqs[i].scratch = const_cast<char*>(scratches.back().data());
+    }
+
+    // Query the data
+    std::unique_ptr<RandomAccessFile> file;
+    ASSERT_OK(env_->NewRandomAccessFile(fname, &file, soptions));
+    ASSERT_OK(file->MultiRead(reqs.data(), reqs.size()));
+
+    // Validate results
+    for (int i = 0; i < num_reads; ++i) {
+      ASSERT_OK(reqs[i].status);
+      ASSERT_EQ(Slice(expected_data.data() + offsets[i], lens[i]).ToString(true),
+                reqs[i].result.ToString(true));
+    }
+
+    ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
+  }
+}
+  
 // Only works in linux platforms
 #ifdef OS_WIN
 TEST_P(EnvPosixTestWithParam, DISABLED_InvalidateCache) {
 #else
 TEST_P(EnvPosixTestWithParam, InvalidateCache) {
 #endif
-  rocksdb::SyncPoint::GetInstance()->EnableProcessing();
-    EnvOptions soptions;
-    soptions.use_direct_reads = soptions.use_direct_writes = direct_io_;
-    std::string fname = test::PerThreadDBPath(env_, "testfile");
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+  EnvOptions soptions;
+  soptions.use_direct_reads = soptions.use_direct_writes = direct_io_;
+  std::string fname = test::PerThreadDBPath(env_, "testfile");
 
-    const size_t kSectorSize = 512;
-    auto data = NewAligned(kSectorSize, 0);
-    Slice slice(data.get(), kSectorSize);
+  const size_t kSectorSize = 512;
+  auto data = NewAligned(kSectorSize, 0);
+  Slice slice(data.get(), kSectorSize);
 
-    // Create file.
-    {
-      std::unique_ptr<WritableFile> wfile;
+  // Create file.
+  {
+    std::unique_ptr<WritableFile> wfile;
 #if !defined(OS_MACOSX) && !defined(OS_WIN) && !defined(OS_SOLARIS) && !defined(OS_AIX)
       if (soptions.use_direct_writes) {
         soptions.use_direct_writes = false;
@@ -1193,7 +1300,7 @@ TEST_P(EnvPosixTestWithParam, InvalidateCache) {
       ASSERT_OK(wfile->Append(slice));
       ASSERT_OK(wfile->InvalidateCache(0, 0));
       ASSERT_OK(wfile->Close());
-    }
+  }
 
     // Random Read
     {
@@ -1234,7 +1341,7 @@ TEST_P(EnvPosixTestWithParam, InvalidateCache) {
     }
     // Delete the file
     ASSERT_OK(env_->DeleteFile(fname));
-  rocksdb::SyncPoint::GetInstance()->ClearTrace();
+    ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearTrace();
 }
 #endif  // not TRAVIS
 #endif  // OS_LINUX || OS_WIN
@@ -1357,14 +1464,14 @@ TEST_P(EnvPosixTestWithParam, LogBufferMaxSizeTest) {
 }
 
 TEST_P(EnvPosixTestWithParam, Preallocation) {
-  rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
   const std::string src = test::PerThreadDBPath(env_, "testfile");
   std::unique_ptr<WritableFile> srcfile;
   EnvOptions soptions;
   soptions.use_direct_reads = soptions.use_direct_writes = direct_io_;
 #if !defined(OS_MACOSX) && !defined(OS_WIN) && !defined(OS_SOLARIS) && !defined(OS_AIX) && !defined(OS_OPENBSD) && !defined(OS_FREEBSD)
     if (soptions.use_direct_writes) {
-      rocksdb::SyncPoint::GetInstance()->SetCallBack(
+      ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
           "NewWritableFile:O_DIRECT", [&](void* arg) {
             int* val = static_cast<int*>(arg);
             *val &= ~O_DIRECT;
@@ -1407,25 +1514,25 @@ TEST_P(EnvPosixTestWithParam, Preallocation) {
       srcfile->GetPreallocationStatus(&block_size, &last_allocated_block);
       ASSERT_EQ(last_allocated_block, 7UL);
     }
-  rocksdb::SyncPoint::GetInstance()->ClearTrace();
+    ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearTrace();
 }
 
 // Test that the two ways to get children file attributes (in bulk or
 // individually) behave consistently.
 TEST_P(EnvPosixTestWithParam, ConsistentChildrenAttributes) {
-  rocksdb::SyncPoint::GetInstance()->EnableProcessing();
-    EnvOptions soptions;
-    soptions.use_direct_reads = soptions.use_direct_writes = direct_io_;
-    const int kNumChildren = 10;
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+  EnvOptions soptions;
+  soptions.use_direct_reads = soptions.use_direct_writes = direct_io_;
+  const int kNumChildren = 10;
 
-    std::string data;
-    for (int i = 0; i < kNumChildren; ++i) {
-      const std::string path =
-          test::TmpDir(env_) + "/" + "testfile_" + std::to_string(i);
-      std::unique_ptr<WritableFile> file;
+  std::string data;
+  for (int i = 0; i < kNumChildren; ++i) {
+    const std::string path =
+        test::TmpDir(env_) + "/" + "testfile_" + std::to_string(i);
+    std::unique_ptr<WritableFile> file;
 #if !defined(OS_MACOSX) && !defined(OS_WIN) && !defined(OS_SOLARIS) && !defined(OS_AIX) && !defined(OS_OPENBSD) && !defined(OS_FREEBSD)
       if (soptions.use_direct_writes) {
-        rocksdb::SyncPoint::GetInstance()->SetCallBack(
+        ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
             "NewWritableFile:O_DIRECT", [&](void* arg) {
               int* val = static_cast<int*>(arg);
               *val &= ~O_DIRECT;
@@ -1437,7 +1544,7 @@ TEST_P(EnvPosixTestWithParam, ConsistentChildrenAttributes) {
       Slice buf(buf_ptr.get(), data.size());
       file->Append(buf);
       data.append(std::string(4096, 'T'));
-    }
+  }
 
     std::vector<Env::FileAttributes> file_attrs;
     ASSERT_OK(env_->GetChildrenFileAttributes(test::TmpDir(env_), &file_attrs));
@@ -1454,7 +1561,7 @@ TEST_P(EnvPosixTestWithParam, ConsistentChildrenAttributes) {
       ASSERT_EQ(size, 4096 * i);
       ASSERT_EQ(size, file_attrs_iter->size_bytes);
     }
-    rocksdb::SyncPoint::GetInstance()->ClearTrace();
+    ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearTrace();
 }
 
 // Test that all WritableFileWrapper forwards all calls to WritableFile.
@@ -1873,7 +1980,7 @@ INSTANTIATE_TEST_CASE_P(
     ::testing::Values(std::pair<Env*, bool>(chroot_env.get(), true)));
 #endif  // !defined(ROCKSDB_LITE) && !defined(OS_WIN)
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
   ::testing::InitGoogleTest(&argc, argv);

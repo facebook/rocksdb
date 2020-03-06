@@ -8,7 +8,7 @@
 #include <string>
 #include "rocksdb/table.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 class Slice;
 class BlockBuilder;
@@ -58,4 +58,4 @@ class FlushBlockBySizePolicyFactory : public FlushBlockPolicyFactory {
       const BlockBuilder& data_block_builder);
 };
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

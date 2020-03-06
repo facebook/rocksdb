@@ -10,7 +10,7 @@
 
 #include "rocksdb/db.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 struct DumpOptions {
   // Database that will be dumped
@@ -24,7 +24,7 @@ struct DumpOptions {
 class DbDumpTool {
  public:
   bool Run(const DumpOptions& dump_options,
-           rocksdb::Options options = rocksdb::Options());
+           ROCKSDB_NAMESPACE::Options options = ROCKSDB_NAMESPACE::Options());
 };
 
 struct UndumpOptions {
@@ -39,7 +39,7 @@ struct UndumpOptions {
 class DbUndumpTool {
  public:
   bool Run(const UndumpOptions& undump_options,
-           rocksdb::Options options = rocksdb::Options());
+           ROCKSDB_NAMESPACE::Options options = ROCKSDB_NAMESPACE::Options());
 };
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE
 #endif  // ROCKSDB_LITE

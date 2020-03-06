@@ -11,8 +11,8 @@
 #ifdef GFLAGS
 #include "db_stress_tool/db_stress_shared_state.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 const uint32_t SharedState::UNKNOWN_SENTINEL = 0xfffffffe;
 const uint32_t SharedState::DELETION_SENTINEL = 0xffffffff;
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE
 #endif  // GFLAGS

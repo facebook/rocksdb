@@ -11,7 +11,7 @@
 #include <vector>
 #include "db/db_impl/db_impl.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 // A wrapper class to hold log reader, log reporter, log status.
 class LogReaderContainer {
@@ -328,6 +328,6 @@ class DBImplSecondary : public DBImpl {
   std::unordered_map<ColumnFamilyData*, uint64_t> cfd_to_current_log_;
 };
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE
 
 #endif  // !ROCKSDB_LITE

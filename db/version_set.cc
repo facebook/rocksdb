@@ -54,7 +54,7 @@
 #include "util/string_util.h"
 #include "util/user_comparator_wrapper.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 namespace {
 
@@ -1754,7 +1754,7 @@ Version::Version(ColumnFamilyData* column_family_data, VersionSet* vset,
       version_number_(version_number) {}
 
 void Version::Get(const ReadOptions& read_options, const LookupKey& k,
-                  PinnableSlice* value, Status* status,
+                  PinnableSlice* value, std::string* timestamp, Status* status,
                   MergeContext* merge_context,
                   SequenceNumber* max_covering_tombstone_seq, bool* value_found,
                   bool* key_exists, SequenceNumber* seq, ReadCallback* callback,
@@ -1778,8 +1778,8 @@ void Version::Get(const ReadOptions& read_options, const LookupKey& k,
   GetContext get_context(
       user_comparator(), merge_operator_, info_log_, db_statistics_,
       status->ok() ? GetContext::kNotFound : GetContext::kMerge, user_key,
-      do_merge ? value : nullptr, value_found, merge_context, do_merge,
-      max_covering_tombstone_seq, this->env_, seq,
+      do_merge ? value : nullptr, do_merge ? timestamp : nullptr, value_found,
+      merge_context, do_merge, max_covering_tombstone_seq, this->env_, seq,
       merge_operator_ ? &pinned_iters_mgr : nullptr, callback, is_blob,
       tracing_get_id);
 
@@ -1859,7 +1859,7 @@ void Version::Get(const ReadOptions& read_options, const LookupKey& k,
         ROCKS_LOG_ERROR(info_log_, "Encounter unexpected blob index.");
         *status = Status::NotSupported(
             "Encounter unexpected blob index. Please open DB with "
-            "rocksdb::blob_db::BlobDB instead.");
+            "ROCKSDB_NAMESPACE::blob_db::BlobDB instead.");
         return;
     }
     f = fp.GetNextFile();
@@ -1918,8 +1918,8 @@ void Version::MultiGet(const ReadOptions& read_options, MultiGetRange* range,
     get_ctx.emplace_back(
         user_comparator(), merge_operator_, info_log_, db_statistics_,
         iter->s->ok() ? GetContext::kNotFound : GetContext::kMerge, iter->ukey,
-        iter->value, nullptr, &(iter->merge_context), true,
-        &iter->max_covering_tombstone_seq, this->env_, nullptr,
+        iter->value, /*timestamp*/ nullptr, nullptr, &(iter->merge_context),
+        true, &iter->max_covering_tombstone_seq, this->env_, nullptr,
         merge_operator_ ? &pinned_iters_mgr : nullptr, callback, is_blob,
         tracing_mget_id);
     // MergeInProgress status, if set, has been transferred to the get_context
@@ -2030,7 +2030,7 @@ void Version::MultiGet(const ReadOptions& read_options, MultiGetRange* range,
           ROCKS_LOG_ERROR(info_log_, "Encounter unexpected blob index.");
           *status = Status::NotSupported(
               "Encounter unexpected blob index. Please open DB with "
-              "rocksdb::blob_db::BlobDB instead.");
+              "ROCKSDB_NAMESPACE::blob_db::BlobDB instead.");
           file_range.MarkKeyDone(iter);
           continue;
       }
@@ -3600,7 +3600,7 @@ void VersionSet::AppendVersion(ColumnFamilyData* column_family_data,
 
 Status VersionSet::ProcessManifestWrites(
     std::deque<ManifestWriter>& writers, InstrumentedMutex* mu,
-    Directory* db_directory, bool new_descriptor_log,
+    FSDirectory* db_directory, bool new_descriptor_log,
     const ColumnFamilyOptions* new_cf_options) {
   assert(!writers.empty());
   ManifestWriter& first_writer = writers.front();
@@ -3767,8 +3767,6 @@ Status VersionSet::ProcessManifestWrites(
   if (!descriptor_log_ ||
       manifest_file_size_ > db_options_->max_manifest_file_size) {
     TEST_SYNC_POINT("VersionSet::ProcessManifestWrites:BeforeNewManifest");
-    pending_manifest_file_number_ = NewFileNumber();
-    batch_edits.back()->SetNextFile(next_file_number_.load());
     new_descriptor_log = true;
   } else {
     pending_manifest_file_number_ = manifest_file_number_;
@@ -3779,6 +3777,9 @@ Status VersionSet::ProcessManifestWrites(
   // SwitchMemtable().
   std::unordered_map<uint32_t, MutableCFState> curr_state;
   if (new_descriptor_log) {
+    pending_manifest_file_number_ = NewFileNumber();
+    batch_edits.back()->SetNextFile(next_file_number_.load());
+
     // if we are writing out new snapshot make sure to persist max column
     // family.
     if (column_family_set_->GetMaxColumnFamily() > 0) {
@@ -4025,7 +4026,7 @@ Status VersionSet::LogAndApply(
     const autovector<ColumnFamilyData*>& column_family_datas,
     const autovector<const MutableCFOptions*>& mutable_cf_options_list,
     const autovector<autovector<VersionEdit*>>& edit_lists,
-    InstrumentedMutex* mu, Directory* db_directory, bool new_descriptor_log,
+    InstrumentedMutex* mu, FSDirectory* db_directory, bool new_descriptor_log,
     const ColumnFamilyOptions* new_cf_options) {
   mu->AssertHeld();
   int num_edits = 0;
@@ -6001,4 +6002,4 @@ Status ReactiveVersionSet::MaybeSwitchManifest(
   return s;
 }
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

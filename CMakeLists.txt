@@ -481,6 +481,11 @@ if(HAVE_SCHED_GETCPU)
   add_definitions(-DROCKSDB_SCHED_GETCPU_PRESENT)
 endif()
 
+check_cxx_symbol_exists(getauxval auvx.h HAVE_AUXV_GETAUXVAL)
+if(HAVE_AUXV_GETAUXVAL)
+  add_definitions(-DROCKSDB_AUXV_GETAUXVAL_PRESENT)
+endif()
+
 include_directories(${PROJECT_SOURCE_DIR})
 include_directories(${PROJECT_SOURCE_DIR}/include)
 include_directories(SYSTEM ${PROJECT_SOURCE_DIR}/third-party/gtest-1.8.1/fused-src)
@@ -496,6 +501,7 @@ set(SOURCES
         cache/lru_cache.cc
         cache/sharded_cache.cc
         db/arena_wrapped_db_iter.cc
+        db/blob_file_state.cc
         db/builder.cc
         db/c.cc
         db/column_family.cc
@@ -919,6 +925,7 @@ if(WITH_TESTS)
   set(TESTS
         cache/cache_test.cc
         cache/lru_cache_test.cc
+        db/blob_file_state_test.cc
         db/column_family_test.cc
         db/compact_files_test.cc
         db/compaction/compaction_job_stats_test.cc
@@ -960,7 +967,7 @@ if(WITH_TESTS)
         db/db_write_test.cc
         db/dbformat_test.cc
         db/deletefile_test.cc
-        db/error_handler_test.cc
+        db/error_handler_fs_test.cc
         db/obsolete_files_test.cc
         db/external_sst_file_basic_test.cc
         db/external_sst_file_test.cc
@@ -1077,6 +1084,7 @@ if(WITH_TESTS)
       monitoring/thread_status_updater_debug.cc
       table/mock_table.cc
       test_util/fault_injection_test_env.cc
+      test_util/fault_injection_test_fs.cc
       utilities/cassandra/test_utils.cc
   )
   enable_testing()

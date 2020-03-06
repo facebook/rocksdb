@@ -4,12 +4,12 @@
 //  (found in the LICENSE.Apache file in the root directory).
 //
 // This file implements the callback "bridge" between Java and C++ for
-// rocksdb::CompactionFilterFactory.
+// ROCKSDB_NAMESPACE::CompactionFilterFactory.
 
 #include "rocksjni/compaction_filter_factory_jnicallback.h"
 #include "rocksjni/portal.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 CompactionFilterFactoryJniCallback::CompactionFilterFactoryJniCallback(
     JNIEnv* env, jobject jcompaction_filter_factory)
     : JniCallback(env, jcompaction_filter_factory) {
@@ -73,4 +73,4 @@ std::unique_ptr<CompactionFilter> CompactionFilterFactoryJniCallback::CreateComp
   return std::unique_ptr<CompactionFilter>(cff);
 }
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

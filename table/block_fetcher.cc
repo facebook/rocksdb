@@ -27,7 +27,7 @@
 #include "util/string_util.h"
 #include "util/xxhash.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 inline void BlockFetcher::CheckBlockChecksum() {
   // Check the crc of the type and the block contents
@@ -281,4 +281,4 @@ Status BlockFetcher::ReadBlockContents() {
   return status_;
 }
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

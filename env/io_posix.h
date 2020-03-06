@@ -27,10 +27,10 @@
 #define POSIX_FADV_RANDOM 1     /* [MC1] expect random page refs */
 #define POSIX_FADV_SEQUENTIAL 2 /* [MC1] expect sequential page refs */
 #define POSIX_FADV_WILLNEED 3   /* [MC1] will need these pages */
-#define POSIX_FADV_DONTNEED 4   /* [MC1] dont need these pages */
+#define POSIX_FADV_DONTNEED 4   /* [MC1] don't need these pages */
 #endif
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 static std::string IOErrorMsg(const std::string& context,
                               const std::string& file_name) {
   if (file_name.empty()) {
@@ -323,4 +323,4 @@ class PosixDirectory : public FSDirectory {
   int fd_;
 };
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

@@ -25,7 +25,7 @@ DECLARE_bool(test_batches_snapshots);
 DECLARE_int32(compaction_thread_pool_adjust_interval);
 DECLARE_int32(continuous_verification_interval);
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 class StressTest;
 
 // State shared by all concurrent executions of the same benchmark.
@@ -386,5 +386,5 @@ struct ThreadState {
   ThreadState(uint32_t index, SharedState* _shared)
       : tid(index), rand(1000 + index + _shared->GetSeed()), shared(_shared) {}
 };
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE
 #endif  // GFLAGS

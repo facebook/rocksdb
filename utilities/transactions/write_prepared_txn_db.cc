@@ -25,7 +25,7 @@
 #include "utilities/transactions/pessimistic_transaction.h"
 #include "utilities/transactions/transaction_db_mutex_impl.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 Status WritePreparedTxnDB::Initialize(
     const std::vector<size_t>& compaction_enabled_cf_indices,
@@ -994,5 +994,5 @@ void SubBatchCounter::AddKey(const uint32_t cf, const Slice& key) {
   }
 }
 
-}  //  namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE
 #endif  // ROCKSDB_LITE

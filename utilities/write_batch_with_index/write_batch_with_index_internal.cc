@@ -16,7 +16,7 @@
 #include "util/coding.h"
 #include "util/string_util.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 class Env;
 class Logger;
@@ -283,6 +283,6 @@ WriteBatchWithIndexInternal::Result WriteBatchWithIndexInternal::GetFromBatch(
   return result;
 }
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE
 
 #endif  // !ROCKSDB_LITE

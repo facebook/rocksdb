@@ -13,7 +13,7 @@
 #include "rocksdb/status.h"
 #include "table/format.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 class PinnedIteratorsManager;
 
@@ -122,7 +122,7 @@ class InternalIteratorBase : public Cleanable {
   // iterate_upper_bound.
   virtual bool MayBeOutOfUpperBound() { return true; }
 
-  // Pass the PinnedIteratorsManager to the Iterator, most Iterators dont
+  // Pass the PinnedIteratorsManager to the Iterator, most Iterators don't
   // communicate with PinnedIteratorsManager so default implementation is no-op
   // but for Iterators that need to communicate with PinnedIteratorsManager
   // they will implement this function and use the passed pointer to communicate
@@ -179,4 +179,4 @@ template <class TValue = Slice>
 extern InternalIteratorBase<TValue>* NewErrorInternalIterator(
     const Status& status, Arena* arena);
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

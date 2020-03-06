@@ -48,7 +48,7 @@ namespace {
 int kBlockBasedTableVersionFormat = 2;
 }  // end namespace
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 namespace blob_db {
 
 bool BlobFileComparator::operator()(
@@ -1552,7 +1552,8 @@ Status BlobDBImpl::GetRawBlobFromFile(const Slice& key, uint64_t file_number,
 Status BlobDBImpl::Get(const ReadOptions& read_options,
                        ColumnFamilyHandle* column_family, const Slice& key,
                        PinnableSlice* value) {
-  return Get(read_options, column_family, key, value, nullptr /*expiration*/);
+  return Get(read_options, column_family, key, value,
+             static_cast<uint64_t*>(nullptr) /*expiration*/);
 }
 
 Status BlobDBImpl::Get(const ReadOptions& read_options,
@@ -2112,5 +2113,5 @@ void BlobDBImpl::TEST_ProcessCompactionJobInfo(const CompactionJobInfo& info) {
 #endif  //  !NDEBUG
 
 }  // namespace blob_db
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE
 #endif  // ROCKSDB_LITE

@@ -29,7 +29,7 @@
 #include "util/string_util.h"
 #include "utilities/merge_operators.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 namespace {
 
@@ -1063,7 +1063,7 @@ TEST_F(CompactionJobTest, OldestBlobFileNumber) {
                 /* expected_oldest_blob_file_number */ 19);
 }
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
   ::testing::InitGoogleTest(&argc, argv);

@@ -24,7 +24,7 @@
 #include "test_util/sync_point.h"
 #include "util/string_util.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 // Usage:
 //     ForwardLevelIterator iter;
@@ -970,6 +970,6 @@ void ForwardIterator::DeleteIterator(InternalIterator* iter, bool is_arena) {
   }
 }
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE
 
 #endif  // ROCKSDB_LITE

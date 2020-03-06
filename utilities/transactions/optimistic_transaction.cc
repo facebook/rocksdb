@@ -21,7 +21,7 @@
 #include "utilities/transactions/optimistic_transaction.h"
 #include "utilities/transactions/optimistic_transaction_db_impl.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 struct WriteOptions;
 
@@ -182,6 +182,6 @@ Status OptimisticTransaction::SetName(const TransactionName& /* unused */) {
   return Status::InvalidArgument("Optimistic transactions cannot be named.");
 }
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE
 
 #endif  // ROCKSDB_LITE

@@ -17,7 +17,7 @@
 
 #include <string>
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 #ifdef ROCKSDB_USING_THREAD_STATUS
 
@@ -118,4 +118,4 @@ struct StateInfo {
 };
 
 #endif  // ROCKSDB_USING_THREAD_STATUS
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

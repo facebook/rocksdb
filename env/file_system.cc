@@ -8,7 +8,7 @@
 #include "options/db_options.h"
 #include "rocksdb/utilities/object_registry.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 FileSystem::FileSystem() {}
 
@@ -107,4 +107,4 @@ std::shared_ptr<FileSystem> FileSystem::Default() {
 }
 #endif
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

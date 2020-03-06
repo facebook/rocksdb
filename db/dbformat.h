@@ -26,7 +26,7 @@
 #include "util/coding.h"
 #include "util/user_comparator_wrapper.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 // The file declares data structures and functions that deal with internal
 // keys.
@@ -160,6 +160,11 @@ inline Slice ExtractUserKeyAndStripTimestamp(const Slice& internal_key,
 inline Slice StripTimestampFromUserKey(const Slice& user_key, size_t ts_sz) {
   assert(user_key.size() >= ts_sz);
   return Slice(user_key.data(), user_key.size() - ts_sz);
+}
+
+inline Slice ExtractTimestampFromUserKey(const Slice& user_key, size_t ts_sz) {
+  assert(user_key.size() >= ts_sz);
+  return Slice(user_key.data() + user_key.size() - ts_sz, ts_sz);
 }
 
 inline uint64_t ExtractInternalKeyFooter(const Slice& internal_key) {
@@ -668,4 +673,4 @@ struct ParsedInternalKeyComparator {
   const InternalKeyComparator* cmp;
 };
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

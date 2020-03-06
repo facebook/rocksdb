@@ -30,7 +30,7 @@
 #include "table/block_based/block_based_table_factory.h"
 #include "util/compression.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 AdvancedColumnFamilyOptions::AdvancedColumnFamilyOptions() {
   assert(memtable_factory.get() != nullptr);
@@ -478,8 +478,8 @@ DBOptions* DBOptions::OptimizeForSmallDb(std::shared_ptr<Cache>* cache) {
   max_open_files = 5000;
 
   // Cost memtable to block cache too.
-  std::shared_ptr<rocksdb::WriteBufferManager> wbm =
-      std::make_shared<rocksdb::WriteBufferManager>(
+  std::shared_ptr<ROCKSDB_NAMESPACE::WriteBufferManager> wbm =
+      std::make_shared<ROCKSDB_NAMESPACE::WriteBufferManager>(
           0, (cache != nullptr) ? *cache : std::shared_ptr<Cache>());
   write_buffer_manager = wbm;
 
@@ -620,4 +620,4 @@ ReadOptions::ReadOptions(bool cksum, bool cache)
       iter_start_seqnum(0),
       timestamp(nullptr) {}
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

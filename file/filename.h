@@ -17,12 +17,13 @@
 
 #include "options/db_options.h"
 #include "port/port.h"
+#include "rocksdb/file_system.h"
 #include "rocksdb/options.h"
 #include "rocksdb/slice.h"
 #include "rocksdb/status.h"
 #include "rocksdb/transaction_log.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 class Env;
 class Directory;
@@ -164,7 +165,7 @@ extern bool ParseFileName(const std::string& filename, uint64_t* number,
 // specified number.
 extern Status SetCurrentFile(Env* env, const std::string& dbname,
                              uint64_t descriptor_number,
-                             Directory* directory_to_fsync);
+                             FSDirectory* directory_to_fsync);
 
 // Make the IDENTITY file for the db
 extern Status SetIdentityFile(Env* env, const std::string& dbname,
@@ -182,4 +183,4 @@ extern Status GetInfoLogFiles(Env* env, const std::string& db_log_dir,
                               const std::string& dbname,
                               std::string* parent_dir,
                               std::vector<std::string>* file_names);
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

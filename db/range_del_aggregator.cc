@@ -20,7 +20,7 @@
 #include "util/kv_map.h"
 #include "util/vector_iterator.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 TruncatedRangeDelIterator::TruncatedRangeDelIterator(
     std::unique_ptr<FragmentedRangeTombstoneIterator> iter,
@@ -481,4 +481,4 @@ CompactionRangeDelAggregator::NewIterator(const Slice* lower_bound,
           kMaxSequenceNumber /* upper_bound */));
 }
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

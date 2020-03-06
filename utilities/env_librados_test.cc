@@ -45,7 +45,7 @@ private:
   high_resolution_clock::time_point _start;
 };
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 class EnvLibradosTest : public testing::Test {
 public:
@@ -390,7 +390,7 @@ TEST_F(EnvLibradosTest, DBLoadKeysInRandomOrder) {
   Status s1 = DB::Open(options1, kDBPath1, &db1);
   assert(s1.ok());
 
-  rocksdb::Random64 r1(time(nullptr));
+  ROCKSDB_NAMESPACE::Random64 r1(time(nullptr));
 
   timer.Reset();
   for (int i = 0; i < max_loop; ++i) {
@@ -426,7 +426,7 @@ TEST_F(EnvLibradosTest, DBLoadKeysInRandomOrder) {
   Status s2 = DB::Open(options2, kDBPath2, &db2);
   assert(s2.ok());
 
-  rocksdb::Random64 r2(time(nullptr));
+  ROCKSDB_NAMESPACE::Random64 r2(time(nullptr));
 
   timer.Reset();
   for (int i = 0; i < max_loop; ++i) {
@@ -468,7 +468,7 @@ TEST_F(EnvLibradosTest, DBBulkLoadKeysInRandomOrder) {
   Status s1 = DB::Open(options1, kDBPath1, &db1);
   assert(s1.ok());
 
-  rocksdb::Random64 r1(time(nullptr));
+  ROCKSDB_NAMESPACE::Random64 r1(time(nullptr));
 
   timer.Reset();
   for (int i = 0; i < max_loop; ++i) {
@@ -507,7 +507,7 @@ TEST_F(EnvLibradosTest, DBBulkLoadKeysInRandomOrder) {
   Status s2 = DB::Open(options2, kDBPath2, &db2);
   assert(s2.ok());
 
-  rocksdb::Random64 r2(time(nullptr));
+  ROCKSDB_NAMESPACE::Random64 r2(time(nullptr));
 
   timer.Reset();
   for (int i = 0; i < max_loop; ++i) {
@@ -552,7 +552,7 @@ TEST_F(EnvLibradosTest, DBBulkLoadKeysInSequentialOrder) {
   Status s1 = DB::Open(options1, kDBPath1, &db1);
   assert(s1.ok());
 
-  rocksdb::Random64 r1(time(nullptr));
+  ROCKSDB_NAMESPACE::Random64 r1(time(nullptr));
 
   timer.Reset();
   for (int i = 0; i < max_loop; ++i) {
@@ -591,7 +591,7 @@ TEST_F(EnvLibradosTest, DBBulkLoadKeysInSequentialOrder) {
   Status s2 = DB::Open(options2, kDBPath2, &db2);
   assert(s2.ok());
 
-  rocksdb::Random64 r2(time(nullptr));
+  ROCKSDB_NAMESPACE::Random64 r2(time(nullptr));
 
   timer.Reset();
   for (int i = 0; i < max_loop; ++i) {
@@ -637,8 +637,7 @@ TEST_F(EnvLibradosTest, DBRandomRead) {
   Status s1 = DB::Open(options1, kDBPath1, &db1);
   assert(s1.ok());
 
-  rocksdb::Random64 r1(time(nullptr));
-
+  ROCKSDB_NAMESPACE::Random64 r1(time(nullptr));
 
   for (int i = 0; i < max_loop; ++i) {
     WriteBatch batch;
@@ -689,7 +688,7 @@ TEST_F(EnvLibradosTest, DBRandomRead) {
   Status s2 = DB::Open(options2, kDBPath2, &db2);
   assert(s2.ok());
 
-  rocksdb::Random64 r2(time(nullptr));
+  ROCKSDB_NAMESPACE::Random64 r2(time(nullptr));
 
   for (int i = 0; i < max_loop; ++i) {
     WriteBatch batch;
@@ -936,7 +935,7 @@ TEST_F(EnvLibradosMutipoolTest, DBBulkLoadKeysInRandomOrder) {
   Status s1 = DB::Open(options1, kDBPath1, &db1);
   assert(s1.ok());
 
-  rocksdb::Random64 r1(time(nullptr));
+  ROCKSDB_NAMESPACE::Random64 r1(time(nullptr));
 
   timer.Reset();
   for (int i = 0; i < max_loop; ++i) {
@@ -979,7 +978,7 @@ TEST_F(EnvLibradosMutipoolTest, DBBulkLoadKeysInRandomOrder) {
   }
   assert(s2.ok());
 
-  rocksdb::Random64 r2(time(nullptr));
+  ROCKSDB_NAMESPACE::Random64 r2(time(nullptr));
 
   timer.Reset();
   for (int i = 0; i < max_loop; ++i) {
@@ -1129,7 +1128,7 @@ TEST_F(EnvLibradosMutipoolTest, DBTransactionDB) {
   DestroyDB(kDBPath, options);
 }
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
   ::testing::InitGoogleTest(&argc, argv);

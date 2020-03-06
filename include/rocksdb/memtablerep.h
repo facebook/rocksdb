@@ -41,7 +41,7 @@
 #include <memory>
 #include <stdexcept>
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 class Arena;
 class Allocator;
@@ -59,7 +59,7 @@ class MemTableRep {
   // concatenated with values.
   class KeyComparator {
    public:
-    typedef rocksdb::Slice DecodedType;
+    typedef ROCKSDB_NAMESPACE::Slice DecodedType;
 
     virtual DecodedType decode_key(const char* key) const {
       // The format of key is frozen and can be terated as a part of the API
@@ -382,4 +382,4 @@ extern MemTableRepFactory* NewHashLinkListRepFactory(
     uint32_t threshold_use_skiplist = 256);
 
 #endif  // ROCKSDB_LITE
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

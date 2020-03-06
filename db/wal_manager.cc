@@ -32,7 +32,7 @@
 #include "util/mutexlock.h"
 #include "util/string_util.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 #ifndef ROCKSDB_LITE
 
@@ -507,4 +507,4 @@ Status WalManager::ReadFirstLine(const std::string& fname,
 }
 
 #endif  // ROCKSDB_LITE
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

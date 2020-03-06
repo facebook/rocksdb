@@ -4,6 +4,7 @@ LIB_SOURCES =                                                   \
   cache/lru_cache.cc                                            \
   cache/sharded_cache.cc                                        \
   db/arena_wrapped_db_iter.cc                                   \
+  db/blob_file_state.cc                                         \
   db/builder.cc                                                 \
   db/c.cc                                                       \
   db/column_family.cc                                           \
@@ -262,6 +263,7 @@ ANALYZER_LIB_SOURCES =                                          \
 
 MOCK_LIB_SOURCES =                                              \
   table/mock_table.cc                                           \
+  test_util/fault_injection_test_fs.cc				\
   test_util/fault_injection_test_env.cc
 
 BENCH_LIB_SOURCES =                                             \
@@ -295,6 +297,7 @@ MAIN_SOURCES =                                                          \
   cache/cache_bench.cc                                                  \
   cache/cache_test.cc                                                   \
   db_stress_tool/db_stress.cc                                           \
+  db/blob_file_state_test.cc                                            \
   db/column_family_test.cc                                              \
   db/compact_files_test.cc                                              \
   db/compaction/compaction_iterator_test.cc                             \
@@ -338,7 +341,7 @@ MAIN_SOURCES =                                                          \
   db/dbformat_test.cc                                                   \
   db/deletefile_test.cc                                                 \
   db/env_timed_test.cc                                                  \
-  db/error_handler_test.cc                                              \
+  db/error_handler_fs_test.cc						\
   db/external_sst_file_basic_test.cc                                    \
   db/external_sst_file_test.cc                                          \
   db/fault_injection_test.cc                                            \

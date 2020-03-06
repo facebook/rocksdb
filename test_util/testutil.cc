@@ -21,7 +21,7 @@
 #include "file/writable_file_writer.h"
 #include "port/port.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 namespace test {
 
 const uint32_t kDefaultFormatVersion = BlockBasedTableOptions().format_version;
@@ -451,4 +451,4 @@ size_t GetLinesCount(const std::string& fname, const std::string& pattern) {
 }
 
 }  // namespace test
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

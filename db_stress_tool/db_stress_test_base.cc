@@ -12,8 +12,9 @@
 #include "db_stress_tool/db_stress_common.h"
 #include "db_stress_tool/db_stress_driver.h"
 #include "rocksdb/convenience.h"
+#include "rocksdb/sst_file_manager.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 StressTest::StressTest()
     : cache_(NewCache(FLAGS_cache_size)),
       compressed_cache_(NewLRUCache(FLAGS_compressed_cache_size)),
@@ -1376,7 +1377,7 @@ Status StressTest::TestCheckpoint(ThreadState* thread,
 
 void StressTest::TestCompactFiles(ThreadState* thread,
                                   ColumnFamilyHandle* column_family) {
-  rocksdb::ColumnFamilyMetaData cf_meta_data;
+  ROCKSDB_NAMESPACE::ColumnFamilyMetaData cf_meta_data;
   db_->GetColumnFamilyMetaData(column_family, &cf_meta_data);
 
   // Randomly compact up to three consecutive files from a level
@@ -1751,7 +1752,7 @@ void StressTest::Open() {
     options_.max_background_compactions = FLAGS_max_background_compactions;
     options_.max_background_flushes = FLAGS_max_background_flushes;
     options_.compaction_style =
-        static_cast<rocksdb::CompactionStyle>(FLAGS_compaction_style);
+        static_cast<ROCKSDB_NAMESPACE::CompactionStyle>(FLAGS_compaction_style);
     if (FLAGS_prefix_size >= 0) {
       options_.prefix_extractor.reset(
           NewFixedPrefixTransform(FLAGS_prefix_size));
@@ -1837,6 +1838,21 @@ void StressTest::Open() {
                                   : RateLimiter::Mode::kWritesOnly));
     if (FLAGS_rate_limit_bg_reads) {
       options_.new_table_reader_for_compaction_inputs = true;
+    }
+  }
+  if (FLAGS_sst_file_manager_bytes_per_sec > 0 ||
+      FLAGS_sst_file_manager_bytes_per_truncate > 0) {
+    Status status;
+    options_.sst_file_manager.reset(NewSstFileManager(
+        db_stress_env, options_.info_log, "" /* trash_dir */,
+        static_cast<int64_t>(FLAGS_sst_file_manager_bytes_per_sec),
+        true /* delete_existing_trash */, &status,
+        0.25 /* max_trash_db_ratio */,
+        FLAGS_sst_file_manager_bytes_per_truncate));
+    if (!status.ok()) {
+      fprintf(stderr, "SstFileManager creation failed: %s\n",
+              status.ToString().c_str());
+      exit(1);
     }
   }
 
@@ -2129,5 +2145,5 @@ void StressTest::Reopen(ThreadState* thread) {
           num_times_reopened_);
   Open();
 }
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE
 #endif  // GFLAGS

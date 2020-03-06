@@ -18,7 +18,7 @@
 #include "rocksdb/write_batch.h"
 #include "util/autovector.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 class MemTable;
 class FlushScheduler;
@@ -247,4 +247,4 @@ class LocalSavePoint {
 #endif
 };
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

@@ -14,7 +14,7 @@
 #include "utilities/blob_db/blob_db_gc_stats.h"
 #include "utilities/blob_db/blob_db_impl.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 namespace blob_db {
 
 struct BlobCompactionContext {
@@ -164,5 +164,5 @@ class BlobIndexCompactionFilterFactoryGC
 };
 
 }  // namespace blob_db
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE
 #endif  // ROCKSDB_LITE

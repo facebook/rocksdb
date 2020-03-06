@@ -11,7 +11,7 @@
 
 #include "rocksdb/perf_level.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 // A thread local context for gathering performance counter efficiently
 // and transparently.
@@ -229,4 +229,4 @@ struct PerfContext {
 // if defined(NPERF_CONTEXT), then the pointer is not thread-local
 PerfContext* get_perf_context();
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

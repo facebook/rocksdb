@@ -12,7 +12,7 @@
 #include "utilities/transactions/write_prepared_txn.h"
 #include "utilities/transactions/write_unprepared_txn_db.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 class WriteUnpreparedTxnDB;
 class WriteUnpreparedTxn;
@@ -262,7 +262,6 @@ class WriteUnpreparedTxn : public WritePreparedTxn {
   // value when calling RollbackToSavepoint.
   SequenceNumber largest_validated_seq_;
 
-  using KeySet = std::unordered_map<uint32_t, std::vector<std::string>>;
   struct SavePoint {
     // Record of unprep_seqs_ at this savepoint. The set of unprep_seq is
     // used during RollbackToSavepoint to determine visibility when restoring
@@ -333,9 +332,10 @@ class WriteUnpreparedTxn : public WritePreparedTxn {
   // last savepoint. Also, it may make sense to merge this into tracked_keys_
   // and differentiate between tracked but not locked keys to avoid having two
   // very similar data structures.
+  using KeySet = std::unordered_map<uint32_t, std::vector<std::string>>;
   KeySet untracked_keys_;
 };
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE
 
 #endif  // ROCKSDB_LITE

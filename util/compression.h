@@ -49,7 +49,7 @@
 #if ZSTD_VERSION_NUMBER >= 10103  // v1.1.3+
 #include <zdict.h>
 #endif  // ZSTD_VERSION_NUMBER >= 10103
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 // Need this for the context allocation override
 // On windows we need to do this explicitly
 #if (ZSTD_VERSION_NUMBER >= 500)
@@ -121,11 +121,11 @@ class ZSTDUncompressCachedData {
   int64_t cache_idx_ = -1;  // -1 means this instance owns the context
 };
 #endif  // (ZSTD_VERSION_NUMBER >= 500)
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE
 #endif  // ZSTD
 
 #if !(defined ZSTD) || !(ZSTD_VERSION_NUMBER >= 500)
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 class ZSTDUncompressCachedData {
   void* padding;  // unused
  public:
@@ -144,14 +144,14 @@ class ZSTDUncompressCachedData {
  private:
   void ignore_padding__() { padding = nullptr; }
 };
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE
 #endif
 
 #if defined(XPRESS)
 #include "port/xpress.h"
 #endif
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 // Holds dictionary and related data, like ZSTD's digested compression
 // dictionary.
@@ -1404,4 +1404,4 @@ inline std::string ZSTD_TrainDictionary(const std::string& samples,
 #endif  // ZSTD_VERSION_NUMBER >= 10103
 }
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

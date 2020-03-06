@@ -15,7 +15,7 @@
 #include "test_util/testutil.h"
 #include "util/string_util.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 class CuckooTableDBTest : public testing::Test {
  private:
@@ -328,14 +328,13 @@ TEST_F(CuckooTableDBTest, AdaptiveTable) {
   ASSERT_EQ("v4", Get("key4"));
   ASSERT_EQ("v6", Get("key5"));
 }
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
-  if (rocksdb::port::kLittleEndian) {
+  if (ROCKSDB_NAMESPACE::port::kLittleEndian) {
     ::testing::InitGoogleTest(&argc, argv);
     return RUN_ALL_TESTS();
-  }
-  else {
+  } else {
     fprintf(stderr, "SKIPPED as Cuckoo table doesn't support Big Endian\n");
     return 0;
   }

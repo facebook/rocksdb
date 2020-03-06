@@ -25,7 +25,9 @@
 #include "util/crc32c_ppc_constants.h"
 
 #if __linux__
+#ifdef ROCKSDB_AUXV_GETAUXVAL_PRESENT
 #include <sys/auxv.h>
+#endif
 
 #ifndef PPC_FEATURE2_VEC_CRYPTO
 #define PPC_FEATURE2_VEC_CRYPTO 0x02000000
@@ -39,7 +41,7 @@
 
 #endif
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 namespace crc32c {
 
 #if defined(HAVE_POWER8) && defined(HAS_ALTIVEC)
@@ -451,7 +453,7 @@ uint32_t ExtendPPCImpl(uint32_t crc, const char *buf, size_t size) {
 static int arch_ppc_probe(void) {
   arch_ppc_crc32 = 0;
 
-#if defined(__powerpc64__)
+#if defined(__powerpc64__) && defined(ROCKSDB_AUXV_GETAUXVAL_PRESENT)
   if (getauxval(AT_HWCAP2) & PPC_FEATURE2_VEC_CRYPTO) arch_ppc_crc32 = 1;
 #endif /* __powerpc64__ */
 
@@ -1252,4 +1254,4 @@ uint32_t Extend(uint32_t crc, const char* buf, size_t size) {
 
 
 }  // namespace crc32c
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE
