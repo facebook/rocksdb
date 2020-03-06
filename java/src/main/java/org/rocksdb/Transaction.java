@@ -1797,7 +1797,7 @@ public class Transaction extends RocksObject {
      * Keep old misspelled variable as alias
      * Tip from https://stackoverflow.com/a/37092410/454544
      */
-    public static final Browser COMMITED=COMMITTED;
+    public static final TransactionState COMMITED = COMMITTED;
 
     private final byte value;
 
