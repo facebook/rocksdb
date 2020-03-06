@@ -368,6 +368,7 @@ cpp_library(
         "db/db_test_util.cc",
         "table/mock_table.cc",
         "test_util/fault_injection_test_env.cc",
+        "test_util/fault_injection_test_fs.cc",
         "test_util/testharness.cc",
         "test_util/testutil.cc",
         "tools/block_cache_analyzer/block_cache_trace_analyzer.cc",
@@ -969,8 +970,8 @@ ROCKS_TESTS = [
         [],
     ],
     [
-        "error_handler_test",
-        "db/error_handler_test.cc",
+        "error_handler_fs_test",
+        "db/error_handler_fs_test.cc",
         "serial",
         [],
         [],

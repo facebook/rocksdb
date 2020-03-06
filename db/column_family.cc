@@ -1321,7 +1321,7 @@ Env::WriteLifeTimeHint ColumnFamilyData::CalculateSSTWriteHint(int level) {
 }
 
 Status ColumnFamilyData::AddDirectories(
-    std::map<std::string, std::shared_ptr<Directory>>* created_dirs) {
+    std::map<std::string, std::shared_ptr<FSDirectory>>* created_dirs) {
   Status s;
   assert(created_dirs != nullptr);
   assert(data_dirs_.empty());
@@ -1329,8 +1329,8 @@ Status ColumnFamilyData::AddDirectories(
     auto existing_dir = created_dirs->find(p.path);
 
     if (existing_dir == created_dirs->end()) {
-      std::unique_ptr<Directory> path_directory;
-      s = DBImpl::CreateAndNewDirectory(ioptions_.env, p.path, &path_directory);
+      std::unique_ptr<FSDirectory> path_directory;
+      s = DBImpl::CreateAndNewDirectory(ioptions_.fs, p.path, &path_directory);
       if (!s.ok()) {
         return s;
       }
@@ -1345,7 +1345,7 @@ Status ColumnFamilyData::AddDirectories(
   return s;
 }
 
-Directory* ColumnFamilyData::GetDataDir(size_t path_id) const {
+FSDirectory* ColumnFamilyData::GetDataDir(size_t path_id) const {
   if (data_dirs_.empty()) {
     return nullptr;
   }

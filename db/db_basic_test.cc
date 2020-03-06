@@ -2356,6 +2356,22 @@ TEST_F(DBBasicTestWithTimestamp, PutAndGetWithCompaction) {
   std::vector<Slice> write_ts_list;
   std::vector<Slice> read_ts_list;
 
+  const auto& verify_record_func = [&](size_t i, size_t k,
+                                       ColumnFamilyHandle* cfh) {
+    std::string value;
+    std::string timestamp;
+
+    ReadOptions ropts;
+    ropts.timestamp = &read_ts_list[i];
+    std::string expected_timestamp =
+        std::string(write_ts_list[i].data(), write_ts_list[i].size());
+
+    ASSERT_OK(
+        db_->Get(ropts, cfh, "key" + std::to_string(k), &value, &timestamp));
+    ASSERT_EQ("value_" + std::to_string(k) + "_" + std::to_string(i), value);
+    ASSERT_EQ(expected_timestamp, timestamp);
+  };
+
   for (size_t i = 0; i != kNumTimestamps; ++i) {
     write_ts_list.emplace_back(EncodeTimestamp(i * 2, 0, &write_ts_strs[i]));
     read_ts_list.emplace_back(EncodeTimestamp(1 + i * 2, 0, &read_ts_strs[i]));
@@ -2363,11 +2379,17 @@ TEST_F(DBBasicTestWithTimestamp, PutAndGetWithCompaction) {
     WriteOptions wopts;
     wopts.timestamp = &write_ts;
     for (int cf = 0; cf != static_cast<int>(num_cfs); ++cf) {
+      size_t memtable_get_start = 0;
       for (size_t j = 0; j != kNumKeysPerTimestamp; ++j) {
         ASSERT_OK(Put(cf, "key" + std::to_string(j),
                       "value_" + std::to_string(j) + "_" + std::to_string(i),
                       wopts));
         if (j == kSplitPosBase + i || j == kNumKeysPerTimestamp - 1) {
+          for (size_t k = memtable_get_start; k <= j; ++k) {
+            verify_record_func(i, k, handles_[cf]);
+          }
+          memtable_get_start = j + 1;
+
           // flush all keys with the same timestamp to two sst files, split at
           // incremental positions such that lowerlevel[1].smallest.userkey ==
           // higherlevel[0].largest.userkey
@@ -2390,13 +2412,12 @@ TEST_F(DBBasicTestWithTimestamp, PutAndGetWithCompaction) {
     for (size_t i = 0; i != kNumTimestamps; ++i) {
       ReadOptions ropts;
       ropts.timestamp = &read_ts_list[i];
+      std::string expected_timestamp(write_ts_list[i].data(),
+                                     write_ts_list[i].size());
       for (int cf = 0; cf != static_cast<int>(num_cfs); ++cf) {
         ColumnFamilyHandle* cfh = handles_[cf];
         for (size_t j = 0; j != kNumKeysPerTimestamp; ++j) {
-          std::string value;
-          ASSERT_OK(db_->Get(ropts, cfh, "key" + std::to_string(j), &value));
-          ASSERT_EQ("value_" + std::to_string(j) + "_" + std::to_string(i),
-                    value);
+          verify_record_func(i, j, cfh);
         }
       }
     }

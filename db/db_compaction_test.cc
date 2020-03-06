@@ -2459,7 +2459,7 @@ TEST_P(DBCompactionTestWithParam, ManualCompaction) {
     ASSERT_EQ("1,1,1", FilesPerLevel(1));
 
     // Compaction range overlaps files
-    Compact(1, "p1", "p9");
+    Compact(1, "p", "q");
     ASSERT_EQ("0,0,1", FilesPerLevel(1));
 
     // Populate a different range
@@ -2526,7 +2526,7 @@ TEST_P(DBCompactionTestWithParam, ManualLevelCompactionOutputPathId) {
     ASSERT_EQ("3", FilesPerLevel(1));
 
     // Compaction range overlaps files
-    Compact(1, "p1", "p9", 1);
+    Compact(1, "p", "q", 1);
     ASSERT_OK(dbfull()->TEST_WaitForCompact());
     ASSERT_EQ("0,1", FilesPerLevel(1));
     ASSERT_EQ(1, GetSstFileCount(options.db_paths[1].path));
@@ -4655,7 +4655,7 @@ TEST_P(DBCompactionDirectIOTest, DirectIO) {
   CreateAndReopenWithCF({"pikachu"}, options);
   MakeTables(3, "p", "q", 1);
   ASSERT_EQ("1,1,1", FilesPerLevel(1));
-  Compact(1, "p1", "p9");
+  Compact(1, "p", "q");
   ASSERT_EQ(readahead, options.use_direct_reads);
   ASSERT_EQ("0,0,1", FilesPerLevel(1));
   Destroy(options);

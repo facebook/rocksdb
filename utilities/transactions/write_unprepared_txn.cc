@@ -607,6 +607,8 @@ Status WriteUnpreparedTxn::CommitInternal() {
   // commit write batch as just another "unprepared" batch. This will also
   // update the unprep_seqs_ in the update_commit_map callback.
   unprep_seqs_[commit_batch_seq] = commit_batch_cnt;
+  WriteUnpreparedCommitEntryPreReleaseCallback
+      update_commit_map_with_commit_batch(wpt_db_, db_impl_, unprep_seqs_, 0);
 
   // Note: the 2nd write comes with a performance penality. So if we have too
   // many of commits accompanied with ComitTimeWriteBatch and yet we cannot
@@ -623,7 +625,7 @@ Status WriteUnpreparedTxn::CommitInternal() {
   const uint64_t NO_REF_LOG = 0;
   s = db_impl_->WriteImpl(write_options_, &empty_batch, nullptr, nullptr,
                           NO_REF_LOG, DISABLE_MEMTABLE, &seq_used, ONE_BATCH,
-                          &update_commit_map);
+                          &update_commit_map_with_commit_batch);
   assert(!s.ok() || seq_used != kMaxSequenceNumber);
   // Note RemovePrepared should be called after WriteImpl that publishsed the
   // seq. Otherwise SmallestUnCommittedSeq optimization breaks.
@@ -704,6 +706,9 @@ Status WriteUnpreparedTxn::RollbackInternal() {
   // need to read our own writes when reading prior versions of the key for
   // rollback.
   WritePreparedTxnReadCallback callback(wpt_db_, read_at_seq);
+  // TODO(lth): We write rollback batch all in a single batch here, but this
+  // should be subdivded into multiple batches as well. In phase 2, when key
+  // sets are read from WAL, this will happen naturally.
   WriteRollbackKeys(GetTrackedKeys(), &rollback_batch, &callback, roptions);
 
   // The Rollback marker will be used as a batch separator
@@ -712,26 +717,29 @@ Status WriteUnpreparedTxn::RollbackInternal() {
   const bool DISABLE_MEMTABLE = true;
   const uint64_t NO_REF_LOG = 0;
   uint64_t seq_used = kMaxSequenceNumber;
-  // TODO(lth): We write rollback batch all in a single batch here, but this
-  // should be subdivded into multiple batches as well. In phase 2, when key
-  // sets are read from WAL, this will happen naturally.
-  const size_t ONE_BATCH = 1;
-  // We commit the rolled back prepared batches. ALthough this is
+  // Rollback batch may contain duplicate keys, because tracked_keys_ is not
+  // comparator aware.
+  auto rollback_batch_cnt = rollback_batch.SubBatchCnt();
+  // We commit the rolled back prepared batches. Although this is
   // counter-intuitive, i) it is safe to do so, since the prepared batches are
   // already canceled out by the rollback batch, ii) adding the commit entry to
   // CommitCache will allow us to benefit from the existing mechanism in
   // CommitCache that keeps an entry evicted due to max advance and yet overlaps
   // with a live snapshot around so that the live snapshot properly skips the
   // entry even if its prepare seq is lower than max_evicted_seq_.
+  //
+  // TODO(lth): RollbackInternal is conceptually very similar to
+  // CommitInternal, with the rollback batch simply taking on the role of
+  // CommitTimeWriteBatch. We should be able to merge the two code paths.
   WriteUnpreparedCommitEntryPreReleaseCallback update_commit_map(
-      wpt_db_, db_impl_, unprep_seqs_, ONE_BATCH);
+      wpt_db_, db_impl_, unprep_seqs_, rollback_batch_cnt);
   // Note: the rollback batch does not need AddPrepared since it is written to
   // DB in one shot. min_uncommitted still works since it requires capturing
-  // data that is written to DB but not yet committed, while the roolback
+  // data that is written to DB but not yet committed, while the rollback
   // batch commits with PreReleaseCallback.
   s = db_impl_->WriteImpl(write_options_, rollback_batch.GetWriteBatch(),
                           nullptr, nullptr, NO_REF_LOG, !DISABLE_MEMTABLE,
-                          &seq_used, rollback_batch.SubBatchCnt(),
+                          &seq_used, rollback_batch_cnt,
                           do_one_write ? &update_commit_map : nullptr);
   assert(!s.ok() || seq_used != kMaxSequenceNumber);
   if (!s.ok()) {
@@ -746,21 +754,26 @@ Status WriteUnpreparedTxn::RollbackInternal() {
     unflushed_save_points_.reset(nullptr);
     return s;
   }  // else do the 2nd write for commit
+
   uint64_t& prepare_seq = seq_used;
+  // Populate unprep_seqs_ with rollback_batch_cnt, since we treat data in the
+  // rollback write batch as just another "unprepared" batch. This will also
+  // update the unprep_seqs_ in the update_commit_map callback.
+  unprep_seqs_[prepare_seq] = rollback_batch_cnt;
+  WriteUnpreparedCommitEntryPreReleaseCallback
+      update_commit_map_with_rollback_batch(wpt_db_, db_impl_, unprep_seqs_, 0);
+
   ROCKS_LOG_DETAILS(db_impl_->immutable_db_options().info_log,
                     "RollbackInternal 2nd write prepare_seq: %" PRIu64,
                     prepare_seq);
-  // Commit the batch by writing an empty batch to the queue that will release
-  // the commit sequence number to readers.
-  WriteUnpreparedRollbackPreReleaseCallback update_commit_map_with_prepare(
-      wpt_db_, db_impl_, unprep_seqs_, prepare_seq);
   WriteBatch empty_batch;
+  const size_t ONE_BATCH = 1;
   empty_batch.PutLogData(Slice());
   // In the absence of Prepare markers, use Noop as a batch separator
   WriteBatchInternal::InsertNoop(&empty_batch);
   s = db_impl_->WriteImpl(write_options_, &empty_batch, nullptr, nullptr,
                           NO_REF_LOG, DISABLE_MEMTABLE, &seq_used, ONE_BATCH,
-                          &update_commit_map_with_prepare);
+                          &update_commit_map_with_rollback_batch);
   assert(!s.ok() || seq_used != kMaxSequenceNumber);
   // Mark the txn as rolled back
   if (s.ok()) {

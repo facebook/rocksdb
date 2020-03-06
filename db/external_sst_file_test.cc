@@ -476,17 +476,17 @@ TEST_F(ExternalSSTFileTest, Basic) {
     }
     ASSERT_NE(db_->GetLatestSequenceNumber(), 0U);
 
-    // Key range of file5 (400 => 499) dont overlap with any keys in DB
+    // Key range of file5 (400 => 499) don't overlap with any keys in DB
     ASSERT_OK(DeprecatedAddFile({file5}));
 
     // This file has overlapping values with the existing data
     s = DeprecatedAddFile({file6});
     ASSERT_FALSE(s.ok()) << s.ToString();
 
-    // Key range of file7 (500 => 598) dont overlap with any keys in DB
+    // Key range of file7 (500 => 598) don't overlap with any keys in DB
     ASSERT_OK(DeprecatedAddFile({file7}));
 
-    // Key range of file7 (600 => 700) dont overlap with any keys in DB
+    // Key range of file7 (600 => 700) don't overlap with any keys in DB
     ASSERT_OK(DeprecatedAddFile({file8}));
 
     // Make sure values are correct before and after flush/compaction
@@ -1609,15 +1609,15 @@ TEST_F(ExternalSSTFileTest, AddExternalSstFileWithCustomCompartor) {
               generated_files[7]};
   ASSERT_NOK(DeprecatedAddFile(in_files));
 
-  // These 2 files dont overlap with each other
+  // These 2 files don't overlap with each other
   in_files = {generated_files[0], generated_files[2]};
   ASSERT_OK(DeprecatedAddFile(in_files));
 
-  // These 2 files dont overlap with each other but overlap with keys in DB
+  // These 2 files don't overlap with each other but overlap with keys in DB
   in_files = {generated_files[3], generated_files[7]};
   ASSERT_NOK(DeprecatedAddFile(in_files));
 
-  // Files dont overlap and dont overlap with DB key range
+  // Files don't overlap and don't overlap with DB key range
   in_files = {generated_files[4], generated_files[6], generated_files[8]};
   ASSERT_OK(DeprecatedAddFile(in_files));
 
@@ -1797,7 +1797,7 @@ TEST_P(ExternalSSTFileTest, IngestFileWithGlobalSeqnoAssignedLevel) {
       options, file_data, -1, true, write_global_seqno,
       verify_checksums_before_ingest, false, false, &true_data));
 
-  // This file dont overlap with anything in the DB, will go to L4
+  // This file don't overlap with anything in the DB, will go to L4
   ASSERT_EQ("0,0,0,0,1", FilesPerLevel());
 
   // Insert 80 -> 130 using AddFile
@@ -1822,7 +1822,7 @@ TEST_P(ExternalSSTFileTest, IngestFileWithGlobalSeqnoAssignedLevel) {
       options, file_data, -1, true, write_global_seqno,
       verify_checksums_before_ingest, false, false, &true_data));
 
-  // This file dont overlap with anything in the DB and fit in L4 as well
+  // This file don't overlap with anything in the DB and fit in L4 as well
   ASSERT_EQ("2,0,0,0,2", FilesPerLevel());
 
   // Insert 10 -> 40 using AddFile
@@ -2059,16 +2059,16 @@ TEST_F(ExternalSSTFileTest, FileWithCFInfo) {
 
   IngestExternalFileOptions ifo;
 
-  // SST CF dont match
+  // SST CF don't match
   ASSERT_NOK(db_->IngestExternalFile(handles_[0], {cf1_sst}, ifo));
-  // SST CF dont match
+  // SST CF don't match
   ASSERT_NOK(db_->IngestExternalFile(handles_[2], {cf1_sst}, ifo));
   // SST CF match
   ASSERT_OK(db_->IngestExternalFile(handles_[1], {cf1_sst}, ifo));
 
-  // SST CF dont match
+  // SST CF don't match
   ASSERT_NOK(db_->IngestExternalFile(handles_[1], {cf_default_sst}, ifo));
-  // SST CF dont match
+  // SST CF don't match
   ASSERT_NOK(db_->IngestExternalFile(handles_[2], {cf_default_sst}, ifo));
   // SST CF match
   ASSERT_OK(db_->IngestExternalFile(handles_[0], {cf_default_sst}, ifo));

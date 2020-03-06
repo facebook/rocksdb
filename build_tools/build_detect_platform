@@ -508,6 +508,20 @@ EOF
         fi
     fi
 
+    if ! test $ROCKSDB_DISABLE_AUXV_GETAUXVAL; then
+        # Test whether getauxval is supported
+        $CXX $CFLAGS -x c++ - -o /dev/null 2>/dev/null  <<EOF
+          #include <sys/auxv.h>
+          int main() {
+            uint64_t auxv = getauxval(AT_HWCAP);
+            (void)auxv;
+          }
+EOF
+        if [ "$?" = 0 ]; then
+            COMMON_FLAGS="$COMMON_FLAGS -DROCKSDB_AUXV_GETAUXVAL_PRESENT"
+        fi
+    fi
+
     if ! test $ROCKSDB_DISABLE_ALIGNED_NEW; then
         # Test whether c++17 aligned-new is supported
         $CXX $PLATFORM_CXXFLAGS -faligned-new -x c++ - -o /dev/null 2>/dev/null <<EOF
