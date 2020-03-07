@@ -22,7 +22,6 @@
 #include <functional>
 #include <limits>
 #include <memory>
-#include <set>
 #include <sstream>
 #include <string>
 #include <vector>
@@ -173,11 +172,13 @@ class FileSystem {
   static std::shared_ptr<FileSystem> Default();
 
   // See Env::OnDbPathsRegistered.
-  virtual Status OnDbPathsRegistered(const std::set<std::string>& /*paths*/) {
+  virtual Status OnDbPathsRegistered(
+      const std::vector<std::string>& /*paths*/) {
     return Status::OK();
   }
   // See Env::OnDbPathsUnregistered.
-  virtual Status OnDbPathsUnregistered(const std::set<std::string>& /*paths*/) {
+  virtual Status OnDbPathsUnregistered(
+      const std::vector<std::string>& /*paths*/) {
     return Status::OK();
   }
 

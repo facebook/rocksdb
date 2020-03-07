@@ -372,35 +372,62 @@ size_t PosixHelper::GetUniqueIdFromFile(int fd, char* id, size_t max_size) {
 #endif
 
 #ifdef OS_LINUX
-void LogicalBufferSizeCache::RefAndCacheLogicalBufferSize(
-    const std::set<std::pair<std::string, int>>& directories) {
-  std::map<int, size_t> fd_sizes;
+std::string RemoveTrailingSlash(const std::string& path) {
+  std::string p = path;
+  if (p.size() > 1 && p.back() == '/') {
+    p.pop_back();
+  }
+  return p;
+}
+
+Status LogicalBlockSizeCache::RefAndCacheLogicalBlockSize(
+    const std::vector<std::string>& directories) {
+  std::vector<std::string> dirs;
+  dirs.reserve(directories.size());
+  for (auto& d : directories) {
+    dirs.emplace_back(RemoveTrailingSlash(d));
+  }
+
+  std::map<std::string, size_t> dir_sizes;
   {
     ReadLock lock(&cache_mutex_);
-    for (auto& fname_fd : directories) {
-      if (cache_.find(fname_fd.first) == cache_.end()) {
-        fd_sizes.emplace(fname_fd.second, 0);
+    for (const auto& dir : dirs) {
+      if (cache_.find(dir) == cache_.end()) {
+        dir_sizes.emplace(dir, 0);
       }
     }
   }
-  for (auto& fd_size : fd_sizes) {
-    fd_size.second = get_logical_buffer_size_(fd_size.first);
-  }
-  WriteLock lock(&cache_mutex_);
-  for (auto& fname_fd : directories) {
-    auto& v = cache_[fname_fd.first];
-    v.ref++;
-    auto fd_size = fd_sizes.find(fname_fd.second);
-    if (fd_size != fd_sizes.end()) {
-      v.size = fd_size->second;
+
+  Status s;
+  for (auto& dir_size : dir_sizes) {
+    s = get_logical_block_size_of_directory_(dir_size.first, &dir_size.second);
+    if (!s.ok()) {
+      return s;
     }
   }
+
+  WriteLock lock(&cache_mutex_);
+  for (const auto& dir : dirs) {
+    auto& v = cache_[dir];
+    v.ref++;
+    auto dir_size = dir_sizes.find(dir);
+    if (dir_size != dir_sizes.end()) {
+      v.size = dir_size->second;
+    }
+  }
+  return Status::OK();
 }
 
-void LogicalBufferSizeCache::UnrefAndTryRemoveCachedLogicalBufferSize(
-    const std::set<std::string>& directories) {
-  WriteLock lock(&cache_mutex_);
+void LogicalBlockSizeCache::UnrefAndTryRemoveCachedLogicalBlockSize(
+    const std::vector<std::string>& directories) {
+  std::vector<std::string> dirs;
+  dirs.reserve(directories.size());
   for (auto& dir : directories) {
+    dirs.emplace_back(RemoveTrailingSlash(dir));
+  }
+
+  WriteLock lock(&cache_mutex_);
+  for (const auto& dir : dirs) {
     auto it = cache_.find(dir);
     if (it != cache_.end() && !(--it->second.ref)) {
       cache_.erase(it);
@@ -408,9 +435,12 @@ void LogicalBufferSizeCache::UnrefAndTryRemoveCachedLogicalBufferSize(
   }
 }
 
-size_t LogicalBufferSizeCache::GetLogicalBufferSize(const std::string& fname,
-                                                    int fd) {
+size_t LogicalBlockSizeCache::GetLogicalBlockSize(const std::string& fname,
+                                                  int fd) {
   std::string dir = fname.substr(0, fname.find_last_of("/"));
+  if (dir.empty()) {
+    dir = "/";
+  }
   {
     ReadLock lock(&cache_mutex_);
     auto it = cache_.find(dir);
@@ -418,11 +448,24 @@ size_t LogicalBufferSizeCache::GetLogicalBufferSize(const std::string& fname,
       return it->second.size;
     }
   }
-  return get_logical_buffer_size_(fd);
+  return get_logical_block_size_of_fd_(fd);
 }
 #endif
 
-size_t PosixHelper::GetLogicalBufferSize(int __attribute__((__unused__)) fd) {
+Status PosixHelper::GetLogicalBlockSizeOfDirectory(const std::string& directory,
+                                                   size_t* size) {
+  int fd = open(directory.c_str(), O_DIRECTORY | O_RDONLY);
+  if (fd == -1) {
+    close(fd);
+    return Status::IOError("Cannot open directory " + directory);
+  }
+  *size = PosixHelper::GetLogicalBlockSizeOfFd(fd);
+  close(fd);
+  return Status::OK();
+}
+
+size_t PosixHelper::GetLogicalBlockSizeOfFd(int __attribute__((__unused__))
+                                            fd) {
 #ifdef OS_LINUX
   struct stat buf;
   int result = fstat(fd, &buf);

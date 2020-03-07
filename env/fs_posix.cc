@@ -178,9 +178,8 @@ class PosixFileSystem : public FileSystem {
                        errno);
       }
     }
-    result->reset(new PosixSequentialFile(fname, file, fd,
-                                          logical_buffer_size(fname, fd),
-                                          options));
+    result->reset(new PosixSequentialFile(
+        fname, file, fd, GetLogicalBlockSize(fname, fd), options));
     return IOStatus::OK();
   }
 
@@ -239,14 +238,13 @@ class PosixFileSystem : public FileSystem {
         }
 #endif
       }
-      result->reset(new PosixRandomAccessFile(fname, fd,
-                                              logical_buffer_size(fname, fd),
-                                              options
+      result->reset(new PosixRandomAccessFile(
+          fname, fd, GetLogicalBlockSize(fname, fd), options
 #if defined(ROCKSDB_IOURING_PRESENT)
-                                              ,
-                                              thread_local_io_urings_.get()
+          ,
+          thread_local_io_urings_.get()
 #endif
-                                                  ));
+              ));
     }
     return s;
   }
@@ -327,16 +325,14 @@ class PosixFileSystem : public FileSystem {
         }
       }
 #endif
-      result->reset(new PosixWritableFile(fname, fd,
-                                          logical_buffer_size(fname, fd),
-                                          options));
+      result->reset(new PosixWritableFile(
+          fname, fd, GetLogicalBlockSize(fname, fd), options));
     } else {
       // disable mmap writes
       EnvOptions no_mmap_writes_options = options;
       no_mmap_writes_options.use_mmap_writes = false;
-      result->reset(new PosixWritableFile(fname, fd,
-                                          logical_buffer_size(fname, fd),
-                                          no_mmap_writes_options));
+      result->reset(new PosixWritableFile(
+          fname, fd, GetLogicalBlockSize(fname, fd), no_mmap_writes_options));
     }
     return s;
   }
@@ -431,16 +427,14 @@ class PosixFileSystem : public FileSystem {
         }
       }
 #endif
-      result->reset(new PosixWritableFile(fname, fd,
-                                          logical_buffer_size(fname, fd),
-                                          options));
+      result->reset(new PosixWritableFile(
+          fname, fd, GetLogicalBlockSize(fname, fd), options));
     } else {
       // disable mmap writes
       FileOptions no_mmap_writes_options = options;
       no_mmap_writes_options.use_mmap_writes = false;
-      result->reset(new PosixWritableFile(fname, fd,
-                                          logical_buffer_size(fname, fd),
-                                          no_mmap_writes_options));
+      result->reset(new PosixWritableFile(
+          fname, fd, GetLogicalBlockSize(fname, fd), no_mmap_writes_options));
     }
     return s;
   }
@@ -846,24 +840,11 @@ class PosixFileSystem : public FileSystem {
     return optimized;
   }
 #ifdef OS_LINUX
-  Status OnDbPathsRegistered(const std::set<std::string>& paths) override {
-    std::set<std::pair<std::string, int>> fname_fds;
-    for (auto path : paths) {
-      // Remove trailing slash.
-      if (path.size() > 1 && path.back() == '/') {
-        path.pop_back();
-      }
-      int fd = open(path.c_str(), O_DIRECTORY | O_RDONLY);
-      if (fd == -1) {
-        return Status::IOError("Cannot open directory " + path);
-      }
-      fname_fds.emplace(path, fd);
-    }
-    logical_buffer_size_cache_.RefAndCacheLogicalBufferSize(fname_fds);
-    return Status::OK();
+  Status OnDbPathsRegistered(const std::vector<std::string>& paths) override {
+    return logical_block_size_cache_.RefAndCacheLogicalBlockSize(paths);
   }
-  Status OnDbPathsUnregistered(const std::set<std::string>& paths) override {
-    logical_buffer_size_cache_.UnrefAndTryRemoveCachedLogicalBufferSize(paths);
+  Status OnDbPathsUnregistered(const std::vector<std::string>& paths) override {
+    logical_block_size_cache_.UnrefAndTryRemoveCachedLogicalBlockSize(paths);
     return Status::OK();
   }
 #endif
@@ -914,21 +895,21 @@ class PosixFileSystem : public FileSystem {
   bool allow_non_owner_access_;
 
 #ifdef OS_LINUX
-  static LogicalBufferSizeCache logical_buffer_size_cache_;
+  static LogicalBlockSizeCache logical_block_size_cache_;
 #endif
-  static size_t logical_buffer_size(const std::string& fname, int fd);
+  static size_t GetLogicalBlockSize(const std::string& fname, int fd);
 };
 
 #ifdef OS_LINUX
-LogicalBufferSizeCache PosixFileSystem::logical_buffer_size_cache_;
+LogicalBlockSizeCache PosixFileSystem::logical_block_size_cache_;
 #endif
 
-size_t PosixFileSystem::logical_buffer_size(const std::string& fname, int fd) {
+size_t PosixFileSystem::GetLogicalBlockSize(const std::string& fname, int fd) {
 #ifdef OS_LINUX
-  return logical_buffer_size_cache_.GetLogicalBufferSize(fname, fd);
+  return logical_block_size_cache_.GetLogicalBlockSize(fname, fd);
 #else
   (void) fname;
-  return PosixHelper::GetLogicalBufferSize(fd);
+  return PosixHelper::GetLogicalBlockSize(fd);
 #endif
 }
 

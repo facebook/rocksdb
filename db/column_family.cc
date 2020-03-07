@@ -602,9 +602,10 @@ ColumnFamilyData::~ColumnFamilyData() {
     delete m;
   }
 
-  std::set<std::string> paths;
+  std::vector<std::string> paths;
+  paths.reserve(ioptions_.cf_paths.size());
   for (const DbPath& cf_path : ioptions_.cf_paths) {
-    paths.insert(cf_path.path);
+    paths.emplace_back(cf_path.path);
   }
   Status s = ioptions_.env->OnDbPathsUnregistered(paths);
   if (!s.ok()) {

@@ -163,14 +163,15 @@ Status DB::OpenForReadOnly(
   SuperVersionContext sv_context(/* create_superversion */ true);
   DBImplReadOnly* impl = new DBImplReadOnly(db_options, dbname);
 
-  std::set<std::string> paths;
-  paths.insert(dbname);
+  std::vector<std::string> paths;
+  paths.reserve(1 + db_options.db_paths.size());
+  paths.emplace_back(dbname);
   for (const DbPath& db_path : db_options.db_paths) {
-    paths.insert(db_path.path);
+    paths.emplace_back(db_path.path);
   }
   for (const ColumnFamilyDescriptor& cfd : column_families) {
     for (const DbPath& cf_path : cfd.options.cf_paths) {
-      paths.insert(cf_path.path);
+      paths.emplace_back(cf_path.path);
     }
   }
   Status s = impl->env_->OnDbPathsRegistered(paths);

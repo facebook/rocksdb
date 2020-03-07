@@ -16,7 +16,6 @@
 #include <atomic>
 #include <functional>
 #include <map>
-#include <set>
 #include <string>
 #include <utility>
 #include "port/port.h"
@@ -46,43 +45,48 @@ IOStatus IOError(const std::string& context, const std::string& file_name,
 class PosixHelper {
  public:
   static size_t GetUniqueIdFromFile(int fd, char* id, size_t max_size);
-  static size_t GetLogicalBufferSize(int fd);
+  static size_t GetLogicalBlockSizeOfFd(int fd);
+  static Status GetLogicalBlockSizeOfDirectory(const std::string& directory,
+                                               size_t* size);
 };
 
 #ifdef OS_LINUX
-// Files under a specific directory have the same logical buffer size.
-// This class caches the logical buffer size for the specified directories to
+// Files under a specific directory have the same logical block size.
+// This class caches the logical block size for the specified directories to
 // save the CPU cost of computing the size.
 // Safe for concurrent access from multiple threads without any external
 // synchronization.
-class LogicalBufferSizeCache {
+class LogicalBlockSizeCache {
  public:
-  LogicalBufferSizeCache(std::function<size_t(int)> get_logical_buffer_size =
-                             PosixHelper::GetLogicalBufferSize)
-      : get_logical_buffer_size_(get_logical_buffer_size) {}
+  LogicalBlockSizeCache(
+      std::function<size_t(int)> get_logical_block_size_of_fd =
+          PosixHelper::GetLogicalBlockSizeOfFd,
+      std::function<Status(const std::string&, size_t*)>
+          get_logical_block_size_of_directory =
+              PosixHelper::GetLogicalBlockSizeOfDirectory)
+      : get_logical_block_size_of_fd_(get_logical_block_size_of_fd),
+        get_logical_block_size_of_directory_(
+            get_logical_block_size_of_directory) {}
 
   // Takes the following actions:
   // 1. Increases reference count of the directories;
-  // 2. If the directory's logical buffer size is not cached,
+  // 2. If the directory's logical block size is not cached,
   //    compute the buffer size and cache the result.
-  // NOTE: directory must not have trailing slash.
-  // directories is a set of <fname, fd> pairs.
-  void RefAndCacheLogicalBufferSize(
-      const std::set<std::pair<std::string, int>>& directories);
+  Status RefAndCacheLogicalBlockSize(
+      const std::vector<std::string>& directories);
 
   // Takes the following actions:
   // 1. Decreases reference count of the directories;
   // 2. If the reference count of a directory reaches 0, remove the directory
   //    from the cache.
-  // NOTE: directory must not have trailing slash.
-  void UnrefAndTryRemoveCachedLogicalBufferSize(
-      const std::set<std::string>& directories);
+  void UnrefAndTryRemoveCachedLogicalBlockSize(
+      const std::vector<std::string>& directories);
 
-  // Returns the logical buffer size for the file.
+  // Returns the logical block size for the file.
   //
   // If the file is under a cached directory, return the cached size.
   // Otherwise, the size is computed.
-  size_t GetLogicalBufferSize(const std::string& fname, int fd);
+  size_t GetLogicalBlockSize(const std::string& fname, int fd);
 
  private:
   struct CacheValue {
@@ -94,7 +98,9 @@ class LogicalBufferSizeCache {
     int ref;
   };
 
-  std::function<size_t(int)> get_logical_buffer_size_;
+  std::function<size_t(int)> get_logical_block_size_of_fd_;
+  std::function<Status(const std::string&, size_t*)>
+      get_logical_block_size_of_directory_;
 
   std::map<std::string, CacheValue> cache_;
   port::RWMutex cache_mutex_;

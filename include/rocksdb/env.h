@@ -21,7 +21,6 @@
 #include <functional>
 #include <limits>
 #include <memory>
-#include <set>
 #include <string>
 #include <vector>
 #include "rocksdb/status.h"
@@ -177,7 +176,8 @@ class Env {
   //
   // Different implementations may take different actions.
   // By default, it's a no-op.
-  virtual Status OnDbPathsRegistered(const std::set<std::string>& /*paths*/) {
+  virtual Status OnDbPathsRegistered(
+      const std::vector<std::string>& /*paths*/) {
     return Status::OK();
   }
   // Handles the event a DB or a ColumnFamily stops using the specified data
@@ -187,7 +187,8 @@ class Env {
   //
   // Different implementations may take different actions.
   // By default, it's a no-op.
-  virtual Status OnDbPathsUnregistered(const std::set<std::string>& /*paths*/) {
+  virtual Status OnDbPathsUnregistered(
+      const std::vector<std::string>& /*paths*/) {
     return Status::OK();
   }
 

@@ -1378,13 +1378,15 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
   DBImpl* impl = new DBImpl(db_options, dbname, seq_per_batch, batch_per_txn);
   s = impl->env_->CreateDirIfMissing(impl->immutable_db_options_.wal_dir);
   if (s.ok()) {
-    std::set<std::string> paths;
-    for (auto& db_path : impl->immutable_db_options_.db_paths) {
-      paths.insert(db_path.path);
+    std::vector<std::string> paths;
+    const auto& db_paths = impl->immutable_db_options_.db_paths;
+    paths.reserve(1 + db_paths.size());
+    for (auto& db_path : db_paths) {
+      paths.emplace_back(db_path.path);
     }
     for (auto& cf : column_families) {
       for (auto& cf_path : cf.options.cf_paths) {
-        paths.insert(cf_path.path);
+        paths.emplace_back(cf_path.path);
       }
     }
     for (auto& path : paths) {
@@ -1393,15 +1395,21 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
         break;
       }
     }
-
-    // For recovery from NoSpace() error, we can only handle
-    // the case where the database is stored in a single path
-    if (paths.size() <= 1) {
-      impl->error_handler_.EnableAutoRecovery();
+    if (s.ok()) {
+      // dbname must already exist before Open.
+      paths.emplace_back(dbname);
+      s = impl->env_->OnDbPathsRegistered(paths);
+      if (s.ok()) {
+        // Remove duplicated paths.
+        std::sort(paths.begin(), paths.end());
+        paths.erase(std::unique(paths.begin(), paths.end()), paths.end());
+        // For recovery from NoSpace() error, we can only handle
+        // the case where the database is stored in a single path
+        if (paths.size() <= 1) {
+          impl->error_handler_.EnableAutoRecovery();
+        }
+      }
     }
-
-    paths.insert(dbname);
-    s = impl->env_->OnDbPathsRegistered(paths);
   }
   if (s.ok()) {
     s = impl->CreateArchivalDirectory();

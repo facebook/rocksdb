@@ -11,80 +11,107 @@
 namespace ROCKSDB_NAMESPACE {
 
 #ifdef OS_LINUX
-class LogicalBufferSizeCacheTest : public testing::Test {};
+class LogicalBlockSizeCacheTest : public testing::Test {};
 
 // Tests the caching behavior.
-TEST_F(LogicalBufferSizeCacheTest, Cache) {
+TEST_F(LogicalBlockSizeCacheTest, Cache) {
   int ncall = 0;
-  LogicalBufferSizeCache cache([&](int fd) {
+  auto get_fd_block_size = [&](int fd) {
     ncall++;
     return fd;
-  });
+  };
+  std::map<std::string, int> dir_fds{
+      {"/", 0},
+      {"/db", 1},
+      {"/db1", 2},
+      {"/db2", 3},
+  };
+  auto get_dir_block_size = [&](const std::string& dir, size_t* size) {
+    ncall++;
+    *size = dir_fds[dir];
+    return Status::OK();
+  };
+  LogicalBlockSizeCache cache(get_fd_block_size, get_dir_block_size);
   ASSERT_EQ(0, ncall);
 
-  ASSERT_EQ(7, cache.GetLogicalBufferSize("/db/sst1", 7));
+  ASSERT_EQ(6, cache.GetLogicalBlockSize("/sst", 6));
   ASSERT_EQ(1, ncall);
-  ASSERT_EQ(8, cache.GetLogicalBufferSize("/db/sst2", 8));
+  ASSERT_EQ(7, cache.GetLogicalBlockSize("/db/sst1", 7));
   ASSERT_EQ(2, ncall);
+  ASSERT_EQ(8, cache.GetLogicalBlockSize("/db/sst2", 8));
+  ASSERT_EQ(3, ncall);
 
-  cache.RefAndCacheLogicalBufferSize({{"/db1", 1}, {"/db2", 2}});
-  ASSERT_EQ(4, ncall);
+  ASSERT_OK(cache.RefAndCacheLogicalBlockSize({"/", "/db1/", "/db2"}));
+  ASSERT_EQ(6, ncall);
+  // Block size for / is cached.
+  ASSERT_EQ(0, cache.GetLogicalBlockSize("/sst", 6));
+  ASSERT_EQ(6, ncall);
   // No cached size for /db.
-  ASSERT_EQ(7, cache.GetLogicalBufferSize("/db/sst1", 7));
-  ASSERT_EQ(5, ncall);
-  ASSERT_EQ(8, cache.GetLogicalBufferSize("/db/sst2", 8));
-  ASSERT_EQ(6, ncall);
-  // Buffer size for /db1 is cached.
-  ASSERT_EQ(1, cache.GetLogicalBufferSize("/db1/sst1", 4));
-  ASSERT_EQ(6, ncall);
-  ASSERT_EQ(1, cache.GetLogicalBufferSize("/db1/sst2", 5));
-  ASSERT_EQ(6, ncall);
-  // Buffer size for /db2 is cached.
-  ASSERT_EQ(2, cache.GetLogicalBufferSize("/db2/sst1", 6));
-  ASSERT_EQ(6, ncall);
-  ASSERT_EQ(2, cache.GetLogicalBufferSize("/db2/sst2", 7));
-  ASSERT_EQ(6, ncall);
+  ASSERT_EQ(7, cache.GetLogicalBlockSize("/db/sst1", 7));
+  ASSERT_EQ(7, ncall);
+  ASSERT_EQ(8, cache.GetLogicalBlockSize("/db/sst2", 8));
+  ASSERT_EQ(8, ncall);
+  // Block size for /db1 is cached.
+  ASSERT_EQ(2, cache.GetLogicalBlockSize("/db1/sst1", 4));
+  ASSERT_EQ(8, ncall);
+  ASSERT_EQ(2, cache.GetLogicalBlockSize("/db1/sst2", 5));
+  ASSERT_EQ(8, ncall);
+  // Block size for /db2 is cached.
+  ASSERT_EQ(3, cache.GetLogicalBlockSize("/db2/sst1", 6));
+  ASSERT_EQ(8, ncall);
+  ASSERT_EQ(3, cache.GetLogicalBlockSize("/db2/sst2", 7));
+  ASSERT_EQ(8, ncall);
 
-  cache.RefAndCacheLogicalBufferSize({{"/db", 3}});
-  ASSERT_EQ(7, ncall);
-  // Buffer size for /db is cached.
-  ASSERT_EQ(3, cache.GetLogicalBufferSize("/db/sst1", 7));
-  ASSERT_EQ(7, ncall);
-  ASSERT_EQ(3, cache.GetLogicalBufferSize("/db/sst2", 8));
-  ASSERT_EQ(7, ncall);
+  cache.RefAndCacheLogicalBlockSize({"/db"});
+  ASSERT_EQ(9, ncall);
+  // Block size for /db is cached.
+  ASSERT_EQ(1, cache.GetLogicalBlockSize("/db/sst1", 7));
+  ASSERT_EQ(9, ncall);
+  ASSERT_EQ(1, cache.GetLogicalBlockSize("/db/sst2", 8));
+  ASSERT_EQ(9, ncall);
 }
 
 // Tests the reference counting behavior.
-TEST_F(LogicalBufferSizeCacheTest, Ref) {
+TEST_F(LogicalBlockSizeCacheTest, Ref) {
   int ncall = 0;
-  LogicalBufferSizeCache cache([&](int fd) {
+  auto get_fd_block_size = [&](int fd) {
     ncall++;
     return fd;
-  });
+  };
+  std::map<std::string, int> dir_fds{
+      {"/db", 0},
+  };
+  auto get_dir_block_size = [&](const std::string& dir, size_t* size) {
+    ncall++;
+    *size = dir_fds[dir];
+    return Status::OK();
+  };
+  LogicalBlockSizeCache cache(get_fd_block_size, get_dir_block_size);
+
   ASSERT_EQ(0, ncall);
 
-  ASSERT_EQ(1, cache.GetLogicalBufferSize("/db/sst0", 1));
+  ASSERT_EQ(1, cache.GetLogicalBlockSize("/db/sst0", 1));
   ASSERT_EQ(1, ncall);
 
-  cache.RefAndCacheLogicalBufferSize({{"/db", 2}});
+  cache.RefAndCacheLogicalBlockSize({"/db"});
   ASSERT_EQ(2, ncall);
-  // Buffer size for /db is cached. Ref count = 1.
-  ASSERT_EQ(2, cache.GetLogicalBufferSize("/db/sst1", 1));
+  // Block size for /db is cached. Ref count = 1.
+  ASSERT_EQ(0, cache.GetLogicalBlockSize("/db/sst1", 1));
   ASSERT_EQ(2, ncall);
 
   // Ref count = 2, but won't recompute the cached buffer size.
-  cache.RefAndCacheLogicalBufferSize({{"/db", 2}});
+  cache.RefAndCacheLogicalBlockSize({"/db"});
   ASSERT_EQ(2, ncall);
 
   // Ref count = 1.
-  cache.UnrefAndTryRemoveCachedLogicalBufferSize({{"/db"}});
-  // Buffer size for /db is still cached.
-  ASSERT_EQ(2, cache.GetLogicalBufferSize("/db/sst2", 1));
+  cache.UnrefAndTryRemoveCachedLogicalBlockSize({"/db"});
+  // Block size for /db is still cached.
+  ASSERT_EQ(0, cache.GetLogicalBlockSize("/db/sst2", 1));
   ASSERT_EQ(2, ncall);
 
   // Ref count = 0 and cached buffer size for /db is removed.
-  cache.UnrefAndTryRemoveCachedLogicalBufferSize({{"/db"}});
-  ASSERT_EQ(1, cache.GetLogicalBufferSize("/db/sst0", 1));
+  cache.UnrefAndTryRemoveCachedLogicalBlockSize({"/db"});
+  ASSERT_EQ(1, cache.GetLogicalBlockSize("/db/sst0", 1));
   ASSERT_EQ(3, ncall);
 }
 #endif

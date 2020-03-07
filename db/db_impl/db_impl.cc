@@ -561,14 +561,15 @@ Status DBImpl::CloseHelper() {
     delete txn_entry.second;
   }
 
-  std::set<std::string> db_paths;
-  db_paths.insert(dbname_);
+  std::vector<std::string> db_paths;
+  db_paths.reserve(1 + initial_db_options_.db_paths.size());
+  db_paths.emplace_back(dbname_);
   for (const DbPath& db_path : initial_db_options_.db_paths) {
-    db_paths.insert(db_path.path);
+    db_paths.emplace_back(db_path.path);
   }
   for (ColumnFamilyData* cf : *versions_->GetColumnFamilySet()) {
     for (const DbPath& cf_path : cf->ioptions()->cf_paths) {
-      db_paths.insert(cf_path.path);
+      db_paths.emplace_back(cf_path.path);
     }
   }
 
@@ -2276,13 +2277,14 @@ Status DBImpl::CreateColumnFamilyImpl(const ColumnFamilyOptions& cf_options,
       BuildDBOptions(immutable_db_options_, mutable_db_options_);
   s = ColumnFamilyData::ValidateOptions(db_options, cf_options);
   if (s.ok()) {
-    std::set<std::string> paths;
+    std::vector<std::string> paths;
+    paths.reserve(cf_options.cf_paths.size());
     for (const DbPath& cf_path : cf_options.cf_paths) {
       s = env_->CreateDirIfMissing(cf_path.path);
       if (!s.ok()) {
         break;
       }
-      paths.insert(cf_path.path);
+      paths.emplace_back(cf_path.path);
     }
     if (s.ok()) {
       s = env_->OnDbPathsRegistered(paths);
@@ -3609,14 +3611,6 @@ Status DestroyDB(const std::string& dbname, const Options& options,
     soptions.sst_file_manager.reset();
 
     env->DeleteDir(dbname);  // Ignore error in case dir contains other files
-
-    paths.insert(dbname);
-    Status s = env->OnDbPathsUnregistered(paths);
-    if (!s.ok()) {
-      ROCKS_LOG_ERROR(soptions.info_log,
-                      "Failed to unregister data paths of DB %s from env",
-                      dbname.c_str());
-    }
   }
   return result;
 }
