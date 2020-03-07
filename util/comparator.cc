@@ -125,7 +125,9 @@ class BytewiseComparatorImpl : public Comparator {
     return false;
   }
 
-  int CompareWithoutTimestamp(const Slice& a, const Slice& b) const override {
+  using Comparator::CompareWithoutTimestamp;
+  int CompareWithoutTimestamp(const Slice& a, bool /*a_has_ts*/, const Slice& b,
+                              bool /*b_has_ts*/) const override {
     return a.compare(b);
   }
 };
@@ -197,7 +199,9 @@ class ReverseBytewiseComparatorImpl : public BytewiseComparatorImpl {
     return false;
   }
 
-  int CompareWithoutTimestamp(const Slice& a, const Slice& b) const override {
+  using Comparator::CompareWithoutTimestamp;
+  int CompareWithoutTimestamp(const Slice& a, bool /*a_has_ts*/, const Slice& b,
+                              bool /*b_has_ts*/) const override {
     return -a.compare(b);
   }
 };
