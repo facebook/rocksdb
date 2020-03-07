@@ -32,7 +32,7 @@ class BlobFileStateTest : public testing::Test {
 TEST_F(BlobFileStateTest, Empty) {
   BlobFileGarbage blob_file_garbage;
 
-  ASSERT_EQ(blob_file_garbage.GetBlobFileNumber(), 0 /* FIXME kInvalidBlobFileNumber */);
+  ASSERT_EQ(blob_file_garbage.GetBlobFileNumber(), kInvalidBlobFileNumber);
   ASSERT_EQ(blob_file_garbage.GetGarbageBlobCount(), 0);
   ASSERT_EQ(blob_file_garbage.GetGarbageBlobBytes(), 0);
 

@@ -5,6 +5,7 @@
 
 #pragma once
 
+#include "db/blob_constants.h"
 #include "rocksdb/rocksdb_namespace.h"
 
 #include <cassert>
@@ -13,8 +14,6 @@
 #include <string>
 
 namespace ROCKSDB_NAMESPACE {
-
-constexpr uint64_t kInvalidBlobFileNumber = 0;
 
 class JSONWriter;
 class Slice;

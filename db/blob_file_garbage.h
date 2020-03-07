@@ -5,6 +5,7 @@
 
 #pragma once
 
+#include "db/blob_constants.h"
 #include "rocksdb/rocksdb_namespace.h"
 
 #include <cassert>
@@ -39,7 +40,7 @@ class BlobFileGarbage {
   std::string DebugJSON() const;
 
  private:
-  uint64_t blob_file_number_ = 0; // FIXME kInvalidBlobFileNumber
+  uint64_t blob_file_number_ = kInvalidBlobFileNumber;
   uint64_t garbage_blob_count_ = 0;
   uint64_t garbage_blob_bytes_ = 0;
 };
