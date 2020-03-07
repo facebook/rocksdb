@@ -14,7 +14,7 @@
 
 namespace ROCKSDB_NAMESPACE {
 
-class BlobFileStateTest : public testing::Test {
+class BlobFileAdditionTest : public testing::Test {
  public:
   static void TestEncodeDecode(const BlobFileAddition& blob_file_addition) {
     std::string encoded;
@@ -28,7 +28,7 @@ class BlobFileStateTest : public testing::Test {
   }
 };
 
-TEST_F(BlobFileStateTest, Empty) {
+TEST_F(BlobFileAdditionTest, Empty) {
   BlobFileAddition blob_file_addition;
 
   ASSERT_EQ(blob_file_addition.GetBlobFileNumber(), kInvalidBlobFileNumber);
@@ -40,7 +40,7 @@ TEST_F(BlobFileStateTest, Empty) {
   TestEncodeDecode(blob_file_addition);
 }
 
-TEST_F(BlobFileStateTest, NonEmpty) {
+TEST_F(BlobFileAdditionTest, NonEmpty) {
   constexpr uint64_t blob_file_number = 123;
   constexpr uint64_t total_blob_count = 2;
   constexpr uint64_t total_blob_bytes = 123456;
@@ -60,7 +60,7 @@ TEST_F(BlobFileStateTest, NonEmpty) {
   TestEncodeDecode(blob_file_addition);
 }
 
-TEST_F(BlobFileStateTest, DecodeErrors) {
+TEST_F(BlobFileAdditionTest, DecodeErrors) {
   std::string str;
   Slice slice(str);
 
@@ -133,7 +133,7 @@ TEST_F(BlobFileStateTest, DecodeErrors) {
   }
 }
 
-TEST_F(BlobFileStateTest, ForwardCompatibleCustomField) {
+TEST_F(BlobFileAdditionTest, ForwardCompatibleCustomField) {
   SyncPoint::GetInstance()->SetCallBack(
       "BlobFileAddition::EncodeTo::CustomFields", [&](void* arg) {
         std::string* output = static_cast<std::string*>(arg);
@@ -161,7 +161,7 @@ TEST_F(BlobFileStateTest, ForwardCompatibleCustomField) {
   SyncPoint::GetInstance()->ClearAllCallBacks();
 }
 
-TEST_F(BlobFileStateTest, ForwardIncompatibleCustomField) {
+TEST_F(BlobFileAdditionTest, ForwardIncompatibleCustomField) {
   SyncPoint::GetInstance()->SetCallBack(
       "BlobFileAddition::EncodeTo::CustomFields", [&](void* arg) {
         std::string* output = static_cast<std::string*>(arg);

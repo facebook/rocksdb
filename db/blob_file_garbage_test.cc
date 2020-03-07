@@ -14,7 +14,7 @@
 
 namespace ROCKSDB_NAMESPACE {
 
-class BlobFileStateTest : public testing::Test {
+class BlobFileGarbageTest : public testing::Test {
  public:
   static void TestEncodeDecode(const BlobFileGarbage& blob_file_garbage) {
     std::string encoded;
@@ -28,7 +28,7 @@ class BlobFileStateTest : public testing::Test {
   }
 };
 
-TEST_F(BlobFileStateTest, Empty) {
+TEST_F(BlobFileGarbageTest, Empty) {
   BlobFileGarbage blob_file_garbage;
 
   ASSERT_EQ(blob_file_garbage.GetBlobFileNumber(), kInvalidBlobFileNumber);
@@ -38,7 +38,7 @@ TEST_F(BlobFileStateTest, Empty) {
   TestEncodeDecode(blob_file_garbage);
 }
 
-TEST_F(BlobFileStateTest, NonEmpty) {
+TEST_F(BlobFileGarbageTest, NonEmpty) {
   constexpr uint64_t blob_file_number = 123;
   constexpr uint64_t garbage_blob_count = 1;
   constexpr uint64_t garbage_blob_bytes = 9876;
