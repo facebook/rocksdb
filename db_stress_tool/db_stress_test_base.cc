@@ -771,7 +771,7 @@ std::vector<std::string> StressTest::GetWhiteBoxKeys(ThreadState* thread,
           k[i] = static_cast<char>(cur - 1);
           break;
         } else if (i > 0) {
-          k[i] = 0xFF;
+          k[i] = static_cast<char>(0xFF);
         }
       }
     } else if (thread->rand.OneIn(2)) {
