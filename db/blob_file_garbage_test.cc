@@ -16,16 +16,15 @@ namespace ROCKSDB_NAMESPACE {
 
 class BlobFileStateTest : public testing::Test {
  public:
-  template <class T>
-  static void TestEncodeDecode(const T& t) {
+  static void TestEncodeDecode(const BlobFileGarbage& blob_file_garbage) {
     std::string encoded;
-    t.EncodeTo(&encoded);
+    blob_file_garbage.EncodeTo(&encoded);
 
-    T decoded;
+    BlobFileGarbage decoded;
     Slice input(encoded);
     ASSERT_OK(decoded.DecodeFrom(&input));
 
-    ASSERT_EQ(t, decoded);
+    ASSERT_EQ(blob_file_garbage, decoded);
   }
 };
 
