@@ -8,7 +8,6 @@
 #include "db/blob_constants.h"
 #include "rocksdb/rocksdb_namespace.h"
 
-#include <cassert>
 #include <cstdint>
 #include <iosfwd>
 #include <string>
