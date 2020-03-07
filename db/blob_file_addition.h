@@ -63,38 +63,4 @@ std::ostream& operator<<(std::ostream& os,
 JSONWriter& operator<<(JSONWriter& jw,
                        const BlobFileAddition& blob_file_addition);
 
-class BlobFileGarbage {
- public:
-  BlobFileGarbage() = default;
-
-  BlobFileGarbage(uint64_t blob_file_number, uint64_t garbage_blob_count,
-                  uint64_t garbage_blob_bytes)
-      : blob_file_number_(blob_file_number),
-        garbage_blob_count_(garbage_blob_count),
-        garbage_blob_bytes_(garbage_blob_bytes) {}
-
-  uint64_t GetBlobFileNumber() const { return blob_file_number_; }
-  uint64_t GetGarbageBlobCount() const { return garbage_blob_count_; }
-  uint64_t GetGarbageBlobBytes() const { return garbage_blob_bytes_; }
-
-  void EncodeTo(std::string* output) const;
-  Status DecodeFrom(Slice* input);
-
-  std::string DebugString() const;
-  std::string DebugJSON() const;
-
- private:
-  uint64_t blob_file_number_ = kInvalidBlobFileNumber;
-  uint64_t garbage_blob_count_ = 0;
-  uint64_t garbage_blob_bytes_ = 0;
-};
-
-bool operator==(const BlobFileGarbage& lhs, const BlobFileGarbage& rhs);
-bool operator!=(const BlobFileGarbage& lhs, const BlobFileGarbage& rhs);
-
-std::ostream& operator<<(std::ostream& os,
-                         const BlobFileGarbage& blob_file_garbage);
-JSONWriter& operator<<(JSONWriter& jw,
-                       const BlobFileGarbage& blob_file_garbage);
-
 }  // namespace ROCKSDB_NAMESPACE

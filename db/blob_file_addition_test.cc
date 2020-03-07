@@ -3,7 +3,7 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
-#include "db/blob_file_state.h"
+#include "db/blob_file_addition.h"
 #include "test_util/sync_point.h"
 #include "test_util/testharness.h"
 #include "util/coding.h"
@@ -39,14 +39,6 @@ TEST_F(BlobFileStateTest, Empty) {
   ASSERT_TRUE(blob_file_addition.GetChecksumValue().empty());
 
   TestEncodeDecode(blob_file_addition);
-
-  BlobFileGarbage blob_file_garbage;
-
-  ASSERT_EQ(blob_file_garbage.GetBlobFileNumber(), kInvalidBlobFileNumber);
-  ASSERT_EQ(blob_file_garbage.GetGarbageBlobCount(), 0);
-  ASSERT_EQ(blob_file_garbage.GetGarbageBlobBytes(), 0);
-
-  TestEncodeDecode(blob_file_garbage);
 }
 
 TEST_F(BlobFileStateTest, NonEmpty) {
@@ -67,18 +59,6 @@ TEST_F(BlobFileStateTest, NonEmpty) {
   ASSERT_EQ(blob_file_addition.GetChecksumValue(), checksum_value);
 
   TestEncodeDecode(blob_file_addition);
-
-  constexpr uint64_t garbage_blob_count = 1;
-  constexpr uint64_t garbage_blob_bytes = 9876;
-
-  BlobFileGarbage blob_file_garbage(blob_file_number, garbage_blob_count,
-                                    garbage_blob_bytes);
-
-  ASSERT_EQ(blob_file_garbage.GetBlobFileNumber(), blob_file_number);
-  ASSERT_EQ(blob_file_garbage.GetGarbageBlobCount(), garbage_blob_count);
-  ASSERT_EQ(blob_file_garbage.GetGarbageBlobBytes(), garbage_blob_bytes);
-
-  TestEncodeDecode(blob_file_garbage);
 }
 
 TEST_F(BlobFileStateTest, DecodeErrors) {
