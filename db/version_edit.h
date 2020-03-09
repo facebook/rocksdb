@@ -351,18 +351,36 @@ class VersionEdit {
   void AddBlobFile(uint64_t blob_file_number, uint64_t total_blob_count,
                    uint64_t total_blob_bytes, std::string checksum_method,
                    std::string checksum_value) {
-    new_blob_files_.emplace_back(blob_file_number, total_blob_count,
-                                 total_blob_bytes, std::move(checksum_method),
-                                 std::move(checksum_value));
+    blob_file_additions_.emplace_back(
+        blob_file_number, total_blob_count, total_blob_bytes,
+        std::move(checksum_method), std::move(checksum_value));
   }
 
   // Retrieve all the blob files added.
-  using NewBlobFiles = std::vector<BlobFileAddition>;
-  const NewBlobFiles& GetNewBlobFiles() const { return new_blob_files_; }
+  using BlobFileAdditions = std::vector<BlobFileAddition>;
+  const BlobFileAdditions& GetBlobFileAdditions() const {
+    return blob_file_additions_;
+  }
+
+  // Add garbage for an existing blob file.  Note: intentionally broken English
+  // follows.
+  void AddBlobFileGarbage(uint64_t blob_file_number,
+                          uint64_t garbage_blob_count,
+                          uint64_t garbage_blob_bytes) {
+    blob_file_garbages_.emplace_back(blob_file_number, garbage_blob_count,
+                                     garbage_blob_bytes);
+  }
+
+  // Retrieve all the blob file garbage added.
+  using BlobFileGarbages = std::vector<BlobFileGarbage>;
+  const BlobFileGarbages& GetBlobFileGarbages() const {
+    return blob_file_garbages_;
+  }
 
   // Number of edits
   size_t NumEntries() const {
-    return new_files_.size() + deleted_files_.size() + new_blob_files_.size();
+    return new_files_.size() + deleted_files_.size() +
+           blob_file_additions_.size() + blob_file_garbages_.size();
   }
 
   void SetColumnFamily(uint32_t column_family_id) {
@@ -437,7 +455,8 @@ class VersionEdit {
   DeletedFiles deleted_files_;
   NewFiles new_files_;
 
-  NewBlobFiles new_blob_files_;
+  BlobFileAdditions blob_file_additions_;
+  BlobFileGarbages blob_file_garbages_;
 
   // Each version edit record should have column_family_ set
   // If it's not set, it is default (0)

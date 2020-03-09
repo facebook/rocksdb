@@ -57,7 +57,8 @@ enum Tag : uint32_t {
 
   // Forward compatible (aka ignorable) records
   kDbId,
-  kNewBlobFile,
+  kBlobFileAddition,
+  kBlobFileGarbage,
 };
 
 enum NewFileCustomTag : uint32_t {
@@ -151,7 +152,8 @@ void VersionEdit::Clear() {
   has_last_sequence_ = false;
   deleted_files_.clear();
   new_files_.clear();
-  new_blob_files_.clear();
+  blob_file_additions_.clear();
+  blob_file_garbages_.clear();
   column_family_ = 0;
   is_column_family_add_ = false;
   is_column_family_drop_ = false;
@@ -276,9 +278,14 @@ bool VersionEdit::EncodeTo(std::string* dst) const {
     PutVarint32(dst, NewFileCustomTag::kTerminate);
   }
 
-  for (const auto& new_blob_file : new_blob_files_) {
-    PutVarint32(dst, kNewBlobFile);
-    new_blob_file.EncodeTo(dst);
+  for (const auto& blob_file_addition : blob_file_additions_) {
+    PutVarint32(dst, kBlobFileAddition);
+    blob_file_addition.EncodeTo(dst);
+  }
+
+  for (const auto& blob_file_garbage : blob_file_garbages_) {
+    PutVarint32(dst, kBlobFileGarbage);
+    blob_file_garbage.EncodeTo(dst);
   }
 
   // 0 is default and does not need to be explicitly written
@@ -583,14 +590,25 @@ Status VersionEdit::DecodeFrom(const Slice& src) {
         break;
       }
 
-      case kNewBlobFile: {
-        BlobFileAddition new_blob_file;
-        const Status s = new_blob_file.DecodeFrom(&input);
+      case kBlobFileAddition: {
+        BlobFileAddition blob_file_addition;
+        const Status s = blob_file_addition.DecodeFrom(&input);
         if (!s.ok()) {
           return s;
         }
 
-        new_blob_files_.emplace_back(new_blob_file);
+        blob_file_additions_.emplace_back(blob_file_addition);
+        break;
+      }
+
+      case kBlobFileGarbage: {
+        BlobFileGarbage blob_file_garbage;
+        const Status s = blob_file_garbage.DecodeFrom(&input);
+        if (!s.ok()) {
+          return s;
+        }
+
+        blob_file_garbages_.emplace_back(blob_file_garbage);
         break;
       }
 
@@ -724,9 +742,14 @@ std::string VersionEdit::DebugString(bool hex_key) const {
     r.append(f.file_checksum_func_name);
   }
 
-  for (const auto& new_blob_file : new_blob_files_) {
-    r.append("\n  AddBlobFile: ");
-    r.append(new_blob_file.DebugString());
+  for (const auto& blob_file_addition : blob_file_additions_) {
+    r.append("\n  BlobFileAddition: ");
+    r.append(blob_file_addition.DebugString());
+  }
+
+  for (const auto& blob_file_garbage : blob_file_garbages_) {
+    r.append("\n  BlobFileGarbage: ");
+    r.append(blob_file_garbage.DebugString());
   }
 
   r.append("\n  ColumnFamily: ");
@@ -811,14 +834,28 @@ std::string VersionEdit::DebugJSON(int edit_num, bool hex_key) const {
     jw.EndArray();
   }
 
-  if (!new_blob_files_.empty()) {
-    jw << "AddedBlobFiles";
+  if (!blob_file_additions_.empty()) {
+    jw << "BlobFileAdditions";
 
     jw.StartArray();
 
-    for (const auto& new_blob_file : new_blob_files_) {
+    for (const auto& blob_file_addition : blob_file_additions_) {
       jw.StartArrayedObject();
-      jw << new_blob_file;
+      jw << blob_file_addition;
+      jw.EndArrayedObject();
+    }
+
+    jw.EndArray();
+  }
+
+  if (!blob_file_garbages_.empty()) {
+    jw << "BlobFileGarbages";
+
+    jw.StartArray();
+
+    for (const auto& blob_file_garbage : blob_file_garbages_) {
+      jw.StartArrayedObject();
+      jw << blob_file_garbage;
       jw.EndArrayedObject();
     }
 
