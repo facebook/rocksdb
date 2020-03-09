@@ -431,6 +431,7 @@ enum Histograms : uint32_t {
   // Time spent flushing memtable to disk
   FLUSH_TIME,
   SST_BATCH_SIZE,
+  DB_WRITE_WAL_TIME,
 
   HISTOGRAM_ENUM_MAX,
 };
