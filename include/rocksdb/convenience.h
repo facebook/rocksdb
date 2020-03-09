@@ -297,7 +297,7 @@ Status GetStringFromColumnFamilyOptions(std::string* opts_str,
 Status GetStringFromCompressionType(std::string* compression_str,
                                     CompressionType compression_type);
 
-Status GetStringFromCompactionReason(std::string* compression_str,
+Status GetStringFromCompactionReason(std::string* compaction_str,
                                      CompactionReason compaction_reason);
 
 std::vector<CompressionType> GetSupportedCompressions();
