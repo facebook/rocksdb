@@ -10,6 +10,7 @@
 #include <vector>
 
 #include "rocksdb/db.h"
+#include "rocksdb/listener.h"
 #include "rocksdb/options.h"
 #include "rocksdb/table.h"
 
@@ -295,6 +296,9 @@ Status GetStringFromColumnFamilyOptions(std::string* opts_str,
 
 Status GetStringFromCompressionType(std::string* compression_str,
                                     CompressionType compression_type);
+
+Status GetStringFromCompactionReason(std::string* compression_str,
+                                     CompactionReason compaction_reason);
 
 std::vector<CompressionType> GetSupportedCompressions();
 

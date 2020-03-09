@@ -20,6 +20,7 @@
 #include "port/port.h"
 #include "rocksdb/cache.h"
 #include "rocksdb/convenience.h"
+#include "rocksdb/listener.h"
 #include "rocksdb/memtablerep.h"
 #include "rocksdb/utilities/leveldb_options.h"
 #include "rocksdb/utilities/object_registry.h"
@@ -1078,6 +1079,28 @@ TEST_F(OptionsTest, GetStringFromCompressionType) {
 
   ASSERT_NOK(
       GetStringFromCompressionType(&res, static_cast<CompressionType>(-10)));
+}
+
+TEST_F(OptionsTest, GetStringFromCompactionReason) {
+  std::string res;
+
+  ASSERT_OK(GetStringFromCompactionReason(&res, CompactionReason::kUnknown));
+  ASSERT_EQ(res, "Unknown");
+
+  ASSERT_OK(GetStringFromCompactionReason(&res, CompactionReason::kLevelL0FilesNum));
+  ASSERT_EQ(res, "LevelL0FilesNum");
+
+  ASSERT_OK(GetStringFromCompactionReason(&res, CompactionReason::kLevelMaxLevelSize));
+  ASSERT_EQ(res, "LevelMaxLevelSize");
+
+  ASSERT_OK(GetStringFromCompactionReason(&res, CompactionReason::kUniversalSizeAmplification));
+  ASSERT_EQ(res, "UniversalSizeAmplification");
+
+  ASSERT_OK(GetStringFromCompactionReason(&res, CompactionReason::kUniversalSizeRatio));
+  ASSERT_EQ(res, "UniversalSizeRatio");
+
+  ASSERT_NOK(
+      GetStringFromCompactionReason(&res, static_cast<CompactionReason>(-10)));
 }
 #endif  // !ROCKSDB_LITE
 
