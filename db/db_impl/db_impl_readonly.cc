@@ -164,8 +164,7 @@ Status DB::OpenForReadOnly(
   DBImplReadOnly* impl = new DBImplReadOnly(db_options, dbname);
 
   std::vector<std::string> paths;
-  paths.reserve(1 + db_options.db_paths.size());
-  paths.emplace_back(dbname);
+  paths.reserve(db_options.db_paths.size());
   for (const DbPath& db_path : db_options.db_paths) {
     paths.emplace_back(db_path.path);
   }

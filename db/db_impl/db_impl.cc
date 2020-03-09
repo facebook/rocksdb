@@ -562,8 +562,7 @@ Status DBImpl::CloseHelper() {
   }
 
   std::vector<std::string> db_paths;
-  db_paths.reserve(1 + initial_db_options_.db_paths.size());
-  db_paths.emplace_back(dbname_);
+  db_paths.reserve(initial_db_options_.db_paths.size());
   for (const DbPath& db_path : initial_db_options_.db_paths) {
     db_paths.emplace_back(db_path.path);
   }

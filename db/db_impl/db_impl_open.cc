@@ -1380,7 +1380,7 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
   if (s.ok()) {
     std::vector<std::string> paths;
     const auto& db_paths = impl->immutable_db_options_.db_paths;
-    paths.reserve(1 + db_paths.size());
+    paths.reserve(db_paths.size());
     for (auto& db_path : db_paths) {
       paths.emplace_back(db_path.path);
     }
@@ -1396,8 +1396,6 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
       }
     }
     if (s.ok()) {
-      // dbname must already exist before Open.
-      paths.emplace_back(dbname);
       s = impl->env_->OnDbPathsRegistered(paths);
       if (s.ok()) {
         // Remove duplicated paths.
