@@ -3,64 +3,150 @@
 #pragma once
 #include <atomic>
 #include <thread>
+
 #include "cloud/cloud_env_impl.h"
 #include "rocksdb/cloud/cloud_env_options.h"
+#include "rocksdb/cloud/cloud_storage_provider.h"
 #include "rocksdb/env.h"
 #include "rocksdb/status.h"
 
 namespace rocksdb {
 
-#pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Wunused-parameter"
-
-// An implementation of Env that forwards all calls to another Env.
-// May be useful to clients who wish to override just part of the
-// functionality of another Env.
-class CloudEnvWrapper : public CloudEnvImpl {
+class MockStorageProvider : public CloudStorageProvider {
  public:
-  // Initialize an EnvWrapper that delegates all calls to *t
-  explicit CloudEnvWrapper(const CloudEnvOptions& options, Env* t, const std::shared_ptr<Logger>& l) :
-    CloudEnvImpl(options, t, l) {
-    cloud_env_options.log_type = LogType::kLogNone;
-    cloud_env_options.cloud_type = CloudType::kCloudNone;
-    notsup_ = Status::NotSupported();
+  MockStorageProvider() { notsup_ = Status::NotSupported(); }
+  virtual const char* Name() const override { return "Mock"; }
+  virtual Status CreateBucket(const std::string& /*bucket_name*/) override {
+    return notsup_;
   }
 
-  virtual ~CloudEnvWrapper();
+  virtual Status ExistsBucket(const std::string& /*bucket_name*/) override {
+    return notsup_;
+  }
 
-  virtual Status EmptyBucket(const std::string& /*bucket*/,
+  virtual Status EmptyBucket(const std::string& /*bucket_name*/,
                              const std::string& /*path_prefix*/) override {
     return notsup_;
   }
-  virtual Status NewSequentialFileCloud(const std::string& bucket_prefix,
-                                        const std::string& fname,
-                                        std::unique_ptr<SequentialFile>* result,
-                                        const EnvOptions& options) override {
+  Status ListObjects(const std::string& /*bucket_name*/,
+                     const std::string& /*object_path*/,
+                     std::vector<std::string>* /*result*/) override {
     return notsup_;
   }
-  virtual Status SaveDbid(const std::string& bucket_name,
-                          const std::string& dbid,
-                          const std::string& dirname) override {
+  Status DeleteObject(const std::string& /*bucket_name*/,
+                      const std::string& /*object_path*/) override {
     return notsup_;
   }
-  virtual Status GetPathForDbid(const std::string& bucket_prefix,
-                                const std::string& dbid,
-                                std::string* dirname) override {
+  Status ExistsObject(const std::string& /*bucket_name*/,
+                      const std::string& /*object_path*/) override {
     return notsup_;
   }
-  virtual Status GetDbidList(const std::string& bucket_prefix,
-                             DbidList* dblist) override {
+  Status GetObjectSize(const std::string& /*bucket_name*/,
+                       const std::string& /*object_path*/,
+                       uint64_t* /*size*/) override {
     return notsup_;
   }
-  virtual Status DeleteDbid(const std::string& bucket_prefix,
-                            const std::string& dbid) override {
+  Status GetObjectModificationTime(const std::string& /*bucket_name*/,
+                                   const std::string& /*object_path*/,
+                                   uint64_t* /*time*/) override {
+    return notsup_;
+  }
+  Status GetObjectMetadata(
+      const std::string& /*bucket_name*/, const std::string& /*object_path*/,
+      std::unordered_map<std::string, std::string>* /*metadata*/) override {
+    return notsup_;
+  }
+  Status CopyObject(const std::string& /*bucket_name_src*/,
+                    const std::string& /*object_path_src*/,
+                    const std::string& /*bucket_name_dest*/,
+                    const std::string& /*object_path_dest*/) override {
+    return notsup_;
+  }
+  Status PutObjectMetadata(
+      const std::string& /*bucket_name*/, const std::string& /*object_path*/,
+      const std::unordered_map<std::string, std::string>& /*metadata*/)
+      override {
+    return notsup_;
+  }
+  Status NewCloudWritableFile(
+      const std::string& /*local_path*/, const std::string& /*bucket_name*/,
+      const std::string& /*object_path*/,
+      std::unique_ptr<CloudStorageWritableFile>* /*result*/,
+      const EnvOptions& /*options*/) override {
+    return notsup_;
+  }
+
+  Status NewCloudReadableFile(
+      const std::string& /*bucket*/, const std::string& /*fname*/,
+      std::unique_ptr<CloudStorageReadableFile>* /*result*/,
+      const EnvOptions& /*options*/) override {
+    return notsup_;
+  }
+
+  Status GetObject(const std::string& /*bucket_name*/,
+                   const std::string& /*object_path*/,
+                   const std::string& /*local_path*/) override {
+    return notsup_;
+  }
+
+  Status PutObject(const std::string& /*local_path*/,
+                   const std::string& /*bucket_name*/,
+                   const std::string& /*object_path*/) override {
+    return notsup_;
+  }
+
+ protected:
+  Status notsup_;
+};
+// An implementation of Env that forwards all calls to another Env.
+// May be useful to clients who wish to override just part of the
+// functionality of another Env.
+
+class MockCloudEnv : public CloudEnv {
+ public:
+  // Initialize an EnvWrapper that delegates all calls to *t
+  explicit MockCloudEnv(const CloudEnvOptions& opts = CloudEnvOptions())
+      : CloudEnv(opts, Env::Default(), nullptr) {
+    notsup_ = Status::NotSupported();
+  }
+
+  virtual ~MockCloudEnv() {}
+
+  const char* Name() const override { return "MockCloudEnv"; }
+
+  Status PreloadCloudManifest(const std::string& /*local_dbname*/) override {
+    return notsup_;
+  }
+
+  virtual Status NewSequentialFileCloud(
+      const std::string& /*bucket_name*/, const std::string& /*fname*/,
+      std::unique_ptr<SequentialFile>* /*result*/,
+      const EnvOptions& /*options*/) override {
+    return notsup_;
+  }
+  virtual Status SaveDbid(const std::string& /*bucket_name*/,
+                          const std::string& /*dbid */,
+                          const std::string& /*dirname*/) override {
+    return notsup_;
+  }
+  virtual Status GetPathForDbid(const std::string& /*bucket_name*/,
+                                const std::string& /*dbid*/,
+                                std::string* /*dirname*/) override {
+    return notsup_;
+  }
+  virtual Status GetDbidList(const std::string& /*bucket_name*/,
+                             DbidList* /*dblist*/) override {
+    return notsup_;
+  }
+  virtual Status DeleteDbid(const std::string& /*bucket_name*/,
+                            const std::string& /*dbid*/) override {
     return notsup_;
   }
 
   // Ability to read a file directly from cloud storage
-  virtual Status NewSequentialFileCloud(const std::string& fname,
-                                        std::unique_ptr<SequentialFile>* result,
-                                        const EnvOptions& options) {
+  virtual Status NewSequentialFileCloud(
+      const std::string& /*fname*/, std::unique_ptr<SequentialFile>* /*result*/,
+      const EnvOptions& /*options*/) {
     return notsup_;
   }
 
@@ -84,11 +170,6 @@ class CloudEnvWrapper : public CloudEnvImpl {
                            std::unique_ptr<WritableFile>* r,
                            const EnvOptions& options) override {
     return base_env_->ReuseWritableFile(fname, old_fname, r, options);
-  }
-  Status ReopenWritableFile(const std::string& fname,
-                            std::unique_ptr<WritableFile>* result,
-                            const EnvOptions& options) override {
-    return base_env_->ReopenWritableFile(fname, result, options);
   }
   Status NewRandomRWFile(const std::string& fname,
                          std::unique_ptr<RandomRWFile>* result,
@@ -212,42 +293,7 @@ class CloudEnvWrapper : public CloudEnvImpl {
 
   uint64_t GetThreadID() const override { return base_env_->GetThreadID(); }
 
-
-  Status ListObjects(const std::string& bucket_name_prefix,
-                     const std::string& bucket_object_prefix,
-                     BucketObjectMetadata* meta) override {
-    return notsup_;
-  }
-  Status DeleteObject(const std::string& bucket_name_prefix,
-                      const std::string& bucket_object_path) override {
-    return notsup_;
-  }
-  Status ExistsObject(const std::string& bucket_name_prefix,
-                      const std::string& bucket_object_path) override {
-    return notsup_;
-  }
-  Status GetObjectSize(const std::string& bucket_name_prefix,
-                       const std::string& bucket_object_path,
-                       uint64_t* size) override {
-    return notsup_;
-  }
-  Status CopyObject(const std::string& bucket_name_prefix_src,
-                    const std::string& bucket_object_path_src,
-                    const std::string& bucket_name_prefix_dest,
-                    const std::string& bucket_object_path_dest) override {
-    return notsup_;
-  }
-  Status GetObject(const std::string& bucket_name_prefix,
-                   const std::string& bucket_object_path,
-                   const std::string& local_path) override {
-    return notsup_;
-  }
-  Status PutObject(const std::string& local_path,
-                   const std::string& bucket_name_prefix,
-                   const std::string& bucket_object_path) override {
-    return notsup_;
-  }
-  Status DeleteCloudFileFromDest(const std::string& path) override {
+  Status DeleteCloudFileFromDest(const std::string& /*path*/) override {
     return notsup_;
   }
 
@@ -255,6 +301,4 @@ class CloudEnvWrapper : public CloudEnvImpl {
   Status notsup_;
   std::string empty_;
 };
-
-#pragma GCC diagnostic pop
 }  // namespace rocksdb

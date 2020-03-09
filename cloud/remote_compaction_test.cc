@@ -21,6 +21,7 @@
 #include "db/db_impl/db_impl.h"
 #include "file/filename.h"
 #include "logging/logging.h"
+#include "rocksdb/cloud/cloud_storage_provider.h"
 #include "rocksdb/cloud/db_cloud.h"
 #include "rocksdb/options.h"
 #include "rocksdb/status.h"
@@ -69,7 +70,8 @@ class RemoteCompactionTest : public testing::Test {
                                   options_.info_log, &aenv));
     aenv_.reset(aenv);
     // delete all pre-existing contents from the bucket
-    Status st = aenv_->EmptyBucket(aenv_->GetSrcBucketName(), "");
+    Status st = aenv_->GetCloudEnvOptions().storage_provider->EmptyBucket(
+        aenv_->GetSrcBucketName(), "");
     ASSERT_TRUE(st.ok() || st.IsNotFound());
     aenv_.reset();
 

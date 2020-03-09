@@ -19,9 +19,9 @@ struct ClientConfiguration;
 
 namespace rocksdb {
 
-class BucketObjectMetadata;
 class CloudEnv;
 class CloudLogController;
+class CloudStorageProvider;
 
 enum CloudType : unsigned char {
   kCloudNone = 0x0,       // Not really a cloud env
@@ -173,8 +173,10 @@ private:
   // If keep_local_log_files is false, this specifies what service to use
   // for storage of write-ahead log.
   LogType log_type;
-  // The implementation of the LogController for storage of the write-ahead log.
   std::shared_ptr<CloudLogController> cloud_log_controller;
+
+  // Specifies the class responsible for writing objects to the cloud
+  std::shared_ptr<CloudStorageProvider> storage_provider;
 
   // Access credentials
   AwsCloudAccessCredentials credentials;
@@ -354,11 +356,9 @@ public:
   Env* GetBaseEnv() {
     return base_env_;
   }
-  virtual Status PreloadCloudManifest(const std::string& local_dbname) = 0;
+  virtual const char* Name() const { return "cloud"; }
 
-  // Empties all contents of the associated cloud storage bucket.
-  virtual Status EmptyBucket(const std::string& bucket_prefix,
-                             const std::string& path_prefix) = 0;
+  virtual Status PreloadCloudManifest(const std::string& local_dbname) = 0;
 
   // Reads a file from the cloud
   virtual Status NewSequentialFileCloud(const std::string& bucket_prefix,
@@ -415,44 +415,11 @@ public:
     return cloud_env_options;
   }
 
-  // returns all the objects that have the specified path prefix and
-  // are stored in a cloud bucket
-  virtual Status ListObjects(const std::string& bucket_name_prefix,
-                             const std::string& bucket_object_prefix,
-                             BucketObjectMetadata* meta) = 0;
-
-  // Delete the specified object from the specified cloud bucket
-  virtual Status DeleteObject(const std::string& bucket_name_prefix,
-                              const std::string& bucket_object_path) = 0;
-
-  // Does the specified object exist in the cloud storage
-  virtual Status ExistsObject(const std::string& bucket_name_prefix,
-                              const std::string& bucket_object_path) = 0;
-
-  // Get the size of the object in cloud storage
-  virtual Status GetObjectSize(const std::string& bucket_name_prefix,
-                               const std::string& bucket_object_path,
-                               uint64_t* filesize) = 0;
-
-  // Copy the specified cloud object from one location in the cloud
-  // storage to another location in cloud storage
-  virtual Status CopyObject(const std::string& bucket_name_prefix_src,
-                            const std::string& bucket_object_path_src,
-                            const std::string& bucket_name_prefix_dest,
-                            const std::string& bucket_object_path_dest) = 0;
-
-  // Downloads object from the cloud into a local directory
-  virtual Status GetObject(const std::string& bucket_name_prefix,
-                           const std::string& bucket_object_path,
-                           const std::string& local_path) = 0;
-
-  // Uploads object to the cloud
-  virtual Status PutObject(const std::string& local_path,
-                           const std::string& bucket_name_prefix,
-                           const std::string& bucket_object_path) = 0;
-
   // Deletes file from a destination bucket.
   virtual Status DeleteCloudFileFromDest(const std::string& fname) = 0;
+  // Copies a local file to a destination bucket.
+  virtual Status CopyLocalFileToDest(const std::string& local_name,
+                                     const std::string& cloud_name) = 0;
 
   // Transfers the filename from RocksDB's domain to the physical domain, based
   // on information stored in CLOUDMANIFEST.
@@ -484,15 +451,6 @@ public:
   static Status NewAwsEnv(Env* base_env, const CloudEnvOptions& env_options,
                           const std::shared_ptr<Logger>& logger,
                           CloudEnv** cenv);
-};
-
-/*
- * The information about all objects stored in a cloud bucket
- */
-class BucketObjectMetadata {
- public:
-  // list of all pathnames
-  std::vector<std::string> pathnames;
 };
 
 }  // namespace rocksdb

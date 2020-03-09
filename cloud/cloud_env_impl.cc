@@ -112,13 +112,14 @@ std::string CloudEnvImpl::RemapFilename(const std::string& logical_path) const {
 Status CloudEnvImpl::DeleteInvisibleFiles(const std::string& dbname) {
   Status s;
   if (HasDestBucket()) {
-    BucketObjectMetadata metadata;
-    s = ListObjects(GetDestBucketName(), GetDestObjectPath(), &metadata);
+    std::vector<std::string> pathnames;
+    s = cloud_env_options.storage_provider->ListObjects(
+        GetDestBucketName(), GetDestObjectPath(), &pathnames);
     if (!s.ok()) {
       return s;
     }
 
-    for (auto& fname : metadata.pathnames) {
+    for (auto& fname : pathnames) {
       auto noepoch = RemoveEpoch(fname);
       if (IsSstFile(noepoch) || IsManifestFile(noepoch)) {
         if (RemapFilename(noepoch) != fname) {
@@ -540,8 +541,8 @@ Status CloudEnvImpl::GetCloudDbid(const std::string& local_dir,
 
   // Read dbid from src bucket if it exists
   if (HasSrcBucket()) {
-    Status st = GetObject(GetSrcBucketName(), GetSrcObjectPath() + "/IDENTITY",
-                          tmpfile);
+    Status st = cloud_env_options.storage_provider->GetObject(
+        GetSrcBucketName(), GetSrcObjectPath() + "/IDENTITY", tmpfile);
     if (!st.ok() && !st.IsNotFound()) {
       return st;
     }
@@ -563,8 +564,8 @@ Status CloudEnvImpl::GetCloudDbid(const std::string& local_dir,
 
   // Read dbid from dest bucket if it exists
   if (HasDestBucket()) {
-    Status st = GetObject(GetDestBucketName(),
-                          GetDestObjectPath() + "/IDENTITY", tmpfile);
+    Status st = cloud_env_options.storage_provider->GetObject(
+        GetDestBucketName(), GetDestObjectPath() + "/IDENTITY", tmpfile);
     if (!st.ok() && !st.IsNotFound()) {
       return st;
     }
@@ -788,8 +789,9 @@ Status CloudEnvImpl::SanitizeDirectory(const DBOptions& options,
   // Download IDENTITY, first try destination, then source
   if (HasDestBucket()) {
     // download IDENTITY from dest
-    st = GetObject(GetDestBucketName(), IdentityFileName(GetDestObjectPath()),
-                   IdentityFileName(local_name));
+    st = cloud_env_options.storage_provider->GetObject(
+        GetDestBucketName(), IdentityFileName(GetDestObjectPath()),
+        IdentityFileName(local_name));
     if (!st.ok() && !st.IsNotFound()) {
       // If there was an error and it's not IsNotFound() we need to bail
       return st;
@@ -798,8 +800,9 @@ Status CloudEnvImpl::SanitizeDirectory(const DBOptions& options,
   }
   if (!got_identity_from_dest && HasSrcBucket() && !SrcMatchesDest()) {
     // download IDENTITY from src
-    st = GetObject(GetSrcBucketName(), IdentityFileName(GetSrcObjectPath()),
-                   IdentityFileName(local_name));
+    st = cloud_env_options.storage_provider->GetObject(
+        GetSrcBucketName(), IdentityFileName(GetSrcObjectPath()),
+        IdentityFileName(local_name));
     if (!st.ok() && !st.IsNotFound()) {
       // If there was an error and it's not IsNotFound() we need to bail
       return st;
@@ -879,9 +882,9 @@ Status CloudEnvImpl::FetchCloudManifest(const std::string& local_dbname,
   }
   // first try to get cloudmanifest from dest
   if (HasDestBucket()) {
-    Status st =
-        GetObject(GetDestBucketName(), CloudManifestFile(GetDestObjectPath()),
-                  cloudmanifest);
+    Status st = cloud_env_options.storage_provider->GetObject(
+        GetDestBucketName(), CloudManifestFile(GetDestObjectPath()),
+        cloudmanifest);
     if (!st.ok() && !st.IsNotFound()) {
       // something went wrong, bail out
       Log(InfoLogLevel::INFO_LEVEL, info_log_,
@@ -901,8 +904,9 @@ Status CloudEnvImpl::FetchCloudManifest(const std::string& local_dbname,
   }
   // we couldn't get cloud manifest from dest, need to try from src?
   if (HasSrcBucket() && !SrcMatchesDest()) {
-    Status st = GetObject(GetSrcBucketName(),
-                          CloudManifestFile(GetSrcObjectPath()), cloudmanifest);
+    Status st = cloud_env_options.storage_provider->GetObject(
+        GetSrcBucketName(), CloudManifestFile(GetSrcObjectPath()),
+        cloudmanifest);
     if (!st.ok() && !st.IsNotFound()) {
       // something went wrong, bail out
       Log(InfoLogLevel::INFO_LEVEL, info_log_,
@@ -976,16 +980,17 @@ Status CloudEnvImpl::RollNewEpoch(const std::string& local_dbname) {
     // upload new manifest, only if we have it (i.e. this is not a new
     // database, indicated by maxFileNumber)
     if (maxFileNumber > 0) {
-      st = PutObject(ManifestFileWithEpoch(local_dbname, newEpoch),
-                     GetDestBucketName(),
-                     ManifestFileWithEpoch(GetDestObjectPath(), newEpoch));
+      st = cloud_env_options.storage_provider->PutObject(
+          ManifestFileWithEpoch(local_dbname, newEpoch), GetDestBucketName(),
+          ManifestFileWithEpoch(GetDestObjectPath(), newEpoch));
       if (!st.ok()) {
         return st;
       }
     }
     // upload new cloud manifest
-    st = PutObject(CloudManifestFile(local_dbname), GetDestBucketName(),
-                   CloudManifestFile(GetDestObjectPath()));
+    st = cloud_env_options.storage_provider->PutObject(
+        CloudManifestFile(local_dbname), GetDestBucketName(),
+        CloudManifestFile(GetDestObjectPath()));
     if (!st.ok()) {
       return st;
     }

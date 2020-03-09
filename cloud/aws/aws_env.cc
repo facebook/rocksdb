@@ -9,24 +9,28 @@
 #include <fstream>
 #include <iostream>
 #include <memory>
+#include <set>
 
 #include "cloud/cloud_log_controller_impl.h"
+#include "cloud/cloud_storage_provider_impl.h"
+#include "cloud/filename.h"
+#include "port/port_posix.h"
 #include "rocksdb/cloud/cloud_log_controller.h"
+#include "rocksdb/cloud/cloud_storage_provider.h"
 #include "rocksdb/env.h"
 #include "rocksdb/status.h"
 #include "util/stderr_logger.h"
 #include "util/string_util.h"
 
 #ifdef USE_AWS
-#include <aws/core/utils/threading/Executor.h>
+#include <aws/core/Aws.h>
+#include <aws/core/auth/AWSCredentialsProvider.h>
 #endif
 
 #include "cloud/aws/aws_file.h"
 #include "cloud/db_cloud_impl.h"
 
 namespace rocksdb {
-#pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Wunused-parameter"
 
 static const std::unordered_map<std::string, AwsAccessType> AwsAccessTypeMap = {
     {"undefined", AwsAccessType::kUndefined},
@@ -261,133 +265,6 @@ detail::JobExecutor* GetJobExecutor() {
   return &executor;
 }
 
-Aws::Utils::Threading::Executor* GetAwsTransferManagerExecutor() {
-  static Aws::Utils::Threading::PooledThreadExecutor executor(8);
-  return &executor;
-}
-
-
-template <typename T>
-void SetEncryptionParameters(const CloudEnvOptions& cloud_env_options,
-                             T& put_request) {
-  if (cloud_env_options.server_side_encryption) {
-    if (cloud_env_options.encryption_key_id.empty()) {
-      put_request.SetServerSideEncryption(
-          Aws::S3::Model::ServerSideEncryption::AES256);
-    } else {
-      put_request.SetServerSideEncryption(
-          Aws::S3::Model::ServerSideEncryption::aws_kms);
-      put_request.SetSSEKMSKeyId(cloud_env_options.encryption_key_id.c_str());
-    }
-  }
-}
-
-class CloudRequestCallbackGuard {
- public:
-  CloudRequestCallbackGuard(CloudRequestCallback* callback,
-                            CloudRequestOpType type, uint64_t size = 0)
-      : callback_(callback), type_(type), size_(size), start_(now()) {}
-
-  ~CloudRequestCallbackGuard() {
-    if (callback_) {
-      (*callback_)(type_, size_, now() - start_, success_);
-    }
-  }
-
-  void SetSize(uint64_t size) { size_ = size; }
-  void SetSuccess(bool success) { success_ = success; }
-
- private:
-  uint64_t now() {
-    return std::chrono::duration_cast<std::chrono::microseconds>(
-               std::chrono::system_clock::now() -
-               std::chrono::system_clock::from_time_t(0))
-        .count();
-  }
-  CloudRequestCallback* callback_;
-  CloudRequestOpType type_;
-  uint64_t size_;
-  bool success_{false};
-  uint64_t start_;
-};
-
-AwsS3ClientWrapper::AwsS3ClientWrapper(
-    std::shared_ptr<Aws::S3::S3Client> client,
-    std::shared_ptr<CloudRequestCallback> cloud_request_callback)
-    : client_(std::move(client)),
-      cloud_request_callback_(std::move(cloud_request_callback)) {}
-
-Aws::S3::Model::ListObjectsOutcome AwsS3ClientWrapper::ListObjects(
-    const Aws::S3::Model::ListObjectsRequest& request) {
-  CloudRequestCallbackGuard t(cloud_request_callback_.get(),
-                              CloudRequestOpType::kListOp);
-  auto outcome = client_->ListObjects(request);
-  t.SetSuccess(outcome.IsSuccess());
-  return outcome;
-}
-
-Aws::S3::Model::CreateBucketOutcome AwsS3ClientWrapper::CreateBucket(
-    const Aws::S3::Model::CreateBucketRequest& request) {
-  CloudRequestCallbackGuard t(cloud_request_callback_.get(),
-                              CloudRequestOpType::kCreateOp);
-  return client_->CreateBucket(request);
-}
-
-Aws::S3::Model::HeadBucketOutcome AwsS3ClientWrapper::HeadBucket(
-    const Aws::S3::Model::HeadBucketRequest& request) {
-  CloudRequestCallbackGuard t(cloud_request_callback_.get(),
-                              CloudRequestOpType::kInfoOp);
-  return client_->HeadBucket(request);
-}
-
-Aws::S3::Model::DeleteObjectOutcome AwsS3ClientWrapper::DeleteObject(
-    const Aws::S3::Model::DeleteObjectRequest& request) {
-  CloudRequestCallbackGuard t(cloud_request_callback_.get(),
-                              CloudRequestOpType::kDeleteOp);
-  auto outcome = client_->DeleteObject(request);
-  t.SetSuccess(outcome.IsSuccess());
-  return outcome;
-}
-
-Aws::S3::Model::CopyObjectOutcome AwsS3ClientWrapper::CopyObject(
-    const Aws::S3::Model::CopyObjectRequest& request) {
-  CloudRequestCallbackGuard t(cloud_request_callback_.get(),
-                              CloudRequestOpType::kCopyOp);
-  auto outcome = client_->CopyObject(request);
-  t.SetSuccess(outcome.IsSuccess());
-  return outcome;
-}
-
-Aws::S3::Model::GetObjectOutcome AwsS3ClientWrapper::GetObject(
-    const Aws::S3::Model::GetObjectRequest& request) {
-  CloudRequestCallbackGuard t(cloud_request_callback_.get(),
-                              CloudRequestOpType::kReadOp);
-  auto outcome = client_->GetObject(request);
-  if (outcome.IsSuccess()) {
-    t.SetSize(outcome.GetResult().GetContentLength());
-    t.SetSuccess(true);
-  }
-  return outcome;
-}
-
-Aws::S3::Model::PutObjectOutcome AwsS3ClientWrapper::PutObject(
-    const Aws::S3::Model::PutObjectRequest& request, uint64_t size_hint) {
-  CloudRequestCallbackGuard t(cloud_request_callback_.get(),
-                              CloudRequestOpType::kWriteOp, size_hint);
-  auto outcome = client_->PutObject(request);
-  t.SetSuccess(outcome.IsSuccess());
-  return outcome;
-}
-
-Aws::S3::Model::HeadObjectOutcome AwsS3ClientWrapper::HeadObject(
-    const Aws::S3::Model::HeadObjectRequest& request) {
-  CloudRequestCallbackGuard t(cloud_request_callback_.get(),
-                              CloudRequestOpType::kInfoOp);
-  auto outcome = client_->HeadObject(request);
-  t.SetSuccess(outcome.IsSuccess());
-  return outcome;
-}
-
 //
 // The AWS credentials are specified to the constructor via
 // access_key_id and secret_key.
@@ -459,39 +336,23 @@ AwsEnv::AwsEnv(Env* underlying_env, const CloudEnvOptions& _cloud_env_options,
     AwsCloudOptions::GetClientConfiguration(this,
                                             cloud_env_options.src_bucket.GetRegion(),
                                             &config);
+  if (create_bucket_status_.ok()) {
+    create_bucket_status_ = CloudStorageProviderImpl::CreateS3Provider(
+        &cloud_env_options.storage_provider);
+    if (create_bucket_status_.ok()) {
+      create_bucket_status_ = cloud_env_options.storage_provider->Prepare(this);
+    }
+  }
+  if (!create_bucket_status_.ok()) {
+    return;
+  }
 
   Header(info_log_, "AwsEnv connection to endpoint in region: %s",
          config.region.c_str());
-  bucket_location_ = Aws::S3::Model::BucketLocationConstraintMapper::
-      GetBucketLocationConstraintForName(config.region);
-
-  {
-    auto s3client = creds ? std::make_shared<Aws::S3::S3Client>(creds, config)
-                          : std::make_shared<Aws::S3::S3Client>(config);
-
-    s3client_ = std::make_shared<AwsS3ClientWrapper>(
-        std::move(s3client), cloud_env_options.cloud_request_callback);
-  }
-
-  {
-    Aws::Transfer::TransferManagerConfiguration transferManagerConfig(
-        GetAwsTransferManagerExecutor());
-    transferManagerConfig.s3Client = s3client_->GetClient();
-    SetEncryptionParameters(cloud_env_options,
-                            transferManagerConfig.putObjectTemplate);
-    SetEncryptionParameters(
-        cloud_env_options, transferManagerConfig.createMultipartUploadTemplate);
-
-    if (cloud_env_options.use_aws_transfer_manager) {
-      awsTransferManager_ =
-          Aws::Transfer::TransferManager::Create(transferManagerConfig);
-    }
-  }
 
   // create dest bucket if specified
   if (HasDestBucket()) {
-    if (S3WritableFile::BucketExistsInS3(s3client_, GetDestBucketName(),
-                                         bucket_location_)
+    if (cloud_env_options.storage_provider->ExistsBucket(GetDestBucketName())
             .ok()) {
       Log(InfoLogLevel::INFO_LEVEL, info_log,
           "[aws] NewAwsEnv Bucket %s already exists",
@@ -500,8 +361,8 @@ AwsEnv::AwsEnv(Env* underlying_env, const CloudEnvOptions& _cloud_env_options,
       Log(InfoLogLevel::INFO_LEVEL, info_log,
           "[aws] NewAwsEnv Going to create bucket %s",
           GetDestBucketName().c_str());
-      create_bucket_status_ = S3WritableFile::CreateBucketInS3(
-          s3client_, GetDestBucketName(), bucket_location_);
+      create_bucket_status_ =
+          cloud_env_options.storage_provider->CreateBucket(GetDestBucketName());
     } else {
       create_bucket_status_ = Status::NotFound(
           "[aws] Bucket not found and create_bucket_if_missing is false");
@@ -574,7 +435,7 @@ AwsEnv::~AwsEnv() {
   StopPurger();
 }
 
-
+void AwsEnv::Shutdown() { Aws::ShutdownAPI(Aws::SDKOptions()); }
 Status AwsEnv::status() { return create_bucket_status_; }
 
 //
@@ -595,8 +456,9 @@ Status AwsEnv::NewSequentialFileCloud(const std::string& bucket,
                                       std::unique_ptr<SequentialFile>* result,
                                       const EnvOptions& options) {
   assert(status().ok());
-  std::unique_ptr<S3ReadableFile> file;
-  Status st = NewS3ReadableFile(bucket, fname, &file);
+  std::unique_ptr<CloudStorageReadableFile> file;
+  Status st = cloud_env_options.storage_provider->NewCloudReadableFile(
+      bucket, fname, &file, options);
   if (!st.ok()) {
     return st;
   }
@@ -632,22 +494,26 @@ Status AwsEnv::NewSequentialFile(const std::string& logical_fname,
       if (cloud_env_options.keep_local_sst_files || !sstfile) {
         // copy the file to the local storage if keep_local_sst_files is true
         if (HasDestBucket()) {
-          st = GetObject(GetDestBucketName(), destname(fname), fname);
+          st = cloud_env_options.storage_provider->GetObject(
+              GetDestBucketName(), destname(fname), fname);
         }
         if (!st.ok() && HasSrcBucket() && !SrcMatchesDest()) {
-          st = GetObject(GetSrcBucketName(), srcname(fname), fname);
+          st = cloud_env_options.storage_provider->GetObject(
+              GetSrcBucketName(), srcname(fname), fname);
         }
         if (st.ok()) {
           // we successfully copied the file, try opening it locally now
           st = base_env_->NewSequentialFile(fname, result, options);
         }
       } else {
-        std::unique_ptr<S3ReadableFile> file;
+        std::unique_ptr<CloudStorageReadableFile> file;
         if (!st.ok() && HasDestBucket()) {  // read from destination S3
-          st = NewS3ReadableFile(GetDestBucketName(), destname(fname), &file);
+          st = cloud_env_options.storage_provider->NewCloudReadableFile(
+              GetDestBucketName(), destname(fname), &file, options);
         }
         if (!st.ok() && HasSrcBucket()) {  // read from src bucket
-          st = NewS3ReadableFile(GetSrcBucketName(), srcname(fname), &file);
+          st = cloud_env_options.storage_provider->NewCloudReadableFile(
+              GetSrcBucketName(), srcname(fname), &file, options);
         }
         if (st.ok()) {
           result->reset(dynamic_cast<SequentialFile*>(file.release()));
@@ -701,10 +567,12 @@ Status AwsEnv::NewRandomAccessFile(const std::string& logical_fname,
       if (!st.ok()) {
         // copy the file to the local storage if keep_local_sst_files is true
         if (HasDestBucket()) {
-          st = GetObject(GetDestBucketName(), destname(fname), fname);
+          st = cloud_env_options.storage_provider->GetObject(
+              GetDestBucketName(), destname(fname), fname);
         }
         if (!st.ok() && HasSrcBucket() && !SrcMatchesDest()) {
-          st = GetObject(GetSrcBucketName(), srcname(fname), fname);
+          st = cloud_env_options.storage_provider->GetObject(
+              GetSrcBucketName(), srcname(fname), fname);
         }
         if (st.ok()) {
           // we successfully copied the file, try opening it locally now
@@ -722,12 +590,12 @@ Status AwsEnv::NewRandomAccessFile(const std::string& logical_fname,
         }
         stax = Status::NotFound();
         if (HasDestBucket()) {
-          stax = HeadObject(GetDestBucketName(), destname(fname), nullptr,
-                            &remote_size, nullptr);
+          stax = cloud_env_options.storage_provider->GetObjectSize(
+              GetDestBucketName(), destname(fname), &remote_size);
         }
         if (stax.IsNotFound() && HasSrcBucket()) {
-          stax = HeadObject(GetSrcBucketName(), srcname(fname), nullptr,
-                            &remote_size, nullptr);
+          stax = cloud_env_options.storage_provider->GetObjectSize(
+              GetSrcBucketName(), srcname(fname), &remote_size);
         }
         if (stax.IsNotFound() && !HasDestBucket()) {
           // It is legal for file to not be present in S3 if destination bucket
@@ -742,28 +610,31 @@ Status AwsEnv::NewRandomAccessFile(const std::string& logical_fname,
       }
     } else if (!st.ok()) {
       // Only execute this code path if keep_local_sst_files == false. If it's
-      // true, we will never use S3ReadableFile to read; we copy the file
+      // true, we will never use CloudReadableFile to read; we copy the file
       // locally and read using base_env.
-      std::unique_ptr<S3ReadableFile> file;
+      std::unique_ptr<CloudStorageReadableFile> file;
       if (!st.ok() && HasDestBucket()) {
-        st = NewS3ReadableFile(GetDestBucketName(), destname(fname), &file);
+        st = cloud_env_options.storage_provider->NewCloudReadableFile(
+            GetDestBucketName(), destname(fname), &file, options);
       }
       if (!st.ok() && HasSrcBucket()) {
-        st = NewS3ReadableFile(GetSrcBucketName(), srcname(fname), &file);
+        st = cloud_env_options.storage_provider->NewCloudReadableFile(
+            GetSrcBucketName(), srcname(fname), &file, options);
       }
       if (st.ok()) {
         result->reset(dynamic_cast<RandomAccessFile*>(file.release()));
       }
     }
     Log(InfoLogLevel::DEBUG_LEVEL, info_log_,
-        "[s3] NewRandomAccessFile file %s %s", fname.c_str(),
+        "[%s] NewRandomAccessFile file %s %s", Name(), fname.c_str(),
         st.ToString().c_str());
     return st;
 
   } else if (logfile && !cloud_env_options.keep_local_log_files) {
     // read from Kinesis
-    return cloud_env_options.cloud_log_controller->NewRandomAccessFile(
+    st = cloud_env_options.cloud_log_controller->NewRandomAccessFile(
         fname, result, options);
+    return st;
   }
 
   // This is neither a sst file or a log file. Read from default env.
@@ -787,13 +658,13 @@ Status AwsEnv::NewWritableFile(const std::string& logical_fname,
   Status s;
 
   if (HasDestBucket() && (sstfile || identity || manifest)) {
-    std::unique_ptr<S3WritableFile> f(
-        new S3WritableFile(this, fname, GetDestBucketName(), destname(fname),
-                           options, cloud_env_options));
+    std::unique_ptr<CloudStorageWritableFile> f;
+    cloud_env_options.storage_provider->NewCloudWritableFile(
+        fname, GetDestBucketName(), destname(fname), &f, options);
     s = f->status();
     if (!s.ok()) {
       Log(InfoLogLevel::ERROR_LEVEL, info_log_,
-          "[s3] NewWritableFile src %s %s", fname.c_str(),
+          "[aws] NewWritableFile src %s %s", fname.c_str(),
           s.ToString().c_str());
       return s;
     }
@@ -898,10 +769,12 @@ Status AwsEnv::FileExists(const std::string& logical_fname) {
     // We read first from local storage and then from cloud storage.
     st = base_env_->FileExists(fname);
     if (st.IsNotFound() && HasDestBucket()) {
-      st = ExistsObject(GetDestBucketName(), destname(fname));
+      st = cloud_env_options.storage_provider->ExistsObject(GetDestBucketName(),
+                                                            destname(fname));
     }
     if (!st.ok() && HasSrcBucket()) {
-      st = ExistsObject(GetSrcBucketName(), srcname(fname));
+      st = cloud_env_options.storage_provider->ExistsObject(GetSrcBucketName(),
+                                                            srcname(fname));
     }
   } else if (logfile && !cloud_env_options.keep_local_log_files) {
     // read from Kinesis
@@ -911,162 +784,6 @@ Status AwsEnv::FileExists(const std::string& logical_fname) {
   }
   Log(InfoLogLevel::DEBUG_LEVEL, info_log_, "[aws] FileExists path '%s' %s",
       fname.c_str(), st.ToString().c_str());
-  return st;
-}
-
-//
-// Appends the names of all children of the specified path from S3
-// into the result set.
-//
-Status AwsEnv::GetChildrenFromS3(const std::string& path,
-                                 const std::string& bucket,
-                                 std::vector<std::string>* result) {
-  assert(status().ok());
-
-  // S3 paths don't start with '/'
-  auto prefix = ltrim_if(path, '/');
-  // S3 paths better end with '/', otherwise we might also get a list of files
-  // in a directory for which our path is a prefix
-  prefix = ensure_ends_with_pathsep(std::move(prefix));
-  // the starting object marker
-  Aws::String marker;
-  bool loop = true;
-
-  // get info of bucket+object
-  while (loop) {
-    Aws::S3::Model::ListObjectsRequest request;
-    request.SetBucket(ToAwsString(bucket));
-    request.SetMaxKeys(cloud_env_options.number_objects_listed_in_one_iteration);
-    request.SetPrefix(ToAwsString(prefix));
-    request.SetMarker(marker);
-
-    Aws::S3::Model::ListObjectsOutcome outcome =
-        s3client_->ListObjects(request);
-    bool isSuccess = outcome.IsSuccess();
-    if (!isSuccess) {
-      const Aws::Client::AWSError<Aws::S3::S3Errors>& error =
-          outcome.GetError();
-      std::string errmsg(error.GetMessage().c_str());
-      Aws::S3::S3Errors s3err = error.GetErrorType();
-      if (s3err == Aws::S3::S3Errors::NO_SUCH_BUCKET ||
-          s3err == Aws::S3::S3Errors::NO_SUCH_KEY ||
-          s3err == Aws::S3::S3Errors::RESOURCE_NOT_FOUND) {
-        Log(InfoLogLevel::ERROR_LEVEL, info_log_,
-            "[s3] GetChildren dir %s does not exist: %s", path.c_str(),
-            errmsg.c_str());
-        return Status::NotFound(path, errmsg.c_str());
-      }
-      return Status::IOError(path, errmsg.c_str());
-    }
-    const Aws::S3::Model::ListObjectsResult& res = outcome.GetResult();
-    const Aws::Vector<Aws::S3::Model::Object>& objs = res.GetContents();
-    for (auto o : objs) {
-      const Aws::String& key = o.GetKey();
-      // Our path should be a prefix of the fetched value
-      std::string keystr(key.c_str(), key.size());
-      assert(keystr.find(prefix) == 0);
-      if (keystr.find(prefix) != 0) {
-        return Status::IOError("Unexpected result from AWS S3: " + keystr);
-      }
-      auto fname = keystr.substr(prefix.size());
-      result->push_back(fname);
-    }
-
-    // If there are no more entries, then we are done.
-    if (!res.GetIsTruncated()) {
-      break;
-    }
-    // The new starting point
-    marker = res.GetNextMarker();
-    if (marker.empty()) {
-      // If response does not include the NextMaker and it is
-      // truncated, you can use the value of the last Key in the response
-      // as the marker in the subsequent request because all objects
-      // are returned in alphabetical order
-      marker = objs.back().GetKey();
-    }
-  }
-  return Status::OK();
-}
-
-Status AwsEnv::HeadObject(const std::string& bucket,
-                          const std::string& path,
-                          Aws::Map<Aws::String, Aws::String>* metadata,
-                          uint64_t* size, uint64_t* modtime) {
-  Aws::S3::Model::HeadObjectRequest request;
-  request.SetBucket(ToAwsString(bucket));
-  request.SetKey(ToAwsString(path));
-
-  auto outcome = s3client_->HeadObject(request);
-  bool isSuccess = outcome.IsSuccess();
-  if (!isSuccess) {
-    const auto& error = outcome.GetError();
-    Aws::S3::S3Errors s3err = error.GetErrorType();
-    auto errMessage = error.GetMessage();
-    if (s3err == Aws::S3::S3Errors::NO_SUCH_BUCKET ||
-        s3err == Aws::S3::S3Errors::NO_SUCH_KEY ||
-        s3err == Aws::S3::S3Errors::RESOURCE_NOT_FOUND) {
-      return Status::NotFound(path, errMessage.c_str());
-    }
-    return Status::IOError(path, errMessage.c_str());
-  }
-  auto& res = outcome.GetResult();
-  if (metadata != nullptr) {
-    *metadata = res.GetMetadata();
-  }
-  if (size != nullptr) {
-    *size = res.GetContentLength();
-  }
-  if (modtime != nullptr) {
-    *modtime = res.GetLastModified().Millis();
-  }
-  return Status::OK();
-}
-
-Status AwsEnv::NewS3ReadableFile(const std::string& bucket,
-                                 const std::string& fname,
-                                 std::unique_ptr<S3ReadableFile>* result) {
-  // First, check if the file exists and also find its size. We use size in
-  // S3ReadableFile to make sure we always read the valid ranges of the file
-  uint64_t size;
-  Status st = HeadObject(bucket, fname, nullptr, &size, nullptr);
-  if (!st.ok()) {
-    return st;
-  }
-  result->reset(new S3ReadableFile(this, bucket, fname, size));
-  return Status::OK();
-}
-
-//
-// Deletes all the objects with the specified path prefix in our bucket
-//
-Status AwsEnv::EmptyBucket(const std::string& bucket,
-                           const std::string& s3_object_prefix) {
-  std::vector<std::string> results;
-
-  // Get all the objects in the  bucket
-  Status st = GetChildrenFromS3(s3_object_prefix, bucket, &results);
-  if (!st.ok()) {
-    Log(InfoLogLevel::ERROR_LEVEL, info_log_,
-        "[s3] EmptyBucket unable to find objects in bucket %s %s",
-        bucket.c_str(), st.ToString().c_str());
-    return st;
-  }
-  Log(InfoLogLevel::DEBUG_LEVEL, info_log_,
-      "[s3] EmptyBucket going to delete %" ROCKSDB_PRIszt
-      " objects in bucket %s",
-      results.size(), bucket.c_str());
-
-  // Delete all objects from bucket
-  for (auto path : results) {
-    path = s3_object_prefix + "/" + path;
-    st = DeletePathInS3(bucket, path);
-    if (!st.ok()) {
-      Log(InfoLogLevel::ERROR_LEVEL, info_log_,
-          "[s3] EmptyBucket Unable to delete %s in bucket %s %s", path.c_str(),
-          bucket.c_str(), st.ToString().c_str());
-    }
-  }
   return st;
 }
 
@@ -1080,19 +797,21 @@ Status AwsEnv::GetChildren(const std::string& path,
   // Fetch the list of children from both buckets in S3
   Status st;
   if (HasSrcBucket()) {
-    st = GetChildrenFromS3(GetSrcObjectPath(), GetSrcBucketName(), result);
+    st = cloud_env_options.storage_provider->ListObjects(
+        GetSrcBucketName(), GetSrcObjectPath(), result);
     if (!st.ok()) {
       Log(InfoLogLevel::ERROR_LEVEL, info_log_,
-          "[s3] GetChildren src bucket %s %s error from S3 %s",
+          "[aws] GetChildren src bucket %s %s error from S3 %s",
           GetSrcBucketName().c_str(), path.c_str(), st.ToString().c_str());
       return st;
     }
   }
   if (HasDestBucket() && !SrcMatchesDest()) {
-    st = GetChildrenFromS3(GetDestObjectPath(), GetDestBucketName(), result);
+    st = cloud_env_options.storage_provider->ListObjects(
+        GetDestBucketName(), GetDestObjectPath(), result);
     if (!st.ok()) {
       Log(InfoLogLevel::ERROR_LEVEL, info_log_,
-          "[s3] GetChildren dest bucket %s %s error from S3 %s",
+          "[aws] GetChildren dest bucket %s %s error from S3 %s",
           GetDestBucketName().c_str(), path.c_str(), st.ToString().c_str());
       return st;
     }
@@ -1103,7 +822,7 @@ Status AwsEnv::GetChildren(const std::string& path,
   st = base_env_->GetChildren(path, &local_files);
   if (!st.ok()) {
     Log(InfoLogLevel::ERROR_LEVEL, info_log_,
-        "[s3] GetChildren %s error on local dir", path.c_str());
+        "[aws] GetChildren %s error on local dir", path.c_str());
     return st;
   }
 
@@ -1147,6 +866,11 @@ void AwsEnv::RemoveFileFromDeletionQueue(const std::string& filename) {
     GetJobExecutor()->CancelJob(itr->second.get());
     files_to_delete_.erase(itr);
   }
+}
+
+Status AwsEnv::TEST_DeletePathInS3(const std::string& bucket,
+                                   const std::string& fname) {
+  return cloud_env_options.storage_provider->DeleteObject(bucket, fname);
 }
 
 Status AwsEnv::DeleteFile(const std::string& logical_fname) {
@@ -1217,6 +941,13 @@ Status AwsEnv::DeleteFile(const std::string& logical_fname) {
   return st;
 }
 
+Status AwsEnv::CopyLocalFileToDest(const std::string& local_name,
+                                   const std::string& dest_name) {
+  RemoveFileFromDeletionQueue(basename(local_name));
+  return cloud_env_options.storage_provider->PutObject(
+      local_name, GetDestBucketName(), dest_name);
+}
+
 Status AwsEnv::DeleteCloudFileFromDest(const std::string& fname) {
   assert(HasDestBucket());
   auto base = basename(fname);
@@ -1233,10 +964,11 @@ Status AwsEnv::DeleteCloudFileFromDest(const std::string& fname) {
     }
     auto path = GetDestObjectPath() + "/" + base;
     // we are ready to delete the file!
-    auto st = DeletePathInS3(GetDestBucketName(), path);
+    auto st = cloud_env_options.storage_provider->DeleteObject(
+        GetDestBucketName(), path);
     if (!st.ok() && !st.IsNotFound()) {
       Log(InfoLogLevel::ERROR_LEVEL, info_log_,
-          "[s3] DeleteFile DeletePathInS3 file %s error %s", path.c_str(),
+          "[aws] DeleteFile DeletePathInS3 file %s error %s", path.c_str(),
           st.ToString().c_str());
     }
   };
@@ -1255,44 +987,6 @@ Status AwsEnv::DeleteCloudFileFromDest(const std::string& fname) {
     files_to_delete_.emplace(base, std::move(handle));
   }
   return Status::OK();
-}
-
-//
-// Delete the specified path from S3
-//
-Status AwsEnv::DeletePathInS3(const std::string& bucket,
-                              const std::string& fname) {
-  assert(status().ok());
-  Status st;
-
-  // The filename is the same as the object name in the bucket
-  Aws::String object = ToAwsString(fname);
-
-  // create request
-  Aws::S3::Model::DeleteObjectRequest request;
-  request.SetBucket(ToAwsString(bucket));
-  request.SetKey(object);
-
-  Aws::S3::Model::DeleteObjectOutcome outcome =
-      s3client_->DeleteObject(request);
-  bool isSuccess = outcome.IsSuccess();
-  if (!isSuccess) {
-    const Aws::Client::AWSError<Aws::S3::S3Errors>& error = outcome.GetError();
-    std::string errmsg(error.GetMessage().c_str());
-    Aws::S3::S3Errors s3err = error.GetErrorType();
-    if (s3err == Aws::S3::S3Errors::NO_SUCH_BUCKET ||
-        s3err == Aws::S3::S3Errors::NO_SUCH_KEY ||
-        s3err == Aws::S3::S3Errors::RESOURCE_NOT_FOUND) {
-      st = Status::NotFound(fname, errmsg.c_str());
-    } else {
-      st = Status::IOError(fname, errmsg.c_str());
-    }
-  }
-
-  Log(InfoLogLevel::INFO_LEVEL, info_log_, "[s3] DeleteFromS3 %s/%s, status %s",
-      bucket.c_str(), object.c_str(), st.ToString().c_str());
-
-  return st;
 }
 
 // S3 has no concepts of directories, so we just have to forward the request to
@@ -1357,12 +1051,12 @@ Status AwsEnv::GetFileSize(const std::string& logical_fname, uint64_t* size) {
       st = Status::NotFound();
       // Get file length from S3
       if (HasDestBucket()) {
-        st = HeadObject(GetDestBucketName(), destname(fname), nullptr, size,
-                        nullptr);
+        st = cloud_env_options.storage_provider->GetObjectSize(
+            GetDestBucketName(), destname(fname), size);
       }
       if (st.IsNotFound() && HasSrcBucket()) {
-        st = HeadObject(GetSrcBucketName(), srcname(fname), nullptr, size,
-                        nullptr);
+        st = cloud_env_options.storage_provider->GetObjectSize(
+            GetSrcBucketName(), srcname(fname), size);
       }
     }
   } else if (logfile && !cloud_env_options.keep_local_log_files) {
@@ -1393,12 +1087,12 @@ Status AwsEnv::GetFileModificationTime(const std::string& logical_fname,
     } else {
       st = Status::NotFound();
       if (HasDestBucket()) {
-        st = HeadObject(GetDestBucketName(), destname(fname), nullptr,
-                        nullptr, time);
+        st = cloud_env_options.storage_provider->GetObjectModificationTime(
+            GetDestBucketName(), destname(fname), time);
       }
       if (st.IsNotFound() && HasSrcBucket()) {
-        st = HeadObject(GetSrcBucketName(), srcname(fname), nullptr, nullptr,
-                        time);
+        st = cloud_env_options.storage_provider->GetObjectModificationTime(
+            GetSrcBucketName(), srcname(fname), time);
       }
     }
   } else if (logfile && !cloud_env_options.keep_local_log_files) {
@@ -1495,7 +1189,8 @@ Status AwsEnv::SaveIdentitytoS3(const std::string& localfile,
 
   // Upload ID file to  S3
   if (st.ok()) {
-    st = PutObject(localfile, GetDestBucketName(), idfile);
+    st = cloud_env_options.storage_provider->PutObject(
+        localfile, GetDestBucketName(), idfile);
   }
 
   // Save mapping from ID to cloud pathname
@@ -1516,35 +1211,23 @@ Status AwsEnv::SaveDbid(const std::string& bucket_name, const std::string& dbid,
       dbid.c_str(), dirname.c_str());
 
   std::string dbidkey = dbid_registry_ + dbid;
-  Aws::String s3_bucket = ToAwsString(bucket_name);
-  Aws::String key = ToAwsString(dbidkey);
+  std::unordered_map<std::string, std::string> metadata;
+  metadata["dirname"] = dirname;
 
-  Aws::Map<Aws::String, Aws::String> metadata;
-  metadata[ToAwsString("dirname")] = ToAwsString(dirname);
+  Status st = cloud_env_options.storage_provider->PutObjectMetadata(
+      bucket_name, dbidkey, metadata);
 
-  // create request
-  Aws::S3::Model::PutObjectRequest put_request;
-  put_request.SetBucket(s3_bucket);
-  put_request.SetKey(key);
-  put_request.SetMetadata(metadata);
-  SetEncryptionParameters(cloud_env_options, put_request);
-
-  Aws::S3::Model::PutObjectOutcome put_outcome =
-      s3client_->PutObject(put_request);
-  bool isSuccess = put_outcome.IsSuccess();
-  if (!isSuccess) {
-    const Aws::Client::AWSError<Aws::S3::S3Errors>& error =
-        put_outcome.GetError();
-    std::string errmsg(error.GetMessage().c_str(), error.GetMessage().size());
+  if (!st.ok()) {
     Log(InfoLogLevel::ERROR_LEVEL, info_log_,
-        "[s3] Bucket %s SaveDbid error in saving dbid %s dirname %s %s",
-        bucket_name.c_str(), dbid.c_str(), dirname.c_str(), errmsg.c_str());
-    return Status::IOError(dirname, errmsg.c_str());
+        "[aws] Bucket %s SaveDbid error in saving dbid %s dirname %s %s",
+        bucket_name.c_str(), dbid.c_str(), dirname.c_str(),
+        st.ToString().c_str());
+  } else {
+    Log(InfoLogLevel::INFO_LEVEL, info_log_,
+        "[aws] Bucket %s SaveDbid dbid %s dirname %s %s", bucket_name.c_str(),
+        dbid.c_str(), dirname.c_str(), "ok");
   }
-  Log(InfoLogLevel::INFO_LEVEL, info_log_,
-      "[s3] Bucket %s SaveDbid dbid %s dirname %s %s", bucket_name.c_str(),
-      dbid.c_str(), dirname.c_str(), "ok");
-  return Status::OK();
+  return st;
 };
 
 //
@@ -1558,16 +1241,17 @@ Status AwsEnv::GetPathForDbid(const std::string& bucket,
       "[s3] Bucket %s GetPathForDbid dbid %s", bucket.c_str(),
       dbid.c_str());
 
-  Aws::Map<Aws::String, Aws::String> metadata;
-  Status st = HeadObject(bucket, dbidkey, &metadata);
+  std::unordered_map<std::string, std::string> metadata;
+  Status st = cloud_env_options.storage_provider->GetObjectMetadata(
+      bucket, dbidkey, &metadata);
   if (!st.ok()) {
     if (st.IsNotFound()) {
       Log(InfoLogLevel::ERROR_LEVEL, info_log_,
-          "[s3] %s GetPathForDbid error non-existent dbid %s %s",
+          "[aws] %s GetPathForDbid error non-existent dbid %s %s",
           bucket.c_str(), dbid.c_str(), st.ToString().c_str());
     } else {
       Log(InfoLogLevel::ERROR_LEVEL, info_log_,
-          "[s3] %s GetPathForDbid error dbid %s %s", bucket.c_str(),
+          "[aws] %s GetPathForDbid error dbid %s %s", bucket.c_str(),
           dbid.c_str(), st.ToString().c_str());
     }
     return st;
@@ -1575,14 +1259,13 @@ Status AwsEnv::GetPathForDbid(const std::string& bucket,
 
   // Find "dirname" metadata that stores the pathname of the db
   const char* kDirnameTag = "dirname";
-  auto it = metadata.find(Aws::String(kDirnameTag));
+  auto it = metadata.find(kDirnameTag);
   if (it != metadata.end()) {
-    Aws::String as = it->second;
-    dirname->assign(as.c_str(), as.size());
+    *dirname = it->second;
   } else {
     st = Status::NotFound("GetPathForDbid");
   }
-  Log(InfoLogLevel::INFO_LEVEL, info_log_, "[s3] %s GetPathForDbid dbid %s %s",
+  Log(InfoLogLevel::INFO_LEVEL, info_log_, "[aws] %s GetPathForDbid dbid %s %s",
       bucket.c_str(), dbid.c_str(), st.ToString().c_str());
   return st;
 }
@@ -1594,10 +1277,11 @@ Status AwsEnv::GetDbidList(const std::string& bucket, DbidList* dblist) {
 
   // fetch the list all all dbids
   std::vector<std::string> dbid_list;
-  Status st = GetChildrenFromS3(dbid_registry_, bucket, &dbid_list);
+  Status st = cloud_env_options.storage_provider->ListObjects(
+      bucket, dbid_registry_, &dbid_list);
   if (!st.ok()) {
     Log(InfoLogLevel::ERROR_LEVEL, info_log_,
-        "[s3] %s GetDbidList error in GetChildrenFromS3 %s", bucket.c_str(),
+        "[aws] %s GetDbidList error in GetChildrenFromS3 %s", bucket.c_str(),
         st.ToString().c_str());
     return st;
   }
@@ -1607,7 +1291,7 @@ Status AwsEnv::GetDbidList(const std::string& bucket, DbidList* dblist) {
     st = GetPathForDbid(bucket, dbid, &dirname);
     if (!st.ok()) {
       Log(InfoLogLevel::ERROR_LEVEL, info_log_,
-          "[s3] %s GetDbidList error in GetPathForDbid(%s) %s", bucket.c_str(),
+          "[aws] %s GetDbidList error in GetPathForDbid(%s) %s", bucket.c_str(),
           dbid.c_str(), st.ToString().c_str());
       return st;
     }
@@ -1625,274 +1309,14 @@ Status AwsEnv::DeleteDbid(const std::string& bucket,
 
   // fetch the list all all dbids
   std::string dbidkey = dbid_registry_ + dbid;
-  Status st = DeletePathInS3(bucket, dbidkey);
+  Status st = cloud_env_options.storage_provider->DeleteObject(bucket, dbidkey);
   Log(InfoLogLevel::DEBUG_LEVEL, info_log_,
-      "[s3] %s DeleteDbid DeleteDbid(%s) %s", bucket.c_str(), dbid.c_str(),
+      "[aws] %s DeleteDbid DeleteDbid(%s) %s", bucket.c_str(), dbid.c_str(),
       st.ToString().c_str());
   return st;
 }
 
-// Returns a list of all objects that start with the specified
-// prefix and are stored in the bucket.
-Status AwsEnv::ListObjects(const std::string& bucket_name,
-                           const std::string& object_path,
-                           BucketObjectMetadata* meta) {
-  return GetChildrenFromS3(object_path, bucket_name,
-                           &meta->pathnames);
-}
 
-// Deletes the specified object from cloud storage
-Status AwsEnv::DeleteObject(const std::string& bucket_name,
-                            const std::string& object_path) {
-  return DeletePathInS3(bucket_name, object_path);
-}
-
-// Delete the specified object from the specified cloud bucket
-Status AwsEnv::ExistsObject(const std::string& bucket_name,
-                            const std::string& object_path) {
-  return HeadObject(bucket_name, object_path);
-}
-
-// Return size of cloud object
-Status AwsEnv::GetObjectSize(const std::string& bucket_name,
-                             const std::string& object_path,
-                             uint64_t* filesize) {
-  return HeadObject(bucket_name, object_path, nullptr, filesize,
-                    nullptr);
-}
-
-// Copy the specified cloud object from one location in the cloud
-// storage to another location in cloud storage
-Status AwsEnv::CopyObject(const std::string& bucket_name_src,
-                          const std::string& object_path_src,
-                          const std::string& bucket_name_dest,
-                          const std::string& object_path_dest) {
-  Status st;
-  Aws::String src_bucket = ToAwsString(bucket_name_src);
-  Aws::String dest_bucket = ToAwsString(bucket_name_dest);
-
-  // The filename is the same as the object name in the bucket
-  Aws::String src_object = ToAwsString(object_path_src);
-  Aws::String dest_object = ToAwsString(object_path_dest);
-
-  Aws::String src_url = src_bucket + src_object;
-
-  // create copy request
-  Aws::S3::Model::CopyObjectRequest request;
-  request.SetCopySource(src_url);
-  request.SetBucket(dest_bucket);
-  request.SetKey(dest_object);
-  SetEncryptionParameters(cloud_env_options, request);
-
-  // execute request
-  Aws::S3::Model::CopyObjectOutcome outcome = s3client_->CopyObject(request);
-  bool isSuccess = outcome.IsSuccess();
-  if (!isSuccess) {
-    const Aws::Client::AWSError<Aws::S3::S3Errors>& error = outcome.GetError();
-    std::string errmsg(error.GetMessage().c_str());
-    Log(InfoLogLevel::ERROR_LEVEL, info_log_,
-        "[aws] S3WritableFile src path %s error in copying to %s %s",
-        src_url.c_str(), dest_object.c_str(), errmsg.c_str());
-    return Status::IOError(dest_object.c_str(), errmsg.c_str());
-  }
-  Log(InfoLogLevel::ERROR_LEVEL, info_log_,
-      "[aws] S3WritableFile src path %s copied to %s %s", src_url.c_str(),
-      dest_object.c_str(), st.ToString().c_str());
-  return st;
-}
-
-AwsEnv::GetObjectResult AwsEnv::DoGetObject(const Aws::String& bucket,
-                                            const Aws::String& key,
-                                            const std::string& destination) {
-  Aws::S3::Model::GetObjectRequest getObjectRequest;
-  getObjectRequest.SetBucket(bucket);
-  getObjectRequest.SetKey(key);
-
-  getObjectRequest.SetResponseStreamFactory([destination]() {
-    return Aws::New<Aws::FStream>(Aws::Utils::ARRAY_ALLOCATION_TAG, destination,
-                                  std::ios_base::out);
-  });
-  auto getOutcome = s3client_->GetObject(getObjectRequest);
-  GetObjectResult result;
-  result.success = getOutcome.IsSuccess();
-  if (!result.success) {
-    result.error = getOutcome.GetError();
-  } else {
-    result.objectSize = getOutcome.GetResult().GetContentLength();
-  }
-  return result;
-}
-
-AwsEnv::GetObjectResult AwsEnv::DoGetObjectWithTransferManager(
-    const Aws::String& bucket, const Aws::String& key,
-    const std::string& destination) {
-  CloudRequestCallbackGuard guard(
-      cloud_env_options.cloud_request_callback.get(),
-      CloudRequestOpType::kReadOp);
-
-  auto transferHandle =
-      awsTransferManager_->DownloadFile(bucket, key, ToAwsString(destination));
-
-  transferHandle->WaitUntilFinished();
-
-  GetObjectResult result;
-  result.success =
-      transferHandle->GetStatus() == Aws::Transfer::TransferStatus::COMPLETED;
-  if (!result.success) {
-    result.error = transferHandle->GetLastError();
-  } else {
-    result.objectSize = transferHandle->GetBytesTotalSize();
-  }
-
-  guard.SetSize(result.objectSize);
-  guard.SetSuccess(result.success);
-  return result;
-}
-
-Status AwsEnv::GetObject(const std::string& bucket_name,
-                         const std::string& object_path,
-                         const std::string& local_destination) {
-  Env* localenv = GetBaseEnv();
-  std::string tmp_destination =
-      local_destination + ".tmp-" + std::to_string(rng_.Next());
-
-  GetObjectResult result;
-  if (cloud_env_options.use_aws_transfer_manager) {
-    result = DoGetObjectWithTransferManager(ToAwsString(bucket_name), ToAwsString(object_path), tmp_destination);
-  } else {
-    result = DoGetObject(ToAwsString(bucket_name), ToAwsString(object_path), tmp_destination);
-  }
-
-  if (!result.success) {
-    localenv->DeleteFile(tmp_destination);
-    const auto& error = result.error;
-    std::string errmsg(error.GetMessage().c_str(), error.GetMessage().size());
-    Log(InfoLogLevel::ERROR_LEVEL, info_log_,
-        "[s3] GetObject %s/%s error %s.", bucket_name.c_str(),
-        object_path.c_str(), errmsg.c_str());
-    auto errorType = error.GetErrorType();
-    if (errorType == Aws::S3::S3Errors::NO_SUCH_BUCKET ||
-        errorType == Aws::S3::S3Errors::NO_SUCH_KEY ||
-        errorType == Aws::S3::S3Errors::RESOURCE_NOT_FOUND) {
-      return Status::NotFound(std::move(errmsg));
-    }
-    return Status::IOError(std::move(errmsg));
-  }
-
-  // Check if our local file is the same as S3 promised
-  uint64_t file_size{0};
-  auto s = localenv->GetFileSize(tmp_destination, &file_size);
-  if (!s.ok()) {
-      return s;
-  }
-  if (file_size != result.objectSize) {
-    localenv->DeleteFile(tmp_destination);
-    s = Status::IOError("Partial download of a file " + local_destination);
-    Log(InfoLogLevel::ERROR_LEVEL, info_log_,
-        "[s3] GetObject %s/%s local size %" PRIu64
-        " != cloud size "
-        "%ld. %s",
-        bucket_name.c_str(), object_path.c_str(), file_size, result.objectSize,
-        s.ToString().c_str());
-  }
-
-  if (s.ok()) {
-    s = localenv->RenameFile(tmp_destination, local_destination);
-  }
-  Log(InfoLogLevel::INFO_LEVEL, info_log_,
-      "[s3] GetObject %s/%s size %" PRIu64 ". %s", bucket_name.c_str(),
-      object_path.c_str(), file_size, s.ToString().c_str());
-  return s;
-}
-
-AwsEnv::PutObjectResult AwsEnv::DoPutObject(const std::string& filename,
-                                            const Aws::String& bucket,
-                                            const Aws::String& key,
-                                            uint64_t sizeHint) {
-  auto inputData = Aws::MakeShared<Aws::FStream>(
-      key.c_str(), filename.c_str(), std::ios_base::in | std::ios_base::out);
-
-  Aws::S3::Model::PutObjectRequest putRequest;
-  putRequest.SetBucket(bucket);
-  putRequest.SetKey(key);
-  putRequest.SetBody(inputData);
-  SetEncryptionParameters(cloud_env_options,  putRequest);
-
-  auto putOutcome = s3client_->PutObject(putRequest, sizeHint);
-  PutObjectResult result;
-  result.success = putOutcome.IsSuccess();
-  if (!result.success) {
-    result.error = putOutcome.GetError();
-  }
-  return result;
-}
-
-AwsEnv::PutObjectResult AwsEnv::DoPutObjectWithTransferManager(
-    const std::string& filename, const Aws::String& bucket,
-    const Aws::String& key, uint64_t sizeHint) {
-  CloudRequestCallbackGuard guard(
-      cloud_env_options.cloud_request_callback.get(),
-      CloudRequestOpType::kWriteOp, sizeHint);
-
-  auto transferHandle = awsTransferManager_->UploadFile(
-      ToAwsString(filename), bucket, key, Aws::DEFAULT_CONTENT_TYPE,
-      Aws::Map<Aws::String, Aws::String>());
-
-  transferHandle->WaitUntilFinished();
-
-  PutObjectResult result;
-  result.success =
-      transferHandle->GetStatus() == Aws::Transfer::TransferStatus::COMPLETED;
-  if (!result.success) {
-    result.error = transferHandle->GetLastError();
-  }
-
-  guard.SetSuccess(result.success);
-  return result;
-}
-
-Status AwsEnv::PutObject(const std::string& local_file,
-                         const std::string& bucket_name,
-                         const std::string& object_path) {
-  uint64_t fsize = 0;
-  // debugging paranoia. Files uploaded to S3 can never be zero size.
-  auto st = GetBaseEnv()->GetFileSize(local_file, &fsize);
-  if (!st.ok()) {
-    Log(InfoLogLevel::ERROR_LEVEL, info_log_,
-        "[s3] PutObject localpath %s error getting size %s", local_file.c_str(),
-        st.ToString().c_str());
-    return st;
-  }
-  if (fsize == 0) {
-    Log(InfoLogLevel::ERROR_LEVEL, info_log_,
-        "[s3] PutObject localpath %s error zero size", local_file.c_str());
-    return Status::IOError(local_file + " Zero size.");
-  }
-
-  auto s3_bucket = ToAwsString(bucket_name);
-  PutObjectResult result;
-  if (cloud_env_options.use_aws_transfer_manager) {
-    result = DoPutObjectWithTransferManager(
-        local_file, s3_bucket, ToAwsString(object_path), fsize);
-  } else {
-    result = DoPutObject(local_file, s3_bucket, ToAwsString(object_path),
-                         fsize);
-  }
-  if (!result.success) {
-    auto error = result.error;
-    std::string errmsg(error.GetMessage().c_str(), error.GetMessage().size());
-    st = Status::IOError(local_file, errmsg);
-    Log(InfoLogLevel::ERROR_LEVEL, info_log_,
-        "[s3] PutObject %s/%s, size %" PRIu64 ", ERROR %s", s3_bucket.c_str(),
-        object_path.c_str(), fsize, errmsg.c_str());
-  } else {
-    Log(InfoLogLevel::INFO_LEVEL, info_log_,
-        "[s3] PutObject %s/%s, size %" PRIu64 ", OK", s3_bucket.c_str(),
-        object_path.c_str(), fsize);
-  }
-
-  return st;
-}
 
 //
 // prepends the configured src object path name
@@ -1910,14 +1334,14 @@ std::string AwsEnv::destname(const std::string& localname) {
   return cloud_env_options.dest_bucket.GetObjectPath() + "/" + basename(localname);
 }
 
-Status AwsEnv::LockFile(const std::string& fname, FileLock** lock) {
+Status AwsEnv::LockFile(const std::string& /*fname*/, FileLock** lock) {
   // there isn's a very good way to atomically check and create
   // a file via libs3
   *lock = nullptr;
   return Status::OK();
 }
 
-Status AwsEnv::UnlockFile(FileLock* lock) { return Status::OK(); }
+Status AwsEnv::UnlockFile(FileLock* /*lock*/) { return Status::OK(); }
 
 Status AwsEnv::NewLogger(const std::string& fname,
                          std::shared_ptr<Logger>* result) {
@@ -1947,7 +1371,5 @@ std::string AwsEnv::GetWALCacheDir() {
   return cloud_env_options.cloud_log_controller->GetCacheDir();
 }
 
-
-#pragma GCC diagnostic pop
 #endif  // USE_AWS
 }  // namespace rocksdb

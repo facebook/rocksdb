@@ -94,8 +94,6 @@ CloudEnv::CloudEnv(const CloudEnvOptions& options, Env *base, const std::shared_
   
 CloudEnv::~CloudEnv() {}
 
-CloudEnvWrapper::~CloudEnvWrapper() {}
-
 Status CloudEnv::NewAwsEnv(
     Env* base_env, const std::string& src_cloud_bucket,
     const std::string& src_cloud_object, const std::string& src_cloud_region,

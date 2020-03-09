@@ -238,6 +238,7 @@ LIB_SOURCES =                                                   \
   cloud/manifest_reader.cc                                      \
   cloud/purge.cc                                                \
   cloud/cloud_manifest.cc                                       \
+  cloud/cloud_storage_provider.cc                               \
   db/db_impl/db_impl_remote_compaction.cc
 
 ifeq ($(ARMCRC_SOURCE),1)
