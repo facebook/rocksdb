@@ -14,7 +14,6 @@
 #include "rocksdb/compaction_filter.h"
 #include "rocksdb/convenience.h"
 #include "rocksdb/filter_policy.h"
-#include "rocksdb/listener.h"
 #include "rocksdb/memtablerep.h"
 #include "rocksdb/merge_operator.h"
 #include "rocksdb/options.h"
@@ -254,25 +253,6 @@ std::unordered_map<std::string, CompressionType>
         {"kZSTD", kZSTD},
         {"kZSTDNotFinalCompression", kZSTDNotFinalCompression},
         {"kDisableCompressionOption", kDisableCompressionOption}};
-
-std::unordered_map<std::string, CompactionReason>
-    OptionsHelper::compaction_reason_string_map = {
-        {"Unknown", CompactionReason::kUnknown},
-        {"LevelL0FilesNum", CompactionReason::kLevelL0FilesNum},
-        {"LevelMaxLevelSize", CompactionReason::kLevelMaxLevelSize},
-        {"UniversalSizeAmplification", CompactionReason::kUniversalSizeAmplification},
-        {"UniversalSizeRatio", CompactionReason::kUniversalSizeRatio},
-        {"UniversalSortedRunNum", CompactionReason::kUniversalSortedRunNum},
-        {"FIFOMaxSize", CompactionReason::kFIFOMaxSize},
-        {"FIFOReduceNumFiles", CompactionReason::kFIFOReduceNumFiles},
-        {"FIFOTtl", CompactionReason::kFIFOTtl},
-        {"ManualCompaction", CompactionReason::kManualCompaction},
-        {"FilesMarkedForCompaction", CompactionReason::kFilesMarkedForCompaction},
-        {"BottommostFiles", CompactionReason::kBottommostFiles},
-        {"Ttl", CompactionReason::kTtl},
-        {"Flush", CompactionReason::kFlush},
-        {"ExternalSstIngestion", CompactionReason::kExternalSstIngestion},
-        {"PeriodicCompaction", CompactionReason::kPeriodicCompaction}};
 #ifndef ROCKSDB_LITE
 
 const std::string kNameComparator = "comparator";
@@ -1202,17 +1182,6 @@ std::vector<CompressionType> GetSupportedCompressions() {
     }
   }
   return supported_compressions;
-}
-
-Status GetStringFromCompactionReason(std::string* compaction_str,
-                                     CompactionReason compaction_reason) {
-  bool ok = SerializeEnum<CompactionReason>(compaction_reason_string_map,
-                                           compaction_reason, compaction_str);
-  if (ok) {
-    return Status::OK();
-  } else {
-    return Status::InvalidArgument("Invalid compaction reason");
-  }
 }
 
 Status ParseDBOption(const std::string& name,
