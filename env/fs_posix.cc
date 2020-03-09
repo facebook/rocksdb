@@ -909,7 +909,7 @@ size_t PosixFileSystem::GetLogicalBlockSize(const std::string& fname, int fd) {
   return logical_block_size_cache_.GetLogicalBlockSize(fname, fd);
 #else
   (void) fname;
-  return PosixHelper::GetLogicalBlockSize(fd);
+  return PosixHelper::GetLogicalBlockSizeOfFd(fd);
 #endif
 }
 
