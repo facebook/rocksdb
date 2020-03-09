@@ -117,7 +117,7 @@ class PosixSequentialFile : public FSSequentialFile {
 
  public:
   PosixSequentialFile(const std::string& fname, FILE* file, int fd,
-                      size_t logical_buffer_size,
+                      size_t logical_block_size,
                       const EnvOptions& options);
   virtual ~PosixSequentialFile();
 
@@ -166,7 +166,7 @@ class PosixRandomAccessFile : public FSRandomAccessFile {
 
  public:
   PosixRandomAccessFile(const std::string& fname, int fd,
-                        size_t logical_buffer_size,
+                        size_t logical_block_size,
                         const EnvOptions& options
 #if defined(ROCKSDB_IOURING_PRESENT)
                         ,
@@ -216,7 +216,7 @@ class PosixWritableFile : public FSWritableFile {
 
  public:
   explicit PosixWritableFile(const std::string& fname, int fd,
-                             size_t logical_buffer_size,
+                             size_t logical_block_size,
                              const EnvOptions& options);
   virtual ~PosixWritableFile();
 

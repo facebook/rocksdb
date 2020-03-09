@@ -207,13 +207,13 @@ bool IsSectorAligned(const void* ptr, size_t sector_size) {
  * PosixSequentialFile
  */
 PosixSequentialFile::PosixSequentialFile(const std::string& fname, FILE* file,
-                                         int fd, size_t logical_buffer_size,
+                                         int fd, size_t logical_block_size,
                                          const EnvOptions& options)
     : filename_(fname),
       file_(file),
       fd_(fd),
       use_direct_io_(options.use_direct_reads),
-      logical_sector_size_(logical_buffer_size) {
+      logical_sector_size_(logical_block_size) {
   assert(!options.use_direct_reads || !options.use_mmap_reads);
 }
 
@@ -540,7 +540,7 @@ size_t PosixHelper::GetLogicalBlockSizeOfFd(int __attribute__((__unused__))
  * pread() based random-access
  */
 PosixRandomAccessFile::PosixRandomAccessFile(
-    const std::string& fname, int fd, size_t logical_buffer_size,
+    const std::string& fname, int fd, size_t logical_block_size,
     const EnvOptions& options
 #if defined(ROCKSDB_IOURING_PRESENT)
     ,
@@ -550,7 +550,7 @@ PosixRandomAccessFile::PosixRandomAccessFile(
     : filename_(fname),
       fd_(fd),
       use_direct_io_(options.use_direct_reads),
-      logical_sector_size_(logical_buffer_size)
+      logical_sector_size_(logical_block_size)
 #if defined(ROCKSDB_IOURING_PRESENT)
       ,
       thread_local_io_urings_(thread_local_io_urings)
@@ -1114,14 +1114,14 @@ IOStatus PosixMmapFile::Allocate(uint64_t offset, uint64_t len,
  * Use posix write to write data to a file.
  */
 PosixWritableFile::PosixWritableFile(const std::string& fname, int fd,
-                                     size_t logical_buffer_size,
+                                     size_t logical_block_size,
                                      const EnvOptions& options)
     : FSWritableFile(options),
       filename_(fname),
       use_direct_io_(options.use_direct_writes),
       fd_(fd),
       filesize_(0),
-      logical_sector_size_(logical_buffer_size) {
+      logical_sector_size_(logical_block_size) {
 #ifdef ROCKSDB_FALLOCATE_PRESENT
   allow_fallocate_ = options.allow_fallocate;
   fallocate_with_keep_size_ = options.fallocate_with_keep_size;
