@@ -4,12 +4,13 @@
 // A log file maps to a stream in Kinesis.
 //
 
-#include "cloud/cloud_log_controller.h"
+#include "rocksdb/cloud/cloud_log_controller.h"
 
 #include <cinttypes>
 #include <fstream>
 #include <iostream>
 
+#include "cloud/cloud_log_controller_impl.h"
 #include "cloud/filename.h"
 #include "rocksdb/cloud/cloud_env_options.h"
 #include "rocksdb/status.h"
@@ -24,12 +25,13 @@ CloudLogWritableFile::CloudLogWritableFile(
 
 CloudLogWritableFile::~CloudLogWritableFile() {}
 
-const std::chrono::microseconds CloudLogController::kRetryPeriod =
-  std::chrono::seconds(30);
+const std::chrono::microseconds CloudLogControllerImpl::kRetryPeriod =
+    std::chrono::seconds(30);
 
-CloudLogController::CloudLogController(CloudEnv* env)
-  : env_(env), running_(false) {
+CloudLogController::~CloudLogController() {}
 
+CloudLogControllerImpl::CloudLogControllerImpl(CloudEnv* env)
+    : env_(env), running_(false) {
   // Create a random number for the cache directory.
   const std::string uid = trim(env_->GetBaseEnv()->GenerateUniqueId());
 
@@ -47,7 +49,7 @@ CloudLogController::CloudLogController(CloudEnv* env)
   }
 }
 
-CloudLogController::~CloudLogController() {
+CloudLogControllerImpl::~CloudLogControllerImpl() {
   if (running_) {
     // This is probably not a good situation as the derived class is partially destroyed
     // but the tailer might still be active.
@@ -59,12 +61,50 @@ CloudLogController::~CloudLogController() {
       "[%s] CloudLogController closed.", Name());
 }
 
-std::string CloudLogController::GetCachePath(const Slice& original_pathname) const {
+std::string CloudLogControllerImpl::GetCachePath(
+    const Slice& original_pathname) const {
   const std::string & cache_dir = GetCacheDir();
   return cache_dir + pathsep + basename(original_pathname.ToString());
 }
 
-Status CloudLogController::Apply(const Slice& in) {
+bool CloudLogControllerImpl::ExtractLogRecord(
+    const Slice& input, uint32_t* operation, Slice* filename,
+    uint64_t* offset_in_file, uint64_t* file_size, Slice* data) {
+  Slice in = input;
+  if (in.size() < 1) {
+    return false;
+  }
+
+  // extract operation
+  if (!GetVarint32(&in, operation)) {
+    return false;
+  }
+  if (*operation == kAppend) {
+    *file_size = 0;
+    if (!GetFixed64(&in, offset_in_file) ||        // extract offset in file
+        !GetLengthPrefixedSlice(&in, filename) ||  // extract filename
+        !GetLengthPrefixedSlice(&in, data)) {      // extract file contents
+      return false;
+    }
+  } else if (*operation == kDelete) {
+    *file_size = 0;
+    *offset_in_file = 0;
+    if (!GetLengthPrefixedSlice(&in, filename)) {  // extract filename
+      return false;
+    }
+  } else if (*operation == kClosed) {
+    *offset_in_file = 0;
+    if (!GetFixed64(&in, file_size) ||             // extract filesize
+        !GetLengthPrefixedSlice(&in, filename)) {  // extract filename
+      return false;
+    }
+  } else {
+    return false;
+  }
+  return true;
+}
+
+Status CloudLogControllerImpl::Apply(const Slice& in) {
   uint32_t operation;
   uint64_t offset_in_file;
   uint64_t file_size;
@@ -163,8 +203,10 @@ Status CloudLogController::Apply(const Slice& in) {
   return st;
 }
 
-void CloudLogController::SerializeLogRecordAppend(const Slice& filename,
-    const Slice& data, uint64_t offset, std::string* out) {
+void CloudLogControllerImpl::SerializeLogRecordAppend(const Slice& filename,
+                                                      const Slice& data,
+                                                      uint64_t offset,
+                                                      std::string* out) {
   // write the operation type
   PutVarint32(out, kAppend);
 
@@ -178,8 +220,9 @@ void CloudLogController::SerializeLogRecordAppend(const Slice& filename,
   PutLengthPrefixedSlice(out, data);
 }
 
-void CloudLogController::SerializeLogRecordClosed(
-    const Slice& filename, uint64_t file_size, std::string* out) {
+void CloudLogControllerImpl::SerializeLogRecordClosed(const Slice& filename,
+                                                      uint64_t file_size,
+                                                      std::string* out) {
   // write the operation type
   PutVarint32(out, kClosed);
 
@@ -190,7 +233,7 @@ void CloudLogController::SerializeLogRecordClosed(
   PutLengthPrefixedSlice(out, filename);
 }
 
-void CloudLogController::SerializeLogRecordDelete(
+void CloudLogControllerImpl::SerializeLogRecordDelete(
     const std::string& filename, std::string* out) {
   // write the operation type
   PutVarint32(out, kDelete);
@@ -199,46 +242,7 @@ void CloudLogController::SerializeLogRecordDelete(
   PutLengthPrefixedSlice(out, filename);
 }
 
-bool CloudLogController::ExtractLogRecord(const Slice& input,
-    uint32_t* operation, Slice* filename,
-    uint64_t* offset_in_file,
-    uint64_t* file_size, Slice* data) {
-
-  Slice in = input;
-  if (in.size() < 1) {
-    return false;
-  }
-
-  // extract operation
-  if (!GetVarint32(&in, operation)) {
-    return false;
-  }
-  if (*operation == kAppend) {
-    *file_size = 0;
-    if (!GetFixed64(&in, offset_in_file) ||        // extract offset in file
-        !GetLengthPrefixedSlice(&in, filename) ||  // extract filename
-        !GetLengthPrefixedSlice(&in, data)) {      // extract file contents
-      return false;
-    }
-  } else if (*operation == kDelete) {
-    *file_size = 0;
-    *offset_in_file = 0;
-    if (!GetLengthPrefixedSlice(&in, filename)) {  // extract filename
-      return false;
-    }
-  } else if (*operation == kClosed) {
-    *offset_in_file = 0;
-    if (!GetFixed64(&in, file_size) ||             // extract filesize
-        !GetLengthPrefixedSlice(&in, filename)) {  // extract filename
-      return false;
-    }
-  } else {
-    return false;
-  }
-  return true;
-}
-
-Status CloudLogController::StartTailingStream(const std::string & topic) {
+Status CloudLogControllerImpl::StartTailingStream(const std::string& topic) {
   if (tid_) {
     return Status::Busy("Tailer already started");
   }
@@ -253,7 +257,7 @@ Status CloudLogController::StartTailingStream(const std::string & topic) {
   return st;
 }
 
-void CloudLogController::StopTailingStream() {
+void CloudLogControllerImpl::StopTailingStream() {
   running_ = false;
   if (tid_ && tid_->joinable()) {
     tid_->join();
@@ -263,7 +267,7 @@ void CloudLogController::StopTailingStream() {
 //
 // Keep retrying the command until it is successful or the timeout has expired
 //
-Status CloudLogController::Retry(RetryType func) {
+Status CloudLogControllerImpl::Retry(RetryType func) {
   Status stat;
   std::chrono::microseconds start(env_->NowMicros());
   
@@ -278,12 +282,100 @@ Status CloudLogController::Retry(RetryType func) {
 
     // If timeout has expired, return error
     std::chrono::microseconds now(env_->NowMicros());
-    if (start + CloudLogController::kRetryPeriod < now) {
+    if (start + CloudLogControllerImpl::kRetryPeriod < now) {
       stat = Status::TimedOut();
       break;
     }
   }
   return stat;
 }
-  
+
+Status CloudLogControllerImpl::GetFileModificationTime(const std::string& fname,
+                                                       uint64_t* time) {
+  Status st = status();
+  if (st.ok()) {
+    // map  pathname to cache dir
+    std::string pathname = GetCachePath(Slice(fname));
+    Log(InfoLogLevel::DEBUG_LEVEL, env_->info_log_,
+        "[kinesis] GetFileModificationTime logfile %s %s", pathname.c_str(),
+        "ok");
+
+    auto lambda = [this, pathname, time]() -> Status {
+      return env_->GetBaseEnv()->GetFileModificationTime(pathname, time);
+    };
+    st = Retry(lambda);
+  }
+  return st;
+}
+
+Status CloudLogControllerImpl::NewSequentialFile(
+    const std::string& fname, std::unique_ptr<SequentialFile>* result,
+    const EnvOptions& options) {
+  // read from Kinesis
+  Status st = status();
+  if (st.ok()) {
+    // map  pathname to cache dir
+    std::string pathname = GetCachePath(Slice(fname));
+    Log(InfoLogLevel::DEBUG_LEVEL, env_->info_log_,
+        "[%s] NewSequentialFile logfile %s %s", Name(), pathname.c_str(), "ok");
+
+    auto lambda = [this, pathname, &result, options]() -> Status {
+      return env_->GetBaseEnv()->NewSequentialFile(pathname, result, options);
+    };
+    st = Retry(lambda);
+  }
+  return st;
+}
+
+Status CloudLogControllerImpl::NewRandomAccessFile(
+    const std::string& fname, std::unique_ptr<RandomAccessFile>* result,
+    const EnvOptions& options) {
+  Status st = status();
+  if (st.ok()) {
+    // map  pathname to cache dir
+    std::string pathname = GetCachePath(Slice(fname));
+    Log(InfoLogLevel::DEBUG_LEVEL, env_->info_log_,
+        "[%s] NewRandomAccessFile logfile %s %s", Name(), pathname.c_str(),
+        "ok");
+
+    auto lambda = [this, pathname, &result, options]() -> Status {
+      return env_->GetBaseEnv()->NewRandomAccessFile(pathname, result, options);
+    };
+    st = Retry(lambda);
+  }
+  return st;
+}
+
+Status CloudLogControllerImpl::FileExists(const std::string& fname) {
+  Status st = status();
+  if (st.ok()) {
+    // map  pathname to cache dir
+    std::string pathname = GetCachePath(Slice(fname));
+    Log(InfoLogLevel::DEBUG_LEVEL, env_->info_log_,
+        "[%s] FileExists logfile %s %s", Name(), pathname.c_str(), "ok");
+
+    auto lambda = [this, pathname]() -> Status {
+      return env_->GetBaseEnv()->FileExists(pathname);
+    };
+    st = Retry(lambda);
+  }
+  return st;
+}
+
+Status CloudLogControllerImpl::GetFileSize(const std::string& fname,
+                                           uint64_t* size) {
+  Status st = status();
+  if (st.ok()) {
+    // map  pathname to cache dir
+    std::string pathname = GetCachePath(Slice(fname));
+    Log(InfoLogLevel::DEBUG_LEVEL, env_->info_log_,
+        "[%s] GetFileSize logfile %s %s", Name(), pathname.c_str(), "ok");
+
+    auto lambda = [this, pathname, size]() -> Status {
+      return env_->GetBaseEnv()->GetFileSize(pathname, size);
+    };
+    st = Retry(lambda);
+  }
+  return st;
+}
 }  // namespace rocksdb

@@ -10,6 +10,8 @@
 #include <iostream>
 #include <memory>
 
+#include "cloud/cloud_log_controller_impl.h"
+#include "rocksdb/cloud/cloud_log_controller.h"
 #include "rocksdb/env.h"
 #include "rocksdb/status.h"
 #include "util/stderr_logger.h"
@@ -20,7 +22,6 @@
 #endif
 
 #include "cloud/aws/aws_file.h"
-#include "cloud/cloud_log_controller.h"
 #include "cloud/db_cloud_impl.h"
 
 namespace rocksdb {
@@ -516,10 +517,12 @@ AwsEnv::AwsEnv(Env* underlying_env, const CloudEnvOptions& _cloud_env_options,
   // create cloud log client for storing/reading logs
   if (create_bucket_status_.ok() && !cloud_env_options.keep_local_log_files) {
     if (cloud_env_options.log_type == kLogKinesis) {
-      create_bucket_status_ = CreateKinesisController(this, &cloud_log_controller_);
+      create_bucket_status_ = CloudLogControllerImpl::CreateKinesisController(
+          this, &cloud_env_options.cloud_log_controller);
     } else if (cloud_env_options.log_type == kLogKafka) {
 #ifdef USE_KAFKA
-      create_bucket_status_ = CreateKafkaController(this, &cloud_log_controller_);
+      create_bucket_status_ = CloudLogControllerImpl::CreateKafkaController(
+          this, &cloud_env_options.cloud_log_controller);
 #else
       create_bucket_status_ = Status::NotSupported(
           "In order to use Kafka, make sure you're compiling with "
@@ -542,7 +545,8 @@ AwsEnv::AwsEnv(Env* underlying_env, const CloudEnvOptions& _cloud_env_options,
     // Create Kinesis stream and wait for it to be ready
     if (create_bucket_status_.ok()) {
       create_bucket_status_ =
-          cloud_log_controller_->StartTailingStream(GetSrcBucketName());
+          cloud_env_options.cloud_log_controller->StartTailingStream(
+              GetSrcBucketName());
       if (!create_bucket_status_.ok()) {
         Log(InfoLogLevel::ERROR_LEVEL, info_log,
             "[aws] NewAwsEnv Unable to create stream %s",
@@ -656,19 +660,8 @@ Status AwsEnv::NewSequentialFile(const std::string& logical_fname,
     return st;
 
   } else if (logfile && !cloud_env_options.keep_local_log_files) {
-    // read from Kinesis
-    st = cloud_log_controller_->status();
-    if (st.ok()) {
-      // map  pathname to cache dir
-      std::string pathname = cloud_log_controller_->GetCachePath(Slice(fname));
-      Log(InfoLogLevel::DEBUG_LEVEL, info_log_,
-          "[Kinesis] NewSequentialFile logfile %s %s", pathname.c_str(), "ok");
-
-      auto lambda = [this, pathname, &result, options]() -> Status {
-        return base_env_->NewSequentialFile(pathname, result, options);
-      };
-      return cloud_log_controller_->Retry(lambda);
-    }
+    return cloud_env_options.cloud_log_controller->NewSequentialFile(
+        fname, result, options);
   }
 
   // This is neither a sst file or a log file. Read from default env.
@@ -769,19 +762,8 @@ Status AwsEnv::NewRandomAccessFile(const std::string& logical_fname,
 
   } else if (logfile && !cloud_env_options.keep_local_log_files) {
     // read from Kinesis
-    st = cloud_log_controller_->status();
-    if (st.ok()) {
-      // map  pathname to cache dir
-      std::string pathname = cloud_log_controller_->GetCachePath(Slice(fname));
-      Log(InfoLogLevel::DEBUG_LEVEL, info_log_,
-          "[kinesis] NewRandomAccessFile logfile %s %s", pathname.c_str(),
-          "ok");
-
-      auto lambda = [this, pathname, &result, options]() -> Status {
-        return base_env_->NewRandomAccessFile(pathname, result, options);
-      };
-      return cloud_log_controller_->Retry(lambda);
-    }
+    return cloud_env_options.cloud_log_controller->NewRandomAccessFile(
+        fname, result, options);
   }
 
   // This is neither a sst file or a log file. Read from default env.
@@ -818,7 +800,8 @@ Status AwsEnv::NewWritableFile(const std::string& logical_fname,
     result->reset(dynamic_cast<WritableFile*>(f.release()));
   } else if (logfile && !cloud_env_options.keep_local_log_files) {
     std::unique_ptr<CloudLogWritableFile> f(
-        cloud_log_controller_->CreateWritableFile(fname, options));
+        cloud_env_options.cloud_log_controller->CreateWritableFile(fname,
+                                                                   options));
     if (!f || !f->status().ok()) {
       s = Status::IOError("[aws] NewWritableFile", fname.c_str());
       Log(InfoLogLevel::ERROR_LEVEL, info_log_,
@@ -922,18 +905,7 @@ Status AwsEnv::FileExists(const std::string& logical_fname) {
     }
   } else if (logfile && !cloud_env_options.keep_local_log_files) {
     // read from Kinesis
-    st = cloud_log_controller_->status();
-    if (st.ok()) {
-      // map  pathname to cache dir
-      std::string pathname = cloud_log_controller_->GetCachePath(Slice(fname));
-      Log(InfoLogLevel::DEBUG_LEVEL, info_log_,
-          "[kinesis] FileExists logfile %s %s", pathname.c_str(), "ok");
-
-      auto lambda = [this, pathname]() -> Status {
-        return base_env_->FileExists(pathname);
-      };
-      st = cloud_log_controller_->Retry(lambda);
-    }
+    st = cloud_env_options.cloud_log_controller->FileExists(fname);
   } else {
     st = base_env_->FileExists(fname);
   }
@@ -1224,11 +1196,12 @@ Status AwsEnv::DeleteFile(const std::string& logical_fname) {
     base_env_->DeleteFile(fname);
   } else if (logfile && !cloud_env_options.keep_local_log_files) {
     // read from Kinesis
-    st = cloud_log_controller_->status();
+    st = cloud_env_options.cloud_log_controller->status();
     if (st.ok()) {
       // Log a Delete record to kinesis stream
       std::unique_ptr<CloudLogWritableFile> f(
-          cloud_log_controller_->CreateWritableFile(fname, EnvOptions()));
+          cloud_env_options.cloud_log_controller->CreateWritableFile(
+              fname, EnvOptions()));
       if (!f || !f->status().ok()) {
         st = Status::IOError("[Kinesis] DeleteFile", fname.c_str());
       } else {
@@ -1392,18 +1365,7 @@ Status AwsEnv::GetFileSize(const std::string& logical_fname, uint64_t* size) {
       }
     }
   } else if (logfile && !cloud_env_options.keep_local_log_files) {
-    st = cloud_log_controller_->status();
-    if (st.ok()) {
-      // map  pathname to cache dir
-      std::string pathname = cloud_log_controller_->GetCachePath(Slice(fname));
-      Log(InfoLogLevel::DEBUG_LEVEL, info_log_,
-          "[kinesis] GetFileSize logfile %s %s", pathname.c_str(), "ok");
-
-      auto lambda = [this, pathname, size]() -> Status {
-        return base_env_->GetFileSize(pathname, size);
-      };
-      st = cloud_log_controller_->Retry(lambda);
-    }
+    st = cloud_env_options.cloud_log_controller->GetFileSize(fname, size);
   } else {
     st = base_env_->GetFileSize(fname, size);
   }
@@ -1439,19 +1401,8 @@ Status AwsEnv::GetFileModificationTime(const std::string& logical_fname,
       }
     }
   } else if (logfile && !cloud_env_options.keep_local_log_files) {
-    st = cloud_log_controller_->status();
-    if (st.ok()) {
-      // map  pathname to cache dir
-      std::string pathname = cloud_log_controller_->GetCachePath(Slice(fname));
-      Log(InfoLogLevel::DEBUG_LEVEL, info_log_,
-          "[kinesis] GetFileModificationTime logfile %s %s", pathname.c_str(),
-          "ok");
-
-      auto lambda = [this, pathname, time]() -> Status {
-        return base_env_->GetFileModificationTime(pathname, time);
-      };
-      st = cloud_log_controller_->Retry(lambda);
-    }
+    st = cloud_env_options.cloud_log_controller->GetFileModificationTime(fname,
+                                                                         time);
   } else {
     st = base_env_->GetFileModificationTime(fname, time);
   }
@@ -1992,7 +1943,7 @@ Status AwsEnv::NewAwsEnv(Env* base_env,
 }
 
 std::string AwsEnv::GetWALCacheDir() {
-  return cloud_log_controller_->GetCacheDir();
+  return cloud_env_options.cloud_log_controller->GetCacheDir();
 }
 
 

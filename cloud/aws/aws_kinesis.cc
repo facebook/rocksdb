@@ -7,7 +7,7 @@
 #include <fstream>
 #include <iostream>
 
-#include "cloud/cloud_log_controller.h"
+#include "cloud/cloud_log_controller_impl.h"
 #include "rocksdb/cloud/cloud_env_options.h"
 #include "rocksdb/status.h"
 #include "util/coding.h"
@@ -74,8 +74,8 @@ Status KinesisWritableFile::Append(const Slice& data) {
 
   // serialize write record
   std::string buffer;
-  CloudLogController::SerializeLogRecordAppend(fname_, data, current_offset_,
-                                              &buffer);
+  CloudLogControllerImpl::SerializeLogRecordAppend(fname_, data,
+                                                   current_offset_, &buffer);
   request.SetData(Aws::Utils::ByteBuffer((const unsigned char*)buffer.c_str(),
                                          buffer.size()));
 
@@ -109,7 +109,8 @@ Status KinesisWritableFile::Close() {
 
   // serialize write record
   std::string buffer;
-  CloudLogController::SerializeLogRecordClosed(fname_, current_offset_, &buffer);
+  CloudLogControllerImpl::SerializeLogRecordClosed(fname_, current_offset_,
+                                                   &buffer);
   request.SetData(Aws::Utils::ByteBuffer((const unsigned char*)buffer.c_str(),
                                          buffer.size()));
 
@@ -146,7 +147,7 @@ Status KinesisWritableFile::LogDelete() {
 
   // serialize write record
   std::string buffer;
-  CloudLogController::SerializeLogRecordDelete(fname_, &buffer);
+  CloudLogControllerImpl::SerializeLogRecordDelete(fname_, &buffer);
   request.SetData(Aws::Utils::ByteBuffer((const unsigned char*)buffer.c_str(),
                                          buffer.size()));
 
@@ -173,12 +174,13 @@ Status KinesisWritableFile::LogDelete() {
 //
 // Intricacies of reading a Kinesis stream
 //
-class KinesisController : public CloudLogController {
+class KinesisController : public CloudLogControllerImpl {
  public:
-  KinesisController(CloudEnv* env,
-                    const std::shared_ptr<Aws::Auth::AWSCredentialsProvider> & provider,
-                    const Aws::Client::ClientConfiguration & config)
-    : CloudLogController(env) {
+  KinesisController(
+      CloudEnv* env,
+      const std::shared_ptr<Aws::Auth::AWSCredentialsProvider>& provider,
+      const Aws::Client::ClientConfiguration& config)
+      : CloudLogControllerImpl(env) {
     kinesis_client_.reset(provider
                           ? new Aws::Kinesis::KinesisClient(provider, config)
                           : new Aws::Kinesis::KinesisClient(config));
@@ -452,14 +454,14 @@ CloudLogWritableFile* KinesisController::CreateWritableFile(
 
 namespace rocksdb {
 #ifndef USE_AWS
-Status CreateKinesisController(CloudEnv *,
-                               std::unique_ptr<CloudLogController> *) {
+Status CloudLogControllerImpl::CreateKinesisController(
+    CloudEnv*, std::shared_ptr<CloudLogController>*) {
   return Status::NotSupported("In order to use Kinesis, make sure you're compiling with "
                               "USE_AWS=1");
 }
 #else
-Status CreateKinesisController(CloudEnv *env,
-                               std::unique_ptr<CloudLogController> *output) {
+Status CloudLogControllerImpl::CreateKinesisController(
+    CloudEnv *env, std::shared_ptr<CloudLogController> *output) {
   Aws::Client::ClientConfiguration config;
   const auto & options = env->GetCloudEnvOptions();
   std::shared_ptr<Aws::Auth::AWSCredentialsProvider> provider;

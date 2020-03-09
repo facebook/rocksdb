@@ -173,6 +173,8 @@ private:
   // If keep_local_log_files is false, this specifies what service to use
   // for storage of write-ahead log.
   LogType log_type;
+  // The implementation of the LogController for storage of the write-ahead log.
+  std::shared_ptr<CloudLogController> cloud_log_controller;
 
   // Access credentials
   AwsCloudAccessCredentials credentials;
@@ -343,7 +345,6 @@ class CloudEnv : public Env {
  protected:
   CloudEnvOptions cloud_env_options;
   Env* base_env_; // The underlying env
-  std::unique_ptr<CloudLogController> cloud_log_controller_;
 
   CloudEnv(const CloudEnvOptions& options, Env *base, const std::shared_ptr<Logger>& logger);
 public:
