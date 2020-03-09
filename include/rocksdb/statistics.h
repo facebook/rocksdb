@@ -516,6 +516,7 @@ enum Histograms : uint32_t {
   // Time spent flushing memtable to disk
   FLUSH_TIME,
   SST_BATCH_SIZE,
+  DB_WRITE_WAL_TIME,
 
   // MultiGet stats logged per level
   // Num of index and filter blocks read from file system per level.

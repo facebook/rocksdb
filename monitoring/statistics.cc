@@ -274,6 +274,7 @@ const std::vector<std::pair<Histograms, std::string>> HistogramsNameMap = {
     {BLOB_DB_DECOMPRESSION_MICROS, "rocksdb.blobdb.decompression.micros"},
     {FLUSH_TIME, "rocksdb.db.flush.micros"},
     {SST_BATCH_SIZE, "rocksdb.sst.batch.size"},
+    {DB_WRITE_WAL_TIME, "rocksdb.db.write.wal.time"},
     {NUM_INDEX_AND_FILTER_BLOCKS_READ_PER_LEVEL,
      "rocksdb.num.index.and.filter.blocks.read.per.level"},
     {NUM_DATA_BLOCKS_READ_PER_LEVEL, "rocksdb.num.data.blocks.read.per.level"},

@@ -1139,6 +1139,7 @@ IOStatus DBImpl::WriteToWAL(const WriteThread::WriteGroup& write_group,
   // Same holds for all in the batch group
   size_t write_with_wal = 0;
   WriteBatch* to_be_cached_state = nullptr;
+  StopWatch write_sw(immutable_db_options_.clock, stats_, DB_WRITE_WAL_TIME);
   WriteBatch* merged_batch = MergeBatch(write_group, &tmp_batch_,
                                         &write_with_wal, &to_be_cached_state);
   if (merged_batch == write_group.leader->batch) {
@@ -1228,6 +1229,7 @@ IOStatus DBImpl::ConcurrentWriteToWAL(
   WriteBatch tmp_batch;
   size_t write_with_wal = 0;
   WriteBatch* to_be_cached_state = nullptr;
+  StopWatch write_sw(immutable_db_options_.clock, stats_, DB_WRITE_WAL_TIME);
   WriteBatch* merged_batch =
       MergeBatch(write_group, &tmp_batch, &write_with_wal, &to_be_cached_state);
 
