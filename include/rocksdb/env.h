@@ -1184,6 +1184,14 @@ class EnvWrapper : public Env {
   Env* target() const { return target_; }
 
   // The following text is boilerplate that forwards all methods to target()
+  Status OnDbPathsRegistered(const std::vector<std::string>& paths) override {
+    return target_->OnDbPathsRegistered(paths);
+  }
+
+  Status OnDbPathsUnregistered(const std::vector<std::string>& paths) override {
+    return target_->OnDbPathsUnregistered(paths);
+  }
+
   Status NewSequentialFile(const std::string& f,
                            std::unique_ptr<SequentialFile>* r,
                            const EnvOptions& options) override {
