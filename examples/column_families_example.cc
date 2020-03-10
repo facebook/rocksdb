@@ -28,7 +28,7 @@ int main() {
   assert(s.ok());
 
   // close DB
-  delete cf;
+  db->DestroyColumnFamilyHandle(cf);
   delete db;
 
   // open DB with two column families
@@ -64,7 +64,7 @@ int main() {
 
   // close db
   for (auto handle : handles) {
-    delete handle;
+    db->DestroyColumnFamilyHandle(handle);
   }
   delete db;
 
