@@ -3888,6 +3888,17 @@ rocksdb_transactiondb_t* rocksdb_transactiondb_open_column_families(
   return result;
 }
 
+rocksdb_t* rocksdb_transactiondb_get_base_db(rocksdb_transactiondb_t* txn_db) {
+  DB* base_db = txn_db->rep->GetBaseDB();
+  if (base_db == nullptr) {
+    return nullptr;
+  }
+
+  rocksdb_t* result = new rocksdb_t;
+  result->rep = base_db;
+  return result;
+}
+
 const rocksdb_snapshot_t* rocksdb_transactiondb_create_snapshot(
     rocksdb_transactiondb_t* txn_db) {
   rocksdb_snapshot_t* result = new rocksdb_snapshot_t;
@@ -3965,6 +3976,35 @@ char* rocksdb_transaction_get(rocksdb_transaction_t* txn,
   return result;
 }
 
+void rocksdb_transaction_multi_get(
+    rocksdb_transaction_t* txn, const rocksdb_readoptions_t* options, size_t num_keys,
+    const char* const* keys_list, const size_t* keys_list_sizes,
+    char** values_list, size_t* values_list_sizes, char** errs) {
+  std::vector<Slice> keys(num_keys);
+  for(size_t i = 0; i < num_keys; i++) {
+    keys[i] = Slice(keys_list[i], keys_list_sizes[i]);
+  }
+  std::vector<std::string> values(num_keys);
+  std::vector<Status> statuses = txn->rep->MultiGet(options->rep, keys, &values);
+
+  for(size_t i = 0; i < statuses.size(); i++) {
+    if(statuses[i].ok()) {
+      errs[i] = nullptr;
+      values_list[i] = CopyString(values[i]);
+      values_list_sizes[i] = values[i].length();
+    } else {
+      values_list[i] = nullptr;
+      values_list_sizes[i] = 0;
+      if (!statuses[i].IsNotFound()) {
+        SaveError(&errs[i], statuses[i]);
+      } else {
+        errs[i] = nullptr;
+      }
+    }
+  }
+}
+
+
 char* rocksdb_transaction_get_cf(rocksdb_transaction_t* txn,
                                  const rocksdb_readoptions_t* options,
                                  rocksdb_column_family_handle_t* column_family,
@@ -3984,6 +4024,38 @@ char* rocksdb_transaction_get_cf(rocksdb_transaction_t* txn,
     }
   }
   return result;
+}
+
+void rocksdb_transaction_multi_get_cf(
+    rocksdb_transaction_t* txn, const rocksdb_readoptions_t* options,
+    const rocksdb_column_family_handle_t* const* column_families,
+    size_t num_keys, const char* const* keys_list, const size_t* keys_list_sizes,
+    char** values_list, size_t* values_list_sizes, char** errs) {
+  std::vector<Slice> keys(num_keys);
+  std::vector<ColumnFamilyHandle*> cfs(num_keys);
+  for(size_t i = 0; i < num_keys; i++) {
+    keys[i] = Slice(keys_list[i], keys_list_sizes[i]);
+    cfs[i] = column_families[i]->rep;
+  }
+  std::vector<std::string> values(num_keys);
+  std::vector<Status> statuses = 
+    txn->rep->MultiGet(options->rep, cfs, keys, &values);
+  
+  for(size_t i = 0; i < statuses.size(); i++) {
+    if(statuses[i].ok()) {
+      errs[i] = nullptr;
+      values_list[i] = CopyString(values[i]);
+      values_list_sizes[i] = values[i].length();
+    } else {
+      values_list[i] = nullptr;
+      values_list_sizes[i] = 0;
+      if (!statuses[i].IsNotFound()) {
+        SaveError(&errs[i], statuses[i]);
+      } else {
+        errs[i] = nullptr;
+      }
+    }
+  }
 }
 
 // Read a key inside a transaction
@@ -4008,6 +4080,34 @@ char* rocksdb_transaction_get_for_update(rocksdb_transaction_t* txn,
   return result;
 }
 
+void rocksdb_transaction_multi_get_for_update(
+    rocksdb_transaction_t* txn, const rocksdb_readoptions_t* options, size_t num_keys,
+    const char* const* keys_list, const size_t* keys_list_sizes,
+    char** values_list, size_t* values_list_sizes, char** errs) {
+  std::vector<Slice> keys(num_keys);
+  for(size_t i = 0; i < num_keys; i++) {
+    keys[i] = Slice(keys_list[i], keys_list_sizes[i]);
+  }
+  std::vector<std::string> values(num_keys);
+  std::vector<Status> statuses = 
+    txn->rep->MultiGetForUpdate(options->rep, keys, &values);
+  for(size_t i = 0; i < statuses.size(); i++) {
+    if(statuses[i].ok()) {
+      errs[i] = nullptr;
+      values_list[i] = CopyString(values[i]);
+      values_list_sizes[i] = values[i].length();
+    } else {
+      values_list[i] = nullptr;
+      values_list_sizes[i] = 0;
+      if (!statuses[i].IsNotFound()) {
+        SaveError(&errs[i], statuses[i]);
+      } else {
+        errs[i] = nullptr;
+      }
+    }
+  }
+}
+
 char* rocksdb_transaction_get_for_update_cf(
     rocksdb_transaction_t* txn, const rocksdb_readoptions_t* options,
     rocksdb_column_family_handle_t* column_family, const char* key, size_t klen,
@@ -4026,6 +4126,39 @@ char* rocksdb_transaction_get_for_update_cf(
     }
   }
   return result;
+}
+
+void rocksdb_transaction_multi_get_for_update_cf(
+    rocksdb_transaction_t* txn, const rocksdb_readoptions_t* options,
+    const rocksdb_column_family_handle_t* const* column_families,
+    size_t num_keys, const char* const* keys_list, const size_t* keys_list_sizes,
+    char** values_list, size_t* values_list_sizes, char** errs) {
+  std::vector<Slice> keys(num_keys);
+  std::vector<ColumnFamilyHandle*> cfs(num_keys);
+  for(size_t i = 0; i < num_keys; i++) {
+    keys[i] = Slice(keys_list[i], keys_list_sizes[i]);
+    cfs[i] = column_families[i]->rep;
+  }
+  std::vector<std::string> values(num_keys);
+
+  std::vector<Status> statuses =
+    txn->rep->MultiGetForUpdate(options->rep, cfs, keys, &values);
+  
+  for(size_t i = 0; i < statuses.size(); i++) {
+    if(statuses[i].ok()) {
+      errs[i] = nullptr;
+      values_list[i] = CopyString(values[i]);
+      values_list_sizes[i] = values[i].length();
+    } else {
+      values_list[i] = nullptr;
+      values_list_sizes[i] = 0;
+      if (!statuses[i].IsNotFound()) {
+        SaveError(&errs[i], statuses[i]);
+      } else {
+        errs[i] = nullptr;
+      }
+    }
+  }
 }
 
 // Read a key outside a transaction

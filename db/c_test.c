@@ -369,7 +369,7 @@ static char* MergeOperatorPartialMerge(
 }
 
 static void CheckTxnGet(
-        rocksdb_transaction_t* txn,
+rocksdb_transaction_t* txn,
         const rocksdb_readoptions_t* options,
         const char* key,
         const char* expected) {
@@ -380,6 +380,93 @@ static void CheckTxnGet(
         CheckNoError(err);
         CheckEqual(expected, val, val_len);
         Free(&val);
+}
+
+static void CheckMultiGet(rocksdb_t* db,
+                          const rocksdb_readoptions_t* options, 
+                          size_t num_keys,
+                          const char** keys,
+                          const char** expected) {
+  size_t *key_list_sizes = (size_t*)malloc(sizeof(size_t) * num_keys);
+  for(size_t i = 0; i < num_keys; i++) {
+    key_list_sizes[i] = strlen(keys[i]);
+  }
+  
+  size_t *value_list_sizes = (size_t*) malloc(sizeof(size_t) * num_keys);
+  char** value_list = (char**) malloc(sizeof(char*) * num_keys);
+  char** errs = (char**) malloc(sizeof(char*) * num_keys);
+  rocksdb_multi_get(
+    db, options, num_keys, keys, key_list_sizes, value_list, value_list_sizes, errs);
+  for(size_t i = 0; i < num_keys; i++) {
+    CheckNoError(errs[i]);
+    CheckEqual(expected[i], value_list[i], value_list_sizes[i]);
+    Free(&errs[i]);
+    Free(&value_list[i]);
+  }
+
+  free(errs);
+  free(value_list);
+  free(value_list_sizes);
+  free(key_list_sizes);
+}
+
+static void CheckTxnMultiGet(rocksdb_transaction_t* txn,
+                            const rocksdb_readoptions_t* options, 
+                            size_t num_keys,
+                            const char** keys,
+                            const char** expected) {
+  size_t *key_list_sizes = (size_t*)malloc(sizeof(size_t) * num_keys);
+  for(size_t i = 0; i < num_keys; i++) {
+    key_list_sizes[i] = strlen(keys[i]);
+  }
+  
+  size_t *value_list_sizes = (size_t*) malloc(sizeof(size_t) * num_keys);
+  char** value_list = (char**) malloc(sizeof(char*) * num_keys);
+  char** errs = (char**) malloc(sizeof(char*) * num_keys);
+  rocksdb_transaction_multi_get(
+    txn, options, num_keys, keys, key_list_sizes, value_list, value_list_sizes, errs);
+  for(size_t i = 0; i < num_keys; i++) {
+    CheckNoError(errs[i]);
+    CheckEqual(expected[i], value_list[i], value_list_sizes[i]);
+    Free(&errs[i]);
+    Free(&value_list[i]);
+  }
+
+  free(errs);
+  free(value_list);
+  free(value_list_sizes);
+  free(key_list_sizes);
+}
+
+static void CheckTxnMultiGetCF(rocksdb_transaction_t* txn,
+                              const rocksdb_readoptions_t* options,
+                              const rocksdb_column_family_handle_t** cf_handles,
+                              size_t num_keys,
+                              const char** keys,
+                              const char** expected) {
+  size_t *key_list_sizes = (size_t*)malloc(sizeof(size_t) * num_keys);
+  for(size_t i = 0; i < num_keys; i++) {
+    key_list_sizes[i] = strlen(keys[i]);
+  }
+  
+  size_t *value_list_sizes = (size_t*) malloc(sizeof(size_t) * num_keys);
+  char** value_list = (char**) malloc(sizeof(char*) * num_keys);
+  char** errs = (char**) malloc(sizeof(char*) * num_keys);
+  
+  rocksdb_transaction_multi_get_cf(
+    txn, options, cf_handles, num_keys, keys, key_list_sizes, value_list, value_list_sizes, errs);
+  
+  for(size_t i = 0; i < num_keys; i++) {
+    CheckNoError(errs[i]);
+    CheckEqual(expected[i], value_list[i], value_list_sizes[i]);
+    Free(&errs[i]);
+    Free(&value_list[i]);
+  }
+
+  free(errs);
+  free(value_list);
+  free(value_list_sizes);
+  free(key_list_sizes);
 }
 
 static void CheckTxnGetCF(rocksdb_transaction_t* txn,
@@ -934,28 +1021,8 @@ int main(int argc, char** argv) {
   StartPhase("multiget");
   {
     const char* keys[3] = { "box", "foo", "notfound" };
-    const size_t keys_sizes[3] = { 3, 3, 8 };
-    char* vals[3];
-    size_t vals_sizes[3];
-    char* errs[3];
-    rocksdb_multi_get(db, roptions, 3, keys, keys_sizes, vals, vals_sizes, errs);
-
-    int i;
-    for (i = 0; i < 3; i++) {
-      CheckEqual(NULL, errs[i], 0);
-      switch (i) {
-      case 0:
-        CheckEqual("c", vals[i], vals_sizes[i]);
-        break;
-      case 1:
-        CheckEqual("hello", vals[i], vals_sizes[i]);
-        break;
-      case 2:
-        CheckEqual(NULL, vals[i], vals_sizes[i]);
-        break;
-      }
-      Free(&vals[i]);
-    }
+    const char* vals[3] = {"c", "hello", NULL};
+    CheckMultiGet(db, roptions, 3, keys, vals);
   }
 
   StartPhase("pin_get");
@@ -1656,6 +1723,93 @@ int main(int argc, char** argv) {
     CheckNoError(err);
     rocksdb_transaction_options_destroy(txn_options);
     rocksdb_transactiondb_options_destroy(txn_db_options);
+  }
+
+  StartPhase("transactions_multiget");
+  {
+    rocksdb_options_set_create_if_missing(options, 1);
+    rocksdb_options_set_error_if_exists(options, 0);
+    txn_db_options = rocksdb_transactiondb_options_create();
+    txn_options = rocksdb_transaction_options_create();
+
+    const char *cf_names[] = {"default", "cf1"};
+    rocksdb_options_t* cf_opts = rocksdb_options_create();
+    rocksdb_options_set_comparator(cf_opts, cmp);
+    const rocksdb_options_t* cf_options[2] = {cf_opts, cf_opts};
+    rocksdb_column_family_handle_t* cf_handles[2] = {NULL, NULL};
+
+    // create db with 2 column families
+    rocksdb_t* tmp_db = rocksdb_open(options, dbname, &err);
+    CheckNoError(err);
+    rocksdb_column_family_handle_t* tmp_handle = rocksdb_create_column_family(
+      tmp_db, cf_options[1], cf_names[1], &err);
+    rocksdb_column_family_handle_destroy(tmp_handle);
+    CheckNoError(err);
+    rocksdb_close(tmp_db);
+    
+    // open transaction db
+    txn_db = rocksdb_transactiondb_open_column_families(
+      options, txn_db_options, dbname, 2, cf_names, cf_options, cf_handles, &err);
+    CheckNoError(err);
+
+    rocksdb_writeoptions_t* write_options = rocksdb_writeoptions_create();
+
+    const char* key1 = "user:1";
+    const char* value1 = "david";
+    const char* key2 = "user:2";
+    const char* value2 = "sam";
+    const char* key3 = "some_data";
+    const char* value3 = "abcdefg";
+    
+    // populate with data
+    rocksdb_transactiondb_put(
+      txn_db, write_options, key1, strlen(key1), value1, strlen(value1), &err);
+    CheckNoError(err);
+
+    rocksdb_transactiondb_put_cf(
+      txn_db, write_options, cf_handles[1], key3, strlen(key3), value3, strlen(value3), &err);
+    CheckNoError(err);
+
+    txn = rocksdb_transaction_begin(txn_db, write_options, txn_options, NULL);
+
+    rocksdb_transaction_put(txn, key2, strlen(key2), value2, strlen(value2), &err);
+    CheckNoError(err);
+
+    rocksdb_readoptions_t* read_options = rocksdb_readoptions_create();
+
+    // check multi_get
+    const char* key_list1[] = { key1, key2, "key_non_exist"};
+    const char* value_list1[] = {value1, value2, NULL};
+    CheckTxnMultiGet(txn, read_options, 3, key_list1, value_list1);
+
+    const char* key_list2[] = {key1, key3};
+    const char* value_list2[] = {value1, value3};
+    const rocksdb_column_family_handle_t* cf_list[] = { cf_handles[0], cf_handles[1]};
+    // check all kv pairs exists in multiple cfs
+    CheckTxnMultiGetCF(txn, read_options, cf_list, 2, key_list2, value_list2);
+
+    rocksdb_transaction_commit(txn, &err);
+    CheckNoError(err);
+    rocksdb_transaction_destroy(txn);
+    rocksdb_writeoptions_destroy(write_options);
+
+    const char* key_list3[] = {key1, key2};
+    const char* value_list3[] = {value1, value2};
+    // check multi_get base_db
+    CheckMultiGet(
+      rocksdb_transactiondb_get_base_db(txn_db), read_options, 2, key_list3, value_list3);
+
+    rocksdb_readoptions_destroy(read_options);
+
+    rocksdb_column_family_handle_destroy(cf_handles[0]);
+    rocksdb_column_family_handle_destroy(cf_handles[1]);
+
+    rocksdb_transactiondb_close(txn_db);
+    rocksdb_destroy_db(options, dbname, &err);
+    CheckNoError(err);
+    rocksdb_transaction_options_destroy(txn_options);
+    rocksdb_transactiondb_options_destroy(txn_db_options);
+    rocksdb_options_destroy(cf_opts);
   }
 
   StartPhase("optimistic_transactions");
