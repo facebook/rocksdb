@@ -955,8 +955,8 @@ class LevelIterator final : public InternalIterator {
   bool KeyReachedUpperBound(const Slice& internal_key) {
     return read_options_.iterate_upper_bound != nullptr &&
            user_comparator_.CompareWithoutTimestamp(
-               ExtractUserKey(internal_key),
-               *read_options_.iterate_upper_bound) >= 0;
+               ExtractUserKey(internal_key), /*a_has_ts=*/true,
+               *read_options_.iterate_upper_bound, /*b_has_ts=*/false) >= 0;
   }
 
   InternalIterator* NewFileIterator() {

@@ -51,6 +51,8 @@ class ArenaWrappedDBIter : public Iterator {
   bool Valid() const override { return db_iter_->Valid(); }
   void SeekToFirst() override { db_iter_->SeekToFirst(); }
   void SeekToLast() override { db_iter_->SeekToLast(); }
+  // 'target' does not contain timestamp, even if user timestamp feature is
+  // enabled.
   void Seek(const Slice& target) override { db_iter_->Seek(target); }
   void SeekForPrev(const Slice& target) override {
     db_iter_->SeekForPrev(target);
@@ -60,6 +62,7 @@ class ArenaWrappedDBIter : public Iterator {
   Slice key() const override { return db_iter_->key(); }
   Slice value() const override { return db_iter_->value(); }
   Status status() const override { return db_iter_->status(); }
+  Slice timestamp() const override { return db_iter_->timestamp(); }
   bool IsBlob() const { return db_iter_->IsBlob(); }
 
   Status GetProperty(std::string prop_name, std::string* prop) override;

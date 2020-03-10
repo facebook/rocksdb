@@ -645,7 +645,6 @@ struct AdvancedColumnFamilyOptions {
   bool report_bg_io_stats = false;
 
   // Files older than TTL will go through the compaction process.
-  // Pre-req: This needs max_open_files to be set to -1.
   // In Level: Non-bottom-level files older than TTL will go through the
   //           compation process.
   // In FIFO: Files older than TTL will be deleted.
@@ -673,7 +672,6 @@ struct AdvancedColumnFamilyOptions {
   // Supported in Level and FIFO compaction.
   // In FIFO compaction, this option has the same meaning as TTL and whichever
   // stricter will be used.
-  // Pre-req: max_open_file == -1.
   // unit: seconds. Ex: 7 days = 7 * 24 * 60 * 60
   //
   // Values:

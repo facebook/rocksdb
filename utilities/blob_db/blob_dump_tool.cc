@@ -101,7 +101,7 @@ Status BlobDumpTool::Read(uint64_t offset, size_t size, Slice* result) {
     }
     buffer_.reset(new char[buffer_size_]);
   }
-  Status s = reader_->Read(offset, size, result, buffer_.get());
+  Status s = reader_->Read(offset, size, result, buffer_.get(), nullptr);
   if (!s.ok()) {
     return s;
   }

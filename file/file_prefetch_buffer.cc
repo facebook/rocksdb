@@ -88,7 +88,7 @@ Status FilePrefetchBuffer::Prefetch(RandomAccessFileReader* reader,
   Slice result;
   s = reader->Read(rounddown_offset + chunk_len,
                    static_cast<size_t>(roundup_len - chunk_len), &result,
-                   buffer_.BufferStart() + chunk_len, for_compaction);
+                   buffer_.BufferStart() + chunk_len, nullptr, for_compaction);
   if (s.ok()) {
     buffer_offset_ = rounddown_offset;
     buffer_.Size(static_cast<size_t>(chunk_len) + result.size());

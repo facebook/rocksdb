@@ -70,18 +70,14 @@ Compaction* FIFOCompactionPicker::PickTTLCompaction(
   // avoid underflow
   if (current_time > mutable_cf_options.ttl) {
     for (auto ritr = level_files.rbegin(); ritr != level_files.rend(); ++ritr) {
-      auto f = *ritr;
-      if (f->fd.table_reader != nullptr &&
-          f->fd.table_reader->GetTableProperties() != nullptr) {
-        auto creation_time =
-            f->fd.table_reader->GetTableProperties()->creation_time;
-        if (creation_time == 0 ||
-            creation_time >= (current_time - mutable_cf_options.ttl)) {
-          break;
-        }
-        total_size -= f->compensated_file_size;
-        inputs[0].files.push_back(f);
+      FileMetaData* f = *ritr;
+      uint64_t creation_time = f->TryGetFileCreationTime();
+      if (creation_time == kUnknownFileCreationTime ||
+          creation_time >= (current_time - mutable_cf_options.ttl)) {
+        break;
       }
+      total_size -= f->compensated_file_size;
+      inputs[0].files.push_back(f);
     }
   }
 
@@ -100,7 +96,7 @@ Compaction* FIFOCompactionPicker::PickTTLCompaction(
                      "[%s] FIFO compaction: picking file %" PRIu64
                      " with creation time %" PRIu64 " for deletion",
                      cf_name.c_str(), f->fd.GetNumber(),
-                     f->fd.table_reader->GetTableProperties()->creation_time);
+                     f->TryGetFileCreationTime());
   }
 
   Compaction* c = new Compaction(

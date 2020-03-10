@@ -52,6 +52,7 @@ class InternalIteratorBase : public Cleanable {
   // All Seek*() methods clear any error status() that the iterator had prior to
   // the call; after the seek, status() indicates only the error (if any) that
   // happened during the seek, not any past errors.
+  // 'target' contains user timestamp if timestamp is enabled.
   virtual void Seek(const Slice& target) = 0;
 
   // Position at the first key in the source that at or before target

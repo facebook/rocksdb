@@ -216,7 +216,7 @@ Status BlockFetcher::ReadBlockContents() {
       PERF_TIMER_GUARD(block_read_time);
       // Actual file read
       status_ = file_->Read(handle_.offset(), block_size_ + kBlockTrailerSize,
-                            &slice_, used_buf_, for_compaction_);
+                            &slice_, used_buf_, nullptr, for_compaction_);
     }
     PERF_COUNTER_ADD(block_read_count, 1);
 

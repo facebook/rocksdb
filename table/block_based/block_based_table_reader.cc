@@ -3124,8 +3124,9 @@ void BlockBasedTableIterator<TBlockIter, TValue>::FindBlockForward() {
         read_options_.iterate_upper_bound != nullptr &&
         block_iter_points_to_real_block_ && !data_block_within_upper_bound_;
     assert(!next_block_is_out_of_bound ||
-           user_comparator_.Compare(*read_options_.iterate_upper_bound,
-                                    index_iter_->user_key()) <= 0);
+           user_comparator_.CompareWithoutTimestamp(
+               *read_options_.iterate_upper_bound, /*a_has_ts=*/false,
+               index_iter_->user_key(), /*b_has_ts=*/true) <= 0);
     ResetDataIter();
     index_iter_->Next();
     if (next_block_is_out_of_bound) {
@@ -3184,8 +3185,10 @@ void BlockBasedTableIterator<TBlockIter, TValue>::FindKeyBackward() {
 template <class TBlockIter, typename TValue>
 void BlockBasedTableIterator<TBlockIter, TValue>::CheckOutOfBound() {
   if (read_options_.iterate_upper_bound != nullptr && Valid()) {
-    is_out_of_bound_ = user_comparator_.Compare(
-                           *read_options_.iterate_upper_bound, user_key()) <= 0;
+    is_out_of_bound_ =
+        user_comparator_.CompareWithoutTimestamp(
+            *read_options_.iterate_upper_bound, /*a_has_ts=*/false, user_key(),
+            /*b_has_ts=*/true) <= 0;
   }
 }
 
@@ -3195,8 +3198,10 @@ void BlockBasedTableIterator<TBlockIter,
   if (read_options_.iterate_upper_bound != nullptr &&
       block_iter_points_to_real_block_) {
     data_block_within_upper_bound_ =
-        (user_comparator_.Compare(*read_options_.iterate_upper_bound,
-                                  index_iter_->user_key()) > 0);
+        (user_comparator_.CompareWithoutTimestamp(
+             *read_options_.iterate_upper_bound, /*a_has_ts=*/false,
+             index_iter_->user_key(),
+             /*b_has_ts=*/true) > 0);
   }
 }
 
