@@ -607,7 +607,7 @@ ColumnFamilyData::~ColumnFamilyData() {
   for (const DbPath& cf_path : ioptions_.cf_paths) {
     paths.emplace_back(cf_path.path);
   }
-  Status s = ioptions_.env->OnDbPathsUnregistered(paths);
+  Status s = ioptions_.env->UnregisterDbPaths(paths);
   if (!s.ok()) {
     ROCKS_LOG_ERROR(
         ioptions_.info_log,

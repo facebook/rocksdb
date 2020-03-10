@@ -27,13 +27,11 @@ class MockEnv : public EnvWrapper {
   ~MockEnv() override;
 
   // Partial implementation of the Env interface.
-  Status OnDbPathsRegistered(
-      const std::vector<std::string>& /*paths*/) override {
+  Status RegisterDbPaths(const std::vector<std::string>& /*paths*/) override {
     return Status::OK();
   }
 
-  Status OnDbPathsUnregistered(
-      const std::vector<std::string>& /*paths*/) override {
+  Status UnregisterDbPaths(const std::vector<std::string>& /*paths*/) override {
     return Status::OK();
   }
 

@@ -601,7 +601,7 @@ Status DBImpl::CloseHelper() {
     }
   }
 
-  Status s = env_->OnDbPathsUnregistered(db_paths);
+  Status s = env_->UnregisterDbPaths(db_paths);
   if (!s.ok()) {
     ROCKS_LOG_ERROR(immutable_db_options_.info_log,
                     "Failed to unregister data paths of DB %s from env",
@@ -2286,7 +2286,7 @@ Status DBImpl::CreateColumnFamilyImpl(const ColumnFamilyOptions& cf_options,
       paths.emplace_back(cf_path.path);
     }
     if (s.ok()) {
-      s = env_->OnDbPathsRegistered(paths);
+      s = env_->RegisterDbPaths(paths);
     }
   }
   if (!s.ok()) {

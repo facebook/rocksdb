@@ -1396,7 +1396,7 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
       }
     }
     if (s.ok()) {
-      s = impl->env_->OnDbPathsRegistered(paths);
+      s = impl->env_->RegisterDbPaths(paths);
       if (s.ok()) {
         // Remove duplicated paths.
         std::sort(paths.begin(), paths.end());

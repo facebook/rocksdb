@@ -16,11 +16,11 @@ class EnvWithCustomLogicalBlockSizeCache : public EnvWrapper {
   EnvWithCustomLogicalBlockSizeCache(Env* env, LogicalBlockSizeCache* cache)
       : EnvWrapper(env), cache_(cache) {}
 
-  Status OnDbPathsRegistered(const std::vector<std::string>& paths) override {
+  Status RegisterDbPaths(const std::vector<std::string>& paths) override {
     return cache_->RefAndCacheLogicalBlockSize(paths);
   }
 
-  Status OnDbPathsUnregistered(const std::vector<std::string>& paths) override {
+  Status UnregisterDbPaths(const std::vector<std::string>& paths) override {
     cache_->UnrefAndTryRemoveCachedLogicalBlockSize(paths);
     return Status::OK();
   }

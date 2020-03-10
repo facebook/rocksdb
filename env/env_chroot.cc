@@ -38,7 +38,7 @@ class ChrootEnv : public EnvWrapper {
 #endif
   }
 
-  Status OnDbPathsRegistered(const std::vector<std::string>& paths) override {
+  Status RegisterDbPaths(const std::vector<std::string>& paths) override {
     std::vector<std::string> encoded_paths;
     encoded_paths.reserve(paths.size());
     for (auto& path : paths) {
@@ -48,10 +48,10 @@ class ChrootEnv : public EnvWrapper {
       }
       encoded_paths.emplace_back(status_and_enc_path.second);
     }
-    return EnvWrapper::Env::OnDbPathsRegistered(encoded_paths);
+    return EnvWrapper::Env::RegisterDbPaths(encoded_paths);
   }
 
-  Status OnDbPathsUnregistered(const std::vector<std::string>& paths) override {
+  Status UnregisterDbPaths(const std::vector<std::string>& paths) override {
     std::vector<std::string> encoded_paths;
     encoded_paths.reserve(paths.size());
     for (auto& path : paths) {
@@ -61,7 +61,7 @@ class ChrootEnv : public EnvWrapper {
       }
       encoded_paths.emplace_back(status_and_enc_path.second);
     }
-    return EnvWrapper::Env::OnDbPathsUnregistered(encoded_paths);
+    return EnvWrapper::Env::UnregisterDbPaths(encoded_paths);
   }
 
   Status NewSequentialFile(const std::string& fname,

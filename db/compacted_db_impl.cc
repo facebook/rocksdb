@@ -156,7 +156,7 @@ Status CompactedDBImpl::Open(const Options& options,
     for (const DbPath& db_path : db_options.db_paths) {
       paths.emplace_back(db_path.path);
     }
-    s = db->env_->OnDbPathsUnregistered(paths);
+    s = db->env_->UnregisterDbPaths(paths);
     if (s.ok()) {
       *dbptr = db.release();
     }

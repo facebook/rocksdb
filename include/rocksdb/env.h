@@ -176,8 +176,7 @@ class Env {
   //
   // Different implementations may take different actions.
   // By default, it's a no-op.
-  virtual Status OnDbPathsRegistered(
-      const std::vector<std::string>& /*paths*/) {
+  virtual Status RegisterDbPaths(const std::vector<std::string>& /*paths*/) {
     return Status::OK();
   }
   // Handles the event a DB or a ColumnFamily stops using the specified data
@@ -187,8 +186,7 @@ class Env {
   //
   // Different implementations may take different actions.
   // By default, it's a no-op.
-  virtual Status OnDbPathsUnregistered(
-      const std::vector<std::string>& /*paths*/) {
+  virtual Status UnregisterDbPaths(const std::vector<std::string>& /*paths*/) {
     return Status::OK();
   }
 
@@ -1184,12 +1182,12 @@ class EnvWrapper : public Env {
   Env* target() const { return target_; }
 
   // The following text is boilerplate that forwards all methods to target()
-  Status OnDbPathsRegistered(const std::vector<std::string>& paths) override {
-    return target_->OnDbPathsRegistered(paths);
+  Status RegisterDbPaths(const std::vector<std::string>& paths) override {
+    return target_->RegisterDbPaths(paths);
   }
 
-  Status OnDbPathsUnregistered(const std::vector<std::string>& paths) override {
-    return target_->OnDbPathsUnregistered(paths);
+  Status UnregisterDbPaths(const std::vector<std::string>& paths) override {
+    return target_->UnregisterDbPaths(paths);
   }
 
   Status NewSequentialFile(const std::string& f,

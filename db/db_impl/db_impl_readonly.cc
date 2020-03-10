@@ -173,7 +173,7 @@ Status DB::OpenForReadOnly(
       paths.emplace_back(cf_path.path);
     }
   }
-  Status s = impl->env_->OnDbPathsRegistered(paths);
+  Status s = impl->env_->RegisterDbPaths(paths);
   if (!s.ok()) {
     return s;
   }

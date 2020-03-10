@@ -300,10 +300,10 @@ class CompositeEnvWrapper : public Env {
 
   FileSystem* fs_env_target() const { return fs_env_target_; }
 
-  Status OnDbPathsRegistered(const std::vector<std::string>& paths) override {
+  Status RegisterDbPaths(const std::vector<std::string>& paths) override {
     return fs_env_target_->OnDbPathsRegistered(paths);
   }
-  Status OnDbPathsUnregistered(const std::vector<std::string>& paths) override {
+  Status UnregisterDbPaths(const std::vector<std::string>& paths) override {
     return fs_env_target_->OnDbPathsUnregistered(paths);
   }
 
