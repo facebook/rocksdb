@@ -794,6 +794,13 @@ ROCKS_TESTS = [
         [],
     ],
     [
+        "db_logical_block_size_cache_test",
+        "db/db_logical_block_size_cache_test.cc",
+        "serial",
+        [],
+        [],
+    ],
+    [
         "db_memtable_test",
         "db/db_memtable_test.cc",
         "serial",
