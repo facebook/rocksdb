@@ -4,13 +4,14 @@
 //  (found in the LICENSE.Apache file in the root directory).
 
 #include "db/blob_file_addition.h"
-#include "test_util/sync_point.h"
-#include "test_util/testharness.h"
-#include "util/coding.h"
 
 #include <cstdint>
 #include <cstring>
 #include <string>
+
+#include "test_util/sync_point.h"
+#include "test_util/testharness.h"
+#include "util/coding.h"
 
 namespace ROCKSDB_NAMESPACE {
 

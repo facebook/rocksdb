@@ -5,13 +5,13 @@
 
 #pragma once
 
-#include "db/blob_constants.h"
-#include "rocksdb/rocksdb_namespace.h"
-
 #include <cassert>
 #include <cstdint>
 #include <iosfwd>
 #include <string>
+
+#include "db/blob_constants.h"
+#include "rocksdb/rocksdb_namespace.h"
 
 namespace ROCKSDB_NAMESPACE {
 

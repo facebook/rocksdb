@@ -5,9 +5,9 @@
 
 #pragma once
 
-#include "rocksdb/rocksdb_namespace.h"
-
 #include <cstdint>
+
+#include "rocksdb/rocksdb_namespace.h"
 
 namespace ROCKSDB_NAMESPACE {
 

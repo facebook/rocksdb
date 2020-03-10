@@ -5,14 +5,14 @@
 
 #include "db/blob_file_garbage.h"
 
+#include <ostream>
+#include <sstream>
+
 #include "logging/event_logger.h"
 #include "rocksdb/slice.h"
 #include "rocksdb/status.h"
 #include "test_util/sync_point.h"
 #include "util/coding.h"
-
-#include <ostream>
-#include <sstream>
 
 namespace ROCKSDB_NAMESPACE {
 
