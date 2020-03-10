@@ -2398,9 +2398,8 @@ Status DBImpl::DropColumnFamilyImpl(ColumnFamilyHandle* column_family) {
   if (cfd->GetID() == 0) {
     return Status::InvalidArgument("Can't drop default column family");
   }
-  if (cfd->IsDropped()) {
-    return Status::InvalidArgument("Column family already dropped!\n");
-  }
+
+  bool cf_support_snapshot = cfd->mem()->IsSnapshotSupported();
 
   VersionEdit edit;
   edit.DropColumnFamily();
@@ -2409,6 +2408,9 @@ Status DBImpl::DropColumnFamilyImpl(ColumnFamilyHandle* column_family) {
   Status s;
   {
     InstrumentedMutexLock l(&mutex_);
+    if (cfd->IsDropped()) {
+      return Status::InvalidArgument("Column family already dropped!\n");
+    }
     if (s.ok()) {
       // we drop column family from a single write thread
       WriteThread::Writer w;
@@ -2423,7 +2425,6 @@ Status DBImpl::DropColumnFamilyImpl(ColumnFamilyHandle* column_family) {
                                     mutable_cf_options->max_write_buffer_number;
     }
 
-    bool cf_support_snapshot = cfd->mem()->IsSnapshotSupported();
     if (!cf_support_snapshot) {
       // Dropped Column Family doesn't support snapshot. Need to recalculate
       // is_snapshot_supported_.
