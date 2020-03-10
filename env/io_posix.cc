@@ -464,8 +464,7 @@ Status PosixHelper::GetLogicalBlockSizeOfDirectory(const std::string& directory,
   return Status::OK();
 }
 
-size_t PosixHelper::GetLogicalBlockSizeOfFd(int __attribute__((__unused__))
-                                            fd) {
+size_t PosixHelper::GetLogicalBlockSizeOfFd(int fd) {
 #ifdef OS_LINUX
   struct stat buf;
   int result = fstat(fd, &buf);
@@ -531,6 +530,7 @@ size_t PosixHelper::GetLogicalBlockSizeOfFd(int __attribute__((__unused__))
     return size;
   }
 #endif
+  (void) fd;
   return kDefaultPageSize;
 }
 

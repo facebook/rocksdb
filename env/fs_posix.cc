@@ -840,10 +840,10 @@ class PosixFileSystem : public FileSystem {
     return optimized;
   }
 #ifdef OS_LINUX
-  Status OnDbPathsRegistered(const std::vector<std::string>& paths) override {
+  Status RegisterDbPaths(const std::vector<std::string>& paths) override {
     return logical_block_size_cache_.RefAndCacheLogicalBlockSize(paths);
   }
-  Status OnDbPathsUnregistered(const std::vector<std::string>& paths) override {
+  Status UnregisterDbPaths(const std::vector<std::string>& paths) override {
     logical_block_size_cache_.UnrefAndTryRemoveCachedLogicalBlockSize(paths);
     return Status::OK();
   }

@@ -88,6 +88,15 @@ class LogicalBlockSizeCache {
   // Otherwise, the size is computed.
   size_t GetLogicalBlockSize(const std::string& fname, int fd);
 
+  size_t Size() const {
+    return cache_.size();
+  }
+
+  bool Contains(const std::string& dir) {
+    ReadLock lock(&cache_mutex_);
+    return cache_.find(dir) != cache_.end();
+  }
+
  private:
   struct CacheValue {
     CacheValue() : size(0), ref(0) {}
