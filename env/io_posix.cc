@@ -429,7 +429,7 @@ void LogicalBlockSizeCache::UnrefAndTryRemoveCachedLogicalBlockSize(
   WriteLock lock(&cache_mutex_);
   for (const auto& dir : dirs) {
     auto it = cache_.find(dir);
-    if (it != cache_.end() && !(--it->second.ref)) {
+    if (it != cache_.end() && !(--(it->second.ref))) {
       cache_.erase(it);
     }
   }
