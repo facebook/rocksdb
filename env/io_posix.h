@@ -17,7 +17,6 @@
 #include <functional>
 #include <map>
 #include <string>
-#include <utility>
 #include "port/port.h"
 #include "rocksdb/env.h"
 #include "rocksdb/file_system.h"
@@ -108,7 +107,7 @@ class LogicalBlockSizeCache {
   struct CacheValue {
     CacheValue() : size(0), ref(0) {}
 
-    // Logical buffer size of the directory.
+    // Logical block size of the directory.
     size_t size;
     // Reference count of the directory.
     int ref;

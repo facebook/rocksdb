@@ -286,6 +286,7 @@ TEST_F(DBLogicalBlockSizeCacheTest, OpenWithColumnFamilies) {
     ASSERT_OK(db->DestroyColumnFamilyHandle(cfs[2]));
     ASSERT_EQ(1, cache_->Size());
     ASSERT_TRUE(cache_->Contains(dbname_));
+    ASSERT_EQ(1, cache_->GetRefCount(dbname_));
 
     delete db;
     ASSERT_EQ(0, cache_->Size());

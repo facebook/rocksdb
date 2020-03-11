@@ -192,7 +192,7 @@ class FileSystem {
   // Handles the event a DB or a ColumnFamily stops using the specified data
   // paths.
   //
-  // It should be called corresponding to each RegisterDbPaths.
+  // It should be called corresponding to each successful RegisterDbPaths.
   //
   // Different implementations may take different actions.
   // By default, it's a no-op and returns Status::OK.

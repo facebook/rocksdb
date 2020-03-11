@@ -33,6 +33,7 @@ TEST_F(LogicalBlockSizeCacheTest, Cache) {
   };
   LogicalBlockSizeCache cache(get_fd_block_size, get_dir_block_size);
   ASSERT_EQ(0, ncall);
+  ASSERT_EQ(0, cache.Size());
 
   ASSERT_EQ(6, cache.GetLogicalBlockSize("/sst", 6));
   ASSERT_EQ(1, ncall);
@@ -42,6 +43,10 @@ TEST_F(LogicalBlockSizeCacheTest, Cache) {
   ASSERT_EQ(3, ncall);
 
   ASSERT_OK(cache.RefAndCacheLogicalBlockSize({"/", "/db1/", "/db2"}));
+  ASSERT_EQ(3, cache.Size());
+  ASSERT_TRUE(cache.Contains("/"));
+  ASSERT_TRUE(cache.Contains("/db1"));
+  ASSERT_TRUE(cache.Contains("/db2"));
   ASSERT_EQ(6, ncall);
   // Block size for / is cached.
   ASSERT_EQ(0, cache.GetLogicalBlockSize("/sst", 6));
@@ -63,6 +68,12 @@ TEST_F(LogicalBlockSizeCacheTest, Cache) {
   ASSERT_EQ(8, ncall);
 
   cache.RefAndCacheLogicalBlockSize({"/db"});
+  ASSERT_EQ(4, cache.Size());
+  ASSERT_TRUE(cache.Contains("/"));
+  ASSERT_TRUE(cache.Contains("/db1"));
+  ASSERT_TRUE(cache.Contains("/db2"));
+  ASSERT_TRUE(cache.Contains("/db"));
+
   ASSERT_EQ(9, ncall);
   // Block size for /db is cached.
   ASSERT_EQ(1, cache.GetLogicalBlockSize("/db/sst1", 7));
@@ -95,22 +106,26 @@ TEST_F(LogicalBlockSizeCacheTest, Ref) {
 
   cache.RefAndCacheLogicalBlockSize({"/db"});
   ASSERT_EQ(2, ncall);
+  ASSERT_EQ(1, cache.GetRefCount("/db"));
   // Block size for /db is cached. Ref count = 1.
   ASSERT_EQ(0, cache.GetLogicalBlockSize("/db/sst1", 1));
   ASSERT_EQ(2, ncall);
 
   // Ref count = 2, but won't recompute the cached buffer size.
   cache.RefAndCacheLogicalBlockSize({"/db"});
+  ASSERT_EQ(2, cache.GetRefCount("/db"));
   ASSERT_EQ(2, ncall);
 
   // Ref count = 1.
   cache.UnrefAndTryRemoveCachedLogicalBlockSize({"/db"});
+  ASSERT_EQ(1, cache.GetRefCount("/db"));
   // Block size for /db is still cached.
   ASSERT_EQ(0, cache.GetLogicalBlockSize("/db/sst2", 1));
   ASSERT_EQ(2, ncall);
 
   // Ref count = 0 and cached buffer size for /db is removed.
   cache.UnrefAndTryRemoveCachedLogicalBlockSize({"/db"});
+  ASSERT_EQ(0, cache.Size());
   ASSERT_EQ(1, cache.GetLogicalBlockSize("/db/sst0", 1));
   ASSERT_EQ(3, ncall);
 }
