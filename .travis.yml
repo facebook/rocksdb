@@ -3,6 +3,9 @@ language: cpp
 os:
   - linux
   - osx
+arch:
+  - amd64
+  - ppc64le
 compiler:
   - clang
   - gcc
@@ -62,12 +65,22 @@ matrix:
     env: TEST_GROUP=4
   - os: osx
     env: JOB_NAME=cmake-gcc8
-  - os : osx
+  - os: osx
     env: JOB_NAME=cmake-mingw
-  - os : linux
-    compiler: clang
-  - os : osx
+  - os: osx
+    arch: ppc64le
+  - os: osx
     compiler: gcc
+  - os: linux
+    arch: ppc64le
+    env: JOB_NAME=cmake-mingw
+  - os: linux
+    compiler: clang
+
+before_install:
+  - if [[ "${JOB_NAME}" == java_test  || "${JOB_NAME}" == cmake* ]] && [ "$(uname -m)" == ppc64le ]; then
+     sudo apt-get -y install openjdk-8-jdk && export JAVA_HOME=/usr/lib/jvm/java-8-openjdk-ppc64el;
+   fi
 
 install:
   - if [ "${TRAVIS_OS_NAME}" == osx ]; then
@@ -81,9 +94,11 @@ install:
       sudo apt-get install -y mingw-w64 ;
     fi
   - if [[ "${JOB_NAME}" == cmake* ]] && [ "${TRAVIS_OS_NAME}" == linux ]; then
-      mkdir cmake-dist && curl --silent --fail --show-error --location https://github.com/Kitware/CMake/releases/download/v3.14.5/cmake-3.14.5-Linux-x86_64.tar.gz | tar --strip-components=1 -C cmake-dist -xz && export PATH=$PWD/cmake-dist/bin:$PATH;
+      CMAKE_DIST_URL="https://github.com/pdillinger/rocksdb/releases/download/cmake-3.14.5/cmake-3.14.5-Linux-$(uname -m).tar.bz2";
+      TAR_OPT="--strip-components=1 -xj";
+      mkdir cmake-dist && curl --silent --fail --show-error --location "${CMAKE_DIST_URL}" | tar -C cmake-dist ${TAR_OPT} && export PATH=$PWD/cmake-dist/bin:$PATH;
     fi
-  - if [[ "${JOB_NAME}" == java_test ]]; then
+  - if [[ "${JOB_NAME}" == java_test || "${JOB_NAME}" == cmake* ]]; then
       java -version && echo "JAVA_HOME=${JAVA_HOME}";
     fi
 
