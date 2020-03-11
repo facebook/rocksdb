@@ -36,21 +36,12 @@ class DBLogicalBlockSizeCacheTest : public testing::Test {
         data_path_0_(dbname_ + "/data_path_0"),
         data_path_1_(dbname_ + "/data_path_1"),
         cf_path_0_(dbname_ + "/cf_path_0"),
-        cf_path_1_(dbname_ + "/cf_path_1"),
-        kDirFds({
-          {dbname_, 0},
-          {data_path_0_, 10},
-          {data_path_1_, 11},
-          {cf_path_0_, 20},
-          {cf_path_1_, 21}
-        }) {
+        cf_path_1_(dbname_ + "/cf_path_1") {
     auto get_fd_block_size = [&](int fd) {
-      ncall_++;
       return fd;
     };
-    auto get_dir_block_size = [&](const std::string& dir, size_t* size) {
-      ncall_++;
-      *size = kDirFds.at(dir);
+    auto get_dir_block_size = [&](const std::string& /*dir*/, size_t* size) {
+      *size = 1024;
       return Status::OK();
     };
     cache_.reset(new LogicalBlockSizeCache(
@@ -65,10 +56,6 @@ class DBLogicalBlockSizeCacheTest : public testing::Test {
   std::string data_path_1_;
   std::string cf_path_0_;
   std::string cf_path_1_;
-
-  const std::map<std::string, int> kDirFds;
-
-  int ncall_ = 0;
   std::unique_ptr<LogicalBlockSizeCache> cache_;
   std::unique_ptr<Env> env_;
 };
@@ -82,7 +69,6 @@ TEST_F(DBLogicalBlockSizeCacheTest, OpenClose) {
   options.db_paths = {{data_path_0_, 2048}, {data_path_1_, 2048}};
 
   for (int i = 0; i < 2; i++) {
-    ncall_ = 0;
     DB* db;
     if (!i) {
       printf("Open\n");
@@ -91,19 +77,13 @@ TEST_F(DBLogicalBlockSizeCacheTest, OpenClose) {
       printf("OpenForReadOnly\n");
       ASSERT_OK(DB::OpenForReadOnly(options, dbname_, &db));
     }
-    // Logical block size of data paths are cached during Open.
-    ASSERT_EQ(2, ncall_);
-    ASSERT_EQ(10, cache_->GetLogicalBlockSize(data_path_0_ + "/sst", 100));
-    ASSERT_EQ(2, ncall_);
-    ASSERT_EQ(11, cache_->GetLogicalBlockSize(data_path_1_ + "/sst", 200));
-    ASSERT_EQ(2, ncall_);
+    ASSERT_EQ(2, cache_->Size());
+    ASSERT_TRUE(cache_->Contains(data_path_0_));
+    ASSERT_EQ(1, cache_->GetRefCount(data_path_0_));
+    ASSERT_TRUE(cache_->Contains(data_path_1_));
+    ASSERT_EQ(1, cache_->GetRefCount(data_path_1_));
     ASSERT_OK(db->Close());
-    ASSERT_EQ(2, ncall_);
-    // Logical block size of data paths are removed from cache during Close.
-    ASSERT_EQ(100, cache_->GetLogicalBlockSize(data_path_0_ + "/sst", 100));
-    ASSERT_EQ(3, ncall_);
-    ASSERT_EQ(200, cache_->GetLogicalBlockSize(data_path_1_ + "/sst", 200));
-    ASSERT_EQ(4, ncall_);
+    ASSERT_EQ(0, cache_->Size());
     delete db;
   }
 }
@@ -115,18 +95,21 @@ TEST_F(DBLogicalBlockSizeCacheTest, OpenDelete) {
   options.create_if_missing = true;
   options.env = env_.get();
 
-  DB* db;
-  ASSERT_OK(DB::Open(options, dbname_, &db));
-  // Logical block size of dbname_ is cached during Open.
-  ASSERT_EQ(1, ncall_);
-  ASSERT_EQ(0, cache_->GetLogicalBlockSize(dbname_ + "/sst", 100));
-  ASSERT_EQ(1, ncall_);
-
-  delete db;
-  ASSERT_EQ(1, ncall_);
-  // Logical block size of dbname_ is removed from cache during Close.
-  ASSERT_EQ(100, cache_->GetLogicalBlockSize(dbname_ + "/sst", 100));
-  ASSERT_EQ(2, ncall_);
+  for (int i = 0; i < 2; i++) {
+    DB* db;
+    if (!i) {
+      printf("Open\n");
+      ASSERT_OK(DB::Open(options, dbname_, &db));
+    } else {
+      printf("OpenForReadOnly\n");
+      ASSERT_OK(DB::OpenForReadOnly(options, dbname_, &db));
+    }
+    ASSERT_EQ(1, cache_->Size());
+    ASSERT_TRUE(cache_->Contains(dbname_));
+    ASSERT_EQ(1, cache_->GetRefCount(dbname_));
+    delete db;
+    ASSERT_EQ(0, cache_->Size());
+  }
 }
 
 TEST_F(DBLogicalBlockSizeCacheTest, CreateColumnFamily) {
@@ -136,37 +119,42 @@ TEST_F(DBLogicalBlockSizeCacheTest, CreateColumnFamily) {
   Options options;
   options.create_if_missing = true;
   options.env = env_.get();
+  ColumnFamilyOptions cf_options;
+  cf_options.cf_paths = {{cf_path_0_, 1024}, {cf_path_1_, 2048}};
 
   DB* db;
   ASSERT_OK(DB::Open(options, dbname_, &db));
-  ASSERT_EQ(1, ncall_);
+  ASSERT_EQ(1, cache_->Size());
+  ASSERT_TRUE(cache_->Contains(dbname_));
+  ASSERT_EQ(1, cache_->GetRefCount(dbname_));
 
-  ColumnFamilyOptions cf_options;
-  cf_options.cf_paths = {{cf_path_0_, 1024}, {cf_path_1_, 2048}};
   ColumnFamilyHandle* cf = nullptr;
   ASSERT_OK(db->CreateColumnFamily(cf_options, "cf", &cf));
-  // cf_path_0_ and cf_path_1_ are cached.
-  ASSERT_EQ(3, ncall_);
-  ASSERT_EQ(20, cache_->GetLogicalBlockSize(cf_path_0_ + "/sst", 100));
-  ASSERT_EQ(3, ncall_);
-  ASSERT_EQ(21, cache_->GetLogicalBlockSize(cf_path_1_ + "/sst", 200));
-  ASSERT_EQ(3, ncall_);
+  ASSERT_EQ(3, cache_->Size());
+  ASSERT_TRUE(cache_->Contains(dbname_));
+  ASSERT_EQ(1, cache_->GetRefCount(dbname_));
+  ASSERT_TRUE(cache_->Contains(cf_path_0_));
+  ASSERT_EQ(1, cache_->GetRefCount(cf_path_0_));
+  ASSERT_TRUE(cache_->Contains(cf_path_1_));
+  ASSERT_EQ(1, cache_->GetRefCount(cf_path_1_));
 
   // Drop column family does not drop cache.
   ASSERT_OK(db->DropColumnFamily(cf));
-  ASSERT_EQ(20, cache_->GetLogicalBlockSize(cf_path_0_ + "/sst1", 300));
-  ASSERT_EQ(3, ncall_);
-  ASSERT_EQ(21, cache_->GetLogicalBlockSize(cf_path_1_ + "/sst1", 400));
-  ASSERT_EQ(3, ncall_);
+  ASSERT_EQ(3, cache_->Size());
+  ASSERT_TRUE(cache_->Contains(dbname_));
+  ASSERT_EQ(1, cache_->GetRefCount(dbname_));
+  ASSERT_TRUE(cache_->Contains(cf_path_0_));
+  ASSERT_EQ(1, cache_->GetRefCount(cf_path_0_));
+  ASSERT_TRUE(cache_->Contains(cf_path_1_));
+  ASSERT_EQ(1, cache_->GetRefCount(cf_path_1_));
 
   // Delete handle will drop cache.
   ASSERT_OK(db->DestroyColumnFamilyHandle(cf));
-  ASSERT_EQ(100, cache_->GetLogicalBlockSize(cf_path_0_ + "/sst", 100));
-  ASSERT_EQ(4, ncall_);
-  ASSERT_EQ(200, cache_->GetLogicalBlockSize(cf_path_0_ + "/sst", 200));
-  ASSERT_EQ(5, ncall_);
+  ASSERT_TRUE(cache_->Contains(dbname_));
+  ASSERT_EQ(1, cache_->GetRefCount(dbname_));
 
   delete db;
+  ASSERT_EQ(0, cache_->Size());
 }
 
 TEST_F(DBLogicalBlockSizeCacheTest, CreateColumnFamilies) {
@@ -176,39 +164,50 @@ TEST_F(DBLogicalBlockSizeCacheTest, CreateColumnFamilies) {
   Options options;
   options.create_if_missing = true;
   options.env = env_.get();
+  ColumnFamilyOptions cf_options;
+  cf_options.cf_paths = {{cf_path_0_, 1024}};
 
   DB* db;
   ASSERT_OK(DB::Open(options, dbname_, &db));
-  ASSERT_EQ(1, ncall_);
+  ASSERT_EQ(1, cache_->Size());
+  ASSERT_TRUE(cache_->Contains(dbname_));
+  ASSERT_EQ(1, cache_->GetRefCount(dbname_));
 
-  ColumnFamilyOptions cf_options;
-  cf_options.cf_paths = {{cf_path_0_, 1024}};
   std::vector<ColumnFamilyHandle*> cfs;
   ASSERT_OK(db->CreateColumnFamilies(cf_options, {"cf1", "cf2"}, &cfs));
-  // cf_path_0_ is cached.
-  ASSERT_EQ(2, ncall_);
-  ASSERT_EQ(20, cache_->GetLogicalBlockSize(cf_path_0_ + "/sst", 100));
-  ASSERT_EQ(2, ncall_);
+  ASSERT_EQ(2, cache_->Size());
+  ASSERT_TRUE(cache_->Contains(dbname_));
+  ASSERT_EQ(1, cache_->GetRefCount(dbname_));
+  ASSERT_TRUE(cache_->Contains(cf_path_0_));
+  ASSERT_EQ(2, cache_->GetRefCount(cf_path_0_));
 
   // Drop column family does not drop cache.
   for (ColumnFamilyHandle* cf : cfs) {
     ASSERT_OK(db->DropColumnFamily(cf));
-    ASSERT_EQ(20, cache_->GetLogicalBlockSize(cf_path_0_ + "/sst1", 200));
-    ASSERT_EQ(2, ncall_);
+    ASSERT_EQ(2, cache_->Size());
+    ASSERT_TRUE(cache_->Contains(dbname_));
+    ASSERT_EQ(1, cache_->GetRefCount(dbname_));
+    ASSERT_TRUE(cache_->Contains(cf_path_0_));
+    ASSERT_EQ(2, cache_->GetRefCount(cf_path_0_));
   }
 
   // Delete one handle will not drop cache because another handle is still
   // referencing cf_path_0_.
   ASSERT_OK(db->DestroyColumnFamilyHandle(cfs[0]));
-  ASSERT_EQ(20, cache_->GetLogicalBlockSize(cf_path_0_ + "/sst2", 300));
-  ASSERT_EQ(2, ncall_);
+  ASSERT_EQ(2, cache_->Size());
+  ASSERT_TRUE(cache_->Contains(dbname_));
+  ASSERT_EQ(1, cache_->GetRefCount(dbname_));
+  ASSERT_TRUE(cache_->Contains(cf_path_0_));
+  ASSERT_EQ(1, cache_->GetRefCount(cf_path_0_));
 
   // Delete the last handle will drop cache.
   ASSERT_OK(db->DestroyColumnFamilyHandle(cfs[1]));
-  ASSERT_EQ(100, cache_->GetLogicalBlockSize(cf_path_0_ + "/sst", 100));
-  ASSERT_EQ(3, ncall_);
+  ASSERT_EQ(1, cache_->Size());
+  ASSERT_TRUE(cache_->Contains(dbname_));
+  ASSERT_EQ(1, cache_->GetRefCount(dbname_));
 
   delete db;
+  ASSERT_EQ(0, cache_->Size());
 }
 
 TEST_F(DBLogicalBlockSizeCacheTest, OpenWithColumnFamilies) {
@@ -220,76 +219,76 @@ TEST_F(DBLogicalBlockSizeCacheTest, OpenWithColumnFamilies) {
   options.create_if_missing = true;
   options.env = env_.get();
 
-  ColumnFamilyOptions default_cf_options;
-  default_cf_options.cf_paths = {{dbname_, 2048}};
+  ColumnFamilyOptions cf_options;
+  cf_options.cf_paths = {{cf_path_0_, 1024}};
 
   for (int i = 0; i < 2; i++) {
     DB* db;
     ColumnFamilyHandle* cf1 = nullptr;
     ColumnFamilyHandle* cf2 = nullptr;
     ASSERT_OK(DB::Open(options, dbname_, &db));
-    ColumnFamilyOptions cf_options;
-    cf_options.cf_paths = {{cf_path_0_, 1024}};
     ASSERT_OK(db->CreateColumnFamily(cf_options, "cf1", &cf1));
     ASSERT_OK(db->CreateColumnFamily(cf_options, "cf2", &cf2));
     ASSERT_OK(db->DestroyColumnFamilyHandle(cf1));
     ASSERT_OK(db->DestroyColumnFamilyHandle(cf2));
     delete db;
+    ASSERT_EQ(0, cache_->Size());
 
-    // Neither dbname_ nor cf_path_0_ is cached.
-    ASSERT_EQ(100, cache_->GetLogicalBlockSize(dbname_ + "/sst", 100));
-    ASSERT_EQ(200, cache_->GetLogicalBlockSize(cf_path_0_ + "/sst", 200));
-
-    ncall_ = 0;
     std::vector<ColumnFamilyHandle*> cfs;
     if (!i) {
       printf("Open\n");
       ASSERT_OK(DB::Open(options, dbname_,
-          {{"cf1", cf_options},
-          {"cf2", cf_options},
-          {"default", default_cf_options}},
-          &cfs, &db));
+                         {{"cf1", cf_options},
+                          {"cf2", cf_options},
+                          {"default", ColumnFamilyOptions()}},
+                         &cfs, &db));
     } else {
       printf("OpenForReadOnly\n");
       ASSERT_OK(DB::OpenForReadOnly(options, dbname_,
-          {{"cf1", cf_options},
-          {"cf2", cf_options},
-          {"default", default_cf_options}},
-          &cfs, &db));
+                                    {{"cf1", cf_options},
+                                     {"cf2", cf_options},
+                                     {"default", ColumnFamilyOptions()}},
+                                    &cfs, &db));
     }
 
     // Logical block sizes of dbname_ and cf_path_0_ are cached during Open.
-    ASSERT_EQ(2, ncall_);
-    ASSERT_EQ(0, cache_->GetLogicalBlockSize(dbname_ + "/sst", 100));
-    ASSERT_EQ(2, ncall_);
-    ASSERT_EQ(20, cache_->GetLogicalBlockSize(cf_path_0_ + "/sst", 200));
-    ASSERT_EQ(2, ncall_);
+    ASSERT_EQ(2, cache_->Size());
+    ASSERT_TRUE(cache_->Contains(dbname_));
+    ASSERT_EQ(1, cache_->GetRefCount(dbname_));
+    ASSERT_TRUE(cache_->Contains(cf_path_0_));
+    ASSERT_EQ(2, cache_->GetRefCount(cf_path_0_));
 
     // Drop handles won't drop the cache.
     ASSERT_OK(db->DropColumnFamily(cfs[0]));
     ASSERT_OK(db->DropColumnFamily(cfs[1]));
-    ASSERT_EQ(20, cache_->GetLogicalBlockSize(cf_path_0_ + "/sst1", 300));
-    ASSERT_EQ(2, ncall_);
+    ASSERT_EQ(2, cache_->Size());
+    ASSERT_TRUE(cache_->Contains(dbname_));
+    ASSERT_EQ(1, cache_->GetRefCount(dbname_));
+    ASSERT_TRUE(cache_->Contains(cf_path_0_));
+    ASSERT_EQ(2, cache_->GetRefCount(cf_path_0_));
 
-    // Delete one handle won't drop the cache.
+    // Delete 1st handle won't drop the cache for cf_path_0_.
     ASSERT_OK(db->DestroyColumnFamilyHandle(cfs[0]));
-    ASSERT_EQ(20, cache_->GetLogicalBlockSize(cf_path_0_ + "/sst2", 400));
-    ASSERT_EQ(2, ncall_);
+    ASSERT_EQ(2, cache_->Size());
+    ASSERT_TRUE(cache_->Contains(dbname_));
+    ASSERT_EQ(1, cache_->GetRefCount(dbname_));
+    ASSERT_TRUE(cache_->Contains(cf_path_0_));
+    ASSERT_EQ(1, cache_->GetRefCount(cf_path_0_));
 
-    // Delete the last handle will drop the cache.
+    // Delete 2nd handle will drop the cache for cf_path_0_.
     ASSERT_OK(db->DestroyColumnFamilyHandle(cfs[1]));
-    ASSERT_EQ(100, cache_->GetLogicalBlockSize(cf_path_0_ + "/sst", 100));
-    ASSERT_EQ(3, ncall_);
+    ASSERT_EQ(1, cache_->Size());
+    ASSERT_TRUE(cache_->Contains(dbname_));
+    ASSERT_EQ(1, cache_->GetRefCount(dbname_));
 
+    // Delete the default handle won't affect the cache because db still refers
+    // to the default CF.
     ASSERT_OK(db->DestroyColumnFamilyHandle(cfs[2]));
-    // db is not deleted yet, so dbname_ is still cached.
-    ASSERT_EQ(0, cache_->GetLogicalBlockSize(dbname_ + "/sst1", 400));
-    ASSERT_EQ(3, ncall_);
+    ASSERT_EQ(1, cache_->Size());
+    ASSERT_TRUE(cache_->Contains(dbname_));
 
-    // db is deleted, cache for dbname_ is dropped.
     delete db;
-    ASSERT_EQ(100, cache_->GetLogicalBlockSize(dbname_ + "/sst", 100));
-    ASSERT_EQ(4, ncall_);
+    ASSERT_EQ(0, cache_->Size());
   }
 }
 
@@ -300,61 +299,178 @@ TEST_F(DBLogicalBlockSizeCacheTest, DestroyColumnFamilyHandle) {
   Options options;
   options.create_if_missing = true;
   options.env = env_.get();
+  ColumnFamilyOptions cf_options;
+  cf_options.cf_paths = {{cf_path_0_, 1024}};
 
   DB* db;
   ASSERT_OK(DB::Open(options, dbname_, &db));
-  ColumnFamilyOptions cf_options;
-  cf_options.cf_paths = {{cf_path_0_, 1024}};
+  ASSERT_EQ(1, cache_->Size());
+  ASSERT_TRUE(cache_->Contains(dbname_));
+  ASSERT_EQ(1, cache_->GetRefCount(dbname_));
   ColumnFamilyHandle* cf = nullptr;
   ASSERT_OK(db->CreateColumnFamily(cf_options, "cf", &cf));
-  // cf_path_0_ is cached.
-  ASSERT_EQ(2, ncall_);
-  ASSERT_EQ(20, cache_->GetLogicalBlockSize(cf_path_0_ + "/sst", 100));
-  ASSERT_EQ(2, ncall_);
+  ASSERT_EQ(2, cache_->Size());
+  ASSERT_TRUE(cache_->Contains(dbname_));
+  ASSERT_EQ(1, cache_->GetRefCount(dbname_));
+  ASSERT_TRUE(cache_->Contains(cf_path_0_));
+  ASSERT_EQ(1, cache_->GetRefCount(cf_path_0_));
 
   // Delete handle won't drop cache.
   ASSERT_OK(db->DestroyColumnFamilyHandle(cf));
-  ASSERT_EQ(20, cache_->GetLogicalBlockSize(cf_path_0_ + "/sst1", 200));
-  ASSERT_EQ(2, ncall_);
+  ASSERT_EQ(2, cache_->Size());
+  ASSERT_TRUE(cache_->Contains(dbname_));
+  ASSERT_EQ(1, cache_->GetRefCount(dbname_));
+  ASSERT_TRUE(cache_->Contains(cf_path_0_));
+  ASSERT_EQ(1, cache_->GetRefCount(cf_path_0_));
 
   delete db;
+  ASSERT_EQ(0, cache_->Size());
 
-  ColumnFamilyOptions default_cf_options;
-  default_cf_options.cf_paths = {{dbname_, 2048}};
-
+  // Open with column families.
   std::vector<ColumnFamilyHandle*> cfs;
   for (int i = 0; i < 2; i++) {
-    ncall_ = 0;
     if (!i) {
       printf("Open\n");
-      ASSERT_OK(DB::Open(options, dbname_,
-          {{"cf", cf_options},
-          {"default", default_cf_options}},
-          &cfs, &db));
+      ASSERT_OK(DB::Open(
+          options, dbname_,
+          {{"cf", cf_options}, {"default", ColumnFamilyOptions()}}, &cfs, &db));
     } else {
       printf("OpenForReadOnly\n");
-      ASSERT_OK(DB::OpenForReadOnly(options, dbname_,
-          {{"cf", cf_options},
-          {"default", default_cf_options}},
-          &cfs, &db));
+      ASSERT_OK(DB::OpenForReadOnly(
+          options, dbname_,
+          {{"cf", cf_options}, {"default", ColumnFamilyOptions()}}, &cfs, &db));
     }
     // cf_path_0_ and dbname_ are cached.
-    ASSERT_EQ(2, ncall_);
-    ASSERT_EQ(20, cache_->GetLogicalBlockSize(cf_path_0_ + "/sst", 100));
-    ASSERT_EQ(2, ncall_);
-    ASSERT_EQ(0, cache_->GetLogicalBlockSize(dbname_ + "/sst", 101));
-    ASSERT_EQ(2, ncall_);
+    ASSERT_EQ(2, cache_->Size());
+    ASSERT_TRUE(cache_->Contains(dbname_));
+    ASSERT_EQ(1, cache_->GetRefCount(dbname_));
+    ASSERT_TRUE(cache_->Contains(cf_path_0_));
+    ASSERT_EQ(1, cache_->GetRefCount(cf_path_0_));
 
     // Deleting handle won't drop cache.
     ASSERT_OK(db->DestroyColumnFamilyHandle(cfs[0]));
-    ASSERT_EQ(20, cache_->GetLogicalBlockSize(cf_path_0_ + "/sst1", 200));
-    ASSERT_EQ(2, ncall_);
     ASSERT_OK(db->DestroyColumnFamilyHandle(cfs[1]));
-    ASSERT_EQ(0, cache_->GetLogicalBlockSize(dbname_ + "/sst1", 201));
-    ASSERT_EQ(2, ncall_);
+    ASSERT_EQ(2, cache_->Size());
+    ASSERT_TRUE(cache_->Contains(dbname_));
+    ASSERT_EQ(1, cache_->GetRefCount(dbname_));
+    ASSERT_TRUE(cache_->Contains(cf_path_0_));
+    ASSERT_EQ(1, cache_->GetRefCount(cf_path_0_));
 
     delete db;
+    ASSERT_EQ(0, cache_->Size());
   }
+}
+
+TEST_F(DBLogicalBlockSizeCacheTest, MultiDBWithDifferentPaths) {
+  // Tests the cache behavior when there are multiple DBs sharing the same env
+  // with different db_paths and cf_paths.
+  Options options;
+  options.create_if_missing = true;
+  options.env = env_.get();
+
+  DB* db0;
+  ASSERT_OK(DB::Open(options, data_path_0_, &db0));
+  ASSERT_EQ(1, cache_->Size());
+  ASSERT_TRUE(cache_->Contains(data_path_0_));
+
+  ColumnFamilyOptions cf_options0;
+  cf_options0.cf_paths = {{cf_path_0_, 1024}};
+  ColumnFamilyHandle* cf0;
+  db0->CreateColumnFamily(cf_options0, "cf", &cf0);
+  ASSERT_EQ(2, cache_->Size());
+  ASSERT_TRUE(cache_->Contains(data_path_0_));
+  ASSERT_EQ(1, cache_->GetRefCount(data_path_0_));
+  ASSERT_TRUE(cache_->Contains(cf_path_0_));
+  ASSERT_EQ(1, cache_->GetRefCount(cf_path_0_));
+
+  DB* db1;
+  ASSERT_OK(DB::Open(options, data_path_1_, &db1));
+  ASSERT_EQ(3, cache_->Size());
+  ASSERT_TRUE(cache_->Contains(data_path_0_));
+  ASSERT_EQ(1, cache_->GetRefCount(data_path_0_));
+  ASSERT_TRUE(cache_->Contains(cf_path_0_));
+  ASSERT_EQ(1, cache_->GetRefCount(cf_path_0_));
+  ASSERT_TRUE(cache_->Contains(data_path_1_));
+  ASSERT_EQ(1, cache_->GetRefCount(data_path_1_));
+
+  ColumnFamilyOptions cf_options1;
+  cf_options1.cf_paths = {{cf_path_1_, 1024}};
+  ColumnFamilyHandle* cf1;
+  db1->CreateColumnFamily(cf_options1, "cf", &cf1);
+  ASSERT_EQ(4, cache_->Size());
+  ASSERT_TRUE(cache_->Contains(data_path_0_));
+  ASSERT_EQ(1, cache_->GetRefCount(data_path_0_));
+  ASSERT_TRUE(cache_->Contains(cf_path_0_));
+  ASSERT_EQ(1, cache_->GetRefCount(cf_path_0_));
+  ASSERT_TRUE(cache_->Contains(data_path_1_));
+  ASSERT_EQ(1, cache_->GetRefCount(data_path_1_));
+  ASSERT_TRUE(cache_->Contains(cf_path_1_));
+  ASSERT_EQ(1, cache_->GetRefCount(cf_path_1_));
+
+  db0->DestroyColumnFamilyHandle(cf0);
+  delete db0;
+  ASSERT_EQ(2, cache_->Size());
+  ASSERT_TRUE(cache_->Contains(data_path_1_));
+  ASSERT_EQ(1, cache_->GetRefCount(data_path_1_));
+  ASSERT_TRUE(cache_->Contains(cf_path_1_));
+  ASSERT_EQ(1, cache_->GetRefCount(cf_path_1_));
+
+  db1->DestroyColumnFamilyHandle(cf1);
+  delete db1;
+  ASSERT_EQ(0, cache_->Size());
+}
+
+TEST_F(DBLogicalBlockSizeCacheTest, MultiDBWithSamePaths) {
+  // Tests the cache behavior when there are multiple DBs sharing the same env
+  // with the same db_paths and cf_paths.
+  Options options;
+  options.create_if_missing = true;
+  options.env = env_.get();
+  options.db_paths = {{data_path_0_, 1024}};
+  ColumnFamilyOptions cf_options;
+  cf_options.cf_paths = {{cf_path_0_, 1024}};
+
+  DB* db0;
+  ASSERT_OK(DB::Open(options, dbname_ + "/db0", &db0));
+  ASSERT_EQ(1, cache_->Size());
+  ASSERT_TRUE(cache_->Contains(data_path_0_));
+  ASSERT_EQ(1, cache_->GetRefCount(data_path_0_));
+
+  ColumnFamilyHandle* cf0;
+  db0->CreateColumnFamily(cf_options, "cf", &cf0);
+  ASSERT_EQ(2, cache_->Size());
+  ASSERT_TRUE(cache_->Contains(data_path_0_));
+  ASSERT_EQ(1, cache_->GetRefCount(data_path_0_));
+  ASSERT_TRUE(cache_->Contains(cf_path_0_));
+  ASSERT_EQ(1, cache_->GetRefCount(cf_path_0_));
+
+  DB* db1;
+  ASSERT_OK(DB::Open(options, dbname_ + "/db1", &db1));
+  ASSERT_EQ(2, cache_->Size());
+  ASSERT_TRUE(cache_->Contains(data_path_0_));
+  ASSERT_EQ(2, cache_->GetRefCount(data_path_0_));
+  ASSERT_TRUE(cache_->Contains(cf_path_0_));
+  ASSERT_EQ(1, cache_->GetRefCount(cf_path_0_));
+
+  ColumnFamilyHandle* cf1;
+  db1->CreateColumnFamily(cf_options, "cf", &cf1);
+  ASSERT_EQ(2, cache_->Size());
+  ASSERT_TRUE(cache_->Contains(data_path_0_));
+  ASSERT_EQ(2, cache_->GetRefCount(data_path_0_));
+  ASSERT_TRUE(cache_->Contains(cf_path_0_));
+  ASSERT_EQ(2, cache_->GetRefCount(cf_path_0_));
+
+  db0->DestroyColumnFamilyHandle(cf0);
+  delete db0;
+  ASSERT_EQ(2, cache_->Size());
+  ASSERT_TRUE(cache_->Contains(data_path_0_));
+  ASSERT_EQ(1, cache_->GetRefCount(data_path_0_));
+  ASSERT_TRUE(cache_->Contains(cf_path_0_));
+  ASSERT_EQ(1, cache_->GetRefCount(cf_path_0_));
+
+  db1->DestroyColumnFamilyHandle(cf1);
+  delete db1;
+  ASSERT_EQ(0, cache_->Size());
 }
 
 }  // namespace ROCKSDB_NAMESPACE

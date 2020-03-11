@@ -151,15 +151,7 @@ Status CompactedDBImpl::Open(const Options& options,
     ROCKS_LOG_INFO(db->immutable_db_options_.info_log,
                    "Opened the db as fully compacted mode");
     LogFlush(db->immutable_db_options_.info_log);
-    std::vector<std::string> paths;
-    paths.reserve(db_options.db_paths.size());
-    for (const DbPath& db_path : db_options.db_paths) {
-      paths.emplace_back(db_path.path);
-    }
-    s = db->env_->UnregisterDbPaths(paths);
-    if (s.ok()) {
-      *dbptr = db.release();
-    }
+    *dbptr = db.release();
   }
   return s;
 }

@@ -561,17 +561,6 @@ Status DBImpl::CloseHelper() {
     delete txn_entry.second;
   }
 
-  std::vector<std::string> db_paths;
-  db_paths.reserve(initial_db_options_.db_paths.size());
-  for (const DbPath& db_path : initial_db_options_.db_paths) {
-    db_paths.emplace_back(db_path.path);
-  }
-  for (ColumnFamilyData* cf : *versions_->GetColumnFamilySet()) {
-    for (const DbPath& cf_path : cf->ioptions()->cf_paths) {
-      db_paths.emplace_back(cf_path.path);
-    }
-  }
-
   // versions need to be destroyed before table_cache since it can hold
   // references to table_cache.
   versions_.reset();
@@ -599,13 +588,6 @@ Status DBImpl::CloseHelper() {
     if (ret.ok()) {
       ret = s;
     }
-  }
-
-  Status s = env_->UnregisterDbPaths(db_paths);
-  if (!s.ok()) {
-    ROCKS_LOG_ERROR(immutable_db_options_.info_log,
-                    "Failed to unregister data paths of DB %s from env",
-                    dbname_.c_str());
   }
 
   if (ret.IsAborted()) {
@@ -2276,17 +2258,11 @@ Status DBImpl::CreateColumnFamilyImpl(const ColumnFamilyOptions& cf_options,
       BuildDBOptions(immutable_db_options_, mutable_db_options_);
   s = ColumnFamilyData::ValidateOptions(db_options, cf_options);
   if (s.ok()) {
-    std::vector<std::string> paths;
-    paths.reserve(cf_options.cf_paths.size());
-    for (const DbPath& cf_path : cf_options.cf_paths) {
+    for (auto& cf_path : cf_options.cf_paths) {
       s = env_->CreateDirIfMissing(cf_path.path);
       if (!s.ok()) {
         break;
       }
-      paths.emplace_back(cf_path.path);
-    }
-    if (s.ok()) {
-      s = env_->RegisterDbPaths(paths);
     }
   }
   if (!s.ok()) {
@@ -2409,7 +2385,7 @@ Status DBImpl::DropColumnFamilyImpl(ColumnFamilyHandle* column_family) {
   {
     InstrumentedMutexLock l(&mutex_);
     if (cfd->IsDropped()) {
-      return Status::InvalidArgument("Column family already dropped!\n");
+      s = Status::InvalidArgument("Column family already dropped!\n");
     }
     if (s.ok()) {
       // we drop column family from a single write thread

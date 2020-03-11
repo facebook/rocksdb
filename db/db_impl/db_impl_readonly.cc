@@ -163,23 +163,9 @@ Status DB::OpenForReadOnly(
   SuperVersionContext sv_context(/* create_superversion */ true);
   DBImplReadOnly* impl = new DBImplReadOnly(db_options, dbname);
 
-  std::vector<std::string> paths;
-  paths.reserve(db_options.db_paths.size());
-  for (const DbPath& db_path : db_options.db_paths) {
-    paths.emplace_back(db_path.path);
-  }
-  for (const ColumnFamilyDescriptor& cfd : column_families) {
-    for (const DbPath& cf_path : cfd.options.cf_paths) {
-      paths.emplace_back(cf_path.path);
-    }
-  }
-  Status s = impl->env_->RegisterDbPaths(paths);
-  if (!s.ok()) {
-    return s;
-  }
   impl->mutex_.Lock();
-  s = impl->Recover(column_families, true /* read only */,
-                    error_if_log_file_exist);
+  Status s = impl->Recover(column_families, true /* read only */,
+                           error_if_log_file_exist);
   if (s.ok()) {
     // set column family handles
     for (auto cf : column_families) {

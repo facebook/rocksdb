@@ -530,7 +530,7 @@ size_t PosixHelper::GetLogicalBlockSizeOfFd(int fd) {
     return size;
   }
 #endif
-  (void) fd;
+  (void)fd;
   return kDefaultPageSize;
 }
 
