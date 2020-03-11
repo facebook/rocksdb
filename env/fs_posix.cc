@@ -82,8 +82,13 @@ inline mode_t GetDBFileMode(bool allow_non_owner_access) {
 }
 
 // list of pathnames that are locked
-static std::set<std::string> lockedFiles;
-static port::Mutex mutex_lockedFiles;
+// Only used for error message.
+struct LockHoldingInfo {
+  int64_t acquire_time;
+  uint64_t acquiring_thread;
+};
+static std::map<std::string, LockHoldingInfo> locked_files;
+static port::Mutex mutex_locked_files;
 
 static int LockOrUnlock(int fd, bool lock) {
   errno = 0;
@@ -699,9 +704,16 @@ class PosixFileSystem : public FileSystem {
     *lock = nullptr;
     IOStatus result;
 
-    mutex_lockedFiles.Lock();
-    // If it already exists in the lockedFiles set, then it is already locked,
-    // and fail this lock attempt. Otherwise, insert it into lockedFiles.
+    LockHoldingInfo lhi;
+    int64_t current_time = 0;
+    // Ignore status code as the time is only used for error message.
+    Env::Default()->GetCurrentTime(&current_time);
+    lhi.acquire_time = current_time;
+    lhi.acquiring_thread = Env::Default()->GetThreadID();
+
+    mutex_locked_files.Lock();
+    // If it already exists in the locked_files set, then it is already locked,
+    // and fail this lock attempt. Otherwise, insert it into locked_files.
     // This check is needed because fcntl() does not detect lock conflict
     // if the fcntl is issued by the same thread that earlier acquired
     // this lock.
@@ -709,10 +721,18 @@ class PosixFileSystem : public FileSystem {
     // Otherwise, we will open a new file descriptor. Locks are associated with
     // a process, not a file descriptor and when *any* file descriptor is
     // closed, all locks the process holds for that *file* are released
-    if (lockedFiles.insert(fname).second == false) {
-      mutex_lockedFiles.Unlock();
+    const auto it_success = locked_files.insert({fname, lhi});
+    if (it_success.second == false) {
+      mutex_locked_files.Unlock();
       errno = ENOLCK;
-      return IOError("lock ", fname, errno);
+      LockHoldingInfo& prev_info = it_success.first->second;
+      // Note that the thread ID printed is the same one as the one in
+      // posix logger, but posix logger prints it hex format.
+      return IOError("lock hold by current process, acquire time " +
+                         ToString(prev_info.acquire_time) +
+                         " acquiring thread " +
+                         ToString(prev_info.acquiring_thread),
+                     fname, errno);
     }
 
     int fd;
@@ -727,7 +747,7 @@ class PosixFileSystem : public FileSystem {
     } else if (LockOrUnlock(fd, true) == -1) {
       // if there is an error in locking, then remove the pathname from
       // lockedfiles
-      lockedFiles.erase(fname);
+      locked_files.erase(fname);
       result = IOError("While lock file", fname, errno);
       close(fd);
     } else {
@@ -738,7 +758,7 @@ class PosixFileSystem : public FileSystem {
       *lock = my_lock;
     }
 
-    mutex_lockedFiles.Unlock();
+    mutex_locked_files.Unlock();
     return result;
   }
 
@@ -746,10 +766,10 @@ class PosixFileSystem : public FileSystem {
                       IODebugContext* /*dbg*/) override {
     PosixFileLock* my_lock = reinterpret_cast<PosixFileLock*>(lock);
     IOStatus result;
-    mutex_lockedFiles.Lock();
+    mutex_locked_files.Lock();
     // If we are unlocking, then verify that we had locked it earlier,
-    // it should already exist in lockedFiles. Remove it from lockedFiles.
-    if (lockedFiles.erase(my_lock->filename) != 1) {
+    // it should already exist in locked_files. Remove it from locked_files.
+    if (locked_files.erase(my_lock->filename) != 1) {
       errno = ENOLCK;
       result = IOError("unlock", my_lock->filename, errno);
     } else if (LockOrUnlock(my_lock->fd_, false) == -1) {
@@ -757,7 +777,7 @@ class PosixFileSystem : public FileSystem {
     }
     close(my_lock->fd_);
     delete my_lock;
-    mutex_lockedFiles.Unlock();
+    mutex_locked_files.Unlock();
     return result;
   }
 
