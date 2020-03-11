@@ -446,7 +446,7 @@ EXPOBJECTS = $(LIBOBJECTS) $(TESTUTIL)
 
 TESTS = \
 	db_basic_test \
-	db_basic_test_with_timestamp \
+	db_with_timestamp_basic_test \
 	db_encryption_test \
 	db_test2 \
 	external_sst_file_basic_test \
@@ -1308,7 +1308,7 @@ slice_transform_test: util/slice_transform_test.o $(LIBOBJECTS) $(TESTHARNESS)
 db_basic_test: db/db_basic_test.o db/db_test_util.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
-db_basic_test_with_timestamp: db/db_basic_test_with_timestamp.o db/db_test_util.o $(LIBOBJECTS) $(TESTHARNESS)
+db_with_timestamp_basic_test: db/db_with_timestamp_basic_test.o db/db_test_util.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
 db_encryption_test: db/db_encryption_test.o db/db_test_util.o $(LIBOBJECTS) $(TESTHARNESS)

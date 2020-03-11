@@ -705,13 +705,6 @@ ROCKS_TESTS = [
         [],
     ],
     [
-        "db_basic_test_with_timestamp",
-        "db/db_basic_test_with_timestamp.cc",
-        "serial",
-        [],
-        [],
-    ],
-    [
         "db_blob_index_test",
         "db/blob/db_blob_index_test.cc",
         "serial",
@@ -918,6 +911,13 @@ ROCKS_TESTS = [
         "db_wal_test",
         "db/db_wal_test.cc",
         "parallel",
+        [],
+        [],
+    ],
+    [
+        "db_with_timestamp_basic_test",
+        "db/db_with_timestamp_basic_test.cc",
+        "serial",
         [],
         [],
     ],
