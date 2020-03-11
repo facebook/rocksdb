@@ -11,6 +11,7 @@
 
 #include <algorithm>
 #include <cinttypes>
+#include <cstdint>
 #include <limits>
 #include <string>
 #include <vector>
@@ -480,8 +481,7 @@ std::vector<std::string> ColumnFamilyData::GetDbPaths() const {
   return paths;
 }
 
-const uint32_t ColumnFamilyData::kDummyColumnFamilyDataId
-    = std::numeric_limits<uint32_t>::max();
+const uint32_t ColumnFamilyData::kDummyColumnFamilyDataId = UINT32_MAX;
 
 ColumnFamilyData::ColumnFamilyData(
     uint32_t id, const std::string& name, Version* _dummy_versions,
