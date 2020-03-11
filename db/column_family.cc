@@ -11,7 +11,6 @@
 
 #include <algorithm>
 #include <cinttypes>
-#include <cstdint>
 #include <limits>
 #include <string>
 #include <vector>
@@ -481,7 +480,7 @@ std::vector<std::string> ColumnFamilyData::GetDbPaths() const {
   return paths;
 }
 
-const uint32_t ColumnFamilyData::kDummyColumnFamilyDataId = UINT32_MAX;
+const uint32_t ColumnFamilyData::kDummyColumnFamilyDataId = port::kMaxUint32;
 
 ColumnFamilyData::ColumnFamilyData(
     uint32_t id, const std::string& name, Version* _dummy_versions,
@@ -522,7 +521,7 @@ ColumnFamilyData::ColumnFamilyData(
       last_memtable_id_(0),
       db_paths_registered_(false) {
   if (id_ != kDummyColumnFamilyDataId) {
-    Status s = ioptions_.env->RegisterDbPaths(GetDbPaths());
+    Status s = ioptions_.fs->RegisterDbPaths(GetDbPaths());
     if (s.ok()) {
       db_paths_registered_ = true;
     } else {
@@ -627,7 +626,7 @@ ColumnFamilyData::~ColumnFamilyData() {
   }
 
   if (db_paths_registered_) {
-    Status s = ioptions_.env->UnregisterDbPaths(GetDbPaths());
+    Status s = ioptions_.fs->UnregisterDbPaths(GetDbPaths());
     if (!s.ok()) {
       ROCKS_LOG_ERROR(
           ioptions_.info_log,
