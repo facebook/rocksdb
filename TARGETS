@@ -705,6 +705,13 @@ ROCKS_TESTS = [
         [],
     ],
     [
+        "db_basic_test_with_timestamp",
+        "db/db_basic_test_with_timestamp.cc",
+        "serial",
+        [],
+        [],
+    ],
+    [
         "db_blob_index_test",
         "db/blob/db_blob_index_test.cc",
         "serial",
