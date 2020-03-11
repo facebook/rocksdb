@@ -261,7 +261,7 @@ TEST_F(DBMemTableTest, ConcurrentMergeWrite) {
   ReadOptions roptions;
   SequenceNumber max_covering_tombstone_seq = 0;
   LookupKey lkey("key", kMaxSequenceNumber);
-  res = mem->Get(lkey, &value, &status, &merge_context,
+  res = mem->Get(lkey, &value, /*timestamp=*/nullptr, &status, &merge_context,
                  &max_covering_tombstone_seq, roptions);
   ASSERT_TRUE(res);
   uint64_t ivalue = DecodeFixed64(Slice(value).data());

@@ -215,6 +215,14 @@ class CuckooReaderTest : public testing::Test {
   EnvOptions env_options;
 };
 
+TEST_F(CuckooReaderTest, FileNotMmaped) {
+  options.allow_mmap_reads = false;
+  ImmutableCFOptions ioptions(options);
+  CuckooTableReader reader(ioptions, nullptr, 0, nullptr, nullptr);
+  ASSERT_TRUE(reader.status().IsInvalidArgument());
+  ASSERT_STREQ("File is not mmaped", reader.status().getState());
+}
+
 TEST_F(CuckooReaderTest, WhenKeyExists) {
   SetUp(kNumHashFunc);
   fname = test::PerThreadDBPath("CuckooReader_WhenKeyExists");

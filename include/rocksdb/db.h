@@ -388,6 +388,9 @@ class DB {
   // If the database contains an entry for "key" store the
   // corresponding value in *value and return OK.
   //
+  // If timestamp is enabled and a non-null timestamp pointer is passed in,
+  // timestamp is returned.
+  //
   // If there is no entry for "key" leave *value unchanged and return
   // a status for which Status::IsNotFound() returns true.
   //
@@ -410,6 +413,32 @@ class DB {
   virtual Status Get(const ReadOptions& options, const Slice& key,
                      std::string* value) {
     return Get(options, DefaultColumnFamily(), key, value);
+  }
+
+  // Get() methods that return timestamp. Derived DB classes don't need to worry
+  // about this group of methods if they don't care about timestamp feature.
+  virtual inline Status Get(const ReadOptions& options,
+                            ColumnFamilyHandle* column_family, const Slice& key,
+                            std::string* value, std::string* timestamp) {
+    assert(value != nullptr);
+    PinnableSlice pinnable_val(value);
+    assert(!pinnable_val.IsPinned());
+    auto s = Get(options, column_family, key, &pinnable_val, timestamp);
+    if (s.ok() && pinnable_val.IsPinned()) {
+      value->assign(pinnable_val.data(), pinnable_val.size());
+    }  // else value is already assigned
+    return s;
+  }
+  virtual Status Get(const ReadOptions& /*options*/,
+                     ColumnFamilyHandle* /*column_family*/,
+                     const Slice& /*key*/, PinnableSlice* /*value*/,
+                     std::string* /*timestamp*/) {
+    return Status::NotSupported(
+        "Get() that returns timestamp is not implemented.");
+  }
+  virtual Status Get(const ReadOptions& options, const Slice& key,
+                     std::string* value, std::string* timestamp) {
+    return Get(options, DefaultColumnFamily(), key, value, timestamp);
   }
 
   // Returns all the merge operands corresponding to the key. If the
@@ -542,15 +571,31 @@ class DB {
   virtual bool KeyMayExist(const ReadOptions& /*options*/,
                            ColumnFamilyHandle* /*column_family*/,
                            const Slice& /*key*/, std::string* /*value*/,
+                           std::string* /*timestamp*/,
                            bool* value_found = nullptr) {
     if (value_found != nullptr) {
       *value_found = false;
     }
     return true;
   }
+
+  virtual bool KeyMayExist(const ReadOptions& options,
+                           ColumnFamilyHandle* column_family, const Slice& key,
+                           std::string* value, bool* value_found = nullptr) {
+    return KeyMayExist(options, column_family, key, value,
+                       /*timestamp=*/nullptr, value_found);
+  }
+
   virtual bool KeyMayExist(const ReadOptions& options, const Slice& key,
                            std::string* value, bool* value_found = nullptr) {
     return KeyMayExist(options, DefaultColumnFamily(), key, value, value_found);
+  }
+
+  virtual bool KeyMayExist(const ReadOptions& options, const Slice& key,
+                           std::string* value, std::string* timestamp,
+                           bool* value_found = nullptr) {
+    return KeyMayExist(options, DefaultColumnFamily(), key, value, timestamp,
+                       value_found);
   }
 
   // Return a heap-allocated iterator over the contents of the database.

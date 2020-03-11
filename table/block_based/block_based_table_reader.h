@@ -287,6 +287,7 @@ class BlockBasedTable : public TableReader {
   // Either Block::NewDataIterator() or Block::NewIndexIterator().
   template <typename TBlockIter>
   static TBlockIter* InitBlockIterator(const Rep* rep, Block* block,
+                                       BlockType block_type,
                                        TBlockIter* input_iter,
                                        bool block_contents_pinned);
 
@@ -370,14 +371,16 @@ class BlockBasedTable : public TableReader {
   // @param uncompression_dict Data for presetting the compression library's
   //    dictionary.
   template <typename TBlocklike>
-  Status PutDataBlockToCache(
-      const Slice& block_cache_key, const Slice& compressed_block_cache_key,
-      Cache* block_cache, Cache* block_cache_compressed,
-      CachableEntry<TBlocklike>* cached_block,
-      BlockContents* raw_block_contents, CompressionType raw_block_comp_type,
-      const UncompressionDict& uncompression_dict, SequenceNumber seq_no,
-      MemoryAllocator* memory_allocator, BlockType block_type,
-      GetContext* get_context) const;
+  Status PutDataBlockToCache(const Slice& block_cache_key,
+                             const Slice& compressed_block_cache_key,
+                             Cache* block_cache, Cache* block_cache_compressed,
+                             CachableEntry<TBlocklike>* cached_block,
+                             BlockContents* raw_block_contents,
+                             CompressionType raw_block_comp_type,
+                             const UncompressionDict& uncompression_dict,
+                             MemoryAllocator* memory_allocator,
+                             BlockType block_type,
+                             GetContext* get_context) const;
 
   // Calls (*handle_result)(arg, ...) repeatedly, starting with the entry found
   // after a call to Seek(key), until handle_result returns false.

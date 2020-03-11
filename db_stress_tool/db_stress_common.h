@@ -167,6 +167,8 @@ DECLARE_double(max_bytes_for_level_multiplier);
 DECLARE_int32(range_deletion_width);
 DECLARE_uint64(rate_limiter_bytes_per_sec);
 DECLARE_bool(rate_limit_bg_reads);
+DECLARE_uint64(sst_file_manager_bytes_per_sec);
+DECLARE_uint64(sst_file_manager_bytes_per_truncate);
 DECLARE_bool(use_txn);
 DECLARE_uint64(txn_write_policy);
 DECLARE_bool(unordered_write);

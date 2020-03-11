@@ -292,7 +292,8 @@ Status ReadFooterFromFile(RandomAccessFileReader* file,
                               file->file_name());
   }
 
-  char footer_space[Footer::kMaxEncodedLength];
+  std::string footer_buf;
+  std::unique_ptr<const char[]> internal_buf;
   Slice footer_input;
   size_t read_offset =
       (file_size > Footer::kMaxEncodedLength)
@@ -302,8 +303,14 @@ Status ReadFooterFromFile(RandomAccessFileReader* file,
   if (prefetch_buffer == nullptr ||
       !prefetch_buffer->TryReadFromCache(read_offset, Footer::kMaxEncodedLength,
                                          &footer_input)) {
-    s = file->Read(read_offset, Footer::kMaxEncodedLength, &footer_input,
-                   footer_space);
+    if (file->use_direct_io()) {
+      s = file->Read(read_offset, Footer::kMaxEncodedLength, &footer_input,
+                    nullptr, &internal_buf);
+    } else {
+      footer_buf.reserve(Footer::kMaxEncodedLength);
+      s = file->Read(read_offset, Footer::kMaxEncodedLength, &footer_input,
+                    &footer_buf[0], nullptr);
+    }
     if (!s.ok()) return s;
   }
 

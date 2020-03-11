@@ -12,6 +12,7 @@
 #include "db_stress_tool/db_stress_common.h"
 #include "db_stress_tool/db_stress_driver.h"
 #include "rocksdb/convenience.h"
+#include "rocksdb/sst_file_manager.h"
 
 namespace ROCKSDB_NAMESPACE {
 StressTest::StressTest()
@@ -1837,6 +1838,21 @@ void StressTest::Open() {
                                   : RateLimiter::Mode::kWritesOnly));
     if (FLAGS_rate_limit_bg_reads) {
       options_.new_table_reader_for_compaction_inputs = true;
+    }
+  }
+  if (FLAGS_sst_file_manager_bytes_per_sec > 0 ||
+      FLAGS_sst_file_manager_bytes_per_truncate > 0) {
+    Status status;
+    options_.sst_file_manager.reset(NewSstFileManager(
+        db_stress_env, options_.info_log, "" /* trash_dir */,
+        static_cast<int64_t>(FLAGS_sst_file_manager_bytes_per_sec),
+        true /* delete_existing_trash */, &status,
+        0.25 /* max_trash_db_ratio */,
+        FLAGS_sst_file_manager_bytes_per_truncate));
+    if (!status.ok()) {
+      fprintf(stderr, "SstFileManager creation failed: %s\n",
+              status.ToString().c_str());
+      exit(1);
     }
   }
 

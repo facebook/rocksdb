@@ -340,15 +340,16 @@ Status DBImplSecondary::GetImpl(const ReadOptions& read_options,
   PERF_TIMER_STOP(get_snapshot_time);
 
   bool done = false;
-  if (super_version->mem->Get(lkey, pinnable_val->GetSelf(), &s, &merge_context,
+  if (super_version->mem->Get(lkey, pinnable_val->GetSelf(),
+                              /*timestamp=*/nullptr, &s, &merge_context,
                               &max_covering_tombstone_seq, read_options)) {
     done = true;
     pinnable_val->PinSelf();
     RecordTick(stats_, MEMTABLE_HIT);
   } else if ((s.ok() || s.IsMergeInProgress()) &&
              super_version->imm->Get(
-                 lkey, pinnable_val->GetSelf(), &s, &merge_context,
-                 &max_covering_tombstone_seq, read_options)) {
+                 lkey, pinnable_val->GetSelf(), /*timestamp=*/nullptr, &s,
+                 &merge_context, &max_covering_tombstone_seq, read_options)) {
     done = true;
     pinnable_val->PinSelf();
     RecordTick(stats_, MEMTABLE_HIT);
@@ -359,8 +360,9 @@ Status DBImplSecondary::GetImpl(const ReadOptions& read_options,
   }
   if (!done) {
     PERF_TIMER_GUARD(get_from_output_files_time);
-    super_version->current->Get(read_options, lkey, pinnable_val, &s,
-                                &merge_context, &max_covering_tombstone_seq);
+    super_version->current->Get(read_options, lkey, pinnable_val,
+                                /*timestamp=*/nullptr, &s, &merge_context,
+                                &max_covering_tombstone_seq);
     RecordTick(stats_, MEMTABLE_MISS);
   }
   {

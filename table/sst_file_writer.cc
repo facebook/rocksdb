@@ -150,7 +150,7 @@ struct SstFileWriter::Rep {
     if (bytes_since_last_fadvise > kFadviseTrigger || closing) {
       TEST_SYNC_POINT_CALLBACK("SstFileWriter::Rep::InvalidatePageCache",
                                &(bytes_since_last_fadvise));
-      // Tell the OS that we dont need this file in page cache
+      // Tell the OS that we don't need this file in page cache
       file_writer->InvalidateCache(0, 0);
       last_fadvise_size = builder->FileSize();
     }

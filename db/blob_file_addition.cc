@@ -3,16 +3,16 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
-#include "db/blob_file_state.h"
+#include "db/blob_file_addition.h"
+
+#include <ostream>
+#include <sstream>
 
 #include "logging/event_logger.h"
 #include "rocksdb/slice.h"
 #include "rocksdb/status.h"
 #include "test_util/sync_point.h"
 #include "util/coding.h"
-
-#include <ostream>
-#include <sstream>
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -34,12 +34,10 @@ enum CustomFieldTags : uint32_t {
 
 }  // anonymous namespace
 
-void BlobFileState::EncodeTo(std::string* output) const {
+void BlobFileAddition::EncodeTo(std::string* output) const {
   PutVarint64(output, blob_file_number_);
   PutVarint64(output, total_blob_count_);
   PutVarint64(output, total_blob_bytes_);
-  PutVarint64(output, garbage_blob_count_);
-  PutVarint64(output, garbage_blob_bytes_);
   PutLengthPrefixedSlice(output, checksum_method_);
   PutLengthPrefixedSlice(output, checksum_value_);
 
@@ -48,13 +46,13 @@ void BlobFileState::EncodeTo(std::string* output) const {
   // fields will be ignored during decoding unless they're in the forward
   // incompatible range.
 
-  TEST_SYNC_POINT_CALLBACK("BlobFileState::EncodeTo::CustomFields", output);
+  TEST_SYNC_POINT_CALLBACK("BlobFileAddition::EncodeTo::CustomFields", output);
 
   PutVarint32(output, kEndMarker);
 }
 
-Status BlobFileState::DecodeFrom(Slice* input) {
-  constexpr char class_name[] = "BlobFileState";
+Status BlobFileAddition::DecodeFrom(Slice* input) {
+  constexpr char class_name[] = "BlobFileAddition";
 
   if (!GetVarint64(input, &blob_file_number_)) {
     return Status::Corruption(class_name, "Error decoding blob file number");
@@ -66,14 +64,6 @@ Status BlobFileState::DecodeFrom(Slice* input) {
 
   if (!GetVarint64(input, &total_blob_bytes_)) {
     return Status::Corruption(class_name, "Error decoding total blob bytes");
-  }
-
-  if (!GetVarint64(input, &garbage_blob_count_)) {
-    return Status::Corruption(class_name, "Error decoding garbage blob count");
-  }
-
-  if (!GetVarint64(input, &garbage_blob_bytes_)) {
-    return Status::Corruption(class_name, "Error decoding garbage blob bytes");
   }
 
   Slice checksum_method;
@@ -113,7 +103,7 @@ Status BlobFileState::DecodeFrom(Slice* input) {
   return Status::OK();
 }
 
-std::string BlobFileState::DebugString() const {
+std::string BlobFileAddition::DebugString() const {
   std::ostringstream oss;
 
   oss << *this;
@@ -121,7 +111,7 @@ std::string BlobFileState::DebugString() const {
   return oss.str();
 }
 
-std::string BlobFileState::DebugJSON() const {
+std::string BlobFileAddition::DebugJSON() const {
   JSONWriter jw;
 
   jw << *this;
@@ -131,41 +121,36 @@ std::string BlobFileState::DebugJSON() const {
   return jw.Get();
 }
 
-bool operator==(const BlobFileState& lhs, const BlobFileState& rhs) {
+bool operator==(const BlobFileAddition& lhs, const BlobFileAddition& rhs) {
   return lhs.GetBlobFileNumber() == rhs.GetBlobFileNumber() &&
          lhs.GetTotalBlobCount() == rhs.GetTotalBlobCount() &&
          lhs.GetTotalBlobBytes() == rhs.GetTotalBlobBytes() &&
-         lhs.GetGarbageBlobCount() == rhs.GetGarbageBlobCount() &&
-         lhs.GetGarbageBlobBytes() == rhs.GetGarbageBlobBytes() &&
          lhs.GetChecksumMethod() == rhs.GetChecksumMethod() &&
          lhs.GetChecksumValue() == rhs.GetChecksumValue();
 }
 
-bool operator!=(const BlobFileState& lhs, const BlobFileState& rhs) {
+bool operator!=(const BlobFileAddition& lhs, const BlobFileAddition& rhs) {
   return !(lhs == rhs);
 }
 
 std::ostream& operator<<(std::ostream& os,
-                         const BlobFileState& blob_file_state) {
-  os << "blob_file_number: " << blob_file_state.GetBlobFileNumber()
-     << " total_blob_count: " << blob_file_state.GetTotalBlobCount()
-     << " total_blob_bytes: " << blob_file_state.GetTotalBlobBytes()
-     << " garbage_blob_count: " << blob_file_state.GetGarbageBlobCount()
-     << " garbage_blob_bytes: " << blob_file_state.GetGarbageBlobBytes()
-     << " checksum_method: " << blob_file_state.GetChecksumMethod()
-     << " checksum_value: " << blob_file_state.GetChecksumValue();
+                         const BlobFileAddition& blob_file_addition) {
+  os << "blob_file_number: " << blob_file_addition.GetBlobFileNumber()
+     << " total_blob_count: " << blob_file_addition.GetTotalBlobCount()
+     << " total_blob_bytes: " << blob_file_addition.GetTotalBlobBytes()
+     << " checksum_method: " << blob_file_addition.GetChecksumMethod()
+     << " checksum_value: " << blob_file_addition.GetChecksumValue();
 
   return os;
 }
 
-JSONWriter& operator<<(JSONWriter& jw, const BlobFileState& blob_file_state) {
-  jw << "BlobFileNumber" << blob_file_state.GetBlobFileNumber()
-     << "TotalBlobCount" << blob_file_state.GetTotalBlobCount()
-     << "TotalBlobBytes" << blob_file_state.GetTotalBlobBytes()
-     << "GarbageBlobCount" << blob_file_state.GetGarbageBlobCount()
-     << "GarbageBlobBytes" << blob_file_state.GetGarbageBlobBytes()
-     << "ChecksumMethod" << blob_file_state.GetChecksumMethod()
-     << "ChecksumValue" << blob_file_state.GetChecksumValue();
+JSONWriter& operator<<(JSONWriter& jw,
+                       const BlobFileAddition& blob_file_addition) {
+  jw << "BlobFileNumber" << blob_file_addition.GetBlobFileNumber()
+     << "TotalBlobCount" << blob_file_addition.GetTotalBlobCount()
+     << "TotalBlobBytes" << blob_file_addition.GetTotalBlobBytes()
+     << "ChecksumMethod" << blob_file_addition.GetChecksumMethod()
+     << "ChecksumValue" << blob_file_addition.GetChecksumValue();
 
   return jw;
 }

@@ -2459,7 +2459,7 @@ TEST_P(DBCompactionTestWithParam, ManualCompaction) {
     ASSERT_EQ("1,1,1", FilesPerLevel(1));
 
     // Compaction range overlaps files
-    Compact(1, "p1", "p9");
+    Compact(1, "p", "q");
     ASSERT_EQ("0,0,1", FilesPerLevel(1));
 
     // Populate a different range
@@ -2526,7 +2526,7 @@ TEST_P(DBCompactionTestWithParam, ManualLevelCompactionOutputPathId) {
     ASSERT_EQ("3", FilesPerLevel(1));
 
     // Compaction range overlaps files
-    Compact(1, "p1", "p9", 1);
+    Compact(1, "p", "q", 1);
     ASSERT_OK(dbfull()->TEST_WaitForCompact());
     ASSERT_EQ("0,1", FilesPerLevel(1));
     ASSERT_EQ(1, GetSstFileCount(options.db_paths[1].path));
@@ -4655,7 +4655,7 @@ TEST_P(DBCompactionDirectIOTest, DirectIO) {
   CreateAndReopenWithCF({"pikachu"}, options);
   MakeTables(3, "p", "q", 1);
   ASSERT_EQ("1,1,1", FilesPerLevel(1));
-  Compact(1, "p1", "p9");
+  Compact(1, "p", "q");
   ASSERT_EQ(readahead, options.use_direct_reads);
   ASSERT_EQ("0,0,1", FilesPerLevel(1));
   Destroy(options);
@@ -5149,6 +5149,31 @@ TEST_P(DBCompactionTestWithParam,
   for (int i = 6; i < 10; ++i) {
     ASSERT_EQ(value2, Get(Key(i)));
   }
+}
+
+TEST_F(DBCompactionTest, FifoCompactionGetFileCreationTime) {
+  MockEnv mock_env(env_);
+  do {
+    Options options = CurrentOptions();
+    options.table_factory.reset(new BlockBasedTableFactory());
+    options.env = &mock_env;
+    options.ttl = static_cast<uint64_t>(24) * 3600;
+    options.compaction_style = kCompactionStyleFIFO;
+    constexpr size_t kNumFiles = 24;
+    options.max_open_files = 20;
+    constexpr size_t kNumKeysPerFile = 10;
+    DestroyAndReopen(options);
+    for (size_t i = 0; i < kNumFiles; ++i) {
+      for (size_t j = 0; j < kNumKeysPerFile; ++j) {
+        ASSERT_OK(Put(std::to_string(j), "value_" + std::to_string(i)));
+      }
+      ASSERT_OK(Flush());
+    }
+    mock_env.FakeSleepForMicroseconds(
+        static_cast<uint64_t>(1000 * 1000 * (1 + options.ttl)));
+    ASSERT_OK(Put("foo", "value"));
+    ASSERT_OK(Flush());
+  } while (ChangeOptions());
 }
 
 #endif // !defined(ROCKSDB_LITE)

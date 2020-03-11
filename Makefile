@@ -216,7 +216,7 @@ missing_make_config_paths := $(shell				\
 	done | sort | uniq)
 
 $(foreach path, $(missing_make_config_paths), \
-	$(warning Warning: $(path) dont exist))
+	$(warning Warning: $(path) does not exist))
 
 ifeq ($(PLATFORM), OS_AIX)
 # no debug info
@@ -494,7 +494,7 @@ TESTS = \
 	db_table_properties_test \
 	db_statistics_test \
 	db_write_test \
-	error_handler_test \
+	error_handler_fs_test \
 	autovector_test \
 	blob_db_test \
 	cleanable_test \
@@ -599,7 +599,8 @@ TESTS = \
 	block_cache_tracer_test \
 	block_cache_trace_analyzer_test \
 	defer_test \
-	blob_file_state_test \
+	blob_file_addition_test \
+	blob_file_garbage_test \
 
 ifeq ($(USE_FOLLY_DISTRIBUTED_MUTEX),1)
 	TESTS += folly_synchronization_distributed_mutex_test
@@ -1371,7 +1372,7 @@ db_statistics_test: db/db_statistics_test.o db/db_test_util.o $(LIBOBJECTS) $(TE
 db_write_test: db/db_write_test.o db/db_test_util.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
-error_handler_test: db/error_handler_test.o db/db_test_util.o $(LIBOBJECTS) $(TESTHARNESS)
+error_handler_fs_test: db/error_handler_fs_test.o db/db_test_util.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
 external_sst_file_basic_test: db/external_sst_file_basic_test.o db/db_test_util.o $(LIBOBJECTS) $(TESTHARNESS)
@@ -1727,7 +1728,10 @@ block_cache_trace_analyzer_test: tools/block_cache_analyzer/block_cache_trace_an
 defer_test: util/defer_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
-blob_file_state_test: db/blob_file_state_test.o $(LIBOBJECTS) $(TESTHARNESS)
+blob_file_addition_test: db/blob_file_addition_test.o $(LIBOBJECTS) $(TESTHARNESS)
+	$(AM_LINK)
+
+blob_file_garbage_test: db/blob_file_garbage_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
 #-------------------------------------------------

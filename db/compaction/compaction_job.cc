@@ -298,7 +298,7 @@ CompactionJob::CompactionJob(
     const FileOptions& file_options, VersionSet* versions,
     const std::atomic<bool>* shutting_down,
     const SequenceNumber preserve_deletes_seqnum, LogBuffer* log_buffer,
-    Directory* db_directory, Directory* output_directory, Statistics* stats,
+    FSDirectory* db_directory, FSDirectory* output_directory, Statistics* stats,
     InstrumentedMutex* db_mutex, ErrorHandler* db_error_handler,
     std::vector<SequenceNumber> existing_snapshots,
     SequenceNumber earliest_write_conflict_snapshot,
@@ -614,7 +614,7 @@ Status CompactionJob::Run() {
   }
 
   if (status.ok() && output_directory_) {
-    status = output_directory_->Fsync();
+    status = output_directory_->Fsync(IOOptions(), nullptr);
   }
 
   if (status.ok()) {
