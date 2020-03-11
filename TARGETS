@@ -1079,6 +1079,13 @@ ROCKS_TESTS = [
         [],
     ],
     [
+        "function_scheduler_test",
+        "util/function_scheduler_test.cc",
+        "serial",
+        [],
+        [],
+    ],
+    [
         "hash_table_test",
         "utilities/persistent_cache/hash_table_test.cc",
         "serial",
