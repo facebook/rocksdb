@@ -469,7 +469,7 @@ TESTS = \
 	db_wal_test \
 	db_block_cache_test \
 	db_test \
-  db_logical_block_size_cache_test \
+	db_logical_block_size_cache_test \
 	db_blob_index_test \
 	db_iter_test \
 	db_iter_stress_test \

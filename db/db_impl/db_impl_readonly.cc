@@ -164,7 +164,6 @@ Status DB::OpenForReadOnly(
 
   SuperVersionContext sv_context(/* create_superversion */ true);
   DBImplReadOnly* impl = new DBImplReadOnly(db_options, dbname);
-
   impl->mutex_.Lock();
   Status s = impl->Recover(column_families, true /* read only */,
                            error_if_log_file_exist);
