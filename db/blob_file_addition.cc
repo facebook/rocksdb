@@ -16,11 +16,9 @@
 
 namespace ROCKSDB_NAMESPACE {
 
-namespace {
-
 // Tags for custom fields. Note that these get persisted in the manifest,
 // so existing tags should not be modified.
-enum CustomFieldTags : uint32_t {
+enum BlobFileAddition::CustomFieldTags : uint32_t {
   kEndMarker,
 
   // Add forward compatible fields here
@@ -31,8 +29,6 @@ enum CustomFieldTags : uint32_t {
 
   // Add forward incompatible fields here
 };
-
-}  // anonymous namespace
 
 void BlobFileAddition::EncodeTo(std::string* output) const {
   PutVarint64(output, blob_file_number_);

@@ -39,6 +39,8 @@ class BlobFileGarbage {
   std::string DebugJSON() const;
 
  private:
+  enum CustomFieldTags : uint32_t;
+
   uint64_t blob_file_number_ = kInvalidBlobFileNumber;
   uint64_t garbage_blob_count_ = 0;
   uint64_t garbage_blob_bytes_ = 0;
