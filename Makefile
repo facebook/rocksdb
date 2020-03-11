@@ -597,7 +597,8 @@ TESTS = \
 	block_cache_tracer_test \
 	block_cache_trace_analyzer_test \
 	defer_test \
-	blob_file_state_test \
+	blob_file_addition_test \
+	blob_file_garbage_test \
 
 ifeq ($(USE_FOLLY_DISTRIBUTED_MUTEX),1)
 	TESTS += folly_synchronization_distributed_mutex_test
@@ -1719,7 +1720,10 @@ block_cache_trace_analyzer_test: tools/block_cache_analyzer/block_cache_trace_an
 defer_test: util/defer_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
-blob_file_state_test: db/blob_file_state_test.o $(LIBOBJECTS) $(TESTHARNESS)
+blob_file_addition_test: db/blob_file_addition_test.o $(LIBOBJECTS) $(TESTHARNESS)
+	$(AM_LINK)
+
+blob_file_garbage_test: db/blob_file_garbage_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
 #-------------------------------------------------

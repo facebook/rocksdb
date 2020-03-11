@@ -4,7 +4,8 @@ LIB_SOURCES =                                                   \
   cache/lru_cache.cc                                            \
   cache/sharded_cache.cc                                        \
   db/arena_wrapped_db_iter.cc                                   \
-  db/blob_file_state.cc                                         \
+  db/blob_file_addition.cc                                      \
+  db/blob_file_garbage.cc                                       \
   db/builder.cc                                                 \
   db/c.cc                                                       \
   db/column_family.cc                                           \
@@ -297,7 +298,8 @@ MAIN_SOURCES =                                                          \
   cache/cache_bench.cc                                                  \
   cache/cache_test.cc                                                   \
   db_stress_tool/db_stress.cc                                           \
-  db/blob_file_state_test.cc                                            \
+  db/blob_file_addition_test.cc                                         \
+  db/blob_file_garbage_test.cc                                          \
   db/column_family_test.cc                                              \
   db/compact_files_test.cc                                              \
   db/compaction/compaction_iterator_test.cc                             \

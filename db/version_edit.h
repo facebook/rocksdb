@@ -13,7 +13,8 @@
 #include <string>
 #include <utility>
 #include <vector>
-#include "db/blob_file_state.h"
+#include "db/blob_file_addition.h"
+#include "db/blob_file_garbage.h"
 #include "db/dbformat.h"
 #include "memory/arena.h"
 #include "rocksdb/cache.h"
@@ -346,25 +347,40 @@ class VersionEdit {
   using NewFiles = std::vector<std::pair<int, FileMetaData>>;
   const NewFiles& GetNewFiles() const { return new_files_; }
 
-  // Add blob file state for the specified file.
-  void AddBlobFileState(uint64_t blob_file_number, uint64_t total_blob_count,
-                        uint64_t total_blob_bytes, uint64_t garbage_blob_count,
-                        uint64_t garbage_blob_bytes,
-                        std::string checksum_method,
-                        std::string checksum_value) {
-    blob_file_states_.emplace_back(
+  // Add a new blob file.
+  void AddBlobFile(uint64_t blob_file_number, uint64_t total_blob_count,
+                   uint64_t total_blob_bytes, std::string checksum_method,
+                   std::string checksum_value) {
+    blob_file_additions_.emplace_back(
         blob_file_number, total_blob_count, total_blob_bytes,
-        garbage_blob_count, garbage_blob_bytes, std::move(checksum_method),
-        std::move(checksum_value));
+        std::move(checksum_method), std::move(checksum_value));
   }
 
-  // Retrieve all the blob file states added.
-  using BlobFileStates = std::vector<BlobFileState>;
-  const BlobFileStates& GetBlobFileStates() const { return blob_file_states_; }
+  // Retrieve all the blob files added.
+  using BlobFileAdditions = std::vector<BlobFileAddition>;
+  const BlobFileAdditions& GetBlobFileAdditions() const {
+    return blob_file_additions_;
+  }
+
+  // Add garbage for an existing blob file.  Note: intentionally broken English
+  // follows.
+  void AddBlobFileGarbage(uint64_t blob_file_number,
+                          uint64_t garbage_blob_count,
+                          uint64_t garbage_blob_bytes) {
+    blob_file_garbages_.emplace_back(blob_file_number, garbage_blob_count,
+                                     garbage_blob_bytes);
+  }
+
+  // Retrieve all the blob file garbage added.
+  using BlobFileGarbages = std::vector<BlobFileGarbage>;
+  const BlobFileGarbages& GetBlobFileGarbages() const {
+    return blob_file_garbages_;
+  }
 
   // Number of edits
   size_t NumEntries() const {
-    return new_files_.size() + deleted_files_.size() + blob_file_states_.size();
+    return new_files_.size() + deleted_files_.size() +
+           blob_file_additions_.size() + blob_file_garbages_.size();
   }
 
   void SetColumnFamily(uint32_t column_family_id) {
@@ -439,7 +455,8 @@ class VersionEdit {
   DeletedFiles deleted_files_;
   NewFiles new_files_;
 
-  BlobFileStates blob_file_states_;
+  BlobFileAdditions blob_file_additions_;
+  BlobFileGarbages blob_file_garbages_;
 
   // Each version edit record should have column_family_ set
   // If it's not set, it is default (0)

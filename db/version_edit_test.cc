@@ -279,7 +279,7 @@ TEST_F(VersionEditTest, DbId) {
   TestEncodeDecode(edit);
 }
 
-TEST_F(VersionEditTest, BlobFileState) {
+TEST_F(VersionEditTest, BlobFileAdditionAndGarbage) {
   VersionEdit edit;
 
   const std::string checksum_method_prefix = "Hash";
@@ -289,8 +289,6 @@ TEST_F(VersionEditTest, BlobFileState) {
        ++blob_file_number) {
     const uint64_t total_blob_count = blob_file_number << 10;
     const uint64_t total_blob_bytes = blob_file_number << 20;
-    const uint64_t garbage_blob_count = total_blob_count >> 2;
-    const uint64_t garbage_blob_bytes = total_blob_bytes >> 1;
 
     std::string checksum_method(checksum_method_prefix);
     AppendNumberTo(&checksum_method, blob_file_number);
@@ -298,9 +296,14 @@ TEST_F(VersionEditTest, BlobFileState) {
     std::string checksum_value(checksum_value_prefix);
     AppendNumberTo(&checksum_value, blob_file_number);
 
-    edit.AddBlobFileState(blob_file_number, total_blob_count, total_blob_bytes,
-                          garbage_blob_count, garbage_blob_bytes,
-                          checksum_method, checksum_value);
+    edit.AddBlobFile(blob_file_number, total_blob_count, total_blob_bytes,
+                     checksum_method, checksum_value);
+
+    const uint64_t garbage_blob_count = total_blob_count >> 2;
+    const uint64_t garbage_blob_bytes = total_blob_bytes >> 1;
+
+    edit.AddBlobFileGarbage(blob_file_number, garbage_blob_count,
+                            garbage_blob_bytes);
   }
 
   TestEncodeDecode(edit);
