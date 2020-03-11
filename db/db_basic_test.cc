@@ -324,7 +324,10 @@ TEST_F(DBBasicTest, CheckLock) {
     ASSERT_OK(TryReopen(options));
 
     // second open should fail
-    ASSERT_TRUE(!(DB::Open(options, dbname_, &localdb)).ok());
+    Status s = DB::Open(options, dbname_, &localdb);
+    ASSERT_NOK(s);
+    ASSERT_TRUE(s.ToString().find("lock hold by current process") !=
+                std::string::npos);
   } while (ChangeCompactOptions());
 }
 

@@ -12,6 +12,7 @@
 
 ### New Features
 * Basic support for user timestamp in iterator. Seek/SeekToFirst/Next and lower/upper bounds are supported. Reverse iteration is not supported. Merge is not considered.
+* When file lock failure when the lock is held by the current process, return acquiring time and thread ID in the error message.
 
 ## 6.8.0 (02/24/2020)
 ### Java API Changes
