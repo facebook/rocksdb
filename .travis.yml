@@ -10,8 +10,6 @@ compiler:
   - clang
   - gcc
 osx_image: xcode9.4
-jdk:
-  - openjdk7
 cache:
   - ccache
 
@@ -98,8 +96,19 @@ install:
       TAR_OPT="--strip-components=1 -xj";
       mkdir cmake-dist && curl --silent --fail --show-error --location "${CMAKE_DIST_URL}" | tar -C cmake-dist ${TAR_OPT} && export PATH=$PWD/cmake-dist/bin:$PATH;
     fi
-  - if [[ "${JOB_NAME}" == java_test || "${JOB_NAME}" == cmake* ]]; then
-      java -version && echo "JAVA_HOME=${JAVA_HOME}";
+  - |
+    if [[ "${JOB_NAME}" == java_test || "${JOB_NAME}" == cmake* ]]; then
+      # Ensure JDK 8
+      if [ "${TRAVIS_OS_NAME}" == osx ]; then
+        brew tap AdoptOpenJDK/openjdk
+        brew cask install adoptopenjdk8
+        export JAVA_HOME=$(/usr/libexec/java_home)
+      else
+        sudo apt-get install -y openjdk-8-jdk
+        export PATH=/usr/lib/jvm/java-8-openjdk-$(dpkg --print-architecture)/bin:$PATH
+        export JAVA_HOME=/usr/lib/jvm/java-8-openjdk-$(dpkg --print-architecture)
+      fi
+      java -version && echo "JAVA_HOME=${JAVA_HOME}"
     fi
 
 before_script:
