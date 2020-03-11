@@ -674,7 +674,7 @@ TEST_F(CloudTest, Savepoint) {
   ASSERT_TRUE(value.compare("World") == 0);
   CloseDB();
   value.clear();
-  std::string dest_path = "/clone2_path";
+  std::string dest_path = "/clone2_path-" + test_id_;
   {
     // Create a new instance with different src and destination paths.
     // This is true clone and should have all the contents of the masterdb
@@ -731,6 +731,7 @@ TEST_F(CloudTest, Savepoint) {
     ASSERT_OK(cloud_db->Get(ReadOptions(), "Hell", &value));
     ASSERT_TRUE(value.compare("Done") == 0);
   }
+  aenv_->EmptyBucket(aenv_->GetSrcBucketName(), dest_path);
 }
 
 TEST_F(CloudTest, Encryption) {
