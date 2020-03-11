@@ -597,7 +597,8 @@ TESTS = \
 	block_cache_tracer_test \
 	block_cache_trace_analyzer_test \
 	defer_test \
-	blob_file_state_test \
+	blob_file_addition_test \
+	blob_file_garbage_test \
 
 ifeq ($(USE_FOLLY_DISTRIBUTED_MUTEX),1)
 	TESTS += folly_synchronization_distributed_mutex_test
@@ -1719,7 +1720,10 @@ block_cache_trace_analyzer_test: tools/block_cache_analyzer/block_cache_trace_an
 defer_test: util/defer_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
-blob_file_state_test: db/blob_file_state_test.o $(LIBOBJECTS) $(TESTHARNESS)
+blob_file_addition_test: db/blob_file_addition_test.o $(LIBOBJECTS) $(TESTHARNESS)
+	$(AM_LINK)
+
+blob_file_garbage_test: db/blob_file_garbage_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
 #-------------------------------------------------
@@ -1804,8 +1808,8 @@ ZLIB_DOWNLOAD_BASE ?= http://zlib.net
 BZIP2_VER ?= 1.0.6
 BZIP2_SHA256 ?= a2848f34fcd5d6cf47def00461fcb528a0484d8edef8208d6d2e2909dc61d9cd
 BZIP2_DOWNLOAD_BASE ?= https://downloads.sourceforge.net/project/bzip2
-SNAPPY_VER ?= 1.1.7
-SNAPPY_SHA256 ?= 3dfa02e873ff51a11ee02b9ca391807f0c8ea0529a4924afa645fbf97163f9d4
+SNAPPY_VER ?= 1.1.8
+SNAPPY_SHA256 ?= 16b677f07832a612b0836178db7f374e414f94657c138e6993cbfc5dcc58651f
 SNAPPY_DOWNLOAD_BASE ?= https://github.com/google/snappy/archive
 LZ4_VER ?= 1.9.2
 LZ4_SHA256 ?= 658ba6191fa44c92280d4aa2c271b0f4fbc0e34d249578dd05e50e76d0e5efcc

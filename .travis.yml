@@ -6,6 +6,7 @@ os:
 arch:
   - amd64
   - arm64
+  - ppc64le
 compiler:
   - clang
   - gcc
@@ -64,15 +65,25 @@ matrix:
     env: TEST_GROUP=4
   - os: osx
     env: JOB_NAME=cmake-gcc8
-  - os : osx
+  - os: osx
     env: JOB_NAME=cmake-mingw
-  - os : linux
-    compiler: clang
-  - os : osx
+  - os: osx
+    arch: ppc64le
+  - os: osx
     compiler: gcc
   - os : linux
     arch: arm64
     env: JOB_NAME=cmake-mingw
+  - os: linux
+    arch: ppc64le
+    env: JOB_NAME=cmake-mingw
+  - os: linux
+    compiler: clang
+
+before_install:
+  - if [[ "${JOB_NAME}" == java_test  || "${JOB_NAME}" == cmake* ]] && [ "$(uname -m)" == ppc64le ]; then
+     sudo apt-get -y install openjdk-8-jdk && export JAVA_HOME=/usr/lib/jvm/java-8-openjdk-ppc64el;
+   fi
 
 install:
   - if [ "${TRAVIS_OS_NAME}" == osx ]; then
@@ -94,7 +105,7 @@ install:
       fi;
       mkdir cmake-dist && curl --silent --fail --show-error --location "${CMAKE_DIST_URL}" | tar -C cmake-dist ${TAR_OPT} && export PATH=$PWD/cmake-dist/bin:$PATH;
     fi
-  - if [[ "${JOB_NAME}" == java_test ]]; then
+  - if [[ "${JOB_NAME}" == java_test || "${JOB_NAME}" == cmake* ]]; then
       java -version && echo "JAVA_HOME=${JAVA_HOME}";
     fi
 
