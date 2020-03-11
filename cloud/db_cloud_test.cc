@@ -21,6 +21,7 @@
 #include "rocksdb/status.h"
 #include "rocksdb/table.h"
 #include "test_util/testharness.h"
+#include "util/random.h"
 #include "util/string_util.h"
 #ifndef OS_WIN
 #include <unistd.h>
@@ -32,9 +33,13 @@ namespace rocksdb {
 class CloudTest : public testing::Test {
  public:
   CloudTest() {
+    Random64 rng(time(nullptr));
+    test_id_ = std::to_string(rng.Next());
+    fprintf(stderr, "Test ID: %s\n", test_id_.c_str());
+
     base_env_ = Env::Default();
-    dbname_ = test::TmpDir() + "/db_cloud";
-    clone_dir_ = test::TmpDir() + "/ctest";
+    dbname_ = test::TmpDir() + "/db_cloud-" + test_id_;
+    clone_dir_ = test::TmpDir() + "/ctest-" + test_id_;
     cloud_env_options_.TEST_Initialize("dbcloudtest.", dbname_);
 
     options_.create_if_missing = true;
@@ -59,15 +64,14 @@ class CloudTest : public testing::Test {
 
     CloudEnv* aenv;
     // create a dummy aws env
-    ASSERT_OK(CloudEnv::NewAwsEnv(base_env_, cloud_env_options_,
-                                  options_.info_log, &aenv));
+    CloudEnv::NewAwsEnv(base_env_, cloud_env_options_,
+                                    options_.info_log, &aenv);
     aenv_.reset(aenv);
     // delete all pre-existing contents from the bucket
-    Status st = aenv_->EmptyBucket(aenv_->GetSrcBucketName(), "");
+    Status st = aenv_->EmptyBucket(aenv_->GetSrcBucketName(), dbname_);
     ASSERT_TRUE(st.ok() || st.IsNotFound());
     aenv_.reset();
 
-    // delete and create directory where clones reside
     DestroyDir(clone_dir_);
     ASSERT_OK(base_env_->CreateDir(clone_dir_));
   }
@@ -97,12 +101,14 @@ class CloudTest : public testing::Test {
 
   virtual ~CloudTest() { 
     // Cleanup the cloud bucket
-    CloudEnv* aenv;
-    Status st = CloudEnv::NewAwsEnv(base_env_, cloud_env_options_,
-                                    options_.info_log, &aenv);
-    if (st.ok()) {
-      aenv->EmptyBucket(aenv->GetSrcBucketName(), "");
-      delete aenv;
+    if (!cloud_env_options_.src_bucket.GetBucketName().empty()) {
+      CloudEnv* aenv;
+      Status st = CloudEnv::NewAwsEnv(base_env_, cloud_env_options_,
+                                      options_.info_log, &aenv);
+      if (st.ok()) {
+        aenv->EmptyBucket(aenv->GetSrcBucketName(), dbname_);
+        delete aenv;
+      }
     }
 
     CloseDB(); 
@@ -125,6 +131,9 @@ class CloudTest : public testing::Test {
     // Create new AWS env
     CreateAwsEnv();
     options_.env = aenv_.get();
+
+    // Sleep for a second because S3 is eventual consistency.
+    std::this_thread::sleep_for(std::chrono::seconds(1));
 
     // default column family
     ColumnFamilyOptions cfopt = options_;
@@ -259,6 +268,7 @@ class CloudTest : public testing::Test {
   }
 
  protected:
+  std::string test_id_;
   Env* base_env_;
   Options options_;
   std::string dbname_;
@@ -423,13 +433,14 @@ TEST_F(CloudTest, TrueClone) {
   ASSERT_OK(db_->Flush(FlushOptions()));
   CloseDB();
   value.clear();
+  auto clone_path1 = "clone1_path-" + test_id_;
   {
     // Create a new instance with different src and destination paths.
     // This is true clone and should have all the contents of the masterdb
     std::unique_ptr<CloudEnv> cloud_env;
     std::unique_ptr<DBCloud> cloud_db;
     CloneDB("localpath1", cloud_env_options_.src_bucket.GetBucketName(),
-            "clone1_path", &cloud_db, &cloud_env);
+            clone_path1, &cloud_db, &cloud_env);
 
     // Retrieve the id of the clone db
     ASSERT_OK(cloud_db->GetDbIdentity(newdb1_dbid));
@@ -455,7 +466,7 @@ TEST_F(CloudTest, TrueClone) {
     std::unique_ptr<CloudEnv> cloud_env;
     std::unique_ptr<DBCloud> cloud_db;
     CloneDB("localpath2", cloud_env_options_.src_bucket.GetBucketName(),
-            "clone1_path", &cloud_db, &cloud_env);
+            clone_path1, &cloud_db, &cloud_env);
 
     // Retrieve the id of the clone db
     ASSERT_OK(cloud_db->GetDbIdentity(newdb2_dbid));
@@ -470,7 +481,7 @@ TEST_F(CloudTest, TrueClone) {
     std::unique_ptr<CloudEnv> cloud_env;
     std::unique_ptr<DBCloud> cloud_db;
     CloneDB("localpath2", cloud_env_options_.src_bucket.GetBucketName(),
-            "clone1_path", &cloud_db, &cloud_env);
+            clone_path1, &cloud_db, &cloud_env);
 
     // Retrieve the id of the clone db
     ASSERT_OK(cloud_db->GetDbIdentity(newdb2_dbid));
@@ -480,13 +491,14 @@ TEST_F(CloudTest, TrueClone) {
     ASSERT_TRUE(value.compare("Clone1") == 0);
     ASSERT_OK(cloud_db->Flush(FlushOptions()));
   }
+  auto clone_path2 = "clone2_path-" + test_id_;
   {
     // Create clone2
     std::unique_ptr<CloudEnv> cloud_env;
     std::unique_ptr<DBCloud> cloud_db;
     CloneDB("localpath3",  // xxx try with localpath2
             cloud_env_options_.src_bucket.GetBucketName(),
-            "clone2_path", &cloud_db, &cloud_env);
+            clone_path2, &cloud_db, &cloud_env);
 
     // Retrieve the id of the clone db
     ASSERT_OK(cloud_db->GetDbIdentity(newdb3_dbid));
@@ -509,6 +521,9 @@ TEST_F(CloudTest, TrueClone) {
     // TODO(igor): Re-enable once purger code is fixed
     // ASSERT_EQ(to_be_deleted.size(), 0);
   }
+
+  aenv_->EmptyBucket(aenv_->GetSrcBucketName(), clone_path1);
+  aenv_->EmptyBucket(aenv_->GetSrcBucketName(), clone_path2);
 }
 
 //
@@ -525,7 +540,7 @@ TEST_F(CloudTest, DbidRegistry) {
   // Assert that there is one db in the registry
   DbidList dbs;
   ASSERT_OK(aenv_->GetDbidList(aenv_->GetSrcBucketName(), &dbs));
-  ASSERT_EQ(dbs.size(), 1);
+  ASSERT_GE(dbs.size(), 1);
 
   CloseDB();
 }
@@ -705,7 +720,8 @@ TEST_F(CloudTest, Savepoint) {
     // Reopen the clone
     std::unique_ptr<CloudEnv> cloud_env;
     std::unique_ptr<DBCloud> cloud_db;
-    CloneDB("localpath2", cloud_env_options_.src_bucket.GetBucketName(), dest_path, &cloud_db, &cloud_env);
+    CloneDB("localpath2", cloud_env_options_.src_bucket.GetBucketName(),
+            dest_path, &cloud_db, &cloud_env);
 
     // check that the both kvs appears in the clone
     value.clear();
@@ -1346,6 +1362,13 @@ TEST_F(CloudTest, CheckpointToCloud) {
   cloud_env_options_.keep_local_sst_files = true;
   options_.level0_file_num_compaction_trigger = 100; // never compact
 
+  // Pre-create the bucket.
+  CreateAwsEnv();
+  aenv_.reset();
+
+  // S3 is eventual consistency.
+  std::this_thread::sleep_for(std::chrono::seconds(1));
+
   auto checkpoint_bucket = cloud_env_options_.dest_bucket;
 
   cloud_env_options_.src_bucket = BucketOptions();
@@ -1375,6 +1398,9 @@ TEST_F(CloudTest, CheckpointToCloud) {
   ASSERT_OK(db_->Get(ReadOptions(), "c", &value));
   ASSERT_EQ(value, "d");
   CloseDB();
+
+  aenv_->EmptyBucket(checkpoint_bucket.GetBucketName(),
+                     checkpoint_bucket.GetObjectPath());
 }
 
 TEST_F(CloudTest, ConstantSstFileManager) {

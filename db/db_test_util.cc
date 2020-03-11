@@ -81,6 +81,7 @@ DBTestBase::DBTestBase(const std::string path)
                                        : (mem_env_ ? mem_env_ : base_env));
 #ifdef USE_AWS
   // Randomize the test path so that multiple tests can run in parallel
+  srand(time(nullptr));
   std::string mypath = path + "_" + std::to_string(rand());
   option_env_ = kDefaultEnv;
   env_->NewLogger(test::TmpDir(env_) + "/rocksdb-cloud.log", &info_log_);
@@ -122,6 +123,11 @@ DBTestBase::~DBTestBase() {
     EXPECT_OK(DestroyDB(dbname_, options));
   }
   delete env_;
+
+#ifdef USE_AWS
+  auto aenv = dynamic_cast<CloudEnv*>(s3_env_);
+  aenv->EmptyBucket(aenv->GetSrcBucketName(), aenv->GetSrcObjectPath());
+#endif
   delete s3_env_;
 }
 
@@ -635,6 +641,10 @@ Options DBTestBase::GetOptions(
 
 #ifdef USE_AWS
 Env* DBTestBase::CreateNewAwsEnv(const std::string& prefix) {
+  if (!prefix.empty()) {
+    fprintf(stderr, "Creating new AWS env with prefix %s\n", prefix.c_str());
+  }
+
   // get AWS credentials
   rocksdb::CloudEnvOptions coptions;
   CloudEnv* cenv = nullptr;

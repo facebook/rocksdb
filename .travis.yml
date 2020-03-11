@@ -27,20 +27,14 @@ addons:
 
 jobs:
   include:
-    - stage: db_test_part_1
+    - stage: Test
       script: OPT=-DTRAVIS V=1 USE_AWS=1 USE_KAFKA=1 make -j4 db_test && LD_LIBRARY_PATH=/usr/local/lib ./db_test --gtest_filter=-DBTest.MergeTestTime:DBTest.UnsupportedManualSync:DBTest.ApproximateSizes*:DBTest.HiddenValuesAreRemoved:DBTest.UnremovableSingleDelete:DBTest.OverlapInLevel0:MultiThreaded/MultiThreadedDBTest*:DBTest.SingleDeleteFlush:DBTest.GetLevel0Ordering:DBTest.GetPicksCorrectFile
-    - stage: db_test_part_2
-      script: OPT=-DTRAVIS V=1 USE_AWS=1 USE_KAFKA=1 make -j4 db_test && LD_LIBRARY_PATH=/usr/local/lib ./db_test --gtest_filter=DBTest.SingleDeleteFlush:DBTest.GetLevel0Ordering:DBTest.GetPicksCorrectFile
-    - stage: db_test_part_3
-      script: OPT=-DTRAVIS V=1 USE_AWS=1 USE_KAFKA=1 make -j4 db_test && LD_LIBRARY_PATH=/usr/local/lib ./db_test --gtest_filter=DBTest.HiddenValuesAreRemoved
-    - stage: db_test_part_4
-      script: OPT=-DTRAVIS V=1 USE_AWS=1 USE_KAFKA=1 make -j4 db_test && LD_LIBRARY_PATH=/usr/local/lib ./db_test --gtest_filter=DBTest.UnremovableSingleDelete
-    - stage: db_test_part_5
-      script: OPT=-DTRAVIS V=1 USE_AWS=1 USE_KAFKA=1 make -j4 db_test && LD_LIBRARY_PATH=/usr/local/lib ./db_test --gtest_filter=MultiThreaded/MultiThreadedDBTest*
-    - stage: db_test2
-      script: OPT=-DTRAVIS V=1 USE_AWS=1 USE_KAFKA=1 make -j4 db_test2 db_basic_test env_basic_test && LD_LIBRARY_PATH=/usr/local/lib ./db_test2 && LD_LIBRARY_PATH=/usr/local/lib ./db_basic_test --gtest_filter=-DBBasicTest.CompactBetweenSnapshots && LD_LIBRARY_PATH=/usr/local/lib ./env_basic_test
-    - stage: cloud_test
-      script: build_tools/spinup_kafka.sh && sleep 10 && OPT=-DTRAVIS V=1 USE_AWS=1 USE_KAFKA=1 make -j4 db_cloud_test cloud_manifest_test && LD_LIBRARY_PATH=/usr/local/lib ./db_cloud_test && LD_LIBRARY_PATH=/usr/local/lib ./cloud_manifest_test
+    - script: OPT=-DTRAVIS V=1 USE_AWS=1 USE_KAFKA=1 make -j4 db_test && LD_LIBRARY_PATH=/usr/local/lib ./db_test --gtest_filter=DBTest.SingleDeleteFlush:DBTest.GetLevel0Ordering:DBTest.GetPicksCorrectFile
+    - script: OPT=-DTRAVIS V=1 USE_AWS=1 USE_KAFKA=1 make -j4 db_test && LD_LIBRARY_PATH=/usr/local/lib ./db_test --gtest_filter=DBTest.HiddenValuesAreRemoved
+    - script: OPT=-DTRAVIS V=1 USE_AWS=1 USE_KAFKA=1 make -j4 db_test && LD_LIBRARY_PATH=/usr/local/lib ./db_test --gtest_filter=DBTest.UnremovableSingleDelete
+    - script: OPT=-DTRAVIS V=1 USE_AWS=1 USE_KAFKA=1 make -j4 db_test && LD_LIBRARY_PATH=/usr/local/lib ./db_test --gtest_filter=MultiThreaded/MultiThreadedDBTest*
+    - script: OPT=-DTRAVIS V=1 USE_AWS=1 USE_KAFKA=1 make -j4 db_test2 db_basic_test env_basic_test && LD_LIBRARY_PATH=/usr/local/lib ./db_test2 && LD_LIBRARY_PATH=/usr/local/lib ./db_basic_test --gtest_filter=-DBBasicTest.CompactBetweenSnapshots && LD_LIBRARY_PATH=/usr/local/lib ./env_basic_test
+    - script: build_tools/spinup_kafka.sh && sleep 10 && OPT=-DTRAVIS V=1 USE_AWS=1 USE_KAFKA=1 make -j4 db_cloud_test cloud_manifest_test && LD_LIBRARY_PATH=/usr/local/lib ./db_cloud_test && LD_LIBRARY_PATH=/usr/local/lib ./cloud_manifest_test
 
 before_script:
   # Increase the maximum number of open file descriptors, since some tests use

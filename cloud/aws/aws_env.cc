@@ -1059,6 +1059,7 @@ Status AwsEnv::EmptyBucket(const std::string& bucket,
 
   // Delete all objects from bucket
   for (auto path : results) {
+    path = s3_object_prefix + "/" + path;
     st = DeletePathInS3(bucket, path);
     if (!st.ok()) {
       Log(InfoLogLevel::ERROR_LEVEL, info_log_,
