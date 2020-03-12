@@ -12,6 +12,12 @@
 #include "util/xxhash.h"
 
 namespace ROCKSDB_NAMESPACE {
+void ForceReleaseCachedEntry(void* arg, void* h) {
+  Cache* cache = reinterpret_cast<Cache*>(arg);
+  Cache::Handle* handle = reinterpret_cast<Cache::Handle*>(h);
+  cache->Release(handle, true /* force_erase */);
+}
+
 Status VerifyChecksum(const ChecksumType type, const char* buf, size_t len,
                       uint32_t expected) {
   Status s;

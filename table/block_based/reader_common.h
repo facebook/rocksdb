@@ -8,9 +8,12 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 #pragma once
 
-#include "table/block_based/block_based_table_reader.h"
+#include "rocksdb/table.h"
 
 namespace ROCKSDB_NAMESPACE {
+// Release the cached entry and decrement its ref count.
+extern void ForceReleaseCachedEntry(void* arg, void* h);
+
 inline MemoryAllocator* GetMemoryAllocator(
     const BlockBasedTableOptions& table_options) {
   return table_options.block_cache.get()
