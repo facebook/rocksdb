@@ -217,11 +217,9 @@ ifneq ($(DEBUG_LEVEL),0)
 	JAVAC_ARGS += -Xlint:deprecation -Xlint:unchecked
 endif
 
-# This is a URL for artifacts from a "fake" release on pdillinger's fork,
-# so as not to put binaries in git (ew). We should move to hosting these
-# under the facebook account on github, or something else more reliable
-# than maven.org, which has been failing frequently from Travis.
-DEPS_URL?=https://github.com/pdillinger/rocksdb/releases/download/v6.6.x-java-deps
+# Using a Facebook AWS account for S3 storage. (maven.org has a history
+# of failing in Travis builds.)
+DEPS_URL?=https://rocksdb-deps.s3-us-west-2.amazonaws.com/jars
 
 clean: clean-not-downloaded clean-downloaded
 
