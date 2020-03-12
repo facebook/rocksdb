@@ -120,7 +120,7 @@ LIB_SOURCES =                                                   \
   port/stack_trace.cc                                           \
   table/adaptive/adaptive_table_factory.cc                      \
   table/block_based/binary_search_index_reader.cc               \
-	table/block_based/block.cc                                    \
+  table/block_based/block.cc                                    \
   table/block_based/block_based_filter_block.cc                 \
   table/block_based/block_based_table_builder.cc                \
   table/block_based/block_based_table_factory.cc                \

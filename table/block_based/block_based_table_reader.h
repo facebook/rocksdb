@@ -9,38 +9,18 @@
 
 #pragma once
 
-#include <stdint.h>
-#include <memory>
-#include <set>
-#include <string>
-#include <utility>
-#include <vector>
-
 #include "db/range_tombstone_fragmenter.h"
 #include "file/filename.h"
-#include "file/random_access_file_reader.h"
-#include "options/cf_options.h"
-#include "rocksdb/options.h"
-#include "rocksdb/persistent_cache.h"
-#include "rocksdb/statistics.h"
-#include "rocksdb/status.h"
-#include "rocksdb/table.h"
-#include "table/block_based/block.h"
+#include "table/block_based/cachable_entry.h"
 #include "table/block_based/block_based_table_factory.h"
 #include "table/block_based/block_type.h"
-#include "table/block_based/cachable_entry.h"
 #include "table/block_based/filter_block.h"
 #include "table/block_based/uncompression_dict_reader.h"
-#include "table/format.h"
-#include "table/get_context.h"
-#include "table/multiget_context.h"
-#include "table/persistent_cache_helper.h"
 #include "table/table_properties_internal.h"
 #include "table/table_reader.h"
 #include "table/two_level_iterator.h"
+
 #include "trace_replay/block_cache_tracer.h"
-#include "util/coding.h"
-#include "util/user_comparator_wrapper.h"
 
 namespace ROCKSDB_NAMESPACE {
 
