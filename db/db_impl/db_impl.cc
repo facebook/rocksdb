@@ -21,7 +21,6 @@
 #include <stdexcept>
 #include <string>
 #include <unordered_map>
-#include <unordered_set>
 #include <utility>
 #include <vector>
 
@@ -3528,24 +3527,15 @@ Status DestroyDB(const std::string& dbname, const Options& options,
       }
     }
 
-    std::vector<std::string> paths;
-
-    for (const auto& path : options.db_paths) {
-      paths.emplace_back(path.path);
+    std::set<std::string> paths;
+    for (const DbPath& db_path : options.db_paths) {
+      paths.insert(db_path.path);
     }
-    for (const auto& cf : column_families) {
-      for (const auto& path : cf.options.cf_paths) {
-        paths.emplace_back(path.path);
+    for (const ColumnFamilyDescriptor& cf : column_families) {
+      for (const DbPath& cf_path : cf.options.cf_paths) {
+        paths.insert(cf_path.path);
       }
     }
-
-    // Remove duplicate paths.
-    // Note that we compare only the actual paths but not path ids.
-    // This reason is that same path can appear at different path_ids
-    // for different column families.
-    std::sort(paths.begin(), paths.end());
-    paths.erase(std::unique(paths.begin(), paths.end()), paths.end());
-
     for (const auto& path : paths) {
       if (env->GetChildren(path, &filenames).ok()) {
         for (const auto& fname : filenames) {

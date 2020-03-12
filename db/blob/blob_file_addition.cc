@@ -3,7 +3,7 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
-#include "db/blob_file_addition.h"
+#include "db/blob/blob_file_addition.h"
 
 #include <ostream>
 #include <sstream>

@@ -200,14 +200,14 @@ TEST_F(BlockBasedBloomTest, Schema) {
     Add(Key(key, buffer));
   }
   Build();
-  ASSERT_EQ(BloomHash(FilterData()), 969445585);
+  ASSERT_EQ(BloomHash(FilterData()), 969445585U);
 
   ResetPolicy(11);  // num_probes = 7
   for (int key = 0; key < 87; key++) {
     Add(Key(key, buffer));
   }
   Build();
-  ASSERT_EQ(BloomHash(FilterData()), 1694458207);
+  ASSERT_EQ(BloomHash(FilterData()), 1694458207U);
 
   ResetPolicy(10);  // num_probes = 6
   for (int key = 0; key < 87; key++) {
@@ -221,7 +221,7 @@ TEST_F(BlockBasedBloomTest, Schema) {
     Add(Key(key, buffer));
   }
   Build();
-  ASSERT_EQ(BloomHash(FilterData()), 1908442116);
+  ASSERT_EQ(BloomHash(FilterData()), 1908442116U);
 
   ResetPolicy(10);
   for (int key = 1; key < /*CHANGED*/ 88; key++) {
@@ -623,7 +623,8 @@ TEST_P(FullBloomTest, Schema) {
     Add(Key(key, buffer));
   }
   Build();
-  EXPECT_EQ(GetNumProbesFromFilterData(), SelectByImpl(9, 8));
+  EXPECT_EQ(static_cast<uint32_t>(GetNumProbesFromFilterData()),
+            SelectByImpl(9, 8));
   EXPECT_EQ(
       BloomHash(FilterData()),
       SelectByImpl(SelectByCacheLineSize(178861123, 379087593, 2574136516U),
@@ -642,7 +643,8 @@ TEST_P(FullBloomTest, Schema) {
     Add(Key(key, buffer));
   }
   Build();
-  EXPECT_EQ(GetNumProbesFromFilterData(), SelectByImpl(11, 9));
+  EXPECT_EQ(static_cast<uint32_t>(GetNumProbesFromFilterData()),
+            SelectByImpl(11, 9));
   EXPECT_EQ(
       BloomHash(FilterData()),
       SelectByImpl(SelectByCacheLineSize(1129406313, 3049154394U, 1727750964),
@@ -716,7 +718,8 @@ TEST_P(FullBloomTest, Schema) {
     Add(Key(key, buffer));
   }
   Build();
-  EXPECT_EQ(GetNumProbesFromFilterData(), SelectByImpl(6, 7));
+  EXPECT_EQ(static_cast<uint32_t>(GetNumProbesFromFilterData()),
+            SelectByImpl(6, 7));
   EXPECT_EQ(BloomHash(FilterData()),
             SelectByImpl(/*SAME*/ SelectByCacheLineSize(2885052954U, 769447944,
                                                         4175124908U),
@@ -858,11 +861,11 @@ TEST_P(FullBloomTest, CorruptFilters) {
 
     // Bad filter bits - returns false as if built from zero keys
     // < 5 bytes overall means missing even metadata
-    OpenRaw(cft.Reset(-1, 3, 6, fill));
+    OpenRaw(cft.Reset(static_cast<uint32_t>(-1), 3, 6, fill));
     ASSERT_FALSE(Matches("hello"));
     ASSERT_FALSE(Matches("world"));
 
-    OpenRaw(cft.Reset(-5, 3, 6, fill));
+    OpenRaw(cft.Reset(static_cast<uint32_t>(-5), 3, 6, fill));
     ASSERT_FALSE(Matches("hello"));
     ASSERT_FALSE(Matches("world"));
 

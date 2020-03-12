@@ -1527,7 +1527,7 @@ bool tryUnlockClean(Atomic& state, Proxy& proxy, Sleepers sleepers) {
 
 template <template <typename> class Atomic, bool Publish>
 void DistributedMutex<Atomic, Publish>::unlock(
-    DistributedMutex::DistributedMutexStateProxy proxy) {
+    typename DistributedMutex::DistributedMutexStateProxy proxy) {
   // we always wake up ready threads and timed waiters if we saw either
   assert(proxy);
   assert(!proxy.combined_);
