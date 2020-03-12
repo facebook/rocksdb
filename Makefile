@@ -1318,7 +1318,7 @@ db_test2: db/db_test2.o db/db_test_util.o $(LIBOBJECTS) $(TESTHARNESS)
 db_logical_block_size_cache_test: db/db_logical_block_size_cache_test.o db/db_test_util.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
-db_blob_index_test: db/db_blob_index_test.o db/db_test_util.o $(LIBOBJECTS) $(TESTHARNESS)
+db_blob_index_test: db/blob/db_blob_index_test.o db/db_test_util.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
 db_block_cache_test: db/db_block_cache_test.o db/db_test_util.o $(LIBOBJECTS) $(TESTHARNESS)
@@ -1728,10 +1728,10 @@ block_cache_trace_analyzer_test: tools/block_cache_analyzer/block_cache_trace_an
 defer_test: util/defer_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
-blob_file_addition_test: db/blob_file_addition_test.o $(LIBOBJECTS) $(TESTHARNESS)
+blob_file_addition_test: db/blob/blob_file_addition_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
-blob_file_garbage_test: db/blob_file_garbage_test.o $(LIBOBJECTS) $(TESTHARNESS)
+blob_file_garbage_test: db/blob/blob_file_garbage_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
 #-------------------------------------------------

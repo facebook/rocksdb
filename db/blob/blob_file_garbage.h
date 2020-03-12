@@ -9,7 +9,7 @@
 #include <iosfwd>
 #include <string>
 
-#include "db/blob_constants.h"
+#include "db/blob/blob_constants.h"
 #include "rocksdb/rocksdb_namespace.h"
 
 namespace ROCKSDB_NAMESPACE {
