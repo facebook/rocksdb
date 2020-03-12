@@ -405,7 +405,7 @@ class VersionBuilder::Rep {
     size_t max_load = port::kMaxSizet;
 
     if (!always_load) {
-      // If it is initial loading and not set to always laoding all the
+      // If it is initial loading and not set to always loading all the
       // files, we only load up to kInitialLoadLimit files, to limit the
       // time reopening the DB.
       const size_t kInitialLoadLimit = 16;

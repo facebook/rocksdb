@@ -171,6 +171,35 @@ class FileSystem {
   // The result of Default() belongs to rocksdb and must never be deleted.
   static std::shared_ptr<FileSystem> Default();
 
+  // Handles the event when a new DB or a new ColumnFamily starts using the
+  // specified data paths.
+  //
+  // The data paths might be shared by different DBs or ColumnFamilies,
+  // so RegisterDbPaths might be called with the same data paths.
+  // For example, when CreateColumnFamily is called multiple times with the same
+  // data path, RegisterDbPaths will also be called with the same data path.
+  //
+  // If the return status is ok, then the paths must be correspondingly
+  // called in UnregisterDbPaths;
+  // otherwise this method should have no side effect, and UnregisterDbPaths
+  // do not need to be called for the paths.
+  //
+  // Different implementations may take different actions.
+  // By default, it's a no-op and returns Status::OK.
+  virtual Status RegisterDbPaths(const std::vector<std::string>& /*paths*/) {
+    return Status::OK();
+  }
+  // Handles the event a DB or a ColumnFamily stops using the specified data
+  // paths.
+  //
+  // It should be called corresponding to each successful RegisterDbPaths.
+  //
+  // Different implementations may take different actions.
+  // By default, it's a no-op and returns Status::OK.
+  virtual Status UnregisterDbPaths(const std::vector<std::string>& /*paths*/) {
+    return Status::OK();
+  }
+
   // Create a brand new sequentially-readable file with the specified name.
   // On success, stores a pointer to the new file in *result and returns OK.
   // On failure stores nullptr in *result and returns non-OK.  If the file does

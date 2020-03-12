@@ -1401,13 +1401,9 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
       impl->error_handler_.EnableAutoRecovery();
     }
   }
-
-  if (!s.ok()) {
-    delete impl;
-    return s;
+  if (s.ok()) {
+    s = impl->CreateArchivalDirectory();
   }
-
-  s = impl->CreateArchivalDirectory();
   if (!s.ok()) {
     delete impl;
     return s;

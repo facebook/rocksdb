@@ -803,6 +803,13 @@ ROCKS_TESTS = [
         [],
     ],
     [
+        "db_logical_block_size_cache_test",
+        "db/db_logical_block_size_cache_test.cc",
+        "serial",
+        [],
+        [],
+    ],
+    [
         "db_memtable_test",
         "db/db_memtable_test.cc",
         "serial",
@@ -1093,6 +1100,13 @@ ROCKS_TESTS = [
         "inlineskiplist_test",
         "memtable/inlineskiplist_test.cc",
         "parallel",
+        [],
+        [],
+    ],
+    [
+        "io_posix_test",
+        "env/io_posix_test.cc",
+        "serial",
         [],
         [],
     ],

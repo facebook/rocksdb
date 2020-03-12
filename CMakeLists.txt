@@ -973,6 +973,7 @@ if(WITH_TESTS)
         db/db_tailing_iter_test.cc
         db/db_test.cc
         db/db_test2.cc
+        db/db_logical_block_size_cache_test.cc
         db/db_universal_compaction_test.cc
         db/db_wal_test.cc
         db/db_write_test.cc
@@ -1009,6 +1010,7 @@ if(WITH_TESTS)
         db/write_controller_test.cc
         env/env_basic_test.cc
         env/env_test.cc
+        env/io_posix_test.cc
         env/mock_env_test.cc
         file/delete_scheduler_test.cc
         logging/auto_roll_logger_test.cc

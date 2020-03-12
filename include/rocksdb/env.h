@@ -163,6 +163,15 @@ class Env {
   // The result of Default() belongs to rocksdb and must never be deleted.
   static Env* Default();
 
+  // See FileSystem::RegisterDbPaths.
+  virtual Status RegisterDbPaths(const std::vector<std::string>& /*paths*/) {
+    return Status::OK();
+  }
+  // See FileSystem::UnregisterDbPaths.
+  virtual Status UnregisterDbPaths(const std::vector<std::string>& /*paths*/) {
+    return Status::OK();
+  }
+
   // Create a brand new sequentially-readable file with the specified name.
   // On success, stores a pointer to the new file in *result and returns OK.
   // On failure stores nullptr in *result and returns non-OK.  If the file does
@@ -1155,6 +1164,14 @@ class EnvWrapper : public Env {
   Env* target() const { return target_; }
 
   // The following text is boilerplate that forwards all methods to target()
+  Status RegisterDbPaths(const std::vector<std::string>& paths) override {
+    return target_->RegisterDbPaths(paths);
+  }
+
+  Status UnregisterDbPaths(const std::vector<std::string>& paths) override {
+    return target_->UnregisterDbPaths(paths);
+  }
+
   Status NewSequentialFile(const std::string& f,
                            std::unique_ptr<SequentialFile>* r,
                            const EnvOptions& options) override {

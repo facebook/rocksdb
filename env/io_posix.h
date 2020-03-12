@@ -14,11 +14,15 @@
 #endif
 #include <unistd.h>
 #include <atomic>
+#include <functional>
+#include <map>
 #include <string>
+#include "port/port.h"
 #include "rocksdb/env.h"
-#include "util/thread_local.h"
 #include "rocksdb/file_system.h"
 #include "rocksdb/io_status.h"
+#include "util/mutexlock.h"
+#include "util/thread_local.h"
 
 // For non linux platform, the following macros are used only as place
 // holder.
@@ -31,39 +35,92 @@
 #endif
 
 namespace ROCKSDB_NAMESPACE {
-static std::string IOErrorMsg(const std::string& context,
-                              const std::string& file_name) {
-  if (file_name.empty()) {
-    return context;
-  }
-  return context + ": " + file_name;
-}
-
+std::string IOErrorMsg(const std::string& context,
+                       const std::string& file_name);
 // file_name can be left empty if it is not unkown.
-static IOStatus IOError(const std::string& context,
-                        const std::string& file_name, int err_number) {
-  switch (err_number) {
-    case ENOSPC: {
-      IOStatus s = IOStatus::NoSpace(IOErrorMsg(context, file_name),
-                                     strerror(err_number));
-      s.SetRetryable(true);
-      return s;
-    }
-  case ESTALE:
-    return IOStatus::IOError(IOStatus::kStaleFile);
-  case ENOENT:
-    return IOStatus::PathNotFound(IOErrorMsg(context, file_name),
-                                  strerror(err_number));
-  default:
-    return IOStatus::IOError(IOErrorMsg(context, file_name),
-                             strerror(err_number));
-  }
-}
+IOStatus IOError(const std::string& context, const std::string& file_name,
+                 int err_number);
 
 class PosixHelper {
  public:
   static size_t GetUniqueIdFromFile(int fd, char* id, size_t max_size);
+  static size_t GetLogicalBlockSizeOfFd(int fd);
+  static Status GetLogicalBlockSizeOfDirectory(const std::string& directory,
+                                               size_t* size);
 };
+
+#ifdef OS_LINUX
+// Files under a specific directory have the same logical block size.
+// This class caches the logical block size for the specified directories to
+// save the CPU cost of computing the size.
+// Safe for concurrent access from multiple threads without any external
+// synchronization.
+class LogicalBlockSizeCache {
+ public:
+  LogicalBlockSizeCache(
+      std::function<size_t(int)> get_logical_block_size_of_fd =
+          PosixHelper::GetLogicalBlockSizeOfFd,
+      std::function<Status(const std::string&, size_t*)>
+          get_logical_block_size_of_directory =
+              PosixHelper::GetLogicalBlockSizeOfDirectory)
+      : get_logical_block_size_of_fd_(get_logical_block_size_of_fd),
+        get_logical_block_size_of_directory_(
+            get_logical_block_size_of_directory) {}
+
+  // Takes the following actions:
+  // 1. Increases reference count of the directories;
+  // 2. If the directory's logical block size is not cached,
+  //    compute the buffer size and cache the result.
+  Status RefAndCacheLogicalBlockSize(
+      const std::vector<std::string>& directories);
+
+  // Takes the following actions:
+  // 1. Decreases reference count of the directories;
+  // 2. If the reference count of a directory reaches 0, remove the directory
+  //    from the cache.
+  void UnrefAndTryRemoveCachedLogicalBlockSize(
+      const std::vector<std::string>& directories);
+
+  // Returns the logical block size for the file.
+  //
+  // If the file is under a cached directory, return the cached size.
+  // Otherwise, the size is computed.
+  size_t GetLogicalBlockSize(const std::string& fname, int fd);
+
+  int GetRefCount(const std::string& dir) {
+    ReadLock lock(&cache_mutex_);
+    auto it = cache_.find(dir);
+    if (it == cache_.end()) {
+      return 0;
+    }
+    return it->second.ref;
+  }
+
+  size_t Size() const { return cache_.size(); }
+
+  bool Contains(const std::string& dir) {
+    ReadLock lock(&cache_mutex_);
+    return cache_.find(dir) != cache_.end();
+  }
+
+ private:
+  struct CacheValue {
+    CacheValue() : size(0), ref(0) {}
+
+    // Logical block size of the directory.
+    size_t size;
+    // Reference count of the directory.
+    int ref;
+  };
+
+  std::function<size_t(int)> get_logical_block_size_of_fd_;
+  std::function<Status(const std::string&, size_t*)>
+      get_logical_block_size_of_directory_;
+
+  std::map<std::string, CacheValue> cache_;
+  port::RWMutex cache_mutex_;
+};
+#endif
 
 class PosixSequentialFile : public FSSequentialFile {
  private:
@@ -75,6 +132,7 @@ class PosixSequentialFile : public FSSequentialFile {
 
  public:
   PosixSequentialFile(const std::string& fname, FILE* file, int fd,
+                      size_t logical_block_size,
                       const EnvOptions& options);
   virtual ~PosixSequentialFile();
 
@@ -123,6 +181,7 @@ class PosixRandomAccessFile : public FSRandomAccessFile {
 
  public:
   PosixRandomAccessFile(const std::string& fname, int fd,
+                        size_t logical_block_size,
                         const EnvOptions& options
 #if defined(ROCKSDB_IOURING_PRESENT)
                         ,
@@ -172,6 +231,7 @@ class PosixWritableFile : public FSWritableFile {
 
  public:
   explicit PosixWritableFile(const std::string& fname, int fd,
+                             size_t logical_block_size,
                              const EnvOptions& options);
   virtual ~PosixWritableFile();
 

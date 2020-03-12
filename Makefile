@@ -459,6 +459,7 @@ TESTS = \
 	env_basic_test \
 	env_test \
 	env_logger_test \
+	io_posix_test \
 	hash_test \
 	random_test \
 	thread_local_test \
@@ -468,6 +469,7 @@ TESTS = \
 	db_wal_test \
 	db_block_cache_test \
 	db_test \
+	db_logical_block_size_cache_test \
 	db_blob_index_test \
 	db_iter_test \
 	db_iter_stress_test \
@@ -1313,6 +1315,9 @@ db_test: db/db_test.o db/db_test_util.o $(LIBOBJECTS) $(TESTHARNESS)
 db_test2: db/db_test2.o db/db_test_util.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
+db_logical_block_size_cache_test: db/db_logical_block_size_cache_test.o db/db_test_util.o $(LIBOBJECTS) $(TESTHARNESS)
+	$(AM_LINK)
+
 db_blob_index_test: db/db_blob_index_test.o db/db_test_util.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
@@ -1478,6 +1483,9 @@ env_basic_test: env/env_basic_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
 env_test: env/env_test.o $(LIBOBJECTS) $(TESTHARNESS)
+	$(AM_LINK)
+
+io_posix_test: env/io_posix_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
 fault_injection_test: db/fault_injection_test.o $(LIBOBJECTS) $(TESTHARNESS)
