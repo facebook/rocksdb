@@ -72,3 +72,4 @@ test_script:
 
 on_failure:
   - cmd: 7z a build-failed.zip %APPVEYOR_BUILD_FOLDER%\build\ && appveyor PushArtifact build-failed.zip
+
