@@ -521,6 +521,10 @@ ColumnFamilyData::ColumnFamilyData(
       last_memtable_id_(0),
       db_paths_registered_(false) {
   if (id_ != kDummyColumnFamilyDataId) {
+    // TODO(cc): RegisterDbPaths can be expensive, considering moving it
+    // outside of this constructor which might be called with db mutex held.
+    // TODO(cc): considering using ioptions_.fs, currently some tests rely on
+    // EnvWrapper, that's the main reason why we use env here.
     Status s = ioptions_.env->RegisterDbPaths(GetDbPaths());
     if (s.ok()) {
       db_paths_registered_ = true;
@@ -626,6 +630,8 @@ ColumnFamilyData::~ColumnFamilyData() {
   }
 
   if (db_paths_registered_) {
+    // TODO(cc): considering using ioptions_.fs, currently some tests rely on
+    // EnvWrapper, that's the main reason why we use env here.
     Status s = ioptions_.env->UnregisterDbPaths(GetDbPaths());
     if (!s.ok()) {
       ROCKS_LOG_ERROR(
