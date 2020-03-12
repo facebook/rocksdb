@@ -74,8 +74,12 @@ TEST_F(DBLogicalBlockSizeCacheTest, OpenClose) {
       printf("Open\n");
       ASSERT_OK(DB::Open(options, dbname_, &db));
     } else {
+#ifdef ROCKSDB_LITE
+      break;
+#else
       printf("OpenForReadOnly\n");
       ASSERT_OK(DB::OpenForReadOnly(options, dbname_, &db));
+#endif
     }
     ASSERT_EQ(2, cache_->Size());
     ASSERT_TRUE(cache_->Contains(data_path_0_));
@@ -101,8 +105,12 @@ TEST_F(DBLogicalBlockSizeCacheTest, OpenDelete) {
       printf("Open\n");
       ASSERT_OK(DB::Open(options, dbname_, &db));
     } else {
+#ifdef ROCKSDB_LITE
+      break;
+#else
       printf("OpenForReadOnly\n");
       ASSERT_OK(DB::OpenForReadOnly(options, dbname_, &db));
+#endif
     }
     ASSERT_EQ(1, cache_->Size());
     ASSERT_TRUE(cache_->Contains(dbname_));
@@ -243,12 +251,16 @@ TEST_F(DBLogicalBlockSizeCacheTest, OpenWithColumnFamilies) {
                           {"default", ColumnFamilyOptions()}},
                          &cfs, &db));
     } else {
+#ifdef ROCKSDB_LITE
+      break;
+#else
       printf("OpenForReadOnly\n");
       ASSERT_OK(DB::OpenForReadOnly(options, dbname_,
                                     {{"cf1", cf_options},
                                      {"cf2", cf_options},
                                      {"default", ColumnFamilyOptions()}},
                                     &cfs, &db));
+#endif
     }
 
     // Logical block sizes of dbname_ and cf_path_0_ are cached during Open.
@@ -336,10 +348,14 @@ TEST_F(DBLogicalBlockSizeCacheTest, DestroyColumnFamilyHandle) {
           options, dbname_,
           {{"cf", cf_options}, {"default", ColumnFamilyOptions()}}, &cfs, &db));
     } else {
+#ifdef ROCKSDB_LITE
+      break;
+#else
       printf("OpenForReadOnly\n");
       ASSERT_OK(DB::OpenForReadOnly(
           options, dbname_,
           {{"cf", cf_options}, {"default", ColumnFamilyOptions()}}, &cfs, &db));
+#endif
     }
     // cf_path_0_ and dbname_ are cached.
     ASSERT_EQ(2, cache_->Size());
