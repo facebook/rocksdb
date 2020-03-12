@@ -75,11 +75,6 @@ matrix:
   - os: linux
     compiler: clang
 
-before_install:
-  - if [[ "${JOB_NAME}" == java_test  || "${JOB_NAME}" == cmake* ]] && [ "$(uname -m)" == ppc64le ]; then
-     sudo apt-get -y install openjdk-8-jdk && export JAVA_HOME=/usr/lib/jvm/java-8-openjdk-ppc64el;
-   fi
-
 install:
   - if [ "${TRAVIS_OS_NAME}" == osx ]; then
       PATH=$PATH:/usr/local/opt/ccache/libexec;
@@ -108,7 +103,9 @@ install:
         export PATH=/usr/lib/jvm/java-8-openjdk-$(dpkg --print-architecture)/bin:$PATH
         export JAVA_HOME=/usr/lib/jvm/java-8-openjdk-$(dpkg --print-architecture)
       fi
-      java -version && echo "JAVA_HOME=${JAVA_HOME}"
+      echo "JAVA_HOME=${JAVA_HOME}"
+      which java && java -version
+      which javac && javac -version
     fi
 
 before_script:
