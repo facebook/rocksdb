@@ -521,7 +521,7 @@ ColumnFamilyData::ColumnFamilyData(
       last_memtable_id_(0),
       db_paths_registered_(false) {
   if (id_ != kDummyColumnFamilyDataId) {
-    Status s = ioptions_.fs->RegisterDbPaths(GetDbPaths());
+    Status s = ioptions_.env->RegisterDbPaths(GetDbPaths());
     if (s.ok()) {
       db_paths_registered_ = true;
     } else {
@@ -626,7 +626,7 @@ ColumnFamilyData::~ColumnFamilyData() {
   }
 
   if (db_paths_registered_) {
-    Status s = ioptions_.fs->UnregisterDbPaths(GetDbPaths());
+    Status s = ioptions_.env->UnregisterDbPaths(GetDbPaths());
     if (!s.ok()) {
       ROCKS_LOG_ERROR(
           ioptions_.info_log,
