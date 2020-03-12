@@ -8,7 +8,7 @@ jobs:
     executor: win/default
     
     environment:
-      THIRDPARTY_HOME: .\thirdparty
+      THIRDPARTY_HOME: thirdparty
       SNAPPY_HOME: ${THIRDPARTY_HOME}\snappy-1.1.7
       SNAPPY_INCLUDE: ${SNAPPY_HOME};${SNAPPY_HOME}\build
       SNAPPY_LIB_DEBUG: ${SNAPPY_HOME}\build\Debug\snappy.lib
@@ -59,8 +59,9 @@ jobs:
       - run:
           name: "Build and test"
           command: |
-            md .\build
-            cd .\build
+            md build
+            cd build
             cmake -G "%CMAKE_GENERATOR%" -DCMAKE_BUILD_TYPE=Debug -DOPTDBG=1 -DPORTABLE=1 -DSNAPPY=1 -DLZ4=1 -DZSTD=1 -DXPRESS=1 -DJNI=1 ..
             cd ..
+            msbuild build\rocksdb.sln
             ps: build_tools\run_ci_db_test.ps1 -SuiteRun db_basic_test,db_test2,db_test,env_basic_test,env_test,db_merge_operand_test -Concurrency 8
