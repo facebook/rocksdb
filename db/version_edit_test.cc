@@ -46,6 +46,7 @@ TEST_F(VersionEditTest, EncodeDecode) {
   edit.SetLogNumber(kBig + 100);
   edit.SetNextFile(kBig + 200);
   edit.SetLastSequence(kBig + 1000);
+  edit.SetSafeToIgnoreTag(true);
   TestEncodeDecode(edit);
 }
 
@@ -80,6 +81,7 @@ TEST_F(VersionEditTest, EncodeDecodeNewFile4) {
   edit.SetLogNumber(kBig + 100);
   edit.SetNextFile(kBig + 200);
   edit.SetLastSequence(kBig + 1000);
+  edit.SetSafeToIgnoreTag(true);
   TestEncodeDecode(edit);
 
   std::string encoded, encoded2;
@@ -103,6 +105,7 @@ TEST_F(VersionEditTest, EncodeDecodeNewFile4) {
   ASSERT_EQ(kInvalidBlobFileNumber,
             new_files[2].second.oldest_blob_file_number);
   ASSERT_EQ(1001, new_files[3].second.oldest_blob_file_number);
+  ASSERT_TRUE(parsed.GetSafeToIgnoreTag());
 }
 
 TEST_F(VersionEditTest, ForwardCompatibleNewFile4) {

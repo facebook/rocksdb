@@ -5003,6 +5003,7 @@ Status VersionSet::WriteCurrentStateToManifest(
     VersionEdit edit_for_db_id;
     assert(!db_id_.empty());
     edit_for_db_id.SetDBId(db_id_);
+    edit_for_db_id.SetSafeToIgnoreTag(true);
     std::string db_id_record;
     if (!edit_for_db_id.EncodeTo(&db_id_record)) {
       return Status::Corruption("Unable to Encode VersionEdit:" +
@@ -5028,6 +5029,7 @@ Status VersionSet::WriteCurrentStateToManifest(
         edit.AddColumnFamily(cfd->GetName());
         edit.SetColumnFamily(cfd->GetID());
       }
+      edit.SetSafeToIgnoreTag(true);
       edit.SetComparatorName(
           cfd->internal_comparator().user_comparator()->Name());
       std::string record;
@@ -5045,6 +5047,7 @@ Status VersionSet::WriteCurrentStateToManifest(
       // Save files
       VersionEdit edit;
       edit.SetColumnFamily(cfd->GetID());
+      edit.SetSafeToIgnoreTag(true);
 
       for (int level = 0; level < cfd->NumberLevels(); level++) {
         for (const auto& f :

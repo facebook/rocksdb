@@ -423,6 +423,9 @@ class VersionEdit {
   std::string DebugString(bool hex_key = false) const;
   std::string DebugJSON(int edit_num, bool hex_key = false) const;
 
+  void SetSafeToIgnoreTag(bool tag) { safe_to_ignore_ = tag; }
+  bool GetSafeToIgnoreTag() const { return safe_to_ignore_; }
+
  private:
   friend class ReactiveVersionSet;
   friend class VersionSet;
@@ -470,6 +473,9 @@ class VersionEdit {
 
   bool is_in_atomic_group_ = false;
   uint32_t remaining_entries_ = 0;
+  // To distinguish the version edit written by WriteCurrentStateToManifest
+  // and other redgular writes. Default is false.
+  bool safe_to_ignore_ = false;
 };
 
 }  // namespace ROCKSDB_NAMESPACE
