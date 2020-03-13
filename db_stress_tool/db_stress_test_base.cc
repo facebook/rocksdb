@@ -41,6 +41,7 @@ StressTest::StressTest()
     }
 
     Options options;
+    options.env = db_stress_env;
     // Remove files without preserving manfiest files
 #ifndef ROCKSDB_LITE
     const Status s = !FLAGS_use_blob_db
