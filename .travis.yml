@@ -91,7 +91,7 @@ install:
       sudo apt-get install -y mingw-w64 ;
     fi
   - if [[ "${JOB_NAME}" == cmake* ]] && [ "${TRAVIS_OS_NAME}" == linux ]; then
-      CMAKE_DIST_URL="https://github.com/pdillinger/rocksdb/releases/download/cmake-3.14.5/cmake-3.14.5-Linux-$(uname -m).tar.bz2";
+      CMAKE_DIST_URL="https://rocksdb-deps.s3-us-west-2.amazonaws.com/cmake/cmake-3.14.5-Linux-$(uname -m).tar.bz2";
       TAR_OPT="--strip-components=1 -xj";
       if [ "aarch64" == "$(uname -m)" ]; then
         sudo apt-get install -y libuv1 librhash0;
