@@ -954,7 +954,6 @@ if(WITH_TESTS)
         db/cuckoo_table_db_test.cc
         db/db_basic_test.cc
         db/db_with_timestamp_basic_test.cc
-        db/db_blob_index_test.cc
         db/db_block_cache_test.cc
         db/db_bloom_filter_test.cc
         db/db_compaction_filter_test.cc
