@@ -1484,9 +1484,8 @@ static enum DistributionType StringToDistributionType(const char* ctype) {
 
 class BaseDistribution {
  public:
-  BaseDistribution(unsigned int min, unsigned int max) :
-    min_value_size_(min),
-    max_value_size_(max) {}
+  BaseDistribution(unsigned int _min, unsigned int _max)
+      : min_value_size_(_min), max_value_size_(_max) {}
   virtual ~BaseDistribution() {}
 
   unsigned int Generate() {
@@ -1525,12 +1524,14 @@ class FixedDistribution : public BaseDistribution
 class NormalDistribution
     : public BaseDistribution, public std::normal_distribution<double> {
  public:
-  NormalDistribution(unsigned int min, unsigned int max) :
-    BaseDistribution(min, max),
-    // 99.7% values within the range [min, max].
-    std::normal_distribution<double>((double)(min + max) / 2.0 /*mean*/,
-                                     (double)(max - min) / 6.0 /*stddev*/),
-    gen_(rd_()) {}
+  NormalDistribution(unsigned int _min, unsigned int _max)
+      : BaseDistribution(_min, _max),
+        // 99.7% values within the range [min, max].
+        std::normal_distribution<double>(
+            (double)(_min + _max) / 2.0 /*mean*/,
+            (double)(_max - _min) / 6.0 /*stddev*/),
+        gen_(rd_()) {}
+
  private:
   virtual unsigned int Get() override {
     return static_cast<unsigned int>((*this)(gen_));
@@ -1543,10 +1544,11 @@ class UniformDistribution
     : public BaseDistribution,
       public std::uniform_int_distribution<unsigned int> {
  public:
-  UniformDistribution(unsigned int min, unsigned int max) :
-    BaseDistribution(min, max),
-    std::uniform_int_distribution<unsigned int>(min, max),
-    gen_(rd_()) {}
+  UniformDistribution(unsigned int _min, unsigned int _max)
+      : BaseDistribution(_min, _max),
+        std::uniform_int_distribution<unsigned int>(_min, _max),
+        gen_(rd_()) {}
+
  private:
   virtual unsigned int Get() override {
     return (*this)(gen_);
