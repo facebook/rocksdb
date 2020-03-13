@@ -52,7 +52,6 @@ class LDBTestCase(unittest.TestCase):
         """
         All command-line params must be specified.
         Allows full flexibility in testing; for example: missing db param.
-
         """
         output = my_check_output("./ldb %s |grep -v \"Created bg thread\"" %
                             params, shell=True)
@@ -72,7 +71,6 @@ class LDBTestCase(unittest.TestCase):
         """
         All command-line params must be specified.
         Allows full flexibility in testing; for example: missing db param.
-
         """
         try:
 
@@ -87,7 +85,6 @@ class LDBTestCase(unittest.TestCase):
     def assertRunOK(self, params, expectedOutput, unexpected=False):
         """
         Uses the default test db.
-
         """
         self.assertRunOKFull("%s %s" % (self.dbParam(self.DB_NAME), params),
                              expectedOutput, unexpected)
@@ -95,7 +92,6 @@ class LDBTestCase(unittest.TestCase):
     def assertRunFAIL(self, params):
         """
         Uses the default test db.
-
         """
         self.assertRunFAILFull("%s %s" % (self.dbParam(self.DB_NAME), params))
 

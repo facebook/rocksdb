@@ -424,9 +424,9 @@ def whitebox_crash_main(args, unknown_args):
         popen = subprocess.Popen(cmd, stdout=subprocess.PIPE,
                                  stderr=subprocess.STDOUT)
         stdoutdata, stderrdata = popen.communicate()
-        if stdoutdata is not None:
+        if stdoutdata:
             stdoutdata = stdoutdata.decode('utf-8')
-        if stderrdata is not None:
+        if stderrdata:
             stderrdata = stderrdata.decode('utf-8')
         retncode = popen.returncode
         msg = ("check_mode={0}, kill option={1}, exitcode={2}\n".format(
