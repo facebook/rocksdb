@@ -920,6 +920,13 @@ ROCKS_TESTS = [
         [],
     ],
     [
+        "db_with_timestamp_basic_test",
+        "db/db_with_timestamp_basic_test.cc",
+        "serial",
+        [],
+        [],
+    ],
+    [
         "db_write_test",
         "db/db_write_test.cc",
         "serial",
