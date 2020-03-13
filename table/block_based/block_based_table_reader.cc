@@ -2026,7 +2026,7 @@ InternalIterator* BlockBasedTable::NewIterator(
       read_options.auto_prefix_mode ||
       PrefixExtractorChanged(rep_->table_properties.get(), prefix_extractor);
   if (arena == nullptr) {
-    return new BlockBasedTableIterator<DataBlockIter>(
+    return new BlockBasedTableIterator(
         this, read_options, rep_->internal_comparator,
         NewIndexIterator(
             read_options,
@@ -2038,9 +2038,8 @@ InternalIterator* BlockBasedTable::NewIterator(
         need_upper_bound_check, prefix_extractor, BlockType::kData, caller,
         compaction_readahead_size);
   } else {
-    auto* mem =
-        arena->AllocateAligned(sizeof(BlockBasedTableIterator<DataBlockIter>));
-    return new (mem) BlockBasedTableIterator<DataBlockIter>(
+    auto* mem = arena->AllocateAligned(sizeof(BlockBasedTableIterator));
+    return new (mem) BlockBasedTableIterator(
         this, read_options, rep_->internal_comparator,
         NewIndexIterator(
             read_options,
