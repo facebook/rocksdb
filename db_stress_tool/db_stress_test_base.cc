@@ -502,6 +502,10 @@ void StressTest::OperateDb(ThreadState* thread) {
   const int delRangeBound = delBound + static_cast<int>(FLAGS_delrangepercent);
   const uint64_t ops_per_open = FLAGS_ops_per_thread / (FLAGS_reopen + 1);
 
+  if (FLAGS_read_fault_one_in) {
+    fault_fs_guard->SetThreadLocalReadError(thread->shared->GetSeed(),
+                                            FLAGS_read_fault_one_in);
+  }
   thread->stats.Start();
   for (int open_cnt = 0; open_cnt <= FLAGS_reopen; ++open_cnt) {
     if (thread->shared->HasVerificationFailedYet() ||

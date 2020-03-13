@@ -58,6 +58,7 @@
 #include "rocksdb/utilities/transaction.h"
 #include "rocksdb/utilities/transaction_db.h"
 #include "rocksdb/write_batch.h"
+#include "test_util/fault_injection_test_fs.h"
 #include "util/coding.h"
 #include "util/compression.h"
 #include "util/crc32c.h"
@@ -230,6 +231,7 @@ DECLARE_bool(blob_db_enable_gc);
 DECLARE_double(blob_db_gc_cutoff);
 #endif  // !ROCKSDB_LITE
 DECLARE_int32(approximate_size_one_in);
+DECLARE_int32(read_fault_one_in);
 
 const long KB = 1024;
 const int kRandomValueMaxFactor = 3;
@@ -261,6 +263,14 @@ inline enum RepFactory StringToRepFactory(const char* ctype) {
 extern enum RepFactory FLAGS_rep_factory;
 
 namespace ROCKSDB_NAMESPACE {
+extern std::shared_ptr<FaultInjectionTestFS> fault_fs_guard;
+extern std::shared_ptr<CompositeEnvWrapper> fault_env_guard;
+#if defined(ROCKSDB_SUPPORT_THREAD_LOCAL) && defined(OS_LINUX)
+extern thread_local bool filter_read_error;
+#else
+extern bool filter_read_error;
+#endif
+
 inline enum ROCKSDB_NAMESPACE::CompressionType StringToCompressionType(
     const char* ctype) {
   assert(ctype);

@@ -15,6 +15,7 @@
 // error can be returned when file system is not activated.
 
 #include "test_util/fault_injection_test_fs.h"
+#include <execinfo.h>
 #include <functional>
 #include <utility>
 
@@ -195,6 +196,30 @@ IOStatus TestFSRandomRWFile::Sync(const IOOptions& options,
   return target_->Sync(options, dbg);
 }
 
+TestFSRandomAccessFile::TestFSRandomAccessFile(const std::string& /*fname*/,
+                                       std::unique_ptr<FSRandomAccessFile>&& f,
+                                       FaultInjectionTestFS* fs)
+    : target_(std::move(f)), fs_(fs) {
+  assert(target_ != nullptr);
+}
+
+TestFSRandomAccessFile::~TestFSRandomAccessFile() {
+}
+
+IOStatus TestFSRandomAccessFile::Read(uint64_t offset, size_t n,
+                                  const IOOptions& options, Slice* result,
+                                  char* scratch, IODebugContext* dbg) const {
+  if (!fs_->IsFilesystemActive()) {
+    return fs_->GetError();
+  }
+  IOStatus s = target_->Read(offset, n, options, result, scratch, dbg);
+  if (s.ok()) {
+    s = fs_->InjectError(FaultInjectionTestFS::ErrorOperation::READ, result,
+                         scratch);
+  }
+  return s;
+}
+
 IOStatus FaultInjectionTestFS::NewDirectory(
     const std::string& name, const IOOptions& options,
     std::unique_ptr<FSDirectory>* result, IODebugContext* dbg) {
@@ -214,6 +239,9 @@ IOStatus FaultInjectionTestFS::NewWritableFile(
     std::unique_ptr<FSWritableFile>* result, IODebugContext* dbg) {
   if (!IsFilesystemActive()) {
     return GetError();
+  }
+  if (IsFilesystemDirectWritable()) {
+    return target()->NewWritableFile(fname, file_opts, result, dbg);
   }
   // Not allow overwriting files
   IOStatus io_s = target()->FileExists(fname, IOOptions(), dbg);
@@ -244,6 +272,9 @@ IOStatus FaultInjectionTestFS::ReopenWritableFile(
   if (!IsFilesystemActive()) {
     return GetError();
   }
+  if (IsFilesystemDirectWritable()) {
+    return target()->ReopenWritableFile(fname, file_opts, result, dbg);
+  }
   IOStatus io_s = target()->ReopenWritableFile(fname, file_opts, result, dbg);
   if (io_s.ok()) {
     result->reset(new TestFSWritableFile(fname, std::move(*result), this));
@@ -264,6 +295,9 @@ IOStatus FaultInjectionTestFS::NewRandomRWFile(
     std::unique_ptr<FSRandomRWFile>* result, IODebugContext* dbg) {
   if (!IsFilesystemActive()) {
     return GetError();
+  }
+  if (IsFilesystemDirectWritable()) {
+    return target()->NewRandomRWFile(fname, file_opts, result, dbg);
   }
   IOStatus io_s = target()->NewRandomRWFile(fname, file_opts, result, dbg);
   if (io_s.ok()) {
@@ -286,7 +320,14 @@ IOStatus FaultInjectionTestFS::NewRandomAccessFile(
   if (!IsFilesystemActive()) {
     return GetError();
   }
-  return target()->NewRandomAccessFile(fname, file_opts, result, dbg);
+  IOStatus io_s = InjectError(ErrorOperation::OPEN, nullptr, nullptr);
+  if (io_s.ok()) {
+    io_s = target()->NewRandomAccessFile(fname, file_opts, result, dbg);
+  }
+  if (io_s.ok()) {
+    result->reset(new TestFSRandomAccessFile(fname, std::move(*result), this));
+  }
+  return io_s;
 }
 
 IOStatus FaultInjectionTestFS::DeleteFile(const std::string& f,
@@ -425,6 +466,72 @@ void FaultInjectionTestFS::UntrackFile(const std::string& f) {
       dir_and_name.second);
   db_file_state_.erase(f);
   open_files_.erase(f);
+}
+
+IOStatus FaultInjectionTestFS::InjectError(ErrorOperation op,
+                                           Slice* slice,
+                                           char* scratch) {
+  struct ErrorContext* ctx =
+        static_cast<struct ErrorContext*>(thread_local_error_->Get());
+  if (ctx == nullptr || !ctx->enable_error_injection || !ctx->one_in) {
+    return IOStatus::OK();
+  }
+
+  if (ctx->rand.OneIn(ctx->one_in)) {
+    ctx->count++;
+    ctx->frames = backtrace(ctx->callstack, 128);
+    switch (op) {
+      case READ:
+      {
+        uint32_t type = ctx->rand.Uniform(3);
+        switch (type) {
+          case 0:
+            return IOStatus::IOError();
+          case 1:
+          {
+            if (slice->data() == scratch) {
+              uint64_t offset = ctx->rand.Uniform((uint32_t)slice->size());
+              uint32_t len = (uint32_t)std::min(slice->size() - offset, 64UL);
+              assert(offset < slice->size());
+              assert(offset + len <= slice->size());
+              std::string str = DBTestBase::RandomString(&ctx->rand, len);
+              memcpy(scratch + offset, str.data(), len);
+              break;
+            } else {
+              [[fallthrough]];
+            }
+          }
+          case 2:
+          {
+            assert(slice->size() > 0);
+            uint64_t offset = ctx->rand.Uniform((uint32_t)slice->size());
+            assert(offset < slice->size());
+            *slice = Slice(slice->data(), offset);
+            break;
+          }
+          default:
+            assert(false);
+        }
+        break;
+      }
+      case OPEN:
+        return IOStatus::IOError();
+      default:
+        assert(false);
+    }
+  }
+  return IOStatus::OK();
+}
+
+char** FaultInjectionTestFS::GetFaultBacktrace(int* frames) {
+  struct ErrorContext* ctx =
+        static_cast<struct ErrorContext*>(thread_local_error_->Get());
+  if (ctx == nullptr) {
+    *frames = 0;
+    return nullptr;
+  }
+  *frames = ctx->frames;
+  return backtrace_symbols(ctx->callstack, ctx->frames);
 }
 
 }  // namespace ROCKSDB_NAMESPACE

@@ -9,6 +9,7 @@
 
 #ifdef GFLAGS
 #include "db_stress_tool/db_stress_common.h"
+#include "test_util/fault_injection_test_fs.h"
 
 namespace ROCKSDB_NAMESPACE {
 class NonBatchedOpsStressTest : public StressTest {
@@ -144,17 +145,46 @@ class NonBatchedOpsStressTest : public StressTest {
     std::string key_str = Key(rand_keys[0]);
     Slice key = key_str;
     std::string from_db;
+    int error_count = 0;
+
+    if (fault_fs_guard) {
+      fault_fs_guard->EnableErrorInjection();
+      filter_read_error = false;
+    }
     Status s = db_->Get(read_opts, cfh, key, &from_db);
+    if (fault_fs_guard) {
+      error_count = fault_fs_guard->GetAndResetErrorCount();
+    }
     if (s.ok()) {
+      if (fault_fs_guard) {
+        if (error_count && !filter_read_error) {
+#ifndef NDEBUG
+          fprintf(stderr, "Didn't get expected error from Get\n");
+          int frames = 0;
+          char** strs = fault_fs_guard->GetFaultBacktrace(&frames);
+          fprintf(stderr, "Callstack that injected the error\n");
+          for (int i = 0; i < frames; ++i) {
+            fprintf(stderr, "%s\n", strs[i]);
+          }
+          free(strs);
+#endif // NDEBUG
+        }
+      }
       // found case
       thread->stats.AddGets(1, 1);
     } else if (s.IsNotFound()) {
       // not found case
       thread->stats.AddGets(1, 0);
     } else {
-      // errors case
-      fprintf(stderr, "TestGet error: %s\n", s.ToString().c_str());
-      thread->stats.AddErrors(1);
+      if (error_count == 0) {
+        // errors case
+        thread->stats.AddErrors(1);
+      } else {
+        thread->stats.AddVerifiedErrors(1);
+      }
+    }
+    if (fault_fs_guard) {
+      fault_fs_guard->DisableErrorInjection();
     }
     return s;
   }
@@ -171,6 +201,7 @@ class NonBatchedOpsStressTest : public StressTest {
     std::vector<PinnableSlice> values(num_keys);
     std::vector<Status> statuses(num_keys);
     ColumnFamilyHandle* cfh = column_families_[rand_column_families[0]];
+    int error_count = 0;
 
     // To appease clang analyzer
     const bool use_txn = FLAGS_use_txn;
@@ -231,8 +262,15 @@ class NonBatchedOpsStressTest : public StressTest {
     }
 
     if (!use_txn) {
+      if (fault_fs_guard) {
+        fault_fs_guard->EnableErrorInjection();
+        filter_read_error = false;
+      }
       db_->MultiGet(read_opts, cfh, num_keys, keys.data(), values.data(),
                     statuses.data());
+      if (fault_fs_guard) {
+        error_count = fault_fs_guard->GetAndResetErrorCount();
+      }
     } else {
 #ifndef ROCKSDB_LITE
       txn->MultiGet(read_opts, cfh, num_keys, keys.data(), values.data(),
@@ -243,8 +281,21 @@ class NonBatchedOpsStressTest : public StressTest {
 
     for (const auto& s : statuses) {
       if (s.ok()) {
-        // found case
-        thread->stats.AddGets(1, 1);
+        if (fault_fs_guard && error_count && !filter_read_error) {
+#ifndef NDEBUG
+          fprintf(stderr, "Didn't get expected error from MultiGet\n");
+          int frames = 0;
+          char** strs = fault_fs_guard->GetFaultBacktrace(&frames);
+          fprintf(stderr, "Callstack that injected the error\n");
+          for (int i = 0; i < frames; ++i) {
+            fprintf(stderr, "%s\n", strs[i]);
+          }
+          free(strs);
+#endif // NDEBUG
+        } else {
+          // found case
+          thread->stats.AddGets(1, 1);
+        }
       } else if (s.IsNotFound()) {
         // not found case
         thread->stats.AddGets(1, 0);
@@ -252,10 +303,17 @@ class NonBatchedOpsStressTest : public StressTest {
         // With txn this is sometimes expected.
         thread->stats.AddGets(1, 1);
       } else {
-        // errors case
-        fprintf(stderr, "MultiGet error: %s\n", s.ToString().c_str());
-        thread->stats.AddErrors(1);
+        if (error_count == 0) {
+          // errors case
+          fprintf(stderr, "MultiGet error: %s\n", s.ToString().c_str());
+          thread->stats.AddErrors(1);
+        } else {
+          thread->stats.AddVerifiedErrors(1);
+        }
       }
+    }
+    if (fault_fs_guard) {
+      fault_fs_guard->DisableErrorInjection();
     }
     return statuses;
   }

@@ -23,6 +23,7 @@
 #ifdef GFLAGS
 #include "db_stress_tool/db_stress_common.h"
 #include "db_stress_tool/db_stress_driver.h"
+#include "test_util/fault_injection_test_fs.h"
 
 namespace ROCKSDB_NAMESPACE {
 namespace {
@@ -31,6 +32,21 @@ static std::shared_ptr<ROCKSDB_NAMESPACE::DbStressEnvWrapper> env_wrapper_guard;
 }  // namespace
 
 KeyGenContext key_gen_ctx;
+std::shared_ptr<FaultInjectionTestFS> fault_fs_guard;
+std::shared_ptr<CompositeEnvWrapper> fault_env_guard;
+
+// Errors when reading filter blocks are ignored, so we use a thread
+// local variable updated via sync points to keep track of errors injected
+// while reading filter blocks in order to ignore the Get/MultiGet result
+// for those calls
+#if defined(ROCKSDB_SUPPORT_THREAD_LOCAL) && defined(OS_LINUX)
+thread_local bool filter_read_error;
+#else
+bool filter_read_error;
+#endif
+void FilterReadErrorCallback(void*) {
+  filter_read_error = true;
+}
 
 int db_stress_tool(int argc, char** argv) {
   SetUsageMessage(std::string("\nUSAGE:\n") + std::string(argv[0]) +
@@ -69,6 +85,19 @@ int db_stress_tool(int argc, char** argv) {
   } else {
     raw_env = Env::Default();
   }
+#ifndef NDEBUG
+  if (FLAGS_read_fault_one_in) {
+    FaultInjectionTestFS* fs = new FaultInjectionTestFS(FileSystem::Default().get());
+    fault_fs_guard.reset(fs);
+    fault_fs_guard->SetFilesystemDirectWritable(true);
+    fault_env_guard = std::make_shared<CompositeEnvWrapper>(raw_env, fault_fs_guard.get());
+    raw_env = fault_env_guard.get();
+
+    SyncPoint::GetInstance()->SetCallBack("FilterReadError",
+                                          FilterReadErrorCallback);
+    SyncPoint::GetInstance()->EnableProcessing();
+  }
+#endif
   env_wrapper_guard = std::make_shared<DbStressEnvWrapper>(raw_env);
   db_stress_env = env_wrapper_guard.get();
 

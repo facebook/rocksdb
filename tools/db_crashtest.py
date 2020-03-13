@@ -113,7 +113,8 @@ default_params = {
     "verify_db_one_in": 100000,
     "continuous_verification_interval" : 0,
     "max_key_len": 3,
-    "key_len_percent_dist": "1,30,69"
+    "key_len_percent_dist": "1,30,69",
+    "read_fault_one_in": lambda: random.choice([0, 1000])
 }
 
 _TEST_DIR_ENV_VAR = 'TEST_TMPDIR'
