@@ -53,4 +53,4 @@ jobs:
           name: "Test RocksDB"
           shell: powershell.exe
           command: |
-            build_tools\run_ci_db_test.ps1 -SuiteRun db_test2,env_basic_test,env_test,db_merge_operand_test -Concurrency 16
+            build_tools\run_ci_db_test.ps1 -SuiteRun db_basic_test,db_test,db_test2,env_basic_test,env_test,db_merge_operand_test -Concurrency 16
