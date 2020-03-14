@@ -503,7 +503,7 @@ void StressTest::OperateDb(ThreadState* thread) {
   const uint64_t ops_per_open = FLAGS_ops_per_thread / (FLAGS_reopen + 1);
 
   if (FLAGS_read_fault_one_in) {
-    fault_fs_guard->SetThreadLocalReadError(thread->shared->GetSeed(),
+    fault_fs_guard->SetThreadLocalReadErrorContext(thread->shared->GetSeed(),
                                             FLAGS_read_fault_one_in);
   }
   thread->stats.Start();

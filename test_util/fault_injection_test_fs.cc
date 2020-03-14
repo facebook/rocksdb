@@ -214,7 +214,7 @@ IOStatus TestFSRandomAccessFile::Read(uint64_t offset, size_t n,
   }
   IOStatus s = target_->Read(offset, n, options, result, scratch, dbg);
   if (s.ok()) {
-    s = fs_->InjectError(FaultInjectionTestFS::ErrorOperation::READ, result,
+    s = fs_->InjectError(FaultInjectionTestFS::ErrorOperation::kRead, result,
                          scratch);
   }
   return s;
@@ -320,7 +320,7 @@ IOStatus FaultInjectionTestFS::NewRandomAccessFile(
   if (!IsFilesystemActive()) {
     return GetError();
   }
-  IOStatus io_s = InjectError(ErrorOperation::OPEN, nullptr, nullptr);
+  IOStatus io_s = InjectError(ErrorOperation::kOpen, nullptr, nullptr);
   if (io_s.ok()) {
     io_s = target()->NewRandomAccessFile(fname, file_opts, result, dbg);
   }
@@ -469,31 +469,35 @@ void FaultInjectionTestFS::UntrackFile(const std::string& f) {
 }
 
 IOStatus FaultInjectionTestFS::InjectError(ErrorOperation op,
-                                           Slice* slice,
+                                           Slice* result,
                                            char* scratch) {
-  struct ErrorContext* ctx =
-        static_cast<struct ErrorContext*>(thread_local_error_->Get());
+  ErrorContext* ctx =
+        static_cast<ErrorContext*>(thread_local_error_->Get());
   if (ctx == nullptr || !ctx->enable_error_injection || !ctx->one_in) {
     return IOStatus::OK();
   }
 
   if (ctx->rand.OneIn(ctx->one_in)) {
     ctx->count++;
+#if defined(OS_LINUX)
     ctx->frames = backtrace(ctx->callstack, 128);
+#endif
     switch (op) {
-      case READ:
+      case kRead:
       {
         uint32_t type = ctx->rand.Uniform(3);
         switch (type) {
+          // Inject IO error
           case 0:
             return IOStatus::IOError();
+          // Inject random corruption
           case 1:
           {
-            if (slice->data() == scratch) {
-              uint64_t offset = ctx->rand.Uniform((uint32_t)slice->size());
-              uint32_t len = (uint32_t)std::min(slice->size() - offset, 64UL);
-              assert(offset < slice->size());
-              assert(offset + len <= slice->size());
+            if (result->data() == scratch) {
+              uint64_t offset = ctx->rand.Uniform((uint32_t)result->size());
+              uint32_t len = (uint32_t)std::min(result->size() - offset, 64UL);
+              assert(offset < result->size());
+              assert(offset + len <= result->size());
               std::string str = DBTestBase::RandomString(&ctx->rand, len);
               memcpy(scratch + offset, str.data(), len);
               break;
@@ -501,12 +505,13 @@ IOStatus FaultInjectionTestFS::InjectError(ErrorOperation op,
               [[fallthrough]];
             }
           }
+          // Truncate the result
           case 2:
           {
-            assert(slice->size() > 0);
-            uint64_t offset = ctx->rand.Uniform((uint32_t)slice->size());
-            assert(offset < slice->size());
-            *slice = Slice(slice->data(), offset);
+            assert(result->size() > 0);
+            uint64_t offset = ctx->rand.Uniform((uint32_t)result->size());
+            assert(offset < result->size());
+            *result = Slice(result->data(), offset);
             break;
           }
           default:
@@ -514,7 +519,7 @@ IOStatus FaultInjectionTestFS::InjectError(ErrorOperation op,
         }
         break;
       }
-      case OPEN:
+      case kOpen:
         return IOStatus::IOError();
       default:
         assert(false);
@@ -524,14 +529,19 @@ IOStatus FaultInjectionTestFS::InjectError(ErrorOperation op,
 }
 
 char** FaultInjectionTestFS::GetFaultBacktrace(int* frames) {
-  struct ErrorContext* ctx =
-        static_cast<struct ErrorContext*>(thread_local_error_->Get());
+#if defined(OS_LINUX)
+  ErrorContext* ctx =
+        static_cast<ErrorContext*>(thread_local_error_->Get());
   if (ctx == nullptr) {
     *frames = 0;
     return nullptr;
   }
   *frames = ctx->frames;
   return backtrace_symbols(ctx->callstack, ctx->frames);
+#else
+  (void)frames;
+  return nullptr;
+#endif
 }
 
 }  // namespace ROCKSDB_NAMESPACE

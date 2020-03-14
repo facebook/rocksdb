@@ -279,16 +279,16 @@ class FaultInjectionTestFS : public FileSystemWrapper {
   }
 
   // Specify what the operation, so we can inject the right type of error
-  enum ErrorOperation {
-    READ = 0,
-    OPEN,
+  enum ErrorOperation : char {
+    kRead = 0,
+    kOpen,
   };
 
   // Set thread-local parameters for error injection. The first argument,
   // seed is the seed for the random number generator, and one_in determines
   // the probability of injecting error (i.e an error is injected with
   // 1/one_in probability)
-  void SetThreadLocalReadError(uint32_t seed, int one_in) {
+  void SetThreadLocalReadErrorContext(uint32_t seed, int one_in) {
     struct ErrorContext* ctx =
           static_cast<struct ErrorContext*>(thread_local_error_->Get());
     if (ctx == nullptr) {
@@ -307,8 +307,8 @@ class FaultInjectionTestFS : public FileSystemWrapper {
 
   // Get the count of how many times we injected since the previous call
   int GetAndResetErrorCount() {
-    struct ErrorContext* ctx =
-          static_cast<struct ErrorContext*>(thread_local_error_->Get());
+    ErrorContext* ctx =
+          static_cast<ErrorContext*>(thread_local_error_->Get());
     int count = 0;
     if (ctx != nullptr) {
       count = ctx->count;
@@ -318,16 +318,16 @@ class FaultInjectionTestFS : public FileSystemWrapper {
   }
 
   void EnableErrorInjection() {
-    struct ErrorContext* ctx =
-          static_cast<struct ErrorContext*>(thread_local_error_->Get());
+    ErrorContext* ctx =
+          static_cast<ErrorContext*>(thread_local_error_->Get());
     if (ctx) {
       ctx->enable_error_injection = true;
     }
   }
 
   void DisableErrorInjection() {
-    struct ErrorContext* ctx =
-          static_cast<struct ErrorContext*>(thread_local_error_->Get());
+    ErrorContext* ctx =
+          static_cast<ErrorContext*>(thread_local_error_->Get());
     if (ctx) {
       ctx->enable_error_injection = false;
     }
@@ -345,7 +345,8 @@ class FaultInjectionTestFS : public FileSystemWrapper {
   std::unordered_map<std::string, std::set<std::string>>
       dir_to_new_files_since_last_sync_;
   bool filesystem_active_;  // Record flushes, syncs, writes
-  bool filesystem_writable_;  // Record flushes, syncs, writes
+  bool filesystem_writable_;  // Bypass FaultInjectionTestFS and go directly
+                              // to underlying FS for writable files
   IOStatus error_;
 
   struct ErrorContext {

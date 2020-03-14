@@ -162,11 +162,13 @@ class NonBatchedOpsStressTest : public StressTest {
           fprintf(stderr, "Didn't get expected error from Get\n");
           int frames = 0;
           char** strs = fault_fs_guard->GetFaultBacktrace(&frames);
-          fprintf(stderr, "Callstack that injected the error\n");
-          for (int i = 0; i < frames; ++i) {
-            fprintf(stderr, "%s\n", strs[i]);
+          if (strs) {
+            fprintf(stderr, "Callstack that injected the error\n");
+            for (int i = 0; i < frames; ++i) {
+              fprintf(stderr, "%s\n", strs[i]);
+            }
+            free(strs);
           }
-          free(strs);
 #endif // NDEBUG
         }
       }
@@ -286,11 +288,13 @@ class NonBatchedOpsStressTest : public StressTest {
           fprintf(stderr, "Didn't get expected error from MultiGet\n");
           int frames = 0;
           char** strs = fault_fs_guard->GetFaultBacktrace(&frames);
-          fprintf(stderr, "Callstack that injected the error\n");
-          for (int i = 0; i < frames; ++i) {
-            fprintf(stderr, "%s\n", strs[i]);
+          if (strs) {
+            fprintf(stderr, "Callstack that injected the error\n");
+            for (int i = 0; i < frames; ++i) {
+              fprintf(stderr, "%s\n", strs[i]);
+            }
+            free(strs);
           }
-          free(strs);
 #endif // NDEBUG
         } else {
           // found case
