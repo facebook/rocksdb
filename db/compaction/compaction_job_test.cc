@@ -12,7 +12,7 @@
 #include <string>
 #include <tuple>
 
-#include "db/blob_index.h"
+#include "db/blob/blob_index.h"
 #include "db/column_family.h"
 #include "db/compaction/compaction_job.h"
 #include "db/db_impl/db_impl.h"

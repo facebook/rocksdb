@@ -327,7 +327,7 @@ TEST_F(BlockCacheTracerTest, BlockCacheAnalyzer) {
           }
           num_misses += ParseInt(substr);
         }
-        ASSERT_EQ(51, num_misses);
+        ASSERT_EQ(51u, num_misses);
         ASSERT_FALSE(getline(mt_file, line));
         mt_file.close();
         ASSERT_OK(env_->DeleteFile(miss_timeline_path));
@@ -594,7 +594,7 @@ TEST_F(BlockCacheTracerTest, BlockCacheAnalyzer) {
         sum_percent += ParseDouble(percent);
         nrows++;
       }
-      ASSERT_EQ(11, nrows);
+      ASSERT_EQ(11u, nrows);
       ASSERT_EQ(100.0, sum_percent);
       ASSERT_OK(env_->DeleteFile(filename));
     }
@@ -632,8 +632,10 @@ TEST_F(BlockCacheTracerTest, MixedBlocks) {
     BlockCacheTraceReader reader(std::move(trace_reader));
     BlockCacheTraceHeader header;
     ASSERT_OK(reader.ReadHeader(&header));
-    ASSERT_EQ(kMajorVersion, header.rocksdb_major_version);
-    ASSERT_EQ(kMinorVersion, header.rocksdb_minor_version);
+    ASSERT_EQ(static_cast<uint32_t>(kMajorVersion),
+              header.rocksdb_major_version);
+    ASSERT_EQ(static_cast<uint32_t>(kMinorVersion),
+              header.rocksdb_minor_version);
     // Read blocks.
     BlockCacheTraceAnalyzer analyzer(
         trace_file_path_,

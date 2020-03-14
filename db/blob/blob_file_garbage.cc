@@ -3,7 +3,7 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
-#include "db/blob_file_garbage.h"
+#include "db/blob/blob_file_garbage.h"
 
 #include <ostream>
 #include <sstream>
@@ -16,11 +16,9 @@
 
 namespace ROCKSDB_NAMESPACE {
 
-namespace {
-
 // Tags for custom fields. Note that these get persisted in the manifest,
 // so existing tags should not be modified.
-enum CustomFieldTags : uint32_t {
+enum BlobFileGarbage::CustomFieldTags : uint32_t {
   kEndMarker,
 
   // Add forward compatible fields here
@@ -31,8 +29,6 @@ enum CustomFieldTags : uint32_t {
 
   // Add forward incompatible fields here
 };
-
-}  // anonymous namespace
 
 void BlobFileGarbage::EncodeTo(std::string* output) const {
   PutVarint64(output, blob_file_number_);

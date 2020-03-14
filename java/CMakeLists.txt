@@ -4,6 +4,8 @@ if(${CMAKE_VERSION} VERSION_LESS "3.11.4")
     message("Please consider switching to CMake 3.11.4 or newer")
 endif()
 
+set(CMAKE_JAVA_COMPILE_FLAGS -source 7)
+
 set(JNI_NATIVE_SOURCES
         rocksjni/backupablejni.cc
         rocksjni/backupenginejni.cc
@@ -316,11 +318,9 @@ endif()
 if (DEFINED CUSTOM_DEPS_URL)
   set(DEPS_URL ${CUSTOM_DEPS_URL}/)
 else ()
-  # This is a URL for artifacts from a "fake" release on pdillinger's fork,
-  # so as not to put binaries in git (ew). We should move to hosting these
-  # under the facebook account on github, or something else more reliable
-  # than maven.org, which has been failing frequently from Travis.
-  set(DEPS_URL "https://github.com/pdillinger/rocksdb/releases/download/v6.6.x-java-deps")
+  # Using a Facebook AWS account for S3 storage. (maven.org has a history
+  # of failing in Travis builds.)
+  set(DEPS_URL "https://rocksdb-deps.s3-us-west-2.amazonaws.com/jars")
 endif()
 
 if(NOT EXISTS ${JAVA_JUNIT_JAR})

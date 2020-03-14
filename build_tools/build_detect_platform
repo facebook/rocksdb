@@ -9,6 +9,7 @@
 #   PLATFORM_LDFLAGS            Linker flags
 #   JAVA_LDFLAGS                Linker flags for RocksDBJava
 #   JAVA_STATIC_LDFLAGS         Linker flags for RocksDBJava static build
+#   JAVAC_ARGS                  Arguments for javac
 #   PLATFORM_SHARED_EXT         Extension for shared libraries
 #   PLATFORM_SHARED_LDFLAGS     Flags for building shared library
 #   PLATFORM_SHARED_CFLAGS      Flags for compiling objects for shared library
@@ -239,6 +240,7 @@ esac
 PLATFORM_CXXFLAGS="$PLATFORM_CXXFLAGS ${CXXFLAGS}"
 JAVA_LDFLAGS="$PLATFORM_LDFLAGS"
 JAVA_STATIC_LDFLAGS="$PLATFORM_LDFLAGS"
+JAVAC_ARGS="-source 7"
 
 if [ "$CROSS_COMPILE" = "true" -o "$FBCODE_BUILD" = "true" ]; then
     # Cross-compiling; do not try any compilation tests.
@@ -710,6 +712,7 @@ echo "PLATFORM=$PLATFORM" >> "$OUTPUT"
 echo "PLATFORM_LDFLAGS=$PLATFORM_LDFLAGS" >> "$OUTPUT"
 echo "JAVA_LDFLAGS=$JAVA_LDFLAGS" >> "$OUTPUT"
 echo "JAVA_STATIC_LDFLAGS=$JAVA_STATIC_LDFLAGS" >> "$OUTPUT"
+echo "JAVAC_ARGS=$JAVAC_ARGS" >> "$OUTPUT"
 echo "VALGRIND_VER=$VALGRIND_VER" >> "$OUTPUT"
 echo "PLATFORM_CCFLAGS=$PLATFORM_CCFLAGS" >> "$OUTPUT"
 echo "PLATFORM_CXXFLAGS=$PLATFORM_CXXFLAGS" >> "$OUTPUT"

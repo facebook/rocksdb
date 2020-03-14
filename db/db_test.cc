@@ -24,7 +24,7 @@
 #endif
 
 #include "cache/lru_cache.h"
-#include "db/blob_index.h"
+#include "db/blob/blob_index.h"
 #include "db/db_impl/db_impl.h"
 #include "db/db_test_util.h"
 #include "db/dbformat.h"

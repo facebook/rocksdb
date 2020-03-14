@@ -471,6 +471,17 @@ void SuperVersionUnrefHandle(void* ptr) {
 }
 }  // anonymous namespace
 
+std::vector<std::string> ColumnFamilyData::GetDbPaths() const {
+  std::vector<std::string> paths;
+  paths.reserve(ioptions_.cf_paths.size());
+  for (const DbPath& db_path : ioptions_.cf_paths) {
+    paths.emplace_back(db_path.path);
+  }
+  return paths;
+}
+
+const uint32_t ColumnFamilyData::kDummyColumnFamilyDataId = port::kMaxUint32;
+
 ColumnFamilyData::ColumnFamilyData(
     uint32_t id, const std::string& name, Version* _dummy_versions,
     Cache* _table_cache, WriteBufferManager* write_buffer_manager,
@@ -507,7 +518,23 @@ ColumnFamilyData::ColumnFamilyData(
       queued_for_compaction_(false),
       prev_compaction_needed_bytes_(0),
       allow_2pc_(db_options.allow_2pc),
-      last_memtable_id_(0) {
+      last_memtable_id_(0),
+      db_paths_registered_(false) {
+  if (id_ != kDummyColumnFamilyDataId) {
+    // TODO(cc): RegisterDbPaths can be expensive, considering moving it
+    // outside of this constructor which might be called with db mutex held.
+    // TODO(cc): considering using ioptions_.fs, currently some tests rely on
+    // EnvWrapper, that's the main reason why we use env here.
+    Status s = ioptions_.env->RegisterDbPaths(GetDbPaths());
+    if (s.ok()) {
+      db_paths_registered_ = true;
+    } else {
+      ROCKS_LOG_ERROR(
+          ioptions_.info_log,
+          "Failed to register data paths of column family (id: %d, name: %s)",
+          id_, name_.c_str());
+    }
+  }
   Ref();
 
   // Convert user defined table properties collector factories to internal ones.
@@ -600,6 +627,18 @@ ColumnFamilyData::~ColumnFamilyData() {
   imm_.current()->Unref(&to_delete);
   for (MemTable* m : to_delete) {
     delete m;
+  }
+
+  if (db_paths_registered_) {
+    // TODO(cc): considering using ioptions_.fs, currently some tests rely on
+    // EnvWrapper, that's the main reason why we use env here.
+    Status s = ioptions_.env->UnregisterDbPaths(GetDbPaths());
+    if (!s.ok()) {
+      ROCKS_LOG_ERROR(
+          ioptions_.info_log,
+          "Failed to unregister data paths of column family (id: %d, name: %s)",
+          id_, name_.c_str());
+    }
   }
 }
 
@@ -1363,8 +1402,9 @@ ColumnFamilySet::ColumnFamilySet(const std::string& dbname,
                                  BlockCacheTracer* const block_cache_tracer)
     : max_column_family_(0),
       dummy_cfd_(new ColumnFamilyData(
-          0, "", nullptr, nullptr, nullptr, ColumnFamilyOptions(), *db_options,
-          file_options, nullptr, block_cache_tracer)),
+          ColumnFamilyData::kDummyColumnFamilyDataId, "", nullptr, nullptr,
+          nullptr, ColumnFamilyOptions(), *db_options, file_options, nullptr,
+          block_cache_tracer)),
       default_cfd_cache_(nullptr),
       db_name_(dbname),
       db_options_(db_options),

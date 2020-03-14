@@ -8,7 +8,7 @@
 #include <map>
 #include <string>
 
-#include "db/blob_index.h"
+#include "db/blob/blob_index.h"
 #include "db/column_family.h"
 #include "db/db_impl/db_impl.h"
 #include "db/flush_job.h"
