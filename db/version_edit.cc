@@ -59,7 +59,8 @@ enum Tag : uint32_t {
   kDbId,
   kBlobFileAddition,
   kBlobFileGarbage,
-  kSafeToIgnore,
+  kStateUponManifestSwitch,
+  kManifestSwitchFinished,
 };
 
 enum NewFileCustomTag : uint32_t {
@@ -161,7 +162,8 @@ void VersionEdit::Clear() {
   column_family_name_.clear();
   is_in_atomic_group_ = false;
   remaining_entries_ = 0;
-  safe_to_ignore_ = false;
+  state_upon_manifest_switch_ = false;
+  manifest_switch_finished_ = false;
 }
 
 bool VersionEdit::EncodeTo(std::string* dst) const {
@@ -295,8 +297,12 @@ bool VersionEdit::EncodeTo(std::string* dst) const {
     PutVarint32Varint32(dst, kColumnFamily, column_family_);
   }
 
-  if (safe_to_ignore_) {
-    PutVarint32(dst, kSafeToIgnore);
+  if (state_upon_manifest_switch_) {
+    PutVarint32(dst, kStateUponManifestSwitch);
+  }
+
+  if (manifest_switch_finished_) {
+    PutVarint32(dst, kManifestSwitchFinished);
   }
 
   if (is_column_family_add_) {
@@ -641,8 +647,12 @@ Status VersionEdit::DecodeFrom(const Slice& src) {
         is_column_family_drop_ = true;
         break;
 
-      case kSafeToIgnore:
-        safe_to_ignore_ = true;
+      case kStateUponManifestSwitch:
+        state_upon_manifest_switch_ = true;
+        break;
+
+      case kManifestSwitchFinished:
+        manifest_switch_finished_ = true;
         break;
 
       case kInAtomicGroup:
