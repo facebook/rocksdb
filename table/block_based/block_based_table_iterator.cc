@@ -96,11 +96,7 @@ void BlockBasedTableIterator::SeekImpl(const Slice* target) {
   CheckOutOfBound();
 
   if (target) {
-    assert(!Valid() || ((block_type_ == BlockType::kIndex &&
-                         !table_->get_rep()->index_key_includes_seq)
-                            ? (user_comparator_.Compare(ExtractUserKey(*target),
-                                                        key()) <= 0)
-                            : (icomp_.Compare(*target, key()) <= 0)));
+    assert(!Valid() || icomp_.Compare(*target, key()) <= 0);
   }
 }
 
@@ -231,8 +227,7 @@ void BlockBasedTableIterator::InitDataBlock() {
 
     bool is_for_compaction =
         lookup_context_.caller == TableReaderCaller::kCompaction;
-    // Prefetch additional data for range scans (iterators). Enabled only for
-    // user reads.
+    // Prefetch additional data for range scans (iterators).
     // Implicit auto readahead:
     //   Enabled after 2 sequential IOs when ReadOptions.readahead_size == 0.
     // Explicit user requested readahead:
@@ -243,7 +238,7 @@ void BlockBasedTableIterator::InitDataBlock() {
 
     Status s;
     table_->NewDataBlockIterator<DataBlockIter>(
-        read_options_, data_block_handle, &block_iter_, block_type_,
+        read_options_, data_block_handle, &block_iter_, BlockType::kData,
         /*get_context=*/nullptr, &lookup_context_, s,
         block_prefetcher_.prefetch_buffer(),
         /*for_compaction=*/is_for_compaction);

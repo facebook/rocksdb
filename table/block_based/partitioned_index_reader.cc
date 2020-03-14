@@ -77,14 +77,15 @@ InternalIteratorBase<IndexValue>* PartitionIndexReader::NewIterator(
     ro.fill_cache = read_options.fill_cache;
     // We don't return pinned data from index blocks, so no need
     // to set `block_contents_pinned`.
-    it = new ParititionedIndexIterator(
-        table(), ro, *internal_comparator(),
+    std::unique_ptr<InternalIteratorBase<IndexValue>> index_iter(
         index_block.GetValue()->NewIndexIterator(
             internal_comparator(), internal_comparator()->user_comparator(),
             rep->get_global_seqno(BlockType::kIndex), nullptr, kNullStats, true,
             index_has_first_key(), index_key_includes_seq(),
-            index_value_is_full()),
-        BlockType::kIndex,
+            index_value_is_full()));
+
+    it = new ParititionedIndexIterator(
+        table(), ro, *internal_comparator(), std::move(index_iter),
         lookup_context ? lookup_context->caller
                        : TableReaderCaller::kUncategorized);
   }

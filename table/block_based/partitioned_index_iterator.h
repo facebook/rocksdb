@@ -22,23 +22,21 @@ class ParititionedIndexIterator : public InternalIteratorBase<IndexValue> {
   // compaction_readahead_size: its value will only be used if for_compaction =
   // true
  public:
-  ParititionedIndexIterator(const BlockBasedTable* table,
-                            const ReadOptions& read_options,
-                            const InternalKeyComparator& icomp,
-                            InternalIteratorBase<IndexValue>* index_iter,
-                            BlockType block_type, TableReaderCaller caller,
-                            size_t compaction_readahead_size = 0)
+  ParititionedIndexIterator(
+      const BlockBasedTable* table, const ReadOptions& read_options,
+      const InternalKeyComparator& icomp,
+      std::unique_ptr<InternalIteratorBase<IndexValue>>&& index_iter,
+      TableReaderCaller caller, size_t compaction_readahead_size = 0)
       : table_(table),
         read_options_(read_options),
         icomp_(icomp),
         user_comparator_(icomp.user_comparator()),
-        index_iter_(index_iter),
+        index_iter_(std::move(index_iter)),
         block_iter_points_to_real_block_(false),
-        block_type_(block_type),
         lookup_context_(caller),
         block_prefetcher_(compaction_readahead_size) {}
 
-  ~ParititionedIndexIterator() { delete index_iter_; }
+  ~ParititionedIndexIterator() {}
 
   void Seek(const Slice& target) override;
   void SeekForPrev(const Slice&) override {
@@ -126,13 +124,12 @@ class ParititionedIndexIterator : public InternalIteratorBase<IndexValue> {
   const ReadOptions read_options_;
   const InternalKeyComparator& icomp_;
   UserComparatorWrapper user_comparator_;
-  InternalIteratorBase<IndexValue>* index_iter_;
+  std::unique_ptr<InternalIteratorBase<IndexValue>> index_iter_;
   IndexBlockIter block_iter_;
 
   // True if block_iter_ is initialized and points to the same block
   // as index iterator.
   bool block_iter_points_to_real_block_;
-  BlockType block_type_;
   uint64_t prev_block_offset_ = std::numeric_limits<uint64_t>::max();
   BlockCacheLookupContext lookup_context_;
   BlockPrefetcher block_prefetcher_;

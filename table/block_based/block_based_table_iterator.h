@@ -19,29 +19,27 @@ class BlockBasedTableIterator : public InternalIteratorBase<Slice> {
   // compaction_readahead_size: its value will only be used if for_compaction =
   // true
  public:
-  BlockBasedTableIterator(const BlockBasedTable* table,
-                          const ReadOptions& read_options,
-                          const InternalKeyComparator& icomp,
-                          InternalIteratorBase<IndexValue>* index_iter,
-                          bool check_filter, bool need_upper_bound_check,
-                          const SliceTransform* prefix_extractor,
-                          BlockType block_type, TableReaderCaller caller,
-                          size_t compaction_readahead_size = 0)
+  BlockBasedTableIterator(
+      const BlockBasedTable* table, const ReadOptions& read_options,
+      const InternalKeyComparator& icomp,
+      std::unique_ptr<InternalIteratorBase<IndexValue>>&& index_iter,
+      bool check_filter, bool need_upper_bound_check,
+      const SliceTransform* prefix_extractor, TableReaderCaller caller,
+      size_t compaction_readahead_size = 0)
       : table_(table),
         read_options_(read_options),
         icomp_(icomp),
         user_comparator_(icomp.user_comparator()),
-        index_iter_(index_iter),
+        index_iter_(std::move(index_iter)),
         pinned_iters_mgr_(nullptr),
         block_iter_points_to_real_block_(false),
         check_filter_(check_filter),
         need_upper_bound_check_(need_upper_bound_check),
         prefix_extractor_(prefix_extractor),
-        block_type_(block_type),
         lookup_context_(caller),
         block_prefetcher_(compaction_readahead_size) {}
 
-  ~BlockBasedTableIterator() { delete index_iter_; }
+  ~BlockBasedTableIterator() {}
 
   void Seek(const Slice& target) override;
   void SeekForPrev(const Slice& target) override;
@@ -152,7 +150,7 @@ class BlockBasedTableIterator : public InternalIteratorBase<Slice> {
   const ReadOptions read_options_;
   const InternalKeyComparator& icomp_;
   UserComparatorWrapper user_comparator_;
-  InternalIteratorBase<IndexValue>* index_iter_;
+  std::unique_ptr<InternalIteratorBase<IndexValue>> index_iter_;
   PinnedIteratorsManager* pinned_iters_mgr_;
   DataBlockIter block_iter_;
 
@@ -170,7 +168,6 @@ class BlockBasedTableIterator : public InternalIteratorBase<Slice> {
   // TODO(Zhongyi): pick a better name
   bool need_upper_bound_check_;
   const SliceTransform* prefix_extractor_;
-  BlockType block_type_;
   uint64_t prev_block_offset_ = std::numeric_limits<uint64_t>::max();
   BlockCacheLookupContext lookup_context_;
 

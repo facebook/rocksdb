@@ -88,8 +88,7 @@ void ParititionedIndexIterator::InitPartitionedIndexBlock() {
     auto* rep = table_->get_rep();
     bool is_for_compaction =
         lookup_context_.caller == TableReaderCaller::kCompaction;
-    // Prefetch additional data for range scans (iterators). Enabled only for
-    // user reads.
+    // Prefetch additional data for range scans (iterators).
     // Implicit auto readahead:
     //   Enabled after 2 sequential IOs when ReadOptions.readahead_size == 0.
     // Explicit user requested readahead:
@@ -100,7 +99,8 @@ void ParititionedIndexIterator::InitPartitionedIndexBlock() {
 
     Status s;
     table_->NewDataBlockIterator<IndexBlockIter>(
-        read_options_, partitioned_index_handle, &block_iter_, block_type_,
+        read_options_, partitioned_index_handle, &block_iter_,
+        BlockType::kIndex,
         /*get_context=*/nullptr, &lookup_context_, s,
         block_prefetcher_.prefetch_buffer(),
         /*for_compaction=*/is_for_compaction);
